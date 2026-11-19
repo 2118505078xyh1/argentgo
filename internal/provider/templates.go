@@ -4,7 +4,7 @@
 // Templates are data, mirroring crates/provider/providers.json in the Rust
 // implementation, but hard-coded so the Go binary needs no asset files. The
 // table only describes endpoints; credentials are read from the environment by
-// the caller via Template.APIKeyEnv.
+// the caller via Template.APIKeyEnv / Template.APIKeyEnvs and the Auth helper.
 package provider
 
 import "strings"
@@ -30,9 +30,16 @@ type Template struct {
 	Protocol Protocol
 	// BaseURL is the API root; llm clients append their own path.
 	BaseURL string
-	// APIKeyEnv names the environment variable holding the key. Empty means
-	// the endpoint is normally unauthenticated (local servers).
+	// APIKeyEnv names the legacy single environment variable holding the key.
+	// Empty means the endpoint is normally unauthenticated (local servers).
 	APIKeyEnv string
+	// APIKeyEnvs names additional credential sources in priority order: the
+	// first non-empty value wins. Auth tries APIKeyEnv first for compatibility,
+	// then these names.
+	APIKeyEnvs []string
+	// NoAuth skips credential lookup entirely and sends no auth header.
+	// It models apiKey:false in the upstream provider options.
+	NoAuth bool
 	// DefaultModel is used when the user does not name a model.
 	DefaultModel string
 	// CacheSupport reports that the provider supports prompt caching on at

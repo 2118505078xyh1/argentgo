@@ -13,10 +13,15 @@ import (
 )
 
 const (
-	sidebarW  = 240
-	topbarH   = 64
-	composerH = 72
-	padding   = 32
+	sidebarW     = 240
+	topbarH      = 64
+	composerH    = 72
+	padding      = 32
+	columnGutter = 64
+	maxColumnW   = 720
+	minColumnW   = 160
+	toolRowH     = 28
+	approvalH    = 84
 )
 
 var gwlpWndProc = ^uintptr(3) // GWL_WNDPROC == -4
@@ -33,14 +38,22 @@ var (
 	fontSmall   uintptr
 	fontMono    uintptr
 	fontTitle   uintptr
+	fontBold    uintptr
+	fontGlyph   uintptr
+	fontKey     uintptr
 	brushBG     uintptr
 	brushSide   uintptr
 	brushCard   uintptr
 	brushAccent uintptr
+	brushError  uintptr
 
-	clrBG, clrSide, clrText, clrDim, clrAccent, clrBorder, clrCard uint32
-	sendBtnRect                                                    rect
+	clrBG, clrSide, clrCard, clrText, clrDim, clrFaint uint32
+	clrAccent, clrAccentHover, clrBorder, clrStroke    uint32
+	clrError, clrErrorBg, clrWarn, clrOk, clrShadow    uint32
+	sendBtnRect                                        rect
 )
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func rgb(r, g, b byte) uint32 { return uint32(r) | uint32(g)<<8 | uint32(b)<<16 }
 
@@ -55,21 +68,29 @@ func clrOnAccent() uint32 {
 func applyTheme(dark bool) {
 	if dark {
 		clrBG, clrSide, clrCard = rgb(23, 23, 22), rgb(19, 19, 18), rgb(32, 32, 30)
-		clrText, clrDim, clrAccent, clrBorder = rgb(232, 230, 223), rgb(155, 153, 145), rgb(217, 119, 87), rgb(59, 58, 53)
+		clrText, clrDim, clrFaint = rgb(232, 230, 223), rgb(155, 153, 145), rgb(109, 107, 100) // #6d6b64
+		clrAccent, clrAccentHover = rgb(217, 119, 87), rgb(232, 139, 109)
+		clrBorder, clrStroke = rgb(43, 43, 41), rgb(58, 57, 53) // separators vs. card outlines
+		clrError, clrErrorBg = rgb(242, 119, 122), rgb(58, 36, 34)
+		clrWarn, clrOk, clrShadow = rgb(229, 181, 103), rgb(127, 183, 126), rgb(10, 10, 9)
 	} else {
 		clrBG, clrSide, clrCard = rgb(245, 244, 239), rgb(239, 238, 232), rgb(255, 255, 255)
-		clrText, clrDim, clrAccent, clrBorder = rgb(47, 46, 41), rgb(125, 123, 114), rgb(184, 82, 44), rgb(220, 217, 207)
+		clrText, clrDim, clrFaint = rgb(47, 46, 41), rgb(125, 123, 114), rgb(160, 157, 148)
+		clrAccent, clrAccentHover = rgb(184, 82, 44), rgb(204, 99, 64)
+		clrBorder, clrStroke = rgb(220, 217, 207), rgb(201, 197, 185)
+		clrError, clrErrorBg = rgb(190, 56, 48), rgb(251, 233, 231)
+		clrWarn, clrOk, clrShadow = rgb(168, 118, 10), rgb(46, 125, 50), rgb(210, 207, 198)
 	}
-	if brushBG != 0 {
-		pDeleteObject.Call(brushBG)
-		pDeleteObject.Call(brushSide)
-		pDeleteObject.Call(brushCard)
-		pDeleteObject.Call(brushAccent)
+	for _, b := range []uintptr{brushBG, brushSide, brushCard, brushAccent, brushError} {
+		if b != 0 {
+			pDeleteObject.Call(b)
+		}
 	}
 	brushBG, _ = createBrush(clrBG)
 	brushSide, _ = createBrush(clrSide)
 	brushCard, _ = createBrush(clrCard)
 	brushAccent, _ = createBrush(clrAccent)
+	brushError, _ = createBrush(clrErrorBg)
 }
 
 func createBrush(c uint32) (uintptr, error) {
@@ -87,9 +108,40 @@ func createFont(height int32, face string, weight uint32, italic bool) uintptr {
 	}
 	r, _, _ := pCreateFont.Call(
 		uintptr(height), 0, 0, 0, uintptr(weight), i, 0, 0,
-		0, 0, 0, 0, 0, uintptr(unsafe.Pointer(utf16Ptr(face))),
+		0, 0, 0, 5, 0, uintptr(unsafe.Pointer(utf16Ptr(face))), // CLEARTYPE_QUALITY
 	)
 	return r
+}
+
+// messageColumn returns the x/width of the centered transcript column.
+func messageColumn(clientW int) (int, int) {
+	w := clientW - sidebarW - columnGutter
+	if w > maxColumnW {
+		w = maxColumnW
+	}
+	if w < minColumnW {
+		w = minColumnW
+	}
+	return sidebarW + (clientW-sidebarW-w)/2, w
+}
+
+func spinnerFrame(tick int) string {
+	n := len(spinnerFrames)
+	i := tick % n
+	if i < 0 {
+		i += n
+	}
+	return spinnerFrames[i]
+}
+
+// cursorVisible halves the 80ms tick into 320ms on/off phases.
+func cursorVisible(tick int) bool { return (tick/4)%2 == 0 }
+
+func lastLine(s string) string {
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
 }
 
 func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
@@ -97,11 +149,18 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 	switch msg {
 	case 0x0001: // WM_CREATE
 		hwndMain = hwnd
-		fontUI = createFont(-15, "Segoe UI", 400, false)
-		fontSmall = createFont(-12, "Segoe UI", 500, false)
+		fontUI = createFont(-14, "Segoe UI", 400, false)
+		fontSmall = createFont(-13, "Segoe UI", 500, false)
 		fontMono = createFont(-13, "Consolas", 400, false)
-		fontTitle = createFont(-26, "Segoe UI", 600, false)
+		fontTitle = createFont(-20, "Segoe UI", 600, false)
+		fontBold = createFont(-13, "Segoe UI", 600, false)
+		fontGlyph = createFont(-16, "Segoe UI Symbol", 500, false)
+		fontKey = createFont(-11, "Consolas", 600, false)
 		applyTheme(true)
+		// Reduced-motion users get a static spinner and a solid cursor.
+		if clientAnimationEnabled() {
+			pSetTimer.Call(hwnd, animationTimerID, animationMS, 0)
+		}
 		hComposer, _, _ = pCreateWindowEx.Call(
 			0, uintptr(unsafe.Pointer(&editClassBuffer[0])), 0,
 			wsChild|wsVisible|wsTabStop|wsBorder|esMultiline|esAutoVScroll,
@@ -116,7 +175,18 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 	case wmPaint:
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-		paint(hdc, hwnd)
+		// Double buffer: never paint animation frames directly on screen.
+		var rc rect
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
+		w, h := int(rc.Right), int(rc.Bottom)
+		memDC, _, _ := pCreateCompDC.Call(hdc)
+		bmp, _, _ := pCreateCompBitmap.Call(hdc, uintptr(w), uintptr(h))
+		oldBmp, _, _ := pSelectObject.Call(memDC, bmp)
+		paint(memDC, hwnd)
+		pBitBlt.Call(hdc, 0, 0, uintptr(w), uintptr(h), memDC, 0, 0, srcCopy)
+		pSelectObject.Call(memDC, oldBmp)
+		pDeleteObject.Call(bmp)
+		pDeleteDC.Call(memDC)
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 
@@ -128,6 +198,30 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		invalidate(hwnd)
 		return 0
 
+	case wmTimer:
+		if wparam == animationTimerID && s != nil {
+			s.mu.Lock()
+			s.tick++
+			s.mu.Unlock()
+			invalidate(hwnd)
+		}
+		return 0
+
+	case wmMouseMove:
+		if s != nil && hComposer != 0 {
+			x := int32(int16(lparam & 0xffff))
+			y := int32(int16(lparam >> 16))
+			hover := x >= sendBtnRect.Left && x <= sendBtnRect.Right && y >= sendBtnRect.Top && y <= sendBtnRect.Bottom
+			s.mu.Lock()
+			changed := s.hoverSend != hover
+			s.hoverSend = hover
+			s.mu.Unlock()
+			if changed {
+				invalidate(hwnd)
+			}
+		}
+		return 0
+
 	case wmCtlColorEdit:
 		pSetTextColor.Call(wparam, uintptr(clrText))
 		pSetBkColor.Call(wparam, uintptr(clrCard))
@@ -137,6 +231,11 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		x := int32(int16(lparam & 0xffff))
 		y := int32(int16(lparam >> 16))
 		if x >= sendBtnRect.Left && x <= sendBtnRect.Right && y >= sendBtnRect.Top && y <= sendBtnRect.Bottom {
+			if s != nil {
+				s.mu.Lock()
+				s.hoverSend = false
+				s.mu.Unlock()
+			}
 			sendComposer(s)
 			return 0
 		}
@@ -239,6 +338,7 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		return 0
 
 	case wmDestroy:
+		pKillTimer.Call(hwnd, animationTimerID)
 		pPostQuitMessage.Call(0)
 		return 0
 
@@ -359,8 +459,10 @@ func paint(hdc uintptr, hwnd uintptr) {
 	rows := append([]row(nil), s.rows...)
 	model, cwd, status := s.model, s.cwd, s.status
 	approval, scroll := s.approval, s.scroll
-	busy := s.busy
+	busy, hover, tick := s.busy, s.hoverSend, s.tick
 	s.mu.Unlock()
+
+	colX, colW := messageColumn(w)
 
 	pSelectObject.Call(hdc, fontSmall)
 	pSetTextColor.Call(hdc, uintptr(clrDim))
@@ -391,59 +493,70 @@ func paint(hdc uintptr, hwnd uintptr) {
 	pSetTextColor.Call(hdc, uintptr(clrAccent))
 	textAt(hdc, "主题", w-88, 22, uint32(w))
 
-	// Transcript, clipped above the composer.
+	// Transcript, clipped above the composer and centered in a reading column.
 	bottom := h - composerH - 16
 	y := topbarH + 24 - scroll
+	lastAssistant := ""
 	for _, item := range rows {
 		switch item.kind {
 		case "user":
-			y = drawUser(hdc, item.text, sidebarW, y, w-sidebarW, bottom)
+			y = drawUser(hdc, item.text, colX, y, colW, bottom)
 		case "assistant":
-			y = drawAssistant(hdc, item.role, item.text, sidebarW, y, w-sidebarW, bottom)
+			y = drawAssistant(hdc, item.role, item.text, colX, y, colW, bottom)
 		case "thinking":
 			pSelectObject.Call(hdc, fontSmall)
 			pSetTextColor.Call(hdc, uintptr(clrDim))
-			hgt := measure(hdc, item.text, w-sidebarW-padding*2, fontSmall)
-			textBox(hdc, item.text, sidebarW+padding, y, w-sidebarW-padding*2, hgt, fontSmall, clrDim, 0)
+			hgt := measure(hdc, item.text, colW, fontSmall)
+			textBox(hdc, item.text, colX, y, colW, hgt, fontSmall, clrDim, 0)
 			y += hgt + 14
 		case "tool":
-			pSelectObject.Call(hdc, fontMono)
-			pSetTextColor.Call(hdc, uintptr(clrAccent))
-			hgt := measure(hdc, "› "+item.role+"  "+truncate(item.text, 90), w-sidebarW-padding*2, fontMono)
-			textBox(hdc, "› "+item.role+"  "+truncate(item.text, 90), sidebarW+padding, y, w-sidebarW-padding*2, hgt, fontMono, clrAccent, 0)
-			y += hgt + 10
+			y = drawTool(hdc, item, colX, y, colW, tick)
 		case "notice":
+			color := clrDim
+			if item.role == "retried" || item.role == "failed" || item.role == "stream_error" {
+				color = clrWarn
+			}
 			pSelectObject.Call(hdc, fontSmall)
-			pSetTextColor.Call(hdc, uintptr(clrDim))
-			hgt := measure(hdc, item.text, w-sidebarW-padding*2, fontSmall)
-			textBox(hdc, "· "+item.text, sidebarW+padding, y, w-sidebarW-padding*2, hgt, fontSmall, clrDim, 0)
+			hgt := measure(hdc, item.text, colW-12, fontSmall)
+			textBox(hdc, "· "+item.text, colX+12, y, colW-12, hgt, fontSmall, color, 0)
 			y += hgt + 10
 		case "error":
-			pSelectObject.Call(hdc, fontSmall)
-			pSetTextColor.Call(hdc, uintptr(0x7b7be0))
-			hgt := measure(hdc, item.text, w-sidebarW-padding*2, fontSmall)
-			textBox(hdc, item.text, sidebarW+padding, y, w-sidebarW-padding*2, hgt, fontSmall, 0x7b7be0, 0)
-			y += hgt + 14
+			y = drawError(hdc, item.text, colX, y, colW)
 		case "welcome":
-			pSelectObject.Call(hdc, fontTitle)
-			pSetTextColor.Call(hdc, uintptr(clrText))
-			textAt(hdc, "有什么可以帮你？", sidebarW+padding, topbarH+72, uint32(w))
-			pSelectObject.Call(hdc, fontUI)
-			pSetTextColor.Call(hdc, uintptr(clrDim))
-			textAt(hdc, item.text, sidebarW+padding, topbarH+122, uint32(w))
-			y += 180
+			drawWelcome(hdc, item.text, colX, colW, topbarH, bottom)
+			y = bottom
+		}
+		lastAssistant = ""
+		if item.kind == "assistant" {
+			lastAssistant = item.text
 		}
 		if y > bottom+400 {
 			break
 		}
 	}
+	// Blinking caret at the end of the live assistant reply.
+	if busy && lastAssistant != "" && y-18 <= bottom {
+		caretLine := lastLine(lastAssistant)
+		lineW := textWidth(hdc, caretLine, fontUI)
+		if lineW > colW-6 {
+			lineW = colW - 6
+		}
+		lineH := measure(hdc, caretLine, colW, fontUI)
+		cy := y - 18 + lineH - 16
+		if cy < topbarH {
+			cy = topbarH
+		}
+		if cursorVisible(tick) {
+			fillRect(hdc, colX+lineW+2, cy, colX+lineW+4, cy+16, brushAccent)
+		}
+	}
 	pSelectObject.Call(hdc, fontSmall)
 	if busy {
 		pSetTextColor.Call(hdc, uintptr(clrAccent))
-		textAt(hdc, "● "+status, sidebarW+padding, bottom+2, uint32(w))
+		textAt(hdc, spinnerFrame(tick)+" "+status, colX, bottom+2, uint32(colW))
 	} else if status != "" {
 		pSetTextColor.Call(hdc, uintptr(clrDim))
-		textAt(hdc, status, sidebarW+padding, bottom+2, uint32(w))
+		textAt(hdc, status, colX, bottom+2, uint32(colW))
 	}
 
 	// Composer surface.
@@ -452,66 +565,145 @@ func paint(hdc uintptr, hwnd uintptr) {
 
 	// Send button — drawn by us so it follows the theme exactly.
 	sendBtnRect = rect{int32(w - 96), int32(h - composerH - 12), int32(w - 18), int32(h - 20)}
-	rounded(hdc, int(sendBtnRect.Left), int(sendBtnRect.Top), int(sendBtnRect.Right), int(sendBtnRect.Bottom), clrAccent, clrAccent)
+	buttonFill := clrAccent
+	if hover {
+		buttonFill = clrAccentHover
+	}
+	rounded(hdc, int(sendBtnRect.Left), int(sendBtnRect.Top), int(sendBtnRect.Right), int(sendBtnRect.Bottom), buttonFill, buttonFill)
 	pSetTextColor.Call(hdc, uintptr(clrOnAccent()))
 	pSetBkMode.Call(hdc, transparent)
 	rBtn := sendBtnRect
 	pSelectObject.Call(hdc, fontUI)
 	pDrawText.Call(hdc, uintptr(unsafe.Pointer(&sendTextBuffer[0])), 2, uintptr(unsafe.Pointer(&rBtn)), dtCenter|dtVCenter|dtNoPrefix)
 
-	// Approval bar.
+	// Approval card: rounded, hard shadow, keyboard keycaps.
 	if approval != nil {
-		ay := h - composerH - 104
-		fillRect(hdc, sidebarW+padding, ay, w-padding, ay+80, brushCard)
-		line(hdc, sidebarW+padding, ay, sidebarW+padding+3, ay+80, clrAccent)
+		aw := colW
+		if aw > 560 {
+			aw = 560
+		}
+		ax := colX + (colW-aw)/2
+		ay := h - composerH - approvalH - 28
+		bottomY := ay + approvalH
+		roundRect(hdc, ax+2, ay+2, ax+aw+2, bottomY+2, clrShadow, clrShadow, 24, 24)
+		roundRect(hdc, ax, ay, ax+aw, bottomY, clrCard, clrStroke, 24, 24)
+		line(hdc, ax, ay+12, ax+2, bottomY-12, clrAccent)
 		pSelectObject.Call(hdc, fontUI)
 		pSetTextColor.Call(hdc, uintptr(clrText))
-		textAt(hdc, "需要批准: "+approval.Name, sidebarW+padding+16, ay+10, uint32(w))
+		textAt(hdc, "需要批准: "+approval.Name, ax+16, ay+8, uint32(aw-16))
 		pSelectObject.Call(hdc, fontMono)
 		pSetTextColor.Call(hdc, uintptr(clrDim))
-		textAt(hdc, truncate(approval.Arguments, 100), sidebarW+padding+16, ay+34, uint32(w))
-		pSetTextColor.Call(hdc, uintptr(clrAccent))
-		textAt(hdc, "Y 允许   N 拒绝   Esc 取消", sidebarW+padding+16, ay+56, uint32(w))
+		textAt(hdc, truncate(approval.Arguments, 100), ax+16, ay+30, uint32(aw-16))
+		kx := drawKeycap(hdc, "Y", ax+16, ay+56)
+		mutedLabel(hdc, "允许", kx, ay+56, uint32(ax+aw-kx))
+		kx = drawKeycap(hdc, "N", kx+64, ay+56)
+		mutedLabel(hdc, "拒绝", kx, ay+56, uint32(ax+aw-kx))
+		kx = drawKeycap(hdc, "Esc", kx+64, ay+56)
+		mutedLabel(hdc, "取消", kx, ay+56, uint32(ax+aw-kx))
 	}
 }
 
-func drawUser(hdc uintptr, text string, left, y, width, bottom int) int {
+func drawUser(hdc uintptr, text string, colX, y, colW, bottom int) int {
 	font := fontUI
-	hgt := measure(hdc, text, width-padding*2, font)
+	hgt := measure(hdc, text, colW-24, font)
 	y += 12
 	if y > bottom {
 		return y
 	}
-	boxW := width - padding*2
-	textW := textWidth(hdc, text, font)
-	if textW < boxW {
-		boxW = textW + 28
+	boxW := textWidth(hdc, text, font) + 24 // 12px inner padding on each side
+	if boxW > colW {
+		boxW = colW
 	}
-	x := left + width - padding - boxW
-	rounded(hdc, x-10, y-8, x+boxW+10, y+hgt+8, clrCard, clrBorder)
-	pSelectObject.Call(hdc, font)
-	pSetTextColor.Call(hdc, uintptr(clrText))
-	textBox(hdc, text, x, y, boxW, hgt, font, clrText, 0)
+	x := colX + colW - boxW
+	// Radius 10 (ellipse 20x20), fill only: pen matches the fill.
+	roundRect(hdc, x, y-8, x+boxW, y+hgt+8, clrCard, clrCard, 20, 20)
+	textBox(hdc, text, x+12, y, boxW-24, hgt, font, clrText, 0)
 	pSelectObject.Call(hdc, fontSmall)
-	pSetTextColor.Call(hdc, uintptr(clrAccent))
-	textAt(hdc, "你", x, y-22, uint32(x+boxW))
-	return y + hgt + 22
+	pSetTextColor.Call(hdc, uintptr(clrFaint))
+	textAt(hdc, "你", x, y+hgt+10, uint32(colW))
+	return y + hgt + 36
 }
 
-func drawAssistant(hdc uintptr, role, text string, left, y, width, bottom int) int {
+func drawAssistant(hdc uintptr, role, text string, colX, y, colW, bottom int) int {
 	font := fontUI
-	hgt := measure(hdc, text, width-padding*2, font)
+	hgt := measure(hdc, text, colW, font)
 	y += 14
 	if y > bottom {
 		return y
 	}
 	pSelectObject.Call(hdc, fontSmall)
 	pSetTextColor.Call(hdc, uintptr(clrAccent))
-	textAt(hdc, role, left+padding, y-20, uint32(left+width))
-	pSelectObject.Call(hdc, font)
-	pSetTextColor.Call(hdc, uintptr(clrText))
-	textBox(hdc, text, left+padding, y, width-padding*2, hgt, font, clrText, 0)
+	textAt(hdc, role, colX, y-20, uint32(colW))
+	textBox(hdc, text, colX, y, colW, hgt, font, clrText, 0)
 	return y + hgt + 18
+}
+
+func drawTool(hdc uintptr, item row, colX, y, colW, tick int) int {
+	y += 6
+	roundRect(hdc, colX, y, colX+colW, y+toolRowH, clrCard, clrStroke, 12, 12)
+	glyph, color := spinnerFrame(tick), clrAccent
+	switch item.state {
+	case "ok":
+		glyph, color = "✓", clrOk
+	case "error":
+		glyph, color = "✗", clrError
+	}
+	textBox(hdc, glyph, colX+8, y, 16, toolRowH, fontGlyph, color, dtVCenter)
+	name := truncate(item.role, 24)
+	pSelectObject.Call(hdc, fontBold)
+	pSetTextColor.Call(hdc, uintptr(clrText))
+	nameW := textWidth(hdc, name, fontBold)
+	textAt(hdc, name, colX+32, y, uint32(nameW+2))
+	argX := colX + 40 + nameW
+	if argX < colX+colW {
+		pSelectObject.Call(hdc, fontSmall)
+		textAt(hdc, truncate(item.text, 90), argX, y, uint32(colX+colW-argX))
+	}
+	return y + toolRowH + 8
+}
+
+func drawError(hdc uintptr, text string, colX, y, colW int) int {
+	hgt := measure(hdc, text, colW-20, fontSmall)
+	fillRect(hdc, colX, y, colX+colW, y+hgt+16, brushError)
+	line(hdc, colX, y, colX+2, y+hgt+16, clrError) // 2px left rail
+	textBox(hdc, text, colX+12, y+8, colW-20, hgt, fontSmall, clrError, 0)
+	return y + hgt + 26
+}
+
+func drawWelcome(hdc uintptr, hint string, colX, colW, top, bottom int) {
+	midY := top + (bottom-top)/2
+	cx := colX + colW/2
+	centeredText(hdc, "✦", cx, midY-72, fontSmall, clrAccent)
+	centeredText(hdc, "有什么可以帮你？", cx, midY-32, fontTitle, clrText)
+	centeredText(hdc, hint, cx, midY+16, fontSmall, clrDim)
+}
+
+func centeredText(hdc uintptr, text string, cx, y int, font uintptr, color uint32) {
+	w := textWidth(hdc, text, font)
+	x := cx - w/2
+	pSelectObject.Call(hdc, font)
+	pSetTextColor.Call(hdc, uintptr(color))
+	textAt(hdc, text, x, y, uint32(w+12))
+}
+
+func mutedLabel(hdc uintptr, text string, x, y int, maxW uint32) {
+	pSelectObject.Call(hdc, fontSmall)
+	pSetTextColor.Call(hdc, uintptr(clrDim))
+	textAt(hdc, text, x, y, maxW)
+}
+
+func drawKeycap(hdc uintptr, label string, x, y int) int {
+	w := 16
+	if len([]rune(label)) > 1 {
+		w = 30
+	}
+	roundRect(hdc, x, y, x+w, y+16, clrSide, clrStroke, 8, 8)
+	pSelectObject.Call(hdc, fontKey)
+	pSetTextColor.Call(hdc, uintptr(clrText))
+	r := rect{int32(x), int32(y), int32(x + w), int32(y + 16)}
+	u := utf16.Encode([]rune(label))
+	pDrawText.Call(hdc, uintptr(unsafe.Pointer(&u[0])), uintptr(len(u)), uintptr(unsafe.Pointer(&r)), dtCenter|dtVCenter|dtNoPrefix)
+	return x + w + 8
 }
 
 func fillRect(hdc uintptr, x1, y1, x2, y2 int, brush uintptr) {
@@ -527,11 +719,21 @@ func line(hdc uintptr, x1, y1, x2, y2 int, color uint32) {
 }
 
 func rounded(hdc uintptr, x1, y1, x2, y2 int, fill, border uint32) {
+	roundRect(hdc, x1, y1, x2, y2, fill, border, 12, 12)
+}
+
+// roundRect draws a filled rounded rectangle. A fill matching the border
+// suppresses the outline altogether (PS_NULL pen).
+func roundRect(hdc uintptr, x1, y1, x2, y2 int, fill, border uint32, ellipseW, ellipseH int) {
 	fb, _ := createBrush(fill)
-	pen, _, _ := pCreatePen.Call(0, 1, uintptr(border))
+	style := uintptr(0) // PS_SOLID
+	if fill == border {
+		style = 5 // PS_NULL
+	}
+	pen, _, _ := pCreatePen.Call(style, 1, uintptr(border))
 	oldB, _, _ := pSelectObject.Call(hdc, fb)
 	oldP, _, _ := pSelectObject.Call(hdc, pen)
-	pRoundRect.Call(hdc, uintptr(x1), uintptr(y1), uintptr(x2), uintptr(y2), 12, 12)
+	pRoundRect.Call(hdc, uintptr(x1), uintptr(y1), uintptr(x2), uintptr(y2), uintptr(ellipseW), uintptr(ellipseH))
 	pSelectObject.Call(hdc, oldB)
 	pSelectObject.Call(hdc, oldP)
 	pDeleteObject.Call(fb)

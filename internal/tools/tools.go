@@ -62,6 +62,7 @@ type Registry struct {
 	root               string
 	yolo               bool
 	maxOutput          int
+	maxTimeout         time.Duration
 	sessionDir         string
 	jobs               *jobs.Registry
 	guard              Guard
@@ -115,6 +116,13 @@ func (r *Registry) SetJobs(j *jobs.Registry) {
 	r.jobs = j
 }
 
+// SetMaxTimeout caps the resolved timeout of every timed tool at d. A
+// non-positive value disables the cap. The default of 0 keeps the pre-table
+// behaviour unchanged for callers that never opt in.
+func (r *Registry) SetMaxTimeout(d time.Duration) {
+	r.maxTimeout = d
+}
+
 // Names returns the registered tool names in registration order.
 func (r *Registry) Names() []string {
 	names := make([]string, len(r.order))
@@ -153,6 +161,7 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 		return "", fmt.Errorf("tool %q changes the workspace; rerun with --yolo", name)
 	}
 	ctx = context.WithValue(ctx, outputLimitKey{}, r.maxOutput)
+	ctx = context.WithValue(ctx, maxTimeoutKey{}, r.maxTimeout)
 	if r.sessionDir != "" {
 		ctx = context.WithValue(ctx, sessionDirKey{}, r.sessionDir)
 	}
@@ -483,10 +492,11 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if strings.TrimSpace(args.Command) == "" {
 		return "", fmt.Errorf("bash: command must not be empty")
 	}
-	timeout := 120 * time.Second
+	var requested time.Duration
 	if args.TimeoutSeconds > 0 {
-		timeout = time.Duration(args.TimeoutSeconds) * time.Second
+		requested = time.Duration(args.TimeoutSeconds) * time.Second
 	}
+	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
 	path, argv := shellInvocation(args.Command)
 	reportBackground(ctx, args.Command, args.BackgroundAfterMS)
 

@@ -156,12 +156,21 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 		keepToolTokens = 2000
 	}
 
+	effectiveProtect := effectiveCacheProtect(opts)
 	protected := protectedIndexes(out, keepTurns)
 	recentTool := keepToolTokens
 	for i := len(out) - 1; i >= 0; i-- {
 		msg := out[i]
 		if msg.Role != "tool" || protected[i] {
 			continue
+		}
+		// The budget loop walks backwards, so the suffix only grows as i moves
+		// earlier. Once stubbing would rewrite a byte range that still has more
+		// than protect tokens cached after it, every earlier position is equally
+		// unsafe: stop instead of invalidating the warm prefix and triggering a
+		// full re-prefill. This mirrors the guard in reclaimByMeta.
+		if suffixTokens(out, i) > effectiveProtect {
+			break
 		}
 		cost := EstimateMessage(msg)
 		if recentTool > 0 {
@@ -238,10 +247,7 @@ func toolStub(chars int) string {
 // A result with a large suffix is skipped: stubbing it would invalidate a
 // long prompt-cache prefix for a small saving.
 func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
-	protect := opts.CacheProtectSuffixTokens
-	if protect <= 0 {
-		protect = cacheProtectSuffixTokens
-	}
+	protect := effectiveCacheProtect(opts)
 
 	// newestSuccessful[key] is the last result carrying the key that was not
 	// an error. Only a later successful read supersedes an older one: an error
@@ -321,4 +327,14 @@ func suffixTokens(messages []llm.Message, i int) int {
 		total += EstimateMessage(messages[j])
 	}
 	return total
+}
+
+// effectiveCacheProtect returns the prompt-cache guard threshold. Both the
+// semantic (reclaimByMeta) and budget (Trim) paths use it so a result with a
+// large cached suffix is never rewritten by either one.
+func effectiveCacheProtect(opts TrimOptions) int {
+	if opts.CacheProtectSuffixTokens > 0 {
+		return opts.CacheProtectSuffixTokens
+	}
+	return cacheProtectSuffixTokens
 }

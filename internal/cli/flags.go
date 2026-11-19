@@ -49,6 +49,7 @@ type Options struct {
 	Protocol      string
 	Yolo          bool
 	MaxTurns      int
+	MaxParallel   int
 	Mode          string
 	Cwd           string
 	SandboxMode   string
@@ -264,10 +265,11 @@ type flagValues struct {
 	provider *string
 	profile  *string
 
-	yolo     *bool
-	maxTurns *int
-	mode     *string
-	cwd      *string
+	yolo        *bool
+	maxTurns    *int
+	maxParallel *int
+	mode        *string
+	cwd         *string
 
 	sandboxMode *string
 	approval    *string
@@ -335,6 +337,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.profile = fs.String("profile", "", "named config profile")
 	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
 	v.maxTurns = fs.Int("max-turns", 12, "maximum model turns")
+	v.maxParallel = fs.Int("max-parallel", 0, "read-only tool workers per batch (0 uses the default, 1 disables)")
 	v.mode = fs.String("mode", ModeText, "output mode: text or json")
 	v.cwd = fs.String("cwd", "", "workspace root (default: current directory)")
 	v.sandboxMode = fs.String("sandbox-mode", "", "read-only, workspace-write or danger-full-access")
@@ -447,6 +450,8 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	overrides := *values.overrides
+	maxParallel := intSetting(set, "max-parallel", *values.maxParallel, env, "ARGENT_MAX_PARALLEL",
+		overrideInt(&overrides, "maxParallel", "max-parallel"))
 	opts := &Options{
 		Overrides:   overrides,
 		Mode:        *values.mode,
@@ -462,6 +467,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		Help:        hasHelpFlag(before),
 		Version:     *values.version,
 		MaxTurns:    *values.maxTurns,
+		MaxParallel: maxParallel,
 		TUI:         *values.tui,
 		ServeToken:  firstNonEmpty(*values.token, env("ARGENT_SERVE_TOKEN"), env("ARGENT_TOKEN")),
 		ServeAddr:   serveAddress(*values.addr, *values.port),
@@ -633,6 +639,9 @@ func (o *Options) validate() error {
 	if o.MaxTurns < 1 {
 		return fmt.Errorf("--max-turns must be at least 1, got %d", o.MaxTurns)
 	}
+	if o.MaxParallel < 0 {
+		return fmt.Errorf("--max-parallel must be >= 0, got %d", o.MaxParallel)
+	}
 	if o.MaxTokens < 0 {
 		return fmt.Errorf("--max-tokens must be >= 0, got %d", o.MaxTokens)
 	}
@@ -758,6 +767,7 @@ flags:
       --protocol <name>         anthropic | openai | responses (default openai)
       --yolo                    auto-approve every tool call
       --max-turns <n>           maximum model turns (default 12)
+      --max-parallel <n>        read-only tool workers per batch (0 default, 1 serial)
       --max-tokens <n>          stop after this many billable tokens
       --max-cost <usd>          stop after this estimated dollar spend
       --max-seconds <n>         stop after this many wall-clock seconds

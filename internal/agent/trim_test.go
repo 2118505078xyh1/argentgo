@@ -257,3 +257,70 @@ func TestLoopTrimsOldToolOutput(t *testing.T) {
 		}
 	}
 }
+
+// cacheGuardFixture builds a conversation whose old tool result (index 3) sits
+// in front of a large tail, so its cached suffix is at least tailTokens wide.
+// Keeping the tail configurable lets the tests exercise both the default guard
+// (12000) and a raised guard without huge fixtures.
+func cacheGuardFixture(tailTokens int) []llm.Message {
+	return []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "do work"},
+		{Role: "assistant", Content: "old step", ToolCalls: []llm.ToolCall{toolCall("old", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "old", Content: strings.Repeat("x", 4000)},
+		{Role: "assistant", Content: "recent step", ToolCalls: []llm.ToolCall{toolCall("recent", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "recent", Content: strings.Repeat("y", 2000)},
+		{Role: "assistant", Content: strings.Repeat("z", tailTokens*charsPerToken)},
+	}
+}
+
+// TestTrimBudgetGuardKeepsWarmPrefixToolResult verifies the budget loop refuses
+// to stub a result whose cached suffix exceeds the default 12000-token guard.
+func TestTrimBudgetGuardKeepsWarmPrefixToolResult(t *testing.T) {
+	messages := cacheGuardFixture(12500) // suffix(3) ~= 13k > default 12000
+	opts := TrimOptions{MaxTokens: 500, KeepTurns: 1, KeepToolTokens: 100}
+
+	result := Trim(messages, opts)
+	if got := result.Messages[3].Content; strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("budget trim rewrote a tool result inside the warm prefix: %q", got)
+	}
+
+	// Raising the guard must make the same fixture stub that result, proving the
+	// guard — not a lack of budget pressure — kept it intact.
+	opts.CacheProtectSuffixTokens = 100000
+	unguarded := Trim(messages, opts)
+	if got := unguarded.Messages[3].Content; !strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("unguarded budget trim = %q, want a stub", got)
+	}
+}
+
+// TestTrimCacheGuardConsistentAcrossPaths checks that under the guard the
+// semantic (meta) path and the budget path both leave a warm-prefix result
+// untouched, and that both rewrite it once the guard is lifted.
+func TestTrimCacheGuardConsistentAcrossPaths(t *testing.T) {
+	messages := cacheGuardFixture(12500)
+	// Both read results share a supersede key; the newer one supersedes index 3.
+	meta := map[string]ToolMeta{
+		"old":    {SupersedeKey: "read|a.go"},
+		"recent": {SupersedeKey: "read|a.go"},
+	}
+
+	semantic := Trim(messages, TrimOptions{ToolMeta: meta})
+	if got := semantic.Messages[3].Content; got == supersededStub || strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("meta reclaim rewrote a warm-prefix result: %q", got)
+	}
+
+	budget := Trim(messages, TrimOptions{MaxTokens: 500, KeepTurns: 1, KeepToolTokens: 100})
+	if got := budget.Messages[3].Content; strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("budget trim rewrote a warm-prefix result: %q", got)
+	}
+
+	unguardedMeta := Trim(messages, TrimOptions{ToolMeta: meta, CacheProtectSuffixTokens: 100000})
+	if got := unguardedMeta.Messages[3].Content; got != supersededStub {
+		t.Fatalf("unguarded meta reclaim = %q, want %q", got, supersededStub)
+	}
+	unguardedBudget := Trim(messages, TrimOptions{MaxTokens: 500, KeepTurns: 1, KeepToolTokens: 100, CacheProtectSuffixTokens: 100000})
+	if got := unguardedBudget.Messages[3].Content; !strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("unguarded budget trim = %q, want a stub", got)
+	}
+}

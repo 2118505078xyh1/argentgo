@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 // ---- git_status ----
-
-const gitStatusTimeout = 20 * time.Second
 
 // gitStatusCommand builds the read-only git invocation. It is a variable so
 // tests can substitute a deterministic command.
@@ -31,13 +28,14 @@ func (gitStatusTool) Mutating() bool { return false }
 func (gitStatusTool) Schema() string { return `{"type":"object","properties":{}}` }
 
 func (gitStatusTool) Run(ctx context.Context, root string, _ json.RawMessage) (string, error) {
-	runCtx, cancel := context.WithTimeout(ctx, gitStatusTimeout)
+	timeout := clampTimeout("git_status", 0, maxTimeout(ctx))
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	output, err := gitStatusCommand(runCtx, root).CombinedOutput()
 	text := strings.TrimSpace(string(output))
 	if runCtx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("git_status: timed out after %s", gitStatusTimeout)
+		return "", fmt.Errorf("git_status: timed out after %s", timeout)
 	}
 	if err != nil {
 		if text == "" {

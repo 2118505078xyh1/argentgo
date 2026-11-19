@@ -11,15 +11,11 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // ---- web_fetch ----
 
-const (
-	fetchTimeout  = 20 * time.Second
-	maxFetchBytes = 200 * 1024
-)
+const maxFetchBytes = 200 * 1024
 
 var (
 	reDropBlocks = regexp.MustCompile(`(?is)<(script|style)\b[^>]*>.*?</(script|style)>`)
@@ -56,7 +52,7 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	}
 
 	client := &http.Client{
-		Timeout: fetchTimeout,
+		Timeout: clampTimeout("fetch", 0, maxTimeout(ctx)),
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			_, redirectErr := checkFetchURL(ctx, req.URL.String(), args.AllowLocal)
 			return redirectErr

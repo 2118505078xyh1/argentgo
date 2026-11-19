@@ -9,14 +9,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 // ---- web_search ----
 
 const (
 	webSearchURLEnv     = "ARGENT_WEB_SEARCH_URL"
-	webSearchTimeout    = 20 * time.Second
 	webSearchMaxResults = 20
 	webSearchMaxSnippet = 500
 )
@@ -68,7 +66,7 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 		return "", fmt.Errorf("web_search: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: webSearchTimeout}
+	client := &http.Client{Timeout: clampTimeout("web_search", 0, maxTimeout(ctx))}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("web_search: %w", err)

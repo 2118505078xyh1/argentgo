@@ -17,6 +17,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -86,8 +87,9 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	home := homeDir(env)
 	tree := defaults(home, cwd)
 	sources := make([]string, 0, 3)
+	warn := func(format string, args ...any) { log.Printf(format, args...) }
 	for _, file := range configFiles(cwd, home) {
-		overlay, err := readConfig(file)
+		overlay, err := readConfig(file, env, warn)
 		if err != nil {
 			return Config{}, err
 		}
@@ -128,23 +130,15 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	return cfg, nil
 }
 
-// Validate rejects configurations the rest of the program cannot honour.
+// Validate rejects configurations the rest of the program cannot honour. It
+// is kept for compatibility: use Diagnostics to see every problem at once.
 func (c Config) Validate() error {
-	switch c.SandboxMode {
-	case SandboxReadOnly, SandboxWorkspaceWrite, SandboxDangerFullAccess:
-	default:
-		return fmt.Errorf(
-			"config: sandboxMode %q must be one of %s, %s, %s",
-			c.SandboxMode, SandboxReadOnly, SandboxWorkspaceWrite, SandboxDangerFullAccess,
-		)
+	diagnostics := c.validateDiagnostics()
+	if len(diagnostics) == 0 {
+		return nil
 	}
-	if strings.TrimSpace(c.Model) == "" {
-		return fmt.Errorf("config: model must not be empty")
-	}
-	if c.MaxTurns < 0 {
-		return fmt.Errorf("config: maxTurns must be >= 0, got %d", c.MaxTurns)
-	}
-	return nil
+	first := diagnostics[0]
+	return fmt.Errorf("config: %s", first.Message)
 }
 
 func defaults(home, cwd string) map[string]any {
@@ -181,9 +175,11 @@ func homeDir(env func(string) string) string {
 	return "."
 }
 
-// readConfig reads one JSON object. A missing file is not an error; a malformed
-// file is, because the operator needs to know a setting is not in effect.
-func readConfig(path string) (map[string]any, error) {
+// readConfig reads one JSONC object. Variable references are substituted and
+// comments/trailing commas stripped before decoding. A missing file is not an
+// error; a malformed file is, because the operator needs to know a setting is
+// not in effect.
+func readConfig(path string, env func(string) string, warn WarnFunc) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -194,8 +190,10 @@ func readConfig(path string) (map[string]any, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil
 	}
+	substituted := Substitute(string(data), filepath.Dir(path), env, warn)
+	clean := StripJSONC(substituted)
 	var tree map[string]any
-	if err := json.Unmarshal(data, &tree); err != nil {
+	if err := json.Unmarshal([]byte(clean), &tree); err != nil {
 		return nil, fmt.Errorf("config: invalid JSON in %s: %w", path, err)
 	}
 	if tree == nil {

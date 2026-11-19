@@ -33,6 +33,7 @@ var expectedFlags = []string{
 	"list-sessions",
 	"locale",
 	"max-cost",
+	"max-parallel",
 	"max-seconds",
 	"max-tokens",
 	"max-turns",

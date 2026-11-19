@@ -3,7 +3,9 @@ package llm_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,7 +64,12 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestRetryPolicyDelayGrowsAndCaps(t *testing.T) {
-	policy := llm.RetryPolicy{BaseDelay: 100 * time.Millisecond, MaxDelay: 500 * time.Millisecond}
+	// Jitter returning 0 makes the jitter factor 1, keeping the exact values.
+	policy := llm.RetryPolicy{
+		BaseDelay: 100 * time.Millisecond,
+		MaxDelay:  500 * time.Millisecond,
+		Jitter:    func() float64 { return 0 },
+	}
 
 	if got := policy.Delay(1, 0); got != 100*time.Millisecond {
 		t.Fatalf("delay(1) = %v", got)
@@ -81,6 +88,54 @@ func TestRetryPolicyDelayGrowsAndCaps(t *testing.T) {
 	}
 	if got := policy.Delay(1, 10*time.Second); got != 1500*time.Millisecond {
 		t.Fatalf("retry-after should clamp to 3x max delay, got %v", got)
+	}
+}
+
+func TestRetryPolicyDelayJitter(t *testing.T) {
+	// Deterministic jitter source: [0, 0.5, 0.999] stays pinned at the last
+	// value so a Retry-After test still sees the strongest possible jitter.
+	seq := []float64{0, 0.5, 0.999}
+	next := 0
+	policy := llm.RetryPolicy{
+		BaseDelay: 100 * time.Millisecond,
+		MaxDelay:  500 * time.Millisecond,
+		Jitter: func() float64 {
+			v := seq[next]
+			if next < len(seq)-1 {
+				next++
+			}
+			return v
+		},
+	}
+
+	cases := []struct {
+		attempt int
+		base    time.Duration
+	}{
+		{1, 100 * time.Millisecond},
+		{2, 200 * time.Millisecond},
+		{3, 400 * time.Millisecond},
+	}
+	for i, tc := range cases {
+		got := policy.Delay(tc.attempt, 0)
+		want := time.Duration(float64(tc.base) * (1 - 0.25*seq[i]))
+		if got != want {
+			t.Fatalf("Delay(%d, 0) = %v, want %v", tc.attempt, got, want)
+		}
+		lower := time.Duration(float64(tc.base) * 0.75)
+		if got < lower || got > tc.base {
+			t.Fatalf("Delay(%d, 0) = %v, want within [%v, %v]", tc.attempt, got, lower, tc.base)
+		}
+	}
+
+	// An explicit Retry-After is authoritative: never jitter it, and keep the
+	// 3x MaxDelay ceiling. The jitter source is still at 0.999 here, so an
+	// accidental downward jitter would be clearly visible.
+	if got := policy.Delay(1, 800*time.Millisecond); got != 800*time.Millisecond {
+		t.Fatalf("Retry-After delay = %v, want unjittered 800ms", got)
+	}
+	if got := policy.Delay(1, 10*time.Second); got != 1500*time.Millisecond {
+		t.Fatalf("Retry-After ceiling = %v, want 1500ms", got)
 	}
 }
 
@@ -148,6 +203,174 @@ func TestRetryPolicyRetriesTransportErrors(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+type syntheticTimeoutError struct{}
+
+func (syntheticTimeoutError) Error() string   { return "i/o timeout" }
+func (syntheticTimeoutError) Timeout() bool   { return true }
+func (syntheticTimeoutError) Temporary() bool { return true }
+
+func TestClassifyRetryError(t *testing.T) {
+	dnsErr := &net.DNSError{Err: "no such host", Name: "api.example.com"}
+	cases := []struct {
+		name string
+		err  error
+		want llm.Reason
+	}{
+		{"nil error", nil, llm.ReasonNone},
+		{"cancellation", context.Canceled, llm.ReasonNone},
+		{"wrapped cancellation", fmt.Errorf("abort: %w", context.Canceled), llm.ReasonNone},
+		{"deadline exceeded", context.DeadlineExceeded, llm.ReasonTimeout},
+		{"wrapped deadline", fmt.Errorf("read: %w", context.DeadlineExceeded), llm.ReasonTimeout},
+		{"net timeout", syntheticTimeoutError{}, llm.ReasonTimeout},
+		{"wrapped net timeout", fmt.Errorf("read: %w", syntheticTimeoutError{}), llm.ReasonTimeout},
+		{"op error timeout", &net.OpError{Op: "read", Err: syntheticTimeoutError{}}, llm.ReasonTimeout},
+		{"dns error", dnsErr, llm.ReasonUnreachable},
+		{"wrapped dns error", fmt.Errorf("dial tcp: %w", dnsErr), llm.ReasonUnreachable},
+		{"dial wraps dns error", &net.OpError{Op: "dial", Net: "tcp", Err: dnsErr}, llm.ReasonUnreachable},
+		{"no route", &net.OpError{Op: "dial", Err: errors.New("connect: network is unreachable")}, llm.ReasonUnreachable},
+		{"ordinary transport", io.ErrUnexpectedEOF, llm.ReasonNotSent},
+		{"op error refused", &net.OpError{Op: "dial", Err: errors.New("connection refused")}, llm.ReasonNotSent},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := llm.ClassifyRetryError(tc.err); got != tc.want {
+				t.Fatalf("ClassifyRetryError(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRetryPolicyUnreachableDoesNotSpendAttemptBudget(t *testing.T) {
+	const unreachableSends = 5
+	var sends int
+	var reasons []llm.Reason
+	policy := llm.RetryPolicy{
+		MaxAttempts: 1, // a single ordinary failure would end the loop
+		Sleep:       noWait,
+		OnRetry:     func(attempt llm.RetryAttempt) { reasons = append(reasons, attempt.Reason) },
+	}
+	dnsErr := &net.DNSError{Err: "no such host", Name: "api.example.com"}
+
+	resp, err := policy.Do(context.Background(), func(context.Context) (*http.Response, error) {
+		sends++
+		if sends <= unreachableSends {
+			return nil, fmt.Errorf("dial tcp: %w", dnsErr)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(http.NoBody)}, nil
+	})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("resp = %#v", resp)
+	}
+	resp.Body.Close()
+	if sends != unreachableSends+1 {
+		t.Fatalf("sends = %d, want %d", sends, unreachableSends+1)
+	}
+	if len(reasons) != unreachableSends {
+		t.Fatalf("reasons = %v, want %d unreachable decisions", reasons, unreachableSends)
+	}
+	for _, reason := range reasons {
+		if reason != llm.ReasonUnreachable {
+			t.Fatalf("reason = %q, want unreachable", reason)
+		}
+	}
+	if got := llm.UnreachableWindow; got < time.Minute {
+		t.Fatalf("UnreachableWindow = %v, want a long window", got)
+	}
+}
+
+func TestRetryPolicyCapsTimeoutRetries(t *testing.T) {
+	var sends int
+	var reasons []llm.Reason
+	policy := llm.RetryPolicy{
+		MaxAttempts: 10, // the timeout cap, not the general budget, must stop us
+		Sleep:       noWait,
+		OnRetry:     func(attempt llm.RetryAttempt) { reasons = append(reasons, attempt.Reason) },
+	}
+
+	_, err := policy.Do(context.Background(), func(context.Context) (*http.Response, error) {
+		sends++
+		return nil, fmt.Errorf("read: %w", context.DeadlineExceeded)
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want wrapped DeadlineExceeded", err)
+	}
+	if sends != llm.MaxTimeoutRetries+1 {
+		t.Fatalf("sends = %d, want %d", sends, llm.MaxTimeoutRetries+1)
+	}
+	if len(reasons) != llm.MaxTimeoutRetries {
+		t.Fatalf("reasons = %v, want %d timeout decisions", reasons, llm.MaxTimeoutRetries)
+	}
+	for _, reason := range reasons {
+		if reason != llm.ReasonTimeout {
+			t.Fatalf("reason = %q, want timeout", reason)
+		}
+	}
+}
+
+func TestRetryAttemptReportsNotSentAndStatusReasons(t *testing.T) {
+	var transportReasons, statusReasons []llm.Reason
+	transportPolicy := llm.RetryPolicy{
+		MaxAttempts: 2,
+		Sleep:       noWait,
+		OnRetry:     func(a llm.RetryAttempt) { transportReasons = append(transportReasons, a.Reason) },
+	}
+	sends := 0
+	if _, err := transportPolicy.Do(context.Background(), func(context.Context) (*http.Response, error) {
+		sends++
+		if sends == 1 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(http.NoBody)}, nil
+	}); err != nil {
+		t.Fatalf("transport Do: %v", err)
+	}
+	if len(transportReasons) != 1 || transportReasons[0] != llm.ReasonNotSent {
+		t.Fatalf("transport reasons = %v", transportReasons)
+	}
+
+	statusPolicy := llm.RetryPolicy{
+		MaxAttempts: 2,
+		Sleep:       noWait,
+		OnRetry:     func(a llm.RetryAttempt) { statusReasons = append(statusReasons, a.Reason) },
+	}
+	sends = 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sends++
+		if sends == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	resp, err := statusPolicy.Do(context.Background(), func(ctx context.Context) (*http.Response, error) {
+		return http.Get(server.URL)
+	})
+	if err != nil {
+		t.Fatalf("status Do: %v", err)
+	}
+	resp.Body.Close()
+	if len(statusReasons) != 1 || statusReasons[0] != llm.ReasonStatus {
+		t.Fatalf("status reasons = %v", statusReasons)
+	}
+}
+
+func TestDelayClampsRetryAfterToFifteenMinutes(t *testing.T) {
+	if llm.MaxRetryAfter != 15*time.Minute {
+		t.Fatalf("MaxRetryAfter = %v", llm.MaxRetryAfter)
+	}
+	policy := llm.RetryPolicy{MaxDelay: 30 * time.Minute}
+	if got := policy.Delay(1, time.Hour); got != llm.MaxRetryAfter {
+		t.Fatalf("Delay(1, 1h) = %v, want %v", got, llm.MaxRetryAfter)
+	}
+	if got := policy.Delay(1, 5*time.Minute); got != 5*time.Minute {
+		t.Fatalf("Delay(1, 5m) = %v", got)
 	}
 }
 

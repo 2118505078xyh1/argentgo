@@ -164,8 +164,9 @@ func TestSubagentHasItsOwnTurnBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if childRequests != 2 {
-		t.Fatalf("child requests = %d, want its own cap of 2", childRequests)
+	if childRequests != 3 {
+		// Two budgeted turns plus the single tool-free final-answer request.
+		t.Fatalf("child requests = %d, want 2 turns plus one final answer", childRequests)
 	}
 	if !strings.Contains(res.Text, "without an answer") {
 		t.Fatalf("text = %q, want the empty-answer placeholder", res.Text)

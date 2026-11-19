@@ -44,12 +44,19 @@ var (
 	pSendMessage      = user32.NewProc("SendMessageW")
 	pMoveWindow       = user32.NewProc("MoveWindow")
 	pDestroyWindow    = user32.NewProc("DestroyWindow")
+	pSetTimer         = user32.NewProc("SetTimer")
+	pKillTimer        = user32.NewProc("KillTimer")
+	pSystemParams     = user32.NewProc("SystemParametersInfoW")
 	pSetWindowLongPtr = user32.NewProc("SetWindowLongPtrW")
 	pGetWindowLongPtr = user32.NewProc("GetWindowLongPtrW")
 	pCallWindowProc   = user32.NewProc("CallWindowProcW")
 	pCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	pDeleteObject     = gdi32.NewProc("DeleteObject")
 	pCreateFont       = gdi32.NewProc("CreateFontW")
+	pCreateCompDC     = gdi32.NewProc("CreateCompatibleDC")
+	pCreateCompBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	pBitBlt           = gdi32.NewProc("BitBlt")
+	pDeleteDC         = gdi32.NewProc("DeleteDC")
 	pSelectObject     = gdi32.NewProc("SelectObject")
 	pSetTextColor     = gdi32.NewProc("SetTextColor")
 	pSetBkColor       = gdi32.NewProc("SetBkColor")
@@ -66,12 +73,19 @@ var (
 const (
 	wmDestroy     = 0x0002
 	wmPaint       = 0x000F
+	wmSize        = 0x0005
 	wmClose       = 0x0010
 	wmKeyDown     = 0x0100
-	wmMouseWheel  = 0x020A
+	wmTimer       = 0x0113
 	wmLBUTTONDOWN = 0x0201
+	wmMouseMove   = 0x0200
+	wmMouseWheel  = 0x020A
 	wmAppEvent    = 0x8001
-	wmSize        = 0x0005
+
+	animationTimerID = 1
+	animationMS      = 80
+	spiClientAnim    = 0x1042 // SPI_GETCLIENTAREAANIMATION
+	srcCopy          = 0x00CC0020
 
 	swShow      = 5
 	transparent = 1
@@ -136,9 +150,10 @@ type Options struct {
 }
 
 type row struct {
-	kind string
-	role string
-	text string
+	kind  string
+	role  string
+	text  string
+	state string // tool rows: running | ok | error
 }
 
 type state struct {
@@ -154,6 +169,8 @@ type state struct {
 	ctx       context.Context
 	dark      bool
 	busy      bool
+	hoverSend bool
+	tick      int
 	scroll    int
 }
 
@@ -275,8 +292,19 @@ func applyEvent(s *state, ev gui.Event) {
 				s.rows = append(s.rows, row{kind: "thinking", role: "思考", text: a.Text})
 			}
 		case gui.AgentToolRequested:
-			s.rows = append(s.rows, row{kind: "tool", role: a.Name, text: a.Arguments})
+			s.rows = append(s.rows, row{kind: "tool", role: a.Name, text: a.Arguments, state: "running"})
 		case gui.AgentToolFinished:
+			state := "ok"
+			if a.IsError {
+				state = "error"
+			}
+			for i := len(s.rows) - 1; i >= 0; i-- {
+				if s.rows[i].kind == "tool" && s.rows[i].state == "running" {
+					s.rows[i].state = state
+					break
+				}
+			}
+			// The output stays in the transcript as a dim notice.
 			s.rows = append(s.rows, row{kind: "notice", role: a.Name, text: firstLine(a.Output)})
 		case gui.AgentNotice:
 			s.rows = append(s.rows, row{kind: "notice", text: a.Text})
@@ -310,6 +338,14 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// clientAnimationEnabled reports the Windows "show animations" preference.
+// A failed query is treated as enabled so the UI still animates by default.
+func clientAnimationEnabled() bool {
+	var enabled int32
+	ok, _, _ := pSystemParams.Call(spiClientAnim, 0, uintptr(unsafe.Pointer(&enabled)), 0)
+	return ok == 0 || enabled != 0
 }
 
 var (

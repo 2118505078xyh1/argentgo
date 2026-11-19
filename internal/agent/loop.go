@@ -146,6 +146,11 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		s.injectSteering()
 		if s.turns >= s.maxTurns {
 			s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf("turn limit reached after %d turn(s)", s.turns)})
+			// Ask once for a tool-free answer so an exhausted budget still
+			// yields something useful. The stop reason stays StopMaxTurns.
+			if !s.opts.NoFinalAnswer {
+				s.finalAnswer(ctx)
+			}
 			s.emit(Event{Kind: EventStop, Reason: StopMaxTurns})
 			return s.result(StopMaxTurns), nil
 		}
@@ -157,7 +162,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 
 		// Re-read the schemas every turn: a tool may have been unlocked by the
 		// previous call, and it must be visible to the very next request.
-		s.specs = s.tools.Specs()
+		// The optional filter hides tools the policy or sandbox forbids before
+		// they are advertised, saving the model a guaranteed-failing call.
+		s.specs = s.advertisedSpecs()
 		target := s.trim.MaxTokens
 		if schemaTokens := EstimateTools(s.specs); schemaTokens > 0 && target > schemaTokens+1000 {
 			target -= schemaTokens
@@ -283,6 +290,17 @@ func (s *runState) maybeCompact() {
 	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
 		"compacted context: ~%d -> ~%d tokens (target %d)", before, s.promptTokens, window,
 	)})
+}
+
+// advertisedSpecs resolves the tool list for the next request. Without a
+// filter the runner's full catalog is used; with one, only the allowed subset
+// is advertised. Authorization still happens in Run, never here.
+func (s *runState) advertisedSpecs() []llm.ToolSpec {
+	specs := s.tools.Specs()
+	if s.opts.FilterSpecs == nil {
+		return specs
+	}
+	return s.opts.FilterSpecs(specs)
 }
 
 // chat issues one model request with the current model and forwards answer

@@ -103,6 +103,9 @@ func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, worksp
 		Chatter:  chatter,
 		Tools:    registry,
 		Budget:   agent.Budget{MaxTurns: maxTurns},
+		// Eval scenarios assert exact request counts (e.g. the turn-limit case).
+		// The one-shot final answer is covered by internal/agent tests instead.
+		NoFinalAnswer: true,
 	}}
 	result, err := loop.Run(runCtx, workspace.Prompt)
 

@@ -33,11 +33,14 @@ type AttemptRecord struct {
 	ErrorClass string
 }
 
-// RetryAttempt describes one retry decision inside RetryPolicy.Do.
+// RetryAttempt describes one retry decision inside RetryPolicy.Do. Reason
+// explains why the attempt is retried; it never carries a response body or a
+// credential.
 type RetryAttempt struct {
 	Attempt    int
 	StatusCode int
 	Cause      string
+	Reason     Reason
 }
 
 // ClassifyError maps a provider error onto an attempt kind. Cancellation wins

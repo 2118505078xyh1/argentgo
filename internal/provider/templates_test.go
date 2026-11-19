@@ -1,6 +1,9 @@
 package provider_test
 
 import (
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/2118505078xyh1/argentgo/internal/provider"
@@ -102,6 +105,86 @@ func TestResolve(t *testing.T) {
 		}
 		if template.Name != tc.wantName {
 			t.Fatalf("Resolve(%q) = %q, want %q", tc.name, template.Name, tc.wantName)
+		}
+	}
+}
+
+func TestTemplateAuthResolution(t *testing.T) {
+	env := map[string]string{
+		"LEGACY_KEY": "legacy-key",
+		"EMPTY_KEY":  "  ",
+		"FIRST_KEY":  "first-key",
+		"SECOND_KEY": "second-key",
+	}
+	lookup := func(name string) string { return env[name] }
+
+	cases := []struct {
+		name       string
+		template   provider.Template
+		header     string
+		scheme     string
+		wantHeader string
+		wantValue  string
+	}{
+		{
+			name:       "legacy APIKeyEnv still resolves",
+			template:   provider.Template{APIKeyEnv: "LEGACY_KEY"},
+			header:     "x-api-key",
+			wantHeader: "x-api-key",
+			wantValue:  "legacy-key",
+		},
+		{
+			name:       "first env empty then second wins",
+			template:   provider.Template{APIKeyEnvs: []string{"EMPTY_KEY", "FIRST_KEY", "SECOND_KEY"}},
+			header:     "Authorization",
+			scheme:     "Bearer",
+			wantHeader: "Authorization",
+			wantValue:  "Bearer first-key",
+		},
+		{
+			name:       "legacy env first for compatibility",
+			template:   provider.Template{APIKeyEnv: "LEGACY_KEY", APIKeyEnvs: []string{"FIRST_KEY"}},
+			header:     "x-api-key",
+			wantHeader: "x-api-key",
+			wantValue:  "legacy-key",
+		},
+		{
+			name:     "all envs empty sends no header",
+			template: provider.Template{APIKeyEnvs: []string{"EMPTY_KEY", "MISSING_KEY"}},
+			header:   "x-api-key",
+		},
+		{
+			name:     "no auth overrides a resolvable env",
+			template: provider.Template{NoAuth: true, APIKeyEnv: "LEGACY_KEY", APIKeyEnvs: []string{"FIRST_KEY"}},
+			header:   "Authorization",
+			scheme:   "Bearer",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := tc.template.Auth(lookup, tc.header, tc.scheme)
+			if auth.Header != tc.wantHeader || auth.Value.Value() != tc.wantValue {
+				t.Fatalf("auth = %q/%q, want %q/%q", auth.Header, auth.Value.Value(), tc.wantHeader, tc.wantValue)
+			}
+			headers := make(http.Header)
+			auth.Apply(headers)
+			if got := headers.Get(tc.header); got != tc.wantValue {
+				t.Fatalf("%s = %q, want %q", tc.header, got, tc.wantValue)
+			}
+			if tc.wantValue != "" && strings.Contains(fmt.Sprintf("%+v", auth), tc.wantValue) {
+				t.Fatalf("auth formatting leaked the credential: %+v", auth)
+			}
+			if len(headers) > 1 {
+				t.Fatalf("unexpected extra headers: %#v", headers)
+			}
+		})
+	}
+}
+
+func TestBuiltInTemplatesHaveNoAuthOverride(t *testing.T) {
+	for _, template := range provider.List() {
+		if template.NoAuth || len(template.APIKeyEnvs) != 0 {
+			t.Fatalf("built-in template %q changed its credential shape", template.Name)
 		}
 	}
 }

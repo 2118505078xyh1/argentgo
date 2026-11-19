@@ -139,6 +139,17 @@ type Options struct {
 	Tools   ToolRunner
 	Approve Approver
 
+	// FilterSpecs, when set, narrows the tool catalog advertised to the model
+	// on every turn. The app layer supplies it from the policy and sandbox mode
+	// (e.g. tools.Registry.FilterSpecs). It changes only what the model sees:
+	// every call still goes through Tools.Run, whose guard is the backstop.
+	FilterSpecs func(specs []llm.ToolSpec) []llm.ToolSpec
+
+	// NoFinalAnswer disables the single tool-free request made when the turn
+	// budget runs out. Harnesses that assert an exact model-call count can opt
+	// out; normal runs keep the graceful answer.
+	NoFinalAnswer bool
+
 	// Record accepts a Recorder, a func(kind string, payload any) error or a
 	// func(kind string, payload any). The loose type keeps callers written
 	// before Recorder existed compiling; new code should pass a Recorder.

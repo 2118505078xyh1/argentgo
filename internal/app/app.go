@@ -87,6 +87,11 @@ type Resolved struct {
 	Mutating bool
 	System   string
 
+	// MaxParallel is the worker count for read-only tool batches. Values <= 1
+	// keep batches sequential; zero means "unset" and resolves to
+	// defaultMaxParallel in Resolve.
+	MaxParallel int
+
 	// Budget and pricing.
 	MaxTokens  int
 	MaxCostUSD float64
@@ -211,6 +216,13 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		maxTurns = 12
 	}
 
+	// Flags beat config; zero means "unset" and selects the conservative
+	// default. An explicit 1 (or any negative value) keeps batches serial.
+	maxParallel := firstNonZeroInt(opts.MaxParallel, intField(cfg.Raw, "maxParallel", "max-parallel"))
+	if maxParallel == 0 {
+		maxParallel = defaultMaxParallel
+	}
+
 	storage := firstNonEmpty(env("ARGENT_STORAGE"), env("ARGENT_STORAGE_DIR"), cfg.StorageDir)
 	if storage == "" {
 		storage = DefaultStorage(env)
@@ -242,6 +254,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		Sandbox:      sandbox,
 		Approval:     approval,
 		MaxTurns:     maxTurns,
+		MaxParallel:  maxParallel,
 		Mutating:     sandbox != security.SandboxReadOnly,
 		MaxTokens:    firstNonZeroInt(opts.MaxTokens, intField(cfg.Raw, "maxTokens", "max-tokens")),
 		MaxCostUSD:   firstNonZeroFloat(opts.MaxCost, floatField(cfg.Raw, "maxCost", "max-cost")),
@@ -510,6 +523,11 @@ const (
 	openAIProtocol = "openai-chat-completions"
 	openAIBaseURL  = "https://api.openai.com/v1"
 	openAIModel    = "gpt-4o-mini"
+
+	// defaultMaxParallel bounds read-only tool batches when neither a flag, an
+	// environment variable nor config selects a value. It is deliberately small
+	// to keep filesystem and hook load predictable.
+	defaultMaxParallel = 4
 )
 
 // unset reports whether a config value still holds the compiled default, which
@@ -655,14 +673,23 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactor(res, sess)
 	loop := &agent.Runner{Opts: agent.Options{
-		Model:    res.Model,
-		MaxTurns: res.MaxTurns,
-		Root:     res.Root,
-		System:   res.System,
-		Chatter:  res.Chatter,
-		Tools:    runner,
-		Approve:  approver,
-		Record:   agent.RecorderFunc(sess.Append),
+		Model:       res.Model,
+		MaxTurns:    res.MaxTurns,
+		MaxParallel: res.MaxParallel,
+		Root:        res.Root,
+		System:      res.System,
+		Chatter:     res.Chatter,
+		Tools:       runner,
+		// Never advertise tools the sandbox/deny rules forbid. Run() still
+		// guards every call; this only keeps the model from wasting turns.
+		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
+			if len(toolset.base.regs) == 0 {
+				return specs
+			}
+			return toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
+		},
+		Approve: approver,
+		Record:  agent.RecorderFunc(sess.Append),
 		Budget: agent.Budget{
 			MaxTurns:       res.MaxTurns,
 			MaxTotalTokens: res.MaxTokens,
