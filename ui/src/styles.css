@@ -1,28 +1,32 @@
+/* Warm, low-contrast palette inspired by Claude Code's charcoal and Codex's
+   neutral chrome. Accent is Claude's coral; everything else stays quiet so the
+   conversation — not the frame — carries the eye. */
 :root {
   color-scheme: dark;
-  --bg: #0c1018;
-  --surface: #121824;
-  --element: #1a2230;
-  --border: #2c3a50;
-  --border-subtle: #202a3a;
-  --text: #dce5f2;
-  --dim: #8b99b0;
-  --accent: #7aa2f7;
-  --ok: #9ece6a;
-  --error: #f7768e;
-  --warn: #e0af68;
-  --strong: #f5f8ff;
-  --on-accent: #0b0e14;
-  --sidebar: #0f141d;
-  --accent-bg: rgb(122 162 247 / 14%);
-  --accent-line: rgb(122 162 247 / 38%);
-  --ok-bg: rgb(158 206 106 / 12%);
-  --warn-bg: rgb(224 175 104 / 10%);
-  --warn-line: rgb(224 175 104 / 55%);
-  --error-bg: rgb(247 118 142 / 10%);
-  --error-line: rgb(247 118 142 / 55%);
+  --bg: #171716;
+  --surface: #20201e;
+  --element: #2b2b28;
+  --border: #3b3a35;
+  --border-subtle: #2e2e2a;
+  --text: #e8e6df;
+  --dim: #9b9991;
+  --accent: #d97757;
+  --ok: #8fae72;
+  --error: #e0737b;
+  --warn: #d3a35c;
+  --strong: #faf8f3;
+  --on-accent: #1b1310;
+  --sidebar: #131312;
+  --accent-bg: rgb(217 119 87 / 13%);
+  --accent-line: rgb(217 119 87 / 34%);
+  --ok-bg: rgb(143 174 114 / 11%);
+  --warn-bg: rgb(211 163 92 / 9%);
+  --warn-line: rgb(211 163 92 / 48%);
+  --error-bg: rgb(224 115 123 / 9%);
+  --error-line: rgb(224 115 123 / 46%);
   --mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
-  font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --serif: "Iowan Old Style", "Georgia", "Times New Roman", serif;
+  font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   background: var(--bg);
   color: var(--text);
@@ -30,27 +34,27 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f7fa;
+  --bg: #f5f4ef;
   --surface: #ffffff;
-  --element: #e9edf4;
-  --border: #c7d0df;
-  --border-subtle: #dce2ec;
-  --text: #1c2430;
-  --dim: #61708a;
-  --accent: #3459b8;
-  --ok: #4f8a2f;
-  --error: #c2415a;
+  --element: #ebe9e1;
+  --border: #dcd9cf;
+  --border-subtle: #e7e4db;
+  --text: #2f2e29;
+  --dim: #7d7b72;
+  --accent: #b8522c;
+  --ok: #4d7938;
+  --error: #b23b48;
   --warn: #9a6b18;
-  --strong: #0d1420;
+  --strong: #1b1a17;
   --on-accent: #ffffff;
-  --sidebar: #eef2f8;
-  --accent-bg: rgb(52 89 184 / 10%);
-  --accent-line: rgb(52 89 184 / 30%);
-  --ok-bg: rgb(79 138 47 / 10%);
-  --warn-bg: rgb(154 107 24 / 9%);
-  --warn-line: rgb(154 107 24 / 45%);
-  --error-bg: rgb(194 65 90 / 8%);
-  --error-line: rgb(194 65 90 / 45%);
+  --sidebar: #efeee8;
+  --accent-bg: rgb(184 82 44 / 8%);
+  --accent-line: rgb(184 82 44 / 27%);
+  --ok-bg: rgb(77 121 56 / 9%);
+  --warn-bg: rgb(154 107 24 / 8%);
+  --warn-line: rgb(154 107 24 / 42%);
+  --error-bg: rgb(178 59 72 / 7%);
+  --error-line: rgb(178 59 72 / 40%);
 }
 
 * {
@@ -88,17 +92,16 @@ a:focus-visible {
 
 .app {
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 252px minmax(0, 1fr);
   height: 100%;
-  background: radial-gradient(1100px 520px at 78% -12%, var(--accent-bg), transparent 62%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 18px 14px 14px;
+  padding: 16px 12px 12px;
   background: var(--sidebar);
   border-right: 1px solid var(--border-subtle);
 }
@@ -108,11 +111,11 @@ a:focus-visible {
   grid-template-columns: auto 1fr;
   align-items: center;
   column-gap: 8px;
-  margin: 0 6px 18px;
+  margin: 0 6px 20px;
   color: var(--strong);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .brand-mark {
@@ -159,8 +162,8 @@ a:focus-visible {
 }
 
 .side-tabs button.active {
-  border-color: var(--accent-line);
-  background: var(--accent-bg);
+  border-color: var(--border-subtle);
+  background: var(--element);
   color: var(--strong);
   font-weight: 600;
 }
@@ -236,11 +239,10 @@ a:focus-visible {
   align-items: center;
   gap: 2px;
   width: 100%;
-  margin: 2px 0;
+  margin: 1px 0;
   padding: 8px 9px;
   border: 1px solid transparent;
-  border-left: 3px solid transparent;
-  border-radius: 10px;
+  border-radius: 7px;
   background: transparent;
   text-align: left;
 }
@@ -250,9 +252,7 @@ a:focus-visible {
 }
 
 .side-item.active {
-  border-color: var(--accent-line);
-  border-left-color: var(--accent);
-  background: var(--accent-bg);
+  background: var(--element);
 }
 
 .side-open {
@@ -398,24 +398,23 @@ a:focus-visible {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 62px;
-  padding: 10px 20px;
-  background: linear-gradient(180deg, var(--surface), var(--bg));
+  gap: 14px;
+  min-height: 56px;
+  padding: 8px 24px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .title-block {
   min-width: 0;
-  padding-left: 10px;
-  border-left: 3px solid var(--accent);
 }
 
 .title {
   overflow: hidden;
   color: var(--strong);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -448,8 +447,8 @@ a:focus-visible {
   overflow: hidden;
   padding: 5px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--element);
+  border-radius: 7px;
+  background: transparent;
   color: var(--text);
   font-size: 12px;
   text-overflow: ellipsis;
@@ -471,7 +470,7 @@ a:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 28px max(24px, calc((100% - 860px) / 2)) 36px;
+  padding: 32px max(24px, calc((100% - 760px) / 2)) 40px;
   scroll-behavior: smooth;
 }
 
@@ -503,12 +502,10 @@ a:focus-visible {
 }
 
 .role {
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   color: var(--dim);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .assistant .role {
@@ -648,18 +645,15 @@ a:focus-visible {
 .user-bubble {
   max-width: min(78%, 620px);
   padding: 10px 14px;
-  border: 1px solid var(--accent-line);
-  border-radius: 14px 14px 4px 14px;
-  background: var(--accent-bg);
-  line-height: 1.55;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--element);
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
 .assistant {
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px 12px 12px 4px;
-  background: var(--surface);
+  padding: 2px 0;
 }
 
 .thinking {
@@ -685,18 +679,17 @@ a:focus-visible {
 .tool {
   overflow: hidden;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-left: 2px solid var(--border);
+  border-radius: 6px;
   background: var(--surface);
 }
 
 .tool.running {
-  border-color: var(--warn-line);
-  background: var(--warn-bg);
+  border-left-color: var(--warn);
 }
 
 .tool.failed {
-  border-color: var(--error-line);
-  background: var(--error-bg);
+  border-left-color: var(--error);
 }
 
 .tool-head {
@@ -828,25 +821,27 @@ a:focus-visible {
 }
 
 .welcome-card {
-  width: min(100%, 600px);
-  padding: 34px 32px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 18px;
-  background: linear-gradient(160deg, var(--surface), var(--element));
-  box-shadow: 0 12px 36px rgb(0 0 0 / 12%);
-  text-align: center;
+  width: min(100%, 640px);
+  padding: 24px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
 .welcome-mark {
-  color: var(--accent);
-  font-size: 34px;
+  color: var(--strong);
+  font-family: var(--serif);
+  font-size: 42px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
   line-height: 1.1;
 }
 
 .welcome-card p {
-  margin: 10px 0 6px;
+  margin: 12px 0 6px;
   color: var(--text);
   font-size: 15px;
+  line-height: 1.6;
 }
 
 .welcome-card .path {
@@ -856,22 +851,23 @@ a:focus-visible {
 
 .shortcuts {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
 }
 
 .shortcuts button {
-  padding: 6px 10px;
+  padding: 7px 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: var(--element);
+  border-radius: 999px;
+  background: transparent;
   color: var(--text);
   font-size: 12px;
 }
 
 .shortcuts button:hover {
   border-color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .approval {
@@ -978,22 +974,23 @@ a:focus-visible {
 .composer-wrap {
   position: relative;
   flex: none;
-  padding: 10px 20px 14px;
-  background: linear-gradient(0deg, var(--bg) 68%, transparent);
+  padding: 8px 24px 14px;
+  background: var(--bg);
 }
 
 .composer {
-  max-width: 860px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 10px 12px 8px;
+  padding: 12px 14px 10px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--element);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 7%);
 }
 
 .composer:focus-within {
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-bg);
+  box-shadow: 0 8px 26px rgb(0 0 0 / 9%), 0 0 0 3px var(--accent-bg);
 }
 
 .composer-wrap.dragging .composer {
@@ -1060,8 +1057,8 @@ a:focus-visible {
 
 .primary,
 .ghost {
-  padding: 6px 13px;
-  border-radius: 8px;
+  padding: 7px 14px;
+  border-radius: 9px;
   font-size: 12px;
   line-height: 1.4;
 }
@@ -1070,6 +1067,11 @@ a:focus-visible {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
+  transition: filter 120ms ease;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .primary:disabled,

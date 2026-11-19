@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/gui"
 	"github.com/2118505078xyh1/argentgo/internal/launcher"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/nativegui"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
@@ -45,6 +47,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags := flag.NewFlagSet("argent gui", flag.ContinueOnError)
 	flags.SetOutput(stdio.Err)
 	var model, baseURL, apiKey, provider, protocol, locale, cwd string
+	var web bool
 	flags.StringVar(&model, "m", "", "model id")
 	flags.StringVar(&model, "model", "", "model id")
 	flags.StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL")
@@ -54,6 +57,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags.StringVar(&locale, "locale", "", "ui locale")
 	flags.StringVar(&cwd, "C", "", "workspace root")
 	flags.StringVar(&cwd, "cwd", "", "workspace root")
+	flags.BoolVar(&web, "web", false, "use the embedded web UI instead of the native window")
 	if err := flags.Parse(filtered); err != nil {
 		return 2
 	}
@@ -78,6 +82,10 @@ func runGUI(stdio cli.IO, args []string) int {
 	if err != nil {
 		fmt.Fprintln(stdio.Err, "error: open sessions:", err)
 		return 1
+	}
+
+	if !web && runtime.GOOS == "windows" {
+		return nativeRun(ctx, newGUIRunner(ctx, stdio, resolved, store), resolved)
 	}
 
 	guiOpts := gui.Options{
@@ -107,6 +115,24 @@ func runGUI(stdio cli.IO, args []string) int {
 
 	if err := gui.Run(ctx, guiOpts); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(stdio.Err, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+// nativeRun hands the engine's three channels to the Win32 window. With no
+// browser in the loop there is no token, no HTTP server and no web asset load.
+func nativeRun(ctx context.Context, runner gui.Runner, resolved app.Resolved) int {
+	err := nativegui.Run(nativegui.Options{
+		Cwd:       resolved.Root,
+		Model:     resolved.Model,
+		Provider:  resolved.Cfg.ProviderName,
+		Events:    runner.Events(),
+		Approvals: runner.Approvals(),
+		Commands:  runner.Commands(),
+	})
+	if err != nil && !errors.Is(err, context.Canceled) {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 	return 0

@@ -1596,7 +1596,7 @@ function App() {
         </div>
         <header class="topbar">
           <div class="title-block">
-            <div class="title">Argent</div>
+            <div class="title">argentgo</div>
             <div class="path">{ready()?.cwd || ""}</div>
           </div>
           <div class="top-meta">
@@ -1685,7 +1685,7 @@ function App() {
             fallback={
               <div class="welcome">
                 <div class="welcome-card">
-                  <div class="welcome-mark">argent</div>
+                  <div class="welcome-mark">argentgo</div>
                   <p>{t(locale(), "welcome")}</p>
                   <div class="path">{ready()?.cwd || ""}</div>
                   <p class="welcome-hint">
@@ -1798,7 +1798,7 @@ function App() {
                 return (
                   <div class="assistant">
                     <div class="role">
-                      argent
+                      argentgo
                       <button
                         class="msg-action"
                         title="复制这条回复"

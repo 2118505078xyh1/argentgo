@@ -1,64 +1,56 @@
 # 前端方案
 
-这份文档记录**当前决定**，不是迁移计划。Rust 版 `argent` 的 Tauri 桌面壳已随该版本冻结；
-Go 版另起炉灶。
+记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已随该版本冻结；Go 版不再依赖浏览器。
 
 ## 决定
-
-一个终端 UI + 一个内嵌 Web GUI，共用同一套 agent：
 
 | 端 | 方案 | 状态 |
 |---|---|---|
 | 终端 | CLI 一次性运行 + `internal/tui` 自绘 ANSI 全屏；无 WebView，可跑 SSH | 已落地 |
-| 图形 | Go 用 `go:embed` 内嵌 SolidJS 构建产物，经 HTTP + SSE 提供给浏览器页面 | 后端已落地 |
-| 窗口 | `internal/launcher` 用系统现有的 Edge/Chrome `--app` 模式打开该页面，失败回退默认浏览器 | 进行中 |
+| 图形（默认） | `internal/nativegui` 纯 Win32 syscall 自绘聊天窗口 | 已落地 |
+| 图形（可选） | `internal/gui` 内嵌 SolidJS 产物，经 HTTP + SSE 提供给浏览器，`argent gui --web` | 保留 |
 
 架构细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## 为什么放弃 Tauri / Rust
+## 原生窗口为什么可行
 
-Rust 版后端已经冻结在 v0.4.0，继续维护 Tauri 壳等于拖着两套实现往前走：agent 循环、
-会话、审批、事件契约都得在 Go 与 Rust 两端各改一遍。Go 重写后，桌面壳只剩「把一个网页
-装进窗口」这一件事，不再需要独立的 Cargo workspace、Rust 构建链和 Tauri 桥接命令。
+「单文件、无 cgo、stdlib only、Windows 主机自用」让原生方案比 WebView 更合适：
 
-内嵌方案保留了旧前端的命令名与事件负载：`internal/gui` 提供
-`POST /rpc/{command}` 与 `GET /events`（SSE），前端 `ui/src/ipc.ts` 仍解析同一组
-`ready` / `agent` / `approval` / `turn_done` 帧。迁移的是传输层，不是 UI 重写。
+- `internal/nativegui` 只用 `syscall.NewLazyDLL` 调 `user32` / `gdi32` / `dwmapi`，
+  没有第三方模块、没有 cgo、不启 HTTP 服务、不生成 token。
+- 窗口、侧栏、会话流、工具行、审批条、输入框全部由 `WM_PAINT` + GDI 自绘；
+  唯一的子控件是输入框 `EDIT`，用子类过程把 Enter 变成「发送」（Shift+Enter 换行）。
+- 引擎仍是同一套：`cmd/argent/gui.go` 创建 `guiRunner`，把
+  `Events()` / `Approvals()` / `Commands()` 三个通道交给窗口。事件到达后通过
+  `PostMessage(WM_APP+1)` 回到 UI 线程，状态变更与绘制都留在窗口线程。
+- 视觉取 Claude / Codex 的克制风格：暖灰底（深色 `#171716`，浅色 `#f5f4ef`）、
+  单一珊瑚色强调 `#d97757`、等宽工具行、宽留白。标题栏用 DWM 深色模式。
 
-## 为什么不做自研浏览器引擎
+`GOOS=linux go build ./...` 仍成功：原生文件带 `//go:build windows`，非 Windows 有返回
+明确错误的 stub。
 
-「单文件、无 cgo、stdlib only」是硬约束。嵌入 Chromium / WebKit 意味着 C 依赖和
-几十 MB 的运行时，直接破坏交叉编译与体积目标；自己用 `net/http` + canvas 画一套 DOM
-则要把布局、CSS、输入法、无障碍全部重写，代价远超收益。
+## 可选 Web 界面
 
-系统已装的 Edge/Chrome 提供成熟的渲染、输入法与 WebView2 兼容能力，Go 进程只负责
-提供页面和事件流。`internal/launcher` 只调一次带 `--app` 的浏览器进程，不做 IPC；
-窗口关闭由浏览器负责，Go 侧在 context 取消时关停 HTTP 服务并 flush 会话。
+`argent gui --web` 保留旧路径：`go:embed` 内嵌 `internal/gui/dist`，
+`POST /rpc/<command>` + `GET /events`（SSE），一次性 token 注入 `window.__ARGENT_TOKEN__`。
+前端 `ui/src/ipc.ts` 解析同一组 `ready` / `agent` / `approval` / `turn_done` 帧。
+这条路径适合需要多标签页、工作流/自动化等复杂页面的场景。
 
-## 仍待端到端验证
+`scripts/build-ui.ps1` 把 `ui/dist` 复制进 `internal/gui/dist`；仓库只提交 embed 所需的
+构建产物，改 `ui/` 后必须重新生成。
 
-GUI 后端已完成，但下面几项没有全链路验证之前，不能称为「done」：
+## 交互
 
-1. `internal/launcher`：找到 Edge/Chrome、以 `--app` 打开带 token 的 URL、
-   找不到浏览器时回退默认浏览器，以及窗口关闭后 Go 服务能否干净退出。
-2. `ui/` 传输桥接：前端从旧的 WebView `invoke()` + 单事件通道切到 HTTP `/rpc` + SSE
-   `/events`，token 注入（`window.__ARGENT_TOKEN__`）、断线重连、审批往返需实测。
-3. `go:embed` 构建链：`scripts/build-ui.ps1` 把 `ui/dist` 复制进 `internal/gui/dist`；
-   仓库里只保留占位 `index.html` 让 embed 能编译，真实产物须本地构建生成。
-4. 图形界面的内存/延迟指标尚未测量，不能引用任何 GUI 内存数字。
-5. `argent gui` 目前在 CLI 里解析后明确报错退出（"not migrated yet"），
-   要等启动器、UI 桥接与子命令接线一起完成后才能开放。
+- 输入区 Enter 发送，Shift+Enter 换行；点击「发送」等价。
+- 审批条：`Y` 允许、`N` 拒绝、`Esc` 取消。
+- 滚轮滚动会话；右上角「主题」切换深色/浅色。
+- 会话侧栏点击可打开（`EventSessions` 提供列表）。
 
 ## 桌面安装与图标（Windows）
 
-- Windows 发布产物是单一 `argent.exe`：`.github/workflows/release.yml` 上传
-  `argent_<version>_windows_amd64.zip` 和 `checksums.txt`；本地安装用
-  `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argentgo\bin`，并提示把该
-  目录加入 PATH。`scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argentgo`
-  下的会话、配置、hook 与审计日志。
-- 桌面窗口不是打包出来的独立 app：`internal/launcher` 调系统已装的 Edge/Chrome
-  以 `--app` 模式打开内嵌页面，因此窗口与任务栏图标由浏览器/站点图标提供，
-  Go 侧不嵌入 `.ico`，也不引入资源编译器或 cgo。
-- 目前 `ui/` 没有专用图标资源。若要换图标，把 `favicon.ico` / `favicon.svg`
-  放到 `ui/public/`，重新执行 `scripts/build-ui.ps1` 生成 `internal/gui/dist`，
-  再按正常发布流程构建；不要手改已提交的 `internal/gui/dist`。
+- 发布产物是单一 `argent.exe`：`.github/workflows/release.yml` 上传
+  `argent_<version>_windows_amd64.zip` 和 `checksums.txt`。
+- 本地安装用 `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argentgo\bin`；
+  桌面快捷方式指向 `argent.exe gui`，无需浏览器。
+- `scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argentgo` 下的会话、配置、hook 与审计日志。
+- 原生窗口暂不嵌入 `.ico`（未来可用资源编译器；当前仍坚持零 cgo）。

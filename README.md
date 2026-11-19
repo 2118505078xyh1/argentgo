@@ -25,8 +25,8 @@
 - **工具真的能干活** — 读写文件、跑 shell、搜索、补丁、后台任务、MCP、LSP、hooks、子代理，全部走同一条安全链。
 - **会话是数据，不是黑盒** — 每轮都是 JSONL 记录，连成可 fork 的树。`/undo` 按 SHA-256 清单精确回滚，`/retry` 从检查点分叉重跑，失败的尝试也不会污染模型历史。
 - **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
-- **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；GUI 用一次性 token，资源请求 GET-only。
-- **多界面** — 命令行一次性问答、全屏 TUI、内嵌 WebView 桌面窗口，以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
+- **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口用纯 Win32 syscall 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
+- **多界面** — 命令行一次性问答、全屏 TUI、**Windows 原生聊天窗口**（无浏览器、无 WebView、无 cgo），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
 - **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
 
 体积是实测数字：无头运行工作集约 **10 MB**，二进制约 **10.6 MB**。
@@ -55,7 +55,7 @@ $env:ARGENT_API_KEY = "sk-..."
 argent "把 src 里的 unwrap 都找出来"     # 一次性提示，打印回答
 argent --mode json "列出目录"            # 严格 JSONL：事件 + 结果
 argent tui                                # 全屏终端 UI（SSH 也能跑）
-argent gui                                # 桌面应用窗口
+argent gui                                # Windows 原生聊天窗口（纯 syscall，无浏览器）
 ```
 
 想换成国产模型？内置模板直接切：
@@ -66,9 +66,13 @@ argent --provider qwen      "解释这段代码"
 argent --provider anthropic "review 一下这个改动"
 ```
 
-`argent gui` 起本地 HTTP 服务、注入一次性 token，再用 Edge/Chrome 应用模式打开无地址栏的独立
-窗口（没有则用默认浏览器）。前后端只走 `POST /rpc/<command>` + `GET /events` SSE，
-不依赖 Tauri / Rust。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
+`argent gui` 在 Windows 上打开**原生 Win32 聊天窗口**：只用 Go 标准库 `syscall` 调用
+`user32` / `gdi32` / `dwmapi`，自己绘制侧栏、会话、工具行与输入框。没有浏览器、没有 WebView、
+没有本地 HTTP 服务、没有 token，也没有第三方依赖。视觉取 Claude / Codex 的克制风格：
+暖灰底、单一珊瑚色强调、等宽工具行。
+
+需要旧的内嵌 Web 界面时用 `argent gui --web`（保留 SolidJS + Vite 前端作为可选路径）。详见
+[docs/FRONTEND.md](docs/FRONTEND.md)。
 
 其他入口：
 
@@ -147,7 +151,7 @@ argent：
 ## 文档
 
 - [架构](docs/ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
-- [前端](docs/FRONTEND.md) — SolidJS + WebView2 的设计与桌面安装
+- [前端](docs/FRONTEND.md) — 原生 Win32 窗口与可选 SolidJS Web 界面
 - [功能对齐](docs/PARITY.md) — 与冻结的 Rust 版逐项对照
 - [路线图](docs/ROADMAP.md) · [下一步](docs/NEXT_STEPS.md) · [100 项清单](docs/TODO_100.md)
 - [迁移记录](docs/MIGRATION.md) · [更新日志](CHANGELOG.md)
