@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.1 — 2026-11-19
+
+- Desktop shell switched from the experimental self-painted Win32 window to
+  **Wails v3 + WebView2** (`argent gui` default). It loads the existing local
+  HTTP+SSE bridge, so the frontend and all IPC stay unchanged; WebView2 provides
+  mature text selection, Markdown rendering and input handling.
+- `--native` keeps the old syscall window for reference; `--web` keeps the
+  Edge/Chrome `--app` path. The Wails entry is Windows-only with a stub elsewhere.
+- Removed the intermittent startup hang and off-screen/minimized window issues:
+  WebView2 window placement is handled by Wails and the exe stays a GUI-subsystem
+  binary, so no black console appears.
+- Core packages remain stdlib-only; the desktop shell intentionally adds Wails
+  as the single third-party dependency (`go.mod` documents the exception).
+
 ## v0.2.0 — 2026-11-19
 
 - **Native GUI** replaces the browser shell on Windows: pure Win32 syscall

@@ -7,26 +7,29 @@
 | 端 | 方案 | 状态 |
 |---|---|---|
 | 终端 | CLI 一次性运行 + `internal/tui` 自绘 ANSI 全屏；无 WebView，可跑 SSH | 已落地 |
-| 图形（默认） | `internal/nativegui` 纯 Win32 syscall 自绘聊天窗口 | 已落地 |
-| 图形（可选） | `internal/gui` 内嵌 SolidJS 产物，经 HTTP + SSE 提供给浏览器，`argent gui --web` | 保留 |
+| 图形（默认） | **Wails v3 + WebView2** 窗口壳，加载 `internal/gui` 的本地 HTTP+SSE 服务 | 已落地 |
+| 图形（可选） | `argent gui --web` 用 Edge/Chrome `--app` 打开同一页面；`--native` 为实验性纯 Win32 自绘窗口 | 保留 |
 
 架构细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## 原生窗口为什么可行
+## 为什么用 Wails v3
 
-「单文件、无 cgo、stdlib only、Windows 主机自用」让原生方案比 WebView 更合适：
+自绘 Win32 窗口（`internal/nativegui`，`--native`）在消息循环/GDI 上反复出现偶发卡死，
+维护成本远高于收益。Wails v3 提供成熟的 WebView2 窗口壳：
 
-- `internal/nativegui` 只用 `syscall.NewLazyDLL` 调 `user32` / `gdi32` / `dwmapi`，
-  没有第三方模块、没有 cgo、不启 HTTP 服务、不生成 token。
-- 窗口、侧栏、会话流、工具行、审批条、输入框全部由 `WM_PAINT` + GDI 自绘；
-  唯一的子控件是输入框 `EDIT`，用子类过程把 Enter 变成「发送」（Shift+Enter 换行）。
-- 引擎仍是同一套：`cmd/argent/gui.go` 创建 `guiRunner`，把
-  `Events()` / `Approvals()` / `Commands()` 三个通道交给窗口。事件到达后通过
-  `PostMessage(WM_APP+1)` 回到 UI 线程，状态变更与绘制都留在窗口线程。
-- 视觉取 Claude / Codex 的克制风格：暖灰底（深色 `#171716`，浅色 `#f5f4ef`）、
-  单一珊瑚色强调 `#d97757`、等宽工具行、宽留白。标题栏用 DWM 深色模式。
+- `cmd/argent/wails.go` 先启动现有的 `internal/gui` HTTP+SSE 桥，拿到随机端口与一次性
+  token 的本地 URL，再把它交给 `application.WebviewWindowOptions.URL`。
+- 前端、桥接、事件契约、审批往返全部沿用原实现，无需为桌面壳改写 IPC。
+- Wails 只负责窗口与 WebView2；引擎仍是 `guiRunner` 的
+  `Events()` / `Approvals()` / `Commands()` 三个通道。
+- 发布产物仍为单一 `argent.exe`，并用 `-H=windowsgui` 编译，桌面快捷方式不会再弹出黑色控制台。
+- `--native` 保留纯 syscall 自绘实验路径；`--web` 保留 Edge/Chrome `--app` 路径。
 
-`GOOS=linux go build ./...` 仍成功：原生文件带 `//go:build windows`，非 Windows 有返回
+**依赖约束变化**：核心包仍只用标准库，但桌面壳引入了第三方 Go module
+`github.com/wailsapp/wails/v3`（以及它的传递依赖）。这是为了稳定的 WebView2 渲染而做的
+有意取舍，不影响 agent / session / llm / tools 等核心包的无依赖约束。
+
+`GOOS=linux go build ./...` 仍成功：Wails 入口带 `//go:build windows`，非 Windows 有返回
 明确错误的 stub。
 
 ## 可选 Web 界面

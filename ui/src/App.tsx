@@ -1373,8 +1373,8 @@ function App() {
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-mark">◆</span>
-          <span>argent</span>
-          <span class="brand-sub">agent workspace</span>
+          <span>argentgo</span>
+          <span class="brand-sub">agent runtime</span>
         </div>
         <div class="side-tabs">
           <button

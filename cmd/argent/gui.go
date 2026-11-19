@@ -47,7 +47,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags := flag.NewFlagSet("argent gui", flag.ContinueOnError)
 	flags.SetOutput(stdio.Err)
 	var model, baseURL, apiKey, provider, protocol, locale, cwd string
-	var web bool
+	var web, native bool
 	flags.StringVar(&model, "m", "", "model id")
 	flags.StringVar(&model, "model", "", "model id")
 	flags.StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL")
@@ -57,7 +57,8 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags.StringVar(&locale, "locale", "", "ui locale")
 	flags.StringVar(&cwd, "C", "", "workspace root")
 	flags.StringVar(&cwd, "cwd", "", "workspace root")
-	flags.BoolVar(&web, "web", false, "use the embedded web UI instead of the native window")
+	flags.BoolVar(&web, "web", false, "use the browser-based web UI instead of Wails")
+	flags.BoolVar(&native, "native", false, "use the experimental Win32 syscall window")
 	if err := flags.Parse(filtered); err != nil {
 		return 2
 	}
@@ -85,8 +86,11 @@ func runGUI(stdio cli.IO, args []string) int {
 	}
 
 	history := &guiHistory{sessions: store.Dir(), root: resolved.Root}
-	if !web && runtime.GOOS == "windows" {
+	if native && runtime.GOOS == "windows" {
 		return nativeRun(ctx, newGUIRunner(ctx, stdio, resolved, store), resolved, history)
+	}
+	if !web {
+		return wailsRun(ctx, stdio, newGUIRunner(ctx, stdio, resolved, store), resolved, store, history, provider, locale)
 	}
 
 	guiOpts := gui.Options{

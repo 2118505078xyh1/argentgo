@@ -40,7 +40,7 @@ Windows 用户直接下载 [最新 Release](https://github.com/2118505078xyh1/ar
 sha256sum -c checksums.txt      # 哈希也写在了 Release Notes 里
 ```
 
-本地构建（需要 Go 1.24+）：
+本地构建（需要 Go 1.26+，桌面壳使用 Wails v3）：
 
 ```powershell
 go build -o argent.exe ./cmd/argent
@@ -66,13 +66,14 @@ argent --provider qwen      "解释这段代码"
 argent --provider anthropic "review 一下这个改动"
 ```
 
-`argent gui` 在 Windows 上打开**原生 Win32 聊天窗口**：只用 Go 标准库 `syscall` 调用
-`user32` / `gdi32` / `dwmapi`，自己绘制侧栏、会话、工具行与输入框。没有浏览器、没有 WebView、
-没有本地 HTTP 服务、没有 token，也没有第三方依赖。视觉取 Claude / Codex 的克制风格：
-暖灰底、单一珊瑚色强调、等宽工具行。
+`argent gui` 在 Windows 上用 **Wails v3 + WebView2** 打开桌面窗口，加载本地的
+SolidJS 前端（经 `internal/gui` 的 HTTP + SSE 桥）。桌面壳是成熟方案，前端渲染、文字选择、
+Markdown 与输入法都交给 WebView2；发布产物仍是单一 `argent.exe`，且不会再弹出黑色控制台。
+视觉按 Claude / Codex 风格重做过：暖灰底、单一珊瑚色强调、宽留白。
 
-需要旧的内嵌 Web 界面时用 `argent gui --web`（保留 SolidJS + Vite 前端作为可选路径）。详见
-[docs/FRONTEND.md](docs/FRONTEND.md)。
+可选路径：`argent gui --web` 用系统 Edge/Chrome 的 `--app` 模式打开同一界面；
+`argent gui --native` 是实验性的纯 Win32 syscall 自绘窗口。核心包仍只用标准库，
+桌面壳有意引入了 Wails 依赖以换取稳定性。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
 
 其他入口：
 

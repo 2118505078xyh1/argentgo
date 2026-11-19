@@ -72,7 +72,10 @@ ui/                 SolidJS frontend
 
 ## Dependency rules
 
-- **stdlib only.** No third-party modules, no `go get`. `go.mod` has no requires.
+- **Core is stdlib only.** The `internal/{agent,session,llm,tools,security,...}` packages
+  must stay dependency-free. The Windows desktop shell (`cmd/argent/wails.go`) is an
+  explicit exception: it requires `github.com/wailsapp/wails/v3` for WebView2.
+  Do not add other third-party modules.
 - **No cgo.** Everything must cross-compile with `GOOS=linux go build ./...`.
 - Go tools: `internal/app` is the only package allowed to import everything.
   Library packages may import `internal/llm` and stdlib; otherwise take
@@ -80,6 +83,28 @@ ui/                 SolidJS frontend
 - Provider wire details live only in `internal/llm`. Keep protocol quirks out
   of the agent loop.
 - `internal/tools` never imports `internal/agent`.
+
+## Organisation and paradigms
+
+Three paradigms do different jobs here; do not force one to do another's work.
+
+- **Modules are packages, not files.** The module boundary is `internal/<pkg>`
+  and the dependency rules above — splitting a large file into several
+  `foo_*.go` files is package-internal tidying and never changes the module
+  graph. Choose file boundaries by responsibility ("how many files to change
+  one behaviour?"), never by line count.
+- **OOP in Go is composition + interfaces, not classes or inheritance.** Structs
+  hold state, methods operate on it. Depend on small interfaces injected at the
+  call site (`ToolRunner`, `Approver`, `Recorder`, `Chatter`); define the
+  interface at the consumer, not the provider. Reuse by embedding/composing —
+  there is no inheritance, and faking one produces rigid hierarchies.
+- **Functional style is for streaming and strategy injection, not everywhere.**
+  First-class functions and closures are the right tool for callbacks (`onText`,
+  `Emit`, `Compactor`, `RecorderFunc`, lazy `sync.Once`), and for passing a
+  policy in without coupling to its implementation. Keep plain loops and
+  explicit state for ordinary transformations: Go has no rich higher-order
+  collection stdlib, and forcing map/filter/reduce hurts readability. Do not add
+  a dependency just to get functional helpers.
 
 ## Invariants worth breaking tests over
 
