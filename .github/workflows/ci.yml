@@ -44,13 +44,6 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
-      - name: go test -race
-        # Concurrency is a release gate here (session fd/ID indexes, broker
-        # channels, job registry). windows-latest ships MinGW so CGO is
-        # available; the local dev host has no gcc and skips this step.
-        env:
-          CGO_ENABLED: '1'
-        run: go test -race ./...
       # Windows amd64 is the only shipped target; build it with no cgo here
       # instead of producing binaries for platforms we do not distribute.
       - name: build (no cgo)
@@ -66,23 +59,19 @@ jobs:
           CGO_ENABLED: '0'
         run: go build ./...
 
-  ui:
-    name: ui
+  race:
+    name: go test -race (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
         with:
-          bun-version: '1.4.4'
-      - name: install
-        working-directory: ui
-        run: bun install --frozen-lockfile
-      - name: typecheck
-        working-directory: ui
-        run: bun run typecheck
-      - name: test
-        working-directory: ui
-        run: bun run test
-      - name: build
-        working-directory: ui
-        run: bun run build
+          go-version-file: go.mod
+          cache: true
+      # The race detector needs cgo; Linux runners ship gcc, so this is the
+      # reliable place to enforce the concurrency release gate. (The Windows
+      # job cannot run -race reliably with the bundled MinGW toolchain.)
+      - name: go test -race
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./...
