@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.0 — 2026-11-20
+
+Five rounds of study-and-harden cycles against opencode, DeepSeek Harness,
+pi (rpi) and oh-my-pi (omp). All changes are stdlib-only Go; the desktop shell
+remains MyGo. Highlights:
+
+**Agent loop & correctness**
+- Output-limit continuation: a length-truncated text reply now injects a
+  "break the work into smaller pieces" message and stops after two consecutive
+  truncations (was silently reported complete).
+- Typed retry classification: provider fallback now uses `llm.ClassifyRetryError`
+  and `IsRetryableStatus` instead of fragile string matching.
+- Cancellation now records a terminal "Operation aborted" assistant message.
+- The before-request/before-tool durability barrier is wired into the loop and
+  registered to `Session.Sync()`.
+- Tool-call intent (`i`) is extracted before execution and surfaced on events.
+- Non-draining pending-message count exposed on turn-boundary events.
+
+**Session durability**
+- `Session.Sync()` flushes before model requests and tool dispatch.
+- Torn-tail recovery: only a syntax error on the LAST JSONL line is healed
+  (atomic prefix publish); schema errors or mid-file corruption fail closed.
+- Tool-pairing-safe compaction cut: a call is never separated from its result.
+- Byte-bounded transcript pagination (`ReadPage`) never truncates a record.
+- Nested `AGENTS.md` / `CLAUDE.md` discovered for active subdirectories.
+
+**Security & tools**
+- Approval prompts are now context-cancellable and render rune-safe multiline args.
+- Host-private environment variables are stripped from spawned children.
+- ANSI/CR shell-output sanitizer; incremental UTF-8 decoding across read chunks.
+- PowerShell tool registered for the Windows host.
+- Central tool-result normalizer for malformed/oversized outputs.
+
+**Prompt cache**
+- Conversation-tail cache breakpoint with validated TTL tiers.
+
 ## v0.4.0 — 2026-11-19
 
 - **Browser frontend removed; native MyGo is now the only desktop frontend.**
