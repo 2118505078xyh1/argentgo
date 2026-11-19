@@ -202,8 +202,14 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		if wparam == animationTimerID && s != nil {
 			s.mu.Lock()
 			s.tick++
+			animate := s.busy || s.hoverSend
 			s.mu.Unlock()
-			invalidate(hwnd)
+			// Only repaint when something visible is actually animated.
+			// Invalidating unconditionally keeps the window permanently in
+			// paint state (and makes PrintWindow/screen capture hang).
+			if animate {
+				invalidate(hwnd)
+			}
 		}
 		return 0
 
@@ -427,7 +433,9 @@ func widthOf(hwnd uintptr) int {
 }
 
 func paint(hdc uintptr, hwnd uintptr) {
-	applyTheme(current.dark)
+	// Brushes are created in applyTheme (WM_CREATE / theme toggle) and reused
+	// here. Recreating them on every frame would delete GDI objects that the
+	// child EDIT control may still hold from WM_CTLCOLOREDIT.
 	var rc rect
 	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	w, h := int(rc.Right), int(rc.Bottom)
@@ -552,11 +560,9 @@ func paint(hdc uintptr, hwnd uintptr) {
 	}
 	pSelectObject.Call(hdc, fontSmall)
 	if busy {
-		pSetTextColor.Call(hdc, uintptr(clrAccent))
-		textAt(hdc, spinnerFrame(tick)+" "+status, colX, bottom+2, uint32(colW))
+		textBox(hdc, spinnerFrame(tick)+" "+status, colX, bottom-16, colW, 16, fontSmall, clrAccent, 0)
 	} else if status != "" {
-		pSetTextColor.Call(hdc, uintptr(clrDim))
-		textAt(hdc, status, colX, bottom+2, uint32(colW))
+		textBox(hdc, status, colX, bottom-16, colW, 16, fontSmall, clrFaint, 0)
 	}
 
 	// Composer surface.
