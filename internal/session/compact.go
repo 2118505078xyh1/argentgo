@@ -83,16 +83,109 @@ func KeepForBudget(entries []Entry, budget int) int {
 	return keep
 }
 
-// adjustCut extends the original tool-pair check so a cut never lands inside a
-// group of tool results: it backs up over the whole trailing run of tool
-// messages to the assistant message that issued them. The same helper is used
-// by both Compact(keep) and CompactBudget, so a budget-derived cut is as safe
-// as a fixed one.
+// adjustCut makes a proposed cut tool-pairing safe: a tool call and its result
+// must end up on the same side of the cut. It first preserves the original
+// behaviour of backing up over a trailing run of tool messages, then uses the
+// tool-call ids carried in assistant payloads and tool results to back up over
+// any remaining call/result pair straddling the cut. Backing up keeps more
+// messages verbatim (the pair moves into the kept suffix); it never moves the
+// cut forward, so a call can never be summarised while its result is kept (or
+// vice versa). The same helper is used by Compact(keep) and CompactBudget.
 func adjustCut(entries []Entry, start int) int {
+	// Legacy, id-less case: never cut inside a trailing run of tool results.
 	for start > 0 && start < len(entries) && entries[start].Role == "tool" {
 		start--
 	}
+
+	// Map every tool-call id to the assistant indices that declared it. The
+	// transcript may contain retries with the same id, so keep all positions.
+	callIndices := make(map[string][]int)
+	for i, entry := range entries {
+		if entry.Role != "assistant" {
+			continue
+		}
+		for _, id := range toolCallIDs(entry) {
+			callIndices[id] = append(callIndices[id], i)
+		}
+	}
+
+	// For each pair (call, result) the cut must not fall strictly between them,
+	// i.e. in (call, result]. Lowering start to the call index resolves that
+	// split; repeat because the new start may sit inside another pair's range.
+	for {
+		moved := false
+		for i, entry := range entries {
+			if entry.Role != "tool" || entry.ToolCallID == "" {
+				continue
+			}
+			call := lastCallBefore(callIndices[entry.ToolCallID], i)
+			if call >= 0 && call < start && start <= i {
+				start = call
+				moved = true
+				break
+			}
+		}
+		if !moved {
+			break
+		}
+	}
 	return start
+}
+
+// toolCallIDs extracts the ids of the tool calls declared by an assistant
+// entry. Assistant records persist the full llm.Message payload, whose key is
+// "tool_calls" (some producers use "toolCalls"); older records may instead
+// carry a single "tool_call_id". Entries without any id contribute no pairs,
+// which preserves the id-less trailing-run behaviour of adjustCut.
+func toolCallIDs(entry Entry) []string {
+	if len(entry.Data) == 0 {
+		if entry.ToolCallID != "" {
+			return []string{entry.ToolCallID}
+		}
+		return nil
+	}
+	var payload struct {
+		Snake []struct {
+			ID string `json:"id"`
+		} `json:"tool_calls"`
+		Camel []struct {
+			ID string `json:"id"`
+		} `json:"toolCalls"`
+	}
+	if err := json.Unmarshal(entry.Data, &payload); err != nil {
+		if entry.ToolCallID != "" {
+			return []string{entry.ToolCallID}
+		}
+		return nil
+	}
+	ids := make([]string, 0, len(payload.Snake)+len(payload.Camel))
+	for _, call := range payload.Snake {
+		if call.ID != "" {
+			ids = append(ids, call.ID)
+		}
+	}
+	for _, call := range payload.Camel {
+		if call.ID != "" {
+			ids = append(ids, call.ID)
+		}
+	}
+	if len(ids) == 0 && entry.ToolCallID != "" {
+		ids = append(ids, entry.ToolCallID)
+	}
+	return ids
+}
+
+// lastCallBefore returns the greatest call index strictly before before, or -1
+// when the id has no call on that side of the transcript.
+func lastCallBefore(indices []int, before int) int {
+	last := -1
+	for _, index := range indices {
+		if index >= before {
+			break
+		}
+		last = index
+	}
+	return last
 }
 
 // estimateEntryTokens is a conservative, allocation-free estimate used only

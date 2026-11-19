@@ -31,6 +31,12 @@ Use the available tools to inspect and change files. Read before writing, batch 
 	// before the repeat guard answers with an error instead.
 	defaultMaxRepeats = 2
 
+	// StopOutputLimit means the model ended two consecutive replies for output
+	// length and the latest one asked for no tools, so the loop stopped asking
+	// it to continue. The other Stop* reasons live in budget.go; this one is
+	// declared here because it is a loop limit rather than a budget limit.
+	StopOutputLimit = "output_limit"
+
 	// compactionRecoveryBand is the omp-style hysteresis band: a mid-turn
 	// compaction aims at this fraction of the trigger threshold. Landing below
 	// the trigger but inside the band is enough to release compaction pressure,
@@ -234,8 +240,8 @@ type Result struct {
 	// Turns is how many model requests completed.
 	Turns int
 	// Stopped is why the run ended: StopComplete, StopMaxTurns,
-	// StopMaxPromptTokens, StopMaxTotalTokens, StopMaxCost, StopCancelled or
-	// StopProviderError.
+	// StopMaxPromptTokens, StopMaxTotalTokens, StopMaxCost, StopCancelled,
+	// StopProviderError or StopOutputLimit.
 	Stopped string
 }
 

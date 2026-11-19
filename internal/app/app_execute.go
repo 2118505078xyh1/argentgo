@@ -49,6 +49,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	tracker := newCheckpointTracker(res.Root, sess)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactor(res, sess)
+	// Durability barriers: flush the JSONL session before each expensive step.
+	// Execute may run more than once per process (schema retries, tests), so
+	// replace rather than accumulate hooks bound to an earlier session.
+	agent.ResetBeforeHooks()
+	agent.RegisterBeforeRequest(func() error { return sess.Sync() })
+	agent.RegisterBeforeTool(func() error { return sess.Sync() })
+	// Hooks are process-global; clear them on exit so a later run on another
+	// path (e.g. the eval suite's own loop) cannot sync a stale session.
+	defer agent.ResetBeforeHooks()
 	loop := &agent.Runner{Opts: agent.Options{
 		Model:       res.Model,
 		MaxTurns:    res.MaxTurns,

@@ -78,6 +78,63 @@ func (r Result) Combined() string {
 	return r.Stdout + r.Stderr
 }
 
+// CancelReason describes why a run was cut short. It is a purely additive
+// classification helper: Run keeps wrapping context errors with %w exactly as
+// before, so callers that already use errors.Is are unaffected. ClassifyCancel
+// lets a caller that only needs the reason avoid reimplementing that chain.
+type CancelReason uint8
+
+const (
+	// CancelNone means there was no error to classify.
+	CancelNone CancelReason = iota
+	// CancelTimeout means the error wraps context.DeadlineExceeded.
+	CancelTimeout
+	// CancelUser means the error wraps context.Canceled, i.e. an explicit
+	// interrupt rather than an elapsed deadline.
+	CancelUser
+	// CancelSignal means the run was interrupted by an OS signal. It is part of
+	// the reason vocabulary for callers that wrap signal cancellations in their
+	// own sentinel; ClassifyCancel never returns it on its own.
+	CancelSignal
+	// CancelUnknown means the error is non-nil but carries no known cause.
+	CancelUnknown
+)
+
+// ClassifyCancel maps err to a CancelReason using errors.Is, so wrapped errors
+// such as the ones Run returns are classified by their cause. A nil error is
+// CancelNone; an error that matches no known cause is CancelUnknown.
+func ClassifyCancel(err error) CancelReason {
+	if err == nil {
+		return CancelNone
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return CancelTimeout
+	case errors.Is(err, context.Canceled):
+		return CancelUser
+	default:
+		return CancelUnknown
+	}
+}
+
+// String implements fmt.Stringer, giving each reason a short stable label.
+func (r CancelReason) String() string {
+	switch r {
+	case CancelNone:
+		return "none"
+	case CancelTimeout:
+		return "timeout"
+	case CancelUser:
+		return "user"
+	case CancelSignal:
+		return "signal"
+	case CancelUnknown:
+		return "unknown"
+	default:
+		return fmt.Sprintf("CancelReason(%d)", uint8(r))
+	}
+}
+
 // Run executes c and returns its captured output.
 //
 // A non-zero exit is not an error: the exit code is in the Result. An error is

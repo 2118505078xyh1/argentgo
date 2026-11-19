@@ -2,13 +2,19 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
+
+// execute is the single test seam for Prompt. Production always uses Execute;
+// tests swap it to observe cancellation without running the real agent loop.
+var execute = Execute
 
 // Factory returns the runner factory the CLI expects.
 func Factory(stdio cli.IO) cli.RunnerFactory {
@@ -40,13 +46,25 @@ type runner struct {
 	res   Resolved
 	store *session.Store
 
+	// busy guards the single-flight contract: a runner appends to one active
+	// transcript, so a second concurrent prompt must be refused instead of
+	// interleaving records into that chain.
+	busy atomic.Bool
+
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	current *session.Session
 }
 
-// Prompt satisfies cli.Runner.
+// Prompt satisfies cli.Runner. At most one prompt may be in flight on a runner.
 func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (string, error) {
+	if !r.busy.CompareAndSwap(false, true) {
+		return "", errors.New("prompt already running")
+	}
+	// Registered before the cancel cleanup below so busy is released last: a
+	// new prompt may only start once the previous cancel slot is cleared.
+	defer r.busy.Store(false)
+
 	ctx, cancel := context.WithCancel(ctx)
 	r.mu.Lock()
 	r.cancel = cancel
@@ -62,7 +80,7 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	if err != nil {
 		return "", err
 	}
-	result, err := Execute(ctx, r.stdio, r.res, sess, text, onText)
+	result, err := execute(ctx, r.stdio, r.res, sess, text, onText)
 	return result.Text, err
 }
 

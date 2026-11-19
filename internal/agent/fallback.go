@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -86,10 +88,33 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 	return llm.Message{}, fmt.Errorf("agent: all %d model(s) failed (%s): %w", len(tried), strings.Join(tried, ", "), lastErr)
 }
 
+// httpStatusRE finds an HTTP status code in a provider error string such as
+// "provider returned 429: ..." or "HTTP 503: service unavailable". The status
+// is the only reliable typed signal those errors carry, so it is handed to
+// llm.IsRetryableStatus instead of being compared against local constants.
+var httpStatusRE = regexp.MustCompile(`\b([1-5][0-9]{2})\b`)
+
+// statusCodeInError extracts the first HTTP status from a provider error
+// message. It reports false when the text carries no plausible status code.
+func statusCodeInError(text string) (int, bool) {
+	match := httpStatusRE.FindStringSubmatch(text)
+	if match == nil {
+		return 0, false
+	}
+	code, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	return code, true
+}
+
 // isRetryableProviderError decides whether another model can plausibly serve
-// the same turn. Provider clients return plain errors, so this combines
-// errors.As for typed network failures with conservative text matching for
-// HTTP status lines. Context cancellation and validation failures are final.
+// the same turn. llm.ClassifyRetryError owns transport failures and
+// llm.IsRetryableStatus owns HTTP status codes; the decisions here are their
+// union with the legacy prose vocabulary, so a provider that reports a
+// retryable condition without a typed error or a numeric status keeps working.
+// Cancellation and validation failures stay final because repeating the same
+// messages cannot fix them.
 func isRetryableProviderError(err error) bool {
 	if err == nil {
 		return false
@@ -102,21 +127,42 @@ func isRetryableProviderError(err error) bool {
 	if containsAny(lower, "invalid request", "validation", "bad request", "unauthorized", "forbidden", "permission denied") {
 		return false
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	return containsAny(lower,
+
+	// Keep the legacy prose vocabulary: some providers describe the condition
+	// without a typed error or a parseable status ("quota exceeded", "5xx").
+	legacyRetryable := containsAny(lower,
 		"429", "too many requests", "rate limit", "quota", "overloaded", "try again",
 		"500", "502", "503", "504", "5xx",
 		"internal server error", "bad gateway", "service unavailable", "gateway timeout",
 		"connection reset", "connection refused", "broken pipe", "temporary failure",
 		"timeout", "timed out",
 	)
+
+	// A numeric status means the provider answered, so the status is the more
+	// specific signal. llm owns which statuses are retryable; the prose signal
+	// is unioned in so an unusual status paired with "quota" keeps its old
+	// decision.
+	if code, ok := statusCodeInError(lower); ok {
+		return llm.IsRetryableStatus(code) || legacyRetryable
+	}
+
+	// Without a status, llm classifies the transport failure. Timeouts and
+	// unreachable hosts are the classes worth another model; a bare
+	// ReasonNotSent (an ordinary application error) is deliberately not, since
+	// repeating the same request is unlikely to change its answer.
+	switch llm.ClassifyRetryError(err) {
+	case llm.ReasonTimeout, llm.ReasonUnreachable:
+		return true
+	}
+
+	// The legacy matcher switched models on any failed network operation,
+	// including causes the typed classifier cannot name. Keep that case so the
+	// decision stays the union of the old and new signals.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	return legacyRetryable
 }
 
 // containsAny reports whether text holds any of the lower-case needles.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // Approver asks a human whether one tool call may run.
@@ -27,8 +28,15 @@ func NewPromptApprover(in io.Reader, out io.Writer) *PromptApprover {
 	return &PromptApprover{In: in, Out: out}
 }
 
+// lineResult carries one readLine outcome back from its goroutine.
+type lineResult struct {
+	line string
+	err  error
+}
+
 // Ask prints the question and reads one line. Only y/yes approves; EOF and an
-// empty answer deny.
+// empty answer deny. The blocking stdin read runs in a goroutine so a cancelled
+// context returns promptly instead of waiting for operator input.
 func (p *PromptApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -39,17 +47,39 @@ func (p *PromptApprover) Ask(ctx context.Context, name string, args string) (boo
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.Out != nil {
-		question := fmt.Sprintf("Allow %s %s? [y/N] ", name, compactArgs(args))
+		question := fmt.Sprintf("Allow %s %s? [y/N] ", name, readableArgs(args))
 		if _, err := io.WriteString(p.Out, question); err != nil {
 			return false, fmt.Errorf("security: writing approval prompt: %w", err)
 		}
 	}
-	line, err := readLine(p.In)
-	if err != nil && err != io.EOF {
-		return false, fmt.Errorf("security: reading approval answer: %w", err)
+
+	// readLine can block forever on an interactive stdin read. Running it in a
+	// goroutine lets ctx.Done() win the race. If cancellation wins, the
+	// goroutine stays blocked on that single read until stdin delivers a line
+	// or closes; for a CLI this brief leak is acceptable because a cancelled
+	// run is already ending. The result channel is buffered so the goroutine
+	// can always finish without a receiver.
+	results := make(chan lineResult, 1)
+	go func() {
+		line, err := readLine(p.In)
+		results <- lineResult{line: line, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case result := <-results:
+		// A read that finished at the same moment as cancellation must still
+		// report the cancellation, never a plain approve/deny racing with it.
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if result.err != nil && result.err != io.EOF {
+			return false, fmt.Errorf("security: reading approval answer: %w", result.err)
+		}
+		answer := strings.ToLower(strings.TrimSpace(result.line))
+		return answer == "y" || answer == "yes", nil
 	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "y" || answer == "yes", nil
 }
 
 // NeverApprover denies every request. It backs ARGENT_APPROVAL=never.
@@ -131,12 +161,91 @@ func readLine(reader io.Reader) (string, error) {
 	}
 }
 
-// compactArgs keeps the prompt on one line.
-func compactArgs(args string) string {
-	text := strings.Join(strings.Fields(args), " ")
-	const limit = 160
-	if len(text) <= limit {
+// readableArgs renders tool arguments for the approval prompt. It keeps
+// newlines so multiline commands stay legible, expands tabs to spaces, drops
+// ANSI escape sequences and other control bytes, and truncates on a rune
+// boundary so a wide UTF-8 character is never cut in half.
+func readableArgs(args string) string {
+	text := stripANSIAndControls(args)
+	text = strings.ReplaceAll(text, "\t", "    ")
+	const runeCap = 400
+	const ellipsis = "…"
+	if utf8.RuneCountInString(text) <= runeCap {
 		return text
 	}
-	return text[:limit] + "..."
+	cut := 0
+	seen := 0
+	for i := range text {
+		if seen == runeCap {
+			cut = i
+			break
+		}
+		seen++
+	}
+	return text[:cut] + ellipsis
+}
+
+// stripANSIAndControls removes ANSI escape sequences (CSI, OSC and bare ESC
+// sequences) and control bytes, keeping printable text, '\n' and '\t'.
+func stripANSIAndControls(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == 0x1b { // ESC
+			i++
+			if i >= len(s) {
+				break
+			}
+			switch s[i] {
+			case '[': // CSI: consumed through a final byte in 0x40..0x7e.
+				i++
+				for i < len(s) {
+					last := s[i]
+					i++
+					if last >= 0x40 && last <= 0x7e {
+						break
+					}
+				}
+			case ']': // OSC: consumed through BEL (0x07) or ST (ESC '\\').
+				i++
+				for i < len(s) {
+					if s[i] == 0x07 {
+						i++
+						break
+					}
+					if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+						i += 2
+						break
+					}
+					i++
+				}
+			default: // Other escape sequences: drop ESC and this one byte.
+				i++
+			}
+			continue
+		}
+		if c == '\n' || c == '\t' {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		if c < 0x20 || c == 0x7f {
+			i++ // any other ASCII control byte
+			continue
+		}
+		if c < 0x80 {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r >= 0x80 && r <= 0x9f {
+			i += size // C1 control byte encoded in UTF-8
+			continue
+		}
+		b.WriteString(s[i : i+size])
+		i += size
+	}
+	return b.String()
 }

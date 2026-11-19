@@ -106,6 +106,9 @@ func (c *Container) OpenSession(id string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := ValidateAndRepair(path, true); err != nil {
+		return nil, fmt.Errorf("resume session %q: %w", id, err)
+	}
 	session := &Session{
 		dir: c.dir,
 		id:  strings.TrimSuffix(filepath.Base(path), fileExt),
@@ -138,6 +141,11 @@ func (c *Container) List() ([]Meta, error) {
 		}
 		id := entry.Name()[:len(entry.Name())-len(fileExt)]
 		path := filepath.Join(c.dir, entry.Name())
+		// Listing never repairs: hard-corrupt transcripts are invisible here,
+		// and a torn tail stays untouched until an explicit resume.
+		if _, err := ValidateAndRepair(path, false); err != nil {
+			continue
+		}
 
 		info, statErr := entry.Info()
 		var meta Meta

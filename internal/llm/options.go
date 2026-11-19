@@ -100,6 +100,29 @@ func (o Options) cacheControl() *CacheControl {
 	return control
 }
 
+// normalizeCacheTTL accepts only the retention tiers understood by the
+// caching gateways. Whitespace is trimmed before matching, empty means "use
+// the provider default", and any other value is rejected (returns "") rather
+// than forwarded as an unsupported hint. It never mutates Options.
+func normalizeCacheTTL(ttl string) string {
+	trimmed := strings.TrimSpace(ttl)
+	switch trimmed {
+	case "", "5m", "30m", "1h", "24h":
+		return trimmed
+	default:
+		return ""
+	}
+}
+
+// normalizedCacheControl builds a marker for the advancing conversation-tail
+// breakpoint. The long-standing stable-prefix markers keep using cacheControl
+// unchanged so their wire format is preserved.
+func (o Options) normalizedCacheControl() *CacheControl {
+	control := EphemeralCacheControl()
+	control.TTL = normalizeCacheTTL(o.CacheRetention)
+	return control
+}
+
 // isLocalEndpoint treats loopback endpoints as local even when a provider
 // template speaks a cache-capable protocol.
 func isLocalEndpoint(baseURL string) bool {

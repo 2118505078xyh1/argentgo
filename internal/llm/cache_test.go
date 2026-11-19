@@ -398,3 +398,181 @@ func TestCancellationMidStreamLeavesNoPartialAccounting(t *testing.T) {
 		})
 	}
 }
+
+// anthropicRequestBody runs one Chat against a local test server and returns
+// the decoded request body. The client is configured by the caller so each
+// case can exercise caching enablement and retention independently.
+func anthropicRequestBody(t *testing.T, configure func(*llm.AnthropicClient), messages []llm.Message, tools []llm.ToolSpec) map[string]any {
+	t.Helper()
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		writeSSE(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+
+	client := llm.NewAnthropic(server.URL, "k")
+	if configure != nil {
+		configure(client)
+	}
+	if _, err := client.Chat(context.Background(), "m", messages, tools, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	return body
+}
+
+// toolResultBlocks returns every tool_result block in wire order across all
+// messages, so tests can distinguish the last one from earlier results.
+func toolResultBlocks(body map[string]any) []map[string]any {
+	wire, _ := body["messages"].([]any)
+	var blocks []map[string]any
+	for _, rawMessage := range wire {
+		message, _ := rawMessage.(map[string]any)
+		content, _ := message["content"].([]any)
+		for _, rawBlock := range content {
+			block, _ := rawBlock.(map[string]any)
+			if block["type"] == "tool_result" {
+				blocks = append(blocks, block)
+			}
+		}
+	}
+	return blocks
+}
+
+func messagesWithTwoToolResults() []llm.Message {
+	return []llm.Message{
+		{Role: "system", Content: "be terse"},
+		{Role: "user", Content: "read both"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "1", Function: llm.ToolCallFunction{Name: "read", Arguments: `{}`}},
+			{ID: "2", Function: llm.ToolCallFunction{Name: "read", Arguments: `{}`}},
+		}},
+		{Role: "tool", ToolCallID: "1", Content: "first result"},
+		{Role: "tool", ToolCallID: "2", Content: "second result"},
+	}
+}
+
+func messagesWithoutToolResults() []llm.Message {
+	return []llm.Message{
+		{Role: "system", Content: "be terse"},
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+}
+
+func TestAnthropicConversationTailBreakpoint(t *testing.T) {
+	forced := func(retention string) func(*llm.AnthropicClient) {
+		return func(c *llm.AnthropicClient) {
+			c.Options.ForcePromptCache = true
+			c.Options.CacheRetention = retention
+		}
+	}
+	cases := []struct {
+		name           string
+		configure      func(*llm.AnthropicClient)
+		messages       []llm.Message
+		wantTailMark   bool
+		wantTailTTL    string
+		wantStableMark bool
+	}{
+		{
+			name:           "enabled marks the final tool result with a validated tier",
+			configure:      forced("24h"),
+			messages:       messagesWithTwoToolResults(),
+			wantTailMark:   true,
+			wantTailTTL:    "24h",
+			wantStableMark: true,
+		},
+		{
+			name:           "invalid retention tier drops the tail hint",
+			configure:      forced("10s"),
+			messages:       messagesWithTwoToolResults(),
+			wantTailMark:   true,
+			wantTailTTL:    "",
+			wantStableMark: true,
+		},
+		{
+			name: "no prompt cache emits no tail marker",
+			configure: func(c *llm.AnthropicClient) {
+				forced("24h")(c)
+				c.Options.NoPromptCache = true
+			},
+			messages:       messagesWithTwoToolResults(),
+			wantTailMark:   false,
+			wantStableMark: false,
+		},
+		{
+			name: "local endpoint keeps cache auto-detection",
+			configure: func(c *llm.AnthropicClient) {
+				c.Options.CacheRetention = "24h"
+			},
+			messages:       messagesWithTwoToolResults(),
+			wantTailMark:   false,
+			wantStableMark: false,
+		},
+		{
+			name:           "request without tool results is unchanged",
+			configure:      forced("24h"),
+			messages:       messagesWithoutToolResults(),
+			wantTailMark:   false,
+			wantStableMark: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := anthropicRequestBody(t, tc.configure, tc.messages, twoToolSpecs())
+			blocks := toolResultBlocks(body)
+			if tc.wantTailMark && len(blocks) < 2 {
+				t.Fatalf("need at least two tool results to identify the last one, got %d", len(blocks))
+			}
+			for i, block := range blocks {
+				control, marked := block["cache_control"].(map[string]any)
+				wantMarked := tc.wantTailMark && i == len(blocks)-1
+				if marked != wantMarked {
+					t.Fatalf("tool_result[%d] marked = %v, want %v", i, marked, wantMarked)
+				}
+				if !wantMarked {
+					continue
+				}
+				if control["type"] != "ephemeral" {
+					t.Fatalf("tool_result[%d] cache_control = %#v", i, control)
+				}
+				ttl, hasTTL := control["ttl"]
+				if tc.wantTailTTL == "" {
+					if hasTTL {
+						t.Fatalf("tool_result[%d] has unexpected ttl: %#v", i, ttl)
+					}
+				} else if ttl != tc.wantTailTTL {
+					t.Fatalf("tool_result[%d] ttl = %#v, want %q", i, ttl, tc.wantTailTTL)
+				}
+			}
+
+			tools, _ := body["tools"].([]any)
+			if len(tools) == 0 {
+				t.Fatal("request has no tool schemas")
+			}
+			lastTool, _ := tools[len(tools)-1].(map[string]any)
+			if _, ok := lastTool["cache_control"]; ok != tc.wantStableMark {
+				t.Fatalf("last tool schema marked = %v, want %v", ok, tc.wantStableMark)
+			}
+			switch system := body["system"].(type) {
+			case []any:
+				if !tc.wantStableMark {
+					t.Fatalf("system should stay a string when caching is off: %#v", system)
+				}
+			case string:
+				if tc.wantStableMark {
+					t.Fatalf("system should be a cacheable block: %q", system)
+				}
+			default:
+				t.Fatalf("system = %#v", body["system"])
+			}
+		})
+	}
+}

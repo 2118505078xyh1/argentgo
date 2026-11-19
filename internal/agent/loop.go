@@ -13,6 +13,17 @@ import (
 // cancelledCallReason is the tool result written for a call that never ran.
 const cancelledCallReason = "tool did not run: the run was cancelled"
 
+// continueAfterOutputLimit is the synthetic user turn appended when the model
+// runs out of output tokens before it asks for tools. Mirrors OpenCode's
+// CONTINUE_AFTER_OUTPUT_LIMIT: the model usually knows what is left to say but
+// needs a fresh output budget in which to say it in smaller pieces.
+const continueAfterOutputLimit = "Continue the work, but break the remaining steps into smaller pieces."
+
+// maxConsecutiveLengthFinishes bounds how often the loop asks the model to
+// continue after output-limit truncations. Without a bound, a model that always
+// hits the same limit would keep the run alive until the turn budget expired.
+const maxConsecutiveLengthFinishes = 2
+
 // runState is the mutable state of one run. A subagent gets its own state, so
 // nothing but the configured interfaces is shared with the parent.
 type runState struct {
@@ -43,6 +54,18 @@ type runState struct {
 	// recordMu serialises recorder writes for the same reason.
 	recordMu sync.Mutex
 
+	// Delivery to the outside world (emitFn and the legacy Out writer) happens
+	// outside eventsMu so a slow consumer cannot block event recording or a turn
+	// boundary. emitSeq is the next append-order ticket and is guarded by
+	// eventsMu; emitDelivered is the next ticket allowed out and is guarded by
+	// emitSendMu. The cond gate makes emitFn observe exactly the append order
+	// even when a streaming tool's progress callback emits from a worker.
+	emitSeq       uint64
+	emitSendMu    sync.Mutex
+	emitDelivered uint64
+	emitOnce      sync.Once
+	emitCond      *sync.Cond
+
 	// toolMeta is the in-process metadata produced by the tool runner, keyed by
 	// ToolCallID. A parallel batch writes distinct keys from worker goroutines,
 	// so access is guarded. It is never persisted: after resume the regular
@@ -53,6 +76,11 @@ type runState struct {
 	// compactor and compactThreshold drive the mid-turn compaction boundary.
 	compactor        Compactor
 	compactThreshold int
+
+	// consecutiveLengthFinishes counts replies ended for output length without
+	// an intervening non-length reply. It drives the continuation budget for
+	// tool-free answers and is reset by every reply that was not truncated.
+	consecutiveLengthFinishes int
 }
 
 // execute is the internal entry point shared by Run, RunText and Prompt.
@@ -145,6 +173,7 @@ func (s *runState) toolMetaSnapshot() map[string]ToolMeta {
 func (s *runState) loop(ctx context.Context) (Result, error) {
 	for {
 		if err := ctx.Err(); err != nil {
+			s.appendAbortedAssistant()
 			s.emit(Event{Kind: EventStop, Reason: StopCancelled})
 			return s.result(StopCancelled), err
 		}
@@ -197,9 +226,19 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		turn := s.turns
 		promptEstimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
 		s.emit(Event{Kind: EventTurnStart, Turn: turn})
+		// Durability seam: flush the session before the expensive request. A
+		// hook error is treated like any other chat failure — no request is
+		// made, and the run ends as a provider error rather than risking work
+		// the store is not ready to survive.
+		if err := RunBeforeRequest(); err != nil {
+			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error()})
+			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
+			return s.result(StopProviderError), err
+		}
 		reply, err := s.chatWithFallback(ctx, turn)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
+				s.appendAbortedAssistant()
 				s.emit(Event{Kind: EventStop, Reason: StopCancelled})
 				return s.result(StopCancelled), ctxErr
 			}
@@ -228,10 +267,33 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		s.emit(Event{Kind: EventTurnEnd, Turn: turn})
 		s.emit(Event{Kind: EventUsage, Turn: turn, Usage: turnUsage, TotalUsage: s.usage})
 
+		// Classify the finish once: a length truncation matters both to the
+		// tool batch below and to the tool-free continuation path. Every reply
+		// that was not truncated restores the continuation budget.
+		truncated := s.replyTruncated(reply)
+		if truncated {
+			s.consecutiveLengthFinishes++
+		} else {
+			s.consecutiveLengthFinishes = 0
+		}
+
 		if len(reply.ToolCalls) == 0 {
 			// A correction that arrived while the answer was streaming still
 			// deserves an answer: another turn instead of finishing.
 			if s.injectSteering() {
+				continue
+			}
+			if truncated {
+				// The answer is incomplete only because the output budget ran
+				// out. Ask for the remainder in a fresh turn, but do not let a
+				// model stuck at the same limit spin until the turn budget ends.
+				if s.consecutiveLengthFinishes >= maxConsecutiveLengthFinishes {
+					s.emit(Event{Kind: EventStop, Reason: StopOutputLimit})
+					return s.result(StopOutputLimit), nil
+				}
+				s.messages = append(s.messages, llm.Message{Role: "user", Content: continueAfterOutputLimit})
+				s.record("user", continueAfterOutputLimit)
+				s.emit(Event{Kind: EventNotice, Text: "output limit reached; asking the model to continue in smaller steps"})
 				continue
 			}
 			s.emit(Event{Kind: EventStop, Reason: StopComplete})
@@ -246,12 +308,25 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			return s.result(reason), nil
 		}
 
-		if s.replyTruncated(reply) {
+		if truncated {
 			// A length-truncated reply can carry half-written tool arguments.
 			// Pair every call with an error result but execute none of them.
 			s.fillUnrun(reply.ToolCalls, truncatedToolReason)
 			s.emit(Event{Kind: EventNotice, Text: truncatedToolReason})
+		} else if err := RunBeforeTool(); err != nil {
+			// Durability barrier failed: no tool may be dispatched. Answer
+			// every call with an ordered error result so the transcript keeps
+			// each tool call paired with its result.
+			reason := fmt.Sprintf("tool dispatch aborted: %v", err)
+			s.fillUnrun(reply.ToolCalls, reason)
+			s.emit(Event{Kind: EventNotice, Text: reason})
 		} else if stopped := s.runTools(ctx, turn, reply.ToolCalls); stopped != "" {
+			if stopped == StopCancelled {
+				// The batch already appended its (unrun) tool results; close the
+				// transcript with a terminal assistant so the last message is
+				// the abort, not a pending tool use.
+				s.appendAbortedAssistant()
+			}
 			s.emit(Event{Kind: EventStop, Reason: stopped})
 			if stopped == StopCancelled {
 				return s.result(stopped), ctx.Err()
@@ -425,19 +500,52 @@ func (s *runState) result(stopped string) Result {
 	}
 }
 
+// appendAbortedAssistant leaves a terminal assistant turn on a cancelled run.
+// Without it, a consumer that derives the outcome from the last assistant
+// message would see a tool-use turn (or no assistant at all) rather than the
+// abort. Only the transcript changes: Result.Stopped stays StopCancelled.
+func (s *runState) appendAbortedAssistant() {
+	aborted := llm.Message{
+		Role:         "assistant",
+		Content:      "Operation aborted",
+		FinishReason: "aborted",
+	}
+	s.messages = append(s.messages, aborted)
+	s.record("assistant", aborted)
+}
+
 // emit delivers one event, stamping the subagent depth and mirroring text
 // deltas to the legacy Out writer.
+//
+// Recording and delivery are deliberately separated: eventsMu only guards the
+// append, so a slow emitFn (pipe write, SSE flush, UI render) never blocks a
+// progress callback or a turn boundary from being recorded. Delivery is gated
+// by an append-order ticket so emitFn still observes events in exactly the
+// order they were appended, even with concurrent emitters.
 func (s *runState) emit(event Event) {
 	event.Depth = s.depth
+	// sync.Once keeps emit usable on a runState built without newRunState.
+	s.emitOnce.Do(func() { s.emitCond = sync.NewCond(&s.emitSendMu) })
+
 	s.eventsMu.Lock()
+	seq := s.emitSeq
+	s.emitSeq++
 	s.events = append(s.events, event)
+	s.eventsMu.Unlock()
+
+	s.emitSendMu.Lock()
+	for s.emitDelivered != seq {
+		s.emitCond.Wait()
+	}
 	if event.Kind == EventTextDelta && s.opts.Out != nil {
 		_, _ = io.WriteString(s.opts.Out, event.Text)
 	}
 	if s.emitFn != nil {
 		s.emitFn(event)
 	}
-	s.eventsMu.Unlock()
+	s.emitDelivered++
+	s.emitCond.Broadcast()
+	s.emitSendMu.Unlock()
 }
 
 // record persists one transcript entry. A recorder failure never stops the run.

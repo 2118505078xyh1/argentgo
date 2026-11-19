@@ -90,14 +90,30 @@ type Command struct {
 
 // Registry owns the jobs of a session and their log files.
 //
-// Every method is safe to call from several goroutines; the JSON index is
-// rewritten atomically after each change.
+// Every method is safe to call from several goroutines. Two locks keep the
+// in-memory state independent of disk I/O: mu guards jobs/next and is held only
+// long enough to mutate state and copy a snapshot; ioMu serializes the actual
+// JSON encoding and atomic replace. Readers never initiate a disk write — they
+// only mark the registry dirty, and the next write path or the reaper persists
+// the full snapshot. A version number discards snapshots that were overtaken
+// by a newer state change.
+//
+// A reader may still wait for a write that is already in flight, so a status
+// it observes is also on disk by the time it returns. That wait releases mu
+// (sync.Cond.Wait), so it never blocks other readers or writers.
 type Registry struct {
 	dir string
 
-	mu   sync.Mutex
-	jobs map[string]*Job
-	next int
+	mu        sync.Mutex
+	jobs      map[string]*Job
+	next      int
+	version   uint64 // guarded by mu; bumped on every in-memory state change
+	dirty     bool   // guarded by mu; a state change has not reached the disk yet
+	persisted uint64 // last version written to disk (read/written under ioMu+mu)
+	inflight  int    // guarded by mu; number of persist calls in progress
+	idleCond  *sync.Cond
+
+	ioMu sync.Mutex // guards the encode + atomic replace of jobs.json
 }
 
 // New opens (or creates) a registry whose logs live under dir.
@@ -113,6 +129,7 @@ func New(dir string) (*Registry, error) {
 		return nil, fmt.Errorf("jobs: create %s: %w", abs, err)
 	}
 	r := &Registry{dir: abs, jobs: map[string]*Job{}}
+	r.idleCond = sync.NewCond(&r.mu)
 	if err := r.load(); err != nil {
 		return nil, err
 	}
@@ -176,8 +193,12 @@ func (r *Registry) Start(cmd Command) (Job, error) {
 
 	r.mu.Lock()
 	r.jobs[id] = &job
-	saveErr := r.saveLocked()
+	snap, version := r.changedLocked()
 	r.mu.Unlock()
+
+	// Encoding and writing happen without mu held: concurrent readers and
+	// other writers are never blocked by the disk.
+	saveErr := r.persist(snap, version)
 
 	go r.reap(id, child)
 	if saveErr != nil {
@@ -195,27 +216,27 @@ func (r *Registry) reap(id string, child *exec.Cmd) {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	job, ok := r.jobs[id]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
+	// Stop may already have marked the job killed; never overwrite that
+	// terminal state with an exit that the reaper happened to observe.
 	if job.Status == StatusRunning {
 		job.Status = StatusExited
 	}
 	job.ExitCode = code
-	_ = r.saveLocked()
+	snap, version := r.changedLocked()
+	r.mu.Unlock()
+	_ = r.persist(snap, version)
 }
 
 // List returns every job, oldest first, after refreshing dead processes.
 func (r *Registry) List() ([]Job, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.refreshLocked() {
-		if err := r.saveLocked(); err != nil {
-			return nil, err
-		}
-	}
+	// A refresh only marks the registry dirty; no disk write happens here.
+	r.refreshLocked()
 	out := make([]Job, 0, len(r.jobs))
 	for _, job := range r.jobs {
 		out = append(out, *job)
@@ -226,21 +247,34 @@ func (r *Registry) List() ([]Job, error) {
 		}
 		return out[i].StartedAt.Before(out[j].StartedAt)
 	})
+	// Let any in-flight write land before returning. Cond.Wait releases mu,
+	// so this never blocks another reader or writer.
+	for r.inflight > 0 {
+		r.idleCond.Wait()
+	}
+	r.mu.Unlock()
 	return out, nil
 }
 
 // Get returns one job by id.
 func (r *Registry) Get(id string) (Job, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.refreshLocked() {
-		_ = r.saveLocked()
-	}
+	// A refresh only marks the registry dirty; no disk write happens here.
+	r.refreshLocked()
 	job, ok := r.jobs[id]
+	var out Job
+	if ok {
+		out = *job
+	}
+	// Let any in-flight write land before returning (see List).
+	for r.inflight > 0 {
+		r.idleCond.Wait()
+	}
+	r.mu.Unlock()
 	if !ok {
 		return Job{}, fmt.Errorf("jobs: no job named %q", id)
 	}
-	return *job, nil
+	return out, nil
 }
 
 // Stop kills a job and its descendants.
@@ -258,8 +292,9 @@ func (r *Registry) Stop(id string) error {
 	job.Status = StatusKilled
 	pid := job.PID
 	live := job.live
-	_ = r.saveLocked()
+	snap, version := r.changedLocked()
 	r.mu.Unlock()
+	_ = r.persist(snap, version)
 
 	if live != nil {
 		live.Kill()
@@ -291,8 +326,9 @@ func (r *Registry) Remove(id string) error {
 	live := job.live
 	logPath := job.LogPath
 	delete(r.jobs, id)
-	_ = r.saveLocked()
+	snap, version := r.changedLocked()
 	r.mu.Unlock()
+	_ = r.persist(snap, version)
 
 	if running {
 		if live != nil {
@@ -316,7 +352,6 @@ func (r *Registry) Remove(id string) error {
 func (r *Registry) Prune(age time.Duration) (int, error) {
 	cutoff := time.Now().Add(-age)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	removed := 0
 	for id, job := range r.jobs {
 		if job.Status == StatusRunning {
@@ -328,8 +363,14 @@ func (r *Registry) Prune(age time.Duration) (int, error) {
 		delete(r.jobs, id)
 		removed++
 	}
+	var snap index
+	var version uint64
 	if removed > 0 {
-		if err := r.saveLocked(); err != nil {
+		snap, version = r.changedLocked()
+	}
+	r.mu.Unlock()
+	if removed > 0 {
+		if err := r.persist(snap, version); err != nil {
 			return removed, err
 		}
 	}
@@ -338,6 +379,10 @@ func (r *Registry) Prune(age time.Duration) (int, error) {
 
 // refreshLocked flips jobs whose process vanished into exited. It reports
 // whether anything changed. An exit code we can no longer recover stays -1.
+//
+// A refresh is a state change like any other: it bumps the version and marks
+// the registry dirty. Read paths never write the index themselves — the next
+// write path or the reaper persists the full snapshot.
 func (r *Registry) refreshLocked() bool {
 	changed := false
 	for _, job := range r.jobs {
@@ -354,6 +399,9 @@ func (r *Registry) refreshLocked() bool {
 		job.Status = StatusExited
 		job.ExitCode = -1
 		changed = true
+	}
+	if changed {
+		r.noteChangeLocked()
 	}
 	return changed
 }
@@ -401,24 +449,94 @@ func (r *Registry) load() error {
 	return nil
 }
 
-func (r *Registry) saveLocked() error {
+// noteChangeLocked records an in-memory mutation. Caller must hold mu.
+func (r *Registry) noteChangeLocked() {
+	r.version++
+	r.dirty = true
+}
+
+// changedLocked records a mutation and returns the snapshot to persist plus
+// the version it represents. Caller must hold mu and must call persist after
+// unlocking; no disk I/O happens while mu is held. It marks a write in flight
+// so readers can wait for it to reach the disk.
+func (r *Registry) changedLocked() (index, uint64) {
+	r.noteChangeLocked()
+	r.inflight++
+	return r.snapshotLocked(), r.version
+}
+
+// finishWrite balances a changedLocked call. It is deferred by persist so the
+// in-flight count is cleared on every return path, including errors.
+func (r *Registry) finishWrite() {
+	r.mu.Lock()
+	r.inflight--
+	if r.inflight == 0 {
+		r.idleCond.Broadcast()
+	}
+	r.mu.Unlock()
+}
+
+// snapshotLocked copies the registry state for persistence. Caller must hold mu.
+func (r *Registry) snapshotLocked() index {
 	stored := index{Next: r.next, Jobs: make([]Job, 0, len(r.jobs))}
 	for _, job := range r.jobs {
 		stored.Jobs = append(stored.Jobs, *job)
 	}
 	sort.Slice(stored.Jobs, func(i, j int) bool { return stored.Jobs[i].ID < stored.Jobs[j].ID })
+	return stored
+}
+
+// persist atomically writes a versioned snapshot to disk. Encoding and file
+// I/O happen under ioMu but with mu released, so they never block readers or
+// other writers of in-memory state. Snapshots overtaken by a newer version are
+// skipped: the newer snapshot is written by its own caller.
+func (r *Registry) persist(stored index, version uint64) error {
+	defer r.finishWrite()
+	r.ioMu.Lock()
+	defer r.ioMu.Unlock()
+
+	r.mu.Lock()
+	stale := r.persisted >= version
+	r.mu.Unlock()
+	if stale {
+		return nil
+	}
+
 	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
 		return fmt.Errorf("jobs: encode index: %w", err)
 	}
 	data = append(data, '\n')
-	tmp := r.indexPath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("jobs: write %s: %w", tmp, err)
+
+	// A unique temporary name avoids clobbering a file another registry
+	// instance may be writing into the same directory.
+	tmp, err := os.CreateTemp(r.dir, ".jobs-*.tmp")
+	if err != nil {
+		return fmt.Errorf("jobs: create temp index: %w", err)
 	}
-	if err := os.Rename(tmp, r.indexPath()); err != nil {
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("jobs: write %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("jobs: close %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, r.indexPath()); err != nil {
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("jobs: replace %s: %w", r.indexPath(), err)
 	}
+
+	r.mu.Lock()
+	if version > r.persisted {
+		r.persisted = version
+	}
+	if r.version == version {
+		r.dirty = false
+	}
+	r.mu.Unlock()
 	return nil
 }
 

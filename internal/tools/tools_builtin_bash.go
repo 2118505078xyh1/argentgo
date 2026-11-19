@@ -76,7 +76,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	cmd := exec.CommandContext(runCtx, path, argv...)
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
-	text := clip(ctx, string(output))
+	text := clip(ctx, sanitizeShellOutput(string(output)))
 	if runCtx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("bash: timed out after %s", timeout)
 	}
@@ -151,15 +151,15 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argent jobs` (output: `argent jobs tail %s`).",
 			job.ID, job.PID, command, job.ID)
 		if partial := strings.TrimSpace(res.Combined()); partial != "" {
-			out += "\nOutput so far:\n" + clip(ctx, partial)
+			out += "\nOutput so far:\n" + clip(ctx, sanitizeShellOutput(partial))
 		}
 		return out, nil
 	}
 
 	if err != nil {
-		return clip(ctx, res.Combined()), fmt.Errorf("bash: %w", err)
+		return clip(ctx, sanitizeShellOutput(res.Combined())), fmt.Errorf("bash: %w", err)
 	}
-	text := clip(ctx, res.Combined())
+	text := clip(ctx, sanitizeShellOutput(res.Combined()))
 	if strings.TrimSpace(text) == "" {
 		return "(no output)", nil
 	}

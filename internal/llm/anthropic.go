@@ -242,8 +242,8 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 	if len(system) > 0 {
 		content := strings.Join(system, "\n\n")
 		if cacheEnabled {
-			// Only the system prompt and tool schemas are stable across turns;
-			// conversation messages must not carry a cache marker.
+			// The system prompt and tool schemas form the stable prefix; the
+			// conversation tail gets its own advancing breakpoint below.
 			req.System = []anthropicBlock{{
 				Type:         "text",
 				Text:         content,
@@ -268,7 +268,31 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 		// One breakpoint at the end of the tool prefix covers all schemas.
 		req.Tools[len(req.Tools)-1].CacheControl = c.Options.cacheControl()
 	}
+	if cacheEnabled {
+		// Conversation-tail breakpoint: anchor the cache at the final tool
+		// result so the cached prefix advances after each completed batch of
+		// tool calls. Tool turns are merged into user messages, so the marker
+		// belongs on the block, not on the message itself.
+		if block := lastToolResultBlock(req.Messages); block != nil {
+			block.CacheControl = c.Options.normalizedCacheControl()
+		}
+	}
 	return req
+}
+
+// lastToolResultBlock returns the final tool_result content block in the wire
+// messages, or nil when the request contains no tool results. Scanning from
+// the end keeps only one breakpoint on the newest tail.
+func lastToolResultBlock(messages []anthropicMessage) *anthropicBlock {
+	for i := len(messages) - 1; i >= 0; i-- {
+		content := messages[i].Content
+		for j := len(content) - 1; j >= 0; j-- {
+			if content[j].Type == "tool_result" {
+				return &content[j]
+			}
+		}
+	}
+	return nil
 }
 
 func textBlocks(text string) []anthropicBlock {

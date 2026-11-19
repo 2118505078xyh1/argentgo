@@ -142,12 +142,21 @@ func (s *Session) path() string {
 	return filepath.Join(s.dir, s.id+fileExt)
 }
 
+// activeSnapshot returns the active leaf under the mutex. Every read path that
+// walks the tree goes through this helper so the s.active field is never read
+// outside the lock, while the caller still does its own file I/O lock-free.
+func (s *Session) activeSnapshot() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active
+}
+
 // activePath walks from the active leaf to the root and returns the records
 // oldest first. Records that are not reachable from the leaf are branches and
 // stay out of the conversation.
 func (s *Session) activePath(records []Record) []Record {
 	byID := indexByID(records)
-	leaf := s.active
+	leaf := s.activeSnapshot()
 	if _, ok := byID[leaf]; !ok {
 		if len(records) == 0 {
 			return nil

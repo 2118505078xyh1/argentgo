@@ -48,11 +48,11 @@ func (r *Registry) PromoteFromTimeout(command string, live LiveProcess, logPath 
 
 	r.mu.Lock()
 	r.jobs[id] = &job
-	saveErr := r.saveLocked()
+	snap, version := r.changedLocked()
 	r.mu.Unlock()
 
 	go r.watchLive(id, live)
-	if saveErr != nil {
+	if saveErr := r.persist(snap, version); saveErr != nil {
 		return job, fmt.Errorf("jobs: save %s: %w", id, saveErr)
 	}
 	return job, nil
@@ -65,12 +65,14 @@ func (r *Registry) watchLive(id string, live LiveProcess) {
 	code := live.ExitCode()
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	job, ok := r.jobs[id]
 	if !ok || job.Status != StatusRunning {
+		r.mu.Unlock()
 		return
 	}
 	job.Status = StatusExited
 	job.ExitCode = code
-	_ = r.saveLocked()
+	snap, version := r.changedLocked()
+	r.mu.Unlock()
+	_ = r.persist(snap, version)
 }

@@ -191,6 +191,56 @@ func TestCancellationMidRunSkipsTheTool(t *testing.T) {
 	}
 }
 
+func TestCancellationAfterToolBatchRecordsAbortedAssistant(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
+	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
+		cancel()
+		return toolReply(toolCall("c1", "read", `{}`)), nil
+	}}
+
+	type row struct {
+		kind    string
+		payload any
+	}
+	var rows []row
+	rec := RecorderFunc(func(kind string, payload any) error {
+		rows = append(rows, row{kind: kind, payload: payload})
+		return nil
+	})
+	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: tools, Record: rec}}
+
+	res, err := runner.Run(ctx, "read")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if res.Stopped != StopCancelled {
+		t.Fatalf("stopped = %q, want %q", res.Stopped, StopCancelled)
+	}
+
+	// The last recorded entry and the last transcript message must both be the
+	// synthetic terminal assistant, not the tool-use turn that preceded it.
+	if len(rows) == 0 {
+		t.Fatal("no transcript entries were recorded")
+	}
+	last := rows[len(rows)-1]
+	if last.kind != "assistant" {
+		t.Fatalf("last recorded kind = %q, want assistant", last.kind)
+	}
+	msg, ok := last.payload.(llm.Message)
+	if !ok {
+		t.Fatalf("last assistant payload = %T, want llm.Message", last.payload)
+	}
+	if msg.Role != "assistant" || msg.Content != "Operation aborted" || msg.FinishReason != "aborted" {
+		t.Fatalf("last assistant = %+v, want the terminal aborted message", msg)
+	}
+	tail := res.Messages[len(res.Messages)-1]
+	if tail.Role != msg.Role || tail.Content != msg.Content || tail.FinishReason != msg.FinishReason {
+		t.Fatalf("last transcript message = %+v, want %+v", tail, msg)
+	}
+}
+
 func TestPromptForwardsDeltas(t *testing.T) {
 	chat := &fakeChatter{fn: func(_ int, _ []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
 		onText("hel")
