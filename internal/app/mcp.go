@@ -14,6 +14,7 @@ import (
 	"github.com/2118505078xyh1/argent-go/internal/llm"
 	"github.com/2118505078xyh1/argent-go/internal/mcp"
 	"github.com/2118505078xyh1/argent-go/internal/plugins"
+	"github.com/2118505078xyh1/argent-go/internal/security"
 	"github.com/2118505078xyh1/argent-go/internal/session"
 	"github.com/2118505078xyh1/argent-go/internal/skills"
 	"github.com/2118505078xyh1/argent-go/internal/tools"
@@ -33,23 +34,158 @@ type mcpBinding struct {
 // toolset is the agent's tool view: built-in registry, MCP tools under
 // `server__tool`, and use_skill when skills are installed.
 type toolset struct {
-	base    *tools.Registry
+	base    *multiRootTools
 	guard   tools.Guard
 	skills  *skills.Registry
 	mcp     []mcpBinding
 	clients []mcp.Client
 }
 
+// multiRootTools fans built-in tool calls out to one registry per write root.
+// The first registry is the workspace itself; the others let the same
+// write/edit/multi_edit implementations reach --add-dir directories without
+// duplicating filesystem logic in this package.
+type multiRootTools struct {
+	roots []string
+	regs  []*tools.Registry
+}
+
+func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *multiRootTools {
+	roots := res.WriteRoots
+	if len(roots) == 0 {
+		roots = security.WriteRootsFrom(res.Root, res.AddDirs)
+	}
+	m := &multiRootTools{}
+	for _, root := range roots {
+		absolute, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		registry := tools.NewWithLimit(absolute, res.Mutating, 0)
+		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
+		registry.SetGuard(guard)
+		m.roots = append(m.roots, filepath.Clean(absolute))
+		m.regs = append(m.regs, registry)
+	}
+	if len(m.regs) == 0 {
+		registry := tools.NewWithLimit(res.Root, res.Mutating, 0)
+		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
+		registry.SetGuard(guard)
+		m.roots = []string{res.Root}
+		m.regs = []*tools.Registry{registry}
+	}
+	return m
+}
+
+func (m *multiRootTools) Specs() []llm.ToolSpec {
+	if len(m.regs) == 0 {
+		return nil
+	}
+	return m.regs[0].Specs()
+}
+
+func (m *multiRootTools) Run(ctx context.Context, name, args string) (string, error) {
+	index, routed, err := m.route(name, args)
+	if err != nil {
+		return "", err
+	}
+	return m.regs[index].Run(ctx, name, routed)
+}
+
+// route selects the registry whose root contains the tool's path argument.
+// Relative paths that climb out of the workspace stay errors even when they
+// would land in an extra root: `..` is never a way to widen the boundary.
+func (m *multiRootTools) route(name, args string) (int, string, error) {
+	if len(m.regs) == 0 {
+		return 0, args, nil
+	}
+	path, ok := pathArg(args)
+	if !ok || strings.TrimSpace(path) == "" {
+		return 0, args, nil
+	}
+	base := m.roots[0]
+	relativeInput := !filepath.IsAbs(path)
+	absolute := path
+	if relativeInput {
+		absolute = filepath.Join(base, absolute)
+	}
+	absolute, err := filepath.Abs(absolute)
+	if err != nil {
+		return 0, args, fmt.Errorf("tool %q: %w", name, err)
+	}
+	absolute = filepath.Clean(absolute)
+	if relativeInput {
+		if rel, err := filepath.Rel(base, absolute); err == nil &&
+			(rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return 0, args, fmt.Errorf("tool %q: path %q is outside the workspace", name, path)
+		}
+	}
+	for i, root := range m.roots {
+		if !withinRoot(root, absolute) {
+			continue
+		}
+		if i == 0 {
+			return 0, args, nil
+		}
+		routed, err := withPath(args, absolute)
+		if err != nil {
+			return 0, args, err
+		}
+		return i, routed, nil
+	}
+	// Let the primary registry produce its familiar "outside the workspace"
+	// error rather than inventing a second message here.
+	return 0, args, nil
+}
+
+func withinRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+}
+
+// pathArg reads the path argument shared by the filesystem tools.
+func pathArg(args string) (string, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(args), &fields); err != nil {
+		return "", false
+	}
+	for _, key := range []string{"path", "file", "dir", "directory", "target"} {
+		if raw, ok := fields[key]; ok {
+			var path string
+			if json.Unmarshal(raw, &path) == nil {
+				return path, true
+			}
+		}
+	}
+	return "", false
+}
+
+// withPath replaces the path argument while preserving every other field and
+// its JSON number formatting.
+func withPath(args, path string) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(args))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil {
+		return "", fmt.Errorf("tool arguments: %w", err)
+	}
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	fields["path"] = path
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return "", fmt.Errorf("tool arguments: %w", err)
+	}
+	return string(encoded), nil
+}
+
 // newToolset wires the built-in registry, plugin/skill discovery and MCP.
 // Every external piece is fail-soft: a broken plugin, skill or server is
 // reported once and skipped.
 func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
-	registry := tools.NewWithLimit(res.Root, res.Mutating, 0)
-	registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
-	registry.SetGuard(guard)
-
 	set := &toolset{
-		base:   registry,
+		base:   newMultiRootTools(res, sess, guard),
 		guard:  guard,
 		skills: skills.Discover(skills.DefaultRoots(res.Root, res.Home)),
 	}

@@ -44,13 +44,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			if current != nil {
 				return current, nil
 			}
-			title := firstLine(text, 60)
-			if title == "" {
-				title = "session"
-			}
-			sess, err := store.NewSession(title)
+			sess, err := openOrCreateSession(store, opts, text)
 			if err != nil {
-				return nil, fmt.Errorf("new session: %w", err)
+				return nil, err
 			}
 			current = sess
 			return sess, nil

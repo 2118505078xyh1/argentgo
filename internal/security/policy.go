@@ -87,6 +87,9 @@ type PolicyConfig struct {
 	ReadOnlyTools []string
 	// MutatingTools extend the built-in mutating-tool list.
 	MutatingTools []string
+	// WriteRoots extends the roots in which mutating path tools may write. The
+	// workspace root is always included, even when this list is empty.
+	WriteRoots []string
 }
 
 // Result carries the verdict plus the human-readable reason behind it.
@@ -116,6 +119,8 @@ type Policy struct {
 	rules            []Rule
 	// toolKinds maps a tool name to whether it mutates the workspace.
 	toolKinds map[string]bool
+	// writeRoots bounds mutating path tools. Read-only tools are not checked.
+	writeRoots []string
 }
 
 // NewPolicy builds a policy rooted at root (normally the workspace cwd).
@@ -137,6 +142,7 @@ func NewPolicy(root string, cfg PolicyConfig) *Policy {
 		allowTools:       make(map[string]bool, len(cfg.AllowTools)),
 		rules:            cfg.Rules,
 		toolKinds:        make(map[string]bool, len(defaultMutatingTools)+len(cfg.MutatingTools)),
+		writeRoots:       WriteRootsFrom(root, cfg.WriteRoots),
 	}
 	for name := range defaultReadOnlyTools {
 		p.toolKinds[name] = false
@@ -191,6 +197,7 @@ func PolicyFromJSON(root string, data []byte) (*Policy, error) {
 		{"allowTools", &cfg.AllowTools},
 		{"readOnlyTools", &cfg.ReadOnlyTools},
 		{"mutatingTools", &cfg.MutatingTools},
+		{"writeRoots", &cfg.WriteRoots},
 	}
 	for _, field := range fields {
 		if value, ok := raw[field.key]; ok {
@@ -254,6 +261,14 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 			return res
 		}
 	}
+	// Writes are bounded by the workspace plus any --add-dir roots. Read-only
+	// tools deliberately skip this check: a path can be readable without being
+	// writable, and the path rules above still apply to every tool.
+	if mutating, known := p.toolKinds[name]; known && mutating {
+		if res := p.checkWriteRoots(fields); res.Decision != Allow {
+			return res
+		}
+	}
 	if res, ok := p.ruleDecision(name, fields); ok {
 		return res
 	}
@@ -294,6 +309,22 @@ func (p *Policy) checkPath(path string) Result {
 	if len(p.allowPaths) > 0 {
 		if !anyMatch(p.allowPaths, lexical) || !anyMatch(p.allowPaths, canonical) {
 			return Result{Deny, fmt.Sprintf("the path %q is outside the allowed set", path)}
+		}
+	}
+	return Result{Allow, ""}
+}
+
+// checkWriteRoots applies the write boundary to every path argument of a
+// mutating tool. Relative `..` escapes were already rejected by checkPath; here
+// InWriteRoots catches absolute paths that land outside the allowed roots.
+func (p *Policy) checkWriteRoots(fields map[string]any) Result {
+	for _, key := range pathArgKeys {
+		value, ok := fields[key].(string)
+		if !ok {
+			continue
+		}
+		if err := InWriteRoots(value, p.writeRoots); err != nil {
+			return Result{Deny, fmt.Sprintf("the path %q is not writable: %v", value, err)}
 		}
 	}
 	return Result{Allow, ""}

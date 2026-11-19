@@ -96,10 +96,16 @@ type Resolved struct {
 	// Extra workspace directories, an output schema request and the reasoning
 	// effort hint.
 	AddDirs      []string
+	WriteRoots   []string
 	OutputSchema string
 	Thinking     string
 	TrustProject bool
 	Plugins      []string
+
+	// Post-run compaction. Zero selects the default threshold; a negative
+	// value disables the estimate-based trigger.
+	AutoCompactTokens int
+	NoAutoCompact     bool
 
 	// Approve overrides the interactive approver; the TUI installs a modal
 	// approver here.
@@ -237,12 +243,19 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		MaxCostUSD:   firstNonZeroFloat(opts.MaxCost, floatField(cfg.Raw, "maxCost", "max-cost")),
 		MaxSeconds:   firstNonZeroInt(opts.MaxSeconds, intField(cfg.Raw, "maxSeconds", "max-seconds")),
 		AddDirs:      addDirs,
+		WriteRoots:   security.WriteRootsFrom(root, addDirs),
 		OutputSchema: schema,
 		Thinking:     opts.Thinking,
 		TrustProject: opts.TrustProject || env("ARGENT_TRUST_PROJECT") == "1",
 		Plugins:      append([]string(nil), opts.Plugins...),
 		System:       system,
 		Prices:       pricesFor(model, opts, cfg),
+
+		AutoCompactTokens: firstNonZeroInt(
+			intField(cfg.Raw, "autoCompactTokens", "auto-compact-tokens"),
+			compactThresholdFrom(cfg.Raw),
+		),
+		NoAutoCompact: opts.NoAutoCompact,
 	}
 	res.Chatter = newChatter(res.Protocol, baseURL, apiKey)
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
@@ -521,6 +534,16 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 	}
 }
 
+// ActiveSessionID reports the session a runner is appending to, when it
+// exposes one. Callers holding only a cli.Runner can use this to show or log
+// the resumed session id.
+func ActiveSessionID(r cli.Runner) string {
+	if typed, ok := r.(interface{ SessionID() string }); ok {
+		return typed.SessionID()
+	}
+	return ""
+}
+
 type runner struct {
 	stdio cli.IO
 	res   Resolved
@@ -562,19 +585,26 @@ func (r *runner) Abort() {
 	}
 }
 
+// SessionID reports the session the runner is currently appending to. It is
+// empty before the first prompt.
+func (r *runner) SessionID() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.current == nil {
+		return ""
+	}
+	return r.current.ID()
+}
+
 func (r *runner) ensureSession(firstPrompt string) (*session.Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.current != nil {
 		return r.current, nil
 	}
-	title := firstLine(firstPrompt, 60)
-	if title == "" {
-		title = "session"
-	}
-	sess, err := r.store.NewSession(title)
+	sess, err := openOrCreateSession(r.store, r.res.Options, firstPrompt)
 	if err != nil {
-		return nil, fmt.Errorf("new session: %w", err)
+		return nil, err
 	}
 	r.current = sess
 	return sess, nil
@@ -595,7 +625,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		approver = approverFor(stdio, res)
 	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
-	chain := security.NewChain(security.DefaultPolicy(res.Root), approver, audit, sess.ID())
+	policy := security.NewPolicy(res.Root, security.PolicyConfig{WriteRoots: res.WriteRoots})
+	chain := security.NewChain(policy, approver, audit, sess.ID())
 
 	toolset := newToolset(ctx, stdio, res, sess, chain)
 	defer toolset.Close()
@@ -623,6 +654,22 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}}
 
 	result, err := loop.Run(ctx, prompt)
+	if err == nil && strings.TrimSpace(res.OutputSchema) != "" {
+		if invalid := validateOutputText(res.OutputSchema, result.Text); invalid != nil {
+			// One corrective turn gives the model the exact failure instead of
+			// failing the whole run on a formatting slip.
+			loop.Opts.System = res.System + correctiveInstruction(res.OutputSchema, invalid)
+			if retried, retryErr := loop.Run(ctx, prompt); retryErr == nil {
+				result = retried
+				if invalid = validateOutputText(res.OutputSchema, result.Text); invalid != nil {
+					err = fmt.Errorf("output schema validation failed after one retry: %w", invalid)
+				}
+			} else {
+				err = retryErr
+			}
+		}
+	}
+	maybeAutoCompact(res, sess)
 	_ = sess.Append("turn", map[string]any{
 		"turns":   result.Turns,
 		"stopped": result.Stopped,

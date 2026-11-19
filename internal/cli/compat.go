@@ -33,20 +33,11 @@ func unsupportedFlag(opts *Options) string {
 	return ""
 }
 
-// warnPartial documents the two flags that parse and resolve but cannot change
-// behaviour because a package this slice may not edit has no field for them.
+// CLI compatibility notes are only for flags that still parse but cannot act.
+// When a subsystem lands, its note must be removed here (and its test updated).
 func (a App) warnPartial(opts *Options) {
-	if strings.TrimSpace(opts.SecondaryModel) != "" {
-		fmt.Fprintln(a.IO.Err, "note: --secondary-model is carried but has no effect yet (internal/agent has no subagent model field)")
-	}
-	if len(opts.AddDirs) > 0 {
-		fmt.Fprintln(a.IO.Err, "note: --add-dir extends the sandbox write roots; the tool registry still resolves paths inside --cwd only")
-	}
-	if strings.TrimSpace(opts.Theme) != "" || opts.NoColor {
-		fmt.Fprintln(a.IO.Err, "note: --theme/--no-color are carried but the TUI has no theme switch yet")
-	}
-	if opts.NoAutoCompact {
-		fmt.Fprintln(a.IO.Err, "note: --no-auto-compact is carried but automatic compaction is not wired into a run yet")
+	if strings.TrimSpace(opts.OutputSchema) != "" {
+		fmt.Fprintln(a.IO.Err, "note: --output-schema validates the final answer and retries once")
 	}
 }
 

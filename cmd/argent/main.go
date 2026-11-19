@@ -11,6 +11,10 @@ import (
 
 func main() {
 	stdio := cli.OSIO()
+	args := os.Args[1:]
+	if isGUIRequest(args) {
+		os.Exit(runGUI(stdio, args))
+	}
 	storage := app.DefaultStorage(stdio.Env)
 	code := cli.RunWith(cli.App{
 		IO:          stdio,
