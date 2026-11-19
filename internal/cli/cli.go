@@ -87,6 +87,8 @@ type App struct {
 	TokenReport TokenReporter
 	ConfigPath  string
 	StorageDir  string
+	// UpdateOps overrides the updater seams for tests; nil calls internal/update.
+	UpdateOps *UpdateOps
 }
 
 // Run executes the CLI and returns the process exit code.
@@ -129,6 +131,14 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"bug":        runBug,
 	"eval":       runEval,
 	"config":     runConfig,
+	"workflow":   runWorkflow,
+	"telemetry":  runTelemetry,
+	"attach":     runAttach,
+	"logs":       runLogs,
+	"jobs":       runJobs,
+	"follow":     runFollow,
+	"stop":       runStop,
+	"board":      runBoard,
 	"help":       runHelp,
 	"version":    runVersion,
 }
@@ -139,7 +149,9 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 var subcommandOrder = []string{
 	"sessions", "replay", "usage", "doctor", "login", "logout", "auth",
 	"models", "mcp", "skills", "commands", "hooks", "policy", "audit",
-	"update", "completion", "tui", "bug", "eval", "config", "help", "version",
+	"update", "completion", "tui", "bug", "eval", "config",
+	"workflow", "telemetry", "attach", "logs", "jobs", "follow", "stop", "board",
+	"help", "version",
 }
 
 // subcommandNames lists every dispatched command, sorted. Completion reads it

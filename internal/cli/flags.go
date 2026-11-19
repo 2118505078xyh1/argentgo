@@ -723,6 +723,14 @@ commands:
   bug                           write a diagnostics dump
   eval <file>                   run scripted JSON eval scenarios
   config get|set                read or write dotted config keys
+   workflow list|run|show       inspect and run workflow definitions
+   telemetry status|off         report the personal-build telemetry preference
+   attach <id> [-n N]           print the last N lines of a job log
+   logs [<id>]                  list background jobs and their logs
+   jobs                         alias for logs
+   follow <id> [-n N]           tail a job log until interrupted
+   stop <id>                    kill a background job
+   board                        read-only view of jobs and automations
 
 flags:
   -m, --model <id>              model id (default gpt-4o-mini)
