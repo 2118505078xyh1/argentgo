@@ -264,6 +264,8 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 }
 
 // Specs advertises the built-in tools, MCP tools and use_skill.
+func (t *toolset) Guarded() bool { return t.guard != nil }
+
 func (t *toolset) Specs() []llm.ToolSpec {
 	specs := t.base.Specs()
 	for _, binding := range t.mcp {
@@ -364,63 +366,22 @@ func addSkillPath(registry *skills.Registry, path string) {
 	}
 }
 
-// mcpSpecsFromConfig reads the `mcpServers` object (or list) shape.
+// mcpSpecsFromConfig reads the `mcpServers` object (or list) shape, including
+// the per-server enabled/readOnly/allowedTools/deniedTools controls.
 func mcpSpecsFromConfig(raw any) []mcp.Spec {
-	var specs []mcp.Spec
-	add := func(name string, body map[string]any) {
-		if strings.TrimSpace(name) == "" {
-			return
+	// DecodeConfig expects the whole config tree; callers here may pass either
+	// that tree or just its `mcpServers` object (or list).
+	object, ok := raw.(map[string]any)
+	if !ok {
+		if list, ok := raw.([]any); ok {
+			object = map[string]any{"mcpServers": list}
+		} else {
+			return nil
 		}
-		spec := mcp.Spec{Name: name}
-		spec.Command, _ = body["command"].(string)
-		spec.URL, _ = body["url"].(string)
-		spec.Transport, _ = body["transport"].(string)
-		for _, arg := range stringsOf(body["args"]) {
-			spec.Args = append(spec.Args, arg)
-		}
-		if env, ok := body["env"].(map[string]any); ok {
-			for key, value := range env {
-				if text, ok := value.(string); ok {
-					spec.Env = append(spec.Env, key+"="+text)
-				}
-			}
-			sort.Strings(spec.Env)
-		}
-		if headers, ok := body["headers"].(map[string]any); ok {
-			spec.Headers = map[string]string{}
-			for key, value := range headers {
-				if text, ok := value.(string); ok {
-					spec.Headers[key] = text
-				}
-			}
-		}
-		if seconds := numOf(body["timeout"]); seconds > 0 {
-			spec.Timeout = time.Duration(seconds * float64(time.Second))
-		}
-		specs = append(specs, spec)
+	} else if _, hasKey := object["mcpServers"]; !hasKey {
+		object = map[string]any{"mcpServers": object}
 	}
-
-	switch value := raw.(type) {
-	case map[string]any:
-		for name, entry := range value {
-			if body, ok := entry.(map[string]any); ok {
-				add(name, body)
-			}
-		}
-	case []any:
-		for index, entry := range value {
-			body, ok := entry.(map[string]any)
-			if !ok {
-				continue
-			}
-			name, _ := body["name"].(string)
-			if name == "" {
-				name = fmt.Sprintf("server-%d", index+1)
-			}
-			add(name, body)
-		}
-	}
-	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	specs, _ := mcp.DecodeConfig(object)
 	return specs
 }
 

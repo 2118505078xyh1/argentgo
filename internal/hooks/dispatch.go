@@ -28,6 +28,12 @@ type Payload struct {
 	Args      json.RawMessage `json:"args,omitempty"`
 	SessionID string          `json:"sessionId,omitempty"`
 	CWD       string          `json:"cwd,omitempty"`
+	// Prompt is the user message for UserPromptSubmit and Stop.
+	Prompt string `json:"prompt,omitempty"`
+	// Output is the tool result for PostToolUse.
+	Output string `json:"output,omitempty"`
+	// Error is the tool failure for PostToolUseFailure.
+	Error string `json:"error,omitempty"`
 }
 
 // Result is the aggregate decision of one dispatch.

@@ -1,7 +1,7 @@
 # Migration plan: Rust `argent` → Go `argent-go`
 
-Source of truth for behaviour: `<local-checkout>` (Rust, v0.4.0, read-only reference).
-Target: this repository. Go 1.27, **stdlib only** (no `go get`, no third-party modules).
+Source of truth during migration: the archived Rust `argent` v0.4.0 checkout
+(removed locally after the Go build was complete). Target: this repository. Go 1.27, **stdlib only** (no `go get`, no third-party modules).
 
 ## Hard rules for every slice
 
@@ -22,7 +22,7 @@ Shell setup (Go is not on PATH in child sessions):
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
-cd <local-checkout>
+cd argent-go
 go vet ./internal/mypkg/...
 ```
 
@@ -183,9 +183,9 @@ tree-sitter AST, desktop control, and the Tauri bridge (wave 3, needs `internal/
 ## Retirement of the Rust checkout
 
 `github.com/<owner>/argent` is frozen at v0.4.0 and archived. The local checkout
-`<local-checkout>` was the behavioural reference through wave 5 and has been
-deleted after the Go build and the `ui/` sources were copied. History stays on
-GitHub; the Go repository is now the only local source of truth.
+was the behavioural reference through wave 5 and has been deleted after the Go
+build and the `ui/` sources were copied. History stays on GitHub; the Go
+repository is now the only local source of truth.
 
 ## Reporting
 

@@ -111,6 +111,10 @@ type Resolved struct {
 	// approver here.
 	Approve security.Approver
 
+	// HookDispatcher overrides the shell dispatcher used by the hooks bridge;
+	// tests inject a fake so no hook process is spawned.
+	HookDispatcher HookDispatcher
+
 	Chatter llm.Chatter
 }
 
@@ -620,16 +624,24 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		defer cancel()
 	}
 
+	bridge := newHookBridge(res, sess.ID(), stdio.Err)
+	bridge.start(ctx, prompt)
+	defer bridge.end()
+
 	approver := res.Approve
 	if approver == nil {
 		approver = approverFor(stdio, res)
 	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
-	policy := security.NewPolicy(res.Root, security.PolicyConfig{WriteRoots: res.WriteRoots})
+	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
 
 	toolset := newToolset(ctx, stdio, res, sess, chain)
 	defer toolset.Close()
+	var runner agent.ToolRunner = toolset
+	if bridge != nil {
+		runner = &hookedTools{inner: toolset, bridge: bridge}
+	}
 
 	loop := &agent.Runner{Opts: agent.Options{
 		Model:    res.Model,
@@ -637,7 +649,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		Root:     res.Root,
 		System:   res.System,
 		Chatter:  res.Chatter,
-		Tools:    toolset,
+		Tools:    runner,
 		Approve:  approver,
 		Record:   agent.RecorderFunc(sess.Append),
 		Budget: agent.Budget{
@@ -669,6 +681,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			}
 		}
 	}
+	bridge.stop(ctx, prompt, result.Text)
 	maybeAutoCompact(res, sess)
 	_ = sess.Append("turn", map[string]any{
 		"turns":   result.Turns,
