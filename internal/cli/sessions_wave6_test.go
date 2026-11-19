@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 func writeJSONLSession(t *testing.T, storage, id string, records []map[string]any) {

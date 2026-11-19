@@ -1,4 +1,4 @@
-// Package cli is the testable command layer of the argent-go binary: flag
+// Package cli is the testable command layer of the argentgo binary: flag
 // parsing, subcommand dispatch and the entry points for every transport.
 //
 // The agent loop is injected. The integrator wires internal/agent by setting
@@ -18,11 +18,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
 // Version is the version reported by --version, /v1/health and ACP initialize.
-const Version = "0.1.1"
+const Version = "0.1.2"
 
 // IO carries the process streams so commands can be tested without os.Stdin.
 type IO struct {
@@ -177,7 +177,7 @@ func runHelp(app App, _ context.Context, _ []string) int {
 }
 
 func runVersion(app App, _ context.Context, _ []string) int {
-	fmt.Fprintf(app.IO.Out, "argent-go %s\n", app.Version)
+	fmt.Fprintf(app.IO.Out, "argentgo %s\n", app.Version)
 	return 0
 }
 
@@ -202,7 +202,7 @@ func (a App) runMain(ctx context.Context, args []string) int {
 		return 0
 	}
 	if opts.Version {
-		fmt.Fprintf(a.IO.Out, "argent-go %s\n", a.Version)
+		fmt.Fprintf(a.IO.Out, "argentgo %s\n", a.Version)
 		return 0
 	}
 	if opts.ListProfiles {
@@ -236,6 +236,10 @@ func (a App) runMain(ctx context.Context, args []string) int {
 		return 1
 	}
 	opts.Cwd = absRoot
+
+	if code, handled := a.applySessionFlags(opts); handled {
+		return code
+	}
 
 	switch {
 	case opts.Serve:
@@ -300,7 +304,7 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1
 	}
-	fmt.Fprintf(a.IO.Err, "argent-go listening on http://%s (bearer token required)\n", ln.Addr())
+	fmt.Fprintf(a.IO.Err, "argentgo listening on http://%s (bearer token required)\n", ln.Addr())
 	if err := server.ServeListener(ctx, srv, ln); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1
@@ -413,9 +417,9 @@ func (a App) storageDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".argent-go"
+		return ".argentgo"
 	}
-	return filepath.Join(home, ".argent-go")
+	return filepath.Join(home, ".argentgo")
 }
 
 func (a App) configPath() string {

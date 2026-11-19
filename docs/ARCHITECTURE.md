@@ -1,6 +1,6 @@
 # 架构
 
-`argent-go` 是一个分层的 agent harness：所有界面共用同一个循环，装配只发生在一处。
+`argentgo` 是一个分层的 agent harness：所有界面共用同一个循环，装配只发生在一处。
 
 ## 请求流
 
@@ -62,7 +62,7 @@ Web GUI (internal/gui)       ┘        │              │                │
 
 ## 配置与依赖规则
 
-配置优先级（低 → 高）：编译默认值 → `~/.argent-go/config.json` →
+配置优先级（低 → 高）：编译默认值 → `~/.argentgo/config.json` →
 `<cwd>/.argent/config.json` → `<cwd>/argent.json` → profile → `ARGENT_*` → CLI 标志。
 `-c/--config` 落在配置文件层（点分键嵌套），低于 env 与标志。
 
@@ -86,4 +86,4 @@ Web GUI (internal/gui)       ┘        │              │                │
   校验 checksums、从 CHANGELOG 抽取 release notes，再用 `gh release create
   --verify-tag` 上传 zip 与 checksums，并回查资产确实存在。tag 本身不是 Release。
 - 本地安装/卸载用 `scripts/install-win.ps1` / `scripts/uninstall-win.ps1`
-  （默认 `%LOCALAPPDATA%\argent-go\bin`），不会动 `~/.argent-go` 里的会话和配置。
+  （默认 `%LOCALAPPDATA%\argentgo\bin`），不会动 `~/.argentgo` 里的会话和配置。

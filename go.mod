@@ -1,3 +1,3 @@
-module github.com/2118505078xyh1/argent-go
+module github.com/2118505078xyh1/argentgo
 
 go 1.24

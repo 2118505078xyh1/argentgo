@@ -13,15 +13,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/app"
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/gui"
-	"github.com/2118505078xyh1/argent-go/internal/launcher"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/security"
-	"github.com/2118505078xyh1/argent-go/internal/session"
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/app"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/gui"
+	"github.com/2118505078xyh1/argentgo/internal/launcher"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 func isGUIRequest(args []string) bool {

@@ -214,7 +214,7 @@ func TestDiscoverPrefersTheProjectRootAndReportsDuplicates(t *testing.T) {
 	project := t.TempDir()
 
 	writeBundle(t, ProjectPluginsDir(project), "alpha", "plugin.json", `{"name":"alpha","description":"first"}`)
-	homePlugins := filepath.Join(home, ".argent-go", "plugins")
+	homePlugins := filepath.Join(home, ".argentgo", "plugins")
 	writeBundle(t, homePlugins, "alpha", ".zcode-plugin/plugin.json", `{"name":"alpha","description":"second"}`)
 	writeBundle(t, homePlugins, "beta", ".claude-plugin/plugin.json", `{"name":"beta"}`)
 

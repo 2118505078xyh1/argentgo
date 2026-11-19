@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // fakeChatter scripts model replies without a network.

@@ -13,6 +13,17 @@
 // owns a memory or usage system should inject it to override the default.
 package gui
 
+import "context"
+
+// TurnHistory is the narrow checkpoint seam used by the undo / retry actions.
+// internal/app (which owns the session store) injects it through Options. A nil
+// value keeps both commands failing with an explicit "not wired" error rather
+// than silently dropping the operator's action.
+type TurnHistory interface {
+	Undo(ctx context.Context, sid string, steps int) error
+	Retry(ctx context.Context, sid string, steps int) error
+}
+
 // MemoryRow is one long-term memory entry shown in the Memory page.
 // Scope is "user", "project" or "global"; Source is an optional human-readable
 // location such as "memory/project__editor.md".

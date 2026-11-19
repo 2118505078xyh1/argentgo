@@ -27,7 +27,7 @@ func TestACPSessionFlow(t *testing.T) {
 		t.Fatalf("initialize result = %v", initResult)
 	}
 	info, _ := initResult["agentInfo"].(map[string]any)
-	if info["name"] != "argent-go" || info["version"] != "9.9.9" {
+	if info["name"] != "argentgo" || info["version"] != "9.9.9" {
 		t.Fatalf("agentInfo = %v", info)
 	}
 

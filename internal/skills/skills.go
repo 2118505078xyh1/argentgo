@@ -22,7 +22,7 @@ import (
 const DefaultProjectSubdir = ".argent/skills"
 
 // DefaultHomeSubdir is where the user keeps skills shared by every project.
-const DefaultHomeSubdir = ".argent-go/skills"
+const DefaultHomeSubdir = ".argentgo/skills"
 
 // ErrNotFound is returned by Load when no skill carries the requested name.
 var ErrNotFound = errors.New("skill not found")

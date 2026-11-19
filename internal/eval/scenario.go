@@ -32,6 +32,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // ToolCall is a tool invocation the scripted model asks for.
@@ -75,6 +77,8 @@ func (c ToolCall) ArgumentsString() string {
 type Respond struct {
 	Text      string     `json:"text,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// Usage is billed usage for this turn, including any cached_tokens count.
+	Usage *llm.Usage `json:"usage,omitempty"`
 }
 
 // ScriptTurn is one scripted model reply plus an optional expectation about the
@@ -85,7 +89,12 @@ type ScriptTurn struct {
 	// and tool results. It is how a scenario asserts that a tool result really
 	// made it back into the context.
 	ExpectRequestContains []string `json:"expect_request_contains,omitempty"`
-	Respond               Respond  `json:"respond"`
+	// ExpectRequestCacheFree fails when any message in the request carries a
+	// stable-prefix cache marker (the prompt-cache opt-out case).
+	ExpectRequestCacheFree bool `json:"expect_request_cache_free,omitempty"`
+	// ExpectRequestCached fails when no message carries a cache marker.
+	ExpectRequestCached bool    `json:"expect_request_cached,omitempty"`
+	Respond             Respond `json:"respond"`
 }
 
 // Expect is what a scenario expects to have happened.
@@ -103,6 +112,9 @@ type Expect struct {
 	// Stopped says whether the run was stopped by something other than the
 	// model finishing: a turn limit, a policy block, a cancellation.
 	Stopped *bool `json:"stopped,omitempty"`
+	// CachedTokens is the expected total of cached prompt tokens reported by
+	// the scripted provider. nil means "do not check".
+	CachedTokens *int `json:"cached_tokens,omitempty"`
 }
 
 // Check inspects the workspace after the run.
@@ -146,6 +158,12 @@ type Scenario struct {
 	// Repeat plays the script in a loop, so the model never stops on its own
 	// and only a limit ends the run.
 	Repeat bool `json:"repeat,omitempty"`
+	// PromptCache is a runner hint: mark the stable system prefix when the
+	// runner assembles a cache-capable request.
+	PromptCache bool `json:"prompt_cache,omitempty"`
+	// NoPromptCache mirrors --no-prompt-cache: the runner must not emit cache
+	// markers, even when the protocol supports them.
+	NoPromptCache bool `json:"no_prompt_cache,omitempty"`
 }
 
 // DefaultModel is the model id handed to the loop when a scenario is silent.

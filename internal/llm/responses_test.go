@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 const responsesToolScript = `event: response.created

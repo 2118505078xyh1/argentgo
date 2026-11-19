@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argent-go/internal/jobs"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/proc"
+	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
 const (
@@ -43,14 +43,15 @@ type Guard interface {
 
 // Registry owns the tool set and enforces the workspace boundary.
 type Registry struct {
-	root       string
-	yolo       bool
-	maxOutput  int
-	sessionDir string
-	jobs       *jobs.Registry
-	guard      Guard
-	tools      map[string]Tool
-	order      []string
+	root               string
+	yolo               bool
+	maxOutput          int
+	sessionDir         string
+	jobs               *jobs.Registry
+	guard              Guard
+	backgroundReporter BackgroundReporter
+	tools              map[string]Tool
+	order              []string
 }
 
 // New returns a registry rooted at root with the default output cap.
@@ -142,6 +143,7 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if r.jobs != nil {
 		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
 	}
+	ctx = withBackgroundReporter(ctx, r.backgroundReporter)
 	return tool.Run(ctx, r.root, raw)
 }
 
@@ -404,6 +406,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		timeout = time.Duration(args.TimeoutSeconds) * time.Second
 	}
 	path, argv := shellInvocation(args.Command)
+	reportBackground(ctx, args.Command, args.BackgroundAfterMS)
 
 	// Promotion is opt-in and needs somewhere to record the job. Without a
 	// registry (or the argument), keep the original hard-kill behaviour.

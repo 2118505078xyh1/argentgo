@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/provider"
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 func envFrom(pairs map[string]string) func(string) string {
@@ -20,7 +20,7 @@ func TestDefaultStoragePrecedence(t *testing.T) {
 	home := t.TempDir()
 	base := map[string]string{"USERPROFILE": home}
 
-	if got, want := DefaultStorage(envFrom(base)), filepath.Join(home, ".argent-go"); got != want {
+	if got, want := DefaultStorage(envFrom(base)), filepath.Join(home, ".argentgo"); got != want {
 		t.Fatalf("DefaultStorage = %q, want %q", got, want)
 	}
 
@@ -70,7 +70,7 @@ func TestResolvePrefersFlagsOverConfig(t *testing.T) {
 	if !res.Mutating {
 		t.Error("workspace-write must allow mutating tools")
 	}
-	if res.Storage != filepath.Join(home, ".argent-go") {
+	if res.Storage != filepath.Join(home, ".argentgo") {
 		t.Errorf("storage = %q", res.Storage)
 	}
 	if res.Chatter == nil {

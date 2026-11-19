@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/skills"
+	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
 // runSkills implements `skills [--json] [-C root]`.
@@ -65,6 +65,6 @@ func skillsUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent skills [--json] [-C <dir>]
 
 Lists the SKILL.md documents discovered under .argent/skills and
-~/.argent-go/skills. The same registry backs the use_skill tool.
+~/.argentgo/skills. The same registry backs the use_skill tool.
 `)
 }

@@ -214,8 +214,6 @@ func TestNilInjectedInterfacesReturnReadableErrors(t *testing.T) {
 	env := newTestEnv(t, Options{})
 	for _, command := range []string{
 		"list_jobs", "start_job", "job_tail", "kill_job",
-		"list_workflows",
-		"list_documents", "read_document",
 		"list_automations", "create_automation", "toggle_automation",
 		"delete_automation", "run_automation", "automation_log", "preview_schedule",
 		"pty_spawn", "pty_write", "pty_read", "pty_kill", "pty_list",

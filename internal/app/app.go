@@ -16,18 +16,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/config"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/memory"
-	"github.com/2118505078xyh1/argent-go/internal/provider"
-	"github.com/2118505078xyh1/argent-go/internal/security"
-	"github.com/2118505078xyh1/argent-go/internal/session"
-	"github.com/2118505078xyh1/argent-go/internal/skills"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// DefaultStorage returns the storage root: $ARGENT_STORAGE, else ~/.argent-go.
+// DefaultStorage returns the storage root: $ARGENT_STORAGE, else ~/.argentgo.
 func DefaultStorage(env func(string) string) string {
 	if env == nil {
 		env = os.Getenv
@@ -39,9 +39,9 @@ func DefaultStorage(env func(string) string) string {
 	}
 	home := homeDir(env)
 	if home == "" {
-		return ".argent-go"
+		return ".argentgo"
 	}
-	return filepath.Join(home, ".argent-go")
+	return filepath.Join(home, ".argentgo")
 }
 
 func homeDir(env func(string) string) string {
@@ -261,7 +261,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		),
 		NoAutoCompact: opts.NoAutoCompact,
 	}
-	res.Chatter = newChatter(res.Protocol, baseURL, apiKey)
+	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, llm.Options{NoPromptCache: opts.NoPromptCache})
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
 	}
@@ -319,16 +319,21 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 	return providerChoice{}, false
 }
 
-func newChatter(protocol, baseURL, apiKey string) llm.Chatter {
+func newChatter(protocol, baseURL, apiKey string, opts llm.Options) llm.Chatter {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "anthropic", "anthropic-messages", "messages":
 		client := llm.NewAnthropic(baseURL, apiKey)
 		client.MaxTokens = llm.DefaultAnthropicMaxTokens
+		client.Options = opts
 		return client
 	case "responses", "openai-responses":
-		return llm.NewResponses(baseURL, apiKey)
+		client := llm.NewResponses(baseURL, apiKey)
+		client.Options = opts
+		return client
 	default:
-		return llm.New(baseURL, apiKey)
+		client := llm.New(baseURL, apiKey)
+		client.Options = opts
+		return client
 	}
 }
 
@@ -646,6 +651,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		runner = &hookedTools{inner: toolset, bridge: bridge}
 	}
 
+	tracker := newCheckpointTracker(res.Root, sess)
+	var evidence agent.CompactionEvidence
 	loop := &agent.Runner{Opts: agent.Options{
 		Model:    res.Model,
 		MaxTurns: res.MaxTurns,
@@ -663,6 +670,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		Prices:      res.Prices,
 		SkillAuthor: skillWriter{},
 		SkillLister: skillLister{toolset.skills},
+		Checkpoint: func(cp agent.Checkpoint) {
+			tracker.capture(cp, prompt)
+		},
+		MutationPaths: toolset.base.mutationPaths,
+		OnCompactionEvidence: func(e agent.CompactionEvidence) {
+			evidence = e
+		},
 		Emit: func(event agent.Event) {
 			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 				onText(event.Text)
@@ -687,7 +701,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		}
 	}
 	bridge.stop(ctx, prompt, result.Text)
-	maybeAutoCompact(res, sess)
+	tracker.finish(err != nil || ctx.Err() != nil)
+	recordAttempt(sess, ctx, err)
+	maybeAutoCompact(res, sess, evidence)
 	_ = sess.Append("turn", map[string]any{
 		"turns":   result.Turns,
 		"stopped": result.Stopped,

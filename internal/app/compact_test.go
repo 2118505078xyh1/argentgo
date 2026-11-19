@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 func TestExecuteAutoCompactsLongTranscriptUnlessDisabled(t *testing.T) {

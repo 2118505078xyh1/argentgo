@@ -19,8 +19,21 @@ const (
 	EntryNotice
 )
 
+// AttemptKind is the non-committed outcome attached to a transcript block.
+// It is display metadata only: the agent history never sees these labels.
+type AttemptKind string
+
+// Attempt outcomes the UI can badge.
+const (
+	AttemptFailed      AttemptKind = "failed"
+	AttemptRetried     AttemptKind = "retried"
+	AttemptCancelled   AttemptKind = "cancelled"
+	AttemptStreamError AttemptKind = "stream_error"
+)
+
 // Entry is one transcript block. Assistant text accumulates while streaming;
-// tool entries carry the call and a truncated output.
+// tool entries carry the call and a truncated output. Attempt is set for
+// failed / retried / cancelled rows so the operator can see them at a glance.
 type Entry struct {
 	Kind    EntryKind
 	Text    string
@@ -29,9 +42,21 @@ type Entry struct {
 	Output  string
 	Running bool
 	Failed  bool
+	Attempt AttemptKind
 
 	live bool // the assistant entry still receiving stream deltas
 }
+
+// SessionInfo is one row of the optional session rail. Title is the generated
+// (or explicitly renamed) title; Path stays available for tooltips and hooks.
+type SessionInfo struct {
+	Path  string
+	Title string
+}
+
+// TurnAction is the narrow seam for undo / retry / rename. The TUI never
+// imports the session or app package; an integrator supplies the behaviour.
+type TurnAction func(ctx context.Context, arg string) error
 
 // Config seeds a Model.
 type Config struct {
@@ -54,6 +79,9 @@ const (
 	ActionSubmit
 	ActionAbort
 	ActionQuit
+	ActionUndo
+	ActionRetry
+	ActionRename
 )
 
 type bodyCache struct {
@@ -71,7 +99,7 @@ type Model struct {
 	model    string
 	root     string
 	locale   string
-	sessions []string
+	sessions []SessionInfo
 
 	theme    string
 	palette  Palette
@@ -96,15 +124,26 @@ type Model struct {
 	quit      bool
 	submitted string
 
-	usageIn  int
-	usageOut int
-	expanded bool
+	usageIn     int
+	usageOut    int
+	usageCached int
+	expanded    bool
+
+	// Action hooks are installed by the integrator. nil means the command is
+	// recognised but answered with a clear "not wired" notice.
+	undoFn    TurnAction
+	retryFn   TurnAction
+	renameFn  TurnAction
+	actionArg string
 
 	// The optional side rail. All three are hidden by default so the classic
 	// transcript view and its keybindings are byte-for-byte unchanged.
 	showTasks       bool
 	showWorkspace   bool
 	showPlan        bool
+	showSessions    bool
+	sessionsCursor  int
+	sessionsScroll  int
 	tasks           []Task
 	tasksScroll     int
 	workspace       []workspaceEntry
@@ -136,7 +175,7 @@ func New(cfg Config) *Model {
 		model:    cfg.Model,
 		root:     cfg.Root,
 		locale:   locale,
-		sessions: append([]string{}, cfg.Sessions...),
+		sessions: sessionInfos(cfg.Sessions),
 		editor:   NewEditor(),
 		started:  time.Now(),
 		now:      time.Now,
@@ -222,6 +261,53 @@ func (m *Model) applyThemeLocked(name string) error {
 	return nil
 }
 
+func sessionInfos(paths []string) []SessionInfo {
+	out := make([]SessionInfo, 0, len(paths))
+	for _, p := range paths {
+		title := p
+		if i := strings.LastIndexAny(p, `/\\`); i >= 0 {
+			title = p[i+1:]
+		}
+		title = strings.TrimSuffix(title, ".jsonl")
+		out = append(out, SessionInfo{Path: p, Title: title})
+	}
+	return out
+}
+
+// SetSessions replaces the session rail. An empty slice hides the rail but
+// keeps the previously selected row for the next fill.
+func (m *Model) SetSessions(rows []SessionInfo) {
+	m.mu.Lock()
+	m.sessions = append([]SessionInfo{}, rows...)
+	m.sessionsCursor = clampScroll(m.sessionsCursor, maxInt(len(m.sessions)-1, 0))
+	m.version++
+	m.mu.Unlock()
+}
+
+// Sessions returns a copy of the session rail rows.
+func (m *Model) Sessions() []SessionInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]SessionInfo{}, m.sessions...)
+}
+
+// SetTurnActions installs the undo / retry / rename seams. Passing nil clears
+// one action, which makes its slash command answer with a notice instead.
+func (m *Model) SetTurnActions(undo, retry, rename TurnAction) {
+	m.mu.Lock()
+	m.undoFn, m.retryFn, m.renameFn = undo, retry, rename
+	m.mu.Unlock()
+}
+
+// TakeActionArg returns the argument of the last action-producing command.
+func (m *Model) TakeActionArg() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	arg := m.actionArg
+	m.actionArg = ""
+	return arg
+}
+
 // SetApproval installs the injected approval authority. It is consulted after
 // the operator presses y/a; a nil function means the answer is final.
 func (m *Model) SetApproval(fn func(ctx context.Context, name, args string) (bool, error)) {
@@ -282,6 +368,26 @@ func (m *Model) SetUsage(prompt, completion int) {
 	m.mu.Unlock()
 }
 
+// SetCachedTokens records the cached-prefix portion of the prompt tokens.
+func (m *Model) SetCachedTokens(cached int) {
+	m.mu.Lock()
+	m.usageCached = cached
+	m.mu.Unlock()
+}
+
+// AppendAttempt adds a non-committed attempt badge to the transcript.
+func (m *Model) AppendAttempt(kind AttemptKind, detail string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.appendAttemptLocked(kind, detail)
+}
+
+func (m *Model) appendAttemptLocked(kind AttemptKind, detail string) {
+	m.flushStreamLocked()
+	m.entries = append(m.entries, Entry{Kind: EntryNotice, Attempt: kind, Text: detail})
+	m.version++
+}
+
 // SetStatus shows a transient message on the status line.
 func (m *Model) SetStatus(text string) {
 	m.mu.Lock()
@@ -315,6 +421,19 @@ func (m *Model) scrollByLocked(delta int) {
 		m.workspaceScroll = clampScroll(m.workspaceScroll+delta, maxInt(len(m.workspace)-1, 0))
 		m.previewScroll = clampScroll(m.previewScroll+delta, len(m.previewLines))
 	}
+	if m.showSessions {
+		m.sessionsScroll = clampScroll(m.sessionsScroll+delta, maxInt(len(m.sessions)-1, 0))
+	}
+}
+
+func (m *Model) clampSessionScrollLocked() {
+	visible := maxInt(m.bodyH/4-1, 1)
+	if m.sessionsCursor < m.sessionsScroll {
+		m.sessionsScroll = m.sessionsCursor
+	}
+	if m.sessionsCursor >= m.sessionsScroll+visible {
+		m.sessionsScroll = m.sessionsCursor - visible + 1
+	}
 }
 
 func (m *Model) setStatusLocked(text string) {
@@ -336,6 +455,13 @@ func (m *Model) appendUserLocked(text string) {
 	m.scroll = 0
 }
 
+func attemptFromFailed(failed bool) AttemptKind {
+	if failed {
+		return AttemptFailed
+	}
+	return ""
+}
+
 // AppendReasoning adds (or extends) a reasoning block.
 func (m *Model) AppendReasoning(text string) {
 	m.mu.Lock()
@@ -355,11 +481,12 @@ func (m *Model) AppendTool(name, args, output string, failed bool) {
 	defer m.mu.Unlock()
 	m.flushStreamLocked()
 	m.entries = append(m.entries, Entry{
-		Kind:   EntryTool,
-		Name:   name,
-		Args:   args,
-		Output: output,
-		Failed: failed,
+		Kind:    EntryTool,
+		Name:    name,
+		Args:    args,
+		Output:  output,
+		Failed:  failed,
+		Attempt: attemptFromFailed(failed),
 	})
 	m.version++
 	m.scroll = 0
@@ -460,6 +587,18 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "plan_off"))
 		}
+	case KindCtrlS:
+		m.showSessions = !m.showSessions
+		m.version++
+		if m.showSessions {
+			m.setStatusLocked(text(m.locale, "sessions_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "sessions_off"))
+		}
+	case KindAltU:
+		return m.requestActionLocked(ActionUndo, "")
+	case KindAltR:
+		return m.requestActionLocked(ActionRetry, "")
 	case KindCtrlC:
 		if m.working {
 			m.setStatusLocked(text(m.locale, "cancelling"))
@@ -496,10 +635,18 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 			m.moveWorkspaceCursorLocked(-m.workspaceCursor)
 			return ActionNone
 		}
+		if m.showSessions && len(m.sessions) > 0 {
+			m.sessionsCursor = 0
+			return ActionNone
+		}
 		m.editor.Home()
 	case KindEnd, KindCtrlE:
 		if m.showWorkspace && len(m.workspace) > 0 {
 			m.moveWorkspaceCursorLocked(len(m.workspace))
+			return ActionNone
+		}
+		if m.showSessions && len(m.sessions) > 0 {
+			m.sessionsCursor = len(m.sessions) - 1
 			return ActionNone
 		}
 		m.editor.End()
@@ -510,6 +657,13 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindCtrlW:
 		m.editor.KillWord()
 	case KindUp:
+		if showSessions := m.showSessions && len(m.sessions) > 0; showSessions {
+			if m.sessionsCursor > 0 {
+				m.sessionsCursor--
+			}
+			m.clampSessionScrollLocked()
+			return ActionNone
+		}
 		if m.showWorkspace {
 			m.moveWorkspaceCursorLocked(-1)
 			return ActionNone
@@ -518,6 +672,13 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 			m.editor.HistoryPrev()
 		}
 	case KindDown:
+		if showSessions := m.showSessions && len(m.sessions) > 0; showSessions {
+			if m.sessionsCursor < len(m.sessions)-1 {
+				m.sessionsCursor++
+			}
+			m.clampSessionScrollLocked()
+			return ActionNone
+		}
 		if m.showWorkspace {
 			m.moveWorkspaceCursorLocked(1)
 			return ActionNone
@@ -572,8 +733,10 @@ func (m *Model) submitLocked() KeyAction {
 
 func (m *Model) commandLocked(body string) KeyAction {
 	name := body
+	arg := ""
 	if i := strings.IndexAny(body, " \t"); i >= 0 {
 		name = body[:i]
+		arg = strings.TrimSpace(body[i+1:])
 	}
 	switch name {
 	case "/quit", "/exit":
@@ -591,6 +754,16 @@ func (m *Model) commandLocked(body string) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "collapsed"))
 		}
+	case "/undo":
+		return m.requestActionLocked(ActionUndo, arg)
+	case "/retry":
+		return m.requestActionLocked(ActionRetry, arg)
+	case "/name":
+		if arg == "" {
+			m.setStatusLocked(text(m.locale, "name_usage"))
+			return ActionNone
+		}
+		return m.requestActionLocked(ActionRename, arg)
 	case "/help":
 		m.appendNoticeLocked(text(m.locale, "help"))
 	default:
@@ -601,6 +774,32 @@ func (m *Model) commandLocked(body string) KeyAction {
 		return ActionSubmit
 	}
 	return ActionNone
+}
+
+// requestActionLocked reports an action to the run loop. An uninstalled hook
+// keeps the command discoverable but never pretends it did anything.
+func (m *Model) requestActionLocked(action KeyAction, arg string) KeyAction {
+	if m.working {
+		m.setStatusLocked(text(m.locale, "busy"))
+		return ActionNone
+	}
+	hook := m.undoFn
+	key := "undo_unwired"
+	switch action {
+	case ActionRetry:
+		hook, key = m.retryFn, "retry_unwired"
+	case ActionRename:
+		hook, key = m.renameFn, "rename_unwired"
+	case ActionUndo:
+		key = "undo_unwired"
+	}
+	if hook == nil {
+		m.appendNoticeLocked(text(m.locale, key))
+		return ActionNone
+	}
+	m.actionArg = arg
+	m.setStatusLocked("")
+	return action
 }
 
 // Plain renders the transcript as unstyled text, for the scroll-back that
@@ -624,6 +823,9 @@ func (m *Model) Plain() string {
 				out.WriteString(entry.Output + "\n")
 			}
 		case EntryNotice:
+			if entry.Attempt != "" {
+				out.WriteString("⟳ [" + string(entry.Attempt) + "] ")
+			}
 			out.WriteString("! " + entry.Text + "\n")
 		}
 	}

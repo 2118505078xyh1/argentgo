@@ -66,7 +66,7 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	name := strings.TrimSpace(call.Name)
 	if name == "" {
 		if r == nil || r.Len() == 0 {
-			return "No skills are installed. Add SKILL.md directories under .argent/skills or ~/.argent-go/skills.", nil
+			return "No skills are installed. Add SKILL.md directories under .argent/skills or ~/.argentgo/skills.", nil
 		}
 		var b strings.Builder
 		b.WriteString("Installed skills:\n")

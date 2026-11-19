@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // Scripted is an llm.Chatter that replays a scenario's script instead of
@@ -50,6 +50,21 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 					fmt.Sprintf("turn %d: the request does not contain %q", index+1, needle))
 			}
 		}
+		marked := false
+		for _, message := range messages {
+			if message.CacheControl != nil {
+				marked = true
+				break
+			}
+		}
+		if turn.ExpectRequestCacheFree && marked {
+			s.violations = append(s.violations,
+				fmt.Sprintf("turn %d: the request carries a cache marker", index+1))
+		}
+		if turn.ExpectRequestCached && !marked {
+			s.violations = append(s.violations,
+				fmt.Sprintf("turn %d: the request has no cache marker", index+1))
+		}
 	}
 	s.mu.Unlock()
 
@@ -61,7 +76,7 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 		return llm.Message{Role: "assistant", Content: reply}, nil
 	}
 
-	reply := llm.Message{Role: "assistant", Content: turn.Respond.Text}
+	reply := llm.Message{Role: "assistant", Content: turn.Respond.Text, Usage: turn.Respond.Usage}
 	if reply.Content != "" {
 		emit(onText, reply.Content)
 	}

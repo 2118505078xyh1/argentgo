@@ -86,7 +86,7 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 				"loadSession":     false,
 			},
 			"authMethods": []any{},
-			"agentInfo":   map[string]any{"name": "argent-go", "version": version},
+			"agentInfo":   map[string]any{"name": "argentgo", "version": version},
 		})
 	case "authenticate":
 		s.peer.respond(req.ID, map[string]any{})

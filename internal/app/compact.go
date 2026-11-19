@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 const (
@@ -27,7 +27,9 @@ func compactThresholdFrom(raw map[string]any) int {
 
 // maybeAutoCompact is the post-run step behind --no-auto-compact. It is a
 // no-op when the flag is set or the conversation still fits the threshold.
-func maybeAutoCompact(res Resolved, sess *session.Session) {
+// Runtime failures and next-step lines are carried into the summary so a
+// resumed run does not lose the context it needs most.
+func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.CompactionEvidence) {
 	if res.NoAutoCompact || sess == nil {
 		return
 	}
@@ -44,6 +46,11 @@ func maybeAutoCompact(res Resolved, sess *session.Session) {
 		messages = append(messages, llm.Message{Role: entry.Role, Content: entry.Content})
 	}
 	if agent.EstimateMessages(messages) < threshold {
+		return
+	}
+	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0
+	if hasEvidence {
+		compactWithEvidence(sess, evidence)
 		return
 	}
 	_ = sess.Compact(defaultCompactKeep)

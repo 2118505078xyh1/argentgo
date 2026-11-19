@@ -10,10 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/security"
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 // scriptedChatter returns one scripted answer per request, without a network.
@@ -344,14 +345,14 @@ func TestNoAutoCompactSkipsPostRunStep(t *testing.T) {
 		return sess
 	}
 	withCompaction := build()
-	maybeAutoCompact(res, withCompaction)
+	maybeAutoCompact(res, withCompaction, agent.CompactionEvidence{})
 	if !hasCompaction(withCompaction) {
 		t.Fatal("default run must compact above the threshold")
 	}
 	noCompact := res
 	noCompact.NoAutoCompact = true
 	skipped := build()
-	maybeAutoCompact(noCompact, skipped)
+	maybeAutoCompact(noCompact, skipped, agent.CompactionEvidence{})
 	if hasCompaction(skipped) {
 		t.Fatal("--no-auto-compact must skip the post-run step")
 	}

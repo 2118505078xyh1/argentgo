@@ -35,13 +35,13 @@ func ProjectPluginsDir(root string) string {
 	return filepath.Join(root, ".argent", "plugins")
 }
 
-// UserPluginsDir returns $HOME/.argent-go/plugins.
+// UserPluginsDir returns $HOME/.argentgo/plugins.
 func UserPluginsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("plugins: locate home directory: %w", err)
 	}
-	return filepath.Join(home, ".argent-go", "plugins"), nil
+	return filepath.Join(home, ".argentgo", "plugins"), nil
 }
 
 // Roots lists the discovery roots in precedence order: the workspace first,

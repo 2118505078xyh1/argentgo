@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/provider"
+	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
 // runModels implements `models [--json]`: the provider template table, without

@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 func TestGUIToolRegistryIsMarkedGuarded(t *testing.T) {

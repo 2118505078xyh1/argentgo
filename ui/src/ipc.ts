@@ -2,6 +2,7 @@
 //! without a WebView.
 
 import type { Tool } from "./ToolCard";
+import { parseAttempt, type AttemptKind } from "./attempts";
 
 export type UnknownRecord = Record<string, unknown>;
 
@@ -71,6 +72,7 @@ export type TextItem = {
   id: number;
   kind: "user" | "assistant" | "thinking" | "notice";
   text: string;
+  attempt?: AttemptKind;
 };
 
 export type ToolItem = { id: number; kind: "tool"; tool: Tool };
@@ -86,8 +88,8 @@ export type SessionRow = {
 };
 
 export type LoadedEntry =
-  | { kind: "user" | "assistant" | "thinking"; text: string }
-  | { kind: "notice"; level: "info" | "warning" | "error"; text: string }
+  | { kind: "user" | "assistant" | "thinking"; text: string; attempt?: AttemptKind }
+  | { kind: "notice"; level: "info" | "warning" | "error"; text: string; attempt?: AttemptKind }
   | {
       kind: "tool";
       callId: string;
@@ -96,6 +98,7 @@ export type LoadedEntry =
       output: string;
       state: "running" | "ok" | "error";
       durationMs?: number;
+      attempt?: AttemptKind;
     };
 
 export type AgentEvent =
@@ -103,7 +106,7 @@ export type AgentEvent =
   | { type: "turn_end" }
   | { type: "assistant_text"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "tool_requested"; id: string; name: string; arguments: string }
+  | { type: "tool_requested"; id: string; name: string; arguments: string; attempt?: AttemptKind }
   | {
       type: "tool_finished";
       id: string;
@@ -111,9 +114,11 @@ export type AgentEvent =
       output: string;
       isError: boolean;
       durationMs?: number;
+      attempt?: AttemptKind;
     }
   | { type: "finished"; reason: string }
   | { type: "notice"; text: string }
+  | { type: "attempt"; attempt: AttemptKind; text: string }
   | { type: "aborted" };
 
 export type Incoming = (
@@ -156,6 +161,7 @@ export function parseAgentEvent(raw: unknown): AgentEvent | null {
         id: asString(value.id),
         name: asString(value.name),
         arguments: asString(value.arguments),
+        attempt: parseAttempt(value.attempt),
       };
     case "tool_finished":
       return {
@@ -165,11 +171,18 @@ export function parseAgentEvent(raw: unknown): AgentEvent | null {
         output: asString(value.output),
         isError: value.isError === true,
         durationMs: asNumber(value.durationMs),
+        attempt: parseAttempt(value.attempt),
       };
     case "finished":
       return { type: "finished", reason: asString(value.reason, "ready") };
     case "notice":
       return { type: "notice", text: asString(value.text) };
+    case "attempt":
+      return {
+        type: "attempt",
+        attempt: parseAttempt(value.attempt) ?? "failed",
+        text: asString(value.text),
+      };
     case "aborted":
       return { type: "aborted" };
     default:
@@ -185,11 +198,11 @@ export function parseLoadedEntry(raw: unknown): LoadedEntry | null {
     case "user":
     case "assistant":
     case "thinking":
-      return { kind: value.kind, text };
+      return { kind: value.kind, text, attempt: parseAttempt(value.attempt) };
     case "notice": {
       const level =
         value.level === "warning" || value.level === "error" ? value.level : "info";
-      return { kind: "notice", level, text };
+      return { kind: "notice", level, text, attempt: parseAttempt(value.attempt) };
     }
     case "tool": {
       const state =
@@ -202,6 +215,7 @@ export function parseLoadedEntry(raw: unknown): LoadedEntry | null {
         output: asString(value.output),
         state,
         durationMs: asNumber(value.durationMs),
+        attempt: parseAttempt(value.attempt),
       };
     }
     default:

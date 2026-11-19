@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
 // mcpServerView is one configured MCP server, as printed by `argent mcp`.

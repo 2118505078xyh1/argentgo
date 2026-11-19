@@ -301,8 +301,8 @@ func TestUnsupportedCommandsAnswerImmediately(t *testing.T) {
 	if message := env.commandError("pty_list", ""); !strings.Contains(message, "not supported in the Go build") {
 		t.Fatalf("pty_list error = %q", message)
 	}
-	if message := env.commandError("list_documents", ""); !strings.Contains(message, "not supported") {
-		t.Fatalf("list_documents error = %q", message)
+	if message := env.commandError("undo", ""); !strings.Contains(message, "not supported") {
+		t.Fatalf("undo error = %q", message)
 	}
 	if message := env.commandError("totally_unknown", ""); !strings.Contains(message, "unknown command") {
 		t.Fatalf("unknown command error = %q", message)

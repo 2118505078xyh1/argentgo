@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/config"
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // runPolicy implements `policy [--json] [-C root]`: the effective sandbox,

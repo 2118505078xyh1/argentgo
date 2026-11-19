@@ -1,4 +1,4 @@
-# Migration plan: Rust `argent` → Go `argent-go`
+# Migration plan: Rust `argent` → Go `argentgo`
 
 Source of truth during migration: the archived Rust `argent` v0.4.0 checkout
 (removed locally after the Go build was complete). Target: this repository. Go 1.27, **stdlib only** (no `go get`, no third-party modules).
@@ -22,7 +22,7 @@ Shell setup (Go is not on PATH in child sessions):
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
-cd argent-go
+cd argentgo
 go vet ./internal/mypkg/...
 ```
 

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // policyFor is the single construction point for the policy used by Execute.

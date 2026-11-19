@@ -41,21 +41,25 @@ const (
 
 // Options is the fully resolved command line handed to the runner factory.
 type Options struct {
-	Model       string
-	Provider    string
-	Profile     string
-	BaseURL     string
-	APIKey      string
-	Protocol    string
-	Yolo        bool
-	MaxTurns    int
-	Mode        string
-	Cwd         string
-	SandboxMode string
-	Approval    string
-	Session     string
-	Resume      bool
-	Locale      string
+	Model         string
+	Provider      string
+	Profile       string
+	BaseURL       string
+	APIKey        string
+	Protocol      string
+	Yolo          bool
+	MaxTurns      int
+	Mode          string
+	Cwd           string
+	SandboxMode   string
+	Approval      string
+	Session       string
+	Resume        bool
+	Undo          bool
+	Retry         bool
+	Title         string
+	Locale        string
+	NoPromptCache bool
 
 	// Output and listing switches.
 	JSONLines     bool
@@ -269,6 +273,9 @@ type flagValues struct {
 	approval    *string
 	session     *string
 	resume      *bool
+	undo        *bool
+	retry       *bool
+	title       *string
 	locale      *string
 
 	jsonLines     *bool
@@ -280,6 +287,7 @@ type flagValues struct {
 	trustProject  *bool
 	thinking      *string
 	noAutoCompact *bool
+	noPromptCache *bool
 	theme         *string
 	plugins       *stringList
 
@@ -333,6 +341,9 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.approval = fs.String("approval", "", "approval mode: ask, never or auto")
 	v.session = fs.String("session", "", "resume the session with this id")
 	v.resume = fs.Bool("resume", false, "resume the most recent session")
+	v.undo = fs.Bool("undo", false, "restore the latest checkpoint of --session and exit")
+	v.retry = fs.Bool("retry", false, "fork --session at its latest checkpoint before the prompt")
+	v.title = fs.String("title", "", "override the generated session title")
 	v.locale = fs.String("locale", "", "output locale")
 
 	v.jsonLines = fs.Bool("json-lines", false, "one-shot strict JSONL on stdout")
@@ -344,6 +355,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.trustProject = fs.Bool("trust-project", false, "trust project-local resources for this run")
 	v.thinking = fs.String("thinking", "", "reasoning effort hint")
 	v.noAutoCompact = fs.Bool("no-auto-compact", false, "disable automatic compaction for this run")
+	v.noPromptCache = fs.Bool("no-prompt-cache", false, "disable provider prompt-cache markers for this run")
 	v.theme = fs.String("theme", "", "UI theme name")
 	v.plugins = &stringList{}
 	fs.Var(v.plugins, "plugins", "load this plugin by name, repeatable; `all` loads every one")
@@ -441,6 +453,9 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		Cwd:         *values.cwd,
 		Session:     *values.session,
 		Resume:      *values.resume,
+		Undo:        *values.undo,
+		Retry:       *values.retry,
+		Title:       *values.title,
 		Serve:       *values.serve,
 		RPC:         *values.rpc,
 		ACP:         *values.acp,
@@ -469,6 +484,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	opts.Tokens = *values.tokens
 	opts.TrustProject = *values.trustProject
 	opts.NoAutoCompact = *values.noAutoCompact
+	opts.NoPromptCache = *values.noPromptCache
 	opts.Plugins = append([]string(nil), values.plugins.values...)
 	opts.Background = *values.background
 	opts.Worktree = values.worktree.value
@@ -762,6 +778,9 @@ flags:
       --session <id>            resume the session with this id
       --session-id <id>         alias for --session
       --resume                  resume the most recent session
+      --undo                    restore files from the latest checkpoint and exit
+      --retry                   fork the session at its latest checkpoint
+      --title <text>            override the generated session title
       --continue                alias for --resume
       --continue-session        alias for --resume
       --list-sessions           list stored sessions and exit
@@ -769,6 +788,7 @@ flags:
       --output-schema <file>    JSON Schema path, or inline schema text
       --plugins <name>          load this plugin by name (repeatable, `+"`all`"+`)
       --no-auto-compact         disable automatic compaction for this run
+      --no-prompt-cache         disable provider prompt-cache markers for this run
       --no-color                disable ANSI colours
       --theme <name>            UI theme name
       --locale <locale>         output locale

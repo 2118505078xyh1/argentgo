@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
 // runBug implements `bug [--out path]`: a diagnostics dump an issue report can
@@ -60,7 +60,7 @@ func runBug(app App, _ context.Context, args []string) int {
 func bugReport(app App) string {
 	var b strings.Builder
 	root, _ := os.Getwd()
-	fmt.Fprintf(&b, "argent-go %s\n", app.Version)
+	fmt.Fprintf(&b, "argentgo %s\n", app.Version)
 	fmt.Fprintf(&b, "generated: %s\n", time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "go: %s\n", runtime.Version())
 	fmt.Fprintf(&b, "platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)

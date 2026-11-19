@@ -77,6 +77,9 @@ type Options struct {
 	// Sessions backs search_sessions and import_session_text. Optional: those
 	// commands answer "not supported in the Go build" when it is nil.
 	Sessions SessionStore
+	// History backs the undo / retry transcript actions. Optional; see
+	// TurnHistory in interfaces.go for the exact hook.
+	History TurnHistory
 	// Optional capability backends. See interfaces.go for the exact method
 	// contracts. Jobs, Automation, Workflows, Documents and PTY are
 	// injected-only: a nil value keeps the clear "not supported" error.
@@ -245,13 +248,15 @@ func (b *bridge) authorized(r *http.Request) bool {
 	if len(header) > 7 && strings.EqualFold(header[:7], "bearer ") {
 		got = strings.TrimSpace(header[7:])
 	}
-	if got == "" && r.Method == http.MethodGet {
-		got = strings.TrimSpace(r.URL.Query().Get("token"))
-	}
 	// The page is opened with ?token= once, then its module/script assets are
 	// requested without that query. A GET-only cookie keeps those local asset
 	// loads working while state-changing RPC calls still require the header.
-	if got == "" && r.Method == http.MethodGet {
+	// HEAD is a read-only method too, so it follows the same rule as GET.
+	safeMethod := r.Method == http.MethodGet || r.Method == http.MethodHead
+	if got == "" && safeMethod {
+		got = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
+	if got == "" && safeMethod {
 		if cookie, err := r.Cookie("argent_token"); err == nil {
 			got = strings.TrimSpace(cookie.Value)
 		}

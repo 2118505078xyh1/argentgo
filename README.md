@@ -1,4 +1,4 @@
-# argent-go
+# argentgo
 
 个人使用的 Agent Runtime：流式输出模型回复、调用工具、追加到 JSONL 会话、循环往复。
 它是已冻结的 Rust 版 `argent`（v0.4.0）的 Go 重写，行为对齐该版本；
@@ -38,7 +38,7 @@ argent gui                               # 桌面应用窗口（Go HTTP + 内嵌
 
 ## 配置
 
-配置分层，低 → 高：编译默认值 → `~/.argent-go/config.json` → `<cwd>/.argent/config.json`
+配置分层，低 → 高：编译默认值 → `~/.argentgo/config.json` → `<cwd>/.argent/config.json`
 → `<cwd>/argent.json` → profile → `ARGENT_*` 环境变量 → CLI 标志。
 `-c/--config key=value` 在配置文件层生效（点分键可嵌套），低于环境变量与标志。
 profile 由 `ARGENT_PROFILE` 或配置里的 `profile` 选中，位于配置文件与环境变量之间。
@@ -54,7 +54,7 @@ profile 由 `ARGENT_PROFILE` 或配置里的 `profile` 选中，位于配置文�
 | locale | `--locale` | `ARGENT_LOCALE` | `en-US` |
 | 沙箱模式 | `--sandbox-mode` | `ARGENT_SANDBOX_MODE` | `workspace-write` |
 | 审批模式 | `--approval` | `ARGENT_APPROVAL` | `ask` |
-| 存储目录 | — | `ARGENT_STORAGE`, `ARGENT_STORAGE_DIR`, `ARGENT_HOME` | `~/.argent-go` |
+| 存储目录 | — | `ARGENT_STORAGE`, `ARGENT_STORAGE_DIR`, `ARGENT_HOME` | `~/.argentgo` |
 | 回合上限 | `--max-turns` | `ARGENT_MAX_TURNS` | `12` |
 | 自动批准 | `--yolo` | `ARGENT_YOLO=1` | 关 |
 | 服务令牌 | `--serve-token` | `ARGENT_SERVE_TOKEN`, `ARGENT_TOKEN` | 空（`--serve` 必填） |
@@ -135,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1           # 推
 与 `checksums.txt`，否则报错——tag 本身不是 Release。Release notes 取自 CHANGELOG
 对应小节。
 
-本地安装 / 卸载（默认 `%LOCALAPPDATA%\argent-go\bin`）：
+本地安装 / 卸载（默认 `%LOCALAPPDATA%\argentgo\bin`）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1

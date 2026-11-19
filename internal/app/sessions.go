@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/server"
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 // openOrCreateSession implements --session/--resume: an explicit id or session
@@ -34,13 +34,20 @@ func openOrCreateSession(store *session.Store, opts cli.Options, firstPrompt str
 			return sess, nil
 		}
 	}
-	title := firstLine(firstPrompt, 60)
+	title := session.TitleFromPrompt(firstPrompt)
 	if title == "" {
 		title = "session"
 	}
 	sess, err := store.NewSession(title)
 	if err != nil {
 		return nil, fmt.Errorf("new session: %w", err)
+	}
+	// An explicit --title wins over the prompt-derived title even on a fresh
+	// session; cli.applySessionFlags can only apply it once an id exists.
+	if override := strings.TrimSpace(opts.Title); override != "" {
+		if err := cli.ApplyTitleToSession(sess, override); err != nil {
+			return nil, fmt.Errorf("set session title: %w", err)
+		}
 	}
 	return sess, nil
 }

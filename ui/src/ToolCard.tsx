@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import { attemptLabel, type AttemptKind } from "./attempts";
 
 export type Tool = {
   id: string;
@@ -7,12 +8,14 @@ export type Tool = {
   state: "running" | "ok" | "error";
   output: string;
   duration?: number;
+  attempt?: AttemptKind;
 };
 
 export default function ToolCard(props: {
   tool: Tool;
   expanded: boolean;
   onToggle: () => void;
+  locale?: "zh" | "en";
 }) {
   const stateLabel = () => {
     if (props.tool.state === "running") return "运行中";
@@ -35,6 +38,13 @@ export default function ToolCard(props: {
         <code class="tool-name">{props.tool.name}</code>
         <span class="tool-args">{props.tool.args}</span>
         <span class="spacer" />
+        <Show when={props.tool.attempt}>
+          {(attempt) => (
+            <span class={`attempt-badge attempt-${attempt()}`}>
+              {attemptLabel(attempt(), props.locale ?? "zh")}
+            </span>
+          )}
+        </Show>
         <span class="tool-meta">
           {stateLabel()}
           {props.tool.duration !== undefined ? ` · ${props.tool.duration}ms` : ""}

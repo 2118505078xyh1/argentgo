@@ -1,9 +1,9 @@
-// Package config resolves layered configuration for argent-go.
+// Package config resolves layered configuration for argentgo.
 //
 // Precedence, lowest to highest:
 //
 //  1. compiled defaults
-//  2. $HOME/.argent-go/config.json
+//  2. $HOME/.argentgo/config.json
 //  3. <cwd>/.argent/config.json
 //  4. <cwd>/argent.json
 //  5. the selected profile (ARGENT_PROFILE, or "profile" in a file)
@@ -31,7 +31,7 @@ const (
 )
 
 const (
-	appDir          = ".argent-go"
+	appDir          = ".argentgo"
 	defaultModel    = "gpt-4o-mini"
 	defaultBaseURL  = "https://api.openai.com/v1"
 	defaultProtocol = "openai-chat-completions"

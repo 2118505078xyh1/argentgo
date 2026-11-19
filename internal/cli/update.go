@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/update"
+	"github.com/2118505078xyh1/argentgo/internal/update"
 )
 
-// defaultUpdateRepo is where argent-go releases live.
+// defaultUpdateRepo is where argentgo releases live.
 const defaultUpdateRepo = "2118505078xyh1/argent"
 
 // UpdateOps is the seam the update command drives. Production leaves it nil so
@@ -159,7 +159,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 	}
 	if !apply {
 		if !newer {
-			fmt.Fprintf(app.IO.Out, "argent-go %s is up to date (latest %s)\n", current, release.Tag)
+			fmt.Fprintf(app.IO.Out, "argentgo %s is up to date (latest %s)\n", current, release.Tag)
 			return 0
 		}
 		fmt.Fprintf(app.IO.Out, "a newer release is available: %s (running %s)\n", release.Tag, current)
@@ -171,7 +171,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 		return 0
 	}
 	if !newer {
-		fmt.Fprintf(app.IO.Out, "argent-go %s is up to date; nothing to apply\n", current)
+		fmt.Fprintf(app.IO.Out, "argentgo %s is up to date; nothing to apply\n", current)
 		return 0
 	}
 	return applyRelease(app, ctx, ops, client, release, checksum, target, assetName)
@@ -239,7 +239,7 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 		fmt.Fprintln(app.IO.Err, "error: write release notes:", err)
 		return 1
 	}
-	fmt.Fprintf(app.IO.Out, "updated argent-go to %s\n", release.Tag)
+	fmt.Fprintf(app.IO.Out, "updated argentgo to %s\n", release.Tag)
 	fmt.Fprintf(app.IO.Out, "release notes: %s\n", notes)
 	return 0
 }

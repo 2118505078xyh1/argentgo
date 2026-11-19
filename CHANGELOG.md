@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.2 — 2026-11-19
+
+- Project renamed from `argent-go` to `argentgo`; Go module path and all
+  documentation, scripts and wire identifiers follow the new name.
+- Licensed under Apache-2.0 (see `LICENSE`).
+- Checkpoint/undo/retry: file manifests with SHA-256, conflict-safe restore and
+  fork-on-retry, wired through the agent loop and CLI (`--undo`, `--retry`,
+  `--title`).
+- Prompt caching for Anthropic / OpenAI chat / Responses with cached-token
+  accounting and `--no-prompt-cache`.
+- Failed, cancelled and stream-error attempts are recorded in JSONL without
+  entering model history; session titles are derived locally with redaction.
+- One-click Windows release (`scripts/publish-win.ps1`) publishes a real
+  GitHub Release with the Windows zip and checksums, not just a tag.
+- TUI/GUI: undo/retry actions, attempt badges, cached-token counts, command
+  templates, SSE reconnect and accessibility polish.
+
 ## v0.1.1 — 2026-11-19
 
 - Fix the GUI shell: the page now sets a GET-only asset cookie after the initial

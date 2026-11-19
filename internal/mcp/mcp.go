@@ -19,9 +19,9 @@ const (
 	// protocolVersion is the MCP revision this client announces.
 	protocolVersion = "2024-11-05"
 	// clientName is reported to servers in clientInfo.
-	clientName = "argent-go"
+	clientName = "argentgo"
 	// clientVersion is reported to servers in clientInfo.
-	clientVersion = "0.1.1"
+	clientVersion = "0.1.2"
 )
 
 // ErrUnsupportedTransport reports a transport this package cannot speak.

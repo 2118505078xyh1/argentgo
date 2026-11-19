@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // Hit is one matching record inside a transcript.

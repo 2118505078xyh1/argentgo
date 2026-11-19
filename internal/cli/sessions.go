@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/server"
-	"github.com/2118505078xyh1/argent-go/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 // runSessions implements `sessions list|show|rm|find|--grep|tree|export`.
@@ -67,6 +67,24 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsTree(app, store, args[1])
+	case "undo":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsUndo(app, args[1], args[2:])
+	case "retry":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsRetry(app, args[1], args[2:])
+	case "name":
+		if len(args) < 3 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsName(app, args[1], strings.Join(args[2:], " "))
 	case "export":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -227,8 +245,15 @@ func sessionsTree(app App, store SessionStore, id string) int {
 		if branch.Active {
 			marker = "*"
 		}
-		fmt.Fprintf(app.IO.Out, "%s%s\tparent=%s\tdepth=%d\t%s\t%s\n",
-			marker, branch.ID, branch.Parent, branch.Depth, branch.Kind, branch.Label)
+		link := "-"
+		if branch.SourceSession != "" {
+			link = branch.SourceSession
+			if branch.SourceRecord != "" {
+				link += "/" + branch.SourceRecord
+			}
+		}
+		fmt.Fprintf(app.IO.Out, "%s%s\tparent=%s\tdepth=%d\tlink=%s\t%s\t%s\n",
+			marker, branch.ID, branch.Parent, branch.Depth, link, branch.Kind, branch.Label)
 	}
 	return 0
 }
@@ -312,6 +337,9 @@ func sessionsUsage(w io.Writer) {
        argent sessions find <keyword>
         argent sessions --grep <text> [--limit N]
         argent sessions tree <id>
+        argent sessions undo <id> [-C <workspace>]
+        argent sessions retry <id> [checkpoint-id]
+        argent sessions name <id> <title>
         argent sessions export <id> [-o file.html]
 `)
 }
@@ -417,14 +445,7 @@ func sessionTitle(events []server.SessionEvent) string {
 		}
 		for _, key := range []string{"text", "prompt", "content", "message"} {
 			if text, ok := payload[key].(string); ok {
-				text = strings.Join(strings.Fields(text), " ")
-				if text == "" {
-					continue
-				}
-				if len(text) > 60 {
-					text = text[:59] + "…"
-				}
-				return text
+				return session.TitleFromPrompt(text)
 			}
 		}
 	}

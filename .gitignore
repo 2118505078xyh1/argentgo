@@ -1,5 +1,5 @@
 argent.exe
-argent-go.exe
+argentgo.exe
 /argent
 dist/
 !internal/gui/dist/

@@ -29,6 +29,9 @@ const (
 	KindTool       = "tool"
 	KindSummary    = "summary"
 	KindCompaction = "compaction"
+	KindCheckpoint = "checkpoint"
+	KindAttempt    = "attempt"
+	KindTitle      = "title"
 )
 
 const (
@@ -81,13 +84,21 @@ func (s *Session) Dir() string { return s.dir }
 // Append writes one record as a child of the active leaf and makes it the new
 // active leaf. The payload is encoded as JSON; nil is stored as `null`.
 func (s *Session) Append(kind string, payload any) error {
+	_, err := s.AppendRecord(kind, payload)
+	return err
+}
+
+// AppendRecord writes one record like Append but also returns the stored
+// record, so callers can link later records (checkpoints, retries, attempts)
+// to the exact id that was minted.
+func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
-		return errors.New("session: empty record kind")
+		return Record{}, errors.New("session: empty record kind")
 	}
 	data, err := encodePayload(payload)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 
 	s.mu.Lock()
@@ -95,7 +106,7 @@ func (s *Session) Append(kind string, payload any) error {
 
 	records, err := readRecords(s.path())
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	parent := s.active
 	if _, ok := indexByID(records)[parent]; !ok {
@@ -113,21 +124,21 @@ func (s *Session) Append(kind string, payload any) error {
 	}
 	line, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("session: encode record: %w", err)
+		return Record{}, fmt.Errorf("session: encode record: %w", err)
 	}
 	file, err := os.OpenFile(s.path(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return fmt.Errorf("session: open %s: %w", s.path(), err)
+		return Record{}, fmt.Errorf("session: open %s: %w", s.path(), err)
 	}
 	if _, err := file.Write(append(line, '\n')); err != nil {
 		file.Close()
-		return fmt.Errorf("session: write %s: %w", s.path(), err)
+		return Record{}, fmt.Errorf("session: write %s: %w", s.path(), err)
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("session: close %s: %w", s.path(), err)
+		return Record{}, fmt.Errorf("session: close %s: %w", s.path(), err)
 	}
 	s.active = record.ID
-	return nil
+	return record, nil
 }
 
 // Records returns every record in file order.
@@ -224,6 +235,45 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 	if len(path) == 0 {
 		return nil, fmt.Errorf("session: entry %q is not on a path", entryID)
 	}
+	// A fork taken from a mid-turn record would otherwise lose the header and
+	// its explicit title. Copy the original header when the path omits it, and
+	// carry the effective title across as a fresh title record.
+	all, err := s.Records()
+	if err != nil {
+		return nil, err
+	}
+	hasHeader, hasTitle := false, false
+	for _, record := range path {
+		if record.Kind == KindHeader {
+			hasHeader = true
+		}
+		if record.Kind == KindTitle {
+			hasTitle = true
+		}
+	}
+	if !hasHeader {
+		for _, record := range all {
+			if record.Kind == KindHeader {
+				path = append([]Record{record}, path...)
+				break
+			}
+		}
+	}
+	if !hasTitle {
+		if title := titleFromRecords(s.ID(), all); title != "" {
+			data, err := encodePayload(TitleRecord{Title: title})
+			if err != nil {
+				return nil, err
+			}
+			path = append(path, Record{
+				ID:     nextID(path),
+				Parent: path[len(path)-1].ID,
+				TS:     time.Now().UTC(),
+				Kind:   KindTitle,
+				Data:   data,
+			})
+		}
+	}
 	container := &Container{dir: s.dir}
 	if err := os.MkdirAll(container.dir, 0o755); err != nil {
 		return nil, fmt.Errorf("session: create %s: %w", container.dir, err)
@@ -259,7 +309,7 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 		os.Remove(target)
 		return nil, fmt.Errorf("session: close %s: %w", target, err)
 	}
-	return &Session{dir: container.dir, id: id, active: entryID}, nil
+	return &Session{dir: container.dir, id: id, active: path[len(path)-1].ID}, nil
 }
 
 // path is the session file location.

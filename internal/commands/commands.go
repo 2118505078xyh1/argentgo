@@ -1,14 +1,20 @@
 // Package commands discovers markdown slash commands and expands their bodies.
 //
 // A command is a `.md` file in `.argent/commands` (project) or
-// `.argent-go/commands` (user). Optional frontmatter carries `description`,
+// `.argentgo/commands` (user). Optional frontmatter carries `description`,
 // `argument-hint`, `allowed-tools` and `model`; the body is the prompt template.
 //
 // The substitution rules match the Rust implementation:
 //
 //   - `$ARGUMENTS` / `$@` — everything after the command name;
-//   - `$1` … `$9` — one whitespace-separated argument;
+//   - `$1` … `$99` — one whitespace-separated argument;
 //   - `${1}` — the same, when adjacent text would swallow the digits.
+//
+// Quoted arguments ("two words" or 'two words') count as one position. With
+// ExpandOptions.RemainingAtHighest, the highest-numbered position used by the
+// body absorbs every remaining argument, matching the markdown-command
+// convention. The safe default keeps the original one-argument-per-position
+// behaviour.
 //
 // A “ !`command` “ span runs a shell command, but only when the caller opts in
 // with ExpandOptions.AllowShell; by default the span is left untouched.
@@ -28,7 +34,7 @@ import (
 const ProjectSubdir = ".argent/commands"
 
 // HomeSubdir is where the user keeps commands shared by every project.
-const HomeSubdir = ".argent-go/commands"
+const HomeSubdir = ".argentgo/commands"
 
 // Command is one command discovered on disk.
 type Command struct {
@@ -42,6 +48,10 @@ type Command struct {
 	AllowedTools []string
 	// Model optionally pins the model for this prompt.
 	Model string
+	// Agent optionally pins the agent/persona for this prompt (frontmatter
+	// `agent`). It is exposed for the caller to apply; this package never
+	// builds an agent.
+	Agent string
 	// Body is the template, without frontmatter.
 	Body string
 	// Path is the file the command came from.
@@ -92,7 +102,12 @@ func Discover(sources []Source) *Set {
 			if err != nil {
 				continue
 			}
-			cmd := Parse(string(text), file)
+			cmd, err := ParseStrict(string(text), file)
+			if err != nil {
+				// A malformed command file cannot participate in discovery; the
+				// error is reported by ParseStrict for callers that want it.
+				continue
+			}
 			if prefix := strings.TrimSpace(source.Prefix); prefix != "" {
 				cmd.Plugin = prefix
 				cmd.Name = prefix + ":" + cmd.Name
@@ -127,8 +142,32 @@ func commandFiles(root string) []string {
 }
 
 // Parse reads one command file. A file without frontmatter still works: its
-// stem is the name and its first non-empty line is the description.
+// stem is the name and its first non-empty line is the description. Malformed
+// frontmatter is skipped leniently; use ParseStrict to report file and line.
 func Parse(text, path string) Command {
+	cmd, err := ParseStrict(text, path)
+	if err == nil {
+		return cmd
+	}
+	text = strings.TrimPrefix(text, "\ufeff")
+	body := text
+	cmd = Command{
+		Name: commandNameFromPath(path),
+		Body: strings.TrimSpace(body),
+		Path: path,
+	}
+	for _, line := range strings.Split(cmd.Body, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			cmd.Description = trimmed
+			break
+		}
+	}
+	return cmd
+}
+
+// ParseStrict reads one command file and reports invalid frontmatter with the
+// file name and the 1-based line number of the offending line.
+func ParseStrict(text, path string) (Command, error) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	frontmatter, body, ok := splitFrontmatter(text)
 	if !ok {
@@ -144,9 +183,12 @@ func Parse(text, path string) Command {
 				break
 			}
 		}
-		return cmd
+		return cmd, nil
 	}
-	fields := parseFields(frontmatter)
+	fields, err := parseFieldsStrict(frontmatter)
+	if err != nil {
+		return Command{}, fmt.Errorf("%s:%d: %w", path, err.line, err)
+	}
 	name := fields.get("name")
 	if name == "" {
 		name = commandNameFromPath(path)
@@ -157,9 +199,10 @@ func Parse(text, path string) Command {
 		ArgumentHint: fields.get("argument-hint"),
 		AllowedTools: fields.list("allowed-tools"),
 		Model:        fields.get("model"),
+		Agent:        fields.get("agent"),
 		Body:         strings.TrimSpace(body),
 		Path:         path,
-	}
+	}, nil
 }
 
 func commandNameFromPath(path string) string {
@@ -215,7 +258,7 @@ func (c Command) ExpandWith(args string, opts ExpandOptions) (string, error) {
 			return "", err
 		}
 	}
-	return substituteArgs(body, args), nil
+	return substituteArgs(body, args, opts.RemainingAtHighest), nil
 }
 
 // Expand is a convenience wrapper around Set.Get + Command.Expand.
@@ -234,23 +277,138 @@ type ExpandOptions struct {
 	AllowShell bool
 	// Dir is the working directory for interpolated commands.
 	Dir string
+	// RemainingAtHighest makes the highest $N referenced by the body absorb
+	// every remaining argument. Off by default so existing templates that use
+	// $1 and $2 as individual positions keep their meaning.
+	RemainingAtHighest bool
 	// Run overrides how interpolated commands are executed (tests, sandboxes).
 	// It receives the command text and returns its output.
 	Run func(command string) (string, error)
 }
 
-func substituteArgs(body, args string) string {
-	fields := strings.Fields(args)
-	pairs := make([]string, 0, 22)
-	pairs = append(pairs, "$ARGUMENTS", args, "$@", args)
-	for i := 1; i <= 9; i++ {
-		value := ""
-		if i <= len(fields) {
-			value = fields[i-1]
+// substituteArgs expands $ARGUMENTS, $@ and $N/${N}. Positions are parsed with
+// quote grouping so "two words" remains a single argument.
+func substituteArgs(body, args string, remainingAtHighest bool) string {
+	fields := splitArguments(args)
+	highest := 0
+	for i := 0; i < len(body); {
+		end, index, _, ok := dollarToken(body, i)
+		if !ok {
+			i++
+			continue
 		}
-		pairs = append(pairs, fmt.Sprintf("${%d}", i), value, fmt.Sprintf("$%d", i), value)
+		if index > highest {
+			highest = index
+		}
+		i = end
 	}
-	return strings.NewReplacer(pairs...).Replace(body)
+
+	var out strings.Builder
+	out.Grow(len(body) + len(args))
+	for i := 0; i < len(body); {
+		if body[i] != '$' {
+			out.WriteByte(body[i])
+			i++
+			continue
+		}
+		end, index, named, ok := dollarToken(body, i)
+		if !ok {
+			out.WriteByte('$')
+			i++
+			continue
+		}
+		if named {
+			out.WriteString(args)
+			i = end
+			continue
+		}
+		if index > 0 && index <= len(fields) {
+			if remainingAtHighest && index == highest {
+				out.WriteString(strings.Join(fields[index-1:], " "))
+			} else {
+				out.WriteString(fields[index-1])
+			}
+		}
+		i = end
+	}
+	return out.String()
+}
+
+// dollarToken parses one $-prefixed token at i.
+func dollarToken(body string, i int) (end, index int, named, ok bool) {
+	if i+1 >= len(body) {
+		return i + 1, 0, false, false
+	}
+	switch body[i+1] {
+	case '{':
+		digits, value := readDigits(body, i+2)
+		if digits > 0 && i+2+digits < len(body) && body[i+2+digits] == '}' {
+			return i + 3 + digits, value, false, true
+		}
+	case '@':
+		return i + 2, 0, true, true
+	case 'A':
+		if strings.HasPrefix(body[i:], "$ARGUMENTS") {
+			return i + len("$ARGUMENTS"), 0, true, true
+		}
+	default:
+		if body[i+1] >= '0' && body[i+1] <= '9' {
+			digits, value := readDigits(body, i+1)
+			return i + 1 + digits, value, false, true
+		}
+	}
+	return i + 1, 0, false, false
+}
+
+func readDigits(body string, at int) (count, value int) {
+	for at+count < len(body) && body[at+count] >= '0' && body[at+count] <= '9' && count < 8 {
+		value = value*10 + int(body[at+count]-'0')
+		count++
+	}
+	return count, value
+}
+
+// splitArguments splits a command line on unquoted whitespace. Quotes only
+// group arguments; they are never executed as shell fragments.
+func splitArguments(args string) []string {
+	var out []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	for _, r := range args {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' && (quote == 0 || quote == '"') {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\n', '\r':
+			if current.Len() > 0 {
+				out = append(out, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if current.Len() > 0 {
+		out = append(out, current.String())
+	}
+	return out
 }
 
 func expandShell(body string, opts ExpandOptions) (string, error) {
@@ -316,6 +474,34 @@ func (f fields) list(key string) []string {
 		}
 	}
 	return out
+}
+
+type frontmatterError struct {
+	line int
+	msg  string
+}
+
+func (e *frontmatterError) Error() string { return e.msg }
+
+// parseFieldsStrict validates frontmatter syntax before reading values, so a
+// malformed line can be reported with the line number it came from.
+func parseFieldsStrict(frontmatter string) (fields, *frontmatterError) {
+	lines := strings.Split(strings.ReplaceAll(frontmatter, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || indentOf(line) > 0 {
+			continue
+		}
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			return nil, &frontmatterError{line: i + 2, msg: "invalid frontmatter: expected key: value"}
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:idx]))
+		if !validKey(key) {
+			return nil, &frontmatterError{line: i + 2, msg: fmt.Sprintf("invalid frontmatter key %q", key)}
+		}
+	}
+	return parseFields(frontmatter), nil
 }
 
 func parseFields(frontmatter string) fields {

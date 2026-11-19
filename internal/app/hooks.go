@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/hooks"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // inlineHookPath is the trust-store key for a document supplied directly in
@@ -169,7 +169,7 @@ func configHookSources(res Resolved) []hookSource {
 }
 
 // hookFilePaths lists the standard documents, project first. Both the legacy
-// ~/.argent and current ~/.argent-go homes are honoured.
+// ~/.argent and current ~/.argentgo homes are honoured.
 func hookFilePaths(res Resolved) []string {
 	seen := make(map[string]bool)
 	var paths []string
@@ -200,7 +200,7 @@ func hookFilePaths(res Resolved) []string {
 	}
 	if strings.TrimSpace(home) != "" {
 		add(filepath.Join(home, ".argent", "hooks.json"))
-		add(filepath.Join(home, ".argent-go", "hooks.json"))
+		add(filepath.Join(home, ".argentgo", "hooks.json"))
 	}
 	return paths
 }

@@ -46,6 +46,9 @@ const (
 	KindCtrlT // toggle the tasks panel
 	KindCtrlB // toggle the workspace panel
 	KindCtrlP // toggle the plan panel
+	KindCtrlS // toggle the session rail
+	KindAltU  // undo last turn
+	KindAltR  // retry last turn
 )
 
 // Key is one decoded keystroke.
@@ -136,6 +139,8 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlB}, 1, true
 	case c == 0x10:
 		return Key{Kind: KindCtrlP}, 1, true
+	case c == 0x13:
+		return Key{Kind: KindCtrlS}, 1, true
 	case c < 0x20:
 		return Key{Kind: KindIgnore}, 1, true
 	}
@@ -159,6 +164,10 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		return Key{Kind: KindAltEnter}, 2, true
 	case '\n':
 		return Key{Kind: KindAltEnter}, 2, true
+	case 'u', 'U':
+		return Key{Kind: KindAltU}, 2, true
+	case 'r', 'R':
+		return Key{Kind: KindAltR}, 2, true
 	default:
 		// ESC followed by something else: the Esc was pressed on its own and
 		// the next byte is a normal key.

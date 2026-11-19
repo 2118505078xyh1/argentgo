@@ -49,6 +49,11 @@ type Options struct {
 	// Events, when set, feeds tool events into the optional side panels. A
 	// closed channel simply disables further updates.
 	Events <-chan Event
+	// Undo, Retry and Rename are the checkpoint/session seams. nil means the
+	// matching slash command explains that the host has not wired it yet.
+	Undo   TurnAction
+	Retry  TurnAction
+	Rename TurnAction
 	// OnReady, when set, receives the live model once the first frame is up.
 	// It is the hook an integration uses to run the agent and to submit
 	// approval requests from another goroutine via Model.Approve.
@@ -108,6 +113,7 @@ func Run(ctx context.Context, opts Options) error {
 		Sessions: opts.Sessions,
 	})
 	model.SetApproval(opts.Approval)
+	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
 
 	restore := func() {}
 	if real {
@@ -201,6 +207,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	handleKeys := func(keys []Key) bool {
+		runAction := func(fn TurnAction, arg, done string) {
+			if fn == nil {
+				return
+			}
+			if err := fn(runCtx, arg); err != nil {
+				model.SetStatus(errorText(opts.Locale, err))
+				return
+			}
+			model.SetStatus(text(opts.Locale, done))
+		}
 		for _, key := range keys {
 			switch model.HandleKey(key) {
 			case ActionSubmit:
@@ -209,6 +225,12 @@ func Run(ctx context.Context, opts Options) error {
 				if cancelTurn != nil {
 					cancelTurn()
 				}
+			case ActionUndo:
+				runAction(opts.Undo, model.TakeActionArg(), "undo_done")
+			case ActionRetry:
+				runAction(opts.Retry, model.TakeActionArg(), "retry_done")
+			case ActionRename:
+				runAction(opts.Rename, model.TakeActionArg(), "rename_done")
 			case ActionQuit:
 				return true
 			}

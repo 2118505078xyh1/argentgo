@@ -1,0 +1,49 @@
+{
+  "scenarios": [
+    {
+      "name": "reports cached prompt usage",
+      "description": "A cached prefix is reported separately from fresh prompt tokens; cached tokens are counted once.",
+      "system": "You are a careful assistant.",
+      "prompt": "answer briefly",
+      "prompt_cache": true,
+      "provider": [
+        {
+          "expect_request_cached": true,
+          "respond": {
+            "text": "cached prefix reused",
+            "usage": {"prompt_tokens": 120, "completion_tokens": 5, "cached_tokens": 80}
+          }
+        }
+      ],
+      "expect": {
+        "tool_calls": [],
+        "text_contains": ["reused"],
+        "turns": 1,
+        "cached_tokens": 80
+      }
+    },
+    {
+      "name": "prompt cache opt-out leaves the request cache-free",
+      "description": "With --no-prompt-cache the stable prefix carries no marker and no cached tokens are reported.",
+      "system": "You are a careful assistant.",
+      "prompt": "answer without caching",
+      "prompt_cache": true,
+      "no_prompt_cache": true,
+      "provider": [
+        {
+          "expect_request_cache_free": true,
+          "respond": {
+            "text": "no cache marker was sent",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "cached_tokens": 0}
+          }
+        }
+      ],
+      "expect": {
+        "tool_calls": [],
+        "text_contains": ["no cache marker"],
+        "turns": 1,
+        "cached_tokens": 0
+      }
+    }
+  ]
+}

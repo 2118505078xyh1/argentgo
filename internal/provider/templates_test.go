@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/provider"
+	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
 func TestListCoversBuiltInProviders(t *testing.T) {

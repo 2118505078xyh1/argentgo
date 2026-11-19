@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/automation"
+	"github.com/2118505078xyh1/argentgo/internal/automation"
 )
 
 func (a App) automationDir() string {

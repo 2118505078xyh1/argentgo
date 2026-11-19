@@ -9,11 +9,11 @@ Sources used most are listed at the end.
 
 ## Five-project comparison
 
-| Project | Distinctive ideas | Portable to argent-go? | Why / why not |
+| Project | Distinctive ideas | Portable to argentgo? | Why / why not |
 |---|---|---|---|
 | **dsh (DeepSeek Harness)** | "Model-visible means logged": every request reconstructable from an append-only event log; failed/retried/cancelled attempts kept as non-history records; versioned JSONL generations. A single session-title provider seam. | **Yes for the ideas, no for the mechanism.** | More JSONL record types and a local title heuristic fit stdlib. Its Cordis profiles/bundles/plugin tree is the already-rejected plugin-graph direction. |
 | **Pi** | Extended prompt-cache retention (`PI_CACHE_RETENTION`: 1h Anthropic / 24h OpenAI hints); deliberately minimal core with prompt templates, `/name`, `/tree`, `/clone` and steering-queue recovery on abort. | **Yes for cache hints and local UX.** | Provider cache markers are just HTTP/JSON fields in `internal/llm`; npm packages, hosted session sharing and the bundled Node runtime are not portable. |
-| **Codex CLI** | Named profiles that group approval policy + sandbox mode + provider/model; ZDR `disable_response_storage`; sandbox recommendation derived from repo state. | **Mostly already present.** | argent-go has profiles, three sandbox modes, `trust_project` and all three wire protocols. Platform Seatbelt/Landlock sandboxes stay skipped (no OS primitives outside Go's stdlib). |
+| **Codex CLI** | Named profiles that group approval policy + sandbox mode + provider/model; ZDR `disable_response_storage`; sandbox recommendation derived from repo state. | **Mostly already present.** | argentgo has profiles, three sandbox modes, `trust_project` and all three wire protocols. Platform Seatbelt/Landlock sandboxes stay skipped (no OS primitives outside Go's stdlib). |
 | **OpenCode** | Markdown commands with `$ARGUMENTS` / `$1..$N` expansion, per-command `model`/`agent` frontmatter and hot reload; short-lived one-time `pair` links for its local web UI. | **Yes for command templates.** | Commands are markdown files plus stdlib text parsing. Pairing is optional: the GUI token + asset-cookie fix already shipped, so it is not a priority. SQLite/LSP-via-server/plugins are skipped or already present. |
 | **Hermes Agent** | `/retry` and `/undo` for the last turn, interrupt-and-redirect, `/insights`; local `import-agent` with `--dry-run` preview before writing. | **Yes for undo/retry and dry-run import.** | Both are local file/session operations. Messaging gateways, FTS5, Honcho user modelling and VPS/serverless backends are explicitly out. The self-improving loop (skills, memory nudges, past-session search) is already shipped or skipped. |
 

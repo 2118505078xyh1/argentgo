@@ -92,6 +92,7 @@ const (
 	AgentFinished      = "finished"
 	AgentNotice        = "notice"
 	AgentAborted       = "aborted"
+	AgentAttempt       = "attempt"
 )
 
 // Event is one item on a worker's output stream. Kind selects which field
@@ -138,6 +139,7 @@ type AgentEvent struct {
 	IsError    bool
 	DurationMS int64
 	Reason     string
+	Attempt    string // AgentAttempt: failed | retried | cancelled | stream_error
 }
 
 // TurnDone closes one turn and carries its usage summary.
@@ -162,6 +164,7 @@ type LoadedEntry struct {
 	Output     string
 	State      string // tool state: running | ok | error
 	DurationMS *int64
+	Attempt    string // attempt badge for non-committed rows
 }
 
 // SessionRow is one row of the sidebar session list.
@@ -328,6 +331,12 @@ func (a AgentEvent) payload() (map[string]any, bool) {
 		return map[string]any{"type": a.Type, "text": a.Text}, true
 	case AgentAborted:
 		return map[string]any{"type": a.Type}, true
+	case AgentAttempt:
+		attempt := a.Attempt
+		if attempt == "" {
+			attempt = "failed"
+		}
+		return map[string]any{"type": a.Type, "attempt": attempt, "text": a.Text}, true
 	}
 	return nil, false
 }
@@ -339,7 +348,11 @@ func (e LoadedEntry) payload() map[string]any {
 		if level != "warning" && level != "error" {
 			level = "info"
 		}
-		return map[string]any{"kind": "notice", "level": level, "text": e.Text}
+		out := map[string]any{"kind": "notice", "level": level, "text": e.Text}
+		if e.Attempt != "" {
+			out["attempt"] = e.Attempt
+		}
+		return out
 	case "tool":
 		state := e.State
 		if state != "running" && state != "error" {
@@ -358,9 +371,16 @@ func (e LoadedEntry) payload() map[string]any {
 		} else {
 			out["durationMs"] = nil
 		}
+		if e.Attempt != "" {
+			out["attempt"] = e.Attempt
+		}
 		return out
 	case "user", "assistant", "thinking":
-		return map[string]any{"kind": e.Kind, "text": e.Text}
+		out := map[string]any{"kind": e.Kind, "text": e.Text}
+		if e.Attempt != "" {
+			out["attempt"] = e.Attempt
+		}
+		return out
 	}
 	return map[string]any{"kind": e.Kind, "text": e.Text}
 }

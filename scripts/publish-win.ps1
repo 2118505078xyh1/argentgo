@@ -1,4 +1,4 @@
-# One-click Windows release for argent-go.
+# One-click Windows release for argentgo.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1 -DryRun

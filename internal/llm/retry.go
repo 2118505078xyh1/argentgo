@@ -27,6 +27,9 @@ type RetryPolicy struct {
 	BaseDelay   time.Duration
 	MaxDelay    time.Duration
 	Sleep       func(ctx context.Context, d time.Duration) error
+	// OnRetry, when set, receives redacted retry decisions. The session layer
+	// can turn these into retry attempt records without seeing response bodies.
+	OnRetry func(RetryAttempt)
 }
 
 // DefaultRetryPolicy returns the policy used by the protocol clients.
@@ -76,10 +79,18 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 			return resp, nil
 		}
 		retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
+		if p.OnRetry != nil {
+			p.OnRetry(RetryAttempt{
+				Attempt:    attempt,
+				StatusCode: resp.StatusCode,
+				Cause:      clipErrorClass(RedactText(resp.Status)),
+			})
+		}
 		drainAndClose(resp.Body)
 		if waitErr := p.wait(ctx, attempt, retryAfter); waitErr != nil {
 			return nil, waitErr
 		}
+		continue
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no attempt was made")
@@ -196,10 +207,11 @@ func ParseRetryAfter(value string) time.Duration {
 }
 
 // providerError turns a non-2xx response into an error carrying the status and
-// a bounded slice of the body.
+// a bounded, redacted slice of the body. Credential-shaped values never reach
+// logs or attempt records.
 func providerError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	message := strings.TrimSpace(string(body))
+	message := RedactText(strings.TrimSpace(string(body)))
 	if message == "" {
 		return fmt.Errorf("provider returned %s", resp.Status)
 	}

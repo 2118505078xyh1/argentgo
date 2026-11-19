@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
 type fakeStore struct {

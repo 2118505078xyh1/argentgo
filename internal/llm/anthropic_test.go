@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 const anthropicToolUseScript = `event: message_start
@@ -89,7 +89,7 @@ func TestAnthropicStreamParsing(t *testing.T) {
 				Type:     "function",
 				Function: llm.ToolCallFunction{Name: "read", Arguments: `{"path":"a.rs"}`},
 			}},
-			wantUsage: &llm.Usage{PromptTokens: 15, CompletionTokens: 7},
+			wantUsage: &llm.Usage{PromptTokens: 15, CompletionTokens: 7, CachedTokens: 3},
 		},
 		{
 			name: "tool call without content_block_stop is flushed at message_stop",

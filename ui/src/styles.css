@@ -1771,3 +1771,135 @@ a:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* The JS-detected twin of the media query: covers WebViews that expose the
+   preference to matchMedia but do not apply the media rule to custom scrolls. */
+.reduced-motion *,
+.reduced-motion *::before,
+.reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Attempt badges (E07) sit next to the tool state without replacing it. */
+.attempt-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--warn-line);
+  border-radius: 999px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.attempt-failed,
+.attempt-stream_error {
+  border-color: var(--error-line);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.notice-attempt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--element);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.help-filter {
+  padding: 8px 12px 0;
+}
+
+.help-filter input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--element);
+  color: var(--text);
+}
+
+.help-group h4 {
+  margin: 10px 0 4px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.approval-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 12px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.approval-queue .current {
+  color: var(--strong);
+  font-weight: 600;
+}
+
+.search-hit span {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* E13: light theme needs stronger surfaces and borders for read-only bubbles
+   and tool cards; the dark values are tuned for a nearly black backdrop. */
+[data-theme="light"] .user-bubble {
+  background: #e6edff;
+  border-color: #9fb4e8;
+  color: #16223d;
+}
+
+[data-theme="light"] .tool,
+[data-theme="light"] .notice {
+  border-color: #c0cad9;
+  background: #fbfcfe;
+  color: #1c2430;
+}
+
+[data-theme="light"] .tool-head {
+  color: #33425c;
+}
+
+[data-theme="light"] .tool-state,
+[data-theme="light"] .msg-action {
+  color: #2f4fa8;
+}
+
+[data-theme="light"] .tool-detail pre {
+  border-color: #d2dbea;
+  background: #f1f4f9;
+  color: #1c2430;
+}
+
+[data-theme="light"] .attempt-badge {
+  color: #8a4a08;
+  border-color: #d2a35c;
+  background: #fff4dd;
+}
+
+[data-theme="light"] .attempt-failed,
+[data-theme="light"] .attempt-stream_error {
+  color: #9b233c;
+  border-color: #dd97a5;
+  background: #fdecef;
+}

@@ -8,11 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ---- submit_plan ----
 
 const planFileName = "plan.json"
+
+const (
+	planMaxSteps     = 100
+	planMaxStepRunes = 500
+	planMaxStatus    = 64
+)
 
 // planState is the session-scoped record written by submit_plan. A plan is
 // documentation for the model, never an execution queue.
@@ -52,12 +59,27 @@ func (submitPlanTool) Run(ctx context.Context, root string, raw json.RawMessage)
 		return renderPlan(plan), nil
 	}
 
+	if len(args.Steps) > planMaxSteps {
+		return "", fmt.Errorf("submit_plan: too many steps (%d, maximum %d)", len(args.Steps), planMaxSteps)
+	}
 	steps := make([]string, 0, len(args.Steps))
+	seen := make(map[string]bool, len(args.Steps))
 	for i, step := range args.Steps {
 		step = strings.TrimSpace(step)
 		if step == "" {
 			return "", fmt.Errorf("submit_plan: step %d is not a non-empty string", i+1)
 		}
+		if utf8.RuneCountInString(step) > planMaxStepRunes {
+			return "", fmt.Errorf("submit_plan: step %d is longer than %d characters", i+1, planMaxStepRunes)
+		}
+		if strings.ContainsAny(step, "\r\n\x00") {
+			return "", fmt.Errorf("submit_plan: step %d contains a line break or control character", i+1)
+		}
+		key := strings.ToLower(step)
+		if seen[key] {
+			return "", fmt.Errorf("submit_plan: step %d duplicates step %q", i+1, step)
+		}
+		seen[key] = true
 		steps = append(steps, step)
 	}
 
@@ -68,6 +90,9 @@ func (submitPlanTool) Run(ctx context.Context, root string, raw json.RawMessage)
 	status := strings.TrimSpace(args.Status)
 	if status == "" {
 		status = "draft"
+	}
+	if utf8.RuneCountInString(status) > planMaxStatus || strings.ContainsAny(status, "\r\n\x00") {
+		return "", fmt.Errorf("submit_plan: status must be at most %d characters with no line breaks", planMaxStatus)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	plan := planState{Steps: steps, Status: status, CreatedAt: now, UpdatedAt: now}

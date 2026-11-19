@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // cancelledCallReason is the tool result written for a call that never ran.
@@ -35,6 +35,7 @@ type runState struct {
 	maxTurns     int
 	lastText     string
 	trim         TrimOptions
+	events       []Event
 }
 
 // execute is the internal entry point shared by Run, RunText and Prompt.
@@ -44,7 +45,11 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 		return Result{}, err
 	}
 	state := newRunState(opts, prompt, emit)
-	return state.loop(ctx)
+	res, err := state.loop(ctx)
+	if state.opts.OnCompactionEvidence != nil {
+		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.events, res.Messages))
+	}
+	return res, err
 }
 
 func newRunState(opts Options, prompt string, emit func(Event)) *runState {
@@ -324,6 +329,7 @@ func (s *runState) result(stopped string) Result {
 // deltas to the legacy Out writer.
 func (s *runState) emit(event Event) {
 	event.Depth = s.depth
+	s.events = append(s.events, event)
 	if event.Kind == EventTextDelta && s.opts.Out != nil {
 		_, _ = io.WriteString(s.opts.Out, event.Text)
 	}

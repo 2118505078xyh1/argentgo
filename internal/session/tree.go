@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // Branch describes one record in a session's id/parent tree.
@@ -19,6 +21,9 @@ type Branch struct {
 	Depth  int  // number of parent hops from the root
 	Active bool // true for the leaf the transcript currently follows
 	Label  string
+	// SourceSession and SourceRecord are set for retry/fork attempt records.
+	SourceSession string
+	SourceRecord  string
 }
 
 // Branches describes the record tree stored in the JSONL file at path. Records
@@ -40,14 +45,22 @@ func Branches(path string) ([]Branch, error) {
 	depths := make(map[string]int, len(records))
 	out := make([]Branch, 0, len(records))
 	for _, record := range records {
-		out = append(out, Branch{
+		branch := Branch{
 			ID:     record.ID,
 			Parent: record.Parent,
 			Kind:   record.Kind,
 			Depth:  branchDepth(record.ID, byID, depths),
 			Active: record.ID == active,
 			Label:  branchLabel(record),
-		})
+		}
+		if record.Kind == KindAttempt {
+			var attempt Attempt
+			if jsonUnmarshal(record.Data, &attempt) == nil {
+				branch.SourceSession = attempt.SourceSession
+				branch.SourceRecord = attempt.SourceRecord
+			}
+		}
+		out = append(out, branch)
 	}
 	return out, nil
 }
@@ -86,6 +99,12 @@ func branchDepth(id string, byID map[string]Record, cache map[string]int) int {
 func branchLabel(record Record) string {
 	if entry, ok := messageEntry(record); ok {
 		return truncateRunes(entry.Content, 48)
+	}
+	if record.Kind == KindAttempt {
+		var attempt Attempt
+		if jsonUnmarshal(record.Data, &attempt) == nil {
+			return truncateRunes(attempt.Reason+" → "+attempt.Snippet(), 48)
+		}
 	}
 	if record.Kind == KindCompaction {
 		var compaction Compaction
@@ -159,7 +178,18 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 	}
 
 	messages := make([]htmlMessage, 0, len(chain))
+	attempts := make([]htmlAttempt, 0)
 	for _, record := range chain {
+		if record.Kind == KindAttempt {
+			var attempt Attempt
+			if jsonUnmarshal(record.Data, &attempt) == nil {
+				attempts = append(attempts, htmlAttempt{
+					Reason: security.Redact(attempt.Reason),
+					Text:   security.Redact(attempt.Snippet()),
+					Time:   formatHTMLTime(record.TS),
+				})
+			}
+		}
 		message, ok := messageEntry(record)
 		if !ok {
 			if record.Kind == KindCompaction {
@@ -192,7 +222,8 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 		Title    string
 		Branch   string
 		Messages []htmlMessage
-	}{Title: title, Branch: leaf, Messages: messages}
+		Attempts []htmlAttempt
+	}{Title: title, Branch: leaf, Messages: messages, Attempts: attempts}
 	if err := htmlPage.Execute(w, data); err != nil {
 		return fmt.Errorf("session: render %s: %w", path, err)
 	}
@@ -216,6 +247,12 @@ type htmlMessage struct {
 	Time    string
 }
 
+type htmlAttempt struct {
+	Reason string
+	Text   string
+	Time   string
+}
+
 func formatHTMLTime(ts time.Time) string {
 	if ts.IsZero() {
 		return ""
@@ -234,10 +271,12 @@ h1{font-size:20px;margin:0 0 4px}
 .role-assistant{border-left-color:#9ece6a}
 .role-tool{border-left-color:#e0af68}
 .role-system{border-left-color:#bb9af7}
+.role-attempt{border-left-color:#f7768e;color:#e0a0a8}
 .role{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#7f8b9f;margin-bottom:4px}
 .name{color:#e0af68;margin-right:8px}
 </style></head><body>
 <h1>{{.Title}}</h1><div class="meta">branch {{.Branch}}</div>
 {{range .Messages}}<div class="msg {{.Class}}"><div class="role">{{.Role}}</div>{{if .Name}}<span class="name">{{.Name}}</span>{{end}}{{.Content}}{{if .Time}}<div class="role">{{.Time}}</div>{{end}}</div>
+{{end}}{{range .Attempts}}<div class="msg role-attempt"><div class="role">attempt · {{.Reason}}</div>{{.Text}}{{if .Time}}<div class="role">{{.Time}}</div>{{end}}</div>
 {{end}}</body></html>
 `))

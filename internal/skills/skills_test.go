@@ -161,7 +161,7 @@ func TestParseRejectsMissingFrontmatter(t *testing.T) {
 func TestDiscoverProjectShadowsHome(t *testing.T) {
 	project, home := t.TempDir(), t.TempDir()
 	projectSkills := filepath.Join(project, ".argent", "skills")
-	homeSkills := filepath.Join(home, ".argent-go", "skills")
+	homeSkills := filepath.Join(home, ".argentgo", "skills")
 	writeSkill(t, projectSkills, "review", "project review")
 	writeSkill(t, homeSkills, "review", "home review")
 	writeSkill(t, homeSkills, "deploy", "home deploy")

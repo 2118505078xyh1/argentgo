@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/hooks"
-	"github.com/2118505078xyh1/argent-go/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
 func writeFile(t *testing.T, path, body string) {
@@ -312,7 +312,7 @@ func TestBugWritesDiagnosticsDump(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"argent-go 9.9.9", "go: go", "storage:", "tools:"} {
+	for _, want := range []string{"argentgo 9.9.9", "go: go", "storage:", "tools:"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("dump missing %q:\n%s", want, data)
 		}

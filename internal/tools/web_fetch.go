@@ -66,7 +66,7 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	if err != nil {
 		return "", fmt.Errorf("web_fetch: %w", err)
 	}
-	req.Header.Set("User-Agent", "argent-go/web_fetch")
+	req.Header.Set("User-Agent", "argentgo/web_fetch")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("web_fetch: %w", err)

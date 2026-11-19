@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/2118505078xyh1/argent-go/internal/commands"
+	"github.com/2118505078xyh1/argentgo/internal/commands"
 )
 
 // runCommands implements `commands [--json] [-C root]`.
@@ -47,7 +47,7 @@ func runCommands(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(app.IO.Out, "no slash commands found under .argent/commands or ~/.argent-go/commands")
+		fmt.Fprintln(app.IO.Out, "no slash commands found under .argent/commands or ~/.argentgo/commands")
 		return 0
 	}
 	for _, command := range list {
@@ -64,6 +64,6 @@ func commandsUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent commands [--json] [-C <dir>]
 
 Lists the markdown slash commands discovered under .argent/commands and
-~/.argent-go/commands. Plugin-provided commands are namespaced plugin:name.
+~/.argentgo/commands. Plugin-provided commands are namespaced plugin:name.
 `)
 }

@@ -14,9 +14,9 @@ import (
 
 // Message is one entry in the conversation.
 //
-// Reasoning and Usage are transcript metadata: they are attached to assistant
-// replies by the protocol clients so callers can render or persist thinking
-// text and token counts. They are never sent back upstream (see Chat).
+// Reasoning, Usage and CacheControl are transcript metadata: they are attached
+// to assistant replies or stable-prefix requests by the protocol clients. They
+// are not ordinary upstream fields (see Chat).
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
@@ -24,12 +24,37 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Reasoning  string     `json:"reasoning,omitempty"`
 	Usage      *Usage     `json:"usage,omitempty"`
+	// CacheControl marks a stable system message for a caching gateway. It is
+	// never persisted in a transcript.
+	CacheControl *CacheControl `json:"-"`
 }
 
 // Usage reports the tokens a provider billed for one reply.
+//
+// PromptTokens is the complete prompt cost: fresh plus cached tokens. The
+// cached breakdown is informational, so budget and cost code that reads
+// PromptTokens counts each token once.
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// CachedTokens is the portion of PromptTokens served from prompt cache.
+	CachedTokens int `json:"cached_tokens,omitempty"`
+	// CacheWriteTokens is the portion of PromptTokens written to prompt cache.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
+// TotalTokens returns billable tokens for one reply, counting cached prompt
+// tokens only through PromptTokens.
+func (u Usage) TotalTokens() int {
+	return u.PromptTokens + u.CompletionTokens
+}
+
+// FreshPromptTokens returns prompt tokens that were not served from cache.
+func (u Usage) FreshPromptTokens() int {
+	if u.CachedTokens >= u.PromptTokens {
+		return 0
+	}
+	return u.PromptTokens - u.CachedTokens
 }
 
 // Chatter is implemented by every streaming protocol client in this package.
@@ -60,11 +85,13 @@ type ToolSpec struct {
 	} `json:"function"`
 }
 
-// Client is a minimal streaming client.
+// Client is a minimal streaming client for OpenAI-compatible chat
+// completions. It is cache-free unless Options.ForcePromptCache is set.
 type Client struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
+	Options Options
 }
 
 // New returns a client for an OpenAI-compatible endpoint.
@@ -76,26 +103,60 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
+// PromptCacheCapability reports whether this client emits cache markers.
+func (c *Client) PromptCacheCapability() CacheCapability {
+	return CacheCapability{
+		Supported: c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL),
+		Protocol:  ProtocolChatCompletions,
+		Local:     isLocalEndpoint(c.BaseURL),
+	}
+}
+
 type chatRequest struct {
-	Model    string     `json:"model"`
-	Messages []Message  `json:"messages"`
-	Tools    []ToolSpec `json:"tools,omitempty"`
-	Stream   bool       `json:"stream"`
+	Model                string         `json:"model"`
+	Messages             []chatMessage  `json:"messages"`
+	Tools                []ToolSpec     `json:"tools,omitempty"`
+	Stream               bool           `json:"stream"`
+	StreamOptions        *streamOptions `json:"stream_options,omitempty"`
+	PromptCacheRetention string         `json:"prompt_cache_retention,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// chatMessage is the wire shape of one chat message. CacheControl is added
+// only to the first stable system message when caching is explicitly enabled.
+type chatMessage struct {
+	Role         string        `json:"role"`
+	Content      string        `json:"content,omitempty"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID   string        `json:"tool_call_id,omitempty"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 // wireMessages copies messages without transcript-only fields, keeping the
 // bytes sent upstream exactly as before Reasoning/Usage existed.
-func wireMessages(messages []Message) []Message {
-	out := make([]Message, len(messages))
+func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl) []chatMessage {
+	out := make([]chatMessage, len(messages))
+	marked := false
 	for i, m := range messages {
-		m.Reasoning = ""
-		m.Usage = nil
-		out[i] = m
+		out[i] = chatMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+		}
+		if cacheEnabled && !marked && m.Role == "system" && strings.TrimSpace(m.Content) != "" {
+			out[i].CacheControl = control
+			marked = true
+		}
 	}
 	return out
 }
 
 var _ Chatter = (*Client)(nil)
+var _ PromptCacheCapable = (*Client)(nil)
 
 type chunk struct {
 	Choices []struct {
@@ -111,6 +172,13 @@ type chunk struct {
 			} `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -125,12 +193,20 @@ func (c *Client) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
-	payload, err := json.Marshal(chatRequest{
+	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
+	request := chatRequest{
 		Model:    model,
-		Messages: wireMessages(messages),
+		Messages: wireMessages(messages, cacheEnabled, c.Options.cacheControl()),
 		Tools:    tools,
 		Stream:   true,
-	})
+	}
+	if cacheEnabled || c.Options.IncludeUsage {
+		request.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	if cacheEnabled {
+		request.PromptCacheRetention = c.Options.CacheRetention
+	}
+	payload, err := json.Marshal(request)
 	if err != nil {
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
@@ -147,22 +223,38 @@ func (c *Client) Chat(
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return Message{}, fmt.Errorf("provider returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		err := providerError(resp)
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolChatCompletions, model, err))
+		return Message{}, err
 	}
 
+	reply, err := c.readStream(ctx, model, resp.Body, onText)
+	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
+		return Message{}, err
+	}
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
+	return reply, nil
+}
+
+func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
 	var text strings.Builder
 	order := make([]int, 0, 2)
 	partial := make(map[int]*ToolCall)
+	var usage *Usage
 
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return Message{}, err
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.HasPrefix(line, "data:") {
 			continue
@@ -174,10 +266,19 @@ func (c *Client) Chat(
 
 		var event chunk
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return Message{}, fmt.Errorf("decode stream event: %w", err)
+			return Message{}, streamError("decode stream event: %v", RedactError(err))
 		}
 		if event.Error != nil {
-			return Message{}, fmt.Errorf("provider error: %s", event.Error.Message)
+			return Message{}, streamError("provider error: %s", RedactText(event.Error.Message))
+		}
+		if event.Usage != nil {
+			usage = &Usage{
+				PromptTokens:     event.Usage.PromptTokens,
+				CompletionTokens: event.Usage.CompletionTokens,
+			}
+			if details := event.Usage.PromptTokensDetails; details != nil {
+				usage.CachedTokens = details.CachedTokens
+			}
 		}
 		for _, choice := range event.Choices {
 			if delta := choice.Delta.Content; delta != "" {
@@ -202,7 +303,10 @@ func (c *Client) Chat(
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return Message{}, fmt.Errorf("read stream: %w", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Message{}, ctxErr
+		}
+		return Message{}, streamError("read stream: %v", RedactError(err))
 	}
 
 	calls := make([]ToolCall, 0, len(order))
@@ -217,5 +321,5 @@ func (c *Client) Chat(
 		calls = append(calls, call)
 	}
 
-	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls}, nil
+	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage}, nil
 }

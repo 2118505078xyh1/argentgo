@@ -31,6 +31,7 @@ type AnthropicClient struct {
 	MaxTokens int
 	HTTP      *http.Client
 	Retry     RetryPolicy
+	Options   Options
 }
 
 // NewAnthropic returns a Messages client for baseURL (usually ".../v1").
@@ -44,11 +45,21 @@ func NewAnthropic(baseURL, apiKey string) *AnthropicClient {
 }
 
 var _ Chatter = (*AnthropicClient)(nil)
+var _ PromptCacheCapable = (*AnthropicClient)(nil)
+
+// PromptCacheCapability reports whether stable-prefix markers are emitted.
+func (c *AnthropicClient) PromptCacheCapability() CacheCapability {
+	return CacheCapability{
+		Supported: c.Options.cacheEnabled(ProtocolAnthropicMessages, c.BaseURL),
+		Protocol:  ProtocolAnthropicMessages,
+		Local:     isLocalEndpoint(c.BaseURL),
+	}
+}
 
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
-	System    string             `json:"system,omitempty"`
+	System    any                `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
 	Stream    bool               `json:"stream"`
@@ -60,19 +71,21 @@ type anthropicMessage struct {
 }
 
 type anthropicBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Type         string          `json:"type"`
+	Text         string          `json:"text,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Input        json.RawMessage `json:"input,omitempty"`
+	ToolUseID    string          `json:"tool_use_id,omitempty"`
+	Content      string          `json:"content,omitempty"`
+	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 }
 
 type anthropicTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 }
 
 // Chat streams one assistant turn and assembles text, thinking and tool calls.
@@ -95,6 +108,19 @@ func (c *AnthropicClient) Chat(
 	if policy.IsZero() {
 		policy = DefaultRetryPolicy()
 	}
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolAnthropicMessages,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
+	}
 	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(payload))
 		if err != nil {
@@ -109,14 +135,23 @@ func (c *AnthropicClient) Chat(
 		return c.httpClient().Do(req)
 	})
 	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return Message{}, providerError(resp)
+		err := providerError(resp)
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolAnthropicMessages, model, err))
+		return Message{}, err
 	}
 
-	return c.readStream(resp.Body, onText)
+	reply, err := c.readStream(ctx, resp.Body, onText)
+	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
+		return Message{}, err
+	}
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolAnthropicMessages, Model: model})
+	return reply, nil
 }
 
 func (c *AnthropicClient) endpoint() string {
@@ -203,8 +238,20 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 		req.Messages = pushBlocks(req.Messages, "user", textBlocks("Continue."))
 	}
 
+	cacheEnabled := c.Options.cacheEnabled(ProtocolAnthropicMessages, c.BaseURL)
 	if len(system) > 0 {
-		req.System = strings.Join(system, "\n\n")
+		content := strings.Join(system, "\n\n")
+		if cacheEnabled {
+			// Only the system prompt and tool schemas are stable across turns;
+			// conversation messages must not carry a cache marker.
+			req.System = []anthropicBlock{{
+				Type:         "text",
+				Text:         content,
+				CacheControl: c.Options.cacheControl(),
+			}}
+		} else {
+			req.System = content
+		}
 	}
 	for _, tool := range tools {
 		schema := tool.Function.Parameters
@@ -216,6 +263,10 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 			Description: tool.Function.Description,
 			InputSchema: schema,
 		})
+	}
+	if cacheEnabled && len(req.Tools) > 0 {
+		// One breakpoint at the end of the tool prefix covers all schemas.
+		req.Tools[len(req.Tools)-1].CacheControl = c.Options.cacheControl()
 	}
 	return req
 }
@@ -297,7 +348,7 @@ type anthropicPartial struct {
 	start     string
 }
 
-func (c *AnthropicClient) readStream(body io.Reader, onText func(string)) (Message, error) {
+func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
 	reader := newSSEReader(body)
 
 	var (
@@ -310,9 +361,15 @@ func (c *AnthropicClient) readStream(body io.Reader, onText func(string)) (Messa
 
 streamLoop:
 	for {
+		if err := ctx.Err(); err != nil {
+			return Message{}, err
+		}
 		data, ok, err := reader.next()
 		if err != nil {
-			return Message{}, fmt.Errorf("read stream: %w", err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Message{}, ctxErr
+			}
+			return Message{}, streamError("read stream: %v", RedactError(err))
 		}
 		if !ok {
 			break
@@ -323,7 +380,7 @@ streamLoop:
 
 		var event anthropicEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return Message{}, fmt.Errorf("decode stream event: %w", err)
+			return Message{}, streamError("decode stream event: %v", RedactError(err))
 		}
 
 		switch event.Type {
@@ -405,11 +462,19 @@ streamLoop:
 				},
 			})
 		case "message_delta":
-			if event.Usage != nil && event.Usage.OutputTokens > 0 {
+			if event.Usage != nil {
 				if usage == nil {
 					usage = &Usage{}
 				}
-				usage.CompletionTokens = event.Usage.OutputTokens
+				if event.Usage.OutputTokens > 0 {
+					usage.CompletionTokens = event.Usage.OutputTokens
+				}
+				if event.Usage.CacheReadInputTokens > 0 {
+					usage.CachedTokens = event.Usage.CacheReadInputTokens
+				}
+				if event.Usage.CacheCreationInputTokens > 0 {
+					usage.CacheWriteTokens = event.Usage.CacheCreationInputTokens
+				}
 			}
 		case "message_stop":
 			break streamLoop
@@ -418,7 +483,7 @@ streamLoop:
 			if event.Error != nil && event.Error.Message != "" {
 				message = event.Error.Message
 			}
-			return Message{}, fmt.Errorf("provider error: %s", message)
+			return Message{}, streamError("provider error: %s", RedactText(message))
 		}
 	}
 
@@ -459,6 +524,8 @@ func anthropicPromptUsage(usage *anthropicUsage) *Usage {
 	return &Usage{
 		PromptTokens:     usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
 		CompletionTokens: usage.OutputTokens,
+		CachedTokens:     usage.CacheReadInputTokens,
+		CacheWriteTokens: usage.CacheCreationInputTokens,
 	}
 }
 

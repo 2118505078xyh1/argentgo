@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 const (
@@ -99,6 +99,19 @@ type Options struct {
 
 	// Emit receives every observable step of the run. A nil Emit is fine.
 	Emit func(Event)
+
+	// Checkpoint is called once before a batch containing mutating tool calls,
+	// synchronously and before any tool in that batch runs. The session layer
+	// records pre-turn bytes and digests here. A nil hook leaves the loop's
+	// behaviour unchanged; EventCheckpointReady is still emitted.
+	Checkpoint func(Checkpoint)
+	// MutationPaths supplies the workspace-relative paths a mutating call may
+	// change. It overrides the optional MutationReporter on Tools.
+	MutationPaths func(name, args string) []string
+	// OnCompactionEvidence receives failures and next-step lines that a
+	// compactor must preserve. It runs once when the loop finishes.
+	OnCompactionEvidence func(CompactionEvidence)
+
 	// Steer is drained between turns; each value becomes a user message.
 	Steer <-chan string
 	// Budget limits the run. Limits are checked before each turn, before a

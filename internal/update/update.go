@@ -20,7 +20,7 @@ import (
 
 const (
 	releaseBodyLimit = 4 << 20
-	userAgent        = "argent-go-updater"
+	userAgent        = "argentgo-updater"
 )
 
 // apiBase is a variable so tests (and GitHub Enterprise installs) can point the

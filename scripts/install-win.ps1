@@ -1,10 +1,10 @@
-# Install the Windows argent-go binary from a release zip.
+# Install the Windows argentgo binary from a release zip.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 `
 #       [-ZipPath dist/release/argent_0.1.1_windows_amd64.zip] `
-#       [-InstallDir "$env:LOCALAPPDATA\argent-go\bin"]
+#       [-InstallDir "$env:LOCALAPPDATA\argentgo\bin"]
 #
-# Only the binary is installed; sessions/config under ~/.argent-go are untouched.
+# Only the binary is installed; sessions/config under ~/.argentgo are untouched.
 
 param(
     [string]$ZipPath = '',
@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 
-if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'argent-go/bin' }
+if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'argentgo/bin' }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir)
 
 if (-not $ZipPath) {

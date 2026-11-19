@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/config"
-	"github.com/2118505078xyh1/argent-go/internal/hooks"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // recordingDispatcher stands in for the shell dispatcher so tests observe

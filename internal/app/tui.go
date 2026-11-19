@@ -8,9 +8,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/session"
-	"github.com/2118505078xyh1/argent-go/internal/tui"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
 // TUI returns the frontend the command layer runs for `argent tui` / --tui.

@@ -1,4 +1,4 @@
-# Build the Windows release artifact for argent-go (the version the operator
+# Build the Windows release artifact for argentgo (the version the operator
 # runs locally). Other platforms are intentionally out of scope.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 `
@@ -56,7 +56,7 @@ try {
             throw "tag $Tag != cli.Version $Version; bump the source before tagging"
         }
     }
-    Write-Host "argent-go $Version" -ForegroundColor Cyan
+    Write-Host "argentgo $Version" -ForegroundColor Cyan
 
     # --- output directory (clean build, no stale assets) ------------------
     if (-not $OutDir) { $OutDir = Join-Path $repo 'dist/release' }
@@ -80,7 +80,7 @@ try {
         # mutates the operator's working tree.
         Write-Host '== gofmt ==' -ForegroundColor Cyan
         $goFiles = @(& git ls-files '*.go')
-        $fmtRoot = Join-Path ([IO.Path]::GetTempPath()) ('argent-gofmt-' + [guid]::NewGuid().ToString('N'))
+        $fmtRoot = Join-Path ([IO.Path]::GetTempPath()) ('argentgofmt-' + [guid]::NewGuid().ToString('N'))
         $unformatted = @()
         try {
             foreach ($file in $goFiles) {

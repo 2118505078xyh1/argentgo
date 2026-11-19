@@ -16,6 +16,8 @@ import (
 // unsupported explains, per command, why the Go build cannot answer it yet.
 // Unknown commands get their own message; neither case ever hangs the page.
 var unsupported = map[string]string{
+	"undo":              "the checkpoint store is not wired yet",
+	"retry":             "the checkpoint store is not wired yet",
 	"pty_spawn":         "the terminal needs a pty host, which is not wired yet",
 	"pty_write":         "the terminal needs a pty host, which is not wired yet",
 	"pty_read":          "the terminal needs a pty host, which is not wired yet",
@@ -29,9 +31,6 @@ var unsupported = map[string]string{
 	"add_memory":        "the memory store is not wired yet",
 	"forget_memory":     "the memory store is not wired yet",
 	"search_memory":     "the memory store is not wired yet",
-	"list_documents":    "office document extraction is not wired yet",
-	"read_document":     "office document extraction is not wired yet",
-	"list_workflows":    "the workflow runner is not wired yet",
 	"list_automations":  "the automation scheduler is not wired yet",
 	"create_automation": "the automation scheduler is not wired yet",
 	"toggle_automation": "the automation scheduler is not wired yet",
@@ -65,6 +64,22 @@ func (b *bridge) usageStore() Usage {
 		return b.opts.Usage
 	}
 	return NewFileUsage(b.configRoot())
+}
+
+// workflowStore and documentStore fall back to stdlib workspace scanners, just
+// like memory and usage fall back to file stores under the config root.
+func (b *bridge) workflowStore() Workflows {
+	if b.opts.Workflows != nil {
+		return b.opts.Workflows
+	}
+	return NewFileWorkflows(b.dir)
+}
+
+func (b *bridge) documentStore() Documents {
+	if b.opts.Documents != nil {
+		return b.opts.Documents
+	}
+	return NewFileDocuments(b.dir)
 }
 
 // args is the decoded JSON body of one rpc call.
@@ -205,6 +220,16 @@ func (b *bridge) dispatch(ctx context.Context, name string, a args) (any, error)
 		return nil, b.command(a.str("sid"), Command{Kind: CommandCompact})
 	case "rewind":
 		return nil, b.command(a.str("sid"), Command{Kind: CommandRewind, Steps: int(a.integer("steps"))})
+	case "undo":
+		if b.opts.History == nil {
+			return nil, unsupportedError("undo")
+		}
+		return nil, b.opts.History.Undo(ctx, a.str("sid"), int(a.integer("steps")))
+	case "retry":
+		if b.opts.History == nil {
+			return nil, unsupportedError("retry")
+		}
+		return nil, b.opts.History.Retry(ctx, a.str("sid"), int(a.integer("steps")))
 	case "set_model":
 		return nil, b.command(a.str("sid"), Command{Kind: CommandSetModel, Model: a.str("model")})
 	case "set_thinking":
@@ -259,6 +284,12 @@ func (b *bridge) dispatch(ctx context.Context, name string, a args) (any, error)
 		return b.listPlugins(), nil
 
 	// stdlib-backed defaults; never "not supported" even with no injection.
+	case "list_workflows":
+		return b.workflowStore().List()
+	case "list_documents":
+		return b.documentStore().List()
+	case "read_document":
+		return b.documentStore().Read(a.str("path"))
 	case "list_memory":
 		return b.memoryStore().List()
 	case "add_memory":
@@ -291,23 +322,6 @@ func (b *bridge) dispatch(ctx context.Context, name string, a args) (any, error)
 			return nil, unsupportedError("kill_job")
 		}
 		return nil, b.opts.Jobs.Stop(a.str("id"))
-
-	case "list_workflows":
-		if b.opts.Workflows == nil {
-			return nil, unsupportedError("list_workflows")
-		}
-		return b.opts.Workflows.List()
-
-	case "list_documents":
-		if b.opts.Documents == nil {
-			return nil, unsupportedError("list_documents")
-		}
-		return b.opts.Documents.List()
-	case "read_document":
-		if b.opts.Documents == nil {
-			return nil, unsupportedError("read_document")
-		}
-		return b.opts.Documents.Read(a.str("path"))
 
 	case "list_automations":
 		if b.opts.Automation == nil {

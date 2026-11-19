@@ -191,6 +191,9 @@ func (m *Model) headerLocked(width int) Line {
 	if m.usageIn+m.usageOut > 0 {
 		parts = append(parts, "↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut))
 	}
+	if m.usageCached > 0 {
+		parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
+	}
 	parts = append(parts, clock(int(m.now().Sub(m.started).Seconds())))
 	right := NewLine()
 	right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
@@ -227,6 +230,9 @@ func (m *Model) statusLineLocked(width int) Line {
 	}
 	if m.usageIn+m.usageOut > 0 {
 		parts = append(parts, compactCount(m.usageIn)+"/"+compactCount(m.usageOut))
+	}
+	if m.usageCached > 0 {
+		parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
 	}
 	if len(parts) > 0 {
 		right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
@@ -346,6 +352,9 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 func (m *Model) renderBodyLocked(width int) []Line {
 	var out []Line
 	for _, entry := range m.entries {
+		if entry.Attempt != "" {
+			out = append(out, m.attemptLinesLocked(entry, width)...)
+		}
 		switch entry.Kind {
 		case EntryUser:
 			out = append(out, wrappedBlock(entry.Text, width, userMark, "  ", m.palette.user())...)
@@ -360,6 +369,22 @@ func (m *Model) renderBodyLocked(width int) []Line {
 		}
 	}
 	return out
+}
+
+// attemptLinesLocked draws the non-committed outcome badge above the row it
+// belongs to. The wording is localised; the shape is stable for tests.
+func (m *Model) attemptLinesLocked(entry Entry, width int) []Line {
+	label := text(m.locale, "attempt_"+string(entry.Attempt))
+	if label == "attempt_"+string(entry.Attempt) {
+		label = string(entry.Attempt)
+	}
+	line := NewLine()
+	line.Push("⟳ ", m.palette.warning())
+	line.Push(label, m.palette.warning())
+	if detail := collapseSpace(entry.Text); detail != "" {
+		line.Push(" · "+Clip(detail, maxInt(width-TextWidth(label)-8, 1)), m.palette.muted())
+	}
+	return []Line{line}
 }
 
 func (m *Model) reasoningLines(entry Entry, width int) []Line {

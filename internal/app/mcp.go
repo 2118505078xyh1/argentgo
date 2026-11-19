@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/mcp"
-	"github.com/2118505078xyh1/argent-go/internal/plugins"
-	"github.com/2118505078xyh1/argent-go/internal/security"
-	"github.com/2118505078xyh1/argent-go/internal/session"
-	"github.com/2118505078xyh1/argent-go/internal/skills"
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/mcp"
+	"github.com/2118505078xyh1/argentgo/internal/plugins"
+	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // mcpConnectTimeout bounds one server's handshake so a broken server cannot

@@ -38,7 +38,7 @@ func TestRunVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if out.String() != "argent-go 9.9.9\n" {
+	if out.String() != "argentgo 9.9.9\n" {
 		t.Fatalf("out = %q", out.String())
 	}
 	if errOut.Len() != 0 {
@@ -51,7 +51,7 @@ func TestRunVersionKeepsLegacyFormat(t *testing.T) {
 	if code := Run([]string{"--version"}, ioState); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if out.String() != "argent-go "+Version+"\n" {
+	if out.String() != "argentgo "+Version+"\n" {
 		t.Fatalf("out = %q", out.String())
 	}
 }

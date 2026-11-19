@@ -3,7 +3,7 @@ package agent
 import (
 	"fmt"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // Stop reasons reported in Result.Stopped and Event.Reason. They are stable

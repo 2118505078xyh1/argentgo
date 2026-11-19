@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // reviewLargeDiffLines flags a file whose diff adds an unusually large number

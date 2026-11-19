@@ -11,6 +11,7 @@ type EventKind string
 const (
 	EventToolStart EventKind = "tool_start"
 	EventToolEnd   EventKind = "tool_end"
+	EventAttempt   EventKind = "attempt"
 )
 
 // Event is the frontend-facing subset of the agent event stream. tui keeps its
@@ -24,6 +25,8 @@ type Event struct {
 	Output     string
 	IsError    bool
 	DurationMS int64
+	Attempt    AttemptKind // EventAttempt only
+	Detail     string      // EventAttempt only
 }
 
 // HandleEvent folds one agent event into the UI. Unknown kinds are ignored, so
@@ -36,6 +39,10 @@ func (m *Model) HandleEvent(event Event) {
 		m.toolStartLocked(event)
 	case EventToolEnd:
 		m.toolEndLocked(event)
+	case EventAttempt:
+		if event.Attempt != "" {
+			m.appendAttemptLocked(event.Attempt, event.Detail)
+		}
 	}
 }
 
@@ -70,6 +77,15 @@ func (m *Model) toolEndLocked(event Event) {
 		status = TaskError
 	}
 	duration := time.Duration(event.DurationMS) * time.Millisecond
+	if event.IsError {
+		for j := len(m.entries) - 1; j >= 0; j-- {
+			entry := &m.entries[j]
+			if entry.Kind == EntryTool && entry.Name == event.ToolName {
+				entry.Failed, entry.Attempt = true, AttemptFailed
+				break
+			}
+		}
+	}
 	for i := len(m.tasks) - 1; i >= 0; i-- {
 		task := &m.tasks[i]
 		match := event.ToolCallID != "" && task.ID == event.ToolCallID

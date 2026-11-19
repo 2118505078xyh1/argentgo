@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/jobs"
+	"github.com/2118505078xyh1/argentgo/internal/jobs"
 )
 
 // jobsDir is where the registry and its logs live for this storage directory.

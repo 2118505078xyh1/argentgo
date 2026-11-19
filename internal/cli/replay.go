@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/server"
+	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
 // runReplay implements `replay [id] [--json]`. With no id it replays the most

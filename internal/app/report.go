@@ -5,10 +5,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/config"
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // TokenReport renders the --tokens breakdown: the fixed part of each request

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/auth"
+	"github.com/2118505078xyh1/argentgo/internal/auth"
 )
 
 // authStore opens the per-installation credential store: <storage>/auth.

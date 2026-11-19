@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 func mustRun(t *testing.T, registry *tools.Registry, name, args string) string {

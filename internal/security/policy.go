@@ -105,6 +105,7 @@ var defaultReadOnlyTools = map[string]bool{
 
 var defaultMutatingTools = map[string]bool{
 	"write": true, "edit": true, "multi_edit": true, "bash": true,
+	"undo": true, "restore": true,
 }
 
 // Policy is the hard gate evaluated before approval.
@@ -186,23 +187,28 @@ func PolicyFromJSON(root string, data []byte) (*Policy, error) {
 	var cfg PolicyConfig
 	var err error
 	fields := []struct {
-		key  string
-		into *[]string
+		camel string
+		snake string
+		into  *[]string
 	}{
-		{"denyPaths", &cfg.DenyPaths},
-		{"allowPaths", &cfg.AllowPaths},
-		{"denyCommands", &cfg.DenyCommands},
-		{"denyCommandPaths", &cfg.DenyCommandPaths},
-		{"denyTools", &cfg.DenyTools},
-		{"allowTools", &cfg.AllowTools},
-		{"readOnlyTools", &cfg.ReadOnlyTools},
-		{"mutatingTools", &cfg.MutatingTools},
-		{"writeRoots", &cfg.WriteRoots},
+		{"denyPaths", "deny_paths", &cfg.DenyPaths},
+		{"allowPaths", "allow_paths", &cfg.AllowPaths},
+		{"denyCommands", "deny_commands", &cfg.DenyCommands},
+		{"denyCommandPaths", "deny_command_paths", &cfg.DenyCommandPaths},
+		{"denyTools", "deny_tools", &cfg.DenyTools},
+		{"allowTools", "allow_tools", &cfg.AllowTools},
+		{"readOnlyTools", "read_only_tools", &cfg.ReadOnlyTools},
+		{"mutatingTools", "mutating_tools", &cfg.MutatingTools},
+		{"writeRoots", "write_roots", &cfg.WriteRoots},
 	}
 	for _, field := range fields {
-		if value, ok := raw[field.key]; ok {
+		value, ok := raw[field.camel]
+		if !ok {
+			value, ok = raw[field.snake]
+		}
+		if ok {
 			if *field.into, err = stringList(value); err != nil {
-				return nil, fmt.Errorf("security: policy field %q: %w", field.key, err)
+				return nil, fmt.Errorf("security: policy field %q: %w", field.camel, err)
 			}
 		}
 	}
@@ -247,12 +253,8 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	if err != nil {
 		return Result{Ask, fmt.Sprintf("the %s arguments are not a JSON object: %v", name, err)}
 	}
-	for _, key := range pathArgKeys {
-		value, ok := fields[key].(string)
-		if !ok {
-			continue
-		}
-		if res := p.checkPath(value); res.Decision != Allow {
+	for _, path := range pathValues(fields) {
+		if res := p.checkPath(path); res.Decision != Allow {
 			return res
 		}
 	}
@@ -318,16 +320,32 @@ func (p *Policy) checkPath(path string) Result {
 // mutating tool. Relative `..` escapes were already rejected by checkPath; here
 // InWriteRoots catches absolute paths that land outside the allowed roots.
 func (p *Policy) checkWriteRoots(fields map[string]any) Result {
-	for _, key := range pathArgKeys {
-		value, ok := fields[key].(string)
-		if !ok {
-			continue
-		}
+	for _, value := range pathValues(fields) {
 		if err := InWriteRoots(value, p.writeRoots); err != nil {
 			return Result{Deny, fmt.Sprintf("the path %q is not writable: %v", value, err)}
 		}
 	}
 	return Result{Allow, ""}
+}
+
+// pathValues collects every path argument, including the `paths` array used
+// by checkpoint restore actions. Order is stable: scalar keys first, then the
+// array in the order supplied by the caller.
+func pathValues(fields map[string]any) []string {
+	var paths []string
+	for _, key := range pathArgKeys {
+		if value, ok := fields[key].(string); ok {
+			paths = append(paths, value)
+		}
+	}
+	if list, ok := fields["paths"].([]any); ok {
+		for _, item := range list {
+			if value, ok := item.(string); ok {
+				paths = append(paths, value)
+			}
+		}
+	}
+	return paths
 }
 
 // checkCommand applies the command rules. Matching is case-insensitive.

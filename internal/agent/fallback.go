@@ -7,7 +7,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // modelAttempts resolves the ordered model list for a single turn. The first

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
 )
 
 func TestEvalSuiteRunsCoreScenariosThroughTheRealLoop(t *testing.T) {

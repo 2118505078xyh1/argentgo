@@ -53,8 +53,8 @@ GUI 后端已完成，但下面几项没有全链路验证之前，不能称为�
 
 - Windows 发布产物是单一 `argent.exe`：`.github/workflows/release.yml` 上传
   `argent_<version>_windows_amd64.zip` 和 `checksums.txt`；本地安装用
-  `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argent-go\bin`，并提示把该
-  目录加入 PATH。`scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argent-go`
+  `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argentgo\bin`，并提示把该
+  目录加入 PATH。`scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argentgo`
   下的会话、配置、hook 与审计日志。
 - 桌面窗口不是打包出来的独立 app：`internal/launcher` 调系统已装的 Edge/Chrome
   以 `--app` 模式打开内嵌页面，因此窗口与任务栏图标由浏览器/站点图标提供，

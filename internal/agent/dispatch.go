@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // Tool gating, dispatch and bookkeeping for one turn's batch.
@@ -18,6 +18,16 @@ import (
 // runTools executes one batch, returning a stop reason only when the run ended
 // early (cancellation).
 func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall) string {
+	// The checkpoint is intentionally announced before the batch is reordered
+	// or any guard can block a call: it describes what the model asked for.
+	if ctx.Err() == nil {
+		if cp := s.newCheckpoint(turn, calls); cp != nil {
+			s.emit(Event{Kind: EventCheckpointReady, Turn: turn, Checkpoint: cp})
+			if s.opts.Checkpoint != nil {
+				s.opts.Checkpoint(*cp)
+			}
+		}
+	}
 	parallel := len(calls) > 1 && s.maxParallel() > 1
 	for _, call := range calls {
 		// Mutating calls need approval and the delegate tool owns nested state;

@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/commands"
+	"github.com/2118505078xyh1/argentgo/internal/commands"
 )
 
 // reviewRunner is deliberately narrower than a general shell: /review may run

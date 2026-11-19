@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // ---------------------------------------------------------------- fixtures
@@ -181,6 +181,11 @@ func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace
 		{Role: "system", Content: workspace.System},
 		{Role: "user", Content: workspace.Prompt},
 	}
+	if scenario.PromptCache && !scenario.NoPromptCache && messages[0].Content != "" {
+		// Mimic a cache-capable client's stable-prefix assembly so the
+		// scripted provider can assert opt-in and opt-out wire behaviour.
+		messages[0].CacheControl = llm.EphemeralCacheControl()
+	}
 	for turn := 1; turn <= maxTurns; turn++ {
 		if scenario.CancelAfter > 0 && turn > scenario.CancelAfter {
 			cancel()
@@ -192,6 +197,12 @@ func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace
 		}
 		messages = append(messages, llm.Message{Role: reply.Role, Content: reply.Content, ToolCalls: reply.ToolCalls})
 		trace.Text = reply.Content
+		if reply.Usage != nil {
+			trace.Usage.PromptTokens += reply.Usage.PromptTokens
+			trace.Usage.CompletionTokens += reply.Usage.CompletionTokens
+			trace.Usage.CachedTokens += reply.Usage.CachedTokens
+			trace.Usage.CacheWriteTokens += reply.Usage.CacheWriteTokens
+		}
 		if len(reply.ToolCalls) == 0 {
 			return trace, nil
 		}
@@ -242,6 +253,47 @@ func TestCoreSuitePassesThroughTheFakeLoop(t *testing.T) {
 	}
 	if !strings.Contains(text, "#   tools=[read] turns=2 stopped=false") {
 		t.Errorf("verbose diagnostics missing:\n%s", text)
+	}
+}
+
+func TestCacheSuitePassesThroughTheFakeLoop(t *testing.T) {
+	scenarios, err := Load(filepath.Join("..", "..", "evals", "cache.json"))
+	if err != nil {
+		t.Fatalf("Load(evals/cache.json): %v", err)
+	}
+	if len(scenarios) != 2 {
+		t.Fatalf("cache.json holds %d scenarios, want 2", len(scenarios))
+	}
+
+	var out bytes.Buffer
+	report, err := Run(context.Background(), scenarios, fakeRun, Options{Out: &out})
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if report.Passed != 2 || report.Failed != 0 {
+		t.Fatalf("report = %d passed, %d failed\n%s", report.Passed, report.Failed, out.String())
+	}
+	for _, want := range []string{"ok 1 - reports cached prompt usage", "ok 2 - prompt cache opt-out leaves the request cache-free"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report misses %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRunReportsAWrongCachedTokenCount(t *testing.T) {
+	scenario := Scenario{
+		Name:     "cached usage",
+		Prompt:   "answer",
+		Provider: []ScriptTurn{{Respond: Respond{Text: "ok", Usage: &llm.Usage{PromptTokens: 20, CachedTokens: 5}}}},
+		Expect:   Expect{CachedTokens: intPtr(7)},
+	}
+	var out bytes.Buffer
+	report, err := Run(context.Background(), []Scenario{scenario}, fakeRun, Options{Out: &out})
+	if err == nil {
+		t.Fatal("a wrong cached-token count passed")
+	}
+	if !strings.Contains(report.Results[0].Reason, "expected 7 cached tokens, the model reported 5") {
+		t.Fatalf("reason = %q", report.Results[0].Reason)
 	}
 }
 
@@ -626,6 +678,43 @@ func TestScriptedProviderStreamsTextAndBuildsToolCalls(t *testing.T) {
 	}
 	if reply.ToolCalls[1].Function.Arguments != "{}" {
 		t.Fatalf("missing arguments should default to {}, got %q", reply.ToolCalls[1].Function.Arguments)
+	}
+}
+
+func TestScriptedProviderReturnsUsageAndChecksCacheMarkers(t *testing.T) {
+	usage := &llm.Usage{PromptTokens: 100, CompletionTokens: 5, CachedTokens: 40}
+	provider := NewScripted([]ScriptTurn{
+		{
+			ExpectRequestCached: true,
+			Respond:             Respond{Text: "warm", Usage: usage},
+		},
+		{
+			ExpectRequestCacheFree: true,
+			Respond:                Respond{Text: "cold"},
+		},
+		{
+			ExpectRequestCached: true,
+			Respond:             Respond{Text: "missing marker"},
+		},
+	}, false)
+
+	marked := []llm.Message{{Role: "system", Content: "stable", CacheControl: llm.EphemeralCacheControl()}}
+	reply, err := provider.Chat(context.Background(), "m", marked, nil, nil)
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if reply.Usage != usage {
+		t.Fatalf("usage was not carried into the reply: %+v", reply.Usage)
+	}
+	if _, err := provider.Chat(context.Background(), "m", []llm.Message{{Role: "user", Content: "x"}}, nil, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if _, err := provider.Chat(context.Background(), "m", []llm.Message{{Role: "user", Content: "x"}}, nil, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	violations := provider.Violations()
+	if len(violations) != 1 || !strings.Contains(violations[0], "turn 3: the request has no cache marker") {
+		t.Fatalf("violations = %v", violations)
 	}
 }
 

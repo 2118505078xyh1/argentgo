@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/2118505078xyh1/argent-go/internal/llm"
+import "github.com/2118505078xyh1/argentgo/internal/llm"
 
 // EventKind names one observable step of a run.
 type EventKind string
@@ -9,18 +9,19 @@ type EventKind string
 // the provider streams; tool events bracket one call; usage reports the delta
 // for one request plus the run total.
 const (
-	EventTurnStart      EventKind = "turn_start"
-	EventTurnEnd        EventKind = "turn_end"
-	EventTextDelta      EventKind = "text_delta"
-	EventReasoningDelta EventKind = "reasoning_delta"
-	EventToolStart      EventKind = "tool_start"
-	EventToolEnd        EventKind = "tool_end"
-	EventUsage          EventKind = "usage"
-	EventError          EventKind = "error"
-	EventNotice         EventKind = "notice"
-	EventStop           EventKind = "stop"
-	EventSubagentStart  EventKind = "subagent_start"
-	EventSubagentEnd    EventKind = "subagent_end"
+	EventTurnStart       EventKind = "turn_start"
+	EventTurnEnd         EventKind = "turn_end"
+	EventCheckpointReady EventKind = "checkpoint_ready"
+	EventTextDelta       EventKind = "text_delta"
+	EventReasoningDelta  EventKind = "reasoning_delta"
+	EventToolStart       EventKind = "tool_start"
+	EventToolEnd         EventKind = "tool_end"
+	EventUsage           EventKind = "usage"
+	EventError           EventKind = "error"
+	EventNotice          EventKind = "notice"
+	EventStop            EventKind = "stop"
+	EventSubagentStart   EventKind = "subagent_start"
+	EventSubagentEnd     EventKind = "subagent_end"
 )
 
 // Event is one item on the run's event stream.
@@ -29,6 +30,7 @@ const (
 // switch on Kind and read the rest without further checks:
 //
 //	turn_start / turn_end    Turn
+//	checkpoint_ready         Turn, Checkpoint (emitted before a mutating batch)
 //	text_delta               Turn, Text
 //	reasoning_delta          Turn, Text (a whole reasoning block)
 //	tool_start               Turn, ToolCallID, ToolName, Args
@@ -54,4 +56,7 @@ type Event struct {
 	TotalUsage llm.Usage
 	Err        string
 	Reason     string
+	// Checkpoint is populated only for EventCheckpointReady. It carries the
+	// information a session checkpoint needs before a mutating batch starts.
+	Checkpoint *Checkpoint
 }

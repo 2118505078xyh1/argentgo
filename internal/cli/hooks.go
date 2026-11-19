@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/hooks"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
 )
 
 // runHooks implements `hooks [-C root]`: every hook document, its digest and
@@ -45,7 +45,7 @@ func runHooks(app App, _ context.Context, args []string) int {
 
 	paths := hookDocuments(root, homeFromEnv(app.env))
 	if len(paths) == 0 {
-		fmt.Fprintln(app.IO.Out, "no hook documents found under .argent/hooks.json or ~/.argent-go/hooks.json")
+		fmt.Fprintln(app.IO.Out, "no hook documents found under .argent/hooks.json or ~/.argentgo/hooks.json")
 		return 0
 	}
 	for _, path := range paths {
@@ -89,7 +89,7 @@ func hookDocuments(root, home string) []string {
 		}
 	}
 	if home != "" {
-		add(filepath.Join(home, ".argent-go", "hooks.json"))
+		add(filepath.Join(home, ".argentgo", "hooks.json"))
 	}
 	return paths
 }

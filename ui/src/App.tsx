@@ -43,6 +43,10 @@ import {
 import { formatCost, formatTokens, relativeStamp, sessionGroup } from "./format";
 import { detectLocale, t, type Locale } from "./i18n";
 import { createStreamBuffer, stepCountsAfter, updateToolItem } from "./transcript";
+import { COMMAND_TEMPLATES, QUICK_ACTIONS, matchCommandTemplates } from "./commands";
+import { prefersReducedMotion, scrollBehavior } from "./motion";
+import { isToolExpanded, readToolExpansion, toggleToolExpansion } from "./tool-state";
+import { attemptLabel } from "./attempts";
 
 type SearchHit = { path: string; title: string; line: number; snippet: string };
 
@@ -75,10 +79,11 @@ function loadedItems(entries: LoadedEntry[]): Item[] {
           state: entry.state,
           output: entry.output,
           duration: entry.durationMs,
+          attempt: entry.attempt,
         },
       };
     }
-    return { id: nextId++, kind: entry.kind, text: entry.text };
+    return { id: nextId++, kind: entry.kind, text: entry.text, attempt: entry.attempt };
   });
 }
 
@@ -216,6 +221,7 @@ function App() {
     | "plan"
   >("chat");
   const [help, setHelp] = createSignal(false);
+  const [helpQuery, setHelpQuery] = createSignal("");
   const [locale, setLocale] = createSignal<Locale>(detectLocale());
   const [statusSegments, setStatusSegments] = createSignal<StatusSegment[]>(
     loadStatusSegments(),
@@ -232,8 +238,12 @@ function App() {
   const [follow, setFollow] = createSignal(true);
   const [scrollByTab, setScrollByTab] = createSignal<Record<string, number>>({});
   const [restoring, setRestoring] = createSignal(false);
-  const [expandedTools, setExpandedTools] = createSignal<Record<string, boolean>>({});
+  const [toolExpansion, setToolExpansion] = createSignal(
+    readToolExpansion(storageGet("argent.tools.expanded")),
+  );
   const [expandAllTools, setExpandAllTools] = createSignal(false);
+  const [editingRow, setEditingRow] = createSignal<string | null>(null);
+  const [editTitle, setEditTitle] = createSignal("");
 
   const filteredSessions = createMemo(() => {
     const query = sessionQuery().trim().toLowerCase();
@@ -245,6 +255,13 @@ function App() {
 
   // One O(n) pass per transcript change replaces the old per-row tail slices.
   const stepsAfterByItem = createMemo(() => stepCountsAfter(items()));
+  const lastUserId = createMemo(() => {
+    const all = items();
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      if (all[i].kind === "user") return all[i].id;
+    }
+    return -1;
+  });
 
   const modelOptions = createMemo(() => {
     const models = ready()?.models ?? [];
@@ -306,14 +323,43 @@ function App() {
   let viewport!: HTMLDivElement;
   let composer!: HTMLTextAreaElement;
   let importInput!: HTMLInputElement;
+  let approveButton!: HTMLButtonElement;
 
-  const append = (kind: TextItem["kind"], text: string, stream = false, sid = active()) => {
+  const scrollToBottom = (smooth = true) => {
+    if (!viewport) return;
+    const behavior = scrollBehavior(smooth && !prefersReducedMotion());
+    if (typeof viewport.scrollTo === "function") {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+    } else {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  };
+
+  createEffect(() => {
+    if (approval()) {
+      requestAnimationFrame(() => {
+        try {
+          approveButton?.focus();
+        } catch {
+          // The modal may be unmounting; focus is only a convenience.
+        }
+      });
+    }
+  });
+
+  const append = (
+    kind: TextItem["kind"],
+    text: string,
+    stream = false,
+    sid = active(),
+    attempt?: TextItem["attempt"],
+  ) => {
     setItemsFor(sid, (prev) => {
       const last = prev[prev.length - 1];
       if (stream && last && last.kind === kind) {
         return [...prev.slice(0, -1), { ...last, text: last.text + text }];
       }
-      return [...prev, { id: nextId++, kind, text }];
+      return [...prev, { id: nextId++, kind, text, attempt }];
     });
   };
 
@@ -380,6 +426,7 @@ function App() {
               args: event.arguments,
               state: "running",
               output: "",
+              attempt: event.attempt,
             },
           },
         ]);
@@ -391,6 +438,7 @@ function App() {
             state: event.isError ? "error" : "ok",
             output: event.output,
             duration: event.durationMs,
+            attempt: event.attempt,
           })),
         );
         break;
@@ -404,6 +452,9 @@ function App() {
         break;
       case "notice":
         append("notice", event.text, false, sid);
+        break;
+      case "attempt":
+        append("notice", event.text || attemptLabel(event.attempt, locale()), false, sid, event.attempt);
         break;
       default:
         break;
@@ -637,17 +688,17 @@ function App() {
   createEffect(() => {
     document.documentElement.dataset.theme = theme();
     document.documentElement.lang = locale();
+    document.documentElement.classList.toggle("reduced-motion", prefersReducedMotion());
     storageSet("argent.theme", theme());
     storageSet("argent.locale", locale());
     storageSet("argent.statusline", JSON.stringify(statusSegments()));
+    storageSet("argent.tools.expanded", JSON.stringify(toolExpansion()));
   });
 
   createEffect(() => {
     items();
     if (follow() && viewport && !restoring()) {
-      requestAnimationFrame(() => {
-        viewport.scrollTop = viewport.scrollHeight;
-      });
+      requestAnimationFrame(() => scrollToBottom());
     }
   });
 
@@ -851,6 +902,26 @@ function App() {
     }
   };
 
+  const undoLast = async (steps = 1) => {
+    if (busy()) return;
+    try {
+      await invoke("undo", { sid: active(), steps });
+      append("notice", `已撤销最近 ${steps} 轮的文件改动`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const retryLast = async (steps = 1) => {
+    if (busy()) return;
+    try {
+      await invoke("retry", { sid: active(), steps });
+      append("notice", `已在上一轮之前分叉并重试（${steps}）`);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const chooseModel = async (model: string) => {
     try {
       await invoke("set_model", { sid: active(), model });
@@ -898,16 +969,23 @@ function App() {
     }
   };
 
-  const renameSession = async (row: SessionRow) => {
-    const title = window.prompt("会话名称", row.title);
-    if (!title || !title.trim()) return;
+  const beginRename = (row: SessionRow) => {
+    setEditingRow(row.path);
+    setEditTitle(row.title);
+  };
+
+  const commitRename = async (row: SessionRow) => {
+    const title = editTitle().trim();
+    setEditingRow(null);
+    if (!title || title === row.title) return;
     try {
-      await invoke("rename_session", { sid: active(), path: row.path, title: title.trim() });
+      await invoke("rename_session", { sid: active(), path: row.path, title });
       setSessions((prev) =>
-        prev.map((item) =>
-          item.path === row.path ? { ...item, title: title.trim() } : item,
-        ),
+        prev.map((item) => (item.path === row.path ? { ...item, title } : item)),
       );
+      if (sessionPath() === row.path) {
+        setTabs((prev) => prev.map((tab) => (tab.path === row.path ? { ...tab, title } : tab)));
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -1073,6 +1151,12 @@ function App() {
         await rewind(steps);
         return;
       }
+      case "undo":
+        await undoLast(args ? Number.parseInt(args, 10) || 1 : 1);
+        return;
+      case "retry":
+        await retryLast(args ? Number.parseInt(args, 10) || 1 : 1);
+        return;
       case "model":
         if (!args) {
           append(
@@ -1122,7 +1206,7 @@ function App() {
       case "help":
         append(
           "notice",
-          "命令：/new /rename [标题] /rewind [n] /compact /model [id] /thinking [档位] /cost /copy /export [md|json] /help",
+          "命令：/new /rename [标题] /undo /retry /rewind [n] /compact /model [id] /thinking [档位] /cost /copy /export [md|json] /help；markdown 命令支持 $ARGUMENTS / $1..$N",
         );
         return;
       default:
@@ -1232,9 +1316,56 @@ function App() {
         },
       },
     ];
+    const withHints = actions.map((action) => ({ ...action, hint: "" }));
+    const templates = matchCommandTemplates(paletteQuery()).map((template) => ({
+      label: `${template.name} ${template.template.includes("$ARGUMENTS") ? "$ARGUMENTS" : ""}`.trim(),
+      hint: template.hint,
+      run: () => {
+        setInput(template.template);
+        setPaletteOpen(false);
+        requestAnimationFrame(() => {
+          try {
+            composer.focus();
+          } catch {
+            // The composer may not be mounted on a non-chat screen.
+          }
+        });
+      },
+    }));
+    const all = [...withHints, ...templates];
     return query
-      ? actions.filter((action) => action.label.toLowerCase().includes(query)).slice(0, 10)
-      : actions;
+      ? all.filter((action) =>
+          `${action.label} ${action.hint}`.toLowerCase().includes(query),
+        ).slice(0, 10)
+      : all.slice(0, 10);
+  };
+
+  const helpSections = () => {
+    const query = helpQuery().trim().toLowerCase();
+    const keyboard = [
+      ["Enter", "发送；运行中改为插话"],
+      ["Shift+Enter", "换行"],
+      ["Ctrl+K", "聚焦输入框"],
+      ["Ctrl+Shift+F", "跨会话搜索"],
+      ["Ctrl+Shift+P", "命令面板"],
+      ["Esc", "中止当前回合 / 关闭面板 / 拒绝审批"],
+      ["Y / N", "允许 / 拒绝工具审批"],
+    ];
+    const groups = [
+      { title: "键盘", rows: keyboard },
+      {
+        title: "斜杠命令（$ARGUMENTS / $1..$N）",
+        rows: COMMAND_TEMPLATES.map((item) => [item.name, item.hint]),
+      },
+    ];
+    return groups
+      .map((group) => ({
+        title: group.title,
+        rows: group.rows.filter((row) =>
+          !query || `${row[0]} ${row[1]}`.toLowerCase().includes(query),
+        ),
+      }))
+      .filter((group) => group.rows.length > 0);
   };
 
   return (
@@ -1365,7 +1496,31 @@ function App() {
                               title={`${row.title || "未命名会话"}\n${row.path}`}
                               onClick={() => void openSession(row.path)}
                             >
-                              <span class="side-title">{row.title || "未命名会话"}</span>
+                              <Show
+                                when={editingRow() === row.path}
+                                fallback={
+                                  <span class="side-title">{row.title || "未命名会话"}</span>
+                                }
+                              >
+                                <input
+                                  class="side-rename"
+                                  autofocus
+                                  aria-label={t(locale(), "rename")}
+                                  value={editTitle()}
+                                  onInput={(event) => setEditTitle(event.currentTarget.value)}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void commitRename(row);
+                                    } else if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      setEditingRow(null);
+                                    }
+                                  }}
+                                  onBlur={() => void commitRename(row)}
+                                />
+                              </Show>
                               <span class="side-meta">
                                 {relativeStamp(row.updated) || row.path}
                               </span>
@@ -1373,8 +1528,8 @@ function App() {
                             <span class="side-actions">
                               <button
                                 class="icon"
-                                title="重命名"
-                                onClick={() => void renameSession(row)}
+                                title={t(locale(), "rename")}
+                                onClick={() => beginRename(row)}
                               >
                                 ✎
                               </button>
@@ -1479,6 +1634,22 @@ function App() {
             </select>
             <button
               class="ghost"
+              title={t(locale(), "undo")}
+              disabled={busy()}
+              onClick={() => void undoLast()}
+            >
+              ↶ {t(locale(), "undo")}
+            </button>
+            <button
+              class="ghost"
+              title={t(locale(), "retry")}
+              disabled={busy()}
+              onClick={() => void retryLast()}
+            >
+              ⟳ {t(locale(), "retry")}
+            </button>
+            <button
+              class="ghost"
               title="撤销最近一轮 write/edit"
               disabled={busy()}
               onClick={() => void rewind()}
@@ -1521,30 +1692,20 @@ function App() {
                     首次使用请在终端运行 <code>argent login</code> 配置模型凭据。
                   </p>
                   <div class="shortcuts">
+                    <For each={QUICK_ACTIONS}>
+                      {(action) => (
+                        <button onClick={() => setInput(action.prompt)}>
+                          {action.label[locale()]}
+                        </button>
+                      )}
+                    </For>
                     <button
-                      onClick={() =>
-                        setInput(
-                          "Read the repository structure and summarize the main modules.",
-                        )
-                      }
+                      onClick={() => {
+                        setPaletteOpen(true);
+                        setHelp(false);
+                      }}
                     >
-                      读懂仓库
-                    </button>
-                    <button
-                      onClick={() =>
-                        setInput(
-                          "Find one likely bug in this repository and explain how to fix it.",
-                        )
-                      }
-                    >
-                      找一个 bug
-                    </button>
-                    <button
-                      onClick={() =>
-                        setInput("Explain the architecture of this repository.")
-                      }
-                    >
-                      解释架构
+                      {t(locale(), "commands")}
                     </button>
                   </div>
                 </div>
@@ -1558,15 +1719,12 @@ function App() {
                   return (
                     <ToolCard
                       tool={item.tool}
-                      expanded={expandAllTools() || (expandedTools()[item.tool.id] ?? false)}
+                      locale={locale()}
+                      expanded={
+                        expandAllTools() || isToolExpanded(toolExpansion(), active(), item.tool.id)
+                      }
                       onToggle={() =>
-                        setExpandedTools((prev) => ({
-                          ...prev,
-                          [item.tool.id]: !(
-                            expandAllTools() ||
-                            (prev[item.tool.id] ?? false)
-                          ),
-                        }))
+                        setToolExpansion((prev) => toggleToolExpansion(prev, active(), item.tool.id))
                       }
                     />
                   );
@@ -1584,14 +1742,30 @@ function App() {
                           >
                             复制
                           </button>
-                          <Show when={stepsAfter() > 0}>
+                          <Show when={stepsAfter() > 0 || item.id === lastUserId()}>
                             <button
                               class="msg-action"
-                              title="回滚到这条消息之前"
-                              onClick={() => void rewind(stepsAfter())}
+                              title={t(locale(), "undo")}
+                              onClick={() => void undoLast(Math.max(stepsAfter(), 1))}
                             >
-                              回滚到此
+                              {t(locale(), "undo")}
                             </button>
+                            <button
+                              class="msg-action"
+                              title={t(locale(), "retry")}
+                              onClick={() => void retryLast(Math.max(stepsAfter(), 1))}
+                            >
+                              {t(locale(), "retry")}
+                            </button>
+                            <Show when={stepsAfter() > 0}>
+                              <button
+                                class="msg-action"
+                                title="回滚到这条消息之前"
+                                onClick={() => void rewind(stepsAfter())}
+                              >
+                                回滚到此
+                              </button>
+                            </Show>
                           </Show>
                         </div>
                         <div class="text">{item.text}</div>
@@ -1608,7 +1782,18 @@ function App() {
                   );
                 }
                 if (item.kind === "notice") {
-                  return <div class="notice">{item.text}</div>;
+                  return (
+                    <div class="notice" classList={{ "notice-attempt": !!item.attempt }}>
+                      <Show when={item.attempt}>
+                        {(kind) => (
+                          <span class={`attempt-badge attempt-${kind()}`}>
+                            {attemptLabel(kind(), locale())}
+                          </span>
+                        )}
+                      </Show>
+                      {item.text}
+                    </div>
+                  );
                 }
                 return (
                   <div class="assistant">
@@ -1622,6 +1807,20 @@ function App() {
                         复制
                       </button>
                       <Show when={stepsAfter() > 0}>
+                        <button
+                          class="msg-action"
+                          title={t(locale(), "undo")}
+                          onClick={() => void undoLast(stepsAfter())}
+                        >
+                          {t(locale(), "undo")}
+                        </button>
+                        <button
+                          class="msg-action"
+                          title={t(locale(), "retry")}
+                          onClick={() => void retryLast(stepsAfter())}
+                        >
+                          {t(locale(), "retry")}
+                        </button>
                         <button
                           class="msg-action"
                           title="回滚到这条回复之前"
@@ -1642,7 +1841,7 @@ function App() {
               class="jump-bottom"
               onClick={() => {
                 setFollow(true);
-                viewport.scrollTop = viewport.scrollHeight;
+                scrollToBottom();
               }}
             >
               ↓ 回到底部
@@ -1662,9 +1861,22 @@ function App() {
                   {approvalDanger() ? "会修改文件或执行命令" : "只读操作"}
                 </span>
                 <Show when={approvalQueue().length > 1}>
-                  <span class="queue-count">还有 {approvalQueue().length - 1} 个待审</span>
+                  <span class="queue-count" role="status" aria-live="polite">
+                    1 / {approvalQueue().length}
+                  </span>
                 </Show>
               </div>
+              <Show when={approvalQueue().length > 1}>
+                <div class="approval-queue" aria-label={t(locale(), "pendingApprovals")}>
+                  <For each={approvalQueue()}>
+                    {(item, index) => (
+                      <span classList={{ current: index() === 0 }}>
+                        {index() + 1}. {item.name}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </Show>
               <pre>{pending().arguments}</pre>
               <div class="approval-actions">
                 <span class="hint">Y 允许 · N/Esc 拒绝</span>
@@ -1678,7 +1890,11 @@ function App() {
                 >
                   {t(locale(), "alwaysAllow")}
                 </button>
-                <button class="primary" onClick={() => void answer(true)}>
+                <button
+                  class="primary"
+                  ref={approveButton}
+                  onClick={() => void answer(true)}
+                >
                   {t(locale(), "allow")}
                 </button>
               </div>
@@ -1809,8 +2025,9 @@ function App() {
             </Show>
             <Show when={showSegment("cache") && cachedTokens() > 0 && promptTokens() > 0}>
               <span class="sep">·</span>
-              <span>
-                cache {Math.min((cachedTokens() * 100) / promptTokens(), 100).toFixed(0)}%
+              <span title={`cached ${formatTokens(cachedTokens())} · total prompt ${formatTokens(promptTokens())}`}>
+                cache {formatTokens(cachedTokens())} (
+                {Math.min((cachedTokens() * 100) / promptTokens(), 100).toFixed(0)}%)
               </span>
             </Show>
             <Show when={showSegment("requests") && requests() > 0}>
@@ -1895,6 +2112,9 @@ function App() {
                 {(action) => (
                   <button class="search-hit" onClick={action.run}>
                     <strong>{action.label}</strong>
+                    <Show when={action.hint}>
+                      <span>{action.hint}</span>
+                    </Show>
                   </button>
                 )}
               </For>
@@ -1949,15 +2169,31 @@ function App() {
                 ×
               </button>
             </div>
+            <div class="help-filter">
+              <input
+                autofocus
+                aria-label={t(locale(), "searchHelp")}
+                placeholder={t(locale(), "searchHelp")}
+                value={helpQuery()}
+                onInput={(event) => setHelpQuery(event.currentTarget.value)}
+              />
+            </div>
             <div class="help-body">
-              <div><kbd>Enter</kbd><span>发送；运行中改为插话</span></div>
-              <div><kbd>Shift+Enter</kbd><span>换行</span></div>
-              <div><kbd>Ctrl+K</kbd><span>聚焦输入框</span></div>
-              <div><kbd>Ctrl+Shift+F</kbd><span>跨会话搜索</span></div>
-              <div><kbd>Ctrl+Shift+P</kbd><span>命令面板</span></div>
-              <div><kbd>Esc</kbd><span>中止当前回合 / 关闭面板 / 拒绝审批</span></div>
-              <div><kbd>Y / N</kbd><span>允许 / 拒绝工具审批</span></div>
-              <div><kbd>/help</kbd><span>查看斜杠命令</span></div>
+              <For each={helpSections()}>
+                {(group) => (
+                  <section class="help-group">
+                    <h4>{group.title}</h4>
+                    <For each={group.rows}>
+                      {(row) => (
+                        <div>
+                          <kbd>{row[0]}</kbd>
+                          <span>{row[1]}</span>
+                        </div>
+                      )}
+                    </For>
+                  </section>
+                )}
+              </For>
               <Show when={"Notification" in window && Notification.permission === "default"}>
                 <div>
                   <kbd>通知</kbd>

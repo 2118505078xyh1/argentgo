@@ -2,6 +2,8 @@ package security
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -208,6 +210,56 @@ func secretKeyKind(key string) string {
 		return "api key"
 	}
 	return "secret"
+}
+
+// pathCredentialSegment matches a path component that carries a credential in
+// its name, e.g. `/repo/token-sk-abcdef/.env` or `\repo\api_key=abc123\`.
+var pathCredentialSegment = regexp.MustCompile(`(?i)(^|[\\/])((?:api[_-]?key|token|secret|password|passwd)[-_=])[A-Za-z0-9._~+/=-]{4,}`)
+
+// RedactPath scrubs one path before it reaches an audit record: credential
+// shapes are replaced and a user's home directory is collapsed to `~`.
+func RedactPath(path string) string {
+	path = Redact(path)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for _, prefix := range []string{home, filepath.ToSlash(home)} {
+			if strings.HasPrefix(path, prefix) {
+				path = "~" + strings.TrimPrefix(path, prefix)
+				break
+			}
+		}
+	}
+	return pathCredentialSegment.ReplaceAllString(path, "${1}${2}[redacted:path credential]")
+}
+
+// RedactManifestPaths returns redacted JSON for the path fields of a restore
+// or checkpoint action. Other fields are left untouched; the audit log applies
+// its usual RedactJSON pass on top.
+func RedactManifestPaths(raw json.RawMessage) json.RawMessage {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return raw
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return raw
+	}
+	if list, ok := object["paths"].([]any); ok {
+		for i, item := range list {
+			if text, ok := item.(string); ok {
+				list[i] = RedactPath(text)
+			}
+		}
+	}
+	for _, key := range []string{"path", "file", "dir", "directory", "target"} {
+		if text, ok := object[key].(string); ok {
+			object[key] = RedactPath(text)
+		}
+	}
+	out, err := json.Marshal(object)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 // RedactJSON redacts a JSON document without flattening it: a value held under

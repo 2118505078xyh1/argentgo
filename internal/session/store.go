@@ -260,39 +260,19 @@ func randomSuffix() string {
 
 // metaFromRecords derives a list entry from the transcript alone.
 func metaFromRecords(id string, records []Record) Meta {
-	meta := Meta{ID: id}
+	meta := Meta{ID: id, Title: titleFromRecords(id, records)}
 	for _, record := range records {
 		if !record.TS.IsZero() {
 			meta.Updated = record.TS
 		}
 		switch record.Kind {
-		case KindHeader:
-			if title := strings.TrimSpace(fieldString(record.Data, "title")); title != "" {
-				meta.Title = title
-			}
-		case KindUser, "prompt":
-			if meta.Title == "" {
-				if text := textOf(record.Data); strings.TrimSpace(text) != "" {
-					meta.Title = truncateRunes(text, titleLimit)
-				}
-			}
 		case KindAssistant:
 			meta.Turns++
 		case KindMessage:
-			switch fieldString(record.Data, "role") {
-			case "user":
-				if meta.Title == "" {
-					if text := textOf(record.Data); strings.TrimSpace(text) != "" {
-						meta.Title = truncateRunes(text, titleLimit)
-					}
-				}
-			case "assistant":
+			if fieldString(record.Data, "role") == "assistant" {
 				meta.Turns++
 			}
 		}
-	}
-	if meta.Title == "" {
-		meta.Title = id
 	}
 	return meta
 }

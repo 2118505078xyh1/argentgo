@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/cli"
-	"github.com/2118505078xyh1/argent-go/internal/llm"
-	"github.com/2118505078xyh1/argent-go/internal/session"
-	"github.com/2118505078xyh1/argent-go/internal/tui"
+	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
 func writeFile(t *testing.T, path, body string) {
@@ -73,7 +73,7 @@ func TestResolveHonoursProviderProfileAndBudget(t *testing.T) {
 	if len(res.AddDirs) != 1 || res.AddDirs[0] != filepath.Join(root, "extra") {
 		t.Errorf("add dirs = %v", res.AddDirs)
 	}
-	if res.Storage != filepath.Join(home, ".argent-go") {
+	if res.Storage != filepath.Join(home, ".argentgo") {
 		t.Errorf("storage = %q", res.Storage)
 	}
 }
@@ -189,7 +189,7 @@ func TestToolsetAdvertisesSkillsAndRoutesUseSkill(t *testing.T) {
 func TestToolsetSkipsBrokenMCPServerOnce(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "argent.json"),
-		`{"mcpServers":{"broken":{"command":"argent-go-no-such-binary-xyz"}}}`)
+		`{"mcpServers":{"broken":{"command":"argentgo-no-such-binary-xyz"}}}`)
 	env, _ := testEnv(t)
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
 	if err != nil {

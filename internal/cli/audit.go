@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argent-go/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // runAudit implements `audit [--tail n] [--json]`: the newest audit entries.

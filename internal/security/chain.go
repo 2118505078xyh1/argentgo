@@ -15,6 +15,8 @@ var (
 	ErrDenied = errors.New("security: tool call denied")
 	// ErrRefused means the operator answered no.
 	ErrRefused = errors.New("security: tool call refused by the operator")
+	// RestoreToolName is the audit name for a checkpoint restore (undo) action.
+	RestoreToolName = "undo"
 )
 
 // StopError tells the caller the run must stop instead of retrying: the tool
@@ -67,18 +69,34 @@ func NewChain(policy *Policy, approver Approver, audit *AuditLog, session string
 // A non-nil error means the call must not run; StopError is returned for both
 // a policy deny and an operator refusal.
 func (c *Chain) Check(ctx context.Context, toolName string, args json.RawMessage) error {
+	return c.check(ctx, toolName, args, args)
+}
+
+// CheckRestore gates a checkpoint restore through the same policy → approval →
+// audit chain as a mutating tool call. Policy sees the real paths so a deny or
+// a write-root escape still stops the action; the audit record sees redacted
+// manifest paths only.
+func (c *Chain) CheckRestore(ctx context.Context, paths []string) error {
+	raw, err := json.Marshal(map[string]any{"paths": paths})
+	if err != nil {
+		return fmt.Errorf("security: encoding restore paths: %w", err)
+	}
+	return c.check(ctx, RestoreToolName, raw, RedactManifestPaths(raw))
+}
+
+func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json.RawMessage) error {
 	name := strings.TrimSpace(toolName)
 	if name == "" {
-		c.record("", "deny", "the tool name is empty", args)
+		c.record("", "deny", "the tool name is empty", auditArgs)
 		return &StopError{Tool: "", Reason: "the tool name is empty"}
 	}
 	result := c.policy().Evaluate(name, args)
 	switch result.Decision {
 	case Deny:
-		c.record(name, "deny", result.Reason, args)
+		c.record(name, "deny", result.Reason, auditArgs)
 		return &StopError{Tool: name, Reason: result.Reason}
 	case Allow:
-		c.record(name, "allow", result.Reason, args)
+		c.record(name, "allow", result.Reason, auditArgs)
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -93,10 +111,10 @@ func (c *Chain) Check(ctx context.Context, toolName string, args json.RawMessage
 		return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
 	}
 	if !ok {
-		c.record(name, "refused", "the operator refused the tool call", args)
+		c.record(name, "refused", "the operator refused the tool call", auditArgs)
 		return &StopError{Tool: name, Reason: "the operator refused the tool call", Refused: true}
 	}
-	c.record(name, "allow", "approved by the operator", args)
+	c.record(name, "allow", "approved by the operator", auditArgs)
 	return nil
 }
 

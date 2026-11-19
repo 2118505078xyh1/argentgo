@@ -26,6 +26,7 @@ type ResponsesClient struct {
 	MaxOutputTokens int
 	HTTP            *http.Client
 	Retry           RetryPolicy
+	Options         Options
 }
 
 // NewResponses returns a Responses client for baseURL (usually ".../v1").
@@ -38,15 +39,27 @@ func NewResponses(baseURL, apiKey string) *ResponsesClient {
 }
 
 var _ Chatter = (*ResponsesClient)(nil)
+var _ PromptCacheCapable = (*ResponsesClient)(nil)
+
+// PromptCacheCapability reports whether a stable-prefix cache key is emitted.
+func (c *ResponsesClient) PromptCacheCapability() CacheCapability {
+	return CacheCapability{
+		Supported: c.Options.cacheEnabled(ProtocolResponses, c.BaseURL),
+		Protocol:  ProtocolResponses,
+		Local:     isLocalEndpoint(c.BaseURL),
+	}
+}
 
 type responsesRequest struct {
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions,omitempty"`
-	Input           []any           `json:"input"`
-	Tools           []responsesTool `json:"tools,omitempty"`
-	MaxOutputTokens int             `json:"max_output_tokens"`
-	Stream          bool            `json:"stream"`
-	Store           bool            `json:"store"`
+	Model                string          `json:"model"`
+	Instructions         string          `json:"instructions,omitempty"`
+	Input                []any           `json:"input"`
+	Tools                []responsesTool `json:"tools,omitempty"`
+	MaxOutputTokens      int             `json:"max_output_tokens"`
+	Stream               bool            `json:"stream"`
+	Store                bool            `json:"store"`
+	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
 }
 
 type responsesTool struct {
@@ -99,6 +112,19 @@ func (c *ResponsesClient) Chat(
 	if policy.IsZero() {
 		policy = DefaultRetryPolicy()
 	}
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolResponses,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
+	}
 	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(payload))
 		if err != nil {
@@ -112,14 +138,23 @@ func (c *ResponsesClient) Chat(
 		return c.httpClient().Do(req)
 	})
 	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return Message{}, providerError(resp)
+		err := providerError(resp)
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolResponses, model, err))
+		return Message{}, err
 	}
 
-	return c.readStream(resp.Body, onText)
+	reply, err := c.readStream(ctx, resp.Body, onText)
+	if err != nil {
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
+		return Message{}, err
+	}
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolResponses, Model: model})
+	return reply, nil
 }
 
 func (c *ResponsesClient) endpoint() string {
@@ -225,6 +260,14 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 			Parameters:  parameters,
 		})
 	}
+	if c.Options.cacheEnabled(ProtocolResponses, c.BaseURL) {
+		toolJSON, _ := json.Marshal(req.Tools)
+		req.PromptCacheKey = c.Options.PromptCacheKey
+		if req.PromptCacheKey == "" {
+			req.PromptCacheKey = deriveCacheKey(req.Instructions, string(toolJSON))
+		}
+		req.PromptCacheRetention = c.Options.CacheRetention
+	}
 	return req
 }
 
@@ -242,8 +285,11 @@ type responsesEvent struct {
 	} `json:"item"`
 	Response *struct {
 		Usage *struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens        int `json:"input_tokens"`
+			OutputTokens       int `json:"output_tokens"`
+			InputTokensDetails *struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 		Error *responsesError `json:"error"`
 	} `json:"response"`
@@ -260,7 +306,7 @@ type responsesPartial struct {
 	arguments strings.Builder
 }
 
-func (c *ResponsesClient) readStream(body io.Reader, onText func(string)) (Message, error) {
+func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
 	reader := newSSEReader(body)
 
 	var (
@@ -301,9 +347,15 @@ func (c *ResponsesClient) readStream(body io.Reader, onText func(string)) (Messa
 
 streamLoop:
 	for {
+		if err := ctx.Err(); err != nil {
+			return Message{}, err
+		}
 		data, ok, err := reader.next()
 		if err != nil {
-			return Message{}, fmt.Errorf("read stream: %w", err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Message{}, ctxErr
+			}
+			return Message{}, streamError("read stream: %v", RedactError(err))
 		}
 		if !ok {
 			break
@@ -314,7 +366,7 @@ streamLoop:
 
 		var event responsesEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return Message{}, fmt.Errorf("decode stream event: %w", err)
+			return Message{}, streamError("decode stream event: %v", RedactError(err))
 		}
 
 		switch event.Type {
@@ -366,6 +418,9 @@ streamLoop:
 					PromptTokens:     event.Response.Usage.InputTokens,
 					CompletionTokens: event.Response.Usage.OutputTokens,
 				}
+				if details := event.Response.Usage.InputTokensDetails; details != nil {
+					usage.CachedTokens = details.CachedTokens
+				}
 			}
 			break streamLoop
 		case "response.failed", "error":
@@ -381,7 +436,7 @@ streamLoop:
 			if message == "" {
 				message = "unknown provider error"
 			}
-			return Message{}, fmt.Errorf("provider error: %s", message)
+			return Message{}, streamError("provider error: %s", RedactText(message))
 		}
 	}
 

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/workflow"
+	"github.com/2118505078xyh1/argentgo/internal/workflow"
 )
 
 // runWorkflow implements `workflow <list|run|show>`. Definitions are JSON files

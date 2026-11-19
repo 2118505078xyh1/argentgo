@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // Workspace is everything a RunFunc needs for one scenario.
@@ -31,6 +31,8 @@ type Trace struct {
 	Tools []string
 	// Text is the final assistant answer.
 	Text string
+	// Usage is the cumulative billed usage reported by the model.
+	Usage llm.Usage
 	// Stopped reports that something other than the model ended the run: a
 	// turn limit, a policy block, a cancellation.
 	Stopped bool
@@ -222,6 +224,9 @@ func evaluate(scenario Scenario, trace Trace, observed observation, dir string) 
 	}
 	if expect.Stopped != nil && *expect.Stopped != trace.Stopped {
 		return fmt.Sprintf("expected stopped=%t, got %t", *expect.Stopped, trace.Stopped)
+	}
+	if expect.CachedTokens != nil && *expect.CachedTokens != trace.Usage.CachedTokens {
+		return fmt.Sprintf("expected %d cached tokens, the model reported %d", *expect.CachedTokens, trace.Usage.CachedTokens)
 	}
 	return checkWorkspace(scenario.Check, dir)
 }

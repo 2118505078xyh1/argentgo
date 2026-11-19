@@ -28,7 +28,7 @@ func plainPanelRule(width int) Line {
 }
 
 func (m *Model) panelsVisible() bool {
-	return m.showTasks || m.showWorkspace || m.showPlan
+	return m.showTasks || m.showWorkspace || m.showPlan || m.showSessions
 }
 
 // panelSections divides the rail between the panels that are currently on.
@@ -43,6 +43,9 @@ func (m *Model) panelSections(l layout) []panelSection {
 	}
 	if m.showPlan {
 		kinds = append(kinds, 2)
+	}
+	if m.showSessions {
+		kinds = append(kinds, 3)
 	}
 	if len(kinds) == 0 {
 		return nil
@@ -71,6 +74,8 @@ func (m *Model) panelSections(l layout) []panelSection {
 			lines = m.workspaceLines(l.panelW, height)
 		case 2:
 			lines = m.planLines(l.panelW, height)
+		case 3:
+			lines = m.sessionsLines(l.panelW, height)
 		}
 		out = append(out, panelSection{top: top, height: height, lines: lines})
 		top += height

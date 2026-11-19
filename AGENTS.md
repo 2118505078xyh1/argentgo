@@ -4,7 +4,7 @@ Guidance for AI agents working in this repository.
 
 ## What this is
 
-`argent-go` is a personal coding-agent harness: stream a model reply, run tools,
+`argentgo` is a personal coding-agent harness: stream a model reply, run tools,
 append to a JSONL session, repeat. It is a Go rewrite of the frozen Rust project
 `argent` (v0.4.0, archived on GitHub). Behaviour should match that build; the
 feature checklist lives in `docs/PARITY.md`.

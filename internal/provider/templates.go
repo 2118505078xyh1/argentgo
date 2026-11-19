@@ -35,6 +35,11 @@ type Template struct {
 	APIKeyEnv string
 	// DefaultModel is used when the user does not name a model.
 	DefaultModel string
+	// CacheSupport reports that the provider supports prompt caching on at
+	// least one protocol. It does not force wire markers: llm still emits them
+	// only on protocols with an explicit stable-prefix representation, and
+	// local/open-compatible endpoints stay cache-free by default.
+	CacheSupport bool
 }
 
 // templates is the built-in table, ordered as it should be presented to users.
@@ -45,6 +50,7 @@ var templates = []Template{
 		BaseURL:      "https://api.anthropic.com/v1",
 		APIKeyEnv:    "ANTHROPIC_API_KEY",
 		DefaultModel: "claude-sonnet-5-5",
+		CacheSupport: true,
 	},
 	{
 		Name:         "openai",
@@ -52,6 +58,7 @@ var templates = []Template{
 		BaseURL:      "https://api.openai.com/v1",
 		APIKeyEnv:    "OPENAI_API_KEY",
 		DefaultModel: "gpt-5.6",
+		CacheSupport: true,
 	},
 	{
 		Name:         "deepseek",
@@ -106,6 +113,7 @@ var templates = []Template{
 		BaseURL:      "https://api.x.ai/v1",
 		APIKeyEnv:    "XAI_API_KEY",
 		DefaultModel: "grok-4.7",
+		CacheSupport: true,
 	},
 	{
 		Name:         "zai",
@@ -172,4 +180,41 @@ func Resolve(name string) (Template, bool) {
 		}
 	}
 	return Template{}, false
+}
+
+var modelSeparators = strings.NewReplacer(
+	"\u2010", "-", "\u2011", "-", "\u2012", "-", "\u2013", "-",
+	"\u2014", "-", "\u2212", "-", "_", "-", " ", "-",
+)
+
+// NormalizeModel canonicalizes a model id across templates: surrounding
+// whitespace is trimmed, unicode dashes/underscores become '-', repeated
+// separators collapse, and a case variant of a built-in default resolves back
+// to that default's canonical spelling. Unknown ids keep their own casing,
+// including vendor prefixes such as "anthropic/claude-sonnet-4.5".
+func NormalizeModel(id string) string {
+	value := modelSeparators.Replace(strings.TrimSpace(id))
+	for strings.Contains(value, "--") {
+		value = strings.ReplaceAll(value, "--", "-")
+	}
+	value = strings.Trim(value, "-")
+	if value == "" {
+		return ""
+	}
+	for _, template := range templates {
+		if strings.EqualFold(value, modelSeparators.Replace(template.DefaultModel)) {
+			return template.DefaultModel
+		}
+	}
+	return value
+}
+
+// Model returns the normalized override, or the template's canonical default
+// when override is empty. Callers in app/cli can use this hook without the
+// provider package knowing about config or profiles.
+func (t Template) Model(override string) string {
+	if strings.TrimSpace(override) == "" {
+		return NormalizeModel(t.DefaultModel)
+	}
+	return NormalizeModel(override)
 }

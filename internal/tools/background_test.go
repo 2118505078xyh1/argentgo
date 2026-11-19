@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/jobs"
-	"github.com/2118505078xyh1/argent-go/internal/proc"
-	"github.com/2118505078xyh1/argent-go/internal/tools"
+	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // backgroundFakeChild is an in-memory process used to drive the bash tool's

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argent-go/internal/agent"
-	"github.com/2118505078xyh1/argent-go/internal/skills"
+	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
 // skillWriter adapts the skills package to the local seam in internal/agent,

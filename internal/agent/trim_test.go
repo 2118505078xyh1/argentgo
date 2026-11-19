@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 func TestEstimateTokens(t *testing.T) {
