@@ -12,8 +12,6 @@
 [特性](#为什么选-argentgo) ·
 [文档](#文档)
 
-![argentgo 桌面界面](docs/screenshot.png)
-
 </div>
 
 ---
