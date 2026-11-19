@@ -1,47 +1,120 @@
+<div align="center">
+
 # argentgo
 
-个人使用的 Agent Runtime：流式输出模型回复、调用工具、追加到 JSONL 会话、循环往复。
-它是已冻结的 Rust 版 `argent`（v0.4.0）的 Go 重写，行为对齐该版本；
-逐项状态见 [docs/PARITY.md](docs/PARITY.md)。
+**一个把想法直接变成代码的小型 Agent 运行时。**
 
-- **纯 Go**：标准库实现，**无第三方依赖**（`go.mod` 没有 `require`），**无 cgo**，
-  单一可执行文件；设置 `GOOS=linux go build ./...` 即可交叉编译。
-- **多界面**：一次性 CLI、全屏 TUI、内嵌 Web GUI，以及三种无头传输。
-- **双语**：zh-CN / en-US 文案嵌在二进制里，没有外部 locale 文件。
+单文件、零依赖、离线优先。流式对话、真实工具调用、可回放的会话树——
+一个二进制，从命令行到桌面窗口都能用。
 
-体积是实测数字，不是对标目标：无头运行工作集约 **10 MB**，Go 二进制约 **10.6 MB**。
-不要据此推断 GUI 的内存占用——GUI 路径尚未做端到端测量。
+[下载 Windows 版](https://github.com/2118505078xyh1/argentgo/releases/latest) ·
+[快速开始](#快速开始) ·
+[特性](#为什么选-argentgo) ·
+[文档](#文档)
+
+![argentgo 桌面界面](docs/screenshot.png)
+
+</div>
+
+---
+
+## 为什么选 argentgo
+
+- **单文件，零负担** — 纯 Go 标准库，**无第三方依赖、无 cgo**。下载一个 `.exe` 就能跑，不用装 Node、Python 或运行时。
+- **三种协议** — OpenAI Chat Completions、OpenAI Responses、Anthropic Messages，都支持流式输出、工具调用、推理增量和 token 统计。
+- **工具真的能干活** — 读写文件、跑 shell、搜索、补丁、后台任务、MCP、LSP、hooks、子代理，全部走同一条安全链。
+- **会话是数据，不是黑盒** — 每轮都是 JSONL 记录，连成可 fork 的树。`/undo` 按 SHA-256 清单精确回滚，`/retry` 从检查点分叉重跑，失败的尝试也不会污染模型历史。
+- **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
+- **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；GUI 用一次性 token，资源请求 GET-only。
+- **多界面** — 命令行一次性问答、全屏 TUI、内嵌 WebView 桌面窗口，以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
+- **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
+
+体积是实测数字：无头运行工作集约 **10 MB**，二进制约 **10.6 MB**。
+
+## 下载与安装
+
+Windows 用户直接下载 [最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 的
+`argent_*.zip`，解压即用的 `argent.exe`。校验：
+
+```powershell
+sha256sum -c checksums.txt      # 哈希也写在了 Release Notes 里
+```
+
+本地构建（需要 Go 1.24+）：
+
+```powershell
+go build -o argent.exe ./cmd/argent
+```
 
 ## 快速开始
 
 ```powershell
-go build -o argent.exe ./cmd/argent     # 构建单文件二进制
+# 配好 key（也支持 ARGENT_API_KEY 环境变量或配置文件）
+$env:ARGENT_API_KEY = "sk-..."
 
-argent "把 src 里的 unwrap 都找出来"      # 一次性提示，打印回答
-argent --mode json "列出 crates 目录"     # 严格 JSONL：事件 + 结果
-argent tui                               # 全屏终端 UI（SSH 也能跑）
+argent "把 src 里的 unwrap 都找出来"     # 一次性提示，打印回答
+argent --mode json "列出目录"            # 严格 JSONL：事件 + 结果
+argent tui                                # 全屏终端 UI（SSH 也能跑）
+argent gui                                # 桌面应用窗口
 ```
+
+想换成国产模型？内置模板直接切：
+
+```powershell
+argent --provider deepseek  "帮我写个函数"
+argent --provider qwen      "解释这段代码"
+argent --provider anthropic "review 一下这个改动"
+```
+
+`argent gui` 起本地 HTTP 服务、注入一次性 token，再用 Edge/Chrome 应用模式打开无地址栏的独立
+窗口（没有则用默认浏览器）。前后端只走 `POST /rpc/<command>` + `GET /events` SSE，
+不依赖 Tauri / Rust。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
 
 其他入口：
 
 ```powershell
-argent --serve --serve-token <token>     # HTTP + SSE；无 token 拒绝启动
-echo '{"id":1,"method":"get_session_stats"}' | argent --rpc   # stdio 上的换行分隔 JSON-RPC
-argent acp                               # Agent Client Protocol 服务端
-argent gui                               # 桌面应用窗口（Go HTTP + 内嵌 SolidJS + WebView2）
+argent --serve --serve-token <token>      # HTTP + SSE
+argent --rpc                              # stdio 上的换行分隔 JSON-RPC
+argent acp                                # Agent Client Protocol 服务端
 ```
 
-`argent gui` 起本地 HTTP 服务，注入一次性 token，然后用 Edge/Chrome 的应用模式打开
-无地址栏的独立窗口（没有 Edge/Chrome 时退回默认浏览器标签页）。前后端只走
-`POST /rpc/<command>` + `GET /events` SSE，不依赖 Tauri/Rust。详见
-[docs/FRONTEND.md](docs/FRONTEND.md)。
+## 它会做什么
+
+```
+你：把 login 的 token 校验抽成函数，并补测试
+
+argent：
+  ✓ 读取 internal/auth/login.go
+  ✓ 编辑：抽出 validateToken(...)
+  ✓ 写入 internal/auth/login_test.go
+  ✓ 运行 go test ./internal/auth  →  全部通过
+  ✓ 提交前的检查点已保存（SHA-256 清单）
+
+你：/undo                      → 只回滚这一轮改过的两个文件
+你：/retry                     → 从检查点分叉，换个思路重跑
+```
+
+每一步都是可观察事件，TUI/GUI 实时渲染；会话可用 `sessions --grep / tree / export` 检索与导出。
+
+## 会话与检查点
+
+会话是 JSONL，一行一条记录，用 `id` / `parent` 连成树。压缩（`compact`）保留改动文件、
+失败与下一步，不丢上下文。
+
+| 命令 | 作用 |
+|---|---|
+| `sessions --grep <词>` | 在所有会话里搜索（含脱敏后的尝试片段） |
+| `sessions tree` | 查看 fork / retry 关系树 |
+| `sessions export` | 导出为离线 HTML |
+| `argent --undo --session <id>` | 从最近检查点恢复文件（冲突编辑会拒绝覆盖） |
+| `argent --retry --session <id>` | 从检查点分叉重跑 |
+| `argent --title "名字"` | 覆盖自动生成的会话标题 |
 
 ## 配置
 
-配置分层，低 → 高：编译默认值 → `~/.argentgo/config.json` → `<cwd>/.argent/config.json`
+分层，低 → 高：编译默认值 → `~/.argentgo/config.json` → `<cwd>/.argent/config.json`
 → `<cwd>/argent.json` → profile → `ARGENT_*` 环境变量 → CLI 标志。
-`-c/--config key=value` 在配置文件层生效（点分键可嵌套），低于环境变量与标志。
-profile 由 `ARGENT_PROFILE` 或配置里的 `profile` 选中，位于配置文件与环境变量之间。
+`-c/--config key=value` 在配置文件层生效（点分键嵌套），低于环境变量与标志。
 
 | 设置 | 标志 | 环境变量 | 默认值 |
 |---|---|---|---|
@@ -49,113 +122,58 @@ profile 由 `ARGENT_PROFILE` 或配置里的 `profile` 选中，位于配置文�
 | provider 模板 | `--provider` | `ARGENT_PROVIDER` | 按协议推断 |
 | 协议 | `--protocol` | `ARGENT_PROTOCOL` | `openai` |
 | base URL | `--base-url` | `ARGENT_BASE_URL`, `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
-| API key | `--api-key` | `ARGENT_API_KEY`, `OPENAI_API_KEY`，或模板指定的 key 变量 | 空 |
-| profile | `--profile` | `ARGENT_PROFILE` | 空 |
+| API key | `--api-key` | `ARGENT_API_KEY`, `OPENAI_API_KEY` | 空 |
 | locale | `--locale` | `ARGENT_LOCALE` | `en-US` |
-| 沙箱模式 | `--sandbox-mode` | `ARGENT_SANDBOX_MODE` | `workspace-write` |
-| 审批模式 | `--approval` | `ARGENT_APPROVAL` | `ask` |
-| 存储目录 | — | `ARGENT_STORAGE`, `ARGENT_STORAGE_DIR`, `ARGENT_HOME` | `~/.argentgo` |
-| 回合上限 | `--max-turns` | `ARGENT_MAX_TURNS` | `12` |
-| 自动批准 | `--yolo` | `ARGENT_YOLO=1` | 关 |
-| 服务令牌 | `--serve-token` | `ARGENT_SERVE_TOKEN`, `ARGENT_TOKEN` | 空（`--serve` 必填） |
+| 沙箱 | `--sandbox-mode` | `ARGENT_SANDBOX_MODE` | `workspace-write` |
+| 审批 | `--approval` | `ARGENT_APPROVAL` | `ask` |
+| 存储目录 | — | `ARGENT_STORAGE` | `~/.argentgo` |
+| 关闭 prompt cache | `--no-prompt-cache` | — | 关 |
 
-内置 provider 模板：`anthropic`、`openai`、`deepseek`、`moonshot`、`zhipu`、`zai`、
-`bigmodel`、`qwen`、`minimax`、`openrouter`、`ollama`、`lmstudio`、`local`，
-另有别名（`claude`、`kimi`、`glm`、`grok` 等）。模板可在配置文件 `providers` 块覆盖或新增。
-协议：Anthropic Messages、OpenAI chat completions、OpenAI Responses，均支持流式与工具调用。
+内置模板：`anthropic`、`openai`、`deepseek`、`moonshot`、`zhipu`、`zai`、`bigmodel`、
+`qwen`、`minimax`、`openrouter`、`ollama`、`lmstudio`、`local`，另有别名（`claude`、`kimi`、
+`glm`、`grok` 等），可在配置文件 `providers` 块覆盖或新增。
 
 ## 工作区安全模型
 
-这不是操作系统级隔离。要强隔离，把 argent 放进容器运行。
+这不是操作系统级隔离；要强隔离请把 argent 放进容器。
 
-- 每个文件工具都把路径解析到工作区内；`..` 和绝对路径逃逸一律拒绝。策略同时检查词法路径
-  与 canonical 目标（含不存在文件的尾部），符号链接不能绕过白名单。
-- 所有修改类工具走同一条安全链：**策略（硬门禁）→ 审批 → 脱敏审计日志**。
-  策略拒绝直接结束运行；审批拒绝变成模型可读的工具错误。`--yolo` 等价于自动批准。
-- 沙箱模式：`read-only` 在注册表层移除修改类工具；`workspace-write`（默认）保留工作区
-  边界；`danger-full-access` 移除边界。`--add-dir` 扩展可写根目录，目前仍在补齐。
-- 会话是 JSONL，每行一条，用 `id`/`parent` 连成树；压缩保留改动文件、失败与下一步。
-- 审计写在 `<storage>/audit/<day>.jsonl`，密钥、token 等敏感值在落盘前脱敏。
+- 每个文件工具都把路径解析到工作区内，`..` 和绝对路径逃逸一律拒绝；符号链接不能绕过白名单。
+- 修改类工具走同一条链：**策略（硬门禁）→ 审批 → 脱敏审计日志**。策略拒绝直接结束运行；
+  审批拒绝变成模型可读的工具错误。`--yolo` 等价于自动批准。
+- 沙箱：`read-only` 移除修改类工具；`workspace-write`（默认）保留边界；
+  `danger-full-access` 移除边界。`--add-dir` 扩展可写根目录。
+- 审计写在 `<storage>/audit/<day>.jsonl`，密钥、token 在落盘前脱敏。
 
-## 模块地图
+## 文档
 
-```
-cmd/argent          入口：构造 App，调用 cli.RunWith
-internal/app        唯一允许 import 全部包的装配层；解析配置/构造 runner
-internal/cli        标志、子命令分发、传输入口
-internal/server     --serve (HTTP/SSE)、--rpc、acp
-internal/agent      模型/工具循环：预算、裁剪、去重、steering、子代理
-internal/llm        三种线协议 + 重试；协议细节只留在这里
-internal/provider   provider 模板
-internal/tools      注册表与内置工具（fs/shell/search/todo/patch）
-internal/security   策略、审批、沙箱、脱敏审计
-internal/session    JSONL 会话树、resume、fork、压缩
-internal/config     分层配置 + profiles
-internal/mcp / hooks / plugins / lsp / skills / commands / memory / i18n
-                    MCP 客户端、hook 信任、插件清单、LSP、SKILL.md、斜杠命令、项目记忆、双语
-internal/proc / pty / jobs / automation / workflow
-                    进程树、伪终端、后台任务、调度器、脚本化工作流
-internal/auth / update / eval
-                    PKCE/设备码登录、自更新、场景评测
-internal/tui        全屏终端 UI
-internal/gui        Web 后端：HTTP + SSE + go:embed 的 ui/dist
-ui/                 SolidJS + Vite 前端（bun 构建）
-```
+- [架构](docs/ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
+- [前端](docs/FRONTEND.md) — SolidJS + WebView2 的设计与桌面安装
+- [功能对齐](docs/PARITY.md) — 与冻结的 Rust 版逐项对照
+- [路线图](docs/ROADMAP.md) · [下一步](docs/NEXT_STEPS.md) · [100 项清单](docs/TODO_100.md)
+- [迁移记录](docs/MIGRATION.md) · [更新日志](CHANGELOG.md)
 
-依赖规则：`internal/app` 之外不得 import 全部包；库包只能依赖 `internal/llm` 与标准库，
-其余依赖用 `Chatter`、`ToolRunner`、`Approver`、`Recorder` 接口注入；
-`internal/tools` 永不 import `internal/agent`。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
-## 测试
+## 开发与测试
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"   # Go 不在 PATH 时
 go build -o argent.exe ./cmd/argent
 go test ./...
-go test ./internal/agent -run TestName
 go vet ./...
-gofmt -l .                       # 必须无输出
+gofmt -l .                        # 必须无输出
 
 cd ui; bun install; bun run typecheck; bun run test; bun run build
-powershell -File scripts/build-ui.ps1    # 构建前端并复制到 internal/gui/dist
+powershell -File scripts/build-ui.ps1
 ```
 
-## Windows 一键发布与安装
-
-发布只面向 Windows/amd64。先把 `internal/cli/cli.go` 的 `Version` 改好、在
-`CHANGELOG.md` 加 `## v<Version>` 小节，提交并保持工作区干净，然后：
+一键发布 Windows（需要带 `repo` 权限的 GitHub token）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1 -DryRun   # 只校验与本地构建，不推送
-powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1           # 推 main + tag，等 Release URL
+powershell -File scripts/publish-win.ps1
 ```
 
-脚本会拒绝非 `main` 分支、脏工作区、Version/tag/CHANGELOG 不一致、已有 tag 和隐私扫描
-命中；推送后必须等到 GitHub Release 真的出现且带 `argent_<version>_windows_amd64.zip`
-与 `checksums.txt`，否则报错——tag 本身不是 Release。Release notes 取自 CHANGELOG
-对应小节。
+它会校验版本 / tag / CHANGELOG，跑全部门禁，构建单个 Windows zip + checksums，
+推送并发布真正的 GitHub Release（不是只打标签）。只验证 Windows 主机版本。
 
-本地安装 / 卸载（默认 `%LOCALAPPDATA%\argentgo\bin`）：
+## 许可
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1
-powershell -ExecutionPolicy Bypass -File scripts/uninstall-win.ps1
-```
-
-详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「发布流程」一节。
-
-## 明确未移植
-
-以下能力**没有**移植，且不是“正在做”：
-
-- 原生 C-ABI 插件加载器（Go 改用进程 / MCP 插件）
-- tree-sitter AST 与 `repo_map`（改用 LSP 符号）
-- Rhai 脚本插件
-- 桌面控制工具（`enable-desktop`）
-- 遥测（telemetry）
-- 插件 marketplace
-
-仍在进行中（会解析但明确报错退出，不会静默忽略）：`--worktree`、`--background`、
-`--enable-browser`、`--enable-desktop`、`--enable-service`、`--workflow-mode`、
-`--workflow-resume`、`--workflow-journal`、`--gui`；`theme`/`no-color`、`--add-dir`、
-`--resume`、`--output-schema` 的行为仍待接线。逐项状态见 [docs/PARITY.md](docs/PARITY.md)。
+[Apache-2.0](LICENSE) © 寒弦问月夜未阑
