@@ -156,9 +156,9 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 {
-		cmd.Env = append(os.Environ(), c.Env...)
-	}
+	// Always sanitize: even with no per-call env, the child must not inherit
+	// host-private session plumbing variables (nested agents rely on this).
+	cmd.Env = SanitizeEnv(c.Env)
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 	configure(cmd, c.KillTree, c.NoWindow)

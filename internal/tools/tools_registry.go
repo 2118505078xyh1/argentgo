@@ -26,7 +26,7 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 	}
 	r := &Registry{root: root, yolo: yolo, maxOutput: maxOutput, tools: make(map[string]Tool)}
 	for _, tool := range []Tool{
-		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{},
+		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{}, powershellTool{},
 		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
 		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
 	} {
