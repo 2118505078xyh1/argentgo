@@ -89,6 +89,7 @@ func (m *Model) Approve(ctx context.Context, name, args string) (bool, error) {
 		return true, nil
 	}
 	request := approvalRequest{name: name, args: args, reply: make(chan bool, 1), ctx: ctx}
+	m.appendTaskLocked(Task{Name: name, Args: args, Status: TaskPending})
 	if m.pending == nil {
 		m.pending = &request
 	} else {

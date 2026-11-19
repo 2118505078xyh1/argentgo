@@ -41,6 +41,7 @@ type Config struct {
 	Theme    string
 	NoColor  bool
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
+	FS       FileSystem          // injected read-only workspace; nil uses os
 	Sessions []string
 }
 
@@ -99,6 +100,23 @@ type Model struct {
 	usageOut int
 	expanded bool
 
+	// The optional side rail. All three are hidden by default so the classic
+	// transcript view and its keybindings are byte-for-byte unchanged.
+	showTasks       bool
+	showWorkspace   bool
+	showPlan        bool
+	tasks           []Task
+	tasksScroll     int
+	workspace       []workspaceEntry
+	workspaceCursor int
+	workspaceScroll int
+	previewLines    []string
+	previewPath     string
+	previewScroll   int
+	plan            *Plan
+	planScroll      int
+	fs              FileSystem
+
 	pending       *approvalRequest
 	approvalQueue []approvalRequest
 	allowed       map[string]bool
@@ -124,12 +142,16 @@ func New(cfg Config) *Model {
 		now:      time.Now,
 		allowed:  map[string]bool{},
 		env:      cfg.Env,
+		fs:       cfg.FS,
 		noColor:  cfg.NoColor,
 		degraded: detectDegradation(cfg.Env),
 	}
 	m.theme = ThemeDark
 	m.palette, _ = paletteFor(ThemeDark)
 	_ = m.applyThemeLocked(cfg.Theme)
+	if m.fs == nil {
+		m.fs = osFileSystem{}
+	}
 	if m.degraded && !m.noColor {
 		m.appendNoticeLocked(text(locale, "color_degraded"))
 	}
@@ -279,6 +301,20 @@ func (m *Model) scrollByLocked(delta int) {
 	if m.scroll < 0 {
 		m.scroll = 0
 	}
+	if m.showTasks {
+		m.tasksScroll = clampScroll(m.tasksScroll+delta, len(m.tasks))
+	}
+	if m.showPlan {
+		max := 0
+		if m.plan != nil {
+			max = len(m.plan.Steps) + 1
+		}
+		m.planScroll = clampScroll(m.planScroll+delta, max)
+	}
+	if m.showWorkspace {
+		m.workspaceScroll = clampScroll(m.workspaceScroll+delta, maxInt(len(m.workspace)-1, 0))
+		m.previewScroll = clampScroll(m.previewScroll+delta, len(m.previewLines))
+	}
 }
 
 func (m *Model) setStatusLocked(text string) {
@@ -397,6 +433,33 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	switch key.Kind {
 	case KindIgnore:
 		return ActionNone
+	case KindCtrlT:
+		m.showTasks = !m.showTasks
+		m.version++
+		if m.showTasks {
+			m.setStatusLocked(text(m.locale, "tasks_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "tasks_off"))
+		}
+	case KindCtrlB:
+		m.showWorkspace = !m.showWorkspace
+		if m.showWorkspace {
+			m.buildWorkspaceLocked()
+		}
+		m.version++
+		if m.showWorkspace {
+			m.setStatusLocked(text(m.locale, "workspace_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "workspace_off"))
+		}
+	case KindCtrlP:
+		m.showPlan = !m.showPlan
+		m.version++
+		if m.showPlan {
+			m.setStatusLocked(text(m.locale, "plan_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "plan_off"))
+		}
 	case KindCtrlC:
 		if m.working {
 			m.setStatusLocked(text(m.locale, "cancelling"))
@@ -429,8 +492,16 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindRight:
 		m.editor.Right()
 	case KindHome, KindCtrlA:
+		if m.showWorkspace && len(m.workspace) > 0 {
+			m.moveWorkspaceCursorLocked(-m.workspaceCursor)
+			return ActionNone
+		}
 		m.editor.Home()
 	case KindEnd, KindCtrlE:
+		if m.showWorkspace && len(m.workspace) > 0 {
+			m.moveWorkspaceCursorLocked(len(m.workspace))
+			return ActionNone
+		}
 		m.editor.End()
 	case KindCtrlK:
 		m.editor.KillToEnd()
@@ -439,10 +510,18 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindCtrlW:
 		m.editor.KillWord()
 	case KindUp:
+		if m.showWorkspace {
+			m.moveWorkspaceCursorLocked(-1)
+			return ActionNone
+		}
 		if !m.editor.MoveLine(-1) {
 			m.editor.HistoryPrev()
 		}
 	case KindDown:
+		if m.showWorkspace {
+			m.moveWorkspaceCursorLocked(1)
+			return ActionNone
+		}
 		if !m.editor.MoveLine(1) {
 			m.editor.HistoryNext()
 		}

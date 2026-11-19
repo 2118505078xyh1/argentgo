@@ -41,10 +41,14 @@ type Options struct {
 	Theme    string
 	NoColor  bool
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
-	Prompt   func(ctx context.Context, text string, onText func(string)) error
-	Approval func(ctx context.Context, name, args string) (bool, error)
+	FS       FileSystem          // injected read-only workspace for the panel
 	Sessions []string
 	IO       *IO
+	Prompt   func(ctx context.Context, text string, onText func(string)) error
+	Approval func(ctx context.Context, name, args string) (bool, error)
+	// Events, when set, feeds tool events into the optional side panels. A
+	// closed channel simply disables further updates.
+	Events <-chan Event
 	// OnReady, when set, receives the live model once the first frame is up.
 	// It is the hook an integration uses to run the agent and to submit
 	// approval requests from another goroutine via Model.Approve.
@@ -100,6 +104,7 @@ func Run(ctx context.Context, opts Options) error {
 		Theme:    opts.Theme,
 		NoColor:  opts.NoColor,
 		Env:      env,
+		FS:       opts.FS,
 		Sessions: opts.Sessions,
 	})
 	model.SetApproval(opts.Approval)
@@ -171,6 +176,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	streamCh := make(chan string, 256)
 	turnDone := make(chan error, 1)
+	events := opts.Events // nil disables this select case
 	var cancelTurn context.CancelFunc
 
 	startTurn := func(prompt string) {
@@ -250,6 +256,25 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		case err := <-turnDone:
 			model.EndTurn(err)
+		case event, open := <-events:
+			if !open {
+				events = nil
+				break
+			}
+			model.HandleEvent(event)
+			for drained := false; !drained; {
+				select {
+				case more, stillOpen := <-events:
+					if !stillOpen {
+						events = nil
+						drained = true
+						continue
+					}
+					model.HandleEvent(more)
+				default:
+					drained = true
+				}
+			}
 		case next := <-resizes:
 			buffer.Resize(next.w, next.h)
 			buffer.Invalidate()

@@ -38,6 +38,7 @@ type layout struct {
 	bodyTop, bodyH int
 	inputTop       int
 	hintY, statusY int
+	panelX, panelW int // zero when no optional panel is visible
 	rows           []inputRow
 	cursorRow      int
 	cursorCol      int
@@ -51,8 +52,22 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if l.height < 1 {
 		l.height = 1
 	}
-	l.bodyW = minInt(l.width, maxBodyWidth)
-	l.bodyX = (l.width - l.bodyW) / 2
+	if m.panelsVisible() {
+		// The rail takes a third of the screen, up to a readable maximum. The
+		// separator occupies panelX-1, so the transcript ends before it.
+		panelW := minInt(36, maxInt(l.width/3, 20))
+		if panelW > l.width-2 {
+			panelW = maxInt(l.width-2, 1)
+		}
+		l.panelW = panelW
+		l.panelX = l.width - panelW - 1
+		bodyAvail := maxInt(l.panelX-2, 1)
+		l.bodyW = minInt(bodyAvail, maxBodyWidth)
+		l.bodyX = 1
+	} else {
+		l.bodyW = minInt(l.width, maxBodyWidth)
+		l.bodyX = (l.width - l.bodyW) / 2
+	}
 
 	runes := m.editor.Runes()
 	// "│ " + mark (2) + text + " │" leaves width-6 cells for the text.
@@ -120,6 +135,10 @@ func (m *Model) Paint(buf *Buffer) {
 			break
 		}
 		m.paintLineAt(buf, l.bodyTop+i, l.bodyX, body[index])
+	}
+
+	if l.panelW > 0 {
+		m.paintPanels(buf, l)
 	}
 
 	if m.pending != nil {

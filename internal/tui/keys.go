@@ -40,6 +40,12 @@ const (
 	KindAltEnter
 	KindPaste
 	KindIgnore
+
+	// Panel toggles are appended so the numeric values of the keys above stay
+	// the same for callers that decode bytes into Kind values directly.
+	KindCtrlT // toggle the tasks panel
+	KindCtrlB // toggle the workspace panel
+	KindCtrlP // toggle the plan panel
 )
 
 // Key is one decoded keystroke.
@@ -124,6 +130,12 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlW}, 1, true
 	case c == 0x0c:
 		return Key{Kind: KindCtrlL}, 1, true
+	case c == 0x14:
+		return Key{Kind: KindCtrlT}, 1, true
+	case c == 0x02:
+		return Key{Kind: KindCtrlB}, 1, true
+	case c == 0x10:
+		return Key{Kind: KindCtrlP}, 1, true
 	case c < 0x20:
 		return Key{Kind: KindIgnore}, 1, true
 	}
