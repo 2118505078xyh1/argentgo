@@ -13,6 +13,16 @@ type steering struct {
 	ch <-chan string
 }
 
+// Pending reports how many corrections are currently queued without consuming
+// them. A nil receiver or nil channel has nothing pending. Frontends use this
+// to render an "N queued" hint without draining the steering channel.
+func (s *steering) Pending() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.ch)
+}
+
 // drain takes everything currently queued without blocking.
 func (s *steering) drain() []string {
 	if s == nil || s.ch == nil {

@@ -524,6 +524,16 @@ func (s *runState) appendAbortedAssistant() {
 // order they were appended, even with concurrent emitters.
 func (s *runState) emit(event Event) {
 	event.Depth = s.depth
+	// Boundaries where a frontend may want to show "N queued" carry a snapshot
+	// of the steering backlog. This is a non-draining read, so reporting the
+	// count never consumes a queued correction. All other event kinds keep the
+	// zero value. Pending is nil-safe, so a runState without steering is fine.
+	switch event.Kind {
+	case EventTurnStart, EventTurnEnd, EventStop:
+		if s.steer != nil {
+			event.PendingMessages = s.steer.Pending()
+		}
+	}
 	// sync.Once keeps emit usable on a runState built without newRunState.
 	s.emitOnce.Do(func() { s.emitCond = sync.NewCond(&s.emitSendMu) })
 

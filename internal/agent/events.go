@@ -56,6 +56,11 @@ type Event struct {
 	TotalUsage llm.Usage
 	Err        string
 	Reason     string
+	// PendingMessages is the number of steering messages currently queued. It
+	// is populated on turn_start / turn_end / stop events so a frontend can
+	// show an "N queued" hint without draining the steering channel; it stays
+	// zero for every other event kind.
+	PendingMessages int
 	// Checkpoint is populated only for EventCheckpointReady. It carries the
 	// information a session checkpoint needs before a mutating batch starts.
 	Checkpoint *Checkpoint

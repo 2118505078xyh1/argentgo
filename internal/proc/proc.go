@@ -153,14 +153,19 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	out := &cappedBuffer{max: MaxOutputBytes}
 	errOut := &cappedBuffer{max: MaxOutputBytes}
+	// Reassemble runes split across the child's arbitrary read-chunk boundaries
+	// before the bytes reach the capped buffers, so rune-wise decoding of the
+	// capture never yields U+FFFD at a chunk boundary.
+	outDec := newUTF8CarryWriter(out)
+	errDec := newUTF8CarryWriter(errOut)
 
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
 	// Always sanitize: even with no per-call env, the child must not inherit
 	// host-private session plumbing variables (nested agents rely on this).
 	cmd.Env = SanitizeEnv(c.Env)
-	cmd.Stdout = out
-	cmd.Stderr = errOut
+	cmd.Stdout = outDec
+	cmd.Stderr = errDec
 	configure(cmd, c.KillTree, c.NoWindow)
 
 	// Feed stdin from a pipe we own: exec's own stdin copying would be waited
@@ -223,6 +228,11 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		handle.killTree()
 		got = awaitOutcome(done)
 	}
+
+	// cmd.Wait has returned on every path above, and with it exec's stdout and
+	// stderr copy goroutines, so no Write can race with these Flush calls.
+	outDec.Flush()
+	errDec.Flush()
 
 	res := Result{
 		Stdout:    out.String(),
