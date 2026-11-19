@@ -18,7 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The operator ships Windows only; validate on the host platform we
+        # actually distribute. Linux pty tests use ConPTY semantics and are
+        # not a release gate for this personal build.
+        os: [windows-latest]
     steps:
       # GitHub's Windows runners default to core.autocrlf=true; without this,
       # checkout rewrites .go files to CRLF and gofmt reports every file.

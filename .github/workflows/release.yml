@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       # Keep LF endings on every runner; ci.yml sets the same policy so gofmt
       # sees the bytes that are actually committed.
@@ -26,44 +26,42 @@ jobs:
           cache: true
 
       - name: Check release metadata
-        run: pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag "${GITHUB_REF_NAME}"
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag "${{ github.ref_name }}"
 
       - name: Build release artifacts
-        run: pwsh -NoProfile -File scripts/build-release.ps1 -Tag "${GITHUB_REF_NAME}"
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: pwsh -NoProfile -File scripts/build-release.ps1 -Tag "${{ github.ref_name }}"
 
-      - name: Verify checksums
+      - name: Verify artifacts
         working-directory: dist/release
-        shell: bash
         run: |
-          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
-          sha256sum -c checksums.txt
+          $zips = @(Get-ChildItem -Filter '*.zip')
+          if ($zips.Count -ne 1) { throw "expected one zip, found $($zips.Count)" }
+          $sums = Get-Content checksums.txt
+          foreach ($line in $sums) {
+            if (-not $line.Trim()) { continue }
+            $parts = $line -split '\s+', 2
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $parts[1]).Hash.ToLowerInvariant()
+            if ($actual -ne $parts[0].ToLowerInvariant()) { throw "checksum mismatch: $($parts[1])" }
+          }
 
       - name: Extract release notes
-        run: pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag "${GITHUB_REF_NAME}" -OutFile release-notes.md
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag "${{ github.ref_name }}" -OutFile release-notes.md
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/release/*.zip dist/release/checksums.txt \
-            --title "$TAG" --notes-file release-notes.md --verify-tag
+          gh release create "${{ github.ref_name }}" dist/release/*.zip dist/release/checksums.txt `
+            --title "${{ github.ref_name }}" --notes-file release-notes.md --verify-tag
 
       - name: Verify published Release
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release view "$TAG" --json url,assets > release.json
-          cat release.json
-          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
-          echo "$assets"
-          echo "$assets" | grep -qx 'checksums.txt'
-          echo "$assets" | grep -qx "argent_${TAG#v}_windows_amd64.zip"
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag --json url,assets > release.json
+          Get-Content release.json
+          $assets = (gh release view $tag --json assets --jq '.assets[].name')
+          if (-not ($assets -contains 'checksums.txt')) { throw 'checksums.txt missing from Release' }
+          $zip = "argent_$($tag.Substring(1))_windows_amd64.zip"
+          if (-not ($assets -contains $zip)) { throw "$zip missing from Release" }
