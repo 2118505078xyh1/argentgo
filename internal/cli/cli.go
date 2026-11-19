@@ -22,7 +22,7 @@ import (
 )
 
 // Version is the version reported by --version, /v1/health and ACP initialize.
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // IO carries the process streams so commands can be tested without os.Stdin.
 type IO struct {

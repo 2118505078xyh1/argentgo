@@ -203,6 +203,55 @@ func TestAuthRejectsEverythingWithoutTheToken(t *testing.T) {
 	}
 }
 
+func TestIndexCookieAuthorizesStaticAssetsButNotRPC(t *testing.T) {
+	env := newTestEnv(t, Options{})
+
+	request, _ := http.NewRequest(http.MethodGet,
+		env.srv.URL+"/?token="+env.bridge.token, nil)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET / with query token = %d: %s", response.StatusCode, body)
+	}
+	var tokenCookie *http.Cookie
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == "argent_token" {
+			tokenCookie = cookie
+		}
+	}
+	if tokenCookie == nil || tokenCookie.Value != env.bridge.token {
+		t.Fatalf("index response did not set the asset cookie: %v", response.Cookies())
+	}
+	start := strings.Index(string(body), `src="/assets/`)
+	if start < 0 {
+		t.Fatalf("index has no module asset: %s", body)
+	}
+	asset := string(body)[start+len(`src="`):]
+	end := strings.Index(asset, `"`)
+	if end < 0 {
+		t.Fatalf("bad module asset reference: %q", asset)
+	}
+	assetRequest, _ := http.NewRequest(http.MethodGet, env.srv.URL+asset[:end], nil)
+	assetRequest.AddCookie(tokenCookie)
+	if status, data := do(t, assetRequest); status != http.StatusOK {
+		t.Fatalf("asset with cookie = %d: %s", status, data)
+	}
+
+	rpcRequest, _ := http.NewRequest(http.MethodPost,
+		env.srv.URL+"/rpc/get_state", strings.NewReader("{}"))
+	rpcRequest.AddCookie(tokenCookie)
+	if status, _ := do(t, rpcRequest); status != http.StatusUnauthorized {
+		t.Fatalf("POST /rpc with cookie only = %d, want 401", status)
+	}
+}
+
 func TestGetStateCarriesActiveTabReadyAndChannel(t *testing.T) {
 	env := newTestEnv(t, Options{Version: "v1"})
 	state := env.object("get_state", "")

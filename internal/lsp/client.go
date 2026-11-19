@@ -220,7 +220,7 @@ func (c *Client) initialize(ctx context.Context) error {
 
 	params := map[string]any{
 		"processId":  os.Getpid(),
-		"clientInfo": map[string]any{"name": "argent-go", "version": "0.1.0"},
+		"clientInfo": map[string]any{"name": "argent-go", "version": "0.1.1"},
 		"rootUri":    uri,
 		"rootPath":   c.root,
 		"capabilities": map[string]any{

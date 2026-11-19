@@ -42,6 +42,7 @@ import {
 } from "./ipc";
 import { formatCost, formatTokens, relativeStamp, sessionGroup } from "./format";
 import { detectLocale, t, type Locale } from "./i18n";
+import { createStreamBuffer, stepCountsAfter, updateToolItem } from "./transcript";
 
 type SearchHit = { path: string; title: string; line: number; snippet: string };
 
@@ -242,6 +243,9 @@ function App() {
     );
   });
 
+  // One O(n) pass per transcript change replaces the old per-row tail slices.
+  const stepsAfterByItem = createMemo(() => stepCountsAfter(items()));
+
   const modelOptions = createMemo(() => {
     const models = ready()?.models ?? [];
     const current = ready()?.model;
@@ -314,30 +318,29 @@ function App() {
   };
 
   // Token deltas can arrive far faster than a display frame. Coalesce them so
-  // a long answer updates the transcript once per animation frame.
-  const streamBuffer = new Map<string, { kind: TextItem["kind"]; text: string; sid: string }>();
-  let streamFrame = 0;
-  const flushStream = () => {
-    for (const [key, value] of streamBuffer) {
-      append(value.kind, value.text, true, value.sid);
-      streamBuffer.delete(key);
-    }
-  };
-  const appendStream = (kind: TextItem["kind"], text: string, sid: string) => {
-    const key = `${sid}:${kind}`;
-    const pending = streamBuffer.get(key);
-    if (pending) {
-      pending.text += text;
-    } else {
-      streamBuffer.set(key, { kind, text, sid });
-    }
-    if (!streamFrame) {
-      streamFrame = requestAnimationFrame(() => {
-        streamFrame = 0;
-        flushStream();
-      });
-    }
-  };
+  // a long answer updates the transcript once per animation frame. The buffer
+  // is also drained explicitly when the page hides (rAF is throttled then).
+  const stream = createStreamBuffer<TextItem["kind"]>(
+    (kind, text, sid) => append(kind, text, true, sid),
+    (run) => requestAnimationFrame(run),
+    (handle) => cancelAnimationFrame(handle as number),
+  );
+  const appendStream = (kind: TextItem["kind"], text: string, sid: string) =>
+    stream.push(kind, text, sid);
+  const flushStream = () => stream.flush();
+
+  onMount(() => {
+    const onVisibility = () => {
+      if (document.hidden) flushStream();
+    };
+    const onPageHide = () => flushStream();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+    });
+  });
 
   const applyReady = (value: Ready, sid = active()) => {
     setReadyFor(sid, value);
@@ -383,18 +386,12 @@ function App() {
         break;
       case "tool_finished":
         setItemsFor(sid, (prev) =>
-          prev.map((item) => {
-            if (item.kind !== "tool" || item.tool.id !== event.id) return item;
-            return {
-              ...item,
-              tool: {
-                ...item.tool,
-                state: event.isError ? "error" : "ok",
-                output: event.output,
-                duration: event.durationMs,
-              },
-            };
-          }),
+          updateToolItem(prev, event.id, (tool) => ({
+            ...tool,
+            state: event.isError ? "error" : "ok",
+            output: event.output,
+            duration: event.durationMs,
+          })),
         );
         break;
       case "finished":
@@ -1243,7 +1240,11 @@ function App() {
   return (
     <div class="app">
       <aside class="sidebar">
-        <div class="brand">argent</div>
+        <div class="brand">
+          <span class="brand-mark">◆</span>
+          <span>argent</span>
+          <span class="brand-sub">agent workspace</span>
+        </div>
         <div class="side-tabs">
           <button
             classList={{ active: screen() === "chat" }}
@@ -1551,11 +1552,8 @@ function App() {
             }
           >
             <For each={items()}>
-              {(item, index) => {
-                const stepsAfter = () =>
-                  items()
-                    .slice(index() + 1)
-                    .filter((entry) => entry.kind === "user").length;
+              {(item) => {
+                const stepsAfter = () => stepsAfterByItem().get(item.id) ?? 0;
                 if (item.kind === "tool") {
                   return (
                     <ToolCard

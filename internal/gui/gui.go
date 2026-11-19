@@ -248,6 +248,14 @@ func (b *bridge) authorized(r *http.Request) bool {
 	if got == "" && r.Method == http.MethodGet {
 		got = strings.TrimSpace(r.URL.Query().Get("token"))
 	}
+	// The page is opened with ?token= once, then its module/script assets are
+	// requested without that query. A GET-only cookie keeps those local asset
+	// loads working while state-changing RPC calls still require the header.
+	if got == "" && r.Method == http.MethodGet {
+		if cookie, err := r.Cookie("argent_token"); err == nil {
+			got = strings.TrimSpace(cookie.Value)
+		}
+	}
 	return subtle.ConstantTimeCompare([]byte(got), []byte(b.token)) == 1
 }
 
@@ -309,6 +317,13 @@ func (b *bridge) static(w http.ResponseWriter, r *http.Request) {
 	if name == "index.html" {
 		data = injectToken(data, b.token)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.SetCookie(w, &http.Cookie{
+			Name:     "argent_token",
+			Value:    b.token,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
 	} else if kind := mime.TypeByExtension(path.Ext(name)); kind != "" {
 		w.Header().Set("Content-Type", kind)
 	}

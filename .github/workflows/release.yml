@@ -1,0 +1,38 @@
+name: release
+
+# Tag a commit that matches internal/cli/cli.go's Version constant (e.g. v0.1.1)
+# to build and publish a release. The script validates the tag against the
+# source version, so a mismatched tag fails before anything is uploaded.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release artifacts
+        run: pwsh -NoProfile -File scripts/build-release.ps1 -Tag "${GITHUB_REF_NAME}"
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      - name: Verify checksums
+        working-directory: dist/release
+        run: sha256sum -c checksums.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/release/*.zip dist/release/checksums.txt \
+          --title "$TAG" --generate-notes --verify-tag

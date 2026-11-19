@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.1 — 2026-11-19
+
+- Fix the GUI shell: the page now sets a GET-only asset cookie after the initial
+  token URL, so embedded JS/CSS load instead of being rejected with 401.
+- Frontend performance: coalesced stream deltas flush on hidden/pagehide, chat
+  step counts are O(n), and tool updates preserve unrelated row references.
+- Frontend polish: tighter dark/light theme, clearer focus states, lighter
+  shadows, and reduced-motion support. No new frontend dependencies.
+
 ## v0.1.0 — 2026-11-19
 
 First Go build: a stdlib-only, cgo-free rewrite of the frozen Rust `argent`

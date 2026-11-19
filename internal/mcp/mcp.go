@@ -21,7 +21,7 @@ const (
 	// clientName is reported to servers in clientInfo.
 	clientName = "argent-go"
 	// clientVersion is reported to servers in clientInfo.
-	clientVersion = "0.1.0"
+	clientVersion = "0.1.1"
 )
 
 // ErrUnsupportedTransport reports a transport this package cannot speak.
