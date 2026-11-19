@@ -328,17 +328,25 @@ func (editTool) Description() string {
 }
 func (editTool) Mutating() bool { return true }
 func (editTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}`
+	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path"]}`
 }
 
 func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path string `json:"path"`
-		Old  string `json:"old"`
-		New  string `json:"new"`
+		Path    string `json:"path"`
+		Old     string `json:"old"`
+		New     string `json:"new"`
+		OldText string `json:"old_text"`
+		NewText string `json:"new_text"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("edit: bad arguments: %w", err)
+	}
+	if args.Old == "" {
+		args.Old = args.OldText
+	}
+	if args.New == "" {
+		args.New = args.NewText
 	}
 	if args.Old == "" {
 		return "", fmt.Errorf("edit: old must not be empty")
