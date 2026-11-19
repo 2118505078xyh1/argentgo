@@ -1,0 +1,316 @@
+package automation
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"time"
+)
+
+// Run statuses recorded in the store and in each run log.
+const (
+	StatusOK      = "ok"
+	StatusFailed  = "failed"
+	StatusTimeout = "timeout"
+	StatusSkipped = "skipped"
+)
+
+// DefaultTick is how often the daemon looks for due tasks.
+const DefaultTick = 30 * time.Second
+
+// Executor runs one task. The daemon supplies the task and honours its timeout;
+// the executor only has to turn a spec into a result (in the CLI that means
+// driving the agent loop, here it is an injected seam).
+type Executor interface {
+	Run(ctx context.Context, spec Spec) (RunResult, error)
+}
+
+// RunResult is the outcome of one run.
+type RunResult struct {
+	ID       string
+	Status   string
+	Output   string
+	Err      error
+	Started  time.Time
+	Finished time.Time
+}
+
+// Success reports whether the run finished cleanly.
+func (r RunResult) Success() bool {
+	return r.Status == "" || r.Status == StatusOK
+}
+
+// Options configures the daemon.
+type Options struct {
+	// Store is the task list (required).
+	Store *Store
+	// Executor runs due tasks (required).
+	Executor Executor
+	// LogDir receives <id>/<epoch>.log and <id>/<epoch>.json. It defaults to
+	// <store dir>/runs.
+	LogDir string
+	// Clock overrides time.Now; tests drive the schedule with it.
+	Clock func() time.Time
+	// Tick is the polling interval; it defaults to DefaultTick.
+	Tick time.Duration
+}
+
+// daemon is the running scheduler.
+type daemon struct {
+	store  *Store
+	exec   Executor
+	logDir string
+	now    func() time.Time
+	tick   time.Duration
+
+	mu      sync.Mutex
+	running map[string]bool
+	wg      sync.WaitGroup
+}
+
+func newDaemon(opts Options) (*daemon, error) {
+	if opts.Store == nil {
+		return nil, errors.New("automation: daemon needs a store")
+	}
+	if opts.Executor == nil {
+		return nil, errors.New("automation: daemon needs an executor")
+	}
+	d := &daemon{
+		store:   opts.Store,
+		exec:    opts.Executor,
+		logDir:  opts.LogDir,
+		now:     opts.Clock,
+		tick:    opts.Tick,
+		running: map[string]bool{},
+	}
+	if d.now == nil {
+		d.now = time.Now
+	}
+	if d.tick <= 0 {
+		d.tick = DefaultTick
+	}
+	if d.logDir == "" {
+		d.logDir = filepath.Join(opts.Store.Dir(), "runs")
+	}
+	return d, nil
+}
+
+// Run polls the store until ctx is cancelled and returns nil on shutdown.
+//
+// One scan happens immediately, so a daemon that starts after a slot was missed
+// applies the task's missed policy right away. Each task runs in its own
+// goroutine and at most one run per id is in flight; a run that is still
+// executing when the next tick arrives is simply left alone.
+func Run(ctx context.Context, opts Options) error {
+	d, err := newDaemon(opts)
+	if err != nil {
+		return err
+	}
+	ticker := time.NewTicker(d.tick)
+	defer ticker.Stop()
+	for {
+		d.scan(ctx)
+		select {
+		case <-ctx.Done():
+			d.wg.Wait()
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// scan starts every task that is due and not already running.
+func (d *daemon) scan(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	now := d.now()
+	for _, spec := range d.store.List() {
+		if !spec.IsDue(now) {
+			continue
+		}
+		if spec.MissedPolicy() == MissedSkip {
+			// Drop the missed slot and wait for the next one.
+			if d.claim(spec.ID) {
+				_ = d.store.RecordRun(spec.ID, StatusSkipped, "", now)
+				d.release(spec.ID)
+			}
+			continue
+		}
+		if !d.claim(spec.ID) {
+			continue
+		}
+		d.wg.Add(1)
+		go d.execute(ctx, spec)
+	}
+}
+
+func (d *daemon) claim(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.running[id] {
+		return false
+	}
+	d.running[id] = true
+	return true
+}
+
+func (d *daemon) release(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.running, id)
+}
+
+// execute runs one task, writes its logs and records the outcome.
+func (d *daemon) execute(ctx context.Context, spec Spec) {
+	defer d.wg.Done()
+	defer d.release(spec.ID)
+
+	started := d.now()
+	runCtx := ctx
+	if timeout := spec.Timeout.Std(); timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	res, err := d.exec.Run(runCtx, spec)
+	finished := d.now()
+
+	res.ID = spec.ID
+	res.Started = started
+	res.Finished = finished
+	res.Err = err
+	if res.Status == "" {
+		switch {
+		case err == nil:
+			res.Status = StatusOK
+		case errors.Is(err, context.DeadlineExceeded):
+			res.Status = StatusTimeout
+		default:
+			res.Status = StatusFailed
+		}
+	}
+	logPath, _ := d.writeLogs(spec, res)
+	// A spec deleted while running has nothing to record; that is not an error.
+	_ = d.store.RecordRun(spec.ID, res.Status, logPath, finished)
+}
+
+// wait blocks until in-flight runs finish.
+func (d *daemon) wait() { d.wg.Wait() }
+
+// runRecord is the JSON side of a run log.
+type runRecord struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Schedule   Schedule  `json:"schedule"`
+	Status     string    `json:"status"`
+	Started    time.Time `json:"started"`
+	Finished   time.Time `json:"finished"`
+	DurationMS int64     `json:"durationMs"`
+	Log        string    `json:"log"`
+	Error      string    `json:"error,omitempty"`
+}
+
+// writeLogs writes <logDir>/<id>/<epoch>.log plus the matching .json record and
+// returns the log path.
+func (d *daemon) writeLogs(spec Spec, res RunResult) (string, error) {
+	dir := filepath.Join(d.logDir, spec.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	epoch := res.Started.Unix()
+	if res.Started.IsZero() {
+		epoch = d.now().Unix()
+	}
+	base := filepath.Join(dir, strconv.FormatInt(epoch, 10))
+	logPath := base + ".log"
+
+	var body []byte
+	body = append(body, fmt.Sprintf("# automation %s\n# schedule %s\n# started %s\n# status %s\n\n",
+		spec.ID, spec.Schedule.String(), res.Started.Format(time.RFC3339), res.Status)...)
+	body = append(body, res.Output...)
+	if res.Output != "" && res.Output[len(res.Output)-1] != '\n' {
+		body = append(body, '\n')
+	}
+	if res.Err != nil {
+		body = append(body, fmt.Sprintf("\n--- error ---\n%s\n", res.Err.Error())...)
+	}
+	if err := writeAtomic(logPath, body); err != nil {
+		return "", err
+	}
+
+	record := runRecord{
+		ID:         spec.ID,
+		Name:       spec.Name,
+		Schedule:   spec.Schedule,
+		Status:     res.Status,
+		Started:    res.Started,
+		Finished:   res.Finished,
+		DurationMS: res.Finished.Sub(res.Started).Milliseconds(),
+		Log:        logPath,
+	}
+	if res.Err != nil {
+		record.Error = res.Err.Error()
+	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return logPath, err
+	}
+	if err := writeAtomic(base+".json", append(data, '\n')); err != nil {
+		return logPath, err
+	}
+	return logPath, nil
+}
+
+// RunNow runs one stored task immediately, outside the daemon loop, and records
+// the outcome. The CLI uses it for `automation run <id>`.
+func RunNow(ctx context.Context, store *Store, ex Executor, logDir, id string, at time.Time) (RunResult, error) {
+	if store == nil {
+		return RunResult{}, errors.New("automation: RunNow needs a store")
+	}
+	if ex == nil {
+		return RunResult{}, errors.New("automation: RunNow needs an executor")
+	}
+	spec, ok := store.Get(id)
+	if !ok {
+		return RunResult{}, fmt.Errorf("automation: no task %q", id)
+	}
+	d := &daemon{store: store, exec: ex, logDir: logDir, now: time.Now}
+	if d.logDir == "" {
+		d.logDir = filepath.Join(store.Dir(), "runs")
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	runCtx := ctx
+	if timeout := spec.Timeout.Std(); timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	res, err := ex.Run(runCtx, spec)
+	res.ID = spec.ID
+	res.Started = at
+	res.Finished = time.Now()
+	res.Err = err
+	if res.Status == "" {
+		switch {
+		case err == nil:
+			res.Status = StatusOK
+		case errors.Is(err, context.DeadlineExceeded):
+			res.Status = StatusTimeout
+		default:
+			res.Status = StatusFailed
+		}
+	}
+	logPath, _ := d.writeLogs(spec, res)
+	if recordErr := store.RecordRun(spec.ID, res.Status, logPath, res.Finished); recordErr != nil {
+		return res, recordErr
+	}
+	return res, nil
+}
