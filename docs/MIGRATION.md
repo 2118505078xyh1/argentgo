@@ -162,6 +162,13 @@ type Options struct {
 Not in this wave (later): plugins/script-plugins, LSP/AST, pty/jobs/device, workflow,
 automation, telemetry, update, desktop bridge for the Tauri shell.
 
+## Retirement of the Rust checkout
+
+`github.com/<owner>/argent` is frozen at v0.4.0 and archived; the local checkout
+`<local-checkout>` is the behavioural reference **only until this wave lands**.
+After the last slice is merged and the Go tests are green, delete the local Rust
+directory (history stays on GitHub). Do not delete it earlier: the slices read it.
+
 ## Reporting
 
 When done, report: files added, exported API, what is stubbed, verification output
