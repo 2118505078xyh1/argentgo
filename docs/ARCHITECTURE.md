@@ -9,7 +9,7 @@
 CLI / --serve / --rpc / acp ─┐
 全屏 TUI (internal/tui)      ├─> internal/app ─> internal/agent ─> tools / security / session
 Web GUI (internal/gui)       ┘        │              │                │
-                                      └ 配置/provider  └ Chatter        └ JSONL 会话/审计
+                                       └ 配置/provider  └ Chatter        └ JSONL 会话/审计
 ```
 
 1. 入口 `cmd/argent` 构造 `cli.App` 并调用 `cli.RunWith`：解析标志、分发子命令或进入
@@ -27,11 +27,13 @@ Web GUI (internal/gui)       ┘        │              │                │
 | `ToolRunner` | `internal/agent` | `Specs()` / `Run(ctx, name, args)`；注册表与假实现都可实现 |
 | `Approver` | `internal/security` | `Ask(ctx, name, args)`；交互审批、`never`、`auto` 三种实现 |
 | `Recorder` | `internal/agent` | `Append(kind, payload)`；由会话的 `Append` 适配 |
+| `SkillWriter` / `SkillLister` | `internal/agent` | 可选的技能自写/列举接缝；由 `internal/skills` 适配器实现 |
 
 `internal/app.Execute` 是接线点：`Chatter` 来自 `newChatter`（含 fallback），
 `ToolRunner` 是带 guard 的注册表（内置工具 + MCP + `use_skill`），
-`Approver` 由审批模式选择，`Recorder` 绑定到当前会话。事件通过 `Emit` 回传给各表面。
-换掉任一接口即可在测试里使用假实现，不需要网络或真实模型。
+`Approver` 由审批模式选择，`Recorder` 绑定到当前会话。配置里的权限规则经
+`policyFor(res)` 进入 `security.Policy`，hook 文档在 run 前后派发。事件通过
+`Emit` 回传给各表面；换掉任一接口即可在测试里使用假实现，不需要网络或真实模型。
 
 ## 三种无头传输
 
@@ -47,15 +49,16 @@ Web GUI (internal/gui)       ┘        │              │                │
 ## 终端与图形界面
 
 - **TUI**（`internal/tui`）：自绘 ANSI 全屏，含 streaming transcript、markdown-lite、
-  输入编辑器、审批弹窗、主题与 locale；不经 WebView，可在 SSH 上运行。入口 `argent tui`。
+  输入编辑器、审批弹窗、主题与 locale；Ctrl+T/B/P 分别打开任务、工作区、计划面板；
+  不经 WebView，可在 SSH 上运行。入口 `argent tui`。
 - **GUI**（`internal/gui` + `ui/`）：Go 后端在 `127.0.0.1` 随机端口上提供
   `GET /`（`go:embed` 的 `ui/dist`）、`POST /rpc/{command}`、`GET /events`（SSE）、
   `/healthz`；保留旧 Tauri 的命令名与事件负载，但改走 HTTP，每个标签页一个注入的 runner。
-  前端是 SolidJS + Vite（bun 构建），`internal/gui/dist/index.html` 是占位文件，
-  让 `go:embed` 在首次构建前也能编译。
-- **启动器**（`internal/launcher`）：计划用 Edge/Chrome `--app` 打开上面带 token 的 URL，
-  失败回退系统浏览器。**仍在开发中**：GUI 后端已落地，启动器与前端传输桥接未完成，
-  `argent gui` 目前解析后明确报错退出。
+  前端是 SolidJS + Vite（bun 构建），`internal/gui/dist` 是提交进仓库的构建产物，
+  让 `go:embed` 在干净克隆里也能编译；改前端后用 `scripts/build-ui.ps1` 重新生成。
+- **启动器**（`internal/launcher`）：`msedge --app` / `chrome --app` + 独立 profile，
+  失败回退系统浏览器并返回 `ErrFallback`，由 `cmd/argent/runGUI` 打印提示。
+  `argent gui` 是真入口，端到端验证过：SSE 流、审批、工具落盘、`turn_done`。
 
 ## 配置与依赖规则
 
