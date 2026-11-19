@@ -98,7 +98,12 @@ ui/                 SolidJS frontend
 
 ## Style
 
-- `snake_case` files, `PascalCase` types, small files (<500 lines preferred).
+- `snake_case` files, `PascalCase` types.
+- Split files by responsibility, not by line count. A cohesive 800-line file is
+  better than four fragmented 200-line files you have to jump between. Use the
+  real test: "how many files must I open to change one behaviour?" If the answer
+  is already one, leave it alone — do not split just to hit a number. Go's own
+  stdlib has multi-thousand-line files; length is not a smell, mixed concerns are.
 - Tests beside source, table-driven, no network, no real model. Name tests after
   the behaviour: `TestEditRequiresUniqueMatch`.
 - Errors: wrapped with `%w`, sentinel errors for callers to match with `errors.Is`.

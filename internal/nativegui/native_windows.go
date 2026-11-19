@@ -210,7 +210,7 @@ func Run(opts Options) error {
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(title)),
 		wsOverlappedWindow,
-		0x80000000-320, 0x80000000-200, 1180, 760,
+		80, 60, 1180, 760,
 		0, 0, hInstance, 0,
 	)
 	if hwnd == 0 {
