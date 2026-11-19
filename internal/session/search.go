@@ -66,12 +66,24 @@ func Search(dir, query string, limit int) ([]Hit, error) {
 		for _, line := range lines {
 			records = append(records, line.record)
 		}
-		meta := metaFromRecords(id, records)
-		updated := meta.Updated
-		if updated.IsZero() {
-			if info, err := entry.Info(); err == nil {
-				updated = info.ModTime()
+		// A hit can live in any record's payload, so every transcript still has
+		// to be scanned. The sidecar removes the meta recomputation (title and
+		// turn counting) and is only trusted while its stat still matches.
+		info, statErr := entry.Info()
+		var meta Meta
+		cached := false
+		if statErr == nil {
+			meta, cached = loadIndex(path, info, id)
+		}
+		if !cached {
+			meta = metaFromRecords(id, records)
+			if statErr == nil {
+				saveIndex(path, info, meta)
 			}
+		}
+		updated := meta.Updated
+		if updated.IsZero() && statErr == nil {
+			updated = info.ModTime()
 		}
 		files = append(files, transcript{path: path, id: id, title: meta.Title, updated: updated, lines: lines})
 	}

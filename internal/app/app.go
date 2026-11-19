@@ -653,6 +653,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	tracker := newCheckpointTracker(res.Root, sess)
 	var evidence agent.CompactionEvidence
+	compactor := newSessionCompactor(res, sess)
 	loop := &agent.Runner{Opts: agent.Options{
 		Model:    res.Model,
 		MaxTurns: res.MaxTurns,
@@ -674,6 +675,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			tracker.capture(cp, prompt)
 		},
 		MutationPaths: toolset.base.mutationPaths,
+		// Mid-turn compaction is injected from the app layer so agent never
+		// imports session. A disabled/negative threshold yields 0 and no-ops.
+		Compactor:        compactor,
+		CompactThreshold: compactor.CompactThreshold(),
 		OnCompactionEvidence: func(e agent.CompactionEvidence) {
 			evidence = e
 		},

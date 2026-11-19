@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,7 +120,9 @@ func (c *Container) OpenSession(id string) (*Session, error) {
 	return session, nil
 }
 
-// List reports every session, newest first.
+// List reports every session, newest first. Transcripts are not parsed when a
+// matching sidecar exists; a missing, corrupt, or stale one falls back to the
+// original full scan and is refreshed on the way out.
 func (c *Container) List() ([]Meta, error) {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
@@ -134,15 +137,26 @@ func (c *Container) List() ([]Meta, error) {
 			continue
 		}
 		id := entry.Name()[:len(entry.Name())-len(fileExt)]
-		records, err := readRecords(filepath.Join(c.dir, entry.Name()))
-		if err != nil {
-			continue
+		path := filepath.Join(c.dir, entry.Name())
+
+		info, statErr := entry.Info()
+		var meta Meta
+		var cached bool
+		if statErr == nil {
+			meta, cached = loadIndex(path, info, id)
 		}
-		meta := metaFromRecords(id, records)
-		if meta.Updated.IsZero() {
-			if info, err := entry.Info(); err == nil {
-				meta.Updated = info.ModTime()
+		if !cached {
+			records, err := readRecords(path)
+			if err != nil {
+				continue
 			}
+			meta = metaFromRecords(id, records)
+			if statErr == nil {
+				saveIndex(path, info, meta)
+			}
+		}
+		if meta.Updated.IsZero() && statErr == nil {
+			meta.Updated = info.ModTime()
 		}
 		metas = append(metas, meta)
 	}
@@ -184,6 +198,9 @@ func (c *Container) Delete(id string) error {
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("session: delete %s: %w", path, err)
 	}
+	// The sidecar is only a cache; remove it with its transcript so a later
+	// session with a reused id cannot inherit stale metadata.
+	_ = os.Remove(path + idxExt)
 	return nil
 }
 
@@ -256,6 +273,72 @@ func randomSuffix() string {
 		return fmt.Sprintf("%04x", uint16(time.Now().UnixNano()))
 	}
 	return hex.EncodeToString(buf)
+}
+
+// Sidecars are caches, never the authority for session content. An entry
+// stores only the fields List/Search need plus the transcript's size and mtime,
+// so an append that bypasses the cache, or any external edit, is detected and
+// the transcript is parsed again.
+const (
+	idxExt       = ".idx"
+	indexVersion = 1
+)
+
+type indexEntry struct {
+	Version int   `json:"version"`
+	Size    int64 `json:"size"`
+	MTime   int64 `json:"mtime"`
+	Meta    Meta  `json:"meta"`
+}
+
+// loadIndex returns the cached meta only when the sidecar is readable, current
+// for this version, and describes the transcript's exact size and mtime. Any
+// doubt is reported as a miss and handled by a full scan.
+func loadIndex(path string, info os.FileInfo, id string) (Meta, bool) {
+	data, err := os.ReadFile(path + idxExt)
+	if err != nil {
+		return Meta{}, false
+	}
+	var entry indexEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return Meta{}, false
+	}
+	if entry.Version != indexVersion || entry.Size != info.Size() ||
+		entry.MTime != info.ModTime().UnixNano() || entry.Meta.ID != id {
+		return Meta{}, false
+	}
+	return entry.Meta, true
+}
+
+// saveIndex refreshes a sidecar atomically so a concurrent reader never sees a
+// half-written file. Failure is harmless: the next read just parses the file.
+func saveIndex(path string, info os.FileInfo, meta Meta) {
+	data, err := json.Marshal(indexEntry{
+		Version: indexVersion,
+		Size:    info.Size(),
+		MTime:   info.ModTime().UnixNano(),
+		Meta:    meta,
+	})
+	if err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".idx-*.tmp")
+	if err != nil {
+		return
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return
+	}
+	if err := os.Rename(name, path+idxExt); err != nil {
+		os.Remove(name)
+	}
 }
 
 // metaFromRecords derives a list entry from the transcript alone.

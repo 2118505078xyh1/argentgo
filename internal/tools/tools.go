@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -33,6 +34,21 @@ type Tool interface {
 	Schema() string
 	Mutating() bool
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
+}
+
+// ToolMeta is the in-process reclamation hint a tool attaches to its result.
+// It never crosses the wire: the agent loop uses it to stub superseded reads
+// and empty searches while the run is alive.
+type ToolMeta struct {
+	SupersedeKey string
+	Useless      bool
+}
+
+// metaTool is implemented by tools that can describe their own result for
+// context reclamation. Output and error are passed in so a failed call never
+// claims a supersede key or an "empty result" marker.
+type metaTool interface {
+	Meta(args json.RawMessage, output string, err error) ToolMeta
 }
 
 // Guard is consulted before every tool call. A non-nil error is returned to the
@@ -145,6 +161,28 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	}
 	ctx = withBackgroundReporter(ctx, r.backgroundReporter)
 	return tool.Run(ctx, r.root, raw)
+}
+
+// RunWithMeta executes one tool call and additionally returns the tool's
+// reclamation metadata. Behaviour and output are identical to Run: the meta is
+// derived from the same arguments and result, never from a second execution.
+func (r *Registry) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
+	out, err := r.Run(ctx, name, args)
+	if err != nil {
+		return out, ToolMeta{}, err
+	}
+	tool, ok := r.tools[name]
+	if !ok {
+		return out, ToolMeta{}, nil
+	}
+	mt, ok := tool.(metaTool)
+	if !ok {
+		return out, ToolMeta{}, nil
+	}
+	if strings.TrimSpace(args) == "" {
+		args = "{}"
+	}
+	return out, mt.Meta(json.RawMessage(args), out, nil), nil
 }
 
 // checkGuard runs the guard without letting a panic escape into the agent loop.
@@ -286,6 +324,50 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		end = start - 1 + args.Limit
 	}
 	return clip(ctx, strings.Join(lines[start-1:end], "\n")), nil
+}
+
+// Meta reports a supersede key derived from the file path alone. Line/offset
+// selectors are dropped: a later read of any range of the same file makes an
+// earlier read of that file stale for context purposes.
+func (readTool) Meta(args json.RawMessage, _ string, err error) ToolMeta {
+	if err != nil {
+		return ToolMeta{}
+	}
+	var a struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(args, &a) != nil {
+		return ToolMeta{}
+	}
+	p := normalizeReadPath(a.Path)
+	if p == "" {
+		return ToolMeta{}
+	}
+	return ToolMeta{SupersedeKey: "read|" + p}
+}
+
+// readSelector matches the common line-range suffixes appended to a path:
+// ":10", ":10:20", "#L10", "#L10-L20" and their comma variants.
+var readSelector = regexp.MustCompile(`(?::[0-9]+(?:[:,-][0-9]+)*|#[Ll]?[0-9]+(?:[-:][Ll]?[0-9]+)?)+$`)
+
+// normalizeReadPath cleans a read path and removes line selectors so two reads
+// of the same file share one supersede key regardless of their ranges.
+func normalizeReadPath(raw string) string {
+	p := strings.TrimSpace(raw)
+	if p == "" {
+		return ""
+	}
+	p = filepath.ToSlash(p)
+	p = readSelector.ReplaceAllString(p, "")
+	p = strings.TrimSpace(p)
+	if p == "" || p == "." {
+		return ""
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return ""
+	}
+	return cleaned
 }
 
 // ---- write ----
@@ -596,6 +678,14 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	return clip(ctx, strings.Join(matches, "\n")), nil
 }
 
+// Meta marks an empty grep result useless.
+func (grepTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
+	if err != nil {
+		return ToolMeta{}
+	}
+	return ToolMeta{Useless: strings.TrimSpace(output) == "(no matches)"}
+}
+
 // ---- find ----
 
 type findTool struct{}
@@ -639,6 +729,24 @@ func (findTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	sort.Strings(found)
 	return clip(ctx, strings.Join(found, "\n")), nil
+}
+
+// Meta marks an empty find result useless.
+func (findTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
+	if err != nil {
+		return ToolMeta{}
+	}
+	return ToolMeta{Useless: strings.TrimSpace(output) == "(no matches)"}
+}
+
+// Meta marks an empty glob result useless. globTool lives in glob.go but the
+// method is declared beside the other meta producers; same package, same
+// semantics: the hint is derived from the actual output of the call.
+func (globTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
+	if err != nil {
+		return ToolMeta{}
+	}
+	return ToolMeta{Useless: strings.HasPrefix(strings.TrimSpace(output), "no files match ")}
 }
 
 // walkFiles visits regular files under base, skipping noisy directories.

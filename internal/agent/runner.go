@@ -30,6 +30,17 @@ Use the available tools to inspect and change files. Read before writing, batch 
 	// defaultMaxRepeats is how many identical (tool, args) calls may really run
 	// before the repeat guard answers with an error instead.
 	defaultMaxRepeats = 2
+
+	// compactionRecoveryBand is the omp-style hysteresis band: a mid-turn
+	// compaction aims at this fraction of the trigger threshold. Landing below
+	// the trigger but inside the band is enough to release compaction pressure,
+	// so a run never re-compacts every turn just to shave a few tokens.
+	compactionRecoveryBand = 0.8
+	// summaryReserveTokens is the headroom left for the generated summary when
+	// the compaction window is derived from the trigger threshold.
+	summaryReserveTokens = 2000
+	// minCompactWindow is the floor for a derived compaction window.
+	minCompactWindow = 1000
 )
 
 // defaultMutatingTools is the conservative approval set used when the caller
@@ -48,6 +59,42 @@ type ToolRunner interface {
 	Specs() []llm.ToolSpec
 	// Run executes one tool call and returns its output text.
 	Run(ctx context.Context, name, args string) (string, error)
+}
+
+// ToolMeta is the in-process metadata a tool can attach to one result. It is
+// deliberately not part of the wire protocol and is lost on resume; it only
+// drives cheap context reclamation while the run is alive.
+type ToolMeta struct {
+	// SupersedeKey identifies a reusable fact (e.g. "read|/path/to/file"). When
+	// a later result carries the same key, the older one is superseded.
+	SupersedeKey string
+	// Useless marks a result that carried no new information (an empty search),
+	// so it can be elided once a later assistant turn has consumed it.
+	Useless bool
+}
+
+// MetaToolRunner is the optional extension of ToolRunner. A runner that
+// implements it lets the loop reclaim superseded or useless results without
+// calling the model. Runners that do not implement it keep working unchanged.
+type MetaToolRunner interface {
+	RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error)
+}
+
+// callTool prefers the metadata-aware path and transparently falls back to the
+// original ToolRunner. It lives here so ToolRunner itself stays unchanged.
+func (s *runState) callTool(ctx context.Context, name, args string) (string, ToolMeta, error) {
+	if meta, ok := s.tools.(MetaToolRunner); ok {
+		return meta.RunWithMeta(ctx, name, args)
+	}
+	out, err := s.tools.Run(ctx, name, args)
+	return out, ToolMeta{}, err
+}
+
+// Compactor is the optional mid-turn compaction hook. The app layer injects an
+// implementation that owns the session; the agent package stays free of any
+// session dependency. window is the token budget the kept suffix should fit.
+type Compactor interface {
+	MaybeCompact(messages []llm.Message, window int) ([]llm.Message, bool)
 }
 
 // Approver gates mutating tools. A nil Approver means every call is allowed.
@@ -111,6 +158,14 @@ type Options struct {
 	// OnCompactionEvidence receives failures and next-step lines that a
 	// compactor must preserve. It runs once when the loop finishes.
 	OnCompactionEvidence func(CompactionEvidence)
+
+	// Compactor, when set, is called at the tool-batch boundary when the
+	// estimated context exceeds CompactThreshold. The app layer supplies it so
+	// this package never imports session.
+	Compactor Compactor
+	// CompactThreshold is the estimated-token trigger for mid-turn compaction.
+	// Zero (or a nil Compactor) disables it.
+	CompactThreshold int
 
 	// Steer is drained between turns; each value becomes a user message.
 	Steer <-chan string
@@ -275,4 +330,36 @@ func (nopTools) Specs() []llm.ToolSpec { return nil }
 
 func (nopTools) Run(context.Context, string, string) (string, error) {
 	return "", fmt.Errorf("agent: no tools configured")
+}
+
+// RunWithMeta forwards metadata through the skill wrapper. Built-in skill
+// tools carry no reclamation metadata; every other call reaches the wrapped
+// runner's metadata path when it has one.
+func (t *skillTools) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
+	switch name {
+	case SaveSkillToolName, ListSkillsToolName:
+		out, err := t.Run(ctx, name, args)
+		return out, ToolMeta{}, err
+	default:
+		if meta, ok := t.inner.(MetaToolRunner); ok {
+			return meta.RunWithMeta(ctx, name, args)
+		}
+		out, err := t.inner.Run(ctx, name, args)
+		return out, ToolMeta{}, err
+	}
+}
+
+// RunWithMeta forwards metadata through the delegate wrapper. The built-in
+// task tool has no reclamation metadata; all other calls reach the wrapped
+// runner so metadata survives subagent wiring.
+func (t *taskTools) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
+	if name == TaskToolName {
+		out, err := t.Run(ctx, name, args)
+		return out, ToolMeta{}, err
+	}
+	if meta, ok := t.inner.(MetaToolRunner); ok {
+		return meta.RunWithMeta(ctx, name, args)
+	}
+	out, err := t.inner.Run(ctx, name, args)
+	return out, ToolMeta{}, err
 }

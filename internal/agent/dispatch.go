@@ -151,7 +151,8 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 }
 
 func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Time) callResult {
-	output, err := s.tools.Run(ctx, call.Function.Name, call.Function.Arguments)
+	output, meta, err := s.callTool(ctx, call.Function.Name, call.Function.Arguments)
+	s.setToolMeta(call.ID, meta)
 	if err != nil {
 		return callResult{output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
 	}

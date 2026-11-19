@@ -1,0 +1,101 @@
+package session
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestAdjustCutNeverSplitsToolPair(t *testing.T) {
+	entries := []Entry{
+		{Role: "system", Content: "s"},
+		{Role: "user", Content: "u"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "tool", ToolCallID: "c1", Content: "t1"},
+		{Role: "tool", ToolCallID: "c2", Content: "t2"},
+		{Role: "assistant", Content: "a2"},
+		{Role: "tool", ToolCallID: "c3", Content: "t3"},
+		{Role: "assistant", Content: "a3"},
+	}
+	cases := []struct {
+		start int
+		want  int
+	}{
+		{3, 2}, // first tool result: walk back over the whole tool run
+		{4, 2}, // second result of the same run
+		{6, 5}, // single tool result: back up to its assistant
+		{5, 5}, // assistant: unchanged
+		{7, 7}, // trailing assistant: unchanged
+	}
+	for _, tc := range cases {
+		if got := adjustCut(entries, tc.start); got != tc.want {
+			t.Errorf("adjustCut(%d) = %d, want %d", tc.start, got, tc.want)
+		}
+	}
+}
+
+func TestKeepForBudgetAndCutForBudget(t *testing.T) {
+	entries := []Entry{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: strings.Repeat("a", 200)},
+		{Role: "user", Content: strings.Repeat("b", 200)},
+		{Role: "user", Content: strings.Repeat("c", 200)},
+		{Role: "user", Content: strings.Repeat("d", 200)},
+		{Role: "user", Content: strings.Repeat("e", 200)},
+	}
+	// Each padded entry costs about 4 + 50 tokens; 120 fits the last two.
+	if keep := KeepForBudget(entries, 120); keep != 2 {
+		t.Fatalf("KeepForBudget = %d, want 2", keep)
+	}
+	if start := CutForBudget(entries, 120); start != 4 {
+		t.Fatalf("CutForBudget = %d, want 4", start)
+	}
+	if got := CutForBudget(entries, 100000); got != 0 {
+		t.Fatalf("CutForBudget with a huge budget = %d, want 0 (no-op)", got)
+	}
+	if got := CutForBudget(entries, 0); got != 0 {
+		t.Fatalf("CutForBudget with zero budget = %d, want 0", got)
+	}
+}
+
+func TestCompactBudgetKeepsTokenDerivedTail(t *testing.T) {
+	dir := t.TempDir()
+	sess := newTestSession(t, dir, "compact-budget")
+	for _, text := range []string{
+		strings.Repeat("a", 200), strings.Repeat("b", 200), strings.Repeat("c", 200),
+		strings.Repeat("d", 200), strings.Repeat("e", 200),
+	} {
+		if err := sess.Append(KindUser, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := sess.CompactBudget(250); err != nil {
+		t.Fatalf("CompactBudget: %v", err)
+	}
+	messages := sess.Messages()
+	if len(messages) != 3 {
+		t.Fatalf("messages after budget compaction = %d, want 3 (summary + 2)", len(messages))
+	}
+	if messages[0].Role != "system" {
+		t.Fatalf("summary role = %q", messages[0].Role)
+	}
+	if !strings.Contains(messages[0].Content, "dropped 3 message(s)") {
+		t.Fatalf("summary missing drop count:\n%s", messages[0].Content)
+	}
+	// A compacted history that already fits the budget is a no-op.
+	before, _ := sess.Records()
+	if err := sess.CompactBudget(100000); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := sess.Records()
+	if len(after) != len(before) {
+		t.Fatalf("second budget compaction appended %d record(s)", len(after)-len(before))
+	}
+}
+
+func TestCompactBudgetRejectsNonPositiveBudget(t *testing.T) {
+	dir := t.TempDir()
+	sess := newTestSession(t, dir, "bad-budget")
+	if err := sess.CompactBudget(0); err == nil {
+		t.Fatal("CompactBudget(0) succeeded")
+	}
+}

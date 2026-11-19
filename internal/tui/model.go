@@ -2,9 +2,25 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+)
+
+// Tool output is bounded at the point it enters the model: a single read of a
+// generated file must not pin 100 MB in memory until the process exits. The
+// head+tail windows keep both the interesting start and the final lines (where
+// errors usually are). The truncation is byte- and line-aware and never cuts a
+// UTF-8 rune in half.
+const (
+	maxToolOutputBytes = 64 << 10
+	maxToolOutputLines = 2000
+
+	// markerReserve leaves room for the "[…N 字节省略…]" marker so the stored
+	// string stays under maxToolOutputBytes even after the hint is appended.
+	markerReserve = 64
 )
 
 // EntryKind classifies a transcript block.
@@ -84,11 +100,29 @@ const (
 	ActionRename
 )
 
-type bodyCache struct {
-	width    int
-	version  int
-	expanded bool
-	lines    []Line
+// entryCacheKey captures every input that changes how one transcript entry is
+// rendered. Keeping it per entry (rather than one key for the whole body) is
+// what lets a streamed delta or a tool status change repaint a single block.
+type entryCacheKey struct {
+	kind       EntryKind
+	text       string
+	name       string
+	args       string
+	output     string
+	running    bool
+	failed     bool
+	attempt    AttemptKind
+	width      int
+	expanded   bool
+	noColor    bool
+	themeEpoch int
+	locale     string
+}
+
+// entryCacheSlot is one rendered entry aligned by index with Model.entries.
+type entryCacheSlot struct {
+	key   entryCacheKey
+	lines []Line
 }
 
 // Model is the whole UI state. It owns no terminal: every method can be driven
@@ -111,10 +145,16 @@ type Model struct {
 	editor  Editor
 	stream  strings.Builder
 
-	scroll  int
-	bodyH   int
-	version int
-	cache   *bodyCache
+	scroll     int
+	bodyH      int
+	version    int
+	entryCache []entryCacheSlot
+
+	// dirty records content changes between paints. The run loop gates its
+	// repaint on it; the buffer diff remains the final authority on what is
+	// actually written to the terminal.
+	dirty      bool
+	themeEpoch int // bumped when palette/font-related state changes
 
 	status   string
 	statusAt time.Time
@@ -197,6 +237,33 @@ func New(cfg Config) *Model {
 	return m
 }
 
+// MarkDirty records that the rendered content changed and the next frame must
+// be painted. It is safe to call from any goroutine.
+func (m *Model) MarkDirty() {
+	m.mu.Lock()
+	m.markDirtyLocked()
+	m.mu.Unlock()
+}
+
+func (m *Model) markDirtyLocked() {
+	m.dirty = true
+}
+
+// Dirty reports whether content changed since the last paint.
+func (m *Model) Dirty() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.dirty
+}
+
+// ClearDirty acknowledges a paint. Most callers never need it: Paint clears
+// the flag itself.
+func (m *Model) ClearDirty() {
+	m.mu.Lock()
+	m.dirty = false
+	m.mu.Unlock()
+}
+
 // SetTheme switches the palette at runtime. Unknown names leave the current
 // theme in place and return an error wrapping ErrUnknownTheme.
 func (m *Model) SetTheme(name string) error {
@@ -258,6 +325,8 @@ func (m *Model) applyThemeLocked(name string) error {
 	m.theme = canonicalTheme(name)
 	m.palette = p
 	m.version++
+	m.themeEpoch++
+	m.markDirtyLocked()
 	return nil
 }
 
@@ -281,6 +350,7 @@ func (m *Model) SetSessions(rows []SessionInfo) {
 	m.sessions = append([]SessionInfo{}, rows...)
 	m.sessionsCursor = clampScroll(m.sessionsCursor, maxInt(len(m.sessions)-1, 0))
 	m.version++
+	m.markDirtyLocked()
 	m.mu.Unlock()
 }
 
@@ -365,6 +435,7 @@ func (m *Model) TakeSubmitted() string {
 func (m *Model) SetUsage(prompt, completion int) {
 	m.mu.Lock()
 	m.usageIn, m.usageOut = prompt, completion
+	m.markDirtyLocked()
 	m.mu.Unlock()
 }
 
@@ -372,6 +443,7 @@ func (m *Model) SetUsage(prompt, completion int) {
 func (m *Model) SetCachedTokens(cached int) {
 	m.mu.Lock()
 	m.usageCached = cached
+	m.markDirtyLocked()
 	m.mu.Unlock()
 }
 
@@ -386,6 +458,7 @@ func (m *Model) appendAttemptLocked(kind AttemptKind, detail string) {
 	m.flushStreamLocked()
 	m.entries = append(m.entries, Entry{Kind: EntryNotice, Attempt: kind, Text: detail})
 	m.version++
+	m.markDirtyLocked()
 }
 
 // SetStatus shows a transient message on the status line.
@@ -403,6 +476,7 @@ func (m *Model) Scroll(delta int) {
 }
 
 func (m *Model) scrollByLocked(delta int) {
+	m.markDirtyLocked()
 	m.scroll += delta
 	if m.scroll < 0 {
 		m.scroll = 0
@@ -439,6 +513,7 @@ func (m *Model) clampSessionScrollLocked() {
 func (m *Model) setStatusLocked(text string) {
 	m.status = text
 	m.statusAt = m.now()
+	m.markDirtyLocked()
 }
 
 // AppendUser adds a user block.
@@ -452,6 +527,7 @@ func (m *Model) appendUserLocked(text string) {
 	m.flushStreamLocked()
 	m.entries = append(m.entries, Entry{Kind: EntryUser, Text: text})
 	m.version++
+	m.markDirtyLocked()
 	m.scroll = 0
 }
 
@@ -473,9 +549,11 @@ func (m *Model) AppendReasoning(text string) {
 		m.entries = append(m.entries, Entry{Kind: EntryReasoning, Text: text})
 	}
 	m.version++
+	m.markDirtyLocked()
 }
 
-// AppendTool adds a finished or running tool call.
+// AppendTool adds a finished or running tool call. Output is bounded here, at
+// the ingress, so a single entry can never pin an unbounded string in memory.
 func (m *Model) AppendTool(name, args, output string, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -484,12 +562,107 @@ func (m *Model) AppendTool(name, args, output string, failed bool) {
 		Kind:    EntryTool,
 		Name:    name,
 		Args:    args,
-		Output:  output,
+		Output:  truncateToolOutput(output),
 		Failed:  failed,
 		Attempt: attemptFromFailed(failed),
 	})
 	m.version++
+	m.markDirtyLocked()
 	m.scroll = 0
+}
+
+// truncateToolOutput keeps a head and a tail window of output, dropping the
+// middle. Both byte and line budgets are enforced, and every cut lands on a
+// UTF-8 rune boundary so CJK text and emoji are never corrupted.
+func truncateToolOutput(output string) string {
+	if len(output) <= maxToolOutputBytes && strings.Count(output, "\n") < maxToolOutputLines {
+		return output
+	}
+	budget := maxToolOutputBytes - markerReserve
+	headBytes, tailBytes := budget/2, budget-budget/2
+	headLines, tailLines := maxToolOutputLines/2, maxToolOutputLines-maxToolOutputLines/2
+
+	// Head window: at most headBytes bytes and headLines lines.
+	headEnd := runeFloor(output, headBytes)
+	if cut := prefixLineEnd(output[:headEnd], headLines); cut < headEnd {
+		headEnd = cut
+	}
+	// Tail window: at most tailBytes bytes and tailLines lines.
+	tailStart := runeCeil(output, len(output)-tailBytes)
+	if cut := suffixLineStart(output[tailStart:], tailLines); cut > 0 {
+		tailStart += cut
+	}
+	if headEnd > tailStart {
+		mid := runeFloor(output, len(output)/2)
+		headEnd, tailStart = mid, runeCeil(output, mid)
+	}
+
+	head, tail := output[:headEnd], output[tailStart:]
+	omitted := len(output) - len(head) - len(tail)
+	marker := fmt.Sprintf("[…%d 字节省略…]", omitted)
+	return head + marker + tail
+}
+
+// runeFloor returns the greatest i <= limit that starts a UTF-8 rune.
+func runeFloor(s string, limit int) int {
+	if limit >= len(s) {
+		return len(s)
+	}
+	if limit <= 0 {
+		return 0
+	}
+	i := limit
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return i
+}
+
+// runeCeil returns the smallest i >= limit that starts a UTF-8 rune.
+func runeCeil(s string, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if limit >= len(s) {
+		return len(s)
+	}
+	i := limit
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return i
+}
+
+// prefixLineEnd returns the byte index just after the nth newline, or len(s).
+func prefixLineEnd(s string, n int) int {
+	count := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			count++
+			if count == n {
+				return i + 1
+			}
+		}
+	}
+	return len(s)
+}
+
+// suffixLineStart returns an offset into s such that the suffix covers at
+// most n lines. A newline is ASCII, so the result is always a rune boundary.
+func suffixLineStart(s string, n int) int {
+	if n <= 0 {
+		return len(s)
+	}
+	count := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '\n' {
+			count++
+			if count == n {
+				return i + 1
+			}
+		}
+	}
+	return 0
 }
 
 // AppendNotice adds a system notice.
@@ -503,6 +676,7 @@ func (m *Model) appendNoticeLocked(text string) {
 	m.flushStreamLocked()
 	m.entries = append(m.entries, Entry{Kind: EntryNotice, Text: text})
 	m.version++
+	m.markDirtyLocked()
 }
 
 // AppendStream appends assistant text as it streams in. It does not bump the
@@ -514,6 +688,7 @@ func (m *Model) AppendStream(delta string) {
 	}
 	m.mu.Lock()
 	m.stream.WriteString(delta)
+	m.markDirtyLocked()
 	m.mu.Unlock()
 }
 
@@ -529,6 +704,7 @@ func (m *Model) flushStreamLocked() {
 		m.entries = append(m.entries, Entry{Kind: EntryAssistant, Text: text, live: true})
 	}
 	m.version++
+	m.markDirtyLocked()
 }
 
 // EndTurn closes the running turn. A non-nil error becomes a notice.
@@ -544,6 +720,7 @@ func (m *Model) EndTurn(err error) {
 		m.appendNoticeLocked(errorText(m.locale, err))
 	}
 	m.version++
+	m.markDirtyLocked()
 }
 
 // HandleKey applies one keystroke and reports what the loop should do.
@@ -557,6 +734,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	if m.pending != nil {
 		return m.answerApprovalLocked(key)
 	}
+	m.markDirtyLocked()
 	switch key.Kind {
 	case KindIgnore:
 		return ActionNone
@@ -744,11 +922,14 @@ func (m *Model) commandLocked(body string) KeyAction {
 		return ActionQuit
 	case "/clear":
 		m.entries = nil
+		m.entryCache = nil
 		m.scroll = 0
 		m.version++
+		m.markDirtyLocked()
 	case "/expand":
 		m.expanded = !m.expanded
 		m.version++
+		m.markDirtyLocked()
 		if m.expanded {
 			m.setStatusLocked(text(m.locale, "expanded"))
 		} else {
@@ -820,7 +1001,7 @@ func (m *Model) Plain() string {
 		case EntryTool:
 			out.WriteString("● " + entry.Name + "(" + summarizeArgs(entry.Args) + ")\n")
 			if entry.Output != "" {
-				out.WriteString(entry.Output + "\n")
+				out.WriteString(plainOutputPreview(entry.Output))
 			}
 		case EntryNotice:
 			if entry.Attempt != "" {
@@ -828,6 +1009,42 @@ func (m *Model) Plain() string {
 			}
 			out.WriteString("! " + entry.Text + "\n")
 		}
+	}
+	return out.String()
+}
+
+// plainOutputPreview keeps the scroll-back short. The full output already
+// lives in Entry.Output for the interactive view, but dumping it on exit would
+// flood the terminal; only a bounded head is handed back here.
+func plainOutputPreview(output string) string {
+	const (
+		maxPreviewBytes = 512
+		maxPreviewLines = 3
+	)
+	var out strings.Builder
+	used, lines, truncated := 0, 0, false
+	i := 0
+	for i < len(output) && lines < maxPreviewLines && used < maxPreviewBytes {
+		end := len(output)
+		if nl := strings.IndexByte(output[i:], '\n'); nl >= 0 {
+			end = i + nl + 1
+		}
+		segment := output[i:end]
+		if len(segment) > maxPreviewBytes-used {
+			out.WriteString(segment[:runeFloor(segment, maxPreviewBytes-used)])
+			truncated = true
+			break
+		}
+		out.WriteString(segment)
+		used += len(segment)
+		lines++
+		i = end
+	}
+	if i < len(output) {
+		truncated = true
+	}
+	if truncated {
+		out.WriteString("… (output omitted)\n")
 	}
 	return out.String()
 }

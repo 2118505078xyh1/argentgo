@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -36,6 +37,17 @@ type runState struct {
 	lastText     string
 	trim         TrimOptions
 	events       []Event
+
+	// toolMeta is the in-process metadata produced by the tool runner, keyed by
+	// ToolCallID. A parallel batch writes distinct keys from worker goroutines,
+	// so access is guarded. It is never persisted: after resume the regular
+	// token-based trimming still works.
+	metaMu   sync.Mutex
+	toolMeta map[string]ToolMeta
+
+	// compactor and compactThreshold drive the mid-turn compaction boundary.
+	compactor        Compactor
+	compactThreshold int
 }
 
 // execute is the internal entry point shared by Run, RunText and Prompt.
@@ -76,6 +88,9 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 			KeepTurns:      opts.KeepTurns,
 			KeepToolTokens: opts.KeepToolTokens,
 		},
+		toolMeta:         make(map[string]ToolMeta),
+		compactor:        opts.Compactor,
+		compactThreshold: opts.CompactThreshold,
 	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
@@ -95,6 +110,29 @@ func trimTarget(opts Options) int {
 		target = max
 	}
 	return target
+}
+
+// setToolMeta records the metadata one tool call produced. The caller may be a
+// worker goroutine in a parallel batch, so writes are mutex protected.
+func (s *runState) setToolMeta(id string, meta ToolMeta) {
+	if meta == (ToolMeta{}) {
+		return
+	}
+	s.metaMu.Lock()
+	s.toolMeta[id] = meta
+	s.metaMu.Unlock()
+}
+
+// toolMetaSnapshot copies the metadata collected so far for Trim. Callers get
+// their own map, so Trim never races with a still-running batch.
+func (s *runState) toolMetaSnapshot() map[string]ToolMeta {
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
+	out := make(map[string]ToolMeta, len(s.toolMeta))
+	for id, meta := range s.toolMeta {
+		out[id] = meta
+	}
+	return out
 }
 
 // loop runs turns until the model answers without tools, a limit trips, or the
@@ -126,6 +164,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		}
 		trimOpts := s.trim
 		trimOpts.MaxTokens = target
+		trimOpts.ToolMeta = s.toolMetaSnapshot()
 		if trimmed := Trim(s.messages, trimOpts); trimmed.Pruned > 0 {
 			s.messages = trimmed.Messages
 			s.emit(Event{
@@ -210,7 +249,40 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.emit(Event{Kind: EventStop, Reason: reason})
 			return s.result(reason), nil
 		}
+
+		// A batch of tool results is the natural place to summarise: the next
+		// request is about to pay for the whole history again.
+		s.maybeCompact()
 	}
+}
+
+// maybeCompact implements the mid-turn compaction boundary. It only runs after
+// a tool batch, never between a tool call and its result. The target window is
+// the 0.8 hysteresis band minus a summary reserve, so one compaction relieves
+// pressure instead of re-triggering on the next check.
+func (s *runState) maybeCompact() {
+	if s.compactor == nil || s.compactThreshold <= 0 {
+		return
+	}
+	before := EstimateMessages(s.messages)
+	if before <= s.compactThreshold {
+		return
+	}
+	window := int(float64(s.compactThreshold)*compactionRecoveryBand) - summaryReserveTokens
+	if window < minCompactWindow {
+		window = minCompactWindow
+	}
+	compacted, changed := s.compactor.MaybeCompact(s.messages, window)
+	if !changed || len(compacted) == 0 {
+		return
+	}
+	s.messages = compacted
+	// Re-estimate now so the budget check at the top of the next iteration sees
+	// the compacted history rather than the old, oversized one.
+	s.promptTokens = EstimateMessages(s.messages)
+	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
+		"compacted context: ~%d -> ~%d tokens (target %d)", before, s.promptTokens, window,
+	)})
 }
 
 // chat issues one model request with the current model and forwards answer

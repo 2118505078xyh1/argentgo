@@ -1,10 +1,14 @@
 package memory
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestWalkUpIsNearestFirstAndStopsAtHome(t *testing.T) {
@@ -132,6 +136,142 @@ func TestLoadRejectsFiles(t *testing.T) {
 	}
 	if _, err := LoadIn(filepath.Join(root, "missing"), root, DefaultLimit); err == nil {
 		t.Fatal("expected an error for a missing root")
+	}
+}
+
+// TestHugeFileIsNotFullyRead guards the streaming read: with a small cap the
+// loader must not allocate memory proportional to a very large file.
+func TestHugeFileIsNotFullyRead(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "AGENTS.md")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const size = 32 << 20 // 32 MiB
+	chunk := bytes.Repeat([]byte("a"), 1<<20)
+	for i := 0; i < size/len(chunk); i++ {
+		if _, err := f.Write(chunk); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	docs, err := LoadIn(root, root, 128)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(docs) != 1 || !docs[0].Truncated {
+		t.Fatalf("docs = %#v, want one truncated doc", docs)
+	}
+	if got, ceiling := after.TotalAlloc-before.TotalAlloc, uint64(size/4); got >= ceiling {
+		t.Fatalf("allocated %d bytes for a %d-byte file; streaming read expected (< %d)", got, size, ceiling)
+	}
+}
+
+// TestTotalBudgetCapsCombinedText checks that many capped files cannot push an
+// unbounded amount of text into the system prompt.
+func TestTotalBudgetCapsCombinedText(t *testing.T) {
+	base := t.TempDir()
+	root := base
+	for i := 0; i < 7; i++ {
+		root = filepath.Join(root, "d"+strconv.Itoa(i))
+	}
+	var dirs []string
+	for d := root; ; d = filepath.Dir(d) {
+		dirs = append(dirs, d)
+		if d == base {
+			break
+		}
+	}
+	if len(dirs) != 8 {
+		t.Fatalf("dirs = %d, want 8", len(dirs))
+	}
+	content := strings.Repeat("x", DefaultLimit)
+	for _, d := range dirs {
+		writeFile(t, d, "AGENTS.md", content)
+	}
+
+	docs, err := LoadIn(root, base, DefaultLimit)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	total := 0
+	for _, d := range docs {
+		total += len(d.Text)
+	}
+	if total > totalBudget {
+		t.Errorf("combined text = %d bytes, budget = %d", total, totalBudget)
+	}
+	if len(docs) >= len(dirs) {
+		t.Errorf("loaded %d docs for %d files; budget should stop the walk", len(docs), len(dirs))
+	}
+	if !docs[len(docs)-1].Truncated {
+		t.Error("last doc should be marked truncated by the global budget")
+	}
+}
+
+// TestTruncationIsRuneSafe checks that clipping never splits a UTF-8 rune,
+// including CJK and emoji sequences.
+func TestTruncationIsRuneSafe(t *testing.T) {
+	cases := []struct {
+		name, content, wantPrefix string
+		limit                     int
+	}{
+		{"cjk", "你好世界" + strings.Repeat("a", 64), "你好", 7},
+		{"emoji", "ab😀cd" + strings.Repeat("a", 64), "ab", 4},
+		{"exact boundary", "abc你好" + strings.Repeat("a", 64), "abc", 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, root, "AGENTS.md", tc.content)
+			docs, err := LoadIn(root, root, tc.limit)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if len(docs) != 1 {
+				t.Fatalf("docs = %#v", docs)
+			}
+			if !docs[0].Truncated {
+				t.Fatal("want Truncated")
+			}
+			body := strings.TrimSuffix(docs[0].Text, TruncationMarker)
+			if !utf8.ValidString(body) {
+				t.Fatalf("invalid UTF-8 after truncation: %q", body)
+			}
+			if !strings.HasPrefix(body, tc.wantPrefix) {
+				t.Fatalf("body %q does not start with %q", body, tc.wantPrefix)
+			}
+		})
+	}
+}
+
+// TestNoLimitKeepsWholeFile preserves the documented LoadLimit(limit<=0)
+// single-file "no cap" semantics: the file is returned whole and unmarked.
+func TestNoLimitKeepsWholeFile(t *testing.T) {
+	root := t.TempDir()
+	content := strings.Repeat("你好😀", 2000)
+	writeFile(t, root, "AGENTS.md", content)
+	docs, err := LoadIn(root, root, 0)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("docs = %#v", docs)
+	}
+	if docs[0].Truncated {
+		t.Error("limit<=0 must not truncate")
+	}
+	if docs[0].Text != content {
+		t.Error("limit<=0 must keep the whole file")
 	}
 }
 

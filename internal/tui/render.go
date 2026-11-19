@@ -148,6 +148,7 @@ func (m *Model) Paint(buf *Buffer) {
 	m.paintInput(buf, l)
 	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil, m.palette.dim()))
 	m.paintLine(buf, l.statusY, m.statusLineLocked(width))
+	m.dirty = false
 }
 
 func (m *Model) paintLine(buf *Buffer, y int, line Line) {
@@ -337,36 +338,80 @@ func (m *Model) approvalLines(width int) []Line {
 	return out
 }
 
-// bodyLinesLocked renders the transcript and caches it until something that
-// affects the body changes.
+// entryCacheKey captures every input that can change how one entry renders.
+// Concentrating it here keeps the cache honest when a new field is added to
+// Entry: forgetting to add it to the key is a one-line fix in one place.
+func (m *Model) entryCacheKeyLocked(entry Entry, width int) entryCacheKey {
+	return entryCacheKey{
+		kind:       entry.Kind,
+		text:       entry.Text,
+		name:       entry.Name,
+		args:       entry.Args,
+		output:     entry.Output,
+		running:    entry.Running,
+		failed:     entry.Failed,
+		attempt:    entry.Attempt,
+		width:      width,
+		expanded:   m.expanded,
+		noColor:    m.noColor,
+		themeEpoch: m.themeEpoch,
+		locale:     m.locale,
+	}
+}
+
+// bodyLinesLocked renders the transcript, reusing cached lines for every
+// entry whose key is unchanged. A streamed delta therefore repaints just one
+// block, and a theme change invalidates all of them through themeEpoch.
 func (m *Model) bodyLinesLocked(width int) []Line {
 	m.flushStreamLocked()
-	if cache := m.cache; cache != nil && cache.width == width && cache.version == m.version && cache.expanded == m.expanded {
-		return cache.lines
+	if len(m.entryCache) > len(m.entries) {
+		m.entryCache = m.entryCache[:len(m.entries)]
 	}
-	lines := m.renderBodyLocked(width)
-	m.cache = &bodyCache{width: width, version: m.version, expanded: m.expanded, lines: lines}
-	return lines
+	out := make([]Line, 0, len(m.entries)*2)
+	for i, entry := range m.entries {
+		key := m.entryCacheKeyLocked(entry, width)
+		if i < len(m.entryCache) && m.entryCache[i].key == key {
+			out = append(out, m.entryCache[i].lines...)
+			continue
+		}
+		lines := m.renderEntryLocked(entry, width)
+		slot := entryCacheSlot{key: key, lines: lines}
+		if i < len(m.entryCache) {
+			m.entryCache[i] = slot
+		} else {
+			m.entryCache = append(m.entryCache, slot)
+		}
+		out = append(out, lines...)
+	}
+	return out
 }
 
 func (m *Model) renderBodyLocked(width int) []Line {
 	var out []Line
 	for _, entry := range m.entries {
-		if entry.Attempt != "" {
-			out = append(out, m.attemptLinesLocked(entry, width)...)
-		}
-		switch entry.Kind {
-		case EntryUser:
-			out = append(out, wrappedBlock(entry.Text, width, userMark, "  ", m.palette.user())...)
-		case EntryAssistant:
-			out = append(out, markdownLines(entry.Text, width, assistantMark, "  ", m.palette)...)
-		case EntryReasoning:
-			out = append(out, m.reasoningLines(entry, width)...)
-		case EntryTool:
-			out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
-		case EntryNotice:
-			out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
-		}
+		out = append(out, m.renderEntryLocked(entry, width)...)
+	}
+	return out
+}
+
+// renderEntryLocked draws exactly one transcript block, including its attempt
+// badge above it.
+func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
+	var out []Line
+	if entry.Attempt != "" {
+		out = append(out, m.attemptLinesLocked(entry, width)...)
+	}
+	switch entry.Kind {
+	case EntryUser:
+		out = append(out, wrappedBlock(entry.Text, width, userMark, "  ", m.palette.user())...)
+	case EntryAssistant:
+		out = append(out, markdownLines(entry.Text, width, assistantMark, "  ", m.palette)...)
+	case EntryReasoning:
+		out = append(out, m.reasoningLines(entry, width)...)
+	case EntryTool:
+		out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
+	case EntryNotice:
+		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
 	}
 	return out
 }

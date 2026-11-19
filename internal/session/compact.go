@@ -29,16 +29,93 @@ func (s *Session) Compact(keep int) error {
 	if len(entries) <= keep {
 		return nil
 	}
-	start := len(entries) - keep
-	// A tool result never arrives without the assistant message that called it.
-	for start > 0 && start < len(entries) && entries[start].Role == "tool" {
-		start--
-	}
-	if start == 0 {
+	start := adjustCut(entries, len(entries)-keep)
+	if start <= 0 {
 		return nil
 	}
 	compaction := Summarize(entries[:start], len(entries)-start)
 	return s.Append(KindCompaction, compaction)
+}
+
+// CompactBudget compacts the older part of the conversation so the kept suffix
+// fits an estimated token budget. The original Compact(keep) signature is
+// unchanged; this is the token-budget overload used by mid-turn compaction,
+// where a fixed message count is meaningless for variable-length tool output.
+func (s *Session) CompactBudget(budget int) error {
+	if budget <= 0 {
+		return fmt.Errorf("session: compaction budget must be > 0, got %d", budget)
+	}
+	entries := s.Messages()
+	start := CutForBudget(entries, budget)
+	if start <= 0 {
+		return nil
+	}
+	compaction := Summarize(entries[:start], len(entries)-start)
+	return s.Append(KindCompaction, compaction)
+}
+
+// CutForBudget returns the first index to keep for a conversation whose kept
+// suffix should fit budget. Zero means there is nothing worth compacting: the
+// whole history already fits, or the budget is too small to keep any pair.
+func CutForBudget(entries []Entry, budget int) int {
+	keep := KeepForBudget(entries, budget)
+	if keep <= 0 || keep >= len(entries) {
+		return 0
+	}
+	return adjustCut(entries, len(entries)-keep)
+}
+
+// KeepForBudget reports how many trailing entries fit within budget. It walks
+// from the newest entry backwards, so the most recent context survives.
+func KeepForBudget(entries []Entry, budget int) int {
+	if budget <= 0 {
+		return 0
+	}
+	total, keep := 0, 0
+	for i := len(entries) - 1; i >= 0; i-- {
+		cost := estimateEntryTokens(entries[i])
+		if total+cost > budget {
+			break
+		}
+		total += cost
+		keep++
+	}
+	return keep
+}
+
+// adjustCut extends the original tool-pair check so a cut never lands inside a
+// group of tool results: it backs up over the whole trailing run of tool
+// messages to the assistant message that issued them. The same helper is used
+// by both Compact(keep) and CompactBudget, so a budget-derived cut is as safe
+// as a fixed one.
+func adjustCut(entries []Entry, start int) int {
+	for start > 0 && start < len(entries) && entries[start].Role == "tool" {
+		start--
+	}
+	return start
+}
+
+// estimateEntryTokens is a conservative, allocation-free estimate used only
+// for compaction cuts. Wide (CJK) runes cost one token each; other runes follow
+// the usual four-chars-per-token rule.
+func estimateEntryTokens(entry Entry) int {
+	cost := 4 + estimateRunes(entry.Content) + estimateRunes(entry.Name) + estimateRunes(entry.ToolCallID)
+	cost += len(entry.Data) / 4
+	return cost
+}
+
+func estimateRunes(text string) int {
+	wide, narrow := 0, 0
+	for _, r := range text {
+		if (r >= 0x2E80 && r <= 0xA4CF) || (r >= 0xAC00 && r <= 0xD7A3) ||
+			(r >= 0xF900 && r <= 0xFAFF) || (r >= 0xFE30 && r <= 0xFE6F) ||
+			(r >= 0xFF00 && r <= 0xFF60) || (r >= 0x20000 && r <= 0x3FFFD) {
+			wide++
+		} else {
+			narrow++
+		}
+	}
+	return wide + (narrow+3)/4
 }
 
 // Summarize turns the dropped entries into a compaction payload that keeps the

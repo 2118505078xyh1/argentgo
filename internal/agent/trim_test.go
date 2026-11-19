@@ -111,6 +111,100 @@ func TestTrimDoesNothingWhenUnderBudget(t *testing.T) {
 	}
 }
 
+func TestEstimateTokensCountsWideRunesIndividually(t *testing.T) {
+	cases := []struct {
+		text string
+		want int
+	}{
+		{"你好世界", 4},                 // 4 wide runes, one token each
+		{"hello你好", 4},              // 5 narrow -> 2, plus 2 wide
+		{strings.Repeat("界", 8), 8}, // no chars/4 under-estimate for CJK
+	}
+	for _, tc := range cases {
+		if got := EstimateTokens(tc.text); got != tc.want {
+			t.Errorf("EstimateTokens(%q) = %d, want %d", tc.text, got, tc.want)
+		}
+	}
+}
+
+// metaFixture builds a conversation with an early read of a.go, a successful
+// later read of the same file and a final assistant turn.
+func metaFixture() []llm.Message {
+	big := strings.Repeat("x", 400)
+	return []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "inspect"},
+		{Role: "assistant", Content: "first", ToolCalls: []llm.ToolCall{toolCall("c1", "read", `{"path":"a.go"}`)}},
+		{Role: "tool", ToolCallID: "c1", Content: big},
+		{Role: "assistant", Content: "again", ToolCalls: []llm.ToolCall{toolCall("c2", "read", `{"path":"a.go:10"}`)}},
+		{Role: "tool", ToolCallID: "c2", Content: big},
+		{Role: "assistant", Content: "done"},
+	}
+}
+
+func TestTrimSupersedesOldRead(t *testing.T) {
+	messages := metaFixture()
+	meta := map[string]ToolMeta{
+		"c1": {SupersedeKey: "read|a.go"},
+		"c2": {SupersedeKey: "read|a.go"},
+	}
+	result := Trim(messages, TrimOptions{ToolMeta: meta})
+
+	if len(result.Messages) != len(messages) {
+		t.Fatalf("messages = %d, want %d", len(result.Messages), len(messages))
+	}
+	if got := result.Messages[3].Content; got != supersededStub {
+		t.Fatalf("old read = %q, want %q", got, supersededStub)
+	}
+	if got := result.Messages[5].Content; got == supersededStub {
+		t.Fatal("the newest read must stay verbatim")
+	}
+	if result.Pruned != 1 || result.Freed <= 0 {
+		t.Fatalf("pruned/freed = %d/%d, want 1/>0", result.Pruned, result.Freed)
+	}
+	// Pairing: every tool result still follows its assistant turn.
+	for i, msg := range result.Messages {
+		if msg.Role == "tool" && (i == 0 || result.Messages[i-1].Role != "assistant") {
+			t.Fatalf("tool result at %d is no longer paired", i)
+		}
+	}
+}
+
+func TestTrimDoesNotSupersedeOnFailedLaterRead(t *testing.T) {
+	messages := metaFixture()
+	messages[5].Content = "error: permission denied"
+	meta := map[string]ToolMeta{
+		"c1": {SupersedeKey: "read|a.go"},
+		"c2": {SupersedeKey: "read|a.go"},
+	}
+	result := Trim(messages, TrimOptions{ToolMeta: meta})
+	if got := result.Messages[3].Content; got == supersededStub {
+		t.Fatal("an error result must not supersede an older successful read")
+	}
+}
+
+func TestTrimElidesUselessResultAfterAssistant(t *testing.T) {
+	messages := []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "find"},
+		{Role: "assistant", Content: "searching", ToolCalls: []llm.ToolCall{toolCall("c1", "grep", `{}`)}},
+		{Role: "tool", ToolCallID: "c1", Content: "(no matches)"},
+		{Role: "assistant", Content: "nothing found"},
+	}
+	meta := map[string]ToolMeta{"c1": {Useless: true}}
+	result := Trim(messages, TrimOptions{ToolMeta: meta})
+	if got := result.Messages[3].Content; got != uselessStub {
+		t.Fatalf("useless result = %q, want %q", got, uselessStub)
+	}
+
+	// Without a later assistant turn the model has not consumed the result.
+	shorter := messages[:4]
+	result = Trim(shorter, TrimOptions{ToolMeta: meta})
+	if got := result.Messages[3].Content; got != "(no matches)" {
+		t.Fatalf("unconsumed result changed to %q", got)
+	}
+}
+
 func TestLoopTrimsOldToolOutput(t *testing.T) {
 	big := strings.Repeat("y", 4000)
 	tools := &fakeTools{

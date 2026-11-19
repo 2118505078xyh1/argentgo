@@ -7,14 +7,18 @@
 //
 // Each file is capped, because a real CLAUDE.md can be thousands of lines that
 // would otherwise be re-sent on every turn. Truncation is reported so the model
-// knows it can read the file for the rest.
+// knows it can read the file for the rest. Files are read incrementally (at
+// most one byte past the cap) and the combined text is bounded by totalBudget,
+// so a huge or deep tree cannot inflate the system prompt or memory use.
 package memory
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // FileNames are the instruction files read in each directory, in order.
@@ -22,6 +26,10 @@ var FileNames = []string{"AGENTS.md", "CLAUDE.md"}
 
 // DefaultLimit is the number of bytes kept from each file.
 const DefaultLimit = 8000
+
+// totalBudget caps the combined size of the text kept from all files, so a
+// deep tree cannot accumulate dozens of capped copies in the system prompt.
+const totalBudget = 32 * 1024
 
 // maxDepth stops a walk that never reaches the home directory.
 const maxDepth = 32
@@ -46,7 +54,8 @@ func Load(root string) ([]Doc, error) {
 	return LoadIn(root, home, DefaultLimit)
 }
 
-// LoadLimit is Load with a custom per-file cap. A limit <= 0 means no cap.
+// LoadLimit is Load with a custom per-file cap. A limit <= 0 means no cap: in
+// that mode neither the per-file cap nor the global total budget is applied.
 func LoadLimit(root string, limit int) ([]Doc, error) {
 	home, _ := os.UserHomeDir()
 	return LoadIn(root, home, limit)
@@ -74,6 +83,7 @@ func LoadIn(root, home string, limit int) ([]Doc, error) {
 	}
 
 	var docs []Doc
+	used := 0 // combined bytes of the text kept so far
 	current := filepath.Clean(dir)
 	samePath := func(a, b string) bool {
 		if b == "" {
@@ -85,6 +95,7 @@ func LoadIn(root, home string, limit int) ([]Doc, error) {
 		return a == b
 	}
 
+walk:
 	for depth := 0; depth < maxDepth; depth++ {
 		for _, name := range FileNames {
 			path := filepath.Join(current, name)
@@ -92,20 +103,40 @@ func LoadIn(root, home string, limit int) ([]Doc, error) {
 			if err != nil || info.IsDir() {
 				continue
 			}
-			raw, err := os.ReadFile(path)
+			body, fileTruncated, err := readInstructionFile(path, limit)
 			if err != nil {
 				continue
 			}
-			text := strings.TrimSpace(strings.TrimPrefix(string(raw), "\ufeff"))
-			if text == "" {
+			if body == "" {
 				continue
 			}
-			doc := Doc{Path: path, Text: text}
-			if limit > 0 && len(doc.Text) > limit {
-				doc.Text = strings.TrimRight(doc.Text[:limit], " \t\r\n") + TruncationMarker
-				doc.Truncated = true
+
+			budgetTruncated := false
+			if limit > 0 {
+				remaining := totalBudget - used
+				if remaining <= 0 {
+					break walk
+				}
+				if len(body) > remaining {
+					room := remaining - len(TruncationMarker)
+					if room <= 0 {
+						break walk
+					}
+					body = clipRunes(body, room)
+					budgetTruncated = true
+				}
+			}
+
+			doc := Doc{Path: path, Text: body, Truncated: fileTruncated || budgetTruncated}
+			if doc.Truncated {
+				doc.Text = strings.TrimRight(doc.Text, " \t\r\n") + TruncationMarker
 			}
 			docs = append(docs, doc)
+			used += len(doc.Text)
+
+			if budgetTruncated || used >= totalBudget {
+				break walk
+			}
 		}
 
 		if samePath(current, stop) {
@@ -118,6 +149,48 @@ func LoadIn(root, home string, limit int) ([]Doc, error) {
 		current = parent
 	}
 	return docs, nil
+}
+
+// readInstructionFile reads path and returns its trimmed text. When limit > 0
+// it reads at most limit+1 bytes: the extra byte only tells us whether the file
+// is longer, so the whole file is never loaded. The returned text is already
+// cut on a rune boundary. With limit <= 0 the entire file is read and truncated
+// is always false (the "no cap" contract of LoadLimit).
+func readInstructionFile(path string, limit int) (text string, truncated bool, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+
+	var raw []byte
+	if limit > 0 {
+		raw, err = io.ReadAll(io.LimitReader(f, int64(limit)+1))
+		if err != nil {
+			return "", false, err
+		}
+		if len(raw) > limit {
+			truncated = true
+			raw = []byte(clipRunes(string(raw), limit))
+		}
+	} else {
+		raw, err = io.ReadAll(f)
+		if err != nil {
+			return "", false, err
+		}
+	}
+	return strings.TrimSpace(strings.TrimPrefix(string(raw), "\ufeff")), truncated, nil
+}
+
+// clipRunes shortens s to at most limit bytes without splitting a UTF-8 rune.
+// The caller guarantees len(s) > limit, so s[limit] exists and is used to
+// detect a rune that was cut in half; bytes are dropped back to its start.
+func clipRunes(s string, limit int) string {
+	k := limit
+	for k > 0 && !utf8.RuneStart(s[k]) {
+		k--
+	}
+	return s[:k]
 }
 
 // Block renders docs as the block injected into the system prompt.

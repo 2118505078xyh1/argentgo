@@ -216,30 +216,102 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 		limit = 20
 	}
 	if entry.Output != "" {
-		rows := strings.Split(strings.TrimRight(entry.Output, "\n"), "\n")
+		bodyWidth := maxInt(width-2, 1)
+		rest := strings.TrimRight(entry.Output, "\n")
 		shown := 0
-		for _, row := range rows {
-			for _, segment := range Wrap(row, maxInt(width-2, 1)) {
-				if shown >= limit {
-					break
-				}
+		for rest != "" && shown < limit {
+			row := rest
+			if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+				row, rest = rest[:nl], rest[nl+1:]
+			} else {
+				rest = ""
+			}
+			// Only wrap as many segments as there are rows left. The final
+			// segment is clipped instead of wrapping an arbitrarily long row
+			// into every segment before the limit check rejects them.
+			for _, segment := range wrapLimited(row, bodyWidth, limit-shown) {
 				line := NewLine()
 				line.Push("  ", Style{})
-				line.Push(Clip(segment, maxInt(width-2, 1)), p.muted())
+				line.Push(Clip(segment, bodyWidth), p.muted())
 				out = append(out, line)
 				shown++
 			}
-			if shown >= limit {
-				break
-			}
 		}
-		if len(rows) > shown {
+		if remaining := countLines(rest); remaining > 0 {
 			line := NewLine()
 			line.Push("  ", Style{})
-			line.Push("… "+strconv.Itoa(len(rows)-shown)+" more lines", p.dim())
+			line.Push("… "+strconv.Itoa(remaining)+" more lines", p.dim())
 			out = append(out, line)
 		}
 	}
+	return out
+}
+
+// countLines counts rows without allocating the []string that strings.Split
+// would build for an oversized tool output.
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
+// wrapFirst mirrors one step of Wrap: it returns the first wrapped segment and
+// the unconsumed remainder, stopping as soon as the first break is found.
+func wrapFirst(text string, width int) (string, string) {
+	if width < 1 {
+		width = 1
+	}
+	var cur []rune
+	used, lastSpace := 0, -1
+	for pos, r := range text {
+		cell := RuneWidth(r)
+		if used+cell > width && len(cur) > 0 {
+			if lastSpace >= 1 {
+				head := strings.TrimRight(string(cur[:lastSpace]), " ")
+				tail := cur[lastSpace:]
+				for len(tail) > 0 && tail[0] == ' ' {
+					tail = tail[1:]
+				}
+				return head, string(tail) + text[pos:]
+			}
+			return string(cur), text[pos:]
+		}
+		cur = append(cur, r)
+		used += cell
+		if r == ' ' {
+			lastSpace = len(cur) - 1
+		}
+	}
+	return string(cur), ""
+}
+
+// wrapLimited wraps at most maxLines segments; the last one is clipped so a
+// single huge row costs O(maxLines*width) work, not O(row length) segments.
+func wrapLimited(text string, width, maxLines int) []string {
+	if maxLines <= 0 {
+		return nil
+	}
+	if width < 1 {
+		width = 1
+	}
+	if text == "" {
+		return []string{""}
+	}
+	var out []string
+	rest := text
+	for len(out) < maxLines-1 {
+		head, tail := wrapFirst(rest, width)
+		if head == "" && tail == "" {
+			return out
+		}
+		out = append(out, head)
+		if tail == "" {
+			return out
+		}
+		rest = tail
+	}
+	out = append(out, Clip(rest, width))
 	return out
 }
 

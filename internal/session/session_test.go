@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -380,5 +381,270 @@ func TestCompactRejectsNegativeKeep(t *testing.T) {
 	session := newTestSession(t, dir, "x")
 	if err := session.Compact(-1); err == nil {
 		t.Fatal("Compact(-1) succeeded")
+	}
+}
+
+// The in-memory index must make steady-state appends O(1) in JSON parsing: one
+// full read when it is built, none afterwards. The counting hook verifies the
+// behaviour directly instead of relying on a fragile timing threshold.
+func TestAppendRecordReusesIDIndexWithoutFullReread(t *testing.T) {
+	dir := t.TempDir()
+	session := newTestSession(t, dir, "indexed")
+
+	reads := 0
+	session.readRecordsFn = func(path string) ([]Record, error) {
+		reads++
+		return readRecords(path)
+	}
+	// newTestSession wrote the header before the hook was attached; start with
+	// a cold index so the first append below builds it through the hook.
+	session.invalidateAppendCacheAfterRewrite()
+
+	const n = 64
+	last := "n000001" // header minted by newTestSession
+	for i := 1; i <= n; i++ {
+		record, err := session.AppendRecord(KindUser, fmt.Sprintf("message %d", i))
+		if err != nil {
+			t.Fatalf("AppendRecord(%d): %v", i, err)
+		}
+		if want := fmt.Sprintf("n%06d", i+1); record.ID != want {
+			t.Fatalf("record %d id = %q, want %q", i, record.ID, want)
+		}
+		if record.Parent != last {
+			t.Fatalf("record %d parent = %q, want %q", i, record.Parent, last)
+		}
+		last = record.ID
+	}
+	if reads != 1 {
+		t.Fatalf("full reads during %d appends = %d, want 1", n, reads)
+	}
+
+	records, err := session.Records()
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	if len(records) != n+1 {
+		t.Fatalf("records = %d, want %d", len(records), n+1)
+	}
+	for i, record := range records {
+		if want := fmt.Sprintf("n%06d", i+1); record.ID != want {
+			t.Errorf("record %d id = %q, want %q", i, record.ID, want)
+		}
+		if i > 0 && record.Parent != records[i-1].ID {
+			t.Errorf("record %d parent = %q, want %q", i, record.Parent, records[i-1].ID)
+		}
+	}
+	if reads != 1 {
+		t.Fatalf("Records() must stay an explicit full read via readRecords (reads = %d)", reads)
+	}
+}
+
+func TestAppendRecordIDChainAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	session := newTestSession(t, dir, "reopen")
+	for i := 0; i < 10; i++ {
+		if err := session.Append(KindUser, fmt.Sprintf("m%d", i)); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+	last := session.Messages()[len(session.Messages())-1].ID
+
+	reopened, err := OpenSession(dir, session.ID())
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	reads := 0
+	reopened.readRecordsFn = func(path string) ([]Record, error) {
+		reads++
+		return readRecords(path)
+	}
+	for i := 1; i <= 5; i++ {
+		record, err := reopened.AppendRecord(KindAssistant, fmt.Sprintf("reply %d", i))
+		if err != nil {
+			t.Fatalf("AppendRecord after reopen: %v", err)
+		}
+		if record.Parent != last {
+			t.Fatalf("record %d parent = %q, want %q", i, record.Parent, last)
+		}
+		if want := fmt.Sprintf("n%06d", 11+i); record.ID != want {
+			t.Fatalf("record %d id = %q, want %q", i, record.ID, want)
+		}
+		last = record.ID
+	}
+	if reads != 1 {
+		t.Fatalf("full reads after reopen = %d, want 1", reads)
+	}
+}
+
+// Replacing the file (temp + rename, as a rewrite/compaction would) must make
+// the next append rebuild its index: no id may collide with the new records.
+func TestAppendRecordDetectsReplacedFile(t *testing.T) {
+	dir := t.TempDir()
+	session := newTestSession(t, dir, "replaced")
+	if err := session.Append(KindUser, "local"); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	reads := 0
+	session.readRecordsFn = func(path string) ([]Record, error) {
+		reads++
+		return readRecords(path)
+	}
+	// Warm the index through the counting hook before replacing the file.
+	session.invalidateAppendCacheAfterRewrite()
+	if _, err := session.AppendRecord(KindUser, "warm"); err != nil {
+		t.Fatalf("warm AppendRecord: %v", err)
+	}
+	if reads != 1 {
+		t.Fatalf("full reads after warm append = %d, want 1", reads)
+	}
+
+	path := session.path()
+	tmp := path + ".new"
+	writeRawSession(t, tmp, []Record{
+		{ID: "n000001", Kind: KindHeader, Data: json.RawMessage(`{"title":"external","created":"2026-01-01T00:00:00Z"}`)},
+		{ID: "n000002", Parent: "n000001", Kind: KindUser, Data: json.RawMessage(`"external a"`)},
+		{ID: "n000009", Parent: "n000002", Kind: KindUser, Data: json.RawMessage(`"external b"`)},
+	})
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove old file: %v", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("rename replacement: %v", err)
+	}
+
+	// An active id absent from the rewritten file exercises the same fallback
+	// the old full-read path used: link to the last record in file order.
+	session.active = "gone"
+	record, err := session.AppendRecord(KindAssistant, "after replacement")
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+	if reads != 2 {
+		t.Fatalf("full reads = %d, want 2 (initial build + rebuild)", reads)
+	}
+	if record.ID != "n000003" {
+		t.Errorf("id = %q, want n000003 (smallest unused id)", record.ID)
+	}
+	if record.Parent != "n000009" {
+		t.Errorf("parent = %q, want n000009", record.Parent)
+	}
+	records, err := session.Records()
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	if len(records) != 4 || records[2].ID != "n000009" || records[3].Parent != "n000009" {
+		t.Fatalf("records after replacement = %+v", records)
+	}
+}
+
+func TestAppendRecordDetectsInPlaceRewrite(t *testing.T) {
+	dir := t.TempDir()
+	session := newTestSession(t, dir, "in-place")
+	appendAll(t, session, KindUser, KindAssistant, KindUser)
+	reads := 0
+	session.readRecordsFn = func(path string) ([]Record, error) {
+		reads++
+		return readRecords(path)
+	}
+	session.invalidateAppendCacheAfterRewrite()
+	if _, err := session.AppendRecord(KindUser, "warm"); err != nil {
+		t.Fatalf("warm AppendRecord: %v", err)
+	}
+	if reads != 1 {
+		t.Fatalf("full reads after warm append = %d, want 1", reads)
+	}
+
+	// Rewrite the same inode with a shorter file; a stale index would mint an
+	// id that no longer matches the on-disk transcript.
+	writeRawSession(t, session.path(), []Record{
+		{ID: "n000001", Kind: KindHeader, Data: json.RawMessage(`{"title":"short","created":"2026-01-01T00:00:00Z"}`)},
+		{ID: "n000004", Kind: KindUser, Data: json.RawMessage(`"only record"`)},
+	})
+	record, err := session.AppendRecord(KindAssistant, "after rewrite")
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+	if reads != 2 {
+		t.Fatalf("full reads = %d, want 2", reads)
+	}
+	if record.ID != "n000002" {
+		t.Errorf("id = %q, want n000002", record.ID)
+	}
+	records, err := session.Records()
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	if len(records) != 3 || records[2].ID != "n000002" {
+		t.Fatalf("records after in-place rewrite = %+v", records)
+	}
+}
+
+func TestForkAppendContinuesIDChain(t *testing.T) {
+	dir := t.TempDir()
+	session := newTestSession(t, dir, "fork chain")
+	appendAll(t, session, KindUser, KindAssistant)
+
+	fork, err := session.Fork("n000002")
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	before, err := fork.Records()
+	if err != nil {
+		t.Fatalf("fork Records: %v", err)
+	}
+	last := before[len(before)-1].ID
+	for i := 0; i < 3; i++ {
+		wantID := nextID(before)
+		record, err := fork.AppendRecord(KindAssistant, fmt.Sprintf("forked %d", i))
+		if err != nil {
+			t.Fatalf("fork AppendRecord: %v", err)
+		}
+		if record.ID != wantID {
+			t.Fatalf("fork record id = %q, want %q", record.ID, wantID)
+		}
+		if record.Parent != last {
+			t.Fatalf("fork record parent = %q, want %q", record.Parent, last)
+		}
+		last = record.ID
+		before = append(before, record)
+	}
+	after, err := fork.Records()
+	if err != nil {
+		t.Fatalf("fork Records after append: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("fork records = %d, want %d", len(after), len(before))
+	}
+	for i := 1; i < len(after); i++ {
+		if after[i].Parent != after[i-1].ID {
+			t.Errorf("fork record %d parent = %q, want %q", i, after[i].Parent, after[i-1].ID)
+		}
+	}
+	original, err := session.Records()
+	if err != nil {
+		t.Fatalf("original Records: %v", err)
+	}
+	if len(original) != 3 {
+		t.Fatalf("original grew to %d records", len(original))
+	}
+}
+
+func TestAppendRecordPreservesUTF8Payload(t *testing.T) {
+	session := newTestSession(t, t.TempDir(), "utf8")
+	text := "你好，世界 🌍 " + strings.Repeat("很长的中文内容", 2000)
+	record, err := session.AppendRecord(KindUser, text)
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+	records, err := session.Records()
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+	last := records[len(records)-1]
+	if last.ID != record.ID {
+		t.Fatalf("id = %q, want %q", last.ID, record.ID)
+	}
+	if got := textOf(last.Data); got != text {
+		t.Fatalf("payload round trip lost %d bytes", len(text)-len(got))
 	}
 }

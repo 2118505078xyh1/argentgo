@@ -79,6 +79,36 @@ type size struct {
 	w, h int
 }
 
+// frameWriter remembers the caret position written by the previous frame. The
+// buffer already diffs rows; this adds the same diff for the cursor sequence,
+// which otherwise went out on every 50 ms tick even while the UI was idle.
+type frameWriter struct {
+	lastRow, lastCol int
+	haveCursor       bool
+}
+
+// draw paints the model, flushes the row diff and emits the caret only when
+// something actually changed. A resize passes force so the full repaint (and
+// the cursor sequence after clearScreen) still happens.
+func (fw *frameWriter) draw(m *Model, buffer *Buffer, out io.Writer, force bool) error {
+	if force || m.Dirty() {
+		m.Paint(buffer)
+	}
+	written, err := buffer.Flush(out)
+	if err != nil {
+		return err
+	}
+	row, col := m.CursorPosition(buffer.Width(), buffer.Height())
+	if written == 0 && fw.haveCursor && row == fw.lastRow && col == fw.lastCol {
+		return nil
+	}
+	if _, err := fmt.Fprint(out, showCursor+cursorTo(row, col)); err != nil {
+		return err
+	}
+	fw.lastRow, fw.lastCol, fw.haveCursor = row, col, true
+	return nil
+}
+
 // Run owns the terminal until the operator quits or ctx ends. The screen is
 // restored through a deferred cleanup, so an error, a signal or a panic all
 // leave the terminal usable.
@@ -244,23 +274,20 @@ func Run(ctx context.Context, opts Options) error {
 	ticker := time.NewTicker(frameInterval)
 	defer ticker.Stop()
 
-	draw := func() {
+	var frames frameWriter
+	draw := func(force bool) {
 		buffer.SetNoColor(model.NoColor())
-		model.Paint(buffer)
-		if _, err := buffer.Flush(out); err != nil {
-			return
-		}
-		row, col := model.CursorPosition(buffer.Width(), buffer.Height())
-		fmt.Fprint(out, showCursor+cursorTo(row, col))
+		_ = frames.draw(model, buffer, out, force)
 	}
 
-	draw()
+	draw(true)
 	if opts.OnReady != nil {
 		opts.OnReady(model)
 	}
 
 	for {
 		quit := false
+		force := false
 		select {
 		case chunk := <-chunks:
 			quit = handleKeys(decoder.Feed(chunk))
@@ -297,22 +324,29 @@ func Run(ctx context.Context, opts Options) error {
 					drained = true
 				}
 			}
+			// HandleEvent may mutate an existing entry in place (for instance
+			// flipping Failed on a tool row); the loop owns the dirty signal.
+			model.MarkDirty()
 		case next := <-resizes:
 			buffer.Resize(next.w, next.h)
 			buffer.Invalidate()
 			fmt.Fprint(out, clearScreen)
+			force = true
 		case <-ticker.C:
 			if keys := decoder.FlushEscape(); len(keys) > 0 {
 				quit = handleKeys(keys)
 			}
 			model.Tick()
+			// The header clock and the working spinner are derived from the
+			// current time, so every tick is a potential visual change.
+			model.MarkDirty()
 		case <-runCtx.Done():
 			quit = true
 		}
 		if quit {
 			break
 		}
-		draw()
+		draw(force)
 	}
 
 	if cancelTurn != nil {
