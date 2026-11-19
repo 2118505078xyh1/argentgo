@@ -46,8 +46,12 @@ func (r *Registry) PromoteFromTimeout(command string, live LiveProcess, logPath 
 		live:      live,
 	}
 
+	// Separate storage for the returned value and the registry's pointer:
+	// watchLive mutates the registry copy under mu while the caller reads the
+	// returned Job. Aliasing them (storing &job) is a data race.
+	stored := job
 	r.mu.Lock()
-	r.jobs[id] = &job
+	r.jobs[id] = &stored
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
 
