@@ -13,6 +13,13 @@ func (s *Session) Records() ([]Record, error) {
 	return readRecords(s.path())
 }
 
+// ReadPage returns one byte-bounded page of records from this session's file.
+// It is a lenient read API: malformed lines are skipped and the cursor is
+// resolved by scanning the file, without modifying the transcript.
+func (s *Session) ReadPage(afterID string, maxBytes int, fromEnd bool) (Page, error) {
+	return ReadPage(s.path(), afterID, maxBytes, fromEnd)
+}
+
 // Messages returns the linear conversation on the active branch. The latest
 // compaction record replaces everything before it with one system summary.
 func (s *Session) Messages() []Entry {

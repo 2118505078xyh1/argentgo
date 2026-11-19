@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 const (
@@ -236,6 +238,9 @@ type callResult struct {
 	output   string
 	isError  bool
 	duration time.Duration
+	// intent is the concise `i` string stripped from the call's arguments
+	// before the tool ran. It is surfaced on the tool_end event.
+	intent string
 }
 
 // invoke gates and runs a single call. A tool error becomes an error result for
@@ -282,21 +287,29 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	})
 	defer gate.close()
 
-	output, meta, err := s.callTool(ctx, call.Function.Name, call.Function.Arguments)
+	// Strip the model's concise intent before the tool sees its arguments. With
+	// no `i` present the cleaned bytes equal the original, so behaviour is
+	// unchanged for every existing tool call.
+	intent, cleaned := tools.ExtractIntent(json.RawMessage(call.Function.Arguments))
+	output, meta, err := s.callTool(ctx, call.Function.Name, string(cleaned))
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
-		return callResult{output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
+		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
 	}
-	return callResult{output: output, duration: time.Since(start)}
+	return callResult{intent: intent, output: output, duration: time.Since(start)}
 }
 
 func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
+	// The start event is emitted before the tool runs, so no callResult exists
+	// yet; read the intent straight from the call's arguments.
+	intent, _ := tools.ExtractIntent(json.RawMessage(call.Function.Arguments))
 	s.emit(Event{
 		Kind:       EventToolStart,
 		Turn:       turn,
 		ToolCallID: call.ID,
 		ToolName:   call.Function.Name,
 		Args:       call.Function.Arguments,
+		Intent:     intent,
 	})
 }
 
@@ -307,6 +320,7 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 		ToolCallID: call.ID,
 		ToolName:   call.Function.Name,
 		Args:       call.Function.Arguments,
+		Intent:     res.intent,
 		Output:     res.output,
 		IsError:    res.isError,
 		DurationMS: res.duration.Milliseconds(),

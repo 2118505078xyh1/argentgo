@@ -49,6 +49,10 @@ type Event struct {
 	ToolCallID string
 	ToolName   string
 	Args       string
+	// Intent is the concise `i` string the model attached to a tool call. It
+	// is populated on tool_start / tool_end so a verbose or malformed call can
+	// be explained after the fact; it stays empty for every other event kind.
+	Intent     string
 	Output     string
 	IsError    bool
 	DurationMS int64
