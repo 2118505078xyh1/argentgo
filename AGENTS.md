@@ -14,7 +14,7 @@ Messages. UI strings are zh-CN and en-US, embedded in the binary.
 
 ## Toolchain
 
-Go 1.27, Windows host, Git Bash for shell work. The toolchain is not
+Go 1.27. Windows host; use PowerShell. The toolchain lives at
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
@@ -107,8 +107,8 @@ ui/                 SolidJS frontend
 
 ## Do not
 
-- Never commit `argent.exe`, `ui/node_modules`, `ui/dist` build output produced
-  by a local build (the placeholder `internal/gui/dist/index.html` is the
-  exception, it keeps `go:embed` compiling).
+- Never commit `argent.exe` or `ui/node_modules`. `internal/gui/dist` **is**
+  committed because `go:embed` needs it at build time; regenerate it with
+  `scripts/build-ui.ps1` after changing `ui/`.
 - Do not edit `docs/PARITY.md` statuses without running the corresponding test.
 - Do not add a dependency to save 30 lines of code.

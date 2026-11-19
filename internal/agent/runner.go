@@ -73,7 +73,16 @@ func (f RecorderFunc) Append(kind string, payload any) error {
 
 // Options configures one Runner.
 type Options struct {
-	Model       string
+	// Model is the primary model when FallbackModels is empty. For API
+	// compatibility the legacy field is honoured as-is; setting
+	// FallbackModels takes precedence, with its first entry as the primary.
+	Model string
+	// FallbackModels is an ordered model list: entry 0 is the primary and the
+	// rest are tried in sequence when the current model fails in a retryable
+	// way (HTTP 429/5xx, rate limiting or a network error). Empty means no
+	// fallback, preserving the pre-wave-4 single-model behaviour.
+	FallbackModels []string
+
 	MaxTurns    int // 0 falls back to Budget.MaxTurns, then DefaultMaxTurns
 	MaxParallel int // <=1 (default) runs tool batches sequentially
 	System      string

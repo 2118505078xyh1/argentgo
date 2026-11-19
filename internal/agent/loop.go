@@ -141,7 +141,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		turn := s.turns
 		promptEstimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
 		s.emit(Event{Kind: EventTurnStart, Turn: turn})
-		reply, err := s.chat(ctx, turn)
+		reply, err := s.chatWithFallback(ctx, turn)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				s.emit(Event{Kind: EventStop, Reason: StopCancelled})
@@ -208,15 +208,19 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 	}
 }
 
-// chat issues one model request and forwards answer deltas as they stream.
-func (s *runState) chat(ctx context.Context, turn int) (llm.Message, error) {
+// chat issues one model request with the current model and forwards answer
+// deltas to onText. Emission is left to the caller so a failed attempt can be
+// retried without leaking partial text into the operator's stream.
+func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, error) {
 	var streamed strings.Builder
 	reply, err := s.opts.Chatter.Chat(ctx, s.model, s.messages, s.specs, func(delta string) {
 		if delta == "" {
 			return
 		}
 		streamed.WriteString(delta)
-		s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
+		if onText != nil {
+			onText(delta)
+		}
 	})
 	if err != nil {
 		return llm.Message{}, err

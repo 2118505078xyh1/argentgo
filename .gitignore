@@ -2,4 +2,7 @@ argent.exe
 argent-go.exe
 /argent
 dist/
+!internal/gui/dist/
+!internal/gui/dist/**
+ui/node_modules/
 *.log

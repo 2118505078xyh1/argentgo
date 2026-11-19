@@ -25,6 +25,9 @@ Do only the work the task asks for, using the tools you have. Do not ask questio
 
 // SubagentConfig enables the built-in `task` tool.
 type SubagentConfig struct {
+	// Model, when set, is the child loop's model (e.g. --secondary-model).
+	// The parent's model is never changed. Empty inherits the parent's model.
+	Model string
 	// AllowedTools restricts the child's tool set. Empty inherits the parent's
 	// tools (the child still cannot recurse past MaxDepth).
 	AllowedTools []string
@@ -195,8 +198,12 @@ func (t *taskTools) childOptions(label string) Options {
 		}
 	}
 
+	model := strings.TrimSpace(t.cfg.Model)
+	if model == "" {
+		model = t.parent.Model
+	}
 	return Options{
-		Model:            t.parent.Model,
+		Model:            model,
 		MaxTurns:         budget.MaxTurns,
 		MaxParallel:      t.parent.MaxParallel,
 		System:           system,

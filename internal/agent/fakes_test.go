@@ -13,6 +13,7 @@ import (
 type fakeChatter struct {
 	mu       sync.Mutex
 	requests int
+	models   []string
 	seen     [][]llm.Message
 	toolSets [][]llm.ToolSpec
 	fn       func(n int, messages []llm.Message, tools []llm.ToolSpec, onText func(string)) (llm.Message, error)
@@ -28,6 +29,7 @@ func (f *fakeChatter) Chat(
 	f.mu.Lock()
 	f.requests++
 	n := f.requests
+	f.models = append(f.models, model)
 	f.seen = append(f.seen, append([]llm.Message(nil), messages...))
 	f.toolSets = append(f.toolSets, append([]llm.ToolSpec(nil), tools...))
 	f.mu.Unlock()
@@ -38,6 +40,12 @@ func (f *fakeChatter) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.requests
+}
+
+func (f *fakeChatter) modelsSeen() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.models...)
 }
 
 func (f *fakeChatter) requestsSeen() [][]llm.Message {
