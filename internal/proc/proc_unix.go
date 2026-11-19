@@ -43,6 +43,13 @@ func (p *platformProcess) killTree() {
 
 func (p *platformProcess) close() {}
 
+// configureDetached puts the child in its own session so it survives the shell
+// that launched it and can still be killed as a group.
+func configureDetached(cmd *exec.Cmd, noWindow bool) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = noWindow
+}
+
 // shellCandidates lists the POSIX shells worth probing, best first.
 func shellCandidates() []string {
 	var out []string

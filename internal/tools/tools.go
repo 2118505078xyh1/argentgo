@@ -4,6 +4,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/2118505078xyh1/argent-go/internal/jobs"
 	"github.com/2118505078xyh1/argent-go/internal/llm"
+	"github.com/2118505078xyh1/argent-go/internal/proc"
 )
 
 const (
@@ -44,6 +47,7 @@ type Registry struct {
 	yolo       bool
 	maxOutput  int
 	sessionDir string
+	jobs       *jobs.Registry
 	guard      Guard
 	tools      map[string]Tool
 	order      []string
@@ -87,6 +91,13 @@ func (r *Registry) SetSessionDir(dir string) {
 	r.sessionDir = dir
 }
 
+// SetJobs installs the background-job registry used by the bash tool when a
+// command supplies background_after_ms. Without it that argument is ignored
+// and the command keeps the usual kill-on-timeout behaviour.
+func (r *Registry) SetJobs(j *jobs.Registry) {
+	r.jobs = j
+}
+
 // Names returns the registered tool names in registration order.
 func (r *Registry) Names() []string {
 	names := make([]string, len(r.order))
@@ -127,6 +138,9 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	ctx = context.WithValue(ctx, outputLimitKey{}, r.maxOutput)
 	if r.sessionDir != "" {
 		ctx = context.WithValue(ctx, sessionDirKey{}, r.sessionDir)
+	}
+	if r.jobs != nil {
+		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
 	}
 	return tool.Run(ctx, r.root, raw)
 }
@@ -172,6 +186,9 @@ type outputLimitKey struct{}
 // sessionDirKey carries the session directory used by state tools.
 type sessionDirKey struct{}
 
+// jobsKey carries the background-job registry used by the bash tool.
+type jobsKey struct{}
+
 func outputLimit(ctx context.Context) int {
 	if limit, ok := ctx.Value(outputLimitKey{}).(int); ok && limit > 0 {
 		return limit
@@ -184,6 +201,13 @@ func sessionDir(ctx context.Context, root string) string {
 		return dir
 	}
 	return filepath.Join(root, ".argent")
+}
+
+func jobRegistry(ctx context.Context) *jobs.Registry {
+	if registry, ok := ctx.Value(jobsKey{}).(*jobs.Registry); ok {
+		return registry
+	}
+	return nil
 }
 
 func clip(ctx context.Context, text string) string {
@@ -328,12 +352,15 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		return "", err
 	}
 	text := string(data)
-	switch strings.Count(text, args.Old) {
+	count := strings.Count(text, args.Old)
+	switch count {
 	case 0:
 		return "", fmt.Errorf("edit: old text not found in %s", args.Path)
 	case 1:
 	default:
-		return "", fmt.Errorf("edit: old text is not unique in %s", args.Path)
+		// The count phrase matches the frozen Rust build's tool error, which
+		// the eval suite asserts on; the rest explains what the model must do.
+		return "", fmt.Errorf("edit: old text appears %d times in %s (not unique); a unique match is required", count, args.Path)
 	}
 	if err := os.WriteFile(path, []byte(strings.Replace(text, args.Old, args.New, 1)), 0o644); err != nil {
 		return "", err
@@ -349,13 +376,14 @@ func (bashTool) Name() string        { return "bash" }
 func (bashTool) Description() string { return "Run a shell command in the workspace root." }
 func (bashTool) Mutating() bool      { return true }
 func (bashTool) Schema() string {
-	return `{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer"}},"required":["command"]}`
+	return `{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer"},"background_after_ms":{"type":"integer","description":"If the command is still running after this many milliseconds, promote it to a background job instead of killing it on timeout."}},"required":["command"]}`
 }
 
 func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Command        string `json:"command"`
-		TimeoutSeconds int    `json:"timeout_seconds"`
+		Command           string `json:"command"`
+		TimeoutSeconds    int    `json:"timeout_seconds"`
+		BackgroundAfterMS int    `json:"background_after_ms"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("bash: bad arguments: %w", err)
@@ -367,19 +395,20 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if args.TimeoutSeconds > 0 {
 		timeout = time.Duration(args.TimeoutSeconds) * time.Second
 	}
+	path, argv := shellInvocation(args.Command)
+
+	// Promotion is opt-in and needs somewhere to record the job. Without a
+	// registry (or the argument), keep the original hard-kill behaviour.
+	if args.BackgroundAfterMS > 0 {
+		if registry := jobRegistry(ctx); registry != nil {
+			return runPromotableBash(ctx, root, registry, args.Command, path, argv,
+				timeout, time.Duration(args.BackgroundAfterMS)*time.Millisecond)
+		}
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("bash"); err == nil {
-			cmd = exec.CommandContext(runCtx, "bash", "-lc", args.Command)
-		} else {
-			cmd = exec.CommandContext(runCtx, "cmd", "/c", args.Command)
-		}
-	} else {
-		cmd = exec.CommandContext(runCtx, "sh", "-lc", args.Command)
-	}
+	cmd := exec.CommandContext(runCtx, path, argv...)
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
 	text := clip(ctx, string(output))
@@ -389,6 +418,76 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err != nil {
 		return text, fmt.Errorf("bash: %w", err)
 	}
+	if strings.TrimSpace(text) == "" {
+		return "(no output)", nil
+	}
+	return text, nil
+}
+
+// shellInvocation returns the program and leading arguments that execute a
+// command line. It is shared by the hard-timeout and promotable paths so a
+// command is spelled the same way in both.
+func shellInvocation(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("bash"); err == nil {
+			return "bash", []string{"-lc", command}
+		}
+		return "cmd", []string{"/c", command}
+	}
+	return "sh", []string{"-lc", command}
+}
+
+// runPromotableBash waits at most backgroundAfter for the command. On that
+// deadline the still-running child is handed to the jobs registry; the model
+// gets a normal tool result with the job id, so the turn is never blocked.
+func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry,
+	command, path string, argv []string, hardTimeout, backgroundAfter time.Duration) (string, error) {
+	// The caller's context and the hard timeout still bound the whole call; the
+	// soft deadline is what turns a slow child into a job.
+	runCtx, cancel := context.WithTimeout(ctx, hardTimeout)
+	defer cancel()
+
+	res, live, err := proc.RunWithTimeout(runCtx, proc.Command{
+		Path:          path,
+		Args:          argv,
+		Dir:           root,
+		Timeout:       backgroundAfter,
+		KeepOnTimeout: true,
+		NoWindow:      runtime.GOOS == "windows",
+	})
+
+	var timeoutErr *proc.TimeoutError
+	if errors.As(err, &timeoutErr) && live != nil {
+		logFile, fileErr := os.CreateTemp("", "argent-job-*.log")
+		if fileErr != nil {
+			live.Kill()
+			return "", fmt.Errorf("bash: create job log: %w", fileErr)
+		}
+		logPath := logFile.Name()
+		// Flush what was captured before the timeout and send the rest of the
+		// child's output straight to the log the job will tail.
+		live.SetOutput(logFile)
+		// The job watcher reads the same Done channel; once it closes, every
+		// write to the log is finished and the file can be released.
+		go func() { <-live.Done(); _ = logFile.Close() }()
+
+		job, jobErr := registry.PromoteFromTimeout(command, live, logPath)
+		if jobErr != nil {
+			live.Kill()
+			return "", fmt.Errorf("bash: promote job: %w", jobErr)
+		}
+		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argent jobs` (output: `argent jobs tail %s`).",
+			job.ID, job.PID, command, job.ID)
+		if partial := strings.TrimSpace(res.Combined()); partial != "" {
+			out += "\nOutput so far:\n" + clip(ctx, partial)
+		}
+		return out, nil
+	}
+
+	if err != nil {
+		return clip(ctx, res.Combined()), fmt.Errorf("bash: %w", err)
+	}
+	text := clip(ctx, res.Combined())
 	if strings.TrimSpace(text) == "" {
 		return "(no output)", nil
 	}

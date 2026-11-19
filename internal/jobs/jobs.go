@@ -56,6 +56,10 @@ type Job struct {
 	ExitCode int    `json:"exitCode"`
 	LogPath  string `json:"logPath"`
 	PID      int    `json:"pid"`
+
+	// live is set on promoted jobs so Stop can signal the exact child instead
+	// of relying only on a pid that an injected fake may not really own.
+	live LiveProcess `json:"-"`
 }
 
 // Running reports whether the job is still going.
@@ -253,10 +257,15 @@ func (r *Registry) Stop(id string) error {
 	}
 	job.Status = StatusKilled
 	pid := job.PID
+	live := job.live
 	_ = r.saveLocked()
 	r.mu.Unlock()
 
-	killTree(pid)
+	if live != nil {
+		live.Kill()
+	} else {
+		killTree(pid)
+	}
 	return nil
 }
 
@@ -279,13 +288,18 @@ func (r *Registry) Remove(id string) error {
 	}
 	running := job.Status == StatusRunning
 	pid := job.PID
+	live := job.live
 	logPath := job.LogPath
 	delete(r.jobs, id)
 	_ = r.saveLocked()
 	r.mu.Unlock()
 
 	if running {
-		killTree(pid)
+		if live != nil {
+			live.Kill()
+		} else {
+			killTree(pid)
+		}
 	}
 	if logPath != "" {
 		if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
@@ -328,6 +342,10 @@ func (r *Registry) refreshLocked() bool {
 	changed := false
 	for _, job := range r.jobs {
 		if job.Status != StatusRunning {
+			continue
+		}
+		// Promoted jobs are watched through their live handle, not a raw pid.
+		if job.live != nil {
 			continue
 		}
 		if alive(job.PID) {

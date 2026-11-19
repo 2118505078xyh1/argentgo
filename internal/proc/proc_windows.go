@@ -14,6 +14,7 @@ import (
 const (
 	createNoWindow        = 0x0800_0000
 	createNewProcessGroup = 0x0000_0200
+	detachedProcess       = 0x0000_0008
 
 	processSetQuota   = 0x0100
 	processTerminate  = 0x0001
@@ -124,6 +125,16 @@ func (p *platformProcess) close() {
 		syscall.CloseHandle(p.job)
 		p.job = 0
 	}
+}
+
+// configureDetached gives the child its own process group and no console, so
+// closing the launching terminal does not take it down.
+func configureDetached(cmd *exec.Cmd, noWindow bool) {
+	flags := uint32(detachedProcess | createNewProcessGroup)
+	if noWindow {
+		flags |= createNoWindow
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
 }
 
 func createJob() (syscall.Handle, error) {

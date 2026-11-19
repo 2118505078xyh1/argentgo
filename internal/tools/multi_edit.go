@@ -50,12 +50,14 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 		if edit.Old == "" {
 			return "", fmt.Errorf("multi_edit: edit %d has an empty old text", i+1)
 		}
-		switch strings.Count(text, edit.Old) {
+		count := strings.Count(text, edit.Old)
+		switch count {
 		case 0:
 			return "", fmt.Errorf("multi_edit: edit %d: old text not found in %s", i+1, args.Path)
 		case 1:
 		default:
-			return "", fmt.Errorf("multi_edit: edit %d: old text is not unique in %s", i+1, args.Path)
+			// Keep the Rust-compatible count phrase for the eval suite.
+			return "", fmt.Errorf("multi_edit: edit %d: old text appears %d times in %s (not unique); a unique match is required", i+1, count, args.Path)
 		}
 		text = strings.Replace(text, edit.Old, edit.New, 1)
 	}

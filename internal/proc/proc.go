@@ -46,6 +46,10 @@ type Command struct {
 	Timeout time.Duration
 	// KillTree kills the child's descendants along with the child.
 	KillTree bool
+	// KeepOnTimeout leaves a timed-out child running in its own session instead
+	// of killing it. Only RunWithTimeout honours this; the returned
+	// *TimeoutError.Live is the still-running child the caller must adopt.
+	KeepOnTimeout bool
 	// NoWindow hides the console window the child would otherwise open.
 	// Windows only; ignored elsewhere.
 	NoWindow bool
