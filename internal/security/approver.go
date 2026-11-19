@@ -21,6 +21,11 @@ type PromptApprover struct {
 	Out io.Writer
 
 	mu sync.Mutex
+	// readMu serialises the actual reads from In. A cancelled Ask leaves its
+	// reader goroutine parked in readLine; without this lock a later Ask would
+	// spawn a second concurrent reader and the leaked one could swallow the
+	// next answer line. The leaked goroutine keeps readMu until its read ends.
+	readMu sync.Mutex
 }
 
 // NewPromptApprover wires the prompt to a reader and writer.
@@ -56,12 +61,15 @@ func (p *PromptApprover) Ask(ctx context.Context, name string, args string) (boo
 	// readLine can block forever on an interactive stdin read. Running it in a
 	// goroutine lets ctx.Done() win the race. If cancellation wins, the
 	// goroutine stays blocked on that single read until stdin delivers a line
-	// or closes; for a CLI this brief leak is acceptable because a cancelled
-	// run is already ending. The result channel is buffered so the goroutine
+	// or closes. Holding readMu inside that goroutine makes the leak safe: a
+	// later Ask's reader waits for readMu instead of reading concurrently and
+	// stealing the next answer. The result channel is buffered so the goroutine
 	// can always finish without a receiver.
 	results := make(chan lineResult, 1)
 	go func() {
+		p.readMu.Lock()
 		line, err := readLine(p.In)
+		p.readMu.Unlock()
 		results <- lineResult{line: line, err: err}
 	}()
 

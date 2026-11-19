@@ -92,7 +92,7 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	state := newRunState(opts, prompt, emit)
 	res, err := state.loop(ctx)
 	if state.opts.OnCompactionEvidence != nil {
-		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.events, res.Messages))
+		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
 	return res, err
 }
@@ -556,6 +556,14 @@ func (s *runState) emit(event Event) {
 	s.emitDelivered++
 	s.emitCond.Broadcast()
 	s.emitSendMu.Unlock()
+}
+
+// eventsSnapshot copies the recorded events under eventsMu. Callers get their
+// own slice, so a later append by a worker cannot mutate what they observe.
+func (s *runState) eventsSnapshot() []Event {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	return append([]Event(nil), s.events...)
 }
 
 // record persists one transcript entry. A recorder failure never stops the run.
