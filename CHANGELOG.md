@@ -2,7 +2,7 @@
 
 ## v0.5.0 — 2026-11-20
 
-Five rounds of study-and-harden cycles against opencode, DeepSeek Harness,
+Six rounds of study-and-harden cycles against opencode, DeepSeek Harness,
 pi (rpi) and oh-my-pi (omp). All changes are stdlib-only Go; the desktop shell
 remains MyGo. Highlights:
 
@@ -35,6 +35,11 @@ remains MyGo. Highlights:
 
 **Prompt cache**
 - Conversation-tail cache breakpoint with validated TTL tiers.
+
+**Concurrency & CI**
+- Fixed a cancelled-approval reader leak that could swallow the next prompt.
+- Defensive event-slice snapshot before compaction-evidence collection.
+- CI race gate moved to ubuntu-latest (reliable gcc); removed the stale web-UI job.
 
 ## v0.4.0 — 2026-11-19
 
