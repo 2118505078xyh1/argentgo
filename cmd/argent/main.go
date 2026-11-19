@@ -13,13 +13,16 @@ func main() {
 	stdio := cli.OSIO()
 	storage := app.DefaultStorage(stdio.Env)
 	code := cli.RunWith(cli.App{
-		IO:         stdio,
-		Version:    cli.Version,
-		NewRunner:  app.Factory(stdio),
-		Sessions:   app.Sessions(storage),
-		Eval:       app.NewEvaler(stdio),
-		ConfigPath: filepath.Join(storage, "config.json"),
-		StorageDir: storage,
+		IO:          stdio,
+		Version:     cli.Version,
+		NewRunner:   app.Factory(stdio),
+		Sessions:    app.Sessions(storage),
+		Eval:        app.NewEvaler(stdio),
+		TUI:         app.TUI(stdio),
+		Profiles:    func(opts cli.Options) ([]string, string, error) { return app.ListProfiles(stdio, opts) },
+		TokenReport: func(opts cli.Options) (string, error) { return app.TokenReport(stdio, opts) },
+		ConfigPath:  filepath.Join(storage, "config.json"),
+		StorageDir:  storage,
 	}, os.Args[1:])
 	os.Exit(code)
 }

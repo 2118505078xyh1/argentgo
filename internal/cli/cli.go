@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/2118505078xyh1/argent-go/internal/server"
@@ -64,15 +65,28 @@ type EvalRunner interface {
 	RunScenario(ctx context.Context, prompt string) (EvalReport, error)
 }
 
+// TUIFunc runs the full-screen terminal UI for one set of resolved options.
+type TUIFunc func(ctx context.Context, opts Options) error
+
+// ProfileLister reports the profile names visible to a workspace and the one
+// currently selected.
+type ProfileLister func(opts Options) (names []string, active string, err error)
+
+// TokenReporter renders the request payload breakdown printed by --tokens.
+type TokenReporter func(opts Options) (string, error)
+
 // App bundles the injected dependencies of the command layer.
 type App struct {
-	IO         IO
-	Version    string
-	NewRunner  RunnerFactory
-	Sessions   SessionStore
-	Eval       EvalRunner
-	ConfigPath string
-	StorageDir string
+	IO          IO
+	Version     string
+	NewRunner   RunnerFactory
+	Sessions    SessionStore
+	Eval        EvalRunner
+	TUI         TUIFunc
+	Profiles    ProfileLister
+	TokenReport TokenReporter
+	ConfigPath  string
+	StorageDir  string
 }
 
 // Run executes the CLI and returns the process exit code.
@@ -95,13 +109,46 @@ func RunWith(app App, args []string) int {
 }
 
 var subcommands = map[string]func(App, context.Context, []string) int{
-	"sessions": runSessions,
-	"doctor":   runDoctor,
-	"login":    runLogin,
-	"eval":     runEval,
-	"config":   runConfig,
-	"help":     runHelp,
-	"version":  runVersion,
+	"sessions":   runSessions,
+	"replay":     runReplay,
+	"usage":      runUsage,
+	"doctor":     runDoctor,
+	"login":      runLogin,
+	"logout":     runLogout,
+	"auth":       runAuth,
+	"models":     runModels,
+	"mcp":        runMCP,
+	"skills":     runSkills,
+	"commands":   runCommands,
+	"hooks":      runHooks,
+	"policy":     runPolicy,
+	"audit":      runAudit,
+	"update":     runUpdate,
+	"completion": runCompletion,
+	"tui":        runTUI,
+	"bug":        runBug,
+	"eval":       runEval,
+	"config":     runConfig,
+	"help":       runHelp,
+	"version":    runVersion,
+}
+
+// subcommandOrder mirrors the dispatch map. It exists so completion does not
+// reference the map at package initialisation (which would be an import cycle
+// through runCompletion); parity_test asserts the two stay identical.
+var subcommandOrder = []string{
+	"sessions", "replay", "usage", "doctor", "login", "logout", "auth",
+	"models", "mcp", "skills", "commands", "hooks", "policy", "audit",
+	"update", "completion", "tui", "bug", "eval", "config", "help", "version",
+}
+
+// subcommandNames lists every dispatched command, sorted. Completion reads it
+// and the parity test cross-checks it against the dispatch map, so the two
+// cannot drift.
+func subcommandNames() []string {
+	names := append([]string(nil), subcommandOrder...)
+	sort.Strings(names)
+	return names
 }
 
 func runHelp(app App, _ context.Context, _ []string) int {
@@ -138,6 +185,26 @@ func (a App) runMain(ctx context.Context, args []string) int {
 		fmt.Fprintf(a.IO.Out, "argent-go %s\n", a.Version)
 		return 0
 	}
+	if opts.ListProfiles {
+		return a.listProfiles(*opts)
+	}
+	if opts.ListModels {
+		return runModels(a, ctx, nil)
+	}
+	if opts.ListSessions {
+		return sessionsList(a, a.sessionStore())
+	}
+	if opts.Tokens {
+		return a.printTokens(*opts)
+	}
+	if reason := unsupportedFlag(opts); reason != "" {
+		fmt.Fprintln(a.IO.Err, "argent:", reason)
+		return 1
+	}
+	if opts.TUI {
+		return a.runTUI(ctx, opts)
+	}
+	a.warnPartial(opts)
 
 	root := opts.Cwd
 	if root == "" {

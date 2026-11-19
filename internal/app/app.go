@@ -8,11 +8,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/2118505078xyh1/argent-go/internal/agent"
 	"github.com/2118505078xyh1/argent-go/internal/cli"
@@ -23,7 +25,6 @@ import (
 	"github.com/2118505078xyh1/argent-go/internal/security"
 	"github.com/2118505078xyh1/argent-go/internal/session"
 	"github.com/2118505078xyh1/argent-go/internal/skills"
-	"github.com/2118505078xyh1/argent-go/internal/tools"
 )
 
 // DefaultStorage returns the storage root: $ARGENT_STORAGE, else ~/.argent-go.
@@ -71,17 +72,40 @@ type Resolved struct {
 	Options  cli.Options
 	Cfg      config.Config
 	Root     string
+	Home     string
 	Storage  string
 	Model    string
+	Provider string
+	Profile  string
 	BaseURL  string
 	APIKey   string
 	Protocol string
+	Locale   string
 	Sandbox  security.SandboxMode
 	Approval string
 	MaxTurns int
 	Mutating bool
 	System   string
-	Chatter  llm.Chatter
+
+	// Budget and pricing.
+	MaxTokens  int
+	MaxCostUSD float64
+	MaxSeconds int
+	Prices     map[string]agent.Price
+
+	// Extra workspace directories, an output schema request and the reasoning
+	// effort hint.
+	AddDirs      []string
+	OutputSchema string
+	Thinking     string
+	TrustProject bool
+	Plugins      []string
+
+	// Approve overrides the interactive approver; the TUI installs a modal
+	// approver here.
+	Approve security.Approver
+
+	Chatter llm.Chatter
 }
 
 // Resolve merges the CLI options over the layered configuration.
@@ -90,6 +114,19 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	if env == nil {
 		env = os.Getenv
 	}
+	// config selects a profile through ARGENT_PROFILE, so a --profile flag is
+	// injected there rather than duplicated in this package.
+	profileEnv := env
+	if profile := strings.TrimSpace(opts.Profile); profile != "" {
+		base := env
+		profileEnv = func(key string) string {
+			if key == "ARGENT_PROFILE" {
+				return profile
+			}
+			return base(key)
+		}
+	}
+
 	root := strings.TrimSpace(opts.Cwd)
 	if root == "" {
 		cwd, err := os.Getwd()
@@ -105,15 +142,18 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 
 	var cfg config.Config
 	if len(opts.Overrides.All()) > 0 {
-		cfg, err = config.LoadWithOverrides(root, env, opts.Overrides.Nested())
+		cfg, err = config.LoadWithOverrides(root, profileEnv, opts.Overrides.Nested())
 	} else {
-		cfg, err = config.Load(root, env)
+		cfg, err = config.Load(root, profileEnv)
 	}
 	if err != nil {
 		return Resolved{}, fmt.Errorf("load config: %w", err)
 	}
 
-	template, haveTemplate := resolveTemplate(cfg, opts)
+	template, haveTemplate, err := resolveTemplate(cfg, opts)
+	if err != nil {
+		return Resolved{}, err
+	}
 
 	// Flags beat config; a named provider template beats the compiled OpenAI
 	// defaults, but never an explicit non-default config value.
@@ -121,7 +161,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	if protocol == "" {
 		protocol = cfg.Protocol
 		if haveTemplate && unset(protocol, openAIProtocol) {
-			protocol = string(template.Protocol)
+			protocol = template.Protocol
 		}
 	}
 	baseURL := opts.BaseURL
@@ -166,35 +206,100 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		storage = DefaultStorage(env)
 	}
 
+	addDirs, err := resolveAddDirs(root, opts.AddDirs)
+	if err != nil {
+		return Resolved{}, err
+	}
+	schema, err := loadOutputSchema(root, opts.OutputSchema)
+	if err != nil {
+		return Resolved{}, err
+	}
+	system := buildSystem(root, env, opts.Thinking, schema)
+
 	res := Resolved{
-		Options:  opts,
-		Cfg:      cfg,
-		Root:     root,
-		Storage:  storage,
-		Model:    model,
-		BaseURL:  baseURL,
-		APIKey:   apiKey,
-		Protocol: protocol,
-		Sandbox:  sandbox,
-		Approval: approval,
-		MaxTurns: maxTurns,
-		Mutating: sandbox != security.SandboxReadOnly,
-		System:   buildSystem(root, env),
+		Options:      opts,
+		Cfg:          cfg,
+		Root:         root,
+		Home:         homeDir(env),
+		Storage:      storage,
+		Model:        model,
+		Provider:     firstNonEmpty(template.Name, cfg.ProviderName),
+		Profile:      firstNonEmpty(opts.Profile, cfg.ActiveProfile),
+		BaseURL:      baseURL,
+		APIKey:       apiKey,
+		Protocol:     protocol,
+		Locale:       firstNonEmpty(opts.Locale, cfg.Locale),
+		Sandbox:      sandbox,
+		Approval:     approval,
+		MaxTurns:     maxTurns,
+		Mutating:     sandbox != security.SandboxReadOnly,
+		MaxTokens:    firstNonZeroInt(opts.MaxTokens, intField(cfg.Raw, "maxTokens", "max-tokens")),
+		MaxCostUSD:   firstNonZeroFloat(opts.MaxCost, floatField(cfg.Raw, "maxCost", "max-cost")),
+		MaxSeconds:   firstNonZeroInt(opts.MaxSeconds, intField(cfg.Raw, "maxSeconds", "max-seconds")),
+		AddDirs:      addDirs,
+		OutputSchema: schema,
+		Thinking:     opts.Thinking,
+		TrustProject: opts.TrustProject || env("ARGENT_TRUST_PROJECT") == "1",
+		Plugins:      append([]string(nil), opts.Plugins...),
+		System:       system,
+		Prices:       pricesFor(model, opts, cfg),
 	}
 	res.Chatter = newChatter(res.Protocol, baseURL, apiKey)
+	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
+		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
+	}
 	return res, nil
 }
 
-func resolveTemplate(cfg config.Config, opts cli.Options) (provider.Template, bool) {
+// providerChoice is the resolved provider endpoint without the template type.
+type providerChoice struct {
+	Name         string
+	Protocol     string
+	BaseURL      string
+	DefaultModel string
+	APIKeyEnv    string
+}
+
+// resolveTemplate honours --provider, then the config provider, then the
+// protocol names the older flag surface used.
+func resolveTemplate(cfg config.Config, opts cli.Options) (providerChoice, bool, error) {
+	if name := strings.TrimSpace(opts.Provider); name != "" {
+		if choice, ok := lookupProvider(cfg, name); ok {
+			return choice, true, nil
+		}
+		return providerChoice{}, false, fmt.Errorf("unknown provider %q (see `argent models`)", name)
+	}
 	for _, name := range []string{cfg.ProviderName, opts.Protocol, cfg.Protocol} {
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
-		if template, ok := provider.Resolve(name); ok {
-			return template, true
+		if choice, ok := lookupProvider(cfg, name); ok {
+			return choice, true, nil
 		}
 	}
-	return provider.Template{}, false
+	return providerChoice{}, false, nil
+}
+
+func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
+	if template, ok := provider.Resolve(name); ok {
+		return providerChoice{
+			Name:         template.Name,
+			Protocol:     string(template.Protocol),
+			BaseURL:      template.BaseURL,
+			DefaultModel: template.DefaultModel,
+			APIKeyEnv:    template.APIKeyEnv,
+		}, true
+	}
+	if entry, ok := cfg.Provider(name); ok {
+		return providerChoice{
+			Name:         entry.Name,
+			Protocol:     entry.Protocol,
+			BaseURL:      entry.BaseURL,
+			DefaultModel: entry.DefaultModel,
+			APIKeyEnv:    entry.APIKeyEnv,
+		}, true
+	}
+	return providerChoice{}, false
 }
 
 func newChatter(protocol, baseURL, apiKey string) llm.Chatter {
@@ -210,7 +315,28 @@ func newChatter(protocol, baseURL, apiKey string) llm.Chatter {
 	}
 }
 
-func buildSystem(root string, env func(string) string) string {
+// fallbackChatter retries once with --fallback-model when the primary model
+// fails. Cancellation is never retried.
+type fallbackChatter struct {
+	primary  llm.Chatter
+	fallback string
+}
+
+func (f *fallbackChatter) Chat(
+	ctx context.Context,
+	model string,
+	messages []llm.Message,
+	tools []llm.ToolSpec,
+	onText func(string),
+) (llm.Message, error) {
+	reply, err := f.primary.Chat(ctx, model, messages, tools, onText)
+	if err == nil || ctx.Err() != nil || strings.TrimSpace(f.fallback) == "" {
+		return reply, err
+	}
+	return f.primary.Chat(ctx, f.fallback, messages, tools, onText)
+}
+
+func buildSystem(root string, env func(string) string, thinking, schema string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are argent, a concise coding assistant working on the user's machine.\nWorking directory: %s\n", root)
 	b.WriteString("Use the available tools to inspect and change files. Read before writing, ")
@@ -227,7 +353,135 @@ func buildSystem(root string, env func(string) string) string {
 		b.WriteString("\n")
 		b.WriteString(registry.IndexText())
 	}
+	if effort := strings.TrimSpace(thinking); effort != "" {
+		fmt.Fprintf(&b, "\nReasoning effort: %s. Spend accordingly.\n", effort)
+	}
+	if strings.TrimSpace(schema) != "" {
+		b.WriteString("\nReply with a single JSON document that conforms to this JSON Schema:\n")
+		b.WriteString(strings.TrimSpace(schema))
+		b.WriteString("\n")
+	}
 	return b.String()
+}
+
+// resolveAddDirs makes --add-dir values absolute against the workspace.
+func resolveAddDirs(root string, dirs []string) ([]string, error) {
+	out := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(root, dir)
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, fmt.Errorf("--add-dir %q: %w", dir, err)
+		}
+		out = append(out, abs)
+	}
+	return out, nil
+}
+
+// loadOutputSchema accepts inline schema text or a file path.
+func loadOutputSchema(root, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	text := value
+	if !strings.HasPrefix(value, "{") {
+		path := value
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("--output-schema: %w", err)
+		}
+		text = string(data)
+	}
+	if !json.Valid([]byte(text)) {
+		return "", fmt.Errorf("--output-schema: the schema is not valid JSON")
+	}
+	return text, nil
+}
+
+// intField reads the first numeric key from a merged config tree.
+func intField(tree map[string]any, keys ...string) int {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case float64:
+			return int(value)
+		case int:
+			return value
+		case json.Number:
+			n, err := value.Int64()
+			if err == nil {
+				return int(n)
+			}
+		}
+	}
+	return 0
+}
+
+// floatField reads the first numeric key from a merged config tree.
+func floatField(tree map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case float64:
+			return value
+		case int:
+			return float64(value)
+		case json.Number:
+			n, err := value.Float64()
+			if err == nil {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func firstNonZeroInt(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonZeroFloat(values ...float64) float64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+// pricesFor builds the agent price table from --price-input/--price-output.
+func pricesFor(model string, opts cli.Options, cfg config.Config) map[string]agent.Price {
+	if opts.PriceInput == 0 && opts.PriceOutput == 0 {
+		raw, ok := cfg.Raw["prices"].(map[string]any)
+		if !ok {
+			return nil
+		}
+		prices := make(map[string]agent.Price, len(raw))
+		for name, value := range raw {
+			entry, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			prices[name] = agent.Price{Input: floatField(entry, "input"), Output: floatField(entry, "output")}
+		}
+		return prices
+	}
+	return map[string]agent.Price{
+		model: {Input: opts.PriceInput, Output: opts.PriceOutput},
+	}
 }
 
 const (
@@ -330,12 +584,21 @@ func (r *runner) ensureSession(firstPrompt string) (*session.Session, error) {
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
-	registry := tools.NewWithLimit(res.Root, res.Mutating, 0)
-	registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
+	if res.MaxSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(res.MaxSeconds)*time.Second)
+		defer cancel()
+	}
+
+	approver := res.Approve
+	if approver == nil {
+		approver = approverFor(stdio, res)
+	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
-	approver := approverFor(stdio, res)
 	chain := security.NewChain(security.DefaultPolicy(res.Root), approver, audit, sess.ID())
-	registry.SetGuard(chain)
+
+	toolset := newToolset(ctx, stdio, res, sess, chain)
+	defer toolset.Close()
 
 	loop := &agent.Runner{Opts: agent.Options{
 		Model:    res.Model,
@@ -343,10 +606,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		Root:     res.Root,
 		System:   res.System,
 		Chatter:  res.Chatter,
-		Tools:    registry,
+		Tools:    toolset,
 		Approve:  approver,
 		Record:   agent.RecorderFunc(sess.Append),
-		Budget:   agent.Budget{MaxTurns: res.MaxTurns},
+		Budget: agent.Budget{
+			MaxTurns:       res.MaxTurns,
+			MaxTotalTokens: res.MaxTokens,
+			MaxCostUSD:     res.MaxCostUSD,
+		},
+		Prices: res.Prices,
 		Emit: func(event agent.Event) {
 			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 				onText(event.Text)
