@@ -24,7 +24,7 @@
 - **会话是数据，不是黑盒** — 每轮都是 JSONL 记录，连成可 fork 的树。`/undo` 按 SHA-256 清单精确回滚，`/retry` 从检查点分叉重跑，失败的尝试也不会污染模型历史。
 - **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
 - **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口用纯 Win32 syscall 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
-- **多界面** — 命令行一次性问答、全屏 TUI、**Windows 原生聊天窗口**（无浏览器、无 WebView、无 cgo），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
+- **多界面** — 命令行一次性问答、全屏 TUI、**MyGo 原生桌面窗口**（单进程约 76 MB、空闲 0% CPU，无 WebView），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
 - **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
 
 体积是实测数字：无头运行工作集约 **10 MB**，二进制约 **10.6 MB**。
@@ -38,7 +38,7 @@ Windows 用户直接下载 [最新 Release](https://github.com/2118505078xyh1/ar
 sha256sum -c checksums.txt      # 哈希也写在了 Release Notes 里
 ```
 
-本地构建（需要 Go 1.26+，桌面壳使用 Wails v3）：
+本地构建（需要 Go 1.27.3+，桌面壳使用 MyGo）：
 
 ```powershell
 go build -o argent.exe ./cmd/argent
@@ -64,14 +64,14 @@ argent --provider qwen      "解释这段代码"
 argent --provider anthropic "review 一下这个改动"
 ```
 
-`argent gui` 在 Windows 上用 **Wails v3 + WebView2** 打开桌面窗口，加载本地的
-SolidJS 前端（经 `internal/gui` 的 HTTP + SSE 桥）。桌面壳是成熟方案，前端渲染、文字选择、
-Markdown 与输入法都交给 WebView2；发布产物仍是单一 `argent.exe`，且不会再弹出黑色控制台。
-视觉按 Claude / Codex 风格重做过：暖灰底、单一珊瑚色强调、宽留白。
+`argent gui` 在 Windows 上默认启动 **MyGo 原生聊天窗口**（`argent-native.exe`）：
+纯 Go 绘制、无 WebView、单进程约 76 MB、空闲 0% CPU，视觉按 Claude / Codex 风格
+（暖灰底、珊瑚色强调）。它通过已有的 `--rpc` 传输驱动 `argent.exe` 引擎，核心包保持
+stdlib-only；只有桌面壳这一层依赖 MyGo。
 
-可选路径：`argent gui --web` 用系统 Edge/Chrome 的 `--app` 模式打开同一界面；
-`argent gui --native` 是实验性的纯 Win32 syscall 自绘窗口。核心包仍只用标准库，
-桌面壳有意引入了 Wails 依赖以换取稳定性。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
+发布包同时包含 `argent.exe`（引擎/CLI）和 `argent-native.exe`（原生前端）。
+可选路径：`argent gui --web` 用 Edge/Chrome `--app` 加载 SolidJS 前端作为回退。
+详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
 
 其他入口：
 
@@ -150,7 +150,7 @@ argent：
 ## 文档
 
 - [架构](docs/ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
-- [前端](docs/FRONTEND.md) — 原生 Win32 窗口与可选 SolidJS Web 界面
+- [前端](docs/FRONTEND.md) — MyGo 原生窗口（默认）与可选 SolidJS Web 界面
 - [功能对齐](docs/PARITY.md) — 与冻结的 Rust 版逐项对照
 - [路线图](docs/ROADMAP.md) · [下一步](docs/NEXT_STEPS.md) · [100 项清单](docs/TODO_100.md)
 - [迁移记录](docs/MIGRATION.md) · [更新日志](CHANGELOG.md)

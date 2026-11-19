@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -20,7 +21,6 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/gui"
 	"github.com/2118505078xyh1/argentgo/internal/launcher"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/nativegui"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
@@ -47,7 +47,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags := flag.NewFlagSet("argent gui", flag.ContinueOnError)
 	flags.SetOutput(stdio.Err)
 	var model, baseURL, apiKey, provider, protocol, locale, cwd string
-	var web, native bool
+	var web bool
 	flags.StringVar(&model, "m", "", "model id")
 	flags.StringVar(&model, "model", "", "model id")
 	flags.StringVar(&baseURL, "base-url", "", "OpenAI-compatible base URL")
@@ -57,8 +57,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags.StringVar(&locale, "locale", "", "ui locale")
 	flags.StringVar(&cwd, "C", "", "workspace root")
 	flags.StringVar(&cwd, "cwd", "", "workspace root")
-	flags.BoolVar(&web, "web", false, "use the browser-based web UI instead of Wails")
-	flags.BoolVar(&native, "native", false, "use the experimental Win32 syscall window")
+	flags.BoolVar(&web, "web", false, "use the browser-based web UI instead of the native client")
 	if err := flags.Parse(filtered); err != nil {
 		return 2
 	}
@@ -86,11 +85,14 @@ func runGUI(stdio cli.IO, args []string) int {
 	}
 
 	history := &guiHistory{sessions: store.Dir(), root: resolved.Root}
-	if native && runtime.GOOS == "windows" {
-		return nativeRun(ctx, newGUIRunner(ctx, stdio, resolved, store), resolved, history)
-	}
-	if !web {
-		return wailsRun(ctx, stdio, newGUIRunner(ctx, stdio, resolved, store), resolved, store, history, provider, locale)
+	// The desktop frontend is now the MyGo native client. It is a separate
+	// binary (argent-native.exe) that drives this engine over --rpc, keeping
+	// the core stdlib-only. Launch it by default on Windows; --web keeps the
+	// browser UI as a fallback when the native binary is not installed.
+	if !web && runtime.GOOS == "windows" {
+		if code, handled := launchNativeFrontend(ctx, stdio, resolved); handled {
+			return code
+		}
 	}
 
 	guiOpts := gui.Options{
@@ -126,24 +128,38 @@ func runGUI(stdio cli.IO, args []string) int {
 	return 0
 }
 
-// nativeRun hands the engine's three channels to the Win32 window. With no
-// browser in the loop there is no token, no HTTP server and no web asset load.
-func nativeRun(ctx context.Context, runner gui.Runner, resolved app.Resolved, history gui.TurnHistory) int {
-	err := nativegui.Run(nativegui.Options{
-		Cwd:       resolved.Root,
-		Model:     resolved.Model,
-		Provider:  resolved.Cfg.ProviderName,
-		Context:   ctx,
-		History:   history,
-		Events:    runner.Events(),
-		Approvals: runner.Approvals(),
-		Commands:  runner.Commands(),
-	})
-	if err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return 1
+// launchNativeFrontend starts the MyGo native client (argent-native.exe),
+// which connects back to this engine over --rpc. Returns handled=false when
+// the binary is not installed, so the caller can fall back to the web UI.
+func launchNativeFrontend(ctx context.Context, stdio cli.IO, resolved app.Resolved) (int, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, false
 	}
-	return 0
+	native := filepath.Join(filepath.Dir(exe), "argent-native.exe")
+	if _, err := os.Stat(native); err != nil {
+		return 0, false
+	}
+	cmd := exec.Command(native)
+	cmd.Dir = resolved.Root
+	cmd.Env = append(os.Environ(), "ARGENT_EXE="+exe, "ARGENT_CWD="+resolved.Root)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Start(); err != nil {
+		return 0, false
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-ctx.Done():
+		_ = cmd.Process.Kill()
+		return 0, true
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintln(stdio.Err, "error:", err)
+			return 1, true
+		}
+		return 0, true
+	}
 }
 
 func providerName(resolved app.Resolved, flagValue string) string {

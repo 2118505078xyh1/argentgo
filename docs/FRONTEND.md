@@ -1,61 +1,54 @@
 # 前端方案
 
-记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已随该版本冻结；Go 版不再依赖浏览器。
+记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已冻结；Go 版的前端现在**全面转向 MyGo 原生 UI**。
 
 ## 决定
 
 | 端 | 方案 | 状态 |
 |---|---|---|
 | 终端 | CLI 一次性运行 + `internal/tui` 自绘 ANSI 全屏；无 WebView，可跑 SSH | 已落地 |
-| 图形（默认） | **Wails v3 + WebView2** 窗口壳，加载 `internal/gui` 的本地 HTTP+SSE 服务 | 已落地 |
-| 图形（可选） | `argent gui --web` 用 Edge/Chrome `--app` 打开同一页面；`--native` 为实验性纯 Win32 自绘窗口 | 保留 |
+| 图形（默认） | **MyGo 原生 UI**（`native/`），通过 `--rpc` 驱动 `argent.exe` 引擎 | 已落地 |
+| 图形（可选） | `argent gui --web` 用 Edge/Chrome `--app` 加载 `internal/gui` 的 HTTP+SSE 前端 | 保留为回退 |
 
-架构细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+## 架构：两个二进制
 
-## 为什么用 Wails v3
+桌面体验由两个程序组成，随 Release 一起发布：
 
-自绘 Win32 窗口（`internal/nativegui`，`--native`）在消息循环/GDI 上反复出现偶发卡死，
-维护成本远高于收益。Wails v3 提供成熟的 WebView2 窗口壳：
+- **`argent.exe`** — CLI、TUI 和 agent 引擎。`--rpc` 在 stdio 上提供换行分隔的
+  JSON-RPC（`prompt` + `prompt/delta` 流式通知、`abort`、`session.list`、`session.load`）。
+  核心包仍**只用标准库**。
+- **`argent-native.exe`** — MyGo 原生聊天窗口（`native/`）。启动时用 `ARGENT_EXE`
+  指向的引擎二进制拉起 `--rpc` 子进程，把用户输入作为 prompt 发出，把 delta
+  通过 `Window.Update` 流式渲染。它只在桌面壳这一层依赖 `github.com/egoist/mygo`。
 
-- `cmd/argent/wails.go` 先启动现有的 `internal/gui` HTTP+SSE 桥，拿到随机端口与一次性
-  token 的本地 URL，再把它交给 `application.WebviewWindowOptions.URL`。
-- 前端、桥接、事件契约、审批往返全部沿用原实现，无需为桌面壳改写 IPC。
-- Wails 只负责窗口与 WebView2；引擎仍是 `guiRunner` 的
-  `Events()` / `Approvals()` / `Commands()` 三个通道。
-- 发布产物仍为单一 `argent.exe`，并用 `-H=windowsgui` 编译，桌面快捷方式不会再弹出黑色控制台。
-- `--native` 保留纯 syscall 自绘实验路径；`--web` 保留 Edge/Chrome `--app` 路径。
+`argent gui` 在 Windows 上默认查找同目录的 `argent-native.exe` 并启动它；
+找不到时回退到 `--app` 浏览器前端。`ARGENT_CWD` 指定工作区。
 
-**依赖约束变化**：核心包仍只用标准库，但桌面壳引入了第三方 Go module
-`github.com/wailsapp/wails/v3`（以及它的传递依赖）。这是为了稳定的 WebView2 渲染而做的
-有意取舍，不影响 agent / session / llm / tools 等核心包的无依赖约束。
+## 为什么转向原生
 
-`GOOS=linux go build ./...` 仍成功：Wails 入口带 `//go:build windows`，非 Windows 有返回
-明确错误的 stub。
+- WebView2 渲染进程常驻约 400 MB 工作集；原生 UI 只有单进程、约 76 MB，空闲 CPU 为 0
+  （MyGo 的 "settled window sleeps"）。
+- MyGo 原生 UI 用 Go 的 `ui` 包绘制，无 HTML/JS/WebView；侧栏、消息列表、
+  工具卡片、审批条、输入框、Markdown 流式回复都由原生控件实现。
+- 引擎边界是已有的 `--rpc` 传输，不新增依赖、不改核心，核心保持 stdlib-only。
 
-## 可选 Web 界面
+## 原生前端能力（`native/`）
 
-`argent gui --web` 保留旧路径：`go:embed` 内嵌 `internal/gui/dist`，
-`POST /rpc/<command>` + `GET /events`（SSE），一次性 token 注入 `window.__ARGENT_TOKEN__`。
-前端 `ui/src/ipc.ts` 解析同一组 `ready` / `agent` / `approval` / `turn_done` 帧。
-这条路径适合需要多标签页、工作流/自动化等复杂页面的场景。
+- 侧栏：品牌、导航网格、会话搜索与列表、状态栏。
+- 聊天：`ui.List` + follow-end，欢迎态，用户气泡，工具状态卡片，
+  `markdown.View`/`markdown.Stream` 渲染助手回复。
+- 交互：发送（Enter）、停止（abort）、撤销/重试（Ctrl+Z/Y）、深浅主题、
+  审批 Y/N。真实引擎模式下不显示演示用的假审批。
+- 无引擎时（`ARGENT_EXE` 未设置或测试）用 canned Markdown 回复，便于开发。
 
-`scripts/build-ui.ps1` 把 `ui/dist` 复制进 `internal/gui/dist`；仓库只提交 embed 所需的
-构建产物，改 `ui/` 后必须重新生成。
+## 依赖约束
 
-## 交互
+- 核心包（`internal/{agent,session,llm,tools,security,...}`）零第三方依赖。
+- 桌面壳 `native/` 使用 MyGo（v0.x），这是唯一的第三方 Go 依赖，用于换取
+  原生渲染与低内存。将来 MyGo 稳定后再评估是否内嵌某些控件。
+- Wails 已移除。
 
-- 输入区 Enter 发送，Shift+Enter 换行；点击「发送」等价。
-- 审批条：`Y` 允许、`N` 拒绝、`Esc` 取消。
-- 滚轮滚动会话；右上角「主题」切换深色/浅色。
-- `Ctrl+Z` 从最近检查点恢复被这一轮改过的文件；`Ctrl+Y`（或 `Ctrl+Shift+Z`）从检查点
-  分叉重跑。两者都走 `gui.TurnHistory`，Web 界面的 ↶/⟳ 按钮用同一实现。
-- 会话侧栏点击可打开（`EventSessions` 提供列表）。
+## 文档
 
-## 桌面安装与图标（Windows）
-
-- 发布产物是单一 `argent.exe`：`.github/workflows/release.yml` 上传
-  `argent_<version>_windows_amd64.zip` 和 `checksums.txt`。
-- 本地安装用 `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argentgo\bin`；
-  桌面快捷方式指向 `argent.exe gui`，无需浏览器。
-- `scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argentgo` 下的会话、配置、hook 与审计日志。
-- 原生窗口暂不嵌入 `.ico`（未来可用资源编译器；当前仍坚持零 cgo）。
+- [架构](ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
+- [路线图](ROADMAP.md) · [功能对齐](PARITY.md) · [更新日志](../CHANGELOG.md)

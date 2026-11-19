@@ -155,10 +155,17 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "go build failed for $os/$arch" }
             if (-not (Test-Path -LiteralPath $bin)) { throw "missing binary for $os/$arch" }
 
+            # The MyGo native frontend is the default desktop client. Build it
+            # beside argent.exe; it drives the engine over --rpc.
+            $nativeBin = Join-Path $stage 'argent-native.exe'
+            & $go build -trimpath -ldflags '-s -w -H=windowsgui' -o $nativeBin ./native
+            if ($LASTEXITCODE -ne 0) { throw "native frontend build failed for $os/$arch" }
+            if (-not (Test-Path -LiteralPath $nativeBin)) { throw "missing native binary for $os/$arch" }
+
             $zipName = "argent_${Version}_${os}_${arch}.zip"
             $zip = Join-Path $OutDir $zipName
             if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-            Compress-Archive -LiteralPath $bin -DestinationPath $zip -CompressionLevel Optimal
+            Compress-Archive -LiteralPath @($bin, $nativeBin) -DestinationPath $zip -CompressionLevel Optimal
 
             $sum = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
             $checksumLines.Add("$sum  $zipName")

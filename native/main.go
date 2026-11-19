@@ -1,0 +1,663 @@
+// Command mygo-native is a native MyGo UI replica of the argentgo chat
+// frontend. It uses only package ui (no WebView, HTML or JS); assistant
+// replies are rendered with ui/markdown so streaming and Markdown work
+// natively.
+package main
+
+import (
+	"log"
+	"math/rand/v2"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
+)
+
+// palette mirrors the warm charcoal/coral design tokens of
+// argent-go/ui/src/styles.css. The app keeps its own palette so the theme
+// toggle can switch the whole window without relying on the desktop.
+type palette struct {
+	bg, surface, element, border, borderSubtle ui.Color
+	text, dim, accent, ok, danger, warn        ui.Color
+	strong, onAccent, sidebar                  ui.Color
+	accentBG, accentLine                       ui.Color
+}
+
+var (
+	darkPalette = palette{
+		bg:           ui.Hex("#171716"),
+		surface:      ui.Hex("#20201e"),
+		element:      ui.Hex("#2b2b28"),
+		border:       ui.Hex("#3b3a35"),
+		borderSubtle: ui.Hex("#2e2e2a"),
+		text:         ui.Hex("#e8e6df"),
+		dim:          ui.Hex("#9b9991"),
+		accent:       ui.Hex("#d97757"),
+		ok:           ui.Hex("#8fae72"),
+		danger:       ui.Hex("#e0737b"),
+		warn:         ui.Hex("#d3a35c"),
+		strong:       ui.Hex("#faf8f3"),
+		onAccent:     ui.Hex("#1b1310"),
+		sidebar:      ui.Hex("#131312"),
+		accentBG:     ui.RGBA(217, 119, 87, 0.13),
+		accentLine:   ui.RGBA(217, 119, 87, 0.34),
+	}
+	lightPalette = palette{
+		bg:           ui.Hex("#f5f4ef"),
+		surface:      ui.Hex("#ffffff"),
+		element:      ui.Hex("#ebe9e1"),
+		border:       ui.Hex("#dcd9cf"),
+		borderSubtle: ui.Hex("#e7e4db"),
+		text:         ui.Hex("#2f2e29"),
+		dim:          ui.Hex("#7d7b72"),
+		accent:       ui.Hex("#b8522c"),
+		ok:           ui.Hex("#4d7938"),
+		danger:       ui.Hex("#b23b48"),
+		warn:         ui.Hex("#9a6b18"),
+		strong:       ui.Hex("#1b1a17"),
+		onAccent:     ui.Hex("#ffffff"),
+		sidebar:      ui.Hex("#efeee8"),
+		accentBG:     ui.RGBA(184, 82, 44, 0.08),
+		accentLine:   ui.RGBA(184, 82, 44, 0.27),
+	}
+)
+
+type msgKind int
+
+const (
+	msgUser msgKind = iota
+	msgAssistant
+	msgTool
+)
+
+// message is one row of the transcript. For tools, name/text/status describe
+// the compact card; for assistant messages, text is Markdown source.
+type message struct {
+	id     int
+	kind   msgKind
+	text   string
+	name   string
+	status string // "running", "done" or "failed"
+	done   bool   // assistant reply finished streaming
+}
+
+type approval struct {
+	name string
+	args string
+}
+
+type session struct {
+	title string
+	meta  string
+	group string
+}
+
+var navItems = []string{
+	"聊天", "定时任务", "文档", "记忆", "扩展", "用量",
+	"Git", "任务", "工作流", "终端", "文件", "计划",
+}
+
+var fakeSessions = []session{
+	{"重构聊天界面", "2 分钟前", "今天"},
+	{"修复工具调用状态", "昨天 18:20", "昨天"},
+	{"整理记忆索引", "3 天前", "更早"},
+}
+
+var quickActions = []string{"解释这段代码", "写单元测试", "检查命令", "/ 命令"}
+
+// chat is the single app state object. The view is rebuilt from it every
+// frame; background work changes it only through Window.Update.
+type chat struct {
+	win     *mygo.Window
+	engine  *bridge // nil in tests / when the engine binary is unavailable
+	instant bool    // tests set this so replies appear at once, with no timers
+
+	light           bool
+	draft           string
+	status          string
+	nav             string
+	sessionQuery    string
+	selectedSession string
+	messages        []*message
+	list            ui.ListState
+	sessionList     ui.ListState
+	md              markdown.Options
+
+	next      int
+	sent      int
+	streaming bool
+	reply     *message
+	tool      *message
+	approval  *approval
+}
+
+func (app *chat) palette() palette {
+	if app.light {
+		return lightPalette
+	}
+	return darkPalette
+}
+
+// applyTheme installs the app's palette as the window theme so that widgets
+// (buttons, inputs, scroll bars) follow the same design as our own elements.
+func (app *chat) applyTheme(c *ui.Context) palette {
+	p := app.palette()
+	t := *c.Theme()
+	t.Background, t.Surface, t.SurfaceHover, t.SurfacePressed = p.bg, p.surface, p.element, p.element
+	t.Border, t.Text, t.TextMuted = p.border, p.text, p.dim
+	t.Accent, t.AccentText, t.InactiveAccent = p.accent, p.onAccent, p.accent
+	t.Success, t.Danger, t.Warning = p.ok, p.danger, p.warn
+	t.Focus, t.Font, t.FontSize, t.Radius = p.accent, "Segoe UI", 14, 8
+	c.SetTheme(&t)
+
+	app.md.Theme = &markdown.Theme{
+		Font:                "Segoe UI",
+		CodeFont:            "Consolas",
+		FontSize:            14,
+		Link:                p.accent,
+		CodeBlockBackground: p.surface,
+		CodeBlockBorder:     p.border,
+		QuoteBar:            p.accent,
+	}
+	return p
+}
+
+func (app *chat) view(c *ui.Context) {
+	p := app.applyTheme(c)
+	t := c.Theme()
+
+	// Undo / retry / approval keys. A focused text input takes plain keys
+	// first, so Y/N only act on an approval while the composer is not typing.
+	if c.Shortcut(ui.Cmd, ui.KeyZ) {
+		app.undo()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyY) {
+		app.retry()
+	}
+	if app.approval != nil && !c.FocusTakesText() {
+		if c.Shortcut(0, ui.KeyY) {
+			app.answerApproval(true)
+		} else if c.Shortcut(0, ui.KeyN) || c.Shortcut(0, ui.KeyEscape) {
+			app.answerApproval(false)
+		}
+	}
+
+	ui.Row(c).Fill().Children(func() {
+		app.sidebar(c, p)
+		app.main(c, p, t)
+	})
+}
+
+func (app *chat) sidebar(c *ui.Context, p palette) {
+	ui.Column(c).Width(240).FillHeight().Background(p.sidebar).
+		BorderWidth(0, 0, 0, 1).BorderColor(p.borderSubtle).
+		Padding(16, 12, 12, 12).Gap(10).Children(func() {
+		// Brand.
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 6, 8, 6).Children(func() {
+			ui.Text(c, "◆").FontSize(17).TextColor(p.accent)
+			ui.Column(c).Gap(1).Children(func() {
+				ui.Text(c, "argentgo").FontSize(19).Bold().TextColor(p.strong)
+				ui.Text(c, "AGENT RUNTIME").FontSize(10).TextColor(p.accent)
+			})
+		})
+
+		// Navigation grid.
+		ui.Grid(c).Columns(3).Gap(4).Children(func() {
+			for _, name := range navItems {
+				active := app.nav == name
+				btn := ui.Button(c, name).Padding(8, 2).Radius(6)
+				if active {
+					btn.Background(p.accentBG).TextColor(p.accent)
+				} else {
+					btn.Background(ui.Transparent).TextColor(p.dim)
+				}
+				if btn.Clicked() {
+					app.nav = name
+					app.status = "已切换到" + name
+				}
+			}
+		})
+
+		// Session header and search.
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
+			ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
+			if ui.Button(c, "＋").Clicked() {
+				app.newSession()
+			}
+		})
+		ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
+			Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
+
+		// Session list.
+		filtered := make([]session, 0, len(fakeSessions))
+		q := strings.ToLower(strings.TrimSpace(app.sessionQuery))
+		for _, s := range fakeSessions {
+			if q == "" || strings.Contains(strings.ToLower(s.title+s.group), q) {
+				filtered = append(filtered, s)
+			}
+		}
+		app.sessionList.Key = func(i int) any { return filtered[i].title }
+		ui.List(c, &app.sessionList, len(filtered), func(i int) {
+			s := filtered[i]
+			row := ui.Row(c).Padding(8, 10).Radius(8)
+			if app.selectedSession == s.title {
+				row.Background(p.accentBG)
+			}
+			row.Children(func() {
+				ui.Column(c).Gap(2).Children(func() {
+					ui.Text(c, s.title).FontSize(13).TextColor(p.text).SingleLine()
+					ui.Text(c, s.group+" · "+s.meta).FontSize(11).TextColor(p.dim).SingleLine()
+				})
+			})
+			if row.Clicked() {
+				app.selectedSession = s.title
+				app.status = "已打开会话：" + s.title
+			}
+		}).Grow(1)
+
+		// Footer status dot.
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 6, 0, 6).
+			BorderWidth(1, 0, 0, 0).BorderColor(p.borderSubtle).Children(func() {
+			dot := p.ok
+			label := "就绪"
+			if app.streaming {
+				dot, label = p.accent, "运行中"
+			}
+			ui.Box(c).Size(7, 7).Radius(4).Background(dot)
+			ui.Text(c, label).FontSize(12).TextColor(p.dim)
+		})
+	})
+}
+
+func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
+	_ = t // theme colors already installed through c.SetTheme
+	ui.Column(c).Grow(1).FillHeight().Children(func() {
+		// Top bar.
+		ui.Row(c).Height(64).Padding(10, 20).Gap(12).AlignItems(ui.Center).
+			BorderWidth(0, 0, 1, 0).BorderColor(p.borderSubtle).Children(func() {
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, "argentgo").FontSize(15).Bold().TextColor(p.strong)
+				ui.Text(c, "~/my-project").FontSize(12).TextColor(p.dim)
+			})
+			ui.Spacer(c)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "模型").FontSize(12).TextColor(p.dim)
+				ui.Text(c, "gpt-4o-mini").FontSize(13).TextColor(p.text).
+					Padding(6, 10).Radius(999).Background(p.element)
+				if ui.Button(c, "撤销").Clicked() {
+					app.undo()
+				}
+				if ui.Button(c, "重试").Clicked() {
+					app.retry()
+				}
+				if ui.Button(c, "主题").Clicked() {
+					app.toggleTheme()
+				}
+			})
+		})
+
+		// Approval bar.
+		if app.approval != nil {
+			app.approvalView(c, p)
+		}
+
+		// Transcript.
+		app.list.Key = func(i int) any { return app.messages[i].id }
+		app.list.FollowEnd = true
+		ui.List(c, &app.list, len(app.messages), func(i int) {
+			app.message(c, app.messages[i], p)
+		}).Grow(1).Padding(16, 20).Gap(14).Justify(ui.End).Children(func() {
+			if len(app.messages) == 0 {
+				ui.Column(c).MaxWidth(560).Margin(ui.Auto).Gap(12).
+					AlignItems(ui.Center).Children(func() {
+					ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
+					ui.Text(c, "有什么可以帮你？").FontSize(28).Bold().TextColor(p.strong)
+					ui.Text(c, "问点什么，或者输入 / 看命令。").FontSize(14).TextColor(p.dim)
+					ui.Text(c, "首次使用请在终端运行 argent login 配置模型凭据。").
+						FontSize(12).TextColor(p.dim)
+					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
+						for _, action := range quickActions {
+							a := action
+							if ui.Button(c, a).Padding(6, 12).Clicked() {
+								app.draft = strings.TrimPrefix(a, "/ ") + " "
+							}
+						}
+					})
+				})
+			}
+		})
+
+		// Status line.
+		ui.Row(c).Height(30).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
+			dot := p.ok
+			if app.streaming {
+				dot = p.accent
+			}
+			ui.Box(c).Size(6, 6).Radius(3).Background(dot)
+			ui.Text(c, app.status).FontSize(12).TextColor(p.dim)
+			ui.Spacer(c)
+			ui.Text(c, "gpt-4o-mini · ~/my-project").FontSize(11).TextColor(p.dim)
+		})
+
+		// Composer.
+		ui.Column(c).Padding(10, 20, 14, 20).Gap(8).Background(p.surface).
+			BorderWidth(1, 0, 0, 0).BorderColor(p.border).Children(func() {
+			in := ui.TextArea(c, &app.draft).Lines(1, 5).AutoFocus().
+				Placeholder("问点什么，或者输入 / 看命令。").Grow(1)
+			in.OnTextKey(func(k ui.TextKey) bool {
+				if k.Key == ui.KeyEnter && k.Mods == 0 {
+					app.send(k.Text())
+					k.SetText("")
+					return true
+				}
+				return false // Shift+Enter inserts a newline
+			})
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Enter 发送 · Shift+Enter 换行").FontSize(11).TextColor(p.dim).Grow(1)
+				if app.streaming {
+					if ui.Button(c, "停止").Clicked() {
+						app.stop()
+					}
+				} else if ui.PrimaryButton(c, "发送").Clicked() {
+					app.send(app.draft)
+				}
+			})
+		})
+	})
+}
+
+func (app *chat) approvalView(c *ui.Context, p palette) {
+	ap := app.approval
+	ui.Column(c).Padding(10, 20).Gap(8).Background(p.accentBG).
+		BorderWidth(1, 0, 0, 0).BorderColor(p.accentLine).Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(18, 18).Radius(9).Background(p.warn)
+			ui.Text(c, "需要批准").Bold().TextColor(p.strong)
+			ui.Text(c, ap.name).FontSize(12).TextColor(p.accent)
+			ui.Spacer(c)
+			ui.Text(c, "Y 允许 · N 拒绝").FontSize(11).TextColor(p.dim)
+		})
+		ui.Text(c, ap.args).FontSize(12).TextColor(p.dim).
+			Padding(8, 10).Radius(6).Background(p.surface).Selectable()
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c, "拒绝").Clicked() {
+				app.answerApproval(false)
+			}
+			if ui.PrimaryButton(c, "允许").Clicked() {
+				app.answerApproval(true)
+			}
+		})
+	})
+}
+
+// message builds one transcript row: a right-aligned user bubble, a compact
+// tool card with a status glyph, or an assistant Markdown view.
+func (app *chat) message(c *ui.Context, m *message, p palette) {
+	switch m.kind {
+	case msgUser:
+		ui.Row(c).Children(func() {
+			ui.Spacer(c)
+			ui.Column(c).MaxWidth(520).Radius(14).Background(p.surface).
+				Padding(10, 14).Gap(4).Children(func() {
+				ui.Text(c, "你").FontSize(11).Bold().TextColor(p.dim)
+				ui.Text(c, m.text).TextColor(p.text).Selectable()
+			})
+		})
+	case msgTool:
+		glyph, color := "⋯", p.warn
+		switch m.status {
+		case "done":
+			glyph, color = "✓", p.ok
+		case "failed":
+			glyph, color = "✗", p.danger
+		}
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(8, 12).Radius(8).
+			Background(p.element).Children(func() {
+			ui.Text(c, glyph).Bold().TextColor(color)
+			ui.Text(c, m.name).FontSize(12).Bold().TextColor(p.text)
+			ui.Text(c, m.text).FontSize(12).TextColor(p.dim).SingleLine()
+		})
+	default:
+		ui.Column(c).MaxWidth(720).Gap(4).Children(func() {
+			ui.Text(c, "argentgo").FontSize(11).Bold().TextColor(p.dim)
+			if m.done {
+				markdown.View(c, m.text, &app.md)
+			} else {
+				markdown.Stream(c, m.text, &app.md)
+			}
+		})
+	}
+}
+
+// send appends the user's message and drives the reply. When a real engine
+// bridge is attached it calls prompt over JSON-RPC and streams the deltas;
+// otherwise it keeps the canned Markdown fallback (tests, or no engine).
+func (app *chat) send(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" || app.streaming {
+		return
+	}
+	app.next++
+	app.messages = append(app.messages, &message{id: app.next, kind: msgUser, text: text, done: true})
+
+	app.next++
+	reply := &message{id: app.next, kind: msgAssistant}
+	app.messages = append(app.messages, reply)
+
+	// A tool row is only shown in the fallback demo: the stdio RPC protocol
+	// carries prompt text and deltas, not tool events.
+	var tool *message
+	if app.engine == nil {
+		app.next++
+		tool = &message{id: app.next, kind: msgTool, name: "read_file", text: "~/my-project/src/main.go", status: "running"}
+		app.messages = append(app.messages, tool)
+	}
+
+	app.draft = ""
+	app.sent++
+	app.tool, app.reply = tool, reply
+	app.streaming = true
+	app.status = "正在生成…"
+
+	if app.engine != nil {
+		app.sendReal(text, reply)
+		return
+	}
+
+	src := cannedReplies[(app.sent-1)%len(cannedReplies)]
+	if app.win == nil || app.instant {
+		app.finish(src)
+		return
+	}
+	go func() {
+		for i := 0; i < len(src); {
+			n := min(len(src)-i, 2+rand.IntN(6))
+			for n < len(src)-i && src[i+n]&0xC0 == 0x80 {
+				n++
+			}
+			i += n
+			chunk := src[:i]
+			time.Sleep(12 * time.Millisecond)
+			stopped := false
+			app.win.Update(func() {
+				if reply.done {
+					stopped = true
+					return
+				}
+				reply.text = chunk
+			})
+			if stopped {
+				return
+			}
+		}
+		app.win.Update(func() { app.finish(src) })
+	}()
+}
+
+// sendReal calls the real engine. Deltas arrive on the bridge read loop and
+// are marshalled back onto the UI thread through Window.Update.
+func (app *chat) sendReal(text string, reply *message) {
+	eng := app.engine
+	// onDelta is called from the bridge goroutine; never touch state there.
+	eng.onDelta = func(chunk string) {
+		if app.win == nil {
+			return
+		}
+		app.win.Update(func() {
+			if !reply.done {
+				reply.text += chunk
+			}
+		})
+	}
+	go func() {
+		full, err := eng.prompt(text)
+		if app.win == nil {
+			// Tests never attach a real bridge, but stay safe anyway.
+			app.finish(full)
+			return
+		}
+		app.win.Update(func() {
+			if err != nil {
+				reply.text = "⚠ 引擎错误: " + err.Error()
+				app.status = "引擎错误"
+			} else if reply.text == "" {
+				reply.text = full
+			}
+			app.finish(full)
+		})
+	}()
+}
+
+// finish completes the current reply; it always runs on the main thread.
+func (app *chat) finish(src string) {
+	if app.reply != nil {
+		app.reply.text, app.reply.done = src, true
+	}
+	if app.tool != nil {
+		app.tool.status = "done"
+	}
+	app.streaming = false
+	app.reply, app.tool = nil, nil
+	app.status = "已完成"
+	// The demo approval only belongs to the canned fallback. A real engine
+	// handles approvals over its own transport, not through a fake prompt.
+	if app.engine == nil && app.sent == 1 {
+		app.approval = &approval{
+			name: "write_file",
+			args: "{\"path\": \"~/my-project/src/main.go\", \"lines\": 12}",
+		}
+	}
+}
+
+func (app *chat) stop() {
+	if app.engine != nil {
+		_ = app.engine.abort()
+	}
+	if app.reply != nil {
+		app.reply.done = true
+	}
+	if app.tool != nil {
+		app.tool.status = "failed"
+	}
+	app.streaming = false
+	app.reply, app.tool = nil, nil
+	app.status = "已停止"
+}
+
+func (app *chat) undo() {
+	if len(app.messages) == 0 {
+		app.status = "没有可撤销的消息"
+		return
+	}
+	app.messages = app.messages[:len(app.messages)-1]
+	app.approval = nil
+	app.status = "已撤销上一轮"
+}
+
+func (app *chat) retry() {
+	if len(app.messages) == 0 {
+		app.status = "没有可重试的消息"
+		return
+	}
+	app.status = "已重试上一轮"
+}
+
+func (app *chat) toggleTheme() {
+	app.light = !app.light
+	if app.light {
+		app.status = "已切换到浅色主题"
+	} else {
+		app.status = "已切换到深色主题"
+	}
+}
+
+func (app *chat) answerApproval(allow bool) {
+	if app.approval == nil {
+		return
+	}
+	name := app.approval.name
+	app.approval = nil
+	app.next++
+	status, text := "done", "✓ 已允许 "+name
+	if !allow {
+		status, text = "failed", "✗ 已拒绝 "+name
+	}
+	app.messages = append(app.messages, &message{
+		id: app.next, kind: msgTool, name: name, text: text, status: status, done: true,
+	})
+	app.status = text
+}
+
+func (app *chat) newSession() {
+	app.messages = nil
+	app.approval = nil
+	app.streaming = false
+	app.reply, app.tool = nil, nil
+	app.selectedSession = ""
+	app.status = "已新建会话"
+}
+
+var cannedReplies = []string{
+	"## 已经处理好了\n\n我读懂了你的问题。这是一条 **原生 Markdown** 回复：\n\n" +
+		"- 支持列表\n- 支持 `代码` 与[链接](https://example.com)\n\n" +
+		"```go\nfmt.Println(\"hello, argentgo\")\n```\n\n" +
+		"> 流式输出与 Markdown 渲染都由 ui/markdown 完成。\n",
+	"## 分析完成\n\n| 项目 | 状态 |\n|---|---|\n| 会话 | 就绪 |\n| 工具 | 已批准 |\n\n" +
+		"1. 读取上下文\n2. 生成回复\n\n*继续提问吧。*\n",
+}
+
+func main() {
+	app := &chat{status: "就绪"}
+
+	// ARGENT_EXE points at the engine binary. When set, the native window
+	// drives the real agent over --rpc; otherwise it runs the canned demo.
+	if exe := os.Getenv("ARGENT_EXE"); exe != "" {
+		cwd := os.Getenv("ARGENT_CWD")
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		b, err := startBridge(exe, cwd, nil)
+		if err != nil {
+			log.Printf("native: engine bridge unavailable: %v (using demo mode)", err)
+		} else {
+			app.engine = b
+			app.status = "已连接引擎"
+			defer b.close()
+		}
+	}
+
+	mygo.App.WhenReady(func() {
+		app.win = mygo.NewWindow(mygo.WindowOptions{
+			Title:   "argentgo (native)",
+			Width:   1180,
+			Height:  760,
+			Content: ui.View(app.view),
+		})
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}

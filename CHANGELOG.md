@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 — 2026-11-19
+
+- **Frontend fully moved to a MyGo native client.** `argent gui` now launches
+  `argent-native.exe` by default: a pure-Go native UI (single process, ~76 MB
+  working set, 0% idle CPU) with no WebView2. It drives the engine over the
+  existing stdio `--rpc` transport, so core packages stay stdlib-only.
+- The native client renders sidebar, message list, tool cards, streaming
+  Markdown replies, approvals, keycaps and dark/light themes with MyGo's `ui`.
+- Wails and the experimental Win32 syscall window were removed; the only
+  third-party Go dependency is MyGo, confined to the `native/` desktop shell.
+- Release zip now ships both `argent.exe` (engine/CLI) and `argent-native.exe`.
+  `argent gui --web` keeps the browser UI as a fallback.
+
 ## v0.2.1 — 2026-11-19
 
 - Desktop shell switched from the experimental self-painted Win32 window to

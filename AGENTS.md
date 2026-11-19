@@ -73,9 +73,9 @@ ui/                 SolidJS frontend
 ## Dependency rules
 
 - **Core is stdlib only.** The `internal/{agent,session,llm,tools,security,...}` packages
-  must stay dependency-free. The Windows desktop shell (`cmd/argent/wails.go`) is an
-  explicit exception: it requires `github.com/wailsapp/wails/v3` for WebView2.
-  Do not add other third-party modules.
+  must stay dependency-free. The native desktop shell (`native/`) is the single
+  explicit exception: it requires `github.com/egoist/mygo` for GPU-rendered UI.
+  It drives the engine over the stdlib `--rpc` transport. Do not add other modules.
 - **No cgo.** Everything must cross-compile with `GOOS=linux go build ./...`.
 - Go tools: `internal/app` is the only package allowed to import everything.
   Library packages may import `internal/llm` and stdlib; otherwise take
