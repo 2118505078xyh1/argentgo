@@ -13,11 +13,28 @@ import (
 )
 
 // Message is one entry in the conversation.
+//
+// Reasoning and Usage are transcript metadata: they are attached to assistant
+// replies by the protocol clients so callers can render or persist thinking
+// text and token counts. They are never sent back upstream (see Chat).
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Reasoning  string     `json:"reasoning,omitempty"`
+	Usage      *Usage     `json:"usage,omitempty"`
+}
+
+// Usage reports the tokens a provider billed for one reply.
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+// Chatter is implemented by every streaming protocol client in this package.
+type Chatter interface {
+	Chat(ctx context.Context, model string, messages []Message, tools []ToolSpec, onText func(string)) (Message, error)
 }
 
 // ToolCall is a model request to run a tool.
@@ -66,6 +83,20 @@ type chatRequest struct {
 	Stream   bool       `json:"stream"`
 }
 
+// wireMessages copies messages without transcript-only fields, keeping the
+// bytes sent upstream exactly as before Reasoning/Usage existed.
+func wireMessages(messages []Message) []Message {
+	out := make([]Message, len(messages))
+	for i, m := range messages {
+		m.Reasoning = ""
+		m.Usage = nil
+		out[i] = m
+	}
+	return out
+}
+
+var _ Chatter = (*Client)(nil)
+
 type chunk struct {
 	Choices []struct {
 		Delta struct {
@@ -96,7 +127,7 @@ func (c *Client) Chat(
 ) (Message, error) {
 	payload, err := json.Marshal(chatRequest{
 		Model:    model,
-		Messages: messages,
+		Messages: wireMessages(messages),
 		Tools:    tools,
 		Stream:   true,
 	})

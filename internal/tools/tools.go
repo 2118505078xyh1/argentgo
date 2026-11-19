@@ -32,24 +32,62 @@ type Tool interface {
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
 }
 
-// Registry owns the tool set and enforces the workspace boundary.
-type Registry struct {
-	root  string
-	yolo  bool
-	tools map[string]Tool
-	order []string
+// Guard is consulted before every tool call. A non-nil error is returned to the
+// model as a tool error; the tool never runs.
+type Guard interface {
+	Check(ctx context.Context, name string, args json.RawMessage) error
 }
 
-// New returns a registry rooted at root.
+// Registry owns the tool set and enforces the workspace boundary.
+type Registry struct {
+	root       string
+	yolo       bool
+	maxOutput  int
+	sessionDir string
+	guard      Guard
+	tools      map[string]Tool
+	order      []string
+}
+
+// New returns a registry rooted at root with the default output cap.
 func New(root string, yolo bool) *Registry {
-	r := &Registry{root: root, yolo: yolo, tools: make(map[string]Tool)}
+	return NewWithLimit(root, yolo, maxToolOutput)
+}
+
+// NewWithLimit returns a registry rooted at root whose tool output is clipped to
+// maxOutput characters (head and tail kept). A non-positive limit restores the
+// default.
+func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
+	if maxOutput <= 0 {
+		maxOutput = maxToolOutput
+	}
+	r := &Registry{root: root, yolo: yolo, maxOutput: maxOutput, tools: make(map[string]Tool)}
 	for _, tool := range []Tool{
 		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{},
+		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
 	} {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
 	return r
+}
+
+// SetGuard installs the pre-call guard. Passing nil removes it.
+func (r *Registry) SetGuard(g Guard) {
+	r.guard = g
+}
+
+// SetSessionDir points state tools (todo) at a session directory. When unset,
+// they fall back to <root>/.argent.
+func (r *Registry) SetSessionDir(dir string) {
+	r.sessionDir = dir
+}
+
+// Names returns the registered tool names in registration order.
+func (r *Registry) Names() []string {
+	names := make([]string, len(r.order))
+	copy(names, r.order)
+	return names
 }
 
 // Specs returns the tool schemas in a stable order.
@@ -72,13 +110,34 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
-	if tool.Mutating() && !r.yolo {
-		return "", fmt.Errorf("tool %q changes the workspace; rerun with --yolo", name)
-	}
 	if strings.TrimSpace(args) == "" {
 		args = "{}"
 	}
-	return tool.Run(ctx, r.root, json.RawMessage(args))
+	raw := json.RawMessage(args)
+	if err := r.checkGuard(ctx, name, raw); err != nil {
+		return "", fmt.Errorf("tool %q rejected: %w", name, err)
+	}
+	if tool.Mutating() && !r.yolo {
+		return "", fmt.Errorf("tool %q changes the workspace; rerun with --yolo", name)
+	}
+	ctx = context.WithValue(ctx, outputLimitKey{}, r.maxOutput)
+	if r.sessionDir != "" {
+		ctx = context.WithValue(ctx, sessionDirKey{}, r.sessionDir)
+	}
+	return tool.Run(ctx, r.root, raw)
+}
+
+// checkGuard runs the guard without letting a panic escape into the agent loop.
+func (r *Registry) checkGuard(ctx context.Context, name string, args json.RawMessage) (err error) {
+	if r.guard == nil {
+		return nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("guard panicked: %v", recovered)
+		}
+	}()
+	return r.guard.Check(ctx, name, args)
 }
 
 // resolve keeps every path inside the workspace root.
@@ -103,13 +162,54 @@ func resolve(root, path string) (string, error) {
 	return abs, nil
 }
 
-func clip(text string) string {
-	if len(text) <= maxToolOutput {
+// outputLimitKey carries the per-registry output cap into tool implementations.
+type outputLimitKey struct{}
+
+// sessionDirKey carries the session directory used by state tools.
+type sessionDirKey struct{}
+
+func outputLimit(ctx context.Context) int {
+	if limit, ok := ctx.Value(outputLimitKey{}).(int); ok && limit > 0 {
+		return limit
+	}
+	return maxToolOutput
+}
+
+func sessionDir(ctx context.Context, root string) string {
+	if dir, ok := ctx.Value(sessionDirKey{}).(string); ok && strings.TrimSpace(dir) != "" {
+		return dir
+	}
+	return filepath.Join(root, ".argent")
+}
+
+func clip(ctx context.Context, text string) string {
+	return clipTo(text, outputLimit(ctx))
+}
+
+// clipTo keeps the head and the tail of an oversized output.
+func clipTo(text string, limit int) string {
+	if limit <= 0 {
+		limit = maxToolOutput
+	}
+	if len(text) <= limit {
 		return text
 	}
-	head := maxToolOutput * 2 / 3
-	tail := maxToolOutput - head
+	head := limit * 2 / 3
+	tail := limit - head
+	head = trimPartialRune(text, head)
+	tail = trimPartialRune(text, tail)
 	return text[:head] + "\n... [truncated] ...\n" + text[len(text)-tail:]
+}
+
+// trimPartialRune backs a byte offset off the middle of a UTF-8 sequence.
+func trimPartialRune(text string, offset int) int {
+	if offset <= 0 {
+		return 0
+	}
+	for offset > 0 && offset < len(text) && !utf8.RuneStart(text[offset]) {
+		offset--
+	}
+	return offset
 }
 
 // ---- read ----
@@ -123,7 +223,7 @@ func (readTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","description":"1-based first line"},"limit":{"type":"integer","description":"number of lines"}},"required":["path"]}`
 }
 
-func (readTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path   string `json:"path"`
 		Offset int    `json:"offset"`
@@ -155,7 +255,7 @@ func (readTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	if args.Limit > 0 && start-1+args.Limit < end {
 		end = start - 1 + args.Limit
 	}
-	return clip(strings.Join(lines[start-1:end], "\n")), nil
+	return clip(ctx, strings.Join(lines[start-1:end], "\n")), nil
 }
 
 // ---- write ----
@@ -194,9 +294,11 @@ func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (strin
 
 type editTool struct{}
 
-func (editTool) Name() string        { return "edit" }
-func (editTool) Description() string { return "Replace one unique occurrence of old text with new text." }
-func (editTool) Mutating() bool      { return true }
+func (editTool) Name() string { return "edit" }
+func (editTool) Description() string {
+	return "Replace one unique occurrence of old text with new text."
+}
+func (editTool) Mutating() bool { return true }
 func (editTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}`
 }
@@ -276,7 +378,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
-	text := clip(string(output))
+	text := clip(ctx, string(output))
 	if runCtx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("bash: timed out after %s", timeout)
 	}
@@ -300,7 +402,7 @@ func (lsTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"}}}`
 }
 
-func (lsTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (lsTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path string `json:"path"`
 	}
@@ -324,7 +426,7 @@ func (lsTool) Run(_ context.Context, root string, raw json.RawMessage) (string, 
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return clip(strings.Join(names, "\n")), nil
+	return clip(ctx, strings.Join(names, "\n")), nil
 }
 
 // ---- grep ----
@@ -338,7 +440,7 @@ func (grepTool) Schema() string {
 	return `{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`
 }
 
-func (grepTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Pattern string `json:"pattern"`
 		Path    string `json:"path"`
@@ -377,7 +479,7 @@ func (grepTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	if len(matches) == 0 {
 		return "(no matches)", nil
 	}
-	return clip(strings.Join(matches, "\n")), nil
+	return clip(ctx, strings.Join(matches, "\n")), nil
 }
 
 // ---- find ----
@@ -391,7 +493,7 @@ func (findTool) Schema() string {
 	return `{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`
 }
 
-func (findTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (findTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Pattern string `json:"pattern"`
 		Path    string `json:"path"`
@@ -422,7 +524,7 @@ func (findTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		return "(no matches)", nil
 	}
 	sort.Strings(found)
-	return clip(strings.Join(found, "\n")), nil
+	return clip(ctx, strings.Join(found, "\n")), nil
 }
 
 // walkFiles visits regular files under base, skipping noisy directories.

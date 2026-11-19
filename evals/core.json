@@ -1,0 +1,286 @@
+{
+  "scenarios": [
+    {
+      "name": "answers a simple question",
+      "description": "No tools, one turn, the run ends on its own.",
+      "prompt": "say hello",
+      "provider": [
+        { "respond": { "text": "hello there" } }
+      ],
+      "expect": {
+        "tool_calls": [],
+        "text_contains": ["hello"],
+        "turns": 1,
+        "stopped": false
+      }
+    },
+    {
+      "name": "reads a file before answering",
+      "description": "The model reads notes.txt and the file content is in the next request.",
+      "prompt": "what is in notes.txt?",
+      "files": {
+        "notes.txt": "the release notes are here\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "notes.txt" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["release notes are here"],
+          "respond": { "text": "notes.txt says the release notes are here" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read"],
+        "text_contains": ["release notes"],
+        "turns": 2,
+        "stopped": false
+      },
+      "check": {
+        "files_exist": ["notes.txt"],
+        "file_contains": { "notes.txt": "release notes" }
+      }
+    },
+    {
+      "name": "a write needs approval and then runs",
+      "description": "A mutating tool goes through the approval gate; with approval the file lands.",
+      "prompt": "write the answer to out.txt",
+      "approve": true,
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "write",
+                "arguments": { "path": "out.txt", "content": "the answer\n" }
+              }
+            ]
+          }
+        },
+        { "respond": { "text": "written" } }
+      ],
+      "expect": {
+        "tool_calls": ["write"],
+        "text_contains": ["written"],
+        "turns": 2,
+        "stopped": false
+      },
+      "check": {
+        "files_exist": ["out.txt"],
+        "file_contains": { "out.txt": "the answer" }
+      }
+    },
+    {
+      "name": "a denied path is refused by policy",
+      "description": "The policy gate blocks the read, the model does not retry it, and the file is untouched.",
+      "prompt": "read the secret",
+      "deny_paths": ["secret.env"],
+      "files": {
+        "secret.env": "TOKEN=1\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "secret.env" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["denied by policy"],
+          "respond": { "text": "I will not touch it again" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read"],
+        "text_contains": ["will not touch"],
+        "turns": 2,
+        "stopped": false
+      },
+      "check": {
+        "file_contains": { "secret.env": "TOKEN=1" }
+      }
+    },
+    {
+      "name": "an ambiguous edit fails and leaves the file alone",
+      "description": "edit needs a unique match; two matches are an error the model has to recover from.",
+      "prompt": "rename dup to done in notes.txt",
+      "files": {
+        "notes.txt": "dup\ndup\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "edit",
+                "arguments": {
+                  "path": "notes.txt",
+                  "old_text": "dup",
+                  "new_text": "done"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["appears 2 times"],
+          "respond": { "text": "the edit is ambiguous, so I left the file alone" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["edit"],
+        "text_contains": ["left the file alone"],
+        "text_not_contains": ["renamed"],
+        "turns": 2,
+        "stopped": false
+      },
+      "check": {
+        "file_contains": { "notes.txt": "dup\ndup" }
+      }
+    },
+    {
+      "name": "grep finds the match before answering",
+      "description": "Search first, then answer with the file and line the match is on.",
+      "prompt": "where is the TODO?",
+      "files": {
+        "main.go": "package main\n\n// TODO: wire the flag\n",
+        "notes.md": "nothing to see\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "grep", "arguments": { "pattern": "TODO" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["main.go:3"],
+          "respond": { "text": "the TODO is on line 3 of main.go" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["grep"],
+        "text_contains": ["line 3"],
+        "turns": 2,
+        "stopped": false
+      }
+    },
+    {
+      "name": "a read feeds a write in one run",
+      "description": "Two different tools across three turns, with each result visible to the next request.",
+      "prompt": "copy a.txt to b.txt",
+      "files": {
+        "a.txt": "hello\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "a.txt" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["hello"],
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "write",
+                "arguments": { "path": "b.txt", "content": "hello\n" }
+              }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["b.txt"],
+          "respond": { "text": "copied a.txt to b.txt" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "write"],
+        "text_contains": ["copied"],
+        "turns": 3,
+        "stopped": false
+      },
+      "check": {
+        "files_exist": ["b.txt"],
+        "file_contains": { "b.txt": "hello" }
+      }
+    },
+    {
+      "name": "the turn limit ends a run that never stops",
+      "description": "The script repeats, so only the turn budget can end the run.",
+      "prompt": "loop forever",
+      "repeat": true,
+      "max_turns": 3,
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "ls", "arguments": { "path": "." } }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["ls", "ls", "ls"],
+        "turns": 3,
+        "stopped": true
+      }
+    },
+    {
+      "name": "cancellation stops the run",
+      "description": "The context is cancelled after two turns; the run stops without an error being graded as a failure.",
+      "prompt": "loop until I cancel",
+      "repeat": true,
+      "cancel_after": 2,
+      "provider": [
+        {
+          "respond": {
+            "text": "working",
+            "tool_calls": [
+              { "name": "ls", "arguments": { "path": "." } }
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["ls", "ls"],
+        "turns": 2,
+        "stopped": true,
+        "text_not_contains": ["never reached"]
+      }
+    },
+    {
+      "name": "an unknown tool is reported, not fatal",
+      "description": "A tool name the registry does not know comes back as an error the model reads and recovers from.",
+      "prompt": "call a tool that does not exist",
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "no_such_tool", "arguments": {} }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["unknown tool"],
+          "respond": { "text": "that tool does not exist, so I answered directly" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["no_such_tool"],
+        "text_contains": ["does not exist"],
+        "text_not_contains": ["errored out"],
+        "turns": 2,
+        "stopped": false
+      }
+    }
+  ]
+}

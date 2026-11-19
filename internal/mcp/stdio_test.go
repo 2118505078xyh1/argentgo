@@ -1,0 +1,219 @@
+package mcp
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestMain doubles as the entry point of the fake MCP server: when the helper
+// environment variable is set, this process answers stdio JSON-RPC instead of
+// running the test suite.
+func TestMain(m *testing.M) {
+	if mode := os.Getenv("ARGENT_MCP_HELPER"); mode != "" {
+		helperMain(mode)
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func helperSpec(mode string, timeout time.Duration) Spec {
+	return Spec{
+		Name:      "fake",
+		Transport: "stdio",
+		Command:   os.Args[0],
+		Env:       []string{"ARGENT_MCP_HELPER=" + mode},
+		Timeout:   timeout,
+	}
+}
+
+// helperMain is a minimal MCP server over stdin/stdout.
+func helperMain(mode string) {
+	fmt.Fprintln(os.Stderr, "fake mcp server ready")
+	if mode == "silent" {
+		// A server that never answers; the client must time out and kill it.
+		time.Sleep(30 * time.Second)
+		return
+	}
+
+	encoder := json.NewEncoder(os.Stdout)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var message map[string]json.RawMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			continue
+		}
+		var method string
+		_ = json.Unmarshal(message["method"], &method)
+		idRaw, hasID := message["id"]
+		if !hasID {
+			continue
+		}
+		var id any
+		if err := json.Unmarshal(idRaw, &id); err != nil {
+			continue
+		}
+
+		response := map[string]any{"jsonrpc": "2.0", "id": id}
+		result, err := helperReply(method, message["params"])
+		if err != nil {
+			response["error"] = map[string]any{"code": -32602, "message": err.Error()}
+		} else {
+			response["result"] = result
+		}
+		if err := encoder.Encode(response); err != nil {
+			return
+		}
+	}
+}
+
+func helperReply(method string, params json.RawMessage) (any, error) {
+	switch method {
+	case "initialize":
+		return map[string]any{
+			"protocolVersion": "2024-11-05",
+			"serverInfo":      map[string]any{"name": "fake", "version": "0.1"},
+			"capabilities":    map[string]any{},
+		}, nil
+	case "tools/list":
+		return map[string]any{"tools": []any{
+			map[string]any{
+				"name":        "echo",
+				"description": "echoes text",
+				"inputSchema": map[string]any{"type": "object"},
+			},
+			map[string]any{
+				"name":        "boom",
+				"description": "always fails",
+				"inputSchema": map[string]any{"type": "object"},
+			},
+		}}, nil
+	case "resources/list":
+		return map[string]any{"resources": []any{}}, nil
+	case "tools/call":
+		var call struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if err := json.Unmarshal(params, &call); err != nil {
+			return nil, err
+		}
+		switch call.Name {
+		case "echo":
+			text, _ := call.Arguments["text"].(string)
+			return map[string]any{"content": []any{
+				map[string]any{"type": "text", "text": "echo: " + text},
+			}}, nil
+		case "boom":
+			return map[string]any{
+				"content": []any{map[string]any{"type": "text", "text": "kaboom"}},
+				"isError": true,
+			}, nil
+		}
+		return nil, fmt.Errorf("unknown tool %q", call.Name)
+	}
+	return nil, fmt.Errorf("method %s not found", method)
+}
+
+func TestStdioRoundTrip(t *testing.T) {
+	c, err := Connect(context.Background(), helperSpec("echo", 5*time.Second))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	info, err := c.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if info.Name != "fake" || info.ProtocolVersion != "2024-11-05" {
+		t.Fatalf("unexpected server info: %+v", info)
+	}
+
+	tools, err := c.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if len(tools) != 2 || tools[0].Name != "echo" || tools[1].Name != "boom" {
+		t.Fatalf("unexpected tools: %+v", tools)
+	}
+	if tools[0].Server != "fake" {
+		t.Fatalf("tool not tagged with the server: %+v", tools[0])
+	}
+
+	text, err := c.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"hi"}`))
+	if err != nil || text != "echo: hi" {
+		t.Fatalf("call echo: text=%q err=%v", text, err)
+	}
+
+	text, err = c.CallTool(context.Background(), "boom", nil)
+	if err == nil || text != "kaboom" || !strings.Contains(err.Error(), "kaboom") {
+		t.Fatalf("isError not surfaced: text=%q err=%v", text, err)
+	}
+
+	resources, err := c.ListResources(context.Background())
+	if err != nil || len(resources) != 0 {
+		t.Fatalf("list resources: %+v %v", resources, err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(Stderr(c), "fake mcp server ready") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("stderr was not captured: %q", Stderr(c))
+}
+
+func TestStdioCancellationKillsTheChild(t *testing.T) {
+	c, err := Connect(context.Background(), helperSpec("silent", 5*time.Second))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	if _, err := c.ListTools(ctx); err == nil {
+		t.Fatal("expected the call to time out")
+	} else if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout not surfaced: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("cancellation took too long: %s", elapsed)
+	}
+
+	// Cancelling a stdio call kills the child, so the connection is unusable.
+	if _, err := c.ListTools(context.Background()); err == nil {
+		t.Fatal("expected the connection to be closed after cancellation")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close after cancellation: %v", err)
+	}
+}
+
+func TestStdioMissingCommand(t *testing.T) {
+	_, err := Connect(context.Background(), Spec{
+		Name:      "missing",
+		Transport: "stdio",
+		Command:   "definitely-not-a-real-command-xyz",
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("error should name the server: %v", err)
+	}
+}
