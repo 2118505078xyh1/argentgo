@@ -157,10 +157,8 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		fontGlyph = createFont(-16, "Segoe UI Symbol", 500, false)
 		fontKey = createFont(-11, "Consolas", 600, false)
 		applyTheme(true)
-		// Reduced-motion users get a static spinner and a solid cursor.
-		if clientAnimationEnabled() {
-			pSetTimer.Call(hwnd, animationTimerID, animationMS, 0)
-		}
+		// No animation timer: the 80ms repaint loop caused an intermittent
+		// startup hang on some launches. Static spinner/caret is more robust.
 		hComposer, _, _ = pCreateWindowEx.Call(
 			0, uintptr(unsafe.Pointer(&editClassBuffer[0])), 0,
 			wsChild|wsVisible|wsTabStop|wsBorder|esMultiline|esAutoVScroll,

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -68,13 +67,6 @@ var (
 	pGetTextExtent    = gdi32.NewProc("GetTextExtentPoint32W")
 	pCreatePen        = gdi32.NewProc("CreatePen")
 	pGetModuleHandle  = kernel32.NewProc("GetModuleHandleW")
-	pGetConsoleWindow = kernel32.NewProc("GetConsoleWindow")
-	pFreeConsole      = kernel32.NewProc("FreeConsole")
-	pCurrentProcessID = kernel32.NewProc("GetCurrentProcessId")
-	pToolhelpSnapshot = kernel32.NewProc("CreateToolhelp32Snapshot")
-	pProcess32First   = kernel32.NewProc("Process32FirstW")
-	pProcess32Next    = kernel32.NewProc("Process32NextW")
-	pCloseHandle      = kernel32.NewProc("CloseHandle")
 	pDwmSetAttribute  = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
 )
 
@@ -114,23 +106,7 @@ const (
 	wsOverlappedWindow = 0x00CF0000
 	wmCtlColorEdit     = 0x0133
 	dwmDarkMode        = 20
-
-	th32csSnapProcess = 0x00000002
-	swHide            = 0
 )
-
-type processEntry32 struct {
-	Size            uint32
-	CntUsage        uint32
-	ProcessID       uint32
-	DefaultHeapID   uintptr
-	ModuleID        uint32
-	CntThreads      uint32
-	ParentProcessID uint32
-	PriorityClass   int32
-	Flags           uint32
-	ExeFile         [260]uint16
-}
 
 type rect struct{ Left, Top, Right, Bottom int32 }
 type size struct{ CX, CY int32 }
@@ -212,13 +188,6 @@ func Run(opts Options) error {
 		ctx:     opts.Context,
 	}
 	current = s
-	hideOwnConsole()
-	// Windows Terminal may create the console window slightly after startup;
-	// repeat the hide once the window is visible.
-	go func() {
-		time.Sleep(400 * time.Millisecond)
-		hideOwnConsole()
-	}()
 
 	hInstance, _, _ := pGetModuleHandle.Call(0)
 	className := &nativeClassName[0]
@@ -369,55 +338,6 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
-}
-
-// launchedByExplorer reports whether this process was started from Explorer
-// (desktop shortcut / Run), i.e. Windows created a brand-new console just for
-// us. When launched from a terminal we must NOT hide that console: it belongs
-// to the user's shell, not to the GUI.
-func launchedByExplorer() bool {
-	self, _, _ := pCurrentProcessID.Call()
-	snap, _, _ := pToolhelpSnapshot.Call(th32csSnapProcess, 0)
-	if snap == 0 || snap == ^uintptr(0) {
-		return false
-	}
-	defer pCloseHandle.Call(snap)
-
-	var parent uint32
-	var entry processEntry32
-	entry.Size = uint32(unsafe.Sizeof(entry))
-	for ok, _, _ := pProcess32First.Call(snap, uintptr(unsafe.Pointer(&entry))); ok != 0; ok, _, _ = pProcess32Next.Call(snap, uintptr(unsafe.Pointer(&entry))) {
-		if entry.ProcessID == uint32(self) {
-			parent = entry.ParentProcessID
-			break
-		}
-	}
-	if parent == 0 {
-		return false
-	}
-	entry = processEntry32{Size: uint32(unsafe.Sizeof(entry))}
-	for ok, _, _ := pProcess32First.Call(snap, uintptr(unsafe.Pointer(&entry))); ok != 0; ok, _, _ = pProcess32Next.Call(snap, uintptr(unsafe.Pointer(&entry))) {
-		if entry.ProcessID == parent {
-			name := string(utf16.Decode(entry.ExeFile[:]))
-			if i := strings.IndexByte(name, 0); i >= 0 {
-				name = name[:i]
-			}
-			return strings.EqualFold(name, "explorer.exe")
-		}
-	}
-	return false
-}
-
-// hideOwnConsole removes the black console window Windows creates for a
-// console-subsystem exe launched from Explorer. Safe only when we own it.
-func hideOwnConsole() {
-	if !launchedByExplorer() {
-		return
-	}
-	console, _, _ := pGetConsoleWindow.Call()
-	if console != 0 {
-		pShowWindow.Call(console, swHide)
-	}
 }
 
 // clientAnimationEnabled reports the Windows "show animations" preference.

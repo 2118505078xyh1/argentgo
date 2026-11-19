@@ -1,0 +1,106 @@
+package cli
+
+import (
+	"flag"
+	"io"
+	"sort"
+)
+
+// newFlags registers the whole flag surface on fs.
+func newFlags(fs *flag.FlagSet, v *flagValues) {
+	v.model = fs.String("m", "", "model id")
+	v.baseURL = fs.String("base-url", "", "provider base URL")
+	v.apiKey = fs.String("api-key", "", "provider API key")
+	v.protocol = fs.String("protocol", "", "protocol: anthropic, openai or responses")
+	v.provider = fs.String("provider", "", "provider template id (see `argent models`)")
+	v.profile = fs.String("profile", "", "named config profile")
+	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
+	v.maxTurns = fs.Int("max-turns", 12, "maximum model turns")
+	v.maxParallel = fs.Int("max-parallel", 0, "read-only tool workers per batch (0 uses the default, 1 disables)")
+	v.mode = fs.String("mode", ModeText, "output mode: text or json")
+	v.cwd = fs.String("cwd", "", "workspace root (default: current directory)")
+	v.sandboxMode = fs.String("sandbox-mode", "", "read-only, workspace-write or danger-full-access")
+	v.approval = fs.String("approval", "", "approval mode: ask, never or auto")
+	v.session = fs.String("session", "", "resume the session with this id")
+	v.resume = fs.Bool("resume", false, "resume the most recent session")
+	v.undo = fs.Bool("undo", false, "restore the latest checkpoint of --session and exit")
+	v.retry = fs.Bool("retry", false, "fork --session at its latest checkpoint before the prompt")
+	v.title = fs.String("title", "", "override the generated session title")
+	v.locale = fs.String("locale", "", "output locale")
+
+	v.jsonLines = fs.Bool("json-lines", false, "one-shot strict JSONL on stdout")
+	v.listProfiles = fs.Bool("list-profiles", false, "list config profiles and exit")
+	v.listSessions = fs.Bool("list-sessions", false, "list stored sessions and exit")
+	v.listModels = fs.Bool("list-models", false, "list provider templates and exit")
+	v.noColor = fs.Bool("no-color", false, "disable ANSI colours")
+	v.tokens = fs.Bool("tokens", false, "print the request payload breakdown and exit")
+	v.trustProject = fs.Bool("trust-project", false, "trust project-local resources for this run")
+	v.thinking = fs.String("thinking", "", "reasoning effort hint")
+	v.noAutoCompact = fs.Bool("no-auto-compact", false, "disable automatic compaction for this run")
+	v.noPromptCache = fs.Bool("no-prompt-cache", false, "disable provider prompt-cache markers for this run")
+	v.theme = fs.String("theme", "", "UI theme name")
+	v.plugins = &stringList{}
+	fs.Var(v.plugins, "plugins", "load this plugin by name, repeatable; `all` loads every one")
+
+	v.maxTokens = fs.Int("max-tokens", 0, "stop after this many billable tokens")
+	v.maxCost = fs.Float64("max-cost", 0, "stop after this estimated dollar spend")
+	v.maxSeconds = fs.Int("max-seconds", 0, "stop after this many wall-clock seconds")
+	v.priceInput = fs.Float64("price-input", 0, "USD per million prompt tokens")
+	v.priceOutput = fs.Float64("price-output", 0, "USD per million completion tokens")
+	v.fallbackModel = fs.String("fallback-model", "", "model to retry once with when the primary fails")
+	v.secondaryModel = fs.String("secondary-model", "", "model for delegated subagent tasks")
+	v.addDirs = &stringList{}
+	fs.Var(v.addDirs, "add-dir", "extra writable workspace directory, repeatable")
+	v.outputSchema = fs.String("output-schema", "", "JSON Schema file path, or inline schema text starting with {")
+
+	v.background = fs.Bool("background", false, "run in the background (not migrated)")
+	v.worktree = &optionalString{}
+	fs.Var(v.worktree, "worktree", "run in a git worktree (not migrated; bare flag names it automatically)")
+	v.enableBrowser = fs.Bool("enable-browser", false, "enable the browser tool (not migrated)")
+	v.enableDesktop = fs.Bool("enable-desktop", false, "enable desktop control (not migrated)")
+	v.enableService = fs.Bool("enable-service", false, "enable the pty service tool (not migrated)")
+	v.workflowMode = fs.String("workflow-mode", "", "dynamic workflow mode (not migrated)")
+	v.workflowResume = fs.Bool("workflow-resume", false, "resume a workflow journal (not migrated)")
+	v.workflowJournal = fs.String("workflow-journal", "", "workflow journal path (not migrated)")
+	v.gui = fs.Bool("gui", false, "launch the desktop window (not migrated)")
+	v.tui = fs.Bool("tui", false, "run the full-screen terminal UI")
+
+	v.serve = fs.Bool("serve", false, "serve HTTP + SSE")
+	v.rpc = fs.Bool("rpc", false, "serve newline-delimited JSON-RPC on stdio")
+	v.acp = fs.Bool("acp", false, "serve ACP JSON-RPC on stdio")
+	v.addr = fs.String("serve-address", "", "HTTP bind address (default 127.0.0.1)")
+	v.port = fs.Int("serve-port", 7777, "HTTP bind port")
+	v.token = fs.String("serve-token", "", "bearer token required by --serve")
+	v.version = fs.Bool("version", false, "print version and exit")
+	v.help = fs.Bool("help", false, "print this help")
+	v.overrides = &Overrides{}
+	fs.Var(v.overrides, "c", "config override key=value (repeatable)")
+
+	// Aliases share the same storage, so either spelling is equivalent.
+	fs.StringVar(v.model, "model", "", "model id")
+	fs.StringVar(v.cwd, "C", "", "workspace root")
+	fs.StringVar(v.session, "session-id", "", "resume the session with this id")
+	fs.BoolVar(v.resume, "continue", false, "resume the most recent session")
+	fs.BoolVar(v.version, "V", false, "print version and exit")
+	fs.BoolVar(v.help, "h", false, "print this help")
+	fs.StringVar(v.token, "token", "", "alias for --serve-token")
+	fs.StringVar(v.sandboxMode, "sandbox", "", "alias for --sandbox-mode")
+	fs.BoolVar(v.jsonLines, "continue-session", false, "alias for --continue")
+	fs.Var(v.overrides, "config", "config override key=value (repeatable)")
+}
+
+// flagSurface reports every long flag name the CLI accepts, sorted. It builds a
+// throwaway flag set so the list can never drift from the parser.
+func flagSurface() []string {
+	fs := flag.NewFlagSet("argent", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	newFlags(fs, &flagValues{})
+	var names []string
+	fs.VisitAll(func(f *flag.Flag) {
+		if len(f.Name) > 1 {
+			names = append(names, f.Name)
+		}
+	})
+	sort.Strings(names)
+	return names
+}
