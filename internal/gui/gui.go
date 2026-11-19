@@ -77,6 +77,19 @@ type Options struct {
 	// Sessions backs search_sessions and import_session_text. Optional: those
 	// commands answer "not supported in the Go build" when it is nil.
 	Sessions SessionStore
+	// Optional capability backends. See interfaces.go for the exact method
+	// contracts. Jobs, Automation, Workflows, Documents and PTY are
+	// injected-only: a nil value keeps the clear "not supported" error.
+	// Memory and Usage fall back to stdlib file stores under StorageDir:
+	// NewFileMemory (<storage>/memory/*.md) and NewFileUsage
+	// (<storage>/sessions/*.jsonl). Inject to override those defaults.
+	Jobs       Jobs
+	Automation Automation
+	Memory     Memory
+	Workflows  Workflows
+	Documents  Documents
+	Usage      Usage
+	PTY        PTY
 	// OnReady is called with the page URL once the listener is bound, so the
 	// launcher can open a browser.
 	OnReady func(url string)

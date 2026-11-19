@@ -233,15 +233,7 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 
 // configRoot is the per-user argent directory (~/.argent by default).
 func (b *bridge) configRoot() string {
-	dir := strings.TrimSpace(b.opts.StorageDir)
-	if dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".argent"
-	}
-	return filepath.Join(home, ".argent")
+	return storageRoot(b.opts.StorageDir)
 }
 
 // listMCPServers reads the configured server names without starting anything.

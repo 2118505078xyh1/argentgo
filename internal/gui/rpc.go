@@ -42,6 +42,31 @@ var unsupported = map[string]string{
 	"usage_summary":     "the usage ledger is not wired yet",
 }
 
+// unsupportedError keeps the original per-command message for nil backends.
+func unsupportedError(name string) error {
+	reason := unsupported[name]
+	if reason == "" {
+		reason = "no backend is configured"
+	}
+	return fmt.Errorf("not supported in the Go build: %s", reason)
+}
+
+// memoryStore and usageStore fall back to the stdlib defaults under StorageDir.
+// The injected value always wins, so an integrator can replace either store.
+func (b *bridge) memoryStore() Memory {
+	if b.opts.Memory != nil {
+		return b.opts.Memory
+	}
+	return NewFileMemory(b.configRoot())
+}
+
+func (b *bridge) usageStore() Usage {
+	if b.opts.Usage != nil {
+		return b.opts.Usage
+	}
+	return NewFileUsage(b.configRoot())
+}
+
 // args is the decoded JSON body of one rpc call.
 type args map[string]json.RawMessage
 
@@ -232,6 +257,119 @@ func (b *bridge) dispatch(ctx context.Context, name string, a args) (any, error)
 		return b.listMCPServers(), nil
 	case "list_plugins":
 		return b.listPlugins(), nil
+
+	// stdlib-backed defaults; never "not supported" even with no injection.
+	case "list_memory":
+		return b.memoryStore().List()
+	case "add_memory":
+		return nil, b.memoryStore().Add(a.str("scope"), a.str("key"), a.str("value"))
+	case "forget_memory":
+		return nil, b.memoryStore().Forget(a.str("scope"), a.str("key"))
+	case "search_memory":
+		return b.memoryStore().Search(a.str("query"))
+	case "usage_summary":
+		return b.usageStore().Summary()
+
+	// injected-only backends: nil returns a clear error, never a fake success.
+	case "list_jobs":
+		if b.opts.Jobs == nil {
+			return nil, unsupportedError("list_jobs")
+		}
+		return b.opts.Jobs.List()
+	case "start_job":
+		if b.opts.Jobs == nil {
+			return nil, unsupportedError("start_job")
+		}
+		return b.opts.Jobs.Start(a.str("command"))
+	case "job_tail":
+		if b.opts.Jobs == nil {
+			return nil, unsupportedError("job_tail")
+		}
+		return b.opts.Jobs.Tail(a.str("id"), int(a.integer("lines")))
+	case "kill_job":
+		if b.opts.Jobs == nil {
+			return nil, unsupportedError("kill_job")
+		}
+		return nil, b.opts.Jobs.Stop(a.str("id"))
+
+	case "list_workflows":
+		if b.opts.Workflows == nil {
+			return nil, unsupportedError("list_workflows")
+		}
+		return b.opts.Workflows.List()
+
+	case "list_documents":
+		if b.opts.Documents == nil {
+			return nil, unsupportedError("list_documents")
+		}
+		return b.opts.Documents.List()
+	case "read_document":
+		if b.opts.Documents == nil {
+			return nil, unsupportedError("read_document")
+		}
+		return b.opts.Documents.Read(a.str("path"))
+
+	case "list_automations":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("list_automations")
+		}
+		return b.opts.Automation.List()
+	case "create_automation":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("create_automation")
+		}
+		return nil, b.opts.Automation.Create(a.str("name"), a.str("schedule"), a.str("prompt"))
+	case "toggle_automation":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("toggle_automation")
+		}
+		return nil, b.opts.Automation.Toggle(a.str("id"))
+	case "delete_automation":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("delete_automation")
+		}
+		return nil, b.opts.Automation.Delete(a.str("id"))
+	case "run_automation":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("run_automation")
+		}
+		return nil, b.opts.Automation.Run(a.str("id"))
+	case "automation_log":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("automation_log")
+		}
+		return b.opts.Automation.Log(a.str("id"))
+	case "preview_schedule":
+		if b.opts.Automation == nil {
+			return nil, unsupportedError("preview_schedule")
+		}
+		return b.opts.Automation.Preview(a.str("schedule"))
+
+	case "pty_spawn":
+		if b.opts.PTY == nil {
+			return nil, unsupportedError("pty_spawn")
+		}
+		return b.opts.PTY.Spawn(a.str("command"), int(a.integer("cols")), int(a.integer("rows")))
+	case "pty_write":
+		if b.opts.PTY == nil {
+			return nil, unsupportedError("pty_write")
+		}
+		return nil, b.opts.PTY.Write(a.str("id"), a.str("text"))
+	case "pty_read":
+		if b.opts.PTY == nil {
+			return nil, unsupportedError("pty_read")
+		}
+		return b.opts.PTY.Read(a.str("id"))
+	case "pty_kill":
+		if b.opts.PTY == nil {
+			return nil, unsupportedError("pty_kill")
+		}
+		return nil, b.opts.PTY.Kill(a.str("id"))
+	case "pty_list":
+		if b.opts.PTY == nil {
+			return nil, unsupportedError("pty_list")
+		}
+		return b.opts.PTY.List()
 	}
 	if reason, ok := unsupported[name]; ok {
 		return nil, fmt.Errorf("not supported in the Go build: %s", reason)
@@ -275,6 +413,9 @@ func (b *bridge) searchSessions(query string, limit int) ([]SearchHit, error) {
 	}
 	if hits == nil {
 		hits = []SearchHit{}
+	}
+	for i := range hits {
+		hits[i].Snippet = redactSecrets(hits[i].Snippet)
 	}
 	return hits, nil
 }

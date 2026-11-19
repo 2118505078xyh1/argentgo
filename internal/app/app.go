@@ -618,6 +618,9 @@ func (r *runner) ensureSession(firstPrompt string) (*session.Session, error) {
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
+	if injection, ok := reviewPrompt(res.Root, prompt); ok {
+		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
+	}
 	if res.MaxSeconds > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(res.MaxSeconds)*time.Second)

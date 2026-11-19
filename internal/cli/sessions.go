@@ -9,13 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/2118505078xyh1/argent-go/internal/server"
+	"github.com/2118505078xyh1/argent-go/internal/session"
 )
 
-// runSessions implements `sessions list|show|rm|find`.
+// runSessions implements `sessions list|show|rm|find|--grep|tree|export`.
 func runSessions(app App, _ context.Context, args []string) int {
 	if len(args) == 0 {
 		sessionsUsage(app.IO.Err)
@@ -51,6 +53,26 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsFind(app, store, strings.Join(args[1:], " "))
+	case "--grep":
+		query, limit, err := parseGrepArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "argent: %v\n", err)
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsGrep(app, store, query, limit)
+	case "tree":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsTree(app, store, args[1])
+	case "export":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsExport(app, store, args[1], args[2:])
 	default:
 		fmt.Fprintf(app.IO.Err, "argent: unknown sessions command %q\n", args[0])
 		sessionsUsage(app.IO.Err)
@@ -116,6 +138,160 @@ func sessionsShow(app App, store SessionStore, id string) int {
 	return 0
 }
 
+// sessionGrepper is the optional read side an injected store can provide. The
+// fallback reads the JSONL files in the storage directory directly.
+type sessionGrepper interface {
+	Search(query string, limit int) ([]session.Hit, error)
+}
+
+// sessionTreeStore is the optional branch/export side of an injected store.
+type sessionTreeStore interface {
+	Branches(id string) ([]session.Branch, error)
+	RenderHTML(id, branchID string, w io.Writer) error
+}
+
+func parseGrepArgs(args []string) (string, int, error) {
+	limit := 20
+	var words []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--limit":
+			if i+1 >= len(args) {
+				return "", 0, errors.New("--grep needs a value for --limit")
+			}
+			i++
+			value, err := strconv.Atoi(args[i])
+			if err != nil || value <= 0 {
+				return "", 0, fmt.Errorf("invalid --limit %q", args[i])
+			}
+			limit = value
+		case strings.HasPrefix(args[i], "--limit="):
+			value, err := strconv.Atoi(strings.TrimPrefix(args[i], "--limit="))
+			if err != nil || value <= 0 {
+				return "", 0, fmt.Errorf("invalid --limit %q", args[i])
+			}
+			limit = value
+		case strings.HasPrefix(args[i], "-"):
+			return "", 0, fmt.Errorf("unknown --grep option %q", args[i])
+		default:
+			words = append(words, args[i])
+		}
+	}
+	query := strings.Join(words, " ")
+	if strings.TrimSpace(query) == "" {
+		return "", 0, errors.New("--grep needs search text")
+	}
+	return query, limit, nil
+}
+
+func sessionsGrep(app App, store SessionStore, query string, limit int) int {
+	var hits []session.Hit
+	var err error
+	if grepper, ok := store.(sessionGrepper); ok {
+		hits, err = grepper.Search(query, limit)
+	} else {
+		hits, err = session.Search(app.sessionDir(), query, limit)
+	}
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	if len(hits) == 0 {
+		fmt.Fprintf(app.IO.Out, "no matches for %q\n", query)
+		return 0
+	}
+	for _, hit := range hits {
+		fmt.Fprintf(app.IO.Out, "%s:%d\t%s\t%s\t%s\n", hit.ID, hit.Line, hit.Path, formatTime(hit.TS), hit.Snippet)
+	}
+	return 0
+}
+
+func sessionsTree(app App, store SessionStore, id string) int {
+	var branches []session.Branch
+	var err error
+	if trees, ok := store.(sessionTreeStore); ok {
+		branches, err = trees.Branches(id)
+	} else {
+		var path string
+		path, err = session.ResolvePath(app.sessionDir(), id)
+		if err == nil {
+			branches, err = session.Branches(path)
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	for _, branch := range branches {
+		marker := " "
+		if branch.Active {
+			marker = "*"
+		}
+		fmt.Fprintf(app.IO.Out, "%s%s\tparent=%s\tdepth=%d\t%s\t%s\n",
+			marker, branch.ID, branch.Parent, branch.Depth, branch.Kind, branch.Label)
+	}
+	return 0
+}
+
+func sessionsExport(app App, store SessionStore, id string, args []string) int {
+	outPath, branchID := "", ""
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "-o" || args[i] == "--output":
+			if i+1 >= len(args) {
+				sessionsUsage(app.IO.Err)
+				return 2
+			}
+			i++
+			outPath = args[i]
+		case strings.HasPrefix(args[i], "-o="):
+			outPath = strings.TrimPrefix(args[i], "-o=")
+		case strings.HasPrefix(args[i], "--output="):
+			outPath = strings.TrimPrefix(args[i], "--output=")
+		case args[i] == "--branch":
+			if i+1 >= len(args) {
+				sessionsUsage(app.IO.Err)
+				return 2
+			}
+			i++
+			branchID = args[i]
+		default:
+			fmt.Fprintf(app.IO.Err, "argent: unexpected export argument %q\n", args[i])
+			return 2
+		}
+	}
+
+	var w io.Writer = app.IO.Out
+	if outPath != "" {
+		file, err := os.Create(outPath)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		defer file.Close()
+		w = file
+	}
+
+	var err error
+	if trees, ok := store.(sessionTreeStore); ok {
+		err = trees.RenderHTML(id, branchID, w)
+	} else {
+		var path string
+		path, err = session.ResolvePath(app.sessionDir(), id)
+		if err == nil {
+			err = session.RenderHTML(path, branchID, w)
+		}
+	}
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	if outPath != "" {
+		fmt.Fprintf(app.IO.Out, "wrote %s\n", outPath)
+	}
+	return 0
+}
+
 func sortSessions(infos []server.SessionInfo) {
 	sort.SliceStable(infos, func(i, j int) bool {
 		return infos[i].Updated.After(infos[j].Updated)
@@ -134,6 +310,9 @@ func sessionsUsage(w io.Writer) {
        argent sessions show <id>
        argent sessions rm <id>
        argent sessions find <keyword>
+        argent sessions --grep <text> [--limit N]
+        argent sessions tree <id>
+        argent sessions export <id> [-o file.html]
 `)
 }
 

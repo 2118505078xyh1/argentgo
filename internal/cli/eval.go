@@ -60,8 +60,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 	}
 
 	failures := 0
+	runner, ok := app.Eval.(EvalRunner)
+	if !ok {
+		fmt.Fprintln(app.IO.Err, "error: eval runner does not support single scenarios")
+		return 1
+	}
 	for i, scenario := range scenarios {
-		report, err := app.Eval.RunScenario(ctx, scenario.Prompt)
+		report, err := runner.RunScenario(ctx, scenario.Prompt)
 		if err != nil {
 			fmt.Fprintf(app.IO.Out, "FAIL %d %q: runner error: %v\n", i+1, scenario.Prompt, err)
 			failures++

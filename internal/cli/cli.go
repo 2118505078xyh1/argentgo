@@ -83,11 +83,13 @@ type TokenReporter func(opts Options) (string, error)
 
 // App bundles the injected dependencies of the command layer.
 type App struct {
-	IO          IO
-	Version     string
-	NewRunner   RunnerFactory
-	Sessions    SessionStore
-	Eval        EvalRunner
+	IO        IO
+	Version   string
+	NewRunner RunnerFactory
+	Sessions  SessionStore
+	// Eval accepts either an EvalRunner or an EvalSuiteRunner; runEval selects
+	// the richer suite interface at runtime when it is available.
+	Eval        any
 	TUI         TUIFunc
 	Profiles    ProfileLister
 	TokenReport TokenReporter
