@@ -65,10 +65,14 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 	for _, tool := range []Tool{
 		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{},
 		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
+		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
 	} {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
+	// tool_search reads the finished registry so it can search every spec.
+	r.tools["tool_search"] = toolSearchTool{registry: r}
+	r.order = append(r.order, "tool_search")
 	return r
 }
 
