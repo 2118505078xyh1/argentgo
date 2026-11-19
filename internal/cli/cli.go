@@ -60,6 +60,12 @@ type EvalReport struct {
 	Tools []string
 }
 
+// EvalSuiteRunner executes a whole scripted suite file. RunEval prefers it
+// when available; the narrow EvalRunner stays for simple injected fakes.
+type EvalSuiteRunner interface {
+	RunSuite(ctx context.Context, path string, out io.Writer) (passed, failed int, err error)
+}
+
 // EvalRunner executes one eval scenario.
 type EvalRunner interface {
 	RunScenario(ctx context.Context, prompt string) (EvalReport, error)

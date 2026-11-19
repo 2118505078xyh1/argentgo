@@ -116,23 +116,31 @@ type callResult struct {
 // the model; it never aborts the run.
 func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 	start := time.Now()
-	if s.needsApproval(call.Function.Name) {
-		allowed, err := s.opts.Approve.Ask(ctx, call.Function.Name, call.Function.Arguments)
-		switch {
-		case err != nil:
-			return callResult{
-				output:   fmt.Sprintf("error: approval for %q failed: %v", call.Function.Name, err),
-				isError:  true,
-				duration: time.Since(start),
-			}
-		case !allowed:
-			return callResult{
-				output:   fmt.Sprintf("error: the operator denied %q; do not repeat this call without changing the request", call.Function.Name),
-				isError:  true,
-				duration: time.Since(start),
+	// A guarded toolset already runs the security chain, which asks the same
+	// approver. Asking again in the loop would show a second modal for one call.
+	if guarded, ok := s.opts.Tools.(interface{ Guarded() bool }); !ok || !guarded.Guarded() {
+		if s.needsApproval(call.Function.Name) {
+			allowed, err := s.opts.Approve.Ask(ctx, call.Function.Name, call.Function.Arguments)
+			switch {
+			case err != nil:
+				return callResult{
+					output:   fmt.Sprintf("error: approval for %q failed: %v", call.Function.Name, err),
+					isError:  true,
+					duration: time.Since(start),
+				}
+			case !allowed:
+				return callResult{
+					output:   fmt.Sprintf("error: the operator denied %q; do not repeat this call without changing the request", call.Function.Name),
+					isError:  true,
+					duration: time.Since(start),
+				}
 			}
 		}
 	}
+	return s.runTool(ctx, call, start)
+}
+
+func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Time) callResult {
 	output, err := s.tools.Run(ctx, call.Function.Name, call.Function.Arguments)
 	if err != nil {
 		return callResult{output: "error: " + err.Error(), isError: true, duration: time.Since(start)}

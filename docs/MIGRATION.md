@@ -180,10 +180,12 @@ and `cmd/argent`.
 Still deferred: native C-ABI plugin loader (Go uses process/MCP plugins instead),
 tree-sitter AST, desktop control, and the Tauri bridge (wave 3, needs `internal/server` settled).
 
-## Retirement of the Rust checkout`github.com/<owner>/argent` is frozen at v0.4.0 and archived; the local checkout
-`<local-checkout>` is the behavioural reference **only until this wave lands**.
-After the last slice is merged and the Go tests are green, delete the local Rust
-directory (history stays on GitHub). Do not delete it earlier: the slices read it.
+## Retirement of the Rust checkout
+
+`github.com/<owner>/argent` is frozen at v0.4.0 and archived. The local checkout
+`<local-checkout>` was the behavioural reference through wave 5 and has been
+deleted after the Go build and the `ui/` sources were copied. History stays on
+GitHub; the Go repository is now the only local source of truth.
 
 ## Reporting
 

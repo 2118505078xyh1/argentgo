@@ -37,6 +37,18 @@ func runEval(app App, ctx context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	if suite, ok := app.Eval.(EvalSuiteRunner); ok {
+		passed, failed, err := suite.RunSuite(ctx, args[0], app.IO.Out)
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+			return 1
+		}
+		if failed > 0 {
+			return 1
+		}
+		_ = passed
+		return 0
+	}
 	scenarios, err := parseEvalFile(data)
 	if err != nil {
 		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
