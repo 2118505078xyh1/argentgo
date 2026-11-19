@@ -44,12 +44,27 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      - name: go test -race
+        # Concurrency is a release gate here (session fd/ID indexes, broker
+        # channels, job registry). windows-latest ships MinGW so CGO is
+        # available; the local dev host has no gcc and skips this step.
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./...
       # Windows amd64 is the only shipped target; build it with no cgo here
       # instead of producing binaries for platforms we do not distribute.
       - name: build (no cgo)
         env:
           CGO_ENABLED: '0'
         run: go build ./cmd/argent
+      # AGENTS.md promises this cross-compile property; verify it on every PR
+      # instead of relying on a one-off local check.
+      - name: cross-compile (linux/amd64, no cgo)
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build ./...
 
   ui:
     name: ui
