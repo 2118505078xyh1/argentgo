@@ -8,7 +8,7 @@ import (
 
 // markdownLines renders a block with the small subset of markdown the model
 // actually emits: fenced code, inline code, bold and headings.
-func markdownLines(textValue string, width int, first, rest string) []Line {
+func markdownLines(textValue string, width int, first, rest string, p Palette) []Line {
 	var out []Line
 	inCode := false
 	firstLine := true
@@ -21,7 +21,7 @@ func markdownLines(textValue string, width int, first, rest string) []Line {
 		if inCode {
 			for _, segment := range Wrap(lineText, maxInt(width-4, 1)) {
 				code := NewLine()
-				code.Push("  "+segment, Style{Fg: ColorGray})
+				code.Push("  "+segment, p.muted())
 				out = append(out, code)
 			}
 			firstLine = false
@@ -31,7 +31,7 @@ func markdownLines(textValue string, width int, first, rest string) []Line {
 		if firstLine {
 			prefix = first
 		}
-		out = append(out, wrapStyled(inlineSpans(lineText), width, prefix, rest)...)
+		out = append(out, wrapStyled(inlineSpans(lineText, p), width, prefix, rest)...)
 		firstLine = false
 	}
 	if len(out) == 0 {
@@ -42,20 +42,20 @@ func markdownLines(textValue string, width int, first, rest string) []Line {
 
 // inlineSpans splits one line into styled runs: `code`, **bold**, headings and
 // bullet markers.
-func inlineSpans(lineText string) []Span {
+func inlineSpans(lineText string, p Palette) []Span {
 	if strings.HasPrefix(lineText, "#") {
 		body := strings.TrimSpace(strings.TrimLeft(lineText, "#"))
 		return []Span{{Text: body, Style: Style{Bold: true}}}
 	}
 	if strings.HasPrefix(lineText, "- ") || strings.HasPrefix(lineText, "* ") {
-		rest := parseInline(lineText[2:])
-		out := []Span{{Text: "- ", Style: Style{Fg: ColorCyan}}}
+		rest := parseInline(lineText[2:], p)
+		out := []Span{{Text: "- ", Style: p.accent()}}
 		return append(out, rest...)
 	}
-	return parseInline(lineText)
+	return parseInline(lineText, p)
 }
 
-func parseInline(textValue string) []Span {
+func parseInline(textValue string, p Palette) []Span {
 	var spans []Span
 	var buffer strings.Builder
 	flush := func() {
@@ -74,7 +74,7 @@ func parseInline(textValue string) []Span {
 			}
 			if end < len(runes) && end > i+1 {
 				flush()
-				spans = append(spans, Span{Text: string(runes[i+1 : end]), Style: Style{Fg: ColorMagenta}})
+				spans = append(spans, Span{Text: string(runes[i+1 : end]), Style: p.code()})
 				i = end
 				continue
 			}
@@ -191,14 +191,14 @@ func wrappedBlock(body string, width int, first, rest string, style Style) []Lin
 }
 
 // toolLines renders name(args-summary) plus a truncated output preview.
-func toolLines(entry Entry, width int, expanded bool) []Line {
+func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 	glyph := toolMark
-	style := Style{Fg: ColorGreen}
+	style := p.tool()
 	switch {
 	case entry.Failed:
-		glyph, style = "✖ ", Style{Fg: ColorRed}
+		glyph, style = "✖ ", p.failure()
 	case entry.Running:
-		glyph, style = "◐ ", Style{Fg: ColorYellow}
+		glyph, style = "◐ ", p.warning()
 	}
 	head := NewLine()
 	head.Push(glyph, style)
@@ -225,7 +225,7 @@ func toolLines(entry Entry, width int, expanded bool) []Line {
 				}
 				line := NewLine()
 				line.Push("  ", Style{})
-				line.Push(Clip(segment, maxInt(width-2, 1)), Style{Fg: ColorGray})
+				line.Push(Clip(segment, maxInt(width-2, 1)), p.muted())
 				out = append(out, line)
 				shown++
 			}
@@ -236,7 +236,7 @@ func toolLines(entry Entry, width int, expanded bool) []Line {
 		if len(rows) > shown {
 			line := NewLine()
 			line.Push("  ", Style{})
-			line.Push("… "+strconv.Itoa(len(rows)-shown)+" more lines", Style{Fg: ColorGray, Dim: true})
+			line.Push("… "+strconv.Itoa(len(rows)-shown)+" more lines", p.dim())
 			out = append(out, line)
 		}
 	}

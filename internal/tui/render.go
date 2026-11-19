@@ -96,7 +96,7 @@ func (m *Model) Paint(buf *Buffer) {
 	m.bodyH = l.bodyH
 
 	m.paintLine(buf, 0, m.headerLocked(width))
-	m.paintLine(buf, 1, ruleLine(width))
+	m.paintLine(buf, 1, ruleLine(width, m.palette.border()))
 
 	body := m.bodyLinesLocked(l.bodyW)
 	maxScroll := len(body) - l.bodyH
@@ -127,7 +127,7 @@ func (m *Model) Paint(buf *Buffer) {
 	}
 
 	m.paintInput(buf, l)
-	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil))
+	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil, m.palette.dim()))
 	m.paintLine(buf, l.statusY, m.statusLineLocked(width))
 }
 
@@ -149,23 +149,23 @@ func (m *Model) paintLineAt(buf *Buffer, y, x int, line Line) {
 	}
 }
 
-func ruleLine(width int) Line {
+func ruleLine(width int, style Style) Line {
 	line := NewLine()
-	line.Push(strings.Repeat("─", maxInt(width, 1)), Style{Fg: ColorGray})
+	line.Push(strings.Repeat("─", maxInt(width, 1)), style)
 	return line
 }
 
 func (m *Model) headerLocked(width int) Line {
-	dot := Style{Fg: ColorGray}
+	dot := m.palette.muted()
 	left := NewLine()
-	left.Push("argent", Style{Fg: ColorCyan, Bold: true})
+	left.Push("argent", m.palette.accent())
 	if m.model != "" {
 		left.Push(" · ", dot)
 		left.Push(m.model, Style{})
 	}
 	if m.root != "" {
 		left.Push(" · ", dot)
-		left.Push(shortPath(m.root), Style{Fg: ColorGray})
+		left.Push(shortPath(m.root), m.palette.muted())
 	}
 
 	var parts []string
@@ -174,7 +174,7 @@ func (m *Model) headerLocked(width int) Line {
 	}
 	parts = append(parts, clock(int(m.now().Sub(m.started).Seconds())))
 	right := NewLine()
-	right.Push(strings.Join(parts, " · ")+" ", Style{Fg: ColorGray})
+	right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
 
 	room := width - right.Width() - 1
 	if room < 4 {
@@ -194,10 +194,15 @@ func (m *Model) statusLineLocked(width int) Line {
 		message = text(m.locale, "ready")
 	}
 	if message != "" {
-		left.Push(Clip(message, width), Style{Fg: ColorGray})
+		left.Push(Clip(message, width), m.palette.muted())
 	}
 	right := NewLine()
 	var parts []string
+	// The theme is worth a permanent reminder only when it differs from the
+	// default; dark needs no label because it is the historic appearance.
+	if m.theme != ThemeDark {
+		parts = append(parts, text(m.locale, "theme")+" "+m.theme)
+	}
 	if m.scroll > 0 {
 		parts = append(parts, "↑"+strconv.Itoa(m.scroll))
 	}
@@ -205,7 +210,7 @@ func (m *Model) statusLineLocked(width int) Line {
 		parts = append(parts, compactCount(m.usageIn)+"/"+compactCount(m.usageOut))
 	}
 	if len(parts) > 0 {
-		right.Push(strings.Join(parts, " · ")+" ", Style{Fg: ColorGray})
+		right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
 	}
 	return joinLine(left, right, width)
 }
@@ -215,8 +220,8 @@ func (m *Model) tickLocked() int {
 }
 
 func (m *Model) paintInput(buf *Buffer, l layout) {
-	border := Style{Fg: ColorGray}
-	accent := Style{Fg: ColorCyan, Bold: true}
+	border := m.palette.border()
+	accent := m.palette.accent()
 
 	top := NewLine()
 	top.Push("╭"+strings.Repeat("─", maxInt(l.width-2, 0))+"╮", border)
@@ -270,7 +275,7 @@ func (m *Model) approvalLines(width int) []Line {
 	}
 	boxWidth := minInt(maxInt(width-4, 24), 64)
 	inner := boxWidth - 4
-	border := Style{Fg: ColorYellow}
+	border := m.palette.warning()
 
 	out := make([]Line, 0, 8)
 	title := text(m.locale, "approval_title")
@@ -296,11 +301,11 @@ func (m *Model) approvalLines(width int) []Line {
 		if i > 0 {
 			label = "      "
 		}
-		out = append(out, row(label+segment, Style{Fg: ColorGray}))
+		out = append(out, row(label+segment, m.palette.muted()))
 	}
 	out = append(out, row("", Style{}))
 	out = append(out, row("[y] "+text(m.locale, "allow")+"   [n] "+text(m.locale, "deny"), Style{}))
-	out = append(out, row("[a] "+text(m.locale, "allow_session"), Style{Fg: ColorGray}))
+	out = append(out, row("[a] "+text(m.locale, "allow_session"), m.palette.muted()))
 
 	foot := "└" + strings.Repeat("─", maxInt(boxWidth-2, 0)) + "┘"
 	out = append(out, PlainLine(Clip(foot, boxWidth)))
@@ -324,15 +329,15 @@ func (m *Model) renderBodyLocked(width int) []Line {
 	for _, entry := range m.entries {
 		switch entry.Kind {
 		case EntryUser:
-			out = append(out, wrappedBlock(entry.Text, width, userMark, "  ", Style{Fg: ColorCyan, Bold: true})...)
+			out = append(out, wrappedBlock(entry.Text, width, userMark, "  ", m.palette.user())...)
 		case EntryAssistant:
-			out = append(out, markdownLines(entry.Text, width, assistantMark, "  ")...)
+			out = append(out, markdownLines(entry.Text, width, assistantMark, "  ", m.palette)...)
 		case EntryReasoning:
 			out = append(out, m.reasoningLines(entry, width)...)
 		case EntryTool:
-			out = append(out, toolLines(entry, width, m.expanded)...)
+			out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
 		case EntryNotice:
-			out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", Style{Fg: ColorYellow})...)
+			out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
 		}
 	}
 	return out
@@ -340,11 +345,10 @@ func (m *Model) renderBodyLocked(width int) []Line {
 
 func (m *Model) reasoningLines(entry Entry, width int) []Line {
 	head := NewLine()
-	head.Push(reasonMark, Style{Fg: ColorMagenta})
-	head.Push(text(m.locale, "thinking"), Style{Fg: ColorGray})
+	head.Push(reasonMark, m.palette.reasoning())
+	head.Push(text(m.locale, "thinking"), m.palette.muted())
 	out := []Line{head}
-	dim := Style{Fg: ColorGray, Dim: true}
-	out = append(out, wrappedBlock(entry.Text, width, "  ", "  ", dim)...)
+	out = append(out, wrappedBlock(entry.Text, width, "  ", "  ", m.palette.dim())...)
 	return out
 }
 
@@ -386,12 +390,12 @@ func clipLine(line Line, width int) Line {
 }
 
 // hintLine is the footer key bar.
-func hintLine(width int, locale string, modal bool) Line {
+func hintLine(width int, locale string, modal bool, style Style) Line {
 	hint := text(locale, "hint")
 	if modal {
 		hint = text(locale, "hint_modal")
 	}
 	line := NewLine()
-	line.Push(Clip(hint, width), Style{Fg: ColorGray, Dim: true})
+	line.Push(Clip(hint, width), style)
 	return line
 }

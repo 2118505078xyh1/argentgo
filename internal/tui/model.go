@@ -38,6 +38,9 @@ type Config struct {
 	Root     string
 	Model    string
 	Locale   string
+	Theme    string
+	NoColor  bool
+	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	Sessions []string
 }
 
@@ -69,6 +72,12 @@ type Model struct {
 	locale   string
 	sessions []string
 
+	theme    string
+	palette  Palette
+	noColor  bool
+	degraded bool
+	env      func(string) string
+
 	entries []Entry
 	editor  Editor
 	stream  strings.Builder
@@ -98,13 +107,14 @@ type Model struct {
 	now func() time.Time
 }
 
-// New returns a model ready to render.
+// New returns a model ready to render. An empty Theme selects the dark
+// palette, keeping callers that predate themes unchanged.
 func New(cfg Config) *Model {
 	locale := cfg.Locale
 	if locale == "" {
 		locale = "en"
 	}
-	return &Model{
+	m := &Model{
 		model:    cfg.Model,
 		root:     cfg.Root,
 		locale:   locale,
@@ -113,7 +123,81 @@ func New(cfg Config) *Model {
 		started:  time.Now(),
 		now:      time.Now,
 		allowed:  map[string]bool{},
+		env:      cfg.Env,
+		noColor:  cfg.NoColor,
+		degraded: detectDegradation(cfg.Env),
 	}
+	m.theme = ThemeDark
+	m.palette, _ = paletteFor(ThemeDark)
+	_ = m.applyThemeLocked(cfg.Theme)
+	if m.degraded && !m.noColor {
+		m.appendNoticeLocked(text(locale, "color_degraded"))
+	}
+	return m
+}
+
+// SetTheme switches the palette at runtime. Unknown names leave the current
+// theme in place and return an error wrapping ErrUnknownTheme.
+func (m *Model) SetTheme(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applyThemeLocked(name)
+}
+
+// Theme is the canonical name of the active theme.
+func (m *Model) Theme() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.theme
+}
+
+// Palette returns the palette currently driving the renderer.
+func (m *Model) Palette() Palette {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.palette
+}
+
+// SetNoColor toggles colour suppression without rebuilding the model.
+func (m *Model) SetNoColor(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.noColor == v {
+		return
+	}
+	m.noColor = v
+	_ = m.applyThemeLocked(m.theme)
+}
+
+// NoColor reports whether colour SGR codes are suppressed.
+func (m *Model) NoColor() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.noColor
+}
+
+// Degraded reports whether the injected environment asked for monochrome.
+func (m *Model) Degraded() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.degraded
+}
+
+// applyThemeLocked rebuilds the palette from the theme, environment and
+// NoColor flag. It always bumps the version so a repaint picks up the change.
+func (m *Model) applyThemeLocked(name string) error {
+	p, err := paletteFor(name)
+	if err != nil {
+		return err
+	}
+	if m.degraded || m.noColor {
+		p = monochrome(p)
+	}
+	p.noColor = m.noColor
+	m.theme = canonicalTheme(name)
+	m.palette = p
+	m.version++
+	return nil
 }
 
 // SetApproval installs the injected approval authority. It is consulted after

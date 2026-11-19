@@ -28,6 +28,8 @@ var localeStrings = map[string]map[string]string{
 		"expanded":         "tool output expanded",
 		"collapsed":        "tool output collapsed",
 		"error":            "error",
+		"theme":            "theme",
+		"color_degraded":   "colour output degraded (NO_COLOR or dumb terminal)",
 		"help":             "enter sends · alt+enter/ctrl+j newline · shift+up/down scroll · ctrl+c cancels, again quits · /clear /expand /quit",
 	},
 	"zh": {
@@ -50,6 +52,8 @@ var localeStrings = map[string]map[string]string{
 		"expanded":         "工具输出已展开",
 		"collapsed":        "工具输出已折叠",
 		"error":            "错误",
+		"theme":            "主题",
+		"color_degraded":   "颜色输出已降级（NO_COLOR 或 dumb 终端）",
 		"help":             "enter 发送 · alt+enter/ctrl+j 换行 · shift+up/down 滚动 · ctrl+c 取消，再按退出 · /clear /expand /quit",
 	},
 }

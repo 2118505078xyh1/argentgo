@@ -22,6 +22,8 @@ type Buffer struct {
 	prev  []Cell
 	prevW int
 	prevH int
+
+	noColor bool // skip every SGR escape when the operator asked for --no-color
 }
 
 // NewBuffer allocates a buffer of w by h cells.
@@ -136,7 +138,7 @@ func (b *Buffer) Flush(out io.Writer) (int, error) {
 			continue
 		}
 		frame.WriteString(cursorTo(y+1, 1))
-		writeRow(&frame, row)
+		writeRow(&frame, row, b.noColor)
 		written++
 	}
 	if written == 0 {
@@ -152,6 +154,16 @@ func (b *Buffer) Flush(out io.Writer) (int, error) {
 func (b *Buffer) Invalidate() {
 	b.prevW, b.prevH = -1, -1
 	b.prev = nil
+}
+
+// SetNoColor controls whether Flush emits SGR colour escapes. Switching it
+// forces a full repaint because every cell's bytes change.
+func (b *Buffer) SetNoColor(v bool) {
+	if b.noColor == v {
+		return
+	}
+	b.noColor = v
+	b.Invalidate()
 }
 
 func rowEqual(a, b []Cell) bool {
@@ -173,7 +185,7 @@ func cursorTo(row, col int) string {
 
 // writeRow emits one row, trimming trailing blank cells and clearing the rest
 // of the line with EL. Trailing spaces are what make a redraw flicker-free.
-func writeRow(out *strings.Builder, row []Cell) {
+func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 	end := len(row)
 	for end > 0 {
 		cell := row[end-1]
@@ -182,6 +194,16 @@ func writeRow(out *strings.Builder, row []Cell) {
 			continue
 		}
 		break
+	}
+	if noColor {
+		// Not even a reset: the operator asked for zero SGR colour sequences.
+		for _, cell := range row[:end] {
+			if cell.R != 0 {
+				out.WriteRune(cell.R)
+			}
+		}
+		out.WriteString("\x1b[K")
+		return
 	}
 	var current Style
 	for _, cell := range row[:end] {

@@ -125,3 +125,40 @@ func TestNoCatalogKeyLooksLikeAProseSentence(t *testing.T) {
 		}
 	}
 }
+
+func TestThemeKeysArePresentInBothLocales(t *testing.T) {
+	keys := Keys()
+	index := map[string]bool{}
+	for _, key := range keys {
+		index[key] = true
+	}
+	for _, key := range []string{"label.theme", "status.theme", "notice.color_degraded"} {
+		if !index[key] {
+			t.Errorf("Keys() is missing %q", key)
+		}
+		entry, ok := catalog[key]
+		if !ok {
+			t.Errorf("catalog is missing %q", key)
+			continue
+		}
+		if entry.en == "" || entry.zh == "" {
+			t.Errorf("%q needs both en-US and zh-CN text", key)
+		}
+		var en, zh string
+		if key == "status.theme" {
+			en, zh = T(EnUS, key, "ansi"), T(ZhCN, key, "ansi")
+		} else {
+			en, zh = T(EnUS, key), T(ZhCN, key)
+		}
+		switch key {
+		case "status.theme":
+			if !strings.Contains(en, "theme") || !strings.Contains(zh, "主题") {
+				t.Errorf("theme status = %q / %q", en, zh)
+			}
+		case "notice.color_degraded":
+			if !strings.Contains(en, "colour") || !strings.Contains(zh, "颜色") {
+				t.Errorf("degraded notice = %q / %q", en, zh)
+			}
+		}
+	}
+}

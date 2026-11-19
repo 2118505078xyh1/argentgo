@@ -62,6 +62,11 @@ var catalog = map[string]translation{
 	"label.permission": {"permission", "权限"},
 	"label.locale":     {"language", "语言"},
 	"label.turns":      {"turns", "回合"},
+	"label.theme":      {"theme", "主题"},
+
+	// Theme switching and colour degradation notices.
+	"status.theme":          {"theme: %s", "主题：%s"},
+	"notice.color_degraded": {"colour output degraded: NO_COLOR or dumb terminal", "颜色输出已降级：NO_COLOR 或 dumb 终端"},
 
 	// Approval dialog.
 	"approval.title":     {"approval required", "需要确认"},

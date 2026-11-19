@@ -38,6 +38,9 @@ type Options struct {
 	Root     string
 	Model    string
 	Locale   string
+	Theme    string
+	NoColor  bool
+	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	Prompt   func(ctx context.Context, text string, onText func(string)) error
 	Approval func(ctx context.Context, name, args string) (bool, error)
 	Sessions []string
@@ -71,6 +74,11 @@ type size struct {
 // restored through a deferred cleanup, so an error, a signal or a panic all
 // leave the terminal usable.
 func Run(ctx context.Context, opts Options) error {
+	if opts.Theme != "" {
+		if _, err := paletteFor(opts.Theme); err != nil {
+			return err
+		}
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -80,10 +88,18 @@ func Run(ctx context.Context, opts Options) error {
 	in, out := opts.streams()
 	real := opts.IO == nil
 
+	env := opts.Env
+	if env == nil {
+		env = os.Getenv
+	}
+
 	model := New(Config{
 		Root:     opts.Root,
 		Model:    opts.Model,
 		Locale:   opts.Locale,
+		Theme:    opts.Theme,
+		NoColor:  opts.NoColor,
+		Env:      env,
 		Sessions: opts.Sessions,
 	})
 	model.SetApproval(opts.Approval)
@@ -195,11 +211,13 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	buffer := NewBuffer(width, height)
+	buffer.SetNoColor(model.NoColor())
 	decoder := &Decoder{}
 	ticker := time.NewTicker(frameInterval)
 	defer ticker.Stop()
 
 	draw := func() {
+		buffer.SetNoColor(model.NoColor())
 		model.Paint(buffer)
 		if _, err := buffer.Flush(out); err != nil {
 			return
