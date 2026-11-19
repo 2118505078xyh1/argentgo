@@ -191,8 +191,12 @@ func (r *Registry) Start(cmd Command) (Job, error) {
 		PID:       child.Process.Pid,
 	}
 
+	// Keep the returned value and the registry's pointer in SEPARATE storage:
+	// storing &job would make the caller's returned copy alias the same memory
+	// that reap() mutates under mu, which is a data race on Job.Status/ExitCode.
+	stored := job
 	r.mu.Lock()
-	r.jobs[id] = &job
+	r.jobs[id] = &stored
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
 

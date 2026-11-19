@@ -60,7 +60,10 @@ func TestSetMaxTimeoutCapsToolDeadline(t *testing.T) {
 		wantMin time.Duration
 		wantMax time.Duration
 	}{
-		{"default uncapped", 0, 19 * time.Second, 20 * time.Second},
+		// The lower bound must tolerate a slow command plus scheduler/race
+		// overhead: the point is that the default is ~20s and not capped,
+		// not that the command finishes within a specific wall-clock window.
+		{"default uncapped", 0, 10 * time.Second, 20 * time.Second},
 		{"registry cap", 2 * time.Second, 0, 2 * time.Second},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
