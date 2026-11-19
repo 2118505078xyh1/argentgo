@@ -71,3 +71,19 @@ Web GUI (internal/gui)       ┘        │              │                │
 - 只有 `internal/app` 可以 import 一切；库包可 import `internal/llm` 与标准库，
   其余依赖一律通过上面的接口注入。
 - 协议细节只在 `internal/llm`；`internal/tools` 永不 import `internal/agent`。
+
+## 发布流程（Windows）
+
+- 唯一事实来源是 `internal/cli/cli.go` 的 `Version`；`scripts/build-release.ps1` 只校验
+  `-Version`/`-Tag`，从不覆盖它，所以二进制自报版本与 tag 不会分叉。
+- `scripts/check-release-consistency.ps1` 校验 Version / tag / CHANGELOG 一致，
+  `scripts/privacy-scan.ps1` 扫描已跟踪文件里的高置信度密钥标记。
+- `scripts/publish-win.ps1` 是单命令发布入口：校验 clean `main` 与版本一致性 →
+  构建 Windows/amd64 单一 zip + checksums → 推 main 与 tag → 等 GitHub Actions
+  真正发布 Release 并打印 URL；10 分钟内没有带资产的 Release 就报错。
+  `-DryRun` 只做校验与本地构建，不推送。
+- `.github/workflows/release.yml` 在 tag 推送后于 ubuntu-latest 上用 pwsh 构建、
+  校验 checksums、从 CHANGELOG 抽取 release notes，再用 `gh release create
+  --verify-tag` 上传 zip 与 checksums，并回查资产确实存在。tag 本身不是 Release。
+- 本地安装/卸载用 `scripts/install-win.ps1` / `scripts/uninstall-win.ps1`
+  （默认 `%LOCALAPPDATA%\argent-go\bin`），不会动 `~/.argent-go` 里的会话和配置。

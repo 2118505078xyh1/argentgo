@@ -48,3 +48,17 @@ GUI 后端已完成，但下面几项没有全链路验证之前，不能称为�
 4. 图形界面的内存/延迟指标尚未测量，不能引用任何 GUI 内存数字。
 5. `argent gui` 目前在 CLI 里解析后明确报错退出（"not migrated yet"），
    要等启动器、UI 桥接与子命令接线一起完成后才能开放。
+
+## 桌面安装与图标（Windows）
+
+- Windows 发布产物是单一 `argent.exe`：`.github/workflows/release.yml` 上传
+  `argent_<version>_windows_amd64.zip` 和 `checksums.txt`；本地安装用
+  `scripts/install-win.ps1`，默认装到 `%LOCALAPPDATA%\argent-go\bin`，并提示把该
+  目录加入 PATH。`scripts/uninstall-win.ps1` 只删二进制，保留 `~/.argent-go`
+  下的会话、配置、hook 与审计日志。
+- 桌面窗口不是打包出来的独立 app：`internal/launcher` 调系统已装的 Edge/Chrome
+  以 `--app` 模式打开内嵌页面，因此窗口与任务栏图标由浏览器/站点图标提供，
+  Go 侧不嵌入 `.ico`，也不引入资源编译器或 cgo。
+- 目前 `ui/` 没有专用图标资源。若要换图标，把 `favicon.ico` / `favicon.svg`
+  放到 `ui/public/`，重新执行 `scripts/build-ui.ps1` 生成 `internal/gui/dist`，
+  再按正常发布流程构建；不要手改已提交的 `internal/gui/dist`。

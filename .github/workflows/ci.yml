@@ -20,6 +20,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
+      # GitHub's Windows runners default to core.autocrlf=true; without this,
+      # checkout rewrites .go files to CRLF and gofmt reports every file.
+      - name: Normalize line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
@@ -27,18 +31,22 @@ jobs:
           cache: true
       - name: gofmt
         shell: bash
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
       - name: go vet
         run: go vet ./...
       - name: go test
         run: go test ./...
-      - name: cross-compile (no cgo)
-        shell: bash
+      # Windows amd64 is the only shipped target; build it with no cgo here
+      # instead of producing binaries for platforms we do not distribute.
+      - name: build (no cgo)
         env:
           CGO_ENABLED: '0'
-          GOOS: linux
-          GOARCH: arm64
-        run: go build -o /tmp/argent-linux-arm64 ./cmd/argent
+        run: go build ./cmd/argent
 
   ui:
     name: ui

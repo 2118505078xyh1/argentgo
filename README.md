@@ -120,6 +120,30 @@ cd ui; bun install; bun run typecheck; bun run test; bun run build
 powershell -File scripts/build-ui.ps1    # 构建前端并复制到 internal/gui/dist
 ```
 
+## Windows 一键发布与安装
+
+发布只面向 Windows/amd64。先把 `internal/cli/cli.go` 的 `Version` 改好、在
+`CHANGELOG.md` 加 `## v<Version>` 小节，提交并保持工作区干净，然后：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1 -DryRun   # 只校验与本地构建，不推送
+powershell -ExecutionPolicy Bypass -File scripts/publish-win.ps1           # 推 main + tag，等 Release URL
+```
+
+脚本会拒绝非 `main` 分支、脏工作区、Version/tag/CHANGELOG 不一致、已有 tag 和隐私扫描
+命中；推送后必须等到 GitHub Release 真的出现且带 `argent_<version>_windows_amd64.zip`
+与 `checksums.txt`，否则报错——tag 本身不是 Release。Release notes 取自 CHANGELOG
+对应小节。
+
+本地安装 / 卸载（默认 `%LOCALAPPDATA%\argent-go\bin`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1
+powershell -ExecutionPolicy Bypass -File scripts/uninstall-win.ps1
+```
+
+详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「发布流程」一节。
+
 ## 明确未移植
 
 以下能力**没有**移植，且不是“正在做”：

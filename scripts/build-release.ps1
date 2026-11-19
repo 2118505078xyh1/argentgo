@@ -1,10 +1,11 @@
-# Build cross-platform release artifacts for argent-go.
+# Build the Windows release artifact for argent-go (the version the operator
+# runs locally). Other platforms are intentionally out of scope.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 `
 #       [-Version 0.1.1] [-Tag v0.1.1] [-OutDir dist/release] `
 #       [-BuildUI] [-SkipChecks]
 #
-# Produces one zip per GOOS/GOARCH plus a sha256sum-style checksums.txt.
+# Produces one Windows zip plus a sha256sum-style checksums.txt.
 # The version is read from internal/cli/cli.go (the single source of truth);
 # -Version/-Tag only validate, they never override it, so a binary cannot
 # report a different version than the tag it was released under.
@@ -22,19 +23,24 @@ $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
 try {
     # --- toolchain -------------------------------------------------------
+    # Forward slashes work in PowerShell on both Windows and Linux; the
+    # release workflow runs this script with pwsh on ubuntu-latest.
     $go = (Get-Command go -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (-not $go) {
-        $go = Join-Path $env:USERPROFILE '.tools\go\go\bin\go.exe'
+        $go = Join-Path $env:USERPROFILE '.tools/go/go/bin/go'
+        if (Test-Path -LiteralPath ($go + '.exe')) { $go = $go + '.exe' }
     }
     if (-not (Test-Path -LiteralPath $go)) {
         throw 'go not found: add it to PATH or install to ~/.tools/go/go/bin'
     }
     $goBin = Split-Path -Parent $go
-    $gofmt = Join-Path $goBin 'gofmt.exe'
-    if (-not (Test-Path -LiteralPath $gofmt)) { $gofmt = Join-Path $goBin 'gofmt' }
+    $gofmt = Join-Path $goBin 'gofmt'
+    if (Test-Path -LiteralPath ($gofmt + '.exe')) { $gofmt = $gofmt + '.exe' }
+    $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if (-not $pwsh) { $pwsh = (Get-Command powershell -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
 
     # --- version (must match the source constant) ------------------------
-    $cliSource = Get-Content -LiteralPath (Join-Path $repo 'internal\cli\cli.go') -Raw
+    $cliSource = Get-Content -LiteralPath (Join-Path $repo 'internal/cli/cli.go') -Raw
     $match = [regex]::Match($cliSource, 'const\s+Version\s*=\s*"([^"]+)"')
     if (-not $match.Success) {
         throw 'cannot read Version from internal/cli/cli.go'
@@ -53,7 +59,7 @@ try {
     Write-Host "argent-go $Version" -ForegroundColor Cyan
 
     # --- output directory (clean build, no stale assets) ------------------
-    if (-not $OutDir) { $OutDir = Join-Path $repo 'dist\release' }
+    if (-not $OutDir) { $OutDir = Join-Path $repo 'dist/release' }
     $OutDir = [IO.Path]::GetFullPath($OutDir)
     if (Test-Path -LiteralPath $OutDir) {
         Remove-Item -LiteralPath $OutDir -Recurse -Force
@@ -68,21 +74,47 @@ try {
         Write-Host '== test ==' -ForegroundColor Cyan
         & $go test ./...
         if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+        # gofmt compares line endings, and a Windows clone with the default
+        # core.autocrlf=true checks out CRLF. Check a LF-normalized copy so
+        # this gate measures formatting, not git checkout policy, and never
+        # mutates the operator's working tree.
         Write-Host '== gofmt ==' -ForegroundColor Cyan
-        $unformatted = & $gofmt -l .
-        if ($LASTEXITCODE -ne 0) { throw 'gofmt failed' }
+        $goFiles = @(& git ls-files '*.go')
+        $fmtRoot = Join-Path ([IO.Path]::GetTempPath()) ('argent-gofmt-' + [guid]::NewGuid().ToString('N'))
+        $unformatted = @()
+        try {
+            foreach ($file in $goFiles) {
+                $src = Join-Path $repo $file
+                if (-not (Test-Path -LiteralPath $src)) { continue }
+                $dest = Join-Path $fmtRoot $file
+                $parent = Split-Path -Parent $dest
+                if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+                $text = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($src)).Replace("`r`n", "`n")
+                [IO.File]::WriteAllText($dest, $text, (New-Object Text.UTF8Encoding $false))
+            }
+            $unformatted = @(& $gofmt -l $fmtRoot)
+            $gofmtExit = $LASTEXITCODE
+        }
+        finally {
+            if (Test-Path -LiteralPath $fmtRoot) { Remove-Item -LiteralPath $fmtRoot -Recurse -Force }
+        }
+        if ($gofmtExit -ne 0) { throw 'gofmt failed' }
         if ($unformatted) {
-            throw ("unformatted files: " + ($unformatted -join ', '))
+            $names = @($unformatted | ForEach-Object { $_.Substring($fmtRoot.Length + 1) })
+            throw ("unformatted files: " + ($names -join ', '))
         }
     }
 
     # --- embedded frontend -------------------------------------------------
     if ($BuildUI) {
         Write-Host '== build UI ==' -ForegroundColor Cyan
-        & powershell -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\build-ui.ps1')
+        if (-not $pwsh) { throw 'pwsh or powershell not found for build-ui.ps1' }
+        $uiArgs = @('-NoProfile', '-File', (Join-Path $repo 'scripts/build-ui.ps1'))
+        if (-not $IsCoreCLR) { $uiArgs = @('-ExecutionPolicy', 'Bypass') + $uiArgs }
+        & $pwsh @uiArgs
         if ($LASTEXITCODE -ne 0) { throw 'build-ui.ps1 failed' }
     }
-    $index = Join-Path $repo 'internal\gui\dist\index.html'
+    $index = Join-Path $repo 'internal/gui/dist/index.html'
     if (-not (Test-Path -LiteralPath $index)) {
         throw "embedded UI is missing $index (run scripts/build-ui.ps1)"
     }
@@ -91,14 +123,10 @@ try {
         throw 'embedded UI looks like the placeholder; run scripts/build-ui.ps1'
     }
 
-    # --- cross-compile matrix ---------------------------------------------
+    # Windows amd64 only. The operator runs the Windows build; other targets
+    # are intentionally out of scope for the one-click publisher.
     $targets = @(
-        @{ os = 'windows'; arch = 'amd64' },
-        @{ os = 'windows'; arch = 'arm64' },
-        @{ os = 'linux';   arch = 'amd64' },
-        @{ os = 'linux';   arch = 'arm64' },
-        @{ os = 'darwin';  arch = 'amd64' },
-        @{ os = 'darwin';  arch = 'arm64' }
+        @{ os = 'windows'; arch = 'amd64' }
     )
 
     $oldGoos = $env:GOOS
@@ -154,6 +182,11 @@ try {
         $parts = $line -split '\s+', 2
         $actual = (Get-FileHash -LiteralPath (Join-Path $OutDir $parts[1]) -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actual -ne $parts[0]) { throw "checksum mismatch for $($parts[1])" }
+    }
+
+    $zips = @(Get-ChildItem -LiteralPath $OutDir -Filter '*.zip' -File)
+    if ($zips.Count -ne $targets.Count) {
+        throw "expected $($targets.Count) zip(s) in $OutDir, found $($zips.Count)"
     }
 
     Write-Host ''

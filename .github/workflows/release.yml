@@ -1,8 +1,8 @@
 name: release
 
-# Tag a commit that matches internal/cli/cli.go's Version constant (e.g. v0.1.1)
-# to build and publish a release. The script validates the tag against the
-# source version, so a mismatched tag fails before anything is uploaded.
+# Tag a commit that matches internal/cli/cli.go's Version constant (e.g. v0.1.2)
+# to build and publish a Windows-only release. The scripts validate the tag
+# against the source version, so a mismatched tag fails before anything is uploaded.
 
 on:
   push:
@@ -15,11 +15,20 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # Keep LF endings on every runner; ci.yml sets the same policy so gofmt
+      # sees the bytes that are actually committed.
+      - name: Normalize line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Check release metadata
+        run: pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag "${GITHUB_REF_NAME}"
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
 
       - name: Build release artifacts
         run: pwsh -NoProfile -File scripts/build-release.ps1 -Tag "${GITHUB_REF_NAME}"
@@ -28,11 +37,33 @@ jobs:
 
       - name: Verify checksums
         working-directory: dist/release
-        run: sha256sum -c checksums.txt
+        shell: bash
+        run: |
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
+          sha256sum -c checksums.txt
+
+      - name: Extract release notes
+        run: pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag "${GITHUB_REF_NAME}" -OutFile release-notes.md
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/release/*.zip dist/release/checksums.txt \
-          --title "$TAG" --generate-notes --verify-tag
+        run: |
+          gh release create "$TAG" dist/release/*.zip dist/release/checksums.txt \
+            --title "$TAG" --notes-file release-notes.md --verify-tag
+
+      - name: Verify published Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --json url,assets > release.json
+          cat release.json
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          echo "$assets"
+          echo "$assets" | grep -qx 'checksums.txt'
+          echo "$assets" | grep -qx "argent_${TAG#v}_windows_amd64.zip"
