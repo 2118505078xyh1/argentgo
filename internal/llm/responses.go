@@ -284,6 +284,10 @@ type responsesEvent struct {
 		Arguments string `json:"arguments"`
 	} `json:"item"`
 	Response *struct {
+		Status            string `json:"status"`
+		IncompleteDetails *struct {
+			Reason string `json:"reason"`
+		} `json:"incomplete_details"`
 		Usage *struct {
 			InputTokens        int `json:"input_tokens"`
 			OutputTokens       int `json:"output_tokens"`
@@ -310,11 +314,12 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 	reader := newSSEReader(body)
 
 	var (
-		text      strings.Builder
-		reasoning strings.Builder
-		usage     *Usage
-		order     []int
-		partials  = make(map[int]*responsesPartial)
+		text         strings.Builder
+		reasoning    strings.Builder
+		usage        *Usage
+		finishReason string
+		order        []int
+		partials     = make(map[int]*responsesPartial)
 	)
 	var calls []ToolCall
 
@@ -413,6 +418,15 @@ streamLoop:
 			}
 			push(event.OutputIndex)
 		case "response.completed", "response.incomplete":
+			if event.Response != nil {
+				// Responses reports truncation in incomplete_details.reason
+				// (e.g. "max_output_tokens"); fall back to the raw status.
+				if event.Response.IncompleteDetails != nil && event.Response.IncompleteDetails.Reason != "" {
+					finishReason = event.Response.IncompleteDetails.Reason
+				} else if event.Response.Status != "" {
+					finishReason = event.Response.Status
+				}
+			}
 			if event.Response != nil && event.Response.Usage != nil {
 				usage = &Usage{
 					PromptTokens:     event.Response.Usage.InputTokens,
@@ -445,11 +459,12 @@ streamLoop:
 	}
 
 	return Message{
-		Role:      "assistant",
-		Content:   text.String(),
-		ToolCalls: calls,
-		Reasoning: reasoning.String(),
-		Usage:     usage,
+		Role:         "assistant",
+		Content:      text.String(),
+		ToolCalls:    calls,
+		Reasoning:    reasoning.String(),
+		Usage:        usage,
+		FinishReason: finishReason,
 	}, nil
 }
 

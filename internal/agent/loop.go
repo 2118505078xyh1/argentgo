@@ -37,6 +37,11 @@ type runState struct {
 	lastText     string
 	trim         TrimOptions
 	events       []Event
+	// eventsMu serialises event recording: a streaming tool's progress callback
+	// may run on its own goroutine while the loop emits a turn boundary.
+	eventsMu sync.Mutex
+	// recordMu serialises recorder writes for the same reason.
+	recordMu sync.Mutex
 
 	// toolMeta is the in-process metadata produced by the tool runner, keyed by
 	// ToolCallID. A parallel batch writes distinct keys from worker goroutines,
@@ -241,7 +246,12 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			return s.result(reason), nil
 		}
 
-		if stopped := s.runTools(ctx, turn, reply.ToolCalls); stopped != "" {
+		if s.replyTruncated(reply) {
+			// A length-truncated reply can carry half-written tool arguments.
+			// Pair every call with an error result but execute none of them.
+			s.fillUnrun(reply.ToolCalls, truncatedToolReason)
+			s.emit(Event{Kind: EventNotice, Text: truncatedToolReason})
+		} else if stopped := s.runTools(ctx, turn, reply.ToolCalls); stopped != "" {
 			s.emit(Event{Kind: EventStop, Reason: stopped})
 			if stopped == StopCancelled {
 				return s.result(stopped), ctx.Err()
@@ -419,6 +429,7 @@ func (s *runState) result(stopped string) Result {
 // deltas to the legacy Out writer.
 func (s *runState) emit(event Event) {
 	event.Depth = s.depth
+	s.eventsMu.Lock()
 	s.events = append(s.events, event)
 	if event.Kind == EventTextDelta && s.opts.Out != nil {
 		_, _ = io.WriteString(s.opts.Out, event.Text)
@@ -426,6 +437,7 @@ func (s *runState) emit(event Event) {
 	if s.emitFn != nil {
 		s.emitFn(event)
 	}
+	s.eventsMu.Unlock()
 }
 
 // record persists one transcript entry. A recorder failure never stops the run.
@@ -433,5 +445,7 @@ func (s *runState) record(kind string, payload any) {
 	if s.rec == nil {
 		return
 	}
+	s.recordMu.Lock()
 	_ = s.rec.Append(kind, payload)
+	s.recordMu.Unlock()
 }

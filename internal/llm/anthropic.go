@@ -333,6 +333,7 @@ type anthropicEvent struct {
 		Thinking    string `json:"thinking"`
 		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage *anthropicUsage `json:"usage"`
 	Error *struct {
@@ -352,10 +353,11 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 	reader := newSSEReader(body)
 
 	var (
-		text      strings.Builder
-		reasoning strings.Builder
-		usage     *Usage
-		partials  = make(map[int]*anthropicPartial)
+		text         strings.Builder
+		reasoning    strings.Builder
+		usage        *Usage
+		finishReason string
+		partials     = make(map[int]*anthropicPartial)
 	)
 	var calls []ToolCall
 
@@ -462,6 +464,9 @@ streamLoop:
 				},
 			})
 		case "message_delta":
+			if event.Delta != nil && event.Delta.StopReason != "" {
+				finishReason = event.Delta.StopReason
+			}
 			if event.Usage != nil {
 				if usage == nil {
 					usage = &Usage{}
@@ -512,11 +517,12 @@ streamLoop:
 	}
 
 	return Message{
-		Role:      "assistant",
-		Content:   text.String(),
-		ToolCalls: calls,
-		Reasoning: reasoning.String(),
-		Usage:     usage,
+		Role:         "assistant",
+		Content:      text.String(),
+		ToolCalls:    calls,
+		Reasoning:    reasoning.String(),
+		Usage:        usage,
+		FinishReason: finishReason,
 	}, nil
 }
 

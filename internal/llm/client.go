@@ -24,6 +24,10 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Reasoning  string     `json:"reasoning,omitempty"`
 	Usage      *Usage     `json:"usage,omitempty"`
+	// FinishReason is the provider's stop reason for this reply (e.g. "stop",
+	// "tool_calls", "length"). It is wire metadata used by the agent loop to
+	// refuse a truncated tool batch, not ordinary transcript content.
+	FinishReason string `json:"finish_reason,omitempty"`
 	// CacheControl marks a stable system message for a caching gateway. It is
 	// never persisted in a transcript.
 	CacheControl *CacheControl `json:"-"`
@@ -171,6 +175,7 @@ type chunk struct {
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens        int `json:"prompt_tokens"`
@@ -248,6 +253,7 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	order := make([]int, 0, 2)
 	partial := make(map[int]*ToolCall)
 	var usage *Usage
+	var finishReason string
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -281,6 +287,9 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 			}
 		}
 		for _, choice := range event.Choices {
+			if choice.FinishReason != "" {
+				finishReason = choice.FinishReason
+			}
 			if delta := choice.Delta.Content; delta != "" {
 				text.WriteString(delta)
 				if onText != nil {
@@ -321,5 +330,5 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 		calls = append(calls, call)
 	}
 
-	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage}, nil
+	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage, FinishReason: finishReason}, nil
 }

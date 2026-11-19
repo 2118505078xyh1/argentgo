@@ -28,6 +28,10 @@ type Payload struct {
 	Args      json.RawMessage `json:"args,omitempty"`
 	SessionID string          `json:"sessionId,omitempty"`
 	CWD       string          `json:"cwd,omitempty"`
+	// CallID optionally identifies the tool call that triggered this hook. It
+	// is carried into PanicError so a bad callback can be correlated with the
+	// call that was being dispatched.
+	CallID string `json:"callId,omitempty"`
 	// Prompt is the user message for UserPromptSubmit and Stop.
 	Prompt string `json:"prompt,omitempty"`
 	// Output is the tool result for PostToolUse.
@@ -131,12 +135,33 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 		if command.Async {
 			continue
 		}
-		outcomes = append(outcomes, d.RunCommand(ctx, command, payload))
+		outcomes = append(outcomes, d.guardedRunCommand(ctx, command, payload))
 		if ctx.Err() != nil {
 			return outcomes, ctx.Err()
 		}
 	}
 	return outcomes, nil
+}
+
+// guardedRunCommand runs one hook with panic containment. The only in-process
+// callback a hook can panic through is Dispatcher.Shell; a command that panics
+// becomes an Outcome with a PanicError, and the loop still reaches the next
+// command. The command string is the fallback identity when the caller did not
+// supply a tool call ID.
+func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, payload Payload) Outcome {
+	outcome := Outcome{Event: command.Event, Command: command.Command, ExitCode: -1}
+	callID := payload.CallID
+	if callID == "" {
+		callID = command.Command
+	}
+	err := guard(callID, func() error {
+		outcome = d.RunCommand(ctx, command, payload)
+		return outcome.Err
+	})
+	if err != nil && outcome.Err == nil {
+		outcome.Err = err
+	}
+	return outcome
 }
 
 // RunCommand runs one hook command with the payload on stdin.

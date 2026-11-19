@@ -17,6 +17,22 @@ import (
 
 // ---- bash ----
 
+// toolProgressKey mirrors agent.toolProgressKey. The two packages cannot share
+// a typed context key without tools importing agent, which the layering rules
+// forbid, so they agree on this literal and on a plain func(string) value.
+const toolProgressKey = "argent.tool.progress"
+
+// emitProgress publishes one intermediate progress row through the emitter the
+// agent loop installed in ctx. It is a silent no-op when no emitter is present,
+// and the loop's gate drops the row once the tool call has returned. A shell
+// job that outlives bashTool.Run therefore cannot append a stale row.
+func emitProgress(ctx context.Context, text string) {
+	emitter, _ := ctx.Value(toolProgressKey).(func(string))
+	if emitter != nil {
+		emitter(text)
+	}
+}
+
 type bashTool struct{}
 
 func (bashTool) Name() string        { return "bash" }
@@ -117,8 +133,15 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 		// child's output straight to the log the job will tail.
 		live.SetOutput(logFile)
 		// The job watcher reads the same Done channel; once it closes, every
-		// write to the log is finished and the file can be released.
-		go func() { <-live.Done(); _ = logFile.Close() }()
+		// write to the log is finished and the file can be released. This
+		// goroutine outlives bashTool.Run: its progress row is deliberately
+		// routed through the gated emitter so a late update cannot reach the
+		// transcript after the tool result has been recorded.
+		go func() {
+			<-live.Done()
+			emitProgress(ctx, "bash job finished: "+command)
+			_ = logFile.Close()
+		}()
 
 		job, jobErr := registry.PromoteFromTimeout(command, live, logPath)
 		if jobErr != nil {

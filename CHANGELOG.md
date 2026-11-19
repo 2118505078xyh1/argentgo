@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.1 — 2026-11-19
+
+Correctness fixes derived from studying the rpi coding-agent runtime:
+
+- Refuse a tool batch from a length-truncated reply: incomplete arguments are
+  never executed; every call gets an ordered error result instead. All three
+  wire clients now attach the provider's finish reason to `llm.Message`.
+- Reject batches with duplicate or empty tool-call IDs wholesale — no call is
+  executed when results could not be correlated.
+- Suppress late streaming tool progress after a tool has returned, so a stray
+  goroutine can no longer append stale rows to the transcript.
+- Contain panics in hook callbacks: a panicking callback becomes a structured
+  error carrying its call ID, and the run continues.
+
 ## v0.3.0 — 2026-11-19
 
 - **Frontend fully moved to a MyGo native client.** `argent gui` now launches
