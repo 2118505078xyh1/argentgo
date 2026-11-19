@@ -148,7 +148,10 @@ try {
 
             $binName = if ($os -eq 'windows') { 'argent.exe' } else { 'argent' }
             $bin = Join-Path $stage $binName
-            & $go build -trimpath -ldflags '-s -w' -o $bin ./cmd/argent
+            # windowsgui makes the exe a GUI-subsystem binary: no black console
+            # window when launched from a desktop shortcut. CLI output still
+            # works when started from an existing terminal.
+            & $go build -trimpath -ldflags '-s -w -H=windowsgui' -o $bin ./cmd/argent
             if ($LASTEXITCODE -ne 0) { throw "go build failed for $os/$arch" }
             if (-not (Test-Path -LiteralPath $bin)) { throw "missing binary for $os/$arch" }
 

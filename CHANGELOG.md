@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.0 — 2026-11-19
+
+- **Native GUI** replaces the browser shell on Windows: pure Win32 syscall
+  GDI painting, no WebView, no local HTTP server, no token. `argent gui --web`
+  keeps the optional SolidJS interface.
+- Ported portable OpenCode patterns: sandbox/deny-filtered tool catalog, a
+  tool-free final answer at the turn limit, typed secret redaction, multi-env
+  credential chains, retry classification, config diagnostics / `{env:}` /
+  `{file:}` substitution / JSONC, permission wildcard rules, and a bounded
+  context/session/TUI memory footprint.
+- GUI visual polish: semantic palette, centered 720px reading column, tool-row
+  states, blinking streaming caret, approval keycaps, double-buffered painting.
+- Fixed a paint-loop hang from the 80ms animation timer and removed the black
+  console window: release binaries are built as GUI-subsystem executables while
+  CLI output from an existing terminal still works.
+- Undo/retry wired into both frontends via session checkpoints (`Ctrl+Z` /
+  `Ctrl+Y`).
+
 ## v0.1.2 — 2026-11-19
 
 - Project renamed from `argent-go` to `argentgo`; Go module path and all
