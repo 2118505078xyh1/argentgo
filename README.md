@@ -28,11 +28,12 @@ argent tui                               # 全屏终端 UI（SSH 也能跑）
 argent --serve --serve-token <token>     # HTTP + SSE；无 token 拒绝启动
 echo '{"id":1,"method":"get_session_stats"}' | argent --rpc   # stdio 上的换行分隔 JSON-RPC
 argent acp                               # Agent Client Protocol 服务端
-argent gui                               # 内嵌 Web GUI（后端已落地，启动器与 UI 桥接进行中）
+argent gui                               # 桌面应用窗口（Go HTTP + 内嵌 SolidJS + WebView2）
 ```
 
-`argent gui` 目前会明确报错退出：GUI 后端（`internal/gui`）已完成，但浏览器窗口启动器
-（`internal/launcher`）和前端传输桥接仍在进行中。临时可用 `argent tui`；GUI 完整链路详见
+`argent gui` 起本地 HTTP 服务，注入一次性 token，然后用 Edge/Chrome 的应用模式打开
+无地址栏的独立窗口（没有 Edge/Chrome 时退回默认浏览器标签页）。前后端只走
+`POST /rpc/<command>` + `GET /events` SSE，不依赖 Tauri/Rust。详见
 [docs/FRONTEND.md](docs/FRONTEND.md)。
 
 ## 配置

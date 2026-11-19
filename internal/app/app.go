@@ -657,7 +657,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			MaxTotalTokens: res.MaxTokens,
 			MaxCostUSD:     res.MaxCostUSD,
 		},
-		Prices: res.Prices,
+		Prices:      res.Prices,
+		SkillAuthor: skillWriter{},
+		SkillLister: skillLister{runner.skills},
 		Emit: func(event agent.Event) {
 			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 				onText(event.Text)
