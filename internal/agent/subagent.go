@@ -72,6 +72,11 @@ func newToolset(inner ToolRunner, opts Options) ToolRunner {
 	if inner == nil {
 		inner = nopTools{}
 	}
+	// Skill tools are opt-in and wrap the caller's runner before the delegate
+	// tool, so a subagent inherits the same advertised set through taskTools.
+	if opts.SkillAuthor != nil || opts.SkillLister != nil {
+		inner = newSkillTools(inner, opts)
+	}
 	if opts.Subagent == nil {
 		return inner
 	}

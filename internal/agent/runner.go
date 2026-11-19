@@ -132,6 +132,13 @@ type Options struct {
 	// Depth is the current subagent nesting depth (0 for a root run).
 	Depth int
 
+	// SkillAuthor, when set, advertises the built-in `save_skill` tool and
+	// routes its calls through the injected writer. Nil (the default) leaves
+	// existing runs completely unchanged.
+	SkillAuthor SkillWriter
+	// SkillLister, when set, advertises the read-only `list_skills` tool.
+	SkillLister SkillLister
+
 	// Out receives streamed answer text. Deprecated: use Emit with
 	// EventTextDelta; kept so pre-wave-2 callers keep working.
 	Out io.Writer
