@@ -17,13 +17,13 @@
 | apply_patch | multi_edit | done | 语义等价：多段替换一次写入 |
 | todo | todo | done | |
 | glob（Rust 走 find/grep） | glob | done | |
-| web_search | web_fetch | in progress | fetch 已落地并测试；search 语义仍需搜索 API |
-| current_time | — | todo | 未移植的一行工具 |
+| web_search | `web_search` | done | 可配置 `ARGENT_WEB_SEARCH_URL`；未配置时明确建议 `web_fetch` |
+| current_time | `current_time` | done | UTC/本地/IANA 时区，RFC3339/date/time/unix |
 | delegate | agent 的 `task` | done | 子代理/嵌套循环已落地 |
 | memory | 项目记忆注入 | done | 以 system prompt 注入实现，非独立可调用工具 |
 | skill | `use_skill` | done | SKILL.md 发现 + 渐进披露已接线 |
-| tool_search | — | todo | 工具提升（隐藏工具目录）未移植 |
-| submit_plan | — | todo | plan 模式未移植 |
+| tool_search | `tool_search` | done | 按名称/描述检索注册工具 |
+| submit_plan | `submit_plan` | done | 会话目录写入 plan.json，不执行步骤 |
 | code | — | skip | 等价于 bash + 临时文件，重复 |
 | document | — | skip | office 预览只服务桌面端 |
 | repo_map | LSP documentSymbol | done | 不用 tree-sitter，走 LSP 符号 |
@@ -114,7 +114,11 @@ in progress（尚未在 Go 中落地）：
 | Rhai 脚本插件 | — | skip（明确不迁） |
 | device（桌面控制） | — | skip |
 | telemetry | — | skip（个人项目无收益；子命令仍 in progress） |
-| 桌面壳（Tauri） | `internal/gui` + `ui/` | in progress：Tauri/Rust 方案已弃用；改为 Go HTTP+SSE + SolidJS + WebView2 启动器。GUI 后端 done，启动器 + UI 桥接仍在进行中 |
+| 安全策略规则（用户配置） | `internal/app/policy_config.go` | done：配置规则进入 `security.Policy` |
+| hooks 运行时派发 | `internal/app/hooks.go` | done：7 事件接入真实 run，exit-2 阻断工具 |
+| MCP per-server 权限 | `internal/mcp` | done：enabled/readOnly/allowedTools/deniedTools |
+| TUI tasks/workspace/plan 面板 | `internal/tui` | done：Ctrl+T/B/P |
+| 桌面壳（Tauri） | `internal/gui` + `ui/` | done：Go HTTP+SSE + SolidJS + WebView2 app window |
 
 ## 验收规则（不靠文档靠测试）
 
