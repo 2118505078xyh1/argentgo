@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,18 @@ type Spec struct {
 	Headers map[string]string
 	// Timeout bounds one request; zero means 30s.
 	Timeout time.Duration
+	// Enabled defaults to true when nil. An explicit false disables the server:
+	// Connect refuses it and it is omitted from Specs/Tools views. A pointer is
+	// used so every pre-existing Spec literal keeps its zero-value meaning.
+	Enabled *bool
+	// ReadOnly blocks calls to tools that look mutating before any request is
+	// sent. See MarkMutating/IsMutating.
+	ReadOnly bool
+	// AllowedTools is a tool allowlist; empty means every tool. Entries may be
+	// plain ("search") or qualified ("server__search").
+	AllowedTools []string
+	// DeniedTools removes names from the allowed set; deny wins over allow.
+	DeniedTools []string
 }
 
 // ServerInfo is the metadata returned by initialize.
@@ -98,6 +111,9 @@ func Namespaced(server, tool string) string {
 // Connect opens the transport named by spec. The MCP handshake is not part of
 // Connect: call Initialize before ListTools or CallTool.
 func Connect(ctx context.Context, spec Spec) (Client, error) {
+	if !spec.IsEnabled() {
+		return nil, fmt.Errorf("%w: %q", ErrDisabled, spec.Name)
+	}
 	kind := strings.ToLower(strings.TrimSpace(spec.Transport))
 	if kind == "" {
 		if spec.Command != "" {
@@ -146,6 +162,10 @@ type client struct {
 	spec    Spec
 	tr      transport
 	timeout time.Duration
+
+	// mu guards the last successfully listed tool view exposed by Tools.
+	mu    sync.RWMutex
+	tools []Tool
 }
 
 func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
@@ -227,6 +247,12 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 			ReadOnly:    item.Annotations.ReadOnlyHint,
 		})
 	}
+	// Apply per-server permissions here so callers never see tools that the
+	// server config disallows. Keep the advertising order for stable output.
+	tools = FilterTools(c.spec, tools)
+	c.mu.Lock()
+	c.tools = append([]Tool(nil), tools...)
+	c.mu.Unlock()
 	return tools, nil
 }
 
@@ -234,6 +260,14 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 // An isError result is returned as the text plus an error, so a caller that
 // wants to show the server's explanation still has it.
 func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	// Fail closed before touching the transport: read-only servers must never
+	// send a mutating call, and filtered-out tools must never be invoked.
+	if c.spec.ReadOnly && IsMutating(name) {
+		return "", fmt.Errorf("%w: tool %q on server %q looks mutating; call blocked before contacting the server, no request was sent (set readOnly=false in the server config if writes are intended)", ErrReadOnly, name, c.spec.Name)
+	}
+	if !toolPermitted(c.spec, Tool{Name: name, Server: c.spec.Name}) {
+		return "", fmt.Errorf("%w: tool %q on server %q is excluded by allowedTools/deniedTools; no request was sent", ErrToolNotAllowed, name, c.spec.Name)
+	}
 	if len(bytes.TrimSpace(args)) == 0 {
 		args = json.RawMessage(`{}`)
 	}
