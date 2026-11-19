@@ -271,7 +271,7 @@ func (r *guiRunner) prompt(ctx context.Context, text string) {
 		Root:     r.resolved.Root,
 		System:   r.resolved.System,
 		Chatter:  r.resolved.Chatter,
-		Tools:    registry,
+		Tools:    guardedToolRunner{registry},
 		Approve:  approver,
 		Record:   agent.RecorderFunc(sess.Append),
 		Budget:   agent.Budget{MaxTurns: r.resolved.MaxTurns},
@@ -315,6 +315,13 @@ func (r *guiRunner) sessionFor(first string) (*session.Session, error) {
 	r.current = sess
 	return sess, nil
 }
+
+// guardedToolRunner tells the agent loop that the security chain in
+// tools.Registry already asked the approver. Without this marker one mutating
+// call produces two GUI approval dialogs.
+type guardedToolRunner struct{ *tools.Registry }
+
+func (guardedToolRunner) Guarded() bool { return true }
 
 type guiApprover struct {
 	approvals chan<- gui.Approval
