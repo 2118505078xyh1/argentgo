@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.1.0 — 2026-11-19
+## v0.1.0 — 2026-11-19
 
-First Go build. A rewrite of the frozen Rust `argent` 0.4.0; see
-`docs/PARITY.md` for the component-by-component status.
+First Go build: a stdlib-only, cgo-free rewrite of the frozen Rust `argent`
+0.4.0; see `docs/PARITY.md` for the component-by-component status.
 
 ### Runtime
 
@@ -53,6 +53,14 @@ First Go build. A rewrite of the frozen Rust `argent` 0.4.0; see
 - OAuth PKCE / device-code login with a local token store; GitHub self-update
   with checksum verification and atomic replace.
 - Eval harness with the ported `evals/core.json` scenarios.
+
+### Wave 6 additions
+
+- `/review` slash command for read-only, structured code review.
+- `sessions` full-text grep, branch tree and JSON/JSONL export.
+- Background shell jobs with promotion to foreground and a read-only `jobs` board.
+- Skills can be authored by the agent and discovered on subsequent turns.
+- GUI shows a single approval per mutating tool call instead of duplicates.
 
 ### Not ported
 
