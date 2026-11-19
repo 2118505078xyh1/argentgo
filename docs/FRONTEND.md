@@ -1,14 +1,17 @@
 # 前端方案
 
-记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已冻结；Go 版的前端现在**全面转向 MyGo 原生 UI**。
+记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已冻结；Go 版的前端是 **MyGo 原生 UI**，
+浏览器前端已完全移除。
 
 ## 决定
 
 | 端 | 方案 | 状态 |
 |---|---|---|
 | 终端 | CLI 一次性运行 + `internal/tui` 自绘 ANSI 全屏；无 WebView，可跑 SSH | 已落地 |
-| 图形（默认） | **MyGo 原生 UI**（`native/`），通过 `--rpc` 驱动 `argent.exe` 引擎 | 已落地 |
-| 图形（可选） | `argent gui --web` 用 Edge/Chrome `--app` 加载 `internal/gui` 的 HTTP+SSE 前端 | 保留为回退 |
+| 图形 | **MyGo 原生 UI**（`native/`），通过 `--rpc` 驱动 `argent.exe` 引擎 | 唯一桌面前端 |
+
+没有 WebView、没有浏览器、没有 HTTP+SSE 桌面桥、没有 SolidJS 前端。`ui/`、`internal/gui/`、
+`internal/launcher/` 均已移除。
 
 ## 架构：两个二进制
 
@@ -21,10 +24,9 @@
   指向的引擎二进制拉起 `--rpc` 子进程，把用户输入作为 prompt 发出，把 delta
   通过 `Window.Update` 流式渲染。它只在桌面壳这一层依赖 `github.com/egoist/mygo`。
 
-`argent gui` 在 Windows 上默认查找同目录的 `argent-native.exe` 并启动它；
-找不到时回退到 `--app` 浏览器前端。`ARGENT_CWD` 指定工作区。
+`argent gui` 在 Windows 上启动同目录的 `argent-native.exe`；`ARGENT_CWD` 指定工作区。
 
-## 为什么转向原生
+## 为什么是原生
 
 - WebView2 渲染进程常驻约 400 MB 工作集；原生 UI 只有单进程、约 76 MB，空闲 CPU 为 0
   （MyGo 的 "settled window sleeps"）。
@@ -45,8 +47,7 @@
 
 - 核心包（`internal/{agent,session,llm,tools,security,...}`）零第三方依赖。
 - 桌面壳 `native/` 使用 MyGo（v0.x），这是唯一的第三方 Go 依赖，用于换取
-  原生渲染与低内存。将来 MyGo 稳定后再评估是否内嵌某些控件。
-- Wails 已移除。
+  原生渲染与低内存。
 
 ## 文档
 

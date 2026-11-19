@@ -232,16 +232,10 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	emit(map[string]any{"type": "done"})
 }
 
-// requestText accepts {"text":...}, {"prompt":...} or a raw text body.
+// requestText is the HTTP side of prompt extraction. The parsing and trim
+// rules live solely in promptText so HTTP, --rpc and acp cannot drift apart.
 func requestText(body []byte) string {
-	trimmed := strings.TrimSpace(string(body))
-	if trimmed == "" {
-		return ""
-	}
-	if strings.HasPrefix(trimmed, "{") {
-		return promptText([]byte(trimmed))
-	}
-	return trimmed
+	return promptText(body)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

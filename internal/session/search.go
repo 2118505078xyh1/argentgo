@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
@@ -207,7 +208,7 @@ func collectStrings(value any, out *[]string) {
 // before truncation so a token placeholder is never cut in half.
 func contextWindow(value string, byteIndex, needleRunes int) string {
 	runes := []rune(value)
-	index := len([]rune(value[:byteIndex]))
+	index := utf8.RuneCountInString(value[:byteIndex])
 	start := index - 48
 	if start < 0 {
 		start = 0

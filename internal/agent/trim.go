@@ -249,6 +249,26 @@ func toolStub(chars int) string {
 func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 	protect := effectiveCacheProtect(opts)
 
+	// One reverse pass precomputes the two tail queries the old loop recomputed
+	// from scratch for every tool message. suffixToken[i] equals the estimate of
+	// everything after i; nextAssistantAfter[i] records whether an assistant
+	// turn follows i. The rewriting loop below walks forwards and only ever
+	// touches the message at its own index, so every index it queries (> i) is
+	// still pristine at that point — the precomputed answers are identical to
+	// the old on-demand scans, but O(1) instead of O(n) each.
+	suffixToken := make([]int, len(messages))
+	nextAssistantAfter := make([]bool, len(messages))
+	runningTokens := 0
+	sawAssistant := false
+	for i := len(messages) - 1; i >= 0; i-- {
+		suffixToken[i] = runningTokens
+		nextAssistantAfter[i] = sawAssistant
+		runningTokens += EstimateMessage(messages[i])
+		if messages[i].Role == "assistant" {
+			sawAssistant = true
+		}
+	}
+
 	// newestSuccessful[key] is the last result carrying the key that was not
 	// an error. Only a later successful read supersedes an older one: an error
 	// must never erase the content the model might still need.
@@ -279,13 +299,13 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 				stub = supersededStub
 			}
 		}
-		if stub == "" && meta.Useless && consumedByAssistant(messages, i) {
+		if stub == "" && meta.Useless && nextAssistantAfter[i] {
 			stub = uselessStub
 		}
 		if stub == "" {
 			continue
 		}
-		if suffixTokens(messages, i) > protect {
+		if suffixToken[i] > protect {
 			continue
 		}
 		replacement := msg
@@ -309,18 +329,11 @@ func isErrorResult(content string) bool {
 	return strings.HasPrefix(content, "error:")
 }
 
-// consumedByAssistant reports whether any assistant message follows index i.
-// A useless result is only elided after the model has seen it.
-func consumedByAssistant(messages []llm.Message, i int) bool {
-	for j := i + 1; j < len(messages); j++ {
-		if messages[j].Role == "assistant" {
-			return true
-		}
-	}
-	return false
-}
-
 // suffixTokens estimates the size of the conversation that follows index i.
+// It is used by the budget loop in Trim, which mutates later entries as it
+// walks backwards and therefore cannot reuse the table built by
+// reclaimByMeta; that semantic path gets its suffix from the same reverse
+// pass as nextAssistantAfter instead.
 func suffixTokens(messages []llm.Message, i int) int {
 	total := 0
 	for j := i + 1; j < len(messages); j++ {

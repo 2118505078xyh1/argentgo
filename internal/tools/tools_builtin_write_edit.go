@@ -32,6 +32,8 @@ func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (strin
 	if err != nil {
 		return "", err
 	}
+	unlock := lockFileMutation(path)
+	defer unlock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
@@ -78,6 +80,8 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	if err != nil {
 		return "", err
 	}
+	unlock := lockFileMutation(path)
+	defer unlock()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

@@ -41,6 +41,8 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 	if err != nil {
 		return "", err
 	}
+	unlock := lockFileMutation(path)
+	defer unlock()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

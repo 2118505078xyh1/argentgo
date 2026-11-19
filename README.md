@@ -23,7 +23,7 @@
 - **工具真的能干活** — 读写文件、跑 shell、搜索、补丁、后台任务、MCP、LSP、hooks、子代理，全部走同一条安全链。
 - **会话是数据，不是黑盒** — 每轮都是 JSONL 记录，连成可 fork 的树。`/undo` 按 SHA-256 清单精确回滚，`/retry` 从检查点分叉重跑，失败的尝试也不会污染模型历史。
 - **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
-- **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口用纯 Win32 syscall 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
+- **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口由 MyGo 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
 - **多界面** — 命令行一次性问答、全屏 TUI、**MyGo 原生桌面窗口**（单进程约 76 MB、空闲 0% CPU，无 WebView），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
 - **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
 
@@ -53,7 +53,7 @@ $env:ARGENT_API_KEY = "sk-..."
 argent "把 src 里的 unwrap 都找出来"     # 一次性提示，打印回答
 argent --mode json "列出目录"            # 严格 JSONL：事件 + 结果
 argent tui                                # 全屏终端 UI（SSH 也能跑）
-argent gui                                # Windows 原生聊天窗口（纯 syscall，无浏览器）
+argent gui                                # Windows 原生聊天窗口（MyGo，无浏览器）
 ```
 
 想换成国产模型？内置模板直接切：
@@ -70,8 +70,7 @@ argent --provider anthropic "review 一下这个改动"
 stdlib-only；只有桌面壳这一层依赖 MyGo。
 
 发布包同时包含 `argent.exe`（引擎/CLI）和 `argent-native.exe`（原生前端）。
-可选路径：`argent gui --web` 用 Edge/Chrome `--app` 加载 SolidJS 前端作为回退。
-详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
+浏览器前端已移除，桌面只走原生窗口。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
 
 其他入口：
 
@@ -150,7 +149,7 @@ argent：
 ## 文档
 
 - [架构](docs/ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
-- [前端](docs/FRONTEND.md) — MyGo 原生窗口（默认）与可选 SolidJS Web 界面
+- [前端](docs/FRONTEND.md) — MyGo 原生窗口（唯一桌面前端）
 - [功能对齐](docs/PARITY.md) — 与冻结的 Rust 版逐项对照
 - [路线图](docs/ROADMAP.md) · [下一步](docs/NEXT_STEPS.md) · [100 项清单](docs/TODO_100.md)
 - [迁移记录](docs/MIGRATION.md) · [更新日志](CHANGELOG.md)
@@ -164,8 +163,7 @@ go test ./...
 go vet ./...
 gofmt -l .                        # 必须无输出
 
-cd ui; bun install; bun run typecheck; bun run test; bun run build
-powershell -File scripts/build-ui.ps1
+go build -o argent-native.exe ./native   # 原生桌面前端
 ```
 
 一键发布 Windows（需要带 `repo` 权限的 GitHub token）：
@@ -176,6 +174,21 @@ powershell -File scripts/publish-win.ps1
 
 它会校验版本 / tag / CHANGELOG，跑全部门禁，构建单个 Windows zip + checksums，
 推送并发布真正的 GitHub Release（不是只打标签）。只验证 Windows 主机版本。
+
+## 贡献
+
+欢迎 bug 报告、功能提议、文档修正和代码 PR。
+
+- **发现问题** → [开 Issue](https://github.com/2118505078xyh1/argentgo/issues/new/choose)
+  （Bug / 功能 / 文档模板，提交日志请脱敏）
+- **提问或讨论** → [Discussions](https://github.com/2118505078xyh1/argentgo/discussions)
+- **想贡献代码** → 先读 [CONTRIBUTING.md](CONTRIBUTING.md)：
+  fork → 主题分支 → 加边界测试 → 全量验证 → 提 PR（用 PR 模板，关联 issue）。
+  核心包必须保持 stdlib-only、无 cgo；唯一的第三方依赖 MyGo 只用于 `native/` 桌面壳。
+  维护者会 review PR，可能要求修改或拆分；合并后计入下个 Release Notes，并按提交作者署名。
+- **行为准则**：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+维护者会定期查看 Issue 和 PR；有贡献会认真研究后决定是否合并。
 
 ## 许可
 

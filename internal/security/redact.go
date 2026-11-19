@@ -12,24 +12,38 @@ import (
 // deliberately conservative: a false positive costs a redacted string, a
 // false negative leaks a key.
 func Redact(text string) string {
-	var out strings.Builder
-	out.Grow(len(text))
+	return string(redactBytes(text))
+}
+
+// RedactRow redacts the credential-shaped spans of one output line while
+// leaving every other byte untouched. That includes ANSI escape sequences:
+// replacing only the matched spans keeps colour and cursor sequences exactly
+// where they were relative to the surrounding text, so the terminal layout is
+// unchanged. Uses the same pattern table as Redact.
+func RedactRow(line []byte) []byte {
+	if len(line) == 0 {
+		return line
+	}
+	return redactBytes(string(line))
+}
+
+// redactBytes replaces each secret span with its placeholder and copies all
+// remaining bytes verbatim. It is shared by Redact and RedactRow so there is a
+// single pattern table and a single replacement policy.
+func redactBytes(text string) []byte {
+	out := make([]byte, 0, len(text))
 	rest := text
 	for rest != "" {
 		match := findSecret(rest)
-		if match == nil {
-			out.WriteString(rest)
+		if match == nil || match.end <= match.start || match.end > len(rest) {
+			out = append(out, rest...)
 			break
 		}
-		if match.end <= match.start || match.end > len(rest) {
-			out.WriteString(rest)
-			break
-		}
-		out.WriteString(rest[:match.start])
-		out.WriteString(match.placeholder)
+		out = append(out, rest[:match.start]...)
+		out = append(out, match.placeholder...)
 		rest = rest[match.end:]
 	}
-	return out.String()
+	return out
 }
 
 type secretMatch struct {

@@ -324,3 +324,118 @@ func TestTrimCacheGuardConsistentAcrossPaths(t *testing.T) {
 		t.Fatalf("unguarded budget trim = %q, want a stub", got)
 	}
 }
+
+// trimmedBytes is a deterministic fingerprint of a trimmed transcript. Trim
+// only rewrites tool result bodies, so counting message fields catches any
+// behaviour drift while staying O(messages) inside b.N.
+func trimmedBytes(messages []llm.Message) int {
+	n := 0
+	for _, m := range messages {
+		n += len(m.Role) + len(m.Content) + len(m.Reasoning) + len(m.ToolCallID)
+		for _, call := range m.ToolCalls {
+			n += len(call.ID) + len(call.Type) + len(call.Function.Name) + len(call.Function.Arguments)
+		}
+	}
+	return n
+}
+
+// referenceReclaimBytes mirrors the original scanning reclaimByMeta queries
+// verbatim. It is the benchmark's oracle: the precomputed tables must produce
+// exactly the same transcript, not merely a faster one.
+func referenceReclaimBytes(messages []llm.Message, meta map[string]ToolMeta, protect int) int {
+	newestSuccessful := make(map[string]int)
+	for i, msg := range messages {
+		if msg.Role != "tool" || isErrorResult(msg.Content) {
+			continue
+		}
+		if key := meta[msg.ToolCallID].SupersedeKey; key != "" {
+			newestSuccessful[key] = i
+		}
+	}
+	work := append([]llm.Message(nil), messages...)
+	for i, msg := range messages {
+		if msg.Role != "tool" || isErrorResult(msg.Content) {
+			continue
+		}
+		if msg.Content == supersededStub || msg.Content == uselessStub || strings.HasPrefix(msg.Content, trimmedPrefix) {
+			continue
+		}
+		m := meta[msg.ToolCallID]
+		if m == (ToolMeta{}) {
+			continue
+		}
+		stub := ""
+		if m.SupersedeKey != "" {
+			if later, ok := newestSuccessful[m.SupersedeKey]; ok && later > i {
+				stub = supersededStub
+			}
+		}
+		if stub == "" && m.Useless {
+			for j := i + 1; j < len(work); j++ {
+				if work[j].Role == "assistant" {
+					stub = uselessStub
+					break
+				}
+			}
+		}
+		if stub == "" {
+			continue
+		}
+		suffix := 0
+		for j := i + 1; j < len(work); j++ {
+			suffix += EstimateMessage(work[j])
+		}
+		if suffix > protect {
+			continue
+		}
+		replacement := msg
+		replacement.Content = stub
+		work[i] = replacement
+	}
+	return trimmedBytes(work)
+}
+
+// BenchmarkReclaimByMetaWithLargeToolMeta checks both behaviour (against the
+// original O(n^2) algorithm) and scaling of the precomputed suffix/assistant
+// tables. Inputs are deterministic, so ns/op should grow roughly linearly with
+// n; no wall-clock threshold is asserted, only b.N sub-benchmarks.
+func BenchmarkReclaimByMetaWithLargeToolMeta(b *testing.B) {
+	const protect = 1 << 30 // let every older result be reclaimed
+	body := strings.Repeat("x", 16)
+	for _, n := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
+			messages := make([]llm.Message, 0, 2*n+3)
+			messages = append(messages,
+				llm.Message{Role: "system", Content: "rules"},
+				llm.Message{Role: "user", Content: "inspect"},
+			)
+			meta := make(map[string]ToolMeta, n)
+			for i := 0; i < n; i++ {
+				id := fmt.Sprintf("c%d", i)
+				messages = append(messages,
+					llm.Message{Role: "assistant", Content: "step", ToolCalls: []llm.ToolCall{toolCall(id, "read", `{}`)}},
+					llm.Message{Role: "tool", ToolCallID: id, Content: body},
+				)
+				if i%2 == 0 {
+					meta[id] = ToolMeta{SupersedeKey: "read|shared"}
+				} else {
+					meta[id] = ToolMeta{Useless: true}
+				}
+			}
+			messages = append(messages, llm.Message{Role: "assistant", Content: "done"})
+
+			want := referenceReclaimBytes(messages, meta, protect)
+			opts := TrimOptions{ToolMeta: meta, CacheProtectSuffixTokens: protect}
+			if got := trimmedBytes(Trim(messages, opts).Messages); got != want {
+				b.Fatalf("reclaim output bytes = %d, want %d", got, want)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if got := trimmedBytes(Trim(messages, opts).Messages); got != want {
+					b.Fatalf("iteration %d: reclaim output bytes = %d, want %d", i, got, want)
+				}
+			}
+		})
+	}
+}

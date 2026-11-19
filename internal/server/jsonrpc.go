@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bufio"
 	"encoding/json"
 	"io"
 	"strings"
@@ -32,13 +31,19 @@ func isNotification(id json.RawMessage) bool {
 }
 
 // peer writes newline-delimited JSON-RPC messages to one writer.
+//
+// Each message is written directly to the underlying writer as a single frame
+// while holding mu. A bufio.Writer used to sit between the two, but write()
+// flushed after every message, so it only added a copy without ever batching
+// writes. Writing the frame in one call keeps ordering and delivery semantics
+// intact while dropping that copy.
 type peer struct {
-	mu  sync.Mutex
-	buf *bufio.Writer
+	mu sync.Mutex
+	w  io.Writer
 }
 
 func newPeer(w io.Writer) *peer {
-	return &peer{buf: bufio.NewWriter(w)}
+	return &peer{w: w}
 }
 
 func (p *peer) write(payload any) error {
@@ -46,15 +51,20 @@ func (p *peer) write(payload any) error {
 	if err != nil {
 		return err
 	}
+	frame := append(line, '\n')
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, err := p.buf.Write(line); err != nil {
-		return err
+	for len(frame) > 0 {
+		n, err := p.w.Write(frame)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		frame = frame[n:]
 	}
-	if err := p.buf.WriteByte('\n'); err != nil {
-		return err
-	}
-	return p.buf.Flush()
+	return nil
 }
 
 func (p *peer) respond(id json.RawMessage, result any) {
@@ -87,17 +97,24 @@ func (p *peer) notify(method string, params any) {
 	_ = p.write(message)
 }
 
-// promptText extracts prompt text from {"text":...}, {"prompt":"..."} or
-// {"prompt":[{"type":"text","text":...}]}.
+// promptText extracts prompt text from every prompt carrier used by the
+// transports: a raw text body, {"text":...}, {"prompt":"..."} or
+// {"prompt":[{"type":"text","text":...}]}. It is the single source of truth
+// for both JSON-RPC/ACP params and the HTTP /v1/prompt body.
 func promptText(raw []byte) string {
-	if len(raw) == 0 {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
 		return ""
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		// Raw text body (HTTP) — keep the historical trim behaviour.
+		return trimmed
 	}
 	var payload struct {
 		Text   string          `json:"text"`
 		Prompt json.RawMessage `json:"prompt"`
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
 		return ""
 	}
 	if text := strings.TrimSpace(payload.Text); text != "" {

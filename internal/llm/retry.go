@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -210,6 +212,16 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 		if !IsRetryableStatus(resp.StatusCode) || normalAttempts >= p.MaxAttempts {
 			return resp, nil
 		}
+		// Peek at a bounded prefix to tell a hard provider limit from a
+		// transient rate limit. The prefix is put back so the caller still gets
+		// a complete body; only the retry path below drains it.
+		if resp.Body != nil {
+			prefix, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body = bodyWithPrefix(prefix, resp.Body)
+			if IsNonRetryableQuotaResponse(resp.StatusCode, prefix) {
+				return resp, nil
+			}
+		}
 		retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
 		p.notify(RetryAttempt{
 			Attempt:    normalAttempts,
@@ -358,6 +370,41 @@ func IsRetryableStatus(code int) bool {
 		return true
 	}
 	return false
+}
+
+// nonRetryableQuotaRE matches provider error payloads that describe a hard
+// account limit (quota, billing, subscription/plan) rather than a transient
+// rate limit. Compiled once at package scope; matching happens on redacted
+// text so credential-shaped values cannot influence the decision.
+var nonRetryableQuotaRE = regexp.MustCompile(`(?i)(insufficient[_-]?quota|quota[_-]?(?:exceeded|exhausted|limit|reached)|exceeded[_\s]+(?:your[_\s]+)?(?:current[_\s]+)?quota|exhausted[_\s]+(?:its[_\s]+|your[_\s]+|the[_\s]+)?quota|billing|usage[_\s]?limit|plan[_\s]?limit|subscription[_\s]?(?:limit|quota)|out[_\s]+of[_\s]+(?:quota|credit|balance)|credit[_\s]+balance|insufficient[_\s]+(?:credit|credits|funds|balance)|payment[_\s]+required|hard[_\s]+limit|订阅额度|订阅限额|配额|额度)`)
+
+// IsNonRetryableQuotaResponse reports whether a provider response is a hard
+// quota/billing/subscription limit rather than a transient rate limit. Such a
+// response will never start succeeding, so it must be handed back to the caller
+// immediately with its body intact instead of being retried and waited out.
+// Only 429 and 402 are considered; body is expected to be a bounded prefix of
+// the response payload.
+func IsNonRetryableQuotaResponse(status int, body []byte) bool {
+	if status != http.StatusTooManyRequests && status != http.StatusPaymentRequired {
+		return false
+	}
+	if len(body) == 0 {
+		return false
+	}
+	return nonRetryableQuotaRE.MatchString(RedactText(string(body)))
+}
+
+// bodyWithPrefix puts a peeked prefix back in front of a response body. The
+// original Closer is retained so closing still releases the connection. This
+// keeps the payload fully readable by the caller after classification.
+func bodyWithPrefix(prefix []byte, original io.ReadCloser) io.ReadCloser {
+	return struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.MultiReader(bytes.NewReader(prefix), original),
+		Closer: original,
+	}
 }
 
 // ParseRetryAfter reads a Retry-After header value, either delta-seconds or an

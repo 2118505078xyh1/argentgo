@@ -135,21 +135,30 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 			}
 		}
 	}
+	// Normalize each call's arguments once. The repeat guard is queried both
+	// here (wouldBlock) and again when the call is dispatched (check); sharing
+	// this table saves a full JSON decode/encode per query without changing
+	// what the guard sees or records.
+	normalized := make([]string, len(calls))
+	for i, call := range calls {
+		normalized[i] = NormalizeArgs(call.Function.Arguments)
+	}
+
 	parallel := len(calls) > 1 && s.maxParallel() > 1
-	for _, call := range calls {
+	for i, call := range calls {
 		// Mutating calls need approval and the delegate tool owns nested state;
 		// neither belongs on a worker goroutine. A call the repeat guard would
 		// refuse must also be recorded in call order, so keep the batch
 		// sequential in that case.
 		if s.mutating(call.Function.Name) ||
 			call.Function.Name == TaskToolName ||
-			s.guard.wouldBlock(call.Function.Name, call.Function.Arguments) {
+			s.guard.wouldBlockNormalized(call.Function.Name, normalized[i]) {
 			parallel = false
 			break
 		}
 	}
 	if parallel {
-		return s.runParallelCalls(ctx, turn, calls)
+		return s.runParallelCalls(ctx, turn, calls, normalized)
 	}
 
 	for i, call := range calls {
@@ -163,7 +172,7 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 			return StopCancelled
 		}
 		s.emitToolStart(turn, call)
-		if hit, blocked := s.guard.check(call.Function.Name, call.Function.Arguments); hit {
+		if hit, blocked := s.guard.checkNormalized(call.Function.Name, normalized[i]); hit {
 			s.finishCall(turn, call, callResult{output: blocked, isError: true})
 			s.appendTool(call, blocked)
 			continue
@@ -179,12 +188,12 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 // transcript in call order. Every call is announced before any worker starts,
 // and results are recorded only after the chunk finishes, so the event stream
 // and the history never depend on which tool returned first.
-func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.ToolCall) string {
+func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.ToolCall, normalized []string) string {
 	// The repeat guard is a decision, so it runs in call order before workers
 	// spawn; only calls that survive it reach the goroutines.
 	blocked := make([]string, len(calls))
 	for i, call := range calls {
-		if hit, message := s.guard.check(call.Function.Name, call.Function.Arguments); hit {
+		if hit, message := s.guard.checkNormalized(call.Function.Name, normalized[i]); hit {
 			blocked[i] = message
 		}
 	}

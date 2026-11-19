@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -386,5 +387,130 @@ func TestChatterInterface(t *testing.T) {
 	chatter = llm.NewResponses("http://127.0.0.1:1", "")
 	if chatter == nil {
 		t.Fatal("responses client should satisfy Chatter")
+	}
+}
+
+func TestIsNonRetryableQuotaResponse(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"insufficient_quota", 429, `{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}`, true},
+		{"quota_exceeded", 429, `{"error":"quota_exceeded"}`, true},
+		{"billing hard limit", 429, `{"error":{"type":"billing","message":"hard limit reached"}}`, true},
+		{"usage limit", 429, `usage_limit reached`, true},
+		{"plan limit", 429, `You have hit your plan limit`, true},
+		{"subscription quota zh", 429, `订阅额度已用尽`, true},
+		{"quota zh", 429, `配额已耗尽`, true},
+		{"payment required 402", 402, `payment required: billing details`, true},
+		{"plain rate limit", 429, `rate limit exceeded, please retry`, false},
+		{"too many requests", 429, `too many requests`, false},
+		{"quota wording on 500 is not a quota response", 500, `insufficient_quota`, false},
+		{"empty body", 429, ``, false},
+		// A credential-shaped value is redacted before matching, so a secret
+		// containing a pattern word cannot influence the decision.
+		{"credential-shaped value is redacted before matching", 429, `api_key=billing_secret_value1234567890`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := llm.IsNonRetryableQuotaResponse(tc.status, []byte(tc.body)); got != tc.want {
+				t.Fatalf("IsNonRetryableQuotaResponse(%d, %q) = %v, want %v", tc.status, tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRetryPolicyDoesNotRetryQuotaResponses(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"insufficient_quota", `{"error":{"code":"insufficient_quota","message":"You exceeded your current quota. Check your plan and billing details."}}`},
+		{"quota_exceeded", `{"error":"quota_exceeded"}`},
+		{"billing", `{"error":"billing_hard_limit_reached"}`},
+		{"usage limit with credential", `usage_limit reached for api_key=sk_secretvalue1234567890`},
+		{"plan limit", `plan limit reached`},
+		{"订阅额度", `订阅额度已用尽`},
+		{"配额", `配额已耗尽`},
+		{"body larger than peek window", `{"error":"insufficient_quota","message":"` + strings.Repeat("x", 8192) + `"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sends int
+			var attempts []llm.RetryAttempt
+			policy := llm.RetryPolicy{
+				MaxAttempts: 3,
+				Sleep:       noWait,
+				OnRetry:     func(a llm.RetryAttempt) { attempts = append(attempts, a) },
+			}
+			resp, err := policy.Do(context.Background(), func(context.Context) (*http.Response, error) {
+				sends++
+				return &http.Response{
+					StatusCode: http.StatusTooManyRequests,
+					Status:     "429 Too Many Requests",
+					Header:     http.Header{"Retry-After": []string{"1"}},
+					Body:       io.NopCloser(strings.NewReader(tc.body)),
+				}, nil
+			})
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			if sends != 1 {
+				t.Fatalf("sends = %d, want 1", sends)
+			}
+			if len(attempts) != 0 {
+				t.Fatalf("retry attempts = %v, want none for a quota limit", attempts)
+			}
+			if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+				t.Fatalf("resp = %#v", resp)
+			}
+			defer resp.Body.Close()
+			got, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			if string(got) != tc.body {
+				t.Fatalf("body = %q, want the full original body", got)
+			}
+			// No retry record and no error text is produced for a quota limit,
+			// so credential-shaped values in the body cannot leak via Do.
+			for _, a := range attempts {
+				if strings.Contains(a.Cause, "sk_secretvalue") {
+					t.Fatalf("retry attempt leaked credential: %+v", a)
+				}
+			}
+		})
+	}
+}
+
+func TestRetryPolicyStillRetriesRateLimitResponses(t *testing.T) {
+	var sends int
+	policy := llm.RetryPolicy{MaxAttempts: 2, Sleep: noWait}
+	resp, err := policy.Do(context.Background(), func(context.Context) (*http.Response, error) {
+		sends++
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Status:     "429 Too Many Requests",
+			Body:       io.NopCloser(strings.NewReader("rate limit exceeded")),
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if sends != 2 {
+		t.Fatalf("sends = %d, want 2 for a plain rate limit", sends)
+	}
+	if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("resp = %#v", resp)
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(got) != "rate limit exceeded" {
+		t.Fatalf("body = %q, want full body", got)
 	}
 }

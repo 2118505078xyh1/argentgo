@@ -118,7 +118,7 @@ in progress（尚未在 Go 中落地）：
 | hooks 运行时派发 | `internal/app/hooks.go` | done：7 事件接入真实 run，exit-2 阻断工具 |
 | MCP per-server 权限 | `internal/mcp` | done：enabled/readOnly/allowedTools/deniedTools |
 | TUI tasks/workspace/plan 面板 | `internal/tui` | done：Ctrl+T/B/P |
-| 桌面壳（Tauri） | `internal/gui` + `ui/` | done：Go HTTP+SSE + SolidJS + WebView2 app window |
+| 桌面壳（原生） | `native/`（MyGo） | done：纯 Go 原生 UI，经 `--rpc` 驱动引擎，无 WebView |
 
 ## 验收规则（不靠文档靠测试）
 

@@ -32,9 +32,26 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// prepareAppend mints an id and bumps nextSeq before anything reaches the
+	// disk. Keep the pre-append value so a failed write can undo that drift and
+	// leave the index describing exactly what is in the file.
+	prevNextSeq := s.nextSeq
+
 	parent, id, err := s.prepareAppend()
 	if err != nil {
 		return Record{}, err
+	}
+	// Records() is always a fresh read from disk, so `active`, `lastID` and the
+	// `ids` entry for this record are only advanced after a successful write.
+	// On failure the only in-memory change left behind is the bumped nextSeq;
+	// drop the minted id from the index as well in case a writer added it
+	// before reporting an error. writeAppend already drops the fd/cache when
+	// the write itself failed, so the next append safely rebuilds from disk.
+	rollback := func() {
+		s.nextSeq = prevNextSeq
+		if s.ids != nil {
+			delete(s.ids, id)
+		}
 	}
 	record := Record{
 		ID:     id,
@@ -45,12 +62,14 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	}
 	line, err := json.Marshal(record)
 	if err != nil {
+		rollback()
 		return Record{}, fmt.Errorf("session: encode record: %w", err)
 	}
 	buf := make([]byte, 0, len(line)+1)
 	buf = append(buf, line...)
 	buf = append(buf, '\n')
 	if err := s.writeAppend(record.ID, buf); err != nil {
+		rollback()
 		return Record{}, err
 	}
 	s.active = record.ID

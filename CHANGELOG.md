@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0 — 2026-11-19
+
+- **Browser frontend removed; native MyGo is now the only desktop frontend.**
+  Deleted `ui/` (SolidJS + Vite), `internal/gui/` (HTTP+SSE bridge),
+  `internal/launcher/` (Edge/Chrome `--app`), `scripts/build-ui.ps1` and the web
+  runner/approval adapters. `argent gui` now always launches `argent-native.exe`.
+- Simplified `cmd/argent/gui.go` to engine resolution + native frontend launch;
+  removed `--web`. Release zip and build script no longer build/embed a web UI.
+- Docs (README, FRONTEND, ARCHITECTURE, AGENTS, MAINTAINERS, PARITY) updated to
+  the native-only architecture. Core packages remain stdlib-only; MyGo is the
+  sole third-party dependency, confined to `native/`.
+
 ## v0.3.1 — 2026-11-19
 
 Correctness fixes derived from studying the rpi coding-agent runtime:

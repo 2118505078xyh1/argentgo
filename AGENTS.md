@@ -28,12 +28,13 @@ go vet ./...                             # vet everything
 gofmt -l .                               # must print nothing
 ```
 
-Frontend (`ui/`, SolidJS + Vite, built with bun):
+Desktop frontend (`native/`, MyGo native UI):
 
 ```powershell
-cd ui; bun install; bun run typecheck; bun run test; bun run build
-powershell -File scripts/build-ui.ps1    # builds and copies into internal/gui/dist
+go build -o argent-native.exe ./native   # the native chat window
 ```
+
+The browser frontend has been removed. `native/` drives the engine over `--rpc`.
 
 ## Layout
 
@@ -66,8 +67,7 @@ internal/auth       PKCE / device-code login, token store
 internal/update     GitHub release check + self-update
 internal/eval       scenario runner (evals/core.json)
 internal/tui        full-screen terminal UI
-internal/gui        WebView2 shell backend: HTTP + SSE + embedded ui/dist
-ui/                 SolidJS frontend
+native/             MyGo native desktop chat window (the only GUI frontend)
 ```
 
 ## Dependency rules
@@ -137,8 +137,7 @@ Three paradigms do different jobs here; do not force one to do another's work.
 
 ## Do not
 
-- Never commit `argent.exe` or `ui/node_modules`. `internal/gui/dist` **is**
-  committed because `go:embed` needs it at build time; regenerate it with
-  `scripts/build-ui.ps1` after changing `ui/`.
+- Never commit built binaries (`argent.exe`, `argent-native.exe`) or `node_modules`.
+  The native frontend is built from `native/` source at release time.
 - Do not edit `docs/PARITY.md` statuses without running the corresponding test.
 - Do not add a dependency to save 30 lines of code.

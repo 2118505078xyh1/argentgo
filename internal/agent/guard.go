@@ -41,13 +41,45 @@ func NormalizeArgs(raw string) string {
 	return string(normalized)
 }
 
+// normalizedKey builds the map key shared by both the cached-key and the raw
+// argument paths of the guard. Keeping it in one place guarantees the two agree
+// byte-for-byte.
+func normalizedKey(name, normalized string) string {
+	return name + "\x00" + normalized
+}
+
+// wouldBlockNormalized is wouldBlock for arguments the caller already
+// normalized (once per call at runTools entry, reused by wouldBlock and check).
+func (d *dedupe) wouldBlockNormalized(name, normalized string) bool {
+	if d == nil || d.max <= 0 {
+		return false
+	}
+	return d.counts[normalizedKey(name, normalized)]+1 > d.max
+}
+
+// checkNormalized is check for arguments the caller already normalized. The
+// counting and the message are unchanged; only the JSON round-trip is skipped.
+func (d *dedupe) checkNormalized(name, normalized string) (blocked bool, message string) {
+	if d == nil || d.max <= 0 {
+		return false, ""
+	}
+	key := normalizedKey(name, normalized)
+	d.counts[key]++
+	if d.counts[key] <= d.max {
+		return false, ""
+	}
+	return true, fmt.Sprintf(
+		"[duplicate call blocked] %s was already called %d times with the same arguments in this run; use the earlier result instead of calling it again",
+		name, d.max)
+}
+
 // wouldBlock reports whether the next identical call would be blocked, without
 // recording it. Used to decide whether a batch may run in parallel.
 func (d *dedupe) wouldBlock(name, args string) bool {
 	if d == nil || d.max <= 0 {
 		return false
 	}
-	return d.counts[name+"\x00"+NormalizeArgs(args)]+1 > d.max
+	return d.wouldBlockNormalized(name, NormalizeArgs(args))
 }
 
 // check records one request and reports whether it must be answered with an
@@ -56,12 +88,5 @@ func (d *dedupe) check(name, args string) (blocked bool, message string) {
 	if d == nil || d.max <= 0 {
 		return false, ""
 	}
-	key := name + "\x00" + NormalizeArgs(args)
-	d.counts[key]++
-	if d.counts[key] <= d.max {
-		return false, ""
-	}
-	return true, fmt.Sprintf(
-		"[duplicate call blocked] %s was already called %d times with the same arguments in this run; use the earlier result instead of calling it again",
-		name, d.max)
+	return d.checkNormalized(name, NormalizeArgs(args))
 }

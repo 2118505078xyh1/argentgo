@@ -3,7 +3,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 `
 #       [-Version 0.1.1] [-Tag v0.1.1] [-OutDir dist/release] `
-#       [-BuildUI] [-SkipChecks]
+#       [-SkipChecks]
 #
 # Produces one Windows zip plus a sha256sum-style checksums.txt.
 # The version is read from internal/cli/cli.go (the single source of truth);
@@ -14,7 +14,6 @@ param(
     [string]$Version = '',
     [string]$Tag = '',
     [string]$OutDir = '',
-    [switch]$BuildUI,
     [switch]$SkipChecks
 )
 
@@ -103,24 +102,6 @@ try {
             $names = @($unformatted | ForEach-Object { $_.Substring($fmtRoot.Length + 1) })
             throw ("unformatted files: " + ($names -join ', '))
         }
-    }
-
-    # --- embedded frontend -------------------------------------------------
-    if ($BuildUI) {
-        Write-Host '== build UI ==' -ForegroundColor Cyan
-        if (-not $pwsh) { throw 'pwsh or powershell not found for build-ui.ps1' }
-        $uiArgs = @('-NoProfile', '-File', (Join-Path $repo 'scripts/build-ui.ps1'))
-        if (-not $IsCoreCLR) { $uiArgs = @('-ExecutionPolicy', 'Bypass') + $uiArgs }
-        & $pwsh @uiArgs
-        if ($LASTEXITCODE -ne 0) { throw 'build-ui.ps1 failed' }
-    }
-    $index = Join-Path $repo 'internal/gui/dist/index.html'
-    if (-not (Test-Path -LiteralPath $index)) {
-        throw "embedded UI is missing $index (run scripts/build-ui.ps1)"
-    }
-    $indexBody = Get-Content -LiteralPath $index -Raw
-    if ($indexBody -notmatch '/assets/') {
-        throw 'embedded UI looks like the placeholder; run scripts/build-ui.ps1'
     }
 
     # Windows amd64 only. The operator runs the Windows build; other targets

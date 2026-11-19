@@ -8,7 +8,7 @@
 任意表面                          装配              循环              边界
 CLI / --serve / --rpc / acp ─┐
 全屏 TUI (internal/tui)      ├─> internal/app ─> internal/agent ─> tools / security / session
-Web GUI (internal/gui)       ┘        │              │                │
+原生 GUI (native/ → --rpc)  ┘        │              │                │
                                        └ 配置/provider  └ Chatter        └ JSONL 会话/审计
 ```
 
@@ -51,14 +51,13 @@ Web GUI (internal/gui)       ┘        │              │                │
 - **TUI**（`internal/tui`）：自绘 ANSI 全屏，含 streaming transcript、markdown-lite、
   输入编辑器、审批弹窗、主题与 locale；Ctrl+T/B/P 分别打开任务、工作区、计划面板；
   不经 WebView，可在 SSH 上运行。入口 `argent tui`。
-- **GUI**（`internal/gui` + `ui/`）：Go 后端在 `127.0.0.1` 随机端口上提供
-  `GET /`（`go:embed` 的 `ui/dist`）、`POST /rpc/{command}`、`GET /events`（SSE）、
-  `/healthz`；保留旧 Tauri 的命令名与事件负载，但改走 HTTP，每个标签页一个注入的 runner。
-  前端是 SolidJS + Vite（bun 构建），`internal/gui/dist` 是提交进仓库的构建产物，
-  让 `go:embed` 在干净克隆里也能编译；改前端后用 `scripts/build-ui.ps1` 重新生成。
-- **启动器**（`internal/launcher`）：`msedge --app` / `chrome --app` + 独立 profile，
-  失败回退系统浏览器并返回 `ErrFallback`，由 `cmd/argent/runGUI` 打印提示。
-  `argent gui` 是真入口，端到端验证过：SSE 流、审批、工具落盘、`turn_done`。
+- **GUI**（`native/`）：MyGo 原生聊天窗口，是唯一的桌面前端。它用 `ARGENT_EXE`
+  拉起 `argent.exe --rpc`，通过 stdio JSON-RPC 驱动引擎：`prompt` + `prompt/delta`
+  流式通知、`abort`、`session.list`、`session.load`。窗口由 Go 的 `ui` 包自绘，
+  无 WebView、无浏览器、无 HTTP 服务。侧栏、消息列表、工具卡片、审批、
+  Markdown 流式渲染都在原生控件里完成。
+- **入口**（`cmd/argent/gui.go`）：`argent gui` 解析标志、`app.Resolve` 装配引擎，
+  然后启动同目录的 `argent-native.exe`（GUI 子系统，无黑色控制台）。桌面只走原生窗口。
 
 ## 配置与依赖规则
 
