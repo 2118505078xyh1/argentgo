@@ -3,6 +3,7 @@
 package nativegui
 
 import (
+	"context"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -176,6 +177,36 @@ func wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 		return 0
 
 	case wmKeyDown:
+		control := lparam&0x08 != 0
+		shift := lparam&0x40 != 0
+		if control && (wparam == 0x5A || wparam == 0x59) && s != nil {
+			retry := wparam == 0x59 || shift
+			s.mu.Lock()
+			h, sid, ctx := s.history, s.sessionID, s.ctx
+			s.mu.Unlock()
+			if h != nil && sid != "" {
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				var err error
+				if retry {
+					err = h.Retry(ctx, sid, 1)
+				} else {
+					err = h.Undo(ctx, sid, 1)
+				}
+				s.mu.Lock()
+				if err != nil {
+					s.status = "失败: " + firstLine(err.Error())
+				} else if retry {
+					s.status = "已从检查点分叉"
+				} else {
+					s.status = "已恢复检查点文件"
+				}
+				s.mu.Unlock()
+				invalidate(hwnd)
+				return 0
+			}
+		}
 		if wparam == 0x1B { // Esc closes an approval, otherwise the window.
 			if s != nil {
 				s.mu.Lock()
@@ -406,10 +437,13 @@ func paint(hdc uintptr, hwnd uintptr) {
 			break
 		}
 	}
+	pSelectObject.Call(hdc, fontSmall)
 	if busy {
-		pSelectObject.Call(hdc, fontSmall)
 		pSetTextColor.Call(hdc, uintptr(clrAccent))
 		textAt(hdc, "● "+status, sidebarW+padding, bottom+2, uint32(w))
+	} else if status != "" {
+		pSetTextColor.Call(hdc, uintptr(clrDim))
+		textAt(hdc, status, sidebarW+padding, bottom+2, uint32(w))
 	}
 
 	// Composer surface.

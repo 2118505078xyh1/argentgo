@@ -7,7 +7,9 @@
 package nativegui
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"unicode/utf16"
@@ -126,6 +128,8 @@ type Options struct {
 	Cwd       string
 	Model     string
 	Provider  string
+	Context   context.Context
+	History   gui.TurnHistory
 	Events    <-chan gui.Event
 	Approvals <-chan gui.Approval
 	Commands  chan<- gui.Command
@@ -138,16 +142,19 @@ type row struct {
 }
 
 type state struct {
-	mu       sync.Mutex
-	rows     []row
-	model    string
-	cwd      string
-	status   string
-	sessions []gui.SessionRow
-	approval *gui.Approval
-	dark     bool
-	busy     bool
-	scroll   int
+	mu        sync.Mutex
+	rows      []row
+	model     string
+	cwd       string
+	status    string
+	sessionID string
+	sessions  []gui.SessionRow
+	approval  *gui.Approval
+	history   gui.TurnHistory
+	ctx       context.Context
+	dark      bool
+	busy      bool
+	scroll    int
 }
 
 var current *state
@@ -155,11 +162,13 @@ var current *state
 // Run opens the window and blocks until it is closed.
 func Run(opts Options) error {
 	s := &state{
-		rows:   []row{{kind: "welcome", text: "问点什么，或者输入 / 看命令。"}},
-		model:  opts.Model,
-		cwd:    opts.Cwd,
-		status: "就绪",
-		dark:   true,
+		rows:    []row{{kind: "welcome", text: "问点什么，或者输入 / 看命令。"}},
+		model:   opts.Model,
+		cwd:     opts.Cwd,
+		status:  "就绪",
+		dark:    true,
+		history: opts.History,
+		ctx:     opts.Context,
 	}
 	current = s
 
@@ -285,8 +294,12 @@ func applyEvent(s *state, ev gui.Event) {
 	case gui.EventError:
 		s.rows = append(s.rows, row{kind: "error", text: ev.Message})
 		s.busy = false
+	case gui.EventSession:
+		base := filepath.Base(ev.Path)
+		s.sessionID = strings.TrimSuffix(base, filepath.Ext(base))
 	case gui.EventSessionCleared:
 		s.rows = nil
+		s.sessionID = ""
 	case gui.EventSessions:
 		s.sessions = ev.Sessions
 	}

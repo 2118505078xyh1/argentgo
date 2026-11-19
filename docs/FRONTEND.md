@@ -44,6 +44,8 @@
 - 输入区 Enter 发送，Shift+Enter 换行；点击「发送」等价。
 - 审批条：`Y` 允许、`N` 拒绝、`Esc` 取消。
 - 滚轮滚动会话；右上角「主题」切换深色/浅色。
+- `Ctrl+Z` 从最近检查点恢复被这一轮改过的文件；`Ctrl+Y`（或 `Ctrl+Shift+Z`）从检查点
+  分叉重跑。两者都走 `gui.TurnHistory`，Web 界面的 ↶/⟳ 按钮用同一实现。
 - 会话侧栏点击可打开（`EventSessions` 提供列表）。
 
 ## 桌面安装与图标（Windows）

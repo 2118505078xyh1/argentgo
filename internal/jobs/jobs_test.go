@@ -29,11 +29,23 @@ func shellCommand(line string) Command {
 	return Command{Program: "/bin/sh", Args: []string{"-c", line}}
 }
 
+// longCommand runs this test binary in a dedicated sleep mode. Using ping(1)
+// here made the suite depend on an external tool and on pipe setup; on Windows
+// that occasionally failed with ERROR_NO_DATA while the runner was busy.
 func longCommand() Command {
-	if runtime.GOOS == "windows" {
-		return shellCommand("ping -n 60 127.0.0.1 >NUL")
+	return Command{
+		Program: os.Args[0],
+		Args:    []string{"-test.run=^TestSleepHelperProcess$", "--"},
+		Env:     []string{"ARGENT_JOBS_SLEEP_HELPER=1"},
 	}
-	return shellCommand("sleep 60")
+}
+
+// TestSleepHelperProcess is only meaningful when launched by longCommand.
+func TestSleepHelperProcess(t *testing.T) {
+	if os.Getenv("ARGENT_JOBS_SLEEP_HELPER") != "1" {
+		return
+	}
+	time.Sleep(60 * time.Second)
 }
 
 func waitForTerminal(t *testing.T, registry *Registry, id string) Job {

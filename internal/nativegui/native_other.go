@@ -3,6 +3,7 @@
 package nativegui
 
 import (
+	"context"
 	"errors"
 
 	"github.com/2118505078xyh1/argentgo/internal/gui"
@@ -13,6 +14,8 @@ type Options struct {
 	Cwd       string
 	Model     string
 	Provider  string
+	Context   context.Context
+	History   gui.TurnHistory
 	Events    <-chan gui.Event
 	Approvals <-chan gui.Approval
 	Commands  chan<- gui.Command

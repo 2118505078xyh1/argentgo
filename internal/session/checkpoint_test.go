@@ -95,6 +95,33 @@ func TestCheckpointCapturesHashesAndUndoRestoresOnlyManifestFiles(t *testing.T) 
 	}
 }
 
+func TestCheckpointBackWalksRecentCheckpointsOnActiveBranch(t *testing.T) {
+	sess := newTestSession(t, t.TempDir(), "multi")
+	first, err := sess.RecordCheckpoint(Checkpoint{Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := sess.RecordCheckpoint(Checkpoint{Prompt: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	latest, record, err := sess.CheckpointBack(1)
+	if err != nil || record.ID != second.ID || latest.Prompt != "second" {
+		t.Fatalf("CheckpointBack(1) = %+v, %+v, %v", latest, record, err)
+	}
+	older, record, err := sess.CheckpointBack(2)
+	if err != nil || record.ID != first.ID || older.Prompt != "first" {
+		t.Fatalf("CheckpointBack(2) = %+v, %+v, %v", older, record, err)
+	}
+	if _, _, err := sess.CheckpointBack(3); !errors.Is(err, ErrNoCheckpoint) {
+		t.Fatalf("CheckpointBack(3) error = %v, want ErrNoCheckpoint", err)
+	}
+	if _, _, err := sess.CheckpointBack(0); err == nil {
+		t.Fatal("CheckpointBack(0) should reject invalid steps")
+	}
+}
+
 func TestUndoRefusesConflictingManualEdits(t *testing.T) {
 	root := testWorkspace(t, map[string]string{"a.txt": "before"})
 	cp, err := CaptureCheckpoint(root, []string{"a.txt"})

@@ -139,11 +139,23 @@ func (s *Session) RecordCheckpoint(cp Checkpoint) (Record, error) {
 // LatestCheckpoint returns the last checkpoint on the active branch and its
 // record. It returns ErrNoCheckpoint when the session has none.
 func (s *Session) LatestCheckpoint() (Checkpoint, Record, error) {
+	return s.CheckpointBack(1)
+}
+
+// CheckpointBack returns the Nth checkpoint on the active branch, counting back
+// from the leaf (1 is the most recent), together with its record. It powers
+// "undo the last N turns" and "retry from N turns ago" without exposing the
+// private path walker to frontends.
+func (s *Session) CheckpointBack(steps int) (Checkpoint, Record, error) {
+	if steps < 1 {
+		return Checkpoint{}, Record{}, fmt.Errorf("session: checkpoint steps must be >= 1, got %d", steps)
+	}
 	records, err := s.Records()
 	if err != nil {
 		return Checkpoint{}, Record{}, err
 	}
 	path := s.activePath(records)
+	found := 0
 	for i := len(path) - 1; i >= 0; i-- {
 		if path[i].Kind != KindCheckpoint {
 			continue
@@ -152,7 +164,10 @@ func (s *Session) LatestCheckpoint() (Checkpoint, Record, error) {
 		if err := jsonUnmarshal(path[i].Data, &cp); err != nil {
 			continue
 		}
-		return cp, path[i], nil
+		found++
+		if found == steps {
+			return cp, path[i], nil
+		}
 	}
 	return Checkpoint{}, Record{}, ErrNoCheckpoint
 }

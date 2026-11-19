@@ -84,8 +84,9 @@ func runGUI(stdio cli.IO, args []string) int {
 		return 1
 	}
 
+	history := &guiHistory{sessions: store.Dir(), root: resolved.Root}
 	if !web && runtime.GOOS == "windows" {
-		return nativeRun(ctx, newGUIRunner(ctx, stdio, resolved, store), resolved)
+		return nativeRun(ctx, newGUIRunner(ctx, stdio, resolved, store), resolved, history)
 	}
 
 	guiOpts := gui.Options{
@@ -97,6 +98,7 @@ func runGUI(stdio cli.IO, args []string) int {
 		Locale:     locale,
 		StorageDir: resolved.Storage,
 		Sessions:   &guiSessions{dir: store.Dir(), cwd: resolved.Root},
+		History:    history,
 		NewRunner: func() gui.Runner {
 			return newGUIRunner(ctx, stdio, resolved, store)
 		},
@@ -122,11 +124,13 @@ func runGUI(stdio cli.IO, args []string) int {
 
 // nativeRun hands the engine's three channels to the Win32 window. With no
 // browser in the loop there is no token, no HTTP server and no web asset load.
-func nativeRun(ctx context.Context, runner gui.Runner, resolved app.Resolved) int {
+func nativeRun(ctx context.Context, runner gui.Runner, resolved app.Resolved, history gui.TurnHistory) int {
 	err := nativegui.Run(nativegui.Options{
 		Cwd:       resolved.Root,
 		Model:     resolved.Model,
 		Provider:  resolved.Cfg.ProviderName,
+		Context:   ctx,
+		History:   history,
 		Events:    runner.Events(),
 		Approvals: runner.Approvals(),
 		Commands:  runner.Commands(),
