@@ -162,9 +162,25 @@ type Options struct {
 Not in this wave (later): plugins/script-plugins, LSP/AST, pty/jobs/device, workflow,
 automation, telemetry, update, desktop bridge for the Tauri shell.
 
-## Retirement of the Rust checkout
+## Wave 2 (running in parallel with wave 1; same hard rules)
 
-`github.com/<owner>/argent` is frozen at v0.4.0 and archived; the local checkout
+Wave-1 directories are off limits: `internal/{llm,provider,security,session,config,tools,mcp,hooks,tui,cli,server}`
+and `cmd/argent`.
+
+| Slice | Directories | Deliverable |
+|---|---|---|
+| agent | `internal/agent` | full loop: tool batching, approval gate, dedupe guard, context trimming, token/cost budget, turn limit, steering, subagents, cancellation, usage accounting |
+| context | `internal/skills`, `internal/commands`, `internal/memory`, `internal/i18n` | SKILL.md discovery + progressive disclosure, markdown slash commands, project memory files (AGENTS.md/CLAUDE.md) injection, zh-CN/en-US strings |
+| plugins | `internal/plugins`, `internal/lsp` | `.zcode-plugin`/`.claude-plugin`/`.codex-plugin` manifest discovery, install/enable, bundled MCP+skills+hooks wiring; LSP client (stdio JSON-RPC) with diagnostics after edits |
+| proc | `internal/proc`, `internal/pty`, `internal/jobs` | process spawn/kill trees with timeouts (Windows job objects via pure syscall), pseudo-terminal (ConPTY / unix pty behind build tags), background job registry with logs |
+| eval | `internal/eval`, `evals/` | scripted scenario runner (JSON) + the ported `evals/core.json` scenarios, fake provider, parity report output |
+| automation | `internal/automation`, `internal/workflow` | cron-style scheduler + daemon mode with run logs, scripted workflow steps with retries/conditions |
+| auth | `internal/auth`, `internal/update` | OAuth PKCE / device-code login with token store (DPAPI-free: file with 0600 + optional env), self-update from GitHub releases with checksum verify and atomic replace |
+
+Still deferred: native C-ABI plugin loader (Go uses process/MCP plugins instead),
+tree-sitter AST, desktop control, and the Tauri bridge (wave 3, needs `internal/server` settled).
+
+## Retirement of the Rust checkout`github.com/<owner>/argent` is frozen at v0.4.0 and archived; the local checkout
 `<local-checkout>` is the behavioural reference **only until this wave lands**.
 After the last slice is merged and the Go tests are green, delete the local Rust
 directory (history stays on GitHub). Do not delete it earlier: the slices read it.
