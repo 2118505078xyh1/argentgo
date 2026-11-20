@@ -41,7 +41,17 @@ const (
 	storeFile = "jobs.json"
 	// tailWindow bounds how much of a log Tail reads.
 	tailWindow = 256 << 10
+	// identityTolerance is the clock slack allowed when comparing a persisted
+	// StartedAt with a live process's kernel creation time. Both timestamps
+	// come from the same machine; the slack only covers the few milliseconds
+	// between the two readings (plus /proc's 10 ms tick granularity on Unix).
+	identityTolerance = 2 * time.Second
 )
+
+// errProcessIdentity marks a refusal to signal a pid whose creation time does
+// not match the recorded job: after a crash the OS may have recycled that pid
+// for an unrelated process.
+var errProcessIdentity = errors.New("jobs: pid no longer matches the recorded start time")
 
 // Job is one background process, as it is persisted.
 type Job struct {
@@ -296,6 +306,12 @@ func (r *Registry) Get(id string) (Job, error) {
 }
 
 // Stop kills a job and its descendants.
+//
+// A job reloaded from disk has no live handle, so its only reference to the
+// child is a raw pid. Pids are recycled: after a crash the number may now
+// belong to an unrelated process. Such a job must be re-identified by its
+// creation time before it is signalled. A live handle is authoritative (it
+// refers to the very child we started), so that path needs no pid check.
 func (r *Registry) Stop(id string) error {
 	r.mu.Lock()
 	job, ok := r.jobs[id]
@@ -307,9 +323,17 @@ func (r *Registry) Stop(id string) error {
 		r.mu.Unlock()
 		return nil
 	}
-	job.Status = StatusKilled
 	pid := job.PID
+	startedAt := job.StartedAt
 	live := job.live
+	if live == nil && !sameProcess(pid, startedAt) {
+		markStale(job)
+		snap, version := r.changedLocked()
+		r.mu.Unlock()
+		_ = r.persist(snap, version)
+		return fmt.Errorf("%w (job %s, pid %d); nothing was killed", errProcessIdentity, id, pid)
+	}
+	job.Status = StatusKilled
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
 	_ = r.persist(snap, version)
@@ -332,6 +356,10 @@ func (r *Registry) Tail(id string, n int) (string, error) {
 }
 
 // Remove forgets a job and deletes its log.
+//
+// As with Stop, a reloaded job's raw pid is re-identified before it is
+// signalled. On a mismatch nothing is killed: the job is retired instead and
+// the error asks the caller to remove it again once the stale state is settled.
 func (r *Registry) Remove(id string) error {
 	r.mu.Lock()
 	job, ok := r.jobs[id]
@@ -341,8 +369,16 @@ func (r *Registry) Remove(id string) error {
 	}
 	running := job.Status == StatusRunning
 	pid := job.PID
+	startedAt := job.StartedAt
 	live := job.live
 	logPath := job.LogPath
+	if running && live == nil && !sameProcess(pid, startedAt) {
+		markStale(job)
+		snap, version := r.changedLocked()
+		r.mu.Unlock()
+		_ = r.persist(snap, version)
+		return fmt.Errorf("%w (job %s, pid %d); nothing was killed, job kept", errProcessIdentity, id, pid)
+	}
 	delete(r.jobs, id)
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
@@ -413,11 +449,12 @@ func (r *Registry) refreshLocked() bool {
 		if job.live != nil || job.watched {
 			continue
 		}
-		if alive(job.PID) {
+		// A live pid is not proof: it may have been recycled by the OS after
+		// the registry was reloaded. Require the creation time to match too.
+		if sameProcess(job.PID, job.StartedAt) {
 			continue
 		}
-		job.Status = StatusExited
-		job.ExitCode = -1
+		markStale(job)
 		changed = true
 	}
 	if changed {
@@ -463,10 +500,25 @@ func (r *Registry) load() error {
 	}
 	for i := range stored.Jobs {
 		job := stored.Jobs[i]
+		// Jobs read back from disk have no live watcher and no pid capability.
+		// Retire any "running" entry whose pid is gone or now belongs to a
+		// different process, so a reader can never mistake a recycled pid for
+		// the original child. No disk write happens here; the corrected state
+		// is picked up by the next write path.
+		if job.Status == StatusRunning && !sameProcess(job.PID, job.StartedAt) {
+			markStale(&job)
+		}
 		r.jobs[job.ID] = &job
 	}
 	r.next = stored.Next
 	return nil
+}
+
+// markStale retires a job whose process is gone or can no longer be identified
+// with confidence. Its real exit code is unrecoverable, so it stays at -1.
+func markStale(job *Job) {
+	job.Status = StatusExited
+	job.ExitCode = -1
 }
 
 // noteChangeLocked records an in-memory mutation. Caller must hold mu.
