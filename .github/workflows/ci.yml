@@ -74,4 +74,8 @@ jobs:
       - name: go test -race
         env:
           CGO_ENABLED: '1'
-        run: go test -race ./...
+        # internal/pty's tests require a real controlling terminal (ConPTY
+        # semantics) and cannot run on a CI runner; the Windows job covers
+        # them. Exclude only that package so the race gate still checks all
+        # cross-platform packages.
+        run: go test -race $(go list ./... | grep -v '/internal/pty$')
