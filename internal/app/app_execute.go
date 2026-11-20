@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // personaDir is where a workspace keeps named subagent definitions.
@@ -106,6 +109,26 @@ func sharedBackgroundResults() *agent.BackgroundResults {
 	return backgroundResults
 }
 
+// sharedDefs holds the process-wide DefinitionCache. The discovery call sites
+// (buildSystemWithTrust, contextPrompt and newToolset) are package-level
+// functions with no App/Factory receiver whose lifetime they could share, so
+// the cache is a lazily-initialised package singleton rather than a struct
+// field. DefinitionCache.Get/Refresh are mutex-protected, so concurrent runners
+// (TUI + --serve/--rpc) share it safely.
+//
+// There is no config/file-change hook wired to Refresh yet; the fingerprint
+// already re-discovers when a definition file changes on disk, and the per-run
+// Get calls collapse to a stat-only hit while nothing has changed.
+var (
+	defsOnce sync.Once
+	defs     *DefinitionCache
+)
+
+func sharedDefs() *DefinitionCache {
+	defsOnce.Do(func() { defs = &DefinitionCache{} })
+	return defs
+}
+
 // contextPrompt handles slash-style /context input the same way reviewPrompt
 // handles /review: it injects a read-only report for the model to summarise.
 // The built-in descriptor is registered through commands.NewSetWithBuiltins,
@@ -133,9 +156,12 @@ func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 			Reason:    "per-file or total size cap",
 		})
 	}
+	// Only the skill half of the cached discovery is needed here. The command
+	// set above stays uncached: NewSetWithBuiltins mutates its set in place.
+	_, skillRegistry := sharedDefs().Get(nil, skills.DefaultRoots(res.Root, home))
 	input := commands.ContextInput{
 		MemoryDocs:   memoryDocs,
-		SkillCount:   skills.Discover(skills.DefaultRoots(res.Root, home)).Len(),
+		SkillCount:   skillRegistry.Len(),
 		CommandCount: set.Len(),
 		SandboxMode:  res.Sandbox.String(),
 		ApprovalMode: res.Approval,
@@ -210,7 +236,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
 
-	toolset := newToolset(ctx, stdio, res, sess, chain)
+	// The inspection layer is an opt-in extra gate in front of the chain; with
+	// the gate off guard is the chain itself, so every existing run is byte-for-
+	// byte unchanged (policy -> approval -> audit).
+	var guard tools.Guard = chain
+	if inspectionEnabled(stdio.Env) {
+		guard = newInspectionGuard(chain, approver, stdio)
+	}
+
+	toolset := newToolset(ctx, stdio, res, sess, guard)
 	defer toolset.Close()
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
@@ -341,6 +375,181 @@ func approverFor(stdio cli.IO, res Resolved) security.Approver {
 	case "auto", "yolo":
 		return autoApprover{}
 	default:
-		return security.NewCachedApprover(security.NewPromptApprover(stdio.In, stdio.Err))
+		inner := security.NewPromptApprover(stdio.In, stdio.Err)
+		if ttl, on := ttlApprovalGate(stdio.Env); on {
+			// TTL grants replace CachedApprover rather than stacking on top of
+			// it: stacking would let a TTL grant be re-granted forever by the
+			// session-lifetime cache once it expired.
+			return &ttlApprover{
+				cache: security.NewTTLCache(filepath.Join(res.Storage, "ttl-approvals"), ttl),
+				inner: inner,
+			}
+		}
+		return security.NewCachedApprover(inner)
 	}
+}
+
+// inspectionEnabled reports whether the optional fail-soft inspection layer is
+// on. Default-off: only ARGENT_INSPECTION=1 opts in; every other value keeps the
+// historical policy -> approval -> audit behaviour unchanged.
+func inspectionEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_INSPECTION")) == "1"
+}
+
+// destructiveCommandInspector is the built-in inspector for the opt-in layer.
+// It reuses security's token-aware command classifier and returns Allow for
+// everything that is not a mutating shell command, so ordinary read-only calls
+// are not delayed by an extra verdict. A detection maps to RequireApproval
+// (never Deny): the operator still makes the final call.
+type destructiveCommandInspector struct{}
+
+func (destructiveCommandInspector) Name() string { return "destructive-command" }
+
+func (destructiveCommandInspector) Inspect(ctx context.Context, tool string, args json.RawMessage) (security.Verdict, error) {
+	if err := ctx.Err(); err != nil {
+		return security.Verdict{}, err
+	}
+	token := security.FindFileEditingCommand(shellCommandOf(tool, args))
+	if token == "" {
+		return security.Verdict{
+			Action:     security.InspectAllow,
+			Reason:     "no destructive shell command detected",
+			Confidence: 1,
+			Inspector:  "destructive-command",
+		}, nil
+	}
+	return security.Verdict{
+		Action:     security.InspectRequireApproval,
+		Reason:     "destructive shell command: " + token,
+		Confidence: 1,
+		Inspector:  "destructive-command",
+	}, nil
+}
+
+// shellCommandOf extracts command text from a shell tool's JSON arguments. It
+// mirrors security's unexported guardShellCommand so the inspector can reuse
+// FindFileEditingCommand without changing the security package.
+func shellCommandOf(tool string, args json.RawMessage) string {
+	name := strings.ToLower(strings.TrimSpace(tool))
+	if name != "bash" && name != "powershell" {
+		return ""
+	}
+	var payload struct {
+		Command string `json:"command"`
+		Script  string `json:"script"`
+	}
+	if err := json.Unmarshal(args, &payload); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(payload.Command) == "" {
+		return payload.Script
+	}
+	return payload.Command
+}
+
+// inspectionGuard folds one fail-soft inspection verdict into the single
+// tools.Guard the registry already calls. Deny is a hard StopError; a
+// RequireApproval is asked once here and replayed to Chain.Check through a
+// fixed approver so the operator is never prompted twice; Allow (or an unknown
+// action) adds no gate and simply falls through to the chain.
+type inspectionGuard struct {
+	manager  *security.InspectionManager
+	chain    *security.Chain
+	approver security.Approver
+}
+
+func (g *inspectionGuard) Check(ctx context.Context, tool string, args json.RawMessage) error {
+	verdict := g.manager.Resolve(ctx, tool, args)
+	switch verdict.Action {
+	case security.InspectDeny:
+		return &security.StopError{Tool: tool, Reason: verdict.Reason}
+	case security.InspectRequireApproval:
+		ok, err := g.approver.Ask(ctx, tool, string(args))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return &security.StopError{Tool: tool, Reason: verdict.Reason, Refused: true}
+		}
+		// Replay the recorded answer through a per-call chain copy; the shared
+		// chain keeps its real approver for calls that need no inspection gate.
+		callChain := *g.chain
+		callChain.Approver = fixedApprover{granted: true}
+		return callChain.Check(ctx, tool, args)
+	default:
+		return g.chain.Check(ctx, tool, args)
+	}
+}
+
+// fixedApprover replays one already-recorded answer. It is used only for the
+// single Chain.Check following a RequireApproval verdict, so no state is shared
+// across concurrent tool calls.
+type fixedApprover struct{ granted bool }
+
+func (a fixedApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return a.granted, nil
+}
+
+// newInspectionGuard builds the opt-in layer with the built-in inspector. The
+// InspectionManager's zero value is usable (the building block exposes no
+// constructor), and its error handler is fail-soft: a broken inspector is
+// skipped and only its name is logged, never the raw error text.
+func newInspectionGuard(chain *security.Chain, approver security.Approver, stdio cli.IO) *inspectionGuard {
+	manager := &security.InspectionManager{}
+	manager.Add(destructiveCommandInspector{})
+	if stdio.Err != nil {
+		manager.SetErrorHandler(func(name string, _ error) {
+			fmt.Fprintf(stdio.Err, "inspection: inspector %q failed and was skipped\n", name)
+		})
+	}
+	return &inspectionGuard{manager: manager, chain: chain, approver: approver}
+}
+
+// ttlApprovalGate parses the ARGENT_APPROVAL_TTL opt-in. "0" and an empty value
+// leave the gate off. A Go duration ("15m") sets an exact lifetime; a bare
+// positive integer is read as minutes; any other truthy value enables the gate
+// with the cache's 30-minute default.
+func ttlApprovalGate(env func(string) string) (time.Duration, bool) {
+	if env == nil {
+		return 0, false
+	}
+	raw := strings.TrimSpace(env("ARGENT_APPROVAL_TTL"))
+	if raw == "" || raw == "0" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d, true
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		return time.Duration(n) * time.Minute, true
+	}
+	return 0, true
+}
+
+// ttlApprover grants approvals backed by security.TTLCache. It is used in place
+// of CachedApprover when the TTL gate is on: grants expire (and can survive a
+// restart via the on-disk cache), while refusals are never cached — a refusal
+// only clears any prior grant for the exact (tool, args) key.
+type ttlApprover struct {
+	cache *security.TTLCache
+	inner security.Approver
+}
+
+func (a *ttlApprover) Ask(ctx context.Context, name, args string) (bool, error) {
+	key := a.cache.Key(name, json.RawMessage(args))
+	if a.cache.IsAllowed(key) {
+		return true, nil
+	}
+	ok, err := a.inner.Ask(ctx, name, args)
+	if err != nil || !ok {
+		if err == nil {
+			a.cache.Deny(key)
+		}
+		return ok, err
+	}
+	_ = a.cache.Allow(key, name+" "+args)
+	return true, nil
 }

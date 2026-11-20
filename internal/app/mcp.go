@@ -212,10 +212,19 @@ func withPath(args, path string) (string, error) {
 // TrustProject: opening an untrusted repository must not start its processes or
 // inject its instructions.
 func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
+	// The base skill registry comes from the shared cache (only the skill half
+	// is used here). wirePlugins/addSkillPath add plugin skills by mutating the
+	// registry, so hand the toolset a copy: otherwise a plugin from one run
+	// would pollute the cached snapshot reused by every later run.
+	_, cachedSkills := sharedDefs().Get(nil, skills.DefaultRoots(res.Root, res.Home))
+	skillRegistry := skills.New()
+	for _, skill := range cachedSkills.All() {
+		skillRegistry.Add(skill)
+	}
 	set := &toolset{
 		base:   newMultiRootTools(res, sess, guard),
 		guard:  guard,
-		skills: skills.Discover(skills.DefaultRoots(res.Root, res.Home)),
+		skills: skillRegistry,
 	}
 
 	// User config is under the user's control, so it is always available.
@@ -432,6 +441,12 @@ func filterPlugins(bundles []plugins.Bundle, names []string) []plugins.Bundle {
 }
 
 // addSkillPath registers one plugin skill directory or SKILL.md file.
+//
+// This discovery is deliberately left uncached: a plugin path is unique per
+// bundle, so routing it through the single DefinitionCache slot would thrash
+// the snapshot shared by buildSystemWithTrust/contextPrompt/newToolset. The
+// caller passes a private registry copy so these mutations never touch the
+// cached snapshot.
 func addSkillPath(registry *skills.Registry, path string) {
 	info, err := os.Stat(path)
 	if err != nil {

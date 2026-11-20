@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // RunRPC serves newline-delimited JSON-RPC 2.0 over in/out until in reaches
 // EOF or ctx is cancelled.
 //
-// Methods: prompt, abort, session.list, session.load, event/subscribe. Streamed
+// Methods: prompt, abort, session.list, session.load, approval.list,
+// event/subscribe. Streamed
 // prompt text is emitted as prompt/delta notifications before the prompt result
 // is returned; event/subscribe answers with the current seq then emits "event"
 // notifications until the transport ends.
@@ -131,6 +134,35 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			events = []SessionEvent{}
 		}
 		p.respond(req.ID, map[string]any{"id": id, "events": events})
+	case "approval.list":
+		// approval.list {session?} returns the runner's durable pending-approval
+		// mirror so a reconnecting client can recover questions asked while it
+		// was away. The store is discovered through a small optional interface,
+		// mirroring EventHub(): fakes and standalone callers without one get a
+		// clean "not configured" error instead of a panic.
+		var params struct {
+			Session string `json:"session"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		typed, ok := cfg.Runner.(interface{ PendingStore() *security.PendingStore })
+		if !ok || typed.PendingStore() == nil {
+			p.fail(req.ID, codeServerError, "pending approval store not configured")
+			return
+		}
+		items, err := typed.PendingStore().List(params.Session)
+		if err != nil {
+			p.fail(req.ID, codeInternalError, err.Error())
+			return
+		}
+		if items == nil {
+			items = []security.PendingApproval{}
+		}
+		p.respond(req.ID, map[string]any{"pending": items})
 	case "event/subscribe":
 		// Streaming in a goroutine keeps the scanner reading further requests.
 		// The method result reports the current seq; each event then arrives as

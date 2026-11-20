@@ -52,7 +52,10 @@ func buildSystemWithTrust(root string, env func(string) string, trust bool, thin
 			b.WriteString(block)
 		}
 	}
-	registry := skills.Discover(skills.DefaultRoots(root, homeDir(env)))
+	// Skills are discovered through the shared cache; pass nil command roots
+	// because only the registry is used here. The fingerprint re-discovers on
+	// disk changes, so repeated prompt builds collapse to a stat-only hit.
+	_, registry := sharedDefs().Get(nil, skills.DefaultRoots(root, homeDir(env)))
 	if registry.Len() > 0 {
 		b.WriteString("\n")
 		b.WriteString(registry.IndexText())

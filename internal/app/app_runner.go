@@ -256,6 +256,14 @@ func (r *runner) EventHub() *server.EventHub {
 	return r.hub
 }
 
+// PendingStore exposes the durable approval mirror to the headless transports.
+// The approval.list RPC uses it so a reconnecting client can re-list requests
+// that were still waiting when it disconnected. It returns nil on hand-built
+// test runners, which keeps their behaviour unchanged.
+func (r *runner) PendingStore() *security.PendingStore {
+	return r.pending
+}
+
 // SessionID reports the session the runner is currently appending to. It is
 // empty before the first prompt.
 func (r *runner) SessionID() string {
