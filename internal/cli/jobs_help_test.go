@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// A help flag is a request for help no matter where it appears in a jobs
-// subcommand's argument list. It must be answered on stdout with exit code 0,
-// not reported as "help requested" on stderr with exit code 2.
+// 帮助标志无论出现在 jobs 子命令参数列表的哪个位置，都是请求帮助。
+// 它必须在 stdout 上以退出码 0 作答，而不是在 stderr 上以退出码 2 报成 "help requested"。
 func TestJobsHelpAfterOtherArgsGoesToStdout(t *testing.T) {
 	commands := []string{"attach", "logs", "jobs", "follow", "stop"}
 	for _, command := range commands {

@@ -19,7 +19,6 @@ package i18n
 //	form := Plural(locale, n,
 //	    T(locale, "activity.command_one"),
 //	    T(locale, "activity.command_many"))
-//
 func Plural(locale string, n int, forms ...string) string {
 	if len(forms) == 0 {
 		return ""

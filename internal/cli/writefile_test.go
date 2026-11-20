@@ -80,8 +80,8 @@ func TestWriteFileNoFollowRejectsDirectoryLink(t *testing.T) {
 		if runtime.GOOS != "windows" {
 			t.Fatal(err)
 		}
-		// Junctions do not require the symlink privilege on Windows and show
-		// up as os.ModeIrregular, which the helper must also reject.
+		// 在 Windows 上，Junction 不需要 symlink 特权，且会显示为
+		// os.ModeIrregular，辅助函数也必须拒绝这种情况。
 		out, jerr := exec.Command("cmd", "/c", "mklink", "/J", link, realDir).CombinedOutput()
 		if jerr != nil {
 			t.Skipf("cannot create a directory link: %v: %s", jerr, out)

@@ -35,11 +35,12 @@ import (
 const allowedExternalModule = "github.com/egoist/mygo"
 
 // internalLayerRules 编码包级分层规则（AGENTS.md）：
+//
 //   - tools 从不 import agent；
 //
+//     （它依赖 ToolRunner 接口，而非 tools 包）；
 //
-//	  （它依赖 ToolRunner 接口，而非 tools 包）；
-//	- llm 是线上层且必须保持在 agent/tools/app 之下。
+//   - llm 是线上层且必须保持在 agent/tools/app 之下。
 //
 // import 与 "<module path> + forbiddenImport" 匹配。
 var internalLayerRules = []struct {

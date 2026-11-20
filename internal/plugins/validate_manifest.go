@@ -20,7 +20,7 @@ const (
 	IssuePathEscape IssueKind = "path_escape"
 	// IssueDuplicateSource 报告命名同一来源的两条声明。
 	IssueDuplicateSource IssueKind = "duplicate_source"
-	IssueIncompleteMCP IssueKind = "incomplete_mcp"
+	IssueIncompleteMCP   IssueKind = "incomplete_mcp"
 )
 
 // PluginIssue 是 ValidateManifest 的一条结构发现。它与

@@ -5,12 +5,10 @@ import (
 	"testing"
 )
 
-// TestHelpFlagSpellingsPrintUsageAndExitZero covers every spelling the Go flag
-// package accepts for the help switches. parseArgs used to short-circuit only
-// on the exact "-h"/"--help" tokens while recomputing Options.Help from that
-// same narrow check, so the flag parser's other valid spellings were silently
-// dropped: the command fell through to the empty-prompt path and printed usage
-// to stderr with exit code 2.
+// TestHelpFlagSpellingsPrintUsageAndExitZero 覆盖 Go flag 包接受的每一种帮助开关写法。
+// parseArgs 过去只在遇到精确的 "-h"/"--help" 记号时才提前返回，并基于同样狭窄的判断
+// 重新计算 Options.Help，因此 flag 解析器其他合法的写法会被静默丢弃：命令落入空 prompt
+// 路径，并以退出码 2 将用法打印到 stderr。
 func TestHelpFlagSpellingsPrintUsageAndExitZero(t *testing.T) {
 	cases := []struct {
 		name string
@@ -42,9 +40,8 @@ func TestHelpFlagSpellingsPrintUsageAndExitZero(t *testing.T) {
 	}
 }
 
-// TestHelpFalseDoesNotPrintHelp makes sure the widened help detection still
-// respects an explicit false value instead of treating any "help" token as a
-// request to print usage on stdout.
+// TestHelpFalseDoesNotPrintHelp 确保放宽后的帮助检测仍然尊重显式的 false 值，
+// 而不会把任何 "help" 记号都当作在 stdout 打印用法的请求。
 func TestHelpFalseDoesNotPrintHelp(t *testing.T) {
 	ioState, out, errOut := newTestIO("", nil)
 	if code := RunWith(App{IO: ioState}, []string{"--help=false"}); code != 2 {

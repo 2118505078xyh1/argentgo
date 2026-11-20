@@ -57,9 +57,8 @@ func TestRunPromptDeadlineStillFails(t *testing.T) {
 	}
 }
 
-// TestRunPromptCancellationJSONModeKeepsEventShape keeps machine readers on the
-// same result event: cancellation carries an empty error and a stopReason,
-// never "context canceled" as a failed request.
+// TestRunPromptCancellationJSONModeKeepsEventShape 确保机器读取方拿到的是同一个 result 事件：
+// 取消操作携带空的 error 和一个 stopReason，而不会把 "context canceled" 当作失败请求上报。
 func TestRunPromptCancellationJSONModeKeepsEventShape(t *testing.T) {
 	factory := func(Options) (Runner, error) {
 		return &stubRunner{fail: context.Canceled}, nil

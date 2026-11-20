@@ -270,8 +270,8 @@ func TestImportEntryPayloadSynthesizesMissingData(t *testing.T) {
 }
 
 func TestImportEntryPayloadPreservesRawData(t *testing.T) {
-	// Valid Data is passed through verbatim so numeric usage fields larger than
-	// float64's exact range do not change when the record is marshalled again.
+	// 合法的 Data 会原样透传，这样当记录再次被序列化时，超出 float64 精确范围的
+	// 数值型 usage 字段不会发生变化。
 	raw := json.RawMessage(`{"role":"assistant","content":"x","tool_calls":[{"id":"call_1"}],"usage":{"input_tokens":9007199254740993}}`)
 	got := importEntryPayload(session.Entry{Role: "assistant", Content: "x", Data: raw})
 	if string(got) != string(raw) {

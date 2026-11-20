@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// workflowCaptureRunner records the exact text the executor sends to the
-// model, so the test can prove a declared parameter was substituted.
+// workflowCaptureRunner 记录执行器发送给模型的确切文本，
+// 这样测试就能证明已声明的参数被替换了。
 type workflowCaptureRunner struct {
 	mu      sync.Mutex
 	prompts []string

@@ -68,38 +68,76 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 	report.PhysicalLines = len(lines)
 	last := len(lines) - 1
 
+	// 空白行与 readRecords 的宽松解析保持一致：中间的空白行只是噪音，
+	// 既不是语法错误也不代表历史丢失，必须跳过而不是把整份会话判为严重损坏。
+	// 只有末尾连续的空白行才视作可修复的残缺尾部（见下面的 publishValidPrefix）。
+	isBlank := func(line string) bool { return strings.TrimSpace(line) == "" }
+	lastContent := -1
+	for i, line := range lines {
+		if !isBlank(line) {
+			lastContent = i
+		}
+	}
+	// publishValidPrefix 发布 idx 之前的行，并顺带裁掉末尾的空白行，
+	// 使一次修复后文件保持干净（不会留下需要再次修复的尾部空行）。
+	publishValidPrefix := func(idx int) error {
+		valid := lines[:idx]
+		for len(valid) > 0 && isBlank(valid[len(valid)-1]) {
+			valid = valid[:len(valid)-1]
+		}
+		prefix := strings.Join(valid, "\n")
+		if len(valid) > 0 {
+			prefix += "\n"
+		}
+		return atomicPublishJSONL(path, []byte(prefix))
+	}
+
+	kept := 0
 	for idx, line := range lines {
+		if isBlank(line) {
+			if idx <= lastContent {
+				// 后面还有真实记录：这是中间的空白行，安全跳过。
+				continue
+			}
+			// 末尾空白行等价于一条未写完的记录：按残缺尾部处理。
+			report.TornTail = true
+			report.KeptLines = kept
+			if !repair {
+				return report, nil
+			}
+			if err := publishValidPrefix(idx); err != nil {
+				return report, fmt.Errorf("session: repair torn tail in %s: %w", path, err)
+			}
+			report.Repaired = true
+			return report, nil
+		}
 		kind, detail := decodeLine(line)
 		switch kind {
 		case DecodeOK:
-			report.KeptLines = idx + 1
+			kept++
 		case DecodeSchema:
+			report.KeptLines = kept
 			return report, fmt.Errorf("%w: %s: line %d: %s",
 				ErrHardCorruption, path, idx+1, detail)
 		case DecodeSyntax:
 			if idx != last {
+				report.KeptLines = kept
 				return report, fmt.Errorf("%w: %s: line %d: %s",
 					ErrHardCorruption, path, idx+1, detail)
 			}
 			report.TornTail = true
-			report.KeptLines = idx
+			report.KeptLines = kept
 			if !repair {
 				return report, nil
 			}
-			// 仅当保留的前缀确实包含记录时才为其添加结束换行。
-			// 第一行残缺时不会留下任何前缀；在这里写入一个裸 "\n" 会发布一个空行，
-			// decodeLine 会把它归类为又一处残缺尾部，于是以后每次恢复都会永远"修复"该文件。
-			validPrefix := strings.Join(lines[:idx], "\n")
-			if idx > 0 {
-				validPrefix += "\n"
-			}
-			if err := atomicPublishJSONL(path, []byte(validPrefix)); err != nil {
+			if err := publishValidPrefix(idx); err != nil {
 				return report, fmt.Errorf("session: repair torn tail in %s: %w", path, err)
 			}
 			report.Repaired = true
 			return report, nil
 		}
 	}
+	report.KeptLines = kept
 
 	if repair && len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
 		// 空文件没有未结束的记录需要修复。保持它为空可使修复后的转录保持干净，

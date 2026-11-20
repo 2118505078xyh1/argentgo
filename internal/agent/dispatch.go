@@ -229,10 +229,19 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 	}
 
 	parallel := len(calls) > 1 && s.maxParallel() > 1
+	// 并发分类的接线点。默认关闭，沿用既有 Mutating() 代理判定；
+	// 仅当显式启用“仅白名单”模式时，才额外要求每个工具名都在并发安全白名单中。
+	// 该模式下 canRunParallel 未声明即串行（fail-closed），且只会让批次更容易串行。
+	declaredOnly := parallelDeclaredOnlyEnabled()
+	safe := declaredParallelSafe()
 	for i, call := range calls {
 		// 变更型调用需要审批，委派工具拥有嵌套状态；两者都不适合放在 worker goroutine 上。
 		// 被重复防护拒绝的调用也必须按调用顺序记录，因此这种情况下保持批次串行。
-		if s.mutating(call.Function.Name) ||
+		notSafe := s.mutating(call.Function.Name)
+		if declaredOnly {
+			notSafe = notSafe || !canRunParallel(call.Function.Name, safe)
+		}
+		if notSafe ||
 			call.Function.Name == TaskToolName ||
 			s.guard.wouldBlockNormalized(call.Function.Name, normalized[i]) {
 			parallel = false

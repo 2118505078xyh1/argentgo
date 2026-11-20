@@ -100,8 +100,8 @@ func TestRejectArchiveRefusesRawGzipButAcceptsExtractedBinary(t *testing.T) {
 	if err := rejectArchive(archivePath); err == nil || !strings.Contains(err.Error(), "gzip archive") {
 		t.Fatalf("rejectArchive(raw gzip) = %v, want a refusal", err)
 	}
-	// The same guard applies through verifyStagedBinary for a tgz asset whose
-	// stage is still a raw gzip (extraction did not happen).
+	// 同样的防护也通过 verifyStagedBinary 作用于某个 tgz 资源：其暂存文件仍是原始 gzip
+	// （尚未完成解压）。
 	if err := verifyStagedBinary(archivePath, "argent_linux_amd64.tgz", strings.Repeat("0", 64)); err == nil {
 		t.Fatal("verifyStagedBinary accepted a raw gzip as the staged executable")
 	}

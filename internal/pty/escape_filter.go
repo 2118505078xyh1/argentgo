@@ -11,6 +11,7 @@ package pty
 //   - DSR：ESC [ 6 n（及 ESC [ 5 n）
 //
 //   - DA / DA2：ESC [ c（及 ESC [ > c）
+//
 //   - DECRQSS：ESC [ $ q
 //
 // 真实终端通过向字节流注入*更多*转义序列来回答每一个。

@@ -12,7 +12,7 @@ import (
 func TestLoadConfigFileAcceptsJSONC(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	data := `{
-		// model overrides the compiled default
+		// model 覆盖编译时的默认值
 		"model": "comment-model", // trailing line comment
 		/* block comment containing "quotes" and http:// */
 		"baseURL": "http://example.test/v1",

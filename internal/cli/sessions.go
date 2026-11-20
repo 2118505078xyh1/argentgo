@@ -30,7 +30,7 @@ func runSessions(app App, _ context.Context, args []string) int {
 		sessionsUsage(app.IO.Out)
 		return 0
 	case "list":
-		return sessionsList(app, store)
+		return sessionsListWithJSON(app, store, args[1:])
 	case "show":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)

@@ -303,10 +303,16 @@ type responsesEvent struct {
 			Reason string `json:"reason"`
 		} `json:"incomplete_details"`
 		Usage *struct {
-			InputTokens        int `json:"input_tokens"`
-			OutputTokens       int `json:"output_tokens"`
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			// CacheWriteTokens 在部分网关上直接放在 usage 顶层；它们的
+			// 写入量会被下游成本核算读取，遗漏会悄悄低估开销。
+			CacheWriteTokens   int `json:"cache_write_tokens"`
 			InputTokensDetails *struct {
 				CachedTokens int `json:"cached_tokens"`
+				// CacheWriteTokens 是网关在细分里报告的缓存写入量，
+				// 与顶层的同名字段二选一（细分优先）。
+				CacheWriteTokens int `json:"cache_write_tokens"`
 			} `json:"input_tokens_details"`
 		} `json:"usage"`
 		Error *responsesError `json:"error"`
@@ -503,9 +509,15 @@ streamLoop:
 				usage = &Usage{
 					PromptTokens:     event.Response.Usage.InputTokens,
 					CompletionTokens: event.Response.Usage.OutputTokens,
+					CacheWriteTokens: event.Response.Usage.CacheWriteTokens,
 				}
 				if details := event.Response.Usage.InputTokensDetails; details != nil {
 					usage.CachedTokens = details.CachedTokens
+					// 细分字段优先：同一份用量里若两处都出现，
+					// input_tokens_details 是更精确的来源。
+					if details.CacheWriteTokens > 0 {
+						usage.CacheWriteTokens = details.CacheWriteTokens
+					}
 				}
 			}
 			integrity.terminated = true

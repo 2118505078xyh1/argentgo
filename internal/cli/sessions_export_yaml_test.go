@@ -28,8 +28,8 @@ type yamlEntry struct {
 	Kind string `json:"kind"`
 }
 
-// decodeYAMLExport asserts the exported file is a YAML comment followed by a
-// JSON body (JSON being a YAML 1.2 subset) and returns the decoded entries.
+// decodeYAMLExport 断言导出文件由一条 YAML 注释后跟一个 JSON 主体构成
+// （JSON 是 YAML 1.2 的子集），并返回解码后的条目。
 func decodeYAMLExport(t *testing.T, data []byte) []yamlEntry {
 	t.Helper()
 	if !bytes.HasPrefix(data, []byte(yamlExportHeader)) {

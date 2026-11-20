@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// promptCaptureRunner records the prompt the CLI resolved before handing it to
-// the agent, so tests can tell a literal "-" prompt from a stdin read.
+// promptCaptureRunner 记录 CLI 在交给 agent 之前解析出的 prompt，
+// 这样测试就能区分字面量 "-" prompt 和从 stdin 读取的内容。
 type promptCaptureRunner struct {
 	prompt string
 	reply  string

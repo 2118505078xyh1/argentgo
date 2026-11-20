@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// TestRunPromptShowsActionableProviderError verifies that provider failures
-// surfaced by the runner are classified at the CLI error output point: the
-// stderr keeps the original terse "error: ..." line and gains the family
-// explanation plus one concrete next step.
+// TestRunPromptShowsActionableProviderError 验证 runner 暴露的提供方错误会在 CLI 错误输出处被归类：
+// stderr 保留原有的简短 "error: ..." 行，并额外给出错误类别说明和一个具体的后续步骤。
 func TestRunPromptShowsActionableProviderError(t *testing.T) {
 	cases := []struct {
 		name     string

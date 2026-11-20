@@ -53,8 +53,8 @@ func TestWritePagedWritesContentNormally(t *testing.T) {
 }
 
 func TestWritePagedNonTTYDoesNotPage(t *testing.T) {
-	// Long content plus a configured pager still goes straight to the writer
-	// when stdout is not a terminal; no subprocess is involved.
+	// 当 stdout 不是终端时，即使内容很长且配置了分页器，也会直接写入 writer，
+	// 不涉及任何子进程。
 	content := strings.Repeat("x\n", pagerMinBytes)
 	var out bytes.Buffer
 	if err := writePaged(&out, content, "less -R", false); err != nil {

@@ -49,7 +49,7 @@ func (f configShowFixture) run(args ...string) (int, string, string) {
 }
 
 const configShowFixtureJSON = `{
-  // a JSONC comment proves show uses the same loader as the engine
+  // 一条 JSONC 注释即可证明 show 与引擎使用同一个加载器
   "model": "file-model",
   "baseURL": "https://file.example/v1",
   "apiKey": "sk-file-secret",

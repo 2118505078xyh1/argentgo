@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// testEnvGetter builds an envGetter from a map so probes can be driven without
-// touching the process environment.
+// testEnvGetter 从 map 构造一个 envGetter，这样无需触碰进程环境即可驱动各项探针。
 func testEnvGetter(values map[string]string) envGetter {
 	return func(key string) string { return values[key] }
 }

@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// Redact 把具有凭据形状的子串替换为占位符。它刻意保守：误报的代价只是一段
-// 字符串被脱敏，而漏报则会泄露密钥。
+// Redact 把具有凭据形状的子串替换为占位符，并剥离不可见的 Unicode Tag
+// 字符（U+E0000..U+E007F），防止隐藏指令进入审计日志和工具输出。它刻意
+// 保守：误报的代价只是一段字符串被脱敏，而漏报则会泄露密钥。
 func Redact(text string) string {
-	return string(redactBytes(text))
+	return string(redactBytes(StripUnicodeTags(text)))
 }
 
 // RedactRow 对一行输出中具有凭据形状的片段脱敏，其余每个字节都保持不变。
@@ -394,15 +395,18 @@ func RedactManifestPaths(raw json.RawMessage) json.RawMessage {
 }
 
 // RedactJSON 在不扁平化的情况下对 JSON 文档脱敏：以凭据命名的键下的值会变成
-// 占位符，其他每个字符串都用 Redact 清洗。无效 JSON 回退为文本脱敏。
+// 占位符，其他每个字符串都用 Redact 清洗。入口处先剥离 Unicode Tag 字符，这样
+// 藏在 JSON 键名里的隐藏指令也会被清除（字符串值则由 Redact 单独清洗）。
+// 无效 JSON 回退为文本脱敏。
 func RedactJSON(raw []byte) string {
+	cleaned := StripUnicodeTags(string(raw))
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return Redact(string(raw))
+	if err := json.Unmarshal([]byte(cleaned), &value); err != nil {
+		return Redact(cleaned)
 	}
 	redacted, err := json.Marshal(redactValue(value, ""))
 	if err != nil {
-		return Redact(string(raw))
+		return Redact(cleaned)
 	}
 	return string(redacted)
 }

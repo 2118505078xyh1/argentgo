@@ -149,6 +149,116 @@ func TestValidateAndRepairTornLastLineWithRepair(t *testing.T) {
 	assertNoRepairTemps(t, dir)
 }
 
+// TestValidateAndRepairToleratesInteriorBlankLines 覆盖一个真实 bug：
+// readRecords / ReadPage / Search 都会跳过空白行，但校验器过去把中间的
+// 空白行当成语法错误，导致 OpenSession 拒绝恢复、List 直接隐藏整份会话。
+// 中间的空白行必须像读取路径一样被安全忽略，且不触发任何写入。
+func TestValidateAndRepairToleratesInteriorBlankLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blank.jsonl")
+	first := validRepairLine(t, "n000001", "", KindHeader)
+	second := validRepairLine(t, "n000002", "n000001", KindUser)
+	third := validRepairLine(t, "n000003", "n000002", KindAssistant)
+	// 首行之前、两行之间、末行之后各放一个空白行（结尾的 "\n" 只是正常终止）。
+	content := "\n" + first + "\n \t \n" + second + "\n\n" + third + "\n"
+	writeRepairFile(t, path, content)
+
+	report, err := ValidateAndRepair(path, true)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair: %v", err)
+	}
+	if report.TornTail || report.Repaired || report.KeptLines != 3 {
+		t.Fatalf("report = %+v, want 3 kept lines, no torn tail, no repair", report)
+	}
+	assertRepairFileBytes(t, path, content)
+	assertNoRepairTemps(t, dir)
+
+	// 读取路径看到的记录必须与没有空白行时完全一致。
+	records, err := readRecords(path)
+	if err != nil {
+		t.Fatalf("readRecords: %v", err)
+	}
+	records = withoutSchemaHeader(records)
+	if len(records) != 3 {
+		t.Fatalf("readRecords = %d records, want 3", len(records))
+	}
+	for i, want := range []string{"n000001", "n000002", "n000003"} {
+		if records[i].ID != want {
+			t.Errorf("record[%d].ID = %q, want %q", i, records[i].ID, want)
+		}
+	}
+}
+
+// TestOpenSessionAndListAcceptInteriorBlankLines 从公开 API 验证同一个 bug：
+// 含中间空白行的会话既不能被恢复，也不会出现在会话列表中。
+func TestOpenSessionAndListAcceptInteriorBlankLines(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := store.NewSession("blank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(KindUser, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(sess.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 在 header 与用户消息之间插入一个空白行。
+	merged := append([]byte{}, original...)
+	idx := strings.Index(string(original), "\n")
+	merged = append(merged[:idx+1], append([]byte("\n"), merged[idx+1:]...)...)
+	writeRepairFile(t, sess.path(), string(merged))
+
+	reopened, err := store.OpenSession(sess.ID())
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if got := reopened.Title(); got != "blank" {
+		t.Fatalf("reopened title = %q, want %q", got, "blank")
+	}
+	metas, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(metas) != 1 || metas[0].ID != sess.ID() {
+		t.Fatalf("List metas = %+v, want only %q", metas, sess.ID())
+	}
+	assertRepairFileBytes(t, sess.path(), string(merged))
+}
+
+// TestValidateAndRepairTrimsTrailingBlankLinesInOnePass 确认末尾空白行被
+// 当作残缺尾部裁掉，并且连带清掉其前面的空白行，一次修复即达干净状态。
+func TestValidateAndRepairTrimsTrailingBlankLinesInOnePass(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trailing.jsonl")
+	first := validRepairLine(t, "n000001", "", KindHeader)
+	content := first + "\n\n  \n\n"
+	writeRepairFile(t, path, content)
+
+	report, err := ValidateAndRepair(path, true)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair: %v", err)
+	}
+	if !report.TornTail || !report.Repaired || report.KeptLines != 1 {
+		t.Fatalf("report = %+v, want torn/repaired with 1 kept line", report)
+	}
+	assertRepairFileBytes(t, path, first+"\n")
+
+	again, err := ValidateAndRepair(path, false)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair after repair: %v", err)
+	}
+	if again.TornTail || again.Repaired || again.PhysicalLines != 1 || again.KeptLines != 1 {
+		t.Fatalf("repaired file is not clean: %+v", again)
+	}
+	assertNoRepairTemps(t, dir)
+}
+
 func TestValidateAndRepairTornMiddleLineIsHardCorruption(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "middle.jsonl")
