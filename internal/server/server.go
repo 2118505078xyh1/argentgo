@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -59,6 +60,11 @@ type Config struct {
 	// 结构化取消结果（含脱敏后的 reason，可经 ?reason= 传入）。默认
 	// false 保持兼容的 {"ok":true} 响应，因此现有客户端与测试不受影响。
 	StructuredAbort bool
+	// StructuredHealth 为 true 时，/v1/health 的健康（200）响应返回由
+	// healthReportJSON 生成的结构化报告（含 status/version/platform/checks，
+	// 且所有字符串都经脱敏）。默认 false 保持兼容的
+	// {"status":"ok","version":"..."} 响应，因此现有客户端与测试不受影响。
+	StructuredHealth bool
 	// EnableRequestTimeout 为 true 时，/v1/prompt 会读取 X-Request-Timeout
 	// 头，并把解析出的毫秒数作为本轮 Runner.Prompt 的截止时间。默认
 	// false 不设置任何截止时间，现有行为完全不变。
@@ -249,6 +255,15 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	version := h.cfg.Version
 	if version == "" {
 		version = defaultVersion
+	}
+	// 可选接线：调用方显式开启后，健康响应改用 healthReportJSON 生成的
+	// 结构化报告（字段稳定、CJK 原样、所有字符串脱敏）。默认关闭时仍返回
+	// 旧的扁平对象，保证现有客户端与测试逐字节不受影响。
+	if h.cfg.StructuredHealth {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(healthReportJSON(HealthOK, version, runtime.GOOS+"/"+runtime.GOARCH, nil))
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version})
 }

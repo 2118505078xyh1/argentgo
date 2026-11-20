@@ -130,7 +130,7 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	if err := atomicWriteTodo(path, append(data, '\n'), 0o644); err != nil {
 		return "", err
 	}
 	return renderTodos(items), nil

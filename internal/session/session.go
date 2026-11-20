@@ -68,6 +68,11 @@ type Entry struct {
 type Header struct {
 	Title   string    `json:"title,omitempty"`
 	Created time.Time `json:"created"`
+	// Provider 与 Model 记录会话使用的模型，供 resume 时沿用。
+	// 它们是加法字段：omitempty 让旧会话写入的字节保持不变，
+	// 缺少这两个键的旧 JSON 也能照常解码为空字符串。
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // Session 是单个会话文件的仅追加句柄。
