@@ -235,7 +235,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 					p.respond(id, map[string]any{"text": result, "stopReason": "cancelled"})
 					return
 				}
-				p.fail(id, codeInternalError, err.Error())
+				p.fail(id, codeInternalError, wireErrorText(err))
 				return
 			}
 			p.respond(id, map[string]any{"text": result})

@@ -303,13 +303,26 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 		if started {
 			// The stream is already committed to 200, so the status can no
 			// longer be changed; terminate with a terminal SSE error event.
-			emit(map[string]any{"type": "error", "error": runErr.Error()})
+			emit(map[string]any{"type": "error", "error": wireErrorText(runErr)})
 			return
 		}
-		writeError(w, promptFailureStatus(runErr), runErr.Error())
+		writeError(w, promptFailureStatus(runErr), wireErrorText(runErr))
 		return
 	}
 	emit(map[string]any{"type": "done"})
+}
+
+// wireErrorText redacts an error before it crosses a transport boundary.
+//
+// Runner failures come straight from the provider layer, whose error bodies may
+// echo the server's Authorization header, API key, password or account e-mail.
+// promptFailureStatus already classifies through llm.ClassifyAPIError (which
+// redacts internally), but the wire body used to carry err.Error() verbatim —
+// so a client holding only the bearer token could read the server's own
+// credentials out of a failed prompt. Redact with the same llm policy the
+// classifier uses so the status and the body agree on what is safe to reveal.
+func wireErrorText(err error) string {
+	return llm.RedactError(err)
 }
 
 // promptFailureStatus maps a genuine pre-stream runner failure to an HTTP

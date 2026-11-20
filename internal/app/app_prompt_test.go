@@ -1,8 +1,14 @@
 package app
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
 // TestStaticSystemIgnoresProcessContext proves the cache-stable prefix does not
@@ -89,5 +95,112 @@ func TestBuildSystemWithTrustKeepsDynamicInfo(t *testing.T) {
 		if !strings.Contains(full, want) {
 			t.Fatalf("combined system missing %q: %q", want, full)
 		}
+	}
+}
+
+// TestPlatformFactsInStaticSystem proves the cache-stable prefix carries the
+// runtime OS/architecture and the inferred shell, in both the static-only and
+// the composed builders. COMSPEC uses a bare base name so the assertion holds
+// on every host OS.
+func TestPlatformFactsInStaticSystem(t *testing.T) {
+	_, root, home := wiringEnv(t)
+	factsEnv := envFrom(map[string]string{
+		"USERPROFILE": home,
+		"HOME":        home,
+		"COMSPEC":     "cmd.exe",
+	})
+	wantPlatform := fmt.Sprintf("Platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+	for name, system := range map[string]string{
+		"static":   buildStaticSystem(root, factsEnv, true),
+		"composed": buildSystem(root, factsEnv, "", ""),
+	} {
+		for _, want := range []string{wantPlatform, "Shell: cmd.exe"} {
+			if !strings.Contains(system, want) {
+				t.Errorf("%s system missing %q: %q", name, want, system)
+			}
+		}
+	}
+}
+
+// TestShellFallsBackToSHELL proves COMSPEC is not required: on Unix the SHELL
+// variable supplies the shell name.
+func TestShellFallsBackToSHELL(t *testing.T) {
+	env := envFrom(map[string]string{"SHELL": "bash"})
+	system := buildStaticSystem(t.TempDir(), env, true)
+	if !strings.Contains(system, "Shell: bash") {
+		t.Fatalf("static system missing SHELL fallback: %q", system)
+	}
+}
+
+// TestVerifyGuidanceOnlyWhenConfigured proves the default prompt bytes are
+// unchanged by verification config: absent when nothing is configured, and
+// present with a do-not-repeat hint once either field is set.
+func TestVerifyGuidanceOnlyWhenConfigured(t *testing.T) {
+	env, root, _ := wiringEnv(t)
+
+	if base := buildSystem(root, env, "", ""); strings.Contains(base, "Verification:") {
+		t.Fatalf("default prompt leaked verify guidance: %q", base)
+	}
+
+	withCmd := buildSystem(root, env, "", "", config.Config{
+		VerifyCommand: []string{"go", "test", "./..."},
+	})
+	for _, want := range []string{"Verification:", "go test ./...", "do not suggest re-running them"} {
+		if !strings.Contains(withCmd, want) {
+			t.Errorf("VerifyCommand prompt missing %q: %q", want, withCmd)
+		}
+	}
+
+	withMap := buildSystem(root, env, "", "", config.Config{
+		VerifyCommands: map[string]string{".go": "go vet ./...", "py": "pytest -q"},
+	})
+	for _, want := range []string{"go vet ./...", "pytest -q", "do not suggest re-running them"} {
+		if !strings.Contains(withMap, want) {
+			t.Errorf("VerifyCommands prompt missing %q: %q", want, withMap)
+		}
+	}
+}
+
+// TestVerifyGuidanceDeterministic proves map iteration order cannot make the
+// cache-stable prefix drift: two configs with identical entries inserted in
+// different orders must render byte-identical prompts.
+func TestVerifyGuidanceDeterministic(t *testing.T) {
+	env, root, _ := wiringEnv(t)
+	a := buildSystem(root, env, "", "", config.Config{
+		VerifyCommands: map[string]string{".go": "go test ./...", "py": "pytest -q"},
+	})
+	b := buildSystem(root, env, "", "", config.Config{
+		VerifyCommands: map[string]string{"py": "pytest -q", ".go": "go test ./..."},
+	})
+	if a != b {
+		t.Fatalf("verify guidance drifted with map order:\nA: %q\nB: %q", a, b)
+	}
+}
+
+// TestCWDGitDetection proves the repository hint follows the workspace root:
+// a .git directory or .git file marks it, a plain directory does not.
+func TestCWDGitDetection(t *testing.T) {
+	env, _, _ := wiringEnv(t)
+
+	plain := t.TempDir()
+	if got := buildSystem(plain, env, "", ""); strings.Contains(got, "Repository:") {
+		t.Fatalf("plain directory wrongly marked as a repository: %q", got)
+	}
+	const want = "Repository: this working directory is a git repository."
+
+	dirRepo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dirRepo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := buildSystem(dirRepo, env, "", ""); !strings.Contains(got, want) {
+		t.Fatalf(".git directory not detected: %q", got)
+	}
+
+	fileRepo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fileRepo, ".git"), []byte("gitdir: elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := buildSystem(fileRepo, env, "", ""); !strings.Contains(got, want) {
+		t.Fatalf(".git file not detected: %q", got)
 	}
 }

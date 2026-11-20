@@ -59,6 +59,51 @@ func TestClassifyAPIErrorFamilies(t *testing.T) {
 	}
 }
 
+// TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord covers replies that
+// mention a quota/billing word while actually describing a transient rate
+// limit. quotaRE runs before rateLimitRE, so a bare "配额"/"额度"/"billing"
+// match would classify them as hard quota (non-retryable, settings action) and
+// stop the caller from retrying. Retry.go deliberately treats the same wording
+// as retryable; ClassifyAPIError must agree.
+func TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord(t *testing.T) {
+	rateLimits := []string{
+		"请求过于频繁，配额将在30秒后重置",
+		"请求过于频繁，请稍后重试（额度将在1分钟后恢复）",
+		"rate limit exceeded, check your billing settings",
+		"too many requests, quota will reset in 30 seconds",
+	}
+	for _, msg := range rateLimits {
+		t.Run("rate limit: "+msg, func(t *testing.T) {
+			err := errors.New(msg)
+			if got := llm.ClassifyAPIError(err); got == nil || got.Family != llm.FamilyRateLimit {
+				t.Errorf("ClassifyAPIError(%q) = %#v, want %q", msg, got, llm.FamilyRateLimit)
+			}
+			info := llm.ClassifyFailure(err)
+			if info.Kind != llm.FailureRateLimit || !info.Retryable || info.UserAction != llm.UserActionRetry {
+				t.Errorf("ClassifyFailure(%q) = %+v, want retryable rate_limit", msg, info)
+			}
+		})
+	}
+
+	// Explicit hard limits must still win even though they carry the same
+	// words; the fix must not turn real quota exhaustion into a retryable rate
+	// limit.
+	hardQuotas := []string{
+		"配额已用尽",
+		"额度不足，请充值",
+		"insufficient quota, please upgrade",
+		"provider returned 402 Payment Required: quota exceeded",
+		"billing hard limit reached",
+	}
+	for _, msg := range hardQuotas {
+		t.Run("hard quota: "+msg, func(t *testing.T) {
+			if got := llm.ClassifyAPIError(errors.New(msg)); got == nil || got.Family != llm.FamilyQuotaExhausted {
+				t.Errorf("ClassifyAPIError(%q) = %#v, want %q", msg, got, llm.FamilyQuotaExhausted)
+			}
+		})
+	}
+}
+
 func TestClassifyAPIErrorNil(t *testing.T) {
 	if got := llm.ClassifyAPIError(nil); got != nil {
 		t.Fatalf("ClassifyAPIError(nil) = %#v, want nil", got)

@@ -8,6 +8,7 @@ package jobs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -376,6 +377,60 @@ func (r *Registry) Stop(id string) error {
 		killTree(pid)
 	}
 	return nil
+}
+
+// StopAll signals every running job and waits for its completion watcher to
+// reap it. Stop itself only signals the child; the reapers spawned by Start and
+// the watchers spawned by PromoteFromTimeout record the real exit later. Waiting
+// here means that when StopAll returns a nil error, no watched job is still
+// being reaped.
+//
+// The wait is bounded by ctx: pass a context with a timeout to cap the total
+// time spent. Every job is signalled before the wait begins, so an expired ctx
+// never leaves a running job unsignalled — it only means a watcher did not
+// finish in time. The returned error joins each individual Stop failure with
+// ctx.Err() when the deadline fires.
+//
+// StopAll is idempotent and safe to call concurrently with readers and with
+// other StopAll calls. It is meant for an explicit teardown: callers must not
+// start new jobs while it runs, since the wait covers every watcher started so
+// far. An empty (or already fully stopped) registry is a no-op.
+func (r *Registry) StopAll(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Snapshot under mu: Stop mutates statuses and cannot be called under mu.
+	r.mu.Lock()
+	ids := make([]string, 0, len(r.jobs))
+	for id, job := range r.jobs {
+		if job.Status == StatusRunning {
+			ids = append(ids, id)
+		}
+	}
+	r.mu.Unlock()
+
+	var errs []error
+	for _, id := range ids {
+		if err := r.Stop(id); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// waitIdle has no timeout, so drive it on a goroutine and bound this call
+	// by ctx. A registry whose jobs all came from disk has no watchers, so this
+	// returns at once.
+	reaped := make(chan struct{})
+	go func() {
+		r.waitIdle()
+		close(reaped)
+	}()
+	select {
+	case <-reaped:
+	case <-ctx.Done():
+		errs = append(errs, ctx.Err())
+	}
+	return errors.Join(errs...)
 }
 
 // Tail returns the last n lines of a job's log.

@@ -69,7 +69,7 @@ func runAttach(app App, _ context.Context, args []string) int {
 		return 1
 	}
 	if text != "" {
-		fmt.Fprintln(app.IO.Out, text)
+		return reportLongOut(app, text+"\n")
 	}
 	return 0
 }
@@ -101,8 +101,9 @@ func runLogs(app App, _ context.Context, args []string) int {
 	if id != "" {
 		for _, job := range all {
 			if job.ID == id {
-				printJob(app.IO.Out, job)
-				return 0
+				var content strings.Builder
+				printJob(&content, job)
+				return reportLongOut(app, content.String())
 			}
 		}
 		fmt.Fprintf(app.IO.Err, "error: jobs: no job named %q\n", id)
@@ -112,10 +113,11 @@ func runLogs(app App, _ context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Out, "no background jobs")
 		return 0
 	}
+	var content strings.Builder
 	for _, job := range all {
-		printJob(app.IO.Out, job)
+		printJob(&content, job)
 	}
-	return 0
+	return reportLongOut(app, content.String())
 }
 
 // runJobs is the optional `jobs` alias for `logs`.

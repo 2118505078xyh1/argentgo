@@ -151,15 +151,17 @@ func sessionsShow(app App, store SessionStore, id string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	var content strings.Builder
 	for _, event := range events {
 		line, err := json.Marshal(event)
 		if err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
 			return 1
 		}
-		fmt.Fprintln(app.IO.Out, string(line))
+		content.Write(line)
+		content.WriteByte('\n')
 	}
-	return 0
+	return reportLongOut(app, content.String())
 }
 
 // sessionGrepper is the optional read side an injected store can provide. The

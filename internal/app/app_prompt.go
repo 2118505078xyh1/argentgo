@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 
+	"github.com/2118505078xyh1/argentgo/internal/config"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
@@ -18,8 +21,12 @@ import (
 // ARGENT_TRUST_PROJECT (see parseTrustEnv for the recognised false values).
 // The trust-aware implementation lives in buildSystemWithTrust; see that
 // function for the full semantic.
-func buildSystem(root string, env func(string) string, thinking, schema string) string {
-	return buildSystemWithTrust(root, env, trustFromEnv(env), thinking, schema)
+// The optional verify argument carries the resolved verification configuration
+// so the prompt can tell the model which checks already run after an edit. It
+// is variadic purely to keep the many legacy call sites byte-compatible: a
+// caller that passes nothing gets config.Config{} (feature off).
+func buildSystem(root string, env func(string) string, thinking, schema string, verify ...config.Config) string {
+	return buildSystemWithTrust(root, env, trustFromEnv(env), thinking, schema, verify...)
 }
 
 // trustFromEnv derives the project-instruction trust decision for the legacy
@@ -42,11 +49,20 @@ func trustFromEnv(env func(string) string) bool {
 // moves to a different directory or the thinking level is adjusted. Callers
 // that inject those values as a user-role message pair this with
 // buildDynamicContext; buildSystemWithTrust composes both for legacy callers.
-func buildStaticSystem(root string, env func(string) string, trust bool) string {
+func buildStaticSystem(root string, env func(string) string, trust bool, verify ...config.Config) string {
 	var b strings.Builder
 	b.WriteString("You are argent, a concise coding assistant working on the user's machine.\n")
 	b.WriteString("Use the available tools to inspect and change files. Read before writing, ")
 	b.WriteString("batch independent calls, and stop once the request is satisfied.\n")
+
+	// Platform facts are process-wide (runtime constants + env + a stat of the
+	// workspace root), so they belong in the cache-stable prefix. The verify
+	// tail only appears when the operator actually configured checks.
+	if facts := platformFacts(root, env, firstVerify(verify)); facts != "" {
+		b.WriteString("\n")
+		b.WriteString(facts)
+		b.WriteString("\n")
+	}
 
 	if docs := projectMemoryDocs(root, env, trust); len(docs) > 0 {
 		if block := memory.Block(docs); strings.TrimSpace(block) != "" {
@@ -97,13 +113,96 @@ func buildDynamicContext(root, thinking, schema string) string {
 // a single source of truth for the wording. Callers that want a stable cache
 // prefix should use the two helpers directly and inject the dynamic half as a
 // user message instead of using this combined form.
-func buildSystemWithTrust(root string, env func(string) string, trust bool, thinking, schema string) string {
-	static := buildStaticSystem(root, env, trust)
+func buildSystemWithTrust(root string, env func(string) string, trust bool, thinking, schema string, verify ...config.Config) string {
+	static := buildStaticSystem(root, env, trust, verify...)
 	dynamic := buildDynamicContext(root, thinking, schema)
 	if dynamic == "" {
 		return static
 	}
 	return static + "\n" + dynamic + "\n"
+}
+
+// firstVerify unwraps the optional verification configuration passed through
+// the variadic prompt builders. No argument means "no checks configured".
+func firstVerify(verify []config.Config) config.Config {
+	if len(verify) > 0 {
+		return verify[0]
+	}
+	return config.Config{}
+}
+
+// platformFacts renders the cache-stable platform context. It keeps the model
+// from suggesting commands for the wrong OS/shell or re-proposing checks the
+// operator already wired up. The runtime and shell lines are always present;
+// the repository line depends only on a stat of the workspace root; and the
+// verification guidance is appended only when at least one command is
+// configured, so a default (unconfigured) prompt gains no verify text.
+func platformFacts(root string, env func(string) string, verify config.Config) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	if shell := shellName(env); shell != "" {
+		fmt.Fprintf(&b, "Shell: %s\n", shell)
+	}
+	if isGitRepo(root) {
+		b.WriteString("Repository: this working directory is a git repository.\n")
+	}
+	if cmds := configuredVerifyCommands(verify); len(cmds) > 0 {
+		b.WriteString("Verification: the workspace already runs these checks after edits: ")
+		b.WriteString(strings.Join(cmds, "; "))
+		b.WriteString("; do not suggest re-running them unless the user asks.\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// shellName infers the interactive shell from the environment. COMSPEC wins on
+// Windows; SHELL covers Unix. Only the base name is exposed, and filepath.Base
+// keeps the line short without leaking the full home/profile path.
+func shellName(env func(string) string) string {
+	if env == nil {
+		return ""
+	}
+	for _, key := range []string{"COMSPEC", "SHELL"} {
+		if value := strings.TrimSpace(env(key)); value != "" {
+			return filepath.Base(value)
+		}
+	}
+	return ""
+}
+
+// isGitRepo reports whether the workspace root itself holds git metadata.
+// Both a .git directory and a .git file (worktrees/submodules) count. Only the
+// exact root is checked — walking parents would make the cached prefix depend
+// on where a temp directory happens to live.
+func isGitRepo(root string) bool {
+	if root == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(root, ".git"))
+	return err == nil && (info.IsDir() || info.Mode().IsRegular())
+}
+
+// configuredVerifyCommands lists every configured verification command in a
+// deterministic order so the cache-stable prefix does not drift when the
+// per-language map is ranged over. VerifyCommands values are sorted by key;
+// the legacy VerifyCommand, when set, comes first.
+func configuredVerifyCommands(verify config.Config) []string {
+	var out []string
+	if len(verify.VerifyCommand) > 0 {
+		out = append(out, strings.Join(verify.VerifyCommand, " "))
+	}
+	if len(verify.VerifyCommands) > 0 {
+		keys := make([]string, 0, len(verify.VerifyCommands))
+		for key := range verify.VerifyCommands {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if cmd := strings.TrimSpace(verify.VerifyCommands[key]); cmd != "" {
+				out = append(out, cmd)
+			}
+		}
+	}
+	return out
 }
 
 // projectMemoryDocs loads, orders and filters the instruction documents that

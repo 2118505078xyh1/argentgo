@@ -88,7 +88,16 @@ var (
 var (
 	notConfiguredRE = regexp.MustCompile(`(?i)(not[_\s-]?configured|not[_\s-]?set|no[_\s-]?(?:api[_\s-]?)?key|api[_\s-]?key[_\s-]?(?:is[_\s-]?)?required|missing[_\s-]?(?:api[_\s-]?)?key|no[_\s-]?credentials|provider[_\s-]?not[_\s-]?configured|configure[_\s-]+(?:an?[_\s-]+)?(?:api[_\s-]?)?key|set[_\s-]+(?:the[_\s-]+)?(?:api[_\s-]?)?key|尚未配置)`)
 	authRE          = regexp.MustCompile(`(?i)(\b401\b|\b403\b|unauthori[sz]ed|invalid[_\s-]?api[_\s-]?key|invalid[_\s-]?token|expired[_\s-]?token|authentication[_\s-]?(?:failed|error|required)|forbidden|login[_\s-]?required|sign[_\s-]?in[_\s-]?required|invalid[_\s-]?credentials?|api[_\s-]?key[_\s-]?invalid|认证失败|登录已过期)`)
-	quotaRE         = regexp.MustCompile(`(?i)(\b402\b|insufficient[_\s-]?quota|quota[_\s-]?(?:exceeded|exhausted|limit|reached)|exceeded[_\s-]+(?:your[_\s-]+)?(?:current[_\s-]+)?quota|exhausted[_\s-]+(?:its[_\s-]+|your[_\s-]+|the[_\s-]+)?quota|billing|usage[_\s-]?limit|plan[_\s-]?limit|subscription[_\s-]?(?:limit|quota)|out[_\s-]?of[_\s-]?(?:quota|credit|balance)|credit[_\s-]?balance|insufficient[_\s-]?(?:credit|credits|funds|balance)|payment[_\s-]?required|hard[_\s-]?limit|订阅额度|订阅限额|配额|额度)`)
+	// quotaRE matches hard, non-retryable quota/billing limits. The generic
+	// words (billing, 配额, 额度) are deliberately NOT bare: a transient rate
+	// limit is usually phrased with them ("请求过于频繁，配额将在 30 秒后重置",
+	// "rate limit exceeded, check your billing settings"). Letting a bare word
+	// match here would classify such a reply as quota_exhausted — non-retryable
+	// and routed to settings — before rateLimitRE ever runs, even though retry.go
+	// deliberately treats the same text as retryable. Require an exhaustion
+	// phrase nearby; explicit codes (insufficient_quota, quota_exceeded, 402,
+	// ...) stay sufficient on their own.
+	quotaRE         = regexp.MustCompile(`(?i)(\b402\b|insufficient[_\s-]?quota|quota[_\s-]?(?:exceeded|exhausted|limit|reached)|exceeded[_\s-]+(?:your[_\s-]+)?(?:current[_\s-]+)?quota|exhausted[_\s-]+(?:its[_\s-]+|your[_\s-]+|the[_\s-]+)?quota|usage[_\s-]?limit|plan[_\s-]?limit|subscription[_\s-]?(?:limit|quota)|out[_\s-]?of[_\s-]?(?:quota|credit|balance)|credit[_\s-]?balance|insufficient[_\s-]?(?:credit|credits|funds|balance)|payment[_\s-]?required|hard[_\s-]?limit|(?:hard[_\s-]?limit|usage[_\s-]?limit|payment[_\s-]?required)[^\n]{0,80}?billing|billing[^\n]{0,80}?(?:hard[_\s-]?limit|usage[_\s-]?limit|exceeded|exhausted|insufficient|depleted|quota|payment[_\s-]?required|limit[_\s-]?reached)|(?:配额|额度|订阅额度|订阅限额)[^\n]{0,24}?(?:用尽|耗尽|不足|已用完|用罄))`)
 	rateLimitRE     = regexp.MustCompile(`(?i)(\b429\b|too[_\s-]?many[_\s-]?requests|rate[_\s-]?limit|throttl|请求过于频繁|限流)`)
 	contentFilterRE = regexp.MustCompile(`(?i)(content[_\s-]?filter|content[_\s-]?policy|safety[_\s-]?(?:filter|check|system)|moderation|blocked[_\s-]?by|policy[_\s-]?violation|prohibited[_\s-]?content|内容审核|安全策略)`)
 	modelNotFoundRE = regexp.MustCompile(`(?i)(\b404\b|model[_\s-]?not[_\s-]?found|unknown[_\s-]?model|invalid[_\s-]?model|model[_\s-]?(?:does[_\s-]?not[_\s-]?exist|not[_\s-]?exist)|no[_\s-]?such[_\s-]?model|unsupported[_\s-]?model|模型不存在)`)

@@ -206,7 +206,7 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 				s.peer.respond(id, map[string]any{"stopReason": "cancelled"})
 				return
 			}
-			s.peer.fail(id, codeInternalError, err.Error())
+			s.peer.fail(id, codeInternalError, wireErrorText(err))
 			return
 		}
 		s.peer.respond(id, map[string]any{"stopReason": "end_turn"})

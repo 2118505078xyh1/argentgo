@@ -187,7 +187,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	if err != nil {
 		return Resolved{}, err
 	}
-	system := buildSystem(root, env, opts.Thinking, schema)
+	system := buildSystem(root, env, opts.Thinking, schema, cfg)
 
 	res := Resolved{
 		Options:      opts,

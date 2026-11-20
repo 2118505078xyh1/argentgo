@@ -13,16 +13,29 @@ import (
 // prefix comparison, so "read*" permits both "read" and "read/file.txt".
 // Malformed patterns never match.
 func WildcardMatch(pattern, subject string) bool {
-	matched, err := path.Match(pattern, subject)
-	if err == nil && matched {
+	// path.Match always uses '/' as the separator and treats '\' as an escape,
+	// even on Windows where '\' *is* the separator. Normalise both sides to '/'
+	// (the same cross-platform normalisation GlobMatch applies) so a rule and a
+	// path written with Windows separators are compared structurally instead of
+	// having their '\' misread as escapes.
+	p := strings.ReplaceAll(pattern, `\`, "/")
+	s := strings.ReplaceAll(subject, `\`, "/")
+	matched, err := path.Match(p, s)
+	if err != nil {
+		// A malformed pattern never matches - not even through the prefix
+		// fallback below. Otherwise a typo like "[*" would still match
+		// "[anything]" and silently turn a rule into an unintended allow.
+		return false
+	}
+	if matched {
 		return true
 	}
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimRight(pattern, "*")
+	if strings.HasSuffix(p, "*") {
+		prefix := strings.TrimRight(p, "*")
 		if prefix == "" {
 			return true // an all-star pattern permits any subject
 		}
-		return strings.HasPrefix(subject, prefix)
+		return strings.HasPrefix(s, prefix)
 	}
 	return false
 }

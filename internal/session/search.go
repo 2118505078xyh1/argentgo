@@ -62,7 +62,11 @@ func Search(dir, query string, limit int) ([]Hit, error) {
 		if err != nil {
 			continue
 		}
-		id := strings.TrimSuffix(entry.Name(), fileExt)
+		// The suffix match above is case-insensitive, so strip by length just
+		// like Container.List does. A case-sensitive TrimSuffix would leave the
+		// extension on the id for "SESSION.JSONL", producing a Hit.ID that no
+		// longer resolves through Store.OpenSession.
+		id := entry.Name()[:len(entry.Name())-len(fileExt)]
 		records := make([]Record, 0, len(lines))
 		for _, line := range lines {
 			records = append(records, line.record)

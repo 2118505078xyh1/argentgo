@@ -75,11 +75,23 @@ type ServerInfo struct {
 
 // Tool is a tool advertised by a server.
 type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	Server      string          `json:"server,omitempty"`
-	ReadOnly    bool            `json:"read_only,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Schema is the normalized inputSchema: it always has a "type" and carries
+	// no malformed "properties"/"required". It is safe to put straight into a
+	// provider tool spec (see internal/app's mcpBinding wiring).
+	Schema json.RawMessage `json:"schema,omitempty"`
+	Server string          `json:"server,omitempty"`
+	// ReadOnly mirrors the MCP annotations.readOnlyHint bit.
+	ReadOnly bool `json:"read_only,omitempty"`
+
+	// RawInputSchema is the unmodified inputSchema as advertised by the server.
+	// Additive and omitted when empty; callers building provider specs should
+	// keep using Schema, which is already cleaned.
+	RawInputSchema json.RawMessage `json:"raw_input_schema,omitempty"`
+	// OutputSchema is the server's outputSchema member, passed through as-is.
+	// Additive and omitted when empty.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
 // Resource is a resource advertised by a server.
@@ -223,34 +235,40 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 	if err != nil {
 		return nil, c.wrap(err, "tools/list")
 	}
+	// Decode the tool list one entry at a time. A single malformed tool must
+	// not sink the whole table: previously a whole-slice Unmarshal failed the
+	// entire tools/list call when any entry had a non-object shape.
 	var result struct {
-		Tools []struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			InputSchema json.RawMessage `json:"inputSchema"`
-			Annotations struct {
-				ReadOnlyHint bool `json:"readOnlyHint"`
-			} `json:"annotations"`
-		} `json:"tools"`
+		Tools []json.RawMessage `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("mcp %q: decode tools/list result: %w", c.spec.Name, err)
 	}
 	tools := make([]Tool, 0, len(result.Tools))
-	for _, item := range result.Tools {
+	for _, itemRaw := range result.Tools {
+		var item struct {
+			Name         string          `json:"name"`
+			Description  string          `json:"description"`
+			InputSchema  json.RawMessage `json:"inputSchema"`
+			OutputSchema json.RawMessage `json:"outputSchema"`
+			Annotations  struct {
+				ReadOnlyHint bool `json:"readOnlyHint"`
+			} `json:"annotations"`
+		}
+		if err := json.Unmarshal(itemRaw, &item); err != nil {
+			continue // skip only the bad entry, keep the rest of the table
+		}
 		if strings.TrimSpace(item.Name) == "" {
 			continue
 		}
-		schema := item.InputSchema
-		if len(bytes.TrimSpace(schema)) == 0 {
-			schema = json.RawMessage(`{}`)
-		}
 		tools = append(tools, Tool{
-			Name:        item.Name,
-			Description: item.Description,
-			Schema:      schema,
-			Server:      c.spec.Name,
-			ReadOnly:    item.Annotations.ReadOnlyHint,
+			Name:           item.Name,
+			Description:    item.Description,
+			Schema:         normalizeInputSchema(item.InputSchema),
+			Server:         c.spec.Name,
+			ReadOnly:       item.Annotations.ReadOnlyHint,
+			RawInputSchema: append(json.RawMessage(nil), item.InputSchema...),
+			OutputSchema:   append(json.RawMessage(nil), item.OutputSchema...),
 		})
 	}
 	// Apply per-server permissions here so callers never see tools that the

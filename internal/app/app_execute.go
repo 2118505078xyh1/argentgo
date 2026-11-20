@@ -240,7 +240,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	trustedSystem := res.System
 	dynamicContext := ""
 	if res.TrustProject {
-		trustedSystem = buildStaticSystem(res.Root, stdio.Env, true)
+		trustedSystem = buildStaticSystem(res.Root, stdio.Env, true, res.Cfg)
 		dynamicContext = buildDynamicContext(res.Root, res.Thinking, res.OutputSchema)
 	}
 	if dynamicContext != "" {
