@@ -344,6 +344,23 @@ func appendHookNote(out, message string) string {
 	return out + "\n[hook] " + message
 }
 
+// AppendVerifyNote appends a compact, redacted verification verdict to a tool
+// output. It reuses agent.VerificationFeedback so the note stays bounded and
+// credential-safe, and it reuses appendHookNote so it looks like any other
+// PostToolUse note.
+//
+// This is an optional building block, not part of the default hook path: this
+// layer has no verify-command runner. To wire it, the component that owns the
+// verify command should call it after a PostToolUse event, e.g.
+//
+//	out = AppendVerifyNote(out, "post-edit verify", passed, verifyOutput)
+//
+// behind a config gate or the ARGENT_POST_EDIT_VERIFY environment flag
+// (default off), so runs without a configured verify command are unchanged.
+func AppendVerifyNote(out string, label string, passed bool, output string) string {
+	return appendHookNote(out, agent.VerificationFeedback(label, passed, output, 0))
+}
+
 func noteHook(warn io.Writer, what string, err error) {
 	if warn == nil || err == nil {
 		return

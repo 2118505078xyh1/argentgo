@@ -32,7 +32,51 @@ const (
 	// cannot share a typed key without tools importing agent, which the layering
 	// rules forbid. Both agree on a plain func(string) value.
 	toolProgressKey = "argent.tool.progress"
+
+	// noopEditHint is the aider-style nudge attached when an edit tool reports
+	// that nothing changed. It stops the model re-sending an identical edit.
+	noopEditHint = "The change appears to be already applied. Do not re-send the same edit; only address remaining differences."
 )
+
+// noopEditMarkers are lower-cased phrases edit tools use to say a change was
+// already present. Matching is deliberately narrow (edit tools only), so every
+// other tool's output stays byte-identical.
+var noopEditMarkers = []string{"already", "no changes", "unchanged", "already present", "already applied"}
+
+// isNoopEditTool reports whether name is an edit tool whose no-op output should
+// carry the anti-resend hint.
+func isNoopEditTool(name string) bool {
+	switch name {
+	case "edit", "multi_edit":
+		return true
+	default:
+		return false
+	}
+}
+
+// hasNoopEditMarker reports whether output looks like a no-op edit report.
+func hasNoopEditMarker(output string) bool {
+	lower := strings.ToLower(output)
+	for _, marker := range noopEditMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// augmentNoopEditOutput appends the hint once, keeping the tool's own report
+// intact. It is idempotent in case a tool already echoes the hint back.
+func augmentNoopEditOutput(output string) string {
+	if strings.Contains(output, noopEditHint) {
+		return output
+	}
+	trimmed := strings.TrimRight(output, " \t\r\n")
+	if trimmed == "" {
+		return noopEditHint
+	}
+	return trimmed + "\n" + noopEditHint
+}
 
 // Tool gating, dispatch and bookkeeping for one turn's batch.
 //
@@ -344,6 +388,11 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, duration: time.Since(start)}
 		}
 		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
+	}
+	if isNoopEditTool(call.Function.Name) && hasNoopEditMarker(output) {
+		// A no-op edit is a strong signal the model is about to repeat itself.
+		// The hint becomes part of the tool result the model sees next.
+		output = augmentNoopEditOutput(output)
 	}
 	return callResult{intent: intent, output: output, duration: time.Since(start)}
 }

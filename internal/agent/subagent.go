@@ -84,6 +84,14 @@ type SubagentConfig struct {
 	// the lines with session.SelectForChildren(records) and formats them; the
 	// agent package never imports session (see AGENTS.md layering rules).
 	SeedContext []string
+	// Instruction carries the parent session's resolved instruction snapshot to
+	// its children. When set, a child receives an inherited copy (deep-copied,
+	// with exactly one inheritance marker) rendered into its system prompt
+	// after the SeedContext block. Nil leaves the child system prompt
+	// byte-identical, so this stays default-off. The app wiring layer is
+	// responsible for building the snapshot; this package only carries and
+	// renders it.
+	Instruction *InstructionSnapshot
 }
 
 // TaskToolSpec describes the delegate tool to the model.
@@ -342,10 +350,12 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	cfg := *t.cfg
 	name = strings.TrimSpace(name)
 	if name == "" || t.cfg.ResolvePersona == nil {
+		cfg.Instruction = inheritForChild(cfg.Instruction)
 		return cfg
 	}
 	persona, ok := t.cfg.ResolvePersona(name)
 	if !ok {
+		cfg.Instruction = inheritForChild(cfg.Instruction)
 		return cfg
 	}
 
@@ -383,9 +393,39 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if len(t.cfg.SeedContext) > 0 {
 		merged.SeedContext = t.cfg.SeedContext
 	}
+	// The parent's resolved snapshot wins over any persona-local one, just like
+	// SeedContext: the parent is the authority on what it resolved for this run.
+	if t.cfg.Instruction != nil {
+		merged.Instruction = t.cfg.Instruction
+	}
 	// Keep the resolver so nested tasks can choose their own personas too.
 	merged.ResolvePersona = t.cfg.ResolvePersona
+	// Inherit here (once, while building the child config) rather than in
+	// childOptions: the inherited copy is stored on the child's config, which
+	// becomes Options.Subagent for that child, so its own descendants inherit
+	// the snapshot too.
+	merged.Instruction = inheritForChild(merged.Instruction)
 	return merged
+}
+
+// inheritForChild returns the snapshot a child config should carry. The first
+// child in a delegation chain gets Inherit()'s marker appended to its Thread
+// layer; deeper descendants see the marker already present and receive a plain
+// deep copy instead. That keeps the marker at exactly one occurrence no matter
+// how deep the chain goes, while still giving every child an independent value.
+// A nil snapshot stays nil (the default-off path).
+func inheritForChild(s *InstructionSnapshot) *InstructionSnapshot {
+	if s == nil {
+		return nil
+	}
+	for _, entry := range s.Thread {
+		if entry == InheritanceNote {
+			clone := s.Clone()
+			return &clone
+		}
+	}
+	inherited := s.Inherit()
+	return &inherited
 }
 
 // childOptions builds the nested run's configuration: restricted tools, the
@@ -407,6 +447,12 @@ func (t *taskTools) childOptions(label, persona string) Options {
 	}
 	if len(cfg.SeedContext) > 0 {
 		system += "\n\nRetained context from the parent thread:\n- " + strings.Join(cfg.SeedContext, "\n- ")
+	}
+	if cfg.Instruction != nil {
+		// configForPersona already produced the inherited copy (with exactly one
+		// marker), so rendering never calls Inherit again here. All() is
+		// user -> thread -> project, so the layers appear in resolution order.
+		system += "\n\nInherited instructions from the parent session:\n- " + strings.Join(cfg.Instruction.All(), "\n- ")
 	}
 
 	budget := cfg.Budget

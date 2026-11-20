@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
@@ -27,6 +28,11 @@ const defaultCheckTimeout = 30 * time.Second
 
 // maxCheckDiagnostic caps the command output copied into a failure message.
 const maxCheckDiagnostic = 8 << 10
+
+// maxCheckAnchorOutput bounds the redacted check output copied into the retry
+// hint. It is deliberately smaller than a raw diagnostic: the hint is a nudge,
+// not a second copy of the command output.
+const maxCheckAnchorOutput = 512
 
 // Prompter sends one prompt to the model and returns its answer.
 type Prompter interface {
@@ -179,6 +185,13 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 		}
 	}
 	if lastErr != nil {
+		// A failed success check is re-run by this loop, so tell the model not
+		// to repeat it unchanged. The hint is added only when a retry was
+		// configured; the check's own diagnostics stay byte-identical.
+		var failedCheck *checkFailure
+		if attempts > 1 && errors.As(lastErr, &failedCheck) {
+			lastErr = fmt.Errorf("%w\n%s", lastErr, checkRetryHint(step, failedCheck.output))
+		}
 		result.Status = StatusFailed
 		result.Error = lastErr.Error()
 		// Cleanup runs once, after all attempts are exhausted and before the
@@ -283,6 +296,35 @@ func diagnosticSuffix(text string) string {
 	return ": " + text
 }
 
+// checkFailure wraps a failed success check so runStep can recognise it and add
+// a bounded retry hint. The original message and error chain are preserved: the
+// Error text is unchanged and Unwrap keeps DeadlineExceeded matchable.
+type checkFailure struct {
+	output string
+	cause  error
+}
+
+func (c *checkFailure) Error() string { return c.cause.Error() }
+func (c *checkFailure) Unwrap() error { return c.cause }
+
+// checkRetryHint mirrors agent.VerificationFeedback for the workflow layer,
+// which is not allowed to import agent. It redacts the check output before
+// clipping it to a rune-safe tail, then adds a next-step instruction so a retry
+// does not re-run the very same check against unchanged code.
+func checkRetryHint(step Step, output string) string {
+	label := strings.ToUpper(strings.TrimSpace(step.Name))
+	if label == "" {
+		label = "WORKFLOW"
+	}
+	var b strings.Builder
+	b.WriteString("[verify: " + label + "] FAIL")
+	if clean := llm.RedactText(strings.TrimSpace(output)); clean != "" {
+		b.WriteString("\n" + diagnosticTail(clean, maxCheckAnchorOutput))
+	}
+	b.WriteString("\ndo not re-run the same check unchanged; adjust the code first.")
+	return b.String()
+}
+
 // runSuccessCheck verifies a step objectively through proc.Shell/proc.Run, the
 // same shell path every other command in the codebase uses. A non-zero exit, a
 // spawn error or a timeout becomes an error so runStep retries it through the
@@ -309,16 +351,18 @@ func runSuccessCheck(ctx context.Context, step Step) error {
 	cmd.KillTree = true
 	res, err := proc.Run(runCtx, cmd)
 	diagnostic := diagnosticSuffix(commandDiagnostic(res))
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("workflow: step %q success check timed out after %s: %w%s", step.Name, limit, err, diagnostic)
-		}
-		return fmt.Errorf("workflow: step %q success check %q failed: %w%s", step.Name, command, err, diagnostic)
+	var failure error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		failure = fmt.Errorf("workflow: step %q success check timed out after %s: %w%s", step.Name, limit, err, diagnostic)
+	case err != nil:
+		failure = fmt.Errorf("workflow: step %q success check %q failed: %w%s", step.Name, command, err, diagnostic)
+	case !res.Success():
+		failure = fmt.Errorf("workflow: step %q success check %q exited %d%s", step.Name, command, res.ExitCode, diagnostic)
+	default:
+		return nil
 	}
-	if !res.Success() {
-		return fmt.Errorf("workflow: step %q success check %q exited %d%s", step.Name, command, res.ExitCode, diagnostic)
-	}
-	return nil
+	return &checkFailure{output: commandDiagnostic(res), cause: failure}
 }
 
 // runCleanupCommand runs the step's cleanup command once and returns text that

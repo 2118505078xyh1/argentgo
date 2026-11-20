@@ -108,6 +108,11 @@ type runState struct {
 	// an intervening non-length reply. It drives the continuation budget for
 	// tool-free answers and is reset by every reply that was not truncated.
 	consecutiveLengthFinishes int
+
+	// verifyState bounds post-edit verification feedback for this run. It is
+	// only consulted when Options.Verify is set, so unconfigured runs never
+	// touch it.
+	verifyState VerifyLoopState
 }
 
 // execute is the internal entry point shared by Run, RunText and Prompt.
@@ -169,6 +174,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		compactor:        opts.Compactor,
 		compactThreshold: opts.CompactThreshold,
 		costWatch:        NewCostWatcher(opts.Budget.MaxCostUSD),
+		verifyState:      VerifyLoopState{Max: opts.MaxVerifyReflections},
 	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
@@ -425,6 +431,13 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// A batch of tool results is the natural place to summarise: the next
 		// request is about to pay for the whole history again.
 		s.maybeCompact()
+
+		// Bounded post-edit verification (default off). Runs after compaction so
+		// a freshly injected feedback turn stays at the tail of the next request.
+		if reason, stop := s.verifyAfterBatch(ctx, turn, reply.ToolCalls); stop {
+			s.emit(Event{Kind: EventStop, Reason: reason})
+			return s.result(reason), nil
+		}
 	}
 }
 

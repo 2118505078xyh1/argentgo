@@ -38,6 +38,16 @@ Use the available tools to inspect and change files. Read before writing, batch 
 	// declared here because it is a loop limit rather than a budget limit.
 	StopOutputLimit = "output_limit"
 
+	// StopVerifyReflections means a post-edit verification kept failing until
+	// the reflection budget was exhausted. Like StopOutputLimit it is a loop
+	// limit rather than a budget limit, so it is declared here.
+	StopVerifyReflections = "verify_reflections"
+
+	// DefaultMaxVerifyReflections is the hard cap on post-edit verification
+	// feedback turns in one run when Options.MaxVerifyReflections is zero.
+	// It matches aider's max_reflections = 3.
+	DefaultMaxVerifyReflections = 3
+
 	// compactionRecoveryBand is the omp-style hysteresis band: a mid-turn
 	// compaction aims at this fraction of the trigger threshold. Landing below
 	// the trigger but inside the band is enough to release compaction pressure,
@@ -187,6 +197,22 @@ type Options struct {
 	// MutationPaths supplies the workspace-relative paths a mutating call may
 	// change. It overrides the optional MutationReporter on Tools.
 	MutationPaths func(name, args string) []string
+
+	// Verify, when non-nil, enables the bounded post-edit reflection loop. It
+	// runs once after every tool batch that contained a mutating tool, with the
+	// workspace-relative paths that batch may have changed (from the batch
+	// checkpoint when available). label names the check ("go test", "lint", ...);
+	// passed is its verdict; output is the raw check output; ok is false when the
+	// check could not run at all (missing tool, cancelled command), in which case
+	// no feedback is injected. The loop bounds and redacts the feedback it feeds
+	// back, but the callback must still keep its own work bounded. A nil Verify
+	// disables the whole feature so existing runs stay byte-for-byte unchanged.
+	Verify func(ctx context.Context, changedPaths []string) (label string, passed bool, output string, ok bool)
+	// MaxVerifyReflections caps how many FAIL feedback turns one run may inject.
+	// Zero selects DefaultMaxVerifyReflections (3) when Verify is set. A PASS
+	// never spends a reflection; the count is per run and is never reset.
+	MaxVerifyReflections int
+
 	// OnCompactionEvidence receives failures and next-step lines that a
 	// compactor must preserve. It runs once when the loop finishes.
 	OnCompactionEvidence func(CompactionEvidence)
@@ -256,7 +282,7 @@ type Result struct {
 	Turns int
 	// Stopped is why the run ended: StopComplete, StopMaxTurns,
 	// StopMaxPromptTokens, StopMaxTotalTokens, StopMaxCost, StopCancelled,
-	// StopProviderError or StopOutputLimit.
+	// StopProviderError, StopOutputLimit or StopVerifyReflections.
 	Stopped string
 }
 
