@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.1 — 2026-11-20
+
+Test and documentation hardening on top of v0.8.0; no engine behaviour changes.
+
+- `internal/cli`: the doctor redaction test uses a synthetic home path, so it
+  passes regardless of the operator's username.
+- Docs: AGENTS.md aligned with the enforced rules and the multi-agent
+  workflow; CHANGELOG records the v0.8.0 performance work.
+
 ## v0.8.0 — 2026-11-20
 
 Many study-and-harden rounds against goose, aider, gptme, Crush, pi, opencode,
