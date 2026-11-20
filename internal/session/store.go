@@ -116,7 +116,7 @@ func (c *Container) OpenSession(id string) (*Session, error) {
 	}
 	session := &Session{
 		dir: c.dir,
-		id:  strings.TrimSuffix(filepath.Base(path), fileExt),
+		id:  transcriptStem(filepath.Base(path)),
 	}
 	records, err := readRecords(path)
 	if err != nil {
@@ -277,6 +277,21 @@ func (c *Container) resolvePath(id string) (string, error) {
 	default:
 		return "", fmt.Errorf("session: ambiguous session id %q (%d matches)", id, len(matches))
 	}
+}
+
+// transcriptStem strips a trailing transcript extension from a file name
+// regardless of case. Discovery paths match the ".jsonl" suffix
+// case-insensitively (see List and resolvePath), so the id derived from a
+// resolved path must strip it the same way. A case-sensitive strings.TrimSuffix
+// would leave "SESSION.JSONL" as the id, making Session.path() point at
+// "SESSION.JSONL.jsonl" and every read come back empty on case-sensitive
+// filesystems. Names without the suffix are returned unchanged.
+func transcriptStem(name string) string {
+	if len(name) >= len(fileExt) &&
+		strings.EqualFold(name[len(name)-len(fileExt):], fileExt) {
+		return name[:len(name)-len(fileExt)]
+	}
+	return name
 }
 
 // newID mints a timestamped id with a random suffix and its unused file path.

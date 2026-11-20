@@ -110,6 +110,14 @@ var headerPrefixes = []struct {
 	{"bearer ", "bearer token"},
 	{"Authorization: ", "auth header"},
 	{"authorization: ", "auth header"},
+	// HTTP allows optional whitespace after the header colon (OWS), so
+	// `Authorization:Basic <b64>` is a valid header too. The spaced needles
+	// above miss that spelling entirely; without these the whole credential
+	// leaks because a bare base64 token is not credential-shaped on its own.
+	// authValueEnd/skipHorizontalSpace handle both spellings identically, so
+	// a spaced header still produces the same single redaction.
+	{"Authorization:", "auth header"},
+	{"authorization:", "auth header"},
 }
 
 // PEM private keys carry their shape in an unmistakable armour header. The

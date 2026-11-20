@@ -34,7 +34,7 @@ func (r *Registry) PromoteFromTimeout(command string, live LiveProcess, logPath 
 	if live == nil {
 		return Job{}, errors.New("jobs: no live process")
 	}
-	id := r.allocateID()
+	id := r.allocateID("")
 	job := Job{
 		ID:        id,
 		Command:   command,

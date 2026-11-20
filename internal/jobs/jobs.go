@@ -56,7 +56,11 @@ var errProcessIdentity = errors.New("jobs: pid no longer matches the recorded st
 
 // Job is one background process, as it is persisted.
 type Job struct {
-	ID        string    `json:"id"`
+	ID string `json:"id"`
+	// Session optionally scopes the job to a session. The empty value keeps
+	// jobs.json written by older builds readable: a missing "session" key
+	// unmarshals to "", so those jobs remain global/unscoped and visible.
+	Session   string    `json:"session,omitempty"`
 	Command   string    `json:"command"`
 	Args      []string  `json:"args,omitempty"`
 	Dir       string    `json:"dir,omitempty"`
@@ -123,14 +127,15 @@ type Command struct {
 type Registry struct {
 	dir string
 
-	mu        sync.Mutex
-	jobs      map[string]*Job
-	next      int
-	version   uint64 // guarded by mu; bumped on every in-memory state change
-	dirty     bool   // guarded by mu; a state change has not reached the disk yet
-	persisted uint64 // last version written to disk (read/written under ioMu+mu)
-	inflight  int    // guarded by mu; number of persist calls in progress
-	idleCond  *sync.Cond
+	mu          sync.Mutex
+	jobs        map[string]*Job
+	next        int    // legacy global "job%d" sequence, used by Start/PromoteFromTimeout
+	sessionNext int    // session-scoped "job%d@session" sequence (guarded by mu)
+	version     uint64 // guarded by mu; bumped on every in-memory state change
+	dirty       bool   // guarded by mu; a state change has not reached the disk yet
+	persisted   uint64 // last version written to disk (read/written under ioMu+mu)
+	inflight    int    // guarded by mu; number of persist calls in progress
+	idleCond    *sync.Cond
 
 	ioMu sync.Mutex // guards the encode + atomic replace of jobs.json
 
@@ -177,11 +182,31 @@ func (r *Registry) Dir() string { return r.dir }
 func (r *Registry) waitIdle() { r.bgWork.Wait() }
 
 // Start launches cmd detached and returns the recorded job.
+//
+// The job is unscoped (Session is empty) and gets a legacy global "job%d" id,
+// exactly as before session support was added. Use StartInSession to tag a job
+// with a session.
 func (r *Registry) Start(cmd Command) (Job, error) {
+	return r.start("", cmd)
+}
+
+// StartInSession is Start with a session scope. The session is stored on the
+// job and persisted with `omitempty`, so an empty session is identical to Start
+// and older jobs.json files (which have no "session" key) stay readable.
+//
+// Session ids are namespaced (job<N>@<session>) and drawn from a counter
+// separate from the legacy one, so starting a session job never changes the id
+// a later plain Start would receive, and two sessions sharing one registry
+// directory can never collide.
+func (r *Registry) StartInSession(session string, cmd Command) (Job, error) {
+	return r.start(session, cmd)
+}
+
+func (r *Registry) start(session string, cmd Command) (Job, error) {
 	if strings.TrimSpace(cmd.Program) == "" {
 		return Job{}, errors.New("jobs: empty program")
 	}
-	id := r.allocateID()
+	id := r.allocateID(session)
 	logPath := filepath.Join(r.dir, id+".log")
 
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -218,6 +243,7 @@ func (r *Registry) Start(cmd Command) (Job, error) {
 
 	job := Job{
 		ID:        id,
+		Session:   session,
 		Command:   cmd.Program,
 		Args:      append([]string(nil), cmd.Args...),
 		Dir:       cmd.Dir,
@@ -300,6 +326,27 @@ func (r *Registry) List() ([]Job, error) {
 		return out[i].StartedAt.Before(out[j].StartedAt)
 	})
 	r.mu.Unlock()
+	return out, nil
+}
+
+// ListForSession returns the jobs tagged with session, oldest first.
+//
+// It filters the result of List, so a caller only ever sees (and can only act
+// on) its own jobs; jobs of other sessions sharing this registry directory are
+// hidden. An empty session selects the legacy, unscoped jobs — including any
+// loaded from a jobs.json written before the Session field existed. Use List
+// for an unfiltered view of every job.
+func (r *Registry) ListForSession(session string) ([]Job, error) {
+	all, err := r.List()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Job, 0, len(all))
+	for _, job := range all {
+		if job.Session == session {
+			out = append(out, job)
+		}
+	}
 	return out, nil
 }
 
@@ -557,22 +604,59 @@ func (r *Registry) refreshLocked() bool {
 	return changed
 }
 
-func (r *Registry) allocateID() string {
+// allocateID returns an id that is unique within the registry.
+//
+// The empty session keeps the legacy global "job%d" sequence, so Start and
+// PromoteFromTimeout behave exactly as before. A named session uses a separate
+// counter and a "@session" suffix; the numeric part never overlaps the legacy
+// sequence, which keeps plain Start ids stable even after session jobs exist.
+// The collision loop still guards against reusing an id left behind by an
+// older index.
+func (r *Registry) allocateID(session string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for {
-		r.next++
-		id := fmt.Sprintf("job%d", r.next)
+		var id string
+		if session == "" {
+			r.next++
+			id = fmt.Sprintf("job%d", r.next)
+		} else {
+			r.sessionNext++
+			id = fmt.Sprintf("job%d@%s", r.sessionNext, idToken(session))
+		}
 		if _, taken := r.jobs[id]; !taken {
 			return id
 		}
 	}
 }
 
-// index is the on-disk shape.
+// idToken reduces a session name to characters that are safe in a file name,
+// because an id is also the base name of the job's log file. The numeric prefix
+// guarantees uniqueness, so two sessions that map to the same token cannot
+// produce the same id.
+func idToken(session string) string {
+	token := strings.Map(func(ch rune) rune {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9',
+			ch == '-', ch == '_', ch == '.':
+			return ch
+		default:
+			return '_'
+		}
+	}, session)
+	if token == "" {
+		return "_"
+	}
+	return token
+}
+
+// index is the on-disk shape. SessionNext is additive: an index written before
+// session support has no such key and decodes to zero, which is fine because
+// no session-scoped ids existed yet.
 type index struct {
-	Next int   `json:"next"`
-	Jobs []Job `json:"jobs"`
+	Next        int   `json:"next"`
+	SessionNext int   `json:"sessionNext,omitempty"`
+	Jobs        []Job `json:"jobs"`
 }
 
 func (r *Registry) indexPath() string { return filepath.Join(r.dir, storeFile) }
@@ -605,6 +689,7 @@ func (r *Registry) load() error {
 		r.jobs[job.ID] = &job
 	}
 	r.next = stored.Next
+	r.sessionNext = stored.SessionNext
 	return nil
 }
 
@@ -644,7 +729,7 @@ func (r *Registry) finishWrite() {
 
 // snapshotLocked copies the registry state for persistence. Caller must hold mu.
 func (r *Registry) snapshotLocked() index {
-	stored := index{Next: r.next, Jobs: make([]Job, 0, len(r.jobs))}
+	stored := index{Next: r.next, SessionNext: r.sessionNext, Jobs: make([]Job, 0, len(r.jobs))}
 	for _, job := range r.jobs {
 		stored.Jobs = append(stored.Jobs, *job)
 	}

@@ -42,6 +42,11 @@ func TokenReport(stdio cli.IO, opts cli.Options) (string, error) {
 	if len(res.AddDirs) > 0 {
 		fmt.Fprintf(&b, "extra dirs: %s\n", strings.Join(res.AddDirs, ", "))
 	}
+	// --session makes --tokens also report the persisted cross-resume totals.
+	// Without it the report is byte-for-byte identical to before this change.
+	if err := appendSessionCumulative(&b, res); err != nil {
+		return "", err
+	}
 	return b.String(), nil
 }
 

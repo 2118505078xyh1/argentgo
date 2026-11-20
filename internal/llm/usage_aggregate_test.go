@@ -72,6 +72,88 @@ data: [DONE]
 	}
 }
 
+// TestChatUsagePartialSnapshotsAreMerged covers gateways that split one reply's
+// usage across several chunks instead of reporting it all in the final one.
+// A chunk that omits a counter must not erase a count already received: doing
+// so yields a Usage where CachedTokens exceeds PromptTokens and TotalTokens
+// reads zero, which corrupts budget/cost accounting downstream.
+func TestChatUsagePartialSnapshotsAreMerged(t *testing.T) {
+	cases := []struct {
+		name           string
+		script         string
+		wantPrompt     int
+		wantCompletion int
+		wantCached     int
+	}{
+		{
+			name: "cached breakdown arrives after totals",
+			script: `data: {"choices":[{"delta":{"content":"hi"}}],"usage":{"prompt_tokens":10,"completion_tokens":3}}
+data: {"choices":[],"usage":{"prompt_tokens_details":{"cached_tokens":4}}}
+data: [DONE]
+
+`,
+			wantPrompt:     10,
+			wantCompletion: 3,
+			wantCached:     4,
+		},
+		{
+			name: "prompt only then completion only",
+			script: `data: {"choices":[],"usage":{"prompt_tokens":12}}
+data: {"choices":[{"delta":{"content":"hi"}}],"usage":{"completion_tokens":5}}
+data: [DONE]
+
+`,
+			wantPrompt:     12,
+			wantCompletion: 5,
+		},
+		{
+			name: "empty terminator between partial snapshots",
+			script: `data: {"choices":[],"usage":{"prompt_tokens":9}}
+data: {"choices":[],"usage":{}}
+data: {"choices":[],"usage":{"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":6}}}
+data: [DONE]
+
+`,
+			wantPrompt:     9,
+			wantCompletion: 2,
+			wantCached:     6,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeSSE(w, tc.script)
+			}))
+			defer server.Close()
+
+			reply, err := llm.New(server.URL, "").Chat(context.Background(), "m", nil, nil, nil)
+			if err != nil {
+				t.Fatalf("Chat: %v", err)
+			}
+			if reply.Usage == nil {
+				t.Fatal("no usage reported")
+			}
+			u := reply.Usage
+			if u.PromptTokens != tc.wantPrompt {
+				t.Errorf("PromptTokens = %d, want %d", u.PromptTokens, tc.wantPrompt)
+			}
+			if u.CompletionTokens != tc.wantCompletion {
+				t.Errorf("CompletionTokens = %d, want %d", u.CompletionTokens, tc.wantCompletion)
+			}
+			if u.CachedTokens != tc.wantCached {
+				t.Errorf("CachedTokens = %d, want %d", u.CachedTokens, tc.wantCached)
+			}
+			if u.CachedTokens > u.PromptTokens {
+				t.Errorf("CachedTokens (%d) exceeds PromptTokens (%d)", u.CachedTokens, u.PromptTokens)
+			}
+			if got, want := u.TotalTokens(), tc.wantPrompt+tc.wantCompletion; got != want {
+				t.Errorf("TotalTokens = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
 // TestAnthropicMessageDeltaZeroCacheResetsMessageStart covers a gateway that
 // reports cache counts in message_start and then authoritative zero counts in
 // message_delta (a cache miss on the final accounting snapshot). An explicit

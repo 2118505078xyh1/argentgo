@@ -132,6 +132,16 @@ type runState struct {
 	metaMu   sync.Mutex
 	toolMeta map[string]ToolMeta
 
+	// Wall-clock timing for the optional StartedAtMS/FinishedAtMS event fields.
+	// toolTimes is keyed by ToolCallID so parallel calls time independently;
+	// timingMu guards it and the single in-flight reasoning window. A nil map is
+	// created lazily, so manually built runStates stay safe (timing is a no-op).
+	// These values are never persisted here: they only enrich events for a
+	// frontend/session layer that chooses to consume them.
+	timingMu       sync.Mutex
+	toolTimes      map[string]time.Time
+	reasoningStart time.Time
+
 	// compactor and compactThreshold drive the mid-turn compaction boundary.
 	compactor        Compactor
 	compactThreshold int
@@ -398,6 +408,10 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
 			return s.result(StopProviderError), err
 		}
+		// Bracket the request so a reasoning block can carry a real wall-clock
+		// window. The start is only consumed when the reply actually contains
+		// reasoning; otherwise the next turn simply overwrites it.
+		s.startReasoning(timeSource())
 		reply, err := s.chatWithFallback(ctx, turn)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -413,7 +427,14 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		if reply.Reasoning != "" {
 			// Reasoning arrives as one block through Chatter; a provider that
 			// streams it separately still renders correctly here.
-			s.emit(Event{Kind: EventReasoningDelta, Turn: turn, Text: reply.Reasoning})
+			timing := s.finishReasoning(timeSource())
+			s.emit(Event{
+				Kind:         EventReasoningDelta,
+				Turn:         turn,
+				Text:         reply.Reasoning,
+				StartedAtMS:  timing.StartedAtMS,
+				FinishedAtMS: timing.FinishedAtMS,
+			})
 		}
 		turnUsage, promptTokens := s.account(reply, promptEstimate)
 		s.promptTokens = promptTokens

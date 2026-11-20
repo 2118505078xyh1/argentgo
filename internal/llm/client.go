@@ -577,13 +577,25 @@ streamLoop:
 				next.CachedTokens = details.CachedTokens
 			}
 			// Usage is normally reported once, in the final chunk before
-			// [DONE]. Some gateways append an empty usage object as a
-			// terminator, or emit an all-zero snapshot before the real one.
-			// Replacing on every chunk would let such a trailing empty object
-			// erase totals already received, corrupting budget accounting.
-			// Adopt a chunk with data, or the first (empty) one if none yet.
-			if usage == nil || next.PromptTokens > 0 || next.CompletionTokens > 0 || next.CachedTokens > 0 {
-				usage = next
+			// [DONE]. Gateways also emit partial snapshots: an all-zero
+			// terminator, an early prompt-only count, or a final chunk that
+			// carries only the cached-token breakdown. Merge each field
+			// independently instead of replacing the whole snapshot: a zero
+			// field means "not reported in this chunk", never "reset". If a
+			// chunk with data replaced earlier totals, a cached-only tail
+			// would leave CachedTokens > PromptTokens and TotalTokens == 0,
+			// silently corrupting every downstream budget calculation.
+			if usage == nil {
+				usage = &Usage{}
+			}
+			if next.PromptTokens > 0 {
+				usage.PromptTokens = next.PromptTokens
+			}
+			if next.CompletionTokens > 0 {
+				usage.CompletionTokens = next.CompletionTokens
+			}
+			if next.CachedTokens > 0 {
+				usage.CachedTokens = next.CachedTokens
 			}
 		}
 		for _, choice := range event.Choices {

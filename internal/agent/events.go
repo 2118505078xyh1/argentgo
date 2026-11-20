@@ -72,9 +72,9 @@ func RetryInfoFromAttempt(a llm.RetryAttempt, model string, maxAttempts int, del
 //	turn_start / turn_end    Turn
 //	checkpoint_ready         Turn, Checkpoint (emitted before a mutating batch)
 //	text_delta               Turn, Text
-//	reasoning_delta          Turn, Text (a whole reasoning block)
-//	tool_start               Turn, ToolCallID, ToolName, Args
-//	tool_end                 Turn, ToolCallID, ToolName, Output, IsError, DurationMS
+//	reasoning_delta          Turn, Text (a whole reasoning block), StartedAtMS, FinishedAtMS
+//	tool_start               Turn, ToolCallID, ToolName, Args, StartedAtMS
+//	tool_end                 Turn, ToolCallID, ToolName, Output, IsError, DurationMS, StartedAtMS, FinishedAtMS
 //	usage                    Turn, Usage (this request), TotalUsage (run total)
 //	error                    Err, Failure (redacted classification; may be nil)
 //	notice                   Text
@@ -121,6 +121,14 @@ type Event struct {
 	// that build an EventRetry directly, keeping their JSON byte-for-byte
 	// unchanged.
 	Retry *RetryInfo `json:"retry,omitempty"`
+	// StartedAtMS and FinishedAtMS are the wall-clock bracket of a tool or
+	// reasoning step in Unix epoch milliseconds. They are populated only on
+	// tool_start (start only), tool_end and reasoning_delta events. A zero value
+	// means "no timing" and is omitted from JSON, so encodings of events that do
+	// not carry timing stay byte-for-byte unchanged. Unlike the relative
+	// DurationMS these absolute timestamps survive a session reload.
+	StartedAtMS  int64 `json:"started_at_ms,omitempty"`
+	FinishedAtMS int64 `json:"finished_at_ms,omitempty"`
 }
 
 // IsTerminal reports whether e ends a run and is therefore must-deliver: a

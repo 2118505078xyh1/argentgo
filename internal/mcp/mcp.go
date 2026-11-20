@@ -179,9 +179,11 @@ type client struct {
 	tr      transport
 	timeout time.Duration
 
-	// mu guards the last successfully listed tool view exposed by Tools.
+	// mu guards the last successfully listed tool view exposed by Tools and
+	// the capabilities parsed from the initialize response.
 	mu    sync.RWMutex
 	tools []Tool
+	caps  ServerCapabilities
 }
 
 func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
@@ -221,13 +223,34 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 		Instructions:    result.Instructions,
 		Capabilities:    result.Capabilities,
 	}
+	// Parse once at the boundary and remember the result: ListTools and
+	// ListResources use it to skip requests the server cannot serve. Keep the
+	// raw payload in ServerInfo unchanged for callers that want it.
+	c.mu.Lock()
+	c.caps = ParseCapabilities(result.Capabilities)
+	c.mu.Unlock()
 	if err := c.tr.notify(ctx, "notifications/initialized", nil); err != nil {
 		return ServerInfo{}, c.wrap(err, "notifications/initialized")
 	}
 	return info, nil
 }
 
+// capabilitySkipped reports whether a list request should be suppressed
+// because the server named some capabilities but not this one. Servers that
+// sent no capabilities, an empty "{}" or only unknown keys are treated as
+// unknown and still get the request, so legacy and under-declaring servers
+// keep working.
+func (c *client) capabilitySkipped(cap string) bool {
+	c.mu.RLock()
+	caps := c.caps
+	c.mu.RUnlock()
+	return caps.Enumerated() && !caps.Supports(cap)
+}
+
 func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
+	if c.capabilitySkipped("tools") {
+		return nil, nil
+	}
 	ctx, cancel := c.timeoutContext(ctx)
 	defer cancel()
 
@@ -353,6 +376,9 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 // ListResources returns the server's resources. A server that does not
 // implement resources/list yields an empty list rather than an error.
 func (c *client) ListResources(ctx context.Context) ([]Resource, error) {
+	if c.capabilitySkipped("resources") {
+		return nil, nil
+	}
 	ctx, cancel := c.timeoutContext(ctx)
 	defer cancel()
 

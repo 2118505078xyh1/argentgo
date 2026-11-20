@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
@@ -175,7 +174,9 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 		}
 	}
 	if id == "" {
-		id = strings.TrimSuffix(filepath.Base(path), fileExt)
+		// Match the case-insensitive extension handling used when transcripts
+		// are discovered and opened; see transcriptStem in store.go.
+		id = transcriptStem(filepath.Base(path))
 	}
 	if title == "" {
 		title = id

@@ -125,6 +125,14 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 	}
 }
 
+// promptTerminal is the ACP session/prompt result. TurnEndReason is additive
+// and omitempty: a client that only reads stopReason sees the original wire
+// shape for every outcome, so this is a pure extension of the protocol surface.
+type promptTerminal struct {
+	StopReason    string        `json:"stopReason"`
+	TurnEndReason TurnEndReason `json:"turnEndReason,omitempty"`
+}
+
 func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGroup) {
 	text := promptText(req.Params)
 	if text == "" {
@@ -186,6 +194,7 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 		// runs, ctx.Err() is context.Canceled for every error and a genuine
 		// failure would be misreported as a normal stop.
 		cancelled := err != nil && isCancelled(ctx, err)
+		reason := ClassifyTurnEnd(err, cancelled)
 
 		// Release the single-prompt slot *before* publishing the terminal
 		// result. The result write is observable by the client: a client that
@@ -201,15 +210,19 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 
 		if err != nil {
 			// Same cancellation rule as --rpc and --serve; the wire result
-			// stays {"stopReason":"cancelled"} as ACP clients expect.
+			// stays {"stopReason":"cancelled"} as ACP clients expect. The
+			// added turnEndReason is omitempty-compatible so this is additive.
 			if cancelled {
-				s.peer.respond(id, map[string]any{"stopReason": "cancelled"})
+				s.peer.respond(id, promptTerminal{StopReason: "cancelled", TurnEndReason: reason})
 				return
 			}
+			// A real failure remains a JSON-RPC error: its code (-32603) already
+			// distinguishes it from the two result-shaped outcomes, and keeping
+			// the error envelope untouched preserves the existing ACP format.
 			s.peer.fail(id, codeInternalError, wireErrorText(err))
 			return
 		}
-		s.peer.respond(id, map[string]any{"stopReason": "end_turn"})
+		s.peer.respond(id, promptTerminal{StopReason: "end_turn", TurnEndReason: reason})
 	}()
 }
 

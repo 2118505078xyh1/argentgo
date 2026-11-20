@@ -508,27 +508,37 @@ func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
 	// The start event is emitted before the tool runs, so no callResult exists
 	// yet; read the intent straight from the call's arguments.
 	intent, _ := ExtractIntent(json.RawMessage(call.Function.Arguments))
+	// Record the wall-clock start keyed by call id. finishCall consumes it so a
+	// tool_end carries an absolute bracket that survives a session reload.
+	started := timeSource()
+	s.startTool(call.ID, started)
 	s.emit(Event{
-		Kind:       EventToolStart,
-		Turn:       turn,
-		ToolCallID: call.ID,
-		ToolName:   call.Function.Name,
-		Args:       call.Function.Arguments,
-		Intent:     intent,
+		Kind:        EventToolStart,
+		Turn:        turn,
+		ToolCallID:  call.ID,
+		ToolName:    call.Function.Name,
+		Args:        call.Function.Arguments,
+		Intent:      intent,
+		StartedAtMS: unixMillis(started),
 	})
 }
 
 func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
+	// Paired with emitToolStart for every call (normal, blocked, cancelled and
+	// parallel). An unknown id is a safe no-op and leaves the fields omitted.
+	timing := s.finishTool(call.ID, timeSource())
 	s.emit(Event{
-		Kind:       EventToolEnd,
-		Turn:       turn,
-		ToolCallID: call.ID,
-		ToolName:   call.Function.Name,
-		Args:       call.Function.Arguments,
-		Intent:     res.intent,
-		Output:     res.output,
-		IsError:    res.isError,
-		DurationMS: res.duration.Milliseconds(),
+		Kind:         EventToolEnd,
+		Turn:         turn,
+		ToolCallID:   call.ID,
+		ToolName:     call.Function.Name,
+		Args:         call.Function.Arguments,
+		Intent:       res.intent,
+		Output:       res.output,
+		IsError:      res.isError,
+		DurationMS:   res.duration.Milliseconds(),
+		StartedAtMS:  timing.StartedAtMS,
+		FinishedAtMS: timing.FinishedAtMS,
 	})
 	s.record("tool", map[string]string{
 		"id":        call.ID,

@@ -194,3 +194,96 @@ func TestRedactJSONScrubsAuthorizationAndURL(t *testing.T) {
 		t.Fatalf("JSON lost non-secret content: %q", out)
 	}
 }
+
+// TestRedactAuthorizationWithoutSpace covers the HTTP-valid spelling with no
+// OWS after the header colon. The headerPrefixes table used to only match
+// "Authorization: " (with a trailing space), so `Authorization:Basic <b64>`
+// leaked its credential: a bare base64 token is not credential-shaped and the
+// spaced needles never matched. Both the raw-text and JSON/row paths must be
+// safe because audit reasons and terminal output use them.
+func TestRedactAuthorizationWithoutSpace(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		absent  []string
+		present []string
+	}{
+		{
+			name:    "basic auth without space",
+			in:      `Authorization:Basic dXNlcjpwYXNz`,
+			absent:  []string{"Basic", "dXNlcjpwYXNz"},
+			present: []string{"Authorization:", placeholder("auth header")},
+		},
+		{
+			name:    "lowercase header without space",
+			in:      `authorization:Basic dXNlcjpwYXNzKysvPT0=`,
+			absent:  []string{"Basic", "dXNlcjpwYXNzKysvPT0="},
+			present: []string{placeholder("auth header")},
+		},
+		{
+			name:    "inside a curl header argument",
+			in:      `curl -H 'Authorization:Basic dXNlcjpwYXNz' https://example.com`,
+			absent:  []string{"Basic", "dXNlcjpwYXNz"},
+			present: []string{"curl -H", "https://example.com", placeholder("auth header")},
+		},
+		{
+			name:    "bearer scheme without space",
+			in:      `Authorization:Bearer abc.def.ghi`,
+			absent:  []string{"Bearer", "abc.def.ghi"},
+			present: []string{placeholder("auth header")},
+		},
+		{
+			name:    "unknown scheme without space",
+			in:      `Authorization:Mac token=abc123`,
+			absent:  []string{"Mac", "abc123"},
+			present: []string{placeholder("auth header")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := Redact(tc.in)
+			for _, secret := range tc.absent {
+				if strings.Contains(out, secret) {
+					t.Errorf("Redact(%q) = %q, leaked %q", tc.in, out, secret)
+				}
+			}
+			for _, marker := range tc.present {
+				if !strings.Contains(out, marker) {
+					t.Errorf("Redact(%q) = %q, lost %q", tc.in, out, marker)
+				}
+			}
+		})
+	}
+}
+
+// TestRedactAuthorizationNoSpaceStructuredPaths checks that the no-space
+// spelling is scrubbed on the row and JSON paths too, and that the existing
+// spaced spelling still produces a single placeholder (the two needles must
+// not stack into a double redaction).
+func TestRedactAuthorizationNoSpaceStructuredPaths(t *testing.T) {
+	spaced := Redact(`Authorization: Basic dXNlcjpwYXNz`)
+	if want := "Authorization: " + placeholder("auth header"); spaced != want {
+		t.Fatalf("spaced header = %q, want %q", spaced, want)
+	}
+
+	line := []byte("\x1b[32mOK\x1b[0m Authorization:Basic dXNlcjpwYXNz \x1b[1mend\x1b[0m")
+	before := ansiSequences(line)
+	out := RedactRow(line)
+	for _, secret := range []string{"Basic", "dXNlcjpwYXNz"} {
+		if bytes.Contains(out, []byte(secret)) {
+			t.Fatalf("credential %q leaked into row: %q", secret, out)
+		}
+	}
+	if got := ansiSequences(out); !reflectDeepEqualStrings(got, before) {
+		t.Fatalf("ANSI sequences changed:\n got %q\nwant %q", got, before)
+	}
+
+	jsonIn := []byte(`{"command":"curl -H 'Authorization:Basic dXNlcjpwYXNz' https://x","ok":true}`)
+	jsonOut := RedactJSON(jsonIn)
+	if strings.Contains(jsonOut, "dXNlcjpwYXNz") {
+		t.Fatalf("credential leaked from JSON: %q", jsonOut)
+	}
+	if !strings.Contains(jsonOut, `"ok":true`) {
+		t.Fatalf("JSON lost non-secret content: %q", jsonOut)
+	}
+}
