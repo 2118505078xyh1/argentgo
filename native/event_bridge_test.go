@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -123,10 +124,19 @@ func (*captureWriteCloser) Close() error { return nil }
 // request and returns the seq from the reply, with no new dependencies.
 func TestSubscribeEventsCallsRPC(t *testing.T) {
 	in := &captureWriteCloser{}
+	// Keep the stdout stream open until the test ends so readLoop does not hit
+	// EOF (and mark the bridge closed) before SubscribeEvents registers its
+	// pending reply. A strings.Reader reaches EOF immediately and races the
+	// async call inside SubscribeEvents, failing on faster/slower CI machines.
+	pr, pw := io.Pipe()
+	defer pw.Close()
 	reply := `{"jsonrpc":"2.0","id":1,"result":{"seq":42}}` + "\n"
+	go func() {
+		_, _ = pw.Write([]byte(reply))
+	}()
 	b := &bridge{
 		stdin:   in,
-		stdout:  bufio.NewReader(strings.NewReader(reply)),
+		stdout:  bufio.NewReader(pr),
 		pending: make(map[int]chan rpcReply),
 	}
 	go b.readLoop()
