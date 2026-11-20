@@ -79,7 +79,7 @@ func messageEntries(records []Record) []Entry {
 			out = append(out, entry)
 		}
 	}
-	return out
+	return ReconcileToolPairs(out)
 }
 
 // fieldString reads the first matching string key from a JSON object payload.
