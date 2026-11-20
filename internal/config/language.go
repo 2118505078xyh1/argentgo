@@ -83,3 +83,39 @@ func DetectReplyLanguage(locale string, env map[string]string) string {
 	}
 	return replyLanguageDefault
 }
+
+// replyLanguageDisplayNames maps a canonical reply-language code to the
+// language's native display name. config must not depend on internal/i18n, so
+// these native names mirror i18n's output-language table locally; the codes are
+// exactly the ones DetectReplyLanguage / canonicalReplyLanguage produce, which
+// lets callers round-trip DetectReplyLanguage -> LocaleDisplayName.
+var replyLanguageDisplayNames = map[string]string{
+	"en": "English",
+	"zh": "中文",
+	"ja": "日本語",
+	"ko": "한국어",
+	"ru": "Русский",
+	"de": "Deutsch",
+	"fr": "Français",
+	"pt": "Português",
+	"es": "Español",
+	"ca": "Català",
+}
+
+// LocaleDisplayName returns the native display name for a reply-language code
+// or locale alias (e.g. "zh" -> "中文", "eng" -> "English", "中文" -> "中文").
+// The app may inject the result into a system prompt as the language the model
+// should reply in. It is a pure function: no config or global state is read.
+//
+// Input is normalised through canonicalReplyLanguage first, so aliases,
+// encoding/script/region subtags and native names all resolve to the same
+// display name. An empty, "auto", unknown or unsupported value yields "" so a
+// caller can omit the directive rather than naming a language the user did not
+// ask for.
+func LocaleDisplayName(code string) string {
+	canonical, ok := canonicalReplyLanguage(code)
+	if !ok {
+		return ""
+	}
+	return replyLanguageDisplayNames[canonical]
+}

@@ -282,6 +282,11 @@ func (b *hookBridge) lifecycle(ctx context.Context, event hooks.Event, payload h
 type hookedTools struct {
 	inner  agent.ToolRunner
 	bridge *hookBridge
+	// mutationPaths reports the workspace-relative paths a mutating tool call
+	// changed. Injected from the toolset so FileChanged hooks see only genuine
+	// in-boundary file mutations; nil (e.g. tests without a registry) disables
+	// the event. It is deliberately a narrow func, not the whole registry.
+	mutationPaths func(name, args string) []string
 }
 
 func (h *hookedTools) Specs() []llm.ToolSpec { return h.inner.Specs() }
@@ -322,7 +327,26 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (string, error
 	if post.Message != "" {
 		out = appendHookNote(out, post.Message)
 	}
+	// After a successful mutating tool call, notify subscribers of the files
+	// that actually changed. This is opt-in end to end: without a trusted hook
+	// document subscribing to FileChanged the bridge dispatch is a no-op, and
+	// paths come from the registry's MutationPaths seam so read-only tools and
+	// out-of-boundary writes never produce an event. Default runs are unchanged.
+	h.fireFileChanged(ctx, name, args, &out)
 	return out, nil
+}
+
+// fireFileChanged dispatches one FileChanged event per path the registry
+// reports as mutated by a successful tool call. It reuses noteTool so a failing
+// or advising hook is attached to the tool output without ever replacing it,
+// and the event's Path (not Tool) drives matcher filtering in the dispatcher.
+func (h *hookedTools) fireFileChanged(ctx context.Context, name, args string, out *string) {
+	if h.mutationPaths == nil {
+		return
+	}
+	for _, path := range h.mutationPaths(name, args) {
+		h.noteTool(ctx, hooks.FileChanged, hooks.Payload{Path: path}, out)
+	}
 }
 
 // noteTool attaches non-blocking hook failures to the tool output so the model

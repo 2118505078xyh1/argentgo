@@ -147,3 +147,71 @@ func TestDetectReplyLanguage(t *testing.T) {
 		})
 	}
 }
+
+func TestLocaleDisplayName(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		// Canonical short codes.
+		{name: "English code", code: "en", want: "English"},
+		{name: "Chinese code", code: "zh", want: "中文"},
+		{name: "Japanese code", code: "ja", want: "日本語"},
+		{name: "Korean code", code: "ko", want: "한국어"},
+		{name: "Russian code", code: "ru", want: "Русский"},
+		{name: "German code", code: "de", want: "Deutsch"},
+		{name: "French code", code: "fr", want: "Français"},
+		{name: "Portuguese code", code: "pt", want: "Português"},
+		{name: "Spanish code", code: "es", want: "Español"},
+		{name: "Catalan code", code: "ca", want: "Català"},
+
+		// CJK native names resolve to the same display name.
+		{name: "Chinese native name", code: "中文", want: "中文"},
+		{name: "Simplified Chinese native name", code: "简体中文", want: "中文"},
+		{name: "Traditional Chinese native name", code: "繁體中文", want: "中文"},
+		{name: "Japanese native name", code: "日本語", want: "日本語"},
+		{name: "Korean native name", code: "한국어", want: "한국어"},
+
+		// Aliases and locale spellings.
+		{name: "three letter English alias", code: "eng", want: "English"},
+		{name: "three letter Chinese alias", code: "chi", want: "中文"},
+		{name: "zho alias", code: "zho", want: "中文"},
+		{name: "full English name", code: "English", want: "English"},
+		{name: "full Chinese name", code: "Chinese", want: "中文"},
+		{name: "POSIX C locale", code: "C", want: "English"},
+		{name: "POSIX locale", code: "POSIX", want: "English"},
+		{name: "locale with region and encoding", code: "zh_CN.UTF-8", want: "中文"},
+		{name: "BCP-47 script subtag", code: "zh-Hant-TW", want: "中文"},
+		{name: "encoding modifier suffix", code: "ja_JP@euro", want: "日本語"},
+		{name: "trimmed and case folded", code: "  DE_de  ", want: "Deutsch"},
+
+		// Empty, neutral and unknown values yield no display name.
+		{name: "empty string", code: "", want: ""},
+		{name: "whitespace only", code: "   ", want: ""},
+		{name: "auto sentinel", code: "auto", want: ""},
+		{name: "AUTO sentinel case folded", code: "AUTO", want: ""},
+		{name: "unknown code", code: "xx", want: ""},
+		{name: "unsupported locale", code: "xx-YY", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := LocaleDisplayName(tt.code); got != tt.want {
+				t.Errorf("LocaleDisplayName(%q) = %q, want %q", tt.code, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLocaleDisplayNameRoundTripsDetectReplyLanguage(t *testing.T) {
+	codes := []string{"zh", "en", "ja", "ko", "ru", "de", "fr", "pt", "es", "ca"}
+	for _, code := range codes {
+		if got := DetectReplyLanguage(code, nil); got != code {
+			t.Errorf("DetectReplyLanguage(%q, nil) = %q, want %q", code, got, code)
+		}
+		if LocaleDisplayName(code) == "" {
+			t.Errorf("LocaleDisplayName(%q) is empty; DetectReplyLanguage output must always have a display name", code)
+		}
+	}
+}

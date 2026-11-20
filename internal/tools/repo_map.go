@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
 // ---- repo_map ----
@@ -67,8 +69,11 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	if err != nil {
 		return "", err
 	}
-	var files []string
-	var relFiles []string // all walked paths, used for Go symbol extraction
+	// Walk the whole tree so important files that appear late in walk order
+	// (e.g. a deeply nested README or go.mod) are still discoverable. The file
+	// view is budgeted afterwards, with important files pinned to the front.
+	var allFiles []repoMapWalkedFile
+	var relFiles []string // first repoMapMaxFiles walked paths, for Go symbols (legacy behaviour)
 	err = filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -87,21 +92,17 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		relFiles = append(relFiles, rel)
-		marker := ""
-		if repoMapEntryPoints[strings.ToLower(entry.Name())] {
-			marker = " [entry]"
-		}
-		files = append(files, fmt.Sprintf("%s:%d%s", rel, countLines(path), marker))
-		if len(files) >= repoMapMaxFiles {
-			return filepath.SkipAll
+		allFiles = append(allFiles, repoMapWalkedFile{rel: rel, path: path})
+		if len(relFiles) < repoMapMaxFiles {
+			relFiles = append(relFiles, rel)
 		}
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	sort.Strings(files)
+
+	files := repoMapSelectFiles(allFiles)
 
 	lines := []string{"dirs:"}
 	if len(dirs) == 0 {
@@ -115,7 +116,7 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	for _, file := range files {
 		lines = append(lines, "  "+file)
 	}
-	if len(files) >= repoMapMaxFiles {
+	if len(allFiles) >= repoMapMaxFiles {
 		lines = append(lines, fmt.Sprintf("... [capped at %d files]", repoMapMaxFiles))
 	}
 	// The ranked symbol view is additive: the dirs/files view above is kept
@@ -129,6 +130,51 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 		lines = append(lines, repoMapSymbolSection(extractRepoSymbols(base, relFiles), mentions, repoMapSymbolTokenBudget)...)
 	}
 	return clip(ctx, strings.Join(lines, "\n")), nil
+}
+
+// repoMapWalkedFile is one regular file discovered by the map walk.
+type repoMapWalkedFile struct{ rel, path string }
+
+// repoMapFormatFile renders one walked file as the legacy "rel:lines[marker]"
+// line. Sorting these strings reproduces the old sort.Strings(files) order.
+func repoMapFormatFile(rel, path string) string {
+	marker := ""
+	if repoMapEntryPoints[strings.ToLower(filepath.Base(rel))] {
+		marker = " [entry]"
+	}
+	return fmt.Sprintf("%s:%d%s", rel, countLines(path), marker)
+}
+
+// repoMapSelectFiles builds the budgeted file view. Important project files
+// (go.mod, README, Cargo.toml, Dockerfile, CI workflows, ...) are pinned ahead
+// of the ordinary files so neither the repoMapMaxFiles cap nor the final output
+// clip can crowd them out. Within each group the original lexical order is
+// preserved, so ordinary symbol/file ordering is unchanged otherwise.
+func repoMapSelectFiles(all []repoMapWalkedFile) []string {
+	var important, ordinary []string
+	for _, f := range all {
+		line := repoMapFormatFile(f.rel, f.path)
+		if provider.IsImportantProjectFile(f.rel) {
+			important = append(important, line)
+		} else {
+			ordinary = append(ordinary, line)
+		}
+	}
+	sort.Strings(important)
+	sort.Strings(ordinary)
+
+	files := make([]string, 0, repoMapMaxFiles)
+	files = append(files, important...)
+	if len(files) > repoMapMaxFiles {
+		files = files[:repoMapMaxFiles]
+	}
+	if remaining := repoMapMaxFiles - len(files); remaining > 0 && len(ordinary) > 0 {
+		if len(ordinary) > remaining {
+			ordinary = ordinary[:remaining]
+		}
+		files = append(files, ordinary...)
+	}
+	return files
 }
 
 func repoMapTopDirs(base string) ([]string, error) {

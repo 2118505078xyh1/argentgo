@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/mcp"
 )
 
 // Status values printed by `doctor`.
@@ -26,7 +29,7 @@ type doctorCheck struct {
 	detail string
 }
 
-// runDoctor reports config, storage, provider, git and Go health.
+// runDoctor reports config, MCP config, storage, provider, git and Go health.
 func runDoctor(app App, ctx context.Context, args []string) int {
 	baseURL, help, err := doctorFlags(args)
 	if err != nil {
@@ -44,6 +47,7 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 
 	checks := []doctorCheck{
 		checkConfigFile(app),
+		checkMCPConfig(app),
 		checkStorage(app),
 		checkProvider(ctx, baseURL),
 		checkGit(),
@@ -98,6 +102,98 @@ func checkConfigFile(app App) doctorCheck {
 	return doctorCheck{name: "config", status: statusOK, detail: path}
 }
 
+// mcpConfigReport summarises the integrity of the configured mcpServers
+// section. servers counts entries the runtime decoder accepts; problems holds
+// everything doctor should surface, including issues the decoder skips.
+type mcpConfigReport struct {
+	servers  int
+	problems []mcp.Problem
+	shapeOK  bool
+}
+
+// inspectMCPConfig validates the mcpServers section purely from parsed config
+// data; no server is contacted. It reuses mcp.DecodeConfig so doctor and the
+// agent agree on what a valid entry means, then adds two reachability checks
+// the decoder deliberately leaves to Connect: a missing command/url target and
+// an unsupported transport value. Disabled servers are exempt.
+func inspectMCPConfig(raw map[string]any) mcpConfigReport {
+	report := mcpConfigReport{shapeOK: true}
+	if raw == nil {
+		return report
+	}
+	value, exists := raw["mcpServers"]
+	if !exists || value == nil {
+		return report
+	}
+	switch value.(type) {
+	case map[string]any, []any:
+	default:
+		report.shapeOK = false
+		report.problems = append(report.problems, mcp.Problem{
+			Reason: fmt.Sprintf("mcpServers must be an object or array, got %T", value),
+		})
+		return report
+	}
+
+	specs, problems := mcp.DecodeConfig(raw)
+	report.problems = append(report.problems, problems...)
+	report.servers = len(specs)
+	for _, spec := range specs {
+		if spec.Enabled != nil && !*spec.Enabled {
+			continue
+		}
+		if spec.Transport != "" && spec.Transport != "stdio" && spec.Transport != "http" {
+			report.problems = append(report.problems, mcp.Problem{
+				Server: spec.Name,
+				Field:  "transport",
+				Reason: fmt.Sprintf("unsupported transport %q (want stdio or http)", spec.Transport),
+			})
+		}
+		if spec.Command == "" && spec.URL == "" {
+			report.problems = append(report.problems, mcp.Problem{
+				Server: spec.Name,
+				Reason: "missing command and url; server cannot connect",
+			})
+		}
+	}
+	// DecodeConfig sorts its own problems; our appended ones must not make the
+	// report order depend on spec iteration.
+	sort.Slice(report.problems, func(i, j int) bool {
+		return report.problems[i].Error() < report.problems[j].Error()
+	})
+	return report
+}
+
+// checkMCPConfig reports the integrity of the mcpServers section of the config
+// file. Missing targets, bad field types and unsupported transports are
+// warnings (the agent still runs); a structurally wrong mcpServers value is a
+// failure because it means the whole section was ignored.
+func checkMCPConfig(app App) doctorCheck {
+	cfg, err := loadConfigFile(app.configPath())
+	if err != nil {
+		return doctorCheck{name: "mcp", status: statusWarn, detail: "config unreadable: " + err.Error()}
+	}
+	report := inspectMCPConfig(cfg)
+	if !report.shapeOK {
+		return doctorCheck{name: "mcp", status: statusFail, detail: formatMCPProblems(report)}
+	}
+	if len(report.problems) == 0 {
+		if report.servers == 0 {
+			return doctorCheck{name: "mcp", status: statusOK, detail: "no servers configured"}
+		}
+		return doctorCheck{name: "mcp", status: statusOK, detail: fmt.Sprintf("%d server(s) valid", report.servers)}
+	}
+	return doctorCheck{name: "mcp", status: statusWarn, detail: formatMCPProblems(report)}
+}
+
+func formatMCPProblems(report mcpConfigReport) string {
+	parts := make([]string, 0, len(report.problems))
+	for _, problem := range report.problems {
+		parts = append(parts, problem.Error())
+	}
+	return fmt.Sprintf("%d problem(s): %s", len(parts), strings.Join(parts, "; "))
+}
+
 func checkStorage(app App) doctorCheck {
 	dir := app.storageDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -147,7 +243,8 @@ func checkGit() doctorCheck {
 func doctorUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent doctor [--base-url <url>]
 
-Checks config loading, storage writability, provider reachability (3s timeout),
-git availability and the Go runtime version.
+Checks config loading, local mcpServers config integrity, storage writability,
+provider reachability (3s timeout), git availability and the Go runtime version.
+The mcpServers check is fully local: it never contacts any server.
 `)
 }

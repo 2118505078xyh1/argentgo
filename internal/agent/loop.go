@@ -93,6 +93,12 @@ type runState struct {
 	promptTokens int
 	turns        int
 	depth        int
+	// Budget reminders are per context window: delivered records which
+	// occupancy tiers have already been announced, and reminderWindow is the
+	// window size those tiers were computed against. A compaction resets both
+	// so the fresh window can announce its tiers again.
+	reminderDelivered map[int]bool
+	reminderWindow    int
 	// bgOwner is this run's delivery identity inside Subagent.Background. It
 	// differs from depth: sibling subagents share a depth but must never drain
 	// each other's background results.
@@ -226,6 +232,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		costWatch:        NewCostWatcher(opts.Budget.MaxCostUSD),
 		verifyState:      VerifyLoopState{Max: opts.MaxVerifyReflections, Root: opts.Root},
 	}
+	// Seed the reminder window so the first loop entry is not mistaken for a
+	// new window (which would warn at tier 0 before any context was consumed).
+	if window, ok := s.budgetReminderWindow(); ok {
+		s.reminderWindow = window
+	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: prompt},
@@ -356,6 +367,14 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				Text: fmt.Sprintf("trimmed %d old tool result(s), ~%d tokens freed", trimmed.Pruned, trimmed.Freed),
 			})
 		}
+		// Model-visible budget reminder: inject one short user turn when context
+		// occupancy crosses a new milestone so the model can wrap up before the
+		// window fills. All stop checks have passed, trimming has run and the
+		// transcript is a paired end-of-round view, so a standalone user message
+		// here cannot split a tool_use/tool_result pair. Unconfigured runs are a
+		// no-op and keep byte-for-byte identical messages.
+		s.maybeBudgetReminder()
+
 		if max := s.opts.Budget.MaxPromptTokens; max > 0 {
 			estimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
 			if estimate >= max {
@@ -551,6 +570,9 @@ func (s *runState) maybeCompact() {
 		return
 	}
 	s.messages = compacted
+	// The summarised context is a fresh window: clear the per-window delivery
+	// state so budget reminders can fire again as this window fills.
+	s.resetBudgetReminder()
 	// Re-estimate now so the budget check at the top of the next iteration sees
 	// the compacted history rather than the old, oversized one.
 	s.promptTokens = EstimateMessages(s.messages)
@@ -736,6 +758,73 @@ func (s *runState) injectSteering(extra ...string) bool {
 		s.emit(Event{Kind: EventNotice, Text: "steering: " + text})
 	}
 	return len(pending) > 0
+}
+
+// budgetReminderPrefix marks a model-visible budget reminder in the transcript
+// so tests and frontends can recognise it without parsing the English prose.
+const budgetReminderPrefix = "[budget reminder] "
+
+// budgetReminderWindow returns the context-occupancy window used for reminders
+// and whether reminders are active for this run. Reminders are opt-in on the
+// compaction threshold, which is the explicit context boundary the loop manages:
+// a run that configures no threshold leaves its messages untouched, so default
+// behaviour (including the trim-only MaxContextTokens path) is unchanged.
+func (s *runState) budgetReminderWindow() (int, bool) {
+	if s.compactThreshold > 0 {
+		return s.compactThreshold, true
+	}
+	return 0, false
+}
+
+// resetBudgetReminder clears the per-window delivery state after a compaction.
+// The next check treats the summarised context as a new window and can announce
+// its tiers again.
+func (s *runState) resetBudgetReminder() {
+	s.reminderDelivered = nil
+	s.reminderWindow = 0
+}
+
+// maybeBudgetReminder appends a model-visible reminder to s.messages when the
+// current context occupancy crosses a new milestone. It reuses the pure
+// decision layer (BudgetTier/ShouldRemind) read-only and is a no-op for runs
+// with no configured window.
+//
+// The reminder is a standalone "user" turn, mirroring the steering/mistake
+// guidance injectors: the caller invokes it at the top of the loop, after stop
+// checks and trimming, when the transcript is a paired end-of-round view. That
+// placement guarantees the message is actually sent on the next request (the
+// model reads it and can wind down on its own) without breaking a
+// tool_use/tool_result pair or changing any stop semantics.
+func (s *runState) maybeBudgetReminder() {
+	window, ok := s.budgetReminderWindow()
+	if !ok || window <= 0 {
+		return
+	}
+	if s.reminderDelivered == nil {
+		s.reminderDelivered = make(map[int]bool)
+	}
+	// A different window size (fresh run state after compaction, or a changed
+	// configuration) is a new window; ShouldRemind then clears the deliveries
+	// and allows an identical tier to warn once again.
+	newWindow := s.reminderWindow != window
+	s.reminderWindow = window
+
+	curTier := BudgetTier(s.promptTokens, window)
+	// delivered holds exactly the tiers already announced, so its maximum is
+	// the previous tier the decision layer should compare against.
+	prevTier := 0
+	for tier := range s.reminderDelivered {
+		if tier > prevTier {
+			prevTier = tier
+		}
+	}
+	if !ShouldRemind(prevTier, curTier, s.reminderDelivered, newWindow) {
+		return
+	}
+
+	text := budgetReminderPrefix + BudgetReminderText(window-s.promptTokens, window)
+	s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
+	s.emit(Event{Kind: EventBudgetReminder, Turn: s.turns, Text: text})
 }
 
 // maxParallel is the worker count for a read-only batch.

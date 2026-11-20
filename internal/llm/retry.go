@@ -462,8 +462,17 @@ func bodyWithPrefix(prefix []byte, original io.ReadCloser) io.ReadCloser {
 	}
 }
 
+// maxRetrySeconds is the largest whole-second count that can be multiplied
+// into a time.Duration without overflowing int64. A Retry-After beyond it
+// saturates (like parseRetryAfterMS does) so a hostile header cannot wrap
+// negative: a negative hint would slip past Do's "delay > ceiling" check and
+// be treated as "no hint", replaying a response that must be declined.
+const maxRetrySeconds = int64(^uint64(0)>>1) / int64(time.Second)
+
 // ParseRetryAfter reads a Retry-After header value, either delta-seconds or an
-// HTTP date. It returns zero when the header is absent or unparseable.
+// HTTP date. It returns zero when the header is absent or unparseable. A
+// whole-second value larger than time.Duration can hold saturates to the
+// maximum duration instead of overflowing into a negative delay.
 func ParseRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -472,6 +481,9 @@ func ParseRetryAfter(value string) time.Duration {
 	if seconds, err := strconv.Atoi(value); err == nil {
 		if seconds <= 0 {
 			return 0
+		}
+		if int64(seconds) > maxRetrySeconds {
+			return time.Duration(^uint64(0) >> 1)
 		}
 		return time.Duration(seconds) * time.Second
 	}

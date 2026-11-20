@@ -405,17 +405,19 @@ func (p *Policy) checkCommand(command string) Result {
 func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool) {
 	var best Decision
 	matched := false
+	// Collect every path resource once. pathValues includes the `paths` array
+	// used by checkpoint restores; scanning only the scalar keys here used to
+	// hide a path rule aimed at an array entry. In a multi-resource call that
+	// let an Ask on a scalar path mask a Deny on an array entry, because the
+	// deny rule never matched and fell out of the strictest-wins walk.
+	paths := pathValues(fields)
 	for _, rule := range p.rules {
 		if rule.Tool != "" && rule.Tool != "*" && rule.Tool != name {
 			continue
 		}
 		if rule.Path != "" {
 			matchedPath := false
-			for _, key := range pathArgKeys {
-				value, ok := fields[key].(string)
-				if !ok {
-					continue
-				}
+			for _, value := range paths {
 				resolved, escape := p.resolve(value)
 				if escape {
 					matchedPath = true

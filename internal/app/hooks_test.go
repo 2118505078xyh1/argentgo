@@ -352,6 +352,125 @@ func TestExecuteFiresPostToolUseFailureOnToolError(t *testing.T) {
 	}
 }
 
+// fileChangedHookDocument subscribes only to FileChanged, so a run with this
+// document proves the app fires the event after a real file mutation.
+const fileChangedHookDocument = `{"hooks":{
+	"FileChanged":[{"hooks":[{"command":"true"}]}]
+}}`
+
+func TestExecuteFiresFileChangedAfterWrite(t *testing.T) {
+	env, _ := testEnv(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".argent", "hooks.json"), fileChangedHookDocument)
+	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustHookFile(t, filepath.Join(root, ".argent", "hooks.json"), res.Storage)
+	fake := &recordingDispatcher{}
+	res.HookDispatcher = fake
+	res.Approve = autoApprover{}
+	res.Chatter = &toolCallChatter{first: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: "c1", Type: "function",
+		Function: llm.ToolCallFunction{Name: "write", Arguments: `{"path":"src/changed.txt","content":"x"}`},
+	}}}}
+	store := testStore(t, res)
+	sess, err := store.NewSession("file-changed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(context.Background(), cli.IO{Env: env}, res, sess, "prompt", nil); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "src", "changed.txt")); err != nil {
+		t.Fatalf("write tool did not create the file: %v", err)
+	}
+	payload, ok := fake.find("FileChanged")
+	if !ok {
+		t.Fatalf("FileChanged not fired: %v", fake.events())
+	}
+	// The path is workspace-relative and slash-normalised, so a hook matcher
+	// such as "*.txt" sees the affected file rather than the tool name.
+	if payload.Path != "src/changed.txt" {
+		t.Fatalf("FileChanged path = %q, want src/changed.txt", payload.Path)
+	}
+	if payload.SessionID != sess.ID() || payload.CWD != root {
+		t.Fatalf("FileChanged run context = %+v", payload)
+	}
+}
+
+func TestExecuteDoesNotFireFileChangedForReadOnlyTool(t *testing.T) {
+	env, _ := testEnv(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "note.txt"), "hello")
+	writeFile(t, filepath.Join(root, ".argent", "hooks.json"), fileChangedHookDocument)
+	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustHookFile(t, filepath.Join(root, ".argent", "hooks.json"), res.Storage)
+	fake := &recordingDispatcher{}
+	res.HookDispatcher = fake
+	res.Approve = autoApprover{}
+	// A read call carries a path argument but mutates nothing; it must not
+	// produce a FileChanged event.
+	res.Chatter = &toolCallChatter{first: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: "c1", Type: "function",
+		Function: llm.ToolCallFunction{Name: "read", Arguments: `{"path":"note.txt"}`},
+	}}}}
+	store := testStore(t, res)
+	sess, err := store.NewSession("no-file-changed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(context.Background(), cli.IO{Env: env}, res, sess, "prompt", nil); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, ok := fake.find("FileChanged"); ok {
+		t.Fatalf("read-only tool fired FileChanged: %v", fake.events())
+	}
+}
+
+func TestHookedToolsFileChangedFiresPerPathAndAttachesAdvice(t *testing.T) {
+	fake := &recordingDispatcher{result: hooks.Result{Message: "advice"}}
+	bridge := &hookBridge{dispatcher: fake, config: &hooks.Config{}, sessionID: "s", cwd: "/root"}
+	h := &hookedTools{
+		bridge: bridge,
+		mutationPaths: func(_, _ string) []string {
+			return []string{"a.txt", "b.txt"}
+		},
+	}
+	out := "original"
+	h.fireFileChanged(context.Background(), "write", `{"path":"a.txt"}`, &out)
+	paths := map[string]bool{}
+	for _, payload := range fake.payloads {
+		if payload.Event != "FileChanged" {
+			t.Errorf("unexpected event %q", payload.Event)
+			continue
+		}
+		paths[payload.Path] = true
+		if payload.SessionID != "s" || payload.CWD != "/root" {
+			t.Errorf("run context not filled: %+v", payload)
+		}
+	}
+	if !paths["a.txt"] || !paths["b.txt"] || len(fake.payloads) != 2 {
+		t.Fatalf("mutation paths = %v, payloads = %+v", paths, fake.payloads)
+	}
+	if strings.Count(out, "advice") != 2 || !strings.HasPrefix(out, "original") {
+		t.Fatalf("hook advice not attached without replacing output: %q", out)
+	}
+}
+
+func TestHookedToolsFileChangedNoopWithoutMutationPaths(t *testing.T) {
+	fake := &recordingDispatcher{}
+	h := &hookedTools{bridge: &hookBridge{dispatcher: fake, config: &hooks.Config{}}}
+	out := "unchanged"
+	h.fireFileChanged(context.Background(), "write", `{}`, &out)
+	if len(fake.payloads) != 0 || out != "unchanged" {
+		t.Fatalf("no-registry case emitted %v / %q", fake.payloads, out)
+	}
+}
+
 func TestExecuteWithoutHookDocumentsDoesNotDispatch(t *testing.T) {
 	env, _ := testEnv(t)
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: t.TempDir()})

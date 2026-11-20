@@ -53,6 +53,10 @@ func TestParseRetryAfter(t *testing.T) {
 		{"-3", 0},
 		{"Wed, 21 Oct 2015 07:28:00 GMT", 0}, // in the past
 		{"not a date", 0},
+		// A whole-second value beyond time.Duration's range must saturate, not
+		// wrap into a negative delay (which Do would read as "no hint").
+		{"9223372037", time.Duration(^uint64(0) >> 1)}, // max int64 seconds + 1
+		{"10000000000", time.Duration(^uint64(0) >> 1)},
 	}
 	for _, tc := range cases {
 		if got := llm.ParseRetryAfter(tc.value); got != tc.want {

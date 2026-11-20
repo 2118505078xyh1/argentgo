@@ -136,6 +136,9 @@ func TestRetryPolicyDeclinesOverCapProviderDelay(t *testing.T) {
 	}{
 		{"retry-after-ms over cap", http.Header{"Retry-After-Ms": []string{"999999999"}}},
 		{"retry-after over cap", http.Header{"Retry-After": []string{"3600"}}},
+		// A seconds value that overflows time.Duration used to wrap negative,
+		// bypass this decline check and trigger a retry. It must saturate.
+		{"retry-after seconds overflow", http.Header{"Retry-After": []string{"9223372037"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

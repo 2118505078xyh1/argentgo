@@ -281,7 +281,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	defer toolset.Close()
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
-		runner = &hookedTools{inner: toolset, bridge: bridge}
+		runner = &hookedTools{inner: toolset, bridge: bridge, mutationPaths: toolset.base.mutationPaths}
 	}
 
 	tracker := newCheckpointTracker(res.Root, sess)

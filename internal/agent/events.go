@@ -27,6 +27,10 @@ const (
 	EventSubagentStart   EventKind = "subagent_start"
 	EventSubagentEnd     EventKind = "subagent_end"
 	EventRetry           EventKind = "retry"
+	// EventBudgetReminder reports a model-visible context-budget reminder. The
+	// reminder itself is appended to the conversation as a user turn; this event
+	// only lets a frontend surface the same text to the operator.
+	EventBudgetReminder EventKind = "budget_reminder"
 )
 
 // RetryInfo is the wire-safe payload of an EventRetry. It is a closed set of
