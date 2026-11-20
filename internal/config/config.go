@@ -52,6 +52,17 @@ type Config struct {
 	Yolo        bool
 	StorageDir  string
 
+	// VerifyCommand is the opt-in post-edit verification argv (e.g.
+	// ["go", "test", "./..."]). Empty disables the bounded reflection loop.
+	// app.NewVerifyFunc re-validates it against a strict allowlist before use.
+	VerifyCommand []string
+	// VerifyTimeoutMS bounds one verification process (default 30000, capped
+	// at 120000). Zero selects the default.
+	VerifyTimeoutMS int
+	// VerifyMaxReflections caps FAIL feedback turns; zero selects the loop's
+	// own default of 3.
+	VerifyMaxReflections int
+
 	// ContextWindow is the resolved model's context window in tokens. It is
 	// optional: zero means "unspecified", so callers fall back to the fixed
 	// threshold. It can be set at the top level or on a model/provider entry.
@@ -111,6 +122,15 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 
 	profile := strings.TrimSpace(env("ARGENT_PROFILE"))
 	if profile == "" {
+		// A `-c profile=<name>` override selects a profile too. It sits at the
+		// file-override layer: it beats a "profile" key in a config file, but
+		// ARGENT_PROFILE (which also carries the --profile flag) still wins.
+		// Only the selector is read here; every other override keeps its
+		// original position after the env layer, so bringing profile
+		// selection forward cannot change how those values are merged.
+		profile = strings.TrimSpace(stringField(overrides, "profile", "activeProfile"))
+	}
+	if profile == "" {
 		profile = stringField(tree, "profile", "activeProfile")
 	}
 	if profile != "" {
@@ -163,6 +183,10 @@ func defaults(home, cwd string) map[string]any {
 		"storageDir":  filepath.Join(home, appDir),
 		"provider":    "",
 		"cwd":         cwd,
+		// Opt-in verification is default-off: an empty argv leaves the runner's
+		// Verify callback nil, so existing runs stay byte-identical. The timeout
+		// still gets a compiled default so callers never see a zero deadline.
+		"verifyTimeoutMS": float64(30000),
 	}
 }
 
@@ -255,6 +279,10 @@ func decode(tree map[string]any, cwd string, sources []string) Config {
 		Yolo:        boolField(tree, "yolo"),
 		StorageDir:  stringField(tree, "storageDir", "storage_dir"),
 
+		VerifyCommand:        stringSliceField(tree, "verifyCommand", "verify_command"),
+		VerifyTimeoutMS:      intField(tree, "verifyTimeoutMS", "verify_timeout_ms"),
+		VerifyMaxReflections: intField(tree, "verifyMaxReflections", "verify_max_reflections"),
+
 		ContextWindow:              contextWindowFrom(tree),
 		AutoCondenseContextPercent: intField(tree, "autoCondenseContextPercent", "auto_condense_context_percent"),
 		ProviderName:               stringField(tree, "provider"),
@@ -312,6 +340,27 @@ func stringField(tree map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// stringSliceField decodes an argv-style JSON array from the merged tree. Both
+// []any (from JSON/CLI overrides) and []string (constructed in tests) are
+// accepted; non-string members are skipped rather than failing a whole config.
+func stringSliceField(tree map[string]any, keys ...string) []string {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case []any:
+			out := make([]string, 0, len(value))
+			for _, item := range value {
+				if text, ok := item.(string); ok {
+					out = append(out, text)
+				}
+			}
+			return out
+		case []string:
+			return append([]string(nil), value...)
+		}
+	}
+	return nil
 }
 
 func intField(tree map[string]any, keys ...string) int {

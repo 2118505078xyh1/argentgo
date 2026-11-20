@@ -112,3 +112,106 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		t.Fatalf("CondensePercent(fast) = %d, want 60", got)
 	}
 }
+
+func TestProfileSelectedByOverride(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
+		"model":   "base-model",
+		"profile": "reviewer",
+		"profiles": map[string]any{
+			"fast":     map[string]any{"model": "fast-model", "maxTurns": 3},
+			"slow":     map[string]any{"model": "slow-model"},
+			"reviewer": map[string]any{"model": "review-model"},
+		},
+	})
+
+	cases := []struct {
+		name        string
+		env         map[string]string
+		overrides   map[string]any
+		wantProfile string
+		wantModel   string
+		wantTurns   int
+		wantErr     bool
+	}{
+		{
+			name:        "-c profile selects a profile and beats the file key",
+			env:         map[string]string{"HOME": home},
+			overrides:   map[string]any{"profile": "fast"},
+			wantProfile: "fast",
+			wantModel:   "fast-model",
+			wantTurns:   3,
+		},
+		{
+			name:        "-c model still overrides the selected profile's value",
+			env:         map[string]string{"HOME": home},
+			overrides:   map[string]any{"profile": "fast", "model": "cli-model"},
+			wantProfile: "fast",
+			wantModel:   "cli-model",
+			wantTurns:   3,
+		},
+		{
+			name:        "file profile still applies alongside an unrelated -c key",
+			env:         map[string]string{"HOME": home},
+			overrides:   map[string]any{"maxTurns": 7},
+			wantProfile: "reviewer",
+			wantModel:   "review-model",
+			wantTurns:   7,
+		},
+		{
+			name:        "ARGENT_PROFILE beats -c profile",
+			env:         map[string]string{"HOME": home, "ARGENT_PROFILE": "slow"},
+			overrides:   map[string]any{"profile": "fast"},
+			wantProfile: "slow",
+			wantModel:   "slow-model",
+			wantTurns:   defaultMaxTurns,
+		},
+		{
+			name:        "env model still beats the selected profile's value",
+			env:         map[string]string{"HOME": home, "ARGENT_MODEL": "env-model"},
+			overrides:   map[string]any{"profile": "fast"},
+			wantProfile: "fast",
+			wantModel:   "env-model",
+			wantTurns:   3,
+		},
+		{
+			name:        "-c activeProfile alias selects a profile",
+			env:         map[string]string{"HOME": home},
+			overrides:   map[string]any{"activeProfile": "slow"},
+			wantProfile: "slow",
+			wantModel:   "slow-model",
+			wantTurns:   defaultMaxTurns,
+		},
+		{
+			name:      "unknown -c profile is an error",
+			env:       map[string]string{"HOME": home},
+			overrides: map[string]any{"profile": "missing"},
+			wantErr:   true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadWithOverrides(cwd, envFunc(tc.env), tc.overrides)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("unknown profile was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadWithOverrides: %v", err)
+			}
+			if cfg.ActiveProfile != tc.wantProfile {
+				t.Errorf("activeProfile = %q, want %q", cfg.ActiveProfile, tc.wantProfile)
+			}
+			if cfg.Model != tc.wantModel {
+				t.Errorf("model = %q, want %q", cfg.Model, tc.wantModel)
+			}
+			if cfg.MaxTurns != tc.wantTurns {
+				t.Errorf("maxTurns = %d, want %d", cfg.MaxTurns, tc.wantTurns)
+			}
+		})
+	}
+}
