@@ -1,7 +1,7 @@
 name: ci
 
 # Every PR and push to the main branch must satisfy the release gate defined
-# in docs/ROADMAP.md. Release packaging itself lives in release.yml.
+# in docs/STATUS.md (Roadmap section). Release packaging lives in release.yml.
 
 on:
   push:

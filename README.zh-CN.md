@@ -20,7 +20,7 @@
 
 ## 安装 / Install
 
-完整安装指南见 [docs/INSTALL.md](docs/INSTALL.md)。最快路径（Windows 预编译包）：从
+完整安装指南见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md#install)。最快路径（Windows 预编译包）：从
 [最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载
 `argent_<version>_windows_amd64.zip` 与 `checksums.txt`，校验后解压运行：
 
@@ -66,7 +66,7 @@ argent gui                                # Windows 原生聊天窗口（MyGo，
 
 `<your-key>` 是占位符，请替换成你自己的 API key，不要提交到版本库。也可以用
 `argent login <provider> --api-key <your-key>` 把 key 存进配置文件（不会回显）；详见
-[docs/QUICKSTART.md](docs/QUICKSTART.md)。
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md#quickstart)。
 
 想换成国产模型？内置模板直接切：
 
@@ -82,7 +82,7 @@ argent --provider anthropic "review 一下这个改动"
 stdlib-only；只有桌面壳这一层依赖 MyGo。
 
 发布包同时包含 `argent.exe`（引擎/CLI）和 `argent-native.exe`（原生前端）。
-浏览器前端已移除，桌面只走原生窗口。详见 [docs/FRONTEND.md](docs/FRONTEND.md)。
+浏览器前端已移除，桌面只走原生窗口。详见 [docs/TECHNICAL.md](docs/TECHNICAL.md#frontend-decision)。
 
 其他入口：
 
@@ -160,16 +160,15 @@ argent：
 
 ## 文档
 
-- [安装指南](docs/INSTALL.md) · [5 分钟快速上手](docs/QUICKSTART.md)
-- [分发架构](docs/DISTRIBUTION.md) — 两个二进制如何打包发布
-- [API 参考](docs/API_REFERENCE.md) — 命令、工具与字段
-- [架构](docs/ARCHITECTURE.md) — 请求流、会话存储、权限、TLS、传输
-- [架构图](docs/ARCHITECTURE_DIAGRAMS.md) — Mermaid 图
-- [前端方案](docs/FRONTEND.md) — MyGo 原生窗口（唯一桌面前端）
-- [安全模型](#工作区安全模型)（英文版：[Workspace security model](README.md#工作区安全模型)）
-- [CI 契约](docs/CI.md) · [CI 工作流](.github/workflows/ci.yml) — Linux 上的测试、clippy 与 Docker 构建
-- [功能对齐](docs/PARITY.md) · [路线图](docs/ROADMAP.md) · [下一步](docs/NEXT_STEPS.md)
-- [迁移记录](docs/MIGRATION.md) · [更新日志](CHANGELOG.md)
+- [用户指南](docs/USER_GUIDE.md) — 安装 · [5 分钟快速上手](docs/USER_GUIDE.md#quickstart)
+- [分发架构](docs/USER_GUIDE.md#distribution) — 两个二进制如何打包发布
+- [API 参考](docs/TECHNICAL.md#api-reference) — 命令、工具与字段
+- [架构](docs/TECHNICAL.md#architecture) — 请求流、会话存储、权限、TLS、传输
+- [架构图](docs/TECHNICAL.md#diagrams) — Mermaid 图
+- [前端方案](docs/TECHNICAL.md#frontend-decision) — MyGo 原生窗口（唯一桌面前端）
+- [安全模型](#工作区安全模型)（英文版：[Workspace security model](README.md#工作区安全模型)；完整模型见 [CONTRIBUTING.md](CONTRIBUTING.md#security)）
+- [CI 契约](CONTRIBUTING.md#ci) · [CI 工作流](.github/workflows/ci.yml) — Linux 上的测试、clippy 与 Docker 构建
+- [功能对齐](docs/TECHNICAL.md#feature-parity) · [路线图](docs/STATUS.md#roadmap) · [更新日志](CHANGELOG.md)
 
 ## 开发与测试
 
@@ -197,12 +196,12 @@ powershell -File scripts/publish-win.ps1
 欢迎 bug 报告、功能提议、文档修正和代码 PR。
 
 - **发现问题** → [开 Issue](https://github.com/2118505078xyh1/argentgo/issues/new/choose)
-  （Bug / 功能 / 文档模板，提交日志请脱敏）
+  （通用 Issue 模板覆盖 Bug / 功能 / 文档，提交日志请脱敏）
 - **提问或讨论** → [Discussions](https://github.com/2118505078xyh1/argentgo/discussions)
 - **想贡献代码** → 先读 [CONTRIBUTING.md](CONTRIBUTING.md)：
   fork → 主题分支 → 加边界测试 → 全量验证 → 提 PR（用 PR 模板，关联 issue）。
   核心包必须保持 stdlib-only、无 cgo；唯一的第三方依赖 MyGo 只用于 `native/` 桌面壳。
-- **行为准则**：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **行为准则**：[CONTRIBUTING.md 中的行为准则章节](CONTRIBUTING.md#code-of-conduct)
 
 ## 许可
 

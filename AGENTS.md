@@ -7,7 +7,7 @@ Guidance for AI agents working in this repository.
 `argentgo` is a personal coding-agent harness: stream a model reply, run tools,
 append to a JSONL session, repeat. It is a Go rewrite of the frozen Rust project
 `argent` (v0.4.0, archived on GitHub). Behaviour should match that build; the
-feature checklist lives in `docs/PARITY.md`.
+feature checklist lives in `docs/TECHNICAL.md` (Feature parity section).
 
 Interfaces to match: OpenAI chat completions, OpenAI Responses, Anthropic
 Messages. UI strings are zh-CN and en-US, embedded in the binary.
@@ -139,5 +139,5 @@ Three paradigms do different jobs here; do not force one to do another's work.
 
 - Never commit built binaries (`argent.exe`, `argent-native.exe`) or `node_modules`.
   The native frontend is built from `native/` source at release time.
-- Do not edit `docs/PARITY.md` statuses without running the corresponding test.
+- Do not edit the Feature parity statuses in `docs/TECHNICAL.md` without running the corresponding test.
 - Do not add a dependency to save 30 lines of code.

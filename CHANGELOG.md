@@ -93,7 +93,7 @@ remains MyGo. Highlights:
   runner/approval adapters. `argent gui` now always launches `argent-native.exe`.
 - Simplified `cmd/argent/gui.go` to engine resolution + native frontend launch;
   removed `--web`. Release zip and build script no longer build/embed a web UI.
-- Docs (README, FRONTEND, ARCHITECTURE, AGENTS, MAINTAINERS, PARITY) updated to
+- Docs (README, AGENTS and the consolidated docs) updated to
   the native-only architecture. Core packages remain stdlib-only; MyGo is the
   sole third-party dependency, confined to `native/`.
 
@@ -185,7 +185,7 @@ Correctness fixes derived from studying the rpi coding-agent runtime:
 ## v0.1.0 — 2026-11-19
 
 First Go build: a stdlib-only, cgo-free rewrite of the frozen Rust `argent`
-0.4.0; see `docs/PARITY.md` for the component-by-component status.
+0.4.0; see `docs/TECHNICAL.md` (Feature parity section) for the component-by-component status.
 
 ### Runtime
 
