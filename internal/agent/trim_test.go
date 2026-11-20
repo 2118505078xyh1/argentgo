@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -271,7 +272,7 @@ func cacheGuardFixture(tailTokens int) []llm.Message {
 		{Role: "tool", ToolCallID: "old", Content: strings.Repeat("x", 4000)},
 		{Role: "assistant", Content: "recent step", ToolCalls: []llm.ToolCall{toolCall("recent", "read", `{}`)}},
 		{Role: "tool", ToolCallID: "recent", Content: strings.Repeat("y", 2000)},
-		{Role: "assistant", Content: strings.Repeat("z", tailTokens*charsPerToken)},
+		{Role: "assistant", Content: strings.Repeat("z", tailTokens*tokenize.CharsPerToken)},
 	}
 }
 

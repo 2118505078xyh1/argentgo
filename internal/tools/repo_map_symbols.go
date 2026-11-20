@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
 // repoMapSymbolTokenBudget is the approximate token ceiling for the ranked
@@ -252,50 +254,14 @@ func formatRepoSymbol(s repoSymbol) string {
 	return fmt.Sprintf("  * [%s] %s:%d %s", s.Kind, s.File, s.Line, name)
 }
 
-// repoMapCharsPerToken is the rule-of-thumb ratio for Latin text and code. It
-// matches the agent loop's charsPerToken (mirrored locally: tools must not
-// import agent).
-const repoMapCharsPerToken = 4
-
-// isWideRepoTokensRune reports whether r belongs to a script that tokenizers
-// treat as roughly one token per rune: Han, Kana, Hangul, fullwidth forms, CJK
-// punctuation and common emoji. The ranges mirror agent.isWideRune and
-// isWideBashRune so all three estimates agree; keep them in sync.
-func isWideRepoTokensRune(r rune) bool {
-	return (r >= 0x1100 && r <= 0x115F) || // Hangul Jamo
-		(r >= 0x2E80 && r <= 0xA4CF) || // CJK radicals, Kangxi, Han
-		(r >= 0xAC00 && r <= 0xD7A3) || // Hangul syllables
-		(r >= 0xF900 && r <= 0xFAFF) || // CJK compatibility ideographs
-		(r >= 0xFE10 && r <= 0xFE19) || // CJK punctuation
-		(r >= 0xFE30 && r <= 0xFE6F) || // CJK compatibility forms
-		(r >= 0xFF00 && r <= 0xFF60) || // fullwidth forms
-		(r >= 0xFFE0 && r <= 0xFFE6) ||
-		(r >= 0x1F300 && r <= 0x1FAFF) || // symbols/emoji
-		(r >= 0x20000 && r <= 0x3FFFD) // CJK extension planes
-}
-
-// estimateRepoTokens estimates the token cost of one repo-map line.
-//
-// Wide (CJK/fullwidth/emoji) runes cost roughly one token each; other runes
-// follow the four-chars-per-token rule. This is the same rule as
-// agent.EstimateTokens, reimplemented here because internal/tools must not
-// import internal/agent. The old len(bytes)/4 estimate counted a 3-byte Han
-// character as 0.75 token, under-reporting CJK by about 2x and letting long
-// Chinese lines blow past the symbol and fitBudget token budgets. For pure
-// ASCII the result stays within one token of the old floor(len/4) value, and
-// is identical whenever the byte length is a multiple of four.
+// estimateRepoTokens estimates the token cost of one repo-map line, using the
+// shared internal/tokenize estimate so the repo map, the bash volume hint and
+// the agent's budget loop all count CJK the same way. The floor of one
+// preserves the old len(bytes)/4 minimum for empty and tiny inputs.
 func estimateRepoTokens(s string) int {
-	wide, narrow := 0, 0
-	for _, r := range s {
-		if isWideRepoTokensRune(r) {
-			wide++
-		} else {
-			narrow++
-		}
-	}
-	n := wide + (narrow+repoMapCharsPerToken-1)/repoMapCharsPerToken
+	n := tokenize.Estimate(s)
 	if n < 1 {
-		return 1 // preserve the old floor(len/4) minimum for empty input
+		return 1
 	}
 	return n
 }

@@ -385,10 +385,13 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// no-op and keep byte-for-byte identical messages.
 		s.maybeBudgetReminder()
 
+		// One estimate serves both the budget stop check and the TurnStart
+		// event; nothing mutates the messages between the two uses.
+		promptEstimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
+
 		if max := s.opts.Budget.MaxPromptTokens; max > 0 {
-			estimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
-			if estimate >= max {
-				detail := fmt.Sprintf("%s: prompt estimate %d tokens (limit %d)", StopMaxPromptTokens, estimate, max)
+			if promptEstimate >= max {
+				detail := fmt.Sprintf("%s: prompt estimate %d tokens (limit %d)", StopMaxPromptTokens, promptEstimate, max)
 				s.emit(Event{Kind: EventNotice, Text: detail})
 				s.emit(Event{Kind: EventStop, Reason: StopMaxPromptTokens})
 				return s.result(StopMaxPromptTokens), nil
@@ -396,7 +399,6 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		}
 
 		turn := s.turns
-		promptEstimate := EstimateMessages(s.messages) + EstimateTools(s.specs)
 		s.emit(Event{Kind: EventTurnStart, Turn: turn})
 		// Durability seam: flush the session before the expensive request. A
 		// hook error is treated like any other chat failure — no request is

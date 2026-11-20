@@ -89,8 +89,8 @@ func BenchmarkEstimateMessages(b *testing.B) {
 
 // BenchmarkTrim measures the budget-driven stubbing path. Trim copies its
 // input, so the fixture stays pristine between iterations. The cache-protect
-// guard is kept at a small, explicit value: with it disabled, Trim's O(n)
-// suffixTokens scan runs for every tool message and a few hundred iterations
+// guard is kept at a small, explicit value: with it disabled, Trim keeps
+// stubbing until the whole suffix is protected, so a few hundred iterations
 // take minutes — that configuration is not how callers use it.
 func BenchmarkTrim(b *testing.B) {
 	for _, n := range []int{100, 500, 1000} {

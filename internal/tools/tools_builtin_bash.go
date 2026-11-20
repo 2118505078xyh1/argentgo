@@ -13,6 +13,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
 // ---- bash ----
@@ -33,40 +34,11 @@ func emitProgress(ctx context.Context, text string) {
 	}
 }
 
-// bashCharsPerToken mirrors the agent loop's estimate so the volume hint uses a
-// familiar unit. internal/tools must not import internal/agent, so the estimate
-// is kept local to this package.
-const bashCharsPerToken = 4
-
-// isWideBashRune reports whether r belongs to a script that tokenizers treat as
-// roughly one token per rune: Han, Kana, Hangul, fullwidth forms, CJK
-// punctuation and common emoji. The ranges match agent.EstimateTokens.
-func isWideBashRune(r rune) bool {
-	return (r >= 0x1100 && r <= 0x115F) || // Hangul Jamo
-		(r >= 0x2E80 && r <= 0xA4CF) || // CJK radicals, Kangxi, Han
-		(r >= 0xAC00 && r <= 0xD7A3) || // Hangul syllables
-		(r >= 0xF900 && r <= 0xFAFF) || // CJK compatibility ideographs
-		(r >= 0xFE10 && r <= 0xFE19) || // CJK punctuation
-		(r >= 0xFE30 && r <= 0xFE6F) || // CJK compatibility forms
-		(r >= 0xFF00 && r <= 0xFF60) || // fullwidth forms
-		(r >= 0xFFE0 && r <= 0xFFE6) ||
-		(r >= 0x1F300 && r <= 0x1FAFF) || // symbols/emoji
-		(r >= 0x20000 && r <= 0x3FFFD) // CJK extension planes
-}
-
-// bashOutputTokens estimates the token cost of raw command output. Wide CJK
-// runes cost roughly one token each; other runes follow the chars-per-token
-// rule. Counting them separately avoids badly under-reporting CJK output.
+// bashOutputTokens estimates the token cost of raw command output. It is the
+// shared internal/tokenize estimate, so the volume hint uses the same unit as
+// the agent's budget loop without importing internal/agent.
 func bashOutputTokens(s string) int {
-	wide, narrow := 0, 0
-	for _, r := range s {
-		if isWideBashRune(r) {
-			wide++
-		} else {
-			narrow++
-		}
-	}
-	return wide + (narrow+bashCharsPerToken-1)/bashCharsPerToken
+	return tokenize.Estimate(s)
 }
 
 // clipBashOutput sanitizes and clips raw command output and, only when content

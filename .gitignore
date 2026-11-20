@@ -6,5 +6,4 @@ dist/
 *.log
 argent-native.exe~
 *.out
-auth
 coverage.out

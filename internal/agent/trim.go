@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
 const (
-	// charsPerToken is the standard rule-of-thumb ratio for English and code.
-	charsPerToken = 4
 	// messageOverheadTokens covers the role marker and message framing every
 	// provider adds to each entry.
 	messageOverheadTokens = 4
@@ -40,44 +39,12 @@ const (
 	toolResultPruneMarker = "\n\n[... tool result middle pruned ...]\n\n"
 )
 
-// EstimateTokens estimates the token cost of a string.
-//
-// Wide (CJK) runes cost roughly one token each in every provider tokenizer,
-// whereas the charsPerToken rule applies to Latin text and code. Counting them
-// separately avoids the severe under-estimate that chars/4 alone gives CJK,
-// while still over-estimating relative to the most efficient tokenizers (the
-// safe direction for a budget).
+// EstimateTokens estimates the token cost of a string. The wide-rune table and
+// the chars/4 rule live in internal/tokenize so the agent, the bash volume
+// hint and the repo map all share one definition instead of three hand-synced
+// copies.
 func EstimateTokens(text string) int {
-	if text == "" {
-		return 0
-	}
-	wide, narrow := 0, 0
-	for _, r := range text {
-		if isWideRune(r) {
-			wide++
-		} else {
-			narrow++
-		}
-	}
-	return wide + (narrow+charsPerToken-1)/charsPerToken
-}
-
-// isWideRune reports whether r belongs to a script that tokenizers treat as
-// roughly one token per rune: Han, Kana, Hangul, fullwidth forms and CJK
-// punctuation.
-func isWideRune(r rune) bool {
-	// Han, Kana, Hangul, CJK punctuation, fullwidth forms, common emoji and the
-	// CJK extension planes. Grouped as ranges to keep the hot path allocation-free.
-	return (r >= 0x1100 && r <= 0x115F) || // Hangul Jamo
-		(r >= 0x2E80 && r <= 0xA4CF) || // CJK radicals, Kangxi, Han
-		(r >= 0xAC00 && r <= 0xD7A3) || // Hangul syllables
-		(r >= 0xF900 && r <= 0xFAFF) || // CJK compatibility ideographs
-		(r >= 0xFE10 && r <= 0xFE19) || // CJK punctuation
-		(r >= 0xFE30 && r <= 0xFE6F) || // CJK compatibility forms
-		(r >= 0xFF00 && r <= 0xFF60) || // fullwidth forms
-		(r >= 0xFFE0 && r <= 0xFFE6) ||
-		(r >= 0x1F300 && r <= 0x1FAFF) || // symbols/emoji are commonly 1+ tokens
-		(r >= 0x20000 && r <= 0x3FFFD) // CJK extension planes
+	return tokenize.Estimate(text)
 }
 
 // EstimateMessage estimates one message, including its framing overhead.
@@ -202,9 +169,15 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	effectiveProtect := effectiveCacheProtect(opts)
 	protected := protectedIndexes(out, keepTurns)
 	recentTool := keepToolTokens
+	// suffix is the EstimateMessage sum of out[i+1:], maintained as i walks down
+	// so the guard below stays O(1) instead of rescanning the tail on every tool
+	// result. Stubbing out[i] replaces the body the suffix is made of, so the
+	// stubbed cost (cost - freed) is what later positions must see.
+	suffix := 0
 	for i := len(out) - 1; i >= 0; i-- {
 		msg := out[i]
 		if msg.Role != "tool" || protected[i] {
+			suffix += EstimateMessage(msg)
 			continue
 		}
 		// The budget loop walks backwards, so the suffix only grows as i moves
@@ -212,15 +185,17 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 		// than protect tokens cached after it, every earlier position is equally
 		// unsafe: stop instead of invalidating the warm prefix and triggering a
 		// full re-prefill. This mirrors the guard in reclaimByMeta.
-		if suffixTokens(out, i) > effectiveProtect {
+		if suffix > effectiveProtect {
 			break
 		}
 		cost := EstimateMessage(msg)
 		if recentTool > 0 {
 			recentTool -= cost
+			suffix += cost
 			continue
 		}
 		if msg.Content == "" || strings.HasPrefix(msg.Content, trimmedPrefix) {
+			suffix += cost
 			continue
 		}
 		stub := toolStub(msg.Content)
@@ -228,12 +203,14 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 		stubbed.Content = stub
 		freed := cost - EstimateMessage(stubbed)
 		if freed <= 0 {
+			suffix += cost
 			continue
 		}
 		out[i] = stubbed
 		res.Pruned++
 		res.Freed += freed
 		total -= freed
+		suffix += cost - freed
 		if total <= target {
 			break
 		}
@@ -406,19 +383,6 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 // Error text is never a candidate for reclamation.
 func isErrorResult(content string) bool {
 	return strings.HasPrefix(content, "error:")
-}
-
-// suffixTokens estimates the size of the conversation that follows index i.
-// It is used by the budget loop in Trim, which mutates later entries as it
-// walks backwards and therefore cannot reuse the table built by
-// reclaimByMeta; that semantic path gets its suffix from the same reverse
-// pass as nextAssistantAfter instead.
-func suffixTokens(messages []llm.Message, i int) int {
-	total := 0
-	for j := i + 1; j < len(messages); j++ {
-		total += EstimateMessage(messages[j])
-	}
-	return total
 }
 
 // effectiveCacheProtect returns the prompt-cache guard threshold. Both the
