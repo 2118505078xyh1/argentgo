@@ -141,7 +141,12 @@ func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 		return "", false
 	}
 	home := homeDir(stdio.Env)
-	set := commands.NewSetWithBuiltins(commands.DefaultSources(res.Root, home))
+	sources := commands.DefaultSources(res.Root, home)
+	// Plugin-provided commands join the set under their plugin namespace. The
+	// helper applies the same user/project trust gate as MCP and skills, so an
+	// untrusted checkout cannot inject commands into the session.
+	sources = append(sources, pluginCommandSources(res)...)
+	set := commands.NewSetWithBuiltins(sources)
 	if _, ok := set.Get("context"); !ok {
 		return "", false
 	}
@@ -291,6 +296,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			tracker.capture(cp, prompt)
 		},
 		MutationPaths: toolset.base.mutationPaths,
+		// Opt-in bounded verification. Both helpers return zero values when no
+		// verify command is configured, keeping default runs byte-identical.
+		Verify:               verifyFuncFor(res),
+		MaxVerifyReflections: verifyReflectionsFor(res),
 		// Mid-turn compaction is injected from the app layer so agent never
 		// imports session. A disabled/negative threshold yields 0 and no-ops.
 		Compactor:        compactor,

@@ -104,7 +104,12 @@ func loadHookDocuments(res Resolved, trust *hooks.TrustStore, warn io.Writer) *h
 		}
 		add(&hooks.Document{Path: inlineHookPath, Digest: hooks.Digest(data), Config: config})
 	}
-	for _, path := range hookFilePaths(res) {
+	paths := hookFilePaths(res)
+	// Plugin hook documents join the standard files under the same trust gate
+	// as commands/MCP: user plugins always, project plugins only when trusted.
+	// The SHA-256 grant in trust still applies to every path below.
+	paths = append(paths, pluginHookPaths(res)...)
+	for _, path := range paths {
 		document, err := hooks.LoadDocument(path, trust)
 		if err != nil {
 			noteHook(warn, "hooks "+path, err)
