@@ -11,9 +11,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestEventRetryCarriesFullInfo checks that EventRetry carries every field a
-// frontend needs to draw retry progress, and that the payload uses stable
-// snake_case wire names rather than Go field names.
+// TestEventRetryCarriesFullInfo 检查 EventRetry 携带前端绘制重试进度所需的每个字段，且负载使用稳定的 snake_case 线上名称而非 Go 字段名。
+// （接上行）
+// （接上行）
 func TestEventRetryCarriesFullInfo(t *testing.T) {
 	t.Parallel()
 	ev := Event{Kind: EventRetry, Turn: 2, Retry: &RetryInfo{
@@ -55,7 +55,7 @@ func TestEventRetryCarriesFullInfo(t *testing.T) {
 	if got.Attempt != 2 || got.MaxAttempts != 4 || got.DelayMS != 1500 || got.Reason != "status" || got.Model != "backup-model" {
 		t.Fatalf("wire retry payload = %+v, want attempt=2 max=4 delay=1500 reason=status model=backup-model", got)
 	}
-	// A round trip must preserve the payload, not just marshal it.
+	// 往返必须保留负载，而不只是序列化它。
 	var back Event
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
@@ -65,9 +65,9 @@ func TestEventRetryCarriesFullInfo(t *testing.T) {
 	}
 }
 
-// TestEventRetryNilKeepsLegacyJSON proves the field is purely additive: a nil
-// Retry is omitted, so existing events keep byte-identical wire output and old
-// JSON without a "retry" key still decodes to Retry == nil.
+// TestEventRetryNilKeepsLegacyJSON 证明该字段纯粹是附加的：nil 的 Retry 会被省略，因此现有事件保持逐字节不变的线上输出，而旧版没有 retry 键的 JSON 仍解码出 Retry == nil。
+// （接上行）
+// （接上行）
 func TestEventRetryNilKeepsLegacyJSON(t *testing.T) {
 	t.Parallel()
 	ev := Event{Kind: EventError, Turn: 3, Text: "t", Err: "boom", Reason: StopProviderError}
@@ -79,9 +79,9 @@ func TestEventRetryNilKeepsLegacyJSON(t *testing.T) {
 		t.Fatalf("nil Retry leaked into JSON: %s", data)
 	}
 
-	// The pre-Retry shape with every field in the same order. Byte equality is
-	// the strongest form of the "no change when nil" guarantee. Failure and
-	// Retry are both nil+omitempty, so neither appears in either encoding.
+	// Retry 出现之前的结构，所有字段顺序相同。字节相等是「nil 时不变」保证的最强形式。Failure 和 Retry 都是 nil+omitempty，因此都不出现在任一编码中。
+	// （接上行）
+	// （接上行）
 	type retryLegacyEvent struct {
 		Kind            EventKind
 		Turn            int
@@ -119,9 +119,9 @@ func TestEventRetryNilKeepsLegacyJSON(t *testing.T) {
 	}
 }
 
-// TestFallbackSwitchEmitsEventRetry checks the agent-visible retry point: a
-// provider switch publishes a structured EventRetry, with a wire-safe reason
-// and no provider text. The legacy notice stays so old consumers are unchanged.
+// TestFallbackSwitchEmitsEventRetry 检查 agent 可见的重试点：提供方切换会发布结构化的 EventRetry，带有可安全上线传输的原因且不含提供方文本。旧版通知保留，使旧消费者不变。
+// （接上行）
+// （接上行）
 func TestFallbackSwitchEmitsEventRetry(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-proj-SUPERSECRET123"
@@ -176,9 +176,9 @@ func TestFallbackSwitchEmitsEventRetry(t *testing.T) {
 	}
 }
 
-// TestEventRetryFieldsAreRedacted pins the safety promise at both producers:
-// retryReason emits only closed tokens, and RetryInfoFromAttempt copies only
-// the Reason class -- never llm's free-form Cause, which can carry a key.
+// TestEventRetryFieldsAreRedacted 在两个生产者处锁定安全承诺：retryReason 只发出封闭的标记，而 RetryInfoFromAttempt 只复制 Reason 类别——绝不复制可能携带密钥的 llm 自由格式 Cause。
+// （接上行）
+// （接上行）
 func TestEventRetryFieldsAreRedacted(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-proj-SUPERSECRET123"
@@ -208,8 +208,8 @@ func TestEventRetryFieldsAreRedacted(t *testing.T) {
 		})
 	}
 
-	// The llm bridge: Cause holds redacted-but-free-form text. The converter
-	// must drop it entirely and keep only the fixed reason class.
+	// llm 桥接：Cause 持有已脱敏但仍是自由格式的文本。转换器必须完全丢弃它，只保留固定的原因类别。
+	// （接上行）
 	attempt := llm.RetryAttempt{Attempt: 2, StatusCode: 429, Cause: "provider said " + secret, Reason: llm.ReasonStatus}
 	info := RetryInfoFromAttempt(attempt, "backup", 3, 750*time.Millisecond)
 	if info.Attempt != 2 || info.MaxAttempts != 3 || info.DelayMS != 750 || info.Reason != "status" || info.Model != "backup" {

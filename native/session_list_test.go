@@ -9,8 +9,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// realSessionList is the shape server.SessionInfo arrives as on the wire:
-// {"sessions":[{"id":...,"title":...,"updated":<RFC3339>}, ...]}.
+// realSessionList 是 server.SessionInfo 在线上的形态：
+// realSessionList 是 server.SessionInfo 在线上的形态：{"sessions":[{"id":...,"title":...,"updated":<RFC3339>}, ...]}。重建视图（如 Click 所做）绝不能重新获取列表。session.list 失败降级到 demo 会话栏，保留本测试点击的假行。零值 bridge 在真实调用时会 panic。
 const realSessionList = `{"sessions":[
 	{"id":"sess-abc","title":"真实会话A","updated":"2026-11-20T10:00:00Z"},
 	{"id":"sess-old","title":"真实会话B","updated":"2020-01-02T03:04:05Z"}
@@ -54,7 +54,7 @@ func TestRealEngineLoadsSessionListAndRendersRealRows(t *testing.T) {
 		t.Errorf("old session labels = %q / %q, want 更早 / 01-02", got.group, got.meta)
 	}
 
-	// Rebuilding the view (as a Click would) must not re-fetch the list.
+	// 重建视图（如 Click 所做）绝不能重新获取列表。
 	_ = tt.Click("真实会话A")
 	if listCalls != 1 {
 		t.Errorf("session.list calls after re-render = %d, want 1", listCalls)

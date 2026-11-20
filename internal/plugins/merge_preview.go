@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// ConflictKind identifies the contribution category a MergeConflict refers to.
+// ConflictKind 标识 MergeConflict 所指的贡献类别。
 type ConflictKind string
 
 const (
@@ -17,30 +17,30 @@ const (
 	ConflictHook      ConflictKind = "hook"
 )
 
-// Contribution is one item a manifest would add to the merged wiring.
+// Contribution 是清单会添加到合并接线中的一项。
 type Contribution struct {
-	// Plugin is the name of the declaring manifest.
+	// Plugin 是声明清单的名称。
 	Plugin string
-	// Name is the collision key: an MCP server key, or the base name of a
-	// skill/command/hook path (downstream loaders register these by name).
+	// Name 是冲突键：MCP 服务器键，或
+	// 技能/命令/钩子路径的基础名（下游加载器按名称注册这些）。
 	Name string
-	// Source is the MCP command (or URL) for servers, and the resolved path
-	// for skills, commands and hooks.
+	// ConflictKind 标识 MergeConflict 所指的贡献类别。Contribution 是清单会添加到合并接线中的一项。Plugin 是声明清单的名称。Name 是冲突键：MCP 服务器键，或技能/命令/钩子路径的基础名（下游加载器按名称注册这些）。Source 是服务器的 MCP 命令（或 URL），以及技能、命令和钩子的解析路径。
+	// 对技能、命令和钩子的解析路径。
 	Source string
 }
 
-// MergeConflict is a name claimed by more than one manifest. Owners holds the
-// declaring plugin names in input order.
+// MergeConflict 是被多个清单认领的名称。Owners 按
+// 输入顺序保存声明插件名。
 type MergeConflict struct {
 	Kind   ConflictKind
 	Name   string
 	Owners []string
 }
 
-// MergePreview is the dry-run result of PreviewMerge. Each slice keeps the
-// input order of manifests and, within a manifest, declaration order (MCP
-// servers use sorted name order to match Merge). Conflicts use a fixed kind
-// order and sorted names so the value is stable and comparable.
+// MergeConflict 是被多个清单认领的名称。Owners 按输入顺序保存声明插件名。MergePreview 是 PreviewMerge 的预演结果。每个切片保持清单的输入顺序，且在清单内保持声明顺序（MCP 服务器使用排序的名称顺序以匹配 Merge）。冲突使用固定种类顺序和排序名称，使值稳定可比较。
+// 清单的输入顺序，且在清单内保持声明顺序（MCP
+// 服务器使用排序名称顺序以匹配 Merge）。冲突使用固定种类
+// 顺序和排序名称，使值稳定可比较。
 type MergePreview struct {
 	MCPServers []Contribution
 	Skills     []Contribution
@@ -49,22 +49,22 @@ type MergePreview struct {
 	Conflicts  []MergeConflict
 }
 
-// claim records which manifest contributed a name. ownerIndex keeps two
-// distinct manifests that share the same Name from collapsing into one owner.
+// claim 记录哪个清单贡献了某名称。ownerIndex 防止共享同一 Name 的两个不同清单折叠为一个所有者。PreviewMerge 报告给定清单合并时会贡献什么，以及哪些名称被多个清单认领。它是纯预演：路径针对每个清单的 Root 解析，但不打开文件、不启动服务器、不写磁盘。
+// 共享同一 Name 的两个不同清单折叠为一个所有者。
 type claim struct {
 	ownerIndex int
 	ownerName  string
 }
 
-// PreviewMerge reports what the given manifests would contribute when merged,
-// and which names are claimed by more than one of them. It is a pure dry run:
-// paths are resolved against each manifest's Root, but no file is opened, no
-// server is started and nothing is written to disk.
+// PreviewMerge 报告给定清单合并时会贡献什么，
+// 以及哪些名称被多个清单认领。它是纯预演：
+// 路径针对每个清单的 Root 解析，但不打开文件、不启动
+// 服务器、不写磁盘。
 //
-// Merge only ever keeps the first MCP server with a given name and dedups
-// skill/command/hook paths by their resolved form; it never surfaces that two
-// bundles competed for the same registry name. PreviewMerge makes those
-// cross-manifest collisions visible before the wiring is built.
+// Merge 只保留给定名称的第一个 MCP 服务器，并按解析形式对
+// 技能/命令/钩子路径去重；它从不呈现两个 bundle
+// 竞争同一注册表名称这一事实。PreviewMerge 使那些
+// 跨清单冲突在接线构建之前可见。
 func PreviewMerge(manifests []Manifest) MergePreview {
 	var preview MergePreview
 	claims := map[ConflictKind]map[string][]claim{
@@ -131,8 +131,8 @@ func PreviewMerge(manifests []Manifest) MergePreview {
 		sort.Strings(names)
 		for _, name := range names {
 			forName := byName[name]
-			// A manifest repeating a name is a ValidateManifest finding, not a
-			// cross-manifest conflict, so count distinct source manifests only.
+			// 清单重复一个名称是 ValidateManifest 发现，而非跨清单冲突，因此只统计不同的来源清单。
+			// 冲突，因此只统计不同的来源清单。
 			byIndex := make(map[int]bool, len(forName))
 			owners := make([]string, 0, len(forName))
 			for _, entry := range forName {

@@ -10,19 +10,19 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestParallelBatchTracksBreakerInCallOrder checks that the invalid-argument
-// breaker's final state is decided by the order of the tool calls, not by the
-// order in which workers happened to finish. The success call is first in the
-// batch but deliberately finishes last: replaying outcomes in completion order
-// would let it clear the streak built by the three trailing invalid-argument
-// failures, so the run would miss a stop that the same batch in sequential
-// order always produces.
+// TestParallelBatchTracksBreakerInCallOrder 检查无效参数熔断器的最终状态由工具调用的顺序决定，
+// 而非由 worker 完成的顺序决定。
+// 成功的调用在批次中排在最前，却刻意最后完成：按完成顺序重放结果，
+// 会让它清除三个尾部无效参数失败建立的连续序列，
+// 使运行错过同一批次按顺序执行时总会产生的停止。
+// （接上行）
+// （接上行）
 func TestParallelBatchTracksBreakerInCallOrder(t *testing.T) {
 	tools := &fakeTools{
 		specs: []llm.ToolSpec{toolSpec("read")},
 		run: func(_ context.Context, _ string, args string) (string, error) {
 			if strings.Contains(args, `"n":0`) {
-				// First call, last to finish: a success clears the streak.
+				// 第一个调用、最后完成：成功会清除连续序列。
 				time.Sleep(80 * time.Millisecond)
 				return "ok", nil
 			}
@@ -57,9 +57,9 @@ func TestParallelBatchTracksBreakerInCallOrder(t *testing.T) {
 	}
 }
 
-// TestParallelBatchTracksMistakesInCallOrder is the same contract for the
-// consecutive-mistake tracker: a success that finishes after three failures
-// must not erase the streak the call order builds.
+// TestParallelBatchTracksMistakesInCallOrder 是针对连续错误追踪器的同样契约：
+// 在三次失败之后完成的成功调用，不得抹掉调用顺序建立的连续序列。
+// （接上行）
 func TestParallelBatchTracksMistakesInCallOrder(t *testing.T) {
 	tools := &fakeTools{
 		specs: []llm.ToolSpec{toolSpec("read")},
@@ -94,9 +94,9 @@ func TestParallelBatchTracksMistakesInCallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	// The mistake tracker has recovery guidance, so it never hard-stops; the
-	// streak must still reach the limit and inject a guidance turn, which the
-	// second request sees as a user message.
+	// 错误追踪器有恢复指引，因此绝不硬停止；但该连续序列仍必须达到上限并注入一条指引轮次，
+	// 第二次请求会把它看作一条用户消息。
+	// （接上行）
 	if res.Stopped != StopComplete {
 		t.Fatalf("stopped = %q, want %q", res.Stopped, StopComplete)
 	}

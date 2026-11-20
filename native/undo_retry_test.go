@@ -8,9 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// TestUndoRemovesWholeTurnKeepsEarlierTurns checks the turn boundary: undo must
-// delete the last user message together with its reply and tool card, preserve
-// earlier turns, and keep the prompt text for a following retry.
+// TestUndoRemovesWholeTurnKeepsEarlierTurns 检查回合边界：undo 必须
+// 把最后一条用户消息连同其回复和工具卡片一起删除，保留
+// 之前的回合，并为接下来的 retry 保留提示文本。
 func TestUndoRemovesWholeTurnKeepsEarlierTurns(t *testing.T) {
 	app := newTestChat()
 	app.send("第一轮问题")
@@ -48,9 +48,8 @@ func TestUndoRemovesWholeTurnKeepsEarlierTurns(t *testing.T) {
 	}
 }
 
-// autoReplyStdin answers any JSON-RPC request written by bridge.call so tests
-// can drive stop()/abort() without a live engine. The reply is dispatched in a
-// goroutine because call() holds bridge.mu across the stdin.Write.
+// autoReplyStdin 回答 bridge.call 写入的任何 JSON-RPC 请求，使测试
+// 无需活 engine 即可驱动 stop()/abort()。回复在
 type autoReplyStdin struct{ b *bridge }
 
 func (s *autoReplyStdin) Write(p []byte) (int, error) {
@@ -72,10 +71,10 @@ func (s *autoReplyStdin) Write(p []byte) (int, error) {
 }
 func (*autoReplyStdin) Close() error { return nil }
 
-// TestUndoWhileStreamingRetiresLateCompletion locks the regression where an
-// aborted/undone round's late result (especially an error routed through
+// TestUndoWhileStreamingRetiresLateCompletion 锁定如下回归：
+// 被中止/撤销轮的迟到结果（尤其是通过错误路由）
 // finishEngineError) overwrote "已撤销上一轮" with "引擎错误"/"已完成" and
-// reattached a stale reply pointer.
+// 重新挂上一个陈旧的回复指针。
 func TestUndoWhileStreamingRetiresLateCompletion(t *testing.T) {
 	b := &bridge{pending: make(map[int]chan rpcReply)}
 	b.stdin = &autoReplyStdin{b: b}
@@ -99,7 +98,7 @@ func TestUndoWhileStreamingRetiresLateCompletion(t *testing.T) {
 		t.Fatal("undo did not retire the streaming generation")
 	}
 
-	// The old round's error arrives late; it must be ignored entirely.
+	// 旧轮的错误迟到到达；它必须被完全忽略。
 	app.completeRealReply(b, gen, reply, "late full", errors.New("api_key: sk-proj-abcdefghijklmnop boom"))
 	if app.status != "已撤销上一轮" || len(app.messages) != 0 || app.reply != nil {
 		t.Fatalf("late completion clobbered undo state: status=%q messages=%d reply=%v",
@@ -110,8 +109,8 @@ func TestUndoWhileStreamingRetiresLateCompletion(t *testing.T) {
 	}
 }
 
-// TestRetryReplaysPromptAfterUndo checks that retry restores the exact prompt
-// the user typed and rebuilds a complete three-row turn.
+// TestRetryReplaysPromptAfterUndo 检查 retry 恢复用户键入的确切提示
+// 并重建完整的三行回合。
 func TestRetryReplaysPromptAfterUndo(t *testing.T) {
 	app := newTestChat()
 	app.send("重试这个问题")
@@ -132,7 +131,7 @@ func TestRetryReplaysPromptAfterUndo(t *testing.T) {
 	}
 }
 
-// TestRetryNoopWhenStreamingOrEmpty guards the two no-op edges of retry.
+// TestRetryNoopWhenStreamingOrEmpty 守护 retry 的两个空操作边界。
 func TestRetryNoopWhenStreamingOrEmpty(t *testing.T) {
 	app := newTestChat()
 	app.retry()
@@ -148,8 +147,7 @@ func TestRetryNoopWhenStreamingOrEmpty(t *testing.T) {
 	}
 }
 
-// TestUndoWithNoUserMessageIsNoop checks the boundary when only engine events
-// (tool cards) exist: there is no turn to remove.
+// （工具卡片）存在：没有可移除的回合。
 func TestUndoWithNoUserMessageIsNoop(t *testing.T) {
 	app := &chat{}
 	app.applyEngineEvent("tool_start", json.RawMessage(`{"ToolCallID":"c1","ToolName":"bash","Args":"ls"}`))
@@ -159,9 +157,9 @@ func TestUndoWithNoUserMessageIsNoop(t *testing.T) {
 	}
 }
 
-// TestCompleteRealReplyRoutesEngineErrorThroughRedaction verifies the actual
-// sendReal completion path (not just the helper) surfaces a provider error as a
-// redacted, single-line, rune-bounded notice with an explicit status.
+// TestCompleteRealReplyRoutesEngineErrorThroughRedaction 验证实际的
+// sendReal 完成路径（而非仅辅助函数）把 provider 错误呈现为
+// 带显式状态的脱敏、单行、rune 有界通知。
 func TestCompleteRealReplyRoutesEngineErrorThroughRedaction(t *testing.T) {
 	b := &bridge{pending: make(map[int]chan rpcReply)}
 	reply := &message{id: 1, kind: msgAssistant}

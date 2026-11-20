@@ -67,7 +67,7 @@ func TestAliasedDefaultsAcceptBothSpellings(t *testing.T) {
 		wantSbx   string
 		wantTurns int
 		wantStore string
-		wantDiags int // conflicts expected when both spellings are present
+		wantDiags int // 两种拼写同时存在时预期的冲突数
 	}{
 		{
 			name:      "canonical spellings",

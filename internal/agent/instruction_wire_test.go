@@ -6,21 +6,21 @@ import (
 	"testing"
 )
 
-// snapshotWireTaskTools builds the smallest taskTools that can exercise
-// configForPersona / childOptions without a model or a real tool runner.
+// snapshotWireTaskTools 构建最小的 taskTools，可在没有模型或真实工具运行器的情况下演练 configForPersona / childOptions。
+// （接上行）
 func snapshotWireTaskTools(cfg *SubagentConfig) *taskTools {
 	return &taskTools{
 		inner: nopTools{},
 		cfg:   cfg,
-		// A zero parent is safe: childOptions falls back to DefaultSubagentTurns
-		// and needs no other field to render a system prompt.
+		// 零值父级是安全的：childOptions 回退到 DefaultSubagentTurns，渲染系统提示不需要其他字段。
+		// （接上行）
 		parent: Options{},
 	}
 }
 
-// TestSubagentInstructionSnapshotRenderedIntoChildSystemPrompt checks that a
-// parent's resolved snapshot reaches the child prompt in All() order
-// (user -> thread -> project) with the inheritance note exactly once.
+// TestSubagentInstructionSnapshotRenderedIntoChildSystemPrompt 检查父级已解析的快照按 All() 顺序（user -> thread -> project）到达子提示，
+// 且继承标记恰好出现一次。
+// （接上行）
 func TestSubagentInstructionSnapshotRenderedIntoChildSystemPrompt(t *testing.T) {
 	snap := BuildSnapshot(
 		[]string{"user-one", "user-two"},
@@ -50,10 +50,10 @@ func TestSubagentInstructionSnapshotRenderedIntoChildSystemPrompt(t *testing.T) 
 	}
 }
 
-// TestSubagentInstructionSnapshotSurvivesPersonaLayering checks that the
-// resolved snapshot overrides a persona-local one just like SeedContext, on
-// both the named-persona and unknown-persona paths, without mutating the
-// parent's value.
+// TestSubagentInstructionSnapshotSurvivesPersonaLayering 检查已解析的快照像 SeedContext 一样覆盖角色自带的快照，
+// 在具名角色和未知角色两条路径上都如此，且不修改父级的值。
+// （接上行）
+// （接上行）
 func TestSubagentInstructionSnapshotSurvivesPersonaLayering(t *testing.T) {
 	snap := BuildSnapshot([]string{"user-only"}, nil, []string{"thread-only"})
 	want := snap.Inherit()
@@ -61,7 +61,7 @@ func TestSubagentInstructionSnapshotSurvivesPersonaLayering(t *testing.T) {
 		if name != "reviewer" {
 			return SubagentConfig{}, false
 		}
-		// A persona-local snapshot must not win over the parent's resolved one.
+		// 角色自带的快照不得优先于父级已解析的快照。
 		personaSnap := BuildSnapshot([]string{"persona-user"}, nil, nil)
 		return SubagentConfig{System: "persona system", Instruction: &personaSnap}, true
 	}
@@ -86,7 +86,7 @@ func TestSubagentInstructionSnapshotSurvivesPersonaLayering(t *testing.T) {
 		t.Errorf("unknown persona changed the snapshot: %+v", unknown.Instruction)
 	}
 
-	// Inheritance must not mutate the parent's snapshot.
+	// 继承不得修改父级的快照。
 	if len(snap.Thread) != 1 || snap.Thread[0] != "thread-only" {
 		t.Fatalf("parent snapshot was mutated by inheritance: %+v", snap)
 	}
@@ -99,9 +99,9 @@ func TestSubagentInstructionSnapshotSurvivesPersonaLayering(t *testing.T) {
 	}
 }
 
-// TestSubagentInstructionSnapshotNilLeavesSystemPromptUnchanged checks the
-// default-off path: a nil Instruction renders nothing and leaves the generic
-// child system prompt byte-identical.
+// TestSubagentInstructionSnapshotNilLeavesSystemPromptUnchanged 检查默认关闭路径：nil 的 Instruction 不渲染任何内容，
+// 使通用子系统提示逐字节不变。
+// （接上行）
 func TestSubagentInstructionSnapshotNilLeavesSystemPromptUnchanged(t *testing.T) {
 	got := snapshotWireTaskTools(&SubagentConfig{}).childOptions("label", "").System
 	want := fmt.Sprintf(subagentTemplate, "label")
@@ -113,9 +113,9 @@ func TestSubagentInstructionSnapshotNilLeavesSystemPromptUnchanged(t *testing.T)
 	}
 }
 
-// TestSubagentInstructionSnapshotGrandchildHasSingleInheritanceNote follows the
-// same cfg -> Options.Subagent -> cfg chain the real Runner uses (see
-// newToolset), and checks the inheritance marker appears once at every depth.
+// TestSubagentInstructionSnapshotGrandchildHasSingleInheritanceNote 遵循真实 Runner 所用的同一 cfg -> Options.Subagent -> cfg 链（见 newToolset），
+// 并检查继承标记在每个深度只出现一次。
+// （接上行）
 func TestSubagentInstructionSnapshotGrandchildHasSingleInheritanceNote(t *testing.T) {
 	snap := BuildSnapshot([]string{"user-layer"}, []string{"project-layer"}, []string{"thread-layer"})
 	root := snapshotWireTaskTools(&SubagentConfig{Instruction: &snap})
@@ -128,7 +128,7 @@ func TestSubagentInstructionSnapshotGrandchildHasSingleInheritanceNote(t *testin
 		t.Fatalf("child note count = %d, want 1: %q", n, childOpts.System)
 	}
 
-	// The Runner rebuilds its taskTools from Options.Subagent on each level.
+	// Runner 在每一层都从 Options.Subagent 重建其 taskTools。
 	grandOpts := snapshotWireTaskTools(childOpts.Subagent).childOptions("grandchild", "")
 	if n := strings.Count(grandOpts.System, InheritanceNote); n != 1 {
 		t.Fatalf("grandchild note count = %d, want 1 (no duplicate notes): %q", n, grandOpts.System)
@@ -143,9 +143,9 @@ func TestSubagentInstructionSnapshotGrandchildHasSingleInheritanceNote(t *testin
 	}
 }
 
-// TestSubagentInstructionSnapshotReachesNewChildSeam checks that every task
-// path, which all funnel through newChild -> childOptions, hands the child
-// runner an Options carrying the inherited snapshot and the rendered prompt.
+// TestSubagentInstructionSnapshotReachesNewChildSeam 检查所有 task 路径（都经由 newChild -> childOptions）都把带有继承快照和渲染后提示的 Options
+// 交给子运行器。
+// （接上行）
 func TestSubagentInstructionSnapshotReachesNewChildSeam(t *testing.T) {
 	snap := BuildSnapshot([]string{"u"}, nil, []string{"t"})
 	var got Options

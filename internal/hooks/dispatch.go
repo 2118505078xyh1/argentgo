@@ -61,7 +61,6 @@ type Payload struct {
 //
 // Blocked 仅当 PreToolUse 钩子以状态 2 退出时为 true。Message
 // 携带拦截钩子的输出，或未拦截但失败的钩子的警告。
-// 携带拦截钩子的输出，或未拦截但失败的钩子的警告。
 type Result struct {
 	Blocked bool
 	Message string
@@ -325,7 +324,6 @@ func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payloa
 }
 
 // commandRunner 返回所有钩子使用的 runner。零值保持
-// 原有的进程启动行为；只有需要注入接缝的测试才覆盖它。
 // 原有的进程启动行为；只有需要注入接缝的测试才覆盖它。
 func (d *Dispatcher) commandRunner() CommandRunner {
 	if d.Runner != nil {

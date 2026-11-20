@@ -17,7 +17,7 @@ const maxCarryBytes = utf8.UTFMax - 1
 // 把尾部不完整的序列暂存并拼到下一个分块之前，
 // 可保持捕获字节格式正确，使按字符解码
 // 绝不会仅因分块边界落在字符内部就产生 U+FFFD。
-// just because a chunk boundary fell inside a rune.
+// 仅因分块边界落在字符内部。
 //
 // 它可安全并发使用。常见路径下每个流由
 // 单个 exec 拷贝 goroutine 喂入，Flush 只在 cmd.Wait 观察到那些
@@ -29,7 +29,7 @@ type utf8CarryWriter struct {
 	mu       sync.Mutex
 	w        io.Writer
 	carry    []byte
-	maxCarry int // 0 means maxCarryBytes; tests shrink it to exercise the cap
+	maxCarry int // 0 表示 maxCarryBytes；测试会缩小它以演练上限
 }
 
 func newUTF8CarryWriter(w io.Writer) *utf8CarryWriter {

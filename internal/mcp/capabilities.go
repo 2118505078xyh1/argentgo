@@ -6,42 +6,42 @@ import (
 	"strings"
 )
 
-// ServerCapabilities is the capability set a server advertises in its
-// initialize response. A nil pointer means the capability was not declared.
-// MCP encodes capability values as objects (for example {"listChanged":true}),
-// so ParseCapabilities maps the presence of any non-null value to true; an
-// explicit JSON false is preserved as false.
+// ServerCapabilities 是服务器在 initialize 响应中宣告的能力集合。
+// nil 指针表示该能力未被声明。
+// MCP 把能力值编码为对象（例如 {"listChanged":true}），
+// 因此 ParseCapabilities 把任何非 null 值的存在映射为 true；
+// 显式的 JSON false 保留为 false。
 type ServerCapabilities struct {
 	Tools     *bool
 	Prompts   *bool
 	Resources *bool
 
-	// declared records whether the server sent a capabilities object at all.
-	// It distinguishes "the server said nothing" (legacy servers: keep probing)
-	// from "the server advertised capabilities but not this one" (skip the
-	// request instead of earning an empty result and stdout noise).
+	// declared 记录服务器是否发送了 capabilities 对象。
+	// 它区分"服务器什么都没说"（旧服务器：继续探测）
+	// 与"服务器宣告了能力但没有这一项"（跳过该
+	// 请求，而不是得到空结果和 stdout 噪声）。
 	declared bool
 }
 
-// Declared reports whether the server returned a capabilities object. When it
-// is false the server said nothing about its capabilities, so callers should
-// keep probing rather than treating every missing flag as unsupported.
+// Declared 报告服务器是否返回了 capabilities 对象。为 false 时
+// 服务器没有说明其能力，因此调用方应继续探测，
+// 而不是把每个缺失的标志都当作不支持。
 func (c ServerCapabilities) Declared() bool { return c.declared }
 
-// Enumerated reports whether the server named at least one capability we
-// understand. An empty capabilities object ("{}") is common among servers that
-// still serve tools, so it is treated as "no usable information": callers keep
-// probing. Once a server lists a capability, an omitted one is a meaningful
-// signal that the corresponding list method is unsupported.
+// Enumerated 报告服务器是否至少提到了一种我们理解的能力。
+// 空的能力对象（"{}"）在仍提供工具的服务器中很常见，因此它被
+// 当作"无可用信息"：调用方继续探测。一旦服务器列出了某项能力，
+// 省略另一项就是对应列表方法不受支持的有意义
+// 信号。
 func (c ServerCapabilities) Enumerated() bool {
 	return c.Tools != nil || c.Prompts != nil || c.Resources != nil
 }
 
-// Supports reports whether the named capability is explicitly declared as
-// supported. Names are matched case-insensitively. A nil flag (not declared)
-// and an explicit false both return false: undeclared means unsupported.
-// Callers that must tolerate servers with no capabilities object should check
-// Declared before relying on this.
+// Supports 报告指定的能力是否被显式声明为
+// 支持。名称匹配不区分大小写。nil 标志（未声明）
+// 和显式 false 都返回 false：未声明即不支持。
+// 必须容忍没有 capabilities 对象的服务器的调用方，
+// 应在依赖此方法前检查 Declared。
 func (c ServerCapabilities) Supports(cap string) bool {
 	var flag *bool
 	switch strings.ToLower(strings.TrimSpace(cap)) {
@@ -57,11 +57,11 @@ func (c ServerCapabilities) Supports(cap string) bool {
 	return flag != nil && *flag
 }
 
-// ParseCapabilities decodes an initialize response's capabilities member.
-// An absent, null, non-object or malformed payload yields an undeclared set
-// (Declared()==false and every flag nil) so callers keep probing. Keys are
-// matched case-insensitively; any non-null value other than false means the
-// server supports that capability.
+// ParseCapabilities 解码 initialize 响应的 capabilities 成员。
+// 缺失、null、非对象或格式错误的载荷会产生未声明的集合
+// （Declared()==false 且每个标志为 nil），使调用方继续探测。键
+// 匹配不区分大小写；除 false 外的任何非 null 值都表示
+// 服务器支持该能力。
 func ParseCapabilities(raw json.RawMessage) ServerCapabilities {
 	var caps ServerCapabilities
 	t := bytes.TrimSpace(raw)
@@ -87,9 +87,9 @@ func ParseCapabilities(raw json.RawMessage) ServerCapabilities {
 	return caps
 }
 
-// capabilityFlag turns one capability value into a support bit: false stays
-// false, null/absent stays nil, and every other value (including the objects
-// MCP normally sends) means supported.
+// capabilityFlag 把一个能力值转换为支持位：false 保持
+// false，null/缺失保持 nil，其他任何值（包括 MCP
+// 通常发送的对象）都表示支持。
 func capabilityFlag(raw json.RawMessage) *bool {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || isJSONNull(t) {

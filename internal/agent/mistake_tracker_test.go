@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestMistakeKindValues pins the wire/string values of the kinds so logs and
-// injected guidance can match on a stable vocabulary.
+// TestMistakeKindValues 固定各种类的线上/字符串值，使日志和注入的指引能依据稳定的词汇表匹配。
+// （接上行）
 func TestMistakeKindValues(t *testing.T) {
 	tests := []struct {
 		kind MistakeKind
@@ -30,8 +30,8 @@ func TestMistakeKindValues(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerConsecutiveCountAcrossKinds checks that different failure
-// kinds accumulate into one consecutive streak and are classified separately.
+// TestMistakeTrackerConsecutiveCountAcrossKinds 检查不同失败种类会累积到一个连续序列中，并分别分类。
+// （接上行）
 func TestMistakeTrackerConsecutiveCountAcrossKinds(t *testing.T) {
 	tr := NewMistakeTracker(0)
 	tr.Record(MistakeKindAPIError)
@@ -52,7 +52,7 @@ func TestMistakeTrackerConsecutiveCountAcrossKinds(t *testing.T) {
 		}
 	}
 
-	// Zero and unknown kinds must not inflate the streak.
+	// 零值和未知种类不得抬高连续序列。
 	tr.Record("")
 	tr.Record("unrecognized")
 	if got := tr.Count(); got != 4 {
@@ -60,8 +60,8 @@ func TestMistakeTrackerConsecutiveCountAcrossKinds(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerCheckThreshold pins the configurable limit and the
-// below/at-threshold transition, including the default of 3.
+// TestMistakeTrackerCheckThreshold 锁定可配置上限以及低于/达到阈值的转变，包括默认值 3。
+// （接上行）
 func TestMistakeTrackerCheckThreshold(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -103,9 +103,9 @@ func TestMistakeTrackerCheckThreshold(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerGuidanceContinuesRun checks the injected-guidance path:
-// a non-empty instruction turns a would-be stop into a continue+guidance
-// action, and the callback sees the triggering kind and count.
+// TestMistakeTrackerGuidanceContinuesRun 检查注入指引路径：非空指令会把本应停止转变为继续 + 指引的行动，
+// 且回调能看到触发的种类和计数。
+// （接上行）
 func TestMistakeTrackerGuidanceContinuesRun(t *testing.T) {
 	var gotKind MistakeKind
 	var gotCount int
@@ -136,8 +136,8 @@ func TestMistakeTrackerGuidanceContinuesRun(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerSetGuidance covers replacement of the callback, nil
-// removal, and the empty-result fallback to stop.
+// TestMistakeTrackerSetGuidance 覆盖回调的替换、nil 移除以及空结果回退到停止。
+// （接上行）
 func TestMistakeTrackerSetGuidance(t *testing.T) {
 	tr := NewMistakeTracker(1)
 	tr.Record(MistakeKindAPIError)
@@ -162,8 +162,8 @@ func TestMistakeTrackerSetGuidance(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerReset checks that a successful round clears the streak and
-// the per-kind tally while keeping the limit and injected guidance.
+// TestMistakeTrackerReset 检查成功的一轮会清除连续序列及按种类的计数，同时保留上限和注入的指引。
+// （接上行）
 func TestMistakeTrackerReset(t *testing.T) {
 	guidance := func(k MistakeKind, n int) string { return "guidance:" + string(k) }
 	tr := NewMistakeTracker(2, guidance)
@@ -193,9 +193,9 @@ func TestMistakeTrackerReset(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerConcurrentRecord drives many goroutines through Record,
-// Check, read accessors and SetGuidance. With -race this catches any data race;
-// without it the exact final total still asserts that no update was lost.
+// TestMistakeTrackerConcurrentRecord 让许多 goroutine 执行 Record、Check、读取访问器和 SetGuidance。带 -race 时能捕获竞态；
+// 不带时精确的最终总数仍能断言没有丢失任何更新。
+// （接上行）
 func TestMistakeTrackerConcurrentRecord(t *testing.T) {
 	const (
 		goroutines = 16
@@ -240,8 +240,8 @@ func TestMistakeTrackerConcurrentRecord(t *testing.T) {
 	}
 }
 
-// TestMistakeTrackerNilReceiver pins the zero-value/nil-receiver safety so a
-// caller can hold a *MistakeTracker that was never constructed.
+// TestMistakeTrackerNilReceiver 锁定零值/nil 接收者安全性，使调用方可以持有一个从未构造的 *MistakeTracker。
+// （接上行）
 func TestMistakeTrackerNilReceiver(t *testing.T) {
 	var tr *MistakeTracker
 	tr.Record(MistakeKindAPIError)
@@ -255,5 +255,5 @@ func TestMistakeTrackerNilReceiver(t *testing.T) {
 	if stop, action := tr.Check(); stop || action != (MistakeAction{}) {
 		t.Errorf("nil Check() = (%v, %+v), want (false, zero)", stop, action)
 	}
-	tr.Reset() // must not panic
+	tr.Reset() // 不得 panic
 }

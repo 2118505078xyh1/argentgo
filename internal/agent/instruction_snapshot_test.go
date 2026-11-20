@@ -6,9 +6,9 @@ import (
 	"unicode/utf8"
 )
 
-// TestInstructionSnapshotAllLayerOrdering checks that All presents layers in
-// user -> thread -> project order regardless of the argument order used to
-// build the snapshot.
+// TestInstructionSnapshotAllLayerOrdering 检查 All 无论用何种参数顺序构建快照，都按 user -> thread -> project 顺序呈现各层。
+// （接上行）
+// （接上行）
 func TestInstructionSnapshotAllLayerOrdering(t *testing.T) {
 	s := BuildSnapshot(
 		[]string{"user-a", "user-b"},     // user
@@ -27,13 +27,13 @@ func TestInstructionSnapshotAllLayerOrdering(t *testing.T) {
 	}
 }
 
-// TestInstructionSnapshotCloneIsDeepCopy checks that Clone allocates new slices
-// so mutations to the copy never reach the source (and vice versa).
+// TestInstructionSnapshotCloneIsDeepCopy 检查 Clone 分配新切片，使对副本的修改不会到达源（反之亦然）。
+// （接上行）
 func TestInstructionSnapshotCloneIsDeepCopy(t *testing.T) {
 	src := BuildSnapshot([]string{"u"}, []string{"p"}, []string{"t"})
 	clone := src.Clone()
 
-	// Mutate the clone's slices and backing arrays.
+	// 修改副本的切片和底层数组。
 	clone.User[0] = "changed-user"
 	clone.Thread[0] = "changed-thread"
 	clone.Project[0] = "changed-project"
@@ -43,16 +43,16 @@ func TestInstructionSnapshotCloneIsDeepCopy(t *testing.T) {
 		t.Fatalf("source changed after mutating clone: %+v", src)
 	}
 
-	// The reverse direction must hold too.
+	// 反方向也必须成立。
 	src.User[0] = "src-mutated"
 	if clone.User[0] != "changed-user" {
 		t.Fatalf("clone changed after mutating source: %+v", clone)
 	}
 }
 
-// TestInstructionSnapshotFingerprintStableAndContentSensitive checks that the
-// fingerprint is deterministic, changes when content changes, and also changes
-// when identical content moves to a different layer.
+// TestInstructionSnapshotFingerprintStableAndContentSensitive 检查指纹是确定性的、内容变化时会改变，且相同内容移动到不同层时也会改变。
+// （接上行）
+// （接上行）
 func TestInstructionSnapshotFingerprintStableAndContentSensitive(t *testing.T) {
 	a := BuildSnapshot([]string{"u"}, []string{"p"}, []string{"t"})
 	b := BuildSnapshot([]string{"u"}, []string{"p"}, []string{"t"})
@@ -71,8 +71,8 @@ func TestInstructionSnapshotFingerprintStableAndContentSensitive(t *testing.T) {
 	}
 }
 
-// TestBuildSnapshotBoundsTotalBytes checks that the combined layers never
-// exceed the 32 KiB budget, even with many oversized entries.
+// TestBuildSnapshotBoundsTotalBytes 检查即使有很多超大条目，合并后的各层也绝不会超过 32 KiB 预算。
+// （接上行）
 func TestBuildSnapshotBoundsTotalBytes(t *testing.T) {
 	big := strings.Repeat("x", 9000)
 	s := BuildSnapshot(
@@ -92,10 +92,10 @@ func TestBuildSnapshotBoundsTotalBytes(t *testing.T) {
 	}
 }
 
-// TestBuildSnapshotCJKClipRuneSafe checks that a multi-byte (CJK) entry is cut
-// on a rune boundary and stays valid UTF-8 when it exceeds the budget.
+// TestBuildSnapshotCJKClipRuneSafe 检查超出预算时，多字节（CJK）条目在 rune 边界被裁剪并保持合法 UTF-8。
+// （接上行）
 func TestBuildSnapshotCJKClipRuneSafe(t *testing.T) {
-	cjk := strings.Repeat("界", 20000) // 60000 bytes > 32 KiB budget
+	cjk := strings.Repeat("界", 20000) // 60000 字节 > 32 KiB 预算
 	s := BuildSnapshot([]string{cjk}, nil, nil)
 	if len(s.User) != 1 {
 		t.Fatalf("expected one clipped entry, got %d", len(s.User))
@@ -107,7 +107,7 @@ func TestBuildSnapshotCJKClipRuneSafe(t *testing.T) {
 	if !utf8.ValidString(entry) {
 		t.Fatalf("clipped CJK entry is not valid UTF-8 (len %d)", len(entry))
 	}
-	// A 3-byte rune cut must leave a multiple-of-3 byte count.
+	// 3 字节 rune 的裁剪必须留下 3 的倍数字节数。
 	if len(entry)%3 != 0 {
 		t.Fatalf("clipped CJK entry length = %d, want a multiple of 3", len(entry))
 	}
@@ -116,8 +116,8 @@ func TestBuildSnapshotCJKClipRuneSafe(t *testing.T) {
 	}
 }
 
-// TestBuildSnapshotScrubsControlCharacters checks the minimal scrub removes
-// NUL/control bytes and trims whitespace while keeping ordinary text.
+// TestBuildSnapshotScrubsControlCharacters 检查最小清洗会移除 NUL/控制字节并修剪空白，同时保留普通文本。
+// （接上行）
 func TestBuildSnapshotScrubsControlCharacters(t *testing.T) {
 	s := BuildSnapshot([]string{"  keep\x00this\x01\nand\tthis  "}, nil, nil)
 	if len(s.User) != 1 {
@@ -129,8 +129,8 @@ func TestBuildSnapshotScrubsControlCharacters(t *testing.T) {
 	}
 }
 
-// TestInstructionSnapshotInheritAddsNoteAndDeepCopy checks that Inherit appends
-// the inheritance note to Thread, returns an independent copy, and stays bounded.
+// TestInstructionSnapshotInheritAddsNoteAndDeepCopy 检查 Inherit 把继承标记追加到 Thread，返回独立副本，并保持有界。
+// （接上行）
 func TestInstructionSnapshotInheritAddsNoteAndDeepCopy(t *testing.T) {
 	parent := BuildSnapshot([]string{"u"}, []string{"p"}, []string{"t1", "t2"})
 	child := parent.Inherit()
@@ -149,15 +149,15 @@ func TestInstructionSnapshotInheritAddsNoteAndDeepCopy(t *testing.T) {
 		t.Fatalf("inherited Bytes = %d, want <= %d", child.Bytes, MaxSnapshotBytes)
 	}
 
-	// Source must be untouched and independent of the child.
+	// 源必须未被修改，且与子级相互独立。
 	child.Thread[0] = "mutated"
 	if parent.Thread[0] != "t1" {
 		t.Fatalf("parent changed after mutating inherited snapshot: %+v", parent)
 	}
 }
 
-// TestInstructionSnapshotInheritKeepsNoteAtBudget checks that the inheritance
-// marker survives even when the parent snapshot already fills the byte budget.
+// TestInstructionSnapshotInheritKeepsNoteAtBudget 检查即使父快照已经占满字节预算，继承标记仍会保留。
+// （接上行）
 func TestInstructionSnapshotInheritKeepsNoteAtBudget(t *testing.T) {
 	full := BuildSnapshot([]string{strings.Repeat("x", MaxSnapshotBytes)}, nil, nil)
 	child := full.Inherit()
@@ -169,8 +169,8 @@ func TestInstructionSnapshotInheritKeepsNoteAtBudget(t *testing.T) {
 	}
 }
 
-// TestMergeSnapshotsDedupAndOrdering checks parent-first ordering, de-duplication
-// by content, and that Bytes is recomputed from the merged result.
+// TestMergeSnapshotsDedupAndOrdering 检查父级优先的顺序、按内容去重，以及 Bytes 从合并结果重新计算。
+// （接上行）
 func TestMergeSnapshotsDedupAndOrdering(t *testing.T) {
 	parent := BuildSnapshot([]string{"u1", "shared"}, []string{"p1"}, []string{"t1"})
 	additional := BuildSnapshot([]string{"shared", "u2"}, []string{"p2", "p1"}, []string{"t2", "t1"})
@@ -201,9 +201,9 @@ func TestMergeSnapshotsDedupAndOrdering(t *testing.T) {
 	}
 }
 
-// TestInstructionSnapshotEmpty checks the zero-value snapshot behaves sanely:
-// empty All, a stable fingerprint, empty clone, an inheritable note, and an
-// empty merge.
+// TestInstructionSnapshotEmpty 检查零值快照行为合理：空的 All、稳定的指纹、空的克隆、可继承的标记以及空的合并。
+// （接上行）
+// （接上行）
 func TestInstructionSnapshotEmpty(t *testing.T) {
 	var empty InstructionSnapshot
 	if len(empty.All()) != 0 {

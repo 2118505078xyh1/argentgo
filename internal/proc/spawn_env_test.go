@@ -102,8 +102,8 @@ func TestSpawnPathsFilterHostPrivateEnv(t *testing.T) {
 		name     string
 		setEnv   map[string]string
 		extra    []string
-		wantGone map[string]string // key -> value that must NOT reach the child
-		wantKept map[string]string // key -> value that MUST reach the child
+		wantGone map[string]string // 绝不能到达子进程的 key -> value
+		wantKept map[string]string // 必须到达子进程的 key -> value
 	}{
 		{
 			name: "exact and prefix host-private keys are filtered",

@@ -10,10 +10,10 @@ import (
 	"sync"
 )
 
-// bridge drives the real argentgo engine over its stdio JSON-RPC transport.
-// The native UI stays dependency-free of the engine: it spawns `argent --rpc`
-// and speaks the same newline-delimited JSON-RPC that --rpc already exposes.
-// This keeps argentgo's core stdlib-only (no MyGo dependency baked in).
+// bridge 通过其 stdio JSON-RPC 传输驱动真实的 argentgo engine。
+// 原生 UI 保持对 engine 无依赖：它启动 `argent --rpc`
+// 并讲 --rpc 已暴露的同样的换行分隔 JSON-RPC。
+// 这使 argentgo 核心保持只用标准库（没有内嵌 MyGo 依赖）。
 type bridge struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
@@ -24,9 +24,9 @@ type bridge struct {
 	pending map[int]chan rpcReply
 	onDelta func(string)
 	onEvent func(kind string, raw json.RawMessage)
-	// deltaGen is bumped on every onDelta registration. It stamps one
-	// streaming round so a superseded round's late result can be dropped.
-	// Guarded by mu together with onDelta.
+	// deltaGen 在每次 onDelta 注册时增加。它标记一个
+	// 流式轮次，使被取代轮次的迟到结果能被丢弃。
+	// 与 onDelta 一起由 mu 保护。
 	deltaGen uint64
 	closed   bool
 }
@@ -47,10 +47,10 @@ type rpcMessage struct {
 	} `json:"error,omitempty"`
 }
 
-// startBridge launches `argent --rpc`. exePath is the path to argent.exe;
-// workspace is the working directory for the engine. onDelta receives streamed
-// prompt chunks; onEvent receives real agent event notifications (kind + the
-// raw agent.Event JSON) once SubscribeEvents has registered the subscription.
+// startBridge 启动 `argent --rpc`。exePath 是 argent.exe 的路径；workspace 是 engine 的工作目录。onDelta 接收流式提示分块；一旦 SubscribeEvents 注册了订阅，onEvent 接收真实 agent 事件通知（kind + 原始 agent.Event JSON）。stderr 被继承，使开发期间 engine 错误可见。
+// workspace 是 engine 的工作目录。onDelta 接收流式提示
+// 分块；一旦 SubscribeEvents 注册了订阅，onEvent 接收真实 agent 事件
+// 通知（kind + 原始 agent.Event JSON）。
 func startBridge(exePath, workspace string, onDelta func(string), onEvent func(string, json.RawMessage)) (*bridge, error) {
 	cmd := exec.Command(exePath, "--rpc")
 	cmd.Dir = workspace
@@ -63,7 +63,7 @@ func startBridge(exePath, workspace string, onDelta func(string), onEvent func(s
 		stdin.Close()
 		return nil, err
 	}
-	// stderr is inherited so engine errors are visible during development.
+	// stderr 被继承，使开发期间 engine 错误可见。
 	b := &bridge{
 		cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout),
 		pending: make(map[int]chan rpcReply), onEvent: onEvent,
@@ -78,11 +78,11 @@ func startBridge(exePath, workspace string, onDelta func(string), onEvent func(s
 	return b, nil
 }
 
-// setDeltaHandler installs fn as the current prompt/delta callback and returns
-// the generation it was installed at. Registration and readLoop's delivery
-// snapshot are serialized by mu, so swapping callbacks between streaming rounds
-// cannot race with (or tear) a delta being delivered. The returned generation
-// lets a caller retire a superseded round before its late result is applied.
+// setDeltaHandler 安装 fn 为当前提示/delta 回调并返回
+// 它被安装时的 generation。注册与 readLoop 的传递
+// 快照由 mu 串行化，因此在流式轮次之间交换回调
+// 不会与正在传递的 delta 竞争（或撕裂它）。返回的 generation
+// 使调用方能在被取代轮次的迟到结果被应用前将其退役。
 func (b *bridge) setDeltaHandler(fn func(string)) uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -91,18 +91,17 @@ func (b *bridge) setDeltaHandler(fn func(string)) uint64 {
 	return b.deltaGen
 }
 
-// isCurrentDeltaGen reports whether gen still identifies the active streaming
-// round. When it returns false a newer round has superseded gen, so any delta
-// or completion stamped with gen must be discarded.
+// isCurrentDeltaGen 报告 gen 是否仍标识活动流式
+// 标记 gen 的 delta 或完成都必须丢弃。
 func (b *bridge) isCurrentDeltaGen(gen uint64) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.deltaGen == gen
 }
 
-// readLoop demultiplexes responses, prompt/delta notifications and real
-// agent "event" notifications. All callbacks run on this single reader
-// goroutine; consumers must marshal UI changes onto their own thread.
+// readLoop 解复用响应、提示/delta 通知和真实
+// agent "event" 通知。所有回调都在这唯一的 reader
+// goroutine 上运行；消费者必须把 UI 变更编组到自己的线程。
 func (b *bridge) readLoop() {
 	for {
 		line, err := b.stdout.ReadBytes('\n')
@@ -115,10 +114,10 @@ func (b *bridge) readLoop() {
 						Text string `json:"text"`
 					}
 					if json.Unmarshal(m.Params, &p) == nil {
-						// Snapshot the callback under the lock so a concurrent
-						// registration on the UI thread cannot race with this
-						// read. Call it after unlocking: a handler may itself
-						// call back into the bridge (e.g. isCurrentDeltaGen).
+						// 在锁下快照回调，使 UI 线程上的并发
+						// 注册不会与这次读取竞争。解锁后
+						// 调用它：处理器本身可能回调 bridge
+						// （如 isCurrentDeltaGen）。
 						b.mu.Lock()
 						fn := b.onDelta
 						b.mu.Unlock()
@@ -127,10 +126,9 @@ func (b *bridge) readLoop() {
 						}
 					}
 				case m.Method == "event":
-					// event/subscribe forwards each agent event as
-					// {"method":"event","params":{"kind":...,"event":...}}.
-					// Keep the raw event so the UI can decode only the fields
-					// it renders without the bridge importing internal/agent.
+					// event/subscribe 把每个 agent 事件转发为
+					// 保留原始事件，使 UI 能只解码它渲染的
+					// 字段而无需 bridge 导入 internal/agent。
 					var p struct {
 						Kind  string          `json:"kind"`
 						Event json.RawMessage `json:"event"`
@@ -169,7 +167,7 @@ func (b *bridge) readLoop() {
 	}
 }
 
-// call sends a request and waits for its response.
+// call 发送请求并等待其响应。
 func (b *bridge) call(method string, params any) (json.RawMessage, error) {
 	b.mu.Lock()
 	if b.closed {
@@ -205,13 +203,12 @@ func (b *bridge) call(method string, params any) (json.RawMessage, error) {
 	return reply.result, nil
 }
 
-// SubscribeEvents registers the connection with the engine's event hub. The
-// call result reports the hub's current seq; from then on every agent event is
-// delivered as an "event" notification which readLoop dispatches to onEvent.
+// SubscribeEvents 把连接注册到 engine 的事件中心。
+// 作为 "event" 通知传递，由 readLoop 分发给 onEvent。
 //
-// ctx bounds the registration call so a stalled engine cannot block startup.
-// The subscription itself lives for the lifetime of the RPC transport (EOF or
-// bridge close tears it down), so there is no matching unsubscribe method.
+// ctx 限制注册调用，使卡住的 engine 不会阻塞启动。
+// 订阅本身存活于 RPC 传输的整个生命周期（EOF 或
+// bridge close 会拆除它），因此没有对应的取消订阅方法。
 func (b *bridge) SubscribeEvents(ctx context.Context) (uint64, error) {
 	type answer struct {
 		res json.RawMessage
@@ -239,7 +236,7 @@ func (b *bridge) SubscribeEvents(ctx context.Context) (uint64, error) {
 	}
 }
 
-// prompt sends a real prompt; delta chunks arrive through onDelta.
+// prompt 发送真实提示；delta 分块通过 onDelta 到达。
 func (b *bridge) prompt(text string) (string, error) {
 	result, err := b.call("prompt", map[string]any{"text": text})
 	if err != nil {

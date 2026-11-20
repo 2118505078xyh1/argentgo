@@ -75,8 +75,8 @@ func TestEngineErrorNoticeRedactsCredentials(t *testing.T) {
 }
 
 func TestEngineErrorNoticeIsBoundedSingleLine(t *testing.T) {
-	// A hostile or malformed producer can hand us a very long, multi-line
-	// detail; the transcript must stay one line and of bounded size.
+	// 恶意或畸形的生产者可能给我们一段很长的多行 detail；
+	// transcript 必须保持单行且大小有界。
 	detail := strings.Repeat("字行\n\t", maxEngineErrorDetail)
 	got := engineErrorNotice(errors.New(detail))
 	if strings.ContainsAny(got, "\r\n\t") {

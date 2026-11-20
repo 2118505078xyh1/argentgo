@@ -14,8 +14,8 @@ var (
 	defTimeV3 = time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
-// writeDefFile creates (or overwrites) a definition file with a deterministic
-// mtime so fingerprint changes come from explicit test actions, not clock ticks.
+// writeDefFile 用确定的 mtime 创建（或覆盖）一个定义文件，使指纹变化来自显式的测试动作，而非时钟跳动。
+// （接上行）
 func writeDefFile(t *testing.T, path, content string, mod time.Time) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -29,8 +29,8 @@ func writeDefFile(t *testing.T, path, content string, mod time.Time) {
 	}
 }
 
-// newDefFixture lays down one command and one skill (the latter in a
-// subdirectory, exercising the SKILL.md-in-a-directory discovery path).
+// newDefFixture 放置一个命令和一个技能（后者位于子目录中，以覆盖 SKILL.md 位于目录中的发现路径）。
+// （接上行）
 func newDefFixture(t *testing.T) (commandRoot, skillRoot, commandFile, skillFile string) {
 	t.Helper()
 	base := t.TempDir()
@@ -198,8 +198,8 @@ func TestDefinitionCacheConcurrentGetIsSafe(t *testing.T) {
 	const goroutines = 32
 	var wg sync.WaitGroup
 
-	// Phase 1: no filesystem changes, so every caller must see the same
-	// snapshots. (The placeholder slice only counts results, not types.)
+	// 阶段 1：没有文件系统变化，因此每个调用方都必须看到相同的快照。（占位切片只计数结果，不区分类型。）
+	// （接上行）
 	type pair struct {
 		commands interface{}
 		skills   interface{}
@@ -227,9 +227,9 @@ func TestDefinitionCacheConcurrentGetIsSafe(t *testing.T) {
 		t.Fatalf("hits+misses = %d, want %d", hits+misses, goroutines)
 	}
 
-	// Phase 2: concurrent Refresh/Get while the tree is edited. The exact
-	// number of rediscoveries is timing-dependent, but there must be no race,
-	// panic or lost accounting.
+	// 阶段 2：在编辑目录树的同时并发 Refresh/Get。确切的重新发现次数取决于时序，但不得有竞态、panic 或计数丢失。
+	// （接上行）
+	// （接上行）
 	writeDefFile(t, filepath.Join(commandRoot, "hello.md"),
 		"---\ndescription: updated\n---\nUpdated.\n", defTimeV2)
 	wg.Add(goroutines)

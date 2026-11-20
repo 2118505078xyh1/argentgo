@@ -17,7 +17,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// scriptedChatter returns one scripted answer per request, without a network.
+// scriptedChatter 为每个请求返回一个脚本化答案，不使用网络。
 type scriptedChatter struct {
 	mu         sync.Mutex
 	replies    []string
@@ -322,9 +322,9 @@ func TestExecuteAcceptsValidSchemaOnFirstTry(t *testing.T) {
 	}
 }
 
-// TestExecuteSchemaRetryReplacesFirstAnswerOnClient pins the duplicate-text
-// bug: the corrective turn must replace, not append to, the text already
-// streamed to onText, and it must not advertise tools to the model.
+// TestExecuteSchemaRetryReplacesFirstAnswerOnClient 锁定重复文本 bug：纠正轮次必须替换而非追加已流式输出到 onText 的文本，
+// 且不得向模型公布工具。
+// （接上行）
 func TestExecuteSchemaRetryReplacesFirstAnswerOnClient(t *testing.T) {
 	env, _ := testEnv(t)
 	schema := `{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}}}`
@@ -360,8 +360,8 @@ func TestExecuteSchemaRetryReplacesFirstAnswerOnClient(t *testing.T) {
 	}
 }
 
-// mutatingThenInvalidChatter asks for one write, then answers with text that
-// fails schema validation. A third call would mean a forbidden retry.
+// mutatingThenInvalidChatter 请求一次 write，然后用未通过 schema 校验的文本回答。第三次调用将意味着被禁止的重试。
+// （接上行）
 type mutatingThenInvalidChatter struct {
 	mu    sync.Mutex
 	calls int
@@ -390,9 +390,9 @@ func (c *mutatingThenInvalidChatter) Chat(_ context.Context, _ string, _ []llm.M
 	}
 }
 
-// TestExecuteSchemaRetrySkippedAfterMutatingTool pins the side-effect bug:
-// once a mutating tool has run, a schema failure must not re-run the prompt,
-// because that would execute the same tool a second time.
+// TestExecuteSchemaRetrySkippedAfterMutatingTool 锁定副作用 bug：一旦变更型工具已运行，schema 失败就不得重新运行提示，
+// 因为那会第二次执行同一个工具。
+// （接上行）
 func TestExecuteSchemaRetrySkippedAfterMutatingTool(t *testing.T) {
 	env, _ := testEnv(t)
 	root := t.TempDir()

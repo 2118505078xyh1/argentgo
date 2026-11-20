@@ -46,7 +46,7 @@ func TestSwitchWriterHoldsIncompleteRune(t *testing.T) {
 // 提升为日志时，不会丢弃那一刻仍不完整的字符。
 func TestSwitchWriterHandoffFlushesPendingRune(t *testing.T) {
 	out := newSwitchWriter()
-	_, _ = out.Write([]byte("a\xe4\xb8")) // "a" plus the first two bytes of 中
+	_, _ = out.Write([]byte("a\xe4\xb8")) // "a" 加上 中 的前两个字节
 
 	var dst bytes.Buffer
 	out.Handoff(&dst)
@@ -74,7 +74,7 @@ func TestDetachedUTF8Helper(t *testing.T) {
 	_, _ = os.Stdout.Write([]byte("detached-utf8-ready\n"))
 	_, _ = os.Stdout.Write([]byte{0xE4, 0xB8}) // prefix of 中
 	var b [1]byte
-	_, _ = os.Stdin.Read(b[:]) // wait until the parent has inspected Output
+	_, _ = os.Stdin.Read(b[:]) // 等待父进程检查 Output
 	_, _ = os.Stdout.Write([]byte{0xAD})
 }
 

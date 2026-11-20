@@ -24,8 +24,8 @@ func pairingTool(id, content string) llm.Message {
 	return llm.Message{Role: "tool", ToolCallID: id, Content: content}
 }
 
-// sameBackingSlice reports whether two slices share their first element, i.e.
-// NormalizeToolPairing returned the input slice unchanged.
+// sameBackingSlice 报告两个切片是否共享首元素，即 NormalizeToolPairing 是否原样返回了输入切片。
+// （接上行）
 func sameBackingSlice(a, b []llm.Message) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return len(a) == len(b)
@@ -39,7 +39,7 @@ func cloneMessages(messages []llm.Message) []llm.Message {
 	return out
 }
 
-// ① and ⑤: a fully paired transcript is returned by reference and untouched.
+// ① 和 ⑤：完全配对的记录按引用返回且未被修改。
 func TestNormalizeToolPairingCompleteBatchReturnsSameSlice(t *testing.T) {
 	input := []llm.Message{
 		{Role: "system", Content: "be brief"},
@@ -65,8 +65,8 @@ func TestNormalizeToolPairingCompleteBatchReturnsSameSlice(t *testing.T) {
 	}
 }
 
-// ②: an orphan call followed by a user boundary gets an error result with the
-// call's name folded into the text, and the input is not mutated.
+// ②：后接用户边界的孤立调用会得到一个错误结果，调用名被折进文本，且输入未被修改。
+// （接上行）
 func TestNormalizeToolPairingFillsOrphanBeforeUserBoundary(t *testing.T) {
 	input := []llm.Message{
 		{Role: "user", Content: "first"},
@@ -104,7 +104,7 @@ func TestNormalizeToolPairingFillsOrphanBeforeUserBoundary(t *testing.T) {
 	}
 }
 
-// ② (tail variant): an orphan call at the end of the transcript is answered.
+// ②（尾部变体）：记录末尾的孤立调用会得到回应。
 func TestNormalizeToolPairingFillsOrphanAtEnd(t *testing.T) {
 	input := []llm.Message{
 		{Role: "user", Content: "go"},
@@ -121,23 +121,23 @@ func TestNormalizeToolPairingFillsOrphanAtEnd(t *testing.T) {
 	}
 }
 
-// ③: multiple assistant/user boundaries, multiple calls per batch, and a
-// mixture of real and orphan results keep their order and get paired.
+// ③：多个助手/用户边界、每批多个调用，以及真实结果与孤立结果的混合都保持顺序并被配对。
+// （接上行）
 func TestNormalizeToolPairingAcrossMultipleBoundaries(t *testing.T) {
 	input := []llm.Message{
 		{Role: "user", Content: "q1"},
 		pairingAssistant(pairingCall("c1", "a"), pairingCall("c2", "b")),
 		pairingTool("c1", "ok1"),
-		{Role: "user", Content: "q2"}, // c2 is orphaned here
+		{Role: "user", Content: "q2"}, // c2 在这里是孤立的
 		pairingAssistant(pairingCall("c3", "c")),
 		pairingTool("c3", "ok3"),
 		{Role: "user", Content: "q3"},
-		pairingAssistant(pairingCall("c4", "d")), // orphan at the tail
+		pairingAssistant(pairingCall("c4", "d")), // 尾部的孤立调用
 	}
 
 	got := NormalizeToolPairing(input)
 
-	// Walk the result and record the ordering of tool results vs boundaries.
+	// 遍历结果并记录工具结果与边界的顺序。
 	var layout []string
 	for _, m := range got {
 		switch {
@@ -152,20 +152,20 @@ func TestNormalizeToolPairingAcrossMultipleBoundaries(t *testing.T) {
 	want := []string{
 		"user:q1",
 		"assistant:c1",
-		"tool:c1", // real result first
-		"tool:c2", // synthesized before the q2 boundary
+		"tool:c1", // 真实结果在前
+		"tool:c2", // 在 q2 边界之前合成
 		"user:q2",
 		"assistant:c3",
-		"tool:c3", // real result
+		"tool:c3", // 真实结果
 		"user:q3",
 		"assistant:c4",
-		"tool:c4", // synthesized at the tail
+		"tool:c4", // 在尾部合成
 	}
 	if strings.Join(layout, ",") != strings.Join(want, ",") {
 		t.Fatalf("layout = %v, want %v", layout, want)
 	}
 
-	// The synthesized c2 result must mention its tool name.
+	// 合成的 c2 结果必须提及它的工具名。
 	for _, m := range got {
 		if m.Role == "tool" && m.ToolCallID == "c2" {
 			if !strings.Contains(m.Content, "\"b\"") {
@@ -175,12 +175,12 @@ func TestNormalizeToolPairingAcrossMultipleBoundaries(t *testing.T) {
 	}
 }
 
-// ④: empty/whitespace-only tool output is normalized to a placeholder, both
-// for existing results and for an orphan call with no name.
+// ④：空/仅空白的工具输出会被规范化为占位符，无论是对已有结果还是对无名的孤立调用。
+// （接上行）
 func TestNormalizeToolPairingNormalizesEmptyOutput(t *testing.T) {
 	input := []llm.Message{
 		pairingAssistant(pairingCall("c1", "read_file")),
-		pairingTool("c1", "   \t\n "), // existing empty result
+		pairingTool("c1", "   \t\n "), // 已有的空结果
 		pairingAssistant(pairingCall("c2", "")),
 	}
 
@@ -203,8 +203,8 @@ func TestNormalizeToolPairingNormalizesEmptyOutput(t *testing.T) {
 	}
 }
 
-// ⑥: UTF-8 / Chinese tool names and result content survive normalization
-// byte-for-byte, and a fully paired Chinese transcript is returned by ref.
+// ⑥：UTF-8/中文工具名和结果内容在规范化后逐字节保留，完全配对的中文记录按引用返回。
+// （接上行）
 func TestNormalizeToolPairingUTF8Safe(t *testing.T) {
 	paired := []llm.Message{
 		pairingAssistant(pairingCall("工具-1", "读取文件")),

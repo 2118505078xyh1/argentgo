@@ -75,7 +75,6 @@ func TestGoldenScenarios(t *testing.T) {
 
 			// runOne 对场景评分并返回可观察结果：
 			// 工具事件序列、最终助手文本、轮数、
-			// 工具事件序列、最终助手文本、轮数、
 			// 停止标志以及通过/原因结果。对这些脚本化场景它是完全确定的。
 			result := runOne(context.Background(), 1, scenario, fakeRun, Options{})
 			got := formatGolden(result)

@@ -84,7 +84,7 @@ var unknownFailure = FailureInfo{FailureUnknown, false, UserActionNone, "unknown
 // 它复用 ClassifyAPIError，因此在转换家族之前，权威异常类别（net/context
 // 哨兵、包装的流错误）会胜过通用文本模式。结果不含提供方文本或凭据：
 // ErrorID 始终是 failureByFamily 中的固定标识符之一。
-// ErrorID is always one of the fixed identifiers in failureByFamily.
+// ErrorID 始终是 failureByFamily 中的固定标识符之一。
 //
 // nil 被报告为 unknown/none 且不含细节；把"无错误"当作
 // 特殊情况的调用方，可以在调用前继续检查 err。

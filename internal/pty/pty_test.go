@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// shellCommand builds a child that prints one line and then lingers, so the
-// terminal has something to read and is still open when the test inspects it.
+// shellCommand 构建一个打印一行然后滞留的子进程，使
+// 终端有内容可读且在测试检查时仍打开。
 func shellCommand(line string) Command {
 	if runtime.GOOS == "windows" {
 		return Command{
@@ -33,7 +33,7 @@ func exitCommand(code string) Command {
 	return Command{Path: "/bin/sh", Args: []string{"-c", "exit " + code}}
 }
 
-// collector reads the terminal in the background and keeps everything.
+// collector 在后台读取终端并保留一切。
 type collector struct {
 	mu   sync.Mutex
 	text strings.Builder
@@ -143,8 +143,8 @@ func TestWriteReachesTheChild(t *testing.T) {
 	if !Supported() {
 		t.Skip("pseudoterminals are not supported here")
 	}
-	// An interactive shell echoes what we type, so the marker coming back
-	// proves the write end of the terminal is wired up.
+	// shellCommand 构建一个打印一行然后滞留的子进程，使终端有内容可读且在测试检查时仍打开。collector 在后台读取终端并保留一切。交互式 shell 会回显我们键入的内容，因此返回的标记证明终端的写端已接好。
+	// 证明终端的写端已接好。
 	cmd := Command{Path: "cmd.exe"}
 	if runtime.GOOS != "windows" {
 		cmd = Command{Path: "/bin/sh"}
@@ -234,9 +234,9 @@ func TestContextCancellationClosesTheTerminal(t *testing.T) {
 	t.Fatal("cancelling ctx must terminate the child")
 }
 
-// recordingTerminal is a terminal stub that remembers the last size applied
-// to it. It lets the resize concurrency test run on every platform without a
-// real ConPTY or /dev/ptmx.
+// recordingTerminal 是一个记住最后应用到它的大小的终端桩。
+// 它使调整大小并发测试能在每个平台上运行而无需
+// recordingTerminal 是一个记住最后应用大小的终端桩。它使调整大小并发测试能在每个平台上运行而无需真实 ConPTY 或 /dev/ptmx。
 type recordingTerminal struct {
 	mu       sync.Mutex
 	lastSize Size
@@ -263,10 +263,10 @@ func (r *recordingTerminal) applied() Size {
 	return r.lastSize
 }
 
-// TestConcurrentResizeAndSize guards the size field against a data race
-// between a UI resize event and a reader rendering the current size. It also
-// checks that the reported size always matches the one last applied to the
-// terminal, which catches lost updates when two Resizes overlap.
+// TestConcurrentResizeAndSize 守护 size 字段免受数据竞争
+// TestConcurrentResizeAndSize 守护 size 字段免受 UI 调整大小事件与渲染当前大小的读者之间的数据竞争。它还检查报告的大小始终与最后应用到终端的大小一致，这能捕捉两个 Resize 重叠时的丢失更新。大小必须是请求的大小之一（另一个写入者可能赢得了竞态），绝不可以是两者的撕裂混合。
+// 它检查报告的大小始终与最后应用到
+// 终端的大小一致，这能捕捉两个 Resize 重叠时的丢失更新。
 func TestConcurrentResizeAndSize(t *testing.T) {
 	term := &recordingTerminal{lastSize: DefaultSize}
 	p := &Pty{term: term, size: DefaultSize, closed: make(chan struct{})}
@@ -286,8 +286,8 @@ func TestConcurrentResizeAndSize(t *testing.T) {
 					t.Errorf("resize: %v", err)
 					return
 				}
-				// Size must be one of the requested sizes (another writer
-				// may have won the race), never a torn mix of two of them.
+				// 大小必须是请求的大小之一（另一个写入者
+				// 可能赢得了竞态），绝不可以是两者的撕裂混合。
 				got := p.Size()
 				if got.Cols < 80 || got.Cols >= 80+writers ||
 					got.Rows < 24 || got.Rows >= 24+writers {

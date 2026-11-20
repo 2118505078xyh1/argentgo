@@ -111,11 +111,11 @@ func TestEventHandlerHugeAfterCursor(t *testing.T) {
 			}
 			handler := newEventHandlerInterval(hub, time.Hour)
 			ctx, cancel := context.WithCancel(context.Background())
-			cancel() // exit the stream loop immediately after the connected frame
+			cancel() // 在 connected 帧之后立即退出流循环
 
 			req := httptest.NewRequest(http.MethodGet, "/v1/event?after="+raw, nil).WithContext(ctx)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req) // direct call: a panic fails this subtest
+			handler.ServeHTTP(rec, req) // 直接调用：panic 会使该子测试失败
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", rec.Code)

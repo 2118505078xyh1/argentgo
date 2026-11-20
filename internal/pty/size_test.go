@@ -91,9 +91,9 @@ func TestFitSize(t *testing.T) {
 	}
 }
 
-// TestFitSizeResultIsAlwaysResizable checks the core invariant: no matter what
-// garbage the resize event carries, the result satisfies Resize's >= minAxis
-// requirement and fits in uint16.
+// TestFitSizeResultIsAlwaysResizable 检查核心不变量：无论什么
+// TestFitSizeResultIsAlwaysResizable 检查核心不变量：无论 resize 事件带来什么
+// 要求且能放进 uint16。
 func TestFitSizeResultIsAlwaysResizable(t *testing.T) {
 	inputs := []struct{ cols, rows, maxCols, maxRows int }{
 		{0, 0, 0, 0},

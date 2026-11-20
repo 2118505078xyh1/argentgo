@@ -124,8 +124,8 @@ func TestFinalAnswerCancellationIsNotSwallowed(t *testing.T) {
 		if n == 1 {
 			return toolReply(toolCall("c1", "read", `{}`)), nil
 		}
-		// Abort mid-stream during the synthetic final-answer request. The
-		// half-written text must never reach the operator's event stream.
+		// 在合成的最终答案请求流式中途中止。半写的文本绝不能到达操作人员的事件流。
+		// （接上行）
 		cancel()
 		onText("half ")
 		return llm.Message{}, ctx.Err()

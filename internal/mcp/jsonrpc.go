@@ -9,10 +9,10 @@ import (
 	"sync"
 )
 
-// jsonrpcVersion is the only protocol version this package speaks.
+// jsonrpcVersion 是本包唯一支持的协议版本。
 const jsonrpcVersion = "2.0"
 
-// rpcRequest is one JSON-RPC 2.0 call that expects an answer.
+// rpcRequest 是一个期望答复的 JSON-RPC 2.0 调用。
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      uint64          `json:"id"`
@@ -20,14 +20,14 @@ type rpcRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-// rpcNotification is one JSON-RPC 2.0 message that expects no answer.
+// rpcNotification 是一个不期望答复的 JSON-RPC 2.0 消息。
 type rpcNotification struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-// rpcErrorBody is the "error" member of a failed response.
+// rpcErrorBody 是失败响应的 "error" 成员。
 type rpcErrorBody struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
@@ -41,13 +41,13 @@ func (e *rpcErrorBody) Error() string {
 	return fmt.Sprintf("json-rpc error %d: %s", e.Code, e.Message)
 }
 
-// rpcReply is whichever half of a response arrived: a result or an error.
+// rpcReply 是到达的响应的任一半：result 或 error。
 type rpcReply struct {
 	result json.RawMessage
 	err    error
 }
 
-// idSequence hands out monotonically increasing request ids.
+// idSequence 分发单调递增的请求 id。
 type idSequence struct {
 	mu   sync.Mutex
 	next uint64
@@ -60,7 +60,7 @@ func (s *idSequence) take() uint64 {
 	return s.next
 }
 
-// waiters correlates responses with the calls that are waiting for them.
+// waiters 把响应与正在等待它们的调用关联起来。
 type waiters struct {
 	mu      sync.Mutex
 	pending map[uint64]chan rpcReply
@@ -94,7 +94,7 @@ func (w *waiters) deliver(id uint64, reply rpcReply) bool {
 	select {
 	case ch <- reply:
 	default:
-		// A late duplicate must not block the reader goroutine.
+		// 迟到的重复消息不得阻塞读取 goroutine。
 	}
 	return true
 }
@@ -112,9 +112,9 @@ func (w *waiters) failAll(err error) {
 	}
 }
 
-// handle decodes one payload (object or batch) and delivers its responses.
-// Server-initiated notifications and requests are ignored: this client does
-// not advertise sampling or roots handlers.
+// handle 解码一个载荷（对象或批次）并投递其响应。
+// 服务器发起的通知和请求会被忽略：本客户端不宣告
+// sampling 或 roots 处理器。
 func (w *waiters) handle(raw []byte) error {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
@@ -167,7 +167,7 @@ func (w *waiters) handleOne(raw []byte) error {
 	return nil
 }
 
-// decodeID accepts the numeric and string id shapes JSON-RPC allows.
+// decodeID 接受 JSON-RPC 允许的数字和字符串两种 id 形态。
 func decodeID(raw json.RawMessage) (uint64, bool) {
 	var number uint64
 	if err := json.Unmarshal(raw, &number); err == nil {
@@ -182,7 +182,7 @@ func decodeID(raw json.RawMessage) (uint64, bool) {
 	return 0, false
 }
 
-// marshalRequest builds a request frame.
+// marshalRequest 构建一个请求帧。
 func marshalRequest(id uint64, method string, params any) ([]byte, error) {
 	raw, err := marshalParams(params)
 	if err != nil {
@@ -191,7 +191,7 @@ func marshalRequest(id uint64, method string, params any) ([]byte, error) {
 	return json.Marshal(rpcRequest{JSONRPC: jsonrpcVersion, ID: id, Method: method, Params: raw})
 }
 
-// marshalNotification builds a notification frame.
+// marshalNotification 构建一个通知帧。
 func marshalNotification(method string, params any) ([]byte, error) {
 	raw, err := marshalParams(params)
 	if err != nil {
@@ -211,7 +211,7 @@ func marshalParams(params any) (json.RawMessage, error) {
 	}
 }
 
-// methodNotFound reports a JSON-RPC "method not found" error.
+// methodNotFound 报告一个 JSON-RPC "method not found" 错误。
 func methodNotFound(err error) bool {
 	var body *rpcErrorBody
 	if !errors.As(err, &body) {

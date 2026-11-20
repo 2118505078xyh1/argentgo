@@ -9,10 +9,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// This file records performance baselines for the agent loop's pure hot paths:
-// token estimation, context trimming/reclamation, argument normalization and
-// event emission. Fixtures are fixed in memory; no network, model or real
-// wall-clock dependency is involved. No wall-clock thresholds are asserted.
+// 本文件记录 agent 循环纯热路径的性能基线：
+// token 估算、上下文裁剪/回收、参数规范化和
+// 事件发出。固定样本存于内存中；不涉及网络、模型或真实
+// 墙上时钟依赖。不断言任何墙上时钟阈值。
 
 var (
 	benchAgentInt    int
@@ -30,8 +30,8 @@ func benchToolCall(id, name, args string) llm.ToolCall {
 	}
 }
 
-// benchConversation builds n assistant/tool pairs around a fixed head and tail,
-// matching the shape the trim and reclaim paths actually see.
+// benchConversation 在固定的头和尾之间构建 n 对助手/工具消息，
+// 匹配裁剪和回收路径实际看到的形状。
 func benchConversation(n int, body string) []llm.Message {
 	messages := make([]llm.Message, 0, 2*n+3)
 	messages = append(messages,
@@ -49,8 +49,8 @@ func benchConversation(n int, body string) []llm.Message {
 	return messages
 }
 
-// BenchmarkEstimateTokens covers the per-rune scan that every token estimate
-// goes through, across Latin, CJK, emoji and mixed scripts.
+// BenchmarkEstimateTokens 覆盖每次 token 估算都要经过的逐 rune 扫描，
+// 涵盖拉丁、CJK、emoji 和混合文字。
 func BenchmarkEstimateTokens(b *testing.B) {
 	cases := []struct {
 		name string
@@ -72,8 +72,8 @@ func BenchmarkEstimateTokens(b *testing.B) {
 	}
 }
 
-// BenchmarkEstimateMessages covers the whole-conversation accounting used by
-// the trim budget check on every request.
+// BenchmarkEstimateMessages 覆盖每次请求时裁剪预算检查所用的整段对话计数。
+// （接上行）
 func BenchmarkEstimateMessages(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -87,11 +87,11 @@ func BenchmarkEstimateMessages(b *testing.B) {
 	}
 }
 
-// BenchmarkTrim measures the budget-driven stubbing path. Trim copies its
-// input, so the fixture stays pristine between iterations. The cache-protect
-// guard is kept at a small, explicit value: with it disabled, Trim keeps
-// stubbing until the whole suffix is protected, so a few hundred iterations
-// take minutes — that configuration is not how callers use it.
+// BenchmarkTrim 测量预算驱动的占位替换路径。Trim 会复制输入，
+// 因此样本在迭代之间保持原样。缓存保护
+// 防护保持为一个较小的显式值：禁用它时，Trim 会一直替换占位，
+// 直到整个后缀都被保护，因此几百次迭代会耗时数分钟——
+// 调用方并不是这样使用它的。
 func BenchmarkTrim(b *testing.B) {
 	for _, n := range []int{100, 500, 1000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -111,9 +111,9 @@ func BenchmarkTrim(b *testing.B) {
 	}
 }
 
-// BenchmarkReclaimByMeta isolates the metadata-driven reclamation pass from
-// the budget loop. Each iteration copies the fixture exactly as Trim does,
-// because reclaimByMeta replaces tool bodies in place.
+// BenchmarkReclaimByMeta 把元数据驱动的回收过程与预算循环隔离开。
+// 每次迭代都像 Trim 一样精确复制样本，
+// 因为 reclaimByMeta 是就地替换工具主体。
 func BenchmarkReclaimByMeta(b *testing.B) {
 	const protect = 1 << 30
 	for _, n := range []int{100, 1000, 5000} {
@@ -141,8 +141,8 @@ func BenchmarkReclaimByMeta(b *testing.B) {
 	}
 }
 
-// benchJSONArgs builds a flat JSON object with n string properties, used as a
-// fixed normalization fixture.
+// benchJSONArgs 构建一个包含 n 个字符串属性的扁平 JSON 对象，用作固定的规范化样本。
+// （接上行）
 func benchJSONArgs(n int) string {
 	var sb strings.Builder
 	sb.WriteByte('{')
@@ -156,8 +156,8 @@ func benchJSONArgs(n int) string {
 	return sb.String()
 }
 
-// BenchmarkNormalizeArgs measures the JSON round-trip used by the dedupe guard
-// to canonicalize tool call arguments.
+// BenchmarkNormalizeArgs 测量重复防护器用来规范化工具调用参数的 JSON 往返。
+// （接上行）
 func BenchmarkNormalizeArgs(b *testing.B) {
 	cases := []struct {
 		name string
@@ -179,9 +179,9 @@ func BenchmarkNormalizeArgs(b *testing.B) {
 	}
 }
 
-// BenchmarkEventEmit measures the recorded + ordered-delivery emit path with a
-// no-op consumer. The recorded slice is trimmed occasionally so a long full run
-// cannot grow without bound; that bookkeeping sits outside the timed region.
+// BenchmarkEventEmit 用空消费者测量记录 + 有序投递的发出路径。
+// 记录切片会被偶尔裁剪，使长时间的完整运行不会无界增长；
+// 这部分记账位于计时区域之外。
 func BenchmarkEventEmit(b *testing.B) {
 	cases := []struct {
 		name  string
@@ -208,8 +208,8 @@ func BenchmarkEventEmit(b *testing.B) {
 	}
 }
 
-// BenchmarkProjectSpecsForModel covers the schema projection applied to every
-// advertised tool list for model families with JSON Schema quirks.
+// BenchmarkProjectSpecsForModel 覆盖对存在 JSON Schema 特性的模型系列，
+// 每次公布工具列表时所做的 schema 投影。
 func BenchmarkProjectSpecsForModel(b *testing.B) {
 	specs := make([]llm.ToolSpec, 32)
 	for i := range specs {

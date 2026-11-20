@@ -8,7 +8,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// repeatedSigs builds n signatures with the same name/args/result.
+// repeatedSigs 构建 n 个 name/args/result 都相同的签名。
 func repeatedSigs(n int, name, args, result string) []ToolCallSignature {
 	out := make([]ToolCallSignature, 0, n)
 	for i := 0; i < n; i++ {
@@ -144,12 +144,12 @@ func TestToolCallSignaturesPairsResults(t *testing.T) {
 		t.Fatal("two identical pairs are below the default threshold of three; should not stick")
 	}
 
-	// With an explicit threshold of 2 the same pair is a loop.
+	// 显式阈值为 2 时，同样的一对就是循环。
 	if stuck, _ := DetectNoProgressWithThreshold(sigs, 2); !stuck {
 		t.Fatal("two identical calls with identical results should be stuck at threshold 2")
 	}
 
-	// A shorter results slice leaves trailing calls result-free.
+	// 较短的 results 切片会让尾部的调用没有结果。
 	partial := ToolCallSignatures(calls, results[:1])
 	if partial[0].Result == "" || partial[1].Result != "" {
 		t.Fatalf("partial results pairing: %+v", partial)
@@ -161,7 +161,7 @@ func TestSignaturesFromEvents(t *testing.T) {
 		{Kind: EventTurnStart, Turn: 1},
 		{Kind: EventToolStart, ToolCallID: "1", ToolName: "read", Args: `{"path":"甲.go"}`},
 		{Kind: EventToolEnd, ToolCallID: "1", ToolName: "read", Args: `{"path":"甲.go"}`, Output: "内容"},
-		// A start with no end must be ignored; it produced no result.
+		// 只有开始没有结束的调用必须被忽略；它没有产生结果。
 		{Kind: EventToolStart, ToolCallID: "2", ToolName: "read", Args: `{"path":"乙.go"}`},
 	}
 	sigs := SignaturesFromEvents(events)
@@ -171,7 +171,7 @@ func TestSignaturesFromEvents(t *testing.T) {
 	if sigs[0].Name != "read" || sigs[0].Args != `{"path":"甲.go"}` || sigs[0].Result == "" {
 		t.Fatalf("unexpected signature: %+v", sigs[0])
 	}
-	// Same output hashes to the same summary; different output does not.
+	// 相同输出哈希为相同的摘要；不同输出则不会。
 	same := ToolCallSignatures([]llm.ToolCall{toolCall("3", "read", `{"path":"甲.go"}`)}, []callResult{{output: "内容"}})
 	if sigs[0].Result != same[0].Result {
 		t.Fatal("equal outputs must hash to the same result summary")
@@ -182,8 +182,8 @@ func TestSignaturesFromEvents(t *testing.T) {
 	}
 }
 
-// noProgressRun drives a scripted run and returns its result, emitted events and
-// the number of model requests so wiring tests can assert early termination.
+// noProgressRun 驱动一次脚本化运行，返回其结果、发出的事件以及模型请求次数，
+// 使接线测试能断言提前终止。
 func noProgressRun(t *testing.T, cfg *NoProgressConfig, toolRun func(context.Context, string, string) (string, error), replies ...llm.Message) (Result, []Event, int, int) {
 	t.Helper()
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}, run: toolRun}
@@ -199,7 +199,7 @@ func noProgressRun(t *testing.T, cfg *NoProgressConfig, toolRun func(context.Con
 		Chatter:    chat,
 		Tools:      tools,
 		Emit:       sink.emit,
-		MaxRepeats: 10, // keep the independent repeat guard out of these tests
+		MaxRepeats: 10, // 让独立的重复防护器不参与这些测试
 		NoProgress: cfg,
 	}}
 	res, err := runner.Run(context.Background(), "work")

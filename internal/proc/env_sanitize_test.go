@@ -55,8 +55,8 @@ func TestSanitizeEnv(t *testing.T) {
 		name     string
 		setEnv   map[string]string
 		extra    []string
-		wantGone []string // sentinel values that must not survive
-		wantKept []string // exact "K=V" entries that must survive
+		wantGone []string // 不得留存的哨兵值
+		wantKept []string // 必须留存的精确 "K=V" 条目
 	}{
 		{
 			name:     "private exact vars are filtered",
@@ -154,7 +154,7 @@ func TestIsHostPrivateEnvEntry(t *testing.T) {
 		{"ARGENT_RUN_ID=abc", true},
 		{"ARGENT_PARENT_X=abc", true},
 		{"SUBAGENT_PARENT_X=abc", true},
-		{"ARGENT_SESSION_ID=has=equals=in=value", true}, // split on first '=' only
+		{"ARGENT_SESSION_ID=has=equals=in=value", true}, // 仅在第一个 '=' 处切分
 		{"PATH=/usr/bin", false},
 		{"MY_ARGENT_SESSION_ID=x", false},
 		{"ARGENT_SESSION=x", false},

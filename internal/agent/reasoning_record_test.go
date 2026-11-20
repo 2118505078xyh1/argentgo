@@ -7,10 +7,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestAssistantRecordCarriesReasoning locks step 3 of the reasoning replay
-// chain: when a provider reply carries reasoning, the assistant record written
-// through the injected Recorder is the raw llm.Message with Reasoning intact,
-// and the in-memory transcript keeps it too (so later turns can replay it).
+// TestAssistantRecordCarriesReasoning 锁定推理回放链的第 3 步：当提供方回复携带推理时，通过注入的 Recorder 写入的助手记录
+// 是 Reasoning 完整的原始 llm.Message，且内存中的记录也保留它（使后续轮次能回放）。
+// （接上行）
+// （接上行）
 func TestAssistantRecordCarriesReasoning(t *testing.T) {
 	const reasoning = "逐步思考：先读文件，再修改，最后给出答案。"
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -50,8 +50,8 @@ func TestAssistantRecordCarriesReasoning(t *testing.T) {
 		t.Fatalf("no assistant record carried reasoning %q; rows = %+v", reasoning, rows)
 	}
 
-	// The transcript view handed back to the caller keeps reasoning as well,
-	// which is what an opt-in wire replay reads on the next turn.
+	// 返回给调用方的记录视图也保留推理，这正是选择启用的线上回放会在下一轮次读取的内容。
+	// （接上行）
 	transcriptHasReasoning := false
 	for _, m := range result.Messages {
 		if m.Role == "assistant" && m.Reasoning == reasoning {
@@ -64,8 +64,8 @@ func TestAssistantRecordCarriesReasoning(t *testing.T) {
 	}
 }
 
-// TestReasoningSurvivesToolPairingView verifies the outgoing view used before
-// each request does not strip reasoning from assistant tool-use turns.
+// TestReasoningSurvivesToolPairingView 验证每次请求之前使用的外发视图不会从助手的工具使用轮次中剥离推理。
+// （接上行）
 func TestReasoningSurvivesToolPairingView(t *testing.T) {
 	const reasoning = "中文推理内容"
 	messages := []llm.Message{

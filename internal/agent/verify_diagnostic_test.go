@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestHasDiagnosticContent covers the aider-P2 classifier: a FAIL whose
-// feedback is only boilerplate must not be mistaken for actionable output.
+// TestHasDiagnosticContent 覆盖 aider-P2 分类器：反馈只有样板的 FAIL 不得被误认为可操作的输出。
+// （接上行）
 func TestHasDiagnosticContent(t *testing.T) {
 	const hint = "Reflections left: 2. Do not re-run the same check unchanged."
 	tests := []struct {
@@ -46,8 +46,8 @@ func TestHasDiagnosticContent(t *testing.T) {
 	}
 }
 
-// TestHasDiagnosticContentOnBuildVerifyFeedback exercises the classifier on the
-// exact string that verifyAfterBatch hands to injectSteering.
+// TestHasDiagnosticContentOnBuildVerifyFeedback 在 verifyAfterBatch 交给 injectSteering 的确切字符串上演练分类器。
+// （接上行）
 func TestHasDiagnosticContentOnBuildVerifyFeedback(t *testing.T) {
 	state := VerifyLoopState{Reflections: 1, Max: 3}
 	if got := HasDiagnosticContent(BuildVerifyFeedback("go test", "   \n\t ", state)); got {
@@ -61,16 +61,16 @@ func TestHasDiagnosticContentOnBuildVerifyFeedback(t *testing.T) {
 	}
 }
 
-// TestVerifyReflectionHintStringUnchanged guards the const refactor: the hint
-// appended to every FAIL must stay byte-for-byte identical to the original.
+// TestVerifyReflectionHintStringUnchanged 守护常量重构：附加到每个 FAIL 的提示必须与原始内容逐字节一致。
+// （接上行）
 func TestVerifyReflectionHintStringUnchanged(t *testing.T) {
 	if got, want := fmt.Sprintf(verifyReflectionHint, 2), "Reflections left: 2. Do not re-run the same check unchanged."; got != want {
 		t.Fatalf("verifyReflectionHint = %q, want %q", got, want)
 	}
 }
 
-// TestVerifyAfterBatchRecordsLastOutcome checks the additive observational
-// field without touching the reflection flow.
+// TestVerifyAfterBatchRecordsLastOutcome 检查附加的观察性字段，而不触碰反思流程。
+// （接上行）
 func TestVerifyAfterBatchRecordsLastOutcome(t *testing.T) {
 	tests := []struct {
 		name   string

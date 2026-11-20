@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// assertStoredWatched checks the registry's own copy: that is the one
-// refreshLocked iterates, so the flag must be set there (not just on the value
-// returned to the caller).
+// assertStoredWatched 检查 registry 自己的副本：那是 refreshLocked 遍历的那一个，因此标志必须设在那里（而非仅在返回给调用方的值上）。
+// 那是 refreshLocked 遍历的那一个，因此标志必须设在那里（而非仅在
+// 返回给调用方的值上）。
 func assertStoredWatched(t *testing.T, r *Registry, id string) {
 	t.Helper()
 	r.mu.Lock()
@@ -22,9 +22,9 @@ func assertStoredWatched(t *testing.T, r *Registry, id string) {
 	}
 }
 
-// TestStartAndPromoteMarkJobsWatched guards the fix at its source: both paths
-// that spawn an in-process completion watcher must flag the stored job so
-// refreshLocked leaves its exit code to that watcher.
+// TestStartAndPromoteMarkJobsWatched 在源头守护该修复：两条路径
+// 派生进程内完成观察者必须标记存储的作业，使
+// TestStartAndPromoteMarkJobsWatched 在源头守护该修复：两条派生进程内完成观察者的路径都必须标记存储的作业，使 refreshLocked 把其退出码留给该观察者。
 func TestStartAndPromoteMarkJobsWatched(t *testing.T) {
 	t.Run("start", func(t *testing.T) {
 		r := newRegistry(t)
@@ -51,11 +51,11 @@ func TestStartAndPromoteMarkJobsWatched(t *testing.T) {
 	})
 }
 
-// TestWatchedJobNeverShowsPrematureTerminalExit reproduces the race window
-// deterministically: the child is already dead (unrecoverable pid) but the
-// reaper has not yet recorded the real exit code. Readers must not publish a
-// terminal Exited/-1 snapshot during that window — only the reaper may make the
-// job terminal, and it carries the real code.
+// TestWatchedJobNeverShowsPrematureTerminalExit 确定性地复现竞态窗口：
+// 子进程已死（pid 无法恢复）但 reaper 尚未记录真实退出码。读者不得
+// 在那个窗口发布终态快照 —— 只有 reaper 能使
+// TestWatchedJobNeverShowsPrematureTerminalExit 确定性地复现竞态窗口：子进程已死（pid 无法恢复）但 reaper 尚未记录真实退出码。读者不得在那个窗口发布终态 Exited/-1 快照 —— 只有 reaper 能使作业进入终态，且它带有真实代码。
+// 作业进入终态，且它带有真实代码。
 func TestWatchedJobNeverShowsPrematureTerminalExit(t *testing.T) {
 	r := newRegistry(t)
 	const realCode = 7
@@ -73,7 +73,7 @@ func TestWatchedJobNeverShowsPrematureTerminalExit(t *testing.T) {
 	r.jobs[stored.ID] = &stored
 	r.mu.Unlock()
 
-	// Get must not turn the dead pid into a terminal -1 snapshot.
+	// Get 不得把死掉的 pid 变成终态 -1 快照。List 也不得如此。一旦 reaper 记录了真实代码，终态快照才有效且带有该确切代码，绝不是 -1 哨兵。
 	got, err := r.Get(stored.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -82,7 +82,7 @@ func TestWatchedJobNeverShowsPrematureTerminalExit(t *testing.T) {
 		t.Fatalf("window Get = %+v, want running/-1 (no premature terminal)", got)
 	}
 
-	// Neither may List.
+	// List 也不得如此。
 	listed, err := r.List()
 	if err != nil || len(listed) != 1 {
 		t.Fatalf("list = %+v, err = %v", listed, err)
@@ -91,8 +91,8 @@ func TestWatchedJobNeverShowsPrematureTerminalExit(t *testing.T) {
 		t.Fatalf("window List = %+v, want running/-1 (no premature terminal)", listed[0])
 	}
 
-	// Once the reaper records the real code, the terminal snapshot is valid
-	// and carries that exact code, never the -1 sentinel.
+	// 一旦 reaper 记录了真实代码，终态快照才有效
+	// 且带有该确切代码，绝不是 -1 哨兵。
 	r.mu.Lock()
 	job := r.jobs[stored.ID]
 	job.Status = StatusExited
@@ -110,9 +110,9 @@ func TestWatchedJobNeverShowsPrematureTerminalExit(t *testing.T) {
 	}
 }
 
-// TestWatchedFlagIsNotPersisted keeps the on-disk JSON shape unchanged and
-// verifies the intended consequence: a registry reopened from disk has no live
-// watcher, so it must not inherit the marker and must still refresh dead pids.
+// TestWatchedFlagIsNotPersisted 保持磁盘 JSON 形态不变，并验证预期结果：从磁盘重新打开的 registry 没有活观察者，因此它不得继承标记且仍必须刷新死 pid。
+// 验证预期结果：从磁盘重新打开的 registry 没有活
+// 观察者，因此它不得继承标记且仍必须刷新死 pid。
 func TestWatchedFlagIsNotPersisted(t *testing.T) {
 	r := newRegistry(t)
 	job, err := r.Start(shellCommand("echo persist-check"))

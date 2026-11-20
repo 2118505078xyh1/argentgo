@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// stuckToolPair returns a tool_start/tool_end pair for one call. Ids differ so
-// the detector must key on name+args+isError rather than on the volatile id.
+// stuckToolPair 为一次调用返回 tool_start/tool_end 对。id 不同，因此检测器必须以 name+args+isError 为键，
+// 而非易变的 id。
 func stuckToolPair(id, name, args string, isError bool) []Event {
 	return []Event{
 		{Kind: EventToolStart, ToolCallID: id, ToolName: name, Args: args},
@@ -32,7 +32,7 @@ func TestStuckDetectorRepeatedCallTriggers(t *testing.T) {
 		t.Fatalf("guidance = %q, want %q", guidance, stuckGuidanceRepeat)
 	}
 
-	// Two repeats are below the threshold.
+	// 两次重复低于阈值。
 	d.Reset()
 	guidance, stuck = d.Observe(stuckRepeatedCalls(stuckRepeatCalls - 1))
 	if stuck || guidance != "" {
@@ -41,8 +41,8 @@ func TestStuckDetectorRepeatedCallTriggers(t *testing.T) {
 }
 
 func TestStuckDetectorNormalizesArgumentKeyOrder(t *testing.T) {
-	// Three spellings of the same JSON object: key order and whitespace differ,
-	// but after normalization they are one repeated call.
+	// 同一 JSON 对象的三种写法：键顺序和空白不同，但规范化后是一次重复的调用。
+	// （接上行）
 	spellings := []string{
 		`{"path":"a","line":1}`,
 		`{"line":1,"path":"a"}`,
@@ -62,7 +62,7 @@ func TestStuckDetectorNormalizesArgumentKeyOrder(t *testing.T) {
 	})
 
 	t.Run("different values are not merged", func(t *testing.T) {
-		// Normalization must not collapse calls whose argument values differ.
+		// 规范化不得把参数值不同的调用合并。
 		events := []Event{}
 		events = append(events, stuckToolPair("1", "read_file", spellings[0], false)...)
 		events = append(events, stuckToolPair("2", "read_file", `{"line":2,"path":"a"}`, false)...)
@@ -89,7 +89,7 @@ func TestStuckDetectorErrorStreakTriggers(t *testing.T) {
 		t.Fatalf("guidance = %q, want %q", guidance, stuckGuidanceError)
 	}
 
-	// A successful step in the middle breaks the streak.
+	// 中间一个成功的步骤会打断连续序列。
 	d.Reset()
 	events = append(events[:stuckErrorStreak-1], Event{Kind: EventTextDelta, Text: "recovered"})
 	guidance, stuck = d.Observe(events)
@@ -130,7 +130,7 @@ func TestStuckDetectorMonologueTriggers(t *testing.T) {
 		t.Fatalf("guidance = %q, want %q", guidance, stuckGuidanceText)
 	}
 
-	// A tool call in the middle breaks the monologue.
+	// 中间一次工具调用会打断独白。
 	d.Reset()
 	events = append(events[:stuckMonologueLen-1],
 		stuckToolPair("call", "read_file", `{}`, false)...)
@@ -146,7 +146,7 @@ func TestStuckDetectorVariedEventsNotStuck(t *testing.T) {
 		{Kind: EventTurnStart, Turn: 1},
 	}
 	events = append(events, stuckToolPair("1", "read_file", `{"path":"a"}`, false)...)
-	events = append(events, stuckToolPair("2", "read_file", `{"path":"a"}`, false)...) // two repeats, below threshold
+	events = append(events, stuckToolPair("2", "read_file", `{"path":"a"}`, false)...) // 两次重复，低于阈值
 	events = append(events, stuckToolPair("3", "read_file", `{"path":"b"}`, false)...)
 	events = append(events, Event{Kind: EventTextDelta, Text: "here is what I found"})
 	events = append(events, Event{Kind: EventError, Err: "one transient failure"})
@@ -172,7 +172,7 @@ func TestStuckDetectorOneShot(t *testing.T) {
 		t.Fatalf("second observation: got stuck=%v guidance=%q, want stuck with no repeat nudge", stuck, guidance)
 	}
 
-	// A healthy observation re-arms the one-shot for the next episode.
+	// 一次健康的观察会为下一个情节重新武装一次性提示。
 	if guidance, stuck = d.Observe([]Event{{Kind: EventTextDelta, Text: "done"}}); stuck || guidance != "" {
 		t.Fatalf("healthy observation: got stuck=%v guidance=%q, want not stuck", stuck, guidance)
 	}
@@ -228,8 +228,8 @@ func TestStuckDetectorWindowIgnoresEventsBeforeUserMessage(t *testing.T) {
 }
 
 func TestStuckDetectorWindowExcludesOldEvents(t *testing.T) {
-	// The repeat sits at the start of a slice longer than the window; only the
-	// trailing varied events are visible, so nothing should be reported.
+	// 重复位于一个长于窗口的切片的开头；只有尾部的不同事件可见，因此不应报告任何内容。
+	// （接上行）
 	events := stuckRepeatedCalls(stuckRepeatCalls)
 	for i := 0; i < stuckWindow; i++ {
 		events = append(events, Event{Kind: EventToolStart, ToolCallID: fmt.Sprintf("other-%d", i), ToolName: "x", Args: fmt.Sprintf("%d", i)})

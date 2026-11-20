@@ -24,10 +24,10 @@ func TestEventIsTerminalOnlyForStop(t *testing.T) {
 	}
 }
 
-// TestRunEmitsExactlyOneTerminalAcrossExitPaths locks in the run-level
-// invariant behind "keep only the last terminal": each of the loop's many exit
-// paths emits its EventStop and returns immediately, so a subscriber observes a
-// single completion event per run and never has to guess which one is final.
+// TestRunEmitsExactlyOneTerminalAcrossExitPaths 锁定「只保留最后一个终结事件」背后的运行级不变量：循环的众多退出路径
+// 每条都会发出自己的 EventStop 并立即返回，因此订阅者每次运行只观察到一个完成事件，无需猜测哪个才是最终的。
+// （接上行）
+// （接上行）
 func TestRunEmitsExactlyOneTerminalAcrossExitPaths(t *testing.T) {
 	t.Run("complete", func(t *testing.T) {
 		chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
@@ -46,7 +46,7 @@ func TestRunEmitsExactlyOneTerminalAcrossExitPaths(t *testing.T) {
 			return textReply("done"), nil
 		}}
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // stop before the first turn so the top-of-loop abort path runs
+		cancel() // 在第一轮之前停止，使循环顶部的中止路径运行
 		assertOneTerminal(t, Options{Model: "m", Chatter: chat}, ctx)
 	})
 }

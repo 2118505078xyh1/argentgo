@@ -100,10 +100,8 @@ func (c ExecCheck) Validate() error {
 // 绝对路径（包括 Windows 盘符相对路径）、".." 遍历以及 sh/bash/curl 等未知裸命令都被拒绝。
 func validateFixtureExe(command string) error {
 	// 单靠 filepath.IsAbs 会漏掉像 "\tool.exe" 这样无盘符的根路径 Windows 路径。
-	// 单靠 filepath.IsAbs 会漏掉像 "\tool.exe" 这样无盘符的根路径 Windows 路径。
 	// Windows 将其相对于 *cmd.Dir 的盘符* 解析，而 RunExecCheck 把 cmd.Dir 设为一次性工作区，因此该命令
 	// 实际上会从盘符根目录运行（例如 D:\tool.exe）—— 在四个边界承诺保持其中的
-	// 工作区之外。显式拒绝前导分隔符；在 Unix 上前导 "/" 已经是绝对的，但
 	// 工作区之外。显式拒绝前导分隔符；在 Unix 上前导 "/" 已经是绝对的，但
 	// 检查两种拼写使规则在所有平台上一致。
 	if filepath.IsAbs(command) || strings.Contains(command, ":") ||

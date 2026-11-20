@@ -12,9 +12,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestToolTimingBracket checks the core calculation: a tool's wall-clock start
-// and end become event timestamps and the elapsed value matches exactly. The
-// recorded start is consumed once, so a replay cannot duplicate the bracket.
+// TestToolTimingBracket 检查核心计算：工具的墙上时钟起点和终点成为事件时间戳，且经过时间完全匹配。记录的起点只被消费一次，
+// 因此回放不会重复该区间。
+// （接上行）
 func TestToolTimingBracket(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0)
 	finish := start.Add(1500 * time.Millisecond)
@@ -36,9 +36,9 @@ func TestToolTimingBracket(t *testing.T) {
 	}
 }
 
-// TestReasoningTimingBracket checks the reasoning window: it returns the real
-// request-to-reply bracket and resets, so a later call without a start is a
-// safe no-op rather than a fabricated duration.
+// TestReasoningTimingBracket 检查推理窗口：它返回真实的请求到回复区间并重置，之后的调用若没有起点则是安全的空操作，
+// 而非编造的时长。
+// （接上行）
 func TestReasoningTimingBracket(t *testing.T) {
 	start := time.Unix(1_700_000_100, 0)
 	finish := start.Add(275 * time.Millisecond)
@@ -55,16 +55,16 @@ func TestReasoningTimingBracket(t *testing.T) {
 	if again := s.finishReasoning(finish); again != (eventTiming{}) {
 		t.Fatalf("finishReasoning without start = %+v, want zero", again)
 	}
-	// An inverted pair never produces a positive duration.
+	// 倒置的时间对绝不会产生正的时长。
 	s.startReasoning(finish)
 	if inverted := s.finishReasoning(start); inverted.Elapsed != 0 {
 		t.Fatalf("inverted reasoning Elapsed = %v, want 0", inverted.Elapsed)
 	}
 }
 
-// TestTimingNilRunState proves timing is a no-op on a zero-value runState, the
-// shape manually built by many tests: the map is created lazily and unknown ids
-// or a missing reasoning start never fabricate a timestamp.
+// TestTimingNilRunState 证明计时在零值 runState（许多测试手工构造的形态）上是空操作：映射被延迟创建，未知 id 或缺失的推理起点
+// 都不会编造时间戳。
+// （接上行）
 func TestTimingNilRunState(t *testing.T) {
 	var s runState
 	now := time.Unix(1_700_000_200, 0)
@@ -80,9 +80,9 @@ func TestTimingNilRunState(t *testing.T) {
 	}
 }
 
-// TestToolTimingConcurrentIndependent runs many calls through the same state
-// at once. Each id must keep its own start and produce its own bracket; the
-// map must be empty afterwards. This is the race-detector target for timingMu.
+// TestToolTimingConcurrentIndependent 让许多调用同时经过同一个状态。每个 id 必须保留自己的起点并产生自己的区间；之后映射必须为空。这是 timingMu 的竞态检测目标。
+// （接上行）
+// （接上行）
 func TestToolTimingConcurrentIndependent(t *testing.T) {
 	const n = 32
 	s := &runState{}
@@ -119,9 +119,9 @@ func TestToolTimingConcurrentIndependent(t *testing.T) {
 	}
 }
 
-// TestTimingZeroValueKeepsEventJSON guards the additive-field promise: an
-// event that carries no timing must marshal without any new keys, so existing
-// session/RPC JSON stays byte-for-byte unchanged.
+// TestTimingZeroValueKeepsEventJSON 守护附加字段的承诺：不带计时的事件序列化时不得出现任何新键，使现有 session/RPC JSON 逐字节不变。
+// （接上行）
+// （接上行）
 func TestTimingZeroValueKeepsEventJSON(t *testing.T) {
 	data, err := json.Marshal(Event{Kind: EventToolEnd, Turn: 3, ToolCallID: "c", DurationMS: 42})
 	if err != nil {
@@ -135,9 +135,9 @@ func TestTimingZeroValueKeepsEventJSON(t *testing.T) {
 	}
 }
 
-// TestTimingFieldsPopulatedOnEmit verifies the emit wiring end to end: a
-// reasoning block and a tool call both receive absolute, ordered timestamps on
-// the events a frontend actually consumes.
+// TestTimingFieldsPopulatedOnEmit 端到端验证发出接线：推理块和工具调用都在前端实际消费的事件上获得绝对的、有序的时间戳。
+// （接上行）
+// （接上行）
 func TestTimingFieldsPopulatedOnEmit(t *testing.T) {
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		if n == 1 {

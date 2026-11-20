@@ -1,10 +1,10 @@
-// Package archguard encodes the dependency rules from the repository's
-// AGENTS.md as an automated test, so architectural drift is caught by
-// `go test ./internal/archguard` instead of by code review alone.
+// Package archguard 把仓库 AGENTS.md 中的依赖规则编码为
+// 自动化测试，使架构漂移由
+// `go test ./internal/archguard` 捕获，而非仅靠代码审查。
 //
-// The test is deliberately stdlib-only (go/parser + AST walking), adds no new
-// module, and never compiles the packages it inspects: it parses imports only.
-// It therefore works on any host, including cross-compilation targets.
+// 该测试刻意只用标准库（go/parser + AST 遍历），不添加新
+// 模块，且从不编译它检查的包：它只解析 import。
+// 因此它能在任何主机上工作，包括交叉编译目标。
 package archguard
 
 import (
@@ -17,28 +17,31 @@ import (
 	"testing"
 )
 
-// allowedExternalModule is the single third-party module AGENTS.md permits,
-// and only inside native/ (the desktop shell). Everything under internal/
-// must be stdlib-only. Sub-packages of this module (e.g. mygo/ui) are allowed
-// because they share the same module prefix.
+// allowedExternalModule 是 AGENTS.md 允许的唯一第三方模块，
+// 且仅在 native/（桌面壳）内。internal/ 下的一切
+// 必须只用标准库。本模块的子包（如 mygo/ui）被允许，
+// 因为它们共享同一模块前缀。
 //
-// Allow-list rationale:
-//   - stdlib imports (no "." in the first path segment) are allowed everywhere;
-//   - imports of this repository's own module (<module>/...) are NOT third
-//     party and are allowed under internal/ as intra-repo references;
-//   - the only external exception is mygo, and only under native/;
-//   - the archguard test itself imports stdlib only;
-//   - all .go files are checked, including _test.go files, build-tag variants,
-//     and generated/mock sources -- there are no silent exceptions.
+// 允许列表理由：
+//   - 标准库 import（第一段路径无 "."）到处都允许；
+//   - 本仓库自有模块的 import（<module>/...）不是第三方
+//     且在 internal/ 下作为仓库内引用允许；
+//   - 唯一的外部例外是 mygo，且仅在 native/ 下；
+//   - archguard 测试本身只 import 标准库；
+//
+// 允许列表理由：标准库 import（第一段路径无 "."）到处都允许；本仓库自有模块的 import（<module>/...）不是第三方且在 internal/ 下作为仓库内引用允许；唯一的外部例外是 mygo，且仅在 native/ 下；archguard 测试本身只 import 标准库；所有 .go 文件都被检查，包括 _test.go、构建标签变体和生成/mock 源码 —— 没有静默例外。
+//
+//	且生成/mock 源码 —— 没有静默例外。
 const allowedExternalModule = "github.com/egoist/mygo"
 
-// internalLayerRules encodes package-scoped layering rules (AGENTS.md):
-//   - tools never imports agent;
-//   - agent is a library layer and never imports the app wirer or tools
-//     (it depends on the ToolRunner interface, not the tools package);
-//   - llm is the wire layer and must stay below agent/tools/app.
+// internalLayerRules 编码包级分层规则（AGENTS.md）：
+//   - tools 从不 import agent；
 //
-// Imports are matched against "<module path> + forbiddenImport".
+//
+//	  （它依赖 ToolRunner 接口，而非 tools 包）；
+//	- llm 是线上层且必须保持在 agent/tools/app 之下。
+//
+// import 与 "<module path> + forbiddenImport" 匹配。
 var internalLayerRules = []struct {
 	pkgRel          string // package directory, relative to repo root, slash-separated
 	forbiddenImport string // suffix appended to the module path
@@ -69,18 +72,18 @@ func TestInternalDependencyRules(t *testing.T) {
 		}
 
 		for _, imp := range importPaths(file) {
-			// Rule (a): internal packages are stdlib + own-module only.
+			// 规则 (a)：内部包只用标准库 + 自有模块。
 			if isExternal(imp) && !strings.HasPrefix(imp, prefix) && imp != mod {
 				t.Errorf("%s imports forbidden %q (rule: internal packages are stdlib-only; the only external module %q is allowed, and only in native/)",
 					rel, imp, allowedExternalModule)
 			}
 
-			// Rule (b): no cgo anywhere. ("C" has no dot, so rule (a) ignores it.)
+			// 规则 (b)：任何地方都不用 cgo（"C" 无点，因此规则 (a) 忽略它）。
 			if imp == "C" {
 				t.Errorf("%s imports forbidden %q (rule: no cgo anywhere; everything must cross-compile)", rel, imp)
 			}
 
-			// Rules (c), (d), (e): package layering.
+			// 规则 (c)、(d)、(e)：包分层。
 			for _, r := range internalLayerRules {
 				if pkgDir == r.pkgRel && imp == mod+r.forbiddenImport {
 					t.Errorf("%s imports forbidden %q (rule: %s)", rel, imp, r.rule)
@@ -89,8 +92,8 @@ func TestInternalDependencyRules(t *testing.T) {
 		}
 	}
 
-	// native/ is the single external exception. Enforce that its external
-	// imports stay within the one allow-listed module, and that cgo is absent.
+	// native/ 是唯一的外部例外。强制其外部
+	// import 停留在允许列表中的单一模块内，且没有 cgo。
 	if st, err := os.Stat(filepath.Join(root, "native")); err == nil && st.IsDir() {
 		for _, abs := range goFiles(t, filepath.Join(root, "native")) {
 			rel := relSlash(t, root, abs)
@@ -113,8 +116,8 @@ func TestInternalDependencyRules(t *testing.T) {
 	}
 }
 
-// goFiles returns every .go file under dir, recursively, without filtering by
-// build tags or file name (strict: _test.go and platform variants are included).
+// goFiles 递归返回 dir 下的每个 .go 文件，不按
+// 构建标签或文件名过滤（严格：包括 _test.go 和平台变体）。
 func goFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	var out []string
@@ -133,8 +136,8 @@ func goFiles(t *testing.T, dir string) []string {
 	return out
 }
 
-// importPaths returns the unquoted import paths declared by file. Quotes are
-// stripped with strings.Trim so no extra package (strconv) is needed.
+// importPaths 返回文件声明的未加引号的 import 路径。引号用
+// strings.Trim 去掉，因此不需要额外包（strconv）。
 func importPaths(file *ast.File) []string {
 	var out []string
 	for _, spec := range file.Imports {
@@ -145,8 +148,7 @@ func importPaths(file *ast.File) []string {
 	return out
 }
 
-// isExternal reports whether imp denotes a non-stdlib module, i.e. its first
-// path segment contains a dot (github.com/..., golang.org/..., gopkg.in/...).
+// isExternal 报告 imp 是否表示非标准库模块，即其第一段
 func isExternal(imp string) bool {
 	first := imp
 	if i := strings.Index(imp, "/"); i >= 0 {
@@ -155,7 +157,7 @@ func isExternal(imp string) bool {
 	return strings.Contains(first, ".")
 }
 
-// findRepoRoot walks up from the test's working directory to the go.mod file.
+// findRepoRoot 从测试工作目录向上走到 go.mod 文件。
 func findRepoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -174,8 +176,8 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
-// readModulePath discovers the module path from go.mod rather than hardcoding
-// it, so the guard keeps working if the module is renamed.
+// readModulePath 从 go.mod 发现模块路径而非硬编码，
+// 使模块重命名时守卫仍工作。
 func readModulePath(t *testing.T, root string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, "go.mod"))

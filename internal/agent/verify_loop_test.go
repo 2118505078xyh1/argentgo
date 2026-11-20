@@ -123,9 +123,9 @@ func TestIsMutatingToolMirrorsDefaultMutatingSet(t *testing.T) {
 	}
 }
 
-// TestLoopVerifyFailFeedsBackThenPasses drives a mini-loop with a fake Verify:
-// the first mutating batch fails verification, the failure arrives as the next
-// user turn, the second mutating batch passes, and the run finishes normally.
+// TestLoopVerifyFailFeedsBackThenPasses 用伪 Verify 驱动一个微型循环：第一批变更型工具验证失败，失败作为下一条用户轮次到达，
+// 第二批变更型工具通过，运行正常结束。
+// （接上行）
 func TestLoopVerifyFailFeedsBackThenPasses(t *testing.T) {
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		switch n {
@@ -184,9 +184,9 @@ func TestLoopVerifyFailFeedsBackThenPasses(t *testing.T) {
 	}
 }
 
-// TestLoopStopsAfterVerifyReflectionCap checks the hard cap: with a permanently
-// failing check the loop injects exactly MaxVerifyReflections feedback turns,
-// then the next failure ends the run with the distinct stop reason.
+// TestLoopStopsAfterVerifyReflectionCap 检查硬上限：检查永久失败时，循环恰好注入 MaxVerifyReflections 条反馈轮次，
+// 之后下一次失败以独特的停止原因结束运行。
+// （接上行）
 func TestLoopStopsAfterVerifyReflectionCap(t *testing.T) {
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		call := toolCall(fmt.Sprintf("c%d", n), "write", fmt.Sprintf(`{"i":"attempt %d"}`, n))
@@ -234,9 +234,9 @@ func TestLoopStopsAfterVerifyReflectionCap(t *testing.T) {
 	}
 }
 
-// TestLoopVerifyUnrunnableOrReadOnlyBatchLeavesStateUntouched guards the
-// default-off contract: no feedback is injected when the checker reports ok=false,
-// and read-only batches never call Verify at all.
+// TestLoopVerifyUnrunnableOrReadOnlyBatchLeavesStateUntouched 守护默认关闭契约：检查器报告 ok=false 时不注入任何反馈，
+// 且只读批次从不调用 Verify。
+// （接上行）
 func TestLoopVerifyUnrunnableOrReadOnlyBatchLeavesStateUntouched(t *testing.T) {
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		switch n {

@@ -16,16 +16,16 @@ func specWithParams(name, params string) llm.ToolSpec {
 	return spec
 }
 
-// TestAdvertisedSpecsProjectsSchemaForModel checks that advertisedSpecs applies
-// the right projection based on the session model name, that unrelated models
-// keep their schemas byte-for-byte, and that the toolset's catalog is untouched.
+// TestAdvertisedSpecsProjectsSchemaForModel 检查 advertisedSpecs 根据会话模型名称应用正确的投影，
+// 无关模型逐字节保持其 schema 不变，且工具集的目录未被修改。
+// （接上行）
 func TestAdvertisedSpecsProjectsSchemaForModel(t *testing.T) {
 	tests := []struct {
 		name      string
 		model     string
 		params    string
 		wantIn    []string
-		wantExact string // when set, Parameters must equal this exactly
+		wantExact string // 设置后，Parameters 必须与此完全相等
 	}{
 		{
 			name:   "moonshot types an untyped enum",
@@ -77,7 +77,7 @@ func TestAdvertisedSpecsProjectsSchemaForModel(t *testing.T) {
 					}
 				}
 			}
-			// The source catalog must not be mutated by projection.
+			// 投影不得修改源目录。
 			if source := string(s.tools.Specs()[0].Function.Parameters); source != tt.params {
 				t.Fatalf("toolset catalog mutated: %q, want %q", source, tt.params)
 			}
@@ -85,8 +85,8 @@ func TestAdvertisedSpecsProjectsSchemaForModel(t *testing.T) {
 	}
 }
 
-// TestAdvertisedSpecsProjectsAfterFilter checks that projection is applied to
-// the filtered list, not the pre-filter catalog.
+// TestAdvertisedSpecsProjectsAfterFilter 检查投影应用于过滤后的列表，而非过滤前的目录。
+// （接上行）
 func TestAdvertisedSpecsProjectsAfterFilter(t *testing.T) {
 	keep := specWithParams("keep", `{"enum":["a","b"]}`)
 	drop := specWithParams("drop", `{"enum":["x","y"]}`)

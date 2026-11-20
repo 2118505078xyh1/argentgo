@@ -1,4 +1,4 @@
-// Command argent is the terminal entry point.
+// Command argent 是终端入口点。
 package main
 
 import (
@@ -12,8 +12,8 @@ import (
 func main() {
 	stdio := cli.OSIO()
 	args := os.Args[1:]
-	// Only the leading `gui` subcommand launches the native client. --gui is a
-	// regular CLI flag and is handled (reported as not migrated) by cli.RunWith.
+	// 只有前导 `gui` 子命令启动原生客户端。--gui 是
+	// 普通 CLI 标志，由 cli.RunWith 处理（报告为未迁移）。
 	if isGUIRequest(args) {
 		os.Exit(runGUI(stdio, args))
 	}

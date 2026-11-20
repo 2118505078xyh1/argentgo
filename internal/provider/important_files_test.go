@@ -8,7 +8,6 @@ import (
 
 func TestIsImportantProjectFileManifestsAndMetadata(t *testing.T) {
 	// 来自每个生态的一个代表加上仓库地图无论符号预算如何都应钉住的指导文件。
-	// 来自每个生态的一个代表加上仓库地图无论符号预算如何都应钉住的指导文件。
 	for _, path := range []string{
 		"go.mod", "go.sum", "go.work", "Cargo.toml", "Cargo.lock",
 		"package.json", "package-lock.json", "yarn.lock", "tsconfig.json",

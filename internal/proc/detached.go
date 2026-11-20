@@ -184,7 +184,7 @@ type switchWriter struct {
 	mu  sync.Mutex
 	dst io.Writer
 	buf *cappedBuffer
-	dec *utf8CarryWriter // writes complete runes to dst (buf until handoff)
+	dec *utf8CarryWriter // 把完整字符写入 dst（交接前暂存在 buf）
 }
 
 func newSwitchWriter() *switchWriter {

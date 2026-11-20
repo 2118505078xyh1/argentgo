@@ -161,7 +161,7 @@ type fileStamp struct {
 	path    string
 	modTime int64
 	size    int64
-	hash    [sha256.Size]byte // SHA-256 of the raw bytes; zero if unreadable.
+	hash    [sha256.Size]byte // 原始字节的 SHA-256；不可读时为零。
 	exists  bool
 	statErr bool
 }
@@ -274,7 +274,7 @@ func (c Config) Validate() error {
 // Generation 返回此配置快照的版本。首次加载为
 // 第 1 代；每次成功的 Reload 递增一。调用方可以用它
 // 发现对等方重建了配置，即使它没有在重写的那一刻轮询 Changed。
-// at the exact moment of the rewrite.
+// 在重写的确切时刻。
 func (c Config) Generation() uint64 {
 	return c.generation
 }
@@ -853,7 +853,7 @@ func contextWindowFrom(tree map[string]any) int {
 // contextWindowInfoFrom 从外层和嵌套键的任一拼写解码可选的长上下文元数据。
 // 缺失或类型错误的对象解码为零值；分层配置文件在本次调用前
 // 仍会递归合并嵌套对象，因此部分覆盖会被保留。
-// recursively before this runs, so partial overlays are preserved.
+// 在此之前递归合并，因此部分覆盖会被保留。
 func contextWindowInfoFrom(tree map[string]any) ContextWindowInfo {
 	obj := objectField(tree, "contextWindowInfo", "context_window_info")
 	if obj == nil {

@@ -12,7 +12,7 @@ import (
 )
 
 func TestCostWatcherThresholdsFireOnceEach(t *testing.T) {
-	w := NewCostWatcher(0) // no budget nudge: just the five milestones
+	w := NewCostWatcher(0) // 没有预算提醒：只有五个里程碑
 	got := w.Observe(0.12)
 	if len(got) != 1 {
 		t.Fatalf("first observe = %v, want one warning", got)
@@ -62,7 +62,7 @@ func TestCostWatcherBudgets80PercentNudge(t *testing.T) {
 }
 
 func TestCostWatcherNudgeCoincidingWithMilestoneWarnsOnce(t *testing.T) {
-	// 80% of 0.625 is exactly 0.50, which is already a fixed milestone.
+	// 0.625 的 80% 恰好是 0.50，它已经是一个固定里程碑。
 	w := NewCostWatcher(0.625)
 	if got := w.Observe(0.5); len(got) != 2 {
 		t.Fatalf("observe(0.5) = %v, want only $0.10 and $0.50", got)
@@ -108,7 +108,7 @@ func TestCostWatcherReset(t *testing.T) {
 }
 
 func TestCostWatcherConcurrentObserve(t *testing.T) {
-	w := NewCostWatcher(10) // five milestones plus the 80%-of-budget nudge
+	w := NewCostWatcher(10) // 五个里程碑加上预算 80% 的提醒
 	wantTotal := len(defaultCostThresholds) + 1
 
 	const goroutines = 24

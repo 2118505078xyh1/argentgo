@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// writeOrderedSession writes a transcript whose records all share stamp, so
-// metaFromRecords derives the same in-record Updated for every session here.
-// mtime is set explicitly to model the real order of writes on disk, which is
-// what a --resume needs when two sessions were created in the same second.
+// writeOrderedSession 写入一份所有记录共享 stamp 的转录，使
+// metaFromRecords 为这里每个会话派生相同的记录内 Updated。
+// mtime 被显式设置，以模拟磁盘上真实的写入顺序——这正是两个会话在同一秒创建时，
+// --resume 所需要的。
 func writeOrderedSession(t *testing.T, dir, id, title string, stamp, mtime time.Time, withFollowUp bool) string {
 	t.Helper()
 	path := filepath.Join(dir, id+fileExt)
@@ -37,8 +37,8 @@ func TestListOrdersEqualUpdatedByModTime(t *testing.T) {
 	older := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
 	newer := time.Date(2026, 11, 20, 11, 0, 0, 0, time.UTC)
 
-	// first's id sorts after second's id, so an ID-only tiebreak would place
-	// it first even though second was written later.
+	// first 的 id 排在 second 之后，因此仅按 id 决胜会把它
+	// 排在最前，尽管 second 是较晚写入的。
 	first := "20261120-100000-ffff"
 	second := "20261120-100000-0000"
 	writeOrderedSession(t, dir, first, "first", stamp, older, false)
@@ -108,8 +108,8 @@ func TestListFirstEntryIsResumeTarget(t *testing.T) {
 		t.Fatal("List returned no sessions")
 	}
 
-	// This mirrors openOrCreateSession's --resume path: take List()[0] and
-	// reopen it. It must be the session with the later mtime.
+	// 这镜像 openOrCreateSession 的 --resume 路径：取 List()[0] 并
+	// 重新打开它。它必须是 mtime 较晚的那个会话。
 	sess, err := store.OpenSession(metas[0].ID)
 	if err != nil {
 		t.Fatalf("OpenSession(%q): %v", metas[0].ID, err)

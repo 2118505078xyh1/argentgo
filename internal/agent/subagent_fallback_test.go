@@ -9,9 +9,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// A delegated child inherits the parent's fallback chain: when its primary
-// model fails with a retryable error, the child retries the turn on the
-// parent's backup instead of failing the task.
+// 被委派的子级继承父级的回退链：当其主模型以可重试错误失败时，子级会在父级的备用模型上重试该轮次，
+// 而不是让任务失败。
+// （接上行）
 func TestSubagentInheritsFallbackChain(t *testing.T) {
 	var chat *fakeChatter
 	chat = &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -47,8 +47,8 @@ func TestSubagentInheritsFallbackChain(t *testing.T) {
 	}
 }
 
-// An explicit child model replaces only the primary entry of the inherited
-// chain; the parent's backups are still available to the child.
+// 显式的子级模型只替换继承链的主条目；父级的备用模型对子级仍然可用。
+// （接上行）
 func TestSubagentExplicitModelKeepsParentBackups(t *testing.T) {
 	var chat *fakeChatter
 	chat = &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -85,7 +85,7 @@ func TestSubagentExplicitModelKeepsParentBackups(t *testing.T) {
 	}
 }
 
-// subagentModels returns the models used by subagent chat calls, in order.
+// subagentModels 按顺序返回子 agent 聊天调用使用的模型。
 func subagentModels(chat *fakeChatter) []string {
 	seen, models := chat.requestsSeen(), chat.modelsSeen()
 	var out []string

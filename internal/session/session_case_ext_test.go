@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// transcriptStem must strip a trailing ".jsonl" exactly as the case-insensitive
-// discovery in List/resolvePath matches it. A case-sensitive strings.TrimSuffix
-// leaves the extension on "SESSION.JSONL", which corrupts the id of a session
-// opened through a prefix on case-sensitive filesystems.
+// transcriptStem 剥离末尾 ".jsonl" 的方式，必须与 List/resolvePath 中
+// 不区分大小写的发现逻辑完全一致。区分大小写的 strings.TrimSuffix
+// 会在 "SESSION.JSONL" 上留下扩展名，从而在区分大小写的文件系统上
+// 破坏通过前缀打开的会话的 id。
 func TestTranscriptStemCaseInsensitiveExtension(t *testing.T) {
 	for name, want := range map[string]string{
 		"session.jsonl": "session",
@@ -27,10 +27,10 @@ func TestTranscriptStemCaseInsensitiveExtension(t *testing.T) {
 	}
 }
 
-// TestOpenSessionResolvesUppercaseExtensionByPrefix covers the integration
-// path: a transcript named "Mixed.JSONL" is found by the case-insensitive
-// prefix lookup in resolvePath, and the returned Session must keep the bare id
-// so Session.path() points at the real file (not "Mixed.JSONL.jsonl").
+// TestOpenSessionResolvesUppercaseExtensionByPrefix 覆盖集成路径：
+// 名为 "Mixed.JSONL" 的转录被 resolvePath 中不区分大小写的
+// 前缀查找找到，返回的 Session 必须保留裸 id，
+// 使 Session.path() 指向真实文件（而不是 "Mixed.JSONL.jsonl"）。
 func TestOpenSessionResolvesUppercaseExtensionByPrefix(t *testing.T) {
 	dir := t.TempDir()
 	upperPath := filepath.Join(dir, "Mixed.JSONL")
@@ -49,10 +49,10 @@ func TestOpenSessionResolvesUppercaseExtensionByPrefix(t *testing.T) {
 	if !strings.EqualFold(s.path(), upperPath) {
 		t.Fatalf("session path = %q, want %q (case-insensitive)", s.path(), upperPath)
 	}
-	// The handle must keep the exact spelling ResolvePath found. On Windows
-	// that may be the canonical lower-case spelling (the FS is insensitive);
-	// on Linux it is the real "Mixed.JSONL". Either way, deriving the path
-	// from the bare id would lose that information.
+	// 句柄必须保留 ResolvePath 找到的确切拼写。在 Windows 上
+	// 这可能是规范的小写拼写（文件系统不区分大小写）；
+	// 在 Linux 上是真实的 "Mixed.JSONL"。无论哪种情况，从裸 id 派生路径
+	// 都会丢失该信息。
 	resolved, err := ResolvePath(dir, "Mixed")
 	if err != nil {
 		t.Fatalf("ResolvePath(Mixed): %v", err)
@@ -65,7 +65,7 @@ func TestOpenSessionResolvesUppercaseExtensionByPrefix(t *testing.T) {
 		t.Fatalf("Messages() = %+v, want one entry with content hello", entries)
 	}
 
-	// An append must land in the original transcript and be visible on reopen.
+	// 追加必须落在原始转录中，并在重新打开时可见。
 	if err := s.Append(KindAssistant, "reply"); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestOpenSessionResolvesUppercaseExtensionByPrefix(t *testing.T) {
 	if got := len(reopened.Messages()); got != 2 {
 		t.Fatalf("reopened Messages() = %d, want 2", got)
 	}
-	// No phantom transcript with a doubled extension may be created.
+	// 不得创建扩展名加倍的幽灵转录。
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
@@ -88,12 +88,12 @@ func TestOpenSessionResolvesUppercaseExtensionByPrefix(t *testing.T) {
 	}
 }
 
-// TestOpenSessionPrefixKeepsActualFileName exercises the directory-scan branch
-// of resolvePath on every platform. "Mixe" has no exact file even on Windows,
-// so the lookup must fall back to the scan and return the real entry name
-// "Mixed.JSONL". A handle built from that path must read and append to the very
-// same file; reconstructing dir/id+".jsonl" loses the extension case and would
-// silently point at a different (or missing) file on Linux.
+// TestOpenSessionPrefixKeepsActualFileName 在每个平台上检验 resolvePath 的
+// 目录扫描分支。"Mixe" 即使在 Windows 上也没有精确匹配的文件，
+// 因此查找必须回退到扫描，并返回真实的条目名
+// "Mixed.JSONL"。从该路径构建的句柄必须读取并追加到同一个文件；
+// 重建 dir/id+".jsonl" 会丢失扩展名的大小写，并会
+// 在 Linux 上静默指向另一个（或不存在的）文件。
 func TestOpenSessionPrefixKeepsActualFileName(t *testing.T) {
 	dir := t.TempDir()
 	upperPath := filepath.Join(dir, "Mixed.JSONL")

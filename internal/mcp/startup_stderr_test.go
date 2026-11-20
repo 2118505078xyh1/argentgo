@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// TestAppendStderrContextNoReplay covers the pure fold of captured stderr into
-// a startup error. It never runs a command, so enrichment is side-effect free.
+// TestAppendStderrContextNoReplay 覆盖把捕获的 stderr 纯折叠进
+// 启动错误的过程。它从不运行命令，因此丰富化没有副作用。
 func TestAppendStderrContextNoReplay(t *testing.T) {
 	t.Run("connection error gains stderr", func(t *testing.T) {
 		base := fmt.Errorf(`mcp "x": initialize: mcp "x": server closed the connection`)
@@ -71,9 +71,9 @@ func TestAppendStderrContextNoReplay(t *testing.T) {
 	})
 }
 
-// TestClientEnrichStderrSources verifies the client reads stderr from the stdio
-// transport's ring, and stays a no-op for non-stdio transports or non-connection
-// errors.
+// TestClientEnrichStderrSources 验证客户端从 stdio 传输的
+// 环形缓冲区读取 stderr，且对非 stdio 传输或非连接
+// 错误保持空操作。
 func TestClientEnrichStderrSources(t *testing.T) {
 	newStdioClient := func(stderr string) *client {
 		ring := &ringBuffer{}
@@ -122,8 +122,8 @@ func TestClientEnrichStderrSources(t *testing.T) {
 	})
 }
 
-// TestStderrWithDrainIsBounded guards the diagnostic wait: a transport whose
-// drain never signals must not stall the caller past the bounded window.
+// TestStderrWithDrainIsBounded 守护诊断等待：一个排空信号永不出现的
+// 传输不得把调用方拖过有界窗口。
 func TestStderrWithDrainIsBounded(t *testing.T) {
 	old := stderrDrainWait
 	stderrDrainWait = 20 * time.Millisecond
@@ -131,7 +131,7 @@ func TestStderrWithDrainIsBounded(t *testing.T) {
 
 	ring := &ringBuffer{}
 	_, _ = ring.Write([]byte("captured"))
-	tr := &stdioTransport{diag: ring, drainDone: make(chan struct{})} // never closed
+	tr := &stdioTransport{diag: ring, drainDone: make(chan struct{})} // 永不关闭
 
 	start := time.Now()
 	got := tr.stderrWithDrain()
@@ -143,10 +143,10 @@ func TestStderrWithDrainIsBounded(t *testing.T) {
 	}
 }
 
-// TestConnectStdioFailureIncludesStderr is the end-to-end audit case: a server
-// that prints a startup error and exits makes Initialize fail with stderr in
-// the returned error, so the app's existing "print the error" path is enough —
-// no command replay and no change in internal/app.
+// TestConnectStdioFailureIncludesStderr 是端到端的审计案例：
+// 一台打印启动错误后退出的服务器会使 Initialize 失败，并在
+// 返回的错误中带上 stderr，因此应用现有的"打印错误"路径就足够了——
+// 无需重放命令，也无需修改 internal/app。
 func TestConnectStdioFailureIncludesStderr(t *testing.T) {
 	c, err := Connect(context.Background(), helperSpec("failfast", 2*time.Second))
 	if err != nil {

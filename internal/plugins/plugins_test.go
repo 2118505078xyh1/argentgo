@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// writeFile creates a file, creating parents as needed.
+// writeFile 创建一个文件，按需创建父目录。
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -22,7 +22,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// writeBundle creates a bundle directory with a manifest at relative.
+// writeBundle 创建一个 bundle 目录，在 relative 处带有清单。
 func writeBundle(t *testing.T, parent, name, relative, body string) string {
 	t.Helper()
 	dir := filepath.Join(parent, name)
@@ -30,7 +30,7 @@ func writeBundle(t *testing.T, parent, name, relative, body string) string {
 	return dir
 }
 
-// homeDir points os.UserHomeDir at a scratch directory for the test's duration.
+// writeFile 创建一个文件，按需创建父目录。writeBundle 创建一个 bundle 目录，在 relative 处带有清单。homeDir 在测试期间把 os.UserHomeDir 指向一个临时目录。没有状态文件：一切都启用。指向另一个目录的链接：跟随它会从 bundle 外复制文件。自链接：跟随它会无限递归。
 func homeDir(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -267,7 +267,7 @@ func TestResolveRespectsStateFile(t *testing.T) {
 	writeBundle(t, pluginsDir, "alpha", "plugin.json", `{"name":"alpha"}`)
 	writeBundle(t, pluginsDir, "beta", "plugin.json", `{"name":"beta"}`)
 
-	// No state file: everything is enabled.
+	// 没有状态文件：一切都启用。
 	bundles, err := Resolve(project)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -404,8 +404,8 @@ func TestCopyTreeSkipsSymlinks(t *testing.T) {
 	writeFile(t, filepath.Join(source, "normal.txt"), "normal")
 	writeFile(t, filepath.Join(outside, "secret.txt"), "secret")
 
-	// A link to another directory: following it would copy files from outside
-	// the bundle. A self link: following it would recurse forever.
+	// 指向另一个目录的链接：跟随它会从 bundle 外复制文件。
+	// 自链接：跟随它会无限递归。
 	if err := os.Symlink(outside, filepath.Join(source, "outside")); err != nil {
 		t.Skipf("symlinks unavailable on this host: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestCopyTreeSkipsSymlinks(t *testing.T) {
 	}
 }
 
-// makeZip writes a zip archive with the given member names and contents.
+// makeZip 用给定的成员名称和内容写一个 zip 归档。
 func makeZip(t *testing.T, path string, entries map[string]string) {
 	t.Helper()
 	file, err := os.Create(path)
@@ -490,7 +490,7 @@ func TestInstallFromZipWithTopLevelDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(pluginsDir, "alpha", "skills", "SKILL.md")); err != nil {
 		t.Fatalf("zip content missing: %v", err)
 	}
-	// The staging directory must not survive a successful install.
+	// 暂存目录在成功安装后不得留存。
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
 		t.Fatalf("read plugins dir: %v", err)

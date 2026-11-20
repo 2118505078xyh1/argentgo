@@ -189,6 +189,13 @@ func (s *runState) breaker() *InvalidArgBreaker {
 
 // runTools 执行一个批次，仅当运行提前结束（取消或无效参数熔断器跳闸）时才返回停止原因。
 func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall) string {
+	// 可选工具名还原：默认关闭，因此下面的调用名逐字节保持原样。
+	// 启用时，在任何决策之前统一改写调用名，使防护、审批、事件、记录与实际执行
+	// 看到的都是同一个真实名字；关闭或没有可用工具时完全走既有路径。
+	if toolNameRecoveryEnabled() {
+		calls = s.recoverCallNames(calls)
+	}
+
 	// 熔断器统计一个轮次内的无效参数：新一轮次会开启新的连续序列。
 	// 在任何 worker 观察到计数器之前，先在循环 goroutine 上重置它。
 	s.breaker().Reset()

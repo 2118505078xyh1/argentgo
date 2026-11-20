@@ -1,7 +1,6 @@
 // Package provider 模板验证。
 //
 // 本文件把以前分散在测试中的结构假设（非空字段、可解析的端点 URL、已知协议）变成
-// 本文件把以前分散在测试中的结构假设（非空字段、可解析的端点 URL、已知协议）变成
 // 一个可复用、无副作用的诊断 API。CLI 的 `doctor` 路径或配置加载器可以调用 Validate/ValidateCatalog/ValidateAll 并显示
 // 配置加载器可以调用 Validate/ValidateCatalog/ValidateAll 并显示
 // 发现的问题，而无需 provider 包导入 config 或网络。
@@ -55,7 +54,7 @@ func (d Diagnostic) String() string {
 	return fmt.Sprintf("[%s] %s: %s", d.Severity, where, d.Message)
 }
 
-// HasErrors reports whether any finding is an error (as opposed to a warning).
+// HasErrors 报告是否有任何发现是错误（而非警告）。
 func HasErrors(diagnostics []Diagnostic) bool {
 	for _, d := range diagnostics {
 		if d.Severity == SeverityError {
@@ -70,10 +69,10 @@ var (
 	envNamePattern       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
-// Validate checks one template for structural problems. It returns findings in
-// a stable order (Name, Protocol, BaseURL, DefaultModel, credentials, protocol
-// consistency), never mutates t, and returns an empty slice for a sound
-// template. An empty slice is always non-nil so callers can append freely.
+// Validate 检查单个模板的结构问题。它按稳定顺序返回发现（
+// Validate 检查单个模板的结构问题。它按稳定顺序返回发现（Name、Protocol、BaseURL、DefaultModel、凭据、协议一致性），从不修改 t，且对健全模板返回空切片。空切片始终非 nil，使调用方可自由追加。
+// 协议一致性），从不修改 t，且对健全模板返回空切片。
+// 空切片始终非 nil，使调用方可自由追加。
 func Validate(t Template) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	add := func(severity Severity, field, format string, args ...any) {
@@ -117,9 +116,9 @@ func Validate(t Template) []Diagnostic {
 	return diagnostics
 }
 
-// validateBaseURL reports malformed endpoint URLs. Only absolute http(s) URLs
-// usable by the llm clients are accepted; credentials, query strings and
-// fragments in a base URL are almost always a copy/paste mistake.
+// validateBaseURL 报告畸形的端点 URL。只接受 llm 客户端可用的绝对 http(s) URL；base URL 中的凭据、查询串和片段几乎总是复制/粘贴错误。
+// llm 客户端可用的绝对 http(s) URL；base URL 中的凭据、查询串和
+// 片段几乎总是复制/粘贴错误。
 func validateBaseURL(raw string, add func(Severity, string, string, ...any)) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -150,9 +149,9 @@ func validateBaseURL(raw string, add func(Severity, string, string, ...any)) {
 	}
 }
 
-// validateCredentials checks the shape and mutual consistency of credential
-// sources. A missing key on a loopback endpoint is fine; the same omission on
-// a remote endpoint is suspicious enough to warn about.
+// validateCredentials 检查凭据
+// validateCredentials 检查凭据来源的形态和相互一致性。loopback 端点缺少 key 没问题；远端端点同样的缺失则足以警告。
+// 远端端点同样的缺失则足以警告。
 func validateCredentials(t Template, add func(Severity, string, string, ...any)) {
 	if t.NoAuth && (t.APIKeyEnv != "" || len(t.APIKeyEnvs) > 0) {
 		add(SeverityWarning, "NoAuth", "NoAuth overrides declared credential sources; remove them")
@@ -190,10 +189,10 @@ func validateCredentials(t Template, add func(Severity, string, string, ...any))
 	}
 }
 
-// validateProtocolURL applies a deliberately conservative consistency rule:
-// the last base-URL path segment should match the protocol's usual API root.
-// It warns rather than errors because vendors sometimes expose a nonstandard
-// path; a mismatch usually means the wrong protocol was chosen for the target.
+// validateProtocolURL 应用一条刻意保守的一致性规则：
+// validateProtocolURL 应用一条刻意保守的一致性规则：base URL 的最后一段路径应匹配该协议通常的 API 根。它警告而非报错，因为供应商有时暴露非标准路径；不匹配通常意味着为目标选错了协议。
+// 它警告而非报错，因为供应商有时暴露非标准
+// 路径；不匹配通常意味着为目标选错了协议。
 func validateProtocolURL(t Template, add func(Severity, string, string, ...any)) {
 	var expected []string
 	switch t.Protocol {
@@ -219,8 +218,8 @@ func validateProtocolURL(t Template, add func(Severity, string, string, ...any))
 		last, t.Protocol, strings.Join(expected, " or "))
 }
 
-// lastPathSegment returns the final non-empty segment of a URL path, ignoring
-// surrounding slashes. An empty path yields an empty string.
+// lastPathSegment 返回 URL 路径中最后一个非空段，忽略首尾斜杠。空路径产生空字符串。
+// 忽略首尾斜杠。空路径产生空字符串。
 func lastPathSegment(path string) string {
 	trimmed := strings.Trim(path, "/")
 	if i := strings.LastIndex(trimmed, "/"); i >= 0 {
@@ -229,9 +228,9 @@ func lastPathSegment(path string) string {
 	return trimmed
 }
 
-// ValidateCatalog checks a set of templates and adds cross-template findings
-// that Validate alone cannot see, currently duplicate canonical names. The
-// input slice is not modified and findings follow input order.
+// ValidateCatalog 检查一组模板并添加跨模板发现，
+// ValidateCatalog 检查一组模板并添加 Validate 单独看不到的跨模板发现，目前是重复的规范名称。输入切片不被修改且发现遵循输入顺序。
+// 输入切片不被修改且发现遵循输入顺序。
 func ValidateCatalog(templates []Template) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	seen := make(map[string]struct{}, len(templates))
@@ -253,10 +252,10 @@ func ValidateCatalog(templates []Template) []Diagnostic {
 	return diagnostics
 }
 
-// ValidateAll validates the built-in template table together with its alias
-// map: every template, unique names, and aliases that resolve to a real
-// canonical name without shadowing one. Alias findings use Field "aliases" and
-// a stable (sorted) order so output is reproducible.
+// ValidateAll 连同别名映射一起验证内置模板表：
+// 映射：每个模板、唯一名称，以及解析到真实
+// ValidateAll 连同别名映射一起验证内置模板表：每个模板、唯一名称，以及解析到真实规范名称而不遮蔽它的别名。别名发现使用 Field "aliases" 和稳定的（排序）顺序，使输出可复现。
+// 稳定的（排序）顺序，使输出可复现。
 func ValidateAll() []Diagnostic {
 	diagnostics := ValidateCatalog(List())
 

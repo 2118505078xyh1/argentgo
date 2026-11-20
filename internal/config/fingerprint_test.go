@@ -229,7 +229,7 @@ func TestContentHashStable(t *testing.T) {
 // 能 stat 但无法作为文件读取的路径（此处为目录）保持
 // 零 hash，且 equal() 仍能基于仅 stat 的身份正常工作。
 func TestFingerprintReadFailureFallsBackToStat(t *testing.T) {
-	dir := t.TempDir() // stat succeeds; os.ReadFile fails with "is a directory".
+	dir := t.TempDir() // stat 成功；os.ReadFile 因"is a directory"失败。
 	fp := fingerprintPaths([]string{dir})
 	stamp := fp.files[0]
 	if !stamp.exists {

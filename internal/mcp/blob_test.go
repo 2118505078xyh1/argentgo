@@ -75,21 +75,21 @@ func TestDecodeResourceBlob(t *testing.T) {
 }
 
 func TestDecodeResourceBlobSizeLimit(t *testing.T) {
-	// Cheap rejection: an encoded string longer than any 16 MiB payload can be
-	// is refused before DecodeString allocates.
+	// 廉价拒绝：编码字符串长度超过任何 16 MiB 载荷所能产生的，
+	// 会在 DecodeString 分配之前被拒绝。
 	tooLong := strings.Repeat("A", base64.StdEncoding.EncodedLen(maxResourceBlobBytes)+4+1)
 	if _, _, err := DecodeResourceBlob(ResourceContent{Blob: tooLong}); !errors.Is(err, ErrBlobTooLarge) {
 		t.Fatalf("oversized encoded length: err = %v, want ErrBlobTooLarge", err)
 	}
 
-	// A real payload one byte over the cap must also be rejected (post-decode).
+	// 超出上限 1 字节的真实载荷也必须被拒绝（解码后）。
 	over := bytes.Repeat([]byte{0xAB}, maxResourceBlobBytes+1)
 	encoded := base64.StdEncoding.EncodeToString(over)
 	if _, _, err := DecodeResourceBlob(ResourceContent{Blob: encoded}); !errors.Is(err, ErrBlobTooLarge) {
 		t.Fatalf("payload over cap: err = %v, want ErrBlobTooLarge", err)
 	}
 
-	// A payload exactly at the cap is accepted.
+	// 恰好等于上限的载荷被接受。
 	atCap := bytes.Repeat([]byte{0xCD}, maxResourceBlobBytes)
 	data, _, err := DecodeResourceBlob(ResourceContent{Blob: base64.StdEncoding.EncodeToString(atCap)})
 	if err != nil {
@@ -154,11 +154,11 @@ func TestSaveBlobArtifact(t *testing.T) {
 	} else if !info.Mode().IsRegular() {
 		t.Fatalf("artifact is not a regular file: %v", info.Mode())
 	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
-		// Windows does not honour the requested permission bits (reports 0666).
+		// Windows 不遵守请求的权限位（报告 0666）。
 		t.Fatalf("artifact mode = %o, want 600", info.Mode().Perm())
 	}
 
-	// An empty extension yields an extensionless artifact.
+	// 空扩展名产生无扩展名的产物。
 	path2, err := SaveBlobArtifact(dir, data, "")
 	if err != nil {
 		t.Fatalf("SaveBlobArtifact (no ext): %v", err)
@@ -169,7 +169,7 @@ func TestSaveBlobArtifact(t *testing.T) {
 }
 
 func TestCallToolBlobWithoutArtifactDirUnchanged(t *testing.T) {
-	// Explicitly disabled: output must match the legacy parser byte-for-byte.
+	// 显式禁用：输出必须与旧解析器逐字节一致。
 	t.Setenv(blobArtifactDirEnv, "")
 
 	payload := []byte("secret binary")
@@ -190,7 +190,7 @@ func TestCallToolBlobWithoutArtifactDirUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
-	// The resource blob contributes nothing and the image keeps its placeholder.
+	// 资源 blob 不贡献任何内容，图片保留其占位符。
 	if want := "hello\n[image: image/png]"; got != want {
 		t.Fatalf("output changed with feature off: got %q, want %q", got, want)
 	}
@@ -198,7 +198,7 @@ func TestCallToolBlobWithoutArtifactDirUnchanged(t *testing.T) {
 		t.Fatalf("artifact marker leaked with feature off: %q", got)
 	}
 
-	// A blob-only resource used to fall through to the raw JSON payload; keep that.
+	// 只有 blob 的资源过去会落回到原始 JSON 载荷；保持该行为。
 	blobOnly := map[string]any{"content": []any{
 		map[string]any{"type": "resource", "resource": map[string]any{"blob": blob, "mimeType": "image/png"}},
 	}}

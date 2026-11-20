@@ -11,10 +11,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// TestStaticSystemIgnoresProcessContext proves the cache-stable prefix does not
-// embed process-specific state. Two builds from different working directories
-// (with no project documents or skills that would legitimately differ) must be
-// byte-identical, and neither may mention the cwd or the reasoning effort.
+// TestStaticSystemIgnoresProcessContext 证明缓存稳定的前缀不嵌入进程特定状态。
+// 从不同工作目录进行的两次构建（在没有本应不同的项目文档或技能时）必须逐字节一致，
+// 且都不能提及 cwd 或推理强度。
+// （接上行）
 func TestStaticSystemIgnoresProcessContext(t *testing.T) {
 	env, rootA, _ := wiringEnv(t)
 	rootB := t.TempDir()
@@ -31,9 +31,9 @@ func TestStaticSystemIgnoresProcessContext(t *testing.T) {
 	}
 }
 
-// TestDynamicContextCarriesProcessContext proves no information is lost by the
-// split: the dynamic half still carries the cwd, the reasoning effort and the
-// output schema, using the exact wording of the original combined prompt.
+// TestDynamicContextCarriesProcessContext 证明拆分不会丢失信息：动态那一半仍携带 cwd、推理强度
+// 和输出 schema，并使用原始组合提示的确切措辞。
+// （接上行）
 func TestDynamicContextCarriesProcessContext(t *testing.T) {
 	root := t.TempDir()
 	const schema = `{"type":"object","properties":{"ok":{"type":"boolean"}}}`
@@ -50,10 +50,10 @@ func TestDynamicContextCarriesProcessContext(t *testing.T) {
 	}
 }
 
-// TestCachePrefixStableAcrossProcessChanges proves the bytes a provider caches
-// (the static system prefix) stay the same when the cwd or thinking level
-// changes, while the dynamic values still reach the request through the
-// composed prompt. This is the invariant the dsh-style split relies on.
+// TestCachePrefixStableAcrossProcessChanges 证明提供方缓存的字节（静态系统前缀）在 cwd 或思考级别改变时
+// 保持不变，而动态值仍通过组合提示到达请求。这正是 dsh 风格拆分所依赖的不变量。
+// （接上行）
+// （接上行）
 func TestCachePrefixStableAcrossProcessChanges(t *testing.T) {
 	env, rootA, _ := wiringEnv(t)
 	rootB := t.TempDir()
@@ -79,9 +79,9 @@ func TestCachePrefixStableAcrossProcessChanges(t *testing.T) {
 	}
 }
 
-// TestBuildSystemWithTrustKeepsDynamicInfo guards the legacy composition: the
-// full system string used by existing callers must still contain every field
-// after the refactor, so no existing prompt assertion changes meaning.
+// TestBuildSystemWithTrustKeepsDynamicInfo 守护旧版组合：现有调用方使用的完整系统字符串
+// 在重构后仍必须包含每个字段，使任何现有提示断言的语义都不改变。
+// （接上行）
 func TestBuildSystemWithTrustKeepsDynamicInfo(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	const schema = `{"type":"object"}`
@@ -98,10 +98,10 @@ func TestBuildSystemWithTrustKeepsDynamicInfo(t *testing.T) {
 	}
 }
 
-// TestPlatformFactsInStaticSystem proves the cache-stable prefix carries the
-// runtime OS/architecture and the inferred shell, in both the static-only and
-// the composed builders. COMSPEC uses a bare base name so the assertion holds
-// on every host OS.
+// TestPlatformFactsInStaticSystem 证明缓存稳定的前缀在仅静态和组合式两种构建器中都携带运行时操作系统/架构和推断出的 shell。
+// COMSPEC 使用裸的基本名称，使断言在所有宿主操作系统上都成立。
+// （接上行）
+// （接上行）
 func TestPlatformFactsInStaticSystem(t *testing.T) {
 	_, root, home := wiringEnv(t)
 	factsEnv := envFrom(map[string]string{
@@ -122,8 +122,8 @@ func TestPlatformFactsInStaticSystem(t *testing.T) {
 	}
 }
 
-// TestShellFallsBackToSHELL proves COMSPEC is not required: on Unix the SHELL
-// variable supplies the shell name.
+// TestShellFallsBackToSHELL 证明 COMSPEC 不是必需的：在 Unix 上 SHELL 变量提供 shell 名称。
+// （接上行）
 func TestShellFallsBackToSHELL(t *testing.T) {
 	env := envFrom(map[string]string{"SHELL": "bash"})
 	system := buildStaticSystem(t.TempDir(), env, true)
@@ -132,9 +132,9 @@ func TestShellFallsBackToSHELL(t *testing.T) {
 	}
 }
 
-// TestVerifyGuidanceOnlyWhenConfigured proves the default prompt bytes are
-// unchanged by verification config: absent when nothing is configured, and
-// present with a do-not-repeat hint once either field is set.
+// TestVerifyGuidanceOnlyWhenConfigured 证明默认提示字节不受验证配置影响：未配置任何内容时不存在，
+// 一旦任一字段被设置，就出现一条不要重复的提示。
+// （接上行）
 func TestVerifyGuidanceOnlyWhenConfigured(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 
@@ -161,9 +161,9 @@ func TestVerifyGuidanceOnlyWhenConfigured(t *testing.T) {
 	}
 }
 
-// TestVerifyGuidanceDeterministic proves map iteration order cannot make the
-// cache-stable prefix drift: two configs with identical entries inserted in
-// different orders must render byte-identical prompts.
+// TestVerifyGuidanceDeterministic 证明 map 的迭代顺序不会使缓存稳定的前缀漂移：
+// 以不同顺序插入相同条目的两份配置必须渲染出逐字节相同的提示。
+// （接上行）
 func TestVerifyGuidanceDeterministic(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	a := buildSystem(root, env, "", "", config.Config{
@@ -177,8 +177,8 @@ func TestVerifyGuidanceDeterministic(t *testing.T) {
 	}
 }
 
-// TestCWDGitDetection proves the repository hint follows the workspace root:
-// a .git directory or .git file marks it, a plain directory does not.
+// TestCWDGitDetection 证明仓库提示遵循工作区根目录：.git 目录或 .git 文件会标记它，普通目录则不会。
+// （接上行）
 func TestCWDGitDetection(t *testing.T) {
 	env, _, _ := wiringEnv(t)
 

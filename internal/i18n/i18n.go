@@ -1,9 +1,9 @@
-// Package i18n holds the user-facing string catalog for the CLI and TUI.
+// Package i18n 保存 CLI 和 TUI 的用户可见字符串目录。目录是 Go 表而非一组语言环境文件：字符串是二进制的一部分且不会在运行时丢失。支持两种语言环境：zh-CN 和 en-US。缺失的键返回键本身并被记录，使缺口在 UI 中可见且可测试，而非渲染为空白。支持的语言环境代码。DefaultLocale 在没有其他匹配时使用。
 //
-// The catalog is a Go table, not a set of locale files: the strings are part of
-// the binary and cannot be lost at runtime. Two locales are supported, zh-CN
-// and en-US. A missing key returns the key itself and is recorded, so a gap is
-// visible in the UI and testable instead of rendering as blank.
+// 目录是 Go 表而非一组语言环境文件：字符串是二进制的
+// 一部分且不会在运行时丢失。支持两种语言环境：zh-CN
+// 和 en-US。缺失的键返回键本身并被记录，使缺口在 UI 中
+// 可见且可测试，而非渲染为空白。
 package i18n
 
 import (
@@ -14,13 +14,13 @@ import (
 	"sync"
 )
 
-// Supported locale codes.
+// 支持的语言环境代码。
 const (
 	EnUS = "en-US"
 	ZhCN = "zh-CN"
 )
 
-// DefaultLocale is used when nothing else matches.
+// DefaultLocale 在没有其他匹配时使用。
 const DefaultLocale = EnUS
 
 type translation struct {
@@ -28,23 +28,22 @@ type translation struct {
 	zh string
 }
 
-// catalog is the embedded table. Keys are dotted, lower-case, grouped by the
-// surface that owns them (prompt, status, label, approval, error, command,
-// misc, info).
+// catalog 是嵌入的表。键以点分隔、小写，按拥有它们的
+// 外观分组（prompt、status、label、approval、error、command、misc、info）。
 var catalog = map[string]translation{
-	// Prompt area.
+	// Prompt 区域。
 	"prompt.placeholder": {"Message argent…", "给 argent 发消息…"},
 	"prompt.send":        {"send", "发送"},
 	"prompt.abort":       {"abort the running turn", "中止当前回合"},
 	"prompt.newline":     {"insert a line break", "插入换行"},
 	"prompt.empty":       {"type a message, or / for commands", "输入消息，或输入 / 查看命令"},
 	"prompt.queued":      {"queued follow-up", "后续消息已排队"},
-	// Optional system-prompt directive asking the model to reply in the UI
-	// language. Kept in the catalog so both locales stay auditable;
-	// ReplyLanguageHint resolves the locale and returns one side.
+	// 可选的系统提示指令，要求模型用 UI 语言回复。
+	// 保留在目录中使两种语言环境都可审计；
+	// ReplyLanguageHint 解析语言环境并返回一侧。
 	"prompt.reply_hint": {"Reply in English", "请用中文回复"},
 
-	// Status labels.
+	// 状态标签。
 	"status.ready":    {"ready", "就绪"},
 	"status.working":  {"working", "运行中"},
 	"status.thinking": {"thinking", "思考中"},
@@ -69,11 +68,11 @@ var catalog = map[string]translation{
 	"label.turns":      {"turns", "回合"},
 	"label.theme":      {"theme", "主题"},
 
-	// Theme switching and colour degradation notices.
+	// 主题切换和颜色降级通知。
 	"status.theme":          {"theme: %s", "主题：%s"},
 	"notice.color_degraded": {"colour output degraded: NO_COLOR or dumb terminal", "颜色输出已降级：NO_COLOR 或 dumb 终端"},
 
-	// Approval dialog.
+	// 审批对话框。
 	"approval.title":     {"approval required", "需要确认"},
 	"approval.question":  {"Allow this tool call? (%s)", "允许这次工具调用？(%s)"},
 	"approval.allow":     {"allow once", "允许一次"},
@@ -100,7 +99,7 @@ var catalog = map[string]translation{
 	"error.policy":       {"blocked by policy", "被策略拦截"},
 	"error.retry":        {"press Enter to retry", "按 Enter 重试"},
 
-	// Slash-command descriptions.
+	// 斜杠命令描述。
 	"command.unknown":  {"unknown command: %s", "未知命令：%s"},
 	"command.usage":    {"usage: %s", "用法：%s"},
 	"command.help":     {"commands", "命令"},
@@ -114,21 +113,21 @@ var catalog = map[string]translation{
 	"command.commands": {"list slash commands", "列出斜杠命令"},
 	"command.memory":   {"show project memory files", "显示项目记忆文件"},
 
-	// Misc UI.
+	// 其他 UI。
 	"misc.empty":       {"nothing to show", "暂无内容"},
 	"misc.no_sessions": {"no sessions yet", "还没有会话"},
 	"misc.bye":         {"bye", "再见"},
 	"misc.press_enter": {"press Enter to continue", "按 Enter 继续"},
 
-	// Informational lines.
+	// 信息行。
 	"info.skills_loaded":   {"%d skill(s) available", "可用技能 %d 个"},
 	"info.commands_loaded": {"%d command(s) available", "可用命令 %d 个"},
 	"info.memory_loaded":   {"%d memory file(s) loaded", "已加载 %d 个记忆文件"},
 	"info.compacted":       {"compacted %d message(s)", "已压缩 %d 条消息"},
 
-	// One-line activity recap of finished tool calls. The English tokens mirror
-	// the neutral labels used by the TUI's tasks rail; the zh-CN forms are wider
-	// in cells, so the rail clips by display width rather than rune count.
+	// 已完成工具调用的单行活动回顾。英文标记镜像
+	// TUI 任务栏使用的中性标签；zh-CN 形式在单元格上更宽，
+	// 因此该栏按显示宽度而非 rune 数裁剪。
 	"activity.command_one":  {"%d command", "%d 条命令"},
 	"activity.command_many": {"%d commands", "%d 条命令"},
 	"activity.edit_one":     {"%d edit", "%d 次编辑"},
@@ -157,7 +156,7 @@ func Canonical(locale string) (string, bool) {
 	return "", false
 }
 
-// Normalize returns a supported locale code, falling back to DefaultLocale.
+// Normalize 返回支持的语言环境代码，回退到 DefaultLocale。
 func Normalize(locale string) string {
 	if code, ok := Canonical(locale); ok {
 		return code
@@ -165,27 +164,27 @@ func Normalize(locale string) string {
 	return DefaultLocale
 }
 
-// Known returns the supported locale codes, sorted.
+// Known 返回支持的语言环境代码，已排序。
 func Known() []string {
 	return []string{EnUS, ZhCN}
 }
 
-// replyHintNeutral is returned when the requested locale is not one this UI
-// supports. It is the empty string so a caller injects no language directive at
-// all rather than forcing an unsupported or wrong language on the model.
+// Normalize 返回支持的语言环境代码，回退到 DefaultLocale。Known 返回支持的语言环境代码，已排序。replyHintNeutral 在请求的语言环境不被此 UI 支持时返回。它是空字符串，使调用方完全不注入语言指令，而非向模型强加不支持或错误的语言。
+// 支持。它是空字符串，使调用方完全不注入语言指令，
+// 而非向模型强加不支持或错误的语言。
 const replyHintNeutral = ""
 
-// ReplyLanguageHint returns a short directive that a caller may append to a
-// system prompt to ask the model to reply in the given locale's language.
+// ReplyLanguageHint 返回调用方可追加到系统提示的
+// 简短指令，要求模型用给定语言环境的语言回复。
 //
 // Locale aliases are resolved through Canonical, so "zh", "zh_cn" and "中文"
-// all yield the Chinese hint, while "en", "en_us" and "English" yield the
-// English one. An unsupported or empty locale yields replyHintNeutral: no
-// language is named, so the hint can be omitted safely instead of choosing a
-// default the user did not ask for.
+// ReplyLanguageHint 返回调用方可追加到系统提示的简短指令，要求模型用给定语言环境的语言回复。都产生中文提示，而 "en"、"en_us" 和 "English" 产生英文提示。不支持或空的语言环境产生 replyHintNeutral：不点名任何语言，因此可以安全省略提示，而不是选择用户未要求的默认值。
+// 英文提示。不支持或空的语言环境产生 replyHintNeutral：不
+// 点名任何语言，因此可以安全省略提示，而不是选择
+// 用户未要求的默认值。
 //
-// It is pure: no configuration or global state is read, and nothing is logged
-// to Missing.
+// 它是纯函数：不读取配置或全局状态，也不向
+// Missing 记录任何内容。
 func ReplyLanguageHint(locale string) string {
 	code, ok := Canonical(locale)
 	if !ok {
@@ -194,22 +193,22 @@ func ReplyLanguageHint(locale string) string {
 	return T(code, "prompt.reply_hint")
 }
 
-// outputLanguageTokenMaxLength bounds an untrusted preference token before it
-// is validated. Prose longer than this can never be a language designation.
+// outputLanguageTokenMaxLength 在验证前限制不可信偏好 token 的长度。长于此的散文绝不可能是语言代号。
+// 验证前限制。长于此的散文绝不可能是语言代号。
 const outputLanguageTokenMaxLength = 64
 
-// bcp47Tag is a deliberately strict BCP-47 shape: a 2-3 letter primary
-// subtag, an optional 4-letter script, an optional region (2 letters or 3
-// digits), and up to two variants in the grammar's two forms. Both letter
-// cases are spelled out instead of using (?i): RE2's case-insensitive mode
-// folds confusables such as U+212A KELVIN SIGN into [a-z], which would let a
-// repository-authored token pass as a language tag.
+// bcp47Tag 是刻意严格的 BCP-47 形态：2-3 字母的主
+// 子标签、可选的 4 字母脚本、可选的区域（2 字母或 3
+// 数字），以及最多两种语法形式中的变体。两种字母
+// 大小写都被显式写出而非使用 (?i)：RE2 的不区分大小写模式
+// bcp47Tag 是刻意严格的 BCP-47 形态：2-3 字母的主子标签、可选的 4 字母脚本、可选的区域（2 字母或 3 数字），以及最多两种语法形式中的变体。两种字母大小写都被显式写出而非使用 (?i)：RE2 的不区分大小写模式会把 U+212A KELVIN SIGN 等易混淆字符折叠进 [a-z]，使仓库编写的 token 能冒充语言标签。
+// 使仓库编写的 token 能冒充语言标签。
 var bcp47Tag = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-[A-Za-z]{2}|-[0-9]{3})?(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3,4})){0,2}$`)
 
-// outputLanguageEntry mirrors the product's output-language table. The table
-// is the closed set of designations the product itself writes; a token found
-// in a repository-writable file is trusted only when it is one of these
-// spellings (code, settings id, full English name, or native name).
+// outputLanguageEntry 镜像产品的输出语言表。该表是
+// 产品自身写入的闭集代号；仓库可写文件中的 token
+// 仅当是这些拼写之一时才被信任
+// outputLanguageEntry 镜像产品的输出语言表。该表是产品自身写入的闭集代号；仓库可写文件中的 token 仅当是这些拼写之一（代码、设置 id、完整英文名或本地名）时才被信任。
 type outputLanguageEntry struct {
 	code       string
 	id         string
@@ -229,9 +228,9 @@ var outputLanguageTable = [...]outputLanguageEntry{
 	{code: "ca", id: "ca-ES", fullName: "Catalan", nativeName: "Català"},
 }
 
-// asciiLower folds ASCII upper case only. strings.ToLower, strings.EqualFold
-// and RE2's (?i) also fold non-ASCII confusables (e.g. U+212A KELVIN SIGN to
-// "k"), which would let a case-disguised token slip into the closed set.
+// asciiLower 只折叠 ASCII 大写。strings.ToLower、strings.EqualFold
+// asciiLower 只折叠 ASCII 大写。strings.ToLower、strings.EqualFold 和 RE2 的 (?i) 也会折叠非 ASCII 易混淆字符（如 U+212A KELVIN SIGN 到 "k"），使大小写伪装的 token 能混入闭集。已知的本地非 ASCII 名称也接受其小写拼写；只有不可信的 token 从不做 Unicode 折叠。
+// 使大小写伪装的 token 能混入闭集。
 func asciiLower(s string) string {
 	var out []byte
 	for i := 0; i < len(s); i++ {
@@ -257,9 +256,9 @@ var outputLanguageDesignations = func() map[string]struct{} {
 				continue
 			}
 			set[asciiLower(spelling)] = struct{}{}
-			// Known non-ASCII native names are also accepted in their
-			// lower-cased spelling; only the untrusted token is never
-			// Unicode-folded.
+			// 已知的本地非 ASCII 名称也接受其
+			// 小写拼写；只有不可信的 token 从不做
+			// Unicode 折叠。
 			if lower := strings.ToLower(spelling); lower != spelling {
 				set[lower] = struct{}{}
 			}
@@ -268,19 +267,18 @@ var outputLanguageDesignations = func() map[string]struct{} {
 	return set
 }()
 
-// ParseOutputLanguagePreference validates one output-language token that came
-// from an untrusted, repository-writable preference file.
+// ParseOutputLanguagePreference 验证来自不可信的、
+// 仓库可写偏好文件的一个输出语言 token。
 //
-// Only "auto", a designation from the output-language table (code, settings
+// 只接受 "auto"、来自输出语言表的代号（代码、设置
 // id, full English name, or native name such as "中文" / "繁體中文"), or a
-// well-formed BCP-47 tag is accepted. A 13-character instruction written in
-// CJK needs no spaces and no punctuation, so a character class cannot tell it
-// apart from a language name — the closed set can. Everything else is
-// rejected with ok == false and an empty lang; callers must never hand the raw
-// string to a prompt.
+// 格式良好的 BCP-47 标签不被接受。一段 13 字符的 CJK
+// 指令无需空格和标点，因此字符类无法把它
+// 与语言名区分 —— 闭集可以。其他一切都被拒绝，
+// 交给提示词。
 //
-// This is a pure function. It reads no configuration and changes no existing
-// locale behaviour in this package.
+// 这是纯函数：不读取配置，也不改变本包中任何现有
+// 语言环境行为。
 func ParseOutputLanguagePreference(raw string) (lang string, ok bool) {
 	token := strings.TrimSpace(raw)
 	if token == "" || len(token) > outputLanguageTokenMaxLength {
@@ -299,8 +297,8 @@ func ParseOutputLanguagePreference(raw string) (lang string, ok bool) {
 	return "", false
 }
 
-// Keys returns every catalog key, sorted. Tests use it to check both locales
-// are complete.
+// Keys 返回所有目录键，已排序。测试用它检查两种语言环境都完整。
+// 都完整。
 func Keys() []string {
 	return sortedKeys(catalog)
 }
@@ -314,26 +312,25 @@ func sortedKeys(cat map[string]translation) []string {
 	return keys
 }
 
-// IssueKind classifies a problem reported by AuditTranslations.
+// IssueKind 分类 AuditTranslations 报告的问题。
 type IssueKind string
 
 const (
-	// IssueMissingText: a locale's string is empty for a key that the catalog
-	// still defines. This is a translation that was never provided.
+	// IssueMissingText：某语言环境对目录仍定义的键的字符串
+	// 为空，这是从未提供的翻译。
 	IssueMissingText IssueKind = "missing_text"
-	// IssueFormatVerbMismatch: the multiset of fmt.Sprintf conversion verbs
-	// (e.g. %s, %d) differs between locales, so one locale will render
-	// "%!(EXTRA ...)" or miss a substituted value.
+	// 如 %s、%d）在语言环境之间不同，使某一语言环境渲染
+	// "%!(EXTRA ...)" 或漏掉替换值。
 	IssueFormatVerbMismatch IssueKind = "format_verb_mismatch"
-	// IssuePlaceholderMismatch: the multiset of named {name} placeholders used
-	// by Format differs between locales, so one locale leaves a placeholder
-	// visible or ignores a value the other consumes.
+	// IssuePlaceholderMismatch：Format 使用的命名 {name} 占位符
+	// 多重集在语言环境之间不同，使某一语言环境留下占位符
+	// 可见或忽略另一语言环境消费的值。
 	IssuePlaceholderMismatch IssueKind = "placeholder_mismatch"
 )
 
-// Issue is one translation-completeness problem found by AuditTranslations.
-// All fields are exported so callers (e.g. a doctor command or a test) can
-// inspect and format them without reaching into package internals.
+// Issue 是 AuditTranslations 发现的一条翻译完整性问题。所有字段都导出，使调用方（如 doctor 命令或测试）能检查和格式化它们而无需触及包内部。
+// 所有字段都导出，使调用方（如 doctor 命令或测试）能
+// 检查和格式化它们而无需触及包内部。
 type Issue struct {
 	Key    string    // catalog key with the problem
 	Locale string    // locale code whose translation is deficient
@@ -341,27 +338,27 @@ type Issue struct {
 	Detail string    // short human-readable explanation
 }
 
-// AuditTranslations checks translation completeness across locales and returns
-// the problems found. It is a pure function: it reads only the embedded
-// catalog, mutates no state (including the Missing log), and returns issues
-// sorted by Key, Locale, Kind and Detail. A healthy catalog returns an empty,
-// non-nil slice.
+// AuditTranslations 检查跨语言环境的翻译完整性并返回
+// 发现的问题。它是纯函数：只读取嵌入的
+// 目录，不修改任何状态（包括 Missing 日志），并返回
+// AuditTranslations 检查跨语言环境的翻译完整性并返回发现的问题。它是纯函数：只读取嵌入的目录，不修改任何状态（包括 Missing 日志），并返回按 Key、Locale、Kind 和 Detail 排序的发现。健康的目录返回空但非 nil 的切片。无参数时审计所有支持的语言环境（Known）。参数通过 Canonical 规范化、去重并排序；不支持的语言环境被忽略，因为目录只携带支持代码的文本。
+// 非 nil 切片。
 //
-// With no arguments every supported locale (Known) is audited. Arguments are
-// canonicalised via Canonical, de-duplicated and sorted; unsupported locales
-// are ignored because the catalog only carries text for the supported codes.
+// 无参数时审计所有支持的语言环境（Known）。参数通过
+// Canonical 规范化、去重并排序；不支持的语言环境
+// 被忽略，因为目录只携带支持代码的文本。
 //
-// For each key, the first requested locale that is EnUS is the reference (the
-// source strings). Every other requested locale is compared against it for:
-//   - empty text where the reference has text (IssueMissingText);
-//   - a differing multiset of fmt.Sprintf verbs (IssueFormatVerbMismatch);
-//   - a differing multiset of named {name} placeholders
+// 对每个键，第一个请求的语言环境中为 EnUS 的是参照（
+// 源字符串）。其他每个请求的语言环境与它比较：
+//   - 参照有文本但为空（IssueMissingText）；
+//
+//   - 命名 {name} 占位符多重集不同
 //     (IssuePlaceholderMismatch).
 //
-// An empty reference is itself reported as IssueMissingText for that locale.
-// The key set is shared by all locales in this catalog, so a key cannot be
-// "extra" in one locale; the meaningful omissions are empty text and dropped
-// placeholders, which is what this audit detects.
+// 空参照本身作为该语言环境的 IssueMissingText 报告。
+// 此目录中所有语言环境共享键集，因此一个键不可能
+// 在某个语言环境中"多余"；有意义的遗漏是空文本和丢失的
+// 占位符，这正是本审计检测的。
 func AuditTranslations(locales ...string) []Issue {
 	return auditCatalog(catalog, locales)
 }
@@ -429,8 +426,8 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 	return issues
 }
 
-// normalizeAuditLocales canonicalises caller input. An empty request means
-// "all supported locales". Unknown locales are dropped.
+// normalizeAuditLocales 规范化调用方输入。空请求表示"所有支持的语言环境"。未知语言环境被丢弃。
+// "所有支持的语言环境"。未知语言环境被丢弃。
 func normalizeAuditLocales(locales []string) []string {
 	if len(locales) == 0 {
 		return Known()
@@ -449,8 +446,8 @@ func normalizeAuditLocales(locales []string) []string {
 	return out
 }
 
-// referenceLocale picks the locale whose text is the source for comparisons.
-// English is preferred; otherwise the first (sorted) locale is used.
+// referenceLocale 挑选其文本作为比较来源的语言环境。
+// 优先英语；否则使用第一个（排序后的）语言环境。
 func referenceLocale(locales []string) string {
 	for _, locale := range locales {
 		if locale == EnUS {
@@ -460,8 +457,8 @@ func referenceLocale(locales []string) string {
 	return locales[0]
 }
 
-// textFor selects a locale's string from an entry. Unknown codes fall back to
-// English, matching T's default-locale behaviour.
+// textFor 从条目中选择某语言环境的字符串。未知代码回退到
+// referenceLocale 挑选其文本作为比较来源的语言环境。优先英语；否则使用第一个（排序后的）语言环境。textFor 从条目中选择某语言环境的字符串。未知代码回退到英语，匹配 T 的默认语言环境行为。
 func textFor(locale string, e translation) string {
 	if locale == ZhCN {
 		return e.zh
@@ -469,13 +466,13 @@ func textFor(locale string, e translation) string {
 	return e.en
 }
 
-// isASCIILetter reports whether c is an ASCII letter.
+// isASCIILetter 报告 c 是否为 ASCII 字母。
 func isASCIILetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-// isFmtDirectiveByte reports whether c may appear between '%' and a
-// conversion verb: flags, width, precision, argument index and their padding.
+// isFmtDirectiveByte 报告 c 是否可出现在 '%' 与
+// 转换动词之间：标志、宽度、精度、参数索引及其填充。
 func isFmtDirectiveByte(c byte) bool {
 	switch c {
 	case '+', '-', '#', '0', ' ', '.', '[', ']':
@@ -484,10 +481,10 @@ func isFmtDirectiveByte(c byte) bool {
 	return c >= '0' && c <= '9'
 }
 
-// formatVerbs returns a count of each fmt.Sprintf conversion verb in s. A
-// verb is the ASCII letter that terminates a '%' directive; flags, width,
-// precision and argument indexes do not change it. "%%" is a literal percent
-// and contributes no verb. A malformed or trailing '%' is ignored.
+// isASCIILetter 报告 c 是否为 ASCII 字母。isFmtDirectiveByte 报告 c 是否可出现在 '%' 与转换动词之间：标志、宽度、精度、参数索引及其填充。formatVerbs 返回 s 中每个 fmt.Sprintf 转换动词的计数。动词是终止 '%' 指令的 ASCII 字母；标志、宽度、精度和参数索引不改变它。"%%" 是字面百分号且不贡献动词。畸形或末尾的 '%' 被忽略。
+// 动词是终止 '%' 指令的 ASCII 字母；标志、宽度、
+// 精度和参数索引不改变它。"%%" 是字面百分号且
+// 不贡献动词。畸形或末尾的 '%' 被忽略。
 func formatVerbs(s string) map[string]int {
 	out := map[string]int{}
 	for i := 0; i < len(s); {
@@ -513,8 +510,8 @@ func formatVerbs(s string) map[string]int {
 	return out
 }
 
-// namedPlaceholders returns a count of each {name} placeholder in s, using
-// the same scanning rules as Format (escaped braces are not placeholders).
+// namedPlaceholders 返回 s 中每个 {name} 占位符的计数，使用
+// 与 Format 相同的扫描规则（转义的大括号不是占位符）。
 func namedPlaceholders(s string) map[string]int {
 	out := map[string]int{}
 	for i := 0; i < len(s); {
@@ -546,7 +543,7 @@ func sameCounts(a, b map[string]int) bool {
 	return true
 }
 
-// describeCounts renders a count map deterministically for Issue.Detail.
+// describeCounts 为 Issue.Detail 确定性地渲染计数 map。
 func describeCounts(m map[string]int) string {
 	if len(m) == 0 {
 		return "none"
@@ -567,11 +564,10 @@ func describeCounts(m map[string]int) string {
 	return strings.Join(parts, " ")
 }
 
-// T looks up one UI string.
+// T 查找一个 UI 字符串。
 //
-// An unknown key is returned verbatim (so the gap is visible in the UI) and
-// recorded for Missing. When args are supplied the template is formatted with
-// fmt.Sprintf, e.g. T(locale, "error.model", "boom").
+// 未知键被原样返回（使缺口在 UI 中可见）并
+// 记录到 Missing。提供 args 时用 fmt.Sprintf
 func T(locale, key string, args ...any) string {
 	entry, ok := catalog[key]
 	if !ok {
@@ -593,10 +589,10 @@ func T(locale, key string, args ...any) string {
 	return template
 }
 
-// placeholderNameStart reports whether c may begin a placeholder name.
-// Names are deliberately ASCII-only so expansion is deterministic and cannot
-// depend on Unicode case folding; CJK bytes (>= 0x80) never match and are
-// therefore copied through untouched.
+// placeholderNameStart 报告 c 是否可以开始占位符名。
+// 名称刻意只含 ASCII，使展开确定且不能
+// placeholderNameStart 报告 c 是否可以开始占位符名。名称刻意只含 ASCII，使展开确定且不能依赖 Unicode 大小写折叠；CJK 字节（>= 0x80）永不匹配，因此被原样复制通过。
+// 因此被原样复制通过。
 func placeholderNameStart(c byte) bool {
 	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
@@ -605,10 +601,10 @@ func placeholderNameByte(c byte) bool {
 	return placeholderNameStart(c) || (c >= '0' && c <= '9')
 }
 
-// placeholderAt reports the name and the index just past a {name} placeholder
-// beginning at text[start], if one is present. Only a complete identifier
-// followed by '}' counts, so adjacent text such as {names} or {a-b} is not
-// mistaken for a different placeholder.
+// placeholderAt 报告从 text[start] 开始的 {name} 占位符的名称
+// 及其刚越过的索引（若存在）。只有后跟 '}' 的完整标识符
+// placeholderAt 报告从 text[start] 开始的 {name} 占位符的名称及其刚越过的索引（若存在）。只有后跟 '}' 的完整标识符才算，因此 {names} 或 {a-b} 等相邻文本不会被误认为不同的占位符。
+// 被误认为不同的占位符。
 func placeholderAt(text string, start int) (name string, end int, ok bool) {
 	i := start + 1
 	if i >= len(text) || !placeholderNameStart(text[i]) {
@@ -624,28 +620,28 @@ func placeholderAt(text string, start int) (name string, end int, ok bool) {
 	return text[nameStart:i], i + 1, true
 }
 
-// Format expands named {name} placeholders in text. The text is normally a
-// string obtained from the embedded catalog via T (which resolves the locale);
-// Format itself is pure and locale-agnostic. It complements T's positional
-// fmt.Sprintf formatting with reorderable, self-describing placeholders.
+// Format 展开 text 中的命名 {name} 占位符。text 通常是通过
+// T（解析语言环境）从嵌入目录获得的字符串；
+// Format 本身是纯的且与语言环境无关。它用可重排、自描述的
+// 占位符补充 T 的位置式 fmt.Sprintf 格式化。
 //
-// Expansion rules:
-//   - A placeholder is {name} where name matches [A-Za-z_][A-Za-z0-9_]*.
-//     It is replaced with vars[name].
-//   - A placeholder whose name is absent from vars is left verbatim, so a
-//     missing translation variable is visible rather than silently blank.
-//   - {{ and }} emit a literal brace; {{name}} thus renders as {name} and is
-//     not expanded (escaping).
-//   - Only a complete {identifier} is expanded, so {names} is never confused
-//     with {name} and text adjacent to a placeholder is preserved.
-//   - Multi-byte text (CJK and others) is copied through byte-for-byte.
-//   - A brace that does not begin a valid placeholder (e.g. {a-b}, {9x}, an
-//     unclosed '{') is copied verbatim; nested braces are scanned so an inner
-//     valid placeholder still expands.
-//   - Values from vars are written directly and never re-scanned, so a value
-//     containing braces cannot inject further placeholders.
+// 展开规则：
 //
-// A nil vars map is valid: every placeholder is then left intact.
+//	  它被替换为 vars[name]。
+//	- 名称不在 vars 中的占位符原样保留，使
+//	  缺失的翻译变量可见而非静默变空。
+//	- {{ 和 }} 发出字面大括号；{{name}} 渲染为 {name} 且
+//	  不被展开（转义）。
+//	- 只展开完整的 {identifier}，因此 {names} 永不与
+//	  {name} 混淆且占位符相邻的文本被保留。
+//	- 多字节文本（CJK 及其他）逐字节复制通过。
+//	- 不开始有效占位符的大括号（如 {a-b}、{9x}、未闭合的
+//	  '{'）被原样复制；嵌套大括号被扫描使内部的
+//	  有效占位符仍能展开。
+//	- vars 中的值被直接写入且从不重扫，因此含
+//	  大括号的值无法注入更多占位符。
+//
+// 空但非 nil 的 map；nil vars map 有效，此时每个占位符保持原样。
 func Format(text string, vars map[string]string) string {
 	if !strings.Contains(text, "{") {
 		return text
@@ -681,8 +677,8 @@ func Format(text string, vars map[string]string) string {
 	return b.String()
 }
 
-// Missing returns the keys (or key@locale pairs) requested but not found since
-// the last ResetMissing, sorted and de-duplicated.
+// Missing 返回自上次 ResetMissing 以来被请求但未找到的键（或 key@locale 对），已排序去重。ResetMissing 清除缺失键日志。
+// 自上次 ResetMissing 以来被请求但未找到的键（或 key@locale 对），已排序去重。
 func Missing() []string {
 	missingMu.Lock()
 	defer missingMu.Unlock()
@@ -691,7 +687,7 @@ func Missing() []string {
 	return out
 }
 
-// ResetMissing clears the missing-key log.
+// ResetMissing 清除缺失键日志。
 func ResetMissing() {
 	missingMu.Lock()
 	defer missingMu.Unlock()
@@ -710,21 +706,20 @@ func recordMissing(id string) {
 	sort.Strings(missingKeys)
 }
 
-// isExplicitEnglishLocale reports whether an environment locale value is an
-// explicit preference for English, including the suffixes real environments
-// attach to it: a region ("en-GB", "en_US"), an encoding ("en_US.UTF-8",
-// "C.UTF-8") and a modifier ("en_US@euro"). C and POSIX are the C locale,
-// which is English for UI purposes.
+// isExplicitEnglishLocale 报告环境语言环境值是否是对英语的
+// 显式偏好，包括真实环境附加的后缀：区域
+// （"en-GB"、"en_US"）、编码（"en_US.UTF-8"、
+// 就 UI 而言是英语。
 //
-// Detect recognises Chinese by prefix, so without this check a higher-priority
-// variable holding an explicit English locale looks merely "unrecognised" and
-// is skipped; a lower-priority Chinese LANG then silently overrides the
-// user's own setting. Only English is special-cased: other unsupported
-// languages still fall through, as before.
+// Detect 按前缀识别中文，因此没有这个检查时，优先级更高的
+// 显式英语语言环境变量看起来只是"无法识别"而
+// 被跳过；随后优先级更低的中文 LANG 会静默覆盖
+// 用户自己的设置。只有英语被特殊处理：其他不支持的
+// 语言仍照旧穿透。
 func isExplicitEnglishLocale(value string) bool {
 	lower := asciiLower(strings.TrimSpace(value))
-	// POSIX encoding and modifier suffixes follow the language tag and do not
-	// change which language was requested.
+	// POSIX 编码和修饰符后缀跟在语言标签后且
+	// 不改变请求的是哪种语言。
 	if i := strings.IndexAny(lower, ".@"); i >= 0 {
 		lower = lower[:i]
 	}
@@ -738,13 +733,13 @@ func isExplicitEnglishLocale(value string) bool {
 	return lower == "en" || lower == "english"
 }
 
-// Detect picks a locale from the environment.
+// Detect 从环境中选择语言环境。
 //
-// ARGENT_LOCALE wins. Then LC_ALL, LC_MESSAGES and LANG are checked: a Chinese
-// tag selects ZhCN, an explicit English tag (including "C"/"POSIX" and values
-// with region, encoding or modifier suffixes) selects DefaultLocale and stops
-// the search. Anything else falls through to the next variable. env must not
-// be nil.
+// Detect 从环境中选择语言环境。ARGENT_LOCALE 优先。然后检查 LC_ALL、LC_MESSAGES 和 LANG：中文标签选择 ZhCN，显式英语标签（包括 "C"/"POSIX" 以及带区域、编码或修饰符后缀的值）选择 DefaultLocale 并停止搜索。其他任何值穿透到下一个变量。env 不得为 nil。
+// 中文标签选择 ZhCN，显式英语标签（包括 "C"/"POSIX" 以及带
+// 区域、编码或修饰符后缀的值）选择 DefaultLocale 并停止
+// 搜索。其他任何值穿透到下一个变量。env 不得
+// 为 nil。
 func Detect(env func(string) string) string {
 	if env == nil {
 		return DefaultLocale

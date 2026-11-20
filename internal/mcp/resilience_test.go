@@ -102,7 +102,7 @@ func TestDecodeConfigDiscoveryTimeout(t *testing.T) {
 	}
 }
 
-// timeoutNetError is a net.Error whose Timeout method reports true.
+// timeoutNetError 是一个 Timeout 方法返回 true 的 net.Error。
 type timeoutNetError struct{}
 
 func (timeoutNetError) Error() string   { return "i/o timeout" }

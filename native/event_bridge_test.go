@@ -11,8 +11,8 @@ import (
 	"unicode/utf8"
 )
 
-// TestParseEngineApproval covers the local decoder for the approval notice
-// wire format so native/ never has to import internal/agent.
+// TestParseEngineApproval 覆盖审批通知线上格式的本地解码器，
+// 使 native/ 永不导入 internal/agent。
 func TestParseEngineApproval(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -70,8 +70,8 @@ func TestParseEngineApproval(t *testing.T) {
 	}
 }
 
-// TestReadLoopDispatchesEvent proves readLoop forwards an "event" notification
-// as (kind, raw event) without importing the engine's event types.
+// TestReadLoopDispatchesEvent 证明 readLoop 把 "event" 通知转发为
+// (kind, 原始事件) 而不导入 engine 的事件类型。
 func TestReadLoopDispatchesEvent(t *testing.T) {
 	line := `{"jsonrpc":"2.0","method":"event","params":{"kind":"tool_start","event":{"Kind":"tool_start","ToolCallID":"c1","ToolName":"bash","Args":"ls"}}}` + "\n"
 	var gotKind string
@@ -98,8 +98,8 @@ func TestReadLoopDispatchesEvent(t *testing.T) {
 	}
 }
 
-// TestReadLoopStillAnswersReplies guards the pre-existing response path after
-// adding the new event case to the switch.
+// TestReadLoopStillAnswersReplies 守护在 switch 中加入新 event case 后
+// TestParseEngineApproval 覆盖审批通知线上格式的本地解码器，使 native/ 永不导入 internal/agent。TestReadLoopDispatchesEvent 证明 readLoop 把 "event" 通知转发为 (kind, 原始事件) 而不导入 engine 的事件类型。TestReadLoopStillAnswersReplies 守护在 switch 中加入新 event case 后原有的响应路径。
 func TestReadLoopStillAnswersReplies(t *testing.T) {
 	line := `{"jsonrpc":"2.0","id":7,"result":{"text":"ok"}}` + "\n"
 	b := &bridge{
@@ -115,19 +115,18 @@ func TestReadLoopStillAnswersReplies(t *testing.T) {
 	}
 }
 
-// captureWriteCloser records the JSON-RPC request bytes written by call.
 type captureWriteCloser struct{ bytes.Buffer }
 
 func (*captureWriteCloser) Close() error { return nil }
 
-// TestSubscribeEventsCallsRPC checks that SubscribeEvents sends the subscribe
-// request and returns the seq from the reply, with no new dependencies.
+// TestSubscribeEventsCallsRPC 检查 SubscribeEvents 发送订阅
+// 请求并从回复返回 seq，无新依赖。
 func TestSubscribeEventsCallsRPC(t *testing.T) {
 	in := &captureWriteCloser{}
-	// Keep the stdout stream open until the test ends so readLoop does not hit
-	// EOF (and mark the bridge closed) before SubscribeEvents registers its
-	// pending reply. A strings.Reader reaches EOF immediately and races the
-	// async call inside SubscribeEvents, failing on faster/slower CI machines.
+	// 保持 stdout 流打开直到测试结束，使 readLoop 不会遇到
+	// EOF（并把 bridge 标记为关闭）在 SubscribeEvents 注册其
+	// 待处理回复之前。strings.Reader 立即到达 EOF 并与
+	// SubscribeEvents 内的异步调用竞争，在更快/更慢的 CI 机器上失败。
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	reply := `{"jsonrpc":"2.0","id":1,"result":{"seq":42}}` + "\n"
@@ -161,8 +160,8 @@ func TestSubscribeEventsCallsRPC(t *testing.T) {
 	}
 }
 
-// TestApplyEngineEventUpsertsTools checks that tool_start/tool_end reuse one
-// row per tool-call id and that an errored call is shown as failed.
+// TestApplyEngineEventUpsertsTools 检查 tool_start/tool_end 对每个工具调用 id 复用
+// 一行，且出错的调用显示为失败。
 func TestApplyEngineEventUpsertsTools(t *testing.T) {
 	app := &chat{}
 	app.applyEngineEvent("tool_start", json.RawMessage(`{"ToolCallID":"c1","ToolName":"bash","Args":"ls -la"}`))
@@ -192,8 +191,8 @@ func TestApplyEngineEventUpsertsTools(t *testing.T) {
 	}
 }
 
-// TestApplyEngineEventApprovalFlow checks that a request notice raises a real
-// card and the matching resolved notice replaces it with a result row.
+// TestApplyEngineEventApprovalFlow 检查请求通知升起真实
+// 卡片，且匹配的已解决通知把它替换为结果行。
 func TestApplyEngineEventApprovalFlow(t *testing.T) {
 	app := &chat{}
 	app.applyEngineEvent("notice", json.RawMessage(`{"Text":"approval:request {\"v\":1,\"tool\":\"bash\",\"digest\":\"abc123\",\"id\":\"c1\"}"}`))
@@ -213,8 +212,8 @@ func TestApplyEngineEventApprovalFlow(t *testing.T) {
 	}
 }
 
-// TestClipToolTextNeverSplitsRune guards against emitting invalid UTF-8 into a
-// tool card when a verbose argument is truncated.
+// TestApplyEngineEventUpsertsTools 检查 tool_start/tool_end 对每个工具调用 id 复用一行，且出错的调用显示为失败。TestApplyEngineEventApprovalFlow 检查请求通知升起真实卡片，且匹配的已解决通知把它替换为结果行。TestClipToolTextNeverSplitsRune 防止在详细参数被截断时向工具卡片发出无效 UTF-8。
+// 工具卡片，当详细参数被截断时。
 func TestClipToolTextNeverSplitsRune(t *testing.T) {
 	s := strings.Repeat("工具", 60)
 	got := clipToolText(s, 10)

@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Helpers that script the two tool-free classes the loop must correct, plus a
-// malformed tool turn that must be downgraded to a stop instead.
+// 这些辅助函数编排循环必须纠正的两类无工具回复，以及一个必须降级为停止的畸形工具轮次。
+// （接上行）
 func noContentReply(finish string) llm.Message {
 	return llm.Message{Role: "assistant", FinishReason: finish}
 }
@@ -22,10 +22,10 @@ func downgradedToolReply(finish string) llm.Message {
 	return llm.Message{Role: "assistant", FinishReason: finish}
 }
 
-// TestEmptyReplyCorrectionWiring pins the loop-level behaviour of the response
-// four-classification: empty and reasoning-only replies get a bounded chance
-// to answer, while a normal answer, a tool batch and a downgraded tool turn
-// keep their existing stop semantics.
+// TestEmptyReplyCorrectionWiring 锁定回复四分类在循环层的行为：空回复和纯推理回复获得有限的回答机会，
+// 而正常答案、工具批次和被降级的工具轮次保持其原有的停止语义。
+// （接上行）
+// （接上行）
 func TestEmptyReplyCorrectionWiring(t *testing.T) {
 	empty := noContentReply("stop")
 	reasoning := reasoningOnlyReply("thinking about it")
@@ -40,8 +40,8 @@ func TestEmptyReplyCorrectionWiring(t *testing.T) {
 		wantTurns       int
 		wantCorrections int
 		wantToolCalls   int
-		// nudgeBefore lists the 1-based request numbers whose prompt must
-		// contain the injected correction turn.
+		// nudgeBefore 列出从 1 开始的请求序号，这些请求的提示必须包含注入的纠正轮次。
+		// （接上行）
 		nudgeBefore []int
 	}{
 		{
@@ -155,8 +155,8 @@ func TestEmptyReplyCorrectionWiring(t *testing.T) {
 				t.Fatalf("correction turns = %d, want %d: %+v", got, tt.wantCorrections, res.Messages)
 			}
 
-			// Each nudge must land in the very next request, otherwise the
-			// model never sees the correction and cannot recover.
+			// 每次提示必须落在紧接着的下一次请求中，否则模型看不到纠正，无法恢复。
+			// （接上行）
 			seen := chat.requestsSeen()
 			for _, n := range tt.nudgeBefore {
 				if n < 2 || n > len(seen) {
@@ -167,8 +167,8 @@ func TestEmptyReplyCorrectionWiring(t *testing.T) {
 				}
 			}
 
-			// Every correction is announced; runs that stop immediately must
-			// not emit a correction notice at all.
+			// 每次纠正都会被宣告；立即停止的运行绝不能发出纠正通知。
+			// （接上行）
 			notices := 0
 			for _, event := range sink.events {
 				if event.Kind == EventNotice && strings.Contains(event.Text, "empty reply") {

@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestPreviewMergeEmpty checks that no manifests produce an empty preview with
-// no contributions and no conflicts, for both nil and non-nil empty slices.
+// TestPreviewMergeEmpty 检查无清单时产生空预览，
+// 无贡献无冲突，nil 和非 nil 空切片都是如此。
 func TestPreviewMergeEmpty(t *testing.T) {
 	for _, input := range [][]Manifest{nil, {}} {
 		got := PreviewMerge(input)
@@ -18,9 +18,9 @@ func TestPreviewMergeEmpty(t *testing.T) {
 	}
 }
 
-// TestPreviewMergeAggregatesContributions checks that several manifests are
-// flattened in input order, each contribution carrying its owner, collision
-// name and resolved source, and that independent names raise no conflict.
+// TestPreviewMergeEmpty 检查无清单时产生空预览，无贡献无冲突，nil 和非 nil 空切片都是如此。TestPreviewMergeAggregatesContributions 检查多个清单按输入顺序展平，每个贡献带有其所有者、冲突名称和解析后的来源，且独立名称不引发冲突。
+// 按输入顺序展平，每个贡献带有其所有者、冲突
+// 名称和解析后的来源，且独立名称不引发冲突。
 func TestPreviewMergeAggregatesContributions(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "bundles")
 	alpha := Manifest{
@@ -75,9 +75,9 @@ func TestPreviewMergeAggregatesContributions(t *testing.T) {
 	}
 }
 
-// TestPreviewMergeDetectsCrossManifestConflicts checks each contribution kind
-// for a name claimed by two different manifests, and that a single manifest
-// repeating a name is not misreported as a cross-manifest conflict.
+// TestPreviewMergeDetectsCrossManifestConflicts 对每种贡献种类检查被两个不同清单认领的名称，且单个清单重复一个名称不被误报为跨清单冲突。一个清单两次列出相同技能基础名是清单内问题，不是清单之间的冲突。
+// 对每种贡献种类检查被两个不同清单认领的名称，且单个清单
+// 重复一个名称不被误报为跨清单冲突。
 func TestPreviewMergeDetectsCrossManifestConflicts(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -131,8 +131,8 @@ func TestPreviewMergeDetectsCrossManifestConflicts(t *testing.T) {
 		})
 	}
 
-	// One manifest listing the same skill base name twice is a within-manifest
-	// issue, not a conflict between manifests.
+	// 一个清单两次列出相同技能基础名是清单内
+	// 问题，不是清单之间的冲突。
 	single := PreviewMerge([]Manifest{{
 		Name:   "alpha",
 		Skills: []string{"a/deploy.md", "b/deploy.md"},
@@ -142,9 +142,9 @@ func TestPreviewMergeDetectsCrossManifestConflicts(t *testing.T) {
 	}
 }
 
-// TestPreviewMergeCJKNames checks that Chinese plugin names, MCP server keys
-// and path base names are preserved intact and participate in conflict
-// detection (ValidateName accepts CJK letters).
+// TestPreviewMergeCJKNames 检查中文插件名、MCP 服务器键
+// 和路径基础名被完整保留并参与冲突
+// TestPreviewMergeCJKNames 检查中文插件名、MCP 服务器键和路径基础名被完整保留并参与冲突检测（ValidateName 接受 CJK 字母）。
 func TestPreviewMergeCJKNames(t *testing.T) {
 	first := Manifest{
 		Name:       "文件插件",

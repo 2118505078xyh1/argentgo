@@ -14,7 +14,6 @@ import (
 // 每个字段接受 `*`、`n` 单值、范围 `a-b`、步长 `*/n`、
 // 列表 `a,b,c` 和带步长的范围 `a-b/n`。星期 0 是星期日，7 也
 // 被接受为星期日。时间按传给 Next 的 time 值的位置求值。
-// 被接受为星期日。时间按传给 Next 的 time 值的位置求值。
 //
 // 日和星期遵循传统的 Vixie 规则：当两者都
 // 日和星期遵循传统的 Vixie 规则：当两者都受限（都不以 `*` 开头）时，任一字段匹配即匹配，否则受限字段必须匹配。
@@ -251,7 +250,6 @@ func forwardOrNextHour(t, candidate time.Time) time.Time {
 
 // parseDays 报告 expr 是否为基于日的间隔（"1d"、"2.5d"、"1 D"）并返回天数。日间隔推进日历
 // "1 D"）并返回天数。日间隔推进日历
-// 而非固定的小时数，因此在 DST 过渡中保持相同的挂钟时间。
 // 而非固定的小时数，因此在 DST 过渡中保持相同的挂钟时间。
 func parseDays(expr string) (float64, bool) {
 	body, ok := strings.CutSuffix(strings.TrimSpace(strings.ToLower(expr)), "d")

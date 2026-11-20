@@ -9,7 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// fakeChatter scripts model replies without a network.
+// fakeChatter 不使用网络即可编排模型回复。
 type fakeChatter struct {
 	mu       sync.Mutex
 	requests int
@@ -56,7 +56,7 @@ func (f *fakeChatter) requestsSeen() [][]llm.Message {
 	return out
 }
 
-// fakeTools is a scripted ToolRunner that records every call.
+// fakeTools 是一个记录每次调用的脚本化 ToolRunner。
 type fakeTools struct {
 	specs []llm.ToolSpec
 	run   func(ctx context.Context, name, args string) (string, error)
@@ -91,7 +91,7 @@ func (f *fakeTools) names() []string {
 	return out
 }
 
-// toolSpec builds a minimal advertised tool.
+// toolSpec 构建一个最小的已公布工具。
 func toolSpec(name string) llm.ToolSpec {
 	var spec llm.ToolSpec
 	spec.Type = "function"
@@ -101,7 +101,7 @@ func toolSpec(name string) llm.ToolSpec {
 	return spec
 }
 
-// toolCall builds a model-requested call.
+// toolCall 构建一个模型请求的调用。
 func toolCall(id, name, args string) llm.ToolCall {
 	return llm.ToolCall{
 		ID:   id,
@@ -113,17 +113,17 @@ func toolCall(id, name, args string) llm.ToolCall {
 	}
 }
 
-// textReply is an assistant answer with no tool calls.
+// textReply 是一个没有工具调用的助手答案。
 func textReply(text string) llm.Message {
 	return llm.Message{Role: "assistant", Content: text}
 }
 
-// toolReply is an assistant turn that asks for tools.
+// toolReply 是一个请求工具的助手轮次。
 func toolReply(calls ...llm.ToolCall) llm.Message {
 	return llm.Message{Role: "assistant", ToolCalls: calls}
 }
 
-// lastToolContent returns the newest tool result in a conversation.
+// lastToolContent 返回对话中最新的工具结果。
 func lastToolContent(messages []llm.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "tool" {
@@ -133,7 +133,7 @@ func lastToolContent(messages []llm.Message) string {
 	return ""
 }
 
-// containsUser reports whether a user message with exactly text exists.
+// containsUser 报告是否存在内容恰好为 text 的用户消息。
 func containsUser(messages []llm.Message, text string) bool {
 	for _, msg := range messages {
 		if msg.Role == "user" && msg.Content == text {
@@ -143,12 +143,12 @@ func containsUser(messages []llm.Message, text string) bool {
 	return false
 }
 
-// isSubagent reports whether a conversation belongs to a nested run.
+// isSubagent 报告某段对话是否属于嵌套运行。
 func isSubagent(messages []llm.Message) bool {
 	return len(messages) > 0 && strings.Contains(messages[0].Content, "You are a subagent")
 }
 
-// lastUserContent returns the newest user message.
+// lastUserContent 返回最新的用户消息。
 func lastUserContent(messages []llm.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" {
@@ -158,7 +158,7 @@ func lastUserContent(messages []llm.Message) string {
 	return ""
 }
 
-// eventSink collects emitted events.
+// eventSink 收集已发出的事件。
 type eventSink struct {
 	mu     sync.Mutex
 	events []Event

@@ -10,8 +10,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// dynamicCaptureChatter records the role and content of every message so the
-// tests can assert where each piece of the prompt ended up.
+// dynamicCaptureChatter 记录每条消息的角色和内容，使测试能断言提示的每一部分最终落在哪里。
+// （接上行）
 type dynamicCaptureChatter struct {
 	systems []string
 	users   []string
@@ -29,8 +29,8 @@ func (c *dynamicCaptureChatter) Chat(_ context.Context, _ string, messages []llm
 	return llm.Message{Role: "assistant", Content: `{"ok":true}`}, nil
 }
 
-// executeDynamic runs one prompt with the trust gate opted in and returns the
-// system and first user message actually sent to the model.
+// executeDynamic 在启用信任门控的情况下运行一个提示，并返回实际发送给模型的系统和第一条用户消息。
+// （接上行）
 func executeDynamic(t *testing.T, env func(string) string, root, thinking, schema string) (string, string) {
 	t.Helper()
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root, Thinking: thinking, OutputSchema: schema})
@@ -55,12 +55,12 @@ func executeDynamic(t *testing.T, env func(string) string, root, thinking, schem
 	return chatter.systems[0], chatter.users[0]
 }
 
-// TestExecuteCachesStaticSystemAcrossProcessChanges proves the wired behaviour:
-// two trust-opted runs with different cwd and thinking send byte-identical
-// system prefixes, while the per-run values travel in the user message only.
+// TestExecuteCachesStaticSystemAcrossProcessChanges 证明接线行为：两次启用信任的运行即使 cwd 和思考级别不同，也发送逐字节相同的
+// 系统前缀，而逐运行的值只通过用户消息传递。
+// （接上行）
 func TestExecuteCachesStaticSystemAcrossProcessChanges(t *testing.T) {
 	env, rootA, _ := wiringEnv(t)
-	rootB := t.TempDir() // no docs or skills, so only process context differs
+	rootB := t.TempDir() // 没有文档或技能，因此只有进程上下文不同
 
 	systemA, userA := executeDynamic(t, env, rootA, "low", "")
 	systemB, userB := executeDynamic(t, env, rootB, "high", "")
@@ -92,9 +92,9 @@ func TestExecuteCachesStaticSystemAcrossProcessChanges(t *testing.T) {
 	}
 }
 
-// TestExecuteDynamicSplitKeepsAllInfo proves nothing is lost by the split: the
-// static half still carries the persona, tool guidance and injected
-// AGENTS.md/skills, while the dynamic half carries cwd, thinking and schema.
+// TestExecuteDynamicSplitKeepsAllInfo 证明拆分不丢失任何信息：静态那一半仍携带角色设定、工具指引和注入的 AGENTS.md/技能，
+// 而动态那一半携带 cwd、思考级别和 schema。
+// （接上行）
 func TestExecuteDynamicSplitKeepsAllInfo(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	writeWiringFile(t, filepath.Join(root, "AGENTS.md"), "TRUSTED_DYNAMIC_MARKER_4c1a")

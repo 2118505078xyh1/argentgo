@@ -260,7 +260,6 @@ func (d *Definition) Validate() error {
 		}
 	}
 	// 步骤输出引用是依赖。在这里拒绝损坏的图，使
-	// 步骤输出引用是依赖。在这里拒绝损坏的图，使
 	// 定义不会带着环或悬空的 {{steps.NAME.output}} 引用到达 executor。
 	if _, err := ValidateDAG(d.Steps); err != nil {
 		return err

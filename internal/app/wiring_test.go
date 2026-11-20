@@ -13,8 +13,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// wiringEnv isolates both the workspace and the user-home boundary so the
-// boundary loader cannot accidentally pick up a real AGENTS.md from the host.
+// wiringEnv 隔离工作区和用户主目录边界，使边界加载器不会意外地从主机拾取真实的 AGENTS.md。
+// （接上行）
 func wiringEnv(t *testing.T) (func(string) string, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -35,11 +35,11 @@ func TestBuildSystemTrustGate(t *testing.T) {
 	const marker = "TRUSTED_AGENT_MARKER_7f3a"
 	writeWiringFile(t, filepath.Join(root, "AGENTS.md"), marker)
 
-	// Explicitly trusted projects load AGENTS.md through LoadWithBoundary.
+	// 显式受信任的项目通过 LoadWithBoundary 加载 AGENTS.md。
 	if got := buildSystemWithTrust(root, env, true, "", ""); !strings.Contains(got, marker) {
 		t.Fatalf("trusted system prompt dropped AGENTS.md:\n%s", got)
 	}
-	// Untrusted projects drop every project-level document.
+	// 不受信任的项目丢弃所有项目级文档。
 	if got := buildSystemWithTrust(root, env, false, "", ""); strings.Contains(got, marker) {
 		t.Fatalf("untrusted system prompt still contains AGENTS.md:\n%s", got)
 	}
@@ -50,13 +50,13 @@ func TestBuildSystemLegacyDefaultKeepsAgents(t *testing.T) {
 	const marker = "LEGACY_AGENT_MARKER_2b91"
 	writeWiringFile(t, filepath.Join(root, "AGENTS.md"), marker)
 
-	// Existing callers use buildSystem, whose default trust is true so the
-	// historical "always inject AGENTS.md" behaviour is preserved.
+	// 现有调用方使用 buildSystem，其默认信任为 true，从而保留历史上"总是注入 AGENTS.md"的行为。
+	// （接上行）
 	if got := buildSystem(root, env, "", ""); !strings.Contains(got, marker) {
 		t.Fatalf("legacy system prompt dropped AGENTS.md:\n%s", got)
 	}
 
-	// ARGENT_TRUST_PROJECT=0 is the explicit opt-in to the boundary gate.
+	// ARGENT_TRUST_PROJECT=0 是对边界门控的显式选择启用。
 	gateEnv := envFrom(map[string]string{
 		"USERPROFILE":          filepath.Dir(root),
 		"HOME":                 filepath.Dir(root),
@@ -95,8 +95,8 @@ func TestContextPromptRegisteredAndProducesReport(t *testing.T) {
 	}
 }
 
-// promptCaptureChatter records user messages so the Execute-level routing of
-// /context can be asserted without a model or network.
+// promptCaptureChatter 记录用户消息，使 Execute 层对 /context 的路由无需模型或网络即可断言。
+// （接上行）
 type promptCaptureChatter struct {
 	prompts []string
 }
@@ -137,7 +137,7 @@ func TestArgentIgnoreExcludesInjectedDoc(t *testing.T) {
 	const marker = "IGNORED_AGENT_MARKER_9c04"
 	writeWiringFile(t, filepath.Join(root, "AGENTS.md"), marker)
 
-	// Without an ignore file the document is injected.
+	// 没有忽略文件时，文档会被注入。
 	if got := buildSystemWithTrust(root, env, true, "", ""); !strings.Contains(got, marker) {
 		t.Fatalf("baseline system prompt missing AGENTS.md:\n%s", got)
 	}

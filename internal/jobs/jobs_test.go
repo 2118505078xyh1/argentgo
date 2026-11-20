@@ -21,7 +21,7 @@ func newRegistry(t *testing.T) *Registry {
 	return registry
 }
 
-// shellCommand builds a command line for the platform's shell.
+// shellCommand 为该平台的 shell 构建命令行。
 func shellCommand(line string) Command {
 	if runtime.GOOS == "windows" {
 		return Command{Program: "cmd.exe", Args: []string{"/C", line}}
@@ -29,9 +29,9 @@ func shellCommand(line string) Command {
 	return Command{Program: "/bin/sh", Args: []string{"-c", line}}
 }
 
-// longCommand runs this test binary in a dedicated sleep mode. Using ping(1)
-// here made the suite depend on an external tool and on pipe setup; on Windows
-// that occasionally failed with ERROR_NO_DATA while the runner was busy.
+// longCommand 在一个专用的 sleep 模式下运行本测试二进制。在这里使用 ping(1) 曾使套件依赖外部工具和管道设置；在 Windows 上，runner 繁忙时偶尔会以 ERROR_NO_DATA 失败。
+// 在这里使用 ping(1) 曾使套件依赖外部工具和管道设置；在 Windows 上
+// runner 繁忙时偶尔会以 ERROR_NO_DATA 失败。
 func longCommand() Command {
 	return Command{
 		Program: os.Args[0],
@@ -40,7 +40,7 @@ func longCommand() Command {
 	}
 }
 
-// TestSleepHelperProcess is only meaningful when launched by longCommand.
+// TestSleepHelperProcess 仅在由 longCommand 启动时才有意义。
 func TestSleepHelperProcess(t *testing.T) {
 	if os.Getenv("ARGENT_JOBS_SLEEP_HELPER") != "1" {
 		return
@@ -223,9 +223,9 @@ func TestPruneForgetsFinishedJobsOnly(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = registry.Stop(running.ID)
-		// Stop only signals the child; its reaper writes a final snapshot
-		// afterwards. Wait for that watcher so TempDir's RemoveAll cannot race
-		// with a .jobs-*.tmp file created after the directory was scanned.
+		// Stop 只给子进程发信号；其 reaper 随后写入最终快照。
+		// 等待该观察者，使 TempDir 的 RemoveAll 不会与
+		// 目录被扫描后创建的 .jobs-*.tmp 文件竞争。
 		registry.waitIdle()
 	})
 
@@ -243,7 +243,7 @@ func TestPruneForgetsFinishedJobsOnly(t *testing.T) {
 	if len(jobs) != 1 || jobs[0].ID != running.ID {
 		t.Fatalf("list = %+v", jobs)
 	}
-	// Pruning keeps the log: it is the only trace of what the job did.
+	// 裁剪保留日志：它是作业所做之事的唯一痕迹。
 	if _, err := os.Stat(done.LogPath); err != nil {
 		t.Fatalf("prune must keep the log: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestRegistryPersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", jobs[0].ExitCode, finished.ExitCode)
 	}
 
-	// A fresh id must not collide with the persisted one.
+	// 新 id 不得与持久化的 id 冲突。
 	next, err := second.Start(shellCommand("echo second"))
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -295,8 +295,8 @@ func TestRegistryPersistsAcrossReopen(t *testing.T) {
 
 func TestListRefreshesDeadPids(t *testing.T) {
 	registry := newRegistry(t)
-	// A job written by a process that is no longer running: its exit code is
-	// unrecoverable, so it must report -1 rather than pretend.
+	// 由不再运行的进程写出的作业：其退出码
+	// 无法恢复，因此必须报告 -1 而非假装。
 	stored := index{Next: 1, Jobs: []Job{{
 		ID:        "job1",
 		Command:   "gone",
@@ -422,12 +422,12 @@ func TestTailOfAMissingLogIsAnError(t *testing.T) {
 	}
 }
 
-// TestWaitIdleWaitsForBackgroundWatchers locks in the teardown guarantee the
-// flaky TestPruneForgetsFinishedJobsOnly cleanup relies on: a registry is only
-// quiescent once every completion watcher has finished its final index write.
-// Stop itself is asynchronous, so removing the directory before waitIdle can
-// race with a watcher that creates a .jobs-*.tmp file after RemoveAll scanned
-// the directory ("directory not empty" on CI).
+// TestWaitIdleWaitsForBackgroundWatchers 锁定 flaky 的 cleanup 所依赖的
+// TestPruneForgetsFinishedJobsOnly 拆卸保证：只有
+// 每个完成观察者都完成其最终索引写入后，registry 才算静止。
+// Stop 本身是异步的，因此在 waitIdle 之前删除目录可能与
+// TestSleepHelperProcess 仅在由 longCommand 启动时才有意义。Stop 只给子进程发信号；其 reaper 随后写入最终快照。等待该观察者，使 TempDir 的 RemoveAll 不会与目录被扫描后创建的 .jobs-*.tmp 文件竞争。
+// 裁剪保留日志：它是作业所做之事的唯一痕迹。新 id 不得与持久化的 id 冲突。由不再运行的进程写出的作业：其退出码无法恢复，因此必须报告 -1 而非假装。
 func TestWaitIdleWaitsForBackgroundWatchers(t *testing.T) {
 	registry := newRegistry(t)
 	live := newFakeLive(994)
@@ -442,14 +442,13 @@ func TestWaitIdleWaitsForBackgroundWatchers(t *testing.T) {
 		close(returned)
 	}()
 
-	// The watcher is blocked on live.Done(); waitIdle must not return yet.
 	select {
 	case <-returned:
 		t.Fatal("waitIdle returned while a watcher was still running")
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	// Releasing the watcher lets it finish, including its final persist.
+	// 释放观察者使其完成，包括其最终持久化。
 	live.finish(0)
 	select {
 	case <-returned:

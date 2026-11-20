@@ -510,7 +510,7 @@ func TestEventRouteRequiresAuthAndStreams(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancelled so the handler writes its first frame then exits
+	cancel() // 预取消，使处理器写出第一帧后退出
 	req := httptest.NewRequest(http.MethodGet, "/v1/event", nil).WithContext(ctx)
 	req.Header.Set("Authorization", "Bearer t")
 	rec2 := httptest.NewRecorder()

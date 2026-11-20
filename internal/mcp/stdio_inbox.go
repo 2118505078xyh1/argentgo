@@ -2,17 +2,17 @@ package mcp
 
 import "sync"
 
-// inbox closes the window between "messages can arrive" and "the real handler
-// is attached": calls to buffer made before bind are queued and replayed in
-// order once bind installs the handler; calls made after bind are delivered
-// immediately. It is the Go counterpart of omp's worker inbox (worker-host.ts),
-// where a dynamically imported worker module attaches its message handler after
-// the port has already flushed a synchronously posted init handshake.
+// inbox 弥合"消息可以到达"与"真正的处理器
+// 已附加"之间的窗口：bind 之前对 buffer 的调用会被排队，并在 bind
+// 安装处理器后按顺序重放；bind 之后的调用会被立即投递。
+// 它是 omp 的 worker inbox（worker-host.ts）在 Go 中的对应物：在那里，
+// 动态导入的 worker 模块在端口已经冲洗了同步发布的初始化握手之后，
+// 才附加其消息处理器。
 //
-// The type is deliberately independent of stdioTransport and of the wire
-// protocol: it is a small, thread-safe primitive that can be reused by any
-// producer/consumer pair with the same "early message" race. The zero value is
-// ready to use; do not copy an inbox after first use.
+// 该类型有意独立于 stdioTransport 和线协议：
+// 它是一个小巧的、线程安全的原语，可被任何有同样"早期消息"
+// 竞态的生产者/消费者对复用。零值即可使用；
+// 首次使用后不要复制 inbox。
 type inbox[T any] struct {
 	mu      sync.Mutex
 	queued  []T
@@ -20,16 +20,16 @@ type inbox[T any] struct {
 	handler func(T)
 }
 
-// newInbox creates an empty inbox with no handler attached.
+// newInbox 创建一个没有附加处理器的空 inbox。
 func newInbox[T any]() *inbox[T] { return &inbox[T]{} }
 
-// buffer records msg. Before bind it only appends to the queue; afterwards it
-// invokes the attached handler directly. It never blocks on the handler, so a
-// handler that re-enters buffer cannot deadlock.
+// buffer 记录 msg。bind 之前它只追加到队列；之后
+// 直接调用附加的处理器。它从不在处理器上阻塞，因此
+// 重入 buffer 的处理器不会死锁。
 //
-// The handler may be called from a different goroutine than buffer when bind
-// replays the queue, so a handler shared across goroutines must be safe for
-// concurrent use (or rely on the caller to serialize).
+// 当 bind 重放队列时，处理器可能在与 buffer 不同的
+// goroutine 上被调用，因此跨 goroutine 共享的处理器必须
+// 安全并发使用（或依赖调用方串行化）。
 func (in *inbox[T]) buffer(msg T) {
 	in.mu.Lock()
 	if !in.ready || in.handler == nil {
@@ -42,11 +42,11 @@ func (in *inbox[T]) buffer(msg T) {
 	h(msg)
 }
 
-// bind attaches handler and replays every message buffered so far, in FIFO
-// order. The queue is detached under the lock while the handler is installed in
-// the same critical section, so each buffered message is delivered exactly
-// once, by either the replay or the direct path, never by both. A later bind
-// replaces the handler but does not replay messages an earlier bind delivered.
+// bind 附加 handler 并按 FIFO 顺序重放目前为止缓冲的每条
+// 消息。队列在同一临界区内、安装处理器时于锁下被摘下，因此每条缓冲消息
+// 都恰好投递一次，由重放路径或直接路径之一完成，绝不会两者都投。
+// 后续的 bind 会替换处理器，但不会重放更早的 bind 已投递的
+// 消息。
 func (in *inbox[T]) bind(handler func(T)) {
 	in.mu.Lock()
 	queued := in.queued
@@ -60,10 +60,10 @@ func (in *inbox[T]) bind(handler func(T)) {
 	}
 }
 
-// drain removes and returns all messages still waiting for a handler, in FIFO
-// order. It is primarily useful for consumers that poll instead of binding; a
-// message drained here is not replayed by a later bind, so no message is ever
-// delivered twice.
+// drain 移除并返回所有仍在等待处理器的消息，按 FIFO
+// 顺序。它主要适用于轮询而非绑定的消费者；在此被 drain 的
+// 消息不会被后续 bind 重放，因此任何消息都不会
+// 被投递两次。
 func (in *inbox[T]) drain() []T {
 	in.mu.Lock()
 	queued := in.queued

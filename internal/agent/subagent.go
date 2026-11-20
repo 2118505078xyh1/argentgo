@@ -564,7 +564,7 @@ func firstLine(text string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Background (fire-and-forget) tasks
+// 后台（即发即忘）任务
 // ---------------------------------------------------------------------------
 
 // ChildRunner 是委派所需的 Runner 子集。*Runner 满足它；测试通过 SubagentConfig.NewChild
@@ -805,7 +805,7 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 }
 
 // ---------------------------------------------------------------------------
-// Shared task board
+// 共享任务板
 // ---------------------------------------------------------------------------
 
 // BoardMessage 是进程内任务板上的一条带类型消息。

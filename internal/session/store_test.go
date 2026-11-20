@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// listByFullScan is the pre-index implementation, kept as the semantic
-// baseline: every transcript is parsed and nothing trusts a sidecar.
+// listByFullScan 是索引出现前的实现，作为语义基线保留：
+// 解析每一份转录，不信任任何旁车文件。
 func listByFullScan(t *testing.T, dir string) []Meta {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -58,8 +58,8 @@ func assertMetasEqual(t *testing.T, got, want []Meta) {
 	}
 }
 
-// pinSidecars moves every .idx back in time so a rebuild is observable: the
-// cache is never stat'ed for freshness, only the transcript is.
+// pinSidecars 把所有 .idx 的时间往前移，使重建可观察：
+// 缓存从不检查 stat 的新鲜度，只检查转录本身。
 func pinSidecars(t *testing.T, dir string) time.Time {
 	t.Helper()
 	past := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
@@ -118,7 +118,7 @@ func TestListUsesSidecarWhenFresh(t *testing.T) {
 	}
 	assertMetasEqual(t, got, want)
 
-	// The sidecar holds exactly the meta the full scan derived.
+	// 旁车文件保存的正是全量扫描派生出的 meta。
 	info, err := os.Stat(alpha.path())
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestListUsesSidecarWhenFresh(t *testing.T) {
 		t.Fatalf("cached meta = %+v (ok=%v), want alpha/1 turn", cached, ok)
 	}
 
-	// A second List must read the sidecars instead of reparsing transcripts.
+	// 第二次 List 必须读取旁车文件，而不是重新解析转录。
 	past := pinSidecars(t, dir)
 	got, err = List(dir)
 	if err != nil {
@@ -248,8 +248,8 @@ func TestListRefreshesSidecarAfterAppend(t *testing.T) {
 	if err := s.Append(KindAssistant, "reply"); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
-	// Appends go through Session.Append, which cannot be hooked from the
-	// store without changing session.go. The stat check detects the growth.
+	// 追加通过 Session.Append 进行，若不修改 session.go 就无法从 store 中
+	// 挂接它。stat 检查可检测增长。
 	newInfo, err := os.Stat(s.path())
 	if err != nil {
 		t.Fatal(err)
@@ -293,11 +293,11 @@ func TestDeleteRemovesSidecar(t *testing.T) {
 	}
 }
 
-// TestListTrustsFreshSidecarWithoutFullValidation pins the contract that keeps
-// List O(1) per transcript: a sidecar matching size and mtime is only written
-// after those exact bytes parsed cleanly, so List does not re-read or
-// re-validate the transcript. The trust boundary is (size, mtime); a rewrite
-// that preserves both stays invisible until something touches the file again.
+// TestListTrustsFreshSidecarWithoutFullValidation 固化了让 List 每份转录保持 O(1) 的契约：
+// 只有在精确字节解析干净之后，才会写入大小与 mtime 匹配的旁车文件，
+// 因此 List 不会重新读取或重新校验转录。信任边界是 (size, mtime)；
+// 保持两者不变的重写会一直不可见，
+// 直到有东西再次触碰该文件。
 func TestListTrustsFreshSidecarWithoutFullValidation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "trust.jsonl")
@@ -314,8 +314,8 @@ func TestListTrustsFreshSidecarWithoutFullValidation(t *testing.T) {
 	}
 	mtime := info.ModTime()
 
-	// Rewrite the last line as hard corruption (numeric kind) while keeping the
-	// byte length and the recorded mtime, so the sidecar still matches.
+	// 把最后一行重写为严重损坏（数字 kind），同时保持字节长度和记录的 mtime，
+	// 使旁车文件仍然匹配。
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

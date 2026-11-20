@@ -7,9 +7,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatNormalizesToolPairingForProvider checks that chat() repairs an orphan
-// tool_use in the message view it hands to Chatter, without mutating the run's
-// own transcript (the repair is view-layer only).
+// TestChatNormalizesToolPairingForProvider 检查 chat() 会修复交给 Chatter 的消息视图中孤立的 tool_use，
+// 而不修改运行自身的记录（该修复仅在视图层）。
+// （接上行）
 func TestChatNormalizesToolPairingForProvider(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("ok"), nil
@@ -37,7 +37,7 @@ func TestChatNormalizesToolPairingForProvider(t *testing.T) {
 	}
 	got := seen[0]
 
-	// A synthetic tool result for the orphaned call must appear in the view.
+	// 针对孤立调用的合成工具结果必须出现在视图中。
 	found := false
 	for _, m := range got {
 		if m.Role == "tool" && m.ToolCallID == "c1" {
@@ -50,14 +50,14 @@ func TestChatNormalizesToolPairingForProvider(t *testing.T) {
 	if len(got) != len(seed)+1 {
 		t.Fatalf("provider saw %d messages, want %d (one synthetic result)", len(got), len(seed)+1)
 	}
-	// The run's transcript must be untouched.
+	// 运行的记录必须未被改动。
 	if len(s.messages) != len(seed) || s.messages[2].Role != "assistant" {
 		t.Fatalf("s.messages was mutated by the view repair: %+v", s.messages)
 	}
 }
 
-// TestChatPassesPairedTranscriptUnchanged checks that a fully paired transcript
-// reaches Chatter by reference, with no synthetic messages inserted.
+// TestChatPassesPairedTranscriptUnchanged 检查完全配对的记录按引用原样到达 Chatter，未插入任何合成消息。
+// （接上行）
 func TestChatPassesPairedTranscriptUnchanged(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("ok"), nil

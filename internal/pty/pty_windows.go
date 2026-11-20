@@ -16,8 +16,8 @@ import (
 	"unsafe"
 )
 
-// ConPTY is available from Windows 10 1809 (build 17763) on. Everything here
-// goes through kernel32 directly: no cgo, no gcc at build time.
+// ConPTY 从 Windows 10 1809（build 17763）起可用。这里的一切都直接走 kernel32：无 cgo、构建时无 gcc。callResizePseudoConsole 和 callClosePseudoConsole 是 startPlatform 之后唯一触碰 HPCON 的地方。它们是间接层，使 HPCON 生命周期回归测试无需真实控制台即可观察其顺序；生产行为不变。
+// 一切都直接走 kernel32：无 cgo、构建时无 gcc。
 const (
 	extendedStartupInfoPresent = 0x0008_0000
 	startfUseStdHandles        = 0x0000_0100
@@ -44,10 +44,10 @@ var (
 	procWaitForSingleObject               = kernel32.NewProc("WaitForSingleObject")
 )
 
-// callResizePseudoConsole and callClosePseudoConsole are the only places that
-// touch an HPCON after startPlatform. They are indirections so the HPCON-lifetime
-// regression test can observe their ordering without a real console; production
-// behaviour is unchanged.
+// callResizePseudoConsole 和 callClosePseudoConsole 是唯一
+// 在 startPlatform 之后触碰 HPCON 的地方。它们是间接层，使 HPCON 生命周期
+// 回归测试无需真实控制台即可观察其顺序；生产
+// 行为不变。
 var (
 	callResizePseudoConsole = func(console syscall.Handle, window uintptr) error {
 		r, _, callErr := procResizePseudoConsole.Call(uintptr(console), window)
@@ -61,13 +61,13 @@ var (
 	}
 )
 
-// coord is COORD: a 4-byte struct the Win32 ABI passes by value, so it travels
-// as one packed integer argument rather than a pointer.
+// coord 即 COORD：Win32 ABI 按值传递的 4 字节结构体，因此它作为一个打包整数参数而非指针传递。failed 报告失败的 HRESULT。conPty 拥有一个 HPCON 及其附加的子进程。控制台复制了这些；我们的副本必须关闭，否则子进程永不看到 EOF。控制台提供 stdio；请求显式句柄（即使是 null）会使 CRT 打开继承的控制台而非伪控制台。
+// 作为一个打包整数参数而非指针传递。
 func coordOf(size Size) uintptr {
 	return uintptr(uint32(uint16(size.Cols)) | uint32(uint16(size.Rows))<<16)
 }
 
-// failed reports a failing HRESULT.
+// failed 报告失败的 HRESULT。
 func failed(result uintptr) bool { return int32(uint32(result)) < 0 }
 
 type startupInfo struct {
@@ -109,7 +109,7 @@ func supported() bool {
 		procClosePseudoConsole.Find() == nil
 }
 
-// conPty owns one HPCON and the child attached to it.
+// conPty 拥有一个 HPCON 及其附加的子进程。
 type conPty struct {
 	console syscall.Handle
 	process syscall.Handle
@@ -158,7 +158,7 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 		syscall.CloseHandle(outWrite)
 		return nil, fmt.Errorf("pty: CreatePseudoConsole: %w", callErr)
 	}
-	// The console duplicated these; ours must go or the child never sees EOF.
+	// 控制台复制了这些；我们的副本必须关闭，否则子进程永不看到 EOF。
 	syscall.CloseHandle(inRead)
 	syscall.CloseHandle(outWrite)
 
@@ -205,8 +205,8 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 
 	startup := startupInfoEx{attributeList: attrs.list}
 	startup.startupInfo.cb = uint32(unsafe.Sizeof(startup))
-	// The console supplies stdio; asking for explicit handles (even null ones)
-	// makes the CRT open the inherited console instead of the pseudo one.
+	// 控制台提供 stdio；请求显式句柄（即使是 null）会使
+	// CRT 打开继承的控制台而非伪控制台。
 	startup.startupInfo.flags = startfUseStdHandles
 
 	var info processInformation
@@ -245,10 +245,10 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 	return term, nil
 }
 
-// attributeList pairs the Win32 list pointer with the Go allocation that
-// backs it. A uintptr is not a Go reference: if the buffer were reachable only
-// through the numeric list address, the GC could reclaim it between
-// newAttributeList and CreateProcessW, leaving Windows a dangling pointer.
+// attributeList 把 Win32 列表指针与其背后的 Go 分配配对。
+// uintptr 不是 Go 引用：如果缓冲区只能通过这些数值
+// 列表地址到达，GC 可能在 newAttributeList 与 CreateProcessW 之间
+// 回收它，给 Windows 留下悬垂指针。
 type attributeList struct {
 	list   uintptr
 	buffer []byte
@@ -256,7 +256,7 @@ type attributeList struct {
 
 func newAttributeList(console syscall.Handle) (*attributeList, error) {
 	var size uintptr
-	// The first call only reports the required size.
+	// 第一次调用只报告所需大小。
 	procInitializeProcThreadAttributeList.Call(0, 1, 0, uintptr(unsafe.Pointer(&size)))
 	if size == 0 {
 		return nil, errors.New("pty: could not size the attribute list")
@@ -285,8 +285,8 @@ func newAttributeList(console syscall.Handle) (*attributeList, error) {
 	return attrs, nil
 }
 
-// delete releases the Win32 list once no process can use it. The explicit
-// KeepAlive anchors the Go buffer until the Win32 call has returned.
+// delete 在没有进程能再用它时释放 Win32 列表。显式
+// attributeList 把 Win32 列表指针与其背后的 Go 分配配对。uintptr 不是 Go 引用：如果缓冲区只能通过这些数值列表地址到达，GC 可能在 newAttributeList 与 CreateProcessW 之间回收它，给 Windows 留下悬垂指针。第一次调用只报告所需大小。delete 在没有进程能再用它时释放 Win32 列表。显式 KeepAlive 把 Go 缓冲区锚定到 Win32 调用返回为止。
 func (a *attributeList) delete() {
 	procDeleteProcThreadAttributeList.Call(a.list)
 	runtime.KeepAlive(a.buffer)
@@ -311,11 +311,10 @@ func (c *conPty) Write(b []byte) (int, error) {
 }
 
 func (c *conPty) Resize(size Size) error {
-	// Keep c.mu for the whole platform call. Releasing it after reading
-	// c.console and before ResizePseudoConsole would let a concurrent
-	// closeConsole (from Wait or Close) close the HPCON in that window and
-	// leave Resize operating on a freed handle — the same use-after-close the
-	// process handle is guarded against, but on the console handle.
+	// 整个平台调用都持有 c.mu。读完 c.console 后释放它是错误的，
+	// closeConsole 至多释放一次 HPCON。从 Wait（子进程退出时）和 Close（显式拆卸时）调用都是安全的，顺序任意。阻塞直到 conhost 消失；子进程退出后这很快。
+	// 使 Resize 操作已释放的句柄 —— 与进程句柄被防范的关闭后使用相同，
+	// 只是发生在控制台句柄上。
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.console == 0 {
@@ -336,10 +335,10 @@ func (c *conPty) Wait() (int, error) {
 		c.mu.Unlock()
 		return -1, errors.New("pty: the terminal was closed before the child was reaped")
 	}
-	// Close may close the original process handle as soon as the lock is
-	// released. Use a private duplicate for the whole wait so a concurrent
-	// Close+Wait cannot make GetExitCodeProcess fail with "invalid handle"
-	// and turn an ordinary exit into a spurious Wait error.
+	// 锁一释放，Close 就可能关闭原始进程句柄。
+	// 整个等待使用私有副本，使并发的
+	// Close+Wait 不会让 GetExitCodeProcess 以 "无效句柄" 失败并
+	// 把普通退出变成虚假的 Wait 错误。
 	self, err := syscall.GetCurrentProcess()
 	if err != nil {
 		c.mu.Unlock()
@@ -366,35 +365,35 @@ func (c *conPty) Wait() (int, error) {
 	c.reaped = true
 	c.exitCode = int(code)
 	c.mu.Unlock()
-	// ConPTY keeps the output pipe open for as long as the HPCON lives, even
-	// after the child is gone. Release it here so a reader that is draining
-	// output observes EOF instead of blocking until somebody calls Close.
-	// Buffered bytes remain readable: closing the console closes only the
-	// console's end of the pipe, it does not discard queued output.
+	// 只要 HPCON 存活，ConPTY 就保持输出管道打开，即使
+	// 子进程已消失。在这里释放它，使排空输出的读者
+	// 观察到 EOF 而非阻塞直到有人调用 Close。
+	// 缓冲字节仍可读：关闭控制台只关闭管道的
+	// 控制台端，不丢弃排队输出。
 	c.closeConsole()
 	return int(code), nil
 }
 
-// closeConsole releases the HPCON at most once. It is safe to call from both
-// Wait (when the child exits) and Close (on explicit teardown), in either order.
+// closeConsole 至多释放一次 HPCON。从 Wait 和 Close 调用都是安全的，
+// 顺序任意。
 func (c *conPty) closeConsole() {
 	c.mu.Lock()
 	console := c.console
 	c.console = 0
 	c.mu.Unlock()
 	if console != 0 {
-		// Blocks until conhost is gone; after the child exits that is quick.
+		// 阻塞直到 conhost 消失；子进程退出后这很快。
 		callClosePseudoConsole(console)
 	}
 }
 
-// duplicateProcess returns a private handle for a live child-status query. The
-// read of c.process and the duplication both happen under c.mu, so a concurrent
-// Close cannot close the original handle in between and leave the caller
-// holding a stale numeric value — the same hazard Wait guards against with its
-// own duplicate. ok is false when cached state already answers the query (the
-// child was reaped, Close has begun tearing the terminal down, or the handle is
-// gone), in which case the caller must not use the returned handle.
+// duplicateProcess 为活的子进程状态查询返回私有句柄。对 c.process 的读取
+// 和复制都在 c.mu 下进行，使并发 Close 无法在两者之间关闭原始句柄并使
+// 调用方持有陈旧数值 —— 与 Wait 用自己的副本防范的危险相同。
+// 当缓存状态已能回答查询（子进程被回收、Close 已开始拆卸终端，或句柄已
+// 自己的副本。当缓存状态已能回答查询（
+// 消失）时 ok 为 false，此时调用方不得使用返回的句柄。
+// 在两把锁之间子进程被回收或拆卸；已没有可等待的活进程。
 func (c *conPty) duplicateProcess() (owned syscall.Handle, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -422,8 +421,8 @@ func (c *conPty) Exited() bool {
 	}
 	owned, ok := c.duplicateProcess()
 	if !ok {
-		// The child was reaped or torn down between the two locks; there is no
-		// live process to wait on any more.
+		// 在两把锁之间子进程被回收或拆卸；已没有
+		// 在这里回收使之后的 Wait 仍有退出码可报告。
 		return true
 	}
 	defer syscall.CloseHandle(owned)
@@ -473,7 +472,7 @@ func (c *conPty) Close() error {
 	c.mu.Unlock()
 
 	if process != 0 {
-		// Reap here so a later Wait still has an exit code to report.
+		// 在与 Wait 用于复制的同一把锁下发布已关闭句柄。
 		if !reaped {
 			procTerminateProcess.Call(uintptr(process), 1)
 			procWaitForSingleObject.Call(uintptr(process), 5000)
@@ -496,9 +495,8 @@ func (c *conPty) Close() error {
 	}
 	c.closeConsole()
 	if process != 0 {
-		// Publish the closed handle under the same lock Wait uses to duplicate
-		// it. Otherwise Wait could observe the still-nonzero handle in the
-		// window between CloseHandle here and clearing c.process below.
+		// 否则 Wait 可能在这里 CloseHandle 与下面清除 c.process 之间的窗口
+		// 观察到仍非零的句柄。
 		c.mu.Lock()
 		c.process = 0
 		syscall.CloseHandle(process)
@@ -507,7 +505,7 @@ func (c *conPty) Close() error {
 	return nil
 }
 
-// resolve turns a bare program name into a path CreateProcessW can trust.
+// resolve 把裸程序名转换为 CreateProcessW 可信任的路径。
 func resolve(program string) (string, error) {
 	if strings.ContainsAny(program, `\/:`) {
 		return program, nil
@@ -519,8 +517,8 @@ func resolve(program string) (string, error) {
 	return found, nil
 }
 
-// buildCommandLine renders argv into the single string CreateProcessW parses,
-// quoting per the MSVC rules a Go or Rust child will undo the same way.
+// buildCommandLine 把 argv 渲染为 CreateProcessW 解析的单一字符串，
+// 按 MSVC 规则加引号，Go 或 Rust 子进程会以同样方式解除。
 func buildCommandLine(path string, args []string) string {
 	var b strings.Builder
 	b.WriteString(quoteArg(path))
@@ -561,7 +559,7 @@ func quoteArg(arg string) string {
 	return b.String()
 }
 
-// environmentBlock builds the double-NUL terminated UTF-16 block CreateProcessW
+// resolve 把裸程序名转换为 CreateProcessW 可信任的路径。buildCommandLine 把 argv 渲染为 CreateProcessW 解析的单一字符串，按 MSVC 规则加引号，Go 或 Rust 子进程会以同样方式解除。environmentBlock 构建 CreateProcessW 使用的双 NUL 结尾 UTF-16 块。
 // expects.
 func environmentBlock(env []string) (*uint16, error) {
 	if len(env) == 0 {

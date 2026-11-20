@@ -40,8 +40,8 @@ func TestEstimateMessageCountsOverheadAndCalls(t *testing.T) {
 	}
 }
 
-// trimFixture builds a conversation with an old tool result, a middle turn and
-// the newest turn, all small except the tool bodies.
+// trimFixture 构建一个包含旧工具结果、中间轮次和最新轮次的对话，除工具主体外都很小。
+// （接上行）
 func trimFixture() []llm.Message {
 	big := strings.Repeat("x", 4000)
 	return []llm.Message{
@@ -88,7 +88,7 @@ func TestTrimKeepsSystemFirstUserAndLastTurns(t *testing.T) {
 	if !strings.HasPrefix(result.Messages[3].Content, trimmedPrefix) {
 		t.Fatalf("oldest tool result = %q, want a stub", result.Messages[3].Content)
 	}
-	// Trimming twice must not re-stub an existing stub.
+	// 裁剪两次不得对已有占位条目再次替换。
 	again := Trim(result.Messages, TrimOptions{MaxTokens: 400, KeepTurns: 1, KeepToolTokens: 1})
 	if again.Pruned != 0 {
 		t.Fatalf("second pass pruned %d already-stubbed results", again.Pruned)
@@ -118,9 +118,9 @@ func TestEstimateTokensCountsWideRunesIndividually(t *testing.T) {
 		text string
 		want int
 	}{
-		{"你好世界", 4},                 // 4 wide runes, one token each
-		{"hello你好", 4},              // 5 narrow -> 2, plus 2 wide
-		{strings.Repeat("界", 8), 8}, // no chars/4 under-estimate for CJK
+		{"你好世界", 4},                 // 4 个宽 rune，每个一个 token
+		{"hello你好", 4},              // 5 个窄字符 -> 2，加 2 个宽字符
+		{strings.Repeat("界", 8), 8}, // 对 CJK 不做字符数/4 的低估
 	}
 	for _, tc := range cases {
 		if got := EstimateTokens(tc.text); got != tc.want {
@@ -129,8 +129,8 @@ func TestEstimateTokensCountsWideRunesIndividually(t *testing.T) {
 	}
 }
 
-// metaFixture builds a conversation with an early read of a.go, a successful
-// later read of the same file and a final assistant turn.
+// metaFixture 构建一段对话：早期读取 a.go，之后成功读取同一文件，最后一条助手轮次。
+// （接上行）
 func metaFixture() []llm.Message {
 	big := strings.Repeat("x", 400)
 	return []llm.Message{
@@ -164,7 +164,7 @@ func TestTrimSupersedesOldRead(t *testing.T) {
 	if result.Pruned != 1 || result.Freed <= 0 {
 		t.Fatalf("pruned/freed = %d/%d, want 1/>0", result.Pruned, result.Freed)
 	}
-	// Pairing: every tool result still follows its assistant turn.
+	// 配对：每个工具结果仍紧跟其助手轮次。
 	for i, msg := range result.Messages {
 		if msg.Role == "tool" && (i == 0 || result.Messages[i-1].Role != "assistant") {
 			t.Fatalf("tool result at %d is no longer paired", i)
@@ -199,7 +199,7 @@ func TestTrimElidesUselessResultAfterAssistant(t *testing.T) {
 		t.Fatalf("useless result = %q, want %q", got, uselessStub)
 	}
 
-	// Without a later assistant turn the model has not consumed the result.
+	// 没有更晚的助手轮次，模型就还没有消费该结果。
 	shorter := messages[:4]
 	result = Trim(shorter, TrimOptions{ToolMeta: meta})
 	if got := result.Messages[3].Content; got != "(no matches)" {
@@ -260,10 +260,10 @@ func TestLoopTrimsOldToolOutput(t *testing.T) {
 	}
 }
 
-// cacheGuardFixture builds a conversation whose old tool result (index 3) sits
-// in front of a large tail, so its cached suffix is at least tailTokens wide.
-// Keeping the tail configurable lets the tests exercise both the default guard
-// (12000) and a raised guard without huge fixtures.
+// cacheGuardFixture 构建一段对话，其旧工具结果（索引 3）位于一个大尾部之前，因此其缓存后缀至少与 tailTokens 一样宽。
+// （接上行）
+// 让尾部可配置，使测试无需巨大样本就能同时演练默认防护（12000）和提高后的防护。
+// （接上行）
 func cacheGuardFixture(tailTokens int) []llm.Message {
 	return []llm.Message{
 		{Role: "system", Content: "rules"},
@@ -276,10 +276,10 @@ func cacheGuardFixture(tailTokens int) []llm.Message {
 	}
 }
 
-// TestTrimBudgetGuardKeepsWarmPrefixToolResult verifies the budget loop refuses
-// to stub a result whose cached suffix exceeds the default 12000-token guard.
+// TestTrimBudgetGuardKeepsWarmPrefixToolResult 验证预算循环拒绝替换缓存后缀超过默认 12000 token 防护的结果。
+// （接上行）
 func TestTrimBudgetGuardKeepsWarmPrefixToolResult(t *testing.T) {
-	messages := cacheGuardFixture(12500) // suffix(3) ~= 13k > default 12000
+	messages := cacheGuardFixture(12500) // suffix(3) 约 13k > 默认 12000
 	opts := TrimOptions{MaxTokens: 500, KeepTurns: 1, KeepToolTokens: 100}
 
 	result := Trim(messages, opts)
@@ -287,8 +287,8 @@ func TestTrimBudgetGuardKeepsWarmPrefixToolResult(t *testing.T) {
 		t.Fatalf("budget trim rewrote a tool result inside the warm prefix: %q", got)
 	}
 
-	// Raising the guard must make the same fixture stub that result, proving the
-	// guard — not a lack of budget pressure — kept it intact.
+	// 提高防护必须使同一样本替换该结果，证明是防护（而非缺乏预算压力）让它保持完整。
+	// （接上行）
 	opts.CacheProtectSuffixTokens = 100000
 	unguarded := Trim(messages, opts)
 	if got := unguarded.Messages[3].Content; !strings.HasPrefix(got, trimmedPrefix) {
@@ -296,12 +296,12 @@ func TestTrimBudgetGuardKeepsWarmPrefixToolResult(t *testing.T) {
 	}
 }
 
-// TestTrimCacheGuardConsistentAcrossPaths checks that under the guard the
-// semantic (meta) path and the budget path both leave a warm-prefix result
-// untouched, and that both rewrite it once the guard is lifted.
+// TestTrimCacheGuardConsistentAcrossPaths 检查在防护生效时，语义（meta）路径和预算路径都让温热前缀结果保持原样，
+// 且在防护解除后两者都会重写它。
+// （接上行）
 func TestTrimCacheGuardConsistentAcrossPaths(t *testing.T) {
 	messages := cacheGuardFixture(12500)
-	// Both read results share a supersede key; the newer one supersedes index 3.
+	// 两个读取结果共享一个取代键；较新的一个取代索引 3。
 	meta := map[string]ToolMeta{
 		"old":    {SupersedeKey: "read|a.go"},
 		"recent": {SupersedeKey: "read|a.go"},
@@ -365,8 +365,8 @@ func TestPruneToolResultMiddleUnderBudget(t *testing.T) {
 }
 
 func TestPruneToolResultMiddleIsRuneSafe(t *testing.T) {
-	// Put a 4-byte emoji as the last retained head rune and a CJK ideograph as
-	// the first retained tail rune. Byte-based slicing would split both.
+	// 把一个 4 字节 emoji 作为最后保留的头部 rune，一个 CJK 汉字作为最先保留的尾部 rune。按字节切片会同时切断两者。
+	// （接上行）
 	head := strings.Repeat("a", toolResultPruneHead-1) + "🚀"
 	tail := "界" + strings.Repeat("b", toolResultPruneTail-1)
 	content := head + strings.Repeat("中", 4000) + tail
@@ -431,9 +431,9 @@ func TestTrimStubKeepsHeadAndTailForLargeResult(t *testing.T) {
 	}
 }
 
-// trimmedBytes is a deterministic fingerprint of a trimmed transcript. Trim
-// only rewrites tool result bodies, so counting message fields catches any
-// behaviour drift while staying O(messages) inside b.N.
+// trimmedBytes 是裁剪后记录的确定性指纹。Trim 只重写工具结果主体，因此对消息字段计数能在保持 O(messages) 的同时捕获任何行为漂移。
+// （接上行）
+// （接上行）
 func trimmedBytes(messages []llm.Message) int {
 	n := 0
 	for _, m := range messages {
@@ -445,9 +445,9 @@ func trimmedBytes(messages []llm.Message) int {
 	return n
 }
 
-// referenceReclaimBytes mirrors the original scanning reclaimByMeta queries
-// verbatim. It is the benchmark's oracle: the precomputed tables must produce
-// exactly the same transcript, not merely a faster one.
+// referenceReclaimBytes 逐字镜像原始扫描式 reclaimByMeta 的查询。它是基准测试的判据：预计算表必须产生完全相同的记录，
+// 而不只是更快的记录。
+// （接上行）
 func referenceReclaimBytes(messages []llm.Message, meta map[string]ToolMeta, protect int) int {
 	newestSuccessful := make(map[string]int)
 	for i, msg := range messages {
@@ -501,12 +501,12 @@ func referenceReclaimBytes(messages []llm.Message, meta map[string]ToolMeta, pro
 	return trimmedBytes(work)
 }
 
-// BenchmarkReclaimByMetaWithLargeToolMeta checks both behaviour (against the
-// original O(n^2) algorithm) and scaling of the precomputed suffix/assistant
-// tables. Inputs are deterministic, so ns/op should grow roughly linearly with
-// n; no wall-clock threshold is asserted, only b.N sub-benchmarks.
+// BenchmarkReclaimByMetaWithLargeToolMeta 检查行为（对照原始 O(n^2) 算法）和预计算后缀/助手表的伸缩性。输入是确定的，因此 ns/op 应大致随 n 线性增长；不断言墙上时钟阈值，只有 b.N 子基准。
+// （接上行）
+// （接上行）
+// （接上行）
 func BenchmarkReclaimByMetaWithLargeToolMeta(b *testing.B) {
-	const protect = 1 << 30 // let every older result be reclaimed
+	const protect = 1 << 30 // 让每个较旧的结果都能被回收
 	body := strings.Repeat("x", 16)
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -546,9 +546,9 @@ func BenchmarkReclaimByMetaWithLargeToolMeta(b *testing.B) {
 	}
 }
 
-// ratioFixture builds a conversation with n tool results, each carrying the
-// same body. Every result except the newest is a trimming candidate; the cache
-// guard is disabled by the caller so the ratio behaviour is isolated.
+// ratioFixture 构建一段包含 n 个工具结果的对话，每个都携带相同主体。除最新的以外每个结果都是裁剪候选；调用方禁用缓存防护，以隔离比率行为。
+// （接上行）
+// （接上行）
 func ratioFixture(n int, body string) []llm.Message {
 	msgs := []llm.Message{
 		{Role: "system", Content: "rules"},
@@ -565,7 +565,7 @@ func ratioFixture(n int, body string) []llm.Message {
 	return msgs
 }
 
-// oneTrimFreed is the estimated token saving from stubbing one body.
+// oneTrimFreed 是替换一个主体所节省的估算 token。
 func oneTrimFreed(body string) int {
 	before := llm.Message{Role: "tool", Content: body}
 	after := before
@@ -607,9 +607,9 @@ func TestBudgetTarget(t *testing.T) {
 	}
 }
 
-// TestTrimTargetRatioLeavesHeadroom verifies the P0 hysteresis: the trigger
-// stays at MaxTokens but the loop trims below it, so the next turn has room to
-// grow before trimming fires again and busts the prompt cache.
+// TestTrimTargetRatioLeavesHeadroom 验证 P0 迟滞：触发点保持在 MaxTokens，但循环裁剪到其下方，使下一轮次在再次触发裁剪并破坏提示缓存之前有增长空间。
+// （接上行）
+// （接上行）
 func TestTrimTargetRatioLeavesHeadroom(t *testing.T) {
 	body := strings.Repeat("x", 2000)
 	msgs := ratioFixture(3, body)
@@ -617,8 +617,8 @@ func TestTrimTargetRatioLeavesHeadroom(t *testing.T) {
 	if freed <= 0 {
 		t.Fatalf("fixture does not free tokens when stubbed: %d", freed)
 	}
-	// max sits just above the level reached by one stub: the default stops
-	// after one prune, while a 0.7 target has to reclaim a second result.
+	// max 恰好略高于一次替换达到的水平：默认在第一次裁剪后停止，而 0.7 目标必须再回收第二个结果。
+	// （接上行）
 	max := EstimateMessages(msgs) - freed + 1
 	const ratio = 0.7
 	target := int(float64(max) * ratio)
@@ -645,8 +645,8 @@ func TestTrimTargetRatioLeavesHeadroom(t *testing.T) {
 	}
 }
 
-// TestTrimTargetRatioDoesNotOverTrim checks the loop stops as soon as the
-// target is met, leaving further candidates verbatim.
+// TestTrimTargetRatioDoesNotOverTrim 检查循环一旦达到目标就停止，让其他候选保持原样。
+// （接上行）
 func TestTrimTargetRatioDoesNotOverTrim(t *testing.T) {
 	body := strings.Repeat("x", 2000)
 	msgs := ratioFixture(4, body)
@@ -661,16 +661,16 @@ func TestTrimTargetRatioDoesNotOverTrim(t *testing.T) {
 	if res.Pruned >= 3 {
 		t.Fatalf("pruned %d results, want fewer than the 3 candidates", res.Pruned)
 	}
-	// The oldest candidate (c0, index 3) stays verbatim: trimming stopped once
-	// the target was reached instead of walking every candidate.
+	// 最旧的候选（c0，索引 3）保持原样：达到目标后裁剪就停止了，而不是遍历每个候选。
+	// （接上行）
 	if got := res.Messages[3].Content; got != body {
 		t.Fatalf("oldest tool result was over-trimmed: %q", got)
 	}
 }
 
-// TestTrimTargetRatioZeroPreservesDefault locks in backward compatibility:
-// the zero value and any ratio >= 1 must be indistinguishable from the old
-// behaviour of trimming exactly to MaxTokens.
+// TestTrimTargetRatioZeroPreservesDefault 锁定向后兼容性：零值和任何 >= 1 的比例必须与旧的精确裁剪到 MaxTokens 的行为无法区分。
+// （接上行）
+// （接上行）
 func TestTrimTargetRatioZeroPreservesDefault(t *testing.T) {
 	body := strings.Repeat("x", 2000)
 	msgs := ratioFixture(3, body)
@@ -688,10 +688,10 @@ func TestTrimTargetRatioZeroPreservesDefault(t *testing.T) {
 	}
 }
 
-// TestTrimTargetRatioWithCJK exercises the ratio target with wide runes, which
-// EstimateTokens counts individually rather than at charsPerToken.
+// TestTrimTargetRatioWithCJK 用宽 rune 演练比率目标，EstimateTokens 对宽 rune 逐个计数而非按 charsPerToken。
+// （接上行）
 func TestTrimTargetRatioWithCJK(t *testing.T) {
-	body := strings.Repeat("界", 900) // 900 wide runes ~= 900 tokens
+	body := strings.Repeat("界", 900) // 900 个宽 rune 约等于 900 token
 	msgs := ratioFixture(3, body)
 	freed := oneTrimFreed(body)
 	if freed <= 0 {
@@ -715,10 +715,10 @@ func TestTrimTargetRatioWithCJK(t *testing.T) {
 	}
 }
 
-// TestRunStateTrimUsesHeadroomRatio verifies the loop wires the hysteresis
-// ratio into the TrimOptions it builds, so every budget trim leaves headroom
-// rather than cutting exactly to the threshold (which would re-trim next turn
-// and bust the prompt cache).
+// TestRunStateTrimUsesHeadroomRatio 验证循环把迟滞比率接入它构建的 TrimOptions，使每次预算裁剪都留出余量，而非精确裁到阈值
+// （那会在下一轮再次裁剪并破坏提示缓存）。
+// （接上行）
+// （接上行）
 func TestRunStateTrimUsesHeadroomRatio(t *testing.T) {
 	state := newRunState(Options{MaxContextTokens: 1000}, "q", func(Event) {})
 	if got := state.trim.TargetRatio; got != defaultTrimTargetRatio {
@@ -726,17 +726,17 @@ func TestRunStateTrimUsesHeadroomRatio(t *testing.T) {
 	}
 }
 
-// TestLoopTrimLeavesHeadroom is the end-to-end counterpart: once the loop's
-// budget trim fires, the conversation actually sent to the model drops to
-// ~70% of the configured context budget. Small, numerous tool results keep the
-// trim granular enough that a 1.0 ratio (trim exactly to the threshold) would
-// stay above the ceiling, so this test fails if the wiring is removed.
+// TestLoopTrimLeavesHeadroom 是端到端对应：循环预算裁剪触发后，实际发送给模型的对话降到配置上下文预算的约 70%。小而多的工具结果使裁剪足够细粒度，
+// 以至于 1.0 的比率（精确裁到阈值）会停留在上限之上，因此如果接线被移除，这个测试会失败。
+// （接上行）
+// （接上行）
+// （接上行）
 func TestLoopTrimLeavesHeadroom(t *testing.T) {
 	const (
 		maxContext = 3000
 		numCalls   = 30
 	)
-	body := strings.Repeat("x", 400) // ~100 estimated tokens per tool result
+	body := strings.Repeat("x", 400) // 每个工具结果约 100 估算 token
 	tools := &fakeTools{
 		specs: []llm.ToolSpec{toolSpec("read")},
 		run: func(context.Context, string, string) (string, error) {
@@ -745,7 +745,7 @@ func TestLoopTrimLeavesHeadroom(t *testing.T) {
 	}
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		if n <= numCalls {
-			// Distinct args keep the repeat guard and stuck detector quiet.
+			// 不同的参数使重复防护器和卡住检测器保持静默。
 			return toolReply(toolCall(fmt.Sprintf("c%d", n), "read", fmt.Sprintf(`{"n":%d}`, n))), nil
 		}
 		return textReply("final"), nil

@@ -92,7 +92,7 @@ func TestUTF8CarryWriterFlushDanglingSequence(t *testing.T) {
 	if _, err := cw.Write([]byte{0xE4, 0xB8}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	cw.Flush() // must not panic
+	cw.Flush() // 不得 panic
 	if want := []byte{0xE4, 0xB8}; !bytes.Equal(buf.Bytes(), want) {
 		t.Fatalf("Flush output = %x, want %x (written verbatim)", buf.Bytes(), want)
 	}
@@ -132,7 +132,7 @@ func TestUTF8CarryWriterCapsCarry(t *testing.T) {
 		var buf bytes.Buffer
 		cw := newUTF8CarryWriter(&buf)
 		cw.maxCarry = 1
-		in := []byte{0xF0, 0x9F} // 4-byte lead with only one continuation
+		in := []byte{0xF0, 0x9F} // 4 字节前导加一个续接字节
 		if _, err := cw.Write(in); err != nil {
 			t.Fatalf("Write: %v", err)
 		}

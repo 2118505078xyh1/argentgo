@@ -47,7 +47,7 @@ func StripJSONC(text string) string {
 					i++
 				}
 				if i < len(text) {
-					out.WriteByte('\n') // keep line structure for error positions
+					out.WriteByte('\n') // 保留行结构以便定位错误
 					i++
 				}
 			case i+1 < len(text) && text[i+1] == '*':

@@ -206,7 +206,7 @@ func TestFallbackKeepsHistoryWithoutDuplicates(t *testing.T) {
 	}
 }
 
-// countUser counts user messages with exactly the given text.
+// countUser 统计内容恰好为给定文本的用户消息。
 func countUser(messages []llm.Message, text string) int {
 	n := 0
 	for _, msg := range messages {

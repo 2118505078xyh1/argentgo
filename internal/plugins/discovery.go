@@ -10,32 +10,32 @@ import (
 	"strings"
 )
 
-// StateFileName is the per-plugins-directory enablement file.
+// StateFileName 是每个插件目录的启用状态文件。
 const StateFileName = "state.json"
 
-// State is the persisted enablement of a plugins directory. A plugins
-// directory without a state file enables every installed bundle.
+// StateFileName 是每个插件目录的启用状态文件。State 是一个插件目录的持久化启用状态。没有状态文件的插件
+// 没有状态文件的插件目录启用所有已安装 bundle。
 type State struct {
 	Enabled []string `json:"enabled"`
 }
 
-// Bundle is one discovered plugin directory.
+// Bundle 是一个发现的插件目录。
 type Bundle struct {
 	Name     string
 	Version  string
 	Dir      string
 	Manifest Manifest
 	Enabled  bool
-	// Problems holds non-fatal findings about this bundle.
+	// 目录启用所有已安装 bundle。Bundle 是一个发现的插件目录。Problems 保存关于此 bundle 的非致命发现。
 	Problems []Problem
 }
 
-// ProjectPluginsDir returns the workspace plugins directory, <root>/.argent/plugins.
+// ProjectPluginsDir 返回工作区插件目录 <root>/.argent/plugins。
 func ProjectPluginsDir(root string) string {
 	return filepath.Join(root, ".argent", "plugins")
 }
 
-// UserPluginsDir returns $HOME/.argentgo/plugins.
+// ProjectPluginsDir 返回工作区插件目录 <root>/.argent/plugins。UserPluginsDir 返回 $HOME/.argentgo/plugins。Roots 按优先级列出发现根目录：先是工作区，然后是用户目录。
 func UserPluginsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -44,8 +44,8 @@ func UserPluginsDir() (string, error) {
 	return filepath.Join(home, ".argentgo", "plugins"), nil
 }
 
-// Roots lists the discovery roots in precedence order: the workspace first,
-// then the user directory.
+// Roots 按优先级列出发现根目录：先是工作区，
+// 然后是用户目录。
 func Roots(root string) []string {
 	roots := make([]string, 0, 2)
 	if strings.TrimSpace(root) != "" {
@@ -57,10 +57,10 @@ func Roots(root string) []string {
 	return roots
 }
 
-// Discover scans every root and returns all bundles in precedence order. A
-// name seen twice keeps the first bundle; the later one is reported as a
-// problem. Per-bundle validation findings are returned both here and in
-// Bundle.Problems.
+// Discover 扫描每个 root 并按优先级返回所有 bundle。出现两次的名称保留第一个 bundle；较后的一个被报告为
+// 出现两次的名称保留第一个 bundle；较后的一个被报告为
+// 问题。每个 bundle 的验证发现既在这里也在
+// 问题。每个 bundle 的验证发现既在这里返回也在 Bundle.Problems 中返回。Resolve 返回工作区启用的 bundle。验证发现不使调用失败；用 Discover 查看它们。
 func Discover(root string) ([]Bundle, []Problem, error) {
 	var bundles []Bundle
 	var problems []Problem
@@ -96,8 +96,8 @@ func Discover(root string) ([]Bundle, []Problem, error) {
 	return bundles, problems, nil
 }
 
-// Resolve returns the enabled bundles for a workspace. Validation findings do
-// not fail the call; use Discover to see them.
+// Resolve 返回工作区启用的 bundle。验证发现不
+// 使调用失败；用 Discover 查看它们。
 func Resolve(root string) ([]Bundle, error) {
 	bundles, _, err := Discover(root)
 	if err != nil {
@@ -112,7 +112,7 @@ func Resolve(root string) ([]Bundle, error) {
 	return enabled, nil
 }
 
-// Validate aggregates manifest problems and duplicate names across bundles.
+// Validate 聚合跨 bundle 的清单问题和重复名称。
 func Validate(bundles []Bundle) []Problem {
 	var problems []Problem
 	seen := make(map[string]string, len(bundles))
@@ -131,8 +131,8 @@ func Validate(bundles []Bundle) []Problem {
 	return problems
 }
 
-// scanRoot scans one plugins directory: the directory itself may be a bundle,
-// and each entry may be a bundle or a container holding plugins/* bundles.
+// Validate 聚合跨 bundle 的清单问题和重复名称。scanRoot 扫描一个插件目录：目录本身可以是 bundle，且每个条目
+// 且每个条目可以是 bundle 或包含 plugins/* bundle 的容器。
 func scanRoot(dir string) ([]Bundle, []Problem) {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -189,8 +189,8 @@ func scanRoot(dir string) ([]Bundle, []Problem) {
 	return bundles, problems
 }
 
-// loadBundle parses one bundle directory. A parse failure is a problem, not an
-// error: one broken bundle must not hide the others.
+// 可以是 bundle 或包含 plugins/* bundle 的容器。loadBundle 解析一个 bundle 目录。解析失败是问题而非
+// 错误：一个损坏的 bundle 不得隐藏其他 bundle。
 func loadBundle(dir string) (*Bundle, []Problem) {
 	manifest, err := LoadManifest(dir)
 	if err != nil {
@@ -212,8 +212,8 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// LoadState reads <pluginsDir>/state.json. The boolean reports whether the
-// file exists; a missing file means every installed bundle is enabled.
+// LoadState 读取 <pluginsDir>/state.json。布尔值报告文件
+// 是否存在；文件缺失表示所有已安装 bundle 都启用。
 func LoadState(pluginsDir string) (State, bool, error) {
 	data, err := os.ReadFile(filepath.Join(pluginsDir, StateFileName))
 	if err != nil {
@@ -229,7 +229,7 @@ func LoadState(pluginsDir string) (State, bool, error) {
 	return state, true, nil
 }
 
-// SaveState writes <pluginsDir>/state.json.
+// 错误：一个损坏的 bundle 不得隐藏其他 bundle。LoadState 读取 <pluginsDir>/state.json。布尔值报告文件是否存在；文件缺失表示所有已安装 bundle 都启用。SaveState 写入 <pluginsDir>/state.json。
 func SaveState(pluginsDir string, state State) error {
 	names := dedupe(state.Enabled)
 	if names == nil {
@@ -249,9 +249,9 @@ func SaveState(pluginsDir string, state State) error {
 	return nil
 }
 
-// SetEnabled turns one plugin on or off in a plugins directory. When no state
-// file exists yet it is seeded with every installed bundle first, so enabling
-// one plugin never silently disables the others.
+// SetEnabled 在插件目录中打开或关闭一个插件。当尚无
+// SetEnabled 在插件目录中打开或关闭一个插件。当尚无状态文件时，它先用所有已安装 bundle 种入，使启用
+// 一个插件绝不会静默禁用其他插件。
 func SetEnabled(pluginsDir, name string, enabled bool) error {
 	if err := ValidateName(name); err != nil {
 		return err
@@ -280,7 +280,7 @@ func SetEnabled(pluginsDir, name string, enabled bool) error {
 	return SaveState(pluginsDir, State{Enabled: names})
 }
 
-// installedNames lists the bundles directly under one plugins directory.
+// 一个插件绝不会静默禁用其他插件。installedNames 列出某插件目录下直接的 bundle。
 func installedNames(pluginsDir string) []string {
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {

@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// timeoutError is a net.Error with Timeout() set, but without wrapping
-// context.DeadlineExceeded (which the fallback layer treats as final).
+// timeoutError 是一个设置了 Timeout() 的 net.Error，但未包装 context.DeadlineExceeded（回退层把它视为最终错误）。
+// （接上行）
 type timeoutError struct{}
 
 func (timeoutError) Error() string   { return "i/o timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-// TestIsRetryableProviderError pins the union of the typed llm retry
-// classification and the legacy provider text vocabulary. Expected values are
-// written directly so a change in either signal is visible here.
+// TestIsRetryableProviderError 锁定类型化的 llm 重试分类与旧版提供方文本词汇的并集。期望值被直接写出，
+// 使任一信号的变化都能在这里可见。
+// （接上行）
 func TestIsRetryableProviderError(t *testing.T) {
 	tests := []struct {
 		name string

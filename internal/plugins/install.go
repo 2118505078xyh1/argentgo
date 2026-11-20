@@ -11,8 +11,8 @@ import (
 	"strings"
 )
 
-// ErrUnsafeArchive reports an archive entry that would leave the install
-// directory ("zip slip").
+// ErrUnsafeArchive 报告会离开安装目录的归档条目
+// ErrUnsafeArchive 报告会离开安装目录的归档条目（"zip slip"）。InstallOptions 调整安装。Force 替换同名的现有安装。
 var ErrUnsafeArchive = errors.New("plugins: archive entry escapes the target directory")
 
 const (
@@ -21,23 +21,23 @@ const (
 	stagingPrefix = ".install-"
 )
 
-// InstallOptions tunes an install.
+// InstallOptions 调整安装。
 type InstallOptions struct {
-	// Force replaces an existing installation of the same name.
+	// Force 替换同名的现有安装。
 	Force bool
 }
 
-// Install installs a local directory or a .zip into pluginsDir. An existing
-// installation is an error; use InstallWith with Force to replace it.
+// Install 把本地目录或 .zip 安装到 pluginsDir。已存在的安装是错误；使用带 Force 的 InstallWith 来替换它。
+// 已存在的安装是错误；使用带 Force 的 InstallWith 来替换它。
 func Install(source, pluginsDir string) (*Bundle, error) {
 	return InstallWith(source, pluginsDir, InstallOptions{})
 }
 
-// InstallWith installs a bundle and enables it.
+// InstallWith 安装一个 bundle 并启用它。目录源必须包含清单。.zip 源先被解压到暂存目录；每个条目都对照 pluginsDir 检查，因此名为 "../x" 的归档成员被拒绝而非写到外面。
 //
-// A directory source must contain a manifest. A .zip source is extracted into
-// a staging directory first; every entry is checked against pluginsDir, so an
-// archive member named "../x" is refused instead of written outside.
+// 目录源必须包含清单。.zip 源先被解压到
+// 暂存目录；每个条目都对照 pluginsDir 检查，因此
+// 名为 "../x" 的归档成员被拒绝而非写到外面。
 func InstallWith(source, pluginsDir string, opts InstallOptions) (*Bundle, error) {
 	source = filepath.Clean(source)
 	info, err := os.Stat(source)
@@ -111,8 +111,8 @@ func InstallWith(source, pluginsDir string, opts InstallOptions) (*Bundle, error
 	}, nil
 }
 
-// Uninstall removes an installed bundle by name, but only when the directory's
-// manifest agrees with the name, so a typo cannot delete an unrelated folder.
+// Uninstall 按名称移除已安装的 bundle，但仅当该目录的清单与名称一致，使拼写错误不会删除无关文件夹。locateBundleRoot 在解压的归档中查找持有清单的目录：根本身或单个顶层文件夹。
+// 的清单与名称一致，使拼写错误不会删除无关文件夹。
 func Uninstall(name, pluginsDir string) (bool, error) {
 	if err := ValidateName(name); err != nil {
 		return false, err
@@ -131,8 +131,8 @@ func Uninstall(name, pluginsDir string) (bool, error) {
 	return true, nil
 }
 
-// locateBundleRoot finds the directory holding the manifest inside an
-// extracted archive: the root itself, or a single top-level folder.
+// locateBundleRoot 在解压的归档中查找
+// 持有清单的目录：根本身或单个顶层文件夹。
 func locateBundleRoot(dir string) (string, error) {
 	if _, ok := FindManifest(dir); ok {
 		return dir, nil
@@ -204,8 +204,8 @@ func copyZipEntry(entry *zip.File, target string, written *int64) error {
 		return fmt.Errorf("plugins: create %s: %w", target, err)
 	}
 	remaining := maxZipBytes - *written
-	// One extra byte proves the archive is too large instead of silently
-	// truncating a file.
+	// 多出的一个字节证明归档过大，而非静默
+	// 截断文件。
 	count, copyErr := io.Copy(out, io.LimitReader(in, remaining+1))
 	closeErr := out.Close()
 	if copyErr != nil {
@@ -221,8 +221,8 @@ func copyZipEntry(entry *zip.File, target string, written *int64) error {
 	return nil
 }
 
-// safeArchivePath maps one archive member into destination, refusing absolute
-// paths, drive letters, ".." components and anything that resolves outside.
+// safeArchivePath 把一个归档成员映射到目标，拒绝
+// 绝对路径、盘符、".." 组件及任何解析到外部的路径。
 func safeArchivePath(destination, name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("%w: empty entry name", ErrUnsafeArchive)
@@ -244,7 +244,7 @@ func safeArchivePath(destination, name string) (string, error) {
 	return target, nil
 }
 
-// copyTree copies a directory, skipping .git so a checkout installs cleanly.
+// safeArchivePath 把一个归档成员映射到目标，拒绝绝对路径、盘符、".." 组件及任何解析到外部的路径。copyTree 复制目录，跳过 .git 使检出能干净安装。
 func copyTree(source, destination string) error {
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return fmt.Errorf("plugins: create %s: %w", destination, err)
@@ -263,10 +263,10 @@ func copyTree(source, destination string) error {
 		if err != nil {
 			return fmt.Errorf("plugins: read %s: %w", from, err)
 		}
-		// Never follow symlinks: a link to an ancestor (or to itself) would
-		// recurse forever under os.Stat, and a link to an outside directory
-		// would copy files from beyond the bundle. Lstat reports the link
-		// itself, so skip it rather than treating it as a dir/file.
+		// 绝不跟随符号链接：指向祖先（或自身）的链接会
+		// 在 os.Stat 下无限递归，指向外部目录的链接
+		// 绝不跟随符号链接：指向祖先（或自身）的链接会在 os.Stat 下无限递归，指向外部目录的链接会复制 bundle 之外的文件。Lstat 报告链接
+		// 本身，所以跳过它而非当作目录/文件。
 		if info.Mode()&os.ModeSymlink != 0 {
 			continue
 		}

@@ -55,6 +55,10 @@ type Config struct {
 	// 使所有无界面传输无需额外接线即可共享一个 hub。
 	// 只有当两者都不存在时，每条传输才创建私有 hub。
 	Events *EventHub
+	// StructuredAbort 为 true 时，/v1/abort 返回由 abortResult 生成的
+	// 结构化取消结果（含脱敏后的 reason，可经 ?reason= 传入）。默认
+	// false 保持兼容的 {"ok":true} 响应，因此现有客户端与测试不受影响。
+	StructuredAbort bool
 }
 
 // isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
@@ -262,6 +266,12 @@ func (h *handler) abort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.cfg.Runner.Abort()
+	if h.cfg.StructuredAbort {
+		// 可选接线：调用方显式开启后才返回结构化结果。reason 来自可选
+		// 查询参数，由 abortResult 统一脱敏；未传时为空字符串。
+		writeJSON(w, http.StatusOK, abortResult(true, r.URL.Query().Get("reason")))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

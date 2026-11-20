@@ -10,7 +10,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// verifyTaskArgs builds delegate arguments with the verify fields set.
+// verifyTaskArgs 构建设置了验证字段的委派参数。
 func verifyTaskArgs(description, prompt, verify string, retries int) string {
 	b, _ := json.Marshal(taskArgs{
 		Description:      description,
@@ -21,8 +21,8 @@ func verifyTaskArgs(description, prompt, verify string, retries int) string {
 	return string(b)
 }
 
-// TestTaskWithoutVerifyRunsChildOnce pins the backward-compatible path: no
-// verify field means exactly one child run and the child's text returned.
+// TestTaskWithoutVerifyRunsChildOnce 锁定向后兼容路径：没有 verify 字段意味着恰好运行一次子级，
+// 并返回子级的文本。
 func TestTaskWithoutVerifyRunsChildOnce(t *testing.T) {
 	childRequests := 0
 	chat := &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -55,9 +55,9 @@ func TestTaskWithoutVerifyRunsChildOnce(t *testing.T) {
 	}
 }
 
-// TestTaskVerifyAppliesInstructionAndAcceptsPass checks that a verify-enabled
-// call issues a follow-up child whose prompt carries the verification
-// instruction, and that a PASS returns the original result.
+// TestTaskVerifyAppliesInstructionAndAcceptsPass 检查启用验证的调用会发出一个后续子级，其提示携带验证指令，
+// 且 PASS 会返回原始结果。
+// （接上行）
 func TestTaskVerifyAppliesInstructionAndAcceptsPass(t *testing.T) {
 	const marker = "VERIFY_CLAUSE_XYZ"
 	originalRuns, verifyRuns := 0, 0
@@ -111,9 +111,9 @@ func TestTaskVerifyAppliesInstructionAndAcceptsPass(t *testing.T) {
 	}
 }
 
-// TestTaskVerifyRetriesAreBounded checks that repeated FAIL verdicts retry the
-// original task at most verify_max_retries times, then stop and return the
-// last result. One verification child runs per attempt, never recursively.
+// TestTaskVerifyRetriesAreBounded 检查重复的 FAIL 结论最多把原任务重试 verify_max_retries 次，然后停止并返回最后的结果。
+// 每次尝试运行一个验证子级，绝不递归。
+// （接上行）
 func TestTaskVerifyRetriesAreBounded(t *testing.T) {
 	const retries = 2
 	originalRuns, verifyRuns := 0, 0
@@ -144,7 +144,7 @@ func TestTaskVerifyRetriesAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	want := retries + 1 // initial attempt plus `retries` retries
+	want := retries + 1 // 初次尝试加上 `retries` 次重试
 	if originalRuns != want || verifyRuns != want {
 		t.Fatalf("original runs = %d, verify runs = %d; want %d each", originalRuns, verifyRuns, want)
 	}
@@ -162,8 +162,8 @@ func TestTaskVerifyRetriesAreBounded(t *testing.T) {
 	}
 }
 
-// TestTaskVerifyRetriesClampedToMax pins the hard cap: an oversized
-// verify_max_retries cannot produce more than MaxVerifyRetries retries.
+// TestTaskVerifyRetriesClampedToMax 锁定硬上限：过大的 verify_max_retries 不能产生超过 MaxVerifyRetries 的重试。
+// （接上行）
 func TestTaskVerifyRetriesClampedToMax(t *testing.T) {
 	originalRuns := 0
 	chat := &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -195,9 +195,9 @@ func TestTaskVerifyRetriesClampedToMax(t *testing.T) {
 	}
 }
 
-// TestTaskVerifyHonorsDepthLimit checks that the depth guard applies to a
-// verify-enabled call before any child (or verification child) can run, so
-// verification cannot run away at the depth boundary.
+// TestTaskVerifyHonorsDepthLimit 检查深度防护在启用验证的调用上先于任何子级（或验证子级）运行生效，
+// 使验证无法在深度边界处失控。
+// （接上行）
 func TestTaskVerifyHonorsDepthLimit(t *testing.T) {
 	sink := &eventSink{}
 	tt := &taskTools{
@@ -214,8 +214,8 @@ func TestTaskVerifyHonorsDepthLimit(t *testing.T) {
 	}
 }
 
-// TestTaskToolSpecAdvertisesVerifyFields checks the tool schema advertises the
-// two new optional fields without changing the existing required set.
+// TestTaskToolSpecAdvertisesVerifyFields 检查工具 schema 公布了两个新的可选字段，而不改变既有的必需集合。
+// （接上行）
 func TestTaskToolSpecAdvertisesVerifyFields(t *testing.T) {
 	spec := TaskToolSpec()
 	var schema struct {
@@ -260,8 +260,8 @@ func TestTaskToolSpecAdvertisesVerifyFields(t *testing.T) {
 	}
 }
 
-// TestVerificationFailedParsesVerdict pins the PASS/FAIL parsing used by the
-// parent recheck, including the verbose-reply fallback.
+// TestVerificationFailedParsesVerdict 锁定父级复核使用的 PASS/FAIL 解析，包括冗长回复的回退。
+// （接上行）
 func TestVerificationFailedParsesVerdict(t *testing.T) {
 	cases := []struct {
 		verdict string

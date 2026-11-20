@@ -81,8 +81,8 @@ func TestReasoningAggregatorUTF8(t *testing.T) {
 	if got, want := agg.Text(), "让我🧠思考🙂"; got != want {
 		t.Fatalf("text = %q, want %q", got, want)
 	}
-	// A cumulative snapshot re-sends the whole block with more CJK/emoji. It
-	// must replace, never duplicate, and must never split a multi-byte rune.
+	// 累积快照用更多 CJK/emoji 重新发送整个块。它必须替换而非重复，且绝不能切断多字节 rune。
+	// （接上行）
 	const full = "让我🧠思考🙂：看输入"
 	op := agg.Add(full)
 	if !op.Replace || op.Text != full {
@@ -96,9 +96,9 @@ func TestReasoningAggregatorUTF8(t *testing.T) {
 func TestReasoningAggregatorNoDuplicateOnResend(t *testing.T) {
 	agg := &ReasoningAggregator{}
 	agg.Add("分析输入")
-	agg.Add("分析输入，得到结论")    // cumulative snapshot
-	agg.Add("分析输入，得到结论")    // exact repeat
-	agg.Finish("分析输入，得到结论") // authoritative end re-sends the full block
+	agg.Add("分析输入，得到结论")    // 累积快照
+	agg.Add("分析输入，得到结论")    // 完全重复
+	agg.Finish("分析输入，得到结论") // 权威的结束帧重新发送整个块
 	if got, want := agg.Text(), "分析输入，得到结论"; got != want {
 		t.Fatalf("text = %q, want %q (no duplication)", got, want)
 	}
@@ -115,7 +115,7 @@ func TestReasoningAggregatorFinish(t *testing.T) {
 	if got := agg.Text(); got != final {
 		t.Fatalf("text = %q, want %q", got, final)
 	}
-	// An idempotent end must not trigger a redundant repaint.
+	// 幂等的结束帧不得触发多余的重绘。
 	if op := agg.Finish(final); op.Replace || op.Text != "" {
 		t.Fatalf("idempotent finish op = %+v, want no-op", op)
 	}

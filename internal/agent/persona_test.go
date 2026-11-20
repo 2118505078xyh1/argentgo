@@ -165,7 +165,7 @@ func TestPersonaSubagentConfigMapsFields(t *testing.T) {
 		t.Errorf("SubagentConfig set unrelated fields: %#v", cfg)
 	}
 
-	// The adapter must not alias the persona's slice.
+	// 适配器不得与角色的切片共享底层数组。
 	cfg.AllowedTools[0] = "edit"
 	if persona.AllowedTools[0] != "read" {
 		t.Error("SubagentConfig aliased Persona.AllowedTools")

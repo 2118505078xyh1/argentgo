@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// TestNormalizeInputSchema pins the three cleaning rules and, critically, the
-// byte-for-byte guarantee for schemas that already pass them.
+// TestNormalizeInputSchema 固定三条清理规则，以及关键的一点：
+// 对已经通过它们的 schema 的逐字节保证。
 func TestNormalizeInputSchema(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -97,12 +97,12 @@ func TestNormalizeInputSchema(t *testing.T) {
 	}
 }
 
-// TestListToolsNormalizesAndPreservesRaw checks the decoded client path: the
-// provider-facing Schema is cleaned, while the additive raw/output fields keep
-// what the server sent.
+// TestListToolsNormalizesAndPreservesRaw 检查已解码的客户端路径：面向
+// 提供方的 Schema 已被清理，而加法性的 raw/output 字段保留
+// 服务器发送的内容。
 func TestListToolsNormalizesAndPreservesRaw(t *testing.T) {
-	// fakeTransport marshals handler output, which compacts RawMessage bytes;
-	// the exact-byte guarantee is covered by TestNormalizeInputSchema instead.
+	// fakeTransport 会编组处理器输出，从而压缩 RawMessage 字节；
+	// 逐字节的保证由 TestNormalizeInputSchema 覆盖。
 	const clean = `{"type":"object","title":"keep"}`
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
 		"tools/list": func(json.RawMessage) (any, error) {
@@ -152,8 +152,8 @@ func TestListToolsNormalizesAndPreservesRaw(t *testing.T) {
 	}
 }
 
-// TestListToolsSkipsMalformedEntries guards per-item tolerance: one broken
-// tool must not fail the whole tools/list call.
+// TestListToolsSkipsMalformedEntries 守护逐项容错：一个损坏的
+// 工具不得让整个 tools/list 调用失败。
 func TestListToolsSkipsMalformedEntries(t *testing.T) {
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
 		"tools/list": func(json.RawMessage) (any, error) {

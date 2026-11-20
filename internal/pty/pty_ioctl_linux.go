@@ -14,7 +14,7 @@ const (
 	ioctlTIOCSWINSZ = 0x5414
 )
 
-// winsize mirrors struct winsize from termios.h.
+// macOS 通过 /dev/ptmx 暴露 pty 但操作命名不同：grant、unlock，然后读回从设备路径。winsize 镜像 termios.h 的 struct winsize。unlockMaster 清除 pty 锁并返回从设备路径。winsize 镜像 termios.h 的 struct winsize。unlockMaster 清除 pty 锁并返回从设备路径。
 type winsize struct {
 	rows uint16
 	cols uint16
@@ -22,7 +22,7 @@ type winsize struct {
 	y    uint16
 }
 
-// unlockMaster clears the pty lock and returns the slave device path.
+// unlockMaster 清除 pty 锁并返回从设备路径。
 func unlockMaster(fd uintptr) (string, error) {
 	var unlock int32
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, ioctlTIOCSPTLCK, uintptr(unsafe.Pointer(&unlock))); errno != 0 {

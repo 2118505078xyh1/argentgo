@@ -9,9 +9,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// badArgsErr mirrors the text shape built-in tools use when they reject a
-// call's arguments ("<name>: bad arguments: %w"), which is how the breaker
-// learns that a tool error is a validation failure rather than a runtime one.
+// badArgsErr 模仿内置工具拒绝调用参数时使用的文本形状（"<name>: bad arguments: %w"），熔断器正是据此
+// 判断工具错误是校验失败而非运行时失败。
+// （接上行）
 func badArgsErr() error { return errors.New("read: bad arguments: invalid JSON") }
 
 func TestIsInvalidArgError(t *testing.T) {
@@ -38,9 +38,9 @@ func TestIsInvalidArgError(t *testing.T) {
 	}
 }
 
-// TestRunToolsStopsAfterThreeInvalidArgCalls pins the P0 behaviour: three
-// argument-validation rejections in one turn make runTools return a stop reason
-// that the loop can propagate like any other early stop.
+// TestRunToolsStopsAfterThreeInvalidArgCalls 锁定 P0 行为：一轮中三次参数校验拒绝，会使 runTools 返回一个停止原因，
+// 循环可以像其他提前停止一样传播它。
+// （接上行）
 func TestRunToolsStopsAfterThreeInvalidArgCalls(t *testing.T) {
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
 		return "", badArgsErr()
@@ -60,9 +60,9 @@ func TestRunToolsStopsAfterThreeInvalidArgCalls(t *testing.T) {
 	}
 }
 
-// TestRunToolsSuccessClearsBreakerAndRearms checks that a successful call in
-// the middle of a streak clears the count, so a later invalid call re-arms from
-// scratch instead of immediately tripping the threshold.
+// TestRunToolsSuccessClearsBreakerAndRearms 检查连续序列中间的一次成功调用会清除计数，
+// 使之后一次无效调用从头重新武装，而不是立即触发阈值。
+// （接上行）
 func TestRunToolsSuccessClearsBreakerAndRearms(t *testing.T) {
 	ft := &fakeTools{run: func(_ context.Context, _ string, args string) (string, error) {
 		if strings.Contains(args, `"ok":true`) {
@@ -75,7 +75,7 @@ func TestRunToolsSuccessClearsBreakerAndRearms(t *testing.T) {
 		toolCall("c1", "read", `{"n":1}`),     // 1
 		toolCall("c2", "read", `{"n":2}`),     // 2
 		toolCall("c3", "read", `{"ok":true}`), // success: 2 -> 0
-		toolCall("c4", "read", `{"n":4}`),     // re-arm: 1
+		toolCall("c4", "read", `{"n":4}`),     // 重新武装：1
 	}
 
 	if got := s.runTools(context.Background(), 0, calls); got != "" {
@@ -86,8 +86,8 @@ func TestRunToolsSuccessClearsBreakerAndRearms(t *testing.T) {
 	}
 }
 
-// TestRunToolsResetsBreakerAcrossTurns verifies the turn boundary: a streak
-// left by one batch must not carry into the next batch's count.
+// TestRunToolsResetsBreakerAcrossTurns 验证轮次边界：一个批次留下的连续序列不得带入下一批次的计数。
+// （接上行）
 func TestRunToolsResetsBreakerAcrossTurns(t *testing.T) {
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
 		return "", badArgsErr()
@@ -114,8 +114,8 @@ func TestRunToolsResetsBreakerAcrossTurns(t *testing.T) {
 	}
 }
 
-// TestRunToolsNormalToolsDoNotTripBreaker guards against false positives: a
-// batch of ordinary successful calls must leave the breaker untouched.
+// TestRunToolsNormalToolsDoNotTripBreaker 防范误报：一批普通的成功调用必须让熔断器保持原样。
+// （接上行）
 func TestRunToolsNormalToolsDoNotTripBreaker(t *testing.T) {
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
 		return "ok", nil
@@ -135,8 +135,8 @@ func TestRunToolsNormalToolsDoNotTripBreaker(t *testing.T) {
 	}
 }
 
-// TestRunToolsOtherFailureClearsBreaker pins the outcome semantics: a failure
-// unrelated to argument validation clears the streak rather than counting.
+// TestRunToolsOtherFailureClearsBreaker 锁定结果语义：与参数校验无关的失败会清除连续序列而非计数。
+// （接上行）
 func TestRunToolsOtherFailureClearsBreaker(t *testing.T) {
 	ft := &fakeTools{run: func(_ context.Context, _ string, args string) (string, error) {
 		if strings.Contains(args, `"boom":true`) {
@@ -159,9 +159,9 @@ func TestRunToolsOtherFailureClearsBreaker(t *testing.T) {
 	}
 }
 
-// TestLoopStopsOnRepeatedInvalidArgs is the end-to-end check: the stop reason
-// from runTools reaches both Result.Stopped and the EventStop stream, using the
-// existing generic stop path with no new event kind.
+// TestLoopStopsOnRepeatedInvalidArgs 是端到端检查：来自 runTools 的停止原因通过既有的通用停止路径，同时到达 Result.Stopped 和 EventStop 流，
+// 且不引入新的事件种类。
+// （接上行）
 func TestLoopStopsOnRepeatedInvalidArgs(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return toolReply(

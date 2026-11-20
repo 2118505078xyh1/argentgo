@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// fakeChildRunner is an injectable ChildRunner for the background tests. It
-// records how many children run and their peak concurrency, and can block in
-// Run until released so a test can observe the "ack first, result later"
-// contract deterministically.
+// fakeChildRunner 是供后台测试使用的可注入 ChildRunner。它记录运行的子级数量及其峰值并发，
+// 并可以在 Run 中阻塞直到被释放，使测试能确定性地观察「先确认、后出结果」的契约。
+// （接上行）
+// （接上行）
 type fakeChildRunner struct {
 	started chan string
 	release chan struct{}
@@ -52,8 +52,8 @@ func (f *fakeChildRunner) Run(ctx context.Context, prompt string) (Result, error
 	return Result{Text: f.answer}, nil
 }
 
-// bgTaskTools builds a taskTools wired for background delegation with a fake
-// child runner and no model.
+// bgTaskTools 构建一个为后台委派接好线的 taskTools，使用伪子运行器且无模型。
+// （接上行）
 func bgTaskTools(bg *BackgroundResults, child ChildRunner, emit func(Event), depth, maxDepth int) *taskTools {
 	return &taskTools{
 		inner:  nopTools{},
@@ -72,7 +72,7 @@ func backgroundTaskArgs(description, prompt string) string {
 	return string(b)
 }
 
-// waitForResult polls the bounded queue until a result is available.
+// waitForResult 轮询有界队列直到有结果可用。
 func waitForResult(t *testing.T, bg *BackgroundResults) string {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -86,8 +86,8 @@ func waitForResult(t *testing.T, bg *BackgroundResults) string {
 	return ""
 }
 
-// waitForNotice waits for a parent EventNotice containing substr. It locks the
-// sink so it is safe while a background goroutine is still emitting.
+// waitForNotice 等待包含 substr 的父级 EventNotice。它锁定接收器，使后台 goroutine 仍在发出时也是安全的。
+// （接上行）
 func waitForNotice(t *testing.T, sink *eventSink, substr string) Event {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -125,7 +125,7 @@ func TestBackgroundTaskAcksImmediatelyAndQueuesResult(t *testing.T) {
 		t.Fatalf("ack = %q, want an immediate background ack with an id", ack)
 	}
 
-	// The child has started but is still blocked: no result is queued yet.
+	// 子级已启动但仍被阻塞：还没有结果入队。
 	select {
 	case <-child.started:
 	case <-time.After(2 * time.Second):
@@ -160,8 +160,8 @@ func TestBackgroundTaskConcurrentCap(t *testing.T) {
 			t.Fatalf("Run %d: %v", i, err)
 		}
 	}
-	// The ack is immediate, so wait until both children are actually running
-	// (and blocked on release) before checking the peak concurrency.
+	// 确认是立即返回的，因此要等到两个子级都真正运行（并阻塞在释放上）之后再检查峰值并发。
+	// （接上行）
 	for i := 0; i < 2; i++ {
 		select {
 		case <-child.started:
@@ -177,7 +177,7 @@ func TestBackgroundTaskConcurrentCap(t *testing.T) {
 	}
 
 	close(release)
-	// Retry until a slot is freed by the two finishing children.
+	// 重试直到两个完成的子级释放了槽位。
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		_, err := tt.Run(context.Background(), TaskToolName, backgroundTaskArgs("t", "p"))
@@ -217,8 +217,8 @@ func TestBackgroundChildCannotSpawnUnboundedChildren(t *testing.T) {
 	if childOpts.Depth != 2 {
 		t.Fatalf("child depth = %d, want 2", childOpts.Depth)
 	}
-	// At the depth limit the delegate tool is withheld, so a background child
-	// cannot spawn another background child.
+	// 在深度上限处，委派工具会被隐藏，因此后台子级不能再派生另一个后台子级。
+	// （接上行）
 	for _, spec := range newToolset(nopTools{}, childOpts).Specs() {
 		if spec.Function.Name == TaskToolName {
 			t.Fatal("task tool must not be advertised at the depth limit")
@@ -257,7 +257,7 @@ func TestBackgroundResultsDrainForOwner(t *testing.T) {
 	bg.PushFor(root, 0, "root-1")
 	bg.PushFor(child, 1, "child-1")
 	bg.PushFor(root, 0, "root-2")
-	// Siblings share depth 1 but must stay separate.
+	// 同级子级共享深度 1，但必须彼此独立。
 	bg.PushFor(sibling, 1, "sibling-1")
 
 	got := bg.DrainFor(root)
@@ -285,8 +285,8 @@ func TestRootOwnerIsStablePerQueue(t *testing.T) {
 	if got := a.RootOwner(); got != want {
 		t.Fatalf("second RootOwner = %d, want stable %d", got, want)
 	}
-	// A different queue has its own counter and may legitimately reuse the same
-	// numeric id: queues are isolated by identity, not by owner value.
+	// 不同的队列有自己的计数器，可以合法地重用相同的数字 id：队列按身份隔离，而非按 owner 值。
+	// （接上行）
 	if got := b.RootOwner(); got == 0 || b.RootOwner() != got {
 		t.Fatalf("second queue's RootOwner = %d, want a stable nonzero id", got)
 	}
@@ -300,20 +300,20 @@ func TestNewRunStateOwnsQueueOwnerChildrenGetDistinctOwners(t *testing.T) {
 	if want := bg.RootOwner(); root.bgOwner != want {
 		t.Fatalf("root bgOwner = %d, want queue owner %d", root.bgOwner, want)
 	}
-	// A retry prompt or resumed Runner reuses the same queue and therefore the
-	// same owner, so late results are still delivered.
+	// 重试提示或已恢复的 Runner 复用同一个队列，因此也复用同一个 owner，使迟到的结果仍被投递。
+	// （接上行）
 	if again := newRunState(opts, "retry", nil); again.bgOwner != root.bgOwner {
 		t.Fatalf("retry bgOwner = %d, want %d", again.bgOwner, root.bgOwner)
 	}
-	// A different queue means a different root run; it resolves its owner from
-	// that queue (the numeric value may coincide, but the queues never mix).
+	// 不同的队列意味着不同的根运行；它从该队列解析自己的 owner（数值可能相同，但队列绝不混用）。
+	// （接上行）
 	other := NewBackgroundResults(0, 4)
 	otherState := newRunState(Options{Subagent: &SubagentConfig{Background: other}}, "other", nil)
 	if otherState.bgOwner != other.RootOwner() {
 		t.Fatalf("other run bgOwner = %d, want its queue's owner %d", otherState.bgOwner, other.RootOwner())
 	}
 
-	// Siblings at the same depth each get their own identity.
+	// 相同深度的同级子级各自获得自己的身份。
 	tt := &taskTools{parent: opts, depth: 0, cfg: &SubagentConfig{Background: bg}}
 	childA := tt.childOptions("a", "")
 	childB := tt.childOptions("b", "")
@@ -333,7 +333,7 @@ func TestSiblingBackgroundTasksNeverStealEachOthersResults(t *testing.T) {
 		return &taskTools{
 			inner:  nopTools{},
 			parent: Options{Emit: func(Event) {}},
-			depth:  1, // both siblings run at the SAME depth
+			depth:  1, // 两个同级子级在相同深度运行
 			owner:  owner,
 			cfg: &SubagentConfig{
 				MaxDepth:   2,
@@ -525,7 +525,7 @@ func TestTaskBoardRejectsInvalidPosts(t *testing.T) {
 }
 
 func TestTaskBoardCapacityLimits(t *testing.T) {
-	// The message-count limit.
+	// 消息数量上限。
 	byCount := &TaskBoard{}
 	for i := 0; i < BoardMaxMessages; i++ {
 		if _, err := byCount.Post("a", "b", BoardKindInfo, "x"); err != nil {
@@ -536,7 +536,7 @@ func TestTaskBoardCapacityLimits(t *testing.T) {
 		t.Fatalf("Post beyond message count err = %v, want ErrBoardFull", err)
 	}
 
-	// The total-bytes limit: exactly 2 MiB of bodies fits, one more does not.
+	// 总字节上限：恰好 2 MiB 的消息体能放下，再多一个就不行。
 	byBytes := &TaskBoard{}
 	body := strings.Repeat("x", BoardMaxBodyBytes)
 	for i := 0; i < BoardMaxTotalBytes/BoardMaxBodyBytes; i++ {

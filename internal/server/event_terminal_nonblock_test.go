@@ -56,7 +56,7 @@ func TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain(t *testing.T) {
 			t.Fatalf("round %d: terminal Publish blocked — hub deadlocked", round)
 		}
 
-		stop() // unsubscribes; the drain loop ends once the channel is closed
+		stop() // 退订；通道关闭后排空循环结束
 		select {
 		case <-drained:
 		case <-time.After(3 * time.Second):

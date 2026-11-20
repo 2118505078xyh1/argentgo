@@ -286,7 +286,6 @@ func RunEditCase(c EditCase) EditCaseResult {
 	res.Passed, res.Got, res.Reason = passed, got, reason
 
 	// 仅诊断：对期望成功的用例比较产生的字节与声明的目标。
-	// 仅诊断：对期望成功的用例比较产生的字节与声明的目标。
 	// 错误但接近的结果仍会在上面的门中失败，尽管这里报告高相似度。
 	if c.WantErrContains == "" && c.WantResult != "" && applyErr == nil {
 		res.Similarity = EditSimilarity(final, c.WantResult)

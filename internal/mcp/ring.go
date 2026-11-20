@@ -2,10 +2,10 @@ package mcp
 
 import "sync"
 
-// stderrRingBytes bounds the child stderr kept for diagnostics.
+// stderrRingBytes 限制为诊断保留的子进程 stderr 大小。
 const stderrRingBytes = 8 * 1024
 
-// ringBuffer keeps the last n bytes written to it.
+// ringBuffer 保留写入它的最后 n 个字节。
 type ringBuffer struct {
 	mu    sync.Mutex
 	buf   []byte
@@ -18,9 +18,9 @@ func (r *ringBuffer) Write(p []byte) (int, error) {
 	if r.limit <= 0 {
 		r.limit = stderrRingBytes
 	}
-	// A single write larger than the limit must never be appended in full:
-	// that would allocate a huge slice only to discard all but its tail.
-	// Keep one fixed-capacity buffer and copy only the tail we intend to keep.
+	// 单次大于上限的写入绝不能被完整追加：
+	// 那会分配一个巨大的切片，却只丢弃除尾部外的全部内容。
+	// 保留一个固定容量的缓冲区，只复制我们打算保留的尾部。
 	if len(p) >= r.limit {
 		if cap(r.buf) < r.limit {
 			r.buf = make([]byte, r.limit)
@@ -29,8 +29,8 @@ func (r *ringBuffer) Write(p []byte) (int, error) {
 		copy(r.buf, p[len(p)-r.limit:])
 		return len(p), nil
 	}
-	// Small writes slide within the same fixed capacity, so the backing array
-	// is allocated once and never grows no matter how many bytes are written.
+	// 小写入在同一固定容量内滑动，因此无论写入多少字节，
+	// 底层数组都只分配一次且永不增长。
 	if cap(r.buf) < r.limit {
 		buf := make([]byte, 0, r.limit)
 		buf = append(buf, r.buf...)

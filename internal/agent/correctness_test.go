@@ -9,8 +9,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// finishReasonChatter is a fake Chatter that also exposes a provider finish
-// reason through the optional interface the loop consults before dispatching.
+// finishReasonChatter 是一个伪 Chatter，它还通过循环在派发前咨询的可选接口，
+// 暴露提供方的结束原因。
 type finishReasonChatter struct {
 	*fakeChatter
 	reason string
@@ -37,7 +37,7 @@ func TestLengthTruncatedReplyNeverRunsItsTools(t *testing.T) {
 			var events []Event
 			base := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 				if n == 1 {
-					// The second call's arguments are cut off mid-token.
+					// 第二次调用的参数在 token 中途被截断。
 					return toolReply(
 						toolCall("c1", "read", `{"path":"a.txt"}`),
 						toolCall("c2", "read", `{"path":"b`),
@@ -83,8 +83,8 @@ func TestLengthTruncatedReplyNeverRunsItsTools(t *testing.T) {
 	}
 }
 
-// assertOrderedToolEvents checks that each call was announced then answered in
-// call order, and that every answer is the expected error text.
+// assertOrderedToolEvents 检查每个调用都按调用顺序先被宣告、后被回应，
+// 且每个回应都是预期的错误文本。
 func assertOrderedToolEvents(t *testing.T, events []Event, ids []string, output string) {
 	t.Helper()
 	var sequence []string
@@ -191,8 +191,8 @@ func TestInvalidToolCallIDsRejectTheWholeBatch(t *testing.T) {
 	}
 }
 
-// progressTool captures the gated progress emitter from ctx, emits one row
-// while it is running, and keeps the emitter for a deliberately late call.
+// progressTool 从 ctx 捕获受门控的进度发出器，在运行期间发出一行，
+// 并保留该发出器供一次刻意延迟的调用使用。
 type progressTool struct {
 	mu      sync.Mutex
 	emitter func(string)
@@ -277,8 +277,8 @@ func TestLateToolProgressCannotAppendTranscriptRows(t *testing.T) {
 		t.Fatalf("progress notices during execution = %d, want 1", notices)
 	}
 
-	// The tool has returned; a leftover goroutine firing the captured callback
-	// must now be a no-op.
+	// 工具已返回；遗留 goroutine 此时触发捕获的回调必须是空操作。
+	// （接上行）
 	tool.late("stale output")
 	if got := rows.count("tool_progress"); got != 1 {
 		t.Fatalf("progress rows after late callback = %d, want 1", got)

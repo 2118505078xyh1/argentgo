@@ -5,36 +5,35 @@ import (
 	"strings"
 )
 
-// IssueKind classifies a PluginIssue so callers can group, filter or count
-// findings without parsing message text.
+// IssueKind 分类 PluginIssue，使调用方可分组、过滤或统计
+// 发现而无需解析消息文本。
 type IssueKind string
 
 const (
-	// IssueEmptyField reports a required field that is blank.
+	// IssueEmptyField 报告为空的必填字段。
 	IssueEmptyField IssueKind = "empty_field"
-	// IssueInvalidName reports an unsafe or malformed plugin name.
+	// IssueInvalidName 报告不安全或畸形的插件名。
 	IssueInvalidName IssueKind = "invalid_name"
-	// IssueInvalidVersion reports a version that is not semantic.
+	// IssueInvalidVersion 报告非语义化版本。
 	IssueInvalidVersion IssueKind = "invalid_version"
-	// IssuePathEscape reports a declared path that resolves outside the bundle.
+	// IssuePathEscape 报告解析到 bundle 之外的声明路径。
 	IssuePathEscape IssueKind = "path_escape"
-	// IssueDuplicateSource reports two declarations naming the same source.
+	// IssueDuplicateSource 报告命名同一来源的两条声明。
 	IssueDuplicateSource IssueKind = "duplicate_source"
-	// IssueIncompleteMCP reports an MCP server with neither command nor url.
 	IssueIncompleteMCP IssueKind = "incomplete_mcp"
 )
 
-// PluginIssue is one structural finding from ValidateManifest. It differs from
-// Problem in two ways: it is produced by inspecting a Manifest only (it never
-// touches the filesystem), and it carries a Field and Kind for programmatic
-// use. Findings about files that do not exist belong to Manifest.Validate.
+// PluginIssue 是 ValidateManifest 的一条结构发现。它与
+// Problem 有两点不同：它只通过检查 Manifest 产生（从不
+// 触碰文件系统），且携带 Field 和 Kind 供编程使用。
+// PluginIssue 是 ValidateManifest 的一条结构发现。它与 Problem 有两点不同：它只通过检查 Manifest 产生（从不触碰文件系统），且携带 Field 和 Kind 供编程使用。关于不存在文件的发现属于 Manifest.Validate。String 渲染发现供日志使用。
 type PluginIssue struct {
 	Field   string    `json:"field,omitempty"`
 	Kind    IssueKind `json:"kind"`
 	Message string    `json:"message"`
 }
 
-// String renders an issue for logs.
+// String 渲染发现供日志使用。
 func (i PluginIssue) String() string {
 	if i.Field != "" {
 		return fmt.Sprintf("%s: %s", i.Field, i.Message)
@@ -42,14 +41,14 @@ func (i PluginIssue) String() string {
 	return i.Message
 }
 
-// ValidateManifest reports structural problems with a parsed manifest: missing
-// required fields, name and version format, paths that escape the bundle and
-// duplicate MCP/skill/command sources.
+// ValidateManifest 报告解析后清单的结构问题：缺失
+// 必填字段、名称和版本格式、逃逸 bundle 的路径，以及
+// 重复的 MCP/技能/命令来源。
 //
-// It is pure: paths are resolved against m.Root but no file is opened. Use
-// Manifest.Validate for findings that require checking the filesystem (missing
-// or wrongly-typed files). Findings are returned in a stable order: name,
-// version, skills, commands, hooks, then MCP servers in sorted name order.
+// 它是纯函数：路径针对 m.Root 解析但不打开文件。使用
+// ValidateManifest 报告解析后清单的结构问题：缺失必填字段、名称和版本格式、逃逸 bundle 的路径，以及重复的 MCP/技能/命令来源。它是纯函数：路径针对 m.Root 解析但不打开文件。需要检查文件系统的发现（缺失或类型错误的文件）请使用 Manifest.Validate。发现按稳定顺序返回：名称、版本、技能、命令、钩子，然后是按排序名称顺序的 MCP 服务器。
+// 或类型错误的文件）。发现按稳定顺序返回：名称、
+// 版本、技能、命令、钩子，然后是按排序名称顺序的 MCP 服务器。
 func ValidateManifest(m Manifest) []PluginIssue {
 	var issues []PluginIssue
 	add := func(field string, kind IssueKind, format string, args ...any) {
@@ -60,8 +59,8 @@ func ValidateManifest(m Manifest) []PluginIssue {
 		})
 	}
 
-	// Required fields. A blank value is reported once as a missing field; a
-	// non-blank value is checked for legality, so the two never double up.
+	// 必填字段。空值报告一次为缺失字段；
+	// 非空值检查合法性，因此两者永不重复。
 	if strings.TrimSpace(m.Name) == "" {
 		add("name", IssueEmptyField, "name is empty")
 	} else if err := ValidateName(m.Name); err != nil {
@@ -73,9 +72,9 @@ func ValidateManifest(m Manifest) []PluginIssue {
 		add("version", IssueInvalidVersion, "version %q: %v", m.Version, err)
 	}
 
-	// Declared paths: a path that leaves the bundle is a fatal wiring problem,
-	// and two spellings of one source ("skills", "./skills", "sub/../skills")
-	// must be flagged so a manifest author can collapse them.
+	// 声明的路径：离开 bundle 的路径是致命的接线问题，
+	// 且同一来源的两种拼写（"skills"、"./skills"、"sub/../skills"）
+	// 必须被标记，使清单作者能折叠它们。
 	checkPaths := func(field string, paths []string) {
 		seen := make(map[string]string, len(paths))
 		for _, raw := range paths {
@@ -95,9 +94,9 @@ func ValidateManifest(m Manifest) []PluginIssue {
 	checkPaths("commands", m.Commands)
 	checkPaths("hooks", m.Hooks.Paths)
 
-	// MCP servers. The map cannot hold two identical names, but two names may
-	// point at the same command or url, which is almost always a copy/paste
-	// slip worth surfacing before the wiring is built.
+	// MCP 服务器。map 不能容纳两个相同的名称，但两个名称可以
+	// 必填字段。空值报告一次为缺失字段；非空值检查合法性，因此两者永不重复。声明的路径：离开 bundle 的路径是致命的接线问题，且同一来源的两种拼写（"skills"、"./skills"、"sub/../skills"）必须被标记，使清单作者能折叠它们。MCP 服务器：map 不能容纳两个相同的名称，但两个名称可以指向同一 command 或 url，这几乎总是值得在接线构建前呈现的复制/粘贴错误。
+	// 值得在接线构建前呈现的复制/粘贴错误。
 	bySource := make(map[string]string)
 	for _, name := range sortedServerNames(m.MCPServers) {
 		spec := m.MCPServers[name]

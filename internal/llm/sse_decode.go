@@ -11,9 +11,9 @@ import (
 //
 //   - 单个 JSON 对象被拆到多个 data: 行（代理包装
 //     长行，或拆分落在 JSON 字符串内部）：移除合成换行符即可恢复合法 JSON；
+//     移除合成换行符即可恢复合法 JSON；
 //   - 多个独立事件作为相邻 data: 行发出且没有空行
 //     分隔：每行都是独立事件，必须按顺序解码。
-//     separator: each line is its own event and must be decoded in order.
 //
 // 常见的单事件情况返回未经改动的载荷（单元素切片）。
 // 每个协议客户端都让载荷经过这个辅助函数，

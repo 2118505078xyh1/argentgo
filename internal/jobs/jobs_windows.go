@@ -18,15 +18,15 @@ const (
 	stillActive                    = 259
 )
 
-// detach gives the job its own process group and no console, so closing the
-// terminal that started it does not take it down.
+// detach 给作业自己的进程组且无控制台，因此关闭
+// 启动它的终端不会把它带 down。
 func detach(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: detachedProcess | createNewProcessGroup,
 	}
 }
 
-// alive reports whether pid is a running process.
+// alive 报告 pid 是否为运行中的进程。
 func alive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -43,11 +43,11 @@ func alive(pid int) bool {
 	return code == stillActive
 }
 
-// sameProcess reports whether pid is alive AND was created at startedAt. A pid
-// alone is not an identity: once a job is reloaded from jobs.json the OS may
-// have recycled the number for an unrelated process. GetProcessTimes gives the
-// kernel's creation timestamp for that exact process object, so a recycled pid
-// with a different creation time is rejected.
+// detach 给作业自己的进程组且无控制台，因此关闭启动它的终端不会把它带 down。alive 报告 pid 是否为运行中的进程。sameProcess 报告 pid 是否存活且在 startedAt 创建。单靠 pid 不是身份：作业从 jobs.json 重载后，OS 可能已把号码回收给无关进程。GetProcessTimes 给出那个确切进程对象的内核创建时间戳，因此创建时间不同的被回收 pid 会被拒绝。
+// 单靠 pid 不是身份：作业从 jobs.json 重载后，OS 可能
+// 已把号码回收给无关进程。GetProcessTimes 给出内核的
+// 那个确切进程对象的创建时间戳，因此创建时间不同的被回收 pid
+// 会被拒绝。
 func sameProcess(pid int, startedAt time.Time) bool {
 	if pid <= 0 || startedAt.IsZero() {
 		return false
@@ -73,10 +73,10 @@ func sameProcess(pid int, startedAt time.Time) bool {
 	return diff <= identityTolerance
 }
 
-// killTree terminates pid and every descendant.
+// killTree 终止 pid 及其所有后代。
 //
-// A detached shell's children are not in a job object here, so taskkill /T is
-// the only way to reach the whole tree.
+// killTree 终止 pid 及其所有后代。分离 shell 的子进程在这里不在作业对象中，因此 taskkill /T 是触及整棵树的唯一方式。
+// 是触及整棵树的唯一方式。
 func killTree(pid int) {
 	if pid <= 0 {
 		return

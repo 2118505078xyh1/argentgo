@@ -12,13 +12,13 @@ import (
 	"time"
 )
 
-// hangGuard is a generous safety net so a regression cannot hang the whole
-// suite. The actual choreography is done with channels, not with tight timing
+// hangGuard 是一个宽松的安全网，使回归不会挂住整个
+// 套件。实际的编排用 channel 完成，而非紧时序。
 // thresholds.
 const hangGuard = 10 * time.Second
 
-// waitPersisted waits until every in-memory change has reached the disk. It is
-// used by tests that spawn reapers so directory teardown never races a write.
+// waitPersisted 等待直到每个内存修改都到达磁盘。派生 reaper 的测试用它，使目录拆卸永不与写入竞争。
+// 派生 reaper 的测试用它，使目录拆卸永不与写入竞争。
 func waitPersisted(t *testing.T, r *Registry) {
 	t.Helper()
 	deadline := time.Now().Add(hangGuard)
@@ -36,14 +36,14 @@ func waitPersisted(t *testing.T, r *Registry) {
 	}
 }
 
-// TestListDoesNotBlockAWrite checks the core of the refactor: while a disk
-// write is in flight, List may wait for it but must release mu, so a concurrent
-// Start/Get is never blocked. Handshakes, not timing thresholds, drive the test.
+// TestListDoesNotBlockAWrite 检查重构的核心：磁盘
+// 写入进行中时，List 可以等待它但必须释放 mu，使并发的
+// Get 从不被阻塞。握手而非时间阈值驱动测试。
 func TestListDoesNotBlockAWrite(t *testing.T) {
 	r := newRegistry(t)
 
-	// Hold ioMu to simulate a slow disk write. A Start will register its job
-	// under mu, then block on ioMu inside persist.
+	// 持有 ioMu 以模拟缓慢的磁盘写入。Start 将在 mu 下注册其作业，
+	// 然后在 persist 中阻塞于 ioMu。
 	r.ioMu.Lock()
 
 	startDone := make(chan error, 1)
@@ -52,8 +52,8 @@ func TestListDoesNotBlockAWrite(t *testing.T) {
 		startDone <- err
 	}()
 
-	// Wait until Start has registered the job (it has bumped inflight and is
-	// about to block on ioMu).
+	// 等待直到 Start 注册了作业（它已增加 inflight 且
+	// 即将阻塞于 ioMu）。
 	deadline := time.Now().Add(hangGuard)
 	for {
 		r.mu.Lock()
@@ -68,15 +68,15 @@ func TestListDoesNotBlockAWrite(t *testing.T) {
 		runtime.Gosched()
 	}
 
-	// List will wait for the in-flight write to land.
+	// List 将等待进行中的写入落地。
 	listDone := make(chan struct{})
 	go func() {
 		defer close(listDone)
 		_, _ = r.List()
 	}()
 
-	// Give List time to enter its wait, then prove mu is available to another
-	// caller — this is the guarantee a concurrent Start/Get depends on.
+	// 给 List 时间进入其等待，然后证明 mu 可供另一个
+	// 调用方使用 —— 这正是并发 Start/Get 依赖的保证。
 	runtime.Gosched()
 	muAcquired := make(chan struct{})
 	go func() {
@@ -86,12 +86,12 @@ func TestListDoesNotBlockAWrite(t *testing.T) {
 	}()
 	select {
 	case <-muAcquired:
-		// mu was not held by List while it waited for the disk.
+		// List 在等待磁盘时未持有 mu。
 	case <-time.After(hangGuard):
 		t.Fatal("List held mu while waiting for a disk write")
 	}
 
-	// Unblock the writer; both the List and the Start must then complete.
+	// TestListDoesNotBlockAWrite 检查重构的核心：磁盘写入进行中时，List 可以等待它但必须释放 mu，使并发的 Start/Get 从不被阻塞。握手而非时间阈值驱动测试。
 	r.ioMu.Unlock()
 	select {
 	case <-listDone:
@@ -111,14 +111,13 @@ func TestListDoesNotBlockAWrite(t *testing.T) {
 	if err != nil || len(jobs) != 1 {
 		t.Fatalf("list = %+v, err = %v", jobs, err)
 	}
-	// Wait for Start's reaper too: Get waits for any in-flight write, so the
-	// registry is fully quiet (and its directory safe to tear down) afterwards.
+	// 此后 registry 完全静止（其目录可安全拆卸）。
 	waitForTerminal(t, r, jobs[0].ID)
 	waitPersisted(t, r)
 }
 
-// TestListAndStartRunConcurrently stresses both paths together: no deadlock,
-// no lost jobs, and a single consistent index at the end.
+// TestListAndStartRunConcurrently 同时压测两条路径：无死锁、
+// 无作业丢失，且最终只有一个一致的索引。
 func TestListAndStartRunConcurrently(t *testing.T) {
 	r := newRegistry(t)
 	const starts = 6
@@ -159,8 +158,8 @@ func TestListAndStartRunConcurrently(t *testing.T) {
 	waitPersisted(t, r)
 }
 
-// signalLive is a LiveProcess that can report when its ExitCode was read, so a
-// test knows the completion watcher reached its decision point.
+// TestListAndStartRunConcurrently 同时压测两条路径：无死锁、无作业丢失，且最终只有一个一致的索引。signalLive 是一个 LiveProcess，能报告其 ExitCode 何时被读取，使测试知道完成观察者到达了其决策点。
+// 使测试知道完成观察者到达了其决策点。
 type signalLive struct {
 	pid      int
 	done     chan struct{}
@@ -184,9 +183,9 @@ func (s *signalLive) Kill() {
 	s.doneOnce.Do(func() { close(s.done) })
 }
 
-// TestStoppedKilledStatusSurvivesWatchers covers both checked-under-mu sites.
-// A watcher observing a child's exit must never turn a Stop-set killed status
-// back into exited.
+// TestStoppedKilledStatusSurvivesWatchers 覆盖两处在 mu 下检查的站点。
+// 观察者看到子进程退出绝不能把 Stop 设置的 killed 状态
+// 改回 exited。
 func TestStoppedKilledStatusSurvivesWatchers(t *testing.T) {
 	t.Run("promoted watcher", func(t *testing.T) {
 		r := newRegistry(t)
@@ -198,8 +197,8 @@ func TestStoppedKilledStatusSurvivesWatchers(t *testing.T) {
 		if err := r.Stop(job.ID); err != nil {
 			t.Fatalf("stop: %v", err)
 		}
-		// Stop closes Done; the watcher now reads the exit code. Waiting for
-		// that signal makes the check deterministic.
+		// Stop 关闭 Done；观察者现在读取退出码。等待
+		// 那个信号使检查确定。
 		select {
 		case <-live.codeRead:
 		case <-time.After(hangGuard):
@@ -213,8 +212,8 @@ func TestStoppedKilledStatusSurvivesWatchers(t *testing.T) {
 
 	t.Run("start reaper", func(t *testing.T) {
 		r := newRegistry(t)
-		// Seed a killed job, then feed reap an already-waited child so it
-		// records an exit without any process-timing dependency.
+		// TestStoppedKilledStatusSurvivesWatchers 覆盖两处在 mu 下检查的站点。观察者看到子进程退出绝不能把 Stop 设置的 killed 状态改回 exited。Stop 关闭 Done；观察者现在读取退出码。等待那个信号使检查确定。种入一个 killed 作业，然后给 reap 喂一个已等待的子进程，使它记录退出而不依赖任何进程时序。
+		// 使它记录退出而不依赖任何进程时序。
 		r.mu.Lock()
 		r.jobs["job1"] = &Job{ID: "job1", Status: StatusKilled, ExitCode: -1}
 		r.mu.Unlock()
@@ -233,8 +232,8 @@ func TestStoppedKilledStatusSurvivesWatchers(t *testing.T) {
 	})
 }
 
-// TestIndexRoundTripAfterAsyncChanges checks that write-path persistence keeps
-// the on-disk index consistent across a reopen, including a Stop-set status.
+// TestIndexRoundTripAfterAsyncChanges 检查写入路径的持久化在
+// 重新打开后保持磁盘索引一致，包括 Stop 设置的状态。
 func TestIndexRoundTripAfterAsyncChanges(t *testing.T) {
 	dir := t.TempDir()
 	first, err := New(dir)
@@ -266,7 +265,7 @@ func TestIndexRoundTripAfterAsyncChanges(t *testing.T) {
 		t.Fatalf("reloaded job = %+v", reloaded)
 	}
 
-	// The next id must not collide with the persisted one.
+	// TestIndexRoundTripAfterAsyncChanges 检查写入路径的持久化在重新打开后保持磁盘索引一致，包括 Stop 设置的状态。下一个 id 不得与持久化的 id 冲突。
 	nextLive := newSignalLive(993)
 	next, err := second.PromoteFromTimeout("second", nextLive, filepath.Join(dir, "job2.log"))
 	if err != nil {
@@ -277,9 +276,9 @@ func TestIndexRoundTripAfterAsyncChanges(t *testing.T) {
 	}
 }
 
-// TestConcurrentListsLeaveAtomicIndex checks the disk half of the refactor:
-// concurrent readers never produce a half-written temp file, and every write
-// leaves a complete, parseable index.
+// TestConcurrentListsLeaveAtomicIndex 检查重构的磁盘侧：并发读者绝不产生半写的临时文件，且每次写入都留下完整可解析的索引。
+// 并发读者绝不产生半写的临时文件，且每次写入
+// 都留下完整可解析的索引。
 func TestConcurrentListsLeaveAtomicIndex(t *testing.T) {
 	r := newRegistry(t)
 	const starts = 8
@@ -342,9 +341,9 @@ func TestConcurrentListsLeaveAtomicIndex(t *testing.T) {
 	}
 }
 
-// TestStaleSnapshotDoesNotOverwriteNewerState guards the version check: an
-// older snapshot that reaches ioMu after a newer one must be skipped, not
-// written over the fresher index.
+// TestStaleSnapshotDoesNotOverwriteNewerState 守护版本检查：一个
+// 在较新快照之后到达 ioMu 的较旧快照必须被跳过，而非
+// 覆盖较新的索引。
 func TestStaleSnapshotDoesNotOverwriteNewerState(t *testing.T) {
 	r := newRegistry(t)
 
@@ -357,8 +356,8 @@ func TestStaleSnapshotDoesNotOverwriteNewerState(t *testing.T) {
 		t.Fatalf("persist newest: %v", err)
 	}
 
-	// A snapshot captured before "b" existed, but written afterwards. Go
-	// through changedLocked so the in-flight accounting stays balanced.
+	// 在 "b" 存在之前捕获但之后写入的快照。经过
+	// TestStaleSnapshotDoesNotOverwriteNewerState 守护版本检查：在较新快照之后到达 ioMu 的较旧快照必须被跳过，而非覆盖较新的索引。在 "b" 存在之前捕获但之后写入的快照。经过 changedLocked 使进行中记账保持平衡。
 	oldSnap := index{Jobs: []Job{{ID: "a", Status: StatusExited}}}
 	r.mu.Lock()
 	_, staleVersion := r.changedLocked()

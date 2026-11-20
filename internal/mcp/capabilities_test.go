@@ -121,8 +121,8 @@ func TestServerCapabilitiesSupports(t *testing.T) {
 		{cap: "Tools", want: true},
 		{cap: "TOOLS", want: true},
 		{cap: " tools ", want: true},
-		{cap: "prompts", want: false},   // explicit false
-		{cap: "resources", want: false}, // nil means undeclared -> unsupported
+		{cap: "prompts", want: false},   // 显式 false
+		{cap: "resources", want: false}, // nil 表示未声明 -> 不支持
 		{cap: "unknown", want: false},
 		{cap: "", want: false},
 	}
@@ -132,7 +132,7 @@ func TestServerCapabilitiesSupports(t *testing.T) {
 		}
 	}
 
-	// A zero value (no capabilities object at all) declares nothing.
+	// 零值（完全没有 capabilities 对象）不声明任何能力。
 	var zero ServerCapabilities
 	if zero.Supports("tools") {
 		t.Error("zero-value capabilities must not support tools")
@@ -160,9 +160,9 @@ func TestServerCapabilitiesEnumerated(t *testing.T) {
 	}
 }
 
-// TestInitializeParsesCapabilitiesSkipsUndeclaredLists verifies the wiring: a
-// server that advertised capabilities but not tools gets no tools/list call,
-// while its declared resources are still listed.
+// TestInitializeParsesCapabilitiesSkipsUndeclaredLists 验证接线：一台宣告了
+// 能力但未宣告 tools 的服务器不会收到 tools/list 调用，
+// 而其宣告的 resources 仍会被列出。
 func TestInitializeParsesCapabilitiesSkipsUndeclaredLists(t *testing.T) {
 	toolsCalled, resourcesCalled := false, false
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -212,9 +212,9 @@ func TestInitializeParsesCapabilitiesSkipsUndeclaredLists(t *testing.T) {
 	}
 }
 
-// TestListRequestsProbeServersWithoutCapabilities guards the conservative
-// choice: servers that omit the capabilities member entirely are still
-// probed, so legacy/non-compliant servers keep working.
+// TestListRequestsProbeServersWithoutCapabilities 守护保守
+// 选择：完全省略 capabilities 成员的服务器仍会被
+// 探测，使旧服务器/不合规服务器继续工作。
 func TestListRequestsProbeServersWithoutCapabilities(t *testing.T) {
 	toolsCalled, resourcesCalled := false, false
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -251,9 +251,9 @@ func TestListRequestsProbeServersWithoutCapabilities(t *testing.T) {
 	}
 }
 
-// TestEmptyCapabilitiesObjectStillProbes guards the conservative choice for
-// servers that return "{}": it is an empty declaration, not a denial of every
-// capability, so tools/list and resources/list must still be attempted.
+// TestEmptyCapabilitiesObjectStillProbes 守护对返回 "{}" 的服务器的
+// 保守选择：那是空声明，而非对所有能力的拒绝，
+// 因此仍必须尝试 tools/list 和 resources/list。
 func TestEmptyCapabilitiesObjectStillProbes(t *testing.T) {
 	toolsCalled, resourcesCalled := false, false
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){

@@ -10,9 +10,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// TestAgentToTUIEventRetryMapsFields proves every wire-safe retry scalar reaches
-// the TUI field the live backoff renderer reads. Turn and Model have no TUI
-// counterpart and must not be invented here.
+// TestAgentToTUIEventRetryMapsFields 证明每个可安全上线传输的重试标量都到达实时退避渲染器读取的 TUI 字段。
+// Turn 和 Model 没有 TUI 对应项，不得在这里凭空编造。
+// （接上行）
 func TestAgentToTUIEventRetryMapsFields(t *testing.T) {
 	in := agent.Event{
 		Kind: agent.EventRetry,
@@ -41,8 +41,8 @@ func TestAgentToTUIEventRetryMapsFields(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventRetryNilDropped proves a retry event without its payload
-// is filtered instead of producing an empty countdown on screen.
+// TestAgentToTUIEventRetryNilDropped 证明没有负载的重试事件会被过滤，而不是在屏幕上产生空的倒计时。
+// （接上行）
 func TestAgentToTUIEventRetryNilDropped(t *testing.T) {
 	got, ok := AgentToTUIEvent(agent.Event{Kind: agent.EventRetry})
 	if ok {
@@ -53,9 +53,9 @@ func TestAgentToTUIEventRetryNilDropped(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventRetryDoesNotRegressOtherKinds proves dispatch stays keyed
-// on e.Kind: a stray Retry payload on another event neither changes its mapping
-// nor makes it a retry, and a real retry still maps to itself.
+// TestAgentToTUIEventRetryDoesNotRegressOtherKinds 证明分派仍以 e.Kind 为键：其他事件上多余的 Retry 负载既不会改变其映射，
+// 也不会让它成为重试，而真正的重试仍映射为自身。
+// （接上行）
 func TestAgentToTUIEventRetryDoesNotRegressOtherKinds(t *testing.T) {
 	stray := &agent.RetryInfo{Attempt: 2, MaxAttempts: 4, DelayMS: 100, Reason: "overloaded"}
 
@@ -77,10 +77,10 @@ func TestAgentToTUIEventRetryDoesNotRegressOtherKinds(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventRetryReasonRedactedOnRender proves the mapped Reason is
-// safe to display: even if a credential-shaped value leaks into a retry reason,
-// the TUI's RetryNotice redacts it so no key reaches the screen. The mapping
-// itself only copies the closed Reason token and never free-form provider text.
+// TestAgentToTUIEventRetryReasonRedactedOnRender 证明映射后的 Reason 可安全显示：即使形似凭据的值泄漏进重试原因，
+// TUI 的 RetryNotice 也会将其脱敏，使任何密钥都不会出现在屏幕上。映射本身只复制封闭的 Reason 标记，而绝不复制自由格式的提供方文本。
+// （接上行）
+// （接上行）
 func TestAgentToTUIEventRetryReasonRedactedOnRender(t *testing.T) {
 	const secret = "sk-ant-api03-abcdefghijklmnopqrst"
 	in := agent.Event{
@@ -103,8 +103,8 @@ func TestAgentToTUIEventRetryReasonRedactedOnRender(t *testing.T) {
 	}
 }
 
-// TestTUIEventPipelineDeliversEventRetry is the end-to-end proof that agent
-// retry feedback actually reaches the TUI channel the frontend drains.
+// TestTUIEventPipelineDeliversEventRetry 是端到端证明：agent 的重试反馈确实到达前端抽取的 TUI 通道。
+// （接上行）
 func TestTUIEventPipelineDeliversEventRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

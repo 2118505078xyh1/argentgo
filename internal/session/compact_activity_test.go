@@ -58,7 +58,7 @@ func TestSummarizeToolActivityReadsEditsCommands(t *testing.T) {
 	}
 	for _, want := range []string{
 		"read internal/foo.go:10-14", // offset/limit
-		"read a.txt:18-23",           // line/before/after
+		"read a.txt:18-23",           // 使用 line/before/after
 		"read b.go:30-40",            // 内联路径选择器
 		"edit c.go",                  // 编辑只记录路径
 		"bash go test ./internal/session -count=1",

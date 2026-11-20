@@ -8,7 +8,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// taskArgsJSON builds delegate arguments.
+// taskArgsJSON 构建委派参数。
 func taskArgsJSON(description, prompt string) string {
 	return `{"description":"` + description + `","prompt":"` + prompt + `"}`
 }
@@ -55,24 +55,24 @@ func TestSubagentReturnsChildText(t *testing.T) {
 	}
 }
 
-// A child loop inherits the parent's injected durability hooks, matching the
-// old process-global registry where a child run also flushed the root session.
-// The flag flips when the parent emits the task call and again when the child's
-// chatter runs, so only a hook fired between those two points counts as the
-// child's own barrier.
+// 子循环继承父级注入的持久性钩子，与旧版进程级注册表的行为一致（子运行也会刷写根会话）。
+// （接上行）
+// 该标志在父级发出 task 调用时翻转一次，在子级的 chatter 运行时再翻转一次，因此只有在这两点之间触发的钩子才算作
+// 子级自己的屏障。
+// （接上行）
 func TestSubagentInheritsBeforeRequestHook(t *testing.T) {
 	t.Parallel()
 
 	childPending, childHooks := false, 0
 	chat := &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		if isSubagent(messages) {
-			childPending = false // the child's own hook already ran before this point
+			childPending = false // 子级自己的钩子在此之前已经运行过
 			return textReply("child says 42"), nil
 		}
 		if last := lastToolContent(messages); last != "" {
 			return textReply("root got: " + last), nil
 		}
-		childPending = true // about to dispatch the task tool that spawns the child
+		childPending = true // 即将派发派生子级的 task 工具
 		return toolReply(toolCall("t1", TaskToolName, taskArgsJSON("look", "find the answer"))), nil
 	}}
 	runner := &Runner{Opts: Options{
@@ -176,8 +176,8 @@ func TestSubagentDepthLimit(t *testing.T) {
 		t.Fatalf("text = %q, want the depth-limit error", res.Text)
 	}
 	if childRequests != 2 {
-		// One request asks for the nested task, the second answers after the
-		// depth-limit error result.
+		// 一次请求嵌套任务，第二次在深度限制错误结果之后回答。
+		// （接上行）
 		t.Fatalf("child requests = %d, want 2 (the nested run must not start)", childRequests)
 	}
 }
@@ -206,7 +206,7 @@ func TestSubagentHasItsOwnTurnBudget(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	if childRequests != 3 {
-		// Two budgeted turns plus the single tool-free final-answer request.
+		// 两个计入预算的轮次加上唯一的无工具最终答案请求。
 		t.Fatalf("child requests = %d, want 2 turns plus one final answer", childRequests)
 	}
 	if !strings.Contains(res.Text, "without an answer") {

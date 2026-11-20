@@ -28,7 +28,6 @@ func planAsync(commands []Command) []Command {
 //
 // panic 隔离、遥测和 runner 都来自 guardedRunCommand，
 // 因此后台钩子的被观察方式与同步钩子完全一致。goroutine 中最后的
-// 因此后台钩子的被观察方式与同步钩子完全一致。goroutine 中最后的
 // recover 防止任何意外故障拖垮进程；Done 最后运行，使 WaitAsync 总能排空。
 func (d *Dispatcher) launchAsync(ctx context.Context, async []Command, payload Payload) {
 	for _, command := range async {

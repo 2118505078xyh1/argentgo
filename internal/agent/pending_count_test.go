@@ -15,7 +15,7 @@ func TestSteeringPendingIsNonDraining(t *testing.T) {
 		t.Fatalf("len(ch) after Pending() = %d, want 2 (Pending must not consume)", got)
 	}
 
-	<-ch // remove exactly one queued correction
+	<-ch // 恰好移除一条排队的纠正消息
 
 	if got := s.Pending(); got != 1 {
 		t.Fatalf("Pending() after draining one = %d, want 1", got)

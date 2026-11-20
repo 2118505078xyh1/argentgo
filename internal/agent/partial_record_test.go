@@ -274,7 +274,7 @@ func TestPartialRecordPersistenceConcurrentSwitch(t *testing.T) {
 			}
 		}(i)
 	}
-	// Also drive a real run so emitPartial reads the switch concurrently.
+	// 还要驱动一次真实运行，使 emitPartial 并发读取该开关。
 	chat := &streamChatter{fn: func(_ int, onText func(string)) (llm.Message, error) {
 		onText("半")
 		return llm.Message{}, errors.New("boom")

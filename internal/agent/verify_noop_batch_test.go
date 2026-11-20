@@ -9,11 +9,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestVerifySkippedWhenToolBatchDidNotRun pins the post-edit verification
-// boundary: verification is meaningful only after a mutating tool actually
-// executed. A batch rejected wholesale (truncated arguments, a failing
-// BeforeTool hook) changes nothing on disk, so it must not spend the reflection
-// budget, inject FAIL feedback, or end the run with StopVerifyReflections.
+// TestVerifySkippedWhenToolBatchDidNotRun 锁定编辑后验证的边界：只有在变更型工具真正执行后验证才有意义。
+// 被整体拒绝的批次（参数被截断、BeforeTool 钩子失败）不会改变磁盘，因此它不得消耗反思预算、
+// 注入 FAIL 反馈，或以 StopVerifyReflections 结束运行。
+// （接上行）
+// （接上行）
 func TestVerifySkippedWhenToolBatchDidNotRun(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -98,10 +98,10 @@ func TestVerifySkippedWhenToolBatchDidNotRun(t *testing.T) {
 	}
 }
 
-// TestVerifyCannotSpuriousStopAnUneditedRun proves the severe consequence: a
-// model that keeps emitting truncated mutating calls never runs a tool, yet the
-// reflection budget must not be spent and the run must not end as a verify
-// failure. With the bug present the fourth truncated reply ends the run with
+// TestVerifyCannotSpuriousStopAnUneditedRun 证明严重后果：一个持续发出被截断的变更型调用的模型从未真正运行工具，
+// 但反思预算不得被消耗，运行也不得作为验证失败而结束。有 bug 时，第四次被截断的回复会以
+// （接上行）
+// （接上行）
 // StopVerifyReflections.
 func TestVerifyCannotSpuriousStopAnUneditedRun(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {

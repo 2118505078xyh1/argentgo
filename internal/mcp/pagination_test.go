@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// cursorParam reads the opaque cursor sent by a paginated list request. The
-// first request has no params at all (nil), so an absent member means "first
-// page".
+// cursorParam 读取分页列表请求发送的不透明游标。第一个
+// 请求完全没有 params（nil），因此缺失的成员表示"第一
+// 页"。
 func cursorParam(params json.RawMessage) json.RawMessage {
 	if len(params) == 0 {
 		return nil
@@ -32,9 +32,9 @@ func pageTool(name string) map[string]any {
 	}
 }
 
-// TestListToolsFollowsNextCursor guards the core pagination bug: tools beyond
-// the first page must be collected, and each follow-up request must carry the
-// exact token the server handed back.
+// TestListToolsFollowsNextCursor 守护核心分页缺陷：必须收集第一页
+// 之后的工具，且每个后续请求都必须携带服务器
+// 交回的确切 token。
 func TestListToolsFollowsNextCursor(t *testing.T) {
 	var requests []string
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -53,7 +53,7 @@ func TestListToolsFollowsNextCursor(t *testing.T) {
 					"nextCursor": "page-3",
 				}, nil
 			case `"page-3"`:
-				// An empty token ends the chain.
+				// 空 token 结束链条。
 				return map[string]any{
 					"tools":      []any{pageTool("four")},
 					"nextCursor": "",
@@ -77,8 +77,8 @@ func TestListToolsFollowsNextCursor(t *testing.T) {
 			t.Fatalf("tools[%d] = %q, want %q", i, tools[i].Name, name)
 		}
 	}
-	// The first call must keep the legacy no-params shape; follow-ups replay
-	// the token verbatim (including its JSON string quoting).
+	// 第一次调用必须保持旧的无 params 形态；后续调用原样重放
+	// token（包括其 JSON 字符串引号）。
 	wantReq := []string{"", `"page-2"`, `"page-3"`}
 	if len(requests) != len(wantReq) {
 		t.Fatalf("got %d requests, want %d: %v", len(requests), len(wantReq), requests)
@@ -90,8 +90,8 @@ func TestListToolsFollowsNextCursor(t *testing.T) {
 	}
 }
 
-// TestListResourcesFollowsNextCursor applies the same paging rule to
-// resources/list.
+// TestListResourcesFollowsNextCursor 把同样的分页规则应用到
+// resources/list。
 func TestListResourcesFollowsNextCursor(t *testing.T) {
 	var requests []string
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -126,8 +126,8 @@ func TestListResourcesFollowsNextCursor(t *testing.T) {
 	}
 }
 
-// TestListToolsReplaysOpaqueCursor checks that a non-string token is sent back
-// untouched instead of being coerced or dropped.
+// TestListToolsReplaysOpaqueCursor 检查非字符串 token 是否被
+// 原样发回，而不是被强制转换或丢弃。
 func TestListToolsReplaysOpaqueCursor(t *testing.T) {
 	var second string
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -156,9 +156,9 @@ func TestListToolsReplaysOpaqueCursor(t *testing.T) {
 	}
 }
 
-// TestListToolsStopsOnRepeatedCursor ensures a server that keeps handing back
-// the same token cannot spin the client forever, and that a failed pagination
-// run leaves no partially cached tool view.
+// TestListToolsStopsOnRepeatedCursor 确保不断发回
+// 相同 token 的服务器无法让客户端永远旋转，且失败的分页
+// 运行不会留下部分缓存的工具视图。
 func TestListToolsStopsOnRepeatedCursor(t *testing.T) {
 	calls := 0
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
@@ -183,8 +183,8 @@ func TestListToolsStopsOnRepeatedCursor(t *testing.T) {
 	}
 }
 
-// TestNextCursorToken covers the empty-token shapes that terminate paging and
-// the opaque shapes that must be preserved.
+// TestNextCursorToken 覆盖终止分页的空 token 形态，以及
+// 必须保留的不透明形态。
 func TestNextCursorToken(t *testing.T) {
 	cases := []struct {
 		name string

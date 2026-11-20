@@ -12,11 +12,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// resetSharedDefs installs a fresh DefinitionCache singleton for a test. The
-// discovery call sites use a package-level singleton (there is no App/Factory
-// receiver to hang a field on), so a test that asserts cache accounting needs
-// to start from a clean one. This helper does not call t.Parallel; the only
-// parallel tests in this package exercise the runner and never touch defs.
+// resetSharedDefs 为测试安装一个新的 DefinitionCache 单例。发现调用点使用包级单例（没有可挂字段的 App/Factory 接收者），
+// 因此断言缓存计数的测试需要从一个干净的单例开始。该辅助函数不调用 t.Parallel；本包中唯一的并行测试
+// 只演练运行器，从不触碰 defs。
+// （接上行）
+// （接上行）
 func resetSharedDefs(t *testing.T) *DefinitionCache {
 	t.Helper()
 	defsOnce = sync.Once{}
@@ -28,8 +28,8 @@ func resetSharedDefs(t *testing.T) *DefinitionCache {
 	return c
 }
 
-// writeWireSkill lays down one discoverable SKILL.md in a directory, using an
-// isolated workspace root so the fingerprint only reflects that root.
+// writeWireSkill 在一个目录中放置一个可被发现的 SKILL.md，使用隔离的工作区根目录，使指纹只反映该根目录。
+// （接上行）
 func writeWireSkill(t *testing.T, root, name string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(skills.DefaultProjectSubdir), name, "SKILL.md")
@@ -42,9 +42,9 @@ func writeWireSkill(t *testing.T, root, name string) {
 	}
 }
 
-// TestWiredDefinitionsCacheDedupesSystemBuilds proves the wiring: two system
-// prompts built from the same roots run discovery once, Refresh forces a
-// rediscovery, and the skill still appears in the prompt (no behaviour change).
+// TestWiredDefinitionsCacheDedupesSystemBuilds 证明接线：从相同根目录构建的两个系统提示只执行一次发现，Refresh 强制重新发现，
+// 且技能仍出现在提示中（无行为变化）。
+// （接上行）
 func TestWiredDefinitionsCacheDedupesSystemBuilds(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	writeWireSkill(t, root, "deploy")
@@ -72,9 +72,9 @@ func TestWiredDefinitionsCacheDedupesSystemBuilds(t *testing.T) {
 	assertDefStats(t, c, 1, 2, 1)
 }
 
-// TestWiredDefinitionsCacheSharedAcrossCallSites proves buildSystemWithTrust
-// and contextPrompt share one snapshot: the second site is served from the
-// cache rather than rescanning the same skill roots.
+// TestWiredDefinitionsCacheSharedAcrossCallSites 证明 buildSystemWithTrust 和 contextPrompt 共享一个快照：第二个调用点由缓存服务，
+// 而非重新扫描相同的技能根目录。
+// （接上行）
 func TestWiredDefinitionsCacheSharedAcrossCallSites(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	writeWireSkill(t, root, "deploy")

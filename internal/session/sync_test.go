@@ -40,7 +40,7 @@ func TestSessionSyncFlushesExistingFile(t *testing.T) {
 				t.Fatalf("Sync: %v", err)
 			}
 
-			// Sync must be repeatable and must not change the transcript.
+			// Sync 必须可重复，且不得改变转录。
 			before, err := sess.Records()
 			if err != nil {
 				t.Fatalf("Records: %v", err)

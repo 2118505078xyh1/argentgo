@@ -49,7 +49,6 @@ func (i ConfigIssue) String() string {
 // Async 和 StopPropagation 标志的组合。同时带有两者的命令会结束
 // claimedCommands 的 walk 并保护后面每一个钩子，但 Run 永不观察
 // 异步钩子的结果（决定性的钩子必须同步回答）。
-// 异步钩子的结果（决定性的钩子必须同步回答）。
 // 其效果是后面的钩子仅凭一个即发即忘任务就被静默跳过，这几乎总是无意的。
 func DiagnoseConfig(c *Config) []ConfigIssue {
 	issues := make([]ConfigIssue, 0)

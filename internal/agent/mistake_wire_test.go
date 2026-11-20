@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestInvokeTracksToolFailuresAndReset checks that a failed tool execution is
-// recorded as a mistake and a successful one clears the streak.
+// TestInvokeTracksToolFailuresAndReset 检查失败的工具执行会被记录为错误，而成功的执行会清除连续序列。
+// （接上行）
 func TestInvokeTracksToolFailuresAndReset(t *testing.T) {
 	ft := &fakeTools{}
 	s := &runState{
@@ -32,7 +32,7 @@ func TestInvokeTracksToolFailuresAndReset(t *testing.T) {
 		t.Fatalf("CountFor(tool_execution_failed) = %d, want 1", got)
 	}
 
-	ft.run = nil // success path
+	ft.run = nil // 成功路径
 	res = s.invoke(context.Background(), call)
 	if res.isError {
 		t.Fatalf("second invoke isError = true, want false")
@@ -42,8 +42,8 @@ func TestInvokeTracksToolFailuresAndReset(t *testing.T) {
 	}
 }
 
-// TestLoopInjectsMistakeGuidance checks that, once a streak reaches the limit,
-// the recovery instruction is injected as a user turn before the next request.
+// TestLoopInjectsMistakeGuidance 检查连续序列达到上限后，恢复指令会在下一次请求之前作为用户轮次注入。
+// （接上行）
 func TestLoopInjectsMistakeGuidance(t *testing.T) {
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		if n == 1 {
@@ -84,9 +84,9 @@ func TestLoopInjectsMistakeGuidance(t *testing.T) {
 	}
 }
 
-// TestLoopStopsOnUnrecoverableMistakes checks that a streak with no guidance
-// callback ends the run through the existing EventStop/result termination path,
-// before any model request is issued.
+// TestLoopStopsOnUnrecoverableMistakes 检查没有指引回调的连续序列会通过既有的 EventStop/结果终止路径结束运行，
+// 且在发出任何模型请求之前结束。
+// （接上行）
 func TestLoopStopsOnUnrecoverableMistakes(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("should not be called"), nil
@@ -95,7 +95,7 @@ func TestLoopStopsOnUnrecoverableMistakes(t *testing.T) {
 		Model:   "test",
 		Chatter: chat,
 	}, "go", nil)
-	s.mistakes = NewMistakeTracker(1) // no guidance: Check must stop
+	s.mistakes = NewMistakeTracker(1) // 无指引：Check 必须停止
 	s.mistakes.Record(MistakeKindAPIError)
 
 	res, err := s.loop(context.Background())
@@ -108,7 +108,7 @@ func TestLoopStopsOnUnrecoverableMistakes(t *testing.T) {
 	if got := chat.count(); got != 0 {
 		t.Fatalf("provider saw %d requests, want 0 (stopped before any call)", got)
 	}
-	// The stop reason must reach the event stream as well.
+	// 停止原因也必须到达事件流。
 	stopped := false
 	for _, e := range s.eventsSnapshot() {
 		if e.Kind == EventStop && e.Reason == stopRepeatedMistakes {

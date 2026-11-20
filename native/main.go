@@ -1,6 +1,6 @@
-// Command mygo-native is a native MyGo UI replica of the argentgo chat
-// frontend. It uses only package ui (no WebView, HTML or JS); assistant
-// replies are rendered with ui/markdown so streaming and Markdown work
+// Command mygo-native 是 argentgo 聊天前端的原生 MyGo UI 复刻。
+// 它只使用 package ui（无 WebView、HTML 或 JS）；助手
+// newTestChat 构建一个即时收到预设回复的 app：无计时器、无窗口，因此测试中无挂钟依赖。预设回复是 Markdown，由 ui/markdown 原生渲染。把焦点移出自动聚焦的输入框，使窗口快捷键生效。Undo 移除整个回合，而非仅末尾回复：不得留下孤立的用户消息，审批卡片也被清除。Undo 移除审批卡片，它把焦点送回输入框。当输入框没有焦点时 Y 允许待处理的审批。
 // natively.
 package main
 
@@ -20,9 +20,8 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 )
 
-// palette mirrors the warm charcoal/coral design tokens of
-// argent-go/ui/src/styles.css. The app keeps its own palette so the theme
-// toggle can switch the whole window without relying on the desktop.
+// 调色板镜像暖炭/珊瑚设计 token，来自
+// 切换整个窗口而无需依赖桌面。
 type palette struct {
 	bg, surface, element, border, borderSubtle ui.Color
 	text, dim, accent, ok, danger, warn        ui.Color
@@ -77,8 +76,8 @@ const (
 	msgTool
 )
 
-// message is one row of the transcript. For tools, name/text/status describe
-// the compact card; for assistant messages, text is Markdown source.
+// message 是 transcript 的一行。对工具，name/text/status 描述
+// 紧凑卡片；对助手消息，text 是 Markdown 源。
 type message struct {
 	id     int
 	kind   msgKind
@@ -94,9 +93,9 @@ type approval struct {
 	args string
 }
 
-// session is one row of the session rail. id is the real engine session id;
-// it is empty for the demo rows in fakeSessions. openSession uses id when set
-// (so session.load gets a real id) and falls back to title in demo mode.
+// session 是会话栏的一行。id 是真实的 engine 会话 id；
+// 对 fakeSessions 中的 demo 行为空。openSession 在设置时使用 id
+// session 是会话栏的一行。id 是真实的 engine 会话 id；对 fakeSessions 中的 demo 行为空。openSession 在设置时使用 id（使 session.load 获得真实 id）并在 demo 模式下回退到 title。chat 是唯一的 app 状态对象。视图每帧从它重建；后台工作只通过 Window.Update 改变它。
 type session struct {
 	id    string
 	title string
@@ -117,8 +116,8 @@ var fakeSessions = []session{
 
 var quickActions = []string{"解释这段代码", "写单元测试", "检查命令", "/ 命令"}
 
-// chat is the single app state object. The view is rebuilt from it every
-// frame; background work changes it only through Window.Update.
+// chat 是唯一的 app 状态对象。视图每帧从它
+// 重建；后台工作只通过 Window.Update 改变它。
 type chat struct {
 	win     *mygo.Window
 	engine  *bridge // nil in tests / when the engine binary is unavailable
@@ -136,9 +135,9 @@ type chat struct {
 	sessionList     ui.ListState
 	md              markdown.Options
 
-	// sessions holds the real session rail fetched over session.list. It is
-	// nil until a successful fetch, in which case sessionPanel keeps showing
-	// fakeSessions (demo mode, or a failed RPC that must degrade gracefully).
+	// sessions 保存通过 session.list 获取的真实会话栏。在成功获取前
+	// 它为 nil，此时 sessionPanel 继续显示
+	// fakeSessions（demo 模式，或必须优雅降级的失败 RPC）。
 	sessions          []session
 	sessionListLoaded bool // session.list is fetched at most once per chat
 
@@ -150,19 +149,18 @@ type chat struct {
 	tool       *message
 	approval   *approval
 
-	// sessionListRPC is the test seam for loading the session rail. When nil,
-	// fetchSessions calls engine.call directly; tests inject a recorder to
-	// verify the session.list RPC without a live engine process.
+	// sessionListRPC 是加载会话栏的测试接缝。为 nil 时，
+	// fetchSessions 直接调用 engine.call；测试注入记录器以
+	// 验证 session.list RPC 而无需活 engine 进程。
 	sessionListRPC func(method string, params any) (json.RawMessage, error)
 
-	// sessionLoadRPC is the test seam for opening a session. When nil,
-	// openSession calls engine.call directly; tests inject a recorder to
-	// verify the session.load RPC without a live engine process.
+	// sessionLoadRPC 是打开会话的测试接缝。为 nil 时，
+	// openSession 直接调用 engine.call；测试注入记录器以
+	// 验证 session.load RPC 而无需活 engine 进程。
 	sessionLoadRPC func(method string, params any) (json.RawMessage, error)
 
-	// approvalAnswerRPC is the test seam for answering an approval. When nil,
-	// answerApproval calls engine.call directly; tests inject a recorder to
-	// verify the approval.answer RPC without a live engine process.
+	// approvalAnswerRPC 是回答审批的测试接缝。为 nil 时，
+	// answerApproval 直接调用 engine.call；测试注入记录器以
 	approvalAnswerRPC func(method string, params any) (json.RawMessage, error)
 }
 
@@ -173,8 +171,8 @@ func (app *chat) palette() palette {
 	return darkPalette
 }
 
-// applyTheme installs the app's palette as the window theme so that widgets
-// (buttons, inputs, scroll bars) follow the same design as our own elements.
+// applyTheme 把 app 的调色板安装为窗口主题，使控件
+// （按钮、输入框、滚动条）遵循与我们自己的元素相同的设计。
 func (app *chat) applyTheme(c *ui.Context) palette {
 	p := app.palette()
 	t := *c.Theme()
@@ -201,8 +199,8 @@ func (app *chat) view(c *ui.Context) {
 	p := app.applyTheme(c)
 	t := c.Theme()
 
-	// Undo / retry / approval keys. A focused text input takes plain keys
-	// first, so Y/N only act on an approval while the composer is not typing.
+	// Undo / retry / 审批按键。聚焦的文本输入优先接收普通按键，
+	// applyTheme 把 app 的调色板安装为窗口主题，使控件（按钮、输入框、滚动条）遵循与我们自己的元素相同的设计。Undo / retry / 审批按键。聚焦的文本输入优先接收普通按键，因此 Y/N 仅在输入框未键入时才对审批起作用。导航网格。零值（测试/demo 使用）保留活动会话列表；其他每一项渲染自己的占位子面板而非会话栏。页脚状态点。
 	if c.Shortcut(ui.Cmd, ui.KeyZ) {
 		app.undo()
 	}
@@ -236,7 +234,7 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			})
 		})
 
-		// Navigation grid.
+		// 导航网格。
 		ui.Grid(c).Columns(3).Gap(4).Children(func() {
 			for _, name := range navItems {
 				active := app.nav == name
@@ -254,15 +252,15 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 		})
 
 		// The active nav item decides what the lower sidebar shows. 聊天 (and the
-		// zero value used by tests/demo) keeps the live session list; every other
-		// item renders its own placeholder sub-panel instead of a session rail.
+		// 零值（测试/demo 使用）保留活动会话列表；其他每一项
+		// 渲染自己的占位子面板而非会话栏。
 		if app.nav == "" || app.nav == "聊天" {
 			app.sessionPanel(c, p)
 		} else {
 			app.renderNavPanel(c, p, app.nav)
 		}
 
-		// Footer status dot.
+		// 页脚状态点。
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 6, 0, 6).
 			BorderWidth(1, 0, 0, 0).BorderColor(p.borderSubtle).Children(func() {
 			dot := p.ok
@@ -276,15 +274,15 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 	})
 }
 
-// sessionPanel renders the chat nav item's sidebar: session search, the
-// session rail and the new-session button. The first time a real engine is
-// attached it kicks off a session.list fetch; until that succeeds (or in demo
-// mode) the existing fakeSessions remain on screen, so a failed RPC leaves a
-// usable rail instead of a blank one.
+// sessionPanel 渲染聊天导航项的侧边栏：会话搜索、
+// 会话栏和新建会话按钮。首次附加真实 engine 时
+// sessionPanel 渲染聊天导航项的侧边栏：会话搜索、会话栏和新建会话按钮。首次附加真实 engine 时它启动一次 session.list 获取；在该请求成功之前（或 demo 模式下）现有 fakeSessions 留在屏幕上，因此失败的 RPC 留下可用的会话栏而非空白。
+// 模式）现有 fakeSessions 留在屏幕上，因此失败的 RPC 留下
+// 可用的会话栏而非空白。
 func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	app.ensureSessions()
 
-	// Session header and search.
+	// 会话头部和搜索。
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
 		ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
 		if ui.Button(c, "＋").Clicked() {
@@ -294,8 +292,8 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
 		Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
 
-	// Session list. A successful fetch replaces the demo rows; a failure (or
-	// demo mode, where sessions stays nil) keeps them.
+	// 会话列表。成功获取替换 demo 行；失败（或
+	// sessions 保持 nil 的 demo 模式）保留它们。
 	rows := app.sessions
 	if rows == nil {
 		rows = fakeSessions
@@ -331,9 +329,9 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	}).Grow(1)
 }
 
-// isSessionSelected compares by real id when the row has one, so two sessions
-// sharing a generated title cannot both look selected. Demo rows fall back to
-// the title, which is their identity there.
+// 会话头部和搜索。会话列表。成功获取替换 demo 行；失败（或 sessions 保持 nil 的 demo 模式）保留它们。isSessionSelected 在行有真实 id 时按 id 比较，使共享生成标题的两个会话不会都显得被选中。Demo 行回退到 title，那是它们在该模式下的身份。
+// 共享生成标题的两个会话不会都显得被选中。Demo 行回退到
+// title，那是它们在该模式下的身份。
 func (app *chat) isSessionSelected(s session) bool {
 	if s.id != "" {
 		return app.selectedSession == s.id
@@ -341,10 +339,10 @@ func (app *chat) isSessionSelected(s session) bool {
 	return app.selectedSession == s.title
 }
 
-// ensureSessions starts the one-time session.list fetch when a real engine is
-// attached. With a window it runs off-thread and applies the result on the UI
-// thread (like prompt replies do); without one (tests) it applies inline so
-// the very first frame already shows the real rail.
+// ensureSessions 在附加真实 engine 时启动一次性 session.list 获取。
+// 有窗口时它在后台线程运行并在 UI 线程应用结果
+// （像提示回复那样）；无窗口时（测试）它内联应用，使
+// 第一帧就显示真实会话栏。
 func (app *chat) ensureSessions() {
 	if app.engine == nil || app.sessionListLoaded {
 		return
@@ -362,9 +360,9 @@ func (app *chat) ensureSessions() {
 	}()
 }
 
-// fetchSessions calls the session.list RPC and decodes its {"sessions":[...]}
-// payload. An RPC error or an unparseable payload is returned to the caller,
-// which degrades to the existing rail rather than clearing it.
+// ensureSessions 在附加真实 engine 时启动一次性 session.list 获取。有窗口时它在后台线程运行并在 UI 线程应用结果（像提示回复那样）；无窗口时（测试）它内联应用，使第一帧就显示真实会话栏。fetchSessions 调用 session.list RPC 并解码其 {"sessions":[...]} payload。RPC 错误或无法解析的 payload 返回给调用方，后者降级到现有会话栏而非清空它。
+// payload。RPC 错误或无法解析的 payload 返回给调用方，
+// 后者降级到现有会话栏而非清空它。
 func (app *chat) fetchSessions() ([]session, error) {
 	call := app.sessionListRPC
 	if call == nil {
@@ -377,17 +375,16 @@ func (app *chat) fetchSessions() ([]session, error) {
 	return parseSessionList(raw)
 }
 
-// engineSession mirrors server.SessionInfo (internal/server/sessions.go) as
-// it arrives on the wire. Keeping the type here avoids importing internal/
-// into native/, which stays a dependency-light frontend.
+// 它在线上的形态。把类型保留在这里避免把 internal/
+// 导入 native/，后者保持为依赖轻量前端。
 type engineSession struct {
 	ID      string    `json:"id"`
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated"`
 }
 
-// parseSessionList maps the RPC payload into rail rows. A session with no
-// title is shown by its id; the timestamp supplies the group/meta labels.
+// parseSessionList 把 RPC payload 映射为会话栏行。没有
+// 标题的会话按其 id 显示；时间戳提供分组/元信息标签。
 func parseSessionList(raw json.RawMessage) ([]session, error) {
 	var payload struct {
 		Sessions []engineSession `json:"sessions"`
@@ -411,9 +408,9 @@ func parseSessionList(raw json.RawMessage) ([]session, error) {
 	return out, nil
 }
 
-// applySessions installs a successful fetch. A failure leaves sessions as it
-// was (so the current rail survives) and reports a redacted, single-line
-// notice; it never crashes the view.
+// applySessions 安装成功的获取。失败让 sessions 保持原样
+// （使当前会话栏存活）并报告脱敏、单行的
+// 通知；它从不使视图崩溃。
 func (app *chat) applySessions(sessions []session, err error) {
 	if err != nil {
 		app.status = "会话列表加载失败：" + engineErrorNotice(err)
@@ -422,7 +419,7 @@ func (app *chat) applySessions(sessions []session, err error) {
 	app.sessions = sessions
 }
 
-// sessionGroup buckets a session by the day it was updated, matching the
+// sessionGroup 按会话更新的日期分组，匹配
 // 今天/昨天/更早 groups of the demo rail.
 func sessionGroup(updated time.Time) string {
 	if updated.IsZero() {
@@ -444,7 +441,7 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-// sessionMeta renders a short relative time for a session row.
+// sessionMeta 为会话行渲染简短相对时间。
 func sessionMeta(updated time.Time) string {
 	if updated.IsZero() {
 		return ""
@@ -464,10 +461,10 @@ func sessionMeta(updated time.Time) string {
 	}
 }
 
-// openSession selects a session row and asks a real engine to load it through
-// the existing session.load RPC. The id comes from session.list when available;
-// demo/degraded rows have none and fall back to the title (their identity in
-// that mode). With no bridge attached it keeps the original local-only switch.
+// openSession 选中某会话行并通过现有 session.load RPC 请求
+// sessionGroup 按会话更新的日期分组，匹配会话栏的分组。sessionMeta 为会话行渲染简短相对时间。openSession 选中某会话行并通过现有 session.load RPC 请求真实 engine 加载它。id 在可用时来自 session.list；demo/降级行没有 id 并回退到 title（它们在该模式下的身份）。没有附加 bridge 时它保持原有的纯本地切换。
+// demo/降级行没有 id 并回退到 title（它们在该模式下的身份）。
+// 没有附加 bridge 时它保持原有的纯本地切换。
 func (app *chat) openSession(s session) {
 	id := s.id
 	if id == "" {
@@ -490,7 +487,7 @@ func (app *chat) openSession(s session) {
 func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 	_ = t // theme colors already installed through c.SetTheme
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
-		// Top bar.
+		// 顶栏。
 		ui.Row(c).Height(64).Padding(10, 20).Gap(12).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(p.borderSubtle).Children(func() {
 			ui.Column(c).Gap(2).Children(func() {
@@ -514,7 +511,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			})
 		})
 
-		// Approval bar.
+		// 审批栏。
 		if app.approval != nil {
 			app.approvalView(c, p)
 		}
@@ -538,7 +535,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 							a := action
 							if ui.Button(c, a).Padding(6, 12).Clicked() {
 								if strings.HasPrefix(a, "/ ") {
-									// A slash-command hint seeds the trigger, not its label.
+									// 斜杠命令提示种入触发器，而非其标签。
 									app.draft = "/ "
 								} else {
 									app.draft = a + " "
@@ -550,7 +547,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			}
 		})
 
-		// Status line.
+		// 状态行。
 		ui.Row(c).Height(30).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
 			dot := p.ok
 			if app.streaming {
@@ -613,8 +610,8 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 	})
 }
 
-// message builds one transcript row: a right-aligned user bubble, a compact
-// tool card with a status glyph, or an assistant Markdown view.
+// message 构建一条 transcript 行：右对齐的用户气泡、紧凑
+// 工具卡片带状态字形，或助手 Markdown 视图。
 func (app *chat) message(c *ui.Context, m *message, p palette) {
 	switch m.kind {
 	case msgUser:
@@ -652,9 +649,8 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 	}
 }
 
-// send appends the user's message and drives the reply. When a real engine
-// bridge is attached it calls prompt over JSON-RPC and streams the deltas;
-// otherwise it keeps the canned Markdown fallback (tests, or no engine).
+// send 追加用户消息并驱动回复。附加真实 engine 时
+// 否则保持预设 Markdown 回退（测试，或无 engine）。
 func (app *chat) send(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" || app.streaming {
@@ -668,8 +664,8 @@ func (app *chat) send(text string) {
 	reply := &message{id: app.next, kind: msgAssistant}
 	app.messages = append(app.messages, reply)
 
-	// A tool row is only shown in the fallback demo: the stdio RPC protocol
-	// carries prompt text and deltas, not tool events.
+	// 工具行只在回退 demo 中显示：stdio RPC 协议
+	// 携带提示文本和 deltas，而非工具事件。
 	var tool *message
 	if app.engine == nil {
 		app.next++
@@ -718,10 +714,9 @@ func (app *chat) send(text string) {
 	}()
 }
 
-// isCancelError reports whether an engine error is a user abort rather than a
-// real failure. After the server-side unification cancellation arrives as a
-// normal stopReason (so err is nil); the string check keeps the UI correct if
-// an older engine still sends "context canceled" as a JSON-RPC error.
+// isCancelError 报告 engine 错误是否是用户中止而非
+// 真实失败。在服务端统一之后，取消作为普通 stopReason 到达
+// （因此 err 为 nil）；字符串检查在较旧 engine 仍发送 "context canceled"
 func isCancelError(err error) bool {
 	if err == nil {
 		return false
@@ -733,9 +728,9 @@ func isCancelError(err error) bool {
 	return strings.Contains(msg, "context canceled") || strings.Contains(msg, "cancelled")
 }
 
-// finishText picks the text passed to finish() for a non-failing prompt. A
-// cancelled run can come back with an empty result; wiping the answer the user
-// already watched stream in would be worse than showing nothing at all.
+// finishText 为非失败的提示挑选传给 finish() 的文本。
+// 被取消的运行可能带回空结果；擦掉用户已经
+// 看着流进来的答案比什么都不显示更糟。
 func finishText(full string, err error, streamed string) string {
 	if err != nil && !isCancelError(err) {
 		return full
@@ -746,31 +741,30 @@ func finishText(full string, err error, streamed string) string {
 	return full
 }
 
-// completeFromPrompt finalizes a real-engine reply. It is the single place that
-// decides which text and status survive a prompt result, so a genuine engine
-// error cannot be silently replaced by finish()'s (usually empty) full result.
-// Keeping the decision here makes it testable without a window or live engine.
+// completeFromPrompt 终结真实 engine 的回复。它是决定
+// 哪些文本和状态在提示结果后存活的唯一位置，使真实的 engine
+// 错误不会被 finish() 的（通常为空的）完整结果静默替换。
+// 把决定保留在这里使其无需窗口或活 engine 即可测试。
 func (app *chat) completeFromPrompt(streamed, full string, err error) {
 	if err != nil && !isCancelError(err) {
-		// Route through finishEngineError so provider errors are redacted,
-		// newline-collapsed and rune-bounded before entering the transcript.
+		// 通过 finishEngineError 路由，使 provider 错误被脱敏、
+		// 通过 finishEngineError 路由，使 provider 错误在进入 transcript 前被脱敏、折叠换行并限制 rune。取消不是错误：保留流式答案，永不显示错误通知。
 		app.finishEngineError(err)
 		return
 	}
-	// Cancellation is not an error: keep the streamed answer and never show
+	// 取消不是错误：保留流式答案，永不显示错误通知。
 	// the "引擎错误" banner for it.
 	app.finish(finishText(full, err, streamed))
 }
 
-// sendReal calls the real engine. Deltas arrive on the bridge read loop and
-// are marshalled back onto the UI thread through Window.Update.
+// 通过 Window.Update 编组回 UI 线程。
 func (app *chat) sendReal(text string, reply *message) {
 	eng := app.engine
-	// Register the delta callback through the bridge's lock and capture the
-	// round's generation. readLoop snapshots the callback under the same lock,
-	// so swapping callbacks across rounds cannot race with a live delta. Only
-	// the completion goroutine reads gen; it is launched after the assignment
-	// below, so that read is race-free.
+	// 通过 bridge 的锁注册 delta 回调并捕获
+	// 该轮的 generation。readLoop 在同一锁下快照回调，
+	// 因此跨轮交换回调不会与实时 delta 竞争。只有
+	// 完成 goroutine 读取 gen；它在下面的赋值之后
+	// 启动，使该读取无竞态。
 	gen := eng.setDeltaHandler(func(chunk string) {
 		if app.win == nil {
 			return
@@ -783,12 +777,12 @@ func (app *chat) sendReal(text string, reply *message) {
 	})
 	go func() {
 		full, err := eng.prompt(text)
-		// reply.text is only ever written on the UI thread by onDelta, so
-		// reading the streamed text inside the Update callback is safe; with
-		// no window no deltas are applied at all.
+		// reply.text 只由 onDelta 在 UI 线程上写入，因此
+		// 在 Update 回调中读取流式文本是安全的；无
+		// 窗口时根本不应用 deltas。
 		complete := func() { app.completeRealReply(eng, gen, reply, full, err) }
 		if app.win == nil {
-			// Tests never attach a real bridge, but stay safe anyway.
+			// 测试从不附加真实 bridge，但仍保持安全。
 			complete()
 			return
 		}
@@ -796,10 +790,10 @@ func (app *chat) sendReal(text string, reply *message) {
 	}()
 }
 
-// completeRealReply finalizes a real-engine prompt only if gen is still the
+// completeRealReply 仅在 gen 仍是活动时终结真实 engine 提示。
 // active streaming generation. A round that was superseded (the user hit 停止
-// and sent a new message before the aborted prompt returned) must not run
-// finish(): finish writes app.reply, which by then belongs to the newer round.
+// 并在被中止的提示返回前发送了新消息）绝不能运行
+// finish()：finish 写 app.reply，而那时它属于更新轮。
 func (app *chat) completeRealReply(eng *bridge, gen uint64, reply *message, full string, err error) {
 	if eng != nil && !eng.isCurrentDeltaGen(gen) {
 		return
@@ -807,11 +801,10 @@ func (app *chat) completeRealReply(eng *bridge, gen uint64, reply *message, full
 	app.completeFromPrompt(reply.text, full, err)
 }
 
-// ---- Real agent events ----------------------------------------------------
+// ---- 真实 agent 事件 ----------------------------------------------------
 
-// Approval notices ride the ordinary event stream: their Text carries a stable
-// prefix followed by a small JSON object (see internal/agent/approval_events).
-// Decoding the prefix locally keeps native/ free of any internal/ dependency.
+// 审批通知搭载普通事件流：其 Text 携带稳定
+// 本地解码前缀使 native/ 不含任何 internal/ 依赖。
 const (
 	approvalRequestPrefix  = "approval:request "
 	approvalResolvedPrefix = "approval:resolved "
@@ -825,9 +818,9 @@ type engineApproval struct {
 	Granted *bool  `json:"granted,omitempty"`
 }
 
-// parseEngineApproval decodes an approval notice. ok is false for unrelated
-// notices, unknown prefixes and malformed payloads, so every other item on
-// the event stream can be ignored safely.
+// parseEngineApproval 解码审批通知。对无关
+// 通知、未知前缀和畸形 payload，ok 为 false，使事件流上的其他每一项
+// 都能被安全忽略。
 func parseEngineApproval(text string) (kind, tool, id, digest string, granted, ok bool) {
 	switch {
 	case strings.HasPrefix(text, approvalRequestPrefix):
@@ -853,9 +846,8 @@ func parseEngineApproval(text string) (kind, tool, id, digest string, granted, o
 	}
 }
 
-// onEngineEvent is the bridge callback. readLoop calls it off the UI thread,
-// so state changes are marshalled through Window.Update. Tests (no window)
-// apply events directly so the mapping stays unit-testable.
+// 因此状态变更通过 Window.Update 编组。测试（无窗口）
+// 直接应用事件，使映射保持可单元测试。
 func (app *chat) onEngineEvent(kind string, raw json.RawMessage) {
 	if app.win == nil {
 		app.applyEngineEvent(kind, raw)
@@ -864,9 +856,9 @@ func (app *chat) onEngineEvent(kind string, raw json.RawMessage) {
 	app.win.Update(func() { app.applyEngineEvent(kind, raw) })
 }
 
-// applyEngineEvent maps one real agent event onto the existing transcript
-// state. Only tool and approval events are rendered: assistant text already
-// arrives over prompt/delta, and every other event kind is ignored.
+// applyEngineEvent 把一个真实 agent 事件映射到现有 transcript
+// 状态。只渲染工具和审批事件：助手文本已
+// 通过 prompt/delta 到达，其他所有事件种类被忽略。
 func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 	switch kind {
 	case "tool_start":
@@ -905,9 +897,9 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 	}
 }
 
-// upsertTool creates or updates one tool card keyed by its engine tool-call id.
-// Reusing the row keeps parallel calls distinct and lets tool_end update the
-// card that tool_start opened instead of adding a second one.
+// upsertTool 按其 engine 工具调用 id 创建或更新一个工具卡片。
+// 复用该行使并行调用保持区分，并让 tool_end 更新
+// tool_start 打开的卡片而非新增第二张。
 func (app *chat) upsertTool(id, name, detail, status string) {
 	if id == "" {
 		id = name // defensive: an older engine may omit the correlation id
@@ -931,8 +923,8 @@ func (app *chat) upsertTool(id, name, detail, status string) {
 	app.messages = append(app.messages, m)
 }
 
-// applyApprovalNotice turns a real approval:request / approval:resolved notice
-// into the existing approval card, replacing the canned demo approval.
+// applyApprovalNotice 把真实的 approval:request / approval:resolved 通知转换为现有审批卡片，替换预设的 demo 审批。clipToolText 使工具卡片保持单行可读而不拆分 UTF-8。finish 完成当前回复；它总是在主线程上运行。demo 审批只属于预设回退。真实引擎通过其自己的传输处理审批，而非通过假提示。
+// 到现有审批卡片，替换预设的 demo 审批。
 func (app *chat) applyApprovalNotice(text string) {
 	kind, tool, id, digest, granted, ok := parseEngineApproval(text)
 	if !ok {
@@ -962,7 +954,7 @@ func (app *chat) applyApprovalNotice(text string) {
 	}
 }
 
-// clipToolText keeps a tool card to one readable line without splitting UTF-8.
+// clipToolText 使工具卡片保持单行可读而不拆分 UTF-8。
 func clipToolText(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
@@ -971,7 +963,7 @@ func clipToolText(s string, max int) string {
 	return string(r[:max]) + "…"
 }
 
-// finish completes the current reply; it always runs on the main thread.
+// finish 完成当前回复；它总是在主线程上运行。
 func (app *chat) finish(src string) {
 	if app.reply != nil {
 		app.reply.text, app.reply.done = src, true
@@ -982,8 +974,8 @@ func (app *chat) finish(src string) {
 	app.streaming = false
 	app.reply, app.tool = nil, nil
 	app.status = "已完成"
-	// The demo approval only belongs to the canned fallback. A real engine
-	// handles approvals over its own transport, not through a fake prompt.
+	// demo 审批只属于预设回退。真实 engine
+	// 通过其自己的传输处理审批，而非通过假提示。
 	if app.engine == nil && app.sent == 1 {
 		app.approval = &approval{
 			name: "write_file",
@@ -992,11 +984,11 @@ func (app *chat) finish(src string) {
 	}
 }
 
-// retireStream invalidates the active streaming round so a late delta or prompt
-// result cannot resurrect UI state after stop/undo/newSession. It goes through
-// the bridge's locked setDeltaHandler API, so bridge.go's race handling is not
-// modified: readLoop snapshots the nil handler and completeRealReply's generation
-// check rejects the superseded completion.
+// retireStream 使活动流式轮次失效，使迟到的 delta 或提示
+// 结果在 stop/undo/newSession 之后无法复活 UI 状态。它走
+// bridge 带锁的 setDeltaHandler API，因此 bridge.go 的竞态处理无需
+// 修改：readLoop 快照 nil 处理器且 completeRealReply 的 generation
+// 检查拒绝被取代的完成。
 func (app *chat) retireStream() {
 	if app.engine != nil {
 		app.engine.setDeltaHandler(nil)
@@ -1007,9 +999,8 @@ func (app *chat) stop() {
 	if app.engine != nil {
 		_ = app.engine.abort()
 	}
-	// Abort alone is not enough: the in-flight prompt's completion still carries
-	// the old generation. Retire it before clearing reply state so a late result
-	// cannot run finish()/finishEngineError() and undo the user's stop/undo.
+	// 仅 Abort 不够：进行中提示的完成仍携带
+	// 旧 generation。在清除回复状态前退役它，使迟到结果
 	app.retireStream()
 	if app.reply != nil {
 		app.reply.done = true
@@ -1022,15 +1013,15 @@ func (app *chat) stop() {
 	app.status = "已停止"
 }
 
-// undo removes the most recent turn as a unit: the user message, its assistant
-// reply and any trailing tool cards. Deleting only the last row used to leave an
-// orphan user message whose reply had vanished. The prompt text is kept in
-// lastPrompt so a following retry can replay it.
+// undo 把最近的回合作为一个整体移除：用户消息、其助手
+// 回复和任何末尾工具卡片。过去只删最后一行会留下
+// 回复已消失的孤立用户消息。提示文本保留在 lastPrompt 中，使
+// undo 把最近的回合作为一个整体移除：用户消息、其助手回复和任何末尾工具卡片。过去只删最后一行会留下回复已消失的孤立用户消息。提示文本保留在 lastPrompt 中，使接下来的 retry 能重放它。找到最后一条用户消息；从那里到末尾的一切是一个回合。
 func (app *chat) undo() {
 	if app.streaming {
 		app.stop()
 	}
-	// Find the last user message; everything from there to the end is one turn.
+	// 找到最后一条用户消息；从那里到末尾的一切是一个回合。
 	start := -1
 	for i := len(app.messages) - 1; i >= 0; i-- {
 		if app.messages[i].kind == msgUser {
@@ -1047,9 +1038,9 @@ func (app *chat) undo() {
 	app.status = "已撤销上一轮"
 }
 
-// retry re-sends the most recent user prompt after dropping its turn, so the
-// model gets another chance at the same question. It is a no-op while streaming
-// or when nothing has been asked yet.
+// retry 在丢弃最近回合后重发最近的用户提示，使
+// 模型对同一问题再获一次机会。流式处理中或
+// 尚未提问任何内容时它是空操作。
 func (app *chat) retry() {
 	if app.streaming {
 		app.status = "正在生成，无法重试"
@@ -1080,16 +1071,16 @@ func (app *chat) answerApproval(allow bool) {
 	}
 	ap := app.approval
 	if app.engine == nil {
-		// Demo approval: no engine to answer, keep the original local-only
-		// behavior (record the decision as a tool result row).
+		// Demo 审批：没有 engine 可回答，保持原有的纯本地
+		// 行为（把决定记录为工具结果行）。
 		app.approval = nil
 		app.recordApprovalResult(ap.name, allow)
 		return
 	}
-	// Real engine approval: send the decision back over RPC. Keep the card
-	// open until the engine accepts it, so a failed call can be retried from
-	// the same UI. The engine reports the true outcome via an
-	// approval:resolved notice, which appends the result row.
+	// retry 在丢弃最近回合后重发最近的用户提示，使模型对同一问题再获一次机会。流式处理中或尚未提问任何内容时它是空操作。Demo 审批：没有 engine 可回答，保持原有的纯本地行为（把决定记录为工具结果行）。真实 engine 审批：通过 RPC 把决定发回。保持卡片打开直到 engine 接受它，使失败的调用能从同一 UI 重试。engine 通过 approval:resolved 通知报告真实结果，它追加结果行。
+	// 保持卡片打开直到 engine 接受它，使失败的调用能从
+	// 同一 UI 重试。engine 通过 approval:resolved 通知报告
+	// 真实结果，它追加结果行。
 	call := app.approvalAnswerRPC
 	if call == nil {
 		call = app.engine.call
@@ -1102,8 +1093,8 @@ func (app *chat) answerApproval(allow bool) {
 	app.status = "已响应，等待引擎确认"
 }
 
-// recordApprovalResult appends the local tool result row for a demo approval,
-// where no engine is involved and the decision is final.
+// recordApprovalResult 为 demo 审批追加本地工具结果行，
+// 那里没有 engine 参与且决定是最终的。
 func (app *chat) recordApprovalResult(name string, allow bool) {
 	app.next++
 	status, text := "done", "✓ 已允许 "+name
@@ -1117,7 +1108,7 @@ func (app *chat) recordApprovalResult(name string, allow bool) {
 }
 
 func (app *chat) newSession() {
-	// A previous round may still be in flight; drop its late result so it cannot
+	// 上一轮可能仍在进行中；丢弃其迟到结果使它无法干扰。
 	// overwrite the "已新建会话" status or re-add a stale reply.
 	app.retireStream()
 	app.messages = nil
@@ -1142,8 +1133,7 @@ var cannedReplies = []string{
 func main() {
 	app := &chat{status: "就绪", nav: "聊天"}
 
-	// ARGENT_EXE points at the engine binary. When set, the native window
-	// drives the real agent over --rpc; otherwise it runs the canned demo.
+	// ARGENT_EXE 指向 engine 二进制。设置时，原生窗口
 	if exe := os.Getenv("ARGENT_EXE"); exe != "" {
 		cwd := os.Getenv("ARGENT_CWD")
 		if cwd == "" {
@@ -1156,9 +1146,9 @@ func main() {
 			app.engine = b
 			app.status = "已连接引擎"
 			defer b.close()
-			// Consume real agent events so tool cards and approvals reflect the
-			// engine instead of canned demo data. If the engine has no event
-			// hub, subscription fails and the demo fallback stays intact.
+			// 消费真实 agent 事件使工具卡片和审批反映
+			// engine 而非预设 demo 数据。若 engine 没有事件
+			// 中心，订阅失败且 demo 回退保持完整。
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			seq, err := b.SubscribeEvents(ctx)
 			cancel()

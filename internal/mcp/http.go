@@ -120,7 +120,7 @@ func (t *httpTransport) setEndpoint(resolved string) {
 //
 // 如果 ctx 先于响应头结束，streamCancel 会中止在途的 GET。
 // 调用方随后把该 URL 当作流式单端点，因此中止不会丢失任何流。
-// is lost by the abort.
+// 因此中止不会丢失任何流。
 func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel context.CancelFunc) error {
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, t.url, nil)
 	if err != nil {

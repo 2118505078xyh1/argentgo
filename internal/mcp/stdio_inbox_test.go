@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestInboxBuffersBeforeBindAndReplaysInOrder covers the core contract:
-// messages arriving before the handler exists are not dropped, replayed in
-// FIFO order, and messages arriving after bind take the direct path.
+// TestInboxBuffersBeforeBindAndReplaysInOrder 覆盖核心约定：
+// 在处理器存在之前到达的消息不会被丢弃，而是按 FIFO 顺序
+// 重放；bind 之后到达的消息走直接路径。
 func TestInboxBuffersBeforeBindAndReplaysInOrder(t *testing.T) {
 	in := newInbox[int]()
 	var got []int
@@ -22,15 +22,15 @@ func TestInboxBuffersBeforeBindAndReplaysInOrder(t *testing.T) {
 		t.Fatalf("replay = %v, want %v", got, want)
 	}
 
-	// After bind the handler is called inline, so this value appears last.
+	// bind 之后处理器被内联调用，因此该值最后出现。
 	in.buffer(4)
 	if want := []int{1, 2, 3, 4}; !equalInts(got, want) {
 		t.Fatalf("after direct delivery = %v, want %v", got, want)
 	}
 }
 
-// TestInboxBindOnEmptyQueue verifies bind with nothing buffered is a no-op and
-// still installs the handler for subsequent messages.
+// TestInboxBindOnEmptyQueue 验证在队列为空时 bind 是空操作，且
+// 仍为后续消息安装处理器。
 func TestInboxBindOnEmptyQueue(t *testing.T) {
 	in := newInbox[string]()
 	calls := 0
@@ -44,8 +44,8 @@ func TestInboxBindOnEmptyQueue(t *testing.T) {
 	}
 }
 
-// TestInboxDrainDoesNotReplay verifies a drained message is never delivered a
-// second time by a subsequent bind (no duplicate delivery).
+// TestInboxDrainDoesNotReplay 验证被 drain 的消息不会被后续 bind
+// 第二次投递（无重复投递）。
 func TestInboxDrainDoesNotReplay(t *testing.T) {
 	in := newInbox[int]()
 	in.buffer(10)
@@ -69,8 +69,8 @@ func TestInboxDrainDoesNotReplay(t *testing.T) {
 	}
 }
 
-// TestInboxRebindDoesNotRedeliver verifies that binding a second handler does
-// not hand out messages the first handler already consumed.
+// TestInboxRebindDoesNotRedeliver 验证绑定第二个处理器
+// 不会交出第一个处理器已消费的消息。
 func TestInboxRebindDoesNotRedeliver(t *testing.T) {
 	in := newInbox[int]()
 	in.buffer(7)
@@ -88,8 +88,8 @@ func TestInboxRebindDoesNotRedeliver(t *testing.T) {
 	}
 }
 
-// collector is a thread-safe sink used by the concurrent tests; the inbox may
-// invoke a handler from several goroutines at once.
+// collector 是并发测试使用的线程安全汇聚点；inbox 可能
+// 同时从多个 goroutine 调用处理器。
 type collector struct {
 	mu sync.Mutex
 	m  map[int]int
@@ -103,7 +103,7 @@ func (c *collector) add(v int) {
 	c.mu.Unlock()
 }
 
-// expectEach asserts every id in [0,n) was delivered exactly once.
+// expectEach 断言 [0,n) 中的每个 id 都恰好被投递一次。
 func (c *collector) expectEach(t *testing.T, n int) {
 	t.Helper()
 	c.mu.Lock()
@@ -118,8 +118,8 @@ func (c *collector) expectEach(t *testing.T, n int) {
 	}
 }
 
-// TestInboxConcurrentBufferBeforeBind proves no message is lost or duplicated
-// when many producers fill the queue before bind replays it.
+// TestInboxConcurrentBufferBeforeBind 证明当许多生产者在 bind 重放之前
+// 填满队列时，没有消息丢失或重复。
 func TestInboxConcurrentBufferBeforeBind(t *testing.T) {
 	const n = 200
 	in := newInbox[int]()
@@ -139,8 +139,8 @@ func TestInboxConcurrentBufferBeforeBind(t *testing.T) {
 	got.expectEach(t, n)
 }
 
-// TestInboxConcurrentBufferAfterBind proves direct delivery is safe once the
-// handler is attached and messages arrive from many goroutines.
+// TestInboxConcurrentBufferAfterBind 证明一旦处理器被附加，
+// 且消息来自许多 goroutine，直接投递是安全的。
 func TestInboxConcurrentBufferAfterBind(t *testing.T) {
 	const n = 200
 	in := newInbox[int]()
@@ -160,9 +160,9 @@ func TestInboxConcurrentBufferAfterBind(t *testing.T) {
 	got.expectEach(t, n)
 }
 
-// TestInboxConcurrentBindRacesWithBuffer exercises the handoff boundary itself:
-// bind and producers run at the same time, so each message may travel the
-// replay path or the direct path, but must travel exactly one of them.
+// TestInboxConcurrentBindRacesWithBuffer 演练交接边界本身：
+// bind 和生产者同时运行，因此每条消息可能走重放路径或直接路径，
+// 但必须恰好走其中一条。
 func TestInboxConcurrentBindRacesWithBuffer(t *testing.T) {
 	const n = 200
 	in := newInbox[int]()
@@ -188,8 +188,8 @@ func TestInboxConcurrentBindRacesWithBuffer(t *testing.T) {
 	got.expectEach(t, n)
 }
 
-// TestInboxBytesMessages checks a non-comparable element type: raw byte frames
-// must survive buffering and replay unchanged.
+// TestInboxBytesMessages 检查不可比较的元素类型：原始字节帧
+// 必须在缓冲和重放中保持不变。
 func TestInboxBytesMessages(t *testing.T) {
 	in := newInbox[[]byte]()
 	frames := [][]byte{[]byte(`{"id":1}`), {}, []byte(`{"id":2}`)}

@@ -438,6 +438,24 @@ streamLoop:
 			// 保留增量，避免用空串抹掉已收到的内容。
 			partial := partials[event.OutputIndex]
 			if partial == nil {
+				// 该索引的调用已被 output_item.done 组装并停放。此时若
+				// 新建一个部分项，最终组装阶段的 push 会因名称为空而跳过它，
+				// 权威参数就会被静默丢弃，工具仍以旧参数被派发。事件乱序是
+				// 本客户端已经容忍的形态（见 completed 的说明），因此直接
+				// 更新已完成的调用。
+				if call, ok := completed[event.OutputIndex]; ok {
+					if event.Arguments != "" {
+						call.Function.Arguments = integrity.toolArguments(event.Arguments)
+					}
+					if call.ID == "" && event.ItemID != "" {
+						call.ID = event.ItemID
+					}
+					if call.Function.Name == "" {
+						call.Function.Name = event.Name
+					}
+					completed[event.OutputIndex] = call
+					continue
+				}
 				partial = &responsesPartial{}
 				order = append(order, event.OutputIndex)
 				partials[event.OutputIndex] = partial

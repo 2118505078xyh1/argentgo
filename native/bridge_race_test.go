@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop keeps onDelta safe under
-// -race: readLoop snapshots the callback while another goroutine swaps it for
-// the next streaming round. The old code let the UI thread write b.onDelta
-// directly while readLoop read it, which the race detector flags.
+// TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop 在 -race 下保持 onDelta
+// 安全：readLoop 快照回调，而另一个 goroutine 为下一轮交换它。
+// TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop 在 -race 下保持 onDelta 安全：readLoop 快照回调，而另一个 goroutine 为下一轮流式交换它。旧代码让 UI 线程直接写 b.onDelta 而 readLoop 读它，竞态检测器会标记。与 delta 传递并发交换处理器，就像 sendReal 在新一轮开始时的 UI 线程上所做的。
+// 直接写它而 readLoop 读它，竞态检测器会标记。
 func TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop(t *testing.T) {
 	pr, pw := io.Pipe()
 	b := &bridge{
@@ -36,8 +36,8 @@ func TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop(t *testing.T) {
 			}
 		}
 	}()
-	// Swap handlers concurrently with delta delivery, as sendReal does on the
-	// UI thread when a new round begins.
+	// 与 delta 传递并发交换处理器，就像 sendReal 在
+	// 新一轮开始时的 UI 线程上所做的。
 	for i := 0; i < rounds; i++ {
 		b.setDeltaHandler(func(string) {})
 	}
@@ -46,9 +46,9 @@ func TestDeltaHandlerRegistrationDoesNotRaceWithReadLoop(t *testing.T) {
 	<-done
 }
 
-// TestReadLoopUsesLatestDeltaHandler proves that a replacement callback takes
-// over immediately: a readLoop snapshot can never deliver a delta to a handler
-// that a newer round has already superseded.
+// TestReadLoopUsesLatestDeltaHandler 证明替换的回调立即
+// 接管：readLoop 快照绝不可能把 delta 传递给已被
+// 更新轮次取代的处理器。
 func TestReadLoopUsesLatestDeltaHandler(t *testing.T) {
 	line := `{"jsonrpc":"2.0","method":"prompt/delta","params":{"text":"hello"}}` + "\n"
 	b := &bridge{
@@ -75,9 +75,8 @@ func TestReadLoopUsesLatestDeltaHandler(t *testing.T) {
 }
 
 // TestSupersededRoundCannotClobberNewReply guards cross-round 串台: when round
-// 1 is aborted and round 2 starts before round 1's result returns, round 1's
-// late completion must not run finish() (which writes app.reply, by then owned
-// by round 2). The generation token makes that stale completion a no-op.
+// 轮 1 被中止且轮 2 在轮 1 结果返回前开始，轮 1 的
+// 迟到完成绝不能运行 finish()（它写 app.reply，那时已归
 func TestSupersededRoundCannotClobberNewReply(t *testing.T) {
 	b := &bridge{pending: make(map[int]chan rpcReply)}
 	reply1 := &message{id: 1, kind: msgAssistant, text: "old stream"}
@@ -86,7 +85,7 @@ func TestSupersededRoundCannotClobberNewReply(t *testing.T) {
 	app.messages = []*message{reply1}
 
 	gen1 := b.setDeltaHandler(func(string) {})
-	// Round 2 supersedes round 1 before round 1's result arrives.
+	// 轮 2 在轮 1 的结果到达前取代轮 1。
 	app.reply = reply2
 	app.messages = append(app.messages, reply2)
 	gen2 := b.setDeltaHandler(func(string) {})
@@ -100,7 +99,7 @@ func TestSupersededRoundCannotClobberNewReply(t *testing.T) {
 			app.reply, app.streaming, app.status)
 	}
 
-	// Round 2's own completion still applies normally.
+	// 轮 2 自己的完成仍正常应用。
 	app.completeRealReply(b, gen2, reply2, "new answer", nil)
 	if reply2.text != "new answer" || !reply2.done {
 		t.Fatalf("round-2 completion failed: text=%q done=%v", reply2.text, reply2.done)

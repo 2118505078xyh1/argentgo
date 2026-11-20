@@ -2,9 +2,9 @@ package main
 
 import "github.com/egoist/mygo/ui"
 
-// navPanel is the placeholder content shown in the sidebar when a non-chat
-// navigation item is active. It is deliberately data-driven: wiring up a new
-// nav item only needs one map entry, not a new render branch in sidebar().
+// navPanel 是当非聊天导航项活动时侧边栏显示的占位内容。
+// 它刻意数据驱动：接入新导航项只需一个 map 条目，而非
+// sidebar() 中的新渲染分支。
 type navPanel struct {
 	title string
 	desc  string
@@ -12,7 +12,7 @@ type navPanel struct {
 }
 
 // navPanels holds one placeholder panel per nav item. "聊天" is intentionally
-// absent: its panel is the live session list rendered by the existing sidebar
+// absent：其面板是现有侧边栏渲染的活动会话列表。
 // code, so switching back to 聊天 restores the current session view.
 var navPanels = map[string]navPanel{
 	"定时任务": {
@@ -72,8 +72,8 @@ var navPanels = map[string]navPanel{
 	},
 }
 
-// navPanelFor resolves a nav item to its placeholder panel. Unknown items get
-// a generic panel so the framework never falls back to the session list by
+// navPanelFor 把导航项解析到其占位面板。未知项获得
+// 通用面板，使框架永不回退到会话列表。
 // accident.
 func navPanelFor(name string) navPanel {
 	if p, ok := navPanels[name]; ok {
@@ -82,8 +82,7 @@ func navPanelFor(name string) navPanel {
 	return navPanel{title: name, desc: "该面板尚未实现。", rows: []string{"敬请期待"}}
 }
 
-// renderNavPanel draws one placeholder panel in the sidebar: a title, a short
-// explanation and a few simple content rows.
+// 说明和几行简单内容。
 func (app *chat) renderNavPanel(c *ui.Context, p palette, name string) {
 	panel := navPanelFor(name)
 	ui.Column(c).Gap(10).Grow(1).Children(func() {

@@ -44,8 +44,8 @@ func TestResolveMaxParallel(t *testing.T) {
 	}
 }
 
-// concurrentDispatcher records the peak number of overlapping PreToolUse
-// dispatches. A serial batch cannot produce a peak above one.
+// concurrentDispatcher 记录重叠的 PreToolUse 派发的峰值数量。串行批次不可能产生大于 1 的峰值。
+// （接上行）
 type concurrentDispatcher struct {
 	mu       sync.Mutex
 	inflight int
@@ -79,9 +79,9 @@ func (d *concurrentDispatcher) peakCount() int {
 	return d.peak
 }
 
-// TestExecuteRunsReadOnlyBatchConcurrently proves the production wiring: the
-// Resolved value from Resolve carries MaxParallel into agent.Options, so two
-// read-only calls in one batch overlap instead of running one after another.
+// TestExecuteRunsReadOnlyBatchConcurrently 证明生产接线：Resolve 产生的 Resolved 值把 MaxParallel 带入 agent.Options，
+// 使同一批次中的两个只读调用重叠执行，而非一个接一个地运行。
+// （接上行）
 func TestExecuteRunsReadOnlyBatchConcurrently(t *testing.T) {
 	env, _ := testEnv(t)
 	root := t.TempDir()

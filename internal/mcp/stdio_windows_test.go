@@ -13,13 +13,13 @@ import (
 )
 
 func TestExecSpecForOSPassesThroughNonWindowsAndNativeCommands(t *testing.T) {
-	// Non-Windows hosts must be completely unaffected.
+	// 非 Windows 宿主必须完全不受影响。
 	name, args := execSpecForOS("linux", "npx", []string{"-y", "server"})
 	if name != "npx" || !reflect.DeepEqual(args, []string{"-y", "server"}) {
 		t.Fatalf("non-Windows command changed: %q %v", name, args)
 	}
 
-	// On Windows a normal executable / .cmd shim is already handled by Go.
+	// 在 Windows 上，普通可执行文件或 .cmd 包装已由 Go 处理。
 	name, args = execSpecForOS("windows", "node.exe", []string{"server.js"})
 	if name != "node.exe" || !reflect.DeepEqual(args, []string{"server.js"}) {
 		t.Fatalf("native command changed: %q %v", name, args)
@@ -57,8 +57,8 @@ func TestExecSpecForOSResolvesBarePS1OnPath(t *testing.T) {
 }
 
 func TestExecSpecForOSLeavesUnresolvableCommandAlone(t *testing.T) {
-	// No .ps1 anywhere on PATH: fall through so Connect reports the usual
-	// "executable file not found" error rather than inventing a wrapper.
+	// PATH 上任何地方都没有 .ps1：照常往下走，让 Connect 报告通常的
+	// "executable file not found" 错误，而不是凭空造一个包装器。
 	t.Setenv("PATH", t.TempDir())
 	name, args := execSpecForOS("windows", "no-such-mcp-tool-xyz", []string{"x"})
 	if name != "no-such-mcp-tool-xyz" || !reflect.DeepEqual(args, []string{"x"}) {
@@ -66,8 +66,8 @@ func TestExecSpecForOSLeavesUnresolvableCommandAlone(t *testing.T) {
 	}
 }
 
-// ps1MCPServer is a minimal JSON-RPC-over-stdio server used to prove a .ps1
-// command can actually be launched as an MCP server on Windows.
+// ps1MCPServer 是一个最小的基于 stdio 的 JSON-RPC 服务器，用于证明
+// .ps1 命令在 Windows 上确实可以作为 MCP 服务器启动。
 const ps1MCPServer = `
 while ($true) {
     $line = [Console]::In.ReadLine()

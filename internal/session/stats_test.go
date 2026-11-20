@@ -96,8 +96,8 @@ func TestLatestStatsPrefersActiveBranch(t *testing.T) {
 	dir := t.TempDir()
 	branchA := SessionStats{Calls: 1, CostSource: "reported", Updated: "A"}
 	branchB := SessionStats{Calls: 9, CostSource: "estimated", Updated: "B"}
-	// n05 is on a different branch but is the newest stats record in file
-	// order. The active leaf (n06) walks back through n03, so n03 must win.
+	// n05 位于不同分支上，但按文件顺序是最新的统计记录。
+	// 活动叶节点（n06）往回经过 n03，因此 n03 必须胜出。
 	records := []Record{
 		{ID: "n01", Kind: KindHeader, Data: json.RawMessage(`{}`)},
 		{ID: "n02", Parent: "n01", Kind: KindUser, Data: json.RawMessage(`"hi"`)},
@@ -116,7 +116,7 @@ func TestLatestStatsPrefersActiveBranch(t *testing.T) {
 	if !ok || got != branchA {
 		t.Fatalf("LatestStats = %+v, %v; want active-branch %+v", got, ok, branchA)
 	}
-	// The fallback path covers a branch with no stats of its own.
+	// 回退路径覆盖没有自己统计记录的分支。
 	withoutActive := []Record{
 		{ID: "n01", Kind: KindHeader, Data: json.RawMessage(`{}`)},
 		{ID: "n02", Parent: "n01", Kind: KindUser, Data: json.RawMessage(`"hi"`)},

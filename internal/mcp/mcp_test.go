@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// fakeTransport answers in-process, so client behaviour can be tested without
+// fakeTransport 在进程内应答，因此无需启动任何东西即可测试客户端行为。
 // spawning anything.
 type fakeTransport struct {
 	mu       sync.Mutex
@@ -245,10 +245,10 @@ func TestConnectInfersTransportAndValidatesSpec(t *testing.T) {
 	}
 }
 
-// TestInitializeDoesNotAdvertiseUnhandledCapabilities guards the handshake:
-// the client drops every server-initiated request, so it must not claim
-// roots/sampling support. A server that believes those claims would send
-// requests we never answer and block waiting for the response.
+// TestInitializeDoesNotAdvertiseUnhandledCapabilities 守护握手：
+// 客户端会丢弃所有服务器发起的请求，因此不能声称支持
+// roots/sampling。相信这些声明的服务器会发来我们永不回答的
+// 请求，并阻塞等待响应。
 func TestInitializeDoesNotAdvertiseUnhandledCapabilities(t *testing.T) {
 	var capabilities map[string]json.RawMessage
 	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){

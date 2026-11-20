@@ -8,9 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// TestVerifyFeedbackClarityWithSourceWindow covers the aider-audit fix: a
-// model-facing FAIL now opens with a repair instruction and explains the █
-// marker right before the anchored source window.
+// TestVerifyFeedbackClarityWithSourceWindow 覆盖 aider 审计修复：面向模型的 FAIL 现在以修复指令开头，
+// 并在锚定源码窗口之前紧接着解释 █ 标记。
+// （接上行）
 func TestVerifyFeedbackClarityWithSourceWindow(t *testing.T) {
 	root := writeAnchorFixture(t)
 	out := "compiling\nf.go:7: api_key=sk_live_abcdefghijklmnop\nsome failure detail\n"
@@ -31,7 +31,7 @@ func TestVerifyFeedbackClarityWithSourceWindow(t *testing.T) {
 		}
 	}
 
-	// Line order: instruction → verdict → log tail → █ explanation → window → hint.
+	// 行顺序：指令 → 结论 → 日志尾部 → █ 说明 → 窗口 → 提示。
 	ordered := []string{
 		verifyFixInstruction,
 		"[verify: GO TEST] FAIL",
@@ -54,8 +54,8 @@ func TestVerifyFeedbackClarityWithSourceWindow(t *testing.T) {
 	}
 }
 
-// TestVerifyFeedbackClarityNoWindowOmitsExplanation checks that a FAIL without
-// a source window keeps the fix instruction but carries no █ explanation.
+// TestVerifyFeedbackClarityNoWindowOmitsExplanation 检查没有源码窗口的 FAIL 保留修复指令，
+// 但不带 █ 说明。
 func TestVerifyFeedbackClarityNoWindowOmitsExplanation(t *testing.T) {
 	out := "FAIL: assertion x"
 
@@ -67,7 +67,7 @@ func TestVerifyFeedbackClarityNoWindowOmitsExplanation(t *testing.T) {
 		t.Fatalf("feedback without a window gained a █ explanation: %q", plain)
 	}
 
-	// A non-empty root with no usable file:line reference must behave the same.
+	// 非空 root 但没有可用的 file:line 引用时也必须如此。
 	root := writeAnchorFixture(t)
 	noAnchor := VerificationFeedbackAt("test", false, out, 4096, root)
 	if !strings.HasPrefix(noAnchor, verifyFixInstruction+"\n[verify: TEST] FAIL\n") {
@@ -78,8 +78,8 @@ func TestVerifyFeedbackClarityNoWindowOmitsExplanation(t *testing.T) {
 	}
 }
 
-// TestVerifyFeedbackClarityCJKErrorText keeps non-ASCII diagnostics intact
-// through the enhanced template and the byte bound.
+// TestVerifyFeedbackClarityCJKErrorText 检查非 ASCII 诊断在增强模板和字节限制下保持完整。
+// （接上行）
 func TestVerifyFeedbackClarityCJKErrorText(t *testing.T) {
 	const out = "编译失败：未定义的标识符 foo"
 
@@ -98,8 +98,8 @@ func TestVerifyFeedbackClarityCJKErrorText(t *testing.T) {
 	}
 }
 
-// TestVerifyFeedbackClarityCJKSourceWindow checks a █-marked window whose
-// source line itself contains CJK text.
+// TestVerifyFeedbackClarityCJKSourceWindow 检查源码行本身包含 CJK 文本的 █ 标记窗口。
+// （接上行）
 func TestVerifyFeedbackClarityCJKSourceWindow(t *testing.T) {
 	root := t.TempDir()
 	src := "package p\n// 中文注释\nfunc f() {\n\tboom() // 失败\n}\n"
@@ -119,8 +119,8 @@ func TestVerifyFeedbackClarityCJKSourceWindow(t *testing.T) {
 	}
 }
 
-// TestVerifyFeedbackClarityEmptyAndPassStayVerdictOnly guards the existing
-// rule that a FAIL with no usable output (and every PASS) is just the verdict.
+// TestVerifyFeedbackClarityEmptyAndPassStayVerdictOnly 守护既有规则：没有可用输出的 FAIL（以及所有 PASS）只有结论。
+// （接上行）
 func TestVerifyFeedbackClarityEmptyAndPassStayVerdictOnly(t *testing.T) {
 	root := writeAnchorFixture(t)
 	for _, rc := range []struct {
@@ -148,8 +148,8 @@ func TestVerifyFeedbackClarityEmptyAndPassStayVerdictOnly(t *testing.T) {
 	}
 }
 
-// TestVerifyFeedbackClarityBytesAreStable checks that repeated calls render
-// identical bytes, with and without a source window.
+// TestVerifyFeedbackClarityBytesAreStable 检查重复调用在有无源码窗口时都渲染出相同的字节。
+// （接上行）
 func TestVerifyFeedbackClarityBytesAreStable(t *testing.T) {
 	root := writeAnchorFixture(t)
 	const out = "编译失败 at f.go:7\nsecond line"

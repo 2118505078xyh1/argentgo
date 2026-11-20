@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// TestRunToolAddsNoopEditHint checks that an edit tool reporting a no-op gets
-// the aider-style anti-resend line in the result the model reads next.
+// TestRunToolAddsNoopEditHint 检查报告无操作的编辑工具，会在模型下一步读取的结果中获得 aider 风格的防重发行。
+// （接上行）
 func TestRunToolAddsNoopEditHint(t *testing.T) {
 	const toolOutput = "File already up to date."
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
@@ -28,8 +28,8 @@ func TestRunToolAddsNoopEditHint(t *testing.T) {
 	}
 }
 
-// TestRunToolMultiEditNoChangesGetHint checks that multi_edit no-op wording is
-// recognised too.
+// TestRunToolMultiEditNoChangesGetHint 检查 multi_edit 的无操作措辞也会被识别。
+// （接上行）
 func TestRunToolMultiEditNoChangesGetHint(t *testing.T) {
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
 		return "no changes made", nil
@@ -42,8 +42,8 @@ func TestRunToolMultiEditNoChangesGetHint(t *testing.T) {
 	}
 }
 
-// TestRunToolKeepsNormalEditOutputByteIdentical checks that a successful edit
-// with no no-op marker is passed through untouched.
+// TestRunToolKeepsNormalEditOutputByteIdentical 检查没有无操作标记的成功编辑会被原样透传。
+// （接上行）
 func TestRunToolKeepsNormalEditOutputByteIdentical(t *testing.T) {
 	const toolOutput = "Edited file successfully.\n"
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
@@ -57,8 +57,8 @@ func TestRunToolKeepsNormalEditOutputByteIdentical(t *testing.T) {
 	}
 }
 
-// TestRunToolKeepsNonEditToolOutputByteIdentical checks that the hint is scoped
-// to edit tools: other tools keep their output even with the same wording.
+// TestRunToolKeepsNonEditToolOutputByteIdentical 检查提示仅作用于编辑工具：其他工具即使措辞相同也保留其输出。
+// （接上行）
 func TestRunToolKeepsNonEditToolOutputByteIdentical(t *testing.T) {
 	const toolOutput = "file already exists"
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {
@@ -72,8 +72,8 @@ func TestRunToolKeepsNonEditToolOutputByteIdentical(t *testing.T) {
 	}
 }
 
-// TestRunToolNoopEditHintIsIdempotent checks that a tool which already echoes
-// the hint does not get a second copy appended.
+// TestRunToolNoopEditHintIsIdempotent 检查已经回显该提示的工具，不会被追加第二份副本。
+// （接上行）
 func TestRunToolNoopEditHintIsIdempotent(t *testing.T) {
 	toolOutput := "Already applied.\n" + noopEditHint
 	ft := &fakeTools{run: func(context.Context, string, string) (string, error) {

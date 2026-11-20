@@ -194,10 +194,10 @@ func TestParseTurnBudgetClampsToRange(t *testing.T) {
 	}{
 		{"+1k", 1_000},
 		{"+100m", 100_000_000},
-		{"+0.1k", 1_000},                         // 100 clamps up to 1k
-		{"+0.5m", 500_000},                       // no clamping needed
-		{"+200m", 100_000_000},                   // clamps down to 100m
-		{"+999999999999999999999m", 100_000_000}, // saturates, then clamps
+		{"+0.1k", 1_000},                         // 100 向上收紧到 1k
+		{"+0.5m", 500_000},                       // 无需收紧
+		{"+200m", 100_000_000},                   // 向下收紧到 100m
+		{"+999999999999999999999m", 100_000_000}, // 先饱和，再收紧
 	}
 	for _, tc := range cases {
 		t.Run(tc.prompt, func(t *testing.T) {
@@ -323,7 +323,7 @@ func TestDeclaredTurnTokensParticipateInBreach(t *testing.T) {
 		t.Fatalf("under limit: reason=%q hit=%v", reason, hit)
 	}
 
-	// A declared cap never relaxes an existing limit (usage total is 1000).
+	// 声明的上限绝不会放宽既有的限制（用量总量为 1000）。
 	reason, _, hit = (Budget{MaxTotalTokens: 500, DeclaredTurnTokens: 2_000}).Breach(usage, 10, 0, false)
 	if reason != StopMaxTotalTokens || !hit {
 		t.Fatalf("existing limit still wins: reason=%q hit=%v", reason, hit)
@@ -349,7 +349,7 @@ func TestParsedDeclarationFeedsBudget(t *testing.T) {
 func TestEstimatedUsageFeedsTheBudgetWithoutProviderCounts(t *testing.T) {
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
-		// No Usage on the reply: the loop must fall back to its estimate.
+		// 回复中没有 Usage：循环必须回退到它的估算值。
 		return toolReply(toolCall("c1", "read", `{}`)), nil
 	}}
 	runner := &Runner{Opts: Options{

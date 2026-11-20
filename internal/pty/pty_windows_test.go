@@ -14,11 +14,10 @@ import (
 	"time"
 )
 
-// TestAttributeListBufferOutlivesGC guards the Go-side lifetime of the Win32
-// proc-thread attribute list. Its address is a bare uintptr, which the GC does
-// not treat as a reference: returning only that address (and a closure that
-// captures nothing else) lets the backing buffer be collected before
-// CreateProcessW or DeleteProcThreadAttributeList dereferences it.
+// TestAttributeListBufferOutlivesGC 守护 Win32 proc-thread 属性列表的 Go 侧
+// 不把它当作引用：只返回该地址（以及一个不捕获
+// 其他内容的闭包）会让底层缓冲区在
+// 解引用它之前被回收。
 func TestAttributeListBufferOutlivesGC(t *testing.T) {
 	attrs, err := newAttributeList(0)
 	if err != nil {
@@ -27,8 +26,8 @@ func TestAttributeListBufferOutlivesGC(t *testing.T) {
 	collected := make(chan struct{})
 	runtime.SetFinalizer(&attrs.buffer[0], func(*byte) { close(collected) })
 
-	// Drop the struct but keep the cleanup reachable, as startPlatform does
-	// with its deferred call: the buffer must survive until cleanup runs.
+	// 丢弃结构体但保持清理可达，正如 startPlatform 用其
+	// 延迟调用所做的：缓冲区必须存活到清理运行。
 	del := attrs.delete
 	attrs = nil
 	for i := 0; i < 5; i++ {
@@ -42,11 +41,11 @@ func TestAttributeListBufferOutlivesGC(t *testing.T) {
 	del()
 }
 
-// TestWaitConcurrentCloseNeverErrors reproduces a ConPTY use-after-close.
-// Close used to close the child's process handle while a concurrent Wait was
-// still using it, so GetExitCodeProcess failed with "The handle is invalid"
-// and Wait reported a spurious error for an otherwise normally exited child.
-// The common pattern is a Wait goroutine plus Close from context cancellation.
+// TestWaitConcurrentCloseNeverErrors 复现 ConPTY 关闭后使用。
+// Close 过去在并发 Wait 仍在使用子进程进程句柄时关闭它，
+// 使 GetExitCodeProcess 以 "句柄无效" 失败，
+// Wait 对本来正常退出的子进程报告虚假错误。
+// TestWaitConcurrentCloseNeverErrors 复现 ConPTY 关闭后使用。Close 过去在并发 Wait 仍在使用子进程进程句柄时关闭它，使 GetExitCodeProcess 以 "句柄无效" 失败，Wait 对本来正常退出的子进程报告虚假错误。常见模式是 Wait goroutine 加上上下文取消触发的 Close。
 func TestWaitConcurrentCloseNeverErrors(t *testing.T) {
 	const rounds = 200
 	for i := 0; i < rounds; i++ {
@@ -72,11 +71,11 @@ func TestWaitConcurrentCloseNeverErrors(t *testing.T) {
 	}
 }
 
-// TestReadReturnsEOFAfterWait guards the ConPTY output-pipe lifetime. The
-// console keeps its end of the output pipe open even after the child exits, so
-// a reader draining the terminal used to block forever unless someone called
-// Close. Wait now releases the HPCON once the child is reaped, which closes the
-// pipe and lets Read report EOF after the buffered output is consumed.
+// TestReadReturnsEOFAfterWait 守护 ConPTY 输出管道生命周期。
+// 控制台即使在子进程退出后也保持其输出管道端打开，
+// 因此排空终端的读者过去会永远阻塞除非有人调用 Close。
+// TestReadReturnsEOFAfterWait 守护 ConPTY 输出管道生命周期。控制台即使在子进程退出后也保持其输出管道端打开，因此排空终端的读者过去会永远阻塞除非有人调用 Close。Wait 现在在子进程被回收后释放 HPCON，这会关闭管道并使 Read 在消费完缓冲输出后报告 EOF。
+// 这会在消费完缓冲输出后让 Read 报告 EOF。
 func TestReadReturnsEOFAfterWait(t *testing.T) {
 	p, err := Start(context.Background(),
 		Command{Path: "cmd.exe", Args: []string{"/C", "echo pty-eof-ready"}},
@@ -125,13 +124,12 @@ func TestReadReturnsEOFAfterWait(t *testing.T) {
 	}
 }
 
-// TestExitedDoesNotUseAClosedProcessHandle models the state a racing Close can
-// leave behind: Close has terminated and reaped the child and closed the
-// process handle, but a reader that loaded c.process just before still holds
-// its numeric value. Exited/ExitCode must never call WaitForSingleObject or
-// GetExitCodeProcess on that stale handle — Wait already duplicates it for the
-// same reason. Querying the stale value returned WAIT_FAILED, which made
-// Exited report a dead child as still running.
+// TestExitedDoesNotUseAClosedProcessHandle 建模竞态 Close 可能留下的
+// 状态：Close 已终止并回收子进程并关闭进程句柄，但刚在之前加载 c.process 的读者仍持有
+// 其数值。Exited/ExitCode 绝不能对那个陈旧句柄调用 WaitForSingleObject 或
+// 句柄 —— Wait 已出于同样原因复制它。
+// 查询陈旧值返回 WAIT_FAILED，这使
+// Exited 把已死的子进程报告为仍在运行。
 func TestExitedDoesNotUseAClosedProcessHandle(t *testing.T) {
 	self, err := syscall.GetCurrentProcess()
 	if err != nil {
@@ -163,10 +161,10 @@ func TestExitedDoesNotUseAClosedProcessHandle(t *testing.T) {
 	})
 }
 
-// TestExitedAndExitCodeRaceWithClose exercises the process-handle lifetime
-// under the real ConPTY lifecycle: a waiter, a closer (context cancellation's
-// job) and a status poller racing on the same terminal. It complements the
-// deterministic stale-handle test above with the actual concurrency pattern.
+// TestExitedAndExitCodeRaceWithClose 在真实 ConPTY 生命周期下演练进程句柄
+// 生命周期：一个等待者、一个关闭者（上下文取消的任务）
+// 和一个状态轮询者在同一个终端上竞争。它与
+// 上面的确定性陈旧句柄测试互补，提供真实的并发模式。
 func TestExitedAndExitCodeRaceWithClose(t *testing.T) {
 	const rounds = 100
 	for i := 0; i < rounds; i++ {
@@ -186,7 +184,7 @@ func TestExitedAndExitCodeRaceWithClose(t *testing.T) {
 			}
 		}()
 		wg.Wait()
-		// Once Close returned the child has been terminated and reaped.
+		// TestExitedAndExitCodeRaceWithClose 在真实 ConPTY 生命周期下演练进程句柄生命周期：一个等待者、一个关闭者（上下文取消的任务）和一个状态轮询者在同一个终端上竞争。它与上面的确定性陈旧句柄测试互补，提供真实的并发模式。一旦 Close 返回，子进程已被终止和回收。
 		if !p.Exited() {
 			t.Fatalf("round %d: Exited() = false after Close", i)
 		}
@@ -194,12 +192,11 @@ func TestExitedAndExitCodeRaceWithClose(t *testing.T) {
 	}
 }
 
-// TestResizeKeepsConsoleAliveAcrossPlatformCall guards the HPCON lifetime
-// against a concurrent Close. Resize used to read c.console under c.mu, release
-// the lock, and only then call ResizePseudoConsole; a racing Close (or Wait
-// reaping the child) could null out and close the HPCON in that window, leaving
-// Resize calling ResizePseudoConsole on a freed handle. The lock must cover the
-// platform call, mirroring the duplicate-handle protection in Wait/Exited.
+// TestResizeKeepsConsoleAliveAcrossPlatformCall 守护 HPCON 生命周期
+// 释放锁，然后才调用 ResizePseudoConsole；竞争的 Close（或 Wait
+// 回收子进程）可能在那个窗口把 HPCON 置空并关闭，使 Resize
+// 对已释放句柄调用 ResizePseudoConsole。锁必须覆盖该
+// 平台调用，镜像 Wait/Exited 中的复制句柄保护。
 func TestResizeKeepsConsoleAliveAcrossPlatformCall(t *testing.T) {
 	oldResize, oldClose := callResizePseudoConsole, callClosePseudoConsole
 	defer func() { callResizePseudoConsole, callClosePseudoConsole = oldResize, oldClose }()
@@ -230,8 +227,8 @@ func TestResizeKeepsConsoleAliveAcrossPlatformCall(t *testing.T) {
 
 	go c.closeConsole()
 
-	// A Resize already inside the platform call owns the HPCON; closeConsole
-	// must wait on c.mu until it returns rather than closing the handle here.
+	// 已在平台调用中的 Resize 拥有 HPCON；closeConsole
+	// 必须等待 c.mu 直到它返回，而非在这里关闭句柄。
 	select {
 	case <-consoleClosed:
 		t.Fatal("ClosePseudoConsole ran while Resize still held the HPCON")

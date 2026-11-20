@@ -9,9 +9,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// countingSummaryCompactor is a summary-producing double. It records how many
-// times the real (side-effecting) summarisation path runs and returns a short
-// view whose system message is derived from the conversation content.
+// countingSummaryCompactor 是一个产生摘要的伪实现。它记录真实的（有副作用的）摘要路径
+// 运行了多少次，并返回一个简短视图，其系统消息由对话内容派生。
+// （接上行）
 type countingSummaryCompactor struct {
 	calls atomic.Int64
 }
@@ -67,10 +67,10 @@ func TestCachingCompactorIgnoresRoundTripMetadataOnCacheHit(t *testing.T) {
 		t.Fatal("first compaction did not change the view")
 	}
 
-	// Same meaning, different wire metadata and provider-issued ids. The hash
-	// excludes these, so this must still be a cache hit.
+	// 含义相同，但线上元数据和提供方签发的 id 不同。哈希不包含这些内容，
+	// 因此这仍必须是缓存命中。
 	noisy := append([]llm.Message(nil), prefix...)
-	noisy[1].Content = "  fix the bug  " // only surrounding user whitespace
+	noisy[1].Content = "  fix the bug  " // 仅两端用户空白不同
 	noisy[2].Reasoning = "thinking"
 	noisy[2].Usage = &llm.Usage{PromptTokens: 10}
 	noisy[2].FinishReason = "tool_calls"

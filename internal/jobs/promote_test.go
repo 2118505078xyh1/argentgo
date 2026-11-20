@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// fakeLive stands in for a *proc.Process handed over by a tool timeout.
+// fakeLive 代替由工具超时移交的 *proc.Process。仅仅提升并没有杀掉任何东西；观察者只对退出作出反应。完成观察者不得覆盖已杀死状态。这个 pid 几乎肯定已死；refreshLocked 必须把提升的作业留给其活观察者，而不是从 pid 猜测。
 type fakeLive struct {
 	pid  int
 	code int
@@ -84,7 +84,7 @@ func TestPromoteFromTimeoutRegistersRunningJobAndWatchesExit(t *testing.T) {
 		t.Fatalf("tail = %q, err = %v", tail, err)
 	}
 
-	// Nothing was killed just by promoting; the watcher only reacts to exit.
+	// 仅仅提升并没有杀掉任何东西；观察者只对退出作出反应。
 	if live.wasKilled() {
 		t.Fatal("promotion must not kill the child")
 	}
@@ -112,7 +112,7 @@ func TestPromoteFromTimeoutStopKillsTheLiveChild(t *testing.T) {
 	if err != nil || stopped.Status != StatusKilled {
 		t.Fatalf("stopped = %+v, err = %v", stopped, err)
 	}
-	// The completion watcher must not overwrite the killed status.
+	// 完成观察者不得覆盖已杀死状态。
 	time.Sleep(20 * time.Millisecond)
 	stopped, err = registry.Get(job.ID)
 	if err != nil || stopped.Status != StatusKilled {
@@ -122,8 +122,8 @@ func TestPromoteFromTimeoutStopKillsTheLiveChild(t *testing.T) {
 
 func TestPromotedJobIsNotFlippedByPidRefresh(t *testing.T) {
 	registry := newRegistry(t)
-	// This pid is almost certainly dead; refreshLocked must leave promoted jobs
-	// to their live watcher instead of guessing from the pid.
+	// 这个 pid 几乎肯定已死；refreshLocked 必须把提升的作业
+	// 留给其活观察者，而不是从 pid 猜测。
 	live := newFakeLive(0x7FFFFFF1)
 	job, err := registry.PromoteFromTimeout("refresh-test", live, filepath.Join(t.TempDir(), "job.log"))
 	if err != nil {

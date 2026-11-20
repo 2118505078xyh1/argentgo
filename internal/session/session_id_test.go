@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestSyntheticIDAvoidsExplicitCollision covers session audit #5: a record
-// without an id must never be minted the same id as an explicit n000001 in the
-// same file, regardless of which one appears first. All three lenient read
-// paths must agree, otherwise a page cursor minted by one cannot be resolved
-// by the other.
+// TestSyntheticIDAvoidsExplicitCollision 覆盖 session 审计 #5：没有 id 的记录
+// 绝不能被赋予与同一文件中显式 n000001 相同的 id，
+// 无论哪个先出现。三条宽松读取路径必须一致，
+// 否则一个路径生成的页游标无法被另一个
+// 解析。
 func TestSyntheticIDAvoidsExplicitCollision(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -84,8 +84,8 @@ func TestSyntheticIDAvoidsExplicitCollision(t *testing.T) {
 	}
 }
 
-// TestNextIDSynthesizedIDsAreDistinct guards the shared helper itself: once a
-// synthetic id has been filled in it must count as used for the next record.
+// TestNextIDSynthesizedIDsAreDistinct 守护共享辅助函数本身：一旦填入合成 id，
+// 它就必须算作已使用，供下一条记录参考。
 func TestNextIDSynthesizedIDsAreDistinct(t *testing.T) {
 	records := make([]Record, 3)
 	for i := range records {

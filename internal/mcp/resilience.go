@@ -150,7 +150,7 @@ func IsRetryable(err error) bool {
 	}
 	// HTTP 状态：先是有类型错误，然后是当前 HTTP 传输发出的 "HTTP %d"
 	// 形式，使策略在传输采用有类型错误之前就可用。
-	// adopt the typed error.
+	// 采用有类型错误之前就可用。
 	if status := httpStatusFrom(err); status > 0 {
 		return status == 502 || status == 503 || status == 504
 	}

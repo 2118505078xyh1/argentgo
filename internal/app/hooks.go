@@ -286,6 +286,10 @@ type hookedTools struct {
 	// 生成上下文、不产生额外输出，默认运行逐字节不变。接入方按需注入回调，
 	// 例如把映射写入 security.AuditLog；总开关由接入方掌握。
 	auditSink func(map[string]string)
+	// sourceAnnotator 是来源 URL 标注的可选接线点。默认 nil（未接线）时 Run
+	// 绝不改写工具输出，默认运行逐字节不变；注入 annotateSourceURL 后仅在
+	// web_fetch / web_search 成功结果前加一行来源标注。总开关由接入方掌握。
+	sourceAnnotator func(toolName, args, output string) string
 }
 
 func (h *hookedTools) Specs() []llm.ToolSpec { return h.inner.Specs() }
@@ -344,6 +348,12 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (out string, r
 	// 路径来自注册表的 MutationPaths 接缝，因此只读工具和边界外写入永远不会产生事件。
 	// 默认运行不变。
 	h.fireFileChanged(ctx, name, args, &out)
+	// 可选的来源 URL 标注：默认 sourceAnnotator 为 nil，直接返回，成功工具的
+	// 输出逐字节不变；接入方按需注入 annotateSourceURL，只改 web_fetch /
+	// web_search 的结果，绝不替换内容本身。
+	if h.sourceAnnotator != nil {
+		out = h.sourceAnnotator(name, args, out)
+	}
 	return out, nil
 }
 

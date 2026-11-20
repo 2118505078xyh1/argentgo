@@ -35,7 +35,7 @@ func TestNavSwitchRendersDifferentSidebarPanels(t *testing.T) {
 		t.Fatalf("chat view shows the cron panel: %q", tt.Texts())
 	}
 
-	// Switching to a non-chat item replaces the session rail with its panel.
+	// 切换到非聊天项用其面板替换会话栏。
 	if err := tt.Click("定时任务"); err != nil {
 		t.Fatalf("click 定时任务: %v (texts %q)", err, tt.Texts())
 	}
@@ -49,7 +49,7 @@ func TestNavSwitchRendersDifferentSidebarPanels(t *testing.T) {
 		t.Errorf("session rail still rendered after nav switch: %q", tt.Texts())
 	}
 
-	// Switching to another item replaces the previous panel's content.
+	// 切换到另一项替换之前面板的内容。
 	if err := tt.Click("Git"); err != nil {
 		t.Fatalf("click Git: %v (texts %q)", err, tt.Texts())
 	}

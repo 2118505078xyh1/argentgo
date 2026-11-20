@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestOutputLimitContinuation checks how the loop handles a tool-free reply
-// that the provider ended for output length rather than normally.
+// TestOutputLimitContinuation 检查循环如何处理因输出长度而非正常结束的无工具回复。
+// （接上行）
 func TestOutputLimitContinuation(t *testing.T) {
 	lengthReply := func(text string) llm.Message {
 		reply := textReply(text)
@@ -105,8 +105,8 @@ func TestOutputLimitContinuation(t *testing.T) {
 				t.Fatalf("continuation messages = %d, want %d: %+v", got, tt.wantContinuations, res.Messages)
 			}
 
-			// The continuation must be visible to the very next request: that
-			// is what gives the model a fresh output budget to finish the work.
+			// 继续指令必须在紧接着的下一次请求中可见：这正是让模型获得新的输出预算以完成工作的机制。
+			// （接上行）
 			seen := chat.requestsSeen()
 			for i := 1; i < len(seen); i++ {
 				prev := tt.replies[i-1]

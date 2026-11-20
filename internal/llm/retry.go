@@ -427,7 +427,7 @@ func IsRetryableStatus(code int) bool {
 // nonRetryableQuotaRE 匹配描述硬性账户限额（配额、计费、订阅/套餐）的
 // 提供方错误载荷，而非短暂的限流。在包级只编译一次；匹配在脱敏后的
 // 文本上进行，因此凭据形态的值无法影响判定。
-// text so credential-shaped values cannot influence the decision.
+// 文本上进行，因此凭据形态的值无法影响判定。
 //
 // 配额/计费词刻意不是裸出现的："请求过于频繁，配额将在
 // 30 秒后重置" 和 "check your billing settings" 描述的是重试

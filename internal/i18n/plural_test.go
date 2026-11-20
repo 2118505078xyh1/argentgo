@@ -73,8 +73,8 @@ func TestPluralIgnoresFormsBeyondTwo(t *testing.T) {
 }
 
 func TestPluralIntegratesWithCatalog(t *testing.T) {
-	// The capability must work with the real embedded activity.*_one/_many keys:
-	// select the form, then let T/fmt.Sprintf embed the count.
+	// 该能力必须用于真实嵌入的 activity.*_one/_many 键：
+	// 选择形态，然后让 T/fmt.Sprintf 嵌入计数。
 	cases := []struct {
 		locale string
 		n      int

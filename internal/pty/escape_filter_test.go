@@ -69,8 +69,8 @@ func TestStripTerminalQueriesPreservesDisplaySequences(t *testing.T) {
 	}
 }
 
-// feedChunks drives the streaming wrapper with the given chunk boundaries and
-// returns everything it emits, flushing any tail at EOF.
+// feedChunks 用给定的分块边界驱动流式包装器并
+// feedChunks 用给定的分块边界驱动流式包装器并返回它发出的所有内容，在 EOF 时刷新任何尾部。复用调用方的读缓冲区不得破坏保留的字节。
 func feedChunks(chunks ...[]byte) []byte {
 	f := new(queryFilter)
 	var out []byte
@@ -135,7 +135,7 @@ func TestStripTerminalQueriesPendingIsACopy(t *testing.T) {
 	if string(clean) != "x" || string(pending) != "\x1b]11;?" {
 		t.Fatalf("clean = %q pending = %q", clean, pending)
 	}
-	// Reusing the caller's read buffer must not corrupt the retained bytes.
+	// 复用调用方的读缓冲区不得破坏保留的字节。
 	for i := range buf {
 		buf[i] = 'Z'
 	}

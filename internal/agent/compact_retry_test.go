@@ -6,9 +6,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestCompactRetryDecisionWireValues pins the stable string values so a
-// frontend or a persisted record can compare them without importing this
-// package's types.
+// TestCompactRetryDecisionWireValues 锁定稳定的字符串值，使前端或持久化的记录无需导入本包的
+// 类型即可比较它们。
+// （接上行）
 func TestCompactRetryDecisionWireValues(t *testing.T) {
 	t.Parallel()
 	if string(CompactRetry) != "retry" {
@@ -19,9 +19,9 @@ func TestCompactRetryDecisionWireValues(t *testing.T) {
 	}
 }
 
-// TestDecideCompactRetryOnlyOverflowRetries covers the closed failure
-// vocabulary: a single context overflow is the only kind worth compacting for,
-// all other classes keep the pre-existing stop behaviour.
+// TestDecideCompactRetryOnlyOverflowRetries 覆盖封闭的失败词汇表：只有上下文溢出值得压缩重试，
+// 其他所有类别都保持原有的停止行为。
+// （接上行）
 func TestDecideCompactRetryOnlyOverflowRetries(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -50,8 +50,8 @@ func TestDecideCompactRetryOnlyOverflowRetries(t *testing.T) {
 	}
 }
 
-// TestDecideCompactRetryBudgetBoundaries checks the retry counter and the
-// maxRetries ceiling, including the "maxRetries <= 0 is zero" rule.
+// TestDecideCompactRetryBudgetBoundaries 检查重试计数器和 maxRetries 上限，包括「maxRetries <= 0 即零」规则。
+// （接上行）
 func TestDecideCompactRetryBudgetBoundaries(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -83,9 +83,9 @@ func TestDecideCompactRetryBudgetBoundaries(t *testing.T) {
 	}
 }
 
-// TestDecideCompactRetryIsStable proves the function is pure: repeated calls
-// with the same inputs never alternate, and consuming the budget turns a retry
-// into a permanent stop.
+// TestDecideCompactRetryIsStable 证明函数是纯的：相同输入的重复调用不会交替结果，而消耗预算会把重试变成永久停止。
+// （接上行）
+// （接上行）
 func TestDecideCompactRetryIsStable(t *testing.T) {
 	t.Parallel()
 	first := DecideCompactRetry(llm.FailureContextOverflow, 0, MaxCompactRetries)
@@ -109,7 +109,7 @@ func TestDecideCompactRetryIsStable(t *testing.T) {
 	}
 }
 
-// TestMaxCompactRetriesIsOne guards the single-retry bound the loop relies on.
+// TestMaxCompactRetriesIsOne 守护循环所依赖的仅一次重试的上限。
 func TestMaxCompactRetriesIsOne(t *testing.T) {
 	t.Parallel()
 	if MaxCompactRetries != 1 {

@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// TestInvalidArgBreakerTripsAtDefaultThreshold pins the core mechanism: only
-// invalid-argument outcomes count, and the third one in a turn signals a stop.
+// TestInvalidArgBreakerTripsAtDefaultThreshold 锁定核心机制：只有无效参数结果才计数，一轮中的第三次就会发出停止信号。
+// （接上行）
 func TestInvalidArgBreakerTripsAtDefaultThreshold(t *testing.T) {
-	b := NewInvalidArgBreaker(0) // default threshold
+	b := NewInvalidArgBreaker(0) // 默认阈值
 	if got := b.Threshold(); got != DefaultInvalidArgThreshold {
 		t.Fatalf("Threshold() = %d, want default %d", got, DefaultInvalidArgThreshold)
 	}
 
-	// Below the threshold: no stop.
+	// 低于阈值：不停止。
 	for i := 1; i < DefaultInvalidArgThreshold; i++ {
 		if stop := b.RecordInvalidArgs(); stop {
 			t.Fatalf("stopped after %d invalid-argument outcomes, want < %d", i, DefaultInvalidArgThreshold)
@@ -26,7 +26,7 @@ func TestInvalidArgBreakerTripsAtDefaultThreshold(t *testing.T) {
 		}
 	}
 
-	// At the threshold: stop, and it stays latched until a reset/progress event.
+	// 达到阈值：停止，并保持锁存直到重置或进展事件。
 	if stop := b.RecordInvalidArgs(); !stop {
 		t.Fatalf("did not stop at %d invalid-argument outcomes", DefaultInvalidArgThreshold)
 	}
@@ -38,8 +38,8 @@ func TestInvalidArgBreakerTripsAtDefaultThreshold(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerCustomThreshold covers positive thresholds and the
-// clamping rules (non-positive -> default, above cap -> cap).
+// TestInvalidArgBreakerCustomThreshold 覆盖正阈值以及收紧规则（非正 -> 默认，超过上限 -> 上限）。
+// （接上行）
 func TestInvalidArgBreakerCustomThreshold(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -58,8 +58,8 @@ func TestInvalidArgBreakerCustomThreshold(t *testing.T) {
 			if got := b.Threshold(); got != tt.want {
 				t.Fatalf("Threshold() = %d, want %d", got, tt.want)
 			}
-			// Whatever the effective threshold, recording that many invalid
-			// arguments must trip the breaker.
+			// 无论有效阈值是多少，记录那么多次无效参数都必须使熔断器跳闸。
+			// （接上行）
 			for i := 0; i < tt.want; i++ {
 				if stop := b.RecordInvalidArgs(); stop && i < tt.want-1 {
 					t.Fatalf("stopped early at %d of %d", i+1, tt.want)
@@ -72,8 +72,8 @@ func TestInvalidArgBreakerCustomThreshold(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerSuccessClears checks that a successful tool call
-// immediately clears the count, re-arming the breaker.
+// TestInvalidArgBreakerSuccessClears 检查成功的工具调用会立即清除计数，重新武装熔断器。
+// （接上行）
 func TestInvalidArgBreakerSuccessClears(t *testing.T) {
 	b := NewInvalidArgBreaker(3)
 	b.RecordInvalidArgs()
@@ -92,7 +92,7 @@ func TestInvalidArgBreakerSuccessClears(t *testing.T) {
 		t.Fatal("ShouldStop() true after a successful call")
 	}
 
-	// The streak restarts from scratch after the clear.
+	// 清除后连续序列从头开始。
 	if stop := b.RecordInvalidArgs(); stop {
 		t.Fatal("breaker did not re-arm after success")
 	}
@@ -101,12 +101,12 @@ func TestInvalidArgBreakerSuccessClears(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerOtherFailureDoesNotCount pins that a non-validation
-// failure neither increments the count nor leaves it latched: it clears, per
-// the "non-argument failure clears" rule.
+// TestInvalidArgBreakerOtherFailureDoesNotCount 锁定非校验失败既不增加计数也不保持锁存：按「非参数失败清除」规则，它会清除计数。
+// （接上行）
+// （接上行）
 func TestInvalidArgBreakerOtherFailureDoesNotCount(t *testing.T) {
 	b := NewInvalidArgBreaker(1)
-	// A single non-argument failure must not trip a threshold-1 breaker.
+	// 单次非参数失败不得触发阈值为 1 的熔断器。
 	if stop := b.Observe(InvalidArgOutcomeOtherFailure); stop {
 		t.Fatal("non-argument failure must not stop the turn")
 	}
@@ -114,8 +114,8 @@ func TestInvalidArgBreakerOtherFailureDoesNotCount(t *testing.T) {
 		t.Fatalf("Count() after non-argument failure = %d, want 0", got)
 	}
 
-	// A non-argument failure also clears an accumulated invalid-argument count.
-	b.RecordInvalidArgs() // count = 1, would trip threshold 1
+	// 非参数失败也会清除累积的无效参数计数。
+	b.RecordInvalidArgs() // count = 1，会触发阈值 1
 	if !b.ShouldStop() {
 		t.Fatal("precondition: breaker should be tripped")
 	}
@@ -127,10 +127,10 @@ func TestInvalidArgBreakerOtherFailureDoesNotCount(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerCap checks that the counter saturates at the cap instead
-// of growing without bound, while the stop signal stays latched.
+// TestInvalidArgBreakerCap 检查计数器在上限处饱和而非无界增长，同时停止信号保持锁存。
+// （接上行）
 func TestInvalidArgBreakerCap(t *testing.T) {
-	b := NewInvalidArgBreaker(InvalidArgBreakerCap + 100) // threshold clamped to cap
+	b := NewInvalidArgBreaker(InvalidArgBreakerCap + 100) // 阈值被收紧到上限
 	for i := 0; i < InvalidArgBreakerCap*2; i++ {
 		b.RecordInvalidArgs()
 	}
@@ -141,7 +141,7 @@ func TestInvalidArgBreakerCap(t *testing.T) {
 		t.Fatal("ShouldStop() = false at the cap")
 	}
 
-	// A reset frees the counter to grow again from zero.
+	// 重置使计数器可以从零再次增长。
 	b.Reset()
 	if got := b.Count(); got != 0 {
 		t.Fatalf("Count() after Reset = %d, want 0", got)
@@ -151,8 +151,8 @@ func TestInvalidArgBreakerCap(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerObserveTable exercises every outcome in one place,
-// including that only invalid arguments advance the count.
+// TestInvalidArgBreakerObserveTable 在一处演练每种结果，包括只有无效参数才会推进计数。
+// （接上行）
 func TestInvalidArgBreakerObserveTable(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -179,8 +179,8 @@ func TestInvalidArgBreakerObserveTable(t *testing.T) {
 	}
 }
 
-// TestInvalidArgBreakerNilReceiver pins zero-value/nil safety so a caller can
-// hold a breaker that was never constructed without guarding every call.
+// TestInvalidArgBreakerNilReceiver 锁定零值/nil 安全性，使调用方可以持有一个从未构造的熔断器，而无需在每次调用时做防范。
+// （接上行）
 func TestInvalidArgBreakerNilReceiver(t *testing.T) {
 	var b *InvalidArgBreaker
 	if stop := b.RecordInvalidArgs(); stop {
@@ -198,18 +198,18 @@ func TestInvalidArgBreakerNilReceiver(t *testing.T) {
 	if got := b.Threshold(); got != 0 {
 		t.Errorf("nil Threshold() = %d, want 0", got)
 	}
-	b.Reset() // must not panic
+	b.Reset() // 不得 panic
 }
 
-// TestInvalidArgBreakerConcurrentObserve drives many goroutines through
-// Observe/Count/Reset. With -race this catches data races; without it the exact
-// count still asserts no update was lost before the cap.
+// TestInvalidArgBreakerConcurrentObserve 让许多 goroutine 执行 Observe/Count/Reset。带 -race 时能捕获数据竞态；不带时精确计数仍能断言在上限之前没有丢失任何更新。
+// （接上行）
+// （接上行）
 func TestInvalidArgBreakerConcurrentObserve(t *testing.T) {
 	const (
 		goroutines = 16
 		perRoutine = 20
 	)
-	b := NewInvalidArgBreaker(InvalidArgBreakerCap + 100) // high threshold, capped count
+	b := NewInvalidArgBreaker(InvalidArgBreakerCap + 100) // 高阈值，受限的计数
 	var wg sync.WaitGroup
 	for g := 0; g < goroutines; g++ {
 		wg.Add(1)

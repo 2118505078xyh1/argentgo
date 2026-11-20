@@ -6,9 +6,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestClassifyResponseFourKinds covers the four primary response classes and
-// the three derived predicates. The function is pure, so the cases are plain
-// argument tuples with no fakes or I/O.
+// TestClassifyResponseFourKinds 覆盖四种主要回复类别和三个派生谓词。该函数是纯函数，因此用例只是普通的参数元组，没有伪实现或 I/O。
+// （接上行）
+// （接上行）
 func TestClassifyResponseFourKinds(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -63,9 +63,9 @@ func TestClassifyResponseFourKinds(t *testing.T) {
 	}
 }
 
-// TestClassifyResponseFinishBoundaries pins the finish-reason edge cases:
-// protocol spellings, case/whitespace folding, real tools overriding the
-// finish reason, and non-tool reasons never producing a downgrade.
+// TestClassifyResponseFinishBoundaries 锁定结束原因的边界情况：协议写法、大小写/空白折叠、真实工具覆盖结束原因，以及非工具原因绝不产生降级。
+// （接上行）
+// （接上行）
 func TestClassifyResponseFinishBoundaries(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -107,9 +107,9 @@ func TestClassifyResponseFinishBoundaries(t *testing.T) {
 	}
 }
 
-// TestClassifyReplyEmptyAndReasoningOnly checks the reply-level adapter: usage
-// metadata must never make a reply look visible, while reasoning-only and
-// genuinely empty replies are the two classes a caller may correct.
+// TestClassifyReplyEmptyAndReasoningOnly 检查回复级适配器：用量元数据绝不能让回复看起来可见，而纯推理和真正的空回复是调用方可以纠正的两类。
+// （接上行）
+// （接上行）
 func TestClassifyReplyEmptyAndReasoningOnly(t *testing.T) {
 	usage := &llm.Usage{PromptTokens: 10, CompletionTokens: 2}
 
@@ -152,9 +152,9 @@ func TestClassifyReplyEmptyAndReasoningOnly(t *testing.T) {
 	}
 }
 
-// TestClassifyReplyToolCallsEmpty verifies the safe downgrade at the reply
-// level: a finish reason that announces tools without any tool parts is not a
-// tool turn, must not be corrected into another nudge, and downgrades to stop.
+// TestClassifyReplyToolCallsEmpty 验证回复级的安全降级：宣告工具但没有任何工具部分的结束原因不是工具轮次，不得被纠正为又一次提示，而是降级为停止。
+// （接上行）
+// （接上行）
 func TestClassifyReplyToolCallsEmpty(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -183,7 +183,7 @@ func TestClassifyReplyToolCallsEmpty(t *testing.T) {
 		})
 	}
 
-	// A genuine tool turn with the same finish reason is never downgraded.
+	// 具有相同结束原因的真正工具轮次绝不会被降级。
 	reply := toolReply(toolCall("c1", "read", `{}`))
 	reply.FinishReason = "tool_calls"
 	if got := ClassifyReply(reply); !got.IsToolTurn() || got.IsDowngraded() {
@@ -191,9 +191,9 @@ func TestClassifyReplyToolCallsEmpty(t *testing.T) {
 	}
 }
 
-// TestClassifyReplyCJK checks that multi-byte text and Unicode whitespace are
-// handled by rune-aware TrimSpace: CJK content is visible, a full-width-space
-// only reply is not, and CJK reasoning alone stays reasoning-only.
+// TestClassifyReplyCJK 检查多字节文本和 Unicode 空白由感知 rune 的 TrimSpace 处理：CJK 内容可见，仅全角空格的回复不可见，仅有 CJK 推理仍属纯推理。
+// （接上行）
+// （接上行）
 func TestClassifyReplyCJK(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -230,7 +230,7 @@ func TestClassifyReplyCJK(t *testing.T) {
 	}
 }
 
-// TestResponseKindString pins the diagnostic names so logs stay stable.
+// TestResponseKindString 固定诊断名称，使日志保持稳定。
 func TestResponseKindString(t *testing.T) {
 	cases := map[ResponseKind]string{
 		ResponseToolCalls:        "tool_calls",

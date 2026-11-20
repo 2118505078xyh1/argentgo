@@ -32,7 +32,7 @@ func IsSameProcess(pid int, startedAt int64, toleranceMS int64) bool {
 
 // withinStartTimeTolerance 是纯比较核心。把它与 OS 探测分开，
 // 就能在不依赖活进程或宿主时钟的情况下测试边界行为。
-// a live process or on the host clock.
+// 活进程或宿主时钟。
 func withinStartTimeTolerance(observed, startedAt, toleranceMS int64) bool {
 	if toleranceMS < 0 {
 		toleranceMS = 0

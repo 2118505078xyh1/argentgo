@@ -219,8 +219,8 @@ func TestCancellationAfterToolBatchRecordsAbortedAssistant(t *testing.T) {
 		t.Fatalf("stopped = %q, want %q", res.Stopped, StopCancelled)
 	}
 
-	// The last recorded entry and the last transcript message must both be the
-	// synthetic terminal assistant, not the tool-use turn that preceded it.
+	// 最后记录的条目和最后一条对话消息都必须是合成的终结助手，而非它之前那一条工具使用消息。
+	// （接上行）
 	if len(rows) == 0 {
 		t.Fatal("no transcript entries were recorded")
 	}
@@ -259,7 +259,7 @@ func TestPromptForwardsDeltas(t *testing.T) {
 	}
 }
 
-// approverFunc adapts a function to Approver.
+// approverFunc 把函数适配为 Approver。
 type approverFunc func(ctx context.Context, name, args string) (bool, error)
 
 func (f approverFunc) Ask(ctx context.Context, name, args string) (bool, error) {

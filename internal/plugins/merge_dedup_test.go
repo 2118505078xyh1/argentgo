@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// TestMergeDeduplicatesResolvedPaths checks that a manifest naming the same
-// source more than once contributes a single wiring entry. Resolution must
-// happen before comparison so that "skills", "./skills" and "sub/../skills"
-// collapse to one path.
+// TestMergeDeduplicatesResolvedPaths 检查多次命名同一
+// 来源的清单只贡献一个接线条目。解析必须在
+// TestMergeDeduplicatesResolvedPaths 检查多次命名同一来源的清单只贡献一个接线条目。解析必须在比较之前发生，使 "skills"、"./skills" 和 "sub/../skills" 折叠为一个路径。
+// 折叠为一个路径。
 func TestMergeDeduplicatesResolvedPaths(t *testing.T) {
 	root := t.TempDir()
 	tests := []struct {
@@ -88,9 +88,9 @@ func TestMergeDeduplicatesResolvedPaths(t *testing.T) {
 	}
 }
 
-// TestAppendResolvedDedupDoesNotHideEscapes makes sure deduplication is applied
-// only after the bundle-root check: a repeated escaping path is still refused
-// and reported, never emitted once as a "unique" entry.
+// TestAppendResolvedDedupDoesNotHideEscapes 确保去重在
+// TestAppendResolvedDedupDoesNotHideEscapes 确保去重只在 bundle 根检查之后应用：重复的逃逸路径仍被拒绝和报告，绝不以"唯一"条目发出一次。
+// 且被报告，绝不以"唯一"条目发出一次。
 func TestAppendResolvedDedupDoesNotHideEscapes(t *testing.T) {
 	root := t.TempDir()
 	manifest, err := ParseManifest([]byte(`{"name":"p","skills":["../../outside","../../outside","skills"]}`), root, "")

@@ -10,7 +10,7 @@ import (
 // 三路划分，但返回钩子事件名，使调用方能直接发出结果
 // directly:
 //
-// 	event := hooks.Event(hooks.ClassifyTurnEndEvent(canceled, err))
+//	event := hooks.Event(hooks.ClassifyTurnEndEvent(canceled, err))
 //
 // 取消 —— 显式的 `canceled` 信号或（可能包装或合并的）context.Canceled 错误 —— 是中断。任何其他错误是
 // 合并的）context.Canceled 错误 —— 是中断。任何其他错误是

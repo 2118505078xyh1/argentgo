@@ -12,7 +12,7 @@ import (
 func TestStopAllStopsEveryRunningJob(t *testing.T) {
 	registry := newRegistry(t)
 
-	// A finished job must be left alone: StopAll only touches running jobs.
+	// 已完成的作业必须被置之不理：StopAll 只触及运行中的作业。
 	done, err := registry.Start(shellCommand("echo stopall-done"))
 	if err != nil {
 		t.Fatalf("start done job: %v", err)
@@ -54,7 +54,7 @@ func TestStopAllStopsEveryRunningJob(t *testing.T) {
 		}
 	}
 
-	// The job that had already exited keeps its terminal state.
+	// 已经退出的作业保持其终态。
 	finished, err := registry.Get(done.ID)
 	if err != nil {
 		t.Fatalf("get done job: %v", err)
@@ -159,8 +159,8 @@ func TestStopAllConcurrentCallsAreSafe(t *testing.T) {
 	}
 }
 
-// stubbornLive is a LiveProcess whose Kill deliberately leaves Done open, so
-// its watcher never finishes and StopAll has to fall back to the ctx deadline.
+// stubbornLive 是一个 LiveProcess，其 Kill 刻意让 Done 保持打开，因此其观察者永不完成，StopAll 必须回退到 ctx 截止时间。作业在等待开始前已被发信号。
+// 因此其观察者永不完成，StopAll 必须回退到 ctx 截止时间。
 type stubbornLive struct {
 	pid  int
 	done chan struct{}
@@ -193,7 +193,7 @@ func TestStopAllRespectsContextDeadline(t *testing.T) {
 		t.Fatalf("StopAll took %v, the deadline should have bounded it", elapsed)
 	}
 
-	// The job was still signalled before the wait began.
+	// 作业在等待开始前已被发信号。
 	stopped, err := registry.Get(job.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)

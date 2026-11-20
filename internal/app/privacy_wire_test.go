@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestApplyPrivacyPostureAnyIsNoOp pins the default posture: "any" (and an
-// unset/empty mode) leaves web tools available and accepts a remote base URL.
+// TestApplyPrivacyPostureAnyIsNoOp 锁定默认姿态："any"（以及未设置/空模式）保留 Web 工具，并接受远程 base URL。
+// （接上行）
 func TestApplyPrivacyPostureAnyIsNoOp(t *testing.T) {
 	webTools := []string{"web_search", "web_fetch"}
 	for _, mode := range []string{"any", "", "  "} {
@@ -20,8 +20,8 @@ func TestApplyPrivacyPostureAnyIsNoOp(t *testing.T) {
 	}
 }
 
-// TestApplyPrivacyPostureLocalOnlyBlocksWebTools verifies that local-only
-// withholds every web tool while still allowing a loopback chat endpoint.
+// TestApplyPrivacyPostureLocalOnlyBlocksWebTools 验证 local-only 保留所有 Web 工具，同时仍允许回环聊天端点。
+// （接上行）
 func TestApplyPrivacyPostureLocalOnlyBlocksWebTools(t *testing.T) {
 	for _, baseURL := range []string{
 		"http://localhost:11434",
@@ -38,8 +38,8 @@ func TestApplyPrivacyPostureLocalOnlyBlocksWebTools(t *testing.T) {
 	}
 }
 
-// TestApplyPrivacyPostureLocalOnlyRejectsRemoteBaseURL verifies the fail-closed
-// endpoint check: a remote base URL is an error, not a silent downgrade.
+// TestApplyPrivacyPostureLocalOnlyRejectsRemoteBaseURL 验证安全失败的端点检查：远程 base URL 是错误，而非静默降级。
+// （接上行）
 func TestApplyPrivacyPostureLocalOnlyRejectsRemoteBaseURL(t *testing.T) {
 	blocked, err := ApplyPrivacyPosture("local-only", "https://api.openai.com/v1", []string{"web_search"})
 	if err == nil {
@@ -53,8 +53,8 @@ func TestApplyPrivacyPostureLocalOnlyRejectsRemoteBaseURL(t *testing.T) {
 	}
 }
 
-// TestApplyPrivacyPostureUnknownModeRejected pins the fail-closed behaviour for
-// an unrecognized mode, matching security.AllowRemote.
+// TestApplyPrivacyPostureUnknownModeRejected 锁定无法识别模式下的安全失败行为，与 security.AllowRemote 一致。
+// （接上行）
 func TestApplyPrivacyPostureUnknownModeRejected(t *testing.T) {
 	if _, err := ApplyPrivacyPosture("bogus", "http://localhost:8080", nil); err == nil {
 		t.Fatal("expected an error for an unknown privacy mode")

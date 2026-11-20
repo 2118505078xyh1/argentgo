@@ -9,9 +9,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Durability hooks are injected per Runner through Options, so every test owns
-// its own hooks. No process-global registry means these tests can run in
-// parallel without resetting or leaking state into unrelated loop tests.
+// 持久性钩子通过 Options 按 Runner 注入，因此每个测试拥有自己的钩子。
+// 没有进程级注册表，使这些测试能并行运行，
+// 而不会重置或把状态泄漏到无关的循环测试中。
 func TestBeforeRequestHookRunsBeforeChat(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +35,7 @@ func TestBeforeRequestHookRunsBeforeChat(t *testing.T) {
 	if requests < 1 {
 		t.Fatalf("before-request hook called %d time(s), want at least 1", requests)
 	}
-	// No tool call occurred, so the tool hook must not have run.
+	// 没有发生工具调用，因此工具钩子绝不能运行。
 	if tools != 0 {
 		t.Fatalf("before-tool hook called %d time(s) with no tool call", tools)
 	}
@@ -125,10 +125,10 @@ func TestBeforeToolHookErrorFillsUnrunWithoutExecuting(t *testing.T) {
 	}
 }
 
-// TestBeforeHooksArePerRunner proves two concurrent runs cannot see or clear
-// each other's durability barriers: one runner's hook errors while the other's
-// succeeds, and neither result leaks into the other. This was impossible with
-// the old package-global registry (a Reset from one run cleared the other).
+// TestBeforeHooksArePerRunner 证明两个并发运行无法看到或清除彼此的持久性屏障：
+// 一个运行器的钩子出错而另一个成功，且两者结果都不会泄漏到对方。
+// 在旧版的包级注册表下这是不可能的（一次运行的 Reset 会清除另一次）。
+// （接上行）
 func TestBeforeHooksArePerRunner(t *testing.T) {
 	t.Parallel()
 

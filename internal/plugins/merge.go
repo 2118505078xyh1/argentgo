@@ -2,43 +2,43 @@ package plugins
 
 import "fmt"
 
-// ServerSpec is one MCP server contributed by an enabled bundle. It is
-// deliberately local: the caller adapts it to its own MCP client type.
+// ServerSpec 是启用的 bundle 贡献的一个 MCP 服务器。它刻意是本地类型：调用方把它适配到自己的 MCP 客户端类型。Plugin 是声明服务器的 bundle。Name 是服务器的清单键。Dir 是 bundle 根，用作服务器的工作目录。
+// 刻意是本地类型：调用方把它适配到自己的 MCP 客户端类型。
 type ServerSpec struct {
-	// Plugin is the bundle that declared the server.
+	// Plugin 是声明服务器的 bundle。
 	Plugin string
-	// Name is the manifest key of the server.
+	// Name 是服务器的清单键。
 	Name    string
 	Command string
 	Args    []string
 	Env     map[string]string
 	URL     string
-	// Dir is the bundle root, used as the server's working directory.
+	// Dir 是 bundle 根，用作服务器的工作目录。
 	Dir string
 }
 
-// Wiring is everything the enabled bundles contribute. The caller hands each
-// slice to its own loader (MCP, skills, commands, hooks).
+// Wiring 是启用的 bundle 贡献的一切。调用方把每个
+// 切片交给自己的加载器（MCP、技能、命令、钩子）。
 type Wiring struct {
 	MCP        []ServerSpec
 	Skills     []string
 	Commands   []string
 	HooksPaths []string
 
-	// problems records contributions that were refused because their manifest
-	// paths escape the bundle root. It is package-internal: callers that need
-	// to report findings use Discover / Manifest.Validate instead.
+	// problems 记录因清单路径逃逸 bundle 根而被拒绝的贡献。
+	// 它是包内部的：需要报告发现的调用方改用
+	// Wiring 是启用的 bundle 贡献的一切。调用方把每个切片交给自己的加载器（MCP、技能、命令、钩子）。problems 记录因清单路径逃逸 bundle 根而被拒绝的贡献。它是包内部的：需要报告发现的调用方改用 Discover / Manifest.Validate。
 	problems []Problem
 }
 
-// Merge flattens enabled bundles into one wiring document. Bundles that are
-// not enabled contribute nothing; Resolve already returns an enabled-only set,
-// so passing its output is the normal case.
+// Merge 把启用的 bundle 展平为一个接线文档。未启用的
+// bundle 不贡献任何东西；Resolve 已返回仅启用的集合，
+// 因此传入其输出是正常情况。
 //
-// Merge is pure: it resolves paths against each bundle root without touching
-// the filesystem. Missing files are reported by Manifest.Validate instead.
-// A bundle whose manifest path escapes its root contributes nothing at all —
-// an absolute or ../ path must never become an instruction or command source.
+// Merge 是纯函数：它针对每个 bundle 根解析路径而不触碰
+// Merge 把启用的 bundle 展平为一个接线文档。未启用的 bundle 不贡献任何东西；Resolve 已返回仅启用的集合，因此传入其输出是正常情况。Merge 是纯函数：它针对每个 bundle 根解析路径而不触碰文件系统。缺失文件由 Manifest.Validate 报告。清单路径逃逸其根的 bundle 完全不贡献 —— 绝对或 ../ 路径绝不能成为指令或命令来源。
+// 清单路径逃逸其根的 bundle 完全不贡献任何东西 ——
+// 绝对或 ../ 路径绝不能成为指令或命令来源。
 func Merge(bundles []Bundle) Wiring {
 	var wiring Wiring
 	serverNames := make(map[string]bool)
@@ -47,9 +47,9 @@ func Merge(bundles []Bundle) Wiring {
 		if !bundle.Enabled {
 			continue
 		}
-		// Treat a path escape as fatal for the whole bundle, not just for the
-		// offending path: a manifest that reaches outside its directory is not
-		// one we should trust for MCP execution either.
+		// 把路径逃逸当作整个 bundle 的致命问题，而非仅对
+		// 违规路径：一个伸到其目录之外的清单也不是
+		// 我们可以信任用于 MCP 执行的。
 		if bundle.Manifest.hasPathEscape() {
 			wiring.problems = append(wiring.problems, Problem{
 				Plugin:  bundle.Name,
@@ -59,8 +59,8 @@ func Merge(bundles []Bundle) Wiring {
 			continue
 		}
 		for _, name := range sortedServerNames(bundle.Manifest.MCPServers) {
-			// A server name maps to one process in the caller's registry; the
-			// first bundle wins, like duplicate plugin names do.
+			// 服务器名称映射到调用方注册表中的一个进程；
+			// 第一个 bundle 胜出，就像重复的插件名一样。
 			if serverNames[name] {
 				continue
 			}
@@ -83,15 +83,15 @@ func Merge(bundles []Bundle) Wiring {
 	return wiring
 }
 
-// appendResolved resolves manifest paths against the bundle root, refusing
-// any that escape it. The check is duplicated from hasPathEscape so that a
-// direct Merge caller is protected even if a bundle slips past the whole-bundle
-// guard above.
+// appendResolved 针对 bundle 根解析清单路径，拒绝
+// 任何逃逸。该检查从 hasPathEscape 复制而来，使
+// 把路径逃逸当作整个 bundle 的致命问题，而非仅对违规路径：一个伸到其目录之外的清单也不值得我们信任用于 MCP 执行。服务器名称映射到调用方注册表中的一个进程；第一个 bundle 胜出，就像重复的插件名一样。
+// 上面的守卫。
 //
-// Paths are deduplicated by their resolved form, not by the raw manifest
-// string: "skills", "./skills" and "sub/../skills" all name the same source and
-// must contribute one entry. Without this, the downstream skill/command loader
-// would register the same item several times.
+// 路径按其解析形式去重，而非原始清单
+// appendResolved 针对 bundle 根解析清单路径，拒绝任何逃逸。该检查从 hasPathEscape 复制而来，使直接 Merge 调用方即使绕过上面的整 bundle 守卫也受保护。路径按其解析形式去重，而非原始清单字符串："skills"、"./skills" 和 "sub/../skills" 都指向同一来源且必须贡献一个条目。否则下游技能/命令加载器会把同一项目注册多次。
+// 必须贡献一个条目。否则下游技能/命令加载器
+// 会把同一项目注册多次。
 func (w *Wiring) appendResolved(dest []string, bundle Bundle, paths []string) []string {
 	seen := make(map[string]bool, len(paths))
 	for _, relative := range paths {

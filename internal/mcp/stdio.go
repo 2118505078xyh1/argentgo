@@ -29,7 +29,7 @@ const maxLineBytes = 8 * 1024 * 1024
 // Node 工具有时只安装为 npx.ps1（没有 .cmd 包装），而配置为本地 .ps1
 // 脚本的服务器也会撞上同样的墙。改为通过 PowerShell 运行它们。
 // 普通命令和常见的 npx.cmd 包装保持不变，因为 Go 已经能安全执行它们。
-// are left untouched because Go already executes them safely.
+// 保持不变，因为 Go 已经能安全执行它们。
 func execSpec(spec Spec) (string, []string) {
 	return execSpecForOS(runtime.GOOS, spec.Command, spec.Args)
 }

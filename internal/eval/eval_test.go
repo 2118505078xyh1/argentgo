@@ -15,7 +15,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// ---------------------------------------------------------------- fixtures
+// ---------------------------------------------------------------- 测试夹具
 
 // fakeTools 是 fake 循环的一个极小工具表：恰好足够的行为来
 // 演练场景，并带有真实的门（策略、审批、唯一性）。
@@ -156,7 +156,6 @@ func (t *fakeTools) run(name, arguments string) string {
 // fakeRun 是真实 agent 循环的手写替身：它向脚本化 provider 请求一轮，运行请求的工具，并报告
 // 向脚本化 provider 请求一轮，运行请求的工具，并报告
 // 发生了什么。它遵守场景提示（轮数预算、取消、审批、
-// 发生了什么。它遵守场景提示（轮数预算、取消、审批、
 // 被拒路径），使场景保持 Rust 的意图而不导入 agent 包。
 func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace, error) {
 	approve := true
@@ -216,7 +215,7 @@ func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace
 	return trace, nil
 }
 
-// ------------------------------------------------------------ suite tests
+// ------------------------------------------------------------ 套件测试
 
 func loadCore(t *testing.T) []Scenario {
 	t.Helper()
@@ -391,7 +390,7 @@ func TestCancellationIsAStopNotAFailure(t *testing.T) {
 	}
 }
 
-// ------------------------------------------------------------ grading tests
+// ------------------------------------------------------------ 评分测试
 
 func intPtr(v int) *int    { return &v }
 func boolPtr(v bool) *bool { return &v }
@@ -603,7 +602,7 @@ func TestARunSeesTheSeededWorkspaceAndItsChecks(t *testing.T) {
 	}
 }
 
-// ------------------------------------------------------------ parsing tests
+// ------------------------------------------------------------ 解析测试
 
 func TestParseAcceptsADocumentAndABareArray(t *testing.T) {
 	document := []byte(`{"scenarios":[{"name":"a","prompt":"p"},{"name":"b","prompt":"q"}]}`)
@@ -674,7 +673,7 @@ func TestScenarioOmittingToolCallsMeansNoCheck(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------- scripted provider tests
+// ---------------------------------------------------- 脚本化 provider 测试
 
 func TestScriptedProviderReplaysAndLoops(t *testing.T) {
 	provider := NewScripted([]ScriptTurn{{Respond: Respond{Text: "tick"}}}, true)

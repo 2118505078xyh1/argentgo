@@ -192,7 +192,7 @@ func TestHeadlessApproverCancellationUnblocksWithoutReadingStdin(t *testing.T) {
 	}
 }
 
-// TestCLIDirectApproverStillReadsLocalYn proves the non-headless path is byte-
+// TestCLIDirectApproverStillReadsLocalYn 证明非无界面路径逐字节不变：
 // 直接的 CLI 运行仍在操作人员的 tty 上询问 y/n。
 func TestCLIDirectApproverStillReadsLocalYn(t *testing.T) {
 	for _, tc := range []struct {

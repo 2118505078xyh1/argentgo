@@ -1,27 +1,27 @@
 package pty
 
-// stripTerminalQueries removes terminal query/report escape sequences from one
-// chunk of PTY output and returns the clean bytes plus any trailing partial
-// escape sequence that must be prepended to the next chunk before it is passed
-// here again.
+// stripTerminalQueries 从一块 PTY 输出中移除终端查询/报告转义序列，
+// stripTerminalQueries 从一块 PTY 输出中移除终端查询/报告转义序列，返回干净字节以及必须前置到下一块再传给此处的任何尾部不完整转义序列。
+// 必须前置到下一块再传给此处的任何尾部不完整
+// 转义序列。
 //
-// Why this exists: CLIs such as gh/npm — and, worse, attacker-controlled tool
-// output — emit sequences that ask the terminal to report its own state:
+// 它存在的原因：gh/npm 这样的 CLI —— 更糟的是攻击者控制的工具
+// 输出 —— 会发出要求终端报告自身状态的序列：
 //
-//   - DSR:              ESC [ 6 n  (and ESC [ 5 n)
-//   - OSC colour query: ESC ] 11 ; ? BEL  (or ESC ] 10 ; ? ST, ESC ] 4 ; n ; ? …)
-//   - DA / DA2:         ESC [ c    (and ESC [ > c)
-//   - DECRQSS:          ESC [ $ q
+//   - DSR：ESC [ 6 n（及 ESC [ 5 n）
 //
-// A real terminal answers each of these by injecting *more* escape sequences
-// into the byte stream. In argentgo that stream is rendered by the TUI/native
-// frontends and echoed into the model, so the answer becomes a prompt-injection
-// channel. Legitimate display sequences (SGR colour/bold, cursor movement,
-// charset designators, OSC hyperlinks/titles) are kept byte-for-byte.
+//   - DA / DA2：ESC [ c（及 ESC [ > c）
+//   - DECRQSS：ESC [ $ q
 //
-// The filter is byte-oriented and only ever holds back ASCII escape bytes, so a
-// UTF-8 rune split across chunk boundaries is emitted intact; keeping the
-// stream well-formed is the caller's UTF-8 carry writer's job, not this one's.
+// 真实终端通过向字节流注入*更多*转义序列来回答每一个。
+// 在 argentgo 中该流由 TUI/native 前端渲染并回显给模型，因此回答成为
+// 提示注入通道。合法的显示序列（SGR 颜色/粗体、光标移动、
+// 字符集指示符、OSC 超链接/标题）逐字节保留。
+// 过滤器面向字节且只曾扣留 ASCII 转义字节，因此
+//
+// 跨块边界拆分的 UTF-8 rune 被完整发出；保持流良好
+// 该过滤器面向字节且只曾扣留 ASCII 转义字节，因此跨块边界拆分的 UTF-8 rune 被完整发出；保持流良好形式是调用方的 UTF-8 进位写入器的职责，而非此处。复制而非别名：调用方复用其 Read 缓冲区，因此待处理字节不得指向 chunk 的底层数组。
+// 形式是调用方的 UTF-8 进位写入器的职责，而非此处。
 func stripTerminalQueries(chunk []byte) (clean []byte, pending []byte) {
 	clean = make([]byte, 0, len(chunk))
 	for i := 0; i < len(chunk); {
@@ -32,8 +32,8 @@ func stripTerminalQueries(chunk []byte) (clean []byte, pending []byte) {
 		}
 		end, query, incomplete := scanEscape(chunk, i)
 		if incomplete {
-			// Copy rather than alias: callers reuse their Read buffer, so the
-			// pending bytes must not point into chunk's backing array.
+			// 复制而非别名：调用方复用其 Read 缓冲区，因此
+			// 待处理字节不得指向 chunk 的底层数组。
 			pending = append(pending, chunk[i:]...)
 			break
 		}
@@ -45,10 +45,10 @@ func stripTerminalQueries(chunk []byte) (clean []byte, pending []byte) {
 	return clean, pending
 }
 
-// scanEscape parses the escape sequence beginning at chunk[i] (which must be
-// ESC). It returns the index just past the sequence, whether it is a terminal
-// query that should be dropped, and whether the sequence is incomplete in this
-// chunk and must be held back.
+// scanEscape 解析从 chunk[i]（必须是 ESC）开始的转义序列。它返回刚好越过该序列的索引、它是否是应丢弃的终端查询，以及该序列在此块中是否不完整必须扣留。
+// ESC）。它返回刚好越过该序列的索引、它是否是终端
+// 查询应被丢弃，以及该序列在此块中是否不完整
+// 必须扣留。
 func scanEscape(chunk []byte, i int) (end int, query bool, incomplete bool) {
 	if i+1 >= len(chunk) {
 		return 0, false, true // lone ESC: wait for the introducer
@@ -71,7 +71,7 @@ func scanEscape(chunk []byte, i int) (end int, query bool, incomplete bool) {
 	}
 }
 
-// scanCSI parses a CSI whose body starts at body (just after ESC '[').
+// scanCSI 解析主体从 body（紧跟 ESC '['）开始的 CSI。消耗直到（不含）该字节并让调用方在其上重新同步，而非吞掉无关文本。
 func scanCSI(chunk []byte, body int) (end int, query bool, incomplete bool) {
 	j := body
 	for j < len(chunk) && chunk[j] >= 0x30 && chunk[j] <= 0x3f { // parameter bytes
@@ -86,8 +86,8 @@ func scanCSI(chunk []byte, body int) (end int, query bool, incomplete bool) {
 	}
 	final := chunk[j]
 	if final < 0x40 || final > 0x7e { // not a well-formed final byte
-		// Consume up to (not including) this byte and let the caller
-		// resynchronise on it, rather than swallowing unrelated text.
+		// 消耗直到（不含）该字节并让调用方
+		// 在其上重新同步，而非吞掉无关文本。
 		return j, false, false
 	}
 	switch final {
@@ -103,9 +103,9 @@ func scanCSI(chunk []byte, body int) (end int, query bool, incomplete bool) {
 	return j + 1, query, false
 }
 
-// scanOSC parses an OSC whose body starts at body (just after ESC ']'). An OSC
-// is a query when its payload contains the ";?" pattern (OSC 10/11/12/4/52
-// queries). ST is ESC '\'; BEL also terminates OSC.
+// scanOSC 解析主体从 body（紧跟 ESC ']'）开始的 OSC。当
+// scanOSC 解析主体从 body（紧跟 ESC ']'）开始的 OSC。当其 payload 包含 ";?" 模式时它是查询（OSC 10/11/12/4/52 查询）。ST 是 ESC '\'；BEL 也终止 OSC。
+// 查询）。ST 是 ESC '\'；BEL 也终止 OSC。
 func scanOSC(chunk []byte, body int) (end int, query bool, incomplete bool) {
 	j := body
 	var prev byte
@@ -131,9 +131,9 @@ func scanOSC(chunk []byte, body int) (end int, query bool, incomplete bool) {
 	return 0, false, true // no terminator yet
 }
 
-// scanStringEscape parses a DCS/SOS/PM/APC body (after its introducer) up to a
-// string terminator. These are never queries, but they must still be tracked so
-// a terminator split across chunks is not torn apart.
+// scanStringEscape 解析 DCS/SOS/PM/APC 主体（在其引导符之后）直到字符串终止符。它们从不是查询，但仍必须跟踪，使跨块拆分的终止符不被撕开。
+// 字符串终止符。它们从不是查询，但仍必须跟踪，使
+// 跨块拆分的终止符不被撕开。
 func scanStringEscape(chunk []byte, body int) (end int, incomplete bool) {
 	for j := body; j < len(chunk); j++ {
 		if chunk[j] == 0x07 { // some endpoints accept BEL here too
@@ -151,15 +151,15 @@ func scanStringEscape(chunk []byte, body int) (end int, incomplete bool) {
 	return 0, true
 }
 
-// queryFilter is a streaming wrapper around stripTerminalQueries: it keeps the
-// trailing partial sequence between Write calls, so callers can feed it chunks
-// from repeated Read calls without managing pending bytes themselves. It is not
-// safe for concurrent use — each PTY stream has a single reader goroutine.
+// queryFilter 是 stripTerminalQueries 的流式包装器：它在 Write 调用之间保留
+// 尾部不完整序列，使调用方可以把重复 Read 调用的块喂给它
+// 而无需自己管理待处理字节。它不可并发
+// queryFilter 是 stripTerminalQueries 的流式包装器：它在 Write 调用之间保留尾部不完整序列，使调用方可以把重复 Read 调用的块喂给它而无需自己管理待处理字节。它不可并发使用 —— 每条 PTY 流只有一个读者 goroutine。
 type queryFilter struct {
 	pending []byte
 }
 
-// Write filters one chunk and returns only bytes that are safe to emit now.
+// Write 过滤一块并只返回现在可安全发出的字节。
 func (f *queryFilter) Write(chunk []byte) []byte {
 	data := chunk
 	if len(f.pending) > 0 {
@@ -173,8 +173,8 @@ func (f *queryFilter) Write(chunk []byte) []byte {
 	return clean
 }
 
-// Flush emits any retained partial sequence at EOF. A dangling fragment cannot
-// be a complete query, so it is written through verbatim. Flush is idempotent.
+// Write 过滤一块并只返回现在可安全发出的字节。Flush 在 EOF 发出任何保留的不完整序列。悬空片段不可能是完整查询，因此它被原样写出。Flush 是幂等的。
+// 能是完整查询，因此它被原样写出。Flush 是幂等的。
 func (f *queryFilter) Flush() []byte {
 	out := f.pending
 	f.pending = nil

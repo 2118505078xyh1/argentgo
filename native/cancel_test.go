@@ -30,9 +30,9 @@ func TestIsCancelError(t *testing.T) {
 	}
 }
 
-// TestFinishTextKeepsStreamedOnCancellation guards the native symptom: an
-// aborted reply must keep the text the user already saw stream in, while a real
-// failure keeps the engine's own result.
+// TestFinishTextKeepsStreamedOnCancellation 守护原生症状：
+// 被中止的回复必须保留用户已经看到的流式文本，而真实
+// 失败保留 engine 自己的结果。
 func TestFinishTextKeepsStreamedOnCancellation(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -58,9 +58,9 @@ func TestFinishTextKeepsStreamedOnCancellation(t *testing.T) {
 	}
 }
 
-// TestCompleteFromPromptShowsEngineError locks the native symptom: a genuine
+// TestCompleteFromPromptShowsEngineError 锁定原生症状：真实的
 // engine failure must surface the error text and the "引擎错误" status. Before
-// the fix, sendReal set both and then called finish(full), which overwrote them
+// 在修复之前，sendReal 同时设置两者然后调用 finish(full)，覆盖了它们。
 // with the engine's empty result and "已完成" — failures looked like successes.
 func TestCompleteFromPromptShowsEngineError(t *testing.T) {
 	cases := []struct {
@@ -82,7 +82,6 @@ func TestCompleteFromPromptShowsEngineError(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			reply := &message{id: 1, kind: msgAssistant}
-			// A non-nil engine keeps finish() from injecting the demo approval.
 			app := &chat{reply: reply, streaming: true, engine: &bridge{}}
 			app.messages = []*message{reply}
 

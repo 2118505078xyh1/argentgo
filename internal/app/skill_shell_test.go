@@ -11,15 +11,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// skillShellFixture builds a toolset whose skill registry holds one skill with
-// the given body. run is the injected shell executor; nil means "must not run".
+// skillShellFixture 构建一个工具集，其技能注册表包含一个具有给定正文的技能。
+// run 是注入的 shell 执行器；nil 表示"绝不能运行"。
 func skillShellFixture(body string, on bool, run func(context.Context, string) (string, error)) *toolset {
 	registry := skills.New()
 	registry.Add(skills.Skill{Name: "demo", Description: "demo skill", Path: "/skills/demo/SKILL.md", Body: body})
 	return &toolset{skills: registry, skillShellOn: on, skillShellRun: run}
 }
 
-// skillShellHeader is the wrapper HandleUseSkill adds in front of a loaded body.
+// skillShellHeader 是 HandleUseSkill 在已加载正文前添加的包装。
 const skillShellHeader = "# skill: demo\n(source: /skills/demo/SKILL.md)\n\n"
 
 func skillShellCall(t *testing.T, set *toolset) string {
@@ -31,8 +31,8 @@ func skillShellCall(t *testing.T, set *toolset) string {
 	return out
 }
 
-// TestSkillShellDefaultOffKeepsBodyUntouched pins the lowest-risk invariant:
-// with no opt-in, use_skill returns the exact body and never executes a shell.
+// TestSkillShellDefaultOffKeepsBodyUntouched 锁定风险最低的不变量：未启用时，use_skill 返回完全相同的正文，且从不执行 shell。
+// （接上行）
 func TestSkillShellDefaultOffKeepsBodyUntouched(t *testing.T) {
 	body := "Step one.\nRun `!echo hi` then continue.\n"
 	set := skillShellFixture(body, false, func(context.Context, string) (string, error) {
@@ -45,10 +45,10 @@ func TestSkillShellDefaultOffKeepsBodyUntouched(t *testing.T) {
 	}
 }
 
-// TestSkillShellSubstitutesOutputsAtExecutableSpans proves the complete closed
-// loop: a loaded skill's executable spans are parsed, each command is executed,
-// and its output is folded back at the original span. Ordinary inline code and
-// duplicate commands (the parser drops them) are left as inert text.
+// TestSkillShellSubstitutesOutputsAtExecutableSpans 证明完整闭环：已加载技能的可执行片段被解析，每条命令被执行，
+// 其输出被折回原始片段。普通内联代码和重复命令（解析器会丢弃）保持为惰性文本。
+// （接上行）
+// （接上行）
 func TestSkillShellSubstitutesOutputsAtExecutableSpans(t *testing.T) {
 	body := "A `!cmd one` B `echo inert` C `!cmd one` D `!cmd two`"
 	var ran []string
@@ -67,10 +67,10 @@ func TestSkillShellSubstitutesOutputsAtExecutableSpans(t *testing.T) {
 	}
 }
 
-// TestSkillShellDenialBecomesReadableMarker proves the execution is routed
-// through the security chain, not a bare exec: a denying guard is consulted
-// with the shell tool and the parsed command, no shell process runs, and the
-// model receives a bounded, readable error marker in the skill body.
+// TestSkillShellDenialBecomesReadableMarker 证明执行经过安全链而非裸 exec：一个拒绝的防护器会与 shell 工具和解析出的命令一起被咨询，
+// 没有 shell 进程运行，且模型在技能正文中收到一个有界、可读的错误标记。
+// （接上行）
+// （接上行）
 func TestSkillShellDenialBecomesReadableMarker(t *testing.T) {
 	const command = "rm -rf /should-not-run"
 	body := "Before `!" + command + "` after."
@@ -103,7 +103,7 @@ func TestSkillShellDenialBecomesReadableMarker(t *testing.T) {
 	}
 }
 
-// recordingDenyGuard is a tools.Guard that records the call and denies it.
+// recordingDenyGuard 是一个记录调用并拒绝它的 tools.Guard。
 type recordingDenyGuard struct {
 	err  error
 	name string
@@ -116,8 +116,8 @@ func (g *recordingDenyGuard) Check(_ context.Context, name string, args json.Raw
 	return g.err
 }
 
-// TestSkillShellEnabledGate pins the trust gate: default off, opt-in spellings,
-// and the kill switch overriding a positive opt-in.
+// TestSkillShellEnabledGate 锁定信任门槛：默认关闭、各种启用写法，以及关闭开关覆盖正向启用。
+// （接上行）
 func TestSkillShellEnabledGate(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -149,9 +149,9 @@ func TestSkillShellEnabledGate(t *testing.T) {
 	}
 }
 
-// TestSkillShellListingNeverExecutesMetadata proves the nameless use_skill
-// (skills listing) is inert even when a skill's description carries an
-// executable-looking span: only a named, loaded body may reach the shell.
+// TestSkillShellListingNeverExecutesMetadata 证明无名的 use_skill（技能列表）是惰性的，即使某技能的描述带有看似可执行的片段：
+// 只有具名、已加载的正文才能到达 shell。
+// （接上行）
 func TestSkillShellListingNeverExecutesMetadata(t *testing.T) {
 	registry := skills.New()
 	registry.Add(skills.Skill{
@@ -172,9 +172,9 @@ func TestSkillShellListingNeverExecutesMetadata(t *testing.T) {
 	}
 }
 
-// TestSkillShellFencedAndEscapedSpansAreInert verifies the wiring inherits the
-// parser's conservative behaviour: fenced blocks and escaped backticks never
-// reach the executor.
+// TestSkillShellFencedAndEscapedSpansAreInert 验证接线继承了解析器的保守行为：围栏代码块和转义的反引号永远不会到达执行器。
+// （接上行）
+// （接上行）
 func TestSkillShellFencedAndEscapedSpansAreInert(t *testing.T) {
 	body := "```\n`!inside fence`\n```\nEscaped \\`!also inert\\` and live `!run me`."
 	var ran []string

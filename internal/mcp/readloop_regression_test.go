@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// readLoopHarness builds a transport whose readLoop can run without a live
-// child process: cmd.Process is nil so finish skips killing, and stdin is a
-// pipe writer so finish can close it.
+// readLoopHarness 构建一个其 readLoop 无需活子进程即可运行的传输：
+// cmd.Process 为 nil，因此 finish 跳过了杀死操作，stdin 是一个
+// 管道写端，因此 finish 可以关闭它。
 func readLoopHarness() *stdioTransport {
 	_, stdin := io.Pipe()
 	return &stdioTransport{
@@ -23,9 +23,9 @@ func readLoopHarness() *stdioTransport {
 	}
 }
 
-// countingReader records how many bytes the consumer actually pulled from the
-// source. It has no cap of its own, so it can expose a consumer that drains an
-// unbounded line into memory instead of stopping at the frame limit.
+// countingReader 记录消费者实际从源中拉取了多少字节。
+// 它自身没有上限，因此可以暴露一个把无界行全部读进内存、而不是
+// 在帧上限处停止的消费者。
 type countingReader struct {
 	src  io.Reader
 	read int
@@ -37,12 +37,12 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// TestReadLoopDoesNotDrainOversizeLine is a regression test for the frame cap:
-// a server that emits a huge line with no newline must not make readLoop read
-// (and buffer) the whole thing before rejecting it. ReadBytes, used previously,
-// kept accumulating until EOF, so a malicious server could force memory growth
-// far beyond maxLineBytes. A bounded reader stops within one buffer chunk of
-// the cap.
+// TestReadLoopDoesNotDrainOversizeLine 是针对帧上限的回归测试：
+// 一台发出没有换行的巨行的服务器，不得让 readLoop 在拒绝它
+// 之前读完（并缓冲）整行。之前使用的 ReadBytes 会一直累积
+// 直到 EOF，因此恶意服务器能迫使内存增长远超 maxLineBytes。
+// 有界的读取器会在距离上限一个缓冲区块之内
+// 停止。
 func TestReadLoopDoesNotDrainOversizeLine(t *testing.T) {
 	huge := append(bytes.Repeat([]byte("x"), maxLineBytes*2), '\n')
 	counter := &countingReader{src: bytes.NewReader(huge)}

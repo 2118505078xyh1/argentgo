@@ -12,7 +12,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// pathTools adds the optional mutation reporter to the shared fake toolset.
+// pathTools 把可选的变更报告器添加到共享的伪工具集。
 type pathTools struct {
 	*fakeTools
 	fn func(name, args string) []string

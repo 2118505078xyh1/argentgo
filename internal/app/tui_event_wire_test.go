@@ -10,8 +10,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// TestAgentToTUIEventToolStart proves a tool_start keeps the fields the TUI
-// needs to promote a pending approval card and render a running task row.
+// TestAgentToTUIEventToolStart 证明 tool_start 保留了 TUI 提升待审批卡片和渲染运行中任务行所需的字段。
+// （接上行）
 func TestAgentToTUIEventToolStart(t *testing.T) {
 	in := agent.Event{
 		Kind:       agent.EventToolStart,
@@ -34,8 +34,8 @@ func TestAgentToTUIEventToolStart(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventToolEnd proves tool_end carries the outcome fields the TUI
-// uses to close a task row and badge a failed tool entry.
+// TestAgentToTUIEventToolEnd 证明 tool_end 携带 TUI 关闭任务行并标记失败工具条目所需的结果字段。
+// （接上行）
 func TestAgentToTUIEventToolEnd(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -74,8 +74,8 @@ func TestAgentToTUIEventToolEnd(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventError proves a failed request surfaces its redacted error
-// text through tui.EventError's Detail field.
+// TestAgentToTUIEventError 证明失败的请求通过 tui.EventError 的 Detail 字段呈现其脱敏错误文本。
+// （接上行）
 func TestAgentToTUIEventError(t *testing.T) {
 	got, ok := AgentToTUIEvent(agent.Event{Kind: agent.EventError, Err: "stream reset"})
 	if !ok {
@@ -87,8 +87,8 @@ func TestAgentToTUIEventError(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventUnmappedKinds guards the honesty contract: tui.Event has no
-// text, notice, usage or stop kind, so those events must not be manufactured.
+// TestAgentToTUIEventUnmappedKinds 守护诚实契约：tui.Event 没有文本、通知、用量或停止种类，因此不得伪造这些事件。
+// （接上行）
 func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 	kinds := []agent.EventKind{
 		agent.EventTurnStart,
@@ -100,7 +100,7 @@ func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 		agent.EventStop,
 		agent.EventSubagentStart,
 		agent.EventSubagentEnd,
-		agent.EventNotice, // plain notice, not an approval
+		agent.EventNotice, // 普通通知，不是审批
 	}
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
@@ -115,10 +115,10 @@ func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventApprovalNotice documents that approval notices are
-// recognised (via ParseApprovalEvent) but intentionally have no TUI event: the
-// approval card is created by Model.Approve and promoted by the later
-// tool_start. Emitting one here would show it as running before the answer.
+// TestAgentToTUIEventApprovalNotice 记录审批通知会被识别（通过 ParseApprovalEvent），但有意没有 TUI 事件：
+// 审批卡片由 Model.Approve 创建，并由之后的 tool_start 提升。
+// 在这里发出会使其在回答之前显示为运行中。
+// （接上行）
 func TestAgentToTUIEventApprovalNotice(t *testing.T) {
 	notices := []agent.Event{
 		agent.ApprovalRequestedEvent("bash", "digest", "call-1"),
@@ -140,8 +140,8 @@ func TestAgentToTUIEventApprovalNotice(t *testing.T) {
 	}
 }
 
-// TestStartTUIEventBridgeDeliversInOrder proves the bridge forwards only mapped
-// events, in publish order, and filters the rest.
+// TestStartTUIEventBridgeDeliversInOrder 证明桥接器只按发布顺序转发映射后的事件，并过滤其余事件。
+// （接上行）
 func TestStartTUIEventBridgeDeliversInOrder(t *testing.T) {
 	hub := NewEventHub()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -176,8 +176,8 @@ func TestStartTUIEventBridgeDeliversInOrder(t *testing.T) {
 	}
 }
 
-// TestStartTUIEventBridgeClosesOnCancel proves cancellation closes the channel
-// and the hub subscription, even with no events in flight.
+// TestStartTUIEventBridgeClosesOnCancel 证明取消会关闭通道和 hub 订阅，即使没有在途事件。
+// （接上行）
 func TestStartTUIEventBridgeClosesOnCancel(t *testing.T) {
 	hub := NewEventHub()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -194,9 +194,9 @@ func TestStartTUIEventBridgeClosesOnCancel(t *testing.T) {
 	}
 }
 
-// TestStartTUIEventBridgeSlowConsumer proves the out channel never blocks the
-// bridge: with more events than the buffer can hold and nobody reading, cancel
-// still unwinds the goroutine and closes the channel.
+// TestStartTUIEventBridgeSlowConsumer 证明 out 通道永不阻塞桥接器：当事件多于缓冲区容量且无人读取时，
+// 取消仍能展开 goroutine 并关闭通道。
+// （接上行）
 func TestStartTUIEventBridgeSlowConsumer(t *testing.T) {
 	hub := NewEventHub()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -227,8 +227,8 @@ func TestStartTUIEventBridgeSlowConsumer(t *testing.T) {
 	}
 }
 
-// TestTUIEventPipelineDeliversAgentEvents proves the production wiring: an
-// EmitEvent call on a run context reaches the TUI channel, and Stop closes it.
+// TestTUIEventPipelineDeliversAgentEvents 证明生产接线：运行 context 上的一次 EmitEvent 调用会到达 TUI 通道，且 Stop 会关闭它。
+// （接上行）
 func TestTUIEventPipelineDeliversAgentEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

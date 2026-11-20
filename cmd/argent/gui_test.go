@@ -2,8 +2,8 @@ package main
 
 import "testing"
 
-// Only the leading `gui` subcommand may divert the CLI into the native
-// frontend. Scanning every argument hijacks prompts and flag values.
+// 只有前导的 `gui` 子命令能把 CLI 转入原生
+// 前端。扫描每个参数会劫持提示和标志值。
 func TestIsGUIRequestOnlyMatchesLeadingGUISubcommand(t *testing.T) {
 	cases := []struct {
 		name string

@@ -46,9 +46,9 @@ func entryContents(entries []Entry) map[string]bool {
 	return out
 }
 
-// TestCompactRestoresFlaggedRetentionAcrossCut verifies the compaction wiring:
-// a record marked RetainInThread survives a cut that would otherwise drop it,
-// while unmarked dropped records stay dropped.
+// TestCompactRestoresFlaggedRetentionAcrossCut 验证压缩接线：
+// 标记为 RetainInThread 的记录能熬过原本会丢弃它的切分，
+// 而未标记的被丢弃记录仍被丢弃。
 func TestCompactRestoresFlaggedRetentionAcrossCut(t *testing.T) {
 	s := newWireSession(t)
 	appendMarkedUser(t, s, "m0", RetainInThread)
@@ -74,9 +74,9 @@ func TestCompactRestoresFlaggedRetentionAcrossCut(t *testing.T) {
 	}
 }
 
-// TestCompactRestoresFlaggedToolPair verifies tool-pair safety: re-emitting a
-// flagged tool result also brings back the assistant call that declared it, so
-// compaction never leaves an orphaned result in the survived context.
+// TestCompactRestoresFlaggedToolPair 验证工具配对安全性：重新发出带标记的
+// 工具结果也会带回声明它的 assistant 调用，因此压缩绝不会在保留的
+// 上下文中留下孤立的结果。
 func TestCompactRestoresFlaggedToolPair(t *testing.T) {
 	s := newWireSession(t)
 	if _, err := s.AppendRecord(KindAssistant, json.RawMessage(
@@ -115,8 +115,8 @@ func TestCompactRestoresFlaggedToolPair(t *testing.T) {
 	}
 }
 
-// TestCompactBudgetRestoresFlaggedRetention verifies the budget overload also
-// honours retention hints, not only Compact(keep).
+// TestCompactBudgetRestoresFlaggedRetention 验证预算重载也遵守保留提示，
+// 而不仅是 Compact(keep)。
 func TestCompactBudgetRestoresFlaggedRetention(t *testing.T) {
 	s := newWireSession(t)
 	appendMarkedUser(t, s, "old-flagged", RetainAlways)
@@ -125,7 +125,7 @@ func TestCompactBudgetRestoresFlaggedRetention(t *testing.T) {
 	}
 	appendMarkedUser(t, s, "recent", RetainDefault)
 
-	// A small budget keeps only the newest message; the flagged one is older.
+	// 小预算只保留最新的消息；带标记的那条较旧。
 	if err := s.CompactBudget(40); err != nil {
 		t.Fatalf("CompactBudget: %v", err)
 	}
@@ -135,8 +135,8 @@ func TestCompactBudgetRestoresFlaggedRetention(t *testing.T) {
 	}
 }
 
-// TestAgentStatsWireShapeReadsBack validates the wire contract between the
-// agent's stat payload (JSON field names) and this package's readers.
+// TestAgentStatsWireShapeReadsBack 验证 agent 统计载荷（JSON 字段名）与本包
+// 读取器之间的线格式契约。
 func TestAgentStatsWireShapeReadsBack(t *testing.T) {
 	s := newWireSession(t)
 	payload := json.RawMessage(`{
@@ -165,13 +165,13 @@ func TestAgentStatsWireShapeReadsBack(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Exec check: opt-in command execution in the eval harness.
-// (Kept in the session test package because eval imports agent, so an agent
-// test importing eval would form an import cycle.)
+// Exec 检查：eval 框架中选择启用的命令执行。
+// （保留在 session 测试包中，因为 eval 导入 agent，若 agent 测试
+// 导入 eval 会形成导入循环。）
 // ---------------------------------------------------------------------------
 
-// TestEvalExecCheckOptIn builds a trivial Go module in the seeded workspace and
-// verifies an explicitly enabled Exec check runs and grades successfully.
+// TestEvalExecCheckOptIn 在种子工作区构建一个简单 Go 模块，并验证显式启用的
+// Exec 检查能运行并成功评分。
 func TestEvalExecCheckOptIn(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not on PATH")
@@ -209,8 +209,8 @@ func TestEvalExecCheckOptIn(t *testing.T) {
 	}
 }
 
-// TestEvalExecCheckDefaultOff verifies a command is never run unless the
-// scenario opts in: an Exec that would fail is ignored when AllowExec is false.
+// TestEvalExecCheckDefaultOff 验证除非场景选择启用，否则绝不运行命令：
+// 当 AllowExec 为 false 时，一个本会失败的 Exec 会被忽略。
 func TestEvalExecCheckDefaultOff(t *testing.T) {
 	doc := []byte(`{"scenarios":[{
 		"name":"exec not permitted",

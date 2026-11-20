@@ -27,7 +27,7 @@ func TestVerificationFeedbackFailKeepsTail(t *testing.T) {
 
 func TestVerificationFeedbackTailIsBoundedAndUTF8Safe(t *testing.T) {
 	const maxBytes = 32
-	out := strings.Repeat("q", 200) + "界界界" + "FAIL_TAIL" // cut lands mid-rune
+	out := strings.Repeat("q", 200) + "界界界" + "FAIL_TAIL" // 切点落在 rune 中间
 	got := VerificationFeedback("test", false, out, maxBytes)
 
 	if !utf8.ValidString(got) {

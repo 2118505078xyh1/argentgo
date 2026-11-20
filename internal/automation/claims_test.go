@@ -63,7 +63,6 @@ func TestClaimIsStaleByModificationTime(t *testing.T) {
 // TestClaimRejectsFreshUnstampedLock 是该竞态的端到端版本：当一个调用方拥有刚创建的锁（其标记尚未写入）时，第二个调用方
 // 当一个调用方拥有刚创建的锁（其标记尚未写入）时，第二个调用方
 // 必须得到 errBusy，而非窃取认领并运行两次同一任务。
-// 必须得到 errBusy，而非窃取认领并运行两次同一任务。
 func TestClaimRejectsFreshUnstampedLock(t *testing.T) {
 	store, err := OpenStore(t.TempDir())
 	if err != nil {

@@ -13,8 +13,8 @@ func TestParallelBatchKeepsCallOrder(t *testing.T) {
 	tools := &fakeTools{
 		specs: []llm.ToolSpec{toolSpec("read"), toolSpec("grep"), toolSpec("ls")},
 		run: func(_ context.Context, name, _ string) (string, error) {
-			// The first call finishes last: results must still be recorded in
-			// call order.
+			// 第一个调用最后完成：结果仍必须按调用顺序记录。
+			// （接上行）
 			switch name {
 			case "read":
 				time.Sleep(60 * time.Millisecond)
@@ -70,7 +70,7 @@ func TestParallelBatchKeepsCallOrder(t *testing.T) {
 		}
 	}
 
-	// Every call is announced before the first result lands.
+	// 每个调用都在第一个结果到达之前被宣告。
 	starts, ends := 0, 0
 	for _, event := range sink.events {
 		switch event.Kind {

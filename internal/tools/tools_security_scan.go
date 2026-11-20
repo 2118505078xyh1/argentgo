@@ -140,6 +140,9 @@ func (securityScanTool) Run(ctx context.Context, root string, raw json.RawMessag
 			return nil // binary, not source
 		}
 		if scanned >= maxFiles {
+			// 文件数上限已触发：剩余文件根本不会被读取，必须在结果里
+			// 声明截断，否则模型会把一次部分扫描误当成完整视图。
+			capped = true
 			return filepath.SkipAll
 		}
 		scanned++

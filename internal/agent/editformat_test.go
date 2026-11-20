@@ -189,11 +189,11 @@ func TestAppendEditFormatEmptySystemReturnsGuidance(t *testing.T) {
 	}
 }
 
-// ---- model-family profile tests ----
+// ---- 模型系列配置测试 ----
 
-// The four strings below are the pre-profile strategyFor output, copied here
-// verbatim. Pinning them catches any accidental prompt-text regression when a
-// family is re-classified.
+// 下面四个字符串是配置化之前 strategyFor 的输出，原样复制到这里。固定它们能在某个系列被重新分类时
+// 捕获任何意外的提示文本回归。
+// （接上行）
 const (
 	legacyHintHashline = "Claude/Anthropic: prefer hashline edits (hashline:true). Set anchor to the exact text you first read and " +
 		"anchor_hash to the first 12 hex chars of sha256(anchor bytes). Keep anchors small and unique."
@@ -294,8 +294,8 @@ func TestRecommendedEditToolIsStableAndAdvisoryOnly(t *testing.T) {
 		t.Errorf("EditToolPreference = %q, want %q", got, want)
 	}
 
-	// The advisory line must never leak into the system prompt: prompt bytes
-	// are pinned by TestEditFormatLegacyHintsAreByteStable.
+	// 建议性语句绝不能泄漏进系统提示：提示字节由 TestEditFormatLegacyHintsAreByteStable 固定。
+	// （接上行）
 	for _, model := range []string{"claude-3", "deepseek-chat", "gpt-4o"} {
 		if got := EditFormatGuidance(model); strings.Contains(got, "Preferred edit tool") {
 			t.Errorf("advisory line leaked into prompt for %q: %s", model, got)

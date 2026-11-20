@@ -12,13 +12,13 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Session stats: usage + roll-up persisted through the injected Recorder.
+// 会话统计：用量 + 汇总通过注入的 Recorder 持久化。
 // ---------------------------------------------------------------------------
 
-// TestStatsRecordsPersistedThroughRecorder verifies that a normal run writes
-// one per-request "usage" record and one cumulative "stats" record through the
-// same Recorder the app wires to Session.Append. The JSON field names must match
-// session.UsageRecord / session.SessionStats so they read back after resume.
+// TestStatsRecordsPersistedThroughRecorder 验证普通运行通过 app 接到 Session.Append 的同一个 Recorder，
+// 写入一条逐次请求的 usage 记录和一条累积的 stats 记录。JSON 字段名必须与
+// session.UsageRecord / session.SessionStats 一致，使它们在恢复后能被读回。
+// （接上行）
 func TestStatsRecordsPersistedThroughRecorder(t *testing.T) {
 	type row struct {
 		kind    string
@@ -59,7 +59,7 @@ func TestStatsRecordsPersistedThroughRecorder(t *testing.T) {
 		t.Fatalf("stats records = %d, want 1", len(statsRows))
 	}
 
-	// Decode through JSON so the wire field names are what is being tested.
+	// 通过 JSON 解码，使被测的正是线上字段名。
 	var usage struct {
 		Model  string `json:"model"`
 		Input  int    `json:"input"`
@@ -99,8 +99,8 @@ func TestStatsRecordsPersistedThroughRecorder(t *testing.T) {
 	}
 }
 
-// TestStatsRecordsNoopWithoutRecorder verifies the feature is default-off: with
-// no Recorder configured the run still works and nothing extra is persisted.
+// TestStatsRecordsNoopWithoutRecorder 验证功能默认关闭：没有配置 Recorder 时运行仍正常，且不会额外持久化任何内容。
+// （接上行）
 func TestStatsRecordsNoopWithoutRecorder(t *testing.T) {
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("done"), nil
@@ -113,7 +113,7 @@ func TestStatsRecordsNoopWithoutRecorder(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Approval events: request/resolved notices bracket the Approver.Ask call.
+// 审批事件：请求/解决通知夹住 Approver.Ask 调用。
 // ---------------------------------------------------------------------------
 
 type wireApprover struct {
@@ -188,7 +188,7 @@ func TestApprovalEventsBracketAsk(t *testing.T) {
 				t.Fatalf("resolved event = %q %q %q granted=%v ok=%v", kind, tool, id, granted, ok)
 			}
 
-			// The digest must be a stable hash of the exact arguments.
+			// 摘要必须是对确切参数的稳定哈希。
 			sum := sha256.Sum256([]byte(`{"path":"a.txt"}`))
 			var payload struct {
 				Digest string `json:"digest"`
@@ -204,8 +204,8 @@ func TestApprovalEventsBracketAsk(t *testing.T) {
 	}
 }
 
-// TestApprovalEventsAbsentWhenNoApprovalNeeded guards the default path: no
-// approval gate means no approval events on the stream.
+// TestApprovalEventsAbsentWhenNoApprovalNeeded 守护默认路径：没有审批门控时，事件流上就不会有审批事件。
+// （接上行）
 func TestApprovalEventsAbsentWhenNoApprovalNeeded(t *testing.T) {
 	var sink eventSink
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
@@ -223,12 +223,12 @@ func TestApprovalEventsAbsentWhenNoApprovalNeeded(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Subagent child-context seed seam (default-off).
+// 子 agent 子级上下文种子接缝（默认关闭）。
 // ---------------------------------------------------------------------------
 
-// TestSubagentSeedContextEntersChildSystem verifies the additive SeedContext
-// seam: when set, the flagged parent records reach the child's system prompt;
-// when empty, the child prompt is unchanged.
+// TestSubagentSeedContextEntersChildSystem 验证附加性的 SeedContext 接缝：设置后，带标记的父级记录进入子级系统提示；
+// 为空时，子级提示保持不变。
+// （接上行）
 func TestSubagentSeedContextEntersChildSystem(t *testing.T) {
 	var childSystem string
 	cfg := &SubagentConfig{

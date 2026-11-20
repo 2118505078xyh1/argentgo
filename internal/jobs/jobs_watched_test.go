@@ -6,14 +6,13 @@ import (
 	"time"
 )
 
-// TestStopAndRemoveLeaveWatchedExitCodeToWatcher pins down the division of
-// responsibility for a job's terminal state. For a watched job (one with an
-// in-process reaper/watchLive), the real exit code belongs to that watcher:
-// a dead or recycled pid must never be turned into a premature Exited/-1 by
-// Stop or Remove. The identity guard only refuses to signal an unidentifiable
-// pid; it must leave the job running for the watcher. For an unwatched job
-// (reloaded from disk, no watcher) there is nobody else to recover a code, so
-// the existing retire-with-(-1) behaviour is preserved.
+// TestStopAndRemoveLeaveWatchedExitCodeToWatcher 确定了一处
+// 责任划分。对被观察的作业（带有
+// 进程内 reaper/watchLive 的作业），真实退出码属于该观察者：
+// 死的或被回收的 pid 绝不能被 Stop 或 Remove 变成。身份守卫只拒绝给无法识别的
+// pid 发信号；它必须让作业保持运行给观察者。对未被观察的作业
+// （从磁盘重载，无观察者），没有别人能恢复代码，因此
+// 保留现有的退役为 -1 行为。
 func TestStopAndRemoveLeaveWatchedExitCodeToWatcher(t *testing.T) {
 	const deadPID = 0x7FFFFFF0 // almost certainly dead on both platforms
 	const watcherCode = 7
@@ -72,9 +71,9 @@ func TestStopAndRemoveLeaveWatchedExitCodeToWatcher(t *testing.T) {
 			if !tt.watched {
 				return
 			}
-			// The watcher still owns the terminal snapshot. Once it records the
-			// real code, Get must report that code — never the -1 that a
-			// premature retire here would have frozen in place.
+			// 观察者仍拥有终态快照。一旦它记录了
+			// 观察者仍拥有终态快照。一旦它记录了真实代码，Get 必须报告该代码 —— 绝不是这里过早退役会冻结的 -1。
+			// 这里过早退役会冻结的 -1。
 			r.mu.Lock()
 			stored := r.jobs[job.ID]
 			stored.Status = StatusExited

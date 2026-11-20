@@ -14,7 +14,7 @@ import (
 
 func supported() bool { return true }
 
-// unixPty is /dev/ptmx plus the child that made it its controlling terminal.
+// unixPty 是 /dev/ptmx 加上把它作为控制终端的子进程。子进程现在拥有自己的从端副本。Linux 在最后一个从描述符消失后报告 EIO。TIOCSWINSZ 使内核向前台组传递 SIGWINCH。Setsid 使子进程成为组长，因此 -pid 是其整棵树。
 type unixPty struct {
 	master *os.File
 	cmd    *exec.Cmd
@@ -65,7 +65,7 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 		_ = master.Close()
 		return nil, fmt.Errorf("pty: spawn %q: %w", cmd.Path, err)
 	}
-	// The child owns its own copy of the slave end now.
+	// 子进程现在拥有自己的从端副本。
 	_ = slave.Close()
 
 	return &unixPty{master: master, cmd: child, pid: child.Process.Pid, exitCode: -1}, nil
@@ -77,7 +77,7 @@ func (p *unixPty) Read(b []byte) (int, error) {
 	}
 	n, err := p.master.Read(b)
 	if err != nil && n == 0 {
-		// Linux reports EIO once the last slave descriptor is gone.
+		// Linux 在最后一个从描述符消失后报告 EIO。
 		if errors.Is(err, syscall.EIO) || errors.Is(err, io.EOF) {
 			return 0, io.EOF
 		}
@@ -99,7 +99,7 @@ func (p *unixPty) Resize(size Size) error {
 	if closed {
 		return errors.New("pty: terminal is closed")
 	}
-	// TIOCSWINSZ makes the kernel deliver SIGWINCH to the foreground group.
+	// TIOCSWINSZ 使内核向前台组传递 SIGWINCH。
 	return setWinsize(p.master.Fd(), size)
 }
 
@@ -165,7 +165,7 @@ func (p *unixPty) Close() error {
 	p.mu.Unlock()
 
 	if p.pid > 0 {
-		// Setsid made the child a group leader, so -pid is its whole tree.
+		// Setsid 使子进程成为组长，因此 -pid 是其整棵树。
 		_ = syscall.Kill(-p.pid, syscall.SIGKILL)
 		_ = syscall.Kill(p.pid, syscall.SIGKILL)
 	}

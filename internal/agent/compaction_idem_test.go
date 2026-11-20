@@ -9,8 +9,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// cloneIdemMessages returns a deep copy so metadata mutations in a test cannot
-// leak back into the original prefix.
+// cloneIdemMessages 返回深拷贝，使测试中对元数据的修改不会泄漏回原始前缀。
+// （接上行）
 func cloneIdemMessages(in []llm.Message) []llm.Message {
 	out := make([]llm.Message, len(in))
 	copy(out, in)
@@ -42,8 +42,8 @@ func TestSourcePrefixHashIgnoresRoundTripMetadata(t *testing.T) {
 	base := idemBaseMessages()
 	noisy := cloneIdemMessages(base)
 
-	// llm.Message has no literal id/ts fields; the per-round-trip volatile
-	// metadata are these transcript/wire fields plus provider-issued ids.
+	// llm.Message 没有字面的 id/ts 字段；每次往返的易变元数据就是这些记录/线上字段
+	// 加上提供方签发的 id。
 	noisy[0].CacheControl = &llm.CacheControl{Type: "ephemeral"}
 	noisy[0].Usage = &llm.Usage{PromptTokens: 900, CompletionTokens: 1}
 	noisy[1].CacheControl = &llm.CacheControl{Type: "ephemeral", TTL: "1h"}
@@ -137,13 +137,13 @@ func TestSourcePrefixHashTrimsUserWhitespace(t *testing.T) {
 		t.Fatal("surrounding whitespace on user text changed the hash")
 	}
 
-	// Only basic trimming: internal whitespace stays meaningful.
+	// 只做基础裁剪：内部空白仍有意义。
 	internal := []llm.Message{{Role: "user", Content: "hello  world"}}
 	if SourcePrefixHash(internal) == SourcePrefixHash(trimmed) {
 		t.Fatal("internal whitespace should not be collapsed")
 	}
 
-	// Non-user roles are left byte-for-byte as-is.
+	// 非用户角色逐字节保持原样。
 	paddedAssistant := []llm.Message{{Role: "assistant", Content: "  answer  "}}
 	trimmedAssistant := []llm.Message{{Role: "assistant", Content: "answer"}}
 	if SourcePrefixHash(paddedAssistant) == SourcePrefixHash(trimmedAssistant) {
@@ -167,9 +167,9 @@ func TestSummaryCacheHitMissAndEviction(t *testing.T) {
 		t.Fatalf("Get(b) = (%q, %v)", got, ok)
 	}
 
-	// Updating an existing key keeps its insertion position (b stays older).
+	// 更新既有键会保留其插入位置（b 仍较旧）。
 	cache.Put("b", "summary-b2")
-	cache.Put("c", "summary-c") // capacity reached: oldest ("a") is evicted.
+	cache.Put("c", "summary-c") // 达到容量：最旧的 ("a") 被淘汰。
 	if _, ok := cache.Get("a"); ok {
 		t.Fatal("oldest entry was not evicted at capacity")
 	}
@@ -180,13 +180,13 @@ func TestSummaryCacheHitMissAndEviction(t *testing.T) {
 		t.Fatalf("Get(c) = (%q, %v)", got, ok)
 	}
 
-	// Only finished (non-empty) summaries are cached.
+	// 只缓存已完成（非空）的摘要。
 	cache.Put("half-built", "")
 	if _, ok := cache.Get("half-built"); ok {
 		t.Fatal("empty summary must not be cached")
 	}
 
-	// The zero value is usable and falls back to the default capacity.
+	// 零值可用，并回退到默认容量。
 	var zero SummaryCache
 	zero.Put("k", "v")
 	if got, ok := zero.Get("k"); !ok || got != "v" {
@@ -197,7 +197,7 @@ func TestSummaryCacheHitMissAndEviction(t *testing.T) {
 func TestSummaryCacheConcurrentUse(t *testing.T) {
 	const workers = 32
 	const perWorker = 40
-	cache := NewSummaryCache(workers*perWorker + 1) // no eviction: every key must survive
+	cache := NewSummaryCache(workers*perWorker + 1) // 不淘汰：每个键都必须保留
 
 	errs := make(chan string, workers*perWorker)
 	var wg sync.WaitGroup
@@ -237,7 +237,7 @@ func TestSourcePrefixHashUTF8Stable(t *testing.T) {
 		t.Fatal("different UTF-8 content produced the same hash")
 	}
 
-	// Chinese text with only surrounding whitespace is still the same prefix.
+	// 仅两端空白不同的中文文本仍是相同的前缀。
 	padded := []llm.Message{{Role: "user", Content: "  请总结以下中文内容：你好，世界！🚀\n"}}
 	if got := SourcePrefixHash(padded); got != want {
 		t.Fatalf("padded UTF-8 user text changed hash: %s != %s", got, want)

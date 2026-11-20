@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-// TestMain doubles as the entry point of the fake MCP server: when the helper
-// environment variable is set, this process answers stdio JSON-RPC instead of
-// running the test suite.
+// TestMain 同时充当假 MCP 服务器的入口：当辅助环境变量被设置时，
+// 本进程提供 stdio JSON-RPC 服务，而不是
+// 运行测试套件。
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("ARGENT_MCP_HELPER"); mode != "" {
 		helperMain(mode)
@@ -36,17 +36,17 @@ func helperSpec(mode string, timeout time.Duration) Spec {
 	}
 }
 
-// helperMain is a minimal MCP server over stdin/stdout.
+// helperMain 是一个基于 stdin/stdout 的最小 MCP 服务器。
 func helperMain(mode string) {
 	fmt.Fprintln(os.Stderr, "fake mcp server ready")
 	if mode == "failfast" {
-		// A server that prints a startup diagnostic to stderr then exits
-		// without answering initialize — the audit's bare-EOF scenario.
+		// 一台向 stderr 打印启动诊断后退出的服务器，
+		// 且不回答 initialize —— 即审计中的裸 EOF 场景。
 		fmt.Fprintln(os.Stderr, "BOOM: startup failed cause: port 3000 in use")
 		return
 	}
 	if mode == "silent" {
-		// A server that never answers; the client must time out and kill it.
+		// 一台永不回答的服务器；客户端必须超时并杀死它。
 		time.Sleep(30 * time.Second)
 		return
 	}
@@ -206,7 +206,7 @@ func TestStdioCancellationKillsTheChild(t *testing.T) {
 		t.Fatalf("cancellation took too long: %s", elapsed)
 	}
 
-	// Cancelling a stdio call kills the child, so the connection is unusable.
+	// 取消一次 stdio 调用会杀死子进程，因此连接不可用。
 	if _, err := c.ListTools(context.Background()); err == nil {
 		t.Fatal("expected the connection to be closed after cancellation")
 	}
@@ -224,12 +224,12 @@ func TestStdioFinishReapsKilledChild(t *testing.T) {
 		t.Fatal("no child process was started")
 	}
 
-	// Simulate a call timeout / stream failure: finish must both kill and reap
-	// the child, not just kill it.
+	// 模拟调用超时/流失败：finish 必须既杀死又回收
+	// 子进程，而不只是杀死它。
 	transport.finish(errors.New("finish under test"))
 
-	// reap is idempotent; call it on our own goroutine so the test observes
-	// completion whichever caller wins the sync.Once race with finish's goroutine.
+	// reap 是幂等的；在我们自己的 goroutine 上调用它，使测试无论
+	// 哪个调用方赢得与 finish goroutine 的 sync.Once 竞争都能观察到完成。
 	reaped := make(chan struct{})
 	go func() { transport.reap(); close(reaped) }()
 	select {
@@ -245,9 +245,9 @@ func TestStdioFinishReapsKilledChild(t *testing.T) {
 	}
 }
 
-// blockedStdinTransport builds a transport whose stdin has no reader, so any
-// write blocks until finish closes it. cmd.Process is nil, so finish needs no
-// real child process.
+// blockedStdinTransport 构建一个 stdin 没有 reader 的传输，因此任何
+// 写入都会阻塞直到 finish 关闭它。cmd.Process 为 nil，因此 finish 不需要
+// 真正的子进程。
 func blockedStdinTransport() (*stdioTransport, io.ReadCloser) {
 	reader, writer := io.Pipe()
 	return &stdioTransport{
@@ -260,10 +260,10 @@ func blockedStdinTransport() (*stdioTransport, io.ReadCloser) {
 	}, reader
 }
 
-// TestNotifyHonorsDeadlineOnBlockedWrite guards notifications/initialized: a
-// notification must not hang forever when the child stops reading stdin. The
-// request path already bounds its write by the context; notifications do the
-// same now, so a stalled child cannot defeat the caller's timeout.
+// TestNotifyHonorsDeadlineOnBlockedWrite 守护 notifications/initialized：
+// 当子进程停止读取 stdin 时，通知不得永远挂起。
+// 请求路径已经用 context 限制其写入；通知现在也
+// 这样做，使停滞的子进程无法挫败调用方的超时。
 func TestNotifyHonorsDeadlineOnBlockedWrite(t *testing.T) {
 	transport, reader := blockedStdinTransport()
 	defer reader.Close()
@@ -283,9 +283,9 @@ func TestNotifyHonorsDeadlineOnBlockedWrite(t *testing.T) {
 	}
 }
 
-// TestCallHonorsDeadlineOnBlockedWrite pins the shared write path: the request
-// side must still time out (and close the transport) when a child stops
-// reading stdin, after extracting the deadline-aware write helper.
+// TestCallHonorsDeadlineOnBlockedWrite 固定共享写入路径：在提取出
+// 感知截止时间的写入辅助函数之后，当子进程停止读取 stdin 时，
+// 请求侧仍必须超时（并关闭传输）。
 func TestCallHonorsDeadlineOnBlockedWrite(t *testing.T) {
 	transport, reader := blockedStdinTransport()
 	defer reader.Close()

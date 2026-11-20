@@ -8,13 +8,13 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// personaTaskJSON builds delegate arguments that request a named persona.
+// personaTaskJSON 构建请求具名角色的委派参数。
 func personaTaskJSON(description, prompt, persona string) string {
 	return `{"description":"` + description + `","prompt":"` + prompt + `","persona":"` + persona + `"}`
 }
 
-// personaSystem keeps the "You are a subagent" marker that isSubagent relies on
-// while carrying a persona-specific body so the test can assert it was used.
+// personaSystem 保留 isSubagent 所依赖的「You are a subagent」标记，
+// 同时携带角色专用的正文，使测试能断言它被使用。
 const personaSystem = "You are a subagent reviewer. Report only review findings."
 
 func TestTaskWithPersonaUsesResolvedSystemAndTools(t *testing.T) {
@@ -129,7 +129,7 @@ func TestTaskWithPersonaButNoResolverUsesGenericConfig(t *testing.T) {
 		}
 		return toolReply(toolCall("t1", TaskToolName, personaTaskJSON("review", "review the code", "reviewer"))), nil
 	}}
-	// No ResolvePersona: the persona name must be ignored without a panic.
+	// 没有 ResolvePersona：角色名必须被忽略且不 panic。
 	runner := &Runner{Opts: Options{
 		Model:    "m",
 		Chatter:  chat,
@@ -219,7 +219,7 @@ func TestConfigForPersonaSeedsThenOverlaysCallerFields(t *testing.T) {
 		t.Error("ResolvePersona was dropped, nested tasks could not select personas")
 	}
 
-	// An unknown name leaves the caller config untouched.
+	// 未知名称使调用方配置保持不变。
 	unknown := tt.configForPersona("missing")
 	if unknown.System != "" || unknown.Model != "caller-model" {
 		t.Errorf("unknown persona changed the config: %#v", unknown)
@@ -236,10 +236,10 @@ func TestTaskToolSpecIncludesPersonaField(t *testing.T) {
 	}
 }
 
-// TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools reproduces the
-// nested persona bug: a child spawned via persona A carries A's System and
-// AllowedTools; when that child selects persona B, those inherited values must
-// not be re-applied over B's definition.
+// TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools 复现嵌套角色 bug：通过角色 A 派生的子级携带 A 的 System 和 AllowedTools；
+// 当该子级选择角色 B 时，这些继承的值不得重新叠加到 B 的定义之上。
+// （接上行）
+// （接上行）
 func TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools(t *testing.T) {
 	const (
 		reviewerSystem = "You are a subagent reviewer. REVIEWER-SYSTEM."
@@ -255,8 +255,8 @@ func TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools(t *testing.T) 
 		return SubagentConfig{}, false
 	}
 
-	// Root selects reviewer; its Options.Subagent is what the child Runner
-	// rebuilds its taskTools from (see newToolset).
+	// 根选择 reviewer；其 Options.Subagent 是子 Runner 重建 taskTools 的依据（见 newToolset）。
+	// （接上行）
 	root := snapshotWireTaskTools(&SubagentConfig{ResolvePersona: resolve})
 	reviewerOpts := root.childOptions("review", "reviewer")
 	if reviewerOpts.Subagent == nil || reviewerOpts.Subagent.System != reviewerSystem {
@@ -272,8 +272,8 @@ func TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools(t *testing.T) 
 		t.Errorf("nested writer tools = %v, want [write] (reviewer tools leaked)", got.AllowedTools)
 	}
 
-	// Guard: a caller that explicitly sets System/AllowedTools at its own level
-	// still overrides the persona (zero-value inheritance markers).
+	// 防护：在自己这一层显式设置 System/AllowedTools 的调用方仍应覆盖角色（继承标记为零值）。
+	// （接上行）
 	explicit := snapshotWireTaskTools(&SubagentConfig{
 		System:         "EXPLICIT-SYSTEM",
 		AllowedTools:   []string{"grep"},
@@ -287,9 +287,9 @@ func TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools(t *testing.T) 
 	}
 }
 
-// TestTaskNestedPersonaSwitchUsesWriterSystem exercises the full task-tool path:
-// root -> reviewer -> writer. The visible symptom of the bug is that the
-// depth-2 (writer) run renders the reviewer system prompt.
+// TestTaskNestedPersonaSwitchUsesWriterSystem 演练完整的 task 工具路径：root -> reviewer -> writer。该 bug 的可观察症状是深度 2（writer）的运行
+// 渲染出 reviewer 的系统提示。
+// （接上行）
 func TestTaskNestedPersonaSwitchUsesWriterSystem(t *testing.T) {
 	const (
 		reviewerSystem = "You are a subagent reviewer. REVIEWER-SYSTEM."

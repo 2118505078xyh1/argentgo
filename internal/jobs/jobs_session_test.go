@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestStartInSessionScopesJobsAndFiltersThem covers the isolation guarantee:
-// jobs of two sessions sharing one registry are independent, ListForSession
-// filters by session, and plain Start keeps its legacy global sequence.
+// TestStartInSessionScopesJobsAndFiltersThem 覆盖隔离保证：
+// TestStartInSessionScopesJobsAndFiltersThem 覆盖隔离保证：共享一个 registry 的两个会话的作业相互独立，ListForSession 按会话过滤，普通 Start 保持其旧版全局序列。会话记录在作业上；普通 Start 仍没有。
+// 按会话过滤，普通 Start 保持其旧版全局序列。
 func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 	registry := newRegistry(t)
 	defer registry.waitIdle()
@@ -35,7 +35,7 @@ func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 		waitForTerminal(t, registry, job.ID)
 	}
 
-	// The session is recorded on the job; a plain Start still has none.
+	// 会话记录在作业上；普通 Start 仍没有。
 	if a1.Session != "session-A" || a2.Session != "session-A" || b1.Session != "session-B" {
 		t.Fatalf("sessions = %q, %q, %q", a1.Session, a2.Session, b1.Session)
 	}
@@ -43,8 +43,8 @@ func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 		t.Fatalf("plain session = %q, want empty", plain.Session)
 	}
 
-	// Ids are namespaced by session, never collide, and starting session jobs
-	// did not consume the legacy counter: the plain job is still job1.
+	// Id 按会话命名空间化，永不冲突，且启动会话作业
+	// 并未消耗旧计数器：普通作业仍是 job1。
 	seen := map[string]bool{}
 	for _, job := range []Job{a1, a2, b1, plain} {
 		if seen[job.ID] {
@@ -64,7 +64,7 @@ func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 		t.Fatalf("id %q is not namespaced to session-B", b1.ID)
 	}
 
-	// Filtering returns only the requested session's jobs.
+	// 过滤只返回请求会话的作业。
 	listA, err := registry.ListForSession("session-A")
 	if err != nil {
 		t.Fatalf("list A: %v", err)
@@ -95,7 +95,7 @@ func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 		t.Fatalf("list unknown = %+v", empty)
 	}
 
-	// The unchanged List still sees every job.
+	// Id 按会话命名空间化，永不冲突，且启动会话作业并未消耗旧计数器：普通作业仍是 job1。过滤只返回请求会话的作业。未改动的 List 仍看到所有作业。
 	all, err := registry.List()
 	if err != nil {
 		t.Fatalf("list all: %v", err)
@@ -105,12 +105,12 @@ func TestStartInSessionScopesJobsAndFiltersThem(t *testing.T) {
 	}
 }
 
-// TestLegacyJobsWithoutSessionStayVisible locks in jobs.json compatibility: a
-// missing "session" key decodes to the empty session, so old jobs remain in the
-// global list and in ListForSession(""), and cannot collide with new ids.
+// TestLegacyJobsWithoutSessionStayVisible 锁定 jobs.json 兼容性：缺少 "session" 键解码为空会话，因此旧作业仍留在全局列表和 ListForSession("") 中，且不能与新 id 冲突。没有 "session" 也没有 "sessionNext" 键：正是较旧构建写出的内容。新 id 不得复用持久化的旧 id 或加载的计数器。旧作业仍与新作业一起可见。
+// 缺少 "session" 键解码为空会话，因此旧作业仍留在
+// 全局列表和 ListForSession("") 中，且不能与新 id 冲突。
 func TestLegacyJobsWithoutSessionStayVisible(t *testing.T) {
 	dir := t.TempDir()
-	// No "session" and no "sessionNext" keys: exactly what an older build wrote.
+	// 没有 "session" 也没有 "sessionNext" 键：正是较旧构建写出的内容。
 	raw := `{"next":1,"jobs":[{"id":"job1","command":"legacy","startedAt":"2020-01-01T00:00:00Z","status":"exited","exitCode":0,"logPath":"","pid":0}]}`
 	if err := os.WriteFile(filepath.Join(dir, storeFile), []byte(raw), 0o644); err != nil {
 		t.Fatalf("write index: %v", err)
@@ -143,7 +143,7 @@ func TestLegacyJobsWithoutSessionStayVisible(t *testing.T) {
 		t.Fatalf("a legacy job leaked into another session: %+v", other)
 	}
 
-	// New ids must not reuse the persisted legacy id or the loaded counter.
+	// 新 id 不得复用持久化的旧 id 或加载的计数器。
 	plain, err := registry.Start(shellCommand("echo new-plain"))
 	if err != nil {
 		t.Fatalf("start plain: %v", err)
@@ -160,7 +160,7 @@ func TestLegacyJobsWithoutSessionStayVisible(t *testing.T) {
 	if plain.ID == scoped.ID || scoped.ID == "job1" {
 		t.Fatalf("id collision: plain=%q scoped=%q", plain.ID, scoped.ID)
 	}
-	// The legacy job is still visible alongside the new ones.
+	// 旧作业仍与新作业一起可见。
 	all, err = registry.List()
 	if err != nil {
 		t.Fatalf("list after starts: %v", err)
@@ -170,8 +170,8 @@ func TestLegacyJobsWithoutSessionStayVisible(t *testing.T) {
 	}
 }
 
-// TestSessionIDsSurviveReopen verifies the session counter is persisted, so a
-// restarted registry never reuses an id whose log may still be on disk.
+// TestSessionIDsSurviveReopen 验证会话计数器被持久化，使
+// TestSessionIDsSurviveReopen 验证会话计数器被持久化，使重启的 registry 永不复用其日志可能仍在磁盘上的 id。
 func TestSessionIDsSurviveReopen(t *testing.T) {
 	dir := t.TempDir()
 	first, err := New(dir)
@@ -207,8 +207,8 @@ func TestSessionIDsSurviveReopen(t *testing.T) {
 	}
 }
 
-// TestConcurrentSessionStartsGetUniqueIDs checks the session counter under the
-// race detector when several sessions share one registry concurrently.
+// TestConcurrentSessionStartsGetUniqueIDs 在竞态检测器下检查会话计数器
+// TestConcurrentSessionStartsGetUniqueIDs 在多个会话并发共享一个 registry 时在竞态检测器下检查会话计数器。
 func TestConcurrentSessionStartsGetUniqueIDs(t *testing.T) {
 	registry := newRegistry(t)
 	defer registry.waitIdle()
@@ -251,8 +251,8 @@ func TestConcurrentSessionStartsGetUniqueIDs(t *testing.T) {
 	}
 }
 
-// TestSessionIDIsSafeAsAFileName ensures odd session names cannot turn an id
-// into a path that escapes the registry directory when it becomes a log name.
+// TestSessionIDIsSafeAsAFileName 确保奇怪的会话名不会在 id 变成日志名时把路径逃逸出 registry 目录。已完成的作业必须被置之不理：StopAll 只触及运行中的作业。已经退出的作业保持其终态。
+// 变成逃逸 registry 目录的路径。
 func TestSessionIDIsSafeAsAFileName(t *testing.T) {
 	registry := newRegistry(t)
 	defer registry.waitIdle()

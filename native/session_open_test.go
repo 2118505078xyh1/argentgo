@@ -12,8 +12,8 @@ func TestSessionRowClickCallsSessionLoadWhenEngineAttached(t *testing.T) {
 	var calls []string
 	app := newTestChat()
 	app.engine = &bridge{} // non-nil simulates a real engine bridge
-	// A session.list failure degrades to the demo rail, keeping the fake rows
-	// this test clicks. The zero-value bridge would panic on a real call.
+	// session.list 失败降级到 demo 会话栏，保留本测试点击的
+	// 假行。零值 bridge 在真实调用时会 panic。
 	app.sessionListRPC = func(string, any) (json.RawMessage, error) {
 		return nil, errors.New("session.list unavailable")
 	}

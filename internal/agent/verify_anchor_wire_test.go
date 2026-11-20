@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// writeAnchorFixture writes a small source file whose 7th line carries a
-// credential-shaped secret. It returns the workspace root.
+// writeAnchorFixture 写一个小源文件，其第 7 行带有一个形似凭据的机密。
+// 它返回工作区根目录。
 func writeAnchorFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -20,7 +20,7 @@ func writeAnchorFixture(t *testing.T) string {
 		"    a := 1",
 		"    b := 2",
 		"    c := 3",
-		"    api_key=sk_live_abcdefghijklmnop", // offending line 7
+		"    api_key=sk_live_abcdefghijklmnop", // 有问题的第 7 行
 		"    return a + b + c",
 		"}",
 	}, "\n") + "\n"
@@ -30,8 +30,8 @@ func writeAnchorFixture(t *testing.T) string {
 	return root
 }
 
-// outputPortion returns the bounded diagnostic section of a FAIL feedback:
-// everything after the fix-instruction line and the verdict line.
+// outputPortion 返回 FAIL 反馈中有界的诊断部分：修复指令行和结论行之后的所有内容。
+// （接上行）
 func outputPortion(feedback string) (string, bool) {
 	_, afterFix, found := strings.Cut(feedback, "\n")
 	if !found {
@@ -60,15 +60,15 @@ func TestVerificationFeedbackAtAppendsAnchoredSourceWindow(t *testing.T) {
 	if !strings.Contains(got, verifyAnchorExplanation+"\n") {
 		t.Fatalf("feedback = %q, want the █ explanation line", got)
 	}
-	// The explanation belongs immediately before the source window, not before
-	// the log tail (and never on a source-window-free FAIL).
+	// 说明应紧接在源码窗口之前，而不是日志尾部之前（绝不能出现在没有源码窗口的 FAIL 上）。
+	// （接上行）
 	if expAt, anchorAt := strings.Index(got, verifyAnchorExplanation), strings.Index(got, "f.go:7:\n"); expAt < 0 || anchorAt < 0 || expAt > anchorAt {
 		t.Fatalf("feedback = %q, want the █ explanation before the source window", got)
 	}
 	if !strings.Contains(got, "some failure detail") {
 		t.Fatalf("feedback = %q, want the redacted log tail", got)
 	}
-	// The source window must follow the log tail, not precede it.
+	// 源码窗口必须跟在日志尾部之后，而非之前。
 	tailAt := strings.Index(got, "some failure detail")
 	anchorAt := strings.Index(got, "█7|")
 	if tailAt < 0 || anchorAt < 0 || tailAt > anchorAt {
@@ -77,7 +77,7 @@ func TestVerificationFeedbackAtAppendsAnchoredSourceWindow(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("feedback is not valid UTF-8: %q", got)
 	}
-	// Redaction covers both the echoed output and the source line itself.
+	// 脱敏同时覆盖回显的输出和源码行本身。
 	if strings.Contains(got, secret) {
 		t.Fatalf("feedback leaked the secret: %q", got)
 	}
@@ -121,7 +121,7 @@ func TestVerificationFeedbackAtEmptyRootAddsFixInstructionOnly(t *testing.T) {
 			t.Fatalf("empty-root %q feedback = %q, want %q", emptyRoot, got, want)
 		}
 	}
-	// Sanity: a non-empty root does anchor, proving the fixture is usable.
+	// 健全性检查：非空 root 会进行锚定，证明该样本可用。
 	if got := VerificationFeedbackAt("test", false, out, 4096, root); !strings.Contains(got, "█") {
 		t.Fatalf("non-empty root did not anchor the valid fixture: %q", got)
 	}

@@ -2,9 +2,9 @@ package agent
 
 import "testing"
 
-// TestRunStateEventsSnapshotIsIndependentCopy checks that eventsSnapshot hands
-// out a copy: mutating the underlying event slice afterwards must not change
-// what the caller already received.
+// TestRunStateEventsSnapshotIsIndependentCopy 检查 eventsSnapshot 交出的是副本：之后修改底层事件切片，不得改变调用方已收到的内容。
+// （接上行）
+// （接上行）
 func TestRunStateEventsSnapshotIsIndependentCopy(t *testing.T) {
 	s := &runState{}
 
@@ -23,8 +23,8 @@ func TestRunStateEventsSnapshotIsIndependentCopy(t *testing.T) {
 		t.Fatalf("snapshot = %+v, want first and second events", snap)
 	}
 
-	// Mutate the original the way a later emit would: edit an existing entry
-	// and append a new one, both under eventsMu.
+	// 像之后的一次发出那样修改原始切片：在 eventsMu 下编辑已有条目并追加一条新条目。
+	// （接上行）
 	s.eventsMu.Lock()
 	s.events[0].Text = "changed"
 	s.events = append(s.events, Event{Kind: EventStop, Reason: StopComplete})

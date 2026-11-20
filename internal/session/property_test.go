@@ -13,17 +13,17 @@ import (
 	"unicode/utf8"
 )
 
-// These are deterministic property/roundtrip tests over the durable session
-// engine. They are deliberately bounded (small N, a few fixed seeds) so the
-// whole file stays fast while still exploring arbitrary-looking sequences.
-// No production code is touched here: everything below drives the public and
-// package-internal APIs through temp dirs only.
+// 这些是针对持久会话引擎的确定性属性/往返测试。
+// 它们刻意有界（小 N、少量固定种子），使整个文件运行快速，
+// 同时仍能探索看似任意的序列。
+// 这里不触碰任何生产代码：下面所有内容仅通过临时目录驱动公开 API
+// 和包内 API。
 
 var propRunePool = []rune("abcXYZ0123 界世界文🙂🚀e\u0301\u0300क")
 
-// propText builds a bounded string from ASCII, CJK, emoji and combining marks.
-// The pool contains no credential-shaped substrings, so security.Redact leaves
-// progress/attempt text untouched and the roundtrips below compare exact bytes.
+// propText 用 ASCII、中文、emoji 和组合字符构造有界字符串。
+// 字符池中不含凭据形状的子串，因此 security.Redact 不会改动
+// 进度/尝试文本，下面的往返比较精确字节。
 func propText(rng *rand.Rand, maxRunes int) string {
 	n := rng.Intn(maxRunes + 1)
 	runes := make([]rune, n)
@@ -36,8 +36,8 @@ func propText(rng *rand.Rand, maxRunes int) string {
 func propBytes(rng *rand.Rand, maxLen int) []byte {
 	data := make([]byte, rng.Intn(maxLen)+1)
 	for i := range data {
-		// Include NUL and high bytes regularly so the manifest carries real
-		// binary payloads (base64-encoded by encoding/json), not just text.
+		// 定期包含 NUL 和高位字节，使清单携带真实的
+		// 二进制载荷（由 encoding/json 进行 base64 编码），而不只是文本。
 		data[i] = byte(rng.Intn(256))
 	}
 	return data
@@ -64,7 +64,7 @@ func propReadFile(t *testing.T, root, rel string) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// Property 1: append N random records with valid parent links, reopen, verify.
+// 属性 1：追加 N 条带有有效 parent 链接的随机记录，重新打开，验证。
 // ---------------------------------------------------------------------------
 
 func TestPropertyAppendRoundtripPreservesTree(t *testing.T) {
@@ -120,7 +120,7 @@ func propAppendRoundtrip(t *testing.T, seed int64, n int) {
 		t.Fatalf("Records before reopen: %v", err)
 	}
 	expected = withoutSchemaHeader(expected)
-	if len(expected) != n+1 { // header + n appended records
+	if len(expected) != n+1 { // header + n 条追加记录
 		t.Fatalf("record count = %d, want %d", len(expected), n+1)
 	}
 	active := sess.activeSnapshot()
@@ -187,7 +187,7 @@ func propAppendRoundtrip(t *testing.T, seed int64, n int) {
 }
 
 // ---------------------------------------------------------------------------
-// Property 2: checkpoint capture/undo roundtrip and conflict refusal.
+// 属性 2：检查点捕获/撤销往返以及冲突拒绝。
 // ---------------------------------------------------------------------------
 
 var propCheckpointPaths = []string{
@@ -249,7 +249,7 @@ func propCheckpointRoundtrip(t *testing.T, seed int64) {
 	for _, spec := range specs {
 		paths = append(paths, spec.path)
 	}
-	// A repeated path exercises manifest deduplication.
+	// 重复的路径用于检验清单去重。
 	paths = append(paths, specs[0].path)
 
 	cp, err := CaptureCheckpoint(root, paths)
@@ -282,7 +282,7 @@ func propCheckpointRoundtrip(t *testing.T, seed int64) {
 		}
 	}
 
-	// Simulate the mutating turn: create absent files, change present ones.
+	// 模拟变更轮次：创建不存在的文件，修改存在的文件。
 	for _, spec := range specs {
 		propWriteFile(t, root, spec.path, spec.after)
 	}
@@ -292,8 +292,8 @@ func propCheckpointRoundtrip(t *testing.T, seed int64) {
 	if err := CompleteCheckpoint(root, &cp); err != nil {
 		t.Fatalf("CompleteCheckpoint: %v", err)
 	}
-	// byPath holds value copies from before completion; refresh them so the
-	// post-turn assertions see the AfterSHA256/AfterAbsent fields.
+	// byPath 持有完成之前的值副本；刷新它们，使
+	// 轮次后断言能看到 AfterSHA256/AfterAbsent 字段。
 	byPath = make(map[string]CheckpointFile, len(cp.Files))
 	for _, file := range cp.Files {
 		byPath[file.Path] = file
@@ -333,8 +333,8 @@ func propCheckpointRoundtrip(t *testing.T, seed int64) {
 		t.Fatalf("out-of-manifest file was touched: %q", got)
 	}
 
-	// A manual edit after the checkpoint must refuse the whole undo, with no
-	// partial restore of any other manifest file.
+	// 检查点之后的手动编辑必须拒绝整个撤销，且不得
+	// 部分还原任何其他清单文件。
 	for _, spec := range specs {
 		propWriteFile(t, root, spec.path, spec.after)
 	}
@@ -360,7 +360,7 @@ func propCheckpointRoundtrip(t *testing.T, seed int64) {
 }
 
 // ---------------------------------------------------------------------------
-// Property 3: compaction cut safety and evidence preservation.
+// 属性 3：压缩切分安全性与证据保留。
 // ---------------------------------------------------------------------------
 
 type propMarkers struct {
@@ -369,9 +369,9 @@ type propMarkers struct {
 	step string
 }
 
-// propAssistantCalls builds an assistant Entry carrying a real tool_calls
-// payload, optionally with a file path in the call arguments so Summarize must
-// preserve it as a changed file.
+// propAssistantCalls 构建携带真实 tool_calls 载荷的 assistant Entry，
+// 调用参数中可选地带有文件路径，使 Summarize 必须
+// 将其保留为变更文件。
 func propAssistantCalls(id, file, content string) Entry {
 	args := "{}"
 	if file != "" {
@@ -403,8 +403,8 @@ func propPlainEntry(role, content string) Entry {
 	return Entry{Role: role, Content: content, Data: data}
 }
 
-// propEntrySequence builds a transcript whose first block carries unique
-// file/failure/next-step markers, followed by random tool-call/result pairs.
+// propEntrySequence 构建一份转录，其第一个块带有唯一的
+// 文件/失败/下一步标记，随后是随机的工具调用/结果对。
 func propEntrySequence(seed int64) ([]Entry, propMarkers, int) {
 	rng := rand.New(rand.NewSource(seed))
 	markers := propMarkers{
@@ -434,8 +434,8 @@ func propEntrySequence(seed int64) ([]Entry, propMarkers, int) {
 		}
 		entries = append(entries, propAssistantCalls(ids[0], "", "call batch "+prefix))
 		for j, id := range ids {
-			// A distinct assistant carries any extra call ids in the batch so
-			// every result has a matching call in the transcript.
+			// 一个单独的 assistant 携带批次中任何额外的调用 id，使
+			// 每个结果在转录中都有匹配的调用。
 			if j > 0 {
 				entries = append(entries, propAssistantCalls(id, "", "extra call "+id))
 			}
@@ -458,8 +458,8 @@ func propContains(list []string, want string) bool {
 	return false
 }
 
-// propAssertNoSplitPairs checks that no cut strictly separates the last call
-// declaring an id from the tool result carrying it.
+// propAssertNoSplitPairs 检查没有任何切分严格分隔声明某 id 的最后一次调用
+// 与携带它的工具结果。
 func propAssertNoSplitPairs(t *testing.T, entries []Entry, start int) {
 	t.Helper()
 	lastCall := make(map[string]int)
@@ -485,15 +485,15 @@ func propAssertNoSplitPairs(t *testing.T, entries []Entry, start int) {
 	}
 }
 
-// propAssertEvidenceSurvives checks the documented compaction contract: if an
-// evidence-bearing entry falls in the dropped prefix, its marker must appear
-// in the corresponding section of the summary payload.
+// propAssertEvidenceSurvives 检查文档化的压缩契约：如果带有证据的条目
+// 落在被丢弃的前缀中，其标记必须出现在
+// 摘要载荷的相应章节中。
 func propAssertEvidenceSurvives(t *testing.T, entries []Entry, start int, markers propMarkers) {
 	t.Helper()
 	compaction := Summarize(entries[:start], len(entries)-start)
 	for i, entry := range entries {
 		if i >= start {
-			continue // kept verbatim, nothing to preserve in the summary
+			continue // 逐字保留，摘要中无需保留任何内容
 		}
 		if entry.Role == "tool" && strings.Contains(entry.Content, markers.fail) &&
 			!strings.Contains(strings.Join(compaction.Failures, "\n"), markers.fail) {
@@ -523,8 +523,8 @@ func TestPropertyCompactionPreservesPairsAndEvidence(t *testing.T) {
 				t.Fatal("test setup produced no entries after the evidence block")
 			}
 
-			// A budget that fits exactly the final entry forces every evidence
-			// entry into the dropped prefix.
+			// 恰好容纳最后一条条目的预算会迫使每条带证据的
+			// 条目进入被丢弃的前缀。
 			smallBudget := estimateEntryTokens(entries[len(entries)-1])
 			if start := CutForBudget(entries, smallBudget); start <= evidenceEnd {
 				t.Fatalf("small budget cut at %d, want past evidence end %d", start, evidenceEnd)
@@ -551,9 +551,9 @@ func TestPropertyCompactionPreservesPairsAndEvidence(t *testing.T) {
 				propAssertEvidenceSurvives(t, entries, start, markers)
 			}
 
-			// End-to-end: append the transcript, compact with the small budget,
-			// and verify the surviving messages have whole tool pairs and carry
-			// the summary evidence.
+			// 端到端：追加转录，用小预算压缩，
+			// 并验证幸存的消息具有完整的工具对，且带有
+			// 摘要中的证据。
 			dir := t.TempDir()
 			sess := newTestSession(t, dir, fmt.Sprintf("compact-%d", seed))
 			for _, entry := range entries {
@@ -614,7 +614,7 @@ func TestPropertyCompactionPreservesPairsAndEvidence(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Property 4: rune clipping always yields valid UTF-8 and a rune-safe prefix.
+// 属性 4：符文裁剪始终产生有效的 UTF-8 和符文安全的前缀。
 // ---------------------------------------------------------------------------
 
 func TestPropertyRuneClippingNeverSplitsRune(t *testing.T) {
@@ -623,7 +623,7 @@ func TestPropertyRuneClippingNeverSplitsRune(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			for i := 0; i < 120; i++ {
 				src := propText(rng, 80)
-				limit := rng.Intn(90) - 4 // deliberately includes zero and negatives
+				limit := rng.Intn(90) - 4 // 刻意包含零和负数
 				clippers := map[string]func(string, int) string{
 					"truncateRunes":    truncateRunes,
 					"capProgressRunes": capProgressRunes,
@@ -647,7 +647,7 @@ func TestPropertyRuneClippingNeverSplitsRune(t *testing.T) {
 				runes := []rune(src)
 				switch {
 				case limit <= 0:
-					// already checked above
+					// 上面已检查
 				case limit >= len(runes):
 					if got := capProgressRunes(src, limit); got != src {
 						t.Fatalf("capProgressRunes dropped bytes of %q at limit %d", src, limit)
@@ -695,7 +695,7 @@ func TestPropertyProgressTextStaysRuneSafeAcrossReopen(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Property 5: SyncProgress durability and progress staleness guards.
+// 属性 5：SyncProgress 持久性与进度过期防护。
 // ---------------------------------------------------------------------------
 
 func TestPropertySyncProgressReopenAndStaleness(t *testing.T) {
@@ -737,7 +737,7 @@ func propProgressRoundtrip(t *testing.T, seed int64) {
 		t.Fatal("LatestProgress found no in-flight checkpoint")
 	}
 
-	// The barrier form must be durable without adding a record.
+	// 屏障形式必须持久，且不添加记录。
 	before := sess.ProgressCount()
 	if err := sess.SyncProgress(); err != nil {
 		t.Fatalf("SyncProgress barrier: %v", err)
@@ -764,7 +764,7 @@ func propProgressRoundtrip(t *testing.T, seed int64) {
 		t.Fatalf("in-flight progress not recoverable: %+v, %v", recovered, ok)
 	}
 
-	// Committing the turn makes its mid-turn progress stale by position.
+	// 提交该轮次会使其轮中进度按位置过期。
 	if err := reopened.Append(KindAssistant, propText(rng, 12)); err != nil {
 		t.Fatal(err)
 	}
@@ -772,8 +772,8 @@ func propProgressRoundtrip(t *testing.T, seed int64) {
 		t.Fatalf("stale progress accepted after assistant commit: %+v", recovered)
 	}
 
-	// A checkpoint whose turn number is not ahead of the committed count is
-	// stale even though it is the newest record on the branch.
+	// 轮次号不领先于已提交数量的检查点，即使是分支上最新的记录，
+	// 也属于过期。
 	if err := reopened.AppendProgress(Progress{
 		Turn:          committed + 1,
 		AssistantText: "old turn number",
@@ -784,7 +784,7 @@ func propProgressRoundtrip(t *testing.T, seed int64) {
 		t.Fatalf("progress with an old turn number accepted: %+v", recovered)
 	}
 
-	// The next turn's progress is recoverable again and survives a reopen.
+	// 下一轮次的进度重新可恢复，并在重新打开后存活。
 	if err := reopened.SyncProgress(Progress{
 		Turn:          committed + 2,
 		AssistantText: "next turn partial",

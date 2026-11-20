@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// TestEmitDeliversInAppendOrderUnderConcurrency checks the core contract: even
-// with many concurrent emit calls and a consumer that yields, emitFn observes
-// events in exactly the order they were appended to s.events.
+// TestEmitDeliversInAppendOrderUnderConcurrency 检查核心契约：即使有大量并发发出调用和一个会让出的消费者，
+// emitFn 观察到的事件顺序也与它们追加到 s.events 的顺序完全一致。
+// （接上行）
 func TestEmitDeliversInAppendOrderUnderConcurrency(t *testing.T) {
 	const n = 64
 
 	var deliveredMu sync.Mutex
 	var delivered []string
 	s := newRunState(Options{}, "", func(e Event) {
-		// Yield while holding the delivery turn: without the ticket gate this
-		// makes later appenders overtake earlier ones.
+		// 在持有投递轮次时让出：没有票号门控，这会让较晚的追加者超过较早的。
+		// （接上行）
 		runtime.Gosched()
 		deliveredMu.Lock()
 		delivered = append(delivered, e.Text)
@@ -52,10 +52,10 @@ func TestEmitDeliversInAppendOrderUnderConcurrency(t *testing.T) {
 	}
 }
 
-// TestEmitRecordsWhileConsumerBlocked checks that a blocked emitFn cannot stop
-// events from being recorded: a second emit appends while the first event is
-// still stuck inside the consumer. The deadline is only a hang guard, not a
-// timing assertion.
+// TestEmitRecordsWhileConsumerBlocked 检查被阻塞的 emitFn 不能阻止事件被记录：第一个事件仍卡在消费者内部时，第二个发出会追加。
+// 截止时间只是防挂起保护，不是计时断言。
+// （接上行）
+// （接上行）
 func TestEmitRecordsWhileConsumerBlocked(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -89,8 +89,8 @@ func TestEmitRecordsWhileConsumerBlocked(t *testing.T) {
 	}
 }
 
-// waitRecordedEvents waits until len(s.events) reaches want, reading under the
-// same lock the emitter uses. The deadline only guards against a hang.
+// waitRecordedEvents 等待 len(s.events) 达到 want，读取时使用发出器所用的同一把锁。截止时间只防挂起。
+// （接上行）
 func waitRecordedEvents(t *testing.T, s *runState, want int) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)

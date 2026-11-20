@@ -44,10 +44,10 @@ func TestBranchesDescribeForkedTree(t *testing.T) {
 	}
 }
 
-// TestBranchDepthCachesUnderOriginalID covers session audit #6: the depth of
-// a chain must be cached under the id whose depth was requested, not under the
-// top ancestor the walk ended on. Otherwise a later descendant of that
-// ancestor inherits the whole chain's depth.
+// TestBranchDepthCachesUnderOriginalID 覆盖 session 审计 #6：一条链的深度
+// 必须缓存在请求深度的那个 id 下，而不是遍历结束时到达的
+// 顶层祖先下。否则该祖先的后续后代会
+// 继承整条链的深度。
 func TestBranchDepthCachesUnderOriginalID(t *testing.T) {
 	byID := map[string]Record{
 		"A":    {ID: "A", Parent: "B"},
@@ -72,9 +72,9 @@ func TestBranchDepthCachesUnderOriginalID(t *testing.T) {
 	}
 }
 
-// TestBranchesDescribeOutOfOrderTree exercises audit #6 through the public
-// path: children are listed before their parents, as happens with a repaired
-// or hand-assembled transcript.
+// TestBranchesDescribeOutOfOrderTree 通过公开路径检验审计 #6：
+// 子条目列在父条目之前，就像修复过或手工
+// 拼接的转录中那样。
 func TestBranchesDescribeOutOfOrderTree(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out-of-order.jsonl")
 	writeRawSession(t, path, []Record{

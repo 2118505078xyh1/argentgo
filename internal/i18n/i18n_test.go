@@ -31,7 +31,7 @@ func TestMissingKeyReturnsKeyAndIsRecorded(t *testing.T) {
 	if got := T(EnUS, "no.such.key"); got != "no.such.key" {
 		t.Errorf("got %q", got)
 	}
-	// A second lookup must not duplicate the record.
+	// 第二次查找不得重复记录。
 	_ = T(ZhCN, "no.such.key")
 	missing := Missing()
 	if len(missing) != 1 || missing[0] != "no.such.key" {
@@ -134,11 +134,11 @@ func TestAuditTranslationsHealthyCatalogHasNoIssues(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("healthy catalog produced issues: %#v", got)
 	}
-	// Auditing is pure and must not touch the Missing log.
+	// 审计是纯的且不得触碰 Missing 日志。
 	if missing := Missing(); len(missing) != 0 {
 		t.Errorf("audit recorded missing keys: %#v", missing)
 	}
-	// Repeated calls are deterministic.
+	// 重复调用是确定的。
 	if again := AuditTranslations(); len(again) != 0 {
 		t.Errorf("second audit differs: %#v", again)
 	}
@@ -242,13 +242,13 @@ func TestAuditCatalogDetectsOmissions(t *testing.T) {
 			name:    "single locale only checks that locale",
 			cat:     map[string]translation{"k": {"ok", ""}},
 			locales: []string{EnUS},
-			// zh is empty but not requested, so no issue.
+			// zh 为空但未被请求，因此没有问题。
 		},
 		{
 			name:    "single requested locale can still be checked",
 			cat:     map[string]translation{"k": {"ok", ""}},
 			locales: []string{ZhCN},
-			// reference becomes zh (empty text) -> reported for zh.
+			// 引用变成 zh（空文本）-> 对 zh 报告。
 			wantKinds:   []IssueKind{IssueMissingText},
 			wantLocales: []string{ZhCN},
 		},
@@ -435,20 +435,20 @@ func TestReplyLanguageHint(t *testing.T) {
 		locale string
 		want   string
 	}{
-		// Canonical locales.
+		// 规范语言环境。
 		{"zh-CN", ZhCN, "请用中文回复"},
 		{"en-US", EnUS, "Reply in English"},
-		// CJK aliases.
+		// CJK 别名。
 		{"zh short alias", "zh", "请用中文回复"},
 		{"zh underscore alias", "zh_cn", "请用中文回复"},
 		{"zh mixed case region alias", "ZH-CN", "请用中文回复"},
 		{"chinese name alias", "中文", "请用中文回复"},
 		{"chinese name alias is trimmed", "  中文  ", "请用中文回复"},
-		// English aliases.
+		// 英文别名。
 		{"en short alias", "en", "Reply in English"},
 		{"en underscore alias", "en_us", "Reply in English"},
 		{"english name alias", "English", "Reply in English"},
-		// Unknown / unsupported locales fall back to neutral.
+		// 未知/不支持的语言环境回退到中性。
 		{"unknown European locale is neutral", "fr-FR", replyHintNeutral},
 		{"unsupported CJK language is neutral", "ja", replyHintNeutral},
 		{"unsupported Chinese variant is neutral", "zh-TW", replyHintNeutral},
@@ -563,8 +563,7 @@ func TestParseOutputLanguagePreferenceRejectsInjection(t *testing.T) {
 }
 
 func TestParseOutputLanguagePreferenceRejectsCaseConfusables(t *testing.T) {
-	// Unicode case folding maps these to "auto"/"english", but the token in
-	// a repository-writable file must not be able to exploit that.
+	// 仓库可写文件中的标记不得利用这一点。
 	for _, raw := range []string{"au\u212Ao", "\uFF21UTO", "\u2128nglish"} {
 		lang, ok := ParseOutputLanguagePreference(raw)
 		if ok || lang != "" {

@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// spillPathInResult extracts the recovery path from a complete spill marker.
+// spillPathInResult 从完整的溢出标记中提取恢复路径。
 func spillPathInResult(t *testing.T, result string) string {
 	t.Helper()
 	i := strings.Index(result, mcpSpillMarkerOpen)
@@ -94,7 +94,7 @@ func TestSpillMCPOutputOverThresholdReadable(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(mcpSpillDirEnv, dir)
 
-	text := strings.Repeat("0123456789", 2000) // 20000 bytes
+	text := strings.Repeat("0123456789", 2000) // 20000 字节
 	got, path, spilled := spillMCPOutput(text, 1024)
 	if !spilled || path == "" {
 		t.Fatalf("oversized output must spill: path=%q spilled=%v", path, spilled)
@@ -108,7 +108,7 @@ func TestSpillMCPOutputOverThresholdReadable(t *testing.T) {
 	if p := spillPathInResult(t, got); p != path {
 		t.Fatalf("marker path %q != returned path %q", p, path)
 	}
-	// The full, unmodified output must be recoverable from the artifact.
+	// 完整、未修改的输出必须能从产物中恢复。
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read artifact: %v", err)
@@ -116,7 +116,7 @@ func TestSpillMCPOutputOverThresholdReadable(t *testing.T) {
 	if string(data) != text {
 		t.Fatalf("artifact does not hold the full output: got %d bytes, want %d", len(data), len(text))
 	}
-	// The bounded view keeps the beginning and the end of the output.
+	// 有界视图保留输出的开头和结尾。
 	if !strings.HasPrefix(text, got[:strings.Index(got, mcpSpillMarkerOpen)]) {
 		t.Fatal("spilled result lost the head window")
 	}
@@ -182,8 +182,8 @@ func TestSpillMCPOutputAlreadySpilled(t *testing.T) {
 }
 
 func TestCallToolSpillDisabledWithoutDir(t *testing.T) {
-	// Even with a tiny threshold, no directory means no spill: the legacy
-	// output is returned byte-for-byte.
+	// 即使阈值很小，没有目录也不会溢出：旧输出
+	// 被逐字节返回。
 	t.Setenv(mcpSpillDirEnv, "")
 	t.Setenv(mcpSpillThresholdEnv, "10")
 
@@ -213,7 +213,7 @@ func TestCallToolSpillsLargeOutput(t *testing.T) {
 	t.Setenv(mcpSpillDirEnv, dir)
 	t.Setenv(mcpSpillThresholdEnv, "256")
 
-	big := strings.Repeat("0123456789", 100) // 1000 bytes
+	big := strings.Repeat("0123456789", 100) // 1000 字节
 	response := map[string]any{"content": []any{
 		map[string]any{"type": "text", "text": big},
 	}}

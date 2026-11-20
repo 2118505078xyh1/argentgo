@@ -300,6 +300,17 @@ type ExpandOptions struct {
 	Run func(command string) (string, error)
 }
 
+// ExpandArguments 把原始参数字符串按命令的占位符规则展开到正文中。
+//
+// 它是 substituteArgs 的公开纯函数形式，供技能等包复用：只读取入参，
+// 不触碰文件系统，也不执行任何 shell 插值。采用安全默认——最高编号的
+// $N 不吸收其余参数，保持一参数一位置的语义。支持的语法见
+// substituteArgs：$ARGUMENTS / $@ 展开为完整参数串，$1 / ${1} 为按
+// 引号分组的位置参数，越界的位置替换为空。
+func ExpandArguments(body, args string) string {
+	return substituteArgs(body, args, false)
+}
+
 // substituteArgs 展开 $ARGUMENTS、$@ 和 $N/${N}。位置按
 // 引号分组解析，因此 "two words" 仍是一个参数。
 func substituteArgs(body, args string, remainingAtHighest bool) string {

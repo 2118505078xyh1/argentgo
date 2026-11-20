@@ -351,7 +351,7 @@ func TestCompactKeepsTailAndSummaries(t *testing.T) {
 		t.Fatalf("compaction records = %d, want 1", compactions)
 	}
 
-	// A reopened session sees the same compacted view.
+	// 重新打开的会话看到相同的压缩视图。
 	reopened, err := OpenSession(dir, session.ID())
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
@@ -360,7 +360,7 @@ func TestCompactKeepsTailAndSummaries(t *testing.T) {
 		t.Fatalf("reopened messages = %+v", got)
 	}
 
-	// Compacting a history that already fits is a no-op.
+	// 压缩已经放得下的历史是空操作。
 	before, err := session.Records()
 	if err != nil {
 		t.Fatalf("Records: %v", err)
@@ -385,9 +385,9 @@ func TestCompactRejectsNegativeKeep(t *testing.T) {
 	}
 }
 
-// The in-memory index must make steady-state appends O(1) in JSON parsing: one
-// full read when it is built, none afterwards. The counting hook verifies the
-// behaviour directly instead of relying on a fragile timing threshold.
+// 内存索引必须使稳态追加在 JSON 解析上达到 O(1)：构建时
+// 做一次全量读取，之后不再读取。计数钩子直接验证该行为，
+// 而不是依赖脆弱的时间阈值。
 func TestAppendRecordReusesIDIndexWithoutFullReread(t *testing.T) {
 	dir := t.TempDir()
 	session := newTestSession(t, dir, "indexed")
@@ -397,12 +397,12 @@ func TestAppendRecordReusesIDIndexWithoutFullReread(t *testing.T) {
 		reads++
 		return readRecords(path)
 	}
-	// newTestSession wrote the header before the hook was attached; start with
-	// a cold index so the first append below builds it through the hook.
+	// newTestSession 在挂载钩子之前已写入 header；因此以
+	// 冷索引开始，使下面的第一次追加通过钩子构建它。
 	session.invalidateAppendCacheAfterRewrite()
 
 	const n = 64
-	last := "n000001" // header minted by newTestSession
+	last := "n000001" // 由 newTestSession 生成的 header
 	for i := 1; i <= n; i++ {
 		record, err := session.AppendRecord(KindUser, fmt.Sprintf("message %d", i))
 		if err != nil {
@@ -478,8 +478,8 @@ func TestAppendRecordIDChainAfterReopen(t *testing.T) {
 	}
 }
 
-// Replacing the file (temp + rename, as a rewrite/compaction would) must make
-// the next append rebuild its index: no id may collide with the new records.
+// 替换文件（临时文件 + 重命名，就像重写/压缩所做的那样）必须使
+// 下一次追加重建其索引：任何 id 都不得与新记录冲突。
 func TestAppendRecordDetectsReplacedFile(t *testing.T) {
 	dir := t.TempDir()
 	session := newTestSession(t, dir, "replaced")
@@ -491,7 +491,7 @@ func TestAppendRecordDetectsReplacedFile(t *testing.T) {
 		reads++
 		return readRecords(path)
 	}
-	// Warm the index through the counting hook before replacing the file.
+	// 在替换文件之前，通过计数钩子预热索引。
 	session.invalidateAppendCacheAfterRewrite()
 	if _, err := session.AppendRecord(KindUser, "warm"); err != nil {
 		t.Fatalf("warm AppendRecord: %v", err)
@@ -514,8 +514,8 @@ func TestAppendRecordDetectsReplacedFile(t *testing.T) {
 		t.Fatalf("rename replacement: %v", err)
 	}
 
-	// An active id absent from the rewritten file exercises the same fallback
-	// the old full-read path used: link to the last record in file order.
+	// 重写后的文件中不存在的活动 id，会触发与旧全量读取路径相同的
+	// 回退：链接到按文件顺序的最后一条记录。
 	session.active = "gone"
 	record, err := session.AppendRecord(KindAssistant, "after replacement")
 	if err != nil {
@@ -557,8 +557,8 @@ func TestAppendRecordDetectsInPlaceRewrite(t *testing.T) {
 		t.Fatalf("full reads after warm append = %d, want 1", reads)
 	}
 
-	// Rewrite the same inode with a shorter file; a stale index would mint an
-	// id that no longer matches the on-disk transcript.
+	// 用更短的文件重写同一个 inode；过期的索引会生成一个
+	// 与磁盘转录不再匹配的 id。
 	writeRawSession(t, session.path(), []Record{
 		{ID: "n000001", Kind: KindHeader, Data: json.RawMessage(`{"title":"short","created":"2026-01-01T00:00:00Z"}`)},
 		{ID: "n000004", Kind: KindUser, Data: json.RawMessage(`"only record"`)},

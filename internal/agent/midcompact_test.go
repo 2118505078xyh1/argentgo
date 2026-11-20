@@ -9,8 +9,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// fakeCompactor records each call and returns a scripted shortening of the
-// conversation. It never touches a session, keeping the agent test standalone.
+// fakeCompactor 记录每次调用，并返回脚本化的对话缩短结果。它从不触碰会话，使 agent 测试保持独立。
+// （接上行）
 type fakeCompactor struct {
 	calls    int
 	windows  []int
@@ -27,8 +27,8 @@ func (f *fakeCompactor) MaybeCompact(messages []llm.Message, window int) ([]llm.
 	if f.shorten != nil {
 		return f.shorten(messages), true
 	}
-	// Default: drop the oldest messages but keep the system prompt and the
-	// tail, producing a much smaller estimate than the input.
+	// 默认：丢弃最旧的消息但保留系统提示和尾部，产生比输入小得多的估算值。
+	// （接上行）
 	out := []llm.Message{{Role: "system", Content: messages[0].Content}}
 	out = append(out, messages[len(messages)-2:]...)
 	return out, true
@@ -49,7 +49,7 @@ func TestMidTurnCompactionRunsAfterToolBatch(t *testing.T) {
 		Chatter:          chat,
 		Tools:            tools,
 		MaxTurns:         4,
-		CompactThreshold: 1, // tiny: any realistic history trips it
+		CompactThreshold: 1, // 极小：任何真实历史都会触发它
 		Compactor:        compactor,
 		Emit: func(e Event) {
 			if e.Kind == EventNotice && strings.Contains(e.Text, "compacted context") {
@@ -71,7 +71,7 @@ func TestMidTurnCompactionRunsAfterToolBatch(t *testing.T) {
 	if len(notices) == 0 {
 		t.Fatal("compaction did not emit an EventNotice")
 	}
-	// The target window must be the 0.8 band (floored by minCompactWindow).
+	// 目标窗口必须是 0.8 带（以 minCompactWindow 为下限）。
 	for _, window := range compactor.windows {
 		if window < minCompactWindow {
 			t.Fatalf("window = %d, want >= %d", window, minCompactWindow)
@@ -81,7 +81,7 @@ func TestMidTurnCompactionRunsAfterToolBatch(t *testing.T) {
 
 func TestMidTurnCompactionUsesEightyPercentBand(t *testing.T) {
 	const threshold = 50000
-	// With a large threshold the derived window is exactly 0.8*T - reserve.
+	// 阈值较大时，推导出的窗口恰好是 0.8*T - reserve。
 	compactor := &fakeCompactor{noChange: true}
 	tools := &fakeTools{
 		specs: []llm.ToolSpec{toolSpec("read")},
@@ -120,12 +120,12 @@ func TestMidTurnCompactionUsesEightyPercentBand(t *testing.T) {
 func TestMidTurnCompactionHysteresisReleasesPressure(t *testing.T) {
 	const threshold = 50000
 	compactor := &fakeCompactor{
-		// Land inside the band (0.8T < estimate < T): a second check must not
-		// compact again just to shave a few more tokens.
+		// 落在带内（0.8T < 估算值 < T）时，第二次检查不得为了再省几个 token 而重新压缩。
+		// （接上行）
 		shorten: func(messages []llm.Message) []llm.Message {
 			return []llm.Message{
 				messages[0],
-				{Role: "assistant", Content: strings.Repeat("x", 190000)}, // ~47.5k tokens
+				{Role: "assistant", Content: strings.Repeat("x", 190000)}, // 约 47.5k token
 				{Role: "user", Content: "continue"},
 			}
 		},
@@ -135,7 +135,7 @@ func TestMidTurnCompactionHysteresisReleasesPressure(t *testing.T) {
 		compactThreshold: threshold,
 		messages: []llm.Message{
 			{Role: "system", Content: "rules"},
-			{Role: "tool", ToolCallID: "c1", Content: strings.Repeat("x", 220000)}, // ~55k, over threshold
+			{Role: "tool", ToolCallID: "c1", Content: strings.Repeat("x", 220000)}, // 约 55k，超过阈值
 		},
 	}
 	s.maybeCompact()

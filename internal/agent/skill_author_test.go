@@ -103,7 +103,7 @@ func TestExistingRunsNeverAdvertiseSkillTools(t *testing.T) {
 		}
 		return textReply("done"), nil
 	}}
-	// Even with subagents enabled, the default run must be unchanged.
+	// 即使启用了子 agent，默认运行也必须保持不变。
 	runner := &Runner{Opts: Options{
 		Model: "m", Chatter: chat,
 		Tools:    &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}},

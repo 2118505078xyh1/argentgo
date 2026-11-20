@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// startHelperChild spawns the sleep-helper test binary as a real child outside
-// the registry. It stands for the innocent process that may inherit a stale
-// job's pid after a crash, so the tests can prove it is never signalled.
+// startHelperChild 在 registry 之外把 sleep-helper 测试二进制作为真实子进程启动。它代表崩溃后可能继承某个陈旧作业 pid 的无辜进程，使测试能证明它从不被发信号。
+// registry 之外。它代表崩溃后可能继承陈旧作业 pid 的
+// 无辜进程，使测试能证明它从不被发信号。
 func startHelperChild(t *testing.T) (*exec.Cmd, time.Time) {
 	t.Helper()
 	spec := longCommand()
@@ -24,8 +24,8 @@ func startHelperChild(t *testing.T) (*exec.Cmd, time.Time) {
 		t.Fatalf("start helper child: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	// Reap in the background: kill(pid, 0) still succeeds for a zombie on
-	// Unix, so an unreaped child would keep looking alive after Stop.
+	// 在后台回收：Unix 上僵尸的 kill(pid, 0) 仍成功，因此未回收的子进程在 Stop 后仍显得存活。
+	// Unix 上僵尸的 kill(pid, 0) 仍成功，因此未回收的子进程在 Stop 后仍显得存活。
 	go func() { _ = cmd.Wait() }()
 	return cmd, startedAt
 }
@@ -68,9 +68,9 @@ func TestSameProcessRequiresMatchingCreationTime(t *testing.T) {
 	}
 }
 
-// TestLoadRetiresAJobWhosePidWasRecycled checks the state right after reopening
-// the index, before any Get/List refresh can run: load itself must not leave a
-// recycled pid marked as running.
+// TestLoadRetiresAJobWhosePidWasRecycled 检查刚重新打开索引后的状态，
+// TestLoadRetiresAJobWhosePidWasRecycled 检查刚重新打开索引后的状态，在任何 Get/List 刷新可以运行之前：加载本身不得把被回收的 pid 留作正在运行。
+// 被回收的 pid 留作正在运行。
 func TestLoadRetiresAJobWhosePidWasRecycled(t *testing.T) {
 	cmd, realStart := startHelperChild(t)
 	dir := t.TempDir()
@@ -103,8 +103,8 @@ func TestLoadRetiresAJobWhosePidWasRecycled(t *testing.T) {
 	}
 }
 
-// TestRefreshRetiresAJobWhosePidWasRecycled injects the stale job directly, so
-// refreshLocked (not load) is the code under test.
+// TestRefreshRetiresAJobWhosePidWasRecycled 直接注入陈旧作业，因此
+// TestRefreshRetiresAJobWhosePidWasRecycled 直接注入陈旧作业，因此被测代码是 refreshLocked（而非 load）。陈旧作业被保留但退役，使重试杀不到任何东西。
 func TestRefreshRetiresAJobWhosePidWasRecycled(t *testing.T) {
 	cmd, realStart := startHelperChild(t)
 	r := newRegistry(t)
@@ -186,7 +186,7 @@ func TestRemoveRefusesToKillARecycledPid(t *testing.T) {
 	if !alive(cmd.Process.Pid) {
 		t.Fatal("Remove must not kill a process with a recycled pid")
 	}
-	// The stale job is kept but retired, so a retry cannot kill anything.
+	// 陈旧作业被保留但退役，使重试杀不到任何东西。
 	got, err := r.Get("job1")
 	if err != nil || got.Status != StatusExited {
 		t.Fatalf("job after refusal = %+v, err = %v, want a kept exited job", got, err)
@@ -199,9 +199,9 @@ func TestRemoveRefusesToKillARecycledPid(t *testing.T) {
 	}
 }
 
-// TestStopKillsAReloadedJobWithMatchingIdentity proves the check does not
-// disable legitimate stops: only the raw-pid path of a reloaded job is used
-// here, and its recorded start time matches the real child.
+// TestStopKillsAReloadedJobWithMatchingIdentity 证明该检查不会
+// TestStopKillsAReloadedJobWithMatchingIdentity 证明该检查不会禁用合法停止：这里只使用重载作业的原始 pid 路径，且其记录的启动时间与真实子进程匹配。
+// 这里，且其记录的启动时间与真实子进程匹配。
 func TestStopKillsAReloadedJobWithMatchingIdentity(t *testing.T) {
 	cmd, startedAt := startHelperChild(t)
 	dir := t.TempDir()

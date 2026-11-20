@@ -10,7 +10,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// errorEventOf returns the first EventError a sink collected, if any.
+// errorEventOf 返回接收器收集到的第一个 EventError（如果有）。
 func errorEventOf(s *eventSink) (Event, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -22,10 +22,10 @@ func errorEventOf(s *eventSink) (Event, bool) {
 	return Event{}, false
 }
 
-// TestErrorEventCarriesFailureClassification drives real provider errors through
-// the chat-failure emit site and checks the closed vocabulary, the retry vs
-// settings routing hints and the fixed ErrorID all reach the event, while the
-// original Err text survives untouched.
+// TestErrorEventCarriesFailureClassification 让真实的提供方错误经过聊天失败发出点，检查封闭词汇表、重试与设置路由提示以及固定 ErrorID
+// 都到达事件，同时原始 Err 文本保持不变。
+// （接上行）
+// （接上行）
 func TestErrorEventCarriesFailureClassification(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -45,8 +45,8 @@ func TestErrorEventCarriesFailureClassification(t *testing.T) {
 		{"server", errors.New("provider returned 503 Service Unavailable"), llm.FailureTransient, llm.UserActionRetry, true, "transient.server"},
 		{"unknown", errors.New("some unrelated failure"), llm.FailureUnknown, llm.UserActionNone, false, "unknown"},
 	}
-	// FailureInternal is reserved for in-process faults; ClassifyFailure never
-	// emits it, so it is deliberately absent from the table.
+	// FailureInternal 保留给进程内故障；ClassifyFailure 从不发出它，因此刻意不在表中。
+	// （接上行）
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -85,9 +85,9 @@ func TestErrorEventCarriesFailureClassification(t *testing.T) {
 	}
 }
 
-// TestErrorEventFromBeforeRequestHookCarriesFailure covers the other emit site:
-// a durability-hook failure is classified the same way, and its Err is the
-// untouched hook error (no fallback wrapping).
+// TestErrorEventFromBeforeRequestHookCarriesFailure 覆盖另一个发出点：持久性钩子失败被同样分类，其 Err 是未经修改的钩子错误（无回退包装）。
+// （接上行）
+// （接上行）
 func TestErrorEventFromBeforeRequestHookCarriesFailure(t *testing.T) {
 	t.Parallel()
 	wantErr := errors.New("provider returned 402 Payment Required: insufficient quota")
@@ -125,10 +125,10 @@ func TestErrorEventFromBeforeRequestHookCarriesFailure(t *testing.T) {
 	}
 }
 
-// TestErrorEventNilFailureKeepsLegacyJSON proves the new field is purely
-// additive: a nil Failure is omitted from the JSON, so older producers and the
-// SSE/RPC transports that json.Marshal the whole Event see byte-identical wire
-// output, and legacy JSON (no "failure" key) decodes to Failure == nil.
+// TestErrorEventNilFailureKeepsLegacyJSON 证明新字段纯粹是附加的：nil 的 Failure 在 JSON 中被省略，
+// 因此较旧的生产者以及对整个 Event 做 json.Marshal 的 SSE/RPC 传输看到的线上输出逐字节不变，
+// 而旧版 JSON（没有 failure 键）解码出的 Failure 为 nil。
+// （接上行）
 func TestErrorEventNilFailureKeepsLegacyJSON(t *testing.T) {
 	t.Parallel()
 	ev := Event{Kind: EventError, Turn: 3, Err: "boom", Reason: StopProviderError}
@@ -143,8 +143,8 @@ func TestErrorEventNilFailureKeepsLegacyJSON(t *testing.T) {
 		t.Fatalf("nil Failure leaked into JSON: %s", data)
 	}
 
-	// The pre-Failure shape, with every field in the same order. Byte equality
-	// is the strongest form of the "no change when nil" guarantee.
+	// Failure 出现之前的结构，所有字段顺序相同。字节相等是「nil 时不变」保证的最强形式。
+	// （接上行）
 	type legacyEvent struct {
 		Kind            EventKind
 		Turn            int
@@ -182,9 +182,9 @@ func TestErrorEventNilFailureKeepsLegacyJSON(t *testing.T) {
 	}
 }
 
-// TestErrorEventFailureIDContainsNoSecret checks the redaction promise at the
-// event boundary: even when the original error carries a credential, the
-// classification's ErrorID is a fixed table identifier with no secret in it.
+// TestErrorEventFailureIDContainsNoSecret 在事件边界检查脱敏承诺：即使原始错误带有凭据，
+// 分类的 ErrorID 也是固定的表标识符，其中不含任何机密。
+// （接上行）
 func TestErrorEventFailureIDContainsNoSecret(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-proj-SUPERSECRET123"

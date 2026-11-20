@@ -84,18 +84,18 @@ func scanLines(ctx context.Context, in io.Reader) <-chan scanResult {
 		for {
 			chunk, err := br.ReadSlice('\n')
 			if err != bufio.ErrBufferFull && len(chunk) > 0 && chunk[len(chunk)-1] == '\n' {
-				chunk = chunk[:len(chunk)-1] // exclude the delimiter from the limit
+				chunk = chunk[:len(chunk)-1] // 从限制中排除分隔符
 			}
 			if !tooLong {
 				if len(line)+len(chunk) > maxRPCFrame {
 					tooLong = true
-					line = line[:0] // stop buffering the rest of this frame
+					line = line[:0] // 停止缓冲该帧的其余部分
 				} else {
 					line = append(line, chunk...)
 				}
 			}
 			if err == bufio.ErrBufferFull {
-				continue // the frame continues in the next chunk
+				continue // 该帧在下一个分块中继续
 			}
 			if err != nil && err != io.EOF {
 				send(scanResult{err: err}) // terminal I/O error
@@ -380,7 +380,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			return
 		}
 		if tool == "" {
-			tool = params.ID // defensive: keep the notice decodable
+			tool = params.ID // 防御性：保持通知可解码
 		}
 		hub.Publish(agent.ApprovalResolvedEvent(tool, params.ID, granted))
 		p.respond(req.ID, map[string]any{"ok": true})

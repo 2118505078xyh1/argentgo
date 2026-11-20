@@ -6,8 +6,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// newTestChat builds an app whose canned reply arrives at once: no timers,
-// no window and therefore no wall-clock dependencies in the tests.
+// newTestChat 构建一个即时收到预设回复的 app：无计时器、
+// 无窗口，因此测试中无挂钟依赖。
 func newTestChat() *chat {
 	return &chat{instant: true}
 }
@@ -32,7 +32,7 @@ func TestSendAddsUserMessageAndReply(t *testing.T) {
 	if !tt.HasText("帮我写个函数") {
 		t.Errorf("user message missing in %q", tt.Texts())
 	}
-	// The canned reply is Markdown, rendered natively by ui/markdown.
+	// 预设回复是 Markdown，由 ui/markdown 原生渲染。
 	if !tt.HasText("原生 Markdown") || !tt.HasText("fmt.Println") {
 		t.Errorf("markdown reply missing in %q", tt.Texts())
 	}
@@ -51,7 +51,7 @@ func TestStatusLineShortcuts(t *testing.T) {
 	if err := tt.Click("发送"); err != nil {
 		t.Fatal(err)
 	}
-	// Move focus out of the auto-focused composer so window shortcuts fire.
+	// 把焦点移出自动聚焦的输入框，使窗口快捷键生效。
 	if err := tt.Click("文档"); err != nil {
 		t.Fatal(err)
 	}
@@ -59,12 +59,12 @@ func TestStatusLineShortcuts(t *testing.T) {
 	if app.status != "已撤销上一轮" || !tt.HasText("已撤销上一轮") {
 		t.Errorf("undo status %q, texts %q", app.status, tt.Texts())
 	}
-	// Undo removes the whole turn, not just the trailing reply: no orphan user
-	// message may remain, and the approval card is cleared too.
+	// Undo 移除整个回合，而非仅末尾回复：不得留下孤立的用户
+	// 消息，审批卡片也被清除。
 	if len(app.messages) != 0 || app.approval != nil {
 		t.Errorf("undo left %d messages, approval=%v", len(app.messages), app.approval)
 	}
-	// Undo removes the approval card, which sends focus back to the composer.
+	// Undo 移除审批卡片，它把焦点送回输入框。
 	if err := tt.Click("文档"); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestApprovalKeyboardAndButtons(t *testing.T) {
 	if !tt.HasText("需要批准") || !tt.HasText("write_file") {
 		t.Errorf("approval card missing in %q", tt.Texts())
 	}
-	// Y allows the pending approval when the composer does not have focus.
+	// 当输入框没有焦点时 Y 允许待处理的审批。
 	if err := tt.Click("文件"); err != nil {
 		t.Fatal(err)
 	}

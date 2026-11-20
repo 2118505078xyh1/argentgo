@@ -20,7 +20,7 @@ const redactedValue = "***"
 // CommandSummary 返回 c 的紧凑、单行、日志安全的描述：
 // 进程路径和参数（凭据类值已脱敏）、超时时间和进程树终止模式。
 // 它是用于日志和调试输出的纯诊断辅助函数；从不修改 c，也不启动任何东西。
-// debug output; it never mutates c or spawns anything.
+// 调试输出；从不修改 c 或启动任何东西。
 //
 // 格式为：
 //

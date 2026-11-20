@@ -32,11 +32,11 @@ func TestIsRecoverablePlanBlock(t *testing.T) {
 	}
 }
 
-// TestRecoverablePlanBlockContinuesTheRun drives a full dispatch: the tool
-// returns a guard-triggered sentinel, and the loop must write a normal tool
-// result and let the model take a second turn (StopComplete), never a terminal
-// StopError path. The classification helper is exercised separately above;
-// this test pins the end-to-end behaviour of the seam it guards.
+// TestRecoverablePlanBlockContinuesTheRun 驱动一次完整的派发：工具返回防护器触发的哨兵，循环必须写入正常的工具结果
+// 并让模型再走一轮（StopComplete），绝不走终结性的 StopError 路径。分类辅助函数已在上面单独演练；
+// 本测试锁定它所守护的接缝的端到端行为。
+// （接上行）
+// （接上行）
 func TestRecoverablePlanBlockContinuesTheRun(t *testing.T) {
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("bash")}}
 	tools.run = func(_ context.Context, name, _ string) (string, error) {

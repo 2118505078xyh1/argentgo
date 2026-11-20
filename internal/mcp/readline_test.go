@@ -25,7 +25,7 @@ func TestReadBoundedLineSplitsFrames(t *testing.T) {
 }
 
 func TestReadBoundedLineReturnsFinalLineAtEOF(t *testing.T) {
-	// A final line with no trailing newline is delivered along with io.EOF.
+	// 没有尾随换行的最后一行会与 io.EOF 一起被交付。
 	reader := bufio.NewReaderSize(strings.NewReader("tail"), 4)
 	line, err := readBoundedLine(reader, 64)
 	if string(line) != "tail" || !errors.Is(err, io.EOF) {
@@ -35,8 +35,8 @@ func TestReadBoundedLineReturnsFinalLineAtEOF(t *testing.T) {
 
 func TestReadBoundedLineRejectsOversizeWithoutDraining(t *testing.T) {
 	const limit = 16
-	// The reader's buffer is tiny relative to the input, forcing many
-	// ErrBufferFull cycles; the helper must stop as soon as the cap is crossed.
+	// 读取器的缓冲区相对输入很小，迫使出现多次
+	// ErrBufferFull 循环；辅助函数必须在超过上限时立即停止。
 	counter := &countingReader{src: strings.NewReader(strings.Repeat("x", 4096))}
 	reader := bufio.NewReaderSize(counter, 8)
 
@@ -47,8 +47,8 @@ func TestReadBoundedLineRejectsOversizeWithoutDraining(t *testing.T) {
 	if len(line) <= limit {
 		t.Fatalf("line length = %d, want > %d", len(line), limit)
 	}
-	// bufio enforces a 16-byte minimum buffer, so a single ReadSlice chunk can
-	// be 16 bytes; the cap check tolerates one such chunk of overshoot.
+	// bufio 强制最小 16 字节缓冲区，因此单个 ReadSlice 块可能
+	// 有 16 字节；上限检查容许一个这样的块超出。
 	if counter.read > limit+16 {
 		t.Fatalf("read %d bytes, want at most %d (cap %d + one buffer)", counter.read, limit+16, limit)
 	}

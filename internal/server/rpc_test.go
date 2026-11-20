@@ -247,7 +247,7 @@ func TestRPCInFlightPromptFinishesOnCancel(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "prompt",
 		"params": map[string]any{"text": "hi"},
 	})
-	<-runner.started // the prompt is now in flight
+	<-runner.started // 提示现在正在进行中
 
 	cancel()
 	resp := readJSON(t, dec)

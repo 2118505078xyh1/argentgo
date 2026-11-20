@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// wantIssue is the observable part of an issue asserted by TestValidateManifest:
-// the field it belongs to and its kind. Messages are human-facing text and are
-// checked separately where it matters.
+// makeZip 用给定的成员名称和内容写一个 zip 归档。暂存目录在成功安装后不得留存。wantIssue 是 TestValidateManifest 断言的发现的可观察部分：它所属的字段及其种类。消息是面向人类的文本，在重要的地方单独检查。
+// 它所属的字段及其种类。消息是面向人类的文本，在重要的地方
+// 单独检查。
 type wantIssue struct {
 	field string
 	kind  IssueKind
@@ -174,8 +174,8 @@ func TestValidateManifest(t *testing.T) {
 	}
 }
 
-// TestValidateManifestCJKNameMessage makes sure a legal CJK plugin name is not
-// reported, while an illegal one names the offending value in the message.
+// TestValidateManifestCJKNameMessage 确保合法的 CJK 插件名不被
+// 报告，而非法的名字在消息中点名违规值。
 func TestValidateManifestCJKNameMessage(t *testing.T) {
 	root := t.TempDir()
 	base := func(name string) Manifest {
@@ -193,9 +193,9 @@ func TestValidateManifestCJKNameMessage(t *testing.T) {
 	}
 }
 
-// TestValidateManifestIsPure proves the function never stats the filesystem:
-// a bundle root that does not exist still yields findings only for structural
-// problems, not for missing files (which belong to Manifest.Validate).
+// TestValidateManifestIsPure 证明该函数从不 stat 文件系统：
+// 不存在的 bundle 根仍只产生结构问题的发现，
+// TestValidateManifestCJKNameMessage 确保合法的 CJK 插件名不被报告，而非法的名字在消息中点名违规值。TestValidateManifestIsPure 证明该函数从不 stat 文件系统：不存在的 bundle 根仍只产生结构问题的发现，而非文件缺失（那属于 Manifest.Validate）。
 func TestValidateManifestIsPure(t *testing.T) {
 	missingRoot := filepath.Join(t.TempDir(), "never-created")
 	m := Manifest{

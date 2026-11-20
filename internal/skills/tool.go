@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/commands"
 )
 
 // ToolSpec 描述调用方可用自己的 registry 注册的工具。
@@ -30,13 +32,17 @@ func UseSkillSpec() ToolSpec {
 		Type: "function",
 		Function: ToolSchema{
 			Name:        "use_skill",
-			Description: "Load a skill's full procedure by name. Omit the name to list what is installed.",
+			Description: "Load a skill's full procedure by name. Omit the name to list what is installed. Pass arguments to fill the skill's $ARGUMENTS / $N placeholders.",
 			Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {
     "name": {
       "type": "string",
       "description": "Skill name from the skills index in the system prompt"
+    },
+    "arguments": {
+      "type": "string",
+      "description": "Optional arguments used to expand the skill body's $ARGUMENTS / $1 / ${1} placeholders"
     }
   },
   "additionalProperties": false
@@ -53,10 +59,12 @@ func (r *Registry) UseSkillSpec() ToolSpec { return UseSkillSpec() }
 //
 // 空或缺失的 `name` 列出已安装技能；已知名称返回
 // 带来源路径的完整正文；未知名称返回错误，其消息
-// 建议相近的匹配项。
+// 建议相近的匹配项。提供 `arguments` 时按命令占位符规则
+// 展开正文；未提供时正文逐字节保持不变。
 func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	var call struct {
-		Name string `json:"name"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &call); err != nil {
@@ -82,5 +90,10 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("# skill: %s\n(source: %s)\n\n%s", skill.Name, skill.Path, skill.Body), nil
+	body := skill.Body
+	// 未提供参数时完全跳过展开，确保正文逐字节不变。
+	if call.Arguments != "" {
+		body = commands.ExpandArguments(body, call.Arguments)
+	}
+	return fmt.Sprintf("# skill: %s\n(source: %s)\n\n%s", skill.Name, skill.Path, body), nil
 }

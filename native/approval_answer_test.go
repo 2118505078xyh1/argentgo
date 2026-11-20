@@ -9,16 +9,16 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// approvalRPCFixture attaches a fake engine bridge to the app, seeds a real
-// approval (one carrying an engine id) and records every approval.answer RPC.
-// The recorder returns ok unless a test overrides it to simulate a failure.
+// approvalRPCFixture 给 app 附上假的 engine bridge，种入真实
+// 审批（带 engine id）并记录每个 approval.answer RPC。
+// 记录器返回 ok 除非测试覆盖它以模拟失败。
 func approvalRPCFixture(t *testing.T) (*chat, *[]string) {
 	t.Helper()
 	app := newTestChat()
 	app.engine = &bridge{} // non-nil simulates a real engine bridge
-	// The chat rail fetches session.list on its first frame; make that fail so
-	// this fixture keeps the demo rail and the zero-value bridge is never
-	// called (its pending map is nil).
+	// chat rail 在首帧获取 session.list；让它失败，使
+	// 该 fixture 保留 demo rail 且零值 bridge 从不被
+	// 调用（其 pending map 为 nil）。
 	app.sessionListRPC = func(string, any) (json.RawMessage, error) {
 		return nil, errors.New("session.list unavailable")
 	}
@@ -33,7 +33,7 @@ func approvalRPCFixture(t *testing.T) (*chat, *[]string) {
 }
 
 // TestApprovalAllowButtonSendsAnswerRPC checks that clicking 允许 sends
-// approval.answer with the approval id and granted=true, then clears the card.
+// 带审批 id 且 granted=true 的 approval.answer，然后清除卡片。带 granted=false 的 approval.answer。
 func TestApprovalAllowButtonSendsAnswerRPC(t *testing.T) {
 	app, calls := approvalRPCFixture(t)
 
@@ -56,7 +56,7 @@ func TestApprovalAllowButtonSendsAnswerRPC(t *testing.T) {
 }
 
 // TestApprovalDenyButtonSendsAnswerRPC checks that clicking 拒绝 sends
-// approval.answer with granted=false.
+// 带 granted=false 的 approval.answer。
 func TestApprovalDenyButtonSendsAnswerRPC(t *testing.T) {
 	app, calls := approvalRPCFixture(t)
 
@@ -75,8 +75,7 @@ func TestApprovalDenyButtonSendsAnswerRPC(t *testing.T) {
 	}
 }
 
-// TestApprovalKeysSendAnswerRPC checks that the Y/N shortcuts use the same
-// RPC path as the buttons, once focus leaves the auto-focused composer.
+// RPC 路径，一旦焦点离开自动聚焦的输入框。
 func TestApprovalKeysSendAnswerRPC(t *testing.T) {
 	t.Run("Y allows", func(t *testing.T) {
 		app, calls := approvalRPCFixture(t)
@@ -109,8 +108,8 @@ func TestApprovalKeysSendAnswerRPC(t *testing.T) {
 	})
 }
 
-// TestApprovalDemoModeSkipsRPC checks that the canned demo approval is still
-// resolved locally when no engine bridge is attached.
+// TestApprovalDemoModeSkipsRPC 检查在没附加 engine bridge 时，预设的
+// demo 审批仍在本地解决。
 func TestApprovalDemoModeSkipsRPC(t *testing.T) {
 	app := newTestChat() // engine == nil
 	app.approval = &approval{name: "write_file", args: "{}"}
@@ -134,9 +133,9 @@ func TestApprovalDemoModeSkipsRPC(t *testing.T) {
 	}
 }
 
-// TestApprovalAnswerFailureKeepsCardForRetry checks that a failed RPC leaves
-// the card in place and shows a redacted error, so the user can retry the very
-// same approval (the second attempt succeeds and clears the card).
+// TestApprovalAnswerFailureKeepsCardForRetry 检查失败的 RPC 使
+// 卡片留在原处并显示脱敏错误，使用户能重试同一
+// 审批（第二次尝试成功并清除卡片）。
 func TestApprovalAnswerFailureKeepsCardForRetry(t *testing.T) {
 	app, calls := approvalRPCFixture(t)
 	app.approvalAnswerRPC = func(method string, params any) (json.RawMessage, error) {
@@ -160,13 +159,13 @@ func TestApprovalAnswerFailureKeepsCardForRetry(t *testing.T) {
 	if !strings.Contains(app.status, "[redacted]") {
 		t.Errorf("status has no redaction marker: %q", app.status)
 	}
-	// The card must still be rendered so the user can click again.
+	// 卡片必须仍被渲染使用户能再次点击。
 	tt := ui.NewTester(app.view, 1180, 720)
 	if !tt.HasText("需要批准") {
 		t.Errorf("approval card disappeared after failure: %q", tt.Texts())
 	}
 
-	// Retry: swap in a working recorder and answer through the UI again.
+	// 重试：换入可用的记录器并再次通过 UI 回答。
 	app.approvalAnswerRPC = func(method string, params any) (json.RawMessage, error) {
 		raw, _ := json.Marshal(params)
 		*calls = append(*calls, method+" "+string(raw))

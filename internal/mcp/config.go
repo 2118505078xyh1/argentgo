@@ -8,20 +8,20 @@ import (
 	"time"
 )
 
-// Problem describes one malformed mcpServers entry or field. DecodeConfig
-// skips bad entries (and ignores bad fields) rather than failing the whole
-// config, and reports them here for a caller that wants to print a warning.
+// Problem 描述一条格式错误的 mcpServers 条目或字段。DecodeConfig
+// 会跳过坏条目（并忽略坏字段），而不是让整个配置失败，
+// 并在这里报告它们，供想打印警告的调用方使用。
 type Problem struct {
-	// Server is the server name, or a positional label such as "#2".
+	// Server 是服务器名称，或诸如 "#2" 的位置标签。
 	Server string
-	// Field is the offending key, empty for an entry-level problem.
+	// Field 是有问题的键，条目级问题为空。
 	Field string
-	// Reason is a human-readable explanation.
+	// Reason 是易读的解释。
 	Reason string
 }
 
-// Error implements error so a Problem can be passed to the app's fail-soft
-// note writer unchanged.
+// Error 实现 error，使 Problem 可以原样传给应用的 fail-soft
+// 提示写入器。
 func (p Problem) Error() string {
 	if p.Field == "" {
 		return fmt.Sprintf("mcpServers %q: %s", p.Server, p.Reason)
@@ -29,15 +29,15 @@ func (p Problem) Error() string {
 	return fmt.Sprintf("mcpServers %q.%s: %s", p.Server, p.Field, p.Reason)
 }
 
-// DecodeConfig decodes the merged config's `mcpServers` object (a list form is
-// accepted too) into specs. Both camelCase and snake_case spellings are read
-// for the permission fields. Specs and problems are sorted by name/field so
-// output is stable regardless of Go's map iteration order.
+// DecodeConfig 把合并后配置的 `mcpServers` 对象（也接受列表形式）
+// 解码为 spec。权限字段同时读取 camelCase 和 snake_case 拼写。
+// spec 和 problem 按名称/字段排序，使输出稳定，
+// 不受 Go map 迭代顺序影响。
 //
-// Entries that are not objects, or that have no name, are skipped and reported
-// in problems. A badly typed field is ignored, reported, and the rest of that
-// entry is still decoded. An entry with neither command nor URL remains a spec;
-// Connect will report the missing target when the server is used.
+// 不是对象的条目或没有名称的条目会被跳过并报告
+// 在 problems 中。类型错误的字段会被忽略、报告，而该条目的
+// 其余部分仍会被解码。既没有 command 也没有 URL 的条目仍是
+// 一个 spec；使用服务器时 Connect 会报告缺失的目标。
 func DecodeConfig(raw map[string]any) ([]Spec, []Problem) {
 	var specs []Spec
 	var problems []Problem
@@ -116,8 +116,8 @@ func DecodeConfig(raw map[string]any) ([]Spec, []Problem) {
 			if !valid || seconds <= 0 {
 				problem(name, key, "want a positive number of seconds; ignored")
 			} else {
-				// Stored raw; clamping happens in EffectiveDiscoveryTimeout so
-				// programmatic Specs get the same bounds as decoded ones.
+				// 原样存储；钳制在 EffectiveDiscoveryTimeout 中进行，使
+				// 编程式构造的 Spec 与解码得到的 Spec 有相同的界限。
 				spec.DiscoveryTimeout = time.Duration(seconds * float64(time.Second))
 			}
 		}
@@ -199,16 +199,16 @@ func DecodeConfig(raw map[string]any) ([]Spec, []Problem) {
 	return specs, problems
 }
 
-// SpecsFromConfig is the thin decoder the app layer calls in place of its
-// former local mcpSpecsFromConfig helper. It returns only the specs; use
-// DecodeConfig when the skipped-entry problems should be surfaced to the user.
+// SpecsFromConfig 是应用层调用的薄解码器，取代其
+// 原先本地的 mcpSpecsFromConfig 辅助函数。它只返回 spec；当被跳过条目的
+// 问题需要呈现给用户时，使用 DecodeConfig。
 func SpecsFromConfig(raw map[string]any) []Spec {
 	specs, _ := DecodeConfig(raw)
 	return specs
 }
 
-// pick returns the first present key so camelCase wins over snake_case when a
-// config happens to declare both.
+// pick 返回第一个存在的键，使配置同时声明两种拼写时
+// camelCase 胜过 snake_case。
 func pick(body map[string]any, keys ...string) (any, string, bool) {
 	for _, key := range keys {
 		if v, ok := body[key]; ok {

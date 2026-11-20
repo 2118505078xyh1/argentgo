@@ -91,7 +91,7 @@ func TestACPSessionFlow(t *testing.T) {
 		t.Fatal("session/cancel did not abort the runner")
 	}
 
-	// unknown method
+	// 未知方法
 	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "session/teleport"})
 	unknown := readJSON(t, dec)
 	if errBody, _ := unknown["error"].(map[string]any); errBody["code"] != float64(-32601) {
@@ -237,7 +237,7 @@ func TestACPInFlightPromptFinishesOnCancel(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
 		"params": map[string]any{"prompt": []map[string]any{{"type": "text", "text": "hi"}}},
 	})
-	<-runner.started // the prompt is now in flight
+	<-runner.started // 提示现在正在进行中
 
 	cancel()
 	resp := readJSON(t, dec)

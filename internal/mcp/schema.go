@@ -5,22 +5,22 @@ import (
 	"encoding/json"
 )
 
-// normalizeInputSchema cleans one tools/list inputSchema before it is exposed
-// as Tool.Schema. Providers reject an entire tool-request batch when a single
-// advertised parameters object is malformed, so the decoder repairs the three
-// shapes real MCP servers get wrong:
+// normalizeInputSchema 在 tools/list 的 inputSchema 暴露为
+// Tool.Schema 之前对其进行清理。当某个宣告的参数对象格式错误时，
+// 提供方会拒绝整个工具请求批次，因此解码器修复真实 MCP 服务器
+// 会弄错的三种形态：
 //
-//   - no "type": force "object" (JSON Schema parameters need an explicit type);
-//   - "properties" that is not a JSON object: drop it;
-//   - "required" that is not an array of strings: drop it.
+//   - 没有 "type"：强制为 "object"（JSON Schema 参数需要显式类型）；
+//   - "properties" 不是 JSON 对象：丢弃它；
+//   - "required" 不是字符串数组：丢弃它。
 //
-// Every other member is preserved. A schema that already passes all three
-// checks is returned byte-for-byte, so a well-behaved server sees no change
-// at all in key order, whitespace or encoding.
+// 其他所有成员都保留。已经通过全部三项检查的 schema 会被
+// 逐字节返回，因此行为良好的服务器在键顺序、空白或编码上
+// 完全看不到变化。
 func normalizeInputSchema(raw json.RawMessage) json.RawMessage {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || t[0] != '{' || !json.Valid(t) {
-		// No object members worth preserving (empty, non-object, or broken).
+		// 没有值得保留的对象成员（空、非对象或已损坏）。
 		return json.RawMessage(`{"type":"object"}`)
 	}
 
@@ -43,12 +43,12 @@ func normalizeInputSchema(raw json.RawMessage) json.RawMessage {
 		changed = true
 	}
 	if !changed {
-		return raw // clean schema: keep the original encoding exactly
+		return raw // 干净的 schema：精确保留原始编码
 	}
 	out, err := json.Marshal(fields)
 	if err != nil {
-		// RawMessage values are valid JSON, so this cannot happen; keep the
-		// original rather than inventing a schema if it ever did.
+		// RawMessage 值是合法 JSON，因此这不可能发生；万一发生，保留
+		// 原始内容而不是凭空捏造一个 schema。
 		return raw
 	}
 	return out

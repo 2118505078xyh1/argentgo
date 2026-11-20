@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// reminderState builds a run state with the reminder window seeded the same way
-// newRunState seeds it, so the first check is not mistaken for a new window.
+// reminderState 构建一个运行状态，其提醒窗口的初始化方式与 newRunState 相同，
+// 因此第一次检查不会被误判为新窗口。
 func reminderState(window int) *runState {
 	return &runState{compactThreshold: window, reminderWindow: window}
 }
@@ -27,7 +27,7 @@ func countReminderMessages(messages []llm.Message) int {
 func TestBudgetReminderFiresOncePerTier(t *testing.T) {
 	s := reminderState(1000)
 
-	// Below the first milestone: silent, nothing recorded.
+	// 低于第一个里程碑：静默，不记录任何内容。
 	s.promptTokens = 400
 	s.maybeBudgetReminder()
 	if got := countReminderMessages(s.messages); got != 0 {
@@ -37,7 +37,7 @@ func TestBudgetReminderFiresOncePerTier(t *testing.T) {
 		t.Fatalf("below half: delivered = %v, want empty", s.reminderDelivered)
 	}
 
-	// Crossing 50% announces tier 1 exactly once.
+	// 跨越 50% 恰好宣告一次层级 1。
 	s.promptTokens = 600
 	s.maybeBudgetReminder()
 	if got := countReminderMessages(s.messages); got != 1 {
@@ -46,14 +46,14 @@ func TestBudgetReminderFiresOncePerTier(t *testing.T) {
 	if !s.reminderDelivered[1] {
 		t.Fatalf("tier 1 not recorded in %v", s.reminderDelivered)
 	}
-	// Staying in the same tier must not repeat, even with a higher usage.
+	// 停留在同一层级不得重复，即使用量更高。
 	s.promptTokens = 700
 	s.maybeBudgetReminder()
 	if got := countReminderMessages(s.messages); got != 1 {
 		t.Fatalf("same tier: %d reminders, want 1", got)
 	}
 
-	// Crossing 75% announces tier 2; the delivered map holds both announcements.
+	// 跨越 75% 宣告层级 2；delivered 映射包含两次宣告。
 	s.promptTokens = 800
 	s.maybeBudgetReminder()
 	if got := countReminderMessages(s.messages); got != 2 {
@@ -62,7 +62,7 @@ func TestBudgetReminderFiresOncePerTier(t *testing.T) {
 	if !s.reminderDelivered[2] {
 		t.Fatalf("tier 2 not recorded in %v", s.reminderDelivered)
 	}
-	// Every injected reminder is also surfaced as a frontend event.
+	// 每条注入的提醒也会作为前端事件呈现。
 	events := s.eventsSnapshot()
 	if len(events) != 2 {
 		t.Fatalf("events = %d, want 2", len(events))
@@ -85,8 +85,8 @@ func TestBudgetReminderNewWindowResetsAfterCompaction(t *testing.T) {
 		t.Fatalf("first window: %d reminders, want 1", got)
 	}
 
-	// Compaction produces a fresh context window: the same occupancy may warn
-	// again, then is deduplicated within the new window.
+	// 压缩产生一个全新的上下文窗口：相同的占用率可能再次告警，
+	// 然后在新窗口内去重。
 	s.resetBudgetReminder()
 	s.promptTokens = 600
 	s.maybeBudgetReminder()
@@ -102,13 +102,13 @@ func TestBudgetReminderNewWindowResetsAfterCompaction(t *testing.T) {
 func TestBudgetReminderWindowSizeChangeIsNewWindow(t *testing.T) {
 	s := reminderState(1000)
 	s.promptTokens = 600
-	s.maybeBudgetReminder() // tier 1 delivered
+	s.maybeBudgetReminder() // 层级 1 已记录
 	if got := countReminderMessages(s.messages); got != 1 {
 		t.Fatalf("initial: %d reminders, want 1", got)
 	}
 
-	// A changed window invalidates the old deliveries: ShouldRemind treats it as
-	// a new window and warns even at tier 0 (600/2000 is below the first tier).
+	// 窗口改变会使旧的投递记录失效：ShouldRemind 把它当作新窗口，
+	// 即使层级 0 也告警（600/2000 低于第一层级）。
 	s.compactThreshold = 2000
 	s.maybeBudgetReminder()
 	if got := countReminderMessages(s.messages); got != 2 {
@@ -125,7 +125,7 @@ func TestBudgetReminderWindowSizeChangeIsNewWindow(t *testing.T) {
 func TestBudgetReminderUnconfiguredIsNoop(t *testing.T) {
 	s := &runState{
 		messages:     []llm.Message{{Role: "system", Content: "rules"}, {Role: "user", Content: "q"}},
-		promptTokens: 5000, // would cross every tier if a window existed
+		promptTokens: 5000, // 若有窗口存在，将跨越所有层级
 	}
 	before := append([]llm.Message(nil), s.messages...)
 	s.maybeBudgetReminder()
@@ -145,8 +145,8 @@ func TestBudgetReminderUnconfiguredIsNoop(t *testing.T) {
 			s.reminderDelivered, s.reminderWindow)
 	}
 
-	// A trim-only MaxContextTokens is not a reminder window: configuring it
-	// must keep messages byte-for-byte identical too.
+	// 仅用于裁剪的 MaxContextTokens 不是提醒窗口：配置它仍必须使消息逐字节不变。
+	// （接上行）
 	trimOnly := &runState{opts: Options{MaxContextTokens: 1000}, promptTokens: 5000}
 	trimOnly.maybeBudgetReminder()
 	if len(trimOnly.messages) != 0 || len(trimOnly.eventsSnapshot()) != 0 {
@@ -184,7 +184,7 @@ func TestBudgetReminderReachesModelInNextRequest(t *testing.T) {
 	if len(requests) < 2 {
 		t.Fatalf("requests = %d, want at least 2", len(requests))
 	}
-	// The model must actually read the reminder on the turn after it was injected.
+	// 模型必须在提醒注入后的那一轮次真正读到它。
 	if got := countReminderMessages(requests[1]); got != 1 {
 		t.Fatalf("second request carried %d reminders, want 1", got)
 	}

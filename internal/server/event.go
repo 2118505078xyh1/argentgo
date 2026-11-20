@@ -129,7 +129,7 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			// 若连它也被占满，则丢弃最旧的已缓冲进度事件来腾出空间
 			// （仍可从回放日志恢复），而不是丢失
 			// 终态事件。
-			// the terminal.
+			// 终态事件。
 			//
 			// 两个操作都必须保持非阻塞。订阅者的消费者与 Publish
 			// 并发地排空 ch，因此在观察到通道已满
@@ -144,12 +144,12 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			case ch <- e:
 			default:
 				select {
-				case <-ch: // drop oldest buffered event to free the reserved slot
-				default: // consumer drained it in the meantime; nothing to drop
+				case <-ch: // 丢弃最旧的缓冲事件以释放预留槽位
+				default: // 消费者同时已排空；无需丢弃
 				}
 				select {
 				case ch <- e:
-				default: // unreachable while h.mu is held; never stall the hub
+				default: // 持有 h.mu 时不可达；绝不拖慢 hub
 				}
 			}
 			continue
@@ -163,7 +163,7 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			h.evicted++
 			continue
 		}
-		ch <- e // cap > eventSubCap, so a sub below the quota cannot block.
+		ch <- e // cap > eventSubCap，因此低于配额的订阅者不会阻塞。
 	}
 	return h.seq
 }
@@ -211,7 +211,7 @@ func (h *EventHub) newStop(ch chan agent.Event) func() {
 // 该值是返回流的安全续传游标：到它为止、且比 after 更新的每个事件
 // 都已复制进 ch，并将由此订阅者投递，而且没有更新
 // 的事件被写入客户端。
-// event has been written to the client yet.
+// 事件被写入客户端。
 //
 // 调用方必须用这个返回的 seq 做"你在这里"握手（SSE 的
 // server.connected 帧、RPC 的 event/subscribe 结果），而不是在订阅后
@@ -342,7 +342,7 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 				flusher.Flush()
 			case ev, ok := <-ch:
 				if !ok {
-					return // evicted: channel drained and closed
+					return // 被淘汰：通道已排空并关闭
 				}
 				data, err := json.Marshal(ev)
 				if err != nil {
@@ -366,7 +366,7 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 //
 //	hub := server.NewEventHub()
 //	server.WireAgentEvents(hub, agentEvents, ctx)
-//	cfg.Events = hub // shared by --serve (/v1/event) and --rpc (event/subscribe)
+//	cfg.Events = hub // 由 --serve (/v1/event) 和 --rpc (event/subscribe) 共享
 func WireAgentEvents(hub *EventHub, emit <-chan agent.Event, ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
