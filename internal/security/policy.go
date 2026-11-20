@@ -339,11 +339,15 @@ func (p *Policy) realRoots() []string {
 
 // checkWriteRoots applies the write boundary to every path argument of a
 // mutating tool. Relative `..` escapes were already rejected by checkPath; here
-// InWriteRoots catches absolute paths that land outside the allowed roots.
+// InWriteRoots catches absolute paths that land outside the allowed roots, and
+// protected subpaths inside a root stay read-only.
 func (p *Policy) checkWriteRoots(fields map[string]any) Result {
 	for _, value := range pathValues(fields) {
 		if err := InWriteRoots(value, p.writeRoots); err != nil {
 			return Result{Deny, fmt.Sprintf("the path %q is not writable: %v", value, err)}
+		}
+		if protected, reason := protectedInWriteRoots(value, p.writeRoots); protected {
+			return Result{Deny, fmt.Sprintf("the path %q is not writable: %s", value, reason)}
 		}
 	}
 	return Result{Allow, ""}

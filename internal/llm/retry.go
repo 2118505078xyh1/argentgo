@@ -218,7 +218,10 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 		if resp.Body != nil {
 			prefix, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body = bodyWithPrefix(prefix, resp.Body)
-			if IsNonRetryableQuotaResponse(resp.StatusCode, prefix) {
+			// A terminal provider outcome (session/spend budget, usage
+			// accounting failure, hook denial, ...) cannot be settled by a
+			// retry, so return the response with its body intact as well.
+			if IsNonRetryableQuotaResponse(resp.StatusCode, prefix) || IsTerminalProviderOutcome(prefix, resp.StatusCode) {
 				return resp, nil
 			}
 		}

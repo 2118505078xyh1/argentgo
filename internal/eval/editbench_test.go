@@ -2,6 +2,7 @@ package eval
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,4 +373,161 @@ func TestEditBenchFixturePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadBenchFixture(t)
+}
+
+// ---- similarity diagnostics (DIAGNOSTIC, never authoritative) ----
+
+func TestLevenshteinKnownCases(t *testing.T) {
+	cases := []struct {
+		name, a, b string
+		want       int
+	}{
+		{"both empty", "", "", 0},
+		{"empty vs non-empty", "", "abc", 3},
+		{"identical", "kitten", "kitten", 0},
+		{"one substitution", "kitten", "kitteN", 1},
+		{"classic kitten/sitting", "kitten", "sitting", 3},
+		{"one insertion", "abc", "abcd", 1},
+		{"one deletion", "abcd", "abc", 1},
+		{"CJK identical", "你好世界", "你好世界", 0},
+		{"CJK one edit", "你好世界", "你好世", 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Levenshtein(tt.a, tt.b); got != tt.want {
+				t.Fatalf("Levenshtein(%q,%q) = %d, want %d", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+	if Levenshtein("abc", "abcd") != Levenshtein("abcd", "abc") {
+		t.Fatal("Levenshtein is not symmetric")
+	}
+	big := strings.Repeat("a", editSimMaxRunes+1)
+	if got := Levenshtein(big, ""); got != -1 {
+		t.Fatalf("Levenshtein(big,\"\") = %d, want -1 unbounded sentinel", got)
+	}
+	if got := Levenshtein("", big); got != -1 {
+		t.Fatalf("Levenshtein(\"\",big) = %d, want -1 unbounded sentinel", got)
+	}
+}
+
+func TestEditSimilarityBounds(t *testing.T) {
+	cases := []struct {
+		name, a, b string
+		want       float64
+	}{
+		{"both empty", "", "", 1},
+		{"identical", "abcd", "abcd", 1},
+		{"one of four", "abcd", "abxd", 0.75},
+		{"one of one", "a", "b", 0},
+		{"CJK one of four", "你好世界", "你好世X", 0.75},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EditSimilarity(tt.a, tt.b)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("EditSimilarity(%q,%q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+			if got < 0 || got > 1 {
+				t.Fatalf("EditSimilarity(%q,%q) = %v, want in [0,1]", tt.a, tt.b, got)
+			}
+		})
+	}
+	big := strings.Repeat("a", editSimMaxRunes+1)
+	if got := EditSimilarity(big, "b"); got != -1 {
+		t.Fatalf("unbounded EditSimilarity = %v, want -1 sentinel", got)
+	}
+}
+
+func TestTokenExactMatch(t *testing.T) {
+	cases := []struct {
+		name, a, b string
+		want       bool
+	}{
+		{"both empty", "", "", true},
+		{"punctuation ignored", "hello, world!", "hello world", true},
+		{"hyphen is a separator", "hello-world", "hello world", true},
+		{"order matters", "a b c", "c b a", false},
+		{"extra token", "a b", "a b c", false},
+		{"digits kept", "v1.2.3", "v1 2 3", true},
+		{"CJK letters kept", "你好世界", "你好 世界", false},
+		{"CJK letters identical", "你好世界", "你好世界！", true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TokenExactMatch(tt.a, tt.b); got != tt.want {
+				t.Fatalf("TokenExactMatch(%q,%q) = %t, want %t", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEditBenchSimilarityIsDiagnosticOnly(t *testing.T) {
+	cases := []EditCase{
+		{ID: "exact-hit", Mode: modeExact, Original: "abc\n", Old: "abc", New: "xyz", WantResult: "xyz\n"},
+		// Produced "abcdefghik\n" vs expected "abcdefghij\n": one rune off, so
+		// similarity is high but the authoritative Contains check must fail.
+		{ID: "close-but-wrong", Mode: modeExact, Original: "abcdefghij\n", Old: "abcdefghij", New: "abcdefghik", WantResult: "abcdefghij\n"},
+	}
+	report := RunEditBench(cases)
+	if report.Total != 2 || report.Passed != 1 || report.Failed != 1 {
+		t.Fatalf("authoritative counts changed: %+v", report)
+	}
+	if len(report.Failures) != 1 || report.Failures[0].ID != "close-but-wrong" {
+		t.Fatalf("close-but-wrong case did not fail: %+v", report.Failures)
+	}
+	wrong := report.Failures[0]
+	if wrong.Similarity <= 0 || wrong.Similarity >= 1 {
+		t.Fatalf("close-but-wrong similarity = %v, want in (0,1)", wrong.Similarity)
+	}
+	if report.Scored != 2 {
+		t.Fatalf("Scored = %d, want 2", report.Scored)
+	}
+	if report.ExactMatches != 1 {
+		t.Fatalf("ExactMatches = %d, want 1", report.ExactMatches)
+	}
+	if report.MeanSimilarity <= 0 || report.MeanSimilarity >= 1 {
+		t.Fatalf("MeanSimilarity = %v, want in (0,1)", report.MeanSimilarity)
+	}
+	stat := report.ByMode[modeExact]
+	if stat.similarityN != 2 || stat.ExactMatches != 1 || math.Abs(stat.MeanSimilarity-report.MeanSimilarity) > 1e-9 {
+		t.Fatalf("per-mode diagnostics disagree with report: %+v", stat)
+	}
+
+	// Cross-check: the recorded score really is computed from produced bytes.
+	dir := t.TempDir()
+	c := cases[1]
+	if _, err := seedEditFile(dir, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runEditViaRegistry(dir, c, true); err != nil {
+		t.Fatal(err)
+	}
+	final, err := os.ReadFile(filepath.Join(dir, editBenchFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := EditSimilarity(string(final), c.WantResult); math.Abs(want-wrong.Similarity) > 1e-9 {
+		t.Fatalf("recorded similarity %v != recomputed %v (final=%q)", wrong.Similarity, want, final)
+	}
+
+	s := report.String()
+	for _, needle := range []string{"DIAGNOSTIC", "mean ES / EM", "ES=", "EM="} {
+		if !strings.Contains(s, needle) {
+			t.Errorf("summary %q missing %q", s, needle)
+		}
+	}
+}
+
+func TestEditBenchSimilaritySkipsUnbounded(t *testing.T) {
+	big := strings.Repeat("x", editSimMaxRunes+1)
+	c := EditCase{ID: "unbounded", Mode: modeExact, Original: "abc\n", Old: "abc", New: "xyz", WantResult: big}
+	res := RunEditCase(c)
+	if res.Similarity != -1 || res.scored {
+		t.Fatalf("unbounded case must report -1 and be unscored: %+v", res)
+	}
+	report := RunEditBench([]EditCase{c})
+	if report.Scored != 0 || report.MeanSimilarity != 0 || report.ExactMatches != 0 {
+		t.Fatalf("unbounded case polluted diagnostics: %+v", report)
+	}
 }

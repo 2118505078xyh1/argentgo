@@ -44,6 +44,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
@@ -79,10 +80,18 @@ type EditCase struct {
 	WantErrContains string `json:"want_err_contains,omitempty"`
 }
 
-// ModeStat aggregates outcomes for one edit mode.
+// ModeStat aggregates outcomes for one edit mode. Passed/Failed are the
+// authoritative gate; the ES/EM fields below are DIAGNOSTIC only.
 type ModeStat struct {
-	Passed int `json:"passed"`
-	Failed int `json:"failed"`
+	Passed         int     `json:"passed"`
+	Failed         int     `json:"failed"`
+	ExactMatches   int     `json:"exact_matches,omitempty"`
+	MeanSimilarity float64 `json:"mean_similarity,omitempty"`
+
+	// similaritySum/similarityN are run-local accumulators for MeanSimilarity;
+	// they are deliberately unexported and never reach the JSON report.
+	similaritySum float64
+	similarityN   int
 }
 
 // EditCaseResult is the graded outcome of one case. Passed means the real tool
@@ -94,6 +103,17 @@ type EditCaseResult struct {
 	Passed bool   `json:"passed"`
 	Got    string `json:"got,omitempty"`
 	Reason string `json:"reason,omitempty"`
+
+	// Similarity is the DIAGNOSTIC edit similarity between produced content and
+	// WantResult, computed for success-expected cases that declare a WantResult
+	// and whose edit succeeded. It is -1 when either input exceeds the rune
+	// bound (see Levenshtein); callers label that "unbounded". Similarity is
+	// never consulted by the pass/fail gate.
+	Similarity float64 `json:"similarity,omitempty"`
+
+	// scored/tokenExact are run-local helpers for report aggregation.
+	scored     bool
+	tokenExact bool
 }
 
 // EditBenchReport summarises a whole benchmark run.
@@ -103,6 +123,12 @@ type EditBenchReport struct {
 	Failed   int                 `json:"failed"`
 	ByMode   map[string]ModeStat `json:"by_mode"`
 	Failures []EditCaseResult    `json:"failures,omitempty"`
+
+	// MeanSimilarity, ExactMatches and Scored are DIAGNOSTIC aggregates over
+	// similarity-scored cases. They never affect the authoritative pass rate.
+	MeanSimilarity float64 `json:"mean_similarity,omitempty"`
+	ExactMatches   int     `json:"exact_matches,omitempty"`
+	Scored         int     `json:"scored,omitempty"`
 }
 
 // LoadEditCases reads a JSON fixture: either a bare array of cases or
@@ -258,6 +284,17 @@ func RunEditCase(c EditCase) EditCaseResult {
 
 	passed, got, reason := gradeEditCase(c, final, applyErr)
 	res.Passed, res.Got, res.Reason = passed, got, reason
+
+	// Diagnostic only: compare the produced bytes with the declared target for
+	// success-expected cases. A wrong-but-close result still fails the gate
+	// above while reporting a high similarity here.
+	if c.WantErrContains == "" && c.WantResult != "" && applyErr == nil {
+		res.Similarity = EditSimilarity(final, c.WantResult)
+		if res.Similarity >= 0 {
+			res.scored = true
+			res.tokenExact = TokenExactMatch(final, c.WantResult)
+		}
+	}
 	return res
 }
 
@@ -265,6 +302,8 @@ func RunEditCase(c EditCase) EditCaseResult {
 // and no global state is touched, so repeated calls are identical.
 func RunEditBench(cases []EditCase) EditBenchReport {
 	report := EditBenchReport{ByMode: make(map[string]ModeStat)}
+	var simSum float64
+	var scored int
 	for _, c := range cases {
 		report.Total++
 		result := RunEditCase(c)
@@ -277,12 +316,40 @@ func RunEditBench(cases []EditCase) EditBenchReport {
 			stat.Failed++
 			report.Failures = append(report.Failures, result)
 		}
+		if result.scored {
+			stat.similaritySum += result.Similarity
+			stat.similarityN++
+			exact := boolToInt(result.tokenExact)
+			stat.ExactMatches += exact
+			report.ExactMatches += exact
+			simSum += result.Similarity
+			scored++
+		}
 		report.ByMode[result.Mode] = stat
+	}
+	report.Scored = scored
+	if scored > 0 {
+		report.MeanSimilarity = simSum / float64(scored)
+	}
+	for mode, stat := range report.ByMode {
+		if stat.similarityN > 0 {
+			stat.MeanSimilarity = stat.similaritySum / float64(stat.similarityN)
+		}
+		report.ByMode[mode] = stat
 	}
 	return report
 }
 
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // String renders a compact, deterministic summary with a pass rate per mode.
+// The trailing ES/EM section is DIAGNOSTIC: the pass rate above is the sole
+// authoritative gate and is computed without any similarity signal.
 func (r EditBenchReport) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "editbench: %d/%d passed (%.1f%%)", r.Passed, r.Total, passRate(r.Passed, r.Total))
@@ -295,6 +362,15 @@ func (r EditBenchReport) String() string {
 		stat := r.ByMode[mode]
 		total := stat.Passed + stat.Failed
 		fmt.Fprintf(&b, " | %s %d/%d (%.1f%%)", mode, stat.Passed, total, passRate(stat.Passed, total))
+	}
+	// ES = mean edit similarity, EM = token exact matches. Both are reported
+	// per mode as a hint for diagnosis only; a near-perfect ES still fails its
+	// case if the authoritative content check missed.
+	fmt.Fprintf(&b, "\nDIAGNOSTIC mean ES / EM (not authoritative): overall ES=%.4f EM=%d/%d",
+		r.MeanSimilarity, r.ExactMatches, r.Scored)
+	for _, mode := range modes {
+		stat := r.ByMode[mode]
+		fmt.Fprintf(&b, "\n  %s: ES=%.4f EM=%d/%d", mode, stat.MeanSimilarity, stat.ExactMatches, stat.similarityN)
 	}
 	return b.String()
 }
@@ -358,4 +434,103 @@ func editbenchClip(s string) string {
 		return joined
 	}
 	return joined[:159] + "…"
+}
+
+// ---- similarity diagnostics (stdlib only) ----
+
+// editSimMaxRunes bounds Levenshtein's DP so a pathological input cannot
+// allocate or loop without limit. Inputs at or below the bound score normally;
+// anything larger returns the -1 sentinel, which callers label "unbounded" and
+// exclude from means.
+const editSimMaxRunes = 20000
+
+// Levenshtein returns the rune-level edit distance between a and b, with
+// insert, delete and substitution each costing 1. It is symmetric and works on
+// runes, so CJK text is never cut in the middle of a character. It returns -1
+// when either input exceeds editSimMaxRunes runes; callers must treat -1 as the
+// "unbounded" sentinel, never as a distance.
+func Levenshtein(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	if len(ar) > editSimMaxRunes || len(br) > editSimMaxRunes {
+		return -1
+	}
+	// Keep the DP rows as short as possible: one row per rune of the shorter
+	// string, regardless of which argument it came from.
+	if len(ar) < len(br) {
+		ar, br = br, ar
+	}
+	prev := make([]int, len(br)+1)
+	cur := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i, ca := range ar {
+		cur[0] = i + 1
+		for j, cb := range br {
+			cost := 1
+			if ca == cb {
+				cost = 0
+			}
+			best := prev[j+1] + 1 // delete
+			if ins := cur[j] + 1; ins < best {
+				best = ins // insert
+			}
+			if sub := prev[j] + cost; sub < best {
+				best = sub // substitute, or match at zero cost
+			}
+			cur[j+1] = best
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(br)]
+}
+
+// EditSimilarity returns 1 - distance/max(rune lengths) in [0,1]; two empty
+// strings score 1. It returns -1 (the unbounded sentinel from Levenshtein)
+// when either input exceeds editSimMaxRunes: callers must label that case
+// "unbounded" and leave it out of any mean.
+func EditSimilarity(a, b string) float64 {
+	dist := Levenshtein(a, b)
+	if dist < 0 {
+		return -1
+	}
+	la, lb := len([]rune(a)), len([]rune(b))
+	maxLen := la
+	if lb > maxLen {
+		maxLen = lb
+	}
+	if maxLen == 0 {
+		return 1
+	}
+	sim := 1 - float64(dist)/float64(maxLen)
+	if sim < 0 {
+		return 0
+	}
+	if sim > 1 {
+		return 1
+	}
+	return sim
+}
+
+// TokenExactMatch splits both strings on non-letter/non-digit runes and reports
+// whether the resulting token sequences are identical. Unicode letters (Han
+// included) and digits are kept; whitespace and punctuation are ignored. Order
+// matters, so "a b" and "b a" are not an exact token match.
+func TokenExactMatch(a, b string) bool {
+	ta, tb := editTokens(a), editTokens(b)
+	if len(ta) != len(tb) {
+		return false
+	}
+	for i := range ta {
+		if ta[i] != tb[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func editTokens(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }
