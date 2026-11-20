@@ -162,6 +162,20 @@ type Options struct {
 	// before Recorder existed compiling; new code should pass a Recorder.
 	Record any
 
+	// BeforeRequest and BeforeTool are optional durability seams injected per
+	// Runner. BeforeRequest runs immediately before each model request;
+	// BeforeTool runs immediately before a tool batch is dispatched. A non-nil
+	// error aborts the corresponding action: a request-hook error ends the run
+	// as a provider error, a tool-hook error fills every call with an error
+	// result and dispatches none. Nil hooks are skipped.
+	//
+	// They are instance fields (not a process-global registry) so concurrent
+	// runs cannot clear each other's hooks. The app layer injects a session
+	// Sync barrier here, keeping this package free of any dependency on the
+	// store.
+	BeforeRequest func() error
+	BeforeTool    func() error
+
 	// Emit receives every observable step of the run. A nil Emit is fine.
 	Emit func(Event)
 

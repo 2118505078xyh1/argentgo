@@ -17,13 +17,14 @@ import (
 // and cancel registration merged into one critical section, Abort must see a
 // fully registered cancel and cancel the prompt.
 func TestAbortDuringPromptStartCancelsPrompt(t *testing.T) {
+	t.Parallel()
+
 	r, ctl := newSingleflightRunner(t)
 
 	atClaim := make(chan struct{})
 	proceed := make(chan struct{})
 	var once sync.Once
-	previous := promptClaimHook
-	promptClaimHook = func(got *runner) {
+	r.claimHook = func(got *runner) {
 		if got != r {
 			return
 		}
@@ -32,7 +33,6 @@ func TestAbortDuringPromptStartCancelsPrompt(t *testing.T) {
 			<-proceed
 		})
 	}
-	t.Cleanup(func() { promptClaimHook = previous })
 
 	first := promptAsync(r, "first")
 	<-atClaim // prompt has claimed the slot and registered its cancel func

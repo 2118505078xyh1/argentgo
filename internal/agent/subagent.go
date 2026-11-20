@@ -436,6 +436,8 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		Tools:            tools,
 		Approve:          t.parent.Approve,
 		Record:           t.parent.Record,
+		BeforeRequest:    t.parent.BeforeRequest,
+		BeforeTool:       t.parent.BeforeTool,
 		Emit:             emit,
 		Budget:           budget,
 		Prices:           t.parent.Prices,

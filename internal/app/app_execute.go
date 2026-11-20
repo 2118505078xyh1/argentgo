@@ -142,22 +142,20 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactor(res, sess)
 	// Durability barriers: flush the JSONL session before each expensive step.
-	// Execute may run more than once per process (schema retries, tests), so
-	// replace rather than accumulate hooks bound to an earlier session.
-	agent.ResetBeforeHooks()
-	agent.RegisterBeforeRequest(func() error { return sess.Sync() })
-	agent.RegisterBeforeTool(func() error { return sess.Sync() })
-	// Hooks are process-global; clear them on exit so a later run on another
-	// path (e.g. the eval suite's own loop) cannot sync a stale session.
-	defer agent.ResetBeforeHooks()
+	// These are per-Runner fields, so concurrent Execute calls (TUI + RPC, or
+	// multiple sessions) cannot clear each other's barrier or sync a stale
+	// session bound to an earlier run.
+	flush := func() error { return sess.Sync() }
 	loop := &agent.Runner{Opts: agent.Options{
-		Model:       res.Model,
-		MaxTurns:    res.MaxTurns,
-		MaxParallel: res.MaxParallel,
-		Root:        res.Root,
-		System:      res.System,
-		Chatter:     res.Chatter,
-		Tools:       runner,
+		BeforeRequest: flush,
+		BeforeTool:    flush,
+		Model:         res.Model,
+		MaxTurns:      res.MaxTurns,
+		MaxParallel:   res.MaxParallel,
+		Root:          res.Root,
+		System:        res.System,
+		Chatter:       res.Chatter,
+		Tools:         runner,
 		// Never advertise tools the sandbox/deny rules forbid. Run() still
 		// guards every call; this only keeps the model from wasting turns.
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {

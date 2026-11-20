@@ -55,6 +55,47 @@ func TestSubagentReturnsChildText(t *testing.T) {
 	}
 }
 
+// A child loop inherits the parent's injected durability hooks, matching the
+// old process-global registry where a child run also flushed the root session.
+// The flag flips when the parent emits the task call and again when the child's
+// chatter runs, so only a hook fired between those two points counts as the
+// child's own barrier.
+func TestSubagentInheritsBeforeRequestHook(t *testing.T) {
+	t.Parallel()
+
+	childPending, childHooks := false, 0
+	chat := &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
+		if isSubagent(messages) {
+			childPending = false // the child's own hook already ran before this point
+			return textReply("child says 42"), nil
+		}
+		if last := lastToolContent(messages); last != "" {
+			return textReply("root got: " + last), nil
+		}
+		childPending = true // about to dispatch the task tool that spawns the child
+		return toolReply(toolCall("t1", TaskToolName, taskArgsJSON("look", "find the answer"))), nil
+	}}
+	runner := &Runner{Opts: Options{
+		Model:    "m",
+		Chatter:  chat,
+		Tools:    &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}},
+		Subagent: &SubagentConfig{},
+		BeforeRequest: func() error {
+			if childPending {
+				childHooks++
+			}
+			return nil
+		},
+	}}
+
+	if _, err := runner.Run(context.Background(), "delegate"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if childHooks != 1 {
+		t.Fatalf("child before-request hook calls = %d, want 1", childHooks)
+	}
+}
+
 func TestSubagentRestrictsTools(t *testing.T) {
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read"), toolSpec("write")}}
 	var childToolNames []string

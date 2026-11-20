@@ -149,7 +149,7 @@ func TestResumeAppendsToTheAddressedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Options.Session = existing.ID()
-	runner := &runner{stdio: cli.IO{Env: env}, res: res, store: store}
+	runner := &runner{stdio: cli.IO{Env: env}, res: res, store: store, execute: Execute}
 
 	for i, want := range []string{"one", "two"} {
 		got, err := runner.Prompt(context.Background(), fmt.Sprintf("prompt %d", i+1), nil)

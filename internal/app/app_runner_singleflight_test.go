@@ -61,8 +61,7 @@ func newSingleflightRunner(t *testing.T) (*runner, *singleflightCtl) {
 		entered: make(chan context.Context, 4),
 		release: make(chan struct{}, 4),
 	}
-	previous := execute
-	execute = func(ctx context.Context, _ cli.IO, _ Resolved, _ *session.Session, _ string, _ func(string)) (agent.Result, error) {
+	fakeExecute := func(ctx context.Context, _ cli.IO, _ Resolved, _ *session.Session, _ string, _ func(string)) (agent.Result, error) {
 		ctl.calls.Add(1)
 		ctl.entered <- ctx
 		select {
@@ -72,8 +71,12 @@ func newSingleflightRunner(t *testing.T) (*runner, *singleflightCtl) {
 			return agent.Result{}, ctx.Err()
 		}
 	}
-	t.Cleanup(func() { execute = previous })
-	return &runner{stdio: cli.IO{Env: env}, res: res, store: testStore(t, res)}, ctl
+	return &runner{
+		stdio:   cli.IO{Env: env},
+		res:     res,
+		store:   testStore(t, res),
+		execute: fakeExecute,
+	}, ctl
 }
 
 func promptAsync(r *runner, text string) <-chan promptResult {
@@ -86,6 +89,8 @@ func promptAsync(r *runner, text string) <-chan promptResult {
 }
 
 func TestRunnerSingleFlight(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		run  func(*testing.T, *runner, *singleflightCtl)

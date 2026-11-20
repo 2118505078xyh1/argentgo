@@ -7,13 +7,10 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
-
-// execute is the single test seam for Prompt. Production always uses Execute;
-// tests swap it to observe cancellation without running the real agent loop.
-var execute = Execute
 
 // Factory returns the runner factory the CLI expects.
 func Factory(stdio cli.IO) cli.RunnerFactory {
@@ -26,7 +23,7 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 		if err != nil {
 			return nil, fmt.Errorf("open sessions: %w", err)
 		}
-		return &runner{stdio: stdio, res: resolved, store: store}, nil
+		return &runner{stdio: stdio, res: resolved, store: store, execute: Execute}, nil
 	}
 }
 
@@ -45,6 +42,13 @@ type runner struct {
 	res   Resolved
 	store *session.Store
 
+	// execute and claimHook are per-instance seams for Prompt. Production sets
+	// execute to Execute (see Factory) and leaves claimHook nil; tests inject
+	// fakes on their own runner instead of replacing package globals, so they
+	// can run in parallel.
+	execute   func(context.Context, cli.IO, Resolved, *session.Session, string, func(string)) (agent.Result, error)
+	claimHook func(*runner)
+
 	// All of busy, cancel and current are protected by mu. In particular the
 	// single-flight slot (busy) and its cancel func are installed and cleared
 	// in the same critical section, so Abort can never observe "busy but no
@@ -54,11 +58,6 @@ type runner struct {
 	cancel  context.CancelFunc
 	current *session.Session
 }
-
-// promptClaimHook is a test seam called by Prompt after it has atomically
-// claimed the single-flight slot and registered its cancel func. Production
-// leaves it nil. Tests use it to run Abort exactly at prompt start.
-var promptClaimHook func(*runner)
 
 // Prompt satisfies cli.Runner. At most one prompt may be in flight on a runner.
 func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (string, error) {
@@ -79,8 +78,8 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 
 	// Test seam: by this point busy and cancel are both installed. Production
 	// leaves the hook nil.
-	if promptClaimHook != nil {
-		promptClaimHook(r)
+	if r.claimHook != nil {
+		r.claimHook(r)
 	}
 
 	// Clear the cancel slot and release the slot atomically under the same mu,
@@ -97,7 +96,7 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	if err != nil {
 		return "", err
 	}
-	result, err := execute(ctx, r.stdio, r.res, sess, text, onText)
+	result, err := r.execute(ctx, r.stdio, r.res, sess, text, onText)
 	return result.Text, err
 }
 

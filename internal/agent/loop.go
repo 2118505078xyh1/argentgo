@@ -51,6 +51,12 @@ type runState struct {
 	rec    Recorder
 	steer  *steering
 	guard  *dedupe
+
+	// beforeRequest and beforeTool are this run's injected durability seams,
+	// copied from Options. A nil hook is a no-op, so manually built run states
+	// (e.g. in tests) keep their previous behaviour.
+	beforeRequest func() error
+	beforeTool    func() error
 	// mistakes counts consecutive tool failures across turns. Nil-receiver
 	// methods make a manually built runState (e.g. in tests) safe without one.
 	mistakes *MistakeTracker
@@ -132,17 +138,19 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		system = fmt.Sprintf(systemTemplate, root)
 	}
 	s := &runState{
-		opts:     opts,
-		model:    opts.Model,
-		tools:    newToolset(opts.Tools, opts),
-		emitFn:   emit,
-		rec:      normaliseRecorder(opts.Record),
-		steer:    &steering{ch: opts.Steer},
-		guard:    newDedupe(repeatsFor(opts)),
-		mistakes: NewMistakeTracker(0, defaultMistakeGuidance),
-		stuck:    &StuckDetector{},
-		depth:    opts.Depth,
-		maxTurns: maxTurnsFor(opts),
+		opts:          opts,
+		model:         opts.Model,
+		tools:         newToolset(opts.Tools, opts),
+		emitFn:        emit,
+		rec:           normaliseRecorder(opts.Record),
+		steer:         &steering{ch: opts.Steer},
+		beforeRequest: opts.BeforeRequest,
+		beforeTool:    opts.BeforeTool,
+		guard:         newDedupe(repeatsFor(opts)),
+		mistakes:      NewMistakeTracker(0, defaultMistakeGuidance),
+		stuck:         &StuckDetector{},
+		depth:         opts.Depth,
+		maxTurns:      maxTurnsFor(opts),
 		trim: TrimOptions{
 			MaxTokens:      trimTarget(opts),
 			KeepTurns:      opts.KeepTurns,
@@ -159,6 +167,23 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	}
 	s.record("user", prompt)
 	return s
+}
+
+// runBeforeRequest invokes this run's injected request barrier and returns its
+// first (and only) error. A nil hook is a no-op, matching an unconfigured run.
+func (s *runState) runBeforeRequest() error {
+	if s.beforeRequest != nil {
+		return s.beforeRequest()
+	}
+	return nil
+}
+
+// runBeforeTool invokes this run's injected tool barrier. A nil hook is a no-op.
+func (s *runState) runBeforeTool() error {
+	if s.beforeTool != nil {
+		return s.beforeTool()
+	}
+	return nil
 }
 
 // trimTarget resolves the estimated prompt size trimming aims for.
@@ -269,7 +294,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// hook error is treated like any other chat failure — no request is
 		// made, and the run ends as a provider error rather than risking work
 		// the store is not ready to survive.
-		if err := RunBeforeRequest(); err != nil {
+		if err := s.runBeforeRequest(); err != nil {
 			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error()})
 			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
 			return s.result(StopProviderError), err
@@ -352,7 +377,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			// Pair every call with an error result but execute none of them.
 			s.fillUnrun(reply.ToolCalls, truncatedToolReason)
 			s.emit(Event{Kind: EventNotice, Text: truncatedToolReason})
-		} else if err := RunBeforeTool(); err != nil {
+		} else if err := s.runBeforeTool(); err != nil {
 			// Durability barrier failed: no tool may be dispatched. Answer
 			// every call with an ordered error result so the transcript keeps
 			// each tool call paired with its result.

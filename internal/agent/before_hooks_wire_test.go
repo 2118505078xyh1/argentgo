@@ -9,20 +9,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// The before-hooks are package-global, so every test here resets them on entry
-// and on exit to avoid leaking hooks into unrelated loop tests.
+// Durability hooks are injected per Runner through Options, so every test owns
+// its own hooks. No process-global registry means these tests can run in
+// parallel without resetting or leaking state into unrelated loop tests.
 func TestBeforeRequestHookRunsBeforeChat(t *testing.T) {
-	ResetBeforeHooks()
-	defer ResetBeforeHooks()
+	t.Parallel()
 
 	requests, tools := 0, 0
-	RegisterBeforeRequest(func() error { requests++; return nil })
-	RegisterBeforeTool(func() error { tools++; return nil })
-
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("done"), nil
 	}}
-	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: &fakeTools{}}}
+	runner := &Runner{Opts: Options{
+		Model: "m", Chatter: chat, Tools: &fakeTools{},
+		BeforeRequest: func() error { requests++; return nil },
+		BeforeTool:    func() error { tools++; return nil },
+	}}
 
 	res, err := runner.Run(context.Background(), "hi")
 	if err != nil {
@@ -41,13 +42,9 @@ func TestBeforeRequestHookRunsBeforeChat(t *testing.T) {
 }
 
 func TestBeforeToolHookRunsBeforeDispatch(t *testing.T) {
-	ResetBeforeHooks()
-	defer ResetBeforeHooks()
+	t.Parallel()
 
 	toolsRun := 0
-	RegisterBeforeRequest(func() error { return nil })
-	RegisterBeforeTool(func() error { toolsRun++; return nil })
-
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 		if n == 1 {
@@ -55,7 +52,11 @@ func TestBeforeToolHookRunsBeforeDispatch(t *testing.T) {
 		}
 		return textReply("done"), nil
 	}}
-	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: tools}}
+	runner := &Runner{Opts: Options{
+		Model: "m", Chatter: chat, Tools: tools,
+		BeforeRequest: func() error { return nil },
+		BeforeTool:    func() error { toolsRun++; return nil },
+	}}
 
 	res, err := runner.Run(context.Background(), "read")
 	if err != nil {
@@ -73,17 +74,17 @@ func TestBeforeToolHookRunsBeforeDispatch(t *testing.T) {
 }
 
 func TestBeforeRequestHookErrorStopsRunBeforeChat(t *testing.T) {
-	ResetBeforeHooks()
-	defer ResetBeforeHooks()
+	t.Parallel()
 
 	wantErr := errors.New("session not durable")
-	RegisterBeforeRequest(func() error { return wantErr })
-
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		t.Fatal("chatter must not be called when the before-request hook fails")
 		return llm.Message{}, nil
 	}}
-	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: &fakeTools{}}}
+	runner := &Runner{Opts: Options{
+		Model: "m", Chatter: chat, Tools: &fakeTools{},
+		BeforeRequest: func() error { return wantErr },
+	}}
 
 	res, err := runner.Run(context.Background(), "hi")
 	if !errors.Is(err, wantErr) {
@@ -98,16 +99,16 @@ func TestBeforeRequestHookErrorStopsRunBeforeChat(t *testing.T) {
 }
 
 func TestBeforeToolHookErrorFillsUnrunWithoutExecuting(t *testing.T) {
-	ResetBeforeHooks()
-	defer ResetBeforeHooks()
-
-	RegisterBeforeTool(func() error { return errors.New("not durable yet") })
+	t.Parallel()
 
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return toolReply(toolCall("c1", "read", `{}`)), nil
 	}}
-	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: tools}}
+	runner := &Runner{Opts: Options{
+		Model: "m", Chatter: chat, Tools: tools,
+		BeforeTool: func() error { return errors.New("not durable yet") },
+	}}
 
 	res, err := runner.Run(context.Background(), "read")
 	if err != nil {
@@ -121,5 +122,41 @@ func TestBeforeToolHookErrorFillsUnrunWithoutExecuting(t *testing.T) {
 	}
 	if len(res.Messages) < 4 || res.Messages[len(res.Messages)-1].Role != "tool" {
 		t.Fatalf("transcript does not end with the unrun tool result: %+v", res.Messages)
+	}
+}
+
+// TestBeforeHooksArePerRunner proves two concurrent runs cannot see or clear
+// each other's durability barriers: one runner's hook errors while the other's
+// succeeds, and neither result leaks into the other. This was impossible with
+// the old package-global registry (a Reset from one run cleared the other).
+func TestBeforeHooksArePerRunner(t *testing.T) {
+	t.Parallel()
+
+	blocked := errors.New("not durable")
+	newRunner := func(before func() error) *Runner {
+		return &Runner{Opts: Options{
+			Model: "m",
+			Chatter: &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
+				return textReply("done"), nil
+			}},
+			Tools:         &fakeTools{},
+			BeforeRequest: before,
+		}}
+	}
+
+	blockedRes, blockedErr := newRunner(func() error { return blocked }).Run(context.Background(), "a")
+	okRes, okErr := newRunner(nil).Run(context.Background(), "b")
+
+	if !errors.Is(blockedErr, blocked) {
+		t.Fatalf("blocked runner err = %v, want %v", blockedErr, blocked)
+	}
+	if okErr != nil {
+		t.Fatalf("unconfigured runner err = %v, want nil", okErr)
+	}
+	if okRes.Stopped != StopComplete {
+		t.Fatalf("unconfigured runner stopped = %q, want %q", okRes.Stopped, StopComplete)
+	}
+	if blockedRes.Stopped != StopProviderError {
+		t.Fatalf("blocked runner stopped = %q, want %q", blockedRes.Stopped, StopProviderError)
 	}
 }
