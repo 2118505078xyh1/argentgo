@@ -2,7 +2,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -286,22 +285,42 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	// Reuse the shared SSE reader: a single event may carry its JSON payload
 	// across several data: lines, which the SSE spec allows and gateways use.
 	reader := newSSEReader(body)
+	var pending []string
 	for {
 		if err := ctx.Err(); err != nil {
 			return Message{}, err
 		}
-		data, ok, err := reader.next()
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return Message{}, ctxErr
+		var data string
+		if len(pending) > 0 {
+			data, pending = pending[0], pending[1:]
+		} else {
+			next, ok, err := reader.next()
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return Message{}, ctxErr
+				}
+				return Message{}, streamError("read stream: %v", RedactError(err))
 			}
-			return Message{}, streamError("read stream: %v", RedactError(err))
-		}
-		if !ok {
-			break
+			if !ok {
+				break
+			}
+			data = next
 		}
 		if data == "[DONE]" {
 			break
+		}
+
+		// The SSE reader joins adjacent data lines with newlines. A gateway
+		// that split the JSON inside a string needs those newlines removed;
+		// one that emits distinct events as adjacent data lines (no blank
+		// separator) needs the old per-line treatment. Accept both shapes.
+		if len(pending) == 0 && strings.Contains(data, "\n") {
+			if compact := strings.ReplaceAll(data, "\n", ""); strings.HasPrefix(compact, "{") && json.Valid([]byte(compact)) {
+				data = compact
+			} else if lines := strings.Split(data, "\n"); allJSONValues(lines) {
+				pending = append(pending, lines...)
+				continue
+			}
 		}
 
 		var event chunk
@@ -345,24 +364,53 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Message{}, ctxErr
+	// Generated ids must not collide with an id the provider supplied: a
+	// duplicated call id makes the agent reject the whole tool batch.
+	used := make(map[string]struct{}, len(order))
+	for _, index := range order {
+		if id := partial[index].ID; id != "" {
+			used[id] = struct{}{}
 		}
-		return Message{}, streamError("read stream: %v", RedactError(err))
 	}
-
 	calls := make([]ToolCall, 0, len(order))
 	for i, index := range order {
 		call := *partial[index]
 		if call.ID == "" {
-			call.ID = fmt.Sprintf("call_%d", i+1)
+			for n := i + 1; ; n++ {
+				candidate := fmt.Sprintf("call_%d", n)
+				if _, taken := used[candidate]; !taken {
+					call.ID = candidate
+					break
+				}
+			}
+			used[call.ID] = struct{}{}
 		}
-		if strings.TrimSpace(call.Function.Arguments) == "" {
+		// A truncated or malformed argument fragment is not safe to hand to
+		// the tool dispatcher; fall back to the empty object like the other
+		// protocol clients do.
+		if strings.TrimSpace(call.Function.Arguments) == "" || !json.Valid([]byte(call.Function.Arguments)) {
 			call.Function.Arguments = "{}"
 		}
 		calls = append(calls, call)
 	}
 
 	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage, FinishReason: finishReason}, nil
+}
+
+// allJSONValues reports whether every line is a standalone JSON value (or the
+// [DONE] marker), which means the gateway omitted blank lines between what
+// were meant to be separate events.
+func allJSONValues(lines []string) bool {
+	if len(lines) < 2 {
+		return false
+	}
+	for _, line := range lines {
+		if line == "[DONE]" {
+			continue
+		}
+		if !json.Valid([]byte(line)) {
+			return false
+		}
+	}
+	return true
 }
