@@ -74,6 +74,18 @@ func completionMatches(cmd Command, key string) bool {
 // single comparable form. Width folding is done rune by rune before case
 // folding so a full-width Latin letter behaves exactly like its ASCII form.
 func completionKey(s string) string {
+	s = strings.TrimSpace(foldWidth(s))
+	s = strings.TrimPrefix(s, "/")
+	if i := strings.IndexAny(s, " \t\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.ToLower(s)
+}
+
+// foldWidth folds full-width ASCII and the ideographic space into their
+// half-width forms. It is shared with argument completion so both kinds of
+// input accept text typed through a Chinese IME.
+func foldWidth(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
@@ -86,10 +98,5 @@ func completionKey(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	s = strings.TrimSpace(b.String())
-	s = strings.TrimPrefix(s, "/")
-	if i := strings.IndexAny(s, " \t\r\n"); i >= 0 {
-		s = s[:i]
-	}
-	return strings.ToLower(s)
+	return b.String()
 }

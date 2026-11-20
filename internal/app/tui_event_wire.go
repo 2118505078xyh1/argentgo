@@ -15,9 +15,9 @@ import (
 const tuiEventBridgeCap = 256
 
 // AgentToTUIEvent converts one agent event into the frontend-facing subset the
-// full-screen UI consumes. internal/tui.EventKind mirrors the two tool kinds
-// plus error (see internal/tui/events.go); there is no text, notice, usage or
-// approval kind, so those events have no TUI mapping and return false.
+// full-screen UI consumes. internal/tui.EventKind mirrors the two tool kinds,
+// error and retry (see internal/tui/events.go); there is no text, notice, usage
+// or approval kind, so those events have no TUI mapping and return false.
 //
 // Text deltas reach the TUI through Execute's onText callback, not this channel.
 // Approval cards are created by Model.Approve (called by the app's Approver) and
@@ -50,6 +50,22 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 		// EventError was added to tui.EventKind for exactly this copy: Detail
 		// carries the agent's already-redacted error text.
 		return tui.Event{Kind: tui.EventError, Detail: e.Err}, true
+	case agent.EventRetry:
+		// EventRetry is live backoff feedback. RetryInfo is wire-safe: Reason
+		// is a closed decision token (never free-form provider text), and the
+		// TUI redacts it again when rendering RetryNotice. A producer that
+		// builds an EventRetry without the payload has nothing to show, so
+		// drop it rather than fabricate an empty countdown.
+		if e.Retry == nil {
+			return tui.Event{}, false
+		}
+		return tui.Event{
+			Kind:         tui.EventRetry,
+			RetryReason:  e.Retry.Reason,
+			RetryAttempt: e.Retry.Attempt,
+			RetryMax:     e.Retry.MaxAttempts,
+			RetryWaitMS:  e.Retry.DelayMS,
+		}, true
 	case agent.EventNotice:
 		// Approval request/resolution notices ride the ordinary event stream for
 		// the native and SSE transports. They have no TUI EventKind, and the

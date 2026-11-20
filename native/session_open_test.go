@@ -12,6 +12,11 @@ func TestSessionRowClickCallsSessionLoadWhenEngineAttached(t *testing.T) {
 	var calls []string
 	app := newTestChat()
 	app.engine = &bridge{} // non-nil simulates a real engine bridge
+	// A session.list failure degrades to the demo rail, keeping the fake rows
+	// this test clicks. The zero-value bridge would panic on a real call.
+	app.sessionListRPC = func(string, any) (json.RawMessage, error) {
+		return nil, errors.New("session.list unavailable")
+	}
 	app.sessionLoadRPC = func(method string, params any) (json.RawMessage, error) {
 		raw, _ := json.Marshal(params)
 		calls = append(calls, method+" "+string(raw))

@@ -694,6 +694,30 @@ func TestDispatchContextCancellation(t *testing.T) {
 	})
 }
 
+func TestFireFileChangedDispatchesPath(t *testing.T) {
+	var captured Payload
+	dispatcher := &Dispatcher{
+		Runner: func(_ context.Context, command Command, payload Payload) Outcome {
+			captured = payload
+			return Outcome{Event: command.Event, Command: command.Command, ExitCode: 0}
+		},
+	}
+	config := configFor(t, FileChanged, "", "")
+	result, err := dispatcher.FireFileChanged(context.Background(), config, "internal/hooks/hooks.go")
+	if err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	if result.Blocked || result.Message != "" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if captured.Event != string(FileChanged) {
+		t.Fatalf("event = %q, want FileChanged", captured.Event)
+	}
+	if captured.Path != "internal/hooks/hooks.go" {
+		t.Fatalf("path = %q, want the changed file", captured.Path)
+	}
+}
+
 func TestPlanRunGroupsByPriority(t *testing.T) {
 	// planRun receives commands already sorted by descending priority, as Run
 	// guarantees after its stable sort.

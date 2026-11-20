@@ -61,6 +61,30 @@ func (r Retention) SurvivesChildren() bool {
 	return r == RetainAlways || r == RetainInChildren
 }
 
+// hasRetentionHint reports whether data is a JSON object carrying a _retention
+// field whose value is a string. Presence alone is what matters here: even an
+// unrecognised value is an explicit caller choice, and GetRetention already
+// maps it to RetainDefault. The automatic kind-based default must never replace
+// an explicit hint, or a caller asking for (say) in_thread on a summary would
+// silently get always and leak that record into child sessions.
+func hasRetentionHint(data []byte) bool {
+	var fields map[string]json.RawMessage
+	if len(data) == 0 || json.Unmarshal(data, &fields) != nil || fields == nil {
+		return false
+	}
+	raw, ok := fields[retentionKey]
+	if !ok {
+		return false
+	}
+	// json.Unmarshal(null, &string) succeeds with an empty string; a null hint
+	// means "no hint", so the automatic default still applies.
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return false
+	}
+	var text string
+	return json.Unmarshal(raw, &text) == nil
+}
+
 // parseRetention reads a stored wire value. It is deliberately permissive
 // (trimmed, case-folded) so hand-written or older records still read back, and
 // it falls back to RetainDefault for anything unrecognised.

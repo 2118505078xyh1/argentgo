@@ -31,8 +31,15 @@ func (r *Registry) SpecsFor(policy CatalogPolicy, mode security.SandboxMode) []l
 		tool := r.tools[name]
 		spec := llm.ToolSpec{Type: "function"}
 		spec.Function.Name = tool.Name()
-		spec.Function.Description = tool.Description()
-		spec.Function.Parameters = json.RawMessage(tool.Schema())
+		// Mirror Specs(): every catalog path that crosses the wire must clamp
+		// long descriptions and advertise the `i` intent field. Relying on the
+		// wrapSchemas decorator here is not enough — tools rebuilt by the Set*
+		// helpers (usage/history/checkpoint_diff) are not wrapped, so the
+		// filtering catalog used to silently drop both guarantees for them.
+		// advertiseIntentSchema is idempotent, so already-wrapped tools are
+		// returned unchanged.
+		spec.Function.Description = clipDescription(tool.Description())
+		spec.Function.Parameters = advertiseIntentSchema(json.RawMessage(tool.Schema()))
 		specs = append(specs, spec)
 	}
 	return specs

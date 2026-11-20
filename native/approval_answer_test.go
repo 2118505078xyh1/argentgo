@@ -16,6 +16,12 @@ func approvalRPCFixture(t *testing.T) (*chat, *[]string) {
 	t.Helper()
 	app := newTestChat()
 	app.engine = &bridge{} // non-nil simulates a real engine bridge
+	// The chat rail fetches session.list on its first frame; make that fail so
+	// this fixture keeps the demo rail and the zero-value bridge is never
+	// called (its pending map is nil).
+	app.sessionListRPC = func(string, any) (json.RawMessage, error) {
+		return nil, errors.New("session.list unavailable")
+	}
 	app.approval = &approval{id: "call_42", name: "bash", args: "rm -rf /tmp/x"}
 	calls := new([]string)
 	app.approvalAnswerRPC = func(method string, params any) (json.RawMessage, error) {

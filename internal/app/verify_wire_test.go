@@ -417,6 +417,85 @@ func TestSelectVerifyCommandsMultipleFiles(t *testing.T) {
 		"go test ./go/...", "go test ./py/...", "go test ./rs/...")
 }
 
+// TestSelectVerifyAllLanguagesFallback pins the "*" catch-all contract: a file
+// whose extension has no language-specific command uses the configured
+// all-languages command. It runs once (de-duplicated) for any number of such
+// files, and also covers a checkpoint with no paths at all.
+func TestSelectVerifyAllLanguagesFallback(t *testing.T) {
+	commands := map[string]string{"*": "go test ./..."}
+
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"docs/readme.txt"}),
+		"go test ./...")
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"main.go", "notes.md"}),
+		"go test ./...")
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"a.txt", "b.md", "c.py"}),
+		"go test ./...")
+	assertArgvs(t, selectVerifyArgvs(commands, nil, nil), "go test ./...")
+}
+
+// TestSelectVerifySpecificOverridesAllLanguages pins that a language-specific
+// command takes precedence over "*": the catch-all is not run for a file that
+// already has its own command, but still covers other files in the same batch.
+func TestSelectVerifySpecificOverridesAllLanguages(t *testing.T) {
+	commands := map[string]string{
+		".go": "go test ./go/...",
+		"*":   "go test ./...",
+	}
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"a.go", "b.GO"}),
+		"go test ./go/...")
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"a.go", "readme.txt"}),
+		"go test ./go/...", "go test ./...")
+}
+
+// TestSelectVerifyAllLanguagesBeatsVerifyCommand pins the fallback priority
+// when both the "*" key and the legacy VerifyCommand field are configured:
+// "*" wins as the single catch-all. With no "*" key, VerifyCommand remains the
+// fallback, so the legacy behaviour is unchanged.
+func TestSelectVerifyAllLanguagesBeatsVerifyCommand(t *testing.T) {
+	fallback := []string{"go", "build", "./..."}
+
+	assertArgvs(t,
+		selectVerifyArgvs(map[string]string{"*": "go test ./all/..."}, fallback, []string{"readme.txt"}),
+		"go test ./all/...")
+	// No "*": VerifyCommand is still the fallback for an unmatched path.
+	assertArgvs(t,
+		selectVerifyArgvs(map[string]string{".go": "go test ./go/..."}, fallback, []string{"readme.txt"}),
+		"go build ./...")
+}
+
+// TestSelectVerifyFallbackPriorityChain pins the full precedence in a mixed
+// batch: specific language commands first (first-seen order), then "*" for
+// every other language, with VerifyCommand never running once "*" is present.
+func TestSelectVerifyFallbackPriorityChain(t *testing.T) {
+	commands := map[string]string{
+		".go": "go test ./go/...",
+		".py": "go test ./py/...",
+		"*":   "go test ./all/...",
+	}
+	fallback := []string{"go", "build", "./..."}
+	paths := []string{"a.go", "b.py", "readme.txt", "c.go", "notes.md", "d.rs"}
+	assertArgvs(t, selectVerifyArgvs(commands, fallback, paths),
+		"go test ./go/...", "go test ./py/...", "go test ./all/...")
+}
+
+// TestVerifyWiringAllLanguagesDispatch pins that a "*"-only map enables the
+// loop and that a disallowed catch-all command is still rejected by the
+// allowlist at the runner boundary (selection itself never validates).
+func TestVerifyWiringAllLanguagesDispatch(t *testing.T) {
+	res := Resolved{
+		Cfg:  config.Config{VerifyCommands: map[string]string{"*": "bash -c echo hi"}},
+		Root: t.TempDir(),
+	}
+	fn := verifyFuncFor(res)
+	if fn == nil {
+		t.Fatal("verifyFuncFor(* only) = nil, want dispatcher")
+	}
+	_, _, _, ok := fn(context.Background(), []string{"readme.txt"})
+	if ok {
+		t.Fatal("dispatcher with disallowed '*' command returned ok=true, want false")
+	}
+}
+
 // TestVerifyWiringPerLanguageDispatch pins that the per-language map enables
 // the loop on its own (without a single command), keeps reflections wired, and
 // that a configured single command alone still takes the legacy path.

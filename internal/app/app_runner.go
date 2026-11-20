@@ -94,10 +94,35 @@ func WithPendingApprovals(store *security.PendingStore, session string, inner se
 	return &pendingApprover{store: store, session: session, inner: inner}
 }
 
+// WithHeadlessPendingApprovals is the approval path for --rpc/--serve/--acp.
+// Those transports own os.Stdin: server.scanLines reads newline-delimited JSON
+// from it, so a local PromptApprover must never read there as well. Its
+// byte-at-a-time reader goroutine would race the transport's line scanner and
+// swallow bytes of the next request. In headless runs the operator's answer
+// arrives only through approval.answer, which PendingStore.Resolve delivers to
+// the waiter Ask registers here. A nil store denies instead of blocking forever
+// with no way to receive an external decision.
+func WithHeadlessPendingApprovals(store *security.PendingStore, session string) security.Approver {
+	if store == nil {
+		return security.NeverApprover{}
+	}
+	return &pendingApprover{store: store, session: session, headless: true}
+}
+
+// headlessTransport reports whether opts runs a wire transport instead of a
+// direct CLI/TUI session. In headless mode stdin is the protocol stream, not
+// the operator's terminal, so approval must not prompt on it.
+func headlessTransport(opts cli.Options) bool {
+	return opts.Serve || opts.RPC || opts.ACP
+}
+
 type pendingApprover struct {
 	store   *security.PendingStore
 	session string
 	inner   security.Approver
+	// headless suppresses the local approver entirely: no goroutine reads
+	// stdin and Ask waits only for the external answer or ctx cancellation.
+	headless bool
 }
 
 func (p *pendingApprover) Ask(ctx context.Context, name, args string) (bool, error) {
@@ -120,19 +145,25 @@ func (p *pendingApprover) Ask(ctx context.Context, name, args string) (bool, err
 	})
 
 	// Keep the local TUI/CLI interaction intact: inner.Ask keeps running while
-	// we wait for an external answer. First answer wins. Headless --rpc/--serve
-	// runs have no human at stdin, so approval.answer (via Resolve -> answer)
-	// decides; the direct CLI path has no external answer, so the local y/n is
-	// exactly the behaviour it is today.
+	// we wait for an external answer. First answer wins. Headless transports
+	// install their approver through WithHeadlessPendingApprovals instead, so
+	// local stays nil: no goroutine touches the protocol-owned stdin and
+	// approval.answer (via Resolve -> answer) is the only decision source.
+	// A nil channel blocks forever in a select, which is exactly what the
+	// headless case needs.
 	type localAnswer struct {
 		granted bool
 		err     error
 	}
-	local := make(chan localAnswer, 1)
-	go func() {
-		granted, err := p.inner.Ask(ctx, name, args)
-		local <- localAnswer{granted: granted, err: err}
-	}()
+	var local <-chan localAnswer
+	if !p.headless {
+		ch := make(chan localAnswer, 1)
+		local = ch
+		go func() {
+			granted, err := p.inner.Ask(ctx, name, args)
+			ch <- localAnswer{granted: granted, err: err}
+		}()
+	}
 
 	var granted bool
 	var err error
@@ -300,11 +331,27 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	execRes := r.res
 	if r.pending != nil {
 		_ = r.pending.Clear(sess.ID()) // a new run supersedes stale requests
-		approve := execRes.Approve
-		if approve == nil {
-			approve = approverFor(r.stdio, execRes)
+		var approve security.Approver
+		switch {
+		case execRes.Approve != nil:
+			// TUI/foreign callers inject their own modal approver; keep it.
+			approve = WithPendingApprovals(r.pending, sess.ID(), execRes.Approve)
+		case headlessTransport(r.res.Options):
+			if execRes.Approval == "never" {
+				// No human answer is expected at all; preserve never-mode's
+				// immediate refusal without spawning a stdin reader.
+				approve = WithPendingApprovals(r.pending, sess.ID(), security.NeverApprover{})
+			} else {
+				// --rpc/--serve/--acp own stdin. Only approval.answer may
+				// decide; a PromptApprover here would steal RPC bytes.
+				approve = WithHeadlessPendingApprovals(r.pending, sess.ID())
+			}
+		default:
+			// Direct CLI path: the operator's tty is stdin, so local y/n is
+			// exactly the behaviour it is today.
+			approve = WithPendingApprovals(r.pending, sess.ID(), approverFor(r.stdio, execRes))
 		}
-		execRes.Approve = WithPendingApprovals(r.pending, sess.ID(), approve)
+		execRes.Approve = approve
 	}
 	result, err := r.execute(ctx, r.stdio, execRes, sess, text, onText)
 	return result.Text, err

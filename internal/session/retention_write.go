@@ -45,10 +45,19 @@ func RetentionFromKind(kind string) Retention {
 // returns the bytes to write. Default kinds are returned byte-identical, so
 // ordinary message/tool writes are unchanged. If an important kind's payload is
 // not a JSON object, SetRetention refuses to mark it and the original bytes are
-// returned rather than sacrificing the payload to attach a hint.
+// returned rather than sacrificing the payload to attach a hint. A payload that
+// already carries an explicit _retention hint is returned unchanged: the kind
+// default is only a fallback for callers that did not choose one.
 func StampIfImportant(kind string, data []byte) []byte {
 	r := RetentionFromKind(kind)
 	if r == RetainDefault {
+		return data
+	}
+	// An explicit hint wins over the kind's automatic default.
+	// AppendWithRetention stamps its own value before calling AppendRecord, and
+	// compaction re-emits records that already carry a hint, so overwriting it
+	// here would silently change retention semantics on either path.
+	if hasRetentionHint(data) {
 		return data
 	}
 	stamped, err := SetRetention(data, r)

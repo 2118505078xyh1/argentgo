@@ -179,6 +179,143 @@ func TestHTTPTransportStreamable(t *testing.T) {
 	}
 }
 
+// TestHTTPCallDoesNotWaitForPostSSEStreamClose covers a streamable server that
+// answers a POST with an event stream it keeps open (MCP allows a server to
+// keep the stream alive for server-initiated messages). The JSON-RPC response
+// arrives in the first event; the client must return as soon as that reply is
+// delivered instead of blocking until the stream closes at the request
+// deadline.
+func TestHTTPCallDoesNotWaitForPostSSEStreamClose(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			http.Error(w, "no GET stream", http.StatusMethodNotAllowed)
+			return
+		}
+		var message map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		idRaw, hasID := message["id"]
+		if !hasID {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		var method string
+		_ = json.Unmarshal(message["method"], &method)
+		result, callErr := helperReply(method, message["params"])
+		payload := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(idRaw)}
+		if callErr != nil {
+			payload["error"] = map[string]any{"code": -32602, "message": callErr.Error()}
+		} else {
+			payload["result"] = result
+		}
+		encoded, _ := json.Marshal(payload)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", encoded)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		// Deliberately keep the stream open until the client disconnects.
+		<-r.Context().Done()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	c, err := Connect(context.Background(), Spec{
+		Name:      "kept-open",
+		Transport: "http",
+		URL:       server.URL + "/mcp",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	started := time.Now()
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("Initialize took %s; it must return once the reply arrives, not wait for the POST SSE stream to close", elapsed)
+	}
+}
+
+// TestHTTPConcurrentCallsOverKeptOpenSSE verifies that processing each POST's
+// event stream in the background still routes replies to the right waiter when
+// several calls are in flight at once.
+func TestHTTPConcurrentCallsOverKeptOpenSSE(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			http.Error(w, "no GET stream", http.StatusMethodNotAllowed)
+			return
+		}
+		var message map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		idRaw, hasID := message["id"]
+		if !hasID {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		var method string
+		_ = json.Unmarshal(message["method"], &method)
+		result, callErr := helperReply(method, message["params"])
+		payload := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(idRaw)}
+		if callErr != nil {
+			payload["error"] = map[string]any{"code": -32602, "message": callErr.Error()}
+		} else {
+			payload["result"] = result
+		}
+		encoded, _ := json.Marshal(payload)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", encoded)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	c, err := Connect(context.Background(), Spec{
+		Name:      "concurrent",
+		Transport: "http",
+		URL:       server.URL + "/mcp",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			text, err := c.CallTool(context.Background(), "echo",
+				json.RawMessage(fmt.Sprintf(`{"text":"call-%d"}`, i)))
+			if err == nil && text != fmt.Sprintf("echo: call-%d", i) {
+				err = fmt.Errorf("call %d: unexpected text %q", i, text)
+			}
+			errs <- err
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent call: %v", err)
+		}
+	}
+}
+
 func TestHTTPTransportReportsServerErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

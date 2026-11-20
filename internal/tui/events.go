@@ -64,10 +64,16 @@ func (m *Model) HandleEvent(event Event) {
 		// the existing attempt-badge renderer instead of adding a paint path.
 		m.appendNoticeEntryLocked(StreamErrorEntry(event.Detail, llm.RedactText))
 	case EventRetry:
+		text := RetryNotice(event.RetryReason, event.RetryAttempt, event.RetryMax, event.RetryWaitMS)
 		m.appendNoticeEntryLocked(Entry{
 			Kind: EntryNotice,
-			Text: RetryNotice(event.RetryReason, event.RetryAttempt, event.RetryMax, event.RetryWaitMS),
+			Text: text,
 		})
+		// Retry is transient backoff feedback: mirror it onto the
+		// severity-ranked status line so live progress is visible without
+		// scanning the transcript. NoticeStack retires it on its own TTL, and
+		// a fresh retry outranks older ones by severity then sequence.
+		m.setStatusSeverityLocked(SeverityWarn, text)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand/v2"
 	"os"
@@ -93,7 +94,11 @@ type approval struct {
 	args string
 }
 
+// session is one row of the session rail. id is the real engine session id;
+// it is empty for the demo rows in fakeSessions. openSession uses id when set
+// (so session.load gets a real id) and falls back to title in demo mode.
 type session struct {
+	id    string
 	title string
 	meta  string
 	group string
@@ -105,9 +110,9 @@ var navItems = []string{
 }
 
 var fakeSessions = []session{
-	{"重构聊天界面", "2 分钟前", "今天"},
-	{"修复工具调用状态", "昨天 18:20", "昨天"},
-	{"整理记忆索引", "3 天前", "更早"},
+	{title: "重构聊天界面", meta: "2 分钟前", group: "今天"},
+	{title: "修复工具调用状态", meta: "昨天 18:20", group: "昨天"},
+	{title: "整理记忆索引", meta: "3 天前", group: "更早"},
 }
 
 var quickActions = []string{"解释这段代码", "写单元测试", "检查命令", "/ 命令"}
@@ -131,6 +136,12 @@ type chat struct {
 	sessionList     ui.ListState
 	md              markdown.Options
 
+	// sessions holds the real session rail fetched over session.list. It is
+	// nil until a successful fetch, in which case sessionPanel keeps showing
+	// fakeSessions (demo mode, or a failed RPC that must degrade gracefully).
+	sessions          []session
+	sessionListLoaded bool // session.list is fetched at most once per chat
+
 	next       int
 	sent       int
 	lastPrompt string // most recent user text; backed up by undo, replayed by retry
@@ -138,6 +149,11 @@ type chat struct {
 	reply      *message
 	tool       *message
 	approval   *approval
+
+	// sessionListRPC is the test seam for loading the session rail. When nil,
+	// fetchSessions calls engine.call directly; tests inject a recorder to
+	// verify the session.list RPC without a live engine process.
+	sessionListRPC func(method string, params any) (json.RawMessage, error)
 
 	// sessionLoadRPC is the test seam for opening a session. When nil,
 	// openSession calls engine.call directly; tests inject a recorder to
@@ -260,9 +276,14 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 	})
 }
 
-// sessionPanel renders the chat nav item's sidebar: session search, the fake
-// session rail and the new-session button.
+// sessionPanel renders the chat nav item's sidebar: session search, the
+// session rail and the new-session button. The first time a real engine is
+// attached it kicks off a session.list fetch; until that succeeds (or in demo
+// mode) the existing fakeSessions remain on screen, so a failed RPC leaves a
+// usable rail instead of a blank one.
 func (app *chat) sessionPanel(c *ui.Context, p palette) {
+	app.ensureSessions()
+
 	// Session header and search.
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
 		ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
@@ -273,19 +294,29 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
 		Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
 
-	// Session list.
-	filtered := make([]session, 0, len(fakeSessions))
+	// Session list. A successful fetch replaces the demo rows; a failure (or
+	// demo mode, where sessions stays nil) keeps them.
+	rows := app.sessions
+	if rows == nil {
+		rows = fakeSessions
+	}
+	filtered := make([]session, 0, len(rows))
 	q := strings.ToLower(strings.TrimSpace(app.sessionQuery))
-	for _, s := range fakeSessions {
+	for _, s := range rows {
 		if q == "" || strings.Contains(strings.ToLower(s.title+s.group), q) {
 			filtered = append(filtered, s)
 		}
 	}
-	app.sessionList.Key = func(i int) any { return filtered[i].title }
+	app.sessionList.Key = func(i int) any {
+		if filtered[i].id != "" {
+			return filtered[i].id
+		}
+		return filtered[i].title
+	}
 	ui.List(c, &app.sessionList, len(filtered), func(i int) {
 		s := filtered[i]
 		row := ui.Row(c).Padding(8, 10).Radius(8)
-		if app.selectedSession == s.title {
+		if app.isSessionSelected(s) {
 			row.Background(p.accentBG)
 		}
 		row.Children(func() {
@@ -300,11 +331,149 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	}).Grow(1)
 }
 
+// isSessionSelected compares by real id when the row has one, so two sessions
+// sharing a generated title cannot both look selected. Demo rows fall back to
+// the title, which is their identity there.
+func (app *chat) isSessionSelected(s session) bool {
+	if s.id != "" {
+		return app.selectedSession == s.id
+	}
+	return app.selectedSession == s.title
+}
+
+// ensureSessions starts the one-time session.list fetch when a real engine is
+// attached. With a window it runs off-thread and applies the result on the UI
+// thread (like prompt replies do); without one (tests) it applies inline so
+// the very first frame already shows the real rail.
+func (app *chat) ensureSessions() {
+	if app.engine == nil || app.sessionListLoaded {
+		return
+	}
+	app.sessionListLoaded = true
+	if app.win == nil {
+		sessions, err := app.fetchSessions()
+		app.applySessions(sessions, err)
+		return
+	}
+	win := app.win
+	go func() {
+		sessions, err := app.fetchSessions()
+		win.Update(func() { app.applySessions(sessions, err) })
+	}()
+}
+
+// fetchSessions calls the session.list RPC and decodes its {"sessions":[...]}
+// payload. An RPC error or an unparseable payload is returned to the caller,
+// which degrades to the existing rail rather than clearing it.
+func (app *chat) fetchSessions() ([]session, error) {
+	call := app.sessionListRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	raw, err := call("session.list", nil)
+	if err != nil {
+		return nil, err
+	}
+	return parseSessionList(raw)
+}
+
+// engineSession mirrors server.SessionInfo (internal/server/sessions.go) as
+// it arrives on the wire. Keeping the type here avoids importing internal/
+// into native/, which stays a dependency-light frontend.
+type engineSession struct {
+	ID      string    `json:"id"`
+	Title   string    `json:"title,omitempty"`
+	Updated time.Time `json:"updated"`
+}
+
+// parseSessionList maps the RPC payload into rail rows. A session with no
+// title is shown by its id; the timestamp supplies the group/meta labels.
+func parseSessionList(raw json.RawMessage) ([]session, error) {
+	var payload struct {
+		Sessions []engineSession `json:"sessions"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	out := make([]session, 0, len(payload.Sessions))
+	for _, info := range payload.Sessions {
+		title := info.Title
+		if title == "" {
+			title = info.ID
+		}
+		out = append(out, session{
+			id:    info.ID,
+			title: title,
+			meta:  sessionMeta(info.Updated),
+			group: sessionGroup(info.Updated),
+		})
+	}
+	return out, nil
+}
+
+// applySessions installs a successful fetch. A failure leaves sessions as it
+// was (so the current rail survives) and reports a redacted, single-line
+// notice; it never crashes the view.
+func (app *chat) applySessions(sessions []session, err error) {
+	if err != nil {
+		app.status = "会话列表加载失败：" + engineErrorNotice(err)
+		return
+	}
+	app.sessions = sessions
+}
+
+// sessionGroup buckets a session by the day it was updated, matching the
+// 今天/昨天/更早 groups of the demo rail.
+func sessionGroup(updated time.Time) string {
+	if updated.IsZero() {
+		return "更早"
+	}
+	now := time.Now()
+	if sameDay(now, updated) {
+		return "今天"
+	}
+	if sameDay(now.Add(-24*time.Hour), updated) {
+		return "昨天"
+	}
+	return "更早"
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
+}
+
+// sessionMeta renders a short relative time for a session row.
+func sessionMeta(updated time.Time) string {
+	if updated.IsZero() {
+		return ""
+	}
+	d := time.Since(updated)
+	switch {
+	case d < time.Minute:
+		return "刚刚"
+	case d < time.Hour:
+		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+	default:
+		return updated.Format("01-02")
+	}
+}
+
 // openSession selects a session row and asks a real engine to load it through
-// the existing session.load RPC. With no bridge attached (tests / no engine
-// binary) it keeps the original local-only switch, so demo mode is unchanged.
+// the existing session.load RPC. The id comes from session.list when available;
+// demo/degraded rows have none and fall back to the title (their identity in
+// that mode). With no bridge attached it keeps the original local-only switch.
 func (app *chat) openSession(s session) {
-	app.selectedSession = s.title
+	id := s.id
+	if id == "" {
+		id = s.title
+	}
+	app.selectedSession = id
 	app.status = "已打开会话：" + s.title
 	if app.engine == nil {
 		return
@@ -313,7 +482,7 @@ func (app *chat) openSession(s session) {
 	if call == nil {
 		call = app.engine.call
 	}
-	if _, err := call("session.load", map[string]any{"id": s.title}); err != nil {
+	if _, err := call("session.load", map[string]any{"id": id}); err != nil {
 		app.status = "打开会话失败：" + engineErrorNotice(err)
 	}
 }

@@ -36,6 +36,14 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	if err != nil {
 		return nil, nil, err
 	}
+	// A lone "-" in the flag section is the documented spelling for reading the
+	// prompt from stdin ("argent [flags] -"), not a literal prompt word. Drop it
+	// so runMain's empty-prompt branch consumes IO.In instead of sending "-"
+	// to the runner. Words after "--" stay literal, so a trailing "-" there is
+	// still a real prompt.
+	if len(positional) == 1 && positional[0] == "-" && len(after) == 0 {
+		positional = nil
+	}
 	positional = append(positional, after...)
 
 	set := map[string]bool{}

@@ -45,6 +45,63 @@ func TestAppendWithRetentionStoresHint(t *testing.T) {
 	}
 }
 
+// TestAppendWithRetentionExplicitHintBeatsKindDefault covers the case where a
+// caller asks for a hint that differs from the kind's automatic default. The
+// explicit value must survive AppendRecord's StampIfImportant step; otherwise
+// e.g. a summary marked in_thread silently becomes always and leaks into child
+// sessions against the caller's intent.
+func TestStampIfImportantPreservesExplicitHint(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want Retention
+	}{
+		{"explicit different value", `{"content":"x","_retention":"in_thread"}`, RetainInThread},
+		{"explicit default", `{"content":"x","_retention":"default"}`, RetainDefault},
+		{"unrecognised value", `{"content":"x","_retention":"weird"}`, RetainDefault},
+		{"null is no hint", `{"content":"x","_retention":null}`, RetainAlways},
+		{"non-string is no hint", `{"content":"x","_retention":7}`, RetainAlways},
+		{"no hint", `{"content":"x"}`, RetainAlways},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := StampIfImportant(KindSummary, []byte(tc.data))
+			if got := GetRetention(out); got != tc.want {
+				t.Fatalf("StampIfImportant retention = %v, want %v (data %s)", got, tc.want, out)
+			}
+		})
+	}
+}
+
+func TestAppendWithRetentionExplicitHintBeatsKindDefault(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		want Retention
+	}{
+		{KindSummary, RetainInChildren},  // automatic default: RetainAlways
+		{KindCheckpoint, RetainInThread}, // automatic default: RetainAlways
+		{KindTitle, RetainAlways},        // automatic default: RetainInChildren
+	} {
+		t.Run(tc.kind+"/"+tc.want.String(), func(t *testing.T) {
+			sess := newTestSession(t, t.TempDir(), "explicit hint")
+			record, err := sess.AppendWithRetention(tc.kind,
+				[]byte(`{"content":"payload"}`), tc.want)
+			if err != nil {
+				t.Fatalf("AppendWithRetention: %v", err)
+			}
+			if got := GetRetention(record.Data); got != tc.want {
+				t.Fatalf("returned record retention = %v, want %v", got, tc.want)
+			}
+			records, err := sess.Records()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := GetRetention(records[len(records)-1].Data); got != tc.want {
+				t.Fatalf("stored retention = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAppendWithRetentionRejectsBadPayload(t *testing.T) {
 	sess := newTestSession(t, t.TempDir(), "retention bad payload")
 	before, err := sess.Records()

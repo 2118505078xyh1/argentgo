@@ -39,6 +39,10 @@ var catalog = map[string]translation{
 	"prompt.newline":     {"insert a line break", "插入换行"},
 	"prompt.empty":       {"type a message, or / for commands", "输入消息，或输入 / 查看命令"},
 	"prompt.queued":      {"queued follow-up", "后续消息已排队"},
+	// Optional system-prompt directive asking the model to reply in the UI
+	// language. Kept in the catalog so both locales stay auditable;
+	// ReplyLanguageHint resolves the locale and returns one side.
+	"prompt.reply_hint": {"Reply in English", "请用中文回复"},
 
 	// Status labels.
 	"status.ready":    {"ready", "就绪"},
@@ -164,6 +168,30 @@ func Normalize(locale string) string {
 // Known returns the supported locale codes, sorted.
 func Known() []string {
 	return []string{EnUS, ZhCN}
+}
+
+// replyHintNeutral is returned when the requested locale is not one this UI
+// supports. It is the empty string so a caller injects no language directive at
+// all rather than forcing an unsupported or wrong language on the model.
+const replyHintNeutral = ""
+
+// ReplyLanguageHint returns a short directive that a caller may append to a
+// system prompt to ask the model to reply in the given locale's language.
+//
+// Locale aliases are resolved through Canonical, so "zh", "zh_cn" and "中文"
+// all yield the Chinese hint, while "en", "en_us" and "English" yield the
+// English one. An unsupported or empty locale yields replyHintNeutral: no
+// language is named, so the hint can be omitted safely instead of choosing a
+// default the user did not ask for.
+//
+// It is pure: no configuration or global state is read, and nothing is logged
+// to Missing.
+func ReplyLanguageHint(locale string) string {
+	code, ok := Canonical(locale)
+	if !ok {
+		return replyHintNeutral
+	}
+	return T(code, "prompt.reply_hint")
 }
 
 // outputLanguageTokenMaxLength bounds an untrusted preference token before it

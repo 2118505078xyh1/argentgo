@@ -210,12 +210,22 @@ func (t *httpTransport) call(ctx context.Context, method string, params any) (js
 
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		_ = forEachSSE(response.Body, func(event, data string) {
-			if event == "endpoint" {
-				return
-			}
-			_ = t.waiters.handle([]byte(data))
-		})
+		// A streamable server may keep the POST's event stream open so it can
+		// push server-initiated messages later. Draining it inline would block
+		// this call until the stream closes (or the request deadline expires),
+		// even though the reply for our id may already have been delivered by
+		// the first event. Process the stream in the background and let the
+		// waiter below decide when this call is done; the deferred Close then
+		// releases the stream. Responses for other in-flight calls are still
+		// routed through the shared waiters, so concurrent calls keep working.
+		go func() {
+			_ = forEachSSE(response.Body, func(event, data string) {
+				if event == "endpoint" {
+					return
+				}
+				_ = t.waiters.handle([]byte(data))
+			})
+		}()
 	} else {
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, maxHTTPBody))
 		if readErr != nil && len(bytes.TrimSpace(body)) == 0 {

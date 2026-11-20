@@ -8,8 +8,8 @@ import (
 )
 
 func TestEveryEventNameRoundTrips(t *testing.T) {
-	if len(AllEvents) != 11 {
-		t.Fatalf("expected 11 events, got %d", len(AllEvents))
+	if len(AllEvents) != 12 {
+		t.Fatalf("expected 12 events, got %d", len(AllEvents))
 	}
 	for _, event := range AllEvents {
 		parsed, ok := ParseEvent(event.String())
@@ -232,4 +232,88 @@ func TestPayloadMarshalsTheDocumentedShape(t *testing.T) {
 			t.Fatalf("payload lost %q: %s", key, encoded)
 		}
 	}
+}
+
+func TestFileChangedIsAFullLifecycleEvent(t *testing.T) {
+	parsed, ok := ParseEvent("FileChanged")
+	if !ok || parsed != FileChanged {
+		t.Fatalf("FileChanged did not parse: %q %v", parsed, ok)
+	}
+	found := false
+	for _, event := range AllEvents {
+		if event == FileChanged {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("FileChanged missing from AllEvents")
+	}
+
+	document := []byte(`{"hooks":{"FileChanged":[{"matcher":"*.go","hooks":[{"command":"echo changed"}]}]}}`)
+	config, err := ParseConfig(document)
+	if err != nil {
+		t.Fatalf("parse FileChanged: %v", err)
+	}
+	commands := config.ForEvent(FileChanged, "main.go")
+	if len(commands) != 1 || commands[0].Command != "echo changed" {
+		t.Fatalf("FileChanged command lost: %+v", commands)
+	}
+	// A known event must not be reported as a silent typo.
+	if warnings := Validate(document); len(warnings) != 0 {
+		t.Fatalf("Validate warned on a supported event: %v", warnings)
+	}
+	// Unknown events are still skipped, as before.
+	if _, ok := ParseEvent("FileChange"); ok {
+		t.Fatal("a near-miss must not parse as FileChanged")
+	}
+}
+
+func TestPayloadMarshalsFileChangedPath(t *testing.T) {
+	payload := Payload{Event: "FileChanged", Path: "internal/hooks/hooks.go"}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if string(fields["path"]) != `"internal/hooks/hooks.go"` {
+		t.Fatalf("payload lost path: %s", encoded)
+	}
+	// Other events omit the field entirely.
+	other, err := json.Marshal(Payload{Event: "Stop"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(other), "path") {
+		t.Fatalf("path should be omitted when empty: %s", other)
+	}
+}
+
+func TestReportTriggersCoversEveryEvent(t *testing.T) {
+	rows := ReportTriggers()
+	if len(rows) != len(AllEvents) {
+		t.Fatalf("report has %d rows for %d events", len(rows), len(AllEvents))
+	}
+	for index, row := range rows {
+		if row.Event != AllEvents[index] {
+			t.Fatalf("report row %d is %q, want %q", index, row.Event, AllEvents[index])
+		}
+		if strings.TrimSpace(row.Trigger) == "" {
+			t.Fatalf("event %q has no trigger description", row.Event)
+		}
+	}
+	for _, row := range rows {
+		if row.Event == FileChanged {
+			if !strings.Contains(row.Payload, "Path") {
+				t.Fatalf("FileChanged report must mention Path: %+v", row)
+			}
+			if !strings.Contains(strings.ToLower(row.Trigger), "file") {
+				t.Fatalf("FileChanged report must mention files: %+v", row)
+			}
+			return
+		}
+	}
+	t.Fatal("FileChanged missing from trigger report")
 }

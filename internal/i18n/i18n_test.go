@@ -429,6 +429,54 @@ func TestDetectExplicitEnglishLocaleStopsSearch(t *testing.T) {
 	}
 }
 
+func TestReplyLanguageHint(t *testing.T) {
+	cases := []struct {
+		name   string
+		locale string
+		want   string
+	}{
+		// Canonical locales.
+		{"zh-CN", ZhCN, "请用中文回复"},
+		{"en-US", EnUS, "Reply in English"},
+		// CJK aliases.
+		{"zh short alias", "zh", "请用中文回复"},
+		{"zh underscore alias", "zh_cn", "请用中文回复"},
+		{"zh mixed case region alias", "ZH-CN", "请用中文回复"},
+		{"chinese name alias", "中文", "请用中文回复"},
+		{"chinese name alias is trimmed", "  中文  ", "请用中文回复"},
+		// English aliases.
+		{"en short alias", "en", "Reply in English"},
+		{"en underscore alias", "en_us", "Reply in English"},
+		{"english name alias", "English", "Reply in English"},
+		// Unknown / unsupported locales fall back to neutral.
+		{"unknown European locale is neutral", "fr-FR", replyHintNeutral},
+		{"unsupported CJK language is neutral", "ja", replyHintNeutral},
+		{"unsupported Chinese variant is neutral", "zh-TW", replyHintNeutral},
+		{"empty locale is neutral", "", replyHintNeutral},
+		{"whitespace locale is neutral", "   ", replyHintNeutral},
+		{"instruction-like value is neutral", "中文。", replyHintNeutral},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ReplyLanguageHint(tc.locale); got != tc.want {
+				t.Errorf("ReplyLanguageHint(%q) = %q, want %q", tc.locale, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplyLanguageHintIsPureAndDoesNotRecordMissing(t *testing.T) {
+	ResetMissing()
+	first := ReplyLanguageHint(ZhCN)
+	second := ReplyLanguageHint(ZhCN)
+	if first != second || first != "请用中文回复" {
+		t.Errorf("not deterministic: %q then %q", first, second)
+	}
+	if got := Missing(); len(got) != 0 {
+		t.Errorf("ReplyLanguageHint recorded missing keys: %#v", got)
+	}
+}
+
 func TestCanonicalAliases(t *testing.T) {
 	for _, alias := range []string{"en", "en-US", "en_us", "English"} {
 		if code, ok := Canonical(alias); !ok || code != EnUS {

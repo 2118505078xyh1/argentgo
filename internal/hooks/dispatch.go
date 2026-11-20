@@ -46,6 +46,9 @@ type Payload struct {
 	Output string `json:"output,omitempty"`
 	// Error is the tool failure for PostToolUseFailure.
 	Error string `json:"error,omitempty"`
+	// Path is the file affected by a FileChanged event. It is empty for other
+	// events; callers that mutate several files fire one event per path.
+	Path string `json:"path,omitempty"`
 }
 
 // Result is the aggregate decision of one dispatch.
@@ -151,6 +154,15 @@ func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, p
 		return Result{}, ErrUntrusted
 	}
 	return d.Dispatch(ctx, document.Config, payload)
+}
+
+// FireFileChanged dispatches a FileChanged lifecycle event for one changed
+// path. It is a convenience wrapper that fixes the event name and payload
+// field, so every caller produces the same hook document shape. Callers that
+// need session/cwd context fill those on the app-side bridge, which owns the
+// run context, before dispatching.
+func (d *Dispatcher) FireFileChanged(ctx context.Context, config *Config, path string) (Result, error) {
+	return d.Dispatch(ctx, config, Payload{Event: string(FileChanged), Path: path})
 }
 
 // Run executes the synchronous hooks for one event, highest Priority first.

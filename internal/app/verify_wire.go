@@ -30,6 +30,11 @@ const (
 
 	defaultVerifyTimeoutMS = 30000
 	maxVerifyTimeoutMS     = 120000
+
+	// verifyAllLanguagesKey mirrors commands.VerifyAllLanguages: the map key for
+	// a command that applies to every edited file without a language-specific
+	// command. Kept local so app need not import commands for one literal.
+	verifyAllLanguagesKey = "*"
 )
 
 // Sentinel errors classify a rejected argv. They mirror the sentinels in
@@ -273,6 +278,20 @@ func verifyLangForms(key string) []string {
 	return forms
 }
 
+// verifyAllLanguagesCmd returns the catch-all command configured under the "*"
+// key (commands.VerifyAllLanguages). The lookup trims both key and value so a
+// hand-written " * " or a blank value behaves sanely. ok is false when no
+// non-empty catch-all is configured, which lets the single VerifyCommand field
+// remain the fallback.
+func verifyAllLanguagesCmd(commands map[string]string) (string, bool) {
+	for key, cmd := range commands {
+		if strings.TrimSpace(key) == verifyAllLanguagesKey && strings.TrimSpace(cmd) != "" {
+			return cmd, true
+		}
+	}
+	return "", false
+}
+
 // canonicalVerifyCmd collapses a configured command string to its argv key so
 // selection and execution use the same spelling for the same command.
 func canonicalVerifyCmd(cmd string) string {
@@ -293,12 +312,21 @@ func verifyCommandIndex(commands map[string]string) map[string]string {
 
 // selectVerifyArgvs resolves the ordered, de-duplicated argv list to run for
 // changedPaths. It is deliberately pure (no process spawn) so per-language
-// dispatch can be unit-tested without executing commands. A path matches when
-// its extension matches a configured language key; unmatched paths use the
-// single-command fallback. When nothing can be selected, a configured
-// fallback runs once so a missing checkpoint still verifies something.
+// dispatch can be unit-tested without executing commands. Selection priority,
+// highest first:
+//
+//  1. a language-specific command matching the path's extension;
+//  2. the "*" catch-all command (commands.VerifyAllLanguages), which aider
+//     applies to every language without a specific entry;
+//  3. the single VerifyCommand field, the legacy fallback.
+//
+// Only one catch-all runs: "*" wins over VerifyCommand when both are set. When
+// nothing can be selected, the catch-all runs once so a missing checkpoint
+// still verifies something. The allowlist is applied later by NewVerifyFunc,
+// not here.
 func selectVerifyArgvs(commands map[string]string, fallback []string, changedPaths []string) [][]string {
 	index := verifyCommandIndex(commands)
+	allCmd, hasAll := verifyAllLanguagesCmd(commands)
 	seen := map[string]bool{}
 	var out [][]string
 	add := func(argv []string) {
@@ -313,6 +341,16 @@ func selectVerifyArgvs(commands map[string]string, fallback []string, changedPat
 		out = append(out, argv)
 	}
 
+	// catchAll is the single fallback for a path with no specific command:
+	// the "*" command takes precedence over the single VerifyCommand field.
+	catchAll := func() {
+		if hasAll {
+			add(strings.Fields(allCmd))
+			return
+		}
+		add(append([]string(nil), fallback...))
+	}
+
 	for _, path := range changedPaths {
 		base := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 		matched := false
@@ -324,11 +362,13 @@ func selectVerifyArgvs(commands map[string]string, fallback []string, changedPat
 			}
 		}
 		if !matched {
-			add(append([]string(nil), fallback...))
+			catchAll()
 		}
 	}
 	if len(out) == 0 {
-		add(append([]string(nil), fallback...))
+		// No checkpoint paths (or none selected anything): still verify once
+		// with the catch-all.
+		catchAll()
 	}
 	return out
 }
