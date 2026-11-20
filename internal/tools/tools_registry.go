@@ -202,6 +202,17 @@ func (r *Registry) SetLspIde(adapter LspIde) {
 	r.wrapSchemas()
 }
 
+// SetFormatHook 安装可选的落盘前格式化钩子，作用于 write 与 edit。
+// 传 nil 移除钩子，使两个工具恢复默认行为（这也是注册表构建后的初始状态）。
+// 启用后，编辑结果先经钩子格式化，最终字节才写入磁盘，且结果文案附上
+// 基于最终内容计算的差异摘要，保证模型看到的与磁盘一致。
+// 遵循 SetLspIde 的原位置重建模式，注册顺序与公布的 spec 保持稳定。
+func (r *Registry) SetFormatHook(hook FormatHook) {
+	r.tools["write"] = writeTool{format: hook}
+	r.tools["edit"] = editTool{format: hook}
+	r.wrapSchemas()
+}
+
 // SetMaxTimeout 把所有计时工具解析后的超时上限钳制为 d。
 // 非正值禁用上限。默认值 0 让从未 opt-in 的调用方
 // 保持本表引入之前的行为。

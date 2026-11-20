@@ -61,9 +61,14 @@ type Payload struct {
 //
 // Blocked 仅当 PreToolUse 钩子以状态 2 退出时为 true。Message
 // 携带拦截钩子的输出，或未拦截但失败的钩子的警告。
+// 当 Dispatcher.StopBlocks 开启时，Stop 钩子以状态 2 退出也会置 Blocked，
+// 并把续跑提示填入 Continuation；默认关闭时该字段恒为空串。
 type Result struct {
 	Blocked bool
 	Message string
+	// Continuation 是 Stop 钩子要求注入下一轮的续跑提示。
+	// 仅在 StopBlocks 开启且 Stop 钩子以退出码 2 阻断时非空。
+	Continuation string
 }
 
 // Outcome 表示某个钩子命令做了什么。
@@ -75,17 +80,24 @@ type Outcome struct {
 	Stderr   string
 	TimedOut bool
 	Blocked  bool
-	Elapsed  time.Duration
-	Err      error
+	// Continuation 保存 Stop 钩子的续跑提示，供 Summarize 聚合进 Result。
+	Continuation string
+	Elapsed      time.Duration
+	Err          error
+}
+
+// detail 提取钩子输出中最有信息量的一段：优先 stdout，为空时回退 stderr，
+// 并去除两端空白。摘要与 Stop 续跑判定共用同一提取规则。
+func (o Outcome) detail() string {
+	if text := strings.TrimSpace(o.Stdout); text != "" {
+		return text
+	}
+	return strings.TrimSpace(o.Stderr)
 }
 
 // Message 是对结果的一行摘要。
 func (o Outcome) Message() string {
-	detail := strings.TrimSpace(o.Stdout)
-	if detail == "" {
-		detail = strings.TrimSpace(o.Stderr)
-	}
-	detail = clip(detail)
+	detail := clip(o.detail())
 
 	var prefix string
 	switch {
@@ -136,6 +148,12 @@ type Dispatcher struct {
 	// 钩子，同步或异步。它是测试用于
 	// 它是测试在不启动真实 shell 的情况下观察钩子的注入接缝。
 	Runner CommandRunner
+
+	// StopBlocks 选择性启用 Stop 钩子的阻断/续跑能力。默认 false：
+	// Stop 仍只是事后通知，行为与既有版本逐字节一致。显式置 true 后，
+	// 以退出码 2 退出且给出非空消息的 Stop 钩子会阻断本轮完成，并把消息
+	// 作为续跑提示经 Result.Continuation 暴露给调用方。
+	StopBlocks bool
 
 	// asyncWG 跟踪 Run 启动的后台钩子。Run 从不在其上等待：
 	// 异步钩子不得延迟触发它的决策。WaitAsync
@@ -220,7 +238,28 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 			return outcomes, err
 		}
 	}
+	// Stop 的阻断/续跑是可选能力：仅在显式开启时作用于 Stop 事件。
+	// 放在所有同步层级排空之后，因此既覆盖真实进程 runner，也覆盖注入的 runner。
+	if d.StopBlocks && event == Stop {
+		applyStopVerdict(outcomes)
+	}
 	return outcomes, nil
+}
+
+// applyStopVerdict 对 Stop 事件的结果应用续跑判定。每个未阻断、未超时的
+// 结果都交给纯函数 stopHookVerdict；命中的结果被标记为阻断并携带续跑提示，
+// 随后由 Summarize 聚合进 Result。context 已被取消时 Run 会提前返回，
+// 不会走到这里，因此取消的回合不会被 Stop 钩子拦住。
+func applyStopVerdict(outcomes []Outcome) {
+	for i := range outcomes {
+		if outcomes[i].Blocked || outcomes[i].TimedOut {
+			continue
+		}
+		if block, continuation := stopHookVerdict(outcomes[i].ExitCode, outcomes[i].detail()); block {
+			outcomes[i].Blocked = true
+			outcomes[i].Continuation = continuation
+		}
+	}
 }
 
 // claimedCommands 遍历排序后的命令列表一次，返回实际
@@ -509,6 +548,9 @@ func Summarize(outcomes []Outcome) Result {
 	var result Result
 	var messages []string
 	for _, outcome := range outcomes {
+		if outcome.Continuation != "" {
+			result.Continuation = outcome.Continuation
+		}
 		if outcome.Blocked {
 			result.Blocked = true
 			messages = append(messages, outcome.Message())

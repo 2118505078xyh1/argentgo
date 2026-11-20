@@ -388,6 +388,11 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 		case "resource":
 			if block.Resource.Text != "" {
 				parts = append(parts, block.Resource.Text)
+			} else if blobTextEnabled() && block.Resource.Blob != "" {
+				// 选择加入（ARGENT_MCP_BLOB_TEXT）：文本型 blob 直接当文本用，
+				// 二进制 blob 输出安全占位符，非法 base64 降级为占位符而非报错。
+				// 开关默认关闭，因此默认输出与旧行为逐字节一致。
+				parts = append(parts, blobTextFromResource(block.Resource))
 			} else if dir := blobArtifactDir(); dir != "" && block.Resource.Blob != "" {
 				// 仅选择加入（ARGENT_MCP_BLOB_ARTIFACT_DIR）。没有配置目录时
 				// 会跳过该分支，因此输出与旧行为逐字节

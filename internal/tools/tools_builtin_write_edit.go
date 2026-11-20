@@ -17,7 +17,11 @@ import (
 
 // ---- write ----
 
-type writeTool struct{}
+// writeTool 在可选格式化钩子启用时，先把请求内容交给钩子，再把最终字节落盘，
+// 并在结果文案中附上基于最终内容计算的差异摘要。未启用钩子时行为与原来一致。
+type writeTool struct {
+	format FormatHook
+}
 
 func (writeTool) Name() string        { return "write" }
 func (writeTool) Description() string { return "Create or overwrite a file with the given content." }
@@ -26,7 +30,7 @@ func (writeTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`
 }
 
-func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (t writeTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -40,24 +44,47 @@ func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (strin
 	}
 	unlock := lockFileMutation(path)
 	defer unlock()
+	before, readErr := os.ReadFile(path)
+	after := []byte(args.Content)
 	// 重写相同的字节是空操作：跳过系统调用，使文件的
 	// modTime 保持不变（也避免不必要的监视器抖动）。
 	// 缺失或不可读的目标会落到普通的创建/写入流程。
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, []byte(args.Content)) {
+	if readErr == nil && bytes.Equal(before, after) {
 		return fmt.Sprintf("%s already contains the requested content; no write needed", args.Path), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(args.Content), 0o644); err != nil {
+	result := fmt.Sprintf("wrote %d bytes to %s", len(after), args.Path)
+	final, result := t.formatOutput(path, before, after, result)
+	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("wrote %d bytes to %s", len(args.Content), args.Path), nil
+	return result, nil
+}
+
+// formatOutput 在写入前应用可选的格式化钩子，返回真正要落盘的字节与结果文案。
+// diskPath 供钩子定位文件；result 已经用模型传入的路径构建完成。
+// 未配置钩子时原样返回，确保默认路径逐字节兼容。
+func (t writeTool) formatOutput(diskPath string, before, after []byte, result string) ([]byte, string) {
+	if t.format == nil {
+		return after, result
+	}
+	formatted := t.format(diskPath, after)
+	summary := formatAwareDiff(string(before), string(after), string(formatted))
+	if len(formatted) > 0 && !bytes.Equal(formatted, after) {
+		return formatted, result + " (" + summary + ")"
+	}
+	return after, result + " (" + summary + ")"
 }
 
 // ---- edit ----
 
-type editTool struct{}
+// editTool 在可选格式化钩子启用时，先把编辑结果交给钩子，再把最终字节落盘，
+// 并在结果文案中附上基于最终内容计算的差异摘要。未启用钩子时行为与原来一致。
+type editTool struct {
+	format FormatHook
+}
 
 func (editTool) Name() string { return "edit" }
 func (editTool) Description() string {
@@ -68,7 +95,7 @@ func (editTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"repair":{"type":"boolean","description":"opt-in graded repair ladder for missing or non-literal matches"},"anchor":{"type":"string","description":"exact original text the model saw"},"anchor_hash":{"type":"string","description":"first 12 hex chars of sha256(anchor bytes)"},"hashline":{"type":"boolean","description":"opt-in hashline anchoring with stale-anchor recovery"}},"required":["path"]}`
 }
 
-func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (t editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path       string `json:"path"`
 		Old        string `json:"old"`
@@ -110,24 +137,18 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	}
 	text := string(data)
 
+	var out string
 	// opt-in 的 hashline 锚定。它只改变 old -> new 的解析方式；
 	// 路径解析、变更锁和下面的写入都不变。
-	if args.Hashline && (args.Anchor != "" || args.AnchorHash != "") {
-		out, err := resolveHashlineEdit(text, args.Path, args.Anchor, args.AnchorHash, args.Old, args.New)
+	switch {
+	case args.Hashline && (args.Anchor != "" || args.AnchorHash != ""):
+		out, err = resolveHashlineEdit(text, args.Path, args.Anchor, args.AnchorHash, args.Old, args.New)
 		if err != nil {
 			return "", err
 		}
-		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-			return "", err
-		}
-		return "edited " + args.Path, nil
-	}
-
-	count := strings.Count(text, args.Old)
-	if args.Repair {
-		var out string
+	case args.Repair:
 		var ok bool
-		switch count {
+		switch strings.Count(text, args.Old) {
 		case 1:
 			out, ok = strings.Replace(text, args.Old, args.New, 1), true
 		case 0:
@@ -146,24 +167,41 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 			}
 			return "", err
 		}
-		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-			return "", err
-		}
-		return "edited " + args.Path, nil
-	}
-	switch count {
-	case 0:
-		return "", fmt.Errorf("edit: old text not found in %s", args.Path)
-	case 1:
 	default:
-		// 计数短语与冻结的 Rust 构建的工具错误一致，
-		// eval 套件正是对此断言；其余部分解释模型必须做什么。
-		return "", fmt.Errorf("edit: old text appears %d times in %s (not unique); a unique match is required", count, args.Path)
+		count := strings.Count(text, args.Old)
+		switch count {
+		case 0:
+			return "", fmt.Errorf("edit: old text not found in %s", args.Path)
+		case 1:
+			out = strings.Replace(text, args.Old, args.New, 1)
+		default:
+			// 计数短语与冻结的 Rust 构建的工具错误一致，
+			// eval 套件正是对此断言；其余部分解释模型必须做什么。
+			return "", fmt.Errorf("edit: old text appears %d times in %s (not unique); a unique match is required", count, args.Path)
+		}
 	}
-	if err := os.WriteFile(path, []byte(strings.Replace(text, args.Old, args.New, 1)), 0o644); err != nil {
+
+	final, result := t.formatOutput(path, args.Path, data, []byte(out))
+	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
 	}
-	return "edited " + args.Path, nil
+	return result, nil
+}
+
+// formatOutput 在写入前应用可选的格式化钩子，返回真正要落盘的字节与结果文案。
+// diskPath 供钩子定位文件，displayPath 是模型传入的路径（用于结果文案）。
+// 未配置钩子时原样返回，确保默认路径逐字节兼容。
+func (t editTool) formatOutput(diskPath, displayPath string, before, after []byte) ([]byte, string) {
+	result := "edited " + displayPath
+	if t.format == nil {
+		return after, result
+	}
+	formatted := t.format(diskPath, after)
+	summary := formatAwareDiff(string(before), string(after), string(formatted))
+	if len(formatted) > 0 && !bytes.Equal(formatted, after) {
+		return formatted, result + " (" + summary + ")"
+	}
+	return after, result + " (" + summary + ")"
 }
 
 // hashlineHash 返回 s 的精确字节的 SHA-256 摘要的
