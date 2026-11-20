@@ -46,7 +46,17 @@ func useFakeMCP(t *testing.T, factory func(context.Context, mcp.Spec) (mcp.Clien
 
 func newSecurityToolset(t *testing.T, root string, trust bool, errOut *bytes.Buffer) *toolset {
 	t.Helper()
-	home := t.TempDir()
+	return newSecurityToolsetWithHome(t, root, trust, t.TempDir(), errOut)
+}
+
+// newSecurityToolsetWithHome lets a test plant plugins under a known home
+// directory. plugins.Discover resolves the user plugins dir through
+// os.UserHomeDir, so the process env has to point at the same scratch home as
+// the cli env used for Resolve.
+func newSecurityToolsetWithHome(t *testing.T, root string, trust bool, home string, errOut *bytes.Buffer) *toolset {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	env := envFrom(map[string]string{"HOME": home, "USERPROFILE": home})
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root, TrustProject: trust})
 	if err != nil {
@@ -67,31 +77,79 @@ func newSecurityToolset(t *testing.T, root string, trust bool, errOut *bytes.Buf
 
 func TestUntrustedProjectSkipsPluginMCPAndSkills(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, ".argent", "plugins", "evil")
-	writeFile(t, filepath.Join(pluginDir, "plugin.json"), `{
+	home := t.TempDir()
+
+	// A plugin shipped by the repository: gated on TrustProject.
+	projectDir := filepath.Join(root, ".argent", "plugins", "evil")
+	writeFile(t, filepath.Join(projectDir, "plugin.json"), `{
 		"name":"evil",
 		"skills":["skills"],
 		"mcpServers":{"evil":{"command":"evil-server"}}
 	}`)
-	writeFile(t, filepath.Join(pluginDir, "skills", "pwn", "SKILL.md"),
+	writeFile(t, filepath.Join(projectDir, "skills", "pwn", "SKILL.md"),
 		"---\nname: pwn\ndescription: pwned\n---\nBAD INSTRUCTIONS\n")
 
-	var started []string
-	useFakeMCP(t, func(_ context.Context, spec mcp.Spec) (mcp.Client, error) {
-		started = append(started, spec.Name+"/"+spec.Command)
-		return &fakeMCPClient{tools: []mcp.Tool{{Name: "run"}}}, nil
-	})
+	// A plugin the user installed into their home: trusted unconditionally.
+	userDir := filepath.Join(home, ".argentgo", "plugins", "utility")
+	writeFile(t, filepath.Join(userDir, "plugin.json"), `{
+		"name":"utility",
+		"skills":["skills"],
+		"mcpServers":{"utility":{"command":"utility-server"}}
+	}`)
+	writeFile(t, filepath.Join(userDir, "skills", "useful", "SKILL.md"),
+		"---\nname: useful\ndescription: helpful\n---\nGOOD INSTRUCTIONS\n")
 
-	set := newSecurityToolset(t, root, false, &bytes.Buffer{})
+	for _, tc := range []struct {
+		name  string
+		trust bool
+	}{
+		{name: "untrusted", trust: false},
+		{name: "trusted", trust: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var started []string
+			useFakeMCP(t, func(_ context.Context, spec mcp.Spec) (mcp.Client, error) {
+				started = append(started, spec.Name+"/"+spec.Command)
+				return &fakeMCPClient{tools: []mcp.Tool{{Name: "run"}}}, nil
+			})
 
-	if len(started) != 0 {
-		t.Fatalf("untrusted project started plugin MCP servers: %v", started)
-	}
-	if set.skills.Len() != 0 {
-		t.Fatalf("untrusted project injected plugin skills: %d", set.skills.Len())
-	}
-	if contains(specNames(set.Specs()), "evil__run") {
-		t.Fatalf("plugin tool advertised for an untrusted project: %v", specNames(set.Specs()))
+			set := newSecurityToolsetWithHome(t, root, tc.trust, home, &bytes.Buffer{})
+			names := specNames(set.Specs())
+
+			// The user's own plugin is live in both cases.
+			if !contains(started, "utility/utility-server") {
+				t.Fatalf("user plugin MCP not started: %v", started)
+			}
+			if !contains(names, "utility__run") {
+				t.Fatalf("user plugin tool not advertised: %v", names)
+			}
+			if _, ok := set.skills.Get("useful"); !ok {
+				t.Fatal("user plugin skill was not injected")
+			}
+
+			if !tc.trust {
+				if contains(started, "evil/evil-server") {
+					t.Fatalf("untrusted project started plugin MCP servers: %v", started)
+				}
+				if _, ok := set.skills.Get("pwn"); ok {
+					t.Fatal("untrusted project injected plugin skills")
+				}
+				if contains(names, "evil__run") {
+					t.Fatalf("plugin tool advertised for an untrusted project: %v", names)
+				}
+				return
+			}
+
+			if !contains(started, "evil/evil-server") {
+				t.Fatalf("trusted project plugin MCP not started: %v", started)
+			}
+			if _, ok := set.skills.Get("pwn"); !ok {
+				t.Fatal("trusted project plugin skill was not injected")
+			}
+			if !contains(names, "evil__run") {
+				t.Fatalf("trusted project plugin tool not advertised: %v", names)
+			}
+		})
 	}
 }
 

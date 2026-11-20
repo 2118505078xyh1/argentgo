@@ -201,11 +201,16 @@ func withPath(args, path string) (string, error) {
 // reported once and skipped.
 //
 // Connection order defines namespace priority when two servers expose the same
-// namespaced tool name: user config first, then the trusted project, then
-// plugins. connect() dedupes so a later server can never silently shadow an
-// earlier one. Everything sourced from the workspace is gated on TrustProject:
-// an untrusted repository must not be able to start processes or inject
-// instructions just by being opened.
+// namespaced tool name: user config first, then user-installed plugins, then
+// the trusted project's mcp.json and project plugins. connect() dedupes so a
+// later server can never silently shadow an earlier one.
+//
+// Plugins are split by where they were installed. A bundle under the user's
+// home plugins directory was deliberately installed by the user and is always
+// loaded. A bundle under the workspace's plugins directory comes from
+// repository content and, like <root>/.argent/mcp.json, is gated on
+// TrustProject: opening an untrusted repository must not start its processes or
+// inject its instructions.
 func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
 	set := &toolset{
 		base:   newMultiRootTools(res, sess, guard),
@@ -218,6 +223,16 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		set.connect(ctx, stdio, spec)
 	}
 
+	var userBundles, projectBundles []plugins.Bundle
+	if bundles, err := plugins.Resolve(res.Root); err != nil {
+		note(stdio, "plugins", err)
+	} else {
+		userBundles, projectBundles = splitPluginsBySource(res.Root, bundles)
+	}
+	// Home-installed plugins are trusted independently of the repository that
+	// happens to be open; they must survive an untrusted checkout.
+	set.wirePlugins(ctx, stdio, userBundles, res.Plugins)
+
 	if !res.TrustProject {
 		return set
 	}
@@ -227,32 +242,51 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	for _, spec := range projectMCPServers(res.Root) {
 		set.connect(ctx, stdio, spec)
 	}
+	set.wirePlugins(ctx, stdio, projectBundles, res.Plugins)
+	return set
+}
 
-	// Enabled plugins contribute skills, commands and MCP servers. Merge also
-	// refuses bundles whose manifest paths escape their root.
-	if bundles, err := plugins.Resolve(res.Root); err != nil {
-		note(stdio, "plugins", err)
-	} else {
-		wiring := plugins.Merge(filterPlugins(bundles, res.Plugins))
-		for _, path := range wiring.Skills {
-			addSkillPath(set.skills, path)
-		}
-		for _, server := range wiring.MCP {
-			env := make([]string, 0, len(server.Env))
-			for key, value := range server.Env {
-				env = append(env, key+"="+value)
-			}
-			sort.Strings(env)
-			set.connect(ctx, stdio, mcp.Spec{
-				Name:    server.Name,
-				Command: server.Command,
-				Args:    server.Args,
-				Env:     env,
-				URL:     server.URL,
-			})
+// splitPluginsBySource partitions resolved bundles into home-installed ones
+// (always trusted) and workspace ones (trust-gated). Discovery scans exactly
+// two roots — the project plugins dir and the user plugins dir — so the bundle
+// Dir recorded by LoadManifest is enough to tell them apart. The user root is
+// checked explicitly and anything not clearly under it falls back to the gated
+// side, so an ambiguous path can never relax the trust boundary.
+func splitPluginsBySource(root string, bundles []plugins.Bundle) (user, project []plugins.Bundle) {
+	projectRoot := plugins.ProjectPluginsDir(root)
+	userRoot, userErr := plugins.UserPluginsDir()
+	for _, bundle := range bundles {
+		if userErr == nil && withinRoot(userRoot, bundle.Dir) && !withinRoot(projectRoot, bundle.Dir) {
+			user = append(user, bundle)
+		} else {
+			project = append(project, bundle)
 		}
 	}
-	return set
+	return user, project
+}
+
+// wirePlugins injects one source's enabled bundles. Merge also refuses bundles
+// whose manifest paths escape their root; splitting the sources must not
+// weaken that guard (#4) or the name-collision dedupe in connect (#2).
+func (t *toolset) wirePlugins(ctx context.Context, stdio cli.IO, bundles []plugins.Bundle, names []string) {
+	wiring := plugins.Merge(filterPlugins(bundles, names))
+	for _, path := range wiring.Skills {
+		addSkillPath(t.skills, path)
+	}
+	for _, server := range wiring.MCP {
+		env := make([]string, 0, len(server.Env))
+		for key, value := range server.Env {
+			env = append(env, key+"="+value)
+		}
+		sort.Strings(env)
+		t.connect(ctx, stdio, mcp.Spec{
+			Name:    server.Name,
+			Command: server.Command,
+			Args:    server.Args,
+			Env:     env,
+			URL:     server.URL,
+		})
+	}
 }
 
 // connect opens one server and records the tools it advertises. Tools are
