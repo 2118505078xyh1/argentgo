@@ -265,6 +265,53 @@ func appendInstruction(out []Instruction, path string, limit int, used *int) ([]
 	return out, budgetTruncated || *used >= totalBudget
 }
 
+// RelevantInstructions returns the subset of docs whose instruction directory
+// scopes touchedPath, preserving the input order. An instruction file located
+// in directory D applies to touchedPath when touchedPath is D itself or lies
+// somewhere below D; rules in a sibling or ancestor-of-D subtree do not apply.
+//
+// This is the path-scoped companion to LoadWithBoundary: instead of injecting
+// every nested AGENTS.md/CLAUDE.md into the system prompt for the whole run,
+// a caller can keep the full set resident and pass only the relevant slice to
+// InstructionsToDocs + Block for the file a tool is about to touch. It is meant
+// for on-demand injection, which matters when the project has many nested
+// instruction files but each tool call touches a single subtree.
+//
+// Source paths are absolute, as produced by LoadWithBoundary. touchedPath may
+// be absolute (the common case for a workspace-resolved tool path) or relative,
+// in which case it is resolved against the process working directory via
+// filepath.Abs. Path containment uses cleaned paths and is case-insensitive on
+// Windows, matching withinWorkspace/samePath used elsewhere in this package.
+//
+// The function is pure: it performs no disk I/O, never mutates docs, and
+// returns a fresh slice (nil when nothing matches or the inputs are empty).
+func RelevantInstructions(docs []Instruction, touchedPath string) []Instruction {
+	if len(docs) == 0 || strings.TrimSpace(touchedPath) == "" {
+		return nil
+	}
+
+	target := filepath.Clean(touchedPath)
+	if !filepath.IsAbs(target) {
+		abs, err := filepath.Abs(target)
+		if err != nil {
+			return nil
+		}
+		target = abs
+	}
+
+	var out []Instruction
+	for _, d := range docs {
+		if d.Source == "" {
+			continue
+		}
+		dir := filepath.Dir(filepath.Clean(d.Source))
+		if withinWorkspace(target, dir) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // InstructionsToDocs converts opt-in loader results to the Doc type accepted
 // by Block, so the app can render them with the existing system-prompt block.
 func InstructionsToDocs(insts []Instruction) []Doc {

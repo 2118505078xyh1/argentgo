@@ -47,3 +47,31 @@ func TestParseArgsServeAddressWithIPv6(t *testing.T) {
 		t.Fatalf("ServeAddr = %q", opts.ServeAddr)
 	}
 }
+
+func TestParseArgsResumeAliasesHonorExplicitFalse(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"bare resume", []string{"--resume"}, true},
+		{"bare continue", []string{"--continue"}, true},
+		{"bare continue session", []string{"--continue-session"}, true},
+		{"explicit false resume", []string{"--resume=false"}, false},
+		{"explicit false continue", []string{"--continue=false"}, false},
+		{"explicit false continue session", []string{"--continue-session=false"}, false},
+		{"last alias wins false", []string{"--resume", "--continue=false"}, false},
+		{"last alias wins true", []string{"--continue=false", "--resume"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, _, err := parseArgs(tc.args, func(string) string { return "" }, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.Resume != tc.want {
+				t.Fatalf("parseArgs(%q).Resume = %v, want %v", tc.args, opts.Resume, tc.want)
+			}
+		})
+	}
+}

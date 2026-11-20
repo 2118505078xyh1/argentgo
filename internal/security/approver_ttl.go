@@ -186,23 +186,40 @@ func (c *TTLCache) IsAllowed(key string) bool {
 	if !ok {
 		return false
 	}
-	if !c.now().Before(entry.ExpiresAt) {
+	if c.now().Before(entry.ExpiresAt) {
+		return true
+	}
+	// The in-memory copy has expired. For a persisted cache another process may
+	// have renewed the very same grant while this call waited for the
+	// cross-process lock. Re-read the latest on-disk set before deciding: only
+	// delete when the fresh entry is expired too. An unconditional delete here
+	// would erase a grant that is still live, so neither this process nor a
+	// freshly started one would honour it.
+	if c.dir == "" {
 		delete(c.entries, key)
-		if c.dir != "" {
-			_ = c.withGrantLock(func() error {
-				entries, _, err := c.readGrantsLocked()
-				if err != nil {
-					c.failed = true
-					return err
-				}
-				delete(entries, key)
-				c.entries = entries
-				return c.writeGrantsLocked(entries)
-			})
-		}
 		return false
 	}
-	return true
+	allowed := false
+	_ = c.withGrantLock(func() error {
+		entries, dirty, err := c.readGrantsLocked()
+		if err != nil {
+			c.failed = true
+			return err
+		}
+		fresh, ok := entries[key]
+		if ok && c.now().Before(fresh.ExpiresAt) {
+			allowed = true
+		} else if ok {
+			delete(entries, key)
+			dirty = true
+		}
+		c.entries = entries
+		if !dirty {
+			return nil
+		}
+		return c.writeGrantsLocked(entries)
+	})
+	return allowed
 }
 
 // Deny removes any grant for key. Denials are never persisted: the remaining

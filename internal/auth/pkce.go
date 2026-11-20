@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -62,6 +63,33 @@ func PKCE() (verifier, challenge string, err error) {
 func S256(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// ValidatePKCE reports whether verifier produces challenge under method, using
+// the code_challenge_method values defined by RFC 7636 section 4.2:
+//
+//   - "S256": challenge must equal BASE64URL-ENCODE(SHA256(ASCII(verifier))),
+//     i.e. the value returned by S256.
+//   - "plain": challenge must equal verifier verbatim. An empty method is
+//     treated as "plain", which is the RFC 7636 default when the parameter is
+//     absent from a request.
+//
+// Any other method is unknown and yields false, even if the strings would
+// match under a known method. The verifier/challenge comparison is
+// constant-time. ValidatePKCE is a pure function: it performs no I/O and never
+// panics, so callers can use it to diagnose a broken PKCE pair before sending
+// it to a provider.
+func ValidatePKCE(verifier, challenge, method string) bool {
+	var want string
+	switch method {
+	case "", "plain":
+		want = verifier
+	case "S256":
+		want = S256(verifier)
+	default:
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(want), []byte(challenge)) == 1
 }
 
 // AuthorizeURL builds the browser URL for the authorization-code flow.

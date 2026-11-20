@@ -252,8 +252,10 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		}
 	}
 
-	// cmd.Wait has returned on every path above, and with it exec's stdout and
-	// stderr copy goroutines, so no Write can race with these Flush calls.
+	// Normally cmd.Wait has returned here, and with it exec's copy goroutines.
+	// awaitOutcome can also time out while a descendant still holds a pipe, in
+	// which case those goroutines are alive; the carry writers and capture
+	// buffers are mutex-protected so Flush/String remain safe either way.
 	outDec.Flush()
 	errDec.Flush()
 
@@ -261,7 +263,7 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		Stdout:    out.String(),
 		Stderr:    errOut.String(),
 		ExitCode:  -1,
-		Truncated: out.dropped || errOut.dropped,
+		Truncated: out.wasTruncated() || errOut.wasTruncated(),
 		Duration:  time.Since(started),
 	}
 	if got.state != nil {
@@ -303,7 +305,13 @@ func isExitError(err error) bool {
 }
 
 // cappedBuffer keeps the first half and the last half of a stream.
+//
+// It is safe for concurrent use: Run normally reads it only after cmd.Wait has
+// drained exec's copy goroutines, but when awaitOutcome gives up on a child
+// whose descendant kept a pipe open those goroutines can still be writing. The
+// mutex keeps String/Truncated reads from racing with those writes.
 type cappedBuffer struct {
+	mu      sync.Mutex
 	max     int
 	head    []byte
 	tail    []byte
@@ -312,6 +320,8 @@ type cappedBuffer struct {
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	n := len(p)
 	b.seen += n
 	if b.max <= 0 {
@@ -345,7 +355,18 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// wasTruncated reports whether the cap was hit. It is the lock-protected
+// accessor for the field, used by callers that can read the buffer while a
+// copy goroutine is still writing to it.
+func (b *cappedBuffer) wasTruncated() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dropped
+}
+
 func (b *cappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if !b.dropped {
 		// head and tail are contiguous here; runes spanning their boundary are
 		// still whole, so returning the raw bytes preserves the stream exactly.

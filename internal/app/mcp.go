@@ -50,6 +50,13 @@ type toolset struct {
 	// shared by every registry in base, so a single UpdateUsage call updates the
 	// tool regardless of which write root the call routes through.
 	usage *usageSource
+	// skillShellOn is the opt-in gate for executing `!`cmd`` spans found in a
+	// loaded skill body. False by default keeps use_skill byte-identical for an
+	// unconfigured run.
+	skillShellOn bool
+	// skillShellRun overrides the shell executor in tests. Production leaves it
+	// nil, which routes each command through base.Run (security approval chain).
+	skillShellRun func(context.Context, string) (string, error)
 }
 
 // multiRootTools fans built-in tool calls out to one registry per write root.
@@ -236,10 +243,11 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	// registry's default "unavailable" placeholder.
 	usage := newUsageSource()
 	set := &toolset{
-		base:   newMultiRootTools(res, sess, guard, usage),
-		guard:  guard,
-		skills: skillRegistry,
-		usage:  usage,
+		base:         newMultiRootTools(res, sess, guard, usage),
+		guard:        guard,
+		skills:       skillRegistry,
+		usage:        usage,
+		skillShellOn: skillShellEnabled(res.Cfg.Raw, os.Getenv),
 	}
 	// The policy is built before tool discovery, so MCP tools advertising
 	// readOnlyHint are not in its read-only set yet. Fold their names in once
@@ -468,7 +476,24 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 		return binding.client.CallTool(ctx, binding.remote, json.RawMessage(args))
 	}
 	if name == "use_skill" && t.skills != nil {
-		return t.skills.HandleUseSkill(json.RawMessage(args))
+		body, err := t.skills.HandleUseSkill(json.RawMessage(args))
+		if err != nil || body == "" || !t.skillShellOn {
+			return body, err
+		}
+		// Only a named, fully loaded skill body is executable. The nameless
+		// call lists skills, whose descriptions are untrusted metadata that may
+		// contain `!`cmd`` spans; those must never reach the shell.
+		var call struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(json.RawMessage(args), &call)
+		if strings.TrimSpace(call.Name) == "" {
+			return body, nil
+		}
+		// The operator opted in: run each executable `!`cmd`` span through the
+		// same approval chain a model-initiated shell call uses, then fold the
+		// results back into the body the model sees.
+		return t.expandSkillShell(ctx, body), nil
 	}
 	return t.base.Run(ctx, name, args)
 }

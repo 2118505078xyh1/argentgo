@@ -226,8 +226,12 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	}
 
 	cfg := decode(tree, cwd, sources)
-	if err := validatePrivacyMode(cfg.PrivacyMode); err != nil {
-		return Config{}, err
+	// Fail closed at load time on every invariant the fail-closed diagnostics
+	// summary reports. Keep Load, Diagnostics (doctor) and Validate on the same
+	// source of truth so a config that is unsafe to honour is never accepted on
+	// one path but quietly flagged on another.
+	if issues := cfg.failClosedDiagnostics(); len(issues) > 0 {
+		return Config{}, fmt.Errorf("config: %s", issues[0].Message)
 	}
 	cfg.ActiveProfile = profile
 	// Do not fold the provider's env key into cfg.APIKey. app.Resolve already
@@ -244,10 +248,13 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	return cfg, nil
 }
 
-// Validate rejects configurations the rest of the program cannot honour. It
-// is kept for compatibility: use Diagnostics to see every problem at once.
+// Validate rejects configurations the rest of the program cannot honour. The
+// legacy value-level failures keep their first-error ordering for compatibility;
+// the fail-closed invariants are checked immediately after. Use Diagnostics to
+// see every problem at once.
 func (c Config) Validate() error {
 	diagnostics := c.validateDiagnostics()
+	diagnostics = append(diagnostics, c.failClosedDiagnostics()...)
 	if len(diagnostics) == 0 {
 		return nil
 	}
@@ -740,13 +747,15 @@ func decodePrivacyMode(tree map[string]any) string {
 // validatePrivacyMode rejects values the privacy helpers cannot honor. A typo
 // fails config load instead of silently falling back to the permissive "any"
 // posture: security.AllowRemote already fails closed for unknown modes, and a
-// load-time error keeps that invariant consistent.
+// load-time error keeps that invariant consistent. The error carries no "config:"
+// prefix so it can be reused verbatim as a Diagnostic message; callers add the
+// prefix when surfacing it as an error.
 func validatePrivacyMode(mode string) error {
 	switch mode {
 	case PrivacyModeAny, PrivacyModeLocalOnly:
 		return nil
 	default:
-		return fmt.Errorf("config: privacyMode %q must be %q or %q", mode, PrivacyModeAny, PrivacyModeLocalOnly)
+		return fmt.Errorf("privacyMode %q must be %q or %q", mode, PrivacyModeAny, PrivacyModeLocalOnly)
 	}
 }
 

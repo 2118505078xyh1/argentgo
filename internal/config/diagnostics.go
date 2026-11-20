@@ -30,12 +30,69 @@ type Diagnostic struct {
 	Message string         `json:"message"`
 }
 
-// Diagnostics reports every problem it can find in c at once. Value-level
-// problems (the ones Validate reports) come first, in a stable order,
-// followed by problems discovered in the merged Raw tree.
+// Diagnostics reports every problem it can find in c at once. The three groups
+// are kept in a stable order: the legacy value-level failures Validate has
+// always reported, the fail-closed invariants that Load/startup enforce, and
+// finally the informational problems discovered in the merged Raw tree. This
+// is the single "fail-closed summary" CLI doctor and startup can consume.
 func (c Config) Diagnostics() []Diagnostic {
 	out := c.validateDiagnostics()
+	out = append(out, c.failClosedDiagnostics()...)
 	return append(out, treeDiagnostics(c.Raw)...)
+}
+
+// failClosedDiagnostics reports the safety-critical invariants that a caller
+// must not ignore. Unlike treeDiagnostics (which merely explains how a raw key
+// was interpreted), every issue here is enforced at load time by
+// LoadWithOverrides, so doctor, startup and an explicit Validate all agree on
+// what an unacceptable config is. Collecting them together keeps the
+// fail-closed posture: one bad value is reported without masking the others.
+func (c Config) failClosedDiagnostics() []Diagnostic {
+	var out []Diagnostic
+
+	// privacyMode is load-fatal because the security layer fails closed on an
+	// unknown posture. A Config built by hand or mutated after Load bypasses
+	// that gate, so surface the exact same rule here.
+	if err := validatePrivacyMode(c.PrivacyMode); err != nil {
+		out = append(out, Diagnostic{
+			Path:    "$.privacyMode",
+			Kind:    DiagnosticInvalid,
+			Message: err.Error(),
+		})
+	}
+
+	// Numeric ranges the rest of the program cannot honour. A percentage above
+	// 100 silently disables compaction, and negative bounds are always a typo.
+	if c.AutoCondenseContextPercent < -1 || c.AutoCondenseContextPercent > 100 {
+		out = append(out, Diagnostic{
+			Path:    "$.autoCondenseContextPercent",
+			Kind:    DiagnosticInvalid,
+			Message: fmt.Sprintf("autoCondenseContextPercent must be -1 or 0..100, got %d", c.AutoCondenseContextPercent),
+		})
+	}
+	if c.ContextWindow < 0 {
+		out = append(out, Diagnostic{
+			Path:    "$.contextWindow",
+			Kind:    DiagnosticInvalid,
+			Message: fmt.Sprintf("contextWindow must be >= 0, got %d", c.ContextWindow),
+		})
+	}
+	if c.VerifyTimeoutMS < 0 {
+		out = append(out, Diagnostic{
+			Path:    "$.verifyTimeoutMS",
+			Kind:    DiagnosticInvalid,
+			Message: fmt.Sprintf("verifyTimeoutMS must be >= 0, got %d", c.VerifyTimeoutMS),
+		})
+	}
+	if c.VerifyMaxReflections < 0 {
+		out = append(out, Diagnostic{
+			Path:    "$.verifyMaxReflections",
+			Kind:    DiagnosticInvalid,
+			Message: fmt.Sprintf("verifyMaxReflections must be >= 0, got %d", c.VerifyMaxReflections),
+		})
+	}
+
+	return out
 }
 
 // validateDiagnostics is the exact set of hard failures Validate has always

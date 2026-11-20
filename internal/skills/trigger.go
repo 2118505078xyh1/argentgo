@@ -147,3 +147,44 @@ func SkillsForModel(skills []Skill, family string) []Skill {
 	}
 	return out
 }
+
+// ResolveTriggeredSkills is the single entry point for automatic skill
+// activation. It describes one agent event with a file path, prompt text and
+// model family and returns every skill eligible for that event.
+//
+// The three trigger dimensions are independent constraints: a skill is
+// eligible only when each list it declares is either empty (no restriction)
+// or satisfied by the matching argument. In other words the path, keyword and
+// model filters are intersected, never unioned — a model restriction must not
+// be bypassed just because a keyword happened to match. An empty argument
+// therefore excludes skills restricted to that dimension, so with no context
+// only unrestricted skills (plus model-wildcard skills) remain.
+//
+// Registry order is preserved (each filter only removes entries) and no name
+// is returned twice. A nil registry yields nil.
+func ResolveTriggeredSkills(registry *Registry, path, keywords, modelFamily string) []Skill {
+	if registry == nil {
+		return nil
+	}
+	return resolveTriggeredSkills(registry.All(), path, keywords, modelFamily)
+}
+
+// resolveTriggeredSkills is the slice-based core of ResolveTriggeredSkills.
+// Keeping it separate lets the de-duplication guarantee be exercised directly
+// with a hand-built slice (a Registry already enforces unique names).
+func resolveTriggeredSkills(skills []Skill, path, keywords, modelFamily string) []Skill {
+	eligible := SkillsForPath(skills, path)
+	eligible = SkillsForKeywords(eligible, keywords)
+	eligible = SkillsForModel(eligible, modelFamily)
+
+	seen := make(map[string]bool, len(eligible))
+	out := make([]Skill, 0, len(eligible))
+	for _, skill := range eligible {
+		if seen[skill.Name] {
+			continue
+		}
+		seen[skill.Name] = true
+		out = append(out, skill)
+	}
+	return out
+}

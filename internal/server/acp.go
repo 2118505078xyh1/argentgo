@@ -136,9 +136,17 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 
 	s.mu.Lock()
 	requested := sessionIDFromParams(req.Params)
-	current := s.sessionID
+	if requested == "" {
+		// ACP requires sessionId, but stay permissive for clients that rely on
+		// the legacy "most recently created session" behaviour.
+		requested = s.sessionID
+	}
+	// Validate against every session created on this connection, not just the
+	// latest one. A client may open several sessions and return to an earlier
+	// one; sessions is the registry session/new maintains for exactly this.
+	_, known := s.sessions[requested]
 	s.mu.Unlock()
-	if requested != "" && requested != current {
+	if !known {
 		s.peer.fail(req.ID, codeInvalidParams, "unknown session")
 		return
 	}
@@ -153,7 +161,7 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 	s.mu.Unlock()
 
 	id := req.ID
-	session := current
+	session := requested
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

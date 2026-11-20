@@ -98,6 +98,12 @@ func (o Outcome) Message() string {
 	return prefix + ": " + detail
 }
 
+// CommandRunner executes one hook command. The zero-value Dispatcher uses
+// RunCommand, which spawns a shell. Tests inject a CommandRunner to observe
+// execution without touching the process table. A runner must honour ctx's
+// cancellation and deadline so the dispatcher's timeout still bounds a hook.
+type CommandRunner func(ctx context.Context, command Command, payload Payload) Outcome
+
 // Dispatcher runs hook commands.
 type Dispatcher struct {
 	// Timeout bounds one command when the command itself sets none; zero
@@ -117,6 +123,16 @@ type Dispatcher struct {
 	// reaches it. Zero (the default) disables the mark. It never changes
 	// dispatch or timing; callers decide how to warn on slow records.
 	SlowThreshold time.Duration
+
+	// Runner, when non-nil, replaces the built-in process runner for every
+	// hook, synchronous or asynchronous. It is the injection seam used by
+	// tests to observe hooks without spawning a real shell.
+	Runner CommandRunner
+
+	// asyncWG tracks background hooks launched by Run. Run never waits on it:
+	// an async hook must not delay the decision that triggered it. WaitAsync
+	// lets callers drain them (tests, graceful shutdown).
+	asyncWG sync.WaitGroup
 }
 
 // Dispatch runs every matching hook for payload.Event and returns the
@@ -140,8 +156,9 @@ func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, p
 // Run executes the synchronous hooks for one event, highest Priority first.
 // Hooks with equal Priority keep their declaration order (stable sort), so
 // document hooks — all at priority 0 — behave exactly as before. Async hooks
-// are skipped: a deciding hook must answer synchronously. A command with
-// StopPropagation ends the run after it executes, shielding later hooks.
+// are launched in the background and never enter the returned decision: a
+// deciding hook must answer synchronously. A command with StopPropagation ends
+// the run after it executes, shielding later hooks.
 //
 // Hooks of one priority tier run concurrently; tiers are drained in priority
 // order. Aggregate latency drops from O(N×T) to roughly O(T) per tier, while
@@ -161,6 +178,10 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 	sort.SliceStable(commands, func(i, j int) bool {
 		return commands[i].Priority > commands[j].Priority
 	})
+
+	// Launch background hooks before the synchronous tiers so a slow or
+	// cancelled tier cannot stop them from starting. Run never waits for them.
+	d.launchAsync(ctx, planAsync(commands), payload)
 
 	tiers := planRun(commands)
 	total := 0
@@ -259,11 +280,39 @@ func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payloa
 	return collector.ordered(launched)
 }
 
+// commandRunner returns the runner used for every hook. The zero value keeps
+// the original process-spawning behaviour; only tests that need an injection
+// seam override it.
+func (d *Dispatcher) commandRunner() CommandRunner {
+	if d.Runner != nil {
+		return d.Runner
+	}
+	return d.RunCommand
+}
+
+// timeoutFor resolves the effective timeout of a command: the command's own
+// value, then the dispatcher's, then defaultTimeout, clamped to minTimeout.
+// Both the synchronous process path and the background path use it so a hook
+// is bounded the same way regardless of how it was launched.
+func (d *Dispatcher) timeoutFor(command Command) time.Duration {
+	timeout := command.Timeout
+	if timeout <= 0 {
+		timeout = d.Timeout
+	}
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	if timeout < minTimeout {
+		timeout = minTimeout
+	}
+	return timeout
+}
+
 // guardedRunCommand runs one hook with panic containment. The only in-process
-// callback a hook can panic through is Dispatcher.Shell; a command that panics
-// becomes an Outcome with a PanicError, and the loop still reaches the next
-// command. The command string is the fallback identity when the caller did not
-// supply a tool call ID.
+// callbacks a hook can panic through are Dispatcher.Shell and Runner; a command
+// that panics becomes an Outcome with a PanicError, and the loop still reaches
+// the next command. The command string is the fallback identity when the caller
+// did not supply a tool call ID.
 func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, payload Payload) Outcome {
 	// Take the clock only when telemetry is on, so the default path pays no
 	// extra timing cost beyond what RunCommand already does.
@@ -276,8 +325,9 @@ func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, pay
 	if callID == "" {
 		callID = command.Command
 	}
+	runner := d.commandRunner()
 	err := guard(callID, func() error {
-		outcome = d.RunCommand(ctx, command, payload)
+		outcome = runner(ctx, command, payload)
 		return outcome.Err
 	})
 	if err != nil && outcome.Err == nil {
@@ -314,16 +364,7 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 		return outcome
 	}
 
-	timeout := command.Timeout
-	if timeout <= 0 {
-		timeout = d.Timeout
-	}
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
-	if timeout < minTimeout {
-		timeout = minTimeout
-	}
+	timeout := d.timeoutFor(command)
 
 	name, args := shellCommand(command.Command)
 	if d.Shell != nil {

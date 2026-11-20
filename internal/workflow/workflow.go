@@ -251,6 +251,12 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("workflow: step %q has a negative timeout", name)
 		}
 	}
+	// Step-output references are dependencies. Reject a broken graph here so
+	// a definition cannot reach the executor with a cycle or a dangling
+	// {{steps.NAME.output}} reference.
+	if _, err := ValidateDAG(d.Steps); err != nil {
+		return err
+	}
 	if err := ValidateParameters(*d); err != nil {
 		return err
 	}

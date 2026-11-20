@@ -44,8 +44,10 @@ const (
 // to decide whether the originating tool succeeded. The absence of artifactPath
 // together with the elision marker is the only failure signal.
 //
-// Outputs that already carry this package's spill marker are returned unchanged,
-// preventing a second spill when a spilled result is post-processed again.
+// Outputs that carry an intact marker naming a real artifact this package wrote
+// are returned unchanged, preventing a second spill when a spilled result is
+// post-processed again. A mere substring of the marker in ordinary tool output
+// is NOT trusted: doing so would let arbitrary output bypass the bound entirely.
 // Cuts always land on UTF-8 rune boundaries, so CJK text and emoji are intact.
 func SpillLargeOutput(output string, threshold int, dir string) (result string, artifactPath string, err error) {
 	// A non-positive threshold disables spilling; at or below the threshold the

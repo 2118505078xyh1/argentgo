@@ -147,16 +147,39 @@ func newStdioTransport(spec Spec) (*stdioTransport, error) {
 	return t, nil
 }
 
+// errLineTooLong is returned by readBoundedLine once a frame crosses the cap.
+var errLineTooLong = errors.New("mcp: frame too long")
+
+// readBoundedLine reads one newline-delimited frame from reader, accumulating
+// at most limit bytes. bufio.Reader.ReadBytes keeps growing its result until a
+// newline (or EOF) arrives, so a server that emits a giant line with no newline
+// would otherwise allocate without bound and defeat maxLineBytes. ReadSlice
+// only ever returns bytes already inside the reader's fixed buffer and reports
+// bufio.ErrBufferFull when more remain, which lets us enforce the cap as we go.
+func readBoundedLine(reader *bufio.Reader, limit int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > limit {
+			return line, errLineTooLong
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return line, err
+		}
+	}
+}
+
 // readLoop turns stdout lines into correlated responses.
 func (t *stdioTransport) readLoop(stdout io.Reader) {
 	reader := bufio.NewReaderSize(stdout, 64*1024)
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := readBoundedLine(reader, maxLineBytes)
+		if errors.Is(err, errLineTooLong) {
+			t.finish(fmt.Errorf("mcp %q: server sent a frame larger than %d bytes", t.name, maxLineBytes))
+			return
+		}
 		if len(line) > 0 {
-			if len(line) > maxLineBytes {
-				t.finish(fmt.Errorf("mcp %q: server sent a frame larger than %d bytes", t.name, maxLineBytes))
-				return
-			}
 			trimmed := bytes.TrimSpace(line)
 			if len(trimmed) > 0 {
 				// Invalid lines are tolerated: a server may print logs on stdout.

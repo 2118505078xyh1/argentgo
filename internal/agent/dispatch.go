@@ -318,7 +318,11 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				results[i] = s.invoke(ctx, calls[i])
+				// Workers only execute the tool. The mistake tracker and the
+				// invalid-argument breaker are streak counters whose final
+				// state depends on observation order, so they are replayed in
+				// call order below instead of being touched here.
+				results[i] = s.executeCall(ctx, calls[i])
 			}(i)
 		}
 		wg.Wait()
@@ -331,6 +335,9 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 			// Results are recorded in call order on the loop goroutine, so the
 			// guard's output window stays deterministic despite worker ordering.
 			s.guard.recordOutput(call.Function.Name, normalized[i], res.output)
+			// Same rule for the streak counters: a success that happened to
+			// finish last must not erase failures that precede it in the batch.
+			s.observeOutcome(res)
 		}
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
@@ -355,6 +362,10 @@ type callResult struct {
 	// invalidArgs marks an error result caused by the tool rejecting the call's
 	// arguments. It feeds the invalid-argument breaker without re-parsing text.
 	invalidArgs bool
+	// ran reports whether a tool was actually executed for this call. Approval
+	// failures and denials return before dispatch and must stay neutral for the
+	// mistake tracker and the invalid-argument breaker.
+	ran bool
 }
 
 // approvalDigest returns a stable, bounded hash of the exact arguments an
@@ -365,9 +376,23 @@ func approvalDigest(args string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// invoke gates and runs a single call. A tool error becomes an error result for
-// the model; it never aborts the run.
+// invoke gates and runs a single call, then folds its result into this run's
+// streak counters. It is the entry point for sequential dispatch and for direct
+// callers. Parallel workers must use executeCall and let the loop goroutine
+// replay outcomes in call order (see runParallelCalls).
 func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
+	res := s.executeCall(ctx, call)
+	s.observeOutcome(res)
+	return res
+}
+
+// executeCall gates and runs one call without touching the mistake tracker or
+// the invalid-argument breaker. Both are streak counters whose final state
+// depends on observation order: if a parallel worker recorded its own outcome,
+// whichever tool finished last would decide whether a streak survives. Callers
+// must fold the result back in call order with observeOutcome on the loop
+// goroutine.
+func (s *runState) executeCall(ctx context.Context, call llm.ToolCall) callResult {
 	start := time.Now()
 	// A guarded toolset already runs the security chain, which asks the same
 	// approver. Asking again in the loop would show a second modal for one call.
@@ -398,9 +423,19 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 		}
 	}
 	res := s.runTool(ctx, call, start)
+	res.ran = true
+	return res
+}
+
+// observeOutcome folds one executed call's result into the streak counters. It
+// must run on the loop goroutine in call order. Unrun calls (approval failures,
+// repeat-guard blocks, cancelled batches) carry ran=false and stay neutral.
+func (s *runState) observeOutcome(res callResult) {
+	if !res.ran {
+		return
+	}
 	// A tool that actually ran and failed counts toward the consecutive-mistake
 	// streak; a successful call clears it so the streak means "no progress".
-	// Unrun calls (approval errors, cancelled batches) never reach this line.
 	if res.isError {
 		s.mistakes.Record(MistakeKindToolExecutionFailed)
 	} else {
@@ -408,8 +443,7 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 	}
 	// Narrower than the mistake streak: only argument-validation rejections
 	// advance the invalid-argument breaker. Success and any non-argument failure
-	// prove progress and clear it; unrun calls are neutral by omission because
-	// the approval paths above return before this line.
+	// prove progress and clear it.
 	outcome := InvalidArgOutcomeSuccess
 	if res.invalidArgs {
 		outcome = InvalidArgOutcomeInvalidArgs
@@ -417,7 +451,6 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 		outcome = InvalidArgOutcomeOtherFailure
 	}
 	s.breaker().Observe(outcome)
-	return res
 }
 
 // isRecoverablePlanBlock reports whether err came from the optional plan-mode

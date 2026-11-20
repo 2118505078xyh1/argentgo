@@ -192,7 +192,7 @@ func (w *switchWriter) Captured() string {
 func (w *switchWriter) Truncated() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.captured().dropped
+	return w.captured().wasTruncated()
 }
 
 func (w *switchWriter) Handoff(dst io.Writer) {

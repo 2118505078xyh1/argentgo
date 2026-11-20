@@ -322,6 +322,158 @@ func TestLoadWithBoundaryProvenancePathPresent(t *testing.T) {
 	}
 }
 
+// instrAt builds an Instruction as LoadWithBoundary would produce it: an
+// absolute Source pointing at AGENTS.md inside dir. The files need not exist —
+// RelevantInstructions is a pure path filter.
+func instrAt(dir, text string) Instruction {
+	return Instruction{Source: filepath.Join(dir, "AGENTS.md"), Text: text}
+}
+
+// textsOf extracts the Text of each instruction in order for terse assertions.
+func textsOf(insts []Instruction) []string {
+	out := make([]string, len(insts))
+	for i, in := range insts {
+		out[i] = in.Text
+	}
+	return out
+}
+
+func TestRelevantInstructionsScopesNestedDocsByDirectory(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	parser := filepath.Join(src, "parser")
+	lexer := filepath.Join(src, "lexer")
+
+	// root-to-cwd order, as LoadWithBoundary returns it.
+	docs := []Instruction{
+		instrAt(base, "root"),
+		instrAt(src, "src"),
+		instrAt(parser, "parser"),
+		instrAt(lexer, "lexer"),
+	}
+
+	got := textsOf(RelevantInstructions(docs, filepath.Join(parser, "foo.go")))
+	want := []string{"root", "src", "parser"}
+	if len(got) != len(want) {
+		t.Fatalf("RelevantInstructions = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("RelevantInstructions = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestRelevantInstructionsExcludesSiblingsAndPrefixLookalikes(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	srcExtra := filepath.Join(base, "src-extra") // prefix of "src" plus junk
+	srcTwo := filepath.Join(base, "src2")
+	docs := []Instruction{
+		instrAt(src, "src"),
+		instrAt(srcExtra, "src-extra"),
+		instrAt(srcTwo, "src2"),
+	}
+
+	// Exact sibling subtree: only src2 applies, never src or src-extra.
+	if got := textsOf(RelevantInstructions(docs, filepath.Join(srcTwo, "foo.go"))); len(got) != 1 || got[0] != "src2" {
+		t.Fatalf("sibling match = %#v, want [src2]", got)
+	}
+
+	// A directory whose name merely starts with "src" must not match src.
+	if got := textsOf(RelevantInstructions(docs, filepath.Join(srcExtra, "foo.go"))); len(got) != 1 || got[0] != "src-extra" {
+		t.Fatalf("prefix lookalike = %#v, want [src-extra]", got)
+	}
+}
+
+func TestRelevantInstructionsRootAppliesEverywhereDeepestIsLocal(t *testing.T) {
+	base := t.TempDir()
+	parser := filepath.Join(base, "src", "parser")
+	docs := []Instruction{instrAt(base, "root"), instrAt(parser, "parser")}
+
+	// A file at the project root sees only the root instruction.
+	if got := textsOf(RelevantInstructions(docs, filepath.Join(base, "top.go"))); len(got) != 1 || got[0] != "root" {
+		t.Fatalf("root file = %#v, want [root]", got)
+	}
+	// A file deep in the parser subtree sees both.
+	if got := textsOf(RelevantInstructions(docs, filepath.Join(parser, "deep", "p.go"))); len(got) != 2 {
+		t.Fatalf("deep file = %#v, want [root parser]", got)
+	}
+}
+
+func TestRelevantInstructionsPreservesOrderAndDoesNotMutateInput(t *testing.T) {
+	base := t.TempDir()
+	matchA := instrAt(filepath.Join(base, "a"), "A")
+	matchB := instrAt(filepath.Join(base, "b"), "B")
+	other := instrAt(filepath.Join(base, "c"), "C")
+	// Deliberately not sorted: output must follow input order, not re-rank.
+	docs := []Instruction{other, matchB, matchA}
+
+	got := RelevantInstructions(docs, filepath.Join(base, "b", "x.go"))
+	if len(got) != 1 || got[0].Text != "B" {
+		t.Fatalf("got = %#v, want only B", got)
+	}
+	// The input slice must be untouched (pure function).
+	if len(docs) != 3 || docs[0].Text != "C" || docs[1].Text != "B" || docs[2].Text != "A" {
+		t.Fatalf("input was mutated: %#v", docs)
+	}
+}
+
+func TestRelevantInstructionsCleansDotsAndSkipsEmptySource(t *testing.T) {
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	parser := filepath.Join(src, "parser")
+	lexer := filepath.Join(src, "lexer")
+	docs := []Instruction{
+		{Source: "", Text: "no source"},
+		instrAt(parser, "parser"),
+		instrAt(lexer, "lexer"),
+	}
+
+	// parser/../lexer resolves into the lexer subtree, not the parser one.
+	touched := filepath.Join(parser, "..", "lexer", "foo.go")
+	got := textsOf(RelevantInstructions(docs, touched))
+	if len(got) != 1 || got[0] != "lexer" {
+		t.Fatalf("got = %#v, want [lexer]", got)
+	}
+}
+
+func TestRelevantInstructionsEmptyInputsAndOutsideAllDirs(t *testing.T) {
+	base := t.TempDir()
+	docs := []Instruction{instrAt(filepath.Join(base, "src"), "src")}
+
+	if got := RelevantInstructions(nil, filepath.Join(base, "src", "x.go")); got != nil {
+		t.Fatalf("nil docs = %#v, want nil", got)
+	}
+	if got := RelevantInstructions(docs, ""); got != nil {
+		t.Fatalf("empty path = %#v, want nil", got)
+	}
+	if got := RelevantInstructions(docs, "   "); got != nil {
+		t.Fatalf("blank path = %#v, want nil", got)
+	}
+	// A path under none of the instruction directories matches nothing.
+	outside := filepath.Join(t.TempDir(), "x.go")
+	if got := RelevantInstructions(docs, outside); got != nil {
+		t.Fatalf("outside path = %#v, want nil", got)
+	}
+}
+
+// TestRelevantInstructionsCaseInsensitiveOnWindows guards the documented
+// case-insensitive containment on Windows; the assertion is skipped elsewhere
+// where path comparison is case-sensitive.
+func TestRelevantInstructionsCaseInsensitiveOnWindows(t *testing.T) {
+	if filepath.Separator != '\\' {
+		t.Skip("case-insensitive path matching applies on Windows only")
+	}
+	base := t.TempDir()
+	src := filepath.Join(base, "Src")
+	docs := []Instruction{instrAt(src, "src")}
+	touched := filepath.Join(strings.ToUpper(src), "Foo.go")
+	if got := textsOf(RelevantInstructions(docs, touched)); len(got) != 1 || got[0] != "src" {
+		t.Fatalf("got = %#v, want [src]", got)
+	}
+}
+
 // TestLoadInBehaviourUnchanged is a regression guard: adding the boundary
 // loader must not change the existing nearest-first, home-stopping LoadIn path
 // or make it read AGENTS.override.md.

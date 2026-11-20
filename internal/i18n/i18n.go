@@ -274,12 +274,269 @@ func ParseOutputLanguagePreference(raw string) (lang string, ok bool) {
 // Keys returns every catalog key, sorted. Tests use it to check both locales
 // are complete.
 func Keys() []string {
-	keys := make([]string, 0, len(catalog))
-	for key := range catalog {
+	return sortedKeys(catalog)
+}
+
+func sortedKeys(cat map[string]translation) []string {
+	keys := make([]string, 0, len(cat))
+	for key := range cat {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// IssueKind classifies a problem reported by AuditTranslations.
+type IssueKind string
+
+const (
+	// IssueMissingText: a locale's string is empty for a key that the catalog
+	// still defines. This is a translation that was never provided.
+	IssueMissingText IssueKind = "missing_text"
+	// IssueFormatVerbMismatch: the multiset of fmt.Sprintf conversion verbs
+	// (e.g. %s, %d) differs between locales, so one locale will render
+	// "%!(EXTRA ...)" or miss a substituted value.
+	IssueFormatVerbMismatch IssueKind = "format_verb_mismatch"
+	// IssuePlaceholderMismatch: the multiset of named {name} placeholders used
+	// by Format differs between locales, so one locale leaves a placeholder
+	// visible or ignores a value the other consumes.
+	IssuePlaceholderMismatch IssueKind = "placeholder_mismatch"
+)
+
+// Issue is one translation-completeness problem found by AuditTranslations.
+// All fields are exported so callers (e.g. a doctor command or a test) can
+// inspect and format them without reaching into package internals.
+type Issue struct {
+	Key    string    // catalog key with the problem
+	Locale string    // locale code whose translation is deficient
+	Kind   IssueKind // category of the problem
+	Detail string    // short human-readable explanation
+}
+
+// AuditTranslations checks translation completeness across locales and returns
+// the problems found. It is a pure function: it reads only the embedded
+// catalog, mutates no state (including the Missing log), and returns issues
+// sorted by Key, Locale, Kind and Detail. A healthy catalog returns an empty,
+// non-nil slice.
+//
+// With no arguments every supported locale (Known) is audited. Arguments are
+// canonicalised via Canonical, de-duplicated and sorted; unsupported locales
+// are ignored because the catalog only carries text for the supported codes.
+//
+// For each key, the first requested locale that is EnUS is the reference (the
+// source strings). Every other requested locale is compared against it for:
+//   - empty text where the reference has text (IssueMissingText);
+//   - a differing multiset of fmt.Sprintf verbs (IssueFormatVerbMismatch);
+//   - a differing multiset of named {name} placeholders
+//     (IssuePlaceholderMismatch).
+//
+// An empty reference is itself reported as IssueMissingText for that locale.
+// The key set is shared by all locales in this catalog, so a key cannot be
+// "extra" in one locale; the meaningful omissions are empty text and dropped
+// placeholders, which is what this audit detects.
+func AuditTranslations(locales ...string) []Issue {
+	return auditCatalog(catalog, locales)
+}
+
+func auditCatalog(cat map[string]translation, locales []string) []Issue {
+	requested := normalizeAuditLocales(locales)
+	if len(requested) == 0 {
+		return []Issue{}
+	}
+	reference := referenceLocale(requested)
+
+	issues := make([]Issue, 0)
+	for _, key := range sortedKeys(cat) {
+		entry := cat[key]
+		for _, loc := range requested {
+			if textFor(loc, entry) == "" {
+				issues = append(issues, Issue{
+					Key: key, Locale: loc, Kind: IssueMissingText,
+					Detail: "empty translation",
+				})
+			}
+		}
+
+		ref := textFor(reference, entry)
+		if ref == "" {
+			continue // nothing to compare against; emptiness already reported
+		}
+		refVerbs, refNames := formatVerbs(ref), namedPlaceholders(ref)
+		for _, loc := range requested {
+			if loc == reference {
+				continue
+			}
+			text := textFor(loc, entry)
+			if text == "" {
+				continue // already reported as IssueMissingText
+			}
+			if verbs := formatVerbs(text); !sameCounts(refVerbs, verbs) {
+				issues = append(issues, Issue{
+					Key: key, Locale: loc, Kind: IssueFormatVerbMismatch,
+					Detail: "format verbs " + describeCounts(verbs) + " vs reference " + describeCounts(refVerbs),
+				})
+			}
+			if names := namedPlaceholders(text); !sameCounts(refNames, names) {
+				issues = append(issues, Issue{
+					Key: key, Locale: loc, Kind: IssuePlaceholderMismatch,
+					Detail: "placeholders " + describeCounts(names) + " vs reference " + describeCounts(refNames),
+				})
+			}
+		}
+	}
+
+	sort.Slice(issues, func(i, j int) bool {
+		a, b := issues[i], issues[j]
+		if a.Key != b.Key {
+			return a.Key < b.Key
+		}
+		if a.Locale != b.Locale {
+			return a.Locale < b.Locale
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.Detail < b.Detail
+	})
+	return issues
+}
+
+// normalizeAuditLocales canonicalises caller input. An empty request means
+// "all supported locales". Unknown locales are dropped.
+func normalizeAuditLocales(locales []string) []string {
+	if len(locales) == 0 {
+		return Known()
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, locale := range locales {
+		code, ok := Canonical(locale)
+		if !ok || (code != EnUS && code != ZhCN) || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// referenceLocale picks the locale whose text is the source for comparisons.
+// English is preferred; otherwise the first (sorted) locale is used.
+func referenceLocale(locales []string) string {
+	for _, locale := range locales {
+		if locale == EnUS {
+			return EnUS
+		}
+	}
+	return locales[0]
+}
+
+// textFor selects a locale's string from an entry. Unknown codes fall back to
+// English, matching T's default-locale behaviour.
+func textFor(locale string, e translation) string {
+	if locale == ZhCN {
+		return e.zh
+	}
+	return e.en
+}
+
+// isASCIILetter reports whether c is an ASCII letter.
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// isFmtDirectiveByte reports whether c may appear between '%' and a
+// conversion verb: flags, width, precision, argument index and their padding.
+func isFmtDirectiveByte(c byte) bool {
+	switch c {
+	case '+', '-', '#', '0', ' ', '.', '[', ']':
+		return true
+	}
+	return c >= '0' && c <= '9'
+}
+
+// formatVerbs returns a count of each fmt.Sprintf conversion verb in s. A
+// verb is the ASCII letter that terminates a '%' directive; flags, width,
+// precision and argument indexes do not change it. "%%" is a literal percent
+// and contributes no verb. A malformed or trailing '%' is ignored.
+func formatVerbs(s string) map[string]int {
+	out := map[string]int{}
+	for i := 0; i < len(s); {
+		if s[i] != '%' {
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == '%' {
+			i += 2
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isFmtDirectiveByte(s[j]) {
+			j++
+		}
+		if j < len(s) && isASCIILetter(s[j]) {
+			out[string(s[j])]++
+			i = j + 1
+			continue
+		}
+		i++ // stray '%': treat as literal
+	}
+	return out
+}
+
+// namedPlaceholders returns a count of each {name} placeholder in s, using
+// the same scanning rules as Format (escaped braces are not placeholders).
+func namedPlaceholders(s string) map[string]int {
+	out := map[string]int{}
+	for i := 0; i < len(s); {
+		if s[i] == '{' {
+			if i+1 < len(s) && s[i+1] == '{' {
+				i += 2
+				continue
+			}
+			if name, end, ok := placeholderAt(s, i); ok {
+				out[name]++
+				i = end
+				continue
+			}
+		}
+		i++
+	}
+	return out
+}
+
+func sameCounts(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// describeCounts renders a count map deterministically for Issue.Detail.
+func describeCounts(m map[string]int) string {
+	if len(m) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if m[k] == 1 {
+			parts = append(parts, k)
+		} else {
+			parts = append(parts, fmt.Sprintf("%s*%d", k, m[k]))
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // T looks up one UI string.

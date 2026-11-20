@@ -125,6 +125,226 @@ func TestKnownLocales(t *testing.T) {
 	}
 }
 
+func TestAuditTranslationsHealthyCatalogHasNoIssues(t *testing.T) {
+	ResetMissing()
+	got := AuditTranslations()
+	if got == nil {
+		t.Fatal("AuditTranslations returned a nil slice, want empty non-nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("healthy catalog produced issues: %#v", got)
+	}
+	// Auditing is pure and must not touch the Missing log.
+	if missing := Missing(); len(missing) != 0 {
+		t.Errorf("audit recorded missing keys: %#v", missing)
+	}
+	// Repeated calls are deterministic.
+	if again := AuditTranslations(); len(again) != 0 {
+		t.Errorf("second audit differs: %#v", again)
+	}
+}
+
+func TestAuditCatalogDetectsOmissions(t *testing.T) {
+	cases := []struct {
+		name        string
+		cat         map[string]translation
+		locales     []string
+		wantKinds   []IssueKind
+		wantLocales []string
+	}{
+		{
+			name: "empty catalog is clean",
+			cat:  map[string]translation{},
+		},
+		{
+			name: "healthy entry is clean",
+			cat: map[string]translation{
+				"k": {"error: %s", "错误：%s"},
+			},
+		},
+		{
+			name: "empty zh translation is reported",
+			cat: map[string]translation{
+				"k": {"error: %s", ""},
+			},
+			wantKinds:   []IssueKind{IssueMissingText},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "empty reference is reported for en",
+			cat: map[string]translation{
+				"k": {"", "错误"},
+			},
+			wantKinds:   []IssueKind{IssueMissingText},
+			wantLocales: []string{EnUS},
+		},
+		{
+			name: "both locales empty reports two issues",
+			cat: map[string]translation{
+				"k": {"", ""},
+			},
+			wantKinds:   []IssueKind{IssueMissingText, IssueMissingText},
+			wantLocales: []string{EnUS, ZhCN},
+		},
+		{
+			name: "dropped format verb is reported",
+			cat: map[string]translation{
+				"k": {"model error: %s", "模型错误"},
+			},
+			wantKinds:   []IssueKind{IssueFormatVerbMismatch},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "wrong format verb is reported",
+			cat: map[string]translation{
+				"k": {"%d items", "%s 个项目"},
+			},
+			wantKinds:   []IssueKind{IssueFormatVerbMismatch},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "repeated verb count difference is reported",
+			cat: map[string]translation{
+				"k": {"%s and %s", "%s 和"},
+			},
+			wantKinds:   []IssueKind{IssueFormatVerbMismatch},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "dropped named placeholder is reported",
+			cat: map[string]translation{
+				"k": {"hello {name}", "你好"},
+			},
+			wantKinds:   []IssueKind{IssuePlaceholderMismatch},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "renamed named placeholder is reported",
+			cat: map[string]translation{
+				"k": {"hello {name}", "你好 {nome}"},
+			},
+			wantKinds:   []IssueKind{IssuePlaceholderMismatch},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name: "escaped braces are not placeholders",
+			cat: map[string]translation{
+				"k": {"{{name}}", "嗯"},
+			},
+		},
+		{
+			name: "percent escape is not a verb",
+			cat: map[string]translation{
+				"k": {"100%% done", "已完成 100%%"},
+			},
+		},
+		{
+			name:    "single locale only checks that locale",
+			cat:     map[string]translation{"k": {"ok", ""}},
+			locales: []string{EnUS},
+			// zh is empty but not requested, so no issue.
+		},
+		{
+			name:    "single requested locale can still be checked",
+			cat:     map[string]translation{"k": {"ok", ""}},
+			locales: []string{ZhCN},
+			// reference becomes zh (empty text) -> reported for zh.
+			wantKinds:   []IssueKind{IssueMissingText},
+			wantLocales: []string{ZhCN},
+		},
+		{
+			name:    "unsupported locales are ignored",
+			cat:     map[string]translation{"k": {"ok", "好"}},
+			locales: []string{"fr-FR", "klingon"},
+		},
+		{
+			name:        "aliases are canonicalised and deduplicated",
+			cat:         map[string]translation{"k": {"%s", "无占位符"}},
+			locales:     []string{"zh", "zh-CN", "en"},
+			wantKinds:   []IssueKind{IssueFormatVerbMismatch},
+			wantLocales: []string{ZhCN},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := auditCatalog(tc.cat, tc.locales)
+			if len(got) != len(tc.wantKinds) {
+				t.Fatalf("issues = %#v; want %d of kinds %v", got, len(tc.wantKinds), tc.wantKinds)
+			}
+			for i, issue := range got {
+				if issue.Kind != tc.wantKinds[i] {
+					t.Errorf("issue %d kind = %q, want %q", i, issue.Kind, tc.wantKinds[i])
+				}
+				if tc.wantLocales != nil && issue.Locale != tc.wantLocales[i] {
+					t.Errorf("issue %d locale = %q, want %q", i, issue.Locale, tc.wantLocales[i])
+				}
+				if issue.Key != "k" {
+					t.Errorf("issue %d key = %q, want k", i, issue.Key)
+				}
+				if issue.Detail == "" {
+					t.Errorf("issue %d has empty Detail", i)
+				}
+			}
+		})
+	}
+}
+
+func TestAuditTranslationsReportsMultipleKindsSorted(t *testing.T) {
+	cat := map[string]translation{
+		"z.last":  {"%s", "无占位符"},
+		"a.first": {"", "非空"},
+	}
+	got := auditCatalog(cat, nil)
+	if len(got) != 2 {
+		t.Fatalf("issues = %#v, want 2", got)
+	}
+	if got[0].Key != "a.first" || got[1].Key != "z.last" {
+		t.Errorf("issues not sorted by key: %#v", got)
+	}
+	if got[0].Kind != IssueMissingText || got[1].Kind != IssueFormatVerbMismatch {
+		t.Errorf("unexpected kinds: %#v", got)
+	}
+}
+
+func TestFormatVerbsAndNamedPlaceholders(t *testing.T) {
+	verbCases := []struct {
+		text string
+		want map[string]int
+	}{
+		{"plain", map[string]int{}},
+		{"%s", map[string]int{"s": 1}},
+		{"%d items", map[string]int{"d": 1}},
+		{"%s %s", map[string]int{"s": 2}},
+		{"%.2f and %[1]d", map[string]int{"f": 1, "d": 1}},
+		{"100%% done", map[string]int{}},
+		{"%%%s", map[string]int{"s": 1}},
+		{"trailing %", map[string]int{}},
+	}
+	for _, tc := range verbCases {
+		if got := formatVerbs(tc.text); !sameCounts(got, tc.want) {
+			t.Errorf("formatVerbs(%q) = %#v, want %#v", tc.text, got, tc.want)
+		}
+	}
+
+	placeholderCases := []struct {
+		text string
+		want map[string]int
+	}{
+		{"plain", map[string]int{}},
+		{"{name}", map[string]int{"name": 1}},
+		{"{name} {name}", map[string]int{"name": 2}},
+		{"{a} {b}", map[string]int{"a": 1, "b": 1}},
+		{"{{name}}", map[string]int{}},
+		{"{a-b}", map[string]int{}},
+	}
+	for _, tc := range placeholderCases {
+		if got := namedPlaceholders(tc.text); !sameCounts(got, tc.want) {
+			t.Errorf("namedPlaceholders(%q) = %#v, want %#v", tc.text, got, tc.want)
+		}
+	}
+}
+
 func TestDetect(t *testing.T) {
 	cases := []struct {
 		name string

@@ -242,6 +242,74 @@ func TestValidateAndRepairAppendsMissingTrailingNewline(t *testing.T) {
 	assertRepairFileBytes(t, path, content)
 }
 
+// TestValidateAndRepairIsIdempotentWithoutValidPrefix covers a torn first line
+// (or an empty/blank file): repairing must not publish a bare "\n", which
+// decodeLine classifies as yet another torn tail. A repaired transcript must be
+// clean on the next validation, otherwise every resume rewrites the file again.
+func TestValidateAndRepairIsIdempotentWithoutValidPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		content  string
+		wantTorn bool
+	}{
+		{"empty file", "", false},
+		{"trailing newline only", "\n", true},
+		{"whitespace only", "   \n", true},
+		{"torn first line", `{"id":"tor`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "torn.jsonl")
+			writeRepairFile(t, path, tc.content)
+
+			report, err := ValidateAndRepair(path, true)
+			if err != nil {
+				t.Fatalf("ValidateAndRepair(repair=true): %v", err)
+			}
+			if report.TornTail != tc.wantTorn || report.Repaired != tc.wantTorn || report.KeptLines != 0 {
+				t.Fatalf("report = %+v, want torn/repaired=%v with zero kept lines", report, tc.wantTorn)
+			}
+			assertRepairFileBytes(t, path, "")
+
+			again, err := ValidateAndRepair(path, false)
+			if err != nil {
+				t.Fatalf("ValidateAndRepair after repair: %v", err)
+			}
+			if again.TornTail || again.Repaired || again.PhysicalLines != 0 {
+				t.Fatalf("repaired file is reported torn again: %+v", again)
+			}
+		})
+	}
+}
+
+// TestValidateAndRepairKeepsValidPrefixBeforeTornTail makes sure the fix for a
+// torn first line does not strip the terminating newline when a real prefix
+// survives: the kept records must stay byte-identical and terminate cleanly.
+func TestValidateAndRepairKeepsValidPrefixBeforeTornTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tail.jsonl")
+	first := validRepairLine(t, "n000001", "", KindHeader)
+	content := first + "\n" + `{"id":"tor`
+	writeRepairFile(t, path, content)
+
+	report, err := ValidateAndRepair(path, true)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair: %v", err)
+	}
+	if !report.TornTail || !report.Repaired || report.KeptLines != 1 {
+		t.Fatalf("report = %+v, want one kept line repaired", report)
+	}
+	assertRepairFileBytes(t, path, first+"\n")
+
+	again, err := ValidateAndRepair(path, false)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair after repair: %v", err)
+	}
+	if again.TornTail || again.PhysicalLines != 1 || again.KeptLines != 1 {
+		t.Fatalf("repaired prefix is not clean: %+v", again)
+	}
+}
+
 func TestAtomicPublishJSONLWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows rename and directory-sync path")

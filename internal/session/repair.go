@@ -90,7 +90,14 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 			if !repair {
 				return report, nil
 			}
-			validPrefix := strings.Join(lines[:idx], "\n") + "\n"
+			// Terminate the kept prefix only when it actually holds a record.
+			// A torn first line leaves no prefix; writing a bare "\n" here would
+			// publish a blank line that decodeLine classifies as another torn
+			// tail, so every later resume would "repair" the file again forever.
+			validPrefix := strings.Join(lines[:idx], "\n")
+			if idx > 0 {
+				validPrefix += "\n"
+			}
 			if err := atomicPublishJSONL(path, []byte(validPrefix)); err != nil {
 				return report, fmt.Errorf("session: repair torn tail in %s: %w", path, err)
 			}
@@ -99,7 +106,10 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 		}
 	}
 
-	if repair && !strings.HasSuffix(string(data), "\n") {
+	if repair && len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
+		// An empty file has no unterminated record to fix. Leaving it empty
+		// keeps a repaired transcript clean instead of introducing the blank
+		// line that would be reported as a torn tail on the next validation.
 		if err := appendRepairNewline(path); err != nil {
 			return report, fmt.Errorf("session: repair tail in %s: %w", path, err)
 		}

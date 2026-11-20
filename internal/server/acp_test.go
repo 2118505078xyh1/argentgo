@@ -102,6 +102,77 @@ func TestACPSessionFlow(t *testing.T) {
 	waitFor(t, done)
 }
 
+// TestACPPromptAcceptsEarlierSession guards the session registry: a client may
+// create several sessions on one connection and then prompt an earlier one. The
+// session/new handler records every id in acpState.sessions; prompt must consult
+// that registry instead of accepting only the most recently created session.
+// Before the fix the second session/new made prompting the first fail with
+// -32602 "unknown session" even though it was created on this connection.
+func TestACPPromptAcceptsEarlierSession(t *testing.T) {
+	runner := &fakeRunner{reply: "ok", chunks: []string{"ok"}}
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- RunACP(context.Background(), inR, outW, Config{Runner: runner})
+	}()
+
+	enc := json.NewEncoder(inW)
+	dec := json.NewDecoder(outR)
+
+	// Create two sessions; the second becomes s.sessionID (the "current" one).
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/new"})
+	first := readJSON(t, dec)
+	firstBody, _ := first["result"].(map[string]any)
+	firstID, _ := firstBody["sessionId"].(string)
+	if firstID == "" {
+		t.Fatalf("session/new result = %v", first)
+	}
+
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session/new"})
+	second := readJSON(t, dec)
+	secondBody, _ := second["result"].(map[string]any)
+	secondID, _ := secondBody["sessionId"].(string)
+	if secondID == "" || secondID == firstID {
+		t.Fatalf("second session/new result = %v", second)
+	}
+
+	// Prompt the *first* session. It is a known session from this connection,
+	// so it must be accepted despite not being the current one.
+	_ = enc.Encode(map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+		"params": map[string]any{
+			"sessionId": firstID,
+			"prompt":    []map[string]any{{"type": "text", "text": "hi"}},
+		},
+	})
+	var promptResult map[string]any
+	for {
+		msg := readJSON(t, dec)
+		if msg["id"] == float64(3) {
+			promptResult = msg
+			break
+		}
+		if msg["method"] != "session/update" {
+			t.Fatalf("unexpected message = %v", msg)
+		}
+		params, _ := msg["params"].(map[string]any)
+		if params["sessionId"] != firstID {
+			t.Fatalf("update sessionId = %v, want first session %q", params["sessionId"], firstID)
+		}
+	}
+	if _, ok := promptResult["error"]; ok {
+		t.Fatalf("prompting a previously created session failed: %v", promptResult)
+	}
+	body, _ := promptResult["result"].(map[string]any)
+	if body["stopReason"] != "end_turn" {
+		t.Fatalf("prompt result = %v", promptResult)
+	}
+
+	_ = inW.Close()
+	waitFor(t, done)
+}
+
 func TestACPPromptForUnknownSession(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()

@@ -383,7 +383,11 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		// baseInput is message_start's bare input_tokens (cache excluded).
 		// message_delta carries the authoritative cache counts, so PromptTokens
 		// is rebuilt from this base instead of summing the two snapshots.
-		baseInput    int
+		baseInput int
+		// deltaInput remembers the largest input_tokens seen in a message_delta.
+		// Pass-through gateways (e.g. LiteLLM/OpenRouter) zero message_start's
+		// usage and report the real total prompt cost here instead.
+		deltaInput   int
 		finishReason string
 		integrity    streamIntegrity
 		partials     = make(map[int]*anthropicPartial)
@@ -523,8 +527,20 @@ streamLoop:
 				// PromptTokens is the full prompt cost (fresh + cached). Rebuild it
 				// from message_start's bare input plus the authoritative delta cache
 				// counts; otherwise CachedTokens can exceed PromptTokens and budget
-				// accounting undercounts.
-				usage.PromptTokens = baseInput + usage.CachedTokens + usage.CacheWriteTokens
+				// accounting undercounts. A pass-through gateway may zero
+				// message_start and report the real total as message_delta's
+				// input_tokens, so take the larger total: that value is
+				// authoritative when it accounts for tokens message_start never
+				// reported, yet a native stream that merely repeats its bare
+				// base input cannot overwrite the cached portion.
+				if event.Usage.InputTokens > deltaInput {
+					deltaInput = event.Usage.InputTokens
+				}
+				prompt := baseInput + usage.CachedTokens + usage.CacheWriteTokens
+				if deltaInput > prompt {
+					prompt = deltaInput
+				}
+				usage.PromptTokens = prompt
 			}
 		case "message_stop":
 			integrity.terminated = true

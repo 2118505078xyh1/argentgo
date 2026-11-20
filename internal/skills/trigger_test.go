@@ -241,3 +241,84 @@ func TestParseLeavesTriggersEmptyWhenAbsent(t *testing.T) {
 		t.Errorf("skill with no triggers should match every path, got %v", got)
 	}
 }
+
+func TestResolveTriggeredSkillsIntersectsFiltersInRegistryOrder(t *testing.T) {
+	// Insertion order is intentionally not sorted: the aggregate must keep it.
+	registry := New()
+	registry.Add(Skill{Name: "always"})
+	registry.Add(Skill{Name: "go", Triggers: Triggers{Paths: []string{"**/*.go"}}})
+	registry.Add(Skill{Name: "refactor", Triggers: Triggers{Keywords: []string{"重构", "refactor"}}})
+	registry.Add(Skill{Name: "claude", Triggers: Triggers{Models: []string{"claude"}}})
+	registry.Add(Skill{Name: "go-refactor", Triggers: Triggers{Paths: []string{"**/*.go"}, Keywords: []string{"重构"}}})
+	registry.Add(Skill{Name: "go-claude", Triggers: Triggers{Paths: []string{"**/*.go"}, Models: []string{"claude"}}})
+	registry.Add(Skill{Name: "all-go", Triggers: Triggers{Paths: []string{"**/*.go"}, Keywords: []string{"重构"}, Models: []string{"claude"}}})
+	registry.Add(Skill{Name: "wildcard", Triggers: Triggers{Models: []string{"*"}}})
+
+	cases := []struct {
+		name        string
+		path        string
+		keywords    string
+		modelFamily string
+		want        []string
+	}{
+		{
+			name:        "gemini misses every claude-only skill but keeps CJK keyword",
+			path:        "src/main.go",
+			keywords:    "请重构代码",
+			modelFamily: "gemini",
+			want:        []string{"always", "go", "refactor", "go-refactor", "wildcard"},
+		},
+		{
+			name:        "claude adds the model-restricted skills, all-go needs all three",
+			path:        "src/main.go",
+			keywords:    "请重构代码",
+			modelFamily: "CLAUDE",
+			want:        []string{"always", "go", "refactor", "claude", "go-refactor", "go-claude", "all-go", "wildcard"},
+		},
+		{
+			name:        "wrong path drops path-restricted skills",
+			path:        "README.md",
+			keywords:    "请重构代码",
+			modelFamily: "claude",
+			want:        []string{"always", "refactor", "claude", "wildcard"},
+		},
+		{
+			name:        "no context keeps only unrestricted and wildcard-model skills",
+			path:        "",
+			keywords:    "",
+			modelFamily: "",
+			want:        []string{"always", "wildcard"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := skillNames(ResolveTriggeredSkills(registry, tc.path, tc.keywords, tc.modelFamily))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ResolveTriggeredSkills(%q, %q, %q) = %v, want %v",
+					tc.path, tc.keywords, tc.modelFamily, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveTriggeredSkillsDeduplicatesByNameAndKeepsFirst(t *testing.T) {
+	skills := []Skill{
+		{Name: "重构", Triggers: Triggers{Keywords: []string{"重构"}}},
+		{Name: "always"},
+		{Name: "重构", Triggers: Triggers{Keywords: []string{"重构"}}},
+		{Name: "其他", Triggers: Triggers{Keywords: []string{"重构"}}},
+	}
+	// CJK keyword hits every keyword-restricted skill; the two "重构" entries
+	// collapse to their first position, ahead of "其他".
+	got := skillNames(resolveTriggeredSkills(skills, "", "请重构这里", ""))
+	want := []string{"重构", "always", "其他"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("resolveTriggeredSkills = %v, want %v", got, want)
+	}
+}
+
+func TestResolveTriggeredSkillsNilRegistry(t *testing.T) {
+	if got := ResolveTriggeredSkills(nil, "src/main.go", "重构", "claude"); got != nil {
+		t.Errorf("nil registry = %v, want nil", got)
+	}
+}

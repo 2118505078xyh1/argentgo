@@ -133,10 +133,11 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	if opts.JSONLines {
 		opts.Mode = ModeJSON
 	}
-	// --continue-session, --continue and --resume all mean "resume the latest".
-	if set["continue-session"] || set["continue"] || set["resume"] {
-		opts.Resume = true
-	}
+	// --continue-session, --continue and --resume are aliases that share one
+	// storage pointer with --resume (see newFlags), so opts.Resume already
+	// carries the value of whichever spelling was used. Do not force it true
+	// from fs.Visit: an explicit --resume=false / --continue=false must stay
+	// false, and the last spelling on the command line must win.
 
 	opts.Thinking = firstNonEmpty(*values.thinking, env("ARGENT_THINKING"))
 	opts.Theme = firstNonEmpty(*values.theme, env("ARGENT_THEME"))

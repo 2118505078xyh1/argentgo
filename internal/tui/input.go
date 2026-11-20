@@ -1,6 +1,9 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Editor is the prompt buffer: the text, the cursor and the history ring.
 // Every mutation keeps the cursor on a rune boundary, so CJK input is never
@@ -255,34 +258,37 @@ type inputRow struct {
 	start int // rune index in the buffer where the row begins
 }
 
-// wrapInput folds the buffer into rows no wider than width cells.
+// wrapInput folds the buffer into rows no wider than width cells. Breaks land
+// on grapheme boundaries (the same rule as Wrap): a ZWJ emoji, a flag pair or a
+// combining sequence is one visible glyph and must never be split across two
+// rows. A row's start is the rune index of the first cluster it contains, which
+// keeps rowCaretColumn in sync with what is actually painted.
 func wrapInput(runes []rune, width int) []inputRow {
 	if width < 1 {
 		width = 1
 	}
+	text := string(runes)
 	rows := make([]inputRow, 0, 1)
-	var current []rune
-	start := 0
-	used := 0
-	for i, r := range runes {
-		if r == '\n' {
-			rows = append(rows, inputRow{text: string(current), start: start})
-			current = nil
-			start = i + 1
-			used = 0
+	lineStart, lineStartRune := 0, 0
+	bytePos, runePos, used := 0, 0, 0
+	for bytePos < len(text) {
+		if text[bytePos] == '\n' {
+			rows = append(rows, inputRow{text: text[lineStart:bytePos], start: lineStartRune})
+			bytePos++
+			runePos++
+			lineStart, lineStartRune, used = bytePos, runePos, 0
 			continue
 		}
-		cell := RuneWidth(r)
+		end, cell := nextGrapheme(text, bytePos)
 		if used > 0 && used+cell > width {
-			rows = append(rows, inputRow{text: string(current), start: start})
-			current = nil
-			start = i
-			used = 0
+			rows = append(rows, inputRow{text: text[lineStart:bytePos], start: lineStartRune})
+			lineStart, lineStartRune, used = bytePos, runePos, 0
 		}
-		current = append(current, r)
+		runePos += utf8.RuneCountInString(text[bytePos:end])
 		used += cell
+		bytePos = end
 	}
-	rows = append(rows, inputRow{text: string(current), start: start})
+	rows = append(rows, inputRow{text: text[lineStart:], start: lineStartRune})
 	return rows
 }
 

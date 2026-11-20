@@ -2,6 +2,7 @@ package proc
 
 import (
 	"io"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -18,11 +19,14 @@ const maxCarryBytes = utf8.UTFMax - 1
 // the captured bytes well-formed, so rune-wise decoding never yields U+FFFD
 // just because a chunk boundary fell inside a rune.
 //
-// It is deliberately NOT safe for concurrent use. Each stream in proc.Run has
-// exactly one writer, fed sequentially by exec's copy goroutine, and Flush is
-// called only after cmd.Wait has observed those copies finish. A mutex would
-// add cost for a synchronization that cannot happen here.
+// It is safe for concurrent use. In the common path each stream is fed by a
+// single exec copy goroutine and Flush runs only after cmd.Wait observed those
+// copies finish. That invariant does not hold when awaitOutcome stops waiting
+// for a child whose descendant kept a pipe open: the copy goroutine can still
+// be writing while Run flushes and reads the capture. The mutex serialises
+// carry state and the downstream writes in both cases.
 type utf8CarryWriter struct {
+	mu       sync.Mutex
 	w        io.Writer
 	carry    []byte
 	maxCarry int // 0 means maxCarryBytes; tests shrink it to exercise the cap
@@ -47,6 +51,8 @@ func (cw *utf8CarryWriter) limit() int {
 // ignored rather than surfaced into a process capture path that has no way to
 // act on them.
 func (cw *utf8CarryWriter) Write(p []byte) (int, error) {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
 	n := len(p)
 	if cw.w == nil || (len(cw.carry) == 0 && n == 0) {
 		return n, nil
@@ -97,7 +103,12 @@ func (cw *utf8CarryWriter) Write(p []byte) (int, error) {
 // decoding of those bytes (range, []rune, JSON, ...) then yields U+FFFD, the
 // standard Go replacement behaviour. Flush is idempotent.
 func (cw *utf8CarryWriter) Flush() {
-	if cw == nil || cw.w == nil || len(cw.carry) == 0 {
+	if cw == nil {
+		return
+	}
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	if cw.w == nil || len(cw.carry) == 0 {
 		return
 	}
 	_, _ = cw.w.Write(cw.carry)
