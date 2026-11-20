@@ -47,6 +47,19 @@ stdlib-only with MyGo as the sole native-shell dependency. Highlights:
 - LSP diagnostics adapter, structured MCP schema normalization and capability
   gating, session-tree cost accounting and compaction fixes.
 
+**Performance**
+- Session listing trusts a fresh sidecar (size + mtime) instead of re-reading
+  and re-validating every transcript: about 16x faster at 100 sessions and 13x
+  at 500.
+- New `internal/tokenize` package gives the CJK-aware token estimate one
+  definition (it used to be three hand-synced copies) plus an ASCII fast path;
+  token estimation is 5-13x faster, and Trim maintains a suffix token sum
+  instead of rescanning the tail (~25x on long conversations).
+- Session append does one stat per write on Unix instead of two.
+- The bash volume hint is computed from raw command output, so run-length
+  compressed output no longer hides its own context cost (fixes the last
+  failing test in `go test ./...`).
+
 **Engineering**
 - Structured version endpoint `/v1/version` and health 503 on shutdown.
 - Doctor environment probing, audit query flags, nofollow-safe export writes,
