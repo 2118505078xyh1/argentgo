@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round20 后，2026-11-20 12:40）
+
+> round20（goose + opencode 接线）：**事件 hub 真正接入主流程**——app.Factory 创建 hub，runner.Prompt 注入 emit sink，Execute 的 Emit 里 `EmitEvent(ctx, event)` 发布真实 agent 事件，`/v1/event` SSE 与 `event/subscribe` RPC 现在收到实时事件（180+ 测试通过）。审批 pending 也已接（WithPendingApprovals：Add/Resolve）。另加 typed workflow 参数（secret-safe canary 测试）、审批 TTL/persistence、invisible-tag 扫描（4 解析器）、fail-soft inspector（deny-dominant+panic recovery）。全量 3000+ 测试、race、linux 全绿。
+> **诚实标注**：事件 hub 已真正在跑（agent→hub→SSE/RPC 全链路）；审批 pending 已记录但 server 端 `approval.list` RPC 未接（文档化）。客观天花板仍是生态分发（真实发布）与真实模型/生产验证。
+
 ## 评分表（round19 后，2026-11-20 12:30）
 
 > round19：补上最大诚实差距——stdlib 事件 hub（server/event.go：单调 seq、有界历史、慢订阅者驱逐、SSE `GET /v1/event`、`event/subscribe` RPC、15s 心跳，43 测试+race+archguard 全过），这是 opencode 事件溯源模型此前完全缺失的对应物。另加 sanitize 结构化导出（session/export.go，~40 敏感字段脱敏）、fingerprint 定义缓存（app/definitions.go，热重载基础）、durable 审批 pending（security/pending.go，301+race 全过，重连可恢复）。
