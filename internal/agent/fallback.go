@@ -57,7 +57,13 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 		s.model = model
 
 		var buffered []string
+		// Capture this attempt's stream regardless of live/buffered mode. On a
+		// successful attempt the capture is discarded; on the attempt the run
+		// ultimately reports as failed it is published as an additive EventPartial
+		// so the real half-written answer is not lost at the failure boundary.
+		capture := newPartialCapture(model, turn, defaultPartialByteLimit)
 		onDelta := func(delta string) {
+			capture.Add(delta)
 			if live {
 				s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
 				return
@@ -72,7 +78,13 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			return reply, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !isRetryableProviderError(err) || i == len(models)-1 {
+		cancelled := ctx.Err() != nil
+		if cancelled || !isRetryableProviderError(err) || i == len(models)-1 {
+			// This attempt is the one the run reports. Surface whatever the
+			// provider streamed before it failed so a UI can show the real
+			// partial text; a retryable failure that will be retried emits
+			// nothing, because the next attempt owns the final answer.
+			s.emitPartial(capture.Snapshot(partialStopReason(cancelled)))
 			break
 		}
 		next := models[i+1]

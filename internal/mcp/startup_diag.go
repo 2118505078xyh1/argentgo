@@ -21,6 +21,14 @@ var startupReplayTimeout = 2 * time.Second
 // to a race between ctx.Done() and the result channel.
 const startupReplayGrace = 25 * time.Millisecond
 
+// stderrDrainWait bounds how long stdio error enrichment waits for the async
+// stderr drain goroutine to catch up with a server that just exited. A server
+// that prints a startup error and dies closes stdout (waking readLoop) before
+// the stderr drain is guaranteed to have run; a short bounded wait makes the
+// diagnostic deterministic without ever stalling the caller's error path. A
+// var so tests can shorten it.
+var stderrDrainWait = 50 * time.Millisecond
+
 // maxStartupReplayRunes caps how much child output is folded into one error
 // line. A chatty server must not turn a failed startup into a huge log line.
 const maxStartupReplayRunes = 4096
@@ -141,16 +149,58 @@ func enrichStartupOutcome(err error, cmd string, args []string, outcome startupO
 	return fmt.Errorf("%w (startup diagnostic replay of %s: %s)", err, label, detail)
 }
 
-// trimStartupOutput normalises child output for a single log line: trim outer
+// appendStderrContext folds a server's captured stderr into an opaque startup
+// connection error. It is a no-op unless err is the kind of bare EOF/dropped
+// connection the audit called out and tail carries something useful, so the
+// overwhelming majority of errors keep their byte-for-byte original text. The
+// original error is always kept with %w, leaving errors.Is classification
+// untouched.
+func appendStderrContext(err error, tail string) error {
+	if !isStartupConnectionError(err) {
+		return err
+	}
+	trimmed := trimDiagnosticOutput([]byte(tail), "[server stderr truncated]")
+	if trimmed == "" {
+		return err
+	}
+	return fmt.Errorf("%w (server stderr: %s)", err, trimmed)
+}
+
+// enrichStderr attaches the stdio server's already-captured stderr to a
+// connection error, with **no process replay and no side effects**. This is the
+// in-package counterpart to EnrichStartupError: because newStdioTransport keeps
+// a bounded stderr ring, the app's existing "print the error" path becomes
+// self-sufficient — it needs neither a command re-run nor any code change.
+// Non-stdio transports, non-connection errors and empty stderr leave err
+// untouched.
+func (c *client) enrichStderr(err error) error {
+	if c == nil || !isStartupConnectionError(err) {
+		return err
+	}
+	stdio, ok := c.tr.(*stdioTransport)
+	if !ok {
+		return err
+	}
+	return appendStderrContext(err, stdio.stderrWithDrain())
+}
+
+// trimStartupOutput normalises replay output for a single log line: trim outer
 // whitespace and cap the length. Truncation runs on runes so a CJK string is
 // never cut in the middle of a UTF-8 sequence.
 func trimStartupOutput(out []byte) string {
+	return trimDiagnosticOutput(out, "[startup replay output truncated]")
+}
+
+// trimDiagnosticOutput is trimStartupOutput with a caller-supplied truncation
+// marker, so live-stderr enrichment can label its own truncation without
+// changing the replay wording existing callers rely on.
+func trimDiagnosticOutput(out []byte, marker string) string {
 	s := strings.TrimSpace(string(out))
 	if s == "" {
 		return ""
 	}
 	if runes := []rune(s); len(runes) > maxStartupReplayRunes {
-		s = string(runes[:maxStartupReplayRunes]) + "\n... [startup replay output truncated] ..."
+		s = string(runes[:maxStartupReplayRunes]) + "\n... " + marker + " ..."
 	}
 	return s
 }

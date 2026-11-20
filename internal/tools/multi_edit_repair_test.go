@@ -35,7 +35,7 @@ func TestMultiEditRepairAppliesExactAndFuzzyEdits(t *testing.T) {
 	}
 }
 
-func TestMultiEditRepairFailureIsAtomicAndReportsOtherApplied(t *testing.T) {
+func TestMultiEditRepairFailureIsAtomicAndConsistent(t *testing.T) {
 	root := t.TempDir()
 	content := "alpha\nbeta\ngamma\n"
 	path := writeFixture(t, root, "f.txt", content)
@@ -57,16 +57,49 @@ func TestMultiEditRepairFailureIsAtomicAndReportsOtherApplied(t *testing.T) {
 		"multi_edit: repair failed at edit 2 of 3",
 		"after 3 edit(s) attempted",
 		"file unchanged (atomic batch)",
-		"1 edit(s) matched cleanly",
-		"the other 1 edits were applied successfully; do not re-send them",
+		"1 edit(s) matched cleanly in memory",
+		"no bytes were written (atomic batch)",
 		"re-send the whole batch",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("diagnostic %q missing %q", msg, want)
 		}
 	}
+	// The instruction must not contradict the atomic write semantics: nothing
+	// was written, so no edit may be described as already applied.
+	for _, bad := range []string{
+		"were applied successfully",
+		"do not re-send them",
+	} {
+		if strings.Contains(msg, bad) {
+			t.Fatalf("atomic diagnostic %q contradicts itself with %q", msg, bad)
+		}
+	}
 	if got := readFixture(t, path); got != content {
 		t.Fatalf("failed batch was partially written: %q", got)
+	}
+}
+
+func TestMultiEditRepairErrorMessageNeverTellsModelToSkipEdits(t *testing.T) {
+	// With any positive applied count the message must stay internally
+	// consistent: edits matched in memory, no bytes written, re-send all.
+	msg := multiEditRepairError("f.txt", 2, 3, 1, "alpha\nbeta\n", "beta").Error()
+	if !strings.Contains(msg, "no bytes were written (atomic batch)") ||
+		!strings.Contains(msg, "re-send the whole batch") {
+		t.Fatalf("message lost its atomic guidance: %q", msg)
+	}
+	if strings.Contains(msg, "do not re-send") {
+		t.Fatalf("message still contradicts atomic semantics: %q", msg)
+	}
+
+	// The zero-applied branch must give the same actionable guidance and must
+	// not mention skipped edits.
+	msg = multiEditRepairError("f.txt", 1, 1, 0, "alpha\n", "missing").Error()
+	if !strings.Contains(msg, "no edit matched") || !strings.Contains(msg, "re-send the whole batch") {
+		t.Fatalf("zero-applied message lost its guidance: %q", msg)
+	}
+	if strings.Contains(msg, "do not re-send") || strings.Contains(msg, "were applied") {
+		t.Fatalf("zero-applied message claims edits were applied: %q", msg)
 	}
 }
 

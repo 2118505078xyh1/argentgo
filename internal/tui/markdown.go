@@ -274,6 +274,10 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 		return append(out, diffPreviewLines(DiffLines(oldText, newText), limit, width, p)...)
 	}
 	if entry.Output != "" {
+		if StructuredToolResults {
+			out = append(out, structuredOutputLines(entry.Output, limit, width, p)...)
+			return out
+		}
 		bodyWidth := maxInt(width-2, 1)
 		rest := strings.TrimRight(entry.Output, "\n")
 		shown := 0

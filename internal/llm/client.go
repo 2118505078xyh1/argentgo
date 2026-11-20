@@ -668,14 +668,7 @@ streamLoop:
 	for i, block := range blocks {
 		call := *block
 		if call.ID == "" {
-			for n := i + 1; ; n++ {
-				candidate := fmt.Sprintf("call_%d", n)
-				if _, taken := used[candidate]; !taken {
-					call.ID = candidate
-					break
-				}
-			}
-			used[call.ID] = struct{}{}
+			call.ID = uniqueToolCallID(used, "call_", i+1)
 		}
 		// A truncated or malformed argument fragment is not safe to hand to
 		// the tool dispatcher; fall back to the empty object like the other

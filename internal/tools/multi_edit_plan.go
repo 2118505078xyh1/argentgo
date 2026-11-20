@@ -8,11 +8,12 @@ import (
 )
 
 // This file holds the pure, read-only layer for multi_edit planning. It does
-// no I/O, takes no locks and writes no bytes: the live multi_edit path in
-// multi_edit.go is deliberately untouched, so default behaviour stays
-// byte-for-byte identical. Wiring these helpers in is a separate, opt-in
-// decision (see the report), because cross-file relocation changes edit
-// semantics and can silently edit a file the model did not name.
+// no I/O, takes no locks and writes no bytes. The live multi_edit path consults
+// it only from the opt-in, read-only relocate diagnostic (relocate=true), so
+// default behaviour stays byte-for-byte identical. Cross-file relocation
+// changes edit semantics and could silently edit a file the model did not
+// name, which is why the live path reports candidates but never auto-applies
+// them.
 
 // multiEditBlock is one SEARCH/REPLACE block for a dry run. Path is the file
 // the model intended to edit, Old is the SEARCH text and New the REPLACE text.
@@ -214,9 +215,9 @@ func resolveBlockFile(block multiEditBlock, knownFiles multiEditKnownFiles) []mu
 //   - graded (a possible future partial writer): matched edits were written,
 //     so only failing blocks should be re-sent.
 //
-// It is deliberately separate from multiEditRepairError in
-// tools_builtin_write_edit.go: that legacy string is asserted byte-for-byte by
-// multi_edit_repair_test.go and is left untouched until a caller opts in.
+// multiEditRepairError in tools_builtin_write_edit.go is kept in sync with the
+// atomic branch here; both are asserted byte-for-byte by their tests, so a
+// wording change must land in both places together.
 func multiEditBatchDiagnostic(path string, failedIdx, total, applied int, content, sample string, atomic bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "multi_edit: repair failed at edit %d of %d after %d edit(s) attempted in %s", failedIdx, total, total, path)

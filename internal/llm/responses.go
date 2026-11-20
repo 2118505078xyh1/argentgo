@@ -341,12 +341,10 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 			return
 		}
 		arguments := integrity.toolArguments(partial.arguments.String())
-		id := partial.id
-		if id == "" {
-			id = fmt.Sprintf("call_%d", index+1)
-		}
+		// An absent provider id stays empty until the final assembly, where a
+		// fallback can be chosen against every provider id in the reply.
 		completed[index] = ToolCall{
-			ID:   id,
+			ID:   partial.id,
 			Type: "function",
 			Function: ToolCallFunction{
 				Name:      partial.name,
@@ -471,6 +469,14 @@ streamLoop:
 	for _, index := range order {
 		push(index)
 	}
+	// Collect provider ids first: fallback ids are only safe once every real id
+	// in the reply is known, otherwise a generated "call_N" can duplicate one.
+	used := make(map[string]struct{}, len(order))
+	for _, index := range order {
+		if call, ok := completed[index]; ok && call.ID != "" {
+			used[call.ID] = struct{}{}
+		}
+	}
 	// Assemble in announcement order, not completion order. done handlers may
 	// create a partial without a matching added (some gateways only send done),
 	// which appends an index a second time; emit each call only once.
@@ -482,6 +488,9 @@ streamLoop:
 		}
 		emitted[index] = true
 		if call, ok := completed[index]; ok {
+			if call.ID == "" {
+				call.ID = uniqueToolCallID(used, "call_", index+1)
+			}
 			calls = append(calls, call)
 		}
 	}

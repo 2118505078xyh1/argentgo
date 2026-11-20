@@ -84,8 +84,15 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 			}
 		}
 	}
-	if !hasTitle {
-		if title := titleFromRecords(s.ID(), all); title != "" {
+	// Presence of a title record on the path is not enough: a newer override
+	// may have been appended after the fork point, leaving the path with an
+	// older title. Compare the source's effective title with the title the
+	// copied path would show, and carry the former across when they differ so
+	// the fork resumes under the same name the session had when it was forked.
+	sourceTitle := titleFromRecords(s.ID(), all)
+	pathTitle := titleFromRecords(s.ID(), path)
+	if !hasTitle || pathTitle != sourceTitle {
+		if title := sourceTitle; title != "" {
 			data, err := encodePayload(TitleRecord{Title: title})
 			if err != nil {
 				return nil, err

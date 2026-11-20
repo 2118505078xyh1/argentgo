@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 // maxLineBytes caps one newline-delimited JSON-RPC frame.
@@ -102,7 +103,11 @@ type stdioTransport struct {
 	ids     idSequence
 	waiters *waiters
 	diag    *ringBuffer
-	done    chan struct{}
+	// drainDone closes when the stderr drain goroutine has copied everything
+	// the child wrote. Error enrichment waits on it (briefly) so a startup
+	// diagnostic printed just before the child exits is not lost to a race.
+	drainDone chan struct{}
+	done      chan struct{}
 
 	closeOnce sync.Once
 	waitOnce  sync.Once
@@ -132,12 +137,13 @@ func newStdioTransport(spec Spec) (*stdioTransport, error) {
 	}
 
 	t := &stdioTransport{
-		name:    spec.Name,
-		cmd:     cmd,
-		stdin:   stdin,
-		waiters: newWaiters(),
-		diag:    &ringBuffer{limit: stderrRingBytes},
-		done:    make(chan struct{}),
+		name:      spec.Name,
+		cmd:       cmd,
+		stdin:     stdin,
+		waiters:   newWaiters(),
+		diag:      &ringBuffer{limit: stderrRingBytes},
+		drainDone: make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("mcp %q: start %q: %w", spec.Name, spec.Command, err)
@@ -199,7 +205,31 @@ func (t *stdioTransport) readLoop(stdout io.Reader) {
 
 // drain keeps the child's stderr in a bounded buffer for diagnostics.
 func (t *stdioTransport) drain(stderr io.Reader) {
+	defer close(t.drainDone)
 	_, _ = io.Copy(t.diag, stderr)
+}
+
+// stderrWithDrain returns the captured stderr tail, waiting briefly for the
+// async drain goroutine to finish first. A server that exits right after
+// printing a startup error closes stdout (waking readLoop) before the stderr
+// drain is guaranteed to have run; the bounded wait makes the diagnostic
+// deterministic without ever stalling the caller's error path. Transports built
+// by hand in tests have no drain channel and simply return what is captured so
+// far.
+func (t *stdioTransport) stderrWithDrain() string {
+	if t == nil {
+		return ""
+	}
+	if t.drainDone != nil {
+		select {
+		case <-t.drainDone:
+		case <-time.After(stderrDrainWait):
+		}
+	}
+	if t.diag == nil {
+		return ""
+	}
+	return t.diag.String()
 }
 
 func (t *stdioTransport) call(ctx context.Context, method string, params any) (json.RawMessage, error) {

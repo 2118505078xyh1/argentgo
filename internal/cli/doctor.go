@@ -29,7 +29,8 @@ type doctorCheck struct {
 	detail string
 }
 
-// runDoctor reports config, MCP config, storage, provider, git and Go health.
+// runDoctor reports config, MCP config, storage, provider, git and Go health,
+// followed by an informational structured environment probe section.
 func runDoctor(app App, ctx context.Context, args []string) int {
 	baseURL, help, err := doctorFlags(args)
 	if err != nil {
@@ -62,6 +63,13 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	if failures > 0 {
 		fmt.Fprintf(app.IO.Out, "\n%d check(s) failed\n", failures)
+	}
+	// The environment section is informational: it never changes the exit code
+	// or failure count, and it is written last so all existing output remains a
+	// byte-for-byte prefix. Git detection reuses exec.LookPath, matching checkGit.
+	environment := probeEnvironment(app.env, exec.LookPath)
+	writeDoctorEnvironment(app.IO.Out, environment, doctorAdvice(environment))
+	if failures > 0 {
 		return 1
 	}
 	return 0

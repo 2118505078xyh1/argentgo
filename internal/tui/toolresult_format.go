@@ -7,6 +7,39 @@ import (
 	"strings"
 )
 
+// StructuredToolResults opts tool-result previews into the structured renderer:
+// JSON objects/arrays are pretty-printed, unified diffs keep their framing, and
+// plain text falls back to ordinary line splitting (see formatToolResultContent).
+//
+// It is OFF by default. The original preview rendering in toolLines is kept as
+// the canonical, byte-for-byte path so existing layout and golden tests do not
+// change; flip this switch to preview the structured path. Keeping the switch
+// as a plain package variable lets a later change wire it to a CLI flag/config
+// without touching the renderer.
+var StructuredToolResults = false
+
+// structuredOutputLines renders a tool result through formatToolResultContent.
+// The formatter already caps the row count and appends its own "… N more lines"
+// marker, so this helper only applies the visual prefix and styles and never
+// adds a second overflow marker. The marker row uses the dimmer style to match
+// the original preview's overflow line.
+func structuredOutputLines(raw string, limit, width int, p Palette) []Line {
+	bodyWidth := maxInt(width-2, 1)
+	textLines := formatToolResultContent(raw, limit)
+	out := make([]Line, 0, len(textLines))
+	for _, text := range textLines {
+		line := NewLine()
+		line.Push("  ", Style{})
+		if strings.HasPrefix(text, "… ") && strings.HasSuffix(text, " more lines") {
+			line.Push(text, p.dim())
+		} else {
+			line.Push(Clip(text, bodyWidth), p.muted())
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 // formatToolResultContent turns a raw tool-result string into display lines.
 // It is a pure formatter with no renderer dependency: structured payloads that
 // MCP tools commonly emit (pretty-printed JSON, unified diffs) are kept as

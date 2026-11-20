@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
 const (
@@ -60,8 +60,10 @@ var (
 //     .exe. Shells, curl, absolute paths, ".." traversal, shell metacharacters
 //     and -exec/-toolexec are rejected (validateVerifyArgv).
 //  2. argv is passed straight to os/exec; no shell is ever involved.
-//  3. Dir is the workspace root, and GOFLAGS is stripped from the child env so
-//     a smuggled -toolexec cannot reappear through the environment.
+//  3. Dir is the workspace root, and the child env is sanitized: GOFLAGS is
+//     stripped so a smuggled -toolexec cannot reappear through the environment,
+//     and host-private session variables are removed so a nested agent launched
+//     by the verify command cannot inherit the host's session identity.
 //  4. A short, capped context deadline kills a runaway process.
 //  5. Captured output is a 32KB rune-safe tail, redacted before it is returned.
 //
@@ -134,10 +136,23 @@ func validateVerifyArgs(args []string) error {
 	return nil
 }
 
-// verifyEnvironment drops GOFLAGS so a configured `go test` cannot be given
-// -toolexec (or another arbitrary-binary flag) through the environment.
+// verifyEnvironment returns the environment for the verify child process.
+//
+// Two independent sanitizers are applied to the inherited environment:
+//
+//  1. proc.SanitizeEnv drops host-private session plumbing (ARGENT_SESSION_ID,
+//     ARGENT_RUN_ID, ARGENT_PARENT_*, SUBAGENT_PARENT_*). A verify command is
+//     trusted code that may itself launch a nested agent; without this filter
+//     the nested agent could mistake the host's session state for its own and
+//     cross sessions. SanitizeEnv is applied FIRST because it reads os.Environ()
+//     itself (its `extra` argument is appended verbatim and never filtered).
+//  2. GOFLAGS is dropped so a configured `go test|build` cannot be handed
+//     -toolexec (or another arbitrary-binary flag) through the environment.
+//
+// Everything else — PATH, HOME, system and operator variables — passes through
+// unchanged, so verify command behaviour does not regress.
 func verifyEnvironment() []string {
-	env := os.Environ()
+	env := proc.SanitizeEnv(nil)
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
 		key, _, _ := strings.Cut(entry, "=")

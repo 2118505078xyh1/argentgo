@@ -477,7 +477,11 @@ func (c *client) timeoutContext(ctx context.Context) (context.Context, context.C
 }
 
 func (c *client) wrap(err error, method string) error {
-	return fmt.Errorf("mcp %q: %s: %w", c.spec.Name, method, err)
+	// Enrich an opaque stdio connection failure with the server's captured
+	// stderr. No process replay: the stderr ring already holds what the child
+	// printed before it died, so the app's plain "print the error" path gains
+	// the audit's missing context without any change on its side.
+	return c.enrichStderr(fmt.Errorf("mcp %q: %s: %w", c.spec.Name, method, err))
 }
 
 // Stderr returns the tail of a stdio server's stderr, for diagnostics. It is

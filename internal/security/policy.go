@@ -183,44 +183,8 @@ func DefaultPolicy(root string) *Policy {
 //
 // List fields also accept a comma-separated string.
 func PolicyFromJSON(root string, data []byte) (*Policy, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("security: parsing policy: %w", err)
-	}
-	var cfg PolicyConfig
-	var err error
-	fields := []struct {
-		camel string
-		snake string
-		into  *[]string
-	}{
-		{"denyPaths", "deny_paths", &cfg.DenyPaths},
-		{"allowPaths", "allow_paths", &cfg.AllowPaths},
-		{"denyCommands", "deny_commands", &cfg.DenyCommands},
-		{"denyCommandPaths", "deny_command_paths", &cfg.DenyCommandPaths},
-		{"denyTools", "deny_tools", &cfg.DenyTools},
-		{"allowTools", "allow_tools", &cfg.AllowTools},
-		{"readOnlyTools", "read_only_tools", &cfg.ReadOnlyTools},
-		{"mutatingTools", "mutating_tools", &cfg.MutatingTools},
-		{"writeRoots", "write_roots", &cfg.WriteRoots},
-	}
-	for _, field := range fields {
-		value, ok := raw[field.camel]
-		if !ok {
-			value, ok = raw[field.snake]
-		}
-		if ok {
-			if *field.into, err = stringList(value); err != nil {
-				return nil, fmt.Errorf("security: policy field %q: %w", field.camel, err)
-			}
-		}
-	}
-	if value, ok := raw["rules"]; ok {
-		if cfg.Rules, err = parseRules(value); err != nil {
-			return nil, fmt.Errorf("security: policy rules: %w", err)
-		}
-	}
-	return NewPolicy(root, cfg), nil
+	policy, _, err := ParsePolicyWithIssues(root, data)
+	return policy, err
 }
 
 // Root is the workspace root used to resolve relative paths.
@@ -551,30 +515,11 @@ func stringList(raw json.RawMessage) ([]string, error) {
 	return out, nil
 }
 
+// parseRules is the diagnostics-free form kept for callers that only need the
+// usable rules. The skipped-rule details live in parseRulesWithIssues.
 func parseRules(raw json.RawMessage) ([]Rule, error) {
-	var items []struct {
-		Decision string `json:"decision"`
-		Tool     string `json:"tool"`
-		Path     string `json:"path"`
-		Command  string `json:"command"`
-	}
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return nil, err
-	}
-	rules := make([]Rule, 0, len(items))
-	for _, item := range items {
-		decision, ok := ParseDecision(item.Decision)
-		if !ok {
-			continue
-		}
-		rules = append(rules, Rule{
-			Decision: decision,
-			Tool:     strings.TrimSpace(item.Tool),
-			Path:     strings.TrimSpace(item.Path),
-			Command:  strings.TrimSpace(item.Command),
-		})
-	}
-	return rules, nil
+	rules, _, err := parseRulesWithIssues(raw)
+	return rules, err
 }
 
 // MutatingTool reports whether the built-in table considers a tool mutating.

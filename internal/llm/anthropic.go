@@ -442,12 +442,11 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 			arguments = partial.start
 		}
 		arguments = integrity.toolArguments(arguments)
-		id := partial.id
-		if id == "" {
-			id = fmt.Sprintf("toolu_%d", index)
-		}
+		// Keep an absent provider id empty here. Fallback ids are assigned in
+		// the final assembly, once every provider id in the reply is known, so
+		// a generated "toolu_N" can never duplicate a real id on another block.
 		completed[index] = ToolCall{
-			ID:   id,
+			ID:   partial.id,
 			Type: "function",
 			Function: ToolCallFunction{
 				Name:      partial.name,
@@ -600,6 +599,16 @@ streamLoop:
 	for _, index := range sortedIndices(partials) {
 		push(index)
 	}
+	// Collect every provider id before generating any fallback, so a generated
+	// "toolu_N" can never duplicate an id the provider supplied on another
+	// block. The chat client applies the same rule; a collision here would
+	// make the agent reject the entire batch as having duplicate call ids.
+	used := make(map[string]struct{}, len(order))
+	for _, index := range order {
+		if call, ok := completed[index]; ok && call.ID != "" {
+			used[call.ID] = struct{}{}
+		}
+	}
 	// Assemble in announcement order, not stop-notification order. A duplicated
 	// start at the same index can add an index to order twice; emit each call
 	// only once.
@@ -611,6 +620,9 @@ streamLoop:
 		}
 		emitted[index] = true
 		if call, ok := completed[index]; ok {
+			if call.ID == "" {
+				call.ID = uniqueToolCallID(used, "toolu_", index)
+			}
 			calls = append(calls, call)
 		}
 	}

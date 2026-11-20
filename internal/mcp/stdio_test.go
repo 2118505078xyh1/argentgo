@@ -39,6 +39,12 @@ func helperSpec(mode string, timeout time.Duration) Spec {
 // helperMain is a minimal MCP server over stdin/stdout.
 func helperMain(mode string) {
 	fmt.Fprintln(os.Stderr, "fake mcp server ready")
+	if mode == "failfast" {
+		// A server that prints a startup diagnostic to stderr then exits
+		// without answering initialize — the audit's bare-EOF scenario.
+		fmt.Fprintln(os.Stderr, "BOOM: startup failed cause: port 3000 in use")
+		return
+	}
 	if mode == "silent" {
 		// A server that never answers; the client must time out and kill it.
 		time.Sleep(30 * time.Second)

@@ -120,3 +120,19 @@ func (s *streamIntegrity) eofError(marker string) error {
 func streamError(format string, args ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{ErrStreamError}, args...)...)
 }
+
+// uniqueToolCallID returns a generated id that cannot collide with any id the
+// provider supplied (or with another generated id). used must contain every
+// provider id in the reply; the returned id is inserted into it so successive
+// calls with the same seed still get distinct ids. A duplicated call id makes
+// the agent reject the whole batch, so every protocol client must route its
+// fallback ids through here rather than formatting a name from a stream index.
+func uniqueToolCallID(used map[string]struct{}, prefix string, seed int) string {
+	for n := seed; ; n++ {
+		candidate := fmt.Sprintf("%s%d", prefix, n)
+		if _, taken := used[candidate]; !taken {
+			used[candidate] = struct{}{}
+			return candidate
+		}
+	}
+}

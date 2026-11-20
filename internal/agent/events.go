@@ -31,6 +31,11 @@ const (
 	// reminder itself is appended to the conversation as a user turn; this event
 	// only lets a frontend surface the same text to the operator.
 	EventBudgetReminder EventKind = "budget_reminder"
+	// EventPartial carries the prefix a model managed to stream before a
+	// provider error or cancellation cut it short. It is additive: consumers
+	// that do not know the kind simply ignore it, and the run still ends with
+	// exactly one EventStop as its terminal.
+	EventPartial EventKind = "partial"
 )
 
 // RetryInfo is the wire-safe payload of an EventRetry. It is a closed set of
@@ -82,6 +87,7 @@ func RetryInfoFromAttempt(a llm.RetryAttempt, model string, maxAttempts int, del
 //	subagent_start           Text (task label), ToolName
 //	subagent_end             Text (task label), Output, IsError, Err
 //	retry                    Turn, Retry (attempt, max, backoff delay, reason, model)
+//	partial                  Turn, Text, Partial, PartialStopReason, PartialModel, PartialTruncated
 type Event struct {
 	Kind       EventKind
 	Turn       int
@@ -129,6 +135,23 @@ type Event struct {
 	// DurationMS these absolute timestamps survive a session reload.
 	StartedAtMS  int64 `json:"started_at_ms,omitempty"`
 	FinishedAtMS int64 `json:"finished_at_ms,omitempty"`
+
+	// The fields below are additive and populated only on EventPartial. They
+	// all use omitempty, so every pre-existing event keeps byte-identical JSON.
+	// Partial is true when Text is a captured prefix of a reply cut short by a
+	// provider error or cancellation, rather than a complete answer.
+	Partial bool `json:"partial,omitempty"`
+	// PartialStopReason is the reason the run will report at the terminal stop
+	// (StopCancelled or StopProviderError), so a UI can label the prefix with
+	// the same reason it already shows on the stop event.
+	PartialStopReason string `json:"partial_stop_reason,omitempty"`
+	// PartialModel is the model that was streaming when it failed or was
+	// cancelled. On a fallback chain it is the last attempt's model, which is
+	// the one whose prefix Text holds.
+	PartialModel string `json:"partial_model,omitempty"`
+	// PartialTruncated reports that the captured prefix reached the byte cap,
+	// so a UI can mark the displayed text as incomplete.
+	PartialTruncated bool `json:"partial_truncated,omitempty"`
 }
 
 // IsTerminal reports whether e ends a run and is therefore must-deliver: a
