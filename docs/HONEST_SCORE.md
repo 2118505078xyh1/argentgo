@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round18 后，2026-11-20 12:21）
+
+> round18：接线代理把 stats/retention/审批事件/exec-check 全部接入主流程（通过 Recorder seam 零 app 改动；保留 tool-pair 安全；审批事件 emit 在 Ask 前后；exec-check 默认关闭）。新增隐私模式（local-only，285 测试）、session ordinals（204 测试，定位同秒 flake 根因）、context_pack 工具（517 测试）、本地隐私/ordinal building block。全量 3005+ 测试、race、linux 交叉编译全绿。
+> 剩余诚实差距：并发会话持续在改 app/config/cli（其提交身份不对，已反复告知用户）；opencode 深挖指出最大差距是**事件溯源投影模型**（area 1，L 级，无对应物）。客观天花板仍是生态分发（真实发布）和真实模型/生产验证。
+
 ## 评分表（round17 后，2026-11-20 12:10）
 
 > round16 新增（codex/cursor/qwen 学习→优化）：受保护只读子路径（security/protected_paths.go）、AGENTS.md 项目根边界+override+trust（memory/boundary.go）、终态 provider 错误分类（llm/terminal_outcome.go）、/context+.argentignore（commands/context.go + memory/ignore.go）、gap-centered read + edit 相似度诊断。
