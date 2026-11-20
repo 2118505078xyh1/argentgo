@@ -56,7 +56,11 @@ func (r *Registry) PromoteFromTimeout(command string, live LiveProcess, logPath 
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
 
-	go r.watchLive(id, live)
+	r.bgWork.Add(1)
+	go func() {
+		defer r.bgWork.Done()
+		r.watchLive(id, live)
+	}()
 	if saveErr := r.persist(snap, version); saveErr != nil {
 		return job, fmt.Errorf("jobs: save %s: %w", id, saveErr)
 	}

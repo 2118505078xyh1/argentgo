@@ -59,6 +59,36 @@ func (m *Model) taskDuration(task Task) string {
 	return formatDuration(task.Duration)
 }
 
+// taskArgsLabel renders a task's arguments for the side rail. While a call is
+// still live its JSON may be truncated mid-field, so formatPartialArgs shows
+// every field recovered so far. When that yields nothing — no args, a
+// non-object, or text that cannot be parsed — the classic single-value summary
+// keeps the row informative instead of leaving a blank label.
+func taskArgsLabel(args string) string {
+	if label := formatPartialArgs(args); label != "" {
+		return label
+	}
+	return summarizeArgs(args)
+}
+
+// taskLiveElapsed picks the elapsed shown by a running or pending rail row.
+// It mirrors toolPendingLine's adaptive clock: the whole-turn time is shown
+// until the tool's own elapsed passes toolElapsedThreshold, then the tool time
+// takes over so one slow call stands out. A pending task has not started, so
+// it shows the turn clock; a missing/zero clock degrades to 0ms.
+func (m *Model) taskLiveElapsed(task Task) time.Duration {
+	now := m.now()
+	turn := time.Duration(0)
+	if !m.started.IsZero() && now.After(m.started) {
+		turn = now.Sub(m.started)
+	}
+	tool := time.Duration(0)
+	if !task.Started.IsZero() && now.After(task.Started) {
+		tool = now.Sub(task.Started)
+	}
+	return adaptiveElapsed(tool, turn, toolElapsedThreshold)
+}
+
 func formatDuration(d time.Duration) string {
 	if d <= 0 {
 		return "0ms"
@@ -184,11 +214,22 @@ func (m *Model) tasksLines(width, height int) []Line {
 		}
 		line.Push(taskMark(task.Status)+" ", style)
 		line.Push(Clip(task.Name, maxInt(width-10, 1)), Style{Bold: task.Status == TaskRunning})
-		label := summarizeArgs(task.Args)
+		// Live rows stream their arguments and use the adaptive clock, the same
+		// primitives toolPendingLine uses for transcript rows. Finished rows
+		// keep the stable summary and final duration so they never flicker.
+		label := ""
+		duration := ""
+		switch task.Status {
+		case TaskPending, TaskRunning:
+			label = taskArgsLabel(task.Args)
+			duration = formatDuration(m.taskLiveElapsed(task))
+		default:
+			label = summarizeArgs(task.Args)
+			duration = m.taskDuration(task)
+		}
 		if label != "" {
 			line.Push(" "+Clip(label, maxInt(width/2, 4)), m.palette.muted())
 		}
-		duration := m.taskDuration(task)
 		pad := width - TextWidth(taskMark(task.Status)+" "+task.Name) - TextWidth(label) - TextWidth(duration) - 4
 		if pad > 0 {
 			line.Push(strings.Repeat(" ", pad), Style{})

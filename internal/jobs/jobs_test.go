@@ -221,7 +221,13 @@ func TestPruneForgetsFinishedJobsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	t.Cleanup(func() { _ = registry.Stop(running.ID) })
+	t.Cleanup(func() {
+		_ = registry.Stop(running.ID)
+		// Stop only signals the child; its reaper writes a final snapshot
+		// afterwards. Wait for that watcher so TempDir's RemoveAll cannot race
+		// with a .jobs-*.tmp file created after the directory was scanned.
+		registry.waitIdle()
+	})
 
 	removed, err := registry.Prune(0)
 	if err != nil {
@@ -414,4 +420,41 @@ func TestTailOfAMissingLogIsAnError(t *testing.T) {
 	if _, err := registry.Tail(job.ID, 5); err == nil {
 		t.Fatal("a missing log must be an error")
 	}
+}
+
+// TestWaitIdleWaitsForBackgroundWatchers locks in the teardown guarantee the
+// flaky TestPruneForgetsFinishedJobsOnly cleanup relies on: a registry is only
+// quiescent once every completion watcher has finished its final index write.
+// Stop itself is asynchronous, so removing the directory before waitIdle can
+// race with a watcher that creates a .jobs-*.tmp file after RemoveAll scanned
+// the directory ("directory not empty" on CI).
+func TestWaitIdleWaitsForBackgroundWatchers(t *testing.T) {
+	registry := newRegistry(t)
+	live := newFakeLive(994)
+	_, err := registry.PromoteFromTimeout("idle-test", live, filepath.Join(t.TempDir(), "job.log"))
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	returned := make(chan struct{})
+	go func() {
+		registry.waitIdle()
+		close(returned)
+	}()
+
+	// The watcher is blocked on live.Done(); waitIdle must not return yet.
+	select {
+	case <-returned:
+		t.Fatal("waitIdle returned while a watcher was still running")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	// Releasing the watcher lets it finish, including its final persist.
+	live.finish(0)
+	select {
+	case <-returned:
+	case <-time.After(hangGuard):
+		t.Fatal("waitIdle did not return after the watcher finished")
+	}
+	waitPersisted(t, registry)
 }

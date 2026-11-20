@@ -50,7 +50,12 @@ func (m *Model) sessionsLines(width, height int) []Line {
 		out = append(out, line)
 		rendered++
 	}
-	if rendered == 0 && len(out) < height {
+	// "no sessions yet" is only truthful when the rail is genuinely empty.
+	// A filter that excludes every row is a different state — the title above
+	// already shows the real session count, and the filter bar shows the query
+	// — so claiming there are no sessions here would be misleading. With a
+	// filter active, the empty list below the rule is self-explanatory.
+	if rendered == 0 && len(out) < height && len(m.sessions) == 0 {
 		hint := NewLine()
 		hint.Push(Clip(text(m.locale, "no_sessions"), width), m.palette.dim())
 		out = append(out, hint)

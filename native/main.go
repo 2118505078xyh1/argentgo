@@ -549,8 +549,12 @@ func (app *chat) completeFromPrompt(streamed, full string, err error) {
 // are marshalled back onto the UI thread through Window.Update.
 func (app *chat) sendReal(text string, reply *message) {
 	eng := app.engine
-	// onDelta is called from the bridge goroutine; never touch state there.
-	eng.onDelta = func(chunk string) {
+	// Register the delta callback through the bridge's lock and capture the
+	// round's generation. readLoop snapshots the callback under the same lock,
+	// so swapping callbacks across rounds cannot race with a live delta. Only
+	// the completion goroutine reads gen; it is launched after the assignment
+	// below, so that read is race-free.
+	gen := eng.setDeltaHandler(func(chunk string) {
 		if app.win == nil {
 			return
 		}
@@ -559,13 +563,13 @@ func (app *chat) sendReal(text string, reply *message) {
 				reply.text += chunk
 			}
 		})
-	}
+	})
 	go func() {
 		full, err := eng.prompt(text)
 		// reply.text is only ever written on the UI thread by onDelta, so
 		// reading the streamed text inside the Update callback is safe; with
 		// no window no deltas are applied at all.
-		complete := func() { app.completeFromPrompt(reply.text, full, err) }
+		complete := func() { app.completeRealReply(eng, gen, reply, full, err) }
 		if app.win == nil {
 			// Tests never attach a real bridge, but stay safe anyway.
 			complete()
@@ -573,6 +577,17 @@ func (app *chat) sendReal(text string, reply *message) {
 		}
 		app.win.Update(complete)
 	}()
+}
+
+// completeRealReply finalizes a real-engine prompt only if gen is still the
+// active streaming generation. A round that was superseded (the user hit 停止
+// and sent a new message before the aborted prompt returned) must not run
+// finish(): finish writes app.reply, which by then belongs to the newer round.
+func (app *chat) completeRealReply(eng *bridge, gen uint64, reply *message, full string, err error) {
+	if eng != nil && !eng.isCurrentDeltaGen(gen) {
+		return
+	}
+	app.completeFromPrompt(reply.text, full, err)
 }
 
 // ---- Real agent events ----------------------------------------------------

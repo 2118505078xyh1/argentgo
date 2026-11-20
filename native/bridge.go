@@ -24,7 +24,11 @@ type bridge struct {
 	pending map[int]chan rpcReply
 	onDelta func(string)
 	onEvent func(kind string, raw json.RawMessage)
-	closed  bool
+	// deltaGen is bumped on every onDelta registration. It stamps one
+	// streaming round so a superseded round's late result can be dropped.
+	// Guarded by mu together with onDelta.
+	deltaGen uint64
+	closed   bool
 }
 
 type rpcReply struct {
@@ -62,13 +66,38 @@ func startBridge(exePath, workspace string, onDelta func(string), onEvent func(s
 	// stderr is inherited so engine errors are visible during development.
 	b := &bridge{
 		cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout),
-		pending: make(map[int]chan rpcReply), onDelta: onDelta, onEvent: onEvent,
+		pending: make(map[int]chan rpcReply), onEvent: onEvent,
+	}
+	if onDelta != nil {
+		b.setDeltaHandler(onDelta)
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	go b.readLoop()
 	return b, nil
+}
+
+// setDeltaHandler installs fn as the current prompt/delta callback and returns
+// the generation it was installed at. Registration and readLoop's delivery
+// snapshot are serialized by mu, so swapping callbacks between streaming rounds
+// cannot race with (or tear) a delta being delivered. The returned generation
+// lets a caller retire a superseded round before its late result is applied.
+func (b *bridge) setDeltaHandler(fn func(string)) uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deltaGen++
+	b.onDelta = fn
+	return b.deltaGen
+}
+
+// isCurrentDeltaGen reports whether gen still identifies the active streaming
+// round. When it returns false a newer round has superseded gen, so any delta
+// or completion stamped with gen must be discarded.
+func (b *bridge) isCurrentDeltaGen(gen uint64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.deltaGen == gen
 }
 
 // readLoop demultiplexes responses, prompt/delta notifications and real
@@ -85,8 +114,17 @@ func (b *bridge) readLoop() {
 					var p struct {
 						Text string `json:"text"`
 					}
-					if json.Unmarshal(m.Params, &p) == nil && b.onDelta != nil {
-						b.onDelta(p.Text)
+					if json.Unmarshal(m.Params, &p) == nil {
+						// Snapshot the callback under the lock so a concurrent
+						// registration on the UI thread cannot race with this
+						// read. Call it after unlocking: a handler may itself
+						// call back into the bridge (e.g. isCurrentDeltaGen).
+						b.mu.Lock()
+						fn := b.onDelta
+						b.mu.Unlock()
+						if fn != nil {
+							fn(p.Text)
+						}
 					}
 				case m.Method == "event":
 					// event/subscribe forwards each agent event as

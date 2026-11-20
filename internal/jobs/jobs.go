@@ -132,6 +132,14 @@ type Registry struct {
 	idleCond  *sync.Cond
 
 	ioMu sync.Mutex // guards the encode + atomic replace of jobs.json
+
+	// bgWork tracks completion watchers (the reaper spawned by Start and the
+	// watcher spawned by PromoteFromTimeout). A watcher owns the final index
+	// write for its job; waitIdle lets callers that are about to tear down the
+	// registry directory make sure no background goroutine will write into it
+	// afterwards. Add happens before the goroutine starts; tests call waitIdle
+	// only after they are done starting jobs.
+	bgWork sync.WaitGroup
 }
 
 // New opens (or creates) a registry whose logs live under dir.
@@ -156,6 +164,16 @@ func New(dir string) (*Registry, error) {
 
 // Dir is where the index and the logs live.
 func (r *Registry) Dir() string { return r.dir }
+
+// waitIdle blocks until every completion watcher started by this registry has
+// finished, including the final index write each one performs.
+//
+// Stop and Remove only signal the child: they return before its reaper has
+// observed the exit and persisted the result. A caller that is about to delete
+// the registry directory must wait here as well, or a watcher can create a
+// .jobs-*.tmp file after the directory was scanned and break teardown with
+// "directory not empty". Call waitIdle only once no more jobs will be started.
+func (r *Registry) waitIdle() { r.bgWork.Wait() }
 
 // Start launches cmd detached and returns the recorded job.
 func (r *Registry) Start(cmd Command) (Job, error) {
@@ -223,7 +241,11 @@ func (r *Registry) Start(cmd Command) (Job, error) {
 	// other writers are never blocked by the disk.
 	saveErr := r.persist(snap, version)
 
-	go r.reap(id, child)
+	r.bgWork.Add(1)
+	go func() {
+		defer r.bgWork.Done()
+		r.reap(id, child)
+	}()
 	if saveErr != nil {
 		return job, saveErr
 	}

@@ -197,6 +197,38 @@ func TestSessionsFilterBarVisibleAndCtrlLToggles(t *testing.T) {
 	}
 }
 
+func TestSessionsFilterNoMatchesDoesNotClaimNoSessions(t *testing.T) {
+	titles := []string{"alpha", "beta"}
+	m := sessionFilterModel(titles...)
+	hint := text(m.locale, "no_sessions")
+
+	// A query that filters every row out must not render "no sessions yet":
+	// the rail still holds sessions, as the title count shows. The filter bar
+	// and the empty row area below the rule convey the state instead.
+	m.sessionFilter = "zzz"
+	var bar bool
+	for _, line := range m.sessionsLines(40, 12) {
+		if strings.HasPrefix(line.Text(), "> ") {
+			bar = true
+		}
+		if strings.Contains(line.Text(), hint) {
+			t.Errorf("filter with no matches rendered the %q hint in %q", hint, line.Text())
+		}
+	}
+	if !bar {
+		t.Error("active filter did not render the filter bar")
+	}
+
+	// A genuinely empty rail must still explain itself with the same hint.
+	empty := sessionFilterModel()
+	for _, line := range empty.sessionsLines(40, 12) {
+		if strings.Contains(line.Text(), hint) {
+			return
+		}
+	}
+	t.Errorf("empty rail did not render the %q hint", hint)
+}
+
 func TestSessionsFilterCJK(t *testing.T) {
 	m := sessionFilterModel("打开配置文件", "关闭窗口", "新建会话")
 
