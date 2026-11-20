@@ -139,6 +139,48 @@ func TestFindAssetTable(t *testing.T) {
 	}
 }
 
+// TestFindAssetIsDeterministicForAmbiguousNames is the regression for a bug
+// where longestAlias walked a map in random order. A name carrying two aliases
+// of equal length from different keys (".linux." and ".win32." are both seven
+// bytes) used to match or not match from one call to the next, so the same
+// release could install different assets in different processes.
+func TestFindAssetIsDeterministicForAmbiguousNames(t *testing.T) {
+	assets := []Asset{
+		{Name: "argent_1.2.3_linux_win32.zip", URL: "ambiguous"},
+		{Name: "argent_1.2.3_windows_amd64.zip", URL: "windows"},
+	}
+	for index := 0; index < 200; index++ {
+		asset, found := FindAsset(assets, "windows", "amd64")
+		if !found || asset.URL != "windows" {
+			t.Fatalf("call %d: FindAsset = %+v, %v; the ambiguous asset must never win",
+				index, asset, found)
+		}
+	}
+}
+
+// TestFindAssetRejectsAmbiguousArchitecture covers equal-length architecture
+// aliases from different keys. The asset must be rejected for both platforms
+// rather than picked randomly as a fallback for one of them.
+func TestFindAssetRejectsAmbiguousArchitecture(t *testing.T) {
+	asset := Asset{Name: "argent_1.2.3_linux_amd64_arm64.tar.gz", URL: "fat"}
+	for _, arch := range []string{"amd64", "arm64"} {
+		if got, found := FindAsset([]Asset{asset}, "linux", arch); found {
+			t.Fatalf("FindAsset(linux, %s) selected ambiguous asset %+v", arch, got)
+		}
+	}
+}
+
+// TestLongestAliasRejectsAmbiguousNames checks the shared helper directly so a
+// future change to classification cannot silently reintroduce map-order luck.
+func TestLongestAliasRejectsAmbiguousNames(t *testing.T) {
+	if key, matched, ambiguous := longestAlias(".argent.linux.win32.zip.", osAliases); !ambiguous || matched || key != "" {
+		t.Fatalf("longestAlias(ambiguous OS) = (%q, %v, %v)", key, matched, ambiguous)
+	}
+	if key, matched, ambiguous := longestAlias(".argent.amd64.arm64.tar.gz.", archAliases); !ambiguous || matched || key != "" {
+		t.Fatalf("longestAlias(ambiguous arch) = (%q, %v, %v)", key, matched, ambiguous)
+	}
+}
+
 func TestFindAssetDefaultsToTheRunningPlatform(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", URL: "u"},

@@ -196,6 +196,36 @@ func TestExportProjectSelectsBranch(t *testing.T) {
 	}
 }
 
+func TestExportProjectHTMLSelectsBranch(t *testing.T) {
+	stamp := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	dir, id := exportDirSession(t, "fork-html", []Record{
+		{ID: "n1", TS: stamp, Kind: KindHeader, Data: json.RawMessage(`{"title":"fork"}`)},
+		{ID: "n2", Parent: "n1", TS: stamp, Kind: KindUser, Data: json.RawMessage(`"root"`)},
+		{ID: "n3", Parent: "n2", TS: stamp, Kind: KindAssistant, Data: json.RawMessage(`"branch A"`)},
+		{ID: "n4", Parent: "n2", TS: stamp, Kind: KindAssistant, Data: json.RawMessage(`"branch B"`)},
+	})
+	for _, tc := range []struct {
+		branch   string
+		sanitize bool
+		want     string
+		absent   string
+	}{
+		{branch: "n3", want: "branch A", absent: "branch B"},
+		{branch: "n3", sanitize: true, want: "[redacted:text:n3]", absent: "[redacted:text:n4]"},
+		{branch: "n4", want: "branch B", absent: "branch A"},
+		{branch: "", want: "branch B", absent: "branch A"}, // active leaf
+	} {
+		out, err := ExportProject(dir, id, tc.branch, ExportOptions{Format: "html", Sanitize: tc.sanitize})
+		if err != nil {
+			t.Fatalf("branch %q sanitize=%v: %v", tc.branch, tc.sanitize, err)
+		}
+		text := string(out)
+		if !strings.Contains(text, tc.want) || strings.Contains(text, tc.absent) {
+			t.Errorf("branch %q sanitize=%v produced wrong path: %s", tc.branch, tc.sanitize, text)
+		}
+	}
+}
+
 func TestExportProjectRejectsUnknownBranchAndFormat(t *testing.T) {
 	dir, id := exportFixture(t)
 	if _, err := ExportProject(dir, id, "nope", ExportOptions{Format: "json"}); err == nil {

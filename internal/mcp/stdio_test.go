@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -234,6 +236,74 @@ func TestStdioFinishReapsKilledChild(t *testing.T) {
 	}
 	if err := transport.Close(); err != nil {
 		t.Fatalf("close after reap: %v", err)
+	}
+}
+
+// blockedStdinTransport builds a transport whose stdin has no reader, so any
+// write blocks until finish closes it. cmd.Process is nil, so finish needs no
+// real child process.
+func blockedStdinTransport() (*stdioTransport, io.ReadCloser) {
+	reader, writer := io.Pipe()
+	return &stdioTransport{
+		name:    "blocked",
+		cmd:     &exec.Cmd{},
+		stdin:   writer,
+		waiters: newWaiters(),
+		diag:    &ringBuffer{},
+		done:    make(chan struct{}),
+	}, reader
+}
+
+// TestNotifyHonorsDeadlineOnBlockedWrite guards notifications/initialized: a
+// notification must not hang forever when the child stops reading stdin. The
+// request path already bounds its write by the context; notifications do the
+// same now, so a stalled child cannot defeat the caller's timeout.
+func TestNotifyHonorsDeadlineOnBlockedWrite(t *testing.T) {
+	transport, reader := blockedStdinTransport()
+	defer reader.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() { result <- transport.notify(ctx, "notifications/initialized", nil) }()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("notify error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("notify ignored its deadline while the stdin write was blocked")
+	}
+}
+
+// TestCallHonorsDeadlineOnBlockedWrite pins the shared write path: the request
+// side must still time out (and close the transport) when a child stops
+// reading stdin, after extracting the deadline-aware write helper.
+func TestCallHonorsDeadlineOnBlockedWrite(t *testing.T) {
+	transport, reader := blockedStdinTransport()
+	defer reader.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := transport.call(ctx, "initialize", map[string]any{})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("call error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("call ignored its deadline while the stdin write was blocked")
+	}
+	select {
+	case <-transport.done:
+	default:
+		t.Fatal("a write timeout must close the transport")
 	}
 }
 

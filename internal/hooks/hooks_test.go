@@ -164,6 +164,50 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
+func TestGlobMatchStarIsAWildcardEvenWhenValueContainsStar(t *testing.T) {
+	// A '*' in the pattern is always a wildcard. The old case order let a
+	// literal '*' in the value consume the pattern's star as a literal match,
+	// so matching failed even though the wildcard should absorb it. Paths and
+	// tool names can legitimately contain '*' (e.g. on Unix file systems).
+	cases := []struct {
+		pattern, value string
+		want           bool
+	}{
+		{"a*", "a*b", true},
+		{"a*", "a*", true},
+		{"read*", "read*file", true},
+		{"*.go", "a*.go", true},
+		{"*a*", "a*b*a", true},
+		{"a*b", "a*b", true}, // wildcard may match the single literal '*'
+		{"a*b", "ax*b", true},
+		{"a*c", "a*b", false}, // wildcard cannot invent a trailing 'c'
+	}
+	for _, test := range cases {
+		if got := globMatch(test.pattern, test.value); got != test.want {
+			t.Fatalf("globMatch(%q, %q) = %v, want %v", test.pattern, test.value, got, test.want)
+		}
+	}
+}
+
+func TestForEventMatcherWorksWhenValueContainsStar(t *testing.T) {
+	// End-to-end through the document parser and ForEvent: a FileChanged hook
+	// with a "*.go" matcher must still match a changed path that itself has a
+	// literal '*' in a directory or file name.
+	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
+		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
+		{"matcher":"*.md","hooks":[{"command":"md-hook"}]}
+	]}}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// The leading '*' in the path collides with the pattern's wildcard on the
+	// first comparison, which is exactly where the old case order failed.
+	got := config.ForEvent(FileChanged, "*scratch/main.go")
+	if len(got) != 1 || got[0].Command != "go-hook" {
+		t.Fatalf("matcher with '*' in value selected %+v", got)
+	}
+}
+
 func TestValidateWarnsAboutSilentTypos(t *testing.T) {
 	document := []byte(`{"hooks":{
 		"SesionStart":[{"hooks":[{"command":"echo typo"}]}],

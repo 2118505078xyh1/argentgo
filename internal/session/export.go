@@ -286,11 +286,19 @@ func redactedJSON(kind, id string) json.RawMessage {
 
 // renderExportHTML delegates to RenderHTML. HTML cannot be built from records
 // in memory without editing tree.go, so a sanitized export writes the already
-// redacted chain to a temporary JSONL file and renders that instead.
+// redacted chain to a temporary JSONL file and renders that instead. For an
+// unsanitized export the original file is rendered directly, but the leaf of
+// the already-resolved chain must still be passed as the branch: RenderHTML
+// with an empty branch follows the active (last) record, which would silently
+// export the wrong path when the caller selected a non-active branch.
 func renderExportHTML(path string, chain []Record, sanitize bool) ([]byte, error) {
 	if !sanitize {
+		leaf := ""
+		if len(chain) > 0 {
+			leaf = chain[len(chain)-1].ID
+		}
 		var buf bytes.Buffer
-		if err := RenderHTML(path, "", &buf); err != nil {
+		if err := RenderHTML(path, leaf, &buf); err != nil {
 			return nil, err
 		}
 		return buf.Bytes(), nil

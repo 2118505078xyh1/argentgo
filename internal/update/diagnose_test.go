@@ -137,6 +137,25 @@ func TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget(t *testing.T) {
 	}
 }
 
+// TestDiagnoseAssetMatchAmbiguousName agrees with FindAsset: an asset naming two
+// platforms with equal-length aliases is foreign, never a silent fallback.
+func TestDiagnoseAssetMatchAmbiguousName(t *testing.T) {
+	assets := []Asset{
+		{Name: "argent_1.2.3_linux_amd64_arm64.tar.gz", URL: "fat"},
+		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "linux"},
+	}
+	got := DiagnoseAssetMatch(assets, "linux", "amd64")
+	if len(got) != 2 {
+		t.Fatalf("got %d diagnoses, want 2", len(got))
+	}
+	if got[0].Eligible || got[0].Reason != AssetMatchReasonWrongArch || !got[0].ForeignArch {
+		t.Fatalf("ambiguous asset diagnosis = %+v, want a foreign-arch rejection", got[0])
+	}
+	if !got[1].Eligible || !got[1].Selected {
+		t.Fatalf("linux asset diagnosis = %+v, want it selected", got[1])
+	}
+}
+
 func TestDiagnoseAssetMatchIsPure(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "u"},

@@ -154,14 +154,7 @@ func RunExecCheck(workspace string, c ExecCheck) ExecResult {
 		return res
 	}
 
-	deadline := defaultExecTimeout
-	if c.TimeoutMS > 0 {
-		deadline = time.Duration(c.TimeoutMS) * time.Millisecond
-	}
-	if deadline > maxExecTimeout {
-		deadline = maxExecTimeout
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), execDeadline(c.TimeoutMS))
 	defer cancel()
 
 	// Resolve "go" to an absolute path in the parent's context BEFORE Dir is
@@ -200,6 +193,25 @@ func RunExecCheck(workspace string, c ExecCheck) ExecResult {
 		}
 	}
 	return res
+}
+
+// execDeadline resolves a fixture's TimeoutMS into a bounded wall-clock
+// deadline. Values at or below zero use the default; values above the cap are
+// clamped to it.
+//
+// The cap is applied in milliseconds BEFORE converting to time.Duration.
+// Multiplying a large int by time.Millisecond first can overflow int64 and
+// wrap to a negative duration, which would trip the context deadline
+// immediately instead of applying the documented 120s cap.
+func execDeadline(timeoutMS int) time.Duration {
+	if timeoutMS <= 0 {
+		return defaultExecTimeout
+	}
+	maxMS := int(maxExecTimeout / time.Millisecond)
+	if timeoutMS > maxMS {
+		return maxExecTimeout
+	}
+	return time.Duration(timeoutMS) * time.Millisecond
 }
 
 // GradeExecCheck is a pure grading function: exit code must match and, when

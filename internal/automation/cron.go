@@ -185,18 +185,17 @@ func (c *Cron) Next(t time.Time) time.Time {
 	if c == nil {
 		return time.Time{}
 	}
-	loc := t.Location()
 	next := t.Truncate(time.Minute).Add(time.Minute)
 	limit := next.AddDate(5, 0, 0)
 	for next.Before(limit) {
 		if !c.month.has(int(next.Month())) {
 			// Jump to the first minute of the next month.
-			next = time.Date(next.Year(), next.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
+			next = nextMonthStart(next)
 			continue
 		}
 		if !c.matchesDay(next) {
 			// Jump to midnight of the following day.
-			next = time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, 1)
+			next = nextDayStart(next)
 			continue
 		}
 		if !c.hour.has(next.Hour()) {
@@ -217,6 +216,37 @@ func (c *Cron) Next(t time.Time) time.Time {
 		return next
 	}
 	return time.Time{}
+}
+
+// nextDayStart returns the first instant of the local day after t.
+// nextMonthStart returns the first instant of the local month after t.
+//
+// Both rebuild a wall-clock boundary with time.Date, which is unsafe when the
+// zone shifts DST at midnight: a nonexistent 00:00 is normalised backwards onto
+// the previous day (for example 2026-03-08 00:00 in America/Havana becomes
+// 2026-03-07 23:00). Advancing to such a candidate can fail to move forward at
+// all, so Next would spin on the same excluded day forever. Falling back to an
+// absolute top-of-hour step keeps every iteration strictly increasing in real
+// time, which both terminates the loop and preserves the Vixie-style rule that
+// a midnight lost to DST has no firing slot that day.
+func nextDayStart(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return forwardOrNextHour(t, time.Date(y, m, d+1, 0, 0, 0, 0, t.Location()))
+}
+
+func nextMonthStart(t time.Time) time.Time {
+	return forwardOrNextHour(t, time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location()))
+}
+
+// forwardOrNextHour returns candidate when it is strictly after t, otherwise
+// an absolute step to the top of the following hour. The latter always moves
+// forward (by at least one minute) and is the same arithmetic the hour branch
+// of Next uses to walk past repeated or skipped wall-clock hours.
+func forwardOrNextHour(t, candidate time.Time) time.Time {
+	if candidate.After(t) {
+		return candidate
+	}
+	return t.Add(time.Hour - time.Duration(t.Minute())*time.Minute)
 }
 
 // parseDays reports whether expr is a day-based interval ("1d", "2.5d",

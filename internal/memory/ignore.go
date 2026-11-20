@@ -165,3 +165,131 @@ func (r *IgnoreRules) Ignored(relPath string) bool {
 	}
 	return ignored
 }
+
+// IgnoreRuleInfo is one parsed ignore pattern together with a human-readable
+// explanation, produced by DescribeIgnoreRules. It is a pure diagnostic value:
+// no disk I/O is performed and nothing is injected into the prompt.
+type IgnoreRuleInfo struct {
+	// Pattern is the original line as supplied to DescribeIgnoreRules.
+	Pattern string
+	// Glob is the normalized pattern actually used for matching: the leading
+	// `!` removed, surrounding `/` trimmed and separators made forward slashes,
+	// exactly as parseIgnorePatterns produces.
+	Glob string
+	// Negated reports whether the line was a `!` re-include rather than an
+	// exclusion.
+	Negated bool
+	// Description is a short semantic explanation of what the pattern does
+	// (literal path vs. glob metacharacters, exclusion vs. re-include).
+	Description string
+	// SensitiveRisk reports whether an exclusion pattern may accidentally also
+	// match a sensitive path (a secret or agent metadata location). Negated
+	// patterns re-include and therefore never carry this risk.
+	SensitiveRisk bool
+	// RiskReason lists the representative sensitive probe paths the pattern
+	// matched; it is empty when SensitiveRisk is false.
+	RiskReason string
+}
+
+// sensitiveProbes are representative paths used only for diagnostics. A rule
+// that matches any of them is flagged as a possible accidental exclusion. The
+// set mixes common secret/metadata locations with CJK names so the check also
+// exercises non-ASCII paths. This is a best-effort warning, NOT a security
+// boundary: it is intentionally small and explainable rather than exhaustive.
+var sensitiveProbes = []string{
+	".ssh",
+	".ssh/id_rsa",
+	".aws/credentials",
+	".env",
+	".git/config",
+	".argent",
+	"密钥/私钥.pem",
+	"凭证.txt",
+}
+
+// DescribeIgnoreRules parses raw .argentignore-style pattern lines and returns
+// one IgnoreRuleInfo per effective pattern, in input order. It is the pure
+// diagnostic companion to parseIgnorePatterns: line handling (BOM, comments,
+// blank lines, bare `!`, leading `/`, ToSlash) is identical, so the reported
+// Glob is exactly the string Ignored would match against.
+//
+// Blank lines, comments and bare `!` lines are skipped, matching the loader;
+// an empty (or all-skipped) input returns nil. The function never reads files
+// and never mutates its input.
+func DescribeIgnoreRules(patterns []string) []IgnoreRuleInfo {
+	var out []IgnoreRuleInfo
+	for _, raw := range patterns {
+		// Strip a leading BOM the same way the file loader does; otherwise the
+		// first "pattern" would be BOM-prefixed and a BOM-prefixed comment would
+		// be mistaken for a real rule.
+		line := strings.TrimPrefix(strings.TrimSpace(raw), bom)
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "!") && strings.TrimSpace(line[1:]) == "" {
+			// A bare `!` is discarded by the loader rather than becoming a
+			// match-all re-include; mirror that here.
+			continue
+		}
+		info := describePattern(raw, line)
+		if info.Glob == "" {
+			continue
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+// describePattern builds one IgnoreRuleInfo. line is the already BOM-trimmed,
+// whitespace-trimmed input; raw is kept verbatim for the Pattern field.
+func describePattern(raw, line string) IgnoreRuleInfo {
+	info := IgnoreRuleInfo{Pattern: raw}
+	negated := strings.HasPrefix(line, "!")
+	if negated {
+		line = strings.TrimSpace(line[1:])
+	}
+	glob := filepath.ToSlash(strings.Trim(line, "/"))
+	info.Glob = glob
+	info.Negated = negated
+
+	action := "exclude"
+	if negated {
+		action = "re-include"
+	}
+	syntax := describeGlobSyntax(glob)
+	if !strings.ContainsAny(glob, "*?[") {
+		info.Description = fmt.Sprintf("%s the literal path %q (%s)", action, glob, syntax)
+	} else {
+		info.Description = fmt.Sprintf("%s paths matching glob %q [%s]", action, glob, syntax)
+	}
+
+	// Only exclusions can "harm" a path by leaving it out of the context.
+	// Match against the probe paths with the very same matcher Ignored uses,
+	// so a flagged pattern is guaranteed to actually match that path.
+	if !negated {
+		var matched []string
+		for _, probe := range sensitiveProbes {
+			if security.GlobMatch(glob, probe) {
+				matched = append(matched, probe)
+			}
+		}
+		info.SensitiveRisk = len(matched) > 0
+		info.RiskReason = strings.Join(matched, ", ")
+	}
+	return info
+}
+
+// describeGlobSyntax explains which glob metacharacters a pattern uses.
+func describeGlobSyntax(glob string) string {
+	switch {
+	case strings.Contains(glob, "**"):
+		return "`**` spans directories"
+	case strings.Contains(glob, "*"):
+		return "`*` matches within one segment"
+	case strings.Contains(glob, "?"):
+		return "`?` matches one character"
+	default:
+		return "matches it or anything below it"
+	}
+}

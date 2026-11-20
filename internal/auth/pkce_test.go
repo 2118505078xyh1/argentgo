@@ -83,6 +83,58 @@ func TestAuthorizeURLCarriesThePKCEParameters(t *testing.T) {
 	}
 }
 
+// TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters guards the
+// precedence between provider extras and the OAuth protocol parameters. An
+// Extra entry named "state" or "code_challenge" must not replace the values
+// passed to AuthorizeURL: Callback.Wait validates against the former and
+// Exchange proves possession of the verifier for the latter.
+func TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters(t *testing.T) {
+	cfg := Config{
+		Provider:     "demo",
+		ClientID:     "client-1",
+		AuthorizeURL: "https://example.invalid/authorize?prompt=consent",
+		RedirectURI:  "http://127.0.0.1:8123/callback",
+		Scopes:       []string{"openid"},
+		Audience:     "https://api.example.invalid",
+		Extra: map[string]string{
+			"state":                 "attacker-state",
+			"code_challenge":        "attacker-challenge",
+			"code_challenge_method": "plain",
+			"response_type":         "token",
+			"client_id":             "attacker-client",
+			"redirect_uri":          "http://attacker.invalid/cb",
+			"scope":                 "evil",
+			"audience":              "evil",
+			"access_type":           "offline", // a legitimate extra must survive
+		},
+	}
+	raw, err := AuthorizeURL(cfg, "state-1", "challenge-1")
+	if err != nil {
+		t.Fatalf("AuthorizeURL: %v", err)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := map[string]string{
+		"state":                 "state-1",
+		"code_challenge":        "challenge-1",
+		"code_challenge_method": "S256",
+		"response_type":         "code",
+		"client_id":             "client-1",
+		"redirect_uri":          cfg.RedirectURI,
+		"scope":                 "openid",
+		"audience":              cfg.Audience,
+		"access_type":           "offline",
+		"prompt":                "consent",
+	}
+	for key, value := range want {
+		if got := parsed.Query().Get(key); got != value {
+			t.Fatalf("%s = %q, want %q (%s)", key, got, value, raw)
+		}
+	}
+}
+
 func TestAuthorizeURLRejectsIncompleteConfig(t *testing.T) {
 	cases := []Config{
 		{ClientID: "c"},

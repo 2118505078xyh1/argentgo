@@ -155,6 +155,27 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 			})
 			continue
 		}
+		// A {{steps.NAME.output}} reference is a real dependency, not just a
+		// template hint: the consumer must not run when its producer produced
+		// no output. The global stop flag is not enough here because a producer
+		// can fail under on_failure:continue, or be skipped by its own When
+		// condition, leaving the consumer with a literal unresolved token.
+		missing := ""
+		for _, dep := range referencedSteps(step) {
+			if _, ok := outputs[dep]; !ok {
+				missing = dep
+				break
+			}
+		}
+		if missing != "" {
+			run.Steps = append(run.Steps, StepResult{
+				Name:   step.Name,
+				Status: StatusSkipped,
+				Error:  fmt.Sprintf("depends on step %q which did not produce an output", missing),
+			})
+			continue
+		}
+
 		if !step.When.matches(previous, havePrevious) {
 			run.Steps = append(run.Steps, StepResult{
 				Name:   step.Name,

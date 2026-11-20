@@ -234,6 +234,10 @@ func TestClassifyRetryError(t *testing.T) {
 		{"no route", &net.OpError{Op: "dial", Err: errors.New("connect: network is unreachable")}, llm.ReasonUnreachable},
 		{"ordinary transport", io.ErrUnexpectedEOF, llm.ReasonNotSent},
 		{"op error refused", &net.OpError{Op: "dial", Err: errors.New("connection refused")}, llm.ReasonNotSent},
+		{"context overflow", errors.New("context window exceeded"), llm.ReasonNone},
+		{"wrapped context overflow", fmt.Errorf("chat: %w", errors.New("context_length_exceeded")), llm.ReasonNone},
+		{"transport sentinel wins over overflow wording", fmt.Errorf("context window exceeded: %w", dnsErr), llm.ReasonUnreachable},
+		{"deadline wins over overflow wording", fmt.Errorf("context window exceeded: %w", context.DeadlineExceeded), llm.ReasonTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

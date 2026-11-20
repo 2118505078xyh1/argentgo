@@ -26,6 +26,7 @@ func TestClassifyAPIErrorFamilies(t *testing.T) {
 		{"quota zh", errors.New("配额已用尽"), llm.FamilyQuotaExhausted, "/model"},
 		{"rate limit 429", errors.New("provider returned 429 Too Many Requests: rate limit exceeded"), llm.FamilyRateLimit, "重试"},
 		{"content filter", errors.New("provider returned 400 Bad Request: content_policy_violation"), llm.FamilyContentFilter, "提示词"},
+		{"context overflow", errors.New("provider returned 400 Bad Request: prompt is too long"), llm.FamilyContextOverflow, "压缩"},
 		{"model not found", errors.New("provider returned 404 Not Found: model gpt-foo not found"), llm.FamilyModelNotFound, "/model"},
 		{"server 503", errors.New("provider returned 503 Service Unavailable"), llm.FamilyServer, "重试"},
 		{"network string", errors.New("dial tcp 10.0.0.1:443: connection refused"), llm.FamilyNetwork, "网络"},
@@ -121,6 +122,106 @@ func TestClassifyAPIErrorBoundsMessage(t *testing.T) {
 		t.Fatal("ClassifyAPIError returned nil")
 	}
 	if runes := []rune(got.Message); len(runes) > 200 {
+		t.Errorf("Message has %d runes, want <= 200", len(runes))
+	}
+}
+
+func TestClassifyAPIErrorContextOverflowProviders(t *testing.T) {
+	// Each message is a real-world provider wording for an input/context that
+	// exceeds the model window. All must map to the new family so callers can
+	// react with compaction instead of a passive failure.
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"anthropic prompt too long", errors.New("prompt is too long: 250000 tokens > 200000 tokens")},
+		{"anthropic context window exceeded", errors.New("context window exceeded")},
+		{"openai maximum context length", errors.New("This model's maximum context length is 4097 tokens")},
+		{"openai error code", errors.New("provider returned 400 Bad Request: context_length_exceeded")},
+		{"openai tokens exceeds limit", errors.New("tokens exceeds the limit")},
+		{"openai reduce messages", errors.New("Please reduce the length of the messages.")},
+		{"exceeds the context window", errors.New("input exceeds the context window")},
+		{"http 400 with keyword", errors.New("provider returned 400 Bad Request: prompt is too long")},
+		{"zh context window", errors.New("上下文窗口已用尽")},
+		{"zh prompt too long", errors.New("提示词过长")},
+		{"zh input over context", errors.New("输入内容超出上下文长度")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := llm.ClassifyAPIError(tc.err)
+			if got == nil {
+				t.Fatal("ClassifyAPIError returned nil")
+			}
+			if got.Family != llm.FamilyContextOverflow {
+				t.Errorf("family = %q, want %q (message %q)", got.Family, llm.FamilyContextOverflow, got.Message)
+			}
+			if !strings.Contains(got.NextStep, "压缩") {
+				t.Errorf("NextStep %q should suggest compaction", got.NextStep)
+			}
+		})
+	}
+}
+
+func TestClassifyAPIErrorContextOverflowDoesNotShadowOtherFamilies(t *testing.T) {
+	// Adding the new family must not change any existing classification. A
+	// stronger signal keeps its family, and generic length/limit wording is not
+	// mistaken for a context-window overflow.
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"quota wins over overflow wording", errors.New("provider returned 402 Payment Required: insufficient quota, context window exceeded"), llm.FamilyQuotaExhausted},
+		{"auth wins over overflow wording", errors.New("provider returned 401 Unauthorized: invalid api key, prompt is too long"), llm.FamilyAuth},
+		{"rate limit", errors.New("provider returned 429 Too Many Requests: rate limit exceeded"), llm.FamilyRateLimit},
+		{"bare quota", errors.New("quota exceeded"), llm.FamilyQuotaExhausted},
+		{"context deadline is network", errors.New("context deadline exceeded"), llm.FamilyNetwork},
+		{"content filter", errors.New("provider returned 400 Bad Request: content_policy_violation"), llm.FamilyContentFilter},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := llm.ClassifyAPIError(tc.err); got == nil || got.Family != tc.want {
+				t.Errorf("family = %#v, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Output-token caps and payload-size limits are not context-window overflow:
+	// compaction would not fix them, so they must not be captured by the pattern.
+	notOverflow := []error{
+		errors.New("provider returned 400 Bad Request: maximum output tokens exceeded, reduce max_tokens"),
+		errors.New("request payload is too large"),
+		errors.New("response too long"),
+		errors.New("some unrelated failure"),
+	}
+	for _, err := range notOverflow {
+		if got := llm.ClassifyAPIError(err); got != nil && got.Family == llm.FamilyContextOverflow {
+			t.Errorf("%v: wrongly classified as context overflow", err)
+		}
+	}
+}
+
+func TestClassifyAPIErrorContextOverflowRedactsAndBounds(t *testing.T) {
+	// A credential that happens to sit next to overflow wording is redacted
+	// before both classification and display; a CJK message stays rune-safe.
+	err := errors.New("prompt is too long: api_key=sk-abcdefghijklmnop context window exceeded user@example.com")
+	got := llm.ClassifyAPIError(err)
+	if got == nil || got.Family != llm.FamilyContextOverflow {
+		t.Fatalf("family = %#v, want %q", got, llm.FamilyContextOverflow)
+	}
+	blob := got.Message + " " + got.NextStep
+	for _, secret := range []string{"sk-abcdefghijklmnop", "user@example.com"} {
+		if strings.Contains(blob, secret) {
+			t.Errorf("output leaked %q: %q", secret, blob)
+		}
+	}
+
+	long := errors.New("上下文窗口已用尽: " + strings.Repeat("长", 500))
+	bounded := llm.ClassifyAPIError(long)
+	if bounded == nil || bounded.Family != llm.FamilyContextOverflow {
+		t.Fatalf("family = %#v, want %q", bounded, llm.FamilyContextOverflow)
+	}
+	if runes := []rune(bounded.Message); len(runes) > 200 {
 		t.Errorf("Message has %d runes, want <= 200", len(runes))
 	}
 }

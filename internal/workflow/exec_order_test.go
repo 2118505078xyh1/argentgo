@@ -78,3 +78,65 @@ func TestRunSkipsDependentWhenProducerFails(t *testing.T) {
 		t.Errorf("step results = %+v, want producer failed and consumer skipped", run.Steps)
 	}
 }
+
+// TestRunSkipsDependentWhenProducerFailsButContinues checks that on_failure:
+// continue does not let a consumer run with a literal {{steps...output}}
+// placeholder. "Continue" must not defeat the dependency that DAG validation
+// established.
+func TestRunSkipsDependentWhenProducerFailsButContinues(t *testing.T) {
+	rec := &recorder{}
+	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
+		if text == "produce" {
+			return "", errors.New("producer boom")
+		}
+		return "consumed:" + text, nil
+	})}
+	def := mustDefinition(t, `{"steps":[
+		{"name":"produce","prompt":"produce","on_failure":"continue"},
+		{"name":"consume","prompt":"consume {{steps.produce.output}}"}
+	]}`)
+
+	run, err := exec.Run(context.Background(), def, "")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if run.Status != StatusFailed {
+		t.Fatalf("status = %q", run.Status)
+	}
+	if rec.promptCount() != 1 {
+		t.Fatalf("the consumer must not run when its producer produced no output: %q", rec.prompts)
+	}
+	if len(run.Steps) != 2 || run.Steps[1].Status != StatusSkipped {
+		t.Fatalf("step results = %+v, want consumer skipped", run.Steps)
+	}
+}
+
+// TestRunSkipsDependentWhenProducerSkippedByCondition checks that a step
+// reading another step's output is skipped when that producer was itself
+// skipped by a When condition, instead of leaking the unresolved token into
+// the consumer's prompt.
+func TestRunSkipsDependentWhenProducerSkippedByCondition(t *testing.T) {
+	rec := &recorder{}
+	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
+		return "out:" + text, nil
+	})}
+	def := mustDefinition(t, `{"steps":[
+		{"name":"scan","prompt":"scan","when":{"previous_contains":"NEVER"}},
+		{"name":"report","prompt":"report {{steps.scan.output}}"}
+	]}`)
+
+	run, err := exec.Run(context.Background(), def, "")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(run.Steps) != 2 || run.Steps[0].Status != StatusSkipped || run.Steps[1].Status != StatusSkipped {
+		t.Fatalf("step results = %+v, want both steps skipped", run.Steps)
+	}
+	if rec.promptCount() != 0 {
+		t.Fatalf("no seam should run: %q", rec.prompts)
+	}
+	// A skipped producer is not a failure; the run itself stays successful.
+	if run.Status != StatusOK {
+		t.Fatalf("status = %q, want %q", run.Status, StatusOK)
+	}
+}

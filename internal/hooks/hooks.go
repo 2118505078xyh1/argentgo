@@ -384,13 +384,19 @@ func globMatch(pattern, value string) bool {
 	star, starV := -1, 0
 	for v < len(valueRunes) {
 		switch {
-		case p < len(patternRunes) && patternRunes[p] == valueRunes[v]:
-			p++
-			v++
+		// The wildcard case must come first. If the literal-equality case ran
+		// first, a '*' in the pattern would be consumed as a literal when the
+		// value happened to contain '*' too (e.g. pattern "a*" against value
+		// "a*b"), leaving no star to backtrack to and failing the match. Tool
+		// names and file paths can carry a literal '*', so treat the pattern's
+		// '*' as a wildcard unconditionally.
 		case p < len(patternRunes) && patternRunes[p] == '*':
 			star = p
 			starV = v
 			p++
+		case p < len(patternRunes) && patternRunes[p] == valueRunes[v]:
+			p++
+			v++
 		case star >= 0:
 			p = star + 1
 			starV++

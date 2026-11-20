@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -310,15 +311,48 @@ func startOS(c Command) (*Process, error) {
 	// agent. It needs the same host-private env filter Run applies, or it
 	// mistakes the host's session plumbing for its own.
 	cmd.Env = SanitizeEnv(c.Env)
+	// Own the stdin pipe the same way Run does. Handing a non-*os.File reader
+	// straight to exec makes Cmd.Wait wait for exec's stdin copy goroutine: a
+	// reader that outlives the child (a slow producer or a never-ending stream)
+	// then keeps Done from closing forever, so a promoted job can never be
+	// reaped and its log file is never released. Passing an *os.File keeps exec
+	// out of the copy loop; our own copier is not something Wait waits for.
+	var stdinRead, stdinWrite *os.File
 	if c.Stdin != nil {
-		cmd.Stdin = c.Stdin
+		if f, ok := c.Stdin.(*os.File); ok {
+			cmd.Stdin = f
+		} else {
+			pr, pw, err := os.Pipe()
+			if err != nil {
+				return nil, fmt.Errorf("proc: stdin pipe: %w", err)
+			}
+			cmd.Stdin = pr
+			stdinRead, stdinWrite = pr, pw
+		}
 	}
 	configureDetached(cmd, c.NoWindow)
 	out := newSwitchWriter()
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Start(); err != nil {
+		if stdinRead != nil {
+			_ = stdinRead.Close()
+		}
+		if stdinWrite != nil {
+			_ = stdinWrite.Close()
+		}
 		return nil, fmt.Errorf("proc: spawn %q: %w", c.Path, err)
+	}
+	// The child has its own handle now; closing ours turns the write end into
+	// EOF for it once the copier finishes.
+	if stdinRead != nil {
+		_ = stdinRead.Close()
+	}
+	if stdinWrite != nil {
+		go func() {
+			_, _ = io.Copy(stdinWrite, c.Stdin)
+			_ = stdinWrite.Close()
+		}()
 	}
 	killer := newPlatformProcess(cmd.Process, true)
 	// Use the very writer exec is copying into, so Output/SetOutput see the

@@ -10,12 +10,13 @@ package llm
 type FailureKind string
 
 const (
-	FailureAuth        FailureKind = "auth"
-	FailureQuota       FailureKind = "quota"
-	FailureRateLimit   FailureKind = "rate_limit"
-	FailureConfig      FailureKind = "config"
-	FailureTransient   FailureKind = "transient"
-	FailureAgentAction FailureKind = "agent_action"
+	FailureAuth            FailureKind = "auth"
+	FailureQuota           FailureKind = "quota"
+	FailureRateLimit       FailureKind = "rate_limit"
+	FailureConfig          FailureKind = "config"
+	FailureTransient       FailureKind = "transient"
+	FailureAgentAction     FailureKind = "agent_action"
+	FailureContextOverflow FailureKind = "context_overflow"
 	// FailureInternal is reserved for faults inside this process. ClassifyFailure
 	// does not emit it yet; it exists so the vocabulary is closed and a future
 	// internal-fault signal can be routed without changing the type.
@@ -56,17 +57,20 @@ type FailureInfo struct {
 // Retryable answers "will an unchanged retry succeed on its own?" while
 // UserAction answers "what should the user do?". They can differ: a content
 // block is not safe to replay unchanged (Retryable=false) but the user is still
-// guided to revise the prompt and try again (UserAction=retry).
+// guided to revise the prompt and try again (UserAction=retry). A context
+// overflow is also Retryable=false (the same oversized request would fail
+// again) and is routed to settings so the caller can trigger compaction.
 var failureByFamily = map[string]FailureInfo{
-	FamilyNotConfigured:  {FailureConfig, false, UserActionSettings, "config.not_configured"},
-	FamilyAuth:           {FailureAuth, false, UserActionSettings, "auth.invalid_key"},
-	FamilyQuotaExhausted: {FailureQuota, false, UserActionSettings, "quota.exhausted"},
-	FamilyRateLimit:      {FailureRateLimit, true, UserActionRetry, "rate_limit.exceeded"},
-	FamilyContentFilter:  {FailureAgentAction, false, UserActionRetry, "agent_action.content_filter"},
-	FamilyModelNotFound:  {FailureConfig, false, UserActionSettings, "config.model_not_found"},
-	FamilyNetwork:        {FailureTransient, true, UserActionRetry, "transient.network"},
-	FamilyServer:         {FailureTransient, true, UserActionRetry, "transient.server"},
-	FamilyUnknown:        {FailureUnknown, false, UserActionNone, "unknown"},
+	FamilyNotConfigured:   {FailureConfig, false, UserActionSettings, "config.not_configured"},
+	FamilyAuth:            {FailureAuth, false, UserActionSettings, "auth.invalid_key"},
+	FamilyQuotaExhausted:  {FailureQuota, false, UserActionSettings, "quota.exhausted"},
+	FamilyRateLimit:       {FailureRateLimit, true, UserActionRetry, "rate_limit.exceeded"},
+	FamilyContentFilter:   {FailureAgentAction, false, UserActionRetry, "agent_action.content_filter"},
+	FamilyContextOverflow: {FailureContextOverflow, false, UserActionSettings, "context_overflow.exceeded"},
+	FamilyModelNotFound:   {FailureConfig, false, UserActionSettings, "config.model_not_found"},
+	FamilyNetwork:         {FailureTransient, true, UserActionRetry, "transient.network"},
+	FamilyServer:          {FailureTransient, true, UserActionRetry, "transient.server"},
+	FamilyUnknown:         {FailureUnknown, false, UserActionNone, "unknown"},
 }
 
 // unknownFailure is the fallback for a nil error or a family this build does

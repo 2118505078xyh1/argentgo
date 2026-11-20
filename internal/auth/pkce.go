@@ -108,6 +108,14 @@ func AuthorizeURL(cfg Config, state, challenge string) (string, error) {
 		return "", fmt.Errorf("auth: bad authorize endpoint: %w", err)
 	}
 	query := parsed.Query()
+	// Provider extras are applied first so they can contribute optional
+	// parameters (prompt, access_type, ...), but the protocol-critical values
+	// set below always win. Letting an Extra entry override `state` would break
+	// the CSRF check in Callback.Wait; overriding the PKCE challenge or method
+	// would make the verifier sent by Exchange fail at the token endpoint.
+	for key, value := range cfg.Extra {
+		query.Set(key, value)
+	}
 	query.Set("response_type", "code")
 	query.Set("client_id", cfg.ClientID)
 	query.Set("state", state)
@@ -121,9 +129,6 @@ func AuthorizeURL(cfg Config, state, challenge string) (string, error) {
 	}
 	if cfg.Audience != "" {
 		query.Set("audience", cfg.Audience)
-	}
-	for key, value := range cfg.Extra {
-		query.Set(key, value)
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil

@@ -211,20 +211,8 @@ func (t *stdioTransport) call(ctx context.Context, method string, params any) (j
 	if err != nil {
 		return nil, fmt.Errorf("mcp %q: encode %s: %w", t.name, method, err)
 	}
-	// Write on its own goroutine: a child that stops reading must not make the
-	// call ignore its context. Closing stdin in finish unblocks the write.
-	written := make(chan error, 1)
-	go func() { written <- t.write(frame) }()
-	select {
-	case err := <-written:
-		if err != nil {
-			return nil, err
-		}
-	case <-ctx.Done():
-		t.finish(fmt.Errorf("mcp %q: %s cancelled: %w", t.name, method, ctx.Err()))
-		return nil, fmt.Errorf("mcp %q: %s: %w", t.name, method, ctx.Err())
-	case <-t.done:
-		return nil, t.closedError(method)
+	if err := t.writeContext(ctx, method, frame); err != nil {
+		return nil, err
 	}
 
 	select {
@@ -248,7 +236,26 @@ func (t *stdioTransport) notify(ctx context.Context, method string, params any) 
 	if err != nil {
 		return fmt.Errorf("mcp %q: encode %s: %w", t.name, method, err)
 	}
-	return t.write(frame)
+	return t.writeContext(ctx, method, frame)
+}
+
+// writeContext writes one frame without letting a child that stopped reading
+// its stdin hold the caller past its deadline. A pipe write can block forever
+// once the child's buffer fills, so it runs on its own goroutine and the
+// context (or a closed transport) wins the race. finish closes stdin, which
+// unblocks a write already in flight so the goroutine cannot leak.
+func (t *stdioTransport) writeContext(ctx context.Context, method string, frame []byte) error {
+	written := make(chan error, 1)
+	go func() { written <- t.write(frame) }()
+	select {
+	case err := <-written:
+		return err
+	case <-ctx.Done():
+		t.finish(fmt.Errorf("mcp %q: %s cancelled: %w", t.name, method, ctx.Err()))
+		return fmt.Errorf("mcp %q: %s: %w", t.name, method, ctx.Err())
+	case <-t.done:
+		return t.closedError(method)
+	}
 }
 
 func (t *stdioTransport) write(frame []byte) error {

@@ -223,6 +223,76 @@ func TestRepairReplaceNormalizesPunctuation(t *testing.T) {
 	}
 }
 
+func TestNormalizePunctRuneExpandedMapping(t *testing.T) {
+	// Per-rune substitutions introduced for the codex audit: horizontal bars
+	// and the remaining Unicode space family. Every case must map to a single
+	// ASCII rune and never change rune length.
+	tests := []struct {
+		name string
+		in   rune
+		want rune
+	}{
+		{"hyphen U+2010", '\u2010', '-'},
+		{"non-breaking hyphen U+2011", '\u2011', '-'},
+		{"figure dash U+2012", '\u2012', '-'},
+		{"en dash U+2013", '\u2013', '-'},
+		{"em dash U+2014", '\u2014', '-'},
+		{"horizontal bar U+2015", '\u2015', '-'},
+		{"minus sign U+2212", '\u2212', '-'},
+		{"no-break space U+00A0", '\u00a0', ' '},
+		{"en space U+2002", '\u2002', ' '},
+		{"em space U+2003", '\u2003', ' '},
+		{"three-per-em U+2004", '\u2004', ' '},
+		{"four-per-em U+2005", '\u2005', ' '},
+		{"six-per-em U+2006", '\u2006', ' '},
+		{"figure space U+2007", '\u2007', ' '},
+		{"punctuation space U+2008", '\u2008', ' '},
+		{"thin space U+2009", '\u2009', ' '},
+		{"hair space U+200A", '\u200a', ' '},
+		{"narrow no-break U+202F", '\u202f', ' '},
+		{"medium math U+205F", '\u205f', ' '},
+		{"ideographic space U+3000", '\u3000', ' '},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizePunctRune(tt.in); got != tt.want {
+				t.Fatalf("normalizePunctRune(%U) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepairReplaceNormalizesExpandedPunctuation(t *testing.T) {
+	// Integration: each newly mapped rune must let a finite old block match the
+	// ASCII file text through repairReplace, and leave unrelated bytes alone.
+	// content is the ASCII form; old is the same text with one rune swapped.
+	tests := []struct {
+		name, content, old, want string
+	}{
+		{"hyphen U+2010", "keep\na-b c\n", "a\u2010b c", "keep\nX\n"},
+		{"non-breaking hyphen U+2011", "keep\na-b c\n", "a\u2011b c", "keep\nX\n"},
+		{"figure dash U+2012", "keep\na-b c\n", "a\u2012b c", "keep\nX\n"},
+		{"minus sign U+2212", "keep\na-b c\n", "a\u2212b c", "keep\nX\n"},
+		{"en space U+2002", "keep\na b c\n", "a\u2002b c", "keep\nX\n"},
+		{"em space U+2003", "keep\na b c\n", "a\u2003b c", "keep\nX\n"},
+		{"thin space U+2009", "keep\na b c\n", "a\u2009b c", "keep\nX\n"},
+		{"hair space U+200A", "keep\na b c\n", "a\u200ab c", "keep\nX\n"},
+		{"narrow no-break U+202F", "keep\na b c\n", "a\u202fb c", "keep\nX\n"},
+		{"medium math U+205F", "keep\na b c\n", "a\u205fb c", "keep\nX\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := repairReplace(tt.content, tt.old, "X")
+			if !ok {
+				t.Fatalf("punctuation-normalized match not found for %q", tt.old)
+			}
+			if got != tt.want {
+				t.Fatalf("result = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRepairReplacePunctuationRejectsAmbiguousMatch(t *testing.T) {
 	// Both windows normalize to "a-b", so no single occurrence may be picked.
 	content := "a-b and a-b\n"
@@ -269,6 +339,107 @@ func TestEditRepairFalseDoesNotNormalizePunctuation(t *testing.T) {
 	}
 	if got := readFixture(t, path); got != "say 'hi'\n" {
 		t.Fatalf("failed edit changed the file: %q", got)
+	}
+}
+
+func TestRepairReplaceTrailingWhitespace(t *testing.T) {
+	tests := []struct {
+		name, content, old, newText, want string
+	}{
+		{
+			name:    "file has trailing spaces old does not",
+			content: "alpha \nbeta \ngamma\n",
+			old:     "alpha\nbeta",
+			newText: "X\nY",
+			want:    "X\nY\ngamma\n",
+		},
+		{
+			name:    "old has different trailing whitespace than file",
+			content: "alpha\t\nbeta\n",
+			old:     "alpha \nbeta",
+			newText: "ALPHA\nBETA",
+			want:    "ALPHA\nBETA\n",
+		},
+		{
+			// old uses a tab so the exact-literal rung cannot win (it is not a
+			// substring of the space-padded file line); only rstrip matches.
+			name:    "single line trailing whitespace",
+			content: "foo   \n",
+			old:     "foo\t",
+			newText: "bar",
+			want:    "bar\n",
+		},
+		{
+			name:    "CJK lines with trailing whitespace",
+			content: "保留 \n你好  \n世界\n",
+			old:     "你好\n世界",
+			newText: "再见\n世界",
+			want:    "保留 \n再见\n世界\n",
+		},
+		{
+			name:    "interior lines preserved outside the window",
+			content: "head\na \nb \ntail\n",
+			old:     "a\nb",
+			newText: "NEW",
+			want:    "head\nNEW\ntail\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := repairReplace(tt.content, tt.old, tt.newText)
+			if !ok {
+				t.Fatal("trailing-whitespace repair did not match")
+			}
+			if got != tt.want {
+				t.Fatalf("result = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepairReplaceTrailingWhitespaceRejectsAmbiguousMatch(t *testing.T) {
+	// Both "foo \nbar" and "foo\t\nbar" normalize to ["foo", "bar"], so no
+	// single window may be picked.
+	content := "foo \nbar\nfoo\t\nbar\n"
+	if got, ok := repairReplace(content, "foo\nbar", "X"); ok {
+		t.Fatalf("ambiguous trailing-whitespace match was accepted: %q", got)
+	}
+
+	root := t.TempDir()
+	writeFixture(t, root, "f.txt", content)
+	if _, err := runEditTool(t, root, "f.txt", "foo\nbar", "X", true); err == nil {
+		t.Fatal("expected a repair diagnostic for the ambiguous trailing-whitespace match")
+	}
+	if got := readFixture(t, filepath.Join(root, "f.txt")); got != content {
+		t.Fatalf("failed edit changed the file: %q", got)
+	}
+}
+
+func TestEditRepairTrailingWhitespaceLeavesUnrelatedLinesUntouched(t *testing.T) {
+	root := t.TempDir()
+	// The first line's trailing spaces are unrelated to the edited block and
+	// must survive byte-for-byte.
+	path := writeFixture(t, root, "f.txt", "keep   \nchange \nlast\n")
+
+	_, err := runEditTool(t, root, "f.txt", "change\nlast", "DONE\nlast", true)
+	if err != nil {
+		t.Fatalf("trailing-whitespace repair via tool: %v", err)
+	}
+	if got, want := readFixture(t, path), "keep   \nDONE\nlast\n"; got != want {
+		t.Fatalf("content = %q, want %q (unrelated trailing spaces preserved)", got, want)
+	}
+}
+
+func TestRepairReplaceTrailingWhitespacePreservesCRLF(t *testing.T) {
+	// CRLF files: the \r must be treated as trailing whitespace for matching,
+	// yet the original CRLF line endings must survive the splice.
+	content := "a \r\nb\r\nc\r\n"
+	got, ok := repairReplace(content, "a\nb", "X")
+	if !ok {
+		t.Fatal("trailing-whitespace repair did not match a CRLF file")
+	}
+	if want := "X\nc\r\n"; got != want {
+		t.Fatalf("result = %q, want %q (untouched CRLF line preserved)", got, want)
 	}
 }
 

@@ -458,33 +458,39 @@ func countLines(s string) int {
 }
 
 // wrapFirst mirrors one step of Wrap: it returns the first wrapped segment and
-// the unconsumed remainder, stopping as soon as the first break is found.
+// the unconsumed remainder, stopping as soon as the first break is found. It
+// walks grapheme clusters through nextGrapheme — the same authority Wrap, Clip
+// and Buffer.WriteString use — so a ZWJ emoji, a flag or a combining sequence is
+// never torn across two preview rows. Measuring each rune with RuneWidth here
+// used to leave a dangling joiner or half a flag at the end of a row.
 func wrapFirst(text string, width int) (string, string) {
 	if width < 1 {
 		width = 1
 	}
-	var cur []rune
-	used, lastSpace := 0, -1
-	for pos, r := range text {
-		cell := RuneWidth(r)
+	var cur []string         // grapheme clusters, in order
+	used, lastSpace := 0, -1 // lastSpace indexes cur
+	for pos := 0; pos < len(text); {
+		next, cell := nextGrapheme(text, pos)
+		cluster := text[pos:next]
 		if used+cell > width && len(cur) > 0 {
 			if lastSpace >= 1 {
-				head := strings.TrimRight(string(cur[:lastSpace]), " ")
-				tail := cur[lastSpace:]
+				head := strings.TrimRight(strings.Join(cur[:lastSpace], ""), " ")
+				tail := strings.Join(cur[lastSpace:], "")
 				for len(tail) > 0 && tail[0] == ' ' {
 					tail = tail[1:]
 				}
-				return head, string(tail) + text[pos:]
+				return head, tail + text[pos:]
 			}
-			return string(cur), text[pos:]
+			return strings.Join(cur, ""), text[pos:]
 		}
-		cur = append(cur, r)
+		cur = append(cur, cluster)
 		used += cell
-		if r == ' ' {
+		if cluster == " " {
 			lastSpace = len(cur) - 1
 		}
+		pos = next
 	}
-	return string(cur), ""
+	return strings.Join(cur, ""), ""
 }
 
 // wrapLimited wraps at most maxLines segments; the last one is clipped so a

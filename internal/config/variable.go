@@ -30,10 +30,14 @@ var (
 // Environment values are substituted verbatim by default so configs that
 // parse today keep their meaning. The document is retried with JSON-string
 // escaping applied to env values when the verbatim result is malformed JSON
-// (a quote or control byte) OR when an env value contains a backslash: a
-// backslash is the one case that can stay *syntactically* valid while silently
-// changing the value, because "\t" in a Windows path such as C:\temp decodes
-// as a tab rather than the two literal characters.
+// (a quote or control byte) OR when an env value contains a character that can
+// stay *syntactically* valid while silently changing the value: a backslash
+// (e.g. "\t" in C:\temp decodes as a tab), or a double quote inserted inside a
+// JSON string. A quote can close the surrounding string early and inject extra
+// JSON structure — e.g. an apiKey of `a", "role": "admin` would otherwise
+// decode as "a" plus a rogue "role" key while the document stays valid JSON.
+// References outside a string are intentionally left verbatim: that is how a
+// config may inject raw JSON (numbers, arrays or objects) from the environment.
 func Substitute(text, configDir string, env func(string) string, warn WarnFunc) string {
 	if env == nil {
 		env = func(string) string { return "" }
@@ -49,7 +53,7 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 	}
 	// The verbatim pass above has already warned about every missing reference.
 	// The retry visits the same references, so passing warn again would report
-	// each one twice (a backslash anywhere in an env value forces this retry).
+	// each one twice (a backslash, or a quote inside a string, forces this retry).
 	// Escape-only, warning-free substitution keeps the one-warning-per-event
 	// contract while still producing a value-preserving document.
 	quiet := func(string, ...any) {}
@@ -58,8 +62,9 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 }
 
 // replaceEnv substitutes {env:VAR} references. The second result reports
-// whether any substituted (non-comment) value contains a backslash, which the
-// caller uses to decide that verbatim substitution is not value-preserving.
+// whether any substituted (non-comment) value needs JSON-string escaping to
+// preserve its meaning (a backslash anywhere, or a quote inside a string),
+// which the caller uses to decide whether to retry with escaping.
 func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc) (string, bool) {
 	var out strings.Builder
 	out.Grow(len(text))
@@ -79,10 +84,21 @@ func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc
 		if value == "" {
 			warn("config: environment variable %q referenced in config is not set", name)
 		}
-		if strings.ContainsRune(value, '\\') {
+		// A backslash can turn a valid JSON escape into a different value
+		// (C:\temp -> C:<TAB>), and a quote inside a JSON string can close that
+		// string early and inject structure. Both are invisible to a pure
+		// "is the result valid JSON?" check, so they force the escaping retry.
+		// A quote outside a string is left alone: injecting raw JSON there is
+		// intentional.
+		if strings.ContainsRune(value, '\\') ||
+			(strings.ContainsRune(value, '"') && inJSONCString(text, start)) {
 			needsEscape = true
 		}
-		if escape {
+		if escape && inJSONCString(text, start) {
+			// Only references that landed inside a JSON string are escaped. A
+			// reference used as raw JSON (a number, array or object) stays
+			// verbatim, otherwise an escaping retry triggered by an unrelated
+			// string value would corrupt it.
 			out.WriteString(jsonStringBody(value))
 		} else {
 			out.WriteString(value)
@@ -170,6 +186,55 @@ func inJSONCComment(text string, offset int) bool {
 		}
 	}
 	return line || block
+}
+
+// inJSONCString reports whether the byte at offset lies inside a quoted JSON
+// string. It mirrors inJSONCComment's scanner so a quote in a // or /* */
+// comment never opens a string, and an escaped quote inside a string never
+// closes one. Substitute uses it to decide whether a double quote in an env
+// value needs JSON-string escaping or is a deliberate raw-JSON injection.
+func inJSONCString(text string, offset int) bool {
+	if offset > len(text) {
+		offset = len(text)
+	}
+	inString, escaped, line, block := false, false, false, false
+	for i := 0; i < offset; i++ {
+		char := text[i]
+		if line {
+			if char == '\n' {
+				line = false
+			}
+			continue
+		}
+		if block {
+			if char == '*' && i+1 < len(text) && text[i+1] == '/' {
+				block = false
+				i++
+			}
+			continue
+		}
+		if inString {
+			if escaped {
+				escaped = false
+			} else if char == '\\' {
+				escaped = true
+			} else if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch {
+		case char == '"':
+			inString = true
+		case char == '/' && i+1 < len(text) && text[i+1] == '/':
+			line = true
+			i++
+		case char == '/' && i+1 < len(text) && text[i+1] == '*':
+			block = true
+			i++
+		}
+	}
+	return inString
 }
 
 func resolveFileRef(ref, configDir string, env func(string) string) string {

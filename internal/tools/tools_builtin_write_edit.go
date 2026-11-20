@@ -218,10 +218,11 @@ func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string)
 
 // repairReplace walks the graded Aider-style repair ladder, in order:
 //  1. exact literal match (a unique one only — ambiguity is never guessed);
-//  2. leading-whitespace-only mismatch, re-applying the file's indent to new;
-//  3. a single spurious leading/trailing blank line in old (and new);
-//  4. "..." elision, with every non-empty piece anchored uniquely in content;
-//  5. punctuation normalization (curly quotes, dashes, NBSP/full-width space)
+//  2. trailing-whitespace-only mismatch, per line (original bytes preserved);
+//  3. leading-whitespace-only mismatch, re-applying the file's indent to new;
+//  4. a single spurious leading/trailing blank line in old (and new);
+//  5. "..." elision, with every non-empty piece anchored uniquely in content;
+//  6. punctuation normalization (curly quotes, dashes, NBSP/full-width space)
 //     applied to both sides for comparison only; the matched original bytes
 //     are spliced out and new is inserted verbatim.
 //
@@ -237,6 +238,9 @@ func repairReplace(content, old, new string) (string, bool) {
 	default:
 		return "", false // ambiguous exact match: refuse to guess
 	}
+	if out, ok := repairTrailingWhitespace(content, old, new); ok {
+		return out, true
+	}
 	if out, ok := repairIndent(content, old, new); ok {
 		return out, true
 	}
@@ -250,6 +254,67 @@ func repairReplace(content, old, new string) (string, bool) {
 		return out, true
 	}
 	return "", false
+}
+
+// repairTrailingWhitespace matches after discarding trailing horizontal
+// whitespace on every line of old and of each same-width window of content.
+// This recovers the common case where a model echoes a block with extra (or
+// missing) trailing spaces/tabs. Only trailing whitespace is ignored; byte
+// offsets are computed against the original content so the matched lines'
+// original bytes — including their line endings — stay intact outside the
+// splice. Ambiguous matches are refused (mirroring the exact-literal rung).
+func repairTrailingWhitespace(content, old, new string) (string, bool) {
+	const trailing = " \t\r" // ASCII space/tab plus CR (for CRLF files); never NBSP/full-width, those belong to the punctuation rung
+	oldLines := strings.Split(old, "\n")
+	oldNorm := make([]string, len(oldLines))
+	for i, ln := range oldLines {
+		oldNorm[i] = strings.TrimRight(ln, trailing)
+	}
+	width := len(oldLines)
+
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) < width {
+		return "", false
+	}
+
+	start := -1
+	for i := 0; i+width <= len(contentLines); i++ {
+		ok := true
+		for k := 0; k < width; k++ {
+			if strings.TrimRight(contentLines[i+k], trailing) != oldNorm[k] {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		if start >= 0 {
+			return "", false // two candidate windows: ambiguous
+		}
+		start = i
+	}
+	if start < 0 {
+		return "", false
+	}
+
+	// Byte offset of the first matched line, and end of the last matched
+	// line's original bytes. strings.Split removes the "\n" separators, so add
+	// one byte back for each; the trailing "\n" of the last line (if any) stays
+	// in content[endByte:], preserving the original line ending verbatim.
+	startByte := 0
+	for i := 0; i < start; i++ {
+		startByte += len(contentLines[i]) + 1
+	}
+	last := start + width - 1
+	endByte := startByte
+	for i := start; i <= last; i++ {
+		endByte += len(contentLines[i])
+		if i < last {
+			endByte++ // the "\n" between matched lines
+		}
+	}
+	return content[:startByte] + new + content[endByte:], true
 }
 
 // commonIndent returns the longest leading whitespace prefix shared by every
@@ -458,9 +523,9 @@ func normalizePunctRune(r rune) rune {
 		return '\''
 	case '\u201c', '\u201d', '\u201e', '\u201f': // double curly / low-high quotes
 		return '"'
-	case '\u2013', '\u2014', '\u2015': // en dash, em dash, horizontal bar
+	case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212': // hyphen, non-breaking hyphen, figure dash, en/em dash, horizontal bar, minus sign
 		return '-'
-	case '\u00a0', '\u3000': // no-break space, ideographic (full-width) space
+	case '\u00a0', '\u2002', '\u2003', '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200a', '\u202f', '\u205f', '\u3000': // no-break, en..hair, narrow no-break, medium math, ideographic spaces
 		return ' '
 	default:
 		return r

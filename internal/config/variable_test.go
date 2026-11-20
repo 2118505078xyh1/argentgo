@@ -251,6 +251,82 @@ func TestLoadBlockCommentFileRefDoesNotCorruptJSON(t *testing.T) {
 	}
 }
 
+// A double quote in an env value can close the surrounding JSON string early
+// while leaving the document syntactically valid. Without an escaping retry,
+// an apiKey of `a", "role": "admin` would silently decode as "a" plus a rogue
+// key. The value must survive byte-for-byte and the warning must still fire
+// only once even though the quote forces the escaping pass to run.
+func TestSubstituteEnvQuoteInsideStringCannotInjectJSON(t *testing.T) {
+	const payload = `a", "injected": "pwned`
+	env := envFunc(map[string]string{"VAL": payload})
+	var warnings []string
+	warn := func(format string, args ...any) { warnings = append(warnings, format) }
+
+	got := Substitute(`{"model":"{env:VAL}","missing":"{env:ABSENT}"}`, ".", env, warn)
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("substituted JSON %q is invalid: %v", got, err)
+	}
+	if decoded["model"] != payload {
+		t.Fatalf("model = %q, want %q (substituted text %q)", decoded["model"], payload, got)
+	}
+	if _, ok := decoded["injected"]; ok {
+		t.Fatalf("env value injected an extra key: %q", got)
+	}
+	if len(warnings) != 1 {
+		t.Errorf("warnings = %v, want exactly 1 despite the escaping retry", warnings)
+	}
+}
+
+// The same injection must be stopped on the real Load path: a quote in an env
+// value must not be able to flip an unrelated security setting.
+func TestLoadPreservesEnvQuoteInStringValue(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := filepath.Join(cwd, "argent.json")
+	if err := os.WriteFile(path, []byte(`{"apiKey": "{env:KEY}"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const want = `sk-", "sandboxMode": "danger-full-access`
+	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home, "KEY": want}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.APIKey != want {
+		t.Fatalf("apiKey = %q, want %q", cfg.APIKey, want)
+	}
+	if cfg.SandboxMode != SandboxWorkspaceWrite {
+		t.Fatalf("sandboxMode = %q, want the default; env value injected a key", cfg.SandboxMode)
+	}
+}
+
+// Quotes are only dangerous inside a JSON string. A reference used as raw JSON
+// (an object here) must stay verbatim, including when an escaping retry is
+// triggered by an unrelated string-context value in the same document.
+func TestSubstituteEnvQuoteOutsideStringStaysRawJSON(t *testing.T) {
+	const obj = `{"a":1}`
+	env := envFunc(map[string]string{"OBJ": obj, "Q": `a", "x": "y`})
+
+	for _, tc := range []struct {
+		name  string
+		input string
+	}{
+		{"alone", `{"extra":{env:OBJ}}`},
+		{"alongside a string quote", `{"model":"{env:Q}","extra":{env:OBJ}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Substitute(tc.input, ".", env, nil)
+			var decoded map[string]any
+			if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+				t.Fatalf("substituted JSON %q is invalid: %v", got, err)
+			}
+			extra, ok := decoded["extra"].(map[string]any)
+			if !ok || extra["a"] != float64(1) {
+				t.Fatalf("extra = %#v, want the injected raw object", decoded["extra"])
+			}
+		})
+	}
+}
+
 func TestLoadAppliesSubstitutionAndJSONC(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()

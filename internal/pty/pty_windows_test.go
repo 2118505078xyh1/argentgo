@@ -6,11 +6,40 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// TestAttributeListBufferOutlivesGC guards the Go-side lifetime of the Win32
+// proc-thread attribute list. Its address is a bare uintptr, which the GC does
+// not treat as a reference: returning only that address (and a closure that
+// captures nothing else) lets the backing buffer be collected before
+// CreateProcessW or DeleteProcThreadAttributeList dereferences it.
+func TestAttributeListBufferOutlivesGC(t *testing.T) {
+	attrs, err := newAttributeList(0)
+	if err != nil {
+		t.Fatalf("newAttributeList: %v", err)
+	}
+	collected := make(chan struct{})
+	runtime.SetFinalizer(&attrs.buffer[0], func(*byte) { close(collected) })
+
+	// Drop the struct but keep the cleanup reachable, as startPlatform does
+	// with its deferred call: the buffer must survive until cleanup runs.
+	del := attrs.delete
+	attrs = nil
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+	}
+	select {
+	case <-collected:
+		t.Fatal("attribute-list buffer was collected while the list was still in use")
+	default:
+	}
+	del()
+}
 
 // TestWaitConcurrentCloseNeverErrors reproduces a ConPTY use-after-close.
 // Close used to close the child's process handle while a concurrent Wait was

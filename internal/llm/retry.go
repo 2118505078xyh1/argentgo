@@ -55,9 +55,18 @@ const (
 // ClassifyRetryError maps a transport failure onto a retry class. DNS errors
 // and a missing route are "unreachable"; deadlines and net.Error timeouts are
 // "timeout"; anything else that failed before a response is "not_sent".
-// Cancellation is ReasonNone because the caller asked to stop.
+// Cancellation is ReasonNone because the caller asked to stop. An explicit
+// context-window overflow is also ReasonNone: retrying the same oversized
+// request cannot succeed, so the caller must compact or shorten it first.
 func ClassifyRetryError(err error) Reason {
 	if err == nil || errors.Is(err, context.Canceled) {
+		return ReasonNone
+	}
+	// A context-window overflow cannot clear on its own: replaying the same
+	// oversized request fails again. The caller must compact/shorten it first,
+	// so report it as non-retryable instead of a transport "not_sent".
+	var actionable *ActionableError
+	if errors.As(err, &actionable) && actionable.Family == FamilyContextOverflow {
 		return ReasonNone
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -79,6 +88,12 @@ func ClassifyRetryError(err error) Reason {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return ReasonTimeout
+	}
+	// Text check is last so an authoritative transport class above still wins.
+	// Plain provider errors (no sentinel) carry the overflow wording and land
+	// here; they must not be reported as a retryable "not_sent".
+	if contextOverflowRE.MatchString(RedactError(err)) {
+		return ReasonNone
 	}
 	return ReasonNotSent
 }

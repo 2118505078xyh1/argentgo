@@ -178,6 +178,96 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 	}
 }
 
+// TestCronNextAcrossMidnightDST guards the day/month jumps in Next. Zones that
+// shift DST at 00:00 have a nonexistent midnight, which time.Date normalises
+// backwards onto the previous day. Rebuilding a day boundary from that value
+// can leave Next spinning on the same excluded day forever (and, in the daemon,
+// wedge the store mutex because recordRun calls Next while holding it). Each
+// case runs under a timeout so a regression fails loudly instead of hanging.
+func TestCronNextAcrossMidnightDST(t *testing.T) {
+	havana, err := time.LoadLocation("America/Havana")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	beirut, err := time.LoadLocation("Asia/Beirut")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	in := func(loc *time.Location, value string) time.Time {
+		t.Helper()
+		parsed, err := time.ParseInLocation("2006-01-02T15:04:05", value, loc)
+		if err != nil {
+			t.Fatalf("parse %q: %v", value, err)
+		}
+		return parsed
+	}
+	cases := []struct {
+		name string
+		expr string
+		from time.Time
+		want time.Time
+	}{
+		{
+			// The spring-forward day (2026-03-08) has no 00:00 in Havana;
+			// a "day 1" task must resume from April rather than spin on March.
+			name: "monthly day skipped over a midnight spring forward",
+			expr: "0 0 1 * *",
+			from: in(havana, "2026-03-08T23:31:00"),
+			want: in(havana, "2026-04-01T00:00:00"),
+		},
+		{
+			// A weekday task starting on a Sunday during the transition must
+			// reach Monday 09:30, not loop on the repeated 23:00 wall hour.
+			name: "weekday task after a midnight spring forward",
+			expr: "30 9 * * 1-5",
+			from: in(havana, "2026-03-08T23:31:00"),
+			want: in(havana, "2026-03-09T09:30:00"),
+		},
+		{
+			// 01:00 on the transition day is the first valid instant after
+			// the skipped midnight; the fallback step must land there rather
+			// than skipping the day entirely.
+			name: "first valid instant of the transition day",
+			expr: "0 1 8 * *",
+			from: in(havana, "2026-03-07T23:31:00"),
+			want: in(havana, "2026-03-08T01:00:00"),
+		},
+		{
+			// Beirut also springs forward at midnight; a mid-month day must
+			// land on the next month at its post-transition offset.
+			name: "mid month day across a midnight spring forward",
+			expr: "0 0 15 * *",
+			from: in(beirut, "2026-03-28T23:31:00"),
+			want: in(beirut, "2026-04-15T00:00:00"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := ParseCron(tc.expr)
+			if err != nil {
+				t.Fatalf("ParseCron(%q): %v", tc.expr, err)
+			}
+			done := make(chan time.Time, 1)
+			go func() { done <- c.Next(tc.from) }()
+			var got time.Time
+			select {
+			case got = <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatalf("%q after %s did not return (day jump looped)", tc.expr, tc.from)
+			}
+			if !got.Equal(tc.want) {
+				t.Fatalf("%q after %s = %s, want %s", tc.expr, tc.from, got, tc.want)
+			}
+			if !got.After(tc.from) {
+				t.Fatalf("%q after %s = %s, which is not strictly after the input", tc.expr, tc.from, got)
+			}
+			if !c.Matches(got) {
+				t.Fatalf("%q returned %s, which does not match the expression", tc.expr, got)
+			}
+		})
+	}
+}
+
 func TestCronParseErrors(t *testing.T) {
 	for _, expr := range []string{
 		"",

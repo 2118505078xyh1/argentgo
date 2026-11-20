@@ -2,6 +2,7 @@ package update
 
 import (
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -117,7 +118,10 @@ func normalizeName(name string) string {
 
 // classify reports whether the name mentions the target platform and whether it
 // mentions a different one of the same kind. The longest alias wins, so
-// "x86_64" counts as amd64 and not as 386.
+// "x86_64" counts as amd64 and not as 386. A name that mentions two different
+// platforms with equally long aliases is ambiguous and is always treated as
+// foreign: guessing would make FindAsset depend on Go's random map iteration
+// order and could install the wrong architecture.
 func classify(name, target string, table map[string][]string) (matched, foreign bool) {
 	if _, known := table[target]; !known {
 		// An unrecognised target has no aliases in the table, but a name that
@@ -128,34 +132,62 @@ func classify(name, target string, table map[string][]string) (matched, foreign 
 		if mentions(name, []string{target}) {
 			return true, false
 		}
-		if _, mentioned := longestAlias(name, table); mentioned {
+		_, mentioned, ambiguous := longestAlias(name, table)
+		if mentioned || ambiguous {
 			return false, true
 		}
 		return false, false
 	}
-	key, ok := longestAlias(name, table)
-	if !ok {
+	key, matched, ambiguous := longestAlias(name, table)
+	if ambiguous {
+		return false, true
+	}
+	if !matched {
 		return false, false
 	}
 	return key == target, key != target
 }
 
-func longestAlias(name string, table map[string][]string) (string, bool) {
-	bestKey := ""
+// longestAlias finds the platform key whose alias matches name with the longest
+// token boundary needle. Different keys are visited in sorted order so equal
+// lengths are handled deliberately: when two *different* keys match needles of
+// the same length, ambiguous is set and callers must reject the asset instead
+// of letting the random map iteration decide which platform it names.
+func longestAlias(name string, table map[string][]string) (key string, matched, ambiguous bool) {
+	keys := make([]string, 0, len(table))
+	for candidate := range table {
+		keys = append(keys, candidate)
+	}
+	sort.Strings(keys)
+
 	bestLength := -1
-	for key, aliases := range table {
-		for _, alias := range aliases {
-			needle := "." + separatorFree(alias) + "."
-			if len(needle) > bestLength && strings.Contains(name, needle) {
-				bestKey, bestLength = key, len(needle)
+	for _, candidate := range keys {
+		needles := make([]string, 0, len(table[candidate])+1)
+		for _, alias := range table[candidate] {
+			needles = append(needles, "."+separatorFree(alias)+".")
+		}
+		needles = append(needles, "."+separatorFree(candidate)+".")
+		for _, needle := range needles {
+			if len(needle) < bestLength || !strings.Contains(name, needle) {
+				continue
+			}
+			if len(needle) > bestLength {
+				bestLength = len(needle)
+				key, matched, ambiguous = candidate, true, false
+				continue
+			}
+			// An equal-length match for the same key is just an alternative
+			// spelling (for example x86_64 and x86-64). A different key means
+			// the asset name names two platforms and cannot be trusted.
+			if candidate != key {
+				ambiguous = true
 			}
 		}
-		needle := "." + separatorFree(key) + "."
-		if len(needle) > bestLength && strings.Contains(name, needle) {
-			bestKey, bestLength = key, len(needle)
-		}
 	}
-	return bestKey, bestLength >= 0
+	if ambiguous {
+		return "", false, true
+	}
+	return key, matched, false
 }
 
 func mentions(name string, aliases []string) bool {

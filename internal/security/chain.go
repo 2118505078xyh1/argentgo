@@ -211,6 +211,17 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		c.record(name, "refused", "the operator refused the tool call", auditArgs)
 		return &StopError{Tool: name, Reason: "the operator refused the tool call", Refused: true}
 	}
+	// Fail-closed normalization of the raw Approver.Ask answer. Every branch
+	// above already turns an error (including a cancelled or unavailable
+	// approval channel) into a returned failure, so this guard is unreachable
+	// with the current approvers and changes no existing deny/ask/allow event.
+	// It is a defensive invariant: a future or machine approval path can never
+	// slip an unexpected (granted, err) pair through as consent. Only a genuine
+	// ApprovalAllowed may reach the allow record below (dsh/goose audit).
+	if ClassifyApproval(ok, err) != ApprovalAllowed {
+		c.record(name, "deny", "approval was not granted", auditArgs)
+		return &StopError{Tool: name, Reason: "approval was not granted"}
+	}
 	c.record(name, "allow", "approved by the operator", auditArgs)
 	return nil
 }

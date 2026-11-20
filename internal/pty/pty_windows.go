@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -144,14 +145,14 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 	syscall.CloseHandle(inRead)
 	syscall.CloseHandle(outWrite)
 
-	attributeList, deleteList, err := newAttributeList(console)
+	attrs, err := newAttributeList(console)
 	if err != nil {
 		procClosePseudoConsole.Call(uintptr(console))
 		syscall.CloseHandle(inWrite)
 		syscall.CloseHandle(outRead)
 		return nil, err
 	}
-	defer deleteList()
+	defer attrs.delete()
 
 	commandLine, err := syscall.UTF16FromString(buildCommandLine(path, cmd.Args))
 	if err != nil {
@@ -185,7 +186,7 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 		flags |= createUnicodeEnvironment
 	}
 
-	startup := startupInfoEx{attributeList: attributeList}
+	startup := startupInfoEx{attributeList: attrs.list}
 	startup.startupInfo.cb = uint32(unsafe.Sizeof(startup))
 	// The console supplies stdio; asking for explicit handles (even null ones)
 	// makes the CRT open the inherited console instead of the pseudo one.
@@ -227,20 +228,30 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 	return term, nil
 }
 
-func newAttributeList(console syscall.Handle) (uintptr, func(), error) {
+// attributeList pairs the Win32 list pointer with the Go allocation that
+// backs it. A uintptr is not a Go reference: if the buffer were reachable only
+// through the numeric list address, the GC could reclaim it between
+// newAttributeList and CreateProcessW, leaving Windows a dangling pointer.
+type attributeList struct {
+	list   uintptr
+	buffer []byte
+}
+
+func newAttributeList(console syscall.Handle) (*attributeList, error) {
 	var size uintptr
 	// The first call only reports the required size.
 	procInitializeProcThreadAttributeList.Call(0, 1, 0, uintptr(unsafe.Pointer(&size)))
 	if size == 0 {
-		return 0, func() {}, errors.New("pty: could not size the attribute list")
+		return nil, errors.New("pty: could not size the attribute list")
 	}
 	buffer := make([]byte, size)
 	list := uintptr(unsafe.Pointer(&buffer[0]))
 	if r, _, callErr := procInitializeProcThreadAttributeList.Call(
 		list, 1, 0, uintptr(unsafe.Pointer(&size)),
 	); r == 0 {
-		return 0, func() {}, fmt.Errorf("pty: InitializeProcThreadAttributeList: %w", callErr)
+		return nil, fmt.Errorf("pty: InitializeProcThreadAttributeList: %w", callErr)
 	}
+	attrs := &attributeList{list: list, buffer: buffer}
 	handle := console
 	if r, _, callErr := procUpdateProcThreadAttribute.Call(
 		list,
@@ -251,12 +262,17 @@ func newAttributeList(console syscall.Handle) (uintptr, func(), error) {
 		0,
 		0,
 	); r == 0 {
-		procDeleteProcThreadAttributeList.Call(list)
-		return 0, func() {}, fmt.Errorf("pty: UpdateProcThreadAttribute: %w", callErr)
+		attrs.delete()
+		return nil, fmt.Errorf("pty: UpdateProcThreadAttribute: %w", callErr)
 	}
-	// The closure keeps the attribute buffer alive until the list is deleted.
-	cleanup := func() { procDeleteProcThreadAttributeList.Call(list) }
-	return list, cleanup, nil
+	return attrs, nil
+}
+
+// delete releases the Win32 list once no process can use it. The explicit
+// KeepAlive anchors the Go buffer until the Win32 call has returned.
+func (a *attributeList) delete() {
+	procDeleteProcThreadAttributeList.Call(a.list)
+	runtime.KeepAlive(a.buffer)
 }
 
 func (c *conPty) Read(b []byte) (int, error) {

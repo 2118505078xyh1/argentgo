@@ -11,15 +11,16 @@ import (
 // Error families reported by ActionableError. The string values are stable so
 // callers can persist or compare them without importing this package's types.
 const (
-	FamilyNotConfigured  = "not_configured"
-	FamilyAuth           = "auth"
-	FamilyQuotaExhausted = "quota_exhausted"
-	FamilyRateLimit      = "rate_limit"
-	FamilyContentFilter  = "content_filter"
-	FamilyModelNotFound  = "model_not_found"
-	FamilyNetwork        = "network"
-	FamilyServer         = "server"
-	FamilyUnknown        = "unknown"
+	FamilyNotConfigured   = "not_configured"
+	FamilyAuth            = "auth"
+	FamilyQuotaExhausted  = "quota_exhausted"
+	FamilyRateLimit       = "rate_limit"
+	FamilyContentFilter   = "content_filter"
+	FamilyContextOverflow = "context_overflow"
+	FamilyModelNotFound   = "model_not_found"
+	FamilyNetwork         = "network"
+	FamilyServer          = "server"
+	FamilyUnknown         = "unknown"
 )
 
 // ActionableError is a provider failure normalized into a family, a short
@@ -67,6 +68,8 @@ var (
 		"请求过于频繁（触发限流）", "稍后重试（客户端会自动退避），或换模型重试"}
 	familyContentFilter = apiErrorFamily{FamilyContentFilter,
 		"内容被安全策略拦截", "修改提示词内容后重试"}
+	familyContextOverflow = apiErrorFamily{FamilyContextOverflow,
+		"上下文窗口已用尽（提示词或历史对话超出模型上限）", "压缩历史对话或缩短提示词后重试，或换用上下文更大的模型"}
 	familyModelNotFound = apiErrorFamily{FamilyModelNotFound,
 		"模型不存在或不可用", "用 /model 选择可用模型后重试"}
 	familyNetwork = apiErrorFamily{FamilyNetwork,
@@ -91,6 +94,13 @@ var (
 	modelNotFoundRE = regexp.MustCompile(`(?i)(\b404\b|model[_\s-]?not[_\s-]?found|unknown[_\s-]?model|invalid[_\s-]?model|model[_\s-]?(?:does[_\s-]?not[_\s-]?exist|not[_\s-]?exist)|no[_\s-]?such[_\s-]?model|unsupported[_\s-]?model|模型不存在)`)
 	networkRE       = regexp.MustCompile(`(?i)(connection[_\s-]?refused|dial[_\s-]?tcp|no[_\s-]?such[_\s-]?host|network[_\s-]?is[_\s-]?unreachable|no[_\s-]?route[_\s-]?to[_\s-]?host|host[_\s-]?is[_\s-]?unreachable|connection[_\s-]?reset|unexpected[_\s-]?eof|\beof\b|tls[:_\s-]|certificate|timeout|timed[_\s-]?out|context[_\s-]?deadline|网络)`)
 	serverRE        = regexp.MustCompile(`(?i)(\b5\d\d\b|internal[_\s-]?server[_\s-]?error|bad[_\s-]?gateway|service[_\s-]?unavailable|gateway[_\s-]?timeout|overloaded|server[_\s-]?error|服务不可用|服务器错误)`)
+	// contextOverflowRE is deliberately narrow: only explicit "context window
+	// exceeded" wording (plus the equivalent prompt/message length phrases from
+	// Anthropic and OpenAI) matches. Generic "limit"/"exceeded" errors and
+	// output-token caps are excluded so hard quota, rate-limit and ordinary
+	// length errors keep their existing families. This pattern is shared with
+	// ClassifyRetryError so an oversized request is never blindly replayed.
+	contextOverflowRE = regexp.MustCompile(`(?i)(exceed(?:s|ed)?[_\s-]+(?:the[_\s-]+)?context[_\s-]?(?:window|length)|context[_\s-]+(?:window|length)[_\s-]+(?:is[_\s-]+)?(?:exceeded|exceeds|overflow|too[_\s-]+long|limit)|(?:max|maximum)[_\s-]+context[_\s-]+length|(?:prompt|input|messages?)[_\s-]+(?:is[_\s-]+)?too[_\s-]+(?:long|large)|(?:tokens?|messages?|input)[_\s-]+exceed(?:s|ed)?[_\s-]+(?:the[_\s-]+)?limit|reduce[_\s-]+the[_\s-]+length[_\s-]+of[_\s-]+(?:the[_\s-]+)?messages|上下文(?:窗口|长度)[^\n]{0,16}?(?:超出|超过|用尽|耗尽|溢出|过长|限制|上限)|(?:提示词|输入(?:内容|文本)?|消息)(?:过长|超出(?:上下文|长度|窗口)?|太久)|超出(?:上下文|模型)(?:窗口|长度))`)
 )
 
 // ClassifyAPIError normalizes any error into an actionable hint.
@@ -164,6 +174,11 @@ func classifyAPIErrorFamily(err error, text string) apiErrorFamily {
 		return familyServer
 	case networkRE.MatchString(text):
 		return familyNetwork
+	case contextOverflowRE.MatchString(text):
+		// Last on purpose: an error that also carries a stronger existing
+		// signal (auth/quota/server/...) keeps that family, so adding this
+		// case cannot shadow any pre-existing classification.
+		return familyContextOverflow
 	default:
 		return familyUnknown
 	}

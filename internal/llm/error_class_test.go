@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -25,6 +26,7 @@ func TestClassifyFailureKinds(t *testing.T) {
 		{"quota 402", errors.New("provider returned 402 Payment Required: insufficient quota"), llm.FailureInfo{llm.FailureQuota, false, llm.UserActionSettings, "quota.exhausted"}},
 		{"rate limit 429", errors.New("provider returned 429 Too Many Requests: rate limit exceeded"), llm.FailureInfo{llm.FailureRateLimit, true, llm.UserActionRetry, "rate_limit.exceeded"}},
 		{"content filter", errors.New("provider returned 400 Bad Request: content_policy_violation"), llm.FailureInfo{llm.FailureAgentAction, false, llm.UserActionRetry, "agent_action.content_filter"}},
+		{"context overflow", errors.New("provider returned 400 Bad Request: prompt is too long"), llm.FailureInfo{llm.FailureContextOverflow, false, llm.UserActionSettings, "context_overflow.exceeded"}},
 		{"model not found", errors.New("provider returned 404 Not Found: model gpt-foo not found"), llm.FailureInfo{llm.FailureConfig, false, llm.UserActionSettings, "config.model_not_found"}},
 		{"server 503", errors.New("provider returned 503 Service Unavailable"), llm.FailureInfo{llm.FailureTransient, true, llm.UserActionRetry, "transient.server"}},
 		{"network string", errors.New("dial tcp 10.0.0.1:443: connection refused"), llm.FailureInfo{llm.FailureTransient, true, llm.UserActionRetry, "transient.network"}},
@@ -236,6 +238,7 @@ func TestClassifyFailureMultilingual(t *testing.T) {
 		{"zh quota", errors.New("配额已用尽"), llm.FailureQuota},
 		{"zh rate limit", errors.New("请求过于频繁，限流"), llm.FailureRateLimit},
 		{"zh content filter", errors.New("内容审核未通过，安全策略拦截"), llm.FailureAgentAction},
+		{"zh context overflow", errors.New("上下文窗口已用尽"), llm.FailureContextOverflow},
 		{"zh model", errors.New("模型不存在"), llm.FailureConfig},
 		{"zh network", errors.New("网络连接失败"), llm.FailureTransient},
 		{"zh server", errors.New("服务不可用"), llm.FailureTransient},
@@ -253,7 +256,8 @@ func TestClassifyFailureMultilingual(t *testing.T) {
 func TestFailureVocabularyIsClosed(t *testing.T) {
 	kinds := []llm.FailureKind{
 		llm.FailureAuth, llm.FailureQuota, llm.FailureRateLimit, llm.FailureConfig,
-		llm.FailureTransient, llm.FailureAgentAction, llm.FailureInternal, llm.FailureUnknown,
+		llm.FailureTransient, llm.FailureAgentAction, llm.FailureContextOverflow,
+		llm.FailureInternal, llm.FailureUnknown,
 	}
 	seen := map[llm.FailureKind]bool{}
 	for _, k := range kinds {
@@ -262,8 +266,8 @@ func TestFailureVocabularyIsClosed(t *testing.T) {
 		}
 		seen[k] = true
 	}
-	if len(seen) != 8 {
-		t.Errorf("closed vocabulary should have 8 kinds, got %d", len(seen))
+	if len(seen) != 9 {
+		t.Errorf("closed vocabulary should have 9 kinds, got %d", len(seen))
 	}
 
 	actions := []llm.UserAction{llm.UserActionNone, llm.UserActionRetry, llm.UserActionSettings}
@@ -276,5 +280,55 @@ func TestFailureVocabularyIsClosed(t *testing.T) {
 	}
 	if len(seenAction) != 3 {
 		t.Errorf("closed vocabulary should have 3 actions, got %d", len(seenAction))
+	}
+}
+
+func TestClassifyFailureContextOverflowIsNotRetryable(t *testing.T) {
+	// An oversized context will not clear on replay: the failure must be
+	// Retryable=false (so no automatic retry) while still being a distinct kind
+	// the caller can use to trigger compaction. ClassifyRetryError agrees.
+	want := llm.FailureInfo{llm.FailureContextOverflow, false, llm.UserActionSettings, "context_overflow.exceeded"}
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"anthropic", errors.New("prompt is too long: 250000 tokens > 200000 tokens")},
+		{"openai", errors.New("provider returned 400 Bad Request: context_length_exceeded")},
+		{"cjk", errors.New("上下文窗口已用尽")},
+		{"actionable", llm.ClassifyAPIError(errors.New("context window exceeded"))},
+		{"wrapped", fmt.Errorf("chat: %w", errors.New("context window exceeded"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := llm.ClassifyFailure(tc.err)
+			if got != want {
+				t.Errorf("ClassifyFailure = %+v, want %+v", got, want)
+			}
+			reason := llm.ClassifyRetryError(tc.err)
+			if reason != llm.ReasonNone {
+				t.Errorf("ClassifyRetryError = %q, want ReasonNone (non-retryable)", reason)
+			}
+			if got.Retryable != (reason != llm.ReasonNone) {
+				t.Errorf("Retryable = %v disagrees with ClassifyRetryError %q", got.Retryable, reason)
+			}
+		})
+	}
+}
+
+func TestClassifyFailureContextOverflowErrorIDStableAndRedacted(t *testing.T) {
+	// The error ID is a fixed table value: identical across provider wordings,
+	// languages and credentials, and never carries the original error text.
+	first := llm.ClassifyFailure(errors.New("provider returned 400 Bad Request: prompt is too long api_key=sk-abcdefghijklmnop"))
+	second := llm.ClassifyFailure(errors.New("上下文窗口已用尽, user@example.com"))
+	if first.ErrorID != "context_overflow.exceeded" || second.ErrorID != first.ErrorID {
+		t.Fatalf("ErrorID = %q / %q, want stable %q", first.ErrorID, second.ErrorID, "context_overflow.exceeded")
+	}
+	if !regexp.MustCompile(`^(?:unknown|[a-z_]+(?:\.[a-z_]+)?)$`).MatchString(first.ErrorID) {
+		t.Errorf("ErrorID %q is not a safe short identifier", first.ErrorID)
+	}
+	for _, raw := range []string{"sk-abcdefghijklmnop", "user@example.com", "prompt is too long", "上下文"} {
+		if strings.Contains(first.ErrorID, raw) || strings.Contains(second.ErrorID, raw) {
+			t.Errorf("ErrorID leaked raw text %q: %q / %q", raw, first.ErrorID, second.ErrorID)
+		}
 	}
 }

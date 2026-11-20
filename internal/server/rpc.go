@@ -120,6 +120,23 @@ func scanLines(ctx context.Context, in io.Reader) <-chan scanResult {
 	return results
 }
 
+// approvalSession resolves the session an approval request addresses. Clients
+// such as the native bridge send only {id, granted} with no session, while the
+// durable pending record and the blocked approver's waiter are both keyed by
+// the session the runner is currently appending to. Without that fallback the
+// empty session silently resolves nothing: the RPC still answers ok but Ask
+// never wakes. Discovering SessionID through a small optional interface keeps
+// fakes and standalone callers on the original explicit-session behaviour.
+func approvalSession(explicit string, runner Runner) string {
+	if explicit != "" {
+		return explicit
+	}
+	if typed, ok := runner.(interface{ SessionID() string }); ok {
+		return typed.SessionID()
+	}
+	return ""
+}
+
 // reportScanError turns a recoverable scan error into a structured JSON-RPC
 // reply. It reports whether the error is terminal and the transport must stop.
 // An oversized frame has no parseable id, so it is answered with id: null, the
@@ -295,7 +312,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			p.fail(req.ID, codeServerError, "pending approval store not configured")
 			return
 		}
-		items, err := typed.PendingStore().List(params.Session)
+		items, err := typed.PendingStore().List(approvalSession(params.Session, cfg.Runner))
 		if err != nil {
 			p.fail(req.ID, codeInternalError, err.Error())
 			return
@@ -344,11 +361,12 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		}
 		store := typed.PendingStore()
 		granted := *params.Granted
+		session := approvalSession(params.Session, cfg.Runner)
 		// Resolve deletes the item, so read its tool name first: the resolved
 		// notice needs a non-empty (tool,id) pair for a consumer to pair it with
 		// the outstanding approval request (native rejects an empty tool).
 		tool := ""
-		if items, err := store.List(params.Session); err == nil {
+		if items, err := store.List(session); err == nil {
 			for _, item := range items {
 				if item.ID == params.ID {
 					tool = item.Tool
@@ -356,7 +374,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 				}
 			}
 		}
-		if err := store.Resolve(params.Session, params.ID, granted); err != nil {
+		if err := store.Resolve(session, params.ID, granted); err != nil {
 			p.fail(req.ID, codeInternalError, err.Error())
 			return
 		}

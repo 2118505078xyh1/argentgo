@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,9 +35,11 @@ func (a App) openJobs() (*jobs.Registry, string, error) {
 }
 
 func jobsHelp(app App, args []string) bool {
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		jobsUsage(app.IO.Out)
-		return true
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			jobsUsage(app.IO.Out)
+			return true
+		}
 	}
 	return false
 }
@@ -46,6 +49,10 @@ func runAttach(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	id, lines, err := parseTailArgs(args)
+	if errors.Is(err, errHelp) {
+		jobsUsage(app.IO.Out)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		jobsUsage(app.IO.Err)
@@ -72,6 +79,10 @@ func runLogs(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	id, _, err := parseTailArgs(args)
+	if errors.Is(err, errHelp) {
+		jobsUsage(app.IO.Out)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		jobsUsage(app.IO.Err)
@@ -125,6 +136,10 @@ func runStop(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	id, _, err := parseTailArgs(args)
+	if errors.Is(err, errHelp) {
+		jobsUsage(app.IO.Out)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		jobsUsage(app.IO.Err)
@@ -159,6 +174,10 @@ func runFollow(app App, ctx context.Context, args []string) int {
 		return 0
 	}
 	id, lines, err := parseTailArgs(args)
+	if errors.Is(err, errHelp) {
+		jobsUsage(app.IO.Out)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		jobsUsage(app.IO.Err)

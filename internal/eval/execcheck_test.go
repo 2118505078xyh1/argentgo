@@ -3,10 +3,12 @@ package eval
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -68,6 +70,61 @@ func TestExecCheckValidate(t *testing.T) {
 				t.Fatalf("Validate() = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestExecDeadlineBoundsTheTimeout pins the documented timeout contract: 0
+// (and negative) use the 30s default, positives are taken verbatim, and any
+// value above 120000 is capped. In particular a very large TimeoutMS must not
+// overflow into a negative duration, which would make the deadline fire
+// immediately rather than applying the cap.
+func TestExecDeadlineBoundsTheTimeout(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeoutMS int
+		want      time.Duration
+	}{
+		{"zero uses the default", 0, defaultExecTimeout},
+		{"negative uses the default", -1, defaultExecTimeout},
+		{"positive is verbatim", 1500, 1500 * time.Millisecond},
+		{"at the cap", int(maxExecTimeout / time.Millisecond), maxExecTimeout},
+		{"above the cap", int(maxExecTimeout/time.Millisecond) + 1, maxExecTimeout},
+		{"a huge value is capped, not wrapped", math.MaxInt, maxExecTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := execDeadline(tt.timeoutMS)
+			if got != tt.want {
+				t.Fatalf("execDeadline(%d) = %v, want %v", tt.timeoutMS, got, tt.want)
+			}
+			if got <= 0 || got > maxExecTimeout {
+				t.Fatalf("execDeadline(%d) = %v, want a duration in (0, %v]", tt.timeoutMS, got, maxExecTimeout)
+			}
+		})
+	}
+}
+
+// TestRunExecCheckHugeTimeoutDoesNotExpireImmediately proves the overflow fix
+// end to end: a huge TimeoutMS must behave like the 120s cap, so a fast
+// command is graded on its exit code rather than an instantaneous deadline.
+func TestRunExecCheckHugeTimeoutDoesNotExpireImmediately(t *testing.T) {
+	dir := seedExecWorkspace(t, map[string]string{
+		"go.mod":  "module example.com/exechuge\n\ngo 1.27\n",
+		"main.go": "package exechuge\n\nfunc Answer() int { return 42 }\n",
+	})
+	c := ExecCheck{
+		Command:      "go",
+		Args:         []string{"build", "./..."},
+		TimeoutMS:    math.MaxInt,
+		WantExitCode: 0,
+	}
+	res := RunExecCheck(dir, c)
+	if res.TimedOut {
+		t.Fatalf("a huge timeout expired immediately: err=%v", res.Err)
+	}
+	if !GradeExecCheck(res, c) {
+		t.Fatalf("a fast command was not graded on its exit code: exit=%d err=%v stderr=%q",
+			res.ExitCode, res.Err, res.StderrTail)
 	}
 }
 
