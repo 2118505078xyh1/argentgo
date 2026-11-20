@@ -182,6 +182,13 @@ func postToken(ctx context.Context, cfg Config, form url.Values) (tokenResponse,
 	if cfg.TokenURL == "" {
 		return empty, errors.New("auth: config has no token endpoint")
 	}
+	// Confidential clients authenticate at the token endpoint with their
+	// secret (RFC 6749 sec 2.3.1). Public PKCE clients leave it empty, so no
+	// parameter is added for them. Doing this here covers code exchange,
+	// refresh and the device grant in one place.
+	if cfg.ClientSecret != "" {
+		form.Set("client_secret", cfg.ClientSecret)
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenURL,
 		strings.NewReader(form.Encode()))
 	if err != nil {

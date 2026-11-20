@@ -21,6 +21,12 @@ var (
 // Relative {file:} paths resolve against configDir (the config file's
 // directory). Missing references substitute an empty string and invoke warn.
 //
+// References written inside JSONC comments (both // and /* */) are left
+// untouched: they are documentation, not settings. Besides avoiding spurious
+// "variable not set" warnings, this matters for correctness — a substituted
+// env/file value containing "*/" would otherwise close a surrounding block
+// comment early and corrupt the rest of the JSONC document.
+//
 // Environment values are substituted verbatim by default so configs that
 // parse today keep their meaning. If that produces malformed JSON, the whole
 // document is retried with JSON-string escaping applied to env values (the
@@ -41,17 +47,31 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 }
 
 func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc) string {
-	return envRefRe.ReplaceAllStringFunc(text, func(token string) string {
+	var out strings.Builder
+	out.Grow(len(text))
+	cursor := 0
+	for _, loc := range envRefRe.FindAllStringIndex(text, -1) {
+		start, end := loc[0], loc[1]
+		out.WriteString(text[cursor:start])
+		cursor = end
+		token := text[start:end]
+		if inJSONCComment(text, start) {
+			out.WriteString(token) // a comment is documentation, not a setting
+			continue
+		}
 		name := strings.TrimPrefix(strings.TrimSuffix(token, "}"), "{env:")
 		value := env(name)
 		if value == "" {
 			warn("config: environment variable %q referenced in config is not set", name)
 		}
 		if escape {
-			return jsonStringBody(value)
+			out.WriteString(jsonStringBody(value))
+		} else {
+			out.WriteString(value)
 		}
-		return value
-	})
+	}
+	out.WriteString(text[cursor:])
+	return out.String()
 }
 
 func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc) string {
@@ -63,10 +83,10 @@ func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc
 		cursor = end
 		token := text[start:end]
 
-		// A reference written inside a // line comment is not a real reference.
-		lineStart := strings.LastIndex(text[:start], "\n") + 1
-		prefix := strings.TrimLeft(text[lineStart:start], " \t")
-		if strings.HasPrefix(prefix, "//") {
+		// A reference written inside a // or /* */ comment is not a real
+		// reference; leaving it intact also keeps its value from breaking out
+		// of a block comment when the referenced file contains "*/".
+		if inJSONCComment(text, start) {
 			out.WriteString(token)
 			continue
 		}
@@ -83,6 +103,55 @@ func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc
 	}
 	out.WriteString(text[cursor:])
 	return out.String()
+}
+
+// inJSONCComment reports whether the byte at offset lies inside a // line
+// comment or a /* */ block comment. It mirrors StripJSONC's scanner: quoted
+// strings (including escaped quotes and backslashes) are transparent, so a
+// "{file:...}" written inside a JSON string value is never mistaken for a
+// commented-out reference.
+func inJSONCComment(text string, offset int) bool {
+	if offset > len(text) {
+		offset = len(text)
+	}
+	inString, escaped, line, block := false, false, false, false
+	for i := 0; i < offset; i++ {
+		char := text[i]
+		if line {
+			if char == '\n' {
+				line = false
+			}
+			continue
+		}
+		if block {
+			if char == '*' && i+1 < len(text) && text[i+1] == '/' {
+				block = false
+				i++
+			}
+			continue
+		}
+		if inString {
+			if escaped {
+				escaped = false
+			} else if char == '\\' {
+				escaped = true
+			} else if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch {
+		case char == '"':
+			inString = true
+		case char == '/' && i+1 < len(text) && text[i+1] == '/':
+			line = true
+			i++
+		case char == '/' && i+1 < len(text) && text[i+1] == '*':
+			block = true
+			i++
+		}
+	}
+	return line || block
 }
 
 func resolveFileRef(ref, configDir string, env func(string) string) string {

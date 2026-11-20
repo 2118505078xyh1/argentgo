@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type recordingRunner struct {
@@ -118,5 +119,76 @@ func TestReviewHookAndBuiltinRegistration(t *testing.T) {
 	if cmd, ok := set.Get("review"); !ok || !strings.Contains(strings.ToLower(cmd.Description), "read-only") ||
 		!strings.Contains(cmd.Description, "without modifying") {
 		t.Fatalf("registered review command = %+v, ok=%v", cmd, ok)
+	}
+}
+
+// Clipping must never split a multi-byte rune: a finding's Detail ends up in
+// the human-readable report (and in prompts), so leaving a partial UTF-8
+// sequence there produces invalid text. Strings are normalized with Fields
+// first, so embedded whitespace is collapsed before the byte budget applies.
+func TestClipFindingPreservesUTF8AndWhitespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		limit int
+		want  string
+	}{
+		{
+			name:  "short text unchanged",
+			text:  "TODO: fix",
+			limit: 120,
+			want:  "TODO: fix",
+		},
+		{
+			name:  "ascii truncation keeps ellipsis",
+			text:  strings.Repeat("a", 130),
+			limit: 120,
+			want:  strings.Repeat("a", 119) + "…",
+		},
+		{
+			name:  "rune straddling cut is dropped whole",
+			text:  strings.Repeat("a", 117) + "中文",
+			limit: 120,
+			want:  strings.Repeat("a", 117) + "…",
+		},
+		{
+			name:  "rune starting exactly at cut is excluded",
+			text:  strings.Repeat("a", 116) + "中文",
+			limit: 120,
+			want:  strings.Repeat("a", 116) + "中" + "…",
+		},
+		{
+			name:  "whitespace normalized before clipping",
+			text:  "TODO:  fix\t中文",
+			limit: 120,
+			want:  "TODO: fix 中文",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := clipFinding(tt.text, tt.limit)
+			if got != tt.want {
+				t.Errorf("clipFinding() = %q, want %q", got, tt.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("clipFinding() produced invalid UTF-8: %q", got)
+			}
+		})
+	}
+}
+
+// The same guarantee must hold for a finding produced by the real diff path,
+// where a long Unicode TODO line flows through redactFinding + clipFinding.
+func TestDiffFindingsDetailIsValidUTF8(t *testing.T) {
+	line := strings.Repeat("中", 60) + " TODO"
+	diff := "--- a/f.go\n+++ b/f.go\n@@ -1 +1 @@\n+" + line + "\n"
+	findings := diffFindings(diff)
+	if len(findings) == 0 {
+		t.Fatal("expected a TODO finding")
+	}
+	for _, finding := range findings {
+		if !utf8.ValidString(finding.Detail) {
+			t.Errorf("finding detail is invalid UTF-8: %q", finding.Detail)
+		}
 	}
 }

@@ -204,6 +204,58 @@ func TestDevicePollRequiresADeviceCode(t *testing.T) {
 	}
 }
 
+// TestDevicePollSendsClientSecretWhenConfigured covers the device-grant token
+// request: a confidential client must authenticate its polls too.
+func TestDevicePollSendsClientSecretWhenConfigured(t *testing.T) {
+	cases := []struct {
+		name       string
+		secret     string
+		wantSecret string
+	}{
+		{name: "public client", secret: "", wantSecret: ""},
+		{name: "confidential client", secret: "device-secret", wantSecret: "device-secret"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			stubDeviceSleep(t)
+			var bodies []string
+			index := 0
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				body, _ := io.ReadAll(request.Body)
+				bodies = append(bodies, string(body))
+				writer.Header().Set("Content-Type", "application/json")
+				if index == 0 {
+					index++
+					writer.WriteHeader(http.StatusBadRequest)
+					io.WriteString(writer, `{"error":"authorization_pending"}`)
+					return
+				}
+				io.WriteString(writer, `{"access_token":"tok"}`)
+			}))
+			defer server.Close()
+
+			cfg := Config{Provider: "p", ClientID: "client", ClientSecret: test.secret, TokenURL: server.URL}
+			auth := DeviceAuth{DeviceCode: "dev-1", Interval: 1, ExpiresIn: 900}
+			token, err := DevicePoll(context.Background(), cfg, auth)
+			if err != nil || token.Access != "tok" {
+				t.Fatalf("DevicePoll = %+v, %v", token, err)
+			}
+			if len(bodies) != 2 {
+				t.Fatalf("got %d polls, want 2", len(bodies))
+			}
+			for i, body := range bodies {
+				if test.wantSecret == "" {
+					if strings.Contains(body, "client_secret=") {
+						t.Fatalf("poll %d sent an empty client_secret: %s", i, body)
+					}
+				} else if !containsAll(body, "client_secret="+test.wantSecret) {
+					t.Fatalf("poll %d body = %s, want client_secret=%s", i, body, test.wantSecret)
+				}
+			}
+		})
+	}
+}
+
 // containsAll asserts every fragment occurs in a request body.
 func containsAll(text string, parts ...string) bool {
 	for _, part := range parts {

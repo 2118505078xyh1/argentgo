@@ -11,10 +11,11 @@ func newTestIO(in string, env map[string]string) (IO, *bytes.Buffer, *bytes.Buff
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 	return IO{
-		In:  strings.NewReader(in),
-		Out: out,
-		Err: errOut,
-		Env: func(key string) string { return env[key] },
+		In:          strings.NewReader(in),
+		Out:         out,
+		Err:         errOut,
+		Env:         func(key string) string { return env[key] },
+		HasTerminal: func() bool { return true },
 	}, out, errOut
 }
 

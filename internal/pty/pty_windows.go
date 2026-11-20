@@ -302,17 +302,33 @@ func (c *conPty) Wait() (int, error) {
 		return code, nil
 	}
 	process := c.process
-	c.mu.Unlock()
 	if process == 0 {
+		c.mu.Unlock()
 		return -1, errors.New("pty: the terminal was closed before the child was reaped")
 	}
+	// Close may close the original process handle as soon as the lock is
+	// released. Use a private duplicate for the whole wait so a concurrent
+	// Close+Wait cannot make GetExitCodeProcess fail with "invalid handle"
+	// and turn an ordinary exit into a spurious Wait error.
+	self, err := syscall.GetCurrentProcess()
+	if err != nil {
+		c.mu.Unlock()
+		return -1, fmt.Errorf("pty: GetCurrentProcess: %w", err)
+	}
+	var owned syscall.Handle
+	if err := syscall.DuplicateHandle(self, process, self, &owned, 0, false, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+		c.mu.Unlock()
+		return -1, fmt.Errorf("pty: DuplicateHandle: %w", err)
+	}
+	c.mu.Unlock()
+	defer syscall.CloseHandle(owned)
 
-	if r, _, callErr := procWaitForSingleObject.Call(uintptr(process), infinite); r == waitFailed {
+	if r, _, callErr := procWaitForSingleObject.Call(uintptr(owned), infinite); r == waitFailed {
 		return -1, fmt.Errorf("pty: WaitForSingleObject: %w", callErr)
 	}
 	var code uint32
 	if r, _, callErr := procGetExitCodeProcess.Call(
-		uintptr(process), uintptr(unsafe.Pointer(&code)),
+		uintptr(owned), uintptr(unsafe.Pointer(&code)),
 	); r == 0 {
 		return -1, fmt.Errorf("pty: GetExitCodeProcess: %w", callErr)
 	}
@@ -399,9 +415,12 @@ func (c *conPty) Close() error {
 		procClosePseudoConsole.Call(uintptr(console))
 	}
 	if process != 0 {
-		syscall.CloseHandle(process)
+		// Publish the closed handle under the same lock Wait uses to duplicate
+		// it. Otherwise Wait could observe the still-nonzero handle in the
+		// window between CloseHandle here and clearing c.process below.
 		c.mu.Lock()
 		c.process = 0
+		syscall.CloseHandle(process)
 		c.mu.Unlock()
 	}
 	return nil

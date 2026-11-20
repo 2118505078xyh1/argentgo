@@ -102,6 +102,63 @@ func TestDetect(t *testing.T) {
 	}
 }
 
+func TestDetectExplicitEnglishLocaleStopsSearch(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "ARGENT_LOCALE with POSIX encoding beats Chinese LANG",
+			env:  map[string]string{"ARGENT_LOCALE": "en_US.UTF-8", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "ARGENT_LOCALE with region beats Chinese LANG",
+			env:  map[string]string{"ARGENT_LOCALE": "en-GB", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "ARGENT_LOCALE with modifier beats Chinese LANG",
+			env:  map[string]string{"ARGENT_LOCALE": "en_US@euro", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "LC_ALL C beats Chinese LANG",
+			env:  map[string]string{"LC_ALL": "C", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "LC_ALL POSIX with encoding beats Chinese LANG",
+			env:  map[string]string{"LC_ALL": "POSIX.UTF-8", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "LC_MESSAGES English beats Chinese LANG",
+			env:  map[string]string{"LC_MESSAGES": "en_US.UTF-8", "LANG": "zh_CN.UTF-8"},
+			want: EnUS,
+		},
+		{
+			name: "Chinese still wins when higher variable is an unsupported language",
+			env:  map[string]string{"ARGENT_LOCALE": "fr-FR", "LANG": "zh_CN.UTF-8"},
+			want: ZhCN,
+		},
+		{
+			name: "Chinese with encoding is still detected",
+			env:  map[string]string{"LANG": "zh_CN.UTF-8"},
+			want: ZhCN,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := func(name string) string { return tc.env[name] }
+			if got := Detect(env); got != tc.want {
+				t.Errorf("Detect = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCanonicalAliases(t *testing.T) {
 	for _, alias := range []string{"en", "en-US", "en_us", "English"} {
 		if code, ok := Canonical(alias); !ok || code != EnUS {

@@ -31,11 +31,22 @@ type IO struct {
 	Out io.Writer
 	Err io.Writer
 	Env func(string) string
+	// HasTerminal reports whether an interactive terminal is attached. OSIO
+	// wires the real platform check; tests inject a stub to simulate TTY and
+	// no-TTY environments. A nil value means "no terminal", so terminal-only
+	// commands bail out before doing any work.
+	HasTerminal func() bool
 }
 
 // OSIO returns the real process streams.
 func OSIO() IO {
-	return IO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Env: os.Getenv}
+	return IO{
+		In:          os.Stdin,
+		Out:         os.Stdout,
+		Err:         os.Stderr,
+		Env:         os.Getenv,
+		HasTerminal: defaultHasTerminal,
+	}
 }
 
 // Runner is the agent slice every transport drives.

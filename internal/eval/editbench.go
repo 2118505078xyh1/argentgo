@@ -429,11 +429,9 @@ func editbenchOneLine(s string) string {
 }
 
 func editbenchClip(s string) string {
-	joined := editbenchOneLine(s)
-	if len(joined) <= 160 {
-		return joined
-	}
-	return joined[:159] + "…"
+	// Reuse clip so this formatter cannot drift into byte-index slicing and
+	// split a multibyte rune the way it used to.
+	return clip(s, 160)
 }
 
 // ---- similarity diagnostics (stdlib only) ----

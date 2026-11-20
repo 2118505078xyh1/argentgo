@@ -430,8 +430,13 @@ func (c *Client) chat(
 
 func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
 	var text strings.Builder
-	order := make([]int, 0, 2)
-	partial := make(map[int]*ToolCall)
+	// A tool call is keyed by both its stream index and its id. Gateways may
+	// renumber a call or swap its id between deltas; both maps alias the same
+	// block so every fragment still lands in one place. blocks keeps the
+	// distinct calls in creation order for the final result.
+	blocks := make([]*ToolCall, 0, 2)
+	byIndex := make(map[int]*ToolCall)
+	byID := make(map[string]*ToolCall)
 	var usage *Usage
 	var finishReason string
 	var integrity streamIntegrity
@@ -570,14 +575,30 @@ streamLoop:
 				}
 			}
 			for _, tc := range choice.Delta.ToolCalls {
-				call, ok := partial[tc.Index]
-				if !ok {
+				// Resolve by index first, then by id: an id may reappear under a
+				// new index, or a delta may omit its index after a rename.
+				call := byIndex[tc.Index]
+				if call == nil && tc.ID != "" {
+					call = byID[tc.ID]
+				}
+				if call == nil {
 					call = &ToolCall{Type: "function"}
-					partial[tc.Index] = call
-					order = append(order, tc.Index)
+					blocks = append(blocks, call)
+				}
+				// Register every key seen for this block as an alias. Later
+				// fragments that change either key still resolve back to it.
+				if byIndex[tc.Index] == nil {
+					byIndex[tc.Index] = call
 				}
 				if tc.ID != "" {
-					call.ID = tc.ID
+					if byID[tc.ID] == nil {
+						byID[tc.ID] = call
+					}
+					// Keep the first id: a mid-stream rename is an alias, not
+					// a second call, and the agent keys results on that id.
+					if call.ID == "" {
+						call.ID = tc.ID
+					}
 				}
 				call.Function.Name += tc.Function.Name
 				call.Function.Arguments += tc.Function.Arguments
@@ -586,15 +607,15 @@ streamLoop:
 	}
 	// Generated ids must not collide with an id the provider supplied: a
 	// duplicated call id makes the agent reject the whole tool batch.
-	used := make(map[string]struct{}, len(order))
-	for _, index := range order {
-		if id := partial[index].ID; id != "" {
-			used[id] = struct{}{}
+	used := make(map[string]struct{}, len(blocks))
+	for _, block := range blocks {
+		if block.ID != "" {
+			used[block.ID] = struct{}{}
 		}
 	}
-	calls := make([]ToolCall, 0, len(order))
-	for i, index := range order {
-		call := *partial[index]
+	calls := make([]ToolCall, 0, len(blocks))
+	for i, block := range blocks {
+		call := *block
 		if call.ID == "" {
 			for n := i + 1; ; n++ {
 				candidate := fmt.Sprintf("call_%d", n)

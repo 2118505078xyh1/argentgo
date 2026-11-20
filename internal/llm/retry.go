@@ -209,7 +209,16 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 		}
 
 		normalAttempts++
-		if !IsRetryableStatus(resp.StatusCode) || normalAttempts >= p.MaxAttempts {
+		hints := parseRetryHeaders(resp.Header)
+		shouldRetry := IsRetryableStatus(resp.StatusCode)
+		// x-should-retry is authoritative when the provider sent a verdict: a
+		// gateway can mark a 5xx terminal, or ask for a retry on a status our
+		// default set does not cover. Absent or unrecognised values defer to
+		// the status code as before.
+		if hints.shouldRetrySet {
+			shouldRetry = hints.shouldRetry
+		}
+		if !shouldRetry || normalAttempts >= p.MaxAttempts {
 			return resp, nil
 		}
 		// Peek at a bounded prefix to tell a hard provider limit from a
@@ -225,7 +234,13 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 				return resp, nil
 			}
 		}
-		retryAfter := ParseRetryAfter(resp.Header.Get("Retry-After"))
+		// A provider hint longer than the ceiling is declined, not shortened:
+		// waiting a capped fraction of the requested window would only hit the
+		// same block again and burn an attempt. Surface the original response
+		// intact so the caller's own recovery can decide.
+		if hints.delay > p.delayCeiling() {
+			return resp, nil
+		}
 		p.notify(RetryAttempt{
 			Attempt:    normalAttempts,
 			StatusCode: resp.StatusCode,
@@ -233,7 +248,7 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 			Reason:     ReasonStatus,
 		})
 		drainAndClose(resp.Body)
-		if waitErr := p.wait(ctx, normalAttempts, retryAfter); waitErr != nil {
+		if waitErr := p.wait(ctx, normalAttempts, hints.delay); waitErr != nil {
 			return nil, waitErr
 		}
 	}
@@ -280,19 +295,27 @@ func (p RetryPolicy) baseDelay(attempt int, retryAfter time.Duration) time.Durat
 		delay = p.MaxDelay
 	}
 	if retryAfter > delay {
-		ceiling := p.MaxDelay * 3
-		if ceiling <= 0 {
-			ceiling = DefaultMaxDelay * 3
-		}
-		if ceiling > MaxRetryAfter {
-			ceiling = MaxRetryAfter
-		}
 		delay = retryAfter
-		if delay > ceiling {
-			delay = ceiling
+		if cap := p.delayCeiling(); delay > cap {
+			delay = cap
 		}
 	}
 	return delay
+}
+
+// delayCeiling is the longest provider-requested delay the retry loop will
+// honour. A longer hint is declined by Do (the response is surfaced intact)
+// rather than silently shortened. It is the same cap baseDelay uses when it
+// clamps a delay for callers of Delay directly.
+func (p RetryPolicy) delayCeiling() time.Duration {
+	ceiling := p.MaxDelay * 3
+	if ceiling <= 0 {
+		ceiling = DefaultMaxDelay * 3
+	}
+	if ceiling > MaxRetryAfter {
+		ceiling = MaxRetryAfter
+	}
+	return ceiling
 }
 
 // unreachableDelay grows from 2s to UnreachableMaxDelay for the long window.
@@ -438,6 +461,67 @@ func ParseRetryAfter(value string) time.Duration {
 		}
 	}
 	return 0
+}
+
+// retryHeaders is the retry decision extracted from a provider response's
+// headers. Providers such as Anthropic and retrying gateways send these to
+// override the status-code heuristic and to request an exact wait.
+type retryHeaders struct {
+	// shouldRetrySet reports whether x-should-retry held a recognised verdict.
+	// When set, shouldRetry overrides the status-code decision.
+	shouldRetrySet bool
+	shouldRetry    bool
+	// delay is the requested wait: retry-after-ms (milliseconds) wins over
+	// Retry-After (delta-seconds or HTTP date). Zero means no usable hint.
+	delay time.Duration
+}
+
+// parseRetryHeaders reads the retry decision from a provider response.
+// x-should-retry true/false decides retry outright; the delay prefers the
+// millisecond hint and falls back to Retry-After.
+func parseRetryHeaders(h http.Header) retryHeaders {
+	var out retryHeaders
+	switch strings.ToLower(strings.TrimSpace(h.Get("X-Should-Retry"))) {
+	case "true":
+		out.shouldRetrySet, out.shouldRetry = true, true
+	case "false":
+		out.shouldRetrySet, out.shouldRetry = true, false
+	}
+	if ms, ok := parseRetryAfterMS(h.Get("Retry-After-Ms")); ok {
+		out.delay = ms
+	} else {
+		out.delay = ParseRetryAfter(h.Get("Retry-After"))
+	}
+	return out
+}
+
+// maxRetryMilliseconds is the largest millisecond value that can be turned
+// into a time.Duration without overflowing when multiplied by time.Millisecond.
+const maxRetryMilliseconds = int64(^uint64(0)>>1) / int64(time.Millisecond)
+
+// parseRetryAfterMS parses a retry-after-ms hint. The bool distinguishes a
+// present (even zero) value from an absent or malformed one so the caller can
+// fall back to Retry-After. An out-of-range positive value saturates instead of
+// overflowing: it is still an explicit, over-cap hint that Do must decline.
+func parseRetryAfterMS(value string) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	ms, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(value, "-") {
+			return time.Duration(^uint64(0) >> 1), true
+		}
+		return 0, false
+	}
+	if ms < 0 {
+		return 0, false
+	}
+	if ms > maxRetryMilliseconds {
+		return time.Duration(^uint64(0) >> 1), true
+	}
+	return time.Duration(ms) * time.Millisecond, true
 }
 
 // providerError turns a non-2xx response into an error carrying the status and

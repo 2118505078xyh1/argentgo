@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -50,6 +51,32 @@ func hookHelper(mode string) {
 				_, _ = file.WriteString("x\n")
 				_ = file.Close()
 			}
+		}
+	case "lingering":
+		// Exit immediately but leave a child holding this process's stdout
+		// and stderr — the pipes the dispatcher captures. Without a WaitDelay
+		// the dispatcher's Wait() blocks until the child releases them.
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	case "lingering-child":
+		// Hold the inherited pipes until the test signals it is done (with a
+		// fallback bound so a failed test cannot leak a process forever).
+		exitFile := os.Getenv("ARGENT_HOOK_EXIT_FILE")
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if exitFile != "" {
+				if _, err := os.Stat(exitFile); err == nil {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
 	}
 	os.Exit(0)
@@ -370,6 +397,36 @@ func TestRunCommandUsesTheShell(t *testing.T) {
 	}
 	if !strings.Contains(outcome.Stdout, "argent-hook") {
 		t.Fatalf("stdout not captured: %q (stderr %q)", outcome.Stdout, outcome.Stderr)
+	}
+}
+
+func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "lingering")
+	exitFile := filepath.Join(t.TempDir(), "child-exit")
+	t.Setenv("ARGENT_HOOK_EXIT_FILE", exitFile)
+	// Release the child before this binary exits; on Windows a live child
+	// would otherwise keep the test executable locked during go test cleanup.
+	t.Cleanup(func() {
+		_ = os.WriteFile(exitFile, nil, 0o600)
+		time.Sleep(100 * time.Millisecond)
+	})
+
+	dispatcher := helperDispatcher(300 * time.Millisecond)
+	command := Command{Event: PostToolUse, Command: "run-hook", Timeout: 300 * time.Millisecond}
+
+	started := time.Now()
+	outcome := dispatcher.RunCommand(context.Background(), command, Payload{Event: "PostToolUse"})
+	elapsed := time.Since(started)
+
+	if outcome.Err != nil {
+		t.Fatalf("hook failed to run: %v", outcome.Err)
+	}
+	// The helper exits at once but its child inherits the captured stdout and
+	// stderr pipes and keeps them open. The hook's own timeout must bound the
+	// wall-clock wait; without WaitDelay the run takes seconds instead of
+	// ~waitDelay.
+	if elapsed > 1500*time.Millisecond {
+		t.Fatalf("lingering child blocked the hook for %s", elapsed)
 	}
 }
 

@@ -49,7 +49,10 @@ func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 				return nil
 			}
 			if res.err != nil {
-				return res.err
+				if reportScanError(state.peer, res.err) {
+					return res.err
+				}
+				continue
 			}
 			var req request
 			if err := json.Unmarshal(res.line, &req); err != nil {

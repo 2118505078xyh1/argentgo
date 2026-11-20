@@ -87,7 +87,13 @@ func Merge(bundles []Bundle) Wiring {
 // any that escape it. The check is duplicated from hasPathEscape so that a
 // direct Merge caller is protected even if a bundle slips past the whole-bundle
 // guard above.
+//
+// Paths are deduplicated by their resolved form, not by the raw manifest
+// string: "skills", "./skills" and "sub/../skills" all name the same source and
+// must contribute one entry. Without this, the downstream skill/command loader
+// would register the same item several times.
 func (w *Wiring) appendResolved(dest []string, bundle Bundle, paths []string) []string {
+	seen := make(map[string]bool, len(paths))
 	for _, relative := range paths {
 		resolved := bundle.Manifest.ResolvePath(relative)
 		if !within(bundle.Manifest.Root, resolved) {
@@ -98,6 +104,10 @@ func (w *Wiring) appendResolved(dest []string, bundle Bundle, paths []string) []
 			})
 			continue
 		}
+		if seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
 		dest = append(dest, resolved)
 	}
 	return dest

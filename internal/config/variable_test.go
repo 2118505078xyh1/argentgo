@@ -77,6 +77,95 @@ func TestSubstituteLeavesFileReferenceInCommentAlone(t *testing.T) {
 	}
 }
 
+// A reference inside a JSONC comment is documentation, not a setting. The old
+// scanner only skipped file refs in // comments that began a line, so a ref in
+// a /* */ block comment (or in a trailing // comment) was read and injected.
+// When the referenced value contained "*/" it closed the block comment early
+// and corrupted the whole document.
+func TestSubstituteIgnoresReferencesInComments(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "key.txt"), []byte("abc*/def"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := envFunc(map[string]string{"BAD": "x*/y", "GOOD": "value"})
+
+	cases := []struct {
+		name     string
+		input    string
+		want     string
+		wantWarn int
+	}{
+		{
+			name:  "file ref in block comment with closing marker in file",
+			input: "{\n  /* key: {file:key.txt} */\n  \"model\": \"m\"\n}",
+			want:  "{\n  /* key: {file:key.txt} */\n  \"model\": \"m\"\n}",
+		},
+		{
+			name:  "env ref in block comment with closing marker in value",
+			input: "{\n  /* note: {env:BAD} */\n  \"model\": \"m\"\n}",
+			want:  "{\n  /* note: {env:BAD} */\n  \"model\": \"m\"\n}",
+		},
+		{
+			name:  "missing env ref in line comment does not warn",
+			input: "// note {env:MISSING}\n{\"model\":\"m\"}",
+			want:  "// note {env:MISSING}\n{\"model\":\"m\"}",
+		},
+		{
+			name:  "file ref in trailing line comment after a value",
+			input: "{\"model\":\"m\", // {file:absent.txt}\n \"x\":1}",
+			want:  "{\"model\":\"m\", // {file:absent.txt}\n \"x\":1}",
+		},
+		{
+			name:  "real file ref inside a string value is still substituted",
+			input: `{"key":"{file:key.txt}"}`,
+			want:  `{"key":"abc*/def"}`,
+		},
+		{
+			name:  "real env ref inside a string value is still substituted",
+			input: `{"model":"{env:GOOD}"}`,
+			want:  `{"model":"value"}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var warnings []string
+			warn := func(format string, args ...any) { warnings = append(warnings, format) }
+			got := Substitute(tc.input, dir, env, warn)
+			if got != tc.want {
+				t.Fatalf("Substitute() = %q, want %q", got, tc.want)
+			}
+			if len(warnings) != tc.wantWarn {
+				t.Errorf("warnings = %v, want %d", warnings, tc.wantWarn)
+			}
+			// Comments survive substitution but must still be stripped back
+			// into a strict, decodable JSON document.
+			var tree map[string]any
+			if err := json.Unmarshal([]byte(StripJSONC(got)), &tree); err != nil {
+				t.Fatalf("cleaned JSON is invalid: %v\n%s", err, StripJSONC(got))
+			}
+		})
+	}
+}
+
+func TestLoadBlockCommentFileRefDoesNotCorruptJSON(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "key.txt"), []byte("sk-*/secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := "{\n  /* key loaded from {file:key.txt} */\n  \"model\": \"comment-model\",\n}\n"
+	if err := os.WriteFile(filepath.Join(cwd, "argent.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
+	if err != nil {
+		t.Fatalf("Load with commented file reference: %v", err)
+	}
+	if cfg.Model != "comment-model" {
+		t.Errorf("model = %q, want comment-model", cfg.Model)
+	}
+}
+
 func TestLoadAppliesSubstitutionAndJSONC(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()

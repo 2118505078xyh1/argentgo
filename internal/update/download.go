@@ -11,11 +11,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // MaxAssetSize caps a release download (512 MiB) so a hostile or broken
 // response cannot fill the disk.
 const MaxAssetSize int64 = 512 << 20
+
+// downloadTimeout bounds a self-update download when the caller's context has
+// no deadline of its own. Check uses a 30-second client timeout; downloads need
+// the same protection, otherwise a server that accepts the connection but never
+// sends (or stops mid-body) leaves the updater hanging forever. It is a variable
+// so tests can shrink it without waiting; production always uses 30 seconds.
+var downloadTimeout = 30 * time.Second
+
+// withDownloadDeadline gives ctx a deadline if it does not already have one.
+// An existing, possibly shorter, caller deadline is always preserved.
+func withDownloadDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, downloadTimeout)
+}
 
 // Progress is called after every chunk with the bytes written so far and the
 // expected total (0 when the server did not report one).
@@ -32,6 +49,9 @@ func Download(ctx context.Context, asset Asset, dest, checksum string) error {
 
 // DownloadProgress is Download with a progress callback.
 func DownloadProgress(ctx context.Context, asset Asset, dest, checksum string, progress Progress) error {
+	ctx, cancel := withDownloadDeadline(ctx)
+	defer cancel()
+
 	want, err := normaliseChecksum(checksum)
 	if err != nil {
 		return err

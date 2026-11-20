@@ -196,6 +196,60 @@ func TestRefreshWithoutARefreshTokenFails(t *testing.T) {
 	}
 }
 
+// TestTokenRequestsSendClientSecretWhenConfigured guards the confidential-client
+// path: a Config with a ClientSecret must authenticate every token-endpoint
+// request, while public PKCE clients must not emit an empty client_secret.
+func TestTokenRequestsSendClientSecretWhenConfigured(t *testing.T) {
+	cases := []struct {
+		name       string
+		secret     string
+		wantSecret string
+	}{
+		{name: "public client omits client_secret", secret: "", wantSecret: ""},
+		{name: "confidential client sends client_secret", secret: "top-secret", wantSecret: "top-secret"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var forms []url.Values
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				body, _ := io.ReadAll(request.Body)
+				form, _ := url.ParseQuery(string(body))
+				forms = append(forms, form)
+				writer.Header().Set("Content-Type", "application/json")
+				io.WriteString(writer, `{"access_token":"tok","refresh_token":"ref"}`)
+			}))
+			defer server.Close()
+
+			cfg := Config{
+				Provider:     "demo",
+				ClientID:     "client",
+				ClientSecret: test.secret,
+				TokenURL:     server.URL,
+			}
+			if _, err := Exchange(context.Background(), cfg, "code", "verifier"); err != nil {
+				t.Fatalf("Exchange: %v", err)
+			}
+			previous := Token{Provider: "demo", Kind: KindOAuth, Access: "old", Refresh: "keep"}
+			if _, err := Refresh(context.Background(), cfg, previous); err != nil {
+				t.Fatalf("Refresh: %v", err)
+			}
+
+			if len(forms) != 2 {
+				t.Fatalf("got %d token requests, want 2", len(forms))
+			}
+			for index, form := range forms {
+				if got := form.Get("client_secret"); got != test.wantSecret {
+					t.Fatalf("request %d client_secret = %q, want %q (form: %v)", index, got, test.wantSecret, form)
+				}
+				_, present := form["client_secret"]
+				if test.wantSecret == "" && present {
+					t.Fatalf("request %d sent an empty client_secret: %v", index, form)
+				}
+			}
+		})
+	}
+}
+
 func TestCallbackChecksStateAndReturnsTheCode(t *testing.T) {
 	callback, err := Listen("127.0.0.1:0")
 	if err != nil {

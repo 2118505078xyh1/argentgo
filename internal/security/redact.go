@@ -78,6 +78,13 @@ var tokenPrefixes = []struct {
 	{"npm_", "token"},
 	{"pypi-", "token"},
 	{"eyJ", "jwt"},
+	// Stripe secret keys use an underscore after sk/rk; the hyphenated `sk-`
+	// above does not match them. Google OAuth2 access tokens start with ya29.
+	{"sk_live_", "api key"},
+	{"sk_test_", "api key"},
+	{"rk_live_", "api key"},
+	{"rk_test_", "api key"},
+	{"ya29.", "oauth token"},
 }
 
 var keyValueNames = []struct {
@@ -104,6 +111,15 @@ var headerPrefixes = []struct {
 	{"Authorization: ", "auth header"},
 	{"authorization: ", "auth header"},
 }
+
+// PEM private keys carry their shape in an unmistakable armour header. The
+// block form also scrubs the base64 body; the header form keeps RedactRow
+// effective when a tool prints the file one line at a time. Only PRIVATE KEY
+// armour is matched, so public keys and certificates are left untouched.
+var (
+	pemPrivateKeyBlockRe  = regexp.MustCompile(`(?is)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----.*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
+	pemPrivateKeyHeaderRe = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
+)
 
 func isAuthorizationNeedle(needle string) bool {
 	return strings.HasPrefix(asciiLower(needle), "authorization")
@@ -180,6 +196,15 @@ func findSecret(text string) *secretMatch {
 			consider(start, tokenEnd(text, start), entry.kind)
 			from = start + len(entry.prefix)
 		}
+	}
+	// A complete PEM block wins over its own header at the same start (the
+	// longer end is kept), while a header with no trailing END marker is still
+	// scrubbed so a truncated key cannot leak through.
+	for _, loc := range pemPrivateKeyBlockRe.FindAllStringIndex(text, -1) {
+		consider(loc[0], loc[1], "private key")
+	}
+	for _, loc := range pemPrivateKeyHeaderRe.FindAllStringIndex(text, -1) {
+		consider(loc[0], loc[1], "private key")
 	}
 	for _, entry := range headerPrefixes {
 		offset := strings.Index(text, entry.needle)

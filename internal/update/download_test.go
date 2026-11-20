@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func checksumOf(data []byte) string {
@@ -147,5 +149,139 @@ func TestDownloadStopsWhenTheContextIsCancelled(t *testing.T) {
 	}
 	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
 		t.Fatal("dest exists after cancellation")
+	}
+}
+
+// TestWithDownloadDeadline checks the deadline policy without any I/O: a
+// context without a deadline gets the updater default, while a caller-supplied
+// deadline is never replaced.
+func TestWithDownloadDeadline(t *testing.T) {
+	original := downloadTimeout
+	t.Cleanup(func() { downloadTimeout = original })
+	downloadTimeout = 2 * time.Hour
+
+	cases := []struct {
+		name         string
+		ctx          func() (context.Context, context.CancelFunc)
+		wantDeadline time.Duration
+	}{
+		{
+			name: "no caller deadline gets the download default",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.Background(), func() {}
+			},
+			wantDeadline: downloadTimeout,
+		},
+		{
+			name: "a shorter caller deadline is preserved",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 50*time.Millisecond)
+			},
+			wantDeadline: 50 * time.Millisecond,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, outerCancel := test.ctx()
+			defer outerCancel()
+			got, cancel := withDownloadDeadline(ctx)
+			defer cancel()
+
+			deadline, ok := got.Deadline()
+			if !ok {
+				t.Fatal("download context has no deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining < test.wantDeadline-time.Second || remaining > test.wantDeadline+time.Second {
+				t.Fatalf("deadline in %v, want about %v", remaining, test.wantDeadline)
+			}
+		})
+	}
+}
+
+// TestDownloadAppliesANetworkTimeout is the end-to-end regression: a server
+// that accepts the connection and then stalls must not hang the updater, and a
+// caller deadline must still win. Everything uses local mock HTTP servers.
+func TestDownloadAppliesANetworkTimeout(t *testing.T) {
+	original := downloadTimeout
+	t.Cleanup(func() { downloadTimeout = original })
+
+	payload := []byte("payload")
+	stalled := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		select {
+		case <-request.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	t.Cleanup(stalled.Close)
+	prompt := serveBytes(t, payload)
+
+	cases := []struct {
+		name        string
+		url         string
+		timeout     time.Duration
+		ctx         func() (context.Context, context.CancelFunc)
+		wantErr     bool
+		wantTimeout bool
+	}{
+		{
+			name:        "a stalled server hits the default download timeout",
+			url:         stalled.URL,
+			timeout:     40 * time.Millisecond,
+			wantErr:     true,
+			wantTimeout: true,
+		},
+		{
+			name:    "a shorter caller deadline is not overridden",
+			url:     stalled.URL,
+			timeout: 10 * time.Second,
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 40*time.Millisecond)
+			},
+			wantErr:     true,
+			wantTimeout: true,
+		},
+		{
+			name:    "a prompt response still succeeds",
+			url:     prompt.URL,
+			timeout: 10 * time.Second,
+			wantErr: false,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			downloadTimeout = test.timeout
+			ctx := context.Background()
+			if test.ctx != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = test.ctx()
+				defer cancel()
+			}
+			start := time.Now()
+			dest := filepath.Join(t.TempDir(), "asset.bin")
+			err := Download(ctx, Asset{Name: "a", URL: test.url, Size: int64(len(payload))},
+				dest, checksumOf(payload))
+			elapsed := time.Since(start)
+
+			if (err != nil) != test.wantErr {
+				t.Fatalf("Download error = %v, wantErr %v", err, test.wantErr)
+			}
+			if test.wantTimeout && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("error = %v, want context deadline exceeded", err)
+			}
+			if test.wantErr {
+				if elapsed > 2*time.Second {
+					t.Fatalf("download took %v; the network deadline was not applied", elapsed)
+				}
+				if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+					t.Fatalf("dest exists after a timeout: %v", statErr)
+				}
+				return
+			}
+			got, readErr := os.ReadFile(dest)
+			if readErr != nil || string(got) != string(payload) {
+				t.Fatalf("dest = %q, err %v", got, readErr)
+			}
+		})
 	}
 }

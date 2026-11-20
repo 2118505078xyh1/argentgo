@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -272,17 +274,122 @@ func TestScanLinesTrimsAndSkipsBlankLines(t *testing.T) {
 	}
 }
 
-func TestScanLinesPropagatesScannerError(t *testing.T) {
+func TestScanLinesDropsOversizedFrameAndContinues(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	results := scanLines(ctx, strings.NewReader(strings.Repeat("x", 4*1024*1024+1)+"\n"))
+	input := strings.Repeat("x", maxRPCFrame+1) + "\n" + "second\n"
+	results := scanLines(ctx, strings.NewReader(input))
+	var errs []error
+	var lines []string
 	for res := range results {
 		if res.err != nil {
-			if !strings.Contains(res.err.Error(), "token too long") {
-				t.Fatalf("scanner error = %v", res.err)
-			}
-			return
+			errs = append(errs, res.err)
+			continue
 		}
+		lines = append(lines, string(res.line))
 	}
-	t.Fatal("scanner error was not reported")
+	if len(errs) != 1 || !errors.Is(errs[0], errFrameTooLong) {
+		t.Fatalf("errors = %v, want exactly one errFrameTooLong", errs)
+	}
+	if len(lines) != 1 || lines[0] != "second" {
+		t.Fatalf("lines = %q, want [second]", lines)
+	}
+}
+
+func TestScanLinesDropsOversizedFinalFrameWithoutNewline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	input := "first\n" + strings.Repeat("x", maxRPCFrame+1) // no trailing newline
+	results := scanLines(ctx, strings.NewReader(input))
+	var errs []error
+	var lines []string
+	for res := range results {
+		if res.err != nil {
+			errs = append(errs, res.err)
+			continue
+		}
+		lines = append(lines, string(res.line))
+	}
+	if len(errs) != 1 || !errors.Is(errs[0], errFrameTooLong) {
+		t.Fatalf("errors = %v, want exactly one errFrameTooLong", errs)
+	}
+	if len(lines) != 1 || lines[0] != "first" {
+		t.Fatalf("lines = %q, want [first]", lines)
+	}
+}
+
+func TestScanLinesAcceptsFrameAtLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	want := strings.Repeat("x", maxRPCFrame)
+	results := scanLines(ctx, strings.NewReader(want+"\n"))
+	res, ok := <-results
+	if !ok {
+		t.Fatal("no frame was returned")
+	}
+	if res.err != nil {
+		t.Fatalf("unexpected error: %v", res.err)
+	}
+	if string(res.line) != want {
+		t.Fatalf("frame length = %d, want %d", len(res.line), len(want))
+	}
+	if res, ok := <-results; ok {
+		t.Fatalf("unexpected extra result: %+v", res)
+	}
+}
+
+func TestRPCContinuesAfterOversizedFrame(t *testing.T) {
+	var in, out bytes.Buffer
+	in.WriteString(strings.Repeat("x", maxRPCFrame+1) + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":2,"method":"nope"}` + "\n")
+
+	// No network: both ends are in-memory buffers. Only synchronous methods
+	// are used so out is written solely from RunRPC's own goroutine.
+	if err := RunRPC(context.Background(), &in, &out, Config{}); err != nil {
+		t.Fatalf("RunRPC returned a terminal error for an oversized frame: %v", err)
+	}
+
+	frames := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(frames) != 2 {
+		t.Fatalf("got %d frames (%q), want 2", len(frames), out.String())
+	}
+	var tooLong, unknown map[string]any
+	if err := json.Unmarshal([]byte(frames[0]), &tooLong); err != nil {
+		t.Fatalf("decode first frame: %v", err)
+	}
+	if err := json.Unmarshal([]byte(frames[1]), &unknown); err != nil {
+		t.Fatalf("decode second frame: %v", err)
+	}
+	if eb, _ := tooLong["error"].(map[string]any); eb["code"] != float64(codeParseError) {
+		t.Fatalf("oversized-frame reply = %v, want parse error", tooLong)
+	} else if msg, _ := eb["message"].(string); !strings.Contains(msg, "too long") {
+		t.Fatalf("oversized-frame message = %q", msg)
+	}
+	if eb, _ := unknown["error"].(map[string]any); eb["code"] != float64(codeMethodNotFound) {
+		t.Fatalf("following request reply = %v, want method-not-found", unknown)
+	}
+	if unknown["id"] != float64(2) {
+		t.Fatalf("following request id = %v, want 2", unknown["id"])
+	}
+}
+
+func TestACPContinuesAfterOversizedFrame(t *testing.T) {
+	var in, out bytes.Buffer
+	in.WriteString(strings.Repeat("x", maxRPCFrame+1) + "\n")
+	in.WriteString(`{"jsonrpc":"2.0","id":3,"method":"nope"}` + "\n")
+
+	if err := RunACP(context.Background(), &in, &out, Config{}); err != nil {
+		t.Fatalf("RunACP returned a terminal error for an oversized frame: %v", err)
+	}
+	frames := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(frames) != 2 {
+		t.Fatalf("got %d frames, want 2", len(frames))
+	}
+	var reply map[string]any
+	if err := json.Unmarshal([]byte(frames[1]), &reply); err != nil {
+		t.Fatalf("decode reply: %v", err)
+	}
+	if reply["id"] != float64(3) {
+		t.Fatalf("reply = %v, want id 3", reply)
+	}
 }

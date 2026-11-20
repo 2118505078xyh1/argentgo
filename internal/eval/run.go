@@ -312,13 +312,23 @@ func oneLine(reason string) string {
 }
 
 // clip collapses whitespace and truncates a value for a report line.
+//
+// limit counts characters (runes), not bytes: the text being clipped is model
+// output, seeded file content and exec output, any of which may hold CJK or
+// emoji. Slicing a Go string by byte index used to leave a half-written UTF-8
+// rune at the cut, which made failure reasons invalid UTF-8. Keep one rune
+// fewer and append the ellipsis so the result is still at most limit runes.
 func clip(text string, limit int) string {
 	joined := strings.Join(strings.Fields(text), " ")
-	if len(joined) <= limit {
+	runes := []rune(joined)
+	if len(runes) <= limit {
 		return joined
 	}
-	if limit <= 1 {
-		return joined[:limit]
+	if limit <= 0 {
+		return ""
 	}
-	return joined[:limit-1] + "…"
+	if limit == 1 {
+		return string(runes[:1])
+	}
+	return string(runes[:limit-1]) + "…"
 }

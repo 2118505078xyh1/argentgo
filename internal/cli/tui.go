@@ -33,6 +33,14 @@ func runTUI(app App, ctx context.Context, args []string) int {
 
 // runTUI hands resolved options to the injected full-screen frontend.
 func (a App) runTUI(ctx context.Context, opts *Options) int {
+	// Bail out before the frontend loads config or draws anything when there
+	// is no terminal to draw on, e.g. package-manager validators or CI jobs
+	// that run the binary with redirected streams and no console. This is the
+	// single choke point for both `argent tui` and `argent --tui`.
+	if !a.hasTerminal() {
+		fmt.Fprintln(a.IO.Err, "argent needs an interactive terminal for the TUI; pass a prompt argument or pipe stdin for non-interactive use.")
+		return 0
+	}
 	if a.TUI == nil {
 		fmt.Fprintln(a.IO.Err, "error: TUI not configured")
 		return 1

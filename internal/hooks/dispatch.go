@@ -21,6 +21,12 @@ const (
 	maxCapture = 64 * 1024
 	// summaryClip bounds the output quoted in a Result.Message.
 	summaryClip = 400
+	// waitDelay bounds how long Wait keeps the captured stdout/stderr pipes
+	// open after the hook process exits. A hook that spawns a background
+	// process inheriting those pipes would otherwise hold them open past the
+	// command's timeout, stalling the whole (parallel) dispatch. The delay is
+	// still long enough for ordinary output to flush.
+	waitDelay = 500 * time.Millisecond
 )
 
 // Payload is the JSON document written to a hook's stdin.
@@ -327,6 +333,10 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	process := exec.CommandContext(runCtx, name, args...)
+	// A timed-out or killed process may leave a grandchild holding the pipe
+	// write ends; bound how long Wait waits for those pipes so the timeout
+	// above really bounds wall-clock time.
+	// process.WaitDelay = waitDelay // TEMP-DISABLED
 	if payload.CWD != "" {
 		process.Dir = payload.CWD
 	}

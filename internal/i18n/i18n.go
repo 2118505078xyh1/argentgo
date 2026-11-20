@@ -337,10 +337,41 @@ func recordMissing(id string) {
 	sort.Strings(missingKeys)
 }
 
+// isExplicitEnglishLocale reports whether an environment locale value is an
+// explicit preference for English, including the suffixes real environments
+// attach to it: a region ("en-GB", "en_US"), an encoding ("en_US.UTF-8",
+// "C.UTF-8") and a modifier ("en_US@euro"). C and POSIX are the C locale,
+// which is English for UI purposes.
+//
+// Detect recognises Chinese by prefix, so without this check a higher-priority
+// variable holding an explicit English locale looks merely "unrecognised" and
+// is skipped; a lower-priority Chinese LANG then silently overrides the
+// user's own setting. Only English is special-cased: other unsupported
+// languages still fall through, as before.
+func isExplicitEnglishLocale(value string) bool {
+	lower := asciiLower(strings.TrimSpace(value))
+	// POSIX encoding and modifier suffixes follow the language tag and do not
+	// change which language was requested.
+	if i := strings.IndexAny(lower, ".@"); i >= 0 {
+		lower = lower[:i]
+	}
+	switch lower {
+	case "c", "posix":
+		return true
+	}
+	if i := strings.IndexAny(lower, "-_"); i >= 0 {
+		lower = lower[:i]
+	}
+	return lower == "en" || lower == "english"
+}
+
 // Detect picks a locale from the environment.
 //
-// ARGENT_LOCALE wins. Then LC_ALL, LC_MESSAGES and LANG are checked for a
-// Chinese tag; anything else falls back to DefaultLocale. env must not be nil.
+// ARGENT_LOCALE wins. Then LC_ALL, LC_MESSAGES and LANG are checked: a Chinese
+// tag selects ZhCN, an explicit English tag (including "C"/"POSIX" and values
+// with region, encoding or modifier suffixes) selects DefaultLocale and stops
+// the search. Anything else falls through to the next variable. env must not
+// be nil.
 func Detect(env func(string) string) string {
 	if env == nil {
 		return DefaultLocale
@@ -356,6 +387,9 @@ func Detect(env func(string) string) string {
 		lower := strings.ToLower(value)
 		if strings.HasPrefix(lower, "zh") {
 			return ZhCN
+		}
+		if isExplicitEnglishLocale(value) {
+			return DefaultLocale
 		}
 	}
 	return DefaultLocale

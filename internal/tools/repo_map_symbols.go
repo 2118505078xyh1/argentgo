@@ -73,64 +73,74 @@ func extractRepoSymbols(base string, relFiles []string) []repoSymbol {
 		if err != nil {
 			continue
 		}
-		fset := token.NewFileSet()
-		file, _ := parser.ParseFile(fset, rel, src, 0)
-		if file == nil {
-			continue
-		}
-		for _, decl := range file.Decls {
-			switch d := decl.(type) {
-			case *ast.FuncDecl:
-				if d.Name == nil {
-					continue
+		out = append(out, parseGoSource(rel, src)...)
+	}
+	return out
+}
+
+// parseGoSource parses one Go file's source into top-level declarations. It is
+// deliberately a pure function of (rel, src) so the mtime symbol cache can
+// reuse the exact same parse logic on a cache miss. Syntax errors are
+// tolerated: go/parser returns a partial AST alongside the error.
+func parseGoSource(rel string, src []byte) []repoSymbol {
+	fset := token.NewFileSet()
+	file, _ := parser.ParseFile(fset, rel, src, 0)
+	if file == nil {
+		return nil
+	}
+	var out []repoSymbol
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Name == nil {
+				continue
+			}
+			sym := repoSymbol{
+				File:     rel,
+				Name:     d.Name.Name,
+				Line:     fset.Position(d.Pos()).Line,
+				Kind:     "func",
+				Exported: ast.IsExported(d.Name.Name),
+			}
+			if d.Recv != nil && len(d.Recv.List) > 0 {
+				sym.Receiver = repoReceiverName(d.Recv.List[0].Type)
+				if sym.Receiver != "" {
+					sym.Kind = "method"
 				}
-				sym := repoSymbol{
-					File:     rel,
-					Name:     d.Name.Name,
-					Line:     fset.Position(d.Pos()).Line,
-					Kind:     "func",
-					Exported: ast.IsExported(d.Name.Name),
-				}
-				if d.Recv != nil && len(d.Recv.List) > 0 {
-					sym.Receiver = repoReceiverName(d.Recv.List[0].Type)
-					if sym.Receiver != "" {
-						sym.Kind = "method"
+			}
+			out = append(out, sym)
+		case *ast.GenDecl:
+			kind := ""
+			switch d.Tok {
+			case token.TYPE:
+				kind = "type"
+			case token.CONST:
+				kind = "const"
+			case token.VAR:
+				kind = "var"
+			default:
+				continue
+			}
+			for _, spec := range d.Specs {
+				line := fset.Position(spec.Pos()).Line
+				switch sp := spec.(type) {
+				case *ast.TypeSpec:
+					if sp.Name == nil {
+						continue
 					}
-				}
-				out = append(out, sym)
-			case *ast.GenDecl:
-				kind := ""
-				switch d.Tok {
-				case token.TYPE:
-					kind = "type"
-				case token.CONST:
-					kind = "const"
-				case token.VAR:
-					kind = "var"
-				default:
-					continue
-				}
-				for _, spec := range d.Specs {
-					line := fset.Position(spec.Pos()).Line
-					switch sp := spec.(type) {
-					case *ast.TypeSpec:
-						if sp.Name == nil {
+					out = append(out, repoSymbol{
+						File: rel, Name: sp.Name.Name, Line: line,
+						Kind: kind, Exported: ast.IsExported(sp.Name.Name),
+					})
+				case *ast.ValueSpec:
+					for _, name := range sp.Names {
+						if name == nil {
 							continue
 						}
 						out = append(out, repoSymbol{
-							File: rel, Name: sp.Name.Name, Line: line,
-							Kind: kind, Exported: ast.IsExported(sp.Name.Name),
+							File: rel, Name: name.Name, Line: line,
+							Kind: kind, Exported: ast.IsExported(name.Name),
 						})
-					case *ast.ValueSpec:
-						for _, name := range sp.Names {
-							if name == nil {
-								continue
-							}
-							out = append(out, repoSymbol{
-								File: rel, Name: name.Name, Line: line,
-								Kind: kind, Exported: ast.IsExported(name.Name),
-							})
-						}
 					}
 				}
 			}

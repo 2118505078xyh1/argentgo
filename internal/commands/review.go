@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
@@ -272,8 +273,14 @@ func debugMarker(text string) string {
 
 func clipFinding(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
-	if len(text) <= limit {
+	if limit <= 0 || len(text) <= limit {
 		return text
 	}
-	return text[:limit-1] + "…"
+	// Back up to a rune boundary before appending the ellipsis, otherwise a
+	// cut in the middle of a multi-byte rune leaves invalid UTF-8 behind.
+	cut := limit - 1
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…"
 }
