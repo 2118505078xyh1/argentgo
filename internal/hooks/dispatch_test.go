@@ -246,8 +246,11 @@ func TestDispatchDocumentRequiresADocument(t *testing.T) {
 }
 
 func TestRunCommandUsesTheShell(t *testing.T) {
-	dispatcher := &Dispatcher{Timeout: 5 * time.Second}
-	command := Command{Event: SessionStart, Command: "echo argent-hook", Timeout: 5 * time.Second}
+	// Generous timeout: under a full parallel `go test ./...` (or -race) the
+	// shell can take several seconds just to start. This test checks that the
+	// shell is used and output captured, not a tight wall-clock bound.
+	dispatcher := &Dispatcher{Timeout: 30 * time.Second}
+	command := Command{Event: SessionStart, Command: "echo argent-hook", Timeout: 30 * time.Second}
 	outcome := dispatcher.RunCommand(context.Background(), command, Payload{Event: "SessionStart", CWD: t.TempDir()})
 	if outcome.Err != nil || outcome.ExitCode != 0 || outcome.TimedOut {
 		t.Fatalf("shell command failed: %+v", outcome)

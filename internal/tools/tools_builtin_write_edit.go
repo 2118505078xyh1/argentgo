@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,12 @@ func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (strin
 	}
 	unlock := lockFileMutation(path)
 	defer unlock()
+	// Rewriting identical bytes is a no-op: skip the syscall so the file's
+	// modTime is left untouched (which also avoids needless watcher churn).
+	// A missing or unreadable target falls through to the normal create/write.
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, []byte(args.Content)) {
+		return fmt.Sprintf("%s already contains the requested content; no write needed", args.Path), nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}

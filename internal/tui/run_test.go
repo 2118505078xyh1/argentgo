@@ -51,7 +51,7 @@ func TestRunDrivesAPromptTurnAndRestoresTheScreen(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("Run did not return after ctrl+c")
 	}
 

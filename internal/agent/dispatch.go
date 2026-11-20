@@ -180,6 +180,10 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 			continue
 		}
 		res := s.invoke(ctx, call)
+		// Feed the executed result back to the guard so the output signature can
+		// spot "different arguments, same output" loops. Blocked calls never
+		// reach this line, so their error text is not recorded as tool output.
+		s.guard.recordOutput(call.Function.Name, normalized[i], res.output)
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
 	}
@@ -223,6 +227,10 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 		res := results[i]
 		if blocked[i] != "" {
 			res = callResult{output: blocked[i], isError: true}
+		} else {
+			// Results are recorded in call order on the loop goroutine, so the
+			// guard's output window stays deterministic despite worker ordering.
+			s.guard.recordOutput(call.Function.Name, normalized[i], res.output)
 		}
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
