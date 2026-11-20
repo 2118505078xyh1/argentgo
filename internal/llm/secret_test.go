@@ -149,3 +149,113 @@ func TestRedactJSONFieldsMasksDefaultsAndCustomFields(t *testing.T) {
 		t.Fatal("RedactJSONFields(nil) should return nil")
 	}
 }
+
+func TestRedactTextMasksMainstreamAPIKeyFormats(t *testing.T) {
+	const (
+		anthropicKey = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+		projectKey   = "sk-proj-abcDEFghIJ1234567890XYZabcdefghij"
+		plainKey     = "sk-abcdefghijklmnopqrstuvwxyz"
+		revokeKey    = "rk-braintree-abcdefghijklmnopqrstuv"
+		publishKey   = "pk_live_abcdefghijklmnopqrstuvwxyz"
+		genericKey   = "mySecretTokenValue1234567890"
+		bearerToken  = "sk-proj-abcDEFghIJ1234567890XYZabcdefghij"
+	)
+
+	cases := []struct {
+		name     string
+		in       string
+		mustHide []string
+		mustKeep []string
+	}{
+		{
+			name:     "Anthropic sk-ant-api03 hyphenated key",
+			in:       fmt.Sprintf("Invalid API key: %s", anthropicKey),
+			mustHide: []string{anthropicKey, "api03-ABCDEFGHIJKLMNOP"},
+			mustKeep: []string{"Invalid API key:"},
+		},
+		{
+			name:     "OpenAI sk-proj key after Bearer scheme",
+			in:       "Authorization: Bearer " + bearerToken,
+			mustHide: []string{bearerToken, "Bearer"},
+			mustKeep: []string{"Authorization:"},
+		},
+		{
+			name:     "plain sk key in prose",
+			in:       "bad key " + plainKey + " for alice@example.com",
+			mustHide: []string{plainKey, "alice@example.com"},
+			mustKeep: []string{"bad key", "for"},
+		},
+		{
+			name:     "rk and pk with either separator",
+			in:       fmt.Sprintf("rk: %s pk: %s", revokeKey, publishKey),
+			mustHide: []string{revokeKey, publishKey},
+			mustKeep: []string{"rk:", "pk:"},
+		},
+		{
+			name:     "API key with a space between words",
+			in:       fmt.Sprintf("API key: %s", genericKey),
+			mustHide: []string{genericKey},
+			mustKeep: []string{"API key:"},
+		},
+		{
+			name:     "api-key and api_key field names",
+			in:       fmt.Sprintf("api-key=%s, api_key: %s", genericKey, plainKey),
+			mustHide: []string{genericKey, plainKey},
+			mustKeep: []string{"api-key=", "api_key:"},
+		},
+		{
+			name:     "mixed Chinese and English error",
+			in:       fmt.Sprintf("密钥 %s 无效，API key: %s", anthropicKey, projectKey),
+			mustHide: []string{anthropicKey, projectKey, "api03-ABCDEFGHIJKLMNOP"},
+			mustKeep: []string{"密钥", "无效", "API key:"},
+		},
+		{
+			name:     "JSON authorization with quoted scheme and token",
+			in:       fmt.Sprintf(`{"authorization": "Bearer %s", "model": "m"}`, projectKey),
+			mustHide: []string{projectKey, "Bearer"},
+			mustKeep: []string{"authorization", "model", "m"},
+		},
+		{
+			name:     "unknown auth scheme still swallows the token",
+			in:       "Authorization: Mac " + genericKey,
+			mustHide: []string{genericKey},
+			mustKeep: []string{"Authorization:"},
+		},
+		{
+			name:     "ordinary error wording is untouched",
+			in:       "provider returned 400: model not found",
+			mustKeep: []string{"provider returned 400: model not found"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := llm.RedactText(tc.in)
+			for _, hidden := range tc.mustHide {
+				if strings.Contains(got, hidden) {
+					t.Errorf("RedactText leaked %q: %q", hidden, got)
+				}
+			}
+			for _, kept := range tc.mustKeep {
+				if !strings.Contains(got, kept) {
+					t.Errorf("RedactText lost %q: %q", kept, got)
+				}
+			}
+		})
+	}
+}
+
+func TestRedactErrorMasksBearerKey(t *testing.T) {
+	const token = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	err := fmt.Errorf("request failed: Authorization: Bearer %s", token)
+	got := llm.RedactError(err)
+	if strings.Contains(got, token) {
+		t.Errorf("RedactError leaked the key: %q", got)
+	}
+	if !strings.Contains(got, "request failed:") || !strings.Contains(got, "Authorization:") {
+		t.Errorf("RedactError lost error wording: %q", got)
+	}
+	if got := llm.RedactError(nil); got != "" {
+		t.Errorf("RedactError(nil) = %q, want empty", got)
+	}
+}

@@ -532,6 +532,12 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 // (e.g. a one-shot stuck nudge) joins the same user-turn path.
 func (s *runState) injectSteering(extra ...string) bool {
 	pending := s.steer.drain()
+	// Drain finished background subagent results into this run as synthetic
+	// user turns, scoped to this depth so a child cannot steal its parent's
+	// results. See SubagentConfig.Background / BackgroundResults.
+	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
+		pending = append(pending, s.opts.Subagent.Background.DrainAt(s.depth)...)
+	}
 	pending = append(pending, extra...)
 	for _, text := range pending {
 		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})

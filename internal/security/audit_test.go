@@ -17,7 +17,7 @@ func TestRedactText(t *testing.T) {
 		present []string
 	}{
 		{"api key", "calling with sk-test-abcdef0123456789 now", []string{"sk-test-abcdef0123456789"}, []string{"[redacted:api key]"}},
-		{"bearer header", "Authorization: Bearer abc.def.ghi", []string{"abc.def.ghi"}, []string{"Bearer"}},
+		{"bearer header", "Authorization: Bearer abc.def.ghi", []string{"abc.def.ghi", "Bearer"}, []string{"Authorization:", "[redacted:auth header]"}},
 		{"lowercase bearer", "authorization=Bearer xyz123", []string{"xyz123"}, []string{"redacted"}},
 		{"key value", "api_key=supersecretvalue", []string{"supersecretvalue"}, []string{"api_key"}},
 		{"password pair", "password: hunter2", []string{"hunter2"}, []string{"password"}},

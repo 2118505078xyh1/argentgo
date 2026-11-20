@@ -86,3 +86,10 @@ CLI / --serve / --rpc / acp ─┐
   --verify-tag` 上传 zip 与 checksums，并回查资产确实存在。tag 本身不是 Release。
 - 本地安装/卸载用 `scripts/install-win.ps1` / `scripts/uninstall-win.ps1`
   （默认 `%LOCALAPPDATA%\argentgo\bin`），不会动 `~/.argentgo` 里的会话和配置。
+
+## See also
+
+- [Architecture diagrams](ARCHITECTURE_DIAGRAMS.md) — Mermaid views of the layers,
+  request flow, session tree, LSP activation and distribution pipeline.
+- [API reference](API_REFERENCE.md) — CLI subcommands and flags, RPC/HTTP-SSE
+  transports, built-in tools, MCP configuration and config layering.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -132,7 +133,10 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	if approver == nil {
 		approver = NeverApprover{}
 	}
-	ok, err := approver.Ask(ctx, name, string(args))
+	// Show the real target in the prompt: a junction inside the workspace must
+	// not let a prompt say "home/note.txt" while the tool writes elsewhere.
+	// The tool and the audit log still use the original arguments.
+	ok, err := approver.Ask(ctx, name, string(approvalArgs(args, c.policy().Root())))
 	if err != nil {
 		return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
 	}
@@ -169,4 +173,51 @@ func (c *Chain) record(tool, decision, reason string, args json.RawMessage) {
 		entry.Args = RedactJSON(args)
 	}
 	_ = c.Audit.Record(entry)
+}
+
+// approvalArgs replaces path arguments with their real on-disk locations for
+// display in the approval prompt. It is display-only: the tool still receives
+// the original arguments, and the audit record keeps them too. When a path
+// cannot be resolved, or already names its real location, the original JSON is
+// returned unchanged so prompts stay byte-identical for ordinary calls.
+func approvalArgs(args json.RawMessage, root string) json.RawMessage {
+	decoder := json.NewDecoder(strings.NewReader(string(args)))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		return args
+	}
+	changed := false
+	rewrite := func(value string) string {
+		resolved := value
+		if !filepath.IsAbs(resolved) {
+			resolved = filepath.Join(root, resolved)
+		}
+		real, err := ResolveRealPath(resolved)
+		if err != nil || filepath.Clean(real) == filepath.Clean(resolved) {
+			return value
+		}
+		changed = true
+		return real
+	}
+	for _, key := range pathArgKeys {
+		if value, ok := fields[key].(string); ok {
+			fields[key] = rewrite(value)
+		}
+	}
+	if list, ok := fields["paths"].([]any); ok {
+		for i, item := range list {
+			if value, ok := item.(string); ok {
+				list[i] = rewrite(value)
+			}
+		}
+	}
+	if !changed {
+		return args
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return args
+	}
+	return encoded
 }

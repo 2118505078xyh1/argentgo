@@ -65,6 +65,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
 		registry.SetGuard(guard)
 		registry.SetLspIde(NewLspIdeAdapter(absolute))
+		wireCheckpointDiff(registry, sess, absolute)
 		m.roots = append(m.roots, filepath.Clean(absolute))
 		m.regs = append(m.regs, registry)
 	}
@@ -73,6 +74,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
 		registry.SetGuard(guard)
 		registry.SetLspIde(NewLspIdeAdapter(res.Root))
+		wireCheckpointDiff(registry, sess, res.Root)
 		m.roots = []string{res.Root}
 		m.regs = []*tools.Registry{registry}
 	}
@@ -125,6 +127,12 @@ func (m *multiRootTools) route(name, args string) (int, string, error) {
 	for i, root := range m.roots {
 		if !withinRoot(root, absolute) {
 			continue
+		}
+		// The lexical match is not the boundary: a symlink or Windows junction
+		// under this root can point outside it. Resolve the real location before
+		// handing the call to the registry (and therefore before approval).
+		if err := security.CheckPathInRoots(absolute, []string{root}); err != nil {
+			return 0, args, fmt.Errorf("tool %q: %w", name, err)
 		}
 		if i == 0 {
 			return 0, args, nil

@@ -11,6 +11,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // maxToolDescLen bounds a tool description shipped to the model. A long MCP
@@ -60,6 +61,10 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
+	for _, tool := range MemoryAdvancedTools(bank) {
+		r.tools[tool.Name()] = tool
+		r.order = append(r.order, tool.Name())
+	}
 	// tool_search reads the finished registry so it can search every spec.
 	r.tools["tool_search"] = toolSearchTool{registry: r}
 	r.order = append(r.order, "tool_search")
@@ -87,6 +92,9 @@ func (r *Registry) SetMemoryBank(bank *memory.Bank) {
 	r.tools["memory_retain"] = newMemoryRetainTool(bank)
 	r.tools["memory_recall"] = newMemoryRecallTool(bank)
 	r.tools["memory_forget"] = newMemoryForgetTool(bank)
+	for _, tool := range MemoryAdvancedTools(bank) {
+		r.tools[tool.Name()] = tool
+	}
 }
 
 // SetJobs installs the background-job registry used by the bash tool when a
@@ -200,7 +208,10 @@ func (r *Registry) checkGuard(ctx context.Context, name string, args json.RawMes
 	return r.guard.Check(ctx, name, args)
 }
 
-// resolve keeps every path inside the workspace root.
+// resolve keeps every path inside the workspace root. The lexical check alone
+// is not a boundary: a symlink or Windows junction under the root can point
+// outside, so the real location is resolved before the path is handed to a
+// filesystem tool.
 func resolve(root, path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		path = "."
@@ -218,6 +229,9 @@ func resolve(root, path string) (string, error) {
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q is outside the workspace", path)
+	}
+	if err := security.CheckPathInRoots(abs, []string{root}); err != nil {
+		return "", fmt.Errorf("path %q is outside the workspace: %w", path, err)
 	}
 	return abs, nil
 }

@@ -84,7 +84,22 @@ func configureSubagents(opts *agent.Options, res Resolved) {
 		ResolvePersona: func(name string) (agent.SubagentConfig, bool) {
 			return PersonaSubagentConfig(res.Root, name)
 		},
+		// One process-wide queue so finished background children survive across
+		// runs and are injected into whichever run drains them next.
+		Background: sharedBackgroundResults(),
 	}
+}
+
+var (
+	backgroundOnce    sync.Once
+	backgroundResults *agent.BackgroundResults
+)
+
+func sharedBackgroundResults() *agent.BackgroundResults {
+	backgroundOnce.Do(func() {
+		backgroundResults = agent.NewBackgroundResults(0, 0)
+	})
+	return backgroundResults
 }
 
 // Execute runs one prompt through a freshly wired tool registry, policy and

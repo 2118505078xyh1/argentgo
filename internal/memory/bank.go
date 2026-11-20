@@ -39,6 +39,12 @@ const (
 	tagMatchBonus = 3
 	// scannerBufferSize accommodates a 4KB text plus tags and metadata.
 	scannerBufferSize = 1024 * 1024
+	// maxReflectBytes caps the total size of an extractive reflection, header
+	// included. 4KB keeps the synthesis well inside a model's context budget.
+	maxReflectBytes = 4096
+	// skillDirName is the managed subdirectory under the bank dir where
+	// promoted lessons are written as SKILL.md-compatible markdown.
+	skillDirName = "skills"
 )
 
 // ErrEmptyText is returned when Retain is asked to store nothing.
@@ -51,6 +57,11 @@ type Memory struct {
 	Tags   []string  `json:"tags,omitempty"`
 	TS     time.Time `json:"ts"`
 	Source string    `json:"source,omitempty"`
+	// Invalidated, when non-empty, holds the reason a fact was invalidated and
+	// excludes it from Recall and Reflect. omitempty means normal records never
+	// carry the field, so existing logs and callers are byte-for-byte unchanged
+	// when invalidation is unused.
+	Invalidated string `json:"invalidated,omitempty"`
 }
 
 // Bank is a concurrency-safe persistent fact store backed by one JSONL file.
@@ -156,6 +167,12 @@ func (b *Bank) Recall(query string, tags []string, limit int) []Memory {
 	}
 	results := make([]hit, 0, len(all))
 	for i, mem := range all {
+		// Invalidated facts are tombstones: kept on disk for provenance but
+		// never surfaced by search. Normal records never carry the field, so
+		// this filter is a no-op for banks that never call Invalidate.
+		if mem.Invalidated != "" {
+			continue
+		}
 		score := 0
 		if len(queryTokens) > 0 {
 			textTokens := tokenize(mem.Text)
@@ -231,6 +248,8 @@ func (b *Bank) Forget(id string) error {
 }
 
 // All returns every valid memory in insertion order, skipping malformed lines.
+// Invalidated memories remain here (and on disk) as tombstones; only Recall and
+// Reflect hide them.
 func (b *Bank) All() []Memory {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -239,6 +258,151 @@ func (b *Bank) All() []Memory {
 		return []Memory{}
 	}
 	return all
+}
+
+// Reflect produces a deterministic, EXTRACTIVE synthesis over the memories most
+// relevant to query. It performs NO model call and uses only the standard
+// library: it takes the top hits from Recall, drops near-duplicate texts and
+// concatenates the distinct ones (one per line, "- " prefixed) up to
+// maxReflectBytes. Output is stable for a given bank and query: Recall already
+// orders by score then recency, and the dedupe keeps the first (highest-ranked)
+// copy of each text. A bank with no eligible memories returns a short notice.
+func (b *Bank) Reflect(query string, limit int) string {
+	hits := b.Recall(query, nil, limit)
+	if len(hits) == 0 {
+		return "no memories to reflect on"
+	}
+	header := "Reflection (extractive synthesis):\n"
+	var sb strings.Builder
+	sb.WriteString(header)
+	used := len(header)
+	seen := make(map[string]bool, len(hits))
+	for _, mem := range hits {
+		key := dedupeKey(mem.Text)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		// Fold embedded newlines so one memory stays one reflected line.
+		text := strings.Join(strings.Fields(mem.Text), " ")
+		room := maxReflectBytes - used - 3 // "- " prefix and trailing "\n"
+		if room <= 0 {
+			break
+		}
+		if len(text) > room {
+			text = strings.TrimSpace(clipRunes(text, room))
+		}
+		if text == "" {
+			continue
+		}
+		line := "- " + text + "\n"
+		sb.WriteString(line)
+		used += len(line)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// dedupeKey normalises a memory into a comparison key so near-identical texts
+// (differing only in case, whitespace or surrounding punctuation) collapse to a
+// single reflected line.
+func dedupeKey(text string) string { return strings.Join(tokenize(text), " ") }
+
+// Learn retains a reusable lesson and, when promote is true, also writes a
+// lightweight SKILL.md-compatible markdown file under <bank dir>/skills/<id>.md.
+// It deliberately does NOT import internal/skills (layering): the file simply
+// follows the frontmatter + body format the skills loader already understands.
+// Skill writing is best-effort — a failure still leaves the lesson retained and
+// returns the id with an empty path plus a wrapped error, so a lesson is never
+// lost just because its optional skill file could not be written.
+func (b *Bank) Learn(text string, tags []string, promote bool) (string, string, error) {
+	id, err := b.Retain(text, tags, "learn")
+	if err != nil {
+		return "", "", err
+	}
+	if !promote {
+		return id, "", nil
+	}
+	path, err := b.writeSkill(id, text, tags)
+	if err != nil {
+		return id, "", fmt.Errorf("memory: learn: retained %s but skill write failed: %w", id, err)
+	}
+	return id, path, nil
+}
+
+// writeSkill emits one SKILL.md-compatible document for a promoted lesson.
+// 0600 is best-effort on Windows, where POSIX file modes are largely ignored;
+// the explicit mode documents intent and is correct on Unix.
+func (b *Bank) writeSkill(id, text string, tags []string) (string, error) {
+	// Mirror the stored record: use the same redaction + cap Retain applied so a
+	// credential can never reach the skill file through the raw argument.
+	body := boundedText(text)
+	dir := filepath.Join(b.dir, skillDirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("memory: skill mkdir: %w", err)
+	}
+	path := filepath.Join(dir, id+".md")
+	content := "---\n" +
+		"name: " + id + "\n" +
+		"description: " + skillDescription(body, tags) + "\n" +
+		"---\n\n" +
+		body + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", fmt.Errorf("memory: skill write: %w", err)
+	}
+	return path, nil
+}
+
+// skillDescription builds a single-line frontmatter description from tags or,
+// when none are present, a clipped first line of the lesson. Newlines are
+// flattened so the value cannot break the YAML-ish frontmatter block.
+func skillDescription(body string, tags []string) string {
+	var desc string
+	if clean := cleanTags(tags); len(clean) > 0 {
+		desc = strings.Join(clean, ", ")
+	} else {
+		desc = strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+	}
+	desc = strings.Join(strings.Fields(desc), " ")
+	if desc == "" {
+		desc = "reusable lesson"
+	}
+	if len(desc) > maxTagBytes*4 {
+		desc = strings.TrimSpace(clipRunes(desc, maxTagBytes*4))
+	}
+	return desc
+}
+
+// Invalidate marks the memory with id as invalidated, recording reason, and
+// removes it from Recall and Reflect. The record stays on disk (and in All) as
+// a tombstone so provenance is preserved. Implementation: set the omitempty
+// `invalidated` field on the record via the same atomic rewrite used by Forget.
+// It is idempotent: an unknown id is a no-op.
+func (b *Bank) Invalidate(id string, reason string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("memory: id must not be empty")
+	}
+	reason = boundedText(reason)
+	if reason == "" {
+		reason = "invalidated"
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	all, err := b.loadLocked()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range all {
+		if all[i].ID == id {
+			all[i].Invalidated = reason
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return b.writeAllLocked(all)
 }
 
 // appendLocked writes one record with a single write + Sync so a crash cannot

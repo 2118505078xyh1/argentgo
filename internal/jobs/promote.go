@@ -44,6 +44,7 @@ func (r *Registry) PromoteFromTimeout(command string, live LiveProcess, logPath 
 		LogPath:   logPath,
 		PID:       live.Pid(),
 		live:      live,
+		watched:   true,
 	}
 
 	// Separate storage for the returned value and the registry's pointer:

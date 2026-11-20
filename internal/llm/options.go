@@ -154,15 +154,29 @@ func deriveCacheKey(parts ...string) string {
 }
 
 var (
-	credentialFieldRE = regexp.MustCompile(`(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|bearer|password|passwd|secret|token)(["']?\s*[:=]\s*["']?)([^\s"',;}]+)`)
-	knownSecretRE     = regexp.MustCompile(`\b(?:sk|rk|pk|xoxb|ghp|gho|github_pat)_[A-Za-z0-9_\-]{12,}\b`)
-	emailRE           = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
-	hexBlobRE         = regexp.MustCompile(`\b[A-Fa-f0-9]{32,}\b`)
+	// authorizationRE swallows the whole value of an Authorization-style field
+	// in one match: an optional scheme word (Bearer, Basic, ...) plus the token.
+	// Matching the scheme and token together is essential -- matching only the
+	// field name would redact "Bearer" and leave the real key behind. It runs
+	// before credentialFieldRE so the generic field rule can never half-match
+	// an Authorization header first.
+	authorizationRE = regexp.MustCompile(`(?i)(authorization["']?\s*[:=]\s*["']?)([^\s"',;}]+(?:\s+[^\s"',;}]+)?)`)
+	// Field names accept space, '_' or '-' between words, so "API key",
+	// "api_key" and "api-key" are all covered. The trailing [:=] requirement
+	// keeps ordinary prose from being treated as a credential field.
+	credentialFieldRE = regexp.MustCompile(`(?i)(api[\s_\-]*key|access[\s_\-]*token|refresh[\s_\-]*token|authorization|bearer|password|passwd|secret|token)(["']?\s*[:=]\s*["']?)([^\s"',;}]+)`)
+	// Known key prefixes use '-' or '_' as the separator. The value class also
+	// contains '-'/'_', so multi-segment prefixes such as sk-ant-api03- and
+	// sk-proj- are covered without listing every variant.
+	knownSecretRE = regexp.MustCompile(`(?i)\b(?:sk|rk|pk|xoxb|ghp|gho|github_pat)[-_][A-Za-z0-9_\-]{12,}\b`)
+	emailRE       = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
+	hexBlobRE     = regexp.MustCompile(`\b[A-Fa-f0-9]{32,}\b`)
 )
 
 // RedactText removes credential-shaped values from provider text before it is
 // logged or attached to an attempt record. Ordinary error wording survives.
 func RedactText(text string) string {
+	text = authorizationRE.ReplaceAllString(text, "${1}[redacted]")
 	text = credentialFieldRE.ReplaceAllString(text, "${1}${2}[redacted]")
 	text = knownSecretRE.ReplaceAllString(text, "[redacted]")
 	text = emailRE.ReplaceAllString(text, "[email]")

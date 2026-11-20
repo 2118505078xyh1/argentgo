@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -23,6 +26,15 @@ const (
 	// is clamped, so every verify-enabled task does at most 1+MaxVerifyRetries
 	// child runs (plus one verification child per attempt).
 	MaxVerifyRetries = 3
+	// DefaultBackgroundResultsCap is the default number of undrained results
+	// the shared background queue retains.
+	DefaultBackgroundResultsCap = 50
+	// DefaultMaxBackgroundTasks caps how many background children may run at
+	// once across one root run and all of its descendants.
+	DefaultMaxBackgroundTasks = 8
+	// BackgroundResultPrefix marks both the synthetic result text pushed by a
+	// finished background task and the matching parent EventNotice.
+	BackgroundResultPrefix = "task result: "
 )
 
 const subagentTemplate = `You are a subagent working for another agent. Task: %s
@@ -56,6 +68,16 @@ type SubagentConfig struct {
 	// above. A resolver returning true starts from the persona's config; the
 	// explicitly-set fields of this config are then layered on top.
 	ResolvePersona func(string) (SubagentConfig, bool)
+	// Background, when set, enables the `background` field on task calls. It is
+	// the shared, bounded result queue for one root run and all of its
+	// descendants; the parent loop drains it (see the wiring note on the
+	// BackgroundResults type). A background call with no queue configured is
+	// rejected rather than silently losing its result.
+	Background *BackgroundResults
+	// NewChild optionally overrides how a delegated child runner is built. Nil
+	// means &Runner{Opts: opts}. It is primarily a test seam: injecting a fake
+	// lets a test control child execution without a real model.
+	NewChild func(opts Options) ChildRunner
 }
 
 // TaskToolSpec describes the delegate tool to the model.
@@ -64,7 +86,8 @@ func TaskToolSpec() llm.ToolSpec {
 	spec.Type = "function"
 	spec.Function.Name = TaskToolName
 	spec.Function.Description = "Delegate a self-contained task to a subagent with its own context and a restricted tool set. " +
-		"The subagent returns only its final answer, so give it everything it needs in the prompt."
+		"The subagent returns only its final answer, so give it everything it needs in the prompt. " +
+		"Set background to true to start without waiting: the call returns an ack immediately and the result is injected into the conversation when it is ready."
 	spec.Function.Parameters = json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -74,7 +97,8 @@ func TaskToolSpec() llm.ToolSpec {
     "persona": {"type": "string", "description": "Optional persona/role name defined in .argent/agents; the named persona's system prompt and tool allow-list seed the subagent"},
     "role": {"type": "string", "description": "Alias for persona, accepted for compatibility"},
     "verify": {"type": "string", "description": "Optional verification instruction. When set, the parent validates the subagent's result against it before accepting: it issues a short verification subagent that replies PASS or FAIL. On FAIL the original task is retried up to verify_max_retries times."},
-    "verify_max_retries": {"type": "integer", "description": "How many times to retry the original task when verification fails (default 0, capped at 3). Ignored when verify is absent."}
+    "verify_max_retries": {"type": "integer", "description": "How many times to retry the original task when verification fails (default 0, capped at 3). Ignored when verify is absent."},
+    "background": {"type": "boolean", "description": "When true, start the task in the background and return immediately with an ack; the finished result is injected into the conversation when ready. Takes precedence over verify."}
   },
   "required": ["prompt"]
 }`)
@@ -120,6 +144,9 @@ type taskTools struct {
 	parent Options
 	depth  int
 	cfg    *SubagentConfig
+	// emitMu serialises parent-level subagent events. Background children emit
+	// from their own goroutines, so a lock keeps start/end/notice ordering sane.
+	emitMu sync.Mutex
 }
 
 func (t *taskTools) Specs() []llm.ToolSpec { return t.specs }
@@ -146,6 +173,10 @@ type taskArgs struct {
 	// original task. Negative values clamp to 0, values above MaxVerifyRetries
 	// clamp down. Ignored when Verify is empty.
 	VerifyMaxRetries int `json:"verify_max_retries,omitempty"`
+	// Background, when true, launches the child in a goroutine and returns an
+	// immediate ack. The finished result is queued for injection into the
+	// parent. Absent or false preserves the legacy synchronous behaviour.
+	Background bool `json:"background,omitempty"`
 }
 
 // runTask is the task tool's entry point. It parses the arguments and either
@@ -165,6 +196,9 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	var args taskArgs
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
 		return "", fmt.Errorf("task: invalid arguments: %w", err)
+	}
+	if args.Background {
+		return t.runTaskBackground(ctx, raw, args)
 	}
 	if verify := strings.TrimSpace(args.Verify); verify != "" {
 		return t.runTaskVerified(ctx, raw, args, verify)
@@ -196,7 +230,7 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	}
 
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
-	child := &Runner{Opts: t.childOptions(label, persona)}
+	child := t.newChild(label, persona)
 	res, err := child.Run(ctx, task)
 	if err != nil {
 		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
@@ -331,6 +365,15 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if t.cfg.OnEvent != nil {
 		merged.OnEvent = t.cfg.OnEvent
 	}
+	// Carry the shared background state and the child-runner seam across the
+	// persona layering so a persona-selected child keeps the parent's queue,
+	// semaphore and injectable runner.
+	if t.cfg.Background != nil {
+		merged.Background = t.cfg.Background
+	}
+	if t.cfg.NewChild != nil {
+		merged.NewChild = t.cfg.NewChild
+	}
 	// Keep the resolver so nested tasks can choose their own personas too.
 	merged.ResolvePersona = t.cfg.ResolvePersona
 	return merged
@@ -407,11 +450,14 @@ func (t *taskTools) childOptions(label, persona string) Options {
 	}
 }
 
-// parentEmit sends a parent-level subagent event.
+// parentEmit sends a parent-level subagent event. Background children emit
+// from their own goroutines, so the lock keeps those events ordered.
 func (t *taskTools) parentEmit(event Event) {
 	if t.parent.Emit == nil {
 		return
 	}
+	t.emitMu.Lock()
+	defer t.emitMu.Unlock()
 	event.Depth = t.depth
 	t.parent.Emit(event)
 }
@@ -451,4 +497,321 @@ func firstLine(text string) string {
 		return string(runes[:77]) + "..."
 	}
 	return text
+}
+
+// ---------------------------------------------------------------------------
+// Background (fire-and-forget) tasks
+// ---------------------------------------------------------------------------
+
+// ChildRunner is the slice of Runner that delegation needs. *Runner satisfies
+// it; tests inject a fake through SubagentConfig.NewChild to control child
+// execution without a real model.
+type ChildRunner interface {
+	Run(ctx context.Context, prompt string) (Result, error)
+}
+
+// newChild builds the child runner for one delegated task.
+func (t *taskTools) newChild(label, persona string) ChildRunner {
+	opts := t.childOptions(label, persona)
+	if t.cfg.NewChild != nil {
+		return t.cfg.NewChild(opts)
+	}
+	return &Runner{Opts: opts}
+}
+
+// BackgroundResults is the shared, bounded queue of finished background task
+// results for one root run and all of its descendants. The wiring layer creates
+// one instance and stores it on SubagentConfig.Background; because that field
+// is a pointer copied by value through every SubagentConfig, the parent loop
+// (via Options.Subagent) and every taskTools in the tree see the same instance.
+// The type also owns the background semaphore and task-id counter so those
+// limits are shared across the whole tree. All methods are concurrency-safe.
+//
+// LOOP WIRING (done outside this file, in loop.go): in runState.injectSteering,
+// after draining s.steer, append the results addressed to this run's depth:
+//
+//	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
+//	    pending = append(pending, s.opts.Subagent.Background.DrainAt(s.depth)...)
+//	}
+//
+// injectSteering already runs at every turn boundary, so a finished result
+// becomes a synthetic user message at the next boundary without any other
+// change. The wiring layer must also create one queue on the root options:
+//
+//	opts.Subagent.Background = agent.NewBackgroundResults(0, 0)
+//
+// Use Drain() (every depth) for diagnostics/tests; DrainAt(s.depth) prevents a
+// child run from consuming results addressed to its parent. Results that are
+// not drained before a run ends stay in the queue and are picked up by the next
+// prompt on the same Runner.
+type BackgroundResults struct {
+	mu      sync.Mutex
+	items   []bgResult
+	cap     int
+	dropped int
+	seq     atomic.Uint64
+
+	sem    chan struct{}
+	maxRun int
+}
+
+// bgResult is one queued result together with the depth of the run that should
+// receive it (its parent).
+type bgResult struct {
+	depth int
+	text  string
+}
+
+// NewBackgroundResults builds a shared background queue. cap bounds undrained
+// results (<=0 uses DefaultBackgroundResultsCap); maxConcurrent bounds
+// simultaneous background child runners (<=0 uses DefaultMaxBackgroundTasks).
+func NewBackgroundResults(cap, maxConcurrent int) *BackgroundResults {
+	if cap <= 0 {
+		cap = DefaultBackgroundResultsCap
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = DefaultMaxBackgroundTasks
+	}
+	return &BackgroundResults{
+		items:  make([]bgResult, 0, cap),
+		cap:    cap,
+		sem:    make(chan struct{}, maxConcurrent),
+		maxRun: maxConcurrent,
+	}
+}
+
+// Push enqueues text targeting the root run (depth 0). See PushAt.
+func (b *BackgroundResults) Push(text string) bool { return b.PushAt(0, text) }
+
+// PushAt enqueues a finished result for the run at depth. When the queue is
+// full the oldest entry is dropped (the newest results are the most relevant to
+// a still-running parent); the bool reports whether a drop occurred.
+func (b *BackgroundResults) PushAt(depth int, text string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	dropped := false
+	if len(b.items) >= b.cap {
+		copy(b.items, b.items[1:])
+		b.items = b.items[:len(b.items)-1]
+		dropped = true
+		b.dropped++
+	}
+	b.items = append(b.items, bgResult{depth: depth, text: text})
+	return dropped
+}
+
+// Drain removes and returns every queued result in FIFO order.
+func (b *BackgroundResults) Drain() []string { return b.drainAt(-1) }
+
+// DrainAt removes and returns only the results targeting depth.
+func (b *BackgroundResults) DrainAt(depth int) []string { return b.drainAt(depth) }
+
+func (b *BackgroundResults) drainAt(depth int) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(b.items))
+	kept := b.items[:0]
+	for _, item := range b.items {
+		if depth < 0 || item.depth == depth {
+			out = append(out, item.text)
+			continue
+		}
+		kept = append(kept, item)
+	}
+	b.items = kept
+	return out
+}
+
+// Len reports how many results are currently queued.
+func (b *BackgroundResults) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.items)
+}
+
+// Dropped reports how many results were evicted because the queue was full.
+func (b *BackgroundResults) Dropped() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dropped
+}
+
+// tryAcquire reserves a background slot, reporting false when the cap is full.
+func (b *BackgroundResults) tryAcquire() bool {
+	select {
+	case b.sem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *BackgroundResults) release() { <-b.sem }
+
+func (b *BackgroundResults) nextID() uint64 { return b.seq.Add(1) }
+
+func (b *BackgroundResults) maxConcurrent() int { return b.maxRun }
+
+// runTaskBackground starts a child runner in a goroutine and returns an ack
+// immediately. When the child finishes its text is pushed to the shared queue
+// (for the parent loop to inject) and emitted as a parent EventNotice (for UI
+// visibility). Verification is not applied in background mode: the background
+// field takes precedence over verify. MaxDepth is enforced by the caller
+// (runTask) before this method is reached, and the child inherits
+// Depth+1 through childOptions, so a background child cannot spawn unbounded
+// background grandchildren.
+func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args taskArgs) (string, error) {
+	bg := t.cfg.Background
+	if bg == nil {
+		return "", fmt.Errorf("task: background execution requires SubagentConfig.Background to be configured")
+	}
+	if !bg.tryAcquire() {
+		return "", fmt.Errorf("task: background task limit reached (%d concurrent); retry later or use a synchronous task", bg.maxConcurrent())
+	}
+
+	task := strings.TrimSpace(args.Prompt)
+	if task == "" {
+		task = strings.TrimSpace(args.Task)
+	}
+	if task == "" {
+		task = strings.TrimSpace(args.Description)
+	}
+	if task == "" {
+		bg.release()
+		return "", fmt.Errorf("task: prompt is required")
+	}
+	label := strings.TrimSpace(args.Description)
+	if label == "" {
+		label = firstLine(task)
+	}
+	persona := strings.TrimSpace(args.Persona)
+	if persona == "" {
+		persona = strings.TrimSpace(args.Role)
+	}
+	if strings.TrimSpace(args.Verify) != "" {
+		t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName, Text: "background task ignores verify: " + label})
+	}
+
+	id := bg.nextID()
+	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
+
+	depth := t.depth
+	go func() {
+		defer bg.release()
+		child := t.newChild(label, persona)
+		res, err := child.Run(ctx, task)
+		if err != nil {
+			t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
+			bg.PushAt(depth, fmt.Sprintf("%s[task %d] %s failed: %v", BackgroundResultPrefix, id, label, err))
+			return
+		}
+		text := strings.TrimSpace(res.Text)
+		if text == "" {
+			text = "(subagent finished without an answer)"
+		}
+		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Output: text})
+		result := fmt.Sprintf("%s[task %d] %s: %s", BackgroundResultPrefix, id, label, text)
+		dropped := bg.PushAt(depth, result)
+		t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName, Text: result})
+		if dropped {
+			t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName,
+				Text: "task result queue full: dropped an older result while storing task " + fmt.Sprint(id)})
+		}
+	}()
+
+	return fmt.Sprintf("task %d started in background; result will be injected when ready", id), nil
+}
+
+// ---------------------------------------------------------------------------
+// Shared task board
+// ---------------------------------------------------------------------------
+
+// BoardMessage is one typed message on the in-process task board.
+type BoardMessage struct {
+	Seq  int    `json:"seq"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
+	Body string `json:"body"`
+}
+
+// Board message kinds and bounded-capacity limits.
+const (
+	BoardKindInfo   = "info"
+	BoardKindAsk    = "ask"
+	BoardKindResult = "result"
+
+	BoardMaxBodyBytes  = 4096
+	BoardMaxMessages   = 1000
+	BoardMaxTotalBytes = 2 << 20 // 2 MiB of body bytes
+)
+
+var (
+	ErrBoardSelfPost      = errors.New("task board: a task cannot post to itself")
+	ErrBoardInvalidKind   = errors.New("task board: kind must be info, ask or result")
+	ErrBoardMessageTooBig = errors.New("task board: message body exceeds 4096 bytes")
+	ErrBoardFull          = errors.New("task board: capacity reached")
+)
+
+// TaskBoard is a small in-process, bounded, concurrency-safe message board for
+// inter-agent coordination. It is deliberately dependency-free.
+type TaskBoard struct {
+	mu      sync.Mutex
+	entries []BoardMessage
+	seq     int
+	total   int
+}
+
+// TaskBoardIO is the narrow interface future board_post / board_read tools
+// should take as a parameter. It lives here so internal/tools can depend on an
+// interface without importing agent, and no new file is needed yet.
+type TaskBoardIO interface {
+	Post(from, to, kind, body string) (int, error)
+	Read(since int, to string) []BoardMessage
+}
+
+// Post adds a message and returns its monotonically increasing sequence number.
+// It rejects self-posts, unknown kinds, oversized bodies and a full board.
+func (b *TaskBoard) Post(from, to, kind, body string) (int, error) {
+	if strings.TrimSpace(from) == strings.TrimSpace(to) {
+		return 0, ErrBoardSelfPost
+	}
+	switch kind {
+	case BoardKindInfo, BoardKindAsk, BoardKindResult:
+	default:
+		return 0, ErrBoardInvalidKind
+	}
+	if len(body) > BoardMaxBodyBytes {
+		return 0, ErrBoardMessageTooBig
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.entries) >= BoardMaxMessages || b.total+len(body) > BoardMaxTotalBytes {
+		return 0, ErrBoardFull
+	}
+	b.seq++
+	b.total += len(body)
+	b.entries = append(b.entries, BoardMessage{Seq: b.seq, From: from, To: to, Kind: kind, Body: body})
+	return b.seq, nil
+}
+
+// Read returns messages with Seq > since, ordered by sequence. An empty to
+// returns every recipient; otherwise only messages addressed to to are returned.
+func (b *TaskBoard) Read(since int, to string) []BoardMessage {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []BoardMessage
+	for _, m := range b.entries {
+		if m.Seq <= since {
+			continue
+		}
+		if to != "" && m.To != to {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }

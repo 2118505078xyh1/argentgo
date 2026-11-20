@@ -105,6 +105,59 @@ var headerPrefixes = []struct {
 	{"authorization: ", "auth header"},
 }
 
+func isAuthorizationNeedle(needle string) bool {
+	return strings.HasPrefix(asciiLower(needle), "authorization")
+}
+
+func skipHorizontalSpace(text string, at int) int {
+	for at < len(text) && (text[at] == ' ' || text[at] == '\t') {
+		at++
+	}
+	return at
+}
+
+// authValueEnd returns the end of a complete Authorization value: the scheme
+// word plus the credential word that follows it. Quotes and other delimiters
+// end the value, so surrounding shell/JSON syntax stays in place.
+func authValueEnd(text string, start int) int {
+	end := start
+	for end < len(text) && !isHeaderValueDelimiter(text[end]) {
+		end++
+	}
+	gap := skipHorizontalSpace(text, end)
+	if gap > end && gap < len(text) {
+		credEnd := gap
+		if ch := text[credEnd]; ch == '"' || ch == '\'' {
+			if close := strings.IndexByte(text[credEnd+1:], ch); close >= 0 {
+				return credEnd + close + 2
+			}
+		}
+		for credEnd < len(text) && !isHeaderValueDelimiter(text[credEnd]) {
+			credEnd++
+		}
+		if credEnd > gap {
+			end = credEnd
+		}
+	}
+	return end
+}
+
+func isHeaderValueDelimiter(ch byte) bool {
+	switch ch {
+	case ' ', '\t', '\n', '\r', '"', '\'', '`', ',', ';', '<', '>':
+		return true
+	}
+	return false
+}
+
+func isAlpha(ch byte) bool {
+	return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+}
+
+func isURLSchemeByte(ch byte) bool {
+	return isAlnum(ch) || ch == '+' || ch == '-' || ch == '.'
+}
+
 // findSecret returns the earliest credential-shaped substring, if any.
 func findSecret(text string) *secretMatch {
 	lowered := asciiLower(text)
@@ -134,16 +187,48 @@ func findSecret(text string) *secretMatch {
 			continue
 		}
 		start := offset + len(entry.needle)
-		// An `Authorization: Bearer <token>` header carries the credential
-		// after the scheme, not the scheme itself.
-		if strings.HasPrefix(entry.needle, "Authorization") || strings.HasPrefix(entry.needle, "authorization") {
-			trimmed := strings.TrimLeft(text[start:], " \t")
-			start += len(text[start:]) - len(trimmed)
-			if len(trimmed) >= 7 && strings.EqualFold(trimmed[:7], "Bearer ") {
-				start += 7
-			}
+		if isAuthorizationNeedle(entry.needle) {
+			// Every Authorization scheme (Bearer, Basic, Mac, unknown ...)
+			// carries the credential in the value after the colon. Redact the
+			// scheme together with its token so a base64 credential following
+			// `Basic ` cannot survive just because tokenEnd stops at the space.
+			start = skipHorizontalSpace(text, start)
+			consider(start, authValueEnd(text, start), entry.kind)
+			continue
 		}
 		consider(start, tokenEnd(text, start), entry.kind)
+	}
+	// `scheme://user:pass@host` puts the credential in the URL userinfo. The
+	// colon and @ are tokenEnd delimiters, so this needs its own rule: scrub
+	// `user:pass@` and leave the scheme and host intact.
+	for from := 0; from < len(text); {
+		sep := strings.Index(text[from:], "://")
+		if sep < 0 {
+			break
+		}
+		schemeEnd := from + sep
+		schemeStart := schemeEnd
+		for schemeStart > 0 && isURLSchemeByte(text[schemeStart-1]) {
+			schemeStart--
+		}
+		if schemeStart < schemeEnd && isAlpha(text[schemeStart]) {
+			infoStart := schemeEnd + 3
+			limit := infoStart
+			for limit < len(text) {
+				ch := text[limit]
+				if ch == '/' || ch == '?' || ch == '#' || isHeaderValueDelimiter(ch) {
+					break
+				}
+				limit++
+			}
+			authority := text[infoStart:limit]
+			// The last @ in the authority is the userinfo/host separator;
+			// a password may itself contain an unescaped @.
+			if at := strings.LastIndexByte(authority, '@'); at > 0 && strings.Contains(authority[:at], ":") {
+				consider(infoStart, infoStart+at+1, "url credentials")
+			}
+		}
+		from = schemeEnd + 3
 	}
 	for _, entry := range keyValueNames {
 		for from := 0; from < len(lowered); {
@@ -168,12 +253,16 @@ func findSecret(text string) *secretMatch {
 	return best
 }
 
-// tokenEnd finds the end of a credential-shaped run.
+// tokenEnd finds the end of a credential-shaped run. Base64 credentials carry
+// `+`, `/` and `=` padding and may be followed by `:` or `@` (e.g. in a URL),
+// so the whole run is consumed as one segment. Whitespace, control bytes such
+// as ANSI escapes, and structural punctuation still delimit it.
 func tokenEnd(text string, start int) int {
 	end := start
 	for end < len(text) {
 		ch := text[end]
-		if isAlnum(ch) || ch == '.' || ch == '-' || ch == '_' || ch == '/' || ch == '+' || ch == '=' {
+		if isAlnum(ch) || ch == '.' || ch == '-' || ch == '_' || ch == '/' || ch == '+' || ch == '=' ||
+			ch == ':' || ch == '@' || ch == '%' || ch == '~' {
 			end++
 			continue
 		}

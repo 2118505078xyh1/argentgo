@@ -59,7 +59,10 @@ func (m SandboxMode) IsMutatingAllowed(toolName string) bool {
 
 // InWriteRoots verifies that path stays inside one of the write roots. A
 // relative path is resolved against the first root (normally the workspace
-// cwd), symlinks are resolved when they exist, and `..` escapes are rejected.
+// cwd). The lexical spelling is never enough: a symlink or Windows junction
+// inside a root must not be able to redirect a write outside it, so the real
+// location of both the path and every root is resolved before the boundary
+// check. An unresolvable path is a denial, not a pass.
 func InWriteRoots(path string, roots []string) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("security: no write roots configured")
@@ -89,24 +92,10 @@ func InWriteRoots(path string, roots []string) error {
 	if err != nil {
 		return fmt.Errorf("security: resolving path %q: %w", path, err)
 	}
-	absolute = filepath.Clean(absolute)
-	if within(absolute, cleaned) {
-		return nil
+	if err := CheckPathInRoots(filepath.Clean(absolute), cleaned); err != nil {
+		return fmt.Errorf("security: path %q is outside the write roots %v: %w", path, roots, err)
 	}
-	if resolved, err := canonicalWithTail(absolute); err == nil {
-		if within(filepath.Clean(resolved), cleaned) {
-			return nil
-		}
-		for i, root := range cleaned {
-			if realRoot, err := filepath.EvalSymlinks(root); err == nil {
-				cleaned[i] = filepath.Clean(realRoot)
-			}
-		}
-		if within(filepath.Clean(resolved), cleaned) {
-			return nil
-		}
-	}
-	return fmt.Errorf("security: path %q is outside the write roots %v", path, roots)
+	return nil
 }
 
 func within(path string, roots []string) bool {

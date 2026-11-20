@@ -229,14 +229,7 @@ func Summarize(dropped []Entry, keep int) Compaction {
 			}
 		}
 		if entry.Role == "assistant" || entry.Role == "system" {
-			lower := strings.ToLower(entry.Content)
-			if strings.Contains(lower, "next step") ||
-				strings.Contains(lower, "next:") ||
-				strings.Contains(lower, "todo") {
-				if step := firstLine(entry.Content, 200); step != "" {
-					next = append(next, step)
-				}
-			}
+			next = append(next, nextStepLines(entry.Content, 200)...)
 		}
 		for _, path := range pathsFromData(entry.Data) {
 			if !seenFiles[path] {
@@ -245,9 +238,11 @@ func Summarize(dropped []Entry, keep int) Compaction {
 			}
 		}
 	}
+	// files are collected in chronological order; keep the most recent twelve
+	// before sorting, otherwise "recent" would mean lexicographically last.
+	files = tailItems(files, 12)
 	sort.Strings(files)
 	goals = tailItems(goals, 5)
-	files = tailItems(files, 12)
 	failures = tailItems(failures, 8)
 	next = tailItems(next, 5)
 
@@ -278,6 +273,42 @@ func writeSection(builder *strings.Builder, title string, items []string) {
 	for _, item := range items {
 		fmt.Fprintf(builder, "- %s\n", item)
 	}
+}
+
+// nextStepMarkers are the short explicit cues a model uses to record
+// unfinished work. Matching is intentionally loose (substring, case-folded):
+// a false positive costs one extra bullet in the summary, while a miss would
+// drop the plan a resumed run needs.
+var nextStepMarkers = []string{
+	"next step", "next:", "todo", "follow up", "follow-up", "remaining", "下一步", "后续", "待办",
+}
+
+// nextStepLines keeps only the lines that actually carry a next-step marker.
+// A plan is often written after a summary line, so inspecting just the first
+// line of an entry loses it.
+func nextStepLines(content string, limit int) []string {
+	var out []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		marked := false
+		for _, marker := range nextStepMarkers {
+			if strings.Contains(lower, marker) {
+				marked = true
+				break
+			}
+		}
+		if !marked {
+			continue
+		}
+		if step := truncateRunes(trimmed, limit); step != "" {
+			out = append(out, step)
+		}
+	}
+	return out
 }
 
 // tailItems keeps the most recent limit entries.
@@ -314,15 +345,36 @@ func failureReason(content string) (string, bool) {
 	if strings.Contains(lower, "timed out") {
 		return "timed out", true
 	}
-	first := firstLine(trimmed, 160)
-	lowerFirst := strings.ToLower(first)
-	if strings.HasPrefix(lowerFirst, "error") ||
-		strings.HasPrefix(lowerFirst, "failed") ||
-		strings.Contains(lower, "panicked at") ||
-		strings.Contains(lower, "traceback (most recent call last)") {
-		return first, true
+	if reason := failureLine(trimmed, 160); reason != "" {
+		return reason, true
 	}
 	return "", false
+}
+
+// failureMarkers are the cues that identify a failed tool result. Matching is
+// case-folded substring matching on a single line so a failure buried after
+// progress output ("compiling...", "building") is still captured.
+var failureMarkers = []string{
+	"error", "failed", "panic", "traceback", "fatal", "错误", "失败", "异常", "崩溃",
+}
+
+// failureLine returns the first line of content that reports a failure. The
+// whole result is scanned rather than just its first line, then the offending
+// line is clipped to limit runes.
+func failureLine(content string, limit int) string {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		for _, marker := range failureMarkers {
+			if strings.Contains(lower, marker) {
+				return truncateRunes(trimmed, limit)
+			}
+		}
+	}
+	return ""
 }
 
 func failureBullet(name, reason string) string {

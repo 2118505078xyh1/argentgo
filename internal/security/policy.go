@@ -285,24 +285,30 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 
 var pathArgKeys = []string{"path", "file", "dir", "directory", "target"}
 
-// checkPath applies the deny/allow path rules to one argument. A path that
-// lexically climbs out of the workspace root is always denied.
+// checkPath applies the deny/allow path rules to one argument and enforces the
+// workspace boundary for every tool, including read-only ones. A path that
+// lexically climbs out of the workspace root is always denied, and so is a path
+// that looks inside but resolves outside through a symlink or Windows junction.
 func (p *Policy) checkPath(path string) Result {
 	resolved, escape := p.resolve(path)
 	if escape {
 		return Result{Deny, fmt.Sprintf("the path %q escapes the workspace root %q", path, p.root)}
 	}
-	if len(p.denyPaths) == 0 && len(p.allowPaths) == 0 {
-		return Result{Allow, ""}
-	}
-	lexical := normalize(resolved)
-	canonical, err := canonicalWithTail(resolved)
+	real, err := ResolveRealPath(resolved)
 	if err != nil {
 		return Result{Deny, fmt.Sprintf(
 			"the path %q could not be canonicalized for policy checking (%v); denying to avoid an unresolved symlink target",
 			path, err)}
 	}
-	canonical = normalize(canonical)
+	// Hide-escape check. It runs even when no deny/allow paths are configured:
+	// a read of <root>/link/id_rsa must not become a read of an external file
+	// just because the policy has no explicit path rules.
+	if within(resolved, p.writeRoots) && !within(real, p.realRoots()) {
+		return Result{Deny, fmt.Sprintf(
+			"the path %q resolves outside the workspace root %q through a symlink or junction", path, p.root)}
+	}
+	lexical := normalize(resolved)
+	canonical := normalize(real)
 	for _, pattern := range p.denyPaths {
 		if GlobMatch(pattern, lexical) || GlobMatch(pattern, canonical) {
 			return Result{Deny, fmt.Sprintf("the path %q is denied by policy (rule %q)", path, pattern)}
@@ -314,6 +320,21 @@ func (p *Policy) checkPath(path string) Result {
 		}
 	}
 	return Result{Allow, ""}
+}
+
+// realRoots resolves each configured root so a root reached through a link
+// still counts as inside. A root that cannot be resolved falls back to its
+// lexical spelling; explicit roots are operator configuration, not tool input.
+func (p *Policy) realRoots() []string {
+	out := make([]string, 0, len(p.writeRoots))
+	for _, root := range p.writeRoots {
+		if real, err := ResolveRealPath(root); err == nil {
+			out = append(out, real)
+		} else {
+			out = append(out, filepath.Clean(root))
+		}
+	}
+	return out
 }
 
 // checkWriteRoots applies the write boundary to every path argument of a
@@ -391,7 +412,7 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 					matched = true
 					break
 				}
-				if canonical, err := canonicalWithTail(resolved); err == nil && GlobMatch(rule.Path, normalize(canonical)) {
+				if canonical, err := ResolveRealPath(resolved); err == nil && GlobMatch(rule.Path, normalize(canonical)) {
 					matched = true
 					break
 				}
@@ -437,36 +458,6 @@ func (p *Policy) resolve(path string) (string, bool) {
 		}
 	}
 	return candidate, false
-}
-
-// canonicalWithTail resolves symlinks for the longest existing prefix of path
-// and re-attaches the missing tail, so new files are still checked.
-func canonicalWithTail(path string) (string, error) {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved, nil
-	} else if !isMissing(err) {
-		return "", err
-	}
-	tail := ""
-	current := path
-	for {
-		base := filepath.Base(current)
-		if tail == "" {
-			tail = base
-		} else {
-			tail = filepath.Join(base, tail)
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", fmt.Errorf("no resolvable ancestor for %q", path)
-		}
-		current = parent
-		if resolved, err := filepath.EvalSymlinks(current); err == nil {
-			return filepath.Join(resolved, tail), nil
-		} else if !isMissing(err) {
-			return "", err
-		}
-	}
 }
 
 func isMissing(err error) bool {

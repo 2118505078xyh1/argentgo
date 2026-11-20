@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -110,18 +111,102 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 }
 
 // entriesFromMessages adapts the agent's view to the session compaction API.
-// Reconstructed entries carry only the fields compaction reads (role, content
-// and tool-call id); tool names are not present on llm.Message.
+// The reconstructed entries carry the fields compaction reads: role, content,
+// the tool-call id on results, and the full tool-call payload on assistant
+// messages. The payload uses the same shape the session records persist —
+// "tool_calls" with one object per call carrying "id" — so adjustCut can pair
+// a call with its result instead of silently dropping the ids. File targets
+// found in tool arguments are normalised into a "files" array, which the
+// session path scanner already understands.
 func entriesFromMessages(messages []llm.Message) []session.Entry {
 	entries := make([]session.Entry, 0, len(messages))
 	for _, m := range messages {
-		entries = append(entries, session.Entry{
+		entry := session.Entry{
 			Role:       m.Role,
 			Content:    m.Content,
 			ToolCallID: m.ToolCallID,
-		})
+		}
+		if len(m.ToolCalls) > 0 {
+			payload := map[string]any{"tool_calls": m.ToolCalls}
+			if files := toolCallPaths(m.ToolCalls); len(files) > 0 {
+				payload["files"] = files
+			}
+			if data, err := json.Marshal(payload); err == nil {
+				entry.Data = data
+			}
+		}
+		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// pathArgumentKeys lists the argument keys producers use for a file target.
+// The session path scanner recognises "path"/"file"/"files" but not the
+// Claude-style "file_path"/"filePath" variants, so the adapter normalises them
+// into a "files" array rather than duplicating that scanner in this package.
+var pathArgumentKeys = map[string]bool{
+	"file_path": true, "filePath": true, "filepath": true,
+	"file_name": true, "filename": true,
+	"path": true, "file": true, "files": true,
+}
+
+// toolCallPaths collects distinct file paths declared by a batch of tool
+// calls. Arguments are raw JSON strings and may themselves contain JSON
+// strings, so nested objects are visited recursively.
+func toolCallPaths(calls []llm.ToolCall) []string {
+	out, seen := make([]string, 0), make(map[string]bool)
+	for _, call := range calls {
+		arguments := call.Function.Arguments
+		if strings.TrimSpace(arguments) == "" {
+			continue
+		}
+		var value any
+		if json.Unmarshal([]byte(arguments), &value) == nil {
+			collectArgumentPaths(value, &out, seen)
+		}
+	}
+	return out
+}
+
+func collectArgumentPaths(value any, out *[]string, seen map[string]bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if pathArgumentKeys[key] {
+				switch paths := child.(type) {
+				case string:
+					addArgumentPath(out, seen, paths)
+				case []any:
+					for _, item := range paths {
+						if text, ok := item.(string); ok {
+							addArgumentPath(out, seen, text)
+						}
+					}
+				}
+			}
+			if text, ok := child.(string); ok {
+				var inner any
+				if json.Unmarshal([]byte(text), &inner) == nil {
+					collectArgumentPaths(inner, out, seen)
+				}
+				continue
+			}
+			collectArgumentPaths(child, out, seen)
+		}
+	case []any:
+		for _, item := range typed {
+			collectArgumentPaths(item, out, seen)
+		}
+	}
+}
+
+func addArgumentPath(out *[]string, seen map[string]bool, path string) {
+	path = strings.TrimSpace(path)
+	if path == "" || seen[path] {
+		return
+	}
+	seen[path] = true
+	*out = append(*out, path)
 }
 
 // enrichCompaction carries runtime failures and next-step lines into a summary.

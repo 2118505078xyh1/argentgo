@@ -60,6 +60,14 @@ type Job struct {
 	// live is set on promoted jobs so Stop can signal the exact child instead
 	// of relying only on a pid that an injected fake may not really own.
 	live LiveProcess `json:"-"`
+
+	// watched marks jobs whose completion is tracked in this process by a
+	// reaper (Start) or watcher (PromoteFromTimeout). refreshLocked must leave
+	// these to that watcher: a child can die before the watcher records its
+	// real exit code, and a pid-only refresh would otherwise publish a
+	// terminal Exited/-1 snapshot in that window. Not persisted — a registry
+	// reopened from disk has no watcher and must fall back to pid refresh.
+	watched bool `json:"-"`
 }
 
 // Running reports whether the job is still going.
@@ -189,6 +197,7 @@ func (r *Registry) Start(cmd Command) (Job, error) {
 		ExitCode:  -1,
 		LogPath:   logPath,
 		PID:       child.Process.Pid,
+		watched:   true,
 	}
 
 	// Keep the returned value and the registry's pointer in SEPARATE storage:
@@ -241,6 +250,12 @@ func (r *Registry) List() ([]Job, error) {
 	r.mu.Lock()
 	// A refresh only marks the registry dirty; no disk write happens here.
 	r.refreshLocked()
+	// Let any in-flight write land before copying. Cond.Wait releases mu, so
+	// this never blocks another reader or writer. Copying after the wait keeps
+	// the returned snapshot consistent with the state that reached the disk.
+	for r.inflight > 0 {
+		r.idleCond.Wait()
+	}
 	out := make([]Job, 0, len(r.jobs))
 	for _, job := range r.jobs {
 		out = append(out, *job)
@@ -251,11 +266,6 @@ func (r *Registry) List() ([]Job, error) {
 		}
 		return out[i].StartedAt.Before(out[j].StartedAt)
 	})
-	// Let any in-flight write land before returning. Cond.Wait releases mu,
-	// so this never blocks another reader or writer.
-	for r.inflight > 0 {
-		r.idleCond.Wait()
-	}
 	r.mu.Unlock()
 	return out, nil
 }
@@ -266,13 +276,17 @@ func (r *Registry) Get(id string) (Job, error) {
 	// A refresh only marks the registry dirty; no disk write happens here.
 	r.refreshLocked()
 	job, ok := r.jobs[id]
+	// Let any in-flight write land before copying the snapshot (see List).
+	for r.inflight > 0 {
+		r.idleCond.Wait()
+	}
+	// Cond.Wait released mu, so a watcher may have updated (or a concurrent
+	// caller may have removed) this job. Re-read the map and copy only now, so
+	// the returned value matches the settled, persisted state.
+	job, ok = r.jobs[id]
 	var out Job
 	if ok {
 		out = *job
-	}
-	// Let any in-flight write land before returning (see List).
-	for r.inflight > 0 {
-		r.idleCond.Wait()
 	}
 	r.mu.Unlock()
 	if !ok {
@@ -393,8 +407,10 @@ func (r *Registry) refreshLocked() bool {
 		if job.Status != StatusRunning {
 			continue
 		}
-		// Promoted jobs are watched through their live handle, not a raw pid.
-		if job.live != nil {
+		// Jobs with an in-process watcher (Start reaper, promote watcher) own
+		// their own exit code. A dead pid alone must not publish a terminal
+		// Exited/-1 snapshot before that watcher has recorded the real code.
+		if job.live != nil || job.watched {
 			continue
 		}
 		if alive(job.PID) {

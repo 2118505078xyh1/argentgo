@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/session"
@@ -46,32 +45,50 @@ type runner struct {
 	res   Resolved
 	store *session.Store
 
-	// busy guards the single-flight contract: a runner appends to one active
-	// transcript, so a second concurrent prompt must be refused instead of
-	// interleaving records into that chain.
-	busy atomic.Bool
-
+	// All of busy, cancel and current are protected by mu. In particular the
+	// single-flight slot (busy) and its cancel func are installed and cleared
+	// in the same critical section, so Abort can never observe "busy but no
+	// cancel registered" and lose the abort.
 	mu      sync.Mutex
+	busy    bool
 	cancel  context.CancelFunc
 	current *session.Session
 }
 
+// promptClaimHook is a test seam called by Prompt after it has atomically
+// claimed the single-flight slot and registered its cancel func. Production
+// leaves it nil. Tests use it to run Abort exactly at prompt start.
+var promptClaimHook func(*runner)
+
 // Prompt satisfies cli.Runner. At most one prompt may be in flight on a runner.
 func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (string, error) {
-	if !r.busy.CompareAndSwap(false, true) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Claim the single-flight slot and register the cancel func under one
+	// critical section. Abort uses the same mu, so it either sees no prompt at
+	// all (no-op) or sees a fully registered cancel func and can cancel it.
+	r.mu.Lock()
+	if r.busy {
+		r.mu.Unlock()
+		cancel() // do not leak the derived context when the prompt is refused
 		return "", errors.New("prompt already running")
 	}
-	// Registered before the cancel cleanup below so busy is released last: a
-	// new prompt may only start once the previous cancel slot is cleared.
-	defer r.busy.Store(false)
-
-	ctx, cancel := context.WithCancel(ctx)
-	r.mu.Lock()
+	r.busy = true
 	r.cancel = cancel
 	r.mu.Unlock()
+
+	// Test seam: by this point busy and cancel are both installed. Production
+	// leaves the hook nil.
+	if promptClaimHook != nil {
+		promptClaimHook(r)
+	}
+
+	// Clear the cancel slot and release the slot atomically under the same mu,
+	// mutually exclusive with Prompt and Abort.
 	defer func() {
 		r.mu.Lock()
 		r.cancel = nil
+		r.busy = false
 		r.mu.Unlock()
 		cancel()
 	}()
@@ -87,10 +104,9 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 // Abort satisfies cli.Runner.
 func (r *runner) Abort() {
 	r.mu.Lock()
-	cancel := r.cancel
-	r.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	defer r.mu.Unlock()
+	if r.cancel != nil {
+		r.cancel()
 	}
 }
 
