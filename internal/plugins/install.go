@@ -259,9 +259,16 @@ func copyTree(source, destination string) error {
 		}
 		from := filepath.Join(source, entry.Name())
 		to := filepath.Join(destination, entry.Name())
-		info, err := os.Stat(from)
+		info, err := os.Lstat(from)
 		if err != nil {
 			return fmt.Errorf("plugins: read %s: %w", from, err)
+		}
+		// Never follow symlinks: a link to an ancestor (or to itself) would
+		// recurse forever under os.Stat, and a link to an outside directory
+		// would copy files from beyond the bundle. Lstat reports the link
+		// itself, so skip it rather than treating it as a dir/file.
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
 		}
 		switch {
 		case info.IsDir():

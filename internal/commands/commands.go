@@ -592,6 +592,11 @@ func unquote(value string) string {
 
 // splitFrontmatter is the commands-local copy of the fence splitter.
 func splitFrontmatter(text string) (frontmatter, body string, ok bool) {
+	// Normalize CRLF first, mirroring skills.SplitFrontmatter: on Windows a
+	// file saved with CRLF has an opening fence of "---\r\n", so without this
+	// the prefix check below fails and the whole frontmatter leaks into the
+	// body. LF-only text is unaffected.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
 		return "", "", false
 	}

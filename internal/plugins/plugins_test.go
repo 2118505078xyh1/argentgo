@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeFile creates a file, creating parents as needed.
@@ -393,6 +394,56 @@ func TestInstallFromDirectoryEnablesTheBundle(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(pluginsDir, "alpha")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("plugin directory survived uninstall: %v", err)
+	}
+}
+
+func TestCopyTreeSkipsSymlinks(t *testing.T) {
+	source := t.TempDir()
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(source, "plugin.json"), `{"name":"alpha"}`)
+	writeFile(t, filepath.Join(source, "normal.txt"), "normal")
+	writeFile(t, filepath.Join(outside, "secret.txt"), "secret")
+
+	// A link to another directory: following it would copy files from outside
+	// the bundle. A self link: following it would recurse forever.
+	if err := os.Symlink(outside, filepath.Join(source, "outside")); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+	if err := os.Symlink(source, filepath.Join(source, "loop")); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "alpha")
+	done := make(chan error, 1)
+	go func() { done <- copyTree(source, dest) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("copyTree: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("copyTree did not return; it is following a directory symlink")
+	}
+
+	if _, err := os.Stat(filepath.Join(dest, "normal.txt")); err != nil {
+		t.Fatalf("regular file not copied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "outside")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("link to outside directory was copied, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "loop")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("self-referential link was copied, err=%v", err)
+	}
+	if err := filepath.WalkDir(dest, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Name() == "secret.txt" {
+			t.Errorf("file from outside the bundle was copied: %s", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk destination: %v", err)
 	}
 }
 

@@ -33,6 +33,35 @@ Review $ARGUMENTS carefully.`
 	}
 }
 
+func TestParseStrictCRLFFrontmatter(t *testing.T) {
+	// A .md saved with Windows CRLF line endings must parse exactly like LF.
+	text := "---\r\n" +
+		"description: Review a diff\r\n" +
+		"allowed-tools: bash, read\r\n" +
+		"model: gpt-5\r\n" +
+		"---\r\n" +
+		"Review $ARGUMENTS carefully.\r\n"
+	cmd, err := ParseStrict(text, filepath.Join("tmp", "review.md"))
+	if err != nil {
+		t.Fatalf("ParseStrict: %v", err)
+	}
+	if cmd.Description != "Review a diff" {
+		t.Errorf("description = %q", cmd.Description)
+	}
+	if len(cmd.AllowedTools) != 2 || cmd.AllowedTools[0] != "bash" || cmd.AllowedTools[1] != "read" {
+		t.Errorf("allowed-tools = %#v", cmd.AllowedTools)
+	}
+	if cmd.Model != "gpt-5" {
+		t.Errorf("model = %q", cmd.Model)
+	}
+	if strings.Contains(cmd.Body, "description:") || strings.Contains(cmd.Body, "allowed-tools:") || strings.Contains(cmd.Body, "---") {
+		t.Errorf("body leaked frontmatter: %q", cmd.Body)
+	}
+	if cmd.Body != "Review $ARGUMENTS carefully." {
+		t.Errorf("body = %q", cmd.Body)
+	}
+}
+
 func TestFileWithoutFrontmatterIsACommand(t *testing.T) {
 	cmd := Parse("Deploy the site\n\nRun the script.", filepath.Join("tmp", "deploy.md"))
 	if cmd.Name != "deploy" {
