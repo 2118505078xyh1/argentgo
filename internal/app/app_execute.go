@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -14,10 +15,65 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
+// personaDir is where a workspace keeps named subagent definitions.
+const personaDir = ".argent/agents"
+
+// personaCache loads persona definitions once per workspace root. Execute runs
+// many times per process (TUI prompts, schema retries, tests), so rescanning
+// the directory on every prompt would be wasted I/O.
+var personaCache sync.Map // map[string]personaSnapshot
+
+type personaSnapshot struct {
+	personas map[string]agent.Persona
+	err      error
+}
+
+// loadPersonasForRoot returns the personas configured for a workspace root.
+// Results, including the first parse error, are cached: a broken agent file is
+// reported once and never blocks an otherwise valid run.
+func loadPersonasForRoot(root string) (map[string]agent.Persona, error) {
+	if cached, ok := personaCache.Load(root); ok {
+		snap := cached.(personaSnapshot)
+		return snap.personas, snap.err
+	}
+	personas, err := agent.LoadPersonas(filepath.Join(root, filepath.FromSlash(personaDir)))
+	personaCache.Store(root, personaSnapshot{personas: personas, err: err})
+	return personas, err
+}
+
+// PersonaSubagentConfig resolves a persona name requested by a delegated task
+// into the child configuration the `task` tool should use. It returns false for
+// an empty or unknown name, leaving the caller's generic defaults untouched.
+//
+// TODO(persona-role): finish wiring this into the delegation path. The task
+// argument struct (taskArgs), its advertised schema (TaskToolSpec) and
+// (*taskTools).childOptions all live in internal/agent/subagent.go, which is
+// outside this file's ownership. To select a persona per task, that file needs
+// an optional `persona` (or `role`) field on taskArgs/TaskToolSpec and must
+// start childOptions from Persona.SubagentConfig() when the name resolves.
+// Until then Execute deliberately preserves existing behaviour: no role is
+// requested through the current tool schema, so no task tool is advertised and
+// no persona overrides the generic child prompt.
+func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
+	if strings.TrimSpace(name) == "" {
+		return agent.SubagentConfig{}, false
+	}
+	personas, _ := loadPersonasForRoot(root)
+	persona, ok := personas[name]
+	if !ok {
+		return agent.SubagentConfig{}, false
+	}
+	return persona.SubagentConfig(), true
+}
+
 // Execute runs one prompt through a freshly wired tool registry, policy and
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
+	// Warm the persona cache once per workspace root. Loading is best-effort:
+	// a malformed agent definition must not fail the run. Per-task persona
+	// selection is resolved by PersonaSubagentConfig (see its TODO above).
+	_, _ = loadPersonasForRoot(res.Root)
 	if injection, ok := reviewPrompt(res.Root, prompt); ok {
 		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
 	}

@@ -12,6 +12,22 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
+// maxToolDescLen bounds a tool description shipped to the model. A long MCP
+// description is a prompt-injection vector and eats context, so Specs clips it
+// before the schema crosses the wire. The Tool interface and Schema are intact.
+const maxToolDescLen = 1024
+
+// clipDescription keeps at most maxToolDescLen runes, appending an ellipsis
+// when it truncates. Slicing by runes keeps the result valid UTF-8 even when a
+// multibyte character straddles the limit.
+func clipDescription(s string) string {
+	runes := []rune(s)
+	if len(runes) <= maxToolDescLen {
+		return s
+	}
+	return string(runes[:maxToolDescLen-1]) + "…"
+}
+
 // New returns a registry rooted at root with the default output cap.
 func New(root string, yolo bool) *Registry {
 	return NewWithLimit(root, yolo, maxToolOutput)
@@ -78,7 +94,7 @@ func (r *Registry) Specs() []llm.ToolSpec {
 		tool := r.tools[name]
 		spec := llm.ToolSpec{Type: "function"}
 		spec.Function.Name = tool.Name()
-		spec.Function.Description = tool.Description()
+		spec.Function.Description = clipDescription(tool.Description())
 		spec.Function.Parameters = json.RawMessage(tool.Schema())
 		specs = append(specs, spec)
 	}

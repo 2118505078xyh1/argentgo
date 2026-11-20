@@ -27,16 +27,27 @@ type StopError struct {
 	Refused bool
 }
 
-// Error implements error.
+// finalitySentence is appended to every policy-block error so the model stops
+// retrying a denial it cannot overturn (idea borrowed from gptme's policy-block
+// hook). Keeping it one shared string makes agent-visible wording consistent
+// across policy denies and operator refusals.
+const finalitySentence = ". This block is intentional and final, not a transient error. " +
+	"Do not retry it or reach the same outcome another way."
+
+// Error implements error. The leading message is preserved exactly; only the
+// finality sentence is appended so callers matching "denied"/"refused" still work.
 func (e *StopError) Error() string {
 	verb := "denied"
 	if e.Refused {
 		verb = "refused by the operator"
 	}
+	var message string
 	if e.Reason == "" {
-		return fmt.Sprintf("security: the %s tool call was %s", e.Tool, verb)
+		message = fmt.Sprintf("security: the %s tool call was %s", e.Tool, verb)
+	} else {
+		message = fmt.Sprintf("security: the %s tool call was %s: %s", e.Tool, verb, e.Reason)
 	}
-	return fmt.Sprintf("security: the %s tool call was %s: %s", e.Tool, verb, e.Reason)
+	return message + finalitySentence
 }
 
 // Unwrap maps the error onto ErrDenied or ErrRefused.

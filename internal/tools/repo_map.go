@@ -34,16 +34,19 @@ type repoMapTool struct{}
 
 func (repoMapTool) Name() string { return "repo_map" }
 func (repoMapTool) Description() string {
-	return "Map the workspace: top-level directories and up to 80 files with line counts and entry-point markers."
+	return "Map the workspace: top-level directories, up to 80 files with line counts and entry-point markers, plus Go symbols ranked by relevance to the optional mention(s)."
 }
 func (repoMapTool) Mutating() bool { return false }
 func (repoMapTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string","description":"directory to map; defaults to the workspace root"}}}`
+	return `{"type":"object","properties":{"path":{"type":"string","description":"directory to map; defaults to the workspace root"},"mention":{"type":"string","description":"identifier or file path the user currently cares about; boosts matching symbols"},"mentions":{"type":"array","items":{"type":"string"},"description":"additional mention strings"},"symbols":{"type":"boolean","description":"include the ranked symbol section (default true)"}}}`
 }
 
 func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path string `json:"path"`
+		Path     string   `json:"path"`
+		Mention  string   `json:"mention"`
+		Mentions []string `json:"mentions"`
+		Symbols  *bool    `json:"symbols"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("repo_map: bad arguments: %w", err)
@@ -65,6 +68,7 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 		return "", err
 	}
 	var files []string
+	var relFiles []string // all walked paths, used for Go symbol extraction
 	err = filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -83,6 +87,7 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
+		relFiles = append(relFiles, rel)
 		marker := ""
 		if repoMapEntryPoints[strings.ToLower(entry.Name())] {
 			marker = " [entry]"
@@ -112,6 +117,16 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	}
 	if len(files) >= repoMapMaxFiles {
 		lines = append(lines, fmt.Sprintf("... [capped at %d files]", repoMapMaxFiles))
+	}
+	// The ranked symbol view is additive: the dirs/files view above is kept
+	// verbatim for existing consumers. Pass {"symbols":false} to opt out.
+	if args.Symbols == nil || *args.Symbols {
+		mentions := make([]string, 0, 1+len(args.Mentions))
+		if strings.TrimSpace(args.Mention) != "" {
+			mentions = append(mentions, args.Mention)
+		}
+		mentions = append(mentions, args.Mentions...)
+		lines = append(lines, repoMapSymbolSection(extractRepoSymbols(base, relFiles), mentions, repoMapSymbolTokenBudget)...)
 	}
 	return clip(ctx, strings.Join(lines, "\n")), nil
 }

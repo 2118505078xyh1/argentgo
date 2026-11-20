@@ -93,6 +93,56 @@ func (b Budget) Breach(used llm.Usage, lastPromptTokens int, spentUSD float64, c
 	return "", "", false
 }
 
+// Context-aware compaction thresholds. A percentage of the model context
+// window is the preferred trigger; the token constants are fallbacks for
+// configurations that do not publish a context window.
+const (
+	defaultCompactionTokens = 32000
+	// reservedOutputFraction withholds 1/20 of the window for the reply that
+	// follows a summarised prompt; reservedOutputTokens caps that reserve.
+	reservedOutputFraction = 20
+	reservedOutputTokens   = 8000
+	// Estimate inflation is 1.3x expressed as integers: ceil(n*13/10).
+	estimateInflationNumerator   = 13
+	estimateInflationDenominator = 10
+)
+
+// CompactionThreshold returns the estimated-token trigger for auto-compaction.
+//
+// A positive percent wins: the trigger is floor(contextWindow*percent/100)
+// minus a reserved output buffer of min(contextWindow/20, 8000), clamped to at
+// least 1. Otherwise a positive configuredTokens is used verbatim, and the
+// compiled default is the last resort. Non-positive percent values (-1/0)
+// inherit the global threshold, matching the per-profile config semantics.
+func CompactionThreshold(contextWindow, configuredTokens, percent int) int {
+	if percent > 0 {
+		reserve := contextWindow / reservedOutputFraction
+		if reserve > reservedOutputTokens {
+			reserve = reservedOutputTokens
+		}
+		// int64 product avoids overflow on large windows before the /100.
+		threshold := int(int64(contextWindow)*int64(percent)/100) - reserve
+		if threshold < 1 {
+			return 1
+		}
+		return threshold
+	}
+	if configuredTokens > 0 {
+		return configuredTokens
+	}
+	return defaultCompactionTokens
+}
+
+// InflateEstimate applies the 1.3x safety factor used before comparing an
+// estimated prompt size against a compaction threshold. Integer math only,
+// rounded up (ceil), so n=1 becomes 2 and n=100 becomes 130.
+func InflateEstimate(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return int((int64(n)*estimateInflationNumerator + estimateInflationDenominator - 1) / estimateInflationDenominator)
+}
+
 // sliceForChild derives a child run's budget from the parent's: half of every
 // limit, so a delegate cannot spend the whole parent allowance.
 func (b Budget) sliceForChild() Budget {

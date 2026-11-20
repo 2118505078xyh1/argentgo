@@ -52,6 +52,15 @@ type Config struct {
 	Yolo        bool
 	StorageDir  string
 
+	// ContextWindow is the resolved model's context window in tokens. It is
+	// optional: zero means "unspecified", so callers fall back to the fixed
+	// threshold. It can be set at the top level or on a model/provider entry.
+	ContextWindow int
+	// AutoCondenseContextPercent is the per-profile percentage of the context
+	// window that triggers auto-compaction. 0 or -1 inherits the global token
+	// threshold; a positive value overrides it.
+	AutoCondenseContextPercent int
+
 	// ProviderName is the selected provider template id.
 	ProviderName string
 	// ActiveProfile is the profile merged over the file layers, if any.
@@ -236,21 +245,24 @@ func applyEnv(tree map[string]any, env func(string) string) error {
 
 func decode(tree map[string]any, cwd string, sources []string) Config {
 	return Config{
-		Model:        stringField(tree, "model", "modelName"),
-		BaseURL:      stringField(tree, "baseURL", "baseUrl", "base_url"),
-		APIKey:       stringField(tree, "apiKey", "api_key"),
-		Protocol:     stringField(tree, "protocol"),
-		Locale:       stringField(tree, "locale"),
-		SandboxMode:  stringField(tree, "sandboxMode", "sandbox_mode"),
-		MaxTurns:     intField(tree, "maxTurns", "max_turns"),
-		Yolo:         boolField(tree, "yolo"),
-		StorageDir:   stringField(tree, "storageDir", "storage_dir"),
-		ProviderName: stringField(tree, "provider"),
-		Profiles:     profilesFrom(tree),
-		Providers:    providersFrom(tree),
-		Sources:      sources,
-		Raw:          cloneTree(tree),
-		CWD:          cwd,
+		Model:       stringField(tree, "model", "modelName"),
+		BaseURL:     stringField(tree, "baseURL", "baseUrl", "base_url"),
+		APIKey:      stringField(tree, "apiKey", "api_key"),
+		Protocol:    stringField(tree, "protocol"),
+		Locale:      stringField(tree, "locale"),
+		SandboxMode: stringField(tree, "sandboxMode", "sandbox_mode"),
+		MaxTurns:    intField(tree, "maxTurns", "max_turns"),
+		Yolo:        boolField(tree, "yolo"),
+		StorageDir:  stringField(tree, "storageDir", "storage_dir"),
+
+		ContextWindow:              contextWindowFrom(tree),
+		AutoCondenseContextPercent: intField(tree, "autoCondenseContextPercent", "auto_condense_context_percent"),
+		ProviderName:               stringField(tree, "provider"),
+		Profiles:                   profilesFrom(tree),
+		Providers:                  providersFrom(tree),
+		Sources:                    sources,
+		Raw:                        cloneTree(tree),
+		CWD:                        cwd,
 	}
 }
 
@@ -346,6 +358,57 @@ func parseBool(value string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("not a boolean: %q", value)
+}
+
+// contextWindowFrom resolves the model context window from the merged tree.
+// A top-level contextWindow (or alias) wins; then a model entry under "models"
+// keyed by the configured model, then the active provider entry. Configs that
+// omit these keys keep decoding to zero, so existing behaviour is unchanged.
+func contextWindowFrom(tree map[string]any) int {
+	if value := intField(tree, "contextWindow", "contextWindowTokens", "context_window"); value > 0 {
+		return value
+	}
+	model := stringField(tree, "model", "modelName")
+	if model != "" {
+		if models, ok := tree["models"].(map[string]any); ok {
+			if entry, ok := lookupFold(models, model); ok {
+				if modelEntry, ok := entry.(map[string]any); ok {
+					if value := intField(modelEntry, "contextWindow", "contextWindowTokens", "context_window"); value > 0 {
+						return value
+					}
+				}
+			}
+		}
+	}
+	provider := stringField(tree, "provider")
+	if provider != "" {
+		if providers, ok := tree["providers"].(map[string]any); ok {
+			if entry, ok := lookupFold(providers, provider); ok {
+				if providerEntry, ok := entry.(map[string]any); ok {
+					if value := intField(providerEntry, "contextWindow", "contextWindowTokens", "context_window"); value > 0 {
+						return value
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// CondensePercent returns the auto-condense percentage configured for profile.
+// An explicit per-profile value wins over the merged/global value; 0 and -1
+// are preserved so callers can inherit the global token threshold.
+func (c Config) CondensePercent(profile string) int {
+	if strings.TrimSpace(profile) != "" {
+		if entry, ok := lookupFold(c.Profiles, profile); ok {
+			for _, key := range []string{"autoCondenseContextPercent", "auto_condense_context_percent"} {
+				if _, exists := entry[key]; exists {
+					return intField(entry, key)
+				}
+			}
+		}
+	}
+	return c.AutoCondenseContextPercent
 }
 
 func profilesFrom(tree map[string]any) map[string]map[string]any {

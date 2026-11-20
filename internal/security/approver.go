@@ -151,6 +151,68 @@ func (c *CachedApprover) Allowed() []string {
 	return names
 }
 
+// ScopedApprover is a portable building block that layers in-memory approval
+// grants on top of any Approver: a tool name can be permanently allowed
+// (GrantAlways) or allowed for a bounded number of calls (GrantN). Grants live
+// only for the lifetime of this wrapper. It is deliberately additive and is
+// not wired into the default security chain, so callers opt in explicitly and
+// existing approval behaviour is unchanged.
+type ScopedApprover struct {
+	inner   Approver
+	mu      sync.Mutex
+	always  map[string]bool
+	limited map[string]int
+}
+
+// NewScopedApprover wraps inner. Without an inner approver delegated calls are
+// denied, matching CachedApprover's null-object behaviour.
+func NewScopedApprover(inner Approver) *ScopedApprover {
+	if inner == nil {
+		inner = NeverApprover{}
+	}
+	return &ScopedApprover{
+		inner:   inner,
+		always:  make(map[string]bool),
+		limited: make(map[string]int),
+	}
+}
+
+// GrantAlways permanently allows name for the lifetime of this wrapper.
+func (s *ScopedApprover) GrantAlways(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.always[name] = true
+}
+
+// GrantN allows name for the next n calls. Grants accumulate: a second call
+// adds n to whatever budget remains. Non-positive n is a no-op.
+func (s *ScopedApprover) GrantN(name string, n int) {
+	if n <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.limited[name] += n
+}
+
+// Ask consumes a grant for name when one exists and approves without asking
+// inner; otherwise it delegates to inner. An always grant wins over an N grant
+// and leaves the N budget untouched.
+func (s *ScopedApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
+	s.mu.Lock()
+	if s.always[name] {
+		s.mu.Unlock()
+		return true, nil
+	}
+	if remaining := s.limited[name]; remaining > 0 {
+		s.limited[name] = remaining - 1
+		s.mu.Unlock()
+		return true, nil
+	}
+	s.mu.Unlock()
+	return s.inner.Ask(ctx, name, args)
+}
+
 // readLine reads one line without buffering ahead, so a shared reader keeps
 // the bytes that belong to the next prompt.
 func readLine(reader io.Reader) (string, error) {

@@ -38,20 +38,42 @@ func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor 
 	return &sessionCompactor{res: res, sess: sess}
 }
 
+// compactionInputs resolves the (contextWindow, configuredTokens, percent)
+// triple that drives the compaction trigger. A percentage is ignored when no
+// context window is known, so the trigger falls back to the configured token
+// count or the compiled default instead of collapsing to 1.
+func compactionInputs(res Resolved) (window, configured, percent int) {
+	window = res.Cfg.ContextWindow
+	configured = res.AutoCompactTokens
+	percent = res.Cfg.CondensePercent(res.Profile)
+	if window <= 0 {
+		percent = 0
+	}
+	return
+}
+
+// compactionDecision is the pure estimate-vs-trigger comparison shared by the
+// compact paths. It is factored out so the context-window percentage math and the
+// 1.3 inflation can be tested with a stub estimate and no model/session calls.
+func compactionDecision(estimate, window, configured, percent int) (threshold int, compact bool) {
+	threshold = agent.CompactionThreshold(window, configured, percent)
+	if threshold <= 0 {
+		return threshold, false
+	}
+	return threshold, agent.InflateEstimate(estimate) >= threshold
+}
+
 // CompactThreshold is the trigger the agent should use for mid-turn compaction.
 // A negative configured value disables automatic compaction entirely.
 func (c *sessionCompactor) CompactThreshold() int {
 	if c == nil {
 		return 0
 	}
-	threshold := c.res.AutoCompactTokens
-	if threshold == 0 {
-		threshold = defaultAutoCompactTokens
-	}
-	if threshold < 0 {
+	if c.res.AutoCompactTokens < 0 {
 		return 0
 	}
-	return threshold
+	window, configured, percent := compactionInputs(c.res)
+	return agent.CompactionThreshold(window, configured, percent)
 }
 
 // MaybeCompact folds the older part of the conversation into a session
@@ -131,11 +153,7 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	if res.NoAutoCompact || sess == nil {
 		return
 	}
-	threshold := res.AutoCompactTokens
-	if threshold == 0 {
-		threshold = defaultAutoCompactTokens
-	}
-	if threshold < 0 {
+	if res.AutoCompactTokens < 0 {
 		return
 	}
 	entries := sess.Messages()
@@ -143,7 +161,8 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	for _, entry := range entries {
 		messages = append(messages, llm.Message{Role: entry.Role, Content: entry.Content})
 	}
-	if agent.EstimateMessages(messages) < threshold {
+	window, configured, percent := compactionInputs(res)
+	if _, compact := compactionDecision(agent.EstimateMessages(messages), window, configured, percent); !compact {
 		return
 	}
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0

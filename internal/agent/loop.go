@@ -41,6 +41,7 @@ type runState struct {
 	usage        llm.Usage
 	costUSD      float64
 	costKnown    bool
+	costWatch    *CostWatcher
 	promptTokens int
 	turns        int
 	depth        int
@@ -124,6 +125,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		toolMeta:         make(map[string]ToolMeta),
 		compactor:        opts.Compactor,
 		compactThreshold: opts.CompactThreshold,
+		costWatch:        NewCostWatcher(opts.Budget.MaxCostUSD),
 	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
@@ -437,6 +439,10 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 	if price, ok := PriceFor(s.opts.Prices, s.model); ok {
 		s.costUSD += price.Cost(usage)
 		s.costKnown = true
+	}
+	// One watcher per run: each spend threshold warns once as cost accumulates.
+	for _, warning := range s.costWatch.Observe(s.costUSD) {
+		s.emit(Event{Kind: EventNotice, Text: warning})
 	}
 	return usage, usage.PromptTokens
 }

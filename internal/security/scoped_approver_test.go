@@ -1,0 +1,203 @@
+package security
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"testing"
+)
+
+// fakeApprover records every Ask call and returns a configurable answer. It is
+// safe for concurrent use so it can back the -race concurrency test.
+type fakeApprover struct {
+	mu      sync.Mutex
+	answer  bool
+	err     error
+	calls   int
+	records []approvalRequest
+}
+
+type approvalRequest struct {
+	name string
+	args string
+}
+
+func (f *fakeApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	f.records = append(f.records, approvalRequest{name: name, args: args})
+	return f.answer, f.err
+}
+
+func (f *fakeApprover) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func (f *fakeApprover) recorded() []approvalRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]approvalRequest, len(f.records))
+	copy(out, f.records)
+	return out
+}
+
+func TestScopedApproverDelegatesWithoutGrant(t *testing.T) {
+	inner := &fakeApprover{answer: true}
+	scoped := NewScopedApprover(inner)
+	ok, err := scoped.Ask(context.Background(), "bash", `{"command":"ls"}`)
+	if err != nil || !ok {
+		t.Fatalf("got ok=%v err=%v, want the inner approve", ok, err)
+	}
+	if got := inner.callCount(); got != 1 {
+		t.Fatalf("inner asked %d times, want once", got)
+	}
+}
+
+func TestScopedApproverGrantAlwaysShortCircuits(t *testing.T) {
+	inner := &fakeApprover{answer: false}
+	scoped := NewScopedApprover(inner)
+	scoped.GrantAlways("bash")
+	for i := 0; i < 3; i++ {
+		ok, err := scoped.Ask(context.Background(), "bash", "{}")
+		if err != nil || !ok {
+			t.Fatalf("call %d: ok=%v err=%v, want an unconditional approve", i, ok, err)
+		}
+	}
+	if got := inner.callCount(); got != 0 {
+		t.Fatalf("an always grant consulted inner %d times, want never", got)
+	}
+}
+
+func TestScopedApproverGrantNConsumesThenDelegates(t *testing.T) {
+	inner := &fakeApprover{answer: false}
+	scoped := NewScopedApprover(inner)
+	scoped.GrantN("bash", 2)
+	for i := 0; i < 2; i++ {
+		ok, err := scoped.Ask(context.Background(), "bash", "{}")
+		if err != nil || !ok {
+			t.Fatalf("granted call %d: ok=%v err=%v", i, ok, err)
+		}
+	}
+	if got := inner.callCount(); got != 0 {
+		t.Fatalf("granted calls consulted inner %d times, want never", got)
+	}
+	ok, err := scoped.Ask(context.Background(), "bash", "{}")
+	if err != nil || ok {
+		t.Fatalf("third call should delegate to the denying inner: ok=%v err=%v", ok, err)
+	}
+	if got := inner.callCount(); got != 1 {
+		t.Fatalf("third call consulted inner %d times, want once", got)
+	}
+}
+
+func TestScopedApproverAlwaysWinsAndDoesNotConsumeN(t *testing.T) {
+	inner := &fakeApprover{answer: false}
+	scoped := NewScopedApprover(inner)
+	scoped.GrantN("bash", 2)
+	scoped.GrantAlways("bash")
+	for i := 0; i < 4; i++ {
+		ok, err := scoped.Ask(context.Background(), "bash", "{}")
+		if err != nil || !ok {
+			t.Fatalf("call %d: ok=%v err=%v", i, ok, err)
+		}
+	}
+	if got := inner.callCount(); got != 0 {
+		t.Fatalf("always grant consulted inner %d times, want never", got)
+	}
+	if got := scoped.limited["bash"]; got != 2 {
+		t.Fatalf("always grant consumed the N budget: %d remaining, want 2", got)
+	}
+}
+
+func TestScopedApproverPassesArgsThroughOnDelegation(t *testing.T) {
+	inner := &fakeApprover{answer: true}
+	scoped := NewScopedApprover(inner)
+	ctx := context.Background()
+	const name = "write"
+	const args = "{\"path\":\"a.txt\",\"body\":\"héllo\\n世界\"}"
+	if _, err := scoped.Ask(ctx, name, args); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	records := inner.recorded()
+	if len(records) != 1 {
+		t.Fatalf("inner recorded %d calls, want one", len(records))
+	}
+	if records[0].name != name || records[0].args != args {
+		t.Fatalf("inner got name=%q args=%q, want name=%q args=%q", records[0].name, records[0].args, name, args)
+	}
+}
+
+func TestScopedApproverConcurrentAskIsSafe(t *testing.T) {
+	inner := &fakeApprover{answer: true}
+	scoped := NewScopedApprover(inner)
+	scoped.GrantAlways("always")
+	scoped.GrantN("limited", 10)
+
+	const workers = 50
+	var wg sync.WaitGroup
+	errs := make(chan string, workers*2)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			ok, err := scoped.Ask(context.Background(), "always", "{}")
+			if err != nil || !ok {
+				errs <- fmt.Sprintf("always: ok=%v err=%v", ok, err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			ok, err := scoped.Ask(context.Background(), "limited", "{}")
+			if err != nil || !ok {
+				errs <- fmt.Sprintf("limited: ok=%v err=%v", ok, err)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for msg := range errs {
+		t.Error(msg)
+	}
+	// Only the 40 calls past the 10-grant budget may reach inner; always calls
+	// must never reach it.
+	if got := inner.callCount(); got != workers-10 {
+		t.Fatalf("inner asked %d times, want %d", got, workers-10)
+	}
+}
+
+func TestScopedApproverConcurrentGrantsAreSafe(t *testing.T) {
+	inner := &fakeApprover{answer: false}
+	scoped := NewScopedApprover(inner)
+
+	const workers = 50
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := fmt.Sprintf("tool-%d", i)
+			scoped.GrantAlways(name)
+			scoped.GrantN("shared", 1)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < workers; i++ {
+		name := fmt.Sprintf("tool-%d", i)
+		if ok, err := scoped.Ask(context.Background(), name, "{}"); err != nil || !ok {
+			t.Fatalf("%s: ok=%v err=%v", name, ok, err)
+		}
+	}
+	for i := 0; i < workers; i++ {
+		if ok, err := scoped.Ask(context.Background(), "shared", "{}"); err != nil || !ok {
+			t.Fatalf("shared grant %d: ok=%v err=%v", i, ok, err)
+		}
+	}
+	if got := inner.callCount(); got != 0 {
+		t.Fatalf("inner asked %d times, want never", got)
+	}
+}
