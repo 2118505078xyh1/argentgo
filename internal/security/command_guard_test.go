@@ -52,6 +52,66 @@ func TestFindFileEditingCommand(t *testing.T) {
 	}
 }
 
+// TestIsTempPathCollapsesTraversalBeforePrefixCheck verifies that a target
+// which merely spells a scratch directory but escapes it with ".." is not
+// treated as a harmless temp write. The old raw-prefix check whitelisted it.
+func TestIsTempPathCollapsesTraversalBeforePrefixCheck(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"tmp root itself", "/tmp", true},
+		{"tmp child", "/tmp/build/out.txt", true},
+		{"var tmp child", "/var/tmp/x", true},
+		{"windows temp child", `C:\Windows\Temp\out.txt`, true},
+		{"temp placeholder child", `%TEMP%\out.txt`, true},
+		{"dot segments stay inside", "/tmp/a/../b", true},
+		{"tmp traversal to etc", "/tmp/../etc/passwd", false},
+		{"var tmp traversal", "/var/tmp/../etc/shadow", false},
+		{"windows temp traversal", `C:\Windows\Temp\..\..\evil.txt`, false},
+		{"temp placeholder traversal", `%TEMP%\..\..\evil.txt`, false},
+		{"outside without traversal", "/etc/passwd", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTempPath(tc.path); got != tc.want {
+				t.Fatalf("isTempPath(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFindFileEditingCommandRejectsTempTraversalRedirect verifies the guard's
+// end-to-end decision: a redirection that escapes a scratch directory with
+// ".." is gated as mutating, while a genuine scratch write stays clear.
+func TestFindFileEditingCommandRejectsTempTraversalRedirect(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    string // substring expected in the offending token; "" = no match
+	}{
+		{"posix temp traversal", "echo hi > /tmp/../etc/passwd", "etc/passwd"},
+		{"var tmp traversal", "echo hi > /var/tmp/../etc/shadow", "etc/shadow"},
+		{"temp placeholder traversal", "echo hi > %TEMP%/../evil.txt", "evil.txt"},
+		{"genuine temp write stays clear", "echo hi > /tmp/build/out.txt", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FindFileEditingCommand(tc.command)
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("FindFileEditingCommand(%q) = %q, want no match", tc.command, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("FindFileEditingCommand(%q) = %q, want it to contain %q", tc.command, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGuardShellCommandOnlyInspectsShellTools(t *testing.T) {
 	t.Setenv("ARGENT_GUARDRAILS", "enforce")
 	args := json.RawMessage(`{"command":"rm -rf x"}`)

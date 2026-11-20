@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -188,9 +189,51 @@ func runHelp(app App, _ context.Context, _ []string) int {
 	return 0
 }
 
-func runVersion(app App, _ context.Context, _ []string) int {
+func runVersion(app App, _ context.Context, args []string) int {
+	verbose := false
+	for _, arg := range args {
+		switch {
+		case arg == "-h" || arg == "--help":
+			versionUsage(app.IO.Out)
+			return 0
+		case arg == "-v" || arg == "--verbose" || arg == "--long":
+			verbose = true
+		default:
+			fmt.Fprintf(app.IO.Err, "argent: version: unexpected argument %q\n", arg)
+			versionUsage(app.IO.Err)
+			return 2
+		}
+	}
+	if verbose {
+		writeVersionInfo(app.IO.Out, app.Version)
+		return 0
+	}
 	fmt.Fprintf(app.IO.Out, "argentgo %s\n", app.Version)
 	return 0
+}
+
+// writeVersionInfo prints the detailed build report. It deliberately reads no
+// config and opens no network connection, so the output is instant and
+// deterministic; the protocol list comes straight from the llm constants
+// instead of a copy of the strings, so it cannot drift from what ships.
+func writeVersionInfo(w io.Writer, version string) {
+	protocols := []string{
+		llm.ProtocolAnthropicMessages,
+		llm.ProtocolChatCompletions,
+		llm.ProtocolResponses,
+	}
+	fmt.Fprintf(w, "argentgo %s\n", version)
+	fmt.Fprintf(w, "go: %s\n", runtime.Version())
+	fmt.Fprintf(w, "platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(w, "protocols: %s\n", strings.Join(protocols, ", "))
+}
+
+func versionUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argent version [-v|--verbose]
+
+Print the version, or with --verbose the Go runtime, target OS/architecture
+and supported wire protocols. The -V/--version flag keeps the one-line form.
+`)
 }
 
 // usageError marks validation failures that still need a message after the

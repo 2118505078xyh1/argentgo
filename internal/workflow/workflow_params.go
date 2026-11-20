@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Limits mirror goose's recipe parameter caps. They keep a workflow small
@@ -155,6 +156,85 @@ func ValidateParameters(def Definition) error {
 		}
 	}
 	return nil
+}
+
+// dateLayout is the only accepted shape for a date input's default. Keeping a
+// single layout makes the declaration check deterministic and gives authors a
+// concrete format to aim at.
+const dateLayout = "2006-01-02"
+
+// ValidateParamDefaults checks that every declared default agrees with its
+// input_type (and, for a select, with its options). It is a declaration check
+// that runs at validation time so a malformed default cannot reach
+// ResolveParameters, where it would be stringified verbatim into a prompt or a
+// tool argument.
+//
+// This complements ValidateParameters: that function checks the shape of the
+// declaration (keys, types, requirements, caps, usage), while this one checks
+// the value of the default against the declared type. Errors name the parameter
+// and the expected type; the value is never echoed, so a workflow can be shared
+// and its validation errors pasted into an issue without leaking a secret.
+func ValidateParamDefaults(def Definition) error {
+	for i, p := range def.Parameters {
+		if p.Default == nil {
+			// No default means the value comes from the caller at run time;
+			// there is nothing to type-check here.
+			continue
+		}
+		if !defaultMatchesType(p) {
+			return fmt.Errorf("workflow: parameters[%d] (%s): default does not match %s input",
+				i, strings.TrimSpace(p.Key), p.InputType)
+		}
+	}
+	return nil
+}
+
+// defaultMatchesType reports whether a declaration's default is a well-typed
+// value for its input_type. The accepted Go kinds mirror stringifyDefault so a
+// value that passes validation can always be rendered by the resolver.
+func defaultMatchesType(p WorkflowParam) bool {
+	switch p.InputType {
+	case ParamTypeString:
+		_, ok := p.Default.(string)
+		return ok
+	case ParamTypeNumber:
+		switch p.Default.(type) {
+		case float64, float32, int, int32, int64, json.Number:
+			return true
+		default:
+			return false
+		}
+	case ParamTypeBoolean:
+		_, ok := p.Default.(bool)
+		return ok
+	case ParamTypeDate:
+		s, ok := p.Default.(string)
+		return ok && isDateValue(s)
+	case ParamTypeSelect:
+		s, ok := p.Default.(string)
+		if !ok {
+			return false
+		}
+		for _, opt := range p.Options {
+			if s == opt {
+				return true
+			}
+		}
+		return false
+	case ParamTypeFile:
+		// A file input has no default; ValidateParameters rejects the
+		// declaration itself, so a default here is never well typed.
+		return false
+	default:
+		// An unknown input_type is rejected by ValidateParameters first.
+		return false
+	}
+}
+
+// isDateValue reports whether s parses as the declared date layout.
+func isDateValue(s string) bool {
+	_, err := time.Parse(dateLayout, s)
+	return err == nil
 }
 
 // ResolveParameters fills a value for every parameter from provided input or

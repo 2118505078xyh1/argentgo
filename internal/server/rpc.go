@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 
+	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
@@ -134,7 +136,7 @@ func reportScanError(p *peer, err error) (terminal bool) {
 // EOF or ctx is cancelled.
 //
 // Methods: prompt, abort, session.list, session.load, approval.list,
-// event/subscribe. Streamed
+// approval.answer, event/subscribe. Streamed
 // prompt text is emitted as prompt/delta notifications before the prompt result
 // is returned; event/subscribe answers with the current seq then emits "event"
 // notifications until the transport ends.
@@ -302,6 +304,67 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			items = []security.PendingApproval{}
 		}
 		p.respond(req.ID, map[string]any{"pending": items})
+	case "approval.answer":
+		// approval.answer {session?, id, granted} records an operator's decision
+		// for a pending tool call. The store is discovered through the same
+		// optional interface as approval.list, so fakes/standalone callers get a
+		// clean "not configured" error instead of a panic.
+		//
+		// PendingStore.Resolve only persists the decision (it removes the
+		// pending item and appends a decision record); it does not wake the
+		// in-memory approver blocking Approve.Ask. On the --rpc path the agent's
+		// own approval:resolved notice is emitted only after Ask returns (and
+		// the guarded-branch that emits approval notices is skipped entirely
+		// for a guarded toolset, which --rpc uses), so the engine does not send
+		// one here. Publish a resolved notice ourselves to keep text-only
+		// consumers (the native bridge) in sync with the answered card.
+		var params struct {
+			Session string `json:"session"`
+			ID      string `json:"id"`
+			Granted *bool  `json:"granted"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		if strings.TrimSpace(params.ID) == "" {
+			p.fail(req.ID, codeInvalidParams, "approval id is required")
+			return
+		}
+		if params.Granted == nil {
+			p.fail(req.ID, codeInvalidParams, "granted is required")
+			return
+		}
+		typed, ok := cfg.Runner.(interface{ PendingStore() *security.PendingStore })
+		if !ok || typed.PendingStore() == nil {
+			p.fail(req.ID, codeServerError, "pending approval store not configured")
+			return
+		}
+		store := typed.PendingStore()
+		granted := *params.Granted
+		// Resolve deletes the item, so read its tool name first: the resolved
+		// notice needs a non-empty (tool,id) pair for a consumer to pair it with
+		// the outstanding approval request (native rejects an empty tool).
+		tool := ""
+		if items, err := store.List(params.Session); err == nil {
+			for _, item := range items {
+				if item.ID == params.ID {
+					tool = item.Tool
+					break
+				}
+			}
+		}
+		if err := store.Resolve(params.Session, params.ID, granted); err != nil {
+			p.fail(req.ID, codeInternalError, err.Error())
+			return
+		}
+		if tool == "" {
+			tool = params.ID // defensive: keep the notice decodable
+		}
+		hub.Publish(agent.ApprovalResolvedEvent(tool, params.ID, granted))
+		p.respond(req.ID, map[string]any{"ok": true})
 	case "event/subscribe":
 		// Streaming in a goroutine keeps the scanner reading further requests.
 		// The method result reports the current seq; each event then arrives as

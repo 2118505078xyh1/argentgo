@@ -178,23 +178,26 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	// Feed stdin from a pipe we own: exec's own stdin copying would be waited
 	// on by Wait, so a reader that never returns could hang the whole call.
-	var stdinRead *os.File
+	// The copier goroutine is started only after a successful Start. Starting
+	// it earlier leaves it blocked on a Stdin reader that never produces data
+	// when the child cannot be spawned at all, leaking both the goroutine and
+	// the pipe's write end.
+	var stdinRead, stdinWrite *os.File
 	if c.Stdin != nil {
 		pr, pw, err := os.Pipe()
 		if err != nil {
 			return Result{ExitCode: -1}, fmt.Errorf("proc: stdin pipe: %w", err)
 		}
 		cmd.Stdin = pr
-		stdinRead = pr
-		go func() {
-			_, _ = io.Copy(pw, c.Stdin)
-			_ = pw.Close()
-		}()
+		stdinRead, stdinWrite = pr, pw
 	}
 
 	if err := cmd.Start(); err != nil {
 		if stdinRead != nil {
 			_ = stdinRead.Close()
+		}
+		if stdinWrite != nil {
+			_ = stdinWrite.Close()
 		}
 		return Result{ExitCode: -1}, fmt.Errorf("proc: spawn %q: %w", c.Path, err)
 	}
@@ -202,6 +205,12 @@ func Run(ctx context.Context, c Command) (Result, error) {
 	// end of the pipe into an EOF for it once the copier finishes.
 	if stdinRead != nil {
 		_ = stdinRead.Close()
+	}
+	if stdinWrite != nil {
+		go func() {
+			_, _ = io.Copy(stdinWrite, c.Stdin)
+			_ = stdinWrite.Close()
+		}()
 	}
 
 	handle := newPlatformProcess(cmd.Process, c.KillTree)

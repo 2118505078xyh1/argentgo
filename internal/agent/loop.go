@@ -408,6 +408,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		if reply.Content != "" {
 			s.lastText = reply.Content
 		}
+		// Persist the raw reply: llm.Message already carries Reasoning as JSON
+		// metadata ("reasoning"), so the session record keeps the model's
+		// thought text and session.Entry projects it back on resume.
 		s.record("assistant", reply)
 		s.emit(Event{Kind: EventTurnEnd, Turn: turn})
 		s.emit(Event{Kind: EventUsage, Turn: turn, Usage: turnUsage, TotalUsage: s.usage})

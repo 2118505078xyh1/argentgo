@@ -53,6 +53,20 @@ const (
 type PendingStore struct {
 	dir string
 	mu  sync.Mutex
+
+	// waiters is the in-process answer channel table. It complements (never
+	// replaces) the durable mirror: Resolve persists the decision and then
+	// wakes a blocked Approver.Ask through the matching channel. Keys use the
+	// raw session/id, not the redacted disk values, so a server answering via
+	// approval.answer always addresses the same waiter Ask registered.
+	waiters map[pendingWaiterKey]chan bool
+}
+
+// pendingWaiterKey correlates an in-process answer channel with one pending
+// request. Session and id are the raw values the caller sees (not hashes).
+type pendingWaiterKey struct {
+	session string
+	id      string
 }
 
 // NewPendingStore returns a store rooted at dir, creating the directory. When
@@ -63,11 +77,65 @@ func NewPendingStore(dir string) *PendingStore {
 	if strings.TrimSpace(dir) == "" {
 		dir = filepath.Join(".argent", "pending")
 	}
-	s := &PendingStore{dir: dir}
+	s := &PendingStore{dir: dir, waiters: make(map[pendingWaiterKey]chan bool)}
 	// The constructor cannot return an error; each method retries MkdirAll so
 	// a transient filesystem failure here is not fatal.
 	_ = os.MkdirAll(dir, 0o700)
 	return s
+}
+
+// RegisterWaiter installs a buffered (capacity 1) in-process answer channel for
+// (session, id) and returns it with a cancel func. Resolve delivers the granted
+// value non-blockingly to the channel and removes the waiter, so a caller can
+// select on the channel instead of blocking on local input. Callers MUST invoke
+// cancel when they stop waiting (context cancellation, or a local answer won)
+// to avoid leaking waiters; cancel is idempotent and safe to defer alongside an
+// explicit call. Registering the same key twice replaces the previous waiter.
+// A store built from a struct literal is supported here (as some tests do): the
+// waiter map is created on demand.
+func (s *PendingStore) RegisterWaiter(session, id string) (<-chan bool, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.waiters == nil {
+		s.waiters = make(map[pendingWaiterKey]chan bool)
+	}
+	key := pendingWaiterKey{session: session, id: id}
+	ch := make(chan bool, 1)
+	s.waiters[key] = ch
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			// Only remove our own channel: a later RegisterWaiter with the
+			// same key may have replaced it with a fresh waiter.
+			if cur, ok := s.waiters[key]; ok && cur == ch {
+				delete(s.waiters, key)
+			}
+		})
+	}
+	return ch, cancel
+}
+
+// deliverWaiterLocked hands granted to the waiter for (session, id), if any.
+// s.mu must already be held. Delivery is non-blocking and consumes the waiter
+// so a repeated Resolve can never answer twice.
+func (s *PendingStore) deliverWaiterLocked(session, id string, granted bool) {
+	if len(s.waiters) == 0 {
+		return
+	}
+	key := pendingWaiterKey{session: session, id: id}
+	ch, ok := s.waiters[key]
+	if !ok {
+		return
+	}
+	delete(s.waiters, key)
+	select {
+	case ch <- granted:
+	default:
+		// The channel is buffered with capacity 1 and freshly created, so this
+		// branch is unreachable in practice; keep Resolve non-blocking.
+	}
 }
 
 // PendingArgsDigest returns the sha256 of the canonical form of raw arguments.
@@ -158,12 +226,18 @@ func (s *PendingStore) List(session string) ([]PendingApproval, error) {
 }
 
 // Resolve removes the request with the given id and appends a bounded one-line
-// decision record. An unknown id is a no-op: reconnect races may replay a
-// decision after another client already resolved it, and failing that would
-// surface a spurious error to the operator.
+// decision record. An unknown id is a no-op on disk: reconnect races may replay
+// a decision after another client already resolved it, and failing that would
+// surface a spurious error to the operator. Independently of the disk result,
+// Resolve also wakes a registered in-process waiter (if any) with the decision.
+// This is what lets approval.answer unblock a pendingApprover.Ask on --rpc.
+// Delivery is deferred so a transient filesystem error, an unknown id, or a
+// replayed decision can never strand the blocked caller; the waiter is consumed
+// at most once, which makes repeated Resolve calls safe (idempotent).
 func (s *PendingStore) Resolve(session, id string, granted bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.deliverWaiterLocked(session, id, granted)
 	if err := s.ensureDir(); err != nil {
 		return err
 	}

@@ -49,6 +49,11 @@ type Options struct {
 	// PromptCacheKey overrides the key derived from the stable prefix for the
 	// Responses protocol.
 	PromptCacheKey string
+	// PreserveReasoning opts in to replaying an assistant turn's reasoning on
+	// later requests: reasoning_content on chat-completions and a thinking block
+	// on Anthropic Messages. It is off by default so the bytes sent upstream —
+	// and every existing wire-format test — stay exactly as before.
+	PreserveReasoning bool
 	// AttemptHook receives redacted attempt records for the session layer.
 	AttemptHook func(AttemptRecord)
 }

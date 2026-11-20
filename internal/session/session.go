@@ -54,10 +54,14 @@ type Record struct {
 
 // Entry is one message on the linear conversation.
 type Entry struct {
-	ID         string
-	Parent     string
-	Role       string // system | user | assistant | tool
-	Content    string
+	ID      string
+	Parent  string
+	Role    string // system | user | assistant | tool
+	Content string
+	// Reasoning is the model's thought text on an assistant turn. It is
+	// transcript-only metadata: empty on legacy records and on non-assistant
+	// turns, and omitted from archives when unset so old bytes stay identical.
+	Reasoning  string `json:"Reasoning,omitempty"`
 	Name       string // tool name, when the record carries one
 	ToolCallID string
 	TS         time.Time

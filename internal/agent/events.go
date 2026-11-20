@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/2118505078xyh1/argentgo/internal/llm"
+import (
+	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+)
 
 // EventKind names one observable step of a run.
 type EventKind string
@@ -22,7 +26,39 @@ const (
 	EventStop            EventKind = "stop"
 	EventSubagentStart   EventKind = "subagent_start"
 	EventSubagentEnd     EventKind = "subagent_end"
+	EventRetry           EventKind = "retry"
 )
+
+// RetryInfo is the wire-safe payload of an EventRetry. It is a closed set of
+// small scalars: no response body, header or credential-shaped provider text
+// is ever copied here. A frontend can draw "retry N of M" progress and a
+// backoff countdown from it without parsing the model's error string.
+type RetryInfo struct {
+	Attempt     int    `json:"attempt"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+	DelayMS     int64  `json:"delay_ms,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Model       string `json:"model,omitempty"`
+}
+
+// RetryInfoFromAttempt maps a redacted llm retry decision onto EventRetry's
+// wire payload. The llm layer owns the backoff, so delay is supplied by the
+// caller (RetryPolicy.Delay); only the closed Reason token is copied from the
+// decision, never Cause, which is free-form provider text.
+//
+// The app layer is the intended caller: it already installs llm's AttemptHook
+// and builds both the protocol clients and the agent Runner's Emit, so it can
+// bridge each AttemptRetry record here for per-backoff progress in addition to
+// the model-switch retries the agent emits on its own.
+func RetryInfoFromAttempt(a llm.RetryAttempt, model string, maxAttempts int, delay time.Duration) RetryInfo {
+	return RetryInfo{
+		Attempt:     a.Attempt,
+		MaxAttempts: maxAttempts,
+		DelayMS:     delay.Milliseconds(),
+		Reason:      string(a.Reason),
+		Model:       model,
+	}
+}
 
 // Event is one item on the run's event stream.
 //
@@ -41,6 +77,7 @@ const (
 //	stop                     Reason
 //	subagent_start           Text (task label), ToolName
 //	subagent_end             Text (task label), Output, IsError, Err
+//	retry                    Turn, Retry (attempt, max, backoff delay, reason, model)
 type Event struct {
 	Kind       EventKind
 	Turn       int
@@ -75,6 +112,11 @@ type Event struct {
 	// Checkpoint is populated only for EventCheckpointReady. It carries the
 	// information a session checkpoint needs before a mutating batch starts.
 	Checkpoint *Checkpoint
+	// Retry is populated only for EventRetry. It carries one retry decision in
+	// wire-safe terms. It stays nil for every other event kind and for producers
+	// that build an EventRetry directly, keeping their JSON byte-for-byte
+	// unchanged.
+	Retry *RetryInfo `json:"retry,omitempty"`
 }
 
 // IsTerminal reports whether e ends a run and is therefore must-deliver: a

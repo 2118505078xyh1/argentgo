@@ -172,6 +172,45 @@ func TestLoadIgnoreCaseInsensitiveMatching(t *testing.T) {
 	}
 }
 
+// A UTF-8 BOM at the start of a .argentignore file is encoding metadata, not
+// part of the first line. Without stripping it the first pattern becomes
+// "\ufeff*.log" and never matches; worse, a BOM-prefixed comment is mistaken
+// for a pattern instead of being skipped. The instruction-file loader already
+// strips a leading BOM; ignore files must do the same.
+func TestLoadIgnoreStripsLeadingBOM(t *testing.T) {
+	t.Run("before first pattern", func(t *testing.T) {
+		dir := t.TempDir()
+		writeIgnoreFile(t, dir, "\ufeff*.log\nkeep.txt\n")
+
+		rules := loadIgnoreOrFatal(t, dir)
+		if got := len(rules.patterns); got != 2 {
+			t.Fatalf("got %d patterns, want 2: %+v", got, rules.patterns)
+		}
+		if !rules.Ignored("debug.log") {
+			t.Error("BOM-prefixed first pattern should ignore debug.log")
+		}
+		if rules.Ignored("main.go") {
+			t.Error("unmatched path should not be ignored")
+		}
+	})
+
+	t.Run("before leading comment", func(t *testing.T) {
+		dir := t.TempDir()
+		writeIgnoreFile(t, dir, "\ufeff# a comment\n*.log\n!keep.log\n")
+
+		rules := loadIgnoreOrFatal(t, dir)
+		if got := len(rules.patterns); got != 2 {
+			t.Fatalf("BOM-prefixed comment became a pattern; got %d patterns, want 2: %+v", got, rules.patterns)
+		}
+		if !rules.Ignored("debug.log") {
+			t.Error("first real pattern should ignore debug.log")
+		}
+		if rules.Ignored("keep.log") {
+			t.Error("negation after the comment should re-include keep.log")
+		}
+	})
+}
+
 // Invalid input is an error; an entry named .argentignore that is a directory
 // is simply skipped, keeping discovery best-effort.
 func TestLoadIgnoreInvalidDirAndDirectoryEntry(t *testing.T) {

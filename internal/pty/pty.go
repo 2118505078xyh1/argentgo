@@ -57,7 +57,11 @@ type terminal interface {
 // Pty is one running process attached to a pseudoterminal.
 type Pty struct {
 	term terminal
-	size Size
+	// sizeMu guards size: Resize may run on a UI/window event while another
+	// goroutine reads Size for rendering, and two concurrent Resizes must not
+	// leave size disagreeing with the size actually applied to the terminal.
+	sizeMu sync.RWMutex
+	size   Size
 
 	closeOnce sync.Once
 	closeErr  error
@@ -119,6 +123,11 @@ func (p *Pty) Resize(size Size) error {
 	if size.Cols < 2 || size.Rows < 2 {
 		return fmt.Errorf("pty: refusing a %dx%d size", size.Cols, size.Rows)
 	}
+	// Hold the write lock across the platform call so concurrent Resizes are
+	// serialised: the reported size always matches the last one applied to the
+	// terminal, and Size() can never observe a half-updated value.
+	p.sizeMu.Lock()
+	defer p.sizeMu.Unlock()
 	if err := p.term.Resize(size); err != nil {
 		return err
 	}
@@ -127,7 +136,11 @@ func (p *Pty) Resize(size Size) error {
 }
 
 // Size is the terminal size last requested.
-func (p *Pty) Size() Size { return p.size }
+func (p *Pty) Size() Size {
+	p.sizeMu.RLock()
+	defer p.sizeMu.RUnlock()
+	return p.size
+}
 
 // Close terminates the child and releases the terminal. It is idempotent.
 func (p *Pty) Close() error {

@@ -3,9 +3,11 @@ package proc
 import (
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -394,5 +396,46 @@ func TestRunReportsASpawnFailure(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("a missing program must be an error")
+	}
+}
+
+// blockingStdin records the first Read and then blocks until released, so a
+// test can observe whether Run's stdin copier ever touched the reader.
+type blockingStdin struct {
+	read    chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingStdin() *blockingStdin {
+	return &blockingStdin{read: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (r *blockingStdin) Read(p []byte) (int, error) {
+	r.once.Do(func() { close(r.read) })
+	<-r.release
+	return 0, io.EOF
+}
+
+// TestRunDoesNotCopyStdinWhenSpawnFails guards against leaking the stdin copier
+// goroutine and the pipe it writes to when a command cannot be started. With a
+// Stdin reader that never produces data, a copier started before cmd.Start
+// blocks forever in Read after the spawn error; the caller has no handle to it
+// and the process is gone, so both the goroutine and the pipe leak.
+func TestRunDoesNotCopyStdinWhenSpawnFails(t *testing.T) {
+	stdin := newBlockingStdin()
+	defer close(stdin.release)
+
+	_, err := Run(context.Background(), Command{
+		Path:  filepath.Join(t.TempDir(), "no-such-binary"),
+		Stdin: stdin,
+	})
+	if err == nil {
+		t.Fatal("a missing program must be an error")
+	}
+	select {
+	case <-stdin.read:
+		t.Fatal("stdin copier read from Stdin even though the command never spawned")
+	case <-time.After(20 * time.Millisecond):
 	}
 }

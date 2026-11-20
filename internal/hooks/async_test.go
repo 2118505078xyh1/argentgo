@@ -189,6 +189,61 @@ func TestPlanAsyncRespectsDedupAndStopPropagation(t *testing.T) {
 	}
 }
 
+// The dedup and stop-propagation walk in planRun and planAsync must agree on
+// which commands are claimed. They currently do not, which produces two bugs:
+// the same command string can run in BOTH paths, and an async hook carrying
+// StopPropagation does not shield later synchronous hooks.
+
+func TestDispatchClaimedCommandDoesNotRunInBothPaths(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "append")
+	logPath := filepath.Join(t.TempDir(), "hooks.log")
+	t.Setenv("ARGENT_HOOK_LOG", logPath)
+
+	// Two documents disagree on "async" for the same command. The first
+	// (highest-priority, here declaration-order) occurrence claims the command;
+	// the duplicate must not also run in the other path.
+	config := &Config{Commands: []Command{
+		{Event: PostToolUse, Command: "dup", Async: true, Timeout: 5 * time.Second},
+		{Event: PostToolUse, Command: "dup", Timeout: 5 * time.Second},
+	}}
+	dispatcher := helperDispatcher(5 * time.Second)
+	outcomes, err := dispatcher.Run(context.Background(), config, Payload{Event: "PostToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	dispatcher.WaitAsync()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if got := strings.Count(string(data), "\n"); got != 1 {
+		t.Fatalf("executions = %d, want 1 (command must not run in both paths)", got)
+	}
+	if len(outcomes) != 0 {
+		t.Fatalf("async-claimed command leaked into the synchronous decision: %+v", outcomes)
+	}
+}
+
+func TestDispatchAsyncStopPropagationShieldsLaterSyncHooks(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	config := &Config{Commands: []Command{
+		{Event: PreToolUse, Command: "high", Timeout: time.Second},
+		{Event: PreToolUse, Command: "stop", Async: true, StopPropagation: true, Timeout: time.Second},
+		{Event: PreToolUse, Command: "low", Timeout: time.Second},
+	}}
+	dispatcher := helperDispatcher(5 * time.Second)
+	outcomes, err := dispatcher.Run(context.Background(), config, Payload{Event: "PreToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	dispatcher.WaitAsync()
+
+	if got, want := outcomeCommands(outcomes), "high"; got != want {
+		t.Fatalf("executed = %q, want %q (async stop must shield later sync hooks)", got, want)
+	}
+}
+
 func TestDispatchAsyncHookReallyExecutes(t *testing.T) {
 	t.Setenv("ARGENT_HOOK_HELPER", "append")
 	logPath := filepath.Join(t.TempDir(), "async.log")

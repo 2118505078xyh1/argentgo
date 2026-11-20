@@ -122,6 +122,35 @@ func TestFrontmatterQuotingBlocksAndEdgeCases(t *testing.T) {
 	}
 }
 
+// YAML double-quoted scalars process escapes left-to-right: "\\\\" is a single
+// literal backslash, so a following "n" or "t" is ordinary text. A chain of
+// ReplaceAll calls processes "\n" before "\\\\" and corrupts an escaped
+// Windows path such as "C:\\temp\\name" into tabs and newlines.
+func TestParseDoubleQuotedEscapesInOrder(t *testing.T) {
+	cases := []struct {
+		name, value, want string
+	}{
+		{"escaped backslash before n", `a\\nb`, `a\nb`},
+		{"escaped backslash before t", `a\\tb`, `a\tb`},
+		{"windows path stays literal", `C:\\temp\\name`, `C:\temp\name`},
+		{"real escapes still work", `C:\temp\name`, "C:\temp\n" + "ame"},
+		{"escaped quote", `a\"b`, `a"b`},
+		{"tab escape", `a\tb`, "a\tb"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := "---\ndescription: \"" + tc.value + "\"\n---\nbody"
+			skill, err := Parse(text, filepath.Join("tmp", "x", "SKILL.md"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if skill.Description != tc.want {
+				t.Errorf("description = %q, want %q", skill.Description, tc.want)
+			}
+		})
+	}
+}
+
 func TestSplitFrontmatterEdgeCases(t *testing.T) {
 	if _, _, ok := SplitFrontmatter("just prose"); ok {
 		t.Error("prose must not have frontmatter")

@@ -260,5 +260,11 @@ func (d *Definition) Validate() error {
 	if err := ValidateParameters(*d); err != nil {
 		return err
 	}
+	// A default whose value contradicts its declared input_type would be
+	// stringified into a prompt or tool arg at run time; reject it here so a
+	// definition cannot reach the executor with a malformed default.
+	if err := ValidateParamDefaults(*d); err != nil {
+		return err
+	}
 	return nil
 }

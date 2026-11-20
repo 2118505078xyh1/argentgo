@@ -76,6 +76,20 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			break
 		}
 		next := models[i+1]
+		// A provider switch is the retry signal the agent can see on its own:
+		// per-attempt backoff lives inside llm.RetryPolicy and never reaches
+		// this layer. Publish the switch as a structured retry so a frontend can
+		// show progress, and keep the legacy notice untouched for old consumers.
+		s.emit(Event{
+			Kind: EventRetry,
+			Turn: turn,
+			Retry: &RetryInfo{
+				Attempt:     i + 2,
+				MaxAttempts: len(models),
+				Reason:      retryReason(err),
+				Model:       next,
+			},
+		})
 		s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf("model %s failed (%v); switching to %s", model, err, next)})
 	}
 
@@ -163,6 +177,24 @@ func isRetryableProviderError(err error) bool {
 		return true
 	}
 	return legacyRetryable
+}
+
+// retryReason reduces a retryable provider error to one fixed, wire-safe token.
+// It never copies provider text: the error may carry a credential, and even a
+// redacted body does not belong on a progress badge. The tokens are the llm
+// retry classes when a typed signal exists, "status" for a retryable HTTP code,
+// and "not_sent" as a conservative default.
+func retryReason(err error) string {
+	if err == nil {
+		return string(llm.ReasonNone)
+	}
+	if code, ok := statusCodeInError(strings.ToLower(err.Error())); ok && llm.IsRetryableStatus(code) {
+		return string(llm.ReasonStatus)
+	}
+	if reason := llm.ClassifyRetryError(err); reason != llm.ReasonNone {
+		return string(reason)
+	}
+	return string(llm.ReasonNotSent)
 }
 
 // containsAny reports whether text holds any of the lower-case needles.

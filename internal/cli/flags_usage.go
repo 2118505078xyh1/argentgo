@@ -32,6 +32,7 @@ commands:
   bug                           write a diagnostics dump
   eval <file>                   run scripted JSON eval scenarios
   config get|set                read or write dotted config keys
+  version [--verbose]           print version or detailed build info
    workflow list|run|show       inspect and run workflow definitions
    telemetry status|off         report the personal-build telemetry preference
    attach <id> [-n N]           print the last N lines of a job log

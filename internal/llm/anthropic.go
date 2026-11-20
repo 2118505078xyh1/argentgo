@@ -71,8 +71,12 @@ type anthropicMessage struct {
 }
 
 type anthropicBlock struct {
-	Type         string          `json:"type"`
-	Text         string          `json:"text,omitempty"`
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	// Thinking carries the replayed reasoning on a "thinking" block when
+	// Options.PreserveReasoning is enabled. Omitted otherwise so the request
+	// bytes match earlier builds exactly.
+	Thinking     string          `json:"thinking,omitempty"`
 	ID           string          `json:"id,omitempty"`
 	Name         string          `json:"name,omitempty"`
 	Input        json.RawMessage `json:"input,omitempty"`
@@ -213,7 +217,15 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 			}
 			req.Messages = pushBlocks(req.Messages, "user", blocks)
 		case "assistant":
-			blocks := textBlocks(message.Content)
+			var blocks []anthropicBlock
+			if c.Options.PreserveReasoning && message.Reasoning != "" {
+				// Thinking blocks precede text blocks on an assistant turn.
+				// The signature is not part of the neutral Message contract, so
+				// replay carries the text only; providers that require a
+				// signature must supply it at the gateway layer.
+				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: message.Reasoning})
+			}
+			blocks = append(blocks, textBlocks(message.Content)...)
 			for _, call := range message.ToolCalls {
 				blocks = append(blocks, toolUseBlock(call))
 			}

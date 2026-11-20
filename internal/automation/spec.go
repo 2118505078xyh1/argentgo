@@ -158,13 +158,22 @@ func (s Schedule) Next(t time.Time) time.Time {
 	return time.Time{}
 }
 
-// String renders the schedule for logs.
+// String renders the schedule for logs and for read-only task lists. The
+// canonical "kind expr" is always kept as a prefix; a valid cron expression
+// additionally gets a human-readable summary in parentheses so a CLI/TUI list
+// can show what the schedule actually means without a separate lookup.
 func (s Schedule) String() string {
 	kind := s.kind()
 	if kind == "" {
 		kind = s.Kind
 	}
-	return kind + " " + strings.TrimSpace(s.Expr)
+	base := kind + " " + strings.TrimSpace(s.Expr)
+	if kind == KindCron {
+		if d, err := DescribeCron(s.Expr, time.Time{}, 0); err == nil && d.Summary != "" {
+			return base + " (" + d.Summary + ")"
+		}
+	}
+	return base
 }
 
 // Spec is one scheduled task plus its persisted run state.

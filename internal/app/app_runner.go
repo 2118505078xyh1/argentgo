@@ -102,6 +102,14 @@ type pendingApprover struct {
 
 func (p *pendingApprover) Ask(ctx context.Context, name, args string) (bool, error) {
 	id := fmt.Sprintf("%s-%d", name, nextPendingID.Add(1))
+
+	// Register the in-process answer channel before persisting, so an external
+	// approval.answer racing with the Add below can never call Resolve first
+	// and find no waiter. cancel is deferred for the early/error paths and
+	// called explicitly once a decision is made.
+	answer, cancelWaiter := p.store.RegisterWaiter(p.session, id)
+	defer cancelWaiter()
+
 	// Best-effort durability: a failed write must never block or change the
 	// approval decision, which stays a purely in-memory interaction.
 	_ = p.store.Add(security.PendingApproval{
@@ -110,7 +118,43 @@ func (p *pendingApprover) Ask(ctx context.Context, name, args string) (bool, err
 		Tool:       name,
 		ArgsDigest: security.PendingArgsDigest(args),
 	})
-	granted, err := p.inner.Ask(ctx, name, args)
+
+	// Keep the local TUI/CLI interaction intact: inner.Ask keeps running while
+	// we wait for an external answer. First answer wins. Headless --rpc/--serve
+	// runs have no human at stdin, so approval.answer (via Resolve -> answer)
+	// decides; the direct CLI path has no external answer, so the local y/n is
+	// exactly the behaviour it is today.
+	type localAnswer struct {
+		granted bool
+		err     error
+	}
+	local := make(chan localAnswer, 1)
+	go func() {
+		granted, err := p.inner.Ask(ctx, name, args)
+		local <- localAnswer{granted: granted, err: err}
+	}()
+
+	var granted bool
+	var err error
+	// If both answers are ready in the same instant, prefer the remote one:
+	// it is the operator's explicit decision on the control channel.
+	select {
+	case granted = <-answer:
+	default:
+		select {
+		case granted = <-answer:
+		case ans := <-local:
+			granted, err = ans.granted, ans.err
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+	}
+
+	// Unregister before persisting so a late Resolve cannot deliver into a
+	// channel nobody reads. This Resolve is idempotent: an external answer has
+	// already removed the pending record and consumed its waiter, so a second
+	// call on disk is a no-op and no duplicate answer can be delivered.
+	cancelWaiter()
 	_ = p.store.Resolve(p.session, id, granted)
 	return granted, err
 }

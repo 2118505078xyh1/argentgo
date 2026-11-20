@@ -28,9 +28,12 @@ var (
 // comment early and corrupt the rest of the JSONC document.
 //
 // Environment values are substituted verbatim by default so configs that
-// parse today keep their meaning. If that produces malformed JSON, the whole
-// document is retried with JSON-string escaping applied to env values (the
-// fallback that makes Windows paths and quotes safe to embed).
+// parse today keep their meaning. The document is retried with JSON-string
+// escaping applied to env values when the verbatim result is malformed JSON
+// (a quote or control byte) OR when an env value contains a backslash: a
+// backslash is the one case that can stay *syntactically* valid while silently
+// changing the value, because "\t" in a Windows path such as C:\temp decodes
+// as a tab rather than the two literal characters.
 func Substitute(text, configDir string, env func(string) string, warn WarnFunc) string {
 	if env == nil {
 		env = func(string) string { return "" }
@@ -39,17 +42,23 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 		warn = func(string, ...any) {}
 	}
 
-	raw := replaceFiles(replaceEnv(text, env, false, warn), configDir, env, warn)
-	if !strings.Contains(text, "{env:") || isJSONConfig(raw) {
+	rawEnvText, needsEscape := replaceEnv(text, env, false, warn)
+	raw := replaceFiles(rawEnvText, configDir, env, warn)
+	if !strings.Contains(text, "{env:") || (isJSONConfig(raw) && !needsEscape) {
 		return raw
 	}
-	return replaceFiles(replaceEnv(text, env, true, warn), configDir, env, warn)
+	escapedEnvText, _ := replaceEnv(text, env, true, warn)
+	return replaceFiles(escapedEnvText, configDir, env, warn)
 }
 
-func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc) string {
+// replaceEnv substitutes {env:VAR} references. The second result reports
+// whether any substituted (non-comment) value contains a backslash, which the
+// caller uses to decide that verbatim substitution is not value-preserving.
+func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc) (string, bool) {
 	var out strings.Builder
 	out.Grow(len(text))
 	cursor := 0
+	needsEscape := false
 	for _, loc := range envRefRe.FindAllStringIndex(text, -1) {
 		start, end := loc[0], loc[1]
 		out.WriteString(text[cursor:start])
@@ -64,6 +73,9 @@ func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc
 		if value == "" {
 			warn("config: environment variable %q referenced in config is not set", name)
 		}
+		if strings.ContainsRune(value, '\\') {
+			needsEscape = true
+		}
 		if escape {
 			out.WriteString(jsonStringBody(value))
 		} else {
@@ -71,7 +83,7 @@ func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc
 		}
 	}
 	out.WriteString(text[cursor:])
-	return out.String()
+	return out.String(), needsEscape
 }
 
 func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc) string {

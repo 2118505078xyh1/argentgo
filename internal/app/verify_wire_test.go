@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/config"
@@ -308,6 +309,37 @@ func TestVerifyWiringDefaultOffAndConfigured(t *testing.T) {
 	res.Cfg.VerifyMaxReflections = 7
 	if got := verifyReflectionsFor(res); got != 7 {
 		t.Fatalf("verifyReflectionsFor(explicit) = %d, want 7", got)
+	}
+}
+
+// TestVerifyTailBufferKeepsRuneAlignedTailClean pins the truncation path when
+// the cap boundary splits a multi-byte rune. The buffer must drop the leading
+// partial rune and must NOT append stale bytes from before the retained tail
+// window (Truncate still saw the original, larger length).
+func TestVerifyTailBufferKeepsRuneAlignedTailClean(t *testing.T) {
+	tail := strings.Repeat("A", verifyOutputCap-1)
+	for _, tc := range []struct {
+		name   string
+		writes []string
+	}{
+		{"single write", []string{"é" + tail}}, // cap boundary splits the leading 2-byte rune
+		{"split writes", []string{"é", tail}},  // same, but the tail arrives incrementally
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var w verifyTailBuffer
+			for _, chunk := range tc.writes {
+				if _, err := w.Write([]byte(chunk)); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+			}
+			out := strings.TrimPrefix(w.String(), verifyTruncMarker)
+			if out != tail {
+				t.Fatalf("tail length = %d, want %d clean bytes (stale bytes appended?)", len(out), len(tail))
+			}
+			if !utf8.ValidString(out) {
+				t.Fatal("tail is not valid UTF-8")
+			}
+		})
 	}
 }
 

@@ -41,6 +41,7 @@ func messageEntry(record Record) (Entry, bool) {
 		entry.Role = "assistant"
 		entry.Content = textOf(record.Data)
 		entry.ToolCallID = fieldString(record.Data, "toolCallId", "tool_call_id")
+		entry.Reasoning = reasoningOf(record.Data)
 	case KindTool, "tool_result", "tool-result", "toolresult":
 		entry.Role = "tool"
 		entry.Content = firstNonEmpty(
@@ -60,6 +61,9 @@ func messageEntry(record Record) (Entry, bool) {
 		}
 		entry.Content = textOf(record.Data)
 		entry.ToolCallID = fieldString(record.Data, "toolCallId", "tool_call_id")
+		if entry.Role == "assistant" {
+			entry.Reasoning = reasoningOf(record.Data)
+		}
 	case KindSummary:
 		entry.Role = "system"
 		entry.Content = firstNonEmpty(fieldString(record.Data, "text"), textOf(record.Data))
@@ -80,6 +84,31 @@ func messageEntries(records []Record) []Entry {
 		}
 	}
 	return ReconcileToolPairs(out)
+}
+
+// reasoningOf reads the model's thought text from an assistant record. Both
+// the neutral "reasoning" key and the OpenAI-compatible "reasoning_content"
+// key are accepted so imported transcripts keep their reasoning too. A record
+// without either key simply yields an empty string, which keeps legacy
+// sessions unchanged.
+func reasoningOf(raw json.RawMessage) string {
+	return fieldString(raw, "reasoning", "reasoning_content")
+}
+
+// AssistantRecord builds the persisted payload for an assistant message that
+// carries its reasoning text. Empty fields are omitted so records written by
+// earlier builds stay byte-identical. Use it with Session.Append(KindAssistant,
+// ...) when a caller has reasoning to preserve; the agent loop's llm.Message
+// payload already carries the same "reasoning" key.
+func AssistantRecord(content, reasoning string) map[string]any {
+	payload := make(map[string]any, 2)
+	if content != "" {
+		payload["content"] = content
+	}
+	if reasoning != "" {
+		payload["reasoning"] = reasoning
+	}
+	return payload
 }
 
 // fieldString reads the first matching string key from a JSON object payload.

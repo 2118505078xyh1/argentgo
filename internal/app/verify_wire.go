@@ -431,7 +431,11 @@ func (w *verifyTailBuffer) Write(p []byte) (int, error) {
 			drop++
 		}
 		copy(data, data[drop:])
-		w.buf.Truncate(verifyOutputCap)
+		// Truncate to the bytes actually retained, not to verifyOutputCap.
+		// Advancing drop past a split rune shortens the tail by that many
+		// bytes; truncating to the full cap would expose stale bytes from
+		// before the retained window at the end of the output.
+		w.buf.Truncate(len(data) - drop)
 		w.truncated = true
 	}
 	return n, err

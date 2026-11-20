@@ -198,19 +198,43 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 	return outcomes, nil
 }
 
-// planRun mirrors the old serial loop's control flow, but chooses the command
-// set up front: skip async hooks, stop after the first StopPropagation
-// command, and drop duplicate command strings (keeping the first occurrence
-// in priority/declaration order). A duplicate still honours its stop boundary.
-// The result is a slice of priority tiers in execution order; each tier holds
-// equal-priority commands that may run concurrently.
-func planRun(commands []Command) [][]Command {
-	tiers := make([][]Command, 0, len(commands))
+// claimedCommands walks the sorted command list once and returns the commands
+// that actually execute: duplicate command strings are dropped (the first
+// occurrence in priority/declaration order wins) and a StopPropagation command
+// ends the walk, shielding every later hook. A duplicate still honours its own
+// stop boundary. Both planRun and planAsync derive from this single walk so
+// they cannot disagree about which commands were claimed: every command goes
+// to exactly one of the synchronous or background paths, and a stop on either
+// path shields later hooks in both.
+func claimedCommands(commands []Command) []Command {
 	seen := make(map[string]struct{}, len(commands))
+	claimed := make([]Command, 0, len(commands))
+	for _, command := range commands {
+		if _, duplicate := seen[command.Command]; duplicate {
+			if command.StopPropagation {
+				break
+			}
+			continue
+		}
+		seen[command.Command] = struct{}{}
+		claimed = append(claimed, command)
+		if command.StopPropagation {
+			break
+		}
+	}
+	return claimed
+}
+
+// planRun mirrors the old serial loop's control flow using the claimed set:
+// synchronous commands are grouped into priority tiers, each holding
+// equal-priority commands that may run concurrently, in execution order.
+func planRun(commands []Command) [][]Command {
+	claimed := claimedCommands(commands)
+	tiers := make([][]Command, 0, len(claimed))
 	var current []Command
 	haveTier := false
 	var tierPriority int
-	for _, command := range commands {
+	for _, command := range claimed {
 		if command.Async {
 			continue
 		}
@@ -222,13 +246,7 @@ func planRun(commands []Command) [][]Command {
 			tierPriority = command.Priority
 			haveTier = true
 		}
-		if _, duplicate := seen[command.Command]; !duplicate {
-			seen[command.Command] = struct{}{}
-			current = append(current, command)
-		}
-		if command.StopPropagation {
-			break
-		}
+		current = append(current, command)
 	}
 	if haveTier && len(current) > 0 {
 		tiers = append(tiers, current)

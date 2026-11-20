@@ -282,11 +282,19 @@ type chatMessage struct {
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
+	// ReasoningContent is the reasoning replayed on an assistant turn when
+	// Options.PreserveReasoning is enabled. It stays empty by default so the
+	// wire bytes are unchanged for every existing caller.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
-// wireMessages copies messages without transcript-only fields, keeping the
-// bytes sent upstream exactly as before Reasoning/Usage existed.
-func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl) []chatMessage {
+// wireMessages copies messages without transcript-only fields. With
+// preserveReasoning off (the default) it keeps the bytes sent upstream exactly
+// as before Reasoning/Usage existed; the opt-in flag alone adds the
+// reasoning_content field to assistant turns that carry reasoning. The bool is
+// variadic so the historical three-argument call form keeps compiling.
+func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl, preserveReasoning ...bool) []chatMessage {
+	keepReasoning := len(preserveReasoning) > 0 && preserveReasoning[0]
 	out := make([]chatMessage, len(messages))
 	marked := false
 	for i, m := range messages {
@@ -295,6 +303,9 @@ func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl) 
 			Content:    m.Content,
 			ToolCalls:  m.ToolCalls,
 			ToolCallID: m.ToolCallID,
+		}
+		if keepReasoning && m.Role == "assistant" && m.Reasoning != "" {
+			out[i].ReasoningContent = m.Reasoning
 		}
 		if cacheEnabled && !marked && m.Role == "system" && strings.TrimSpace(m.Content) != "" {
 			out[i].CacheControl = control
@@ -310,8 +321,14 @@ var _ PromptCacheCapable = (*Client)(nil)
 type chunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content string `json:"content"`
+			// ReasoningContent is the OpenAI-compatible incremental reasoning
+			// (DeepSeek, Qwen, ...). Reasoning is the alternate key some
+			// gateways use. Only one is written per delta; the first non-empty
+			// wins so a provider sending both cannot double the text.
+			ReasoningContent string `json:"reasoning_content"`
+			Reasoning        string `json:"reasoning"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
@@ -360,7 +377,7 @@ func (c *Client) chat(
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
 		Model:        model,
-		Messages:     wireMessages(messages, cacheEnabled, c.Options.cacheControl()),
+		Messages:     wireMessages(messages, cacheEnabled, c.Options.cacheControl(), c.Options.PreserveReasoning),
 		Tools:        tools,
 		StopTokenIDs: stopIDs,
 		Stream:       true,
@@ -430,6 +447,9 @@ func (c *Client) chat(
 
 func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
 	var text strings.Builder
+	// Reasoning deltas are appended verbatim as whole strings, so a CJK rune
+	// split across chunks is preserved exactly: no byte/rune slicing happens.
+	var reasoning strings.Builder
 	// A tool call is keyed by both its stream index and its id. Gateways may
 	// renumber a call or swap its id between deltas; both maps alias the same
 	// block so every fragment still lands in one place. blocks keeps the
@@ -567,6 +587,14 @@ streamLoop:
 					onText(delta)
 				}
 			}
+			// Capture incremental reasoning without forwarding it to onText:
+			// reasoning is transcript metadata, not answer text. Prefer the
+			// OpenAI-compatible key; fall back to the alternate spelling.
+			if delta := choice.Delta.ReasoningContent; delta != "" {
+				reasoning.WriteString(delta)
+			} else if delta := choice.Delta.Reasoning; delta != "" {
+				reasoning.WriteString(delta)
+			}
 			for _, tc := range choice.Delta.ToolCalls {
 				// Resolve by index first, then by id: an id may reappear under a
 				// new index, or a delta may omit its index after a rename.
@@ -630,5 +658,5 @@ streamLoop:
 		return Message{}, err
 	}
 
-	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage, FinishReason: finishReason}, nil
+	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Reasoning: reasoning.String(), Usage: usage, FinishReason: finishReason}, nil
 }

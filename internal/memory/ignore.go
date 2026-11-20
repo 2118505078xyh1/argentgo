@@ -110,6 +110,11 @@ func LoadIgnore(dir string) (*IgnoreRules, error) {
 // parseIgnorePatterns turns one file's text into ordered patterns.
 func parseIgnorePatterns(text, source string) []pattern {
 	var out []pattern
+	// A leading UTF-8 BOM is encoding metadata, not part of the first line.
+	// The instruction-file loader strips it in readInstructionFile; ignore
+	// files must do the same, or the first pattern is prefixed with the BOM
+	// (and never matches) while a BOM-prefixed comment is read as a pattern.
+	text = strings.TrimPrefix(text, bom)
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {

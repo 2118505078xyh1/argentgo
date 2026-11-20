@@ -73,9 +73,14 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 		done:       make(chan struct{}),
 	}
 
+	// The event stream must outlive Connect, so it uses its own cancellable
+	// context with no deadline. The *handshake* (waiting for the GET response
+	// headers) is bounded by ctx instead: otherwise a server that accepts the
+	// GET but never answers would make Connect hang forever, ignoring both the
+	// caller's deadline and the configured timeout.
 	streamCtx, cancel := context.WithCancel(context.Background())
 	t.streamCancel = cancel
-	if err := t.openStream(streamCtx); err != nil {
+	if err := t.openStream(ctx, streamCtx, cancel); err != nil {
 		// No event stream: treat the URL as a streamable single endpoint.
 		cancel()
 		t.postURL = spec.URL
@@ -91,29 +96,64 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 }
 
 // openStream starts the long-lived GET event stream.
-func (t *httpTransport) openStream(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, nil)
+//
+// The request uses streamCtx, which has no deadline so the stream can live for
+// the whole session. But only the *handshake* — receiving the response headers
+// — is allowed to take ctx's remaining time. ctx carries the caller's deadline
+// or the configured request timeout (set by newHTTPTransport). Waiting on the
+// request context alone would let a server that accepts the GET and then goes
+// silent block Connect indefinitely, leaking the connection and the goroutine.
+//
+// streamCancel aborts the in-flight GET when ctx ends before the headers do.
+// The caller then treats the URL as a streamable single endpoint, so no stream
+// is lost by the abort.
+func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel context.CancelFunc) error {
+	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, t.url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	applyHeaders(req, t.headers)
 
-	response, err := t.client.Do(req)
-	if err != nil {
-		return err
+	type outcome struct {
+		response *http.Response
+		err      error
 	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		_ = response.Body.Close()
-		return fmt.Errorf("mcp %q: GET %s returned %d", t.name, t.url, response.StatusCode)
+	results := make(chan outcome, 1)
+	go func() {
+		response, err := t.client.Do(req)
+		results <- outcome{response: response, err: err}
+	}()
+
+	select {
+	case result := <-results:
+		if result.err != nil {
+			return result.err
+		}
+		response := result.response
+		if response.StatusCode < 200 || response.StatusCode > 299 {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+			_ = response.Body.Close()
+			return fmt.Errorf("mcp %q: GET %s returned %d", t.name, t.url, response.StatusCode)
+		}
+		if contentType := strings.ToLower(response.Header.Get("Content-Type")); !strings.Contains(contentType, "text/event-stream") {
+			_ = response.Body.Close()
+			return fmt.Errorf("mcp %q: %s is not an event stream", t.name, t.url)
+		}
+		go t.readStream(streamCtx, response.Body)
+		return nil
+	case <-ctx.Done():
+		// Abort the in-flight GET. If it won the race and produced a response,
+		// close the body once the Do goroutine hands it over so nothing leaks.
+		streamCancel()
+		go func() {
+			result := <-results
+			if result.response != nil {
+				_ = result.response.Body.Close()
+			}
+		}()
+		return fmt.Errorf("mcp %q: GET %s during handshake: %w", t.name, t.url, ctx.Err())
 	}
-	if contentType := strings.ToLower(response.Header.Get("Content-Type")); !strings.Contains(contentType, "text/event-stream") {
-		_ = response.Body.Close()
-		return fmt.Errorf("mcp %q: %s is not an event stream", t.name, t.url)
-	}
-	go t.readStream(ctx, response.Body)
-	return nil
 }
 
 // readStream feeds SSE messages into the waiters and records the endpoint.

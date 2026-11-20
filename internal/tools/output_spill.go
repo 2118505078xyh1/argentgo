@@ -55,8 +55,10 @@ func SpillLargeOutput(output string, threshold int, dir string) (result string, 
 	if threshold <= 0 || len(output) <= threshold {
 		return output, "", nil
 	}
-	// Already spilled (successfully or not): never spill a second time.
-	if strings.Contains(output, spillMarkerOpen) {
+	// Already spilled: never spill a second time. Trust only an intact marker
+	// that names a real artifact, not a substring that happens to appear in
+	// untrusted tool output (which would bypass the bound entirely).
+	if isOwnSpillResult(output, dir) {
 		return output, "", nil
 	}
 
@@ -117,6 +119,110 @@ func spillRuneCeil(s string, at int) int {
 		i++
 	}
 	return i
+}
+
+// spillResultArtifacts scans text for complete markers emitted by
+// formatSpillMarker and returns the recovery paths they advertise. Matching the
+// whole marker (a numeric elision count, the link and the closing tag) instead
+// of just its "\n[output-spill: " prefix is essential: the prefix alone can
+// occur in arbitrary tool output, and treating that as "already spilled" would
+// skip both spilling and the ordinary output cap.
+func spillResultArtifacts(text string) []string {
+	const elided = " bytes elided"
+	const link = "; full output: "
+	var paths []string
+	for from := 0; ; {
+		i := strings.Index(text[from:], spillMarkerOpen)
+		if i < 0 {
+			break
+		}
+		start := from + i
+		from = start + len(spillMarkerOpen)
+		rest := text[from:]
+
+		j := strings.Index(rest, elided)
+		if j <= 0 {
+			continue
+		}
+		digits := rest[:j]
+		numeric := true
+		for _, c := range digits {
+			if c < '0' || c > '9' {
+				numeric = false
+				break
+			}
+		}
+		if !numeric {
+			continue
+		}
+		rest = rest[j+len(elided):]
+		if !strings.HasPrefix(rest, link) {
+			continue
+		}
+		rest = rest[len(link):]
+		k := strings.Index(rest, spillMarkerEnd)
+		if k <= 0 {
+			continue
+		}
+		paths = append(paths, rest[:k])
+	}
+	return paths
+}
+
+// isOwnSpillResult reports whether text is a result this package actually
+// spilled: some marker must name an existing, canonically-named artifact under
+// the configured directory. A forged marker in untrusted tool output cannot
+// satisfy that, so such output is bounded normally instead of being passed
+// through verbatim.
+func isOwnSpillResult(text, dir string) bool {
+	paths := spillResultArtifacts(text)
+	if len(paths) == 0 {
+		return false
+	}
+	if dir == "" {
+		dir = "."
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	for _, p := range paths {
+		absPath, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absDir, absPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if !spillArtifactName(filepath.Base(absPath)) {
+			continue
+		}
+		if info, err := os.Stat(absPath); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
+}
+
+// spillArtifactName is the filename contract of writeSpillArtifact: the fixed
+// prefix, a 16-character lowercase hex id and the fixed suffix. It is kept in
+// production code (rather than reusing the test-only regexp) so idempotence
+// checks cannot be fooled by a look-alike path.
+func spillArtifactName(name string) bool {
+	if !strings.HasPrefix(name, spillArtifactPrefix) || !strings.HasSuffix(name, spillArtifactSuffix) {
+		return false
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(name, spillArtifactPrefix), spillArtifactSuffix)
+	if len(id) != 16 {
+		return false
+	}
+	for _, c := range id {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // formatSpillMarker renders the middle-elision marker. The recovery path is

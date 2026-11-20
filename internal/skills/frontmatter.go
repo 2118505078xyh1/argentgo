@@ -266,12 +266,34 @@ func unquote(value string) string {
 		if value[len(value)-1] != '"' {
 			return value
 		}
+		// Decode escapes left-to-right. A chained ReplaceAll would rewrite
+		// `\n` before `\\`, turning the literal `\\n` (backslash + "n") into a
+		// newline and corrupting values such as a Windows path in quotes.
 		inner := value[1 : len(value)-1]
-		inner = strings.ReplaceAll(inner, `\"`, `"`)
-		inner = strings.ReplaceAll(inner, `\n`, "\n")
-		inner = strings.ReplaceAll(inner, `\t`, "\t")
-		inner = strings.ReplaceAll(inner, `\\`, `\`)
-		return inner
+		var b strings.Builder
+		for i := 0; i < len(inner); {
+			if inner[i] != '\\' || i+1 >= len(inner) {
+				b.WriteByte(inner[i])
+				i++
+				continue
+			}
+			switch inner[i+1] {
+			case '\\':
+				b.WriteByte('\\')
+			case '"':
+				b.WriteByte('"')
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
+			default:
+				// Unknown escape: keep both bytes verbatim.
+				b.WriteByte('\\')
+				b.WriteByte(inner[i+1])
+			}
+			i += 2
+		}
+		return b.String()
 	case '\'':
 		if value[len(value)-1] != '\'' {
 			return value

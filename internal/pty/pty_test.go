@@ -3,6 +3,7 @@ package pty
 import (
 	"context"
 	"errors"
+	"io"
 	"runtime"
 	"strings"
 	"sync"
@@ -231,6 +232,76 @@ func TestContextCancellationClosesTheTerminal(t *testing.T) {
 	}
 	_ = p.Close()
 	t.Fatal("cancelling ctx must terminate the child")
+}
+
+// recordingTerminal is a terminal stub that remembers the last size applied
+// to it. It lets the resize concurrency test run on every platform without a
+// real ConPTY or /dev/ptmx.
+type recordingTerminal struct {
+	mu       sync.Mutex
+	lastSize Size
+}
+
+func (r *recordingTerminal) Read([]byte) (int, error) { return 0, io.EOF }
+func (r *recordingTerminal) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+func (r *recordingTerminal) Close() error { return nil }
+func (r *recordingTerminal) Resize(s Size) error {
+	r.mu.Lock()
+	r.lastSize = s
+	r.mu.Unlock()
+	return nil
+}
+func (r *recordingTerminal) Wait() (int, error) { return 0, nil }
+func (r *recordingTerminal) Exited() bool       { return true }
+func (r *recordingTerminal) ExitCode() int      { return 0 }
+func (r *recordingTerminal) PID() int           { return 1 }
+func (r *recordingTerminal) applied() Size {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastSize
+}
+
+// TestConcurrentResizeAndSize guards the size field against a data race
+// between a UI resize event and a reader rendering the current size. It also
+// checks that the reported size always matches the one last applied to the
+// terminal, which catches lost updates when two Resizes overlap.
+func TestConcurrentResizeAndSize(t *testing.T) {
+	term := &recordingTerminal{lastSize: DefaultSize}
+	p := &Pty{term: term, size: DefaultSize, closed: make(chan struct{})}
+
+	const (
+		writers = 8
+		loops   = 500
+	)
+	var wg sync.WaitGroup
+	for id := 0; id < writers; id++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			want := Size{Cols: uint16(80 + id), Rows: uint16(24 + id)}
+			for i := 0; i < loops; i++ {
+				if err := p.Resize(want); err != nil {
+					t.Errorf("resize: %v", err)
+					return
+				}
+				// Size must be one of the requested sizes (another writer
+				// may have won the race), never a torn mix of two of them.
+				got := p.Size()
+				if got.Cols < 80 || got.Cols >= 80+writers ||
+					got.Rows < 24 || got.Rows >= 24+writers {
+					t.Errorf("Size() = %+v during concurrent resize", got)
+					return
+				}
+			}
+		}(id)
+	}
+	wg.Wait()
+
+	if got, applied := p.Size(), term.applied(); got != applied {
+		t.Fatalf("reported size %+v disagrees with applied size %+v", got, applied)
+	}
 }
 
 func TestStartRejectsAnEmptyPath(t *testing.T) {

@@ -66,8 +66,9 @@ func spillConfig(ctx context.Context) spillSettings {
 // text; when it returns handled == false the caller must fall back to the
 // ordinary clipTo path. Handling covers three cases:
 //   - spilling disabled -> not handled (unchanged behaviour);
-//   - text already carrying our spill marker -> returned verbatim, so a spilled
-//     result is never spilled or re-clipped a second time;
+//   - text carrying an intact spill marker that names one of our artifacts ->
+//     returned verbatim, so a spilled result is never spilled or re-clipped a
+//     second time; a marker-looking substring in untrusted output is not trusted;
 //   - text above the threshold -> spilled and replaced with the bounded view.
 //
 // Text at or below the threshold is deliberately NOT handled here: the ordinary
@@ -78,7 +79,7 @@ func spillToolOutput(ctx context.Context, text string) (out string, handled bool
 	if !cfg.enabled() {
 		return "", false
 	}
-	if strings.Contains(text, spillMarkerOpen) {
+	if isOwnSpillResult(text, cfg.dir) {
 		return text, true
 	}
 	if len(text) <= cfg.threshold {

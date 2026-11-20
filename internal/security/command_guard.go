@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path"
 	"strings"
 	"unicode"
 )
@@ -362,16 +363,21 @@ func isSeparatorByte(b byte) bool {
 // isTempPath reports whether path points into a scratch directory whose writes
 // are harmless for the purpose of this guard. os.TempDir is an environment
 // read, not a side effect, so the classifier stays free of global state.
-func isTempPath(path string) bool {
-	p := strings.ReplaceAll(strings.Trim(strings.TrimSpace(path), "\"'"), "\\", "/")
+func isTempPath(candidate string) bool {
+	p := strings.ReplaceAll(strings.Trim(strings.TrimSpace(candidate), "\"'"), "\\", "/")
+	// Collapse "." and ".." before the prefix test. A target only *spells* a
+	// scratch directory — "/tmp/../etc/passwd" or "%TEMP%/../../evil" — but
+	// writes outside it; a raw prefix check would wrongly whitelist it and let
+	// the redirection guard miss a mutating command entirely.
+	p = path.Clean(p)
 	lower := strings.ToLower(p)
 	roots := []string{
 		strings.ToLower(strings.ReplaceAll(os.TempDir(), "\\", "/")),
 		"/tmp", "/var/tmp", "%temp%", "c:/windows/temp",
 	}
 	for _, root := range roots {
-		root = strings.TrimSuffix(strings.ToLower(root), "/")
-		if root == "" {
+		root = path.Clean(strings.ToLower(root))
+		if root == "" || root == "." {
 			continue
 		}
 		if lower == root || strings.HasPrefix(lower, root+"/") {

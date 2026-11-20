@@ -2,7 +2,8 @@
 //
 // A command is a `.md` file in `.argent/commands` (project) or
 // `.argentgo/commands` (user). Optional frontmatter carries `description`,
-// `argument-hint`, `allowed-tools` and `model`; the body is the prompt template.
+// `argument-hint`, `allowed-tools`, `model` and `aliases`; the body is the
+// prompt template.
 //
 // The substitution rules match the Rust implementation:
 //
@@ -42,6 +43,10 @@ const HomeSubdir = ".argentgo/commands"
 type Command struct {
 	// Name is the slash-command name, including any namespace prefix.
 	Name string
+	// Aliases are alternative names accepted by CompleteCommands. They come
+	// from the frontmatter `aliases` field (comma-separated); an empty slice
+	// means the command has no aliases.
+	Aliases []string
 	// Description is the one-line summary shown by `/help`.
 	Description string
 	// ArgumentHint is the usage hint (frontmatter `argument-hint`).
@@ -202,6 +207,7 @@ func ParseStrict(text, path string) (Command, error) {
 	}
 	return Command{
 		Name:         name,
+		Aliases:      fields.list("aliases"),
 		Description:  fields.get("description"),
 		ArgumentHint: fields.get("argument-hint"),
 		AllowedTools: fields.list("allowed-tools"),

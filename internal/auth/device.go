@@ -133,25 +133,20 @@ func DevicePoll(ctx context.Context, cfg Config, auth DeviceAuth) (Token, error)
 			return Token{}, ErrDeviceExpired
 		}
 		response, err := deviceToken(ctx, cfg, auth.DeviceCode)
-		if err == nil {
+		decision := ClassifyDevicePoll(err, interval)
+		switch decision.State {
+		case DevicePollAuthorized:
 			return tokenFromResponse(cfg, response, Token{})
-		}
-		var failure *tokenError
-		if !errors.As(err, &failure) {
-			return Token{}, err
-		}
-		switch failure.Code {
-		case "authorization_pending":
-			// Keep waiting: the user has not finished in the browser yet.
-		case "slow_down":
-			interval += deviceSlowDownStep
-		case "expired_token":
+		case DevicePollExpired:
 			return Token{}, ErrDeviceExpired
-		case "access_denied":
+		case DevicePollDenied:
 			return Token{}, ErrDeviceDenied
-		default:
+		case DevicePollFailed:
 			return Token{}, err
 		}
+		// DevicePollWaiting: adopt the (possibly lengthened) interval, then
+		// wait before the next poll.
+		interval = decision.Wait
 		if err := deviceSleep(ctx, interval); err != nil {
 			return Token{}, err
 		}

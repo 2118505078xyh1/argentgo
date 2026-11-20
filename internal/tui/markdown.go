@@ -130,21 +130,42 @@ func parseInline(textValue string, p Palette) []Span {
 	return spans
 }
 
-type styledRune struct {
-	r rune
-	s Style
+// styledCluster is one grapheme cluster with the style of the span it came
+// from. Wrapping works on clusters, not runes, so a ZWJ emoji, a flag or a
+// combining sequence is never split across lines (see Wrap in screen.go).
+type styledCluster struct {
+	text  string
+	s     Style
+	cells int
+}
+
+// splitGraphemes returns the grapheme clusters of s in order. nextGrapheme is
+// the single authority for cluster boundaries and cell widths; reusing it here
+// keeps the transcript wrapping consistent with TextWidth/Clip/Wrap.
+func splitGraphemes(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for i := 0; i < len(s); {
+		next, _ := nextGrapheme(s, i)
+		out = append(out, s[i:next])
+		i = next
+	}
+	return out
 }
 
 // wrapStyled wraps styled runs, breaking at a space when one is available and
-// hard-breaking otherwise (which is the normal path for Chinese).
+// hard-breaking otherwise (which is the normal path for Chinese). Breaks are
+// made between grapheme clusters so multi-rune emoji stay intact.
 func wrapStyled(spans []Span, width int, first, rest string) []Line {
 	prefixWidth := maxInt(TextWidth(first), TextWidth(rest))
 	bodyWidth := maxInt(width-prefixWidth, 1)
 
-	runes := make([]styledRune, 0, 32)
+	clusters := make([]styledCluster, 0, 32)
 	for _, span := range spans {
-		for _, r := range span.Text {
-			runes = append(runes, styledRune{r: r, s: span.Style})
+		for _, text := range splitGraphemes(span.Text) {
+			clusters = append(clusters, styledCluster{text: text, s: span.Style, cells: TextWidth(text)})
 		}
 	}
 
@@ -152,8 +173,8 @@ func wrapStyled(spans []Span, width int, first, rest string) []Line {
 	lineStart := 0
 	used := 0
 	lastSpace := -1
-	for i := 0; i < len(runes); i++ {
-		cell := RuneWidth(runes[i].r)
+	for i := 0; i < len(clusters); i++ {
+		cell := clusters[i].cells
 		if used+cell > bodyWidth && i > lineStart {
 			end := i
 			next := i
@@ -161,20 +182,20 @@ func wrapStyled(spans []Span, width int, first, rest string) []Line {
 				end = lastSpace
 				next = lastSpace + 1
 			}
-			out = append(out, buildStyledLine(runes[lineStart:end], prefixFor(len(out), first, rest)))
+			out = append(out, buildStyledLine(clusters[lineStart:end], prefixFor(len(out), first, rest)))
 			lineStart = next
 			used = 0
 			for j := lineStart; j < i; j++ {
-				used += RuneWidth(runes[j].r)
+				used += clusters[j].cells
 			}
 			lastSpace = -1
 		}
 		used += cell
-		if runes[i].r == ' ' {
+		if clusters[i].text == " " {
 			lastSpace = i
 		}
 	}
-	out = append(out, buildStyledLine(runes[lineStart:], prefixFor(len(out), first, rest)))
+	out = append(out, buildStyledLine(clusters[lineStart:], prefixFor(len(out), first, rest)))
 	return out
 }
 
@@ -185,14 +206,14 @@ func prefixFor(index int, first, rest string) string {
 	return rest
 }
 
-func buildStyledLine(chunk []styledRune, prefix string) Line {
+func buildStyledLine(chunk []styledCluster, prefix string) Line {
 	line := NewLine()
 	line.Push(prefix, Style{})
 	for i := 0; i < len(chunk); {
 		j := i
 		var builder strings.Builder
 		for j < len(chunk) && chunk[j].s == chunk[i].s {
-			builder.WriteRune(chunk[j].r)
+			builder.WriteString(chunk[j].text)
 			j++
 		}
 		line.Push(builder.String(), chunk[i].s)

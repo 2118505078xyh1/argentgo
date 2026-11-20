@@ -106,11 +106,27 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			// is taken, make room by discarding the oldest buffered progress
 			// event (still recoverable from the replay log) rather than losing
 			// the terminal.
+			//
+			// Both operations must stay non-blocking. A subscriber's consumer
+			// drains ch concurrently with Publish, so between observing that
+			// the channel is full and removing the oldest event the consumer
+			// may have drained it completely. A blocking `<-ch` would then hang
+			// while h.mu is held, stalling every other publisher and subscriber
+			// forever. Publishers are serialised by h.mu and consumers only
+			// receive, so after freeing at most one slot the trailing send
+			// always has room — but keep it non-blocking anyway to make the
+			// guarantee unconditional.
 			select {
 			case ch <- e:
 			default:
-				<-ch
-				ch <- e
+				select {
+				case <-ch: // drop oldest buffered event to free the reserved slot
+				default: // consumer drained it in the meantime; nothing to drop
+				}
+				select {
+				case ch <- e:
+				default: // unreachable while h.mu is held; never stall the hub
+				}
 			}
 			continue
 		}

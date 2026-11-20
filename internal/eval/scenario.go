@@ -210,6 +210,13 @@ func Parse(data []byte) ([]Scenario, error) {
 	for i := range document.Scenarios {
 		document.Scenarios[i].normalize(i)
 	}
+	// Validate after normalising so error messages can name the scenario,
+	// including the ones that inherited a generated name.
+	for _, scenario := range document.Scenarios {
+		if err := scenario.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	return document.Scenarios, nil
 }
 

@@ -138,6 +138,16 @@ type chat struct {
 	reply      *message
 	tool       *message
 	approval   *approval
+
+	// sessionLoadRPC is the test seam for opening a session. When nil,
+	// openSession calls engine.call directly; tests inject a recorder to
+	// verify the session.load RPC without a live engine process.
+	sessionLoadRPC func(method string, params any) (json.RawMessage, error)
+
+	// approvalAnswerRPC is the test seam for answering an approval. When nil,
+	// answerApproval calls engine.call directly; tests inject a recorder to
+	// verify the approval.answer RPC without a live engine process.
+	approvalAnswerRPC func(method string, params any) (json.RawMessage, error)
 }
 
 func (app *chat) palette() palette {
@@ -227,42 +237,14 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			}
 		})
 
-		// Session header and search.
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
-			ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
-			if ui.Button(c, "＋").Clicked() {
-				app.newSession()
-			}
-		})
-		ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
-			Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
-
-		// Session list.
-		filtered := make([]session, 0, len(fakeSessions))
-		q := strings.ToLower(strings.TrimSpace(app.sessionQuery))
-		for _, s := range fakeSessions {
-			if q == "" || strings.Contains(strings.ToLower(s.title+s.group), q) {
-				filtered = append(filtered, s)
-			}
+		// The active nav item decides what the lower sidebar shows. 聊天 (and the
+		// zero value used by tests/demo) keeps the live session list; every other
+		// item renders its own placeholder sub-panel instead of a session rail.
+		if app.nav == "" || app.nav == "聊天" {
+			app.sessionPanel(c, p)
+		} else {
+			app.renderNavPanel(c, p, app.nav)
 		}
-		app.sessionList.Key = func(i int) any { return filtered[i].title }
-		ui.List(c, &app.sessionList, len(filtered), func(i int) {
-			s := filtered[i]
-			row := ui.Row(c).Padding(8, 10).Radius(8)
-			if app.selectedSession == s.title {
-				row.Background(p.accentBG)
-			}
-			row.Children(func() {
-				ui.Column(c).Gap(2).Children(func() {
-					ui.Text(c, s.title).FontSize(13).TextColor(p.text).SingleLine()
-					ui.Text(c, s.group+" · "+s.meta).FontSize(11).TextColor(p.dim).SingleLine()
-				})
-			})
-			if row.Clicked() {
-				app.selectedSession = s.title
-				app.status = "已打开会话：" + s.title
-			}
-		}).Grow(1)
 
 		// Footer status dot.
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 6, 0, 6).
@@ -276,6 +258,64 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			ui.Text(c, label).FontSize(12).TextColor(p.dim)
 		})
 	})
+}
+
+// sessionPanel renders the chat nav item's sidebar: session search, the fake
+// session rail and the new-session button.
+func (app *chat) sessionPanel(c *ui.Context, p palette) {
+	// Session header and search.
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
+		ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
+		if ui.Button(c, "＋").Clicked() {
+			app.newSession()
+		}
+	})
+	ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
+		Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
+
+	// Session list.
+	filtered := make([]session, 0, len(fakeSessions))
+	q := strings.ToLower(strings.TrimSpace(app.sessionQuery))
+	for _, s := range fakeSessions {
+		if q == "" || strings.Contains(strings.ToLower(s.title+s.group), q) {
+			filtered = append(filtered, s)
+		}
+	}
+	app.sessionList.Key = func(i int) any { return filtered[i].title }
+	ui.List(c, &app.sessionList, len(filtered), func(i int) {
+		s := filtered[i]
+		row := ui.Row(c).Padding(8, 10).Radius(8)
+		if app.selectedSession == s.title {
+			row.Background(p.accentBG)
+		}
+		row.Children(func() {
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, s.title).FontSize(13).TextColor(p.text).SingleLine()
+				ui.Text(c, s.group+" · "+s.meta).FontSize(11).TextColor(p.dim).SingleLine()
+			})
+		})
+		if row.Clicked() {
+			app.openSession(s)
+		}
+	}).Grow(1)
+}
+
+// openSession selects a session row and asks a real engine to load it through
+// the existing session.load RPC. With no bridge attached (tests / no engine
+// binary) it keeps the original local-only switch, so demo mode is unchanged.
+func (app *chat) openSession(s session) {
+	app.selectedSession = s.title
+	app.status = "已打开会话：" + s.title
+	if app.engine == nil {
+		return
+	}
+	call := app.sessionLoadRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	if _, err := call("session.load", map[string]any{"id": s.title}); err != nil {
+		app.status = "打开会话失败：" + engineErrorNotice(err)
+	}
 }
 
 func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
@@ -870,17 +910,32 @@ func (app *chat) answerApproval(allow bool) {
 		return
 	}
 	ap := app.approval
-	app.approval = nil
-	if ap.id != "" {
-		// Real engine approval. This build's RPC has no method to send the
-		// answer back, so only dismiss the local card; the engine reports the
-		// true outcome via an approval:resolved notice, which appends the
-		// result row through applyApprovalNotice.
-		app.status = "已响应，等待引擎确认"
+	if app.engine == nil {
+		// Demo approval: no engine to answer, keep the original local-only
+		// behavior (record the decision as a tool result row).
+		app.approval = nil
+		app.recordApprovalResult(ap.name, allow)
 		return
 	}
-	// Demo approval: record the local decision as before.
-	name := ap.name
+	// Real engine approval: send the decision back over RPC. Keep the card
+	// open until the engine accepts it, so a failed call can be retried from
+	// the same UI. The engine reports the true outcome via an
+	// approval:resolved notice, which appends the result row.
+	call := app.approvalAnswerRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	if _, err := call("approval.answer", map[string]any{"id": ap.id, "granted": allow}); err != nil {
+		app.status = "审批回应失败：" + engineErrorNotice(err)
+		return
+	}
+	app.approval = nil
+	app.status = "已响应，等待引擎确认"
+}
+
+// recordApprovalResult appends the local tool result row for a demo approval,
+// where no engine is involved and the decision is final.
+func (app *chat) recordApprovalResult(name string, allow bool) {
 	app.next++
 	status, text := "done", "✓ 已允许 "+name
 	if !allow {
@@ -916,7 +971,7 @@ var cannedReplies = []string{
 }
 
 func main() {
-	app := &chat{status: "就绪"}
+	app := &chat{status: "就绪", nav: "聊天"}
 
 	// ARGENT_EXE points at the engine binary. When set, the native window
 	// drives the real agent over --rpc; otherwise it runs the canned demo.

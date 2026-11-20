@@ -306,3 +306,63 @@ func TestHTTPTransportRejectsCrossOriginEndpoint(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// stalledStreamServer accepts the SSE GET but never sends response headers.
+// The handler leaves when the request is cancelled, so the test can assert
+// that the handshake abort also releases the connection (no leak).
+func stalledStreamServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			<-r.Context().Done()
+			return
+		}
+		http.Error(w, "post not supported", http.StatusMethodNotAllowed)
+	}))
+}
+
+func TestHTTPConnectHandshakeBoundedByTimeout(t *testing.T) {
+	// A server that accepts the GET and then goes silent must not make Connect
+	// hang: the configured timeout bounds the SSE header handshake even though
+	// the stream itself uses a context with no deadline.
+	server := stalledStreamServer()
+	defer server.Close()
+
+	const timeout = 150 * time.Millisecond
+	start := time.Now()
+	_, err := Connect(context.Background(), Spec{
+		Name:    "stalled",
+		URL:     server.URL + "/mcp",
+		Timeout: timeout,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Connect took %s; SSE handshake must be bounded by the %s timeout", elapsed, timeout)
+	}
+}
+
+func TestHTTPConnectHandshakeRespectsCallerContext(t *testing.T) {
+	// The caller's cancellation must abort the handshake too, even when the
+	// configured request timeout is much longer.
+	server := stalledStreamServer()
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = Connect(ctx, Spec{
+			Name:    "cancelled",
+			URL:     server.URL + "/mcp",
+			Timeout: time.Minute,
+		})
+	}()
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Connect ignored caller cancellation during the SSE handshake")
+	}
+}

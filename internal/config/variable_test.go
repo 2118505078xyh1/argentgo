@@ -28,6 +28,55 @@ func TestSubstituteEnvRawAndEscapedFallback(t *testing.T) {
 	}
 }
 
+// A backslash in an env value must survive substitution even when it happens
+// to form a *valid* JSON escape ("\t", "\n", ...). The verbatim result is then
+// syntactically fine but decodes to a different string (C:\temp -> C:<TAB>emp),
+// so the JSON-validity check alone cannot detect the corruption.
+func TestSubstituteBackslashValueThatIsValidJSONEscape(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"windows temp path", `C:\temp`},
+		{"literal newline escape", `a\nb`},
+		{"literal backspace escape", `C:\bin`},
+		{"invalid escape still works", `C:\Users\me`},
+		{"plain value stays verbatim", `abc`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Substitute(`{"v":"{env:X}"}`, ".", envFunc(map[string]string{"X": tc.value}), nil)
+			var decoded map[string]string
+			if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+				t.Fatalf("substituted JSON %q is invalid: %v", got, err)
+			}
+			if decoded["v"] != tc.value {
+				t.Fatalf("value = %q, want %q (substituted text %q)", decoded["v"], tc.value, got)
+			}
+		})
+	}
+}
+
+// The same corruption must not happen on the real Load path: a config whose
+// apiKey is a Windows path with a valid JSON escape must decode to the literal
+// backslash sequence, not to a tab/newline.
+func TestLoadPreservesEnvBackslashValue(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := filepath.Join(cwd, "argent.json")
+	content := `{"apiKey": "{env:KEY}"}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const want = `C:\temp\new`
+	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home, "KEY": want}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.APIKey != want {
+		t.Fatalf("apiKey = %q, want %q", cfg.APIKey, want)
+	}
+}
+
 func TestSubstituteFileResolvesRelativeToConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	confDir := filepath.Join(dir, "conf")

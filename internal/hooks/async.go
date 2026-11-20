@@ -2,29 +2,17 @@ package hooks
 
 import "context"
 
-// planAsync selects the hooks marked Async for background execution. It
-// mirrors planRun's dedup and stop-propagation rules so the two sets stay
-// coherent: a command is claimed once across the whole event, and a stop
-// boundary shields later hooks in both paths. Async hooks never appear in
-// planRun's tiers, so the background and synchronous sets are disjoint and the
-// returned decision is unaffected by async work.
+// planAsync selects the hooks marked Async for background execution. It draws
+// from the same claimedCommands walk as planRun, so a command is claimed once
+// across the whole event, a stop boundary shields later hooks in both paths,
+// and the background and synchronous sets are disjoint. Async hooks never
+// enter planRun's tiers, so the returned decision is unaffected by async work.
 func planAsync(commands []Command) []Command {
-	seen := make(map[string]struct{}, len(commands))
-	async := make([]Command, 0, len(commands))
-	for _, command := range commands {
-		if _, duplicate := seen[command.Command]; duplicate {
-			// A duplicate still honours its stop boundary.
-			if command.StopPropagation {
-				break
-			}
-			continue
-		}
-		seen[command.Command] = struct{}{}
+	claimed := claimedCommands(commands)
+	async := make([]Command, 0, len(claimed))
+	for _, command := range claimed {
 		if command.Async {
 			async = append(async, command)
-		}
-		if command.StopPropagation {
-			break
 		}
 	}
 	return async
