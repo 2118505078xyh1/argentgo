@@ -66,7 +66,10 @@ func applyGuardrailMode(token, mode string) string {
 // none was found. It is a token-aware classifier in the spirit of Cline's
 // command guard: quoted strings, backtick substitutions, heredoc bodies and
 // shell comments are masked before tokenizing, so a literal "rm" inside a
-// string does not trigger a false positive.
+// string does not trigger a false positive. The one exception is a quoted
+// payload passed to `bash -c`/`sh -c`/`bash -lc`: that literal is recovered
+// from the raw command and classified recursively, so it cannot hide a
+// mutating command behind the wrapper.
 //
 // The function is pure: it has no side effects and keeps no global state. It is
 // deliberately conservative — a mutating command may slip through, but reading
@@ -74,6 +77,14 @@ func applyGuardrailMode(token, mode string) string {
 // must not be blocked. The returned value is the offending token as it appeared
 // in the command (for example "rm" or ">/etc/passwd").
 func FindFileEditingCommand(command string) string {
+	return findFileEditingCommandDepth(command, 0)
+}
+
+// findFileEditingCommandDepth is FindFileEditingCommand with a recursion budget
+// for literal payloads recovered from shell -c wrappers. Every recursive step
+// consumes at least the wrapper text, so nesting is finite; the cap keeps a
+// hostile deeply-nested command cheap to classify.
+func findFileEditingCommandDepth(command string, depth int) string {
 	if strings.TrimSpace(command) == "" {
 		return ""
 	}
@@ -188,6 +199,20 @@ func FindFileEditingCommand(command string) string {
 	// of the command, preserving the classifier's existing length contract.
 	if m := DetectThreat(command); m.IsHigh() {
 		return m.Evidence
+	}
+
+	// P0 fix: a quoted payload behind `bash -c`/`sh -c`/`bash -lc` was blanked
+	// by sanitizeCommand, hiding mutating tokens (rm, mv, git push, ...) from
+	// the classifier above. Recover the literal payload from the raw command
+	// and run the whole classifier on it. The extraction only fires at a real
+	// command position and requires a quoted payload, so benign commands that
+	// merely mention "bash -c" inside a string stay clear.
+	if depth < maxShellLiteralDepth {
+		for _, payload := range shellLiteralPayloads(command) {
+			if token := findFileEditingCommandDepth(payload, depth+1); token != "" {
+				return token
+			}
+		}
 	}
 	return ""
 }

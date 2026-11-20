@@ -416,8 +416,45 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		integrity    streamIntegrity
 		partials     = make(map[int]*anthropicPartial)
 	)
-	var calls []ToolCall
+	// A completed tool_use block is parked by its content-block index instead
+	// of being appended at content_block_stop time: gateways may deliver stop
+	// notifications out of the order in which content_block_start announced the
+	// blocks. Final assembly walks order (the announcement sequence), so two
+	// parallel calls keep the provider's order regardless of when each block
+	// finished.
+	var (
+		order     []int
+		completed = make(map[int]ToolCall)
+	)
 	var pending []string
+
+	push := func(index int) {
+		partial, ok := partials[index]
+		if !ok {
+			return
+		}
+		delete(partials, index)
+		if strings.TrimSpace(partial.name) == "" {
+			return
+		}
+		arguments := partial.arguments.String()
+		if strings.TrimSpace(arguments) == "" {
+			arguments = partial.start
+		}
+		arguments = integrity.toolArguments(arguments)
+		id := partial.id
+		if id == "" {
+			id = fmt.Sprintf("toolu_%d", index)
+		}
+		completed[index] = ToolCall{
+			ID:   id,
+			Type: "function",
+			Function: ToolCallFunction{
+				Name:      partial.name,
+				Arguments: arguments,
+			},
+		}
+	}
 
 streamLoop:
 	for {
@@ -477,6 +514,9 @@ streamLoop:
 				if raw := strings.TrimSpace(string(block.Input)); raw != "" && raw != "{}" {
 					partial.start = raw
 				}
+				if _, exists := partials[event.Index]; !exists {
+					order = append(order, event.Index)
+				}
 				partials[event.Index] = partial
 			}
 		case "content_block_delta":
@@ -503,31 +543,7 @@ streamLoop:
 				}
 			}
 		case "content_block_stop":
-			partial, ok := partials[event.Index]
-			if !ok {
-				continue
-			}
-			delete(partials, event.Index)
-			if strings.TrimSpace(partial.name) == "" {
-				continue
-			}
-			arguments := partial.arguments.String()
-			if strings.TrimSpace(arguments) == "" {
-				arguments = partial.start
-			}
-			arguments = integrity.toolArguments(arguments)
-			id := partial.id
-			if id == "" {
-				id = fmt.Sprintf("toolu_%d", event.Index)
-			}
-			calls = append(calls, ToolCall{
-				ID:   id,
-				Type: "function",
-				Function: ToolCallFunction{
-					Name:      partial.name,
-					Arguments: arguments,
-				},
-			})
+			push(event.Index)
 		case "message_delta":
 			if event.Delta != nil && event.Delta.StopReason != "" {
 				finishReason = event.Delta.StopReason
@@ -582,24 +598,21 @@ streamLoop:
 
 	// Gateways that omit content_block_stop still hand back complete calls.
 	for _, index := range sortedIndices(partials) {
-		partial := partials[index]
-		arguments := partial.arguments.String()
-		if strings.TrimSpace(arguments) == "" {
-			arguments = partial.start
+		push(index)
+	}
+	// Assemble in announcement order, not stop-notification order. A duplicated
+	// start at the same index can add an index to order twice; emit each call
+	// only once.
+	calls := make([]ToolCall, 0, len(order))
+	emitted := make(map[int]bool, len(order))
+	for _, index := range order {
+		if emitted[index] {
+			continue
 		}
-		arguments = integrity.toolArguments(arguments)
-		id := partial.id
-		if id == "" {
-			id = fmt.Sprintf("toolu_%d", index)
+		emitted[index] = true
+		if call, ok := completed[index]; ok {
+			calls = append(calls, call)
 		}
-		calls = append(calls, ToolCall{
-			ID:   id,
-			Type: "function",
-			Function: ToolCallFunction{
-				Name:      partial.name,
-				Arguments: arguments,
-			},
-		})
 	}
 	if err := integrity.eofError("message_stop"); err != nil {
 		return Message{}, err

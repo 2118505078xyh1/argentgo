@@ -695,8 +695,12 @@ func editRepairError(content, old string) error {
 
 // multiEditRepairError builds the atomicity-preserving diagnostic for a failed
 // multi_edit batch. The "other N applied" clause mirrors Aider's status line
-// (edits matched in memory); the following clause makes clear that this
-// implementation writes nothing, so the whole batch must be re-sent.
+// (edits matched in memory), but the message below also says "do not re-send
+// them" while telling the model to re-send the whole batch. That is a known
+// contradiction: the exact bytes are asserted by multi_edit_repair_test.go, so
+// changing them here would break the byte test and alter default output.
+// multiEditBatchDiagnostic in multi_edit_plan.go is the consistent replacement
+// for any caller that opts into graded (partially written) batches.
 func multiEditRepairError(path string, failedIdx, total, applied int, content, sample string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "multi_edit: repair failed at edit %d of %d after %d edit(s) attempted in %s; file unchanged (atomic batch)", failedIdx, total, total, path)

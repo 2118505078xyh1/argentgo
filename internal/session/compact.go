@@ -497,13 +497,14 @@ func failureReason(content string) (string, bool) {
 	}
 	lower := strings.ToLower(trimmed)
 	if index := strings.LastIndex(lower, "[exit "); index >= 0 {
-		// index is a byte offset into lower; map it back to trimmed before
-		// slicing so a preceding rune whose lowercase is shorter cannot shift
-		// the window into the middle of a code point (or lose the failure).
-		tail := trimmed[lowerByteOffset(trimmed, lower, index):]
+		// lower was searched case-insensitively, so the original text may spell
+		// the marker "[EXIT " or "[Exit ". Read the digits from lower (ASCII
+		// digits are unchanged by case folding) instead of stripping a
+		// lowercase-only prefix from tail; the latter silently loses every
+		// failure whose shell printed the marker in another case.
+		rest := lower[index+len("[exit "):]
 		code := 0
 		digits := 0
-		rest := strings.TrimPrefix(tail, "[exit ")
 		for _, ch := range rest {
 			if ch < '0' || ch > '9' {
 				break
@@ -512,6 +513,10 @@ func failureReason(content string) (string, bool) {
 			digits++
 		}
 		if digits > 0 && code != 0 {
+			// index is a byte offset into lower; map it back to trimmed before
+			// slicing so a preceding rune whose lowercase is shorter cannot shift
+			// the window into the middle of a code point (or lose the failure).
+			tail := trimmed[lowerByteOffset(trimmed, lower, index):]
 			return firstLine(tail, 160), true
 		}
 	}

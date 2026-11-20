@@ -93,6 +93,14 @@ var (
 // used by FindFileEditingCommand, so literal text never produces a false
 // positive. An empty command yields the zero ThreatMatch.
 func DetectThreat(command string) ThreatMatch {
+	return detectThreatDepth(command, 0)
+}
+
+// detectThreatDepth is DetectThreat with an explicit recursion budget for
+// literal payloads recovered from wrappers (trap and shell -c). Each level
+// consumes at least the wrapper text, so the budget is a defensive bound rather
+// than a termination requirement.
+func detectThreatDepth(command string, depth int) ThreatMatch {
 	if strings.TrimSpace(command) == "" {
 		return ThreatMatch{}
 	}
@@ -107,12 +115,34 @@ func DetectThreat(command string) ThreatMatch {
 		best = m
 	}
 
-	// trap payloads were blanked by the sanitiser; inspect them from the raw
-	// command. The trap keyword itself is a wrapper, so a medium core threat
-	// found inside a trap is promoted to HIGH.
-	for _, payload := range trapPayloads(command) {
-		if m := detectCore(strings.ToLower(payload), true); m.Confidence > best.Confidence {
-			best = m
+	if depth < maxShellLiteralDepth {
+		// trap payloads were blanked by the sanitiser; inspect them from the raw
+		// command. The trap keyword itself is a wrapper, so a medium core threat
+		// found inside a trap is promoted to HIGH.
+		for _, payload := range trapPayloads(command) {
+			if m := detectCore(strings.ToLower(payload), true); m.Confidence > best.Confidence {
+				best = m
+			}
+			// A trap payload can itself launch `bash -c ...`; recurse so nested
+			// literals are not hidden behind two layers of quoting.
+			if m := detectThreatDepth(payload, depth+1); m.Confidence > best.Confidence {
+				best = m
+			}
+		}
+
+		// P0 fix: `bash -c`/`sh -c`/`bash -lc` (and friends) wrap a quoted command
+		// that sanitizeCommand blanks before the classifiers run. Recover the
+		// literal payload from the raw command and run both the wrapper-aware
+		// core patterns (promoting medium threats to HIGH) and a full recursive
+		// classification. Extraction is conservative: only real quoted payloads
+		// at a command position are returned, so benign strings never match.
+		for _, payload := range shellLiteralPayloads(command) {
+			if m := detectCore(strings.ToLower(payload), true); m.Confidence > best.Confidence {
+				best = m
+			}
+			if m := detectThreatDepth(payload, depth+1); m.Confidence > best.Confidence {
+				best = m
+			}
 		}
 	}
 
