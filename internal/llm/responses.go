@@ -321,8 +321,14 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		order        []int
 		integrity    streamIntegrity
 		partials     = make(map[int]*responsesPartial)
+		// A completed call is parked by its output index instead of being
+		// appended right away. output_item.done events can arrive out of the
+		// order in which output_item.added announced the items (gateways batch
+		// and reorder notifications); emitting on done would silently swap two
+		// parallel calls. The final assembly below walks order, which is the
+		// provider's announcement sequence, so the call list always matches it.
+		completed = make(map[int]ToolCall)
 	)
-	var calls []ToolCall
 	var pending []string
 
 	push := func(index int) {
@@ -339,14 +345,14 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		if id == "" {
 			id = fmt.Sprintf("call_%d", index+1)
 		}
-		calls = append(calls, ToolCall{
+		completed[index] = ToolCall{
 			ID:   id,
 			Type: "function",
 			Function: ToolCallFunction{
 				Name:      partial.name,
 				Arguments: arguments,
 			},
-		})
+		}
 	}
 
 streamLoop:
@@ -464,6 +470,20 @@ streamLoop:
 
 	for _, index := range order {
 		push(index)
+	}
+	// Assemble in announcement order, not completion order. done handlers may
+	// create a partial without a matching added (some gateways only send done),
+	// which appends an index a second time; emit each call only once.
+	calls := make([]ToolCall, 0, len(order))
+	emitted := make(map[int]bool, len(order))
+	for _, index := range order {
+		if emitted[index] {
+			continue
+		}
+		emitted[index] = true
+		if call, ok := completed[index]; ok {
+			calls = append(calls, call)
+		}
 	}
 	if err := integrity.eofError("response.completed"); err != nil {
 		return Message{}, err

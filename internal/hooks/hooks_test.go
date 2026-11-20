@@ -8,8 +8,8 @@ import (
 )
 
 func TestEveryEventNameRoundTrips(t *testing.T) {
-	if len(AllEvents) != 12 {
-		t.Fatalf("expected 12 events, got %d", len(AllEvents))
+	if len(AllEvents) != 15 {
+		t.Fatalf("expected 15 events, got %d", len(AllEvents))
 	}
 	for _, event := range AllEvents {
 		parsed, ok := ParseEvent(event.String())

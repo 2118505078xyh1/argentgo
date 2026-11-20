@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -152,9 +154,14 @@ func verifyEnvironment() []string {
 // callback reuses the accepted copy. A misconfigured (empty or disallowed) cmd
 // yields a callback that always reports ok=false, so no feedback is injected.
 //
-// changedPaths is deliberately ignored: the command is fixed and operator-
-// controlled, and interpolating model-chosen paths into argv would reintroduce
-// the injection this allowlist exists to prevent.
+// changedPaths is never interpolated verbatim. For allowlisted `go test|build`
+// commands carrying a full-repo `./...` target, the callback narrows that target
+// to the changed Go packages using verifySafeTarget (clean + workspace check +
+// character allowlist). Every surviving token is whitelist-generated and the
+// final argv is re-validated before exec, so a model-chosen path cannot inject
+// arguments. Paths that cannot be made safe are skipped; if none survive, the
+// configured full command runs unchanged. Non-go /.exe commands are never
+// narrowed — their argument contract is unknown.
 //
 // On a completed process the callback returns (label, exit==0, redacted output,
 // true). On spawn failure or timeout it returns (label, false, redacted error,
@@ -181,8 +188,17 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 		root = "."
 	}
 
-	return func(ctx context.Context, _ []string) (string, bool, string, bool) {
-		name := argv[0]
+	return func(ctx context.Context, changedPaths []string) (string, bool, string, bool) {
+		runArgv, _, _ := narrowVerifyArgv(argv, changedPaths, root)
+		// The narrowed argv is rebuilt only from whitelist-generated tokens;
+		// re-validate it anyway so a future narrowing change cannot smuggle an
+		// illegal argument past the construction-time allowlist check.
+		if err := validateVerifyArgv(runArgv); err != nil {
+			reason := llm.RedactText("verify command rejected: " + err.Error())
+			return label, false, reason, false
+		}
+
+		name := runArgv[0]
 		if name == "go" {
 			// Resolve "go" before Dir is applied so a go.exe planted in the
 			// workspace cannot be picked up through a relative PATH entry.
@@ -200,7 +216,7 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 		runCtx, cancel := context.WithTimeout(ctx, deadline)
 		defer cancel()
 
-		command := exec.CommandContext(runCtx, name, argv[1:]...)
+		command := exec.CommandContext(runCtx, name, runArgv[1:]...)
 		command.Dir = root
 		command.Env = verifyEnvironment()
 
@@ -249,6 +265,146 @@ func verifyLabel(argv []string) string {
 		label = string(runes[:verifyLabelMax]) + "..."
 	}
 	return llm.RedactText(label)
+}
+
+// verifySafeTarget validates one checkpoint path and maps it to a single,
+// conservative Go package pattern ("./dir"). It never returns model-controlled
+// bytes verbatim. The path arrives from the MutationPaths seam, which is fed by
+// model-chosen tool arguments, so every one of these checks is defence in depth:
+//
+//   - no shell metacharacters, control bytes, NUL or whitespace;
+//   - no absolute path, drive prefix ("C:"), UNC root or leading separator;
+//   - an allowlist of runes: Unicode letters/digits (so CJK paths work) plus
+//     / \ _ - . — anything else rejects the path;
+//   - lexical Clean plus a filepath.Rel confinement check against root;
+//   - only .go files and extension-less directories become targets. A .go file
+//     narrows to its containing package; other file types cannot narrow a Go
+//     package set and are skipped.
+//
+// ok=false means "do not trust this path" — the caller skips it.
+func verifySafeTarget(rootAbs, changed string) (string, bool) {
+	p := strings.TrimSpace(changed)
+	if p == "" || strings.ContainsAny(p, verifyShellMeta) {
+		return "", false
+	}
+	// Normalise Windows separators before cleaning so the allowlist and the
+	// confinement check behave identically on every platform.
+	p = strings.ReplaceAll(p, `\`, "/")
+	if strings.HasPrefix(p, "/") || strings.Contains(p, ":") {
+		return "", false
+	}
+	// Reject traversal components before Clean can fold them into an
+	// innocuous-looking in-root path (e.g. "a/../secret.go").
+	for _, part := range strings.Split(p, "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	for _, r := range p {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '/', r == '_', r == '-', r == '.':
+			// allowed
+		default:
+			return "", false
+		}
+	}
+
+	cleaned := filepath.Clean(filepath.FromSlash(p))
+	slash := filepath.ToSlash(cleaned)
+	if slash == "." || slash == ".." || strings.HasPrefix(slash, "../") ||
+		strings.Contains(slash, "/../") || strings.HasSuffix(slash, "/..") {
+		return "", false
+	}
+	abs, err := filepath.Abs(filepath.Join(rootAbs, cleaned))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	relSlash := filepath.ToSlash(rel)
+
+	dir := relSlash
+	switch {
+	case strings.HasSuffix(strings.ToLower(relSlash), ".go"):
+		dir = filepath.ToSlash(filepath.Dir(filepath.FromSlash(relSlash)))
+	case filepath.Ext(relSlash) != "":
+		return "", false // non-Go file: cannot narrow a Go build
+	}
+	if dir == "." {
+		dir = ""
+	}
+	return "./" + dir, true
+}
+
+// verifyNarrowTargets maps checkpoint paths to a deterministic (deduplicated,
+// sorted) list of safe Go package patterns. Unsafe or irrelevant paths are
+// counted in skipped and omitted — never interpolated. An empty target list
+// tells the caller to keep the full command.
+func verifyNarrowTargets(root string, changedPaths []string) (targets []string, skipped int) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, len(changedPaths)
+	}
+	seen := make(map[string]bool)
+	for _, changed := range changedPaths {
+		target, ok := verifySafeTarget(rootAbs, changed)
+		if !ok {
+			skipped++
+			continue
+		}
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	return targets, skipped
+}
+
+// narrowVerifyArgv narrows an allowlisted `go test|build` command to the changed
+// Go packages. Two modes:
+//
+//  1. a full-repo `./...` (or `...`) target is replaced with the safe targets —
+//     this is the actual O(full repo) -> O(changed files) win;
+//  2. with no target declared, the safe targets are appended (a bare
+//     `go test` / `go build` otherwise means "the current package only").
+//
+// It is a no-op for non-go commands, for .exe verification commands (whose argv
+// contract is unknown), when no path can be made safe, and when the operator
+// already named an explicit package target. In every no-op case the configured
+// argv is returned as a copy, byte-for-byte, so behaviour is unchanged.
+func narrowVerifyArgv(argv []string, changedPaths []string, root string) ([]string, bool, int) {
+	out := append([]string(nil), argv...)
+	if len(out) < 2 || out[0] != "go" || (out[1] != "test" && out[1] != "build") {
+		return out, false, 0
+	}
+	targets, skipped := verifyNarrowTargets(root, changedPaths)
+	if len(targets) == 0 {
+		return out, false, skipped
+	}
+	for i := 2; i < len(out); i++ {
+		if out[i] == "./..." || out[i] == "..." {
+			next := make([]string, 0, len(out)-1+len(targets))
+			next = append(next, out[:i]...)
+			next = append(next, targets...)
+			next = append(next, out[i+1:]...)
+			return next, true, skipped
+		}
+	}
+	for _, arg := range out[2:] {
+		if !strings.HasPrefix(arg, "-") {
+			// A non-flag token is an explicit target chosen by the operator;
+			// overriding it would silently change the configured check.
+			return out, false, skipped
+		}
+	}
+	return append(out, targets...), true, skipped
 }
 
 // verifyLangForms expands one language/extension key into the equivalent
@@ -406,7 +562,7 @@ func newVerifyDispatchFunc(commands map[string]string, fallback []string, timeou
 				// fallback here keeps a future key-format change from panicking.
 				run = NewVerifyFunc(argv, timeoutMS, root)
 			}
-			label, passed, output, ok := run(ctx, argv)
+			label, passed, output, ok := run(ctx, changedPaths)
 			labels = append(labels, label)
 			if output != "" {
 				outputs = append(outputs, output)

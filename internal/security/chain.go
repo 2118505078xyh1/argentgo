@@ -130,8 +130,9 @@ type Chain struct {
 	PlanCommandGuard bool
 }
 
-// NewChain builds a chain. A nil approver denies; a nil audit log records
-// nothing.
+// NewChain builds a chain. A nil approver means there is no approval channel
+// (headless run, sub-agent), so calls needing approval are reported as
+// unavailable — not as an operator refusal. A nil audit log records nothing.
 func NewChain(policy *Policy, approver Approver, audit *AuditLog, session string) *Chain {
 	return &Chain{Policy: policy, Approver: approver, Audit: audit, Session: session}
 }
@@ -140,6 +141,8 @@ func NewChain(policy *Policy, approver Approver, audit *AuditLog, session string
 // A non-nil error means the call must not run. A policy deny or a plain operator
 // refusal returns a StopError; a refusal carrying feedback returns a
 // RefusalError so the model can read the correction and retry differently.
+// An unavailable or cancelled approval channel returns a plain error with no
+// finality sentence: nobody answered, so the call was not refused.
 func (c *Chain) Check(ctx context.Context, toolName string, args json.RawMessage) error {
 	return c.check(ctx, toolName, args, args)
 }
@@ -184,7 +187,10 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	}
 	approver := c.Approver
 	if approver == nil {
-		approver = NeverApprover{}
+		// No approver is not the same as an approver who answered no. Use the
+		// unavailable null object so the audit log records an unavailable
+		// channel instead of falsely claiming an operator refused the call.
+		approver = UnavailableApprover{}
 	}
 	// Show the real target in the prompt: a junction inside the workspace must
 	// not let a prompt say "home/note.txt" while the tool writes elsewhere.
@@ -204,6 +210,14 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 			// An empty correction is just a plain "no", not a failed prompt.
 			err = nil
 		} else {
+			// A channel that could not produce an answer is not a refusal.
+			// Record it as unavailable so the audit log does not falsely claim
+			// an operator said no, and keep the returned error free of the
+			// anti-retry finality sentence: a missing channel may come back.
+			// Cancellations are a separate outcome and get no decision here.
+			if ClassifyApproval(ok, err) == ApprovalUnavailable {
+				c.record(name, "unavailable", "the approval channel is unavailable", auditArgs)
+			}
 			return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
 		}
 	}

@@ -50,6 +50,11 @@ type Payload struct {
 	// Path is the file affected by a FileChanged event. It is empty for other
 	// events; callers that mutate several files fire one event per path.
 	Path string `json:"path,omitempty"`
+	// HookPayload is optional event-specific detail for the turn-end events
+	// (EventInterrupt, EventStopFailure, EventTurnEnd): the classification
+	// reason, the last assistant message or the error text. It is empty for
+	// every other event, so existing payload JSON is unchanged.
+	HookPayload string `json:"hookPayload,omitempty"`
 }
 
 // Result is the aggregate decision of one dispatch.

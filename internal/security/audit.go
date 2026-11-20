@@ -17,7 +17,8 @@ type AuditEntry struct {
 	TS string `json:"ts"`
 	// Tool is the tool name that was checked.
 	Tool string `json:"tool"`
-	// Decision is allow, ask, deny, refused or error.
+	// Decision is allow, ask, deny, refused, unavailable or error. "unavailable"
+	// means no operator could answer, as opposed to "refused" (an explicit no).
 	Decision string `json:"decision"`
 	// Reason is the policy or approval explanation, already redacted.
 	Reason string `json:"reason,omitempty"`

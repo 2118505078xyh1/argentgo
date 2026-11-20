@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -306,35 +307,28 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 		}
 	}
 
-	var w io.Writer = app.IO.Out
-	if outPath != "" {
-		file, err := os.Create(outPath)
-		if err != nil {
-			fmt.Fprintln(app.IO.Err, "error:", err)
-			return 1
-		}
-		defer file.Close()
-		w = file
-	}
-
+	// Render first, then write through the no-follow helper. Buffering keeps
+	// the file creation single-shot so the symlink checks cover the whole
+	// write, and avoids leaving a truncated file behind when rendering fails.
+	var data []byte
 	var err error
 	if sanitize || !strings.EqualFold(format, "html") {
 		// Structured and redacted exports are produced wholly in the session
 		// package; the plain-HTML path below keeps injected stores working.
-		var data []byte
 		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
 			Branch: branchID, Sanitize: sanitize, Format: format,
 		})
-		if err == nil {
-			_, err = w.Write(data)
-		}
 	} else if trees, ok := store.(sessionTreeStore); ok {
-		err = trees.RenderHTML(id, branchID, w)
+		var buf bytes.Buffer
+		err = trees.RenderHTML(id, branchID, &buf)
+		data = buf.Bytes()
 	} else {
 		var path string
 		path, err = session.ResolvePath(app.sessionDir(), id)
 		if err == nil {
-			err = session.RenderHTML(path, branchID, w)
+			var buf bytes.Buffer
+			err = session.RenderHTML(path, branchID, &buf)
+			data = buf.Bytes()
 		}
 	}
 	if err != nil {
@@ -342,7 +336,14 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 		return 1
 	}
 	if outPath != "" {
+		if err := writeFileNoFollow(outPath, data, 0o666); err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
 		fmt.Fprintf(app.IO.Out, "wrote %s\n", outPath)
+	} else if _, err := app.IO.Out.Write(data); err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
 	}
 	return 0
 }

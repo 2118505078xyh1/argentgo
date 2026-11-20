@@ -40,8 +40,18 @@ const (
 	SessionEnd Event = "SessionEnd"
 	// SubagentStop fires when a subagent finishes its run.
 	SubagentStop Event = "SubagentStop"
-	// Stop fires when the assistant finishes a turn.
+	// Stop fires when the assistant finishes a turn. It is kept for backwards
+	// compatibility; new callers should prefer the three turn-end events below,
+	// which say *how* the turn finished. Stop is still dispatched as before.
 	Stop Event = "Stop"
+	// EventInterrupt fires when the assistant turn was interrupted by the user
+	// or the transport (an explicit cancellation or a context.Canceled error).
+	EventInterrupt Event = "interrupt"
+	// EventStopFailure fires when the assistant turn ended in a non-cancellation
+	// error: a provider failure, a tool error, a deadline, and so on.
+	EventStopFailure Event = "stop_failure"
+	// EventTurnEnd fires when the assistant turn completed cleanly.
+	EventTurnEnd Event = "turn_end"
 	// FileChanged fires when a tool creates, modifies or deletes a file. The
 	// affected path is carried in Payload.Path.
 	FileChanged Event = "FileChanged"
@@ -60,6 +70,9 @@ var AllEvents = []Event{
 	SessionEnd,
 	SubagentStop,
 	Stop,
+	EventInterrupt,
+	EventStopFailure,
+	EventTurnEnd,
 	FileChanged,
 }
 
@@ -131,6 +144,15 @@ func ReportTriggers() []TriggerReport {
 		case Stop:
 			row.Trigger = "when the assistant finishes a turn"
 			row.Payload = "Prompt, Output"
+		case EventInterrupt:
+			row.Trigger = "when the assistant turn is interrupted by the user or transport"
+			row.Payload = "Prompt, Output, HookPayload (reason=interrupt)"
+		case EventStopFailure:
+			row.Trigger = "when the assistant turn ends in a non-cancellation error"
+			row.Payload = "Prompt, Output, HookPayload (reason=stop_failure, error text)"
+		case EventTurnEnd:
+			row.Trigger = "when the assistant turn completes cleanly"
+			row.Payload = "Prompt, Output, HookPayload (reason=turn_end)"
 		case FileChanged:
 			row.Trigger = "when a tool creates, modifies or deletes a file"
 			row.Payload = "Path (the affected file)"

@@ -11,7 +11,15 @@ import (
 // verifyReflectionHint is deliberately separate from security.chain.go's
 // finalitySentence: a verification failure is a bounded, recoverable nudge,
 // not an intentional policy block that must never be retried.
-const verifyReflectionHint = "Reflections left: %d. Do not re-run the same check unchanged."
+//
+// The prefix/suffix are split out so HasDiagnosticContent can recognise and
+// ignore the hint when deciding whether a FAIL carries actionable text. The
+// composed value is byte-for-byte the original hint.
+const (
+	verifyReflectionHintPrefix = "Reflections left: "
+	verifyReflectionHintSuffix = ". Do not re-run the same check unchanged."
+	verifyReflectionHint       = verifyReflectionHintPrefix + "%d" + verifyReflectionHintSuffix
+)
 
 // VerifyLoopState is the per-run budget for post-edit verification reflections.
 // The zero value is usable: Max <= 0 means DefaultMaxVerifyReflections.
@@ -19,6 +27,11 @@ type VerifyLoopState struct {
 	Reflections int
 	Max         int
 	Root        string // workspace root; enables █ source anchoring in feedback
+	// LastOutcome records the most recent verification verdict ("PASS", "FAIL"
+	// or "SKIP"). It is additive/observational only: no loop decision reads it,
+	// so setting it cannot change events or steering. The omitempty tag keeps
+	// encodings of states that never ran a check unchanged.
+	LastOutcome string `json:"last_outcome,omitempty"`
 }
 
 func (s VerifyLoopState) maxReflections() int {
@@ -117,6 +130,7 @@ func (s *runState) verifyAfterBatch(ctx context.Context, turn int, calls []llm.T
 	}
 	label, passed, output, ok := s.opts.Verify(ctx, s.verifyChangedPaths(turn))
 	if !ok {
+		s.verifyState.LastOutcome = "SKIP"
 		s.emit(Event{Kind: EventNotice, Turn: turn, Text: "verify: check could not run; skipping reflection"})
 		return "", false
 	}
@@ -128,6 +142,7 @@ func (s *runState) verifyAfterBatch(ctx context.Context, turn int, calls []llm.T
 	if !passed {
 		verdict = "FAIL"
 	}
+	s.verifyState.LastOutcome = verdict
 	s.emit(Event{Kind: EventNotice, Turn: turn, Text: "[verify: " + name + "] " + verdict})
 	if passed {
 		return "", false

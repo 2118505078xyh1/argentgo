@@ -114,6 +114,65 @@ func VerificationFeedbackAt(label string, passed bool, output string, maxBytes i
 	return head + "\n" + clipVerifyTail(clean, tailRoom) + verifyAnchorSep + anchor
 }
 
+// HasDiagnosticContent reports whether a verification feedback string carries
+// any substantive diagnostic information beyond the boilerplate that is always
+// present: the "[verify: X] PASS/FAIL" verdict header, the reflection hint,
+// redaction placeholders ([redacted]/[REDACTED]/[email]) and blank lines.
+//
+// It is pure and deliberately conservative: any surviving non-boilerplate
+// line -- an error message, a file:line reference, CJK prose, a █-anchored
+// source window -- makes it return true. A caller can therefore use a false
+// result to detect the aider-P2 case: a FAIL that spent a reflection turn on a
+// feedback message the model cannot act on (header + hint only).
+//
+// It works both on a raw verify output and on the full string returned by
+// BuildVerifyFeedback/VerificationFeedback, because it strips the known
+// boilerplate wherever it appears rather than assuming a fixed layout.
+func HasDiagnosticContent(feedback string) bool {
+	for _, line := range strings.Split(feedback, "\n") {
+		text := strings.TrimSpace(line)
+		if text == "" || isVerifyVerdictLine(text) || isVerifyReflectionHintLine(text) {
+			continue
+		}
+		if isOnlyRedactionPlaceholders(text) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isVerifyVerdictLine recognises the "[verify: LABEL] PASS|FAIL" header line.
+func isVerifyVerdictLine(line string) bool {
+	if !strings.HasPrefix(line, "[verify:") {
+		return false
+	}
+	_, rest, ok := strings.Cut(line, "]")
+	if !ok {
+		return false
+	}
+	verdict := strings.TrimSpace(rest)
+	return verdict == "PASS" || verdict == "FAIL"
+}
+
+// isVerifyReflectionHintLine recognises the anti-retry line BuildVerifyFeedback
+// appends to every FAIL. It is guidance, not diagnostic content, so it must not
+// by itself make HasDiagnosticContent return true.
+func isVerifyReflectionHintLine(line string) bool {
+	return strings.HasPrefix(line, verifyReflectionHintPrefix) &&
+		strings.HasSuffix(line, verifyReflectionHintSuffix)
+}
+
+// isOnlyRedactionPlaceholders reports whether text is made up solely of the
+// placeholders llm.RedactText substitutes for secrets and emails. A FAIL whose
+// output was entirely a redacted value carries no usable diagnosis.
+func isOnlyRedactionPlaceholders(text string) bool {
+	for _, placeholder := range []string{"[redacted]", "[REDACTED]", "[email]"} {
+		text = strings.ReplaceAll(text, placeholder, "")
+	}
+	return strings.TrimSpace(text) == ""
+}
+
 // VerifyResult is one check outcome for FormatVerifyResults.
 type VerifyResult struct {
 	Label  string

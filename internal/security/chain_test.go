@@ -106,12 +106,36 @@ func TestChainCachesAnApprovalForTheSession(t *testing.T) {
 	}
 }
 
-func TestChainNilApproverDenies(t *testing.T) {
+func TestChainNilApproverReportsUnavailable(t *testing.T) {
 	dir := t.TempDir()
-	chain := NewChain(DefaultPolicy(dir), nil, NewAuditLog(dir), "s1")
+	audit := NewAuditLog(dir)
+	chain := NewChain(DefaultPolicy(dir), nil, audit, "s1")
 	err := chain.Check(context.Background(), "bash", json.RawMessage(`{"command":"ls"}`))
-	if !errors.Is(err, ErrRefused) {
-		t.Fatalf("got %v, want ErrRefused", err)
+	if err == nil {
+		t.Fatal("an unavailable approval channel must not allow the call")
+	}
+	if errors.Is(err, ErrRefused) || errors.Is(err, ErrDenied) {
+		t.Fatalf("nil approver must not be a refusal or a policy deny: %v", err)
+	}
+	if !errors.Is(err, ErrApprovalUnavailable) {
+		t.Fatalf("got %v, want ErrApprovalUnavailable", err)
+	}
+	var stop *StopError
+	if errors.As(err, &stop) {
+		t.Fatalf("an unavailable channel must not be a StopError: %#v", err)
+	}
+	if strings.Contains(err.Error(), finalitySentence) {
+		t.Fatalf("unavailable channel must not carry finality: %q", err.Error())
+	}
+	entries, readErr := ReadAudit(audit.Path())
+	if readErr != nil || len(entries) != 1 {
+		t.Fatalf("audit: %v entries=%d", readErr, len(entries))
+	}
+	if entries[0].Decision != "unavailable" {
+		t.Fatalf("audit entry = %+v", entries[0])
+	}
+	if strings.Contains(entries[0].Reason, "refused") {
+		t.Fatalf("audit reason must not claim a refusal: %q", entries[0].Reason)
 	}
 }
 

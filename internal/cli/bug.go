@@ -47,7 +47,7 @@ func runBug(app App, _ context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	if err := os.WriteFile(outPath, []byte(body), 0o600); err != nil {
+	if err := writeFileNoFollow(outPath, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}

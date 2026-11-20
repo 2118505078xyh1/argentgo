@@ -169,36 +169,49 @@ func spillResultArtifacts(text string) []string {
 	return paths
 }
 
-// isOwnSpillResult reports whether text is a result this package actually
-// spilled: some marker must name an existing, canonically-named artifact under
-// the configured directory. A forged marker in untrusted tool output cannot
-// satisfy that, so such output is bounded normally instead of being passed
-// through verbatim.
-func isOwnSpillResult(text, dir string) bool {
-	paths := spillResultArtifacts(text)
-	if len(paths) == 0 {
-		return false
+// spillArtifactAbsInDir reports whether p is a canonically-named, regular
+// artifact located inside dir, returning its absolute path when valid. This is
+// the single source of truth for artifact path validation: the idempotence
+// guard (isOwnSpillResult) and the line-range reader (readSpillRangeInDir)
+// share it, so a forged or escaping path cannot be mistaken for one of our
+// artifacts. The checks are unchanged from the original inlined version.
+func spillArtifactAbsInDir(dir, p string) (string, bool) {
+	if strings.TrimSpace(p) == "" {
+		return "", false
 	}
 	if dir == "" {
 		dir = "."
 	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return false
+		return "", false
 	}
-	for _, p := range paths {
-		absPath, err := filepath.Abs(p)
-		if err != nil {
-			continue
-		}
-		rel, err := filepath.Rel(absDir, absPath)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		if !spillArtifactName(filepath.Base(absPath)) {
-			continue
-		}
-		if info, err := os.Stat(absPath); err == nil && info.Mode().IsRegular() {
+	absPath, err := filepath.Abs(p)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	if !spillArtifactName(filepath.Base(absPath)) {
+		return "", false
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return absPath, true
+}
+
+// isOwnSpillResult reports whether text is a result this package actually
+// spilled: some marker must name an existing, canonically-named artifact under
+// the configured directory. A forged marker in untrusted tool output cannot
+// satisfy that, so such output is bounded normally instead of being passed
+// through verbatim.
+func isOwnSpillResult(text, dir string) bool {
+	for _, p := range spillResultArtifacts(text) {
+		if _, ok := spillArtifactAbsInDir(dir, p); ok {
 			return true
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -105,6 +106,28 @@ func (NeverApprover) Ask(ctx context.Context, name string, args string) (bool, e
 		return false, err
 	}
 	return false, nil
+}
+
+// ErrApprovalUnavailable is the sentinel returned by UnavailableApprover. It
+// means no operator was reachable at all (a headless run, a sub-agent or a
+// broken approval channel), which is categorically different from an operator
+// answering no. ClassifyApproval maps it to ApprovalUnavailable, never to
+// ApprovalRejected, so callers can keep the two cases separate.
+var ErrApprovalUnavailable = errors.New("security: approval channel unavailable")
+
+// UnavailableApprover models a missing or broken approval channel. Unlike
+// NeverApprover (an operator who said no), it reports that nobody could answer.
+// The chain therefore audits it as "unavailable" rather than "refused" and does
+// not append the anti-retry finality sentence: the channel may come back, so a
+// retry is not the same mistake as re-asking after a real refusal.
+type UnavailableApprover struct{}
+
+// Ask always reports an unavailable channel without touching stdin.
+func (UnavailableApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return false, ErrApprovalUnavailable
 }
 
 // approvalKey identifies one authorization: a tool name plus the canonical

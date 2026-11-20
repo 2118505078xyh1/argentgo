@@ -66,7 +66,15 @@ func messageEntry(record Record) (Entry, bool) {
 		}
 	case KindSummary:
 		entry.Role = "system"
-		entry.Content = firstNonEmpty(fieldString(record.Data, "text"), textOf(record.Data))
+		// "summary" is the canonical key of a Compaction payload. When a later
+		// compaction drops an earlier one, retainedForCompaction re-emits its
+		// system Entry as a KindSummary carrying that original Compaction Data
+		// (entryKind only sees the role). Reading "summary" here keeps the
+		// restored message's text identical to the Entry that was dropped;
+		// otherwise it resurfaces as an empty system message and the earlier
+		// summary is lost from the conversation view.
+		entry.Content = firstNonEmpty(fieldString(record.Data, "text"),
+			fieldString(record.Data, "summary"), textOf(record.Data))
 	default:
 		return Entry{}, false
 	}
