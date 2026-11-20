@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
@@ -42,6 +44,10 @@ const (
 	// maxReflectBytes caps the total size of an extractive reflection, header
 	// included. 4KB keeps the synthesis well inside a model's context budget.
 	maxReflectBytes = 4096
+	// reflectPositionBonus is the small head start given to sentences that
+	// appear early in recall order. It keeps relevance (token overlap) as the
+	// primary ranking signal while preserving a readable, lead-first summary.
+	reflectPositionBonus = 2
 	// skillDirName is the managed subdirectory under the bank dir where
 	// promoted lessons are written as SKILL.md-compatible markdown.
 	skillDirName = "skills"
@@ -262,50 +268,214 @@ func (b *Bank) All() []Memory {
 
 // Reflect produces a deterministic, EXTRACTIVE synthesis over the memories most
 // relevant to query. It performs NO model call and uses only the standard
-// library: it takes the top hits from Recall, drops near-duplicate texts and
-// concatenates the distinct ones (one per line, "- " prefixed) up to
-// maxReflectBytes. Output is stable for a given bank and query: Recall already
-// orders by score then recency, and the dedupe keeps the first (highest-ranked)
-// copy of each text. A bank with no eligible memories returns a short notice.
+// library. Unlike plain concatenation, it is a real extractive synthesizer:
+//
+//  1. Recall returns the top `limit` memories (relevance first, then recency).
+//  2. Each memory is split into sentences at .!?。！？ boundaries (decimal dots
+//     such as "3.14" are left alone, and CJK text is kept intact).
+//  3. Every sentence is scored by case-insensitive token overlap with the query
+//     plus a small bonus for appearing early in recall order.
+//  4. Near-identical sentences are deduplicated, keeping the first (best) copy.
+//  5. The best `limit` sentences are emitted, ranked by score then original
+//     order, one per "- " line under a header, capped at maxReflectBytes. The
+//     byte cap is applied with the grapheme-safe clipper so combining marks,
+//     emoji and flags are never cut in half.
+//
+// Output is fully stable for a given bank and query; no randomness and no model
+// call are involved. A bank with no eligible sentences returns a short notice.
 func (b *Bank) Reflect(query string, limit int) string {
+	if limit <= 0 {
+		limit = defaultRecallLimit
+	}
 	hits := b.Recall(query, nil, limit)
 	if len(hits) == 0 {
 		return "no memories to reflect on"
 	}
+
+	// Unique query tokens, lowercased; duplicates in the query must not inflate
+	// a sentence's score.
+	queryTokens := reflectTokens(query)
+	querySet := make(map[string]bool, len(queryTokens))
+	uniqueQuery := queryTokens[:0]
+	for _, tok := range queryTokens {
+		if !querySet[tok] {
+			querySet[tok] = true
+			uniqueQuery = append(uniqueQuery, tok)
+		}
+	}
+	queryTokens = uniqueQuery
+
+	type candidate struct {
+		text  string
+		score int
+		order int // collection order; stable tie breaker
+	}
+	candidates := make([]candidate, 0, len(hits))
+	seen := make(map[string]bool)
+	ordinal := 0
+	for _, mem := range hits {
+		for _, sentence := range splitSentences(mem.Text) {
+			pos := ordinal
+			ordinal++
+			key := dedupeKey(sentence)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			score := 0
+			sentenceTokens := reflectTokens(sentence)
+			sentenceSet := make(map[string]bool, len(sentenceTokens))
+			for _, tok := range sentenceTokens {
+				sentenceSet[tok] = true
+			}
+			for _, q := range queryTokens {
+				if sentenceSet[q] {
+					score++
+				}
+			}
+			// Earlier sentences get a small, bounded head start.
+			if bonus := reflectPositionBonus - pos; bonus > 0 {
+				score += bonus
+			}
+			candidates = append(candidates, candidate{
+				text:  sentence,
+				score: score,
+				order: len(candidates),
+			})
+		}
+	}
+	if len(candidates) == 0 {
+		return "no memories to reflect on"
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].order < candidates[j].order
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
 	header := "Reflection (extractive synthesis):\n"
 	var sb strings.Builder
 	sb.WriteString(header)
 	used := len(header)
-	seen := make(map[string]bool, len(hits))
-	for _, mem := range hits {
-		key := dedupeKey(mem.Text)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		// Fold embedded newlines so one memory stays one reflected line.
-		text := strings.Join(strings.Fields(mem.Text), " ")
+	for _, c := range candidates {
+		// Fold embedded newlines so one sentence stays one reflected line.
+		text := strings.Join(strings.Fields(c.text), " ")
 		room := maxReflectBytes - used - 3 // "- " prefix and trailing "\n"
 		if room <= 0 {
 			break
 		}
-		if len(text) > room {
-			text = strings.TrimSpace(clipRunes(text, room))
+		clipped := clipGraphemeBytes(text, room)
+		// Defensive fallback: if no whole cluster fits, the rune-safe clipper
+		// produces the same (empty or rune-aligned) result.
+		if clipped == "" && text != "" {
+			clipped = clipRunes(text, room)
 		}
-		if text == "" {
+		clipped = strings.TrimSpace(clipped)
+		if clipped == "" {
 			continue
 		}
-		line := "- " + text + "\n"
+		line := "- " + clipped + "\n"
 		sb.WriteString(line)
 		used += len(line)
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// dedupeKey normalises a memory into a comparison key so near-identical texts
-// (differing only in case, whitespace or surrounding punctuation) collapse to a
-// single reflected line.
-func dedupeKey(text string) string { return strings.Join(tokenize(text), " ") }
+// dedupeKey normalises a sentence into a comparison key so near-identical texts
+// (differing only in case, whitespace, CJK spacing or punctuation) collapse to a
+// single reflected line. Each token is NUL-delimited so "ab c" and "a bc" do
+// not collide.
+func dedupeKey(text string) string { return strings.Join(reflectTokens(text), "\x00") }
+
+// splitSentences splits text at .!?。！？ boundaries, keeping the terminating
+// punctuation attached to its sentence and absorbing runs of it (e.g. "?!").
+// A "." between two ASCII digits is treated as a decimal point, not a boundary.
+func splitSentences(text string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if isSentenceEnd(r) && !isDecimalDot(text, i) {
+			end := i + size
+			for end < len(text) {
+				next, nsz := utf8.DecodeRuneInString(text[end:])
+				if !isSentenceEnd(next) {
+					break
+				}
+				end += nsz
+			}
+			if seg := strings.TrimSpace(text[start:end]); seg != "" {
+				out = append(out, seg)
+			}
+			start = end
+			i = end
+			continue
+		}
+		i += size
+	}
+	if tail := strings.TrimSpace(text[start:]); tail != "" {
+		out = append(out, tail)
+	}
+	return out
+}
+
+func isSentenceEnd(r rune) bool {
+	switch r {
+	case '.', '!', '?', '。', '！', '？':
+		return true
+	}
+	return false
+}
+
+func isDecimalDot(text string, i int) bool {
+	return i > 0 && i+1 < len(text) &&
+		text[i-1] >= '0' && text[i-1] <= '9' &&
+		text[i+1] >= '0' && text[i+1] <= '9'
+}
+
+// reflectTokens lowercases text and splits it into comparison tokens. Latin and
+// other non-CJK letters/digits stay whole ("quick," -> "quick"), while Han,
+// Hiragana, Katakana and Hangul are emitted one rune at a time so a CJK query
+// can overlap a sentence without whitespace-delimited words. Punctuation and
+// symbols are dropped.
+func reflectTokens(text string) []string {
+	text = strings.ToLower(text)
+	tokens := make([]string, 0, len(text)/2)
+	var word strings.Builder
+	flush := func() {
+		if word.Len() > 0 {
+			tokens = append(tokens, word.String())
+			word.Reset()
+		}
+	}
+	for _, r := range text {
+		if isCJK(r) {
+			flush()
+			tokens = append(tokens, string(r))
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			word.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return tokens
+}
+
+func isCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
+}
 
 // Learn retains a reusable lesson and, when promote is true, also writes a
 // lightweight SKILL.md-compatible markdown file under <bank dir>/skills/<id>.md.
@@ -555,19 +725,11 @@ func cleanTags(tags []string) []string {
 	return out
 }
 
-// tokenize lowercases text into trimmed words. Punctuation is removed so
-// "quick," and "quick" match.
-func tokenize(s string) []string {
-	fields := strings.Fields(strings.ToLower(s))
-	tokens := make([]string, 0, len(fields))
-	for _, field := range fields {
-		field = strings.Trim(field, ".,;:!?\"'()[]{}<>")
-		if field != "" {
-			tokens = append(tokens, field)
-		}
-	}
-	return tokens
-}
+// tokenize lowercases text into comparison tokens. Punctuation is removed so
+// "quick," and "quick" match. CJK text has no whitespace-delimited words, so
+// each CJK rune becomes its own token; otherwise a query such as "喜欢" could
+// never overlap a Chinese sentence, and Reflect would have nothing to synthesise.
+func tokenize(s string) []string { return reflectTokens(s) }
 
 // newID combines a nanosecond timestamp with random bytes so ids stay unique
 // even when many facts are retained in the same tick.

@@ -150,13 +150,22 @@ func readNumberedRecords(path string) ([]numberedRecord, error) {
 		if err := json.Unmarshal([]byte(text), &record); err != nil {
 			continue
 		}
-		if record.ID == "" {
-			record.ID = fmt.Sprintf("n%06d", len(out)+1)
-		}
 		out = append(out, numberedRecord{number: number, record: record})
 	}
 	if err := scanner.Err(); err != nil {
 		return out, fmt.Errorf("session: read %s: %w", path, err)
+	}
+	// Same deferred, conflict-free synthetic ids as readRecords and ReadPage
+	// (session audit #5); the physical line numbers stay untouched.
+	records := make([]Record, len(out))
+	for i := range out {
+		records[i] = out[i].record
+	}
+	for i := range out {
+		if out[i].record.ID == "" {
+			out[i].record.ID = nextID(records)
+			records[i].ID = out[i].record.ID
+		}
 	}
 	return out, nil
 }
@@ -167,8 +176,14 @@ func readNumberedRecords(path string) ([]numberedRecord, error) {
 func snippetFor(raw json.RawMessage, needle string) (string, bool) {
 	wanted := strings.ToLower(needle)
 	for _, value := range stringValues(raw) {
-		if index := strings.Index(strings.ToLower(value), wanted); index >= 0 {
-			return contextWindow(value, index, len([]rune(needle))), true
+		lowered := strings.ToLower(value)
+		if index := strings.Index(lowered, wanted); index >= 0 {
+			// strings.Index returns a byte offset into lowered, but lowercasing
+			// can change byte lengths (e.g. İ→i, ẞ→ß). Convert it to a rune
+			// offset first: strings.ToLower folds rune-by-rune, so the rune
+			// index is identical in lowered and in the original value.
+			runeIndex := utf8.RuneCountInString(lowered[:index])
+			return contextWindow(value, runeIndex, len([]rune(needle))), true
 		}
 	}
 	return "", false

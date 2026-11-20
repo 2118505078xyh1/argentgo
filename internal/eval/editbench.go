@@ -1,24 +1,29 @@
-// Package eval's edit benchmark measures the *resolution contract* of the
-// built-in edit tool under realistic, model-shaped edit scenarios.
+// Package eval's edit benchmark measures the REAL built-in edit tool, end to
+// end, against model-shaped edit scenarios.
 //
 // Methodology
 //
-// The edit tool's pure resolution helpers (exact match, the graded repair
-// ladder, and hashline anchoring with stale-anchor recovery) live in package
-// internal/tools and are deliberately unexported. Importing them would drag in
-// the registry, path resolution, mutation locking, the security chain and the
-// approval gate; none of those are what we want to measure. This file therefore
-// reimplements the resolution contract minimally, mirroring
-// internal/tools/tools_builtin_write_edit.go line for line, and applies it to a
-// scratch file under a temp directory.
+// Each case declares the bytes a model saw (Original), the arguments it would
+// send (Old/New/Anchor/AnchorHash/Repair/Hashline), and the expected outcome.
+// RunEditCase seeds a scratch file under a temp workspace, builds the JSON
+// argument object the tool's schema accepts, and calls tools.Registry.Run with
+// the name "edit". That drives the shipped code path in full: argument decoding
+// and the old/old_text aliases, workspace path resolution, the mutation lock,
+// the default / repair / hashline resolution branches, and the final
+// os.WriteFile. The resulting file bytes and the returned error are graded
+// against the case's declared expectation.
 //
-// What it measures: given the bytes a model saw (Original) plus the arguments a
-// model would send (Old/New/Anchor/AnchorHash/Repair/Hashline), does the
-// algorithm produce the expected replacement or the expected error class?
+// This is deliberately NOT a reimplementation of the resolution helpers. An
+// earlier version of this benchmark mirrored internal/tools' unexported helpers
+// line for line; it could only prove the mirror agreed with itself, and its
+// report honestly flagged "100% is a regression guard, not the real tool path".
+// The registry.Run path below measures the code users actually execute.
 //
-// What it does NOT measure: the tool registry, path/workspace validation,
-// mutation locking, policy/approval/audit handling, streaming, or any real
-// model/network call. It is fully offline and deterministic.
+// What it does NOT measure: the agent loop, model/network calls, or real
+// policy/approval wiring. The harness constructs a yolo registry so the
+// mutating tool runs; a test exercises the yolo=false mutation gate as a
+// signature proving the registry path is used. It is fully offline and
+// deterministic.
 //
 // A case "passes" when the observed outcome matches the case's declared
 // expectation: WantErrContains asserts an error whose text contains the needle;
@@ -31,16 +36,16 @@ package eval
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // Edit modes understood by the benchmark.
@@ -50,15 +55,16 @@ const (
 	modeHashline = "hashline"
 )
 
-// editBenchFile is the scratch file every case is applied to. It keeps error
-// messages stable (the real tool renders the path it was given).
+// editBenchFile is the scratch file every case is applied to. It is passed to
+// the tool as a relative path, so the tool's diagnostics name it verbatim and
+// the fixtures' error needles stay stable.
 const editBenchFile = "edit.txt"
 
 // EditCase is one scripted edit scenario. Original is the file content the
 // model saw; Anchor is the exact text it hashed for hashline mode; AnchorHash is
-// the model-supplied hash (empty means "use the canonical sha256-12 of Anchor");
-// ShiftLines is text inserted before the match target to simulate lines added
-// above it between read and write.
+// the model-supplied hash (empty means "do not send anchor_hash", which makes
+// the real tool anchor by content); ShiftLines is text inserted before the
+// match target to simulate lines added above it between read and write.
 type EditCase struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`
@@ -79,7 +85,7 @@ type ModeStat struct {
 	Failed int `json:"failed"`
 }
 
-// EditCaseResult is the graded outcome of one case. Passed means the algorithm
+// EditCaseResult is the graded outcome of one case. Passed means the real tool
 // matched the case's declared expectation (which may itself be an error).
 type EditCaseResult struct {
 	ID     string `json:"id"`
@@ -156,14 +162,75 @@ func ParseEditCases(data []byte) ([]EditCase, error) {
 	return document.Cases, nil
 }
 
-// RunEditCase applies one case to a temp file and grades the result. All I/O is
-// confined to a MkdirTemp scratch directory that is removed before returning.
+// editToolArgs is the edit tool's JSON schema. omitempty keeps undeclared
+// fields off the wire, so the harness sends exactly the arguments the fixture
+// describes; the mode fields are derived from the case's mode.
+type editToolArgs struct {
+	Path       string `json:"path"`
+	Old        string `json:"old,omitempty"`
+	New        string `json:"new,omitempty"`
+	Repair     bool   `json:"repair,omitempty"`
+	Hashline   bool   `json:"hashline,omitempty"`
+	Anchor     string `json:"anchor,omitempty"`
+	AnchorHash string `json:"anchor_hash,omitempty"`
+}
+
+// editArgs renders the case as the arguments the shipped edit tool expects.
+func editArgs(c EditCase) (string, error) {
+	args := editToolArgs{
+		Path:       editBenchFile,
+		Old:        c.Old,
+		New:        c.New,
+		Anchor:     c.Anchor,
+		AnchorHash: c.AnchorHash,
+	}
+	switch c.Mode {
+	case modeRepair:
+		args.Repair = true
+	case modeHashline:
+		args.Hashline = true
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return "", fmt.Errorf("encode edit arguments: %w", err)
+	}
+	return string(raw), nil
+}
+
+// seedEditFile writes the bytes the tool should see into the scratch workspace.
+func seedEditFile(root string, c EditCase) (string, error) {
+	path := filepath.Join(root, editBenchFile)
+	if err := os.WriteFile(path, []byte(buildCurrentContent(c)), 0o644); err != nil {
+		return "", fmt.Errorf("cannot seed scratch file: %w", err)
+	}
+	return path, nil
+}
+
+// runEditViaRegistry invokes the shipped edit tool through the public registry.
+// With yolo=true the mutating tool runs; with false the registry rejects it
+// before the tool is reached (used by a test as a real-path signature).
+func runEditViaRegistry(root string, c EditCase, yolo bool) (string, error) {
+	args, err := editArgs(c)
+	if err != nil {
+		return "", err
+	}
+	reg := tools.New(root, yolo)
+	return reg.Run(context.Background(), "edit", args)
+}
+
+// RunEditCase applies one case through the real edit tool and grades the result.
+// All I/O is confined to a MkdirTemp scratch directory that is removed before
+// returning.
 func RunEditCase(c EditCase) EditCaseResult {
 	mode := c.Mode
 	if mode == "" {
 		mode = modeExact
 	}
 	res := EditCaseResult{ID: c.ID, Name: c.Name, Mode: mode}
+	if mode != modeExact && mode != modeRepair && mode != modeHashline {
+		res.Reason = "unknown mode " + strconv.Quote(mode)
+		return res
+	}
 
 	dir, err := os.MkdirTemp("", "editbench-")
 	if err != nil {
@@ -172,45 +239,15 @@ func RunEditCase(c EditCase) EditCaseResult {
 	}
 	defer os.RemoveAll(dir)
 
-	path := filepath.Join(dir, editBenchFile)
-	current := buildCurrentContent(c)
-	if err := os.WriteFile(path, []byte(current), 0o644); err != nil {
-		res.Reason = "cannot seed scratch file: " + err.Error()
-		return res
-	}
-	data, err := os.ReadFile(path)
+	path, err := seedEditFile(dir, c)
 	if err != nil {
-		res.Reason = "cannot read scratch file: " + err.Error()
+		res.Reason = err.Error()
 		return res
 	}
 
-	var out string
-	var applyErr error
-	switch mode {
-	case modeExact:
-		out, applyErr = resolveExact(string(data), editBenchFile, c.Old, c.New)
-	case modeRepair:
-		out, applyErr = resolveRepair(string(data), editBenchFile, c.Old, c.New)
-	case modeHashline:
-		anchorHash := c.AnchorHash
-		if anchorHash == "" {
-			// The model supplies the canonical hash when the fixture omits it;
-			// a non-empty AnchorHash is used verbatim so stale-hash cases can be
-			// expressed (see hashline-wrong-hash-rejected).
-			anchorHash = hashlineHash(c.Anchor)
-		}
-		out, applyErr = resolveHashline(string(data), editBenchFile, c.Anchor, anchorHash, c.Old, c.New)
-	default:
-		res.Reason = "unknown mode " + strconv.Quote(mode)
-		return res
-	}
-
-	final := string(data)
+	_, applyErr := runEditViaRegistry(dir, c, true)
+	final := ""
 	if applyErr == nil {
-		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
-			res.Reason = "cannot write edited file: " + err.Error()
-			return res
-		}
 		edited, err := os.ReadFile(path)
 		if err != nil {
 			res.Reason = "cannot read edited file: " + err.Error()
@@ -321,378 +358,4 @@ func editbenchClip(s string) string {
 		return joined
 	}
 	return joined[:159] + "…"
-}
-
-// ---- resolution contract, mirrored from internal/tools ----
-
-// hashlineHash is the first 12 lowercase hex chars of sha256(s), matching the
-// tool's published contract byte for byte.
-func hashlineHash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])[:12]
-}
-
-// resolveExact mirrors the default edit branch: a unique literal match wins.
-func resolveExact(content, path, old, newText string) (string, error) {
-	count := strings.Count(content, old)
-	switch count {
-	case 0:
-		return "", fmt.Errorf("edit: old text not found in %s", path)
-	case 1:
-		return strings.Replace(content, old, newText, 1), nil
-	default:
-		return "", fmt.Errorf("edit: old text appears %d times in %s (not unique); a unique match is required", count, path)
-	}
-}
-
-// resolveRepair mirrors the repair=true branch: exact, then the graded ladder.
-func resolveRepair(content, path, old, newText string) (string, error) {
-	var out string
-	var ok bool
-	switch strings.Count(content, old) {
-	case 1:
-		out, ok = strings.Replace(content, old, newText, 1), true
-	case 0:
-		out, ok = repairReplace(content, old, newText)
-	default:
-		ok = false // a literal that occurs twice is never guessed at
-	}
-	if !ok {
-		return "", editRepairError(content, old)
-	}
-	return out, nil
-}
-
-// resolveHashline mirrors resolveHashlineEdit: verify the hash, then match the
-// anchor by content, retrying the ladder only when the anchor is absent.
-func resolveHashline(content, path, anchor, anchorHash, old, newText string) (string, error) {
-	if anchorHash != "" {
-		want := hashlineHash(anchor)
-		if !strings.EqualFold(anchorHash, want) {
-			return "", fmt.Errorf("edit: stale anchor: content changed since it was read (expected hash %s, got %s)", want, anchorHash)
-		}
-	}
-	oldText := anchor
-	if oldText == "" {
-		oldText = old
-	}
-	switch strings.Count(content, oldText) {
-	case 1:
-		return strings.Replace(content, oldText, newText, 1), nil
-	case 0:
-		// fall through to the repair ladder for stale-anchor recovery
-	default:
-		return "", fmt.Errorf("edit: stale anchor appears %d times in %s (not unique); file unchanged", strings.Count(content, oldText), path)
-	}
-	if out, ok := repairReplace(content, oldText, newText); ok {
-		return out, nil
-	}
-	msg := "edit: stale anchor no longer present in " + path + "; file unchanged"
-	if s := formatSimilarLines(content, oldText); s != "" {
-		msg += "; " + s
-	}
-	return "", errors.New(msg)
-}
-
-// repairReplace walks the Aider-style ladder in order, refusing to guess when
-// a literal match is ambiguous.
-func repairReplace(content, old, newText string) (string, bool) {
-	switch strings.Count(content, old) {
-	case 1:
-		return strings.Replace(content, old, newText, 1), true
-	case 0:
-	default:
-		return "", false
-	}
-	if out, ok := repairIndent(content, old, newText); ok {
-		return out, true
-	}
-	if out, ok := repairBlankLine(content, old, newText); ok {
-		return out, true
-	}
-	if out, ok := repairElision(content, old, newText); ok {
-		return out, true
-	}
-	return "", false
-}
-
-func commonIndent(lines []string) string {
-	indent := ""
-	seen := false
-	for _, ln := range lines {
-		if strings.TrimSpace(ln) == "" {
-			continue
-		}
-		lead := ln[:len(ln)-len(strings.TrimLeft(ln, " \t"))]
-		if !seen {
-			indent, seen = lead, true
-			continue
-		}
-		i := 0
-		for i < len(indent) && i < len(lead) && indent[i] == lead[i] {
-			i++
-		}
-		indent = indent[:i]
-	}
-	return indent
-}
-
-func stripIndent(lines []string, indent string) []string {
-	out := make([]string, len(lines))
-	for i, ln := range lines {
-		if strings.TrimSpace(ln) == "" {
-			out[i] = ""
-			continue
-		}
-		out[i] = strings.TrimPrefix(ln, indent)
-	}
-	return out
-}
-
-func indentLines(lines []string, indent string) []string {
-	out := make([]string, len(lines))
-	for i, ln := range lines {
-		if ln == "" {
-			out[i] = ""
-		} else {
-			out[i] = indent + ln
-		}
-	}
-	return out
-}
-
-func equalLines(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func repairIndent(content, old, newText string) (string, bool) {
-	oldLines := strings.Split(old, "\n")
-	strippedOld := stripIndent(oldLines, commonIndent(oldLines))
-	newLines := strings.Split(newText, "\n")
-	strippedNew := stripIndent(newLines, commonIndent(newLines))
-
-	contentLines := strings.Split(content, "\n")
-	width := len(strippedOld)
-	if width == 0 || len(contentLines) < width {
-		return "", false
-	}
-
-	start := -1
-	fileIndent := ""
-	for i := 0; i+width <= len(contentLines); i++ {
-		window := contentLines[i : i+width]
-		indent := commonIndent(window)
-		if equalLines(stripIndent(window, indent), strippedOld) {
-			if start >= 0 {
-				return "", false // two candidate blocks: ambiguous
-			}
-			start, fileIndent = i, indent
-		}
-	}
-	if start < 0 {
-		return "", false
-	}
-
-	repl := indentLines(strippedNew, fileIndent)
-	out := make([]string, 0, len(contentLines)-width+len(repl))
-	out = append(out, contentLines[:start]...)
-	out = append(out, repl...)
-	out = append(out, contentLines[start+width:]...)
-	return strings.Join(out, "\n"), true
-}
-
-func repairBlankLine(content, old, newText string) (string, bool) {
-	type pair struct{ old, newText string }
-	var pairs []pair
-	if v, ok := dropLeadingBlankLine(old); ok {
-		nv := newText
-		if x, ok2 := dropLeadingBlankLine(newText); ok2 {
-			nv = x
-		}
-		pairs = append(pairs, pair{v, nv})
-	}
-	if v, ok := dropTrailingBlankLine(old); ok {
-		nv := newText
-		if x, ok2 := dropTrailingBlankLine(newText); ok2 {
-			nv = x
-		}
-		pairs = append(pairs, pair{v, nv})
-	}
-	for _, p := range pairs {
-		if strings.Count(content, p.old) == 1 {
-			return strings.Replace(content, p.old, p.newText, 1), true
-		}
-	}
-	return "", false
-}
-
-func dropLeadingBlankLine(s string) (string, bool) {
-	lines := strings.Split(s, "\n")
-	if len(lines) > 1 && strings.TrimSpace(lines[0]) == "" {
-		return strings.Join(lines[1:], "\n"), true
-	}
-	return s, false
-}
-
-func dropTrailingBlankLine(s string) (string, bool) {
-	lines := strings.Split(s, "\n")
-	last := len(lines) - 1
-	if last > 0 && strings.TrimSpace(lines[last]) == "" {
-		return strings.Join(lines[:last], "\n"), true
-	}
-	return s, false
-}
-
-func splitElision(s string) ([]string, bool) {
-	lines := strings.Split(s, "\n")
-	pieces := []string{}
-	cur := []string{}
-	markers := 0
-	for _, ln := range lines {
-		if strings.TrimSpace(ln) == "..." {
-			pieces = append(pieces, strings.Join(cur, "\n"))
-			cur = cur[:0]
-			markers++
-			continue
-		}
-		cur = append(cur, ln)
-	}
-	pieces = append(pieces, strings.Join(cur, "\n"))
-	return pieces, markers > 0
-}
-
-func repairElision(content, old, newText string) (string, bool) {
-	oldPieces, hasOldMarkers := splitElision(old)
-	newPieces, hasNewMarkers := splitElision(newText)
-	if !hasOldMarkers || !hasNewMarkers || len(oldPieces) != len(newPieces) {
-		return "", false
-	}
-
-	var b strings.Builder
-	cursor := 0
-	for i, piece := range oldPieces {
-		if strings.TrimSpace(piece) == "" {
-			b.WriteString(newPieces[i])
-			continue
-		}
-		if strings.Count(content, piece) != 1 {
-			return "", false
-		}
-		rel := strings.Index(content[cursor:], piece)
-		if rel < 0 {
-			return "", false
-		}
-		at := cursor + rel
-		b.WriteString(content[cursor:at])
-		b.WriteString(newPieces[i])
-		cursor = at + len(piece)
-	}
-	b.WriteString(content[cursor:])
-	return b.String(), true
-}
-
-func editRepairError(content, old string) error {
-	msg := "edit repair failed: no unique match after 1 edit(s) attempted; file unchanged"
-	if s := formatSimilarLines(content, old); s != "" {
-		msg += "; " + s
-	}
-	return errors.New(msg)
-}
-
-// The diagnostic helpers below mirror the tool's deterministic similar-line
-// scoring so error text stays faithful; they do not affect match decisions.
-func similarLines(content, sample string, limit int) []string {
-	if limit <= 0 {
-		return nil
-	}
-	type scored struct {
-		line  string
-		score int
-	}
-	var candidates []scored
-	for _, ln := range strings.Split(content, "\n") {
-		if strings.TrimSpace(ln) == "" {
-			continue
-		}
-		if score := similarityScore(sample, ln); score > 0 {
-			candidates = append(candidates, scored{ln, score})
-		}
-	}
-	if len(candidates) == 0 {
-		for _, ln := range strings.Split(content, "\n") {
-			if strings.TrimSpace(ln) == "" {
-				continue
-			}
-			candidates = append(candidates, scored{ln, 0})
-			if len(candidates) == limit {
-				break
-			}
-		}
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
-	})
-	if len(candidates) > limit {
-		candidates = candidates[:limit]
-	}
-	out := make([]string, 0, len(candidates))
-	for _, c := range candidates {
-		out = append(out, c.line)
-	}
-	return out
-}
-
-func similarityScore(sample, line string) int {
-	a, b := strings.ToLower(sample), strings.ToLower(line)
-	return commonMultiset(strings.Fields(a), strings.Fields(b))*8 + commonRunes([]rune(a), []rune(b))
-}
-
-func commonMultiset(a, b []string) int {
-	counts := make(map[string]int, len(a))
-	for _, v := range a {
-		counts[v]++
-	}
-	n := 0
-	for _, v := range b {
-		if counts[v] > 0 {
-			counts[v]--
-			n++
-		}
-	}
-	return n
-}
-
-func commonRunes(a, b []rune) int {
-	counts := make(map[rune]int, len(a))
-	for _, r := range a {
-		counts[r]++
-	}
-	n := 0
-	for _, r := range b {
-		if counts[r] > 0 {
-			counts[r]--
-			n++
-		}
-	}
-	return n
-}
-
-func formatSimilarLines(content, sample string) string {
-	lines := similarLines(content, sample, 5)
-	if len(lines) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(lines))
-	for _, ln := range lines {
-		quoted = append(quoted, strconv.Quote(ln))
-	}
-	return "most similar lines: " + strings.Join(quoted, " | ")
 }

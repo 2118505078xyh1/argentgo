@@ -2,6 +2,9 @@ package security
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -104,13 +107,23 @@ func (NeverApprover) Ask(ctx context.Context, name string, args string) (bool, e
 	return false, nil
 }
 
-// CachedApprover remembers approved tool names for the rest of the session.
-// A refusal is never cached, so the operator can change their mind; a new
-// session must use a new CachedApprover.
+// approvalKey identifies one authorization: a tool name plus the canonical
+// form of the exact arguments that were approved. Keying by name alone would
+// let a harmless "git status" approval silently authorize "rm -rf /" later in
+// the same session.
+type approvalKey struct {
+	name     string
+	argsHash string
+}
+
+// CachedApprover remembers approved (tool, args) pairs for the rest of the
+// session. A refusal is never cached, so the operator can change their mind;
+// a new session must use a new CachedApprover. Different arguments to the same
+// tool require a fresh approval.
 type CachedApprover struct {
 	inner   Approver
 	mu      sync.Mutex
-	allowed map[string]bool
+	allowed map[approvalKey]bool
 }
 
 // NewCachedApprover wraps inner. Without an inner approver every call is
@@ -119,13 +132,16 @@ func NewCachedApprover(inner Approver) *CachedApprover {
 	if inner == nil {
 		inner = NeverApprover{}
 	}
-	return &CachedApprover{inner: inner, allowed: make(map[string]bool)}
+	return &CachedApprover{inner: inner, allowed: make(map[approvalKey]bool)}
 }
 
-// Ask returns true immediately for a tool name already approved this session.
+// Ask returns true immediately for an exact (name, args) pair already approved
+// this session. Merely seeing the same tool name with different arguments is
+// not enough to skip the prompt.
 func (c *CachedApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
+	key := approvalCacheKey(name, args)
 	c.mu.Lock()
-	allowed := c.allowed[name]
+	allowed := c.allowed[key]
 	c.mu.Unlock()
 	if allowed {
 		return true, nil
@@ -135,20 +151,56 @@ func (c *CachedApprover) Ask(ctx context.Context, name string, args string) (boo
 		return false, err
 	}
 	c.mu.Lock()
-	c.allowed[name] = true
+	c.allowed[key] = true
 	c.mu.Unlock()
 	return true, nil
 }
 
-// Allowed lists the tool names already approved this session.
+// Allowed lists the tool names with at least one approved argument set this
+// session. Names are deduplicated because each name may have several approved
+// argument sets.
 func (c *CachedApprover) Allowed() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	seen := make(map[string]bool, len(c.allowed))
 	names := make([]string, 0, len(c.allowed))
-	for name := range c.allowed {
-		names = append(names, name)
+	for key := range c.allowed {
+		if seen[key.name] {
+			continue
+		}
+		seen[key.name] = true
+		names = append(names, key.name)
 	}
 	return names
+}
+
+// canonicalArgs canonicalizes a raw JSON argument object so two spellings of
+// the same call compare equal: object keys are sorted recursively and
+// whitespace is dropped. Non-JSON arguments are whitespace-collapsed. It is
+// intentionally local to security so this package never has to depend on
+// internal/agent (which owns an equivalent helper).
+func canonicalArgs(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "{}"
+	}
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return strings.Join(strings.Fields(raw), " ")
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return string(normalized)
+}
+
+// approvalCacheKey hashes the tool name together with its canonical arguments
+// so no raw (possibly very large) argument text is retained in the cache.
+func approvalCacheKey(name, args string) approvalKey {
+	normalized := canonicalArgs(args)
+	sum := sha256.Sum256([]byte(name + "\x00" + normalized))
+	return approvalKey{name: name, argsHash: hex.EncodeToString(sum[:])}
 }
 
 // ScopedApprover is a portable building block that layers in-memory approval
@@ -238,24 +290,65 @@ func readLine(reader io.Reader) (string, error) {
 // newlines so multiline commands stay legible, expands tabs to spaces, drops
 // ANSI escape sequences and other control bytes, and truncates on a rune
 // boundary so a wide UTF-8 character is never cut in half.
+//
+// Overlong arguments are never reduced to their head alone: a caller can hide
+// a destructive command after 400 innocuous characters, which used to make the
+// approval prompt show only the harmless prefix. The visible budget is split
+// between the head and the tail and an explicit "省略 N 字符" marker sits
+// between them, so the operator always sees how the command ends. The result
+// stays within the historical runeCap+1 rune bound.
 func readableArgs(args string) string {
 	text := stripANSIAndControls(args)
 	text = strings.ReplaceAll(text, "\t", "    ")
 	const runeCap = 400
 	const ellipsis = "…"
-	if utf8.RuneCountInString(text) <= runeCap {
+	total := utf8.RuneCountInString(text)
+	if total <= runeCap {
 		return text
 	}
-	cut := 0
+
+	marker := fmt.Sprintf("…省略%d字符…", total-runeCap)
+	// Spend the same runeCap budget on visible content (head + tail); the
+	// marker and one trailing ellipsis keep the old outer size of runeCap+1.
+	budget := runeCap - utf8.RuneCountInString(marker)
+	if budget < 0 {
+		budget = 0
+	}
+	headRunes := budget / 2
+	tailRunes := budget - headRunes
+	return runeHead(text, headRunes) + marker + runeTail(text, tailRunes) + ellipsis
+}
+
+// runeHead returns the first n runes of s, or all of s if it is shorter. It
+// never splits a UTF-8 sequence.
+func runeHead(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	seen := 0
-	for i := range text {
-		if seen == runeCap {
-			cut = i
-			break
+	for pos := range s {
+		if seen == n {
+			return s[:pos]
 		}
 		seen++
 	}
-	return text[:cut] + ellipsis
+	return s
+}
+
+// runeTail returns the last n runes of s, or all of s if it is shorter. It
+// never splits a UTF-8 sequence.
+func runeTail(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	start := len(s)
+	seen := 0
+	for start > 0 && seen < n {
+		_, size := utf8.DecodeLastRuneInString(s[:start])
+		start -= size
+		seen++
+	}
+	return s[start:]
 }
 
 // stripANSIAndControls removes ANSI escape sequences (CSI, OSC and bare ESC

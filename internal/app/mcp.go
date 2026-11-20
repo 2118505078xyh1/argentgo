@@ -66,6 +66,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetGuard(guard)
 		registry.SetLspIde(NewLspIdeAdapter(absolute))
 		wireCheckpointDiff(registry, sess, absolute)
+		wireHistory(registry, sess)
 		m.roots = append(m.roots, filepath.Clean(absolute))
 		m.regs = append(m.regs, registry)
 	}
@@ -75,6 +76,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetGuard(guard)
 		registry.SetLspIde(NewLspIdeAdapter(res.Root))
 		wireCheckpointDiff(registry, sess, res.Root)
+		wireHistory(registry, sess)
 		m.roots = []string{res.Root}
 		m.regs = []*tools.Registry{registry}
 	}

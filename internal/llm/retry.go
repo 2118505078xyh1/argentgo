@@ -237,15 +237,18 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 }
 
 // Delay is the wait before the next attempt (attempt is 1-based, so attempt 2
-// follows the first retry). A provider Retry-After wins when it is larger, but
-// is bounded by both 3x MaxDelay and MaxRetryAfter; an authoritative
-// Retry-After is never jittered. Exponential backoff is jittered downwards by
-// up to retryJitterRatio so concurrent sessions do not wake in lockstep.
+// follows the first retry). Any explicit provider Retry-After is authoritative:
+// the server asks for a minimum wait, so it is never reduced by jitter. It is
+// bounded by both 3x MaxDelay and MaxRetryAfter. Without Retry-After,
+// exponential backoff is jittered downwards by up to retryJitterRatio so
+// concurrent sessions do not wake in lockstep.
 func (p RetryPolicy) Delay(attempt int, retryAfter time.Duration) time.Duration {
 	p = p.withDefaults()
 	base := p.baseDelay(attempt, retryAfter)
-	// An explicit provider Retry-After is authoritative: leave it untouched.
-	if retryAfter > p.baseDelay(attempt, 0) {
+	// A positive Retry-After is authoritative even when it is smaller than the
+	// exponential backoff: base already waits at least that long, and jittering
+	// it could fall below the provider's requested minimum.
+	if retryAfter > 0 {
 		return base
 	}
 	return time.Duration(float64(base) * (1 - retryJitterRatio*p.Jitter()))
@@ -376,7 +379,13 @@ func IsRetryableStatus(code int) bool {
 // account limit (quota, billing, subscription/plan) rather than a transient
 // rate limit. Compiled once at package scope; matching happens on redacted
 // text so credential-shaped values cannot influence the decision.
-var nonRetryableQuotaRE = regexp.MustCompile(`(?i)(insufficient[_-]?quota|quota[_-]?(?:exceeded|exhausted|limit|reached)|exceeded[_\s]+(?:your[_\s]+)?(?:current[_\s]+)?quota|exhausted[_\s]+(?:its[_\s]+|your[_\s]+|the[_\s]+)?quota|billing|usage[_\s]?limit|plan[_\s]?limit|subscription[_\s]?(?:limit|quota)|out[_\s]+of[_\s]+(?:quota|credit|balance)|credit[_\s]+balance|insufficient[_\s]+(?:credit|credits|funds|balance)|payment[_\s]+required|hard[_\s]+limit|订阅额度|订阅限额|配额|额度)`)
+//
+// The quota/billing words are deliberately NOT bare: "请求过于频繁，配额将在
+// 30 秒后重置" and "check your billing settings" describe a rate limit that a
+// retry can clear. Chinese quota mentions require an exhaustion phrase nearby,
+// and "billing" requires a hard-limit/usage phrase nearby; explicit error codes
+// such as insufficient_quota and quota_exceeded stay sufficient on their own.
+var nonRetryableQuotaRE = regexp.MustCompile(`(?i)(insufficient[_-]?quota|quota[_-]?(?:exceeded|exhausted|limit|reached)|exceeded[_\s]+(?:your[_\s]+)?(?:current[_\s]+)?quota|exhausted[_\s]+(?:its[_\s]+|your[_\s]+|the[_\s]+)?quota|usage[_\s]?limit|plan[_\s]?limit|subscription[_\s]?(?:limit|quota)|out[_\s]+of[_\s]+(?:quota|credit|balance)|credit[_\s]+balance|insufficient[_\s]+(?:credit|credits|funds|balance)|payment[_\s]+required|hard[_\s]+limit|(?:hard[_\s-]?limit|usage[_\s-]?limit|payment[_\s]+required)[^\n]{0,80}?billing|billing[^\n]{0,80}?(?:hard[_\s-]?limit|usage[_\s-]?limit|exceeded|exhausted|insufficient|depleted|quota|payment[_\s]+required|limit[_\s-]?reached)|(?:配额|额度|订阅额度|订阅限额)[^\n]{0,24}?(?:用尽|耗尽|不足|已用完|用罄))`)
 
 // IsNonRetryableQuotaResponse reports whether a provider response is a hard
 // quota/billing/subscription limit rather than a transient rate limit. Such a

@@ -1,0 +1,264 @@
+{
+  "scenarios": [
+    {
+      "id": "S1",
+      "name": "delegation with a persona",
+      "description": "The root calls the real task tool with a persona; the child runs a real nested loop seeded with that persona's system prompt, and the parent finalizes with the child's text.",
+      "prompt": "Delegate the capital lookup to the researcher.",
+      "personas": [
+        {
+          "name": "researcher",
+          "system": "You are a researcher with a meticulous method. Report only verified findings.",
+          "allowed_tools": ["read"]
+        }
+      ],
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "task",
+                "arguments": {
+                  "description": "capital lookup",
+                  "prompt": "Find the capital of France",
+                  "persona": "researcher"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["Find the capital of France"],
+          "respond": { "text": "The capital of France is Paris." }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["The capital of France is Paris."],
+          "respond": { "text": "Delegated answer: The capital of France is Paris." }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 1 },
+        { "kind": "child_system_contains", "value": "You are a researcher with a meticulous method" },
+        { "kind": "child_prompt_contains", "value": "Find the capital of France" },
+        { "kind": "tool_calls", "values": ["task"] },
+        { "kind": "parent_roles", "values": ["system", "user", "assistant", "tool"] },
+        { "kind": "final_text_contains", "value": "The capital of France is Paris." }
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "verify pass accepts the first result",
+      "description": "A verify-enabled task runs the original child once, then a verification child replies PASS. The parent emits a PASS notice and returns the original text.",
+      "prompt": "Draft the release note with verification.",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "task",
+                "arguments": {
+                  "description": "release note",
+                  "prompt": "Draft the release note",
+                  "verify": "Must mention the version",
+                  "verify_max_retries": 0
+                }
+              }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["Draft the release note"],
+          "respond": { "text": "draft answer with version 2" }
+        },
+        {
+          "target": "verify",
+          "match_request_contains": ["Verify the following result", "Must mention the version"],
+          "respond": { "text": "PASS - looks correct" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["draft answer with version 2"],
+          "respond": { "text": "Verified: draft answer with version 2" }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 1 },
+        { "kind": "verify_runs", "equals": 1 },
+        { "kind": "verify_prompt_contains", "value": "Must mention the version" },
+        { "kind": "notice_contains", "value": "PASS" },
+        { "kind": "notice_count_contains", "value": "FAIL", "equals": 0 },
+        { "kind": "final_text_contains", "value": "draft answer with version 2" }
+      ]
+    },
+    {
+      "id": "S3a",
+      "name": "verify retry bounded: FAIL, FAIL, PASS",
+      "description": "The verification child fails twice and passes on the third attempt within verify_max_retries=3. The real retry loop runs exactly three task attempts and succeeds.",
+      "prompt": "Write a thorough summary with verification.",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "task",
+                "arguments": {
+                  "description": "summary",
+                  "prompt": "Write a thorough summary",
+                  "verify": "Must be thorough",
+                  "verify_max_retries": 3
+                }
+              }
+            ]
+          }
+        },
+        { "target": "child", "respond": { "text": "draft 1" } },
+        { "target": "verify", "respond": { "text": "FAIL - too short" } },
+        { "target": "child", "respond": { "text": "draft 2" } },
+        { "target": "verify", "respond": { "text": "FAIL - still short" } },
+        { "target": "child", "respond": { "text": "draft 3" } },
+        { "target": "verify", "respond": { "text": "PASS - thorough now" } },
+        {
+          "target": "parent",
+          "match_request_contains": ["draft 3"],
+          "respond": { "text": "Final verified result: draft 3" }
+        }
+      ],
+      "assertions": [
+        { "kind": "task_attempts", "equals": 3 },
+        { "kind": "verify_runs", "equals": 3 },
+        { "kind": "notice_count_contains", "value": "FAIL", "equals": 2 },
+        { "kind": "notice_contains", "value": "PASS" },
+        { "kind": "final_text_contains", "value": "draft 3" },
+        { "kind": "final_text_not_contains", "value": "draft 1" }
+      ]
+    },
+    {
+      "id": "S3b",
+      "name": "verify all FAIL stops at the cap",
+      "description": "Every verification fails with verify_max_retries=3. The bounded loop performs exactly four attempts (initial plus three retries), emits no PASS and never runs away.",
+      "prompt": "Try to produce a perfect answer.",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "task",
+                "arguments": {
+                  "description": "perfect answer",
+                  "prompt": "Write the perfect answer",
+                  "verify": "Must be perfect",
+                  "verify_max_retries": 3
+                }
+              }
+            ]
+          }
+        },
+        { "target": "child", "respond": { "text": "work 1" } },
+        { "target": "verify", "respond": { "text": "FAIL - try again" } },
+        { "target": "child", "respond": { "text": "work 2" } },
+        { "target": "verify", "respond": { "text": "FAIL - try again" } },
+        { "target": "child", "respond": { "text": "work 3" } },
+        { "target": "verify", "respond": { "text": "FAIL - try again" } },
+        { "target": "child", "respond": { "text": "work 4" } },
+        { "target": "verify", "respond": { "text": "FAIL - try again" } },
+        {
+          "target": "parent",
+          "match_request_contains": ["work 4"],
+          "respond": { "text": "Stopped after bounded retries; last result: work 4" }
+        }
+      ],
+      "assertions": [
+        { "kind": "task_attempts", "equals": 4 },
+        { "kind": "verify_runs", "equals": 4 },
+        { "kind": "notice_count_contains", "value": "FAIL", "equals": 4 },
+        { "kind": "notice_count_contains", "value": "PASS", "equals": 0 },
+        { "kind": "final_text_contains", "value": "work 4" },
+        { "kind": "final_text_not_contains", "value": "work 1" }
+      ]
+    },
+    {
+      "id": "S4",
+      "name": "background result injection on the next turn",
+      "description": "A background task returns an immediate ack while the child is still blocked. After the child completes, a second prompt on the same runner drains the shared queue into a synthetic user turn.",
+      "prompt": "Start a background lookup.",
+      "followup_prompt": "What did the background lookup find?",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "task",
+                "arguments": {
+                  "description": "build number lookup",
+                  "prompt": "Find the build number",
+                  "background": true
+                }
+              }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["Find the build number"],
+          "block_until_release": true,
+          "respond": { "text": "build number 4242" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["started in background"],
+          "respond": { "text": "Started the lookup in the background; I will report when it finishes." }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["task result:", "build number 4242"],
+          "respond": { "text": "Background result received: build number 4242." }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 1 },
+        { "kind": "queued_at_ack", "equals": 0 },
+        { "kind": "bg_result_queued", "equals": 1 },
+        { "kind": "parent_tool_result_contains", "value": "started in background" },
+        { "kind": "notice_contains", "value": "task result:" },
+        { "kind": "followup_roles", "values": ["system", "user", "user"] },
+        { "kind": "followup_user_contains", "value": "task result:" },
+        { "kind": "followup_user_contains", "value": "build number 4242" },
+        { "kind": "final_text_contains", "value": "Started the lookup in the background" }
+      ]
+    },
+    {
+      "id": "S5",
+      "name": "task board post/read flow",
+      "description": "Direct API scenario: board_post / board_read tools are not registered in the loop yet (TaskBoardIO is only a future seam), so this drives the real TaskBoard directly with an info/ask/result exchange and since/recipient filtering.",
+      "kind": "board",
+      "prompt": "Coordinate through the task board.",
+      "board": {
+        "posts": [
+          { "from": "parent", "to": "researcher", "kind": "info", "body": "start the audit" },
+          { "from": "researcher", "to": "parent", "kind": "ask", "body": "which branch?" },
+          { "from": "parent", "to": "researcher", "kind": "result", "body": "use main" }
+        ],
+        "reads": [
+          { "name": "all", "since": 0, "to": "" },
+          { "name": "to_parent", "since": 0, "to": "parent" },
+          { "name": "since_first", "since": 1, "to": "" }
+        ]
+      },
+      "assertions": [
+        { "kind": "board_post_count", "equals": 3 },
+        { "kind": "board_message_contains", "value": "which branch?" },
+        { "kind": "board_read_count", "value": "all", "equals": 3 },
+        { "kind": "board_read_count", "value": "to_parent", "equals": 1 },
+        { "kind": "board_read_count", "value": "since_first", "equals": 2 }
+      ]
+    }
+  ]
+}

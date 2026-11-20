@@ -75,6 +75,7 @@ func (s *Store) Branches(id string) ([]Branch, error) {
 }
 
 func branchDepth(id string, byID map[string]Record, cache map[string]int) int {
+	origID := id
 	if depth, ok := cache[id]; ok {
 		return depth
 	}
@@ -92,7 +93,10 @@ func branchDepth(id string, byID map[string]Record, cache map[string]int) int {
 		}
 		id, record = record.Parent, byID[record.Parent]
 	}
-	cache[id] = depth
+	// Cache under the id whose depth was requested, not the top ancestor the
+	// walk happened to end on: storing the accumulated depth on an ancestor
+	// corrupts every later branch that descends from it (session audit #6).
+	cache[origID] = depth
 	return depth
 }
 

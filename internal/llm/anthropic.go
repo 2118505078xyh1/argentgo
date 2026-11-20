@@ -377,9 +377,13 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 	reader := newSSEReader(body)
 
 	var (
-		text         strings.Builder
-		reasoning    strings.Builder
-		usage        *Usage
+		text      strings.Builder
+		reasoning strings.Builder
+		usage     *Usage
+		// baseInput is message_start's bare input_tokens (cache excluded).
+		// message_delta carries the authoritative cache counts, so PromptTokens
+		// is rebuilt from this base instead of summing the two snapshots.
+		baseInput    int
 		finishReason string
 		partials     = make(map[int]*anthropicPartial)
 	)
@@ -412,6 +416,7 @@ streamLoop:
 		switch event.Type {
 		case "message_start":
 			if event.Message != nil && event.Message.Usage != nil {
+				baseInput = event.Message.Usage.InputTokens
 				usage = anthropicPromptUsage(event.Message.Usage)
 			}
 		case "content_block_start":
@@ -498,12 +503,20 @@ streamLoop:
 				if event.Usage.OutputTokens > 0 {
 					usage.CompletionTokens = event.Usage.OutputTokens
 				}
+				// Cache counts in message_delta are final cumulative values, not
+				// increments. Assign (never add) so a cache count also present in
+				// message_start is not counted twice.
 				if event.Usage.CacheReadInputTokens > 0 {
 					usage.CachedTokens = event.Usage.CacheReadInputTokens
 				}
 				if event.Usage.CacheCreationInputTokens > 0 {
 					usage.CacheWriteTokens = event.Usage.CacheCreationInputTokens
 				}
+				// PromptTokens is the full prompt cost (fresh + cached). Rebuild it
+				// from message_start's bare input plus the authoritative delta cache
+				// counts; otherwise CachedTokens can exceed PromptTokens and budget
+				// accounting undercounts.
+				usage.PromptTokens = baseInput + usage.CachedTokens + usage.CacheWriteTokens
 			}
 		case "message_stop":
 			break streamLoop

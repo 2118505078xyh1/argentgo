@@ -57,6 +57,11 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
 		newLspRenamePreviewTool(nil), newLspFormatTool(nil), newLspWorkspaceSymbolsTool(nil),
 		securityScanTool{},
+		// Stdlib-portable productivity tools. usage/history start with nil
+		// sources and report unavailable until the app calls SetUsageSource /
+		// SetHistorySource. Registered before the memory tools so the memory_*
+		// tail stays adjacent to tool_search (TestMemoryToolsRegisteredAndOverridable).
+		&diffTool{}, &usageTool{}, &historyTool{},
 		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
 	} {
 		r.tools[tool.Name()] = tool

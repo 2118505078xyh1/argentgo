@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,12 +86,13 @@ func TestEditBenchFixtureCoversScenarios(t *testing.T) {
 }
 
 // TestRunEditBenchMatchesFixtureExpectations is the core assertion: for every
-// case the harness must report that the algorithm behaved as the fixture says
-// it should. A harness that always passes would not detect a regression.
+// case the real edit tool (invoked through tools.Registry.Run) must behave as
+// the fixture says it should. A harness that always passes would not detect a
+// regression.
 func TestRunEditBenchMatchesFixtureExpectations(t *testing.T) {
 	cases := loadBenchFixture(t)
 	report := RunEditBench(cases)
-	t.Logf("ACTUAL BENCHMARK NUMBERS: %s", report)
+	t.Logf("ACTUAL REAL-TOOL BENCHMARK NUMBERS: %s", report)
 	if report.Total != len(cases) {
 		t.Fatalf("report.Total = %d, want %d", report.Total, len(cases))
 	}
@@ -101,7 +104,7 @@ func TestRunEditBenchMatchesFixtureExpectations(t *testing.T) {
 			failure.ID, failure.Name, failure.Mode, failure.Got, failure.Reason)
 	}
 	if report.Passed != len(cases) {
-		t.Fatalf("pass rate %d/%d; %d cases disagreed with the fixture", report.Passed, len(cases), report.Failed)
+		t.Fatalf("pass rate %d/%d; %d cases disagreed with the real tool", report.Passed, len(cases), report.Failed)
 	}
 }
 
@@ -160,17 +163,121 @@ func TestEditBenchReportString(t *testing.T) {
 	}
 }
 
-// TestHashlineHashMatchesSHA256 pins the hash contract to an independent known
-// digest: sha256("hello") = 2cf24dba5fb0a30e... -> first 12 = 2cf24dba5fb0.
-func TestHashlineHashMatchesSHA256(t *testing.T) {
-	if got, want := hashlineHash("hello"), "2cf24dba5fb0"; got != want {
-		t.Fatalf("hashlineHash(%q) = %q, want %q", "hello", got, want)
+// TestEditArgsReflectDeclaredFieldsOnly checks that the JSON handed to the real
+// tool carries exactly the fields the case declares (plus the mode flag), so
+// the benchmark measures the fixture's intent rather than harness defaults.
+func TestEditArgsReflectDeclaredFieldsOnly(t *testing.T) {
+	cases := []struct {
+		name   string
+		tc     EditCase
+		want   map[string]any
+		absent []string
+	}{
+		{
+			name:   "exact",
+			tc:     EditCase{Mode: modeExact, Old: "a", New: "b"},
+			want:   map[string]any{"path": editBenchFile, "old": "a", "new": "b"},
+			absent: []string{"repair", "hashline", "anchor", "anchor_hash"},
+		},
+		{
+			name:   "repair",
+			tc:     EditCase{Mode: modeRepair, Old: "a", New: "b"},
+			want:   map[string]any{"path": editBenchFile, "old": "a", "new": "b", "repair": true},
+			absent: []string{"hashline", "anchor", "anchor_hash"},
+		},
+		{
+			name:   "hashline",
+			tc:     EditCase{Mode: modeHashline, Anchor: "a", AnchorHash: "deadbeefdead", New: "b"},
+			want:   map[string]any{"path": editBenchFile, "new": "b", "anchor": "a", "anchor_hash": "deadbeefdead", "hashline": true},
+			absent: []string{"repair", "old"},
+		},
 	}
-	if h := hashlineHash(""); len(h) != 12 {
-		t.Fatalf("hashlineHash(\"\") length = %d, want 12", len(h))
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := editArgs(tt.tc)
+			if err != nil {
+				t.Fatalf("editArgs: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(raw), &got); err != nil {
+				t.Fatalf("decode args %s: %v", raw, err)
+			}
+			for key, want := range tt.want {
+				value, ok := got[key]
+				if !ok || value != want {
+					t.Errorf("arg %q = %v (present=%t), want %v; raw=%s", key, value, ok, want, raw)
+				}
+			}
+			for _, key := range tt.absent {
+				if _, ok := got[key]; ok {
+					t.Errorf("arg %q was sent but the case did not declare it; raw=%s", key, raw)
+				}
+			}
+			if len(got) != len(tt.want) {
+				t.Errorf("got %d args, want %d; raw=%s", len(got), len(tt.want), raw)
+			}
+		})
 	}
-	if hashlineHash("hello") == hashlineHash("hello!") {
-		t.Fatal("different content produced the same hash")
+}
+
+// TestRunEditCaseUsesRealToolRegistry proves the harness reaches the shipped
+// registry rather than a local resolver: only the registry enforces the
+// mutating-tool gate, so yolo=false must reject the edit before the tool runs.
+// With yolo=true the same case must really mutate the scratch file.
+func TestRunEditCaseUsesRealToolRegistry(t *testing.T) {
+	c := EditCase{
+		ID: "registry-gate", Mode: modeExact,
+		Original: "abc\n", Old: "abc", New: "xyz", WantResult: "xyz",
+	}
+	dir := t.TempDir()
+	if _, err := seedEditFile(dir, c); err != nil {
+		t.Fatalf("seedEditFile: %v", err)
+	}
+	_, err := runEditViaRegistry(dir, c, false)
+	if err == nil || !strings.Contains(err.Error(), "rerun with --yolo") {
+		t.Fatalf("registry mutation gate did not reject the edit: %v", err)
+	}
+	if _, err := runEditViaRegistry(dir, c, true); err != nil {
+		t.Fatalf("yolo edit via real registry: %v", err)
+	}
+	edited, err := os.ReadFile(filepath.Join(dir, editBenchFile))
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if !strings.Contains(string(edited), "xyz") {
+		t.Fatalf("real tool did not mutate the file: %q", edited)
+	}
+}
+
+// TestRealPathDetectsDeliberatelyWrongExpectation proves the benchmark is not
+// trivially passing: flip a fixture case's expectation and the harness must
+// report a failure with a reason. It checks both directions (expected success
+// that should be an error, and expected error that should be a success).
+func TestRealPathDetectsDeliberatelyWrongExpectation(t *testing.T) {
+	cases := loadBenchFixture(t)
+	var successCase, errorCase EditCase
+	for _, c := range cases {
+		if c.WantErrContains == "" && successCase.ID == "" {
+			successCase = c
+		}
+		if c.WantErrContains != "" && errorCase.ID == "" {
+			errorCase = c
+		}
+	}
+	if successCase.ID == "" || errorCase.ID == "" {
+		t.Fatal("fixture must contain both success and error cases")
+	}
+
+	wrongResult := successCase
+	wrongResult.WantResult = "THIS_TEXT_IS_NEVER_PRODUCED"
+	if got := RunEditCase(wrongResult); got.Passed || got.Reason == "" {
+		t.Fatalf("flipped success expectation was not detected: %+v", got)
+	}
+
+	wrongError := errorCase
+	wrongError.WantErrContains = "THIS_ERROR_NEVER_APPEARS"
+	if got := RunEditCase(wrongError); got.Passed || got.Reason == "" {
+		t.Fatalf("flipped error expectation was not detected: %+v", got)
 	}
 }
 

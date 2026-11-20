@@ -82,10 +82,15 @@ func readRecords(path string) ([]Record, error) {
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			continue
 		}
-		if record.ID == "" {
-			record.ID = fmt.Sprintf("n%06d", len(records)+1)
-		}
 		records = append(records, record)
+	}
+	// Mint synthetic ids only after the whole file is parsed, so an explicit
+	// id appearing later cannot collide with one minted for an earlier record
+	// that had no id (session audit #5). nextID skips every id already present.
+	for i := range records {
+		if records[i].ID == "" {
+			records[i].ID = nextID(records)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return records, fmt.Errorf("session: read %s: %w", path, err)

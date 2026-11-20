@@ -95,7 +95,6 @@ func parseRecordsForPage(path string) ([]parsedRecord, error) {
 	parsed := make([]parsedRecord, 0, 16)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineLen)
-	valid := 0
 	for scanner.Scan() {
 		raw := scanner.Bytes()
 		line := strings.TrimSpace(string(raw))
@@ -106,14 +105,23 @@ func parseRecordsForPage(path string) ([]parsedRecord, error) {
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			continue
 		}
-		if record.ID == "" {
-			record.ID = fmt.Sprintf("n%06d", valid+1)
-		}
 		parsed = append(parsed, parsedRecord{record: record, size: len(raw)})
-		valid++
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("session: read %s: %w", path, err)
+	}
+	// Defer synthetic ids until every explicit id is known, then use the same
+	// helper as readRecords so cursors minted by one read API resolve in the
+	// other (session audit #5).
+	records := make([]Record, len(parsed))
+	for i := range parsed {
+		records[i] = parsed[i].record
+	}
+	for i := range parsed {
+		if parsed[i].record.ID == "" {
+			parsed[i].record.ID = nextID(records)
+			records[i].ID = parsed[i].record.ID
+		}
 	}
 	return parsed, nil
 }
