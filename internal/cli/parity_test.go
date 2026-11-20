@@ -218,11 +218,20 @@ func TestParseNewFlagSurface(t *testing.T) {
 			},
 		},
 		{
-			name: "continue session implies resume",
+			name: "continue session implies resume and stays in text mode",
 			args: []string{"--continue-session"},
 			want: func(t *testing.T, o *Options) {
 				if !o.Resume {
 					t.Fatal("continue-session did not set resume")
+				}
+				// An empty Mode is the text default: the CLI only branches on
+				// ModeJSON, so anything else is text output.
+				mode := o.Mode
+				if mode == "" {
+					mode = ModeText
+				}
+				if o.JSONLines || mode != ModeText {
+					t.Fatalf("continue-session must not enable JSON output: jsonLines=%v mode=%q", o.JSONLines, o.Mode)
 				}
 			},
 		},

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
 // runConfig implements `config get|set` over dotted keys.
@@ -56,6 +58,7 @@ func runConfig(app App, _ context.Context, args []string) int {
 			fmt.Fprintln(app.IO.Err, "error:", err)
 			return 1
 		}
+		warnJSONCRewrite(app.IO.Err, path)
 		setDotted(cfg, args[1], parseValue(args[2]))
 		if err := saveConfigFile(path, cfg); err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
@@ -81,7 +84,9 @@ func formatConfigValue(value any) string {
 	return string(data)
 }
 
-// loadConfigFile reads a JSON object, treating a missing file as empty.
+// loadConfigFile reads a JSONC object, treating a missing file as empty. It
+// reuses the same JSONC cleaner as the main config loader so subcommands and
+// the engine accept exactly the same syntax (comments, trailing commas).
 func loadConfigFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -90,14 +95,29 @@ func loadConfigFile(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	clean := config.StripJSONC(string(data))
 	cfg := map[string]any{}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(clean), &cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
 	return cfg, nil
+}
+
+// warnJSONCRewrite tells the operator when `config set` is about to discard
+// JSONC syntax that the loader accepts. saveConfigFile writes strict JSON, so
+// comments and trailing commas in a hand-edited file cannot survive.
+func warnJSONCRewrite(w io.Writer, path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if config.StripJSONC(string(data)) == string(data) {
+		return
+	}
+	fmt.Fprintln(w, "warning: config set rewrites as strict JSON; comments and trailing commas are not preserved")
 }
 
 // saveConfigFile writes a JSON object atomically with owner-only permissions.
@@ -171,6 +191,8 @@ func configUsage(w io.Writer) {
        argent config path
 
 Values are parsed as JSON when possible, so `+"`set model gpt-4o`"+` stores a string
-and `+"`set maxTurns 20`"+` stores a number.
+and `+"`set maxTurns 20`"+` stores a number. Config files may contain comments and
+trailing commas (JSONC). Note: `+"`set`"+` rewrites the file as strict JSON; comments
+and trailing commas in the original file are removed.
 `)
 }

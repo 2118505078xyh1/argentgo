@@ -300,13 +300,40 @@ func overrideValueOK(o *Overrides, keys ...string) (string, bool) {
 	return o.lookup(keys...)
 }
 
+// serveAddress combines --serve-address and --serve-port into a bind address.
+// A colon alone does not mean "host:port": a bare IPv6 literal (::1) has no
+// port yet and must be joined with --serve-port. Only an address that already
+// carries an explicit port is returned unchanged.
 func serveAddress(host string, port int) string {
 	host = strings.TrimSpace(host)
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	if strings.Contains(host, ":") {
+	portText := strconv.Itoa(port)
+
+	// Bracketed IPv6: [::1] still needs the port, [::1]:8080 already has one.
+	if strings.HasPrefix(host, "[") {
+		if end := strings.IndexByte(host, ']'); end >= 0 {
+			inner, rest := host[1:end], host[end+1:]
+			switch {
+			case rest == "":
+				return net.JoinHostPort(inner, portText)
+			case strings.HasPrefix(rest, ":"):
+				return host
+			}
+		}
+	}
+
+	// A parsed IP literal is always a bare host, never host:port. Zone-scoped
+	// IPv6 (fe80::1%eth0) is not parsed by net.ParseIP but still has >1 colon,
+	// so it falls through to JoinHostPort below, which brackets it correctly.
+	if net.ParseIP(host) != nil {
+		return net.JoinHostPort(host, portText)
+	}
+
+	// A hostname or IPv4 address with exactly one colon is already host:port.
+	if strings.Count(host, ":") == 1 {
 		return host
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port))
+	return net.JoinHostPort(host, portText)
 }

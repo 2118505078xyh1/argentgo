@@ -15,22 +15,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
+// isGUIRequest reports whether the arguments name the native GUI subcommand.
+// Only a leading `gui` counts. Scanning every argument would hijack ordinary
+// prompts such as `argent fix gui bug`, and would also launch the GUI when a
+// flag consumed `gui` as its value (`argent --model gui hello`). The --gui
+// flag is parsed by the CLI itself, which reports it as not migrated.
 func isGUIRequest(args []string) bool {
-	for _, arg := range args {
-		if arg == "gui" || arg == "--gui" {
-			return true
-		}
-	}
-	return false
+	return len(args) > 0 && args[0] == "gui"
 }
 
 func runGUI(stdio cli.IO, args []string) int {
-	filtered := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "gui" || arg == "--gui" {
-			continue
-		}
-		filtered = append(filtered, arg)
+	// main dispatches here on the leading `gui` subcommand; strip only that
+	// token. Filtering every `gui`/`--gui` argument would swallow prompt words
+	// and silently ignore flags the GUI parser should reject.
+	if len(args) > 0 && args[0] == "gui" {
+		args = args[1:]
 	}
 
 	flags := flag.NewFlagSet("argent gui", flag.ContinueOnError)
@@ -45,7 +44,7 @@ func runGUI(stdio cli.IO, args []string) int {
 	flags.StringVar(&locale, "locale", "", "ui locale")
 	flags.StringVar(&cwd, "C", "", "workspace root")
 	flags.StringVar(&cwd, "cwd", "", "workspace root")
-	if err := flags.Parse(filtered); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() > 0 {

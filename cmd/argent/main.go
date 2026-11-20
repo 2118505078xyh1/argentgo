@@ -12,6 +12,8 @@ import (
 func main() {
 	stdio := cli.OSIO()
 	args := os.Args[1:]
+	// Only the leading `gui` subcommand launches the native client. --gui is a
+	// regular CLI flag and is handled (reported as not migrated) by cli.RunWith.
 	if isGUIRequest(args) {
 		os.Exit(runGUI(stdio, args))
 	}

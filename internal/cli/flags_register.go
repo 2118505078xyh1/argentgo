@@ -85,7 +85,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	fs.BoolVar(v.help, "h", false, "print this help")
 	fs.StringVar(v.token, "token", "", "alias for --serve-token")
 	fs.StringVar(v.sandboxMode, "sandbox", "", "alias for --sandbox-mode")
-	fs.BoolVar(v.jsonLines, "continue-session", false, "alias for --continue")
+	fs.BoolVar(v.resume, "continue-session", false, "alias for --resume")
 	fs.Var(v.overrides, "config", "config override key=value (repeatable)")
 }
 
