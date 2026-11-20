@@ -125,6 +125,12 @@ func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, p
 // document hooks — all at priority 0 — behave exactly as before. Async hooks
 // are skipped: a deciding hook must answer synchronously. A command with
 // StopPropagation ends the run after it executes, shielding later hooks.
+//
+// Hooks of one priority tier run concurrently; tiers are drained in priority
+// order. Aggregate latency drops from O(N×T) to roughly O(T) per tier, while
+// the executed set and the order of the returned outcomes stay identical to
+// the previous serial loop. StopPropagation is a static flag, so planRun can
+// compute the short-circuit boundary before any command starts.
 func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) ([]Outcome, error) {
 	if config == nil {
 		return nil, nil
@@ -138,20 +144,102 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 	sort.SliceStable(commands, func(i, j int) bool {
 		return commands[i].Priority > commands[j].Priority
 	})
-	outcomes := make([]Outcome, 0, len(commands))
+
+	tiers := planRun(commands)
+	total := 0
+	for _, tier := range tiers {
+		total += len(tier)
+	}
+	outcomes := make([]Outcome, 0, total)
+	for _, tier := range tiers {
+		outcomes = append(outcomes, d.runTier(ctx, tier, payload)...)
+		if err := ctx.Err(); err != nil {
+			return outcomes, err
+		}
+	}
+	return outcomes, nil
+}
+
+// planRun mirrors the old serial loop's control flow, but chooses the command
+// set up front: skip async hooks, stop after the first StopPropagation
+// command, and drop duplicate command strings (keeping the first occurrence
+// in priority/declaration order). A duplicate still honours its stop boundary.
+// The result is a slice of priority tiers in execution order; each tier holds
+// equal-priority commands that may run concurrently.
+func planRun(commands []Command) [][]Command {
+	tiers := make([][]Command, 0, len(commands))
+	seen := make(map[string]struct{}, len(commands))
+	var current []Command
+	haveTier := false
+	var tierPriority int
 	for _, command := range commands {
 		if command.Async {
 			continue
 		}
-		outcomes = append(outcomes, d.guardedRunCommand(ctx, command, payload))
-		if ctx.Err() != nil {
-			return outcomes, ctx.Err()
+		if !haveTier || command.Priority != tierPriority {
+			if haveTier && len(current) > 0 {
+				tiers = append(tiers, current)
+			}
+			current = nil
+			tierPriority = command.Priority
+			haveTier = true
+		}
+		if _, duplicate := seen[command.Command]; !duplicate {
+			seen[command.Command] = struct{}{}
+			current = append(current, command)
 		}
 		if command.StopPropagation {
 			break
 		}
 	}
-	return outcomes, nil
+	if haveTier && len(current) > 0 {
+		tiers = append(tiers, current)
+	}
+	return tiers
+}
+
+// resultCollector gathers outcomes from concurrent hook runs. The mutex keeps
+// collection race-free; each goroutine records under its original index so
+// ordered() can rebuild declaration order regardless of completion order.
+type resultCollector struct {
+	mu      sync.Mutex
+	results map[int]Outcome
+}
+
+func (c *resultCollector) record(index int, outcome Outcome) {
+	c.mu.Lock()
+	c.results[index] = outcome
+	c.mu.Unlock()
+}
+
+func (c *resultCollector) ordered(n int) []Outcome {
+	outcomes := make([]Outcome, n)
+	for index, outcome := range c.results {
+		outcomes[index] = outcome
+	}
+	return outcomes
+}
+
+// runTier runs one priority tier concurrently. A cancelled context stops new
+// hooks from launching; hooks already started finish under their own timeout
+// and are still collected. Outcomes are returned in tier declaration order.
+func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payload) []Outcome {
+	collector := &resultCollector{results: make(map[int]Outcome, len(tier))}
+	var wg sync.WaitGroup
+	launched := 0
+	for index, command := range tier {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		launched++
+		go func(index int, command Command) {
+			defer wg.Done()
+			collector.record(index, d.guardedRunCommand(ctx, command, payload))
+		}(index, command)
+	}
+	wg.Wait()
+	return collector.ordered(launched)
 }
 
 // guardedRunCommand runs one hook with panic containment. The only in-process

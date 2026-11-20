@@ -124,6 +124,65 @@ func TestMarkdownStreamBufConcatenationIsLossless(t *testing.T) {
 	}
 }
 
+func TestMarkdownStreamBufHoldsTableUntilBlockEnds(t *testing.T) {
+	var b MarkdownStreamBuf
+	cases := []struct {
+		delta string
+		want  string
+	}{
+		{"intro\n", "intro\n"},
+		{"a|b", ""},       // potential header, delimiter not seen yet
+		{"\n---|---", ""}, // delimiter still undecidable
+		{"\n1|2", ""},     // body row still streaming
+		{"\noutro\n", "a|b\n---|---\n1|2\noutro\n"},
+	}
+	for _, tc := range cases {
+		if got := b.Push(tc.delta); got != tc.want {
+			t.Fatalf("Push(%q) = %q, want %q", tc.delta, got, tc.want)
+		}
+	}
+	if got := b.Flush(); got != "" {
+		t.Fatalf("Flush() = %q, want nothing left over", got)
+	}
+}
+
+func TestMarkdownStreamBufHoldsTrailingTableBodyRow(t *testing.T) {
+	// A body row without '|' that is still streaming must not end the block:
+	// committing it would render narrow columns that grow on the next delta.
+	var b MarkdownStreamBuf
+	if got := b.Push("a|b\n---|---\n1|2\nlong "); got != "" {
+		t.Fatalf("Push partial block = %q, want nothing", got)
+	}
+	if got := b.Push("cell\nend\n"); got != "a|b\n---|---\n1|2\nlong cell\nend\n" {
+		t.Fatalf("Push block end = %q, want the whole table and trailing row", got)
+	}
+}
+
+func TestMarkdownStreamBufCommitsOrdinaryPipeLine(t *testing.T) {
+	// A '|' line whose next complete line is not a delimiter is ordinary
+	// text; it must not be held forever just because it contained a pipe.
+	var b MarkdownStreamBuf
+	if got := b.Push("use a|b"); got != "" {
+		t.Fatalf("Push pipe line = %q, want held until the next line", got)
+	}
+	if got := b.Push("\nnext line\n"); got != "use a|b\nnext line\n" {
+		t.Fatalf("Push resolved pipe line = %q, want the resolved text", got)
+	}
+}
+
+func TestMarkdownStreamBufTableConcatenationIsLossless(t *testing.T) {
+	deltas := []string{"x|y", "\n---|---", "\n1|2", "\n\n", "tail"}
+	var b MarkdownStreamBuf
+	var emitted strings.Builder
+	for _, d := range deltas {
+		emitted.WriteString(b.Push(d))
+	}
+	emitted.WriteString(b.Flush())
+	if got, want := emitted.String(), strings.Join(deltas, ""); got != want {
+		t.Fatalf("emitted %q, want %q", got, want)
+	}
+}
+
 func TestAppendStreamHoldsHalfMarkerUntilCompleted(t *testing.T) {
 	m := New(Config{})
 	m.AppendStream("hello **")

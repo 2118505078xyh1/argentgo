@@ -10,8 +10,37 @@ import (
 // policyFor is the single construction point for the policy used by Execute.
 // Keeping it separate makes the enforcement of configured rules testable
 // without a model or a network.
-func policyFor(res Resolved) *security.Policy {
-	return security.NewPolicy(res.Root, policyConfigFrom(res.Root, res.Cfg.Raw, res.WriteRoots, res.Sandbox))
+//
+// extraReadOnly names tools discovered at runtime that advertise read-only
+// behaviour (currently MCP tools with readOnlyHint). They are merged with the
+// configured readOnlyTools so such tools skip the operator prompt. Configured
+// deny rules are applied by NewPolicy afterwards and still win.
+func policyFor(res Resolved, extraReadOnly ...string) *security.Policy {
+	cfg := policyConfigFrom(res.Root, res.Cfg.Raw, res.WriteRoots, res.Sandbox)
+	cfg.ReadOnlyTools = mergeReadOnlyTools(cfg.ReadOnlyTools, extraReadOnly)
+	return security.NewPolicy(res.Root, cfg)
+}
+
+// mergeReadOnlyTools folds extra read-only tool names into the configured
+// list. Blanks are dropped, duplicates removed and order preserved so the
+// resulting policy is deterministic.
+func mergeReadOnlyTools(configured, extra []string) []string {
+	out := make([]string, 0, len(configured)+len(extra))
+	seen := make(map[string]bool, len(configured)+len(extra))
+	add := func(name string) {
+		if name = strings.TrimSpace(name); name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	for _, name := range configured {
+		add(name)
+	}
+	for _, name := range extra {
+		add(name)
+	}
+	return out
 }
 
 // policyConfigFrom decodes the user-facing permission keys of the merged config

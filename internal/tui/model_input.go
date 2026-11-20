@@ -1,8 +1,28 @@
 package tui
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 )
+
+// externalEditorRun spawns the resolved editor on a temporary prompt file. It
+// is a package variable, like clipboardWrite and editorLookPath, so tests can
+// swap in a fake editor without launching a real process. Production wires the
+// editor to the real terminal streams because it owns the screen while running.
+var externalEditorRun = func(cmd string, args []string, path string) error {
+	all := append(append([]string{}, args...), path)
+	c := exec.Command(cmd, all...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stdout
+	return c.Run()
+}
+
+// externalEditorScreen, when installed by the run loop, wraps the editor
+// process so the TUI can leave the alternate screen (and raw mode) first. A nil
+// callback keeps model-only callers, including tests, working unchanged.
+var externalEditorScreen func(fn func())
 
 // HandleKey applies one keystroke and reports what the loop should do.
 func (m *Model) HandleKey(key Key) KeyAction {
@@ -64,6 +84,8 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "sessions_off"))
 		}
+	case KindCtrlG:
+		return m.openExternalEditorLocked()
 	case KindAltU:
 		return m.requestActionLocked(ActionUndo, "")
 	case KindAltR:
@@ -170,6 +192,61 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindPaste:
 		m.editor.Insert(key.Text)
 	}
+	return ActionNone
+}
+
+// openExternalEditorLocked edits the current prompt through $VISUAL / $EDITOR.
+// The prompt is written to a temporary file, the editor is given exclusive use
+// of the terminal, and the file is read back into the prompt. Every failure
+// path is a no-op: the original text stays in place and the loop never breaks.
+func (m *Model) openExternalEditorLocked() KeyAction {
+	if m.working {
+		m.setStatusLocked(text(m.locale, "busy"))
+		return ActionNone
+	}
+	lookup := func(key string) (string, bool) {
+		if m.env == nil {
+			return "", false
+		}
+		value := m.env(key)
+		return value, value != ""
+	}
+	cmd, args, ok := ResolveExternalEditor(lookup)
+	if !ok {
+		return ActionNone
+	}
+
+	file, err := os.CreateTemp("", "argent-prompt-*.md")
+	if err != nil {
+		return ActionNone
+	}
+	path := file.Name()
+	defer os.Remove(path)
+	original := m.editor.Text()
+	if _, err := file.WriteString(original); err != nil {
+		file.Close()
+		return ActionNone
+	}
+	if err := file.Close(); err != nil {
+		return ActionNone
+	}
+
+	wrap := externalEditorScreen
+	if wrap == nil {
+		wrap = func(fn func()) { fn() }
+	}
+	var runErr error
+	wrap(func() { runErr = externalEditorRun(cmd, args, path) })
+	if runErr != nil {
+		return ActionNone
+	}
+
+	edited, err := os.ReadFile(path)
+	if err != nil {
+		return ActionNone
+	}
+	m.editor.SetText(string(edited))
+	m.markDirtyLocked()
 	return ActionNone
 }
 

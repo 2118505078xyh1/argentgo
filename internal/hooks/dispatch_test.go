@@ -3,9 +3,12 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +36,21 @@ func hookHelper(mode string) {
 		os.Exit(1)
 	case "sleep":
 		time.Sleep(5 * time.Second)
+	case "sleepms":
+		// Bounded sleep used by the parallel-execution tests. Given a generous
+		// hook timeout, N concurrent hooks take ~one sleep, not N sleeps.
+		if ms, err := strconv.Atoi(os.Getenv("ARGENT_HOOK_SLEEP_MS")); err == nil && ms > 0 {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+	case "append":
+		// Record one line per invocation so tests can count executions. A
+		// single small append keeps concurrent writers from interleaving.
+		if path := os.Getenv("ARGENT_HOOK_LOG"); path != "" {
+			if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				_, _ = file.WriteString("x\n")
+				_ = file.Close()
+			}
+		}
 	}
 	os.Exit(0)
 }
@@ -412,5 +430,233 @@ func TestOutcomeMessageIsRuneSafeWhenClipped(t *testing.T) {
 	}
 	if !strings.Contains(got, "failed") {
 		t.Fatalf("Message() lost its prefix: %q", got)
+	}
+}
+
+// --- parallel dispatch (Crush audit port) -----------------------------------
+
+func TestDispatchRunsHooksConcurrently(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "sleepms")
+	t.Setenv("ARGENT_HOOK_SLEEP_MS", "500")
+
+	const hooks = 8
+	commands := make([]Command, 0, hooks)
+	for i := 0; i < hooks; i++ {
+		commands = append(commands, Command{
+			Event: PostToolUse, Command: fmt.Sprintf("sleep-%d", i), Timeout: 6 * time.Second,
+		})
+	}
+
+	started := time.Now()
+	outcomes, err := helperDispatcher(6*time.Second).Run(
+		context.Background(), &Config{Commands: commands}, Payload{Event: "PostToolUse"})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(outcomes) != hooks {
+		t.Fatalf("expected %d outcomes, got %d: %+v", hooks, len(outcomes), outcomes)
+	}
+	for i, outcome := range outcomes {
+		if outcome.ExitCode != 0 {
+			t.Fatalf("hook %d failed: %+v", i, outcome)
+		}
+	}
+	// Serial execution would take at least 8×500ms = 4s. A generous 2.5s bound
+	// leaves room for slow process startup under -race / a loaded CI while still
+	// catching a regression to the old serial loop.
+	if elapsed > 2500*time.Millisecond {
+		t.Fatalf("hooks ran serially: %s for %d × 500ms sleeps", elapsed, hooks)
+	}
+}
+
+func TestDispatchAggregatesParallelOutcomes(t *testing.T) {
+	commands := []Command{
+		{Event: PreToolUse, Command: "one", Timeout: time.Second},
+		{Event: PreToolUse, Command: "two", Timeout: time.Second},
+		{Event: PreToolUse, Command: "three", Timeout: time.Second},
+	}
+	config := &Config{Commands: commands}
+
+	t.Run("blocking hooks", func(t *testing.T) {
+		t.Setenv("ARGENT_HOOK_HELPER", "block")
+		outcomes, err := helperDispatcher(5*time.Second).Run(
+			context.Background(), config, Payload{Event: "PreToolUse"})
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if len(outcomes) != 3 {
+			t.Fatalf("expected 3 outcomes, got %d", len(outcomes))
+		}
+		for _, outcome := range outcomes {
+			if !outcome.Blocked || outcome.ExitCode != 2 {
+				t.Fatalf("parallel exit-2 hook lost its block flag: %+v", outcome)
+			}
+		}
+		result := Summarize(outcomes)
+		if !result.Blocked || strings.Count(result.Message, "blocked") != 3 {
+			t.Fatalf("aggregate lost the blocks: %+v", result)
+		}
+	})
+
+	t.Run("failing hooks", func(t *testing.T) {
+		t.Setenv("ARGENT_HOOK_HELPER", "fail")
+		outcomes, err := helperDispatcher(5*time.Second).Run(
+			context.Background(), config, Payload{Event: "PreToolUse"})
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		result := Summarize(outcomes)
+		if result.Blocked {
+			t.Fatal("exit 1 must warn, not block")
+		}
+		if strings.Count(result.Message, "exit 1") != 3 ||
+			strings.Count(result.Message, "hook exploded") != 3 {
+			t.Fatalf("warnings were not all aggregated: %q", result.Message)
+		}
+	})
+
+	t.Run("mixed outcomes", func(t *testing.T) {
+		// Order and the block flag survive aggregation regardless of the order
+		// in which the concurrent hooks finished.
+		outcomes := []Outcome{
+			{Event: PreToolUse, Command: "ok", ExitCode: 0},
+			{Event: PreToolUse, Command: "bad", ExitCode: 1, Stderr: "hook exploded"},
+			{Event: PreToolUse, Command: "stop", ExitCode: 2, Blocked: true},
+		}
+		result := Summarize(outcomes)
+		if !result.Blocked {
+			t.Fatal("a blocking outcome must win the aggregate")
+		}
+		for _, want := range []string{"blocked", "exit 1", "hook exploded"} {
+			if !strings.Contains(result.Message, want) {
+				t.Fatalf("aggregate message lost %q: %q", want, result.Message)
+			}
+		}
+	})
+}
+
+func TestDispatchDeduplicatesByCommand(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "append")
+	logPath := filepath.Join(t.TempDir(), "hooks.log")
+	t.Setenv("ARGENT_HOOK_LOG", logPath)
+
+	config := &Config{Commands: []Command{
+		{Event: PostToolUse, Command: "dup", Timeout: time.Second},
+		{Event: PostToolUse, Command: "unique", Timeout: time.Second},
+		{Event: PostToolUse, Command: "dup", Timeout: time.Second},
+	}}
+	outcomes, err := helperDispatcher(5*time.Second).Run(
+		context.Background(), config, Payload{Event: "PostToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := outcomeCommands(outcomes), "dup,unique"; got != want {
+		t.Fatalf("dedup outcomes = %q, want %q", got, want)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if got := strings.Count(string(data), "\n"); got != 2 {
+		t.Fatalf("hook executions = %d, want 2 (duplicate must not run twice)", got)
+	}
+}
+
+func TestDispatchDedupKeepsHighestPriorityOccurrence(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	config := &Config{Commands: []Command{
+		{Event: PostToolUse, Command: "same", Timeout: time.Second},
+		{Event: PostToolUse, Command: "other", Priority: 5, Timeout: time.Second},
+		{Event: PostToolUse, Command: "same", Priority: 10, Timeout: time.Second},
+	}}
+	outcomes, err := helperDispatcher(5*time.Second).Run(
+		context.Background(), config, Payload{Event: "PostToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := outcomeCommands(outcomes), "same,other"; got != want {
+		t.Fatalf("dedup order = %q, want %q", got, want)
+	}
+	if outcomes[0].Command != "same" {
+		t.Fatalf("higher-priority duplicate must win: %+v", outcomes[0])
+	}
+}
+
+func TestDispatchStopPropagationWithDuplicates(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	config := &Config{Commands: []Command{
+		{Event: PreToolUse, Command: "x", Priority: 10, StopPropagation: true, Timeout: time.Second},
+		{Event: PreToolUse, Command: "x", Priority: 5, Timeout: time.Second},
+		{Event: PreToolUse, Command: "y", Timeout: time.Second},
+	}}
+	outcomes, err := helperDispatcher(5*time.Second).Run(
+		context.Background(), config, Payload{Event: "PreToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := outcomeCommands(outcomes), "x"; got != want {
+		t.Fatalf("stop boundary regressed: got %q, want %q", got, want)
+	}
+}
+
+func TestDispatchContextCancellation(t *testing.T) {
+	t.Run("already cancelled", func(t *testing.T) {
+		t.Setenv("ARGENT_HOOK_HELPER", "echo")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := helperDispatcher(time.Second).Run(
+			ctx, configFor(t, PostToolUse, "", ""), Payload{Event: "PostToolUse"})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	})
+
+	t.Run("cancelled mid-run", func(t *testing.T) {
+		t.Setenv("ARGENT_HOOK_HELPER", "sleep")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		time.AfterFunc(50*time.Millisecond, cancel)
+
+		commands := make([]Command, 0, 4)
+		for i := 0; i < 4; i++ {
+			commands = append(commands, Command{
+				Event: PostToolUse, Command: fmt.Sprintf("sleep-%d", i), Timeout: 6 * time.Second,
+			})
+		}
+		started := time.Now()
+		outcomes, err := helperDispatcher(6*time.Second).Run(
+			ctx, &Config{Commands: commands}, Payload{Event: "PostToolUse"})
+		elapsed := time.Since(started)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v (outcomes %+v)", err, outcomes)
+		}
+		if elapsed > 2*time.Second {
+			t.Fatalf("cancellation did not stop hooks promptly: %s", elapsed)
+		}
+	})
+}
+
+func TestPlanRunGroupsByPriority(t *testing.T) {
+	// planRun receives commands already sorted by descending priority, as Run
+	// guarantees after its stable sort.
+	commands := []Command{
+		{Command: "high-a", Priority: 10},
+		{Command: "high-b", Priority: 10},
+		{Command: "mid", Priority: 5},
+		{Command: "low", Priority: 0},
+	}
+	tiers := planRun(commands)
+	if len(tiers) != 3 {
+		t.Fatalf("tier count = %d, want 3: %+v", len(tiers), tiers)
+	}
+	for i, want := range [][]string{{"high-a", "high-b"}, {"mid"}, {"low"}} {
+		var got []string
+		for _, command := range tiers[i] {
+			got = append(got, command.Command)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("tier %d = %v, want %v", i, got, want)
+		}
 	}
 }

@@ -128,9 +128,13 @@ func runGraceHelper(t *testing.T, mode string, cancel bool, timeout time.Duratio
 }
 
 func TestCancelLetsGracefulChildExitBeforeSIGKILL(t *testing.T) {
-	// A generous window: the cooperative child should exit in milliseconds, so
-	// a fast return proves Run honoured SIGTERM instead of waiting to escalate.
-	setCancellationGrace(t, 2*time.Second)
+	// The child cooperates with SIGTERM, so Run should return as soon as it
+	// exits — well before the grace window elapses and SIGKILL is escalated.
+	// Allow a full second of scheduling slack below the window: CI runners
+	// (ubuntu-latest under race) can take ~1s for process spawn + file handshake,
+	// which is still unmistakably earlier than the SIGKILL path at graceWindow.
+	const graceWindow = 3 * time.Second
+	setCancellationGrace(t, graceWindow)
 
 	got := runGraceHelper(t, "graceful", true, 0)
 
@@ -143,8 +147,11 @@ func TestCancelLetsGracefulChildExitBeforeSIGKILL(t *testing.T) {
 	if got.res.ExitCode != 0 {
 		t.Fatalf("exit code = %d, want 0 (graceful exit, not SIGKILL)", got.res.ExitCode)
 	}
-	if got.elapsed >= time.Second {
-		t.Fatalf("Run took %s; a graceful child must exit well within the grace window", got.elapsed)
+	// A graceful exit returns well inside the grace window; only the SIGKILL
+	// escalation path could take graceWindow or longer. One second of slack
+	// keeps this robust against slow CI scheduling without losing that signal.
+	if got.elapsed >= graceWindow-time.Second {
+		t.Fatalf("Run took %s; a graceful child must exit within the grace window (%s)", got.elapsed, graceWindow)
 	}
 }
 

@@ -4,16 +4,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Block prefixes. The assistant uses a hollow diamond and tools a filled
 // circle, so the two never read as the same ink blot in a CJK font.
 const (
-	userMark      = "› "
-	assistantMark = "◆ "
-	toolMark      = "● "
-	reasonMark    = "◇ "
-	noticeMark    = "! "
+	userMark         = "› "
+	assistantMark    = "◆ "
+	toolMark         = "● "
+	toolCanceledMark = "⊘ "
+	reasonMark       = "◇ "
+	noticeMark       = "! "
 )
 
 const (
@@ -470,8 +472,8 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 	out := make([]Line, 0, len(m.entries)*2)
 	for i, entry := range m.entries {
 		var lines []Line
-		if entry.Kind == EntryReasoning {
-			// The summary carries a live spinner/elapsed that changes without
+		if entry.Kind == EntryReasoning || isLiveToolEntry(entry) {
+			// The summary/spinner carries a live elapsed that changes without
 			// any entry field changing, so never read it back from the cache.
 			// A slot is still stored at index i to keep the cache aligned.
 			lines = m.renderEntryLocked(entry, width)
@@ -517,7 +519,11 @@ func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 	case EntryReasoning:
 		out = append(out, m.reasoningLines(entry, width)...)
 	case EntryTool:
-		out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
+		if isLiveToolEntry(entry) {
+			out = append(out, m.liveToolLines(entry, width)...)
+		} else {
+			out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
+		}
 	case EntryNotice:
 		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
 	}
@@ -641,6 +647,371 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 		}
 	}
 	return []Line{reasoningSummaryLine(entry.Text, elapsed, width, !live, m.locale, m.palette)}
+}
+
+// --- streaming tool arguments ------------------------------------------------
+//
+// A tool call can arrive while its arguments JSON is still being streamed in.
+// These helpers recover the top-level fields that are already complete so the
+// pending row can show a useful preview instead of a half-finished JSON blob.
+// They are pure and never error: malformed or partial input simply yields
+// fewer (or no) fields.
+
+// argField is one top-level field recovered from a streaming args JSON object.
+type argField struct {
+	Key   string
+	Value string
+}
+
+// toolElapsedThreshold is the point at which a running tool's own elapsed time
+// becomes more informative than the whole-turn clock in a pending row. Before
+// it, the row shows the turn elapsed; past it, the row switches to the tool's
+// own elapsed so a single slow call stands out.
+const toolElapsedThreshold = 2 * time.Second
+
+// partialArgsSummary extracts the complete top-level fields of a tool-args
+// JSON object that may still be streaming in. A final string without its
+// closing quote is salvaged with the text accumulated so far; an incomplete
+// trailing escape or \uXXXX is dropped rather than leaking a replacement rune.
+// Non-object, malformed and empty input yield no fields.
+func partialArgsSummary(args string) []argField {
+	i := skipJSONSpace(args, 0)
+	if i >= len(args) || args[i] != '{' {
+		return nil
+	}
+	i++ // consume '{'
+	var out []argField
+	for {
+		i = skipJSONSpace(args, i)
+		if i >= len(args) {
+			break
+		}
+		switch args[i] {
+		case '}':
+			return out // complete object
+		case ',':
+			i++
+			continue
+		}
+		if args[i] != '"' {
+			return out // unexpected token: stop, keep what we already have
+		}
+		key, next, ok := scanJSONString(args, i)
+		if !ok {
+			return out // a key without a closing quote can never have a value
+		}
+		i = skipJSONSpace(args, next)
+		if i >= len(args) || args[i] != ':' {
+			return out
+		}
+		i = skipJSONSpace(args, i+1)
+		if i >= len(args) {
+			break // truncated right after the colon
+		}
+		value, next := scanJSONValue(args, i)
+		out = append(out, argField{Key: key, Value: value})
+		i = next
+	}
+	return out
+}
+
+func skipJSONSpace(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// scanJSONString decodes a JSON string starting at the opening quote. When the
+// string is truncated (no closing quote yet) it returns the decoded prefix
+// with complete=false; an incomplete trailing escape or \u escape is dropped.
+func scanJSONString(s string, i int) (decoded string, next int, complete bool) {
+	i++ // consume '"'
+	var b strings.Builder
+	for i < len(s) {
+		c := s[i]
+		if c == '"' {
+			return b.String(), i + 1, true
+		}
+		if c != '\\' {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		i++ // consume '\\'
+		if i >= len(s) {
+			return b.String(), i, false // truncated right after a backslash
+		}
+		switch s[i] {
+		case '"', '\\', '/':
+			b.WriteByte(s[i])
+			i++
+		case 'b':
+			b.WriteByte('\b')
+			i++
+		case 'f':
+			b.WriteByte('\f')
+			i++
+		case 'n':
+			b.WriteByte('\n')
+			i++
+		case 'r':
+			b.WriteByte('\r')
+			i++
+		case 't':
+			b.WriteByte('\t')
+			i++
+		case 'u':
+			r, after, ok := scanUnicodeEscape(s, i) // i is on 'u'
+			if !ok {
+				return b.String(), after, false // truncated/incomplete \u: drop it
+			}
+			appendValidRune(&b, r)
+			i = after
+		default:
+			// Unknown escape: keep the literal byte (tolerant, never error).
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String(), i, false // EOF before the closing quote
+}
+
+// parseHex4 reads four hex digits following a 'u' at index u.
+func parseHex4(s string, u int) (int, int, bool) {
+	if u+5 > len(s) {
+		return 0, u, false
+	}
+	value := 0
+	for k := 1; k <= 4; k++ {
+		c := s[u+k]
+		var digit int
+		switch {
+		case c >= '0' && c <= '9':
+			digit = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			digit = int(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			digit = int(c-'A') + 10
+		default:
+			return 0, u + k, false
+		}
+		value = value*16 + digit
+	}
+	return value, u + 5, true
+}
+
+// scanUnicodeEscape decodes the \uXXXX at index u (pointing at 'u'), joining a
+// high/low surrogate pair into one rune. An incomplete code point is dropped.
+func scanUnicodeEscape(s string, u int) (rune, int, bool) {
+	code, next, ok := parseHex4(s, u)
+	if !ok {
+		return 0, next, false
+	}
+	if code >= 0xDC00 && code <= 0xDFFF {
+		return 0, next, false // lone low surrogate: drop
+	}
+	if code >= 0xD800 && code <= 0xDBFF {
+		// A high surrogate needs a following \uXXXX low surrogate; while that
+		// half is still streaming, drop the pair rather than show garbage.
+		if next+6 <= len(s) && s[next] == '\\' && s[next+1] == 'u' {
+			low, lowNext, ok := parseHex4(s, next+1)
+			if ok && low >= 0xDC00 && low <= 0xDFFF {
+				r := 0x10000 + rune(code-0xD800)*0x400 + rune(low-0xDC00)
+				return r, lowNext, true
+			}
+		}
+		return 0, next, false
+	}
+	return rune(code), next, true
+}
+
+func appendValidRune(b *strings.Builder, r rune) {
+	if r < 0 || r > utf8.MaxRune || (r >= 0xD800 && r <= 0xDFFF) {
+		return
+	}
+	b.WriteRune(r)
+}
+
+// scanJSONValue returns a short summary of the value at i and the index just
+// after it. Strings decode escapes; objects/arrays collapse to "{…}"/"[…]";
+// scalars keep their literal text. All paths advance i so the caller cannot
+// loop forever on truncated input.
+func scanJSONValue(s string, i int) (string, int) {
+	if i >= len(s) {
+		return "", i
+	}
+	switch s[i] {
+	case '"':
+		v, next, _ := scanJSONString(s, i)
+		return v, next
+	case '{', '[':
+		return scanJSONContainer(s, i)
+	default:
+		j := i
+		for j < len(s) && s[j] != ',' && s[j] != '}' && s[j] != ']' &&
+			s[j] != ' ' && s[j] != '\t' && s[j] != '\n' && s[j] != '\r' {
+			j++
+		}
+		if j == i {
+			return "", i + 1 // unexpected delimiter: still make progress
+		}
+		return s[i:j], j
+	}
+}
+
+// scanJSONContainer scans a balanced {...} or [...] with string awareness and
+// returns a compact placeholder. A truncated container is still summarised so
+// the field is not lost; the caller's field loop stops at EOF.
+func scanJSONContainer(s string, i int) (string, int) {
+	empty, nonempty := "{}", "{…}"
+	if s[i] == '[' {
+		empty, nonempty = "[]", "[…]"
+	}
+	depth, sawItem := 0, false
+	for i < len(s) {
+		c := s[i]
+		if c == '"' {
+			_, next, complete := scanJSONString(s, i)
+			i = next
+			if !complete {
+				return nonempty, i
+			}
+			sawItem = true
+			continue
+		}
+		switch c {
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth == 0 {
+				if sawItem {
+					return nonempty, i + 1
+				}
+				return empty, i + 1
+			}
+		default:
+			if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != ':' && c != ',' {
+				sawItem = true
+			}
+		}
+		i++
+	}
+	if sawItem {
+		return nonempty, i
+	}
+	return empty, i
+}
+
+// formatPartialArgs renders recovered fields as a compact "key=value" list,
+// capped at three fields and 48 cells. Empty input yields an empty string.
+func formatPartialArgs(args string) string {
+	fields := partialArgsSummary(args)
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for i, f := range fields {
+		if i == 3 {
+			parts = append(parts, "…")
+			break
+		}
+		parts = append(parts, f.Key+"="+f.Value)
+	}
+	return Clip(strings.Join(parts, ", "), 48)
+}
+
+// adaptiveElapsed picks the elapsed shown by a pending row: the whole-turn
+// clock until the tool's own elapsed passes the threshold, then the tool time.
+func adaptiveElapsed(tool, turn, threshold time.Duration) time.Duration {
+	if threshold <= 0 || tool >= threshold {
+		return tool
+	}
+	return turn
+}
+
+// isLiveToolEntry reports whether an entry still needs a live (uncached) row
+// because its spinner/elapsed changes without any entry field changing.
+func isLiveToolEntry(entry Entry) bool {
+	return entry.Kind == EntryTool && (entry.Running || entry.Attempt == AttemptCancelled)
+}
+
+// liveToolLines renders a running or cancelled tool entry with the streaming
+// args preview. It reads the matching in-flight task (without mutating state)
+// for tool-specific elapsed and uses the turn clock for whole-round elapsed.
+// One entry always yields exactly one row.
+func (m *Model) liveToolLines(entry Entry, width int) []Line {
+	now := m.now()
+	turn := time.Duration(0)
+	if !m.started.IsZero() && now.After(m.started) {
+		turn = now.Sub(m.started)
+	}
+	toolElapsed := time.Duration(0)
+	for i := len(m.tasks) - 1; i >= 0; i-- {
+		task := &m.tasks[i]
+		if task.Name != entry.Name || (task.Status != TaskRunning && task.Status != TaskPending) {
+			continue
+		}
+		if !task.Started.IsZero() && now.After(task.Started) {
+			toolElapsed = now.Sub(task.Started)
+		}
+		break
+	}
+	cancelled := entry.Attempt == AttemptCancelled
+	return []Line{toolPendingLine(entry.Name, entry.Args, toolElapsed, turn, width,
+		cancelled || !entry.Running, entry.Failed, cancelled, m.locale, m.palette)}
+}
+
+// toolPendingLine renders one tool-call row. A live call animates a spinner and
+// shows adaptive elapsed; a finished or failed call shows its outcome glyph and
+// final duration; a cancelled call shows a cancelled glyph and label. The
+// arguments are rendered from the possibly-streaming JSON via formatPartialArgs.
+func toolPendingLine(name, args string, elapsed, turn time.Duration, width int, done, failed, cancelled bool, locale string, p Palette) Line {
+	line := NewLine()
+	glyph, style := toolMark, p.tool()
+	spinner := ""
+	tail := ""
+
+	switch {
+	case cancelled:
+		glyph, style = toolCanceledMark, p.warning()
+		tail = " · " + text(locale, "cancelled")
+	case failed:
+		glyph, style = "✖ ", p.failure()
+		tail = " · " + formatDuration(elapsed)
+	case done:
+		tail = " · " + formatDuration(elapsed)
+	default:
+		glyph, style = "◐ ", p.warning()
+		spinner = spinnerFrame(int(elapsed/(120*time.Millisecond))) + " "
+		tail = " · " + formatDuration(adaptiveElapsed(elapsed, turn, toolElapsedThreshold)) + " …"
+	}
+
+	summary := formatPartialArgs(args)
+	label := name
+	if summary != "" {
+		label += "(" + summary + ")"
+	} else {
+		label += "()"
+	}
+
+	budget := width - TextWidth(spinner) - TextWidth(glyph) - TextWidth(tail)
+	if budget < 0 {
+		budget = 0
+	}
+	if spinner != "" {
+		line.Push(spinner, p.muted())
+	}
+	line.Push(glyph, style)
+	line.Push(Clip(label, budget), Style{Bold: true})
+	line.Push(tail, p.muted())
+	return clipLine(line, width)
 }
 
 func shortPath(path string) string {

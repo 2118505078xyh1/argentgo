@@ -530,6 +530,21 @@ func finishText(full string, err error, streamed string) string {
 	return full
 }
 
+// completeFromPrompt finalizes a real-engine reply. It is the single place that
+// decides which text and status survive a prompt result, so a genuine engine
+// error cannot be silently replaced by finish()'s (usually empty) full result.
+// Keeping the decision here makes it testable without a window or live engine.
+func (app *chat) completeFromPrompt(streamed, full string, err error) {
+	if err != nil && !isCancelError(err) {
+		app.finish("⚠ 引擎错误: " + err.Error())
+		app.status = "引擎错误"
+		return
+	}
+	// Cancellation is not an error: keep the streamed answer and never show
+	// the "引擎错误" banner for it.
+	app.finish(finishText(full, err, streamed))
+}
+
 // sendReal calls the real engine. Deltas arrive on the bridge read loop and
 // are marshalled back onto the UI thread through Window.Update.
 func (app *chat) sendReal(text string, reply *message) {
@@ -547,24 +562,16 @@ func (app *chat) sendReal(text string, reply *message) {
 	}
 	go func() {
 		full, err := eng.prompt(text)
+		// reply.text is only ever written on the UI thread by onDelta, so
+		// reading the streamed text inside the Update callback is safe; with
+		// no window no deltas are applied at all.
+		complete := func() { app.completeFromPrompt(reply.text, full, err) }
 		if app.win == nil {
 			// Tests never attach a real bridge, but stay safe anyway.
-			app.finish(full)
+			complete()
 			return
 		}
-		app.win.Update(func() {
-			streamed := reply.text
-			if err != nil && !isCancelError(err) {
-				// Genuine failures keep the original reporting path.
-				reply.text = "⚠ 引擎错误: " + err.Error()
-				app.status = "引擎错误"
-				app.finish(full)
-				return
-			}
-			// Cancellation is not an error: keep the streamed answer and never
-			// show the "引擎错误" banner for it.
-			app.finish(finishText(full, err, streamed))
-		})
+		app.win.Update(complete)
 	}()
 }
 

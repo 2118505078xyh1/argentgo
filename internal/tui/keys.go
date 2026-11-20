@@ -64,6 +64,8 @@ const (
 	KindMouseRelease
 	KindMouseWheelUp
 	KindMouseWheelDown
+
+	KindCtrlG // ctrl+g: edit the prompt in $VISUAL / $EDITOR
 )
 
 // MouseKind classifies one decoded SGR mouse report.
@@ -181,6 +183,8 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlP}, 1, true
 	case c == 0x13:
 		return Key{Kind: KindCtrlS}, 1, true
+	case c == 0x07:
+		return Key{Kind: KindCtrlG}, 1, true
 	case c < 0x20:
 		return Key{Kind: KindIgnore}, 1, true
 	}

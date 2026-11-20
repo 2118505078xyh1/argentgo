@@ -1,5 +1,7 @@
 package tui
 
+import "strings"
+
 // MarkdownStreamBuf holds back the tail of a streamed assistant reply until
 // the markdown constructs it might start are complete. Deltas can split a
 // `**`, a backtick or a ``` fence at any byte; rendering such a prefix makes
@@ -83,6 +85,20 @@ func commitFrontier(s string) int {
 					// Fence opened but not closed: hold from its delimiter.
 					return runeByteOffset(r, k)
 				}
+			}
+		}
+		// A table is a block-level construct: markdownLines renders the whole
+		// block at once because column widths depend on every row. Committing a
+		// partial table would re-render its earlier rows as new body rows
+		// arrive, so hold it until a later row proves the block has ended.
+		if i == bol {
+			if commit, hold, ok := tableBlockFrontier(r, i); ok {
+				if hold {
+					return runeByteOffset(r, i)
+				}
+				advance(commit)
+				consumed = i
+				continue
 			}
 		}
 		switch r[i] {
@@ -213,4 +229,58 @@ func trailingMarkerRun(r []rune) int {
 // UTF-8 sequence, including CJK and emoji.
 func runeByteOffset(r []rune, idx int) int {
 	return len(string(r[:idx]))
+}
+
+// lineEnd returns the rune index of the newline ending the line at i, or len(r)
+// if the line is the last one. It mirrors the raw lines that markdownLines
+// splits on before it tests for a table.
+func lineEnd(r []rune, i int) int {
+	for i < len(r) && r[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+// tableBlockFrontier checks the line starting at start for a markdown table
+// and returns where rendering may safely resume. A line containing '|' is a
+// potential header until the following line is complete and rules out a
+// delimiter row; until then it must be held, otherwise a raw header would be
+// shown and then replaced by the aligned table once the delimiter arrives.
+// ok=false means there is nothing to hold here (no '|', or the line is an
+// ordinary pipe line already resolved). hold=true means withhold from start;
+// hold=false returns in commit the rune index just past a completed block.
+//
+// markdownLines decides a block is over at the first non-blank row without
+// '|'. Waiting for that row keeps column widths stable for every row already
+// shown, since every body row can change the width of every column.
+func tableBlockFrontier(r []rune, start int) (commit int, hold, ok bool) {
+	headerEnd := lineEnd(r, start)
+	if !strings.Contains(string(r[start:headerEnd]), "|") {
+		return 0, false, false
+	}
+	if headerEnd >= len(r) {
+		return 0, true, true // no following line yet: could be a header
+	}
+	delim := headerEnd + 1
+	delimEnd := lineEnd(r, delim)
+	if delimEnd >= len(r) {
+		return 0, true, true // delimiter line still streaming, undecidable
+	}
+	if _, valid := parseTableDelimiter(string(r[delim:delimEnd])); !valid {
+		return 0, false, false // ordinary pipe line, safe to commit
+	}
+	for pos := delimEnd + 1; pos < len(r); {
+		end := lineEnd(r, pos)
+		if strings.Contains(string(r[pos:end]), "|") {
+			pos = end + 1
+			continue
+		}
+		// Only a complete row can end the block. An unterminated row could
+		// still grow a '|' and become part of the table on the next delta.
+		if end < len(r) {
+			return pos, false, true
+		}
+		return 0, true, true
+	}
+	return 0, true, true
 }

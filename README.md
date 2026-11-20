@@ -44,7 +44,8 @@ go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 - **会话是数据，不是黑盒** — 每轮都是 JSONL 记录，连成可 fork 的树。`/undo` 按 SHA-256 清单精确回滚，`/retry` 从检查点分叉重跑，失败的尝试也不会污染模型历史。
 - **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
 - **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口由 MyGo 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
-- **多界面** — 命令行一次性问答、全屏 TUI、**MyGo 原生桌面窗口**（单进程约 76 MB、空闲 0% CPU，无 WebView），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。
+- **多界面** — 命令行一次性问答、全屏 TUI、**MyGo 原生桌面窗口**（单进程约 76 MB、空闲 0% CPU，无 WebView），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。TUI 支持 Ctrl+G 调用 `$EDITOR` 编辑长提示，工具调用可实时预览流式参数。
+- **安全默认** — `--yolo` / `auto` 审批下，修改性 shell 命令仍需真人确认；内置危险命令检测（`rm -rf /`、`curl | bash`、反弹 shell 等）支持 `ARGENT_GUARDRAILS=shadow|enforce|off` 三段开关。策略拒绝会回灌给模型供其修正重试。
 - **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
 
 体积是实测数字：无头运行工作集约 **10 MB**，二进制约 **10.6 MB**。

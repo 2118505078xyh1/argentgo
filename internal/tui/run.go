@@ -252,6 +252,29 @@ func Run(ctx context.Context, opts Options) error {
 
 	buffer := NewBuffer(width, height)
 
+	// ctrl+g hands the terminal to an external editor. Leave the alternate
+	// screen and raw mode while it runs (so vim/nano behave normally), then
+	// re-enter and repaint from scratch: leaving the alternate screen discards
+	// the pixels the row diff was built against.
+	forceRedraw := false
+	prevEditorScreen := externalEditorScreen
+	externalEditorScreen = func(fn func()) {
+		fmt.Fprint(out, disablePaste+"\x1b[?1002l\x1b[?1016l"+showCursor+leaveAltScreen)
+		if real {
+			restore()
+		}
+		fn()
+		if real {
+			if again, err := enableRaw(); err == nil {
+				restore = again
+			}
+		}
+		fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h"+enablePaste)
+		buffer.Invalidate()
+		forceRedraw = true
+	}
+	defer func() { externalEditorScreen = prevEditorScreen }()
+
 	handleKeys := func(keys []Key) bool {
 		runAction := func(fn TurnAction, arg, done string) {
 			if fn == nil {
@@ -379,6 +402,10 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		if quit {
 			break
+		}
+		if forceRedraw {
+			force = true
+			forceRedraw = false
 		}
 		draw(force)
 	}

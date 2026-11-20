@@ -33,6 +33,9 @@ type mcpBinding struct {
 	client mcp.Client
 	remote string
 	spec   llm.ToolSpec
+	// readOnly mirrors the tool's readOnlyHint annotation. It lets the guard
+	// treat the tool as safe (no operator prompt) without weakening deny rules.
+	readOnly bool
 }
 
 // toolset is the agent's tool view: built-in registry, MCP tools under
@@ -238,6 +241,11 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		skills: skillRegistry,
 		usage:  usage,
 	}
+	// The policy is built before tool discovery, so MCP tools advertising
+	// readOnlyHint are not in its read-only set yet. Fold their names in once
+	// discovery finishes (on every return path) so they skip the operator
+	// prompt while explicit deny rules still win.
+	defer func() { applyMCPReadOnlyPolicy(guard, res, set.readOnlyMCPNames()) }()
 
 	// User config is under the user's control, so it is always available.
 	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
@@ -265,6 +273,40 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	}
 	set.wirePlugins(ctx, stdio, projectBundles, res.Plugins)
 	return set
+}
+
+// readOnlyMCPNames returns the namespaced names of MCP tools that advertised
+// readOnlyHint. A shadowed tool never reaches the binding list, so its name is
+// never granted read-only status on behalf of the winning binding.
+func (t *toolset) readOnlyMCPNames() []string {
+	var names []string
+	for _, binding := range t.mcp {
+		if binding.readOnly {
+			names = append(names, binding.spec.Function.Name)
+		}
+	}
+	return names
+}
+
+// applyMCPReadOnlyPolicy replaces the chain's policy with one that also treats
+// read-only MCP tools as safe. The chain is the single gate consulted on every
+// tool call and reads its Policy at check time, so this reaches both the plain
+// chain and the inspection-wrapped guard. The replacement is rebuilt from the
+// same config, so deny rules, allow lists and ordered rules are unchanged.
+func applyMCPReadOnlyPolicy(guard tools.Guard, res Resolved, names []string) {
+	if len(names) == 0 || guard == nil {
+		return
+	}
+	var chain *security.Chain
+	switch g := guard.(type) {
+	case *security.Chain:
+		chain = g
+	case *inspectionGuard:
+		chain = g.chain
+	}
+	if chain != nil {
+		chain.Policy = policyFor(res, names...)
+	}
 }
 
 // splitPluginsBySource partitions resolved bundles into home-installed ones
@@ -360,7 +402,9 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 			toolSpec.Function.Description = fmt.Sprintf("MCP tool %q from server %q", tool.Name, server.Name)
 		}
 		toolSpec.Function.Parameters = schema
-		t.mcp = append(t.mcp, mcpBinding{client: client, remote: tool.Name, spec: toolSpec})
+		t.mcp = append(t.mcp, mcpBinding{
+			client: client, remote: tool.Name, spec: toolSpec, readOnly: tool.ReadOnly,
+		})
 		added++
 	}
 	if len(shadowed) > 0 && stdio.Err != nil {

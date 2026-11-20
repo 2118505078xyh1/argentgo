@@ -301,3 +301,57 @@ func minInt(a, b int) int {
 	}
 	return b
 }
+
+// visibleWindow returns the half-open item interval [start, end) that a
+// scrolled list should render: the viewport starting at scrollOffset and
+// spanning viewportHeight items, grown by overscan items on each side so rows
+// just outside the view are warm when the operator scrolls.
+//
+// It is a pure integer helper (it counts items, not bytes or runes, so CJK and
+// wrapped display widths are irrelevant here) and is safe for out-of-range
+// input: negative totals yield an empty window, offsets are clamped into
+// [0, total], a non-positive viewport yields an empty window at the offset,
+// and both ends always stay within [0, total] with start <= end.
+//
+// This is the reusable basis for windowing the transcript in
+// bodyLinesLocked; wiring it in is deliberately left to the owner of
+// render.go.
+func visibleWindow(total, scrollOffset, viewportHeight, overscan int) (start, end int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if scrollOffset < 0 {
+		scrollOffset = 0
+	} else if scrollOffset > total {
+		scrollOffset = total
+	}
+	if viewportHeight < 0 {
+		viewportHeight = 0
+	}
+	if overscan < 0 {
+		overscan = 0
+	}
+	// A value larger than the list cannot widen a clamped window, so capping
+	// here keeps the additions below from overflowing on extreme inputs.
+	if viewportHeight > total {
+		viewportHeight = total
+	}
+	if overscan > total {
+		overscan = total
+	}
+	if viewportHeight == 0 {
+		return scrollOffset, scrollOffset
+	}
+	start = scrollOffset - overscan
+	if start < 0 {
+		start = 0
+	}
+	end = scrollOffset + viewportHeight + overscan
+	if end > total {
+		end = total
+	}
+	if end < start {
+		end = start
+	}
+	return start, end
+}
