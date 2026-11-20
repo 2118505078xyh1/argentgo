@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round22 后，2026-11-20 12:58）
+
+> round22（aider 深挖 + L 级核心功能）：**有界验证反射循环接进主 loop**（verify_loop.go + loop.go/runner.go，default-off，max_reflections=3，验证失败作为下一轮 user turn 注入，第 4 次失败 → StopVerifyReflections）——这是 aider 核心契约的忠实移植，核心引擎功能缺口补齐。另加指令快照继承接线（subagent 深度继承无重复 marker）、file:line 源码锚定（█ 标记、路径限制在 root 内、脱敏）、aider 三 QW（StepCheck 失败锚定、no-op edit "don't re-send" 诊断、PostToolUse verify note helper）。全量 3000+ 测试 + race + linux 全绿。
+> **诚实标注**：验证反射循环的 Verify 回调尚未从 app 配置接线（default-off，需 config/CLI 提供 verify 命令）——功能在 agent 层完整可用，但默认不会触发，直到 app 提供 Verify 函数。goose 深挖又发现前端诚实度缺口：CLI TUI 的 Options.Events 未设、native bridge 未订阅 event/subscribe（事件 hub 有但前端没消费）——下一波重点。
+
 ## 评分表（round21 后，2026-11-20 12:50）
 
 > round21：接线 approval.list RPC（重连可列 pending 审批）、fail-soft inspector（ARGENT_INSPECTION=1 门控）、TTL 审批（ARGENT_APPROVAL_TTL 门控）、DefinitionCache（fingerprint 去重扫描）；新增指令快照继承（agent/instruction_snapshot.go）、4 个安全跨模块集成测试。全量 3000+ 测试 + race + linux 全绿（一次 session sidecar 同秒 flake 由并发会话的 071ce5f 修复，重跑绿）。
