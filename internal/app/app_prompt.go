@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/i18n"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
@@ -78,7 +79,42 @@ func buildStaticSystem(root string, env func(string) string, trust bool, verify 
 		b.WriteString("\n")
 		b.WriteString(registry.IndexText())
 	}
+	// The reply language is a process-wide preference, so its directive belongs
+	// in the cache-stable prefix alongside the persona. It is omitted entirely
+	// for the default/English setup, keeping those prompt bytes unchanged.
+	if hint := replyLanguageDirective(firstVerify(verify)); hint != "" {
+		b.WriteString("\n")
+		b.WriteString(hint)
+		b.WriteString("\n")
+	}
 	return b.String()
+}
+
+// replyLanguageDirective returns the optional directive appended to a system
+// prompt to ask the model to reply in the user's language, or "" when no
+// explicit non-default preference is configured.
+//
+// The single source is Config.Locale, the field already fed by --locale,
+// ARGENT_LOCALE and the config file, so this adds no new flag or environment
+// variable. English (the prompt's own language), "auto" and empty values mean
+// "no explicit preference" and yield no directive, preserving the default
+// prompt byte-for-byte. The raw token is validated by
+// i18n.ParseOutputLanguagePreference before i18n.ReplyLanguageHint renders it:
+// an instruction-like, over-long or unsupported value produces no directive
+// rather than being echoed into the prompt.
+func replyLanguageDirective(cfg config.Config) string {
+	raw := strings.TrimSpace(cfg.Locale)
+	if raw == "" || strings.EqualFold(raw, "auto") {
+		return ""
+	}
+	if code, ok := i18n.Canonical(raw); ok && code == i18n.EnUS {
+		return ""
+	}
+	lang, ok := i18n.ParseOutputLanguagePreference(raw)
+	if !ok || lang == "auto" {
+		return ""
+	}
+	return i18n.ReplyLanguageHint(lang)
 }
 
 // buildDynamicContext renders the per-turn values that must stay out of the

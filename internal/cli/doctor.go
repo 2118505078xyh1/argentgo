@@ -56,7 +56,10 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	failures := 0
 	for _, check := range checks {
-		fmt.Fprintf(app.IO.Out, "%-4s %-9s %s\n", check.status, check.name, check.detail)
+		// Doctor output is pasted into issues verbatim, so never print a raw
+		// detail: it can carry a base URL with inline credentials or an error
+		// string quoting one. Clean details are unchanged byte-for-byte.
+		fmt.Fprintf(app.IO.Out, "%-4s %-9s %s\n", check.status, check.name, redactDoctorDetail(check.detail))
 		if check.status == statusFail {
 			failures++
 		}

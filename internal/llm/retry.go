@@ -231,11 +231,14 @@ func (p RetryPolicy) Do(ctx context.Context, send func(context.Context) (*http.R
 		normalAttempts++
 		hints := parseRetryHeaders(resp.Header)
 		shouldRetry := IsRetryableStatus(resp.StatusCode)
-		// x-should-retry is authoritative when the provider sent a verdict: a
-		// gateway can mark a 5xx terminal, or ask for a retry on a status our
-		// default set does not cover. Absent or unrecognised values defer to
-		// the status code as before.
-		if hints.shouldRetrySet {
+		// x-should-retry is authoritative on an error response: a gateway can
+		// mark a 5xx terminal, or ask for a retry on a status our default set
+		// does not cover. Absent or unrecognised values defer to the status
+		// code as before. A successful (2xx) response is never replayed, even
+		// when a gateway forwards or misconfigures a "true" verdict: the first
+		// call already completed, so replaying it would duplicate billing and
+		// any side effects and would discard the success the caller needs.
+		if hints.shouldRetrySet && resp.StatusCode >= 300 {
 			shouldRetry = hints.shouldRetry
 		}
 		if !shouldRetry || normalAttempts >= p.MaxAttempts {

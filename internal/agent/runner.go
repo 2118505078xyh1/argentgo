@@ -247,6 +247,13 @@ type Options struct {
 	// guard answers with an error (default 2; 0 uses the default).
 	MaxRepeats int
 
+	// NoProgress enables opt-in no-progress detection. Nil (the default) leaves
+	// the detector completely off and the run unchanged. When set, a batch that
+	// keeps issuing the same call with the same result ends the run early with
+	// StopStuck. This is advisory loop protection, not a replacement for the
+	// repeat guard, which still blocks duplicate calls independently.
+	NoProgress *NoProgressConfig
+
 	// MutatingTools names the tools that need approval. Mutating, when set,
 	// takes precedence. With neither, defaultMutatingTools is used.
 	MutatingTools []string

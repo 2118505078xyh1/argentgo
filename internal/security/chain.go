@@ -185,7 +185,14 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	approver := c.Approver
+	// A nil *Chain is a valid gate: policy() and record() already honour a nil
+	// receiver, and the plan-command-guard branch above checks c explicitly.
+	// Reading the field through c directly would panic here for an Ask decision,
+	// so keep the same nil-safety promise all the other helpers make.
+	var approver Approver
+	if c != nil {
+		approver = c.Approver
+	}
 	if approver == nil {
 		// No approver is not the same as an approver who answered no. Use the
 		// unavailable null object so the audit log records an unavailable

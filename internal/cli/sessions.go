@@ -270,6 +270,7 @@ func sessionsTree(app App, store SessionStore, id string) int {
 func sessionsExport(app App, store SessionStore, id string, args []string) int {
 	outPath, branchID, format := "", "", "html"
 	sanitize := false
+	var filter ExportFilter
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "-o" || args[i] == "--output":
@@ -301,6 +302,34 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 			format = strings.TrimPrefix(args[i], "--format=")
 		case args[i] == "--sanitize":
 			sanitize = true
+		case args[i] == "--since" || strings.HasPrefix(args[i], "--since="):
+			value, next, errMsg := takeAuditStringValue(args, i, "--since")
+			if errMsg != "" {
+				fmt.Fprintln(app.IO.Err, errMsg)
+				return 2
+			}
+			filter.Since = value
+			i = next
+		case args[i] == "--until" || strings.HasPrefix(args[i], "--until="):
+			value, next, errMsg := takeAuditStringValue(args, i, "--until")
+			if errMsg != "" {
+				fmt.Fprintln(app.IO.Err, errMsg)
+				return 2
+			}
+			filter.Until = value
+			i = next
+		case args[i] == "--type" || strings.HasPrefix(args[i], "--type="):
+			value, next, errMsg := takeAuditStringValue(args, i, "--type")
+			if errMsg != "" {
+				fmt.Fprintln(app.IO.Err, errMsg)
+				return 2
+			}
+			for _, typ := range strings.Split(value, ",") {
+				if trimmed := strings.TrimSpace(typ); trimmed != "" {
+					filter.Types = append(filter.Types, trimmed)
+				}
+			}
+			i = next
 		default:
 			fmt.Fprintf(app.IO.Err, "argent: unexpected export argument %q\n", args[i])
 			return 2
@@ -345,6 +374,19 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	// Structured exports can be narrowed to a time/type window in this layer.
+	// Text exports are left intact and the limitation is reported to the user.
+	if filter.active() {
+		if !isFilterableExport(format) {
+			fmt.Fprintf(app.IO.Err, "argent: --since/--until/--type only apply to json/yaml exports; %s export is unchanged\n", format)
+		} else {
+			data, err = filterExportArtifact(data, format, filter)
+			if err != nil {
+				fmt.Fprintln(app.IO.Err, "error:", err)
+				return 1
+			}
+		}
+	}
 	if outPath != "" {
 		if err := writeFileNoFollow(outPath, data, 0o666); err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
@@ -381,7 +423,7 @@ func sessionsUsage(w io.Writer) {
         argent sessions undo <id> [-C <workspace>]
         argent sessions retry <id> [checkpoint-id]
         argent sessions name <id> <title>
-        argent sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id]
+        argent sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
         argent sessions import <file> [--format claude|codex|auto]
 `)
 }

@@ -557,6 +557,19 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.injectSteering(guidance)
 		}
 
+		// Opt-in early stop for a pure no-progress loop: the same call keeps
+		// returning the same result. Default off (Options.NoProgress == nil),
+		// so an unconfigured run's behaviour is byte-for-byte unchanged. The
+		// check runs after the batch so every call has a recorded result.
+		if cfg := s.opts.NoProgress; cfg != nil {
+			sigs := SignaturesFromEvents(s.eventsSnapshot())
+			if stuck, reason := DetectNoProgressWithThreshold(sigs, cfg.Threshold); stuck {
+				s.emit(Event{Kind: EventNotice, Text: reason})
+				s.emit(Event{Kind: EventStop, Reason: StopStuck})
+				return s.result(StopStuck), nil
+			}
+		}
+
 		// A batch of tool results is the natural place to summarise: the next
 		// request is about to pay for the whole history again.
 		s.maybeCompact()

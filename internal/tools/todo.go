@@ -3,14 +3,51 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // ---- todo ----
+
+const (
+	// defaultTodoMaxChars bounds the characters a single todo write may persist
+	// to session state. Without it a model can dump an unbounded plan into
+	// todos.json, which is replayed into context on every later turn. The value
+	// mirrors goose's GOOSE_TODO_MAX_CHARS default.
+	defaultTodoMaxChars = 50_000
+
+	// todoMaxCharsEnv overrides the budget at runtime. It is read on every call
+	// (like intentSchemaDisabled) so tests and long-lived runtimes can change it
+	// without a restart. A missing, malformed or non-positive value falls back to
+	// the default so a typo can never silently disable the safety valve.
+	todoMaxCharsEnv = "ARGENT_TODO_MAX_CHARS"
+)
+
+// ErrTodoTooLarge is returned when a todo write would exceed the character
+// budget. Callers can match it with errors.Is.
+var ErrTodoTooLarge = errors.New("todo: content exceeds character budget")
+
+// todoMaxChars resolves the active character budget for a todo write.
+func todoMaxChars() int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(todoMaxCharsEnv))); err == nil && n > 0 {
+		return n
+	}
+	return defaultTodoMaxChars
+}
+
+// marshalTodos serializes the list exactly as it is persisted. Both the budget
+// check and the write go through it so the counted characters are the ones that
+// actually land in session state.
+func marshalTodos(items []todoItem) ([]byte, error) {
+	return json.MarshalIndent(struct {
+		Todos []todoItem `json:"todos"`
+	}{Todos: items}, "", "  ")
+}
 
 // todoItem is one tracked task in the session task list.
 type todoItem struct {
@@ -80,13 +117,17 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		}
 		items = append(items, todoItem{ID: id, Text: text, Status: status})
 	}
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	data, err := marshalTodos(items)
+	if err != nil {
 		return "", err
 	}
-	data, err := json.MarshalIndent(struct {
-		Todos []todoItem `json:"todos"`
-	}{Todos: items}, "", "  ")
-	if err != nil {
+	// Count runes, not bytes: a CJK character is three bytes in UTF-8, so a byte
+	// budget would reject plans roughly three times earlier than advertised.
+	limit := todoMaxChars()
+	if used := utf8.RuneCount(data); used > limit {
+		return "", fmt.Errorf("%w: %d runes exceed the %d-rune limit (set %s to raise it)", ErrTodoTooLarge, used, limit, todoMaxCharsEnv)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {

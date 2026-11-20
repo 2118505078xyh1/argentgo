@@ -170,23 +170,44 @@ func findFileEditingCommandDepth(command string, depth int) string {
 			}
 		}
 		for i, field := range fields {
-			idx := strings.LastIndex(field, ">")
-			if idx < 0 {
-				continue
-			}
-			target := strings.TrimLeft(field[idx+1:], ">")
-			if target == "" && i+1 < len(fields) {
-				target = fields[i+1]
-			}
-			if target == "" || strings.HasPrefix(target, "&") {
-				continue // 2>&1 and friends are not file writes
-			}
-			lower := strings.ToLower(strings.Trim(target, "\"'"))
-			if lower == "null" || lower == "/dev/null" || lower == "nul" || lower == "nul:" {
-				continue
-			}
-			if !isTempPath(target) {
-				return ">" + target
+			// A single shell word can carry more than one redirection
+			// (e.g. `>/etc/passwd>/tmp/scratch`). Checking only the last `>`
+			// would whitelist the whole word when the final target is a scratch
+			// path, even though the earlier `>` still truncates a real file.
+			// Examine every `>` in the word so no earlier write is hidden.
+			for off := 0; off < len(field); {
+				rel := strings.IndexByte(field[off:], '>')
+				if rel < 0 {
+					break
+				}
+				idx := off + rel
+				// `>>` is an append redirect: skip the whole operator run. The
+				// target runs to the next `>` in the same word (or to its end).
+				start := idx + 1
+				for start < len(field) && field[start] == '>' {
+					start++
+				}
+				end := start
+				for end < len(field) && field[end] != '>' {
+					end++
+				}
+				target := ""
+				if start < len(field) {
+					target = field[start:end]
+				} else if i+1 < len(fields) {
+					target = fields[i+1]
+				}
+				off = end
+				if target == "" || strings.HasPrefix(target, "&") {
+					continue // 2>&1 and friends are not file writes
+				}
+				lower := strings.ToLower(strings.Trim(target, "\"'"))
+				if lower == "null" || lower == "/dev/null" || lower == "nul" || lower == "nul:" {
+					continue
+				}
+				if !isTempPath(target) {
+					return ">" + target
+				}
 			}
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -43,7 +44,7 @@ type Config struct {
 	// Token is the bearer token required by --serve. It is mandatory: Listen
 	// refuses to start without one.
 	Token string
-	// Version is reported by /v1/health and ACP initialize.
+	// Version is reported by /v1/health, /v1/version and ACP initialize.
 	Version string
 	// Runner executes prompts. Required.
 	Runner Runner
@@ -99,10 +100,8 @@ func Listen(cfg Config) (*http.Server, net.Listener, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("server: listen %s: %w", addr, err)
 	}
-	srv := &http.Server{
-		Handler:           NewHandler(cfg),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	h := newHandler(cfg)
+	srv := newServer(h)
 	return srv, ln, nil
 }
 
@@ -137,10 +136,36 @@ func Serve(ctx context.Context, cfg Config) error {
 
 // NewHandler builds the HTTP/SSE handler without binding a socket.
 func NewHandler(cfg Config) http.Handler {
-	h := &handler{cfg: cfg}
-	hub := selectHub(cfg)
+	return newHandler(cfg).routes()
+}
+
+// newHandler creates the stateful route receiver shared by every transport
+// endpoint. Listen keeps the returned pointer so it can register the shutdown
+// hook; standalone callers of NewHandler never flip the flag.
+func newHandler(cfg Config) *handler {
+	return &handler{cfg: cfg}
+}
+
+// newServer builds the HTTP server for a handler and wires the closing flag to
+// the standard Shutdown/Close hook. Keeping this separate from Listen lets the
+// wiring be tested without binding a socket.
+func newServer(h *handler) *http.Server {
+	srv := &http.Server{
+		Handler:           h.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	// Shutdown (and Close) call this hook, so a health probe that still reaches
+	// an in-flight keep-alive connection during a graceful shutdown observes
+	// "closing" instead of a misleading 200.
+	srv.RegisterOnShutdown(h.beginShutdown)
+	return srv
+}
+
+func (h *handler) routes() http.Handler {
+	hub := selectHub(h.cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", h.health)
+	mux.HandleFunc("/v1/version", h.version)
 	mux.HandleFunc("/v1/prompt", h.auth(h.prompt))
 	mux.HandleFunc("/v1/abort", h.auth(h.abort))
 	mux.HandleFunc("/v1/event", h.auth(NewEventHandler(hub).ServeHTTP))
@@ -151,7 +176,14 @@ func NewHandler(cfg Config) http.Handler {
 }
 
 type handler struct {
-	cfg Config
+	cfg     Config
+	closing atomic.Bool
+}
+
+// beginShutdown is wired to http.Server.RegisterOnShutdown in newServer. It is
+// also callable directly by tests that drive the handler without a socket.
+func (h *handler) beginShutdown() {
+	h.closing.Store(true)
 }
 
 func (h *handler) auth(next http.HandlerFunc) http.HandlerFunc {
@@ -195,11 +227,29 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
+	if h.closing.Load() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status": "closing",
+			"error":  "server is shutting down",
+		})
+		return
+	}
 	version := h.cfg.Version
 	if version == "" {
-		version = "dev"
+		version = defaultVersion
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version})
+}
+
+// version serves the structured build report. Like health, it is a diagnostic
+// endpoint and needs no bearer token; it exposes only build metadata, never
+// credentials or configuration.
+func (h *handler) version(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	writeJSON(w, http.StatusOK, newVersionInfo(h.cfg.Version))
 }
 
 func (h *handler) abort(w http.ResponseWriter, r *http.Request) {
