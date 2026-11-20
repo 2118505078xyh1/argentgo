@@ -77,6 +77,77 @@ func formatDuration(d time.Duration) string {
 	return strconv.Itoa(int(d.Minutes())) + "m"
 }
 
+// activityFamily groups a tool name into one coarse bucket for the recap.
+// Unrecognised tools fall into "other" so registering a new tool never
+// reshuffles the buckets that already exist.
+func activityFamily(name string) string {
+	tool := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case tool == "bash" || tool == "powershell" || tool == "shell" || tool == "exec":
+		return "command"
+	case tool == "edit" || tool == "multi_edit" || tool == "write" ||
+		tool == "patch" || tool == "apply_patch" || tool == "lsp_rename":
+		return "edit"
+	case tool == "read" || tool == "ls" || tool == "grep" || tool == "find" ||
+		tool == "glob" || tool == "web_fetch" || tool == "web_search" ||
+		tool == "repo_map" || tool == "git_status" || tool == "current_time" ||
+		tool == "memory_recall" || strings.HasPrefix(tool, "lsp_"):
+		return "read"
+	default:
+		return "other"
+	}
+}
+
+// countLabel renders "1 edit" / "3 edits". The English tokens are the neutral
+// form of the i18n activity.* labels; keeping them here lets the pure counter
+// stay locale-free while the catalog carries the localised variants.
+func countLabel(n int, singular, plural string) string {
+	word := plural
+	if n == 1 {
+		word = singular
+	}
+	return strconv.Itoa(n) + " " + word
+}
+
+// activitySummary returns a stable one-line recap of finished tool calls,
+// e.g. "3 commands · 1 edit · 2 reads". Only TaskOK rows count: pending and
+// running calls are still changing and failed calls are not work completed,
+// so streaming details never make the line flicker or reshuffle. Categories
+// are emitted in a fixed order, independent of task insertion order. An empty
+// recap is "".
+func activitySummary(tasks []Task) string {
+	var commands, edits, reads, other int
+	for _, task := range tasks {
+		if task.Status != TaskOK {
+			continue
+		}
+		switch activityFamily(task.Name) {
+		case "command":
+			commands++
+		case "edit":
+			edits++
+		case "read":
+			reads++
+		default:
+			other++
+		}
+	}
+	parts := make([]string, 0, 4)
+	if commands > 0 {
+		parts = append(parts, countLabel(commands, "command", "commands"))
+	}
+	if edits > 0 {
+		parts = append(parts, countLabel(edits, "edit", "edits"))
+	}
+	if reads > 0 {
+		parts = append(parts, countLabel(reads, "read", "reads"))
+	}
+	if other > 0 {
+		parts = append(parts, countLabel(other, "other", "others"))
+	}
+	return strings.Join(parts, " · ")
+}
+
 // tasksLines renders the tasks rail newest first. The caller clips the result
 // to the rows assigned to this panel.
 func (m *Model) tasksLines(width, height int) []Line {
@@ -90,6 +161,11 @@ func (m *Model) tasksLines(width, height int) []Line {
 	}
 	if pending > 0 {
 		title.Push(" "+strconv.Itoa(pending), m.palette.muted())
+	}
+	if summary := activitySummary(m.tasks); summary != "" {
+		if room := maxInt(width-title.Width(), 0); room > 0 {
+			title.Push(Clip(" · "+summary, room), m.palette.muted())
+		}
 	}
 	out := []Line{title, plainPanelRule(width)}
 

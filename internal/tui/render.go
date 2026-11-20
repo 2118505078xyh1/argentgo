@@ -19,6 +19,10 @@ const (
 const (
 	maxBodyWidth = 120
 	maxInputRows = 4
+
+	// contextBarCells is the glyph count inside the brackets of the header's
+	// context usage bar. Ten is compact yet still changes every ten percent.
+	contextBarCells = 10
 )
 
 var spinnerFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -175,6 +179,44 @@ func ruleLine(width int, style Style) Line {
 	return line
 }
 
+// contextBar renders a 0-100 percentage as a bracketed bar of cells glyphs.
+// The fraction is rounded half up; both █ and ░ are one terminal cell wide,
+// so the result always occupies cells+2 cells regardless of the fill level.
+func contextBar(pct int, cells int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	if cells < 0 {
+		cells = 0
+	}
+	filled := (pct*cells + 50) / 100
+	if filled > cells {
+		filled = cells
+	}
+	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", cells-filled) + "]"
+}
+
+// contextStyle maps a context usage percentage onto an existing palette role:
+// muted below half, warning through 85, and failure above it. Suppressed colour
+// (--no-color or a degraded terminal) stays plain text, so no SGR escapes leak
+// into the header where the rest of the row is already unstyled.
+func (m *Model) contextStyle(pct int) Style {
+	if m.noColor || m.degraded {
+		return Style{}
+	}
+	switch {
+	case pct > 85:
+		return m.palette.failure()
+	case pct >= 50:
+		return m.palette.warning()
+	default:
+		return m.palette.muted()
+	}
+}
+
 func (m *Model) headerLocked(width int) Line {
 	dot := m.palette.muted()
 	left := NewLine()
@@ -188,12 +230,23 @@ func (m *Model) headerLocked(width int) Line {
 		left.Push(shortPath(m.root), m.palette.muted())
 	}
 
-	var parts []string
+	right := NewLine()
+	first := true
+	push := func(text string, style Style) {
+		if text == "" {
+			return
+		}
+		if !first {
+			right.Push(" · ", dot)
+		}
+		first = false
+		right.Push(text, style)
+	}
 	if m.usageIn+m.usageOut > 0 {
-		parts = append(parts, "↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut))
+		push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
 	}
 	if m.usageCached > 0 {
-		parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
+		push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
 	}
 	if m.contextWindow > 0 {
 		used := int64(m.usageIn) + int64(m.usageOut)
@@ -201,14 +254,13 @@ func (m *Model) headerLocked(width int) Line {
 		if pct > 100 {
 			pct = 100
 		}
-		parts = append(parts, "ctx "+strconv.FormatInt(pct, 10)+"%")
+		push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
 	}
 	if m.cost != "" {
-		parts = append(parts, m.cost)
+		push(m.cost, m.palette.muted())
 	}
-	parts = append(parts, clock(int(m.now().Sub(m.started).Seconds())))
-	right := NewLine()
-	right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
+	push(clock(int(m.now().Sub(m.started).Seconds())), m.palette.muted())
+	right.Push(" ", dot)
 
 	room := width - right.Width() - 1
 	if room < 4 {
@@ -380,13 +432,21 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 	}
 	out := make([]Line, 0, len(m.entries)*2)
 	for i, entry := range m.entries {
-		key := m.entryCacheKeyLocked(entry, width)
-		if i < len(m.entryCache) && m.entryCache[i].key == key {
-			out = append(out, m.entryCache[i].lines...)
-			continue
+		var lines []Line
+		if entry.Kind == EntryReasoning {
+			// The summary carries a live spinner/elapsed that changes without
+			// any entry field changing, so never read it back from the cache.
+			// A slot is still stored at index i to keep the cache aligned.
+			lines = m.renderEntryLocked(entry, width)
+		} else {
+			key := m.entryCacheKeyLocked(entry, width)
+			if i < len(m.entryCache) && m.entryCache[i].key == key {
+				out = append(out, m.entryCache[i].lines...)
+				continue
+			}
+			lines = m.renderEntryLocked(entry, width)
 		}
-		lines := m.renderEntryLocked(entry, width)
-		slot := entryCacheSlot{key: key, lines: lines}
+		slot := entryCacheSlot{key: m.entryCacheKeyLocked(entry, width), lines: lines}
 		if i < len(m.entryCache) {
 			m.entryCache[i] = slot
 		} else {
@@ -443,13 +503,107 @@ func (m *Model) attemptLinesLocked(entry Entry, width int) []Line {
 	return []Line{line}
 }
 
+// reasoningSummaryMaxCells caps the extracted phrase so a single thinking row
+// stays compact; reasoningMinPhraseCells discards a too-short leading sentence
+// ("Ok.") in favour of the following, more informative text.
+const (
+	reasoningSummaryMaxCells = 48
+	reasoningMinPhraseCells  = 8
+)
+
+// thinkingLabel keeps the i18n lookup out of reasoningSummaryLine, whose first
+// parameter deliberately shadows the package-level text() helper.
+func thinkingLabel(locale string) string { return text(locale, "thinking") }
+
+// reasoningPhrase flattens a reasoning block to one short key phrase: the first
+// substantial sentence (or the whole flattened text when no sentence qualifies),
+// clipped with an ellipsis to max cells. Truncate/Clip are grapheme-aware, so
+// CJK text and emoji are never cut in the middle of a rune.
+func reasoningPhrase(raw string, max int) string {
+	flat := collapseSpace(raw)
+	if flat == "" || max <= 0 {
+		return ""
+	}
+	if end := strings.IndexAny(flat, ".!?。！？;；"); end > 0 {
+		if first := flat[:end]; TextWidth(first) >= reasoningMinPhraseCells {
+			flat = first
+		}
+	}
+	return Truncate(flat, max)
+}
+
+// reasoningSummaryLine renders any amount of thinking text as exactly one row:
+// a live row shows a spinner and an ellipsis, a completed row shows the elapsed
+// duration. Fixed decoration is measured first so the phrase gets the cells
+// that remain, and the whole row is clipped to width. The signature guarantees
+// a single Line, so long reasoning can never reflow the transcript layout.
+func reasoningSummaryLine(text string, elapsed time.Duration, width int, done bool, locale string, p Palette) Line {
+	line := NewLine()
+
+	spinner := ""
+	if !done {
+		// Deriving the frame from elapsed keeps this function pure (no tick
+		// parameter) while still animating as the caller's clock advances.
+		spinner = spinnerFrame(int(elapsed/(120*time.Millisecond))) + " "
+	}
+	tail := " …"
+	if done {
+		tail = " · " + formatDuration(elapsed)
+	}
+
+	label := thinkingLabel(locale)
+	prefix := spinner + reasonMark + label + ":"
+	budget := width - TextWidth(prefix) - TextWidth(tail)
+	if budget < 0 {
+		budget = 0
+	}
+	summary := reasoningPhrase(text, minInt(reasoningSummaryMaxCells, budget))
+
+	if spinner != "" {
+		line.Push(spinner, p.muted())
+	}
+	line.Push(reasonMark, p.reasoning())
+	line.Push(label, p.muted())
+	if summary != "" {
+		line.Push(":", p.muted())
+		line.Push(" ", Style{})
+		line.Push(summary, p.dim())
+	}
+	line.Push(tail, p.muted())
+	return clipLine(line, width)
+}
+
 func (m *Model) reasoningLines(entry Entry, width int) []Line {
-	head := NewLine()
-	head.Push(reasonMark, m.palette.reasoning())
-	head.Push(text(m.locale, "thinking"), m.palette.muted())
-	out := []Line{head}
-	out = append(out, wrappedBlock(entry.Text, width, "  ", "  ", m.palette.dim())...)
-	return out
+	// Entry has no public timing field, so stamp private display timestamps on
+	// first paint. The original reasoning text is never modified or dropped.
+	idx := -1
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		candidate := &m.entries[i]
+		if candidate.Kind == EntryReasoning && candidate.Text == entry.Text {
+			idx = i
+			break
+		}
+	}
+	// A trailing reasoning block is live only while a turn is still running;
+	// once the agent moves on (or the turn ends) it shows its final duration.
+	live := m.working && idx >= 0 && idx == len(m.entries)-1
+	elapsed := time.Duration(0)
+	if idx >= 0 {
+		slot := &m.entries[idx]
+		if slot.thinkingAt.IsZero() {
+			slot.thinkingAt = m.now()
+		}
+		if live {
+			slot.thinkingEnd = time.Time{}
+			elapsed = m.now().Sub(slot.thinkingAt)
+		} else {
+			if slot.thinkingEnd.IsZero() {
+				slot.thinkingEnd = m.now()
+			}
+			elapsed = slot.thinkingEnd.Sub(slot.thinkingAt)
+		}
+	}
+	return []Line{reasoningSummaryLine(entry.Text, elapsed, width, !live, m.locale, m.palette)}
 }
 
 func shortPath(path string) string {

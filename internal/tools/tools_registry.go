@@ -49,6 +49,12 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{}, powershellTool{},
 		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
 		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
+		// LSP IDE tools are always advertised. Until the app wires an adapter
+		// with SetLspIde they report "not available" without failing the turn.
+		// They are registered before the memory tools so the memory_* tools stay
+		// adjacent to the trailing tool_search (see TestMemoryToolsRegisteredAndOverridable).
+		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
+		newLspRenamePreviewTool(nil), newLspFormatTool(nil), newLspWorkspaceSymbolsTool(nil),
 		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
 	} {
 		r.tools[tool.Name()] = tool
@@ -88,6 +94,19 @@ func (r *Registry) SetMemoryBank(bank *memory.Bank) {
 // and the command keeps the usual kill-on-timeout behaviour.
 func (r *Registry) SetJobs(j *jobs.Registry) {
 	r.jobs = j
+}
+
+// SetLspIde installs the adapter behind the six lsp_* tools. The app calls this
+// once a language server is available; nil leaves the tools reporting that the
+// integration is unavailable. Following the SetMemoryBank pattern, the tools
+// are rebuilt in place so registration order and advertised specs stay stable.
+func (r *Registry) SetLspIde(adapter LspIde) {
+	r.tools["lsp_symbols"] = newLspSymbolsTool(adapter)
+	r.tools["lsp_references"] = newLspReferencesTool(adapter)
+	r.tools["lsp_code_actions"] = newLspCodeActionsTool(adapter)
+	r.tools["lsp_rename_preview"] = newLspRenamePreviewTool(adapter)
+	r.tools["lsp_format"] = newLspFormatTool(adapter)
+	r.tools["lsp_workspace_symbols"] = newLspWorkspaceSymbolsTool(adapter)
 }
 
 // SetMaxTimeout caps the resolved timeout of every timed tool at d. A

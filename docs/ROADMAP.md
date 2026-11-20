@@ -59,3 +59,13 @@ heavy dependencies, services, or positioning rather than portable behaviour.
 `GOOS=windows GOARCH=amd64`），只打包当前电脑能用的版本，其他平台不考虑。
 
 自更新的 GitHub Release 路线不启用：本地自用，无需跨平台上架。
+
+## Distribution & IDE
+
+- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` is a supported
+  source distribution path (Go 1.27.3+); prebuilt Windows release zips remain the
+  primary route. See [docs/INSTALL.md](INSTALL.md).
+- IDE-grade LSP: grow the current `definition`/`hover` client toward
+  `documentSymbol`, `references`, `codeAction` and `rename` — stdlib-only, no new
+  Go module.
+- Out of scope: C-ABI plugin loaders, tree-sitter AST and DAP adapters.

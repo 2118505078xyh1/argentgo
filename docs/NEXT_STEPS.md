@@ -81,3 +81,13 @@ Sources used most are listed at the end.
 - Codex CLI README and configuration docs: https://github.com/openai/codex/blob/main/README.md and https://github.com/openai/codex/blob/main/docs/config.md
 - OpenCode intro and commands docs: https://opencode.ai/docs/ and https://opencode.ai/docs/commands/
 - Hermes Agent README: https://github.com/NousResearch/hermes-agent/blob/main/README.md
+
+## Distribution & IDE
+
+- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` is a supported
+  source distribution path (Go 1.27.3+); prebuilt Windows release zips remain the
+  primary route. See [docs/INSTALL.md](INSTALL.md).
+- IDE-grade LSP: grow the current `definition`/`hover` client toward
+  `documentSymbol`, `references`, `codeAction` and `rename` — stdlib-only, no new
+  Go module.
+- Out of scope: C-ABI plugin loaders, tree-sitter AST and DAP adapters.

@@ -45,6 +45,12 @@ type Entry struct {
 	Attempt AttemptKind
 
 	live bool // the assistant entry still receiving stream deltas
+
+	// Display-only timing for a reasoning block. Entry has no public time
+	// field; these are stamped on first paint by reasoningLines and used only
+	// to build the one-line summary, so no public API or event changes.
+	thinkingAt  time.Time
+	thinkingEnd time.Time
 }
 
 // SessionInfo is one row of the optional session rail. Title is the generated
@@ -125,9 +131,10 @@ type Model struct {
 	degraded bool
 	env      func(string) string
 
-	entries []Entry
-	editor  Editor
-	stream  strings.Builder
+	entries   []Entry
+	editor    Editor
+	stream    strings.Builder
+	streamBuf MarkdownStreamBuf // holds back incomplete markdown markers
 
 	scroll     int
 	bodyH      int

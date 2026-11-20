@@ -64,6 +64,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry := tools.NewWithLimit(absolute, res.Mutating, 0)
 		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
 		registry.SetGuard(guard)
+		registry.SetLspIde(NewLspIdeAdapter(absolute))
 		m.roots = append(m.roots, filepath.Clean(absolute))
 		m.regs = append(m.regs, registry)
 	}
@@ -71,6 +72,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry := tools.NewWithLimit(res.Root, res.Mutating, 0)
 		registry.SetSessionDir(filepath.Join(res.Storage, "sessions", sess.ID()))
 		registry.SetGuard(guard)
+		registry.SetLspIde(NewLspIdeAdapter(res.Root))
 		m.roots = []string{res.Root}
 		m.regs = []*tools.Registry{registry}
 	}

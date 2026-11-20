@@ -120,6 +120,19 @@ var catalog = map[string]translation{
 	"info.commands_loaded": {"%d command(s) available", "可用命令 %d 个"},
 	"info.memory_loaded":   {"%d memory file(s) loaded", "已加载 %d 个记忆文件"},
 	"info.compacted":       {"compacted %d message(s)", "已压缩 %d 条消息"},
+
+	// One-line activity recap of finished tool calls. The English tokens mirror
+	// the neutral labels used by the TUI's tasks rail; the zh-CN forms are wider
+	// in cells, so the rail clips by display width rather than rune count.
+	"activity.command_one":  {"%d command", "%d 条命令"},
+	"activity.command_many": {"%d commands", "%d 条命令"},
+	"activity.edit_one":     {"%d edit", "%d 次编辑"},
+	"activity.edit_many":    {"%d edits", "%d 次编辑"},
+	"activity.read_one":     {"%d read", "%d 次读取"},
+	"activity.read_many":    {"%d reads", "%d 次读取"},
+	"activity.other_one":    {"%d other", "%d 项其他"},
+	"activity.other_many":   {"%d others", "%d 项其他"},
+	"activity.separator":    {" · ", " · "},
 }
 
 var (

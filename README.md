@@ -16,6 +16,26 @@
 
 ---
 
+## Install
+
+完整安装指南见 [docs/INSTALL.md](docs/INSTALL.md)。最快路径（Windows 预编译包）：从
+[最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载
+`argent_<version>_windows_amd64.zip` 与 `checksums.txt`，校验后解压运行：
+
+```powershell
+sha256sum -c checksums.txt                              # Git Bash；PowerShell 用 Get-FileHash
+Expand-Archive .\argent_<version>_windows_amd64.zip -DestinationPath .
+.\argent.exe --version
+```
+
+解压后让 `argent-native.exe` 与 `argent.exe` 保持在同一目录（`argent gui` 需要它）。
+
+从源码安装（`go install`，需 Go 1.27.3+）：
+
+```powershell
+go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
+```
+
 ## 为什么选 argentgo
 
 - **单文件，零负担** — 纯 Go 标准库，**无第三方依赖、无 cgo**。下载一个 `.exe` 就能跑，不用装 Node、Python 或运行时。

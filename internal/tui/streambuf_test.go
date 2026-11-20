@@ -1,0 +1,168 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestMarkdownStreamBufPlainTextIsImmediate(t *testing.T) {
+	var b MarkdownStreamBuf
+	for _, delta := range []string{"hello", " world", "中文", " emoji 🙂"} {
+		if got := b.Push(delta); got != delta {
+			t.Fatalf("Push(%q) = %q, want the whole delta", delta, got)
+		}
+	}
+	if got := b.Flush(); got != "" {
+		t.Fatalf("Flush() = %q, want nothing left over", got)
+	}
+}
+
+func TestMarkdownStreamBufHoldsHalfBoldUntilClosed(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("plain *"); got != "plain " {
+		t.Fatalf("Push trailing single star = %q, want %q", got, "plain ")
+	}
+	if got := b.Push("*bold*"); got != "" {
+		t.Fatalf("Push still-unclosed bold = %q, want nothing", got)
+	}
+	if got := b.Push("* done"); got != "**bold** done" {
+		t.Fatalf("Push closing star = %q, want %q", got, "**bold** done")
+	}
+	if got := b.Flush(); got != "" {
+		t.Fatalf("Flush() = %q, want nothing left over", got)
+	}
+}
+
+func TestMarkdownStreamBufHoldsInlineCodeUntilClosed(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("use `co"); got != "use " {
+		t.Fatalf("Push unclosed inline code = %q, want %q", got, "use ")
+	}
+	if got := b.Push("de` now"); got != "`code` now" {
+		t.Fatalf("Push closing backtick = %q, want %q", got, "`code` now")
+	}
+}
+
+func TestMarkdownStreamBufHoldsUnclosedFence(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("before\n```go\ncode"); got != "before\n" {
+		t.Fatalf("Push unclosed fence = %q, want %q", got, "before\n")
+	}
+	if got := b.Push("\nmore\n```\nafter"); got != "```go\ncode\nmore\n```\nafter" {
+		t.Fatalf("Push closing fence = %q, want %q", got, "```go\ncode\nmore\n```\nafter")
+	}
+}
+
+func TestMarkdownStreamBufHoldsUnderscoreEmphasis(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("__under"); got != "" {
+		t.Fatalf("Push unclosed emphasis = %q, want nothing", got)
+	}
+	if got := b.Push("score__ ok"); got != "__underscore__ ok" {
+		t.Fatalf("Push closing emphasis = %q, want %q", got, "__underscore__ ok")
+	}
+}
+
+func TestMarkdownStreamBufFlushEmitsRemainder(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("a `unclosed fence *"); got != "a " {
+		t.Fatalf("Push = %q, want %q", got, "a ")
+	}
+	if got := b.Flush(); got != "`unclosed fence *" {
+		t.Fatalf("Flush() = %q, want the withheld tail", got)
+	}
+	if got := b.Flush(); got != "" {
+		t.Fatalf("second Flush() = %q, want empty", got)
+	}
+}
+
+func TestMarkdownStreamBufDoesNotSplitUTF8(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("中文测试"); got != "中文测试" {
+		t.Fatalf("Push CJK = %q, want the whole string", got)
+	}
+	if got := b.Push("**粗体"); got != "" {
+		t.Fatalf("Push unclosed bold after CJK = %q, want nothing", got)
+	}
+	if got := b.Push("**"); got != "**粗体**" {
+		t.Fatalf("Push closing bold = %q, want %q", got, "**粗体**")
+	}
+	if got := b.Push("🙂"); got != "🙂" {
+		t.Fatalf("Push emoji = %q, want the whole rune", got)
+	}
+}
+
+func TestMarkdownStreamBufResetClearsState(t *testing.T) {
+	var b MarkdownStreamBuf
+	if got := b.Push("left `code"); got != "left " {
+		t.Fatalf("Push = %q, want %q", got, "left ")
+	}
+	b.Reset()
+	if got := b.Push("right"); got != "right" {
+		t.Fatalf("Push after Reset = %q, want no leftover state", got)
+	}
+	if got := b.Flush(); got != "" {
+		t.Fatalf("Flush after Reset = %q, want empty", got)
+	}
+}
+
+func TestMarkdownStreamBufConcatenationIsLossless(t *testing.T) {
+	// Every byte that is pushed must eventually be emitted, in order, either
+	// by Push or by the final Flush. This guards against silently eating text.
+	deltas := []string{
+		"intro **bold", "** and `code", "` then\n```", "go\nline", "\n```\ndone *_x_",
+	}
+	var b MarkdownStreamBuf
+	var emitted strings.Builder
+	for _, d := range deltas {
+		emitted.WriteString(b.Push(d))
+	}
+	emitted.WriteString(b.Flush())
+	want := strings.Join(deltas, "")
+	if got := emitted.String(); got != want {
+		t.Fatalf("emitted %q, want %q", got, want)
+	}
+}
+
+func TestAppendStreamHoldsHalfMarkerUntilCompleted(t *testing.T) {
+	m := New(Config{})
+	m.AppendStream("hello **")
+	entries := m.Transcript()
+	if len(entries) != 1 || entries[0].Kind != EntryAssistant || entries[0].Text != "hello " {
+		t.Fatalf("assistant block after half marker = %+v, want text %q", entries, "hello ")
+	}
+
+	m.AppendStream("bold**")
+	entries = m.Transcript()
+	if len(entries) != 1 || entries[0].Text != "hello **bold**" {
+		t.Fatalf("assistant block after completion = %+v, want %q", entries, "hello **bold**")
+	}
+
+	m.EndTurn(nil)
+	entries = m.Transcript()
+	if len(entries) != 1 || entries[0].Text != "hello **bold**" {
+		t.Fatalf("assistant block after EndTurn = %+v, want %q", entries, "hello **bold**")
+	}
+}
+
+func TestEndTurnFlushesHeldMarkerTail(t *testing.T) {
+	m := New(Config{})
+	m.AppendStream("text with `unclosed")
+	m.EndTurn(nil)
+	entries := m.Transcript()
+	if len(entries) != 1 || entries[0].Kind != EntryAssistant || entries[0].Text != "text with `unclosed" {
+		t.Fatalf("assistant block = %+v, want the held tail flushed", entries)
+	}
+}
+
+func TestNextTurnStartsWithCleanStreamBuf(t *testing.T) {
+	m := New(Config{})
+	m.AppendStream("first `open")
+	m.EndTurn(nil)
+
+	m.AppendStream("second")
+	entries := m.Transcript()
+	if len(entries) != 2 || entries[0].Text != "first `open" || entries[1].Text != "second" {
+		t.Fatalf("blocks across turns = %+v, want no marker residue", entries)
+	}
+}

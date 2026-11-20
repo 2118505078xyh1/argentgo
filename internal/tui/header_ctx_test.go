@@ -18,7 +18,7 @@ func TestHeaderShowsContextPercentAndCostOnlyWhenConfigured(t *testing.T) {
 
 	m.SetContextInfo(1000, "$0.01")
 	after := m.Frame(80, 24).RowText(0)
-	for _, want := range []string{"ctx 23%", "$0.01"} {
+	for _, want := range []string{"ctx " + contextBar(23, contextBarCells) + " 23%", "$0.01"} {
 		if !strings.Contains(after, want) {
 			t.Fatalf("header %q is missing %q", after, want)
 		}
@@ -36,7 +36,8 @@ func TestHeaderContextPercentIsClamped(t *testing.T) {
 	m.now = func() time.Time { return m.started }
 	m.SetUsage(900, 200)
 	m.SetContextInfo(1000, "")
-	if got := m.Frame(80, 24).RowText(0); !strings.Contains(got, "ctx 100%") {
-		t.Fatalf("overbudget usage should clamp to 100%%: %q", got)
+	want := "ctx " + contextBar(100, contextBarCells) + " 100%"
+	if got := m.Frame(80, 24).RowText(0); !strings.Contains(got, want) {
+		t.Fatalf("overbudget usage should clamp to %q: %q", want, got)
 	}
 }

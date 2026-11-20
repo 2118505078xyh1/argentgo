@@ -1,23 +1,114 @@
 name: release
 
-# Tag a commit that matches internal/cli/cli.go's Version constant (e.g. v0.1.2)
-# to build and publish a Windows-only release. The scripts validate the tag
-# against the source version, so a mismatched tag fails before anything is uploaded.
+# Tag-triggered, Windows-only release pipeline.
+#
+# Reproducibility: the tag must equal the Version compiled into the binaries
+# (enforced by check-release-consistency.ps1 and build-release.ps1), builds use
+# -trimpath with CGO_ENABLED=0, and scripts/verify-release.ps1 asserts the exact
+# artifacts before anything is published. The desktop client (native/) is built
+# from this tag's source and keeps using the standard latest-release updater;
+# no version is pinned here.
+#
+# Full verification gate: `verify` mirrors ci.yml's `go` job and `race` mirrors
+# ci.yml's race job (ubuntu with internal/pty excluded). `release` waits for both.
 
 on:
   push:
     tags: ['v*']
 
+# Least privilege: every job may read the repo; only `release` may write a
+# Release. The token is the automatically provided GITHUB_TOKEN secret. It is
+# never printed, written to a file, or hardcoded anywhere in this workflow.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  # Same gates as ci.yml's `go` job: a tag must not release code that would
+  # fail CI. Runs on windows-latest because that is the shipped target.
+  verify:
+    name: verify (windows-latest)
     runs-on: windows-latest
     steps:
-      # Keep LF endings on every runner; ci.yml sets the same policy so gofmt
-      # sees the bytes that are actually committed.
+      # Windows runners check out CRLF by default; gofmt must see the bytes
+      # that are actually committed, so disable autocrlf before checkout.
       - name: Normalize line endings
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      # Version comes from go.mod (1.27.3), the same input ci.yml uses.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (must print nothing)
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # Native commands can return non-zero without stopping pwsh, so check
+      # $LASTEXITCODE explicitly on every gate.
+      - name: go vet
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw "go vet failed ($LASTEXITCODE)" }
+
+      - name: go test
+        shell: pwsh
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw "go test failed ($LASTEXITCODE)" }
+
+      - name: build (no cgo, windows/amd64)
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build ./cmd/argent
+          if ($LASTEXITCODE -ne 0) { throw "windows build failed ($LASTEXITCODE)" }
+
+      - name: cross-compile (linux/amd64, no cgo)
+        shell: pwsh
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw "cross-compile failed ($LASTEXITCODE)" }
+
+  # Mirrors ci.yml's race job: the race detector needs cgo + gcc, so it runs on
+  # ubuntu. internal/pty tests need a real controlling terminal and are excluded
+  # here (the Windows `verify` job covers that package).
+  race:
+    name: go test -race (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go test -race
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race $(go list ./... | grep -v '/internal/pty$')
+
+  # Publish only after the full verification gate has passed.
+  release:
+    name: release (windows-latest)
+    needs: [verify, race]
+    runs-on: windows-latest
+    permissions:
+      contents: write # required to create the Release and upload its assets
+    steps:
+      - name: Normalize line endings
+        shell: pwsh
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -25,43 +116,73 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Pass the tag through the environment instead of interpolating it into
+      # the script text, so an unusual tag cannot be parsed as shell code.
       - name: Check release metadata
-        run: pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag "${{ github.ref_name }}"
-
-      - name: Build release artifacts
-        run: pwsh -NoProfile -File scripts/build-release.ps1 -Tag "${{ github.ref_name }}"
-
-      - name: Verify artifacts
-        working-directory: dist/release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $zips = @(Get-ChildItem -Filter '*.zip')
-          if ($zips.Count -ne 1) { throw "expected one zip, found $($zips.Count)" }
-          $sums = Get-Content checksums.txt
-          foreach ($line in $sums) {
-            if (-not $line.Trim()) { continue }
-            $parts = $line -split '\s+', 2
-            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $parts[1]).Hash.ToLowerInvariant()
-            if ($actual -ne $parts[0].ToLowerInvariant()) { throw "checksum mismatch: $($parts[1])" }
-          }
+          pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag $env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) { throw "release metadata check failed ($LASTEXITCODE)" }
+
+      # Builds argent.exe + argent-native.exe into dist/release and writes
+      # checksums.txt. `verify` and `race` already ran every quality gate, so
+      # the script's duplicate vet/test/gofmt pass is skipped here.
+      - name: Build release artifacts
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          pwsh -NoProfile -File scripts/build-release.ps1 -Tag $env:RELEASE_TAG -SkipChecks
+          if ($LASTEXITCODE -ne 0) { throw "build-release.ps1 failed ($LASTEXITCODE)" }
+
+      # Independent assertion before upload: zip exists, contains both
+      # binaries, and its SHA-256 matches checksums.txt. Any mismatch fails
+      # the step and nothing is published.
+      - name: Verify release artifacts
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          pwsh -NoProfile -File scripts/verify-release.ps1 -ArtifactDir dist/release -Version $version
+          if ($LASTEXITCODE -ne 0) { throw "verify-release.ps1 failed ($LASTEXITCODE)" }
 
       - name: Extract release notes
-        run: pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag "${{ github.ref_name }}" -OutFile release-notes.md
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag $env:RELEASE_TAG -OutFile release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "extract-release-notes.ps1 failed ($LASTEXITCODE)" }
 
+      # Chosen over softprops/action-gh-release: `gh` ships on GitHub-hosted
+      # runners, so no third-party action is trusted with the write token, and
+      # --verify-tag guarantees the Release targets this exact checked-out tag.
       - name: Publish GitHub Release
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" dist/release/*.zip dist/release/checksums.txt `
-            --title "${{ github.ref_name }}" --notes-file release-notes.md --verify-tag
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $zip = "dist/release/argent_${version}_windows_amd64.zip"
+          gh release create $env:RELEASE_TAG $zip dist/release/checksums.txt `
+            --title $env:RELEASE_TAG --notes-file release-notes.md --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
 
+      # Post-publish assertion that the two expected assets actually landed.
       - name: Verify published Release
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          gh release view $tag --json url,assets > release.json
-          Get-Content release.json
-          $assets = (gh release view $tag --json assets --jq '.assets[].name')
-          if (-not ($assets -contains 'checksums.txt')) { throw 'checksums.txt missing from Release' }
-          $zip = "argent_$($tag.Substring(1))_windows_amd64.zip"
-          if (-not ($assets -contains $zip)) { throw "$zip missing from Release" }
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $assets = @(gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name')
+          if ($LASTEXITCODE -ne 0) { throw "gh release view failed ($LASTEXITCODE)" }
+          if ($assets -notcontains 'checksums.txt') { throw 'checksums.txt missing from Release' }
+          $zip = "argent_${version}_windows_amd64.zip"
+          if ($assets -notcontains $zip) { throw "$zip missing from Release" }
+          Write-Host "Release $($env:RELEASE_TAG) published with $zip and checksums.txt"

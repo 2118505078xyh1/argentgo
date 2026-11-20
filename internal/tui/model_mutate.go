@@ -255,12 +255,15 @@ func (m *Model) appendNoticeLocked(text string) {
 // AppendStream appends assistant text as it streams in. It does not bump the
 // render version: the text is folded into the entry once per frame, so a turn
 // of a thousand deltas costs one copy per repaint rather than one per delta.
+// Text that could be the start of an incomplete markdown marker is held back
+// by streamBuf until the construct completes (or the turn ends), so half a
+// `**` or a ``` fence never flickers into the rendered transcript.
 func (m *Model) AppendStream(delta string) {
 	if delta == "" {
 		return
 	}
 	m.mu.Lock()
-	m.stream.WriteString(delta)
+	m.stream.WriteString(m.streamBuf.Push(delta))
 	m.markDirtyLocked()
 	m.mu.Unlock()
 }
@@ -284,6 +287,9 @@ func (m *Model) flushStreamLocked() {
 func (m *Model) EndTurn(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Release any marker prefix still held back at the end of the turn so no
+	// streamed byte is lost; flushStreamLocked folds it into the live entry.
+	m.stream.WriteString(m.streamBuf.Flush())
 	m.flushStreamLocked()
 	if n := len(m.entries); n > 0 {
 		m.entries[n-1].live = false

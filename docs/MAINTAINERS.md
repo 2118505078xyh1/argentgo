@@ -56,3 +56,35 @@ The authoritative release checklist is `docs/ROADMAP.md`; packaging is in
 `.github/workflows/release.yml`. The operator ships **Windows/amd64 only**.
 `scripts/build-release.ps1` is the single source of truth for artifacts and
 SHA-256 checksums.
+
+## Release checklist
+
+Run in order; keep the version identical in every source location:
+
+1. **Bump the version** in `internal/cli/cli.go` (`const Version`),
+   `internal/mcp/mcp.go` (`clientVersion`) and `internal/lsp/client.go`
+   (`clientInfo.version` in `initialize`). `scripts/build-release.ps1` reads only
+   `cli.go`, so sync the other two by hand.
+2. **Update `CHANGELOG.md`** with a `## v<version>` section; the consistency
+   check rejects a release without it.
+3. **Full verification** on a clean tree: `gofmt -l .`, `go vet ./...`,
+   `go test ./...`, `go test -race ./...` (needs gcc/MinGW on the Windows host),
+   and the no-cgo cross-compile `GOOS=linux GOARCH=amd64 go build ./...`. Also run
+   `argent eval evals/core.json`, the `argent gui` end-to-end smoke test, and
+   `scripts/privacy-scan.ps1` (no keys, tokens, real emails or local paths).
+4. **Build artifacts** with
+   `powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1` — writes
+   `dist/release/argent_<version>_windows_amd64.zip` (both binaries), its
+   `.sha256` sidecar and `checksums.txt`. `scripts/publish-win.ps1 -DryRun`
+   repeats every gate without pushing.
+5. **Commit, tag, push**: focused commit, `git tag -a v<version>`, then push the
+   commit and the tag. Authenticate through the normal git credential helper
+   (`git credential fill`); no credential or token is stored in these docs or
+   scripts. `scripts/publish-win.ps1` can perform the tag and push itself.
+6. **Publish the release** — either create the GitHub Release manually and
+   upload the zip plus `checksums.txt`, or let `scripts/publish-win.ps1` trigger
+   the workflow and wait for it. A tag alone is not a release: the publisher
+   fails if the published Release lacks either asset.
+7. **Update the local desktop**: re-download the latest zip (or re-run
+   `scripts/install-win.ps1`), verify, and replace **both** binaries together so
+   the desktop client stays on the latest release.
