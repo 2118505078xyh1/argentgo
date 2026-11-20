@@ -126,8 +126,11 @@ func TestReadSpillRangeRejectsEscapingAndNonArtifactPaths(t *testing.T) {
 	artifact := writeRangeArtifact(t, dir, "ok\n")
 
 	// An artifact-shaped file with a traversal segment must be rejected even
-	// though it resolves back to a real file in the spill dir.
-	traversal := filepath.Join(dir, "..", filepath.Base(dir), "tool-output-0123456789abcdef.log")
+	// though it resolves back to a real file in the spill dir. Build the string
+	// directly: filepath.Join would Clean the ".." away and turn this into the
+	// legitimate artifact path, which would then (correctly) be readable.
+	sep := string(filepath.Separator)
+	traversal := dir + sep + ".." + sep + filepath.Base(dir) + sep + "tool-output-0123456789abcdef.log"
 
 	// A plain non-artifact name inside the spill dir must be rejected too.
 	notes := filepath.Join(dir, "notes.txt")

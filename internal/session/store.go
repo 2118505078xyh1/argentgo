@@ -93,11 +93,11 @@ func (c *Container) NewSession(title string) (*Session, error) {
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return nil, fmt.Errorf("session: create %s: %w", c.dir, err)
 	}
-	id, _, err := c.newID()
+	id, path, err := c.newID()
 	if err != nil {
 		return nil, err
 	}
-	session := &Session{dir: c.dir, id: id}
+	session := &Session{dir: c.dir, id: id, file: path}
 	header := Header{Title: strings.TrimSpace(title), Created: time.Now().UTC()}
 	if err := session.Append(KindHeader, header); err != nil {
 		return nil, err
@@ -115,8 +115,9 @@ func (c *Container) OpenSession(id string) (*Session, error) {
 		return nil, fmt.Errorf("resume session %q: %w", id, err)
 	}
 	session := &Session{
-		dir: c.dir,
-		id:  transcriptStem(filepath.Base(path)),
+		dir:  c.dir,
+		id:   transcriptStem(filepath.Base(path)),
+		file: path,
 	}
 	records, err := readRecords(path)
 	if err != nil {

@@ -80,6 +80,12 @@ type Session struct {
 	dir    string
 	id     string
 	active string
+	// file is the exact on-disk path resolved when the session was opened or
+	// created. Discovery matches the ".jsonl" suffix case-insensitively, so a
+	// transcript may be named "Mixed.JSONL"; deriving the path from id+fileExt
+	// would point at "Mixed.jsonl" and read nothing on case-sensitive files.
+	// Empty only for sessions constructed directly from dir+id in tests.
+	file string
 
 	// Append state is built lazily on the first AppendRecord and reused while
 	// the backing file is untouched. All fields below are guarded by mu.

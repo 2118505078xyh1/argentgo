@@ -57,7 +57,7 @@ type IgnoreRules struct {
 // Each line is one glob; blank lines and lines starting with `#` are ignored,
 // and a leading `!` re-includes a path an earlier pattern excluded. A trailing
 // `/` is dropped so directory patterns such as `build/` also match their
-// contents. Paths are normalized with filepath.ToSlash before matching.
+// contents. Patterns are normalized to forward-slash globs before matching.
 //
 // Only an invalid dir (stat/absolute-path failure) is an error. Unreadable,
 // oversized or misnamed entries are skipped: discovery is best-effort and
@@ -107,6 +107,17 @@ func LoadIgnore(dir string) (*IgnoreRules, error) {
 	return rules, nil
 }
 
+// normalizeIgnoreGlob converts a trimmed .argentignore line into the canonical
+// glob form shared by the loader and the diagnostics. .argentignore is
+// gitignore-style, where `/` is the separator on every platform, so backslashes
+// are normalized unconditionally: filepath.ToSlash only converts the *native*
+// separator and would leave `\` intact on Linux (where it is a legal filename
+// byte). security.GlobMatch likewise turns `\` into `/` on both sides, so this
+// keeps the stored glob identical to what matching actually uses everywhere.
+func normalizeIgnoreGlob(line string) string {
+	return strings.ReplaceAll(filepath.ToSlash(line), `\`, "/")
+}
+
 // parseIgnorePatterns turns one file's text into ordered patterns.
 func parseIgnorePatterns(text, source string) []pattern {
 	var out []pattern
@@ -130,7 +141,7 @@ func parseIgnorePatterns(text, source string) []pattern {
 			continue
 		}
 		out = append(out, pattern{
-			glob:    filepath.ToSlash(line),
+			glob:    normalizeIgnoreGlob(line),
 			negated: negated,
 			source:  source,
 		})
@@ -210,7 +221,7 @@ var sensitiveProbes = []string{
 // DescribeIgnoreRules parses raw .argentignore-style pattern lines and returns
 // one IgnoreRuleInfo per effective pattern, in input order. It is the pure
 // diagnostic companion to parseIgnorePatterns: line handling (BOM, comments,
-// blank lines, bare `!`, leading `/`, ToSlash) is identical, so the reported
+// blank lines, bare `!`, leading `/`, separator normalization) is identical, so the reported
 // Glob is exactly the string Ignored would match against.
 //
 // Blank lines, comments and bare `!` lines are skipped, matching the loader;
@@ -249,7 +260,7 @@ func describePattern(raw, line string) IgnoreRuleInfo {
 	if negated {
 		line = strings.TrimSpace(line[1:])
 	}
-	glob := filepath.ToSlash(strings.Trim(line, "/"))
+	glob := normalizeIgnoreGlob(strings.Trim(line, "/"))
 	info.Glob = glob
 	info.Negated = negated
 

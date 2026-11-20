@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,12 +31,13 @@ func seedExecWorkspace(t *testing.T, files map[string]string) string {
 }
 
 func TestExecCheckValidate(t *testing.T) {
-	absTool := filepath.Join(os.TempDir(), "tool.exe")
-	tests := []struct {
+	type validateCase struct {
 		name    string
 		check   ExecCheck
 		wantErr error
-	}{
+	}
+	absTool := filepath.Join(os.TempDir(), "tool.exe")
+	tests := []validateCase{
 		{"go test allowed", ExecCheck{Command: "go", Args: []string{"test", "./..."}}, nil},
 		{"go build allowed", ExecCheck{Command: "go", Args: []string{"build", "./..."}}, nil},
 		{"relative exe allowed", ExecCheck{Command: "tools/run.exe", Args: []string{"--flag"}}, nil},
@@ -43,9 +45,14 @@ func TestExecCheckValidate(t *testing.T) {
 		{"go run denied", ExecCheck{Command: "go", Args: []string{"run", "main.go"}}, ErrExecGoSubcommand},
 		{"go with no subcommand denied", ExecCheck{Command: "go"}, ErrExecGoSubcommand},
 		{"absolute exe denied", ExecCheck{Command: absTool}, ErrExecBadPath},
-		{"rooted backslash path denied", ExecCheck{Command: `\tool.exe`}, ErrExecBadPath},
+		// A leading "/" is rooted on both Windows and Unix: Go accepts "/" as
+		// a separator on Windows too, and Validate checks it explicitly, so
+		// these cases are safe to assert on every platform.
 		{"rooted slash path denied", ExecCheck{Command: `/tool.exe`}, ErrExecBadPath},
-		{"rooted nested path denied", ExecCheck{Command: `\tools\run.exe`}, ErrExecBadPath},
+		{"rooted nested slash path denied", ExecCheck{Command: `/tools/run.exe`}, ErrExecBadPath},
+		// Validate splits on both "/" and "\", so a backslash ".." traversal
+		// is refused even on Unix where "\" is an ordinary filename character.
+		{"backslash parent traversal denied", ExecCheck{Command: `..\tools\run.exe`}, ErrExecBadPath},
 		{"parent traversal denied", ExecCheck{Command: "../tools/run.exe"}, ErrExecBadPath},
 		{"inner parent traversal denied", ExecCheck{Command: "tools/../run.exe"}, ErrExecBadPath},
 		{"sh denied", ExecCheck{Command: "sh", Args: []string{"-c", "echo hi"}}, ErrExecCommandDenied},
@@ -58,6 +65,17 @@ func TestExecCheckValidate(t *testing.T) {
 		{"dangerous exec flag denied", ExecCheck{Command: "go", Args: []string{"test", "-exec=evil.exe"}}, ErrExecDangerousGoFlag},
 		{"dangerous toolexec flag denied", ExecCheck{Command: "go", Args: []string{"build", "-toolexec=evil.exe"}}, ErrExecDangerousGoFlag},
 		{"empty command denied", ExecCheck{}, ErrExecEmptyCommand},
+	}
+
+	// A leading "\" is rooted only on Windows: it resolves against the drive
+	// of cmd.Dir (the disposable workspace), so Validate must refuse it there.
+	// On Unix "\" is an ordinary filename character, not a path separator, so
+	// asserting ErrExecBadPath for these there would be wrong.
+	if runtime.GOOS == "windows" {
+		tests = append(tests,
+			validateCase{"rooted backslash path denied", ExecCheck{Command: `\tool.exe`}, ErrExecBadPath},
+			validateCase{"rooted nested backslash path denied", ExecCheck{Command: `\tools\run.exe`}, ErrExecBadPath},
+		)
 	}
 
 	for _, tt := range tests {
@@ -145,12 +163,19 @@ func TestRunExecCheckRejectsDisallowedCommand(t *testing.T) {
 	}
 }
 
-// TestRunExecCheckRejectsRootedPath proves a rooted-but-driveless command is
-// refused before any process starts. On Windows "\tool.exe" is resolved against
-// the drive of cmd.Dir (the disposable workspace), so without this check the
-// command would run from the drive root — outside the workspace entirely.
+// TestRunExecCheckRejectsRootedPath proves a rooted command is refused before
+// any process starts. On Windows a leading "\" is rooted against the drive of
+// cmd.Dir (the disposable workspace), so "\tool.exe" would otherwise run from
+// the drive root — outside the workspace entirely. A leading "/" is rooted on
+// every platform and is exercised unconditionally; the backslash forms are
+// Windows-only because on Unix "\" is an ordinary filename character, not a
+// path separator.
 func TestRunExecCheckRejectsRootedPath(t *testing.T) {
-	for _, command := range []string{`\tool.exe`, `/tool.exe`, `\tools\run.exe`} {
+	commands := []string{`/tool.exe`, `/tools/run.exe`}
+	if runtime.GOOS == "windows" {
+		commands = append(commands, `\tool.exe`, `\tools\run.exe`)
+	}
+	for _, command := range commands {
 		t.Run(command, func(t *testing.T) {
 			c := ExecCheck{Command: command, Args: []string{"--flag"}, TimeoutMS: 1000}
 			res := RunExecCheck(t.TempDir(), c)

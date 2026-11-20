@@ -141,11 +141,18 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 		os.Remove(target)
 		return nil, fmt.Errorf("session: close %s: %w", target, err)
 	}
-	return &Session{dir: container.dir, id: id, active: path[len(path)-1].ID}, nil
+	return &Session{dir: container.dir, id: id, file: target, active: path[len(path)-1].ID}, nil
 }
 
-// path is the session file location.
+// path is the session file location. A session opened through ResolvePath keeps
+// the exact spelling of the file it found (which may use an upper-case
+// extension); only sessions built directly from dir+id need the canonical
+// id+fileExt spelling. Rebuilding the path from the id would lose the original
+// case and break every read/write on a case-sensitive filesystem.
 func (s *Session) path() string {
+	if s.file != "" {
+		return s.file
+	}
 	return filepath.Join(s.dir, s.id+fileExt)
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,11 +52,19 @@ func TestDanglingSymlinkCannotEscapeWriteRoots(t *testing.T) {
 				}
 			}
 			link := filepath.Join(root, "outlink")
-			if err := os.Symlink(tc.linkTarget(root, outside), link); err != nil {
+			symlinkTarget := tc.linkTarget(root, outside)
+			if err := os.Symlink(symlinkTarget, link); err != nil {
 				t.Fatal(err)
 			}
 
-			assertDanglingLinkBoundary(t, root, link, filepath.Join(outside, "pwned.txt"), tc.wantInside)
+			// The link resolves to its target, so the expected real path is the
+			// link target itself (made absolute for the relative-target case).
+			// The in-root case must not be compared with the outside escape path.
+			want := symlinkTarget
+			if !filepath.IsAbs(want) {
+				want = filepath.Join(root, want)
+			}
+			assertDanglingLinkBoundary(t, root, link, want, tc.wantInside)
 		})
 	}
 }
@@ -84,8 +93,15 @@ func TestDanglingSymlinkInIntermediateComponentCannotEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRealPath: %v", err)
 	}
-	if !samePath(resolved, target) {
-		t.Fatalf("ResolveRealPath = %q, want %q", resolved, target)
+	// On Windows t.TempDir() may yield an 8.3 short path while ResolveRealPath
+	// returns the long form; resolve the expected path through the same helper
+	// so both sides are spelled identically.
+	want, err := ResolveRealPath(target)
+	if err != nil {
+		t.Fatalf("ResolveRealPath(target): %v", err)
+	}
+	if !samePath(resolved, want) {
+		t.Fatalf("ResolveRealPath = %q, want %q", resolved, want)
 	}
 	if err := InWriteRoots(filepath.Join("linkdir", "file.txt"), []string{root}); err == nil {
 		t.Fatal("a write through a dangling intermediate symlink must be denied")
@@ -96,7 +112,7 @@ func TestDanglingSymlinkInIntermediateComponentCannotEscape(t *testing.T) {
 // junctions need no symlink privilege, so this runs where os.Symlink is
 // unavailable and proves the reparse-point path is covered too.
 func TestDanglingJunctionCannotEscapeWriteRoots(t *testing.T) {
-	if filepath.Separator != '\\' {
+	if runtime.GOOS != "windows" {
 		t.Skip("junctions are Windows-only")
 	}
 	cases := []struct {
@@ -140,8 +156,15 @@ func assertDanglingLinkBoundary(t *testing.T, root, link, target string, wantIns
 	if err != nil {
 		t.Fatalf("ResolveRealPath(%q): %v", link, err)
 	}
-	if !samePath(resolved, target) {
-		t.Fatalf("ResolveRealPath = %q, want %q", resolved, target)
+	// Compare against the resolved target, not the raw lexical path: on Windows
+	// the temp dir may contain 8.3 short-name components while ResolveRealPath
+	// returns the canonical long form, and EqualFold cannot bridge the two.
+	wantResolved, err := ResolveRealPath(target)
+	if err != nil {
+		t.Fatalf("ResolveRealPath(target %q): %v", target, err)
+	}
+	if !samePath(resolved, wantResolved) {
+		t.Fatalf("ResolveRealPath = %q, want %q", resolved, wantResolved)
 	}
 
 	err = InWriteRoots(filepath.Base(link), []string{root})
