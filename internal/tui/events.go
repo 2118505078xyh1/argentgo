@@ -1,6 +1,10 @@
 package tui
 
-import "time"
+import (
+	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+)
 
 // EventKind names the agent events the full-screen UI consumes. The values
 // match the agent package's EventToolStart / EventToolEnd so an integrator can
@@ -12,6 +16,12 @@ const (
 	EventToolStart EventKind = "tool_start"
 	EventToolEnd   EventKind = "tool_end"
 	EventAttempt   EventKind = "attempt"
+	// EventError matches agent.EventError; Detail carries the redacted error
+	// text so an integrator can copy agent.Event.Err straight across.
+	EventError EventKind = "error"
+	// EventRetry is TUI-only live backoff feedback (the agent stream has no
+	// dedicated retry kind). The Retry* fields describe the pending attempt.
+	EventRetry EventKind = "retry"
 )
 
 // Event is the frontend-facing subset of the agent event stream. tui keeps its
@@ -26,7 +36,13 @@ type Event struct {
 	IsError    bool
 	DurationMS int64
 	Attempt    AttemptKind // EventAttempt only
-	Detail     string      // EventAttempt only
+	Detail     string      // EventAttempt / EventError only: badge detail or error text
+
+	// EventRetry only: live backoff feedback for a failed request.
+	RetryReason  string
+	RetryAttempt int
+	RetryMax     int
+	RetryWaitMS  int64
 }
 
 // HandleEvent folds one agent event into the UI. Unknown kinds are ignored, so
@@ -43,7 +59,26 @@ func (m *Model) HandleEvent(event Event) {
 		if event.Attempt != "" {
 			m.appendAttemptLocked(event.Attempt, event.Detail)
 		}
+	case EventError:
+		// Stream errors used to vanish here, leaving a "frozen screen". Reuse
+		// the existing attempt-badge renderer instead of adding a paint path.
+		m.appendNoticeEntryLocked(StreamErrorEntry(event.Detail, llm.RedactText))
+	case EventRetry:
+		m.appendNoticeEntryLocked(Entry{
+			Kind: EntryNotice,
+			Text: RetryNotice(event.RetryReason, event.RetryAttempt, event.RetryMax, event.RetryWaitMS),
+		})
 	}
+}
+
+// appendNoticeEntryLocked appends a fully-built notice entry — already carrying
+// its attempt badge, if any — and marks the model dirty so the next frame shows
+// it. It is the shared tail for the stream-error and retry event mappings.
+func (m *Model) appendNoticeEntryLocked(entry Entry) {
+	m.flushStreamLocked()
+	m.entries = append(m.entries, entry)
+	m.version++
+	m.markDirtyLocked()
 }
 
 func (m *Model) toolStartLocked(event Event) {

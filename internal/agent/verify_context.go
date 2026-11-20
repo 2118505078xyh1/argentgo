@@ -23,7 +23,12 @@ const (
 	// sourceAnchorPattern matches file:line references in tool output.
 	// Group 1 is an optional Windows drive prefix ("C:\"), group 2 the path,
 	// group 3 the line number and group 4 an optional column number.
-	sourceAnchorPattern = `([A-Za-z]:[\\/])?([A-Za-z0-9._\-/\\]+):([0-9]{1,6})(?::([0-9]{1,6}))?`
+	// The path class intentionally permits most non-whitespace characters
+	// (e.g. "~" from Windows RUNNER~1 temp dirs, spaces are excluded) since
+	// absolute temp paths on CI runners contain characters a narrow class
+	// would drop, breaking anchoring. Colons are excluded so the drive
+	// prefix and the trailing :line remain unambiguous.
+	sourceAnchorPattern = `([A-Za-z]:[\\/])?([^\s:]+):([0-9]{1,6})(?::([0-9]{1,6}))?`
 )
 
 type sourceAnchor struct {

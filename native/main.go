@@ -5,6 +5,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"log"
 	"math/rand/v2"
 	"os"
@@ -85,6 +87,7 @@ type message struct {
 }
 
 type approval struct {
+	id   string // engine tool-call id from the approval:request notice; empty in demo mode
 	name string
 	args string
 }
@@ -122,6 +125,7 @@ type chat struct {
 	sessionQuery    string
 	selectedSession string
 	messages        []*message
+	tools           map[string]*message // real tool cards keyed by tool-call id, upserted from events
 	list            ui.ListState
 	sessionList     ui.ListState
 	md              markdown.Options
@@ -531,6 +535,170 @@ func (app *chat) sendReal(text string, reply *message) {
 	}()
 }
 
+// ---- Real agent events ----------------------------------------------------
+
+// Approval notices ride the ordinary event stream: their Text carries a stable
+// prefix followed by a small JSON object (see internal/agent/approval_events).
+// Decoding the prefix locally keeps native/ free of any internal/ dependency.
+const (
+	approvalRequestPrefix  = "approval:request "
+	approvalResolvedPrefix = "approval:resolved "
+)
+
+type engineApproval struct {
+	V       int    `json:"v"`
+	Tool    string `json:"tool"`
+	Digest  string `json:"digest"`
+	ID      string `json:"id"`
+	Granted *bool  `json:"granted,omitempty"`
+}
+
+// parseEngineApproval decodes an approval notice. ok is false for unrelated
+// notices, unknown prefixes and malformed payloads, so every other item on
+// the event stream can be ignored safely.
+func parseEngineApproval(text string) (kind, tool, id, digest string, granted, ok bool) {
+	switch {
+	case strings.HasPrefix(text, approvalRequestPrefix):
+		var p engineApproval
+		if json.Unmarshal([]byte(strings.TrimPrefix(text, approvalRequestPrefix)), &p) != nil {
+			return "", "", "", "", false, false
+		}
+		if p.V != 1 || p.Tool == "" || p.ID == "" {
+			return "", "", "", "", false, false
+		}
+		return "request", p.Tool, p.ID, p.Digest, false, true
+	case strings.HasPrefix(text, approvalResolvedPrefix):
+		var p engineApproval
+		if json.Unmarshal([]byte(strings.TrimPrefix(text, approvalResolvedPrefix)), &p) != nil {
+			return "", "", "", "", false, false
+		}
+		if p.V != 1 || p.Tool == "" || p.ID == "" || p.Granted == nil {
+			return "", "", "", "", false, false
+		}
+		return "resolved", p.Tool, p.ID, p.Digest, *p.Granted, true
+	default:
+		return "", "", "", "", false, false
+	}
+}
+
+// onEngineEvent is the bridge callback. readLoop calls it off the UI thread,
+// so state changes are marshalled through Window.Update. Tests (no window)
+// apply events directly so the mapping stays unit-testable.
+func (app *chat) onEngineEvent(kind string, raw json.RawMessage) {
+	if app.win == nil {
+		app.applyEngineEvent(kind, raw)
+		return
+	}
+	app.win.Update(func() { app.applyEngineEvent(kind, raw) })
+}
+
+// applyEngineEvent maps one real agent event onto the existing transcript
+// state. Only tool and approval events are rendered: assistant text already
+// arrives over prompt/delta, and every other event kind is ignored.
+func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
+	switch kind {
+	case "tool_start":
+		var ev struct {
+			ToolCallID string `json:"ToolCallID"`
+			ToolName   string `json:"ToolName"`
+			Args       string `json:"Args"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Args, "running")
+	case "tool_end":
+		var ev struct {
+			ToolCallID string `json:"ToolCallID"`
+			ToolName   string `json:"ToolName"`
+			Output     string `json:"Output"`
+			IsError    bool   `json:"IsError"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		status := "done"
+		if ev.IsError {
+			status = "failed"
+		}
+		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Output, status)
+	case "notice":
+		var ev struct {
+			Text string `json:"Text"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		app.applyApprovalNotice(ev.Text)
+	}
+}
+
+// upsertTool creates or updates one tool card keyed by its engine tool-call id.
+// Reusing the row keeps parallel calls distinct and lets tool_end update the
+// card that tool_start opened instead of adding a second one.
+func (app *chat) upsertTool(id, name, detail, status string) {
+	if id == "" {
+		id = name // defensive: an older engine may omit the correlation id
+	}
+	if app.tools == nil {
+		app.tools = make(map[string]*message)
+	}
+	if m := app.tools[id]; m != nil {
+		if name != "" {
+			m.name = name
+		}
+		if detail != "" {
+			m.text = clipToolText(detail, 80)
+		}
+		m.status = status
+		return
+	}
+	app.next++
+	m := &message{id: app.next, kind: msgTool, name: name, text: clipToolText(detail, 80), status: status}
+	app.tools[id] = m
+	app.messages = append(app.messages, m)
+}
+
+// applyApprovalNotice turns a real approval:request / approval:resolved notice
+// into the existing approval card, replacing the canned demo approval.
+func (app *chat) applyApprovalNotice(text string) {
+	kind, tool, id, digest, granted, ok := parseEngineApproval(text)
+	if !ok {
+		return
+	}
+	switch kind {
+	case "request":
+		args := digest
+		if args == "" {
+			args = "(no arguments)"
+		}
+		app.approval = &approval{id: id, name: tool, args: args}
+		app.status = "需要批准: " + tool
+	case "resolved":
+		if app.approval != nil && (app.approval.id == id || app.approval.name == tool) {
+			app.approval = nil
+		}
+		status, note := "done", "✓ 已允许 "+tool
+		if !granted {
+			status, note = "failed", "✗ 已拒绝 "+tool
+		}
+		app.next++
+		app.messages = append(app.messages, &message{
+			id: app.next, kind: msgTool, name: tool, text: note, status: status, done: true,
+		})
+		app.status = note
+	}
+}
+
+// clipToolText keeps a tool card to one readable line without splitting UTF-8.
+func clipToolText(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
 // finish completes the current reply; it always runs on the main thread.
 func (app *chat) finish(src string) {
 	if app.reply != nil {
@@ -598,8 +766,18 @@ func (app *chat) answerApproval(allow bool) {
 	if app.approval == nil {
 		return
 	}
-	name := app.approval.name
+	ap := app.approval
 	app.approval = nil
+	if ap.id != "" {
+		// Real engine approval. This build's RPC has no method to send the
+		// answer back, so only dismiss the local card; the engine reports the
+		// true outcome via an approval:resolved notice, which appends the
+		// result row through applyApprovalNotice.
+		app.status = "已响应，等待引擎确认"
+		return
+	}
+	// Demo approval: record the local decision as before.
+	name := ap.name
 	app.next++
 	status, text := "done", "✓ 已允许 "+name
 	if !allow {
@@ -613,6 +791,7 @@ func (app *chat) answerApproval(allow bool) {
 
 func (app *chat) newSession() {
 	app.messages = nil
+	app.tools = nil
 	app.approval = nil
 	app.streaming = false
 	app.reply, app.tool = nil, nil
@@ -639,13 +818,24 @@ func main() {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
-		b, err := startBridge(exe, cwd, nil)
+		b, err := startBridge(exe, cwd, nil, app.onEngineEvent)
 		if err != nil {
 			log.Printf("native: engine bridge unavailable: %v (using demo mode)", err)
 		} else {
 			app.engine = b
 			app.status = "已连接引擎"
 			defer b.close()
+			// Consume real agent events so tool cards and approvals reflect the
+			// engine instead of canned demo data. If the engine has no event
+			// hub, subscription fails and the demo fallback stays intact.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			seq, err := b.SubscribeEvents(ctx)
+			cancel()
+			if err != nil {
+				log.Printf("native: event subscribe unavailable: %v (using demo fallback)", err)
+			} else {
+				log.Printf("native: subscribed to engine events at seq %d", seq)
+			}
 		}
 	}
 

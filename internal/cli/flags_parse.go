@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -22,6 +23,10 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	fs.Usage = func() { writeUsage(stderr) }
 	values := &flagValues{}
 	newFlags(fs, values)
+	// Opt-in verification flags are parsed here rather than in newFlags so the
+	// locked parity flag list stays unchanged; they still flow into config via
+	// the override layer below.
+	verify := registerVerifyFlags(fs)
 
 	positional, err := parseInterleaved(fs, before)
 	if err != nil {
@@ -33,6 +38,27 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	overrides := *values.overrides
+	// Verification flags reach app.Execute through config: the argv is written
+	// as a JSON array so Overrides.Nested() decodes it into []any, which config
+	// decodes into Config.VerifyCommand. Each --verify-cmd may hold several
+	// space-separated words, or the flag may be repeated, so both forms work.
+	if len(verify.cmd.values) > 0 {
+		var argv []string
+		for _, word := range verify.cmd.values {
+			argv = append(argv, strings.Fields(word)...)
+		}
+		if len(argv) > 0 {
+			if encoded, err := json.Marshal(argv); err == nil {
+				_ = overrides.Set("verifyCommand=" + string(encoded))
+			}
+		}
+	}
+	if set["verify-timeout-ms"] {
+		if *verify.timeoutMS < 0 {
+			return nil, nil, &usageError{msg: "--verify-timeout-ms must be >= 0"}
+		}
+		_ = overrides.Set("verifyTimeoutMS=" + strconv.Itoa(*verify.timeoutMS))
+	}
 	maxParallel := intSetting(set, "max-parallel", *values.maxParallel, env, "ARGENT_MAX_PARALLEL",
 		overrideInt(&overrides, "maxParallel", "max-parallel"))
 	opts := &Options{

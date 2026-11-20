@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ type bridge struct {
 	nextID  int
 	pending map[int]chan rpcReply
 	onDelta func(string)
+	onEvent func(kind string, raw json.RawMessage)
 	closed  bool
 }
 
@@ -42,8 +44,10 @@ type rpcMessage struct {
 }
 
 // startBridge launches `argent --rpc`. exePath is the path to argent.exe;
-// workspace is the working directory for the engine.
-func startBridge(exePath, workspace string, onDelta func(string)) (*bridge, error) {
+// workspace is the working directory for the engine. onDelta receives streamed
+// prompt chunks; onEvent receives real agent event notifications (kind + the
+// raw agent.Event JSON) once SubscribeEvents has registered the subscription.
+func startBridge(exePath, workspace string, onDelta func(string), onEvent func(string, json.RawMessage)) (*bridge, error) {
 	cmd := exec.Command(exePath, "--rpc")
 	cmd.Dir = workspace
 	stdin, err := cmd.StdinPipe()
@@ -58,7 +62,7 @@ func startBridge(exePath, workspace string, onDelta func(string)) (*bridge, erro
 	// stderr is inherited so engine errors are visible during development.
 	b := &bridge{
 		cmd: cmd, stdin: stdin, stdout: bufio.NewReader(stdout),
-		pending: make(map[int]chan rpcReply), onDelta: onDelta,
+		pending: make(map[int]chan rpcReply), onDelta: onDelta, onEvent: onEvent,
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -67,7 +71,9 @@ func startBridge(exePath, workspace string, onDelta func(string)) (*bridge, erro
 	return b, nil
 }
 
-// readLoop demultiplexes responses and prompt/delta notifications.
+// readLoop demultiplexes responses, prompt/delta notifications and real
+// agent "event" notifications. All callbacks run on this single reader
+// goroutine; consumers must marshal UI changes onto their own thread.
 func (b *bridge) readLoop() {
 	for {
 		line, err := b.stdout.ReadBytes('\n')
@@ -81,6 +87,18 @@ func (b *bridge) readLoop() {
 					}
 					if json.Unmarshal(m.Params, &p) == nil && b.onDelta != nil {
 						b.onDelta(p.Text)
+					}
+				case m.Method == "event":
+					// event/subscribe forwards each agent event as
+					// {"method":"event","params":{"kind":...,"event":...}}.
+					// Keep the raw event so the UI can decode only the fields
+					// it renders without the bridge importing internal/agent.
+					var p struct {
+						Kind  string          `json:"kind"`
+						Event json.RawMessage `json:"event"`
+					}
+					if json.Unmarshal(m.Params, &p) == nil && b.onEvent != nil {
+						b.onEvent(p.Kind, p.Event)
 					}
 				case len(m.ID) > 0:
 					var id int
@@ -147,6 +165,40 @@ func (b *bridge) call(method string, params any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%s", reply.err)
 	}
 	return reply.result, nil
+}
+
+// SubscribeEvents registers the connection with the engine's event hub. The
+// call result reports the hub's current seq; from then on every agent event is
+// delivered as an "event" notification which readLoop dispatches to onEvent.
+//
+// ctx bounds the registration call so a stalled engine cannot block startup.
+// The subscription itself lives for the lifetime of the RPC transport (EOF or
+// bridge close tears it down), so there is no matching unsubscribe method.
+func (b *bridge) SubscribeEvents(ctx context.Context) (uint64, error) {
+	type answer struct {
+		res json.RawMessage
+		err error
+	}
+	out := make(chan answer, 1)
+	go func() {
+		res, err := b.call("event/subscribe", map[string]any{"after": 0})
+		out <- answer{res: res, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case a := <-out:
+		if a.err != nil {
+			return 0, a.err
+		}
+		var payload struct {
+			Seq uint64 `json:"seq"`
+		}
+		if err := json.Unmarshal(a.res, &payload); err != nil {
+			return 0, err
+		}
+		return payload.Seq, nil
+	}
 }
 
 // prompt sends a real prompt; delta chunks arrive through onDelta.

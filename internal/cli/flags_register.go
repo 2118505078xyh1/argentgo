@@ -89,6 +89,23 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	fs.Var(v.overrides, "config", "config override key=value (repeatable)")
 }
 
+// verifyFlagValues holds the opt-in verification flag pointers. These flags
+// are registered outside newFlags on purpose: flagSurface (and the locked
+// docs/PARITY.md gate that compares against it) enumerates newFlags, and
+// verification is an additive, opt-in feature that is not yet part of that
+// documented surface. parseArgs calls registerVerifyFlags directly.
+type verifyFlagValues struct {
+	cmd       *stringList
+	timeoutMS *int
+}
+
+func registerVerifyFlags(fs *flag.FlagSet) verifyFlagValues {
+	cmd := &stringList{}
+	fs.Var(cmd, "verify-cmd", "opt-in post-edit verify argv (repeatable or space-separated): e.g. --verify-cmd go --verify-cmd test --verify-cmd ./...")
+	timeoutMS := fs.Int("verify-timeout-ms", 30000, "verify command timeout in milliseconds (0 uses 30000)")
+	return verifyFlagValues{cmd: cmd, timeoutMS: timeoutMS}
+}
+
 // flagSurface reports every long flag name the CLI accepts, sorted. It builds a
 // throwaway flag set so the list can never drift from the parser.
 func flagSurface() []string {

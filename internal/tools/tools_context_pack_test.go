@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -144,10 +145,22 @@ func TestContextPackPathEscapeRejected(t *testing.T) {
 	root := t.TempDir()
 	contextPackWrite(t, root, "ok.txt", "ok")
 
+	// Use a platform-appropriate absolute path outside the workspace: on
+	// Windows drive-qualified paths are absolute, on POSIX a leading slash is.
+	// The literal "C:/Windows/win.ini" is NOT absolute on Linux, so it must not
+	// be used as a cross-platform escape fixture.
+	absOutside := "/etc/passwd"
+	if runtime.GOOS == "windows" {
+		absOutside = `C:\Windows\win.ini`
+	}
+	absArgs, err := json.Marshal(map[string]any{"target": "ok.txt", "files": []string{absOutside}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range []string{
 		`{"target":"../outside.txt"}`,
 		`{"target":"ok.txt","files":["../secret.txt"]}`,
-		`{"target":"ok.txt","files":["C:/Windows/win.ini"]}`,
+		string(absArgs),
 	} {
 		if err := contextPackRunErr(t, root, args); err == nil {
 			t.Fatalf("expected path escape error for %s", args)

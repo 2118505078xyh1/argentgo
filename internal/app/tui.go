@@ -34,6 +34,12 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		approver := NewApprover()
 		res.Approve = approver
 
+		// Feed real agent events to the TUI's tool cards. The TUI host calls
+		// Execute directly (no cli.Runner), so it owns a private hub and attaches
+		// its emitter to each run context below. Stop closes the bridge on exit.
+		events := NewTUIEventPipeline(ctx)
+		defer events.Stop()
+
 		var (
 			mu      sync.Mutex
 			current *session.Session
@@ -58,7 +64,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			Locale:        res.Locale,
 			Sessions:      sessionTitles(store),
 			ContextWindow: res.Cfg.ContextWindow,
+			Events:        events.Events,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
+				turnCtx = withEventEmit(turnCtx, events.Emit)
 				sess, err := sessionFor(text)
 				if err != nil {
 					return err
