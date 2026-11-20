@@ -15,10 +15,12 @@ const finalAnswerPrompt = "The maximum number of steps has been reached. Do not 
 // finalAnswer spends one last request on a tool-free answer when the turn
 // budget is exhausted. It uses the normal Chatter, so it stays local and
 // offline-testable. A provider failure is not fatal: the run still ends at
-// StopMaxTurns, just without a new answer.
-func (s *runState) finalAnswer(ctx context.Context) {
+// StopMaxTurns, just without a new answer. Cancellation is different — it is
+// returned so the loop can report StopCancelled instead of swallowing it into
+// a notice and returning a successful result.
+func (s *runState) finalAnswer(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return
+		return err
 	}
 	base := len(s.messages)
 	s.messages = append(s.messages, llm.Message{Role: "user", Content: finalAnswerPrompt})
@@ -27,20 +29,29 @@ func (s *runState) finalAnswer(ctx context.Context) {
 	s.specs = nil // no tools: the reply cannot start another tool round
 	turn := s.turns
 	// One request only: no fallback chain, so the budget cannot be stretched
-	// by retries after it has already been spent.
+	// by retries after it has already been spent. Deltas are buffered and only
+	// flushed on success, mirroring chatWithFallback: a cancelled or failed
+	// request must not leak a half-written answer into the operator's stream.
+	var deltas []string
 	reply, err := s.chat(ctx, func(delta string) {
-		s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
+		deltas = append(deltas, delta)
 	})
 	s.specs = savedSpecs
 	if err != nil {
 		s.messages = s.messages[:base]
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf("could not produce a final answer: %v", err)})
-		return
+		return nil
+	}
+	for _, delta := range deltas {
+		s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
 	}
 	if reply.Content == "" {
 		// An empty answer is not worth a synthetic user turn in the transcript.
 		s.messages = s.messages[:base]
-		return
+		return nil
 	}
 
 	// Keep the accounting honest: this was a real model request, even though
@@ -57,4 +68,5 @@ func (s *runState) finalAnswer(ctx context.Context) {
 	s.lastText = reply.Content
 	s.record("user", finalAnswerPrompt)
 	s.record("assistant", reply)
+	return nil
 }

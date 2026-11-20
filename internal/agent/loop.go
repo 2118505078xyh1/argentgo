@@ -258,11 +258,25 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.record("mistake_guidance", action.Guidance)
 		}
 		if s.turns >= s.maxTurns {
+			// Cancellation may have arrived after the loop's top-of-turn check
+			// (e.g. while steering was drained). Treat it like any other abort,
+			// not as a clean turn-limit stop.
+			if err := ctx.Err(); err != nil {
+				s.appendAbortedAssistant()
+				s.emit(Event{Kind: EventStop, Reason: StopCancelled})
+				return s.result(StopCancelled), err
+			}
 			s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf("turn limit reached after %d turn(s)", s.turns)})
 			// Ask once for a tool-free answer so an exhausted budget still
-			// yields something useful. The stop reason stays StopMaxTurns.
+			// yields something useful. The stop reason stays StopMaxTurns,
+			// unless that last request was cancelled — finalAnswer returns the
+			// context error so it is not swallowed into a successful result.
 			if !s.opts.NoFinalAnswer {
-				s.finalAnswer(ctx)
+				if err := s.finalAnswer(ctx); err != nil {
+					s.appendAbortedAssistant()
+					s.emit(Event{Kind: EventStop, Reason: StopCancelled})
+					return s.result(StopCancelled), err
+				}
 			}
 			s.emit(Event{Kind: EventStop, Reason: StopMaxTurns})
 			return s.result(StopMaxTurns), nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -112,6 +113,81 @@ func TestNoFinalAnswerOptOutSkipsTheExtraRequest(t *testing.T) {
 	}
 	if res.Stopped != StopMaxTurns || chat.count() != 1 || res.Turns != 1 {
 		t.Fatalf("result = %+v, requests = %d, want StopMaxTurns after 1 request", res, chat.count())
+	}
+}
+
+func TestFinalAnswerCancellationIsNotSwallowed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
+	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
+		if n == 1 {
+			return toolReply(toolCall("c1", "read", `{}`)), nil
+		}
+		// Abort mid-stream during the synthetic final-answer request. The
+		// half-written text must never reach the operator's event stream.
+		cancel()
+		onText("half ")
+		return llm.Message{}, ctx.Err()
+	}}
+	sink := &eventSink{}
+	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: tools, MaxTurns: 1, Emit: sink.emit}}
+
+	res, err := runner.Run(ctx, "loop")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if res.Stopped != StopCancelled {
+		t.Fatalf("stopped = %q, want %q", res.Stopped, StopCancelled)
+	}
+	if containsUser(res.Messages, finalAnswerPrompt) {
+		t.Fatal("cancelled final answer left a dangling synthetic user message")
+	}
+	sink.mu.Lock()
+	events := append([]Event(nil), sink.events...)
+	sink.mu.Unlock()
+	for _, ev := range events {
+		if ev.Kind == EventTextDelta && strings.Contains(ev.Text, "half") {
+			t.Fatal("partial final answer leaked as a text delta")
+		}
+	}
+	stopReason := ""
+	for _, ev := range events {
+		if ev.Kind == EventStop {
+			stopReason = ev.Reason
+		}
+	}
+	if stopReason != StopCancelled {
+		t.Fatalf("stop event reason = %q, want %q", stopReason, StopCancelled)
+	}
+	last := res.Messages[len(res.Messages)-1]
+	if last.Role != "assistant" || last.Content != "Operation aborted" {
+		t.Fatalf("last message = %+v, want the terminal aborted assistant", last)
+	}
+}
+
+func TestMaxTurnsWithoutCancellationKeepsStopMaxTurns(t *testing.T) {
+	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
+	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
+		if n == 1 {
+			return toolReply(toolCall("c1", "read", `{}`)), nil
+		}
+		onText("final ")
+		onText("answer")
+		return textReply("final answer"), nil
+	}}
+	sink := &eventSink{}
+	runner := &Runner{Opts: Options{Model: "m", Chatter: chat, Tools: tools, MaxTurns: 1, Emit: sink.emit}}
+
+	res, err := runner.Run(context.Background(), "loop")
+	if err != nil {
+		t.Fatalf("a normal turn-limit stop must not error: %v", err)
+	}
+	if res.Stopped != StopMaxTurns {
+		t.Fatalf("stopped = %q, want %q", res.Stopped, StopMaxTurns)
+	}
+	if res.Text != "final answer" || !sink.has(EventTextDelta) {
+		t.Fatalf("text = %q, deltas emitted = %v, want a streamed final answer", res.Text, sink.has(EventTextDelta))
 	}
 }
 
