@@ -286,6 +286,11 @@ func tokenFromResponse(cfg Config, response tokenResponse, previous Token) (Toke
 // which means the callback did not belong to this login attempt.
 var ErrStateMismatch = errors.New("auth: oauth state mismatch")
 
+// ErrNoAuthorizationCode is returned when the redirect carries the expected
+// state but neither an authorization code nor an error. Such a callback cannot
+// complete the login and must never be reported as a success.
+var ErrNoAuthorizationCode = errors.New("auth: oauth callback has no authorization code")
+
 // Callback is a loopback listener that receives one OAuth redirect.
 type Callback struct {
 	listener net.Listener
@@ -344,6 +349,16 @@ func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 			return
 		}
 		code := query.Get("code")
+		if code == "" {
+			// A redirect with the right state but no code (and no error) is
+			// not a completed login. Treat it as a failure so callers never
+			// receive an empty code together with a nil error, and the browser
+			// is not told the authorization succeeded when it did not.
+			writePage(writer, http.StatusBadRequest, "Authorization failed",
+				"The authorization server did not return an authorization code.")
+			deliver(result{err: ErrNoAuthorizationCode})
+			return
+		}
 		writePage(writer, http.StatusOK, "Authorization complete",
 			"You can close this window and return to argent.")
 		deliver(result{code: code})

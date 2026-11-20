@@ -110,9 +110,9 @@ func Start(ctx context.Context, cmd Command, size Size) (*Pty, error) {
 
 // Read reads whatever the terminal produced next.
 //
-// It returns io.EOF once the child exited and the stream is drained; the
-// Windows terminal reports a read error instead, so callers should treat any
-// read error after Wait as the end of the stream.
+// It returns io.EOF once the child exited and the stream is drained. On Windows
+// the console holds its end of the output pipe open until Wait reaps the child
+// and releases the console (or until Close), so EOF follows Wait/Close there.
 func (p *Pty) Read(b []byte) (int, error) { return p.term.Read(b) }
 
 // Write sends input to the terminal.

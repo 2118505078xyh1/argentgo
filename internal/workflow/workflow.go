@@ -8,9 +8,10 @@
 //	  {"name":"report","prompt":"write the report","when":{"previous_contains":"BUG"}}
 //	]}
 //
-// Steps run in order. Each step either prompts the model or calls a tool, and
-// can carry a condition on the previous step's output, a timeout, retries with
-// exponential backoff, and an on_failure policy.
+// Steps run in dependency order: a step that reads {{steps.NAME.output}} runs
+// after the step that produces it. Each step either prompts the model or calls
+// a tool, and can carry a condition on the previous step's output, a timeout,
+// retries with exponential backoff, and an on_failure policy.
 package workflow
 
 import (

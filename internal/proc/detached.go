@@ -246,7 +246,18 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 	case <-p.Done():
 		code = p.ExitCode()
 	case <-timeoutCh:
-		timedOut = true
+		// c.Timeout is the soft "promote to background" deadline; ctx is the
+		// caller's hard bound. When both fire at the same instant select picks
+		// one at random. If the timeout wins while the context is already
+		// done, KeepOnTimeout would hand back a live child that outlives the
+		// caller's deadline (e.g. runPromotableBash's hard timeout), turning a
+		// bounded call into a runaway job. Prefer the context whenever it is
+		// done by the time the timer fires.
+		if err := ctx.Err(); err != nil {
+			ctxErr = err
+		} else {
+			timedOut = true
+		}
 	case <-ctx.Done():
 		ctxErr = ctx.Err()
 	}

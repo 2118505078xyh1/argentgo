@@ -47,8 +47,14 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 	if !strings.Contains(text, "{env:") || (isJSONConfig(raw) && !needsEscape) {
 		return raw
 	}
-	escapedEnvText, _ := replaceEnv(text, env, true, warn)
-	return replaceFiles(escapedEnvText, configDir, env, warn)
+	// The verbatim pass above has already warned about every missing reference.
+	// The retry visits the same references, so passing warn again would report
+	// each one twice (a backslash anywhere in an env value forces this retry).
+	// Escape-only, warning-free substitution keeps the one-warning-per-event
+	// contract while still producing a value-preserving document.
+	quiet := func(string, ...any) {}
+	escapedEnvText, _ := replaceEnv(text, env, true, quiet)
+	return replaceFiles(escapedEnvText, configDir, env, quiet)
 }
 
 // replaceEnv substitutes {env:VAR} references. The second result reports

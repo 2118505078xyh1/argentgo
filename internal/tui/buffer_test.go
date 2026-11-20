@@ -40,7 +40,7 @@ func TestFlushOnlyRedrawsChangedRows(t *testing.T) {
 		t.Fatalf("unchanged frame wrote %d rows, want 0", written)
 	}
 
-	buf.Set(0, 2, 'x', Style{})
+	buf.Set(0, 2, "x", Style{})
 	sink.Reset()
 	written, _ := buf.Flush(&sink)
 	if written != 1 {
@@ -72,12 +72,12 @@ func TestResizeForcesAFullRepaint(t *testing.T) {
 func TestWideRuneTakesTwoCells(t *testing.T) {
 	buf := NewBuffer(6, 1)
 	buf.Clear()
-	buf.Set(0, 0, '你', Style{})
+	buf.Set(0, 0, "你", Style{})
 	if got := buf.RowText(0); got != "你" {
 		t.Fatalf("row = %q, want 你", got)
 	}
-	if buf.cells[1].R != 0 {
-		t.Fatalf("second cell should be the wide-rune continuation, got %q", buf.cells[1].R)
+	if buf.cells[1].Text != "" {
+		t.Fatalf("second cell should be the wide-rune continuation, got %q", buf.cells[1].Text)
 	}
 	if used := buf.WriteString(0, 0, 1, "你", Style{}); used != 0 {
 		t.Fatalf("a wide rune must not be written into a one-cell gap, used %d", used)
@@ -90,6 +90,42 @@ func TestRowTextSkipsContinuationCells(t *testing.T) {
 	buf.WriteString(0, 0, 4, "你a", Style{})
 	if got := buf.RowText(0); got != "你a" {
 		t.Fatalf("row = %q, want 你a", got)
+	}
+}
+
+func TestWriteStringKeepsGraphemeClustersWhole(t *testing.T) {
+	// The layout measures a ZWJ family as two cells (TextWidth), so the buffer
+	// must paint exactly those two cells and keep every byte of the cluster —
+	// including the invisible ZWJ — in the painted output. Iterating per rune
+	// used to drop the ZWJ and reserve six cells, tearing the glyph apart and
+	// pushing the following span three cells too far right.
+	for _, tc := range []struct {
+		name, text string
+	}{
+		{"ZWJ family", familyZWJ},
+		{"flag pair", flagCN},
+		{"skin tone", thumbTone},
+		{"combining mark", combiningE},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			painted := "A" + tc.text + "B"
+			buf := NewBuffer(TextWidth(painted), 1)
+			buf.Clear()
+			used := buf.WriteString(0, 0, buf.Width(), painted, Style{})
+			if want := TextWidth(painted); used != want {
+				t.Fatalf("WriteString used %d cells, want %d", used, want)
+			}
+			if got := buf.RowText(0); got != painted {
+				t.Fatalf("RowText = %q, want %q", got, painted)
+			}
+			var out strings.Builder
+			if _, err := buf.Flush(&out); err != nil {
+				t.Fatalf("flush: %v", err)
+			}
+			if !strings.Contains(out.String(), tc.text) {
+				t.Fatalf("flushed frame lost the grapheme cluster: %q", out.String())
+			}
+		})
 	}
 }
 

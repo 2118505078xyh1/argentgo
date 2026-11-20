@@ -26,10 +26,39 @@ const maxGitPointerBytes = 4096
 // and its gitdir: target is where the hooks live. That target often sits
 // outside root, so the pointer check deliberately runs before the escape
 // check, giving a more specific reason for writes aimed at it.
+//
+// Both the lexical path and its real on-disk location are checked, so a
+// symlink or Windows junction inside the root cannot disguise a write into a
+// protected subpath as an ordinary workspace write.
 func IsPathProtected(root, path string) (bool, string) {
 	rootAbs := resolveAgainst(root, "")
 	pathAbs := resolveAgainst(path, rootAbs)
 
+	if protected, reason := protectedWithin(rootAbs, pathAbs); protected {
+		return true, reason
+	}
+	// A link *inside* the root can point at a protected subpath while its own
+	// lexical spelling is harmless (e.g. <root>/alias -> <root>/.ssh). The
+	// lexical pass above cannot see that, so resolve both sides and repeat the
+	// check on the real on-disk location. Without this, one junction is enough
+	// to turn a write into .git/.ssh into an ordinary workspace write. A
+	// resolution failure is left to the fail-closed boundary checks in
+	// InWriteRoots and Policy.checkPath; it cannot widen protection here.
+	realRoot, rootErr := ResolveRealPath(rootAbs)
+	realPath, pathErr := ResolveRealPath(pathAbs)
+	if rootErr == nil && pathErr == nil {
+		if protected, reason := protectedWithin(realRoot, realPath); protected {
+			return true, reason
+		}
+	}
+	return false, ""
+}
+
+// protectedWithin is the whole-segment check for one (root, path) pair. The
+// .git pointer refinement runs first so a worktree gitdir gets a specific
+// reason even though it sits outside root; outside-root paths stay protected
+// too. It is the shared body of the lexical and real-location passes above.
+func protectedWithin(rootAbs, pathAbs string) (bool, string) {
 	if gitdir, ok := gitdirPointer(rootAbs); ok && pathWithin(gitdir, pathAbs) {
 		return true, "protected subpath .git (worktree gitdir)"
 	}

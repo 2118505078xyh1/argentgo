@@ -221,30 +221,36 @@ func isExtend(r rune) bool {
 // RuneWidth stays the authority for individual rune widths.
 func nextGrapheme(s string, start int) (end, width int) {
 	if b := s[start]; b < utf8.RuneSelf {
-		if b >= 0x20 && b != 0x7F {
-			return start + 1, 1
+		if b < 0x20 || b == 0x7F {
+			// Controls are zero-width and must not glue clusters together.
+			return start + 1, 0
 		}
-		return start + 1, 0
-	}
-
-	r, size := utf8.DecodeRuneInString(s[start:])
-	end = start + size
-	width = RuneWidth(r)
-
-	// A pair of adjacent regional indicators is one flag: two cells, even
-	// though each indicator alone is only one cell wide.
-	if isRegionalIndicator(r) && end < len(s) {
-		if r2, size2 := utf8.DecodeRuneInString(s[end:]); isRegionalIndicator(r2) {
-			end += size2
-			width = 2
-			for end < len(s) {
-				r3, size3 := utf8.DecodeRuneInString(s[end:])
-				if !isExtend(r3) {
-					break
-				}
-				end += size3
-			}
+		end, width = start+1, 1
+		// Fast path: an ASCII base followed only by ASCII cannot pick up an
+		// Extend rune (every Extend rune is non-ASCII). A non-ASCII successor
+		// falls through so a combining mark, VS or ZWJ sequence joins the base.
+		if end == len(s) || s[end] < utf8.RuneSelf {
 			return end, width
+		}
+	} else {
+		r, size := utf8.DecodeRuneInString(s[start:])
+		end, width = start+size, RuneWidth(r)
+
+		// A pair of adjacent regional indicators is one flag: two cells, even
+		// though each indicator alone is only one cell wide.
+		if isRegionalIndicator(r) && end < len(s) {
+			if r2, size2 := utf8.DecodeRuneInString(s[end:]); isRegionalIndicator(r2) {
+				end += size2
+				width = 2
+				for end < len(s) {
+					r3, size3 := utf8.DecodeRuneInString(s[end:])
+					if !isExtend(r3) {
+						break
+					}
+					end += size3
+				}
+				return end, width
+			}
 		}
 	}
 
@@ -277,13 +283,21 @@ func TextWidth(text string) int {
 	for i := 0; i < len(text); {
 		if text[i] < utf8.RuneSelf {
 			// Bulk ASCII path: printable bytes are one cell, controls zero.
-			for i < len(text) && text[i] < utf8.RuneSelf {
+			// Stop before a byte whose successor is non-ASCII: that byte may
+			// start a cluster that continues across the boundary (a combining
+			// mark, a variation selector or a ZWJ-joined emoji), which only
+			// nextGrapheme can measure correctly.
+			start := i
+			for i < len(text) && text[i] < utf8.RuneSelf &&
+				(i+1 == len(text) || text[i+1] < utf8.RuneSelf) {
 				if text[i] >= 0x20 && text[i] != 0x7F {
 					total++
 				}
 				i++
 			}
-			continue
+			if i > start {
+				continue
+			}
 		}
 		next, width := nextGrapheme(text, i)
 		total += width

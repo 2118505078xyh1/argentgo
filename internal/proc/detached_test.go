@@ -157,6 +157,52 @@ func TestRunWithTimeoutReturnsOutputAndExitCodeForAFastCommand(t *testing.T) {
 	}
 }
 
+// expiredContext simulates the narrow timeout/ctx race deterministically: its
+// Err() is already non-nil (the caller's deadline elapsed) while Done() is
+// still open, so select can only pick the soft-timeout case. That is exactly
+// the state the tie-break in RunWithTimeout has to handle — a real context
+// whose deadline fires a moment before the timer yields the same Err() value
+// by the time the timeout case is executed.
+type expiredContext struct{}
+
+func (expiredContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (expiredContext) Done() <-chan struct{}       { return nil }
+func (expiredContext) Err() error                  { return context.DeadlineExceeded }
+func (expiredContext) Value(any) any               { return nil }
+
+// TestRunWithTimeoutContextDeadlineBeatsCoincidentTimeout guards the
+// timeout/ctx race in RunWithTimeout. c.Timeout is the soft "promote to a
+// background job" deadline while ctx is the caller's hard bound; when both
+// fire around the same time select can pick the timer even though the context
+// is already done. Before the fix, KeepOnTimeout then returned a live child
+// that outlived the caller's hard deadline (runPromotableBash's runCtx is
+// exactly such a caller), turning a bounded call into a runaway job.
+func TestRunWithTimeoutContextDeadlineBeatsCoincidentTimeout(t *testing.T) {
+	child := newFakeChild(4242, 9, false)
+	slot := installFakeStarter(t, child, "")
+
+	_, live, err := RunWithTimeout(expiredContext{}, Command{
+		Path:          "fake",
+		Timeout:       15 * time.Millisecond,
+		KeepOnTimeout: true,
+	})
+
+	var te *TimeoutError
+	if errors.As(err, &te) {
+		t.Fatalf("err = %v, want a context deadline error, not *TimeoutError", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	if live != nil {
+		t.Fatalf("live = %v, want nil: a finished context must not promote a child", live)
+	}
+	if !child.wasKilled() {
+		t.Fatal("child was not killed past the caller's hard deadline")
+	}
+	_ = slot
+}
+
 func TestProcessSetOutputFlushesCapturedBytesAndRedirects(t *testing.T) {
 	child := newFakeChild(12, 0, false)
 	p := NewProcess(child)

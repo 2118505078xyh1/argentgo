@@ -178,11 +178,13 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 
 	params := map[string]any{
 		"protocolVersion": protocolVersion,
-		"capabilities": map[string]any{
-			"roots":    map[string]any{},
-			"sampling": map[string]any{},
-		},
-		"clientInfo": map[string]any{"name": clientName, "version": clientVersion},
+		// Advertise only capabilities we actually implement. handleOne drops
+		// every server-initiated request (it has no roots/list or
+		// sampling/createMessage handler), so claiming roots or sampling here
+		// invites a compliant server to send requests we silently ignore and
+		// then wait forever for a reply.
+		"capabilities": map[string]any{},
+		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
 	}
 	raw, err := c.tr.call(ctx, "initialize", params)
 	if err != nil {

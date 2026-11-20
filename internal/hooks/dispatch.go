@@ -186,7 +186,15 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 		return nil, fmt.Errorf("hooks: unknown event %q", payload.Event)
 	}
 
-	commands := config.ForEvent(event, payload.Tool)
+	// FileChanged matchers describe the affected file ("*.go"), not the tool
+	// that changed it. FireFileChanged and other direct callers carry only
+	// Payload.Path; ForEvent skips matcher-bearing hooks when the match value
+	// is empty, so without this the documented file matchers never fire.
+	matchValue := payload.Tool
+	if event == FileChanged && payload.Path != "" {
+		matchValue = payload.Path
+	}
+	commands := config.ForEvent(event, matchValue)
 	sort.SliceStable(commands, func(i, j int) bool {
 		return commands[i].Priority > commands[j].Priority
 	})

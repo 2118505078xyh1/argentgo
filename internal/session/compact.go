@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // ArchiveRange is a half-open byte range [Start, End) locating one message in
@@ -457,6 +458,28 @@ func tailItems(items []string, limit int) []string {
 	return items[len(items)-limit:]
 }
 
+// lowerByteOffset maps a byte offset in strings.ToLower(s) back to the
+// corresponding byte offset in s. strings.ToLower folds rune-by-rune, so the
+// rune index is identical in both strings even when a rune's lowercase form has
+// a different byte length (e.g. U+0130 2->1, U+1E9E 3->2, U+212A 3->1 bytes).
+// Slicing the original at a lowercased byte offset would otherwise start
+// mid-rune and corrupt the text -- the alignment rule snippetFor uses too.
+func lowerByteOffset(s, lowered string, offset int) int {
+	if offset <= 0 {
+		return 0
+	}
+	runes := utf8.RuneCountInString(lowered[:offset])
+	idx := 0
+	for n := 0; n < runes; n++ {
+		_, size := utf8.DecodeRuneInString(s[idx:])
+		if size == 0 {
+			break
+		}
+		idx += size
+	}
+	return idx
+}
+
 // failureReason recognizes a tool result that represents a failure.
 func failureReason(content string) (string, bool) {
 	trimmed := strings.TrimSpace(content)
@@ -465,7 +488,10 @@ func failureReason(content string) (string, bool) {
 	}
 	lower := strings.ToLower(trimmed)
 	if index := strings.LastIndex(lower, "[exit "); index >= 0 {
-		tail := trimmed[index:]
+		// index is a byte offset into lower; map it back to trimmed before
+		// slicing so a preceding rune whose lowercase is shorter cannot shift
+		// the window into the middle of a code point (or lose the failure).
+		tail := trimmed[lowerByteOffset(trimmed, lower, index):]
 		code := 0
 		digits := 0
 		rest := strings.TrimPrefix(tail, "[exit ")

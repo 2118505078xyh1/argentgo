@@ -376,8 +376,8 @@ func (m *Model) SelectedText(buf *Buffer) string {
 		start, end = clampCell(start, 0, w-1), clampCell(end, 0, w-1)
 		var line strings.Builder
 		for col := start; col <= end; col++ {
-			if r := buf.cells[row*w+col].R; r != 0 {
-				line.WriteRune(r)
+			if t := buf.cells[row*w+col].Text; t != "" {
+				line.WriteString(t)
 			}
 		}
 		lines = append(lines, strings.TrimRight(line.String(), " "))

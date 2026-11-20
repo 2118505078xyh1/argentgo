@@ -82,13 +82,15 @@ func (r Run) Output(name string) (string, bool) {
 	return "", false
 }
 
-// Run executes the steps in order and returns every result. Definitions with
-// declared parameters need their values supplied through RunWithParams.
+// Run executes the steps in dependency order and returns every result.
+// Definitions with declared parameters need their values supplied through
+// RunWithParams.
 func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run, error) {
 	return e.RunWithParams(ctx, def, input, nil)
 }
 
-// RunWithParams executes the steps in order, additionally resolving {{key}}
+// RunWithParams executes the steps in dependency order (a step reading
+// {{steps.NAME.output}} runs after its producer), additionally resolving {{key}}
 // placeholders from the definition's declared parameters. Values are resolved
 // here as well as by the CLI so a caller cannot bypass required/default checks
 // by passing raw values; re-resolving an already resolved map is idempotent.
@@ -115,6 +117,15 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 		ctx = context.Background()
 	}
 
+	// Validate() has already rejected cycles and dangling step references; the
+	// order it computed there is the order execution must follow. A step that
+	// reads {{steps.NAME.output}} has to run after its producer, otherwise the
+	// token is left unsubstituted in the prompt or tool args.
+	order, err := ValidateDAG(local.Steps)
+	if err != nil {
+		return Run{}, err
+	}
+
 	backoff := e.Backoff
 	if backoff <= 0 {
 		backoff = defaultBackoff
@@ -134,7 +145,8 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 	havePrevious := false
 	stopped := false
 
-	for _, step := range local.Steps {
+	for _, index := range order {
+		step := local.Steps[index]
 		if stopped {
 			run.Steps = append(run.Steps, StepResult{
 				Name:   step.Name,

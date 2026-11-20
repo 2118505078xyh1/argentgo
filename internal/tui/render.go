@@ -184,8 +184,8 @@ func (m *Model) paintSelectionLocked(buf *Buffer) {
 		}
 		for col := maxInt(start, 0); col <= minInt(end, w-1); col++ {
 			idx := row*w + col
-			if buf.cells[idx].R == 0 {
-				continue // second half of a wide rune
+			if buf.cells[idx].Text == "" {
+				continue // second half of a wide grapheme cluster
 			}
 			style := buf.cells[idx].S
 			style.Reverse = true

@@ -245,6 +245,42 @@ func TestConnectInfersTransportAndValidatesSpec(t *testing.T) {
 	}
 }
 
+// TestInitializeDoesNotAdvertiseUnhandledCapabilities guards the handshake:
+// the client drops every server-initiated request, so it must not claim
+// roots/sampling support. A server that believes those claims would send
+// requests we never answer and block waiting for the response.
+func TestInitializeDoesNotAdvertiseUnhandledCapabilities(t *testing.T) {
+	var capabilities map[string]json.RawMessage
+	ft := &fakeTransport{handlers: map[string]func(json.RawMessage) (any, error){
+		"initialize": func(params json.RawMessage) (any, error) {
+			var request struct {
+				Capabilities map[string]json.RawMessage `json:"capabilities"`
+			}
+			if err := json.Unmarshal(params, &request); err != nil {
+				return nil, err
+			}
+			capabilities = request.Capabilities
+			return map[string]any{
+				"protocolVersion": protocolVersion,
+				"serverInfo":      map[string]any{"name": "fake", "version": "0.1"},
+				"capabilities":    map[string]any{},
+			}, nil
+		},
+	}}
+	c := newFakeClient("fake", ft, time.Second)
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if capabilities == nil {
+		t.Fatal("initialize must send a capabilities object, even if empty")
+	}
+	for _, name := range []string{"roots", "sampling"} {
+		if _, ok := capabilities[name]; ok {
+			t.Errorf("initialize advertised %q without a handler to answer its requests", name)
+		}
+	}
+}
+
 func TestNamespaced(t *testing.T) {
 	if got := Namespaced("fs", "read_file"); got != "fs__read_file" {
 		t.Fatalf("unexpected namespace: %q", got)

@@ -39,27 +39,50 @@ func OpenStore(dir string) (*Store, error) {
 		return nil, fmt.Errorf("automation: create %s: %w", dir, err)
 	}
 	s := &Store{dir: dir, file: filepath.Join(dir, "automations.json"), now: time.Now}
+	if err := s.reloadLocked(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// Reload refreshes the in-memory task list from the on-disk JSON file. The
+// store is a shared file: a separate process (for example `automation run`)
+// can advance a slot or add a task while a daemon is running. Reloading lets
+// the daemon observe those changes instead of acting on a stale cached view,
+// which would fire an already-handled slot a second time.
+func (s *Store) Reload() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reloadLocked()
+}
+
+// reloadLocked parses the JSON file into s.specs. The caller must hold s.mu.
+// A missing file means an empty task list (a freshly created store).
+func (s *Store) reloadLocked() error {
 	data, err := os.ReadFile(s.file)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return s, nil
+		s.specs = nil
+		return nil
 	case err != nil:
-		return nil, fmt.Errorf("automation: read %s: %w", s.file, err)
+		return fmt.Errorf("automation: read %s: %w", s.file, err)
 	}
 	var file storeFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("automation: %s is not a valid task list: %w", s.file, err)
+		return fmt.Errorf("automation: %s is not a valid task list: %w", s.file, err)
 	}
+	var specs []Spec
 	for _, spec := range file.Specs {
 		if spec.ID == "" {
 			spec.ID = slug(spec.Name)
 		}
 		if err := spec.Validate(); err != nil {
-			return nil, err
+			return err
 		}
-		s.specs = append(s.specs, spec)
+		specs = append(specs, spec)
 	}
-	return s, nil
+	s.specs = specs
+	return nil
 }
 
 // Dir returns the store directory.

@@ -170,7 +170,20 @@ func (h *handler) authorized(r *http.Request) bool {
 	if want == "" {
 		return false
 	}
-	got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	// RFC 7235 defines auth-scheme as case-insensitive, so "bearer", "BEARER"
+	// and "BeArEr" are all the same scheme as "Bearer". Compare the prefix
+	// without case folding the token itself: tokens remain byte-exact.
+	const scheme = "Bearer "
+	header := r.Header.Get("Authorization")
+	var got string
+	if len(header) >= len(scheme) && strings.EqualFold(header[:len(scheme)], scheme) {
+		got = strings.TrimSpace(header[len(scheme):])
+	} else {
+		// A present header with a different scheme is not a bearer credential.
+		// Keep the whole value as the candidate (as TrimPrefix did before) so
+		// a bogus scheme cannot fall through to the query-string token.
+		got = strings.TrimSpace(header)
+	}
 	if got == "" {
 		got = strings.TrimSpace(r.URL.Query().Get("token"))
 	}

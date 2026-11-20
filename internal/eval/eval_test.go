@@ -520,6 +520,60 @@ func TestCheckWorkspaceChecksSeededFiles(t *testing.T) {
 	}
 }
 
+func TestFixturePathsStayInsideTheWorkspace(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("seed rejects traversal without writing outside", func(t *testing.T) {
+		outside := filepath.Join(filepath.Dir(dir), "argent-eval-escape.txt")
+		_ = os.Remove(outside)
+		defer os.Remove(outside)
+
+		err := seed(dir, map[string]string{"../argent-eval-escape.txt": "leak"})
+		if err == nil {
+			t.Fatal("seed accepted a path outside the workspace")
+		}
+		if !strings.Contains(err.Error(), "escapes the workspace") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, statErr := os.Stat(outside); !os.IsNotExist(statErr) {
+			t.Fatalf("seed wrote outside the workspace: stat = %v", statErr)
+		}
+	})
+
+	t.Run("seed rejects absolute paths", func(t *testing.T) {
+		abs := filepath.ToSlash(filepath.Join(dir, "abs.txt"))
+		err := seed(dir, map[string]string{abs: "leak"})
+		if err == nil {
+			t.Fatal("seed accepted an absolute path")
+		}
+		if !strings.Contains(err.Error(), "is absolute") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("checkWorkspace rejects traversal", func(t *testing.T) {
+		if got := checkWorkspace(Check{FilesExist: []string{"../outside.txt"}}, dir); !strings.Contains(got, "escapes the workspace") {
+			t.Fatalf("FilesExist check = %q", got)
+		}
+		if got := checkWorkspace(Check{FileContains: map[string]string{"../outside.txt": "x"}}, dir); !strings.Contains(got, "escapes the workspace") {
+			t.Fatalf("FileContains check = %q", got)
+		}
+	})
+
+	t.Run("ordinary nested paths still work", func(t *testing.T) {
+		if err := seed(dir, map[string]string{"nested/a.txt": "hello"}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		got := checkWorkspace(Check{
+			FilesExist:   []string{"nested/a.txt"},
+			FileContains: map[string]string{"nested/a.txt": "hello"},
+		}, dir)
+		if got != "" {
+			t.Fatalf("checkWorkspace = %q", got)
+		}
+	})
+}
+
 func TestARunSeesTheSeededWorkspaceAndItsChecks(t *testing.T) {
 	scenario := Scenario{
 		Name:     "seed check",

@@ -342,10 +342,22 @@ func pushBlocks(messages []anthropicMessage, role string, blocks []anthropicBloc
 }
 
 type anthropicUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
+	InputTokens int `json:"input_tokens"`
+	// Cache counts are pointers so an explicit zero in message_delta can be
+	// distinguished from an omitted field. Native Anthropic streams omit them
+	// in message_delta, but gateways that report the final cache totals there
+	// may legitimately report zero after a non-zero message_start; treating
+	// both as the zero value would keep the stale message_start count.
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
+	OutputTokens             int  `json:"output_tokens"`
+}
+
+func intOrZero(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 type anthropicEvent struct {
@@ -529,12 +541,14 @@ streamLoop:
 				}
 				// Cache counts in message_delta are final cumulative values, not
 				// increments. Assign (never add) so a cache count also present in
-				// message_start is not counted twice.
-				if event.Usage.CacheReadInputTokens > 0 {
-					usage.CachedTokens = event.Usage.CacheReadInputTokens
+				// message_start is not counted twice. A nil pointer means the field
+				// was omitted (keep message_start's value); a present zero is the
+				// authoritative final count and must clear any stale value.
+				if event.Usage.CacheReadInputTokens != nil {
+					usage.CachedTokens = *event.Usage.CacheReadInputTokens
 				}
-				if event.Usage.CacheCreationInputTokens > 0 {
-					usage.CacheWriteTokens = event.Usage.CacheCreationInputTokens
+				if event.Usage.CacheCreationInputTokens != nil {
+					usage.CacheWriteTokens = *event.Usage.CacheCreationInputTokens
 				}
 				// PromptTokens is the full prompt cost (fresh + cached). Rebuild it
 				// from message_start's bare input plus the authoritative delta cache
@@ -602,11 +616,13 @@ streamLoop:
 }
 
 func anthropicPromptUsage(usage *anthropicUsage) *Usage {
+	read := intOrZero(usage.CacheReadInputTokens)
+	write := intOrZero(usage.CacheCreationInputTokens)
 	return &Usage{
-		PromptTokens:     usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens,
+		PromptTokens:     usage.InputTokens + write + read,
 		CompletionTokens: usage.OutputTokens,
-		CachedTokens:     usage.CacheReadInputTokens,
-		CacheWriteTokens: usage.CacheCreationInputTokens,
+		CachedTokens:     read,
+		CacheWriteTokens: write,
 	}
 }
 

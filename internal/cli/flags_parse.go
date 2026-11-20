@@ -97,7 +97,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		Serve:       *values.serve,
 		RPC:         *values.rpc,
 		ACP:         *values.acp,
-		Help:        hasHelpFlag(before),
+		Help:        *values.help || hasHelpFlag(before),
 		Version:     *values.version,
 		MaxTurns:    *values.maxTurns,
 		MaxParallel: maxParallel,
@@ -324,11 +324,35 @@ func splitTerminator(args []string) (before, after []string) {
 	return args, nil
 }
 
+// hasHelpFlag recognises every spelling the flag package accepts for the two
+// help switches: one or two leading dashes and an optional truthy =value
+// (-h, --h, -help, --help, -h=true, --help=1, ...). The original check only
+// matched the exact "-h"/"--help" tokens, so the other spellings were parsed
+// into values.help but then discarded when Options.Help was recomputed from
+// this narrow check, dropping the user's help request. A false value is not a
+// request for help and an unknown switch is never treated as one.
 func hasHelpFlag(args []string) bool {
 	for _, arg := range args {
-		if arg == "-h" || arg == "--help" {
-			return true
+		name, value, hasValue := strings.Cut(arg, "=")
+		dashes := 0
+		for dashes < len(name) && name[dashes] == '-' {
+			dashes++
 		}
+		if dashes == 0 || dashes > 2 {
+			continue
+		}
+		switch name[dashes:] {
+		case "h", "help":
+		default:
+			continue
+		}
+		if hasValue {
+			enabled, err := strconv.ParseBool(value)
+			if err != nil || !enabled {
+				continue
+			}
+		}
+		return true
 	}
 	return false
 }

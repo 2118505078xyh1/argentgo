@@ -91,7 +91,7 @@ func (m *Model) paintPanels(buf *Buffer, l layout) {
 	}
 	border := m.palette.border()
 	for y := l.bodyTop; y < l.bodyTop+l.bodyH && y < buf.Height(); y++ {
-		buf.Set(l.panelX-1, y, '│', border)
+		buf.Set(l.panelX-1, y, "│", border)
 	}
 	for _, section := range m.panelSections(l) {
 		for i, line := range section.lines {

@@ -282,7 +282,7 @@ func (c *conPty) Resize(size Size) error {
 	console := c.console
 	closed := c.closed
 	c.mu.Unlock()
-	if closed {
+	if closed || console == 0 {
 		return errors.New("pty: terminal is closed")
 	}
 	window := coordOf(size)
@@ -336,7 +336,26 @@ func (c *conPty) Wait() (int, error) {
 	c.reaped = true
 	c.exitCode = int(code)
 	c.mu.Unlock()
+	// ConPTY keeps the output pipe open for as long as the HPCON lives, even
+	// after the child is gone. Release it here so a reader that is draining
+	// output observes EOF instead of blocking until somebody calls Close.
+	// Buffered bytes remain readable: closing the console closes only the
+	// console's end of the pipe, it does not discard queued output.
+	c.closeConsole()
 	return int(code), nil
+}
+
+// closeConsole releases the HPCON at most once. It is safe to call from both
+// Wait (when the child exits) and Close (on explicit teardown), in either order.
+func (c *conPty) closeConsole() {
+	c.mu.Lock()
+	console := c.console
+	c.console = 0
+	c.mu.Unlock()
+	if console != 0 {
+		// Blocks until conhost is gone; after the child exits that is quick.
+		procClosePseudoConsole.Call(uintptr(console))
+	}
 }
 
 func (c *conPty) Exited() bool {
@@ -383,7 +402,6 @@ func (c *conPty) Close() error {
 	}
 	c.closed = true
 	process := c.process
-	console := c.console
 	reaped := c.reaped
 	c.mu.Unlock()
 
@@ -409,11 +427,7 @@ func (c *conPty) Close() error {
 	if c.stdout != nil {
 		_ = c.stdout.Close()
 	}
-	if console != 0 {
-		// Blocks until conhost is gone; after TerminateProcess that is quick.
-		// ClosePseudoConsole releases the HPCON itself.
-		procClosePseudoConsole.Call(uintptr(console))
-	}
+	c.closeConsole()
 	if process != 0 {
 		// Publish the closed handle under the same lock Wait uses to duplicate
 		// it. Otherwise Wait could observe the still-nonzero handle in the

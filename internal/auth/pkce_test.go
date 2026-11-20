@@ -311,6 +311,58 @@ func TestCallbackChecksStateAndReturnsTheCode(t *testing.T) {
 	}
 }
 
+// TestCallbackRejectsRedirectWithoutCode guards the callback's success path: a
+// redirect that carries the expected state but no code and no error must be
+// reported as a failure, never as a successful login with an empty code.
+func TestCallbackRejectsRedirectWithoutCode(t *testing.T) {
+	cases := []struct {
+		name  string
+		query string
+	}{
+		{name: "state only", query: "?state=state-1"},
+		{name: "empty code", query: "?state=state-1&code="},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			callback, err := Listen("127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("Listen: %v", err)
+			}
+			defer callback.Close()
+
+			type outcome struct {
+				code string
+				err  error
+			}
+			results := make(chan outcome, 1)
+			go func() {
+				code, err := callback.Wait(context.Background(), "state-1")
+				results <- outcome{code, err}
+			}()
+
+			response, err := http.Get(callback.URL() + test.query)
+			if err != nil {
+				t.Fatalf("callback request: %v", err)
+			}
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			if response.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", response.StatusCode)
+			}
+			if strings.Contains(string(body), "Authorization complete") {
+				t.Fatalf("callback falsely reported success: %s", body)
+			}
+			got := <-results
+			if !errors.Is(got.err, ErrNoAuthorizationCode) {
+				t.Fatalf("Wait error = %v, want ErrNoAuthorizationCode", got.err)
+			}
+			if got.code != "" {
+				t.Fatalf("Wait code = %q, want empty", got.code)
+			}
+		})
+	}
+}
+
 func TestCallbackHonoursContextCancellation(t *testing.T) {
 	callback, err := Listen("127.0.0.1:0")
 	if err != nil {

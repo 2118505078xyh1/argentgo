@@ -181,6 +181,30 @@ func callRun(ctx context.Context, run RunFunc, scenario Scenario, workspace Work
 	return run(ctx, scenario, workspace)
 }
 
+// workspacePath resolves a fixture-declared path inside the scratch workspace.
+//
+// Scenario file paths are documented as relative to the workspace, and the
+// harness promises that its I/O stays inside the disposable directory that
+// runOne removes afterwards. A ".." or absolute path would otherwise escape
+// (on Windows filepath.Join turns "../x" into the parent of dir), write or
+// check a file outside the scratch dir and leak it past RemoveAll. Reject
+// those paths instead of silently breaching the boundary.
+func workspacePath(dir, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("fixture path is empty")
+	}
+	rel := filepath.FromSlash(name)
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("fixture path %q is absolute", name)
+	}
+	target := filepath.Join(dir, rel)
+	inside, err := filepath.Rel(dir, target)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("fixture path %q escapes the workspace", name)
+	}
+	return target, nil
+}
+
 // seed writes the scenario's starting files into the workspace.
 func seed(dir string, files map[string]string) error {
 	paths := make([]string, 0, len(files))
@@ -189,7 +213,10 @@ func seed(dir string, files map[string]string) error {
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
-		target := filepath.Join(dir, filepath.FromSlash(path))
+		target, err := workspacePath(dir, path)
+		if err != nil {
+			return fmt.Errorf("seed %q: %w", path, err)
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("seed %q: %w", path, err)
 		}
@@ -265,7 +292,10 @@ func execFailureReason(res ExecResult, c ExecCheck) string {
 // checkWorkspace verifies the seeded workspace after the run.
 func checkWorkspace(check Check, dir string) string {
 	for _, path := range check.FilesExist {
-		target := filepath.Join(dir, filepath.FromSlash(path))
+		target, err := workspacePath(dir, path)
+		if err != nil {
+			return err.Error()
+		}
 		info, err := os.Stat(target)
 		if err != nil {
 			return fmt.Sprintf("file %q does not exist after the run", path)
@@ -280,8 +310,11 @@ func checkWorkspace(check Check, dir string) string {
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
+		target, err := workspacePath(dir, path)
+		if err != nil {
+			return err.Error()
+		}
 		needle := check.FileContains[path]
-		target := filepath.Join(dir, filepath.FromSlash(path))
 		data, err := os.ReadFile(target)
 		if err != nil {
 			return fmt.Sprintf("cannot read %q after the run: %v", path, err)

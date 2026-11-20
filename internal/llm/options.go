@@ -30,6 +30,25 @@ func EphemeralCacheControl() *CacheControl {
 	return &CacheControl{Type: "ephemeral"}
 }
 
+// ThinkingConfig is the protocol-agnostic reasoning control carried by
+// Options. It is a pure data carrier: no wire client reads it yet, so leaving
+// Options.Thinking nil keeps every request byte-for-byte identical to earlier
+// builds. The three fields cover the three kinds of knob vendors expose:
+//   - Effort is a named level ("low"/"medium"/"high" or a CJK equivalent),
+//     mapped to reasoning_effort / reasoning.effort by OpenAI-style protocols.
+//   - BudgetTokens is an explicit thinking-token budget, mapped to Anthropic's
+//     extended-thinking budget_tokens.
+//   - Enabled is a plain boolean for vendors with only an on/off switch.
+//
+// A zero field means "no override for this knob"; it is the caller's job
+// (currently internal/provider.ResolveThinking) to pick the fields a given
+// protocol understands before this value reaches a wire client.
+type ThinkingConfig struct {
+	Effort       string `json:"effort,omitempty"`
+	BudgetTokens int64  `json:"budget_tokens,omitempty"`
+	Enabled      *bool  `json:"enabled,omitempty"`
+}
+
 // Options are the wire-level knobs shared by every protocol client. The zero
 // value keeps the historical wire format and auto-detects cache support from
 // the protocol and endpoint.
@@ -54,6 +73,10 @@ type Options struct {
 	// on Anthropic Messages. It is off by default so the bytes sent upstream —
 	// and every existing wire-format test — stay exactly as before.
 	PreserveReasoning bool
+	// Thinking carries the normalized reasoning control for a future wire
+	// client wiring step. It is nil by default and no wire client serializes it
+	// yet, so adding this field cannot change any existing request bytes.
+	Thinking *ThinkingConfig `json:"thinking,omitempty"`
 	// AttemptHook receives redacted attempt records for the session layer.
 	AttemptHook func(AttemptRecord)
 }

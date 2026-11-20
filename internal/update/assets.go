@@ -120,7 +120,18 @@ func normalizeName(name string) string {
 // "x86_64" counts as amd64 and not as 386.
 func classify(name, target string, table map[string][]string) (matched, foreign bool) {
 	if _, known := table[target]; !known {
-		return mentions(name, []string{target}), false
+		// An unrecognised target has no aliases in the table, but a name that
+		// mentions a *known* platform still names a different one. Treating that
+		// as "no platform named" would let FindAsset fall back to, say, an amd64
+		// build for a riscv64 machine. An explicit mention of the target wins;
+		// otherwise any known alias makes the asset foreign.
+		if mentions(name, []string{target}) {
+			return true, false
+		}
+		if _, mentioned := longestAlias(name, table); mentioned {
+			return false, true
+		}
+		return false, false
 	}
 	key, ok := longestAlias(name, table)
 	if !ok {

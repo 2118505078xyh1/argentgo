@@ -251,6 +251,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(res.MaxSeconds)*time.Second)
 		defer cancel()
 	}
+	// Opt-in artifact spilling for oversized tool outputs. With no opt-in this
+	// returns ctx unchanged, so the tools package keeps the ordinary clipTo path
+	// and every existing run stays byte-identical. The derived ctx reaches every
+	// tool via the agent loop's callTool(ctx, ...).
+	ctx = configureOutputSpill(ctx, stdio.Env, res.Storage)
 
 	bridge := newHookBridge(res, sess.ID(), stdio.Err)
 	bridge.start(ctx, prompt)

@@ -118,6 +118,25 @@ func TestDiagnoseAssetMatchAgreesWithFindAsset(t *testing.T) {
 	}
 }
 
+// TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget keeps the diagnostic
+// in step with FindAsset when the target architecture is not in archAliases.
+func TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget(t *testing.T) {
+	assets := []Asset{
+		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "amd64"},
+		{Name: "argent_1.2.3_linux_riscv64.tar.gz", URL: "riscv64"},
+	}
+	got := DiagnoseAssetMatch(assets, "linux", "riscv64")
+	if len(got) != 2 {
+		t.Fatalf("got %d diagnoses, want 2", len(got))
+	}
+	if got[0].Eligible || got[0].Reason != AssetMatchReasonWrongArch || !got[0].ForeignArch {
+		t.Fatalf("amd64 asset diagnosis = %+v, want a foreign-arch rejection", got[0])
+	}
+	if !got[1].Eligible || !got[1].Selected || got[1].Reason != AssetMatchReasonSelected {
+		t.Fatalf("riscv64 asset diagnosis = %+v, want it selected", got[1])
+	}
+}
+
 func TestDiagnoseAssetMatchIsPure(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "u"},

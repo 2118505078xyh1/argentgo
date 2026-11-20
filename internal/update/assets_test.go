@@ -147,3 +147,27 @@ func TestFindAssetDefaultsToTheRunningPlatform(t *testing.T) {
 		t.Fatalf("no asset matched %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 }
+
+// TestFindAssetRejectsForeignArchForUnknownTarget covers a valid Go GOARCH that
+// is not in archAliases (for example riscv64). An asset that explicitly names a
+// different architecture must never be accepted as an OS-only fallback, or the
+// updater can install an amd64 binary on an unsupported machine.
+func TestFindAssetRejectsForeignArchForUnknownTarget(t *testing.T) {
+	amd64 := Asset{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "amd64"}
+	if _, found := FindAsset([]Asset{amd64}, "linux", "riscv64"); found {
+		t.Fatal("FindAsset selected an amd64 asset for an unknown riscv64 target")
+	}
+
+	riscv := Asset{Name: "argent_1.2.3_linux_riscv64.tar.gz", URL: "riscv64"}
+	asset, found := FindAsset([]Asset{amd64, riscv}, "linux", "riscv64")
+	if !found || asset.URL != "riscv64" {
+		t.Fatalf("FindAsset = %+v, %v; want the riscv64 asset", asset, found)
+	}
+
+	// An asset with no architecture in its name remains a valid OS-only fallback.
+	generic := Asset{Name: "argent_1.2.3_linux.tar.gz", URL: "generic"}
+	asset, found = FindAsset([]Asset{generic}, "linux", "riscv64")
+	if !found || asset.URL != "generic" {
+		t.Fatalf("FindAsset = %+v, %v; want the OS-only fallback", asset, found)
+	}
+}

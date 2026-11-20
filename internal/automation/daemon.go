@@ -133,6 +133,14 @@ func (d *daemon) scan(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	// The task list is a shared JSON file. A separate `automation run` process
+	// may have handled a slot and advanced NextDue since our last scan. Refresh
+	// first so a stale in-memory view cannot fire that slot a second time. If
+	// the file cannot be read, wait for the next tick rather than act on stale
+	// data that might duplicate a run.
+	if err := d.store.Reload(); err != nil {
+		return
+	}
 	now := d.now()
 	for _, spec := range d.store.List() {
 		if !spec.IsDue(now) {

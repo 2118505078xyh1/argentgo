@@ -113,6 +113,42 @@ func TestSubstituteWarnsMissingReferences(t *testing.T) {
 	}
 }
 
+// When a backslash in one env value forces Substitute's escaped retry, the
+// retry must not re-emit warnings already reported by the verbatim pass. A
+// missing reference is reported once per load, not once per substitution pass.
+func TestSubstituteWarnsOnceWhenEscapedFallbackRuns(t *testing.T) {
+	env := envFunc(map[string]string{"WINPATH": `C:\temp`})
+	var warnings []string
+	warn := func(format string, args ...any) { warnings = append(warnings, format) }
+
+	input := `{"path":"{env:WINPATH}","missingEnv":"{env:ABSENT}","missingFile":"{file:absent.txt}"}`
+	got := Substitute(input, t.TempDir(), env, warn)
+
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("substituted JSON %q is invalid: %v", got, err)
+	}
+	if decoded["path"] != `C:\temp` {
+		t.Errorf("path = %q, want %q", decoded["path"], `C:\temp`)
+	}
+
+	const envFormat = "config: environment variable %q referenced in config is not set"
+	const fileFormat = "config: file reference %q (%s) could not be read: %v"
+	var envWarnings, fileWarnings int
+	for _, message := range warnings {
+		switch message {
+		case envFormat:
+			envWarnings++
+		case fileFormat:
+			fileWarnings++
+		}
+	}
+	if envWarnings != 1 || fileWarnings != 1 {
+		t.Fatalf("warnings = %v, want exactly one env and one file warning (got %d env, %d file)",
+			warnings, envWarnings, fileWarnings)
+	}
+}
+
 func TestSubstituteLeavesFileReferenceInCommentAlone(t *testing.T) {
 	input := "// {file:missing.txt}\n" + `{"a":"{file:missing.txt}"}`
 	var warnings []string

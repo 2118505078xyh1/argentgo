@@ -718,6 +718,77 @@ func TestFireFileChangedDispatchesPath(t *testing.T) {
 	}
 }
 
+func TestFireFileChangedMatchesHooksByPath(t *testing.T) {
+	// FileChanged matchers describe the affected file ("*.go"), but the
+	// convenience wrapper only fills Payload.Path. Matching must look there.
+	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
+		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
+		{"matcher":"*.md","hooks":[{"command":"md-hook"}]},
+		{"hooks":[{"command":"any-hook"}]}
+	]}}`))
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+
+	ran := make(chan string, 4)
+	dispatcher := &Dispatcher{
+		Runner: func(_ context.Context, command Command, payload Payload) Outcome {
+			ran <- command.Command
+			return Outcome{Event: command.Event, Command: command.Command, ExitCode: 0}
+		},
+	}
+	if _, err := dispatcher.FireFileChanged(context.Background(), config, "internal/hooks/hooks.go"); err != nil {
+		t.Fatalf("fire: %v", err)
+	}
+	close(ran)
+
+	seen := make(map[string]bool)
+	for name := range ran {
+		seen[name] = true
+	}
+	if !seen["go-hook"] || !seen["any-hook"] {
+		t.Fatalf("matching FileChanged hooks did not run: %v", seen)
+	}
+	if seen["md-hook"] {
+		t.Fatalf("non-matching FileChanged hook ran: %v", seen)
+	}
+}
+
+func TestRunFileChangedMatcherUsesPathNotTool(t *testing.T) {
+	// The path is the documented match value for FileChanged. Even when a
+	// caller also supplies a Tool, a matcher must be tested against the path.
+	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
+		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
+		{"matcher":"write","hooks":[{"command":"tool-hook"}]}
+	]}}`))
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+
+	ran := make(chan string, 4)
+	dispatcher := &Dispatcher{
+		Runner: func(_ context.Context, command Command, payload Payload) Outcome {
+			ran <- command.Command
+			return Outcome{Event: command.Event, Command: command.Command, ExitCode: 0}
+		},
+	}
+	_, err = dispatcher.Run(context.Background(), config, Payload{
+		Event: "FileChanged", Tool: "write", Path: "notes.md",
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	close(ran)
+
+	var got []string
+	for name := range ran {
+		got = append(got, name)
+	}
+	if len(got) != 0 {
+		t.Fatalf("no hook should match path notes.md, got %v", got)
+	}
+}
+
 func TestPlanRunGroupsByPriority(t *testing.T) {
 	// planRun receives commands already sorted by descending priority, as Run
 	// guarantees after its stable sort.

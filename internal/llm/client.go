@@ -569,12 +569,21 @@ streamLoop:
 			return Message{}, streamError("provider error: %s", RedactText(event.Error.Message))
 		}
 		if event.Usage != nil {
-			usage = &Usage{
+			next := &Usage{
 				PromptTokens:     event.Usage.PromptTokens,
 				CompletionTokens: event.Usage.CompletionTokens,
 			}
 			if details := event.Usage.PromptTokensDetails; details != nil {
-				usage.CachedTokens = details.CachedTokens
+				next.CachedTokens = details.CachedTokens
+			}
+			// Usage is normally reported once, in the final chunk before
+			// [DONE]. Some gateways append an empty usage object as a
+			// terminator, or emit an all-zero snapshot before the real one.
+			// Replacing on every chunk would let such a trailing empty object
+			// erase totals already received, corrupting budget accounting.
+			// Adopt a chunk with data, or the first (empty) one if none yet.
+			if usage == nil || next.PromptTokens > 0 || next.CompletionTokens > 0 || next.CachedTokens > 0 {
+				usage = next
 			}
 		}
 		for _, choice := range event.Choices {

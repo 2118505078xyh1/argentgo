@@ -6,11 +6,14 @@ import (
 	"strings"
 )
 
-// Cell is one terminal cell. R is 0 for the second half of a wide rune, which
-// the renderer skips because the terminal already advanced two columns.
+// Cell is one terminal cell. Text holds the exact bytes painted at that cell.
+// For a wide grapheme cluster the first cell carries the whole cluster (so a
+// ZWJ emoji, a flag or a combining sequence reaches the terminal intact) and
+// the second cell has an empty Text, which the renderer skips because the
+// terminal already advanced two columns.
 type Cell struct {
-	R rune
-	S Style
+	Text string
+	S    Style
 }
 
 // Buffer is a grid of cells that remembers the last flushed frame so Flush
@@ -62,44 +65,50 @@ func (b *Buffer) Resize(w, h int) {
 // Clear fills the buffer with blank cells.
 func (b *Buffer) Clear() {
 	for i := range b.cells {
-		b.cells[i] = Cell{R: ' '}
+		b.cells[i] = Cell{Text: " "}
 	}
 }
 
-// Set writes one rune at (x, y), reserving the following cell when the rune is
-// double width.
-func (b *Buffer) Set(x, y int, r rune, style Style) {
+// Set writes one grapheme cluster at (x, y), reserving the following cell when
+// the cluster is double width. text must be exactly one cluster as returned by
+// nextGrapheme; callers normally go through WriteString.
+func (b *Buffer) Set(x, y int, text string, style Style) {
 	if x < 0 || y < 0 || y >= b.h || x >= b.w {
 		return
 	}
-	width := RuneWidth(r)
+	width := TextWidth(text)
 	if width == 0 {
 		return
 	}
 	if x+width > b.w {
-		b.cells[y*b.w+x] = Cell{R: ' ', S: style}
+		b.cells[y*b.w+x] = Cell{Text: " ", S: style}
 		return
 	}
-	b.cells[y*b.w+x] = Cell{R: r, S: style}
+	b.cells[y*b.w+x] = Cell{Text: text, S: style}
 	for i := 1; i < width; i++ {
-		b.cells[y*b.w+x+i] = Cell{R: 0, S: style}
+		b.cells[y*b.w+x+i] = Cell{Text: "", S: style}
 	}
 }
 
 // WriteString writes text at (x, y), clipped to max cells, and returns the
-// number of cells used.
+// number of cells used. It walks grapheme clusters (the same authority as
+// TextWidth/Wrap/Clip) so a ZWJ emoji or a flag is painted as one glyph and
+// occupies the same number of cells the layout code reserved for it. Iterating
+// per rune here would drop the ZWJ and overcount the cluster's width.
 func (b *Buffer) WriteString(x, y, max int, text string, style Style) int {
 	used := 0
-	for _, r := range text {
-		width := RuneWidth(r)
+	for pos := 0; pos < len(text); {
+		next, width := nextGrapheme(text, pos)
 		if width == 0 {
+			pos = next
 			continue
 		}
 		if used+width > max {
 			break
 		}
-		b.Set(x+used, y, r, style)
+		b.Set(x+used, y, text[pos:next], style)
 		used += width
+		pos = next
 	}
 	return used
 }
@@ -114,10 +123,10 @@ func (b *Buffer) RowText(y int) string {
 	var out strings.Builder
 	for x := 0; x < b.w; x++ {
 		cell := b.cells[y*b.w+x]
-		if cell.R == 0 {
+		if cell.Text == "" {
 			continue
 		}
-		out.WriteRune(cell.R)
+		out.WriteString(cell.Text)
 	}
 	return strings.TrimRight(out.String(), " ")
 }
@@ -189,7 +198,7 @@ func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 	end := len(row)
 	for end > 0 {
 		cell := row[end-1]
-		if cell.S == (Style{}) && (cell.R == ' ' || cell.R == 0) {
+		if cell.S == (Style{}) && (cell.Text == " " || cell.Text == "") {
 			end--
 			continue
 		}
@@ -198,8 +207,8 @@ func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 	if noColor {
 		// Not even a reset: the operator asked for zero SGR colour sequences.
 		for _, cell := range row[:end] {
-			if cell.R != 0 {
-				out.WriteRune(cell.R)
+			if cell.Text != "" {
+				out.WriteString(cell.Text)
 			}
 		}
 		out.WriteString("\x1b[K")
@@ -207,7 +216,7 @@ func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 	}
 	var current Style
 	for _, cell := range row[:end] {
-		if cell.R == 0 {
+		if cell.Text == "" {
 			continue
 		}
 		if cell.S != current {
@@ -215,7 +224,7 @@ func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 			out.WriteString(cell.S.SGR())
 			current = cell.S
 		}
-		out.WriteRune(cell.R)
+		out.WriteString(cell.Text)
 	}
 	out.WriteString("\x1b[0m\x1b[K")
 }
