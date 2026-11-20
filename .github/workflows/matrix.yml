@@ -1,0 +1,112 @@
+name: matrix
+
+# Cross-platform validation that complements the two existing workflows:
+#
+#   ci.yml      push / pull_request : gofmt, vet, test, build and a race gate on
+#                                     the shipped Windows target.
+#   release.yml tag (v*)            : hardened release packaging, gated by its
+#                                     own verification + race jobs.
+#   matrix.yml  pull_request / manual: objective proof of the no-cgo promise,
+#                                     the unit suite without cgo, the race gate
+#                                     on Linux, and the architecture guard.
+#
+# Deliberately NOT tag-triggered: release.yml owns tags, and rerunning this
+# matrix on a tag would consume runner minutes without adding a new gate.
+# Test-only workflow: nothing is published and no authentication is used.
+# Least privilege: every job may read the repository, nothing else.
+
+# Quoted so YAML 1.1 tooling (e.g. PyYAML) does not coerce `on` to boolean true.
+'on':
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The AGENTS.md rule "everything must cross-compile with CGO_ENABLED=0" is
+  # asserted here for every supported OS/arch, not just one spot-check target.
+  # Building `./...` includes native/, so an accidental cgo dependency or a
+  # platform-specific import fails the matrix loudly. No artifacts are emitted:
+  # the build succeeding IS the proof.
+  crossbuild:
+    name: crossbuild (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod # same pinned version ci.yml / release.yml use
+          cache: true
+      - name: build (CGO_ENABLED=0, ${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
+
+  # Unit tests must not require a C toolchain. Running with cgo disabled on a
+  # stock Linux runner proves that and gives a portable signal independent of
+  # the Windows job in ci.yml.
+  unit:
+    name: unit (ubuntu-latest, no cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go test (CGO_ENABLED=0)
+        env:
+          CGO_ENABLED: '0'
+        run: go test ./...
+
+  # Race gate mirrors ci.yml's race job: the detector needs cgo + gcc, which
+  # Linux runners provide. internal/pty tests need a real controlling terminal
+  # (ConPTY semantics) and cannot run on a runner, so only that package is
+  # excluded; the Windows ci.yml job still exercises it.
+  race:
+    name: race (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go test -race
+        env:
+          CGO_ENABLED: '1'
+        # Generous but bounded timeout so a hung test eventually fails instead
+        # of blocking the job. Command shape matches ci.yml's race gate.
+        run: go test -race -timeout 20m $(go list ./... | grep -v '/internal/pty$')
+
+  # AGENTS.md dependency rules are encoded as a test: stdlib-only core, no
+  # forbidden imports, no new modules. -count=1 bypasses the Go test cache so
+  # this invariant is actually evaluated on every pull request.
+  archguard:
+    name: archguard (dependency guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: architecture guard
+        run: go test ./internal/archguard -count=1

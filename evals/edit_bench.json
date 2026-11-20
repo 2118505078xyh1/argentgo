@@ -1,0 +1,197 @@
+{
+  "cases": [
+    {
+      "id": "exact-unique-success",
+      "name": "exact: unique literal match is replaced",
+      "mode": "exact",
+      "original": "hello world\n",
+      "old": "world",
+      "new": "Go",
+      "want_result": "hello Go"
+    },
+    {
+      "id": "exact-zero-match",
+      "name": "exact: missing literal is rejected",
+      "mode": "exact",
+      "original": "hello world\n",
+      "old": "missing",
+      "new": "x",
+      "want_err_contains": "not found"
+    },
+    {
+      "id": "exact-multi-match",
+      "name": "exact: duplicate literal is rejected as non-unique",
+      "mode": "exact",
+      "original": "foo foo\n",
+      "old": "foo",
+      "new": "bar",
+      "want_err_contains": "not unique"
+    },
+    {
+      "id": "exact-utf8-success",
+      "name": "exact: UTF-8 replacement succeeds",
+      "mode": "exact",
+      "original": "你好，世界\n",
+      "old": "世界",
+      "new": "Gopher",
+      "want_result": "你好，Gopher"
+    },
+    {
+      "id": "exact-cjk-multimatch",
+      "name": "exact: repeated CJK token is rejected as non-unique",
+      "mode": "exact",
+      "original": "函数 函数\n",
+      "old": "函数",
+      "new": "方法",
+      "want_err_contains": "not unique"
+    },
+    {
+      "id": "repair-indent-drift",
+      "name": "repair: whole-block indentation drift is repaired",
+      "mode": "repair",
+      "original": "    func f() {\n    return 1\n    }\n",
+      "old": "func f() {\nreturn 1\n}\n",
+      "new": "func f() {\nreturn 2\n}\n",
+      "want_result": "return 2"
+    },
+    {
+      "id": "repair-blank-line-leading",
+      "name": "repair: spurious leading blank line is dropped",
+      "mode": "repair",
+      "original": "alpha\nbeta\n",
+      "old": "\nalpha\nbeta\n",
+      "new": "\nalpha\nGAMMA\nbeta\n",
+      "want_result": "alpha\nGAMMA\nbeta\n"
+    },
+    {
+      "id": "repair-blank-line-trailing",
+      "name": "repair: spurious trailing blank line is dropped",
+      "mode": "repair",
+      "original": "alpha\nbeta\n",
+      "old": "alpha\nbeta\n\n",
+      "new": "alpha\nGAMMA\n\n",
+      "want_result": "alpha\nGAMMA\n"
+    },
+    {
+      "id": "repair-elision-success",
+      "name": "repair: ellipsis elision preserves the untouched middle",
+      "mode": "repair",
+      "original": "start\nline1\nline2\nline3\nend\n",
+      "old": "start\n...\nend\n",
+      "new": "start\n...\nEND\n",
+      "want_result": "line1\nline2\nline3\nEND\n"
+    },
+    {
+      "id": "repair-elision-ambiguous",
+      "name": "repair: elision with a non-unique anchor is refused",
+      "mode": "repair",
+      "original": "foo\nx\nbar\nfoo\ny\nbar\n",
+      "old": "foo\n...\nbar\n",
+      "new": "one\n...\ntwo\n",
+      "want_err_contains": "repair failed"
+    },
+    {
+      "id": "repair-ambiguous-dual-indent-blocks",
+      "name": "repair: two equally matching indented blocks are refused",
+      "mode": "repair",
+      "original": "    block {\n    value = 1\n    }\n\n    block {\n    value = 1\n    }\n",
+      "old": "block {\nvalue = 1\n}\n",
+      "new": "block {\nvalue = 2\n}\n",
+      "want_err_contains": "repair failed"
+    },
+    {
+      "id": "repair-cjk-indent",
+      "name": "repair: CJK block indentation drift is repaired",
+      "mode": "repair",
+      "original": "    func 你好() {\n    返回 1\n    }\n",
+      "old": "func 你好() {\n返回 1\n}\n",
+      "new": "func 你好() {\n返回 2\n}\n",
+      "want_result": "返回 2"
+    },
+    {
+      "id": "repair-cjk-elision",
+      "name": "repair: CJK elision preserves the untouched middle",
+      "mode": "repair",
+      "original": "开始\n第一步\n第二步\n结束\n",
+      "old": "开始\n...\n结束\n",
+      "new": "开始\n...\n完成\n",
+      "want_result": "完成"
+    },
+    {
+      "id": "hashline-correct-success",
+      "name": "hashline: correct anchor and hash apply the edit",
+      "mode": "hashline",
+      "original": "const x = 1;\n",
+      "anchor": "const x = 1;",
+      "new": "const x = 2;",
+      "want_result": "const x = 2;"
+    },
+    {
+      "id": "hashline-wrong-hash-rejected",
+      "name": "hashline: deliberately stale hash is rejected",
+      "mode": "hashline",
+      "original": "const x = 1;\n",
+      "anchor": "const x = 1;",
+      "anchor_hash": "000000000000",
+      "new": "const x = 2;",
+      "want_err_contains": "stale anchor"
+    },
+    {
+      "id": "hashline-shifted-anchor-recovery",
+      "name": "hashline: lines inserted above the anchor do not break it",
+      "mode": "hashline",
+      "original": "line0\nconst x = 1;\n",
+      "anchor": "const x = 1;",
+      "shift_lines": "// inserted\n// inserted2\n",
+      "new": "const x = 2;",
+      "want_result": "// inserted2\nconst x = 2;"
+    },
+    {
+      "id": "hashline-anchor-changed-stale",
+      "name": "hashline: genuinely changed anchor fails after repair ladder",
+      "mode": "hashline",
+      "original": "const x = 99;\n",
+      "anchor": "const x = 1;",
+      "new": "const x = 2;",
+      "want_err_contains": "no longer present"
+    },
+    {
+      "id": "hashline-non-unique-anchor",
+      "name": "hashline: non-unique anchor is rejected",
+      "mode": "hashline",
+      "original": "const x = 1;\nconst x = 1;\n",
+      "anchor": "const x = 1;",
+      "new": "const x = 2;",
+      "want_err_contains": "not unique"
+    },
+    {
+      "id": "hashline-cjk-success",
+      "name": "hashline: UTF-8 anchor and hash apply the edit",
+      "mode": "hashline",
+      "original": "设置 值 = 1;\n",
+      "anchor": "设置 值 = 1;",
+      "new": "设置 值 = 2;",
+      "want_result": "设置 值 = 2;"
+    },
+    {
+      "id": "hashline-cjk-shift-recovery",
+      "name": "hashline: CJK anchor survives inserted lines",
+      "mode": "hashline",
+      "original": "标题\n设置 值 = 1;\n",
+      "anchor": "设置 值 = 1;",
+      "shift_lines": "// 插入\n",
+      "new": "设置 值 = 2;",
+      "want_result": "// 插入\n设置 值 = 2;"
+    },
+    {
+      "id": "hashline-wrong-hash-cjk",
+      "name": "hashline: stale hash is rejected for a UTF-8 anchor",
+      "mode": "hashline",
+      "original": "中文锚点\n",
+      "anchor": "中文锚点",
+      "anchor_hash": "deadbeefdead",
+      "new": "新文本",
+      "want_err_contains": "stale anchor"
+    }
+  ]
+}
