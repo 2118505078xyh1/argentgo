@@ -60,7 +60,6 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
 	path, argv := shellInvocation(args.Command)
-	reportBackground(ctx, args.Command, args.BackgroundAfterMS)
 
 	// Promotion is opt-in and needs somewhere to record the job. Without a
 	// registry (or the argument), keep the original hard-kill behaviour.

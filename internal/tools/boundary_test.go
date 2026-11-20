@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
@@ -85,35 +84,6 @@ func TestMultiEditAcceptsOldTextNewTextAliases(t *testing.T) {
 type recordingGuard struct{ err error }
 
 func (g recordingGuard) Check(context.Context, string, json.RawMessage) error { return g.err }
-
-func TestBackgroundAfterMSReportsWiringStatus(t *testing.T) {
-	root := t.TempDir()
-	registry := tools.New(root, true)
-	var reports []tools.BackgroundReport
-	registry.SetBackgroundReporter(func(r tools.BackgroundReport) { reports = append(reports, r) })
-
-	_, _ = registry.Run(context.Background(), "bash", `{"command":"echo quick"}`)
-	if len(reports) != 0 {
-		t.Fatalf("reported a call without background_after_ms: %+v", reports)
-	}
-	_, _ = registry.Run(context.Background(), "bash", `{"command":"echo quick","background_after_ms":25}`)
-	if len(reports) != 1 {
-		t.Fatalf("reports = %+v", reports)
-	}
-	if reports[0].RequestedMS != 25 || reports[0].JobsAvailable || reports[0].Status != "unavailable" {
-		t.Fatalf("report = %+v", reports[0])
-	}
-
-	jobRegistry, err := jobs.New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry.SetJobs(jobRegistry)
-	_, _ = registry.Run(context.Background(), "bash", `{"command":"echo quick","background_after_ms":25}`)
-	if len(reports) != 2 || !reports[1].JobsAvailable || reports[1].Status != "enabled" {
-		t.Fatalf("enabled report = %+v", reports)
-	}
-}
 
 func TestToolSearchRanksNameMatchesBeforeDescriptionMatches(t *testing.T) {
 	registry := tools.New(t.TempDir(), true)

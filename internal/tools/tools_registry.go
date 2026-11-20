@@ -175,7 +175,6 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if r.jobs != nil {
 		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
 	}
-	ctx = withBackgroundReporter(ctx, r.backgroundReporter)
 	return tool.Run(ctx, r.root, raw)
 }
 

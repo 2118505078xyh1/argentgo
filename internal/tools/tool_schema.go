@@ -41,8 +41,8 @@ const (
 //   - equal inputs always produce equal outputs (encoding/json sorts object
 //     keys and numbers are kept exact via json.Number).
 //
-// No call site is wired up yet. This is the projection primitive for the LLM
-// layer to apply when it builds a provider's tool definitions.
+// Wired up by the agent loop (internal/agent/loop.go), which projects each
+// tool's parameter schema before sending tool definitions to the provider.
 func ProjectToolSchema(schemaJSON string, compat ModelCompat) string {
 	if compat == CompatNone || !utf8.ValidString(schemaJSON) || !json.Valid([]byte(schemaJSON)) {
 		return schemaJSON

@@ -45,14 +45,13 @@ type Guard interface {
 
 // Registry owns the tool set and enforces the workspace boundary.
 type Registry struct {
-	root               string
-	yolo               bool
-	maxOutput          int
-	maxTimeout         time.Duration
-	sessionDir         string
-	jobs               *jobs.Registry
-	guard              Guard
-	backgroundReporter BackgroundReporter
-	tools              map[string]Tool
-	order              []string
+	root       string
+	yolo       bool
+	maxOutput  int
+	maxTimeout time.Duration
+	sessionDir string
+	jobs       *jobs.Registry
+	guard      Guard
+	tools      map[string]Tool
+	order      []string
 }
