@@ -58,6 +58,54 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			return sess, nil
 		}
 
+		// TurnAction hooks back the /undo, /retry and /name commands (and the
+		// Alt+U / Alt+R keys) with real session operations. Without them the TUI
+		// advertised those commands but only printed "host has not wired it".
+		// currentSession returns the live session, or an error before the first
+		// prompt creates one; the hooks share sessionFor's mutex so a concurrent
+		// prompt cannot race with checkpoint/fork/title writes.
+		currentSession := func() (*session.Session, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if current == nil {
+				return nil, fmt.Errorf("no active session yet")
+			}
+			return current, nil
+		}
+		undoTurn := func(context.Context, string) error {
+			sess, err := currentSession()
+			if err != nil {
+				return err
+			}
+			checkpoint, _, err := sess.LatestCheckpoint()
+			if err != nil {
+				return err
+			}
+			_, err = session.UndoCheckpoint(res.Root, checkpoint)
+			return err
+		}
+		retryTurn := func(_ context.Context, arg string) error {
+			sess, err := currentSession()
+			if err != nil {
+				return err
+			}
+			fork, err := session.Retry(store.Dir(), sess.ID(), arg)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			current = fork // subsequent prompts continue on the forked branch
+			mu.Unlock()
+			return nil
+		}
+		renameTurn := func(_ context.Context, title string) error {
+			sess, err := currentSession()
+			if err != nil {
+				return err
+			}
+			return sess.SetTitle(title)
+		}
+
 		frontendOpts := tui.Options{
 			Root:          res.Root,
 			Model:         res.Model,
@@ -65,6 +113,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			Sessions:      sessionTitles(store),
 			ContextWindow: res.Cfg.ContextWindow,
 			Events:        events.Events,
+			Undo:          undoTurn,
+			Retry:         retryTurn,
+			Rename:        renameTurn,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
 				turnCtx = withEventEmit(turnCtx, events.Emit)
 				sess, err := sessionFor(text)

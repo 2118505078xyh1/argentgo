@@ -28,8 +28,9 @@ var hostPrivateEnvPrefixes = []string{
 // Entries in extra are appended verbatim and are never filtered, so an explicit
 // per-call value always wins over anything inherited. Order is preserved.
 //
-// Other child-spawn sites in the tree (jobs, MCP, LSP, pty, hooks) can adopt
-// this primitive later; for now only proc.Run calls it.
+// Both spawn paths in this package (proc.Run and the detached path used by
+// RunWithTimeout/StartDetached) apply it. Other child-spawn sites in the tree
+// (jobs, MCP, LSP, pty, hooks) can adopt this primitive later.
 func SanitizeEnv(extra []string) []string {
 	parent := os.Environ()
 	out := make([]string, 0, len(parent)+len(extra))

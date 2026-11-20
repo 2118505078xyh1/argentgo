@@ -59,13 +59,41 @@ func TestStatusLineShortcuts(t *testing.T) {
 	if app.status != "已撤销上一轮" || !tt.HasText("已撤销上一轮") {
 		t.Errorf("undo status %q, texts %q", app.status, tt.Texts())
 	}
+	// Undo removes the whole turn, not just the trailing reply: no orphan user
+	// message may remain, and the approval card is cleared too.
+	if len(app.messages) != 0 || app.approval != nil {
+		t.Errorf("undo left %d messages, approval=%v", len(app.messages), app.approval)
+	}
 	// Undo removes the approval card, which sends focus back to the composer.
 	if err := tt.Click("文档"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(ui.Cmd, ui.KeyY)
-	if app.status != "已重试上一轮" || !tt.HasText("已重试上一轮") {
-		t.Errorf("retry status %q, texts %q", app.status, tt.Texts())
+	if len(app.messages) != 3 {
+		t.Errorf("retry left %d messages, want 3", len(app.messages))
+	}
+	if !tt.HasText("测试撤销与重试") {
+		t.Errorf("retry did not replay the prompt: %q", tt.Texts())
+	}
+}
+
+func TestNewSessionClearsRetryPrompt(t *testing.T) {
+	app := newTestChat()
+	tt := ui.NewTester(app.view, 1180, 720)
+	tt.Type("上一会话的问题")
+	if err := tt.Click("发送"); err != nil {
+		t.Fatal(err)
+	}
+	if app.lastPrompt != "上一会话的问题" {
+		t.Fatalf("lastPrompt = %q", app.lastPrompt)
+	}
+	app.newSession()
+	if app.lastPrompt != "" || len(app.messages) != 0 {
+		t.Fatalf("newSession left lastPrompt=%q messages=%d", app.lastPrompt, len(app.messages))
+	}
+	app.retry()
+	if len(app.messages) != 0 || app.status != "没有可重试的消息" {
+		t.Errorf("retry after newSession sent %d messages, status %q", len(app.messages), app.status)
 	}
 }
 

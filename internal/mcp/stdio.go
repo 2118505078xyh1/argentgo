@@ -10,11 +10,88 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 )
 
 // maxLineBytes caps one newline-delimited JSON-RPC frame.
 const maxLineBytes = 8 * 1024 * 1024
+
+// execSpec resolves a stdio server's command into the executable name and
+// arguments to hand to exec.Command.
+//
+// On Windows, PowerShell scripts (.ps1) cannot be launched directly:
+// CreateProcess rejects them ("%1 is not a valid Win32 application"), and
+// Go's LookPath never finds them because .PS1 is not in PATHEXT. Node tools
+// such as npx are sometimes installed only as npx.ps1 (no .cmd shim), and a
+// server configured as a local .ps1 script hits the same wall. Run those
+// through PowerShell instead. Ordinary commands and the usual npx.cmd shim
+// are left untouched because Go already executes them safely.
+func execSpec(spec Spec) (string, []string) {
+	return execSpecForOS(runtime.GOOS, spec.Command, spec.Args)
+}
+
+// execSpecForOS is the testable core of execSpec. goos is a parameter so the
+// Windows wrapping rules can be exercised on any host.
+func execSpecForOS(goos, command string, args []string) (string, []string) {
+	if goos != "windows" {
+		return command, args
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return command, args
+	}
+	// An explicit .ps1 path is never a valid Win32 executable.
+	if strings.EqualFold(filepath.Ext(command), ".ps1") {
+		return powershellScript(command, args)
+	}
+	if resolved, err := exec.LookPath(command); err == nil {
+		// LookPath may hand back a .ps1 when the user added .PS1 to PATHEXT.
+		if strings.EqualFold(filepath.Ext(resolved), ".ps1") {
+			return powershellScript(resolved, args)
+		}
+		// A normal executable or the standard npx.cmd shim needs no wrapper.
+		return command, args
+	}
+	// Bare name that Go cannot find: a .ps1-only install (e.g. npx.ps1).
+	if filepath.Base(command) == command {
+		if script := findPS1OnPath(command); script != "" {
+			return powershellScript(script, args)
+		}
+	}
+	return command, args
+}
+
+// powershellScript builds an invocation that runs a .ps1 file. Execution policy
+// is bypassed because the script is an explicitly configured server command;
+// -NoProfile keeps the user's profile from changing the child's environment.
+func powershellScript(script string, args []string) (string, []string) {
+	wrapped := make([]string, 0, len(args)+5)
+	wrapped = append(wrapped, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script)
+	wrapped = append(wrapped, args...)
+	return "powershell.exe", wrapped
+}
+
+// findPS1OnPath returns the absolute path of <name>.ps1 on PATH, or "". Go's
+// LookPath ignores .ps1, so this fills the one gap that matters for Windows
+// script-based MCP servers.
+func findPS1OnPath(name string) string {
+	if filepath.Ext(name) != "" {
+		return ""
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name+".ps1")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
 
 // stdioTransport speaks newline-delimited JSON-RPC over a child's pipes.
 type stdioTransport struct {
@@ -36,7 +113,8 @@ type stdioTransport struct {
 }
 
 func newStdioTransport(spec Spec) (*stdioTransport, error) {
-	cmd := exec.Command(spec.Command, spec.Args...)
+	name, args := execSpec(spec)
+	cmd := exec.Command(name, args...)
 	if len(spec.Env) > 0 {
 		cmd.Env = append(os.Environ(), spec.Env...)
 	}

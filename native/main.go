@@ -131,12 +131,13 @@ type chat struct {
 	sessionList     ui.ListState
 	md              markdown.Options
 
-	next      int
-	sent      int
-	streaming bool
-	reply     *message
-	tool      *message
-	approval  *approval
+	next       int
+	sent       int
+	lastPrompt string // most recent user text; backed up by undo, replayed by retry
+	streaming  bool
+	reply      *message
+	tool       *message
+	approval   *approval
 }
 
 func (app *chat) palette() palette {
@@ -327,7 +328,12 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 						for _, action := range quickActions {
 							a := action
 							if ui.Button(c, a).Padding(6, 12).Clicked() {
-								app.draft = strings.TrimPrefix(a, "/ ") + " "
+								if strings.HasPrefix(a, "/ ") {
+									// A slash-command hint seeds the trigger, not its label.
+									app.draft = "/ "
+								} else {
+									app.draft = a + " "
+								}
 							}
 						}
 					})
@@ -445,6 +451,7 @@ func (app *chat) send(text string) {
 	if text == "" || app.streaming {
 		return
 	}
+	app.lastPrompt = text
 	app.next++
 	app.messages = append(app.messages, &message{id: app.next, kind: msgUser, text: text, done: true})
 
@@ -776,10 +783,25 @@ func (app *chat) finish(src string) {
 	}
 }
 
+// retireStream invalidates the active streaming round so a late delta or prompt
+// result cannot resurrect UI state after stop/undo/newSession. It goes through
+// the bridge's locked setDeltaHandler API, so bridge.go's race handling is not
+// modified: readLoop snapshots the nil handler and completeRealReply's generation
+// check rejects the superseded completion.
+func (app *chat) retireStream() {
+	if app.engine != nil {
+		app.engine.setDeltaHandler(nil)
+	}
+}
+
 func (app *chat) stop() {
 	if app.engine != nil {
 		_ = app.engine.abort()
 	}
+	// Abort alone is not enough: the in-flight prompt's completion still carries
+	// the old generation. Retire it before clearing reply state so a late result
+	// cannot run finish()/finishEngineError() and undo the user's stop/undo.
+	app.retireStream()
 	if app.reply != nil {
 		app.reply.done = true
 	}
@@ -791,22 +813,47 @@ func (app *chat) stop() {
 	app.status = "已停止"
 }
 
+// undo removes the most recent turn as a unit: the user message, its assistant
+// reply and any trailing tool cards. Deleting only the last row used to leave an
+// orphan user message whose reply had vanished. The prompt text is kept in
+// lastPrompt so a following retry can replay it.
 func (app *chat) undo() {
-	if len(app.messages) == 0 {
+	if app.streaming {
+		app.stop()
+	}
+	// Find the last user message; everything from there to the end is one turn.
+	start := -1
+	for i := len(app.messages) - 1; i >= 0; i-- {
+		if app.messages[i].kind == msgUser {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
 		app.status = "没有可撤销的消息"
 		return
 	}
-	app.messages = app.messages[:len(app.messages)-1]
+	app.messages = app.messages[:start]
 	app.approval = nil
 	app.status = "已撤销上一轮"
 }
 
+// retry re-sends the most recent user prompt after dropping its turn, so the
+// model gets another chance at the same question. It is a no-op while streaming
+// or when nothing has been asked yet.
 func (app *chat) retry() {
-	if len(app.messages) == 0 {
+	if app.streaming {
+		app.status = "正在生成，无法重试"
+		return
+	}
+	prompt := app.lastPrompt
+	if prompt == "" {
 		app.status = "没有可重试的消息"
 		return
 	}
+	app.undo()
 	app.status = "已重试上一轮"
+	app.send(prompt)
 }
 
 func (app *chat) toggleTheme() {
@@ -846,11 +893,15 @@ func (app *chat) answerApproval(allow bool) {
 }
 
 func (app *chat) newSession() {
+	// A previous round may still be in flight; drop its late result so it cannot
+	// overwrite the "已新建会话" status or re-add a stale reply.
+	app.retireStream()
 	app.messages = nil
 	app.tools = nil
 	app.approval = nil
 	app.streaming = false
 	app.reply, app.tool = nil, nil
+	app.lastPrompt = "" // a fresh session must not replay the previous one's prompt
 	app.selectedSession = ""
 	app.status = "已新建会话"
 }

@@ -279,9 +279,22 @@ func (s *Session) CheckpointBack(steps int) (Checkpoint, Record, error) {
 // full instead of silently overwriting that work. Each write re-verifies the
 // expected state immediately before mutating the file -- the equivalent of
 // `git update-ref HEAD new old` -- which closes the time-of-check/time-of-use
-// window against a concurrent writer.
+// window against a concurrent writer. If a later file fails that recheck, the
+// files already restored in this pass are rolled back, so a failed undo never
+// leaves the workspace half-reverted.
 func UndoCheckpoint(workspace string, cp Checkpoint) ([]string, error) {
 	return undoCheckpoint(workspace, cp, nil)
+}
+
+// undoAction is one validated file mutation. preUndo/preUndoMode capture the
+// state validation accepted, so a later failure can roll back earlier writes
+// and keep a failed undo all-or-nothing.
+type undoAction struct {
+	target      string
+	file        CheckpointFile
+	remove      bool
+	preUndo     []byte
+	preUndoMode os.FileMode
 }
 
 // undoCheckpoint implements UndoCheckpoint. beforeWrite, when non-nil, runs
@@ -289,12 +302,7 @@ func UndoCheckpoint(workspace string, cp Checkpoint) ([]string, error) {
 // concurrent edit and assert that the CAS recheck rejects it. Production
 // callers reach it only through UndoCheckpoint with a nil hook.
 func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) ([]string, error) {
-	type action struct {
-		target string
-		file   CheckpointFile
-		remove bool
-	}
-	var actions []action
+	var actions []undoAction
 	for _, file := range cp.Files {
 		rel, err := normalizeRelativePath(file.Path)
 		if err != nil {
@@ -313,12 +321,17 @@ func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) (
 			return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckpointConflict, rel)
 		}
 		current := ""
+		var currentBytes []byte
 		if exists {
-			bytes, err := os.ReadFile(target)
+			currentBytes, err = os.ReadFile(target)
 			if err != nil {
 				return nil, fmt.Errorf("session: read %s: %w", rel, err)
 			}
-			current = hashBytes(bytes)
+			current = hashBytes(currentBytes)
+		}
+		item := undoAction{target: target, file: file, preUndo: currentBytes}
+		if exists {
+			item.preUndoMode = info.Mode().Perm()
 		}
 		if file.Absent {
 			if !exists {
@@ -327,7 +340,8 @@ func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) (
 			if file.AfterSHA256 == "" || current != file.AfterSHA256 {
 				return nil, fmt.Errorf("%w: %s changed after the checkpoint", ErrCheckpointConflict, rel)
 			}
-			actions = append(actions, action{target: target, file: file, remove: true})
+			item.remove = true
+			actions = append(actions, item)
 			continue
 		}
 		if !exists {
@@ -341,10 +355,17 @@ func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) (
 		} else {
 			continue // already at the pre-turn state
 		}
-		actions = append(actions, action{target: target, file: file})
+		actions = append(actions, item)
 	}
 
 	restored := make([]string, 0, len(actions))
+	applied := make([]undoAction, 0, len(actions))
+	abort := func(cause error) ([]string, error) {
+		if err := rollbackUndoCheckpoint(applied); err != nil {
+			return nil, fmt.Errorf("%w; rollback failed: %v", cause, err)
+		}
+		return nil, cause
+	}
 	for _, item := range actions {
 		if beforeWrite != nil {
 			beforeWrite(item.target)
@@ -353,31 +374,82 @@ func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) (
 		// recorded (the "old" value). A concurrent edit that landed after the
 		// validation pass must not be overwritten.
 		if err := verifyRestoreTarget(item.target, item.file); err != nil {
-			return restored, err
+			return abort(err)
 		}
 		if item.remove {
 			if err := os.Remove(item.target); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return restored, fmt.Errorf("session: remove %s: %w", item.file.Path, err)
+				return abort(fmt.Errorf("session: remove %s: %w", item.file.Path, err))
 			}
+			applied = append(applied, item)
 			restored = append(restored, item.file.Path)
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(item.target), 0o755); err != nil {
-			return restored, fmt.Errorf("session: create parent of %s: %w", item.file.Path, err)
+			return abort(fmt.Errorf("session: create parent of %s: %w", item.file.Path, err))
 		}
 		mode := os.FileMode(0o644)
 		if item.file.Mode != 0 {
 			mode = os.FileMode(item.file.Mode)
 		}
 		if err := os.WriteFile(item.target, item.file.Before, mode); err != nil {
-			return restored, fmt.Errorf("session: restore %s: %w", item.file.Path, err)
+			return abort(fmt.Errorf("session: restore %s: %w", item.file.Path, err))
 		}
 		if err := os.Chmod(item.target, mode); err != nil {
-			return restored, fmt.Errorf("session: chmod %s: %w", item.file.Path, err)
+			return abort(fmt.Errorf("session: chmod %s: %w", item.file.Path, err))
 		}
+		applied = append(applied, item)
 		restored = append(restored, item.file.Path)
 	}
 	return restored, nil
+}
+
+// rollbackUndoCheckpoint restores actions that were already applied back to
+// the state validation saw. It runs in reverse order and is best-effort: a
+// secondary cleanup failure is reported to the caller but never replaces the
+// primary conflict/write error that triggered the rollback.
+func rollbackUndoCheckpoint(applied []undoAction) error {
+	var errs []error
+	for i := len(applied) - 1; i >= 0; i-- {
+		item := applied[i]
+		switch {
+		case item.remove:
+			// Undo deleted a file the turn had created; put it back.
+			mode := item.preUndoMode
+			if mode == 0 {
+				mode = 0o644
+			}
+			if err := os.MkdirAll(filepath.Dir(item.target), 0o755); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := os.WriteFile(item.target, item.preUndo, mode); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := os.Chmod(item.target, mode); err != nil {
+				errs = append(errs, err)
+			}
+		case item.file.AfterAbsent:
+			// Undo recreated a file the turn had deleted; remove it again.
+			if err := os.Remove(item.target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		default:
+			// Undo overwrote the file; write the post-turn bytes back.
+			mode := item.preUndoMode
+			if mode == 0 {
+				mode = 0o644
+			}
+			if err := os.WriteFile(item.target, item.preUndo, mode); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := os.Chmod(item.target, mode); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // verifyRestoreTarget re-checks that target is still in the post-turn state

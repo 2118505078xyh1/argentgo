@@ -211,6 +211,11 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 	// a fresh streak. Reset here, on the loop goroutine, before any worker can
 	// observe the counter.
 	s.breaker().Reset()
+	// Reset the post-batch verification signal too: it describes THIS batch.
+	// A dispatched batch with mutating calls stays eligible for verification
+	// even when the repeat guard blocks some of its calls; wholesale rejections
+	// below go through fillUnrun, which clears the signal.
+	s.batchVerificationEligible = s.batchHasMutation(calls)
 
 	// Validate before the checkpoint or any dispatch decision: one bad ID
 	// invalidates the whole batch, so no call in it may be announced as runnable.
@@ -512,6 +517,9 @@ func (s *runState) appendTool(call llm.ToolCall, output string) {
 // fillUnrun writes an error result for every call that will never run, so the
 // transcript keeps every tool call paired with a result.
 func (s *runState) fillUnrun(calls []llm.ToolCall, reason string) {
+	// Every call in this batch is being answered without execution, so no edit
+	// happened and post-edit verification must be skipped for it.
+	s.batchVerificationEligible = false
 	turn := s.turns - 1
 	if turn < 0 {
 		turn = 0

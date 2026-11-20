@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -85,6 +86,10 @@ type platformProcess struct {
 	proc    *os.Process
 	job     syscall.Handle
 	killAll bool
+	// mu guards job: the wait goroutine clears it in close() while a caller
+	// can still be killing the process. Without it a Kill racing a natural
+	// exit is a data race and can signal a handle after it was closed.
+	mu sync.Mutex
 }
 
 func newPlatformProcess(p *os.Process, killTree bool) *platformProcess {
@@ -106,20 +111,28 @@ func newPlatformProcess(p *os.Process, killTree bool) *platformProcess {
 }
 
 func (p *platformProcess) killTree() {
-	if p.job != 0 {
-		_, _, _ = procTerminateJobObject.Call(uintptr(p.job), 1)
+	// Hold the lock across the job call so close() cannot close the handle
+	// between reading it and using it.
+	p.mu.Lock()
+	job := p.job
+	if job != 0 {
+		_, _, _ = procTerminateJobObject.Call(uintptr(job), 1)
 	}
+	p.mu.Unlock()
+
 	if p.proc != nil {
 		_ = p.proc.Kill()
 	}
 	// A job that could not be created (or assigned) leaves the descendants
 	// of a shell alive; taskkill /T is the same last resort the Rust code uses.
-	if p.job == 0 && p.killAll && p.proc != nil {
+	if job == 0 && p.killAll && p.proc != nil {
 		killViaTaskkill(p.proc.Pid)
 	}
 }
 
 func (p *platformProcess) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.job != 0 {
 		// KILL_ON_JOB_CLOSE means this also reaps anything still running.
 		syscall.CloseHandle(p.job)

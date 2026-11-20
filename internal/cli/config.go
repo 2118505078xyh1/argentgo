@@ -14,7 +14,7 @@ import (
 )
 
 // runConfig implements `config get|set` over dotted keys.
-func runConfig(app App, _ context.Context, args []string) int {
+func runConfig(app App, ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		configUsage(app.IO.Err)
 		return 2
@@ -27,6 +27,8 @@ func runConfig(app App, _ context.Context, args []string) int {
 	case "path":
 		fmt.Fprintln(app.IO.Out, path)
 		return 0
+	case "show":
+		return runConfigShow(app, ctx, args[1:])
 	case "get":
 		if len(args) != 2 {
 			configUsage(app.IO.Err)
@@ -189,6 +191,7 @@ func configUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent config get <dotted.key>
        argent config set <dotted.key> <value>
        argent config path
+       argent config show [--json] [-C <dir>] [-c <key=value>]
 
 Values are parsed as JSON when possible, so `+"`set model gpt-4o`"+` stores a string
 and `+"`set maxTurns 20`"+` stores a number. Config files may contain comments and

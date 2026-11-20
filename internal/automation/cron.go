@@ -200,7 +200,14 @@ func (c *Cron) Next(t time.Time) time.Time {
 			continue
 		}
 		if !c.hour.has(next.Hour()) {
-			next = time.Date(next.Year(), next.Month(), next.Day(), next.Hour(), 0, 0, 0, loc).Add(time.Hour)
+			// Jump to the start of the next wall-clock hour using duration
+			// arithmetic, not time.Date at the same wall hour. During a DST
+			// fall-back the local hour occurs twice and time.Date resolves to
+			// the earlier occurrence, so rebuilding here would keep landing on
+			// the same excluded hour forever. Adding the remaining minutes
+			// advances in absolute time and terminates after at most two steps
+			// (once for each occurrence of a repeated hour).
+			next = next.Add(time.Hour - time.Duration(next.Minute())*time.Minute)
 			continue
 		}
 		if !c.minute.has(next.Minute()) {

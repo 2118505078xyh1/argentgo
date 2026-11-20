@@ -113,11 +113,20 @@ walk:
 
 			budgetTruncated := false
 			if limit > 0 {
+				// A per-file clip appends TruncationMarker below. Reserve those
+				// bytes now: otherwise a capped body that just fits remaining
+				// can push the combined text past totalBudget once the marker
+				// is added. Re-clipping to remaining-marker keeps the doc and
+				// makes the budget exact.
+				markerCost := 0
+				if fileTruncated {
+					markerCost = len(TruncationMarker)
+				}
 				remaining := totalBudget - used
-				if remaining <= 0 {
+				if remaining <= markerCost {
 					break walk
 				}
-				if len(body) > remaining {
+				if len(body)+markerCost > remaining {
 					room := remaining - len(TruncationMarker)
 					if room <= 0 {
 						break walk

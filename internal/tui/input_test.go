@@ -140,6 +140,28 @@ func TestUpAndDownWalkTheHistory(t *testing.T) {
 	}
 }
 
+func TestEditingRecalledHistorySurvivesDown(t *testing.T) {
+	m := New(Config{})
+	for _, text := range []string{"first", "second"} {
+		typeBytes(m, text+"\r")
+		m.EndTurn(nil)
+		m.HandleKey(Key{Kind: KindRune, Rune: 'x'})
+		m.HandleKey(Key{Kind: KindBackspace})
+	}
+	typeBytes(m, "\x1b[A") // recall "second"
+	if got := m.Input(); got != "second" {
+		t.Fatalf("up = %q, want second", got)
+	}
+	typeBytes(m, " edited") // edit the recalled line
+	if got := m.Input(); got != "second edited" {
+		t.Fatalf("after edit = %q", got)
+	}
+	typeBytes(m, "\x1b[B") // down must not snap back to the stale draft
+	if got := m.Input(); got != "second edited" {
+		t.Fatalf("down after editing history wiped the edit: %q", got)
+	}
+}
+
 func TestUpAndDownMoveInsideAMultilineBuffer(t *testing.T) {
 	m := New(Config{})
 	typeBytes(m, "ab\ncd")

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,6 +92,14 @@ type Config struct {
 	// optional: zero means "unspecified", so callers fall back to the fixed
 	// threshold. It can be set at the top level or on a model/provider entry.
 	ContextWindow int
+	// StopTokenIDs are token ids that terminate a completion (for example FIM
+	// end-of-infill tokens). Optional: an empty slice leaves the LLM layer's
+	// existing stop handling untouched. Decoded from stopTokenIds/stop_token_ids.
+	StopTokenIDs []int64
+	// ContextWindowInfo carries optional long-context metadata (currently rope
+	// scaling) that a long-context provider may forward to the upstream endpoint.
+	// Its zero value means "unspecified" and is ignored by callers.
+	ContextWindowInfo ContextWindowInfo
 	// AutoCondenseContextPercent is the per-profile percentage of the context
 	// window that triggers auto-compaction. 0 or -1 inherits the global token
 	// threshold; a positive value overrides it.
@@ -120,6 +129,21 @@ type Config struct {
 	loadOverrides map[string]any
 	generation    uint64
 	fingerprint   configFingerprint
+}
+
+// ContextWindowInfo is optional long-context metadata a provider can forward
+// to the upstream endpoint. All members stay zero-valued when the keys are
+// absent, so configs that do not use them decode exactly as before.
+type ContextWindowInfo struct {
+	RopeScaling RopeScaling
+}
+
+// RopeScaling mirrors the `rope_scaling` object used by vLLM/llama.cpp-style
+// endpoints. Unknown keys are ignored during decoding.
+type RopeScaling struct {
+	Factor      float64
+	Type        string
+	OriginalMax int64
 }
 
 // fileStamp is the cheap, parse-free identity of one config file. mtime and
@@ -449,6 +473,8 @@ func decode(tree map[string]any, cwd string, sources []string) Config {
 		VerifyMaxReflections: intField(tree, "verifyMaxReflections", "verify_max_reflections"),
 
 		ContextWindow:              contextWindowFrom(tree),
+		StopTokenIDs:               int64SliceField(tree, "stopTokenIds", "stop_token_ids"),
+		ContextWindowInfo:          contextWindowInfoFrom(tree),
 		AutoCondenseContextPercent: intField(tree, "autoCondenseContextPercent", "auto_condense_context_percent"),
 		ProviderName:               stringField(tree, "provider"),
 		Profiles:                   profilesFrom(tree),
@@ -576,6 +602,103 @@ func intField(tree map[string]any, keys ...string) int {
 	return 0
 }
 
+// int64SliceField decodes an array of integer ids (e.g. stopTokenIds) from the
+// merged tree. Both []any (from JSON/CLI overrides) and []int64 (constructed in
+// tests) are accepted; members that are not integral numbers inside the int64
+// range are skipped rather than failing the whole config, matching
+// stringSliceField's tolerance.
+func int64SliceField(tree map[string]any, keys ...string) []int64 {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case []any:
+			out := make([]int64, 0, len(value))
+			for _, item := range value {
+				if id, ok := int64Value(item); ok {
+					out = append(out, id)
+				}
+			}
+			return out
+		case []int64:
+			return append([]int64(nil), value...)
+		}
+	}
+	return nil
+}
+
+// int64Value converts the numeric forms produced by JSON, flags and tests into
+// int64. Fractional or out-of-range values are rejected.
+func int64Value(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		// 2^63 is the exact float64 boundary: int64's maximum (2^63-1) rounds
+		// up to it, so a strict upper bound is required to avoid overflow.
+		const limit = 9223372036854775808.0
+		if typed == math.Trunc(typed) && typed >= -limit && typed < limit {
+			return int64(typed), true
+		}
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case json.Number:
+		if n, err := typed.Int64(); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// int64Field decodes one integer, accepting the numeric forms of int64Value as
+// well as numeric strings.
+func int64Field(tree map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		if id, ok := int64Value(tree[key]); ok {
+			return id
+		}
+		if text, ok := tree[key].(string); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+// float64Field decodes a floating-point setting from the merged tree. It is
+// used for rope scaling's factor; an absent or invalid value stays zero.
+func float64Field(tree map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case float64:
+			return value
+		case int:
+			return float64(value)
+		case int64:
+			return float64(value)
+		case json.Number:
+			if f, err := value.Float64(); err == nil {
+				return f
+			}
+		case string:
+			if f, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+				return f
+			}
+		}
+	}
+	return 0
+}
+
+// objectField returns the first key holding a JSON object, so callers can read
+// nested settings through either spelling without a separate nil-check loop.
+func objectField(tree map[string]any, keys ...string) map[string]any {
+	for _, key := range keys {
+		if obj, ok := tree[key].(map[string]any); ok {
+			return obj
+		}
+	}
+	return nil
+}
+
 func boolField(tree map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -660,6 +783,26 @@ func contextWindowFrom(tree map[string]any) int {
 		}
 	}
 	return 0
+}
+
+// contextWindowInfoFrom decodes the optional long-context metadata from either
+// spelling of the outer and nested keys. A missing or wrongly-typed object
+// decodes to the zero value; layered config files still merge the nested object
+// recursively before this runs, so partial overlays are preserved.
+func contextWindowInfoFrom(tree map[string]any) ContextWindowInfo {
+	obj := objectField(tree, "contextWindowInfo", "context_window_info")
+	if obj == nil {
+		return ContextWindowInfo{}
+	}
+	scaling := objectField(obj, "ropeScaling", "rope_scaling")
+	if scaling == nil {
+		return ContextWindowInfo{}
+	}
+	return ContextWindowInfo{RopeScaling: RopeScaling{
+		Factor:      float64Field(scaling, "factor"),
+		Type:        stringField(scaling, "type"),
+		OriginalMax: int64Field(scaling, "originalMax", "original_max"),
+	}}
 }
 
 // CondensePercent returns the auto-condense percentage configured for profile.

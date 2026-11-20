@@ -86,6 +86,17 @@ func hasReparsePoint(path string) bool {
 	if err != nil {
 		return false
 	}
+	return isLinkInfo(info)
+}
+
+// isLinkInfo reports whether info describes a symlink or any other Windows
+// reparse point (junctions, mounts, dedup links). It is shared with linkTarget
+// so a dangling junction is recognised by the same rule as every other
+// reparse-point check in this package.
+func isLinkInfo(info os.FileInfo) bool {
+	if info == nil {
+		return false
+	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return true
 	}
@@ -93,4 +104,18 @@ func hasReparsePoint(path string) bool {
 		return data.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0
 	}
 	return false
+}
+
+// normalizeLinkTarget strips the NT (\??\) and extended-length (\\?\) prefixes
+// os.Readlink may return on Windows so the target compares cleanly with lexical
+// paths. Without the NT form, filepath.IsAbs would treat the target as relative
+// and join it under the link's directory, hiding a real escape.
+func normalizeLinkTarget(path string) string {
+	if strings.HasPrefix(path, `\??\UNC\`) {
+		return `\\` + path[len(`\??\UNC\`):]
+	}
+	if strings.HasPrefix(path, `\??\`) {
+		return path[len(`\??\`):]
+	}
+	return trimExtendedPath(path)
 }

@@ -32,6 +32,11 @@ func (e *Editor) SetText(text string) {
 	e.index = -1
 }
 
+// markEdited leaves history browsing: once the user changes a recalled line it
+// is a fresh draft, so HistoryNext must not snap back to the stale pre-recall
+// text. load() is the only path that deliberately sets index after a SetText.
+func (e *Editor) markEdited() { e.index = -1 }
+
 // Insert writes text at the caret.
 func (e *Editor) Insert(text string) {
 	if text == "" {
@@ -44,6 +49,7 @@ func (e *Editor) Insert(text string) {
 	next = append(next, e.runes[e.cursor:]...)
 	e.runes = next
 	e.cursor += len(insert)
+	e.markEdited()
 }
 
 // Backspace removes the rune before the caret.
@@ -53,6 +59,7 @@ func (e *Editor) Backspace() bool {
 	}
 	e.runes = append(e.runes[:e.cursor-1], e.runes[e.cursor:]...)
 	e.cursor--
+	e.markEdited()
 	return true
 }
 
@@ -62,6 +69,7 @@ func (e *Editor) Delete() bool {
 		return false
 	}
 	e.runes = append(e.runes[:e.cursor], e.runes[e.cursor+1:]...)
+	e.markEdited()
 	return true
 }
 
@@ -91,6 +99,7 @@ func (e *Editor) KillToEnd() bool {
 		return false
 	}
 	e.runes = e.runes[:e.cursor]
+	e.markEdited()
 	return true
 }
 
@@ -101,6 +110,7 @@ func (e *Editor) KillToStart() bool {
 	}
 	e.runes = append([]rune{}, e.runes[e.cursor:]...)
 	e.cursor = 0
+	e.markEdited()
 	return true
 }
 
@@ -121,6 +131,7 @@ func (e *Editor) KillWord() bool {
 	}
 	e.runes = append(e.runes[:start], e.runes[e.cursor:]...)
 	e.cursor = start
+	e.markEdited()
 	return true
 }
 

@@ -84,6 +84,100 @@ func TestCronMatches(t *testing.T) {
 	}
 }
 
+// TestCronNextAcrossDSTTransitions guards the wall-clock hour jump in Next.
+// A DST fall-back makes one local hour occur twice; rebuilding the time with
+// time.Date at that hour resolves to the first occurrence, so an hour-advance
+// that ignores this can spin forever. Each case runs under a timeout so a
+// regression fails loudly instead of hanging the suite.
+func TestCronNextAcrossDSTTransitions(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	lh, err := time.LoadLocation("Australia/Lord_Howe")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	in := func(loc *time.Location, value string) time.Time {
+		t.Helper()
+		parsed, err := time.ParseInLocation("2006-01-02T15:04:05", value, loc)
+		if err != nil {
+			t.Fatalf("parse %q: %v", value, err)
+		}
+		return parsed
+	}
+	cases := []struct {
+		name string
+		expr string
+		loc  *time.Location
+		from time.Time
+		want time.Time
+	}{
+		{
+			// Regression: hour 1 is excluded, so Next must advance past BOTH
+			// occurrences of 01:00 on the fall-back day. Rebuilding the time
+			// at 01:00 pinned the loop to the first occurrence forever.
+			name: "fall back with the repeated hour excluded",
+			expr: "0 0 * * *",
+			loc:  ny,
+			from: in(ny, "2026-11-01T00:01:00"),
+			want: in(ny, "2026-11-02T00:00:00"),
+		},
+		{
+			// The repeated hour is allowed: the first occurrence is next.
+			name: "fall back with the repeated hour allowed",
+			expr: "30 1 * * *",
+			loc:  ny,
+			from: in(ny, "2026-11-01T00:00:00"),
+			want: time.Date(2026, 11, 1, 1, 30, 0, 0, ny), // 01:30 EDT
+		},
+		{
+			// 02:30 does not exist on the spring-forward day; the next valid
+			// slot is the following morning.
+			name: "spring forward skips a nonexistent wall time",
+			expr: "30 2 * * *",
+			loc:  ny,
+			from: in(ny, "2026-03-08T00:00:00"),
+			want: in(ny, "2026-03-09T02:30:00"),
+		},
+		{
+			// Lord Howe shifts by 30 minutes, so a duration-based jump must
+			// still land on a real wall-clock minute.
+			name: "half hour fall back with the repeated hour excluded",
+			expr: "0 0 * * *",
+			loc:  lh,
+			from: in(lh, "2026-04-05T01:00:00"),
+			want: in(lh, "2026-04-06T00:00:00"),
+		},
+		{
+			// Jumping to the next hour must normalise the minute to zero.
+			name: "hour jump starts at the top of the hour",
+			expr: "0 9 * * *",
+			loc:  ny,
+			from: in(ny, "2026-01-01T08:37:00"),
+			want: in(ny, "2026-01-01T09:00:00"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := ParseCron(tc.expr)
+			if err != nil {
+				t.Fatalf("ParseCron(%q): %v", tc.expr, err)
+			}
+			done := make(chan time.Time, 1)
+			go func() { done <- c.Next(tc.from) }()
+			select {
+			case got := <-done:
+				if !got.Equal(tc.want) {
+					t.Fatalf("%q after %s = %s, want %s", tc.expr, tc.from, got, tc.want)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatalf("%q after %s did not return (hour jump looped)", tc.expr, tc.from)
+			}
+		})
+	}
+}
+
 func TestCronParseErrors(t *testing.T) {
 	for _, expr := range []string{
 		"",

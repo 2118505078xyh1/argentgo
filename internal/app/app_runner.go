@@ -129,14 +129,24 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 		// One hub and one pending store per serve/runner instance. Transports
 		// discover the hub through Runner.EventHub, and each run wraps its
 		// approver so pending requests are durable across reconnects.
-		return &runner{
+		r := &runner{
 			stdio:   stdio,
 			res:     resolved,
 			store:   store,
 			execute: Execute,
 			hub:     NewEventHub(),
 			pending: security.NewPendingStore(filepath.Join(resolved.Storage, "pending")),
-		}, nil
+		}
+		// A runner is the long-lived engine reused by --serve/--rpc across many
+		// prompts, so it owns the config hot-reload hook. One-shot callers use
+		// Execute directly and never build a reloader. The hook is read-only
+		// (adopt + log) and never rewires a run in flight.
+		r.reload = newConfigReloader(&r.res.Cfg, func(msg string) {
+			if stdio.Err != nil {
+				fmt.Fprintln(stdio.Err, "config: "+msg)
+			}
+		})
+		return r, nil
 	}
 }
 
@@ -160,6 +170,12 @@ type runner struct {
 	// Both are nil on hand-built test runners, keeping their behaviour unchanged.
 	hub     *server.EventHub
 	pending *security.PendingStore
+
+	// reload is the long-lived engine's config hot-reload hook. It is nil on
+	// hand-built test runners, keeping those paths unchanged. Production sets it
+	// in Factory; a one-shot process never reaches a second turn boundary and
+	// therefore never polls (see Prompt).
+	reload *configReloader
 
 	// execute and claimHook are per-instance seams for Prompt. Production sets
 	// execute to Execute (see Factory) and leaves claimHook nil; tests inject
@@ -202,7 +218,17 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	}
 	r.busy = true
 	r.cancel = cancel
+	firstPrompt := r.current == nil
 	r.mu.Unlock()
+
+	// Turn boundary: a long-lived engine checks for on-disk config changes
+	// between prompts and adopts a fresh snapshot when one landed. A one-shot
+	// process serves exactly one prompt, so it never reaches a second boundary
+	// and never polls — no pointless stat/reload work before exit. The reloader
+	// is nil on hand-built test runners, so those are unaffected too.
+	if !firstPrompt && r.reload != nil {
+		r.reload.poll()
+	}
 
 	// Test seam: by this point busy and cancel are both installed. Production
 	// leaves the hook nil.

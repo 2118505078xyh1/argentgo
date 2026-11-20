@@ -48,6 +48,9 @@ type Skill struct {
 	// Warnings reports invisible characters found in the declarative content.
 	// It is metadata only: parsing never changes and never blocks on it.
 	Warnings []string
+	// Triggers holds optional automatic-activation rules. It is metadata only:
+	// nothing here changes how the skill loads by name through use_skill.
+	Triggers Triggers
 }
 
 // Entry is the compact form of a skill used by the index and by Match.
@@ -89,6 +92,11 @@ func Parse(text, path string) (Skill, error) {
 		Tools:        fields.List("tools"),
 		AllowedTools: fields.List("allowed-tools"),
 		Warnings:     security.ScanArtifact(text).Warnings(),
+		Triggers: Triggers{
+			Paths:    fields.List("paths"),
+			Keywords: fields.List("keywords"),
+			Models:   fields.List("models"),
+		},
 	}, nil
 }
 

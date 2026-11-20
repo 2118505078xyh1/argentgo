@@ -68,6 +68,25 @@ func TestReadFrameRejectsMalformedFrames(t *testing.T) {
 	}
 }
 
+// TestReadFrameBoundsHeaderLineWithoutNewline verifies the size guard applies
+// before the whole line is buffered. ReadString used to scan an unbounded
+// slice looking for '\n', so a header line with no terminator could exhaust
+// memory before the limit was checked.
+func TestReadFrameBoundsHeaderLineWithoutNewline(t *testing.T) {
+	cases := map[string]string{
+		"over limit, no newline": "Content-Length: " + strings.Repeat("1", maxHeaderLine),
+		"over reader buffer":     "Content-Length: " + strings.Repeat("1", 128<<10),
+	}
+	for label, raw := range cases {
+		t.Run(label, func(t *testing.T) {
+			_, err := readFrame(bufio.NewReader(strings.NewReader(raw)))
+			if !errors.Is(err, ErrMessageTooLarge) {
+				t.Fatalf("readFrame error = %v, want ErrMessageTooLarge", err)
+			}
+		})
+	}
+}
+
 func TestReadFrameReportsMissingContentLength(t *testing.T) {
 	_, err := readFrame(bufio.NewReader(strings.NewReader("Content-Type: application/json\r\n\r\n{}")))
 	if !errors.Is(err, ErrNoContentLength) {

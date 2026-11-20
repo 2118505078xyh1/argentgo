@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -68,6 +69,18 @@ func resolveWithTail(absolute string) (string, error) {
 	tail := ""
 	current := absolute
 	for {
+		// os.Open reports a dangling link as "missing", so without this check
+		// the loop would reattach the link's lexical name and hide the fact
+		// that it points somewhere else (possibly outside the write roots).
+		// Reading the link itself resolves it even before its target exists,
+		// which is exactly the write-before-create case boundary checks need.
+		if target, ok := linkTarget(current); ok {
+			reattached := target
+			if tail != "" {
+				reattached = filepath.Join(target, tail)
+			}
+			return resolveWithTail(filepath.Clean(reattached))
+		}
 		base := filepath.Base(current)
 		if tail == "" {
 			tail = base
@@ -85,4 +98,25 @@ func resolveWithTail(absolute string) (string, error) {
 			return "", err
 		}
 	}
+}
+
+// linkTarget returns the resolved target of the symlink or Windows junction at
+// path. Unlike realPathExisting it reads the link object itself (Lstat +
+// Readlink) instead of opening through it, so it also works for a dangling link
+// whose target does not exist yet. ok is false for ordinary paths and when the
+// link cannot be read; callers then fall back to the lexical walk.
+func linkTarget(path string) (string, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !isLinkInfo(info) {
+		return "", false
+	}
+	target, err := os.Readlink(path)
+	if err != nil || target == "" {
+		return "", false
+	}
+	target = normalizeLinkTarget(target)
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	return filepath.Clean(target), true
 }

@@ -398,6 +398,123 @@ func TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite(t *testing.T) {
 	}
 }
 
+// TestUndoIsTransactionalAcrossFiles pins the all-or-nothing guarantee when a
+// CAS recheck fails after earlier files were already written. Before the fix,
+// a conflict on a later file left earlier files half-reverted even though the
+// call reported an error and no files were reported as restored.
+func TestUndoIsTransactionalAcrossFiles(t *testing.T) {
+	files := []string{"a.txt", "b.txt", "c.txt"}
+	cases := []struct {
+		name       string
+		conflictAt string // file sabotaged by the before-write hook; "" = none
+	}{
+		{name: "no conflict restores every file"},
+		{name: "conflict on first file writes nothing", conflictAt: "a.txt"},
+		{name: "conflict on middle file rolls back earlier write", conflictAt: "b.txt"},
+		{name: "conflict on last file rolls back earlier writes", conflictAt: "c.txt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			initial := map[string]string{}
+			for _, f := range files {
+				initial[f] = "before " + strings.TrimSuffix(f, ".txt")
+			}
+			root := testWorkspace(t, initial)
+			cp, err := CaptureCheckpoint(root, files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range files {
+				writeWorkspaceFile(t, root, f, "after "+strings.TrimSuffix(f, ".txt"))
+			}
+			if err := CompleteCheckpoint(root, &cp); err != nil {
+				t.Fatal(err)
+			}
+
+			hook := func(target string) {
+				if filepath.Base(target) == tc.conflictAt {
+					_ = os.WriteFile(target, []byte("concurrent edit"), 0o644)
+				}
+			}
+			restored, err := undoCheckpoint(root, cp, hook)
+			if tc.conflictAt == "" {
+				if err != nil {
+					t.Fatalf("undoCheckpoint: %v", err)
+				}
+				if len(restored) != len(files) {
+					t.Fatalf("restored = %v, want %d files", restored, len(files))
+				}
+				for _, f := range files {
+					if got := readWorkspaceFile(t, root, f); got != "before "+strings.TrimSuffix(f, ".txt") {
+						t.Errorf("%s = %q, want pre-turn bytes", f, got)
+					}
+				}
+				return
+			}
+			if !errors.Is(err, ErrCheckpointConflict) {
+				t.Fatalf("error = %v, want ErrCheckpointConflict", err)
+			}
+			if len(restored) != 0 {
+				t.Fatalf("restored = %v, want none after a failed undo", restored)
+			}
+			for _, f := range files {
+				want := "after " + strings.TrimSuffix(f, ".txt")
+				if f == tc.conflictAt {
+					want = "concurrent edit"
+				}
+				if got := readWorkspaceFile(t, root, f); got != want {
+					t.Errorf("%s = %q, want %q (rollback must restore the pre-undo state)", f, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestUndoRollsBackCreatedAndDeletedFiles covers the non-overwrite action kinds:
+// a conflict on a later file must also undo the earlier removal and recreation.
+func TestUndoRollsBackCreatedAndDeletedFiles(t *testing.T) {
+	root := testWorkspace(t, map[string]string{
+		"a.txt":   "before a",
+		"del.txt": "old del",
+	})
+	cp, err := CaptureCheckpoint(root, []string{"a.txt", "del.txt", "new.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, root, "a.txt", "after a")
+	if err := os.Remove(filepath.Join(root, "del.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, root, "new.txt", "created by turn")
+	if err := CompleteCheckpoint(root, &cp); err != nil {
+		t.Fatal(err)
+	}
+
+	// The manifest sorts paths: a.txt (modify), del.txt (recreate), new.txt
+	// (remove). Sabotaging new.txt forces rollback of the first two actions.
+	hook := func(target string) {
+		if filepath.Base(target) == "new.txt" {
+			_ = os.WriteFile(target, []byte("concurrent edit"), 0o644)
+		}
+	}
+	restored, err := undoCheckpoint(root, cp, hook)
+	if !errors.Is(err, ErrCheckpointConflict) {
+		t.Fatalf("error = %v, want ErrCheckpointConflict", err)
+	}
+	if len(restored) != 0 {
+		t.Fatalf("restored = %v, want none after a failed undo", restored)
+	}
+	if got := readWorkspaceFile(t, root, "a.txt"); got != "after a" {
+		t.Errorf("a.txt = %q, want post-turn bytes after rollback", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "del.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("del.txt should have been removed by rollback: %v", err)
+	}
+	if got := readWorkspaceFile(t, root, "new.txt"); got != "concurrent edit" {
+		t.Errorf("new.txt = %q, want the concurrent edit left untouched", got)
+	}
+}
+
 // TestVerifyRestoreTargetRejectsDivergence covers every branch of the CAS
 // helper: files the turn created, modified, or deleted, and a concurrent change
 // to each of those states.

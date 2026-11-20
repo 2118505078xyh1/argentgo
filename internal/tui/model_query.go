@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // MarkDirty records that the rendered content changed and the next frame must
@@ -285,7 +287,11 @@ func errorText(locale string, err error) string {
 	if err == context.Canceled {
 		return text(locale, "cancelled")
 	}
-	return text(locale, "error") + ": " + err.Error()
+	// A turn-ending error may still carry a raw provider message (the agent also
+	// publishes a redacted EventError). Redact, fold to one line and bound it so
+	// a credential or a multi-line dump cannot leak into or widen the transcript.
+	detail := Truncate(collapseSpace(llm.RedactText(err.Error())), maxStreamErrorDetail)
+	return text(locale, "error") + ": " + detail
 }
 
 func maxInt(a, b int) int {

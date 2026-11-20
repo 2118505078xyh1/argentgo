@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -89,9 +88,17 @@ type Process struct {
 // NewProcess wraps a live child in a Process. Test starters use it to build a
 // fake; simulated child output is fed through Write.
 func NewProcess(child LiveChild) *Process {
+	return newProcess(child, newSwitchWriter())
+}
+
+// newProcess is the internal constructor used when the OS starter already has
+// the writer that exec copies the child's stdout/stderr into. The Process must
+// expose that exact writer through Output/SetOutput; allocating a second one
+// here would silently discard everything the child prints.
+func newProcess(child LiveChild, out *switchWriter) *Process {
 	return &Process{
 		child:   child,
-		out:     newSwitchWriter(),
+		out:     out,
 		started: time.Now(),
 		done:    make(chan struct{}),
 	}
@@ -288,9 +295,10 @@ func startOS(c Command) (*Process, error) {
 	}
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
-	if len(c.Env) > 0 {
-		cmd.Env = append(os.Environ(), c.Env...)
-	}
+	// A detached child is often a promoted background job that runs a nested
+	// agent. It needs the same host-private env filter Run applies, or it
+	// mistakes the host's session plumbing for its own.
+	cmd.Env = SanitizeEnv(c.Env)
 	if c.Stdin != nil {
 		cmd.Stdin = c.Stdin
 	}
@@ -302,7 +310,9 @@ func startOS(c Command) (*Process, error) {
 		return nil, fmt.Errorf("proc: spawn %q: %w", c.Path, err)
 	}
 	killer := newPlatformProcess(cmd.Process, true)
-	p := NewProcess(osLiveChild{cmd: cmd, killer: killer})
+	// Use the very writer exec is copying into, so Output/SetOutput see the
+	// child's real bytes instead of a separate, always-empty buffer.
+	p := newProcess(osLiveChild{cmd: cmd, killer: killer}, out)
 	p.command = c.Path
 	p.closed = killer.close
 	return p, nil

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -78,6 +79,19 @@ func TestRetryNoticeRedactsBoundsAndClamps(t *testing.T) {
 	clamped := RetryNotice("", -1, -2, -3)
 	if clamped != "⟳ retry stream in 0ms (0/0)" {
 		t.Fatalf("clamped notice = %q", clamped)
+	}
+}
+
+func TestErrorTextRedactsCollapsesAndBounds(t *testing.T) {
+	got := errorText("en", fmt.Errorf("sse reset api_key: sk-proj-abcdefghijklmnop\nsecond line %s", strings.Repeat("x", 400)))
+	if strings.Contains(got, "sk-proj-abcdefghijklmnop") {
+		t.Fatalf("errorText leaked a secret: %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Fatalf("errorText kept a newline: %q", got)
+	}
+	if TextWidth(got) > TextWidth("error: ")+maxStreamErrorDetail {
+		t.Fatalf("errorText not bounded: %d cells", TextWidth(got))
 	}
 }
 

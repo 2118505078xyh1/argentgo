@@ -181,6 +181,16 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 	var output string
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
+		// A finished context cannot be recovered by another attempt. Check
+		// before invoking the seam: a prompter or tool runner may ignore its
+		// context, and a cancelled run must still stop without starting new
+		// work. Attempts stays zero when nothing was actually attempted.
+		if err := ctx.Err(); err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			break
+		}
 		result.Attempts = attempt
 		if attempt > 1 {
 			if err := sleep(ctx, backoffAt(backoff, attempt-1)); err != nil {
@@ -189,11 +199,16 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 			}
 		}
 		output, lastErr = e.attempt(ctx, step, input, outputs, params)
-		if lastErr == nil {
+		if err := ctx.Err(); err != nil {
+			// Cancelled or out of time: another attempt cannot help. If the
+			// seam ignored cancellation and returned a value, surface the
+			// context error so the cancelled step is not reported as a success.
+			if lastErr == nil {
+				lastErr = err
+			}
 			break
 		}
-		if ctx.Err() != nil {
-			// Cancelled or out of time: another attempt cannot help.
+		if lastErr == nil {
 			break
 		}
 	}

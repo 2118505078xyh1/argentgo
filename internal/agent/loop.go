@@ -127,6 +127,14 @@ type runState struct {
 	// only consulted when Options.Verify is set, so unconfigured runs never
 	// touch it.
 	verifyState VerifyLoopState
+	// batchVerificationEligible records whether the most recently processed
+	// batch went through normal dispatch and contained a mutating call. A batch
+	// rejected wholesale (truncated arguments, a failing BeforeTool hook or
+	// invalid call IDs) is answered with fillUnrun instead; no edit happened,
+	// so post-edit verification must not spend a reflection or stop the run.
+	// Individual repeat-guard blocks inside a dispatched batch stay eligible:
+	// they are the model's own failed edit attempts, not a loop-level rejection.
+	batchVerificationEligible bool
 }
 
 // execute is the internal entry point shared by Run, RunText and Prompt.

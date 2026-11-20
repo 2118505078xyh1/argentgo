@@ -264,6 +264,7 @@ type chatRequest struct {
 	Model                string         `json:"model"`
 	Messages             []chatMessage  `json:"messages"`
 	Tools                []ToolSpec     `json:"tools,omitempty"`
+	StopTokenIDs         []int64        `json:"stop_token_ids,omitempty"`
 	Stream               bool           `json:"stream"`
 	StreamOptions        *streamOptions `json:"stream_options,omitempty"`
 	PromptCacheRetention string         `json:"prompt_cache_retention,omitempty"`
@@ -342,12 +343,27 @@ func (c *Client) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
+	return c.chat(ctx, model, messages, tools, onText, nil)
+}
+
+// chat is the shared request/retry/stream pipeline. stopIDs, when non-empty,
+// is forwarded as the optional stop_token_ids field; Chat passes nil so its
+// wire format is unchanged. FillMiddle uses it to attach FIM stop tokens.
+func (c *Client) chat(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	tools []ToolSpec,
+	onText func(string),
+	stopIDs []int64,
+) (Message, error) {
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
-		Model:    model,
-		Messages: wireMessages(messages, cacheEnabled, c.Options.cacheControl()),
-		Tools:    tools,
-		Stream:   true,
+		Model:        model,
+		Messages:     wireMessages(messages, cacheEnabled, c.Options.cacheControl()),
+		Tools:        tools,
+		StopTokenIDs: stopIDs,
+		Stream:       true,
 	}
 	if cacheEnabled || c.Options.IncludeUsage {
 		request.StreamOptions = &streamOptions{IncludeUsage: true}

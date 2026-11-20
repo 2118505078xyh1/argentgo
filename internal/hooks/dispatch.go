@@ -100,6 +100,17 @@ type Dispatcher struct {
 	// Shell overrides the command interpreter, for tests and odd platforms.
 	// The default is bash -c (cmd /C on Windows when bash is absent).
 	Shell func(command string) (name string, args []string)
+
+	// Telemetry, when non-nil, is invoked once per hook executed by
+	// Dispatch/Run with its elapsed time, exit status and failure reason. It
+	// runs from the hook's own goroutine while hooks are parallel, so the
+	// callback must be safe for concurrent use. Leaving it nil (the default)
+	// adds no telemetry work to a run.
+	Telemetry TelemetryFunc
+	// SlowThreshold marks HookTelemetry.Slow true once a hook's elapsed time
+	// reaches it. Zero (the default) disables the mark. It never changes
+	// dispatch or timing; callers decide how to warn on slow records.
+	SlowThreshold time.Duration
 }
 
 // Dispatch runs every matching hook for payload.Event and returns the
@@ -248,6 +259,12 @@ func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payloa
 // command. The command string is the fallback identity when the caller did not
 // supply a tool call ID.
 func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, payload Payload) Outcome {
+	// Take the clock only when telemetry is on, so the default path pays no
+	// extra timing cost beyond what RunCommand already does.
+	var started time.Time
+	if d.Telemetry != nil {
+		started = time.Now()
+	}
 	outcome := Outcome{Event: command.Event, Command: command.Command, ExitCode: -1}
 	callID := payload.CallID
 	if callID == "" {
@@ -259,6 +276,19 @@ func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, pay
 	})
 	if err != nil && outcome.Err == nil {
 		outcome.Err = err
+	}
+	if d.Telemetry != nil {
+		elapsed := time.Since(started)
+		d.reportTelemetry(HookTelemetry{
+			Name:     command.Command,
+			Event:    command.Event,
+			Elapsed:  elapsed,
+			Err:      outcome.Err,
+			ExitCode: outcome.ExitCode,
+			TimedOut: outcome.TimedOut,
+			Blocked:  outcome.Blocked,
+			Slow:     d.SlowThreshold > 0 && elapsed >= d.SlowThreshold,
+		})
 	}
 	return outcome
 }

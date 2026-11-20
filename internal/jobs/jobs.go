@@ -349,6 +349,16 @@ func (r *Registry) Stop(id string) error {
 	startedAt := job.StartedAt
 	live := job.live
 	if live == nil && !sameProcess(pid, startedAt) {
+		// A watched job's terminal state and real exit code belong to its
+		// in-process reaper/watcher. A dead or recycled pid must not be
+		// published as Exited/-1 here — that is the same premature-terminal
+		// race refreshLocked already avoids for watched jobs. Leave the job
+		// running and let the watcher record the true code; we only refuse to
+		// signal an unidentifiable pid.
+		if job.watched {
+			r.mu.Unlock()
+			return fmt.Errorf("%w (job %s, pid %d); nothing was killed", errProcessIdentity, id, pid)
+		}
 		markStale(job)
 		snap, version := r.changedLocked()
 		r.mu.Unlock()
@@ -395,6 +405,13 @@ func (r *Registry) Remove(id string) error {
 	live := job.live
 	logPath := job.LogPath
 	if running && live == nil && !sameProcess(pid, startedAt) {
+		// As in Stop, a watched job's terminal state belongs to its in-process
+		// watcher: retiring it with -1 here would publish a premature terminal
+		// snapshot and hide the real exit code the watcher is about to record.
+		if job.watched {
+			r.mu.Unlock()
+			return fmt.Errorf("%w (job %s, pid %d); nothing was killed, job kept", errProcessIdentity, id, pid)
+		}
 		markStale(job)
 		snap, version := r.changedLocked()
 		r.mu.Unlock()

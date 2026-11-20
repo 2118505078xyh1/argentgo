@@ -108,7 +108,11 @@ func (s *runState) verifyChangedPaths(turn int) []string {
 //
 // It returns (stopReason, true) only when the run must end.
 func (s *runState) verifyAfterBatch(ctx context.Context, turn int, calls []llm.ToolCall) (string, bool) {
-	if s.opts.Verify == nil || !s.batchHasMutation(calls) {
+	if s.opts.Verify == nil || !s.batchHasMutation(calls) || !s.batchVerificationEligible {
+		// A batch rejected wholesale (truncated arguments, a failing BeforeTool
+		// hook or invalid call IDs) is answered by fillUnrun without running any
+		// tool. Verifying it would spend a reflection on a FAIL and could even
+		// end the run with StopVerifyReflections despite no edit having happened.
 		return "", false
 	}
 	label, passed, output, ok := s.opts.Verify(ctx, s.verifyChangedPaths(turn))

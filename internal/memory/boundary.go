@@ -236,11 +236,17 @@ func appendInstruction(out []Instruction, path string, limit int, used *int) ([]
 
 	budgetTruncated := false
 	if limit > 0 {
+		// Reserve the truncation marker's bytes when the per-file cap already
+		// clipped this body; see the matching logic in LoadIn.
+		markerCost := 0
+		if fileTruncated {
+			markerCost = len(TruncationMarker)
+		}
 		remaining := totalBudget - *used
-		if remaining <= 0 {
+		if remaining <= markerCost {
 			return out, true
 		}
-		if len(body) > remaining {
+		if len(body)+markerCost > remaining {
 			room := remaining - len(TruncationMarker)
 			if room <= 0 {
 				return out, true

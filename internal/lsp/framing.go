@@ -47,17 +47,21 @@ func writeFrame(w io.Writer, payload []byte) error {
 func readFrame(r *bufio.Reader) ([]byte, error) {
 	length := -1
 	for {
-		line, err := r.ReadString('\n')
+		// ReadSlice keeps header scanning inside the reader's fixed-size
+		// buffer. ReadString would grow an unbounded slice looking for '\n',
+		// so a broken server could exhaust memory before the size check below
+		// ever ran.
+		line, err := r.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) || len(line) > maxHeaderLine {
+			return nil, fmt.Errorf("%w: header line over %d bytes", ErrMessageTooLarge, maxHeaderLine)
+		}
 		if err != nil {
-			if errors.Is(err, io.EOF) && line == "" {
+			if errors.Is(err, io.EOF) && len(line) == 0 {
 				return nil, io.EOF
 			}
 			return nil, fmt.Errorf("lsp: read header: %w", err)
 		}
-		if len(line) > maxHeaderLine {
-			return nil, fmt.Errorf("%w: header line over %d bytes", ErrMessageTooLarge, maxHeaderLine)
-		}
-		trimmed := strings.TrimRight(line, "\r\n")
+		trimmed := strings.TrimRight(string(line), "\r\n")
 		if trimmed == "" {
 			break
 		}
