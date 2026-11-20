@@ -211,6 +211,48 @@ func syncRepairDir(dir string) {
 	_ = handle.Close()
 }
 
+// RecoverProgress returns the latest durable assistant-progress checkpoint for
+// crash recovery, after rejecting checkpoints that are behind the session's
+// last committed assistant message.
+//
+// Two guards keep recovery from rewinding the conversation:
+//   - Position: an assistant message recorded at or after the checkpoint means
+//     that turn already completed, so its mid-turn progress is obsolete.
+//   - Turn: a checkpoint whose Turn is not greater than the number of committed
+//     assistant messages on the active branch belongs to a turn that is already
+//     durable. Progress from the current, in-flight turn passes.
+//
+// The boolean reports whether a valid checkpoint was found. This is advisory:
+// the agent decides whether to resume, replay or discard the returned text and
+// tool calls. ValidateAndRepair itself is unchanged.
+func RecoverProgress(s *Session) (Progress, bool) {
+	records, err := s.Records()
+	if err != nil {
+		return Progress{}, false
+	}
+	scope := progressScope(s, records)
+	progress, progressIdx, ok := latestProgressRecord(scope)
+	if !ok {
+		return Progress{}, false
+	}
+	committed := 0
+	for i, record := range scope {
+		if record.Kind != KindAssistant {
+			continue
+		}
+		if i >= progressIdx {
+			// A committed assistant message follows this checkpoint: the turn
+			// it belonged to is complete, so do not resume from mid-turn state.
+			return Progress{}, false
+		}
+		committed++
+	}
+	if progress.Turn <= committed {
+		return Progress{}, false
+	}
+	return progress, true
+}
+
 // appendRepairNewline fixes an unterminated final record without rewriting the
 // rest of the transcript. It is kept separate from torn-tail repair so a schema
 // error can never be masked by a cosmetic rewrite.

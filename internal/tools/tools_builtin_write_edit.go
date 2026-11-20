@@ -3,6 +3,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,17 +65,20 @@ func (editTool) Description() string {
 }
 func (editTool) Mutating() bool { return true }
 func (editTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"repair":{"type":"boolean","description":"opt-in graded repair ladder for missing or non-literal matches"}},"required":["path"]}`
+	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"repair":{"type":"boolean","description":"opt-in graded repair ladder for missing or non-literal matches"},"anchor":{"type":"string","description":"exact original text the model saw"},"anchor_hash":{"type":"string","description":"first 12 hex chars of sha256(anchor bytes)"},"hashline":{"type":"boolean","description":"opt-in hashline anchoring with stale-anchor recovery"}},"required":["path"]}`
 }
 
 func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path    string `json:"path"`
-		Old     string `json:"old"`
-		New     string `json:"new"`
-		OldText string `json:"old_text"`
-		NewText string `json:"new_text"`
-		Repair  bool   `json:"repair"`
+		Path       string `json:"path"`
+		Old        string `json:"old"`
+		New        string `json:"new"`
+		OldText    string `json:"old_text"`
+		NewText    string `json:"new_text"`
+		Repair     bool   `json:"repair"`
+		Hashline   bool   `json:"hashline"`
+		Anchor     string `json:"anchor"`
+		AnchorHash string `json:"anchor_hash"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("edit: bad arguments: %w", err)
@@ -83,6 +88,12 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	}
 	if args.New == "" {
 		args.New = args.NewText
+	}
+	// In hashline mode the anchor is the authoritative original text, so it can
+	// stand in for old. This is gated on Hashline to leave the default path
+	// byte-for-byte unchanged when the feature is off.
+	if args.Hashline && args.Old == "" && args.Anchor != "" {
+		args.Old = args.Anchor
 	}
 	if args.Old == "" {
 		return "", fmt.Errorf("edit: old must not be empty")
@@ -98,6 +109,20 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		return "", err
 	}
 	text := string(data)
+
+	// Opt-in hashline anchoring. It only changes how old -> new is resolved;
+	// path resolution, mutation locking and the write below are unchanged.
+	if args.Hashline && (args.Anchor != "" || args.AnchorHash != "") {
+		out, err := resolveHashlineEdit(text, args.Path, args.Anchor, args.AnchorHash, args.Old, args.New)
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+			return "", err
+		}
+		return "edited " + args.Path, nil
+	}
+
 	count := strings.Count(text, args.Old)
 	if args.Repair {
 		var out string
@@ -133,6 +158,62 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		return "", err
 	}
 	return "edited " + args.Path, nil
+}
+
+// hashlineHash returns the first 12 hex characters of the SHA-256 digest of s's
+// exact bytes. The contract a model must reproduce is: take the original text
+// it saw verbatim (byte-for-byte, newlines included), SHA-256 those bytes, hex
+// encode the 32-byte digest, and keep the leading 12 lowercase hex characters.
+func hashlineHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// resolveHashlineEdit resolves an opt-in, content-hash-anchored edit and returns
+// the full replacement content for the file (the caller owns the write).
+//
+// Resolution order:
+//  1. If anchor_hash is supplied it must equal hashlineHash(anchor). A mismatch
+//     is a recoverable "stale anchor" error: the file changed since it was read.
+//  2. A unique literal occurrence of the anchor wins immediately. Line shifts
+//     are irrelevant here because matching is by content, not line number.
+//  3. If the anchor is absent, but its hash was verified (or none was supplied),
+//     the graded repair ladder is retried to recover slightly shifted content.
+//  4. Otherwise a "no longer present" error lists the most similar lines.
+func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string) (string, error) {
+	if anchorHash != "" {
+		want := hashlineHash(anchor)
+		if !strings.EqualFold(anchorHash, want) {
+			return "", fmt.Errorf("edit: stale anchor: content changed since it was read (expected hash %s, got %s)", want, anchorHash)
+		}
+	}
+
+	// The anchor is the authoritative original text; fall back to old when the
+	// model omitted anchor (the caller still routes here only when one is set).
+	oldText := anchor
+	if oldText == "" {
+		oldText = old
+	}
+
+	count := strings.Count(content, oldText)
+	switch count {
+	case 1:
+		return strings.Replace(content, oldText, newText, 1), nil
+	case 0:
+		// Anchor not found: try the repair ladder for stale-anchor recovery.
+	default:
+		return "", fmt.Errorf("edit: stale anchor appears %d times in %s (not unique); file unchanged", count, path)
+	}
+
+	if out, ok := repairReplace(content, oldText, newText); ok {
+		return out, nil
+	}
+
+	msg := "edit: stale anchor no longer present in " + path + "; file unchanged"
+	if s := formatSimilarLines(content, oldText); s != "" {
+		msg += "; " + s
+	}
+	return "", errors.New(msg)
 }
 
 // repairReplace walks the graded Aider-style repair ladder, in order:

@@ -167,23 +167,28 @@ type Model struct {
 
 	// The optional side rail. All three are hidden by default so the classic
 	// transcript view and its keybindings are byte-for-byte unchanged.
-	showTasks       bool
-	showWorkspace   bool
-	showPlan        bool
-	showSessions    bool
-	sessionsCursor  int
-	sessionsScroll  int
-	tasks           []Task
-	tasksScroll     int
-	workspace       []workspaceEntry
-	workspaceCursor int
-	workspaceScroll int
-	previewLines    []string
-	previewPath     string
-	previewScroll   int
-	plan            *Plan
-	planScroll      int
-	fs              FileSystem
+	showTasks      bool
+	showWorkspace  bool
+	showPlan       bool
+	showSessions   bool
+	sessionsCursor int
+	sessionsScroll int
+	// sessionFilter is the parsed fuzzy query shown above the session rows;
+	// sessionFiltering is true while that filter bar owns the keyboard.
+	// Both are inert until the session rail is shown.
+	sessionFilter    string
+	sessionFiltering bool
+	tasks            []Task
+	tasksScroll      int
+	workspace        []workspaceEntry
+	workspaceCursor  int
+	workspaceScroll  int
+	previewLines     []string
+	previewPath      string
+	previewScroll    int
+	plan             *Plan
+	planScroll       int
+	fs               FileSystem
 
 	pending       *approvalRequest
 	approvalQueue []approvalRequest

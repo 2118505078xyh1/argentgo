@@ -330,27 +330,27 @@ func editTexts(name, args string) (oldText, newText string, ok bool) {
 }
 
 // diffPreviewLines renders a diff with the same row budget and "N more lines"
-// marker as the ordinary tool-output preview.
+// marker as the ordinary tool-output preview. Adjacent "-"/"+" rows are
+// aligned word by word so a small edit highlights only the changed words.
 func diffPreviewLines(diffs []DiffLine, limit, width int, p Palette) []Line {
 	var out []Line
 	bodyWidth := maxInt(width-4, 1)
 	shown := 0
 	for shown < limit && shown < len(diffs) {
 		diff := diffs[shown]
-		line := NewLine()
-		line.Push("  ", Style{})
-		switch diff.Kind {
-		case DiffAdd:
-			line.Push("+ ", p.tool())
-			line.Push(Clip(diff.Text, bodyWidth), p.tool())
-		case DiffDel:
-			line.Push("- ", p.failure())
-			line.Push(Clip(diff.Text, bodyWidth), p.failure())
-		default:
-			line.Push("  ", p.muted())
-			line.Push(Clip(diff.Text, bodyWidth), p.muted())
+		// Pairing only when both rows still fit the budget keeps the row count
+		// and "N more lines" result identical to the whole-line baseline.
+		if diff.Kind == DiffDel && shown+1 < limit && shown+1 < len(diffs) &&
+			diffs[shown+1].Kind == DiffAdd {
+			oldSegs, newSegs := WordDiff(diff.Text, diffs[shown+1].Text)
+			out = append(out,
+				wordDiffRow("- ", oldSegs, bodyWidth, p, false),
+				wordDiffRow("+ ", newSegs, bodyWidth, p, true),
+			)
+			shown += 2
+			continue
 		}
-		out = append(out, line)
+		out = append(out, plainDiffRow(diff, bodyWidth, p))
 		shown++
 	}
 	if remaining := len(diffs) - shown; remaining > 0 {
@@ -360,6 +360,71 @@ func diffPreviewLines(diffs []DiffLine, limit, width int, p Palette) []Line {
 		out = append(out, line)
 	}
 	return out
+}
+
+// plainDiffRow renders an unpaired diff row with one whole-line span, which is
+// the original behaviour an isolated deletion or addition still falls back to.
+func plainDiffRow(diff DiffLine, bodyWidth int, p Palette) Line {
+	line := NewLine()
+	line.Push("  ", Style{})
+	switch diff.Kind {
+	case DiffAdd:
+		line.Push("+ ", p.tool())
+		line.Push(Clip(diff.Text, bodyWidth), p.tool())
+	case DiffDel:
+		line.Push("- ", p.failure())
+		line.Push(Clip(diff.Text, bodyWidth), p.failure())
+	default:
+		line.Push("  ", p.muted())
+		line.Push(Clip(diff.Text, bodyWidth), p.muted())
+	}
+	return line
+}
+
+// wordDiffRow renders one side of a paired del/add row. Unchanged segments
+// keep the row's ordinary style; changed segments get a strong background so
+// the edited word stands out. Segments share one width budget accumulated in
+// display cells, and a segment that crosses the edge is clipped on a grapheme
+// boundary rather than cut mid-rune (so CJK and emoji stay intact).
+func wordDiffRow(marker string, segs []WordSegment, bodyWidth int, p Palette, add bool) Line {
+	line := NewLine()
+	line.Push("  ", Style{})
+	base, changed := p.failure(), changedWordStyle(p, false)
+	if add {
+		base, changed = p.tool(), changedWordStyle(p, true)
+	}
+	line.Push(marker, base)
+	used := 0
+	for _, seg := range segs {
+		if used >= bodyWidth {
+			break
+		}
+		text, style := seg.Text, base
+		if seg.Changed {
+			style = changed
+		}
+		cells := TextWidth(text)
+		if room := bodyWidth - used; cells > room {
+			line.Push(Clip(text, room), style)
+			break
+		}
+		line.Push(text, style)
+		used += cells
+	}
+	return line
+}
+
+// changedWordStyle gives a changed word a coloured background band. It reuses
+// the failure/tool palette colours so themes and NO_COLOR degrade the same way
+// as the rest of the renderer.
+func changedWordStyle(p Palette, add bool) Style {
+	if p.noColor {
+		return Style{}
+	}
+	if add {
+		return Style{Bg: p.Tool, Bold: true}
+	}
+	return Style{Bg: p.Error, Bold: true}
 }
 
 // countLines counts rows without allocating the []string that strings.Split

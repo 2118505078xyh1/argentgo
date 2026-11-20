@@ -39,3 +39,21 @@ func (s *Session) Sync() error {
 	}
 	return nil
 }
+
+// SyncProgress appends a progress checkpoint and then flushes the transcript to
+// stable storage, tying a durability barrier directly to the checkpoint. When
+// no Progress is supplied it acts as a plain durability barrier (equivalent to
+// Sync) for progress already appended with AppendProgress; this keeps the
+// no-argument call form useful and safe.
+//
+// Sync works on a freshly opened handle and does not touch the append state or
+// truncate the file, so it can be called from any goroutine after the append.
+// A failure to append is returned before any Sync is attempted.
+func (s *Session) SyncProgress(progress ...Progress) error {
+	if len(progress) > 0 {
+		if err := s.AppendProgress(progress[0]); err != nil {
+			return err
+		}
+	}
+	return s.Sync()
+}

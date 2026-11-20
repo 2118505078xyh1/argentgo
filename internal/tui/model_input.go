@@ -16,9 +16,19 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		return m.answerApprovalLocked(key)
 	}
 	m.markDirtyLocked()
+	if m.sessionFiltering {
+		return m.filterKeyLocked(key)
+	}
 	switch key.Kind {
 	case KindIgnore:
 		return ActionNone
+	case KindCtrlL:
+		// Ctrl+L is decoded but otherwise unused; with the session rail open
+		// it focuses the filter bar. It leaves the prompt untouched so slash
+		// commands like /help still type normally.
+		if m.showSessions {
+			m.sessionFiltering = true
+		}
 	case KindCtrlT:
 		m.showTasks = !m.showTasks
 		m.version++
@@ -159,6 +169,39 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.editor.Insert(string(key.Rune))
 	case KindPaste:
 		m.editor.Insert(key.Text)
+	}
+	return ActionNone
+}
+
+// filterKeyLocked routes keys while the session filter bar owns the keyboard.
+// Filtering is live: every keystroke re-renders the rail. Esc cancels and
+// clears the query, Enter confirms and keeps it, Ctrl+L leaves focus without
+// changing the query. No key is ever forwarded to the prompt in this mode.
+func (m *Model) filterKeyLocked(key Key) KeyAction {
+	switch key.Kind {
+	case KindEsc:
+		m.sessionFiltering = false
+		m.sessionFilter = ""
+		m.sessionsScroll = 0
+	case KindEnter:
+		m.sessionFiltering = false
+		m.sessionsScroll = 0
+	case KindCtrlL:
+		m.sessionFiltering = false
+	case KindBackspace:
+		runes := []rune(m.sessionFilter)
+		if len(runes) > 0 {
+			m.sessionFilter = string(runes[:len(runes)-1])
+		}
+		m.sessionsScroll = 0
+	case KindRune:
+		m.sessionFilter += string(key.Rune)
+		m.sessionsScroll = 0
+	case KindPaste:
+		m.sessionFilter += key.Text
+		m.sessionsScroll = 0
+	case KindIgnore:
+		// nothing to do
 	}
 	return ActionNone
 }

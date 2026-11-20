@@ -10,6 +10,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/memory"
 )
 
 // maxToolDescLen bounds a tool description shipped to the model. A long MCP
@@ -41,10 +42,14 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		maxOutput = maxToolOutput
 	}
 	r := &Registry{root: root, yolo: yolo, maxOutput: maxOutput, tools: make(map[string]Tool)}
+	// A default bank keeps the memory tools usable before the app wires a real
+	// session directory. SetMemoryBank overrides it once that directory exists.
+	bank := memory.NewBank(filepath.Join(root, ".argent"))
 	for _, tool := range []Tool{
 		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{}, powershellTool{},
 		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
 		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
+		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
 	} {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
@@ -64,6 +69,18 @@ func (r *Registry) SetGuard(g Guard) {
 // they fall back to <root>/.argent.
 func (r *Registry) SetSessionDir(dir string) {
 	r.sessionDir = dir
+}
+
+// SetMemoryBank replaces the bank behind the memory_* tools without changing
+// registration order. The app calls this once the real session directory is
+// known; nil leaves the current bank in place.
+func (r *Registry) SetMemoryBank(bank *memory.Bank) {
+	if bank == nil {
+		return
+	}
+	r.tools["memory_retain"] = newMemoryRetainTool(bank)
+	r.tools["memory_recall"] = newMemoryRecallTool(bank)
+	r.tools["memory_forget"] = newMemoryForgetTool(bank)
 }
 
 // SetJobs installs the background-job registry used by the bash tool when a
