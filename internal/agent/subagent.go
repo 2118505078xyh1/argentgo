@@ -78,6 +78,12 @@ type SubagentConfig struct {
 	// means &Runner{Opts: opts}. It is primarily a test seam: injecting a fake
 	// lets a test control child execution without a real model.
 	NewChild func(opts Options) ChildRunner
+	// SeedContext carries retention-flagged parent records into each child's
+	// context, one formatted line per record. It is additive and default-off:
+	// empty leaves the child system prompt exactly as before. The app computes
+	// the lines with session.SelectForChildren(records) and formats them; the
+	// agent package never imports session (see AGENTS.md layering rules).
+	SeedContext []string
 }
 
 // TaskToolSpec describes the delegate tool to the model.
@@ -374,6 +380,9 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if t.cfg.NewChild != nil {
 		merged.NewChild = t.cfg.NewChild
 	}
+	if len(t.cfg.SeedContext) > 0 {
+		merged.SeedContext = t.cfg.SeedContext
+	}
 	// Keep the resolver so nested tasks can choose their own personas too.
 	merged.ResolvePersona = t.cfg.ResolvePersona
 	return merged
@@ -395,6 +404,9 @@ func (t *taskTools) childOptions(label, persona string) Options {
 	system := strings.TrimSpace(cfg.System)
 	if system == "" {
 		system = fmt.Sprintf(subagentTemplate, label)
+	}
+	if len(cfg.SeedContext) > 0 {
+		system += "\n\nRetained context from the parent thread:\n- " + strings.Join(cfg.SeedContext, "\n- ")
 	}
 
 	budget := cfg.Budget

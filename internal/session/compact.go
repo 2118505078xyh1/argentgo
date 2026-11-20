@@ -33,8 +33,7 @@ func (s *Session) Compact(keep int) error {
 	if start <= 0 {
 		return nil
 	}
-	compaction := Summarize(entries[:start], len(entries)-start)
-	return s.Append(KindCompaction, compaction)
+	return s.appendCompaction(entries, start)
 }
 
 // CompactBudget compacts the older part of the conversation so the kept suffix
@@ -50,8 +49,109 @@ func (s *Session) CompactBudget(budget int) error {
 	if start <= 0 {
 		return nil
 	}
+	return s.appendCompaction(entries, start)
+}
+
+// appendCompaction writes the summary record and then re-emits any
+// retention-flagged records from the dropped prefix so they survive
+// (SelectForCompaction). A flagged tool call/result is re-emitted together with
+// its partner, so compaction never reintroduces an orphaned result or a call
+// without its result. When nothing is flagged this is byte-for-byte the old
+// behaviour: one compaction record and nothing else.
+func (s *Session) appendCompaction(entries []Entry, start int) error {
+	restored := retainedForCompaction(entries, start)
 	compaction := Summarize(entries[:start], len(entries)-start)
-	return s.Append(KindCompaction, compaction)
+	if err := s.Append(KindCompaction, compaction); err != nil {
+		return err
+	}
+	for _, record := range restored {
+		if _, err := s.AppendRecord(record.Kind, record.Data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retainedForCompaction returns the flagged records from the dropped prefix in
+// original order, expanded to whole tool pairs. Only Record.Data is inspected
+// by SelectForCompaction, so projecting Entry onto a minimal Record is enough.
+func retainedForCompaction(entries []Entry, start int) []Record {
+	dropped := entries[:start]
+	records := make([]Record, len(dropped))
+	for i, entry := range dropped {
+		records[i] = Record{ID: entry.ID, Data: entry.Data}
+	}
+	// No cap: a retention hint must win over keeping compaction cheap.
+	flagged := SelectForCompaction(records, 0)
+	if len(flagged) == 0 {
+		return nil
+	}
+	flaggedIDs := make(map[string]bool, len(flagged))
+	for _, record := range flagged {
+		flaggedIDs[record.ID] = true
+	}
+
+	// Index tool pairs inside the dropped prefix so a flagged half pulls in
+	// the other half rather than leaving an orphan in the survived context.
+	calls := make(map[string][]int)
+	results := make(map[string][]int)
+	for i, entry := range dropped {
+		switch entry.Role {
+		case "assistant":
+			for _, id := range toolCallIDs(entry) {
+				calls[id] = append(calls[id], i)
+			}
+		case "tool":
+			if entry.ToolCallID != "" {
+				results[entry.ToolCallID] = append(results[entry.ToolCallID], i)
+			}
+		}
+	}
+
+	keep := make([]bool, len(dropped))
+	for i, entry := range dropped {
+		if !flaggedIDs[entry.ID] {
+			continue
+		}
+		keep[i] = true
+		if entry.Role == "tool" {
+			for _, ci := range calls[entry.ToolCallID] {
+				keep[ci] = true
+			}
+		}
+		if entry.Role == "assistant" {
+			for _, id := range toolCallIDs(entry) {
+				for _, ri := range results[id] {
+					keep[ri] = true
+				}
+			}
+		}
+	}
+
+	out := make([]Record, 0, len(dropped))
+	for i, keepIt := range keep {
+		if keepIt {
+			out = append(out, Record{Kind: entryKind(dropped[i]), Data: dropped[i].Data})
+		}
+	}
+	return out
+}
+
+// entryKind maps a conversation role back to the record kind used to re-emit
+// it, so messageEntry projects the restored record onto the same Entry.
+func entryKind(entry Entry) string {
+	switch entry.Role {
+	case "user":
+		return KindUser
+	case "assistant":
+		return KindAssistant
+	case "tool":
+		return KindTool
+	case "system":
+		return KindSummary
+	default:
+		return KindMessage
+	}
 }
 
 // CutForBudget returns the first index to keep for a conversation whose kept

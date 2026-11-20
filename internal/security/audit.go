@@ -25,6 +25,9 @@ type AuditEntry struct {
 	Args string `json:"args,omitempty"`
 	// Session identifies the session that produced the call.
 	Session string `json:"session,omitempty"`
+	// PrivacyMode records the privacy posture in effect for this decision.
+	// Empty preserves the pre-privacy behavior (the key is omitted entirely).
+	PrivacyMode string `json:"privacy_mode,omitempty"`
 }
 
 // AuditLog appends redacted decisions to one JSONL file per UTC day under a

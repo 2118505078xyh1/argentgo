@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -252,6 +254,14 @@ type callResult struct {
 	intent string
 }
 
+// approvalDigest returns a stable, bounded hash of the exact arguments an
+// approval was asked for. It never contains the raw arguments, so the notice is
+// safe to put on the ordinary transcript stream.
+func approvalDigest(args string) string {
+	sum := sha256.Sum256([]byte(args))
+	return hex.EncodeToString(sum[:])
+}
+
 // invoke gates and runs a single call. A tool error becomes an error result for
 // the model; it never aborts the run.
 func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
@@ -260,7 +270,14 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 	// approver. Asking again in the loop would show a second modal for one call.
 	if guarded, ok := s.opts.Tools.(interface{ Guarded() bool }); !ok || !guarded.Guarded() {
 		if s.needsApproval(call.Function.Name) {
+			// Emit paired notice events so every transport (Emit, --rpc, native)
+			// can audit the approval without any protocol change. These are
+			// events only: the decision and the resulting call result are
+			// unchanged for callers that do not consume them.
+			digest := approvalDigest(call.Function.Arguments)
+			s.emit(ApprovalRequestedEvent(call.Function.Name, digest, call.ID))
 			allowed, err := s.opts.Approve.Ask(ctx, call.Function.Name, call.Function.Arguments)
+			s.emit(ApprovalResolvedEvent(call.Function.Name, call.ID, err == nil && allowed))
 			switch {
 			case err != nil:
 				return callResult{

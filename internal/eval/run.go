@@ -228,7 +228,32 @@ func evaluate(scenario Scenario, trace Trace, observed observation, dir string) 
 	if expect.CachedTokens != nil && *expect.CachedTokens != trace.Usage.CachedTokens {
 		return fmt.Sprintf("expected %d cached tokens, the model reported %d", *expect.CachedTokens, trace.Usage.CachedTokens)
 	}
+	// Exec checks are strictly opt-in (AllowExec). They run in the disposable
+	// temp workspace after the other checks; without the flag no command is
+	// ever started, so existing fixtures keep their old behaviour.
+	if scenario.Check.AllowExec && scenario.Check.Exec != nil {
+		check := scenario.Check.Exec
+		res := RunExecCheck(dir, *check)
+		if !GradeExecCheck(res, *check) {
+			return execFailureReason(res, *check)
+		}
+	}
 	return checkWorkspace(scenario.Check, dir)
+}
+
+// execFailureReason renders a failed exec check for the TAP report.
+func execFailureReason(res ExecResult, c ExecCheck) string {
+	switch {
+	case res.TimedOut:
+		return fmt.Sprintf("exec check timed out: %q %v", c.Command, c.Args)
+	case res.ExitCode == -1 && res.Err != nil:
+		return fmt.Sprintf("exec check could not start %q %v: %v", c.Command, c.Args, res.Err)
+	case res.ExitCode != c.WantExitCode:
+		return fmt.Sprintf("exec check %q %v exited %d, want %d (stderr: %q)",
+			c.Command, c.Args, res.ExitCode, c.WantExitCode, clip(res.StderrTail, 160))
+	default:
+		return fmt.Sprintf("exec check stdout %q does not contain %q", clip(res.StdoutTail, 160), c.WantStdoutContains)
+	}
 }
 
 // checkWorkspace verifies the seeded workspace after the run.

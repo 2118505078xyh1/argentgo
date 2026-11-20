@@ -123,6 +123,14 @@ type Check struct {
 	FilesExist []string `json:"files_exist,omitempty"`
 	// FileContains maps a path to a needle its content must contain.
 	FileContains map[string]string `json:"file_contains,omitempty"`
+
+	// Exec, when set and AllowExec is true, is run inside the seeded temp
+	// workspace after the other checks (see RunExecCheck / GradeExecCheck).
+	Exec *ExecCheck `json:"exec,omitempty"`
+	// AllowExec is the explicit opt-in for Exec. Command execution is
+	// default-off: an Exec without AllowExec is never run, so a scenario
+	// document cannot execute a command unless it asks for it by name.
+	AllowExec bool `json:"allow_exec,omitempty"`
 }
 
 // Scenario is one scripted eval case.

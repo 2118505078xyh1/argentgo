@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -123,6 +124,15 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	res, err := state.loop(ctx)
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
+	}
+	// Persist one run-totals stats record through the injected Recorder. The app
+	// wires Record to Session.Append, so this becomes a kind:"stats" record that
+	// LatestStats/AggregateStats read back after resume. It is a no-op without a
+	// recorder. A cancelled run is skipped so its transcript still ends with the
+	// synthetic terminal assistant (the recorder's last row stays "assistant");
+	// per-request usage from account() is still persisted for such runs.
+	if res.Stopped != StopCancelled {
+		state.recordRunStats()
 	}
 	return res, err
 }
@@ -523,6 +533,50 @@ func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, 
 	return reply, nil
 }
 
+// The two payload types below mirror the wire shape of session.UsageRecord and
+// session.SessionStats without importing the session package: the agent layer
+// stays dependency-free. They are written through the injected Recorder, which
+// the app wires to Session.Append. Keeping the JSON field names in sync is what
+// lets session.UsageRecords / LatestStats / AggregateStats read them back.
+type sessionUsagePayload struct {
+	Model  string `json:"model,omitempty"`
+	Input  int    `json:"input"`
+	Output int    `json:"output"`
+	Cached int    `json:"cached,omitempty"`
+	TS     string `json:"ts,omitempty"`
+}
+
+type sessionStatsPayload struct {
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	CachedTokens     int     `json:"cached_tokens,omitempty"`
+	Calls            int     `json:"calls"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
+	CostSource       string  `json:"cost_source,omitempty"`
+	Updated          string  `json:"updated,omitempty"`
+}
+
+// recordRunStats persists the run's cumulative token/cost roll-up as one stats
+// record. One record per run keeps session.AggregateStats' sum semantics correct
+// across resumes; per-request facts are written by account().
+func (s *runState) recordRunStats() {
+	source := ""
+	if s.costKnown {
+		// Cost is derived from the injected price table, never reported by the
+		// provider wire, so it is always an estimate.
+		source = "estimated"
+	}
+	s.record("stats", sessionStatsPayload{
+		PromptTokens:     s.usage.PromptTokens,
+		CompletionTokens: s.usage.CompletionTokens,
+		CachedTokens:     s.usage.CachedTokens,
+		Calls:            s.turns,
+		CostUSD:          s.costUSD,
+		CostSource:       source,
+		Updated:          time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // account folds one reply's usage into the run totals and returns it.
 //
 // Provider-reported usage wins; otherwise the estimate for the prompt that was
@@ -549,6 +603,15 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 	for _, warning := range s.costWatch.Observe(s.costUSD) {
 		s.emit(Event{Kind: EventNotice, Text: warning})
 	}
+	// Per-request usage fact. Written mid-turn (before any terminal assistant
+	// record) so it never changes which row the recorder sees last.
+	s.record("usage", sessionUsagePayload{
+		Model:  s.model,
+		Input:  usage.PromptTokens,
+		Output: usage.CompletionTokens,
+		Cached: usage.CachedTokens,
+		TS:     time.Now().UTC().Format(time.RFC3339),
+	})
 	return usage, usage.PromptTokens
 }
 

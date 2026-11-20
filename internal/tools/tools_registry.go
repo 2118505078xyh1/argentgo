@@ -67,6 +67,9 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
+	// context_pack packs real file contents around an edit anchor; register it
+	// here so it sits before the memory_* tail and the trailing tool_search.
+	registerContextPack(r)
 	for _, tool := range MemoryAdvancedTools(bank) {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
