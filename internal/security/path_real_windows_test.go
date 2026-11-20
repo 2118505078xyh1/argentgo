@@ -38,8 +38,15 @@ func TestJunctionEscapeIsDeniedForReadsAndWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRealPath through a junction: %v", err)
 	}
-	if !strings.EqualFold(real, secret) {
-		t.Fatalf("junction resolved to %q, want %q", real, secret)
+	// Compare against the resolved target: on Windows a temp dir may come back
+	// as an 8.3 short name (C:\Users\RUNNER~1\...) while ResolveRealPath returns
+	// the long form (C:\Users\runneradmin\...). Both name the same file.
+	want, err := ResolveRealPath(secret)
+	if err != nil {
+		t.Fatalf("ResolveRealPath of the secret: %v", err)
+	}
+	if !strings.EqualFold(real, want) {
+		t.Fatalf("junction resolved to %q, want %q", real, want)
 	}
 
 	if err := InWriteRoots(filepath.Join("home", "pwned.txt"), []string{root}); err == nil {
