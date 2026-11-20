@@ -1,0 +1,95 @@
+{
+  "description": "Execution-verified eval checks (pass@1 by running). LOCAL, DETERMINISTIC, OPT-IN: nothing runs these automatically; a harness must call RunExecCheck explicitly with a seeded temp workspace.",
+  "policy": {
+    "commands": [
+      "go test ...",
+      "go build ...",
+      "a fixture-local relative .exe path (no absolute path, no .., no shell metacharacters)"
+    ],
+    "timeout": "timeout_ms defaults to 30000 and is capped at 120000",
+    "not_a_sandbox": "No OS isolation, network block or user switch. Treat exec-enabled fixtures as trusted code, like the Go tests a repo already runs."
+  },
+  "cases": [
+    {
+      "id": "go-test-pass",
+      "name": "a tiny seeded Go module passes go test ./... with exit 0",
+      "workspace_files": {
+        "go.mod": "module example.com/execfixture\n\ngo 1.27\n",
+        "sum.go": "package execfixture\n\nfunc Sum(a, b int) int { return a + b }\n",
+        "sum_test.go": "package execfixture\n\nimport \"testing\"\n\nfunc TestSum(t *testing.T) {\n\tif Sum(1, 2) != 3 {\n\t\tt.Fatal(\"bad sum\")\n\t}\n}\n"
+      },
+      "check": {
+        "command": "go",
+        "args": ["test", "./..."],
+        "timeout_ms": 30000,
+        "want_exit_code": 0,
+        "want_stdout_contains": "ok"
+      },
+      "expect": {
+        "rejected": false,
+        "exit_code": 0,
+        "timed_out": false,
+        "grade": true,
+        "note": "exit 0 and stdout mentions ok"
+      }
+    },
+    {
+      "id": "go-test-fail",
+      "name": "a deliberately failing test exits non-zero and matches want_exit_code",
+      "workspace_files": {
+        "go.mod": "module example.com/execfixture\n\ngo 1.27\n",
+        "broken_test.go": "package execfixture\n\nimport \"testing\"\n\nfunc TestAlwaysFails(t *testing.T) {\n\tt.Fatal(\"intentional failure\")\n}\n"
+      },
+      "check": {
+        "command": "go",
+        "args": ["test", "./..."],
+        "timeout_ms": 30000,
+        "want_exit_code": 1
+      },
+      "expect": {
+        "rejected": false,
+        "exit_code": 1,
+        "timed_out": false,
+        "grade": true,
+        "note": "a non-zero exit passes when it is the expected exit code"
+      }
+    },
+    {
+      "id": "go-test-timeout",
+      "name": "a 1ms deadline kills the command and grades as a failure",
+      "workspace_files": {
+        "go.mod": "module example.com/execfixture\n\ngo 1.27\n"
+      },
+      "check": {
+        "command": "go",
+        "args": ["test", "./..."],
+        "timeout_ms": 1,
+        "want_exit_code": 0
+      },
+      "expect": {
+        "rejected": false,
+        "exit_code": -1,
+        "timed_out": true,
+        "grade": false,
+        "note": "the killed process reports exit -1; TimedOut is always a failed grade"
+      }
+    },
+    {
+      "id": "rejected-command",
+      "name": "curl is not allowlisted and Validate rejects the fixture",
+      "workspace_files": {},
+      "check": {
+        "command": "curl",
+        "args": ["http://example.com"],
+        "timeout_ms": 1000,
+        "want_exit_code": 0
+      },
+      "expect": {
+        "rejected": true,
+        "timed_out": false,
+        "grade": false,
+        "note": "RunExecCheck refuses to start the command at all"
+      }
+    }
+  ]
+}

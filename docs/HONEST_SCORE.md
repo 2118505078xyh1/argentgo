@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round16 后，2026-11-20 12:00）
+
+> round16 新增（codex/cursor/qwen 学习→优化）：受保护只读子路径（security/protected_paths.go，8 测试）、AGENTS.md 项目根边界+override+trust（memory/boundary.go，74 测试）、终态 provider 错误分类（llm/terminal_outcome.go，289 测试）、/context+.argentignore（commands/context.go + memory/ignore.go，100 测试）、gap-centered read + edit 相似度诊断（tools_builtin_read.go + editbench.go，507+100 测试）。
+> **重要诚实标注**：这些新能力多数是 opt-in building block，**尚未接入主运行流程**（app_execute.go/buildSystem 等接线点被并发会话持续占用）。能力本身已实现+有测试，但未接线不应算满分——这是下一轮的重点。
+
 ## 评分表（round15 后，2026-11-20 11:41）
 
 | 维度 | 分数 | 证据 | 未满原因 |

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -10,9 +11,12 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/commands"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
 // personaDir is where a workspace keeps named subagent definitions.
@@ -102,6 +106,69 @@ func sharedBackgroundResults() *agent.BackgroundResults {
 	return backgroundResults
 }
 
+// contextPrompt handles slash-style /context input the same way reviewPrompt
+// handles /review: it injects a read-only report for the model to summarise.
+// The built-in descriptor is registered through commands.NewSetWithBuiltins,
+// and the report itself comes from commands.ContextHook so the app and the
+// commands package share one renderer. Registration is checked before routing;
+// if the built-in were missing, the prompt would be left untouched.
+func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
+	text := strings.TrimSpace(prompt)
+	if text != "/context" && !strings.HasPrefix(text, "/context ") {
+		return "", false
+	}
+	home := homeDir(stdio.Env)
+	set := commands.NewSetWithBuiltins(commands.DefaultSources(res.Root, home))
+	if _, ok := set.Get("context"); !ok {
+		return "", false
+	}
+
+	docs := projectMemoryDocs(res.Root, stdio.Env, trustFromEnv(stdio.Env))
+	var memoryDocs []commands.MemoryDoc
+	for _, doc := range docs {
+		memoryDocs = append(memoryDocs, commands.MemoryDoc{
+			Path:      doc.Path,
+			Bytes:     len(doc.Text),
+			Truncated: doc.Truncated,
+			Reason:    "per-file or total size cap",
+		})
+	}
+	input := commands.ContextInput{
+		MemoryDocs:   memoryDocs,
+		SkillCount:   skills.Discover(skills.DefaultRoots(res.Root, home)).Len(),
+		CommandCount: set.Len(),
+		SandboxMode:  res.Sandbox.String(),
+		ApprovalMode: res.Approval,
+		Ignore:       ignoreStatus(res.Root),
+	}
+	report, err := commands.ContextHook{Input: input}.Run(strings.TrimSpace(strings.TrimPrefix(text, "/context")))
+	if err != nil {
+		return "The /context command failed: " + err.Error() + ". Answer the user directly.", true
+	}
+	return "Read-only /context report:\n" + report +
+		"\nSummarise the findings; do not modify files.", true
+}
+
+// ignoreStatus reports which .argentignore files affect this workspace. The
+// rule count is deliberately left at zero: IgnoreRules keeps its patterns
+// private, and /context only needs a best-effort status line.
+func ignoreStatus(root string) commands.IgnoreStatus {
+	var files []string
+	dir := filepath.Clean(root)
+	for depth := 0; depth < 32; depth++ {
+		path := filepath.Join(dir, memory.IgnoreFileName)
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			files = append(files, path)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return commands.IgnoreStatus{Files: files}
+}
+
 // Execute runs one prompt through a freshly wired tool registry, policy and
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
@@ -112,6 +179,18 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	_, _ = loadPersonasForRoot(res.Root)
 	if injection, ok := reviewPrompt(res.Root, prompt); ok {
 		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
+	}
+	if injection, ok := contextPrompt(res, stdio, prompt); ok {
+		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
+	}
+	// Resolve builds the legacy system prompt for every caller. When the
+	// resolved trust decision opts in, rebuild the project-memory block through
+	// the boundary-aware loader so res.TrustProject actually reaches it (the
+	// flag can override an ARGENT_TRUST_PROJECT=0 env value). When not opted
+	// in, keep res.System byte-identical so existing callers are unaffected.
+	trustedSystem := res.System
+	if res.TrustProject {
+		trustedSystem = buildSystemWithTrust(res.Root, stdio.Env, true, res.Thinking, res.OutputSchema)
 	}
 	if res.MaxSeconds > 0 {
 		var cancel context.CancelFunc
@@ -153,7 +232,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		MaxTurns:      res.MaxTurns,
 		MaxParallel:   res.MaxParallel,
 		Root:          res.Root,
-		System:        res.System,
+		System:        trustedSystem,
 		Chatter:       res.Chatter,
 		Tools:         runner,
 		// Never advertise tools the sandbox/deny rules forbid. Run() still
