@@ -85,8 +85,8 @@ func (r outcomeRunner) Abort() {}
 
 // TestACPTerminalResultCarriesTurnEndReason verifies the additive field is on
 // the two result-shaped terminal outcomes, while the original stopReason is
-// untouched. The failure path stays a -32603 error (its code already tells it
-// apart), so no existing wire shape changes.
+// untouched. The failure path stays a -32603 error with code/message intact;
+// only an additive error.data carries the "failure" classification.
 func TestACPTerminalResultCarriesTurnEndReason(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -134,4 +134,101 @@ func TestACPTerminalResultCarriesTurnEndReason(t *testing.T) {
 			waitFor(t, done)
 		})
 	}
+}
+
+// TestFailureTurnEndDataIsFailure is the pure-helper counterpart of the wire
+// test below: the failure classification is available without a transport.
+func TestFailureTurnEndDataIsFailure(t *testing.T) {
+	data := failureTurnEndData(TurnEndFailure)
+	if data.TurnEndReason != TurnEndFailure {
+		t.Fatalf("failureTurnEndData reason = %q, want %q", data.TurnEndReason, TurnEndFailure)
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal turn end data: %v", err)
+	}
+	if string(encoded) != `{"turnEndReason":"failure"}` {
+		t.Fatalf("encoded data = %s, want the failure classification only", encoded)
+	}
+}
+
+// TestACPFailureErrorCarriesTurnEndReasonInData verifies that the session/prompt
+// failure path adds an optional error.data.turnEndReason == "failure" while
+// leaving the error code and message byte-for-byte as before.
+func TestACPFailureErrorCarriesTurnEndReasonInData(t *testing.T) {
+	failure := errors.New("boom")
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- RunACP(context.Background(), inR, outW, Config{Runner: outcomeRunner{err: failure}})
+	}()
+	defer inW.Close()
+
+	enc := json.NewEncoder(inW)
+	dec := json.NewDecoder(outR)
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/new"})
+	readJSON(t, dec)
+
+	_ = enc.Encode(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+		"params": map[string]any{"prompt": "hi"},
+	})
+	var resp map[string]any
+	for {
+		msg := readJSON(t, dec)
+		if msg["id"] == float64(2) {
+			resp = msg
+			break
+		}
+	}
+	if _, ok := resp["result"]; ok {
+		t.Fatalf("failure unexpectedly returned a result: %v", resp)
+	}
+	body, ok := resp["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a JSON-RPC error, got %v", resp)
+	}
+	if body["code"] != float64(codeInternalError) {
+		t.Fatalf("error.code = %v, want %d", body["code"], codeInternalError)
+	}
+	if body["message"] != wireErrorText(failure) {
+		t.Fatalf("error.message = %v, want unchanged %q", body["message"], wireErrorText(failure))
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("error.data missing on failure: %v", body)
+	}
+	if data["turnEndReason"] != string(TurnEndFailure) {
+		t.Fatalf("error.data.turnEndReason = %v, want %q", data["turnEndReason"], TurnEndFailure)
+	}
+	_ = inW.Close()
+	waitFor(t, done)
+}
+
+// TestACPNonPromptErrorHasNoTurnEndData guards the default behaviour: errors
+// from methods other than session/prompt keep the original two-field envelope
+// and never gain a data member.
+func TestACPNonPromptErrorHasNoTurnEndData(t *testing.T) {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- RunACP(context.Background(), inR, outW, Config{Runner: outcomeRunner{}})
+	}()
+	defer inW.Close()
+
+	enc := json.NewEncoder(inW)
+	dec := json.NewDecoder(outR)
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/load"})
+	resp := readJSON(t, dec)
+	body, ok := resp["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected a JSON-RPC error, got %v", resp)
+	}
+	if _, present := body["data"]; present {
+		t.Fatalf("non-prompt error gained a data field: %v", body)
+	}
+	_ = inW.Close()
+	waitFor(t, done)
 }

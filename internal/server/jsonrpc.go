@@ -89,6 +89,24 @@ func (p *peer) fail(id json.RawMessage, code int, message string) {
 	})
 }
 
+// failWithData is fail plus an optional, additive error.data payload. It is a
+// separate method so every existing fail() caller keeps the original two-field
+// error envelope unchanged; only callers that opt in emit a data member.
+func (p *peer) failWithData(id json.RawMessage, code int, message string, data any) {
+	if isNotification(id) {
+		return
+	}
+	errObj := map[string]any{"code": code, "message": message}
+	if data != nil {
+		errObj["data"] = data
+	}
+	_ = p.write(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error":   errObj,
+	})
+}
+
 func (p *peer) notify(method string, params any) {
 	message := map[string]any{"jsonrpc": "2.0", "method": method}
 	if params != nil {

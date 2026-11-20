@@ -22,6 +22,10 @@ func TestHasDiagnosticContent(t *testing.T) {
 		{"fail header only", "[verify: GO TEST] FAIL", false},
 		{"pass header only", "[verify: LINT] PASS", false},
 		{"header plus hint only", "[verify: GO TEST] FAIL\n" + hint, false},
+		{"fix instruction only", verifyFixInstruction, false},
+		{"anchor explanation only", verifyAnchorExplanation, false},
+		{"full boilerplate only", verifyFixInstruction + "\n[verify: GO TEST] FAIL\n" + verifyAnchorExplanation + "\n" + hint, false},
+		{"fix instruction plus real error", verifyFixInstruction + "\n[verify: GO TEST] FAIL\nmain.go:42: undefined: foo", true},
 		{"header with file line", "[verify: GO TEST] FAIL\nmain.go:42: undefined: foo", true},
 		{"raw file line", "main.go:42: undefined: foo", true},
 		{"cjk error text", "[verify: BUILD] FAIL\n编译失败：未定义的标识符 foo", true},
@@ -48,6 +52,9 @@ func TestHasDiagnosticContentOnBuildVerifyFeedback(t *testing.T) {
 	state := VerifyLoopState{Reflections: 1, Max: 3}
 	if got := HasDiagnosticContent(BuildVerifyFeedback("go test", "   \n\t ", state)); got {
 		t.Fatal("empty-output feedback was classified as diagnostic")
+	}
+	if got := HasDiagnosticContent(BuildVerifyFeedback("test", "[redacted]", state)); got {
+		t.Fatal("fix instruction plus redaction placeholder was classified as diagnostic")
 	}
 	if got := HasDiagnosticContent(BuildVerifyFeedback("go test", "FAIL: assertion x", state)); !got {
 		t.Fatal("feedback with a real error line was classified as non-diagnostic")

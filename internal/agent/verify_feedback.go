@@ -12,6 +12,16 @@ const (
 	defaultVerifyMaxBytes = 4096
 	verifyTruncatedMarker = "... (truncated)"
 
+	// verifyFixInstruction opens the next model turn after an actionable verify
+	// FAIL. It mirrors the aider-style "fix errors below" preamble: the verdict
+	// is a request to repair, not merely a status line. Kept as a const so
+	// HasDiagnosticContent can strip it as boilerplate.
+	verifyFixInstruction = "Fix the errors below, if possible."
+	// verifyAnchorExplanation introduces a █-marked source window. It is added
+	// only when the feedback actually contains one, so a plain log tail gets no
+	// unexplained marker noise.
+	verifyAnchorExplanation = "Relevant line(s) marked with █."
+
 	// verifyAnchorPad is the number of context lines AnchorSourceLines emits on
 	// either side of an offending file:line reference. Two lines give the model
 	// enough context to act without padding the bounded feedback with noise.
@@ -35,32 +45,37 @@ const (
 // example after a workflow StepCheck, or in the dispatch path after a verify
 // tool call) by appending the returned string to the next model message.
 //
-// VerificationFeedback deliberately does NOT anchor source lines: it delegates
-// to VerificationFeedbackAt with an empty root, keeping its output byte-for-byte
-// identical to the pre-anchoring behaviour. Callers that know the workspace
-// root (the app's verify callback) should call VerificationFeedbackAt directly
-// so FAIL output also shows █-marked source windows.
+// VerificationFeedback deliberately does NOT anchor source lines and does NOT
+// add the fix-instruction preamble: its output stays byte-for-byte identical to
+// the pre-anchoring behaviour. Callers that own the model-facing next turn (the
+// verify loop) should call VerificationFeedbackAt directly, so a FAIL also
+// carries the "fix errors below" instruction and █-marked source windows.
 func VerificationFeedback(label string, passed bool, output string, maxBytes int) string {
-	return VerificationFeedbackAt(label, passed, output, maxBytes, "")
+	return renderVerifyFeedback(label, passed, output, maxBytes, "", false)
 }
 
 // VerificationFeedbackAt renders the same bounded, redacted feedback as
-// VerificationFeedback, and — only for FAIL output when root is non-empty and
-// the output contains usable file:line references — appends the █-marked source
-// windows produced by AnchorSourceLines AFTER the redacted log tail. The whole
-// output portion (tail + separator + anchor windows) stays within maxBytes: a
+// VerificationFeedback, with two clarity enhancements for an actionable FAIL:
+//
+//   - the text opens with verifyFixInstruction, so the model reads the verdict
+//     as a request to repair rather than as a bare status line;
+//   - when root yields a usable file:line reference, verifyAnchorExplanation is
+//     emitted immediately before the █-marked source window.
+//
+// The explanation is gated on the window actually containing █, so a plain log
+// tail never gains an unexplained marker header. The whole output portion
+// (tail + separator + explanation + anchor windows) stays within maxBytes: a
 // share of the budget is reserved for the anchor so it can never crowd out or
 // exceed the bound.
 //
-// Backward compatibility is exact: when passed is true, when root is empty, or
-// when no usable anchor is found (including an unreadable/out-of-root file), the
-// returned string is identical to VerificationFeedback's output. This makes the
-// function a drop-in for callers that already know the workspace root.
+// A PASS or an empty output still returns just the verdict line. A FAIL with no
+// usable anchor (including an unreadable/out-of-root file) gets the fix
+// instruction but no █ explanation.
 //
 // App-side wiring (owned by internal/app, not this file): NewVerifyFunc in
 // internal/app/verify_wire.go already captures `root` (it is used as
-// command.Dir). In the Verify callback returned by NewVerifyFunc, replace the
-// plain feedback composition with the anchored one, e.g.
+// command.Dir). In the Verify callback returned by NewVerifyFunc, compose the
+// feedback with VerificationFeedbackAt, e.g.
 //
 //	fb := agent.VerificationFeedbackAt(label, passed, output, maxBytes, root)
 //
@@ -68,6 +83,13 @@ func VerificationFeedback(label string, passed bool, output string, maxBytes int
 // BuildVerifyFeedback -> VerificationFeedbackAt) so the model sees the source
 // windows instead of only the log tail.
 func VerificationFeedbackAt(label string, passed bool, output string, maxBytes int, root string) string {
+	return renderVerifyFeedback(label, passed, output, maxBytes, root, true)
+}
+
+// renderVerifyFeedback is the shared implementation. fixPreamble is true only
+// for VerificationFeedbackAt; VerificationFeedback keeps the original layout
+// for callers that are not injecting the model-facing next turn.
+func renderVerifyFeedback(label string, passed bool, output string, maxBytes int, root string, fixPreamble bool) string {
 	label = strings.ToUpper(strings.TrimSpace(label))
 	if label == "" {
 		label = "VERIFY"
@@ -85,10 +107,15 @@ func VerificationFeedbackAt(label string, passed bool, output string, maxBytes i
 		return head
 	}
 	budget := resolveVerifyMaxBytes(maxBytes)
-	plain := head + "\n" + clipVerifyTail(clean, budget)
+
+	prefix := head + "\n"
+	if fixPreamble {
+		prefix = verifyFixInstruction + "\n" + prefix
+	}
+	plain := prefix + clipVerifyTail(clean, budget)
 
 	// An empty root (the legacy default) or output with no usable anchor leaves
-	// the feedback byte-identical to the pre-anchoring format.
+	// the feedback without a source window, so the █ explanation is omitted too.
 	if strings.TrimSpace(root) == "" {
 		return plain
 	}
@@ -98,7 +125,8 @@ func VerificationFeedbackAt(label string, passed bool, output string, maxBytes i
 	}
 
 	// Reserve at most half the budget for source windows so the log tail keeps
-	// room, then give the remainder (minus the separator) back to the tail.
+	// room, then give the remainder (minus the separator and the optional
+	// explanation line) back to the tail.
 	anchorRoom := budget / 2
 	if anchorRoom <= 0 {
 		return plain
@@ -107,31 +135,39 @@ func VerificationFeedbackAt(label string, passed bool, output string, maxBytes i
 	if anchor == "" {
 		return plain
 	}
-	tailRoom := budget - len(verifyAnchorSep) - len(anchor)
+
+	// A clipped window can lose its marked line; only explain █ when one remains.
+	explanation := ""
+	if strings.Contains(anchor, "█") {
+		explanation = verifyAnchorExplanation + "\n"
+	}
+	tailRoom := budget - len(verifyAnchorSep) - len(explanation) - len(anchor)
 	if tailRoom < 0 {
 		return plain
 	}
-	return head + "\n" + clipVerifyTail(clean, tailRoom) + verifyAnchorSep + anchor
+	return prefix + clipVerifyTail(clean, tailRoom) + verifyAnchorSep + explanation + anchor
 }
 
 // HasDiagnosticContent reports whether a verification feedback string carries
 // any substantive diagnostic information beyond the boilerplate that is always
-// present: the "[verify: X] PASS/FAIL" verdict header, the reflection hint,
+// present: the "[verify: X] PASS/FAIL" verdict header, the fix-instruction and
+// █-explanation lines added by VerificationFeedbackAt, the reflection hint,
 // redaction placeholders ([redacted]/[REDACTED]/[email]) and blank lines.
 //
 // It is pure and deliberately conservative: any surviving non-boilerplate
 // line -- an error message, a file:line reference, CJK prose, a █-anchored
 // source window -- makes it return true. A caller can therefore use a false
 // result to detect the aider-P2 case: a FAIL that spent a reflection turn on a
-// feedback message the model cannot act on (header + hint only).
+// feedback message the model cannot act on (header + boilerplate only).
 //
 // It works both on a raw verify output and on the full string returned by
-// BuildVerifyFeedback/VerificationFeedback, because it strips the known
+// BuildVerifyFeedback/VerificationFeedbackAt, because it strips the known
 // boilerplate wherever it appears rather than assuming a fixed layout.
 func HasDiagnosticContent(feedback string) bool {
 	for _, line := range strings.Split(feedback, "\n") {
 		text := strings.TrimSpace(line)
-		if text == "" || isVerifyVerdictLine(text) || isVerifyReflectionHintLine(text) {
+		if text == "" || isVerifyVerdictLine(text) || isVerifyReflectionHintLine(text) ||
+			text == verifyFixInstruction || text == verifyAnchorExplanation {
 			continue
 		}
 		if isOnlyRedactionPlaceholders(text) {

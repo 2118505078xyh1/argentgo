@@ -157,7 +157,8 @@ against a determined attacker.
    model not to retry or route around the block.
 3. **Approval asks.** If the policy says `Ask`, the `Approver` asks the operator.
    Only `y`/`yes` approves; EOF and empty answers deny. A refusal ends the run
-   with `ErrRefused`, which is also a `StopError`. A nil approver denies.
+   with `ErrRefused`, which is also a `StopError`. A nil approval channel is
+   unavailable (not a refusal).
 4. **Audit records.** Every reached decision is appended to a JSONL audit file
    under a private directory. Audit is evidence, not a gate: a write failure is
    reported but never blocks the run.

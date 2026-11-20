@@ -331,12 +331,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	}
 	var result struct {
 		Content []struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			MIMEType string `json:"mimeType"`
-			Resource struct {
-				Text string `json:"text"`
-			} `json:"resource"`
+			Type     string          `json:"type"`
+			Text     string          `json:"text"`
+			MIMEType string          `json:"mimeType"`
+			Resource ResourceContent `json:"resource"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
@@ -354,6 +352,14 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 		case "resource":
 			if block.Resource.Text != "" {
 				parts = append(parts, block.Resource.Text)
+			} else if dir := blobArtifactDir(); dir != "" && block.Resource.Blob != "" {
+				// Opt-in only (ARGENT_MCP_BLOB_ARTIFACT_DIR). With no directory
+				// configured this branch is skipped, so output is byte-for-byte
+				// identical to the legacy behaviour. Save failures are silent,
+				// so a bad blob never fails the tool call.
+				if marker := saveBlobAsArtifact(dir, block.Resource); marker != "" {
+					parts = append(parts, marker)
+				}
 			}
 		case "image":
 			mime := block.MIMEType

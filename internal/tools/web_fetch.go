@@ -78,7 +78,7 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	}
 	truncated := len(body) > maxFetchBytes
 	if truncated {
-		body = body[:maxFetchBytes]
+		body = truncateFetchBody(body, maxFetchBytes)
 	}
 	text := string(body)
 	if looksHTML(resp.Header.Get("Content-Type"), text) {
@@ -127,6 +127,19 @@ func checkFetchURL(ctx context.Context, raw string, allowLocal bool) (*url.URL, 
 func blockedIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
+}
+
+// truncateFetchBody cuts body to at most limit bytes without leaving half of a
+// multibyte UTF-8 rune at the end. A plain body[:limit] can slice a CJK
+// character or emoji in two; clip()'s rune-safe head/tail windows cannot repair
+// a rune that is already broken at the source, so the bad byte reaches the
+// model. Reusing trimPartialRune here keeps the cap byte-exact whenever it
+// already lands on a rune boundary and drops the whole rune otherwise.
+func truncateFetchBody(body []byte, limit int) []byte {
+	if len(body) <= limit {
+		return body
+	}
+	return body[:trimPartialRune(string(body), limit)]
 }
 
 func looksHTML(contentType, body string) bool {

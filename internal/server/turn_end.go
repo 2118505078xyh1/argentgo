@@ -44,3 +44,19 @@ func ClassifyTurnEnd(err error, canceled bool) TurnEndReason {
 	}
 	return TurnEndComplete
 }
+
+// turnEndErrorData is the additive JSON-RPC error.data payload carried on the
+// session/prompt failure path. JSON-RPC 2.0 permits an optional data member on
+// the error object, so a client that only inspects code/message keeps seeing
+// the exact original envelope while a turnEndReason consumer can finally read
+// the "failure" classification that the two result-shaped paths already carry.
+type turnEndErrorData struct {
+	TurnEndReason TurnEndReason `json:"turnEndReason"`
+}
+
+// failureTurnEndData returns the error.data for a genuine turn failure. It is a
+// pure helper so the failure classification can be asserted without spinning
+// up a transport.
+func failureTurnEndData(reason TurnEndReason) turnEndErrorData {
+	return turnEndErrorData{TurnEndReason: reason}
+}

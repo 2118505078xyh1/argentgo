@@ -30,8 +30,14 @@ func writeAnchorFixture(t *testing.T) string {
 	return root
 }
 
+// outputPortion returns the bounded diagnostic section of a FAIL feedback:
+// everything after the fix-instruction line and the verdict line.
 func outputPortion(feedback string) (string, bool) {
-	_, rest, found := strings.Cut(feedback, "\n")
+	_, afterFix, found := strings.Cut(feedback, "\n")
+	if !found {
+		return "", false
+	}
+	_, rest, found := strings.Cut(afterFix, "\n")
 	return rest, found
 }
 
@@ -42,14 +48,22 @@ func TestVerificationFeedbackAtAppendsAnchoredSourceWindow(t *testing.T) {
 
 	got := VerificationFeedbackAt("lint", false, out, 4096, root)
 
-	if !strings.HasPrefix(got, "[verify: LINT] FAIL\n") {
-		t.Fatalf("feedback = %q, want FAIL verdict header", got)
+	if !strings.HasPrefix(got, verifyFixInstruction+"\n[verify: LINT] FAIL\n") {
+		t.Fatalf("feedback = %q, want fix instruction then FAIL verdict header", got)
 	}
 	if !strings.Contains(got, "f.go:7:") {
 		t.Fatalf("feedback = %q, want anchored file:line header", got)
 	}
 	if !strings.Contains(got, "█7|") {
 		t.Fatalf("feedback = %q, want █-marked offending line", got)
+	}
+	if !strings.Contains(got, verifyAnchorExplanation+"\n") {
+		t.Fatalf("feedback = %q, want the █ explanation line", got)
+	}
+	// The explanation belongs immediately before the source window, not before
+	// the log tail (and never on a source-window-free FAIL).
+	if expAt, anchorAt := strings.Index(got, verifyAnchorExplanation), strings.Index(got, "f.go:7:\n"); expAt < 0 || anchorAt < 0 || expAt > anchorAt {
+		t.Fatalf("feedback = %q, want the █ explanation before the source window", got)
 	}
 	if !strings.Contains(got, "some failure detail") {
 		t.Fatalf("feedback = %q, want the redacted log tail", got)
@@ -85,50 +99,55 @@ func TestVerificationFeedbackAtPassIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestVerificationFeedbackAtNoAnchorIsUnchanged(t *testing.T) {
+func TestVerificationFeedbackAtNoAnchorAddsFixInstructionOnly(t *testing.T) {
 	root := writeAnchorFixture(t)
 	out := "totally plain failure, no file reference here"
 	got := VerificationFeedbackAt("test", false, out, 4096, root)
-	want := VerificationFeedback("test", false, out, 4096)
+	want := verifyFixInstruction + "\n[verify: TEST] FAIL\n" + out
 	if got != want {
-		t.Fatalf("no-anchor feedback = %q, want unchanged %q", got, want)
+		t.Fatalf("no-anchor feedback = %q, want %q", got, want)
+	}
+	if strings.Contains(got, verifyAnchorExplanation) || strings.Contains(got, "█") {
+		t.Fatalf("no-anchor feedback gained a █ explanation: %q", got)
 	}
 }
 
-func TestVerificationFeedbackAtEmptyRootIsUnchanged(t *testing.T) {
+func TestVerificationFeedbackAtEmptyRootAddsFixInstructionOnly(t *testing.T) {
 	root := writeAnchorFixture(t)
 	out := "f.go:7: failure detail"
-	want := VerificationFeedback("test", false, out, 4096)
-	if got := VerificationFeedbackAt("test", false, out, 4096, ""); got != want {
-		t.Fatalf("empty-root feedback = %q, want unchanged %q", got, want)
-	}
-	// A blank root must behave the same as an empty one.
-	if got := VerificationFeedbackAt("test", false, out, 4096, "   \t "); got != want {
-		t.Fatalf("blank-root feedback = %q, want unchanged %q", got, want)
+	want := verifyFixInstruction + "\n[verify: TEST] FAIL\n" + out
+	for _, emptyRoot := range []string{"", "   \t "} {
+		if got := VerificationFeedbackAt("test", false, out, 4096, emptyRoot); got != want {
+			t.Fatalf("empty-root %q feedback = %q, want %q", emptyRoot, got, want)
+		}
 	}
 	// Sanity: a non-empty root does anchor, proving the fixture is usable.
-	if got := VerificationFeedbackAt("test", false, out, 4096, root); got == want {
+	if got := VerificationFeedbackAt("test", false, out, 4096, root); !strings.Contains(got, "█") {
 		t.Fatalf("non-empty root did not anchor the valid fixture: %q", got)
 	}
 }
 
-func TestVerificationFeedbackAtOutOfRootAnchorIsUnchanged(t *testing.T) {
+func TestVerificationFeedbackAtOutOfRootAnchorAddsFixInstructionOnly(t *testing.T) {
 	writeAnchorFixture(t)
 	out := "../outside.go:3: failure detail"
 	root := t.TempDir()
 	got := VerificationFeedbackAt("test", false, out, 4096, root)
-	if want := VerificationFeedback("test", false, out, 4096); got != want {
-		t.Fatalf("out-of-root feedback = %q, want unchanged %q", got, want)
+	want := verifyFixInstruction + "\n[verify: TEST] FAIL\n" + out
+	if got != want {
+		t.Fatalf("out-of-root feedback = %q, want %q", got, want)
+	}
+	if strings.Contains(got, verifyAnchorExplanation) {
+		t.Fatalf("out-of-root feedback gained a █ explanation: %q", got)
 	}
 }
 
-func TestVerificationFeedbackDelegatesWithEmptyRoot(t *testing.T) {
+func TestVerificationFeedbackStaysUnchangedWhileAtAddsFixInstruction(t *testing.T) {
 	out := "f.go:7: failure\napi_key=sk_live_abcdefghijklmnop"
 	for _, maxBytes := range []int{0, 64, 4096} {
-		got := VerificationFeedback("lint", false, out, maxBytes)
-		want := VerificationFeedbackAt("lint", false, out, maxBytes, "")
-		if got != want {
-			t.Fatalf("maxBytes=%d: VerificationFeedback = %q, want %q", maxBytes, got, want)
+		plain := VerificationFeedback("lint", false, out, maxBytes)
+		at := VerificationFeedbackAt("lint", false, out, maxBytes, "")
+		if want := verifyFixInstruction + "\n" + plain; at != want {
+			t.Fatalf("maxBytes=%d: VerificationFeedbackAt = %q, want %q", maxBytes, at, want)
 		}
 	}
 }

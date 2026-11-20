@@ -100,11 +100,13 @@ func WithPendingApprovals(store *security.PendingStore, session string, inner se
 // byte-at-a-time reader goroutine would race the transport's line scanner and
 // swallow bytes of the next request. In headless runs the operator's answer
 // arrives only through approval.answer, which PendingStore.Resolve delivers to
-// the waiter Ask registers here. A nil store denies instead of blocking forever
-// with no way to receive an external decision.
+// the waiter Ask registers here. A nil store means there is no answer channel
+// at all: report an unavailable approval channel instead of fabricating an
+// operator refusal. A fake refusal would audit as "refused" and hand the model
+// a final, do-not-retry block, even though a headless channel may come back.
 func WithHeadlessPendingApprovals(store *security.PendingStore, session string) security.Approver {
 	if store == nil {
-		return security.NeverApprover{}
+		return security.UnavailableApprover{}
 	}
 	return &pendingApprover{store: store, session: session, headless: true}
 }

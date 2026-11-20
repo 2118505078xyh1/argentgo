@@ -217,9 +217,11 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 				return
 			}
 			// A real failure remains a JSON-RPC error: its code (-32603) already
-			// distinguishes it from the two result-shaped outcomes, and keeping
-			// the error envelope untouched preserves the existing ACP format.
-			s.peer.fail(id, codeInternalError, wireErrorText(err))
+			// distinguishes it from the two result-shaped outcomes, and its
+			// code/message are unchanged. The only addition is an optional
+			// error.data carrying the "failure" classification, so a pure
+			// turnEndReason consumer no longer has to infer it from the code.
+			s.peer.failWithData(id, codeInternalError, wireErrorText(err), failureTurnEndData(reason))
 			return
 		}
 		s.peer.respond(id, promptTerminal{StopReason: "end_turn", TurnEndReason: reason})

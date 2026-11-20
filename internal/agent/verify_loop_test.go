@@ -58,7 +58,7 @@ func TestBuildVerifyFeedbackContainsFeedbackCountAndHint(t *testing.T) {
 	state := VerifyLoopState{Reflections: 1, Max: 3}
 	got := BuildVerifyFeedback("go test", "step 1 ok\nFAIL: assertion x", state)
 
-	if want := "[verify: GO TEST] FAIL\n"; !strings.HasPrefix(got, want) {
+	if want := verifyFixInstruction + "\n[verify: GO TEST] FAIL\n"; !strings.HasPrefix(got, want) {
 		t.Fatalf("feedback = %q, want prefix %q", got, want)
 	}
 	if !strings.Contains(got, "FAIL: assertion x") {
@@ -79,17 +79,20 @@ func TestBuildVerifyFeedbackIsBoundedAndUTF8Safe(t *testing.T) {
 		t.Fatalf("feedback is not valid UTF-8: %q", got)
 	}
 	lines := strings.Split(got, "\n")
-	if len(lines) != 3 {
-		t.Fatalf("feedback lines = %d, want 3 (verdict, output, hint): %q", len(lines), got)
+	if len(lines) != 4 {
+		t.Fatalf("feedback lines = %d, want 4 (fix instruction, verdict, output, hint): %q", len(lines), got)
 	}
-	if len(lines[1]) > defaultVerifyMaxBytes {
-		t.Fatalf("output section = %d bytes, want <= %d", len(lines[1]), defaultVerifyMaxBytes)
+	if lines[0] != verifyFixInstruction {
+		t.Fatalf("first line = %q, want the fix instruction %q", lines[0], verifyFixInstruction)
 	}
-	if !strings.HasPrefix(lines[1], verifyTruncatedMarker) {
-		t.Fatalf("output = %q, want truncation marker", lines[1])
+	if len(lines[2]) > defaultVerifyMaxBytes {
+		t.Fatalf("output section = %d bytes, want <= %d", len(lines[2]), defaultVerifyMaxBytes)
 	}
-	if !strings.Contains(lines[1], "FAIL_TAIL") {
-		t.Fatalf("output = %q, want the tail kept", lines[1])
+	if !strings.HasPrefix(lines[2], verifyTruncatedMarker) {
+		t.Fatalf("output = %q, want truncation marker", lines[2])
+	}
+	if !strings.Contains(lines[2], "FAIL_TAIL") {
+		t.Fatalf("output = %q, want the tail kept", lines[2])
 	}
 }
 

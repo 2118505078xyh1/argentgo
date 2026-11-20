@@ -312,7 +312,17 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 	// write, and avoids leaving a truncated file behind when rendering fails.
 	var data []byte
 	var err error
-	if sanitize || !strings.EqualFold(format, "html") {
+	if isYAMLExport(format) {
+		// The session package only knows html/json/markdown. Build YAML in this
+		// layer from its JSON transcript: JSON is a valid YAML 1.2 document, so
+		// no new dependency is needed and no exported field is lost.
+		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
+			Branch: branchID, Sanitize: sanitize, Format: "json",
+		})
+		if err == nil {
+			data, err = jsonExportToYAML(data)
+		}
+	} else if sanitize || !strings.EqualFold(format, "html") {
 		// Structured and redacted exports are produced wholly in the session
 		// package; the plain-HTML path below keeps injected stores working.
 		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
@@ -371,7 +381,7 @@ func sessionsUsage(w io.Writer) {
         argent sessions undo <id> [-C <workspace>]
         argent sessions retry <id> [checkpoint-id]
         argent sessions name <id> <title>
-        argent sessions export <id> [-o file] [--format html|json|markdown] [--sanitize] [--branch id]
+        argent sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id]
         argent sessions import <file> [--format claude|codex|auto]
 `)
 }

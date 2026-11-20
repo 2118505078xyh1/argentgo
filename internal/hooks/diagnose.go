@@ -9,7 +9,10 @@ package hooks
 // DiagnoseConfig is pure — it reads nothing, spawns nothing and never mutates
 // the config; findings are returned, never logged or panicked.
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // IssueKind classifies one completeness problem found in a Config.
 type IssueKind string
@@ -69,4 +72,23 @@ func DiagnoseConfig(c *Config) []ConfigIssue {
 		})
 	}
 	return issues
+}
+
+// FormatConfigIssues renders config diagnostics as stable, one-line-per-issue
+// text suitable for doctor output or a UI warning. It is a pure display helper:
+// no I/O, no mutation, and an empty (or nil) list yields an empty string so a
+// caller can omit the whole section when there is nothing to report.
+//
+// Order is preserved and every line is ConfigIssue.String(), which carries the
+// kind, event, 0-based index and message so a reader can locate the exact
+// offending command. CJK command text and the message are copied verbatim.
+func FormatConfigIssues(issues []ConfigIssue) string {
+	if len(issues) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		lines = append(lines, issue.String())
+	}
+	return strings.Join(lines, "\n")
 }

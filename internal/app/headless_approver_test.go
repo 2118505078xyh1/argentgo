@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -220,16 +223,117 @@ func TestCLIDirectApproverStillReadsLocalYn(t *testing.T) {
 	}
 }
 
-// TestHeadlessApproverNilStoreDenies pins the null-object behaviour: with no
-// pending mirror there is no answer channel, so the headless approver denies
-// instead of blocking on stdin or waiting forever.
-func TestHeadlessApproverNilStoreDenies(t *testing.T) {
+// TestHeadlessApproverNilStoreIsUnavailable pins the null-object behaviour:
+// with no pending mirror there is no answer channel at all. That is an
+// unavailable approval channel, not an operator refusal — the model must not
+// receive a "final, do not retry" hint for a channel that may come back.
+func TestHeadlessApproverNilStoreIsUnavailable(t *testing.T) {
 	approver := WithHeadlessPendingApprovals(nil, "s")
-	if _, ok := approver.(security.NeverApprover); !ok {
-		t.Fatalf("nil-store headless approver = %T, want security.NeverApprover", approver)
+	if _, ok := approver.(security.UnavailableApprover); !ok {
+		t.Fatalf("nil-store headless approver = %T, want security.UnavailableApprover", approver)
 	}
 	granted, err := approver.Ask(context.Background(), "bash", `{}`)
-	if err != nil || granted {
-		t.Fatalf("Ask = %v, %v; want false, nil", granted, err)
+	if granted {
+		t.Fatal("an unavailable approval channel must not grant")
+	}
+	if !errors.Is(err, security.ErrApprovalUnavailable) {
+		t.Fatalf("Ask error = %v, want ErrApprovalUnavailable", err)
+	}
+	if outcome := security.ClassifyApproval(granted, err); outcome != security.ApprovalUnavailable {
+		t.Fatalf("ClassifyApproval = %q, want %q", outcome, security.ApprovalUnavailable)
+	}
+	if errors.Is(err, security.ErrRefused) || errors.Is(err, security.ErrDenied) {
+		t.Fatalf("unavailable channel must not be a refusal or a policy deny: %v", err)
+	}
+	if strings.Contains(err.Error(), "This block is intentional and final") {
+		t.Fatalf("unavailable channel must not carry finality: %q", err.Error())
+	}
+}
+
+// TestNilStoreHeadlessChainAuditsUnavailableNotRefused wires the nil-store
+// headless approver into a real chain. The audit must record "unavailable" and
+// the returned tool error must stay free of refusal/finality wording, unlike an
+// explicitly configured NeverApprover.
+func TestNilStoreHeadlessChainAuditsUnavailableNotRefused(t *testing.T) {
+	root := t.TempDir()
+	audit := security.NewAuditLog(root)
+	chain := security.NewChain(security.DefaultPolicy(root), WithHeadlessPendingApprovals(nil, "s"), audit, "s")
+	err := chain.Check(context.Background(), "write", json.RawMessage(`{"path":"a.txt"}`))
+	if err == nil {
+		t.Fatal("an unavailable approval channel must fail closed")
+	}
+	if !errors.Is(err, security.ErrApprovalUnavailable) {
+		t.Fatalf("Check error = %v, want ErrApprovalUnavailable", err)
+	}
+	if errors.Is(err, security.ErrRefused) || errors.Is(err, security.ErrDenied) {
+		t.Fatalf("unavailable channel must not be a refusal or a policy deny: %v", err)
+	}
+	var stop *security.StopError
+	if errors.As(err, &stop) {
+		t.Fatalf("unavailable channel must not be a StopError: %#v", err)
+	}
+	if strings.Contains(err.Error(), "This block is intentional and final") {
+		t.Fatalf("unavailable channel must not carry finality: %q", err.Error())
+	}
+	entries, readErr := security.ReadAudit(audit.Path())
+	if readErr != nil || len(entries) != 1 {
+		t.Fatalf("audit: %v entries=%d", readErr, len(entries))
+	}
+	if entries[0].Decision != "unavailable" {
+		t.Fatalf("audit entry = %+v, want decision unavailable", entries[0])
+	}
+	if strings.Contains(entries[0].Reason, "refused") {
+		t.Fatalf("audit reason must not claim a refusal: %q", entries[0].Reason)
+	}
+}
+
+// TestExplicitApproversKeepTheirVerdict proves the fix is confined to the nil
+// channel: an explicitly configured refusal is still a final StopError audited
+// as "refused", and an explicit grant is still allowed. Mirroring through
+// WithPendingApprovals must stay transparent for both decisions.
+func TestExplicitApproversKeepTheirVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		approver  security.Approver
+		wantErr   bool
+		wantAudit string
+	}{
+		{name: "explicit never", approver: security.NeverApprover{}, wantErr: true, wantAudit: "refused"},
+		{name: "explicit grant", approver: &countingApprover{grant: true}, wantErr: false, wantAudit: "allow"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			audit := security.NewAuditLog(root)
+			approver := WithPendingApprovals(security.NewPendingStore(root), "s", tc.approver)
+			chain := security.NewChain(security.DefaultPolicy(root), approver, audit, "s")
+			err := chain.Check(context.Background(), "write", json.RawMessage(`{"path":"a.txt"}`))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("an explicit refusal must fail the call")
+				}
+				if !errors.Is(err, security.ErrRefused) || errors.Is(err, security.ErrDenied) {
+					t.Fatalf("got %v, want ErrRefused only", err)
+				}
+				var stop *security.StopError
+				if !errors.As(err, &stop) || !stop.Refused {
+					t.Fatalf("got %v, want a refusing StopError", err)
+				}
+				if !strings.Contains(err.Error(), "This block is intentional and final") {
+					t.Fatalf("a real refusal must carry finality: %q", err.Error())
+				}
+				if errors.Is(err, security.ErrApprovalUnavailable) {
+					t.Fatalf("a real refusal must not be an unavailable channel: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("an explicit grant Check = %v, want nil", err)
+			}
+			entries, readErr := security.ReadAudit(audit.Path())
+			if readErr != nil || len(entries) != 1 {
+				t.Fatalf("audit: %v entries=%d", readErr, len(entries))
+			}
+			if entries[0].Decision != tc.wantAudit {
+				t.Fatalf("audit entry = %+v, want decision %q", entries[0], tc.wantAudit)
+			}
+		})
 	}
 }
