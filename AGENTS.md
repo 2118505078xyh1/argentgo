@@ -109,6 +109,29 @@ native/             MyGo native desktop chat window (the only GUI frontend)
   the `i18n` tables (zh-CN / en-US) as before.
 - 提交格式：`<area>: <imperative summary>`（例如 `tools: reject path escapes`）。
 
+## 发布规则（版本号锚定代码行数）
+
+版本号与代码规模对齐，只有**代码行数达到阈值且全量验证全绿**时才发版。统计口径为 git tracked 的源码总行数（含测试，统一口径见 `docs/STATUS.md`）：
+
+| 代码行数 | 版本号 |
+|---:|---|
+| 30w | v0.8.1 |
+| 40w | v0.8.2 |
+| 50w | v0.8.3 |
+| 60w | v0.8.4 |
+| 70w | v0.8.5 |
+| 80w | v0.8.6 |
+| 90w | v0.9.0 |
+| 100w | v1.0.0 |
+
+发布前必须同时满足：
+1. 代码行数达到对应阈值。
+2. 全量验证全绿：`gofmt -l .` 为空、`go vet ./...`、`go test -p 4 ./... -count=1`、`go test -race ./...`、`GOOS=linux go build ./...`。
+3. 版本元数据一致：`internal/cli/cli.go` 的 `const Version`、`CHANGELOG.md` 的 `## vX.Y.Z` 段落、git tag 三者必须一致（否则 `scripts/check-release-consistency.ps1` 会失败，Release 发不出来——v0.8.0 曾因此失败）。
+4. 用正确作者身份 `寒弦问月夜未阑 <96534106+2118505078xyh1@users.noreply.github.com>` 打 tag 并 push 触发 Release workflow。
+
+不因频繁 push 而规避发版；发版 tag 必须 push 才能触发 Release。
+
 ## 禁止
 
 - 绝不提交构建出来的二进制（`argent.exe`、`argent-native.exe`）或 `node_modules`。原生前端在发布时从 `native/` 源码构建。

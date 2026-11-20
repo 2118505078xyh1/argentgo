@@ -673,6 +673,9 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 			elapsed = slot.thinkingEnd.Sub(slot.thinkingAt)
 		}
 	}
+	if ReasoningTailWindow {
+		return m.reasoningWindowedLines(entry, width, elapsed, !live)
+	}
 	return []Line{reasoningSummaryLine(entry.Text, elapsed, width, !live, m.locale, m.palette)}
 }
 

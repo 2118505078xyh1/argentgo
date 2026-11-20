@@ -404,6 +404,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if repoMapHintEnabled(stdio.Env) {
 		loop.Opts.System += "\n" + repoMapReadOnlyHint()
 	}
+	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
+	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
+	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。
+	if verifyAutoRunHintEnabled(stdio.Env) {
+		if hint := verifyAutoRunHint(verifyConfigured(res)); hint != "" {
+			loop.Opts.System += "\n" + hint
+		}
+	}
 	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)

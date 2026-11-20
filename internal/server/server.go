@@ -59,6 +59,14 @@ type Config struct {
 	// 结构化取消结果（含脱敏后的 reason，可经 ?reason= 传入）。默认
 	// false 保持兼容的 {"ok":true} 响应，因此现有客户端与测试不受影响。
 	StructuredAbort bool
+	// EnableRequestTimeout 为 true 时，/v1/prompt 会读取 X-Request-Timeout
+	// 头，并把解析出的毫秒数作为本轮 Runner.Prompt 的截止时间。默认
+	// false 不设置任何截止时间，现有行为完全不变。
+	EnableRequestTimeout bool
+	// DefaultRequestTimeoutMS 是请求未携带（或携带非法）X-Request-Timeout
+	// 时使用的毫秒超时，仅在 EnableRequestTimeout 为 true 时生效。
+	// 非正数回退到内置默认值，超过上限的值会被钳制。
+	DefaultRequestTimeoutMS int
 }
 
 // isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
@@ -341,8 +349,25 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
+	// 可选的每轮超时：只有显式开启才包裹 context，默认不改变任何
+	// 现有传输行为。非法/缺失请求头由 requestTimeoutFromHeader 回退到
+	// 配置默认值（再由这里兜底并钳制到合法区间）。
+	ctx := r.Context()
+	if h.cfg.EnableRequestTimeout {
+		fallback := h.cfg.DefaultRequestTimeoutMS
+		if fallback <= 0 {
+			fallback = defaultRequestTimeoutMS
+		} else if fallback > maxRequestTimeoutMS {
+			fallback = maxRequestTimeoutMS
+		}
+		timeoutMS := requestTimeoutFromHeader(r.Header.Get(requestTimeoutHeaderName), fallback)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
+		defer cancel()
+	}
+
 	failed := false
-	_, runErr := h.cfg.Runner.Prompt(r.Context(), text, func(chunk string) {
+	_, runErr := h.cfg.Runner.Prompt(ctx, text, func(chunk string) {
 		if failed || chunk == "" {
 			return
 		}
@@ -354,7 +379,7 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if runErr != nil {
-		if isCancelled(r.Context(), runErr) {
+		if isCancelled(ctx, runErr) {
 			// Abort 不是失败；发出终态 cancelled 事件
 			// 也会在中止前没有文本时提交 200 头部。
 			emit(map[string]any{"type": "cancelled"})
