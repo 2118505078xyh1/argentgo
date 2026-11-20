@@ -154,13 +154,6 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer s.busy.Store(false)
-		defer cancel()
-		defer func() {
-			s.mu.Lock()
-			s.cancelPrompt = nil
-			s.mu.Unlock()
-		}()
 
 		result, err := s.cfg.Runner.Prompt(ctx, text, func(chunk string) {
 			if chunk == "" {
@@ -175,10 +168,28 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 			})
 		})
 		_ = result
+
+		// Capture the outcome before calling cancel() below: once cancel()
+		// runs, ctx.Err() is context.Canceled for every error and a genuine
+		// failure would be misreported as a normal stop.
+		cancelled := err != nil && isCancelled(ctx, err)
+
+		// Release the single-prompt slot *before* publishing the terminal
+		// result. The result write is observable by the client: a client that
+		// starts the next prompt as soon as it sees this result must not be
+		// rejected by a stale busy flag that deferred cleanup had not reached
+		// yet. Clear cancelPrompt while busy is still held so a new prompt can
+		// never observe a stale cancel handle, then drop busy.
+		s.mu.Lock()
+		s.cancelPrompt = nil
+		s.mu.Unlock()
+		cancel()
+		s.busy.Store(false)
+
 		if err != nil {
 			// Same cancellation rule as --rpc and --serve; the wire result
 			// stays {"stopReason":"cancelled"} as ACP clients expect.
-			if isCancelled(ctx, err) {
+			if cancelled {
 				s.peer.respond(id, map[string]any{"stopReason": "cancelled"})
 				return
 			}

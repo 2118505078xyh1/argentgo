@@ -201,6 +201,20 @@ func ignoreStatus(root string) commands.IgnoreStatus {
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
+	// Keep the caller's own words before review/context/dynamic-context prefixes
+	// are prepended below. Budget declarations must come only from the user: a
+	// "+500k" living in an injected prefix is not a declaration.
+	rawPrompt := prompt
+
+	// Resume classification: announce interrupted/degraded history and stop
+	// before the agent loop when a human decision is required. Clean sessions
+	// (the common case) produce no notice and fall through unchanged.
+	if sess != nil {
+		if err := announceRecovery(ctx, stdio, onText, recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))); err != nil {
+			return agent.Result{}, err
+		}
+	}
+
 	// Loading personas is best-effort: a malformed agent definition must not
 	// fail the run. configureSubagents reuses the cached result to decide
 	// whether this run opts into delegation and to resolve per-task roles.
@@ -307,6 +321,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		}
 	}
 
+	// A user-declared per-turn cap is an extra cumulative limit; parse it from
+	// the raw prompt (never the injected prefixes) before the loop is built.
+	budget := agent.Budget{
+		MaxTurns:       res.MaxTurns,
+		MaxTotalTokens: res.MaxTokens,
+		MaxCostUSD:     res.MaxCostUSD,
+	}
+	applyDeclaredTurnBudget(rawPrompt, &budget)
+
 	loop := &agent.Runner{Opts: agent.Options{
 		BeforeRequest: flush,
 		BeforeTool:    flush,
@@ -345,13 +368,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			}
 			return filtered
 		},
-		Approve: approver,
-		Record:  agent.RecorderFunc(sess.Append),
-		Budget: agent.Budget{
-			MaxTurns:       res.MaxTurns,
-			MaxTotalTokens: res.MaxTokens,
-			MaxCostUSD:     res.MaxCostUSD,
-		},
+		Approve:     approver,
+		Record:      agent.RecorderFunc(sess.Append),
+		Budget:      budget,
 		Prices:      res.Prices,
 		SkillAuthor: skillWriter{},
 		SkillLister: skillLister{toolset.skills},
@@ -446,6 +465,69 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		"usage":   result.Usage,
 	})
 	return result, err
+}
+
+// recoveryMessagesForClassification prepares Session.Messages for ClassifyRecovery.
+// Session.Messages projects only conversation records, but a real transcript
+// interleaves metadata records (usage/stats/turn) between them. A message's
+// Parent therefore often names a metadata record that is absent from the
+// projection, and a naive link check would flag every resumed session as
+// degraded. Rewrite only those dangling parents to the preceding message;
+// genuine links between two messages are left untouched. The input is copied,
+// never mutated.
+func recoveryMessagesForClassification(messages []session.Entry) []session.Entry {
+	out := make([]session.Entry, len(messages))
+	copy(out, messages)
+	ids := make(map[string]struct{}, len(out))
+	for _, m := range out {
+		if m.ID != "" {
+			ids[m.ID] = struct{}{}
+		}
+	}
+	prevID := ""
+	for i := range out {
+		if i > 0 && out[i].Parent != "" && out[i].Parent != prevID {
+			if _, ok := ids[out[i].Parent]; !ok {
+				out[i].Parent = prevID
+			}
+		}
+		if out[i].ID != "" {
+			prevID = out[i].ID
+		}
+	}
+	return out
+}
+
+// announceRecovery publishes a resume notice through the two channels Execute
+// already uses for user-visible text (onText for the caller, EventNotice for
+// --serve/--rpc subscribers). For degraded history it deliberately refuses to
+// continue: Execute has no confirmation channel, so instead of inventing a UI
+// prompt it writes an explicit warning to stderr and returns an error, leaving
+// the transcript untouched for an operator to inspect.
+//
+// A clean or merely interrupted transcript returns nil immediately, keeping a
+// resumed run byte-identical to before this wiring.
+func announceRecovery(ctx context.Context, stdio cli.IO, onText func(string), decision recoveryDecision) error {
+	if decision.Notice == "" {
+		return nil
+	}
+	EmitEvent(ctx, agent.Event{Kind: agent.EventNotice, Text: decision.Notice})
+	if onText != nil {
+		onText(decision.Notice)
+	}
+	if !decision.NeedsConfirmation {
+		return nil
+	}
+
+	warning := "Session recovery paused: automatic continuation is disabled for degraded history; please confirm before resuming. " + decision.Notice
+	if stdio.Err != nil {
+		fmt.Fprintln(stdio.Err, warning)
+	}
+	EmitEvent(ctx, agent.Event{Kind: agent.EventNotice, Text: warning})
+	if onText != nil {
+		onText(warning)
+	}
+	return fmt.Errorf("session recovery paused: degraded history requires operator confirmation before continuing")
 }
 
 // schemaCorrectionUserTurn is the one user turn appended to an existing

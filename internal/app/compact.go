@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -173,6 +174,74 @@ func (c *sessionCompactor) CompactThreshold() int {
 	return agent.CompactionThreshold(window, configured, percent)
 }
 
+// ---------------------------------------------------------------------------
+// Opt-in lossless compaction archive wiring.
+//
+// The session package ships the archive primitives (WriteCompactionArchiveRef,
+// Compaction.Archive, CompactionArchiveNotice) but deliberately does not call
+// them from its own Compact/appendCompaction path, so existing compactions stay
+// byte-for-byte identical. The app layer opts in here: when enabled, the exact
+// dropped entries are written under <session-dir>/compactions/ and a
+// store-relative ArchiveRef is attached to the record. Default off.
+// ---------------------------------------------------------------------------
+
+// compactionArchiveEnabled reports the opt-in switch for lossless archives.
+// Accepted config shapes (anything else, including a missing key, is off):
+//
+//	{"compaction":{"archive":true}}
+//	{"archiveCompactions":true} / {"archive-compactions":true}
+func compactionArchiveEnabled(raw map[string]any) bool {
+	if nested, ok := raw["compaction"].(map[string]any); ok {
+		if value, ok := nested["archive"].(bool); ok {
+			return value
+		}
+	}
+	for _, key := range []string{"archiveCompactions", "archive-compactions"} {
+		if value, ok := raw[key].(bool); ok {
+			return value
+		}
+	}
+	return false
+}
+
+// nextCompactionArchiveID mints a path-safe, per-compaction id. Session ids are
+// validated when the session is created, and the "-cN" suffix makes successive
+// compactions in one session write distinct files instead of overwriting.
+func nextCompactionArchiveID(sess *session.Session) string {
+	base := strings.TrimSpace(sess.ID())
+	if base == "" {
+		base = "session"
+	}
+	n := 1
+	if records, err := sess.Records(); err == nil {
+		for _, record := range records {
+			if record.Kind == session.KindCompaction {
+				n++
+			}
+		}
+	}
+	return fmt.Sprintf("%s-c%d", base, n)
+}
+
+// attachCompactionArchive writes the dropped entries to the lossless archive
+// and attaches its reference plus a model-readable recovery notice to the
+// compaction. It returns the on-disk path (empty when disabled) so callers and
+// tests can assert the file exists. Errors are returned, not swallowed: an
+// opted-in caller must never silently compact without the archive it asked for.
+func attachCompactionArchive(sess *session.Session, compaction *session.Compaction, dropped []session.Entry, res Resolved) (string, error) {
+	if sess == nil || compaction == nil || !compactionArchiveEnabled(res.Cfg.Raw) {
+		return "", nil
+	}
+	id := nextCompactionArchiveID(sess)
+	ref, err := session.WriteCompactionArchiveRef(sess.Dir(), id, dropped)
+	if err != nil {
+		return "", err
+	}
+	compaction.Archive = ref
+	compaction.Summary += session.CompactionArchiveNotice(ref)
+	return session.CompactionArchivePath(sess.Dir(), id)
+}
+
 // MaybeCompact folds the older part of the conversation into a session
 // compaction record and returns the folded view for the very next request. The
 // window is the 0.8-band target supplied by the agent; the cut is derived from
@@ -207,6 +276,15 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	if !compactionWorthwhile(int64(agent.EstimateMessages(messages)), int64(agent.EstimateMessages(out))) {
 		return messages, false
 	}
+	// Opt-in lossless archive. Write only once we know a compaction record will
+	// actually be appended, so a rejected (not worthwhile) fold leaves no
+	// orphan archive behind. Default off keeps the old bytes exactly.
+	if _, err := attachCompactionArchive(c.sess, &compaction, entries[:start], c.res); err != nil {
+		return messages, false
+	}
+	// The notice is part of the summary, so mirror it into the folded view the
+	// next request sees. A no-op when archiving is disabled.
+	out[0].Content = compaction.Summary
 	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
 		return messages, false
 	}

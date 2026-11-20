@@ -6,6 +6,11 @@ import (
 )
 
 func clip(ctx context.Context, text string) string {
+	// Opt-in only: with no spill configuration in ctx (and no env switch) this
+	// is exactly the old clipTo path, so every existing caller is unaffected.
+	if out, handled := spillToolOutput(ctx, text); handled {
+		return out
+	}
 	return clipTo(text, outputLimit(ctx))
 }
 

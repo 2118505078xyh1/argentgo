@@ -91,6 +91,12 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsExport(app, store, args[1], args[2:])
+	case "import":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsImport(app, args[1], args[2:])
 	default:
 		fmt.Fprintf(app.IO.Err, "argent: unknown sessions command %q\n", args[0])
 		sessionsUsage(app.IO.Err)
@@ -363,6 +369,7 @@ func sessionsUsage(w io.Writer) {
         argent sessions retry <id> [checkpoint-id]
         argent sessions name <id> <title>
         argent sessions export <id> [-o file] [--format html|json|markdown] [--sanitize] [--branch id]
+        argent sessions import <file> [--format claude|codex|auto]
 `)
 }
 

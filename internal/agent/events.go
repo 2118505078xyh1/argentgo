@@ -36,7 +36,7 @@ const (
 //	tool_start               Turn, ToolCallID, ToolName, Args
 //	tool_end                 Turn, ToolCallID, ToolName, Output, IsError, DurationMS
 //	usage                    Turn, Usage (this request), TotalUsage (run total)
-//	error                    Err
+//	error                    Err, Failure (redacted classification; may be nil)
 //	notice                   Text
 //	stop                     Reason
 //	subagent_start           Text (task label), ToolName
@@ -59,7 +59,14 @@ type Event struct {
 	Usage      llm.Usage
 	TotalUsage llm.Usage
 	Err        string
-	Reason     string
+	// Failure is a redacted classification of Err, populated only on EventError.
+	// It carries a fixed ErrorID and routing hints (Retryable / UserAction) so a
+	// frontend can send a retryable failure back to the model or a settings
+	// failure to the credentials/model screen without parsing the error text.
+	// It stays nil for every other event kind and for producers that construct an
+	// EventError directly, keeping their JSON byte-for-byte unchanged.
+	Failure *llm.FailureInfo `json:"failure,omitempty"`
+	Reason  string
 	// PendingMessages is the number of steering messages currently queued. It
 	// is populated on turn_start / turn_end / stop events so a frontend can
 	// show an "N queued" hint without draining the steering channel; it stays

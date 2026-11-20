@@ -536,8 +536,9 @@ func finishText(full string, err error, streamed string) string {
 // Keeping the decision here makes it testable without a window or live engine.
 func (app *chat) completeFromPrompt(streamed, full string, err error) {
 	if err != nil && !isCancelError(err) {
-		app.finish("⚠ 引擎错误: " + err.Error())
-		app.status = "引擎错误"
+		// Route through finishEngineError so provider errors are redacted,
+		// newline-collapsed and rune-bounded before entering the transcript.
+		app.finishEngineError(err)
 		return
 	}
 	// Cancellation is not an error: keep the streamed answer and never show

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -105,6 +106,89 @@ func ShouldWarmCache(now, lastRequest, ttl, idleSince time.Time, warmCost, missC
 		return false
 	}
 	return missCost*continuationProb > warmCost
+}
+
+// CacheWarmer is a reusable, network-free keepalive scheduler for long-lived
+// engines. It records when a real request refreshed the prompt cache and when
+// the agent went idle, then answers ShouldWarm so a caller can decide whether
+// to send a 1-token replay. It never sends a request or starts a timer itself;
+// the replay is left entirely to the caller.
+//
+// All mutable state is guarded by a mutex, so a background timer goroutine may
+// call ShouldWarm concurrently with the agent loop calling RecordRequest and
+// RecordIdle. The zero value is disabled: ShouldWarm returns false until a
+// caller opts in by setting Enabled, leaving existing request behaviour intact.
+type CacheWarmer struct {
+	mu sync.Mutex
+
+	// Enabled opts the warmer in. Disabled by default (zero value).
+	Enabled bool
+
+	// TTL is the provider cache lifetime measured from the last real request.
+	// A non-positive value falls back to defaultWarmTTL.
+	TTL time.Duration
+
+	// WarmCost, MissCost and ContinuationProb drive ShouldWarmCache's economics
+	// gate. When all three are unset (zero) conservative defaults are used.
+	WarmCost         float64
+	MissCost         float64
+	ContinuationProb float64
+
+	lastRequest time.Time
+	idleSince   time.Time
+}
+
+const (
+	// defaultWarmTTL is the shortest retention tier the caching gateways
+	// accept, used when a CacheWarmer leaves TTL unset.
+	defaultWarmTTL = 5 * time.Minute
+	// A 1-token replay is cheap relative to rebuilding a full prompt cache:
+	// these defaults clear the economics gate at a modest continuation chance,
+	// but still fail it when a caller sets a non-positive miss cost.
+	defaultWarmCost         = 1.0
+	defaultMissCost         = 10.0
+	defaultContinuationProb = 0.5
+)
+
+// RecordRequest records that a real request refreshed the prompt cache at now.
+// It restarts both clocks: the cache lifetime and warm window are measured from
+// this request, and the idle phase ends until the next RecordIdle at a turn
+// boundary, so a stale idle time can never suppress a fresh window.
+func (cw *CacheWarmer) RecordRequest(now time.Time) {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	cw.lastRequest = now
+	cw.idleSince = time.Time{}
+}
+
+// RecordIdle records that the agent became idle at now, normally at a turn
+// boundary. It resets the idle-age cap so a long-running but recently active
+// agent is not mistaken for one idle past maxIdleWarmAge.
+func (cw *CacheWarmer) RecordIdle(now time.Time) {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	cw.idleSince = now
+}
+
+// ShouldWarm reports whether a keepalive replay is due at now. It is safe to
+// call concurrently with RecordRequest and RecordIdle. A disabled warmer, one
+// that has never seen a request, or one whose economics gate does not clear all
+// return false.
+func (cw *CacheWarmer) ShouldWarm(now time.Time) bool {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	if !cw.Enabled || cw.lastRequest.IsZero() {
+		return false
+	}
+	ttl := cw.TTL
+	if ttl <= 0 {
+		ttl = defaultWarmTTL
+	}
+	warmCost, missCost, prob := cw.WarmCost, cw.MissCost, cw.ContinuationProb
+	if warmCost == 0 && missCost == 0 && prob == 0 {
+		warmCost, missCost, prob = defaultWarmCost, defaultMissCost, defaultContinuationProb
+	}
+	return ShouldWarmCache(now, cw.lastRequest, cw.lastRequest.Add(ttl), cw.idleSince, warmCost, missCost, prob)
 }
 
 // Chatter is implemented by every streaming protocol client in this package.

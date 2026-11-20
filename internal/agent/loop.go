@@ -348,7 +348,8 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// made, and the run ends as a provider error rather than risking work
 		// the store is not ready to survive.
 		if err := s.runBeforeRequest(); err != nil {
-			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error()})
+			failure := llm.ClassifyFailure(err)
+			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error(), Failure: &failure})
 			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
 			return s.result(StopProviderError), err
 		}
@@ -359,7 +360,8 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				s.emit(Event{Kind: EventStop, Reason: StopCancelled})
 				return s.result(StopCancelled), ctxErr
 			}
-			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error()})
+			failure := llm.ClassifyFailure(err)
+			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error(), Failure: &failure})
 			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
 			return s.result(StopProviderError), err
 		}

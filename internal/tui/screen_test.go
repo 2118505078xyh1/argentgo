@@ -92,6 +92,37 @@ func TestWrapOfEmptyTextIsOneEmptyLine(t *testing.T) {
 	}
 }
 
+func TestWrapDoesNotEmitBlankLineForLeadingWhitespace(t *testing.T) {
+	// Indented lines reach Wrap from markdown code blocks and plain paragraphs.
+	// When the indentation exceeds the budget, the head before the breaking
+	// space trims to the empty string; appending it drew a spurious blank row.
+	cases := []struct {
+		name  string
+		text  string
+		width int
+		want  []string
+	}{
+		{"two leading spaces", "  alpha beta", 6, []string{"alpha", "beta"}},
+		{"four leading spaces", "    alpha beta", 6, []string{"alpha", "beta"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Wrap(tc.text, tc.width)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Wrap(%q, %d) = %q, want %q", tc.text, tc.width, got, tc.want)
+			}
+			for _, line := range got {
+				if TextWidth(line) == 0 {
+					t.Errorf("Wrap(%q, %d) emitted an empty line: %q", tc.text, tc.width, got)
+				}
+				if w := TextWidth(line); w > tc.width {
+					t.Errorf("line %q is %d cells wide, want <= %d", line, w, tc.width)
+				}
+			}
+		})
+	}
+}
+
 func TestCompactCountAndClock(t *testing.T) {
 	counts := map[int]string{0: "0", 942: "942", 8200: "8.2k", 1600000: "1.6M"}
 	for input, want := range counts {

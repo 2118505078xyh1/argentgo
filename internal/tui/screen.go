@@ -350,7 +350,11 @@ func Wrap(text string, width int) []string {
 		if curWidth+cell > width && curEnd > curStart {
 			if lastSpace > curStart {
 				head := strings.TrimRight(text[curStart:lastSpace], " ")
-				out = append(out, head)
+				// Leading whitespace before the first word trims to nothing.
+				// Emitting it would add a blank row above an indented line.
+				if head != "" {
+					out = append(out, head)
+				}
 				tail := lastSpace
 				for tail < curEnd && text[tail] == ' ' {
 					tail++

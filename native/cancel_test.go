@@ -77,6 +77,7 @@ func TestCompleteFromPromptShowsEngineError(t *testing.T) {
 		{"cancelled with full keeps streamed", "partial", "partial", context.Canceled, "partial", "已完成"},
 		{"engine error shows banner", "partial", "", errors.New("provider returned 500"), "⚠ 引擎错误: provider returned 500", "引擎错误"},
 		{"engine error ignores empty full", "", "", errors.New("provider returned 500"), "⚠ 引擎错误: provider returned 500", "引擎错误"},
+		{"engine error is redacted and one line", "", "", errors.New("sse reset api_key: sk-proj-abcdefghijklmnop\nsecond line"), "⚠ 引擎错误: sse reset api_key: [redacted] second line", "引擎错误"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
