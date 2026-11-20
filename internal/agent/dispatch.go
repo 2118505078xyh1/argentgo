@@ -12,7 +12,6 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 const (
@@ -317,7 +316,7 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	// Strip the model's concise intent before the tool sees its arguments. With
 	// no `i` present the cleaned bytes equal the original, so behaviour is
 	// unchanged for every existing tool call.
-	intent, cleaned := tools.ExtractIntent(json.RawMessage(call.Function.Arguments))
+	intent, cleaned := ExtractIntent(json.RawMessage(call.Function.Arguments))
 	output, meta, err := s.callTool(ctx, call.Function.Name, string(cleaned))
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
@@ -335,7 +334,7 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
 	// The start event is emitted before the tool runs, so no callResult exists
 	// yet; read the intent straight from the call's arguments.
-	intent, _ := tools.ExtractIntent(json.RawMessage(call.Function.Arguments))
+	intent, _ := ExtractIntent(json.RawMessage(call.Function.Arguments))
 	s.emit(Event{
 		Kind:       EventToolStart,
 		Turn:       turn,

@@ -34,7 +34,8 @@ const allowedExternalModule = "github.com/egoist/mygo"
 
 // internalLayerRules encodes package-scoped layering rules (AGENTS.md):
 //   - tools never imports agent;
-//   - agent is a library layer and never imports the app wirer;
+//   - agent is a library layer and never imports the app wirer or tools
+//     (it depends on the ToolRunner interface, not the tools package);
 //   - llm is the wire layer and must stay below agent/tools/app.
 //
 // Imports are matched against "<module path> + forbiddenImport".
@@ -45,6 +46,7 @@ var internalLayerRules = []struct {
 }{
 	{"internal/tools", "/internal/agent", "internal/tools must not import internal/agent"},
 	{"internal/agent", "/internal/app", "internal/agent must not import internal/app (app is the top-level wirer)"},
+	{"internal/agent", "/internal/tools", "agent depends on ToolRunner interface, not tools package"},
 	{"internal/llm", "/internal/agent", "internal/llm is the wire layer and must not import internal/agent"},
 	{"internal/llm", "/internal/tools", "internal/llm is the wire layer and must not import internal/tools"},
 	{"internal/llm", "/internal/app", "internal/llm must not import internal/app"},

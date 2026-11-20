@@ -173,34 +173,3 @@ func InjectIntentSchema(params json.RawMessage) json.RawMessage {
 	}
 	return encodeObject(out)
 }
-
-// ExtractIntent removes the `i` key from a tool-call arguments object and
-// returns its string value. The cleaned arguments are what the tool receives.
-// When there is no `i`, or the input is not an object, args is returned
-// byte-for-byte unchanged. Invalid JSON behaves the same way.
-func ExtractIntent(args json.RawMessage) (intent string, cleaned json.RawMessage) {
-	fields, ok := decodeObject(args)
-	if !ok {
-		return "", args
-	}
-
-	out := make([]orderedField, 0, len(fields))
-	found := false
-	for _, f := range fields {
-		if f.key == intentKey {
-			found = true
-			// A non-string `i` carries no usable intent, but is still stripped
-			// so the tool never sees the internal field.
-			var s string
-			if err := json.Unmarshal(f.value, &s); err == nil {
-				intent = s
-			}
-			continue
-		}
-		out = append(out, f)
-	}
-	if !found {
-		return "", args
-	}
-	return intent, encodeObject(out)
-}

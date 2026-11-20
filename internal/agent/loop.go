@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // cancelledCallReason is the tool result written for a call that never ran.
@@ -464,15 +463,15 @@ func (s *runState) advertisedSpecs() []llm.ToolSpec {
 // non-empty Parameters document. The returned slice is always a fresh copy, so
 // projecting a request never mutates the toolset's own spec catalog.
 func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
-	compat := tools.CompatNone
+	compat := llm.CompatNone
 	name := strings.ToLower(model)
 	switch {
 	case strings.Contains(name, "moonshot"), strings.Contains(name, "kimi"):
-		compat = tools.CompatMoonshot
+		compat = llm.CompatMoonshot
 	case strings.Contains(name, "gemini"):
-		compat = tools.CompatGemini
+		compat = llm.CompatGemini
 	}
-	if compat == tools.CompatNone {
+	if compat == llm.CompatNone {
 		return specs
 	}
 
@@ -483,7 +482,7 @@ func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
 		if len(raw) == 0 {
 			continue
 		}
-		projected := tools.ProjectToolSchema(string(raw), compat)
+		projected := llm.ProjectToolSchema(string(raw), compat)
 		if projected != string(raw) {
 			out[i].Function.Parameters = json.RawMessage(projected)
 		}
