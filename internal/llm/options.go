@@ -181,6 +181,41 @@ func deriveCacheKey(parts ...string) string {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil))[:32]
 }
 
+// sessionCacheKeyMaxLen 是会话派生缓存键的长度上限（按 rune 计）。
+// 上限让键保持可读，也避免过长的会话 ID 或覆盖值进入上游请求日志。
+const sessionCacheKeyMaxLen = 128
+
+// sessionCacheKey 按三态策略派生跨 turn/fork 稳定的 Responses 缓存键：
+//   - override 非空（忽略首尾空白）时原样采用调用方的显式覆盖值；
+//   - 否则 sessionID 非空时返回 "session:"+sessionID，使同一会话在
+//     不同轮次与分叉之间复用同一份缓存；
+//   - 两者都为空时返回空串，让线协议通过 omitempty 省略 prompt_cache_key。
+//
+// 返回值按 rune 有界截断，因此 CJK 等多字节字符不会被从中间切断；
+// 相同输入始终得到相同输出。该函数是纯函数，不读取任何全局状态。
+func sessionCacheKey(sessionID, override string) string {
+	if key := strings.TrimSpace(override); key != "" {
+		return truncateRunes(key, sessionCacheKeyMaxLen)
+	}
+	if id := strings.TrimSpace(sessionID); id != "" {
+		return truncateRunes("session:"+id, sessionCacheKeyMaxLen)
+	}
+	return ""
+}
+
+// truncateRunes 按 rune 把 s 截断到最多 max 个字符。按 rune 而非字节
+// 切片，保证截断不会落在某个多字节字符的中间（CJK 安全）。
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
+}
+
 var (
 	// authorizationRE 在一次匹配中吞掉 Authorization 风格字段的
 	// 整个值：可选的方案词（Bearer、Basic 等）加上 token。

@@ -17,6 +17,11 @@ type StructuredSummary struct {
 	UserActions   []string `json:"userActions,omitempty"`
 }
 
+// summaryIsEmpty 报告结构化摘要的三个桶是否都为空。
+func summaryIsEmpty(s StructuredSummary) bool {
+	return len(s.Progress) == 0 && len(s.Uncertainties) == 0 && len(s.UserActions) == 0
+}
+
 // structuredBucket 是一个 markdown 章节标题的内部目标。
 type structuredBucket int
 

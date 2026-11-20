@@ -16,10 +16,6 @@ func hasItemContaining(items []string, sub string) bool {
 	return false
 }
 
-func summaryIsEmpty(s StructuredSummary) bool {
-	return len(s.Progress) == 0 && len(s.Uncertainties) == 0 && len(s.UserActions) == 0
-}
-
 func TestParseStructuredSummaryCanonicalSections(t *testing.T) {
 	text := "## Progress\n" +
 		"- built lexer\n" +
