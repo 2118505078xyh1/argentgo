@@ -250,7 +250,22 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	return Result{Ask, fmt.Sprintf("the unknown tool %q needs operator approval", name)}
 }
 
-var pathArgKeys = []string{"path", "file", "dir", "directory", "target"}
+// pathArgKeys lists the argument names that carry a filesystem path. Most
+// built-in tools use "path", but the diff tool spells them "path_a"/"path_b"
+// and Claude-style tools use "file_path"/"filePath". Omitting one of these
+// names used to bypass every path rule: checkPath saw no path in the call and
+// let it fall through to Ask (and to auto-approval). Keep this list in sync
+// with the built-in tool schemas and common MCP argument conventions.
+var pathArgKeys = []string{
+	"path", "file", "dir", "directory", "target",
+	"path_a", "path_b",
+	"file_path", "filePath", "filepath",
+	"old_path", "new_path", "notebook_path",
+}
+
+// pathArrayKeys lists array arguments whose string elements are paths. The
+// checkpoint restore manifest uses "paths"; context_pack uses "files".
+var pathArrayKeys = []string{"paths", "files"}
 
 // checkPath applies the deny/allow path rules to one argument and enforces the
 // workspace boundary for every tool, including read-only ones. A path that
@@ -320,9 +335,10 @@ func (p *Policy) checkWriteRoots(fields map[string]any) Result {
 	return Result{Allow, ""}
 }
 
-// pathValues collects every path argument, including the `paths` array used
-// by checkpoint restore actions. Order is stable: scalar keys first, then the
-// array in the order supplied by the caller.
+// pathValues collects every path argument, including the array forms used by
+// checkpoint restore actions and context_pack. Order is stable: scalar keys in
+// pathArgKeys order first, then each known array in pathArrayKeys order with
+// its elements in the order supplied by the caller.
 func pathValues(fields map[string]any) []string {
 	var paths []string
 	for _, key := range pathArgKeys {
@@ -330,10 +346,12 @@ func pathValues(fields map[string]any) []string {
 			paths = append(paths, value)
 		}
 	}
-	if list, ok := fields["paths"].([]any); ok {
-		for _, item := range list {
-			if value, ok := item.(string); ok {
-				paths = append(paths, value)
+	for _, key := range pathArrayKeys {
+		if list, ok := fields[key].([]any); ok {
+			for _, item := range list {
+				if value, ok := item.(string); ok {
+					paths = append(paths, value)
+				}
 			}
 		}
 	}
@@ -369,11 +387,12 @@ func (p *Policy) checkCommand(command string) Result {
 func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool) {
 	var best Decision
 	matched := false
-	// Collect every path resource once. pathValues includes the `paths` array
-	// used by checkpoint restores; scanning only the scalar keys here used to
-	// hide a path rule aimed at an array entry. In a multi-resource call that
-	// let an Ask on a scalar path mask a Deny on an array entry, because the
-	// deny rule never matched and fell out of the strictest-wins walk.
+	// Collect every path resource once. pathValues includes the path arrays
+	// used by checkpoint restores and context_pack; scanning only the scalar
+	// keys here used to hide a path rule aimed at an array entry. In a
+	// multi-resource call that let an Ask on a scalar path mask a Deny on an
+	// array entry, because the deny rule never matched and fell out of the
+	// strictest-wins walk.
 	paths := pathValues(fields)
 	for _, rule := range p.rules {
 		if rule.Tool != "" && rule.Tool != "*" && rule.Tool != name {

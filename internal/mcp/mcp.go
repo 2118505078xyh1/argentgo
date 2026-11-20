@@ -380,6 +380,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	if out == "" {
 		out = string(raw)
 	}
+	// Opt-in: bound very large MCP results so one chatty server cannot flood the
+	// model context. With ARGENT_MCP_SPILL_DIR unset this is a no-op, so the
+	// legacy output (and every existing test) stays byte-for-byte identical.
+	out, _, _ = spillMCPOutput(out, mcpSpillThreshold())
 	if result.IsError {
 		return out, fmt.Errorf("mcp %q: tool %q reported an error: %s", c.spec.Name, name, out)
 	}

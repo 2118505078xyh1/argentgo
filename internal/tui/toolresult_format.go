@@ -25,7 +25,11 @@ var StructuredToolResults = false
 // the original preview's overflow line.
 func structuredOutputLines(raw string, limit, width int, p Palette) []Line {
 	bodyWidth := maxInt(width-2, 1)
-	textLines := formatToolResultContent(raw, limit)
+	// This renderer is only reached when StructuredToolResults is enabled. The
+	// legacy byte-for-byte preview in toolLines stays untouched; sanitising
+	// here keeps progress-bar cursor escapes out of the frame cache and the
+	// rows painted after a tool result.
+	textLines := formatToolResultContent(normalizeToolOutput(raw), limit)
 	out := make([]Line, 0, len(textLines))
 	for _, text := range textLines {
 		line := NewLine()

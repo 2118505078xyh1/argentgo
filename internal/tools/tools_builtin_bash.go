@@ -69,21 +69,28 @@ func bashOutputTokens(s string) int {
 	return wide + (narrow+bashCharsPerToken-1)/bashCharsPerToken
 }
 
-// clipBashOutput clips oversized command output and, only when content was
-// actually dropped, prefixes a short volume hint so the user and the model can
-// see the context cost of what the command produced. It is a pure text change:
-// it never touches the exit status, error path or clipping threshold.
-func clipBashOutput(ctx context.Context, text string) string {
+// clipBashOutput sanitizes and clips raw command output and, only when content
+// was actually dropped, prefixes a short volume hint so the user and the model
+// can see the context cost of what the command produced. It is a pure text
+// change: it never touches the exit status, error path or clipping threshold.
+//
+// It takes the raw output on purpose. Sanitizing first collapses runs of
+// identical lines, and deciding on the collapsed text both under-reported the
+// volume and skipped the hint for exactly the repetitive output that needs it
+// most (3000 identical lines compress to one line, so the budget check no
+// longer fired). Size and estimate therefore come from raw; only the body that
+// reaches the model is sanitized.
+func clipBashOutput(ctx context.Context, raw string) string {
 	limit := outputLimit(ctx)
 	if limit <= 0 {
 		limit = maxToolOutput
 	}
-	clipped := clip(ctx, text)
-	if len(text) <= limit {
+	clipped := clip(ctx, sanitizeShellOutput(raw))
+	if len(raw) <= limit {
 		return clipped
 	}
 	return fmt.Sprintf("[output: ~%.1fk tokens, clipped]\n%s",
-		float64(bashOutputTokens(text))/1000, clipped)
+		float64(bashOutputTokens(raw))/1000, clipped)
 }
 
 type bashTool struct{}
@@ -128,7 +135,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	cmd := exec.CommandContext(runCtx, path, argv...)
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
-	text := clipBashOutput(ctx, sanitizeShellOutput(string(output)))
+	text := clipBashOutput(ctx, string(output))
 	if runCtx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("bash: timed out after %s", timeout)
 	}
@@ -203,15 +210,15 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argent jobs` (output: `argent jobs tail %s`).",
 			job.ID, job.PID, command, job.ID)
 		if partial := strings.TrimSpace(res.Combined()); partial != "" {
-			out += "\nOutput so far:\n" + clipBashOutput(ctx, sanitizeShellOutput(partial))
+			out += "\nOutput so far:\n" + clipBashOutput(ctx, partial)
 		}
 		return out, nil
 	}
 
 	if err != nil {
-		return clipBashOutput(ctx, sanitizeShellOutput(res.Combined())), fmt.Errorf("bash: %w", err)
+		return clipBashOutput(ctx, res.Combined()), fmt.Errorf("bash: %w", err)
 	}
-	text := clipBashOutput(ctx, sanitizeShellOutput(res.Combined()))
+	text := clipBashOutput(ctx, res.Combined())
 	if strings.TrimSpace(text) == "" {
 		return "(no output)", nil
 	}

@@ -31,6 +31,16 @@ func splitSSEData(data string) []string {
 	return []string{data}
 }
 
+// isEmptySSEData reports whether an SSE event's data payload carries no data.
+// Gateways and load balancers legitimately send an empty "data:" line (or a
+// whitespace-only one) as a keepalive on an otherwise idle stream. The SSE spec
+// treats that as an event with no payload, not as a malformed JSON event, so
+// every protocol client must skip it instead of aborting the reply with a
+// "decode stream event" error.
+func isEmptySSEData(data string) bool {
+	return strings.TrimSpace(data) == ""
+}
+
 // allJSONValues reports whether every line is a standalone JSON value (or the
 // [DONE] marker), which means the gateway omitted blank lines between what
 // were meant to be separate events.

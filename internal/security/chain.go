@@ -304,10 +304,12 @@ func approvalArgs(args json.RawMessage, root string) json.RawMessage {
 			fields[key] = rewrite(value)
 		}
 	}
-	if list, ok := fields["paths"].([]any); ok {
-		for i, item := range list {
-			if value, ok := item.(string); ok {
-				list[i] = rewrite(value)
+	for _, key := range pathArrayKeys {
+		if list, ok := fields[key].([]any); ok {
+			for i, item := range list {
+				if value, ok := item.(string); ok {
+					list[i] = rewrite(value)
+				}
 			}
 		}
 	}

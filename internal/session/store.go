@@ -146,11 +146,6 @@ func (c *Container) List() ([]Meta, error) {
 		}
 		id := entry.Name()[:len(entry.Name())-len(fileExt)]
 		path := filepath.Join(c.dir, entry.Name())
-		// Listing never repairs: hard-corrupt transcripts are invisible here,
-		// and a torn tail stays untouched until an explicit resume.
-		if _, err := ValidateAndRepair(path, false); err != nil {
-			continue
-		}
 
 		info, statErr := entry.Info()
 		var meta Meta
@@ -159,6 +154,11 @@ func (c *Container) List() ([]Meta, error) {
 			meta, cached = loadIndex(path, info, id)
 		}
 		if !cached {
+			// Listing never repairs: hard-corrupt transcripts are invisible here,
+			// and a torn tail stays untouched until an explicit resume.
+			if _, err := ValidateAndRepair(path, false); err != nil {
+				continue
+			}
 			records, err := readRecords(path)
 			if err != nil {
 				continue

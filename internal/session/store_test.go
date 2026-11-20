@@ -292,3 +292,59 @@ func TestDeleteRemovesSidecar(t *testing.T) {
 		t.Fatalf("sidecar survived Delete: %v", err)
 	}
 }
+
+// TestListTrustsFreshSidecarWithoutFullValidation pins the contract that keeps
+// List O(1) per transcript: a sidecar matching size and mtime is only written
+// after those exact bytes parsed cleanly, so List does not re-read or
+// re-validate the transcript. The trust boundary is (size, mtime); a rewrite
+// that preserves both stays invisible until something touches the file again.
+func TestListTrustsFreshSidecarWithoutFullValidation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trust.jsonl")
+	writeRawSession(t, path, []Record{
+		{ID: "n1", TS: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), Kind: KindHeader, Data: json.RawMessage(`{"title":"trust"}`)},
+		{ID: "n2", Parent: "n1", TS: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), Kind: KindAssistant, Data: json.RawMessage(`"done"`)},
+	})
+	if _, err := List(dir); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtime := info.ModTime()
+
+	// Rewrite the last line as hard corruption (numeric kind) while keeping the
+	// byte length and the recorded mtime, so the sidecar still matches.
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nl := strings.LastIndexByte(string(content), '\n')
+	if nl < 0 {
+		t.Fatal("fixture must be newline-terminated")
+	}
+	evil := []byte(`{"id":"x","kind":123}`)
+	if len(evil) < len(content)-nl-1 {
+		pad := make([]byte, len(content)-nl-1-len(evil))
+		for i := range pad {
+			pad[i] = ' '
+		}
+		evil = append(evil, pad...)
+	}
+	evil = evil[:len(content)-nl-1]
+	if err := os.WriteFile(path, append(content[:nl+1], evil...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	metas, err := List(dir)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(metas) != 1 || metas[0].ID != "trust" {
+		t.Fatalf("List metas = %+v, want the sidecar-trusted session", metas)
+	}
+}

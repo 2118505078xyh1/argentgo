@@ -15,6 +15,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -150,13 +151,17 @@ type RopeScaling struct {
 	OriginalMax int64
 }
 
-// fileStamp is the cheap, parse-free identity of one config file. mtime and
-// size together catch rewrites even on filesystems with coarse timestamp
-// resolution; existence and statErr catch created/removed/unreadable files.
+// fileStamp is the parse-free identity of one config file. mtime and size
+// catch ordinary rewrites; hash closes the gap where a rewrite preserves both
+// (e.g. same length edited within one mtime tick). Existence and statErr catch
+// created/removed/unreadable files. hash is zero when the file is missing or
+// unreadable, in which case the stat-only fields remain the identity (the
+// original, conservative behaviour).
 type fileStamp struct {
 	path    string
 	modTime int64
 	size    int64
+	hash    [sha256.Size]byte // SHA-256 of the raw bytes; zero if unreadable.
 	exists  bool
 	statErr bool
 }
@@ -275,20 +280,23 @@ func (c Config) Generation() uint64 {
 }
 
 // Changed reports whether any config file on disk differs from the snapshot
-// this Config was loaded from. It is a cheap polling hook for long-lived
-// callers: it only stats the candidate files (mtime, size, existence) and never
-// parses or merges them, so it is safe to call on a hot path. When a change is
-// detected, call Reload to get the new values. A Config built by hand (not via
-// Load) has no snapshot to compare and always reports false.
+// this Config was loaded from. It is a polling hook for long-lived callers:
+// for every candidate file it compares mtime, size and existence, plus a
+// SHA-256 hash of the raw bytes. The hash closes the blind spot where a rewrite
+// keeps both size and mtime (possible with coarse filesystem timestamps), so
+// same-length in-place edits are detected too. Config files are small and are
+// read in full by Load anyway, so the extra read on each poll is cheap; Changed
+// never parses or merges them. When a change is detected, call Reload to get
+// the new values. A Config built by hand (not via Load) has no snapshot to
+// compare and always reports false.
 //
 // Changed only observes config files. Environment variables and flag overrides
 // are captured at load time; Changed cannot see them change. Reload reuses the
 // original env function, so an env function backed by os.Getenv will still pick
 // up process-level changes at reload time.
 //
-// Note: filesystem mtime resolution is finite. A rewrite that preserves both
-// size and mtime within one tick cannot be detected by this lightweight check;
-// callers needing stronger guarantees should hash the file bytes themselves.
+// A missing or unreadable file keeps a zero hash and falls back to the
+// stat-only identity (mtime, size, existence), matching the original behaviour.
 func (c Config) Changed() bool {
 	if len(c.fingerprint.files) == 0 {
 		return false
@@ -355,10 +363,14 @@ func newFingerprint(cwd, home string) configFingerprint {
 	return fingerprintPaths(configFiles(cwd, home))
 }
 
-// fingerprintPaths stats each path and records a parse-free identity. A stat
+// fingerprintPaths stats each path and records a parse-free identity, then
+// hashes the raw bytes of any existing file. Hashing the content (not the
+// parsed JSON) means even a same-size, same-mtime rewrite is detected, while
+// BOM/comment/whitespace-only edits are still faithfully observed. A stat
 // error that is not "not exist" is recorded as statErr so a transient
 // unreadable file is conservatively treated as a change rather than matching
-// a missing-file snapshot.
+// a missing-file snapshot. Missing files and read failures keep a zero hash
+// and rely on the stat-only identity, preserving the original behaviour.
 func fingerprintPaths(paths []string) configFingerprint {
 	stamps := make([]fileStamp, 0, len(paths))
 	for _, path := range paths {
@@ -368,6 +380,11 @@ func fingerprintPaths(paths []string) configFingerprint {
 			stamp.exists = true
 			stamp.size = info.Size()
 			stamp.modTime = info.ModTime().UnixNano()
+			// Config files are read in full by Load anyway; hashing the same
+			// bytes here keeps the snapshot and every Changed() poll identical.
+			if data, readErr := os.ReadFile(path); readErr == nil {
+				stamp.hash = sha256.Sum256(data)
+			}
 		case os.IsNotExist(err):
 			// Missing file: leave the zero identity in place.
 		default:
@@ -386,7 +403,7 @@ func (f configFingerprint) equal(other configFingerprint) bool {
 	for i := range f.files {
 		a, b := f.files[i], other.files[i]
 		if a.path != b.path || a.exists != b.exists || a.size != b.size ||
-			a.modTime != b.modTime || a.statErr != b.statErr {
+			a.modTime != b.modTime || a.statErr != b.statErr || a.hash != b.hash {
 			return false
 		}
 	}

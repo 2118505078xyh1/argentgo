@@ -556,6 +556,11 @@ streamLoop:
 			pending = splitSSEData(data)
 			data, pending = pending[0], pending[1:]
 		}
+		// An empty data: line is a legal SSE keepalive, not a JSON event.
+		// Skipping it keeps a proxy's heartbeat from failing the reply.
+		if isEmptySSEData(data) {
+			continue
+		}
 		if data == "[DONE]" {
 			integrity.terminated = true
 			break streamLoop

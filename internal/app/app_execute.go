@@ -723,7 +723,11 @@ func (g *inspectionGuard) Check(ctx context.Context, tool string, args json.RawM
 	case security.InspectDeny:
 		return &security.StopError{Tool: tool, Reason: verdict.Reason}
 	case security.InspectRequireApproval:
-		ok, err := g.approver.Ask(ctx, tool, string(args))
+		// The finding's reason/finding ID travel only through the optional
+		// reason-aware approver seam; tool name and args (the cache/permission/audit
+		// inputs) are never modified, so approvals cannot drift from the call that
+		// was actually authorised. See askInspectionApproval.
+		ok, err := askInspectionApproval(ctx, g.approver, tool, args, verdict)
 		if err != nil {
 			return err
 		}

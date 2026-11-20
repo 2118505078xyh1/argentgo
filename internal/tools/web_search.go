@@ -81,7 +81,12 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 		return "", fmt.Errorf("web_search: endpoint returned %s", resp.Status)
 	}
 	if len(body) > maxFetchBytes {
-		body = body[:maxFetchBytes]
+		// A plain body[:maxFetchBytes] can cut a multibyte UTF-8 rune in half,
+		// handing invalid bytes to parseWebSearchResults (whose json.Unmarshal
+		// then rejects the trailing fragment) or leaking a replacement rune
+		// into a snippet. web_fetch uses the same rune-safe cap; keep the two
+		// in sync so the 200 KB boundary never lands inside CJK/emoji.
+		body = truncateFetchBody(body, maxFetchBytes)
 	}
 
 	results, err := parseWebSearchResults(body)

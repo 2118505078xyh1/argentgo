@@ -252,6 +252,13 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 	s.lastID = id
 
 	expected := s.fdSize + int64(len(buf))
+	// One stat per append is enough to catch a file replaced behind our back.
+	// The size check proves the write landed on the file currently at path;
+	// the inode comparison against lastInfo (captured when the fd was opened
+	// and refreshed on every append since) proves that file is still the one
+	// the fd writes through. The former fd.Stat() cross-check added no case the
+	// pair above misses — any replacement of the path shows up as a size or
+	// inode mismatch — and it doubled the syscall cost of every append.
 	pathInfo, err := os.Stat(s.path())
 	if err != nil || s.lastInfo == nil ||
 		!os.SameFile(pathInfo, s.lastInfo) || pathInfo.Size() != expected {
@@ -260,12 +267,6 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 		// the cache so the next append rebuilds from what is really on disk.
 		s.invalidateAppendState()
 		return nil
-	}
-	if !temporary {
-		if fdInfo, err := fd.Stat(); err != nil || !os.SameFile(fdInfo, pathInfo) {
-			s.invalidateAppendState()
-			return nil
-		}
 	}
 	s.fdSize = expected
 	s.fdMTime = pathInfo.ModTime()

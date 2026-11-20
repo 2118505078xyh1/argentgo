@@ -109,8 +109,10 @@ func BenchmarkReadRecords(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				records, err := readRecords(path)
-				if err != nil || len(records) != n {
-					b.Fatalf("readRecords: %d records, err %v; want %d", len(records), err, n)
+				// readRecords prepends one synthetic schema header for v0
+				// transcripts, so a fixture of n records parses to n+1.
+				if err != nil || len(records) != n+1 {
+					b.Fatalf("readRecords: %d records, err %v; want %d", len(records), err, n+1)
 				}
 			}
 		})
@@ -128,8 +130,10 @@ func BenchmarkSessionRecords(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				records, err := s.Records()
-				if err != nil || len(records) != n {
-					b.Fatalf("Records: %d records, err %v; want %d", len(records), err, n)
+				// Records() exposes the same synthetic schema header readRecords
+				// prepends, so a fixture of n records yields n+1.
+				if err != nil || len(records) != n+1 {
+					b.Fatalf("Records: %d records, err %v; want %d", len(records), err, n+1)
 				}
 			}
 		})
