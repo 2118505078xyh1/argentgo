@@ -127,7 +127,7 @@ func TestRedactDoctorDetailRedactsCredentialShapes(t *testing.T) {
 func TestRedactDoctorDetailLeavesCleanDetailsByteIdentical(t *testing.T) {
 	cases := []string{
 		"",
-		`C:\Users\xyh\.argent\config.json`,
+		`C:\Users\tester\.argent\config.json`,
 		"/home/u/.argent/config.json (defaults)",
 		"go1.27.0",
 		`C:\Program Files\Git\cmd\git.exe`,
