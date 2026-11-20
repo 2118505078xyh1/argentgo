@@ -24,6 +24,32 @@ import (
 // installs (which put pwsh on PATH but not here) win over this fixed path.
 const powerShellFixedPath = `C:\Program Files\PowerShell\7\pwsh.exe`
 
+// powerShellUtf8Prefix is prepended to every script before it is UTF-16LE
+// encoded into -EncodedCommand. Windows PowerShell 5.1 defaults its console to
+// the OEM code page, which mangles non-ASCII output (e.g. Chinese) into '?';
+// pinning both the console's output encoding and $OutputEncoding (what the
+// pipeline uses to talk to native commands) to UTF-8 fixes that. PowerShell 7
+// already defaults to UTF-8, so the assignments are harmless there.
+//
+// The prefix lives inside the script rather than in a separate -Command
+// argument so the whole payload stays one encoded argument that no outer shell
+// can reinterpret. This mirrors dsh; the tradeoff is that a script whose very
+// first statement is `using` or `param` would be pushed off the first line,
+// which PowerShell rejects — acceptable for agent-generated scripts.
+const powerShellUtf8Prefix = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncoding=[Text.Encoding]::UTF8; "
+
+// powerShellEnvOverrides returns the per-call environment appended to the
+// inherited one by proc.Run. NO_COLOR and the pager overrides keep captured
+// output deterministic: no ANSI colour codes and no interactive pager waiting
+// on stdin, which would otherwise garble or stall the parsed result.
+func powerShellEnvOverrides() []string {
+	return []string{
+		"NO_COLOR=1",
+		"PAGER=cat",
+		"GIT_PAGER=cat",
+	}
+}
+
 // resolvePowerShellProgram finds a PowerShell executable, preferring PATH.
 // Keeping the lookup order in one small function makes it testable with a fake
 // executable on PATH without requiring a real PowerShell installation.
@@ -60,10 +86,24 @@ func encodePowerShellCommand(script string) string {
 }
 
 // powershellArgs builds the argv that runs script through PowerShell. The
-// encoded argument is the script itself, so quotes, newlines and host-path
-// characters cannot be reinterpreted by an outer shell.
+// UTF-8 prefix and the caller's script are encoded together, so quotes,
+// newlines and host-path characters cannot be reinterpreted by an outer shell.
 func powershellArgs(script string) []string {
-	return []string{"-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShellCommand(script)}
+	return []string{"-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShellCommand(powerShellUtf8Prefix + script)}
+}
+
+// powershellProcCommand builds the proc.Command that Run executes. Kept apart
+// from Run so the UTF-8 prefix and the environment overrides are verifiable in
+// a unit test without needing a real PowerShell installation.
+func powershellProcCommand(program, script, root string) proc.Command {
+	return proc.Command{
+		Path:     program,
+		Args:     powershellArgs(script),
+		Dir:      root,
+		Env:      powerShellEnvOverrides(),
+		KillTree: true,
+		NoWindow: runtime.GOOS == "windows",
+	}
 }
 
 type powershellTool struct{}
@@ -117,13 +157,7 @@ func (powershellTool) Run(ctx context.Context, root string, raw json.RawMessage)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	res, runErr := proc.Run(runCtx, proc.Command{
-		Path:     program,
-		Args:     powershellArgs(script),
-		Dir:      root,
-		KillTree: true,
-		NoWindow: runtime.GOOS == "windows",
-	})
+	res, runErr := proc.Run(runCtx, powershellProcCommand(program, script, root))
 
 	text := sanitizeShellOutput(res.Combined())
 	if res.ExitCode != 0 {

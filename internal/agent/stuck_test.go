@@ -40,6 +40,41 @@ func TestStuckDetectorRepeatedCallTriggers(t *testing.T) {
 	}
 }
 
+func TestStuckDetectorNormalizesArgumentKeyOrder(t *testing.T) {
+	// Three spellings of the same JSON object: key order and whitespace differ,
+	// but after normalization they are one repeated call.
+	spellings := []string{
+		`{"path":"a","line":1}`,
+		`{"line":1,"path":"a"}`,
+		`{ "path" : "a", "line" : 1 }`,
+	}
+
+	t.Run("reordered keys are one repeated call", func(t *testing.T) {
+		var events []Event
+		for i, args := range spellings {
+			events = append(events, stuckToolPair(fmt.Sprintf("call-%d", i), "read_file", args, false)...)
+		}
+		d := &StuckDetector{}
+		guidance, stuck := d.Observe(events)
+		if !stuck || guidance != stuckGuidanceRepeat {
+			t.Fatalf("reordered keys: got stuck=%v guidance=%q, want repeat nudge", stuck, guidance)
+		}
+	})
+
+	t.Run("different values are not merged", func(t *testing.T) {
+		// Normalization must not collapse calls whose argument values differ.
+		events := []Event{}
+		events = append(events, stuckToolPair("1", "read_file", spellings[0], false)...)
+		events = append(events, stuckToolPair("2", "read_file", `{"line":2,"path":"a"}`, false)...)
+		events = append(events, stuckToolPair("3", "read_file", spellings[0], false)...)
+		d := &StuckDetector{}
+		guidance, stuck := d.Observe(events)
+		if stuck || guidance != "" {
+			t.Fatalf("distinct argument values: got stuck=%v guidance=%q, want not stuck", stuck, guidance)
+		}
+	})
+}
+
 func TestStuckDetectorErrorStreakTriggers(t *testing.T) {
 	d := &StuckDetector{}
 	var events []Event

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -322,6 +323,110 @@ func TestTrimCacheGuardConsistentAcrossPaths(t *testing.T) {
 	unguardedBudget := Trim(messages, TrimOptions{MaxTokens: 500, KeepTurns: 1, KeepToolTokens: 100, CacheProtectSuffixTokens: 100000})
 	if got := unguardedBudget.Messages[3].Content; !strings.HasPrefix(got, trimmedPrefix) {
 		t.Fatalf("unguarded budget trim = %q, want a stub", got)
+	}
+}
+
+func TestPruneToolResultMiddleKeepsHeadAndTail(t *testing.T) {
+	head := strings.Repeat("H", toolResultPruneHead+10)
+	tail := strings.Repeat("T", toolResultPruneTail+10)
+	content := head + strings.Repeat("m", 5000) + tail
+
+	pruned := pruneToolResultMiddle(content)
+	if pruned == content {
+		t.Fatal("expected an over-budget result to be pruned")
+	}
+	idx := strings.Index(pruned, toolResultPruneMarker)
+	if idx < 0 {
+		t.Fatalf("pruned result is missing the marker: %q", pruned)
+	}
+	if got, want := pruned[:idx], strings.Repeat("H", toolResultPruneHead); got != want {
+		t.Fatalf("retained head = %d runes, want %d", len([]rune(got)), len([]rune(want)))
+	}
+	after := pruned[idx+len(toolResultPruneMarker):]
+	if got, want := after, strings.Repeat("T", toolResultPruneTail); got != want {
+		t.Fatalf("retained tail = %d runes, want %d", len([]rune(got)), len([]rune(want)))
+	}
+	if len([]rune(pruned)) >= len([]rune(content)) {
+		t.Fatal("pruned result must be smaller than the original")
+	}
+}
+
+func TestPruneToolResultMiddleUnderBudget(t *testing.T) {
+	for _, content := range []string{
+		"short",
+		strings.Repeat("x", toolResultPruneThreshold-1),
+		strings.Repeat("x", toolResultPruneThreshold),
+	} {
+		if got := pruneToolResultMiddle(content); got != content {
+			t.Errorf("under-budget content changed: %d -> %d runes", len([]rune(content)), len([]rune(got)))
+		}
+	}
+}
+
+func TestPruneToolResultMiddleIsRuneSafe(t *testing.T) {
+	// Put a 4-byte emoji as the last retained head rune and a CJK ideograph as
+	// the first retained tail rune. Byte-based slicing would split both.
+	head := strings.Repeat("a", toolResultPruneHead-1) + "🚀"
+	tail := "界" + strings.Repeat("b", toolResultPruneTail-1)
+	content := head + strings.Repeat("中", 4000) + tail
+
+	pruned := pruneToolResultMiddle(content)
+	if !utf8.ValidString(pruned) {
+		t.Fatal("pruned result is not valid UTF-8")
+	}
+	if strings.ContainsRune(pruned, utf8.RuneError) {
+		t.Fatal("pruned result contains a replacement rune: a UTF-8 sequence was cut")
+	}
+	idx := strings.Index(pruned, toolResultPruneMarker)
+	if idx < 0 {
+		t.Fatal("marker missing from pruned result")
+	}
+	before := []rune(pruned[:idx])
+	if len(before) == 0 || string(before[len(before)-1]) != "🚀" {
+		t.Fatal("head boundary does not end with the intact emoji")
+	}
+	after := []rune(pruned[idx+len(toolResultPruneMarker):])
+	if len(after) == 0 || string(after[0]) != "界" {
+		t.Fatal("tail boundary does not start with the intact CJK rune")
+	}
+}
+
+func TestTrimStubKeepsHeadAndTailForLargeResult(t *testing.T) {
+	head := strings.Repeat("H", toolResultPruneHead+50)
+	tail := strings.Repeat("T", toolResultPruneTail+50)
+	big := head + strings.Repeat("m", 4000) + tail
+	messages := []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "q"},
+		{Role: "assistant", Content: "a", ToolCalls: []llm.ToolCall{toolCall("c1", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "c1", Content: big},
+		{Role: "assistant", Content: "b", ToolCalls: []llm.ToolCall{toolCall("c2", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "c2", Content: big},
+		{Role: "assistant", Content: "c"},
+	}
+	opts := TrimOptions{
+		MaxTokens:                100,
+		KeepTurns:                1,
+		KeepToolTokens:           1,
+		CacheProtectSuffixTokens: 1 << 30,
+	}
+	result := Trim(messages, opts)
+
+	stub := result.Messages[3].Content
+	if !strings.HasPrefix(stub, trimmedPrefix) {
+		t.Fatalf("old tool result = %q, want a stub", stub)
+	}
+	if !strings.Contains(stub, toolResultPruneMarker) {
+		t.Fatal("stub dropped the head/tail details")
+	}
+	if !strings.Contains(stub, strings.Repeat("H", toolResultPruneHead)) {
+		t.Fatal("stub does not retain the head")
+	}
+	if !strings.Contains(stub, strings.Repeat("T", toolResultPruneTail)) {
+		t.Fatal("stub does not retain the tail")
+	}
+	if got := result.Messages[5].Content; got != big {
+		t.Fatal("most recent tool result must stay verbatim")
 	}
 }
 

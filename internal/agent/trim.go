@@ -26,6 +26,18 @@ const (
 	// result still has more than this many estimated tokens after it, stubbing
 	// it would invalidate a large cached prefix, so leave it alone.
 	cacheProtectSuffixTokens = 12000
+
+	// toolResultPruneThreshold is the rune count above which a tool result's
+	// middle is replaced with a marker instead of keeping the whole body.
+	toolResultPruneThreshold = 8192
+	// toolResultPruneHead and toolResultPruneTail are the number of leading and
+	// trailing runes retained when pruning an over-budget tool result. They
+	// mirror the dsh compaction-tool-result-pruner defaults.
+	toolResultPruneHead = 4096
+	toolResultPruneTail = 1024
+	// toolResultPruneMarker substitutes the removed middle span. The surrounding
+	// blank lines keep the retained head and tail visually separated from it.
+	toolResultPruneMarker = "\n\n[... tool result middle pruned ...]\n\n"
 )
 
 // EstimateTokens estimates the token cost of a string.
@@ -180,7 +192,7 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 		if msg.Content == "" || strings.HasPrefix(msg.Content, trimmedPrefix) {
 			continue
 		}
-		stub := toolStub(len([]rune(msg.Content)))
+		stub := toolStub(msg.Content)
 		stubbed := msg
 		stubbed.Content = stub
 		freed := cost - EstimateMessage(stubbed)
@@ -230,9 +242,45 @@ func protectedIndexes(messages []llm.Message, keepTurns int) []bool {
 	return protected
 }
 
-// toolStub is the one-line replacement for a pruned tool result.
-func toolStub(chars int) string {
-	return fmt.Sprintf("%s %d chars of this tool result were removed to save context; run the tool again if the details matter]", trimmedPrefix, chars)
+// pruneToolResultMiddle retains the head and tail of an over-budget tool result
+// and replaces the removed middle with toolResultPruneMarker.
+//
+// Slicing is by rune, never by byte, so a multi-byte UTF-8 character (CJK, emoji)
+// that straddles a budget boundary is kept intact instead of being cut in half.
+// A result at or below toolResultPruneThreshold is returned unchanged, which
+// makes the function safe to call unconditionally.
+func pruneToolResultMiddle(content string) string {
+	runes := []rune(content)
+	if len(runes) <= toolResultPruneThreshold {
+		return content
+	}
+	// Keep the replacement strictly smaller than the original. The fixed
+	// threshold/budget relationship already guarantees this, but guard it so a
+	// future budget change cannot turn a "prune" into growth.
+	if toolResultPruneHead+toolResultPruneTail >= len(runes) {
+		return content
+	}
+	var b strings.Builder
+	b.Grow(len(content) + len(toolResultPruneMarker))
+	b.WriteString(string(runes[:toolResultPruneHead]))
+	b.WriteString(toolResultPruneMarker)
+	b.WriteString(string(runes[len(runes)-toolResultPruneTail:]))
+	return b.String()
+}
+
+// toolStub builds the replacement for a pruned tool result. The trimmedPrefix
+// header stays first so every stub-detection site keeps recognising it. For an
+// over-budget body the head and tail are preserved around a marker so the model
+// retains some detail; smaller bodies fall back to the compact one-line stub so
+// the budget loop still reclaims space.
+func toolStub(content string) string {
+	pruned := pruneToolResultMiddle(content)
+	removed := len([]rune(content)) - len([]rune(pruned))
+	header := fmt.Sprintf("%s %d chars of this tool result were removed to save context; run the tool again if the details matter]", trimmedPrefix, removed)
+	if pruned == content {
+		return header
+	}
+	return header + "\n" + pruned
 }
 
 // reclaimByMeta stamps tool results that later turns made redundant. It never

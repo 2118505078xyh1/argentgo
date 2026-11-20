@@ -60,6 +60,8 @@ func decodePowerShellEncodedCommand(t *testing.T, encoded string) string {
 func TestPowerShellEncodedCommandRoundTrip(t *testing.T) {
 	// Quotes, newlines and non-ASCII text must survive the UTF-16LE encoding
 	// byte-for-byte; that is what keeps a script safe behind -EncodedCommand.
+	// The decoded payload is the UTF-8 encoding prefix followed by the caller's
+	// script unchanged.
 	script := "Write-Output 'héllo'\r\nGet-ItemProperty 'HKCU:\\Software\\Example' | Select-Object -First 1"
 
 	argv := powershellArgs(script)
@@ -69,8 +71,70 @@ func TestPowerShellEncodedCommandRoundTrip(t *testing.T) {
 	if argv[0] != "-NoProfile" || argv[1] != "-NonInteractive" || argv[2] != "-EncodedCommand" {
 		t.Fatalf("flags = %v, want -NoProfile -NonInteractive -EncodedCommand", argv[:3])
 	}
-	if got := decodePowerShellEncodedCommand(t, argv[3]); got != script {
-		t.Fatalf("decoded script = %q, want %q", got, script)
+	decoded := decodePowerShellEncodedCommand(t, argv[3])
+	if !strings.HasPrefix(decoded, powerShellUtf8Prefix) {
+		t.Fatalf("decoded command %q is missing UTF-8 prefix %q", decoded, powerShellUtf8Prefix)
+	}
+	if got := strings.TrimPrefix(decoded, powerShellUtf8Prefix); got != script {
+		t.Fatalf("script after prefix = %q, want %q", got, script)
+	}
+}
+
+func TestPowerShellUtf8PrefixPinsConsoleAndPipeline(t *testing.T) {
+	// Windows PowerShell 5.1 defaults to the OEM code page; both the console's
+	// output encoding and $OutputEncoding (the string-to-native pipeline) must
+	// be pinned to UTF-8 so non-ASCII output is not garbled.
+	for _, want := range []string{
+		"[Console]::OutputEncoding",
+		"$OutputEncoding",
+		"UTF8",
+	} {
+		if !strings.Contains(powerShellUtf8Prefix, want) {
+			t.Errorf("prefix %q does not contain %q", powerShellUtf8Prefix, want)
+		}
+	}
+}
+
+func TestPowerShellEnvOverrides(t *testing.T) {
+	want := map[string]string{
+		"NO_COLOR":  "1",
+		"PAGER":     "cat",
+		"GIT_PAGER": "cat",
+	}
+	got := make(map[string]string)
+	for _, entry := range powerShellEnvOverrides() {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			t.Fatalf("bad env entry %q (missing '=')", entry)
+		}
+		got[key] = value
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("env %s = %q, want %q (all entries: %v)", key, got[key], value, powerShellEnvOverrides())
+		}
+	}
+}
+
+func TestPowerShellProcCommandWiresPrefixAndEnv(t *testing.T) {
+	// Run hands this exact command to proc.Run, so checking it here verifies
+	// the prefix and env overrides are actually wired in, not just defined.
+	cmd := powershellProcCommand("pwsh", "Get-ChildItem", t.TempDir())
+	if cmd.Path != "pwsh" {
+		t.Errorf("Path = %q, want pwsh", cmd.Path)
+	}
+	decoded := decodePowerShellEncodedCommand(t, cmd.Args[3])
+	if !strings.HasPrefix(decoded, powerShellUtf8Prefix) {
+		t.Fatalf("command argv is missing UTF-8 prefix: %q", decoded)
+	}
+	envJoined := strings.Join(cmd.Env, "\n")
+	for _, want := range []string{"NO_COLOR=1", "PAGER=cat", "GIT_PAGER=cat"} {
+		if !strings.Contains(envJoined, want) {
+			t.Errorf("command env %v is missing %q", cmd.Env, want)
+		}
+	}
+	if !cmd.KillTree {
+		t.Error("command must kill the process tree")
 	}
 }
 

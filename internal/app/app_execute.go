@@ -92,7 +92,11 @@ func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundR
 	if err != nil || len(personas) == 0 {
 		return
 	}
-	opts.System = res.System + "\n\n" + agent.OrchestratorPrompt()
+	// Append to the system prompt the caller already installed (the static,
+	// cache-stable half on trust-opted runs) rather than res.System, which
+	// still carries the per-run dynamic values. Direct callers set opts.System
+	// to res.System, so their behaviour is byte-for-byte unchanged.
+	opts.System = opts.System + "\n\n" + agent.OrchestratorPrompt()
 	opts.Subagent = &agent.SubagentConfig{
 		MaxDepth: agent.DefaultMaxDepth,
 		ResolvePersona: func(name string) (agent.SubagentConfig, bool) {
@@ -212,9 +216,21 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// the boundary-aware loader so res.TrustProject actually reaches it (the
 	// flag can override an ARGENT_TRUST_PROJECT=0 env value). When not opted
 	// in, keep res.System byte-identical so existing callers are unaffected.
+	//
+	// On the trust-opted path the system message carries only the static half
+	// of the prompt. cwd, reasoning effort and the output schema are per-run
+	// values: they travel in the first user message below, so a directory or
+	// thinking change no longer invalidates the provider's cached system
+	// prefix. buildStaticSystem(true) keeps the explicit flag override of an
+	// ARGENT_TRUST_PROJECT=0 env value.
 	trustedSystem := res.System
+	dynamicContext := ""
 	if res.TrustProject {
-		trustedSystem = buildSystemWithTrust(res.Root, stdio.Env, true, res.Thinking, res.OutputSchema)
+		trustedSystem = buildStaticSystem(res.Root, stdio.Env, true)
+		dynamicContext = buildDynamicContext(res.Root, res.Thinking, res.OutputSchema)
+	}
+	if dynamicContext != "" {
+		prompt = dynamicContext + "\n\nUser request: " + strings.TrimSpace(prompt)
 	}
 	if res.MaxSeconds > 0 {
 		var cancel context.CancelFunc

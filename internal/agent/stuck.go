@@ -102,7 +102,9 @@ func lastUserBoundary(events []Event) int {
 }
 
 // stuckCall is the identity of one tool call with volatile fields removed: no
-// call id, turn number, duration or usage, only what decides "same call".
+// call id, turn number, duration or usage, only what decides "same call". Args
+// are canonicalized by NormalizeArgs, so two spellings of the same JSON object
+// (e.g. different key order) count as the same call.
 type stuckCall struct {
 	name    string
 	args    string
@@ -156,7 +158,9 @@ func buildSteps(window []Event) ([]stuckStep, []stuckCall) {
 	for _, e := range window {
 		switch e.Kind {
 		case EventToolStart:
-			starts[e.ToolCallID] = stuckCall{name: e.ToolName, args: e.Args}
+			// Canonicalize args so key-order-only differences do not hide a
+			// repeat; the dedupe guard uses the same normalization.
+			starts[e.ToolCallID] = stuckCall{name: e.ToolName, args: NormalizeArgs(e.Args)}
 		case EventToolEnd:
 			c := stuckCall{name: e.ToolName, isError: e.IsError}
 			if start, ok := starts[e.ToolCallID]; ok {

@@ -64,6 +64,77 @@ func compactionDecision(estimate, window, configured, percent int) (threshold in
 	return threshold, agent.InflateEstimate(estimate) >= threshold
 }
 
+// usageAnchor is a native token count reported by the provider for one point in
+// the transcript. Tokens is the assistant reply's totalTokens and Index is that
+// assistant message's position in the message slice; only messages after Index
+// are re-estimated. A non-positive Tokens or an out-of-range Index means there
+// is no usable anchor and the whole conversation must be estimated from scratch.
+type usageAnchor struct {
+	index  int
+	tokens int
+}
+
+// valid reports whether the anchor can be applied to a slice of n messages.
+func (a usageAnchor) valid(n int) bool {
+	return a.tokens > 0 && a.index >= 0 && a.index < n
+}
+
+// estimateContextTokens estimates the token size of the conversation that will
+// be sent in the next request. When a native usage anchor is available it is
+// used verbatim for the already-measured prefix and only the trailing messages
+// are estimated with the chars/4 + CJK rule; without an anchor the whole
+// conversation is estimated. A compaction that rewrote the context after the
+// anchor makes the count stale, so it also forces a full re-estimate.
+func estimateContextTokens(messages []llm.Message, anchor usageAnchor) int {
+	if anchor.valid(len(messages)) && !compactionAfter(messages, anchor.index) {
+		return anchor.tokens + agent.EstimateMessages(messages[anchor.index+1:])
+	}
+	return agent.EstimateMessages(messages)
+}
+
+// compactionAfter reports whether a compaction/context-edit boundary appears
+// after the anchor. A boundary at or before the anchor is already reflected in
+// the native totalTokens; one after it means the counted context was rewritten
+// and the anchor is stale.
+func compactionAfter(messages []llm.Message, from int) bool {
+	for i := from + 1; i < len(messages); i++ {
+		if isCompactionBoundary(messages[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCompactionBoundary recognises the system message a compaction record
+// projects to. Both the session path (Session.Messages) and the mid-turn path
+// (MaybeCompact) emit the summary as a system message starting with the
+// "## Compaction" heading. "context_edit" is the same invalidation class in the
+// audited design; this codebase only emits the compaction flavour.
+func isCompactionBoundary(m llm.Message) bool {
+	return m.Role == "system" && strings.HasPrefix(strings.TrimSpace(m.Content), "## Compaction")
+}
+
+// assistantNativeUsage reads the provider-reported usage carried in an
+// assistant record's JSON payload. The agent loop serialises the full reply
+// message (including its "usage" object), so the native totalTokens survives in
+// the transcript. Returns false for metadata-only or older records, which have
+// no usable anchor.
+func assistantNativeUsage(data []byte) (llm.Usage, bool) {
+	if len(data) == 0 {
+		return llm.Usage{}, false
+	}
+	var payload struct {
+		Usage *llm.Usage `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil || payload.Usage == nil {
+		return llm.Usage{}, false
+	}
+	if payload.Usage.TotalTokens() <= 0 {
+		return llm.Usage{}, false
+	}
+	return *payload.Usage, true
+}
+
 // CompactThreshold is the trigger the agent should use for mid-turn compaction.
 // A negative configured value disables automatic compaction entirely.
 func (c *sessionCompactor) CompactThreshold() int {
@@ -243,11 +314,19 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	}
 	entries := sess.Messages()
 	messages := make([]llm.Message, 0, len(entries))
-	for _, entry := range entries {
-		messages = append(messages, llm.Message{Role: entry.Role, Content: entry.Content})
+	var anchor usageAnchor
+	for i, entry := range entries {
+		message := llm.Message{Role: entry.Role, Content: entry.Content}
+		if entry.Role == "assistant" {
+			if usage, ok := assistantNativeUsage(entry.Data); ok {
+				message.Usage = &usage
+				anchor = usageAnchor{index: i, tokens: usage.TotalTokens()}
+			}
+		}
+		messages = append(messages, message)
 	}
 	window, configured, percent := compactionInputs(res)
-	if _, compact := compactionDecision(agent.EstimateMessages(messages), window, configured, percent); !compact {
+	if _, compact := compactionDecision(estimateContextTokens(messages, anchor), window, configured, percent); !compact {
 		return
 	}
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0

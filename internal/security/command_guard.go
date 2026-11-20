@@ -2,10 +2,64 @@ package security
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"strings"
 	"unicode"
 )
+
+// Guardrail runtime modes, selected with ARGENT_GUARDRAILS.
+const (
+	guardrailShadow  = "shadow"
+	guardrailEnforce = "enforce"
+	guardrailOff     = "off"
+
+	// defaultGuardrailMode is intentionally "enforce": argentgo is a personal
+	// local tool and must keep blocking mutating commands exactly as before the
+	// switch existed. Operators who want to measure false positives first can
+	// opt into "shadow" explicitly.
+	defaultGuardrailMode = guardrailEnforce
+)
+
+// GuardrailMode returns the runtime guardrail mode from ARGENT_GUARDRAILS.
+// Values are case-insensitive and surrounding whitespace is ignored. Unset,
+// empty or unrecognised values fall back to "enforce", so the default security
+// behaviour (a detected mutating command is blocked) is preserved.
+func GuardrailMode() string {
+	return normalizeGuardrailMode(os.Getenv("ARGENT_GUARDRAILS"))
+}
+
+func normalizeGuardrailMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case guardrailShadow:
+		return guardrailShadow
+	case guardrailOff:
+		return guardrailOff
+	case guardrailEnforce:
+		return guardrailEnforce
+	default:
+		return defaultGuardrailMode
+	}
+}
+
+// applyGuardrailMode turns a detected mutating token into the decision the
+// caller acts on. "enforce" returns the token unchanged so the caller blocks;
+// "shadow" records what would have been blocked but returns no token, and
+// "off" also returns no token (callers short-circuit detection entirely).
+func applyGuardrailMode(token, mode string) string {
+	if token == "" {
+		return ""
+	}
+	switch mode {
+	case guardrailOff:
+		return ""
+	case guardrailShadow:
+		log.Printf("security: guardrails shadow mode: would block mutating command %q", token)
+		return ""
+	default: // guardrailEnforce
+		return token
+	}
+}
 
 // FindFileEditingCommand returns the mutating shell token in command, or "" if
 // none was found. It is a token-aware classifier in the spirit of Cline's
@@ -111,9 +165,16 @@ func FindFileEditingCommand(command string) string {
 }
 
 // guardShellCommand extracts the command string from a shell tool's JSON
-// arguments. Only bash and powershell are shell tools; everything else is
-// ignored. A malformed payload yields no match (false negatives are safe).
+// arguments and applies the runtime guardrail mode: "enforce" returns the
+// mutating token so the caller blocks, "shadow" logs but returns no token,
+// and "off" skips detection. Only bash and powershell are shell tools;
+// everything else is ignored. A malformed payload yields no match (false
+// negatives are safe).
 func guardShellCommand(toolName string, args json.RawMessage) string {
+	mode := GuardrailMode()
+	if mode == guardrailOff {
+		return "" // off: skip detection entirely, never block
+	}
 	name := strings.ToLower(strings.TrimSpace(toolName))
 	if name != "bash" && name != "powershell" {
 		return ""
@@ -129,7 +190,7 @@ func guardShellCommand(toolName string, args json.RawMessage) string {
 	if strings.TrimSpace(command) == "" {
 		command = payload.Script
 	}
-	return FindFileEditingCommand(command)
+	return applyGuardrailMode(FindFileEditingCommand(command), mode)
 }
 
 // sanitizeCommand masks heredoc bodies, then calls sanitizeLine on each line.

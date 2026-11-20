@@ -188,3 +188,142 @@ func TestAppendEditFormatEmptySystemReturnsGuidance(t *testing.T) {
 		t.Fatalf("bare guidance must include the marker: %s", got)
 	}
 }
+
+// ---- model-family profile tests ----
+
+// The four strings below are the pre-profile strategyFor output, copied here
+// verbatim. Pinning them catches any accidental prompt-text regression when a
+// family is re-classified.
+const (
+	legacyHintHashline = "Claude/Anthropic: prefer hashline edits (hashline:true). Set anchor to the exact text you first read and " +
+		"anchor_hash to the first 12 hex chars of sha256(anchor bytes). Keep anchors small and unique."
+	legacyHintEditRepair = "GPT/OpenAI: prefer edit with one unique old->new pair; on whitespace drift retry with repair:true. " +
+		"Batch several changes with multi_edit."
+	legacyHintSmallChunks = "Grok/Gemini/MiniMax/Qwen: prefer hashline edits in small chunks - read a short unique anchor, then edit " +
+		"with hashline:true and anchor_hash (12-hex sha256). Split large rewrites."
+	legacyHintUnknown = "Unknown model: both styles are available - edit (unique old->new, repair:true for whitespace drift) or " +
+		"hashline (hashline:true + anchor_hash = 12-hex sha256 of the text you read). Read first; choose the best fit."
+)
+
+func TestDetectModelFamily(t *testing.T) {
+	cases := []struct {
+		model string
+		want  ModelFamily
+	}{
+		{"claude-3-5-sonnet-20241022", FamilyAnthropic},
+		{"anthropic/claude-opus-4", FamilyAnthropic},
+		{"CLAUDE-3-5-SONNET", FamilyAnthropic},
+		{"gpt-4o", FamilyOpenAI},
+		{"openai/o3-mini", FamilyOpenAI},
+		{"o1-preview", FamilyOpenAI},
+		{"gemini-2.0-flash", FamilyGemini},
+		{"Gemini-1.5-Pro", FamilyGemini},
+		{"deepseek-chat", FamilyDeepseek},
+		{"DeepSeek-R1", FamilyDeepseek},
+		{"grok-2-1212", FamilyHashlineChunked},
+		{"MiniMax-Text-01", FamilyHashlineChunked},
+		{"qwen2.5-coder", FamilyHashlineChunked},
+		{"some-unlisted-model", FamilyUnknown},
+		{"mystery-7b", FamilyUnknown},
+		{"", FamilyUnknown},
+	}
+
+	for _, tc := range cases {
+		if got := DetectModelFamily(tc.model); got != tc.want {
+			t.Errorf("DetectModelFamily(%q) = %q, want %q", tc.model, got, tc.want)
+		}
+	}
+}
+
+func TestEditFormatLegacyHintsAreByteStable(t *testing.T) {
+	cases := []struct{ model, hint string }{
+		{"claude-3-5-sonnet-20241022", legacyHintHashline},
+		{"anthropic/claude-opus-4", legacyHintHashline},
+		{"gpt-4o", legacyHintEditRepair},
+		{"openai/o3-mini", legacyHintEditRepair},
+		{"o1-preview", legacyHintEditRepair},
+		{"gemini-2.0-flash", legacyHintSmallChunks},
+		{"grok-2-1212", legacyHintSmallChunks},
+		{"MiniMax-Text-01", legacyHintSmallChunks},
+		{"qwen2.5-coder", legacyHintSmallChunks},
+		{"some-unlisted-model", legacyHintUnknown},
+		{"", legacyHintUnknown},
+	}
+
+	for _, tc := range cases {
+		want := editFormatMarker + "\n" + tc.hint + "\n" + commonEditFormat
+		if got := EditFormatGuidance(tc.model); got != want {
+			t.Errorf("guidance for %q changed:\ngot : %s\nwant: %s", tc.model, got, want)
+		}
+	}
+}
+
+func TestUnknownModelFallsBackToLegacyGuidance(t *testing.T) {
+	for _, model := range []string{"some-unlisted-model", "mystery-7b", ""} {
+		if got := DetectModelFamily(model); got != FamilyUnknown {
+			t.Errorf("DetectModelFamily(%q) = %q, want %q", model, got, FamilyUnknown)
+		}
+		if got := RecommendedEditTool(model); got != "" {
+			t.Errorf("unknown model %q should have no tool preference, got %q", model, got)
+		}
+		if got := EditToolPreference(model); got != "" {
+			t.Errorf("unknown model %q should have no advisory line, got %q", model, got)
+		}
+		if got := EditFormatGuidance(model); !strings.Contains(got, legacyHintUnknown) {
+			t.Errorf("unknown model %q lost generic hint: %s", model, got)
+		}
+	}
+}
+
+func TestRecommendedEditToolIsStableAndAdvisoryOnly(t *testing.T) {
+	cases := []struct{ model, tool string }{
+		{"claude-3", "edit"},
+		{"gpt-4o", "edit"},
+		{"gemini-2.0-flash", "edit"},
+		{"deepseek-chat", "edit"},
+		{"grok-2", "edit"},
+		{"unknown", ""},
+	}
+	for _, tc := range cases {
+		if got := RecommendedEditTool(tc.model); got != tc.tool {
+			t.Errorf("RecommendedEditTool(%q) = %q, want %q", tc.model, got, tc.tool)
+		}
+	}
+
+	if got, want := EditToolPreference("claude-3"), "Preferred edit tool for this model: edit."; got != want {
+		t.Errorf("EditToolPreference = %q, want %q", got, want)
+	}
+
+	// The advisory line must never leak into the system prompt: prompt bytes
+	// are pinned by TestEditFormatLegacyHintsAreByteStable.
+	for _, model := range []string{"claude-3", "deepseek-chat", "gpt-4o"} {
+		if got := EditFormatGuidance(model); strings.Contains(got, "Preferred edit tool") {
+			t.Errorf("advisory line leaked into prompt for %q: %s", model, got)
+		}
+	}
+}
+
+func TestDeepseekFamilyGuidance(t *testing.T) {
+	got := EditFormatGuidance("deepseek-chat")
+	for _, phrase := range []string{"DeepSeek", "old->new", "repair:true", "multi_edit", commonEditFormat} {
+		if !strings.Contains(got, phrase) {
+			t.Errorf("deepseek guidance missing %q: %s", phrase, got)
+		}
+	}
+	if n := len(got); n > 600 {
+		t.Errorf("deepseek guidance is %d bytes, want <=600", n)
+	}
+}
+
+func TestEditFormatGuidanceIsDeterministic(t *testing.T) {
+	for _, model := range []string{
+		"claude-3", "gpt-4o", "gemini-2.0-flash", "deepseek-chat", "grok-2", "unknown", "",
+	} {
+		first := EditFormatGuidance(model)
+		for i := 0; i < 3; i++ {
+			if got := EditFormatGuidance(model); got != first {
+				t.Fatalf("guidance for %q not stable on call %d: %q vs %q", model, i, got, first)
+			}
+		}
+	}
+}

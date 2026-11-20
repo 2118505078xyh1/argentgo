@@ -35,15 +35,16 @@ func trustFromEnv(env func(string) string) bool {
 	return parseTrustEnv(env("ARGENT_TRUST_PROJECT"))
 }
 
-// buildSystemWithTrust is the trust-aware prompt builder. When trust is false,
-// memory.LoadWithBoundary collects no project documents (only user-level ones);
-// when true, it collects AGENTS.md/CLAUDE.md from the project root down to the
-// working directory, honouring AGENTS.override.md. .argentignore rules are
-// applied afterwards as an advisory context-size filter, never as a security
-// control.
-func buildSystemWithTrust(root string, env func(string) string, trust bool, thinking, schema string) string {
+// buildStaticSystem builds the cache-stable portion of the system prompt: the
+// persona, tool-use guidance, project instructions and skill index. It
+// deliberately excludes every process-specific value (cwd, reasoning effort,
+// output schema) so the bytes the provider caches do not change when a session
+// moves to a different directory or the thinking level is adjusted. Callers
+// that inject those values as a user-role message pair this with
+// buildDynamicContext; buildSystemWithTrust composes both for legacy callers.
+func buildStaticSystem(root string, env func(string) string, trust bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are argent, a concise coding assistant working on the user's machine.\nWorking directory: %s\n", root)
+	b.WriteString("You are argent, a concise coding assistant working on the user's machine.\n")
 	b.WriteString("Use the available tools to inspect and change files. Read before writing, ")
 	b.WriteString("batch independent calls, and stop once the request is satisfied.\n")
 
@@ -61,15 +62,48 @@ func buildSystemWithTrust(root string, env func(string) string, trust bool, thin
 		b.WriteString("\n")
 		b.WriteString(registry.IndexText())
 	}
+	return b.String()
+}
+
+// buildDynamicContext renders the per-turn values that must stay out of the
+// cached system prefix: the working directory, the reasoning effort and the
+// optional output schema. It is intentionally a user-role payload (no role is
+// baked in): the caller injects it as its own message or prepends it to the
+// latest user message, so only this short block is re-sent when a value changes.
+// The wording matches buildSystemWithTrust exactly, so moving it does not
+// change what the model is told.
+func buildDynamicContext(root, thinking, schema string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Working directory: %s\n", root)
 	if effort := strings.TrimSpace(thinking); effort != "" {
-		fmt.Fprintf(&b, "\nReasoning effort: %s. Spend accordingly.\n", effort)
+		fmt.Fprintf(&b, "Reasoning effort: %s. Spend accordingly.\n", effort)
 	}
 	if strings.TrimSpace(schema) != "" {
-		b.WriteString("\nReply with a single JSON document that conforms to this JSON Schema:\n")
+		b.WriteString("Reply with a single JSON document that conforms to this JSON Schema:\n")
 		b.WriteString(strings.TrimSpace(schema))
 		b.WriteString("\n")
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// buildSystemWithTrust is the trust-aware prompt builder. When trust is false,
+// memory.LoadWithBoundary collects no project documents (only user-level ones);
+// when true, it collects AGENTS.md/CLAUDE.md from the project root down to the
+// working directory, honouring AGENTS.override.md. .argentignore rules are
+// applied afterwards as an advisory context-size filter, never as a security
+// control.
+//
+// It composes buildStaticSystem and buildDynamicContext so both call sites keep
+// a single source of truth for the wording. Callers that want a stable cache
+// prefix should use the two helpers directly and inject the dynamic half as a
+// user message instead of using this combined form.
+func buildSystemWithTrust(root string, env func(string) string, trust bool, thinking, schema string) string {
+	static := buildStaticSystem(root, env, trust)
+	dynamic := buildDynamicContext(root, thinking, schema)
+	if dynamic == "" {
+		return static
+	}
+	return static + "\n" + dynamic + "\n"
 }
 
 // projectMemoryDocs loads, orders and filters the instruction documents that

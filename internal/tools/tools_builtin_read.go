@@ -26,21 +26,24 @@ func (readTool) Description() string {
 		"Long files can be paged with offset (1-based first line) and limit; " +
 		"a partial read reports the true total line count. " +
 		"For focused context, set line (1-based) with before/after to read a window " +
-		"around a target; before/after are capped at 200 each and line wins over offset/limit."
+		"around a target; before/after are capped at 200 each and line wins over offset/limit. " +
+		"Set outline=true to read a Go file as a compact symbol list (kind, name, line) " +
+		"instead of full source; re-call without outline (optionally with offset/limit) to expand a section."
 }
 func (readTool) Mutating() bool { return false }
 func (readTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","description":"1-based first line"},"limit":{"type":"integer","description":"number of lines"},"line":{"type":"integer","description":"1-based target line; when > 0, wins over offset/limit"},"before":{"type":"integer","description":"lines above target (0-200, capped)"},"after":{"type":"integer","description":"lines below target (0-200, capped)"}},"required":["path"]}`
+	return `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","description":"1-based first line"},"limit":{"type":"integer","description":"number of lines"},"line":{"type":"integer","description":"1-based target line; when > 0, wins over offset/limit"},"before":{"type":"integer","description":"lines above target (0-200, capped)"},"after":{"type":"integer","description":"lines below target (0-200, capped)"},"outline":{"type":"boolean","description":"for Go files, return a compact symbol list (kind, name, line) instead of full source; other files fall back to normal read"}},"required":["path"]}`
 }
 
 func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path   string `json:"path"`
-		Offset int    `json:"offset"`
-		Limit  int    `json:"limit"`
-		Line   int    `json:"line"`
-		Before int    `json:"before"`
-		After  int    `json:"after"`
+		Path    string `json:"path"`
+		Offset  int    `json:"offset"`
+		Limit   int    `json:"limit"`
+		Line    int    `json:"line"`
+		Before  int    `json:"before"`
+		After   int    `json:"after"`
+		Outline bool   `json:"outline"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("read: bad arguments: %w", err)
@@ -65,6 +68,18 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	totalLines := len(lines)
 	if len(data) > 0 && data[len(data)-1] == '\n' {
 		totalLines--
+	}
+
+	if args.Outline {
+		// Outline mode is a file-level "signature directory": for Go files we
+		// reuse the repo-map extractor to list top-level declarations instead of
+		// dumping the whole source. Line/offset selectors are intentionally
+		// ignored here; callers expand a section with a normal (outline=false)
+		// read. Non-Go files have no extractor yet, so fall back to a normal read
+		// rather than returning an empty or misleading outline.
+		if strings.HasSuffix(strings.ToLower(path), ".go") {
+			return clip(ctx, outlineGoFile(args.Path, path)), nil
+		}
 	}
 
 	start, end := 1, len(lines)
@@ -119,6 +134,29 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		out += fmt.Sprintf("\n[showing lines %d–%d of %d; re-call with offset/limit to page]", start, end, totalLines)
 	}
 	return out, nil
+}
+
+// outlineGoFile renders a Go file as a compact "signature directory": one line
+// per top-level declaration with its kind and 1-based line number. It reuses
+// the repo-map symbol extractor so "what counts as a symbol" stays consistent
+// between the read tool and the repo map. display is the caller-supplied path
+// (used only in the header); disk is the resolved absolute path to parse.
+func outlineGoFile(display, disk string) string {
+	syms := extractRepoSymbols(filepath.Dir(disk), []string{filepath.Base(disk)})
+	var b strings.Builder
+	fmt.Fprintf(&b, "outline: %s (%d symbols)", display, len(syms))
+	if len(syms) == 0 {
+		b.WriteString("\n  (no top-level declarations)")
+		return b.String()
+	}
+	for _, s := range syms {
+		name := s.Name
+		if s.Receiver != "" {
+			name = s.Receiver + "." + name
+		}
+		fmt.Fprintf(&b, "\n  %-7s %s:%d", s.Kind, name, s.Line)
+	}
+	return b.String()
 }
 
 // Meta reports a supersede key derived from the file path alone. Line/offset
