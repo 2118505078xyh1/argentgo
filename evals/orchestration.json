@@ -259,6 +259,245 @@
         { "kind": "board_read_count", "value": "to_parent", "equals": 1 },
         { "kind": "board_read_count", "value": "since_first", "equals": 2 }
       ]
+    },
+    {
+      "id": "S6",
+      "name": "multi-wave delegation consolidates three child runs",
+      "description": "REAL loop: the root decomposes a task into two waves. Wave one issues two task calls in one turn (both children succeed); wave two issues one task whose prompt embeds both wave-one results. The fake model only supplies replies - persona resolution, nested loops, tool pass-through and answer propagation are the real implementations.",
+      "prompt": "Plan and run a two-wave research task, then consolidate.",
+      "personas": [
+        { "name": "researcher-a", "system": "Wave-one researcher A: gather alpha metrics.", "allowed_tools": ["read"] },
+        { "name": "researcher-b", "system": "Wave-one researcher B: gather beta metrics.", "allowed_tools": ["read"] },
+        { "name": "consolidator", "system": "Wave-two consolidator: merge wave-one findings.", "allowed_tools": ["read"] }
+      ],
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              { "name": "task", "arguments": { "description": "wave1 alpha", "prompt": "WAVE1_ALPHA gather alpha metrics", "persona": "researcher-a" } },
+              { "name": "task", "arguments": { "description": "wave1 beta", "prompt": "WAVE1_BETA gather beta metrics", "persona": "researcher-b" } }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["WAVE1_ALPHA", "Wave-one researcher A"],
+          "respond": { "text": "ALPHA_RESULT: alpha=11" }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["WAVE1_BETA", "Wave-one researcher B"],
+          "respond": { "text": "BETA_RESULT: beta=22" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["ALPHA_RESULT: alpha=11", "BETA_RESULT: beta=22"],
+          "respond": {
+            "tool_calls": [
+              { "name": "task", "arguments": { "description": "wave2 merge", "prompt": "WAVE2_MERGE using ALPHA_RESULT alpha=11 and BETA_RESULT beta=22", "persona": "consolidator" } }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["WAVE2_MERGE", "ALPHA_RESULT", "BETA_RESULT", "Wave-two consolidator"],
+          "respond": { "text": "MERGED_RESULT: alpha=11 beta=22 total=33" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["MERGED_RESULT: alpha=11 beta=22 total=33"],
+          "respond": { "text": "FINAL: ALPHA_RESULT alpha=11; BETA_RESULT beta=22; MERGED_RESULT total=33" }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 3 },
+        { "kind": "tool_calls", "values": ["task", "task", "task"] },
+        { "kind": "child_system_contains", "value": "Wave-one researcher A" },
+        { "kind": "child_system_contains", "value": "Wave-one researcher B" },
+        { "kind": "child_system_contains", "value": "Wave-two consolidator" },
+        { "kind": "child_prompt_contains", "value": "WAVE1_ALPHA" },
+        { "kind": "child_prompt_contains", "value": "WAVE1_BETA" },
+        { "kind": "child_prompt_contains", "value": "WAVE2_MERGE" },
+        { "kind": "child_prompt_contains", "value": "ALPHA_RESULT" },
+        { "kind": "child_prompt_contains", "value": "BETA_RESULT" },
+        { "kind": "final_text_contains", "value": "ALPHA_RESULT" },
+        { "kind": "final_text_contains", "value": "BETA_RESULT" },
+        { "kind": "final_text_contains", "value": "MERGED_RESULT" }
+      ]
+    },
+    {
+      "id": "S7",
+      "name": "failed child is observed and retried with corrected args",
+      "description": "REAL loop: a persona that allows only 'read' makes the child's 'bash' call fail through the real restrictedTools guard; the failure text reaches the parent as a tool result and the parent retries with a corrected persona and prompt. The second child succeeds.",
+      "prompt": "Build the artifact, retrying with corrected arguments if the first attempt fails.",
+      "personas": [
+        { "name": "builder-restricted", "system": "You are a restricted builder.", "allowed_tools": ["read"] },
+        { "name": "builder-full", "system": "You are an unrestricted builder with full tool access." }
+      ],
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              { "name": "task", "arguments": { "description": "build attempt 1", "prompt": "BUILD_WITH_BASH build using bash", "persona": "builder-restricted" } }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["BUILD_WITH_BASH", "You are a restricted builder."],
+          "respond": {
+            "tool_calls": [ { "name": "bash", "arguments": { "command": "build" } } ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["not available to subagents"],
+          "respond": { "text": "FAILED: bash tool not available to this subagent" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["FAILED: bash tool not available"],
+          "respond": {
+            "tool_calls": [
+              { "name": "task", "arguments": { "description": "build attempt 2", "prompt": "BUILD_WITH_READ build using read", "persona": "builder-full" } }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["BUILD_WITH_READ", "You are an unrestricted builder"],
+          "respond": { "text": "SUCCESS: build complete using read" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["SUCCESS: build complete using read"],
+          "respond": { "text": "Retried and succeeded: build complete using read" }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 3 },
+        { "kind": "tool_calls", "values": ["task", "task"] },
+        { "kind": "child_system_contains", "value": "You are a restricted builder." },
+        { "kind": "child_system_contains", "value": "You are an unrestricted builder" },
+        { "kind": "child_prompt_contains", "value": "BUILD_WITH_BASH" },
+        { "kind": "child_prompt_contains", "value": "BUILD_WITH_READ" },
+        { "kind": "parent_tool_result_contains", "value": "FAILED: bash tool not available" },
+        { "kind": "final_text_contains", "value": "Retried and succeeded" },
+        { "kind": "final_text_not_contains", "value": "FAILED" }
+      ]
+    },
+    {
+      "id": "S8",
+      "name": "depth limit refuses a third-level subagent",
+      "description": "REAL loop: root spawns a depth-1 child, which spawns a depth-2 grandchild (DefaultMaxDepth=2). The grandchild asks for a third task; the real runTask depth guard refuses it with a tool error (the agent reports this as a tool-error result, not an EventNotice), no depth-3 subagent runs, and the refusal text propagates back to the root.",
+      "prompt": "Try to delegate through three levels; report what happens.",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [ { "name": "task", "arguments": { "description": "level one", "prompt": "LEVEL_ONE_TASK start the chain" } } ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["LEVEL_ONE_TASK"],
+          "respond": {
+            "tool_calls": [ { "name": "task", "arguments": { "description": "level two", "prompt": "LEVEL_TWO_TASK continue the chain" } } ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["LEVEL_TWO_TASK"],
+          "respond": {
+            "tool_calls": [ { "name": "task", "arguments": { "description": "level three", "prompt": "LEVEL_THREE_TASK must be refused" } } ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["LEVEL_THREE_TASK", "task depth limit reached", "subagents may nest at most 2 level(s)"],
+          "respond": { "text": "DEPTH_LIMIT_OBSERVED: task depth limit reached; no third subagent was started" }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["DEPTH_LIMIT_OBSERVED"],
+          "respond": { "text": "CHILD_DONE: task depth limit reached; no third subagent was started" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["CHILD_DONE: task depth limit reached"],
+          "respond": { "text": "ROOT_DONE: depth limit enforced; task depth limit reached; no third subagent" }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 4 },
+        { "kind": "child_prompt_contains", "value": "LEVEL_ONE_TASK" },
+        { "kind": "child_prompt_contains", "value": "LEVEL_TWO_TASK" },
+        { "kind": "parent_tool_result_contains", "value": "task depth limit reached" },
+        { "kind": "final_text_contains", "value": "ROOT_DONE: depth limit enforced" },
+        { "kind": "final_text_contains", "value": "task depth limit reached" },
+        { "kind": "final_text_not_contains", "value": "LEVEL_THREE_TASK" }
+      ]
+    },
+    {
+      "id": "S9",
+      "name": "verify notice composes with background injection",
+      "description": "REAL loop: one parent turn issues a verify-enabled synchronous task (real PASS notice) and a second task that sets both verify and background. Background takes precedence, so the real 'background task ignores verify' notice is emitted and the result is queued; a followup prompt drains it into a synthetic user turn. The first run returns while the background child is still gated, so there is no deadlock.",
+      "prompt": "Verify a draft and start a background lookup.",
+      "followup_prompt": "What did the background lookup find?",
+      "turns": [
+        {
+          "target": "parent",
+          "respond": {
+            "tool_calls": [
+              { "name": "task", "arguments": { "description": "verified draft", "prompt": "DRAFT_RELEASE_NOTE write the note", "verify": "Must mention the version", "verify_max_retries": 0 } },
+              { "name": "task", "arguments": { "description": "bg lookup", "prompt": "FIND_BUILD_NUMBER find the build number", "verify": "Must include a number", "background": true } }
+            ]
+          }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["DRAFT_RELEASE_NOTE"],
+          "respond": { "text": "draft answer with version 2" }
+        },
+        {
+          "target": "verify",
+          "match_request_contains": ["Verify the following result", "Must mention the version"],
+          "respond": { "text": "PASS - version present" }
+        },
+        {
+          "target": "child",
+          "match_request_contains": ["FIND_BUILD_NUMBER"],
+          "block_until_release": true,
+          "respond": { "text": "build number 9191" }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["started in background"],
+          "respond": { "text": "Verified the draft and started the lookup in the background." }
+        },
+        {
+          "target": "parent",
+          "match_request_contains": ["task result:", "build number 9191"],
+          "respond": { "text": "Background result received: build number 9191." }
+        }
+      ],
+      "assertions": [
+        { "kind": "child_runs", "equals": 2 },
+        { "kind": "verify_runs", "equals": 1 },
+        { "kind": "verify_prompt_contains", "value": "Must mention the version" },
+        { "kind": "notice_contains", "value": "subagent verification PASS" },
+        { "kind": "notice_contains", "value": "background task ignores verify" },
+        { "kind": "notice_contains", "value": "task result:" },
+        { "kind": "queued_at_ack", "equals": 0 },
+        { "kind": "bg_result_queued", "equals": 1 },
+        { "kind": "parent_tool_result_contains", "value": "started in background" },
+        { "kind": "followup_roles", "values": ["system", "user", "user"] },
+        { "kind": "followup_user_contains", "value": "task result:" },
+        { "kind": "followup_user_contains", "value": "build number 9191" },
+        { "kind": "final_text_contains", "value": "Verified the draft and started the lookup" }
+      ]
     }
   ]
 }

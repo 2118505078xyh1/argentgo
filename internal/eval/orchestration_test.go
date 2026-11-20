@@ -38,8 +38,8 @@ func TestOrchestrationSuitePasses(t *testing.T) {
 // one of the orchestration mechanisms cannot quietly lower the coverage.
 func TestOrchestrationSuiteCoverage(t *testing.T) {
 	scenarios := loadOrchestration(t)
-	if len(scenarios) < 4 {
-		t.Fatalf("orchestration.json holds %d scenarios, want at least 4", len(scenarios))
+	if len(scenarios) < 10 {
+		t.Fatalf("orchestration.json holds %d scenarios, want at least 10", len(scenarios))
 	}
 	ids := make(map[string]bool, len(scenarios))
 	kinds := make(map[string]bool, len(scenarios))
@@ -50,7 +50,7 @@ func TestOrchestrationSuiteCoverage(t *testing.T) {
 			t.Errorf("scenario %s has no assertions", scenario.ID)
 		}
 	}
-	for _, want := range []string{"S1", "S2", "S3a", "S3b", "S4", "S5"} {
+	for _, want := range []string{"S1", "S2", "S3a", "S3b", "S4", "S5", "S6", "S7", "S8", "S9"} {
 		if !ids[want] {
 			t.Errorf("scenario %s is missing from orchestration.json", want)
 		}
