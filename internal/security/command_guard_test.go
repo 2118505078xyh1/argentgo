@@ -112,6 +112,37 @@ func TestFindFileEditingCommandRejectsTempTraversalRedirect(t *testing.T) {
 	}
 }
 
+// TestFindFileEditingCommandSeesThroughWrappers verifies that a wrapper program
+// (sudo/env/nohup/command/builtin/exec) cannot hide an otherwise-detected
+// mutating command. The threat classifier already reduces wrappers; the token
+// classifier must do the same or `sudo rm file.txt` slips through while plain
+// `rm file.txt` is gated.
+func TestFindFileEditingCommandSeesThroughWrappers(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    string // substring expected in the offending token
+	}{
+		{"sudo rm", "sudo rm file.txt", "rm"},
+		{"env cp", "env cp a b", "cp"},
+		{"nohup mv", "nohup mv a b", "mv"},
+		{"command rmdir", "command rmdir old", "rmdir"},
+		{"builtin set-content", "builtin Set-Content -Path x -Value y", "Set-Content"},
+		{"exec chmod", "exec chmod +x script.sh", "chmod"},
+		{"stacked wrappers", "sudo env mv a b", "mv"},
+		{"second command wrapped", "ls; sudo rm file.txt", "rm"},
+		{"env assignment still gated", "env FOO=1 rm file.txt", "rm"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FindFileEditingCommand(tc.command)
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("FindFileEditingCommand(%q) = %q, want it to contain %q", tc.command, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGuardShellCommandOnlyInspectsShellTools(t *testing.T) {
 	t.Setenv("ARGENT_GUARDRAILS", "enforce")
 	args := json.RawMessage(`{"command":"rm -rf x"}`)

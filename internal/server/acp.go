@@ -16,8 +16,8 @@ import (
 // per line) until in reaches EOF or ctx is cancelled.
 //
 // Supported methods: initialize, authenticate, session/new, session/prompt,
-// session/cancel, session/set_model, session/set_mode. Streamed assistant text
-// is sent as session/update notifications.
+// session/cancel, session/set_model, session/set_mode, session/request_permission.
+// Streamed assistant text is sent as session/update notifications.
 func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 	ctx, cancelAll := context.WithCancel(ctx)
 
@@ -116,6 +116,8 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 		s.peer.respond(req.ID, map[string]any{})
 	case "session/set_model", "session/set_mode":
 		s.peer.respond(req.ID, map[string]any{})
+	case "session/request_permission":
+		s.requestPermission(req)
 	case "session/load":
 		s.peer.fail(req.ID, codeMethodNotFound, "session/load is not supported; start a new session")
 	default:
@@ -240,4 +242,93 @@ func newSessionID() string {
 		return fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
 	return "sess_" + hex.EncodeToString(buf[:])
+}
+
+// ---- session/request_permission (ACP protocol skeleton) ----
+//
+// ACP defines a four-way permission choice for a tool call: allow/reject, each
+// once or always. argent-go implements the protocol surface only: it builds the
+// canonical option set and maps a client-supplied optionId onto an outcome.
+// There is deliberately no interactive wait here — bridging a request to the
+// durable security.PendingStore (and waiting for approval.answer) is the upper
+// layer's job. Until that wiring exists, every input that is not an exact match
+// for one of the four choices resolves to "cancelled", so this method can never
+// grant a tool call by accident (fail-closed, least privilege).
+
+// PermissionOptionKind is one of the four ACP permission decision semantics.
+type PermissionOptionKind string
+
+const (
+	PermissionOptionAllowOnce    PermissionOptionKind = "allow_once"
+	PermissionOptionAllowAlways  PermissionOptionKind = "allow_always"
+	PermissionOptionRejectOnce   PermissionOptionKind = "reject_once"
+	PermissionOptionRejectAlways PermissionOptionKind = "reject_always"
+)
+
+// PermissionOption is one selectable choice offered to the ACP client.
+type PermissionOption struct {
+	OptionID string               `json:"optionId"`
+	Kind     PermissionOptionKind `json:"kind"`
+	Name     string               `json:"name"`
+}
+
+// RequestPermissionParams is the inbound ACP request. SessionID and ToolCallID
+// identify the tool call being decided; OptionID is the choice echoed by the
+// client and is the only field that can produce a "selected" outcome. Options
+// mirrors the ACP request shape but is never trusted: permissionOptions() is the
+// single source of truth for what can be selected.
+type RequestPermissionParams struct {
+	SessionID  string             `json:"sessionId"`
+	ToolCallID string             `json:"toolCallId"`
+	OptionID   string             `json:"optionId,omitempty"`
+	Options    []PermissionOption `json:"options,omitempty"`
+}
+
+// RequestPermissionOutcome is the ACP "outcome" object: either "selected" with
+// the chosen optionId, or "cancelled" with no optionId.
+type RequestPermissionOutcome struct {
+	Outcome  string `json:"outcome"`
+	OptionID string `json:"optionId,omitempty"`
+}
+
+// RequestPermissionResult is the ACP session/request_permission response.
+type RequestPermissionResult struct {
+	Outcome RequestPermissionOutcome `json:"outcome"`
+}
+
+// permissionOptions returns the four canonical ACP permission choices. The
+// optionId doubles as the kind string, so validation needs no generated IDs.
+func permissionOptions() []PermissionOption {
+	return []PermissionOption{
+		{OptionID: string(PermissionOptionAllowOnce), Kind: PermissionOptionAllowOnce, Name: "Allow once"},
+		{OptionID: string(PermissionOptionAllowAlways), Kind: PermissionOptionAllowAlways, Name: "Always allow"},
+		{OptionID: string(PermissionOptionRejectOnce), Kind: PermissionOptionRejectOnce, Name: "Reject once"},
+		{OptionID: string(PermissionOptionRejectAlways), Kind: PermissionOptionRejectAlways, Name: "Always reject"},
+	}
+}
+
+// permissionOutcome maps a client-supplied optionId onto the canonical set.
+// Only an exact match is honoured; an empty, unknown or wrongly-cased choice
+// yields "cancelled" (fail-closed, least privilege).
+func permissionOutcome(optionID string) RequestPermissionOutcome {
+	for _, opt := range permissionOptions() {
+		if opt.OptionID == optionID {
+			return RequestPermissionOutcome{Outcome: "selected", OptionID: opt.OptionID}
+		}
+	}
+	return RequestPermissionOutcome{Outcome: "cancelled"}
+}
+
+// requestPermission is the protocol skeleton for session/request_permission.
+// Malformed params are a JSON-RPC error; any params that do not carry a
+// recognised option (empty, missing or unknown) return a "cancelled" outcome.
+func (s *acpState) requestPermission(req request) {
+	var params RequestPermissionParams
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			s.peer.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+	}
+	s.peer.respond(req.ID, RequestPermissionResult{Outcome: permissionOutcome(params.OptionID)})
 }

@@ -36,6 +36,19 @@ func newUTF8CarryWriter(w io.Writer) *utf8CarryWriter {
 	return &utf8CarryWriter{w: w, maxCarry: maxCarryBytes}
 }
 
+// setWriter redirects future complete runes to w. It does not flush the
+// pending carry: callers that swap destinations flush first, so any dangling
+// sequence is written to the old destination and no bytes are lost. The lock
+// keeps the swap from racing a concurrent Write.
+func (cw *utf8CarryWriter) setWriter(w io.Writer) {
+	if cw == nil {
+		return
+	}
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	cw.w = w
+}
+
 func (cw *utf8CarryWriter) limit() int {
 	if cw.maxCarry > 0 {
 		return cw.maxCarry

@@ -224,13 +224,16 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 			}
 			break
 		}
-		result.Attempts = attempt
 		if attempt > 1 {
 			if err := sleep(ctx, backoffAt(backoff, attempt-1)); err != nil {
 				lastErr = err
 				break
 			}
 		}
+		// Attempts counts real seam invocations. Increment it only once the
+		// backoff has been survived, so a cancellation during the wait does
+		// not inflate the count with an attempt that never actually ran.
+		result.Attempts = attempt
 		output, lastErr = e.attempt(ctx, step, input, outputs, params)
 		if err := ctx.Err(); err != nil {
 			// Cancelled or out of time: another attempt cannot help. If the

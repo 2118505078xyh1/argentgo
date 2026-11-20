@@ -44,6 +44,23 @@ var (
 	procWaitForSingleObject               = kernel32.NewProc("WaitForSingleObject")
 )
 
+// callResizePseudoConsole and callClosePseudoConsole are the only places that
+// touch an HPCON after startPlatform. They are indirections so the HPCON-lifetime
+// regression test can observe their ordering without a real console; production
+// behaviour is unchanged.
+var (
+	callResizePseudoConsole = func(console syscall.Handle, window uintptr) error {
+		r, _, callErr := procResizePseudoConsole.Call(uintptr(console), window)
+		if failed(r) {
+			return fmt.Errorf("pty: ResizePseudoConsole: %w", callErr)
+		}
+		return nil
+	}
+	callClosePseudoConsole = func(console syscall.Handle) {
+		procClosePseudoConsole.Call(uintptr(console))
+	}
+)
+
 // coord is COORD: a 4-byte struct the Win32 ABI passes by value, so it travels
 // as one packed integer argument rather than a pointer.
 func coordOf(size Size) uintptr {
@@ -294,20 +311,17 @@ func (c *conPty) Write(b []byte) (int, error) {
 }
 
 func (c *conPty) Resize(size Size) error {
+	// Keep c.mu for the whole platform call. Releasing it after reading
+	// c.console and before ResizePseudoConsole would let a concurrent
+	// closeConsole (from Wait or Close) close the HPCON in that window and
+	// leave Resize operating on a freed handle — the same use-after-close the
+	// process handle is guarded against, but on the console handle.
 	c.mu.Lock()
-	console := c.console
-	closed := c.closed
-	c.mu.Unlock()
-	if closed || console == 0 {
+	defer c.mu.Unlock()
+	if c.closed || c.console == 0 {
 		return errors.New("pty: terminal is closed")
 	}
-	window := coordOf(size)
-	if r, _, callErr := procResizePseudoConsole.Call(
-		uintptr(console), window,
-	); failed(r) {
-		return fmt.Errorf("pty: ResizePseudoConsole: %w", callErr)
-	}
-	return nil
+	return callResizePseudoConsole(c.console, coordOf(size))
 }
 
 func (c *conPty) Wait() (int, error) {
@@ -370,7 +384,7 @@ func (c *conPty) closeConsole() {
 	c.mu.Unlock()
 	if console != 0 {
 		// Blocks until conhost is gone; after the child exits that is quick.
-		procClosePseudoConsole.Call(uintptr(console))
+		callClosePseudoConsole(console)
 	}
 }
 

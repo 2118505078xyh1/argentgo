@@ -147,9 +147,14 @@ func DefaultRetryPolicy() RetryPolicy {
 }
 
 // IsZero reports whether no field was set, so clients can fall back to
-// DefaultRetryPolicy. RetryPolicy holds a func and cannot be compared.
+// DefaultRetryPolicy. RetryPolicy holds funcs and cannot be compared. The
+// function fields count too: a caller that configures only a Jitter source or
+// an OnRetry hook has still opted in, and replacing the whole policy with the
+// default would silently discard that callback. Every field must therefore be
+// checked here.
 func (p RetryPolicy) IsZero() bool {
-	return p.MaxAttempts == 0 && p.BaseDelay == 0 && p.MaxDelay == 0 && p.Sleep == nil
+	return p.MaxAttempts == 0 && p.BaseDelay == 0 && p.MaxDelay == 0 &&
+		p.Sleep == nil && p.Jitter == nil && p.OnRetry == nil
 }
 
 // Do sends a request and retries transient failures.

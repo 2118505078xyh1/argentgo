@@ -47,6 +47,10 @@ const (
 	defaultProtocol = "openai-chat-completions"
 	defaultLocale   = "en-US"
 	defaultMaxTurns = 12
+	// defaultVerifyTimeoutMS is applied in decode (not defaults()) because the
+	// setting has aliases; injecting a canonical key at the base layer would
+	// shadow a file's "verify_timeout_ms" spelling.
+	defaultVerifyTimeoutMS = 30000
 )
 
 // Config is the merged configuration.
@@ -331,8 +335,8 @@ func defaults(cwd string) map[string]any {
 		"cwd":      cwd,
 		// Opt-in verification is default-off: an empty argv leaves the runner's
 		// Verify callback nil, so existing runs stay byte-identical. The timeout
-		// still gets a compiled default so callers never see a zero deadline.
-		"verifyTimeoutMS": float64(30000),
+		// default is applied in decode via intFieldDefault so an aliased file
+		// key is not shadowed by a canonical key here.
 	}
 }
 
@@ -480,7 +484,7 @@ func decode(tree map[string]any, cwd, home string, sources []string) Config {
 
 		VerifyCommand:        stringSliceField(tree, "verifyCommand", "verify_command"),
 		VerifyCommands:       stringMapField(tree, "verifyCommands", "verify_commands"),
-		VerifyTimeoutMS:      intField(tree, "verifyTimeoutMS", "verify_timeout_ms"),
+		VerifyTimeoutMS:      intFieldDefault(tree, defaultVerifyTimeoutMS, "verifyTimeoutMS", "verify_timeout_ms"),
 		VerifyMaxReflections: intField(tree, "verifyMaxReflections", "verify_max_reflections"),
 
 		ContextWindow:              contextWindowFrom(tree),

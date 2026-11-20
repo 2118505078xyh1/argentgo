@@ -567,7 +567,21 @@ func pathsFromData(raw json.RawMessage) []string {
 func collectPaths(value any, out *[]string, seen map[string]bool) {
 	switch typed := value.(type) {
 	case map[string]any:
-		for key, child := range typed {
+		// A JSON object decodes into a Go map, whose iteration order is
+		// randomized. pathsFromData feeds Summarize, which keeps only the most
+		// recent twelve paths before sorting (see tailItems(files, 12)). If the
+		// cutoff lands inside a single payload that carries several paths,
+		// map order would decide which subset survives — the same transcript
+		// could produce a different "Files changed" section on every run.
+		// Visit keys in sorted order so appearance order is deterministic;
+		// collectStrings in search.go applies the same rule.
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			child := typed[key]
 			switch key {
 			case "path", "file":
 				if text, ok := child.(string); ok {

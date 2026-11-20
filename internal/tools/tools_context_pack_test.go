@@ -141,6 +141,25 @@ func TestContextPackByteBudgetTruncation(t *testing.T) {
 	}
 }
 
+func TestContextPackExplicitEmptyFilesSuppressesAutoSelection(t *testing.T) {
+	root := t.TempDir()
+	contextPackWrite(t, root, "anchor.txt", "ANCHOR")
+	contextPackWrite(t, root, "sibling.txt", "SIBLING")
+
+	// An explicitly supplied empty list is an override meaning "no other
+	// files": it must not fall back to auto-selecting the target's siblings.
+	out := contextPackRun(t, root, `{"target":"anchor.txt","files":[]}`)
+	if out != "## anchor.txt ##\nANCHOR" {
+		t.Fatalf("empty files override = %q, want only the anchor block", out)
+	}
+
+	// Omitting the field still selects siblings automatically.
+	out = contextPackRun(t, root, `{"target":"anchor.txt"}`)
+	if !strings.Contains(out, "## sibling.txt ##") {
+		t.Fatalf("omitted files should auto-select the sibling: %q", out)
+	}
+}
+
 func TestContextPackPathEscapeRejected(t *testing.T) {
 	root := t.TempDir()
 	contextPackWrite(t, root, "ok.txt", "ok")

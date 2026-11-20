@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -56,8 +58,6 @@ func hookHelper(mode string) {
 		// Exit immediately but leave a child holding this process's stdout
 		// and stderr — the pipes the dispatcher captures. Without a WaitDelay
 		// the dispatcher's Wait() blocks until the child releases them.
-		// ARGENT_HOOK_EXIT_CODE lets a test check that a real exit status
-		// (notably exit 2) survives the post-exit pipe wait.
 		child := exec.Command(os.Args[0])
 		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
 		child.Stdout = os.Stdout
@@ -66,6 +66,38 @@ func hookHelper(mode string) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		os.Exit(0)
+	case "lingering-signal":
+		// Like "lingering", but exit only once ARGENT_HOOK_GO_FILE appears so
+		// the test can place the process exit just before the hook deadline.
+		// ARGENT_HOOK_READY_FILE tells the test the child is already holding
+		// the captured pipes.
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		if err := child.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if ready := os.Getenv("ARGENT_HOOK_READY_FILE"); ready != "" {
+			_ = os.WriteFile(ready, nil, 0o600)
+		}
+		goFile := os.Getenv("ARGENT_HOOK_GO_FILE")
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if goFile != "" {
+				if _, err := os.Stat(goFile); err == nil {
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		code, _ := strconv.Atoi(os.Getenv("ARGENT_HOOK_EXIT_CODE"))
+		os.Exit(code)
+	case "exitcode":
+		// Used to obtain a real *os.ProcessState with a known exit status for
+		// the classification unit tests.
 		code, _ := strconv.Atoi(os.Getenv("ARGENT_HOOK_EXIT_CODE"))
 		os.Exit(code)
 	case "lingering-child":
@@ -403,6 +435,49 @@ func TestRunCommandUsesTheShell(t *testing.T) {
 	}
 }
 
+func TestRunCommandCustomShellSkipsBashProbe(t *testing.T) {
+	// findBash probes up to five interpreters with a two-second deadline each
+	// on Windows, and it runs before runCtx exists so its cost is not bounded
+	// by the hook timeout. A caller that supplies Shell has already chosen the
+	// interpreter; RunCommand must not probe the default one at all.
+	oldBashRuns := bashRuns
+	var probes atomic.Int32
+	bashRuns = func(string) bool { probes.Add(1); return false }
+	t.Cleanup(func() {
+		bashRuns = oldBashRuns
+		bashOnce = sync.Once{}
+		bashPath = ""
+	})
+	bashOnce = sync.Once{}
+	bashPath = ""
+
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	used := false
+	dispatcher := &Dispatcher{
+		Timeout: 5 * time.Second,
+		Shell: func(string) (string, []string) {
+			used = true
+			return os.Args[0], nil
+		},
+	}
+	command := Command{Event: PostToolUse, Command: "run-hook", Timeout: 5 * time.Second}
+	outcome := dispatcher.RunCommand(context.Background(), command, Payload{Event: "PostToolUse"})
+	if !used || outcome.ExitCode != 0 {
+		t.Fatalf("custom shell was not used: used=%t %+v", used, outcome)
+	}
+	if got := probes.Load(); got != 0 {
+		t.Fatalf("custom Shell triggered %d bash probes, want 0", got)
+	}
+
+	// Sanity: without a Shell override the default path must still probe, so
+	// a zero count above cannot be an artefact of a disabled probe.
+	plain := &Dispatcher{Timeout: 5 * time.Second}
+	plain.RunCommand(context.Background(), command, Payload{Event: "PostToolUse"})
+	if got := probes.Load(); got == 0 {
+		t.Fatal("default shell did not probe for bash; test seam is inert")
+	}
+}
+
 func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
 	t.Setenv("ARGENT_HOOK_HELPER", "lingering")
 	exitFile := filepath.Join(t.TempDir(), "child-exit")
@@ -433,41 +508,77 @@ func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
 	}
 }
 
-// dispatchLingering runs the "lingering" helper with a 2s timeout. The helper
-// exits with exitCode well before the deadline but leaves a child holding the
-// captured pipes, so the deadline fires while Wait is still draining them.
-// The budget is generous because a -race helper process can take a while to
-// start; the child's 5s fallback keeps the pipe-drain window open past 2s.
-// The child is released on cleanup so it cannot outlive the test.
+func waitForHelperFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("hook helper never created %s", path)
+}
+
+// dispatchLingering runs a hook that exits just before its deadline while a
+// background child keeps the captured pipes open past it. The deadline then
+// fires during the post-exit pipe drain, which the old runCtx.Err() check
+// misread as a hook timeout. The helper signals when the child is holding the
+// pipes so the timing stays deterministic even under -race.
 func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
 	t.Helper()
-	t.Setenv("ARGENT_HOOK_HELPER", "lingering")
+	dir := t.TempDir()
+	readyFile := filepath.Join(dir, "ready")
+	goFile := filepath.Join(dir, "go")
+	exitFile := filepath.Join(dir, "child-exit")
+	t.Setenv("ARGENT_HOOK_HELPER", "lingering-signal")
 	t.Setenv("ARGENT_HOOK_EXIT_CODE", strconv.Itoa(exitCode))
-	exitFile := filepath.Join(t.TempDir(), "child-exit")
+	t.Setenv("ARGENT_HOOK_READY_FILE", readyFile)
+	t.Setenv("ARGENT_HOOK_GO_FILE", goFile)
 	t.Setenv("ARGENT_HOOK_EXIT_FILE", exitFile)
 	t.Cleanup(func() {
 		_ = os.WriteFile(exitFile, nil, 0o600)
 		time.Sleep(100 * time.Millisecond)
 	})
-	const timeout = 2 * time.Second
+
+	// Warm the one-time bash probe before starting the clock; on Windows its
+	// first call can spend up to two seconds checking candidate interpreters.
+	findBash()
+
+	const timeout = 3 * time.Second
 	dispatcher := helperDispatcher(timeout)
 	command := Command{Event: event, Command: "run-hook", Timeout: timeout}
-	return dispatcher.RunCommand(context.Background(), command, Payload{Event: string(event)})
+	type result struct{ outcome Outcome }
+	done := make(chan result, 1)
+	started := time.Now()
+	go func() {
+		done <- result{dispatcher.RunCommand(context.Background(), command, Payload{Event: string(event)})}
+	}()
+
+	waitForHelperFile(t, readyFile)
+	// Place the process exit 400ms before the deadline. It is gone when the
+	// context expires, so only the postponed pipe drain runs past the deadline.
+	if delay := time.Until(started.Add(2600 * time.Millisecond)); delay > 0 {
+		time.Sleep(delay)
+	}
+	_ = os.WriteFile(goFile, nil, 0o600)
+	return (<-done).outcome
 }
 
-func TestRunCommandLingeringChildIsNotMislabelledAsTimeout(t *testing.T) {
-	// The hook process exited successfully long before its deadline. Only the
-	// post-exit pipe wait ran into it, which is what WaitDelay is for; the
-	// successful exit status must survive.
-	outcome := dispatchLingering(t, PostToolUse, 0)
+func TestRunCommandLingeringChildKeepsRealExitStatus(t *testing.T) {
+	// The hook process exited well before its deadline; only the post-exit
+	// pipe wait ran into it. Its real exit status must survive, and it must
+	// not be mislabelled as a timeout.
+	outcome := dispatchLingering(t, PostToolUse, 1)
 	if outcome.TimedOut {
-		t.Fatalf("successful hook mislabelled as timed out: %+v", outcome)
+		t.Fatalf("hook mislabelled as timed out: %+v", outcome)
 	}
-	if outcome.Err != nil || outcome.ExitCode != 0 {
-		t.Fatalf("successful hook reported as failed: %+v", outcome)
+	if outcome.Err != nil || outcome.ExitCode != 1 {
+		t.Fatalf("real exit status lost: %+v", outcome)
 	}
-	if result := Summarize([]Outcome{outcome}); result.Blocked || result.Message != "" {
-		t.Fatalf("successful hook produced a spurious warning: %+v", result)
+	if result := Summarize([]Outcome{outcome}); result.Blocked ||
+		!strings.Contains(result.Message, "exit 1") {
+		t.Fatalf("summary lost the real failure: %+v", result)
 	}
 }
 
@@ -484,6 +595,55 @@ func TestRunCommandLingeringChildKeepsBlockingExit(t *testing.T) {
 	result := Summarize([]Outcome{outcome})
 	if !result.Blocked || !strings.Contains(result.Message, "blocked") {
 		t.Fatalf("aggregate lost the block: %+v", result)
+	}
+}
+
+// processStateForExit runs the helper just to obtain a real *os.ProcessState
+// with a known exit status; the classification tests need a genuine state
+// because its fields are unexported.
+func processStateForExit(t *testing.T, code int) *os.ProcessState {
+	t.Helper()
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(),
+		"ARGENT_HOOK_HELPER=exitcode",
+		fmt.Sprintf("ARGENT_HOOK_EXIT_CODE=%d", code))
+	_ = cmd.Run()
+	if cmd.ProcessState == nil {
+		t.Fatalf("helper did not produce a ProcessState for exit %d", code)
+	}
+	return cmd.ProcessState
+}
+
+func TestClassifyRunResultKeepsExitStatusAfterPipeDrainTimeout(t *testing.T) {
+	// A background child holding the captured pipes makes Wait report
+	// ErrWaitDelay after the deadline, even though the hook already exited.
+	// The context's status must not overwrite the real exit code.
+	for _, code := range []int{0, 1, 2} {
+		state := processStateForExit(t, code)
+		gotCode, timedOut, err := classifyRunResult(exec.ErrWaitDelay, state, false)
+		if gotCode != code || timedOut || err != nil {
+			t.Fatalf("exit %d: got (%d, timedOut %t, %v), want (%d, false, nil)",
+				code, gotCode, timedOut, err, code)
+		}
+		gotCode, timedOut, err = classifyRunResult(context.DeadlineExceeded, state, false)
+		if gotCode != code || timedOut || err != nil {
+			t.Fatalf("exit %d with late deadline: got (%d, %t, %v)", code, gotCode, timedOut, err)
+		}
+	}
+}
+
+func TestClassifyRunResultReportsDeadlineKill(t *testing.T) {
+	code, timedOut, err := classifyRunResult(nil, nil, true)
+	if code != -1 || !timedOut || err != nil {
+		t.Fatalf("deadline kill = (%d, %t, %v), want (-1, true, nil)", code, timedOut, err)
+	}
+}
+
+func TestClassifyRunResultKeepsLaunchError(t *testing.T) {
+	launchErr := errors.New("spawn failed")
+	code, timedOut, err := classifyRunResult(launchErr, nil, false)
+	if code != -1 || timedOut || !errors.Is(err, launchErr) {
+		t.Fatalf("launch error = (%d, %t, %v), want (-1, false, spawn failed)", code, timedOut, err)
 	}
 }
 

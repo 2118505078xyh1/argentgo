@@ -145,9 +145,14 @@ func (contextPackTool) Run(ctx context.Context, root string, raw json.RawMessage
 // contextPackOthers selects the non-target files. Explicit files win; otherwise
 // take the target's siblings plus repo entry points. The result is deduplicated
 // and ordered so same-directory (nearest) files come last, just before target.
+//
+// The nil/empty distinction is significant: an omitted `files` field means
+// "choose automatically", while an explicitly supplied empty array means "no
+// other files" (json.Unmarshal produces a non-nil empty slice for `[]`). Using
+// len() here silently re-enabled auto-selection and leaked sibling contents.
 func contextPackOthers(root string, explicit []string, targetRel string) ([]string, error) {
 	var rels []string
-	if len(explicit) > 0 {
+	if explicit != nil {
 		for _, raw := range explicit {
 			abs, err := resolve(root, raw)
 			if err != nil {

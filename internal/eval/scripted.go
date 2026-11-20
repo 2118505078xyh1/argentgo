@@ -87,7 +87,11 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 			ID:   fmt.Sprintf("call-%d-%d", index+1, i+1),
 			Type: "function",
 			Function: llm.ToolCallFunction{
-				Name:      call.Name,
+				// Validate trims the name to check it is non-empty; dispatch
+				// the same canonical value. A hand-written script with a
+				// padded name must reach the tool the author meant, not fail
+				// an exact-name registry lookup as an unknown tool.
+				Name:      strings.TrimSpace(call.Name),
 				Arguments: call.ArgumentsString(),
 			},
 		})

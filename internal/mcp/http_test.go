@@ -360,6 +360,10 @@ func TestResolveEndpoint(t *testing.T) {
 		{"//other.example/m", ""},
 		{"http://127.0.0.1:9001/m", ""}, // different port is a different origin
 		{":://bad", ""},
+		// An empty announcement must be rejected, not resolved to the stream
+		// URL itself (which would retarget POSTs to the GET endpoint).
+		{"", ""},
+		{"   ", ""},
 	}
 	for _, test := range cases {
 		if got := resolveEndpoint(base, test.announced); got != test.want {
@@ -633,5 +637,140 @@ func TestHTTPConnectHandshakeRespectsCallerContext(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Connect ignored caller cancellation during the SSE handshake")
+	}
+}
+
+func TestHTTPEmptyEndpointEventDoesNotClobberAnnouncedEndpoint(t *testing.T) {
+	// A legacy SSE server may emit a malformed keepalive "endpoint" event with
+	// an empty data line. It must not overwrite a previously announced POST
+	// endpoint with the stream URL; otherwise every subsequent POST lands on
+	// the GET endpoint and the connection is silently broken.
+	releaseEmpty := make(chan struct{})
+	emptySent := make(chan struct{})
+	wrongTarget := make(chan string, 4)
+	outbound := make(chan string, 16)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			select {
+			case wrongTarget <- r.URL.Path:
+			default:
+			}
+			http.Error(w, "POST belongs on the announced endpoint", http.StatusMethodNotAllowed)
+			return
+		}
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		fmt.Fprint(w, "event: endpoint\ndata: /message?sessionId=abc\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		<-releaseEmpty
+		fmt.Fprint(w, "event: endpoint\ndata:\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		close(emptySent)
+		for {
+			select {
+			case payload := <-outbound:
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", payload)
+				if flusher != nil {
+					flusher.Flush()
+				}
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("sessionId") != "abc" {
+			http.Error(w, "wrong session id", http.StatusBadRequest)
+			return
+		}
+		var message map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		idRaw, hasID := message["id"]
+		if !hasID {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		var method string
+		_ = json.Unmarshal(message["method"], &method)
+		result, callErr := helperReply(method, message["params"])
+		payload := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(idRaw)}
+		if callErr != nil {
+			payload["error"] = map[string]any{"code": -32602, "message": callErr.Error()}
+		} else {
+			payload["result"] = result
+		}
+		encoded, _ := json.Marshal(payload)
+		select {
+		case outbound <- string(encoded):
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	c, err := Connect(context.Background(), Spec{
+		Name:      "empty-endpoint",
+		Transport: "http",
+		URL:       server.URL + "/sse",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	tr := c.(*client).tr.(*httpTransport)
+	ready := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tr.mu.Lock()
+		target := tr.postURL
+		tr.mu.Unlock()
+		if strings.HasSuffix(target, "/message?sessionId=abc") {
+			ready = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("client never applied the initial endpoint announcement")
+	}
+
+	close(releaseEmpty)
+	select {
+	case <-emptySent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never sent the empty endpoint event")
+	}
+	// Let the client's stream reader process the empty event before calling.
+	time.Sleep(100 * time.Millisecond)
+
+	tr.mu.Lock()
+	postURL := tr.postURL
+	tr.mu.Unlock()
+	if !strings.HasSuffix(postURL, "/message?sessionId=abc") {
+		t.Fatalf("empty endpoint event clobbered the POST URL: %q", postURL)
+	}
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize after empty endpoint event: %v", err)
+	}
+	select {
+	case path := <-wrongTarget:
+		t.Fatalf("request was POSTed to %q instead of the announced endpoint", path)
+	default:
 	}
 }

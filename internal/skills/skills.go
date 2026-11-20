@@ -37,6 +37,9 @@ type Skill struct {
 	Description string
 	// WhenToUse is the longer "load me when…" hint, also shown in the index.
 	WhenToUse string
+	// ArgumentHint is the usage hint from the frontmatter `argument-hint` field.
+	// It carries optional enumerated candidates used by SkillArgumentHints.
+	ArgumentHint string
 	// Body is the procedure without frontmatter.
 	Body string
 	// Path is the SKILL.md file the procedure came from.
@@ -87,6 +90,7 @@ func Parse(text, path string) (Skill, error) {
 		Name:         name,
 		Description:  fields.Get("description"),
 		WhenToUse:    fields.Get("when_to_use"),
+		ArgumentHint: fields.Get("argument-hint"),
 		Body:         strings.TrimSpace(body),
 		Path:         path,
 		Tools:        fields.List("tools"),

@@ -239,6 +239,23 @@ func renderTableBlock(header []string, aligns []tableAlign, body [][]string, wid
 	return out
 }
 
+// cellClusters walks text one grapheme cluster at a time and reports the byte
+// range [start, end) and the cluster's measured width. nextGrapheme is the same
+// boundary authority used by TextWidth, Clip, Wrap and Buffer.WriteString, so a
+// ZWJ emoji, a flag or a combining sequence stays intact when a cell is cut.
+// Widths still go through the injected measure so custom width models keep
+// working; only the cut points become cluster boundaries.
+func cellClusters(text string, measure func(string) int, fn func(start, end int, cells int) bool) {
+	for pos := 0; pos < len(text); {
+		next, _ := nextGrapheme(text, pos)
+		cluster := text[pos:next]
+		if !fn(pos, next, measure(cluster)) {
+			return
+		}
+		pos = next
+	}
+}
+
 func truncateTableCell(text string, max int, measure func(string) int) string {
 	if max < 1 {
 		max = 1
@@ -253,14 +270,14 @@ func truncateTableCell(text string, max int, measure func(string) int) string {
 	}
 	var out strings.Builder
 	used := 0
-	for _, r := range text {
-		w := measure(string(r))
-		if used+w > budget {
-			break
+	cellClusters(text, measure, func(start, end int, cells int) bool {
+		if used+cells > budget {
+			return false
 		}
-		out.WriteRune(r)
-		used += w
-	}
+		out.WriteString(text[start:end])
+		used += cells
+		return true
+	})
 	result := out.String() + ellipsis
 	if measure(result) > max {
 		// A measure that counts "…" wider than the column: drop the mark.
@@ -272,14 +289,14 @@ func truncateTableCell(text string, max int, measure func(string) int) string {
 func clipTableCell(text string, max int, measure func(string) int) string {
 	var out strings.Builder
 	used := 0
-	for _, r := range text {
-		w := measure(string(r))
-		if used+w > max {
-			break
+	cellClusters(text, measure, func(start, end int, cells int) bool {
+		if used+cells > max {
+			return false
 		}
-		out.WriteRune(r)
-		used += w
-	}
+		out.WriteString(text[start:end])
+		used += cells
+		return true
+	})
 	return out.String()
 }
 

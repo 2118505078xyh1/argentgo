@@ -217,6 +217,17 @@ func (s *Store) RecordRun(id, status, logPath string, at time.Time) error {
 func (s *Store) recordRun(id, status, logPath string, at, slot time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A run can outlive a scan, and the task list is a shared JSON file. While
+	// the run was in flight another process may have added, edited or deleted
+	// tasks. Saving the outcome from the in-memory snapshot taken at scan time
+	// would clobber those edits (and resurrect a task deleted mid-run), because
+	// saveLocked rewrites the whole list. Refresh from disk while holding the
+	// lock so this is a read-modify-write of the current file. A task deleted
+	// meanwhile simply disappears from the list, which callers already treat as
+	// "nothing to record".
+	if err := s.reloadLocked(); err != nil {
+		return err
+	}
 	idx := s.indexLocked(id)
 	if idx < 0 {
 		return fmt.Errorf("automation: no task %q", id)

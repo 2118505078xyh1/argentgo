@@ -159,6 +159,10 @@ func (p *Process) SetOutput(w io.Writer) { p.out.Handoff(w) }
 func (p *Process) startWait() {
 	go func() {
 		p.code = p.child.Wait()
+		// cmd.Wait has drained exec's copy goroutines: the stream is at EOF
+		// now, so a trailing incomplete sequence has no future chunk to
+		// complete it and belongs in the capture verbatim.
+		p.out.flush()
 		if p.closed != nil {
 			p.closed()
 		}
@@ -168,40 +172,44 @@ func (p *Process) startWait() {
 
 // switchWriter serialises writes while allowing one destination swap, used
 // when a running child is promoted to a background job.
+//
+// All bytes pass through a utf8CarryWriter before reaching the destination.
+// exec reads a child's stdout/stderr in chunks whose boundaries are unrelated
+// to UTF-8 rune boundaries: a zh-CN rune can be split across two reads. Run
+// already reassembles those runes; a detached child must too, or a partial
+// result taken while it is still running (RunWithTimeout's promotion path)
+// ends in a dangling sequence and decodes as U+FFFD. The pending sequence is
+// held back from Captured() and only emitted at handoff or at EOF.
 type switchWriter struct {
 	mu  sync.Mutex
 	dst io.Writer
 	buf *cappedBuffer
+	dec *utf8CarryWriter // writes complete runes to dst (buf until handoff)
 }
 
 func newSwitchWriter() *switchWriter {
 	buf := &cappedBuffer{max: MaxOutputBytes}
-	return &switchWriter{dst: buf, buf: buf}
+	return &switchWriter{dst: buf, buf: buf, dec: newUTF8CarryWriter(buf)}
 }
 
 func (w *switchWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.dst.Write(p)
-}
-
-func (w *switchWriter) captured() *cappedBuffer {
-	if b, ok := w.dst.(*cappedBuffer); ok {
-		return b
-	}
-	return w.buf
+	return w.dec.Write(p)
 }
 
 func (w *switchWriter) Captured() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.captured().String()
+	// No Flush here: an incomplete rune must stay in dec.carry so callers
+	// reading a still-running child never see a dangling sequence.
+	return w.buf.String()
 }
 
 func (w *switchWriter) Truncated() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.captured().wasTruncated()
+	return w.buf.wasTruncated()
 }
 
 func (w *switchWriter) Handoff(dst io.Writer) {
@@ -210,10 +218,24 @@ func (w *switchWriter) Handoff(dst io.Writer) {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if b, ok := w.dst.(*cappedBuffer); ok {
-		_, _ = io.WriteString(dst, b.String())
+	if w.dst == w.buf {
+		// Handoff is the EOF of the capture: emit any dangling bytes verbatim
+		// before copying the captured prefix, so not one byte is lost.
+		w.dec.Flush()
+		_, _ = io.WriteString(dst, w.buf.String())
 	}
+	w.dec.setWriter(dst)
 	w.dst = dst
+}
+
+// flush emits a dangling sequence once the child is known to have exited.
+func (w *switchWriter) flush() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.dec.Flush()
 }
 
 // StartDetached starts c in its own process group/session so the child survives

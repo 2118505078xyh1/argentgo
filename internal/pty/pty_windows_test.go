@@ -193,3 +193,64 @@ func TestExitedAndExitCodeRaceWithClose(t *testing.T) {
 		_ = p.Close()
 	}
 }
+
+// TestResizeKeepsConsoleAliveAcrossPlatformCall guards the HPCON lifetime
+// against a concurrent Close. Resize used to read c.console under c.mu, release
+// the lock, and only then call ResizePseudoConsole; a racing Close (or Wait
+// reaping the child) could null out and close the HPCON in that window, leaving
+// Resize calling ResizePseudoConsole on a freed handle. The lock must cover the
+// platform call, mirroring the duplicate-handle protection in Wait/Exited.
+func TestResizeKeepsConsoleAliveAcrossPlatformCall(t *testing.T) {
+	oldResize, oldClose := callResizePseudoConsole, callClosePseudoConsole
+	defer func() { callResizePseudoConsole, callClosePseudoConsole = oldResize, oldClose }()
+
+	resizeEntered := make(chan struct{})
+	releaseResize := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseResize) }) }
+	defer release()
+
+	callResizePseudoConsole = func(syscall.Handle, uintptr) error {
+		close(resizeEntered)
+		<-releaseResize
+		return nil
+	}
+	consoleClosed := make(chan struct{})
+	callClosePseudoConsole = func(syscall.Handle) { close(consoleClosed) }
+
+	c := &conPty{console: 1, exitCode: -1}
+	resizeDone := make(chan error, 1)
+	go func() { resizeDone <- c.Resize(Size{Cols: 80, Rows: 24}) }()
+
+	select {
+	case <-resizeEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Resize did not reach the platform call")
+	}
+
+	go c.closeConsole()
+
+	// A Resize already inside the platform call owns the HPCON; closeConsole
+	// must wait on c.mu until it returns rather than closing the handle here.
+	select {
+	case <-consoleClosed:
+		t.Fatal("ClosePseudoConsole ran while Resize still held the HPCON")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+	if err := <-resizeDone; err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	select {
+	case <-consoleClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ClosePseudoConsole did not run after Resize returned")
+	}
+	c.mu.Lock()
+	closed := c.console == 0
+	c.mu.Unlock()
+	if !closed {
+		t.Fatal("console was not released after closeConsole")
+	}
+}

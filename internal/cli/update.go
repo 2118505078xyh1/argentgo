@@ -249,17 +249,30 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 	return 0
 }
 
-// verifyStagedBinary re-verifies the staged file for a bare executable. For a
-// zip asset the checksum belongs to the archive (already verified by Download),
-// while stage holds the extracted executable, so only an archive guard applies.
+// verifyStagedBinary re-verifies the staged file for a bare executable. For an
+// archive asset (zip or gzip-compressed tar) the published checksum covers the
+// archive, already verified by Download, while stage holds the extracted
+// executable; re-hashing it would always mismatch, so only an archive guard
+// applies.
 func verifyStagedBinary(stage, assetName, checksum string) error {
-	if strings.EqualFold(filepath.Ext(assetName), ".zip") {
+	if isArchiveAssetName(assetName) {
 		return rejectArchive(stage)
 	}
 	return verifyChecksum(stage, checksum)
 }
 
-// rejectArchive refuses to install a file that still looks like a zip archive.
+// isArchiveAssetName reports whether assetName denotes an archive that Download
+// unpacks before staging. It mirrors internal/update's zip/tar.gz detection so
+// the staged-binary re-check and the downloader agree on which assets are
+// extracted.
+func isArchiveAssetName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.EqualFold(filepath.Ext(name), ".zip") ||
+		strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
+}
+
+// rejectArchive refuses to install a file that still looks like a compressed
+// archive (zip or gzip) as the executable.
 func rejectArchive(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -275,6 +288,9 @@ func rejectArchive(path string) error {
 			(magic[2] == 5 && magic[3] == 6) ||
 			(magic[2] == 7 && magic[3] == 8)) {
 		return fmt.Errorf("update: staged file %s is a zip archive; refusing to install it as the executable", path)
+	}
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		return fmt.Errorf("update: staged file %s is a gzip archive; refusing to install it as the executable", path)
 	}
 	return nil
 }

@@ -277,12 +277,16 @@ func tokenFromResponse(cfg Config, response tokenResponse, previous Token) (Toke
 	}
 	if response.ExpiresIn > 0 {
 		lifetime := time.Duration(response.ExpiresIn) * time.Second
-		if lifetime > expirySafety {
-			lifetime -= expirySafety
-		} else {
-			lifetime = 0
+		// The safety margin is a hint to refresh early, not a reason to throw
+		// away a credential that is still valid. When the provider issues a
+		// token whose whole lifetime fits inside the margin, clamp the margin
+		// to half the lifetime so the token remains usable until close to its
+		// real deadline instead of being reported as expired at issuance.
+		margin := expirySafety
+		if lifetime <= margin {
+			margin = lifetime / 2
 		}
-		token.ExpiresAt = time.Now().Add(lifetime).Truncate(time.Second)
+		token.ExpiresAt = time.Now().Add(lifetime - margin).Truncate(time.Second)
 	}
 	return token, nil
 }

@@ -44,14 +44,15 @@ func ParseChecksums(text string) ([]ChecksumEntry, error) {
 
 // parseChecksumLine validates and decodes one canonical checksums line.
 func parseChecksumLine(line string) (ChecksumEntry, error) {
-	// Prefer the text-mode separator; fall back to the binary-mode one. Either
-	// way the digest is the prefix before the separator, so a short or invalid
-	// digest is rejected by normaliseChecksum rather than silently accepted.
-	index := strings.Index(line, "  ")
-	if index < 0 {
-		index = strings.Index(line, " *")
-	}
-	if index < 0 {
+	// The digest is the first whitespace-delimited token, so the separator starts
+	// at the first space. Locating it there instead of searching for "  " first
+	// matters for binary-mode lines: a file name may legally contain two
+	// consecutive spaces ("<hash> *my  file.zip"), and looking for "  " anywhere
+	// in the line finds the pair inside the name and feeds a bogus digest to
+	// normaliseChecksum. Checking the byte after the first space accepts exactly
+	// the two canonical separators: "  " (text mode) and " *" (binary mode).
+	index := strings.IndexByte(line, ' ')
+	if index < 0 || index+1 >= len(line) || (line[index+1] != ' ' && line[index+1] != '*') {
 		return ChecksumEntry{}, errors.New("expected two spaces or a space and asterisk after the digest")
 	}
 	digest, err := normaliseChecksum(line[:index])

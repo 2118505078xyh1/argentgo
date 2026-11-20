@@ -175,7 +175,15 @@ func (t *httpTransport) readStream(ctx context.Context, body io.ReadCloser) {
 	defer body.Close()
 	err := forEachSSE(body, func(event, data string) {
 		if event == "endpoint" {
-			resolved := resolveEndpoint(t.url, strings.TrimSpace(data))
+			announced := strings.TrimSpace(data)
+			if announced == "" {
+				// An empty announcement must not retarget POSTs. Without this
+				// guard, resolveEndpoint would resolve the empty reference to
+				// the stream URL itself, overwriting a previously announced
+				// POST endpoint and silently breaking the connection.
+				return
+			}
+			resolved := resolveEndpoint(t.url, announced)
 			t.setEndpoint(resolved)
 			// Keep feeding the handshake window too; a prompt announcement
 			// still lets Connect return as soon as it is seen.
@@ -400,6 +408,12 @@ func forEachSSE(r io.Reader, handle func(event, data string)) error {
 // the caller falls back to the original URL: configured headers may carry
 // credentials, and they must never be forwarded to a different origin.
 func resolveEndpoint(streamURL, announced string) string {
+	if strings.TrimSpace(announced) == "" {
+		// An empty reference resolves to the base URL, which would retarget
+		// POSTs to the SSE endpoint. Treat it as no announcement instead so
+		// the caller can fall back to the current POST URL.
+		return ""
+	}
 	base, err := url.Parse(streamURL)
 	if err != nil {
 		return ""

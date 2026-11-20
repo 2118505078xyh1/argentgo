@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -87,6 +88,67 @@ func TestSummarizeKeepsMostRecentFilesByAppearanceOrder(t *testing.T) {
 	// Display order is still sorted for a stable summary.
 	if got.Files[0] != "a_new1.go" || got.Files[11] != "m12.go" {
 		t.Errorf("Files not sorted for display: %q", got.Files)
+	}
+}
+
+// Summarize keeps only the most recent twelve file paths before sorting. When
+// the twelve-path cutoff falls inside a single payload that carries several
+// paths, the chosen subset must not depend on Go's randomized map iteration:
+// the same transcript must always produce the same "Files changed" section.
+// This mirrors the deterministic-key rule collectStrings uses in search.go.
+func TestSummarizeFilesAreDeterministicAcrossRuns(t *testing.T) {
+	var dropped []Entry
+	for i := 0; i < 5; i++ {
+		dropped = append(dropped, pathEntry(fmt.Sprintf("a%d.go", i)))
+	}
+	// One payload carrying ten paths in random map order; combined with the
+	// entries below, tailItems(files, 12) cuts through this very block.
+	multi, err := json.Marshal(map[string]any{
+		"path":      "p1.go",
+		"file":      "p2.go",
+		"files":     []string{"p3.go", "p4.go", "p5.go", "p6.go"},
+		"arguments": `{"path":"p7.go","file":"p8.go","files":["p9.go","p10.go"]}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped = append(dropped, Entry{Role: "tool", Name: "edit", Data: multi})
+	for i := 0; i < 8; i++ {
+		dropped = append(dropped, pathEntry(fmt.Sprintf("b%d.go", i)))
+	}
+
+	want := ""
+	for _, file := range Summarize(dropped, 0).Files {
+		want += file + "|"
+	}
+	for n := 0; n < 300; n++ {
+		got := ""
+		for _, file := range Summarize(dropped, 0).Files {
+			got += file + "|"
+		}
+		if got != want {
+			t.Fatalf("Summarize.Files changed across runs:\n got %s\nwant %s", got, want)
+		}
+	}
+	// Whatever the internal appearance order, the five oldest paths must be
+	// the ones dropped and the eight newest ones the ones kept.
+	files := Summarize(dropped, 0).Files
+	if len(files) != 12 {
+		t.Fatalf("Files = %q, want 12 entries", files)
+	}
+	kept := make(map[string]bool, len(files))
+	for _, file := range files {
+		kept[file] = true
+	}
+	for i := 0; i < 5; i++ {
+		if kept[fmt.Sprintf("a%d.go", i)] {
+			t.Errorf("oldest file a%d.go survived the twelve-path cut: %q", i, files)
+		}
+	}
+	for i := 0; i < 8; i++ {
+		if !kept[fmt.Sprintf("b%d.go", i)] {
+			t.Errorf("newest file b%d.go missing from Files: %q", i, files)
+		}
 	}
 }
 

@@ -405,9 +405,17 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 
 	timeout := d.timeoutFor(command)
 
-	name, args := shellCommand(command.Command)
+	// A caller-supplied Shell has already chosen the interpreter. Resolving
+	// the default one first would run findBash's probes (up to five processes
+	// with a two-second deadline each on Windows) even though the result is
+	// discarded — and it happens before runCtx exists, so that cost is not
+	// covered by the hook's timeout.
+	var name string
+	var args []string
 	if d.Shell != nil {
 		name, args = d.Shell(command.Command)
+	} else {
+		name, args = shellCommand(command.Command)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -452,31 +460,7 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	outcome.Stdout = stdout.String()
 	outcome.Stderr = stderr.String()
 
-	switch {
-	case killedByDeadline.Load():
-		// The hook was still running when its deadline expired.
-		outcome.TimedOut = true
-		outcome.ExitCode = -1
-	case runErr == nil:
-		outcome.ExitCode = 0
-	default:
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			outcome.ExitCode = exitErr.ExitCode()
-		} else if state := process.ProcessState; state != nil {
-			// The process finished on its own; only the post-exit pipe wait
-			// hit the deadline or WaitDelay. Keep the real exit status and
-			// do not surface the expected pipe-drain error as a hook failure.
-			outcome.ExitCode = state.ExitCode()
-			if !errors.Is(runErr, exec.ErrWaitDelay) &&
-				!errors.Is(runErr, context.Canceled) &&
-				!errors.Is(runErr, context.DeadlineExceeded) {
-				outcome.Err = runErr
-			}
-		} else {
-			outcome.Err = runErr
-		}
-	}
+	outcome.ExitCode, outcome.TimedOut, outcome.Err = classifyRunResult(runErr, process.ProcessState, killedByDeadline.Load())
 
 	// Exit status 2 is the hook protocol's "block" signal, and only PreToolUse
 	// may block an action.
@@ -484,6 +468,37 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 		outcome.Blocked = true
 	}
 	return outcome
+}
+
+// classifyRunResult turns a finished process wait into the status fields of an
+// Outcome. killedByDeadline is true only when the timeout actually killed a
+// live hook. Without it, a context that expired while Wait was draining pipes
+// left over by a background child must not rewrite the process's real exit
+// status: the hook already finished, and its exit-2 block must survive.
+func classifyRunResult(runErr error, state *os.ProcessState, killedByDeadline bool) (exitCode int, timedOut bool, err error) {
+	switch {
+	case killedByDeadline:
+		return -1, true, nil
+	case runErr == nil:
+		return 0, false, nil
+	default:
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			return exitErr.ExitCode(), false, nil
+		}
+		if state != nil {
+			code := state.ExitCode()
+			// ErrWaitDelay and a late context error only mean the captured
+			// pipes outlived the process; they are not hook failures.
+			if errors.Is(runErr, exec.ErrWaitDelay) ||
+				errors.Is(runErr, context.Canceled) ||
+				errors.Is(runErr, context.DeadlineExceeded) {
+				return code, false, nil
+			}
+			return code, false, runErr
+		}
+		return -1, false, runErr
+	}
 }
 
 // Summarize turns outcomes into the block/warn decision.
@@ -548,7 +563,9 @@ func findBash() string {
 	return bashPath
 }
 
-func bashRuns(path string) bool {
+// bashRuns probes one candidate interpreter. It is a variable so tests can
+// count probes without spawning processes.
+var bashRuns = func(path string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return exec.CommandContext(ctx, path, "-c", "exit 0").Run() == nil

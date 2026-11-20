@@ -126,19 +126,36 @@ func FindFileEditingCommand(command string) string {
 	}
 
 	cleaned := sanitizeCommand(command)
-	for _, segment := range splitOnSeparators(cleaned) {
+	// Wrapper programs (sudo, env, nohup, command, builtin, exec) do not change
+	// what the wrapped command does. The threat classifier already strips them
+	// with reduceWrappers (threat_patterns.go); the token classifier must do
+	// the same or one wrapper word hides every mutating command from the
+	// plan-mode guard and the auto approver. reduceWrappers keeps the preceding
+	// separator in place, so command splitting still works after the reduction.
+	reduced, _ := reduceWrappers(cleaned)
+	for _, segment := range splitOnSeparators(reduced) {
 		fields := strings.Fields(segment)
 		if len(fields) == 0 {
 			continue
 		}
-		cmd := strings.ToLower(fields[0])
-		if mutating[cmd] {
-			return fields[0]
+		// `env FOO=1 rm file` leaves an assignment at the front once the
+		// wrapper is gone. Skip leading assignments to find the executable,
+		// then judge that word exactly as an unwrapped command.
+		cmdAt := 0
+		for cmdAt < len(fields) && isAssignmentWord(fields[cmdAt]) {
+			cmdAt++
 		}
-		if subs, ok := subcommands[cmd]; ok && len(fields) > 1 {
-			sub := strings.ToLower(fields[1])
+		if cmdAt == len(fields) {
+			continue
+		}
+		cmd := strings.ToLower(fields[cmdAt])
+		if mutating[cmd] {
+			return fields[cmdAt]
+		}
+		if subs, ok := subcommands[cmd]; ok && cmdAt+1 < len(fields) {
+			sub := strings.ToLower(fields[cmdAt+1])
 			if subs[sub] {
-				return fields[0] + " " + fields[1]
+				return fields[cmdAt] + " " + fields[cmdAt+1]
 			}
 		}
 		for i, field := range fields {
@@ -344,6 +361,24 @@ func splitOnSeparators(s string) []string {
 		}
 	}
 	return append(out, b.String())
+}
+
+// isAssignmentWord reports whether word is a leading VAR=value assignment, as
+// accepted by `env` and by POSIX shells before a command. Only plain ASCII
+// identifier names count, so an ordinary argument containing '=' is not
+// mistaken for an assignment and skipped over.
+func isAssignmentWord(word string) bool {
+	eq := strings.IndexByte(word, '=')
+	if eq <= 0 {
+		return false
+	}
+	for i := 0; i < eq; i++ {
+		c := word[i]
+		if !isAlnum(c) && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func isDelimiterByte(b byte) bool {

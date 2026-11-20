@@ -33,6 +33,32 @@ func TestParseChecksumsAcceptsCanonicalForms(t *testing.T) {
 	}
 }
 
+// TestParseChecksumsAcceptsFileNamesWithConsecutiveSpaces is the regression for
+// a parser that located the separator by searching for "  " anywhere in the
+// line. A binary-mode manifest produced by `sha256sum -b` uses " *" after the
+// digest, so a file name containing two consecutive spaces made the search find
+// that pair inside the name and reject an otherwise valid checksums.txt.
+func TestParseChecksumsAcceptsFileNamesWithConsecutiveSpaces(t *testing.T) {
+	const hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	text := strings.Join([]string{
+		hashA + " *my  release.zip", // binary mode, two spaces inside the name
+		hashB + "  text  name.zip",  // text mode, same name pattern
+	}, "\n")
+
+	got, err := ParseChecksums(text)
+	if err != nil {
+		t.Fatalf("ParseChecksums rejected valid lines: %v", err)
+	}
+	want := []ChecksumEntry{
+		{Hash: hashA, Name: "my  release.zip"},
+		{Hash: hashB, Name: "text  name.zip"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseChecksums =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 func TestParseChecksumsRejectsMalformedLines(t *testing.T) {
 	const valid = "0000000000000000000000000000000000000000000000000000000000000000  good.bin"
 	cases := []struct {

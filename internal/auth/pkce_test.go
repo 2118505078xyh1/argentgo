@@ -190,6 +190,36 @@ func TestExchangePostsTheCodeVerifier(t *testing.T) {
 	}
 }
 
+// TestExchangeKeepsShortLivedTokensUsable guards the expiry-safety margin: a
+// credential whose lifetime is shorter than the safety window must not be born
+// expired. The margin exists to trigger an early refresh, not to discard an
+// otherwise valid token the moment it is issued.
+func TestExchangeKeepsShortLivedTokensUsable(t *testing.T) {
+	const lifetime = 30 * time.Second
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		io.WriteString(writer, `{"access_token":"short","expires_in":30}`)
+	}))
+	defer server.Close()
+
+	cfg := Config{Provider: "demo", ClientID: "client", TokenURL: server.URL}
+	token, err := Exchange(context.Background(), cfg, "code", "verifier")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+
+	left := time.Until(token.ExpiresAt)
+	if left <= 0 {
+		t.Fatalf("short-lived token is already expired at issuance (ExpiresAt=%v)", token.ExpiresAt)
+	}
+	if left > lifetime {
+		t.Fatalf("expiry is %v from now, later than the provider's %v deadline", left, lifetime)
+	}
+	if left < lifetime/3 {
+		t.Fatalf("expiry is %v from now, leaving too little of the %v lifetime", left, lifetime)
+	}
+}
+
 func TestExchangeReportsProviderErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

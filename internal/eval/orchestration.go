@@ -307,7 +307,11 @@ func (c *orchChatter) Chat(ctx context.Context, _ string, messages []llm.Message
 				ID:   fmt.Sprintf("orch-%d-%d", seq, i+1),
 				Type: "function",
 				Function: llm.ToolCallFunction{
-					Name:      call.Name,
+					// Keep dispatch consistent with Scenario.Validate, which
+					// checks the trimmed name: a padded name in a hand-written
+					// script must reach the intended tool, not an unknown-tool
+					// error from the registry's exact-name lookup.
+					Name:      strings.TrimSpace(call.Name),
 					Arguments: call.ArgumentsString(),
 				},
 			})

@@ -172,6 +172,50 @@ func TestAliasedIllTypedValueDoesNotFallBackToDefault(t *testing.T) {
 	})
 }
 
+// verify_timeout_ms is an accepted alias of verifyTimeoutMS, so a file using
+// it must win over the compiled default. defaults() still injected the
+// canonical key for this setting while every other aliased setting had its
+// default moved into decode; mergeTree kept both spellings and intField read
+// the canonical default first, silently discarding the file value.
+func TestVerifyTimeoutAliasBeatsCompiledDefault(t *testing.T) {
+	home := t.TempDir()
+	cases := []struct {
+		name string
+		file map[string]any
+		want int
+	}{
+		{"alias from file", map[string]any{"verify_timeout_ms": 5000}, 5000},
+		{"canonical from file", map[string]any{"verifyTimeoutMS": 6000}, 6000},
+		{"canonical wins over alias", map[string]any{"verifyTimeoutMS": 6000, "verify_timeout_ms": 5000}, 6000},
+		{"absent keeps default", nil, 30000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			if tc.file != nil {
+				writeJSONFile(t, filepath.Join(cwd, "argent.json"), tc.file)
+			}
+			cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.VerifyTimeoutMS != tc.want {
+				t.Errorf("VerifyTimeoutMS = %d, want %d", cfg.VerifyTimeoutMS, tc.want)
+			}
+		})
+	}
+}
+
+// The alias must also reach fail-closed validation; a negative value hidden
+// behind the canonical default would otherwise load with a bogus 30000 timeout.
+func TestVerifyTimeoutAliasFailClosed(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{"verify_timeout_ms": -1})
+	if _, err := Load(cwd, envFunc(map[string]string{"HOME": home})); err == nil {
+		t.Fatal("Load accepted a negative verify_timeout_ms alias")
+	}
+}
+
 // Env and flag layers write canonical keys; they must still beat an alias
 // spelling from a file now that the default canonical key is absent.
 func TestEnvAndOverrideBeatFileAlias(t *testing.T) {

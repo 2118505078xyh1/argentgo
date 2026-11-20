@@ -209,6 +209,13 @@ func (d *Definition) normalise() {
 	}
 	for i := range d.Steps {
 		step := &d.Steps[i]
+		// Names are trimmed here as well as in Validate/ValidateDAG so the
+		// executor can key step outputs by the exact same name a
+		// {{steps.NAME.output}} reference resolves to. Without this, a name
+		// with surrounding whitespace passes validation but every consumer
+		// of its output is skipped with an "undefined dependency" error and
+		// the placeholder is left unsubstituted in the prompt.
+		step.Name = strings.TrimSpace(step.Name)
 		if strings.TrimSpace(step.OnFailure) == "" {
 			step.OnFailure = OnFailureStop
 		}
