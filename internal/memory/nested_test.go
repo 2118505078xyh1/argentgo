@@ -14,8 +14,8 @@ func TestLoadForDirsDiscoversNestedAncestorsAndDedupes(t *testing.T) {
 	writeFile(t, filepath.Join(base, "src", "parser"), "AGENTS.md", "parser rules")
 	writeFile(t, filepath.Join(base, "src", "lexer"), "AGENTS.md", "lexer rules")
 
-	// "src/parser" appears twice to exercise dedupe of active directories;
-	// its ancestors are shared by both chains and must appear only once.
+	// "src/parser" 出现两次，用于检验活动目录的去重；
+	// 其祖先为两条链共有，必须只出现一次。
 	docs := LoadForDirs(base, []string{"src/parser", "src/lexer", "src/parser"})
 	got := make([]string, len(docs))
 	for i, doc := range docs {
@@ -38,7 +38,7 @@ func TestLoadForDirsSkipsFilesOutsideWorkspace(t *testing.T) {
 	outside := t.TempDir()
 	writeFile(t, outside, "AGENTS.md", "outside")
 
-	// Include a valid dir; the outside ones must be ignored, not fail the call.
+	// 包含一个有效目录；外部目录必须被忽略，而不是导致调用失败。
 	docs := LoadForDirs(base, []string{outside, "..", "", "."})
 	if len(docs) != 1 || docs[0].Text != "inside" {
 		t.Fatalf("docs = %#v, want only the in-workspace file", docs)

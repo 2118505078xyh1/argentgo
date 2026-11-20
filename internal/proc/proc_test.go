@@ -13,8 +13,8 @@ import (
 	"unicode/utf8"
 )
 
-// testShell returns the platform's plain command interpreter, bypassing the
-// bash preference so the tests exercise Run itself rather than Git Bash.
+// testShell 返回平台原生的命令解释器，绕过
+// 对 bash 的偏好，使测试检验 Run 本身而非 Git Bash。
 func testShell(t *testing.T, line string) (string, []string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -87,7 +87,7 @@ func TestRunCapturesStderrSeparately(t *testing.T) {
 }
 
 func TestRunFeedsStdin(t *testing.T) {
-	// cat echoes stdin; the write end must be closed so it sees EOF.
+	// cat 回显 stdin；必须关闭写端，它才会看到 EOF。
 	path, args := testShell(t, "cat")
 	if runtime.GOOS == "windows" {
 		path, args = testShell(t, "more")
@@ -121,7 +121,7 @@ func TestRunHonoursDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	// cd prints the resolved path, which may differ in case on Windows.
+	// cd 打印解析后的路径，在 Windows 上大小写可能不同。
 	if !strings.EqualFold(strings.TrimSpace(res.Stdout), dir) &&
 		!strings.Contains(strings.ToLower(res.Stdout), strings.ToLower(filepath.Base(dir))) {
 		t.Fatalf("stdout = %q, want %q", res.Stdout, dir)
@@ -205,12 +205,12 @@ func TestCappedBufferKeepsHeadAndTail(t *testing.T) {
 	}
 }
 
-// TestCappedBufferTruncationKeepsRuneBoundaries guards the invariant that
-// truncated capture never cuts a multi-byte rune in half. cappedBuffer keeps
-// the head and tail on raw byte offsets; with zh-CN output those offsets can
-// land inside a rune, leaving a dangling lead/continuation on either side of
-// the truncation marker. Decoding such a string yields U+FFFD even though the
-// child emitted well-formed UTF-8.
+// TestCappedBufferTruncationKeepsRuneBoundaries 守护这样的不变量：
+// 被截断的捕获内容绝不把多字节字符切成两半。cappedBuffer
+// 按原始字节偏移保留头部和尾部；对于中文输出，这些偏移可能
+// 落在字符内部，使截断标记两侧各留下悬空的前导/续接字节。
+// 解码这样的字符串会得到 U+FFFD，
+// 尽管子进程发出的是格式正确的 UTF-8。
 func TestCappedBufferTruncationKeepsRuneBoundaries(t *testing.T) {
 	old := MaxOutputBytes
 	MaxOutputBytes = 40
@@ -221,8 +221,8 @@ func TestCappedBufferTruncationKeepsRuneBoundaries(t *testing.T) {
 	chunk := []byte("中文测试输出")
 	for i := 0; i < 16; i++ {
 		for j := 0; j < len(chunk); j++ {
-			// One byte at a time so the carry writer must assemble every rune
-			// before the capped buffer sees it.
+			// 一次一个字节，迫使进位写入器在
+			// 有界缓冲区看到之前组装好每个字符。
 			_, _ = cw.Write(chunk[j : j+1])
 		}
 	}
@@ -247,9 +247,9 @@ func TestCappedBufferTruncationKeepsRuneBoundaries(t *testing.T) {
 	}
 }
 
-// TestTrimIncompleteRuneHelpers pins the boundary cases the truncation fix
-// relies on: a whole rune at the cut must survive, while a dangling lead or
-// continuation on either side must be dropped.
+// TestTrimIncompleteRuneHelpers 固定截断修复所依赖的边界情况：
+// 切口处的完整字符必须保留，而两侧悬空的前导字节或
+// 续接字节必须丢弃。
 func TestTrimIncompleteRuneHelpers(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -399,8 +399,8 @@ func TestRunReportsASpawnFailure(t *testing.T) {
 	}
 }
 
-// blockingStdin records the first Read and then blocks until released, so a
-// test can observe whether Run's stdin copier ever touched the reader.
+// blockingStdin 记录第一次 Read，随后阻塞直到被释放，
+// 使测试可以观察 Run 的 stdin 拷贝器是否接触过该 reader。
 type blockingStdin struct {
 	read    chan struct{}
 	release chan struct{}
@@ -417,11 +417,11 @@ func (r *blockingStdin) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
-// TestRunDoesNotCopyStdinWhenSpawnFails guards against leaking the stdin copier
-// goroutine and the pipe it writes to when a command cannot be started. With a
-// Stdin reader that never produces data, a copier started before cmd.Start
-// blocks forever in Read after the spawn error; the caller has no handle to it
-// and the process is gone, so both the goroutine and the pipe leak.
+// TestRunDoesNotCopyStdinWhenSpawnFails 防止在命令无法启动时
+// 泄漏 stdin 拷贝 goroutine 及其写入的管道。若 Stdin reader 永不产生数据，
+// 在 cmd.Start 之前启动的拷贝器会在生成失败后永远阻塞在 Read 中；
+// 调用方没有它的句柄，进程也已消失，
+// 因此 goroutine 和管道都会泄漏。
 func TestRunDoesNotCopyStdinWhenSpawnFails(t *testing.T) {
 	stdin := newBlockingStdin()
 	defer close(stdin.release)

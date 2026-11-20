@@ -22,11 +22,11 @@ func TestProjectRootFindsNearestGitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Public API: stops at the nearest marker (inner/.git), not the outer one.
+	// 公开 API：停在最近的标记（inner/.git），而不是外层的。
 	if got, want := ProjectRoot(deep), inner; got != want {
 		t.Fatalf("ProjectRoot(%q) = %q, want %q", deep, got, want)
 	}
-	// The testable core respects an explicit home boundary.
+	// 可测试的核心遵循显式的 home 边界。
 	if got, want := projectRoot(deep, home, nil), inner; got != want {
 		t.Fatalf("projectRoot = %q, want %q", got, want)
 	}
@@ -59,7 +59,7 @@ func TestProjectRootStopsAtHome(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	child := filepath.Join(home, "child")
-	// A marker exists above home; the walk must stop at home and not see it.
+	// home 之上存在标记；遍历必须停在 home 处而看不到它。
 	if err := os.MkdirAll(filepath.Join(base, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestProjectRootCustomMarkers(t *testing.T) {
 	if got, want := projectRoot(dir, home, []string{".myroot"}), root; got != want {
 		t.Fatalf("projectRoot = %q, want %q", got, want)
 	}
-	// Defaults do not include the custom marker.
+	// 默认值不包含自定义标记。
 	if got := projectRoot(dir, home, nil); got != "" {
 		t.Fatalf("projectRoot with defaults = %q, want empty", got)
 	}
@@ -238,8 +238,8 @@ func TestLoadWithBoundaryTotalBudgetCapsCombinedText(t *testing.T) {
 	if len(insts) >= len(dirs) {
 		t.Errorf("loaded %d docs for %d files; total budget should stop the walk", len(insts), len(dirs))
 	}
-	// Budget is now spent nearest-first, so the clipped doc is the outermost
-	// one that was kept (root side), not the innermost cwd doc.
+	// 预算现在按从近到远消耗，因此被裁剪的文档是
+	// 保留下来的最外层（根侧）文档，而不是最内层的 cwd 文档。
 	if !insts[0].Truncated {
 		t.Error("outermost kept doc should be marked truncated by the total budget")
 	}
@@ -248,11 +248,11 @@ func TestLoadWithBoundaryTotalBudgetCapsCombinedText(t *testing.T) {
 	}
 }
 
-// TestLoadWithBoundaryBudgetKeepsNearestDropsRoot guards the budget ordering:
-// files are read cwd-to-root, so when the 32 KiB budget is exhausted the
-// outermost (root, least specific) instructions are dropped while the nearest
-// (cwd, most specific) ones survive. This is the "nearer wins" contract that
-// Block/LoadIn promise but the old root-first reading violated.
+// TestLoadWithBoundaryBudgetKeepsNearestDropsRoot 守护预算排序：
+// 文件按从 cwd 到根目录的顺序读取，因此当 32 KiB 预算耗尽时，
+// 最外层（根、最不具体）的指令被丢弃，而最靠近的
+// （cwd、最具体的）指令保留。这是 "nearer wins" 契约，
+// Block/LoadIn 承诺了它，但旧的自根向前的读取违反了它。
 func TestLoadWithBoundaryBudgetKeepsNearestDropsRoot(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
@@ -261,9 +261,9 @@ func TestLoadWithBoundaryBudgetKeepsNearestDropsRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Six directories from root to cwd, each holding a DefaultLimit-sized file
-	// so the 32 KiB budget cannot keep them all: four full files plus one
-	// clipped file fit, and the root file is never read.
+	// 从根到 cwd 共六个目录，每个持有一个 DefaultLimit 大小的文件，
+	// 使 32 KiB 预算无法容纳全部：四个完整文件加一个
+	// 被裁剪的文件可以容纳，根文件则从不读取。
 	markers := []string{"ROOT_MARKER", "L1_MARKER", "L2_MARKER", "L3_MARKER", "L4_MARKER", "CWD_MARKER"}
 	dirs := []string{root}
 	for i := 0; i < len(markers)-1; i++ {
@@ -289,7 +289,7 @@ func TestLoadWithBoundaryBudgetKeepsNearestDropsRoot(t *testing.T) {
 		t.Errorf("outermost (root) instruction should have been dropped: %q", joined.String())
 	}
 
-	// The returned order stays root-to-cwd; the kept levels are 1..5.
+	// 返回顺序保持从根到 cwd；保留的层级是 1..5。
 	wantOrder := []string{"L1_MARKER", "L2_MARKER", "L3_MARKER", "L4_MARKER", "CWD_MARKER"}
 	if len(insts) != len(wantOrder) {
 		t.Fatalf("got %d docs, want %d: %#v", len(insts), len(wantOrder), insts)
@@ -322,14 +322,14 @@ func TestLoadWithBoundaryProvenancePathPresent(t *testing.T) {
 	}
 }
 
-// instrAt builds an Instruction as LoadWithBoundary would produce it: an
-// absolute Source pointing at AGENTS.md inside dir. The files need not exist —
-// RelevantInstructions is a pure path filter.
+// instrAt 按 LoadWithBoundary 会生成的方式构造 Instruction：一个
+// 指向 dir 中 AGENTS.md 的绝对 Source。文件无需存在 ——
+// RelevantInstructions 是纯路径过滤器。
 func instrAt(dir, text string) Instruction {
 	return Instruction{Source: filepath.Join(dir, "AGENTS.md"), Text: text}
 }
 
-// textsOf extracts the Text of each instruction in order for terse assertions.
+// textsOf 按顺序提取每条指令的 Text，用于简洁的断言。
 func textsOf(insts []Instruction) []string {
 	out := make([]string, len(insts))
 	for i, in := range insts {
@@ -344,7 +344,7 @@ func TestRelevantInstructionsScopesNestedDocsByDirectory(t *testing.T) {
 	parser := filepath.Join(src, "parser")
 	lexer := filepath.Join(src, "lexer")
 
-	// root-to-cwd order, as LoadWithBoundary returns it.
+	// 从根到 cwd 的顺序，即 LoadWithBoundary 返回的顺序。
 	docs := []Instruction{
 		instrAt(base, "root"),
 		instrAt(src, "src"),
@@ -375,12 +375,12 @@ func TestRelevantInstructionsExcludesSiblingsAndPrefixLookalikes(t *testing.T) {
 		instrAt(srcTwo, "src2"),
 	}
 
-	// Exact sibling subtree: only src2 applies, never src or src-extra.
+	// 完全匹配的兄弟子树：只有 src2 适用，绝不可以是 src 或 src-extra。
 	if got := textsOf(RelevantInstructions(docs, filepath.Join(srcTwo, "foo.go"))); len(got) != 1 || got[0] != "src2" {
 		t.Fatalf("sibling match = %#v, want [src2]", got)
 	}
 
-	// A directory whose name merely starts with "src" must not match src.
+	// 名称仅仅以 "src" 开头的目录不得匹配 src。
 	if got := textsOf(RelevantInstructions(docs, filepath.Join(srcExtra, "foo.go"))); len(got) != 1 || got[0] != "src-extra" {
 		t.Fatalf("prefix lookalike = %#v, want [src-extra]", got)
 	}
@@ -391,11 +391,11 @@ func TestRelevantInstructionsRootAppliesEverywhereDeepestIsLocal(t *testing.T) {
 	parser := filepath.Join(base, "src", "parser")
 	docs := []Instruction{instrAt(base, "root"), instrAt(parser, "parser")}
 
-	// A file at the project root sees only the root instruction.
+	// 项目根目录下的文件只看到根指令。
 	if got := textsOf(RelevantInstructions(docs, filepath.Join(base, "top.go"))); len(got) != 1 || got[0] != "root" {
 		t.Fatalf("root file = %#v, want [root]", got)
 	}
-	// A file deep in the parser subtree sees both.
+	// parser 子树深处的文件同时看到两者。
 	if got := textsOf(RelevantInstructions(docs, filepath.Join(parser, "deep", "p.go"))); len(got) != 2 {
 		t.Fatalf("deep file = %#v, want [root parser]", got)
 	}
@@ -406,14 +406,14 @@ func TestRelevantInstructionsPreservesOrderAndDoesNotMutateInput(t *testing.T) {
 	matchA := instrAt(filepath.Join(base, "a"), "A")
 	matchB := instrAt(filepath.Join(base, "b"), "B")
 	other := instrAt(filepath.Join(base, "c"), "C")
-	// Deliberately not sorted: output must follow input order, not re-rank.
+	// 刻意不排序：输出必须遵循输入顺序，而非重新排名。
 	docs := []Instruction{other, matchB, matchA}
 
 	got := RelevantInstructions(docs, filepath.Join(base, "b", "x.go"))
 	if len(got) != 1 || got[0].Text != "B" {
 		t.Fatalf("got = %#v, want only B", got)
 	}
-	// The input slice must be untouched (pure function).
+	// 输入切片必须保持不变（纯函数）。
 	if len(docs) != 3 || docs[0].Text != "C" || docs[1].Text != "B" || docs[2].Text != "A" {
 		t.Fatalf("input was mutated: %#v", docs)
 	}
@@ -430,7 +430,7 @@ func TestRelevantInstructionsCleansDotsAndSkipsEmptySource(t *testing.T) {
 		instrAt(lexer, "lexer"),
 	}
 
-	// parser/../lexer resolves into the lexer subtree, not the parser one.
+	// parser/../lexer 解析到 lexer 子树，而非 parser 子树。
 	touched := filepath.Join(parser, "..", "lexer", "foo.go")
 	got := textsOf(RelevantInstructions(docs, touched))
 	if len(got) != 1 || got[0] != "lexer" {
@@ -451,16 +451,16 @@ func TestRelevantInstructionsEmptyInputsAndOutsideAllDirs(t *testing.T) {
 	if got := RelevantInstructions(docs, "   "); got != nil {
 		t.Fatalf("blank path = %#v, want nil", got)
 	}
-	// A path under none of the instruction directories matches nothing.
+	// 不在任何指令目录下的路径不匹配任何内容。
 	outside := filepath.Join(t.TempDir(), "x.go")
 	if got := RelevantInstructions(docs, outside); got != nil {
 		t.Fatalf("outside path = %#v, want nil", got)
 	}
 }
 
-// TestRelevantInstructionsCaseInsensitiveOnWindows guards the documented
-// case-insensitive containment on Windows; the assertion is skipped elsewhere
-// where path comparison is case-sensitive.
+// TestRelevantInstructionsCaseInsensitiveOnWindows 守护文档中记录的
+// Windows 上不区分大小写的包含关系；在其他路径比较区分大小写的地方
+// 该断言会被跳过。
 func TestRelevantInstructionsCaseInsensitiveOnWindows(t *testing.T) {
 	if filepath.Separator != '\\' {
 		t.Skip("case-insensitive path matching applies on Windows only")
@@ -474,9 +474,9 @@ func TestRelevantInstructionsCaseInsensitiveOnWindows(t *testing.T) {
 	}
 }
 
-// TestLoadInBehaviourUnchanged is a regression guard: adding the boundary
-// loader must not change the existing nearest-first, home-stopping LoadIn path
-// or make it read AGENTS.override.md.
+// TestLoadInBehaviourUnchanged 是回归守护：添加 boundary
+// 加载器不得改变现有 nearest-first、home-stopping 的 LoadIn 路径，
+// 也不得使其读取 AGENTS.override.md。
 func TestLoadInBehaviourUnchanged(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")

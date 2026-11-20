@@ -5,27 +5,20 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// This file holds additive wiring adapters for two pure helpers that already
-// live in the dependency-free core packages. They are deliberately kept here,
-// in the app package (the only package allowed to import everything), so the
-// core packages do not gain any app-level dependency.
+// 本文件为两个已经位于无依赖核心包中的纯辅助函数提供附加性的接线适配器。
+// 它们刻意放在 app 包（唯一允许导入所有包的包）中，使核心包不会增加任何 app 层依赖。
 //
-// Each adapter is a no-op adapter on the path where its feature is not used:
-// a prompt without a declaration leaves the Budget untouched, and a clean
-// transcript yields an empty notice and no confirmation requirement. That
-// makes them safe to call unconditionally at their eventual Execute call
-// sites without changing existing runs.
+// 在各自功能未被使用的路径上，每个适配器都是空操作：没有声明的提示不会改动 Budget，
+// 干净的记录会产生空通知且不需要确认。这使它们可以在最终的 Execute 调用点上无条件调用，
+// 而不改变现有运行。
 
-// applyDeclaredTurnBudget copies a per-turn token budget the user declared in
-// prompt into b.DeclaredTurnTokens. Parsing is delegated to
-// agent.ParseTurnBudget, which ignores code spans, injected XML blocks and
-// @-references so only the user's own prose can set the cap.
+// applyDeclaredTurnBudget 把用户在提示中声明的单轮 token 预算复制到 b.DeclaredTurnTokens。
+// 解析委托给 agent.ParseTurnBudget，它会忽略代码段、注入的 XML 块和 @-引用，
+// 因此只有用户本人的正文才能设置上限。
 //
-// It is a no-op when b is nil or the prompt carries no declaration, so callers
-// may invoke it on every run without changing the behaviour of runs that
-// declare nothing. When a declaration exists it overwrites any prior value;
-// the parsed cap is an additional cumulative token limit and never relaxes the
-// other limits configured on b.
+// 当 b 为 nil 或提示没有声明时它是空操作，因此调用方可以在每次运行都调用它，
+// 而不改变未声明任何内容的运行的行为。有声明时它会覆盖任何先前的值；
+// 解析出的上限是一个额外的累计 token 限制，绝不会放宽 b 上配置的其他限制。
 func applyDeclaredTurnBudget(prompt string, b *agent.Budget) {
 	if b == nil {
 		return
@@ -37,19 +30,17 @@ func applyDeclaredTurnBudget(prompt string, b *agent.Budget) {
 	b.DeclaredTurnTokens = tokens
 }
 
-// recoveryDecision is the app-layer view of session.ClassifyRecovery: the
-// user-visible notice to announce and whether continuation needs an explicit
-// operator decision. Computing both from one plan keeps a future wiring site
-// from classifying the same transcript twice.
+// recoveryDecision 是 app 层对 session.ClassifyRecovery 的视图：
+// 要宣告的用户可见通知，以及继续运行是否需要操作人员显式决定。
+// 从同一个计划计算出两者，可防止未来的接线点对同一记录做两次分类。
 type recoveryDecision struct {
 	Notice            string
 	NeedsConfirmation bool
 }
 
-// recoveryDecisionFor classifies messages once and returns both the notice
-// and the confirmation requirement. It mirrors session.ClassifyRecovery's
-// conservative rule: NeedsConfirmation is true only for degraded history,
-// while interrupted prompts/turns are auto-continuable yet still announced.
+// recoveryDecisionFor 对消息分类一次，同时返回通知和确认要求。
+// 它对应 session.ClassifyRecovery 的保守规则：只有降级的历史才使 NeedsConfirmation 为 true，
+// 而被中断的提示/轮次可自动继续，但仍会被宣告。
 func recoveryDecisionFor(messages []session.Entry) recoveryDecision {
 	plan := session.ClassifyRecovery(messages)
 	return recoveryDecision{
@@ -58,15 +49,13 @@ func recoveryDecisionFor(messages []session.Entry) recoveryDecision {
 	}
 }
 
-// recoveryNotice returns the user-visible announcement for resuming messages.
-// It is empty for a clean transcript. Kept as a string-only adapter so the app
-// layer can surface a notice without depending on the shape of RecoveryPlan.
+// recoveryNotice 返回恢复消息时用户可见的宣告。干净的记录返回空字符串。
+// 它保留为仅返回字符串的适配器，使 app 层无需依赖 RecoveryPlan 的结构即可呈现通知。
 func recoveryNotice(messages []session.Entry) string {
 	return recoveryDecisionFor(messages).Notice
 }
 
-// recoveryNeedsConfirmation reports whether resuming messages needs an
-// explicit operator decision before the run continues.
+// recoveryNeedsConfirmation 报告在继续运行之前，恢复消息是否需要操作人员的显式决定。
 func recoveryNeedsConfirmation(messages []session.Entry) bool {
 	return recoveryDecisionFor(messages).NeedsConfirmation
 }

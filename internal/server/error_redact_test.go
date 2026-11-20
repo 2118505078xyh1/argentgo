@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-// credentialBearingError models a provider failure whose body echoes the
-// server's own secrets. Provider error bodies are returned verbatim by the
-// agent/llm layers; none of these spans may reach a transport client, which
-// only holds the bearer token and must never learn the configured API key.
+// credentialBearingError 模拟一种提供方失败，其错误体回显了
+// 服务器自己的密钥。提供方错误体被 agent/llm 层原样返回；
+// 这些片段都不得到达传输客户端，客户端只持有 bearer token，
+// 绝不应该知道配置的 API key。
 func credentialBearingError() error {
 	return errors.New(
 		"provider returned 401 Unauthorized: api_key=sk-testabcdef0123456789 " +
@@ -50,10 +50,10 @@ func TestWireErrorTextRedactsCredentials(t *testing.T) {
 	}
 }
 
-// TestHTTPPromptFailureRedactsCredentials covers both HTTP failure paths: a
-// failure before any text (JSON error body with a non-2xx status) and one after
-// the stream is committed (terminal SSE error event). Both used to carry the
-// raw provider error.
+// TestHTTPPromptFailureRedactsCredentials 覆盖两条 HTTP 失败路径：
+// 产生任何文本之前的失败（非 2xx 状态的 JSON 错误体），以及流
+// 已提交之后的失败（终态 SSE 错误事件）。两者过去都携带
+// 未经处理的提供方错误。
 func TestHTTPPromptFailureRedactsCredentials(t *testing.T) {
 	t.Run("pre-stream JSON error", func(t *testing.T) {
 		h := NewHandler(Config{Token: "t", Runner: &failingRunner{err: credentialBearingError()}})
@@ -87,8 +87,8 @@ func TestHTTPPromptFailureRedactsCredentials(t *testing.T) {
 	})
 }
 
-// TestRPCPromptFailureRedactsCredentials drives the real --rpc prompt method
-// and checks the -32603 error message crossing the wire.
+// TestRPCPromptFailureRedactsCredentials 驱动真实的 --rpc prompt 方法，
+// 检查跨线传输的 -32603 错误消息。
 func TestRPCPromptFailureRedactsCredentials(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
@@ -117,8 +117,8 @@ func TestRPCPromptFailureRedactsCredentials(t *testing.T) {
 	waitFor(t, done)
 }
 
-// TestACPPromptFailureRedactsCredentials drives the real ACP prompt method and
-// checks the -32603 error message crossing the wire.
+// TestACPPromptFailureRedactsCredentials 驱动真实的 ACP prompt 方法，
+// 检查跨线传输的 -32603 错误消息。
 func TestACPPromptFailureRedactsCredentials(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
@@ -132,9 +132,9 @@ func TestACPPromptFailureRedactsCredentials(t *testing.T) {
 	enc := json.NewEncoder(inW)
 	dec := json.NewDecoder(outR)
 
-	// Create a session first: ACP rejects prompts against unknown session ids
-	// before the runner is ever called, and that validation error is not the
-	// provider failure under test.
+	// 先创建会话：ACP 在 runner 被调用之前就会拒绝针对未知会话 id 的提示，
+	// 而那个校验错误并不是被测的
+	// 提供方失败。
 	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/new"})
 	created := readJSON(t, dec)
 	createdBody, _ := created["result"].(map[string]any)

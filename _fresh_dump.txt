@@ -1500,39 +1500,40 @@ internal/tools\web_search_truncation_test.go:27: 	// Place the rune so its first
 internal/tools\web_search_truncation_test.go:28: 	// maxFetchBytes window: the third byte is still read by LimitReader
 internal/tools\web_search_truncation_test.go:29: 	// (which reads maxFetchBytes+1) but dropped by the cap.
 internal/tui\activity_summary_test.go:132: 		// The neutral tokens emitted by activitySummary must stay in sync.
-internal/tui\approval.go:10: // approvalGrantKey scopes a session grant to one tool plus its detail. The NUL
-internal/tui\approval.go:11: // separator keeps name/detail pairs from colliding with bare name keys.
-internal/tui\approval.go:16: // approvalDetail extracts the argument that identifies a call. JSON calls use
-internal/tui\approval.go:17: // the first path/command field (cleaned), so granting `bash` with `ls` cannot
-internal/tui\approval.go:18: // silently grant `bash` with `sudo`. Plain-string args, used by older callers,
-internal/tui\approval.go:19: // fall back to the first token; that keeps "ls" and "ls -la" on one grant,
-internal/tui\approval.go:20: // matching the historical coarse behaviour for those inputs.
-internal/tui\approval.go:46: // approvalRequest is one tool call waiting for the operator.
-internal/tui\approval.go:50: 	// danger is a human-readable reason the call was flagged as dangerous.
-internal/tui\approval.go:51: 	// Empty (the default) keeps the historical modal byte-for-byte unchanged.
-internal/tui\approval.go:52: 	// When set, the modal shows the reason and pre-selects Deny as the safe
-internal/tui\approval.go:53: 	// default so a habitual Enter cannot approve a destructive command.
-internal/tui\approval.go:59: // defaultsToDeny reports whether this request pre-selects Deny. Ordinary
-internal/tui\approval.go:60: // requests keep Allow as the primary affordance and are deliberately left
-internal/tui\approval.go:61: // untouched; only flagged requests flip the safe default.
-internal/tui\approval.go:79: 			// Grant only this exact call: a coarse name key would allow every
-internal/tui\approval.go:80: 			// later invocation of the same tool with different arguments.
-internal/tui\approval.go:87: 		// A flagged request pre-selects Deny: an ambiguous confirm key must
-internal/tui\approval.go:88: 		// never approve a destructive command. Non-danger requests keep their
-internal/tui\approval.go:89: 		// historical no-op so their behaviour is unchanged.
-internal/tui\approval.go:136: // Approve asks the operator to allow a tool call and blocks until the modal is
-internal/tui\approval.go:137: // answered or ctx ends. The answer is returned through the injected
-internal/tui\approval.go:138: // Options.Approval authority when one is installed. It is the ordinary,
-internal/tui\approval.go:139: // non-dangerous entry point: the modal keeps its historical Allow default.
-internal/tui\approval.go:144: // ApproveDanger is the dangerous-command entry point. A non-empty danger reason
-internal/tui\approval.go:145: // is shown in the modal and flips the default answer to Deny. The app layer
-internal/tui\approval.go:146: // (which owns security.FindFileEditingCommand) is responsible for supplying it;
-internal/tui\approval.go:147: // the TUI package does not import security. With an empty danger it behaves
-internal/tui\approval.go:148: // exactly like Approve.
-internal/tui\approval.go:161: 	// The bare name key is still honoured so grants created by older callers
-internal/tui\approval.go:162: 	// (which cached m.allowed directly) keep working. New grants are composite.
-internal/tui\approval.go:197: // PendingApproval reports the tool call the modal is showing.
-internal/tui\approval.go:207: // Tick drops an approval whose context is gone; the loop calls it each frame.
+internal/tui\approval.go:11: // approvalGrantKey scopes a session grant to one tool plus its detail. The NUL
+internal/tui\approval.go:12: // separator keeps name/detail pairs from colliding with bare name keys.
+internal/tui\approval.go:17: // approvalDetail extracts the argument that identifies a call. JSON calls use
+internal/tui\approval.go:18: // the first path/command field (cleaned), so granting `bash` with `ls` cannot
+internal/tui\approval.go:19: // silently grant `bash` with `sudo`. Plain-string args, used by older callers,
+internal/tui\approval.go:20: // fall back to the first token; that keeps "ls" and "ls -la" on one grant,
+internal/tui\approval.go:21: // matching the historical coarse behaviour for those inputs.
+internal/tui\approval.go:47: // approvalRequest is one tool call waiting for the operator.
+internal/tui\approval.go:51: 	// danger is a human-readable reason the call was flagged as dangerous.
+internal/tui\approval.go:52: 	// Empty (the default) keeps the historical modal byte-for-byte unchanged.
+internal/tui\approval.go:53: 	// When set, the modal shows the reason and pre-selects Deny as the safe
+internal/tui\approval.go:54: 	// default so a habitual Enter cannot approve a destructive command.
+internal/tui\approval.go:58: 	// openedAt 记录对话框真正显示给操作者的时刻，供可选的按键宽限期判断。
+internal/tui\approval.go:64: // defaultsToDeny reports whether this request pre-selects Deny. Ordinary
+internal/tui\approval.go:65: // requests keep Allow as the primary affordance and are deliberately left
+internal/tui\approval.go:66: // untouched; only flagged requests flip the safe default.
+internal/tui\approval.go:84: 			// Grant only this exact call: a coarse name key would allow every
+internal/tui\approval.go:85: 			// later invocation of the same tool with different arguments.
+internal/tui\approval.go:92: 		// A flagged request pre-selects Deny: an ambiguous confirm key must
+internal/tui\approval.go:93: 		// never approve a destructive command. Non-danger requests keep their
+internal/tui\approval.go:94: 		// historical no-op so their behaviour is unchanged.
+internal/tui\approval.go:143: // Approve asks the operator to allow a tool call and blocks until the modal is
+internal/tui\approval.go:144: // answered or ctx ends. The answer is returned through the injected
+internal/tui\approval.go:145: // Options.Approval authority when one is installed. It is the ordinary,
+internal/tui\approval.go:146: // non-dangerous entry point: the modal keeps its historical Allow default.
+internal/tui\approval.go:151: // ApproveDanger is the dangerous-command entry point. A non-empty danger reason
+internal/tui\approval.go:152: // is shown in the modal and flips the default answer to Deny. The app layer
+internal/tui\approval.go:153: // (which owns security.FindFileEditingCommand) is responsible for supplying it;
+internal/tui\approval.go:154: // the TUI package does not import security. With an empty danger it behaves
+internal/tui\approval.go:155: // exactly like Approve.
+internal/tui\approval.go:168: 	// The bare name key is still honoured so grants created by older callers
+internal/tui\approval.go:169: 	// (which cached m.allowed directly) keep working. New grants are composite.
+internal/tui\approval.go:205: // PendingApproval reports the tool call the modal is showing.
+internal/tui\approval.go:215: // Tick drops an approval whose context is gone; the loop calls it each frame.
 internal/tui\approval_danger_test.go:11: // startDangerApproval raises a modal through the real ApproveDanger path and
 internal/tui\approval_danger_test.go:12: // returns the channel the caller answers on. An empty danger is the ordinary
 internal/tui\approval_danger_test.go:13: // request shape used by every existing caller.
@@ -1623,6 +1624,12 @@ internal/tui\contrast_test.go:89: 	// The shipped themes are already high contra
 internal/tui\contrast_test.go:90: 	// warning badge yellow on a dark row (~19.56:1) and light paints it red on
 internal/tui\contrast_test.go:91: 	// white (~4:1). Both clear the 3:1 floor, so once a hex-capable palette is
 internal/tui\contrast_test.go:92: 	// wired in, these choices must stay byte-identical.
+internal/tui\dialog_grace.go:5: // DialogKeyGracePeriod 是审批对话框弹出后吞掉尾随按键的宽限期。
+internal/tui\dialog_grace.go:8: // 设置正值（例如 300ms）后，对话框出现后这段时间内的按键会被吞掉，
+internal/tui\dialog_grace.go:9: // 避免操作者在提交工具调用后仍在进行的打字被误判为 y/n/a 审批答复。
+internal/tui\dialog_grace.go:11: // 这是纯 TUI 能力：是否启用完全由集成方决定，本包不主动接线。
+internal/tui\dialog_grace.go:14: // dialogGraceActive 报告在 now 时刻对话框是否仍处于宽限期。
+internal/tui\dialog_grace.go:15: // grace <= 0 直接返回 false，使关闭状态下的调用方走原有路径。
 internal/tui\diff.go:5: // DiffKind is the role of one row in a line diff.
 internal/tui\diff.go:8: // Diff row roles.
 internal/tui\diff.go:15: // DiffLine is one row of a line diff. Text never carries the +/- marker; the
@@ -2179,20 +2186,20 @@ internal/tui\model_input.go:22: // externalEditorScreen, when installed by the r
 internal/tui\model_input.go:23: // process so the TUI can leave the alternate screen (and raw mode) first. A nil
 internal/tui\model_input.go:24: // callback keeps model-only callers, including tests, working unchanged.
 internal/tui\model_input.go:27: // HandleKey applies one keystroke and reports what the loop should do.
-internal/tui\model_input.go:46: 		// Ctrl+L is decoded but otherwise unused; with the session rail open
-internal/tui\model_input.go:47: 		// it focuses the filter bar. It leaves the prompt untouched so slash
-internal/tui\model_input.go:48: 		// commands like /help still type normally.
-internal/tui\model_input.go:198: // openExternalEditorLocked edits the current prompt through $VISUAL / $EDITOR.
-internal/tui\model_input.go:199: // The prompt is written to a temporary file, the editor is given exclusive use
-internal/tui\model_input.go:200: // of the terminal, and the file is read back into the prompt. Every failure
-internal/tui\model_input.go:201: // path is a no-op: the original text stays in place and the loop never breaks.
-internal/tui\model_input.go:253: // filterKeyLocked routes keys while the session filter bar owns the keyboard.
-internal/tui\model_input.go:254: // Filtering is live: every keystroke re-renders the rail. Esc cancels and
-internal/tui\model_input.go:255: // clears the query, Enter confirms and keeps it, Ctrl+L leaves focus without
-internal/tui\model_input.go:256: // changing the query. No key is ever forwarded to the prompt in this mode.
-internal/tui\model_input.go:281: 		// nothing to do
-internal/tui\model_input.go:361: // requestActionLocked reports an action to the run loop. An uninstalled hook
-internal/tui\model_input.go:362: // keeps the command discoverable but never pretends it did anything.
+internal/tui\model_input.go:51: 		// Ctrl+L is decoded but otherwise unused; with the session rail open
+internal/tui\model_input.go:52: 		// it focuses the filter bar. It leaves the prompt untouched so slash
+internal/tui\model_input.go:53: 		// commands like /help still type normally.
+internal/tui\model_input.go:203: // openExternalEditorLocked edits the current prompt through $VISUAL / $EDITOR.
+internal/tui\model_input.go:204: // The prompt is written to a temporary file, the editor is given exclusive use
+internal/tui\model_input.go:205: // of the terminal, and the file is read back into the prompt. Every failure
+internal/tui\model_input.go:206: // path is a no-op: the original text stays in place and the loop never breaks.
+internal/tui\model_input.go:258: // filterKeyLocked routes keys while the session filter bar owns the keyboard.
+internal/tui\model_input.go:259: // Filtering is live: every keystroke re-renders the rail. Esc cancels and
+internal/tui\model_input.go:260: // clears the query, Enter confirms and keeps it, Ctrl+L leaves focus without
+internal/tui\model_input.go:261: // changing the query. No key is ever forwarded to the prompt in this mode.
+internal/tui\model_input.go:286: 		// nothing to do
+internal/tui\model_input.go:366: // requestActionLocked reports an action to the run loop. An uninstalled hook
+internal/tui\model_input.go:367: // keeps the command discoverable but never pretends it did anything.
 internal/tui\model_mutate.go:10: // Tool output is bounded at the point it enters the model: a single read of a
 internal/tui\model_mutate.go:11: // generated file must not pin 100 MB in memory until the process exits. The
 internal/tui\model_mutate.go:12: // head+tail windows keep both the interesting start and the final lines (where

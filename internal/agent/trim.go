@@ -9,45 +9,36 @@ import (
 )
 
 const (
-	// messageOverheadTokens covers the role marker and message framing every
-	// provider adds to each entry.
+	// messageOverheadTokens 涵盖每个提供方为每条记录添加的角色标记和消息框架。
 	messageOverheadTokens = 4
-	// trimmedPrefix marks a tool result whose body was reclaimed. One line
-	// stays so the model still knows the call happened.
+	// trimmedPrefix 标记主体已被回收的工具结果。保留一行，使模型仍知道该调用发生过。
 	trimmedPrefix = "[tool output trimmed:"
-	// supersededStub replaces an old read that a newer read of the same file
-	// made redundant. Keeping a stub preserves the tool call/result pairing.
+	// supersededStub 替换被同一文件较新一次读取所取代的旧读取。保留一个占位条目可维持工具调用/结果的配对。
 	supersededStub = "[Superseded by a newer read of this file]"
-	// uselessStub replaces an empty search result once a later assistant turn
-	// has consumed it.
+	// uselessStub 在后续助手轮次消费了空搜索结果之后，将其替换掉。
 	uselessStub = "[Uneventful result elided]"
-	// cacheProtectSuffixTokens is the conservative prompt-cache guard: when a
-	// result still has more than this many estimated tokens after it, stubbing
-	// it would invalidate a large cached prefix, so leave it alone.
+	// cacheProtectSuffixTokens 是保守的提示缓存保护阈值：当某个结果之后仍有超过该数量的估算 token 时，
+	// 把它替换成占位条目会使一大段缓存前缀失效，因此不动它。
 	cacheProtectSuffixTokens = 12000
 
-	// toolResultPruneThreshold is the rune count above which a tool result's
-	// middle is replaced with a marker instead of keeping the whole body.
+	// toolResultPruneThreshold 是 rune 数量阈值，超过它时工具结果的中间部分会被替换为标记，
+	// 而不保留整个主体。
 	toolResultPruneThreshold = 8192
-	// toolResultPruneHead and toolResultPruneTail are the number of leading and
-	// trailing runes retained when pruning an over-budget tool result. They
-	// mirror the dsh compaction-tool-result-pruner defaults.
+	// toolResultPruneHead 和 toolResultPruneTail 是在裁剪超预算工具结果时，
+	// 保留的开头和结尾 rune 数量。它们对应 dsh 的 compaction-tool-result-pruner 默认值。
 	toolResultPruneHead = 4096
 	toolResultPruneTail = 1024
-	// toolResultPruneMarker substitutes the removed middle span. The surrounding
-	// blank lines keep the retained head and tail visually separated from it.
+	// toolResultPruneMarker 替换被移除的中间片段。其前后空行使保留的开头和结尾在视觉上与之分隔。
 	toolResultPruneMarker = "\n\n[... tool result middle pruned ...]\n\n"
 )
 
-// EstimateTokens estimates the token cost of a string. The wide-rune table and
-// the chars/4 rule live in internal/tokenize so the agent, the bash volume
-// hint and the repo map all share one definition instead of three hand-synced
-// copies.
+// EstimateTokens 估算一个字符串的 token 开销。宽 rune 表和字符数/4 规则位于 internal/tokenize，
+// 使 agent、bash 体积提示和仓库映射共享同一份定义，而不是三份手工同步的副本。
 func EstimateTokens(text string) int {
 	return tokenize.Estimate(text)
 }
 
-// EstimateMessage estimates one message, including its framing overhead.
+// EstimateMessage 估算一条消息，包括其框架开销。
 func EstimateMessage(m llm.Message) int {
 	n := messageOverheadTokens + EstimateTokens(m.Content) + EstimateTokens(m.Reasoning)
 	for _, call := range m.ToolCalls {
@@ -56,7 +47,7 @@ func EstimateMessage(m llm.Message) int {
 	return n
 }
 
-// EstimateMessages estimates a whole conversation.
+// EstimateMessages 估算整段对话。
 func EstimateMessages(messages []llm.Message) int {
 	total := 0
 	for _, m := range messages {
@@ -65,7 +56,7 @@ func EstimateMessages(messages []llm.Message) int {
 	return total
 }
 
-// EstimateTools estimates the tool schemas sent with each request.
+// EstimateTools 估算随每次请求发送的工具 schema。
 func EstimateTools(specs []llm.ToolSpec) int {
 	total := 0
 	for _, spec := range specs {
@@ -77,49 +68,41 @@ func EstimateTools(specs []llm.ToolSpec) int {
 	return total
 }
 
-// TrimOptions controls context trimming.
+// TrimOptions 控制上下文裁剪。
 type TrimOptions struct {
-	// MaxTokens is the target size. Zero disables trimming.
+	// MaxTokens 是目标大小。零表示禁用裁剪。
 	MaxTokens int
-	// KeepTurns is how many trailing assistant turns stay verbatim.
+	// KeepTurns 是有多少末尾助手轮次保持原样。
 	KeepTurns int
-	// KeepToolTokens is how much of the most recent tool output stays
-	// verbatim. Older output is replaced by a one-line stub.
+	// KeepToolTokens 是最近工具输出中保持原样的部分。较旧的输出会被一行占位条目替换。
 	KeepToolTokens int
-	// ToolMeta maps ToolCallID to the metadata produced by the tool runner.
-	// When non-empty, superseded reads and useless results are reclaimed first.
+	// ToolMeta 把 ToolCallID 映射到工具运行器产生的元数据。非空时，会优先回收被取代的读取和无用的结果。
 	ToolMeta map[string]ToolMeta
-	// CacheProtectSuffixTokens overrides the prompt-cache guard. Zero uses the
-	// conservative default.
+	// CacheProtectSuffixTokens 覆盖提示缓存保护阈值。零表示使用保守的默认值。
 	CacheProtectSuffixTokens int
-	// TargetRatio is the fraction of MaxTokens the budget loop aims for. A
-	// value in (0, 1) makes Trim overshoot downwards to that fraction, leaving
-	// headroom so the next turn does not immediately re-trigger trimming and
-	// invalidate the prompt cache. Zero (the default) and values >= 1 keep the
-	// original behaviour of trimming exactly to MaxTokens.
+	// TargetRatio 是预算循环所瞄准的 MaxTokens 比例。(0, 1) 内的值会使 Trim 向下超额到该比例，
+	// 留出余量，使下一轮次不会立即再次触发裁剪并使提示缓存失效。
+	// 零值（默认）以及 >= 1 的值保留精确裁剪到 MaxTokens 的原有行为。
 	TargetRatio float64
 }
 
-// TrimResult reports what trimming did.
+// TrimResult 报告裁剪做了什么。
 type TrimResult struct {
 	Messages []llm.Message
-	// Pruned is how many tool results were stubbed.
+	// Pruned 是被替换为占位条目的工具结果数量。
 	Pruned int
-	// Freed is the estimated token saving.
+	// Freed 是节省的估算 token 数。
 	Freed int
 }
 
-// fullBudgetRatio is the TargetRatio value that preserves the original
-// behaviour: trim exactly down to MaxTokens, with no growth headroom.
+// fullBudgetRatio 是保留原有行为的 TargetRatio 值：精确裁剪到 MaxTokens，不留增长余量。
 const fullBudgetRatio = 1.0
 
-// budgetTarget returns the token level the budget loop aims for.
+// budgetTarget 返回预算循环所瞄准的 token 水平。
 //
-// A TargetRatio in (0, 1) requests hysteresis: trim below MaxTokens so the next
-// turn has room to grow before trimming fires again, keeping the prompt cache
-// warm. The zero value (the default) and ratios >= 1 keep the original
-// behaviour of trimming exactly to MaxTokens, so existing callers are
-// unaffected.
+// (0, 1) 内的 TargetRatio 请求迟滞：裁剪到 MaxTokens 以下，使下一轮次在再次触发裁剪前
+// 有增长空间，从而保持提示缓存温热。零值（默认）以及 >= 1 的比例保留精确裁剪到 MaxTokens
+// 的原有行为，因此现有调用方不受影响。
 func budgetTarget(maxTokens int, ratio float64) int {
 	if ratio <= 0 || ratio >= fullBudgetRatio {
 		return maxTokens
@@ -131,18 +114,17 @@ func budgetTarget(maxTokens int, ratio float64) int {
 	return target
 }
 
-// Trim shrinks a conversation by replacing old tool output with a one-line
-// stub. It never removes a message, so tool calls keep their results paired.
+// Trim 通过把旧的工具输出替换为一行占位条目来缩小对话。它从不删除消息，
+// 因此工具调用与其结果保持配对。
 //
-// Always kept verbatim: every system message, the first user message, the last
-// KeepTurns turns, and the most recent KeepToolTokens worth of tool output.
-// Older tool bodies are the cheapest thing to reclaim — the call and its status
-// stay visible, so the model still knows what was done.
+// 始终原样保留：每条系统消息、第一条用户消息、最后 KeepTurns 个轮次，
+// 以及最近的 KeepToolTokens 量工具输出。较旧的工具主体是最廉价的可回收对象——
+// 调用及其状态仍然可见，因此模型仍知道做过什么。
 func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	out := append([]llm.Message(nil), messages...)
 	res := TrimResult{Messages: out}
-	// Meta-based reclamation is cheap (no model call) and independent of the
-	// token budget, so it runs first even when a caller disabled size trimming.
+	// 基于元数据的回收很廉价（不调用模型），且与 token 预算无关，
+	// 因此即使调用方禁用了大小裁剪，它也先运行。
 	if len(opts.ToolMeta) > 0 {
 		reclaimByMeta(out, opts, &res)
 	}
@@ -153,8 +135,8 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	if total <= opts.MaxTokens {
 		return res
 	}
-	// Hysteresis: the trigger stays at MaxTokens, but the loop aims below it so
-	// a successful trim leaves headroom instead of re-triggering next turn.
+	// 迟滞：触发点保持在 MaxTokens，但循环瞄准其下方，
+	// 使一次成功的裁剪留下余量，而不是在下一轮次就再次触发。
 	target := budgetTarget(opts.MaxTokens, opts.TargetRatio)
 
 	keepTurns := opts.KeepTurns
@@ -169,10 +151,10 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	effectiveProtect := effectiveCacheProtect(opts)
 	protected := protectedIndexes(out, keepTurns)
 	recentTool := keepToolTokens
-	// suffix is the EstimateMessage sum of out[i+1:], maintained as i walks down
-	// so the guard below stays O(1) instead of rescanning the tail on every tool
-	// result. Stubbing out[i] replaces the body the suffix is made of, so the
-	// stubbed cost (cost - freed) is what later positions must see.
+	// suffix 是 out[i+1:] 的 EstimateMessage 总和，随着 i 向前移动而维护，
+	// 使下方的保护判断保持 O(1)，而不必对每个工具结果重新扫描尾部。
+	// 把 out[i] 替换为占位条目会改变构成 suffix 的主体，因此后续位置看到的是
+	// 替换后的开销（cost - freed）。
 	suffix := 0
 	for i := len(out) - 1; i >= 0; i-- {
 		msg := out[i]
@@ -180,11 +162,10 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 			suffix += EstimateMessage(msg)
 			continue
 		}
-		// The budget loop walks backwards, so the suffix only grows as i moves
-		// earlier. Once stubbing would rewrite a byte range that still has more
-		// than protect tokens cached after it, every earlier position is equally
-		// unsafe: stop instead of invalidating the warm prefix and triggering a
-		// full re-prefill. This mirrors the guard in reclaimByMeta.
+		// 预算循环向后遍历，因此随着 i 前移，suffix 只会增长。一旦替换占位条目会重写
+		// 一段其后仍缓存着超过 protect 个 token 的字节范围，那么更早的每个位置同样不安全：
+		// 此时应停止，而不是使温热的前缀失效并触发一次完整的重新预填充。
+		// 这与 reclaimByMeta 中的保护逻辑一致。
 		if suffix > effectiveProtect {
 			break
 		}
@@ -218,7 +199,7 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	return res
 }
 
-// protectedIndexes marks messages trimming must not touch.
+// protectedIndexes 标记裁剪不得触碰的消息。
 func protectedIndexes(messages []llm.Message, keepTurns int) []bool {
 	protected := make([]bool, len(messages))
 	for i, msg := range messages {
@@ -250,21 +231,19 @@ func protectedIndexes(messages []llm.Message, keepTurns int) []bool {
 	return protected
 }
 
-// pruneToolResultMiddle retains the head and tail of an over-budget tool result
-// and replaces the removed middle with toolResultPruneMarker.
+// pruneToolResultMiddle 保留超预算工具结果的开头和结尾，并用 toolResultPruneMarker
+// 替换被移除的中间部分。
 //
-// Slicing is by rune, never by byte, so a multi-byte UTF-8 character (CJK, emoji)
-// that straddles a budget boundary is kept intact instead of being cut in half.
-// A result at or below toolResultPruneThreshold is returned unchanged, which
-// makes the function safe to call unconditionally.
+// 切片按 rune 而非字节进行，因此跨越预算边界的多字节 UTF-8 字符（CJK、emoji）
+// 会保持完整，而不会被切断。大小在 toolResultPruneThreshold 以下的结果原样返回，
+// 这使该函数可以无条件安全地调用。
 func pruneToolResultMiddle(content string) string {
 	runes := []rune(content)
 	if len(runes) <= toolResultPruneThreshold {
 		return content
 	}
-	// Keep the replacement strictly smaller than the original. The fixed
-	// threshold/budget relationship already guarantees this, but guard it so a
-	// future budget change cannot turn a "prune" into growth.
+	// 让替换结果严格小于原文。固定的阈值/预算关系已经保证了这一点，
+	// 但仍加上保护，以免未来的预算改动把"裁剪"变成增长。
 	if toolResultPruneHead+toolResultPruneTail >= len(runes) {
 		return content
 	}
@@ -276,11 +255,9 @@ func pruneToolResultMiddle(content string) string {
 	return b.String()
 }
 
-// toolStub builds the replacement for a pruned tool result. The trimmedPrefix
-// header stays first so every stub-detection site keeps recognising it. For an
-// over-budget body the head and tail are preserved around a marker so the model
-// retains some detail; smaller bodies fall back to the compact one-line stub so
-// the budget loop still reclaims space.
+// toolStub 为被裁剪的工具结果构建替换文本。trimmedPrefix 头部保持在最前面，
+// 使每个占位检测点都能识别它。对于超预算的主体，开头和结尾会围绕一个标记保留，
+// 让模型保有一些细节；较小的主体则回退到紧凑的一行占位条目，使预算循环仍能回收空间。
 func toolStub(content string) string {
 	pruned := pruneToolResultMiddle(content)
 	removed := len([]rune(content)) - len([]rune(pruned))
@@ -291,27 +268,21 @@ func toolStub(content string) string {
 	return header + "\n" + pruned
 }
 
-// reclaimByMeta stamps tool results that later turns made redundant. It never
-// removes a message: a compact stub always takes the old body's place, so the
-// assistant call and its result stay paired.
+// reclaimByMeta 标记那些被后续轮次变得多余的工具结果。它从不删除消息：
+// 紧凑的占位条目总会取代旧主体，因此助手调用与其结果保持配对。
 //
-// Two reclaims happen here:
-//   - a read whose key reappears in a later, successful read is superseded;
-//   - a useless (empty) result is elided once any later assistant turn exists,
-//     i.e. the model has had a chance to consume it.
+// 这里进行两种回收：
+//   - 某个读取的键在之后一次成功的读取中再次出现，则它被取代；
+//   - 一旦存在任何更晚的助手轮次（即模型已有机会消费它），无用的（空）结果就会被省略。
 //
-// A result with a large suffix is skipped: stubbing it would invalidate a
-// long prompt-cache prefix for a small saving.
+// 后缀很大的结果会被跳过：为一点节省而使一大段提示缓存前缀失效并不划算。
 func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 	protect := effectiveCacheProtect(opts)
 
-	// One reverse pass precomputes the two tail queries the old loop recomputed
-	// from scratch for every tool message. suffixToken[i] equals the estimate of
-	// everything after i; nextAssistantAfter[i] records whether an assistant
-	// turn follows i. The rewriting loop below walks forwards and only ever
-	// touches the message at its own index, so every index it queries (> i) is
-	// still pristine at that point — the precomputed answers are identical to
-	// the old on-demand scans, but O(1) instead of O(n) each.
+	// 一次反向遍历预先计算出旧循环为每条工具消息重新计算的两种尾部查询。
+	// suffixToken[i] 等于 i 之后所有内容的估算值；nextAssistantAfter[i] 记录 i 之后是否有助手轮次。
+	// 下方的改写循环向前遍历，且只触碰自身索引处的消息，因此它查询的每个索引（> i）
+	// 在那时仍是原封不动的——预计算的答案与旧的按需扫描完全一致，但每次是 O(1) 而非 O(n)。
 	suffixToken := make([]int, len(messages))
 	nextAssistantAfter := make([]bool, len(messages))
 	runningTokens := 0
@@ -325,9 +296,8 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 		}
 	}
 
-	// newestSuccessful[key] is the last result carrying the key that was not
-	// an error. Only a later successful read supersedes an older one: an error
-	// must never erase the content the model might still need.
+	// newestSuccessful[key] 是携带该键且不是错误的最后一条结果。只有之后一次成功的读取
+	// 才能取代较旧的读取：错误绝不能抹掉模型可能仍需要的内容。
 	newestSuccessful := make(map[string]int)
 	for i, msg := range messages {
 		if msg.Role != "tool" || isErrorResult(msg.Content) {
@@ -343,7 +313,7 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 			continue
 		}
 		if msg.Content == supersededStub || msg.Content == uselessStub || strings.HasPrefix(msg.Content, trimmedPrefix) {
-			continue // already reclaimed on an earlier turn
+			continue // 已在更早的轮次被回收
 		}
 		meta := opts.ToolMeta[msg.ToolCallID]
 		if meta == (ToolMeta{}) {
@@ -368,9 +338,8 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 		replacement.Content = stub
 		before := EstimateMessage(msg)
 		after := EstimateMessage(replacement)
-		// Meta reclamation is semantic: an empty search result is replaced even
-		// when the stub is a few tokens longer, because the point is to stop the
-		// model re-reading a result that carried no information.
+		// 基于元数据的回收是语义性的：即使占位条目多出几个 token，空搜索结果仍会被替换，
+		// 因为目的在于阻止模型反复读取一个没有携带信息的结果。
 		messages[i] = replacement
 		res.Pruned++
 		if saved := before - after; saved > 0 {
@@ -379,15 +348,13 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 	}
 }
 
-// isErrorResult recognises the error results the loop writes for failed tools.
-// Error text is never a candidate for reclamation.
+// isErrorResult 识别循环为失败的工具写入的错误结果。错误文本绝不会成为回收的候选。
 func isErrorResult(content string) bool {
 	return strings.HasPrefix(content, "error:")
 }
 
-// effectiveCacheProtect returns the prompt-cache guard threshold. Both the
-// semantic (reclaimByMeta) and budget (Trim) paths use it so a result with a
-// large cached suffix is never rewritten by either one.
+// effectiveCacheProtect 返回提示缓存保护阈值。语义回收（reclaimByMeta）和预算裁剪（Trim）
+// 两条路径都使用它，使带有大段缓存后缀的结果不会被任何一条路径改写。
 func effectiveCacheProtect(opts TrimOptions) int {
 	if opts.CacheProtectSuffixTokens > 0 {
 		return opts.CacheProtectSuffixTokens

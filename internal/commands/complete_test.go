@@ -105,8 +105,8 @@ func TestCompleteCommandsAliases(t *testing.T) {
 }
 
 func TestCompleteCommandsSortedAndUnique(t *testing.T) {
-	// Deliberately unsorted input, with a command matching by both name and
-	// alias, and two commands sharing a name from different paths.
+	// 刻意使用未排序的输入：某条命令同时按名称和别名匹配，
+	// 另有两条来自不同路径的命令同名。
 	cmds := []Command{
 		{Name: "zeta", Aliases: []string{"rev"}, Path: "z.md"},
 		{Name: "review", Path: "b.md"},
@@ -128,7 +128,7 @@ func TestCompleteCommandsSortedAndUnique(t *testing.T) {
 			t.Errorf("result %d = %s/%s, want %s/%s", i, got[i].Name, got[i].Path, want.name, want.path)
 		}
 	}
-	// The "review" command matched by alias must appear exactly once.
+	// 通过别名匹配的 "review" 命令必须恰好出现一次。
 	count := 0
 	for _, c := range got {
 		if c.Name == "zeta" {

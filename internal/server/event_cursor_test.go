@@ -12,11 +12,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 )
 
-// TestEventHubSubscribeLargeCursorNeverPanics guards the client-supplied replay
-// cursor. after is a uint64 and may be as large as MaxUint64; it must be clamped
-// in the uint64 domain before being converted to a slice index. Converting
-// first (the old behaviour) wraps negative for after >= 2^63 and makes the
-// replay loop index history with a negative offset, panicking the caller.
+// TestEventHubSubscribeLargeCursorNeverPanics 守护客户端提供的回放
+// 游标。after 是 uint64，可能高达 MaxUint64；在转换为切片索引之前，
+// 必须先在 uint64 域中钳制。先转换（旧行为）会在 after >= 2^63 时
+// 回绕为负数，使回放循环用负偏移索引 history，
+// 导致调用方 panic。
 func TestEventHubSubscribeLargeCursorNeverPanics(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -39,9 +39,9 @@ func TestEventHubSubscribeLargeCursorNeverPanics(t *testing.T) {
 				hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "old"})
 			}
 
-			// The cursor is past every published event: replay must be empty.
-			// A panic here is the bug (the testing framework reports it as a
-			// failure with a stack trace).
+			// 游标越过了所有已发布事件：回放必须为空。
+			// 这里发生 panic 就是 bug（测试框架会以
+			// 堆栈跟踪的形式报告失败）。
 			ch, stop := hub.Subscribe(tc.after)
 			defer stop()
 			select {
@@ -50,7 +50,7 @@ func TestEventHubSubscribeLargeCursorNeverPanics(t *testing.T) {
 			case <-time.After(20 * time.Millisecond):
 			}
 
-			// The subscription is still live: a later publish must arrive.
+			// 订阅仍然有效：之后的发布必须能到达。
 			hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "live"})
 			select {
 			case ev := <-ch:
@@ -64,8 +64,8 @@ func TestEventHubSubscribeLargeCursorNeverPanics(t *testing.T) {
 	}
 }
 
-// TestEventHubSubscribeCursorReplaysInRange makes sure clamping huge cursors
-// does not regress normal in-range replay.
+// TestEventHubSubscribeCursorReplaysInRange 确保钳制巨大游标
+// 不会让正常的范围内回放退化。
 func TestEventHubSubscribeCursorReplaysInRange(t *testing.T) {
 	hub := NewEventHub()
 	for i := 1; i <= 3; i++ {
@@ -94,9 +94,9 @@ func TestEventHubSubscribeCursorReplaysInRange(t *testing.T) {
 	}
 }
 
-// TestEventHandlerHugeAfterCursor exercises the same overflow through the SSE
-// frontend (?after=...). A pre-cancelled context makes the handler return right
-// after the connected frame, so no network or blocking is involved.
+// TestEventHandlerHugeAfterCursor 通过 SSE 前端（?after=...）演练同样的溢出。
+// 预取消的 context 使处理器在 connected 帧之后立即返回，
+// 因此不涉及网络或阻塞。
 func TestEventHandlerHugeAfterCursor(t *testing.T) {
 	tests := []string{
 		"9223372036854775807",  // MaxInt64

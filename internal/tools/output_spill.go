@@ -24,10 +24,6 @@ const (
 	spillMarkerOpen = "\n[output-spill: "
 	spillMarkerEnd  = "]\n"
 
-	// spillMarkerReserve leaves room in the byte budget for the elision marker
-	// and the recovery path, so the returned body stays under the threshold.
-	spillMarkerReserve = 256
-
 	spillArtifactPrefix = "tool-output-"
 	spillArtifactSuffix = ".log"
 )
@@ -37,18 +33,14 @@ const (
 // dir and returns a head+tail view (middle elided) whose marker names the
 // artifact path, so the dropped bytes stay recoverable.
 //
-// Failure safety: writing the artifact is best-effort. On a write failure the
-// output is STILL truncated, but without a recovery path, and err stays nil —
-// a spill failure must never turn an otherwise successful tool call into an
-// error. The returned err is reserved and always nil; callers must not use it
-// to decide whether the originating tool succeeded. The absence of artifactPath
-// together with the elision marker is the only failure signal.
+// 失败安全：写工件是尽力而为的。写入失败时输出仍会被截断，只是没有恢复链接，
+// 且 err 保持为 nil —— spill 失败绝不能把一次成功的工具调用变成错误。返回的 err
+// 是保留字段且恒为 nil；调用方不得用它判断原始工具是否成功。elision 标记出现但
+// artifactPath 为空，意味着写入失败，或恢复路径太长而主动省略了链接。
 //
-// Outputs that carry an intact marker naming a real artifact this package wrote
-// are returned unchanged, preventing a second spill when a spilled result is
-// post-processed again. A mere substring of the marker in ordinary tool output
-// is NOT trusted: doing so would let arbitrary output bypass the bound entirely.
-// Cuts always land on UTF-8 rune boundaries, so CJK text and emoji are intact.
+// 带有完整标记、且标记指向本包真实写出的工件的输出会被原样返回，避免二次 spill。
+// 普通工具输出里仅出现标记片段不会被信任：否则任意输出都能绕过字节上限。
+// 切分点始终落在 UTF-8 字形边界上，因此中文和 emoji 不会被切坏。
 func SpillLargeOutput(output string, threshold int, dir string) (result string, artifactPath string, err error) {
 	// A non-positive threshold disables spilling; at or below the threshold the
 	// output already fits the context budget and is returned verbatim.
@@ -62,42 +54,52 @@ func SpillLargeOutput(output string, threshold int, dir string) (result string, 
 		return output, "", nil
 	}
 
-	head, tail := spillWindows(output, threshold)
-	omitted := len(output) - len(head) - len(tail)
-
-	// Best-effort persist. A failure only drops the recovery link; the caller
-	// still gets the safe, truncated result and a nil error.
+	// 先落盘再切分窗口：恢复链接里含有工件的完整路径，固定预留量覆盖不了长目录，
+	// 结果会重新超过阈值。必须先拿到路径，才能按标记实际占用的字节数预留预算。
 	path, writeErr := writeSpillArtifact(dir, []byte(output))
 	if writeErr != nil {
 		path = ""
 	}
 
+	// 用总长度充当被省略字节数的上界来估标记大小，保证预留量不小于最终标记长度；
+	// 真实省略数只会更短，重建后的结果因此不会超过阈值。
+	reserve := len(formatSpillMarker(len(output), path))
+	if reserve >= threshold && path != "" {
+		// 路径本身已占满预算：退化为不带恢复链接的标记，工件仍已落盘，
+		// 只是不再通告路径，以免标记把结果撑过阈值。
+		path = ""
+		reserve = len(formatSpillMarker(len(output), ""))
+		if reserve > threshold {
+			reserve = threshold
+		}
+	}
+	head, tail := spillWindows(output, threshold, reserve)
+	omitted := len(output) - len(head) - len(tail)
+
 	return head + formatSpillMarker(omitted, path) + tail, path, nil
 }
 
-// spillWindows returns the head and tail slices kept from an oversized output.
-// Both ends are rune-safe. The reserve keeps the marker and recovery path from
-// pushing the rebuilt result back over the threshold.
-func spillWindows(output string, threshold int) (head, tail string) {
-	budget := threshold - spillMarkerReserve
-	if budget <= 0 {
-		budget = threshold
+// spillWindows 返回超长输出保留的头部与尾部切片，两端都落在 UTF-8 边界上。
+// reserve 是标记（含恢复路径）占用的字节数，窗口预算必须把它扣掉，
+// 否则重建后的结果会重新超过阈值。
+func spillWindows(output string, threshold, reserve int) (head, tail string) {
+	budget := threshold - reserve
+	if budget < 0 {
+		budget = 0
 	}
 	headBytes := budget / 2
 	tailBytes := budget - headBytes
 
-	// trimPartialRune (from tools_clip.go) backs a byte offset off to the
-	// nearest rune start — exactly the floor we want for the head window.
+	// trimPartialRune（来自 tools_clip.go）把字节偏移回退到最近的字形起点，
+	// 正好是头部窗口需要的下取整边界。
 	headEnd := trimPartialRune(output, headBytes)
 
-	// The tail is anchored at the end of the string, so move its start FORWARD
-	// to the next rune start; backing off would inspect the wrong byte and could
-	// leave the suffix beginning mid-rune.
+	// 尾部锚定在字符串末尾，因此起点要向前移动到下一个字形起点；
+	// 回退会检查错误的字节，可能让后缀从半个字形开始。
 	tailStart := len(output) - tailBytes
 	tailStart = spillRuneCeil(output, tailStart)
 
-	// Defensive: head+tail must not overlap. With budget <= threshold < len this
-	// cannot normally happen, but keep the invariant explicit.
+	// 防御性检查：head 与 tail 不得重叠。
 	if headEnd > tailStart {
 		mid := trimPartialRune(output, len(output)/2)
 		headEnd, tailStart = mid, spillRuneCeil(output, mid)

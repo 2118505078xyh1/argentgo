@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// failingRunner fails before producing any text, exercising the pre-stream
-// path where the 200 header has not been committed yet.
+// failingRunner 在产生任何文本之前就失败，演练 200 头部
+// 尚未提交的流前路径。
 type failingRunner struct {
 	err error
 }
@@ -33,9 +33,9 @@ func promptRequest(t *testing.T, runner Runner) *httptest.ResponseRecorder {
 	return rec
 }
 
-// TestPromptPreStreamFailureReturnsNonOKStatus guards audit #7: a total
-// failure before any text must not answer 200 with an error SSE event, because
-// a status-code-only client would read that as success.
+// TestPromptPreStreamFailureReturnsNonOKStatus 守护审计 #7：任何文本之前的
+// 彻底失败不得以 200 加错误 SSE 事件回复，因为
+// 只看状态码的客户端会把它读成成功。
 func TestPromptPreStreamFailureReturnsNonOKStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -73,9 +73,9 @@ func TestPromptPreStreamFailureReturnsNonOKStatus(t *testing.T) {
 	}
 }
 
-// TestPromptPostStreamFailureKeepsOKAndSSEError verifies a failure after text
-// is still reported the original way: status is committed to 200, so the
-// terminal signal is an SSE error event.
+// TestPromptPostStreamFailureKeepsOKAndSSEError 验证文本之后的失败
+// 仍以原有方式报告：状态已提交为 200，因此
+// 终态信号是 SSE 错误事件。
 func TestPromptPostStreamFailureKeepsOKAndSSEError(t *testing.T) {
 	rec := promptRequest(t, &cancellingRunner{err: errors.New("boom")})
 
@@ -88,9 +88,9 @@ func TestPromptPostStreamFailureKeepsOKAndSSEError(t *testing.T) {
 	}
 }
 
-// TestPromptPreStreamCancellationStillReturnsCancelledEvent locks in the
-// shared cancellation semantics: an abort is not a failure even when no text
-// preceded it, so it stays a 200 with a type:cancelled terminal event.
+// TestPromptPreStreamCancellationStillReturnsCancelledEvent 固定
+// 共享的取消语义：即使之前没有文本，中止也不是失败，
+// 因此仍是带 type:cancelled 终态事件的 200。
 func TestPromptPreStreamCancellationStillReturnsCancelledEvent(t *testing.T) {
 	for _, tc := range []struct {
 		name string

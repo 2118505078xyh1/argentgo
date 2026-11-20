@@ -12,20 +12,20 @@ import (
 )
 
 const (
-	// StaleSuffix is appended to the previous binary while it is swapped.
+	// StaleSuffix 在替换过程中附加到旧二进制文件上。
 	StaleSuffix = ".old"
 
 	applyAttempts = 10
 	applyDelay    = 100 * time.Millisecond
 )
 
-// Apply replaces target with the freshly downloaded dest.
+// Apply 用新下载的 dest 替换 target。
 //
-// On Windows the running executable cannot be overwritten but can be renamed, so
-// target first moves to "<name>.old", the download takes its place, and a stale
-// ".old" from an earlier update is dropped first. Elsewhere a single rename is
-// atomic. Renames are retried briefly because antivirus scanners and indexers
-// lock fresh files for a moment.
+// 在 Windows 上正在运行的可执行文件无法被覆盖，但可以重命名，因此
+// target 先移到 "<name>.old"，下载文件占据其位置，而更早更新遗留的
+// ".old" 会被先删除。在其他平台上单次重命名即为
+// 原子操作。重命名会短暂重试，因为杀毒扫描程序和索引器
+// 会短暂锁定新文件。
 func Apply(dest, target string) error {
 	if strings.TrimSpace(dest) == "" || strings.TrimSpace(target) == "" {
 		return errors.New("update: both the staged file and the target are required")
@@ -55,10 +55,10 @@ func Apply(dest, target string) error {
 
 func applyWindows(dest, target string) error {
 	stale := target + StaleSuffix
-	// The previous update may have left its .old behind (a running binary cannot
-	// be deleted), so make room before renaming.
+	// 上一次更新可能留下了它的 .old（正在运行的二进制文件无法
+	// 被删除），所以在重命名前先腾出空间。
 	if err := os.Remove(stale); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// Not fatal: the rename below surfaces the real problem.
+		// 非致命：下面的重命名会暴露真正的问题。
 		_ = err
 	}
 	hadTarget := false
@@ -85,8 +85,8 @@ func applyUnix(dest, target string) error {
 	if err := retryRename(dest, target); err == nil {
 		return nil
 	}
-	// The download directory may sit on another filesystem; copy next to the
-	// target and rename from there, which stays atomic.
+	// 下载目录可能位于另一个文件系统上；先复制到 target 旁边，
+	// 再从那里重命名，这样仍是原子操作。
 	temp, err := os.CreateTemp(filepath.Dir(target), ".argent-install-*")
 	if err != nil {
 		return fmt.Errorf("update: stage beside %s: %w", target, err)
@@ -121,9 +121,9 @@ func applyUnix(dest, target string) error {
 	return nil
 }
 
-// looksLikeZip reports whether a file starts with a PK zip signature. It is a
-// last-resort guard: even if some future download path forgot to unpack the
-// archive, Apply must never install a zip as the running executable.
+// looksLikeZip 报告文件是否以 PK zip 签名开头。这是
+// 最后的防线：即使将来某条下载路径忘记解包
+// 压缩包，Apply 也绝不能把 zip 安装为运行中的可执行文件。
 func looksLikeZip(path string) bool {
 	file, err := os.Open(path)
 	if err != nil {
@@ -140,9 +140,9 @@ func looksLikeZip(path string) bool {
 			(magic[2] == 7 && magic[3] == 8)) // spanned archive
 }
 
-// looksLikeGzip reports whether a file starts with the gzip magic bytes. It
-// catches a raw .tar.gz/.tgz that reached Apply without being unpacked, which
-// looksLikeZip would miss and which would otherwise be installed as the binary.
+// looksLikeGzip 报告文件是否以 gzip 魔数开头。它
+// 捕获未经解包就到达 Apply 的原始 .tar.gz/.tgz，
+// looksLikeZip 会漏掉这种情况，而它本会被当作二进制安装。
 func looksLikeGzip(path string) bool {
 	file, err := os.Open(path)
 	if err != nil {

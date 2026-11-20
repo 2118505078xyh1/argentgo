@@ -152,9 +152,9 @@ func TestDownloadStopsWhenTheContextIsCancelled(t *testing.T) {
 	}
 }
 
-// TestWithDownloadDeadline checks the deadline policy without any I/O: a
-// context without a deadline gets the updater default, while a caller-supplied
-// deadline is never replaced.
+// TestWithDownloadDeadline 在没有任何 I/O 的情况下检查截止时间策略：
+// 没有截止时间的 context 会获得更新器默认值，而调用方提供的
+// 截止时间绝不会被替换。
 func TestWithDownloadDeadline(t *testing.T) {
 	original := downloadTimeout
 	t.Cleanup(func() { downloadTimeout = original })
@@ -199,9 +199,9 @@ func TestWithDownloadDeadline(t *testing.T) {
 	}
 }
 
-// TestDownloadAppliesANetworkTimeout is the end-to-end regression: a server
-// that accepts the connection and then stalls must not hang the updater, and a
-// caller deadline must still win. Everything uses local mock HTTP servers.
+// TestDownloadAppliesANetworkTimeout 是端到端回归测试：一个
+// 接受连接后停滞的服务器绝不能让更新器挂起，而调用方
+// 的截止时间仍必须优先。全部使用本地模拟 HTTP 服务器。
 func TestDownloadAppliesANetworkTimeout(t *testing.T) {
 	original := downloadTimeout
 	t.Cleanup(func() { downloadTimeout = original })

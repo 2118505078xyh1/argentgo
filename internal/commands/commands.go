@@ -1,24 +1,24 @@
-// Package commands discovers markdown slash commands and expands their bodies.
+// Package commands 发现 markdown 斜杠命令并展开其正文。
 //
-// A command is a `.md` file in `.argent/commands` (project) or
-// `.argentgo/commands` (user). Optional frontmatter carries `description`,
-// `argument-hint`, `allowed-tools`, `model` and `aliases`; the body is the
-// prompt template.
+// 命令是 `.md` 文件，位于 `.argent/commands`（项目级）或
+// `.argentgo/commands`（用户级）。可选的 frontmatter 携带 `description`、
+// `argument-hint`、`allowed-tools`、`model` 和 `aliases`；正文即
+// 提示词模板。
 //
-// The substitution rules match the Rust implementation:
+// 替换规则与 Rust 实现一致：
 //
-//   - `$ARGUMENTS` / `$@` — everything after the command name;
-//   - `$1` … `$99` — one whitespace-separated argument;
-//   - `${1}` — the same, when adjacent text would swallow the digits.
+//   - `$ARGUMENTS` / `$@` —— 命令名之后的全部内容；
+//   - `$1` … `$99` —— 一个以空白分隔的参数；
+//   - `${1}` —— 同上，当相邻文本会吞掉数字时使用。
 //
-// Quoted arguments ("two words" or 'two words') count as one position. With
-// ExpandOptions.RemainingAtHighest, the highest-numbered position used by the
-// body absorbs every remaining argument, matching the markdown-command
-// convention. The safe default keeps the original one-argument-per-position
+// 带引号的参数（"two words" 或 'two words'）算作一个位置。当
+// ExpandOptions.RemainingAtHighest 启用时，正文中使用的最高编号位置
+// 吸收其余所有参数，符合 markdown 命令的惯例。安全的默认行为保留
+// 原有的一参数一位置的语义。
 // behaviour.
 //
-// A “ !`command` “ span runs a shell command, but only when the caller opts in
-// with ExpandOptions.AllowShell; by default the span is left untouched.
+// “ !`command` “ 片段会执行 shell 命令，但仅当调用方通过
+// ExpandOptions.AllowShell 显式选择启用；默认保持该片段不变。
 package commands
 
 import (
@@ -33,56 +33,56 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// ProjectSubdir is where a repository keeps its slash commands.
+// ProjectSubdir 是仓库存放斜杠命令的位置。
 const ProjectSubdir = ".argent/commands"
 
-// HomeSubdir is where the user keeps commands shared by every project.
+// HomeSubdir 是用户存放跨项目共享命令的位置。
 const HomeSubdir = ".argentgo/commands"
 
-// Command is one command discovered on disk.
+// Command 表示磁盘上发现的一条命令。
 type Command struct {
-	// Name is the slash-command name, including any namespace prefix.
+	// Name 是斜杠命令名，包含可能的命名空间前缀。
 	Name string
-	// Aliases are alternative names accepted by CompleteCommands. They come
-	// from the frontmatter `aliases` field (comma-separated); an empty slice
-	// means the command has no aliases.
+	// Aliases 是 CompleteCommands 接受的备用名称，来自
+	// frontmatter 的 `aliases` 字段（逗号分隔）；空切片
+	// 表示该命令没有别名。
 	Aliases []string
-	// Description is the one-line summary shown by `/help`.
+	// Description 是 `/help` 显示的一行摘要。
 	Description string
-	// ArgumentHint is the usage hint (frontmatter `argument-hint`).
+	// ArgumentHint 是用量提示（frontmatter `argument-hint`）。
 	ArgumentHint string
-	// AllowedTools narrows the tool allow-list for this prompt.
+	// AllowedTools 缩小该提示词允许使用的工具列表。
 	AllowedTools []string
-	// Model optionally pins the model for this prompt.
+	// Model 可选地为该提示词固定使用的模型。
 	Model string
-	// Agent optionally pins the agent/persona for this prompt (frontmatter
-	// `agent`). It is exposed for the caller to apply; this package never
-	// builds an agent.
+	// Agent 可选地为该提示词固定使用的 agent/persona（frontmatter
+	// `agent`）。它暴露给调用方应用；本包从不
+	// 构建 agent。
 	Agent string
-	// Body is the template, without frontmatter.
+	// Body 是模板正文，不含 frontmatter。
 	Body string
-	// Path is the file the command came from.
+	// Path 是该命令的来源文件。
 	Path string
-	// Plugin is the plugin that provided the command, empty for project and
-	// user commands. It is also the name's namespace prefix.
+	// Plugin 是提供该命令的插件，对于项目和
+	// 用户命令为空。它同时也是名称的命名空间前缀。
 	Plugin string
-	// Warnings reports invisible characters found in the declarative content.
-	// It is metadata only: parsing never changes and never blocks on it.
+	// Warnings 报告在声明性内容中发现的不可见字符。
+	// 它仅是元数据：解析过程永不因它改变，也永不阻塞。
 	Warnings []string
 }
 
-// Source is one directory to scan and the namespace its commands get.
+// Source 表示一个待扫描目录及其命令获得的命名空间。
 //
-// Prefix is empty for project and user directories. A plugin source sets it to
-// the plugin name, so its `review` command is reachable as `plugin:review` and
-// cannot collide with a user command.
+// 对项目和用户目录，Prefix 为空。插件来源将其设为
+// 插件名，因此其 `review` 命令可通过 `plugin:review` 访问，且
+// 不会与用户命令冲突。
 type Source struct {
 	Root   string
 	Prefix string
 }
 
-// DefaultSources returns the command directories for one session, highest
-// precedence first: project, then user.
+// DefaultSources 返回某个会话的命令目录，优先级从高到低：
+// 先是项目级，再是用户级。
 func DefaultSources(cwd, home string) []Source {
 	var sources []Source
 	if cwd != "" {
@@ -94,15 +94,15 @@ func DefaultSources(cwd, home string) []Source {
 	return sources
 }
 
-// Set is the resolved command list for one session.
+// Set 是某个会话解析后的命令列表。
 type Set struct {
 	commands []Command
 }
 
-// Discover loads every command under sources.
+// Discover 加载 sources 下的所有命令。
 //
-// Sources are searched in order and the first command with a given name wins,
-// so a project command shadows a user command of the same name.
+// 按序搜索各来源，同名命令以第一个为准，
+// 因此项目命令会遮蔽同名的用户命令。
 func Discover(sources []Source) *Set {
 	set := &Set{}
 	seen := make(map[string]bool)
@@ -114,8 +114,8 @@ func Discover(sources []Source) *Set {
 			}
 			cmd, err := ParseStrict(string(text), file)
 			if err != nil {
-				// A malformed command file cannot participate in discovery; the
-				// error is reported by ParseStrict for callers that want it.
+				// 格式错误的命令文件无法参与发现；
+				// 需要的调用方可从 ParseStrict 获得该错误报告。
 				continue
 			}
 			if prefix := strings.TrimSpace(source.Prefix); prefix != "" {
@@ -151,9 +151,9 @@ func commandFiles(root string) []string {
 	return files
 }
 
-// Parse reads one command file. A file without frontmatter still works: its
-// stem is the name and its first non-empty line is the description. Malformed
-// frontmatter is skipped leniently; use ParseStrict to report file and line.
+// Parse 读取单个命令文件。没有 frontmatter 的文件同样可用：其
+// 文件名主干即名称，第一个非空行即描述。格式错误的
+// frontmatter 会被宽松跳过；可用 ParseStrict 报告文件和行号。
 func Parse(text, path string) Command {
 	cmd, err := ParseStrict(text, path)
 	if err == nil {
@@ -176,8 +176,8 @@ func Parse(text, path string) Command {
 	return cmd
 }
 
-// ParseStrict reads one command file and reports invalid frontmatter with the
-// file name and the 1-based line number of the offending line.
+// ParseStrict 读取单个命令文件，并报告无效的 frontmatter，
+// 附带文件名和出错行的 1 基行号。
 func ParseStrict(text, path string) (Command, error) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	frontmatter, body, ok := splitFrontmatter(text)
@@ -224,7 +224,7 @@ func commandNameFromPath(path string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// List returns every command, sorted by name.
+// List 返回所有命令，按名称排序。
 func (s *Set) List() []Command {
 	if s == nil {
 		return nil
@@ -234,7 +234,7 @@ func (s *Set) List() []Command {
 	return out
 }
 
-// Len returns the number of commands.
+// Len 返回命令数量。
 func (s *Set) Len() int {
 	if s == nil {
 		return 0
@@ -242,7 +242,7 @@ func (s *Set) Len() int {
 	return len(s.commands)
 }
 
-// Get finds one command by name.
+// Get 按名称查找单条命令。
 func (s *Set) Get(name string) (Command, bool) {
 	if s == nil {
 		return Command{}, false
@@ -256,13 +256,13 @@ func (s *Set) Get(name string) (Command, bool) {
 	return Command{}, false
 }
 
-// Expand renders a command body with the arguments the user typed, using the
-// safe defaults (no shell interpolation).
+// Expand 用用户键入的参数渲染命令正文，使用
+// 安全默认设置（不进行 shell 插值）。
 func (c Command) Expand(args string) (string, error) {
 	return c.ExpandWith(args, ExpandOptions{})
 }
 
-// ExpandWith renders a command body, honouring the options.
+// ExpandWith 渲染命令正文，并遵守给定选项。
 func (c Command) ExpandWith(args string, opts ExpandOptions) (string, error) {
 	body := c.Body
 	if opts.AllowShell {
@@ -275,7 +275,7 @@ func (c Command) ExpandWith(args string, opts ExpandOptions) (string, error) {
 	return substituteArgs(body, args, opts.RemainingAtHighest), nil
 }
 
-// Expand is a convenience wrapper around Set.Get + Command.Expand.
+// Expand 是 Set.Get + Command.Expand 的便捷封装。
 func (s *Set) Expand(name, args string) (string, error) {
 	cmd, ok := s.Get(name)
 	if !ok {
@@ -284,24 +284,24 @@ func (s *Set) Expand(name, args string) (string, error) {
 	return cmd.Expand(args)
 }
 
-// ExpandOptions controls the optional parts of body expansion.
+// ExpandOptions 控制正文展开的可选部分。
 type ExpandOptions struct {
-	// AllowShell enables `` !`command` `` interpolation. It is off by default
-	// because the markdown file may come from a plugin the user has not read.
+	// AllowShell 启用 `` !`command` `` 插值。默认关闭，
+	// 因为 markdown 文件可能来自用户尚未阅读过的插件。
 	AllowShell bool
-	// Dir is the working directory for interpolated commands.
+	// Dir 是被插值命令的工作目录。
 	Dir string
-	// RemainingAtHighest makes the highest $N referenced by the body absorb
-	// every remaining argument. Off by default so existing templates that use
-	// $1 and $2 as individual positions keep their meaning.
+	// RemainingAtHighest 使正文中引用的最高 $N 吸收
+	// 其余所有参数。默认关闭，以便使用 $1 和 $2 作为独立
+	// 位置的既有模板保持原义。
 	RemainingAtHighest bool
-	// Run overrides how interpolated commands are executed (tests, sandboxes).
-	// It receives the command text and returns its output.
+	// Run 覆盖被插值命令的执行方式（测试、沙箱）。
+	// 它接收命令文本并返回其输出。
 	Run func(command string) (string, error)
 }
 
-// substituteArgs expands $ARGUMENTS, $@ and $N/${N}. Positions are parsed with
-// quote grouping so "two words" remains a single argument.
+// substituteArgs 展开 $ARGUMENTS、$@ 和 $N/${N}。位置按
+// 引号分组解析，因此 "two words" 仍是一个参数。
 func substituteArgs(body, args string, remainingAtHighest bool) string {
 	fields := splitArguments(args)
 	highest := 0
@@ -348,7 +348,7 @@ func substituteArgs(body, args string, remainingAtHighest bool) string {
 	return out.String()
 }
 
-// dollarToken parses one $-prefixed token at i.
+// dollarToken 解析 i 处一个以 $ 开头的标记。
 func dollarToken(body string, i int) (end, index int, named, ok bool) {
 	if i+1 >= len(body) {
 		return i + 1, 0, false, false
@@ -382,8 +382,8 @@ func readDigits(body string, at int) (count, value int) {
 	return count, value
 }
 
-// splitArguments splits a command line on unquoted whitespace. Quotes only
-// group arguments; they are never executed as shell fragments.
+// splitArguments 按未加引号的空白拆分命令行。引号只
+// 用于分组参数；它们永远不会作为 shell 片段执行。
 func splitArguments(args string) []string {
 	var out []string
 	var current strings.Builder
@@ -468,9 +468,9 @@ func runShell(command string, opts ExpandOptions) (string, error) {
 	return string(output), nil
 }
 
-// fields is the minimal frontmatter reader this package needs. It is a copy of
-// the skills parser's scalar half: importing that package would couple two
-// otherwise independent directories.
+// fields 是本包所需的最小 frontmatter 读取器。它是
+// skills 解析器标量部分的副本：导入该包会耦合两个
+// 本应独立的目录。
 type fields map[string]string
 
 func (f fields) get(key string) string { return f[strings.ToLower(key)] }
@@ -497,8 +497,8 @@ type frontmatterError struct {
 
 func (e *frontmatterError) Error() string { return e.msg }
 
-// parseFieldsStrict validates frontmatter syntax before reading values, so a
-// malformed line can be reported with the line number it came from.
+// parseFieldsStrict 在读取值之前校验 frontmatter 语法，以便
+// 格式错误的行能附带其行号被报告。
 func parseFieldsStrict(frontmatter string) (fields, *frontmatterError) {
 	lines := strings.Split(strings.ReplaceAll(frontmatter, "\r\n", "\n"), "\n")
 	for i, line := range lines {
@@ -596,12 +596,12 @@ func unquote(value string) string {
 	return value
 }
 
-// splitFrontmatter is the commands-local copy of the fence splitter.
+// splitFrontmatter 是本包内的分隔符切分器副本。
 func splitFrontmatter(text string) (frontmatter, body string, ok bool) {
-	// Normalize CRLF first, mirroring skills.SplitFrontmatter: on Windows a
-	// file saved with CRLF has an opening fence of "---\r\n", so without this
-	// the prefix check below fails and the whole frontmatter leaks into the
-	// body. LF-only text is unaffected.
+	// 先规范化 CRLF，与 skills.SplitFrontmatter 一致：在 Windows 上，
+	// 以 CRLF 保存的文件其起始分隔符为 "---\r\n"，若不这样做，
+	// 下面的前缀检查会失败，整个 frontmatter 会泄漏到
+	// 正文中。仅含 LF 的文本不受影响。
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
 		return "", "", false

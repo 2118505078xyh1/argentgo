@@ -12,11 +12,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 )
 
-// TestSubscribeAfterReturnsAtomicCursor checks the resume-cursor contract of
-// SubscribeAfter: the returned seq is the hub's sequence at the instant the
-// subscriber registered, so every replayed event is at or below it and a live
-// event published afterwards is still delivered. Using hub.Seq() after a plain
-// Subscribe would allow a concurrent publish to over-report the cursor.
+// TestSubscribeAfterReturnsAtomicCursor 检查 SubscribeAfter 的续传游标约定：
+// 返回的 seq 是订阅者注册那一刻 hub 的序列号，
+// 因此每个回放事件都小于或等于它，而之后发布的实时
+// 事件仍会被投递。在普通 Subscribe 之后再读 hub.Seq()
+// 会让并发的发布把游标报得过大。
 func TestSubscribeAfterReturnsAtomicCursor(t *testing.T) {
 	hub := NewEventHub()
 	for i := 1; i <= 3; i++ {
@@ -29,7 +29,7 @@ func TestSubscribeAfterReturnsAtomicCursor(t *testing.T) {
 		t.Fatalf("subscribe cursor = %d, want 3 (the seq at registration)", seqAt)
 	}
 
-	// Everything replayed for after=1 is already covered by the cursor.
+	// after=1 回放的所有事件都已被该游标覆盖。
 	for i := 0; i < 2; i++ {
 		select {
 		case <-ch:
@@ -43,8 +43,8 @@ func TestSubscribeAfterReturnsAtomicCursor(t *testing.T) {
 	default:
 	}
 
-	// A publish after registration gets a higher seq but must still reach the
-	// subscriber; the handshake cursor intentionally stays behind it.
+	// 注册之后发布的事件会有更高的 seq，但仍必须到达
+	// 订阅者；握手游标有意落后于它。
 	hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "live"})
 	select {
 	case ev := <-ch:
@@ -56,10 +56,10 @@ func TestSubscribeAfterReturnsAtomicCursor(t *testing.T) {
 	}
 }
 
-// publishOnHeaderStream publishes one event the first time the handler asks
-// for the ResponseWriter's headers. The SSE handler calls Header() *after*
-// subscribing but *before* it writes the server.connected frame, so this
-// deterministically reproduces the race where a publish lands in that gap.
+// publishOnHeaderStream 在处理器第一次请求 ResponseWriter 的头部时
+// 发布一个事件。SSE 处理器在订阅*之后*、写 server.connected 帧*之前*
+// 调用 Header()，因此这能确定性地复现发布落在那个间隙中的
+// 竞态。
 type publishOnHeaderStream struct {
 	*streamRecorder
 	hub  *EventHub
@@ -74,10 +74,10 @@ func (w *publishOnHeaderStream) Header() http.Header {
 	return w.streamRecorder.Header()
 }
 
-// TestEventHandlerConnectedSeqIsSubscribeCursor guards the SSE handshake: the
-// seq in server.connected must be the subscription-time cursor, not a later
-// hub.Seq() reading. Otherwise a client that reconnects from that cursor skips
-// any event published between subscribing and the handshake frame.
+// TestEventHandlerConnectedSeqIsSubscribeCursor 守护 SSE 握手：
+// server.connected 中的 seq 必须是订阅时刻的游标，而不是稍后
+// 读取的 hub.Seq()。否则从该游标重连的客户端会跳过
+// 订阅与握手帧之间发布的任何事件。
 func TestEventHandlerConnectedSeqIsSubscribeCursor(t *testing.T) {
 	hub := NewEventHub()
 	rec := &publishOnHeaderStream{
@@ -106,7 +106,7 @@ func TestEventHandlerConnectedSeqIsSubscribeCursor(t *testing.T) {
 	if !strings.Contains(body, `"seq":0`) {
 		t.Fatalf("connected cursor = %q, want seq 0 from subscription time (not a raced publish): %s", body, body)
 	}
-	// The event published in the gap is still delivered as a live frame.
+	// 在间隙中发布的事件仍作为实时帧送达。
 	if !strings.Contains(body, `"Text":"raced"`) {
 		t.Fatalf("event published during the handshake gap was lost: %s", body)
 	}

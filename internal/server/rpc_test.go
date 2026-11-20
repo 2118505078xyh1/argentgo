@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// blockingRunner parks a prompt until its ctx is cancelled or it is released,
-// so cancellation tests can observe the in-flight prompt's completion.
+// blockingRunner 挂起一个提示，直到其 ctx 被取消或被释放，
+// 使取消测试可以观察在途提示的完成情况。
 type blockingRunner struct {
 	started chan struct{}
 	release chan struct{}
@@ -222,8 +222,8 @@ func TestRPCReturnsWhenContextCancelledWhileWaitingOnStdin(t *testing.T) {
 		done <- RunRPC(ctx, inR, outW, Config{Runner: &fakeRunner{}})
 	}()
 
-	// inR has no data, so scanLines is blocked in Read. Cancelling must still
-	// unblock the consumer without needing EOF or a kill.
+	// inR 没有数据，因此 scanLines 阻塞在 Read 中。取消仍必须
+	// 解除消费者的阻塞，而无需 EOF 或 kill。
 	cancel()
 	waitFor(t, done)
 }
@@ -343,8 +343,8 @@ func TestRPCContinuesAfterOversizedFrame(t *testing.T) {
 	in.WriteString(strings.Repeat("x", maxRPCFrame+1) + "\n")
 	in.WriteString(`{"jsonrpc":"2.0","id":2,"method":"nope"}` + "\n")
 
-	// No network: both ends are in-memory buffers. Only synchronous methods
-	// are used so out is written solely from RunRPC's own goroutine.
+	// 无网络：两端都是内存缓冲区。只使用同步方法，
+	// 因此 out 仅由 RunRPC 自己的 goroutine 写入。
 	if err := RunRPC(context.Background(), &in, &out, Config{}); err != nil {
 		t.Fatalf("RunRPC returned a terminal error for an oversized frame: %v", err)
 	}

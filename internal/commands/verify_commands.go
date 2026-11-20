@@ -1,22 +1,22 @@
 package commands
 
-// Language-prefixed verify commands.
+// 带语言前缀的 verify 命令。
 //
-// Verification commands can arrive as a flat list of strings, following aider's
-// --lint-cmd convention. Each entry is either a bare command or a command
-// preceded by a language name and a colon:
+// 验证命令可以按 aider 的 --lint-cmd 约定以扁平字符串列表形式到来。
+// 每一项要么是裸命令，要么是前面带有语言名和冒号的
+// 命令：
 //
 //	"go: go vet ./..."
 //	"python: flake8 --select=E"
 //
-// ParseVerifyCommands turns that list into a language -> argv map. It is pure:
-// it reads nothing, spawns nothing and never mutates its input. The split is
-// deliberately conservative so a colon that belongs to the command (http://,
-// C:\tools) is never mistaken for a language separator.
+// ParseVerifyCommands 将该列表转换为 语言 -> argv 的映射。它是纯函数：
+// 不读取任何内容、不启动任何进程，也从不修改输入。拆分
+// 刻意保守，因此属于命令的冒号（http://、
+// C:\tools）绝不会被误认为语言分隔符。
 //
-// Argv slices come from strings.Fields, matching how config.VerifyCommands is
-// parsed, so the values can be handed straight to the app verification allowlist.
-// Quoting and shell metacharacters are therefore not interpreted here.
+// Argv 切片来自 strings.Fields，与 config.VerifyCommands 的
+// 解析方式一致，因此这些值可直接交给 app 的验证白名单。
+// 因此这里不解释引号和 shell 元字符。
 
 import (
 	"fmt"
@@ -24,12 +24,12 @@ import (
 	"unicode"
 )
 
-// VerifyAllLanguages is the map key for a command with no language prefix.
-// Aider applies such a command to every language; callers should use this key
-// as the default when no language-specific entry matches.
+// VerifyAllLanguages 是无语言前缀命令的映射键。
+// Aider 会将这类命令应用于所有语言；当没有匹配的语言专属条目时，
+// 调用方应使用该键作为默认值。
 const VerifyAllLanguages = "*"
 
-// IssueKind classifies one verify-command parsing problem.
+// IssueKind 对一种 verify 命令解析问题进行分类。
 type IssueKind string
 
 const (
@@ -38,9 +38,9 @@ const (
 	IssueDuplicateLanguage IssueKind = "duplicate-language"
 )
 
-// Issue is one problem found while parsing verify-command arguments. Index is
-// the 0-based position of Arg in the input slice; Message is a stable,
-// human-readable explanation suitable for doctor output or UI warnings.
+// Issue 是解析 verify 命令参数时发现的一个问题。Index 是
+// Arg 在输入切片中从 0 开始的位置；Message 是稳定的、
+// 易读的说明，适合 doctor 输出或 UI 警告。
 type Issue struct {
 	Kind    IssueKind
 	Index   int
@@ -48,24 +48,24 @@ type Issue struct {
 	Message string
 }
 
-// ParseVerifyCommands parses a flat list of verify-command arguments into a
-// language -> argv map. Each argument is interpreted as:
+// ParseVerifyCommands 将扁平的 verify 命令参数列表解析为
+// 语言 -> argv 的映射。每个参数按如下方式解释：
 //
-//   - "lang: command" — a command for one language (or file extension). The
-//     language is trimmed, lowercased, stripped of a leading dot and
-//     canonicalized through the alias table below, so "go", "golang" and
-//     ".go" all share the key "go".
-//   - "command" — no language prefix; stored under VerifyAllLanguages.
+//   - "lang: command" —— 针对某一种语言（或文件扩展名）的命令。
+//     语言会被裁剪、转小写、去掉前导点，并通过下面的别名表
+//     规范化，因此 "go"、"golang" 和
+//     ".go" 都共用键 "go"。
+//   - "command" —— 无语言前缀；存于 VerifyAllLanguages 下。
 //
-// The separator is the first colon that is followed by whitespace (or ends the
-// argument) and whose left side is a single language-like token. A colon
-// followed by "/", "\" or any other non-space character stays part of the
-// command, so "http://example" and "C:\tools\vet.exe" remain intact.
+// 分隔符是第一个后面跟空白（或位于参数末尾）且左侧为
+// 单个类语言标记的冒号。而后面跟
+// "/"、"\" 或其他非空白字符的冒号仍属于命令的
+// 一部分，因此 "http://example" 和 "C:\tools\vet.exe" 保持完整。
 //
-// Invalid entries are skipped (they produce no map entry) and described in the
-// returned issues. When two entries normalize to the same language the later
-// one wins and an IssueDuplicateLanguage is reported. The returned map is
-// always non-nil; the argument slice is never modified.
+// 无效条目被跳过（不产生映射项），并在返回的 issues 中
+// 描述。当两个条目规范化为同一语言时，以后者
+// 为准，并报告 IssueDuplicateLanguage。返回的映射
+// 始终非 nil；参数切片从不被修改。
 func ParseVerifyCommands(args []string) (map[string][]string, []Issue) {
 	out := make(map[string][]string, len(args))
 	var issues []Issue
@@ -103,9 +103,9 @@ func ParseVerifyCommands(args []string) (map[string][]string, []Issue) {
 	return out, issues
 }
 
-// splitVerifyArg separates an optional language prefix from the command text.
-// emptyLanguage is true only for a leading ":" (a malformed prefix form), which
-// must not be silently reinterpreted as a bare command.
+// splitVerifyArg 将可选的语言前缀与命令文本分离。
+// emptyLanguage 仅对前导 ":"（一种格式错误的前缀形式）为 true，
+// 它绝不能被静默重新解释为裸命令。
 func splitVerifyArg(arg string) (lang, cmd string, emptyLanguage bool) {
 	trimmed := strings.TrimSpace(arg)
 	if trimmed == "" {
@@ -128,10 +128,10 @@ func isVerifySpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\v' || b == '\f'
 }
 
-// validVerifyLangPrefix accepts a single language-like token: letters, digits
-// and the punctuation used by real language names (".go", "c++", "c#",
-// "objective-c", "node.js"). Spaces and quotes disqualify a prefix, which then
-// makes the whole argument a bare command instead.
+// validVerifyLangPrefix 接受单个类语言标记：字母、数字
+// 以及真实语言名使用的标点（".go"、"c++"、"c#"、
+// "objective-c"、"node.js"）。空格和引号会使前缀不合格，
+// 从而使整个参数变成裸命令。
 func validVerifyLangPrefix(s string) bool {
 	if s == "" {
 		return false
@@ -147,9 +147,9 @@ func validVerifyLangPrefix(s string) bool {
 	return true
 }
 
-// verifyLangAliases mirrors the alias groups used by app.verifyLangForms so a
-// key parsed from the CLI normalizes the same way as a config map key. This is
-// a local copy because importing app would invert the package dependency.
+// verifyLangAliases 镜像 app.verifyLangForms 使用的别名组，使
+// 从 CLI 解析出的键与配置映射键采用相同的规范化方式。这是
+// 本地副本，因为导入 app 会反转包依赖关系。
 var verifyLangAliases = map[string]string{
 	"golang": "go",
 	"py":     "python",

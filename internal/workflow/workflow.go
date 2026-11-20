@@ -168,7 +168,7 @@ type Definition struct {
 	Steps []Step `json:"steps"`
 	// Parameters declares the template variables a workflow accepts.
 	Parameters []WorkflowParam `json:"parameters,omitempty"`
-	// Warnings reports invisible characters found in the declarative content.
+	// Warnings 报告在声明性内容中发现的不可见字符。
 	// It is metadata only: it is never serialised and never blocks a run.
 	Warnings []string `json:"-"`
 }

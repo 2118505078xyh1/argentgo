@@ -6,32 +6,32 @@ import (
 	"strings"
 )
 
-// candidate is one discovered instruction file with its rank inputs.
-// distance is the number of directory levels between the file and the active
-// directory whose walk found it; seq preserves discovery order for ties.
+// candidate 是一个发现的指令文件及其排序输入。
+// distance 是该文件与发现它的活动目录之间的目录层级数；
+// seq 在平局时保留发现顺序。
 type candidate struct {
 	path     string
 	distance int
 	seq      int
 }
 
-// LoadForDirs collects instruction files for a set of active subdirectories
-// and their ancestors, stopping at the workspace root. It is meant for
-// "nested AGENTS.md" discovery: when work touches src/parser and src/lexer,
-// the caller passes those directories so the specific rules of each subtree
-// (and the shared rules above them) are included in the system prompt.
+// LoadForDirs 为一组活动子目录及其祖先收集指令文件，
+// 停在工作区根目录。它用于
+// "嵌套 AGENTS.md" 的发现：当工作涉及 src/parser 和 src/lexer 时，
+// 调用方传入这些目录，使每个子树的特定规则
+// （以及它们之上的共享规则）包含在系统提示词中。
 //
-// The input dirs are resolved against cwd. For each dir, every ancestor up to
-// and including the workspace root is considered, in nearest-first order: a
-// file in a deeper directory outranks the same-named file nearer the root.
-// Both FileNames are read in each directory. Paths are deduplicated by their
-// resolved (absolute, cleaned, case-folded on Windows) location so a file
-// shared by several subtrees is injected only once, at its most specific rank.
+// 输入的 dirs 相对于 cwd 解析。对每个目录，考虑直到工作区根
+// （含）的每一级祖先，按最近的优先：更深
+// 目录中的文件优先于靠近根的同名文件。
+// 每个目录中都会读取两个 FileNames。路径按其
+// 解析后的位置（绝对、清理、Windows 上大小写折叠）去重，使
+// 多个子树共享的文件只注入一次，且位于其最具体的排名处。
 //
-// Existing Load behaviour is unchanged; LoadForDirs is an additive API. The
-// same per-file limit and total byte budget used by LoadIn apply here, and the
-// returned docs are already clipped and ranked for Block(). A directory that
-// cannot be resolved or read is skipped rather than failing the whole call.
+// 现有 Load 行为不变；LoadForDirs 是附加 API。
+// 此处适用与 LoadIn 相同的单文件上限和总量字节预算，且
+// 返回的 docs 已裁剪并排好序，可直接用于 Block()。无法
+// 解析或读取的目录会被跳过，而不是导致整个调用失败。
 func LoadForDirs(cwd string, dirs []string) []Doc {
 	workspace, err := filepath.Abs(cwd)
 	if err != nil {
@@ -42,8 +42,8 @@ func LoadForDirs(cwd string, dirs []string) []Doc {
 		return nil
 	}
 
-	// Rank lists for each distinct ancestor chain. Shorter distance to the
-	// active directory means more specific; ties keep the first-seen order.
+	// 每条不同祖先链的排名列表。到活动目录的
+	// 距离越短越具体；平局时保持首次出现的顺序。
 	seen := make(map[string]candidate)
 	seq := 0
 	normalized := make(map[string]bool)
@@ -62,7 +62,7 @@ func LoadForDirs(cwd string, dirs []string) []Doc {
 		}
 		abs = filepath.Clean(abs)
 		if !withinWorkspace(abs, workspace) {
-			// Never walk outside the workspace root.
+			// 绝不遍历到工作区根目录之外。
 			continue
 		}
 		key := normalizePath(abs)
@@ -112,8 +112,8 @@ func LoadForDirs(cwd string, dirs []string) []Doc {
 			continue
 		}
 
-		// Reserve the truncation marker's bytes when the per-file cap already
-		// clipped this body; see the matching logic in LoadIn.
+		// 当单文件上限已裁剪该正文时，预留截断标记的字节；
+		// 参见 LoadIn 中的相应逻辑。
 		markerCost := 0
 		if fileTruncated {
 			markerCost = len(TruncationMarker)
@@ -145,9 +145,9 @@ func LoadForDirs(cwd string, dirs []string) []Doc {
 	return docs
 }
 
-// withinWorkspace reports whether path is the workspace root or lies below it.
-// The comparison is done on cleaned absolute paths and is case-insensitive on
-// Windows, matching samePath used by LoadIn.
+// withinWorkspace 报告 path 是否为工作区根目录或其下的路径。
+// 比较在清理后的绝对路径上进行，并在 Windows 上大小写
+// 不敏感，与 LoadIn 使用的 samePath 一致。
 func withinWorkspace(path, workspace string) bool {
 	if samePath(path, workspace) {
 		return true
@@ -159,8 +159,8 @@ func withinWorkspace(path, workspace string) bool {
 	return strings.HasPrefix(path, prefix)
 }
 
-// normalizePath returns a canonical key for deduplication. Windows paths are
-// case-insensitive, so fold them; other platforms keep their exact case.
+// normalizePath 返回用于去重的规范键。Windows 路径
+// 不区分大小写，因此折叠；其他平台保留原样大小写。
 func normalizePath(path string) string {
 	path = filepath.Clean(path)
 	if filepath.Separator == '\\' {
@@ -169,7 +169,7 @@ func normalizePath(path string) string {
 	return path
 }
 
-// samePath compares two cleaned paths, case-insensitively on Windows.
+// samePath 比较两个清理后的路径，在 Windows 上不区分大小写。
 func samePath(a, b string) bool {
 	if filepath.Separator == '\\' {
 		return strings.EqualFold(a, b)
@@ -177,9 +177,9 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
-// sortCandidates orders docs most-specific first: smaller distance (closer to
-// an active directory) wins, then earlier discovery order breaks ties, then
-// path text for a stable result set.
+// sortCandidates 将 docs 按最具体优先排序：距离更小（更接近
+// 活动目录）者优先，然后以较早的发现顺序打破平局，最后
+// 按路径文本保证结果集稳定。
 func sortCandidates(items []candidate) {
 	for i := 1; i < len(items); i++ {
 		for j := i; j > 0; j-- {

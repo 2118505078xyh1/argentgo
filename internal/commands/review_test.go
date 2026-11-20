@@ -122,10 +122,10 @@ func TestReviewHookAndBuiltinRegistration(t *testing.T) {
 	}
 }
 
-// Clipping must never split a multi-byte rune: a finding's Detail ends up in
-// the human-readable report (and in prompts), so leaving a partial UTF-8
-// sequence there produces invalid text. Strings are normalized with Fields
-// first, so embedded whitespace is collapsed before the byte budget applies.
+// 裁剪绝不能拆分多字节 rune：某条发现的 Detail 会进入
+// 易读报告（以及提示词），留下不完整的 UTF-8
+// 序列会产生无效文本。字符串先经过 Fields 规范化，
+// 因此在应用字节预算前会折叠内嵌空白。
 func TestClipFindingPreservesUTF8AndWhitespace(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -177,8 +177,8 @@ func TestClipFindingPreservesUTF8AndWhitespace(t *testing.T) {
 	}
 }
 
-// The same guarantee must hold for a finding produced by the real diff path,
-// where a long Unicode TODO line flows through redactFinding + clipFinding.
+// 对真实 diff 路径产生的发现也必须保持同样的保证，
+// 即长的 Unicode TODO 行会流经 redactFinding + clipFinding。
 func TestDiffFindingsDetailIsValidUTF8(t *testing.T) {
 	line := strings.Repeat("中", 60) + " TODO"
 	diff := "--- a/f.go\n+++ b/f.go\n@@ -1 +1 @@\n+" + line + "\n"

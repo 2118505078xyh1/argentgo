@@ -7,17 +7,14 @@ import (
 	"strings"
 )
 
-// ResolveRealPath returns the true on-disk location of path. It follows
-// symlinks on every platform and directory junctions on Windows, where
-// filepath.EvalSymlinks deliberately leaves junctions unresolved.
+// ResolveRealPath 返回 path 在磁盘上的真实位置。它在每个平台上都跟随符号链接，
+// 并在 Windows 上跟随目录 junction（filepath.EvalSymlinks 有意不解析 junction）。
 //
-// A tail that does not exist yet is re-attached to the longest existing
-// ancestor, so a path for a file about to be created is still checked against
-// the real location of its parent directory.
+// 尚不存在的尾部会被重新挂接到最长的已存在祖先上，因此即将创建的文件的路径
+// 仍会针对其父目录的真实位置进行检查。
 //
-// The function is deliberately fail-closed: if a path cannot be resolved it
-// returns an error instead of falling back to its lexical spelling. Callers
-// must treat that error as a denial, not as "probably fine".
+// 该函数有意采用失败即拒绝（fail-closed）：如果路径无法解析，它返回错误，
+// 而不是回退到其字面拼写。调用方必须把该错误视为拒绝，而不是"大概没问题"。
 func ResolveRealPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		path = "."
@@ -29,9 +26,9 @@ func ResolveRealPath(path string) (string, error) {
 	return resolveWithTail(filepath.Clean(absolute))
 }
 
-// CheckPathInRoots verifies that the real location of path stays inside one
-// of roots. Both sides are resolved first: a root reached through a link keeps
-// working, while a link or junction inside a root cannot hide an escape.
+// CheckPathInRoots 验证 path 的真实位置是否留在 roots 之一内部。两侧都会先被
+// 解析：通过链接到达的 root 仍能正常工作，而 root 内部的链接或 junction
+// 无法隐藏一次逃逸。
 func CheckPathInRoots(path string, roots []string) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("security: no roots configured")
@@ -69,11 +66,10 @@ func resolveWithTail(absolute string) (string, error) {
 	tail := ""
 	current := absolute
 	for {
-		// os.Open reports a dangling link as "missing", so without this check
-		// the loop would reattach the link's lexical name and hide the fact
-		// that it points somewhere else (possibly outside the write roots).
-		// Reading the link itself resolves it even before its target exists,
-		// which is exactly the write-before-create case boundary checks need.
+		// os.Open 把悬空链接报告为"缺失"，因此没有这个检查时，循环会重新挂接
+		// 链接的字面名称，从而隐藏它指向别处（可能指向写入 root 之外）的事实。
+		// 读取链接本身即使在目标尚不存在时也能解析它，这正是边界检查所需的
+		// 先写后创建场景。
 		if target, ok := linkTarget(current); ok {
 			reattached := target
 			if tail != "" {
@@ -100,11 +96,10 @@ func resolveWithTail(absolute string) (string, error) {
 	}
 }
 
-// linkTarget returns the resolved target of the symlink or Windows junction at
-// path. Unlike realPathExisting it reads the link object itself (Lstat +
-// Readlink) instead of opening through it, so it also works for a dangling link
-// whose target does not exist yet. ok is false for ordinary paths and when the
-// link cannot be read; callers then fall back to the lexical walk.
+// linkTarget 返回 path 处符号链接或 Windows junction 的解析后目标。与
+// realPathExisting 不同，它读取链接对象本身（Lstat + Readlink），而不是穿过它
+// 打开，因此也适用于目标尚不存在的悬空链接。对于普通路径以及链接无法读取时，
+// ok 为 false；此时调用方回退到字面遍历。
 func linkTarget(path string) (string, bool) {
 	info, err := os.Lstat(path)
 	if err != nil || !isLinkInfo(info) {

@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-// TestDetachedSpawnCapturesChildOutput guards the writer wiring in startOS:
-// exec copies the child's stdout/stderr into one switchWriter, and the returned
-// Process must expose that very writer. A second writer allocated by NewProcess
-// used to swallow every byte, leaving RunWithTimeout's partial output and the
-// promoted job's log empty.
+// TestDetachedSpawnCapturesChildOutput 守护 startOS 中的 writer 接线：
+// exec 把子进程的 stdout/stderr 拷贝进一个 switchWriter，返回的
+// Process 必须暴露那同一个 writer。NewProcess 另分配的第二个 writer
+// 过去会吞掉每个字节，使 RunWithTimeout 的部分输出和
+// 被提升作业的日志为空。
 func TestDetachedSpawnCapturesChildOutput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -28,7 +28,7 @@ func TestDetachedSpawnCapturesChildOutput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path, args := testShell(t, tc.line)
 			if runtime.GOOS != "windows" {
-				// POSIX shell spelling of the two-stream case.
+				// 双流情形的 POSIX shell 写法。
 				args[len(args)-1] = strings.Replace(args[len(args)-1], " & ", "; ", 1)
 			}
 			p, err := StartDetached(Command{Path: path, Args: args})
@@ -45,9 +45,9 @@ func TestDetachedSpawnCapturesChildOutput(t *testing.T) {
 	}
 }
 
-// TestRunWithTimeoutReturnsPartialOutputOnKeepOnTimeout exercises the real OS
-// starter: a child that prints before blocking must hand that prefix back in
-// the Result, and the promoted Process must still own the same captured bytes.
+// TestRunWithTimeoutReturnsPartialOutputOnKeepOnTimeout 演练真实的 OS
+// 启动器：在阻塞前打印的子进程必须把该前缀交回
+// Result，且被提升的 Process 仍必须拥有同一批捕获字节。
 func TestRunWithTimeoutReturnsPartialOutputOnKeepOnTimeout(t *testing.T) {
 	line := "echo PARTIAL_OUTPUT && sleep 30"
 	if runtime.GOOS == "windows" {

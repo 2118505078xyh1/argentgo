@@ -11,8 +11,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// approvalAnswerRunner is fakeRunner plus the two optional seams approval.answer
-// discovers: a durable pending store and a shared event hub.
+// approvalAnswerRunner 是 fakeRunner 加上 approval.answer 会发现的
+// 两个可选接缝：一个持久的待处理存储和一个共享事件 hub。
 type approvalAnswerRunner struct {
 	fakeRunner
 	pending *security.PendingStore
@@ -23,8 +23,8 @@ func (r *approvalAnswerRunner) PendingStore() *security.PendingStore { return r.
 
 func (r *approvalAnswerRunner) EventHub() *EventHub { return r.hub }
 
-// rpcApprovalAnswer sends one approval.answer request on a fresh transport and
-// returns its single JSON-RPC reply.
+// rpcApprovalAnswer 在一个全新的传输上发送一条 approval.answer 请求，
+// 并返回它的单条 JSON-RPC 回复。
 func rpcApprovalAnswer(t *testing.T, cfg Config, params any) map[string]any {
 	t.Helper()
 	inR, inW := io.Pipe()
@@ -86,7 +86,7 @@ func TestRPCApprovalAnswerRoundTrip(t *testing.T) {
 				t.Fatalf("approval.answer result = %v, want ok:true", resp)
 			}
 
-			// Resolve must remove the pending item from the durable mirror.
+			// Resolve 必须从持久镜像中移除待处理项。
 			items, err := store.List("sess-1")
 			if err != nil {
 				t.Fatalf("list pending after answer: %v", err)
@@ -95,8 +95,8 @@ func TestRPCApprovalAnswerRoundTrip(t *testing.T) {
 				t.Fatalf("pending item survived approval.answer: %+v", items)
 			}
 
-			// The server publishes the resolved notice on the shared hub so the
-			// native bridge (text-only) can retire the approval card.
+			// 服务器在共享 hub 上发布 resolved 通知，使
+			// 原生桥（纯文本）可以撤下审批卡片。
 			select {
 			case ev := <-sub:
 				kind, tool, id, granted, ok := agent.ParseApprovalEvent(ev)
@@ -113,8 +113,8 @@ func TestRPCApprovalAnswerRoundTrip(t *testing.T) {
 }
 
 func TestRPCApprovalAnswerWithoutStore(t *testing.T) {
-	// A plain fakeRunner exposes no PendingStore(): the method must report a
-	// structured error instead of panicking.
+	// 普通的 fakeRunner 不暴露 PendingStore()：该方法必须报告
+	// 结构化的错误，而不是 panic。
 	resp := rpcApprovalAnswer(t, Config{Runner: &fakeRunner{}}, map[string]any{
 		"id": "call_1", "granted": true,
 	})

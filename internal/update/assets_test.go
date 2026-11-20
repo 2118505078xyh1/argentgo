@@ -139,11 +139,11 @@ func TestFindAssetTable(t *testing.T) {
 	}
 }
 
-// TestFindAssetIsDeterministicForAmbiguousNames is the regression for a bug
-// where longestAlias walked a map in random order. A name carrying two aliases
-// of equal length from different keys (".linux." and ".win32." are both seven
-// bytes) used to match or not match from one call to the next, so the same
-// release could install different assets in different processes.
+// TestFindAssetIsDeterministicForAmbiguousNames 是针对某个 bug 的回归测试：
+// longestAlias 曾以随机顺序遍历 map。一个名字若带有来自不同键的两个等长别名
+// （".linux." 和 ".win32." 都是七个
+// 字节），过去会在不同调用间时而匹配时而不匹配，因此同一
+// 版本在不同进程中可能安装不同的资源。
 func TestFindAssetIsDeterministicForAmbiguousNames(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_1.2.3_linux_win32.zip", URL: "ambiguous"},
@@ -158,9 +158,9 @@ func TestFindAssetIsDeterministicForAmbiguousNames(t *testing.T) {
 	}
 }
 
-// TestFindAssetRejectsAmbiguousArchitecture covers equal-length architecture
-// aliases from different keys. The asset must be rejected for both platforms
-// rather than picked randomly as a fallback for one of them.
+// TestFindAssetRejectsAmbiguousArchitecture 覆盖来自不同键的等长架构
+// 别名。该资源必须对两个平台都被拒绝，
+// 而不是被随机选作其中之一的回退。
 func TestFindAssetRejectsAmbiguousArchitecture(t *testing.T) {
 	asset := Asset{Name: "argent_1.2.3_linux_amd64_arm64.tar.gz", URL: "fat"}
 	for _, arch := range []string{"amd64", "arm64"} {
@@ -170,8 +170,8 @@ func TestFindAssetRejectsAmbiguousArchitecture(t *testing.T) {
 	}
 }
 
-// TestLongestAliasRejectsAmbiguousNames checks the shared helper directly so a
-// future change to classification cannot silently reintroduce map-order luck.
+// TestLongestAliasRejectsAmbiguousNames 直接检查这个共享辅助函数，以便
+// 将来修改分类逻辑时不会悄悄重新引入 map 顺序的偶然性。
 func TestLongestAliasRejectsAmbiguousNames(t *testing.T) {
 	if key, matched, ambiguous := longestAlias(".argent.linux.win32.zip.", osAliases); !ambiguous || matched || key != "" {
 		t.Fatalf("longestAlias(ambiguous OS) = (%q, %v, %v)", key, matched, ambiguous)
@@ -190,10 +190,10 @@ func TestFindAssetDefaultsToTheRunningPlatform(t *testing.T) {
 	}
 }
 
-// TestFindAssetRejectsForeignArchForUnknownTarget covers a valid Go GOARCH that
-// is not in archAliases (for example riscv64). An asset that explicitly names a
-// different architecture must never be accepted as an OS-only fallback, or the
-// updater can install an amd64 binary on an unsupported machine.
+// TestFindAssetRejectsForeignArchForUnknownTarget 覆盖一个有效但不在
+// archAliases 中的 Go GOARCH（例如 riscv64）。明确指定
+// 不同架构的资源绝不能作为仅含 OS 的回退被接受，否则
+// 更新器可能在不支持的机器上安装 amd64 二进制。
 func TestFindAssetRejectsForeignArchForUnknownTarget(t *testing.T) {
 	amd64 := Asset{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "amd64"}
 	if _, found := FindAsset([]Asset{amd64}, "linux", "riscv64"); found {
@@ -206,7 +206,7 @@ func TestFindAssetRejectsForeignArchForUnknownTarget(t *testing.T) {
 		t.Fatalf("FindAsset = %+v, %v; want the riscv64 asset", asset, found)
 	}
 
-	// An asset with no architecture in its name remains a valid OS-only fallback.
+	// 名称中不含架构的资源仍是有效的仅 OS 回退。
 	generic := Asset{Name: "argent_1.2.3_linux.tar.gz", URL: "generic"}
 	asset, found = FindAsset([]Asset{generic}, "linux", "riscv64")
 	if !found || asset.URL != "generic" {

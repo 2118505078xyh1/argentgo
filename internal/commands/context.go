@@ -1,13 +1,13 @@
 package commands
 
-// Built-in /context: a read-only explainability view of the model context.
+// 内置 /context：模型上下文的只读可解释性视图。
 //
-// Commands in this package are data (Command descriptors plus hook structs),
-// not a Go interface, so the core logic lives in the pure builder
-// BuildContextReport. A built-in hook (ContextHook) and a markdown command can
-// both call it without this package importing internal/app or internal/agent.
-// All inputs are injected as plain slices/strings, keeping the function
-// deterministic, stdlib-only and easy to test.
+// 本包中的命令是数据（Command 描述符加钩子结构体），
+// 而非 Go 接口，因此核心逻辑位于纯构建器
+// BuildContextReport 中。内置钩子（ContextHook）和 markdown 命令都
+// 可以调用它，而无需本包导入 internal/app 或 internal/agent。
+// 所有输入都以普通切片/字符串注入，使函数保持
+// 确定性、仅依赖标准库且易于测试。
 
 import (
 	"encoding/json"
@@ -18,16 +18,16 @@ import (
 	"unicode/utf8"
 )
 
-// Bounds keep a pathological input from producing an unbounded report (the
-// report itself can end up in the context it describes).
+// 边界限制防止病态输入产生无界报告（报告
+// 本身可能落入它所描述的上下文中）。
 const (
 	maxContextItems     = 50
 	maxContextNameBytes = 120
 	maxContextPathBytes = 240
 )
 
-// MemoryDoc is one instruction file currently injected into the system prompt.
-// Bytes is the length of the injected text; Reason explains a truncation.
+// MemoryDoc 是当前注入系统提示的一条指令文件。
+// Bytes 是注入文本的长度；Reason 解释截断原因。
 type MemoryDoc struct {
 	Path      string
 	Bytes     int
@@ -35,15 +35,15 @@ type MemoryDoc struct {
 	Reason    string
 }
 
-// IgnoreStatus is the outcome of hierarchical .argentignore discovery.
+// IgnoreStatus 是分层 .argentignore 发现的结果。
 type IgnoreStatus struct {
 	Files []string
 	Rules int
 }
 
-// ContextInput is everything needed to render a /context report. It contains
-// only plain data so callers own the app/agent state and this package stays
-// layering-safe.
+// ContextInput 是渲染 /context 报告所需的一切。它只包含
+// 纯数据，因此调用方拥有 app/agent 状态，本包保持
+// 分层安全。
 type ContextInput struct {
 	MemoryDocs   []MemoryDoc
 	SkillCount   int
@@ -54,8 +54,8 @@ type ContextInput struct {
 	Ignore       IgnoreStatus
 }
 
-// contextReport is the normalized, bounded form shared by both renderers.
-// Field order is fixed, which also makes the JSON output deterministic.
+// contextReport 是两种渲染器共用的规范化、有界形式。
+// 字段顺序固定，这也让 JSON 输出具有确定性。
 type contextReport struct {
 	MemoryDocs     []MemoryDoc `json:"memory_docs"`
 	SkillCount     int         `json:"skill_count"`
@@ -68,8 +68,8 @@ type contextReport struct {
 	EstimatedBytes int         `json:"estimated_bytes"`
 }
 
-// normalizeContext sorts, bounds and clips the input. Slicing copies keep the
-// caller's slices untouched, so repeated calls with the same input are stable.
+// normalizeContext 对输入排序、限界并裁剪。切片副本确保
+// 调用方的切片不被改动，因此相同输入的重复调用结果稳定。
 func normalizeContext(in ContextInput) contextReport {
 	out := contextReport{
 		SkillCount:   in.SkillCount,
@@ -120,9 +120,9 @@ func normalizeContext(in ContextInput) contextReport {
 	return out
 }
 
-// BuildContextReport renders a compact, human-readable "what is in context"
-// view. Every section is present even for empty input. The output is bounded
-// and deterministic: the same input always renders the same text.
+// BuildContextReport 渲染紧凑、易读的 "上下文中有什么"
+// 视图。即使输入为空，每个章节也会出现。输出有界
+// 且确定：相同输入总是渲染出相同文本。
 func BuildContextReport(in ContextInput) string {
 	r := normalizeContext(in)
 	var b strings.Builder
@@ -176,13 +176,13 @@ func BuildContextReport(in ContextInput) string {
 	return b.String()
 }
 
-// BuildContextReportJSON is the machine-readable twin of BuildContextReport.
-// It uses the same normalized input, so both views always agree.
+// BuildContextReportJSON 是 BuildContextReport 的机器可读孪生版本。
+// 它使用相同的规范化输入，因此两种视图始终一致。
 func BuildContextReportJSON(in ContextInput) ([]byte, error) {
 	return json.MarshalIndent(normalizeContext(in), "", "  ")
 }
 
-// clipContextText bounds s to max bytes without splitting a UTF-8 rune.
+// clipContextText 将 s 限制在 max 字节内，且不拆分 UTF-8 rune。
 func clipContextText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
@@ -194,10 +194,10 @@ func clipContextText(s string, max int) string {
 	return s[:cut] + "…"
 }
 
-// ContextCommand is the built-in slash-command descriptor. Registration is
-// the caller's job (internal/app): set.Add(ContextCommand()) after Discover
-// and route `/context` to ContextHook.Run, mirroring /review. This package
-// never builds an app or reads the filesystem for the report.
+// ContextCommand 是内置斜杠命令描述符。注册是
+// 调用方（internal/app）的职责：在 Discover 之后调用 set.Add(ContextCommand())，
+// 并将 `/context` 路由到 ContextHook.Run，与 /review 一致。本包
+// 从不构建 app，也不为报告读取文件系统。
 func ContextCommand() Command {
 	return Command{
 		Name:        "context",
@@ -207,13 +207,13 @@ func ContextCommand() Command {
 	}
 }
 
-// ContextHook is the registration seam for the /context slash command. The
-// caller supplies the ContextInput it owns; Run stays pure and never errors.
+// ContextHook 是 /context 斜杠命令的注册接缝。
+// 调用方提供其拥有的 ContextInput；Run 保持纯函数且永不报错。
 type ContextHook struct {
 	Input ContextInput
 }
 
-// Run implements the hook signature used by the built-in command hooks.
+// Run 实现内置命令钩子所使用的钩子签名。
 func (h ContextHook) Run(_ string) (string, error) {
 	return BuildContextReport(h.Input), nil
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// DefaultStorage returns the storage root: $ARGENT_STORAGE, else ~/.argentgo.
+// DefaultStorage 返回存储根目录：$ARGENT_STORAGE，否则为 ~/.argentgo。
 func DefaultStorage(env func(string) string) string {
 	if env == nil {
 		env = os.Getenv
@@ -54,14 +54,14 @@ func expandHome(path string, env func(string) string) string {
 	return path
 }
 
-// Resolve merges the CLI options over the layered configuration.
+// Resolve 把 CLI 选项合并到分层配置之上。
 func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	env := stdio.Env
 	if env == nil {
 		env = os.Getenv
 	}
-	// config selects a profile through ARGENT_PROFILE, so a --profile flag is
-	// injected there rather than duplicated in this package.
+	// config 通过 ARGENT_PROFILE 选择 profile，因此 --profile 标志在那里注入，
+	// 而不是在本包中重复处理。
 	profileEnv := env
 	if profile := strings.TrimSpace(opts.Profile); profile != "" {
 		base := env
@@ -101,12 +101,10 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		return Resolved{}, err
 	}
 
-	// An empty option means "unset": the CLI leaves compiled defaults out of
-	// Options so that config files and profiles can win. config.Load applies
-	// the compiled defaults at the lowest layer, so unset() can still tell an
-	// untouched value from a real choice. Flags beat config; a named provider
-	// template beats the compiled OpenAI defaults, but never an explicit
-	// non-default config value.
+	// 空选项表示"未设置"：CLI 不把编译默认值放进 Options，使配置文件和 profile 能够生效。
+	// config.Load 在最底层应用编译默认值，因此 unset() 仍能区分未被触碰的值和真实的选择。
+	// 标志优先于配置；具名的提供方模板优先于编译的 OpenAI 默认值，但绝不会覆盖显式的
+	// 非默认配置值。
 	protocol := strings.TrimSpace(opts.Protocol)
 	if protocol == "" {
 		protocol = cfg.Protocol
@@ -133,20 +131,18 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	baseURL = firstNonEmpty(baseURL, openAIBaseURL)
 	model = firstNonEmpty(model, openAIModel)
 
-	// Credential priority: explicit flag / ARGENT_* env > top-level config >
-	// the key `argent login` stored under providers.<name>.apiKey > the
-	// provider's own API-key environment variable.
+	// 凭据优先级：显式标志 / ARGENT_* 环境变量 > 顶层配置 > `argent login` 存储在
+	// providers.<name>.apiKey 下的密钥 > 提供方自身的 API key 环境变量。
 	providerName := template.Name
 	if providerName == "" {
 		providerName = cfg.ProviderName
 	}
 	configuredProvider, _ := cfg.Provider(providerName)
-	// Use the config-resolved provider's APIKeyEnv, not template's. In the
-	// default path template is zero-valued (resolveTemplate cannot match the
-	// "openai-chat-completions" protocol name), so template.APIKeyEnv is empty
-	// and the provider-env fallback would silently fail. configuredProvider was
-	// resolved above via cfg.Provider(providerName), which falls back to the
-	// protocol's natural provider (openai) and has the correct APIKeyEnv.
+	// 使用由配置解析出的提供方的 APIKeyEnv，而非模板的。在默认路径中，模板是零值
+	// （resolveTemplate 无法匹配 "openai-chat-completions" 这个协议名），
+	// 因此 template.APIKeyEnv 为空，提供方环境变量的回退会静默失败。configuredProvider
+	// 在上面已通过 cfg.Provider(providerName) 解析，它会回退到协议对应的天然提供方（openai），
+	// 并带有正确的 APIKeyEnv。
 	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, configuredProvider.APIKey, env(configuredProvider.APIKeyEnv))
 
 	sandboxMode := firstNonEmpty(opts.SandboxMode, cfg.SandboxMode, "workspace-write")
@@ -167,8 +163,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		maxTurns = 12
 	}
 
-	// Flags beat config; zero means "unset" and selects the conservative
-	// default. An explicit 1 (or any negative value) keeps batches serial.
+	// 标志优先于配置；零表示"未设置"，选用保守的默认值。显式的 1（或任何负值）使批次串行执行。
 	maxParallel := firstNonZeroInt(opts.MaxParallel, intField(cfg.Raw, "maxParallel", "max-parallel"))
 	if maxParallel == 0 {
 		maxParallel = defaultMaxParallel
@@ -232,25 +227,19 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	return res, nil
 }
 
-// cacheOptionsForConfig builds the wire-level cache options consumed by
-// newChatter. The merged config may carry an explicit cache tier; the tier's
-// subscription and endpoint-capability inputs have no source at Resolve today,
-// so the production path wires only the explicit-config branch: conservative
-// facts (non-subscription, long supported) leave an unset tier at the same
-// short/provider-default entry the old literal produced, while an explicit
-// "long"/"none"/"short" choice is honoured. The subscription long default
-// belongs at a later wiring point where the credential kind and the endpoint's
-// long-retention capability are available.
+// cacheOptionsForConfig 构建供 newChatter 使用的线上层缓存选项。合并后的配置可能携带显式的
+// 缓存层级；该层级的"是否订阅"和"端点能力"输入目前还没有来源，
+// 因此生产路径只接入显式配置分支：保守的事实（非订阅、支持长效）使未设置的层级停留在旧字面量
+// 所产生的短缓存/提供方默认值条目上，而显式的 "long"/"none"/"short" 选择会被遵守。
+// 订阅用户的长效默认值属于更晚的接线点，那里能拿到凭据类型和端点的长期保留能力。
 func cacheOptionsForConfig(cfg config.Config, opts cli.Options) llm.Options {
 	configTier := cfgString(cfg.Raw, "cacheTier", "cache-tier", "promptCacheTier", "prompt-cache-tier")
 	return resolveCacheOptions(configTier, false, true, opts.NoPromptCache)
 }
 
-// resolveCacheOptions maps a resolved tier onto llm.Options' cache knobs. A
-// short tier — including the unset default — keeps the provider-default TTL
-// (an empty CacheRetention), so the historical wire format is unchanged. Long
-// emits a 1h retention hint and none is an explicit opt-out. The CLI's
-// NoPromptCache always wins: llm honours it above every other cache knob.
+// resolveCacheOptions 把已解析的层级映射到 llm.Options 的缓存开关。短层级（包括未设置的默认值）
+// 保留提供方默认的 TTL（空的 CacheRetention），因此历史线上格式不变。长层级发出 1 小时的保留提示，
+// none 则是显式的退出选择。CLI 的 NoPromptCache 始终优先：llm 把它置于其他所有缓存开关之上。
 func resolveCacheOptions(configTier string, isSubscription, supportsLong, noPromptCache bool) llm.Options {
 	tier := ResolveCacheTier(configTier, isSubscription, supportsLong)
 	out := llm.Options{NoPromptCache: noPromptCache}
@@ -263,8 +252,7 @@ func resolveCacheOptions(configTier string, isSubscription, supportsLong, noProm
 	return out
 }
 
-// resolveTemplate honours --provider, then the config provider, then the
-// protocol names the older flag surface used.
+// resolveTemplate 依次遵循 --provider、配置中的提供方，然后是旧标志接口所使用的协议名。
 func resolveTemplate(cfg config.Config, opts cli.Options) (providerChoice, bool, error) {
 	if name := strings.TrimSpace(opts.Provider); name != "" {
 		if choice, ok := lookupProvider(cfg, name); ok {
@@ -284,10 +272,9 @@ func resolveTemplate(cfg config.Config, opts cli.Options) (providerChoice, bool,
 }
 
 func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
-	// cfg.Provider merges a config overlay over the built-in provider of the
-	// same name (and already falls back to built-ins), so it must be consulted
-	// first. Otherwise provider.Resolve returns the hard-coded template and an
-	// override such as providers.<name>.baseURL in the config is silently lost.
+	// cfg.Provider 把配置覆盖层合并到同名内置提供方之上（且已回退到内置项），
+	// 因此必须首先查询它。否则 provider.Resolve 会返回硬编码的模板，
+	// 而配置中的 providers.<name>.baseURL 等覆盖项会被静默丢弃。
 	if entry, ok := cfg.Provider(name); ok {
 		return providerChoice{
 			Name:         entry.Name,
@@ -297,8 +284,8 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 			APIKeyEnv:    entry.APIKeyEnv,
 		}, true
 	}
-	// provider.Resolve remains the fallback for aliases (claude, kimi, ...) and
-	// built-in providers the config layer does not know about (deepseek, xai, ...).
+	// provider.Resolve 仍然是别名（claude、kimi 等）以及配置层不认识的内置提供方
+	// （deepseek、xai 等）的回退。
 	if template, ok := provider.Resolve(name); ok {
 		return providerChoice{
 			Name:         template.Name,
@@ -311,7 +298,7 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 	return providerChoice{}, false
 }
 
-// resolveAddDirs makes --add-dir values absolute against the workspace.
+// resolveAddDirs 把 --add-dir 的值转换为相对于工作区的绝对路径。
 func resolveAddDirs(root string, dirs []string) ([]string, error) {
 	out := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
@@ -331,7 +318,7 @@ func resolveAddDirs(root string, dirs []string) ([]string, error) {
 	return out, nil
 }
 
-// cfgString reads the first string key from a merged config tree.
+// cfgString 从合并后的配置树中读取第一个字符串键。
 func cfgString(tree map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if text, ok := tree[key].(string); ok {
@@ -341,9 +328,8 @@ func cfgString(tree map[string]any, keys ...string) string {
 	return ""
 }
 
-// canonicalProtocol maps the short CLI spellings and the config wire names
-// onto a single vocabulary, so unset() and the chatter factory agree on what
-// "openai" means. Unknown values pass through unchanged.
+// canonicalProtocol 把 CLI 的简短写法和配置的线上名称映射到统一的词汇表，
+// 使 unset() 和 chatter 工厂对 "openai" 的含义达成一致。未知值原样透传。
 func canonicalProtocol(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "openai", "openai-chat-completions":
@@ -357,7 +343,7 @@ func canonicalProtocol(value string) string {
 	}
 }
 
-// intField reads the first numeric key from a merged config tree.
+// intField 从合并后的配置树中读取第一个数值键。
 func intField(tree map[string]any, keys ...string) int {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -375,7 +361,7 @@ func intField(tree map[string]any, keys ...string) int {
 	return 0
 }
 
-// floatField reads the first numeric key from a merged config tree.
+// floatField 从合并后的配置树中读取第一个浮点数值键。
 func floatField(tree map[string]any, keys ...string) float64 {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -411,7 +397,7 @@ func firstNonZeroFloat(values ...float64) float64 {
 	return 0
 }
 
-// pricesFor builds the agent price table from --price-input/--price-output.
+// pricesFor 根据 --price-input/--price-output 构建 agent 价格表。
 func pricesFor(model string, opts cli.Options, cfg config.Config) map[string]agent.Price {
 	if opts.PriceInput == 0 && opts.PriceOutput == 0 {
 		raw, ok := cfg.Raw["prices"].(map[string]any)
@@ -438,14 +424,12 @@ const (
 	openAIBaseURL  = "https://api.openai.com/v1"
 	openAIModel    = "gpt-4o-mini"
 
-	// defaultMaxParallel bounds read-only tool batches when neither a flag, an
-	// environment variable nor config selects a value. It is deliberately small
-	// to keep filesystem and hook load predictable.
+	// defaultMaxParallel 在标志、环境变量和配置都没有选值时，限制只读工具批次。
+	// 它刻意取较小值，使文件系统和钩子的负载保持可预测。
 	defaultMaxParallel = 4
 )
 
-// unset reports whether a config value still holds the compiled default, which
-// is the only signal available for "the user did not choose this".
+// unset 报告某个配置值是否仍是编译默认值，这是判断"用户没有选择此项"的唯一可用信号。
 func unset(value, compiledDefault string) bool {
 	trimmed := strings.TrimSpace(value)
 	return trimmed == "" || strings.EqualFold(trimmed, compiledDefault)

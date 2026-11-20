@@ -1,10 +1,10 @@
 package memory
 
-// Persistent fact store. Unlike the instruction files in memory.go (which are
-// project-owned, immutable input to the system prompt), this bank is written by
-// the agent itself and survives across sessions. It is a single JSONL log:
-// one Memory per line, appended and synced per write, rewritten through a
-// temporary file for cap enforcement and deletion.
+// 持久化事实存储。与 memory.go 中的指令文件（它们是
+// 项目拥有的、系统提示的不可变输入）不同，这个 bank 由
+// agent 自己写入并跨会话保留。它是单个 JSONL 日志：
+// 每行一条 Memory，每次写入都追加并同步，通过
+// 临时文件重写以执行容量上限和删除操作。
 
 import (
 	"bufio"
@@ -26,52 +26,52 @@ import (
 )
 
 const (
-	// memoryFileName is the append-only log backing a Bank.
+	// memoryFileName 是支撑 Bank 的仅追加日志。
 	memoryFileName = "memory.jsonl"
-	// defaultCap bounds retained entries: 2000 * 4KB is roughly 8MB on disk.
+	// defaultCap 限制保留的条目数：2000 * 4KB 在磁盘上约 8MB。
 	defaultCap = 2000
-	// maxTextBytes bounds the stored text of one entry (and of source/tags).
+	// maxTextBytes 限制单条存储文本（以及 source/tags）的长度。
 	maxTextBytes = 4096
-	// maxTagBytes bounds a single tag so a malicious model cannot pad the log.
+	// maxTagBytes 限制单个标签，使恶意模型无法填充日志。
 	maxTagBytes = 64
-	// defaultRecallLimit applies when a caller passes a non-positive limit.
+	// defaultRecallLimit 在调用方传入非正数的 limit 时生效。
 	defaultRecallLimit = 10
-	// tagMatchBonus outweighs a single token hit so explicit tags act as a
-	// strong filter rather than a faint relevance hint.
+	// tagMatchBonus 超过单个标记命中，使显式标签起到
+	// 强过滤作用，而不是微弱的相关性提示。
 	tagMatchBonus = 3
-	// scannerBufferSize accommodates a 4KB text plus tags and metadata.
+	// scannerBufferSize 容纳 4KB 文本加标签和元数据。
 	scannerBufferSize = 1024 * 1024
-	// maxReflectBytes caps the total size of an extractive reflection, header
-	// included. 4KB keeps the synthesis well inside a model's context budget.
+	// maxReflectBytes 限制抽取式反射的总大小（含头部）。
+	// 4KB 使合成结果远在模型的上下文预算之内。
 	maxReflectBytes = 4096
-	// reflectPositionBonus is the small head start given to sentences that
-	// appear early in recall order. It keeps relevance (token overlap) as the
-	// primary ranking signal while preserving a readable, lead-first summary.
+	// reflectPositionBonus 是给在召回顺序中较早出现的句子的
+	// 小幅领先。它让相关性（标记重叠）保持
+	// 主要排序信号，同时保留可读的、重点在前的摘要。
 	reflectPositionBonus = 2
-	// skillDirName is the managed subdirectory under the bank dir where
-	// promoted lessons are written as SKILL.md-compatible markdown.
+	// skillDirName 是 bank 目录下受管理的子目录，
+	// 被提升的经验教训以 SKILL.md 兼容的 markdown 写入其中。
 	skillDirName = "skills"
 )
 
-// ErrEmptyText is returned when Retain is asked to store nothing.
+// 当 Retain 被要求不存储任何内容时返回 ErrEmptyText。
 var ErrEmptyText = errors.New("memory: text must not be empty")
 
-// Memory is one durable fact. TS is stored in UTC.
+// Memory 是一条持久化事实。TS 以 UTC 存储。
 type Memory struct {
 	ID     string    `json:"id"`
 	Text   string    `json:"text"`
 	Tags   []string  `json:"tags,omitempty"`
 	TS     time.Time `json:"ts"`
 	Source string    `json:"source,omitempty"`
-	// Invalidated, when non-empty, holds the reason a fact was invalidated and
-	// excludes it from Recall and Reflect. omitempty means normal records never
-	// carry the field, so existing logs and callers are byte-for-byte unchanged
-	// when invalidation is unused.
+	// Invalidated 非空时保存事实被作废的原因，
+	// 并将其排除在 Recall 和 Reflect 之外。omitempty 表示正常记录
+	// 永不携带该字段，因此在未使用作废功能时，现有日志和调用方
+	// 保持逐字节不变。
 	Invalidated string `json:"invalidated,omitempty"`
 }
 
-// Bank is a concurrency-safe persistent fact store backed by one JSONL file.
-// Construct it with NewBank; the zero value is not usable.
+// Bank 是由单个 JSONL 文件支撑的并发安全持久化事实存储。
+// 用 NewBank 构造；零值不可用。
 type Bank struct {
 	dir  string
 	path string
@@ -79,8 +79,8 @@ type Bank struct {
 	cap  int
 }
 
-// NewBank returns a bank rooted at dir, creating the directory when possible.
-// An empty dir falls back to a private directory under os.TempDir().
+// NewBank 返回一个以 dir 为根的 bank，尽可能创建该目录。
+// 空 dir 会回退到 os.TempDir() 下的私有目录。
 func NewBank(dir string) *Bank {
 	if strings.TrimSpace(dir) == "" {
 		dir = filepath.Join(os.TempDir(), "argent-memory")
@@ -89,8 +89,8 @@ func NewBank(dir string) *Bank {
 	return &Bank{dir: dir, path: filepath.Join(dir, memoryFileName), cap: defaultCap}
 }
 
-// SetDir repoints the bank at a new directory. It is intended for setup, before
-// concurrent use; the file itself is created lazily on the next write.
+// SetDir 将 bank 指向新目录。它用于初始化，即在
+// 并发使用之前；文件本身在下次写入时懒创建。
 func (b *Bank) SetDir(dir string) {
 	if strings.TrimSpace(dir) == "" {
 		return
@@ -102,12 +102,12 @@ func (b *Bank) SetDir(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
 }
 
-// Dir reports the directory currently backing the bank.
+// Dir 报告当前支撑 bank 的目录。
 func (b *Bank) Dir() string { return b.dir }
 
-// Retain stores a fact and returns its generated id. The text, tags and source
-// are redacted with security.Redact before anything reaches disk, so the memory
-// file never contains credentials. Stores over the cap drop the oldest entries.
+// Retain 存储一条事实并返回其生成的 id。文本、标签和来源
+// 在写入磁盘前都用 security.Redact 脱敏，因此 memory
+// 文件永不包含凭据。超出上限的存储会丢弃最旧的条目。
 func (b *Bank) Retain(text string, tags []string, source string) (string, error) {
 	body := boundedText(text)
 	if body == "" {
@@ -136,8 +136,8 @@ func (b *Bank) Retain(text string, tags []string, source string) (string, error)
 		return "", err
 	}
 	if b.cap > 0 && len(loaded) > b.cap {
-		// Keep the tail: the log is in insertion order, so the last cap entries
-		// are the newest ones regardless of clock resolution.
+		// 保留尾部：日志按插入顺序排列，因此最后 cap 条
+		// 无论时钟分辨率如何都是最新的。
 		if err := b.writeAllLocked(loaded[len(loaded)-b.cap:]); err != nil {
 			return "", err
 		}
@@ -145,11 +145,11 @@ func (b *Bank) Retain(text string, tags []string, source string) (string, error)
 	return id, nil
 }
 
-// Recall loads the bank and returns up to limit memories ranked by token
-// overlap with query plus tag matches, ties broken newest-first. A non-positive
-// limit uses defaultRecallLimit. With an empty query and no tags every memory
-// is eligible, so the result is simply the newest first. Malformed lines are
-// skipped leniently.
+// Recall 加载 bank，并返回最多 limit 条按与 query 的标记
+// 重叠度加标签匹配排序的 memory，平局时新的优先。非正数
+// limit 使用 defaultRecallLimit。空 query 且无标签时每条 memory
+// 都符合条件，因此结果就是简单地按最新优先排列。格式错误的行会被
+// 宽松跳过。
 func (b *Bank) Recall(query string, tags []string, limit int) []Memory {
 	b.mu.Lock()
 	all, err := b.loadLocked()
@@ -173,9 +173,9 @@ func (b *Bank) Recall(query string, tags []string, limit int) []Memory {
 	}
 	results := make([]hit, 0, len(all))
 	for i, mem := range all {
-		// Invalidated facts are tombstones: kept on disk for provenance but
-		// never surfaced by search. Normal records never carry the field, so
-		// this filter is a no-op for banks that never call Invalidate.
+		// 已作废的事实是墓碑：为溯源而保留在磁盘上，但
+		// 从不出现在搜索结果中。正常记录永不携带该字段，因此
+		// 对从不调用 Invalidate 的 bank 来说，这个过滤是空操作。
 		if mem.Invalidated != "" {
 			continue
 		}
@@ -226,7 +226,7 @@ func (b *Bank) Recall(query string, tags []string, limit int) []Memory {
 	return out
 }
 
-// Forget removes the memory with id. It is idempotent: an unknown id is a no-op.
+// Forget 删除 id 对应的 memory。它是幂等的：未知 id 是空操作。
 func (b *Bank) Forget(id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -253,9 +253,9 @@ func (b *Bank) Forget(id string) error {
 	return b.writeAllLocked(kept)
 }
 
-// All returns every valid memory in insertion order, skipping malformed lines.
-// Invalidated memories remain here (and on disk) as tombstones; only Recall and
-// Reflect hide them.
+// All 按插入顺序返回每条有效 memory，跳过格式错误的行。
+// 已作废的 memory 在这里（以及磁盘上）作为墓碑保留；只有 Recall 和
+// Reflect 隐藏它们。
 func (b *Bank) All() []Memory {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -266,23 +266,23 @@ func (b *Bank) All() []Memory {
 	return all
 }
 
-// Reflect produces a deterministic, EXTRACTIVE synthesis over the memories most
-// relevant to query. It performs NO model call and uses only the standard
-// library. Unlike plain concatenation, it is a real extractive synthesizer:
+// Reflect 对与 query 最相关的 memory 产生确定性的、抽取式
+// 合成。它不调用任何模型，只使用标准
+// 库。与普通拼接不同，它是真正的抽取式合成器：
 //
-//  1. Recall returns the top `limit` memories (relevance first, then recency).
-//  2. Each memory is split into sentences at .!?。！？ boundaries (decimal dots
-//     such as "3.14" are left alone, and CJK text is kept intact).
-//  3. Every sentence is scored by case-insensitive token overlap with the query
-//     plus a small bonus for appearing early in recall order.
-//  4. Near-identical sentences are deduplicated, keeping the first (best) copy.
-//  5. The best `limit` sentences are emitted, ranked by score then original
-//     order, one per "- " line under a header, capped at maxReflectBytes. The
-//     byte cap is applied with the grapheme-safe clipper so combining marks,
-//     emoji and flags are never cut in half.
+//  1. Recall 返回前 `limit` 条 memory（先按相关性，再按新近度）。
+//  2. 每条 memory 在 .!?。！？ 边界处拆分为句子（小数点
+//     如 "3.14" 保持不变，CJK 文本保持完整）。
+//  3. 每个句子按与 query 的不区分大小写的标记重叠度打分，
+//     并对在召回顺序中较早出现给予小幅加分。
+//  4. 近乎相同的句子去重，保留第一个（最佳的）副本。
+//  5. 输出最佳的 `limit` 个句子，先按分数再按原始
+//     顺序排序，在标题下每行一个 "- "，上限为 maxReflectBytes。字
+//     节上限通过字形安全的裁剪器施加，因此组合标记、
+//     emoji 和旗帜从不被切掉一半。
 //
-// Output is fully stable for a given bank and query; no randomness and no model
-// call are involved. A bank with no eligible sentences returns a short notice.
+// 对于给定的 bank 和 query，输出完全稳定；不涉及随机性或模型
+// 调用。没有符合条件句子的 bank 返回一条简短通知。
 func (b *Bank) Reflect(query string, limit int) string {
 	if limit <= 0 {
 		limit = defaultRecallLimit
@@ -292,8 +292,8 @@ func (b *Bank) Reflect(query string, limit int) string {
 		return "no memories to reflect on"
 	}
 
-	// Unique query tokens, lowercased; duplicates in the query must not inflate
-	// a sentence's score.
+	// 唯一的 query 标记，已转小写；query 中的重复项不得抬高
+	// 句子的分数。
 	queryTokens := reflectTokens(query)
 	querySet := make(map[string]bool, len(queryTokens))
 	uniqueQuery := queryTokens[:0]
@@ -334,7 +334,7 @@ func (b *Bank) Reflect(query string, limit int) string {
 					score++
 				}
 			}
-			// Earlier sentences get a small, bounded head start.
+			// 较早的句子获得小幅、有界的领先。
 			if bonus := reflectPositionBonus - pos; bonus > 0 {
 				score += bonus
 			}
@@ -364,15 +364,15 @@ func (b *Bank) Reflect(query string, limit int) string {
 	sb.WriteString(header)
 	used := len(header)
 	for _, c := range candidates {
-		// Fold embedded newlines so one sentence stays one reflected line.
+		// 折叠内嵌换行，使一个句子保持为一行反射结果。
 		text := strings.Join(strings.Fields(c.text), " ")
 		room := maxReflectBytes - used - 3 // "- " prefix and trailing "\n"
 		if room <= 0 {
 			break
 		}
 		clipped := clipGraphemeBytes(text, room)
-		// Defensive fallback: if no whole cluster fits, the rune-safe clipper
-		// produces the same (empty or rune-aligned) result.
+		// 防御性回退：若没有完整的字簇放得下，按 rune 安全的裁剪器
+		// 会产生相同（空或 rune 对齐）的结果。
 		if clipped == "" && text != "" {
 			clipped = clipRunes(text, room)
 		}
@@ -387,15 +387,15 @@ func (b *Bank) Reflect(query string, limit int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// dedupeKey normalises a sentence into a comparison key so near-identical texts
-// (differing only in case, whitespace, CJK spacing or punctuation) collapse to a
-// single reflected line. Each token is NUL-delimited so "ab c" and "a bc" do
-// not collide.
+// dedupeKey 将句子规范化为比较键，使近乎相同的文本
+// （仅在大小写、空白、CJK 间距或标点上不同）折叠为
+// 一行反射结果。每个标记以 NUL 分隔，因此 "ab c" 和 "a bc" 不
+// 会冲突。
 func dedupeKey(text string) string { return strings.Join(reflectTokens(text), "\x00") }
 
-// splitSentences splits text at .!?。！？ boundaries, keeping the terminating
-// punctuation attached to its sentence and absorbing runs of it (e.g. "?!").
-// A "." between two ASCII digits is treated as a decimal point, not a boundary.
+// splitSentences 在 .!?。！？ 边界处拆分文本，将结尾
+// 标点附加到其句子上，并吸收连续的标点（例如 "?!"）。
+// 两个 ASCII 数字之间的 "." 视为小数点，而非边界。
 func splitSentences(text string) []string {
 	var out []string
 	start := 0
@@ -439,11 +439,11 @@ func isDecimalDot(text string, i int) bool {
 		text[i+1] >= '0' && text[i+1] <= '9'
 }
 
-// reflectTokens lowercases text and splits it into comparison tokens. Latin and
-// other non-CJK letters/digits stay whole ("quick," -> "quick"), while Han,
-// Hiragana, Katakana and Hangul are emitted one rune at a time so a CJK query
-// can overlap a sentence without whitespace-delimited words. Punctuation and
-// symbols are dropped.
+// reflectTokens 将文本转为小写并拆分为比较标记。拉丁字母及
+// 其他非 CJK 字母/数字保持完整（"quick," -> "quick"），而汉字、
+// 平假名、片假名和韩文逐 rune 输出，这样 CJK query
+// 无需空白分隔的词也能与句子重叠。标点和
+// 符号被丢弃。
 func reflectTokens(text string) []string {
 	text = strings.ToLower(text)
 	tokens := make([]string, 0, len(text)/2)
@@ -477,13 +477,13 @@ func isCJK(r rune) bool {
 		unicode.Is(unicode.Hangul, r)
 }
 
-// Learn retains a reusable lesson and, when promote is true, also writes a
-// lightweight SKILL.md-compatible markdown file under <bank dir>/skills/<id>.md.
-// It deliberately does NOT import internal/skills (layering): the file simply
-// follows the frontmatter + body format the skills loader already understands.
-// Skill writing is best-effort — a failure still leaves the lesson retained and
-// returns the id with an empty path plus a wrapped error, so a lesson is never
-// lost just because its optional skill file could not be written.
+// Learn 保留一条可复用的经验教训，并在 promote 为 true 时，另外在
+// <bank dir>/skills/<id>.md 下写入一个轻量的 SKILL.md 兼容 markdown 文件。
+// 它刻意不导入 internal/skills（分层考虑）：该文件只是
+// 遵循 skills 加载器已能理解的 frontmatter + 正文格式。
+// 技能写入是尽力而为的 —— 失败仍会保留经验教训，
+// 并返回 id 加空路径以及包装后的错误，因此经验不会仅仅因为
+// 其可选技能文件无法写入而丢失。
 func (b *Bank) Learn(text string, tags []string, promote bool) (string, string, error) {
 	id, err := b.Retain(text, tags, "learn")
 	if err != nil {
@@ -499,12 +499,12 @@ func (b *Bank) Learn(text string, tags []string, promote bool) (string, string, 
 	return id, path, nil
 }
 
-// writeSkill emits one SKILL.md-compatible document for a promoted lesson.
-// 0600 is best-effort on Windows, where POSIX file modes are largely ignored;
-// the explicit mode documents intent and is correct on Unix.
+// writeSkill 为被提升的经验教训输出一个 SKILL.md 兼容文档。
+// 0600 在 Windows 上是尽力而为的，POSIX 文件模式基本被忽略；
+// 显式模式记录了意图，且在 Unix 上是正确的。
 func (b *Bank) writeSkill(id, text string, tags []string) (string, error) {
-	// Mirror the stored record: use the same redaction + cap Retain applied so a
-	// credential can never reach the skill file through the raw argument.
+	// 镜像存储的记录：使用 Retain 所施加的相同脱敏 + 上限，使
+	// 凭据绝不可能通过原始参数进入技能文件。
 	body := boundedText(text)
 	dir := filepath.Join(b.dir, skillDirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -522,9 +522,9 @@ func (b *Bank) writeSkill(id, text string, tags []string) (string, error) {
 	return path, nil
 }
 
-// skillDescription builds a single-line frontmatter description from tags or,
-// when none are present, a clipped first line of the lesson. Newlines are
-// flattened so the value cannot break the YAML-ish frontmatter block.
+// skillDescription 根据标签构建单行 frontmatter 描述，若
+// 没有标签则取经验教训裁剪后的第一行。换行会被
+// 展平，使该值不会破坏类 YAML 的 frontmatter 块。
 func skillDescription(body string, tags []string) string {
 	var desc string
 	if clean := cleanTags(tags); len(clean) > 0 {
@@ -542,11 +542,11 @@ func skillDescription(body string, tags []string) string {
 	return desc
 }
 
-// Invalidate marks the memory with id as invalidated, recording reason, and
-// removes it from Recall and Reflect. The record stays on disk (and in All) as
-// a tombstone so provenance is preserved. Implementation: set the omitempty
-// `invalidated` field on the record via the same atomic rewrite used by Forget.
-// It is idempotent: an unknown id is a no-op.
+// Invalidated 将 id 对应的 memory 标记为已作废，记录原因，并
+// 将其从 Recall 和 Reflect 中移除。记录作为墓碑留在磁盘上（以及 All 中），
+// 以保留溯源。实现方式：通过 Forget 使用的相同原子重写，
+// 设置记录上的 omitempty `invalidated` 字段。
+// 它是幂等的：未知 id 是空操作。
 func (b *Bank) Invalidate(id string, reason string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -575,8 +575,8 @@ func (b *Bank) Invalidate(id string, reason string) error {
 	return b.writeAllLocked(all)
 }
 
-// appendLocked writes one record with a single write + Sync so a crash cannot
-// leave a partial line in the log. The caller holds b.mu.
+// appendLocked 通过单次写入 + Sync 写入一条记录，使崩溃
+// 不会在日志中留下半行。调用方持有 b.mu。
 func (b *Bank) appendLocked(mem Memory) error {
 	line, err := json.Marshal(mem)
 	if err != nil {
@@ -601,8 +601,8 @@ func (b *Bank) appendLocked(mem Memory) error {
 	return nil
 }
 
-// loadLocked reads the whole log. Bad lines are skipped rather than failing the
-// whole read, so one corrupt record cannot hide the rest. The caller holds b.mu.
+// loadLocked 读取整个日志。坏行会被跳过而非导致
+// 整个读取失败，因此一条损坏记录不会隐藏其余内容。调用方持有 b.mu。
 func (b *Bank) loadLocked() ([]Memory, error) {
 	f, err := os.Open(b.path)
 	if err != nil {
@@ -636,9 +636,9 @@ func (b *Bank) loadLocked() ([]Memory, error) {
 	return out, nil
 }
 
-// writeAllLocked replaces the log atomically from a temporary file in the same
-// directory. Windows may refuse to rename over an existing file, so that case
-// falls back to removing the target first. The caller holds b.mu.
+// writeAllLocked 用同目录下的临时文件原子替换日志。
+// Windows 可能拒绝覆盖重命名现有文件，因此这种情况
+// 会回退为先删除目标。调用方持有 b.mu。
 func (b *Bank) writeAllLocked(mems []Memory) error {
 	tmp, err := os.CreateTemp(b.dir, "memory-*.jsonl.tmp")
 	if err != nil {
@@ -686,8 +686,8 @@ func (b *Bank) writeAllLocked(mems []Memory) error {
 	return nil
 }
 
-// boundedText trims, redacts and caps a stored string. Redaction happens before
-// truncation so a clipped credential can never leave a fragment on disk.
+// boundedText 对存储字符串进行裁剪、脱敏和限幅。脱敏在
+// 截断之前进行，因此被裁剪的凭据绝不会在磁盘上留下碎片。
 func boundedText(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -700,7 +700,7 @@ func boundedText(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// cleanTags normalises, redacts and deduplicates tags.
+// cleanTags 规范化、脱敏并去重标签。
 func cleanTags(tags []string) []string {
 	out := make([]string, 0, len(tags))
 	seen := make(map[string]bool, len(tags))
@@ -725,14 +725,14 @@ func cleanTags(tags []string) []string {
 	return out
 }
 
-// tokenize lowercases text into comparison tokens. Punctuation is removed so
-// "quick," and "quick" match. CJK text has no whitespace-delimited words, so
+// tokenize 将文本转为小写并拆分为比较标记。标点被移除，因此
+// "quick," 和 "quick" 匹配。CJK 文本没有空白分隔的词，所以
 // each CJK rune becomes its own token; otherwise a query such as "喜欢" could
-// never overlap a Chinese sentence, and Reflect would have nothing to synthesise.
+// 无法与中文句子重叠，Reflect 也就无可合成的内容。
 func tokenize(s string) []string { return reflectTokens(s) }
 
-// newID combines a nanosecond timestamp with random bytes so ids stay unique
-// even when many facts are retained in the same tick.
+// newID 将纳秒时间戳与随机字节结合，使 id 保持唯一，
+// 即使同一时刻保留了大量事实。
 func newID() (string, error) {
 	var raw [8]byte
 	if _, err := rand.Read(raw[:]); err != nil {

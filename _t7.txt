@@ -1,0 +1,264 @@
+===== internal/tui/approval_danger_test.go
+108	 位于其自己的样式行上，且默认拒绝的提示是可见的。
+135	TestCJKDangerReasonRendersIntact 守护 CJK 审计：中文原因必须
+136	在 Wrap/Pad 后保持有效 UTF-8 和完整字形，并与 zh-CN 的
+137	"default: deny" 提示同时呈现。
+
+===== internal/tui/buffer.go
+9	Cell 是一个终端单元格。Text 保存绘制在该单元格的精确字节。
+10	对于宽字素簇，第一个单元格持有整个簇（使
+11	ZWJ emoji、旗帜或组合序列完整到达终端），
+12	第二个单元格的 Text 为空，渲染器会跳过它，因为
+13	终端已经前进了两列。
+19	Buffer 是单元格网格，它记住上次刷新的帧，使 Flush
+20	只重写发生变化的行。重绘整行正是避免一行
+21	CJK 被局部重绘撕成两半的方法。
+32	NewBuffer 分配一个 w 列 h 行的缓冲区。
+39	Width 是缓冲区的列数。
+42	Height 是缓冲区的行数。
+45	Resize 改变网格，保留重叠的单元格。
+65	Clear 用空白单元格填充缓冲区。
+72	Set 在 (x, y) 写入一个字素簇，当该簇为双宽时
+73	预留其后的单元格。text 必须是 nextGrapheme 返回的
+74	恰好一个簇；调用方通常通过 WriteString 进行。
+93	WriteString 在 (x, y) 写入 text，裁剪到 max 个单元格，并返回
+94	使用的单元格数。它按字素簇遍历（与
+95	TextWidth/Wrap/Clip 采用同一权威），使 ZWJ emoji 或旗帜被绘制为一个字形，
+96	并占据布局代码为其预留的相同单元格数。在这里按
+97	rune 遍历会丢掉 ZWJ 并高估簇的宽度。
+116	RowText 是某一行去掉尾随空白后的无样式内容。
+117	宽 rune 的延续单元格被跳过，因此字符串的长度就是
+118	可见内容的单元格宽度。
+134	Flush 写入与上次刷新帧的差异，并返回
+135	写入的行数。尺寸变化会强制整屏重绘。
+162	Invalidate 遗忘上一帧，使下一次 Flush 重绘所有内容。
+168	SetNoColor 控制 Flush 是否发出 SGR 颜色转义。切换它会
+169	强制整屏重绘，因为每个单元格的字节都变了。
+190	cursorTo 是移动到基于 1 的行列的 ANSI 绝对光标定位。
+195	writeRow 输出一行，修剪尾随空白单元格，并用 EL 清除该行
+196	其余部分。尾随空格正是让重绘无闪烁的原因。
+208	 连重置都不发：操作员要求零个 SGR 颜色序列。
+
+===== internal/tui/buffer_test.go
+97	布局把 ZWJ 家庭 emoji 测为两个单元格（TextWidth），因此缓冲区
+98	必须恰好绘制这两个单元格，并把该簇的每个字节 ——
+99	包括不可见的 ZWJ —— 保留在绘制输出中。按 rune 遍历
+100	过去会丢掉 ZWJ 并预留六个单元格，把字形撕开，
+101	并使后面的 span 向右多推三个单元格。
+
+===== internal/tui/context_bar_test.go
+144	contextSpan 找到承载上下文用量读数的头部 span。
+
+===== internal/tui/contrast.go
+5	minInkContrast 是 WCAG AA 对大号/粗体文字的下限（3:1）。徽章标签
+6	短且加粗，因此这是墨色在我们可以对其置之不理之前
+7	必须达到的比率。
+10	parseHexColor 把 #rgb、#rgba、#rrggbb 和 #rrggbbaa 解码为 8 位
+11	通道。Alpha 若存在仍必须格式良好但会被忽略：
+12	亮度定义在不透明颜色上，而渲染器把徽章画在
+13	不透明的终端行上。布尔值报告输入是否属于
+14	受支持的、格式良好的形式。
+22	 把 #abc 展开为 #aabbcc，使下面每种形式都至少六位宽。
+25	 把 #abcd 展开为 #aabbccdd；最后一对会被校验但不使用。
+72	relativeLuminance 是不透明 sRGB 颜色的 WCAG 2.0 相对
+73	亮度：先对每个通道线性化，再应用 sRGB 亮度权重。
+85	contrast 计算 WCAG 比率而不暴露成功标志。布尔值
+86	在任一颜色不是受支持的十六进制形式时为 false。
+100	ContrastRatio 返回两个十六进制颜色之间的 WCAG 对比度，范围
+101	[0, 21]。黑底白字为 21，颜色与自身为 1。无效
+102	输入产生 0 这个保守值：用它做阈值的调用方会把该
+103	颜色对视为不可读，而不是猜测。
+112	LegibleInk 选择画在 bg 上的徽章墨色。当原墨色
+113	已达到 minInkContrast、当 alt 并非严格更优，或
+114	当任一颜色无法解析时，保留原墨色 —— 因此不能信任输入的调用方
+115	永远不会改变它们原本要绘制的内容。
+117	内置调色板存储的是 SGR 码而非十六进制，因此该辅助函数
+118	尚未接入徽章渲染器；见文件末尾的接线说明。
+131	接线说明（有意不在此应用）：theme.go 中的 Palette 角色是
+132	"33"/"43" 这样的 SGR 字符串，而非十六进制，而且没有按主题的徽章
+133	背景角色可供比较。在渲染时应用 LegibleInk，首先需要
+134	在 Palette 上仅对非内置主题填充十六进制的墨色/背景对；
+135	然后调用点将是 Model.attemptLinesLocked（render.go 中的 "⟳"
+136	尝试徽章）和 renderEntryLocked 中的通知/横幅墨色选择。
+137	内置调色板保持其 SGR 颜色，因此渲染器不变，
+138	每个随附主题的输出保持完全一致。
+
+===== internal/tui/contrast_test.go
+89	随附的主题已经是高对比度的：dark/ansi 把
+90	警告徽章画成深色行上的黄色（约 19.56:1），light 把它画成
+91	白底红色（约 4:1）。两者都超过 3:1 下限，因此一旦接入支持十六进制的调色板，
+92	这些选择必须保持逐字节一致。
+
+===== internal/tui/diff.go
+5	DiffKind 是行差异中某一行的角色。
+8	Diff 的行角色。
+15	DiffLine 是行差异的一行。Text 从不携带 +/- 标记；
+16	渲染器添加它，使同一辅助函数可复用于纯文本输出。
+22	maxDiffLCSCells 限制动态规划表。超过此值时，块被
+23	整体作为删除+新增输出，这仍然正确，只是不够紧凑。
+26	DiffLines 返回两段文本的上下文/新增/删除行差异。它先修剪
+27	相同的的前缀和后缀，然后对中间部分运行一个小型 LCS；
+28	两个阶段都只使用标准库。
+53	diffSplit 丢弃尾随换行本会添加的空元素。
+65	diffMiddle 对齐变化区域。超过上限时它降级为 del+add，
+66	而不是分配无界的表。
+
+===== internal/tui/diff_preview_words_test.go
+8	spansWithStyle 返回用 style 绘制的每个 span 的文本。
+54	只有被编辑的词带有强背景色；周围文本
+55	保持普通的失败/工具前景色。
+89	整体替换没有可保留的未变更正文段。
+112	每个不成对的行仍然恰好有一个整行正文 span。
+187	当没有空间容纳完整的双单元格汉字时，变化的词被
+188	整体丢弃，而不是被切成无效碎片。
+218	只有当两行都放得下时才组成一对；否则前导的删除
+219	回退到整行路径，新增则计为溢出。
+
+===== internal/tui/diff_words.go
+8	WordSegment 是词差异某一侧上的连续文本段。Changed
+9	表示该段在另一侧没有对应项。把所有段的
+10	Text 连接起来可精确还原原始行，包括空白和
+11	标点。
+17	maxWordDiffCells 限制 token 的 LCS 表，与 diff.go 中的
+18	maxDiffLCSCells 一致。这么大的行对不值得逐 token 对齐。
+21	WordDiff 以 token 粒度对齐一对 -/+ 行，并返回
+22	两侧各自的唯一段。小改动只高亮涉及的词；
+23	松散相关的行降级为每侧一个整行 Changed 段，
+24	而不是产生一堆令人分心的彩色碎片。
+25	空输入不产生任何段。
+40	与 diffMiddle 相同的反向 DP 和正向遍历，但基于 token。使用
+41	相同的决胜规则（>= 时删除）使结果稳定，并使
+42	未改变的 token 与行差异中相同的邻居对齐。
+83	当超过一半的 token 出现发生变化，或
+84	某一行比另一行长三倍以上时降级。这两种情况下
+85	token 对齐都太弱，无法作为有用的高亮。
+93	wholeWordSegs 把整个非空行标记为已改变。
+101	mergeWordSegs 合并带有相同 Changed 标志的相邻
+102	token，使一个单词的编辑产生三个 span，而不是每个 token 一个。
+118	wordLengthSkew 报告某一行是否比另一行长三倍以上。
+119	该比较按 rune 计数，使 CJK 不会因其字节
+120	宽度而吃亏。
+138	wordTokens 把一行切分为无损 token：字母/数字/_ 的连续段、
+139	空白的连续段、标点或符号的连续段，以及单独的 CJK
+140	表意文字。表意文字不由空白分隔，因此每个 rune 一个 token
+141	可提供更细的高亮，同时保持 UTF-8 字节边界安全。
+
+===== internal/tui/diff_words_test.go
+9	segString 把 Changed 段渲染为 [方括号]，使期望值可读。
+
+===== internal/tui/doc.go
+1	Package tui 是全屏终端界面：一个基于单元格 Buffer 的备用屏幕
+2	渲染器，它只重绘变化的行，加上提示
+3	编辑器、可滚动的记录和阻塞式审批弹窗。
+5	所有 UI 状态都在 Model 中，它从不触碰终端，因此测试
+6	可以直接驱动它。Run 拥有终端、按键解码器和事件
+7	循环，并通过延迟清理恢复屏幕。
+
+===== internal/tui/entrycache_test.go
+31	新的流式条目不得使已有的两条失效。
+
+===== internal/tui/error_visibility.go
+9	流错误可见性辅助函数（goose 研究项 3 和 5）。
+11	渲染器已经知道如何给任何 AttemptKind 加徽章（见
+12	Model.attemptLinesLocked），区域设置表也已经带有
+13	attempt_stream_error / attempt_retried 标签。缺少的是一个生产者：
+14	流错误到达 HandleEvent 后却被忽略，而退避根本没有
+15	任何事件。这些辅助函数构建该生产者所需的记录条目。
+16	它们是纯函数 —— 无 I/O、无模型修改 —— 因此调用方决定何时追加。
+19	maxStreamErrorDetail 限制流错误通知中保留的文本。
+20	渲染器会再次按终端宽度裁剪，但模型不能把
+21	任意大的 provider 错误钉在上下文里直到进程退出。
+23	maxRetryReason 限制重试通知中的自由格式原因，使恶意的
+24	或格式错误的生产者无法用单个事件撑宽记录。
+28	StreamErrorEntry 为失败的 LLM 流构建未提交的通知。
+30	详情被折叠为一行，用提供的函数清洗
+31	（通常是 llm.RedactText），并限制在 maxStreamErrorDetail 个字素簇内。
+32	nil 的清洗函数让文本不被清洗，这使该辅助函数
+33	便于在表驱动测试中使用。AttemptStreamError 驱动现有的
+34	徽章渲染器；不涉及新的绘制路径。
+46	RetryNotice 格式化一行实时的退避反馈：
+48		⟳ retry <reason> in <waitMS>ms (attempt/max)
+50	原因通过 llm.RedactText 清洗、折叠并限制长度；
+51	计数被钳制为非负值，使字符串对
+52	格式错误的调用方也稳定。前导标记是文本的一部分，因为该通知
+53	作为普通 EntryNotice 追加：渲染器为每条记录画一个徽章，
+54	这里再来一个尝试徽章会重复 "⟳" 字形。
+
+===== internal/tui/events.go
+9	EventKind 命名全屏 UI 消费的 agent 事件。这些值
+10	与 agent 包的 EventToolStart / EventToolEnd 一致，使集成方
+11	无需查找表即可把一种流转换为另一种。
+14	Model.HandleEvent 理解的事件种类。
+19	EventError 对应 agent.EventError；Detail 携带清洗后的错误
+20	文本，使集成方可以直接复制 agent.Event.Err。
+22	EventRetry 是 TUI 独有的实时退避反馈（agent 流没有
+23	专门的重试类别）。Retry* 字段描述待处理的尝试。
+27	Event 是 agent 事件流面向前端的子集。tui 保留自己的
+28	小值对象，这样就不必导入 internal/agent；调用方
+29	从 agent.Event 中复制所需字段。
+41	 仅 EventRetry：失败请求的实时退避反馈。
+48	HandleEvent 把一个 agent 事件折叠进 UI。未知类别被忽略，
+49	因此调用方可以直接转发整个流而无需先过滤。
+63	 流错误过去会在这里消失，留下"冻结的画面"。复用
+64	 现有的尝试徽章渲染器，而不是新增绘制路径。
+72	 Retry 是瞬时的退避反馈：把它镜像到
+73	 按严重度排序的状态行，使实时进度可见而无需
+74	 扫描记录。NoticeStack 按其 TTL 自行退休它，且
+75	 新的重试按严重度再按序号优先于旧的。
+80	appendNoticeEntryLocked 追加一条完整构建的通知条目 —— 若有的话已
+81	携带其尝试徽章 —— 并标记模型为脏，使下一帧显示
+82	它。它是流错误和重试事件映射的共用尾部。
+92	 审批弹窗可能已经为该工具注册了一个待处理任务。
+93	 提升最新匹配的那条，而不是重复该行。
+169	 先丢弃最旧的已结束调用；进行中的调用必须留在
+170	 列表中，即使历史已满。
+
+===== internal/tui/external_editor.go
+9	editorLookPath 是 Windows 上使用的 PATH 解析器，把裸命令
+10	名转成完整路径，使 .cmd/.bat 包装（如 code -> code.cmd）能
+11	正确启动。它是包变量，仿照 keys.go 中的 clipboardWrite，
+12	使测试可以换成确定性的解析器；生产使用 exec.LookPath。
+15	ResolveExternalEditor 从 VISUAL 和 EDITOR 环境变量解析
+16	外部编辑器命令。VISUAL 优先于 EDITOR，
+17	像 "code --wait" 这样的原始值会被拆成命令及其参数。
+19	环境查找是注入的（而非调用 os.Getenv），因此这是一个纯
+20	查询：调用方提供环境，测试从不触碰真实环境。
+21	在 Windows 上命令还会通过 PATH 解析；
+22	当解析失败时保留裸名不变，与原实现的包装行为
+23	一致。
+25	当两个变量都未设置，或所选值没有命令 token 时
+26	返回 ok=false。
+54	splitEditorCommand 把编辑器命令字符串按字段拆分，遵循
+55	单引号和双引号，使含空格的路径留在同一字段。反斜杠
+56	只转义紧跟其后的引号或反斜杠，因此普通的 Windows
+57	路径分隔符原样保留。
+
+===== internal/tui/external_editor_input_test.go
+14	stubEditorRun 把编辑器进程启动器换成假对象。这些测试中
+15	生产代码从不启动真实编辑器。
+23	editorConfigEnv 是模型测试使用的注入式环境查找。
+39	 现有控制键必须保持其解码后的含义。
+
+===== internal/tui/external_editor_test.go
+10	editorEnvLookup 构建一个由固定 map 支持的注入式查找。它替代
+11	os.Getenv，使这些测试从不读取真实环境。
+19	stubEditorLookPath 在测试期间替换 Windows PATH 解析器，
+20	使对裸命令的断言不依赖机器的 PATH。
+105	 带引号的路径保持为单一字段且原样保留。
+
+===== internal/tui/frame_cache.go
+5	frameCacheKey 是 Paint 写入 Buffer 的单元格网格的所有输入的快照。
+6	键相同的两帧保证绘制相同的单元格；键不同的两帧需要重新 Paint。
+9	这只是一种*能力*：run 循环中尚无消费者使用它。它
+10	刻意保守 —— 当屏幕上有时间敏感内容时，键
+11	携带原始时钟 token，使任意两个时刻都不可能相等，从而禁止
+12	复用而不是冒陈旧帧的风险。关于 draw 为何未接到此键，见变更说明
+13	中的报告。
+21	clockSecond 跟踪头部时钟（1 秒分辨率）。
+23	timeSensitive 在有通知、spinner、实时推理/工具行或
+24	旧式状态可见时为 true。此时 nowNanos 固定到精确时刻，使
+25	该键永不与后续帧匹配。为 false 时，nowNanos 为零。
+39	 面板几何。面板*数据*变化会提升 version；这些标量字段
+40	 涵盖只把模型标脏的光标/滚动/筛选移动。
+50	newFrameCacheKey 在其自己的锁下快照模型。它从不修改
+51	模型：通知的存在用 Len 而非 Current 读取，后者会裁剪

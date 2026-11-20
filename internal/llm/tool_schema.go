@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// ModelCompat selects which model-compatibility projections ProjectToolSchema
-// applies. Each rule is an independent bit flag so callers may combine them;
-// the zero value performs no projection at all.
+// ModelCompat 选择 ProjectToolSchema 应用哪些模型兼容性投影。
+// 每条规则都是独立的位标志，调用方可以组合它们；
+// 零值不执行任何投影。
 type ModelCompat uint8
 
 const (
@@ -20,31 +20,31 @@ const (
 )
 
 const (
-	// CompatNone leaves the schema byte-for-byte unchanged.
+	// CompatNone 让 schema 逐字节保持不变。
 	CompatNone ModelCompat = 0
-	// CompatGemini normalizes the top-level schema so it declares an object
-	// type: Gemini rejects tool schemas whose root has no object type (an
-	// empty schema, a bare anyOf/oneOf, or a not:null guard).
+	// CompatGemini 规范化顶层 schema，使其声明 object
+	// 类型：Gemini 会拒绝根节点没有 object 类型的工具 schema（如
+	// 空 schema、裸 anyOf/oneOf 或 not:null 守卫）。
 	CompatGemini = compatObjectRoot
-	// CompatMoonshot gives untyped enums an inferred primitive type: Kimi /
-	// Moonshot reject enum schemas that omit "type".
+	// CompatMoonshot 为无类型的枚举推断原始类型：Kimi /
+	// Moonshot 会拒绝省略 "type" 的枚举 schema。
 	CompatMoonshot = compatEnumType
-	// CompatAll applies every available projection.
+	// CompatAll 应用所有可用的投影。
 	CompatAll = CompatGemini | CompatMoonshot
 )
 
-// ProjectToolSchema returns a tool parameter schema adjusted for the target
-// model family. It is a pure, deterministic function:
+// ProjectToolSchema 返回针对目标模型系列调整后的工具参数 schema。
+// 它是纯函数且确定性的：
 //
-//   - invalid JSON, non-UTF-8 input, and schemas that need no adjustment are
-//     returned exactly as supplied (so existing schemas keep their bytes);
-//   - nested object/array schemas are walked through properties, items,
-//     additionalProperties, not and the anyOf/oneOf/allOf combinators;
-//   - equal inputs always produce equal outputs (encoding/json sorts object
-//     keys and numbers are kept exact via json.Number).
+//   - 无效 JSON、非 UTF-8 输入以及无需调整的 schema
+//     原样返回（因此现有 schema 保持其字节不变）；
+//   - 嵌套的 object/array schema 会遍历 properties、items、
+//     additionalProperties、not 以及 anyOf/oneOf/allOf 组合子；
+//   - 相等的输入总是产生相等的输出（encoding/json 对对象键排序，
+//     且通过 json.Number 保持数字精确）。
 //
-// Wired up by the agent loop (internal/agent/loop.go), which projects each
-// tool's parameter schema before sending tool definitions to the provider.
+// 由 agent 循环（internal/agent/loop.go）接入，它在把工具定义发送给提供方之前
+// 投影每个工具的参数 schema。
 func ProjectToolSchema(schemaJSON string, compat ModelCompat) string {
 	if compat == CompatNone || !utf8.ValidString(schemaJSON) || !json.Valid([]byte(schemaJSON)) {
 		return schemaJSON
@@ -68,36 +68,36 @@ func ProjectToolSchema(schemaJSON string, compat ModelCompat) string {
 	return result
 }
 
-// --- cached projection -----------------------------------------------------
+// --- 缓存投影 --------------------------------------------------------------
 
-// defaultSchemaCacheCapacity bounds the memo table. Tool registries rebuild
-// their specs every turn, so in practice only a few dozen distinct schemas are
-// ever projected; 256 leaves ample headroom while keeping memory bounded.
+// defaultSchemaCacheCapacity 限制 memo 表的大小。工具注册表每轮都会重建
+// 其 spec，因此实践中只有几十种不同的 schema 会被
+// 投影；256 留有充足余量，同时保持内存有界。
 const defaultSchemaCacheCapacity = 256
 
-// schemaCacheKey identifies one projection request. The compat flag is part of
-// the key on purpose: the same schema projected for Gemini and for Moonshot
-// yields different bytes, so keying on the schema alone would be incorrect.
+// schemaCacheKey 标识一次投影请求。compat 标志刻意是
+// 键的一部分：同一 schema 为 Gemini 和为 Moonshot 投影
+// 会产生不同的字节，因此仅以 schema 为键是不正确的。
 type schemaCacheKey struct {
 	schema string
 	compat ModelCompat
 }
 
-// schemaProjectionCache memoizes the pure ProjectToolSchema computation. It is
-// the Go counterpart of opencode's codecFor WeakMap ("built once per schema
-// object"): an expensive JSON decode/encode is paid once per distinct input
-// rather than once per turn. It is safe for concurrent use.
+// schemaProjectionCache 缓存纯函数 ProjectToolSchema 的计算结果。它是
+// opencode 的 codecFor WeakMap 在 Go 中的对应物（"每个 schema
+// 对象只构建一次"）：昂贵的 JSON 解码/编码对每个不同输入只付出一次，
+// 而不是每轮一次。它可安全并发使用。
 //
-// Growth is bounded: when the table is full, the next miss clears it before
-// inserting. This is the simple "clear on capacity" strategy; the steady-state
-// working set is far below the cap, so clearing is rare, and memory can never
-// exceed capacity entries even as schemas change over a session.
+// 增长是有界的：当表已满时，下一次未命中会先清空它
+// 再插入。这是简单的"满则清空"策略；稳态工作集远低于上限，
+// 因此清空很少发生，而且即使 schema 在一个会话中不断变化，内存
+// 也绝不会超过容量条目数。
 type schemaProjectionCache struct {
 	mu       sync.Mutex
 	entries  map[schemaCacheKey]string
 	capacity int
-	// projectFn is the underlying pure projection. It lives on the struct so
-	// tests can inject a counting function; production uses ProjectToolSchema.
+	// projectFn 是底层纯投影函数。它放在结构体上，以便
+	// 测试可以注入计数函数；生产环境使用 ProjectToolSchema。
 	projectFn func(string, ModelCompat) string
 }
 
@@ -115,9 +115,9 @@ func newSchemaProjectionCache(capacity int, projectFn func(string, ModelCompat) 
 	}
 }
 
-// project returns the cached projection for (schemaJSON, compat), computing it
-// on a miss. The decode/encode runs outside the lock so concurrent misses for
-// different keys do not serialize behind the CPU work.
+// project 返回 (schemaJSON, compat) 的缓存投影，未命中时
+// 计算它。解码/编码在锁外运行，使不同键的并发未命中
+// 不会在 CPU 工作后串行化。
 func (c *schemaProjectionCache) project(schemaJSON string, compat ModelCompat) string {
 	key := schemaCacheKey{schema: schemaJSON, compat: compat}
 
@@ -132,7 +132,7 @@ func (c *schemaProjectionCache) project(schemaJSON string, compat ModelCompat) s
 
 	c.mu.Lock()
 	if len(c.entries) >= c.capacity {
-		// Bounded growth: start fresh instead of retaining stale schemas.
+		// 有界增长：重新开始，而不是保留陈旧的 schema。
 		c.entries = make(map[schemaCacheKey]string, c.capacity)
 	}
 	c.entries[key] = result
@@ -140,23 +140,23 @@ func (c *schemaProjectionCache) project(schemaJSON string, compat ModelCompat) s
 	return result
 }
 
-// defaultSchemaCache backs ProjectToolSchemaCached.
+// defaultSchemaCache 为 ProjectToolSchemaCached 提供后端。
 var defaultSchemaCache = newSchemaProjectionCache(defaultSchemaCacheCapacity, ProjectToolSchema)
 
-// ProjectToolSchemaCached is ProjectToolSchema with a bounded memoization layer:
-// repeated (schema, compat) pairs reuse the first projection's bytes, so the
-// JSON decode/encode walk runs once per distinct schema rather than each turn.
-// It is semantically identical to ProjectToolSchema — same bytes in, same bytes
-// out, including invalid JSON, invalid UTF-8 and no-op projections — and is safe
-// for concurrent use. ProjectToolSchema itself is unchanged; callers opt in by
-// calling this variant.
+// ProjectToolSchemaCached 是带有限 memo 层的 ProjectToolSchema：
+// 重复的 (schema, compat) 对复用第一次投影的字节，因此
+// JSON 解码/编码遍历对每个不同 schema 只运行一次，而不是每轮一次。
+// 它在语义上与 ProjectToolSchema 完全相同——输入相同字节则输出相同字节，
+// 包括无效 JSON、无效 UTF-8 和无操作投影——且可安全
+// 并发使用。ProjectToolSchema 本身未改变；调用方通过
+// 调用此变体来选择加入。
 func ProjectToolSchemaCached(schemaJSON string, compat ModelCompat) string {
 	return defaultSchemaCache.project(schemaJSON, compat)
 }
 
-// encodeSchemaJSON serializes a decoded schema deterministically: object keys
-// are sorted and non-ASCII UTF-8 plus <, >, & stay literal. Both projections
-// share it so a no-op projection can keep the caller's original bytes.
+// encodeSchemaJSON 确定性地序列化解码后的 schema：对象键
+// 会排序，非 ASCII UTF-8 以及 <、>、& 保持原样。两种投影
+// 共享它，使无操作投影能保留调用方的原始字节。
 func encodeSchemaJSON(root any) (string, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
@@ -167,9 +167,9 @@ func encodeSchemaJSON(root any) (string, error) {
 	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
-// projectSchemaNode walks a decoded JSON value in place and reports whether it
-// changed anything. Maps and slices are reference types, so mutating them is
-// enough; scalars are returned untouched.
+// projectSchemaNode 原地遍历解码后的 JSON 值，并报告是否
+// 做了改动。map 和 slice 是引用类型，因此原地修改
+// 就足够；标量原样返回。
 func projectSchemaNode(node any, compat ModelCompat, isRoot bool) bool {
 	switch value := node.(type) {
 	case map[string]any:
@@ -190,8 +190,8 @@ func projectSchemaNode(node any, compat ModelCompat, isRoot bool) bool {
 func projectSchemaObject(obj map[string]any, compat ModelCompat, isRoot bool) bool {
 	changed := false
 
-	// Gemini: a tool schema must declare an object type at the root. Empty
-	// schemas, bare anyOf/oneOf groups and not:null guards all lack one.
+	// Gemini：工具 schema 必须在根节点声明 object 类型。空
+	// schema、裸 anyOf/oneOf 分组和 not:null 守卫都没有。
 	if isRoot && compat&compatObjectRoot != 0 {
 		if _, hasType := obj["type"]; !hasType {
 			obj["type"] = "object"
@@ -199,7 +199,7 @@ func projectSchemaObject(obj map[string]any, compat ModelCompat, isRoot bool) bo
 		}
 	}
 
-	// Kimi / Moonshot: infer a primitive type for an enum that omits "type".
+	// Kimi / Moonshot：为省略 "type" 的枚举推断原始类型。
 	if compat&compatEnumType != 0 {
 		if _, hasType := obj["type"]; !hasType {
 			if enum, hasEnum := obj["enum"]; hasEnum {
@@ -236,10 +236,10 @@ func projectSchemaObject(obj map[string]any, compat ModelCompat, isRoot bool) bo
 	return changed
 }
 
-// inferEnumType returns the single primitive type shared by every enum value.
-// A mix of unrelated types (or null/compound values) is not determinable and
-// is left for the caller to skip. Integer and number are treated as compatible
-// and widened to number.
+// inferEnumType 返回所有枚举值共享的单一原始类型。
+// 不相关类型的混合（或 null/复合值）无法确定，
+// 留给调用方跳过。整数与数字视为兼容，
+// 并放宽为 number。
 func inferEnumType(enum any) (string, bool) {
 	values, ok := enum.([]any)
 	if !ok || len(values) == 0 {
@@ -267,7 +267,7 @@ func inferEnumType(enum any) (string, bool) {
 		case inferred == "":
 			inferred = kind
 		case inferred == kind:
-			// values agree
+			// 值一致
 		case (inferred == "integer" && kind == "number") || (inferred == "number" && kind == "integer"):
 			inferred = "number"
 		default:
@@ -280,31 +280,31 @@ func inferEnumType(enum any) (string, bool) {
 	return inferred, true
 }
 
-// safeIntMinBounds / safeIntMaxBounds are the sentinel bounds that effect (and
-// other schema generators) attach to every integer schema. They carry no
-// validation meaning for a tool call, but their presence changes the schema
-// bytes and busts prompt caches. The first pair is JS
-// Number.MIN/MAX_SAFE_INTEGER (used by opencode's flattenAllOf); the second is
-// the floor/ceiling of MinInt64/MaxInt64 divided by three, emitted by other
-// "safe integer" generators.
+// safeIntMinBounds / safeIntMaxBounds 是 effect（以及
+// 其他 schema 生成器）附加到每个整数 schema 上的哨兵边界。它们对
+// 工具调用没有任何校验意义，但它们的存在会改变 schema
+// 字节并破坏提示缓存。第一对是 JS
+// Number.MIN/MAX_SAFE_INTEGER（opencode 的 flattenAllOf 使用）；第二对是
+// MinInt64/MaxInt64 除以三的下取整/上取整，由其他
+// "安全整数"生成器发出。
 var (
 	safeIntMinBounds = [...]int64{-9007199254740991, -3074457345618258603}
 	safeIntMaxBounds = [...]int64{9007199254740991, 3074457345618258602}
 )
 
-// FlattenToolSchema is a pure, opt-in projection for providers that handle
-// allOf poorly. It mirrors opencode's flattenAllOf:
+// FlattenToolSchema 是面向那些处理 allOf 不佳的提供方的纯的、选择加入的投影。
+// 它模仿 opencode 的 flattenAllOf：
 //
-//   - integer schemas lose their safe-integer sentinel minimum/maximum;
-//   - an allOf group is merged into its parent only when no key is declared by
-//     more than one member (parent keys other than "allOf" included), so
-//     required/type/properties semantics can never be overwritten;
-//   - the walk is recursive (objects, arrays, combinators) and the merge result
-//     is walked again in case it produced a new flattenable allOf.
+//   - 整数 schema 去掉其安全整数哨兵 minimum/maximum；
+//   - 只有当没有任何键被多个成员声明时，才把 allOf 组
+//     合并到其父节点（也包括父节点除 "allOf" 外的键），因此
+//     required/type/properties 语义永不会被覆盖；
+//   - 遍历是递归的（对象、数组、组合子），且合并结果
+//     会被再次遍历，以防它产生了新的可扁平化 allOf。
 //
-// Invalid JSON, non-UTF-8 input and schemas that need no change are returned
-// byte-for-byte unchanged. The function never mutates its input and does not
-// alter ProjectToolSchema's default behavior; callers must opt in explicitly.
+// 无效 JSON、非 UTF-8 输入以及无需改动的 schema 会被
+// 逐字节原样返回。该函数从不修改其输入，也不
+// 改变 ProjectToolSchema 的默认行为；调用方必须显式选择加入。
 func FlattenToolSchema(schemaJSON string) string {
 	if !utf8.ValidString(schemaJSON) || !json.Valid([]byte(schemaJSON)) {
 		return schemaJSON
@@ -328,9 +328,9 @@ func FlattenToolSchema(schemaJSON string) string {
 	return result
 }
 
-// flattenAllOfNode walks a decoded JSON value in place and reports whether it
-// changed anything. Maps and slices are reference types, so in-place mutation
-// is enough; scalars are returned untouched.
+// flattenAllOfNode 原地遍历解码后的 JSON 值，并报告是否
+// 做了改动。map 和 slice 是引用类型，因此原地修改
+// 就足够；标量原样返回。
 func flattenAllOfNode(node any) bool {
 	switch value := node.(type) {
 	case map[string]any:
@@ -351,8 +351,8 @@ func flattenAllOfNode(node any) bool {
 func flattenAllOfObject(obj map[string]any) bool {
 	changed := false
 
-	// Drop the safe-integer sentinel range from integer schemas before looking
-	// at allOf, since the sentinel may itself live inside an allOf child.
+	// 在查看 allOf 之前，先从整数 schema 中去掉安全整数哨兵范围，
+	// 因为哨兵本身可能位于某个 allOf 子项中。
 	if kind, _ := obj["type"].(string); kind == "integer" {
 		for _, bound := range safeIntMinBounds {
 			if numberEqualsInt64(obj["minimum"], bound) {
@@ -370,8 +370,8 @@ func flattenAllOfObject(obj map[string]any) bool {
 		}
 	}
 
-	// Recurse first, mirroring opencode: children (including allOf members) are
-	// flattened before the parent decides whether the group can be merged.
+	// 先递归，模仿 opencode：子项（包括 allOf 成员）在
+	// 父节点决定该组能否合并之前先被扁平化。
 	for _, value := range obj {
 		if flattenAllOfNode(value) {
 			changed = true
@@ -383,9 +383,9 @@ func flattenAllOfObject(obj map[string]any) bool {
 		return changed
 	}
 
-	// Merge every member in order, then the parent's own keys. canFlattenAllOf
-	// guarantees no key appears twice, so member order cannot overwrite anything
-	// and no validation keyword (required, type, ...) is lost.
+	// 按顺序合并每个成员，然后是父节点自己的键。canFlattenAllOf
+	// 保证没有键出现两次，因此成员顺序不会覆盖任何内容，
+	// 也不会丢失任何校验关键字（required、type 等）。
 	merged := make(map[string]any, len(obj)+len(allOf))
 	for _, item := range allOf {
 		for key, value := range item.(map[string]any) {
@@ -404,9 +404,9 @@ func flattenAllOfObject(obj map[string]any) bool {
 		obj[key] = value
 	}
 
-	// The merge can expose another flattenable allOf (e.g. an allOf key that
-	// lived inside a member). The JSON tree is finite and each pass consumes one
-	// allOf layer, so this always terminates.
+	// 合并可能暴露出另一个可扁平化的 allOf（例如原本位于
+	// 某个成员内部的 allOf 键）。JSON 树是有限的，每轮消耗一个
+	// allOf 层，因此这总会终止。
 	flattenAllOfNode(obj)
 	return true
 }
@@ -420,8 +420,8 @@ func allOfHasObjects(allOf []any) bool {
 	return true
 }
 
-// canFlattenAllOf reports whether every key is declared by at most one member
-// of allOf and does not collide with a parent key (other than "allOf").
+// canFlattenAllOf 报告是否每个键最多由 allOf 的一个成员声明，
+// 且不与父节点的键冲突（"allOf" 除外）。
 func canFlattenAllOf(allOf []any, parent map[string]any) bool {
 	seen := make(map[string]bool, len(parent))
 	for key := range parent {
@@ -440,9 +440,9 @@ func canFlattenAllOf(allOf []any, parent map[string]any) bool {
 	return true
 }
 
-// numberEqualsInt64 compares a decoded json.Number with an exact integer,
-// accepting both plain decimal literals ("9007199254740991") and forms that
-// Int64 cannot parse such as "9.007199254740991e15" or "...991.0".
+// numberEqualsInt64 把解码后的 json.Number 与精确整数比较，
+// 既接受普通十进制字面量（"9007199254740991"），也接受
+// Int64 无法解析的形式，如 "9.007199254740991e15" 或 "...991.0"。
 func numberEqualsInt64(value any, want int64) bool {
 	num, ok := value.(json.Number)
 	if !ok {

@@ -1,9 +1,9 @@
-// Package server hosts the headless transports of the agent: the HTTP/SSE
-// service behind --serve, newline-delimited JSON-RPC behind --rpc, and the ACP
-// editor protocol behind acp.
+// Package server 承载 agent 的无界面传输层：--serve 背后的 HTTP/SSE
+// 服务、--rpc 背后的换行分隔 JSON-RPC，以及 acp 背后的
+// ACP 编辑器协议。
 //
-// Every transport drives an injected Runner so the package stays independent of
-// the agent loop and can be tested with a fake.
+// 每条传输都驱动一个注入的 Runner，使本包独立于
+// agent 循环，并可用假实现测试。
 package server
 
 import (
@@ -22,55 +22,55 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// DefaultAddr is the loopback address used when Config.Addr is empty.
+// DefaultAddr 是 Config.Addr 为空时使用的回环地址。
 const DefaultAddr = "127.0.0.1:7777"
 
-// maxBody caps request bodies for JSON endpoints.
+// maxBody 限制 JSON 端点请求体的大小。
 const maxBody = 1 << 20
 
-// Runner is the slice of the agent loop the transports drive.
+// Runner 是各传输所驱动的 agent 循环的切片。
 type Runner interface {
-	// Prompt runs one turn, forwarding streamed text to onText, and returns the
-	// final answer.
+	// Prompt 运行一轮，把流式文本转发给 onText，并返回
+	// 最终答案。
 	Prompt(ctx context.Context, text string, onText func(string)) (string, error)
-	// Abort cancels the turn currently running, if any.
+	// Abort 取消当前正在运行的轮次（如果有）。
 	Abort()
 }
 
-// Config configures every transport in this package.
+// Config 配置本包中的所有传输。
 type Config struct {
-	// Addr is the listen address for --serve; empty means DefaultAddr.
+	// Addr 是 --serve 的监听地址；空值表示 DefaultAddr。
 	Addr string
-	// Token is the bearer token required by --serve. It is mandatory: Listen
-	// refuses to start without one.
+	// Token 是 --serve 所需的 bearer token。它是必需的：Listen
+	// 没有它会拒绝启动。
 	Token string
-	// Version is reported by /v1/health, /v1/version and ACP initialize.
+	// Version 由 /v1/health、/v1/version 和 ACP initialize 报告。
 	Version string
-	// Runner executes prompts. Required.
+	// Runner 执行提示。必需。
 	Runner Runner
-	// Sessions backs the session.list / session.load RPC methods. Optional.
+	// Sessions 支撑 session.list / session.load RPC 方法。可选。
 	Sessions SessionStore
-	// Events is the shared event hub for /v1/event and event/subscribe. When
-	// nil, a runner exposing EventHub() *EventHub (as app.Factory's runner does)
-	// is used, so all headless transports share one hub without extra wiring.
-	// Only when neither is present does each transport create a private hub.
+	// Events 是 /v1/event 和 event/subscribe 共享的事件 hub。当为
+	// nil 时，使用暴露 EventHub() *EventHub 的 runner（app.Factory 的 runner 就是这样），
+	// 使所有无界面传输无需额外接线即可共享一个 hub。
+	// 只有当两者都不存在时，每条传输才创建私有 hub。
 	Events *EventHub
 }
 
-// isCancelled reports whether a Runner.Prompt error means the user (or the
-// transport) stopped the turn, as opposed to a genuine failure. The agent loop
-// returns context.Canceled — possibly wrapped — on abort, and a disconnected
-// client leaves ctx.Err() == context.Canceled. A deadline is a real failure and
-// keeps its original error path in all three transports.
+// isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
+// 传输层）停止了本轮，而非真正的失败。agent 循环
+// 在中止时返回 context.Canceled（可能被包装），而客户端
+// 断开后 ctx.Err() == context.Canceled。截止时间则是真正的失败，
+// 在三种传输中都保留其原有的错误路径。
 func isCancelled(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled
 }
 
-// selectHub resolves the hub a transport publishes to. An explicit Config.Events
-// wins; otherwise a runner built by internal/app exposes its shared hub through
-// a small interface that keeps this package independent of the wirer. The
-// interface assertion means fakes and standalone callers keep the original
-// "private hub" behaviour.
+// selectHub 解析某条传输发布到的 hub。显式的 Config.Events
+// 优先；否则由 internal/app 构造的 runner 通过一个小接口
+// 暴露其共享 hub，使本包不依赖接线方。该接口断言意味着
+// 假实现和独立调用方保持原有的
+// "私有 hub"行为。
 func selectHub(cfg Config) *EventHub {
 	if cfg.Events != nil {
 		return cfg.Events
@@ -83,8 +83,8 @@ func selectHub(cfg Config) *EventHub {
 	return NewEventHub()
 }
 
-// Listen binds the HTTP transport and returns the server plus its listener.
-// It fails when no bearer token or no runner is configured.
+// Listen 绑定 HTTP 传输并返回服务器及其监听器。
+// 未配置 bearer token 或 runner 时会失败。
 func Listen(cfg Config) (*http.Server, net.Listener, error) {
 	if strings.TrimSpace(cfg.Token) == "" {
 		return nil, nil, errors.New("server: a bearer token is required (--serve-token or ARGENT_SERVE_TOKEN)")
@@ -105,7 +105,7 @@ func Listen(cfg Config) (*http.Server, net.Listener, error) {
 	return srv, ln, nil
 }
 
-// ServeListener serves until ctx is cancelled or the server fails.
+// ServeListener 一直服务直到 ctx 被取消或服务器失败。
 func ServeListener(ctx context.Context, srv *http.Server, ln net.Listener) error {
 	done := make(chan struct{})
 	go func() {
@@ -125,7 +125,7 @@ func ServeListener(ctx context.Context, srv *http.Server, ln net.Listener) error
 	return err
 }
 
-// Serve listens and serves in one call.
+// Serve 在一次调用中完成监听与服务。
 func Serve(ctx context.Context, cfg Config) error {
 	srv, ln, err := Listen(cfg)
 	if err != nil {
@@ -134,29 +134,29 @@ func Serve(ctx context.Context, cfg Config) error {
 	return ServeListener(ctx, srv, ln)
 }
 
-// NewHandler builds the HTTP/SSE handler without binding a socket.
+// NewHandler 构建 HTTP/SSE 处理器而不绑定 socket。
 func NewHandler(cfg Config) http.Handler {
 	return newHandler(cfg).routes()
 }
 
-// newHandler creates the stateful route receiver shared by every transport
-// endpoint. Listen keeps the returned pointer so it can register the shutdown
-// hook; standalone callers of NewHandler never flip the flag.
+// newHandler 创建各传输端点共享的、带状态的路由接收者。
+// Listen 保留返回的指针，以便注册关闭
+// 钩子；NewHandler 的独立调用方从不翻转该标志。
 func newHandler(cfg Config) *handler {
 	return &handler{cfg: cfg}
 }
 
-// newServer builds the HTTP server for a handler and wires the closing flag to
-// the standard Shutdown/Close hook. Keeping this separate from Listen lets the
-// wiring be tested without binding a socket.
+// newServer 为处理器构建 HTTP 服务器，并把关闭标志接到
+// 标准的 Shutdown/Close 钩子。与 Listen 分开使
+// 接线可以在不绑定 socket 的情况下被测试。
 func newServer(h *handler) *http.Server {
 	srv := &http.Server{
 		Handler:           h.routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	// Shutdown (and Close) call this hook, so a health probe that still reaches
-	// an in-flight keep-alive connection during a graceful shutdown observes
-	// "closing" instead of a misleading 200.
+	// Shutdown（和 Close）会调用此钩子，因此在优雅关闭期间仍到达
+	// 在途 keep-alive 连接的健康探测会观察到
+	// "closing"，而不是误导性的 200。
 	srv.RegisterOnShutdown(h.beginShutdown)
 	return srv
 }
@@ -180,8 +180,8 @@ type handler struct {
 	closing atomic.Bool
 }
 
-// beginShutdown is wired to http.Server.RegisterOnShutdown in newServer. It is
-// also callable directly by tests that drive the handler without a socket.
+// beginShutdown 在 newServer 中被接到 http.Server.RegisterOnShutdown。
+// 测试也可以直接调用它来驱动不依赖 socket 的处理器。
 func (h *handler) beginShutdown() {
 	h.closing.Store(true)
 }
@@ -202,18 +202,18 @@ func (h *handler) authorized(r *http.Request) bool {
 	if want == "" {
 		return false
 	}
-	// RFC 7235 defines auth-scheme as case-insensitive, so "bearer", "BEARER"
-	// and "BeArEr" are all the same scheme as "Bearer". Compare the prefix
-	// without case folding the token itself: tokens remain byte-exact.
+	// RFC 7235 把 auth-scheme 定义为不区分大小写，因此 "bearer"、"BEARER"
+	// 和 "BeArEr" 都与 "Bearer" 是同一种方案。比较前缀时
+	// 不对 token 本身做大小写折叠：token 保持逐字节精确。
 	const scheme = "Bearer "
 	header := r.Header.Get("Authorization")
 	var got string
 	if len(header) >= len(scheme) && strings.EqualFold(header[:len(scheme)], scheme) {
 		got = strings.TrimSpace(header[len(scheme):])
 	} else {
-		// A present header with a different scheme is not a bearer credential.
-		// Keep the whole value as the candidate (as TrimPrefix did before) so
-		// a bogus scheme cannot fall through to the query-string token.
+		// 带有不同方案的头部不是 bearer 凭据。
+		// 把整个值保留为候选（如之前 TrimPrefix 所做的），使
+		// 伪造的方案不会回退到 query string 中的 token。
 		got = strings.TrimSpace(header)
 	}
 	if got == "" {
@@ -241,9 +241,9 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version})
 }
 
-// version serves the structured build report. Like health, it is a diagnostic
-// endpoint and needs no bearer token; it exposes only build metadata, never
-// credentials or configuration.
+// version 提供结构化的构建报告。与 health 一样，它是诊断
+// 端点，不需要 bearer token；它只暴露构建元数据，绝不
+// 暴露凭据或配置。
 func (h *handler) version(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
@@ -265,18 +265,18 @@ func (h *handler) abort(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// prompt handles POST /v1/prompt, streaming Server-Sent Events:
+// prompt 处理 POST /v1/prompt，流式返回 Server-Sent Events：
 //
 //	data: {"type":"text","text":"..."}
 //	data: {"type":"done"}
 //
-// The HTTP 200 header is withheld until the first text event (or a terminal
-// cancelled event). If the runner fails before producing any text, the client
-// gets a non-2xx JSON error instead of a 200 carrying an error event, so a
-// status-code-only client cannot mistake a total failure for success. Once the
-// stream has started the status is committed, so a later failure is reported
-// with a terminal SSE error event. A user abort remains a normal 200 stop with
-// {"type":"cancelled"}.
+// HTTP 200 头部会一直推迟到第一个文本事件（或终态的
+// cancelled 事件）。如果 runner 在产生任何文本之前失败，客户端
+// 会得到非 2xx 的 JSON 错误，而不是带错误事件的 200，因此
+// 只看状态码的客户端不会把彻底失败误认为成功。一旦
+// 流已开始，状态码就已提交，后续失败改用
+// 终态 SSE 错误事件报告。用户中止仍是一次普通的 200 停止，
+// 带 {"type":"cancelled"}。
 func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, http.MethodPost)
@@ -300,9 +300,9 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 	header := w.Header()
 
-	// started tracks whether the SSE response header is already on the wire.
-	// Holding it back until the first event lets a pre-stream failure still
-	// choose an honest non-2xx status and a JSON body.
+	// started 跟踪 SSE 响应头是否已上线。
+	// 把它推迟到第一个事件，使流前的失败仍能
+	// 选择诚实的非 2xx 状态和 JSON 体。
 	started := false
 	ensureStarted := func() {
 		if started {
@@ -345,14 +345,14 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	}
 	if runErr != nil {
 		if isCancelled(r.Context(), runErr) {
-			// Abort is not a failure; emitting the terminal cancelled event
-			// also commits the 200 header when no text preceded the abort.
+			// Abort 不是失败；发出终态 cancelled 事件
+			// 也会在中止前没有文本时提交 200 头部。
 			emit(map[string]any{"type": "cancelled"})
 			return
 		}
 		if started {
-			// The stream is already committed to 200, so the status can no
-			// longer be changed; terminate with a terminal SSE error event.
+			// 流已经提交为 200，因此状态码无法再
+			// 更改；用终态 SSE 错误事件结束。
 			emit(map[string]any{"type": "error", "error": wireErrorText(runErr)})
 			return
 		}
@@ -362,23 +362,23 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	emit(map[string]any{"type": "done"})
 }
 
-// wireErrorText redacts an error before it crosses a transport boundary.
+// wireErrorText 在错误跨越传输边界之前对其进行脱敏。
 //
-// Runner failures come straight from the provider layer, whose error bodies may
-// echo the server's Authorization header, API key, password or account e-mail.
-// promptFailureStatus already classifies through llm.ClassifyAPIError (which
-// redacts internally), but the wire body used to carry err.Error() verbatim —
-// so a client holding only the bearer token could read the server's own
-// credentials out of a failed prompt. Redact with the same llm policy the
-// classifier uses so the status and the body agree on what is safe to reveal.
+// Runner 的失败直接来自提供方层，其错误体可能
+// 回显服务器的 Authorization 头、API key、密码或账户邮箱。
+// promptFailureStatus 已通过 llm.ClassifyAPIError 分类（它内部会脱敏），
+// 但线协议体过去会原样携带 err.Error()——
+// 因此只持有 bearer token 的客户端可以从失败的提示中读出服务器自己的
+// 凭据。用分类器使用的同一套 llm 策略脱敏，使状态码和
+// 体对什么是可安全披露的保持一致。
 func wireErrorText(err error) string {
 	return llm.RedactError(err)
 }
 
-// promptFailureStatus maps a genuine pre-stream runner failure to an HTTP
-// status. Auth (401) and rate-limit (429) failures are actionable client errors;
-// everything else is a 500 so clients cannot read an early failure as success.
-// The family classifier keeps this aligned with the CLI's error presentation.
+// promptFailureStatus 把真正的流前 runner 失败映射到 HTTP
+// 状态码。Auth（401）和限流（429）失败是可采取行动的客户端错误；
+// 其他都是 500，使客户端无法把早期失败读成成功。
+// 家族分类器使这与 CLI 的错误呈现保持一致。
 func promptFailureStatus(err error) int {
 	actionable := llm.ClassifyAPIError(err)
 	if actionable == nil {
@@ -394,8 +394,8 @@ func promptFailureStatus(err error) int {
 	}
 }
 
-// requestText is the HTTP side of prompt extraction. The parsing and trim
-// rules live solely in promptText so HTTP, --rpc and acp cannot drift apart.
+// requestText 是提示提取的 HTTP 侧。解析和裁剪
+// 规则只存在于 promptText 中，使 HTTP、--rpc 和 acp 不会走偏。
 func requestText(body []byte) string {
 	return promptText(body)
 }

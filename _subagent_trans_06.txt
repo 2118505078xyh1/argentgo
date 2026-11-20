@@ -1,0 +1,300 @@
+// maxSummaryChanges 限制 SummarizeReleaseNotes 打印的变更项数量。
+// changelogLabels 会被识别为发布正文中的变更日志章节标题
+// （不区分大小写，作为子串匹配）。包含中文标签，
+// 因为 argent 的发布说明是双语的。
+// NoteChecksum 是发布说明中找到的 SHA-256 摘要及其
+// 后面的文件名。Hash 始终为小写十六进制；对于裸摘要行，
+// Name 为空。
+// ReleaseNotes 是 Notes 返回的 GitHub 发布正文的结构化视图。
+// Summary 是正文的第一行散文，已去除内联 markdown
+// 标记。标题、列表项和校验和行会被跳过。
+// Changes 是变更日志章节的列表项。若正文中
+// 没有可识别的变更日志标题，则返回所有列表项。
+// Checksums 是正文中任意位置找到的所有 SHA-256 行，按顺序排列。
+// Notes 将 r.Body 解析为结构化发布说明。它从不失败：空正文
+// 或异常正文只会产生空字段。
+// ParseReleaseNotes 从 GitHub 发布正文中提取简短摘要、变更日志和 SHA-256 行。
+// 它是一个纯函数：无 I/O、无修改，且
+// 相同输入总是产生相同输出。
+// 标题可使用英文或中文标签（例如 "## What's Changed"）。
+// 摘要行可能被代码块包裹、以列表标记为前缀，或为裸摘要。
+// 变更日志章节内的子标题会使其列表项保留在该章节中；
+// 同级或更高级别的标题则结束该章节。
+// SummarizeReleaseNotes 将说明渲染为紧凑、确定性的、
+// 以换行分隔的摘要，适合用于更新提示或日志行。最多
+// 打印 maxSummaryChanges 个变更项；其余部分只计数。
+// markdownHeading 识别 ATX 标题（"## Foo"）。它返回级别
+// （1..6）、标题文本，以及该行是否确为标题。
+// markdownBullet 从裁剪后的行中去掉列表或有序列表标记，
+// 并移除内联 markdown，使条目读作纯文本。
+// stripListMarker 去掉前导 "-"、"*"、"+" 或 "1." / "1)" 标记，
+// 并报告是否存在这样的标记。
+// parseNoteChecksum 查找行首的 64 字符 SHA-256 摘要，
+// 可选地位于列表标记之后和/或反引号之内，并返回
+// 小写化的摘要及其后的文件名（可能为空）。
+// 更长的十六进制字符串不是校验和行；其前 64 个字符
+// 只是一个（无效的）标记的一部分。
+// stripInlineMarkdown 去除常见的内联 markdown 装饰，使
+// 摘要行读作纯文本。
+// maxNoticeSummaryRunes 限制附加到更新通知中的发布说明摘录长度，
+// 使整条消息保持紧凑的单行。
+// placeholderVersion 替换未通过基本校验的版本字符串，使
+// 不可信的发布元数据无法向展示给用户的通知中注入控制字符或
+// 标记。
+// FormatUpdateNotice 返回一条经过净化的单行中文通知，
+// 告知用户有更新的构建版本可用以及如何升级。它是
+// 纯函数：无 I/O、无全局状态，相同输入总是产生
+// 相同输出。
+// 两个版本字符串都按保守的 ASCII 白名单检查；
+// 其他任何内容（控制字符、空格、ANSI 转义、标记）都变成
+// "?" 占位符。当 notes 非空时，附加一段简短的单行摘要，
+// 并按 maxNoticeSummaryRunes 个 rune 截断（对 CJK 文本按 rune 安全处理）。
+// 若 latest 不比 current 新，则返回一条简短的 "already up to date" 通知
+// 代替。
+// safeVersionToken 在文本是由 ASCII 字母、数字、"."、"-"、"+" 或 "_"
+// 组成的合理版本标签时原样返回。其他内容
+// 均替换为 placeholderVersion，使发布元数据无法注入内容。
+// 允许的版本字符
+// noticeSummary 从原始发布说明中提取简短的单行摘录。
+// 它复用 ParseReleaseNotes 选取第一行散文（去除内联 markdown
+// 后），若没有则回退到第一个变更项，然后规范化空白
+// 并按 rune 数截断，使 CJK 字符从不被拆分。
+// singleLine 将每一段空白或控制字符（包括
+// 换行和 ANSI 转义）折叠为一个 ASCII 空格，使结果不含
+// 换行符或终端控制序列。
+// truncateRunes 将文本缩短到最多 max 个 rune，若被截断则
+// 去掉末尾空格并附加省略号。它对多字节 rune 安全。
+// 宽度超过 int 的数字预发布标识符必须按值比较。
+// Package update 检查 GitHub 发布以获取更新的 argent 构建，下载
+// 带校验和的合适资源，并原子地替换正在运行的二进制文件。
+// 仅使用标准库：发布元数据来自
+// /releases/latest，资源是普通 HTTP 下载，替换是一次重命名。
+// apiBase 是变量，以便测试（以及 GitHub Enterprise 安装）可以把
+// 客户端指向别处。
+// Asset 是一个可下载的发布文件。
+// Release 是 argent 使用的 GitHub 发布负载的一个子集。
+// Version 是去掉前导 "v" 的标签。
+// Check 获取 repo（"owner/name"）的最新发布，并报告它
+// 是否比 currentVersion 更新。nil 客户端使用 30 秒默认值。
+// Version 是一个语义化版本。构建元数据在解析时被丢弃，因此
+// v1.2.3+build.5 和 v1.2.3 比较相等。
+// Pre 保存预发布标识符；正式发布时为空。
+// ParseVersion 接受 "1.2.3"、"v1.2.3"、"1.2" 以及类似
+// "1.0.0-beta.2" 的预发布后缀。"+" 之后的构建元数据被忽略。带前导零的
+// 数字预发布标识符（例如 "1.0.0-01"）会被拒绝。
+// SemVer 2.0.0 §9：数字标识符不得包含前导零。
+// Compare 按 semver 优先级规则对两个版本排序：正式版
+// 高于其任何预发布版，数字标识符按数值比较，
+// 标识符列表较短者排名较低。
+// isNumericIdentifier 报告 identifier 是否完全由 ASCII
+// 数字组成。这类标识符按数值而非字典序比较。
+// 数字标识符的优先级始终较低。
+// compareNumericIdentifier 按值对数字标识符排序，不经过
+// int，因此宽度超过机器字长的标识符也能正确比较。
+// 前导零（解析时无效，但手工构造的 Version 中可能出现）
+// 会先被去掉。
+// String 渲染不带 v 前缀和构建元数据的版本。
+// CompareVersions 比较两个版本字符串。无法解析的字符串被当作
+// 0.0.0，这样本地版本损坏时仍能看到已发布的版本。
+// 内存中的视图也经过脱敏。
+// SetDir 将已有 bank 指向另一个目录。
+// 相关句子必须排在前面，即使它不是记忆中的第一句：
+// 重叠程度胜过较早句子的微小加分。
+// 上限落在文本内部，但放得下的组合序列和 emoji
+// 必须完整输出，绝不能被切掉一半。
+// 持久化事实存储。与 memory.go 中的指令文件（它们是
+// 项目拥有的、系统提示的不可变输入）不同，这个 bank 由
+// agent 自己写入并跨会话保留。它是单个 JSONL 日志：
+// 每行一条 Memory，每次写入都追加并同步，通过
+// 临时文件重写以执行容量上限和删除操作。
+// memoryFileName 是支撑 Bank 的仅追加日志。
+// defaultCap 限制保留的条目数：2000 * 4KB 在磁盘上约 8MB。
+// maxTextBytes 限制单条存储文本（以及 source/tags）的长度。
+// maxTagBytes 限制单个标签，使恶意模型无法填充日志。
+// defaultRecallLimit 在调用方传入非正数的 limit 时生效。
+// tagMatchBonus 超过单个标记命中，使显式标签起到
+// 强过滤作用，而不是微弱的相关性提示。
+// scannerBufferSize 容纳 4KB 文本加标签和元数据。
+// maxReflectBytes 限制抽取式反射的总大小（含头部）。
+// 4KB 使合成结果远在模型的上下文预算之内。
+// reflectPositionBonus 是给在召回顺序中较早出现的句子的
+// 小幅领先。它让相关性（标记重叠）保持
+// 主要排序信号，同时保留可读的、重点在前的摘要。
+// skillDirName 是 bank 目录下受管理的子目录，
+// 被提升的经验教训以 SKILL.md 兼容的 markdown 写入其中。
+// 当 Retain 被要求不存储任何内容时返回 ErrEmptyText。
+// Memory 是一条持久化事实。TS 以 UTC 存储。
+// Invalidated 非空时保存事实被作废的原因，
+// 并将其排除在 Recall 和 Reflect 之外。omitempty 表示正常记录
+// 永不携带该字段，因此在未使用作废功能时，现有日志和调用方
+// 保持逐字节不变。
+// Bank 是由单个 JSONL 文件支撑的并发安全持久化事实存储。
+// 用 NewBank 构造；零值不可用。
+// NewBank 返回一个以 dir 为根的 bank，尽可能创建该目录。
+// 空 dir 会回退到 os.TempDir() 下的私有目录。
+// SetDir 将 bank 指向新目录。它用于初始化，即在
+// 并发使用之前；文件本身在下次写入时懒创建。
+// Dir 报告当前支撑 bank 的目录。
+// Retain 存储一条事实并返回其生成的 id。文本、标签和来源
+// 在写入磁盘前都用 security.Redact 脱敏，因此 memory
+// 文件永不包含凭据。超出上限的存储会丢弃最旧的条目。
+// 保留尾部：日志按插入顺序排列，因此最后 cap 条
+// 无论时钟分辨率如何都是最新的。
+// Recall 加载 bank，并返回最多 limit 条按与 query 的标记
+// 重叠度加标签匹配排序的 memory，平局时新的优先。非正数
+// limit 使用 defaultRecallLimit。空 query 且无标签时每条 memory
+// 都符合条件，因此结果就是简单地按最新优先排列。格式错误的行会被
+// 宽松跳过。
+// 已作废的事实是墓碑：为溯源而保留在磁盘上，但
+// 从不出现在搜索结果中。正常记录永不携带该字段，因此
+// 对从不调用 Invalidate 的 bank 来说，这个过滤是空操作。
+// Forget 删除 id 对应的 memory。它是幂等的：未知 id 是空操作。
+// All 按插入顺序返回每条有效 memory，跳过格式错误的行。
+// 已作废的 memory 在这里（以及磁盘上）作为墓碑保留；只有 Recall 和
+// Reflect 隐藏它们。
+// Reflect 对与 query 最相关的 memory 产生确定性的、抽取式
+// 合成。它不调用任何模型，只使用标准
+// 库。与普通拼接不同，它是真正的抽取式合成器：
+//  1. Recall 返回前 `limit` 条 memory（先按相关性，再按新近度）。
+//  2. 每条 memory 在 .!?。！？ 边界处拆分为句子（小数点
+//     如 "3.14" 保持不变，CJK 文本保持完整）。
+//  3. 每个句子按与 query 的不区分大小写的标记重叠度打分，
+//     并对在召回顺序中较早出现给予小幅加分。
+//  4. 近乎相同的句子去重，保留第一个（最佳的）副本。
+//  5. 输出最佳的 `limit` 个句子，先按分数再按原始
+//     顺序排序，在标题下每行一个 "- "，上限为 maxReflectBytes。字
+//     节上限通过字形安全的裁剪器施加，因此组合标记、
+//     emoji 和旗帜从不被切掉一半。
+// 对于给定的 bank 和 query，输出完全稳定；不涉及随机性或模型
+// 调用。没有符合条件句子的 bank 返回一条简短通知。
+// 唯一的 query 标记，已转小写；query 中的重复项不得抬高
+// 句子的分数。
+// 较早的句子获得小幅、有界的领先。
+// 折叠内嵌换行，使一个句子保持为一行反射结果。
+// 防御性回退：若没有完整的字簇放得下，按 rune 安全的裁剪器
+// 会产生相同（空或 rune 对齐）的结果。
+// dedupeKey 将句子规范化为比较键，使近乎相同的文本
+// （仅在大小写、空白、CJK 间距或标点上不同）折叠为
+// 一行反射结果。每个标记以 NUL 分隔，因此 "ab c" 和 "a bc" 不
+// 会冲突。
+// splitSentences 在 .!?。！？ 边界处拆分文本，将结尾
+// 标点附加到其句子上，并吸收连续的标点（例如 "?!"）。
+// 两个 ASCII 数字之间的 "." 视为小数点，而非边界。
+// reflectTokens 将文本转为小写并拆分为比较标记。拉丁字母及
+// 其他非 CJK 字母/数字保持完整（"quick," -> "quick"），而汉字、
+// 平假名、片假名和韩文逐 rune 输出，这样 CJK query
+// 无需空白分隔的词也能与句子重叠。标点和
+// 符号被丢弃。
+// Learn 保留一条可复用的经验教训，并在 promote 为 true 时，另外在
+// <bank dir>/skills/<id>.md 下写入一个轻量的 SKILL.md 兼容 markdown 文件。
+// 它刻意不导入 internal/skills（分层考虑）：该文件只是
+// 遵循 skills 加载器已能理解的 frontmatter + 正文格式。
+// 技能写入是尽力而为的 —— 失败仍会保留经验教训，
+// 并返回 id 加空路径以及包装后的错误，因此经验不会仅仅因为
+// 其可选技能文件无法写入而丢失。
+// writeSkill 为被提升的经验教训输出一个 SKILL.md 兼容文档。
+// 0600 在 Windows 上是尽力而为的，POSIX 文件模式基本被忽略；
+// 显式模式记录了意图，且在 Unix 上是正确的。
+// 镜像存储的记录：使用 Retain 所施加的相同脱敏 + 上限，使
+// 凭据绝不可能通过原始参数进入技能文件。
+// skillDescription 根据标签构建单行 frontmatter 描述，若
+// 没有标签则取经验教训裁剪后的第一行。换行会被
+// 展平，使该值不会破坏类 YAML 的 frontmatter 块。
+// Invalidated 将 id 对应的 memory 标记为已作废，记录原因，并
+// 将其从 Recall 和 Reflect 中移除。记录作为墓碑留在磁盘上（以及 All 中），
+// 以保留溯源。实现方式：通过 Forget 使用的相同原子重写，
+// 设置记录上的 omitempty `invalidated` 字段。
+// 它是幂等的：未知 id 是空操作。
+// appendLocked 通过单次写入 + Sync 写入一条记录，使崩溃
+// 不会在日志中留下半行。调用方持有 b.mu。
+// loadLocked 读取整个日志。坏行会被跳过而非导致
+// 整个读取失败，因此一条损坏记录不会隐藏其余内容。调用方持有 b.mu。
+// writeAllLocked 用同目录下的临时文件原子替换日志。
+// Windows 可能拒绝覆盖重命名现有文件，因此这种情况
+// 会回退为先删除目标。调用方持有 b.mu。
+// boundedText 对存储字符串进行裁剪、脱敏和限幅。脱敏在
+// 截断之前进行，因此被裁剪的凭据绝不会在磁盘上留下碎片。
+// cleanTags 规范化、脱敏并去重标签。
+// tokenize 将文本转为小写并拆分为比较标记。标点被移除，因此
+// "quick," 和 "quick" 匹配。CJK 文本没有空白分隔的词，所以
+// 无法与中文句子重叠，Reflect 也就无可合成的内容。
+// newID 将纳秒时间戳与随机字节结合，使 id 保持唯一，
+// 即使同一时刻保留了大量事实。
+// checkBOMDoc 针对内容预算断言某个加载器的结果。前导
+// BOM 是元数据：上限适用于移除它之后的内容字节，
+// 而非包含它的磁盘字节。
+// TestBOMDoesNotConsumePerFileByteBudget 覆盖 LoadIn 和 LoadWithBoundary，
+// 这两个加载器具有可配置的单文件上限。修复前，上限是按
+// 原始字节（含 BOM）计算的，因此内容刚好符合限制的文件
+// 会丢失最后三个字节并被标记为已截断。
+// TestBOMDoesNotConsumeBudgetInLoadForDirs 覆盖嵌套加载器，它
+// 总是按 DefaultLimit 裁剪。同样的"BOM 在限幅之前"契约必须成立。
+// 公开 API：停在最近的标记（inner/.git），而不是外层的。
+// 可测试的核心遵循显式的 home 边界。
+// home 之上存在标记；遍历必须停在 home 处而看不到它。
+// 默认值不包含自定义标记。
+// 预算现在按从近到远消耗，因此被裁剪的文档是
+// 保留下来的最外层（根侧）文档，而不是最内层的 cwd 文档。
+// TestLoadWithBoundaryBudgetKeepsNearestDropsRoot 守护预算排序：
+// 文件按从 cwd 到根目录的顺序读取，因此当 32 KiB 预算耗尽时，
+// 最外层（根、最不具体）的指令被丢弃，而最靠近的
+// （cwd、最具体的）指令保留。这是 "nearer wins" 契约，
+// Block/LoadIn 承诺了它，但旧的自根向前的读取违反了它。
+// 从根到 cwd 共六个目录，每个持有一个 DefaultLimit 大小的文件，
+// 使 32 KiB 预算无法容纳全部：四个完整文件加一个
+// 被裁剪的文件可以容纳，根文件则从不读取。
+// 返回顺序保持从根到 cwd；保留的层级是 1..5。
+// instrAt 按 LoadWithBoundary 会生成的方式构造 Instruction：一个
+// 指向 dir 中 AGENTS.md 的绝对 Source。文件无需存在 ——
+// RelevantInstructions 是纯路径过滤器。
+// textsOf 按顺序提取每条指令的 Text，用于简洁的断言。
+// 从根到 cwd 的顺序，即 LoadWithBoundary 返回的顺序。
+// 完全匹配的兄弟子树：只有 src2 适用，绝不可以是 src 或 src-extra。
+// 名称仅仅以 "src" 开头的目录不得匹配 src。
+// 项目根目录下的文件只看到根指令。
+// parser 子树深处的文件同时看到两者。
+// 刻意不排序：输出必须遵循输入顺序，而非重新排名。
+// 输入切片必须保持不变（纯函数）。
+// parser/../lexer 解析到 lexer 子树，而非 parser 子树。
+// 不在任何指令目录下的路径不匹配任何内容。
+// TestRelevantInstructionsCaseInsensitiveOnWindows 守护文档中记录的
+// Windows 上不区分大小写的包含关系；在其他路径比较区分大小写的地方
+// 该断言会被跳过。
+// TestLoadInBehaviourUnchanged 是回归守护：添加 boundary
+// 加载器不得改变现有 nearest-first、home-stopping 的 LoadIn 路径，
+// 也不得使其读取 AGENTS.override.md。
+// Package memory —— 项目根目录边界、override 文件和信任门。
+// 本文件增加了一个可选的指令加载器，遵循 Codex 的
+// 指令发现改进：向上遍历到最近的项目根目录标记，
+// 从根到工作目录（根在前）收集 AGENTS.md，
+// 在每个目录中优先使用 AGENTS.override.md 而非 AGENTS.md，并对
+// 不受信任的项目跳过所有项目文档。现有 Load/LoadIn 行为保持不变。
+// 单文件和总量上限、按 rune 安全的裁剪及截断标记
+// 在此并未重新实现：本文件直接调用 memory.go 中的
+// readInstructionFile 和 clipRunes（同包内），并复用 DefaultLimit、totalBudget。
+// DefaultMarkers 是 ProjectRoot 识别的项目根目录标记，当
+// 调用方未提供自己的列表时使用。".git" 同时涵盖目录和
+// worktree/submodule 指针文件；".argent" 涵盖 agent 原生项目。
+// LoadOptions 配置 LoadWithBoundary。零值有效：它们选择
+// 默认标记、当前用户的主目录和 DefaultLimit。
+// Markers 是传给 ProjectRoot 的项目根目录标记。空
+// 切片选择 DefaultMarkers。
+// Home 是外层遍历边界，也是用户级文档的来源。
+// 空字符串表示 os.UserHomeDir()。测试将其设为临时目录。
+// Limit 是单文件字节上限。值 <= 0 选择 DefaultLimit；
+// 32 KiB 总量预算始终适用。
+// Instruction 是一份指令文档及其来源路径，因此
+// 渲染后的系统提示可以显示溯源。它有意与 Doc 分开，
+// 以使可选加载器的契约更加明确。
+// Source 是该指令来源文件的绝对路径。
+// Text 是文件内容，可能已按大小限制裁剪。
+// Truncated 报告 Text 是否被单文件上限或
+// 合并后的总量预算截断。
+// ProjectRoot 从 dir 向上遍历，返回最近的、
+// 包含任一项目根目录标记的祖先目录。它同时识别 ".git"
+// 目录和 ".git" 文件（worktree/submodule 指针）：只关心条目
+// 是否存在。遍历停在文件系统根目录或 home 处，因此
+// 用户主目录之上的标记永远不会被选中。当 markers 为空时，
+// 使用 DefaultMarkers。找不到标记时返回 ""。
+// projectRoot 是 ProjectRoot 的可测试核心：显式传入 home
+// 以便测试控制上界而无需触碰真实主目录。

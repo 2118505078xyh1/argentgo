@@ -26,7 +26,7 @@ func TestCompareVersionsTable(t *testing.T) {
 		{"1.0.0-alpha.1", "1.0.0-alpha.beta", -1},
 		{"1.0.0-rc.1", "1.0.0-beta.11", 1},
 		{"0.2.0", "0.1.9", 1},
-		// Numeric prerelease identifiers wider than int must compare by value.
+		// 宽度超过 int 的数字预发布标识符必须按值比较。
 		{"1.0.0-10000000000000000000", "1.0.0-9", 1},
 		{"1.0.0-2", "1.0.0-10000000000000000000", -1},
 		{"1.0.0-10000000000000000000", "1.0.0-9999999999999999999", 1},

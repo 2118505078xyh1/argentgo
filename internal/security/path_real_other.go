@@ -7,17 +7,17 @@ import (
 	"path/filepath"
 )
 
-// realPathExisting resolves symlinks on POSIX systems. filepath.EvalSymlinks
-// follows the whole chain; there are no directory junctions to account for.
+// realPathExisting 在 POSIX 系统上解析符号链接。filepath.EvalSymlinks 会跟随
+// 整条链；POSIX 没有需要处理的目录 junction。
 func realPathExisting(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
 }
 
-// isLinkInfo reports whether info describes a symlink. POSIX has no junctions,
-// so the mode bit is the only link marker needed.
+// isLinkInfo 报告 info 是否描述一个符号链接。POSIX 没有 junction，
+// 因此模式位是唯一需要的链接标记。
 func isLinkInfo(info os.FileInfo) bool {
 	return info != nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// normalizeLinkTarget is a no-op on POSIX: Readlink returns the target as-is.
+// normalizeLinkTarget 在 POSIX 上是空操作：Readlink 原样返回目标。
 func normalizeLinkTarget(path string) string { return path }

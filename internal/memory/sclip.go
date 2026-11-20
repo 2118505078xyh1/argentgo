@@ -1,30 +1,30 @@
 package memory
 
-// Grapheme-cluster-safe clipping, implemented with the standard library only.
+// 按字簇安全裁剪，仅用标准库实现。
 //
-// A "grapheme cluster" is what a human reads as one character. Splitting a
-// string at an arbitrary byte or rune boundary can break a combining sequence
-// ("e" + U+0301), a ZWJ emoji (👨‍👩‍👧‍👦), a regional-indicator flag (🇨🇳) or a
-// Hangul jamo sequence into invalid or nonsensical fragments. The clippers in
-// this file never cut inside such a cluster.
+// 按字簇安全裁剪，仅用标准库实现。
+// "字簇"是人类读作一个字符的单位。在任意字节或 rune 边界处
+// 拆分字符串会破坏组合序列（"e" + U+0301）、ZWJ emoji（👨‍👩‍👧‍👦）、
+// 区域指示符旗帜（🇨🇳）或韩文 jamo 序列，产生无效或无意义的
+// 从不在这种字簇内部切割。
 //
-// Coverage (pragmatic, stdlib-only):
-//   - a base rune plus following Unicode combining marks (Mn/Mc/Me),
-//     variation selectors (FE00–FE0F), ZWNJ, emoji skin-tone modifiers and
-//     emoji tag characters;
-//   - ZWJ (U+200D) chains: the rune after a ZWJ is glued into the cluster;
-//   - paired regional indicators (U+1F1E6–U+1F1FF) form a single flag cluster;
-//   - Hangul jamo sequences grouped by the L/V/T composition rules;
-//   - CRLF kept together.
+// 覆盖范围（务实、仅标准库）：
+//   - 基础 rune 加其后的 Unicode 组合标记（Mn/Mc/Me）、
+//     变体选择符（FE00–FE0F）、ZWNJ、emoji 肤色修饰符和
+//     emoji 标签字符；
+//   - ZWJ（U+200D）链：ZWJ 之后的 rune 被粘入该字簇；
+//   - 成对的区域指示符（U+1F1E6–U+1F1FF）组成单个旗帜字簇；
+//   - 韩文 jamo 序列按 L/V/T 组合规则分组；
+//   - CRLF 保持在一起。
 //
-// Honest limitations: this is NOT a complete UAX #29 implementation. It has no
-// extended-pictographic / prepend / spacing-mark / Indic virama rules, does not
-// implement the full GB9c (Indic conjunct) or GB11 (extended pictographic ZWJ)
-// gating, and does not tokenise regional indicators with intervening extenders
-// perfectly. It is deliberately conservative: when in doubt it keeps bytes
-// together, so it may under-count clusters for exotic scripts but will not emit
-// a dangling combining mark or a half emoji. Callers needing full conformance
-// should use a dedicated UAX #29 implementation; the stdlib has none.
+// 诚实的局限：这不是完整的 UAX #29 实现。它没有
+// extended-pictographic / prepend / spacing-mark / Indic virama 规则，不
+// 实现完整的 GB9c（印度语系连字）或 GB11（扩展图形 ZWJ）
+// 门控，也不能完美地对中间带扩展符的区域指示符分词。
+// 它刻意保守：有疑问时就把字节
+// 保持在一起，因此对 exotic 文字可能少数字簇，但绝不会输出
+// 悬空的组合标记或半个 emoji。需要完全符合标准的调用方
+// 应使用专门的 UAX #29 实现；标准库中没有。
 
 import (
 	"unicode"
@@ -38,9 +38,9 @@ const (
 	ellipsis = "…"
 )
 
-// ClipGraphemes returns the first maxClusters grapheme clusters of s. The
-// result is always a valid UTF-8 string and is never longer than s. Non-positive
-// maxClusters yields the empty string.
+// ClipGraphemes 返回 s 的前 maxClusters 个字簇。
+// 结果始终是有效的 UTF-8 字符串，且永不长于 s。非正数
+// maxClusters 返回空字符串。
 func ClipGraphemes(s string, maxClusters int) string {
 	if maxClusters <= 0 || s == "" {
 		return ""
@@ -49,9 +49,9 @@ func ClipGraphemes(s string, maxClusters int) string {
 	return longestValidPrefix(s[:end])
 }
 
-// TruncateGraphemes behaves like ClipGraphemes but appends "…" when the input
-// actually had to be shortened. When s already fits in maxClusters clusters it
-// is returned unchanged (no ellipsis is added).
+// TruncateGraphemes 行为类似 ClipGraphemes，但当输入确实
+// 需要缩短时附加 "…"。当 s 已经放得进 maxClusters 个字簇时
+// 原样返回（不添加省略号）。
 func TruncateGraphemes(s string, maxClusters int) string {
 	clipped := ClipGraphemes(s, maxClusters)
 	if clipped == s {
@@ -60,11 +60,11 @@ func TruncateGraphemes(s string, maxClusters int) string {
 	return clipped + ellipsis
 }
 
-// clipGraphemeBytes is the byte-budget sibling of ClipGraphemes. It returns the
-// longest prefix of s that fits within maxBytes bytes without cutting a
-// grapheme cluster in half. Reflect uses it to enforce a byte cap while keeping
-// combining sequences and emoji whole. Invalid UTF-8 input is trimmed to its
-// longest valid prefix.
+// clipGraphemeBytes 是 ClipGraphemes 的字节预算兄弟函数。它返回
+// s 的最长前缀，使其放得进 maxBytes 字节而不切开
+// 字簇。Reflect 用它执行字节上限，同时保持
+// 组合序列和 emoji 完整。无效的 UTF-8 输入会被修剪到其
+// 最长有效前缀。
 func clipGraphemeBytes(s string, maxBytes int) string {
 	if maxBytes <= 0 || s == "" {
 		return ""
@@ -73,10 +73,10 @@ func clipGraphemeBytes(s string, maxBytes int) string {
 	return longestValidPrefix(s[:end])
 }
 
-// clusterPrefixEnd walks clusters from the start of s and stops after either
-// maxClusters clusters (when >= 0) or maxBytes bytes (when >= 0). The caller
-// supplies exactly one limit. It returns a byte offset that is always a cluster
-// boundary (and hence a rune boundary for valid UTF-8 input).
+// clusterPrefixEnd 从 s 开头遍历字簇，并在满足
+// maxClusters 个字簇（>= 0 时）或 maxBytes 字节（>= 0 时）后停止。调用方
+// 恰好提供其中一个限制。它返回一个始终是字簇边界的字节偏移
+// （因此对有效 UTF-8 输入也是 rune 边界）。
 func clusterPrefixEnd(s string, maxClusters, maxBytes int) int {
 	end := 0
 	count := 0
@@ -95,19 +95,19 @@ func clusterPrefixEnd(s string, maxClusters, maxBytes int) int {
 	return end
 }
 
-// clusterEnd returns the byte offset just past the grapheme cluster that starts
-// at byte offset i. It advances at least one rune, so callers always make
-// progress even on malformed UTF-8 (where a bad byte decodes as RuneError/size 1).
+// clusterEnd 返回刚好越过从字节偏移 i 开始的字簇的
+// 字节偏移。它至少前进一个 rune，因此即使在畸形 UTF-8 上调用方
+// 也总能取得进展（坏字节解码为 RuneError/size 1）。
 func clusterEnd(s string, i int) int {
 	base, size := utf8.DecodeRuneInString(s[i:])
 	j := i + size
 
-	// A CRLF pair is one cluster.
+	// CRLF 对是一个字簇。
 	if base == '\r' && j < len(s) && s[j] == '\n' {
 		return j + 1
 	}
 
-	// Regional indicators pair up left-to-right to form flags.
+	// 区域指示符从左到右配对形成旗帜。
 	if isRegionalIndicator(base) && j < len(s) {
 		if next, sz := utf8.DecodeRuneInString(s[j:]); isRegionalIndicator(next) {
 			j += sz
@@ -119,7 +119,7 @@ func clusterEnd(s string, i int) int {
 		r, sz := utf8.DecodeRuneInString(s[j:])
 		switch {
 		case r == zwj:
-			// ZWJ glues the following rune (and its own extenders) here.
+			// ZWJ 在这里把后面的 rune（及其自身的扩展符）粘住。
 			j += sz
 			if j < len(s) {
 				glued, gsz := utf8.DecodeRuneInString(s[j:])
@@ -138,8 +138,8 @@ func clusterEnd(s string, i int) int {
 	return j
 }
 
-// isClusterExtend reports whether r attaches to the preceding base rune:
-// combining marks, variation selectors, joiners and emoji modifiers.
+// isClusterExtend 报告 r 是否附着到前面的基础 rune：
+// 组合标记、变体选择符、连接符和 emoji 修饰符。
 func isClusterExtend(r rune) bool {
 	if unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r) {
 		return true
@@ -156,7 +156,7 @@ func isClusterExtend(r rune) bool {
 
 func isRegionalIndicator(r rune) bool { return r >= riStart && r <= riEnd }
 
-// jamoClass classifies a rune for the Hangul composition rules (UAX #29 GB6–8).
+// jamoClass 按韩文组合规则（UAX #29 GB6–8）对 rune 分类。
 type jamoClass uint8
 
 const (
@@ -185,8 +185,8 @@ func hangulClass(r rune) jamoClass {
 	return jamoNone
 }
 
-// hangulGlues reports whether next may join the cluster whose last jamo class
-// was prev.
+// hangulGlues 报告 next 是否可以加入最后一个 jamo 类别为
+// prev 的字簇。
 func hangulGlues(prev, next jamoClass) bool {
 	switch prev {
 	case jamoL:
@@ -199,9 +199,9 @@ func hangulGlues(prev, next jamoClass) bool {
 	return false
 }
 
-// longestValidPrefix returns the longest prefix of s that is well-formed UTF-8.
-// This is a defensive guard for callers that pass malformed input; for valid
-// input it returns s unchanged.
+// longestValidPrefix 返回 s 中格式良好的 UTF-8 的最长前缀。
+// 这是对传入畸形输入的调用方的防御性保护；对于有效
+// 输入，它原样返回 s。
 func longestValidPrefix(s string) string {
 	for i := 0; i < len(s); {
 		r, sz := utf8.DecodeRuneInString(s[i:])

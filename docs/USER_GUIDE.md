@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 -ZipPath '.\arg
 
 不带 `-ZipPath` 时，脚本会在 `dist/release`（`scripts/build-release.ps1` 写产物的地方）中查找唯一一个 `argent_*_windows_amd64.zip`。它**只**安装 CLI 二进制；`~/.argentgo` 下的会话/配置不会被触碰。对于桌面窗口，请把 zip 中的 `argent-native.exe` 复制到同一个安装目录。
 
-### 从源码安装（go install）
+### 从源码安装（`go install`）
 
 `cmd/argent` 是一个 `main` 包，因此标准的 Go 安装路径有效：
 
@@ -233,7 +233,7 @@ argent bug                             # write a diagnostics dump
 
 引擎核心只用标准库且无 cgo。`github.com/egoist/mygo`（固定在 `go.mod` 中）是唯一的第三方依赖，且只被 `native/` 使用。浏览器前端已移除。
 
-### 它们如何通信（--rpc）
+### 它们如何通信（`--rpc`）
 
 两个程序并不链接在一起；它们通过一个已有的传输对话：
 

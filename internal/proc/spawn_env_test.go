@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// envProbeMarker turns the re-executed test binary into a tiny env dumper.
+// envProbeMarker 把重新执行的测试二进制变成一个小型 env 转储器。
 const envProbeMarker = "ARGENT_PROC_ENV_PROBE"
 
-// envProbeKeys is the fixed set of variables the helper reports. Host-private
-// keys use no suffixes so the exact-name and prefix denylists are both covered.
+// envProbeKeys 是辅助进程报告的固定变量集。宿主私有
+// 键不带后缀，这样精确名称和前缀黑名单都能覆盖到。
 var envProbeKeys = []string{
 	"ARGENT_SESSION_ID",
 	"ARGENT_RUN_ID",
@@ -22,9 +22,9 @@ var envProbeKeys = []string{
 	"PROC_ENV_EXTRA",
 }
 
-// TestProcEnvProbeHelper is a no-op during the normal run. Spawn tests re-exec
-// the test binary with the marker set; the helper prints the values it sees so
-// the parent can assert exactly which variables a child inherited.
+// TestProcEnvProbeHelper 在正常运行中是空操作。生成测试会带着标记重新执行
+// 测试二进制；辅助进程打印它看到的值，
+// 使父进程可以断言子进程究竟继承了哪些变量。
 func TestProcEnvProbeHelper(t *testing.T) {
 	if os.Getenv(envProbeMarker) == "" {
 		return
@@ -43,8 +43,8 @@ func envProbeCommand(extra []string) Command {
 	}
 }
 
-// parseEnvProbe keeps only the helper's own lines; the test framework also
-// writes "PASS"/"ok" lines to stdout.
+// parseEnvProbe 只保留辅助进程自己的行；测试框架还会向 stdout
+// 写入 "PASS"/"ok" 行。
 func parseEnvProbe(out string) map[string]string {
 	got := make(map[string]string)
 	for _, line := range strings.Split(out, "\n") {
@@ -58,11 +58,11 @@ func parseEnvProbe(out string) map[string]string {
 	return got
 }
 
-// TestSpawnPathsFilterHostPrivateEnv checks that every spawn path in the
-// package gives children the same sanitized environment. Run has always
-// filtered host-private variables; the detached path (used by RunWithTimeout
-// for promoted background jobs, i.e. nested agents) must do the same, or a
-// nested agent mistakes the host's session plumbing for its own.
+// TestSpawnPathsFilterHostPrivateEnv 检查包中每条生成路径
+// 都给子进程相同的净化环境。Run 一直在过滤宿主私有变量；
+// 分离路径（RunWithTimeout 用于提升后台作业，
+// 即嵌套 agent）也必须如此，否则嵌套 agent 会把宿主的
+// 会话管道误认为自己的。
 func TestSpawnPathsFilterHostPrivateEnv(t *testing.T) {
 	const (
 		sessionVal   = "sentinel-session-9f3a"

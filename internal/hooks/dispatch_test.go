@@ -18,8 +18,8 @@ import (
 	"unicode/utf8"
 )
 
-// TestMain doubles as the hook command under test: when the helper variable is
-// set, this process behaves like a tiny hook script instead of a test binary.
+// TestMain 同时充当被测的钩子命令：当辅助变量被
+// 设置时，本进程表现得像一个很小的钩子脚本，而非测试二进制文件。
 func TestMain(m *testing.M) {
 	if mode := os.Getenv("ARGENT_HOOK_HELPER"); mode != "" {
 		hookHelper(mode)
@@ -40,14 +40,14 @@ func hookHelper(mode string) {
 	case "sleep":
 		time.Sleep(5 * time.Second)
 	case "sleepms":
-		// Bounded sleep used by the parallel-execution tests. Given a generous
-		// hook timeout, N concurrent hooks take ~one sleep, not N sleeps.
+		// 并行执行测试使用的有界 sleep。在宽松的钩子超时下，N 个并发钩子耗时约
+		// 一次 sleep，而非 N 次。
 		if ms, err := strconv.Atoi(os.Getenv("ARGENT_HOOK_SLEEP_MS")); err == nil && ms > 0 {
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		}
 	case "append":
-		// Record one line per invocation so tests can count executions. A
-		// single small append keeps concurrent writers from interleaving.
+		// 每次调用记录一行，使测试能统计执行次数。一次
+		// 小型追加可避免并发写入者交错。
 		if path := os.Getenv("ARGENT_HOOK_LOG"); path != "" {
 			if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 				_, _ = file.WriteString("x\n")
@@ -55,9 +55,9 @@ func hookHelper(mode string) {
 			}
 		}
 	case "lingering":
-		// Exit immediately but leave a child holding this process's stdout
-		// and stderr — the pipes the dispatcher captures. Without a WaitDelay
-		// the dispatcher's Wait() blocks until the child releases them.
+		// 立即退出，但留下一个持有本进程 stdout
+		// 和 stderr 的子进程 —— dispatcher 捕获的管道。没有 WaitDelay
+		// 时，dispatcher 的 Wait() 会阻塞直到子进程释放它们。
 		child := exec.Command(os.Args[0])
 		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
 		child.Stdout = os.Stdout
@@ -68,10 +68,10 @@ func hookHelper(mode string) {
 		}
 		os.Exit(0)
 	case "lingering-signal":
-		// Like "lingering", but exit only once ARGENT_HOOK_GO_FILE appears so
-		// the test can place the process exit just before the hook deadline.
-		// ARGENT_HOOK_READY_FILE tells the test the child is already holding
-		// the captured pipes.
+		// 与 "lingering" 类似，但只在 ARGENT_HOOK_GO_FILE 出现后才退出，使
+		// 测试能把进程退出安排在钩子截止时间之前。
+		// ARGENT_HOOK_READY_FILE 告诉测试子进程已经持有
+		// 被捕获的管道。
 		child := exec.Command(os.Args[0])
 		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
 		child.Stdout = os.Stdout
@@ -96,13 +96,13 @@ func hookHelper(mode string) {
 		code, _ := strconv.Atoi(os.Getenv("ARGENT_HOOK_EXIT_CODE"))
 		os.Exit(code)
 	case "exitcode":
-		// Used to obtain a real *os.ProcessState with a known exit status for
-		// the classification unit tests.
+		// 用于获取具有已知退出状态的真实 *os.ProcessState，
+		// 供分类单元测试使用。
 		code, _ := strconv.Atoi(os.Getenv("ARGENT_HOOK_EXIT_CODE"))
 		os.Exit(code)
 	case "lingering-child":
-		// Hold the inherited pipes until the test signals it is done (with a
-		// fallback bound so a failed test cannot leak a process forever).
+		// 持有继承的管道直到测试发出完成信号（带有
+		// 回退上限，使失败的测试不会永远泄漏一个进程）。
 		exitFile := os.Getenv("ARGENT_HOOK_EXIT_FILE")
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
@@ -117,7 +117,7 @@ func hookHelper(mode string) {
 	os.Exit(0)
 }
 
-// helperDispatcher runs the test binary instead of a shell.
+// helperDispatcher 运行测试二进制文件而不是 shell。
 func helperDispatcher(timeout time.Duration) *Dispatcher {
 	return &Dispatcher{
 		Timeout: timeout,
@@ -421,9 +421,9 @@ func TestDispatchDocumentRequiresADocument(t *testing.T) {
 }
 
 func TestRunCommandUsesTheShell(t *testing.T) {
-	// Generous timeout: under a full parallel `go test ./...` (or -race) the
-	// shell can take several seconds just to start. This test checks that the
-	// shell is used and output captured, not a tight wall-clock bound.
+	// 宽松的超时：在完整的并行 `go test ./...`（或 -race）下，
+	// shell 可能要几秒才能启动。本测试检查使用的是 shell 且输出被捕获，
+	// 而不是严格的挂钟时间上限。
 	dispatcher := &Dispatcher{Timeout: 30 * time.Second}
 	command := Command{Event: SessionStart, Command: "echo argent-hook", Timeout: 30 * time.Second}
 	outcome := dispatcher.RunCommand(context.Background(), command, Payload{Event: "SessionStart", CWD: t.TempDir()})
@@ -436,10 +436,10 @@ func TestRunCommandUsesTheShell(t *testing.T) {
 }
 
 func TestRunCommandCustomShellSkipsBashProbe(t *testing.T) {
-	// findBash probes up to five interpreters with a two-second deadline each
-	// on Windows, and it runs before runCtx exists so its cost is not bounded
-	// by the hook timeout. A caller that supplies Shell has already chosen the
-	// interpreter; RunCommand must not probe the default one at all.
+	// findBash 在 Windows 上以两秒超时探测最多五个解释器，
+	// 且它在 runCtx 存在之前运行，因此其开销不受
+	// 钩子超时限制。提供了 Shell 的调用方已经选好了
+	// 解释器；RunCommand 绝不应再探测默认解释器。
 	oldBashRuns := bashRuns
 	var probes atomic.Int32
 	bashRuns = func(string) bool { probes.Add(1); return false }
@@ -469,8 +469,8 @@ func TestRunCommandCustomShellSkipsBashProbe(t *testing.T) {
 		t.Fatalf("custom Shell triggered %d bash probes, want 0", got)
 	}
 
-	// Sanity: without a Shell override the default path must still probe, so
-	// a zero count above cannot be an artefact of a disabled probe.
+	// 完整性检查：没有 Shell 覆盖时默认路径仍必须探测，因此
+	// 上面的零计数不可能是探测被禁用的假象。
 	plain := &Dispatcher{Timeout: 5 * time.Second}
 	plain.RunCommand(context.Background(), command, Payload{Event: "PostToolUse"})
 	if got := probes.Load(); got == 0 {
@@ -482,8 +482,8 @@ func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
 	t.Setenv("ARGENT_HOOK_HELPER", "lingering")
 	exitFile := filepath.Join(t.TempDir(), "child-exit")
 	t.Setenv("ARGENT_HOOK_EXIT_FILE", exitFile)
-	// Release the child before this binary exits; on Windows a live child
-	// would otherwise keep the test executable locked during go test cleanup.
+	// 在本二进制文件退出前释放子进程；在 Windows 上，存活的子进程
+	// 否则会在 go test 清理期间锁定测试可执行文件。
 	t.Cleanup(func() {
 		_ = os.WriteFile(exitFile, nil, 0o600)
 		time.Sleep(100 * time.Millisecond)
@@ -499,9 +499,9 @@ func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
 	if outcome.Err != nil {
 		t.Fatalf("hook failed to run: %v", outcome.Err)
 	}
-	// The helper exits at once but its child inherits the captured stdout and
-	// stderr pipes and keeps them open. The hook's own timeout must bound the
-	// wall-clock wait; without WaitDelay the run takes seconds instead of
+	// helper 立即退出，但其子进程继承被捕获的 stdout 和
+	// stderr 管道并保持打开。钩子自身的超时必须限制
+	// 挂钟等待；没有 WaitDelay 时运行需要数秒而非
 	// ~waitDelay.
 	if elapsed > 1500*time.Millisecond {
 		t.Fatalf("lingering child blocked the hook for %s", elapsed)
@@ -520,11 +520,11 @@ func waitForHelperFile(t *testing.T, path string) {
 	t.Fatalf("hook helper never created %s", path)
 }
 
-// dispatchLingering runs a hook that exits just before its deadline while a
-// background child keeps the captured pipes open past it. The deadline then
-// fires during the post-exit pipe drain, which the old runCtx.Err() check
-// misread as a hook timeout. The helper signals when the child is holding the
-// pipes so the timing stays deterministic even under -race.
+// dispatchLingering 运行一个在截止时间前刚好退出的钩子，同时
+// 后台子进程在截止时间之后仍保持被捕获的管道打开。于是截止时间
+// 在退出后的管道排空期间触发，旧的 runCtx.Err() 检查
+// 将其误判为钩子超时。helper 在子进程持有管道时发出信号，
+// 使时序即使在 -race 下也保持确定。
 func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
 	t.Helper()
 	dir := t.TempDir()
@@ -541,8 +541,8 @@ func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
 		time.Sleep(100 * time.Millisecond)
 	})
 
-	// Warm the one-time bash probe before starting the clock; on Windows its
-	// first call can spend up to two seconds checking candidate interpreters.
+	// 在启动计时之前预热一次性的 bash 探测；在 Windows 上其
+	// 首次调用可能花两秒检查候选解释器。
 	findBash()
 
 	const timeout = 3 * time.Second
@@ -556,8 +556,8 @@ func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
 	}()
 
 	waitForHelperFile(t, readyFile)
-	// Place the process exit 400ms before the deadline. It is gone when the
-	// context expires, so only the postponed pipe drain runs past the deadline.
+	// 将进程退出安排在截止时间前 400ms。届时它已消失，因此只有延迟的管道排空越过截止时间。
+	// context 到期时它已消失，因此只有延迟的管道排空越过截止时间。
 	if delay := time.Until(started.Add(2600 * time.Millisecond)); delay > 0 {
 		time.Sleep(delay)
 	}
@@ -566,9 +566,9 @@ func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
 }
 
 func TestRunCommandLingeringChildKeepsRealExitStatus(t *testing.T) {
-	// The hook process exited well before its deadline; only the post-exit
-	// pipe wait ran into it. Its real exit status must survive, and it must
-	// not be mislabelled as a timeout.
+	// 钩子进程远在其截止时间之前就已退出；只有退出后的
+	// 管道等待越过了它。其真实退出状态必须保留，且它
+	// 不得被误标为超时。
 	outcome := dispatchLingering(t, PostToolUse, 1)
 	if outcome.TimedOut {
 		t.Fatalf("hook mislabelled as timed out: %+v", outcome)
@@ -583,8 +583,8 @@ func TestRunCommandLingeringChildKeepsRealExitStatus(t *testing.T) {
 }
 
 func TestRunCommandLingeringChildKeepsBlockingExit(t *testing.T) {
-	// The same pipe-drain overrun must not swallow a real exit-2 block: the
-	// block signal is only honoured for a hook that did not time out.
+	// 同样的管道排空超时不得吞掉真实的 exit-2 拦截：拦截
+	// 信号只对未超时的钩子生效。
 	outcome := dispatchLingering(t, PreToolUse, 2)
 	if outcome.TimedOut {
 		t.Fatalf("blocking hook mislabelled as timed out: %+v", outcome)
@@ -598,9 +598,9 @@ func TestRunCommandLingeringChildKeepsBlockingExit(t *testing.T) {
 	}
 }
 
-// processStateForExit runs the helper just to obtain a real *os.ProcessState
-// with a known exit status; the classification tests need a genuine state
-// because its fields are unexported.
+// processStateForExit 运行 helper 只是为了获得真实的 *os.ProcessState
+// 及已知退出状态；分类测试需要真实状态，
+// 及已知退出状态；分类测试需要真实状态，因为其字段未导出。
 func processStateForExit(t *testing.T, code int) *os.ProcessState {
 	t.Helper()
 	cmd := exec.Command(os.Args[0])
@@ -615,9 +615,9 @@ func processStateForExit(t *testing.T, code int) *os.ProcessState {
 }
 
 func TestClassifyRunResultKeepsExitStatusAfterPipeDrainTimeout(t *testing.T) {
-	// A background child holding the captured pipes makes Wait report
-	// ErrWaitDelay after the deadline, even though the hook already exited.
-	// The context's status must not overwrite the real exit code.
+	// 持有被捕获管道的后台子进程使 Wait 在截止时间后报告
+	// ErrWaitDelay，即使钩子已经退出。
+	// context 的状态不得覆盖真实的退出码。
 	for _, code := range []int{0, 1, 2} {
 		state := processStateForExit(t, code)
 		gotCode, timedOut, err := classifyRunResult(exec.ErrWaitDelay, state, false)
@@ -670,8 +670,8 @@ func TestClipHelpersKeepUTF8Valid(t *testing.T) {
 		"clipCommand": clipCommand,
 	}
 	// A rune that straddles the byte limit must not be split. "界" is 3 bytes
-	// and "🙂" is 4 bytes, so 400 and 120 are guaranteed to land mid-rune for
-	// some repetition counts.
+	// 而 "🙂" 是 4 字节，因此对某些重复次数，400 和 120 必定落在 rune 中间。
+	// 对某些重复次数必定落在 rune 中间。
 	for _, rune := range []string{"界", "🙂", "a界🙂"} {
 		for name, clipFn := range clippers {
 			got := clipFn(strings.Repeat(rune, 200))
@@ -683,7 +683,7 @@ func TestClipHelpersKeepUTF8Valid(t *testing.T) {
 			}
 		}
 	}
-	// Strings within the limit are returned unchanged (no stray ellipsis).
+	// 限制内的字符串被原样返回（没有多余的省略号）。
 	for name, clipFn := range clippers {
 		if got := clipFn("short"); got != "short" {
 			t.Errorf("%s changed a short string: %q", name, got)
@@ -707,7 +707,7 @@ func TestOutcomeMessageIsRuneSafeWhenClipped(t *testing.T) {
 	}
 }
 
-// --- parallel dispatch (Crush audit port) -----------------------------------
+// --- 并行分发（Crush 审计移植） -----------------------------------
 
 func TestDispatchRunsHooksConcurrently(t *testing.T) {
 	t.Setenv("ARGENT_HOOK_HELPER", "sleepms")
@@ -736,9 +736,9 @@ func TestDispatchRunsHooksConcurrently(t *testing.T) {
 			t.Fatalf("hook %d failed: %+v", i, outcome)
 		}
 	}
-	// Serial execution would take at least 8×500ms = 4s. A generous 2.5s bound
-	// leaves room for slow process startup under -race / a loaded CI while still
-	// catching a regression to the old serial loop.
+	// 串行执行至少需要 8×500ms = 4s。宽松的 2.5s 上限
+	// 为 -race / 负载较重的 CI 下缓慢的进程启动留出余量，同时仍能
+	// 捕获退化回旧串行循环的回归。
 	if elapsed > 2500*time.Millisecond {
 		t.Fatalf("hooks ran serially: %s for %d × 500ms sleeps", elapsed, hooks)
 	}
@@ -791,8 +791,8 @@ func TestDispatchAggregatesParallelOutcomes(t *testing.T) {
 	})
 
 	t.Run("mixed outcomes", func(t *testing.T) {
-		// Order and the block flag survive aggregation regardless of the order
-		// in which the concurrent hooks finished.
+		// 顺序和拦截标志在聚合后得以保留，无论并发钩子
+		// 以何种顺序完成。
 		outcomes := []Outcome{
 			{Event: PreToolUse, Command: "ok", ExitCode: 0},
 			{Event: PreToolUse, Command: "bad", ExitCode: 1, Stderr: "hook exploded"},
@@ -936,8 +936,8 @@ func TestFireFileChangedDispatchesPath(t *testing.T) {
 }
 
 func TestFireFileChangedMatchesHooksByPath(t *testing.T) {
-	// FileChanged matchers describe the affected file ("*.go"), but the
-	// convenience wrapper only fills Payload.Path. Matching must look there.
+	// FileChanged 匹配器描述受影响的文件（"*.go"），但
+	// 便捷包装器只填充 Payload.Path。匹配必须查看那里。
 	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
 		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
 		{"matcher":"*.md","hooks":[{"command":"md-hook"}]},
@@ -972,8 +972,8 @@ func TestFireFileChangedMatchesHooksByPath(t *testing.T) {
 }
 
 func TestRunFileChangedMatcherUsesPathNotTool(t *testing.T) {
-	// The path is the documented match value for FileChanged. Even when a
-	// caller also supplies a Tool, a matcher must be tested against the path.
+	// 该路径是 FileChanged 文档规定的匹配值。即使调用方
+	// 也提供了 Tool，匹配器仍必须针对路径测试。
 	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
 		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
 		{"matcher":"write","hooks":[{"command":"tool-hook"}]}
@@ -1007,8 +1007,8 @@ func TestRunFileChangedMatcherUsesPathNotTool(t *testing.T) {
 }
 
 func TestPlanRunGroupsByPriority(t *testing.T) {
-	// planRun receives commands already sorted by descending priority, as Run
-	// guarantees after its stable sort.
+	// planRun 接收已按优先级降序排序的命令，这是 Run
+	// 在其稳定排序后保证的。
 	commands := []Command{
 		{Command: "high-a", Priority: 10},
 		{Command: "high-b", Priority: 10},

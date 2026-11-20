@@ -9,16 +9,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// checkpointSource adapts the session checkpoint store to the consumer-side
-// tools.CheckpointSource interface. It lives in app so internal/tools does not
-// need to import internal/session (layering rule enforced by internal/archguard).
+// checkpointSource 把会话检查点存储适配为消费侧的 tools.CheckpointSource 接口。
+// 它位于 app 中，使 internal/tools 无需导入 internal/session
+// （该分层规则由 internal/archguard 强制检查）。
 type checkpointSource struct {
 	sess *session.Session
 	root string
 }
 
-// Diff returns a per-file summary of the latest checkpoint. An empty id means
-// "latest"; a positive id is parsed as a step-back count.
+// Diff 返回最近检查点的逐文件摘要。空的 id 表示 "latest"；正整数 id 会被解析为回退步数。
 func (c *checkpointSource) Diff(id string) ([]tools.FileChange, error) {
 	if c == nil || c.sess == nil {
 		return nil, fmt.Errorf("no session available")
@@ -45,8 +44,7 @@ func (c *checkpointSource) Diff(id string) ([]tools.FileChange, error) {
 	return out, nil
 }
 
-// wireCheckpointDiff attaches the checkpoint_diff tool to a registry once the
-// session and workspace root are known.
+// wireCheckpointDiff 在已知会话和工作区根目录之后，把 checkpoint_diff 工具挂接到注册表。
 func wireCheckpointDiff(registry *tools.Registry, sess *session.Session, root string) {
 	if registry == nil || sess == nil {
 		return

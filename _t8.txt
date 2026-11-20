@@ -1,0 +1,256 @@
+===== internal/tui/frame_cache.go
+23	timeSensitive 在有通知、spinner、实时推理/工具行或
+24	旧式状态可见时为 true。此时 nowNanos 固定到精确时刻，使
+25	该键永不与后续帧匹配。为 false 时，nowNanos 为零。
+39	 面板几何。面板*数据*变化会提升 version；这些标量字段
+40	 涵盖只把模型标脏的光标/滚动/筛选移动。
+50	newFrameCacheKey 在其自己的锁下快照模型。它从不修改
+51	模型：通知的存在用 Len 而非 Current 读取，后者会裁剪
+52	过期通知（从而改变栈）作为副作用。一个
+53	过期但尚未裁剪的通知只会让键更保守。
+96	 旧式状态有 6 秒的显示窗口，取决于 now 而非
+97	 任何版本。同样把存活的旧式状态视为时间敏感。
+115	frameCacheHit 报告为 prev 渲染的帧能否复用于
+116	cur 而无需重绘。只有键相等才是安全的情况。
+121	isPureScrollChange 报告 cur 与 prev 是否仅在
+122	记录滚动偏移上不同：内容版本和所有其他视觉输入
+123	都未改变。这样的转换是缓存未命中 —— 滚动会移动正文
+124	窗口和状态行的 "↑N" 标记，因此其字节必须重绘。
+
+===== internal/tui/frame_cache_test.go
+9	fixedFrameClock 是帧键测试的确定性时间源。固定
+10	now 和 started 使头部时钟保持稳定，这样只有被测的变更
+11	能改变键。
+16	seededFrameModel 返回一个带长记录的已绘制模型，使较小的
+17	Scroll 就能移动视口和状态行滚动标记。
+28	TestFrameCacheKeyIncludesPendingDanger 在弹窗
+29	加入 danger 原因时保持缓存诚实：两个其他方面相同但 danger
+30	文本不同的帧绝不能共享缓存的绘制结果。
+223	TestPureScrollRepaintIsRequired 记录为何 draw 在
+224	仅滚动的帧上不能跳过 Paint：正文窗口和状态行 "↑N" 标记都会移动，
+225	因此即使 version 未变，发出的字节也确实改变。
+
+===== internal/tui/fuzzy.go
+3	用于侧边栏定位器（会话、
+4	工作区、任务）的带评分的模糊子序列匹配器。仅用标准库；UTF-8/CJK 安全，因为
+5	调用方看到的每个索引都是原始文本中的 rune 索引。
+7	该实现是一个小型动态规划：它找到把 pattern 的 rune
+8	分配给 text 的 rune 的子序列，使由
+9	匹配奖励、词边界奖励、连续段奖励和间隔
+10	惩罚构成的得分最大化。它有意避开 fzf 的 Slab/charClass 微优化；
+11	面板最多容纳几百个短字符串，因此这里清晰性优先。
+18	评分权重。它们是相对值；测试比较的是结果，而非绝对值。
+31	FuzzyResult 是一个带评分的候选。调用方从 FuzzyMatch 调用构建它，
+32	并让 Index 指向自己的条目，使排序不会丢失
+33	关联。SortFuzzyResults 只看这四个字段。
+41	FuzzyMatch 报告 pattern 的每个 rune 是否按顺序出现在 text 中，
+42	若是则给出最佳得分和匹配到的 rune 索引。
+44	大小写处理是 smart-case：当 pattern 不含大写 rune 时，
+45	比较不区分大小写（双方都用 unicode.ToLower 折叠）；出现
+46	任何大写 rune 则比较区分大小写。空的
+47	pattern 匹配所有内容，得分为 0 且无位置。
+49	pathMode 把 '/', '\\', ':' 和 ',' 当作词分隔符（除了
+50	始终作为分隔符的 '.'、'_' 和 '-'），并给这些分隔符额外的
+51	边界奖励，从而偏好从路径组件开始的匹配。
+63	 智能大小写：当 pattern 全为小写时把双方折叠一次。
+64	 unicode.ToLower 对 rune 是 1:1 的，因此折叠后的索引对 txtOrig 仍有效。
+72	 back[i][j] 是当 pat[i] 匹配到 txt[j] 时，紧接 txt[j] 之前匹配的
+73	 rune 的文本索引；-1 表示"没有前一个 rune"（i == 0）。
+76	 prev* 保存 pat[i-1] 匹配在每个文本位置时的最佳得分。
+89		 prevScore[k] - k*gapExtend（k <= j）的运行最大值。这把
+90		 "最佳较早匹配加上间隔"的搜索变成每个文本位置 O(1)。
+113			 连续匹配：前一个 rune 在 j-1，无间隔惩罚。
+118			 有间隔的匹配：前一个 rune 在 k <= j-2。
+154	SortFuzzyResults 按得分降序、然后较短文本、然后
+155	较早的首次匹配位置、然后调用方 Index 排序。sort.SliceStable 让
+156	完全相同的条目保持原有顺序，因此结果对
+157	任何输入都是确定的。
+175	startOf 返回第一个匹配的 rune 索引，或对一个空
+176	位置列表返回一个很大的哨兵值，使这类结果在"较早起始"规则下排最后。
+184	charBonus 是匹配 txt[j] 的与位置无关的部分：一个固定
+185	匹配分加上首 rune 奖励和/或词边界奖励。
+200	gapCost 是在两个匹配 rune 之间（或在首次匹配之前）跳过 n 个 rune 的
+201	惩罚。间隔越长，代价渐进增加。
+209	isBoundary 报告 j 处的 rune 是否开启新词：在空白之后、
+210	在分隔符之后、在 camelCase 大写处，或在数字/非数字切换处。
+211	第二个返回值仅在 pathMode 下对路径分隔符为 true。
+
+===== internal/tui/fuzzy_test.go
+36	 模式中没有大写 -> 不区分大小写。
+39	 模式中有大写 -> 区分大小写。
+84	 前导间隔同样扣分。
+104	 ':' 仅在 pathMode 下是边界。
+123	 Emoji 是单个 rune；位置必须按 rune 计，而非 UTF-8 字节。
+160	 完全相同的条目保持原有顺序（稳定）。
+
+===== internal/tui/help_test.go
+50	 单个放不下的条目也只产生省略号，绝不会是
+51	 半个写出的按键。
+77	 禁用所有条目等同于没有任何绑定。
+98	 TextWidth 把每个 CJK 字形算作两个单元格；按 rune 计数会是 35。
+158	 把每个 rune 算作两个单元格：在这个模型下，即使 "a one" 单独也
+159	 放不下，因此只显示省略号。默认的 TextWidth 模型
+160	 在相同宽度下会显示 "a one…"。
+
+===== internal/tui/input.go
+8	Editor 是提示缓冲区：文本、光标和历史环。
+9	每次变更都让光标停留在 rune 边界，因此 CJK 输入绝不会
+10	被切成两半。
+19	NewEditor 返回一个空的编辑器。
+22	Text 是当前内容。
+25	Runes 是当前内容的 rune 副本。
+28	Cursor 是以 rune 索引表示的光标位置。
+31	SetText 替换内容并把光标放到末尾。
+38	markEdited 退出历史浏览：一旦用户修改了召回的行，它就
+39	是一个新的草稿，因此 HistoryNext 绝不能跳回失效的召回前
+40	文本。load() 是唯一在 SetText 后有意设置 index 的路径。
+43	Insert 在光标处写入文本。
+58	Backspace 删除光标前的 rune。
+69	Delete 删除光标处的 rune。
+79	Left 把光标向后移动一个 rune。
+86	Right 把光标向前移动一个 rune。
+93	Home 把光标放到缓冲区开头。
+96	End 把光标放到缓冲区末尾。
+99	KillToEnd 从光标删除到缓冲区末尾。
+109	KillToStart 从缓冲区开头删除到光标。
+120	KillWord 删除光标前的词，先跳过尾随空格。
+141	Clear 清空缓冲区并退出历史浏览。
+149	Record 把提交的行加入历史，忽略连续的重复。
+163	HistoryPrev 在历史中后退一步。
+182	HistoryNext 在历史中前进一步，回到末尾的草稿。
+196	load 替换缓冲区但不退出历史浏览。
+202	MoveLine 把光标上下移动一个逻辑行。当缓冲区只有一行
+203	或光标已在边缘时返回 false，此时
+204	调用方应回退到历史。
+255	inputRow 是输入框中一个显示行。
+261	wrapInput 把缓冲区折叠为宽度不超过 width 个单元格的行。断点落在
+262	字素边界上（与 Wrap 相同的规则）：ZWJ emoji、旗帜对或
+263	组合序列是一个可见字形，绝不能被拆到两
+264	行。一行的起点是它包含的第一个簇的 rune 索引，这使
+265	rowCaretColumn 与实际绘制的内容保持同步。
+295	inputWindow 让光标所在行保持可见，最多显示 maxRows 行。
+323	rowCaretColumn 是光标在其行内的单元格偏移。
+
+===== internal/tui/input_test.go
+9	typeBytes 把原始字节流喂给解码器并进入模型，
+10	这与终端走的路径相同。
+
+===== internal/tui/input_wrap_test.go
+5	输入框使用与记录相同的字素边界规则：ZWJ
+6	家庭 emoji、区域指示符旗帜和组合序列都是单一
+7	可见字形，绝不能被折到两行。wrapInput 过去
+8	逐个 rune 测量，因此 ZWJ 序列中的第二个图形（或
+9	旗帜的第二个字母）可能被推到下一行，留下悬空的
+10	连接符 / 半面旗帜。
+36	 显式换行和普通宽/CJK 文本必须保持旧行为。
+
+===== internal/tui/ioctl_darwin.go
+5	Darwin ioctl 请求：TIOCGETA、TIOCSETA、TIOCGWINSZ。
+
+===== internal/tui/ioctl_linux.go
+5	Linux ioctl 请求：TCGETS、TCSETS、TIOCGWINSZ。
+
+===== internal/tui/keys.go
+14	Kind 枚举 UI 理解的逻辑按键。转义序列被
+15	解码为这种形状，使模型永远看不到原始字节。
+18	按键种类。
+49	 面板切换被追加在后面，使上面按键的数值
+50	 对直接把字节解码为 Kind 值的调用方保持不变。
+58	 鼠标报告种类被追加在后面，使上面每个按键的数值
+59	 保持稳定。由于历史解码（见 parseCSI），滚轮和
+60	 未修改的左键在 Key 上保留其历史 Kind 值；
+61	 Key.Mouse 始终是鼠标报告的权威描述。
+71	MouseKind 对一条解码后的 SGR 鼠标报告分类。
+74	 鼠标报告种类。
+84	MouseEvent 是一条解码后的 SGR 鼠标报告。Col 和 Row 是基于 1 的
+85	终端坐标。Button 保存原始 SGR 位：低两位标识
+86	左键 (0)、中键 (1) 和右键 (2)；第 32 位标记拖拽；64/65 是滚轮。
+94	Key 是一次解码后的按键。仅对解码出的鼠标报告 Mouse 才非 nil；
+95	键盘按键保持不变。
+103	Decoder 把字节流转换为按键。不完整的转义序列在
+104	两次读取之间保留，因此跨两次读取拆分的序列不会丢失。
+109	Pending 报告是否有不完整的序列被缓冲。
+112	Feed 追加字节并返回其中包含的所有完整按键。
+120	FlushEscape 把单个待处理的 ESC 变成 Esc 按键。run 循环在没有
+121	新字节迅速到达时调用它，使单个 Esc 仍能立即中止。
+146	decodeKey 从 b 的前端解码一个按键。当 b 是更长序列的前缀时，
+147	第三个结果为 false。
+201	maxPasteBytes 限制括号粘贴缓冲区。如果终端发出
+202	ESC[200~ 起始符却丢失配对的 ESC[201~，否则会
+203	让解码器永远等待，缓冲区不断增长并吞掉每次按键。
+204	超过此上限时丢弃开头的 ESC，使累积的字节
+205	被正常重新解码，键盘得以恢复。
+223		 ESC 后跟其他内容：Esc 是被单独按下的，
+224		 下一个字节是普通按键。
+232				 结束标记丢失：丢弃 ESC 并把缓冲的
+233				 字节作为普通输入重新解码，使键盘永不卡住。
+246		 失控的序列：丢弃 ESC 并继续，而不是让
+247		 缓冲区无限增长。
+253	parseCSI 把控制序列的正文和结束字节映射为按键。
+291		 SGR 鼠标报告：ESC [ < button ; col ; row M（按下）或 m
+292		 （释放）。decodeSGRMouse 把完整事件带到 Key.Mouse。
+297		 保留原始滚轮解码器及其基准测试所依赖的历史 Kind 值：
+298		 滚轮曾是滚动键，未修改的左键被忽略。run 循环改为按 Key.Mouse 分派，
+299		 因此保留这些值不会丢失任何鼠标细节。
+316	decodeSGRMouse 把 SGR 报告的正文（ESC [ 之后的所有内容）
+317	解析为带 MouseEvent 的 Key。release 选择结尾的 'm' 形式。第三个
+318	结果对任何非格式良好的 SGR 报告为 false，使
+319	调用方回退到普通的"忽略"路径。
+321	 旧式 X10 报告（ESC [ M 后跟三个原始字节）有意
+322	 不解码：SGR 模式（DECSET 1016）下的现代终端只发出
+323	 这里处理的形式，额外的模式会让字节流解码器复杂化。
+357	KeyBinding 是底部按键栏的一项。Key 是首先绘制的标签
+358	（例如 "ctrl+c"），Desc 是其人可读的含义，Enabled
+359	使调用方可以隐藏不适用于当前 UI 状态的条目，而无需
+360	重建整个列表。
+372	HintBindings 把本地化提示字符串（如
+373	"enter send · alt+enter newline · /help"）拆为绑定，全部启用。它让
+374	调用方保留现有区域设置数据，同时通过 ShortHelp 获得逐项控制
+375	（Enabled、顺序、感知宽度的渲染）。没有
+376	描述的按键（"/help"）保留为仅 Key 的绑定。
+400	ShortHelp 按顺序把绑定渲染为 "key desc" 条目，用
+401	shortHelpSep 连接。禁用的条目被跳过。当连接后的文本
+402	放不进 width 时，丢弃整个条目并追加尾随省略号，
+403	而不是把某个按键切成两半，因此窄终端绝不会显示
+404	被静默截断的绑定。
+406	textWidth 是注入的（通常是 tui.TextWidth），使该辅助函数用
+407	调用方的宽度模型测量单元格；nil 回调回退到 TextWidth。
+408	当 textWidth 是本包的 TextWidth 时，返回的字符串
+409	占用的单元格永不超过 width。
+445		 为省略号预留空间，只保留放得下的完整片段。
+471	clipboardWrite 是可插拔的剪贴板后端。测试替换它，
+472	以便在不触碰真实系统剪贴板的情况下测试 CopyToClipboard。
+475	CopyToClipboard 尽力把文本复制到系统剪贴板。
+476	在 Windows 上它通过 os/exec 把文本管道给 clip.exe（仅标准库，无 cgo 且
+477	无新模块）。在其他平台，或 clip.exe 不可用时，它是
+478	空操作，因此复制支持绝不会破坏 run 循环。存在的
+479	clip.exe 返回的错误交给调用方记录或忽略。
+
+===== internal/tui/keys_test.go
+142	 起始符永不结束的括号粘贴不得无限缓冲
+143	 或吞掉其后每个按键。超过上限后解码器丢弃
+144	 ESC 并把累积的字节作为普通输入重新解码。
+153	 解码器恢复后，普通按键必须能再次送达。
+161	 上限只适用于缺失结束符的情况：正确闭合的
+162	 大型粘贴仍作为单个按键完整送达。
+
+===== internal/tui/locale.go
+8	strings 保存 UI 随附的两种区域设置；整个 harness 的用户可见文本
+9	都在一张表中，因此第三种语言只是数据变更。
+126	text 返回一条 UI 字符串，先回退到英语，再回退到键名。
+
+===== internal/tui/markdown.go
+9	markdownLines 用模型实际发出的那一小部分 markdown 渲染一个块：
+10	围栏代码、行内代码、粗体、标题和表格。
+15	 每个输出行都带有 first/rest 前缀（助手标记 "◆ " 或
+16	 其缩进），因此内容预算是宽度减去该前缀 —— 正是
+17	 wrapStyled 对普通行使用的规则。表格必须使用相同的
+18	 预算，否则其右边框会越过记录边缘。
+40	 表格块是这样一行：紧跟一个由 '|' 构成的分隔符
+41	 行。把它整体渲染以保持列对齐，然后跳过它。
+77	inlineSpans 把一行拆为带样式的片段：`code`、**粗体**、标题和
+78	项目符号标记。
+139	styledCluster 是带有其所属 span 样式的一个字素簇。
+140	换行按簇而非 rune 进行，因此 ZWJ emoji、旗帜或
+141	组合序列绝不会被拆到两行（见 screen.go 中的 Wrap）。
+148	splitGraphemes 按顺序返回 s 的字素簇。nextGrapheme 是

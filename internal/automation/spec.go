@@ -193,7 +193,7 @@ type Spec struct {
 	LastRun    *time.Time `json:"lastRun,omitempty"`
 	LastStatus string     `json:"lastStatus,omitempty"`
 	LastLog    string     `json:"lastLog,omitempty"`
-	// Warnings reports invisible characters found in the declarative content.
+	// Warnings 报告在声明性内容中发现的不可见字符。
 	// It is metadata only: it is never serialised and never blocks a task.
 	Warnings []string `json:"-"`
 }

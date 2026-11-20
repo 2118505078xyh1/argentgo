@@ -74,8 +74,8 @@ func TestClassifyTurnEndDoesNotMisjudge(t *testing.T) {
 	}
 }
 
-// outcomeRunner returns a fixed error immediately, so an ACP prompt reaches
-// its terminal result without gating or real cancellation timing.
+// outcomeRunner 立即返回一个固定的错误，使 ACP 提示无需门控或
+// 真实的取消时序即可到达其终态结果。
 type outcomeRunner struct{ err error }
 
 func (r outcomeRunner) Prompt(context.Context, string, func(string)) (string, error) {
@@ -83,10 +83,10 @@ func (r outcomeRunner) Prompt(context.Context, string, func(string)) (string, er
 }
 func (r outcomeRunner) Abort() {}
 
-// TestACPTerminalResultCarriesTurnEndReason verifies the additive field is on
-// the two result-shaped terminal outcomes, while the original stopReason is
-// untouched. The failure path stays a -32603 error with code/message intact;
-// only an additive error.data carries the "failure" classification.
+// TestACPTerminalResultCarriesTurnEndReason 验证附加字段出现在
+// 两种结果形态的终态结果上，而原始的 stopReason 保持
+// 不变。失败路径仍是 -32603 错误，code/message 完整；
+// 只有附加的 error.data 携带 "failure" 分类。
 func TestACPTerminalResultCarriesTurnEndReason(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -136,8 +136,8 @@ func TestACPTerminalResultCarriesTurnEndReason(t *testing.T) {
 	}
 }
 
-// TestFailureTurnEndDataIsFailure is the pure-helper counterpart of the wire
-// test below: the failure classification is available without a transport.
+// TestFailureTurnEndDataIsFailure 是下面线协议测试的纯辅助函数版本：
+// 无需传输即可获得失败分类。
 func TestFailureTurnEndDataIsFailure(t *testing.T) {
 	data := failureTurnEndData(TurnEndFailure)
 	if data.TurnEndReason != TurnEndFailure {
@@ -152,9 +152,9 @@ func TestFailureTurnEndDataIsFailure(t *testing.T) {
 	}
 }
 
-// TestACPFailureErrorCarriesTurnEndReasonInData verifies that the session/prompt
-// failure path adds an optional error.data.turnEndReason == "failure" while
-// leaving the error code and message byte-for-byte as before.
+// TestACPFailureErrorCarriesTurnEndReasonInData 验证 session/prompt
+// 失败路径增加了可选的 error.data.turnEndReason == "failure"，同时
+// 错误 code 和 message 保持逐字节不变。
 func TestACPFailureErrorCarriesTurnEndReasonInData(t *testing.T) {
 	failure := errors.New("boom")
 	inR, inW := io.Pipe()
@@ -206,9 +206,9 @@ func TestACPFailureErrorCarriesTurnEndReasonInData(t *testing.T) {
 	waitFor(t, done)
 }
 
-// TestACPNonPromptErrorHasNoTurnEndData guards the default behaviour: errors
-// from methods other than session/prompt keep the original two-field envelope
-// and never gain a data member.
+// TestACPNonPromptErrorHasNoTurnEndData 守护默认行为：
+// 来自 session/prompt 以外方法的错误保持原有的两字段信封，
+// 绝不会多出 data 成员。
 func TestACPNonPromptErrorHasNoTurnEndData(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()

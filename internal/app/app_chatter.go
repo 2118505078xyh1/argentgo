@@ -29,11 +29,10 @@ func newChatter(protocol, baseURL, apiKey string, opts llm.Options) llm.Chatter 
 	}
 }
 
-// fallbackChatter retries once with --fallback-model when the primary model
-// fails in a retryable way. Cancellation and deterministic provider errors are
-// never retried. Each attempt's streamed text is buffered until it succeeds, so
-// a model that emits half an answer and then fails cannot splice that partial
-// text into the fallback's reply (the agent layer follows the same rule).
+// fallbackChatter 在主模型以可重试的方式失败时，用 --fallback-model 重试一次。
+// 取消和确定性的提供方错误从不重试。每次尝试的流式文本会缓冲到该次尝试成功为止，
+// 因此输出半个答案后失败的模型，其部分文本不会拼接进回退模型的回复
+// （agent 层遵循同样的规则）。
 type fallbackChatter struct {
 	primary  llm.Chatter
 	fallback string
@@ -53,10 +52,9 @@ func (f *fallbackChatter) Chat(
 	return f.chatBuffered(ctx, f.fallback, messages, tools, onText)
 }
 
-// chatBuffered holds a model's deltas until its request succeeds, then forwards
-// them in order. A failed attempt's deltas are dropped when the caller switches
-// to another model; without this, the operator would see the failed model's
-// text concatenated with the successful model's answer.
+// chatBuffered 保存某个模型的增量，直到其请求成功，然后按顺序转发。
+// 调用方切换到另一个模型时，失败尝试的增量会被丢弃；没有这一步，操作人员就会看到
+// 失败模型的文本与成功模型的答案拼接在一起。
 func (f *fallbackChatter) chatBuffered(
 	ctx context.Context,
 	model string,
@@ -77,12 +75,12 @@ func (f *fallbackChatter) chatBuffered(
 	return reply, nil
 }
 
-// fallbackStatusRE finds an HTTP status in a provider error string such as
-// "provider returned 429: ..." or "HTTP 503: service unavailable".
+// fallbackStatusRE 从提供方错误字符串中查找 HTTP 状态码，例如
+// "provider returned 429: ..." 或 "HTTP 503: service unavailable"。
 var fallbackStatusRE = regexp.MustCompile(`\b([1-5][0-9]{2})\b`)
 
-// statusCodeInFallbackError extracts the first HTTP status from a provider
-// error message. It reports false when the text carries no plausible status.
+// statusCodeInFallbackError 从提供方错误消息中提取第一个 HTTP 状态码。
+// 文本中没有看似合理的状态码时返回 false。
 func statusCodeInFallbackError(text string) (int, bool) {
 	match := fallbackStatusRE.FindStringSubmatch(text)
 	if match == nil {
@@ -95,13 +93,10 @@ func statusCodeInFallbackError(text string) (int, bool) {
 	return code, true
 }
 
-// isRetryableFallbackError decides whether another model can plausibly serve
-// the same turn. It mirrors agent.isRetryableProviderError: llm owns transport
-// failures (ClassifyRetryError) and HTTP statuses (IsRetryableStatus), with the
-// legacy prose vocabulary unioned in for providers that report a retryable
-// condition without a typed error or numeric status. Cancellation, validation
-// failures and hard quota/billing limits stay final because repeating the same
-// messages with another model cannot fix them.
+// isRetryableFallbackError 判断另一个模型是否可能服务同一轮次。它对应 agent.isRetryableProviderError：
+// 传输失败由 llm 负责（ClassifyRetryError），HTTP 状态码由 llm 负责（IsRetryableStatus），
+// 并并入旧版文本词汇，以照顾那些在没有类型化错误或数字状态码时报告可重试状况的提供方。
+// 取消、校验失败以及硬性配额/计费限制保持为最终结论，因为换一个模型重发相同的消息无法修复它们。
 func isRetryableFallbackError(err error) bool {
 	if err == nil {
 		return false
@@ -124,8 +119,7 @@ func isRetryableFallbackError(err error) bool {
 		"timeout", "timed out",
 	)
 	if code, ok := statusCodeInFallbackError(lower); ok {
-		// A hard quota can arrive with a retryable-looking 429/402; llm owns
-		// the distinction between a transient rate limit and a spent budget.
+		// 硬性配额可能以看似可重试的 429/402 出现；瞬时限流与预算耗尽之间的区别由 llm 掌管。
 		if llm.IsNonRetryableQuotaResponse(code, []byte(lower)) {
 			return false
 		}
@@ -142,7 +136,7 @@ func isRetryableFallbackError(err error) bool {
 	return legacyRetryable
 }
 
-// containsAnyFallback reports whether text holds any of the lower-case needles.
+// containsAnyFallback 报告 text 是否包含任意一个小写 needle。
 func containsAnyFallback(text string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(text, needle) {

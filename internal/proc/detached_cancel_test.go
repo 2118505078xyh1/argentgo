@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// signallingChild is a fake child that records terminate/kill requests. When
-// cooperate is set it closes its wait channel on TerminateTree, modelling a
-// child that flushes and exits on the graceful stop signal.
+// signallingChild 是记录 terminate/kill 请求的假子进程。当设置 cooperate 时，
+// 它在 TerminateTree 上关闭等待通道，模拟在优雅停止信号下
+// 刷新并退出的子进程。
 type signallingChild struct {
 	pid        int
 	cooperate  bool
@@ -62,10 +62,10 @@ func installSignallingStarter(t *testing.T, child *signallingChild) {
 	t.Cleanup(func() { SetStarter(nil) })
 }
 
-// TestRunWithTimeoutUserCancelTerminatesTreeBeforeEscalating guards the gap
-// where the detached spawn path killed a cancelled child outright while Run
-// gave one a SIGTERM grace period. A child that ignores the terminate request
-// must still be killed, but only after the grace window.
+// TestRunWithTimeoutUserCancelTerminatesTreeBeforeEscalating 守护这样的缺口：
+// 分离生成路径曾直接杀死被取消的子进程，而 Run
+// 会给它一个 SIGTERM 宽限期。忽略终止请求的子进程
+// 仍必须被杀死，但只能在宽限窗口之后。
 func TestRunWithTimeoutUserCancelTerminatesTreeBeforeEscalating(t *testing.T) {
 	old := cancellationGracePeriod
 	cancellationGracePeriod = 80 * time.Millisecond
@@ -102,9 +102,9 @@ func TestRunWithTimeoutUserCancelTerminatesTreeBeforeEscalating(t *testing.T) {
 	}
 }
 
-// TestRunWithTimeoutUserCancelStopsAtGracefulExit verifies the point of the
-// grace period: a cooperative child must not receive Kill at all. The old
-// behaviour failed this by killing immediately on context cancellation.
+// TestRunWithTimeoutUserCancelStopsAtGracefulExit 验证宽限期的意义：
+// 协作式子进程根本不应收到 Kill。旧行为会在 context 取消时
+// 立即杀死它，从而未通过此测试。
 func TestRunWithTimeoutUserCancelStopsAtGracefulExit(t *testing.T) {
 	old := cancellationGracePeriod
 	cancellationGracePeriod = 3 * time.Second
@@ -135,8 +135,8 @@ func TestRunWithTimeoutUserCancelStopsAtGracefulExit(t *testing.T) {
 	}
 }
 
-// TestRunWithTimeoutDeadlineStillKillsImmediately keeps the timeout semantics
-// intact: the two-phase stop is only for explicit user cancellation.
+// TestRunWithTimeoutDeadlineStillKillsImmediately 保持超时语义
+// 不变：两阶段停止只针对显式的用户取消。
 func TestRunWithTimeoutDeadlineStillKillsImmediately(t *testing.T) {
 	old := cancellationGracePeriod
 	cancellationGracePeriod = 3 * time.Second

@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestPermissionOptions checks the four canonical ACP permission choices:
-// their optionId, kind and human-readable name must stay in sync.
+// TestPermissionOptions 检查四个规范的 ACP 权限选项：
+// 它们的 optionId、kind 和易读名称必须保持一致。
 func TestPermissionOptions(t *testing.T) {
 	want := []PermissionOption{
 		{OptionID: "allow_once", Kind: PermissionOptionAllowOnce, Name: "Allow once"},
@@ -28,8 +28,8 @@ func TestPermissionOptions(t *testing.T) {
 	}
 }
 
-// TestPermissionOptionKindNames pins the name text of each kind independently
-// of option ordering, so a future reorder cannot silently change the labels.
+// TestPermissionOptionKindNames 独立于选项顺序，固定每种 kind 的名称文本，
+// 使未来的重排不会悄悄改变标签。
 func TestPermissionOptionKindNames(t *testing.T) {
 	byKind := make(map[PermissionOptionKind]string)
 	for _, opt := range permissionOptions() {
@@ -51,8 +51,8 @@ func TestPermissionOptionKindNames(t *testing.T) {
 	}
 }
 
-// TestPermissionOutcome checks the option -> outcome mapping, including the
-// fail-closed cases (empty, unknown and wrongly-cased choices all cancel).
+// TestPermissionOutcome 检查选项 -> 结果映射，包括
+// fail-closed 的情形（空、未知和大小写错误的选项都会取消）。
 func TestPermissionOutcome(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -76,9 +76,9 @@ func TestPermissionOutcome(t *testing.T) {
 	}
 }
 
-// acpPermissionRequest drives one session/request_permission frame through a
-// fresh transport and returns its single reply. When sendParams is false the
-// "params" key is omitted entirely (the ACP "no option" case).
+// acpPermissionRequest 通过一个全新的传输驱动一帧 session/request_permission，
+// 并返回它的单条回复。当 sendParams 为 false 时，
+// 完全省略 "params" 键（ACP 的"无选项"情形）。
 func acpPermissionRequest(t *testing.T, params map[string]any, sendParams bool) map[string]any {
 	t.Helper()
 	inR, inW := io.Pipe()
@@ -102,8 +102,8 @@ func acpPermissionRequest(t *testing.T, params map[string]any, sendParams bool) 
 	return resp
 }
 
-// acpPermissionRawRequest sends a pre-built frame, for cases a Go map cannot
-// express (e.g. a "params" value of the wrong JSON type).
+// acpPermissionRawRequest 发送预构建的帧，用于 Go map 无法
+// 表达的情形（例如 "params" 值类型错误）。
 func acpPermissionRawRequest(t *testing.T, frame string) map[string]any {
 	t.Helper()
 	inR, inW := io.Pipe()
@@ -123,9 +123,9 @@ func acpPermissionRawRequest(t *testing.T, frame string) map[string]any {
 	return resp
 }
 
-// TestACPRequestPermissionOutcomes exercises the method over the real ACP
-// transport. A known optionId selects; a missing or unknown one fails closed
-// to "cancelled" without disturbing any existing ACP method.
+// TestACPRequestPermissionOutcomes 通过真实 ACP 传输演练该方法。
+// 已知的 optionId 会选中；缺失或未知的则 fail closed
+// 到 "cancelled"，且不干扰任何现有 ACP 方法。
 func TestACPRequestPermissionOutcomes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -192,9 +192,9 @@ func TestACPRequestPermissionOutcomes(t *testing.T) {
 	}
 }
 
-// TestACPRequestPermissionMalformedParams verifies that a frame whose params
-// cannot decode into the params struct is a JSON-RPC invalid-params error, not
-// a successful (and possibly approving) outcome.
+// TestACPRequestPermissionMalformedParams 验证 params 无法解码进
+// params 结构体的帧是 JSON-RPC invalid-params 错误，而不是
+// 一次成功（且可能批准）的结果。
 func TestACPRequestPermissionMalformedParams(t *testing.T) {
 	resp := acpPermissionRawRequest(t,
 		`{"jsonrpc":"2.0","id":1,"method":"session/request_permission","params":[]}`)

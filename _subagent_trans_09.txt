@@ -1,0 +1,236 @@
+// Dispatcher 运行钩子命令。
+// Timeout 在命令自身未设置超时时限制单条命令；零
+// 表示 30 秒。
+// Shell 覆盖命令解释器，用于测试和小众平台。
+// 默认是 bash -c（没有 bash 的 Windows 上为 cmd /C）。
+// Telemetry 非 nil 时，对 Dispatch/Run 执行的每个钩子调用一次，
+// 传入其耗时、退出状态和失败原因。它
+// 在钩子自身的 goroutine 中运行（钩子并行时），因此
+// 回调必须并发安全。留空（默认）不会给运行增加任何遥测工作。
+// SlowThreshold 在钩子耗时达到该值时将 HookTelemetry.Slow 置 true。
+// 零（默认）禁用该标记。它从不改变分发或计时；调用方决定如何对慢记录告警。
+// Runner 非 nil 时，替换所有钩子（同步或异步）的内置进程 runner。
+// 它是测试在不启动真实 shell 的情况下观察钩子的注入接缝。
+// asyncWG 跟踪 Run 启动的后台钩子。Run 从不在其上等待：
+// 异步钩子不得延迟触发它的决策。WaitAsync
+// 让调用方排空它们（测试、优雅关闭）。
+// Dispatch 为 payload.Event 运行所有匹配的钩子并返回
+// 聚合决策。
+// DispatchDocument 运行受信任文档中的钩子。
+// FireFileChanged 为某个变更路径分发 FileChanged 生命周期事件。
+// 它是便捷包装器，固定事件名和 payload
+// 字段，使每个调用方产生相同形状的钩子文档。需要会话/cwd 上下文的调用方
+// 在分发之前于掌握运行上下文的 app 侧桥接处填写这些字段。
+// Run 为某个事件执行同步钩子，Priority 高的先执行。
+// Priority 相同的钩子保持声明顺序（稳定排序），因此
+// 文档钩子（优先级均为 0）的行为完全不变。异步钩子
+// 在后台启动且永不进入返回的决策：决定性钩子必须同步回答。带 StopPropagation
+// 的命令执行后结束运行，保护后面的钩子。
+// 同一优先级的钩子并发运行；各层级按优先级顺序排空。聚合延迟从 O(N×T) 降到每层约
+// O(T)，而执行的集合和返回结果的顺序与
+// 之前的串行循环完全一致。StopPropagation 是静态标志，因此 planRun 可以在任何命令启动前
+// 计算短路边界。
+// FileChanged 匹配器描述受影响的文件（"*.go"），而非
+// 改变它的工具。FireFileChanged 和其他直接调用方只携带
+// Payload.Path；ForEvent 在匹配值为空时跳过带匹配器的钩子，
+// 否则文档记载的文件匹配器永不触发。
+// 在同步层级之前启动后台钩子，使缓慢或
+// 被取消的层级无法阻止它们启动。Run 从不等待它们。
+// claimedCommands 遍历排序后的命令列表一次，返回实际
+// 执行的命令：重复的命令字符串被丢弃（按优先级/声明顺序第一次
+// 出现者胜出），StopPropagation 命令结束遍历，
+// 保护后面每个钩子。重复项仍遵守其自身的停止边界。planRun 和 planAsync 都从这单次遍历派生，
+// 因此它们不会就哪些命令被认领产生分歧：每条命令只进入
+// 同步或后台路径之一，任一路径上的停止都会保护两条路径中后面的钩子。
+// planRun 使用认领集合镜像旧串行循环的控制流：
+// 同步命令按优先级分组，每组包含可并发执行的同优先级命令，按执行顺序排列。
+// resultCollector 从并发钩子运行中收集结果。互斥锁保证
+// 收集无竞态；每个 goroutine 按其原始索引记录，使
+// ordered() 能重建声明顺序而不受完成顺序影响。
+// runTier 并发运行一个优先级层级。被取消的 context 阻止新
+// 钩子启动；已启动的钩子在其自身超时下完成并仍被收集。结果按层级声明顺序返回。
+// commandRunner 返回所有钩子使用的 runner。零值保持
+// 原有的进程启动行为；只有需要注入接缝的测试才覆盖它。
+// timeoutFor 解析命令的有效超时：先命令自身的值，
+// 再 dispatcher 的值，再 defaultTimeout，并限制到 minTimeout。
+// 同步进程路径和后台路径都使用它，使钩子无论以何种方式启动
+// 都受到相同的限制。
+// guardedRunCommand 运行一个带 panic 隔离的钩子。钩子能 panic 穿出的唯一进程内
+// 回调是 Dispatcher.Shell 和 Runner；一个 panic 的命令变成带 PanicError 的 Outcome，
+// 循环仍会到达下一个命令。当调用方未提供工具调用 ID 时，命令字符串是回退标识。
+// 仅在启用遥测时才取时钟，使默认路径除 RunCommand 已有开销外
+// 不支付额外计时成本。
+// RunCommand 用 stdin 上的 payload 运行一条钩子命令。
+// 调用方提供的 Shell 已经选好了解释器。先解析默认解释器会运行 findBash 的探测
+// （在 Windows 上最多五个进程，每个两秒超时），即使结果会被
+// 丢弃 —— 而且这发生在 runCtx 存在之前，因此不在钩子超时
+// 覆盖范围内。
+// 超时或被杀死的进程可能留下持有管道写端的孙进程；限制 Wait 等待这些管道的时间，使
+// 上面的超时真正限制挂钟时间。
+// 在进程自身退出后，context 仍可能在 Wait 排空被捕获管道期间
+// 到期 —— 留下持有 stdout 的后台子进程的钩子会让管道保持打开越过截止时间。os/exec 在
+// 这种情况下仍调用 Cancel，但 Kill 返回 ErrProcessDone：钩子没有
+// 超时。只跟踪对存活进程的 Kill，使已完成的钩子
+// 不被误标为超时（那也会丢弃其 exit-2 拦截）。
+// 退出状态 2 是钩子协议的"拦截"信号，且只有 PreToolUse
+// 可以拦截动作。
+// classifyRunResult 将完成的进程等待转换为 Outcome 的状态字段。killedByDeadline 仅当超时确实杀死了
+// 存活的钩子时为 true。否则，在 Wait 排空后台子进程遗留管道期间到期的 context
+// 不得改写进程的真实退出状态：钩子已经完成，其 exit-2 拦截必须保留。
+// ErrWaitDelay 和迟到的 context 错误只表示被捕获的管道比进程活得久；它们不是钩子失败。
+// Summarize 将结果转换为拦截/警告决策。
+// shellCommand 为钩子命令选择解释器。钩子是 shell
+// 脚本，因此安装了可用的 bash 时优先使用。
+// findBash 返回一个确实能运行的 bash。在 Windows 上 PATH 中第一个 "bash"
+// 通常是 System32 里的 WSL 别名，未安装发行版时会失败，因此每个候选探测一次。
+// bashRuns 探测一个候选解释器。它是变量，使测试能在不启动进程的情况下
+// 统计探测次数。
+// limitedBuffer 最多捕获 maxCapture 字节。
+// clipRunes 将文本限制在 limit 字节内且不切开 UTF-8 rune。
+// 末尾的省略号取代被丢弃的尾部。回退从 limit-1 向前走到前一个 RuneStart，
+// 因此切点总落在 rune 边界（最坏情况只得到省略号）。
+// ErrCallbackPanic 是 PanicError 包装的哨兵错误，使调用方能用
+// errors.Is 区分 panic 的回调与普通失败。
+// PanicError 是 panic 的回调的结构化结果。CallID 是
+// 正在分发的调用的标识；它在 panic 后保留，
+// 使运行能报告哪个回调失败而不中止。
+// Error 实现 error。
+// Unwrap 暴露 ErrCallbackPanic 哨兵。
+// guard 运行 fn 并将 panic 转换为携带 callID 的 PanicError。它
+// 用于钩子分发边界，使一个行为不端的回调无法中止
+// 整个运行：调用方记录错误并继续下一个钩子。
+// 文档格式不变："priority" 和 "stopPropagation"
+// 不是文档键，因此即使文档碰巧携带它们，也必须
+// 解析为普通的优先级 0、不停止的命令。
+// 模式中的 '*' 始终是通配符。旧的 case 顺序让值中的字面 '*'
+// 把模式的星号当作字面匹配消耗掉，于是尽管通配符本应吸收它，匹配仍失败。路径和
+// 工具名合法地可以包含 '*'（例如在 Unix 文件系统上）。
+// 端到端经过文档解析器和 ForEvent：带 "*.go" 匹配器的 FileChanged 钩子
+// 必须仍能匹配自身在目录或文件名中含字面 '*' 的变更路径。
+// 路径中前导的 '*' 在第一次比较时就与模式的通配符冲突，这正是旧 case 顺序失败的地方。
+// 宽松解析仍产生可运行的命令。
+// 已知事件不得被报告为静默拼写错误。
+// 未知事件仍像以前一样被跳过。
+// 其他事件完全省略该字段。
+// Package hooks 解析兼容 Claude Code 的钩子文档，检查其
+// SHA-256 信任，并将生命周期事件分发给 shell 命令。
+// Event 是钩子可订阅的一种生命周期事件。
+// Event 常量是钩子可订阅的生命周期点。名称
+// 与 Claude Code 一致，因此现有钩子文档仍能触发。每个
+// 常量上的注释记录其预期触发点；完整集合可通过 ReportTriggers 以报告形式获取。
+// SessionStart 在会话开始、第一个提示之前触发一次。
+// UserPromptSubmit 在用户发送提示时触发。
+// PreToolUse 在工具调用前触发；退出状态 2 可拦截它。
+// PermissionRequest 在工具调用需要审批决定时触发。
+// PostToolUse 在工具调用成功后触发。
+// PostToolUseFailure 在工具调用失败后触发。
+// Notification 在展示给用户的信息性消息时触发。
+// PreCompact 在对话压缩前触发。
+// SessionEnd 在会话结束时触发，包括取消时。
+// SubagentStop 在子代理完成运行时触发。
+// Stop 在助手完成一轮时触发。为向后兼容保留；
+// 新调用方应优先使用下面三个回合结束事件，它们说明回合
+// *如何*结束。Stop 仍照常分发。
+// EventInterrupt 在助手回合被用户或传输层（显式取消或 context.Canceled 错误）中断时触发。
+// EventStopFailure 在助手回合以非取消错误结束时触发：provider 失败、工具错误、截止时间等。
+// EventTurnEnd 在助手回合干净完成时触发。
+// FileChanged 在工具创建、修改或删除文件时触发。受影响路径在 Payload.Path 中携带。
+// AllEvents 列出所有支持的事件。
+// defaultTimeout 限制单条钩子命令。
+// minTimeout 是文档 timeoutMs 被限制到的下限。
+// ParseEvent 将文档事件名映射为 Event。
+// TriggerReport 将生命周期事件与调用方应触发它的时机配对。
+// 它是事件常量上触发时机文档的机器可读形式，用于诊断和审计钩子文档
+// 可以订阅哪些事件。
+// ReportTriggers 按 AllEvents 顺序为每个支持的事件返回一行。
+// 报告只是数据：分发事件是调用方的职责。app 层在一次 Execute 前后触发
+// 会话/提示/工具事件；修改文件的调用方应触发带受影响 Payload.Path 的 FileChanged。
+// Command 是一条解析后的钩子命令。
+// Priority 在分发时排列钩子：值越大越先运行。它是仅供内部使用的
+// （json:"-"），因此磁盘上的钩子文档格式不变；文档解析的钩子都从 0 开始并保持
+// 声明顺序。编程调用方（例如内置安全钩子）设置正的 Priority 以先于用户钩子运行。
+// StopPropagation 使分发短路：带此标志的钩子运行后，不再执行更低优先级的钩子。与 Priority 一样它是
+// 仅供内部的；文档钩子从不设置它，因此现有文档仍运行所有匹配的钩子。
+// BlocksOnFailure 报告失败的命令是否可以拦截动作。
+// Config 是从一个或多个文档解析出的钩子。
+// rawDocument 镜像钩子文档。未知事件被容忍并
+// 跳过，与 Claude Code 的宽松加载器一致。
+// rawCommand 是一组或一条命令；两种形态共享字段。
+// ParseConfig 解析钩子文档。
+// LoadConfig 读取并解析钩子文档。
+// Merge 追加另一个文档的命令。
+// ForEvent 返回某事件的命令，按工具匹配器过滤。
+// Validate 报告宽松解析会吞掉的静默拼写错误。
+// globMatch 将 "*" 匹配任意字符序列；其余均按字面。这是钩子文档用于工具名的匹配器语法。
+// 通配符分支必须放在前面。若字面相等分支先运行，当值也恰好含 '*' 时，模式中的 '*'
+// 会被当作字面消耗（例如模式 "a*" 对值 "a*b"），导致没有星号可回溯、匹配失败。工具
+// 名和文件路径可以携带字面 '*'，因此无条件把模式中的 '*' 当作通配符。
+// 未知事件被文档解析器跳过，但可由编程调用方设置；它们仍必须以确定的顺序出现。
+// EventSummary 是 PendingEventSummary 的一行：单个生命周期事件的注册
+// 统计。它是纯数据；构建摘要从不分发或修改钩子。
+// PendingEventSummary 报告每个至少有一个注册钩子的事件的钩子数量、带特定匹配器的
+// 数量以及异步数量。这是用于 CLI `doctor` 输出或
+// 调试的只读诊断：它描述配置了什么要触发，而非已经触发了什么。
+// 行按 AllEvents 顺序；AllEvents 之外（由编程调用方设置的事件，例如内置钩子）按名称排最后。空或 nil 配置
+// 产生 nil。
+// telemetrySink 是并发安全的观察者：钩子回调从钩子 goroutine 运行，因此记录必须加锁（本包以
+// HookTelemetry 是一次完成的钩子观察。Dispatch/Run 执行的每个钩子会从钩子自身
+// goroutine（钩子并行运行）向 Dispatcher.Telemetry 回调传递一个这样的值。
+// Failed 报告钩子是否未成功完成。它镜像 Summarize 告警的条件：启动错误、超时、拦截
+// 信号或非零退出状态都算失败。
+// TelemetryFunc 观察完成的钩子。实现必须并发
+// 安全：每个钩子从自身 goroutine 报告，而钩子并行运行。nil 回调（默认）不收集任何内容，也不增加工作。
+// WithTelemetry 是偏好函数式形式而非结构体字面量的调用方的便捷构造函数。零值 Dispatcher 仍然
+// 有效；这里只设置两个遥测字段。
+// reportTelemetry 投递一条记录。panic 的观察者会像 panic 的钩子回调一样被隔离，
+// 使遥测永不破坏分发。
+// SHA-256("abc")
+// 编辑文档会使授权失效。
+// ErrUntrusted 报告摘要不在信任存储中的钩子文档。
+// Digest 返回 data 的小写十六进制 SHA-256。
+// DigestFile 对一个文件做哈希。
+// TrustEntry 是一组被记住的路径/摘要对。
+// TrustStore 记住哪些钩子文档可以运行。文档仅当其当前摘要被授予给其路径时才执行。
+// NewTrustStore 返回空存储。
+// Trust 记录 path 可以以此摘要运行。
+// IsTrusted 报告这个精确的路径/摘要对是否被授予。
+// TrustFile 对 path 做哈希并记录摘要；它返回该摘要。
+// Entries 按路径顺序列出被授予的对。
+// RevokeAll 忘记所有授权。
+// trustDocument 是信任存储在磁盘上的形态。
+// LoadFile 读取信任存储。文件缺失即为空存储。
+// SaveFile 写入信任存储，创建父目录。
+// Document 是字节已做哈希并被信任的钩子文档。
+// LoadDocument 读取钩子文档，除非信任存储已持有其摘要，否则拒绝它。返回的错误包装 ErrUntrusted。
+// normalizePath 使信任键与分隔符无关：用 "/" 写的清单必须匹配用 "\" 拼出的路径。
+// 分类器返回事件名，因此调用方可以直接把结果作为 Event 发出，无需映射表。
+// 每个原因都确实可由分类器触发。
+// 三个新事件都能解析、进入白名单并经历完整的文档往返 —— 旧的 Stop 事件也是如此。
+// 没有 HookPayload 的 payload 保持其精确 JSON 形状：添加该字段不得改变任何现有序列化文档。
+// 带 HookPayload 的 payload 可往返。
+// ClassifyTurnEndEvent 将一个 agent 回合的结果映射到应结束它的生命周期
+// 事件。它镜像 server.ClassifyTurnEnd 的三路划分，但返回钩子事件名，使调用方能直接发出结果
+// 	event := hooks.Event(hooks.ClassifyTurnEndEvent(canceled, err))
+// 取消 —— 显式的 `canceled` 信号或（可能包装或合并的）context.Canceled 错误 —— 是中断。任何其他错误是
+// 失败，而无取消的 nil 错误是干净完成。
+// 截止时间刻意不算取消（与服务端分类器一致）：context.DeadlineExceeded 无论是否包装都是失败。仅
+// 字面包含 "context canceled" 而并非该哨兵的错误也算失败，因此真实失败不会被误报为
+// 用户中断。
+// 该能力已接入定义校验：循环或悬空步骤引用在任何模型或工具被调用前就被拒绝。
+// 步骤输出引用由这些符号包围所引用的步骤
+// 名，例如 {{steps.scan.output}} 表示"本步骤读取 scan 的输出"。
+// referencedSteps 返回某步骤通过其 prompt 和 args 中的 {{steps.NAME.output}} 占位符读取输出的
+// 步骤名。这些是 runner 唯一替换的两个模板字段（见 Executor.attempt），
+// 因此也是步骤能依赖另一个步骤的唯一位置。名称去重且 NAME 为空的畸形引用被忽略。
+// ValidateDAG 检查步骤输出依赖构成有向无环
+// 图，并返回步骤索引，使每个步骤的依赖
+// 都在其之前。
+// 图是隐式的：当 i 的 prompt 或 args 包含 {{steps.<name of j>.output}} 时，步骤 i 依赖步骤 j。这把
+// runner 已解析的模板语法提升为可执行图，使损坏的定义能在任何模型或工具被调用前
+// 被拒绝。错误会点名违规步骤，便于共享工作流并把消息粘贴到 issue 中；
+// 声明的值从不被回显。
+// 返回的顺序是确定的：在所有就绪步骤中，总是选择声明索引最小者。没有步骤
+// 引用的定义原样返回声明顺序。
+// 将步骤名映射到索引。从这里调用时 Validate() 已保证名称唯一且
+// 非空；对于直接调用，第一次声明胜出，使函数保持完备且确定。
+// 自引用（j == i）被记录为指向自身的边，

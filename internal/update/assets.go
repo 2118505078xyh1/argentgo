@@ -20,11 +20,11 @@ var archAliases = map[string][]string{
 	"arm":   {"armv7", "armv6", "arm"},
 }
 
-// FindAsset picks the release asset for a platform. It understands the usual
-// naming schemes: argent_1.2.3_windows_amd64.zip, argent-windows-x64.zip,
-// argent_1.2.3_linux_arm64.tar.gz. An asset that names only the operating
-// system is accepted when no architecture-specific file exists; an asset naming
-// a different architecture never is.
+// FindAsset 为某个平台挑选发布资源。它理解常见的
+// 命名方案：argent_1.2.3_windows_amd64.zip、argent-windows-x64.zip、
+// argent_1.2.3_linux_arm64.tar.gz。仅指定操作系统的资源在没有
+// 架构专属文件时会被接受；而指定了不同架构的资源
+// 则绝不被接受。
 func FindAsset(assets []Asset, goos, goarch string) (Asset, bool) {
 	if goos == "" {
 		goos = runtime.GOOS
@@ -53,9 +53,9 @@ func FindAsset(assets []Asset, goos, goarch string) (Asset, bool) {
 	return best, true
 }
 
-// assetInspection is the shared decision behind FindAsset and
-// DiagnoseAssetMatch. Keeping both on this helper makes the diagnostic unable
-// to drift from the asset that is actually selected.
+// assetInspection 是 FindAsset 和
+// DiagnoseAssetMatch 共用的决策逻辑。两者都依赖这个辅助函数，使诊断
+// 不会与实际选中的资源产生偏差。
 type assetInspection struct {
 	osMatched   bool
 	foreignOS   bool
@@ -66,7 +66,7 @@ type assetInspection struct {
 	reason      AssetMatchReason
 }
 
-// inspectAsset classifies one asset for an already-normalized target platform.
+// inspectAsset 为已经规范化的目标平台分类单个资源。
 func inspectAsset(asset Asset, goos, goarch string) assetInspection {
 	lower := strings.ToLower(asset.Name)
 	if asset.URL == "" {
@@ -100,8 +100,8 @@ func inspectAsset(asset Asset, goos, goarch string) assetInspection {
 	}
 }
 
-// normalizeName lowercases a file name and turns separators into dots so that
-// aliases match on token boundaries: "arg-x86_64.zip" -> ".arg.x86.64.zip."
+// normalizeName 将文件名转为小写并把分隔符替换为点，以便
+// 别名能在标记边界上匹配："arg-x86_64.zip" -> ".arg.x86.64.zip."
 func normalizeName(name string) string {
 	var builder strings.Builder
 	builder.WriteByte('.')
@@ -116,19 +116,19 @@ func normalizeName(name string) string {
 	return builder.String()
 }
 
-// classify reports whether the name mentions the target platform and whether it
-// mentions a different one of the same kind. The longest alias wins, so
-// "x86_64" counts as amd64 and not as 386. A name that mentions two different
-// platforms with equally long aliases is ambiguous and is always treated as
-// foreign: guessing would make FindAsset depend on Go's random map iteration
-// order and could install the wrong architecture.
+// classify 报告名称是否提到目标平台，以及是否
+// 提到了同类的不同平台。最长别名优先，因此
+// "x86_64" 算作 amd64 而非 386。若名称用等长的别名提到两个不同
+// 平台，则视为有歧义并始终当作
+// 外来资源：猜测会让 FindAsset 依赖 Go 随机的 map 遍历
+// 顺序，并可能装错架构。
 func classify(name, target string, table map[string][]string) (matched, foreign bool) {
 	if _, known := table[target]; !known {
-		// An unrecognised target has no aliases in the table, but a name that
-		// mentions a *known* platform still names a different one. Treating that
-		// as "no platform named" would let FindAsset fall back to, say, an amd64
-		// build for a riscv64 machine. An explicit mention of the target wins;
-		// otherwise any known alias makes the asset foreign.
+		// 无法识别的目标在表中没有别名，但名称若提到了
+		// *已知* 平台，那仍然是另一个平台。将其当作
+		// "未指定平台" 会让 FindAsset 回退到例如 amd64
+		// 构建给 riscv64 机器。显式提到目标平台者优先；
+		// 否则任何已知别名都会使该资源成为外来资源。
 		if mentions(name, []string{target}) {
 			return true, false
 		}
@@ -148,11 +148,11 @@ func classify(name, target string, table map[string][]string) (matched, foreign 
 	return key == target, key != target
 }
 
-// longestAlias finds the platform key whose alias matches name with the longest
-// token boundary needle. Different keys are visited in sorted order so equal
-// lengths are handled deliberately: when two *different* keys match needles of
-// the same length, ambiguous is set and callers must reject the asset instead
-// of letting the random map iteration decide which platform it names.
+// longestAlias 找出其别名与 name 匹配、且标记边界针最长的平台键。
+// 不同键按排序顺序访问，以便审慎处理等长情况：
+// 当两个*不同*键匹配到相同长度的针时，会设置 ambiguous，
+// 调用方必须拒绝该资源，而不能让随机的 map 遍历
+// 决定它代表哪个平台。
 func longestAlias(name string, table map[string][]string) (key string, matched, ambiguous bool) {
 	keys := make([]string, 0, len(table))
 	for candidate := range table {
@@ -176,9 +176,9 @@ func longestAlias(name string, table map[string][]string) (key string, matched, 
 				key, matched, ambiguous = candidate, true, false
 				continue
 			}
-			// An equal-length match for the same key is just an alternative
-			// spelling (for example x86_64 and x86-64). A different key means
-			// the asset name names two platforms and cannot be trusted.
+			// 同一键的等长匹配只是一种不同的
+			// 拼写（例如 x86_64 和 x86-64）。不同的键意味着
+			// 资源名称指向两个平台，不可信任。
 			if candidate != key {
 				ambiguous = true
 			}
@@ -203,7 +203,7 @@ func separatorFree(alias string) string {
 	return strings.NewReplacer("_", ".", "-", ".").Replace(strings.ToLower(alias))
 }
 
-// isNoise filters out checksum, signature and metadata files.
+// isNoise 过滤掉校验和、签名和元数据文件。
 func isNoise(lower string) bool {
 	for _, suffix := range []string{
 		".sha256", ".sha256sum", ".sha512", ".sig", ".asc", ".json", ".txt",

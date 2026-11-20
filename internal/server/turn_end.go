@@ -5,36 +5,36 @@ import (
 	"errors"
 )
 
-// TurnEndReason describes how an agent turn finished. The ACP session/prompt
-// result historically exposed a single stopReason, which is enough to tell a
-// "cancelled" reply from an "end_turn" reply but does not name the underlying
-// cause. TurnEndReason is that three-way classification: a user/transport
-// interruption, a genuine failure, or a clean completion.
+// TurnEndReason 描述 agent 一轮是如何结束的。ACP session/prompt
+// 结果历史上只暴露一个 stopReason，足以区分
+// "cancelled" 回复与 "end_turn" 回复，但无法指出底层
+// 原因。TurnEndReason 就是这种三分类：用户/传输
+// 中断、真正的失败，或干净的完成。
 //
-// The value is carried on the terminal result as an additive, omitempty field,
-// so a client that only understands stopReason keeps seeing the original wire
-// shape and behaviour.
+// 该值作为附加的 omitempty 字段携带在终态结果上，
+// 因此只理解 stopReason 的客户端看到的仍是原始的线协议
+// 形态和行为。
 type TurnEndReason string
 
 const (
-	// TurnEndInterrupted means the user or the transport stopped the turn
-	// (a (possibly wrapped) context.Canceled or an explicit cancellation).
+	// TurnEndInterrupted 表示用户或传输停止了本轮
+	// （可能被包装的 context.Canceled 或显式取消）。
 	TurnEndInterrupted TurnEndReason = "interrupted"
-	// TurnEndFailure means the turn ended in a genuine, non-cancellation error.
+	// TurnEndFailure 表示本轮以真正的、非取消的错误结束。
 	TurnEndFailure TurnEndReason = "failure"
-	// TurnEndComplete means the turn finished with no error.
+	// TurnEndComplete 表示本轮无错误地完成。
 	TurnEndComplete TurnEndReason = "complete"
 )
 
-// ClassifyTurnEnd maps the outcome of a Runner.Prompt call onto a
-// TurnEndReason. A cancellation — either an explicit signal from the caller or
-// a (possibly wrapped) context.Canceled error — is an interruption; any other
-// error is a failure; a nil error with no cancellation is a clean completion.
+// ClassifyTurnEnd 把 Runner.Prompt 调用的结果映射到
+// TurnEndReason。取消——无论是调用方的显式信号，还是
+// 一个（可能被包装的）context.Canceled 错误——都是中断；
+// 其他错误都是失败；无取消的 nil 错误是干净的完成。
 //
-// Deadlines are deliberately NOT cancellations (matching isCancelled): a
-// context.DeadlineExceeded, wrapped or not, is a failure. An error that merely
-// contains the words "context canceled" but is not the sentinel also stays a
-// failure, so a failure is never misreported as a user interruption.
+// 截止时间有意*不*算取消（与 isCancelled 一致）：
+// context.DeadlineExceeded 无论是否被包装，都算失败。
+// 仅包含 "context canceled" 字样但不是该哨兵的错误
+// 也仍是失败，因此失败永不会被误报为用户中断。
 func ClassifyTurnEnd(err error, canceled bool) TurnEndReason {
 	if canceled || errors.Is(err, context.Canceled) {
 		return TurnEndInterrupted
@@ -45,18 +45,18 @@ func ClassifyTurnEnd(err error, canceled bool) TurnEndReason {
 	return TurnEndComplete
 }
 
-// turnEndErrorData is the additive JSON-RPC error.data payload carried on the
-// session/prompt failure path. JSON-RPC 2.0 permits an optional data member on
-// the error object, so a client that only inspects code/message keeps seeing
-// the exact original envelope while a turnEndReason consumer can finally read
-// the "failure" classification that the two result-shaped paths already carry.
+// turnEndErrorData 是 session/prompt 失败路径上携带的附加 JSON-RPC error.data
+// 载荷。JSON-RPC 2.0 允许错误对象带有可选的 data 成员，因此只检查
+// code/message 的客户端看到的仍是完全原始的错误信封，而消费 turnEndReason 的
+// 客户端终于可以读到两种结果形态路径已经携带的
+// "failure" 分类。
 type turnEndErrorData struct {
 	TurnEndReason TurnEndReason `json:"turnEndReason"`
 }
 
-// failureTurnEndData returns the error.data for a genuine turn failure. It is a
-// pure helper so the failure classification can be asserted without spinning
-// up a transport.
+// failureTurnEndData 返回真正的一轮失败的 error.data。
+// 它是纯辅助函数，因此无需启动传输
+// 即可断言失败分类。
 func failureTurnEndData(reason TurnEndReason) turnEndErrorData {
 	return turnEndErrorData{TurnEndReason: reason}
 }

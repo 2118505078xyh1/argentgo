@@ -25,7 +25,7 @@ func sampleContextInput() ContextInput {
 	}
 }
 
-// Every documented section appears, including per-doc truncation reasons.
+// 每个有文档记录的章节都会出现，包括逐条文档的截断原因。
 func TestBuildContextReportContainsAllSections(t *testing.T) {
 	report := BuildContextReport(sampleContextInput())
 	for _, section := range []string{
@@ -47,7 +47,7 @@ func TestBuildContextReportContainsAllSections(t *testing.T) {
 	}
 }
 
-// JSON is valid, carries the same normalized values and stable keys.
+// JSON 合法，携带相同的规范化值和稳定的键。
 func TestBuildContextReportJSONValid(t *testing.T) {
 	data, err := BuildContextReportJSON(sampleContextInput())
 	if err != nil {
@@ -74,7 +74,7 @@ func TestBuildContextReportJSONValid(t *testing.T) {
 	}
 }
 
-// Empty input still renders every section without panicking.
+// 空输入仍能渲染所有章节而不会崩溃。
 func TestBuildContextReportEmptyInput(t *testing.T) {
 	report := BuildContextReport(ContextInput{})
 	for _, want := range []string{
@@ -91,8 +91,8 @@ func TestBuildContextReportEmptyInput(t *testing.T) {
 	}
 }
 
-// Pathological input cannot inflate the report: lists are capped and names
-// are clipped, in both the text and JSON views.
+// 病态输入无法撑大报告：在文本和 JSON 两个视图中，列表都有上限，名称
+// 均被裁剪。
 func TestBuildContextReportBoundedOutput(t *testing.T) {
 	in := ContextInput{Tools: make([]string, 0, 200)}
 	huge := strings.Repeat("Z", 1000)
@@ -123,8 +123,8 @@ func TestBuildContextReportBoundedOutput(t *testing.T) {
 	}
 }
 
-// Sorting and clipping make the report deterministic even when the caller's
-// slices arrive in a different order.
+// 排序和裁剪使报告具有确定性，即使调用方的
+// 切片以不同顺序到达也是如此。
 func TestBuildContextReportDeterministic(t *testing.T) {
 	a := ContextInput{
 		Tools:      []string{"shell", "read_file", "patch"},
@@ -149,7 +149,7 @@ func TestBuildContextReportDeterministic(t *testing.T) {
 	}
 }
 
-// The built-in descriptor and hook follow the /review registration pattern.
+// 内置描述符和钩子遵循 /review 的注册模式。
 func TestContextCommandAndHook(t *testing.T) {
 	cmd := ContextCommand()
 	if cmd.Name != "context" || !strings.Contains(strings.ToLower(cmd.Description), "read-only") {

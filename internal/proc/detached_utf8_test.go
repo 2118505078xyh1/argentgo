@@ -10,16 +10,16 @@ import (
 	"unicode/utf8"
 )
 
-// TestSwitchWriterHoldsIncompleteRune guards the detached spawn path's UTF-8
-// carry: exec reads a child's output in arbitrary chunks, so the last bytes of
-// a read can be the prefix of a multi-byte rune. Callers of Output (notably
-// RunWithTimeout when it promotes a slow child) must never observe a dangling
-// sequence that decodes as U+FFFD. Run has carried runes since its capture was
-// introduced; the writer behind StartDetached/RunWithTimeout did not.
+// TestSwitchWriterHoldsIncompleteRune 守护分离生成路径的 UTF-8
+// 暂存逻辑：exec 按任意分块读取子进程输出，因此一次读取的最后几个字节
+// 可能是多字节字符的前缀。Output 的调用方（尤其是提升慢速子进程的
+// RunWithTimeout）绝不能观察到解码为 U+FFFD 的悬空序列。
+// 自引入捕获以来 Run 一直在暂存字符；StartDetached/RunWithTimeout 背后的
+// writer 以前没有这样做。
 func TestSwitchWriterHoldsIncompleteRune(t *testing.T) {
 	out := newSwitchWriter()
 
-	// "prefix\n" followed by the first two bytes of 中 (E4 B8 AD).
+	// "prefix\n" 后跟 中（E4 B8 AD）的前两个字节。
 	if _, err := out.Write([]byte("prefix\n\xe4\xb8")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -31,8 +31,8 @@ func TestSwitchWriterHoldsIncompleteRune(t *testing.T) {
 		t.Fatalf("Captured() = %q, want the complete prefix only", got)
 	}
 
-	// The held-back bytes are not lost: once the final byte arrives the whole
-	// rune is emitted, and Flush at EOF changes nothing further.
+	// 暂存的字节不会丢失：最后一个字节到达后会发出完整的
+	// 字符，EOF 时的 Flush 不会再改变什么。
 	if _, err := out.Write([]byte{0xAD}); err != nil {
 		t.Fatalf("Write final byte: %v", err)
 	}
@@ -42,8 +42,8 @@ func TestSwitchWriterHoldsIncompleteRune(t *testing.T) {
 	}
 }
 
-// TestSwitchWriterHandoffFlushesPendingRune makes sure promoting a running
-// child to a log cannot drop a rune that was still incomplete at that instant.
+// TestSwitchWriterHandoffFlushesPendingRune 确保把正在运行的子进程
+// 提升为日志时，不会丢弃那一刻仍不完整的字符。
 func TestSwitchWriterHandoffFlushesPendingRune(t *testing.T) {
 	out := newSwitchWriter()
 	_, _ = out.Write([]byte("a\xe4\xb8")) // "a" plus the first two bytes of 中
@@ -54,7 +54,7 @@ func TestSwitchWriterHandoffFlushesPendingRune(t *testing.T) {
 		t.Fatalf("handoff = %q, want the captured prefix and dangling bytes verbatim", got)
 	}
 
-	// After the swap, writes still carry incomplete runes, now into the log.
+	// 替换之后，写入仍会暂存不完整的字符，只是现在写入日志。
 	_, _ = out.Write([]byte{0xAD})
 	out.flush()
 	if got := dst.String(); got != "a中" {
@@ -64,9 +64,9 @@ func TestSwitchWriterHandoffFlushesPendingRune(t *testing.T) {
 
 const detachedUTF8Marker = "ARGENT_PROC_DETACHED_UTF8_HELPER"
 
-// TestDetachedUTF8Helper is a re-executed test binary that writes a rune in
-// two pieces and waits for the parent to release the second piece. It lets the
-// parent observe output while a rune is genuinely split across pipe reads.
+// TestDetachedUTF8Helper 是一个重新执行的测试二进制，它把一个字符分
+// 两部分写出，并等待父进程释放第二部分。这使父进程能在字符真正跨
+// 管道读取被拆开时观察到输出。
 func TestDetachedUTF8Helper(t *testing.T) {
 	if os.Getenv(detachedUTF8Marker) == "" {
 		return
@@ -78,9 +78,9 @@ func TestDetachedUTF8Helper(t *testing.T) {
 	_, _ = os.Stdout.Write([]byte{0xAD})
 }
 
-// TestDetachedOutputHoldsSplitRuneUntilComplete exercises the real OS path:
-// a child blocked mid-rune must not make Process.Output invalid UTF-8, and the
-// full rune must appear once the child finishes.
+// TestDetachedOutputHoldsSplitRuneUntilComplete 演练真实的 OS 路径：
+// 卡在字符中间的子进程不得让 Process.Output 成为非法 UTF-8，且
+// 子进程完成后必须出现完整的字符。
 func TestDetachedOutputHoldsSplitRuneUntilComplete(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer pw.Close()

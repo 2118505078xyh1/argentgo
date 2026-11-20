@@ -8,14 +8,13 @@ import (
 	"syscall"
 )
 
-// ttlFileLock owns the sidecar lock file handle for one critical section.
+// ttlFileLock 为一个临界区持有 sidecar 锁文件的句柄。
 type ttlFileLock struct {
 	f *os.File
 }
 
-// ttlAcquireLock opens (creating if needed) path and takes a blocking exclusive
-// advisory lock with flock(2). The kernel releases it when the process dies,
-// so a crash cannot leave a stale lock behind.
+// ttlAcquireLock 打开（必要时创建）path，并用 flock(2) 获取一个阻塞的独占
+// 建议锁。进程结束时内核会释放它，因此崩溃不会留下陈旧锁。
 func ttlAcquireLock(path string) (*ttlFileLock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -28,7 +27,7 @@ func ttlAcquireLock(path string) (*ttlFileLock, error) {
 	return &ttlFileLock{f: f}, nil
 }
 
-// Release drops the advisory lock and closes the sidecar file.
+// Release 释放建议锁并关闭 sidecar 文件。
 func (l *ttlFileLock) Release() error {
 	err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
 	cerr := l.f.Close()

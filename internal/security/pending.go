@@ -17,12 +17,10 @@ import (
 	"time"
 )
 
-// PendingApproval is one tool call waiting for an operator decision. It is the
-// durable, server-authoritative mirror of the in-memory approval modal: a
-// reconnecting client can re-list pending requests from the store instead of
-// losing them when the TUI exits. Raw arguments are never stored; ArgsDigest is
-// a hash of their canonical form so two spellings of the same call compare
-// equal without retaining possibly secret argument text.
+// PendingApproval 是一次等待操作员决定的工具调用。它是内存中审批弹窗的
+// 持久化、服务端权威镜像：重新连接的客户端可以从存储中重新列出待处理请求，
+// 而不会在 TUI 退出时丢失它们。原始参数从不存储；ArgsDigest 是其规范形式的
+// 哈希，因此同一调用的两种写法可以比较为相等，而无需保留可能含密钥的参数文本。
 type PendingApproval struct {
 	ID         string `json:"id"`
 	Session    string `json:"session"`
@@ -32,8 +30,8 @@ type PendingApproval struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// Bounds keep a hostile or buggy client from filling the store with unbounded
-// records. They are deliberately generous for normal tool calls.
+// 这些边界防止恶意或有缺陷的客户端用无界记录填满存储。对正常工具调用而言，
+// 它们刻意设得比较宽松。
 const (
 	maxPendingPerSession  = 50
 	maxPendingDecisionLog = 200
@@ -47,52 +45,48 @@ const (
 	maxPendingLineBytes   = 2 * 1024 * 1024
 )
 
-// PendingStore persists pending approvals on disk. All operations are guarded
-// by a mutex so a server handling concurrent HTTP/SSE clients can share one
-// store safely. The zero value is not usable; use NewPendingStore.
+// PendingStore 把待处理的审批持久化到磁盘。所有操作都由互斥量保护，
+// 因此处理并发 HTTP/SSE 客户端的服务器可以安全地共享一个存储。零值不可用；
+// 请使用 NewPendingStore。
 type PendingStore struct {
 	dir string
 	mu  sync.Mutex
 
-	// waiters is the in-process answer channel table. It complements (never
-	// replaces) the durable mirror: Resolve persists the decision and then
-	// wakes a blocked Approver.Ask through the matching channel. Keys use the
-	// raw session/id, not the redacted disk values, so a server answering via
-	// approval.answer always addresses the same waiter Ask registered.
+	// waiters 是进程内回答通道表。它补充（而非替代）持久化镜像：Resolve 先
+	// 持久化决定，然后通过匹配的通道唤醒被阻塞的 Approver.Ask。键使用原始的
+	// session/id，而不是脱敏后的磁盘值，因此通过 approval.answer 回答的服务器
+	// 始终寻址到 Ask 注册的同一个等待者。
 	waiters map[pendingWaiterKey]chan bool
 }
 
-// pendingWaiterKey correlates an in-process answer channel with one pending
-// request. Session and id are the raw values the caller sees (not hashes).
+// pendingWaiterKey 把一个进程内回答通道与一个待处理请求关联起来。
+// Session 和 id 是调用方看到的原始值（不是哈希）。
 type pendingWaiterKey struct {
 	session string
 	id      string
 }
 
-// NewPendingStore returns a store rooted at dir, creating the directory. When
-// dir is empty it defaults to ".argent/pending" relative to the working
-// directory. The caller is expected to pass a base path; the store appends its
-// own subdirectory only via that default.
+// NewPendingStore 返回一个以 dir 为根的存储，并创建该目录。当 dir 为空时，
+// 默认为相对于工作目录的 ".argent/pending"。调用方应传入基础路径；存储只在
+// 使用该默认值时追加自己的子目录。
 func NewPendingStore(dir string) *PendingStore {
 	if strings.TrimSpace(dir) == "" {
 		dir = filepath.Join(".argent", "pending")
 	}
 	s := &PendingStore{dir: dir, waiters: make(map[pendingWaiterKey]chan bool)}
-	// The constructor cannot return an error; each method retries MkdirAll so
-	// a transient filesystem failure here is not fatal.
+	// 构造函数不能返回错误；每个方法都会重试 MkdirAll，因此这里的临时
+	// 文件系统故障不会致命。
 	_ = os.MkdirAll(dir, 0o700)
 	return s
 }
 
-// RegisterWaiter installs a buffered (capacity 1) in-process answer channel for
-// (session, id) and returns it with a cancel func. Resolve delivers the granted
-// value non-blockingly to the channel and removes the waiter, so a caller can
-// select on the channel instead of blocking on local input. Callers MUST invoke
-// cancel when they stop waiting (context cancellation, or a local answer won)
-// to avoid leaking waiters; cancel is idempotent and safe to defer alongside an
-// explicit call. Registering the same key twice replaces the previous waiter.
-// A store built from a struct literal is supported here (as some tests do): the
-// waiter map is created on demand.
+// RegisterWaiter 为 (session, id) 安装一个带缓冲（容量 1）的进程内回答通道，
+// 并将其与一个 cancel 函数一起返回。Resolve 以非阻塞方式把 granted 值投递到
+// 通道并移除等待者，因此调用方可以在通道上 select，而不必阻塞在本地输入上。
+// 调用方停止等待时必须调用 cancel（context 取消，或本地回答已胜出），以避免
+// 泄漏等待者；cancel 是幂等的，可以和显式调用一起安全地 defer。对同一个键
+// 注册两次会替换之前的等待者。这里支持用结构体字面量构造的存储（某些测试
+// 就是这样做的）：等待者 map 会按需创建。
 func (s *PendingStore) RegisterWaiter(session, id string) (<-chan bool, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,8 +101,8 @@ func (s *PendingStore) RegisterWaiter(session, id string) (<-chan bool, func()) 
 		once.Do(func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			// Only remove our own channel: a later RegisterWaiter with the
-			// same key may have replaced it with a fresh waiter.
+			// 只移除我们自己的通道：后面同键的 RegisterWaiter 可能已经用新的等待者
+			// 替换了它。
 			if cur, ok := s.waiters[key]; ok && cur == ch {
 				delete(s.waiters, key)
 			}
@@ -117,9 +111,9 @@ func (s *PendingStore) RegisterWaiter(session, id string) (<-chan bool, func()) 
 	return ch, cancel
 }
 
-// deliverWaiterLocked hands granted to the waiter for (session, id), if any.
-// s.mu must already be held. Delivery is non-blocking and consumes the waiter
-// so a repeated Resolve can never answer twice.
+// deliverWaiterLocked 把 granted 交给 (session, id) 的等待者（如果存在）。
+// 调用时必须已经持有 s.mu。投递是非阻塞的，并会消耗等待者，
+// 因此重复的 Resolve 永远不会回答两次。
 func (s *PendingStore) deliverWaiterLocked(session, id string, granted bool) {
 	if len(s.waiters) == 0 {
 		return
@@ -133,24 +127,23 @@ func (s *PendingStore) deliverWaiterLocked(session, id string, granted bool) {
 	select {
 	case ch <- granted:
 	default:
-		// The channel is buffered with capacity 1 and freshly created, so this
-		// branch is unreachable in practice; keep Resolve non-blocking.
+		// 该通道容量为 1 且是新建的，因此这个分支实际上不可达；
+		// 保持 Resolve 非阻塞。
 	}
 }
 
-// PendingArgsDigest returns the sha256 of the canonical form of raw arguments.
-// Callers put this value in PendingApproval.ArgsDigest; raw args are never
-// written to disk. Canonicalization mirrors security.canonicalArgs: JSON object
-// keys are sorted and numbers stay exact, non-JSON text is whitespace-collapsed.
+// PendingArgsDigest 返回原始参数规范形式的 sha256。调用方把该值放入
+// PendingApproval.ArgsDigest；原始参数从不写入磁盘。规范化方式与
+// security.canonicalArgs 一致：JSON 对象键会被排序，数字保持精确，
+// 非 JSON 文本的空白会被压缩。
 func PendingArgsDigest(raw string) string {
 	sum := sha256.Sum256([]byte(canonicalPendingArgs(raw)))
 	return hex.EncodeToString(sum[:])
 }
 
-// canonicalPendingArgs canonicalizes raw arguments with encoding/json so two
-// spellings of the same call hash identically. It is bounded: oversized input
-// is truncated with a total-length marker so distinct long blobs cannot share
-// one digest and the decoder never has to walk an unbounded string.
+// canonicalPendingArgs 用 encoding/json 规范化原始参数，使同一调用的两种
+// 写法哈希相同。它是有界的：超长输入会被截断并附上总长度标记，这样不同的
+// 长数据块不会共享同一个摘要，解码器也不必遍历无界字符串。
 func canonicalPendingArgs(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -165,8 +158,8 @@ func canonicalPendingArgs(raw string) string {
 	if err := dec.Decode(&value); err != nil {
 		return strings.Join(strings.Fields(raw), " ")
 	}
-	// Reject trailing data, as json.Unmarshal does, so a value with a suffix
-	// cannot collapse onto the digest of the bare value.
+	// 像 json.Unmarshal 那样拒绝尾部数据，这样带后缀的值不会塌陷到
+	// 裸值的摘要上。
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return strings.Join(strings.Fields(raw), " ")
 	}
@@ -177,17 +170,17 @@ func canonicalPendingArgs(raw string) string {
 	return string(normalized)
 }
 
-// Add stores p for its session, replacing any request with the same ID. It
-// rewrites the whole per-session file atomically (temp file + rename) and keeps
-// at most maxPendingPerSession records, dropping the oldest on overflow.
+// Add 存储会话的 p，替换任何相同 ID 的请求。它原子地重写整个每会话文件
+// （临时文件 + 重命名），最多保留 maxPendingPerSession 条记录，超出时丢弃
+// 最旧的。
 func (s *PendingStore) Add(p PendingApproval) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensureDir(); err != nil {
 		return err
 	}
-	// Hash the raw session for the path so the filename never contains a
-	// session id (or any path-separated characters from it).
+	// 对原始 session 做哈希用于路径，这样文件名永远不会包含会话 id
+	// （或其中任何可作路径分隔符的字符）。
 	path := s.sessionPath(p.Session)
 	clean := sanitizePending(p)
 	items, err := s.readPending(path)
@@ -208,9 +201,9 @@ func (s *PendingStore) Add(p PendingApproval) error {
 	return s.writePending(path, kept)
 }
 
-// List returns the pending requests for session, sorted by Created ascending.
-// A missing session yields an empty (non-nil) slice. Malformed lines are
-// skipped so a partially written or hand-edited file cannot break reconnects.
+// List 返回 session 的待处理请求，按 Created 升序排列。session 不存在时
+// 返回空（非 nil）切片。格式错误的行会被跳过，因此部分写入或手工编辑的文件
+// 不会破坏重新连接。
 func (s *PendingStore) List(session string) ([]PendingApproval, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,15 +218,13 @@ func (s *PendingStore) List(session string) ([]PendingApproval, error) {
 	return items, nil
 }
 
-// Resolve removes the request with the given id and appends a bounded one-line
-// decision record. An unknown id is a no-op on disk: reconnect races may replay
-// a decision after another client already resolved it, and failing that would
-// surface a spurious error to the operator. Independently of the disk result,
-// Resolve also wakes a registered in-process waiter (if any) with the decision.
-// This is what lets approval.answer unblock a pendingApprover.Ask on --rpc.
-// Delivery is deferred so a transient filesystem error, an unknown id, or a
-// replayed decision can never strand the blocked caller; the waiter is consumed
-// at most once, which makes repeated Resolve calls safe (idempotent).
+// Resolve 移除给定 id 的请求，并追加一条有界的一行式决定记录。未知 id 在
+// 磁盘上是空操作：重新连接的竞态可能在另一个客户端已经解决后重放某个决定，
+// 若对此报错会向操作员暴露虚假错误。与磁盘结果无关，Resolve 还会用该决定
+// 唤醒已注册的进程内等待者（如果有）。这正是让 approval.answer 在 --rpc 上
+// 解除 pendingApprover.Ask 阻塞的机制。投递被延迟执行，因此临时的文件系统
+// 错误、未知 id 或重放的决定都绝不会让被阻塞的调用方搁浅；等待者最多被消耗
+// 一次，这使得重复的 Resolve 调用是安全的（幂等的）。
 func (s *PendingStore) Resolve(session, id string, granted bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -265,8 +256,8 @@ func (s *PendingStore) Resolve(session, id string, granted bool) error {
 	return s.appendDecision(session, cleanID, granted)
 }
 
-// Clear removes every pending request for session. Decision history is kept;
-// it is an audit trail, not pending state.
+// Clear 移除 session 的所有待处理请求。决定历史会被保留；它是审计痕迹，
+// 而不是待处理状态。
 func (s *PendingStore) Clear(session string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -277,7 +268,7 @@ func (s *PendingStore) Clear(session string) error {
 	return nil
 }
 
-// ensureDir creates the backing directory with owner-only permissions.
+// ensureDir 以仅所有者权限创建后备目录。
 func (s *PendingStore) ensureDir() error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("security: create pending store dir: %w", err)
@@ -285,7 +276,7 @@ func (s *PendingStore) ensureDir() error {
 	return nil
 }
 
-// sessionHash is a filesystem-safe, non-reversible name for a session id.
+// sessionHash 是会话 id 的文件系统安全、不可逆的名称。
 func sessionHash(session string) string {
 	sum := sha256.Sum256([]byte(session))
 	return hex.EncodeToString(sum[:])
@@ -299,9 +290,8 @@ func (s *PendingStore) decisionsPath(session string) string {
 	return filepath.Join(s.dir, sessionHash(session)+".decisions.jsonl")
 }
 
-// sanitizePending redacts every string field before persistence and caps each
-// one, so secrets and oversized blobs never reach disk. A missing Created is
-// filled in so List's sort has a stable key.
+// sanitizePending 在持久化前对每个字符串字段脱敏并限制长度，使密钥和超大
+// 数据块永远无法到达磁盘。缺失的 Created 会被补上，使 List 的排序有稳定的键。
 func sanitizePending(p PendingApproval) PendingApproval {
 	p.ID = truncatePendingRunes(Redact(p.ID), maxPendingIDLen)
 	p.Session = truncatePendingRunes(Redact(p.Session), maxPendingSessionLen)
@@ -315,7 +305,7 @@ func sanitizePending(p PendingApproval) PendingApproval {
 	return p
 }
 
-// truncatePendingRunes caps s at max runes, never cutting a UTF-8 sequence.
+// truncatePendingRunes 把 s 限制在 max 个 rune 以内，绝不切断 UTF-8 序列。
 func truncatePendingRunes(s string, max int) string {
 	if max <= 0 {
 		return ""
@@ -330,8 +320,8 @@ func truncatePendingRunes(s string, max int) string {
 	return s
 }
 
-// readPending reads newline-delimited PendingApproval records, skipping blank
-// and malformed lines. A missing file is an empty store, not an error.
+// readPending 读取以换行分隔的 PendingApproval 记录，跳过空行和格式错误的行。
+// 文件不存在表示空存储，而不是错误。
 func (s *PendingStore) readPending(path string) ([]PendingApproval, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -364,8 +354,8 @@ func (s *PendingStore) readPending(path string) ([]PendingApproval, error) {
 	return out, nil
 }
 
-// writePending rewrites path as newline-delimited JSON via a temp file and
-// rename, matching the config writer's crash-safe pattern.
+// writePending 通过临时文件和重命名把 path 重写为以换行分隔的 JSON，
+// 沿用配置写入器的防崩溃模式。
 func (s *PendingStore) writePending(path string, items []PendingApproval) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -377,9 +367,8 @@ func (s *PendingStore) writePending(path string, items []PendingApproval) error 
 	return atomicWriteFile(path, buf.Bytes())
 }
 
-// atomicWriteFile writes data to path with owner-only permissions. A temp file
-// in the same directory is renamed into place so readers never see a partial
-// write and a crash cannot corrupt the previous content.
+// atomicWriteFile 以仅所有者权限把 data 写入 path。同目录下的临时文件会被
+// 重命名到位，因此读取者永远看不到部分写入，崩溃也不会损坏之前的内容。
 func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -408,15 +397,15 @@ func atomicWriteFile(path string, data []byte) error {
 	return nil
 }
 
-// pendingDecision is one resolved decision appended to the JSONL history.
+// pendingDecision 是追加到 JSONL 历史中的一条已解决决定。
 type pendingDecision struct {
 	ID      string `json:"id"`
 	Granted bool   `json:"granted"`
 	TS      string `json:"ts"`
 }
 
-// appendDecision records a decision, then trims the log to its last
-// maxPendingDecisionLog lines so the audit trail stays bounded.
+// appendDecision 记录一条决定，然后把日志裁剪到最后 maxPendingDecisionLog
+// 行，使审计痕迹保持有界。
 func (s *PendingStore) appendDecision(session, id string, granted bool) error {
 	rec := pendingDecision{
 		ID:      id,
@@ -443,7 +432,7 @@ func (s *PendingStore) appendDecision(session, id string, granted bool) error {
 	return s.boundDecisions(path)
 }
 
-// boundDecisions keeps only the newest decision lines when the log overflows.
+// boundDecisions 在日志溢出时只保留最新的决定行。
 func (s *PendingStore) boundDecisions(path string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

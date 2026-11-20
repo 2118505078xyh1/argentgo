@@ -11,10 +11,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// checkpointTracker collects the pre-turn manifests the agent asks for before
-// each mutating tool batch. The manifest parent is captured at hook time (the
-// leaf before the batch) while the post-turn hashes are filled after the run,
-// so both retry-fork and undo see the state they need.
+// checkpointTracker 收集 agent 在每个变更型工具批次之前请求的轮次前清单。
+// 清单的 parent 在钩子时刻捕获（批次之前的叶子节点），而轮次后的哈希在运行之后填充，
+// 使重试分叉和撤销都能看到它们所需的状态。
 type checkpointTracker struct {
 	root    string
 	sess    *session.Session
@@ -56,9 +55,8 @@ func (t *checkpointTracker) finish(partial bool) {
 	t.pending = nil
 }
 
-// recordAttempt maps a terminal run error to the session attempt reason the
-// history/replay layer expects. Successful and retried attempts are recorded
-// by the session package itself.
+// recordAttempt 把终结性的运行错误映射为历史/重放层所期望的会话尝试原因。
+// 成功和重试的尝试由 session 包自己记录。
 func recordAttempt(sess *session.Session, ctx context.Context, err error) {
 	if sess == nil || err == nil {
 		return
@@ -73,8 +71,7 @@ func recordAttempt(sess *session.Session, ctx context.Context, err error) {
 	_, _ = sess.RecordAttemptError(reason, err)
 }
 
-// mutationPaths routes a mutating tool call to the registry that owns its
-// workspace root and returns the checkpoint paths from that registry.
+// mutationPaths 把变更型工具调用路由到拥有其工作区根目录的注册表，并从该注册表返回检查点路径。
 func (m *multiRootTools) mutationPaths(name, args string) []string {
 	index, routed, err := m.route(name, args)
 	if err != nil || index < 0 || index >= len(m.regs) {
@@ -83,9 +80,8 @@ func (m *multiRootTools) mutationPaths(name, args string) []string {
 	return m.regs[index].MutationPaths(name, routed)
 }
 
-// compactWithEvidence writes a compaction record that keeps the runtime
-// failures and next-step lines the agent collected, in addition to whatever
-// the session summarizer extracted from the dropped messages.
+// compactWithEvidence 写入一条压缩记录，除会话摘要器从被丢弃消息中提取的内容之外，
+// 还保留 agent 收集到的运行时失败和后续步骤行。
 func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidence) {
 	if sess == nil {
 		return

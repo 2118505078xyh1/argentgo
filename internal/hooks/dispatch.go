@@ -18,56 +18,56 @@ import (
 )
 
 const (
-	// maxCapture bounds one stream captured from a hook.
+	// maxCapture 限制从钩子捕获的单个流。
 	maxCapture = 64 * 1024
-	// summaryClip bounds the output quoted in a Result.Message.
+	// summaryClip 限制 Result.Message 中引用的输出。
 	summaryClip = 400
-	// waitDelay bounds how long Wait keeps the captured stdout/stderr pipes
-	// open after the hook process exits. A hook that spawns a background
-	// process inheriting those pipes would otherwise hold them open past the
-	// command's timeout, stalling the whole (parallel) dispatch. The delay is
-	// still long enough for ordinary output to flush.
+	// waitDelay 限制 Wait 在钩子进程退出后保持被捕获的 stdout/stderr 管道
+	// 打开的时间。若钩子生成一个后台
+	// 打开的时间。若钩子生成一个继承这些管道的后台
+	// 进程，否则它们会保持打开越过命令超时，拖慢整个（并行）分发。该延迟
+	// 仍足够长，让普通输出完成刷新。
 	waitDelay = 500 * time.Millisecond
 )
 
-// Payload is the JSON document written to a hook's stdin.
+// Payload 是写入钩子 stdin 的 JSON 文档。
 type Payload struct {
 	Event     string          `json:"event"`
 	Tool      string          `json:"tool,omitempty"`
 	Args      json.RawMessage `json:"args,omitempty"`
 	SessionID string          `json:"sessionId,omitempty"`
 	CWD       string          `json:"cwd,omitempty"`
-	// CallID optionally identifies the tool call that triggered this hook. It
-	// is carried into PanicError so a bad callback can be correlated with the
-	// call that was being dispatched.
+	// CallID 可选地标识触发此钩子的工具调用。它
+	// 被带入 PanicError，使错误的回调能与正在分发的
+	// 调用关联起来。
 	CallID string `json:"callId,omitempty"`
-	// Prompt is the user message for UserPromptSubmit and Stop.
+	// Prompt 是 UserPromptSubmit 和 Stop 的用户消息。
 	Prompt string `json:"prompt,omitempty"`
-	// Output is the tool result for PostToolUse.
+	// Output 是 PostToolUse 的工具结果。
 	Output string `json:"output,omitempty"`
-	// Error is the tool failure for PostToolUseFailure.
+	// Error 是 PostToolUseFailure 的工具失败。
 	Error string `json:"error,omitempty"`
-	// Path is the file affected by a FileChanged event. It is empty for other
-	// events; callers that mutate several files fire one event per path.
+	// Path 是 FileChanged 事件影响的文件。其他事件为空；修改多个文件的调用方
+	// 每个路径触发一个事件。
 	Path string `json:"path,omitempty"`
-	// HookPayload is optional event-specific detail for the turn-end events
-	// (EventInterrupt, EventStopFailure, EventTurnEnd): the classification
-	// reason, the last assistant message or the error text. It is empty for
-	// every other event, so existing payload JSON is unchanged.
+	// HookPayload 是回合结束事件的可选事件专属细节
+	// （EventInterrupt、EventStopFailure、EventTurnEnd）：分类
+	// 原因、最后一条助手消息或错误文本。其他所有事件为空，因此
+	// 现有 payload JSON 不变。
 	HookPayload string `json:"hookPayload,omitempty"`
 }
 
-// Result is the aggregate decision of one dispatch.
+// Result 是一次分发的聚合决策。
 //
-// Blocked is true only when a PreToolUse hook exited with status 2. Message
-// carries the blocking hook's output, or the warnings of the hooks that failed
-// without blocking.
+// Blocked 仅当 PreToolUse 钩子以状态 2 退出时为 true。Message
+// 携带拦截钩子的输出，或未拦截但失败的钩子的警告。
+// 携带拦截钩子的输出，或未拦截但失败的钩子的警告。
 type Result struct {
 	Blocked bool
 	Message string
 }
 
-// Outcome is what one hook command did.
+// Outcome 表示某个钩子命令做了什么。
 type Outcome struct {
 	Event    Event
 	Command  string
@@ -80,7 +80,7 @@ type Outcome struct {
 	Err      error
 }
 
-// Message is a one-line summary of the outcome.
+// Message 是对结果的一行摘要。
 func (o Outcome) Message() string {
 	detail := strings.TrimSpace(o.Stdout)
 	if detail == "" {
@@ -107,10 +107,10 @@ func (o Outcome) Message() string {
 	return prefix + ": " + detail
 }
 
-// CommandRunner executes one hook command. The zero-value Dispatcher uses
-// RunCommand, which spawns a shell. Tests inject a CommandRunner to observe
-// execution without touching the process table. A runner must honour ctx's
-// cancellation and deadline so the dispatcher's timeout still bounds a hook.
+// CommandRunner 执行一条钩子命令。零值 Dispatcher 使用
+// RunCommand，它会启动 shell。测试注入 CommandRunner 以观察
+// 执行而不触碰进程表。runner 必须遵守 ctx 的
+// 取消和截止时间，使 dispatcher 的超时仍能限制钩子。
 type CommandRunner func(ctx context.Context, command Command, payload Payload) Outcome
 
 // Dispatcher runs hook commands.

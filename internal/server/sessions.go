@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-// SessionInfo summarises one stored session for session.list.
+// SessionInfo 为 session.list 汇总一条已存储的会话。
 type SessionInfo struct {
 	ID      string    `json:"id"`
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated"`
 }
 
-// SessionEvent is one record in a session tree. The shape mirrors the JSONL
-// session contract (id/parent/kind/ts/data) so the integrator can adapt
-// internal/session without reshaping records here.
+// SessionEvent 是会话树中的一条记录。其形态对应 JSONL
+// 会话约定（id/parent/kind/ts/data），使集成方可以适配
+// internal/session，而无需在这里重塑记录。
 type SessionEvent struct {
 	ID     string          `json:"id,omitempty"`
 	Parent string          `json:"parent,omitempty"`
@@ -23,8 +23,8 @@ type SessionEvent struct {
 	Data   json.RawMessage `json:"data,omitempty"`
 }
 
-// SessionStore is the read side of session storage used by the RPC and ACP
-// transports.
+// SessionStore 是 RPC 和 ACP 传输使用的会话存储的
+// 读取侧。
 type SessionStore interface {
 	List() ([]SessionInfo, error)
 	Load(id string) ([]SessionEvent, error)

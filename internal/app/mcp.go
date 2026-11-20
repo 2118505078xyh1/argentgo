@@ -20,49 +20,44 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// mcpConnectTimeout bounds one server's handshake so a broken server cannot
-// stall a run.
+// mcpConnectTimeout 限制单个服务的握手时间，使故障服务不会拖住运行。
 const mcpConnectTimeout = 5 * time.Second
 
-// connectMCP is the MCP transport factory. Production uses the package
-// default; tests replace it so no real MCP process is launched.
+// connectMCP 是 MCP 传输工厂。生产环境使用包默认值；测试会替换它，使不会启动真实的 MCP 进程。
 var connectMCP = mcp.Connect
 
-// mcpBinding is one discovered MCP tool and the client that serves it.
+// mcpBinding 是一个被发现的 MCP 工具以及服务它的客户端。
 type mcpBinding struct {
 	client mcp.Client
 	remote string
 	spec   llm.ToolSpec
-	// readOnly mirrors the tool's readOnlyHint annotation. It lets the guard
-	// treat the tool as safe (no operator prompt) without weakening deny rules.
+	// readOnly 对应工具的 readOnlyHint 注解。它使防护器能把该工具视为安全（无需操作人员提示），
+	// 而不会削弱拒绝规则。
 	readOnly bool
 }
 
-// toolset is the agent's tool view: built-in registry, MCP tools under
-// `server__tool`, and use_skill when skills are installed.
+// toolset 是 agent 的工具视图：内置注册表、`server__tool` 形式命名的 MCP 工具，
+// 以及安装技能后提供的 use_skill。
 type toolset struct {
 	base    *multiRootTools
 	guard   tools.Guard
 	skills  *skills.Registry
 	mcp     []mcpBinding
 	clients []mcp.Client
-	// usage is the thread-safe holder behind the `usage` tool. One holder is
-	// shared by every registry in base, so a single UpdateUsage call updates the
-	// tool regardless of which write root the call routes through.
+	// usage 是 `usage` 工具背后线程安全的持有者。base 中的每个注册表共享同一个持有者，
+	// 因此无论调用路由到哪个写入根目录，单次 UpdateUsage 调用都会更新该工具。
 	usage *usageSource
-	// skillShellOn is the opt-in gate for executing `!`cmd`` spans found in a
-	// loaded skill body. False by default keeps use_skill byte-identical for an
-	// unconfigured run.
+	// skillShellOn 是对已加载技能正文中 `!`cmd`` 片段执行的选择性启用门控。
+	// 默认 false 使未配置的运行保持 use_skill 逐字节不变。
 	skillShellOn bool
-	// skillShellRun overrides the shell executor in tests. Production leaves it
-	// nil, which routes each command through base.Run (security approval chain).
+	// skillShellRun 在测试中覆盖 shell 执行器。生产环境保持 nil，
+	// 使每条命令经由 base.Run（安全审批链）执行。
 	skillShellRun func(context.Context, string) (string, error)
 }
 
-// multiRootTools fans built-in tool calls out to one registry per write root.
-// The first registry is the workspace itself; the others let the same
-// write/edit/multi_edit implementations reach --add-dir directories without
-// duplicating filesystem logic in this package.
+// multiRootTools 把内置工具调用分发到每个写入根目录对应的注册表。第一个注册表是工作区本身；
+// 其余注册表让同一套 write/edit/multi_edit 实现能够访问 --add-dir 目录，
+// 而无需在本包中重复文件系统逻辑。
 type multiRootTools struct {
 	roots []string
 	regs  []*tools.Registry
@@ -118,9 +113,8 @@ func (m *multiRootTools) Run(ctx context.Context, name, args string) (string, er
 	return m.regs[index].Run(ctx, name, routed)
 }
 
-// route selects the registry whose root contains the tool's path argument.
-// Relative paths that climb out of the workspace stay errors even when they
-// would land in an extra root: `..` is never a way to widen the boundary.
+// route 选择其根目录包含工具 path 参数的注册表。即使相对路径最终落在某个额外根目录中，
+// 向上越出工作区的相对路径仍然是错误：`..` 绝不是拓宽边界的手段。
 func (m *multiRootTools) route(name, args string) (int, string, error) {
 	if len(m.regs) == 0 {
 		return 0, args, nil
@@ -150,9 +144,8 @@ func (m *multiRootTools) route(name, args string) (int, string, error) {
 		if !withinRoot(root, absolute) {
 			continue
 		}
-		// The lexical match is not the boundary: a symlink or Windows junction
-		// under this root can point outside it. Resolve the real location before
-		// handing the call to the registry (and therefore before approval).
+		// 词法匹配并非边界：该根目录下的符号链接或 Windows 联结点可能指向外部。
+		// 在把调用交给注册表之前（也就是在审批之前），先解析真实位置。
 		if err := security.CheckPathInRoots(absolute, []string{root}); err != nil {
 			return 0, args, fmt.Errorf("tool %q: %w", name, err)
 		}
@@ -165,8 +158,7 @@ func (m *multiRootTools) route(name, args string) (int, string, error) {
 		}
 		return i, routed, nil
 	}
-	// Let the primary registry produce its familiar "outside the workspace"
-	// error rather than inventing a second message here.
+	// 让主注册表产生它熟悉的"在工作区之外"错误，而不是在这里另造一条消息。
 	return 0, args, nil
 }
 
@@ -175,7 +167,7 @@ func withinRoot(root, path string) bool {
 	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
 }
 
-// pathArg reads the path argument shared by the filesystem tools.
+// pathArg 读取文件系统工具共用的 path 参数。
 func pathArg(args string) (string, bool) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(args), &fields); err != nil {
@@ -192,8 +184,7 @@ func pathArg(args string) (string, bool) {
 	return "", false
 }
 
-// withPath replaces the path argument while preserving every other field and
-// its JSON number formatting.
+// withPath 替换 path 参数，同时保留其他每个字段及其 JSON 数字格式。
 func withPath(args, path string) (string, error) {
 	decoder := json.NewDecoder(strings.NewReader(args))
 	decoder.UseNumber()
@@ -212,35 +203,28 @@ func withPath(args, path string) (string, error) {
 	return string(encoded), nil
 }
 
-// newToolset wires the built-in registry, plugin/skill discovery and MCP.
-// Every external piece is fail-soft: a broken plugin, skill or server is
-// reported once and skipped.
+// newToolset 接线内置注册表、插件/技能发现以及 MCP。每个外部部件都是安全失败的：
+// 损坏的插件、技能或服务会被报告一次然后跳过。
 //
-// Connection order defines namespace priority when two servers expose the same
-// namespaced tool name: user config first, then user-installed plugins, then
-// the trusted project's mcp.json and project plugins. connect() dedupes so a
-// later server can never silently shadow an earlier one.
+// 当两个服务暴露相同的带命名空间工具名时，连接顺序决定命名空间优先级：
+// 先是用户配置，然后是用户安装的插件，再是受信任项目的 mcp.json 和项目插件。
+// connect() 会去重，使后连接的服务绝不会静默遮蔽先连接的服务。
 //
-// Plugins are split by where they were installed. A bundle under the user's
-// home plugins directory was deliberately installed by the user and is always
-// loaded. A bundle under the workspace's plugins directory comes from
-// repository content and, like <root>/.argent/mcp.json, is gated on
-// TrustProject: opening an untrusted repository must not start its processes or
-// inject its instructions.
+// 插件按安装位置区分。位于用户主目录插件目录下的包是用户有意安装的，总是会被加载。
+// 位于工作区插件目录下的包来自仓库内容，与 <root>/.argent/mcp.json 一样受 TrustProject 门控：
+// 打开不受信任的仓库绝不能启动其进程或注入其指令。
 func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
-	// The base skill registry comes from the shared cache (only the skill half
-	// is used here). wirePlugins/addSkillPath add plugin skills by mutating the
-	// registry, so hand the toolset a copy: otherwise a plugin from one run
-	// would pollute the cached snapshot reused by every later run.
+	// 基础技能注册表来自共享缓存（这里只使用技能那一半）。wirePlugins/addSkillPath
+	// 通过修改注册表来添加插件技能，因此交给工具集一份副本：否则某次运行的插件
+	// 会污染被之后每次运行复用的缓存快照。
 	_, cachedSkills := sharedDefs().Get(nil, skills.DefaultRoots(res.Root, res.Home))
 	skillRegistry := skills.New()
 	for _, skill := range cachedSkills.All() {
 		skillRegistry.Add(skill)
 	}
-	// One usage holder per toolset (hence per run). It is wired into every
-	// registry below and exposed to the Execute loop through UpdateUsage, so the
-	// `usage` tool reports the live token totals of this run instead of the
-	// registry's default "unavailable" placeholder.
+	// 每个工具集（也就是每次运行）一个用量持有者。它被接入下方的每个注册表，
+	// 并通过 UpdateUsage 暴露给 Execute 循环，使 `usage` 工具报告本次运行的实时 token 总量，
+	// 而不是注册表的默认"不可用"占位符。
 	usage := newUsageSource()
 	set := &toolset{
 		base:         newMultiRootTools(res, sess, guard, usage),
@@ -249,13 +233,12 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		usage:        usage,
 		skillShellOn: skillShellEnabled(res.Cfg.Raw, os.Getenv),
 	}
-	// The policy is built before tool discovery, so MCP tools advertising
-	// readOnlyHint are not in its read-only set yet. Fold their names in once
-	// discovery finishes (on every return path) so they skip the operator
-	// prompt while explicit deny rules still win.
+	// 策略在工具发现之前构建，因此声明了 readOnlyHint 的 MCP 工具还不在其只读集合中。
+	// 发现完成后（在每条返回路径上）把它们的名字折进去，
+	// 使这些工具跳过操作人员提示，同时显式的拒绝规则仍然优先。
 	defer func() { applyMCPReadOnlyPolicy(guard, res, set.readOnlyMCPNames()) }()
 
-	// User config is under the user's control, so it is always available.
+	// 用户配置受用户掌控，因此始终可用。
 	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
 		set.connect(ctx, stdio, spec)
 	}
@@ -266,16 +249,14 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	} else {
 		userBundles, projectBundles = splitPluginsBySource(res.Root, bundles)
 	}
-	// Home-installed plugins are trusted independently of the repository that
-	// happens to be open; they must survive an untrusted checkout.
+	// 主目录安装的插件的信任与碰巧打开的仓库无关；它们必须在不受信任的检出中仍然可用。
 	set.wirePlugins(ctx, stdio, userBundles, res.Plugins)
 
 	if !res.TrustProject {
 		return set
 	}
 
-	// Project-local MCP servers, like project plugins, only load for a trusted
-	// workspace.
+	// 项目本地的 MCP 服务与项目插件一样，只在受信任的工作区中加载。
 	for _, spec := range projectMCPServers(res.Root) {
 		set.connect(ctx, stdio, spec)
 	}
@@ -283,9 +264,8 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	return set
 }
 
-// readOnlyMCPNames returns the namespaced names of MCP tools that advertised
-// readOnlyHint. A shadowed tool never reaches the binding list, so its name is
-// never granted read-only status on behalf of the winning binding.
+// readOnlyMCPNames 返回声明了 readOnlyHint 的 MCP 工具的带命名空间名称。
+// 被遮蔽的工具永远不会进入绑定列表，因此它的名字绝不会代表胜出的绑定而被授予只读状态。
 func (t *toolset) readOnlyMCPNames() []string {
 	var names []string
 	for _, binding := range t.mcp {
@@ -296,11 +276,10 @@ func (t *toolset) readOnlyMCPNames() []string {
 	return names
 }
 
-// applyMCPReadOnlyPolicy replaces the chain's policy with one that also treats
-// read-only MCP tools as safe. The chain is the single gate consulted on every
-// tool call and reads its Policy at check time, so this reaches both the plain
-// chain and the inspection-wrapped guard. The replacement is rebuilt from the
-// same config, so deny rules, allow lists and ordered rules are unchanged.
+// applyMCPReadOnlyPolicy 把链的策略替换为同时把只读 MCP 工具视为安全的策略。
+// 链是每次工具调用都会查询的唯一门控，并在检查时读取其 Policy，
+// 因此这既作用于普通链，也作用于带检查包装的防护器。
+// 替换策略由同一份配置重建，因此拒绝规则、白名单和有序规则都不变。
 func applyMCPReadOnlyPolicy(guard tools.Guard, res Resolved, names []string) {
 	if len(names) == 0 || guard == nil {
 		return
@@ -317,12 +296,10 @@ func applyMCPReadOnlyPolicy(guard tools.Guard, res Resolved, names []string) {
 	}
 }
 
-// splitPluginsBySource partitions resolved bundles into home-installed ones
-// (always trusted) and workspace ones (trust-gated). Discovery scans exactly
-// two roots — the project plugins dir and the user plugins dir — so the bundle
-// Dir recorded by LoadManifest is enough to tell them apart. The user root is
-// checked explicitly and anything not clearly under it falls back to the gated
-// side, so an ambiguous path can never relax the trust boundary.
+// splitPluginsBySource 把已解析的包划分为主目录安装的（总是受信任）和工作区的（受信任门控）。
+// 发现过程恰好扫描两个根目录——项目插件目录和用户插件目录——因此 LoadManifest 记录的包 Dir
+// 足以区分它们。用户根目录会被显式检查，任何不明确位于其下的项都会落到受门控的一侧，
+// 因此歧义路径绝不会放松信任边界。
 func splitPluginsBySource(root string, bundles []plugins.Bundle) (user, project []plugins.Bundle) {
 	projectRoot := plugins.ProjectPluginsDir(root)
 	userRoot, userErr := plugins.UserPluginsDir()
@@ -336,9 +313,8 @@ func splitPluginsBySource(root string, bundles []plugins.Bundle) (user, project 
 	return user, project
 }
 
-// wirePlugins injects one source's enabled bundles. Merge also refuses bundles
-// whose manifest paths escape their root; splitting the sources must not
-// weaken that guard (#4) or the name-collision dedupe in connect (#2).
+// wirePlugins 注入某个来源启用的包。Merge 也会拒绝清单路径越出其根目录的包；
+// 对来源的拆分不得削弱该防护（#4）或 connect 中的名称冲突去重（#2）。
 func (t *toolset) wirePlugins(ctx context.Context, stdio cli.IO, bundles []plugins.Bundle, names []string) {
 	wiring := plugins.Merge(filterPlugins(bundles, names))
 	for _, path := range wiring.Skills {
@@ -360,10 +336,9 @@ func (t *toolset) wirePlugins(ctx context.Context, stdio cli.IO, bundles []plugi
 	}
 }
 
-// connect opens one server and records the tools it advertises. Tools are
-// deduplicated by their final namespaced name: bindings registered earlier win,
-// so a server connected later (a plugin) cannot silently shadow — and intercept
-// calls to — a server connected earlier (user config or the trusted project).
+// connect 打开一个服务并记录它公布的工具。工具按最终的带命名空间名称去重：先注册的绑定优先，
+// 因此后连接的服务（插件）不能静默遮蔽——并拦截对——先连接的服务（用户配置或受信任项目）
+// 的调用。
 func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 	attemptCtx, cancel := context.WithTimeout(ctx, mcpConnectTimeout)
 	defer cancel()
@@ -393,8 +368,8 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 	for _, tool := range advertised {
 		full := mcp.Namespaced(server.Name, tool.Name)
 		if existing[full] {
-			// Another binding already owns this exact model-facing name; keep
-			// the first one and report the collision instead of hijacking it.
+			// 另一个绑定已经拥有这个面向模型的确切名称；保留第一个，并报告冲突，
+			// 而不是劫持它。
 			shadowed = append(shadowed, full)
 			continue
 		}
@@ -420,22 +395,20 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 			server.Name, strings.Join(shadowed, ", "))
 	}
 	if added == 0 {
-		// A fully shadowed (or empty) server exposes no callable tool, so do
-		// not keep its process alive.
+		// 被完全遮蔽（或为空）的服务没有可调用的工具，因此不要让它的进程继续存活。
 		_ = client.Close()
 		return
 	}
 	t.clients = append(t.clients, client)
 }
 
-// Specs advertises the built-in tools, MCP tools and use_skill.
+// Specs 公布内置工具、MCP 工具和 use_skill。
 func (t *toolset) Guarded() bool { return t.guard != nil }
 
-// UpdateUsage feeds one EventUsage into the holder behind the `usage` tool.
-// The Execute loop's Emit callback calls this when event.Kind is EventUsage;
-// the holder is shared by every registry in the toolset, so a single call keeps
-// the tool's JSON current on all write roots. It is a no-op on a nil toolset or
-// holder, keeping hand-built test toolsets safe.
+// UpdateUsage 把一个 EventUsage 送入 `usage` 工具背后的持有者。
+// Execute 循环的 Emit 回调在 event.Kind 为 EventUsage 时调用它；该持有者由工具集中的每个注册表共享，
+// 因此单次调用就能让该工具的 JSON 在所有写入根目录上保持最新。
+// 对 nil 的工具集或持有者它是空操作，使手工构建的测试工具集保持安全。
 func (t *toolset) UpdateUsage(turn int, usage, total llm.Usage) {
 	if t == nil {
 		return
@@ -459,7 +432,7 @@ func (t *toolset) Specs() []llm.ToolSpec {
 	return specs
 }
 
-// Run routes a call to MCP, use_skill or the built-in registry.
+// Run 把调用路由到 MCP、use_skill 或内置注册表。
 func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 	for _, binding := range t.mcp {
 		if binding.spec.Function.Name != name {
@@ -480,9 +453,8 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 		if err != nil || body == "" || !t.skillShellOn {
 			return body, err
 		}
-		// Only a named, fully loaded skill body is executable. The nameless
-		// call lists skills, whose descriptions are untrusted metadata that may
-		// contain `!`cmd`` spans; those must never reach the shell.
+		// 只有具名且完整加载的技能正文才是可执行的。无名调用会列出技能，
+		// 其描述是不可信的元数据，可能包含 `!`cmd`` 片段；这些绝不能进入 shell。
 		var call struct {
 			Name string `json:"name"`
 		}
@@ -490,15 +462,14 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 		if strings.TrimSpace(call.Name) == "" {
 			return body, nil
 		}
-		// The operator opted in: run each executable `!`cmd`` span through the
-		// same approval chain a model-initiated shell call uses, then fold the
-		// results back into the body the model sees.
+		// 操作人员已选择启用：让每个可执行的 `!`cmd`` 片段经过与模型发起的 shell 调用相同的
+		// 审批链，然后把结果折回模型看到的正文。
 		return t.expandSkillShell(ctx, body), nil
 	}
 	return t.base.Run(ctx, name, args)
 }
 
-// Close releases every MCP client.
+// Close 释放每一个 MCP 客户端。
 func (t *toolset) Close() error {
 	var first error
 	for _, client := range t.clients {
@@ -510,8 +481,7 @@ func (t *toolset) Close() error {
 	return first
 }
 
-// filterPlugins honours --plugins: "all" (or no list) keeps every enabled
-// bundle, otherwise only the named ones.
+// filterPlugins 遵循 --plugins："all"（或无列表）保留所有启用的包，否则只保留指定的包。
 func filterPlugins(bundles []plugins.Bundle, names []string) []plugins.Bundle {
 	if len(names) == 0 {
 		return bundles
@@ -533,13 +503,11 @@ func filterPlugins(bundles []plugins.Bundle, names []string) []plugins.Bundle {
 	return out
 }
 
-// addSkillPath registers one plugin skill directory or SKILL.md file.
+// addSkillPath 注册一个插件技能目录或 SKILL.md 文件。
 //
-// This discovery is deliberately left uncached: a plugin path is unique per
-// bundle, so routing it through the single DefinitionCache slot would thrash
-// the snapshot shared by buildSystemWithTrust/contextPrompt/newToolset. The
-// caller passes a private registry copy so these mutations never touch the
-// cached snapshot.
+// 这个发现过程刻意不做缓存：插件路径对每个包都是唯一的，
+// 若让它走单一 DefinitionCache 槽位，会不断破坏 buildSystemWithTrust/contextPrompt/newToolset
+// 共享的快照。调用方传入私有的注册表副本，使这些修改绝不会触碰缓存的快照。
 func addSkillPath(registry *skills.Registry, path string) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -566,11 +534,11 @@ func addSkillPath(registry *skills.Registry, path string) {
 	}
 }
 
-// mcpSpecsFromConfig reads the `mcpServers` object (or list) shape, including
-// the per-server enabled/readOnly/allowedTools/deniedTools controls.
+// mcpSpecsFromConfig 读取 `mcpServers` 对象（或列表）形状，包括每个服务的
+// enabled/readOnly/allowedTools/deniedTools 控制项。
 func mcpSpecsFromConfig(raw any) []mcp.Spec {
-	// DecodeConfig expects the whole config tree; callers here may pass either
-	// that tree or just its `mcpServers` object (or list).
+	// DecodeConfig 期望整棵配置树；这里的调用方可以传入整棵树，也可以只传它的
+	// `mcpServers` 对象（或列表）。
 	object, ok := raw.(map[string]any)
 	if !ok {
 		if list, ok := raw.([]any); ok {
@@ -585,8 +553,7 @@ func mcpSpecsFromConfig(raw any) []mcp.Spec {
 	return specs
 }
 
-// projectMCPServers reads <root>/.argent/mcp.json, which only loads when the
-// project is trusted.
+// projectMCPServers 读取 <root>/.argent/mcp.json，它只在项目受信任时加载。
 func projectMCPServers(root string) []mcp.Spec {
 	path := filepath.Join(root, ".argent", "mcp.json")
 	data, err := os.ReadFile(path)
@@ -632,7 +599,7 @@ func numOf(raw any) float64 {
 	return 0
 }
 
-// note writes one fail-soft warning line. A nil stderr is discarded.
+// note 写一行安全失败的警告。nil 的 stderr 会被丢弃。
 func note(stdio cli.IO, what string, err error) {
 	if stdio.Err == nil {
 		return

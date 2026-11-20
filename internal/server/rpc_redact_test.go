@@ -12,9 +12,9 @@ import (
 	"testing"
 )
 
-// TestScrubSessionLoadErrorFoldsAbsolutePaths checks the redaction boundary
-// directly: no storage path (Windows or POSIX) may survive, while the reason and
-// the caller-supplied session id must remain useful to the client.
+// TestScrubSessionLoadErrorFoldsAbsolutePaths 直接检查脱敏边界：
+// 任何存储路径（Windows 或 POSIX）都不得留存，而原因和
+// 调用方提供的 session id 必须对客户端保持有用。
 func TestScrubSessionLoadErrorFoldsAbsolutePaths(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -83,8 +83,8 @@ func TestScrubSessionLoadErrorFoldsAbsolutePaths(t *testing.T) {
 	}
 }
 
-// TestRPCSessionLoadErrorDoesNotLeakStoragePath drives the real JSON-RPC method
-// and asserts the wire reply never carries the absolute storage location.
+// TestRPCSessionLoadErrorDoesNotLeakStoragePath 驱动真实的 JSON-RPC 方法，
+// 断言线协议回复绝不带绝对存储位置。
 func TestRPCSessionLoadErrorDoesNotLeakStoragePath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

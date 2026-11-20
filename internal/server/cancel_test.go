@@ -12,8 +12,8 @@ import (
 	"testing"
 )
 
-// cancellingRunner streams one chunk then fails with context.Canceled, the
-// shape Runner.Prompt has after the finalAnswer cancellation-propagation fix.
+// cancellingRunner 流式输出一个分块，然后以 context.Canceled 失败，
+// 这是 finalAnswer 取消传播修复后 Runner.Prompt 的形态。
 type cancellingRunner struct {
 	err error
 }
@@ -27,8 +27,8 @@ func (r *cancellingRunner) Prompt(_ context.Context, _ string, onText func(strin
 
 func (r *cancellingRunner) Abort() {}
 
-// TestPromptCancellationEmitsCancelledEvent guards the HTTP side: a user abort
-// is a normal stop, so the terminal SSE event is type:cancelled, never error.
+// TestPromptCancellationEmitsCancelledEvent 守护 HTTP 侧：用户中止
+// 是正常的停止，因此终态 SSE 事件是 type:cancelled，绝不是 error。
 func TestPromptCancellationEmitsCancelledEvent(t *testing.T) {
 	h := NewHandler(Config{Token: "t", Runner: &cancellingRunner{
 		err: fmt.Errorf("wrapped: %w", context.Canceled),
@@ -56,8 +56,8 @@ func TestPromptCancellationEmitsCancelledEvent(t *testing.T) {
 	}
 }
 
-// TestPromptRealFailureStillEmitsErrorEvent keeps genuine failures on their
-// original path: only cancellation gets the new terminal event.
+// TestPromptRealFailureStillEmitsErrorEvent 让真正的失败保持
+// 原有路径：只有取消才获得新的终态事件。
 func TestPromptRealFailureStillEmitsErrorEvent(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -82,8 +82,8 @@ func TestPromptRealFailureStillEmitsErrorEvent(t *testing.T) {
 	}
 }
 
-// TestRPCPromptCancellationReturnsNormalResult verifies the RPC side no longer
-// maps a user abort to a -32603 internal error.
+// TestRPCPromptCancellationReturnsNormalResult 验证 RPC 侧不再
+// 把用户中止映射为 -32603 内部错误。
 func TestRPCPromptCancellationReturnsNormalResult(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
@@ -121,7 +121,7 @@ func TestRPCPromptCancellationReturnsNormalResult(t *testing.T) {
 	waitFor(t, done)
 }
 
-// TestRPCPromptRealFailureStillReturnsError keeps -32603 for real failures.
+// TestRPCPromptRealFailureStillReturnsError 为真正的失败保留 -32603。
 func TestRPCPromptRealFailureStillReturnsError(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
@@ -153,8 +153,8 @@ func TestRPCPromptRealFailureStillReturnsError(t *testing.T) {
 	waitFor(t, done)
 }
 
-// TestACPPromptCancellationKeepsStopReason locks in ACP's already-correct wire
-// semantics while it shares the transports' cancellation detection.
+// TestACPPromptCancellationKeepsStopReason 固定 ACP 已正确的线协议
+// 语义，同时它共享各传输的取消检测。
 func TestACPPromptCancellationKeepsStopReason(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()

@@ -20,11 +20,11 @@ const (
 	graceHelperFileEnv = "ARGENT_PROC_GRACE_FILE"
 )
 
-// TestProcGraceHelper is a re-executed test binary that plays the child under
-// test. It is a no-op in the normal test run; the harness sets the marker env
-// to turn it into a helper process. The log file is the handshake channel: the
-// child appends READY once its signal handling is installed, and GRACEFUL if
-// it actually caught SIGTERM before being killed.
+// TestProcGraceHelper 是一个重新执行的测试二进制，扮演被测的子进程。
+// 在正常运行中它是空操作；测试框架设置标记环境变量
+// 把它变成辅助进程。日志文件是握手通道：
+// 子进程在安装好信号处理时追加 READY，若它在被终止前
+// 真正捕获到 SIGTERM 则追加 GRACEFUL。
 func TestProcGraceHelper(t *testing.T) {
 	if os.Getenv(graceHelperOnEnv) == "" {
 		return
@@ -33,8 +33,8 @@ func TestProcGraceHelper(t *testing.T) {
 	if err != nil {
 		os.Exit(2)
 	}
-	// No defer: every path below ends in os.Exit, which would skip it anyway.
-	// os.File writes are unbuffered, so the markers are on disk immediately.
+	// 不用 defer：下面每条路径都以 os.Exit 结束，defer 本来也会被跳过。
+	// os.File 写入是无缓冲的，因此标记会立即落盘。
 
 	switch os.Getenv(graceHelperModeEnv) {
 	case "graceful":
@@ -68,9 +68,9 @@ type graceRun struct {
 	log     string
 }
 
-// runGraceHelper launches the re-executed child, waits for its READY marker so
-// the signal handler is known to be installed, then either cancels the context
-// (cancel=true) or lets Command.Timeout fire (cancel=false).
+// runGraceHelper 启动重新执行的子进程，等待其 READY 标记，
+// 以确认信号处理器已安装，然后要么取消 context
+// （cancel=true），要么让 Command.Timeout 触发（cancel=false）。
 func runGraceHelper(t *testing.T, mode string, cancel bool, timeout time.Duration) graceRun {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "child.log")
@@ -128,11 +128,11 @@ func runGraceHelper(t *testing.T, mode string, cancel bool, timeout time.Duratio
 }
 
 func TestCancelLetsGracefulChildExitBeforeSIGKILL(t *testing.T) {
-	// The child cooperates with SIGTERM, so Run should return as soon as it
-	// exits — well before the grace window elapses and SIGKILL is escalated.
-	// Allow a full second of scheduling slack below the window: CI runners
-	// (ubuntu-latest under race) can take ~1s for process spawn + file handshake,
-	// which is still unmistakably earlier than the SIGKILL path at graceWindow.
+	// 子进程配合 SIGTERM，因此 Run 应在它
+	// 退出后立即返回——远早于宽限期结束、升级为 SIGKILL。
+	// 在窗口之下留出整整一秒的调度余量：CI 运行器
+	// （race 下的 ubuntu-latest）生成进程 + 文件握手可能需要约 1 秒，
+	// 但仍明显早于 graceWindow 的 SIGKILL 路径。
 	const graceWindow = 3 * time.Second
 	setCancellationGrace(t, graceWindow)
 
@@ -147,9 +147,9 @@ func TestCancelLetsGracefulChildExitBeforeSIGKILL(t *testing.T) {
 	if got.res.ExitCode != 0 {
 		t.Fatalf("exit code = %d, want 0 (graceful exit, not SIGKILL)", got.res.ExitCode)
 	}
-	// A graceful exit returns well inside the grace window; only the SIGKILL
-	// escalation path could take graceWindow or longer. One second of slack
-	// keeps this robust against slow CI scheduling without losing that signal.
+	// 优雅退出会在宽限期内很早返回；只有 SIGKILL
+	// 升级路径可能耗时 graceWindow 或更长。一秒的余量
+	// 使该测试对缓慢的 CI 调度保持稳健，同时不丢失这一信号。
 	if got.elapsed >= graceWindow-time.Second {
 		t.Fatalf("Run took %s; a graceful child must exit within the grace window (%s)", got.elapsed, graceWindow)
 	}
@@ -175,8 +175,8 @@ func TestCancelEscalatesToSIGKILLAfterGraceWhenSIGTERMIgnored(t *testing.T) {
 }
 
 func TestTimeoutKillsImmediatelyWithoutGraceWait(t *testing.T) {
-	// The timeout path must ignore the grace window entirely. A long grace
-	// period here makes any accidental wait obvious.
+	// 超时路径必须完全忽略宽限期。这里设置一个很长的宽限
+	// 期，能让任何意外的等待都显而易见。
 	setCancellationGrace(t, 2*time.Second)
 
 	got := runGraceHelper(t, "ignore", false, 150*time.Millisecond)

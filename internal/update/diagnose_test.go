@@ -118,8 +118,8 @@ func TestDiagnoseAssetMatchAgreesWithFindAsset(t *testing.T) {
 	}
 }
 
-// TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget keeps the diagnostic
-// in step with FindAsset when the target architecture is not in archAliases.
+// TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget 使诊断与
+// FindAsset 在目标架构不在 archAliases 中时保持一致。
 func TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: "amd64"},
@@ -137,8 +137,8 @@ func TestDiagnoseAssetMatchRejectsForeignArchForUnknownTarget(t *testing.T) {
 	}
 }
 
-// TestDiagnoseAssetMatchAmbiguousName agrees with FindAsset: an asset naming two
-// platforms with equal-length aliases is foreign, never a silent fallback.
+// TestDiagnoseAssetMatchAmbiguousName 与 FindAsset 一致：用等长别名提到两个
+// 平台的资源是外来资源，绝不是静默回退。
 func TestDiagnoseAssetMatchAmbiguousName(t *testing.T) {
 	assets := []Asset{
 		{Name: "argent_1.2.3_linux_amd64_arm64.tar.gz", URL: "fat"},

@@ -9,15 +9,13 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// historySource adapts a session's JSONL transcript to the consumer-side
-// tools.HistorySource interface. It lives in app so internal/tools does not
-// need to import internal/session (layering rule).
+// historySource 把会话的 JSONL 记录适配为消费侧的 tools.HistorySource 接口。
+// 它位于 app 中，使 internal/tools 无需导入 internal/session（分层规则）。
 type historySource struct {
 	sess *session.Session
 }
 
-// Search returns a compact, bounded string of matching transcript lines for
-// the active session. An empty query returns the most recent lines.
+// Search 为当前活动会话返回一段紧凑、有界的匹配记录行字符串。空查询返回最近的行。
 func (h *historySource) Search(query string, limit int) string {
 	if h == nil || h.sess == nil {
 		return ""
@@ -40,7 +38,7 @@ func (h *historySource) Search(query string, limit int) string {
 	out := make([]entry, 0, len(hits))
 	for _, hit := range hits {
 		snippet := hit.Snippet
-		// Collapse newlines and bound each snippet to keep the tool output compact.
+		// 折叠换行并限制每个片段的长度，使工具输出保持紧凑。
 		snippet = strings.Join(strings.Fields(snippet), " ")
 		if len(snippet) > 240 {
 			snippet = snippet[:240] + "…"
@@ -54,8 +52,7 @@ func (h *historySource) Search(query string, limit int) string {
 	return string(data)
 }
 
-// wireHistory attaches the history tool to a registry once the session is
-// known.
+// wireHistory 在已知会话之后，把 history 工具挂接到注册表。
 func wireHistory(registry *tools.Registry, sess *session.Session) {
 	if registry == nil || sess == nil {
 		return

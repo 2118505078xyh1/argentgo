@@ -6,25 +6,25 @@ import (
 	"strings"
 )
 
-// ChecksumEntry is a single line from a checksums manifest. Hash is normalised
-// to lowercase hex; Name is the file name as it appeared in the manifest,
-// without a leading "./".
+// ChecksumEntry 是校验和清单中的一行。Hash 规范化为
+// 小写十六进制；Name 是清单中出现的原样文件名，
+// 不含前导 "./"。
 type ChecksumEntry struct {
 	Hash string
 	Name string
 }
 
-// ParseChecksums parses a checksums.txt / sha256sums.txt manifest of the kind
-// produced by GNU coreutils and most release pipelines. Every non-blank,
-// non-comment line must use one of the two canonical forms:
+// ParseChecksums 解析由 GNU coreutils 及大多数发布流水线生成的
+// checksums.txt / sha256sums.txt 清单。每个非空、
+// 非注释行必须使用以下两种规范格式之一：
 //
-//	<64-hex-digest>  <file name>   (text mode: two spaces)
-//	<64-hex-digest> *<file name>   (binary mode: one space, one asterisk)
+//	<64-hex-digest>  <file name>   （文本模式：两个空格）
+//	<64-hex-digest> *<file name>   （二进制模式：一个空格加一个星号）
 //
-// A leading "./" on the file name is removed and the digest is lowercased.
-// On the first malformed line parsing stops and an error naming the 1-based
-// line number is returned. This is a pure function: it performs no I/O and
-// never mutates its input.
+// 文件名前导 "./" 会被去掉，摘要转为小写。
+// 遇到第一个格式错误的行时解析停止，并返回指出 1 基行号的
+// 错误。这是一个纯函数：不执行任何 I/O，
+// 也从不修改输入。
 func ParseChecksums(text string) ([]ChecksumEntry, error) {
 	entries := make([]ChecksumEntry, 0)
 	for number, raw := range strings.Split(text, "\n") {
@@ -42,15 +42,15 @@ func ParseChecksums(text string) ([]ChecksumEntry, error) {
 	return entries, nil
 }
 
-// parseChecksumLine validates and decodes one canonical checksums line.
+// parseChecksumLine 校验并解码一条规范的校验和行。
 func parseChecksumLine(line string) (ChecksumEntry, error) {
-	// The digest is the first whitespace-delimited token, so the separator starts
-	// at the first space. Locating it there instead of searching for "  " first
-	// matters for binary-mode lines: a file name may legally contain two
-	// consecutive spaces ("<hash> *my  file.zip"), and looking for "  " anywhere
-	// in the line finds the pair inside the name and feeds a bogus digest to
-	// normaliseChecksum. Checking the byte after the first space accepts exactly
-	// the two canonical separators: "  " (text mode) and " *" (binary mode).
+	// 摘要是第一个以空白分隔的标记，因此分隔符从
+	// 第一个空格开始。在那里定位它，而不是先搜索 "  "，
+	// 对二进制模式的行很重要：文件名合法地可以包含两个
+	// 连续空格（"<hash> *my  file.zip"），而在行中任意位置搜索 "  " 会
+	// 在名称内部找到该空格对，并把错误的摘要喂给
+	// normaliseChecksum。检查第一个空格之后的字节，恰好接受
+	// 两种规范分隔符："  "（文本模式）和 " *"（二进制模式）。
 	index := strings.IndexByte(line, ' ')
 	if index < 0 || index+1 >= len(line) || (line[index+1] != ' ' && line[index+1] != '*') {
 		return ChecksumEntry{}, errors.New("expected two spaces or a space and asterisk after the digest")
@@ -68,16 +68,16 @@ func parseChecksumLine(line string) (ChecksumEntry, error) {
 	return ChecksumEntry{Hash: digest, Name: name}, nil
 }
 
-// MatchedChecksum associates a release asset with the manifest hash that
-// covers it.
+// MatchedChecksum 将发布资源与其对应的清单哈希
+// 关联起来。
 type MatchedChecksum struct {
 	Name string
 	Hash string
 }
 
-// ChecksumDiagnosis is the read-only result of matching a checksums manifest
-// against a release's assets. All slices preserve first-seen input order so
-// identical inputs always produce identical output.
+// ChecksumDiagnosis 是将校验和清单与发布资源匹配后的只读结果。
+// 所有切片保持首次出现的输入顺序，因此相同输入
+// 总是产生相同输出。
 type ChecksumDiagnosis struct {
 	Matched   []MatchedChecksum // assets with exactly one covering hash
 	Missing   []string          // asset names with no covering hash
@@ -85,15 +85,15 @@ type ChecksumDiagnosis struct {
 	Conflicts []string          // manifest names carrying two or more distinct hashes
 }
 
-// DiagnoseChecksums matches parsed manifest entries against release assets.
-// Names are compared case-insensitively and the first asset with a given name
-// wins. An entry whose name carries more than one distinct hash is a conflict:
-// it is reported in Conflicts and treated as Missing for the assets it names,
-// because no single hash can be trusted to verify that download.
+// DiagnoseChecksums 将解析后的清单条目与发布资源匹配。
+// 名称比较不区分大小写，同名资源以第一个为准。
+// 若某条目名称对应多个不同哈希，则为冲突：
+// 它会在 Conflicts 中报告，并对其所指资源视为 Missing，
+// 因为没有任何单一哈希可以可信地验证该下载。
 //
-// The function is pure: it neither downloads anything nor mutates its inputs,
-// so it can be used to decide whether a published checksums file is complete
-// and trustworthy before any asset is fetched.
+// 该函数是纯函数：既不下载任何内容，也不修改输入，
+// 因此可用来在任何资源被获取之前判断已发布的校验和文件是否完整
+// 且可信。
 func DiagnoseChecksums(entries []ChecksumEntry, assets []Asset) ChecksumDiagnosis {
 	var out ChecksumDiagnosis
 

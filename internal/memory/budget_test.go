@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// buildBudgetChain writes one AGENTS.md per directory along a chain rooted at
-// base. sizes are nearest-first: sizes[0] lives in the deepest directory,
-// sizes[len-1] in base. It returns the deepest directory (the "cwd").
+// buildBudgetChain 沿以 base 为根的链在每个目录写入一个 AGENTS.md。
+// sizes 按最近的优先：sizes[0] 位于最深的目录，
+// sizes[len-1] 位于 base。它返回最深的目录（即 "cwd"）。
 func buildBudgetChain(t *testing.T, base string, sizes []int) string {
 	t.Helper()
 	current := base
@@ -36,17 +36,17 @@ func sumTextBytes(texts ...string) int {
 	return total
 }
 
-// budgetMarkerCases places the walk's remaining budget in the narrow window
-// [DefaultLimit, DefaultLimit+len(TruncationMarker)) before a file whose body is
-// exactly DefaultLimit bytes and which was clipped by the per-file cap. Such a
-// document gets a TruncationMarker appended; the marker must be reserved from
-// the budget, otherwise the combined text silently exceeds totalBudget. The
-// last case is a control where the marker still fits.
+// budgetMarkerCases 将遍历剩余预算放在一个狭窄窗口内
+// [DefaultLimit, DefaultLimit+len(TruncationMarker))，位于一个正文恰好为
+// DefaultLimit 字节且被单文件上限裁剪的文件之前。这样的
+// 文档会被追加一个 TruncationMarker；该标记必须从预算中预留，
+// 否则合并文本会悄悄超过 totalBudget。最后一种情况是
+// 标记仍放得下的对照。
 //
-// The chain built by budgetMarkerChain is (nearest first): three over-cap docs
-// (each DefaultLimit+marker bytes), one small untrimmed "filler" doc, then a
-// final over-cap doc. The filler size is chosen so that, just before the final
-// doc is charged, the remaining budget equals tc.remaining.
+// 由 budgetMarkerChain 构建的链（最近的优先）是：三个超限文档
+// （每个 DefaultLimit+标记字节），一个小的未裁剪 "filler" 文档，然后
+// 一个最终的超限文档。filler 的大小经过选择，使恰好在最终文档
+// 计费之前，剩余预算等于 tc.remaining。
 func budgetMarkerCases() []struct {
 	name      string
 	remaining int
@@ -63,13 +63,13 @@ func budgetMarkerCases() []struct {
 	}
 }
 
-// budgetMarkerChain builds a five-directory chain whose nearest-first file
-// sizes drive a capped document into the marker window described above.
+// budgetMarkerChain 构建一个五目录链，其从近到_file 大小驱动某个受限文档
+// 进入上述标记窗口。
 func budgetMarkerChain(t *testing.T, base string, remaining int) string {
 	t.Helper()
 	over := DefaultLimit + 1000 // any file above the cap yields a DefaultLimit-byte body
-	// Three over-cap docs cost 3*(DefaultLimit+marker); the filler then brings
-	// the used total to totalBudget-remaining.
+	// 三个超限文档花费 3*(DefaultLimit+标记)；然后 filler 使
+	// 已用总量达到 totalBudget-remaining。
 	filler := totalBudget - 3*(DefaultLimit+len(TruncationMarker)) - remaining
 	if filler <= 0 || filler > DefaultLimit {
 		t.Fatalf("filler = %d out of range for remaining = %d", filler, remaining)

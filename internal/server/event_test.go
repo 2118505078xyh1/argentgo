@@ -78,9 +78,9 @@ func TestEventHubEvictsSlowSubscriberOnly(t *testing.T) {
 	fast, stopFast := hub.Subscribe(0)
 	defer stopFast()
 
-	// Keep the fast subscriber drained after every publish so it cannot be
-	// evicted. The slow subscriber is never read and fills up exactly on the
-	// eventSubCap+1-th publish.
+	// 每次发布后都让快速订阅者保持排空，使它不会被
+	// 淘汰。慢速订阅者从不读取，因此恰好在第
+	// eventSubCap+1 次发布时填满。
 	for i := 0; i < eventSubCap; i++ {
 		hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "x"})
 		select {
@@ -103,7 +103,7 @@ func TestEventHubEvictsSlowSubscriberOnly(t *testing.T) {
 		t.Fatal("fast subscriber was evicted along with the slow one")
 	}
 
-	// The slow subscriber's buffer still drains, then closes cleanly.
+	// 慢速订阅者的缓冲区仍会排空，然后干净地关闭。
 	for i := 0; i < eventSubCap; i++ {
 		select {
 		case <-slow:
@@ -121,9 +121,9 @@ func TestEventHubEvictsSlowSubscriberOnly(t *testing.T) {
 	}
 }
 
-// TestEventHubDeliversTerminalWhenSubscriberBufferFull is the must-deliver
-// contract: a subscriber that has not drained its normal quota still receives
-// the completion event instead of being evicted and left waiting forever.
+// TestEventHubDeliversTerminalWhenSubscriberBufferFull 是必达
+// 约定：未排空普通配额的订阅者仍会收到
+// 完成事件，而不是被淘汰并永远等待。
 func TestEventHubDeliversTerminalWhenSubscriberBufferFull(t *testing.T) {
 	hub := NewEventHub()
 	ch, stop := hub.Subscribe(0)
@@ -154,10 +154,10 @@ func TestEventHubDeliversTerminalWhenSubscriberBufferFull(t *testing.T) {
 	}
 }
 
-// TestEventHubKeepsTerminalsWhenReservedSlotFills covers the fallback: once the
-// reserved slot is also taken, the hub sacrifices one old progress event (still
-// in the replay log) rather than dropping the newer terminal or evicting the
-// subscriber. Both terminal events survive and stay in publish order.
+// TestEventHubKeepsTerminalsWhenReservedSlotFills 覆盖回退：一旦
+// 预留槽位也被占用，hub 会牺牲一个旧的进度事件（仍在
+// 回放日志中），而不是丢弃较新的终态事件或淘汰
+// 订阅者。两个终态事件都保留并保持发布顺序。
 func TestEventHubKeepsTerminalsWhenReservedSlotFills(t *testing.T) {
 	hub := NewEventHub()
 	ch, stop := hub.Subscribe(0)
@@ -191,8 +191,8 @@ func TestEventHubKeepsTerminalsWhenReservedSlotFills(t *testing.T) {
 	}
 }
 
-// TestEventHubStillEvictsForFullNonTerminalBuffer guards the pre-existing
-// back-pressure behaviour: only terminal events get the must-deliver path.
+// TestEventHubStillEvictsForFullNonTerminalBuffer 守护已有的
+// 背压行为：只有终态事件才走必达路径。
 func TestEventHubStillEvictsForFullNonTerminalBuffer(t *testing.T) {
 	hub := NewEventHub()
 	ch, stop := hub.Subscribe(0)
@@ -239,8 +239,8 @@ func TestEventHubUnsubscribeIsIdempotent(t *testing.T) {
 		t.Fatal("channel not closed after unsubscribe")
 	}
 
-	// Concurrent stop calls must not double-close the channel. Subscribe from
-	// the current cursor so no replayed event sits in the buffer.
+	// 并发调用 stop 不得重复关闭通道。从
+	// 当前游标订阅，使缓冲区中没有回放事件。
 	ch2, stop2 := hub.Subscribe(hub.Seq())
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -288,8 +288,8 @@ func TestEventHubHistoryIsBounded(t *testing.T) {
 	}
 }
 
-// streamRecorder is a mutex-protected http.ResponseWriter with a flush signal,
-// so SSE output can be asserted without a real socket and without data races.
+// streamRecorder 是带 flush 信号、受互斥锁保护的 http.ResponseWriter，
+// 因此无需真实 socket 且无数据竞争即可断言 SSE 输出。
 type streamRecorder struct {
 	mu      sync.Mutex
 	header  http.Header
@@ -402,7 +402,7 @@ func TestEventHandlerSendsConnectedThenEvents(t *testing.T) {
 	if !stopEventStream(cancel, done) {
 		t.Fatal("event handler did not stop on cancel")
 	}
-	// Reading headers after the handler exits avoids racing its writes.
+	// 在处理器退出后读取头部，避免与其写入竞争。
 	if got := rec.header.Get("Content-Type"); got != "text/event-stream" {
 		t.Errorf("Content-Type = %q", got)
 	}

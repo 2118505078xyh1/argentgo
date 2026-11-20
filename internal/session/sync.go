@@ -5,16 +5,14 @@ import (
 	"os"
 )
 
-// Sync flushes the session file's buffered writes to stable storage. It works
-// on a freshly opened handle and does not touch the append state or truncate
-// the file, so callers may use it as a "durability barrier" before an
-// expensive request (see the before-request hook in the agent package).
+// Sync 把会话文件的缓冲写入刷新到稳定存储。它可以在新打开的句柄上工作，
+// 不触碰追加状态，也不截断文件，因此调用方可以在昂贵请求之前把它当作
+// "持久性屏障"使用（见 agent 包中的请求前钩子）。
 //
-// The file is opened read-only first because that is portable and avoids
-// taking a write lock. If the platform rejects Sync on a read-only handle
-// (notably Windows, whose FlushFileBuffers can require write access), the
-// handle is reopened with O_RDWR — which never truncates — and Sync is tried
-// again. Any failure from the final attempt is returned wrapped.
+// 文件首先以只读方式打开，因为这样可移植且避免获取写锁。如果平台拒绝
+// 在只读句柄上执行 Sync（尤其是 Windows，其 FlushFileBuffers 可能需要
+// 写权限），则会用 O_RDWR 重新打开句柄（这绝不会截断文件）并再次尝试 Sync。
+// 最后一次尝试的任何失败都会被包装后返回。
 func (s *Session) Sync() error {
 	path := s.path()
 	fd, err := os.Open(path)
@@ -25,7 +23,7 @@ func (s *Session) Sync() error {
 		_ = fd.Close()
 		return nil
 	}
-	// Read-only Sync is not accepted on every platform; retry with O_RDWR.
+	// 并非每个平台都接受只读的 Sync；用 O_RDWR 重试。
 	if err := fd.Close(); err != nil {
 		return fmt.Errorf("session: sync close %s: %w", path, err)
 	}
@@ -40,15 +38,14 @@ func (s *Session) Sync() error {
 	return nil
 }
 
-// SyncProgress appends a progress checkpoint and then flushes the transcript to
-// stable storage, tying a durability barrier directly to the checkpoint. When
-// no Progress is supplied it acts as a plain durability barrier (equivalent to
-// Sync) for progress already appended with AppendProgress; this keeps the
-// no-argument call form useful and safe.
+// SyncProgress 追加一个进度检查点，然后把转录刷新到稳定存储，
+// 使持久性屏障直接与检查点绑定。当不提供 Progress 时，它对已经用
+// AppendProgress 追加的进度充当普通的持久性屏障（等价于 Sync）；
+// 这使无参数的调用形式仍然有用且安全。
 //
-// Sync works on a freshly opened handle and does not touch the append state or
-// truncate the file, so it can be called from any goroutine after the append.
-// A failure to append is returned before any Sync is attempted.
+// Sync 在新打开的句柄上工作，不触碰追加状态，也不截断文件，
+// 因此可以在追加之后从任何 goroutine 调用。追加失败会在任何 Sync
+// 尝试之前返回。
 func (s *Session) SyncProgress(progress ...Progress) error {
 	if len(progress) > 0 {
 		if err := s.AppendProgress(progress[0]); err != nil {

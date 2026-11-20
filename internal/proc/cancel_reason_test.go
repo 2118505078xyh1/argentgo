@@ -57,8 +57,8 @@ func TestCancelReasonString(t *testing.T) {
 	}
 }
 
-// longRunningLine is a child that outlives both test timeouts so the only
-// reason it stops is the one the test arranges.
+// longRunningLine 是一个存活时间超过两个测试超时的子进程，
+// 因此它停止的唯一原因就是测试安排的那个。
 func longRunningLine() string {
 	if runtime.GOOS == "windows" {
 		return "ping -n 30 127.0.0.1"

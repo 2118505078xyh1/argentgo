@@ -11,7 +11,7 @@ func TestUTF8CarryWriterJoinsRuneSplitAcrossWrites(t *testing.T) {
 	var buf bytes.Buffer
 	cw := newUTF8CarryWriter(&buf)
 
-	// 中 is E4 B8 AD; the first Write holds back an incomplete prefix.
+	// 中 的编码是 E4 B8 AD；第一次 Write 会暂存一个不完整的前缀。
 	if n, err := cw.Write([]byte{0xE4, 0xB8}); n != 2 || err != nil {
 		t.Fatalf("first Write = (%d, %v), want (2, nil)", n, err)
 	}
@@ -21,7 +21,7 @@ func TestUTF8CarryWriterJoinsRuneSplitAcrossWrites(t *testing.T) {
 	if n, err := cw.Write([]byte{0xAD}); n != 1 || err != nil {
 		t.Fatalf("second Write = (%d, %v), want (1, nil)", n, err)
 	}
-	// The completed rune reaches the underlying writer before any Flush.
+	// 完整的字符在任何 Flush 之前就已到达底层 writer。
 	if got := buf.String(); got != "中" {
 		t.Fatalf("output = %q, want 中", got)
 	}
@@ -49,10 +49,10 @@ func TestUTF8CarryWriterPassesASCIIThroughUnchanged(t *testing.T) {
 }
 
 func TestUTF8CarryWriterMixedTextAtEveryBoundary(t *testing.T) {
-	// ASCII, 3-byte CJK, 4-byte emoji and a trailing ASCII tail.
+	// ASCII、3 字节 CJK、4 字节 emoji 以及尾部 ASCII 尾巴。
 	const want = "hello中文world Go语言🌍end"
 
-	// Two-way split at every possible byte boundary.
+	// 在每个可能的字节边界处做双向拆分。
 	for i := 0; i <= len(want); i++ {
 		var buf bytes.Buffer
 		cw := newUTF8CarryWriter(&buf)
@@ -68,7 +68,7 @@ func TestUTF8CarryWriterMixedTextAtEveryBoundary(t *testing.T) {
 		}
 	}
 
-	// One byte at a time: every rune is assembled from maximal fragments.
+	// 一次一个字节：每个字符都由尽可能多的片段组装而成。
 	{
 		var buf bytes.Buffer
 		cw := newUTF8CarryWriter(&buf)
@@ -88,7 +88,7 @@ func TestUTF8CarryWriterFlushDanglingSequence(t *testing.T) {
 	var buf bytes.Buffer
 	cw := newUTF8CarryWriter(&buf)
 
-	// A leading byte plus one continuation: still missing the final byte.
+	// 一个前导字节加一个续接字节：仍缺最后一个字节。
 	if _, err := cw.Write([]byte{0xE4, 0xB8}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -96,12 +96,12 @@ func TestUTF8CarryWriterFlushDanglingSequence(t *testing.T) {
 	if want := []byte{0xE4, 0xB8}; !bytes.Equal(buf.Bytes(), want) {
 		t.Fatalf("Flush output = %x, want %x (written verbatim)", buf.Bytes(), want)
 	}
-	// string() copies raw bytes verbatim; U+FFFD appears only when the bytes
-	// are decoded rune by rune downstream (JSON, range, []rune, ...).
+	// string() 原样复制字节；只有当下游逐字符解码时（JSON、range、[]rune 等），
+	// 才会出现 U+FFFD。
 	if got := []rune(buf.String()); len(got) != 2 || got[0] != utf8.RuneError || got[1] != utf8.RuneError {
 		t.Fatalf("rune decode = %v, want two U+FFFD", got)
 	}
-	// Flush is idempotent.
+	// Flush 是幂等的。
 	cw.Flush()
 	if !bytes.Equal(buf.Bytes(), []byte{0xE4, 0xB8}) {
 		t.Fatalf("second Flush changed output to %x", buf.Bytes())
@@ -109,8 +109,8 @@ func TestUTF8CarryWriterFlushDanglingSequence(t *testing.T) {
 }
 
 func TestUTF8CarryWriterCapsCarry(t *testing.T) {
-	// With the default cap, malformed garbage must never grow the carry beyond
-	// the largest possible incomplete sequence (utf8.UTFMax-1 bytes).
+	// 在默认上限下，畸形垃圾数据绝不会让暂存内容超过
+	// 最大可能的不完整序列（utf8.UTFMax-1 字节）。
 	{
 		var buf bytes.Buffer
 		cw := newUTF8CarryWriter(&buf)
@@ -126,8 +126,8 @@ func TestUTF8CarryWriterCapsCarry(t *testing.T) {
 		cw.Flush()
 	}
 
-	// Force a cap smaller than a natural incomplete tail to exercise the
-	// clamp: the excess bytes are written through rather than lost or held.
+	// 强制设置一个小于自然不完整尾部的上限，以演练
+	// 截断逻辑：超出的字节会被写出，而不是丢失或被暂存。
 	{
 		var buf bytes.Buffer
 		cw := newUTF8CarryWriter(&buf)
@@ -139,8 +139,8 @@ func TestUTF8CarryWriterCapsCarry(t *testing.T) {
 		if len(cw.carry) != 1 {
 			t.Fatalf("carry = %x, want exactly 1 byte", cw.carry)
 		}
-		// Total bytes written to the underlying writer plus the retained carry
-		// equals the input: the clamp dropped nothing.
+		// 写入底层 writer 的总字节数加上保留的暂存内容
+		// 等于输入：截断逻辑没有丢弃任何东西。
 		if buf.Len()+len(cw.carry) != len(in) {
 			t.Fatalf("lost bytes: buf=%d carry=%d input=%d", buf.Len(), len(cw.carry), len(in))
 		}
@@ -158,7 +158,7 @@ func TestUTF8CarryWriterWithCappedBufferPreservesCap(t *testing.T) {
 
 	cb := &cappedBuffer{max: MaxOutputBytes}
 	cw := newUTF8CarryWriter(cb)
-	// Repeated multi-byte runes written one byte at a time exceed the cap.
+	// 一次一个字节写入重复的多字节字符会超过上限。
 	chunk := []byte("中文测试输出")
 	for i := 0; i < 16; i++ {
 		for j := 0; j < len(chunk); j++ {

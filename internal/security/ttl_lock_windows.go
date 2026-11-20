@@ -9,10 +9,9 @@ import (
 	"unsafe"
 )
 
-// The stdlib syscall package on Windows does not expose LockFileEx, so bind it
-// directly from kernel32. An OS-level byte-range lock is auto-released when the
-// owning process exits, which avoids the stale-lock reclaim problem a purely
-// user-space O_EXCL placeholder would need to solve.
+// Windows 上标准库 syscall 包没有暴露 LockFileEx，因此直接从 kernel32 绑定它。
+// 操作系统级的字节范围锁会在拥有它的进程退出时自动释放，这避免了纯用户态
+// O_EXCL 占位文件需要解决的陈旧锁回收问题。
 const ttlLockExclusive = 0x00000002
 
 var (
@@ -21,21 +20,21 @@ var (
 	ttlProcUnlockFileEx = ttlKernel32.NewProc("UnlockFileEx")
 )
 
-// ttlFileLock owns the sidecar lock file handle for one critical section.
+// ttlFileLock 为一个临界区持有 sidecar 锁文件的句柄。
 type ttlFileLock struct {
 	f *os.File
 }
 
-// ttlAcquireLock opens (creating if needed) path and takes a blocking exclusive
-// lock on byte zero of it.
+// ttlAcquireLock 打开（必要时创建）path，并在其第 0 字节上获取一个阻塞的
+// 独占锁。
 func ttlAcquireLock(path string) (*ttlFileLock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("security: open ttl grants lock: %w", err)
 	}
 	var ov syscall.Overlapped
-	// LockFileEx(hFile, dwFlags, dwReserved, nBytesLow, nBytesHigh, lpOverlapped).
-	// Blocking (no LOCKFILE_FAIL_IMMEDIATELY) so concurrent writers queue up.
+	// LockFileEx(hFile, dwFlags, dwReserved, nBytesLow, nBytesHigh, lpOverlapped)。
+	// 阻塞式的（不带 LOCKFILE_FAIL_IMMEDIATELY），使并发写入者排队等待。
 	r1, _, e1 := ttlProcLockFileEx.Call(
 		uintptr(f.Fd()),
 		uintptr(ttlLockExclusive),
@@ -54,10 +53,10 @@ func ttlAcquireLock(path string) (*ttlFileLock, error) {
 	return &ttlFileLock{f: f}, nil
 }
 
-// Release drops the byte-range lock and closes the sidecar file.
+// Release 释放字节范围锁并关闭 sidecar 文件。
 func (l *ttlFileLock) Release() error {
 	var ov syscall.Overlapped
-	// UnlockFileEx(hFile, dwReserved, nBytesLow, nBytesHigh, lpOverlapped).
+	// UnlockFileEx(hFile, dwReserved, nBytesLow, nBytesHigh, lpOverlapped)。
 	r1, _, e1 := ttlProcUnlockFileEx.Call(
 		uintptr(l.f.Fd()),
 		0,

@@ -611,7 +611,7 @@ agent 循环发出 `agent.Event` 值，带一个 `Kind` 以及适合该 kind 的
 
 `argent mcp [--json] [-C <dir>]` 会从合并配置中列出已配置的服务器（名称、传输、目标）。它不会联系任何服务器。
 
-### 5. 配置（internal/config）
+### 5. 配置（`internal/config`）
 
 #### 5.1 优先级与位置
 

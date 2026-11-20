@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// processQueryLimitedInformation is PROCESS_QUERY_LIMITED_INFORMATION. It is
-// enough for GetProcessTimes and, unlike full query rights, still works for
-// protected processes.
+// processQueryLimitedInformation 即 PROCESS_QUERY_LIMITED_INFORMATION。它
+// 足以调用 GetProcessTimes，而且与完全查询权限不同，它仍适用于
+// 受保护的进程。
 const processQueryLimitedInformation = 0x1000
 
 func processStartTime(pid int) (int64, error) {
@@ -27,8 +27,8 @@ func processStartTime(pid int) (int64, error) {
 	if err := syscall.GetProcessTimes(handle, &created, &exited, &kernel, &user); err != nil {
 		return 0, fmt.Errorf("proc: query times for pid %d: %w", pid, err)
 	}
-	// GetProcessTimes returns CreateTime as a FILETIME (100ns since 1601);
-	// Filetime.Nanoseconds rebases it to the Unix epoch. Millisecond identity
-	// values match the Unix probe's units and the tolerance's unit.
+	// GetProcessTimes 以 FILETIME（自 1601 起 100ns）返回 CreateTime；
+	// Filetime.Nanoseconds 把它换算到 Unix epoch。毫秒级身份
+	// 值与 Unix 探测的单位及容差的单位一致。
 	return created.Nanoseconds() / int64(time.Millisecond), nil
 }

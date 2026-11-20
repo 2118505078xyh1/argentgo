@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// checkBOMDoc asserts one loader result against the content budget. A leading
-// BOM is metadata: the cap applies to the content bytes left after it is
-// removed, not to the on-disk bytes that include it.
+// checkBOMDoc 针对内容预算断言某个加载器的结果。前导
+// BOM 是元数据：上限适用于移除它之后的内容字节，
+// 而非包含它的磁盘字节。
 func checkBOMDoc(t *testing.T, text string, truncated, wantTruncated bool, wantText string) {
 	t.Helper()
 	body := text
@@ -29,10 +29,10 @@ func checkBOMDoc(t *testing.T, text string, truncated, wantTruncated bool, wantT
 	}
 }
 
-// TestBOMDoesNotConsumePerFileByteBudget covers LoadIn and LoadWithBoundary,
-// the two loaders with a configurable per-file cap. Before the fix the cap was
-// charged against the raw bytes (BOM included), so a file whose content fit
-// exactly in the limit lost its last three bytes and was marked truncated.
+// TestBOMDoesNotConsumePerFileByteBudget 覆盖 LoadIn 和 LoadWithBoundary，
+// 这两个加载器具有可配置的单文件上限。修复前，上限是按
+// 原始字节（含 BOM）计算的，因此内容刚好符合限制的文件
+// 会丢失最后三个字节并被标记为已截断。
 func TestBOMDoesNotConsumePerFileByteBudget(t *testing.T) {
 	const bom = "\ufeff"
 	cases := []struct {
@@ -85,8 +85,8 @@ func TestBOMDoesNotConsumePerFileByteBudget(t *testing.T) {
 	}
 }
 
-// TestBOMDoesNotConsumeBudgetInLoadForDirs covers the nested loader, which
-// always clips at DefaultLimit. The same BOM-before-cap contract must hold.
+// TestBOMDoesNotConsumeBudgetInLoadForDirs 覆盖嵌套加载器，它
+// 总是按 DefaultLimit 裁剪。同样的"BOM 在限幅之前"契约必须成立。
 func TestBOMDoesNotConsumeBudgetInLoadForDirs(t *testing.T) {
 	const bom = "\ufeff"
 	cases := []struct {

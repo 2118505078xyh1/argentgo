@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Empty, nil and all-skipped inputs return a nil result, mirroring the loader.
+// 空、nil 和全部跳过的输入返回 nil 结果，与加载器一致。
 func TestDescribeIgnoreRulesEmpty(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -25,9 +25,9 @@ func TestDescribeIgnoreRulesEmpty(t *testing.T) {
 	}
 }
 
-// The three required fields — original pattern, semantic description and the
-// sensitive-directory risk flag — plus glob/negation normalization are checked
-// for a mix of literal, glob, negated and CJK patterns.
+// 三个必需字段 —— 原始模式、语义描述和
+// 敏感目录风险标志 —— 加上 glob/取反规范化，都会针对
+// 字面、glob、取反和 CJK 模式的混合进行检查。
 func TestDescribeIgnoreRulesTable(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -181,7 +181,7 @@ func TestDescribeIgnoreRulesTable(t *testing.T) {
 	}
 }
 
-// Multiple lines keep input order; skipped lines do not produce entries.
+// 多行保持输入顺序；被跳过的行不产生条目。
 func TestDescribeIgnoreRulesOrderAndSkips(t *testing.T) {
 	in := []string{
 		"# header",
@@ -206,8 +206,8 @@ func TestDescribeIgnoreRulesOrderAndSkips(t *testing.T) {
 	}
 }
 
-// A leading BOM is encoding metadata: it must not become part of a pattern and
-// a BOM-prefixed comment must still be skipped, matching the file loader.
+// 前导 BOM 是编码元数据：它不得成为模式的一部分，且带 BOM 前缀的注释
+// 仍必须被跳过，与文件加载器一致。
 func TestDescribeIgnoreRulesStripsBOM(t *testing.T) {
 	got := DescribeIgnoreRules([]string{"\ufeff*.log", "\ufeff# comment", "\ufeff!keep.log"})
 	if len(got) != 2 {
@@ -221,7 +221,7 @@ func TestDescribeIgnoreRulesStripsBOM(t *testing.T) {
 	}
 }
 
-// The function is pure: it never mutates the input and returns a fresh slice.
+// 该函数是纯函数：从不修改输入并返回新切片。
 func TestDescribeIgnoreRulesIsPure(t *testing.T) {
 	in := []string{"*.log", "!keep.log", "密钥/"}
 	snapshot := append([]string(nil), in...)
@@ -237,8 +237,8 @@ func TestDescribeIgnoreRulesIsPure(t *testing.T) {
 	}
 }
 
-// The reported Glob is exactly the string Ignored matches against: a flagged
-// sensitive pattern really must exclude its probe path when loaded.
+// 报告的 Glob 正是 Ignored 匹配的字符串：带标志的敏感
+// 模式在加载时确实必须排除其探测路径。
 func TestDescribeIgnoreRulesRiskMatchesActualIgnored(t *testing.T) {
 	info := DescribeIgnoreRules([]string{"密钥/"})
 	if len(info) != 1 || !info[0].SensitiveRisk {

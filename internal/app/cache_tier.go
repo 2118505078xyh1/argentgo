@@ -2,25 +2,23 @@ package app
 
 import "strings"
 
-// CacheTier is the retention tier a prompt-cache entry is written under. The
-// string values mirror the retention vocabulary used by the llm layer so a
-// future caller can map a tier onto a wire hint without a lookup table.
+// CacheTier 是提示缓存条目写入时所处的保留层级。其字符串值对应 llm 层使用的保留词汇表，
+// 使未来的调用方无需查找表就能把层级映射到线上提示。
 type CacheTier string
 
 const (
-	// CacheTierNone means prompt caching is off; no marker is emitted.
+	// CacheTierNone 表示提示缓存关闭；不会发出任何标记。
 	CacheTierNone CacheTier = "none"
-	// CacheTierShort is the provider-default short-lived entry (5m/30m class).
+	// CacheTierShort 是提供方默认的短生命周期条目（5m/30m 级别）。
 	CacheTierShort CacheTier = "short"
-	// CacheTierLong is the extended entry (1h/24h class).
+	// CacheTierLong 是长效条目（1h/24h 级别）。
 	CacheTierLong CacheTier = "long"
 )
 
-// parseCacheTier maps a config/retention string onto a tier. It accepts both
-// tier names and the TTL hints the llm layer understands ("5m"/"30m" → short,
-// "1h"/"24h" → long), plus the explicit opt-outs. The boolean reports whether
-// the value was recognized: an empty, unknown or non-ASCII value is not, so a
-// caller can fall back to a default instead of treating it as a tier.
+// parseCacheTier 把配置/保留字符串映射为层级。它既接受层级名，也接受 llm 层理解的 TTL 提示
+// （"5m"/"30m" → short，"1h"/"24h" → long），以及显式的退出值。
+// 布尔值报告该值是否被识别：空值、未知值或非 ASCII 值都不会被识别，
+// 因此调用方可以回退到默认值，而不是把它当成一个层级。
 func parseCacheTier(value string) (CacheTier, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "none", "off", "false":
@@ -34,40 +32,35 @@ func parseCacheTier(value string) (CacheTier, bool) {
 	}
 }
 
-// ResolveCacheTier decides the tier a request should write under. Ported from
-// omp's resolvePromptCacheTier: an explicit config tier wins; when the config is
-// unset a subscription (OAuth) seat defaults to the long tier; and a long tier
-// is downgraded to short when the endpoint does not support long retention.
+// ResolveCacheTier 决定一个请求应写入的层级。移植自 omp 的 resolvePromptCacheTier：
+// 显式的配置层级优先；配置未设置时，订阅（OAuth）席位默认为长效层级；
+// 当端点不支持长期保留时，长效层级会被降级为短层级。
 //
-// It is a pure function: no config, network or environment is consulted. The
-// caller supplies isSubscription and supportsLong as already-resolved facts.
+// 它是纯函数：不查询配置、网络或环境。调用方以已解析事实的形式提供 isSubscription 和 supportsLong。
 func ResolveCacheTier(configTier string, isSubscription bool, supportsLong bool) CacheTier {
 	tier, explicit := parseCacheTier(configTier)
 	if !explicit {
-		// Subscription seats write 1h entries where the model supports them;
-		// everyone else keeps the provider-default short entry.
+		// 订阅席位在模型支持时写入 1 小时条目；其他情况保留提供方默认的短条目。
 		if isSubscription && supportsLong {
 			tier = CacheTierLong
 		} else {
 			tier = CacheTierShort
 		}
 	}
-	// An unsupported long request must not produce a hint the gateway cannot
-	// honour: omp emits the provider's default short entry instead.
+	// 不受支持的长效请求不得产生网关无法遵守的提示：omp 改为发出提供方默认的短条目。
 	if tier == CacheTierLong && !supportsLong {
 		return CacheTierShort
 	}
 	return tier
 }
 
-// ObservedCacheTier infers the tier a completed response actually wrote, for
-// response-side adoption. omp reads the per-TTL cache-write breakdown directly
-// (usage.cache_creation.ephemeral1h/5m); argent-go only exposes aggregate
-// CachedTokens/CacheWriteTokens, so the tier comes from the TTL hint the
-// request carried, gated on there having been cache activity at all.
+// ObservedCacheTier 推断一个已完成的响应实际写入的层级，供响应侧采用。
+// omp 直接读取按 TTL 划分的缓存写入明细（usage.cache_creation.ephemeral1h/5m）；
+// argent-go 只暴露聚合的 CachedTokens/CacheWriteTokens，因此层级来自请求携带的 TTL 提示，
+// 并以确实发生过缓存活动为前提。
 //
-// A response with no cache reads and no cache writes observed nothing and
-// returns CacheTierNone; so does an unrecognized or opt-out hint.
+// 没有缓存读取也没有缓存写入的响应没有观察到任何活动，返回 CacheTierNone；
+// 无法识别或退出提示的响应同样如此。
 func ObservedCacheTier(usageCachedTokens, usageCacheWrite int, ttlHint string) CacheTier {
 	tier, ok := parseCacheTier(ttlHint)
 	if !ok || tier == CacheTierNone {

@@ -34,8 +34,8 @@ func TestWithinStartTimeToleranceBoundary(t *testing.T) {
 	}
 }
 
-// liveStartTime probes the current process, skipping on platforms with no
-// /proc (or a restricted one) where the identity probe is best-effort.
+// liveStartTime 探测当前进程；在没有 /proc 的平台
+// （或受限制的 /proc，身份探测仅为尽力而为）上跳过。
 func liveStartTime(t *testing.T) (int, int64) {
 	t.Helper()
 	pid := os.Getpid()
@@ -48,8 +48,8 @@ func liveStartTime(t *testing.T) (int, int64) {
 
 func TestProcessStartTimeIsEpochMilliseconds(t *testing.T) {
 	_, startedAt := liveStartTime(t)
-	// A raw /proc tick counter (~1e9) or a raw FILETIME (~1.3e17) would fail
-	// this: callers compare against a millisecond tolerance.
+	// 原始的 /proc tick 计数（约 1e9）或原始 FILETIME（约 1.3e17）会
+	// 通不过此检查：调用方是按毫秒容差比较的。
 	if startedAt <= 1_000_000_000_000 {
 		t.Fatalf("start time %d is not milliseconds since the Unix epoch", startedAt)
 	}
@@ -64,19 +64,19 @@ func TestIsSameProcessAcceptsLiveIncarnationAndRejectsReuse(t *testing.T) {
 	if !IsSameProcess(pid, startedAt, DefaultStartTimeToleranceMS) {
 		t.Fatal("a live pid with its recorded start time must be the same process")
 	}
-	// A different process that inherited the same PID started much later.
+	// 继承同一 PID 的另一个进程要晚得多才启动。
 	if IsSameProcess(pid, startedAt-86_400_000, DefaultStartTimeToleranceMS) {
 		t.Fatal("a mismatched start time must be rejected as PID reuse")
 	}
-	// No recorded identity: liveness is the only thing we can assert.
+	// 没有记录的身份：我们唯一能断言的是存活状态。
 	if !IsSameProcess(pid, 0, DefaultStartTimeToleranceMS) {
 		t.Fatal("an unknown start time must still accept a live pid")
 	}
 }
 
 func TestIsSameProcessRejectsDeadPIDEvenWithoutRecordedStart(t *testing.T) {
-	// PIDs are at most 22 bits on Linux and 32 bits on Windows; this value is
-	// well outside either range so no live process can occupy it.
+	// Linux 上 PID 最多 22 位，Windows 上 32 位；该值
+	// 远超任一范围，因此不可能有活进程占用它。
 	const deadPID = 2_147_483_647
 	if IsSameProcess(deadPID, 0, DefaultStartTimeToleranceMS) {
 		t.Fatal("a dead pid must be rejected even when the recorded start is unknown")

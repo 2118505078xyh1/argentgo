@@ -7,28 +7,24 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// cacheWarmerEnabled reports the explicit opt-in for prompt-cache keepalive.
-// Default off: only ARGENT_CACHE_WARM=1 enables it. No production path wires a
-// keepalive replay today, so enabling this only arms timestamp recording for a
-// future caller; it never changes a request on the wire.
+// cacheWarmerEnabled 报告提示缓存保活的选择性启用状态。默认关闭：只有 ARGENT_CACHE_WARM=1 才启用它。
+// 目前没有任何生产路径接入保活重放，因此启用它只是为未来的调用方武装时间戳记录；
+// 它从不会改变线上请求。
 func cacheWarmerEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_CACHE_WARM")) == "1"
 }
 
-// newCacheWarmer builds a cache warmer. Callers pass the explicit opt-in
-// decision; the default construction path uses cacheWarmerEnabled's default
-// (false), leaving the warmer disabled and every request byte-identical.
+// newCacheWarmer 构建一个缓存预热器。调用方传入显式的选择启用决定；
+// 默认构造路径使用 cacheWarmerEnabled 的默认值（false），使预热器保持禁用且每个请求逐字节不变。
 func newCacheWarmer(enabled bool) *llm.CacheWarmer {
 	return &llm.CacheWarmer{Enabled: enabled}
 }
 
-// cacheWarmerProbe groups the two recording hooks a long-lived engine would
-// call at its boundaries: RecordRequest at the request-send point and
-// RecordIdle at the turn boundary. It is a thin, inert adapter: it never sends
-// a 1-token replay and never starts a timer, and it is a no-op while the warmer
-// is disabled. It is NOT installed on any production path today (see the wiring
-// report); it exists so a future caller can adopt both hooks in one place and
-// test them without touching the network.
+// cacheWarmerProbe 把长生命周期引擎会在其边界调用的两个记录钩子归组：
+// 在请求发送点调用 RecordRequest，在轮次边界调用 RecordIdle。
+// 它是一个薄而惰性的适配器：从不发送 1-token 重放，也从不启动定时器，且预热器禁用时为空操作。
+// 目前它没有安装在任何生产路径上（见接线报告）；它的存在是为了让未来的调用方
+// 能在一个地方采用这两个钩子，并在不接触网络的情况下测试它们。
 type cacheWarmerProbe struct {
 	warmer *llm.CacheWarmer
 }
@@ -45,8 +41,8 @@ func (p *cacheWarmerProbe) recordIdle(now time.Time) {
 	}
 }
 
-// shouldWarm mirrors llm.CacheWarmer.ShouldWarm without ever acting on the
-// answer. Installing the probe cannot itself emit a keepalive.
+// shouldWarm 对应 llm.CacheWarmer.ShouldWarm，但从不对答案采取行动。
+// 安装该探针本身无法发出保活请求。
 func (p *cacheWarmerProbe) shouldWarm(now time.Time) bool {
 	if p == nil || p.warmer == nil {
 		return false

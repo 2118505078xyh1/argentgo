@@ -22,12 +22,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// personaDir is where a workspace keeps named subagent definitions.
+// personaDir 是工作区存放具名子 agent 定义的位置。
 const personaDir = ".argent/agents"
 
-// personaCache loads persona definitions once per workspace root. Execute runs
-// many times per process (TUI prompts, schema retries, tests), so rescanning
-// the directory on every prompt would be wasted I/O.
+// personaCache 按工作区根目录只加载一次角色定义。Execute 在每个进程中会运行多次
+// （TUI 提示、schema 重试、测试），因此每次提示都重新扫描目录会浪费 I/O。
 var personaCache sync.Map // map[string]personaSnapshot
 
 type personaSnapshot struct {
@@ -35,9 +34,8 @@ type personaSnapshot struct {
 	err      error
 }
 
-// loadPersonasForRoot returns the personas configured for a workspace root.
-// Results, including the first parse error, are cached: a broken agent file is
-// reported once and never blocks an otherwise valid run.
+// loadPersonasForRoot 返回为某个工作区根目录配置的角色。结果（包括第一个解析错误）会被缓存：
+// 一个损坏的 agent 文件只报告一次，且绝不会阻塞其他有效的运行。
 func loadPersonasForRoot(root string) (map[string]agent.Persona, error) {
 	if cached, ok := personaCache.Load(root); ok {
 		snap := cached.(personaSnapshot)
@@ -48,11 +46,10 @@ func loadPersonasForRoot(root string) (map[string]agent.Persona, error) {
 	return personas, err
 }
 
-// PersonaSubagentConfig resolves a persona name requested by a delegated task
-// into the child configuration the `task` tool should use. It returns false for
-// an empty or unknown name, leaving the caller's generic defaults untouched.
-// It is injected into agent.SubagentConfig.ResolvePersona by configureSubagents,
-// keeping internal/agent free of any dependency on internal/app.
+// PersonaSubagentConfig 把被委派任务请求的角色名解析为 `task` 工具应使用的子配置。
+// 名称为空或未知时返回 false，不改动调用方的通用默认值。
+// 它由 configureSubagents 注入到 agent.SubagentConfig.ResolvePersona，
+// 使 internal/agent 保持对 internal/app 零依赖。
 func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 	if strings.TrimSpace(name) == "" {
 		return agent.SubagentConfig{}, false
@@ -65,25 +62,20 @@ func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 	return persona.SubagentConfig(), true
 }
 
-// configureSubagents applies the opt-in delegation setup to a root run's
-// options. The opt-in signal is deliberately minimal: a workspace that defines
-// at least one persona under .argent/agents is asking for delegation. No config
-// key, flag or CLI change is required, and a workspace without personas keeps
-// byte-identical behaviour (no `task` tool and an unchanged system prompt).
+// configureSubagents 把选择性启用的委派设置应用到根运行的选项上。启用信号刻意极简：
+// 在 .argent/agents 下定义了至少一个角色的工作区，就是在请求委派。
+// 不需要任何配置键、标志或 CLI 改动，且没有角色的工作区保持逐字节相同的行为
+// （没有 `task` 工具，系统提示也不变）。
 //
-// When opted in, the orchestrator strategy is appended to the caller's system
-// prompt (never replacing it), and Subagent is set with an empty model - which
-// the agent loop interprets as "inherit the parent model" - and the default
-// depth limit of 2. Persona names requested by individual task calls are
-// resolved back here through the injected ResolvePersona callback, so the agent
-// package never needs to import this one.
+// 启用后，编排策略会追加到调用方的系统提示（绝不替换它），Subagent 被设置为空模型
+// ——agent 循环将其解释为"继承父模型"——以及默认深度限制 2。
+// 各个 task 调用请求的角色名，通过注入的 ResolvePersona 回调回到这里解析，
+// 因此 agent 包永远不需要导入本包。
 //
-// bg is the background-result queue owned by the caller for this one root run.
-// It must NOT be a process singleton: two independent sessions/runners (e.g.
-// TUI + --rpc, or two sequential Execute calls) that both opt into personas
-// would otherwise share one queue, and a result from one session would be
-// drained into the other session's transcript (all root runs sit at depth 0).
-// Owning the queue per run also keeps the bounded-cap eviction local to a run.
+// bg 是调用方为这一次根运行所拥有的后台结果队列。它绝不能是进程单例：
+// 两个独立的会话/运行器（例如 TUI + --rpc，或两次连续的 Execute 调用）若都启用了角色，
+// 否则会共享同一个队列，一个会话的结果会被抽取到另一个会话的记录中
+// （所有根运行都位于深度 0）。按运行拥有队列也把有界容量淘汰限制在运行内部。
 func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundResults) {
 	if opts == nil {
 		return
@@ -92,10 +84,9 @@ func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundR
 	if err != nil || len(personas) == 0 {
 		return
 	}
-	// Append to the system prompt the caller already installed (the static,
-	// cache-stable half on trust-opted runs) rather than res.System, which
-	// still carries the per-run dynamic values. Direct callers set opts.System
-	// to res.System, so their behaviour is byte-for-byte unchanged.
+	// 追加到调用方已经安装的系统提示（在启用信任的运行上是缓存稳定的静态那一半），
+	// 而不是 res.System——后者仍带有逐运行的动态值。直接调用方把 opts.System 设为 res.System，
+	// 因此其行为逐字节不变。
 	opts.System = opts.System + "\n\n" + agent.OrchestratorPrompt()
 	opts.Subagent = &agent.SubagentConfig{
 		MaxDepth: agent.DefaultMaxDepth,
@@ -106,16 +97,13 @@ func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundR
 	}
 }
 
-// sharedDefs holds the process-wide DefinitionCache. The discovery call sites
-// (buildSystemWithTrust, contextPrompt and newToolset) are package-level
-// functions with no App/Factory receiver whose lifetime they could share, so
-// the cache is a lazily-initialised package singleton rather than a struct
-// field. DefinitionCache.Get/Refresh are mutex-protected, so concurrent runners
-// (TUI + --serve/--rpc) share it safely.
+// sharedDefs 持有进程级的 DefinitionCache。发现调用点（buildSystemWithTrust、contextPrompt
+// 和 newToolset）都是包级函数，没有可共享生命周期的 App/Factory 接收者，
+// 因此该缓存是延迟初始化的包级单例，而非结构体字段。DefinitionCache.Get/Refresh 受互斥锁保护，
+// 所以并发运行器（TUI + --serve/--rpc）能安全地共享它。
 //
-// There is no config/file-change hook wired to Refresh yet; the fingerprint
-// already re-discovers when a definition file changes on disk, and the per-run
-// Get calls collapse to a stat-only hit while nothing has changed.
+// 目前还没有接入到 Refresh 的配置/文件变化钩子；指纹在定义文件发生磁盘变化时已会重新发现，
+// 而在没有任何变化时，逐运行的 Get 调用会折叠为仅一次 stat 的命中。
 var (
 	defsOnce sync.Once
 	defs     *DefinitionCache
@@ -126,12 +114,10 @@ func sharedDefs() *DefinitionCache {
 	return defs
 }
 
-// contextPrompt handles slash-style /context input the same way reviewPrompt
-// handles /review: it injects a read-only report for the model to summarise.
-// The built-in descriptor is registered through commands.NewSetWithBuiltins,
-// and the report itself comes from commands.ContextHook so the app and the
-// commands package share one renderer. Registration is checked before routing;
-// if the built-in were missing, the prompt would be left untouched.
+// contextPrompt 处理斜杠式的 /context 输入，方式与 reviewPrompt 处理 /review 相同：
+// 它注入一份只读报告供模型总结。内置描述符通过 commands.NewSetWithBuiltins 注册，
+// 报告本身来自 commands.ContextHook，使 app 和 commands 包共享同一个渲染器。
+// 在路由之前会检查注册情况；如果内置项缺失，提示会保持原样不变。
 func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 	text := strings.TrimSpace(prompt)
 	if text != "/context" && !strings.HasPrefix(text, "/context ") {
@@ -139,9 +125,8 @@ func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 	}
 	home := homeDir(stdio.Env)
 	sources := commands.DefaultSources(res.Root, home)
-	// Plugin-provided commands join the set under their plugin namespace. The
-	// helper applies the same user/project trust gate as MCP and skills, so an
-	// untrusted checkout cannot inject commands into the session.
+	// 插件提供的命令会在其插件命名空间下加入命令集。该辅助函数应用与 MCP 和技能相同的
+	// 用户/项目信任门槛，因此不受信任的检出无法向会话注入命令。
 	sources = append(sources, pluginCommandSources(res)...)
 	set := commands.NewSetWithBuiltins(sources)
 	if _, ok := set.Get("context"); !ok {
@@ -158,8 +143,8 @@ func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 			Reason:    "per-file or total size cap",
 		})
 	}
-	// Only the skill half of the cached discovery is needed here. The command
-	// set above stays uncached: NewSetWithBuiltins mutates its set in place.
+	// 这里只需要缓存发现结果中的技能部分。上面的命令集不做缓存：
+	// NewSetWithBuiltins 会就地修改它的集合。
 	_, skillRegistry := sharedDefs().Get(nil, skills.DefaultRoots(res.Root, home))
 	input := commands.ContextInput{
 		MemoryDocs:   memoryDocs,
@@ -177,9 +162,8 @@ func contextPrompt(res Resolved, stdio cli.IO, prompt string) (string, bool) {
 		"\nSummarise the findings; do not modify files.", true
 }
 
-// ignoreStatus reports which .argentignore files affect this workspace. The
-// rule count is deliberately left at zero: IgnoreRules keeps its patterns
-// private, and /context only needs a best-effort status line.
+// ignoreStatus 报告哪些 .argentignore 文件会影响本工作区。规则数量刻意保持为零：
+// IgnoreRules 把其模式保持为私有，而 /context 只需要一行尽力而为的状态信息。
 func ignoreStatus(root string) commands.IgnoreStatus {
 	var files []string
 	dir := filepath.Clean(root)
@@ -197,27 +181,23 @@ func ignoreStatus(root string) commands.IgnoreStatus {
 	return commands.IgnoreStatus{Files: files}
 }
 
-// Execute runs one prompt through a freshly wired tool registry, policy and
-// agent loop. The registry is per-run so the security chain can carry the
-// session id without mutable global state.
+// Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
+// 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
-	// Keep the caller's own words before review/context/dynamic-context prefixes
-	// are prepended below. Budget declarations must come only from the user: a
-	// "+500k" living in an injected prefix is not a declaration.
+	// 在下方追加 review/context/动态上下文前缀之前，先保留调用方自己的原文。
+	// 预算声明必须只来自用户：出现在注入前缀中的 "+500k" 不算声明。
 	rawPrompt := prompt
 
-	// Resume classification: announce interrupted/degraded history and stop
-	// before the agent loop when a human decision is required. Clean sessions
-	// (the common case) produce no notice and fall through unchanged.
+	// 恢复分类：当历史被中断或降级时，在进入 agent 循环之前宣告这一情况；
+	// 需要人工决定时则停止。干净的会话（常见情况）不产生通知，直接原样继续。
 	if sess != nil {
 		if err := announceRecovery(ctx, stdio, onText, recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))); err != nil {
 			return agent.Result{}, err
 		}
 	}
 
-	// Loading personas is best-effort: a malformed agent definition must not
-	// fail the run. configureSubagents reuses the cached result to decide
-	// whether this run opts into delegation and to resolve per-task roles.
+	// 加载角色是尽力而为的：格式错误的 agent 定义不得使运行失败。
+	// configureSubagents 复用缓存结果，决定本次运行是否启用委派，并解析逐任务角色。
 	_, _ = loadPersonasForRoot(res.Root)
 	if injection, ok := reviewPrompt(res.Root, prompt); ok {
 		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
@@ -225,18 +205,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if injection, ok := contextPrompt(res, stdio, prompt); ok {
 		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
 	}
-	// Resolve builds the legacy system prompt for every caller. When the
-	// resolved trust decision opts in, rebuild the project-memory block through
-	// the boundary-aware loader so res.TrustProject actually reaches it (the
-	// flag can override an ARGENT_TRUST_PROJECT=0 env value). When not opted
-	// in, keep res.System byte-identical so existing callers are unaffected.
+	// Resolve 为每个调用方构建旧版系统提示。当解析出的信任决定启用时，
+	// 通过感知边界的加载器重建项目记忆块，使 res.TrustProject 真正生效
+	// （该标志可覆盖 ARGENT_TRUST_PROJECT=0 环境变量）。未启用时，
+	// 保持 res.System 逐字节不变，使现有调用方不受影响。
 	//
-	// On the trust-opted path the system message carries only the static half
-	// of the prompt. cwd, reasoning effort and the output schema are per-run
-	// values: they travel in the first user message below, so a directory or
-	// thinking change no longer invalidates the provider's cached system
-	// prefix. buildStaticSystem(true) keeps the explicit flag override of an
-	// ARGENT_TRUST_PROJECT=0 env value.
+	// 在信任启用的路径上，系统消息只携带提示的静态那一半。cwd、推理强度和输出 schema 是
+	// 逐运行的值：它们随下方第一条用户消息一起发送，因此目录或思考级别的改变
+	// 不再使提供方缓存的系统前缀失效。buildStaticSystem(true) 保留对
+	// ARGENT_TRUST_PROJECT=0 环境变量的显式标志覆盖。
 	trustedSystem := res.System
 	dynamicContext := ""
 	if res.TrustProject {
@@ -251,10 +228,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(res.MaxSeconds)*time.Second)
 		defer cancel()
 	}
-	// Opt-in artifact spilling for oversized tool outputs. With no opt-in this
-	// returns ctx unchanged, so the tools package keeps the ordinary clipTo path
-	// and every existing run stays byte-identical. The derived ctx reaches every
-	// tool via the agent loop's callTool(ctx, ...).
+	// 对超大工具输出选择性启用产物落盘。未启用时它原样返回 ctx，
+	// 因此 tools 包保持普通的 clipTo 路径，每个现有运行都逐字节不变。
+	// 派生的 ctx 会通过 agent 循环的 callTool(ctx, ...) 到达每个工具。
 	ctx = configureOutputSpill(ctx, stdio.Env, res.Storage)
 
 	bridge := newHookBridge(res, sess.ID(), stdio.Err)
@@ -269,9 +245,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
 
-	// The inspection layer is an opt-in extra gate in front of the chain; with
-	// the gate off guard is the chain itself, so every existing run is byte-for-
-	// byte unchanged (policy -> approval -> audit).
+	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
+	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。
 	var guard tools.Guard = chain
 	if inspectionEnabled(stdio.Env) {
 		guard = newInspectionGuard(chain, approver, stdio)
@@ -287,27 +262,25 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	tracker := newCheckpointTracker(res.Root, sess)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactor(res, sess)
-	// Durability barriers: flush the JSONL session before each expensive step.
-	// These are per-Runner fields, so concurrent Execute calls (TUI + RPC, or
-	// multiple sessions) cannot clear each other's barrier or sync a stale
-	// session bound to an earlier run.
+	// 持久性屏障：在每个开销较大的步骤之前刷写 JSONL 会话。
+	// 这些是按 Runner 划分的字段，因此并发的 Execute 调用（TUI + RPC，或多个会话）
+	// 不会清除彼此的屏障，也不会同步绑定到更早运行的过期会话。
 	flush := func() error { return sess.Sync() }
 
-	// Schema-constrained runs buffer the root answer (text deltas + stop) until
-	// it passes validation. A corrective turn can then replace that answer on
-	// the client instead of appending a second copy. Runs without --output-schema
-	// keep the original live-streaming path byte-for-byte.
+	// 受 schema 约束的运行会缓冲根答案（文本增量 + 停止），直到它验证通过。
+	// 之后一次纠正轮次可以在客户端替换该答案，而不是追加第二份副本。
+	// 没有 --output-schema 的运行保留原有的实时流式路径，逐字节不变。
 	schemaMode := strings.TrimSpace(res.OutputSchema) != ""
 	var pendingTexts []agent.Event
 	var pendingStop *agent.Event
 	mutatingRan := false
 
 	forwardEvent := func(event agent.Event) {
-		// Publish to the per-run event hub so --serve / --rpc subscribers
-		// (SSE /v1/event, event/subscribe) see real agent events. The sink is
-		// injected into ctx by runner.Prompt; a no-op when absent.
+		// 发布到按运行划分的事件 hub，使 --serve / --rpc 的订阅者
+		// （SSE /v1/event、event/subscribe）看到真实的 agent 事件。
+		// 接收器由 runner.Prompt 注入 ctx；不存在时为空操作。
 		EmitEvent(ctx, event)
-		// Feed the live usage tool so it reports real token totals.
+		// 供给实时用量工具，使其报告真实的 token 总量。
 		if event.Kind == agent.EventUsage {
 			toolset.UpdateUsage(event.Turn, event.Usage, event.TotalUsage)
 		}
@@ -326,8 +299,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		}
 	}
 
-	// A user-declared per-turn cap is an extra cumulative limit; parse it from
-	// the raw prompt (never the injected prefixes) before the loop is built.
+	// 用户声明的单轮上限是一个额外的累计限制；在构建循环之前，
+	// 从原始提示（绝不是注入的前缀）中解析它。
 	budget := agent.Budget{
 		MaxTurns:       res.MaxTurns,
 		MaxTotalTokens: res.MaxTokens,
@@ -345,15 +318,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		System:        trustedSystem,
 		Chatter:       res.Chatter,
 		Tools:         runner,
-		// Never advertise tools the sandbox/deny rules forbid. Run() still
-		// guards every call; this only keeps the model from wasting turns.
+		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
+		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
 			if len(toolset.base.regs) == 0 {
 				return specs
 			}
 			filtered := toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
-			// Privacy posture: local-only withholds web tools entirely. A remote
-			// base URL under local-only is a hard error surfaced before the run.
+			// 隐私策略：local-only 会完全保留 Web 工具。local-only 下的远程 base URL
+			// 属于硬错误，会在运行之前浮现。
 			blocked, perr := ApplyPrivacyPosture(res.Cfg.PrivacyMode, res.BaseURL, []string{"web_search", "web_fetch"})
 			if perr != nil {
 				return nil
@@ -383,12 +356,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			tracker.capture(cp, prompt)
 		},
 		MutationPaths: toolset.base.mutationPaths,
-		// Opt-in bounded verification. Both helpers return zero values when no
-		// verify command is configured, keeping default runs byte-identical.
+		// 选择性启用的有界验证。没有配置验证命令时，两个辅助函数都返回零值，
+		// 使默认运行逐字节不变。
 		Verify:               verifyFuncFor(res),
 		MaxVerifyReflections: verifyReflectionsFor(res),
-		// Mid-turn compaction is injected from the app layer so agent never
-		// imports session. A disabled/negative threshold yields 0 and no-ops.
+		// 轮次中压缩由 app 层注入，使 agent 永不导入 session。
+		// 禁用/负的阈值会得到 0，从而成为空操作。
 		Compactor:        compactor,
 		CompactThreshold: compactor.CompactThreshold(),
 		OnCompactionEvidence: func(e agent.CompactionEvidence) {
@@ -405,24 +378,21 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 					pendingStop = &stop
 					return
 				case event.Kind == agent.EventCheckpointReady:
-					// The agent emits this immediately before a batch that
-					// contains a mutating tool, so it is a reliable signal that
-					// side effects already happened and must never be repeated.
+					// agent 会在包含变更型工具的批次之前立即发出这个事件，
+					// 因此它是副作用已经发生、绝不能重复的可靠信号。
 					mutatingRan = true
 				}
 			}
 			forwardEvent(event)
 		},
 	}}
-	// One fresh queue per root run. Finished background children are delivered
-	// only to the run (and, for a resumed Runner, the later prompts on that same
-	// Runner) that owns this queue; never to an unrelated concurrent session.
+	// 每次根运行使用一个全新的队列。已完成的后台子级只会投递给拥有该队列的运行
+	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
 	bg := agent.NewBackgroundResults(0, 0)
 	configureSubagents(&loop.Opts, res, bg)
-	// Per-model edit-format guidance is opt-in so byte-exact system-prompt
-	// assertions and callers that pin their own prompt keep unchanged bytes by
-	// default. Set ARGENT_EDIT_GUIDE=1 to append it. Appending here (after
-	// configureSubagents) keeps the orchestrator append order intact.
+	// 按模型的编辑格式指引是选择性启用的，因此字节精确的系统提示断言，
+	// 以及锁定自己提示的调用方，默认都保持字节不变。设置 ARGENT_EDIT_GUIDE=1 即可追加。
+	// 在这里（configureSubagents 之后）追加，可保持编排器追加顺序不变。
 	if env := stdio.Env; env != nil && env("ARGENT_EDIT_GUIDE") == "1" {
 		loop.Opts.System = agent.AppendEditFormat(loop.Opts.System, res.Model)
 	}
@@ -433,22 +403,20 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		if invalid := validateOutputText(res.OutputSchema, result.Text); invalid != nil {
 			switch {
 			case mutatingRan:
-				// A mutating tool already ran. Re-running the prompt would repeat
-				// its side effects, so surface the failure instead of retrying.
+				// 变更型工具已经运行过。重新运行提示会重复其副作用，
+				// 因此应暴露失败，而不是重试。
 				err = fmt.Errorf("output schema validation failed (auto-retry skipped: a mutating tool already ran): %w", invalid)
 			default:
-				// No tool side effects to repeat: append one corrective user turn
-				// to the SAME conversation and ask the model once more. This
-				// bypasses the agent loop entirely - no tools are advertised and
-				// no tool events are emitted - so neither text nor tool work is
-				// duplicated on the client.
+				// 没有可重复的工具副作用：在*同一*对话中追加一条纠正性的用户轮次，
+				// 再请模型回答一次。这完全绕过 agent 循环——不公布工具，也不发出工具事件——
+				// 因此客户端既不会重复文本，也不会重复工具工作。
 				corrected, cerr := correctSchemaAnswer(ctx, loop.Opts.Chatter, loop.Opts.Model, system, result.Messages, res.OutputSchema, invalid)
 				if cerr != nil {
 					err = fmt.Errorf("output schema retry failed: %w", cerr)
 				} else if again := validateOutputText(res.OutputSchema, corrected); again != nil {
 					err = fmt.Errorf("output schema validation failed after one retry: %w", again)
 				} else {
-					// Replace (rather than append to) the buffered first answer.
+					// 替换（而不是追加到）已缓冲的第一个答案。
 					result.Text = corrected
 					result.Turns++
 					pendingTexts = []agent.Event{{Kind: agent.EventTextDelta, Turn: result.Turns, Depth: 0, Text: corrected}}
@@ -472,14 +440,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	return result, err
 }
 
-// recoveryMessagesForClassification prepares Session.Messages for ClassifyRecovery.
-// Session.Messages projects only conversation records, but a real transcript
-// interleaves metadata records (usage/stats/turn) between them. A message's
-// Parent therefore often names a metadata record that is absent from the
-// projection, and a naive link check would flag every resumed session as
-// degraded. Rewrite only those dangling parents to the preceding message;
-// genuine links between two messages are left untouched. The input is copied,
-// never mutated.
+// recoveryMessagesForClassification 为 ClassifyRecovery 准备 Session.Messages。
+// Session.Messages 只投影对话记录，但真实记录会在它们之间夹杂元数据记录（usage/stats/turn）。
+// 因此一条消息的 Parent 常常指向投影中不存在元数据记录，而朴素的链接检查
+// 会把每个恢复的会话都标记为降级。只把这些悬空的 Parent 改写为前一条消息；
+// 两条消息之间真实的链接保持不变。输入会被复制，绝不会被修改。
 func recoveryMessagesForClassification(messages []session.Entry) []session.Entry {
 	out := make([]session.Entry, len(messages))
 	copy(out, messages)
@@ -503,15 +468,12 @@ func recoveryMessagesForClassification(messages []session.Entry) []session.Entry
 	return out
 }
 
-// announceRecovery publishes a resume notice through the two channels Execute
-// already uses for user-visible text (onText for the caller, EventNotice for
-// --serve/--rpc subscribers). For degraded history it deliberately refuses to
-// continue: Execute has no confirmation channel, so instead of inventing a UI
-// prompt it writes an explicit warning to stderr and returns an error, leaving
-// the transcript untouched for an operator to inspect.
+// announceRecovery 通过 Execute 已用于用户可见文本的两个通道发布恢复通知
+// （给调用方的 onText，给 --serve/--rpc 订阅者的 EventNotice）。
+// 对于降级的历史，它刻意拒绝继续：Execute 没有确认通道，因此它不会凭空造一个 UI 提示，
+// 而是向 stderr 写一条明确的警告并返回错误，让记录保持原样供操作人员检查。
 //
-// A clean or merely interrupted transcript returns nil immediately, keeping a
-// resumed run byte-identical to before this wiring.
+// 干净或仅被中断的记录会立即返回 nil，使恢复的运行与接线之前逐字节一致。
 func announceRecovery(ctx context.Context, stdio cli.IO, onText func(string), decision recoveryDecision) error {
 	if decision.Notice == "" {
 		return nil
@@ -535,17 +497,15 @@ func announceRecovery(ctx context.Context, stdio cli.IO, onText func(string), de
 	return fmt.Errorf("session recovery paused: degraded history requires operator confirmation before continuing")
 }
 
-// schemaCorrectionUserTurn is the one user turn appended to an existing
-// conversation when --output-schema validation fails. The schema and the exact
-// failure go into the system message (correctiveInstruction); this turn only
-// tells the model that a single corrected answer is expected.
+// schemaCorrectionUserTurn 是当 --output-schema 验证失败时，追加到现有对话的唯一一条用户轮次。
+// schema 和确切的失败原因会放进系统消息（correctiveInstruction）；这个轮次只告诉模型
+// 期望它给出一个更正后的答案。
 const schemaCorrectionUserTurn = "Your previous reply did not satisfy the required output schema. Reply once more with a single JSON document that conforms exactly to the schema and nothing else."
 
-// correctSchemaAnswer asks the model for one corrected answer on the existing
-// conversation. It deliberately bypasses the agent loop: the chatter is called
-// directly with no tool specs, so the retry cannot call a tool, emit a tool
-// event, or re-run the original prompt. The caller owns publishing the returned
-// text as the single replacement answer.
+// correctSchemaAnswer 在现有对话上请模型给出一个更正后的答案。
+// 它刻意绕过 agent 循环：chatter 被直接调用且不传工具规格，
+// 因此重试无法调用工具、发出工具事件或重新运行原始提示。
+// 由调用方负责把返回的文本作为唯一的替换答案发布。
 func correctSchemaAnswer(ctx context.Context, chatter llm.Chatter, model, system string, messages []llm.Message, schema string, invalid error) (string, error) {
 	if chatter == nil {
 		return "", fmt.Errorf("no chatter configured: %w", invalid)
@@ -590,15 +550,13 @@ func firstLine(text string, limit int) string {
 	return string(runes)
 }
 
-// autoApprover grants every request except mutating shell commands; it backs
-// --yolo and approval=auto. A destructive shell command is the one call auto
-// mode must never grant silently (aider's explicit_yes_required): with no human
-// in the loop the model could otherwise delete or overwrite files unnoticed.
-// Such calls are delegated to fallback for a real decision; with no fallback
-// they are refused (fail closed). Read-only tools and read-only shell commands
-// keep the single-check grant, so --yolo stays fast and convenient off the
-// command path. TUI/RPC inject their own approver through Resolved.Approve and
-// never use this type, so interactive approval is unchanged.
+// autoApprover 批准除变更型 shell 命令之外的所有请求；它支撑 --yolo 和 approval=auto。
+// 破坏性的 shell 命令是 auto 模式绝不能静默批准的唯一调用（对应 aider 的
+// explicit_yes_required）：没有人工参与时，模型可能在不被察觉的情况下删除或覆盖文件。
+// 这类调用会被委派给 fallback 做真实决定；没有 fallback 时会被拒绝（fail closed）。
+// 只读工具和只读 shell 命令保留单次检查即批准，使 --yolo 在非命令路径上保持快捷方便。
+// TUI/RPC 通过 Resolved.Approve 注入自己的审批器，从不使用这个类型，
+// 因此交互式审批不变。
 type autoApprover struct {
 	fallback security.Approver
 }
@@ -607,16 +565,15 @@ func (a autoApprover) Ask(ctx context.Context, name, args string) (bool, error) 
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	// shellCommandOf already restricts this to bash/powershell and returns ""
-	// for everything else (including malformed payloads, a safe false negative),
-	// so non-shell tools never pay for command classification or a prompt.
+	// shellCommandOf 已经把它限制在 bash/powershell，并对其他一切（包括畸形负载）
+	// 返回 ""（这是安全的假阴性），因此非 shell 工具无需付出命令分类或提示的开销。
 	command := shellCommandOf(name, json.RawMessage(args))
 	if command == "" || security.FindFileEditingCommand(command) == "" {
 		return true, nil
 	}
 	if a.fallback == nil {
-		// Auto mode has no standing to approve a destructive command on its
-		// own. (false, nil) becomes a refusal the model can read in Chain.Check.
+		// auto 模式无权自行批准破坏性命令。(false, nil) 会变成模型在 Chain.Check 中
+		// 可以读到的拒绝。
 		return false, nil
 	}
 	return a.fallback.Ask(ctx, name, args)
@@ -627,18 +584,16 @@ func approverFor(stdio cli.IO, res Resolved) security.Approver {
 	case "never":
 		return security.NeverApprover{}
 	case "auto", "yolo":
-		// Auto grants non-shell work without a prompt, but a mutating shell
-		// command still needs a human: PromptApprover accepts only y/yes and
-		// deliberately has no "approve all" shortcut. In headless --rpc/--serve
-		// runs callers inject Resolved.Approve instead, so this reader is only
-		// reached on the direct CLI path where stdio.In is the operator's tty.
+		// auto 不提示即批准非 shell 工作，但变更型 shell 命令仍需人工：
+		// PromptApprover 只接受 y/yes，且刻意没有"全部批准"的捷径。
+		// 在无界面的 --rpc/--serve 运行中，调用方改为注入 Resolved.Approve，
+		// 因此这个读取器只会在 stdio.In 是操作人员 tty 的直接 CLI 路径上被触达。
 		return autoApprover{fallback: security.NewPromptApprover(stdio.In, stdio.Err)}
 	default:
 		inner := security.NewPromptApprover(stdio.In, stdio.Err)
 		if ttl, on := ttlApprovalGate(stdio.Env); on {
-			// TTL grants replace CachedApprover rather than stacking on top of
-			// it: stacking would let a TTL grant be re-granted forever by the
-			// session-lifetime cache once it expired.
+			// TTL 批准会替换 CachedApprover，而不是叠加在其之上：
+			// 叠加会让 TTL 批准过期后，被会话生命周期缓存无限期地重新批准。
 			return &ttlApprover{
 				cache: security.NewTTLCache(filepath.Join(res.Storage, "ttl-approvals"), ttl),
 				inner: inner,
@@ -648,18 +603,16 @@ func approverFor(stdio cli.IO, res Resolved) security.Approver {
 	}
 }
 
-// inspectionEnabled reports whether the optional fail-soft inspection layer is
-// on. Default-off: only ARGENT_INSPECTION=1 opts in; every other value keeps the
-// historical policy -> approval -> audit behaviour unchanged.
+// inspectionEnabled 报告可选的安全失败检查层是否开启。默认关闭：只有 ARGENT_INSPECTION=1
+// 才会启用；其他任何值都保留历史的 策略 -> 审批 -> 审计 行为不变。
 func inspectionEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_INSPECTION")) == "1"
 }
 
-// destructiveCommandInspector is the built-in inspector for the opt-in layer.
-// It reuses security's token-aware command classifier and returns Allow for
-// everything that is not a mutating shell command, so ordinary read-only calls
-// are not delayed by an extra verdict. A detection maps to RequireApproval
-// (never Deny): the operator still makes the final call.
+// destructiveCommandInspector 是选择性启用层的内置检查器。它复用 security 的
+// 感知 token 的命令分类器，对所有非变更型 shell 命令返回 Allow，
+// 使普通只读调用不会因额外的判定而被延迟。检测到时映射到 RequireApproval（绝不是 Deny）：
+// 最终决定仍由操作人员做出。
 type destructiveCommandInspector struct{}
 
 func (destructiveCommandInspector) Name() string { return "destructive-command" }
@@ -685,9 +638,8 @@ func (destructiveCommandInspector) Inspect(ctx context.Context, tool string, arg
 	}, nil
 }
 
-// shellCommandOf extracts command text from a shell tool's JSON arguments. It
-// mirrors security's unexported guardShellCommand so the inspector can reuse
-// FindFileEditingCommand without changing the security package.
+// shellCommandOf 从 shell 工具的 JSON 参数中提取命令文本。它对应 security 中未导出的
+// guardShellCommand，使检查器无需修改 security 包即可复用 FindFileEditingCommand。
 func shellCommandOf(tool string, args json.RawMessage) string {
 	name := strings.ToLower(strings.TrimSpace(tool))
 	if name != "bash" && name != "powershell" {
@@ -706,11 +658,9 @@ func shellCommandOf(tool string, args json.RawMessage) string {
 	return payload.Command
 }
 
-// inspectionGuard folds one fail-soft inspection verdict into the single
-// tools.Guard the registry already calls. Deny is a hard StopError; a
-// RequireApproval is asked once here and replayed to Chain.Check through a
-// fixed approver so the operator is never prompted twice; Allow (or an unknown
-// action) adds no gate and simply falls through to the chain.
+// inspectionGuard 把一次安全失败的检查判定折叠进注册表已经调用的单一 tools.Guard。
+// Deny 是硬性的 StopError；RequireApproval 在这里询问一次，并通过固定审批器重放到 Chain.Check，
+// 使操作人员绝不会被提示两次；Allow（或未知动作）不增加门控，直接落到链上。
 type inspectionGuard struct {
 	manager  *security.InspectionManager
 	chain    *security.Chain
@@ -723,10 +673,9 @@ func (g *inspectionGuard) Check(ctx context.Context, tool string, args json.RawM
 	case security.InspectDeny:
 		return &security.StopError{Tool: tool, Reason: verdict.Reason}
 	case security.InspectRequireApproval:
-		// The finding's reason/finding ID travel only through the optional
-		// reason-aware approver seam; tool name and args (the cache/permission/audit
-		// inputs) are never modified, so approvals cannot drift from the call that
-		// was actually authorised. See askInspectionApproval.
+		// 发现项的 reason/finding ID 只通过可选的原因感知审批器接缝传递；
+		// 工具名和参数（缓存/权限/审计的输入）从不被修改，
+		// 因此审批不会偏离实际被授权的那次调用。见 askInspectionApproval。
 		ok, err := askInspectionApproval(ctx, g.approver, tool, args, verdict)
 		if err != nil {
 			return err
@@ -734,8 +683,8 @@ func (g *inspectionGuard) Check(ctx context.Context, tool string, args json.RawM
 		if !ok {
 			return &security.StopError{Tool: tool, Reason: verdict.Reason, Refused: true}
 		}
-		// Replay the recorded answer through a per-call chain copy; the shared
-		// chain keeps its real approver for calls that need no inspection gate.
+		// 通过按调用复制的链重放已记录的答案；共享链为不需要检查门控的调用
+		// 保留其真实的审批器。
 		callChain := *g.chain
 		callChain.Approver = fixedApprover{granted: true}
 		return callChain.Check(ctx, tool, args)
@@ -744,9 +693,8 @@ func (g *inspectionGuard) Check(ctx context.Context, tool string, args json.RawM
 	}
 }
 
-// fixedApprover replays one already-recorded answer. It is used only for the
-// single Chain.Check following a RequireApproval verdict, so no state is shared
-// across concurrent tool calls.
+// fixedApprover 重放一个已记录的答案。它只用于 RequireApproval 判定之后的那一次
+// Chain.Check，因此不会在并发工具调用之间共享状态。
 type fixedApprover struct{ granted bool }
 
 func (a fixedApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
@@ -756,10 +704,9 @@ func (a fixedApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
 	return a.granted, nil
 }
 
-// newInspectionGuard builds the opt-in layer with the built-in inspector. The
-// InspectionManager's zero value is usable (the building block exposes no
-// constructor), and its error handler is fail-soft: a broken inspector is
-// skipped and only its name is logged, never the raw error text.
+// newInspectionGuard 用内置检查器构建选择性启用层。InspectionManager 的零值即可使用
+// （该构建块不暴露构造函数），其错误处理器是安全失败的：损坏的检查器会被跳过，
+// 只记录它的名字，绝不记录原始错误文本。
 func newInspectionGuard(chain *security.Chain, approver security.Approver, stdio cli.IO) *inspectionGuard {
 	manager := &security.InspectionManager{}
 	manager.Add(destructiveCommandInspector{})
@@ -771,10 +718,9 @@ func newInspectionGuard(chain *security.Chain, approver security.Approver, stdio
 	return &inspectionGuard{manager: manager, chain: chain, approver: approver}
 }
 
-// ttlApprovalGate parses the ARGENT_APPROVAL_TTL opt-in. "0" and an empty value
-// leave the gate off. A Go duration ("15m") sets an exact lifetime; a bare
-// positive integer is read as minutes; any other truthy value enables the gate
-// with the cache's 30-minute default.
+// ttlApprovalGate 解析 ARGENT_APPROVAL_TTL 的启用设置。"0" 和空值使门控关闭。
+// Go 时长格式（"15m"）设置精确的生命周期；裸的正整数按分钟解读；
+// 任何其他真值都会以缓存的 30 分钟默认值启用门控。
 func ttlApprovalGate(env func(string) string) (time.Duration, bool) {
 	if env == nil {
 		return 0, false
@@ -792,10 +738,9 @@ func ttlApprovalGate(env func(string) string) (time.Duration, bool) {
 	return 0, true
 }
 
-// ttlApprover grants approvals backed by security.TTLCache. It is used in place
-// of CachedApprover when the TTL gate is on: grants expire (and can survive a
-// restart via the on-disk cache), while refusals are never cached — a refusal
-// only clears any prior grant for the exact (tool, args) key.
+// ttlApprover 批准由 security.TTLCache 支撑的授权。当 TTL 门控开启时，它取代 CachedApprover：
+// 批准会过期（并可通过磁盘缓存在重启后保留），而拒绝从不被缓存——
+// 一次拒绝只会清除该确切 (tool, args) 键上的任何既有批准。
 type ttlApprover struct {
 	cache *security.TTLCache
 	inner security.Approver

@@ -2,16 +2,16 @@
 """Apply comment-only translations to a fixed set of Go directories.
 
 _subagent_numbered.txt: one line per target English comment, format N<TAB>line.
-_subagent_trans_*.txt: Chinese translations, ONE LINE PER numbered line, in the
-same order. Each value is the translated comment WITHOUT leading indentation,
-starting with //, /* or *. Leading whitespace/code is preserved from source.
+_subagent_indexed_*.txt: N<TAB>translated comment, keyed by numbered-line index.
+Each value is the translated comment WITHOUT leading indentation, starting with
+//, /* or *. Leading whitespace/code is preserved from source.
 """
 import glob
 import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NUMFILE = os.path.join(ROOT, "_subagent_numbered.txt")
-TRANSGLOB = os.path.join(ROOT, "_subagent_trans_*.txt")
+TRANSGLOB = os.path.join(ROOT, "_subagent_indexed_*.txt")
 
 DIRS = [
     "internal/commands", "internal/update", "internal/memory", "internal/hooks",
@@ -30,18 +30,22 @@ def main():
                 continue
             eng_lines.append(raw.split("\t", 1)[1])
 
-    trans = []
+    # index -> translated comment (without leading indentation)
+    by_index = {}
     for path in sorted(glob.glob(TRANSGLOB)):
         with open(path, "r", encoding="utf-8") as f:
-            trans.extend(f.read().splitlines())
+            for raw in f.read().splitlines():
+                if "\t" not in raw:
+                    continue
+                num, body = raw.split("\t", 1)
+                by_index[num.strip()] = body
 
-    print("english lines:", len(eng_lines), "translations:", len(trans))
-    if len(trans) > len(eng_lines):
-        print("ERROR: more translations than english lines")
-        return
+    print("english lines:", len(eng_lines), "translations:", len(by_index))
     by_line = {}
-    for i, body in enumerate(trans):
-        by_line[eng_lines[i]] = body
+    for i, line in enumerate(eng_lines):
+        num = str(i + 1)
+        if num in by_index:
+            by_line[line] = by_index[num]
 
     changed = 0
     files_changed = 0
@@ -60,7 +64,7 @@ def main():
                 out = []
                 modified = False
                 for line in lines:
-                    if line in by_line:
+                    if line in by_line and ("//" in line or "/*" in line):
                         prefix = ""
                         for ch in line:
                             if ch in " \t":

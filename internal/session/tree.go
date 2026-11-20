@@ -12,7 +12,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Branch describes one record in a session's id/parent tree.
+// Branch 描述会话 id/parent 树中的一条记录。
 type Branch struct {
 	ID     string
 	Parent string
@@ -20,14 +20,14 @@ type Branch struct {
 	Depth  int  // number of parent hops from the root
 	Active bool // true for the leaf the transcript currently follows
 	Label  string
-	// SourceSession and SourceRecord are set for retry/fork attempt records.
+	// SourceSession 和 SourceRecord 为 retry/fork 的尝试记录而设置。
 	SourceSession string
 	SourceRecord  string
 }
 
-// Branches describes the record tree stored in the JSONL file at path. Records
-// are returned in file order, which is stable across forks and compactions.
-// The active leaf is the last record, matching how an opened Session resumes.
+// Branches 描述存储在 path 处 JSONL 文件中的记录树。记录按文件顺序返回，
+// 该顺序在分叉和压缩之后保持稳定。活动叶子是最后一条记录，与打开的
+// Session 恢复时的方式一致。
 func Branches(path string) ([]Branch, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("session: open %s: %w", path, err)
@@ -64,7 +64,7 @@ func Branches(path string) ([]Branch, error) {
 	return out, nil
 }
 
-// Branches resolves an id (or unique prefix) in the store and describes it.
+// Branches 在 store 中解析一个 id（或唯一前缀）并描述它。
 func (s *Store) Branches(id string) ([]Branch, error) {
 	path, err := s.ResolvePath(id)
 	if err != nil {
@@ -92,9 +92,9 @@ func branchDepth(id string, byID map[string]Record, cache map[string]int) int {
 		}
 		id, record = record.Parent, byID[record.Parent]
 	}
-	// Cache under the id whose depth was requested, not the top ancestor the
-	// walk happened to end on: storing the accumulated depth on an ancestor
-	// corrupts every later branch that descends from it (session audit #6).
+	// 以供查询深度的那个 id 作为缓存键，而不是遍历最终到达的最顶层祖先：
+	// 把累积深度存在祖先身上会破坏之后每一个从它派生出来的分支
+	// （session 审计 #6）。
 	cache[origID] = depth
 	return depth
 }
@@ -118,21 +118,20 @@ func branchLabel(record Record) string {
 	return record.Kind
 }
 
-// ResolvePath maps an exact id or unique prefix to its JSONL file without
-// creating directories, so read-only commands never touch the filesystem.
+// ResolvePath 把精确的 id 或唯一前缀映射到其 JSONL 文件，而不创建目录，
+// 使只读命令绝不会触碰文件系统。
 func ResolvePath(dir, id string) (string, error) {
 	return (&Container{dir: dir}).resolvePath(id)
 }
 
-// ResolvePath is the store-scoped form of the package helper.
+// ResolvePath 是包级辅助函数的 store 作用域版本。
 func (s *Store) ResolvePath(id string) (string, error) {
 	return ResolvePath(s.dir, id)
 }
 
-// RenderHTML writes a standalone HTML transcript of the branch ending at
-// branchID. An empty branchID follows the active leaf. The output has inline
-// CSS only, no scripts and no network references, and every text value is
-// escaped by html/template.
+// RenderHTML 写出以 branchID 结尾的分支的独立 HTML 转录。branchID 为空时
+// 跟随活动叶子。输出只有内联 CSS，没有脚本和网络引用，且每个文本值都由
+// html/template 转义。
 func RenderHTML(path, branchID string, w io.Writer) error {
 	records, err := readRecords(path)
 	if err != nil {
@@ -146,7 +145,7 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 	if leaf == "" {
 		leaf = records[len(records)-1].ID
 	}
-	// Reject an unknown branch rather than silently rendering the active one.
+	// 拒绝未知的分支，而不是静默地渲染活动分支。
 	if _, ok := byID[leaf]; !ok {
 		return fmt.Errorf("session: unknown branch %q in %s", branchID, path)
 	}
@@ -174,8 +173,8 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 		}
 	}
 	if id == "" {
-		// Match the case-insensitive extension handling used when transcripts
-		// are discovered and opened; see transcriptStem in store.go.
+		// 与发现和打开转录时使用的不区分大小写的扩展名处理保持一致；
+		// 见 store.go 中的 transcriptStem。
 		id = transcriptStem(filepath.Base(path))
 	}
 	if title == "" {
@@ -235,7 +234,7 @@ func RenderHTML(path, branchID string, w io.Writer) error {
 	return nil
 }
 
-// RenderHTML writes the active branch of a stored session id to w.
+// RenderHTML 把存储中某个会话 id 的活动分支写到 w。
 func (s *Store) RenderHTML(id, branchID string, w io.Writer) error {
 	path, err := s.ResolvePath(id)
 	if err != nil {

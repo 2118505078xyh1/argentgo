@@ -2,13 +2,12 @@ package security
 
 import "strings"
 
-// GlobMatch matches a path pattern against a path.
+// GlobMatch 用路径模式匹配一个路径。
 //
-// `*` matches inside one segment, `**` matches across segments, `?` matches
-// one character. A pattern without `/` (or one that does not start at the
-// root) is matched against every tail of the path, so `*.env` matches
-// `project/src/.env` and `src/**` matches `src/a/b.rs`. A pattern without any
-// glob metacharacter is treated as a prefix: `~/.ssh` denies `~/.ssh/id_rsa`.
+// `*` 在单个段内匹配，`**` 跨段匹配，`?` 匹配一个字符。不含 `/` 的模式
+// （或不从根开始的模式）会与路径的每个尾部匹配，因此 `*.env` 匹配
+// `project/src/.env`，`src/**` 匹配 `src/a/b.rs`。不含任何 glob 元字符的
+// 模式被视为前缀：`~/.ssh` 拒绝 `~/.ssh/id_rsa`。
 func GlobMatch(pattern, path string) bool {
 	pat := normalize(expandHome(pattern))
 	text := normalize(path)
@@ -23,7 +22,7 @@ func GlobMatch(pattern, path string) bool {
 		pat = strings.TrimRight(pat, "/") + "/**"
 	}
 	if !strings.ContainsAny(pat, "*?[") {
-		// Prefix semantics, checked on the whole path and on every tail.
+		// 前缀语义：在完整路径以及每个尾部上都进行检查。
 		for _, tail := range tails(text) {
 			if tail == pat || strings.HasPrefix(tail, pat+"/") {
 				return true
@@ -39,8 +38,8 @@ func GlobMatch(pattern, path string) bool {
 	return false
 }
 
-// normalize lowercases a path and turns backslashes into forward slashes.
-// Leading slashes are dropped so absolute and tail matches line up.
+// normalize 把路径转为小写，并把反斜杠转换为正斜杠。
+// 前导斜杠会被去掉，使绝对路径匹配和尾部匹配对齐。
 func normalize(path string) string {
 	text := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
 	for strings.HasPrefix(text, "/") {
@@ -49,7 +48,7 @@ func normalize(path string) string {
 	return text
 }
 
-// tails lists the path and each of its suffixes at a segment boundary.
+// tails 列出路径本身以及它在段边界处的每个后缀。
 func tails(path string) []string {
 	segments := strings.Split(path, "/")
 	out := make([]string, 0, len(segments))

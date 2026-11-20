@@ -1,12 +1,12 @@
 package session
 
-// Writer is the legacy single-file recorder. It now writes through the tree
-// store, so records carry ids and parents like every other session.
+// Writer 是旧的单文件记录器。它现在通过树形 store 写入，因此记录与其他
+// 会话一样带有 id 和父节点。
 type Writer struct {
 	session *Session
 }
 
-// New creates dir if needed and opens a fresh timestamped session file.
+// New 在需要时创建 dir，并打开一个带时间戳的新会话文件。
 func New(dir string) (*Writer, error) {
 	store, err := Open(dir)
 	if err != nil {
@@ -19,17 +19,17 @@ func New(dir string) (*Writer, error) {
 	return &Writer{session: session}, nil
 }
 
-// Write appends one record, chained to the previously written record.
+// Write 追加一条记录，并将其链接到之前写入的记录。
 func (w *Writer) Write(kind string, payload any) error {
 	return w.session.Append(kind, payload)
 }
 
-// Close flushes the session. Records are written per append, so there is no
-// buffered state to lose; Close exists for callers that defer it.
+// Close 刷新会话。记录是每次追加时写入的，因此没有缓冲状态会丢失；
+// Close 的存在只是为了方便使用 defer 的调用方。
 func (w *Writer) Close() error { return nil }
 
-// Session exposes the underlying session handle.
+// Session 暴露底层的会话句柄。
 func (w *Writer) Session() *Session { return w.session }
 
-// ID is the id of the session being written.
+// ID 是正在写入的会话的 id。
 func (w *Writer) ID() string { return w.session.ID() }

@@ -40,7 +40,7 @@ func TestACPSessionFlow(t *testing.T) {
 		t.Fatalf("session/new result = %v", created)
 	}
 
-	// session/prompt streams updates, then answers end_turn
+	// session/prompt 流式发送更新，然后回复 end_turn
 	_ = enc.Encode(map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
 		"params": map[string]any{
@@ -81,7 +81,7 @@ func TestACPSessionFlow(t *testing.T) {
 		t.Fatalf("prompt result = %v", promptResult)
 	}
 
-	// session/cancel aborts the runner
+	// session/cancel 中止 runner
 	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "session/cancel", "params": map[string]any{"sessionId": sessionID}})
 	cancel := readJSON(t, dec)
 	if _, ok := cancel["result"].(map[string]any); !ok {
@@ -102,12 +102,12 @@ func TestACPSessionFlow(t *testing.T) {
 	waitFor(t, done)
 }
 
-// TestACPPromptAcceptsEarlierSession guards the session registry: a client may
-// create several sessions on one connection and then prompt an earlier one. The
-// session/new handler records every id in acpState.sessions; prompt must consult
-// that registry instead of accepting only the most recently created session.
-// Before the fix the second session/new made prompting the first fail with
-// -32602 "unknown session" even though it was created on this connection.
+// TestACPPromptAcceptsEarlierSession 守护会话注册表：客户端可以
+// 在一个连接上创建多个会话，然后提示较早的一个。
+// session/new 处理器把每个 id 记录到 acpState.sessions；prompt 必须查询
+// 该注册表，而不是只接受最近创建的会话。
+// 修复之前，第二次 session/new 会使对第一个的提示失败，报
+// -32602 "unknown session"，即使它是在该连接上创建的。
 func TestACPPromptAcceptsEarlierSession(t *testing.T) {
 	runner := &fakeRunner{reply: "ok", chunks: []string{"ok"}}
 	inR, inW := io.Pipe()
@@ -120,7 +120,7 @@ func TestACPPromptAcceptsEarlierSession(t *testing.T) {
 	enc := json.NewEncoder(inW)
 	dec := json.NewDecoder(outR)
 
-	// Create two sessions; the second becomes s.sessionID (the "current" one).
+	// 创建两个会话；第二个成为 s.sessionID（"当前"的那个）。
 	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/new"})
 	first := readJSON(t, dec)
 	firstBody, _ := first["result"].(map[string]any)
@@ -137,8 +137,8 @@ func TestACPPromptAcceptsEarlierSession(t *testing.T) {
 		t.Fatalf("second session/new result = %v", second)
 	}
 
-	// Prompt the *first* session. It is a known session from this connection,
-	// so it must be accepted despite not being the current one.
+	// 提示*第一个*会话。它是该连接上已知的会话，
+	// 因此即使不是当前会话也必须被接受。
 	_ = enc.Encode(map[string]any{
 		"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
 		"params": map[string]any{
@@ -211,7 +211,7 @@ func TestACPReturnsWhenContextCancelledWhileWaitingOnStdin(t *testing.T) {
 		done <- RunACP(ctx, inR, outW, Config{Runner: &fakeRunner{}})
 	}()
 
-	// No data on inR: scanLines is blocked in Read, so only ctx can wake us.
+	// inR 上没有数据：scanLines 阻塞在 Read 中，因此只有 ctx 能唤醒我们。
 	cancel()
 	waitFor(t, done)
 }

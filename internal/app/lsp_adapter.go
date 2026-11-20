@@ -12,55 +12,47 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// This file is the bridge between the dormant internal/lsp client and the six
-// consumer-side lsp_* tools in internal/tools. tools never imports lsp (the
-// archguard test enforces that), so every type crosses this boundary as a
-// neutral tools.Lsp* DTO mapped field-by-field from the corresponding lsp type.
+// 本文件是休眠中的 internal/lsp 客户端与 internal/tools 中六个消费侧 lsp_* 工具之间的桥梁。
+// tools 从不导入 lsp（archguard 测试会强制检查），因此每种类型都以中性的 tools.Lsp* DTO 跨越该边界，
+// 由对应的 lsp 类型逐字段映射而来。
 //
-// ACTIVATION POLICY (lazy, on-demand)
-// ----------------------------------
-// Nothing is spawned at startup or when a toolset is built. Wiring the adapter
-// only makes the six tools *callable*; a language server process is launched the
-// first time an lsp_* tool is invoked with a path, and only for that path's
-// language (Registry.ForPath). The single manager is process-scoped (created
-// once via sync.Once) so the client is reused across runs and toolsets. A
-// missing server is cached as a negative result instead of retrying on every
-// call, so an environment without gopls/pyright degrades to a clear error and
-// never stalls the run.
+// 激活策略（懒加载、按需）
+// -----------------------
+// 启动时或构建工具集时不会派生任何进程。接好适配器只是让这六个工具*可调用*；
+// 语言服务进程会在某次 lsp_* 工具首次带路径被调用时才启动，且只针对该路径的语言（Registry.ForPath）。
+// 单一管理器是进程级的（通过 sync.Once 创建一次），因此客户端会在多个运行和工具集之间复用。
+// 缺失的服务会被缓存为负结果，而不是每次调用都重试，
+// 使没有 gopls/pyright 的环境优雅降级为清晰的错误，且绝不会拖住运行。
 //
-// ARGENT_LSP=0 is an explicit kill switch: NewLspIdeAdapter then returns nil
-// and the tools keep reporting "LSP IDE integration is not available". The
-// default (unset or any other value) activates the adapter.
+// ARGENT_LSP=0 是显式的关闭开关：此时 NewLspIdeAdapter 返回 nil，
+// 工具继续报告"LSP IDE integration is not available"。默认（未设置或任何其他值）会激活适配器。
 
 const (
-	lspCallTimeout  = 10 * time.Second // bounds one IDE request
-	lspStartTimeout = 15 * time.Second // bounds the initialize handshake of a spawn
+	lspCallTimeout  = 10 * time.Second // 限制单次 IDE 请求
+	lspStartTimeout = 15 * time.Second // 限制派生进程的初始化握手
 )
 
-// startFn is the process spawner used by lspManager. It is a package variable
-// so tests can substitute an offline fake; production always uses lsp.Start.
-// The concrete return type keeps the public wiring unchanged while allowing
-// cache behaviour to be tested without a real language server.
+// startFn 是 lspManager 使用的进程派生器。它是包级变量，使测试可以替换为离线伪实现；
+// 生产环境始终使用 lsp.Start。具体的返回类型保持公共接线不变，
+// 同时允许在没有真实语言服务的情况下测试缓存行为。
 var startFn func(context.Context, lsp.Server, string) (*lsp.Client, error) = lsp.Start
 
-// lspManager owns the language-server clients for the whole process. It is
-// deliberately process-scoped (see activation policy above): clients are keyed
-// by root + "|" + server.Name, so several roots and languages coexist in one
-// manager and survive individual runs.
+// lspManager 为整个进程拥有语言服务客户端。它刻意是进程级的（见上面的激活策略）：
+// 客户端以 root + "|" + server.Name 为键，因此多个根目录和语言能在一个管理器中共存，
+// 并在各次运行之间保留。
 type lspManager struct {
 	mu       sync.Mutex
 	reg      *lsp.Registry
-	clients  map[string]*lsp.Client   // key: root + "|" + server.Name
-	failures map[string]error         // negative cache: no retry-spawn on every call
-	starting map[string]chan struct{} // per-key barrier so one key spawns at most once
+	clients  map[string]*lsp.Client   // 键：root + "|" + server.Name
+	failures map[string]error         // 负缓存：不在每次调用时重试派生
+	starting map[string]chan struct{} // 按键设置的屏障，使每个键最多派生一次
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
 
-// managerOnce/sharedManager make the manager a process-level singleton. A
-// singleton (rather than one manager per adapter) is chosen so clients survive
-// across runs and across the multiple registries created for multi-root
-// workspaces; the root is carried by the adapter, not the manager.
+// managerOnce/sharedManager 使管理器成为进程级单例。选择单例（而非每个适配器一个管理器）
+// 是为了让客户端能在多次运行之间、以及为多根工作区创建的多个注册表之间保留；
+// 根目录由适配器携带，而非管理器。
 var (
 	managerOnce   sync.Once
 	sharedManager *lspManager
@@ -73,8 +65,7 @@ func getSharedManager() *lspManager {
 	return sharedManager
 }
 
-// newLspManager builds an isolated manager. Tests use it directly so they never
-// touch the process singleton.
+// newLspManager 构建一个隔离的管理器。测试直接使用它，从而绝不会触碰进程单例。
 func newLspManager(ctx context.Context) *lspManager {
 	if ctx == nil {
 		ctx = context.Background()
@@ -90,9 +81,8 @@ func newLspManager(ctx context.Context) *lspManager {
 	}
 }
 
-// close shuts down every cached client and cancels in-flight work. The process
-// singleton is intentionally not torn down per run; Close is for explicit
-// shutdown and for tests.
+// Close 关闭所有缓存的客户端并取消在途工作。进程单例刻意不会在每次运行时拆除；
+// Close 用于显式关闭和测试。
 func (m *lspManager) Close() error {
 	m.mu.Lock()
 	clients := m.clients
@@ -109,9 +99,8 @@ func (m *lspManager) Close() error {
 	return first
 }
 
-// clientFor returns the cached client for a server/root, spawning it on first
-// use. The per-key barrier guarantees exactly one spawn per key even when
-// several lsp_* tools fire concurrently, without blocking other keys.
+// clientFor 返回某个服务/根目录的缓存客户端，首次使用时派生它。
+// 按键设置的屏障保证即使多个 lsp_* 工具并发触发，每个键也恰好只派生一次，且不会阻塞其他键。
 func (m *lspManager) clientFor(server lsp.Server, root string) (*lsp.Client, error) {
 	key := root + "|" + server.Name
 	for {
@@ -127,7 +116,7 @@ func (m *lspManager) clientFor(server lsp.Server, root string) (*lsp.Client, err
 		if wait, ok := m.starting[key]; ok {
 			m.mu.Unlock()
 			<-wait
-			continue // re-check the caches after the in-flight spawn settles
+			continue // 在途派生结束后重新检查缓存
 		}
 		wait := make(chan struct{})
 		m.starting[key] = wait
@@ -148,9 +137,8 @@ func (m *lspManager) clientFor(server lsp.Server, root string) (*lsp.Client, err
 	}
 }
 
-// spawn bounds the handshake so a broken server cannot hang the manager. A
-// failure is wrapped into an actionable message and returned for negative
-// caching by clientFor.
+// spawn 限制握手时间，使故障服务不会挂住管理器。失败会被包装为可操作的消息返回，
+// 供 clientFor 做负缓存。
 func (m *lspManager) spawn(server lsp.Server, root string) (*lsp.Client, error) {
 	ctx, cancel := context.WithTimeout(m.ctx, lspStartTimeout)
 	defer cancel()
@@ -161,8 +149,7 @@ func (m *lspManager) spawn(server lsp.Server, root string) (*lsp.Client, error) 
 	return client, nil
 }
 
-// lspIdeAdapter implements tools.LspIde with a process-level manager and the
-// workspace root used to resolve relative paths.
+// lspIdeAdapter 用进程级管理器和用于解析相对路径的工作区根目录，实现 tools.LspIde。
 type lspIdeAdapter struct {
 	mgr  *lspManager
 	root string
@@ -170,10 +157,9 @@ type lspIdeAdapter struct {
 
 var _ tools.LspIde = (*lspIdeAdapter)(nil)
 
-// NewLspIdeAdapter returns the adapter the app installs with SetLspIde. It
-// returns nil when ARGENT_LSP=0, leaving the tools in their "not available"
-// state. The root is made absolute here because the lsp client resolves
-// document paths against the process working directory.
+// NewLspIdeAdapter 返回 app 通过 SetLspIde 安装的适配器。ARGENT_LSP=0 时返回 nil，
+// 使工具保持在"不可用"状态。这里把根目录变为绝对路径，
+// 因为 lsp 客户端会相对于进程工作目录解析文档路径。
 func NewLspIdeAdapter(root string) tools.LspIde {
 	if os.Getenv("ARGENT_LSP") == "0" {
 		return nil
@@ -185,8 +171,7 @@ func NewLspIdeAdapter(root string) tools.LspIde {
 	return &lspIdeAdapter{mgr: getSharedManager(), root: absolute}
 }
 
-// clientForPath resolves a path's language to a server and returns (or lazily
-// starts) the client for the adapter's root.
+// clientForPath 把路径的语言解析为服务，并返回（或懒启动）该适配器根目录对应的客户端。
 func (a *lspIdeAdapter) clientForPath(path string) (*lsp.Client, error) {
 	server, ok := a.mgr.reg.ForPath(path)
 	if !ok {
@@ -195,8 +180,7 @@ func (a *lspIdeAdapter) clientForPath(path string) (*lsp.Client, error) {
 	return a.mgr.clientFor(server, a.root)
 }
 
-// resolvePath turns a workspace-relative path into an absolute one. The lsp
-// client's Open reads the file and derives its URI from the absolute path.
+// resolvePath 把工作区相对路径转换为绝对路径。lsp 客户端的 Open 读取文件并从绝对路径推导其 URI。
 func (a *lspIdeAdapter) resolvePath(path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)
@@ -297,9 +281,8 @@ func (a *lspIdeAdapter) Formatting(path string, tabSize int, insertSpaces bool) 
 	return mapTextEdits(items), nil
 }
 
-// WorkspaceSymbols has no path, so it reuses any client already spawned for
-// this root; if none exists it tries gopls once. When no server is installed it
-// degrades to an empty result with no error rather than failing the tool call.
+// WorkspaceSymbols 没有路径参数，因此它复用已为该根目录派生的任意客户端；若没有则尝试一次 gopls。
+// 未安装服务时，它优雅降级为空结果且无错误，而不是让工具调用失败。
 func (a *lspIdeAdapter) WorkspaceSymbols(query string) ([]tools.LspSymbolInfo, error) {
 	client := a.anyClient()
 	if client == nil {
@@ -318,9 +301,8 @@ func (a *lspIdeAdapter) WorkspaceSymbols(query string) ([]tools.LspSymbolInfo, e
 	return out, nil
 }
 
-// anyClient returns a deterministic already-running client, or attempts to
-// start gopls for the adapter root on demand. A start failure is cached by the
-// manager and reported as "no client" to the caller.
+// anyClient 返回一个确定的、已在运行的客户端，或按需为该适配器根目录尝试启动 gopls。
+// 启动失败会被管理器缓存，并向调用方报告为"无客户端"。
 func (a *lspIdeAdapter) anyClient() *lsp.Client {
 	m := a.mgr
 	m.mu.Lock()
@@ -344,7 +326,7 @@ func (a *lspIdeAdapter) anyClient() *lsp.Client {
 	return nil
 }
 
-// ---- Pure type mappings (lsp -> tools neutral DTOs) ----
+// ---- 纯类型映射（lsp -> tools 中立 DTO）----
 
 func mapPosition(p lsp.Position) tools.LspPos {
 	return tools.LspPos{Line: p.Line, Character: p.Character}
@@ -382,9 +364,9 @@ func mapTextEdits(edits []lsp.TextEdit) []tools.LspTextEdit {
 	return out
 }
 
-// mapWorkspaceEdit preserves both the per-file changes map and the ordered
-// documentChanges. lsp.WorkspaceEdit already merges documentChanges into
-// Changes, so mapping both fields faithfully keeps that merged view intact.
+// mapWorkspaceEdit 同时保留按文件的变更映射和有序的 documentChanges。
+// lsp.WorkspaceEdit 已经把 documentChanges 合并进 Changes，
+// 因此如实映射这两个字段能保持该合并视图不变。
 func mapWorkspaceEdit(edit *lsp.WorkspaceEdit) *tools.LspWorkspaceEdit {
 	if edit == nil {
 		return nil

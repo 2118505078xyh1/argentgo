@@ -6,26 +6,26 @@ import (
 	"unicode/utf8"
 )
 
-// maxNoticeSummaryRunes bounds the release-note excerpt appended to an update
-// notice so the whole message stays a compact, single line.
+// maxNoticeSummaryRunes 限制附加到更新通知中的发布说明摘录长度，
+// 使整条消息保持紧凑的单行。
 const maxNoticeSummaryRunes = 80
 
-// placeholderVersion replaces a version string that fails basic validation, so
-// untrusted release metadata cannot inject control characters or markup into a
-// notice shown to the user.
+// placeholderVersion 替换未通过基本校验的版本字符串，使
+// 不可信的发布元数据无法向展示给用户的通知中注入控制字符或
+// 标记。
 const placeholderVersion = "?"
 
-// FormatUpdateNotice returns a sanitised, single-line, Chinese-language notice
-// telling the user that a newer build is available and how to upgrade. It is a
-// pure function: no I/O, no global state, and identical inputs always produce
-// identical output.
+// FormatUpdateNotice 返回一条经过净化的单行中文通知，
+// 告知用户有更新的构建版本可用以及如何升级。它是
+// 纯函数：无 I/O、无全局状态，相同输入总是产生
+// 相同输出。
 //
-// Both version strings are checked against a conservative ASCII whitelist;
-// anything else (control characters, spaces, ANSI escapes, markup) becomes a
-// "?" placeholder. When notes is non-empty a short single-line summary is
-// appended and capped at maxNoticeSummaryRunes runes (rune-safe for CJK text).
-// If latest is not newer than current, a short "already up to date" notice is
-// returned instead.
+// 两个版本字符串都按保守的 ASCII 白名单检查；
+// 其他任何内容（控制字符、空格、ANSI 转义、标记）都变成
+// "?" 占位符。当 notes 非空时，附加一段简短的单行摘要，
+// 并按 maxNoticeSummaryRunes 个 rune 截断（对 CJK 文本按 rune 安全处理）。
+// 若 latest 不比 current 新，则返回一条简短的 "already up to date" 通知
+// 代替。
 func FormatUpdateNotice(current, latest, notes string) string {
 	safeCurrent := safeVersionToken(current)
 	safeLatest := safeVersionToken(latest)
@@ -39,9 +39,9 @@ func FormatUpdateNotice(current, latest, notes string) string {
 	return notice
 }
 
-// safeVersionToken returns text unchanged when it is a plausible version tag
-// made only of ASCII letters, digits, ".", "-", "+" or "_". Anything else is
-// replaced by placeholderVersion so release metadata cannot inject content.
+// safeVersionToken 在文本是由 ASCII 字母、数字、"."、"-"、"+" 或 "_"
+// 组成的合理版本标签时原样返回。其他内容
+// 均替换为 placeholderVersion，使发布元数据无法注入内容。
 func safeVersionToken(text string) string {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" || len(trimmed) > 64 {
@@ -54,7 +54,7 @@ func safeVersionToken(text string) string {
 			char >= 'a' && char <= 'z',
 			char >= 'A' && char <= 'Z',
 			char == '.', char == '-', char == '+', char == '_':
-			// allowed version character
+			// 允许的版本字符
 		default:
 			return placeholderVersion
 		}
@@ -62,10 +62,10 @@ func safeVersionToken(text string) string {
 	return trimmed
 }
 
-// noticeSummary extracts a short, single-line excerpt from raw release notes.
-// It reuses ParseReleaseNotes to pick the first prose line (with inline markdown
-// stripped), falling back to the first change item, then normalises whitespace
-// and truncates by rune count so CJK characters are never split.
+// noticeSummary 从原始发布说明中提取简短的单行摘录。
+// 它复用 ParseReleaseNotes 选取第一行散文（去除内联 markdown
+// 后），若没有则回退到第一个变更项，然后规范化空白
+// 并按 rune 数截断，使 CJK 字符从不被拆分。
 func noticeSummary(notes string) string {
 	if strings.TrimSpace(notes) == "" {
 		return ""
@@ -81,9 +81,9 @@ func noticeSummary(notes string) string {
 	return truncateRunes(singleLine(text), maxNoticeSummaryRunes)
 }
 
-// singleLine collapses every run of whitespace or control characters (including
-// newlines and ANSI escapes) into one ASCII space, so the result contains no
-// line breaks or terminal control sequences.
+// singleLine 将每一段空白或控制字符（包括
+// 换行和 ANSI 转义）折叠为一个 ASCII 空格，使结果不含
+// 换行符或终端控制序列。
 func singleLine(text string) string {
 	var builder strings.Builder
 	builder.Grow(len(text))
@@ -102,8 +102,8 @@ func singleLine(text string) string {
 	return builder.String()
 }
 
-// truncateRunes shortens text to at most max runes, trimming a trailing space
-// and appending an ellipsis when it was cut. It is safe for multi-byte runes.
+// truncateRunes 将文本缩短到最多 max 个 rune，若被截断则
+// 去掉末尾空格并附加省略号。它对多字节 rune 安全。
 func truncateRunes(text string, max int) string {
 	if utf8.RuneCountInString(text) <= max {
 		return text

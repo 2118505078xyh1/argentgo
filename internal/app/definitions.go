@@ -13,44 +13,40 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// fingerprintHexLen is the number of hex characters kept from the SHA-256
-// digest. Sixteen chars (64 bits) are plenty to distinguish definition trees
-// while keeping the cached key small.
+// fingerprintHexLen 是从 SHA-256 摘要中保留的十六进制字符数。16 个字符（64 位）
+// 足以区分不同的定义树，同时保持缓存键较小。
 const fingerprintHexLen = 16
 
-// DefinitionCache memoises command and skill discovery behind a fingerprint of
-// the source directories.
+// DefinitionCache 依据源目录的指纹缓存命令和技能的发现结果。
 //
-// commands.Discover and skills.Discover walk the filesystem on every call; at
-// the sites that rebuild the system prompt this happens repeatedly within one
-// process. Callers keep one DefinitionCache for the lifetime of the session and
-// ask it for the current snapshots instead. The fingerprint is cheap (stat only,
-// no file reads), so a Get is fast unless something on disk actually changed.
+// commands.Discover 和 skills.Discover 每次调用都会遍历文件系统；在重建系统提示的地方，
+// 这会在一个进程内反复发生。调用方在会话生命周期内保留一个 DefinitionCache，
+// 改为向它请求当前快照。指纹计算很廉价（仅 stat，不读文件），
+// 因此除非磁盘上确实有变化，Get 都很快。
 //
-// A DefinitionCache must not be copied after first use; use a pointer.
+// DefinitionCache 在首次使用后不得被复制；请使用指针。
 type DefinitionCache struct {
 	mu          sync.Mutex
 	fingerprint string
 	commands    *commands.Set
 	skills      *skills.Registry
 
-	loaded bool // a discovery has completed at least once
-	dirty  bool // Refresh was called; force rediscovery on the next Get
+	loaded bool // 至少完成过一次发现
+	dirty  bool // 调用过 Refresh；强制在下一次 Get 时重新发现
 
 	hits      int64
 	misses    int64
 	refreshes int64
 }
 
-// Get returns the current command set and skill registry for the given roots.
+// Get 返回给定根目录的当前命令集和技能注册表。
 //
-// The roots are the directories commands.Discover / skills.Discover would scan;
-// command roots are converted to unnamed commands.Source values (plugin-prefixed
-// sources must be handled by the caller). When the fingerprint of either root
-// list has not changed since the last discovery, the exact same pointers are
-// returned and no filesystem scan beyond stat is performed.
+// 根目录是 commands.Discover / skills.Discover 会扫描的目录；命令根目录会被转换为
+// 无名的 commands.Source 值（带插件前缀的来源必须由调用方处理）。
+// 当任一根目录列表的指纹自上次发现以来未变化时，会返回完全相同的指针，
+// 且不会执行 stat 之外的任何文件系统扫描。
 //
-// Get is safe for concurrent use.
+// Get 可安全并发使用。
 func (c *DefinitionCache) Get(commandRoots, skillRoots []string) (*commands.Set, *skills.Registry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -61,8 +57,8 @@ func (c *DefinitionCache) Get(commandRoots, skillRoots []string) (*commands.Set,
 		return c.commands, c.skills
 	}
 
-	// Replacing a previously loaded snapshot is a refresh, whether it was
-	// triggered by a fingerprint change or by an explicit Refresh call.
+	// 替换先前加载的快照就是一次刷新，无论它是由指纹变化触发，
+	// 还是由显式的 Refresh 调用触发。
 	if c.loaded {
 		c.refreshes++
 	}
@@ -76,9 +72,8 @@ func (c *DefinitionCache) Get(commandRoots, skillRoots []string) (*commands.Set,
 	return c.commands, c.skills
 }
 
-// Refresh invalidates the cached snapshots. The next Get discards them and
-// re-runs discovery even if the fingerprint is unchanged. It is safe to call
-// from a config-updated / change event handler and is itself non-blocking.
+// Refresh 使缓存的快照失效。下一次 Get 会丢弃它们并重新执行发现，即使指纹未变。
+// 从配置更新/变更事件处理器中调用它是安全的，且它本身不会阻塞。
 func (c *DefinitionCache) Refresh() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,30 +82,27 @@ func (c *DefinitionCache) Refresh() {
 	}
 }
 
-// Stats reports cache accounting since construction:
-//   - hits: Get calls served from the cached snapshots;
-//   - misses: Get calls that ran discovery;
-//   - refreshes: misses that replaced an already-loaded snapshot.
+// Stats 报告自构造以来的缓存统计：
+//   - hits：由缓存快照服务的 Get 调用；
+//   - misses：执行了发现的 Get 调用；
+//   - refreshes：替换了已加载快照的 miss。
 func (c *DefinitionCache) Stats() (hits, misses, refreshes int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.hits, c.misses, c.refreshes
 }
 
-// fingerprintOf walks each root and hashes a stable description of every file
-// under it: its path relative to the root, modification time (nanoseconds) and
-// size. Missing or unreadable roots and entries are skipped so a transient
-// permission error cannot suppress valid definitions. The digest is truncated
-// to a hex prefix to keep the cache key compact.
+// fingerprintOf 遍历每个根目录，并对其下每个文件的稳定描述做哈希：
+// 相对根目录的路径、修改时间（纳秒）和大小。缺失或不可读的根目录与条目会被跳过，
+// 使暂时的权限错误不会屏蔽有效的定义。摘要会被截断为十六进制前缀，以保持缓存键紧凑。
 //
-// Only files are recorded: directory mtimes change whenever an unrelated entry
-// is added, whereas the file entries already capture every change that affects
-// discovery (add, remove, rename or edit of a markdown file).
+// 只记录文件：每当添加一个无关条目时目录的 mtime 都会改变，而文件条目已经捕获了
+// 所有影响发现的变更（markdown 文件的增加、删除、重命名或编辑）。
 func (c *DefinitionCache) fingerprintOf(roots []string) string {
 	var b strings.Builder
 	for _, root := range roots {
-		// The root itself is part of the key so swapping root lists with
-		// otherwise identical trees still invalidates the cache.
+		// 根目录本身也是键的一部分，因此即使两棵树其余完全相同，
+		// 交换根目录列表仍会使缓存失效。
 		fmt.Fprintf(&b, "root:%s\n", filepath.ToSlash(root))
 		fingerprintWalk(&b, root, root)
 	}
@@ -118,18 +110,18 @@ func (c *DefinitionCache) fingerprintOf(roots []string) string {
 	return hex.EncodeToString(sum[:])[:fingerprintHexLen]
 }
 
-// fingerprintWalk recursively records files under dir. os.ReadDir returns
-// entries sorted by name, so the produced description is deterministic.
+// fingerprintWalk 递归记录 dir 下的文件。os.ReadDir 返回按名称排序的条目，
+// 因此生成的描述是确定的。
 func fingerprintWalk(b *strings.Builder, root, dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return // nonexistent root or permission denied: skip gracefully
+		return // 根目录不存在或权限被拒：优雅跳过
 	}
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		info, err := os.Stat(path)
 		if err != nil {
-			continue // raced deletion or permission error on this entry
+			continue // 该条目发生竞态删除或权限错误
 		}
 		if info.IsDir() {
 			fingerprintWalk(b, root, path)
@@ -143,7 +135,7 @@ func fingerprintWalk(b *strings.Builder, root, dir string) {
 	}
 }
 
-// commandSources adapts plain root paths to the Source list Discover expects.
+// commandSources 把普通根目录路径适配为 Discover 所期望的 Source 列表。
 func commandSources(roots []string) []commands.Source {
 	sources := make([]commands.Source, 0, len(roots))
 	for _, root := range roots {

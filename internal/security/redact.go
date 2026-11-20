@@ -450,6 +450,13 @@ func redactValue(value any, secretKind string) any {
 		}
 		return out
 	default:
+		// 数字、布尔和 null 也可能承载凭据（PIN、数字令牌、OTP 等）。若只替换
+		// 字符串而原样保留标量，审计日志就会在凭据名下泄露这些值，违背“写入
+		// 审计日志前先脱敏”的约束。容器已在上面递归处理并继承 secretKind，
+		// 这里的默认分支只可能是标量，因此一律替换为占位符。
+		if secretKind != "" {
+			return placeholder(secretKind)
+		}
 		return value
 	}
 }

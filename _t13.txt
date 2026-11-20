@@ -1,0 +1,179 @@
+===== internal/tui/toolresult_format.go
+122	 在 ASCII 字节上切分使每个多字节 rune 和 ANSI 转义序列保持完整。
+137	capResultLines 最多保留 maxLines 行。当必须丢弃内容时，
+138	"… N more lines" 标记占据最后一个槽位（与渲染器自身的
+139	 预览约定一致），使返回的切片永不超出预算。
+
+===== internal/tui/toolresult_format_test.go
+119	 有效的 JSON 标量不是对象/数组：保留为纯文本。
+136	 单独的 "---" 是 markdown 水平线，不是统一差异头对。
+
+===== internal/tui/tui_bench_test.go
+9	本文件记录 TUI 每帧热路径的性能基线：
+10	markdown 渲染、感知字素的宽度/裁剪/换行和行差异。夹具
+11	是固定的字符串；不涉及终端、网络或真实墙上时钟
+12	依赖。不断言任何墙上时钟阈值。
+30	benchMarkdownText 构建一个约 n 行的 markdown 块，混合标题、
+31	 项目符号、行内代码、围栏块和表格。
+52	BenchmarkMarkdownLines 测量用于每个助手块的渲染器。
+67	BenchmarkTextWidth 测量感知字素簇的宽度扫描，覆盖 ASCII 批量
+68	 路径、CJK、emoji/ZWJ 序列和混合内容。
+90	BenchmarkClip 测量渲染器在行必须适配终端宽度时使用的
+91	 按单元格限界、字素安全的裁剪器。
+114	BenchmarkWrap 测量断行，包括 CJK 无空格路径（硬断占主导）
+115	 和避免 ZWJ 断开的路径。
+138	benchDiffText 构建两段共享固定前缀和后缀、
+139	 中间区域不同的文本，使 LCS 中间路径被覆盖。
+157	BenchmarkDiffLines 测量用于工具输出预览和
+158	 缓冲区变化渲染的行差异，覆盖几种历史大小。
+
+===== internal/tui/tui_scroll_opt.go
+3	本文件刻意自包含：它把记录滚动算术提取为
+4	可在没有 Model、Buffer 或终端的情况下测试的纯辅助函数。
+5	 把它们接入 model_mutate.go / render.go 留给
+6	 这些文件的负责人。
+8	记录滚动偏移是相对底部的：0 表示"最新行
+9	 可见"，较大的值表示"向前滚动更远"。render.go 从
+10	len(body)-m.scroll 推导可见行范围，因此大于
+11	len(body)-bodyH 的值没有视觉效果，但仍必须由后续的
+12	PageDown 按键撤销。在输入时钳制两端，使大型会话
+13	 在反复滚轮/翻页后不会感觉卡在顶部。
+20	saturatingScrollAdd 把两个偏移相加而不在极端
+21	 输入下回绕，使调用方之后能安全地钳制结果。
+32	transcriptScrollMax 是对共 totalLines 行、在 viewportHeight 行视口
+33	 中显示的记录的最大有意义的相对底部偏移。
+34	 放得下的记录，或非正的 total/viewport，根本没有
+35	 可滚动范围。
+47	clampTranscriptScroll 把可能陈旧的偏移带回
+48	[0, transcriptScrollMax]，例如在记录缩短或终端
+49	 变高之后。
+61	scrollTranscript 应用一次滚动步骤并在同一操作中钳制。
+62	正的 delta 向更旧的输出方向滚动，负的 delta 向
+63	 最新行方向滚动。在这里钳制（而非仅在绘制时）
+64	 防止过度滚动累积：即使已经越过最旧行几十次滚轮，一次
+65	PageDown 仍撤销一次 PageUp。
+70	transcriptScrollAfterAppend 返回新行到达后的偏移。当
+71	pinnedToBottom 为 true 时视图跟随流并保持在 0。
+72	 否则相对底部的偏移增加 appendedLines，使相同的
+73	 绝对行留在屏幕上，然后钳制到新边界。
+74	 非正的 appendedLines 只是重新钳制当前偏移。
+
+===== internal/tui/tui_scroll_opt_test.go
+101	TestScrollTranscriptBounds 是一个属性检查：任何陈旧的
+102	 偏移、delta、total 或 viewport 组合都不会产生越界结果，即使
+103	 记录比视口还短。
+
+===== internal/tui/tui_status_notice.go
+8	DefaultNoticeTTL 是对未显式指定 TTL 的通知施加的生存期。
+9	 它匹配 Crush 的 DefaultStatusTTL，使省略的 TTL 不会
+10	 把通知永久钉在状态行上。
+13	Severity 对状态通知分类。其数值同时充当
+14	 显示优先级：当多个存活通知重叠时，严重度
+15	 最高的那个胜出。八个级别仿照 Crush 的八个 InfoType
+16	 类别（internal/ui/util/util.go:28-39），但有意按
+17	 紧迫度排序，使错误和警告优先于纯信息性模式横幅。
+42	Notice 是一条状态通知。Seq 由 NoticeStack.Push 分配，
+43	 是 Clear 用来精确退休这条通知的标识；Text 逐字保留
+44	 （含 CJK），只在渲染时裁剪。
+53	Expired 报告通知在时间 now 是否已超过其 TTL。
+54	 非正的 TTL 表示通知永不自行过期。
+59	NoticeStack 是存活状态通知的并发安全集合。它是
+60	 Model 原来那个带固定 6s 过期的单一状态字符串的纯逻辑替代：
+61	 通知按严重度排序、按各自 TTL 过期，并
+62	 由唯一序号退休，使陈旧的 TTL 回调永不
+63	 清除较新的通知。零值即可使用。
+70	Push 存储一条通知，返回它并赋予单调递增的
+71	 Seq 和提供的时间戳 at。非正的 ttl 被
+72	 替换为 DefaultNoticeTTL。
+85	ReportInfo、ReportWarn 和 ReportError 仿照 Crush 的
+86	 ReportInfo / ReportWarn / ReportError 辅助函数：它们推送相应
+87	 严重度的通知并返回它，使调用方可在其 TTL 后安排
+88	 Clear(n.Seq)。
+101	Peek 返回最高严重度的已存储通知而不移除它。平局
+102	 由最新的序号打破，因此在严重度相同的通知中
+103	 显示较新的那条。Peek 不检查 TTL；当过期重要时先调用
+104	 Prune（或 Current）。栈为空时布尔值为 false。
+120	Prune 丢弃在 now 时 TTL 已过的通知，并返回被
+121	 移除的数量。过期的通知彻底消失，无法再显示。
+137	Current 在 now 时清理过期通知，并返回应显示在
+138	 状态行上的通知（如果有）。
+144	Clear 退休由 seq 标识的通知。因为 Seq 唯一且
+145	 单调，陈旧的清除（旧通知的 TTL 回调）只能退休
+146	 那条旧通知，永不会清除较新的通知；这是该栈
+147	 与 Crush 的 ClearStatusMsg{Seq} 退休机制等价的做法。它报告是否有
+148	 通知实际被移除。
+165	Len 返回已存储（尚未过期或退休）通知的数量。
+172	Seq 返回最近一次 Push 分配的序号。
+
+===== internal/tui/tui_status_notice_test.go
+9	TestNoticeSeverityGrading 检查八个级别是否仿照 Crush 的八个
+10	 InfoType 类别并带有稳定、互异的显示优先级。
+34	TestNoticeStackSeverityPriority 检查 Peek 选出最高严重度，
+35	 与推送顺序无关，且同等严重度时按最新 seq 打破平局。
+56	 较晚的低严重度通知不得取代较早的高严重度
+57	 通知：严重度不同时，由严重度而非新旧决定。
+64	 同等严重度时，较新的胜出。
+74	TestNoticeStackTTLExpiry 检查每条通知的 TTL、边界行为以及
+75	 未提供时施加的默认 TTL。
+89	 上面的 Current(+3s) 已清理了短 TTL 通知；这里只剩
+90	 长 TTL 的那条到期。
+98	 在恰好 TTL 边界处过期是含端点的。
+108	 零 TTL 回退到 DefaultNoticeTTL。
+119	TestNoticeStackClearRetirement 检查按序号退休永不
+120	 让陈旧的清除退休较新的通知，且 seq 保持单调。
+128	 当前错误通知因严重度胜出；退休它后露出较新的那条。
+139	 对旧 seq 的重复/陈旧清除是空操作，不能移除
+140	 较新的通知。
+151	 序号在多次清除后仍单调。
+164	TestNoticeStackConcurrentAccess 从多个 goroutine 测试
+165	 Push/Peek/Clear/Prune/Current；有互斥锁时所有操作安全且 seq 唯一。
+183	 并发读取者/退休者使用零时间，使 Prune 不移除任何内容。
+208	 并发的 Clear 调用必须每条通知恰好退休一次，且不
+209	 破坏切片。
+225	TestNoticeStackCJKText 验证多语言文本被逐字存储和选中
+226	 ；裁剪是渲染器的事，而非管理器的事。
+
+===== internal/tui/tui_wiring_test.go
+9	TestScrollByLockedClampsOverscrollAtBothEnds 检查翻页/滚轮输入在
+10	 最旧行和最新行都被钳制：大型会话不得
+11	 在视图移动前要求撤销几十次过度滚动的 tick。
+41	TestScrollBeforeFirstPaintStillMoves 覆盖第一帧之前到达的按键输入：
+42	 缓存的度量为空，因此滚动回退到新
+43	 渲染的行数，而不是被钳制到陈旧的零。
+55	TestPaintReclaimsStaleScroll 检查绘制器使用与输入路径相同的
+56	 钳制辅助函数，使陈旧偏移永不留下空白视口。
+77	TestScrollAfterAppendsUsesFreshLineCount 覆盖两次绘制之间
+78	 追加的条目：缓存的正文行数陈旧，因此滚动必须重新推导它。
+92	 必须使用新渲染的计数（而非缓存的 10 行）。
+100	TestStatusSeverityStackWiring 检查 SetStatus 和 SetStatusSeverity
+101	 把通知发布到栈中、较高严重度的通知胜出，且
+102	 SetStatus("") 清除所有存活通知。
+131	TestStatusNoticeExpiresOnStatusLine 检查 TTL 接线：状态行在
+132	 通知 TTL 后隐藏它，即使没有较新的通知取代它。
+146	TestPruneNoticesRetiresExpired 检查 run 循环的定期清理钩子。
+
+===== internal/tui/visiblewindow_test.go
+5	visibleWindow 统计项而非字节或 rune，因此 CJK（以及折叠后的
+6	 显示宽度）永不进入算术。下面每个用例都是纯整数，
+7	 正因如此。
+45	TestVisibleWindowBounds 是对大量输入的属性检查：返回的
+46	 区间始终有序且包含在 [0, total] 内，其宽度永不
+47	 超过视口加上两倍 overscan。
+
+===== internal/tui/workspace.go
+12	FileSystem 是工作区面板使用的 workspace 只读视图。
+13	 默认读取真实文件系统；测试注入假树，且
+14	 任何渲染路径都不会自行调用 os.Getenv 或 os.ReadFile。
+20	FileInfo 是 tree 所需的 os.DirEntry 的可移植子集。
+49	workspaceIgnoredDirs 是构建输出和依赖树：遍历它们
+50	 会把源码埋没在噪声中。
+133	 靠近底部的光标让最新行保持可见，而无需在
+134	 靠近顶部时每次按键都滚动。
+176	workspaceLines 在光标文件的只读预览上方渲染树。
+177	 结果恰好是 height 行，使面板各节对齐。
+
+===== internal/tui/wrap_first_test.go
+8	wrapFirst 是 Wrap 的流式兄弟：wrapLimited 用它处理
+9	 工具输出预览行。与 Wrap/Clip/Buffer.WriteString 一样，它必须
+10	 按字素簇而非 rune 测量和断行，否则 ZWJ emoji 或区域指示符
+11	 旗帜会被撕开，悬空的连接符/修饰符被单独画在一行。

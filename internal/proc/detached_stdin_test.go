@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// blockingDetachedStdin blocks forever in Read until released. It lets a test
-// observe the detached stdin copier without depending on real I/O timing.
+// blockingDetachedStdin 在 Read 中永久阻塞直到被释放。
+// 它使测试能观察分离的 stdin 拷贝器，而不依赖真实 I/O 时序。
 type blockingDetachedStdin struct {
 	read    chan struct{}
 	release chan struct{}
@@ -27,13 +27,13 @@ func (r *blockingDetachedStdin) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
-// TestDetachedDoneIsNotBlockedByStdinCopier guards the detached spawn path's
-// stdin wiring. exec.Cmd.Wait waits for the copy goroutine it starts for a
-// non-*os.File Stdin. A detached job whose Stdin reader never returns must
-// still be reaped (Done closed) once the child exits or is killed, otherwise a
-// promoted background job can never be observed as finished and its log file
-// is never closed. Run already owns its stdin pipe; the detached path must do
-// the same instead of handing an arbitrary io.Reader straight to exec.
+// TestDetachedDoneIsNotBlockedByStdinCopier 守护分离生成路径的
+// stdin 接线。对于非 *os.File 的 Stdin，exec.Cmd.Wait 会等待它启动的
+// 拷贝 goroutine。Stdin reader 永不返回的分离作业，在子进程退出或
+// 被终止后仍必须被回收（Done 关闭），否则被提升的后台作业
+// 永远无法被观察为已完成，其日志文件也永远
+// 不会关闭。Run 已经自己拥有 stdin 管道；分离路径必须
+// 照做，而不是把任意 io.Reader 直接交给 exec。
 func TestDetachedDoneIsNotBlockedByStdinCopier(t *testing.T) {
 	path, args := testShell(t, "echo detached-stdin-ready")
 	stdin := newBlockingDetachedStdin()
@@ -44,7 +44,7 @@ func TestDetachedDoneIsNotBlockedByStdinCopier(t *testing.T) {
 		t.Fatalf("StartDetached: %v", err)
 	}
 
-	// Make sure the copier actually engaged before judging Done.
+	// 在判断 Done 之前，先确保拷贝器确实已启动。
 	select {
 	case <-stdin.read:
 	case <-time.After(2 * time.Second):
@@ -60,9 +60,9 @@ func TestDetachedDoneIsNotBlockedByStdinCopier(t *testing.T) {
 
 const detachedStdinEchoMarker = "ARGENT_PROC_DETACHED_STDIN_ECHO"
 
-// TestDetachedStdinEchoHelper is a re-executed test binary that copies stdin
-// to stdout. It avoids console-dependent tools such as Windows more.exe when a
-// detached child (no inherited console) must consume piped input.
+// TestDetachedStdinEchoHelper 是一个把 stdin 复制到 stdout 的
+// 重新执行的测试二进制。当分离的子进程（不继承控制台）必须消费
+// 管道输入时，它避免了依赖控制台的工具（如 Windows 的 more.exe）。
 func TestDetachedStdinEchoHelper(t *testing.T) {
 	if os.Getenv(detachedStdinEchoMarker) == "" {
 		return
@@ -70,8 +70,8 @@ func TestDetachedStdinEchoHelper(t *testing.T) {
 	_, _ = io.Copy(os.Stdout, os.Stdin)
 }
 
-// TestDetachedStillFeedsStdin makes sure owning the pipe ourselves does not
-// break the useful case: bytes from a finite Stdin reader must reach the child.
+// TestDetachedStillFeedsStdin 确保自己拥有管道不会破坏
+// 有用的情形：有限 Stdin reader 的字节必须到达子进程。
 func TestDetachedStillFeedsStdin(t *testing.T) {
 	p, err := StartDetached(Command{
 		Path:  os.Args[0],

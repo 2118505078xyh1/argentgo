@@ -25,7 +25,7 @@ func loadIgnoreOrFatal(t *testing.T, dir string) *IgnoreRules {
 	return rules
 }
 
-// No rules means nothing is excluded, including for a nil ruleset.
+// 没有规则意味着不排除任何内容，nil 规则集也是如此。
 func TestLoadIgnoreNoRulesIgnoresNothing(t *testing.T) {
 	dir := t.TempDir()
 	rules := loadIgnoreOrFatal(t, dir)
@@ -43,8 +43,8 @@ func TestLoadIgnoreNoRulesIgnoresNothing(t *testing.T) {
 	}
 }
 
-// A parent's rule applies below it; a child's later rule wins, and `!`
-// re-includes what an earlier pattern excluded.
+// 父目录的规则对其子目录生效；子目录中较晚的规则优先，而 `!`
+// 重新包含先前模式排除的内容。
 func TestLoadIgnoreParentChildPrecedenceAndNegation(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "pkg")
@@ -58,7 +58,7 @@ func TestLoadIgnoreParentChildPrecedenceAndNegation(t *testing.T) {
 	if got := len(rules.patterns); got != 4 {
 		t.Fatalf("got %d patterns, want 4: %+v", got, rules.patterns)
 	}
-	// Parent rules were collected first, so child rules come last.
+	// 父目录规则先收集，因此子目录规则在后面。
 	if !strings.Contains(rules.patterns[0].glob, "log") || !rules.patterns[2].negated {
 		t.Fatalf("unexpected pattern order: %+v", rules.patterns)
 	}
@@ -80,8 +80,8 @@ func TestLoadIgnoreParentChildPrecedenceAndNegation(t *testing.T) {
 	}
 }
 
-// A `!` re-includes what an earlier pattern excluded; a final plain pattern
-// excludes it again. The last matching line always decides.
+// `!` 重新包含先前模式排除的内容；最后一条普通模式
+// 又将其排除。总是以最后一条匹配的行为准。
 func TestLoadIgnoreLastMatchingPatternWins(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnoreFile(t, dir, "secret*\n!secret-public.txt\nsecret-public.txt\n")
@@ -98,8 +98,8 @@ func TestLoadIgnoreLastMatchingPatternWins(t *testing.T) {
 	}
 }
 
-// Comments, blank lines and whitespace-only lines are not patterns; a lone
-// `!` is discarded rather than becoming a match-all re-include.
+// 注释、空行和仅含空白的行不是模式；单独一个
+// `!` 会被丢弃，而不是成为匹配所有的重新包含。
 func TestLoadIgnoreSkipsCommentsBlanksAndBareBang(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnoreFile(t, dir, "# a comment\n\n   \n!   \nkeep.go\n")
@@ -113,7 +113,7 @@ func TestLoadIgnoreSkipsCommentsBlanksAndBareBang(t *testing.T) {
 	}
 }
 
-// Glob semantics come from security.GlobMatch: `*`, `**` and `?`.
+// Glob 语义来自 security.GlobMatch：`*`、`**` 和 `?`。
 func TestLoadIgnoreGlobSemantics(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnoreFile(t, dir, "*.tmp\nsrc/**/generated.go\ntest?.go\n")
@@ -140,8 +140,8 @@ func TestLoadIgnoreGlobSemantics(t *testing.T) {
 	}
 }
 
-// Paths are normalized with filepath.ToSlash; native separators, leading `./`
-// and leading `/` all resolve to the same path.
+// 路径用 filepath.ToSlash 规范化；原生分隔符、前导 `./`
+// 和前导 `/` 都解析为同一路径。
 func TestLoadIgnorePathNormalization(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnoreFile(t, dir, "secret.txt\n")
@@ -158,8 +158,8 @@ func TestLoadIgnorePathNormalization(t *testing.T) {
 	}
 }
 
-// GlobMatch lowercases both sides, so ignore matching is case-insensitive on
-// every platform (the same rule the security policy uses).
+// GlobMatch 将两边都转小写，因此忽略匹配在所有平台上都
+// 不区分大小写（与安全策略使用的规则相同）。
 func TestLoadIgnoreCaseInsensitiveMatching(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnoreFile(t, dir, "Secret.TXT\nBuild/\n")
@@ -172,11 +172,11 @@ func TestLoadIgnoreCaseInsensitiveMatching(t *testing.T) {
 	}
 }
 
-// A UTF-8 BOM at the start of a .argentignore file is encoding metadata, not
-// part of the first line. Without stripping it the first pattern becomes
-// "\ufeff*.log" and never matches; worse, a BOM-prefixed comment is mistaken
-// for a pattern instead of being skipped. The instruction-file loader already
-// strips a leading BOM; ignore files must do the same.
+// .argentignore 文件开头的 UTF-8 BOM 是编码元数据，而非
+// 第一行的内容。若不去掉它，第一个模式会变成
+// "\ufeff*.log" 而永不匹配；更糟的是，带 BOM 前缀的注释会被误认为
+// 模式而非被跳过。指令文件加载器已经
+// 去掉前导 BOM；忽略文件也必须这样做。
 func TestLoadIgnoreStripsLeadingBOM(t *testing.T) {
 	t.Run("before first pattern", func(t *testing.T) {
 		dir := t.TempDir()
@@ -211,8 +211,8 @@ func TestLoadIgnoreStripsLeadingBOM(t *testing.T) {
 	})
 }
 
-// Invalid input is an error; an entry named .argentignore that is a directory
-// is simply skipped, keeping discovery best-effort.
+// 无效输入是错误；名为 .argentignore 的条目若是目录
+// 则直接跳过，使发现保持尽力而为。
 func TestLoadIgnoreInvalidDirAndDirectoryEntry(t *testing.T) {
 	if _, err := LoadIgnore(filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Error("LoadIgnore on a missing directory should fail")

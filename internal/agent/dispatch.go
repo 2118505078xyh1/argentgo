@@ -269,6 +269,14 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 // 所有调用都在任何 worker 启动之前宣告，结果只在整块完成后记录，
 // 因此事件流和历史绝不依赖于哪个工具先返回。
 func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.ToolCall, normalized []string) string {
+	// 可选回执：只有调用方通过 WithBatchReceipt 显式安装发出器时才生成，
+	// 因此默认路径的事件与历史记录逐字节不变。
+	emitReceipt, _ := ctx.Value(batchReceiptEmitterKey{}).(func(string))
+	var records []CallRecord
+	if emitReceipt != nil {
+		records = make([]CallRecord, 0, len(calls))
+	}
+
 	// 重复防护属于决策，因此在 worker 启动前按调用顺序运行；只有通过该检查的调用
 	// 才会到达 goroutine。
 	blocked := make([]string, len(calls))
@@ -314,6 +322,12 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 		}
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
+		if emitReceipt != nil {
+			records = append(records, callRecordFrom(call, res))
+		}
+	}
+	if emitReceipt != nil {
+		emitReceipt(partialBatchReceipt(records))
 	}
 	if ctx.Err() != nil {
 		return StopCancelled

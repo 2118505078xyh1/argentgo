@@ -1,15 +1,12 @@
 package app
 
-// Diagnostics bridge. internal/lsp already exposes a version-aware, wait-capable
-// fetch (Client.Diagnostics) that drops stale publishes. This file surfaces it
-// as a neutral app-side DTO plus a pure formatter so callers can attach a
-// compact "errors only" block to a tool result without importing internal/lsp
-// or changing any tools signature.
+// 诊断桥接。internal/lsp 已经提供版本感知、可等待、会丢弃过期发布的获取方式（Client.Diagnostics）。
+// 本文件把它呈现为中性 app 侧 DTO 加上一个纯格式化器，
+// 使调用方能在不导入 internal/lsp、也不改动任何 tools 签名的情况下，
+// 把一段紧凑的"仅错误"文本块附加到工具结果上。
 //
-// GRACEFUL DEGRADATION: a missing/unsupported language server, a slow server or
-// any transport error yields an empty result and no error. Diagnostics are
-// advisory; they must never fail an otherwise successful operation or change
-// default behaviour.
+// 优雅降级：缺失/不支持的语言服务、缓慢的服务或任何传输错误都会产生空结果且不返回错误。
+// 诊断仅供参考；它们绝不能使一个原本成功的操作失败，也不改变默认行为。
 
 import (
 	"context"
@@ -23,33 +20,30 @@ import (
 )
 
 const (
-	// diagnosticsWait bounds how long one Diagnostics call waits for a fresh
-	// publish after refreshing the document. It is advisory: a slow server
-	// must not stall the run, so a timeout degrades to an empty result.
+	// diagnosticsWait 限制一次 Diagnostics 调用在刷新文档后等待新发布的时间。
+	// 它是建议性的：缓慢的服务不能拖住运行，因此超时会降级为空结果。
 	diagnosticsWait = 2 * time.Second
 
-	// maxReportDiagnostics is the per-file cap applied by FormatDiagnostics.
+	// maxReportDiagnostics 是 FormatDiagnostics 应用的每文件上限。
 	maxReportDiagnostics = 20
 
-	// diagnosticsTruncFmt is appended when the per-file cap dropped entries.
+	// diagnosticsTruncFmt 在每文件上限丢弃条目时追加。
 	diagnosticsTruncFmt = "... (%d more error(s) truncated)"
 )
 
-// NeutralDiagnostic is a provider-neutral problem report for app-side
-// consumers. Unlike the LSP wire format, Line and Column are 1-based so they
-// can be pasted straight into a file:line:column reference.
+// NeutralDiagnostic 是供 app 侧消费者使用的提供方中立的问题报告。
+// 与 LSP 线上格式不同，Line 和 Column 是从 1 开始的，因此可以直接粘贴到 file:line:column 引用中。
 type NeutralDiagnostic struct {
 	Line     int
 	Column   int
-	Severity string // "error", "warning", "information" or "hint"
+	Severity string // "error"、"warning"、"information" 或 "hint"
 	Message  string
 	Source   string
 }
 
-// fetchDiagnostics is the seam tests replace to avoid a real language server.
-// Production refreshes the document (didOpen/didChange) and then waits for a
-// fresh publish; the lsp client's version-freshness filtering ensures older
-// publishes are never returned as current.
+// fetchDiagnostics 是测试替换的接缝，以避免使用真实语言服务。
+// 生产环境刷新文档（didOpen/didChange），然后等待新发布；
+// lsp 客户端的版本新鲜度过滤确保较旧的发布绝不会被当作当前结果返回。
 var fetchDiagnostics = func(ctx context.Context, client *lsp.Client, absPath string) ([]lsp.Diagnostic, error) {
 	uri, err := client.Open(ctx, absPath)
 	if err != nil {
@@ -60,13 +54,10 @@ var fetchDiagnostics = func(ctx context.Context, client *lsp.Client, absPath str
 	return client.Diagnostics(waitCtx, uri, diagnosticsWait)
 }
 
-// Diagnostics refreshes filePath with its language server and returns the
-// diagnostics it publishes for it, with 1-based line/column numbers.
+// Diagnostics 用其语言服务刷新 filePath，并返回它为该路径发布的诊断，行列号从 1 开始。
 //
-// It degrades gracefully to an empty slice with no error when no language
-// server is configured or installed, the extension is unsupported, the
-// document cannot be opened, or the wait times out. Diagnostics are advisory
-// and must never change the outcome of the operation that triggered them.
+// 当没有配置或安装语言服务、扩展名不受支持、文档无法打开或等待超时时，
+// 它优雅降级为空切片且不返回错误。诊断仅供参考，绝不能改变触发它们的操作的结果。
 func (a *lspIdeAdapter) Diagnostics(ctx context.Context, filePath string) ([]NeutralDiagnostic, error) {
 	client, err := a.clientForPath(filePath)
 	if err != nil {
@@ -77,16 +68,15 @@ func (a *lspIdeAdapter) Diagnostics(ctx context.Context, filePath string) ([]Neu
 	}
 	items, err := fetchDiagnostics(ctx, client, a.resolvePath(filePath))
 	if err != nil {
-		// Timeout, cancellation and transport errors all degrade to empty. In
-		// particular a timeout may only have stale cached diagnostics, which
-		// are worse than none for a model deciding what to fix.
+		// 超时、取消和传输错误都会降级为空。特别是超时可能只有过期的缓存诊断，
+		// 对于决定修复什么的模型而言，这比没有诊断更糟。
 		return []NeutralDiagnostic{}, nil
 	}
 	return mapNeutralDiagnostics(items), nil
 }
 
-// mapNeutralDiagnostics converts lsp diagnostics (0-based positions) into
-// neutral DTOs with 1-based positions. It always returns a non-nil slice.
+// mapNeutralDiagnostics 把 lsp 诊断（位置从 0 开始）转换为位置从 1 开始的中性 DTO。
+// 它始终返回非 nil 的切片。
 func mapNeutralDiagnostics(items []lsp.Diagnostic) []NeutralDiagnostic {
 	out := make([]NeutralDiagnostic, 0, len(items))
 	for _, d := range items {
@@ -101,14 +91,12 @@ func mapNeutralDiagnostics(items []lsp.Diagnostic) []NeutralDiagnostic {
 	return out
 }
 
-// FormatDiagnostics renders only error-severity diagnostics as compact
-// "path:line:column [source]: message" lines, sorted by position, capped at
-// max per file with a truncation marker when entries were dropped. Line and
-// column are already 1-based in NeutralDiagnostic. A non-positive max uses
-// maxReportDiagnostics; an empty string is returned when there are no errors.
+// FormatDiagnostics 只把错误级别的诊断渲染为紧凑的
+// "path:line:column [source]: message" 行，按位置排序，每文件最多 max 条，
+// 丢弃条目时带有截断标记。NeutralDiagnostic 中的行和列已经是从 1 开始的。
+// 非正的 max 使用 maxReportDiagnostics；没有错误时返回空字符串。
 //
-// This is a pure function: the input slice is never mutated and no I/O is
-// performed, so it is safe to call on any tool result.
+// 这是纯函数：输入切片从不被修改，也不执行 I/O，因此可以在任何工具结果上安全调用。
 func FormatDiagnostics(path string, diags []NeutralDiagnostic, max int) string {
 	if max <= 0 {
 		max = maxReportDiagnostics

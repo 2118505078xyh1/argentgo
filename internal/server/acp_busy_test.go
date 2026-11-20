@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-// gatedWriter stages every frame into an inspectable buffer. When a frame
-// contains marker it signals entered and blocks until released, so a test can
-// act on the bytes of a terminal response *before* the writing goroutine runs
-// any code that follows the write.
+// gatedWriter 把每一帧暂存到可检查的缓冲区。当某帧含 marker 时，
+// 它发出 entered 信号并阻塞直到被释放，使测试能在写入 goroutine
+// 执行写之后的任何代码*之前*，
+// 对终态响应的字节进行操作。
 type gatedWriter struct {
 	mu      sync.Mutex
 	staged  bytes.Buffer
@@ -46,7 +46,7 @@ func (w *gatedWriter) snapshot() string {
 	return w.staged.String()
 }
 
-// gatedRunner blocks until released, then returns the configured outcome.
+// gatedRunner 阻塞直到被释放，然后返回配置的结果。
 type gatedRunner struct {
 	started chan struct{}
 	release chan struct{}
@@ -77,15 +77,15 @@ func waitStagedContains(t *testing.T, w *gatedWriter, want string) {
 	t.Fatalf("timed out waiting for %q in %q", want, w.snapshot())
 }
 
-// TestACPPromptFreesBusyBeforeTerminalResult verifies the state-machine
-// boundary: the terminal response for one prompt is the client's cue to send
-// the next. By the time those bytes are on the wire, the server must already
-// have released the single-prompt slot (and the cancel handle), otherwise a
-// strict client that pipelines the next prompt is spuriously rejected with
-// -32600 "a prompt is already running".
+// TestACPPromptFreesBusyBeforeTerminalResult 验证状态机
+// 边界：一次提示的终态响应是客户端发送下一次的
+// 信号。当那些字节上线时，服务器必须已经
+// 释放单提示槽位（以及取消句柄），否则
+// 流水线式发送下一次提示的严格客户端会被错误地以
+// -32600 "a prompt is already running" 拒绝。
 //
-// All three terminal paths — end_turn, cancellation and a real error — must
-// behave identically, so the test is table-driven over the runner outcome.
+// 三条终态路径——end_turn、取消和真正的错误——必须
+// 行为一致，因此该测试按 runner 结果表驱动。
 func TestACPPromptFreesBusyBeforeTerminalResult(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -118,17 +118,17 @@ func TestACPPromptFreesBusyBeforeTerminalResult(t *testing.T) {
 			<-runner.started
 			close(runner.release)
 
-			// The result bytes are staged while the writer is blocked, which is
-			// exactly what a client observes before it can send the next prompt.
+			// 结果字节是在写入器被阻塞时暂存的，这正是
+			// 客户端在能发送下一个提示之前观察到的内容。
 			select {
 			case <-out.entered:
 			case <-time.After(2 * time.Second):
 				t.Fatal("terminal result was never written")
 			}
 			waitStagedContains(t, out, `"id":2`)
-			// The terminal payload must keep its original wire meaning: moving
-			// cleanup ahead of the write must not turn a real failure into a
-			// cancellation (or vice versa).
+			// 终态载荷必须保持其原始线协议含义：把
+			// 清理移到写之前，不得把真正的失败变成
+			// 取消（或反之）。
 			if !strings.Contains(out.snapshot(), tc.wantResult) {
 				t.Fatalf("terminal result = %s, want %q", out.snapshot(), tc.wantResult)
 			}

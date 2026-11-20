@@ -62,8 +62,8 @@ type jobExtendedLimitInformation struct {
 	PeakJobMemoryUsed     uintptr
 }
 
-// configure asks for a hidden console and, when the caller wants tree kills, a
-// new process group so a stray console Ctrl+C does not reach the child.
+// configure 请求隐藏的控制台，并在调用方需要进程树终止时，
+// 创建一个新的进程组，使误入的控制台 Ctrl+C 不会传到子进程。
 func configure(cmd *exec.Cmd, killTree, noWindow bool) {
 	flags := uint32(0)
 	if noWindow {
@@ -77,18 +77,18 @@ func configure(cmd *exec.Cmd, killTree, noWindow bool) {
 	}
 }
 
-// platformProcess owns the kill strategy for one child.
+// platformProcess 负责单个子进程的终止策略。
 //
-// Windows has no kill-the-subtree call: a job object is the only reliable way
-// to take down a shell's grandchildren, so the child is assigned to one whose
-// close (or terminate) is the kill request.
+// Windows 没有终止整棵子树的调用：作业对象是可靠地
+// 关闭 shell 的孙进程的唯一方式，因此子进程被分配到一个作业对象，
+// 关闭（或终止）该对象即为终止请求。
 type platformProcess struct {
 	proc    *os.Process
 	job     syscall.Handle
 	killAll bool
-	// mu guards job: the wait goroutine clears it in close() while a caller
-	// can still be killing the process. Without it a Kill racing a natural
-	// exit is a data race and can signal a handle after it was closed.
+	// mu 保护 job：等待 goroutine 在 close() 中清除它，而调用方
+	// 此时可能仍在终止进程。没有它，Kill 与自然退出竞争就是
+	// 数据竞争，并可能在句柄关闭后向其发信号。
 	mu sync.Mutex
 }
 
@@ -102,7 +102,7 @@ func newPlatformProcess(p *os.Process, killTree bool) *platformProcess {
 		return pp
 	}
 	if err := assignJob(job, p.Pid); err != nil {
-		// Nesting can be refused on old Windows; fall back to taskkill.
+		// 旧版 Windows 可能拒绝嵌套；回退到 taskkill。
 		syscall.CloseHandle(job)
 		return pp
 	}
@@ -111,8 +111,8 @@ func newPlatformProcess(p *os.Process, killTree bool) *platformProcess {
 }
 
 func (p *platformProcess) killTree() {
-	// Hold the lock across the job call so close() cannot close the handle
-	// between reading it and using it.
+	// 在作业对象调用期间持有锁，使 close() 不会在
+	// 读取句柄与使用句柄之间将其关闭。
 	p.mu.Lock()
 	job := p.job
 	if job != 0 {
@@ -123,8 +123,8 @@ func (p *platformProcess) killTree() {
 	if p.proc != nil {
 		_ = p.proc.Kill()
 	}
-	// A job that could not be created (or assigned) leaves the descendants
-	// of a shell alive; taskkill /T is the same last resort the Rust code uses.
+	// 无法创建（或分配）的作业对象会让 shell 的后代
+	// 继续存活；taskkill /T 与 Rust 代码使用的最后手段相同。
 	if job == 0 && p.killAll && p.proc != nil {
 		killViaTaskkill(p.proc.Pid)
 	}
@@ -134,14 +134,14 @@ func (p *platformProcess) close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.job != 0 {
-		// KILL_ON_JOB_CLOSE means this also reaps anything still running.
+		// KILL_ON_JOB_CLOSE 意味着这也会回收仍在运行的一切。
 		syscall.CloseHandle(p.job)
 		p.job = 0
 	}
 }
 
-// configureDetached gives the child its own process group and no console, so
-// closing the launching terminal does not take it down.
+// configureDetached 给子进程自己的进程组且不分配控制台，
+// 因此关闭启动终端不会把它一起关掉。
 func configureDetached(cmd *exec.Cmd, noWindow bool) {
 	flags := uint32(detachedProcess | createNewProcessGroup)
 	if noWindow {
@@ -184,17 +184,17 @@ func assignJob(job syscall.Handle, pid int) error {
 	return nil
 }
 
-// killViaTaskkill removes a subtree whose job-object assignment failed.
+// killViaTaskkill 移除作业对象分配失败的整棵子树。
 func killViaTaskkill(pid int) {
 	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	_ = cmd.Run()
 }
 
-// shellCandidates lists the POSIX shells worth probing, best first.
+// shellCandidates 列出值得探测的 POSIX shell，最优者在前。
 //
-// bash is often not on PATH on Windows, so the Git for Windows locations are
-// derived from the git.exe that is on PATH and from the usual install roots.
+// Windows 上 bash 常常不在 PATH 中，因此 Git for Windows 的位置
+// 从 PATH 上的 git.exe 以及常见安装根目录推导。
 func shellCandidates() []string {
 	var out []string
 	if custom := os.Getenv("ARGENT_BASH"); custom != "" {

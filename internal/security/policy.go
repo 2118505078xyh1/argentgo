@@ -1,15 +1,13 @@
-// Package security is the gate in front of every tool call: a declarative
-// policy, an approval prompt, and an append-only audit trail.
+// Package security 是每次工具调用前的关卡：声明式策略、审批提示，以及仅追加的审计记录。
 //
-// Two layers stay independent, as in the Rust reference:
+// 两层保持独立，与 Rust 参考实现一致：
 //
-//   - Policy decides. A rule that matches blocks; an empty rule set blocks
-//     nothing except paths that lexically escape the workspace root.
-//   - Audit records. Every decision lands in a JSONL file so "what did this
-//     agent do to my machine" has an answer independent of the transcript.
+//   - Policy 负责判定。命中的规则会拦截；空的规则集除了词法上逃逸出
+//     工作区根目录的路径外，不拦截任何东西。
+//   - Audit 负责记录。每个决定都会写入 JSONL 文件，这样"这个 agent 对我的
+//     机器做了什么"就有了一个独立于会话记录的答案。
 //
-// The package is self-contained: stdlib only, no dependency on other
-// internal packages.
+// 本包是自包含的：只用标准库，不依赖其他 internal 包。
 package security
 
 import (
@@ -20,19 +18,19 @@ import (
 	"strings"
 )
 
-// Decision is the verdict for one tool call.
+// Decision 是一次工具调用的判定结果。
 type Decision int
 
 const (
-	// Allow runs the call without asking anyone.
+	// Allow 直接运行调用，不询问任何人。
 	Allow Decision = iota
-	// Ask defers to the approver.
+	// Ask 交由审批器决定。
 	Ask
-	// Deny stops the call no matter what the approver would say.
+	// Deny 无论审批器怎么说都会停止调用。
 	Deny
 )
 
-// String returns the lowercase name used in logs.
+// String 返回用于日志的小写名称。
 func (d Decision) String() string {
 	switch d {
 	case Allow:
@@ -44,7 +42,7 @@ func (d Decision) String() string {
 	}
 }
 
-// ParseDecision is the inverse of Decision.String.
+// ParseDecision 是 Decision.String 的逆操作。
 func ParseDecision(text string) (Decision, bool) {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "allow", "allowed":
@@ -57,10 +55,9 @@ func ParseDecision(text string) (Decision, bool) {
 	return Ask, false
 }
 
-// Rule is one row of the ordered allow/ask/deny table. Empty fields are
-// wildcards. When several rows match the same call the strictest decision wins
-// (deny > ask > allow), so an earlier allow can never soften a later deny or
-// ask. Row order only matters for which reason is reported among equals.
+// Rule 是有序 allow/ask/deny 表中的一行。空字段是通配符。当多行匹配同一次
+// 调用时，取最严格的判定（deny > ask > allow），因此较早的 allow 永远不会
+// 缓和后面的 deny 或 ask。行序只影响同等严格程度下报告哪个原因。
 type Rule struct {
 	Decision Decision
 	Tool     string
@@ -68,34 +65,33 @@ type Rule struct {
 	Command  string
 }
 
-// PolicyConfig is the declarative rule set. Zero values mean "no rule".
+// PolicyConfig 是声明式规则集。零值表示"无规则"。
 type PolicyConfig struct {
-	// DenyPaths are path patterns no tool may touch.
+	// DenyPaths 是任何工具都不得触碰的路径模式。
 	DenyPaths []string
-	// AllowPaths, when non-empty, closes every path not listed.
+	// AllowPaths 非空时，会关闭所有未列出的路径。
 	AllowPaths []string
-	// DenyCommands are substrings or globs that block a command.
+	// DenyCommands 是用于拦截命令的子串或 glob 模式。
 	DenyCommands []string
-	// DenyCommandPaths block a command mentioning a denied path fragment.
+	// DenyCommandPaths 拦截提及被拒绝路径片段的命令。
 	DenyCommandPaths []string
-	// DenyTools are tool names that are never allowed.
+	// DenyTools 是永不被允许的工具名。
 	DenyTools []string
-	// AllowTools, when non-empty, is the only set of tool names allowed at
-	// all.
+	// AllowTools 非空时，是唯一被允许的工具名集合。
 	AllowTools []string
-	// Rules is the allow/ask/deny table. Every matching row is considered and
-	// the strictest decision wins (deny > ask > allow).
+	// Rules 是 allow/ask/deny 表。会考虑每一条匹配的行，
+	// 取最严格的判定（deny > ask > allow）。
 	Rules []Rule
-	// ReadOnlyTools extend the built-in safe-tool list.
+	// ReadOnlyTools 扩展内置的安全工具列表。
 	ReadOnlyTools []string
-	// MutatingTools extend the built-in mutating-tool list.
+	// MutatingTools 扩展内置的修改类工具列表。
 	MutatingTools []string
-	// WriteRoots extends the roots in which mutating path tools may write. The
-	// workspace root is always included, even when this list is empty.
+	// WriteRoots 扩展修改类路径工具可写入的根目录。即使该列表为空，
+	// 工作区根目录也始终包含在内。
 	WriteRoots []string
 }
 
-// Result carries the verdict plus the human-readable reason behind it.
+// Result 携带判定结果及其背后人类可读的原因。
 type Result struct {
 	Decision Decision
 	Reason   string
@@ -111,7 +107,7 @@ var defaultMutatingTools = map[string]bool{
 	"undo": true, "restore": true,
 }
 
-// Policy is the hard gate evaluated before approval.
+// Policy 是在审批之前评估的硬关卡。
 type Policy struct {
 	root             string
 	denyPaths        []string
@@ -121,14 +117,14 @@ type Policy struct {
 	denyTools        map[string]bool
 	allowTools       map[string]bool
 	rules            []Rule
-	// toolKinds maps a tool name to whether it mutates the workspace.
+	// toolKinds 把工具名映射到它是否会修改工作区。
 	toolKinds map[string]bool
-	// writeRoots bounds mutating path tools. Read-only tools are not checked.
+	// writeRoots 限定修改类路径工具。只读工具不受检查。
 	writeRoots []string
 }
 
-// NewPolicy builds a policy rooted at root (normally the workspace cwd).
-// Relative paths in tool arguments are resolved against it.
+// NewPolicy 构建一个以 root（通常是工作区 cwd）为根的策略。
+// 工具参数中的相对路径都相对于它解析。
 func NewPolicy(root string, cfg PolicyConfig) *Policy {
 	if strings.TrimSpace(root) == "" {
 		root = "."
@@ -169,42 +165,40 @@ func NewPolicy(root string, cfg PolicyConfig) *Policy {
 	return p
 }
 
-// DefaultPolicy is an empty rule set rooted at root: only workspace escapes
-// are blocked.
+// DefaultPolicy 是一个以 root 为根的空规则集：只拦截工作区逃逸。
 func DefaultPolicy(root string) *Policy {
 	return NewPolicy(root, PolicyConfig{})
 }
 
-// PolicyFromJSON parses the `permissions` block of a settings file:
+// PolicyFromJSON 解析设置文件中的 `permissions` 块：
 //
 //	{"denyPaths":["**/.env"],"denyCommands":["git push --force"],
 //	 "denyTools":["bash"],"allowTools":["read","ls"],
 //	 "rules":[{"decision":"ask","tool":"bash","command":"git push*"}]}
 //
-// List fields also accept a comma-separated string.
+// 列表字段也接受以逗号分隔的字符串。
 func PolicyFromJSON(root string, data []byte) (*Policy, error) {
 	policy, _, err := ParsePolicyWithIssues(root, data)
 	return policy, err
 }
 
-// Root is the workspace root used to resolve relative paths.
+// Root 是用于解析相对路径的工作区根目录。
 func (p *Policy) Root() string { return p.root }
 
-// IsEmpty reports whether any rule at all is configured.
+// IsEmpty 报告是否配置了任何规则。
 func (p *Policy) IsEmpty() bool {
 	return len(p.denyPaths) == 0 && len(p.allowPaths) == 0 &&
 		len(p.denyCommands) == 0 && len(p.denyCommandPaths) == 0 &&
 		len(p.denyTools) == 0 && len(p.allowTools) == 0 && len(p.rules) == 0
 }
 
-// Check evaluates one tool call. It satisfies the harness Guard contract; use
-// Evaluate when the reason is needed too.
+// Check 评估一次工具调用。它满足测试框架的 Guard 契约；当还需要原因时
+// 请使用 Evaluate。
 func (p *Policy) Check(name string, args json.RawMessage) Decision {
 	return p.Evaluate(name, args).Decision
 }
 
-// Evaluate returns the verdict and the reason behind it. An empty reason
-// accompanies a plain Allow.
+// Evaluate 返回判定结果及其背后原因。单纯的 Allow 附带空原因。
 func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -230,9 +224,8 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 			return res
 		}
 	}
-	// Writes are bounded by the workspace plus any --add-dir roots. Read-only
-	// tools deliberately skip this check: a path can be readable without being
-	// writable, and the path rules above still apply to every tool.
+	// 写入被限定在工作区加上任何 --add-dir 根目录之内。只读工具刻意跳过
+	// 此检查：路径可以可读但不可写，而且上面的路径规则仍然适用于每个工具。
 	if mutating, known := p.toolKinds[name]; known && mutating {
 		if res := p.checkWriteRoots(fields); res.Decision != Allow {
 			return res
@@ -250,12 +243,11 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	return Result{Ask, fmt.Sprintf("the unknown tool %q needs operator approval", name)}
 }
 
-// pathArgKeys lists the argument names that carry a filesystem path. Most
-// built-in tools use "path", but the diff tool spells them "path_a"/"path_b"
-// and Claude-style tools use "file_path"/"filePath". Omitting one of these
-// names used to bypass every path rule: checkPath saw no path in the call and
-// let it fall through to Ask (and to auto-approval). Keep this list in sync
-// with the built-in tool schemas and common MCP argument conventions.
+// pathArgKeys 列出携带文件系统路径的参数名。大多数内置工具使用 "path"，
+// 但 diff 工具写作 "path_a"/"path_b"，Claude 风格的工具使用
+// "file_path"/"filePath"。遗漏其中任何一个名字过去都会绕过所有路径规则：
+// checkPath 在调用中看不到路径，就让它落到 Ask（以及自动批准）。请让此列表
+// 与内置工具 schema 和常见的 MCP 参数约定保持同步。
 var pathArgKeys = []string{
 	"path", "file", "dir", "directory", "target",
 	"path_a", "path_b",
@@ -263,14 +255,13 @@ var pathArgKeys = []string{
 	"old_path", "new_path", "notebook_path",
 }
 
-// pathArrayKeys lists array arguments whose string elements are paths. The
-// checkpoint restore manifest uses "paths"; context_pack uses "files".
+// pathArrayKeys 列出其字符串元素是路径的数组参数。checkpoint 恢复清单
+// 使用 "paths"；context_pack 使用 "files"。
 var pathArrayKeys = []string{"paths", "files"}
 
-// checkPath applies the deny/allow path rules to one argument and enforces the
-// workspace boundary for every tool, including read-only ones. A path that
-// lexically climbs out of the workspace root is always denied, and so is a path
-// that looks inside but resolves outside through a symlink or Windows junction.
+// checkPath 对一个参数应用 deny/allow 路径规则，并对每个工具（包括只读工具）
+// 强制工作区边界。词法上爬出工作区根目录的路径总会被拒绝；看起来在内部、
+// 但通过符号链接或 Windows junction 解析到外部的路径同样被拒绝。
 func (p *Policy) checkPath(path string) Result {
 	resolved, escape := p.resolve(path)
 	if escape {
@@ -282,9 +273,8 @@ func (p *Policy) checkPath(path string) Result {
 			"the path %q could not be canonicalized for policy checking (%v); denying to avoid an unresolved symlink target",
 			path, err)}
 	}
-	// Hide-escape check. It runs even when no deny/allow paths are configured:
-	// a read of <root>/link/id_rsa must not become a read of an external file
-	// just because the policy has no explicit path rules.
+	// 隐藏逃逸检查。即使没有配置 deny/allow 路径也会运行：仅仅因为策略没有
+	// 显式路径规则，对 <root>/link/id_rsa 的读取就不能变成对外部文件的读取。
 	if within(resolved, p.writeRoots) && !within(real, p.realRoots()) {
 		return Result{Deny, fmt.Sprintf(
 			"the path %q resolves outside the workspace root %q through a symlink or junction", path, p.root)}
@@ -304,9 +294,8 @@ func (p *Policy) checkPath(path string) Result {
 	return Result{Allow, ""}
 }
 
-// realRoots resolves each configured root so a root reached through a link
-// still counts as inside. A root that cannot be resolved falls back to its
-// lexical spelling; explicit roots are operator configuration, not tool input.
+// realRoots 解析每个配置的根目录，使通过链接到达的根目录仍算作内部。
+// 无法解析的目录回退到其词法写法；显式根目录是操作员配置，不是工具输入。
 func (p *Policy) realRoots() []string {
 	out := make([]string, 0, len(p.writeRoots))
 	for _, root := range p.writeRoots {
@@ -319,10 +308,9 @@ func (p *Policy) realRoots() []string {
 	return out
 }
 
-// checkWriteRoots applies the write boundary to every path argument of a
-// mutating tool. Relative `..` escapes were already rejected by checkPath; here
-// InWriteRoots catches absolute paths that land outside the allowed roots, and
-// protected subpaths inside a root stay read-only.
+// checkWriteRoots 对修改类工具每个路径参数应用写入边界。相对的 `..` 逃逸
+// 已被 checkPath 拒绝；这里 InWriteRoots 捕获落在允许根目录之外的绝对路径，
+// 根目录内的受保护子路径保持只读。
 func (p *Policy) checkWriteRoots(fields map[string]any) Result {
 	for _, value := range pathValues(fields) {
 		if err := InWriteRoots(value, p.writeRoots); err != nil {
@@ -335,10 +323,9 @@ func (p *Policy) checkWriteRoots(fields map[string]any) Result {
 	return Result{Allow, ""}
 }
 
-// pathValues collects every path argument, including the array forms used by
-// checkpoint restore actions and context_pack. Order is stable: scalar keys in
-// pathArgKeys order first, then each known array in pathArrayKeys order with
-// its elements in the order supplied by the caller.
+// pathValues 收集每个路径参数，包括 checkpoint 恢复动作和 context_pack
+// 使用的数组形式。顺序是稳定的：先按 pathArgKeys 顺序列出标量键，再按
+// pathArrayKeys 顺序列出每个已知数组，其元素按调用方提供的顺序排列。
 func pathValues(fields map[string]any) []string {
 	var paths []string
 	for _, key := range pathArgKeys {
@@ -358,7 +345,7 @@ func pathValues(fields map[string]any) []string {
 	return paths
 }
 
-// checkCommand applies the command rules. Matching is case-insensitive.
+// checkCommand 应用命令规则。匹配不区分大小写。
 func (p *Policy) checkCommand(command string) Result {
 	lowered := strings.ToLower(command)
 	for _, pattern := range p.denyCommands {
@@ -378,21 +365,17 @@ func (p *Policy) checkCommand(command string) Result {
 	return Result{Allow, ""}
 }
 
-// ruleDecision walks the table and returns the strictest decision among every
-// matching row: deny > ask > allow. An allow row never downgrades an ask or
-// deny a later row already produced, so reordering rules cannot silently widen
-// access. A matching deny is absolute and stops the walk immediately (it is
-// already the strictest outcome). When no row matches the caller's default
-// behaviour applies.
+// ruleDecision 遍历表，返回所有匹配行中最严格的判定：deny > ask > allow。
+// allow 行永远不会降低后面某行已经产生的 ask 或 deny，因此重排规则不会
+// 悄悄扩大访问权限。命中的 deny 是绝对的，会立即停止遍历（它已经是
+// 最严格的结果）。没有行匹配时，采用调用方的默认行为。
 func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool) {
 	var best Decision
 	matched := false
-	// Collect every path resource once. pathValues includes the path arrays
-	// used by checkpoint restores and context_pack; scanning only the scalar
-	// keys here used to hide a path rule aimed at an array entry. In a
-	// multi-resource call that let an Ask on a scalar path mask a Deny on an
-	// array entry, because the deny rule never matched and fell out of the
-	// strictest-wins walk.
+	// 一次性收集每个路径资源。pathValues 包含 checkpoint 恢复和 context_pack
+	// 使用的路径数组；这里只扫描标量键过去会隐藏针对数组条目的路径规则。在
+	// 多资源调用中，这会让标量路径上的 Ask 掩盖数组条目上的 Deny，因为 deny
+	// 规则从未命中，从而掉出了取最严格判定的遍历。
 	paths := pathValues(fields)
 	for _, rule := range p.rules {
 		if rule.Tool != "" && rule.Tool != "*" && rule.Tool != name {
@@ -426,8 +409,8 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 				continue
 			}
 		}
-		// Deny is the strictest decision and a hard stop: no later row can
-		// override it, so there is no reason to keep scanning.
+		// Deny 是最严格的判定，也是硬性停止：后面的行无法覆盖它，
+		// 因此没有理由继续扫描。
 		if rule.Decision == Deny {
 			return Result{Deny, fmt.Sprintf("the %s call is denied by the permissions table", name)}, true
 		}
@@ -446,8 +429,8 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 	return Result{best, reason}, true
 }
 
-// resolve turns a tool path argument into an absolute path. The bool reports
-// a lexical escape from the workspace root (a relative path climbing out).
+// resolve 把工具的路径参数转成绝对路径。返回的 bool 报告是否词法上
+// 逃逸出工作区根目录（相对路径向外爬升）。
 func (p *Policy) resolve(path string) (string, bool) {
 	candidate := expandHome(strings.TrimSpace(path))
 	if candidate == "" {
@@ -496,15 +479,13 @@ func parseArgs(args json.RawMessage) (map[string]any, error) {
 	return fields, nil
 }
 
-// normalizeCommandField mirrors the tool layer's alias handling. Tools such as
-// powershell accept `script` as an alias for `command` and execute it whenever
-// `command` is empty (whitespace included). checkCommand and ruleDecision only
-// read `command`, so without this normalization a hard deny can be downgraded
-// to Ask simply by renaming the field — and auto-executed under --yolo.
+// normalizeCommandField 镜像工具层的别名处理。诸如 powershell 的工具接受
+// `script` 作为 `command` 的别名，并在 `command` 为空（含空白）时执行它。
+// checkCommand 和 ruleDecision 只读取 `command`，因此没有此规范化时，只要
+// 重命名字段就能把硬 deny 降级为 Ask —— 并在 --yolo 下被自动执行。
 //
-// The fallback is deliberately conservative: an explicit, non-empty `command`
-// always wins and is never overwritten. Only the map used by the policy
-// evaluator is touched; the raw arguments forwarded to the tool stay untouched.
+// 该回退刻意保守：显式非空的 `command` 始终优先，绝不会被覆盖。
+// 只改动策略评估器使用的 map；转发给工具的原始参数保持不变。
 func normalizeCommandField(fields map[string]any) {
 	if command, ok := fields["command"].(string); ok && strings.TrimSpace(command) != "" {
 		return
@@ -534,14 +515,14 @@ func stringList(raw json.RawMessage) ([]string, error) {
 	return out, nil
 }
 
-// parseRules is the diagnostics-free form kept for callers that only need the
-// usable rules. The skipped-rule details live in parseRulesWithIssues.
+// parseRules 是不带诊断信息的版本，供只需要可用规则的调用方使用。
+// 被跳过规则的细节在 parseRulesWithIssues 中。
 func parseRules(raw json.RawMessage) ([]Rule, error) {
 	rules, _, err := parseRulesWithIssues(raw)
 	return rules, err
 }
 
-// MutatingTool reports whether the built-in table considers a tool mutating.
+// MutatingTool 报告内置表是否认为某工具是修改类的。
 func MutatingTool(name string) bool {
 	return defaultMutatingTools[name]
 }

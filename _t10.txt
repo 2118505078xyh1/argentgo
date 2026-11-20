@@ -1,0 +1,255 @@
+===== internal/tui/model_mutate.go
+278	prefixLineEnd 返回紧接第 n 个换行之后的字节索引，或 len(s)。
+292	suffixLineStart 返回一个 s 中的偏移，使后缀最多覆盖 n 行。
+293	换行是 ASCII，因此结果始终是 rune 边界。
+310	AppendNotice 添加一条系统通知。
+324	AppendStream 在助手文本流入时追加。它不提升
+325	渲染版本：文本每帧被折叠进条目一次，因此一千个增量的回合
+326	每次重绘只复制一次，而不是每个增量复制一次。
+327	可能是未完成 markdown 标记开头的文本会被
+328	streamBuf 暂时保留，直到该结构完成（或回合结束），因此半个
+329	`**` 或 ``` 围栏绝不会闪现在已渲染的记录中。
+355	EndTurn 结束正在进行的回合。非 nil 错误变成一条通知。
+359	 释放回合结束时仍被保留的任何标记前缀，使
+360	 没有流式字节丢失；flushStreamLocked 把它折叠进存活的条目。
+
+===== internal/tui/model_query.go
+10	MarkDirty 记录已渲染内容发生变化、下一帧必须
+11	重绘。从任何 goroutine 调用都是安全的。
+22	Dirty 报告自上次绘制以来内容是否变化。
+29	ClearDirty 确认一次绘制。大多数调用方从不需要它：Paint 会
+30	自行清除该标志。
+37	SetTheme 在运行时切换调色板。未知名称保持当前
+38	主题不变，并返回包装了 ErrUnknownTheme 的错误。
+45	Theme 是活动主题的规范名称。
+52	Palette 返回当前驱动渲染器的调色板。
+59	SetNoColor 切换颜色抑制，而无需重建模型。
+70	NoColor 报告颜色 SGR 码是否被抑制。
+77	Degraded 报告注入的环境是否要求单色。
+84	applyThemeLocked 根据主题、环境和
+85	NoColor 标志重建调色板。它总是提升版本，使重绘采纳变更。
+116	SetSessions 替换会话栏。空切片隐藏侧边栏，但
+117	保留之前选中的行供下次填充使用。
+127	Sessions 返回会话栏各行的一个副本。
+134	SetTurnActions 安装 undo / retry / rename 接缝。传入 nil 清除
+135	某个动作，使其斜杠命令以通知作答。
+142	TakeActionArg 返回最后一次产生动作的命令的参数。
+151	SetApproval 安装注入的审批权威。它在
+152	操作员按下 y/a 后被咨询；nil 函数表示答案即为最终结果。
+159	Quit 报告操作员是否要求离开。
+166	Busy 报告是否正在运行某个回合。
+173	Input 是当前提示文本。
+180	Cursor 是以 rune 索引表示的光标位置。
+187	Transcript 是当前各块的一个副本。
+195	TakeSubmitted 返回最后一次提交的提示文本并清空它。
+204	SetUsage 记录用于头部的 token 总数。
+212	SetCachedTokens 记录提示 token 中的缓存前缀部分。
+220	Plain 把记录渲染为无样式文本，用于离开备用屏幕后
+221	仍留在终端中的回滚浏览。
+250	plainOutputPreview 让回滚保持简短。完整输出已经
+251	存在于 Entry.Output 中供交互式视图使用，但退出时倾倒它会
+252	淹没终端；这里只返回有界的头部。
+290	 回合结束的错误可能仍携带原始 provider 消息（agent 也
+291	 会发布清洗后的 EventError）。清洗、折叠为一行并限制长度，使
+292	 凭据或多行转储无法泄漏进记录或将其撑宽。
+311	visibleWindow 返回一个滚动列表应渲染的半开项区间 [start, end)：
+312	以 scrollOffset 开始、跨 viewportHeight 个项的视口，两侧各扩展 overscan 个项，
+313	使视图外紧邻的行在操作员滚动时预热。
+314	即视图外紧邻的行在滚动时预热。
+316	这是一个纯整数辅助函数（它统计项而非字节或 rune，因此 CJK 和
+317	折叠后的显示宽度在这里无关），且对越界输入安全：负数 total 产生空窗口，
+318	偏移被钳制到 [0, total]，非正的 viewport 在偏移处产生空窗口，
+319	且两端始终保持在 [0, total] 内
+320	并满足 start <= end。
+322	这是在 bodyLinesLocked 中对记录做窗口化的可复用基础；
+323	把它接线进去有意留给
+324	render.go 的负责人。
+340	 大于列表长度的值不会扩大钳制后的窗口，因此在这里限制
+341	 可防止下面的加法在极端输入下溢出。
+
+===== internal/tui/model_test.go
+42	 弹窗打开时输入被阻塞。
+
+===== internal/tui/mouse_test.go
+9	decodeOne 喂入一个完整字节串，并期望恰好解码出一个按键。
+52	 这些正文在 M 之前不含 CSI 终结范围内的字节，因此
+53	 通用转义解码器把整个正文交给 decodeSGRMouse。
+155	 从第 1 行第 2 列向后拖拽到第 0 行第 6 列：端点会
+156	 被归一化，因此仍复制 "world\nsec"。
+181	 缺失/失败的 clip.exe 必须表现为错误，绝不 panic。
+
+===== internal/tui/output_sanitize.go
+5	本文件防止原始工具输出破坏 TUI 画面。cargo、npm
+6	和 git 等程序用 CSI 光标/擦除序列和裸回车
+7	来动画化进度条。当那些字节被复制到记录
+8	Line 时，它们会原样到达 Buffer：帧缓存每个进度 tick 都看到
+9	一个"不同的"行，杂散转义被重放到终端，
+10	使之后绘制的每一行光标移位。
+12	 这里的辅助函数是纯字符串变换，不依赖渲染器。公共入口
+13	 normalizeToolOutput 有意没有接入 toolLines 的默认预览路径：该路径
+14	 对现有布局/基准测试保持逐字节一致。它只由 opt-in 的结构化
+15	 渲染器（StructuredToolResults）应用；
+16	 见 structuredOutputLines。
+18	stripCursorControl 移除移动光标、擦除
+19	屏幕一部分或切换终端模式的 ANSI 转义序列。它仿照 Crush 的
+20	StripCursorControl，仅使用标准库：
+22	  - 保留：SGR 颜色/样式（CSI 终结字节 'm'）、OSC 序列，如
+23	    OSC 8 超链接、字符集指定符和未知转义；
+24	  - 移除：CSI 光标移动（A-H、f）、擦除（J、K）、滚动（S、T）、
+25	    保存/恢复（s、u）和模式设置/复位（h、l，包括 DEC '?' 形式），
+26	    以及两字节的 ESC 7 / ESC 8 保存/恢复光标序列。
+28	被截断的序列绝不会被丢弃：保持其完整比猜测其
+29	结束位置更安全。没有 ESC 字节的输入被原样返回。
+64			 其他两字节转义（字符集指定符、ESC = 等）。
+65			 更长的转义只是把其尾部留给下一次迭代。
+73	scanCSISequence 返回从 i（紧跟 ESC '[' 的字节）开始、
+74	越过下一个 CSI 终结字节之后的索引。如果输入先结束，它返回
+75	len(s)，使被截断的序列完整保留。
+87	scanOSCSequence 返回从 i（紧跟 ESC ']' 的字节）开始、
+88	越过 OSC 终结符（BEL 0x07 或 ST ESC '\'）之后的索引。未终结的
+89	OSC 被消费到末尾，使部分载荷不泄漏进画面。
+103	isCursorControlCSI 报告 seq 是否为终结字节
+104	要求终端移动或擦除某物的 CSI 序列。'm'（SGR）和每个未知
+105	终结字节都被有意排除，使颜色和诊断信息得以保留。
+125	simulateCarriageReturns 应用 Crush 的 StripCursorControl
+126	所用的"最后一帧胜出"规则：在每行内，最后一个 '\r' 之后的文本
+127	是用户将看到的内容，因此更早的进度帧被丢弃。先按 '\n'
+128	切分可保持行边界（和尾随换行）不变。没有
+129	'\r' 的输入被原样返回。
+143	normalizeOutputSpace 执行终端对捕获输出施加的两种空白
+144	重写：CRLF 变为 LF，每个制表符变为四个空格。
+145	前导制表符就地展开，因此缩进深度得以保留。
+146	裸 '\r' 留给 simulateCarriageReturns 处理。既不含
+147	'\r' 也不含 '\t' 的输入被逐字节原样返回。
+159	normalizeToolOutput 按终端顺序运行三遍：先展开
+160	空白，使 CRLF 不被误认为裸覆盖，然后丢弃
+161	光标控制字节，最后处理剩余的回车。SGR
+162	颜色和 OSC 超链接保留，CJK 和 emoji rune 也保留。
+
+===== internal/tui/output_sanitize_test.go
+53	 OSC 8 超链接使用 BEL 或 ST；SGR 使用 'm'；设备状态查询使用
+54	 未知终结字节，必须原样通过而不丢失数据。
+133	 一个 cargo 风格的构建：两帧被擦除的进度，然后一行彩色的
+134	 "Finished"。只有进度行的最后一帧可以保留。
+158	 没有 ESC、CR 或 TAB：每个字节都必须原样保留，包括尾随
+159	 换行和多字节 rune。
+168	 一个 git 风格的状态行：SGR + OSC 链接保留，光标擦除被丢弃
+169	 且裸 CR 只保留最后一帧。
+
+===== internal/tui/panels.go
+5	panelSection 是右侧栏的一个垂直切片。
+34	panelSections 在当前开启的面板之间划分侧边栏。
+35	 记录、提示和审批弹窗保持其现有几何。
+86	paintPanels 绘制分隔符和每个可见面板。Buffer.Flush 按
+87	整行做差异比较，因此更新的任务或预览只重绘受影响的行。
+
+===== internal/tui/panels_test.go
+74	 三个切换使用解码器以前会丢弃的字节。
+225	 单个超长行仍必须被字节上限截断。
+
+===== internal/tui/pattern.go
+9	TermKind 标识模式中的某一项如何与行匹配。
+10	 这些类别仿照 fzf 的查询操作符，外加两个结构值：TermInverse
+11	（取反的模糊项，写作 "!text"）和 TermOr（组分隔符，写作
+12	"|"）。同一 OR 组内的正项用 AND 组合。
+16	  TermFuzzy 是无前缀的项；由调用方提供的模糊回调决定。
+18	  TermExact 是子串匹配，写作 "'text"。
+20	  TermPrefix 是锚定在开头的匹配，写作 "^text"。
+22	  TermSuffix 是锚定在末尾的匹配，写作 "text$"。
+24	  TermEqual 是两侧都有词边界的匹配，写作 "'text'"。
+26	  TermInverse 是取反的模糊匹配，写作 "!text"。
+28	  TermOr 分隔 AND 组；任一组匹配时整行匹配。
+32	String 使测试失败和调试输出可读。
+54	SearchTerm 是模式查询的一个已解析 token。CaseSensitive 记录
+55	智能大小写判定：Text 含大写 rune 时为 true，否则
+56	为 false。Text 是不带操作符前缀或后缀的、未转义的模式正文。
+57	TermOr 携带空的 Text。
+64	ParsePattern 把查询转为扁平的搜索项列表。空白
+65	分隔 AND 项，"|" 分隔 OR 组，前导反斜杠转义
+66	下一个字节，使操作符和空格可被字面搜索。空（或
+67	仅含空白）的查询返回空列表；调用方通过 MatchPattern
+68	将其视为"匹配所有"。
+82	tokenizePattern 在未转义的空白和 "|" 处切分，同时保留
+83	反斜杠，使 parsePatternToken 能区分真正的操作符和
+84	被转义的字面量。因此被转义的空格（"\ "）留在同一 token 内。
+112	parsePatternToken 解释单个 token 的首尾操作符字节，
+113	并对结果正文应用智能大小写。
+126			 闭合引号把子串匹配变成有界匹配。
+137	 "$" 仅在原本是普通项时作为锚点，因此 "^x$" 保留
+138	 "$" 字面量，而不是悄悄改变其含义。
+149	escapedAt 报告 s[i] 之前是否有奇数个反斜杠。
+158	unescapePattern 把每个 "\x" 对折叠为字面 "x"。
+183	MatchPattern 报告 text 是否满足已解析的项。AND 绑定
+184	比 OR 更紧：项在每个 TermOr 处被分组，一行
+185	当某组的所有项都匹配时才匹配该组（TermInverse
+186	项取反），各组结果再做 OR。空的项列表匹配
+187	所有内容，这是空查询的自然结果。
+189	fuzzy 被注入，使本包永不依赖匹配器实现；
+190	它接收（已做大小写归一化的）pattern 和 text，返回
+191	通常的得分、位置和匹配标志。nil 的 fuzzy 回退到子串
+192	检查，使纯模式的调用方保持简单。
+212	 只有分隔符（例如查询为 "|"）—— 没有真正的约束可应用。
+235	matchOne 返回单个正项的原始（未取反）结果。
+263	boundedMatch 实现 "'word'" 操作符：pattern 必须作为一个完整
+264	的词出现，即两侧的 rune 都不是字母、数字或下划线。
+
+===== internal/tui/pattern_test.go
+8	subseqFuzzy 是真实匹配器的最小替身：pattern 和 text
+9	 从 matchOne 到达时已做大小写归一化。
+
+===== internal/tui/plan.go
+9	planFileName 是计划面板显示其结果的工具名。
+12	Plan 是在事件流上看到的最后一次 submit_plan 结果。步骤是
+13	文档，而非队列：工具从不执行它们。
+20	parsePlanResult 读取 submit_plan 返回的人可读输出。当输出被
+21	替换为简短错误字符串时，它还回退到该调用的 JSON 参数，
+22	使使用奇怪工具包装器提交的计划仍能显示
+23	其步骤。
+102	planLines 渲染计划面板。尚无计划时它是一行提示。
+
+===== internal/tui/reasoning_summary_test.go
+42	 接线复用了同一个函数，因此很长的推理 Entry 仍然
+43	 只贡献一条记录行。
+
+===== internal/tui/render.go
+10	 块前缀。助手使用空心菱形，工具使用实心
+11	 圆，使两者在 CJK 字体中不会被读成同一个墨点。
+25	  contextBarCells 是头部上下文用量条括号内的字形数。
+26	 十是紧凑的，但仍每百分之十变化一次。
+39	layout 是帧的几何，绘制器与光标查询共享它，使
+40	两者永不一致。
+62		 侧边栏占屏幕三分之一，上限为易读的最大值。
+63		 分隔符占据 panelX-1，因此记录在它之前结束。
+79	 "│ " + 标记 (2) + 文本 + " │" 为文本留下 width-6 个单元格。
+98	Frame 把模型渲染到一个新的缓冲区。
+105	Paint 把模型绘制到已有缓冲区。缓冲区记住上一
+106	帧，因此 Flush 只重写变化的行。
+123	 缓存输入路径在滚轮/翻页按键到达时用于钳制滚动的几何，
+124	 而不是让过度滚动在两次绘制之间累积，
+125	 使长记录感觉卡在顶部。
+161	paintSelectionLocked 反转当前范围内每个单元格的样式。
+162	 它在所有其他绘制之后运行，使头部、记录和输入行
+163	 被统一高亮，且没有选择时为空操作，保持
+164	 默认帧逐字节不变。
+221	contextBar 把 0-100 的百分比渲染为带括号的单元格字形条。
+222	 分数四舍五入；█ 和 ░ 都恰好占一个终端单元格宽，
+223	 因此无论填充级别如何，结果始终占 cells+2 个单元格。
+241	contextStyle 把上下文用量百分比映射到现有调色板角色：
+242	 一半以下为 muted，到 85 为 warning，再高为 failure。被抑制的颜色
+243	（--no-color 或降级的终端）保持纯文本，因此没有 SGR 转义泄漏
+244	 到该行其余部分已无样式的头部中。
+325		 旧的直接写入者仍然渲染，但新通知总是使用上面的
+326		 栈，且两者同时存在时优先。
+338	 主题只有在与默认不同时才值得永久提醒；深色不需要标签，因为
+339	 它是历史外观。
+389	paintApproval 在清空的条带上绘制弹窗，使背后的记录
+390	 绝不会从框的边距透出。
+411	approvalLines 绘制阻塞输入直到按下 y / n / a 的弹窗。
+446	 危险调用显示其被标记的原因，并把 Deny 标记为
+447	 预选默认值。普通请求完全跳过此块，因此上面的弹窗和下面的提示行
+448	 对它们逐字节不变。
+470	entryCacheKey 捕获所有可能改变某个条目渲染方式的输入。
+471	 把它集中在这里，可在向 Entry 添加新字段时保持缓存诚实：
+472	 忘记把它加入键只需在一处改一行。
+491	bodyLinesLocked 渲染记录，对键未变的每个条目复用缓存行。
+492	 因此一个流式增量只重绘一条

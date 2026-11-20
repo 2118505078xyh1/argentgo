@@ -13,97 +13,81 @@ import (
 )
 
 const (
-	// TaskToolName is the built-in delegate tool.
+	// TaskToolName 是内置的委派工具。
 	TaskToolName = "task"
-	// DefaultMaxDepth is how deep subagents may nest when the caller sets no
-	// limit. Root is depth 0, so the default allows two child levels.
+	// DefaultMaxDepth 是调用方未设置限制时，子 agent 可以嵌套的深度。
+	// 根为深度 0，因此默认值允许两层子级。
 	DefaultMaxDepth = 2
-	// DefaultSubagentTurns caps a child run's turns when the parent has no
-	// smaller budget.
+	// DefaultSubagentTurns 在父级没有更小预算时，限制子运行的轮次数。
 	DefaultSubagentTurns = 16
-	// MaxVerifyRetries is the hard ceiling for a task call's verify_max_retries.
-	// A model cannot request an unbounded verification loop: anything above this
-	// is clamped, so every verify-enabled task does at most 1+MaxVerifyRetries
-	// child runs (plus one verification child per attempt).
+	// MaxVerifyRetries 是 task 调用中 verify_max_retries 的硬性上限。
+	// 模型无法请求无界的验证循环：超过该值的都会被收紧，
+	// 因此每个启用验证的任务最多执行 1+MaxVerifyRetries 次子运行
+	// （每次尝试再加一个验证子运行）。
 	MaxVerifyRetries = 3
-	// DefaultBackgroundResultsCap is the default number of undrained results
-	// the shared background queue retains.
+	// DefaultBackgroundResultsCap 是共享后台队列保留的、未被抽取的结果的默认数量。
 	DefaultBackgroundResultsCap = 50
-	// DefaultMaxBackgroundTasks caps how many background children may run at
-	// once across one root run and all of its descendants.
+	// DefaultMaxBackgroundTasks 限制在一个根运行及其所有后代中，
+	// 同时运行的后台子任务数量。
 	DefaultMaxBackgroundTasks = 8
-	// BackgroundResultPrefix marks both the synthetic result text pushed by a
-	// finished background task and the matching parent EventNotice.
+	// BackgroundResultPrefix 既标记已完成的后台任务推送的合成结果文本，
+	// 也标记对应的父级 EventNotice。
 	BackgroundResultPrefix = "task result: "
 )
 
 const subagentTemplate = `You are a subagent working for another agent. Task: %s
 Do only the work the task asks for, using the tools you have. Do not ask questions: make the most reasonable assumption and report the result. Finish with a concise final answer; the parent agent receives only that text.`
 
-// SubagentConfig enables the built-in `task` tool.
+// SubagentConfig 启用内置的 `task` 工具。
 type SubagentConfig struct {
-	// Model, when set, is the child loop's model (e.g. --secondary-model).
-	// The parent's model is never changed. Empty inherits the parent's model.
+	// Model 若设置，是子循环使用的模型（例如 --secondary-model）。
+	// 父级的模型绝不会被改变。为空则继承父级的模型。
 	Model string
-	// AllowedTools restricts the child's tool set. Empty inherits the parent's
-	// tools (the child still cannot recurse past MaxDepth).
+	// AllowedTools 限制子级的工具集。为空则继承父级的工具
+	// （子级仍不能递归超过 MaxDepth）。
 	AllowedTools []string
-	// MaxDepth is the deepest child level that may spawn another subagent
-	// (default 2).
+	// MaxDepth 是可以再派生子 agent 的最深子级层数（默认 2）。
 	MaxDepth int
-	// MaxTurns overrides the child's turn cap.
+	// MaxTurns 覆盖子级的轮次上限。
 	MaxTurns int
-	// Budget, when set, is the child's whole budget; otherwise the parent's
-	// budget is halved.
+	// Budget 若设置，是子级的完整预算；否则取父级预算的一半。
 	Budget Budget
-	// System replaces the child's system prompt.
+	// System 替换子级的系统提示。
 	System string
-	// systemInherited / toolsInherited mark System / AllowedTools as values this
-	// child received from its parent (a persona or an ancestor), not overrides
-	// authored at this level. An inherited value is a base: a nested
-	// task(persona=...) must be free to replace it. The zero value (false) keeps
-	// the legacy rule that a caller setting these fields directly wins over a
-	// persona. Package-private: only childOptions sets them.
+	// systemInherited / toolsInherited 标记 System / AllowedTools 是子级从父级
+	// （某个角色或祖先）继承的值，而非在本层编写的覆盖。继承的值只是基线：
+	// 嵌套的 task(persona=...) 必须可以自由替换它。零值（false）保留旧规则，
+	// 即直接设置这些字段的调用方优先于角色。包内私有：只有 childOptions 会设置它们。
 	systemInherited bool
 	toolsInherited  bool
-	// OnEvent receives the child's events. When nil they go to the parent's
-	// Emit, with Event.Depth set.
+	// OnEvent 接收子级的事件。为 nil 时，事件会送往父级的 Emit，并设置 Event.Depth。
 	OnEvent func(Event)
-	// ResolvePersona maps a persona/role name requested by a task call to the
-	// child config that persona defines. It is optional and injected by the
-	// wiring layer (internal/app) so this package never imports it. When nil,
-	// or when the name is unknown, delegation falls back to the generic config
-	// above. A resolver returning true starts from the persona's config; the
-	// explicitly-set fields of this config are then layered on top.
+	// ResolvePersona 把 task 调用请求的角色/身份名映射到该角色定义的子配置。
+	// 它是可选的，由接线层（internal/app）注入，因此本包从不导入它。
+	// 为 nil 或名称未知时，委派回退到上面的通用配置。
+	// 返回 true 的解析器以角色的配置为基础，随后把本配置中显式设置的字段叠加其上。
 	ResolvePersona func(string) (SubagentConfig, bool)
-	// Background, when set, enables the `background` field on task calls. It is
-	// the bounded result queue for ONE root run and all of its descendants;
-	// the wiring layer must not share it across sessions. Each run drains only
-	// the results tagged with its own owner (see the BackgroundResults note).
-	// A background call with no queue configured is rejected rather than
-	// silently losing its result.
+	// Background 若设置，会在 task 调用中启用 `background` 字段。它是属于一个根运行
+	// 及其所有后代的有界结果队列；接线层绝不能在不同会话间共享它。
+	// 每次运行只抽取带有自身 owner 标记的结果（见 BackgroundResults 的说明）。
+	// 未配置队列时的后台调用会被拒绝，而不是默默丢失其结果。
 	Background *BackgroundResults
-	// NewChild optionally overrides how a delegated child runner is built. Nil
-	// means &Runner{Opts: opts}. It is primarily a test seam: injecting a fake
-	// lets a test control child execution without a real model.
+	// NewChild 可选地覆盖被委派子运行器的构建方式。nil 表示 &Runner{Opts: opts}。
+	// 它主要是一个测试接缝：注入伪实现可让测试在没有真实模型的情况下控制子级执行。
 	NewChild func(opts Options) ChildRunner
-	// SeedContext carries retention-flagged parent records into each child's
-	// context, one formatted line per record. It is additive and default-off:
-	// empty leaves the child system prompt exactly as before. The app computes
-	// the lines with session.SelectForChildren(records) and formats them; the
-	// agent package never imports session (see AGENTS.md layering rules).
+	// SeedContext 把带有保留标记的父级记录带入每个子级的上下文，每条记录占一行格式化文本。
+	// 它是附加性的且默认关闭：为空时子级系统提示与之前完全一致。
+	// app 用 session.SelectForChildren(records) 计算这些行并格式化；
+	// agent 包从不导入 session（见 AGENTS.md 的分层规则）。
 	SeedContext []string
-	// Instruction carries the parent session's resolved instruction snapshot to
-	// its children. When set, a child receives an inherited copy (deep-copied,
-	// with exactly one inheritance marker) rendered into its system prompt
-	// after the SeedContext block. Nil leaves the child system prompt
-	// byte-identical, so this stays default-off. The app wiring layer is
-	// responsible for building the snapshot; this package only carries and
-	// renders it.
+	// Instruction 把父会话已解析的指令快照传递给子级。设置后，子级会收到一份继承副本
+	// （深拷贝，且恰好带一个继承标记），在 SeedContext 块之后渲染进其系统提示。
+	// 为 nil 时子级系统提示逐字节不变，因此这也保持默认关闭。
+	// 快照由 app 接线层负责构建；本包只负责携带和渲染它。
 	Instruction *InstructionSnapshot
 }
 
-// TaskToolSpec describes the delegate tool to the model.
+// TaskToolSpec 向模型描述委派工具。
 func TaskToolSpec() llm.ToolSpec {
 	var spec llm.ToolSpec
 	spec.Type = "function"
@@ -128,15 +112,14 @@ func TaskToolSpec() llm.ToolSpec {
 	return spec
 }
 
-// newToolset wraps the caller's tools with the delegate tool when subagents are
-// enabled. At the depth limit the spec is withheld, so a child is not tempted
-// to recurse.
+// newToolset 在启用子 agent 时，用委派工具包装调用方的工具。
+// 达到深度上限时会隐藏该工具的规格，使子级不会想去递归。
 func newToolset(inner ToolRunner, opts Options) ToolRunner {
 	if inner == nil {
 		inner = nopTools{}
 	}
-	// Skill tools are opt-in and wrap the caller's runner before the delegate
-	// tool, so a subagent inherits the same advertised set through taskTools.
+	// 技能工具是选择性启用的，并在委派工具之前包装调用方的运行器，
+	// 因此子 agent 会通过 taskTools 继承同样的公布集合。
 	if opts.SkillAuthor != nil || opts.SkillLister != nil {
 		inner = newSkillTools(inner, opts)
 	}
@@ -160,19 +143,18 @@ func newToolset(inner ToolRunner, opts Options) ToolRunner {
 	return &taskTools{inner: inner, specs: specs, parent: opts, depth: opts.Depth, owner: opts.bgOwner, cfg: &cfg}
 }
 
-// taskTools advertises and runs the delegate tool over a base tool runner.
+// taskTools 在基础工具运行器之上公布并运行委派工具。
 type taskTools struct {
 	inner  ToolRunner
 	specs  []llm.ToolSpec
 	parent Options
 	depth  int
-	// owner is the delivery identity of the run that owns this taskTools. A
-	// background task it spawns pushes its result back under this owner, so the
-	// delegating run's injectSteering can collect exactly its own results.
+	// owner 是拥有该 taskTools 的运行所属的投递身份。它派生的后台任务会在该 owner 下
+	// 推回结果，因此委派运行的 injectSteering 能精确收集属于它自己的结果。
 	owner uint64
 	cfg   *SubagentConfig
-	// emitMu serialises parent-level subagent events. Background children emit
-	// from their own goroutines, so a lock keeps start/end/notice ordering sane.
+	// emitMu 串行化父级层面的子 agent 事件。后台子级从各自的 goroutine 发出事件，
+	// 因此用锁来保持开始/结束/通知的顺序合理。
 	emitMu sync.Mutex
 }
 
@@ -185,37 +167,32 @@ func (t *taskTools) Run(ctx context.Context, name, args string) (string, error) 
 	return t.runTask(ctx, args)
 }
 
-// taskArgs is the delegate tool's argument shape.
+// taskArgs 是委派工具的参数结构。
 type taskArgs struct {
 	Description string `json:"description"`
 	Prompt      string `json:"prompt"`
 	Task        string `json:"task"`
-	// Persona optionally selects a named subagent definition. Role is an alias.
+	// Persona 可选地选择一个具名的子 agent 定义。Role 是其别名。
 	Persona string `json:"persona"`
 	Role    string `json:"role"`
-	// Verify, when set, makes the parent validate the child's result before
-	// accepting it (see runTaskVerified). Empty preserves the legacy behavior.
+	// Verify 若设置，会使父级在接受子级结果之前先对其进行验证（见 runTaskVerified）。
+	// 为空则保留旧有行为。
 	Verify string `json:"verify,omitempty"`
-	// VerifyMaxRetries bounds how many times a FAIL verdict retries the
-	// original task. Negative values clamp to 0, values above MaxVerifyRetries
-	// clamp down. Ignored when Verify is empty.
+	// VerifyMaxRetries 限制 FAIL 结论对原任务的重试次数。负值收紧到 0，
+	// 高于 MaxVerifyRetries 的值会被收紧下来。Verify 为空时忽略该字段。
 	VerifyMaxRetries int `json:"verify_max_retries,omitempty"`
-	// Background, when true, launches the child in a goroutine and returns an
-	// immediate ack. The finished result is queued for injection into the
-	// parent. Absent or false preserves the legacy synchronous behaviour.
+	// Background 为 true 时，会在 goroutine 中启动子级并立即返回确认。
+	// 完成的结果会被排队，等待注入父级。缺省或为 false 时保留旧有的同步行为。
 	Background bool `json:"background,omitempty"`
 }
 
-// runTask is the task tool's entry point. It parses the arguments and either
-// runs the child once (the original, backward-compatible path) or, when a
-// verify instruction is present, drives the bounded verify/retry loop.
+// runTask 是 task 工具的入口。它解析参数，要么运行子级一次（原始的、向后兼容的路径），
+// 要么在存在验证指令时驱动有界的验证/重试循环。
 //
-// Verify design: PARENT-RECHECK. A single child's self-check cannot express a
-// FAIL verdict that the parent can act on, so verification is a separate,
-// short task call that replies PASS or FAIL. The follow-up is itself run
-// through runTask, so it inherits the depth guard; it carries no verify field
-// of its own, so verification cannot recurse. Retries are capped by
-// MaxVerifyRetries. This keeps the change inside subagent.go.
+// 验证设计：父级复核（PARENT-RECHECK）。单个子级的自检无法表达父级可据以行动的 FAIL 结论，
+// 因此验证是一个独立的简短 task 调用，回复 PASS 或 FAIL。后续调用本身也经过 runTask，
+// 所以它继承深度防护；它自身不带 verify 字段，因此验证不会递归。重试次数由 MaxVerifyRetries 限制。
+// 这样把改动限制在 subagent.go 内。
 func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	if t.depth >= t.cfg.MaxDepth {
 		return "", fmt.Errorf("task depth limit reached: subagents may nest at most %d level(s)", t.cfg.MaxDepth)
@@ -233,9 +210,8 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	return t.runTaskOnce(ctx, raw, args)
 }
 
-// runTaskOnce runs one child loop and returns its final answer as the tool
-// result. This is the original delegation path, unchanged when verify is
-// absent.
+// runTaskOnce 运行一次子循环，并把其最终答案作为工具结果返回。
+// 这是原始的委派路径，在没有 verify 时保持不变。
 func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) (string, error) {
 	task := strings.TrimSpace(args.Prompt)
 	if task == "" {
@@ -271,12 +247,10 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	return text, nil
 }
 
-// runTaskVerified runs the original task, then asks a short verification
-// child to judge the result against the verify instruction. A PASS returns the
-// result; a FAIL retries the original task up to verify_max_retries (clamped
-// to [0, MaxVerifyRetries]). Both the attempt count and the verification
-// recursion (one non-verifying follow-up per attempt) are bounded, so no
-// configuration can produce an unbounded loop.
+// runTaskVerified 运行原任务，然后询问一个简短的验证子级，根据验证指令评判结果。
+// PASS 返回结果；FAIL 会按 verify_max_retries（收紧到 [0, MaxVerifyRetries]）重试原任务。
+// 尝试次数和验证递归（每次尝试一个非验证的后续调用）都是有界的，
+// 因此任何配置都无法产生无界循环。
 func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskArgs, verify string) (string, error) {
 	label := strings.TrimSpace(args.Description)
 	if label == "" {
@@ -296,11 +270,11 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 			return "", err
 		}
 
-		// The follow-up reuses runTask so it inherits the depth guard. Its JSON
-		// deliberately omits verify, so verification never recurses.
+		// 后续调用复用 runTask，因此继承深度防护。它的 JSON 刻意省略 verify，
+		// 所以验证绝不会递归。
 		verdict, err := t.runTask(ctx, verifyArgsJSON(label, verify, text))
 		if err != nil {
-			// Without a verdict we cannot accept the result as verified.
+			// 没有结论时，我们无法把结果当作已验证而接受。
 			t.verifyNotice(fmt.Sprintf("subagent verification error for %q: %v", label, err))
 			return "", fmt.Errorf("subagent verification failed for %q: %w", label, err)
 		}
@@ -310,22 +284,20 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 		}
 		t.verifyNotice(fmt.Sprintf("subagent verification FAIL (attempt %d/%d): %s - %s", attempt+1, retries+1, label, firstLine(verdict)))
 		if attempt >= retries {
-			// Retries exhausted: return the last result rather than losing the
-			// work, with the FAIL outcome already recorded above.
+			// 重试已耗尽：返回最后的结果而不是丢失工作，FAIL 结果已在上方记录。
 			return text, nil
 		}
 	}
 }
 
-// verifyNotice emits an auditable verification outcome as a parent-level
-// notice event (EventNotice), reusing the existing event vocabulary.
+// verifyNotice 把可审计的验证结果作为父级通知事件（EventNotice）发出，
+// 复用现有的事件词汇。
 func (t *taskTools) verifyNotice(text string) {
 	t.parentEmit(Event{Kind: EventNotice, Text: text, ToolName: TaskToolName})
 }
 
-// verifyArgsJSON builds the follow-up task call that judges a result. The
-// verify instruction and the result are embedded in the prompt; no verify
-// field is set, so the follow-up is a plain single child run.
+// verifyArgsJSON 构建用于评判结果的后续 task 调用。验证指令和结果都嵌入在提示中；
+// 没有设置 verify 字段，因此后续调用只是一次普通的单次子运行。
 func verifyArgsJSON(label, verify, result string) string {
 	prompt := fmt.Sprintf("Verify the following result against these criteria:\n%s\n\nResult to verify:\n%s\n\nReply with PASS if the result satisfies the criteria, otherwise reply with FAIL followed by concise reasons.",
 		verify, result)
@@ -336,9 +308,8 @@ func verifyArgsJSON(label, verify, result string) string {
 	return string(b)
 }
 
-// verificationFailed reports whether a verification verdict is a FAIL. The
-// follow-up is instructed to lead with PASS or FAIL, so the first token wins;
-// a fallback handles verbose replies that only mention one of the two words.
+// verificationFailed 报告验证结论是否为 FAIL。后续调用被要求以 PASS 或 FAIL 开头，
+// 因此第一个词优先；另有回退逻辑处理只提到这两个词之一的冗长回复。
 func verificationFailed(verdict string) bool {
 	v := strings.TrimSpace(verdict)
 	if v == "" {
@@ -355,12 +326,9 @@ func verificationFailed(verdict string) bool {
 	return strings.Contains(upper, "FAIL") && !strings.Contains(upper, "PASS")
 }
 
-// configForPersona seeds the child config from a named persona, then layers the
-// parent's explicitly-set fields on top. Values the parent itself inherited
-// (marked by childOptions) are not explicit overrides, so a nested persona
-// switch can replace them. A missing resolver, an empty name or an unknown
-// name leaves the generic parent config untouched, which keeps delegation
-// backward compatible.
+// configForPersona 以具名角色作为子配置的起点，然后叠加父级显式设置的字段。
+// 父级自身继承来的值（由 childOptions 标记）不算显式覆盖，因此嵌套的角色切换可以替换它们。
+// 解析器缺失、名称为空或名称未知时，通用父级配置保持不变，从而保持委派的向后兼容性。
 func (t *taskTools) configForPersona(name string) SubagentConfig {
 	cfg := *t.cfg
 	name = strings.TrimSpace(name)
@@ -396,9 +364,8 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if t.cfg.OnEvent != nil {
 		merged.OnEvent = t.cfg.OnEvent
 	}
-	// Carry the shared background state and the child-runner seam across the
-	// persona layering so a persona-selected child keeps the parent's queue,
-	// semaphore and injectable runner.
+	// 把共享的后台状态和子运行器接缝一并带过角色叠加过程，
+	// 使按角色选定的子级保留父级的队列、信号量和可注入的运行器。
 	if t.cfg.Background != nil {
 		merged.Background = t.cfg.Background
 	}
@@ -408,27 +375,23 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if len(t.cfg.SeedContext) > 0 {
 		merged.SeedContext = t.cfg.SeedContext
 	}
-	// The parent's resolved snapshot wins over any persona-local one, just like
-	// SeedContext: the parent is the authority on what it resolved for this run.
+	// 与 SeedContext 一样，父级已解析的快照优先于角色自带的快照：
+	// 对于本次运行解析出的内容，父级才是权威。
 	if t.cfg.Instruction != nil {
 		merged.Instruction = t.cfg.Instruction
 	}
-	// Keep the resolver so nested tasks can choose their own personas too.
+	// 保留解析器，使嵌套任务也能选择自己的角色。
 	merged.ResolvePersona = t.cfg.ResolvePersona
-	// Inherit here (once, while building the child config) rather than in
-	// childOptions: the inherited copy is stored on the child's config, which
-	// becomes Options.Subagent for that child, so its own descendants inherit
-	// the snapshot too.
+	// 在这里（构建子配置时）继承一次，而不是在 childOptions 中：继承副本存放在子级配置上，
+	// 它会成为该子级的 Options.Subagent，因此它自己的后代也会继承该快照。
 	merged.Instruction = inheritForChild(merged.Instruction)
 	return merged
 }
 
-// inheritForChild returns the snapshot a child config should carry. The first
-// child in a delegation chain gets Inherit()'s marker appended to its Thread
-// layer; deeper descendants see the marker already present and receive a plain
-// deep copy instead. That keeps the marker at exactly one occurrence no matter
-// how deep the chain goes, while still giving every child an independent value.
-// A nil snapshot stays nil (the default-off path).
+// inheritForChild 返回子配置应携带的快照。委派链中的第一个子级会在其 Thread 层追加
+// Inherit() 的标记；更深的后代看到标记已存在，则收到普通的深拷贝。
+// 这样无论链有多深，标记都恰好出现一次，同时每个子级都有独立的值。
+// nil 的快照保持为 nil（默认关闭的路径）。
 func inheritForChild(s *InstructionSnapshot) *InstructionSnapshot {
 	if s == nil {
 		return nil
@@ -443,14 +406,12 @@ func inheritForChild(s *InstructionSnapshot) *InstructionSnapshot {
 	return &inherited
 }
 
-// childOptions builds the nested run's configuration: restricted tools, the
-// child system prompt, a budget slice, and the event bridge.
+// childOptions 构建嵌套运行的配置：受限工具、子级系统提示、预算切片以及事件桥接。
 func (t *taskTools) childOptions(label, persona string) Options {
 	cfg := t.configForPersona(persona)
-	// Whatever System/AllowedTools this child carries came from its parent
-	// (a persona or an ancestor), not from code at this level. Mark them
-	// inherited so this child's own task(persona=...) can switch personas
-	// instead of re-applying the parent's values over the new persona.
+	// 该子级携带的 System/AllowedTools 都来自其父级（某个角色或祖先），而非本层代码。
+	// 把它们标记为继承，使该子级自己的 task(persona=...) 能切换角色，
+	// 而不是把父级的值重新叠加到新角色之上。
 	cfg.systemInherited = true
 	cfg.toolsInherited = true
 	tools := t.inner
@@ -470,9 +431,8 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		system += "\n\nRetained context from the parent thread:\n- " + strings.Join(cfg.SeedContext, "\n- ")
 	}
 	if cfg.Instruction != nil {
-		// configForPersona already produced the inherited copy (with exactly one
-		// marker), so rendering never calls Inherit again here. All() is
-		// user -> thread -> project, so the layers appear in resolution order.
+		// configForPersona 已经生成了继承副本（恰好带一个标记），因此这里渲染时不会再次调用
+		// Inherit。All() 的顺序是 user -> thread -> project，因此各层按解析顺序出现。
 		system += "\n\nInherited instructions from the parent session:\n- " + strings.Join(cfg.Instruction.All(), "\n- ")
 	}
 
@@ -505,11 +465,9 @@ func (t *taskTools) childOptions(label, persona string) Options {
 	if model == "" {
 		model = t.parent.Model
 	}
-	// Carry the parent's fallback chain into the child. FallbackModels[0] is
-	// the primary, so an explicit child model (a --secondary-model or a
-	// persona choice) replaces only that first entry; the parent's backups
-	// stay in the same order. Copy the slice so siblings never share mutable
-	// state with the parent's config.
+	// 把父级的回退链带入子级。FallbackModels[0] 是主模型，因此显式的子级模型
+	// （--secondary-model 或角色选择）只替换第一项；父级的备用模型保持原有顺序。
+	// 复制该切片，使同级子级绝不会与父级配置共享可变状态。
 	fallback := t.parent.FallbackModels
 	if model != "" && len(fallback) > 0 {
 		fb := make([]string, len(fallback))
@@ -541,16 +499,14 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		Mutating:         t.parent.Mutating,
 		Subagent:         &cfg,
 		Depth:            t.depth + 1,
-		// Give this child its own identity in the shared queue. Its own
-		// background tasks will push with this owner (via newToolset), so the
-		// child drains only its results even when a sibling shares its depth.
+		// 为该子级在共享队列中分配自己的身份。它自己的后台任务会以该 owner 推送结果
+		// （通过 newToolset），因此即使同级子级共享深度，该子级也只抽取自己的结果。
 		bgOwner: t.nextOwner(),
 	}
 }
 
-// nextOwner allocates a fresh delivery identity from this tree's queue. The
-// zero value is returned when no queue is configured, since background tasks
-// are impossible in that case.
+// nextOwner 从本树的队列中分配一个新的投递身份。未配置队列时返回零值，
+// 因为那种情况下不可能有后台任务。
 func (t *taskTools) nextOwner() uint64 {
 	if t.cfg != nil && t.cfg.Background != nil {
 		return t.cfg.Background.nextID()
@@ -558,8 +514,8 @@ func (t *taskTools) nextOwner() uint64 {
 	return 0
 }
 
-// parentEmit sends a parent-level subagent event. Background children emit
-// from their own goroutines, so the lock keeps those events ordered.
+// parentEmit 发送父级层面的子 agent 事件。后台子级从各自的 goroutine 发出事件，
+// 因此用锁保持这些事件有序。
 func (t *taskTools) parentEmit(event Event) {
 	if t.parent.Emit == nil {
 		return
@@ -570,7 +526,7 @@ func (t *taskTools) parentEmit(event Event) {
 	t.parent.Emit(event)
 }
 
-// restrictedTools is the child's filtered view of the parent's tools.
+// restrictedTools 是子级对父级工具的过滤视图。
 type restrictedTools struct {
 	inner   ToolRunner
 	allowed map[string]bool
@@ -594,7 +550,7 @@ func (r restrictedTools) Run(ctx context.Context, name, args string) (string, er
 	return r.inner.Run(ctx, name, args)
 }
 
-// firstLine shortens a task prompt for a label.
+// firstLine 缩短任务提示以用作标签。
 func firstLine(text string) string {
 	text = strings.TrimSpace(text)
 	if i := strings.IndexByte(text, '\n'); i >= 0 {
@@ -611,14 +567,13 @@ func firstLine(text string) string {
 // Background (fire-and-forget) tasks
 // ---------------------------------------------------------------------------
 
-// ChildRunner is the slice of Runner that delegation needs. *Runner satisfies
-// it; tests inject a fake through SubagentConfig.NewChild to control child
-// execution without a real model.
+// ChildRunner 是委派所需的 Runner 子集。*Runner 满足它；测试通过 SubagentConfig.NewChild
+// 注入伪实现，以在没有真实模型的情况下控制子级执行。
 type ChildRunner interface {
 	Run(ctx context.Context, prompt string) (Result, error)
 }
 
-// newChild builds the child runner for one delegated task.
+// newChild 为一次被委派的任务构建子运行器。
 func (t *taskTools) newChild(label, persona string) ChildRunner {
 	opts := t.childOptions(label, persona)
 	if t.cfg.NewChild != nil {
@@ -627,37 +582,30 @@ func (t *taskTools) newChild(label, persona string) ChildRunner {
 	return &Runner{Opts: opts}
 }
 
-// BackgroundResults is the bounded queue of finished background task results
-// for one root run and all of its descendants. The wiring layer creates ONE
-// instance per root run and stores it on SubagentConfig.Background; because that
-// field is a pointer copied by value through every SubagentConfig, the root loop
-// (via Options.Subagent) and every taskTools in the tree see the same instance.
-// The type also owns the background semaphore, the task-id counter and the
-// per-run owner counter so those limits are shared across the whole tree. All
-// methods are concurrency-safe.
+// BackgroundResults 是属于一个根运行及其所有后代的、已完成后台任务结果的有界队列。
+// 接线层为每个根运行创建一个实例，并存储在 SubagentConfig.Background 上；由于该字段是指针，
+// 并通过每个 SubagentConfig 按值复制，根循环（通过 Options.Subagent）和树中的每个 taskTools
+// 都看到同一个实例。该类型还拥有后台信号量、任务 id 计数器和按运行划分的 owner 计数器，
+// 使这些限制在整个树中共享。所有方法都是并发安全的。
 //
-// A queue must never be shared by two independent root runs: every run at the
-// root sits at depth 0, so a depth-keyed queue would let one session drain
-// another's results (and the 50-entry cap would evict across sessions). Within
-// one tree, depth is still not a delivery key either: two sibling subagents
-// share a depth and each may spawn background children, so results are keyed by
-// a unique owner id assigned when the run is created. Depth is carried only as
-// diagnostic metadata.
+// 一个队列绝不能被两个独立的根运行共享：每个根运行都位于深度 0，
+// 因此以深度为键的队列会让一个会话抽取另一个会话的结果（且 50 条上限会跨会话淘汰）。
+// 在同一棵树内，深度同样不是投递键：两个同级子 agent 共享一个深度，且各自都可能派生后台子级，
+// 因此结果以运行时分配的唯一 owner id 为键。深度仅作为诊断元数据携带。
 //
-// LOOP WIRING (done outside this file, in loop.go): in runState.injectSteering,
-// after draining s.steer, append the results addressed to this run's owner:
+// 循环接线（在本文件之外、loop.go 中完成）：在 runState.injectSteering 中，
+// 抽取 s.steer 之后，追加发往本次运行 owner 的结果：
 //
 //	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
 //	    pending = append(pending, s.opts.Subagent.Background.DrainFor(s.bgOwner)...)
 //	}
 //
-// injectSteering already runs at every turn boundary, so a finished result
-// becomes a synthetic user message at the next boundary without any other
-// change. newRunState assigns the root owner via RootOwner(); childOptions
-// assigns each child its own owner via nextID(). Because the owner is cached on
-// the queue, a resumed Runner's later prompts still drain the same owner.
+// injectSteering 已在每个轮次边界运行，因此已完成的结果无需其他改动，
+// 就能在下一个边界变成一条合成用户消息。newRunState 通过 RootOwner() 分配根 owner；
+// childOptions 通过 nextID() 为每个子级分配自己的 owner。由于 owner 缓存在队列上，
+// 已恢复 Runner 的后续提示仍会抽取同一个 owner。
 //
-// Use Drain() (every owner) for diagnostics/tests only.
+// Drain()（所有 owner）只用于诊断/测试。
 type BackgroundResults struct {
 	mu      sync.Mutex
 	items   []bgResult
@@ -665,26 +613,25 @@ type BackgroundResults struct {
 	dropped int
 	seq     atomic.Uint64
 
-	// rootOwner is the stable identity of the root run that owns this queue.
-	// It is assigned lazily so a queue that is merely created but never used
-	// does not consume an id, and so retry prompts on one Runner share it.
+	// rootOwner 是拥有该队列的根运行的稳定身份。它采用延迟分配，
+	// 使仅被创建却从未使用的队列不会消耗 id，并使同一 Runner 上的重试提示共享它。
 	rootOwner atomic.Uint64
 
 	sem    chan struct{}
 	maxRun int
 }
 
-// bgResult is one queued result tagged with the owner that should receive it.
-// depth is retained for diagnostics only; it is never used for delivery.
+// bgResult 是一条排队的结果，标记了应当接收它的 owner。
+// depth 仅为诊断而保留，从不用于投递。
 type bgResult struct {
 	owner uint64
 	depth int
 	text  string
 }
 
-// NewBackgroundResults builds a background queue. cap bounds undrained results
-// (<=0 uses DefaultBackgroundResultsCap); maxConcurrent bounds simultaneous
-// background child runners (<=0 uses DefaultMaxBackgroundTasks).
+// NewBackgroundResults 构建一个后台队列。cap 限制未被抽取的结果（<=0 使用
+// DefaultBackgroundResultsCap）；maxConcurrent 限制同时运行的后台子运行器
+// （<=0 使用 DefaultMaxBackgroundTasks）。
 func NewBackgroundResults(cap, maxConcurrent int) *BackgroundResults {
 	if cap <= 0 {
 		cap = DefaultBackgroundResultsCap
@@ -700,9 +647,8 @@ func NewBackgroundResults(cap, maxConcurrent int) *BackgroundResults {
 	}
 }
 
-// RootOwner returns this queue's stable root-run identity. The first call wins;
-// concurrent callers all observe the same value. It is used once by newRunState
-// for a root Options with no owner assigned yet.
+// RootOwner 返回该队列稳定的根运行身份。首次调用胜出；并发调用者都观察到相同的值。
+// newRunState 对尚未分配 owner 的根 Options 只调用它一次。
 func (b *BackgroundResults) RootOwner() uint64 {
 	if id := b.rootOwner.Load(); id != 0 {
 		return id
@@ -714,14 +660,12 @@ func (b *BackgroundResults) RootOwner() uint64 {
 	return b.rootOwner.Load()
 }
 
-// Push enqueues text with no owner for diagnostics tests. Real delivery uses
-// PushFor with the delegating run's owner.
+// Push 把没有 owner 的文本入队，用于诊断测试。真实投递使用 PushFor，
+// 并传入委派运行的 owner。
 func (b *BackgroundResults) Push(text string) bool { return b.PushFor(0, 0, text) }
 
-// PushFor enqueues a finished result for owner. depth is diagnostic only. When
-// the queue is full the oldest entry is dropped (the newest results are the
-// most relevant to a still-running parent); the bool reports whether a drop
-// occurred.
+// PushFor 为 owner 把一条已完成的结果入队。depth 仅用于诊断。队列满时会丢弃最旧的条目
+// （最新的结果与仍在运行的父级最相关）；布尔返回值报告是否发生了丢弃。
 func (b *BackgroundResults) PushFor(owner uint64, depth int, text string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -736,12 +680,11 @@ func (b *BackgroundResults) PushFor(owner uint64, depth int, text string) bool {
 	return dropped
 }
 
-// Drain removes and returns every queued result in FIFO order. Use only for
-// diagnostics/tests: it ignores ownership.
+// Drain 按 FIFO 顺序移除并返回所有排队的结果。仅供诊断/测试使用：它忽略 owner。
 func (b *BackgroundResults) Drain() []string { return b.drain(0, true) }
 
-// DrainFor removes and returns only the results addressed to owner, in FIFO
-// order. Results for other owners stay queued for their own runs.
+// DrainFor 按 FIFO 顺序只移除并返回发往 owner 的结果。
+// 其他 owner 的结果继续排队，等待各自的运行来抽取。
 func (b *BackgroundResults) DrainFor(owner uint64) []string { return b.drain(owner, false) }
 
 func (b *BackgroundResults) drain(owner uint64, all bool) []string {
@@ -763,21 +706,21 @@ func (b *BackgroundResults) drain(owner uint64, all bool) []string {
 	return out
 }
 
-// Len reports how many results are currently queued.
+// Len 报告当前排队的结果数量。
 func (b *BackgroundResults) Len() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.items)
 }
 
-// Dropped reports how many results were evicted because the queue was full.
+// Dropped 报告因队列满而被淘汰的结果数量。
 func (b *BackgroundResults) Dropped() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.dropped
 }
 
-// tryAcquire reserves a background slot, reporting false when the cap is full.
+// tryAcquire 预留一个后台槽位，达到上限时返回 false。
 func (b *BackgroundResults) tryAcquire() bool {
 	select {
 	case b.sem <- struct{}{}:
@@ -793,14 +736,11 @@ func (b *BackgroundResults) nextID() uint64 { return b.seq.Add(1) }
 
 func (b *BackgroundResults) maxConcurrent() int { return b.maxRun }
 
-// runTaskBackground starts a child runner in a goroutine and returns an ack
-// immediately. When the child finishes its text is pushed to the shared queue
-// (for the parent loop to inject) and emitted as a parent EventNotice (for UI
-// visibility). Verification is not applied in background mode: the background
-// field takes precedence over verify. MaxDepth is enforced by the caller
-// (runTask) before this method is reached, and the child inherits
-// Depth+1 through childOptions, so a background child cannot spawn unbounded
-// background grandchildren.
+// runTaskBackground 在 goroutine 中启动子运行器并立即返回确认。子级完成时，其文本会被推送到
+// 共享队列（供父循环注入），并作为父级 EventNotice 发出（便于 UI 展示）。
+// 后台模式下不应用验证：background 字段优先于 verify。
+// MaxDepth 由调用方（runTask）在到达本方法之前检查，且子级通过 childOptions 继承 Depth+1，
+// 因此后台子级不能派生无界的后台孙级。
 func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args taskArgs) (string, error) {
 	bg := t.cfg.Background
 	if bg == nil {
@@ -836,8 +776,7 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 	id := bg.nextID()
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
 
-	// The result belongs to the run that delegated this task (this taskTools'
-	// owner), never to every run sharing the current depth.
+	// 结果属于委派此任务的运行（即该 taskTools 的 owner），绝不属于共享当前深度的所有运行。
 	owner, depth := t.owner, t.depth
 	go func() {
 		defer bg.release()
@@ -869,7 +808,7 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 // Shared task board
 // ---------------------------------------------------------------------------
 
-// BoardMessage is one typed message on the in-process task board.
+// BoardMessage 是进程内任务板上的一条带类型消息。
 type BoardMessage struct {
 	Seq  int    `json:"seq"`
 	From string `json:"from"`
@@ -878,7 +817,7 @@ type BoardMessage struct {
 	Body string `json:"body"`
 }
 
-// Board message kinds and bounded-capacity limits.
+// 任务板的消息种类和有界容量限制。
 const (
 	BoardKindInfo   = "info"
 	BoardKindAsk    = "ask"
@@ -886,7 +825,7 @@ const (
 
 	BoardMaxBodyBytes  = 4096
 	BoardMaxMessages   = 1000
-	BoardMaxTotalBytes = 2 << 20 // 2 MiB of body bytes
+	BoardMaxTotalBytes = 2 << 20 // 2 MiB 的消息体字节数
 )
 
 var (
@@ -896,8 +835,8 @@ var (
 	ErrBoardFull          = errors.New("task board: capacity reached")
 )
 
-// TaskBoard is a small in-process, bounded, concurrency-safe message board for
-// inter-agent coordination. It is deliberately dependency-free.
+// TaskBoard 是一个小型、进程内、有界且并发安全的消息板，用于 agent 间协调。
+// 它刻意不依赖任何外部包。
 type TaskBoard struct {
 	mu      sync.Mutex
 	entries []BoardMessage
@@ -905,16 +844,14 @@ type TaskBoard struct {
 	total   int
 }
 
-// TaskBoardIO is the narrow interface future board_post / board_read tools
-// should take as a parameter. It lives here so internal/tools can depend on an
-// interface without importing agent, and no new file is needed yet.
+// TaskBoardIO 是未来 board_post / board_read 工具应作为参数接收的窄接口。
+// 它放在这里，使 internal/tools 可以依赖一个接口而不必导入 agent，且目前无需新建文件。
 type TaskBoardIO interface {
 	Post(from, to, kind, body string) (int, error)
 	Read(since int, to string) []BoardMessage
 }
 
-// Post adds a message and returns its monotonically increasing sequence number.
-// It rejects self-posts, unknown kinds, oversized bodies and a full board.
+// Post 添加一条消息并返回其单调递增的序号。它会拒绝自发消息、未知种类、超大消息体和已满的板。
 func (b *TaskBoard) Post(from, to, kind, body string) (int, error) {
 	if strings.TrimSpace(from) == strings.TrimSpace(to) {
 		return 0, ErrBoardSelfPost
@@ -938,8 +875,8 @@ func (b *TaskBoard) Post(from, to, kind, body string) (int, error) {
 	return b.seq, nil
 }
 
-// Read returns messages with Seq > since, ordered by sequence. An empty to
-// returns every recipient; otherwise only messages addressed to to are returned.
+// Read 返回 Seq > since 的消息，按序号排序。to 为空时返回所有收件人的消息；
+// 否则只返回发给 to 的消息。
 func (b *TaskBoard) Read(since int, to string) []BoardMessage {
 	b.mu.Lock()
 	defer b.mu.Unlock()

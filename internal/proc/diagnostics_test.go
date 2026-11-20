@@ -98,8 +98,8 @@ func TestCommandSummary(t *testing.T) {
 }
 
 func TestCommandSummaryNeverRevealsEnvValues(t *testing.T) {
-	// Env values are counted but never printed, so a credential in the
-	// environment cannot leak through the summary.
+	// Env 值只计数、不打印，因此环境中的凭据
+	// 不会通过摘要泄露。
 	c := &Command{
 		Path: "tool",
 		Env:  []string{"API_KEY=supersecret-value", "REGION=cn-north"},

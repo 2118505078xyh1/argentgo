@@ -1,9 +1,9 @@
 package commands
 
-// Built-in /review: a read-only inspection of a dirty git tree. The only
-// commands it may issue are `git status --porcelain` and
-// `git diff --unified=3`, both through an injected runner so callers can
-// enforce the read-only boundary and tests need no real repository.
+// 内置 /review：对脏 git 工作树的只读检查。它唯一
+// 可发出的命令是 `git status --porcelain` 和
+// `git diff --unified=3`，两者都通过注入的 runner 执行，以便调用方
+// 强制只读边界，测试也无需真实仓库。
 
 import (
 	"errors"
@@ -17,25 +17,25 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// reviewLargeDiffLines flags a file whose diff adds an unusually large number
-// of lines. git status alone cannot report file sizes, so diff volume is the
-// read-only proxy used here.
+// reviewLargeDiffLines 标记某个文件的 diff 新增了异常多的
+// 行数。仅靠 git status 无法报告文件大小，因此这里用 diff 量作为
+// 只读的替代指标。
 const reviewLargeDiffLines = 200
 
-// CommandRunner runs a single read-only process and returns its stdout.
-// Implementations should reject any command other than the two git reads
-// Review asks for.
+// CommandRunner 运行单个只读进程并返回其 stdout。
+// 实现应拒绝 Review 请求的这两个 git 读取命令之外的
+// 任何命令。
 type CommandRunner interface {
 	Run(name string, args ...string) ([]byte, error)
 }
 
-// RunnerFunc adapts a function to CommandRunner.
+// RunnerFunc 将函数适配为 CommandRunner。
 type RunnerFunc func(name string, args ...string) ([]byte, error)
 
-// Run implements CommandRunner.
+// Run 实现 CommandRunner。
 func (f RunnerFunc) Run(name string, args ...string) ([]byte, error) { return f(name, args...) }
 
-// Finding is one compact review observation. Detail is always redacted.
+// Finding 是一条紧凑的 review 观察结果。Detail 始终经过脱敏。
 type Finding struct {
 	Kind   string // todo, debug, large-file, secret
 	File   string
@@ -43,14 +43,14 @@ type Finding struct {
 	Detail string
 }
 
-// ReviewReport is the result of a read-only diff review.
+// ReviewReport 是只读 diff 审查的结果。
 type ReviewReport struct {
 	Clean    bool
 	Files    []string
 	Findings []Finding
 }
 
-// String renders the compact, human-readable findings report.
+// String 渲染紧凑、易读的发现报告。
 func (r ReviewReport) String() string {
 	if r.Clean {
 		return "no changes"
@@ -75,8 +75,8 @@ func (r ReviewReport) String() string {
 	return out.String()
 }
 
-// Review inspects the working tree with two read-only git commands. It never
-// writes files, stages changes or shells out to anything else.
+// Review 用两条只读 git 命令检查工作树。它从不
+// 写文件、暂存更改或调用其他任何程序。
 func Review(runner CommandRunner) (ReviewReport, error) {
 	if runner == nil {
 		return ReviewReport{}, errors.New("commands: nil git command runner")
@@ -96,9 +96,9 @@ func Review(runner CommandRunner) (ReviewReport, error) {
 	return ReviewReport{Files: files, Findings: diffFindings(string(diff))}, nil
 }
 
-// ReviewCommand is the built-in slash-command descriptor. Registration lives
-// in internal/app; call Set.Add(ReviewCommand()) after Discover and route
-// `/review` to ReviewHook.Run.
+// ReviewCommand 是内置斜杠命令描述符。注册位于
+// internal/app 中；在 Discover 之后调用 Set.Add(ReviewCommand())，并将
+// `/review` 路由到 ReviewHook.Run。
 func ReviewCommand() Command {
 	return Command{
 		Name:        "review",
@@ -108,14 +108,14 @@ func ReviewCommand() Command {
 	}
 }
 
-// ReviewHook is the registration seam for the /review slash command. A caller
-// supplies a read-only CommandRunner (typically backed by internal/proc) and
-// invokes Run with the user's arguments.
+// ReviewHook 是 /review 斜杠命令的注册接缝。调用方
+// 提供只读的 CommandRunner（通常由 internal/proc 支撑），并
+// 用用户的参数调用 Run。
 type ReviewHook struct {
 	Runner CommandRunner
 }
 
-// Run executes the review and returns a prompt-ready findings report.
+// Run 执行审查并返回可直接用于提示词的发现报告。
 func (h ReviewHook) Run(_ string) (string, error) {
 	report, err := Review(h.Runner)
 	if err != nil {
@@ -124,8 +124,8 @@ func (h ReviewHook) Run(_ string) (string, error) {
 	return report.String(), nil
 }
 
-// Add registers built-in commands into a discovered set. Explicit commands
-// from markdown files win; Add never overwrites an existing name.
+// Add 将内置命令注册到已发现的集合中。来自 markdown 文件的显式命令
+// 优先；Add 从不覆盖已有名称。
 func (s *Set) Add(cmds ...Command) {
 	if s == nil {
 		return
@@ -171,9 +171,9 @@ type addedLine struct {
 
 var todoPattern = regexp.MustCompile(`\b(?:TODO|FIXME)\b`)
 
-// quotedSecretPattern covers the `apiKey := "value"` shape that
-// security.Redact's simple key/value scan can miss. The local pass runs first
-// so the quoted value is gone before the general redactor rewrites the line.
+// quotedSecretPattern 覆盖 `apiKey := "value"` 这种
+// security.Redact 的简单键值扫描可能遗漏的形态。本地处理先运行，
+// 以便在通用脱敏器重写该行之前去掉带引号的值。
 var quotedSecretPattern = regexp.MustCompile(`(?i)(api[_-]?key|secret|password|passwd|token|access[_-]?key|private[_-]?key)\s*(?::=|=|:)\s*["']([^"']{6,})["']`)
 
 func redactFinding(text string) string {
@@ -199,7 +199,7 @@ func diffFindings(diff string) []Finding {
 		case strings.HasPrefix(raw, "@@ "):
 			lineNo = hunkStart(raw)
 		case strings.HasPrefix(raw, " ") && !strings.HasPrefix(raw, "+++"):
-			// Context lines occupy a line in the new file too.
+			// 上下文行在新文件中也占据一行。
 			lineNo++
 		case strings.HasPrefix(raw, "+") && !strings.HasPrefix(raw, "+++"):
 			if file == "" {
@@ -276,8 +276,8 @@ func clipFinding(text string, limit int) string {
 	if limit <= 0 || len(text) <= limit {
 		return text
 	}
-	// Back up to a rune boundary before appending the ellipsis, otherwise a
-	// cut in the middle of a multi-byte rune leaves invalid UTF-8 behind.
+	// 追加省略号前先退回到 rune 边界，否则
+	// 在多字节 rune 中间截断会留下无效的 UTF-8。
 	cut := limit - 1
 	for cut > 0 && !utf8.RuneStart(text[cut]) {
 		cut--

@@ -1,35 +1,35 @@
 package commands
 
-// Command-name completion.
+// 命令名补全。
 //
-// CompleteCommands is a pure prefix matcher for slash commands: it never reads
-// files, spawns processes or mutates its arguments. It exists so a UI can offer
-// a live suggestion list without re-implementing the package's naming rules
-// (namespaces, frontmatter aliases, CJK input) in every frontend.
+// CompleteCommands 是针对斜杠命令的纯前缀匹配器：它从不读取
+// 文件、启动进程或修改其参数。它让 UI 能够提供
+// 实时建议列表，而无需在每种前端中重新实现本包的命名规则
+// （命名空间、frontmatter 别名、CJK 输入）。
 
 import (
 	"sort"
 	"strings"
 )
 
-// CompleteCommands returns every command whose Name or Aliases begin with
-// prefix. Matching rules:
+// CompleteCommands 返回所有 Name 或 Aliases 以 prefix 开头的
+// 命令。匹配规则：
 //
-//   - A leading '/' and surrounding whitespace are ignored, so a half-typed
-//     slash input such as "/rev" works directly.
-//   - Only the first whitespace-delimited token of prefix is considered; a
-//     partially typed argument after the name does not suppress matches.
-//   - Comparison is case-insensitive and rune-safe (multi-byte CJK names such
+//   - 忽略前导 '/' 和首尾空白，因此像 "/rev" 这样输入了一半的
+//     斜杠命令可直接使用。
+//   - 只考虑 prefix 的第一个以空白分隔的标记；名称后
+//     部分键入的参数不会抑制匹配。
+//   - 比较不区分大小写且按 rune 安全处理（多字节 CJK 名称会
 //     as 审查 match a 审 prefix). Full-width ASCII and the ideographic space
-//     fold to their half-width forms, covering input from Chinese IMEs.
-//   - Aliases declared in frontmatter match as well. For a plugin command an
-//     alias also matches with the namespace, e.g. alias "re" of "acme:review"
-//     is reachable as "acme:re".
-//   - An empty prefix matches everything, which makes one function usable for
-//     both the empty-query listing and incremental completion.
+//     折叠为半角形式，覆盖中文输入法的输入）。
+//   - frontmatter 中声明的别名同样匹配。对插件命令，别名还可
+//     带命名空间匹配，例如 "acme:review" 的别名 "re"
+//     可通过 "acme:re" 访问。
+//   - 空 prefix 匹配所有内容，因此一个函数既能用于
+//     空查询列举，也能用于增量补全。
 //
-// The result is a fresh slice sorted by Name (then Path for stable ties) and
-// never contains duplicates, even when a command matches via several names.
+// 结果是按 Name（并列时再按 Path 保证稳定）排序的新切片，
+// 即使某条命令通过多个名称匹配，也绝不包含重复项。
 func CompleteCommands(cmds []Command, prefix string) []Command {
 	key := completionKey(prefix)
 	out := make([]Command, 0, len(cmds))
@@ -47,7 +47,7 @@ func CompleteCommands(cmds []Command, prefix string) []Command {
 	return out
 }
 
-// Complete is the Set convenience wrapper around CompleteCommands.
+// Complete 是 Set 对 CompleteCommands 的便捷封装。
 func (s *Set) Complete(prefix string) []Command {
 	return CompleteCommands(s.List(), prefix)
 }
@@ -70,9 +70,9 @@ func completionMatches(cmd Command, key string) bool {
 	return false
 }
 
-// completionKey normalizes a user-typed prefix or a command name/alias into a
-// single comparable form. Width folding is done rune by rune before case
-// folding so a full-width Latin letter behaves exactly like its ASCII form.
+// completionKey 将用户键入的前缀或命令名/别名规范化为
+// 单一的可比较形式。宽度折叠在大小写折叠之前逐 rune 进行，
+// 折叠，使全角拉丁字母的行为与其 ASCII 形式完全一致。
 func completionKey(s string) string {
 	s = strings.TrimSpace(foldWidth(s))
 	s = strings.TrimPrefix(s, "/")
@@ -82,9 +82,9 @@ func completionKey(s string) string {
 	return strings.ToLower(s)
 }
 
-// foldWidth folds full-width ASCII and the ideographic space into their
-// half-width forms. It is shared with argument completion so both kinds of
-// input accept text typed through a Chinese IME.
+// foldWidth 将全角 ASCII 和表意空格折叠为
+// 半角形式。它与参数补全共用，因此两种输入都
+// 能接受通过中文输入法键入的文本。
 func foldWidth(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

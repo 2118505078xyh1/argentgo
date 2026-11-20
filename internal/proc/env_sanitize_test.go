@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// envHasValue reports whether any "K=V" entry in env has value as its value.
-// Tests set unique sentinel values with t.Setenv and assert on those values,
-// which keeps them deterministic regardless of the rest of the parent env.
+// envHasValue 报告 env 中是否有 "K=V" 条目的值等于 value。
+// 测试用 t.Setenv 设置唯一的哨兵值并针对这些值断言，
+// 从而无论父进程其余环境如何都能保持确定性。
 func envHasValue(env []string, value string) bool {
 	for _, entry := range env {
 		_, v, _ := strings.Cut(entry, "=")
@@ -41,8 +41,8 @@ func TestSanitizeEnv(t *testing.T) {
 		sessionEqVal = "session=eq=secret"
 	)
 
-	// The mixed-case private key is filtered on Windows (case-insensitive) and
-	// kept elsewhere (case-sensitive).
+	// 混合大小写的私有键在 Windows 上会被过滤（不区分大小写），
+	// 在其他平台上保留（区分大小写）。
 	mixedCaseKey := "argent_session_id"
 	mixedCaseWantGone := []string{caseVal}
 	mixedCaseWantKept := []string(nil)
@@ -125,7 +125,7 @@ func TestSanitizeEnv(t *testing.T) {
 					t.Errorf("entry %q missing from child env", want)
 				}
 			}
-			// Explicit entries must land at the end, verbatim and in order.
+			// 显式条目必须原样、按序放在末尾。
 			if len(tc.extra) > 0 {
 				if len(got) < len(tc.extra) {
 					t.Fatalf("result shorter than extra: len=%d, extra=%d", len(got), len(tc.extra))
@@ -141,8 +141,8 @@ func TestSanitizeEnv(t *testing.T) {
 	}
 }
 
-// TestIsHostPrivateEnvEntry exercises entry parsing that t.Setenv cannot
-// produce directly: bare KEY entries and values containing '='.
+// TestIsHostPrivateEnvEntry 演练 t.Setenv 无法直接产生的条目解析：
+// 裸 KEY 条目和值中含 '=' 的情况。
 func TestIsHostPrivateEnvEntry(t *testing.T) {
 	type entryCase struct {
 		entry string

@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// TestPromptBearerSchemeIsCaseInsensitive guards the HTTP auth boundary: per
-// RFC 7235 the authentication scheme is case-insensitive, so a client sending
-// "Authorization: bearer TOKEN" (or any mixed case) must authenticate exactly
-// like the canonical "Bearer TOKEN". A case-sensitive string prefix rejects
-// those clients with a spurious 401.
-// TestPromptBearerTokenStaysCaseSensitive ensures case folding applies only to
-// the scheme, never to the credential: "bearer SECRET" still fails when the
-// configured token uses different case, and a non-bearer scheme is rejected.
+// TestPromptBearerSchemeIsCaseInsensitive 守护 HTTP 认证边界：根据
+// RFC 7235，认证方案不区分大小写，因此发送
+// "Authorization: bearer TOKEN"（或任意混合大小写）的客户端必须
+// 与规范的 "Bearer TOKEN" 一样通过认证。区分大小写的字符串前缀
+// 会以虚假的 401 拒绝这些客户端。
+// TestPromptBearerTokenStaysCaseSensitive 确保大小写折叠只适用于
+// 方案，绝不适用于凭据：当配置的 token 大小写不同时，"bearer SECRET" 仍会失败，
+// 非 bearer 方案也会被拒绝。
 func TestPromptBearerTokenStaysCaseSensitive(t *testing.T) {
 	h := NewHandler(Config{Token: "s3cret", Runner: &fakeRunner{reply: "hi"}})
 	cases := []struct {

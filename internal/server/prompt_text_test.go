@@ -2,9 +2,9 @@ package server
 
 import "testing"
 
-// TestPromptText verifies the single prompt-extraction implementation used by
-// HTTP, --rpc and acp. Each case is run through both promptText (RPC/ACP params)
-// and requestText (HTTP body) to prove the two entry points stay unified.
+// TestPromptText 验证 HTTP、--rpc 和 acp 共用的单一提示提取实现。
+// 每个用例都分别通过 promptText（RPC/ACP 参数）
+// 和 requestText（HTTP 体）运行，以证明两个入口保持统一。
 func TestPromptText(t *testing.T) {
 	cases := []struct {
 		name string

@@ -78,7 +78,7 @@ func TestCompleteArgumentCJK(t *testing.T) {
 		})
 	}
 
-	// Full-width ASCII typed through an IME must match half-width candidates.
+	// 通过输入法键入的全角 ASCII 必须能匹配半角候选。
 	fullWidthCmd := Command{ArgumentHint: "DEV|Stage"}
 	got := CompleteArgument(fullWidthCmd, "ｓｔａ")
 	if !reflect.DeepEqual(got, []string{"Stage"}) {

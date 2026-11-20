@@ -2,29 +2,29 @@ package update
 
 import "strings"
 
-// AssetMatchReason is a stable, machine-comparable explanation of how an asset
-// was classified for a target platform.
+// AssetMatchReason 是对某个资源如何针对目标平台分类的、
+// 稳定且机器可比较的说明。
 type AssetMatchReason string
 
 const (
-	// AssetMatchReasonSelected marks the single asset FindAsset would pick.
+	// AssetMatchReasonSelected 标记 FindAsset 会选中的唯一资源。
 	AssetMatchReasonSelected AssetMatchReason = "selected"
-	// AssetMatchReasonEligible is a usable asset that lost on score.
+	// AssetMatchReasonEligible 是可用但在评分中落败的资源。
 	AssetMatchReasonEligible AssetMatchReason = "eligible"
-	// AssetMatchReasonNoURL means the asset cannot be downloaded.
+	// AssetMatchReasonNoURL 表示该资源无法下载。
 	AssetMatchReasonNoURL AssetMatchReason = "no-url"
-	// AssetMatchReasonNoise means the asset is a checksum, signature or metadata file.
+	// AssetMatchReasonNoise 表示该资源是校验和、签名或元数据文件。
 	AssetMatchReasonNoise AssetMatchReason = "noise"
-	// AssetMatchReasonWrongOS means the asset names another (or no) operating system.
+	// AssetMatchReasonWrongOS 表示该资源指定了另一个（或未指定）操作系统。
 	AssetMatchReasonWrongOS AssetMatchReason = "wrong-os"
-	// AssetMatchReasonWrongArch means the asset names a different architecture.
+	// AssetMatchReasonWrongArch 表示该资源指定了不同的架构。
 	AssetMatchReasonWrongArch AssetMatchReason = "wrong-arch"
-	// AssetMatchReasonInvalidTarget means goos or goarch was empty.
+	// AssetMatchReasonInvalidTarget 表示 goos 或 goarch 为空。
 	AssetMatchReasonInvalidTarget AssetMatchReason = "invalid-target"
 )
 
-// AssetMatchDiagnosis is the read-only verdict for one asset. The booleans
-// report the checks FindAsset performs; Reason collapses them into one label.
+// AssetMatchDiagnosis 是单个资源的只读结论。这些布尔值
+// 报告 FindAsset 所做的检查；Reason 将它们归纳为一个标签。
 type AssetMatchDiagnosis struct {
 	Name        string
 	Selected    bool
@@ -37,10 +37,10 @@ type AssetMatchDiagnosis struct {
 	ForeignArch bool
 }
 
-// DiagnoseAssetMatch explains every asset in the same order it was given. The
-// asset FindAsset would select is marked Selected; ties are resolved the same
-// way (first wins). Unlike FindAsset it never substitutes runtime.GOOS or
-// runtime.GOARCH, so identical arguments always produce identical output.
+// DiagnoseAssetMatch 按传入顺序解释每个资源。
+// FindAsset 会选中的资源被标记为 Selected；平局按同样的
+// 方式解决（第一个胜出）。与 FindAsset 不同，它从不替换 runtime.GOOS 或
+// runtime.GOARCH，因此相同参数总是产生相同输出。
 func DiagnoseAssetMatch(assets []Asset, goos, goarch string) []AssetMatchDiagnosis {
 	goos = strings.ToLower(strings.TrimSpace(goos))
 	goarch = strings.ToLower(strings.TrimSpace(goarch))

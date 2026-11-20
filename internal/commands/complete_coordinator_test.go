@@ -52,8 +52,8 @@ func TestCompleteArgumentCandidates(t *testing.T) {
 }
 
 func TestCompleteIdentifierFallback(t *testing.T) {
-	// Values holding whitespace cannot round-trip through an argument hint,
-	// so with fewer than two simple candidates they reach level 3 (identifier).
+	// 含空白的值无法通过参数提示往返传递，
+	// 因此在简单候选少于两个时会进入第 3 级（标识符）。
 	tests := []struct {
 		name      string
 		input     string
@@ -116,8 +116,8 @@ func TestCompleteEmptyInputListsEverything(t *testing.T) {
 
 func TestCompleteStableSortAndDedup(t *testing.T) {
 	available := []string{"Beta", "alpha", "beta", "Alpha", "context"}
-	// Case-folded sort key, original string as tie-breaker, exact duplicates
-	// removed; the same order is produced on every call.
+	// 按大小写折叠的排序键，以原字符串作并列决胜项，去除
+	// 完全重复项；每次调用都会产生相同顺序。
 	assertComplete(t, "", available, []string{"Alpha", "alpha", "Beta", "beta", "context"})
 	assertComplete(t, "/al", available, []string{"Alpha", "alpha"})
 	for i := 0; i < 5; i++ {
@@ -146,8 +146,8 @@ func TestCompleteDoesNotMutateInput(t *testing.T) {
 }
 
 func TestCompleteFallsBackWhenNoCommandMatches(t *testing.T) {
-	// "/cmd ze" is command-shaped but no command is named "cmd", so level 1
-	// fails and the trailing token completes through level 2.
+	// "/cmd ze" 形似命令，但没有名为 "cmd" 的命令，所以第 1 级
+	// 失败，末尾标记通过第 2 级补全。
 	assertComplete(t, "/cmd ze", []string{"zebra", "zone", "other"}, []string{"zebra"})
 }
 

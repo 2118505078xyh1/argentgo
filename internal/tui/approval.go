@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // approvalGrantKey scopes a session grant to one tool plus its detail. The NUL
@@ -54,6 +55,10 @@ type approvalRequest struct {
 	danger string
 	reply  chan bool
 	ctx    context.Context
+	// openedAt 记录对话框真正显示给操作者的时刻，供可选的按键宽限期判断。
+	// 排队等待的请求在被提升为当前对话框时会重新打戳，因此这里衡量的是
+	// “弹窗出现”而非“请求创建”的时间。零值与关闭宽限期时完全等价。
+	openedAt time.Time
 }
 
 // defaultsToDeny reports whether this request pre-selects Deny. Ordinary
@@ -115,6 +120,8 @@ func (m *Model) promoteApprovalLocked() {
 		if next.ctx != nil && next.ctx.Err() != nil {
 			continue
 		}
+		// 排队请求此刻才真正出现在屏幕上，重新打戳让宽限期从弹窗时刻算起。
+		next.openedAt = m.now()
 		m.pending = &next
 	}
 }
@@ -167,6 +174,7 @@ func (m *Model) approve(ctx context.Context, name, args, danger string) (bool, e
 	request := approvalRequest{name: name, args: args, danger: danger, reply: make(chan bool, 1), ctx: ctx}
 	m.appendTaskLocked(Task{Name: name, Args: args, Status: TaskPending})
 	if m.pending == nil {
+		request.openedAt = m.now()
 		m.pending = &request
 	} else {
 		m.approvalQueue = append(m.approvalQueue, request)

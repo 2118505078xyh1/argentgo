@@ -8,8 +8,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Resolved is everything one run needs after merging flags, config and
-// provider templates.
+// Resolved 是合并命令行标志、配置和提供方模板之后，一次运行所需的一切。
 type Resolved struct {
 	Options  cli.Options
 	Cfg      config.Config
@@ -29,19 +28,17 @@ type Resolved struct {
 	Mutating bool
 	System   string
 
-	// MaxParallel is the worker count for read-only tool batches. Values <= 1
-	// keep batches sequential; zero means "unset" and resolves to
-	// defaultMaxParallel in Resolve.
+	// MaxParallel 是只读工具批次的 worker 数量。<= 1 的值使批次串行执行；
+	// 零表示"未设置"，在 Resolve 中解析为 defaultMaxParallel。
 	MaxParallel int
 
-	// Budget and pricing.
+	// 预算与定价。
 	MaxTokens  int
 	MaxCostUSD float64
 	MaxSeconds int
 	Prices     map[string]agent.Price
 
-	// Extra workspace directories, an output schema request and the reasoning
-	// effort hint.
+	// 额外的工作区目录、输出 schema 请求以及推理强度提示。
 	AddDirs      []string
 	WriteRoots   []string
 	OutputSchema string
@@ -49,23 +46,21 @@ type Resolved struct {
 	TrustProject bool
 	Plugins      []string
 
-	// Post-run compaction. Zero selects the default threshold; a negative
-	// value disables the estimate-based trigger.
+	// 运行后压缩。零表示选用默认阈值；负值会禁用基于估算的触发。
 	AutoCompactTokens int
 	NoAutoCompact     bool
 
-	// Approve overrides the interactive approver; the TUI installs a modal
-	// approver here.
+	// Approve 覆盖交互式审批器；TUI 在这里安装一个模态审批器。
 	Approve security.Approver
 
-	// HookDispatcher overrides the shell dispatcher used by the hooks bridge;
-	// tests inject a fake so no hook process is spawned.
+	// HookDispatcher 覆盖 hooks 桥接器使用的 shell 分发器；测试会注入伪实现，
+	// 这样就不会派生任何钩子进程。
 	HookDispatcher HookDispatcher
 
 	Chatter llm.Chatter
 }
 
-// providerChoice is the resolved provider endpoint without the template type.
+// providerChoice 是已解析的提供方端点，不含模板类型。
 type providerChoice struct {
 	Name         string
 	Protocol     string

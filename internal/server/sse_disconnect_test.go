@@ -11,10 +11,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 )
 
-// disconnectRunner models a long-running upstream agent run: it blocks until
-// its context is cancelled, then reports that cancellation. It lets the tests
-// observe whether the SSE transport actually stops the run on client
-// disconnect instead of leaving it consuming tokens in the background.
+// disconnectRunner 模拟一个长时间运行的上游 agent：它阻塞直到
+// 其 context 被取消，然后报告该取消。它使测试能
+// 观察 SSE 传输在客户端断开时是否真的停止该运行，
+// 而不是让它在后台继续消耗 token。
 type disconnectRunner struct {
 	started   chan struct{}
 	cancelled chan struct{}
@@ -29,10 +29,10 @@ func (r *disconnectRunner) Prompt(ctx context.Context, _ string, _ func(string))
 
 func (r *disconnectRunner) Abort() {}
 
-// TestPromptClientDisconnectCancelsUpstream verifies that /v1/prompt drives
-// Runner.Prompt with a context derived from the request. When the client goes
-// away (request context cancelled) the upstream run must be cancelled and the
-// handler must return promptly, with no run left behind in the background.
+// TestPromptClientDisconnectCancelsUpstream 验证 /v1/prompt 用源自请求的
+// context 驱动 Runner.Prompt。当客户端离开（请求 context 被取消）时，
+// 上游运行必须被取消，且处理器必须及时返回，
+// 后台不留任何运行。
 func TestPromptClientDisconnectCancelsUpstream(t *testing.T) {
 	runner := &disconnectRunner{
 		started:   make(chan struct{}),
@@ -57,7 +57,7 @@ func TestPromptClientDisconnectCancelsUpstream(t *testing.T) {
 		t.Fatal("runner did not start")
 	}
 
-	// Simulate the client disconnecting while the run is in flight.
+	// 模拟客户端在运行进行中断开。
 	cancel()
 
 	select {
@@ -72,18 +72,18 @@ func TestPromptClientDisconnectCancelsUpstream(t *testing.T) {
 	}
 }
 
-// subscriberCount reports the number of live hub subscribers. It lives in a
-// test file so the production EventHub API stays unchanged.
+// subscriberCount 报告 hub 中活跃订阅者的数量。它放在测试文件中，
+// 使生产环境的 EventHub API 保持不变。
 func (h *EventHub) subscriberCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.subs)
 }
 
-// TestEventStreamUnsubscribesOnClientDisconnect verifies that the /v1/event
-// SSE handler releases its hub subscription and its serving goroutine when the
-// client disconnects. A leaked subscription would keep receiving published
-// events and a leaked goroutine would keep the heartbeat ticker alive.
+// TestEventStreamUnsubscribesOnClientDisconnect 验证 /v1/event 的
+// SSE 处理器在客户端断开时释放其 hub 订阅和 servicing goroutine。
+// 泄漏的订阅会继续接收发布的事件，泄漏的 goroutine 会让
+// 心跳定时器一直活着。
 func TestEventStreamUnsubscribesOnClientDisconnect(t *testing.T) {
 	hub := NewEventHub()
 	handler := newEventHandlerInterval(hub, time.Hour)
@@ -102,8 +102,8 @@ func TestEventStreamUnsubscribesOnClientDisconnect(t *testing.T) {
 		t.Fatalf("subscribers after disconnect = %d, want 0 (subscription leak)", got)
 	}
 
-	// Publishing after the client left must not panic or block on a stale
-	// subscriber; the hub should have no live subscribers at all.
+	// 客户端离开后发布不得在陈旧的订阅者上 panic 或阻塞；
+	// hub 应完全没有活跃订阅者。
 	hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "after-disconnect"})
 	if got := hub.subscriberCount(); got != 0 {
 		t.Fatalf("subscribers after publish = %d, want 0", got)

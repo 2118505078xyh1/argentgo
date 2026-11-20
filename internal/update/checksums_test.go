@@ -33,11 +33,11 @@ func TestParseChecksumsAcceptsCanonicalForms(t *testing.T) {
 	}
 }
 
-// TestParseChecksumsAcceptsFileNamesWithConsecutiveSpaces is the regression for
-// a parser that located the separator by searching for "  " anywhere in the
-// line. A binary-mode manifest produced by `sha256sum -b` uses " *" after the
-// digest, so a file name containing two consecutive spaces made the search find
-// that pair inside the name and reject an otherwise valid checksums.txt.
+// TestParseChecksumsAcceptsFileNamesWithConsecutiveSpaces 是针对如下解析器的
+// 回归测试：该解析器通过在行中任意位置搜索 "  " 来定位分隔符。
+// 由 `sha256sum -b` 生成的二进制模式清单在摘要后使用 " *"，
+// 因此文件名若含两个连续空格，搜索会在名称内部找到该
+// 空格对，从而拒绝一个本来有效的 checksums.txt。
 func TestParseChecksumsAcceptsFileNamesWithConsecutiveSpaces(t *testing.T) {
 	const hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

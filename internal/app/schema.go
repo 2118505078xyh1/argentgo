@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// jsonSchema is the practical subset enforced for --output-schema: type,
-// required, properties, enum and items. Unknown keywords are ignored rather
-// than rejected so real-world schemas remain usable.
+// jsonSchema 是 --output-schema 所强制执行的实用子集：type、required、properties、enum 和 items。
+// 未知关键字会被忽略而非拒绝，使真实世界的 schema 仍然可用。
 type jsonSchema struct {
 	Type       string                     `json:"type"`
 	Required   []string                   `json:"required"`
@@ -38,8 +37,7 @@ func schemaTypeValid(value string) bool {
 	return false
 }
 
-// validateOutputText checks the final assistant text against the schema. A
-// single fenced JSON block is accepted, but prose around the document is not.
+// validateOutputText 根据 schema 检查最终的助手文本。接受单个围栏 JSON 块，但文档周围的正文不允许。
 func validateOutputText(schemaText, text string) error {
 	schema, err := decodeSchema(schemaText)
 	if err != nil {
@@ -99,7 +97,7 @@ func validateSchemaValue(value any, schema jsonSchema, path string) error {
 	case "object":
 		object, ok := value.(map[string]any)
 		if !ok {
-			return nil // the type check above already reported this
+			return nil // 上面的类型检查已经报告了这一点
 		}
 		for _, key := range schema.Required {
 			if _, present := object[key]; !present {
@@ -187,8 +185,7 @@ func jsonKind(value any) string {
 	}
 }
 
-// decodeJSONValue parses one raw JSON value, keeping numbers exact until
-// looseJSON normalizes them.
+// decodeJSONValue 解析一个原始 JSON 值，在 looseJSON 规范化之前保持数字的精确性。
 func decodeJSONValue(raw []byte) any {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.UseNumber()
@@ -199,7 +196,7 @@ func decodeJSONValue(raw []byte) any {
 	return value
 }
 
-// looseJSON normalizes numbers before comparisons so 1 and 1.0 match an enum.
+// looseJSON 在比较之前规范化数字，使 1 和 1.0 能匹配同一个枚举值。
 func looseJSON(value any) any {
 	switch typed := value.(type) {
 	case json.Number:
@@ -236,8 +233,8 @@ func shortJSON(value any) string {
 	return text
 }
 
-// correctiveInstruction turns a validation failure into a system message the
-// next turn can act on without changing the tool set or the session history.
+// correctiveInstruction 把验证失败转换为一条系统消息，下一轮次可以据此行动，
+// 而无需改变工具集或会话历史。
 func correctiveInstruction(schema string, err error) string {
 	var b strings.Builder
 	b.WriteString("\nThe previous reply did not satisfy the required output schema: ")

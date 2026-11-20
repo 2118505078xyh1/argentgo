@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// InstructionSources on nil/empty/all-blank input returns nil, and skips blank
-// sources within a mixed input (matching RelevantInstructions/OrderInstructions).
+// InstructionSources 对 nil/空/全空白输入返回 nil，并跳过
+// 混合输入中的空白来源（与 RelevantInstructions/OrderInstructions 一致）。
 func TestInstructionSourcesEmptyAndBlankSources(t *testing.T) {
 	if got := InstructionSources(nil); got != nil {
 		t.Fatalf("nil docs = %#v, want nil", got)
@@ -33,8 +33,8 @@ func TestInstructionSourcesEmptyAndBlankSources(t *testing.T) {
 	}
 }
 
-// A single instruction has no ancestor in the set, so it is never boundary
-// limited; all of its provenance fields are reported correctly.
+// 单条指令在集合中没有祖先，因此从不受边界
+// 限制；其所有溯源字段都被正确报告。
 func TestInstructionSourcesSingle(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "项目", "子目录")
 	src := filepath.Join(dir, "CLAUDE.md")
@@ -51,8 +51,8 @@ func TestInstructionSourcesSingle(t *testing.T) {
 	}
 }
 
-// The core table: nesting decides BoundaryLimited, depth grows with nesting,
-// CJK paths are handled, and same-directory files do not limit each other.
+// 核心表格：嵌套决定 BoundaryLimited，深度随嵌套增长，
+// 处理 CJK 路径，且同目录文件不互相限制。
 func TestInstructionSourcesTable(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "项目") // CJK component
@@ -76,8 +76,8 @@ func TestInstructionSourcesTable(t *testing.T) {
 	tests := []struct {
 		name string
 		in   []Instruction
-		// wantLimited is the expected BoundaryLimited value per entry, aligned
-		// with in (all inputs keep sources, so lengths match).
+		// wantLimited 是每个条目预期的 BoundaryLimited 值，与
+		// in 对齐（所有输入都保留来源，因此长度一致）。
 		wantLimited []bool
 		wantOrder   []string // source paths, to assert order + identity
 	}{
@@ -161,9 +161,9 @@ func TestInstructionSourcesTable(t *testing.T) {
 	}
 }
 
-// Depth must increase by exactly one per nesting level and agree with
-// OrderInstructions' pathDepth metric; CJK directory names count as ordinary
-// path components (one separator each).
+// 深度必须每嵌套一层恰好增加一，并与
+// OrderInstructions 的 pathDepth 度量一致；CJK 目录名算作普通
+// 路径组成部分（各计一个分隔符）。
 func TestInstructionSourcesDepthMatchesPathDepth(t *testing.T) {
 	base := t.TempDir()
 	d0 := filepath.Join(base, "AGENTS.md")
@@ -184,8 +184,8 @@ func TestInstructionSourcesDepthMatchesPathDepth(t *testing.T) {
 	}
 }
 
-// InstructionSources is pure: the input slice is untouched and the result is a
-// fresh slice whose mutation cannot leak back to the caller's docs.
+// InstructionSources 是纯函数：输入切片不变，结果是一个
+// 新切片，对其的修改不会泄漏回调用方的 docs。
 func TestInstructionSourcesIsPure(t *testing.T) {
 	base := t.TempDir()
 	in := []Instruction{
@@ -205,9 +205,9 @@ func TestInstructionSourcesIsPure(t *testing.T) {
 	}
 }
 
-// TestInstructionSourcesCaseInsensitiveAncestorOnWindows guards the documented
-// case-insensitive containment used to detect an ancestor scope on Windows;
-// it is a no-op on other platforms.
+// TestInstructionSourcesCaseInsensitiveAncestorOnWindows 守护文档中记录的
+// Windows 上不区分大小写的包含关系，用于检测祖先作用域；
+// 在其他平台上为空操作。
 func TestInstructionSourcesCaseInsensitiveAncestorOnWindows(t *testing.T) {
 	if filepath.Separator != '\\' {
 		t.Skip("case-insensitive path containment applies on Windows only")

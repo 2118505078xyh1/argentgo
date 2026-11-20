@@ -46,8 +46,8 @@ func TestApplyReplacesTheBinary(t *testing.T) {
 
 	stale := target + StaleSuffix
 	if runtime.GOOS == "windows" {
-		// The previous binary is kept next to the new one; a running exe cannot
-		// be deleted, only renamed.
+		// 旧二进制文件保留在新文件旁边；正在运行的 exe 无法
+		// 被删除，只能重命名。
 		if got := readFile(t, stale); got != "old build" {
 			t.Fatalf("%s = %q, want the old build", stale, got)
 		}
@@ -70,7 +70,7 @@ func TestApplyDropsAStaleBackupFirst(t *testing.T) {
 	if got := readFile(t, target); got != "new build" {
 		t.Fatalf("target = %q", got)
 	}
-	// Whatever remains at .old must be the previous build, never the stale junk.
+	// .old 处剩下的必须是上一个构建版本，绝不能是陈旧垃圾。
 	if data, err := os.ReadFile(target + StaleSuffix); err == nil && string(data) == "junk from a crashed update" {
 		t.Fatal("the stale .old file survived the update")
 	}
@@ -117,9 +117,9 @@ func TestApplyKeepsTheTargetOnAFailedSwap(t *testing.T) {
 	dir := t.TempDir()
 	target := stage(t, dir, "argent.exe", "old build")
 	dest := stage(t, dir, "download/argent.exe", "new build")
-	// Making the install directory read-only would not be portable (Windows
-	// ignores the mode), so this test only covers the missing-source guard: the
-	// target must still be intact afterwards.
+	// 将安装目录设为只读并不具可移植性（Windows
+	// 会忽略该权限位），因此该测试仅覆盖源文件缺失的保护：
+	// 目标在之后必须仍然完好。
 	if err := Apply(filepath.Join(dir, "gone"), target); err == nil {
 		t.Fatal("Apply accepted a missing source")
 	}

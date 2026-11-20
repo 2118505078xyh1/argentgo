@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-// secretKeyIndicators are case-insensitive substrings of a KEY=VALUE token's
-// key whose value must never reach a log line. Separators in the key are
-// normalised to '_' before matching, so API-KEY, --api-key and API_KEY are all
-// recognised. Deliberately conservative: over-redacting a diagnostic line is
-// cheap, while leaking a credential into a log is not.
+// secretKeyIndicators 是 KEY=VALUE 令牌的键中不区分大小写的子串，
+// 其值绝不能出现在日志行中。匹配前键中的分隔符会被
+// 规范化为 '_'，因此 API-KEY、--api-key 和 API_KEY 都会
+// 被识别。故意保守：过度脱敏一条诊断行的代价很低，
+// 而把凭据泄露到日志中则不然。
 var secretKeyIndicators = []string{
 	"password", "passwd", "pwd", "secret", "token",
 	"credential", "api_key", "access_key", "private_key", "session_key",
@@ -17,20 +17,20 @@ var secretKeyIndicators = []string{
 
 const redactedValue = "***"
 
-// CommandSummary returns a compact, single-line, log-safe description of c:
-// the process path and arguments (with credential-like values redacted), its
-// timeout and its tree-kill mode. It is a pure diagnostic helper for logs and
+// CommandSummary 返回 c 的紧凑、单行、日志安全的描述：
+// 进程路径和参数（凭据类值已脱敏）、超时时间和进程树终止模式。
+// 它是用于日志和调试输出的纯诊断辅助函数；从不修改 c，也不启动任何东西。
 // debug output; it never mutates c or spawns anything.
 //
-// The format is:
+// 格式为：
 //
 //	cmd="<path> <arg1> <arg2>..." timeout=<duration|none> killTree=<bool> env=<count>
 //
-// Each argument of the form KEY=VALUE or --KEY=VALUE is redacted to KEY=***
-// when KEY looks credential-like; other tokens pass through unchanged. %q keeps
-// CJK and other printable Unicode readable in the quoted command line. Env
-// entries are only counted, never printed, so a secret in c.Env cannot leak
-// through this summary either. A nil command summarises as "<nil>".
+// 每个 KEY=VALUE 或 --KEY=VALUE 形式的参数，当 KEY 看起来像凭据时
+// 会被脱敏为 KEY=***；其他令牌原样通过。%q 让
+// CJK 和其他可打印 Unicode 在带引号的命令行中保持可读。Env
+// 条目只计数、不打印，因此 c.Env 中的密钥也不会通过
+// 该摘要泄露。nil 命令摘要为 "<nil>"。
 func CommandSummary(c *Command) string {
 	if c == nil {
 		return "<nil>"
@@ -50,9 +50,9 @@ func CommandSummary(c *Command) string {
 		strings.Join(parts, " "), timeout, c.KillTree, len(c.Env))
 }
 
-// redactToken redacts the value of a KEY=VALUE / --KEY=VALUE token when KEY
-// looks credential-like. Tokens without a '=', with an empty value, or with an
-// ordinary key are returned unchanged.
+// 当 KEY 看起来像凭据时，redactToken 对 KEY=VALUE / --KEY=VALUE 令牌
+// 的值进行脱敏。没有 '='、值为空或键普通的令牌
+// 原样返回。
 func redactToken(token string) string {
 	key, value, ok := strings.Cut(token, "=")
 	if !ok || value == "" {
@@ -64,9 +64,9 @@ func redactToken(token string) string {
 	return token
 }
 
-// looksSecret reports whether key denotes a credential. Comparison is
-// case-insensitive and treats '-' and '.' as '_', so --api-key, API-KEY and
-// api.key all normalise to api_key and match the same indicator.
+// looksSecret 报告 key 是否表示凭据。比较不区分大小写，
+// 且把 '-' 和 '.' 视为 '_'，因此 --api-key、API-KEY 和
+// api.key 都会规范化为 api_key 并匹配同一指示符。
 func looksSecret(key string) bool {
 	normalised := strings.ToLower(strings.NewReplacer("-", "_", ".", "_").Replace(key))
 	for _, indicator := range secretKeyIndicators {

@@ -1,9 +1,9 @@
 package commands
 
-// Rich-text summaries of commands for help screens and completion lists.
+// 用于帮助界面和补全列表的命令富文本摘要。
 //
-// FormatCommandSummary is a pure capability: it formats the declarative fields
-// of a Command, reads no files, spawns no processes and never mutates cmd.
+// FormatCommandSummary 是一个纯能力：它格式化 Command 的声明性字段，
+// 不读取文件、不启动进程，也从不修改 cmd。
 
 import (
 	"strings"
@@ -14,25 +14,25 @@ const (
 	summaryHintIndent = "  " // leading cells of the argument-hint (second) line
 )
 
-// FormatCommandSummary renders cmd as a bounded-width, one- or two-line
-// summary suitable for a help screen or a completion dropdown.
+// FormatCommandSummary 将 cmd 渲染为宽度受限、一行或两行的
+// 摘要，适合帮助界面或补全下拉框。
 //
 // Layout:
-//   - The "head" is cmd.Name followed by cmd.Description, separated by two
-//     spaces; empty fields are skipped (a name-only or description-only head is
+//   - "head" 是 cmd.Name 后跟 cmd.Description，以两个空格分隔；
+//     空字段被跳过（仅有名称或仅有描述的 head 也会出现）；
 //     allowed).
-//   - When both the head and cmd.ArgumentHint are non-empty, the summary has
-//     two lines: the head, then the hint indented by two spaces. Otherwise it
-//     has a single line holding whichever part is present; if every field is
-//     empty the result is "".
+//   - 当 head 和 cmd.ArgumentHint 均非空时，摘要有
+//     两行：head，再加缩进两个空格的提示。否则
+//     只有一行，包含存在的那部分；若所有字段都为空，
+//     结果为 ""。
 //
-// Each line is truncated to at most width terminal cells (display columns).
-// Truncation is rune-safe: it never splits a UTF-8 rune and never cuts an East
-// Asian wide/full-width rune in half — CJK ideographs, kana, Hangul, fullwidth
-// forms and emoji count as two cells and are included only when both cells fit.
-// Combining marks and other zero-width runes count as zero cells. Embedded
-// newlines and repeated whitespace collapse to single spaces so a field always
-// stays on one line. A width <= 0 leaves no room and yields "".
+// 每行被截断到最多 width 个终端单元格（显示列）。
+// 截断按 rune 安全处理：绝不拆分 UTF-8 rune，也绝不将东亚
+// 宽/全角 rune 拦腰截断 —— CJK 汉字、假名、韩文、全角
+// 形式和 emoji 各占两格，仅当两格都放得下时才包含。
+// 组合标记及其他零宽 rune 计为零格。内嵌
+// 换行和重复空白折叠为单个空格，因此字段始终
+// 保持在一行内。width <= 0 没有空间，结果为 ""。
 func FormatCommandSummary(cmd Command, width int) string {
 	if width <= 0 {
 		return ""
@@ -62,13 +62,13 @@ func FormatCommandSummary(cmd Command, width int) string {
 	return truncateToWidth(head, width) + "\n" + truncateToWidth(summaryHintIndent+hint, width)
 }
 
-// summaryField normalizes one declarative field to single-spaced, single-line
-// text so the summary never grows an extra line from the input.
+// summaryField 将单个声明性字段规范化为单空格、单行的
+// 文本，使摘要不会因输入而多出一行。
 func summaryField(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// stringDisplayWidth returns the number of terminal cells s occupies.
+// stringDisplayWidth 返回 s 占用的终端单元格数。
 func stringDisplayWidth(s string) int {
 	w := 0
 	for _, r := range s {
@@ -77,8 +77,8 @@ func stringDisplayWidth(s string) int {
 	return w
 }
 
-// truncateToWidth returns the longest prefix of s whose display width is at
-// most width, cutting only at rune boundaries. Wide runes are never split.
+// truncateToWidth 返回 s 的最长前缀，其显示宽度不超过
+// width，且只在 rune 边界处截断。宽 rune 从不被拆分。
 func truncateToWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -99,10 +99,10 @@ func truncateToWidth(s string, width int) string {
 	return b.String()
 }
 
-// runeDisplayWidth is the number of terminal cells a rune occupies: 0 for
-// control, combining and zero-width runes, 2 for East Asian wide/full-width
-// runes (and emoji), 1 otherwise. The ranges cover the CJK blocks relevant to
-// Chinese, Japanese and Korean command descriptions without a dependency.
+// runeDisplayWidth 是某个 rune 占用的终端单元格数：控制字符、
+// 组合符和零宽 rune 为 0，东亚宽/全角
+// rune（及 emoji）为 2，其余为 1。这些范围覆盖与
+// 中文、日文和韩文命令描述相关的 CJK 区块，无需依赖外部库。
 func runeDisplayWidth(r rune) int {
 	switch {
 	case r == 0 || r < 32 || (r >= 0x7f && r < 0xa0):
@@ -136,8 +136,8 @@ func inRanges(r rune, ranges [][2]rune) bool {
 	return false
 }
 
-// wideRuneRanges is a compact subset of Unicode East Asian Wide/Fullwidth
-// blocks (and wide emoji), sorted ascending for inRanges' early exit.
+// wideRuneRanges 是 Unicode 东亚宽/全角区块（以及宽
+// emoji）的紧凑子集，按升序排列以便 inRanges 提前退出。
 var wideRuneRanges = [][2]rune{
 	{0x1100, 0x115F}, // Hangul Jamo initial consonants
 	{0x231A, 0x231B}, // watch, hourglass
@@ -175,8 +175,8 @@ var wideRuneRanges = [][2]rune{
 	{0x20000, 0x3FFFD}, // CJK Ext B and beyond
 }
 
-// zeroWidthRuneRanges covers combining marks and format characters that do not
-// advance the cursor on their own.
+// zeroWidthRuneRanges 覆盖那些自身不推进光标的组合标记和
+// 格式字符。
 var zeroWidthRuneRanges = [][2]rune{
 	{0x0300, 0x036F}, // combining diacritical marks
 	{0x0483, 0x0489},

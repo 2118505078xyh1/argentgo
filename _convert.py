@@ -25,6 +25,22 @@ def make_fresh_dump():
                         out[(norm(p), i)] = l
     return out
 
+def load_dump_file(fn):
+    d = {}
+    if not os.path.exists(fn):
+        return d
+    for l in open(fn, encoding="utf-8"):
+        l = l.rstrip("\n")
+        m = re.match(r"^(.*?):(\d+): (.*)" + chr(36), l)
+        if m:
+            d[(norm(m.group(1)), int(m.group(2)))] = m.group(3)
+    return d
+
+def load_snapshots():
+    """Multiple (file,line)->text snapshots from different points in time."""
+    return [load_dump_file(fn) for fn in
+            ["_comment_dump.txt", "_missed_dump.txt", "_fresh_dump.txt"]]
+
 def load_line_trans():
     trans = {}
     for tf in sorted(glob.glob("_t*.txt")):
@@ -54,16 +70,29 @@ def load_canonical():
         data[(cur, txt)] = zh
     return data
 
+def current_texts():
+    """Map (file, exact-line-text) -> True for all comment lines in current files."""
+    out = {}
+    for (p, num), txt in make_fresh_dump().items():
+        out[(p, txt)] = True
+    return out
+
 def main():
-    fresh = make_fresh_dump()
+    snaps = load_snapshots()
+    cur = current_texts()
     trans = load_line_trans()
     canon = load_canonical()
     bad = []
     added = 0
     for (p, num), zh in trans.items():
-        txt = fresh.get((p, num))
+        txt = None
+        for snap in snaps:
+            t = snap.get((p, num))
+            if t is not None and (p, t) in cur:
+                txt = t
+                break
         if txt is None:
-            bad.append((p, num, "NO FRESH LINE")); continue
+            bad.append((p, num, "NO VALID SNAPSHOT TEXT")); continue
         key = (p, txt)
         if key in canon and canon[key] == zh:
             continue

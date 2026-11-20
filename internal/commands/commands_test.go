@@ -34,7 +34,7 @@ Review $ARGUMENTS carefully.`
 }
 
 func TestParseStrictCRLFFrontmatter(t *testing.T) {
-	// A .md saved with Windows CRLF line endings must parse exactly like LF.
+	// 以 Windows CRLF 换行保存的 .md 文件必须能像 LF 一样正确解析。
 	text := "---\r\n" +
 		"description: Review a diff\r\n" +
 		"allowed-tools: bash, read\r\n" +

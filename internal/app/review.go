@@ -9,8 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/commands"
 )
 
-// reviewRunner is deliberately narrower than a general shell: /review may run
-// only the two read-only git commands the review report needs.
+// reviewRunner 刻意比通用 shell 更窄：/review 只能运行审查报告所需的两个只读 git 命令。
 type reviewRunner struct{ root string }
 
 func (r reviewRunner) Run(name string, args ...string) ([]byte, error) {
@@ -28,8 +27,7 @@ func (r reviewRunner) Run(name string, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-// reviewPrompt returns an injected instruction for slash-style /review input.
-// Returning ok=false leaves normal prompts untouched.
+// reviewPrompt 为斜杠式的 /review 输入返回一条注入的指令。返回 ok=false 时普通提示保持原样。
 func reviewPrompt(root, prompt string) (string, bool) {
 	text := strings.TrimSpace(prompt)
 	if text != "/review" && !strings.HasPrefix(text, "/review ") {

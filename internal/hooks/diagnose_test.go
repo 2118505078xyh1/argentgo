@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// issueKey is the stable part of a ConfigIssue used for table comparisons;
-// Message is checked separately (non-empty, mentions the command).
+// issueKey 是 ConfigIssue 中用于表格比较的稳定部分；
+// Message 单独检查（非空，且提到该命令）。
 type issueKey struct {
 	Kind    IssueKind
 	Event   Event

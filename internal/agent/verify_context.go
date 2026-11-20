@@ -16,47 +16,40 @@ import (
 
 const (
 	maxSourceAnchors   = 8
-	maxSourceFileBytes = 1 << 20 // 1 MiB per file
-	maxSourceLineBytes = 240     // per emitted source line
+	maxSourceFileBytes = 1 << 20 // 每个文件 1 MiB
+	maxSourceLineBytes = 240     // 每条输出的源代码行
 	sourceTruncMark    = "..."
 
-	// sourceAnchorPattern matches file:line references in tool output.
-	// Group 1 is an optional Windows drive prefix ("C:\"), group 2 the path,
-	// group 3 the line number and group 4 an optional column number.
-	// The path class intentionally permits most non-whitespace characters
-	// (e.g. "~" from Windows RUNNER~1 temp dirs, spaces are excluded) since
-	// absolute temp paths on CI runners contain characters a narrow class
-	// would drop, breaking anchoring. Colons are excluded so the drive
-	// prefix and the trailing :line remain unambiguous.
+	// sourceAnchorPattern 匹配工具输出中的 file:line 引用。
+	// 第 1 组是可选的 Windows 盘符前缀（"C:\"），第 2 组是路径，
+	// 第 3 组是行号，第 4 组是可选的列号。
+	// 路径字符类刻意允许大多数非空白字符（例如 Windows RUNNER~1 临时目录中的 "~"，空格被排除），
+	// 因为 CI runner 上的绝对临时路径包含狭窄字符类会丢弃的字符，那会破坏锚定。
+	// 排除冒号，使盘符前缀和结尾的 :行号 保持无歧义。
 	sourceAnchorPattern = `([A-Za-z]:[\\/])?([^\s:]+):([0-9]{1,6})(?::([0-9]{1,6}))?`
 )
 
 type sourceAnchor struct {
-	name string // path as it appeared in the tool output
-	path string // resolved, root-confined absolute path
+	name string // 工具输出中出现的原样路径
+	path string // 解析后、限定在 root 内的绝对路径
 	line int
 }
 
-// AnchorSourceLines turns file:line references in output into short source
-// windows with a █ marker on the offending line. It composes with (and does
-// not replace) VerificationFeedback: callers append the returned block to the
-// feedback text so a lint/test failure shows the offending source.
+// AnchorSourceLines 把输出中的 file:line 引用转换为简短的源码窗口，并在有问题的行上标记 █。
+// 它与 VerificationFeedback 组合使用（而非取代它）：调用方把返回的文本块追加到反馈文本中，
+// 使 lint/测试失败能显示出问题的源码。
 //
-// The function never writes to disk and never escapes root: absolute paths
-// outside root and any path containing a .. escape are ignored. File reads are
-// bounded (1 MiB per file, at most maxSourceAnchors anchors), binary/NUL
-// files are skipped, and every emitted line is clipped on a UTF-8 rune
-// boundary and redacted through llm.RedactText. Output is a sequence of
-// blocks of the form:
+// 该函数从不写磁盘，也从不越出 root：root 之外的绝对路径以及任何含 .. 越界的路径都会被忽略。
+// 文件读取是有界的（每个文件 1 MiB，最多 maxSourceAnchors 个锚点），二进制/NUL 文件会被跳过，
+// 每一行输出都在 UTF-8 rune 边界处裁剪，并经 llm.RedactText 脱敏。输出是一系列如下形式的文本块：
 //
 //	fname:12:
-//	10| line before
-//	11| line before
-//	█12| offending line
-//	13| line after
+//	10| 前一行
+//	11| 前一行
+//	█12| 有问题的行
+//	13| 后一行
 //
-// If no usable anchor is found, or every referenced file is unreadable, it
-// returns "" so callers can leave their feedback unchanged.
+// 如果没有找到可用的锚点，或每个被引用的文件都不可读，则返回 ""，使调用方保持反馈不变。
 func AnchorSourceLines(output, root string, pad int) string {
 	if strings.TrimSpace(output) == "" {
 		return ""
@@ -111,16 +104,14 @@ func AnchorSourceLines(output, root string, pad int) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// looksLikeSourcePath filters out non-path tokens such as "ERROR:404". A real
-// file reference always carries a separator or a file extension.
+// looksLikeSourcePath 过滤掉非路径的标记，例如 "ERROR:404"。真实的文件引用总带有分隔符或文件扩展名。
 func looksLikeSourcePath(s string) bool {
 	return strings.ContainsAny(s, "./\\")
 }
 
-// resolveSourcePath confines raw to root. Relative paths are joined onto root
-// and re-checked with filepath.Rel; absolute paths are accepted only when
-// they are already inside root. Any .. escape or outside-root result is
-// rejected. The returned path is absolute and always underneath root.
+// resolveSourcePath 把 raw 限定在 root 内。相对路径会拼接到 root 上，并用 filepath.Rel 重新检查；
+// 绝对路径只有在已位于 root 内时才会被接受。任何 .. 越界或越出 root 的结果都会被拒绝。
+// 返回的路径是绝对路径，且始终位于 root 之下。
 func resolveSourcePath(raw, root string) (string, bool) {
 	cleaned := filepath.Clean(raw)
 	if cleaned == "" || cleaned == "." {
@@ -150,9 +141,8 @@ func isOutsideRoot(rel string) bool {
 		filepath.IsAbs(rel)
 }
 
-// renderSourceWindow appends one anchored window to b. It reports whether a
-// window was emitted (false when the file is unreadable or the line is past
-// the end of the file).
+// renderSourceWindow 向 b 追加一个锚定窗口。它报告是否输出了窗口
+// （文件不可读或行号超出文件末尾时为 false）。
 func renderSourceWindow(b *strings.Builder, a sourceAnchor, pad int) bool {
 	lines, ok := readSourceLines(a.path)
 	if !ok || a.line > len(lines) {
@@ -182,8 +172,8 @@ func renderSourceWindow(b *strings.Builder, a sourceAnchor, pad int) bool {
 	return true
 }
 
-// readSourceLines reads a bounded, text-only source file. NUL bytes, invalid
-// UTF-8, empty files and files larger than maxSourceFileBytes are skipped.
+// readSourceLines 读取一个有界的纯文本源文件。NUL 字节、无效 UTF-8、空文件以及大于
+// maxSourceFileBytes 的文件都会被跳过。
 func readSourceLines(path string) ([]string, bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -200,16 +190,15 @@ func readSourceLines(path string) ([]string, bool) {
 	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	lines := strings.Split(text, "\n")
-	// A trailing newline terminates the last real line; it is not an extra
-	// empty line to show in a window.
+	// 末尾换行只是终止最后一行真实内容，并不是要在窗口中显示的额外空行。
 	if len(lines) > 1 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
 	return lines, true
 }
 
-// clipSourceLine redacts then bounds one source line, cutting on a rune
-// boundary so the emitted text is always valid UTF-8.
+// clipSourceLine 先脱敏再限制一行源代码的长度，在 rune 边界处裁剪，
+// 使输出的文本始终是合法 UTF-8。
 func clipSourceLine(line string) string {
 	line = llm.RedactText(line)
 	if len(line) <= maxSourceLineBytes {

@@ -70,8 +70,8 @@ func TestServerShutdownSetsClosingFlag(t *testing.T) {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
-	// Shutdown launches registered hooks in goroutines, so wait briefly for the
-	// atomic flag instead of assuming the callback has finished on return.
+	// Shutdown 在 goroutine 中启动已注册的钩子，因此应短暂等待
+	// 原子标志，而不是假设回调在返回时已经完成。
 	deadline := time.Now().Add(time.Second)
 	for !h.closing.Load() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)

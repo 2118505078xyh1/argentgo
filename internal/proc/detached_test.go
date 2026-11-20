@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// fakeChild is a process that can be told to stay alive past a timeout without
-// launching a real OS process.
+// fakeChild 是一个无需启动真实 OS 进程，就能被告知存活到超时之后的
+// 假进程。
 type fakeChild struct {
 	pid  int
 	code int
-	// finishNow makes Wait complete immediately; otherwise it waits for done.
+	// finishNow 让 Wait 立即完成；否则它等待 done。
 	finishNow bool
 	done      chan struct{}
 	closeOnce sync.Once
@@ -55,8 +55,8 @@ func (f *fakeChild) wasKilled() bool {
 	return f.killed
 }
 
-// installFakeStarter swaps in a starter that returns one fake process. The
-// returned pointer lets tests inspect what the fake saw after RunWithTimeout.
+// installFakeStarter 换入一个返回单个假进程的启动器。
+// 返回的指针让测试在 RunWithTimeout 之后检查假进程看到了什么。
 func installFakeStarter(t *testing.T, child *fakeChild, seed string) **Process {
 	t.Helper()
 	var p *Process
@@ -104,7 +104,7 @@ func TestRunWithTimeoutKeepsChildAliveWhenKeepOnTimeout(t *testing.T) {
 		t.Fatalf("live output lost the partial bytes: %q", live.Output())
 	}
 
-	// The promoted child is still alive; killing through its handle reaps it.
+	// 被提升的子进程仍存活；通过其句柄终止可回收它。
 	live.Kill()
 	select {
 	case <-live.Done():
@@ -157,12 +157,12 @@ func TestRunWithTimeoutReturnsOutputAndExitCodeForAFastCommand(t *testing.T) {
 	}
 }
 
-// expiredContext simulates the narrow timeout/ctx race deterministically: its
-// Err() is already non-nil (the caller's deadline elapsed) while Done() is
-// still open, so select can only pick the soft-timeout case. That is exactly
-// the state the tie-break in RunWithTimeout has to handle — a real context
-// whose deadline fires a moment before the timer yields the same Err() value
-// by the time the timeout case is executed.
+// expiredContext 确定性地模拟狭窄的 timeout/ctx 竞争：
+// 其 Err() 已非 nil（调用方截止时间已到），而 Done()
+// 仍开放，因此 select 只能选择软超时分支。这正是
+// RunWithTimeout 的平局裁决必须处理的状态——真实 context 的
+// 截止时间比定时器早一瞬触发时，到执行超时分支时
+// 会产生相同的 Err() 值。
 type expiredContext struct{}
 
 func (expiredContext) Deadline() (time.Time, bool) { return time.Time{}, false }
@@ -170,13 +170,13 @@ func (expiredContext) Done() <-chan struct{}       { return nil }
 func (expiredContext) Err() error                  { return context.DeadlineExceeded }
 func (expiredContext) Value(any) any               { return nil }
 
-// TestRunWithTimeoutContextDeadlineBeatsCoincidentTimeout guards the
-// timeout/ctx race in RunWithTimeout. c.Timeout is the soft "promote to a
-// background job" deadline while ctx is the caller's hard bound; when both
-// fire around the same time select can pick the timer even though the context
-// is already done. Before the fix, KeepOnTimeout then returned a live child
-// that outlived the caller's hard deadline (runPromotableBash's runCtx is
-// exactly such a caller), turning a bounded call into a runaway job.
+// TestRunWithTimeoutContextDeadlineBeatsCoincidentTimeout 守护
+// RunWithTimeout 中的 timeout/ctx 竞争。c.Timeout 是软性的"提升为
+// 后台作业"截止时间，而 ctx 是调用方的硬界限；两者
+// 几乎同时触发时，select 可能选择定时器，即使 context
+// 已经结束。修复之前，KeepOnTimeout 随后返回一个活过调用方硬
+// 截止时间的子进程（runPromotableBash 的 runCtx 正是
+// 这样的调用方），把有界调用变成失控的作业。
 func TestRunWithTimeoutContextDeadlineBeatsCoincidentTimeout(t *testing.T) {
 	child := newFakeChild(4242, 9, false)
 	slot := installFakeStarter(t, child, "")

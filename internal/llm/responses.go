@@ -282,7 +282,15 @@ type responsesEvent struct {
 	Delta       string `json:"delta"`
 	OutputIndex int    `json:"output_index"`
 	Message     string `json:"message"`
-	Item        *struct {
+	// Arguments 是 response.function_call_arguments.done 携带的完整参数字符串。
+	// 它是该次调用参数的权威来源：网关可能不发送增量、只发送这个事件，
+	// 或增量在传输中丢失，此时只能靠它还原出正确的工具参数。
+	Arguments string `json:"arguments"`
+	// ItemID 是该事件对应的输出项 id，在网关省略 call_id 时作为 id 兜底。
+	ItemID string `json:"item_id"`
+	// Name 是部分版本在参数完成事件中附带的函数名。
+	Name string `json:"name"`
+	Item *struct {
 		Type      string `json:"type"`
 		ID        string `json:"id"`
 		CallID    string `json:"call_id"`
@@ -422,6 +430,23 @@ streamLoop:
 		case "response.function_call_arguments.delta":
 			if partial := partials[event.OutputIndex]; partial != nil {
 				partial.arguments.WriteString(event.Delta)
+			}
+		case "response.function_call_arguments.done":
+			// 参数完成事件携带最终、完整的参数字符串。忽略它会让"只发该事件、
+			// 不发增量"的网关（或增量丢失的流）回退到 "{}"，导致工具以错误参数
+			// 被调用。这里的参数是权威值，覆盖此前累积的增量；事件未携带参数时
+			// 保留增量，避免用空串抹掉已收到的内容。
+			partial := partials[event.OutputIndex]
+			if partial == nil {
+				partial = &responsesPartial{}
+				order = append(order, event.OutputIndex)
+				partials[event.OutputIndex] = partial
+			}
+			partial.id = firstNonEmpty(partial.id, event.ItemID)
+			partial.name = firstNonEmpty(partial.name, event.Name)
+			if event.Arguments != "" {
+				partial.arguments.Reset()
+				partial.arguments.WriteString(event.Arguments)
 			}
 		case "response.output_item.done":
 			if event.Item == nil || event.Item.Type != "function_call" {

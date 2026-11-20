@@ -6,9 +6,9 @@ import (
 	"unicode/utf8"
 )
 
-// countClusters walks the cluster boundaries produced by the package. It is
-// used only for the "never exceeds the cap" property; concrete expected strings
-// below are written out literally so a bug in clusterEnd cannot hide there.
+// countClusters 遍历包产生的字簇边界。它
+// 只用于"从不超过上限"这一属性；下面具体的预期字符串
+// 都以字面写出，这样 clusterEnd 中的 bug 无法在那里藏身。
 func countClusters(s string) int {
 	n := 0
 	for i := 0; i < len(s); {
@@ -96,7 +96,7 @@ func TestClipGraphemesKeepsRegionalFlagPair(t *testing.T) {
 }
 
 func TestClipGraphemesKeepsHangulJamo(t *testing.T) {
-	// L + V + T jamo form one syllable cluster.
+	// L + V + T jamo 组成一个音节字簇。
 	s := "\u1100\u1161\u11A8"
 	if n := countClusters(s); n != 1 {
 		t.Fatalf("jamo cluster count = %d, want 1", n)

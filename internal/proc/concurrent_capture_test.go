@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestCaptureSurvivesConcurrentFlush guards the invariant that Run relies on
-// when awaitOutcome gives up waiting for cmd.Wait (a killed child can leave a
-// descendant holding a stdout/stderr pipe open, so exec's copy goroutines are
-// still running). Flush and String must not race with the copy goroutine's
-// writes. Before the fix this test is reported as a data race under -race.
+// TestCaptureSurvivesConcurrentFlush 守护 Run 在 awaitOutcome 放弃等待
+// cmd.Wait 时所依赖的不变量（被终止的子进程可能留下一个持有 stdout/stderr
+// 管道的后代，因此 exec 的拷贝 goroutine 仍在运行）。
+// Flush 和 String 不得与拷贝 goroutine 的写入竞争。
+// 修复之前，该测试在 -race 下会被报告为数据竞争。
 func TestCaptureSurvivesConcurrentFlush(t *testing.T) {
 	cb := &cappedBuffer{max: 64}
 	cw := newUTF8CarryWriter(cb)
@@ -20,8 +20,8 @@ func TestCaptureSurvivesConcurrentFlush(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			// One byte at a time forces the carry writer to mutate carry on
-			// every call, maximising the overlap with Flush on the other side.
+			// 一次一个字节，迫使进位写入器在每次调用都修改 carry，
+			// 最大化与另一侧 Flush 的重叠。
 			for _, b := range []byte("中文测试") {
 				_, _ = cw.Write([]byte{b})
 			}

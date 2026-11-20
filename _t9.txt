@@ -1,0 +1,247 @@
+===== internal/tui/markdown.go
+149	是簇边界和单元格宽度的唯一权威；在这里复用它
+150	使记录换行与 TextWidth/Clip/Wrap 保持一致。
+164	wrapStyled 对带样式的片段换行：有空格时在空格处断行，
+165	否则硬断（这是中文的常见路径）。断点落在
+166	字素簇之间，使多 rune 的 emoji 保持完整。
+231	wrappedBlock 用每行都带的前缀包装纯文本。
+248	toolLines 渲染 name(args-summary) 加上截断的输出预览。
+291		 只折叠与剩余行数一样多的片段。最后
+292		 一个片段被截断，而不是把任意长的行折叠进
+293		 每个片段，直到限额检查拒绝它们。
+312	editCall 同时覆盖 edit schema 和 multi_edit 批次 schema。Edits
+313	递归保存批次中每个文件的调用。
+322	editTexts 返回 edit 或 multi_edit 调用的 before/after 文本。
+323	非 edit 工具、格式错误的 JSON 或缺失的一侧返回 ok=false，使
+324	调用方保留原来的输出预览渲染。
+363	diffPreviewLines 用与普通工具输出预览相同的行预算和 "N more lines"
+364	标记渲染差异。相邻的 "-"/"+" 行按词
+365	对齐，使小改动只高亮变化的词。
+372		 仅当两行都仍在预算内时才配对，使行数
+373		 和 "N more lines" 结果与整行基准一致。
+396	plainDiffRow 用单个整行 span 渲染不成对的差异行，这是
+397	孤立删除或新增仍然回退到的原始行为。
+415	wordDiffRow 渲染成对 del/add 行的一侧。未变化的片段
+416	保持行的普通样式；变化的片段获得强背景色，使
+417	被编辑的词突出。各片段共享一个按显示单元格累加的宽度预算，
+418	越过边界的片段在字素边界处被截断，而不是在 rune 中间切开
+419	（使 CJK 和 emoji 保持完整）。
+448	changedWordStyle 给变化的词一个彩色背景带。它复用
+449	失败/工具的调色板颜色，使主题和 NO_COLOR 的降级方式
+450	与渲染器的其余部分一致。
+461	countLines 统计行数，而不分配 strings.Split 会为
+462	过大工具输出构建的 []string。
+470	wrapFirst 镜像 Wrap 的一步：返回第一个折叠后的片段和
+471	未消费的剩余部分，一找到第一个断点就停止。它
+472	通过 nextGrapheme 遍历字素簇 —— 与 Wrap、Clip
+473	和 Buffer.WriteString 使用的同一权威 —— 使 ZWJ emoji、旗帜或组合序列
+474	绝不会被撕到两个预览行之间。在这里用 RuneWidth 逐个 rune 测量
+475	过去会在行尾留下悬空的连接符或半面旗帜。
+506	wrapLimited 最多折叠 maxLines 个片段；最后一个被截断，使
+507	单个巨大行的开销为 O(maxLines*width)，而不是 O(行长度) 个片段。
+535	summarizeArgs 选出唯一值得展示的参数：让工具调用一眼可辨的
+536	path、command 或 query。
+
+===== internal/tui/markdown_diff_test.go
+78	 小差异在两个上限之下：展开显示每一行并去掉
+79	 溢出标记。
+
+===== internal/tui/markdown_table.go
+5	本文件刻意自包含：它添加 markdown 表格渲染
+6	而不触碰 markdown.go。主入口接受 textWidth 和 wrap
+7	作为注入函数，使布局可在没有 Palette 的情况下测试；传入
+8	nil 则选用本包真实的 TextWidth/Wrap 实现。
+19	renderMarkdownTable 把 lines 中每个被识别的 markdown 表格块替换
+20	为对齐的行。其他所有内容原样复制。当某行含 '|' 且紧随其后的一行是
+21	仅由 '-' 以及每格可选的前导/尾随 ':' 构成的分隔符行时，
+22	该块被识别，例如 |---|:---:|---:|。其后含 '|' 的行是正文行；
+23	第一个不含 '|' 的行
+24	结束该块。
+59	splitTableRow 按 '|' 切分并丢弃由前导或尾随竖线产生的空端，
+60	然后修剪每个单元格。内部空单元格被保留。
+75	parseTableDelimiter 只接受至少三个破折号、且最多一个前导和一个尾随冒号的单元格。
+76	这种严格性使普通的
+77	两列行不会被误认为分隔符。
+119	tableColumnWidths 测量每个单元格，然后每次把最宽的列缩小
+120	一个单元格，直到整行放得进 width。一行占用 3*n+1 个单元格的竖线
+121	和空格开销："| c0 | c1 | ... |"。
+189	 第一遍遍历单元格：折叠成列大小的片段，并硬截断
+190	 窄列仍放不下的任何片段（宽 rune、伪造的测量值）。
+200			 Wrap 会把触发断行的空格保留在下一个
+201			 片段；修剪它，使列不会偏移一个单元格。
+242	cellClusters 逐个字素簇遍历 text，报告字节
+243	范围 [start, end) 和该簇的测量宽度。nextGrapheme 与
+244	TextWidth、Clip、Wrap 和 Buffer.WriteString 使用同一边界权威，因此
+245	单元格被切割时 ZWJ emoji、旗帜或组合序列保持完整。
+246	宽度仍通过注入的 measure 计算，使自定义宽度模型继续
+247	工作；只有切割点变成簇边界。
+283		 一个把 "…" 测量得比列还宽的 measure：丢弃该标记。
+
+===== internal/tui/markdown_table_grapheme_test.go
+8	表格单元格截断辅助函数是包中最后一个仍逐个 rune
+9	遍历的宽度路径。其他所有地方（TextWidth、Clip、Wrap、
+10	Buffer.WriteString、wrapInput）都按字素簇测量，使 ZWJ emoji、
+11	旗帜或组合序列在切割处不会留下悬空的连接符或半面
+12	旗帜。这些测试为表格单元格固定同样的规则。
+17	 共 4 个单元格；3 个单元格的预算容得下整个家庭 emoji，但容不下
+18	 其后的 CJK rune。按 rune 遍历的循环在第一个
+19	 图形处停止，在省略号前留下悬空的 ZWJ。
+33	 单单元格列容不下双单元格的旗帜。必须丢弃整个簇，
+34	 而不是在第一个区域指示符后截断。
+42	 调用方可以注入一个只在空白处断开、且不硬断长 token 的
+43	 breaker。使用这样的 breaker 时，整个单元格会到达
+44	 truncateTableCell，后者仍必须在字素边界处切割。
+
+===== internal/tui/markdown_table_test.go
+37	 相同输入每次都必须产生逐字节一致的输出。
+77	 即使宽度窄到不可能，也通过把每列缩小到其一单元格的
+78	 最小值来保持在请求的预算内。
+117	 真实表格块不得吞掉其后紧跟的纯文本行。
+162	 按 rune 计数的测量让每个汉字算作一个单元格，而不是
+163	 TextWidth 报告的两个单元格，证明注入的函数被使用了。
+187	 注入的 breaker 决定过宽的单元格在哪里被拆分。
+
+===== internal/tui/markdown_wrap_test.go
+9	wrapStyled 对记录的带样式 span 换行。其断点必须落在
+10	字素边界上，与 TextWidth/Clip/Wrap 使用相同的规则，使多 rune
+11	emoji 绝不会被切成两半（输入框已经遵守此规则）。
+54			 任何输出行都不得包含会渲染成损坏字形的悬空 ZWJ/修饰符。
+55			 重建输入是真正的不变量：
+56			 换行不得添加或丢弃任何 rune。
+89	 普通文本必须像以前一样换行；只有字素簇改变。
+102	markdownLines 为普通记录段落驱动 wrapStyled；emoji
+103	必须走完整路径，而不只是辅助函数。
+123	markdown 表格必须遵守与普通记录行相同的、按前缀调整的内容预算。
+124	markdownLines 会给每个渲染行前置 "◆ " 助手标记（或
+125	其缩进），因此把完整正文宽度交给
+126	表格渲染器过去会把右边框推过记录边缘。
+143	 该块仍是渲染好的表格（有分隔线），而不是被丢弃的文本。
+
+===== internal/tui/model.go
+10	EntryKind 对一个记录块分类。
+13	 记录块种类。
+22	AttemptKind 是附着在记录块上的未提交结果。
+23	它仅是展示元数据：agent 历史永远看不到这些标签。
+26	 UI 可以加徽章的尝试结果。
+34	Entry 是一个记录块。助手文本在流式传输时累积；
+35	工具条目携带调用和截断的输出。失败/重试/取消的行
+36	会设置 Attempt，使操作员一眼可见。
+49	 推理块的仅用于展示的计时。Entry 没有公开的 time
+50	 字段；这些值在首次绘制时由 reasoningLines 打上，仅用于
+51	 构建单行摘要，因此不改变公共 API 或事件。
+56	SessionInfo 是可选会话栏的一行。Title 是生成的
+57	（或显式重命名的）标题；Path 保留给提示和钩子使用。
+63	BufferPos 是已渲染缓冲区中基于 0 的 (row, col) 位置。鼠标
+64	报告基于 1；run 循环在调用
+65	选择方法前减一。
+71	TurnAction 是 undo / retry / rename 的窄接缝。TUI 从不
+72	导入 session 或 app 包；由集成方提供行为。
+75	Config 为 Model 提供种子。
+87	KeyAction 告诉事件循环，模型更新后某个按键请求什么。
+90	 一个按键可以产生的动作。
+101	entryCacheKey 捕获改变某个记录条目渲染方式的所有输入。
+102	按条目保留它（而非整个正文一个键），
+103	使流式增量或工具状态变化只重绘单个块。
+120	entryCacheSlot 是与 Model.entries 按下标对齐的一个已渲染条目。
+126	Model 是整个 UI 状态。它不拥有终端：每个方法都可以由
+127	测试驱动，且只有 run 循环触碰屏幕。
+155	 notices 是按严重度排序的状态通知栈。新的状态
+156	 消息进入这里；下面两个旧字段仅为让仍直接写它们的
+157	 代码继续工作而保留（栈为空时 statusLineLocked 回退到
+158	 它们）。
+161	 基于 0 的缓冲区坐标中的文本选择。从 MouseDown 到 MouseUp
+162	 selecting 为 true；anchor 和 active 在 MouseUp 后保留，使该范围
+163	 之后仍可被复制。
+168	 dirty 记录两次绘制之间的内容变化。run 循环以此门控
+169	 重绘；缓冲区差异仍是
+170	 实际写入终端内容的最终权威。
+187	 可选的头部元数据。两者都未设置时，头部保持这些字段
+188	 出现之前的经典样式。
+192	 动作钩子由集成方安装。nil 表示该命令被识别但会以清晰的
+193	 "未接线"通知作答。
+199	 可选的侧边栏。三者默认全部隐藏，使经典
+200	 记录视图及其按键绑定逐字节不变。
+207	 sessionFilter 是显示在会话行上方的已解析模糊查询；
+208	 sessionFiltering 在该过滤栏持有键盘时为 true。
+209	 两者在会话栏显示前都是无效果的。
+232	New 返回一个可渲染的模型。空的 Theme 选择深色
+233	调色板，使早于主题功能的调用方保持不变。
+265	SetContextInfo 提供可选的头部元数据：模型的 context
+266	窗口（用于用量百分比）和预格式化的成本字符串。传入 0
+267	和 "" 恢复原始头部。在 run 循环绘制时调用是安全的。
+279	MouseDown 在基于 0 的缓冲区位置开始选择。它替换任何
+280	 先前的选择。
+290	MouseDrag 扩展当前选择。没有活动 MouseDown 的拖拽被
+291	 忽略，因此杂散的移动报告无法创建选择。
+302	MouseUp 结束拖拽并保留该范围供 SelectedText 使用。
+314	ClearSelection 完全丢弃当前选择。
+324	SelectionActive 报告当前是否正在进行拖拽。
+331	HasSelection 报告是否有非空范围可复制。
+340	selectionRangeLocked 按阅读顺序（左上优先）返回选择端点，
+341	与拖拽方向无关。
+350	SelectedText 提取选择覆盖的单元格的纯文本。
+351	 宽 rune 的延续单元格被跳过，每行右修剪，使
+352	 结果便于粘贴。没有选择或
+353	 缓冲区为空时返回 ""。
+387			 由 joinSelectedRows 还原。inCode 跨行延续，支持被折行切开的代码段。
+403	MouseWheel 把滚轮报告映射到现有的三行滚动行为。
+
+===== internal/tui/model_input.go
+9	externalEditorRun 在临时提示文件上启动解析出的编辑器。
+10	它是包变量，像 clipboardWrite 和 editorLookPath 一样，使测试可以
+11	换成假编辑器而不启动真实进程。生产环境把编辑器接到
+12	真实的终端流，因为它在运行期间拥有屏幕。
+22	当 run 循环安装 externalEditorScreen 时，它包装编辑器
+23	进程，使 TUI 能先离开备用屏幕（和原始模式）。nil
+24	回调让仅使用模型的调用方（包括测试）保持不变。
+27	HandleKey 应用一次按键并报告循环应做什么。
+51		 Ctrl+L 被解码但其他方面未使用；会话栏打开时
+52		 它聚焦过滤栏。它不触碰提示，使 /help 这样的斜杠
+53		 命令仍能正常输入。
+203	openExternalEditorLocked 通过 $VISUAL / $EDITOR 编辑当前提示。
+204	提示被写入临时文件，编辑器独占使用
+205	终端，然后把文件读回提示。每条失败
+206	路径都是空操作：原始文本保持不变，循环永不中断。
+258	filterKeyLocked 在会话过滤栏持有键盘时路由按键。
+259	过滤是实时的：每次按键都重新渲染侧边栏。Esc 取消并
+260	清空查询，Enter 确认并保留，Ctrl+L 离开焦点而不
+261	改变查询。此模式下任何按键都不会被转发到提示。
+286		 无事可做
+366	requestActionLocked 向 run 循环报告一个动作。未安装的钩子
+367	让命令保持可发现，但绝不假装它做了什么。
+
+===== internal/tui/model_mutate.go
+10	工具输出在进入模型时就被限制：单次读取生成的
+11	文件不得把 100 MB 钉在内存中直到进程退出。
+12	头+尾窗口同时保留有趣的开头和最后几行（错误
+13	通常在那里）。截断感知字节和行，且绝不在
+14	UTF-8 rune 中间切开。
+19	markerReserve 为 "[…N 字节省略…]" 标记预留空间，使存储的
+20	字符串即使追加提示后仍在 maxToolOutputBytes 之内。
+24	AppendAttempt 向记录添加未提交的尝试徽章。
+38	SetStatus 在状态行显示一条短暂的信息消息。
+45	SetStatusSeverity 显示一条带显式严重度的短暂消息。
+46	 高严重度通知在存活期间优先于信息性通知。
+53	Scroll 把记录向后（正）或向底部（负）滚动。
+60	transcriptMetricsLocked 返回纯滚动算术所需的输入。
+61	Paint 每帧缓存已渲染的行数和视口高度；在
+62	首次绘制之前（或刚追加条目之后）我们重新推导一个计数，
+63	使按键仍能滚动，而不会被钳制到陈旧的零。
+119	setStatusSeverityLocked 发布一条状态通知。空文本退休所有
+120	 存活的通知，保留旧 setStatusLocked("") "清空状态行"
+121	 在提交时和动作成功后使用的行为。
+143	clearNoticeStack 退休所有存活通知而不重建栈，因此
+144	 其中的互斥锁从不被复制，序号保持唯一。
+151	PruneNotices 退休 TTL 已过的通知。run 循环每次 tick
+152	 调用它，使过期不依赖状态行的重绘。
+161	AppendUser 添加一个用户块。
+183	AppendReasoning 添加（或扩展）一个推理块。
+197	AppendTool 添加一个已完成或运行中的工具调用。输出在这里、在入口处
+198	受限，使单个条目绝无法在内存中钉住无界字符串。
+216	truncateToolOutput 保留输出的头尾窗口，丢弃
+217	中间。同时强制字节和行预算，且每次切割都落在
+218	UTF-8 rune 边界，使 CJK 文本和 emoji 永不损坏。
+227	 头窗口：至多 headBytes 字节和 headLines 行。
+232	 尾窗口：至多 tailBytes 字节和 tailLines 行。
+248	runeFloor 返回 <= limit 且开启一个 UTF-8 rune 的最大 i。
+263	runeCeil 返回 >= limit 且开启一个 UTF-8 rune 的最小 i。

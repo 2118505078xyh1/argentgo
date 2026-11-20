@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// asyncConfig builds a config with an optional background hook and an optional
-// synchronous hook. Both get generous timeouts so only the behaviour under
-// test (background execution) can make a run slow.
+// asyncConfig 构建一个带有可选后台钩子和可选
+// 同步钩子的配置。两者都设置宽松的超时，使只有被测行为
+// （后台执行）能让运行变慢。
 func asyncConfig(asyncName, syncName string) *Config {
 	commands := make([]Command, 0, 2)
 	if asyncName != "" {
@@ -41,8 +41,8 @@ func TestDispatchRunsAsyncHookWithoutBlocking(t *testing.T) {
 			case started <- struct{}{}:
 			default:
 			}
-			// Bounded wait so a regression that makes Run wait for the async
-			// hook fails on elapsed time instead of hanging the test binary.
+			// 有界等待，这样使 Run 等待异步钩子的回归会
+			// 因耗时而失败，而不是挂起测试二进制文件。
 			select {
 			case <-release:
 			case <-time.After(3 * time.Second):
@@ -162,7 +162,7 @@ func TestDispatchAsyncHookContextIsDetachedAndBounded(t *testing.T) {
 		t.Fatalf("async deadline is %v from now, want within 5s", remaining)
 	}
 
-	// Cancelling the parent after Run returns must not cancel the detached hook.
+	// 在 Run 返回后取消父级不得取消已分离的钩子。
 	cancel()
 	close(release)
 	if err := <-second; err != nil {
@@ -189,19 +189,19 @@ func TestPlanAsyncRespectsDedupAndStopPropagation(t *testing.T) {
 	}
 }
 
-// The dedup and stop-propagation walk in planRun and planAsync must agree on
-// which commands are claimed. They currently do not, which produces two bugs:
-// the same command string can run in BOTH paths, and an async hook carrying
-// StopPropagation does not shield later synchronous hooks.
+// planRun 和 planAsync 中去重与停止传播遍历的 walk 必须就
+// 哪些命令被认领达成一致。当前它们并不一致，产生两个 bug：
+// 同一命令字符串可能在两条路径中都运行，且带有
+// StopPropagation 的异步钩子不能保护后面的同步钩子。
 
 func TestDispatchClaimedCommandDoesNotRunInBothPaths(t *testing.T) {
 	t.Setenv("ARGENT_HOOK_HELPER", "append")
 	logPath := filepath.Join(t.TempDir(), "hooks.log")
 	t.Setenv("ARGENT_HOOK_LOG", logPath)
 
-	// Two documents disagree on "async" for the same command. The first
-	// (highest-priority, here declaration-order) occurrence claims the command;
-	// the duplicate must not also run in the other path.
+	// 两份文档对同一命令的 "async" 判定不一致。第一次
+	// （最高优先级，此处为声明顺序）出现认领该命令；
+	// 重复的那条绝不能在另一条路径中也运行。
 	config := &Config{Commands: []Command{
 		{Event: PostToolUse, Command: "dup", Async: true, Timeout: 5 * time.Second},
 		{Event: PostToolUse, Command: "dup", Timeout: 5 * time.Second},

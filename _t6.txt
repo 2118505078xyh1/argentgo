@@ -1,0 +1,242 @@
+===== internal/tools/tools_productivity.go
+142	runState（例如其累计的 llm.Usage / 花费美元数）并实现
+143	Registry.SetUsageSource(adapter)，一旦运行态存在即可调用。
+171	SetUsageSource 安装 usage 工具背后的数据源。遵循
+172	SetCheckpointSource 的模式，工具在原位置重建，因此注册
+173	顺序和公布的 spec 保持稳定。nil 数据源使工具报告
+174	用量数据不可用，而不是让运行失败。
+187	HistorySource 搜索当前会话的 JSONL 记录。在消费侧声明，
+188	使 internal/tools 不导入 internal/session。app 接线：
+189	在覆盖活动 *session.Session 的适配器上实现 Search，并在
+190	会话已知后调用 Registry.SetHistorySource(adapter)。适配器
+191	决定空查询以及非正或过大限制的行为。
+228	SetHistorySource 安装 history 工具背后的数据源。工具
+229	在原位置重建，因此注册顺序保持稳定；nil 数据源使
+230	工具报告历史不可用，而不是让运行失败。
+
+===== internal/tools/tools_registry.go
+18	maxToolDescLen 限制发给模型的工具描述长度。过长的 MCP
+19	描述是提示注入的载体并会吃掉上下文，因此 Specs 会在 schema
+20	跨越传输层之前截断它。Tool 接口和 Schema 保持完整。
+23	clipDescription 最多保留 maxToolDescLen 个 rune，截断时
+24	追加省略号。按 rune 切片使结果在 multibyte 字符跨越
+25	限制时仍是有效 UTF-8。
+34	intentSchemaEnv 用于退出在工具参数 schema 中公布 `i`（简洁意图）属性。
+35	注入默认开启：agent 在读取侧剥离 `i`（agent.ExtractIntent），
+36	因此每条跨越传输层的 schema 都必须列出它，API_REFERENCE
+37	的"每个 schema 都接受 i"契约才能成立。
+38	把它设为真值（1、true、yes、on 等）可恢复注入前的
+39	schema；""、0、false、no 和 off 让注入保持启用。
+42	intentSchemaDisabled 报告是否应从公布的 schema 中省略 `i`。
+43	环境变量在每次调用时读取而非缓存，使测试和
+44	长寿命运行时无需重启即可切换。
+54	advertiseIntentSchema 给工具参数 schema 添加 `i` 意图属性，
+55	除非操作员选择退出。InjectIntentSchema 是幂等的，因此已
+56	携带 `i` 的 schema（例如下面的 intentSchemaTool 返回的）
+57	会被原样返回；不会出现双重注入。
+65	intentSchemaTool 装饰一个 Tool，使其公布的 schema 携带
+66	`i` 意图属性。运行时行为原样委托；只有
+67	跨越传输层的 Schema 被增强。包装存储的工具 —— 而非
+68	只修补 Specs —— 使包内每个 schema 读取方（Specs、
+69	SpecsFor、tool_search）保持一致。开关在每次调用时求值，
+70	因此即使注册表已构建也能遵守 env 开关。
+83	Meta 转发可选的回收钩子，使包装永不改变
+84	RunWithMeta 的行为。没有内部 Meta 的被包装工具产生零值
+85	ToolMeta，调用方本就把它当作"无元数据"。
+93	New 返回一个以 root 为根、使用默认输出上限的注册表。
+98	NewWithLimit 返回一个以 root 为根、工具输出被截断到
+99	maxOutput 个字符（保留头尾）的注册表。非正值恢复
+100	默认值。
+106	默认库使记忆工具在 app 接线真实会话目录之前保持可用。
+107	 一旦该目录存在，SetMemoryBank 会覆盖它。
+113	LSP IDE 工具始终被公布。在 app 通过 SetLspIde 接线适配器
+114	之前，它们报告"不可用"而不使回合失败。
+115	它们注册在记忆工具之前，使 memory_* 工具保持
+116	与末尾 tool_search 相邻（见 TestMemoryToolsRegisteredAndOverridable）。
+120	标准库可移植的效率工具。usage/history 以 nil 数据源开始，
+121	在 app 调用 SetUsageSource /
+122	SetHistorySource 之前报告不可用。注册在记忆工具之前，使 memory_*
+123	尾部与 tool_search 保持相邻（TestMemoryToolsRegisteredAndOverridable）。
+130	context_pack 在编辑锚点周围打包真实文件内容；在此注册
+131	使它位于 memory_* 尾部和末尾 tool_search 之前。
+137	tool_search 读取已完成的注册表，使它能搜索每个 spec。
+140	在每个 schema 上公布 `i` 意图字段。在此一次性包装存储的工具
+141	统一覆盖 Specs、SpecsFor 和 tool_search；稍后由 Set* 助手重建的
+142	工具也会被原位置包装。
+147	wrapSchemas 装饰每个已注册的工具，使其公布的 Schema 携带
+148	`i` 意图字段。它是幂等的：已包装的工具保持原样。
+157	SetGuard 安装调用前守卫。传入 nil 会移除它。
+162	SetSessionDir 把有状态工具（todo）指向某个会话目录。未设置时，
+163	它们回退到 <root>/.argent。
+168	SetMemoryBank 替换 memory_* 工具背后的库，而不改变
+169	注册顺序。app 在真实会话目录已知后调用它；
+170	nil 让当前库保持不变。
+184	SetJobs 安装 bash 工具在命令提供 background_after_ms 时
+185	使用的后台作业注册表。没有它时该参数被忽略，
+186	命令保持通常的超时杀死行为。
+191	SetLspIde 安装六个 lsp_* 工具背后的适配器。app 在
+192	语言服务器可用后调用它；nil 让工具继续报告
+193	集成不可用。遵循 SetMemoryBank 的模式，工具在
+194	原位置重建，因此注册顺序和公布的 spec 保持稳定。
+205	SetMaxTimeout 把所有计时工具解析后的超时上限钳制为 d。
+206	非正值禁用上限。默认值 0 让从未 opt-in 的调用方
+207	保持本表引入之前的行为。
+212	Names 按注册顺序返回已注册的工具名。
+219	Specs 以稳定顺序返回工具 schema。
+227	advertiseIntentSchema 是对位于本文件之外的 Set* 助手所重建工具的安全网。
+228	InjectIntentSchema 是幂等的，因此已被 wrapSchemas 包装的工具
+229	不会被二次注入。
+236	Run 执行单次工具调用。
+263	maxPanicDescLen 限制字符串化的 panic 值，使恶意或有缺陷的
+264	载荷无法通过工具错误淹没模型的上下文。
+267	describePanic 在恢复的 panic 值跨越传输层前对其进行清理：
+268	控制字符（包括终端转义）变为空格，结果
+269	按 rune 截断，使字符串保持有效 UTF-8。
+284	runTool 在 panic 边界内执行单个工具。逃逸出工具的 panic
+285	会毁掉整个回合并让分派的 fillUnrun 配对
+286	悬而未决，因此它被规范化为单个错误结果 —— 仿照
+287	hooks 的 PanicError 模式 —— 并携带工具名以供诊断。
+298	RunWithMeta 执行单次工具调用，并额外返回工具的
+299	回收元数据。行为和输出与 Run 相同：元数据来自
+300	同一组参数和结果，绝不来自第二次执行。
+320	checkGuard 运行守卫，但不让 panic 逃逸到 agent 循环中。
+333	resolve 把所有路径保持在workspace根目录之内。仅做词法检查
+334	并非边界：根目录下的符号链接或 Windows junction 可以指向
+335	外部，因此在把路径交给文件系统工具之前要解析
+336	真实位置。
+361	outputLimitKey 把每注册表的输出上限带入工具实现。
+364	sessionDirKey 携带有状态工具使用的会话目录。
+367	jobsKey 携带 bash 工具使用的后台作业注册表。
+
+===== internal/tools/tools_security_scan.go
+20	对工作区的本地只读静态检查：遍历文本文件并
+21	标记凭据形状、危险代码以及（在 Unix 上）全局可写的文件
+22	模式。它从不建立网络连接或生成子进程。每段
+23	片段都用 security.Redact 清洗，因此工具绝不会回显
+24	它刚发现的秘密。
+33	securityScanIgnoredDirs 让 vendored/生成的代码树不进入遍历。这些
+34	名称与其他遍历工作区的工具一致，使两者视图相符。
+41	scanRule 是一个编译好的检测器。对凭据检测器，redactSpan 为 true：
+42	匹配到的片段在 security.Redact 运行前被替换，因此即使
+43	Redact 的模式表以后变化，原始 token 也无法留存。
+147	文件模式在 Windows 上没有意义；在那里跳过这一类。
+204	scanFileLines 把每个检测器应用到每一行。每条规则每行
+205	只产生一条发现，使输出保持有界，同时仍能呈现存在的每个类别。
+227	scanIsEnvReference 过滤掉这样的赋值：其"值"只是变量
+228	名或文档中的占位符，而非字面凭据。
+261	compileScanGlobs 把简单 glob 转为锚定的正则。除
+262	单段 '*' 和 '?' 外，"**" 跨越目录，"**/" 跨越零个或
+263	更多前导目录。
+316	marshalScanResult 在截断过大结果时保持 JSON 有效：它
+317	保留尽可能多的发现，并用 truncated/marker 标记其余部分。
+
+===== internal/tools/tools_types.go
+16	Tool 是一项可调用的能力。
+25	ToolMeta 是工具附加到其结果上的进程内回收提示。
+26	它从不跨越传输层：agent 循环在运行时活着时用它把已被取代的读取
+27	和空搜索替换为存根。
+33	metaTool 由能够描述自身结果以供上下文回收的工具实现。
+34	传入输出和错误，使失败调用永远不会
+35	宣称取代键或"空结果"标记。
+40	Guard 在每次工具调用前被咨询。非 nil 错误会作为工具错误返回给
+41	模型；工具绝不运行。
+46	Registry 拥有工具集并强制工作区边界。
+
+===== internal/tools/web_fetch.go
+97	checkFetchURL 校验 scheme，并且除非设置了 allowLocal，否则拒绝
+98	解析到回环、私有、链路本地或未指定地址主机。
+132	truncateFetchBody 把 body 切到至多 limit 字节，且不在末尾留下半个
+133	多字节 UTF-8 rune。简单的 body[:limit] 可能把一个 CJK
+134	字符或 emoji 切成两半；clip() 的 rune 安全头尾窗口无法修复
+135	在源头就已损坏的 rune，于是坏字节会到达
+136	模型。这里复用 trimPartialRune，使上限在恰好落在 rune 边界时
+137	字节精确，否则丢弃整个 rune。
+153	htmlToText 丢弃 script/style 内容，把块级标签变成换行，并
+154	移除剩余的标记。
+
+===== internal/tools/web_fetch_utf8_test.go
+13	TestWebFetchTruncationKeepsUTF8RuneIntact 守护 P0 输出截断
+14	不变量：web_fetch 自身的 200 KB 上限绝不能给模型留下一个
+15	被切一半的多字节 rune。放置一个三字节的汉字，使其字节
+16	跨越 maxFetchBytes；过去朴素的字节切片只保留它的第一个
+17	字节，而 clip() 的 rune 安全头尾窗口随后把这个坏字节
+18	直接带进工具结果。
+31	宽松的输出上限使 clip() 不会掩盖被测上限：无论哪种情况，
+32	web_fetch 自身截断文本中都不应出现损坏的 rune。
+46	TestTruncateFetchBodyRuneBoundary 直接测试该辅助函数，使上限
+47	在 ASCII 和多字节边界都能被检查，且与 HTTP 无关。
+
+===== internal/tools/web_search.go
+84	简单的 body[:maxFetchBytes] 可能把多字节 UTF-8 rune 切成两半，
+85	把无效字节交给 parseWebSearchResults（其 json.Unmarshal
+86	随后拒绝尾部碎片），或把一个替换 rune 泄漏
+87	到片段中。web_fetch 使用同样的 rune 安全上限；保持两者
+88	同步，使 200 KB 边界永不落在 CJK/emoji 内部。
+102	parseWebSearchResults 有意接受数种常见结果封装
+103	和替代字段名，使自托管端点无需适配器。
+
+===== internal/tools/web_search_truncation_test.go
+13	TestWebSearchTruncationKeepsUTF8RuneIntact 守护 web_search 的
+14	输出截断不变量：其自身 200 KB 上限绝不能把多字节
+15	rune 切成两半。web_fetch 曾有完全相同的 bug（已用 truncateFetchBody 修复）；
+16	web_search 仍使用原始的 body[:maxFetchBytes] 切片，因此跨越上限的
+17	汉字/emoji rune 会留下无效的尾部碎片，被 json.Unmarshal
+18	拒绝 —— 把有效搜索响应变成工具错误。
+20	响应是一个完整 JSON 对象，后跟一个 CJK 字符，其
+21	前两个字节位于保留窗口的最后两个位置。
+22	旧的字节切片恰好保留这两个字节并破坏解析；rune 安全的
+23	上限丢弃整个字符，JSON 得以解析。
+27	放置该 rune，使其前两个字节成为
+28	maxFetchBytes 窗口的最后两个字节：第三个字节仍会被 LimitReader
+29	读取（它读取 maxFetchBytes+1）但被上限丢弃。
+
+===== internal/tui/activity_summary_test.go
+132	activitySummary 发出的中性标记必须保持同步。
+
+===== internal/tui/approval.go
+10	approvalGrantKey 把会话授权限定到某个工具及其详情。NUL
+11	分隔符防止 name/detail 组合与纯 name 键冲突。
+16	approvalDetail 提取标识一次调用的参数。JSON 调用使用
+17	第一个 path/command 字段（清洗后），因此用 `ls` 授权 `bash` 不能
+18	悄悄授权带 `sudo` 的 `bash`。旧调用方使用的纯字符串参数
+19	回退到第一个 token；这让 "ls" 和 "ls -la" 共用一次授权，
+20	与这些输入历史上的粗粒度行为一致。
+46	approvalRequest 是等待操作员处理的一次工具调用。
+50	danger 是人可读的原因，说明该调用为何被标记为危险。
+51	空值（默认）使历史弹窗逐字节保持不变。
+52	设置后，弹窗显示原因并预选 Deny 作为安全的
+53	默认值，使习惯性的 Enter 不会批准破坏性命令。
+59	defaultsToDeny 报告此请求是否预选 Deny。普通
+60	请求保留 Allow 作为主要操作项，并有意保持
+61	不变；只有被标记的请求才翻转安全默认值。
+79	只授权这次精确调用：粗粒度的 name 键会允许之后
+80	用不同参数对同一工具的每次调用。
+87	被标记的请求预选 Deny：含义模糊的确认键绝不能
+88	批准破坏性命令。非危险请求保持其
+89	历史空操作，因此行为不变。
+136	Approve 请求操作员允许一次工具调用，并阻塞直到弹窗
+137	被回答或 ctx 结束。安装时，答案通过注入的
+138	Options.Approval 权限返回。这是普通的、
+139	非危险入口点：弹窗保持其历史 Allow 默认值。
+144	ApproveDanger 是危险命令的入口点。非空的 danger 原因
+145	会显示在弹窗中，并把默认答案翻转为 Deny。app 层
+146	（它拥有 security.FindFileEditingCommand）负责提供该原因；
+147	TUI 包不导入 security。danger 为空时，其行为
+148	与 Approve 完全一致。
+161	纯 name 键仍被遵守，使旧调用方创建的授权
+162	（它们直接缓存 m.allowed）继续工作。新授权是复合的。
+197	PendingApproval 报告弹窗正在显示的工具调用。
+207	Tick 丢弃上下文已消失的授权；循环每帧调用它。
+
+===== internal/tui/approval_danger_test.go
+11	startDangerApproval 通过真实的 ApproveDanger 路径唤起弹窗，
+12	并返回调用方作答的通道。空的 danger 是
+13	所有现有调用方使用的普通请求形态。
+31	TestDangerRequestDefaultsToDeny 固定了 P1 修复：被标记的命令把 Deny
+32	标记为安全默认值，而含义模糊的确认键（Enter）会拒绝而不是
+33	批准它。
+54	TestNonDangerRequestKeepsHistoricalModalAndAllowDefault 证明该附加
+55	更改对所有现有调用方无影响：defaultsToDeny 为 false，没有 danger
+56	文本出现在框中，提示行逐字节保持历史原样，
+57	且 Enter 仍让弹窗保持未回答。
+107	TestDangerReasonIsShown 验证原因被渲染在框内、

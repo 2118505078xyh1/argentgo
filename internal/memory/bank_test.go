@@ -156,7 +156,7 @@ func TestRetainRedactsCredentials(t *testing.T) {
 	if !strings.Contains(body, "[redacted:") {
 		t.Fatalf("no redaction marker in memory file: %s", body)
 	}
-	// The in-memory view is redacted too.
+	// 内存中的视图也经过脱敏。
 	all := bank.All()
 	if len(all) != 1 || all[0].ID != id || strings.Contains(all[0].Text, "sk-abcdef") {
 		t.Fatalf("all = %#v, want redacted memory", all)
@@ -212,7 +212,7 @@ func TestBankUsesCustomDirectory(t *testing.T) {
 		t.Fatalf("bank B sees A's memories: %#v", got)
 	}
 
-	// SetDir repoints an existing bank at another directory.
+	// SetDir 将已有 bank 指向另一个目录。
 	dirC := t.TempDir()
 	bankA.SetDir(dirC)
 	if bankA.Dir() != dirC {
@@ -257,8 +257,8 @@ func TestReflectRanksSentencesByQueryOverlap(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("lines = %#v, want three sentences", lines)
 	}
-	// The relevant sentence must lead even though it is not the first in the
-	// memory: overlap outweighs the small early-sentence bonus.
+	// 相关句子必须排在前面，即使它不是记忆中的第一句：
+	// 重叠程度胜过较早句子的微小加分。
 	if !strings.Contains(lines[0], "alpha beta gamma are here") {
 		t.Fatalf("top sentence = %q, want the query-overlapping one", lines[0])
 	}
@@ -315,8 +315,8 @@ func TestReflectIsBoundedAndGraphemeSafe(t *testing.T) {
 	if !utf8.ValidString(out) {
 		t.Fatal("reflection is not valid UTF-8")
 	}
-	// The cap lands inside the text, but the combining sequence and emoji that
-	// fit must be emitted whole, never sliced in half.
+	// 上限落在文本内部，但放得下的组合序列和 emoji
+	// 必须完整输出，绝不能被切掉一半。
 	if !strings.Contains(out, "e\u0301🚀") {
 		t.Fatalf("reflection split a grapheme cluster: %q", out)
 	}

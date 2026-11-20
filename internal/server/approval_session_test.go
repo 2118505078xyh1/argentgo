@@ -11,10 +11,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// sessionRunner is fakeRunner plus the two optional seams the approval methods
-// discover: a durable pending store and the session the runner is appending to.
-// The native bridge sends approval.answer with only {id, granted} (no session),
-// so the server must fall back to SessionID() to address the right store key.
+// sessionRunner 是 fakeRunner 加上审批方法会发现的两个可选接缝：
+// 一个持久的待处理存储，以及 runner 正在追加的会话。
+// 原生桥只发送带 {id, granted} 的 approval.answer（无 session），
+// 因此服务器必须回退到 SessionID() 才能定位正确的存储键。
 type sessionRunner struct {
 	fakeRunner
 	pending *security.PendingStore
@@ -24,11 +24,11 @@ type sessionRunner struct {
 func (r *sessionRunner) PendingStore() *security.PendingStore { return r.pending }
 func (r *sessionRunner) SessionID() string                    { return r.session }
 
-// TestRPCApprovalAnswerWithoutSessionUsesRunnerSession guards the real native
-// call shape: approval.answer {"id":..., "granted":...} carries no session. The
-// pending item and the blocked approver's waiter are keyed by the runner's
-// current session, so resolving under the empty session would be a silent
-// no-op: the RPC still answers ok, but the waiting Ask never unblocks.
+// TestRPCApprovalAnswerWithoutSessionUsesRunnerSession 守护真实的原生
+// 调用形态：approval.answer {"id":..., "granted":...} 不带 session。
+// 待处理项和被阻塞审批者的等待者都以 runner 的
+// 当前会话为键，因此在空会话下解析会是静默的
+// 空操作：RPC 仍回答 ok，但等待的 Ask 永不解除阻塞。
 func TestRPCApprovalAnswerWithoutSessionUsesRunnerSession(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -62,7 +62,7 @@ func TestRPCApprovalAnswerWithoutSessionUsesRunnerSession(t *testing.T) {
 				t.Fatalf("approval.answer result = %v, want ok:true", resp)
 			}
 
-			// The in-process approver blocked in Ask must receive the decision.
+			// 阻塞在 Ask 中的进程内审批者必须收到该决定。
 			select {
 			case got := <-answer:
 				if got != tc.granted {
@@ -72,7 +72,7 @@ func TestRPCApprovalAnswerWithoutSessionUsesRunnerSession(t *testing.T) {
 				t.Fatal("approval.answer did not wake the pending approver")
 			}
 
-			// The durable mirror must be resolved under the runner's session.
+			// 持久镜像必须在 runner 的会话下解析。
 			items, err := store.List(session)
 			if err != nil {
 				t.Fatalf("list pending: %v", err)
@@ -81,8 +81,8 @@ func TestRPCApprovalAnswerWithoutSessionUsesRunnerSession(t *testing.T) {
 				t.Fatalf("pending item survived approval.answer: %+v", items)
 			}
 
-			// The resolved notice must carry the real tool name, which comes
-			// from looking the id up in the same session.
+			// resolved 通知必须携带真实的工具名，它来自
+			// 在同一会话中查找该 id。
 			select {
 			case ev := <-sub:
 				kind, tool, id, granted, ok := agent.ParseApprovalEvent(ev)
@@ -97,9 +97,9 @@ func TestRPCApprovalAnswerWithoutSessionUsesRunnerSession(t *testing.T) {
 	}
 }
 
-// TestRPCApprovalListWithoutSessionUsesRunnerSession covers the sibling method:
-// a reconnecting client that omits session must see the current session's
-// pending items, not the empty session's. An explicit session still wins.
+// TestRPCApprovalListWithoutSessionUsesRunnerSession 覆盖同级方法：
+// 省略 session 的重连客户端必须看到当前会话的
+// 待处理项，而不是空会话的。显式 session 仍然优先。
 func TestRPCApprovalListWithoutSessionUsesRunnerSession(t *testing.T) {
 	const session = "sess-current"
 	store := security.NewPendingStore(t.TempDir())

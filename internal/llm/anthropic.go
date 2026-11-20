@@ -12,18 +12,18 @@ import (
 	"strings"
 )
 
-// DefaultAnthropicMaxTokens is used when AnthropicClient.MaxTokens is unset.
-// The Messages API requires max_tokens on every request.
+// DefaultAnthropicMaxTokens 在 AnthropicClient.MaxTokens 未设置时使用。
+// Messages API 要求每个请求都带 max_tokens。
 const DefaultAnthropicMaxTokens = 8192
 
-// AnthropicVersion is the wire revision sent in anthropic-version.
+// AnthropicVersion 是在 anthropic-version 中发送的线协议版本。
 const AnthropicVersion = "2023-06-01"
 
-// AnthropicClient streams the Anthropic Messages protocol.
+// AnthropicClient 流式处理 Anthropic Messages 协议。
 //
-// Tool calls arrive as tool_use content blocks whose arguments are assembled
-// from input_json_delta fragments; tool results are sent back on the next
-// request as tool_result blocks inside a user message.
+// 工具调用以 tool_use 内容块到达，其参数由
+// input_json_delta 片段组装；工具结果在下一个请求中作为
+// user 消息里的 tool_result 块发回。
 type AnthropicClient struct {
 	BaseURL   string
 	APIKey    string
@@ -34,7 +34,7 @@ type AnthropicClient struct {
 	Options   Options
 }
 
-// NewAnthropic returns a Messages client for baseURL (usually ".../v1").
+// NewAnthropic 返回面向 baseURL（通常为 ".../v1"）的 Messages 客户端。
 func NewAnthropic(baseURL, apiKey string) *AnthropicClient {
 	return &AnthropicClient{
 		BaseURL: strings.TrimRight(baseURL, "/"),
@@ -47,7 +47,7 @@ func NewAnthropic(baseURL, apiKey string) *AnthropicClient {
 var _ Chatter = (*AnthropicClient)(nil)
 var _ PromptCacheCapable = (*AnthropicClient)(nil)
 
-// PromptCacheCapability reports whether stable-prefix markers are emitted.
+// PromptCacheCapability 报告是否发出稳定前缀标记。
 func (c *AnthropicClient) PromptCacheCapability() CacheCapability {
 	return CacheCapability{
 		Supported: c.Options.cacheEnabled(ProtocolAnthropicMessages, c.BaseURL),
@@ -73,9 +73,9 @@ type anthropicMessage struct {
 type anthropicBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
-	// Thinking carries the replayed reasoning on a "thinking" block when
-	// Options.PreserveReasoning is enabled. Omitted otherwise so the request
-	// bytes match earlier builds exactly.
+	// 启用 Options.PreserveReasoning 时，Thinking 在 "thinking" 块上携带
+	// 重放的推理内容。否则省略，使请求
+	// 字节与早期构建完全一致。
 	Thinking     string          `json:"thinking,omitempty"`
 	ID           string          `json:"id,omitempty"`
 	Name         string          `json:"name,omitempty"`
@@ -92,7 +92,7 @@ type anthropicTool struct {
 	CacheControl *CacheControl   `json:"cache_control,omitempty"`
 }
 
-// Chat streams one assistant turn and assembles text, thinking and tool calls.
+// Chat 流式获取一个助手轮次，并组装文本、思考和工具调用。
 func (c *AnthropicClient) Chat(
 	ctx context.Context,
 	model string,
@@ -193,9 +193,9 @@ func (c *AnthropicClient) httpClient() *http.Client {
 	return c.HTTP
 }
 
-// buildRequest converts neutral messages into Messages wire blocks. System
-// prompts are hoisted out; adjacent same-role turns are merged, which is what
-// keeps a batch of tool_result blocks in one user message.
+// buildRequest 把中立消息转换为 Messages 线协议块。系统
+// 提示被提升出来；相邻的同角色轮次会合并，这正是
+// 把一批 tool_result 块保留在同一条 user 消息中的原因。
 func (c *AnthropicClient) buildRequest(model string, messages []Message, tools []ToolSpec) anthropicRequest {
 	req := anthropicRequest{
 		Model:     model,
@@ -219,10 +219,10 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 		case "assistant":
 			var blocks []anthropicBlock
 			if c.Options.PreserveReasoning && message.Reasoning != "" {
-				// Thinking blocks precede text blocks on an assistant turn.
-				// The signature is not part of the neutral Message contract, so
-				// replay carries the text only; providers that require a
-				// signature must supply it at the gateway layer.
+				// 在助手轮次上，Thinking 块位于文本块之前。
+				// 签名不属于中立 Message 契约，因此
+				// 重放只携带文本；要求签名的提供方
+				// 必须在网关层提供它。
 				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: message.Reasoning})
 			}
 			blocks = append(blocks, textBlocks(message.Content)...)
@@ -254,8 +254,8 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 	if len(system) > 0 {
 		content := strings.Join(system, "\n\n")
 		if cacheEnabled {
-			// The system prompt and tool schemas form the stable prefix; the
-			// conversation tail gets its own advancing breakpoint below.
+			// 系统提示和工具 schema 构成稳定前缀；
+			// 会话尾部在下面有自己递增的断点。
 			req.System = []anthropicBlock{{
 				Type:         "text",
 				Text:         content,
@@ -277,14 +277,14 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 		})
 	}
 	if cacheEnabled && len(req.Tools) > 0 {
-		// One breakpoint at the end of the tool prefix covers all schemas.
+		// 工具前缀末尾的一个断点覆盖所有 schema。
 		req.Tools[len(req.Tools)-1].CacheControl = c.Options.cacheControl()
 	}
 	if cacheEnabled {
-		// Conversation-tail breakpoint: anchor the cache at the final tool
-		// result so the cached prefix advances after each completed batch of
-		// tool calls. Tool turns are merged into user messages, so the marker
-		// belongs on the block, not on the message itself.
+		// 会话尾部断点：把缓存锚定在最后一个工具
+		// 结果上，使缓存前缀在每批工具调用完成后推进。
+		// 工具轮次被合并到 user 消息中，因此标记
+		// 属于该内容块，而非消息本身。
 		if block := lastToolResultBlock(req.Messages); block != nil {
 			block.CacheControl = c.Options.normalizedCacheControl()
 		}
@@ -292,9 +292,9 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 	return req
 }
 
-// lastToolResultBlock returns the final tool_result content block in the wire
-// messages, or nil when the request contains no tool results. Scanning from
-// the end keeps only one breakpoint on the newest tail.
+// lastToolResultBlock 返回线协议消息中最后一个 tool_result 内容块，
+// 或当请求不含工具结果时返回 nil。从末尾扫描
+// 只在最新尾部保留一个断点。
 func lastToolResultBlock(messages []anthropicMessage) *anthropicBlock {
 	for i := len(messages) - 1; i >= 0; i-- {
 		content := messages[i].Content
@@ -343,11 +343,11 @@ func pushBlocks(messages []anthropicMessage, role string, blocks []anthropicBloc
 
 type anthropicUsage struct {
 	InputTokens int `json:"input_tokens"`
-	// Cache counts are pointers so an explicit zero in message_delta can be
-	// distinguished from an omitted field. Native Anthropic streams omit them
-	// in message_delta, but gateways that report the final cache totals there
-	// may legitimately report zero after a non-zero message_start; treating
-	// both as the zero value would keep the stale message_start count.
+	// 缓存计数用指针表示，以便把 message_delta 中显式的零与
+	// 省略的字段区分开。原生 Anthropic 流在 message_delta 中省略它们，
+	// 但在那里报告最终缓存总计的网关
+	// 可能在非零 message_start 之后合法地报告零；把两者
+	// 都当作零值会保留陈旧的 message_start 计数。
 	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
 	OutputTokens             int  `json:"output_tokens"`
@@ -404,24 +404,24 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		text      strings.Builder
 		reasoning strings.Builder
 		usage     *Usage
-		// baseInput is message_start's bare input_tokens (cache excluded).
-		// message_delta carries the authoritative cache counts, so PromptTokens
-		// is rebuilt from this base instead of summing the two snapshots.
+		// baseInput 是 message_start 的原始 input_tokens（不含缓存）。
+		// message_delta 携带权威的缓存计数，因此 PromptTokens
+		// 从这个基数重建，而不是把两个快照相加。
 		baseInput int
-		// deltaInput remembers the largest input_tokens seen in a message_delta.
-		// Pass-through gateways (e.g. LiteLLM/OpenRouter) zero message_start's
-		// usage and report the real total prompt cost here instead.
+		// deltaInput 记住 message_delta 中出现的最大 input_tokens。
+		// 透传网关（如 LiteLLM/OpenRouter）会把 message_start 的
+		// usage 清零，并在这里报告真实的提示总成本。
 		deltaInput   int
 		finishReason string
 		integrity    streamIntegrity
 		partials     = make(map[int]*anthropicPartial)
 	)
-	// A completed tool_use block is parked by its content-block index instead
-	// of being appended at content_block_stop time: gateways may deliver stop
-	// notifications out of the order in which content_block_start announced the
-	// blocks. Final assembly walks order (the announcement sequence), so two
-	// parallel calls keep the provider's order regardless of when each block
-	// finished.
+	// 已完成的 tool_use 块按其内容块索引停放，
+	// 而不是在 content_block_stop 时追加：网关可能
+	// 以与 content_block_start 宣布顺序不同的顺序投递停止通知。
+	// 最终组装按 order（宣布顺序）遍历，因此两个
+	// 并行调用无论各块何时完成，
+	// 都保持提供方的顺序。
 	var (
 		order     []int
 		completed = make(map[int]ToolCall)
@@ -442,9 +442,9 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 			arguments = partial.start
 		}
 		arguments = integrity.toolArguments(arguments)
-		// Keep an absent provider id empty here. Fallback ids are assigned in
-		// the final assembly, once every provider id in the reply is known, so
-		// a generated "toolu_N" can never duplicate a real id on another block.
+		// 这里保持缺失的提供方 id 为空。回退 id 在
+		// 最终组装时分配，届时回复中每个提供方 id 都已知，因此
+		// 生成的 "toolu_N" 绝不会与另一块上的真实 id 重复。
 		completed[index] = ToolCall{
 			ID:   partial.id,
 			Type: "function",
@@ -477,8 +477,8 @@ streamLoop:
 			pending = splitSSEData(next)
 			data, pending = pending[0], pending[1:]
 		}
-		// An empty data: line is a legal SSE keepalive, not a JSON event.
-		// Skipping it keeps a proxy's heartbeat from failing the reply.
+		// 空的 data: 行是合法的 SSE 保活，不是 JSON 事件。
+		// 跳过它可避免代理的心跳导致回复失败。
 		if isEmptySSEData(data) {
 			continue
 		}
@@ -539,8 +539,8 @@ streamLoop:
 			case "thinking_delta":
 				reasoning.WriteString(delta.Thinking)
 			case "signature_delta":
-				// Signatures are not part of the neutral Message contract;
-				// thinking text is transcript-only here.
+				// 签名不属于中立 Message 契约；
+				// 思考文本在这里仅用于转录。
 			case "input_json_delta":
 				if partial := partials[event.Index]; partial != nil {
 					partial.arguments.WriteString(delta.PartialJSON)
@@ -559,26 +559,26 @@ streamLoop:
 				if event.Usage.OutputTokens > 0 {
 					usage.CompletionTokens = event.Usage.OutputTokens
 				}
-				// Cache counts in message_delta are final cumulative values, not
-				// increments. Assign (never add) so a cache count also present in
-				// message_start is not counted twice. A nil pointer means the field
-				// was omitted (keep message_start's value); a present zero is the
-				// authoritative final count and must clear any stale value.
+				// message_delta 中的缓存计数是最终的累计值，不是
+				// 增量。应赋值（绝不累加），以免 message_start 中也出现的
+				// 缓存计数被重复计算。nil 指针表示该字段
+				// 被省略（保留 message_start 的值）；存在的零是
+				// 权威的最终计数，必须清除任何陈旧值。
 				if event.Usage.CacheReadInputTokens != nil {
 					usage.CachedTokens = *event.Usage.CacheReadInputTokens
 				}
 				if event.Usage.CacheCreationInputTokens != nil {
 					usage.CacheWriteTokens = *event.Usage.CacheCreationInputTokens
 				}
-				// PromptTokens is the full prompt cost (fresh + cached). Rebuild it
-				// from message_start's bare input plus the authoritative delta cache
-				// counts; otherwise CachedTokens can exceed PromptTokens and budget
-				// accounting undercounts. A pass-through gateway may zero
-				// message_start and report the real total as message_delta's
-				// input_tokens, so take the larger total: that value is
-				// authoritative when it accounts for tokens message_start never
-				// reported, yet a native stream that merely repeats its bare
-				// base input cannot overwrite the cached portion.
+				// PromptTokens 是完整的提示成本（新增 + 缓存）。从
+				// message_start 的原始输入加上权威的增量缓存
+				// 计数重建它；否则 CachedTokens 可能超过 PromptTokens，导致预算
+				// 核算低估。透传网关可能把
+				// message_start 清零，并把真实总计作为 message_delta 的
+				// input_tokens 报告，因此取较大的总计：当它计入了 message_start
+				// 从未报告的 token 时，该值具有权威性；
+				// 而仅仅重复其原始输入的原生流
+				// 不能覆盖缓存部分。
 				if event.Usage.InputTokens > deltaInput {
 					deltaInput = event.Usage.InputTokens
 				}
@@ -600,23 +600,23 @@ streamLoop:
 		}
 	}
 
-	// Gateways that omit content_block_stop still hand back complete calls.
+	// 省略 content_block_stop 的网关仍会交回完整的调用。
 	for _, index := range sortedIndices(partials) {
 		push(index)
 	}
-	// Collect every provider id before generating any fallback, so a generated
-	// "toolu_N" can never duplicate an id the provider supplied on another
-	// block. The chat client applies the same rule; a collision here would
-	// make the agent reject the entire batch as having duplicate call ids.
+	// 在生成任何回退 id 之前，先收集所有提供方 id，使生成的
+	// "toolu_N" 绝不会与提供方在另一块上提供的 id 重复。
+	// chat 客户端应用相同规则；这里的冲突会让
+	// agent 因调用 id 重复而拒绝整个批次。
 	used := make(map[string]struct{}, len(order))
 	for _, index := range order {
 		if call, ok := completed[index]; ok && call.ID != "" {
 			used[call.ID] = struct{}{}
 		}
 	}
-	// Assemble in announcement order, not stop-notification order. A duplicated
-	// start at the same index can add an index to order twice; emit each call
-	// only once.
+	// 按宣布顺序而非停止通知顺序组装。同一索引处重复的
+	// start 可能把一个索引两次加入 order；每个调用
+	// 只发出一次。
 	calls := make([]ToolCall, 0, len(order))
 	emitted := make(map[int]bool, len(order))
 	for _, index := range order {
@@ -669,9 +669,9 @@ func sortedIndices(partials map[int]*anthropicPartial) []int {
 	return indices
 }
 
-// sseReader turns a response body into Server-Sent Events payloads. Multi-line
-// data fields are joined with newlines, comments and non-data fields are
-// skipped, and a blank line terminates an event.
+// sseReader 把响应体转换为 Server-Sent Events 载荷。多行
+// data 字段用换行符连接，注释和非 data 字段被
+// 跳过，空行终止一个事件。
 type sseReader struct {
 	scanner *bufio.Scanner
 	data    []string

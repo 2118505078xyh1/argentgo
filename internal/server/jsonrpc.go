@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// JSON-RPC 2.0 framing shared by --rpc and acp.
+// --rpc 和 acp 共享的 JSON-RPC 2.0 帧格式。
 
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -16,7 +16,7 @@ type request struct {
 	Params  json.RawMessage `json:"params"`
 }
 
-// standard JSON-RPC error codes.
+// 标准 JSON-RPC 错误码。
 const (
 	codeParseError     = -32700
 	codeInvalidRequest = -32600
@@ -30,13 +30,13 @@ func isNotification(id json.RawMessage) bool {
 	return len(strings.TrimSpace(string(id))) == 0
 }
 
-// peer writes newline-delimited JSON-RPC messages to one writer.
+// peer 把换行分隔的 JSON-RPC 消息写入一个 writer。
 //
-// Each message is written directly to the underlying writer as a single frame
-// while holding mu. A bufio.Writer used to sit between the two, but write()
-// flushed after every message, so it only added a copy without ever batching
-// writes. Writing the frame in one call keeps ordering and delivery semantics
-// intact while dropping that copy.
+// 每条消息都在持有 mu 时作为单个帧直接写入底层 writer。
+// 过去两者之间有一个 bufio.Writer，但 write() 在每条消息后
+// 都会刷新，所以它只增加了一次拷贝而没有批处理
+// 任何写入。一次调用写入整个帧，既保持顺序和投递语义
+// 不变，又去掉了那次拷贝。
 type peer struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -89,9 +89,9 @@ func (p *peer) fail(id json.RawMessage, code int, message string) {
 	})
 }
 
-// failWithData is fail plus an optional, additive error.data payload. It is a
-// separate method so every existing fail() caller keeps the original two-field
-// error envelope unchanged; only callers that opt in emit a data member.
+// failWithData 是 fail 加上可选的附加 error.data 载荷。
+// 它是独立的方法，使所有现有的 fail() 调用方保持原来的两字段
+// 错误信封不变；只有选择加入的调用方才会发出 data 成员。
 func (p *peer) failWithData(id json.RawMessage, code int, message string, data any) {
 	if isNotification(id) {
 		return
@@ -115,17 +115,17 @@ func (p *peer) notify(method string, params any) {
 	_ = p.write(message)
 }
 
-// promptText extracts prompt text from every prompt carrier used by the
-// transports: a raw text body, {"text":...}, {"prompt":"..."} or
-// {"prompt":[{"type":"text","text":...}]}. It is the single source of truth
-// for both JSON-RPC/ACP params and the HTTP /v1/prompt body.
+// promptText 从各传输使用的每一种提示载体中提取提示文本：
+// 原始文本体、{"text":...}、{"prompt":"..."} 或
+// {"prompt":[{"type":"text","text":...}]}。它是 JSON-RPC/ACP 参数和
+// HTTP /v1/prompt 体的唯一事实来源。
 func promptText(raw []byte) string {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {
 		return ""
 	}
 	if !strings.HasPrefix(trimmed, "{") {
-		// Raw text body (HTTP) — keep the historical trim behaviour.
+		// 原始文本体（HTTP）——保持历史上的裁剪行为。
 		return trimmed
 	}
 	var payload struct {

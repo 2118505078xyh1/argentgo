@@ -2,19 +2,15 @@ package app
 
 import "strings"
 
-// parseTrustEnv interprets an ARGENT_TRUST_PROJECT value as a boolean trust
-// decision for project-level instructions, MCP servers and plugins.
+// parseTrustEnv 把 ARGENT_TRUST_PROJECT 的值解释为对项目级指令、MCP 服务和插件的布尔信任决定。
 //
-// Recognised false spellings are 0, false, no and off; recognised true
-// spellings are 1, true, yes and on. Matching is case-insensitive and ignores
-// surrounding whitespace. An unset (empty) value defaults to true so existing
-// projects keep their AGENTS.md/CLAUDE.md in the system prompt. Any other
-// value fails closed (untrusted), matching the strict `== "1"` check Resolve
-// historically used for Resolved.TrustProject.
+// 可识别的假值为 0、false、no 和 off；可识别的真值为 1、true、yes 和 on。
+// 匹配不区分大小写且忽略两端空白。未设置（空）的值默认为 true，
+// 使现有项目在其系统提示中保留 AGENTS.md/CLAUDE.md。任何其他值都会安全失败（不信任），
+// 与 Resolve 历史上对 Resolved.TrustProject 使用的严格 `== "1"` 检查一致。
 //
-// Both the prompt path (trustFromEnv) and Resolve's Resolved.TrustProject
-// decision should call this helper, so one ARGENT_TRUST_PROJECT value cannot
-// produce opposite trust conclusions on the two paths.
+// 提示路径（trustFromEnv）和 Resolve 的 Resolved.TrustProject 决定都应调用这个辅助函数，
+// 使同一个 ARGENT_TRUST_PROJECT 值不会在两条路径上产生相反的信任结论。
 func parseTrustEnv(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "1", "true", "yes", "on":

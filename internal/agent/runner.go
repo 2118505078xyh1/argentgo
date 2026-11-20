@@ -1,10 +1,8 @@
-// Package agent runs the model/tool loop.
+// Package agent 运行模型/工具循环。
 //
-// The package is deliberately free of the session, config, tools and security
-// packages: everything it needs from the rest of the program is declared here
-// as a small interface (ToolRunner, Approver, Recorder) and supplied by the
-// caller. That keeps the loop testable with fakes and lets the integrator wire
-// the real registry without a dependency cycle.
+// 本包刻意不依赖 session、config、tools 和 security 等包：它从程序其他部分所需的一切，
+// 都在这里以小型接口（ToolRunner、Approver、Recorder）声明，并由调用方提供。
+// 这样循环可以用伪实现进行测试，也让集成者能在不产生依赖环的情况下接入真实的注册表。
 package agent
 
 import (
@@ -21,84 +19,74 @@ const (
 Working directory: %s
 Use the available tools to inspect and change files. Read before writing, batch independent calls, and stop once the request is satisfied.`
 
-	// DefaultMaxTurns is the turn budget when the caller sets none.
+	// DefaultMaxTurns 是调用方未设置时的轮次预算。
 	DefaultMaxTurns = 100
 
-	// defaultContextTokens is the estimated prompt size trimming aims for when
-	// the caller sets no MaxContextTokens.
+	// defaultContextTokens 是调用方未设置 MaxContextTokens 时，裁剪所瞄准的估算提示大小。
 	defaultContextTokens = 32000
 
-	// defaultMaxRepeats is how many identical (tool, args) calls may really run
-	// before the repeat guard answers with an error instead.
+	// defaultMaxRepeats 是在重复防护改为以错误回应之前，允许真正运行的相同（工具, 参数）调用次数。
 	defaultMaxRepeats = 2
 
-	// StopOutputLimit means the model ended two consecutive replies for output
-	// length and the latest one asked for no tools, so the loop stopped asking
-	// it to continue. The other Stop* reasons live in budget.go; this one is
-	// declared here because it is a loop limit rather than a budget limit.
+	// StopOutputLimit 表示模型连续两次因输出长度而结束回复，且最近一次没有请求工具，
+	// 因此循环停止要求它继续。其他 Stop* 原因位于 budget.go；这里声明这个是因为
+	// 它属于循环限制而非预算限制。
 	StopOutputLimit = "output_limit"
 
-	// StopVerifyReflections means a post-edit verification kept failing until
-	// the reflection budget was exhausted. Like StopOutputLimit it is a loop
-	// limit rather than a budget limit, so it is declared here.
+	// StopVerifyReflections 表示编辑后验证持续失败，直到反思预算耗尽。
+	// 与 StopOutputLimit 一样，它是循环限制而非预算限制，因此在这里声明。
 	StopVerifyReflections = "verify_reflections"
 
-	// DefaultMaxVerifyReflections is the hard cap on post-edit verification
-	// feedback turns in one run when Options.MaxVerifyReflections is zero.
-	// It matches aider's max_reflections = 3.
+	// DefaultMaxVerifyReflections 是当 Options.MaxVerifyReflections 为零时，
+	// 一次运行中编辑后验证反馈轮次的硬性上限。它对应 aider 的 max_reflections = 3。
 	DefaultMaxVerifyReflections = 3
 
-	// compactionRecoveryBand is the omp-style hysteresis band: a mid-turn
-	// compaction aims at this fraction of the trigger threshold. Landing below
-	// the trigger but inside the band is enough to release compaction pressure,
-	// so a run never re-compacts every turn just to shave a few tokens.
+	// compactionRecoveryBand 是 omp 风格的迟滞带：轮次中压缩以触发阈值的这个比例为目标。
+	// 落在触发线以下但仍在带内，就足以释放压缩压力，
+	// 因此运行绝不会为了省几个 token 而在每个轮次都重新压缩。
 	compactionRecoveryBand = 0.8
-	// summaryReserveTokens is the headroom left for the generated summary when
-	// the compaction window is derived from the trigger threshold.
+	// summaryReserveTokens 是当压缩窗口由触发阈值推导时，为生成的摘要预留的余量。
 	summaryReserveTokens = 2000
-	// minCompactWindow is the floor for a derived compaction window.
+	// minCompactWindow 是推导出的压缩窗口的下限。
 	minCompactWindow = 1000
 )
 
-// defaultMutatingTools is the conservative approval set used when the caller
-// gives neither Mutating nor MutatingTools. Unknown tools are treated as
-// read-only: a subagent or plugin tool that mutates should be named explicitly.
+// defaultMutatingTools 是当调用方既不提供 Mutating 也不提供 MutatingTools 时，
+// 使用的保守审批集合。未知工具一律视为只读：会做修改的子 agent 或插件工具应被显式列出。
 var defaultMutatingTools = []string{
 	"write", "edit", "multi_edit", "apply_patch", "patch",
 	"bash", "shell", "exec", "run",
 	"delete", "remove", "move", "copy", "mkdir",
 }
 
-// ToolRunner is the slice of the tool registry the loop drives.
+// ToolRunner 是循环所驱动的工具注册表子集。
 type ToolRunner interface {
-	// Specs is the tool list advertised to the model for the next request.
-	// It is re-read every turn so tools unlocked mid-run appear immediately.
+	// Specs 是为下一次请求向模型公布的工具列表。
+	// 每个轮次都会重新读取它，使运行中被解锁的工具能立即出现。
 	Specs() []llm.ToolSpec
-	// Run executes one tool call and returns its output text.
+	// Run 执行一次工具调用并返回其输出文本。
 	Run(ctx context.Context, name, args string) (string, error)
 }
 
-// ToolMeta is the in-process metadata a tool can attach to one result. It is
-// deliberately not part of the wire protocol and is lost on resume; it only
-// drives cheap context reclamation while the run is alive.
+// ToolMeta 是工具可以附加到一次结果上的进程内元数据。它刻意不属于线上协议，
+// 在恢复时会丢失；它只在运行期间驱动廉价的上下文回收。
 type ToolMeta struct {
-	// SupersedeKey identifies a reusable fact (e.g. "read|/path/to/file"). When
-	// a later result carries the same key, the older one is superseded.
+	// SupersedeKey 标识一个可复用的事实（例如 "read|/path/to/file"）。当后续结果携带相同键时，
+	// 较旧的结果就被取代。
 	SupersedeKey string
-	// Useless marks a result that carried no new information (an empty search),
-	// so it can be elided once a later assistant turn has consumed it.
+	// Useless 标记某个结果没有携带新信息（例如空搜索），
+	// 这样一旦后续助手轮次消费了它，就可以将其省略。
 	Useless bool
 }
 
-// MetaToolRunner is the optional extension of ToolRunner. A runner that
-// implements it lets the loop reclaim superseded or useless results without
-// calling the model. Runners that do not implement it keep working unchanged.
+// MetaToolRunner 是 ToolRunner 的可选扩展。实现它的运行器能让循环在不调用模型的情况下，
+// 回收被取代或无用的结果。未实现它的运行器保持原样工作。
 type MetaToolRunner interface {
 	RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error)
 }
 
-// callTool prefers the metadata-aware path and transparently falls back to the
-// original ToolRunner. It lives here so ToolRunner itself stays unchanged.
+// callTool 优先使用感知元数据的路径，并透明地回退到原始 ToolRunner。
+// 它放在这里是为了让 ToolRunner 本身保持不变。
 func (s *runState) callTool(ctx context.Context, name, args string) (string, ToolMeta, error) {
 	if meta, ok := s.tools.(MetaToolRunner); ok {
 		return meta.RunWithMeta(ctx, name, args)
@@ -107,27 +95,26 @@ func (s *runState) callTool(ctx context.Context, name, args string) (string, Too
 	return out, ToolMeta{}, err
 }
 
-// Compactor is the optional mid-turn compaction hook. The app layer injects an
-// implementation that owns the session; the agent package stays free of any
-// session dependency. window is the token budget the kept suffix should fit.
+// Compactor 是可选的轮次中压缩钩子。app 层注入一个拥有会话的实现；
+// agent 包保持不依赖任何 session。window 是保留的后缀应当适配的 token 预算。
 type Compactor interface {
 	MaybeCompact(messages []llm.Message, window int) ([]llm.Message, bool)
 }
 
-// Approver gates mutating tools. A nil Approver means every call is allowed.
+// Approver 对变更型工具做门控。nil 的 Approver 表示允许所有调用。
 type Approver interface {
 	Ask(ctx context.Context, name, args string) (bool, error)
 }
 
-// Recorder persists one transcript entry the loop wants to keep.
+// Recorder 持久化循环想要保留的一条记录项。
 type Recorder interface {
 	Append(kind string, payload any) error
 }
 
-// RecorderFunc adapts a plain function to Recorder.
+// RecorderFunc 把普通函数适配为 Recorder。
 type RecorderFunc func(kind string, payload any) error
 
-// Append implements Recorder.
+// Append 实现 Recorder。
 func (f RecorderFunc) Append(kind string, payload any) error {
 	if f == nil {
 		return nil
@@ -135,20 +122,18 @@ func (f RecorderFunc) Append(kind string, payload any) error {
 	return f(kind, payload)
 }
 
-// Options configures one Runner.
+// Options 配置一个 Runner。
 type Options struct {
-	// Model is the primary model when FallbackModels is empty. For API
-	// compatibility the legacy field is honoured as-is; setting
-	// FallbackModels takes precedence, with its first entry as the primary.
+	// 当 FallbackModels 为空时，Model 是主模型。为兼容 API，该旧字段按原样生效；
+	// 一旦设置了 FallbackModels 则以其为准，其第一项为主模型。
 	Model string
-	// FallbackModels is an ordered model list: entry 0 is the primary and the
-	// rest are tried in sequence when the current model fails in a retryable
-	// way (HTTP 429/5xx, rate limiting or a network error). Empty means no
-	// fallback, preserving the pre-wave-4 single-model behaviour.
+	// FallbackModels 是有序的模型列表：第 0 项为主模型，当当前模型以可重试的方式失败时
+	// （HTTP 429/5xx、限流或网络错误），其余模型会被依次尝试。
+	// 为空表示不回退，保留 wave 4 之前的单模型行为。
 	FallbackModels []string
 
-	MaxTurns    int // 0 falls back to Budget.MaxTurns, then DefaultMaxTurns
-	MaxParallel int // <=1 (default) runs tool batches sequentially
+	MaxTurns    int // 0 表示回退到 Budget.MaxTurns，再到 DefaultMaxTurns
+	MaxParallel int // <=1（默认）表示串行运行工具批次
 	System      string
 	Root        string
 
@@ -156,172 +141,145 @@ type Options struct {
 	Tools   ToolRunner
 	Approve Approver
 
-	// FilterSpecs, when set, narrows the tool catalog advertised to the model
-	// on every turn. The app layer supplies it from the policy and sandbox mode
-	// (e.g. tools.Registry.FilterSpecs). It changes only what the model sees:
-	// every call still goes through Tools.Run, whose guard is the backstop.
+	// FilterSpecs 若设置，会在每个轮次收窄向模型公布的工具目录。
+	// app 层根据策略和沙箱模式提供它（例如 tools.Registry.FilterSpecs）。
+	// 它只改变模型看到的内容：每次调用仍会经过 Tools.Run，其防护器是最终防线。
 	FilterSpecs func(specs []llm.ToolSpec) []llm.ToolSpec
 
-	// NoFinalAnswer disables the single tool-free request made when the turn
-	// budget runs out. Harnesses that assert an exact model-call count can opt
-	// out; normal runs keep the graceful answer.
+	// NoFinalAnswer 禁用轮次预算耗尽时发起的那一次无工具请求。
+	// 需要断言精确模型调用次数的测试框架可以选择退出；正常运行保留这个优雅的收尾答案。
 	NoFinalAnswer bool
 
-	// Record accepts a Recorder, a func(kind string, payload any) error or a
-	// func(kind string, payload any). The loose type keeps callers written
-	// before Recorder existed compiling; new code should pass a Recorder.
+	// Record 接受 Recorder、func(kind string, payload any) error 或
+	// func(kind string, payload any)。宽松的类型使 Recorder 出现之前编写的调用方仍能编译；
+	// 新代码应传入 Recorder。
 	Record any
 
-	// BeforeRequest and BeforeTool are optional durability seams injected per
-	// Runner. BeforeRequest runs immediately before each model request;
-	// BeforeTool runs immediately before a tool batch is dispatched. A non-nil
-	// error aborts the corresponding action: a request-hook error ends the run
-	// as a provider error, a tool-hook error fills every call with an error
-	// result and dispatches none. Nil hooks are skipped.
+	// BeforeRequest 和 BeforeTool 是按 Runner 注入的可选持久性接缝。
+	// BeforeRequest 在每次模型请求之前立即运行；BeforeTool 在工具批次派发之前立即运行。
+	// 非 nil 错误会中止相应动作：请求钩子错误以提供方错误结束运行，
+	// 工具钩子错误会用错误结果填满每个调用而不派发任何一个。nil 钩子会被跳过。
 	//
-	// They are instance fields (not a process-global registry) so concurrent
-	// runs cannot clear each other's hooks. The app layer injects a session
-	// Sync barrier here, keeping this package free of any dependency on the
-	// store.
+	// 它们是实例字段（而非进程全局注册表），因此并发运行不会清除彼此的钩子。
+	// app 层在这里注入会话的 Sync 屏障，使本包保持不依赖任何存储。
 	BeforeRequest func() error
 	BeforeTool    func() error
 
-	// Emit receives every observable step of the run. A nil Emit is fine.
+	// Emit 接收运行中的每一个可观察步骤。Emit 为 nil 是可以的。
 	Emit func(Event)
 
-	// Checkpoint is called once before a batch containing mutating tool calls,
-	// synchronously and before any tool in that batch runs. The session layer
-	// records pre-turn bytes and digests here. A nil hook leaves the loop's
-	// behaviour unchanged; EventCheckpointReady is still emitted.
+	// Checkpoint 在包含变更型工具调用的批次之前被调用一次，同步执行，
+	// 且在该批次中任何工具运行之前。会话层在这里记录轮次前的字节和摘要。
+	// nil 钩子不改变循环行为；EventCheckpointReady 仍会被发出。
 	Checkpoint func(Checkpoint)
-	// MutationPaths supplies the workspace-relative paths a mutating call may
-	// change. It overrides the optional MutationReporter on Tools.
+	// MutationPaths 提供变更型调用可能改动的工作区相对路径。它会覆盖 Tools 上可选的
+	// MutationReporter。
 	MutationPaths func(name, args string) []string
 
-	// Verify, when non-nil, enables the bounded post-edit reflection loop. It
-	// runs once after every tool batch that contained a mutating tool, with the
-	// workspace-relative paths that batch may have changed (from the batch
-	// checkpoint when available). label names the check ("go test", "lint", ...);
-	// passed is its verdict; output is the raw check output; ok is false when the
-	// check could not run at all (missing tool, cancelled command), in which case
-	// no feedback is injected. The loop bounds and redacts the feedback it feeds
-	// back, but the callback must still keep its own work bounded. A nil Verify
-	// disables the whole feature so existing runs stay byte-for-byte unchanged.
+	// Verify 若非 nil，则启用有界的编辑后反思循环。它在每个包含变更型工具的工具批次之后
+	// 运行一次，并附带该批次可能改动的工作区相对路径（可用时来自批次检查点）。
+	// label 是检查的名称（"go test"、"lint" 等）；passed 是其结论；output 是原始检查输出；
+	// 当检查根本无法运行（缺少工具、命令被取消）时 ok 为 false，此时不会注入任何反馈。
+	// 循环会限制并脱敏它回灌的反馈，但回调自身仍必须保持其工作有界。
+	// nil 的 Verify 会禁用整个功能，使现有运行保持逐字节不变。
 	Verify func(ctx context.Context, changedPaths []string) (label string, passed bool, output string, ok bool)
-	// MaxVerifyReflections caps how many FAIL feedback turns one run may inject.
-	// Zero selects DefaultMaxVerifyReflections (3) when Verify is set. A PASS
-	// never spends a reflection; the count is per run and is never reset.
+	// MaxVerifyReflections 限制一次运行可注入的 FAIL 反馈轮次数量。
+	// 设置 Verify 时，零值选用 DefaultMaxVerifyReflections（3）。PASS 从不消耗一次反思；
+	// 该计数按运行计算，且从不重置。
 	MaxVerifyReflections int
 
-	// OnCompactionEvidence receives failures and next-step lines that a
-	// compactor must preserve. It runs once when the loop finishes.
+	// OnCompactionEvidence 接收压缩器必须保留的失败记录和后续步骤行。它在循环结束时运行一次。
 	OnCompactionEvidence func(CompactionEvidence)
 
-	// Compactor, when set, is called at the tool-batch boundary when the
-	// estimated context exceeds CompactThreshold. The app layer supplies it so
-	// this package never imports session.
+	// Compactor 若设置，会在估算上下文超过 CompactThreshold 时于工具批次边界被调用。
+	// 它由 app 层提供，因此本包从不导入 session。
 	Compactor Compactor
-	// CompactThreshold is the estimated-token trigger for mid-turn compaction.
-	// Zero (or a nil Compactor) disables it.
+	// CompactThreshold 是轮次中压缩的估算 token 触发阈值。零值（或 nil 的 Compactor）会禁用它。
 	CompactThreshold int
 
-	// Steer is drained between turns; each value becomes a user message.
+	// Steer 在轮次之间被抽取；每个值都会成为一条用户消息。
 	Steer <-chan string
-	// Budget limits the run. Limits are checked before each turn, before a
-	// tool batch and after it.
+	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。
 	Budget Budget
-	// Prices maps a model id to its per-million-token price. The "" entry, if
-	// present, is the fallback for models without an entry.
+	// Prices 把模型 id 映射到其每百万 token 的价格。若存在 "" 条目，
+	// 它作为没有对应条目模型的回退价格。
 	Prices map[string]Price
 
-	// MaxContextTokens is the estimated prompt size trimming aims for
-	// (default 32000). Budget.MaxPromptTokens, when smaller, wins.
+	// MaxContextTokens 是裁剪所瞄准的估算提示大小（默认 32000）。
+	// Budget.MaxPromptTokens 若更小则优先。
 	MaxContextTokens int
-	// KeepTurns is how many trailing assistant turns are never trimmed
-	// (default 6).
+	// KeepTurns 是从不被裁剪的末尾助手轮次数量（默认 6）。
 	KeepTurns int
-	// KeepToolTokens is how much recent tool output is never trimmed
-	// (default 2000 estimated tokens).
+	// KeepToolTokens 是从不被裁剪的最近工具输出量（默认 2000 估算 token）。
 	KeepToolTokens int
-	// MaxRepeats is how many identical calls really run before the repeat
-	// guard answers with an error (default 2; 0 uses the default).
+	// MaxRepeats 是在重复防护以错误回应之前，允许真正运行的相同调用次数
+	// （默认 2；0 表示使用默认值）。
 	MaxRepeats int
 
-	// NoProgress enables opt-in no-progress detection. Nil (the default) leaves
-	// the detector completely off and the run unchanged. When set, a batch that
-	// keeps issuing the same call with the same result ends the run early with
-	// StopStuck. This is advisory loop protection, not a replacement for the
-	// repeat guard, which still blocks duplicate calls independently.
+	// NoProgress 启用选择性的无进展检测。nil（默认值）使检测器完全关闭且运行不变。
+	// 设置后，持续发出相同调用并得到相同结果的批次会以 StopStuck 提前结束运行。
+	// 这是建议性的循环保护，并非重复防护的替代——后者仍会独立地阻断重复调用。
 	NoProgress *NoProgressConfig
 
-	// MutatingTools names the tools that need approval. Mutating, when set,
-	// takes precedence. With neither, defaultMutatingTools is used.
+	// MutatingTools 列出需要审批的工具。设置 Mutating 时以其为准。两者都没有时使用
+	// defaultMutatingTools。
 	MutatingTools []string
 	Mutating      func(name string) bool
 
-	// Subagent, when set, advertises the built-in `task` tool and runs nested
-	// loops for it.
+	// Subagent 若设置，会公布内置 `task` 工具并为其运行嵌套循环。
 	Subagent *SubagentConfig
-	// Depth is the current subagent nesting depth (0 for a root run).
+	// Depth 是当前子 agent 的嵌套深度（根运行为 0）。
 	Depth int
 
-	// bgOwner is this run's identity inside Subagent.Background. It is set by the
-	// agent package (never by callers) and is copied by value through
-	// childOptions, so a background result can be delivered back to exactly the
-	// run that delegated it. Depth alone cannot do that: two sibling subagents
-	// share a depth and would steal each other's results. Zero means "assign on
-	// first use" (see newRunState and BackgroundResults.RootOwner).
+	// bgOwner 是本次运行在 Subagent.Background 中的身份。它由 agent 包设置（绝不由调用方设置），
+	// 并通过 childOptions 按值复制，因此后台结果能被精确投递回委派它的那次运行。
+	// 仅靠 depth 做不到这一点：两个同级子 agent 共享相同深度，会窃取彼此的结果。
+	// 零表示"首次使用时分配"（见 newRunState 和 BackgroundResults.RootOwner）。
 	bgOwner uint64
 
-	// SkillAuthor, when set, advertises the built-in `save_skill` tool and
-	// routes its calls through the injected writer. Nil (the default) leaves
-	// existing runs completely unchanged.
+	// SkillAuthor 若设置，会公布内置 `save_skill` 工具，并把其调用路由到注入的 writer。
+	// nil（默认值）使现有运行完全不变。
 	SkillAuthor SkillWriter
-	// SkillLister, when set, advertises the read-only `list_skills` tool.
+	// SkillLister 若设置，会公布只读的 `list_skills` 工具。
 	SkillLister SkillLister
 
-	// Out receives streamed answer text. Deprecated: use Emit with
-	// EventTextDelta; kept so pre-wave-2 callers keep working.
+	// Out 接收流式输出的答案文本。已弃用：请配合 Emit 使用 EventTextDelta；
+	// 保留它是为了让 wave 2 之前的调用方继续工作。
 	Out io.Writer
 }
 
-// Result is the outcome of one Run.
+// Result 是一次 Run 的结果。
 type Result struct {
-	// Text is the last assistant text produced.
+	// Text 是最后产生的助手文本。
 	Text string
-	// Messages is the full conversation, including tool results.
+	// Messages 是完整对话，包括工具结果。
 	Messages []llm.Message
-	// Usage is the token usage accumulated over the run.
+	// Usage 是本次运行累积的 token 用量。
 	Usage llm.Usage
-	// Turns is how many model requests completed.
+	// Turns 是完成的模型请求数量。
 	Turns int
-	// Stopped is why the run ended: StopComplete, StopMaxTurns,
-	// StopMaxPromptTokens, StopMaxTotalTokens, StopMaxCost, StopCancelled,
-	// StopProviderError, StopOutputLimit or StopVerifyReflections.
+	// Stopped 是运行结束的原因：StopComplete、StopMaxTurns、
+	// StopMaxPromptTokens、StopMaxTotalTokens、StopMaxCost、StopCancelled、
+	// StopProviderError、StopOutputLimit 或 StopVerifyReflections。
 	Stopped string
 }
 
-// Runner drives the loop.
+// Runner 驱动循环。
 type Runner struct {
-	// Client and Tools are the pre-wave-2 construction seam. Options.Chatter
-	// and Options.Tools take precedence when set.
+	// Client 和 Tools 是 wave 2 之前的构造接缝。设置后，Options.Chatter 和 Options.Tools 优先。
 	Client llm.Chatter
 	Tools  ToolRunner
 	Opts   Options
 
-	// summaryCache memoises finished compaction views across every Run on this
-	// Runner (the server drives many prompts through one instance). It is
-	// created lazily on first use because callers build Runners with keyed
-	// struct literals; the zero value needs no constructor change. The cache
-	// itself is safe for concurrent access, and the mutex only guards the lazy
-	// initialisation. Per-Runner scope avoids cross-agent contamination; a
-	// persistent cross-session cache belongs to the app/session layer.
+	// summaryCache 在该 Runner 的所有 Run 之间缓存已完成的压缩视图（服务器通过一个实例驱动多个提示）。
+	// 它采用首次使用时延迟创建，因为调用方用带键的结构体字面量构造 Runner；零值无需修改构造函数。
+	// 缓存本身可安全并发访问，该互斥锁只保护延迟初始化。按 Runner 划分作用域可避免跨 agent 污染；
+	// 持久的跨会话缓存属于 app/session 层。
 	summaryCacheMu sync.Mutex
 	summaryCache   *SummaryCache
 }
 
-// compactionCache returns the Runner's summary cache, creating it on first use
-// with the default capacity.
+// compactionCache 返回该 Runner 的摘要缓存，首次使用时以默认容量创建它。
 func (r *Runner) compactionCache() *SummaryCache {
 	r.summaryCacheMu.Lock()
 	defer r.summaryCacheMu.Unlock()
@@ -331,19 +289,18 @@ func (r *Runner) compactionCache() *SummaryCache {
 	return r.summaryCache
 }
 
-// Run executes the prompt and returns the full result.
+// Run 执行提示并返回完整结果。
 func (r *Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	return r.execute(ctx, prompt, r.Opts.Emit)
 }
 
-// RunText is the pre-wave-2 shape: just the final assistant text.
+// RunText 是 wave 2 之前的形态：只返回最终的助手文本。
 func (r *Runner) RunText(ctx context.Context, prompt string) (string, error) {
 	res, err := r.Run(ctx, prompt)
 	return res.Text, err
 }
 
-// Prompt satisfies the transport runner interface (server.Runner): it runs one
-// prompt and forwards answer deltas to onText.
+// Prompt 满足传输层运行器接口（server.Runner）：它运行一个提示，并把答案增量转发给 onText。
 func (r *Runner) Prompt(ctx context.Context, text string, onText func(string)) (string, error) {
 	base := r.Opts.Emit
 	var emit func(Event)
@@ -361,7 +318,7 @@ func (r *Runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	return res.Text, err
 }
 
-// resolved merges the legacy struct fields with Options.
+// resolved 把旧版结构体字段与 Options 合并。
 func (r *Runner) resolved() (Options, error) {
 	opts := r.Opts
 	if opts.Chatter == nil {
@@ -379,7 +336,7 @@ func (r *Runner) resolved() (Options, error) {
 	return opts, nil
 }
 
-// maxTurnsFor resolves the turn budget.
+// maxTurnsFor 确定轮次预算。
 func maxTurnsFor(opts Options) int {
 	if opts.Budget.MaxTurns > 0 {
 		return opts.Budget.MaxTurns
@@ -390,7 +347,7 @@ func maxTurnsFor(opts Options) int {
 	return DefaultMaxTurns
 }
 
-// repeatsFor resolves the repeat-guard allowance.
+// repeatsFor 确定重复防护的额度。
 func repeatsFor(opts Options) int {
 	if opts.MaxRepeats > 0 {
 		return opts.MaxRepeats
@@ -398,7 +355,7 @@ func repeatsFor(opts Options) int {
 	return defaultMaxRepeats
 }
 
-// normaliseRecorder accepts every shape Options.Record historically took.
+// normaliseRecorder 接受 Options.Record 历史上采取过的所有形态。
 func normaliseRecorder(value any) Recorder {
 	switch r := value.(type) {
 	case nil:
@@ -417,7 +374,7 @@ func normaliseRecorder(value any) Recorder {
 	}
 }
 
-// nopTools is the tool runner used when the caller supplies none.
+// nopTools 是调用方未提供工具时使用的工具运行器。
 type nopTools struct{}
 
 func (nopTools) Specs() []llm.ToolSpec { return nil }
@@ -426,9 +383,8 @@ func (nopTools) Run(context.Context, string, string) (string, error) {
 	return "", fmt.Errorf("agent: no tools configured")
 }
 
-// RunWithMeta forwards metadata through the skill wrapper. Built-in skill
-// tools carry no reclamation metadata; every other call reaches the wrapped
-// runner's metadata path when it has one.
+// RunWithMeta 通过技能包装器转发元数据。内置技能工具不携带回收元数据；
+// 其他所有调用在包装的运行器具有元数据路径时会走该路径。
 func (t *skillTools) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
 	switch name {
 	case SaveSkillToolName, ListSkillsToolName:
@@ -443,9 +399,8 @@ func (t *skillTools) RunWithMeta(ctx context.Context, name, args string) (string
 	}
 }
 
-// RunWithMeta forwards metadata through the delegate wrapper. The built-in
-// task tool has no reclamation metadata; all other calls reach the wrapped
-// runner so metadata survives subagent wiring.
+// RunWithMeta 通过委派包装器转发元数据。内置 task 工具没有回收元数据；
+// 其他所有调用都会到达被包装的运行器，使元数据在子 agent 接线后仍然保留。
 func (t *taskTools) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
 	if name == TaskToolName {
 		out, err := t.Run(ctx, name, args)

@@ -139,8 +139,8 @@ func TestLoadRejectsFiles(t *testing.T) {
 	}
 }
 
-// TestHugeFileIsNotFullyRead guards the streaming read: with a small cap the
-// loader must not allocate memory proportional to a very large file.
+// TestHugeFileIsNotFullyRead 守护流式读取：上限很小时，
+// 加载器分配的内存不得与超大文件的大小成正比。
 func TestHugeFileIsNotFullyRead(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "AGENTS.md")
@@ -176,8 +176,8 @@ func TestHugeFileIsNotFullyRead(t *testing.T) {
 	}
 }
 
-// TestTotalBudgetCapsCombinedText checks that many capped files cannot push an
-// unbounded amount of text into the system prompt.
+// TestTotalBudgetCapsCombinedText 检查多个受限文件无法向
+// 系统提示词推入无限量的文本。
 func TestTotalBudgetCapsCombinedText(t *testing.T) {
 	base := t.TempDir()
 	root := base
@@ -218,8 +218,8 @@ func TestTotalBudgetCapsCombinedText(t *testing.T) {
 	}
 }
 
-// TestTruncationIsRuneSafe checks that clipping never splits a UTF-8 rune,
-// including CJK and emoji sequences.
+// TestTruncationIsRuneSafe 检查裁剪从不拆分 UTF-8 rune，
+// 包括 CJK 和 emoji 序列。
 func TestTruncationIsRuneSafe(t *testing.T) {
 	cases := []struct {
 		name, content, wantPrefix string
@@ -254,8 +254,8 @@ func TestTruncationIsRuneSafe(t *testing.T) {
 	}
 }
 
-// TestNoLimitKeepsWholeFile preserves the documented LoadLimit(limit<=0)
-// single-file "no cap" semantics: the file is returned whole and unmarked.
+// TestNoLimitKeepsWholeFile 保留文档所述的 LoadLimit(limit<=0)
+// 单文件"无上限"语义：文件被完整返回且无截断标记。
 func TestNoLimitKeepsWholeFile(t *testing.T) {
 	root := t.TempDir()
 	content := strings.Repeat("你好😀", 2000)

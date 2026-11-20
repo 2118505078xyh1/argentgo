@@ -92,6 +92,10 @@ type Tool struct {
 	Server string          `json:"server,omitempty"`
 	// ReadOnly mirrors the MCP annotations.readOnlyHint bit.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// Annotations 是该工具完整的 MCP annotations 解析结果（加法字段）。
+	// 它与 ReadOnly 并存：ReadOnly 保留历史 readOnlyHint 行为，本字段额外提供
+	// destructiveHint/idempotentHint/openWorldHint/title 等信息。
+	Annotations ToolAnnotations `json:"annotations,omitempty"`
 
 	// RawInputSchema is the unmodified inputSchema as advertised by the server.
 	// Additive and omitted when empty; callers building provider specs should
@@ -279,13 +283,17 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 				Description  string          `json:"description"`
 				InputSchema  json.RawMessage `json:"inputSchema"`
 				OutputSchema json.RawMessage `json:"outputSchema"`
-				Annotations  struct {
-					ReadOnlyHint bool `json:"readOnlyHint"`
-				} `json:"annotations"`
+				Annotations  json.RawMessage `json:"annotations"`
 			}
 			if err := json.Unmarshal(itemRaw, &item); err != nil {
 				continue // skip only the bad entry, keep the rest of the table
 			}
+			// 保持历史容错语义：annotations 若存在且不能解码成带布尔
+			// readOnlyHint 的对象（或 null），视为坏工具跳过。
+			if !annotationsLegacyDecodable(item.Annotations) {
+				continue
+			}
+			annotations := parseToolAnnotations(item.Annotations)
 			if strings.TrimSpace(item.Name) == "" {
 				continue
 			}
@@ -294,9 +302,10 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 				Description:    item.Description,
 				Schema:         normalizeInputSchema(item.InputSchema),
 				Server:         c.spec.Name,
-				ReadOnly:       item.Annotations.ReadOnlyHint,
+				ReadOnly:       annotations.ReadOnly,
 				RawInputSchema: append(json.RawMessage(nil), item.InputSchema...),
 				OutputSchema:   append(json.RawMessage(nil), item.OutputSchema...),
+				Annotations:    annotations,
 			})
 		}
 		return nextCursor(result.Next), nil

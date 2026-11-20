@@ -7,16 +7,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 )
 
-// TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain guards the
-// non-blocking delivery contract of the must-deliver terminal path.
+// TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain 守护必达终态路径的
+// 非阻塞投递约定。
 //
-// A subscriber's channel is filled to capacity, and a consumer drains it
-// concurrently. When Publish sees a full channel it must free the reserved
-// terminal slot without ever blocking. If it used a plain blocking `<-ch`, a
-// consumer that empties the channel in that window would leave Publish stuck
-// while holding h.mu — deadlocking every other publisher and subscriber. The
-// test publishes many terminals under that contention and fails if any Publish
-// does not return promptly.
+// 订阅者的通道被填满，消费者并发地排空它。
+// 当 Publish 看到通道已满时，它必须释放预留的
+// 终态槽位且绝不阻塞。若使用普通的阻塞 `<-ch>`，在
+// 该窗口内清空通道的消费者会让 Publish 卡住，
+// 同时持有 h.mu——使其他发布者和订阅者全部死锁。
+// 该测试在这种竞争下发布多个终态事件，若有任何 Publish
+// 未能及时返回则失败。
 func TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain(t *testing.T) {
 	const (
 		rounds    = 40
@@ -26,14 +26,14 @@ func TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain(t *testing.T) {
 		hub := NewEventHub()
 		ch, stop := hub.Subscribe(0)
 
-		// Fill to capacity so each terminal publish takes the "full" branch.
+		// 填到容量上限，使每次终态发布都走"满"分支。
 		for i := 0; i < cap(ch); i++ {
 			hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "fill"})
 		}
 
-		// The consumer drains continuously and can empty the channel at any
-		// point, including between Publish's full-channel check and its
-		// oldest-event removal.
+		// 消费者持续排空，可在任意时刻清空通道，
+		// 包括 Publish 的满通道检查与
+		// 最旧事件移除之间。
 		drained := make(chan struct{})
 		go func() {
 			defer close(drained)
@@ -65,9 +65,9 @@ func TestEventHubTerminalPublishNeverBlocksOnConcurrentDrain(t *testing.T) {
 	}
 }
 
-// TestEventHubTerminalStillDeliveredWhenFull exercises the contract the fix
-// must preserve: a terminal reaches a subscriber whose normal quota is full,
-// using the reserved slot rather than evicting it.
+// TestEventHubTerminalStillDeliveredWhenFull 演练该修复必须保持的约定：
+// 终态事件能送达普通配额已满的订阅者，
+// 使用预留槽位而不是淘汰它。
 func TestEventHubTerminalStillDeliveredWhenFull(t *testing.T) {
 	hub := NewEventHub()
 	ch, stop := hub.Subscribe(0)

@@ -16,56 +16,56 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// maxRPCFrame is the largest accepted frame on the line-delimited --rpc / acp
-// transports. It keeps the old bufio.Scanner 4 MiB ceiling as an explicit,
-// enforced limit. A longer frame is rejected with a structured JSON-RPC error
-// and dropped; the transport keeps reading the next frame.
+// maxRPCFrame 是换行分隔的 --rpc / acp 传输上接受的最大帧。
+// 它把旧 bufio.Scanner 的 4 MiB 上限作为显式的、
+// 强制执行的限制保留下来。更长的帧会被结构化的 JSON-RPC 错误
+// 拒绝并丢弃；传输继续读取下一帧。
 const maxRPCFrame = 4 * 1024 * 1024
 
-// errFrameTooLong marks one dropped oversized frame. It is deliberately not a
-// terminal transport error: scanLines has already consumed the whole frame and
-// resumes normal reading afterwards.
+// errFrameTooLong 标记一个被丢弃的超大帧。它有意不是
+// 终态传输错误：scanLines 已经消费了整帧，
+// 之后会恢复正常读取。
 var errFrameTooLong = fmt.Errorf("json-rpc frame too long (max %d bytes)", maxRPCFrame)
 
-// rpcAbsPath matches an absolute filesystem path embedded in a session-layer
-// error. Both Windows drive roots (C:\...) and POSIX roots (/...) are covered;
-// a leading delimiter is kept so the surrounding wording stays readable. The
-// trailing class stops at whitespace and the usual quoting/colon delimiters so
-// the error reason that follows a path is preserved.
+// rpcAbsPath 匹配嵌在会话层错误中的绝对文件系统路径。
+// Windows 盘符根（C:\...）和 POSIX 根（/...）都覆盖；
+// 保留前导分隔符，使周围的文字仍然可读。
+// 尾部字符类在空白及常见的引号/冒号分隔符处停止，
+// 从而保留路径后面的错误原因。
 var rpcAbsPath = regexp.MustCompile(`(^|[\s"'=(:;])((?:[A-Za-z]:[\\/])|/)[^\s"'<>|:]*`)
 
-// scrubSessionLoadError prepares a session.load failure for the JSON-RPC reply.
-// Session-layer errors interpolate the absolute storage directory (e.g.
-// C:\Users\<user>\.argentgo\sessions\<id>.jsonl), which must not cross the RPC
-// boundary. Credential-shaped spans are redacted and absolute paths are folded
-// to a placeholder; the canonical reason (and the caller-supplied session id)
-// survive so the client still learns why the load failed. The unredacted detail
-// stays on the server side for logging.
+// scrubSessionLoadError 为 JSON-RPC 回复准备 session.load 失败信息。
+// 会话层错误会插入绝对存储目录（例如
+// C:\Users\<user>\.argentgo\sessions\<id>.jsonl），它不得跨越 RPC
+// 边界。凭据形态的片段会被脱敏，绝对路径会被折叠
+// 为占位符；规范原因（以及调用方提供的 session id）
+// 保留下来，使客户端仍能知道加载失败的原因。未脱敏的细节
+// 留在服务器端用于日志。
 func scrubSessionLoadError(id string, err error) string {
 	msg := security.Redact(err.Error())
 	msg = rpcAbsPath.ReplaceAllString(msg, "${1}<storage>/...")
 	return fmt.Sprintf("load session %q: %s", id, msg)
 }
 
-// scanResult is one item from scanLines: a trimmed, non-empty input line, or
-// an error. errFrameTooLong means a single oversized frame was dropped and
-// reading continues; any other error is terminal (a real I/O failure on in).
+// scanResult 是 scanLines 产出的一项：裁剪后的非空输入行，或
+// 一个错误。errFrameTooLong 表示一个超大帧被丢弃，
+// 读取继续；任何其他错误都是终态的（in 上真正的 I/O 失败）。
 type scanResult struct {
 	line []byte
 	err  error
 }
 
-// scanLines reads newline-delimited input on a background goroutine so a
-// transport can react to ctx cancellation even while stdin has no data ready —
-// a bare blocking Read would block the transport's own goroutine and swallow
-// Ctrl-C.
+// scanLines 在后台 goroutine 上读取换行分隔的输入，使传输
+// 即使 stdin 没有数据就绪也能响应 ctx 取消——
+// 裸的阻塞 Read 会阻塞传输自身的 goroutine 并吞掉
+// Ctrl-C。
 //
-// It uses bufio.Reader rather than bufio.Scanner because a Scanner cannot
-// recover from bufio.ErrTooLong: once a line overflows its buffer it stops for
-// good, which used to tear down the entire RPC/ACP connection on one bad frame.
-// Here an oversized line is drained (without buffering it) and reported through
-// errFrameTooLong, after which normal scanning resumes. Accumulated bytes are
-// copied because ReadSlice's slice is only valid until the next read.
+// 它使用 bufio.Reader 而不是 bufio.Scanner，因为 Scanner 无法从
+// bufio.ErrTooLong 中恢复：一旦某行超出其缓冲区，它就永久停止，
+// 过去这会因为一个坏帧而拆除整个 RPC/ACP 连接。
+// 这里超大行会被排空（不缓冲）并通过
+// errFrameTooLong 报告，之后正常扫描恢复。累积的字节会被
+// 复制，因为 ReadSlice 返回的切片只在下次读取前有效。
 func scanLines(ctx context.Context, in io.Reader) <-chan scanResult {
 	results := make(chan scanResult)
 	go func() {
@@ -120,13 +120,13 @@ func scanLines(ctx context.Context, in io.Reader) <-chan scanResult {
 	return results
 }
 
-// approvalSession resolves the session an approval request addresses. Clients
-// such as the native bridge send only {id, granted} with no session, while the
-// durable pending record and the blocked approver's waiter are both keyed by
-// the session the runner is currently appending to. Without that fallback the
-// empty session silently resolves nothing: the RPC still answers ok but Ask
-// never wakes. Discovering SessionID through a small optional interface keeps
-// fakes and standalone callers on the original explicit-session behaviour.
+// approvalSession 解析审批请求所针对的会话。
+// 像原生桥这样的客户端只发送 {id, granted} 而不带 session，
+// 而持久的待处理记录和被阻塞审批者的等待者，
+// 都以 runner 当前正在追加的会话为键。没有该回退，
+// 空会话会悄悄解析不出任何东西：RPC 仍回答 ok，但 Ask 永不唤醒。
+// 通过一个小接口发现 SessionID，使假实现和独立调用方
+// 保持原有的显式会话行为。
 func approvalSession(explicit string, runner Runner) string {
 	if explicit != "" {
 		return explicit
@@ -137,10 +137,10 @@ func approvalSession(explicit string, runner Runner) string {
 	return ""
 }
 
-// reportScanError turns a recoverable scan error into a structured JSON-RPC
-// reply. It reports whether the error is terminal and the transport must stop.
-// An oversized frame has no parseable id, so it is answered with id: null, the
-// same shape used for ordinary parse errors.
+// reportScanError 把可恢复的扫描错误转换为结构化的 JSON-RPC
+// 回复。它报告错误是否是终态的、传输是否必须停止。
+// 超大帧没有可解析的 id，因此用 id: null 回复，
+// 与普通解析错误的形态相同。
 func reportScanError(p *peer, err error) (terminal bool) {
 	if !errors.Is(err, errFrameTooLong) {
 		return true
@@ -149,15 +149,15 @@ func reportScanError(p *peer, err error) (terminal bool) {
 	return false
 }
 
-// RunRPC serves newline-delimited JSON-RPC 2.0 over in/out until in reaches
-// EOF or ctx is cancelled.
+// RunRPC 在 in/out 上提供换行分隔的 JSON-RPC 2.0 服务，直到 in 到达
+// EOF 或 ctx 被取消。
 //
-// Methods: prompt, abort, session.list, session.load, approval.list,
-// approval.answer, event/subscribe. Streamed
-// prompt text is emitted as prompt/delta notifications before the prompt result
-// is returned; event/subscribe answers with the seq captured at subscription
-// (a safe resume cursor) then emits "event" notifications until the transport
-// ends.
+// 方法：prompt、abort、session.list、session.load、approval.list、
+// approval.answer、event/subscribe。流式
+// 提示文本在提示结果返回前作为 prompt/delta 通知发出；
+// event/subscribe 用订阅时捕获的 seq 回复（安全续传游标），
+// 然后发出 "event" 通知，直到传输
+// 结束。
 func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -172,7 +172,7 @@ func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 
 	results := scanLines(ctx, in)
 	for {
-		// Prioritise cancellation so a queued line cannot delay the exit.
+		// 优先处理取消，使排队的行不会延迟退出。
 		select {
 		case <-ctx.Done():
 			return nil
@@ -229,9 +229,9 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			})
 			if err != nil {
 				if isCancelled(ctx, err) {
-					// A user abort is a normal stop, not an internal error. Keep
-					// a result-shaped reply (with the partial answer) so clients
-					// can tell it apart from a real -32603 failure.
+					// 用户中止是正常的停止，不是内部错误。保留
+					// 结果形态的回复（带部分答案），使客户端
+					// 能把它与真正的 -32603 失败区分开。
 					p.respond(id, map[string]any{"text": result, "stopReason": "cancelled"})
 					return
 				}
@@ -294,11 +294,11 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		}
 		p.respond(req.ID, map[string]any{"id": id, "events": events})
 	case "approval.list":
-		// approval.list {session?} returns the runner's durable pending-approval
-		// mirror so a reconnecting client can recover questions asked while it
-		// was away. The store is discovered through a small optional interface,
-		// mirroring EventHub(): fakes and standalone callers without one get a
-		// clean "not configured" error instead of a panic.
+		// approval.list {session?} 返回 runner 的持久待审批
+		// 镜像，使重连的客户端可以恢复它离开期间被问到的问题。
+		// 存储通过一个可选的小接口发现，
+		// 模仿 EventHub()：没有该接口的假实现和独立调用方会得到
+		// 干净的 "not configured" 错误，而不是 panic。
 		var params struct {
 			Session string `json:"session"`
 		}
@@ -323,19 +323,19 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		}
 		p.respond(req.ID, map[string]any{"pending": items})
 	case "approval.answer":
-		// approval.answer {session?, id, granted} records an operator's decision
-		// for a pending tool call. The store is discovered through the same
-		// optional interface as approval.list, so fakes/standalone callers get a
-		// clean "not configured" error instead of a panic.
+		// approval.answer {session?, id, granted} 记录操作员对某个
+		// 待处理工具调用的决定。存储通过与 approval.list 相同的
+		// 可选接口发现，因此假实现/独立调用方会得到
+		// 干净的 "not configured" 错误，而不是 panic。
 		//
-		// PendingStore.Resolve only persists the decision (it removes the
-		// pending item and appends a decision record); it does not wake the
-		// in-memory approver blocking Approve.Ask. On the --rpc path the agent's
-		// own approval:resolved notice is emitted only after Ask returns (and
-		// the guarded-branch that emits approval notices is skipped entirely
-		// for a guarded toolset, which --rpc uses), so the engine does not send
-		// one here. Publish a resolved notice ourselves to keep text-only
-		// consumers (the native bridge) in sync with the answered card.
+		// PendingStore.Resolve 只持久化决定（移除待处理项，
+		// 并追加一条决定记录）；它不会唤醒阻塞在 Approve.Ask 上的
+		// 内存审批者。在 --rpc 路径上，agent 自己的
+		// approval:resolved 通知只在 Ask 返回后才发出（而且对 --rpc
+		// 使用的受保护工具集，发出审批通知的受保护分支会被完全跳过），
+		// 因此引擎不在这里发送。我们自行发布一条 resolved 通知，
+		// 使纯文本的消费者（原生桥）
+		// 与已回答的卡片保持同步。
 		var params struct {
 			Session string `json:"session"`
 			ID      string `json:"id"`
@@ -363,9 +363,9 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		store := typed.PendingStore()
 		granted := *params.Granted
 		session := approvalSession(params.Session, cfg.Runner)
-		// Resolve deletes the item, so read its tool name first: the resolved
-		// notice needs a non-empty (tool,id) pair for a consumer to pair it with
-		// the outstanding approval request (native rejects an empty tool).
+		// Resolve 会删除该项，因此先读取其工具名：resolved
+		// 通知需要非空的 (tool,id) 对，消费者才能把它与
+		// 未完成的审批请求配对（原生端拒绝空工具）。
 		tool := ""
 		if items, err := store.List(session); err == nil {
 			for _, item := range items {
@@ -385,9 +385,9 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		hub.Publish(agent.ApprovalResolvedEvent(tool, params.ID, granted))
 		p.respond(req.ID, map[string]any{"ok": true})
 	case "event/subscribe":
-		// Streaming in a goroutine keeps the scanner reading further requests.
-		// The method result reports the current seq; each event then arrives as
-		// an "event" notification. Cancelling the transport (EOF or ctx) stops it.
+		// 在 goroutine 中流式处理可使扫描器继续读取后续请求。
+		// 方法结果报告当前 seq；之后每个事件作为
+		// "event" 通知到达。取消传输（EOF 或 ctx）会使其停止。
 		var params struct {
 			After uint64 `json:"after"`
 		}
@@ -403,8 +403,8 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			defer wg.Done()
 			ch, stop, seqAt := hub.SubscribeAfter(params.After)
 			defer stop()
-			// seqAt is captured with the subscription, so an event published in
-			// the gap before this result is written is not skipped on reconnect.
+			// seqAt 与订阅一起捕获，因此在该结果写出之前
+			// 的间隙中发布的事件不会在重连时被跳过。
 			p.respond(id, map[string]any{"seq": seqAt})
 			for {
 				select {

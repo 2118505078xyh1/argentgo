@@ -8,20 +8,20 @@ import (
 	"strings"
 )
 
-// Records returns every record in file order.
+// Records 按文件顺序返回所有记录。
 func (s *Session) Records() ([]Record, error) {
 	return readRecords(s.path())
 }
 
-// ReadPage returns one byte-bounded page of records from this session's file.
-// It is a lenient read API: malformed lines are skipped and the cursor is
-// resolved by scanning the file, without modifying the transcript.
+// ReadPage 从本会话的文件返回一页受字节大小限制的记录。
+// 它是一个宽松的读取 API：格式错误的行会被跳过，游标通过扫描文件解析，
+// 而不会修改转录。
 func (s *Session) ReadPage(afterID string, maxBytes int, fromEnd bool) (Page, error) {
 	return ReadPage(s.path(), afterID, maxBytes, fromEnd)
 }
 
-// Messages returns the linear conversation on the active branch. The latest
-// compaction record replaces everything before it with one system summary.
+// Messages 返回活动分支上的线性对话。最新的压缩记录会用一条系统摘要
+// 替换它之前的所有内容。
 func (s *Session) Messages() []Entry {
 	records, err := s.Records()
 	if err != nil {
@@ -58,8 +58,8 @@ func (s *Session) Messages() []Entry {
 	return messageEntries(path)
 }
 
-// readRecords parses a transcript. Blank and malformed lines are skipped so a
-// torn append cannot make the whole session unreadable.
+// readRecords 解析转录。空行和格式错误的行会被跳过，
+// 使一次中断的追加不会让整个会话无法读取。
 func readRecords(path string) ([]Record, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -84,9 +84,9 @@ func readRecords(path string) ([]Record, error) {
 		}
 		records = append(records, record)
 	}
-	// Mint synthetic ids only after the whole file is parsed, so an explicit
-	// id appearing later cannot collide with one minted for an earlier record
-	// that had no id (session audit #5). nextID skips every id already present.
+	// 只在解析完整个文件之后才生成合成 id，使后面出现的显式 id 不会与
+	// 为更早的无 id 记录生成的 id 冲突（session 审计 #5）。nextID 会跳过
+	// 所有已存在的 id。
 	for i := range records {
 		if records[i].ID == "" {
 			records[i].ID = nextID(records)
@@ -95,13 +95,12 @@ func readRecords(path string) ([]Record, error) {
 	if err := scanner.Err(); err != nil {
 		return records, fmt.Errorf("session: read %s: %w", path, err)
 	}
-	// Bring legacy (v0) transcripts up to the current schema on the read path
-	// so every entry point (Records/Messages/Branches/...) sees a consistent
-	// view. Migration is metadata-only: it may prepend a schema header but never
-	// changes the conversation. That header deliberately keeps an empty id: it
-	// is metadata with no parent, so the id/parent tree walk never visits it
-	// (both loops stop at parent == ""), and an empty id cannot collide with the
-	// n%06d ids minted by the append path. Minting one here would consume a real
-	// id slot and leave a permanent gap in appended records.
+	// 在读取路径上把旧版（v0）转录升级到当前 schema，使每个入口
+	// （Records/Messages/Branches/...）都看到一致的视图。迁移只涉及元数据：
+	// 它可能在前面加上一个 schema 头，但绝不改变对话。该头有意保留空 id：
+	// 它是没有父节点的元数据，因此 id/parent 树遍历永远不会访问它
+	// （两个循环都在 parent == "" 时停止），且空 id 不会与追加路径生成的
+	// n%06d id 冲突。在这里生成 id 会消耗一个真实的 id 槽位，并在追加记录中
+	// 留下永久的缺口。
 	return MigrateRecords(records)
 }

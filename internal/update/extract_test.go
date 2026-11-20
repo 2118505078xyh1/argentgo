@@ -21,7 +21,7 @@ type zipEntry struct {
 	mode os.FileMode
 }
 
-// zipFixture builds an in-memory zip archive from the given entries.
+// zipFixture 根据给定条目在内存中构建 zip 压缩包。
 func zipFixture(t *testing.T, entries ...zipEntry) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -54,9 +54,9 @@ func serveBytes(t *testing.T, payload []byte) *httptest.Server {
 	return server
 }
 
-// TestZipAssetIsExtractedBeforeApply is the end-to-end regression test: the
-// published windows archive contains argent.exe, FindAsset picks it, and the
-// installed binary must be the executable inside the zip, never the zip itself.
+// TestZipAssetIsExtractedBeforeApply 是端到端回归测试：
+// 发布的 windows 压缩包包含 argent.exe，FindAsset 选中它，
+// 安装后的二进制必须是 zip 内的可执行文件，绝不能是 zip 本身。
 func TestZipAssetIsExtractedBeforeApply(t *testing.T) {
 	binary := []byte("MZ fictitious executable payload")
 	archive := zipFixture(t,
@@ -110,8 +110,8 @@ func TestZipAssetIsExtractedBeforeApply(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsUnsafeZipEntries covers zip-slip, absolute paths, Windows
-// drive letters and symlinks. Each must fail before anything is staged.
+// TestDownloadRejectsUnsafeZipEntries 覆盖 zip-slip、绝对路径、Windows
+// 盘符和符号链接。每一项都必须在任何文件被暂存之前失败。
 func TestDownloadRejectsUnsafeZipEntries(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -297,8 +297,8 @@ type tarEntry struct {
 	linkname string
 }
 
-// tarGzFixture builds an in-memory gzip-compressed tar archive from the given
-// entries. A zero typeflag means a regular file.
+// tarGzFixture 根据给定条目在内存中构建 gzip 压缩的 tar 压缩包。
+// typeflag 为零表示普通文件。
 func tarGzFixture(t *testing.T, entries ...tarEntry) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -336,9 +336,9 @@ func tarGzFixture(t *testing.T, entries ...tarEntry) []byte {
 	return buffer.Bytes()
 }
 
-// TestTarGzAssetIsExtractedBeforeApply is the regression for the cross-package
-// gap: FindAsset prefers .tar.gz over .zip on Linux, so Download must unpack it
-// rather than stage a raw gzip archive that Apply would install as the binary.
+// TestTarGzAssetIsExtractedBeforeApply 是针对跨包
+// 断层的回归测试：FindAsset 在 Linux 上优先 .tar.gz 而非 .zip，所以 Download 必须解包它
+// 而不能暂存原始 gzip 压缩包，否则 Apply 会把它当二进制安装。
 func TestTarGzAssetIsExtractedBeforeApply(t *testing.T) {
 	binary := []byte("ELF fictitious executable payload")
 	archive := tarGzFixture(t,
@@ -391,8 +391,8 @@ func TestTarGzAssetIsExtractedBeforeApply(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsUnsafeTarEntries covers path escapes, links and duplicate
-// executables. Each must fail before anything is staged.
+// TestDownloadRejectsUnsafeTarEntries 覆盖路径逃逸、链接和重复
+// 可执行文件。每一项都必须在任何文件被暂存之前失败。
 func TestDownloadRejectsUnsafeTarEntries(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -464,7 +464,7 @@ func TestDownloadRejectsUnsafeTarEntries(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsTarGzWithoutAnExecutable also exercises the .tgz suffix.
+// TestDownloadRejectsTarGzWithoutAnExecutable 也覆盖 .tgz 后缀。
 func TestDownloadRejectsTarGzWithoutAnExecutable(t *testing.T) {
 	archive := tarGzFixture(t,
 		tarEntry{name: "README.md", data: []byte("docs")},

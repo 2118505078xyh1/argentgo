@@ -18,69 +18,69 @@ import (
 )
 
 const (
-	// defaultTTLGrantLifetime is used when the caller passes a non-positive ttl.
+	// 当调用方传入非正数 ttl 时使用 defaultTTLGrantLifetime。
 	defaultTTLGrantLifetime = 30 * time.Minute
-	// maxTTLGrantEntries bounds both the in-memory and the on-disk grant set.
+	// maxTTLGrantEntries 限制内存中和磁盘上的授予集合大小。
 	maxTTLGrantEntries = 1000
-	// maxTTLCanonicalBytes bounds how much argument text Key inspects.
+	// maxTTLCanonicalBytes 限制 Key 检查的参数文本量。
 	maxTTLCanonicalBytes = 64 * 1024
-	// maxTTLReadableRunes bounds the human-readable context kept per grant.
+	// maxTTLReadableRunes 限制每条授予保留的人类可读上下文。
 	maxTTLReadableRunes = 200
-	// ttlGrantsFile is the persistence file created inside dir.
+	// ttlGrantsFile 是在 dir 内创建的持久化文件。
 	ttlGrantsFile = "grants.json"
-	// ttlGrantsLockFile is a sidecar used for a cross-process lock. The OS owns
-	// the lock and drops it on process exit, so it never goes stale.
+	// ttlGrantsLockFile 是用于跨进程锁的 sidecar 文件。操作系统拥有
+	// 该锁并在进程退出时释放它，因此它永远不会陈旧。
 	ttlGrantsLockFile = "grants.json.lock"
 )
 
-// errTTLUntrusted is returned by Allow when the persisted grant set could not
-// be read or decoded. The cache refuses to grant or to overwrite a file it
-// cannot trust; an explicit successful Load is required to recover.
+// 当持久化的授予集合无法被读取或解码时，Allow 返回 errTTLUntrusted。
+// 缓存拒绝授予或覆盖它无法信任的文件；必须显式成功调用 Load
+// 才能恢复。
 var errTTLUntrusted = errors.New("security: ttl grants untrusted")
 
-// ttlEntry is one persisted grant. ExpiresAt is absolute wall-clock time so a
-// grant written by a previous process keeps the same remaining lifetime after
-// a restart. Readable is redacted and rune-capped before it is written, so the
-// file never holds a credential.
+// ttlEntry 是一条持久化的授予。ExpiresAt 是绝对墙上时钟时间，
+// 因此由前一个进程写入的授予在重启后保持相同的剩余生存期。
+// Readable 在写入前会被脱敏并按 rune 限制长度，
+// 因此文件永远不会保存凭证。
 type ttlEntry struct {
 	Key       string    `json:"key"`
 	Readable  string    `json:"readable"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// TTLCache is a self-contained approval-grant cache with an expiry and
-// optional JSON persistence. Unlike CachedApprover it expires grants and can
-// survive a restart when a directory is supplied. Denials are never recorded.
+// TTLCache 是一个自包含的审批授予缓存，带过期时间和可选的 JSON 持久化。
+// 与 CachedApprover 不同，它会使授予过期，并在提供目录时
+// 能跨重启存活。拒绝永不被记录。
 //
-// Grants are stored as a JSON array in <dir>/grants.json, written atomically
-// (temp file + sync + rename, mode 0600). Expired grants are dropped on read
-// and on write, and the set is capped at maxTTLGrantEntries. An empty dir makes
-// the cache memory-only.
+// 授予以 JSON 数组形式存储在 <dir>/grants.json 中，以原子方式写入
+// （临时文件 + sync + rename，权限 0600）。过期授予在读取和写入时
+// 都会被丢弃，集合大小上限为 maxTTLGrantEntries。空目录使缓存
+// 成为纯内存的。
 //
-// When persisted, every write takes a cross-process lock on the sidecar
-// <dir>/grants.json.lock,
-// re-reads the latest grant set from disk and only then applies the change, so
-// two processes cannot clobber each other's grants. A file that cannot be read
-// or decoded fails closed: IsAllowed returns false and Allow returns an error
-// instead of silently starting from an empty (or fresh) grant set.
+// 持久化时，每次写入都会在 sidecar 文件上获取跨进程锁
+// <dir>/grants.json.lock，
+// 从磁盘重新读取最新的授予集合，然后才应用更改，因此
+// 两个进程不会互相覆盖对方的授予。无法读取或解码的文件会
+// 失败即拒绝：IsAllowed 返回 false，Allow 返回错误，
+// 而不是静默地从空集合（或全新集合）开始。
 type TTLCache struct {
 	mu      sync.Mutex
 	dir     string
 	ttl     time.Duration
 	entries map[string]ttlEntry
-	// now is the expiry clock. Tests replace it with a fixed clock; it is set
-	// once at construction and never mutated afterwards.
+	// now 是过期时钟。测试用固定时钟替换它；它在构造时设置一次，
+	// 此后永不再改变。
 	now func() time.Time
-	// failed is set when the persisted grant file cannot be trusted. While set,
-	// no grant is honoured and no write is attempted. It is cleared by a
-	// successful Load (or a write whose re-read from disk succeeded).
+	// 当持久化授予文件无法被信任时设置 failed。设置期间，
+	// 不兑现任何授予，也不尝试任何写入。成功的 Load
+	// （或重新读取磁盘成功的写入）会清除它。
 	failed bool
 }
 
-// NewTTLCache creates a cache with ttl (default 30 minutes when non-positive).
-// Persisted grants are loaded from disk; a missing file is fine, but a read or
-// decode failure marks the cache untrusted so it fails closed rather than
-// treating the corrupt file as an empty grant set.
+// NewTTLCache 创建一个 ttl 的缓存（非正数时默认 30 分钟）。
+// 持久化的授予从磁盘加载；文件缺失没问题，但读取或
+// 解码失败会把缓存标记为不可信，使其失败即拒绝，而不是
+// 把损坏的文件当作空授予集合。
 func NewTTLCache(dir string, ttl time.Duration) *TTLCache {
 	if ttl <= 0 {
 		ttl = defaultTTLGrantLifetime
@@ -99,19 +99,19 @@ func NewTTLCache(dir string, ttl time.Duration) *TTLCache {
 	return c
 }
 
-// Key returns the stable hex SHA-256 identity of a (tool, args) grant. It
-// mirrors approvalCacheKey so a CachedApprover caller can reuse the same key:
-// sha256(tool + "\x00" + canonicalArgs(args)).
+// Key 返回一个 (tool, args) 授予的稳定十六进制 SHA-256 标识。它
+// 镜像 approvalCacheKey，使 CachedApprover 的调用方能复用同一个键：
+// sha256(tool + "\x00" + canonicalArgs(args))。
 func (c *TTLCache) Key(tool string, args json.RawMessage) string {
 	sum := sha256.Sum256([]byte(tool + "\x00" + canonicalTTLArgs(args)))
 	return hex.EncodeToString(sum[:])
 }
 
-// canonicalTTLArgs mirrors approver.go's canonicalArgs: object keys are sorted
-// recursively by json.Marshal, UseNumber keeps numeric spellings such as 1 and
-// 1.0 distinct, and trailing data falls back to whitespace-collapsed text.
-// Input is bounded to 64 KiB; oversized arguments get a length-tagged prefix
-// so two long argument sets cannot collide on one key.
+// canonicalTTLArgs 镜像 approver.go 的 canonicalArgs：对象键由
+// json.Marshal 递归排序，UseNumber 保持 1 和 1.0 这样的数字写法
+// 彼此不同，尾随数据回退为空白压缩后的文本。
+// 输入上限为 64 KiB；超大参数会得到一个带长度标记的前缀，
+// 使两组长参数不会碰撞到同一个键上。
 func canonicalTTLArgs(raw json.RawMessage) string {
 	if len(raw) > maxTTLCanonicalBytes {
 		return fmt.Sprintf("oversized:%d:%s", len(raw), string(raw[:maxTTLCanonicalBytes]))
@@ -126,8 +126,8 @@ func canonicalTTLArgs(raw json.RawMessage) string {
 	if err := dec.Decode(&value); err != nil {
 		return strings.Join(strings.Fields(s), " ")
 	}
-	// Reject trailing data so a value with a suffix cannot share the key of
-	// the bare value, matching json.Unmarshal in canonicalArgs.
+	// 拒绝尾随数据，使带后缀的值不会共享裸值的键，
+	// 与 canonicalArgs 中的 json.Unmarshal 一致。
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return strings.Join(strings.Fields(s), " ")
 	}
@@ -138,12 +138,12 @@ func canonicalTTLArgs(raw json.RawMessage) string {
 	return string(normalized)
 }
 
-// Allow records a grant for key that lives until now+ttl. readable is
-// sanitized, redacted and capped before it is stored or written to disk. For a
-// persisted cache the on-disk set is re-read under the cross-process lock
-// before the grant is added, so a concurrent writer's grants are preserved. A
-// persistence write failure is returned but the in-memory grant still applies
-// for the current process; an untrusted grant file fails closed instead.
+// Allow 为 key 记录一条授予，其生存期到 now+ttl。readable 在
+// 存储或写入磁盘前会被清理、脱敏和限制长度。对于持久化的缓存，
+// 在添加授予之前会在跨进程锁下重新读取磁盘上的集合，
+// 从而保留并发写入者的授予。持久化写入失败会被返回，但内存中的
+// 持久化写入失败会被返回，但内存中的授予仍然
+// 对当前进程生效；不可信的授予文件则会失败即拒绝。
 func (c *TTLCache) Allow(key, readable string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -166,16 +166,16 @@ func (c *TTLCache) Allow(key, readable string) error {
 		purgeGrantEntries(entries, now)
 		entries[key] = newTTLGrant(key, readable, now.Add(c.ttl))
 		capGrantEntries(entries)
-		// Refresh the in-memory view before writing: the grant is live in this
-		// process even if the write itself fails.
+		// 写入前刷新内存视图：即使写入本身失败，该授予在本
+		// 进程中依然有效。
 		c.entries = entries
 		return c.writeGrantsLocked(entries)
 	})
 }
 
-// IsAllowed reports whether key has an unexpired grant. An expired grant is
-// removed and, when persisted, rewritten to disk before returning false. When
-// the cache is untrusted it always reports false.
+// IsAllowed 报告 key 是否有未过期的授予。过期授予会被
+// 移除，并在持久化时于返回 false 前重写到磁盘。当
+// 缓存不可信时，它总是返回 false。
 func (c *TTLCache) IsAllowed(key string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -189,9 +189,9 @@ func (c *TTLCache) IsAllowed(key string) bool {
 	if c.now().Before(entry.ExpiresAt) {
 		return true
 	}
-	// The in-memory copy has expired. For a persisted cache another process may
-	// have renewed the very same grant while this call waited for the
-	// cross-process lock. Re-read the latest on-disk set before deciding: only
+	// 内存中的副本已过期。对于持久化缓存，另一个进程可能在本调用
+	// 等待跨进程锁期间续期了同一条授予。在决定前重新读取磁盘上的最新
+	// 集合：只有当新条目也过期时才删除。
 	// delete when the fresh entry is expired too. An unconditional delete here
 	// would erase a grant that is still live, so neither this process nor a
 	// freshly started one would honour it.

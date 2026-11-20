@@ -48,8 +48,8 @@ type Skill struct {
 	Tools []string
 	// AllowedTools is the tool allow-list advertised by the skill.
 	AllowedTools []string
-	// Warnings reports invisible characters found in the declarative content.
-	// It is metadata only: parsing never changes and never blocks on it.
+	// Warnings 报告在声明性内容中发现的不可见字符。
+	// 它仅是元数据：解析过程永不因它改变，也永不阻塞。
 	Warnings []string
 	// Triggers holds optional automatic-activation rules. It is metadata only:
 	// nothing here changes how the skill loads by name through use_skill.

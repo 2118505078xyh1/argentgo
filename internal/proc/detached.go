@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-// ErrTimeout identifies a command that outlived its deadline. Callers match it
-// with errors.Is and, when KeepOnTimeout was set, recover the live child from
-// TimeoutError.Live.
+// ErrTimeout 标识一个超过截止时间的命令。调用方用
+// errors.Is 匹配它，并在设置 KeepOnTimeout 时从
+// TimeoutError.Live 取回仍在运行的子进程。
 var ErrTimeout = errors.New("proc: timeout")
 
-// TimeoutError reports that a command exceeded its timeout.
+// TimeoutError 报告命令超过了其超时时间。
 //
-// Live is non-nil only when the caller set KeepOnTimeout: in that case the
-// child was left running in its own session and the caller owns it (typically
-// as a background job). Without that option the whole tree was killed.
+// 只有调用方设置了 KeepOnTimeout 时 Live 才非 nil：此时
+// 子进程留在自己的会话中继续运行，由调用方接管（通常
+// 作为后台作业）。没有该选项时整棵树已被终止。
 type TimeoutError struct {
 	Command string
 	Timeout time.Duration
@@ -31,31 +31,31 @@ func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("proc: %q exceeded %s", e.Command, e.Timeout)
 }
 
-// Is preserves the historical errors.Is(err, context.DeadlineExceeded) check
-// while giving callers a dedicated sentinel to match.
+// Is 保留历史上 errors.Is(err, context.DeadlineExceeded) 的检查，
+// 同时为调用方提供专用的哨兵错误来匹配。
 func (e *TimeoutError) Is(target error) bool {
 	return target == ErrTimeout || target == context.DeadlineExceeded
 }
 
-// LiveChild is the OS-facing behaviour of a started child. Tests inject a fake
-// through SetStarter to exercise timeouts without launching real sleepers.
+// LiveChild 是已启动子进程面向 OS 的行为。测试通过
+// SetStarter 注入假的进程，无需启动真正的 sleep 即可演练超时。
 type LiveChild interface {
 	Pid() int
-	// Kill terminates the child and its descendants.
+	// Kill 终止子进程及其后代。
 	Kill()
-	// Wait blocks until the child exits and returns its exit code.
+	// Wait 阻塞直到子进程退出并返回其退出码。
 	Wait() int
 }
 
-// gracefulTerminator is the optional OS-side capability of asking a whole tree
-// to stop without killing it, so a cooperative child can flush and clean up.
-// The OS-backed child implements it; test fakes that do not keep the original
-// immediate-kill behaviour and need no changes.
+// gracefulTerminator 是可选的 OS 侧能力：请求整棵树停止
+// 而不直接杀死它，使协作式子进程可以刷新并清理。
+// OS 支撑的子进程实现了它；未实现它的测试假进程保持原有的
+// 立即终止行为，无需改动。
 type gracefulTerminator interface {
 	TerminateTree()
 }
 
-// Starter starts a Command and hands back its live child.
+// Starter 启动一个 Command 并交回其存活的子进程。
 type Starter func(Command) (*Process, error)
 
 var (
@@ -63,8 +63,8 @@ var (
 	starter   Starter = startOS
 )
 
-// SetStarter replaces the process starter. Passing nil restores the OS starter.
-// Call it during test setup, not while children are running.
+// SetStarter 替换进程启动器。传入 nil 恢复 OS 启动器。
+// 在测试设置阶段调用，不要在子进程运行期间调用。
 func SetStarter(s Starter) {
 	starterMu.Lock()
 	defer starterMu.Unlock()
@@ -80,8 +80,8 @@ func currentStarter() Starter {
 	return starter
 }
 
-// Process is a started child whose lifetime can be handed to another owner (a
-// background job). All its methods are safe for concurrent use.
+// Process 是已启动的子进程，其生命周期可以交给另一个所有者
+// （后台作业）。它的所有方法都可安全并发使用。
 type Process struct {
 	child   LiveChild
 	out     *switchWriter
@@ -94,16 +94,16 @@ type Process struct {
 	code int
 }
 
-// NewProcess wraps a live child in a Process. Test starters use it to build a
-// fake; simulated child output is fed through Write.
+// NewProcess 把存活的子进程包装成 Process。测试启动器用它构造
+// 假进程；模拟的子进程输出通过 Write 喂入。
 func NewProcess(child LiveChild) *Process {
 	return newProcess(child, newSwitchWriter())
 }
 
-// newProcess is the internal constructor used when the OS starter already has
-// the writer that exec copies the child's stdout/stderr into. The Process must
-// expose that exact writer through Output/SetOutput; allocating a second one
-// here would silently discard everything the child prints.
+// newProcess 是 OS 启动器已经持有 exec 拷贝子进程 stdout/stderr
+// 所用的 writer 时使用的内部构造函数。Process 必须
+// 通过 Output/SetOutput 暴露那同一个 writer；在这里另分配一个
+// 会悄悄丢弃子进程打印的一切。
 func newProcess(child LiveChild, out *switchWriter) *Process {
 	return &Process{
 		child:   child,
@@ -113,55 +113,55 @@ func newProcess(child LiveChild, out *switchWriter) *Process {
 	}
 }
 
-// Write records child output. Production processes are fed by exec's copy
-// goroutines; test fakes call it directly.
+// Write 记录子进程输出。生产环境中由 exec 的拷贝
+// goroutine 喂入；测试假进程直接调用它。
 func (p *Process) Write(b []byte) (int, error) { return p.out.Write(b) }
 
-// Pid is the child's process id.
+// Pid 是子进程的进程 id。
 func (p *Process) Pid() int { return p.child.Pid() }
 
-// StartedAt is when the child was started.
+// StartedAt 是子进程启动的时刻。
 func (p *Process) StartedAt() time.Time { return p.started }
 
-// Command is the program that was started.
+// Command 是被启动的程序。
 func (p *Process) Command() string { return p.command }
 
-// Output is everything captured so far. It is safe to call while the child is
-// still producing output.
+// Output 是到目前为止捕获的全部内容。子进程仍在
+// 产生输出时调用它也是安全的。
 func (p *Process) Output() string { return p.out.Captured() }
 
-// Truncated reports whether the capture hit the output cap.
+// Truncated 报告捕获是否触及输出上限。
 func (p *Process) Truncated() bool { return p.out.Truncated() }
 
-// Done is closed once the child has been reaped.
+// Done 在子进程被回收后关闭。
 func (p *Process) Done() <-chan struct{} {
 	p.once.Do(p.startWait)
 	return p.done
 }
 
-// ExitCode is valid after Done is closed.
+// ExitCode 在 Done 关闭后有效。
 func (p *Process) ExitCode() int {
 	<-p.Done()
 	return p.code
 }
 
-// Wait blocks until the child exits and returns its exit code.
+// Wait 阻塞直到子进程退出并返回其退出码。
 func (p *Process) Wait() int { return p.ExitCode() }
 
-// Kill terminates the child and its whole process tree.
+// Kill 终止子进程及其整棵进程树。
 func (p *Process) Kill() { p.child.Kill() }
 
-// SetOutput flushes everything captured so far into w and redirects future
-// child output there. It is how a timed-out command's partial output becomes
-// the job log, without losing bytes and without running the command again.
+// SetOutput 把目前捕获的一切刷新到 w，并把之后的子进程输出
+// 重定向到那里。超时命令的部分输出正是这样变成作业日志的，
+// 既不会丢失字节，也不会重新运行命令。
 func (p *Process) SetOutput(w io.Writer) { p.out.Handoff(w) }
 
 func (p *Process) startWait() {
 	go func() {
 		p.code = p.child.Wait()
-		// cmd.Wait has drained exec's copy goroutines: the stream is at EOF
-		// now, so a trailing incomplete sequence has no future chunk to
-		// complete it and belongs in the capture verbatim.
+		// cmd.Wait 已排空 exec 的拷贝 goroutine：流现已处于 EOF，
+		// 因此尾部不完整的序列不会再有后续分块来
+		// 补全，应原样保留在捕获中。
 		p.out.flush()
 		if p.closed != nil {
 			p.closed()
@@ -170,16 +170,16 @@ func (p *Process) startWait() {
 	}()
 }
 
-// switchWriter serialises writes while allowing one destination swap, used
-// when a running child is promoted to a background job.
+// switchWriter 在允许一次目标替换的同时串行化写入，用于
+// 把正在运行的子进程提升为后台作业的场景。
 //
-// All bytes pass through a utf8CarryWriter before reaching the destination.
-// exec reads a child's stdout/stderr in chunks whose boundaries are unrelated
-// to UTF-8 rune boundaries: a zh-CN rune can be split across two reads. Run
-// already reassembles those runes; a detached child must too, or a partial
-// result taken while it is still running (RunWithTimeout's promotion path)
-// ends in a dangling sequence and decodes as U+FFFD. The pending sequence is
-// held back from Captured() and only emitted at handoff or at EOF.
+// 所有字节在到达目标前都经过 utf8CarryWriter。
+// exec 按与 UTF-8 字符边界无关的分块读取子进程的 stdout/stderr：
+// 一个中文字符可能被拆分到两次读取中。Run 已重新组装这些字符；
+// 分离的子进程也必须如此，否则在它仍运行时取的部分结果
+// （RunWithTimeout 的提升路径）会以悬空序列结尾，解码为 U+FFFD。
+// 待定序列不会出现在 Captured() 中，
+// 只在交接时或 EOF 时才发出。
 type switchWriter struct {
 	mu  sync.Mutex
 	dst io.Writer
@@ -201,8 +201,8 @@ func (w *switchWriter) Write(p []byte) (int, error) {
 func (w *switchWriter) Captured() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// No Flush here: an incomplete rune must stay in dec.carry so callers
-	// reading a still-running child never see a dangling sequence.
+	// 这里不调用 Flush：不完整的字符必须留在 dec.carry 中，
+	// 使读取仍在运行子进程的调用方永远看不到悬空序列。
 	return w.buf.String()
 }
 
@@ -219,8 +219,8 @@ func (w *switchWriter) Handoff(dst io.Writer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.dst == w.buf {
-		// Handoff is the EOF of the capture: emit any dangling bytes verbatim
-		// before copying the captured prefix, so not one byte is lost.
+		// 交接即捕获的 EOF：在复制已捕获的前缀之前，先原样发出任何悬空字节，
+		// 这样一个字节也不会丢失。
 		w.dec.Flush()
 		_, _ = io.WriteString(dst, w.buf.String())
 	}
@@ -228,7 +228,7 @@ func (w *switchWriter) Handoff(dst io.Writer) {
 	w.dst = dst
 }
 
-// flush emits a dangling sequence once the child is known to have exited.
+// flush 在已知子进程已退出后发出悬空序列。
 func (w *switchWriter) flush() {
 	if w == nil {
 		return
@@ -238,19 +238,19 @@ func (w *switchWriter) flush() {
 	w.dec.Flush()
 }
 
-// StartDetached starts c in its own process group/session so the child survives
-// the shell that launched it and can be killed as a tree later.
+// StartDetached 在自己的进程组/会话中启动 c，使子进程能在
+// 启动它的 shell 退出后继续存活，之后可按进程树终止。
 func StartDetached(c Command) (*Process, error) {
 	return currentStarter()(c)
 }
 
-// RunWithTimeout runs c, bounding the wait by c.Timeout (zero waits forever).
+// RunWithTimeout 运行 c，用 c.Timeout 限制等待（零值表示永久等待）。
 //
-// On timeout it returns a *TimeoutError. When c.KeepOnTimeout is set the child
-// is NOT killed: it is returned as the second result, in its own session, and
-// the caller must adopt it (store it as a job, then SetOutput to its log).
-// Without KeepOnTimeout the whole tree is killed, exactly as Run has always
-// done on a timeout or a cancelled context.
+// 超时时返回 *TimeoutError。当设置 c.KeepOnTimeout 时，子进程
+// 不会被终止：它作为第二个返回值，在自己的会话中被交回，
+// 调用方必须接管它（存为作业，然后用 SetOutput 指向其日志）。
+// 没有 KeepOnTimeout 时整棵树被终止，与 Run 在超时
+// 或 context 取消时一贯的做法完全相同。
 func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 	started := time.Now()
 	if ctx == nil {
@@ -277,13 +277,13 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 	case <-p.Done():
 		code = p.ExitCode()
 	case <-timeoutCh:
-		// c.Timeout is the soft "promote to background" deadline; ctx is the
-		// caller's hard bound. When both fire at the same instant select picks
-		// one at random. If the timeout wins while the context is already
-		// done, KeepOnTimeout would hand back a live child that outlives the
-		// caller's deadline (e.g. runPromotableBash's hard timeout), turning a
-		// bounded call into a runaway job. Prefer the context whenever it is
-		// done by the time the timer fires.
+		// c.Timeout 是软性的"提升为后台"截止时间；ctx 是
+		// 调用方的硬性界限。两者同时触发时 select 会随机
+		// 选一个。若定时器胜出而 context 实际上已经
+		// 结束，KeepOnTimeout 就会交回一个活过调用方截止时间的子进程
+		// （例如 runPromotableBash 的硬超时），把有界的调用
+		// 变成失控的作业。只要定时器触发时 context 已经结束，
+		// 就优先选择 context。
 		if err := ctx.Err(); err != nil {
 			ctxErr = err
 		} else {
@@ -314,10 +314,10 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 		return res, nil, te
 	}
 	if ctxErr != nil {
-		// A user cancellation gets the same two-phase stop Run gives its
-		// children: signal the whole tree and let a cooperative child exit on
-		// its own before escalating. An elapsed deadline still kills at once,
-		// because timeout semantics must not be slowed by the grace wait.
+		// 用户取消获得与 Run 对其子进程相同的两阶段停止：
+		// 向整棵树发信号，让协作式子进程自行退出，
+		// 然后再升级。已到期的截止时间仍会立即终止，
+		// 因为超时语义不得因宽限等待而变慢。
 		if errors.Is(ctxErr, context.Canceled) {
 			cancelChildGracefully(p)
 		} else {
@@ -329,9 +329,9 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 	return res, nil, nil
 }
 
-// cancelChildGracefully asks the child's tree to terminate, waits up to the
-// shared grace period for a cooperative exit, then escalates to Kill. Fakes
-// that cannot signal a tree are killed straight away.
+// cancelChildGracefully 请求子进程树终止，等待最多共享的
+// 宽限期以等待协作式退出，然后升级为 Kill。无法
+// 向进程树发信号的假进程会被立即终止。
 func cancelChildGracefully(p *Process) {
 	terminator, ok := p.child.(gracefulTerminator)
 	if !ok {
@@ -347,8 +347,8 @@ func cancelChildGracefully(p *Process) {
 	p.Kill()
 }
 
-// awaitDone gives a killed child a moment to be reaped. A tree that leaks a
-// handle into a grandchild must not hang the caller forever.
+// awaitOutcome 给被终止的子进程一点时间被回收。把句柄泄漏给
+// 孙进程的进程树不得让调用方永远挂起。
 func awaitDone(p *Process) {
 	select {
 	case <-p.Done():
@@ -356,23 +356,23 @@ func awaitDone(p *Process) {
 	}
 }
 
-// startOS is the OS-backed Starter used unless a test installs a fake.
+// startOS 是 OS 支撑的 Starter，除非测试安装了假实现，否则默认使用它。
 func startOS(c Command) (*Process, error) {
 	if c.Path == "" {
 		return nil, errors.New("proc: empty command path")
 	}
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
-	// A detached child is often a promoted background job that runs a nested
-	// agent. It needs the same host-private env filter Run applies, or it
-	// mistakes the host's session plumbing for its own.
+	// 分离的子进程通常是运行嵌套 agent 的、被提升的后台作业。
+	// 它需要与 Run 相同的宿主私有 env 过滤，否则会
+	// 把宿主的会话管道误认为自己的。
 	cmd.Env = SanitizeEnv(c.Env)
-	// Own the stdin pipe the same way Run does. Handing a non-*os.File reader
-	// straight to exec makes Cmd.Wait wait for exec's stdin copy goroutine: a
-	// reader that outlives the child (a slow producer or a never-ending stream)
-	// then keeps Done from closing forever, so a promoted job can never be
-	// reaped and its log file is never released. Passing an *os.File keeps exec
-	// out of the copy loop; our own copier is not something Wait waits for.
+	// 像 Run 一样自己拥有 stdin 管道。把非 *os.File reader
+	// 直接交给 exec 会让 Cmd.Wait 等待 exec 的 stdin 拷贝 goroutine：
+	// 比子进程活得更久的 reader（慢速生产者或永不结束的流）
+	// 会使 Done 永远无法关闭，因此被提升的作业永远
+	// 无法被回收，其日志文件也永远无法释放。传入 *os.File 让 exec
+	// 不进入拷贝循环；我们自己的拷贝器不是 Wait 等待的对象。
 	var stdinRead, stdinWrite *os.File
 	if c.Stdin != nil {
 		if f, ok := c.Stdin.(*os.File); ok {
@@ -399,8 +399,8 @@ func startOS(c Command) (*Process, error) {
 		}
 		return nil, fmt.Errorf("proc: spawn %q: %w", c.Path, err)
 	}
-	// The child has its own handle now; closing ours turns the write end into
-	// EOF for it once the copier finishes.
+	// 子进程现在有了自己的句柄；关闭我们的句柄，会在拷贝完成后
+	// 把写端变成它眼中的 EOF。
 	if stdinRead != nil {
 		_ = stdinRead.Close()
 	}
@@ -411,8 +411,8 @@ func startOS(c Command) (*Process, error) {
 		}()
 	}
 	killer := newPlatformProcess(cmd.Process, true)
-	// Use the very writer exec is copying into, so Output/SetOutput see the
-	// child's real bytes instead of a separate, always-empty buffer.
+	// 使用 exec 正在拷贝进去的那个 writer，使 Output/SetOutput 看到
+	// 子进程的真实字节，而不是另一个永远为空的缓冲区。
 	p := newProcess(osLiveChild{cmd: cmd, killer: killer}, out)
 	p.command = c.Path
 	p.closed = killer.close
@@ -428,9 +428,9 @@ func (c osLiveChild) Pid() int { return c.cmd.Process.Pid }
 
 func (c osLiveChild) Kill() { c.killer.killTree() }
 
-// TerminateTree implements gracefulTerminator: the graceful half of the same
-// two-phase stop Run uses. On Windows the backend's terminateTree is an
-// immediate kill, so the grace wait collapses to a no-op there.
+// TerminateTree 实现 gracefulTerminator：与 Run 相同的两阶段停止中
+// 优雅的那一半。在 Windows 上，后端的 terminateTree 是
+// 立即终止，因此宽限等待在那里退化为无操作。
 func (c osLiveChild) TerminateTree() { c.killer.terminateTree() }
 
 func (c osLiveChild) Wait() int {

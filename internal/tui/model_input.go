@@ -33,6 +33,11 @@ func (m *Model) HandleKey(key Key) KeyAction {
 
 func (m *Model) handleKeyLocked(key Key) KeyAction {
 	if m.pending != nil {
+		// 宽限期开启时，弹窗刚出现的这段时间内吞掉尾随按键，不把它当作
+		// 审批回答。宽限期为 0 时完全跳过判断，沿用原来的直达路径。
+		if grace := DialogKeyGracePeriod; grace > 0 && dialogGraceActive(m.now(), m.pending.openedAt, grace) {
+			return ActionNone
+		}
 		return m.answerApprovalLocked(key)
 	}
 	m.markDirtyLocked()

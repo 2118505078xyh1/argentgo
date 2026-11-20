@@ -14,44 +14,44 @@ import (
 )
 
 const (
-	// maxArchiveEntries caps how many entries we inspect in a downloaded zip.
-	// A release archive only carries a couple of binaries.
+	// maxArchiveEntries 限制我们在下载的 zip 中检查的条目数量。
+	// 一个发布压缩包只会携带几个二进制文件。
 	maxArchiveEntries = 256
-	// maxExtractedEntry caps a single uncompressed entry (512 MiB).
+	// maxExtractedEntry 限制单个未压缩条目（512 MiB）。
 	maxExtractedEntry = 512 << 20
-	// maxExtractedTotal caps the sum of all extracted bytes (1 GiB), so a
-	// compressed bomb cannot inflate past the download cap.
+	// maxExtractedTotal 限制所有解包字节之和（1 GiB），因此
+	// 压缩炸弹无法膨胀超过下载上限。
 	maxExtractedTotal = 1 << 30
 )
 
-// executableNames are the only zip entries eligible for installation. The
-// release archive also ships argent-native.exe, which must never replace the
-// running CLI binary.
+// executableNames 是唯一有资格安装的两个 zip 条目。
+// 发布压缩包还附带 argent-native.exe，它绝不能替换
+// 正在运行的 CLI 二进制文件。
 var executableNames = map[string]bool{
 	"argent":     true,
 	"argent.exe": true,
 }
 
-// isZipAsset reports whether the asset name denotes a zip archive.
+// isZipAsset 报告资源名是否表示 zip 压缩包。
 func isZipAsset(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".zip")
 }
 
-// isTarGzAsset reports whether the asset name denotes a gzip-compressed tar
-// archive. FindAsset gives .tar.gz/.tgz the highest extension bonus on non-Windows
-// platforms, so Download must unpack them just like zip archives or it would
-// stage a raw archive and brick the binary.
+// isTarGzAsset 报告资源名是否表示 gzip 压缩的 tar
+// 压缩包。FindAsset 在非 Windows 平台上给 .tar.gz/.tgz 最高的扩展名加分，
+// 因此 Download 必须像解包 zip 一样解包它们，否则会
+// 暂存原始压缩包并损坏二进制文件。
 func isTarGzAsset(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
-// extractExecutable extracts the whitelisted argent executable from a zip
-// archive into dir and returns the path of the extracted file.
+// extractExecutable 从 zip 压缩包中将白名单中的 argent 可执行文件解包
+// 到 dir，并返回解包文件的路径。
 //
-// Extraction is deliberately restricted: absolute paths, ".." traversal,
-// symlinks and other non-regular entries are rejected; entry counts and byte
-// totals are capped; and only argent/argent.exe are ever written.
+// 解包刻意受到限制：绝对路径、".." 遍历、
+// 符号链接及其他非普通条目都会被拒绝；条目数和字节
+// 总量有上限；且只写入 argent/argent.exe。
 func extractExecutable(archive, dir string) (string, error) {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
@@ -106,8 +106,8 @@ func extractExecutable(archive, dir string) (string, error) {
 		return "", errors.New("zip archive has no argent or argent.exe entry")
 	}
 
-	// chosenName is a plain base name from safeArchivePath, so it cannot escape
-	// the extraction directory.
+	// chosenName 是来自 safeArchivePath 的普通基础名，因此无法逃逸
+	// 解包目录。
 	dest := filepath.Join(dir, chosenName)
 	source, err := chosen.Open()
 	if err != nil {
@@ -140,12 +140,12 @@ func extractExecutable(archive, dir string) (string, error) {
 	return dest, nil
 }
 
-// extractExecutableFromTarGz extracts the whitelisted argent executable from a
-// gzip-compressed tar archive into dir and returns the path of the extracted
-// file. It applies the same restrictions as extractExecutable: path and symlink
-// checks, entry/byte caps, and a single whitelisted executable. The decompressed
-// stream is bounded as a whole so a compression bomb cannot inflate past the
-// per-entry caps regardless of what the tar headers claim.
+// extractExecutableFromTarGz 从 gzip 压缩的 tar 压缩包中
+// 将白名单中的 argent 可执行文件解包到 dir，并返回解包文件的
+// 路径。它应用与 extractExecutable 相同的限制：路径和符号链接
+// 检查、条目/字节上限，以及单个白名单可执行文件。解压后的
+// 流整体受限，因此无论 tar 头声称什么，压缩炸弹都无法膨胀超过
+// 单条目上限。
 func extractExecutableFromTarGz(archive, dir string) (string, error) {
 	file, err := os.Open(archive)
 	if err != nil {
@@ -159,8 +159,8 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 	}
 	defer gzipReader.Close()
 
-	// tar.Reader is a forward-only stream, so bound the total decompressed bytes
-	// rather than trusting individual header sizes when skipping entries.
+	// tar.Reader 是只向前的流，因此在跳过条目时应限制解压总字节数，
+	// 而不是信任单个头部的大小。
 	tarReader := tar.NewReader(io.LimitReader(gzipReader, maxExtractedTotal+1))
 
 	var dest string
@@ -189,9 +189,9 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 		case tar.TypeDir:
 			continue
 		case tar.TypeReg, tar.TypeRegA:
-			// A regular file; checked against the whitelist below.
+			// 普通文件；在下面的白名单中检查。
 		default:
-			// Symlinks, hardlinks, devices, FIFOs, etc. must never be installed.
+			// 符号链接、硬链接、设备、FIFO 等绝不能安装。
 			_ = os.Remove(dest)
 			return "", fmt.Errorf("unsupported tar entry %q", header.Name)
 		}
@@ -214,8 +214,8 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 			return "", fmt.Errorf("tar archive exceeds the %d byte extraction limit", maxExtractedTotal)
 		}
 
-		// base is a plain name returned by safeArchivePath, so it cannot escape
-		// the extraction directory.
+		// base 是 safeArchivePath 返回的普通名称，因此无法逃逸
+		// 解包目录。
 		dest = filepath.Join(dir, base)
 		output, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
 		if err != nil {
@@ -248,9 +248,9 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 	return dest, nil
 }
 
-// safeArchivePath validates an archive entry name, normalising Windows
-// separators, and returns its cleaned, slash-separated path. It rejects
-// absolute paths, drive letters, and any path that escapes its parent.
+// safeArchivePath 校验压缩包条目名，规范化 Windows
+// 分隔符，并返回清理后的斜杠分隔路径。它拒绝
+// 绝对路径、盘符以及任何逃逸其父目录的路径。
 func safeArchivePath(name string) (string, bool) {
 	if name == "" || strings.ContainsRune(name, 0) {
 		return "", false

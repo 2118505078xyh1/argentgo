@@ -7,23 +7,20 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// policyFor is the single construction point for the policy used by Execute.
-// Keeping it separate makes the enforcement of configured rules testable
-// without a model or a network.
+// policyFor 是 Execute 所用策略的唯一构造点。把它单独拆开，使配置规则的执行
+// 可以在没有模型或网络的情况下测试。
 //
-// extraReadOnly names tools discovered at runtime that advertise read-only
-// behaviour (currently MCP tools with readOnlyHint). They are merged with the
-// configured readOnlyTools so such tools skip the operator prompt. Configured
-// deny rules are applied by NewPolicy afterwards and still win.
+// extraReadOnly 列出在运行时发现的、声明为只读行为的工具（当前是带有 readOnlyHint 的 MCP 工具）。
+// 它们会与配置的 readOnlyTools 合并，使这些工具跳过操作人员提示。
+// 配置的拒绝规则随后由 NewPolicy 应用，且仍然优先。
 func policyFor(res Resolved, extraReadOnly ...string) *security.Policy {
 	cfg := policyConfigFrom(res.Root, res.Cfg.Raw, res.WriteRoots, res.Sandbox)
 	cfg.ReadOnlyTools = mergeReadOnlyTools(cfg.ReadOnlyTools, extraReadOnly)
 	return security.NewPolicy(res.Root, cfg)
 }
 
-// mergeReadOnlyTools folds extra read-only tool names into the configured
-// list. Blanks are dropped, duplicates removed and order preserved so the
-// resulting policy is deterministic.
+// mergeReadOnlyTools 把额外的只读工具名折叠进配置的列表。空值会被丢弃、重复项被去除、
+// 顺序被保留，使生成的策略具有确定性。
 func mergeReadOnlyTools(configured, extra []string) []string {
 	out := make([]string, 0, len(configured)+len(extra))
 	seen := make(map[string]bool, len(configured)+len(extra))
@@ -43,13 +40,11 @@ func mergeReadOnlyTools(configured, extra []string) []string {
 	return out
 }
 
-// policyConfigFrom decodes the user-facing permission keys of the merged config
-// tree into a security.PolicyConfig. Keys may be camelCase or snake_case and
-// may live at the top level or inside "permissions"; a nested key wins.
+// policyConfigFrom 把合并配置树中面向用户的权限键解码为 security.PolicyConfig。
+// 键可以是 camelCase 或 snake_case，可以位于顶层或 "permissions" 内部；嵌套键优先。
 //
-// The resolved sandbox is merged last: read-only adds denies for every mutating
-// tool, while danger-full-access removes the write-root clipping but leaves
-// explicit user rules untouched.
+// 已解析的沙箱最后合并：read-only 会为每个变更型工具添加拒绝，
+// 而 danger-full-access 会移除写入根目录的裁剪，但保留显式的用户规则不变。
 func policyConfigFrom(root string, raw map[string]any, writeRoots []string, sandbox security.SandboxMode) security.PolicyConfig {
 	lookup := policyLookup(raw)
 	var cfg security.PolicyConfig
@@ -63,8 +58,8 @@ func policyConfigFrom(root string, raw map[string]any, writeRoots []string, sand
 	cfg.MutatingTools = policyStrings(lookup("mutatingTools", "mutating_tools"))
 	cfg.Rules = policyRules(lookup("rules"))
 
-	// The resolved mode is authoritative; the raw "sandbox" key is still read
-	// so a config-only setting is never silently ignored.
+	// 已解析的模式是权威；但仍会读取原始的 "sandbox" 键，
+	// 使仅通过配置设置的项不会被静默忽略。
 	configured := policyString(lookup("sandbox"))
 	readOnly := sandbox == security.SandboxReadOnly || strings.EqualFold(configured, "read-only")
 	fullAccess := sandbox == security.SandboxDangerFullAccess && !readOnly
@@ -80,8 +75,8 @@ func policyConfigFrom(root string, raw map[string]any, writeRoots []string, sand
 	return cfg
 }
 
-// policyLookup prefers the permissions object, then the top level, and checks
-// every spelling in each scope before moving on.
+// policyLookup 优先选择 permissions 对象，其次是顶层，并在每个作用域中
+// 检查所有写法之后才继续。
 func policyLookup(raw map[string]any) func(...string) any {
 	var nested map[string]any
 	for _, key := range []string{"permissions", "Permissions"} {
@@ -107,8 +102,8 @@ func policyLookup(raw map[string]any) func(...string) any {
 	}
 }
 
-// policyStrings accepts JSON arrays, comma-separated strings and already
-// decoded []string values, matching security.PolicyFromJSON's leniency.
+// policyStrings 接受 JSON 数组、逗号分隔的字符串以及已解码的 []string 值，
+// 与 security.PolicyFromJSON 的宽松程度一致。
 func policyStrings(value any) []string {
 	switch typed := value.(type) {
 	case []string:
@@ -183,17 +178,16 @@ func policyStringField(entry map[string]any, keys ...string) string {
 	return ""
 }
 
-// unrestrictedWriteRoots returns a root that contains every path on the
-// current volume (or the whole tree on unix), so write-boundary checks become
-// a no-op while every explicit deny/path rule still applies.
+// unrestrictedWriteRoots 返回一个包含当前卷上所有路径（在 unix 上是整棵树）的根目录，
+// 使写入边界检查成为空操作，同时每条显式的拒绝/路径规则仍然生效。
 func unrestrictedWriteRoots(root string) []string {
 	return []string{filepath.VolumeName(root) + string(filepath.Separator)}
 }
 
 var builtinMutatingToolNames = []string{"write", "edit", "multi_edit", "bash"}
 
-// appendMutatingDenies makes read-only mode explicit in the policy as well as
-// in the tool registry, so MCP and plugin tools cannot mutate either.
+// appendMutatingDenies 让只读模式在策略中显式体现，如同在工具注册表中一样，
+// 使 MCP 和插件工具也无法做修改。
 func appendMutatingDenies(deny, extra []string) []string {
 	seen := make(map[string]bool, len(deny)+len(extra)+len(builtinMutatingToolNames))
 	out := make([]string, 0, len(deny)+len(extra)+len(builtinMutatingToolNames))

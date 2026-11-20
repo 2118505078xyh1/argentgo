@@ -96,13 +96,13 @@ func TestOrderInstructionsIsPure(t *testing.T) {
 	if len(out) != 2 || out[0].Text != "A" || out[1].Text != "B" {
 		t.Fatalf("OrderInstructions = %#v, want [A B]", out)
 	}
-	// The input slice must be untouched.
+	// 输入切片必须保持不变。
 	for i := range in {
 		if in[i] != snapshot[i] {
 			t.Fatalf("input mutated at %d: got %#v, want %#v", i, in[i], snapshot[i])
 		}
 	}
-	// The result must be a fresh slice (no aliasing back to the input).
+	// 结果必须是新切片（不与输入共享底层数组）。
 	out[0].Text = "CHANGED"
 	if in[0].Text != "B" || in[1].Text != "A" {
 		t.Fatalf("output aliases input: %#v", in)
@@ -127,14 +127,14 @@ func TestOrderInstructionsEmptyAndSkipsEmptySource(t *testing.T) {
 	if len(got) != 1 || got[0] != "keep" {
 		t.Fatalf("OrderInstructions = %#v, want [keep]", got)
 	}
-	// All sources empty: result is nil, not an empty non-nil slice.
+	// 所有来源均为空时：结果为 nil，而非空的非 nil 切片。
 	if got := OrderInstructions(in[:2]); got != nil {
 		t.Fatalf("all empty sources = %#v, want nil", got)
 	}
 }
 
-// TestOrderInstructionsCaseInsensitiveDedupOnWindows guards the documented
-// case-insensitive deduplication on Windows; it is a no-op elsewhere.
+// TestOrderInstructionsCaseInsensitiveDedupOnWindows 守护文档中记录的
+// Windows 上不区分大小写的去重；在其他平台上为空操作。
 func TestOrderInstructionsCaseInsensitiveDedupOnWindows(t *testing.T) {
 	if filepath.Separator != '\\' {
 		t.Skip("case-insensitive path dedup applies on Windows only")

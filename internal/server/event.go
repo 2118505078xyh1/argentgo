@@ -13,38 +13,38 @@ import (
 )
 
 const (
-	// eventHistoryCap bounds the replay log. After a cursor, at most this many
-	// most-recent events are replayed before the live stream begins.
+	// eventHistoryCap 限制回放日志的大小。在游标之后，最多回放
+	// 这么多个最近事件，然后才开始实时流。
 	eventHistoryCap = 256
-	// eventSubCap is the per-subscriber normal buffer quota. It is >=
-	// eventHistoryCap so a replaying subscriber never blocks while the hub
-	// holds its write lock, and has headroom before the first live event can
-	// arrive.
+	// eventSubCap 是每个订阅者的普通缓冲配额。它 >=
+	// eventHistoryCap，使回放中的订阅者在 hub 持有写锁时也不会阻塞，
+	// 并在第一个实时事件到达之前留有
+	// 余量。
 	eventSubCap = 512
-	// eventTerminalSlots is capacity reserved beyond eventSubCap for
-	// must-deliver terminal events (EventStop). A subscriber is evicted once
-	// its normal quota is full, so the reserved slot lets a final terminal
-	// reach a slow subscriber instead of evicting it and leaving a headless
-	// client waiting forever for the completion event.
+	// eventTerminalSlots 是在 eventSubCap 之外为必达的
+	// 终态事件（EventStop）预留的容量。订阅者普通配额满后会被淘汰，
+	// 因此预留槽位让最终的终态事件能够送达慢速订阅者，
+	// 而不是把它淘汰、让无界面的客户端永远
+	// 等待完成事件。
 	eventTerminalSlots = 1
-	// eventHeartbeatInterval keeps idle SSE connections alive through proxies.
+	// eventHeartbeatInterval 让空闲的 SSE 连接能穿过代理保持存活。
 	eventHeartbeatInterval = 15 * time.Second
 )
 
-// EventHub is an in-order, event-sourced broadcaster with a bounded replay log.
+// EventHub 是一个保序、事件溯源的广播器，带有界回放日志。
 //
-// Publish assigns every event a monotonically increasing sequence number and
-// delivers it to each subscriber in that same order. Subscribe first replays
-// the tail of the history after a cursor, then follows live events. Subscriber
-// channels are buffered; a subscriber whose normal buffer quota fills is
-// evicted (its channel is closed and it is removed) instead of stalling the
-// publisher or the other subscribers. Terminal events (EventStop) are the
-// exception: they are must-deliver and use a reserved slot rather than evicting
+// Publish 为每个事件分配单调递增的序列号，并按相同顺序
+// 投递给每个订阅者。Subscribe 先回放游标之后的历史
+// 尾部，随后跟随实时事件。订阅者通道是带缓冲的；普通缓冲配额满的
+// 订阅者会被淘汰（关闭其通道并移除），而不是拖慢
+// 发布者或其他订阅者。终态事件（EventStop）是
+// 例外：它们必达，使用预留槽位，而不是淘汰
+// 已满的订阅者。
 // a full subscriber.
 //
-// The hub is safe for concurrent use by multiple publishers and subscribers.
-// It is deliberately transport-agnostic: both the HTTP/SSE and --rpc frontends
-// can share one instance via Config.Events.
+// hub 可安全地被多个发布者和订阅者并发使用。
+// 它有意与传输层无关：HTTP/SSE 和 --rpc 前端
+// 都可以通过 Config.Events 共享同一个实例。
 //
 // 除 Subscribe/SubscribeAfter 外，SubscribeTyped 允许订阅者只接收指定 Kind 的事件，
 // 用于节省带宽与解码开销；它不改变其它订阅者的行为。
@@ -72,7 +72,7 @@ func (s *subscriber) matches(e agent.Event) bool {
 	return ok
 }
 
-// NewEventHub returns an empty hub ready for use.
+// NewEventHub 返回一个可供使用的空 hub。
 func NewEventHub() *EventHub {
 	return &EventHub{
 		subs:    make(map[chan agent.Event]*subscriber),
@@ -80,36 +80,36 @@ func NewEventHub() *EventHub {
 	}
 }
 
-// Seq returns the sequence number of the most recently published event. It is
-// zero before the first Publish.
+// Seq 返回最近发布的事件的序列号。
+// 在第一次 Publish 之前为零。
 func (h *EventHub) Seq() uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.seq
 }
 
-// Evicted returns the number of slow subscribers that have been evicted so far.
-// It is primarily useful for observability and tests.
+// Evicted 返回到目前为止被淘汰的慢速订阅者数量。
+// 它主要用于可观测性和测试。
 func (h *EventHub) Evicted() uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.evicted
 }
 
-// Publish appends e to the bounded replay log, assigns it the next sequence
-// number, and broadcasts it to all current subscribers. It returns the assigned
-// sequence.
+// Publish 把 e 追加到有界回放日志，分配下一个
+// 序列号，并广播给所有当前订阅者。它返回分配的
+// 序列号。
 //
-// Delivery is non-blocking. A subscriber whose normal buffer quota is full is
-// evicted (its channel is closed) and counted, except for must-deliver terminal
-// events, which still reach it. This never delays the remaining subscribers.
+// 投递是非阻塞的。普通缓冲配额已满的订阅者
+// 会被淘汰（关闭其通道）并计数，必达的终态事件除外，
+// 它们仍会送达。这绝不会延迟其他订阅者。
 func (h *EventHub) Publish(e agent.Event) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.seq++
 	if len(h.history) == eventHistoryCap {
-		// Sliding window: drop the oldest event to keep the log bounded.
+		// 滑动窗口：丢弃最旧的事件以保持日志有界。
 		copy(h.history, h.history[1:])
 		h.history[len(h.history)-1] = e
 	} else {
@@ -123,23 +123,23 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			continue
 		}
 		if e.IsTerminal() {
-			// Must-deliver: never evict a subscriber for a terminal event, or
-			// a headless client that has not drained its progress events would
-			// miss the completion signal. The reserved slot is free whenever
-			// the subscriber still holds only its normal quota; if even that
-			// is taken, make room by discarding the oldest buffered progress
-			// event (still recoverable from the replay log) rather than losing
+			// 必达：绝不因终态事件而淘汰订阅者，否则
+			// 未排空进度事件、无界面的客户端会
+			// 错过完成信号。只要订阅者仍只持有普通配额，预留槽位就是空闲的；
+			// 若连它也被占满，则丢弃最旧的已缓冲进度事件来腾出空间
+			// （仍可从回放日志恢复），而不是丢失
+			// 终态事件。
 			// the terminal.
 			//
-			// Both operations must stay non-blocking. A subscriber's consumer
-			// drains ch concurrently with Publish, so between observing that
-			// the channel is full and removing the oldest event the consumer
-			// may have drained it completely. A blocking `<-ch` would then hang
-			// while h.mu is held, stalling every other publisher and subscriber
-			// forever. Publishers are serialised by h.mu and consumers only
-			// receive, so after freeing at most one slot the trailing send
-			// always has room — but keep it non-blocking anyway to make the
-			// guarantee unconditional.
+			// 两个操作都必须保持非阻塞。订阅者的消费者与 Publish
+			// 并发地排空 ch，因此在观察到通道已满
+			// 与移除最旧事件之间，消费者可能已将其完全排空。
+			// 此时阻塞的 `<-ch` 会在持有 h.mu 时挂起，
+			// 永久拖慢其他发布者和订阅者。发布者由 h.mu 串行化，
+			// 消费者只接收，因此释放至多一个槽位后，
+			// 末尾的发送总有空间——但仍保持非阻塞，
+			// 以使该保证
+			// 无条件成立。
 			select {
 			case ch <- e:
 			default:
@@ -155,9 +155,9 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 			continue
 		}
 		if len(ch) >= eventSubCap {
-			// Slow consumer: close it and carry on. Deleting while ranging is
-			// safe in Go, and the map membership check in stop() prevents a
-			// double close if the subscriber unsubscribes at the same time.
+			// 慢速消费者：关闭它并继续。Go 中 range 时删除是
+			// 安全的，且 stop() 中的 map 成员检查可防止订阅者
+			// 同时退订时发生重复关闭。
 			close(ch)
 			delete(h.subs, ch)
 			h.evicted++
@@ -168,14 +168,14 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 	return h.seq
 }
 
-// Subscribe registers a new subscriber. History events with a sequence greater
-// than after are replayed first (the most recent tail, bounded by
-// eventHistoryCap), then live events follow in publish order.
+// Subscribe 登记一个新订阅者。序列号大于 after 的历史事件
+// 会先被回放（最近的尾部，受 eventHistoryCap 限制），
+// 随后实时事件按发布顺序到达。
 //
-// The returned stop function is idempotent: it unsubscribes and closes the
-// channel exactly once, even if the subscriber was already evicted, and can be
-// called concurrently with Publish or with itself. When a subscriber is
-// evicted its channel closes cleanly after the buffered events are drained.
+// 返回的 stop 函数是幂等的：它只退订并关闭通道一次，
+// 即使订阅者已被淘汰，且可与 Publish 或自身
+// 并发调用。订阅者被淘汰时，其通道会在缓冲事件排空后
+// 干净地关闭。
 func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 	ch, stop, _ := h.SubscribeAfter(after)
 	return ch, stop
@@ -207,19 +207,19 @@ func (h *EventHub) newStop(ch chan agent.Event) func() {
 	}
 }
 
-// SubscribeAfter registers a subscriber and also returns the hub sequence at
-// the exact instant of registration. That value is the safe resume cursor for
-// the returned stream: every event up to it that is newer than after has already
-// been copied into ch and will be delivered by this subscriber, and no newer
+// SubscribeAfter 登记一个订阅者，并返回注册那一刻的 hub 序列号。
+// 该值是返回流的安全续传游标：到它为止、且比 after 更新的每个事件
+// 都已复制进 ch，并将由此订阅者投递，而且没有更新
+// 的事件被写入客户端。
 // event has been written to the client yet.
 //
-// Callers must use this returned seq for a "you are here" handshake (the SSE
-// server.connected frame, the RPC event/subscribe result) rather than reading
-// Seq() after subscribing. A publish can land between Subscribe and a separate
-// Seq() call; that would hand the client a cursor pointing *past* events still
-// queued in ch. A client which reconnects from that cursor skips them entirely.
-// Capturing both under one lock makes the handshake gap-free (at worst a
-// reconnect replays an event it already saw, never loses one).
+// 调用方必须用这个返回的 seq 做"你在这里"握手（SSE 的
+// server.connected 帧、RPC 的 event/subscribe 结果），而不是在订阅后
+// 读取 Seq()。发布可能落在 Subscribe 与单独的 Seq() 调用之间；
+// 那会给客户端一个指向仍在 ch 中排队事件*之后*的游标。
+// 从该游标重连的客户端会完全跳过它们。
+// 在同一把锁下同时捕获两者，使握手无缝隙（最坏情况下
+// 重连只是重放一个已见过的事件，绝不会丢失事件）。
 func (h *EventHub) SubscribeAfter(after uint64) (<-chan agent.Event, func(), uint64) {
 	ch := make(chan agent.Event, eventSubCap+eventTerminalSlots)
 
@@ -227,19 +227,19 @@ func (h *EventHub) SubscribeAfter(after uint64) (<-chan agent.Event, func(), uin
 	h.registerSubscriber(ch, &subscriber{}) // 无类型过滤：接收全部事件
 	seqAt := h.seq
 
-	// The oldest retained event has sequence h.seq - len(history) + 1.
-	// Compute that base and replay only events newer than the cursor. Registration
-	// and replay share one lock, so no live event can slip in between them and
-	// break ordering. The replay count is <= eventHistoryCap < eventSubCap, so
-	// these sends cannot block.
+	// 保留的最旧事件的序列号是 h.seq - len(history) + 1。
+	// 计算该基数，只回放比游标更新的事件。注册
+	// 与回放共享同一把锁，因此不会有实时事件夹在两者之间
+	// 破坏顺序。回放数量 <= eventHistoryCap < eventSubCap，所以
+	// 这些发送不会阻塞。
 	base := h.seq - uint64(len(h.history)) + 1
 	start := 0
 	if after >= base {
-		// Number of retained events at or before the cursor. Clamp in the
-		// uint64 domain *before* converting to int: after is client-supplied
-		// and may be as large as MaxUint64, and int(after-base+1) would wrap
-		// negative, making the replay loop index history with a negative
-		// offset and panic the caller (the whole process on --rpc).
+		// 游标处或之前的已保留事件数量。在转换为 int *之前*先在
+		// uint64 域中钳制：after 由客户端提供，
+		// 可能高达 MaxUint64，而 int(after-base+1) 会回绕为
+		// 负数，使回放循环用负偏移索引 history，
+		// 导致调用方 panic（在 --rpc 上是整个进程）。
 		skip := after - base + 1
 		if skip >= uint64(len(h.history)) {
 			start = len(h.history)
@@ -280,21 +280,21 @@ func (h *EventHub) SubscribeTyped(types []string) (<-chan agent.Event, func()) {
 	return ch, h.newStop(ch)
 }
 
-// NewEventHandler exposes the hub as a Server-Sent Events stream.
+// NewEventHandler 把 hub 暴露为 Server-Sent Events 流。
 //
-// The first frame is always `event: server.connected` with `{"seq":N}` in its
-// data, so a client knows the current cursor and can reconnect with ?after=N.
-// N is captured atomically with the subscription (see SubscribeAfter): it is
-// the last event already queued for this client, never one published in the
-// gap between subscribing and writing the frame. Each subsequent frame is
-// `event: <kind>` with the agent.Event JSON as data.
-// An idle stream emits a `: heartbeat` comment every 15 seconds, and the
-// request context's cancellation unsubscribes the client on disconnect.
+// 第一帧始终是 `event: server.connected`，其 data 中带 `{"seq":N}`，
+// 使客户端知道当前游标并可用 ?after=N 重连。
+// N 与订阅以原子方式一起捕获（见 SubscribeAfter）：它是
+// 已经为此客户端排队最后一个事件，绝不是在订阅与写帧
+// 之间发布的事件。之后的每一帧都是
+// `event: <kind>`，data 为 agent.Event 的 JSON。
+// 空闲流每 15 秒发出一条 `: heartbeat` 注释，请求 context 的
+// 取消会在客户端断开时退订它。
 func NewEventHandler(hub *EventHub) http.Handler {
 	return newEventHandlerInterval(hub, eventHeartbeatInterval)
 }
 
-// newEventHandlerInterval is a test seam for the heartbeat interval.
+// newEventHandlerInterval 是心跳间隔的测试接缝。
 func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -357,12 +357,12 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 	})
 }
 
-// WireAgentEvents bridges an agent event channel into the hub in a background
-// goroutine. It stops when ctx is cancelled or emit is closed. The returned
-// channel closes when the goroutine exits so callers can wait for the bridge to
-// stop; the return value may be ignored.
+// WireAgentEvents 在后台 goroutine 中把 agent 事件通道桥接到 hub。
+// 当 ctx 被取消或 emit 关闭时停止。返回的
+// 通道在 goroutine 退出时关闭，调用方可以等待桥接
+// 停止；该返回值可以忽略。
 //
-// Wiring note for internal/app (the only package that imports everything):
+// 给 internal/app（唯一 import 所有包的包）的接线说明：
 //
 //	hub := server.NewEventHub()
 //	server.WireAgentEvents(hub, agentEvents, ctx)
