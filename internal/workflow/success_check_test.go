@@ -189,3 +189,54 @@ func TestSuccessCheckTimeoutSecondsIsRespected(t *testing.T) {
 		t.Fatalf("step = %+v", run.Steps[0])
 	}
 }
+
+func TestStepTimeoutBoundsSuccessCheck(t *testing.T) {
+	if !shellSupports("sleep 0") {
+		t.Skip("the workflow shell does not support sleep")
+	}
+	exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) { return "done", nil })}
+	// The check omits timeout_seconds (so it would get the 30s default), but a
+	// success check is part of the attempt and must still obey the step budget.
+	def := mustDefinition(t, `{"steps":[{"name":"a","prompt":"a","timeout":"50ms","success_check":{"command":"sleep 1"}}]}`)
+
+	started := time.Now()
+	run, err := exec.Run(context.Background(), def, "")
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("step timeout did not bound the success check (%s)", elapsed)
+	}
+	if run.Status != StatusFailed {
+		t.Fatalf("status = %q, step = %+v", run.Status, run.Steps[0])
+	}
+	step := run.Steps[0]
+	if step.Status != StatusFailed || !strings.Contains(step.Error, "success check timed out") {
+		t.Fatalf("step = %+v", step)
+	}
+}
+
+func TestSuccessCheckTimeoutKeepsDeadlineExceededChain(t *testing.T) {
+	if !shellSupports("sleep 0") {
+		t.Skip("the workflow shell does not support sleep")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	step := Step{Name: "a", SuccessCheck: &StepCheck{Command: "sleep 1"}}
+
+	err := runSuccessCheck(ctx, step)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("success check lost the DeadlineExceeded chain: %v", err)
+	}
+}
+
+func TestTimedOutWrapsDeadlineExceeded(t *testing.T) {
+	err := timedOut(Step{Name: "a"}, context.DeadlineExceeded, 20*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timedOut lost the DeadlineExceeded chain: %v", err)
+	}
+	if !strings.Contains(err.Error(), "timed out after 20ms") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}

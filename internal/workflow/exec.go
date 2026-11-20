@@ -229,7 +229,7 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 		return out, err
 	}
 	if step.SuccessCheck != nil && strings.TrimSpace(step.SuccessCheck.Command) != "" {
-		if err := runSuccessCheck(ctx, step); err != nil {
+		if err := runSuccessCheck(attemptCtx, step); err != nil {
 			return out, err
 		}
 	}
@@ -242,7 +242,7 @@ func timedOut(step Step, err error, limit time.Duration) error {
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) || limit <= 0 {
 		return err
 	}
-	return fmt.Errorf("workflow: step %q timed out after %s", step.Name, limit)
+	return fmt.Errorf("workflow: step %q timed out after %s: %w", step.Name, limit, err)
 }
 
 // checkTimeout resolves a TimeoutSeconds value; zero or negative selects the
@@ -291,6 +291,14 @@ func runSuccessCheck(ctx context.Context, step Step) error {
 	check := step.SuccessCheck
 	command := strings.TrimSpace(check.Command)
 	limit := checkTimeout(check.TimeoutSeconds)
+	// The check is part of the attempt, so it must never outlive the attempt's
+	// remaining budget. When the context carries a deadline (the step timeout),
+	// clamp the configured check timeout to the time still left on that budget.
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < limit {
+			limit = remaining
+		}
+	}
 	runCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
@@ -303,7 +311,7 @@ func runSuccessCheck(ctx context.Context, step Step) error {
 	diagnostic := diagnosticSuffix(commandDiagnostic(res))
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("workflow: step %q success check timed out after %s%s", step.Name, limit, diagnostic)
+			return fmt.Errorf("workflow: step %q success check timed out after %s: %w%s", step.Name, limit, err, diagnostic)
 		}
 		return fmt.Errorf("workflow: step %q success check %q failed: %w%s", step.Name, command, err, diagnostic)
 	}
@@ -377,19 +385,13 @@ func Substitute(text, input string, outputs map[string]string) string {
 	var out strings.Builder
 	rest := text
 	for {
-		start := strings.Index(rest, "{{")
-		if start < 0 {
+		start, tokenEnd, key, ok := nextPlaceholder(rest)
+		if !ok {
 			out.WriteString(rest)
 			break
 		}
-		end := strings.Index(rest[start:], "}}")
-		if end < 0 {
-			out.WriteString(rest)
-			break
-		}
-		end += start
+		end := tokenEnd - 2 // index of the first '}' of the closing "}}"
 		out.WriteString(rest[:start])
-		key := strings.TrimSpace(rest[start+2 : end])
 		switch {
 		case key == "input":
 			out.WriteString(input)
