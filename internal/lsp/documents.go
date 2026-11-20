@@ -167,6 +167,20 @@ func (c *Client) storeDiagnostics(params []byte) {
 	}
 
 	c.diagMu.Lock()
+	defer c.diagMu.Unlock()
+
+	// LSP allows a server to publish diagnostics for an older document version
+	// after a newer one (delayed or out-of-order publishes). Such a result is
+	// stale: accepting it would bump seq past the caller's edit mark and make
+	// Diagnostics hand back old diagnostics as if they were current. Drop it
+	// without touching seq, the cache or any waiter. Servers that omit the
+	// version are unaffected: their publishes keep the original behaviour.
+	if payload.Version != nil {
+		if state := c.docs[payload.URI]; state != nil && *payload.Version < state.version {
+			return
+		}
+	}
+
 	c.seq++
 	c.published[payload.URI] = publication{seq: c.seq, items: items}
 	for key, waiter := range c.waiters {
@@ -175,7 +189,6 @@ func (c *Client) storeDiagnostics(params []byte) {
 			delete(c.waiters, key)
 		}
 	}
-	c.diagMu.Unlock()
 }
 
 // Diagnostics returns the diagnostics for uri.

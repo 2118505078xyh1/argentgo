@@ -27,6 +27,10 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	// locked parity flag list stays unchanged; they still flow into config via
 	// the override layer below.
 	verify := registerVerifyFlags(fs)
+	// --privacy-mode follows the same out-of-band registration as the verify
+	// flags: it must not change flagSurface(), which the locked parity gate
+	// compares against an exact list. It reaches app/config as an override.
+	privacy := registerPrivacyFlags(fs)
 
 	positional, err := parseInterleaved(fs, before)
 	if err != nil {
@@ -58,6 +62,18 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 			return nil, nil, &usageError{msg: "--verify-timeout-ms must be >= 0"}
 		}
 		_ = overrides.Set("verifyTimeoutMS=" + strconv.Itoa(*verify.timeoutMS))
+	}
+	// --privacy-mode is canonicalized and validated before it enters the
+	// highest-precedence override layer, so config.LoadWithOverrides rejects a
+	// typo instead of silently widening the posture.
+	if set["privacy-mode"] {
+		mode := strings.ToLower(strings.TrimSpace(*privacy.mode))
+		switch mode {
+		case privacyModeAny, privacyModeLocalOnly:
+			_ = overrides.Set("privacyMode=" + mode)
+		default:
+			return nil, nil, &usageError{msg: fmt.Sprintf("--privacy-mode must be any or local-only, got %q", *privacy.mode)}
+		}
 	}
 	maxParallel := intSetting(set, "max-parallel", *values.maxParallel, env, "ARGENT_MAX_PARALLEL",
 		overrideInt(&overrides, "maxParallel", "max-parallel"))

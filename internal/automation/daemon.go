@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,8 +52,8 @@ type Options struct {
 	Store *Store
 	// Executor runs due tasks (required).
 	Executor Executor
-	// LogDir receives <id>/<epoch>.log and <id>/<epoch>.json. It defaults to
-	// <store dir>/runs.
+	// LogDir receives <id>/<epoch>-<seq>.log and the matching .json. It
+	// defaults to <store dir>/runs.
 	LogDir string
 	// Clock overrides time.Now; tests drive the schedule with it.
 	Clock func() time.Time
@@ -73,9 +74,7 @@ type daemon struct {
 	// tick is coarse) and must be executed.
 	startTime time.Time
 
-	mu      sync.Mutex
-	running map[string]bool
-	wg      sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 func newDaemon(opts Options) (*daemon, error) {
@@ -86,12 +85,11 @@ func newDaemon(opts Options) (*daemon, error) {
 		return nil, errors.New("automation: daemon needs an executor")
 	}
 	d := &daemon{
-		store:   opts.Store,
-		exec:    opts.Executor,
-		logDir:  opts.LogDir,
-		now:     opts.Clock,
-		tick:    opts.Tick,
-		running: map[string]bool{},
+		store:  opts.Store,
+		exec:   opts.Executor,
+		logDir: opts.LogDir,
+		now:    opts.Clock,
+		tick:   opts.Tick,
 	}
 	if d.now == nil {
 		d.now = time.Now
@@ -143,17 +141,19 @@ func (d *daemon) scan(ctx context.Context) {
 		if spec.MissedPolicy() == MissedSkip && spec.NextDue.Before(d.startTime) {
 			// The slot passed before this process started, so there was no
 			// opportunity to run it: drop the slot and wait for the next one.
-			if d.claim(spec.ID) {
+			if _, err := d.store.claim(spec.ID); err == nil {
 				_ = d.store.recordRun(spec.ID, StatusSkipped, "", runTime(spec.NextDue, now), spec.NextDue)
-				d.release(spec.ID)
+				d.store.release(spec.ID)
 			}
 			continue
 		}
-		if !d.claim(spec.ID) {
+		seq, err := d.store.claim(spec.ID)
+		if err != nil {
+			// Already in flight here or in another process (e.g. a RunNow).
 			continue
 		}
 		d.wg.Add(1)
-		go d.execute(ctx, spec)
+		go d.execute(ctx, spec, seq)
 	}
 }
 
@@ -167,26 +167,10 @@ func runTime(slot, current time.Time) time.Time {
 	return current
 }
 
-func (d *daemon) claim(id string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.running[id] {
-		return false
-	}
-	d.running[id] = true
-	return true
-}
-
-func (d *daemon) release(id string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	delete(d.running, id)
-}
-
 // execute runs one task, writes its logs and records the outcome.
-func (d *daemon) execute(ctx context.Context, spec Spec) {
+func (d *daemon) execute(ctx context.Context, spec Spec, seq uint64) {
 	defer d.wg.Done()
-	defer d.release(spec.ID)
+	defer d.store.release(spec.ID)
 
 	// Capture the slot the scan claimed. The next firing is derived from this
 	// slot, not from the completion time, so a slow task cannot push the whole
@@ -216,7 +200,7 @@ func (d *daemon) execute(ctx context.Context, spec Spec) {
 			res.Status = StatusFailed
 		}
 	}
-	logPath, _ := d.writeLogs(spec, res)
+	logPath, _ := d.writeLogs(spec, res, seq)
 	// A spec deleted while running has nothing to record; that is not an error.
 	_ = d.store.recordRun(spec.ID, res.Status, logPath, runTime(slot, finished), slot)
 }
@@ -237,9 +221,14 @@ type runRecord struct {
 	Error      string    `json:"error,omitempty"`
 }
 
-// writeLogs writes <logDir>/<id>/<epoch>.log plus the matching .json record and
-// returns the log path.
-func (d *daemon) writeLogs(spec Spec, res RunResult) (string, error) {
+// maxRunLogs is how many run pairs (.log + .json) are kept per task. Older
+// runs are pruned after every write so runs/<id>/ does not grow without bound.
+const maxRunLogs = 20
+
+// writeLogs writes <logDir>/<id>/<epoch>-<seq>.log plus the matching .json
+// record and returns the log path. seq comes from the store claim, so two runs
+// that start in the same second still get distinct, ordered names.
+func (d *daemon) writeLogs(spec Spec, res RunResult, seq uint64) (string, error) {
 	dir := filepath.Join(d.logDir, spec.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
@@ -248,7 +237,7 @@ func (d *daemon) writeLogs(spec Spec, res RunResult) (string, error) {
 	if res.Started.IsZero() {
 		epoch = d.now().Unix()
 	}
-	base := filepath.Join(dir, strconv.FormatInt(epoch, 10))
+	base := filepath.Join(dir, fmt.Sprintf("%d-%012d", epoch, seq))
 	logPath := base + ".log"
 
 	var body []byte
@@ -285,7 +274,47 @@ func (d *daemon) writeLogs(spec Spec, res RunResult) (string, error) {
 	if err := writeAtomic(base+".json", append(data, '\n')); err != nil {
 		return logPath, err
 	}
+	rotateLogs(dir, maxRunLogs)
 	return logPath, nil
+}
+
+// rotateLogs keeps only the newest keep run pairs in dir. Names are
+// "<epoch>-<zero-padded seq>", so lexicographic order is chronological order.
+func rotateLogs(dir string, keep int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	byBase := make(map[string][]string)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		var base string
+		switch {
+		case strings.HasSuffix(name, ".log"):
+			base = strings.TrimSuffix(name, ".log")
+		case strings.HasSuffix(name, ".json"):
+			base = strings.TrimSuffix(name, ".json")
+		default:
+			continue
+		}
+		byBase[base] = append(byBase[base], filepath.Join(dir, name))
+	}
+	if len(byBase) <= keep {
+		return
+	}
+	bases := make([]string, 0, len(byBase))
+	for base := range byBase {
+		bases = append(bases, base)
+	}
+	sort.Strings(bases)
+	for _, base := range bases[:len(bases)-keep] {
+		for _, path := range byBase[base] {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 // RunNow runs one stored task immediately, outside the daemon loop, and records
@@ -301,6 +330,17 @@ func RunNow(ctx context.Context, store *Store, ex Executor, logDir, id string, a
 	if !ok {
 		return RunResult{}, fmt.Errorf("automation: no task %q", id)
 	}
+	// Claim through the same store-level mechanism the daemon uses, so a
+	// manual run can never overlap a daemon run (or another RunNow) for the
+	// same id, even when they live in different processes.
+	seq, err := store.claim(id)
+	if err != nil {
+		if errors.Is(err, errBusy) {
+			return RunResult{}, fmt.Errorf("automation: task %q is already running", id)
+		}
+		return RunResult{}, fmt.Errorf("automation: claim task %q: %w", id, err)
+	}
+	defer store.release(id)
 	d := &daemon{store: store, exec: ex, logDir: logDir, now: time.Now}
 	if d.logDir == "" {
 		d.logDir = filepath.Join(store.Dir(), "runs")
@@ -329,7 +369,7 @@ func RunNow(ctx context.Context, store *Store, ex Executor, logDir, id string, a
 			res.Status = StatusFailed
 		}
 	}
-	logPath, _ := d.writeLogs(spec, res)
+	logPath, _ := d.writeLogs(spec, res, seq)
 	if recordErr := store.RecordRun(spec.ID, res.Status, logPath, res.Finished); recordErr != nil {
 		return res, recordErr
 	}

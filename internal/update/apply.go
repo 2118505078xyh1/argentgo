@@ -37,6 +37,9 @@ func Apply(dest, target string) error {
 	if info.IsDir() {
 		return fmt.Errorf("update: staged path %s is a directory", dest)
 	}
+	if looksLikeZip(dest) {
+		return fmt.Errorf("update: staged file %s is a zip archive, not an executable", dest)
+	}
 	directory := filepath.Dir(target)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("update: create %s: %w", directory, err)
@@ -113,6 +116,25 @@ func applyUnix(dest, target string) error {
 	}
 	_ = os.Remove(dest)
 	return nil
+}
+
+// looksLikeZip reports whether a file starts with a PK zip signature. It is a
+// last-resort guard: even if some future download path forgot to unpack the
+// archive, Apply must never install a zip as the running executable.
+func looksLikeZip(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	var magic [4]byte
+	if _, err := io.ReadFull(file, magic[:]); err != nil {
+		return false
+	}
+	return magic[0] == 'P' && magic[1] == 'K' &&
+		((magic[2] == 3 && magic[3] == 4) || // local header
+			(magic[2] == 5 && magic[3] == 6) || // empty archive
+			(magic[2] == 7 && magic[3] == 8)) // spanned archive
 }
 
 func retryRename(from, to string) error {

@@ -71,10 +71,14 @@ type runState struct {
 	promptTokens int
 	turns        int
 	depth        int
-	maxTurns     int
-	lastText     string
-	trim         TrimOptions
-	events       []Event
+	// bgOwner is this run's delivery identity inside Subagent.Background. It
+	// differs from depth: sibling subagents share a depth but must never drain
+	// each other's background results.
+	bgOwner  uint64
+	maxTurns int
+	lastText string
+	trim     TrimOptions
+	events   []Event
 	// eventsMu serialises event recording: a streaming tool's progress callback
 	// may run on its own goroutine while the loop emits a turn boundary.
 	eventsMu sync.Mutex
@@ -151,6 +155,14 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		}
 		system = fmt.Sprintf(systemTemplate, root)
 	}
+	// The root run has no owner yet. Ask its queue for a stable one: every Run
+	// on the same queue (including a schema retry or a resumed Runner's next
+	// prompt) resolves to the same owner. A different queue resolves against
+	// its own counter and never mixes results with this one. Children already
+	// carry an owner assigned by childOptions.
+	if opts.bgOwner == 0 && opts.Subagent != nil && opts.Subagent.Background != nil {
+		opts.bgOwner = opts.Subagent.Background.RootOwner()
+	}
 	s := &runState{
 		opts:          opts,
 		model:         opts.Model,
@@ -164,6 +176,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		mistakes:      NewMistakeTracker(0, defaultMistakeGuidance),
 		stuck:         &StuckDetector{},
 		depth:         opts.Depth,
+		bgOwner:       opts.bgOwner,
 		maxTurns:      maxTurnsFor(opts),
 		trim: TrimOptions{
 			MaxTokens:      trimTarget(opts),
@@ -174,7 +187,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		compactor:        opts.Compactor,
 		compactThreshold: opts.CompactThreshold,
 		costWatch:        NewCostWatcher(opts.Budget.MaxCostUSD),
-		verifyState:      VerifyLoopState{Max: opts.MaxVerifyReflections},
+		verifyState:      VerifyLoopState{Max: opts.MaxVerifyReflections, Root: opts.Root},
 	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
@@ -647,10 +660,12 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 func (s *runState) injectSteering(extra ...string) bool {
 	pending := s.steer.drain()
 	// Drain finished background subagent results into this run as synthetic
-	// user turns, scoped to this depth so a child cannot steal its parent's
-	// results. See SubagentConfig.Background / BackgroundResults.
+	// user turns. Delivery is keyed by this run's unique owner, not by depth:
+	// sibling subagents share a depth and would otherwise steal each other's
+	// results. Depth stays on each queued item only for diagnostics.
+	// See SubagentConfig.Background / BackgroundResults.
 	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
-		pending = append(pending, s.opts.Subagent.Background.DrainAt(s.depth)...)
+		pending = append(pending, s.opts.Subagent.Background.DrainFor(s.bgOwner)...)
 	}
 	pending = append(pending, extra...)
 	for _, text := range pending {

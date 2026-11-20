@@ -184,8 +184,18 @@ func canonicalArgs(raw string) string {
 	if raw == "" {
 		return "{}"
 	}
+	// UseNumber keeps integer literals exact; decoding into float64 could make
+	// two distinct numeric arguments canonicalize to the same string and thus
+	// share one approval.
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
 	var value any
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+	if err := dec.Decode(&value); err != nil {
+		return strings.Join(strings.Fields(raw), " ")
+	}
+	// Reject trailing data, matching json.Unmarshal, so a JSON value with a
+	// suffix cannot collapse onto the cache key of the bare value.
+	if err := dec.Decode(new(any)); err != io.EOF {
 		return strings.Join(strings.Fields(raw), " ")
 	}
 	normalized, err := json.Marshal(value)

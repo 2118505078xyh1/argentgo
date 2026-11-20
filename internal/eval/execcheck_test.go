@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // seedExecWorkspace writes a tiny module into a throwaway directory. It mirrors
@@ -230,6 +231,75 @@ func TestLoud(t *testing.T) {
 	}
 	if len(res.StderrTail) > execOutputCap+len(execTruncMarker) {
 		t.Fatalf("stderr tail has %d bytes, want at most %d", len(res.StderrTail), execOutputCap+len(execTruncMarker))
+	}
+}
+
+func TestTailBufferTrimsAtRuneBoundaryWithoutStaleBytes(t *testing.T) {
+	// execOutputCap%3 == 1, so a total payload of execOutputCap+2 bytes made
+	// mostly of 3-byte runes puts the initial drop (2) on a continuation byte:
+	// the trim has to advance to the next rune boundary and therefore keeps
+	// fewer than cap bytes. The old code copied that many bytes but truncated
+	// to cap, leaving a stale byte at the tail.
+	header := strings.Join([]string{
+		"第一行：你好，世界 😀\n",
+		"第二行：emoji 🎉 边界检查\n",
+		"第三行：尾部内容\n",
+	}, "")
+	// Keep the prefix aligned to a rune boundary so the "中" padding starts at
+	// an index divisible by 3; that makes the byte the buggy code would leave
+	// at cap-1 a UTF-8 rune starter (and hence invalid on its own).
+	if r := len(header) % 3; r != 0 {
+		header += strings.Repeat(" ", 3-r)
+	}
+	pad := execOutputCap + 2 - len(header)
+	if pad < 0 || pad%3 != 0 {
+		t.Fatalf("unusable padding %d for header length %d", pad, len(header))
+	}
+	payload := header + strings.Repeat("中", pad/3)
+	if len(payload) != execOutputCap+2 {
+		t.Fatalf("payload length = %d, want %d", len(payload), execOutputCap+2)
+	}
+	if !utf8.ValidString(payload) {
+		t.Fatal("test setup: payload is not valid UTF-8")
+	}
+	if utf8.RuneStart(payload[2]) || !utf8.RuneStart(payload[3]) {
+		t.Fatalf("test setup: want drop=2 mid-rune and drop=3 at a rune start; got %x, %x", payload[2], payload[3])
+	}
+	if !utf8.RuneStart(payload[execOutputCap-1]) {
+		t.Fatalf("test setup: stale byte at cap-1 is %x, want a rune starter", payload[execOutputCap-1])
+	}
+
+	// The trim advances drop from 2 to 3, so the correct tail is payload[3:]
+	// with nothing appended to it.
+	wantTail := payload[3:]
+	tests := []struct {
+		name   string
+		writes [][]byte
+	}{
+		{"single write", [][]byte{[]byte(payload)}},
+		{"chunked writes", [][]byte{[]byte(payload[:len(header)]), []byte(payload[len(header):])}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var w tailBuffer
+			for _, chunk := range tt.writes {
+				n, err := w.Write(chunk)
+				if err != nil || n != len(chunk) {
+					t.Fatalf("Write() = (%d, %v), want (%d, nil)", n, err, len(chunk))
+				}
+			}
+			got := w.String()
+			if !strings.HasPrefix(got, execTruncMarker) {
+				t.Fatal("tail does not start with the truncation marker")
+			}
+			body := strings.TrimPrefix(got, execTruncMarker)
+			if !utf8.ValidString(body) {
+				t.Fatalf("tail body is not valid UTF-8 (len %d)", len(body))
+			}
+			if body != wantTail {
+				t.Fatalf("tail body has %d bytes, want %d", len(body), len(wantTail))
+			}
+		})
 	}
 }
 

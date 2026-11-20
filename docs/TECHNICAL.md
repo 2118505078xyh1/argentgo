@@ -71,9 +71,9 @@ CLI / --serve / --rpc / acp ─┐
 
 配置优先级（低 → 高）：编译默认值 → `~/.argentgo/config.json` →
 `<cwd>/.argent/config.json` → `<cwd>/argent.json` → profile → `ARGENT_*` → CLI 标志。
-`-c/--config` 落在配置文件层（点分键嵌套），低于 env 与标志。
+`-c/--config` 落在配置文件层（点分键嵌套），高于 env、低于 CLI 标志。
 
-- **stdlib only**：无第三方模块、无 `go get`，`go.mod` 无 `require`。
+- **stdlib only（核心包）**：核心包只用标准库；`native/` 是唯一显式依赖 mygo 的模块（`go.mod` 有对应 `require`）。
 - **无 cgo**：`GOOS=linux go build ./...` 必须能交叉编译。
 - 只有 `internal/app` 可以 import 一切；库包可 import `internal/llm` 与标准库，
   其余依赖一律通过上面的接口注入。
@@ -481,7 +481,7 @@ is clearly wrong is a genuine bug in the client and fails the test.
 ## API reference
 
 This document describes the programmatic surfaces of `argentgo` as implemented
-in this repository (version `0.5.0`). It is descriptive, not aspirational: every
+in this repository (version `0.6.0`). It is descriptive, not aspirational: every
 command, method, tool and field below was read from the code. The in-process
 architecture is covered by the [Architecture](#architecture) section; build and release
 details by [Distribution](USER_GUIDE.md#distribution).
@@ -849,7 +849,7 @@ done（已落地并生效）：
 config_overrides rpc serve serve_port serve_token acp help version provider profile
 list_profiles list_sessions list_models sandbox max_tokens max_cost max_seconds
 price_input price_output fallback_model tokens trust_project thinking
-no_auto_compact plugins`
+no_auto_compact plugins add_dir resume continue_session`
 
 parse-then-error（解析成功但明确报错退出，exit 1，不静默忽略）：
 
@@ -861,17 +861,18 @@ workflow_resume workflow_journal gui`
 - `--enable-browser` / `--enable-desktop` / `--enable-service`：对应工具未移植
 - `--workflow-mode` / `--workflow-resume` / `--workflow-journal`：journal 未移植；
   可自行调用 `internal/workflow`
-- `--gui`：GUI 后端已落地，启动器与 UI 桥接仍在进行中
+- `gui`：作为 flag 会报 not migrated 并以 exit 1 退出；GUI 经 `argent gui` 子命令启动，现已可用
 
 in progress（能解析，行为仍待接线）：
 
-`theme no_color add_dir resume continue_session output_schema secondary_model`
+`theme no_color output_schema secondary_model`
 
 - `theme` / `no_color`：TUI 主题切换仍在进行中
-- `add_dir`：路径解析仍限制在 `--cwd` 内，扩展可写根目录未接线
-- `resume`（含 `--continue` / `--continue-session` 别名）：会话恢复仍在补齐
 - `output_schema`：schema 已加载进 system prompt，失败重试/校验仍在补齐
 - `secondary_model`：字段已携带，子代理模型选择未接线
+
+（`add_dir`：扩展可写根目录已由 `security.WriteRootsFrom` 落地，见 `internal/app/app_resolve.go:176-208`，有测试；
+`resume`（含 `--continue` / `--continue-session` 别名）：会话恢复由 `internal/app/sessions.go:13-36` 实现，有测试。两者已移入 done。）
 
 skip（按设计不做 flag）：
 
@@ -885,17 +886,9 @@ skip（按设计不做 flag）：
 done（已分发并通过测试）：
 
 `sessions doctor login eval logout auth models mcp skills commands hooks audit usage
-policy update completion replay bug config tui`
+policy update completion replay bug config tui workflow telemetry attach logs follow stop board`
 
 （Go 另有 `help` / `version` 两个入口，等价于 `-h` / `-V`。）
-
-in progress（尚未在 Go 中落地）：
-
-`workflow telemetry attach logs follow stop board`
-
-- `workflow` / `telemetry`：子命令仍在进行中（后端 `internal/workflow` 已落地，telemetry 明确不迁）
-- `attach` `logs` `follow` `stop`：计划合并进 `sessions` 子命令族，尚未接线
-- `board`：实验看板，仍在进行中（原计划当作 `skip`，当前按进行中跟踪）
 
 ### 子系统
 

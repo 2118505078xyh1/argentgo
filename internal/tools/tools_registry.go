@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,6 +29,65 @@ func clipDescription(s string) string {
 		return s
 	}
 	return string(runes[:maxToolDescLen-1]) + "…"
+}
+
+// intentSchemaEnv opts out of advertising the `i` (concise intent) property in
+// tool parameter schemas. Injection is ON by default: the agent strips `i` on
+// the read side (agent.ExtractIntent), so every schema crossing the wire must
+// list it for the API_REFERENCE "every schema accepts i" contract to hold.
+// Set this to a truthy value (1, true, yes, on, ...) to restore pre-injection
+// schemas; "", 0, false, no and off leave injection enabled.
+const intentSchemaEnv = "ARGENT_NO_INTENT_SCHEMA"
+
+// intentSchemaDisabled reports whether `i` should be omitted from advertised
+// schemas. The env var is read on every call rather than cached so tests and
+// long-lived runtimes can toggle it without a restart.
+func intentSchemaDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(intentSchemaEnv))) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+// advertiseIntentSchema adds the `i` intent property to a tool parameter
+// schema unless the operator opted out. InjectIntentSchema is idempotent, so a
+// schema that already carries `i` (e.g. one returned by intentSchemaTool below)
+// is returned unchanged; there is no double-injection.
+func advertiseIntentSchema(params json.RawMessage) json.RawMessage {
+	if intentSchemaDisabled() {
+		return params
+	}
+	return InjectIntentSchema(params)
+}
+
+// intentSchemaTool decorates a Tool so the schema it advertises carries the
+// `i` intent property. Runtime behaviour is delegated unchanged; only the
+// Schema crossing the wire is augmented. Wrapping the stored tools — rather
+// than patching only Specs — keeps every schema reader in the package (Specs,
+// SpecsFor, tool_search) consistent. The gate is evaluated per call so the
+// env toggle is honoured even for an already-built registry.
+type intentSchemaTool struct {
+	Tool
+}
+
+func wrapIntentSchema(tool Tool) Tool {
+	return intentSchemaTool{Tool: tool}
+}
+
+func (t intentSchemaTool) Schema() string {
+	return string(advertiseIntentSchema(json.RawMessage(t.Tool.Schema())))
+}
+
+// Meta forwards the optional reclamation hook so wrapping never changes
+// RunWithMeta behaviour. A wrapped tool without an inner Meta yields the zero
+// ToolMeta, which callers already treat as "no metadata".
+func (t intentSchemaTool) Meta(args json.RawMessage, output string, err error) ToolMeta {
+	if m, ok := t.Tool.(metaTool); ok {
+		return m.Meta(args, output, err)
+	}
+	return ToolMeta{}
 }
 
 // New returns a registry rooted at root with the default output cap.
@@ -77,7 +137,21 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 	// tool_search reads the finished registry so it can search every spec.
 	r.tools["tool_search"] = toolSearchTool{registry: r}
 	r.order = append(r.order, "tool_search")
+	// Advertise the `i` intent field on every schema. Wrapping the stored tools
+	// once here covers Specs, SpecsFor and tool_search uniformly; tools rebuilt
+	// later by Set* helpers are wrapped in place as well.
+	r.wrapSchemas()
 	return r
+}
+
+// wrapSchemas decorates every registered tool so its advertised Schema carries
+// the `i` intent field. It is idempotent: an already-wrapped tool is left as-is.
+func (r *Registry) wrapSchemas() {
+	for name, tool := range r.tools {
+		if _, wrapped := tool.(intentSchemaTool); !wrapped {
+			r.tools[name] = wrapIntentSchema(tool)
+		}
+	}
 }
 
 // SetGuard installs the pre-call guard. Passing nil removes it.
@@ -104,6 +178,7 @@ func (r *Registry) SetMemoryBank(bank *memory.Bank) {
 	for _, tool := range MemoryAdvancedTools(bank) {
 		r.tools[tool.Name()] = tool
 	}
+	r.wrapSchemas()
 }
 
 // SetJobs installs the background-job registry used by the bash tool when a
@@ -124,6 +199,7 @@ func (r *Registry) SetLspIde(adapter LspIde) {
 	r.tools["lsp_rename_preview"] = newLspRenamePreviewTool(adapter)
 	r.tools["lsp_format"] = newLspFormatTool(adapter)
 	r.tools["lsp_workspace_symbols"] = newLspWorkspaceSymbolsTool(adapter)
+	r.wrapSchemas()
 }
 
 // SetMaxTimeout caps the resolved timeout of every timed tool at d. A
@@ -148,7 +224,10 @@ func (r *Registry) Specs() []llm.ToolSpec {
 		spec := llm.ToolSpec{Type: "function"}
 		spec.Function.Name = tool.Name()
 		spec.Function.Description = clipDescription(tool.Description())
-		spec.Function.Parameters = json.RawMessage(tool.Schema())
+		// advertiseIntentSchema is the safety net for tools rebuilt by Set*
+		// helpers living outside this file. InjectIntentSchema is idempotent,
+		// so tools already wrapped by wrapSchemas are not injected twice.
+		spec.Function.Parameters = advertiseIntentSchema(json.RawMessage(tool.Schema()))
 		specs = append(specs, spec)
 	}
 	return specs

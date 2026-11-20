@@ -104,6 +104,40 @@ func TestResolveUsesLoginProviderAPIKey(t *testing.T) {
 	}
 }
 
+// A config overlay on a built-in provider must win over the hard-coded
+// template. lookupProvider used to call provider.Resolve first, which swallowed
+// providers.<name>.baseURL overrides for built-ins such as anthropic/openai.
+func TestResolveProviderConfigOverridesBuiltinBaseURL(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	writeArgentConfig(t, root, `{
+		"provider":"anthropic",
+		"providers":{"anthropic":{"baseURL":"https://custom.anthropic.test/v1"}}
+	}`)
+	res, err := Resolve(cli.IO{Env: isolatedEnv(home, nil)}, cli.Options{Cwd: root})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if res.BaseURL != "https://custom.anthropic.test/v1" {
+		t.Errorf("baseURL = %q, want the config override of the built-in provider", res.BaseURL)
+	}
+}
+
+// Reordering lookupProvider (config before built-ins) must not lose aliases:
+// "claude" still resolves through provider.Resolve to the anthropic template.
+func TestResolveProviderAliasStillResolves(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	res, err := Resolve(cli.IO{Env: isolatedEnv(home, nil)}, cli.Options{Cwd: root, Provider: "claude"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if res.Provider != "anthropic" || res.Protocol != "anthropic-messages" {
+		t.Fatalf("alias not resolved: provider=%q protocol=%q", res.Provider, res.Protocol)
+	}
+	if !strings.Contains(res.BaseURL, "anthropic.com") {
+		t.Errorf("baseURL = %q, want the anthropic endpoint", res.BaseURL)
+	}
+}
+
 func TestResolveAPIKeyPrecedence(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -257,5 +291,64 @@ func TestResolveSandboxAndApprovalFromConfig(t *testing.T) {
 	}
 	if res.Sandbox != security.SandboxDangerFullAccess || res.Approval != "auto" {
 		t.Fatalf("flags did not win: sandbox=%v approval=%q", res.Sandbox, res.Approval)
+	}
+}
+
+// Resolved.TrustProject must interpret ARGENT_TRUST_PROJECT through the same
+// parseTrustEnv helper the prompt path uses: true/yes/on are trusted,
+// false/no/off are untrusted. Before the fix Resolve only recognized the
+// literal "1", so "true"/"yes"/"on" disagreed with trustFromEnv.
+func TestResolveTrustProjectFromEnv(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"true", true},
+		{"yes", true},
+		{"on", true},
+		{"1", true},
+		{"false", false},
+		{"no", false},
+		{"off", false},
+		{"0", false},
+		// Unset env leaves the explicit (false) flag in charge: the security
+		// gate must not inherit parseTrustEnv's prompt-path "unset = trusted"
+		// default, or --trust-project=false would silently be overridden.
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			root, home := t.TempDir(), t.TempDir()
+			writeArgentConfig(t, root, `{}`)
+			env := cli.IO{Env: isolatedEnv(home, map[string]string{"ARGENT_TRUST_PROJECT": tc.value})}
+			res, err := Resolve(env, cli.Options{Cwd: root})
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if res.TrustProject != tc.want {
+				t.Errorf("ARGENT_TRUST_PROJECT=%q: TrustProject = %v, want %v", tc.value, res.TrustProject, tc.want)
+			}
+			// The two paths share parseTrustEnv for explicitly set values.
+			// An unset value intentionally differs: the prompt path keeps its
+			// legacy "always inject" default while the security gate defers to
+			// the explicit flag.
+			if tc.value != "" {
+				if want := trustFromEnv(env.Env); res.TrustProject != want {
+					t.Errorf("ARGENT_TRUST_PROJECT=%q: Resolve TrustProject = %v, prompt path = %v", tc.value, res.TrustProject, want)
+				}
+			}
+		})
+	}
+
+	// An explicit --trust flag still wins regardless of the env value.
+	root, home := t.TempDir(), t.TempDir()
+	writeArgentConfig(t, root, `{}`)
+	env := cli.IO{Env: isolatedEnv(home, map[string]string{"ARGENT_TRUST_PROJECT": "off"})}
+	res, err := Resolve(env, cli.Options{Cwd: root, TrustProject: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.TrustProject {
+		t.Error("explicit TrustProject option must win over an untrusted env value")
 	}
 }

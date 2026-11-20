@@ -77,7 +77,14 @@ func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 // depth limit of 2. Persona names requested by individual task calls are
 // resolved back here through the injected ResolvePersona callback, so the agent
 // package never needs to import this one.
-func configureSubagents(opts *agent.Options, res Resolved) {
+//
+// bg is the background-result queue owned by the caller for this one root run.
+// It must NOT be a process singleton: two independent sessions/runners (e.g.
+// TUI + --rpc, or two sequential Execute calls) that both opt into personas
+// would otherwise share one queue, and a result from one session would be
+// drained into the other session's transcript (all root runs sit at depth 0).
+// Owning the queue per run also keeps the bounded-cap eviction local to a run.
+func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundResults) {
 	if opts == nil {
 		return
 	}
@@ -91,22 +98,8 @@ func configureSubagents(opts *agent.Options, res Resolved) {
 		ResolvePersona: func(name string) (agent.SubagentConfig, bool) {
 			return PersonaSubagentConfig(res.Root, name)
 		},
-		// One process-wide queue so finished background children survive across
-		// runs and are injected into whichever run drains them next.
-		Background: sharedBackgroundResults(),
+		Background: bg,
 	}
-}
-
-var (
-	backgroundOnce    sync.Once
-	backgroundResults *agent.BackgroundResults
-)
-
-func sharedBackgroundResults() *agent.BackgroundResults {
-	backgroundOnce.Do(func() {
-		backgroundResults = agent.NewBackgroundResults(0, 0)
-	})
-	return backgroundResults
 }
 
 // sharedDefs holds the process-wide DefinitionCache. The discovery call sites
@@ -280,7 +273,27 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			if len(toolset.base.regs) == 0 {
 				return specs
 			}
-			return toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
+			filtered := toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
+			// Privacy posture: local-only withholds web tools entirely. A remote
+			// base URL under local-only is a hard error surfaced before the run.
+			blocked, perr := ApplyPrivacyPosture(res.Cfg.PrivacyMode, res.BaseURL, []string{"web_search", "web_fetch"})
+			if perr != nil {
+				return nil
+			}
+			if len(blocked) > 0 {
+				drop := make(map[string]bool, len(blocked))
+				for _, name := range blocked {
+					drop[name] = true
+				}
+				kept := filtered[:0]
+				for _, spec := range filtered {
+					if !drop[spec.Function.Name] {
+						kept = append(kept, spec)
+					}
+				}
+				return kept
+			}
+			return filtered
 		},
 		Approve: approver,
 		Record:  agent.RecorderFunc(sess.Append),
@@ -312,12 +325,22 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			// (SSE /v1/event, event/subscribe) see real agent events. The sink is
 			// injected into ctx by runner.Prompt; a no-op when absent.
 			EmitEvent(ctx, event)
+			// Feed the live usage tool so it reports real token totals.
+			if event.Kind == agent.EventUsage {
+				toolset.UpdateUsage(event.Turn, event.Usage, event.TotalUsage)
+			}
 			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 				onText(event.Text)
 			}
 		},
 	}}
-	configureSubagents(&loop.Opts, res)
+	// One fresh queue per root run. Finished background children are delivered
+	// only to the run (and, for a resumed Runner, the later prompts on that same
+	// Runner) that owns this queue; never to an unrelated concurrent session.
+	// The schema-retry Run below reuses loop.Opts, so it shares this queue and
+	// its owner identity with the first attempt.
+	bg := agent.NewBackgroundResults(0, 0)
+	configureSubagents(&loop.Opts, res, bg)
 	// Per-model edit-format guidance is opt-in so byte-exact system-prompt
 	// assertions and callers that pin their own prompt keep unchanged bytes by
 	// default. Set ARGENT_EDIT_GUIDE=1 to append it. Appending here (after

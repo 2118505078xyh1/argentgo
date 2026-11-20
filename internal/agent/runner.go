@@ -258,6 +258,14 @@ type Options struct {
 	// Depth is the current subagent nesting depth (0 for a root run).
 	Depth int
 
+	// bgOwner is this run's identity inside Subagent.Background. It is set by the
+	// agent package (never by callers) and is copied by value through
+	// childOptions, so a background result can be delivered back to exactly the
+	// run that delegated it. Depth alone cannot do that: two sibling subagents
+	// share a depth and would steal each other's results. Zero means "assign on
+	// first use" (see newRunState and BackgroundResults.RootOwner).
+	bgOwner uint64
+
 	// SkillAuthor, when set, advertises the built-in `save_skill` tool and
 	// routes its calls through the injected writer. Nil (the default) leaves
 	// existing runs completely unchanged.

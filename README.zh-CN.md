@@ -128,7 +128,7 @@ argent：
 
 分层，低 → 高：编译默认值 → `~/.argentgo/config.json` → `<cwd>/.argent/config.json`
 → `<cwd>/argent.json` → profile → `ARGENT_*` 环境变量 → CLI 标志。
-`-c/--config key=value` 在配置文件层生效（点分键嵌套），低于环境变量与标志。
+`-c/--config key=value` 在配置文件层生效（点分键嵌套），高于环境变量、低于 CLI 标志。
 
 | 设置 | 标志 | 环境变量 | 默认值 |
 |---|---|---|---|

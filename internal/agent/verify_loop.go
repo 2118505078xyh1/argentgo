@@ -18,6 +18,7 @@ const verifyReflectionHint = "Reflections left: %d. Do not re-run the same check
 type VerifyLoopState struct {
 	Reflections int
 	Max         int
+	Root        string // workspace root; enables █ source anchoring in feedback
 }
 
 func (s VerifyLoopState) maxReflections() int {
@@ -57,7 +58,7 @@ func (s VerifyLoopState) remaining() int {
 // verification-specific anti-retry line. The output portion is already capped
 // at defaultVerifyMaxBytes, so the whole message stays bounded.
 func BuildVerifyFeedback(label, output string, state VerifyLoopState) string {
-	feedback := VerificationFeedback(label, false, output, defaultVerifyMaxBytes)
+	feedback := VerificationFeedbackAt(label, false, output, defaultVerifyMaxBytes, state.Root)
 	return feedback + "\n" + fmt.Sprintf(verifyReflectionHint, state.remaining())
 }
 

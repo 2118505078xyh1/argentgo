@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -218,7 +219,11 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 	}
 	// Download verifies the checksum, but re-check the staged bytes here too so
 	// an injected or future downloader can never replace an unverified binary.
-	if err := verifyChecksum(stage, checksum); err != nil {
+	// A zip is the exception: Download verifies the archive's checksum, then
+	// unpacks the executable into stage, so stage no longer hashes to the
+	// published archive checksum. Instead guard that we never install a raw
+	// archive as the executable.
+	if err := verifyStagedBinary(stage, asset.Name, checksum); err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
@@ -242,6 +247,36 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 	fmt.Fprintf(app.IO.Out, "updated argentgo to %s\n", release.Tag)
 	fmt.Fprintf(app.IO.Out, "release notes: %s\n", notes)
 	return 0
+}
+
+// verifyStagedBinary re-verifies the staged file for a bare executable. For a
+// zip asset the checksum belongs to the archive (already verified by Download),
+// while stage holds the extracted executable, so only an archive guard applies.
+func verifyStagedBinary(stage, assetName, checksum string) error {
+	if strings.EqualFold(filepath.Ext(assetName), ".zip") {
+		return rejectArchive(stage)
+	}
+	return verifyChecksum(stage, checksum)
+}
+
+// rejectArchive refuses to install a file that still looks like a zip archive.
+func rejectArchive(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("update: open staged binary: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	var magic [4]byte
+	if _, err := io.ReadFull(file, magic[:]); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("update: read staged binary: %w", err)
+	}
+	if magic[0] == 'P' && magic[1] == 'K' &&
+		((magic[2] == 3 && magic[3] == 4) ||
+			(magic[2] == 5 && magic[3] == 6) ||
+			(magic[2] == 7 && magic[3] == 8)) {
+		return fmt.Errorf("update: staged file %s is a zip archive; refusing to install it as the executable", path)
+	}
+	return nil
 }
 
 func verifyChecksum(path, checksum string) error {

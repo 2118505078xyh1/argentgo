@@ -22,7 +22,10 @@ const MaxAssetSize int64 = 512 << 20
 type Progress func(done, total int64)
 
 // Download fetches asset into dest and verifies its SHA-256 checksum before the
-// file appears at dest. A checksum mismatch removes the partial download.
+// file appears at dest. A checksum mismatch removes the partial download. For a
+// zip asset, the verified archive is unpacked with restricted extraction and the
+// whitelisted executable (argent/argent.exe) is placed at dest; a bare binary is
+// written unchanged.
 func Download(ctx context.Context, asset Asset, dest, checksum string) error {
 	return DownloadProgress(ctx, asset, dest, checksum, nil)
 }
@@ -111,6 +114,25 @@ func DownloadProgress(ctx context.Context, asset Asset, dest, checksum string, p
 	}
 	if err := temp.Close(); err != nil {
 		return fmt.Errorf("update: close %s: %w", tempName, err)
+	}
+	if isZipAsset(asset.Name) {
+		// The published checksum covers the archive, so it has been verified
+		// above. Extract the executable into a private staging directory and
+		// place that at dest; installing the archive itself would brick the
+		// binary.
+		extractDir, err := os.MkdirTemp(directory, ".extract-*")
+		if err != nil {
+			return fmt.Errorf("update: create an extraction directory in %s: %w", directory, err)
+		}
+		defer os.RemoveAll(extractDir)
+		binary, err := extractExecutable(tempName, extractDir)
+		if err != nil {
+			return fmt.Errorf("update: extract %s: %w", asset.Name, err)
+		}
+		if err := os.Rename(binary, dest); err != nil {
+			return fmt.Errorf("update: place %s: %w", dest, err)
+		}
+		return nil
 	}
 	if err := os.Chmod(tempName, 0o755); err != nil {
 		return fmt.Errorf("update: mark %s executable: %w", tempName, err)

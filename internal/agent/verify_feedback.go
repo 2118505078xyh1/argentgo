@@ -11,6 +11,13 @@ const (
 	// defaultVerifyMaxBytes bounds the output portion of one feedback message.
 	defaultVerifyMaxBytes = 4096
 	verifyTruncatedMarker = "... (truncated)"
+
+	// verifyAnchorPad is the number of context lines AnchorSourceLines emits on
+	// either side of an offending file:line reference. Two lines give the model
+	// enough context to act without padding the bounded feedback with noise.
+	verifyAnchorPad = 2
+	// verifyAnchorSep separates the redacted log tail from the source windows.
+	verifyAnchorSep = "\n"
 )
 
 // VerificationFeedback renders a compact, redacted, bounded feedback string
@@ -27,7 +34,40 @@ const (
 // This is a building block. Wire it in the layer that owns verification (for
 // example after a workflow StepCheck, or in the dispatch path after a verify
 // tool call) by appending the returned string to the next model message.
+//
+// VerificationFeedback deliberately does NOT anchor source lines: it delegates
+// to VerificationFeedbackAt with an empty root, keeping its output byte-for-byte
+// identical to the pre-anchoring behaviour. Callers that know the workspace
+// root (the app's verify callback) should call VerificationFeedbackAt directly
+// so FAIL output also shows █-marked source windows.
 func VerificationFeedback(label string, passed bool, output string, maxBytes int) string {
+	return VerificationFeedbackAt(label, passed, output, maxBytes, "")
+}
+
+// VerificationFeedbackAt renders the same bounded, redacted feedback as
+// VerificationFeedback, and — only for FAIL output when root is non-empty and
+// the output contains usable file:line references — appends the █-marked source
+// windows produced by AnchorSourceLines AFTER the redacted log tail. The whole
+// output portion (tail + separator + anchor windows) stays within maxBytes: a
+// share of the budget is reserved for the anchor so it can never crowd out or
+// exceed the bound.
+//
+// Backward compatibility is exact: when passed is true, when root is empty, or
+// when no usable anchor is found (including an unreadable/out-of-root file), the
+// returned string is identical to VerificationFeedback's output. This makes the
+// function a drop-in for callers that already know the workspace root.
+//
+// App-side wiring (owned by internal/app, not this file): NewVerifyFunc in
+// internal/app/verify_wire.go already captures `root` (it is used as
+// command.Dir). In the Verify callback returned by NewVerifyFunc, replace the
+// plain feedback composition with the anchored one, e.g.
+//
+//	fb := agent.VerificationFeedbackAt(label, passed, output, maxBytes, root)
+//
+// and pass `root` through the verify loop (Options -> verifyAfterBatch ->
+// BuildVerifyFeedback -> VerificationFeedbackAt) so the model sees the source
+// windows instead of only the log tail.
+func VerificationFeedbackAt(label string, passed bool, output string, maxBytes int, root string) string {
 	label = strings.ToUpper(strings.TrimSpace(label))
 	if label == "" {
 		label = "VERIFY"
@@ -44,7 +84,34 @@ func VerificationFeedback(label string, passed bool, output string, maxBytes int
 	if clean == "" {
 		return head
 	}
-	return head + "\n" + clipVerifyTail(clean, resolveVerifyMaxBytes(maxBytes))
+	budget := resolveVerifyMaxBytes(maxBytes)
+	plain := head + "\n" + clipVerifyTail(clean, budget)
+
+	// An empty root (the legacy default) or output with no usable anchor leaves
+	// the feedback byte-identical to the pre-anchoring format.
+	if strings.TrimSpace(root) == "" {
+		return plain
+	}
+	anchor := AnchorSourceLines(clean, root, verifyAnchorPad)
+	if anchor == "" {
+		return plain
+	}
+
+	// Reserve at most half the budget for source windows so the log tail keeps
+	// room, then give the remainder (minus the separator) back to the tail.
+	anchorRoom := budget / 2
+	if anchorRoom <= 0 {
+		return plain
+	}
+	anchor = clipTailBytes(anchor, anchorRoom)
+	if anchor == "" {
+		return plain
+	}
+	tailRoom := budget - len(verifyAnchorSep) - len(anchor)
+	if tailRoom < 0 {
+		return plain
+	}
+	return head + "\n" + clipVerifyTail(clean, tailRoom) + verifyAnchorSep + anchor
 }
 
 // VerifyResult is one check outcome for FormatVerifyResults.

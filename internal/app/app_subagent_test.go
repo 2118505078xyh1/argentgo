@@ -32,7 +32,7 @@ func TestConfigureSubagentsWithOptIn(t *testing.T) {
 	res := Resolved{Root: root, System: "base system"}
 	opts := &agent.Options{System: res.System}
 
-	configureSubagents(opts, res)
+	configureSubagents(opts, res, agent.NewBackgroundResults(0, 0))
 
 	if opts.Subagent == nil {
 		t.Fatal("Subagent is nil for a workspace with personas")
@@ -64,12 +64,43 @@ func TestConfigureSubagentsWithOptIn(t *testing.T) {
 	}
 }
 
+func TestConfigureSubagentsKeepsQueuePerRun(t *testing.T) {
+	root := t.TempDir()
+	writeAppPersona(t, root, "reviewer", "Review carefully.", "read")
+	res := Resolved{Root: root, System: "base system"}
+
+	bgA := agent.NewBackgroundResults(0, 0)
+	bgB := agent.NewBackgroundResults(0, 0)
+	optsA := &agent.Options{System: res.System}
+	optsB := &agent.Options{System: res.System}
+	configureSubagents(optsA, res, bgA)
+	configureSubagents(optsB, res, bgB)
+
+	if optsA.Subagent == nil || optsB.Subagent == nil {
+		t.Fatal("both opted-in runs must have a Subagent config")
+	}
+	if optsA.Subagent.Background != bgA || optsB.Subagent.Background != bgB {
+		t.Fatal("each run must keep the caller-owned queue")
+	}
+	if optsA.Subagent.Background == optsB.Subagent.Background {
+		t.Fatal("two root runs must not share one background queue")
+	}
+	// Even at the same root depth, a result from run A is invisible to run B.
+	bgA.PushFor(bgA.RootOwner(), 0, "A-only")
+	if got := bgB.DrainFor(bgB.RootOwner()); len(got) != 0 {
+		t.Fatalf("run B drained %v from run A's queue", got)
+	}
+	if got := bgA.DrainFor(bgA.RootOwner()); len(got) != 1 || got[0] != "A-only" {
+		t.Fatalf("run A's queue = %v, want [A-only]", got)
+	}
+}
+
 func TestConfigureSubagentsWithoutOptInKeepsDefaults(t *testing.T) {
 	root := t.TempDir() // no .argent/agents directory
 	res := Resolved{Root: root, System: "base system"}
 	opts := &agent.Options{System: res.System}
 
-	configureSubagents(opts, res)
+	configureSubagents(opts, res, agent.NewBackgroundResults(0, 0))
 
 	if opts.Subagent != nil {
 		t.Fatalf("Subagent = %#v, want nil without personas", opts.Subagent)
@@ -86,7 +117,7 @@ func TestConfigureSubagentsIgnoresNonPersonaMarkdown(t *testing.T) {
 	res := Resolved{Root: root, System: "base system"}
 	opts := &agent.Options{System: res.System}
 
-	configureSubagents(opts, res)
+	configureSubagents(opts, res, agent.NewBackgroundResults(0, 0))
 
 	if opts.Subagent != nil || opts.System != "base system" {
 		t.Fatalf("non-persona markdown changed the options: %#v, System=%q", opts.Subagent, opts.System)

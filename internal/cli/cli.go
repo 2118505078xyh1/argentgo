@@ -348,10 +348,23 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 	}
 
 	result, err := runner.Prompt(ctx, prompt, onText)
+	cancelled := isCancelled(ctx, err)
 	if jsonMode {
-		a.emit(map[string]any{"type": "result", "text": result, "error": errText(err)})
+		event := map[string]any{"type": "result", "text": result, "error": errText(err)}
+		if cancelled {
+			// A user abort is a normal stop. Keep the event shape, but do not
+			// dress it up as a failed request for scripts to parse.
+			event["error"] = ""
+			event["stopReason"] = "cancelled"
+		}
+		a.emit(event)
 	}
 	if err != nil {
+		if cancelled {
+			// Nothing failed and there is no retry action: exit quietly, like
+			// the other transports' cancelled result.
+			return 0
+		}
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		writeActionableError(a.IO.Err, err)
 		return 1
@@ -457,6 +470,13 @@ func errText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// isCancelled mirrors the server transports' rule: a Ctrl-C or abort ends the
+// run normally. A deadline and every other error keep the failure path, so
+// writeActionableError still gets a chance to explain them.
+func isCancelled(ctx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled
 }
 
 // commandContext is cancelled on Ctrl-C.

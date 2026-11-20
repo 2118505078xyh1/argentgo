@@ -97,6 +97,23 @@ func TestCachedApproverReusesIdenticalCanonicalArgs(t *testing.T) {
 	}
 }
 
+func TestCachedApproverDistinguishesLargeNumericArgs(t *testing.T) {
+	inner := &recordingApprover{answer: true}
+	cached := NewCachedApprover(inner)
+	ctx := context.Background()
+	for _, args := range []string{
+		`{"id":9007199254740992}`,
+		`{"id":9007199254740993}`,
+	} {
+		if ok, err := cached.Ask(ctx, "read", args); err != nil || !ok {
+			t.Fatalf("ask %s: ok=%v err=%v", args, ok, err)
+		}
+	}
+	if got := inner.count(); got != 2 {
+		t.Fatalf("two distinct numeric arguments shared one approval: inner asked %d times, want 2", got)
+	}
+}
+
 func TestCachedApproverConcurrentDistinctArgsStayIsolated(t *testing.T) {
 	inner := &recordingApprover{answer: true}
 	cached := NewCachedApprover(inner)

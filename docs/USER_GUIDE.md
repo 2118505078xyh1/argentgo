@@ -309,7 +309,7 @@ The browser frontend has been removed.
 
 The two programs do not link together; they talk over an existing transport:
 
-1. `argent gui` (or `argent --gui`) is detected in `cmd/argent/main.go`, which
+1. `argent gui` is detected in `cmd/argent/main.go`, which
    calls `runGUI` in `cmd/argent/gui.go`. That resolves config, opens the
    session store and refuses to run on non-Windows hosts.
 2. It looks for `argent-native.exe` **next to the running `argent.exe`**

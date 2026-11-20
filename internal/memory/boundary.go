@@ -114,6 +114,12 @@ func projectRoot(dir, home string, markers []string) string {
 // (exactly one of them is used), followed by CLAUDE.md. If no project root is
 // found, dir itself is used as the single scanned directory.
 //
+// Files are read and charged against the shared total budget in cwd-to-root
+// (nearest-first) order, so when the budget runs out the outermost, most
+// general instructions are the ones dropped and the nearest, most specific
+// ones survive. This matches the "nearer wins" contract of Block/LoadIn. The
+// returned slice is still assembled root-to-cwd for callers.
+//
 // The same DefaultLimit per-file cap, 32 KiB total budget, rune-safe clipping
 // and TruncationMarker as Load/LoadIn apply. Each Instruction carries its
 // Source path. Existing Load/LoadIn behaviour is unchanged.
@@ -146,20 +152,39 @@ func LoadWithBoundary(dir string, trust bool, opts LoadOptions) ([]Instruction, 
 		dirs = []string{absDir}
 	}
 
+	// dirs is root-to-cwd. Read it in reverse (cwd-to-root) so the shared 32 KiB
+	// budget is spent on the most specific instructions first: when it runs out
+	// the outermost, most general files are the ones dropped. Collect one group
+	// per directory so the result can still be assembled in the documented
+	// root-to-cwd order, with the within-directory AGENTS/CLAUDE order intact.
 	var (
-		insts []Instruction
-		used  int
+		perDir [][]Instruction
+		used   int
 	)
-	for _, d := range dirs {
-		for _, path := range dirPaths(d) {
+	for i := len(dirs) - 1; i >= 0; i-- {
+		var group []Instruction
+		for _, path := range dirPaths(dirs[i]) {
 			var stop bool
-			insts, stop = appendInstruction(insts, path, limit, &used)
+			group, stop = appendInstruction(group, path, limit, &used)
 			if stop {
-				return insts, nil
+				perDir = append(perDir, group)
+				return assembleRootFirst(perDir), nil
 			}
 		}
+		perDir = append(perDir, group)
 	}
-	return insts, nil
+	return assembleRootFirst(perDir), nil
+}
+
+// assembleRootFirst joins per-directory groups that were collected in
+// cwd-to-root order back into the documented root-to-cwd return order, keeping
+// the instructions inside each group (AGENTS slot before CLAUDE.md) in place.
+func assembleRootFirst(perDir [][]Instruction) []Instruction {
+	var out []Instruction
+	for i := len(perDir) - 1; i >= 0; i-- {
+		out = append(out, perDir[i]...)
+	}
+	return out
 }
 
 // dirsFromRootToDir returns the directory chain from root down to dir,

@@ -111,7 +111,8 @@ type Version struct {
 }
 
 // ParseVersion accepts "1.2.3", "v1.2.3", "1.2", and prerelease suffixes such
-// as "1.0.0-beta.2". Build metadata after "+" is ignored.
+// as "1.0.0-beta.2". Build metadata after "+" is ignored. Numeric prerelease
+// identifiers with leading zeroes (for example "1.0.0-01") are rejected.
 func ParseVersion(text string) (Version, error) {
 	original := strings.TrimSpace(text)
 	raw := strings.TrimPrefix(strings.TrimPrefix(original, "v"), "V")
@@ -133,6 +134,11 @@ func ParseVersion(text string) (Version, error) {
 		for _, identifier := range prerelease {
 			if identifier == "" {
 				return Version{}, fmt.Errorf("update: %q has an empty prerelease identifier", original)
+			}
+			// SemVer 2.0.0 §9: numeric identifiers must not include leading zeroes.
+			if isNumericIdentifier(identifier) && len(identifier) > 1 && identifier[0] == '0' {
+				return Version{}, fmt.Errorf("update: %q has a prerelease identifier with a leading zero: %q",
+					original, identifier)
 			}
 		}
 	}
@@ -180,20 +186,53 @@ func (v Version) Compare(other Version) int {
 	return cmp.Compare(len(v.Pre), len(other.Pre))
 }
 
+// isNumericIdentifier reports whether identifier consists solely of ASCII
+// digits. Such identifiers compare by numeric value, not lexicographically.
+func isNumericIdentifier(identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+	for index := 0; index < len(identifier); index++ {
+		if identifier[index] < '0' || identifier[index] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func compareIdentifier(left, right string) int {
-	leftNumber, leftErr := strconv.Atoi(left)
-	rightNumber, rightErr := strconv.Atoi(right)
+	leftNumber := isNumericIdentifier(left)
+	rightNumber := isNumericIdentifier(right)
 	switch {
-	case leftErr == nil && rightErr == nil:
-		return cmp.Compare(leftNumber, rightNumber)
-	case leftErr == nil:
+	case leftNumber && rightNumber:
+		return compareNumericIdentifier(left, right)
+	case leftNumber:
 		// Numeric identifiers always have lower precedence.
 		return -1
-	case rightErr == nil:
+	case rightNumber:
 		return 1
 	default:
 		return strings.Compare(left, right)
 	}
+}
+
+// compareNumericIdentifier orders numeric identifiers by value without going
+// through int, so identifiers wider than the machine word compare correctly.
+// Leading zeroes (invalid at parse time, but possible on a hand-built Version)
+// are stripped first.
+func compareNumericIdentifier(left, right string) int {
+	left = strings.TrimLeft(left, "0")
+	right = strings.TrimLeft(right, "0")
+	if left == "" {
+		left = "0"
+	}
+	if right == "" {
+		right = "0"
+	}
+	if order := cmp.Compare(len(left), len(right)); order != 0 {
+		return order
+	}
+	return strings.Compare(left, right)
 }
 
 // String renders the version without the v prefix or build metadata.

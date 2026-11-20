@@ -3,9 +3,9 @@ package automation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -121,15 +121,18 @@ func TestDaemonRunsDueTask(t *testing.T) {
 	if want := slot.Add(time.Hour); !spec.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s", spec.NextDue, want)
 	}
-	base := filepath.Join(dir, "logs", "nightly", strconv.FormatInt(now.Unix(), 10))
-	logData, err := os.ReadFile(base + ".log")
+	logs, err := filepath.Glob(filepath.Join(dir, "logs", "nightly", "*.log"))
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("expected exactly one run log, got %v (err %v)", logs, err)
+	}
+	logData, err := os.ReadFile(logs[0])
 	if err != nil {
 		t.Fatalf("read run log: %v", err)
 	}
 	if !contains(string(logData), "done nightly") {
 		t.Fatalf("run log missing output:\n%s", logData)
 	}
-	record, err := os.ReadFile(base + ".json")
+	record, err := os.ReadFile(strings.TrimSuffix(logs[0], ".log") + ".json")
 	if err != nil {
 		t.Fatalf("read run record: %v", err)
 	}
@@ -513,6 +516,195 @@ func TestRunRequiresExecutorAndStore(t *testing.T) {
 	}
 	if err := Run(context.Background(), Options{Store: store}); err == nil {
 		t.Fatal("Run without an executor should fail")
+	}
+}
+
+func TestRunNowRejectsTaskAlreadyRunningByDaemon(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	if err := store.Put(dueSpec("nightly", now.Add(-time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	daemonExec := &fakeExecutor{run: func(ctx context.Context, spec Spec) (RunResult, error) {
+		close(started)
+		<-release
+		return RunResult{Status: StatusOK}, nil
+	}}
+	d, err := newDaemon(Options{Store: store, Executor: daemonExec, Clock: newFakeClock(now).Now})
+	if err != nil {
+		t.Fatalf("newDaemon: %v", err)
+	}
+	d.scan(context.Background())
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the daemon never started the task")
+	}
+
+	manualExec := &fakeExecutor{}
+	res, err := RunNow(context.Background(), store, manualExec, filepath.Join(dir, "logs"), "nightly", now)
+	if err == nil {
+		t.Fatalf("RunNow should conflict with the in-flight daemon run, got %+v", res)
+	}
+	if !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("unexpected conflict error: %v", err)
+	}
+	if manualExec.count() != 0 {
+		t.Fatalf("RunNow executed the task %d times despite the conflict", manualExec.count())
+	}
+
+	close(release)
+	d.wait()
+}
+
+func TestRunNowConcurrentCallsOnlyRunOnce(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	if err := store.Put(testSpec("nightly")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	exec := &fakeExecutor{run: func(ctx context.Context, spec Spec) (RunResult, error) {
+		entered <- struct{}{}
+		<-release
+		return RunResult{Status: StatusOK}, nil
+	}}
+	results := make(chan error, 2)
+	go func() {
+		_, err := RunNow(context.Background(), store, exec, filepath.Join(dir, "logs"), "nightly", now)
+		results <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first RunNow never started")
+	}
+	go func() {
+		_, err := RunNow(context.Background(), store, exec, filepath.Join(dir, "logs"), "nightly", now)
+		results <- err
+	}()
+	select {
+	case err := <-results:
+		if err == nil || !strings.Contains(err.Error(), "already running") {
+			t.Fatalf("the second RunNow should conflict, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second RunNow did not fail fast")
+	}
+	close(release)
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("the first RunNow failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first RunNow never finished")
+	}
+	if exec.count() != 1 {
+		t.Fatalf("executor ran %d times, want 1", exec.count())
+	}
+}
+
+func TestRunNowLogsInSameSecondDoNotCollide(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	if err := store.Put(testSpec("nightly")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	logDir := filepath.Join(dir, "logs")
+	exec := &fakeExecutor{}
+	for i := 0; i < 2; i++ {
+		if _, err := RunNow(context.Background(), store, exec, logDir, "nightly", now); err != nil {
+			t.Fatalf("RunNow #%d: %v", i+1, err)
+		}
+	}
+	logs, err := filepath.Glob(filepath.Join(logDir, "nightly", "*.log"))
+	if err != nil || len(logs) != 2 {
+		t.Fatalf("expected two distinct run logs, got %v (err %v)", logs, err)
+	}
+	records, err := filepath.Glob(filepath.Join(logDir, "nightly", "*.json"))
+	if err != nil || len(records) != 2 {
+		t.Fatalf("expected two distinct run records, got %v (err %v)", records, err)
+	}
+	got, _ := store.Get("nightly")
+	// Glob returns sorted names; the later sequence is the second entry and
+	// must be the one recorded as the most recent log.
+	if got.LastLog != logs[1] {
+		t.Fatalf("LastLog = %q, want the newest log %q", got.LastLog, logs[1])
+	}
+}
+
+func TestRunNowPrunesOldLogs(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	if err := store.Put(testSpec("nightly")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	logDir := filepath.Join(dir, "logs")
+	exec := &fakeExecutor{}
+	for i := 0; i < maxRunLogs+2; i++ {
+		if _, err := RunNow(context.Background(), store, exec, logDir, "nightly", now); err != nil {
+			t.Fatalf("RunNow #%d: %v", i+1, err)
+		}
+	}
+	logs, err := filepath.Glob(filepath.Join(logDir, "nightly", "*.log"))
+	if err != nil {
+		t.Fatalf("glob logs: %v", err)
+	}
+	if len(logs) != maxRunLogs {
+		t.Fatalf("kept %d logs, want %d", len(logs), maxRunLogs)
+	}
+	records, err := filepath.Glob(filepath.Join(logDir, "nightly", "*.json"))
+	if err != nil {
+		t.Fatalf("glob records: %v", err)
+	}
+	if len(records) != maxRunLogs {
+		t.Fatalf("kept %d records, want %d", len(records), maxRunLogs)
+	}
+}
+
+func TestRotateLogsKeepsNewestRuns(t *testing.T) {
+	dir := t.TempDir()
+	for i := 1; i <= 5; i++ {
+		base := filepath.Join(dir, fmt.Sprintf("1767000000-%012d", i))
+		if err := os.WriteFile(base+".log", []byte("log"), 0o644); err != nil {
+			t.Fatalf("write log: %v", err)
+		}
+		if err := os.WriteFile(base+".json", []byte("{}"), 0o644); err != nil {
+			t.Fatalf("write record: %v", err)
+		}
+	}
+	rotateLogs(dir, 2)
+	for i := 1; i <= 5; i++ {
+		base := filepath.Join(dir, fmt.Sprintf("1767000000-%012d", i))
+		_, logErr := os.Stat(base + ".log")
+		_, jsonErr := os.Stat(base + ".json")
+		kept := i > 3
+		if kept && (logErr != nil || jsonErr != nil) {
+			t.Fatalf("newest run %d was pruned", i)
+		}
+		if !kept && (logErr == nil || jsonErr == nil) {
+			t.Fatalf("old run %d was not pruned", i)
+		}
 	}
 }
 

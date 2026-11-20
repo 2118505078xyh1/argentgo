@@ -28,6 +28,10 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
+	// Auto-stamp durable kinds (checkpoint/summary/compaction/title) so the
+	// compaction and child-context selectors can find them. Default kinds stay
+	// byte-identical, so ordinary message/tool writes are unchanged.
+	data = StampIfImportant(kind, data)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

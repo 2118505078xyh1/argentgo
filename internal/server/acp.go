@@ -167,7 +167,9 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 		})
 		_ = result
 		if err != nil {
-			if ctx.Err() != nil {
+			// Same cancellation rule as --rpc and --serve; the wire result
+			// stays {"stopReason":"cancelled"} as ACP clients expect.
+			if isCancelled(ctx, err) {
 				s.peer.respond(id, map[string]any{"stopReason": "cancelled"})
 				return
 			}

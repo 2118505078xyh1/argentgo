@@ -80,3 +80,21 @@ func TestStripJSONCEscapedQuoteDoesNotCloseString(t *testing.T) {
 		t.Errorf("text = %q, want %q", got["text"], `a\"//still string`)
 	}
 }
+
+func TestStripJSONCStripsUTF8BOM(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"bom before object", "\ufeff" + `{"a":1}`, `{"a":1}`},
+		{"bom only", "\ufeff", ""},
+		{"no bom", `{"a":1}`, `{"a":1}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StripJSONC(tc.input); got != tc.want {
+				t.Errorf("StripJSONC(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

@@ -14,24 +14,25 @@ import (
 // buildSystem constructs the system prompt for existing callers (notably
 // Resolve). Project instructions have always been injected unconditionally, so
 // this wrapper keeps that legacy default: AGENTS.md/CLAUDE.md survive unless a
-// caller explicitly opts into the project boundary with
-// ARGENT_TRUST_PROJECT=0. The trust-aware implementation lives in
-// buildSystemWithTrust; see that function for the full semantic.
+// caller explicitly opts into the project boundary through
+// ARGENT_TRUST_PROJECT (see parseTrustEnv for the recognised false values).
+// The trust-aware implementation lives in buildSystemWithTrust; see that
+// function for the full semantic.
 func buildSystem(root string, env func(string) string, thinking, schema string) string {
 	return buildSystemWithTrust(root, env, trustFromEnv(env), thinking, schema)
 }
 
 // trustFromEnv derives the project-instruction trust decision for the legacy
-// entry points. The default is true so existing projects keep their AGENTS.md
-// in the prompt (no regression). An explicit "0" opts into the trust boundary
-// and drops project-level documents; "1" and every other value keep them.
-// Resolve uses the same variable for Resolved.TrustProject, so the two paths
-// agree on what "untrusted" means.
+// entry points. It delegates to parseTrustEnv so the prompt path and Resolve's
+// Resolved.TrustProject decision share one interpretation of
+// ARGENT_TRUST_PROJECT: 0/false/no/off are untrusted, 1/true/yes/on are
+// trusted, and an unset value defaults to trusted to preserve the historical
+// "always inject AGENTS.md" behaviour.
 func trustFromEnv(env func(string) string) bool {
 	if env == nil {
 		return true
 	}
-	return strings.TrimSpace(env("ARGENT_TRUST_PROJECT")) != "0"
+	return parseTrustEnv(env("ARGENT_TRUST_PROJECT"))
 }
 
 // buildSystemWithTrust is the trust-aware prompt builder. When trust is false,

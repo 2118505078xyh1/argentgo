@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,8 +238,66 @@ func TestLoadWithBoundaryTotalBudgetCapsCombinedText(t *testing.T) {
 	if len(insts) >= len(dirs) {
 		t.Errorf("loaded %d docs for %d files; total budget should stop the walk", len(insts), len(dirs))
 	}
-	if !insts[len(insts)-1].Truncated {
-		t.Error("last doc should be marked truncated by the total budget")
+	// Budget is now spent nearest-first, so the clipped doc is the outermost
+	// one that was kept (root side), not the innermost cwd doc.
+	if !insts[0].Truncated {
+		t.Error("outermost kept doc should be marked truncated by the total budget")
+	}
+	if insts[len(insts)-1].Truncated {
+		t.Error("nearest (cwd) doc should survive uncut when the budget is exhausted")
+	}
+}
+
+// TestLoadWithBoundaryBudgetKeepsNearestDropsRoot guards the budget ordering:
+// files are read cwd-to-root, so when the 32 KiB budget is exhausted the
+// outermost (root, least specific) instructions are dropped while the nearest
+// (cwd, most specific) ones survive. This is the "nearer wins" contract that
+// Block/LoadIn promise but the old root-first reading violated.
+func TestLoadWithBoundaryBudgetKeepsNearestDropsRoot(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	root := filepath.Join(home, "proj")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Six directories from root to cwd, each holding a DefaultLimit-sized file
+	// so the 32 KiB budget cannot keep them all: four full files plus one
+	// clipped file fit, and the root file is never read.
+	markers := []string{"ROOT_MARKER", "L1_MARKER", "L2_MARKER", "L3_MARKER", "L4_MARKER", "CWD_MARKER"}
+	dirs := []string{root}
+	for i := 0; i < len(markers)-1; i++ {
+		dirs = append(dirs, filepath.Join(dirs[len(dirs)-1], fmt.Sprintf("d%d", i)))
+	}
+	for i, d := range dirs {
+		writeFile(t, d, "AGENTS.md", markers[i]+strings.Repeat("x", DefaultLimit-len(markers[i])))
+	}
+
+	insts, err := LoadWithBoundary(dirs[len(dirs)-1], true, LoadOptions{Home: home})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	var joined strings.Builder
+	for _, in := range insts {
+		joined.WriteString(in.Text)
+	}
+	if !strings.Contains(joined.String(), "CWD_MARKER") {
+		t.Errorf("nearest (cwd) instruction was dropped: %q", joined.String())
+	}
+	if strings.Contains(joined.String(), "ROOT_MARKER") {
+		t.Errorf("outermost (root) instruction should have been dropped: %q", joined.String())
+	}
+
+	// The returned order stays root-to-cwd; the kept levels are 1..5.
+	wantOrder := []string{"L1_MARKER", "L2_MARKER", "L3_MARKER", "L4_MARKER", "CWD_MARKER"}
+	if len(insts) != len(wantOrder) {
+		t.Fatalf("got %d docs, want %d: %#v", len(insts), len(wantOrder), insts)
+	}
+	for i, want := range wantOrder {
+		if !strings.HasPrefix(insts[i].Text, want) {
+			t.Errorf("insts[%d] = %q, want prefix %q", i, insts[i].Text, want)
+		}
 	}
 }
 

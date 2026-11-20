@@ -313,8 +313,11 @@ func TestProviderResolution(t *testing.T) {
 	if custom.Protocol != "anthropic-messages" || custom.APIKeyEnv != "ANTHROPIC_API_KEY" {
 		t.Errorf("custom provider did not inherit built-in fields: %+v", custom)
 	}
-	if cfg.APIKey != "secret" {
-		t.Errorf("apiKey = %q, want the provider env var", cfg.APIKey)
+	// Load must not fold the provider env key into the top-level apiKey: that
+	// would outrank the `argent login` key in app.Resolve. The env fallback now
+	// sits at the end of app's credential chain instead.
+	if cfg.APIKey != "" {
+		t.Errorf("apiKey = %q, want empty (provider env must not pollute the top level)", cfg.APIKey)
 	}
 
 	// ARGENT_PROVIDER selects the default provider name.
@@ -340,5 +343,71 @@ func TestEnvValidationErrors(t *testing.T) {
 		if _, err := Load(t.TempDir(), envFunc(map[string]string{"HOME": home, name: value})); err == nil {
 			t.Errorf("%s=%q was accepted", name, value)
 		}
+	}
+}
+
+// PowerShell 5.x saves "UTF-8 with BOM"; the BOM must not reach json.Unmarshal
+// (it reports `invalid character 'ï'`), and a BOM-only file is just empty.
+func TestLoadStripsUTF8BOM(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := filepath.Join(cwd, "argent.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "{\n  // a comment to prove JSONC cleaning still runs\n  \"model\": \"bom-model\",\n}\n"
+	if err := os.WriteFile(path, append([]byte("\ufeff"), []byte(body)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
+	if err != nil {
+		t.Fatalf("Load with BOM: %v", err)
+	}
+	if cfg.Model != "bom-model" {
+		t.Errorf("model = %q, want bom-model", cfg.Model)
+	}
+}
+
+func TestLoadBOMOnlyFileIsIgnored(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	path := filepath.Join(cwd, "argent.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("\ufeff"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
+	if err != nil {
+		t.Fatalf("Load with BOM-only file: %v", err)
+	}
+	if len(cfg.Sources) != 0 {
+		t.Errorf("sources = %v, want none (BOM-only file must be treated as empty)", cfg.Sources)
+	}
+}
+
+// A provider's API-key env var must stay at the bottom of the credential
+// chain (app.Resolve) instead of being copied into the top-level apiKey,
+// where it would outrank the `argent login` key under providers.<name>.apiKey.
+func TestLoadDoesNotPolluteAPIKeyFromProviderEnv(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
+		"provider": "openai",
+		"providers": map[string]any{
+			"openai": map[string]any{"apiKey": "sk-login"},
+		},
+	})
+	cfg, err := Load(cwd, envFunc(map[string]string{
+		"HOME":           home,
+		"OPENAI_API_KEY": "sk-openai-env",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.APIKey != "" {
+		t.Errorf("apiKey = %q, want empty (provider env must not become a top-level config key)", cfg.APIKey)
+	}
+	provider, ok := cfg.Provider("openai")
+	if !ok || provider.APIKey != "sk-login" {
+		t.Errorf("login key lost: provider = %+v, ok = %v", provider, ok)
 	}
 }

@@ -82,13 +82,22 @@ func (r Run) Output(name string) (string, bool) {
 	return "", false
 }
 
-// Run executes the steps in order and returns every result.
+// Run executes the steps in order and returns every result. Definitions with
+// declared parameters need their values supplied through RunWithParams.
+func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run, error) {
+	return e.RunWithParams(ctx, def, input, nil)
+}
+
+// RunWithParams executes the steps in order, additionally resolving {{key}}
+// placeholders from the definition's declared parameters. Values are resolved
+// here as well as by the CLI so a caller cannot bypass required/default checks
+// by passing raw values; re-resolving an already resolved map is idempotent.
 //
 // A step that fails is retried up to step.Retries extra times with exponential
 // backoff; once the attempts are exhausted the step's on_failure policy decides
 // whether the run stops or continues. Errors are returned only for an invalid
-// definition — failures are part of the result.
-func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run, error) {
+// definition or unresolved parameters — step failures are part of the result.
+func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input string, params map[string]string) (Run, error) {
 	if def == nil {
 		return Run{}, errors.New("workflow: the definition is nil")
 	}
@@ -96,6 +105,10 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run,
 	local.Steps = append([]Step(nil), def.Steps...)
 	local.normalise()
 	if err := local.Validate(); err != nil {
+		return Run{}, err
+	}
+	resolved, err := ResolveParameters(local, params)
+	if err != nil {
 		return Run{}, err
 	}
 	if ctx == nil {
@@ -139,7 +152,7 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run,
 			continue
 		}
 
-		result := e.runStep(ctx, step, input, outputs, backoff)
+		result := e.runStep(ctx, step, input, outputs, resolved, backoff)
 		run.Steps = append(run.Steps, result)
 		if result.Status == StatusOK {
 			outputs[step.Name] = result.Output
@@ -157,7 +170,7 @@ func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run,
 }
 
 // runStep performs one step, retrying with backoff.
-func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs map[string]string, backoff time.Duration) StepResult {
+func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs, params map[string]string, backoff time.Duration) StepResult {
 	attempts := 1 + step.Retries
 	if step.OnFailure == OnFailureRetry && attempts < 2 {
 		attempts = 2
@@ -175,7 +188,7 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 				break
 			}
 		}
-		output, lastErr = e.attempt(ctx, step, input, outputs)
+		output, lastErr = e.attempt(ctx, step, input, outputs, params)
 		if lastErr == nil {
 			break
 		}
@@ -212,7 +225,7 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 // attempt runs one step once, honouring the per-step timeout. A configured
 // success check is part of the attempt, so a failed check is retried by runStep
 // exactly like a tool or prompter error.
-func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs map[string]string) (string, error) {
+func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs, params map[string]string) (string, error) {
 	attemptCtx := ctx
 	if timeout := step.Timeout.Std(); timeout > 0 {
 		var cancel context.CancelFunc
@@ -228,14 +241,14 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 		if e.Tools == nil {
 			return "", fmt.Errorf("workflow: step %q needs a tool runner for %q", step.Name, step.Tool)
 		}
-		args := Substitute(step.Args, input, outputs)
+		args := Substitute(step.Args, input, outputs, params)
 		out, err = e.Tools.Run(attemptCtx, step.Tool, args)
 		err = timedOut(step, err, step.Timeout.Std())
 	} else {
 		if e.Prompter == nil {
 			return "", fmt.Errorf("workflow: step %q needs a prompter", step.Name)
 		}
-		out, err = e.Prompter.Prompt(attemptCtx, Substitute(step.Prompt, input, outputs))
+		out, err = e.Prompter.Prompt(attemptCtx, Substitute(step.Prompt, input, outputs, params))
 		err = timedOut(step, err, step.Timeout.Std())
 	}
 	if err != nil {
@@ -420,9 +433,12 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Substitute replaces {{input}} and {{steps.NAME.output}} placeholders. Keys
-// with no value are left untouched so a template meant for the model survives.
-func Substitute(text, input string, outputs map[string]string) string {
+// Substitute replaces {{input}}, {{steps.NAME.output}} and, when params is
+// supplied, {{key}} placeholders from resolved workflow parameters. Built-in
+// tokens take precedence, and keys with no value are left untouched so a
+// template meant for the model survives. Inserted values are written verbatim
+// and never rescanned, so a value containing "{{...}}" cannot inject tokens.
+func Substitute(text, input string, outputs map[string]string, params ...map[string]string) string {
 	if !strings.Contains(text, "{{") {
 		return text
 	}
@@ -447,9 +463,25 @@ func Substitute(text, input string, outputs map[string]string) string {
 				out.WriteString(rest[start : end+2])
 			}
 		default:
-			out.WriteString(rest[start : end+2])
+			if value, ok := lookupParam(params, key); ok {
+				out.WriteString(value)
+			} else {
+				out.WriteString(rest[start : end+2])
+			}
 		}
 		rest = rest[end+2:]
 	}
 	return out.String()
+}
+
+// lookupParam finds the first map that holds key. The variadic argument of
+// Substitute normally carries exactly one map; accepting more keeps the call
+// site simple when a caller composes parameter sources.
+func lookupParam(params []map[string]string, key string) (string, bool) {
+	for _, p := range params {
+		if value, ok := p[key]; ok {
+			return value, true
+		}
+	}
+	return "", false
 }

@@ -249,19 +249,148 @@ func TestBackgroundResultsQueueDropsOldestAtCap(t *testing.T) {
 	}
 }
 
-func TestBackgroundResultsDrainAtDepth(t *testing.T) {
+func TestBackgroundResultsDrainForOwner(t *testing.T) {
 	bg := NewBackgroundResults(0, 2)
-	bg.PushAt(0, "root-1")
-	bg.PushAt(1, "child-1")
-	bg.PushAt(0, "root-2")
+	root := bg.RootOwner()
+	child := bg.nextID()
+	sibling := bg.nextID()
+	bg.PushFor(root, 0, "root-1")
+	bg.PushFor(child, 1, "child-1")
+	bg.PushFor(root, 0, "root-2")
+	// Siblings share depth 1 but must stay separate.
+	bg.PushFor(sibling, 1, "sibling-1")
 
-	root := bg.DrainAt(0)
-	if len(root) != 2 || root[0] != "root-1" || root[1] != "root-2" {
-		t.Fatalf("DrainAt(0) = %v, want [root-1 root-2]", root)
+	got := bg.DrainFor(root)
+	if len(got) != 2 || got[0] != "root-1" || got[1] != "root-2" {
+		t.Fatalf("DrainFor(root) = %v, want [root-1 root-2]", got)
 	}
-	child := bg.DrainAt(1)
-	if len(child) != 1 || child[0] != "child-1" {
-		t.Fatalf("DrainAt(1) = %v, want [child-1]", child)
+	if got := bg.DrainFor(child); len(got) != 1 || got[0] != "child-1" {
+		t.Fatalf("DrainFor(child) = %v, want [child-1]", got)
+	}
+	if got := bg.DrainFor(sibling); len(got) != 1 || got[0] != "sibling-1" {
+		t.Fatalf("DrainFor(sibling) = %v, want [sibling-1]", got)
+	}
+	if bg.Len() != 0 {
+		t.Fatalf("queue Len = %d, want 0 after all owners drained", bg.Len())
+	}
+}
+
+func TestRootOwnerIsStablePerQueue(t *testing.T) {
+	a := NewBackgroundResults(0, 2)
+	b := NewBackgroundResults(0, 2)
+	want := a.RootOwner()
+	if want == 0 {
+		t.Fatal("RootOwner must not be zero (zero means unassigned)")
+	}
+	if got := a.RootOwner(); got != want {
+		t.Fatalf("second RootOwner = %d, want stable %d", got, want)
+	}
+	// A different queue has its own counter and may legitimately reuse the same
+	// numeric id: queues are isolated by identity, not by owner value.
+	if got := b.RootOwner(); got == 0 || b.RootOwner() != got {
+		t.Fatalf("second queue's RootOwner = %d, want a stable nonzero id", got)
+	}
+}
+
+func TestNewRunStateOwnsQueueOwnerChildrenGetDistinctOwners(t *testing.T) {
+	bg := NewBackgroundResults(0, 4)
+	opts := Options{Subagent: &SubagentConfig{Background: bg}}
+
+	root := newRunState(opts, "root", nil)
+	if want := bg.RootOwner(); root.bgOwner != want {
+		t.Fatalf("root bgOwner = %d, want queue owner %d", root.bgOwner, want)
+	}
+	// A retry prompt or resumed Runner reuses the same queue and therefore the
+	// same owner, so late results are still delivered.
+	if again := newRunState(opts, "retry", nil); again.bgOwner != root.bgOwner {
+		t.Fatalf("retry bgOwner = %d, want %d", again.bgOwner, root.bgOwner)
+	}
+	// A different queue means a different root run; it resolves its owner from
+	// that queue (the numeric value may coincide, but the queues never mix).
+	other := NewBackgroundResults(0, 4)
+	otherState := newRunState(Options{Subagent: &SubagentConfig{Background: other}}, "other", nil)
+	if otherState.bgOwner != other.RootOwner() {
+		t.Fatalf("other run bgOwner = %d, want its queue's owner %d", otherState.bgOwner, other.RootOwner())
+	}
+
+	// Siblings at the same depth each get their own identity.
+	tt := &taskTools{parent: opts, depth: 0, cfg: &SubagentConfig{Background: bg}}
+	childA := tt.childOptions("a", "")
+	childB := tt.childOptions("b", "")
+	if childA.Depth != 1 || childB.Depth != 1 {
+		t.Fatalf("child depths = (%d, %d), want 1", childA.Depth, childB.Depth)
+	}
+	if childA.bgOwner == 0 || childB.bgOwner == 0 || childA.bgOwner == childB.bgOwner {
+		t.Fatalf("sibling owners = (%d, %d), want two distinct nonzero ids", childA.bgOwner, childB.bgOwner)
+	}
+}
+
+func TestSiblingBackgroundTasksNeverStealEachOthersResults(t *testing.T) {
+	bg := NewBackgroundResults(0, 4)
+	ownerA := bg.nextID()
+	ownerB := bg.nextID()
+	siblingTT := func(owner uint64, child ChildRunner) *taskTools {
+		return &taskTools{
+			inner:  nopTools{},
+			parent: Options{Emit: func(Event) {}},
+			depth:  1, // both siblings run at the SAME depth
+			owner:  owner,
+			cfg: &SubagentConfig{
+				MaxDepth:   2,
+				Background: bg,
+				NewChild:   func(Options) ChildRunner { return child },
+			},
+		}
+	}
+	for _, tc := range []struct {
+		owner uint64
+		child *fakeChildRunner
+	}{
+		{ownerA, &fakeChildRunner{answer: "answer from A"}},
+		{ownerB, &fakeChildRunner{answer: "answer from B"}},
+	} {
+		if _, err := siblingTT(tc.owner, tc.child).Run(context.Background(), TaskToolName, backgroundTaskArgs("s", "p")); err != nil {
+			t.Fatalf("background task for owner %d: %v", tc.owner, err)
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for bg.Len() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if bg.Len() != 2 {
+		t.Fatalf("queued results = %d, want 2", bg.Len())
+	}
+
+	gotA := bg.DrainFor(ownerA)
+	if len(gotA) != 1 || !strings.Contains(gotA[0], "answer from A") {
+		t.Fatalf("owner A drain = %v, want only A's answer", gotA)
+	}
+	gotB := bg.DrainFor(ownerB)
+	if len(gotB) != 1 || !strings.Contains(gotB[0], "answer from B") {
+		t.Fatalf("owner B drain = %v, want only B's answer", gotB)
+	}
+}
+
+func TestInjectSteeringDrainsOnlyThisRunOwner(t *testing.T) {
+	bg := NewBackgroundResults(0, 4)
+	ownerA := bg.RootOwner()
+	ownerB := bg.nextID()
+	bg.PushFor(ownerA, 0, "for A")
+	bg.PushFor(ownerB, 0, "for B")
+
+	state := &runState{
+		opts:    Options{Subagent: &SubagentConfig{Background: bg}},
+		bgOwner: ownerA,
+		steer:   &steering{},
+	}
+	if !state.injectSteering() {
+		t.Fatal("injectSteering did not report the queued result")
+	}
+	if len(state.messages) != 1 || state.messages[0].Content != "for A" {
+		t.Fatalf("injected messages = %+v, want only [for A]", state.messages)
+	}
+	if got := bg.DrainFor(ownerB); len(got) != 1 || got[0] != "for B" {
+		t.Fatalf("run A stole run B's result: drain = %v", got)
 	}
 }
 

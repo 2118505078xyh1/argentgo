@@ -31,6 +31,14 @@ const (
 	SandboxDangerFullAccess = "danger-full-access"
 )
 
+// Privacy modes accepted by validatePrivacyMode. They mirror
+// security.PrivacyAny / security.PrivacyLocalOnly; config deliberately stays
+// independent of the security package.
+const (
+	PrivacyModeAny       = "any"
+	PrivacyModeLocalOnly = "local-only"
+)
+
 const (
 	appDir          = ".argentgo"
 	defaultModel    = "gpt-4o-mini"
@@ -48,6 +56,12 @@ type Config struct {
 	Protocol    string
 	Locale      string
 	SandboxMode string // read-only | workspace-write | danger-full-access
+	// PrivacyMode is the network posture: PrivacyModeAny ("any", the default)
+	// or PrivacyModeLocalOnly ("local-only"). local-only blocks remote endpoints
+	// and web tools. It is independent of SandboxMode, which governs file tools.
+	// Invalid values fail config load rather than silently widening the posture;
+	// app.ApplyPrivacyPosture is the production consumer.
+	PrivacyMode string
 	MaxTurns    int
 	Yolo        bool
 	StorageDir  string
@@ -150,12 +164,14 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	}
 
 	cfg := decode(tree, cwd, sources)
-	cfg.ActiveProfile = profile
-	if cfg.APIKey == "" {
-		if provider, ok := cfg.Provider(cfg.ProviderName); ok && provider.APIKeyEnv != "" {
-			cfg.APIKey = strings.TrimSpace(env(provider.APIKeyEnv))
-		}
+	if err := validatePrivacyMode(cfg.PrivacyMode); err != nil {
+		return Config{}, err
 	}
+	cfg.ActiveProfile = profile
+	// Do not fold the provider's env key into cfg.APIKey. app.Resolve already
+	// lists env(provider.APIKeyEnv) as the last resort of its credential chain;
+	// copying it here would make it outrank the `argent login` key stored under
+	// providers.<name>.apiKey and break the documented priority.
 	return cfg, nil
 }
 
@@ -220,10 +236,14 @@ func readConfig(path string, env func(string) string, warn WarnFunc) (map[string
 		}
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
-	if len(strings.TrimSpace(string(data))) == 0 {
+	// PowerShell 5.x writes "UTF-8 with BOM"; encoding/json rejects the BOM as
+	// an invalid leading character. Strip it before the empty check so a
+	// BOM-only file is treated exactly like an empty file.
+	text := strings.TrimPrefix(string(data), "\ufeff")
+	if len(strings.TrimSpace(text)) == 0 {
 		return nil, nil
 	}
-	substituted := Substitute(string(data), filepath.Dir(path), env, warn)
+	substituted := Substitute(text, filepath.Dir(path), env, warn)
 	clean := StripJSONC(substituted)
 	var tree map[string]any
 	if err := json.Unmarshal([]byte(clean), &tree); err != nil {
@@ -247,6 +267,7 @@ func applyEnv(tree map[string]any, env func(string) string) error {
 	setString("protocol", "ARGENT_PROTOCOL")
 	setString("locale", "ARGENT_LOCALE")
 	setString("sandboxMode", "ARGENT_SANDBOX_MODE")
+	setString("privacyMode", "ARGENT_PRIVACY_MODE")
 	setString("storageDir", "ARGENT_STORAGE_DIR")
 	setString("provider", "ARGENT_PROVIDER")
 
@@ -275,6 +296,7 @@ func decode(tree map[string]any, cwd string, sources []string) Config {
 		Protocol:    stringField(tree, "protocol"),
 		Locale:      stringField(tree, "locale"),
 		SandboxMode: stringField(tree, "sandboxMode", "sandbox_mode"),
+		PrivacyMode: decodePrivacyMode(tree),
 		MaxTurns:    intField(tree, "maxTurns", "max_turns"),
 		Yolo:        boolField(tree, "yolo"),
 		StorageDir:  stringField(tree, "storageDir", "storage_dir"),
@@ -407,6 +429,33 @@ func parseBool(value string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("not a boolean: %q", value)
+}
+
+// decodePrivacyMode reads the privacy posture from either spelling and
+// canonicalizes it (trimmed, lower-case) so it matches the security enum. An
+// unset/blank value falls back to the default "any" posture. The default is
+// applied here rather than in defaults() so an explicit "privacy_mode" key can
+// never be shadowed by a canonical "privacyMode" key injected at the base
+// layer.
+func decodePrivacyMode(tree map[string]any) string {
+	mode := strings.ToLower(strings.TrimSpace(stringField(tree, "privacyMode", "privacy_mode")))
+	if mode == "" {
+		return PrivacyModeAny
+	}
+	return mode
+}
+
+// validatePrivacyMode rejects values the privacy helpers cannot honor. A typo
+// fails config load instead of silently falling back to the permissive "any"
+// posture: security.AllowRemote already fails closed for unknown modes, and a
+// load-time error keeps that invariant consistent.
+func validatePrivacyMode(mode string) error {
+	switch mode {
+	case PrivacyModeAny, PrivacyModeLocalOnly:
+		return nil
+	default:
+		return fmt.Errorf("config: privacyMode %q must be %q or %q", mode, PrivacyModeAny, PrivacyModeLocalOnly)
+	}
 }
 
 // contextWindowFrom resolves the model context window from the merged tree.

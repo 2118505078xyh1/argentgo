@@ -9,6 +9,10 @@ import "strings"
 // "http://..." or "/* not a comment */") are copied verbatim, so a comment-like
 // fragment inside a quoted value can never be mistaken for syntax.
 func StripJSONC(text string) string {
+	// A UTF-8 BOM (common in files saved by PowerShell 5.x) is not JSON
+	// whitespace; drop it at the shared entry so every caller can feed the
+	// result straight to encoding/json.
+	text = strings.TrimPrefix(text, "\ufeff")
 	var out strings.Builder
 	out.Grow(len(text))
 

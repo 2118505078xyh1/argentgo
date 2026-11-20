@@ -235,3 +235,117 @@ func TestTaskToolSpecIncludesPersonaField(t *testing.T) {
 		t.Fatalf("schema is missing the role alias: %s", raw)
 	}
 }
+
+// TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools reproduces the
+// nested persona bug: a child spawned via persona A carries A's System and
+// AllowedTools; when that child selects persona B, those inherited values must
+// not be re-applied over B's definition.
+func TestConfigForPersonaNestedSwitchUsesNewPersonaSystemAndTools(t *testing.T) {
+	const (
+		reviewerSystem = "You are a subagent reviewer. REVIEWER-SYSTEM."
+		writerSystem   = "You are a subagent writer. WRITER-SYSTEM."
+	)
+	resolve := func(name string) (SubagentConfig, bool) {
+		switch name {
+		case "reviewer":
+			return SubagentConfig{System: reviewerSystem, AllowedTools: []string{"read"}}, true
+		case "writer":
+			return SubagentConfig{System: writerSystem, AllowedTools: []string{"write"}}, true
+		}
+		return SubagentConfig{}, false
+	}
+
+	// Root selects reviewer; its Options.Subagent is what the child Runner
+	// rebuilds its taskTools from (see newToolset).
+	root := snapshotWireTaskTools(&SubagentConfig{ResolvePersona: resolve})
+	reviewerOpts := root.childOptions("review", "reviewer")
+	if reviewerOpts.Subagent == nil || reviewerOpts.Subagent.System != reviewerSystem {
+		t.Fatalf("root->reviewer config = %+v, want system %q", reviewerOpts.Subagent, reviewerSystem)
+	}
+
+	child := snapshotWireTaskTools(reviewerOpts.Subagent)
+	got := child.configForPersona("writer")
+	if got.System != writerSystem {
+		t.Errorf("nested writer system = %q, want %q (reviewer system leaked)", got.System, writerSystem)
+	}
+	if len(got.AllowedTools) != 1 || got.AllowedTools[0] != "write" {
+		t.Errorf("nested writer tools = %v, want [write] (reviewer tools leaked)", got.AllowedTools)
+	}
+
+	// Guard: a caller that explicitly sets System/AllowedTools at its own level
+	// still overrides the persona (zero-value inheritance markers).
+	explicit := snapshotWireTaskTools(&SubagentConfig{
+		System:         "EXPLICIT-SYSTEM",
+		AllowedTools:   []string{"grep"},
+		ResolvePersona: resolve,
+	}).configForPersona("writer")
+	if explicit.System != "EXPLICIT-SYSTEM" {
+		t.Errorf("explicit system = %q, want EXPLICIT-SYSTEM", explicit.System)
+	}
+	if len(explicit.AllowedTools) != 1 || explicit.AllowedTools[0] != "grep" {
+		t.Errorf("explicit tools = %v, want [grep]", explicit.AllowedTools)
+	}
+}
+
+// TestTaskNestedPersonaSwitchUsesWriterSystem exercises the full task-tool path:
+// root -> reviewer -> writer. The visible symptom of the bug is that the
+// depth-2 (writer) run renders the reviewer system prompt.
+func TestTaskNestedPersonaSwitchUsesWriterSystem(t *testing.T) {
+	const (
+		reviewerSystem = "You are a subagent reviewer. REVIEWER-SYSTEM."
+		writerSystem   = "You are a subagent writer. WRITER-SYSTEM."
+	)
+	var reviewerSystemSeen, writerSystemSeen string
+	chat := &fakeChatter{fn: func(_ int, messages []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
+		if isSubagent(messages) {
+			switch lastUserContent(messages) {
+			case "review the code":
+				if lastToolContent(messages) != "" {
+					return textReply("reviewer: done"), nil
+				}
+				reviewerSystemSeen = messages[0].Content
+				return toolReply(toolCall("c1", TaskToolName, personaTaskJSON("write", "write the docs", "writer"))), nil
+			case "write the docs":
+				writerSystemSeen = messages[0].Content
+				return textReply("writer answer"), nil
+			default:
+				t.Fatalf("unexpected subagent prompt: %q", lastUserContent(messages))
+			}
+		}
+		if last := lastToolContent(messages); last != "" {
+			return textReply("root: " + last), nil
+		}
+		return toolReply(toolCall("t1", TaskToolName, personaTaskJSON("review", "review the code", "reviewer"))), nil
+	}}
+	runner := &Runner{Opts: Options{
+		Model:   "m",
+		Chatter: chat,
+		Tools:   &fakeTools{specs: []llm.ToolSpec{toolSpec("read"), toolSpec("write")}},
+		Subagent: &SubagentConfig{
+			MaxDepth: DefaultMaxDepth,
+			ResolvePersona: func(name string) (SubagentConfig, bool) {
+				switch name {
+				case "reviewer":
+					return SubagentConfig{System: reviewerSystem, AllowedTools: []string{"read"}}, true
+				case "writer":
+					return SubagentConfig{System: writerSystem, AllowedTools: []string{"write"}}, true
+				}
+				return SubagentConfig{}, false
+			},
+		},
+	}}
+
+	res, err := runner.Run(context.Background(), "delegate")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(res.Text, "reviewer: done") {
+		t.Fatalf("text = %q, want the nested task result to reach the root", res.Text)
+	}
+	if reviewerSystemSeen != reviewerSystem {
+		t.Fatalf("depth-1 system = %q, want %q", reviewerSystemSeen, reviewerSystem)
+	}
+	if writerSystemSeen != writerSystem {
+		t.Fatalf("depth-2 system = %q, want %q (reviewer system leaked into the nested switch)", writerSystemSeen, writerSystem)
+	}
+}

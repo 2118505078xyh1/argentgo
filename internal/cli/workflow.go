@@ -201,6 +201,7 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 	}
 	path := ""
 	input := ""
+	values := make(map[string]string)
 	for i := 0; i < len(rest); i++ {
 		switch {
 		case rest[i] == "--input":
@@ -212,6 +213,23 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 			input = rest[i]
 		case strings.HasPrefix(rest[i], "--input="):
 			input = strings.TrimPrefix(rest[i], "--input=")
+		case rest[i] == "--param":
+			if i+1 >= len(rest) {
+				fmt.Fprintln(app.IO.Err, "argent: --param needs a key=value value")
+				return 2
+			}
+			i++
+			key, value, ok := parseWorkflowParam(app, rest[i])
+			if !ok {
+				return 2
+			}
+			values[key] = value
+		case strings.HasPrefix(rest[i], "--param="):
+			key, value, ok := parseWorkflowParam(app, strings.TrimPrefix(rest[i], "--param="))
+			if !ok {
+				return 2
+			}
+			values[key] = value
 		case strings.HasPrefix(rest[i], "-"):
 			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", rest[i])
 			workflowUsage(app.IO.Err)
@@ -236,6 +254,13 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	// Resolve before building a runner: a missing required value blocks the
+	// run here, and defaults/value caps follow the workflow package's rules.
+	params, err := workflow.ResolveParameters(*def, values)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
 	root, err := workspaceRoot(app, cwd)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
@@ -247,7 +272,7 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 		return 1
 	}
 	executor := &workflow.Executor{Prompter: runnerPrompter{runner: runner}}
-	run, err := executor.Run(ctx, def, input)
+	run, err := executor.RunWithParams(ctx, def, input, params)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
@@ -269,11 +294,25 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 	return 0
 }
 
+// parseWorkflowParam splits one --param token into a declaration key and a
+// value. Empty values are legal: ResolveParameters turns them into the default
+// or a missing-required error. Keys are trimmed just like declaration keys.
+func parseWorkflowParam(app App, token string) (key, value string, ok bool) {
+	key, value, found := strings.Cut(token, "=")
+	key = strings.TrimSpace(key)
+	if !found || key == "" {
+		fmt.Fprintf(app.IO.Err, "argent: --param needs key=value (got %q)\n", token)
+		return "", "", false
+	}
+	return key, value, true
+}
+
 func workflowUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent workflow list|show|run ...
 
   workflow list [-C dir] [--json]        list workflow JSON definitions
   workflow show <name|path> [-C dir]     print the steps of one definition
-  workflow run <file.json> [--input s]   execute a definition with the agent runner
+  workflow run <file.json> [--input s] [--param key=value]
+                                         execute a definition with the agent runner
 `)
 }

@@ -141,7 +141,13 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		providerName = cfg.ProviderName
 	}
 	configuredProvider, _ := cfg.Provider(providerName)
-	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, configuredProvider.APIKey, env(template.APIKeyEnv))
+	// Use the config-resolved provider's APIKeyEnv, not template's. In the
+	// default path template is zero-valued (resolveTemplate cannot match the
+	// "openai-chat-completions" protocol name), so template.APIKeyEnv is empty
+	// and the provider-env fallback would silently fail. configuredProvider was
+	// resolved above via cfg.Provider(providerName), which falls back to the
+	// protocol's natural provider (openai) and has the correct APIKeyEnv.
+	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, configuredProvider.APIKey, env(configuredProvider.APIKeyEnv))
 
 	sandboxMode := firstNonEmpty(opts.SandboxMode, cfg.SandboxMode, "workspace-write")
 	sandbox, err := security.FromString(sandboxMode)
@@ -208,7 +214,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		WriteRoots:   security.WriteRootsFrom(root, addDirs),
 		OutputSchema: schema,
 		Thinking:     opts.Thinking,
-		TrustProject: opts.TrustProject || env("ARGENT_TRUST_PROJECT") == "1",
+		TrustProject: opts.TrustProject || (env("ARGENT_TRUST_PROJECT") != "" && parseTrustEnv(env("ARGENT_TRUST_PROJECT"))),
 		Plugins:      append([]string(nil), opts.Plugins...),
 		System:       system,
 		Prices:       pricesFor(model, opts, cfg),
@@ -247,15 +253,10 @@ func resolveTemplate(cfg config.Config, opts cli.Options) (providerChoice, bool,
 }
 
 func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
-	if template, ok := provider.Resolve(name); ok {
-		return providerChoice{
-			Name:         template.Name,
-			Protocol:     string(template.Protocol),
-			BaseURL:      template.BaseURL,
-			DefaultModel: template.DefaultModel,
-			APIKeyEnv:    template.APIKeyEnv,
-		}, true
-	}
+	// cfg.Provider merges a config overlay over the built-in provider of the
+	// same name (and already falls back to built-ins), so it must be consulted
+	// first. Otherwise provider.Resolve returns the hard-coded template and an
+	// override such as providers.<name>.baseURL in the config is silently lost.
 	if entry, ok := cfg.Provider(name); ok {
 		return providerChoice{
 			Name:         entry.Name,
@@ -263,6 +264,17 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 			BaseURL:      entry.BaseURL,
 			DefaultModel: entry.DefaultModel,
 			APIKeyEnv:    entry.APIKeyEnv,
+		}, true
+	}
+	// provider.Resolve remains the fallback for aliases (claude, kimi, ...) and
+	// built-in providers the config layer does not know about (deepseek, xai, ...).
+	if template, ok := provider.Resolve(name); ok {
+		return providerChoice{
+			Name:         template.Name,
+			Protocol:     string(template.Protocol),
+			BaseURL:      template.BaseURL,
+			DefaultModel: template.DefaultModel,
+			APIKeyEnv:    template.APIKeyEnv,
 		}, true
 	}
 	return providerChoice{}, false

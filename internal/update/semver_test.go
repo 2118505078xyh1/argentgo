@@ -26,6 +26,11 @@ func TestCompareVersionsTable(t *testing.T) {
 		{"1.0.0-alpha.1", "1.0.0-alpha.beta", -1},
 		{"1.0.0-rc.1", "1.0.0-beta.11", 1},
 		{"0.2.0", "0.1.9", 1},
+		// Numeric prerelease identifiers wider than int must compare by value.
+		{"1.0.0-10000000000000000000", "1.0.0-9", 1},
+		{"1.0.0-2", "1.0.0-10000000000000000000", -1},
+		{"1.0.0-10000000000000000000", "1.0.0-9999999999999999999", 1},
+		{"1.0.0-99999999999999999999", "1.0.0-88888888888888888888", 1},
 	}
 	for _, test := range cases {
 		if got := CompareVersions(test.left, test.right); got != test.want {
@@ -76,6 +81,57 @@ func TestParseVersionRejectsMalformedInput(t *testing.T) {
 	for _, input := range []string{"", "   ", "v", "1.2.3.4", "1.x.3", "1.2.3-", "1.2.3-rc..1", "-1.2.3"} {
 		if _, err := ParseVersion(input); err == nil {
 			t.Fatalf("ParseVersion(%q) succeeded, want an error", input)
+		}
+	}
+}
+
+func TestParseVersionRejectsLeadingZeroPrerelease(t *testing.T) {
+	for _, input := range []string{
+		"1.2.3-01",
+		"v1.2.3-alpha.01",
+		"1.2.3-0.07",
+		"1.2.3-00",
+		"1.2.3-000.1",
+	} {
+		if _, err := ParseVersion(input); err == nil {
+			t.Fatalf("ParseVersion(%q) succeeded, want an error", input)
+		}
+	}
+}
+
+func TestParseVersionAllowsAmbiguousLookingPrerelease(t *testing.T) {
+	for _, input := range []string{
+		"1.2.3-0",
+		"1.2.3-alpha.1",
+		"1.2.3-0a",       // alphanumeric, leading zero is allowed here
+		"1.2.3-01a",      // alphanumeric, leading zero is allowed here
+		"1.2.3-alpha-01", // hyphenated, not a numeric identifier
+	} {
+		if _, err := ParseVersion(input); err != nil {
+			t.Fatalf("ParseVersion(%q): %v", input, err)
+		}
+	}
+}
+
+func TestCompareIdentifierHugeAndPaddedNumbers(t *testing.T) {
+	cases := []struct {
+		left, right string
+		want        int
+	}{
+		{"10000000000000000000", "9", 1},
+		{"9", "10000000000000000000", -1},
+		{"99999999999999999999999999999999", "99999999999999999999999999999998", 1},
+		{"00000000000000000002", "10", -1}, // hand-built Version with padded identifiers
+		{"000", "0", 0},
+	}
+	for _, test := range cases {
+		if got := compareIdentifier(test.left, test.right); got != test.want {
+			t.Fatalf("compareIdentifier(%q, %q) = %d, want %d",
+				test.left, test.right, got, test.want)
+		}
+		if got := compareIdentifier(test.right, test.left); got != -test.want {
+			t.Fatalf("compareIdentifier(%q, %q) = %d, want %d",
+				test.right, test.left, got, -test.want)
 		}
 	}
 }

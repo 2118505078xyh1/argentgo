@@ -106,6 +106,29 @@ func registerVerifyFlags(fs *flag.FlagSet) verifyFlagValues {
 	return verifyFlagValues{cmd: cmd, timeoutMS: timeoutMS}
 }
 
+// privacyModeAny / privacyModeLocalOnly mirror config.PrivacyModeAny and
+// security.PrivacyLocalOnly. The CLI values are canonicalized before they reach
+// the config override layer.
+const (
+	privacyModeAny       = "any"
+	privacyModeLocalOnly = "local-only"
+)
+
+// privacyFlagValues holds the --privacy-mode pointer. Like verifyFlagValues it
+// is registered outside newFlags on purpose: flagSurface (and the locked
+// TestFlagSurfaceMatchesParityList gate) enumerates newFlags, and this flag is
+// an additive, opt-in posture that is not part of that documented surface.
+// parseArgs calls registerPrivacyFlags directly and pushes the value into the
+// config override layer under "privacyMode".
+type privacyFlagValues struct {
+	mode *string
+}
+
+func registerPrivacyFlags(fs *flag.FlagSet) privacyFlagValues {
+	mode := fs.String("privacy-mode", "", "network posture: any (default) or local-only (blocks remote endpoints and web tools)")
+	return privacyFlagValues{mode: mode}
+}
+
 // flagSurface reports every long flag name the CLI accepts, sorted. It builds a
 // throwaway flag set so the list can never drift from the parser.
 func flagSurface() []string {

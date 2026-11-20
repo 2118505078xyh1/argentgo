@@ -76,6 +76,13 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 				p.notify("prompt/delta", map[string]any{"text": chunk})
 			})
 			if err != nil {
+				if isCancelled(ctx, err) {
+					// A user abort is a normal stop, not an internal error. Keep
+					// a result-shaped reply (with the partial answer) so clients
+					// can tell it apart from a real -32603 failure.
+					p.respond(id, map[string]any{"text": result, "stopReason": "cancelled"})
+					return
+				}
 				p.fail(id, codeInternalError, err.Error())
 				return
 			}

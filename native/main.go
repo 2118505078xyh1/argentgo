@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/rand/v2"
 	"os"
@@ -501,6 +502,34 @@ func (app *chat) send(text string) {
 	}()
 }
 
+// isCancelError reports whether an engine error is a user abort rather than a
+// real failure. After the server-side unification cancellation arrives as a
+// normal stopReason (so err is nil); the string check keeps the UI correct if
+// an older engine still sends "context canceled" as a JSON-RPC error.
+func isCancelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "context canceled") || strings.Contains(msg, "cancelled")
+}
+
+// finishText picks the text passed to finish() for a non-failing prompt. A
+// cancelled run can come back with an empty result; wiping the answer the user
+// already watched stream in would be worse than showing nothing at all.
+func finishText(full string, err error, streamed string) string {
+	if err != nil && !isCancelError(err) {
+		return full
+	}
+	if streamed != "" && (full == "" || isCancelError(err)) {
+		return streamed
+	}
+	return full
+}
+
 // sendReal calls the real engine. Deltas arrive on the bridge read loop and
 // are marshalled back onto the UI thread through Window.Update.
 func (app *chat) sendReal(text string, reply *message) {
@@ -524,13 +553,17 @@ func (app *chat) sendReal(text string, reply *message) {
 			return
 		}
 		app.win.Update(func() {
-			if err != nil {
+			streamed := reply.text
+			if err != nil && !isCancelError(err) {
+				// Genuine failures keep the original reporting path.
 				reply.text = "⚠ 引擎错误: " + err.Error()
 				app.status = "引擎错误"
-			} else if reply.text == "" {
-				reply.text = full
+				app.finish(full)
+				return
 			}
-			app.finish(full)
+			// Cancellation is not an error: keep the streamed answer and never
+			// show the "引擎错误" banner for it.
+			app.finish(finishText(full, err, streamed))
 		})
 	}()
 }

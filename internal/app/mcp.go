@@ -43,6 +43,10 @@ type toolset struct {
 	skills  *skills.Registry
 	mcp     []mcpBinding
 	clients []mcp.Client
+	// usage is the thread-safe holder behind the `usage` tool. One holder is
+	// shared by every registry in base, so a single UpdateUsage call updates the
+	// tool regardless of which write root the call routes through.
+	usage *usageSource
 }
 
 // multiRootTools fans built-in tool calls out to one registry per write root.
@@ -54,7 +58,7 @@ type multiRootTools struct {
 	regs  []*tools.Registry
 }
 
-func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *multiRootTools {
+func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, usage *usageSource) *multiRootTools {
 	roots := res.WriteRoots
 	if len(roots) == 0 {
 		roots = security.WriteRootsFrom(res.Root, res.AddDirs)
@@ -71,6 +75,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetLspIde(NewLspIdeAdapter(absolute))
 		wireCheckpointDiff(registry, sess, absolute)
 		wireHistory(registry, sess)
+		wireUsage(registry, usage)
 		m.roots = append(m.roots, filepath.Clean(absolute))
 		m.regs = append(m.regs, registry)
 	}
@@ -81,6 +86,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard) *
 		registry.SetLspIde(NewLspIdeAdapter(res.Root))
 		wireCheckpointDiff(registry, sess, res.Root)
 		wireHistory(registry, sess)
+		wireUsage(registry, usage)
 		m.roots = []string{res.Root}
 		m.regs = []*tools.Registry{registry}
 	}
@@ -221,10 +227,16 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	for _, skill := range cachedSkills.All() {
 		skillRegistry.Add(skill)
 	}
+	// One usage holder per toolset (hence per run). It is wired into every
+	// registry below and exposed to the Execute loop through UpdateUsage, so the
+	// `usage` tool reports the live token totals of this run instead of the
+	// registry's default "unavailable" placeholder.
+	usage := newUsageSource()
 	set := &toolset{
-		base:   newMultiRootTools(res, sess, guard),
+		base:   newMultiRootTools(res, sess, guard, usage),
 		guard:  guard,
 		skills: skillRegistry,
+		usage:  usage,
 	}
 
 	// User config is under the user's control, so it is always available.
@@ -366,6 +378,18 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 
 // Specs advertises the built-in tools, MCP tools and use_skill.
 func (t *toolset) Guarded() bool { return t.guard != nil }
+
+// UpdateUsage feeds one EventUsage into the holder behind the `usage` tool.
+// The Execute loop's Emit callback calls this when event.Kind is EventUsage;
+// the holder is shared by every registry in the toolset, so a single call keeps
+// the tool's JSON current on all write roots. It is a no-op on a nil toolset or
+// holder, keeping hand-built test toolsets safe.
+func (t *toolset) UpdateUsage(turn int, usage, total llm.Usage) {
+	if t == nil {
+		return
+	}
+	t.usage.Update(turn, usage, total)
+}
 
 func (t *toolset) Specs() []llm.ToolSpec {
 	specs := t.base.Specs()

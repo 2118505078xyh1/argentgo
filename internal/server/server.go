@@ -54,6 +54,15 @@ type Config struct {
 	Events *EventHub
 }
 
+// isCancelled reports whether a Runner.Prompt error means the user (or the
+// transport) stopped the turn, as opposed to a genuine failure. The agent loop
+// returns context.Canceled — possibly wrapped — on abort, and a disconnected
+// client leaves ctx.Err() == context.Canceled. A deadline is a real failure and
+// keeps its original error path in all three transports.
+func isCancelled(ctx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled
+}
+
 // selectHub resolves the hub a transport publishes to. An explicit Config.Events
 // wins; otherwise a runner built by internal/app exposes its shared hub through
 // a small interface that keeps this package independent of the wirer. The
@@ -195,6 +204,9 @@ func (h *handler) abort(w http.ResponseWriter, r *http.Request) {
 //
 //	data: {"type":"text","text":"..."}
 //	data: {"type":"done"}
+//
+// A user abort is a normal stop and ends with {"type":"cancelled"} instead of
+// an error event: the HTTP 200 header is already on the wire by then.
 func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, http.MethodPost)
@@ -250,6 +262,12 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if runErr != nil {
+		if isCancelled(r.Context(), runErr) {
+			// Abort is not a failure. WriteHeader(200) already happened, so the
+			// only honest signal is a terminal SSE event of its own.
+			emit(map[string]any{"type": "cancelled"})
+			return
+		}
 		emit(map[string]any{"type": "error", "error": runErr.Error()})
 		return
 	}

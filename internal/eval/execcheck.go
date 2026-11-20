@@ -248,11 +248,17 @@ func (w *tailBuffer) Write(p []byte) (int, error) {
 	if w.buf.Len() > execOutputCap {
 		data := w.buf.Bytes()
 		drop := w.buf.Len() - execOutputCap
+		// Advancing to a rune boundary may drop more than execOutputCap would
+		// on its own, so the surviving tail is shorter than cap.
 		for drop < len(data) && !utf8.RuneStart(data[drop]) {
 			drop++
 		}
+		keep := len(data) - drop
 		copy(data, data[drop:])
-		w.buf.Truncate(execOutputCap)
+		// Truncate to exactly the bytes copied over. Truncating to cap here
+		// would leave stale bytes from before the copy at the tail (possibly
+		// half a rune), which String() would then expose.
+		w.buf.Truncate(keep)
 		w.truncated = true
 	}
 	return n, err

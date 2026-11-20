@@ -58,6 +58,14 @@ type SubagentConfig struct {
 	Budget Budget
 	// System replaces the child's system prompt.
 	System string
+	// systemInherited / toolsInherited mark System / AllowedTools as values this
+	// child received from its parent (a persona or an ancestor), not overrides
+	// authored at this level. An inherited value is a base: a nested
+	// task(persona=...) must be free to replace it. The zero value (false) keeps
+	// the legacy rule that a caller setting these fields directly wins over a
+	// persona. Package-private: only childOptions sets them.
+	systemInherited bool
+	toolsInherited  bool
 	// OnEvent receives the child's events. When nil they go to the parent's
 	// Emit, with Event.Depth set.
 	OnEvent func(Event)
@@ -69,10 +77,11 @@ type SubagentConfig struct {
 	// explicitly-set fields of this config are then layered on top.
 	ResolvePersona func(string) (SubagentConfig, bool)
 	// Background, when set, enables the `background` field on task calls. It is
-	// the shared, bounded result queue for one root run and all of its
-	// descendants; the parent loop drains it (see the wiring note on the
-	// BackgroundResults type). A background call with no queue configured is
-	// rejected rather than silently losing its result.
+	// the bounded result queue for ONE root run and all of its descendants;
+	// the wiring layer must not share it across sessions. Each run drains only
+	// the results tagged with its own owner (see the BackgroundResults note).
+	// A background call with no queue configured is rejected rather than
+	// silently losing its result.
 	Background *BackgroundResults
 	// NewChild optionally overrides how a delegated child runner is built. Nil
 	// means &Runner{Opts: opts}. It is primarily a test seam: injecting a fake
@@ -148,7 +157,7 @@ func newToolset(inner ToolRunner, opts Options) ToolRunner {
 	if opts.Depth < cfg.MaxDepth {
 		specs = append(specs, TaskToolSpec())
 	}
-	return &taskTools{inner: inner, specs: specs, parent: opts, depth: opts.Depth, cfg: &cfg}
+	return &taskTools{inner: inner, specs: specs, parent: opts, depth: opts.Depth, owner: opts.bgOwner, cfg: &cfg}
 }
 
 // taskTools advertises and runs the delegate tool over a base tool runner.
@@ -157,7 +166,11 @@ type taskTools struct {
 	specs  []llm.ToolSpec
 	parent Options
 	depth  int
-	cfg    *SubagentConfig
+	// owner is the delivery identity of the run that owns this taskTools. A
+	// background task it spawns pushes its result back under this owner, so the
+	// delegating run's injectSteering can collect exactly its own results.
+	owner uint64
+	cfg   *SubagentConfig
 	// emitMu serialises parent-level subagent events. Background children emit
 	// from their own goroutines, so a lock keeps start/end/notice ordering sane.
 	emitMu sync.Mutex
@@ -343,9 +356,11 @@ func verificationFailed(verdict string) bool {
 }
 
 // configForPersona seeds the child config from a named persona, then layers the
-// parent's explicitly-set fields on top. A missing resolver, an empty name or
-// an unknown name leaves the generic parent config untouched, which keeps
-// delegation backward compatible.
+// parent's explicitly-set fields on top. Values the parent itself inherited
+// (marked by childOptions) are not explicit overrides, so a nested persona
+// switch can replace them. A missing resolver, an empty name or an unknown
+// name leaves the generic parent config untouched, which keeps delegation
+// backward compatible.
 func (t *taskTools) configForPersona(name string) SubagentConfig {
 	cfg := *t.cfg
 	name = strings.TrimSpace(name)
@@ -363,7 +378,7 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if v := strings.TrimSpace(t.cfg.Model); v != "" {
 		merged.Model = v
 	}
-	if len(t.cfg.AllowedTools) > 0 {
+	if !t.cfg.toolsInherited && len(t.cfg.AllowedTools) > 0 {
 		merged.AllowedTools = t.cfg.AllowedTools
 	}
 	if t.cfg.MaxDepth > 0 {
@@ -375,7 +390,7 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	if t.cfg.Budget != (Budget{}) {
 		merged.Budget = t.cfg.Budget
 	}
-	if strings.TrimSpace(t.cfg.System) != "" {
+	if !t.cfg.systemInherited && strings.TrimSpace(t.cfg.System) != "" {
 		merged.System = t.cfg.System
 	}
 	if t.cfg.OnEvent != nil {
@@ -432,6 +447,12 @@ func inheritForChild(s *InstructionSnapshot) *InstructionSnapshot {
 // child system prompt, a budget slice, and the event bridge.
 func (t *taskTools) childOptions(label, persona string) Options {
 	cfg := t.configForPersona(persona)
+	// Whatever System/AllowedTools this child carries came from its parent
+	// (a persona or an ancestor), not from code at this level. Mark them
+	// inherited so this child's own task(persona=...) can switch personas
+	// instead of re-applying the parent's values over the new persona.
+	cfg.systemInherited = true
+	cfg.toolsInherited = true
 	tools := t.inner
 	if len(cfg.AllowedTools) > 0 {
 		allowed := make(map[string]bool, len(cfg.AllowedTools))
@@ -507,7 +528,21 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		Mutating:         t.parent.Mutating,
 		Subagent:         &cfg,
 		Depth:            t.depth + 1,
+		// Give this child its own identity in the shared queue. Its own
+		// background tasks will push with this owner (via newToolset), so the
+		// child drains only its results even when a sibling shares its depth.
+		bgOwner: t.nextOwner(),
 	}
+}
+
+// nextOwner allocates a fresh delivery identity from this tree's queue. The
+// zero value is returned when no queue is configured, since background tasks
+// are impossible in that case.
+func (t *taskTools) nextOwner() uint64 {
+	if t.cfg != nil && t.cfg.Background != nil {
+		return t.cfg.Background.nextID()
+	}
+	return 0
 }
 
 // parentEmit sends a parent-level subagent event. Background children emit
@@ -579,31 +614,37 @@ func (t *taskTools) newChild(label, persona string) ChildRunner {
 	return &Runner{Opts: opts}
 }
 
-// BackgroundResults is the shared, bounded queue of finished background task
-// results for one root run and all of its descendants. The wiring layer creates
-// one instance and stores it on SubagentConfig.Background; because that field
-// is a pointer copied by value through every SubagentConfig, the parent loop
+// BackgroundResults is the bounded queue of finished background task results
+// for one root run and all of its descendants. The wiring layer creates ONE
+// instance per root run and stores it on SubagentConfig.Background; because that
+// field is a pointer copied by value through every SubagentConfig, the root loop
 // (via Options.Subagent) and every taskTools in the tree see the same instance.
-// The type also owns the background semaphore and task-id counter so those
-// limits are shared across the whole tree. All methods are concurrency-safe.
+// The type also owns the background semaphore, the task-id counter and the
+// per-run owner counter so those limits are shared across the whole tree. All
+// methods are concurrency-safe.
+//
+// A queue must never be shared by two independent root runs: every run at the
+// root sits at depth 0, so a depth-keyed queue would let one session drain
+// another's results (and the 50-entry cap would evict across sessions). Within
+// one tree, depth is still not a delivery key either: two sibling subagents
+// share a depth and each may spawn background children, so results are keyed by
+// a unique owner id assigned when the run is created. Depth is carried only as
+// diagnostic metadata.
 //
 // LOOP WIRING (done outside this file, in loop.go): in runState.injectSteering,
-// after draining s.steer, append the results addressed to this run's depth:
+// after draining s.steer, append the results addressed to this run's owner:
 //
 //	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
-//	    pending = append(pending, s.opts.Subagent.Background.DrainAt(s.depth)...)
+//	    pending = append(pending, s.opts.Subagent.Background.DrainFor(s.bgOwner)...)
 //	}
 //
 // injectSteering already runs at every turn boundary, so a finished result
 // becomes a synthetic user message at the next boundary without any other
-// change. The wiring layer must also create one queue on the root options:
+// change. newRunState assigns the root owner via RootOwner(); childOptions
+// assigns each child its own owner via nextID(). Because the owner is cached on
+// the queue, a resumed Runner's later prompts still drain the same owner.
 //
-//	opts.Subagent.Background = agent.NewBackgroundResults(0, 0)
-//
-// Use Drain() (every depth) for diagnostics/tests; DrainAt(s.depth) prevents a
-// child run from consuming results addressed to its parent. Results that are
-// not drained before a run ends stay in the queue and are picked up by the next
-// prompt on the same Runner.
+// Use Drain() (every owner) for diagnostics/tests only.
 type BackgroundResults struct {
 	mu      sync.Mutex
 	items   []bgResult
@@ -611,20 +652,26 @@ type BackgroundResults struct {
 	dropped int
 	seq     atomic.Uint64
 
+	// rootOwner is the stable identity of the root run that owns this queue.
+	// It is assigned lazily so a queue that is merely created but never used
+	// does not consume an id, and so retry prompts on one Runner share it.
+	rootOwner atomic.Uint64
+
 	sem    chan struct{}
 	maxRun int
 }
 
-// bgResult is one queued result together with the depth of the run that should
-// receive it (its parent).
+// bgResult is one queued result tagged with the owner that should receive it.
+// depth is retained for diagnostics only; it is never used for delivery.
 type bgResult struct {
+	owner uint64
 	depth int
 	text  string
 }
 
-// NewBackgroundResults builds a shared background queue. cap bounds undrained
-// results (<=0 uses DefaultBackgroundResultsCap); maxConcurrent bounds
-// simultaneous background child runners (<=0 uses DefaultMaxBackgroundTasks).
+// NewBackgroundResults builds a background queue. cap bounds undrained results
+// (<=0 uses DefaultBackgroundResultsCap); maxConcurrent bounds simultaneous
+// background child runners (<=0 uses DefaultMaxBackgroundTasks).
 func NewBackgroundResults(cap, maxConcurrent int) *BackgroundResults {
 	if cap <= 0 {
 		cap = DefaultBackgroundResultsCap
@@ -640,13 +687,29 @@ func NewBackgroundResults(cap, maxConcurrent int) *BackgroundResults {
 	}
 }
 
-// Push enqueues text targeting the root run (depth 0). See PushAt.
-func (b *BackgroundResults) Push(text string) bool { return b.PushAt(0, text) }
+// RootOwner returns this queue's stable root-run identity. The first call wins;
+// concurrent callers all observe the same value. It is used once by newRunState
+// for a root Options with no owner assigned yet.
+func (b *BackgroundResults) RootOwner() uint64 {
+	if id := b.rootOwner.Load(); id != 0 {
+		return id
+	}
+	id := b.nextID()
+	if b.rootOwner.CompareAndSwap(0, id) {
+		return id
+	}
+	return b.rootOwner.Load()
+}
 
-// PushAt enqueues a finished result for the run at depth. When the queue is
-// full the oldest entry is dropped (the newest results are the most relevant to
-// a still-running parent); the bool reports whether a drop occurred.
-func (b *BackgroundResults) PushAt(depth int, text string) bool {
+// Push enqueues text with no owner for diagnostics tests. Real delivery uses
+// PushFor with the delegating run's owner.
+func (b *BackgroundResults) Push(text string) bool { return b.PushFor(0, 0, text) }
+
+// PushFor enqueues a finished result for owner. depth is diagnostic only. When
+// the queue is full the oldest entry is dropped (the newest results are the
+// most relevant to a still-running parent); the bool reports whether a drop
+// occurred.
+func (b *BackgroundResults) PushFor(owner uint64, depth int, text string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	dropped := false
@@ -656,17 +719,19 @@ func (b *BackgroundResults) PushAt(depth int, text string) bool {
 		dropped = true
 		b.dropped++
 	}
-	b.items = append(b.items, bgResult{depth: depth, text: text})
+	b.items = append(b.items, bgResult{owner: owner, depth: depth, text: text})
 	return dropped
 }
 
-// Drain removes and returns every queued result in FIFO order.
-func (b *BackgroundResults) Drain() []string { return b.drainAt(-1) }
+// Drain removes and returns every queued result in FIFO order. Use only for
+// diagnostics/tests: it ignores ownership.
+func (b *BackgroundResults) Drain() []string { return b.drain(0, true) }
 
-// DrainAt removes and returns only the results targeting depth.
-func (b *BackgroundResults) DrainAt(depth int) []string { return b.drainAt(depth) }
+// DrainFor removes and returns only the results addressed to owner, in FIFO
+// order. Results for other owners stay queued for their own runs.
+func (b *BackgroundResults) DrainFor(owner uint64) []string { return b.drain(owner, false) }
 
-func (b *BackgroundResults) drainAt(depth int) []string {
+func (b *BackgroundResults) drain(owner uint64, all bool) []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.items) == 0 {
@@ -675,7 +740,7 @@ func (b *BackgroundResults) drainAt(depth int) []string {
 	out := make([]string, 0, len(b.items))
 	kept := b.items[:0]
 	for _, item := range b.items {
-		if depth < 0 || item.depth == depth {
+		if all || item.owner == owner {
 			out = append(out, item.text)
 			continue
 		}
@@ -758,14 +823,16 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 	id := bg.nextID()
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
 
-	depth := t.depth
+	// The result belongs to the run that delegated this task (this taskTools'
+	// owner), never to every run sharing the current depth.
+	owner, depth := t.owner, t.depth
 	go func() {
 		defer bg.release()
 		child := t.newChild(label, persona)
 		res, err := child.Run(ctx, task)
 		if err != nil {
 			t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
-			bg.PushAt(depth, fmt.Sprintf("%s[task %d] %s failed: %v", BackgroundResultPrefix, id, label, err))
+			bg.PushFor(owner, depth, fmt.Sprintf("%s[task %d] %s failed: %v", BackgroundResultPrefix, id, label, err))
 			return
 		}
 		text := strings.TrimSpace(res.Text)
@@ -774,7 +841,7 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 		}
 		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Output: text})
 		result := fmt.Sprintf("%s[task %d] %s: %s", BackgroundResultPrefix, id, label, text)
-		dropped := bg.PushAt(depth, result)
+		dropped := bg.PushFor(owner, depth, result)
 		t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName, Text: result})
 		if dropped {
 			t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName,
