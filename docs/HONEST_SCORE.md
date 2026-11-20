@@ -9,10 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
-## 评分表（round16 后，2026-11-20 12:00）
+## 评分表（round17 后，2026-11-20 12:10）
 
-> round16 新增（codex/cursor/qwen 学习→优化）：受保护只读子路径（security/protected_paths.go，8 测试）、AGENTS.md 项目根边界+override+trust（memory/boundary.go，74 测试）、终态 provider 错误分类（llm/terminal_outcome.go，289 测试）、/context+.argentignore（commands/context.go + memory/ignore.go，100 测试）、gap-centered read + edit 相似度诊断（tools_builtin_read.go + editbench.go，507+100 测试）。
-> **重要诚实标注**：这些新能力多数是 opt-in building block，**尚未接入主运行流程**（app_execute.go/buildSystem 等接线点被并发会话持续占用）。能力本身已实现+有测试，但未接线不应算满分——这是下一轮的重点。
+> round16 新增（codex/cursor/qwen 学习→优化）：受保护只读子路径（security/protected_paths.go）、AGENTS.md 项目根边界+override+trust（memory/boundary.go）、终态 provider 错误分类（llm/terminal_outcome.go）、/context+.argentignore（commands/context.go + memory/ignore.go）、gap-centered read + edit 相似度诊断。
+> round17 **接线完成**：trust gate（ARGENT_TRUST_PROJECT=0 时按项目根边界加载）、/context 命令（已注册到 commands.NewSetWithBuiltins）、.argentignore（注入时过滤）全部接入 app 运行流程（app_prompt.go/app_execute.go/wiring_test.go，2955 测试通过）。另新增 session stats/retention、审批事件、exec-checked eval 等 building block（部分待接线）。
+> **诚实标注**：核心 building block 已接线运行；但仍有若干"已实现未接线"项（session stats/retention、审批事件、exec check 未接入主流程）与两个客观天花板（真实社区分发、真实模型/生产验证）。
 
 ## 评分表（round15 后，2026-11-20 11:41）
 
