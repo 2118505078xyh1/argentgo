@@ -43,6 +43,59 @@ func TestBranchesDescribeForkedTree(t *testing.T) {
 	}
 }
 
+// TestBranchDepthCachesUnderOriginalID covers session audit #6: the depth of
+// a chain must be cached under the id whose depth was requested, not under the
+// top ancestor the walk ended on. Otherwise a later descendant of that
+// ancestor inherits the whole chain's depth.
+func TestBranchDepthCachesUnderOriginalID(t *testing.T) {
+	byID := map[string]Record{
+		"A":    {ID: "A", Parent: "B"},
+		"B":    {ID: "B", Parent: "ROOT"},
+		"ROOT": {ID: "ROOT"},
+	}
+	cache := make(map[string]int)
+	if got := branchDepth("A", byID, cache); got != 2 {
+		t.Fatalf("depth(A) = %d, want 2", got)
+	}
+	if got := cache["A"]; got != 2 {
+		t.Fatalf("cache[A] = %d, want 2", got)
+	}
+	if _, ok := cache["ROOT"]; ok {
+		t.Fatalf("ancestor ROOT was cached with accumulated depth %d", cache["ROOT"])
+	}
+	if got := branchDepth("B", byID, cache); got != 1 {
+		t.Fatalf("depth(B) = %d, want 1 (cached ancestor polluted it)", got)
+	}
+	if got := branchDepth("ROOT", byID, cache); got != 0 {
+		t.Fatalf("depth(ROOT) = %d, want 0", got)
+	}
+}
+
+// TestBranchesDescribeOutOfOrderTree exercises audit #6 through the public
+// path: children are listed before their parents, as happens with a repaired
+// or hand-assembled transcript.
+func TestBranchesDescribeOutOfOrderTree(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out-of-order.jsonl")
+	writeRawSession(t, path, []Record{
+		{ID: "A", Parent: "B", Kind: KindUser, Data: json.RawMessage(`"a"`)},
+		{ID: "B", Parent: "ROOT", Kind: KindUser, Data: json.RawMessage(`"b"`)},
+		{ID: "ROOT", Kind: KindHeader, Data: json.RawMessage(`{"title":"root"}`)},
+	})
+	branches, err := Branches(path)
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+	want := map[string]int{"A": 2, "B": 1, "ROOT": 0}
+	if len(branches) != len(want) {
+		t.Fatalf("branches = %d, want %d", len(branches), len(want))
+	}
+	for _, branch := range branches {
+		if depth, ok := want[branch.ID]; !ok || branch.Depth != depth {
+			t.Errorf("branch %q depth = %d, want %d", branch.ID, branch.Depth, depth)
+		}
+	}
+}
+
 func TestRenderHTMLEscapesTextAndIsSelfContained(t *testing.T) {
 	var out bytes.Buffer
 	if err := RenderHTML(forkedTranscript(t), "", &out); err != nil {

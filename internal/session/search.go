@@ -218,12 +218,12 @@ func collectStrings(value any, out *[]string) {
 	}
 }
 
-// contextWindow slices a snippet around a byte index without breaking UTF-8,
+// contextWindow slices a snippet around a rune index without breaking UTF-8,
 // then redacts credentials before collapsing whitespace. Redaction happens
 // before truncation so a token placeholder is never cut in half.
-func contextWindow(value string, byteIndex, needleRunes int) string {
+func contextWindow(value string, runeIndex, needleRunes int) string {
 	runes := []rune(value)
-	index := utf8.RuneCountInString(value[:byteIndex])
+	index := runeIndex
 	start := index - 48
 	if start < 0 {
 		start = 0
