@@ -22,6 +22,10 @@ const (
 	clientName = "argentgo"
 	// clientVersion is reported to servers in clientInfo.
 	clientVersion = "0.7.0"
+	// maxListPages bounds cursor-driven list pagination. A broken server that
+	// keeps minting new cursors must not hang discovery or grow memory without
+	// limit; ordinary servers use a handful of pages.
+	maxListPages = 1000
 )
 
 // ErrUnsupportedTransport reports a transport this package cannot speak.
@@ -254,45 +258,48 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 	ctx, cancel := c.timeoutContext(ctx)
 	defer cancel()
 
-	raw, err := c.tr.call(ctx, "tools/list", nil)
+	tools := make([]Tool, 0)
+	// A server may paginate tools/list with an opaque nextCursor. Follow every
+	// page so tools beyond the first are not silently lost. Decode each entry
+	// separately: a single malformed tool must not sink the whole table.
+	err := c.forEachListPage(ctx, "tools/list", func(raw json.RawMessage) (json.RawMessage, error) {
+		var result struct {
+			Tools []json.RawMessage `json:"tools"`
+			Next  json.RawMessage   `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return nil, fmt.Errorf("mcp %q: decode tools/list result: %w", c.spec.Name, err)
+		}
+		for _, itemRaw := range result.Tools {
+			var item struct {
+				Name         string          `json:"name"`
+				Description  string          `json:"description"`
+				InputSchema  json.RawMessage `json:"inputSchema"`
+				OutputSchema json.RawMessage `json:"outputSchema"`
+				Annotations  struct {
+					ReadOnlyHint bool `json:"readOnlyHint"`
+				} `json:"annotations"`
+			}
+			if err := json.Unmarshal(itemRaw, &item); err != nil {
+				continue // skip only the bad entry, keep the rest of the table
+			}
+			if strings.TrimSpace(item.Name) == "" {
+				continue
+			}
+			tools = append(tools, Tool{
+				Name:           item.Name,
+				Description:    item.Description,
+				Schema:         normalizeInputSchema(item.InputSchema),
+				Server:         c.spec.Name,
+				ReadOnly:       item.Annotations.ReadOnlyHint,
+				RawInputSchema: append(json.RawMessage(nil), item.InputSchema...),
+				OutputSchema:   append(json.RawMessage(nil), item.OutputSchema...),
+			})
+		}
+		return nextCursor(result.Next), nil
+	})
 	if err != nil {
-		return nil, c.wrap(err, "tools/list")
-	}
-	// Decode the tool list one entry at a time. A single malformed tool must
-	// not sink the whole table: previously a whole-slice Unmarshal failed the
-	// entire tools/list call when any entry had a non-object shape.
-	var result struct {
-		Tools []json.RawMessage `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("mcp %q: decode tools/list result: %w", c.spec.Name, err)
-	}
-	tools := make([]Tool, 0, len(result.Tools))
-	for _, itemRaw := range result.Tools {
-		var item struct {
-			Name         string          `json:"name"`
-			Description  string          `json:"description"`
-			InputSchema  json.RawMessage `json:"inputSchema"`
-			OutputSchema json.RawMessage `json:"outputSchema"`
-			Annotations  struct {
-				ReadOnlyHint bool `json:"readOnlyHint"`
-			} `json:"annotations"`
-		}
-		if err := json.Unmarshal(itemRaw, &item); err != nil {
-			continue // skip only the bad entry, keep the rest of the table
-		}
-		if strings.TrimSpace(item.Name) == "" {
-			continue
-		}
-		tools = append(tools, Tool{
-			Name:           item.Name,
-			Description:    item.Description,
-			Schema:         normalizeInputSchema(item.InputSchema),
-			Server:         c.spec.Name,
-			ReadOnly:       item.Annotations.ReadOnlyHint,
-			RawInputSchema: append(json.RawMessage(nil), item.InputSchema...),
-			OutputSchema:   append(json.RawMessage(nil), item.OutputSchema...),
-		})
+		return nil, err
 	}
 	// Apply per-server permissions here so callers never see tools that the
 	// server config disallows. Keep the advertising order for stable output.
@@ -388,20 +395,73 @@ func (c *client) ListResources(ctx context.Context) ([]Resource, error) {
 	ctx, cancel := c.timeoutContext(ctx)
 	defer cancel()
 
-	raw, err := c.tr.call(ctx, "resources/list", nil)
+	resources := make([]Resource, 0)
+	err := c.forEachListPage(ctx, "resources/list", func(raw json.RawMessage) (json.RawMessage, error) {
+		var result struct {
+			Resources []Resource      `json:"resources"`
+			Next      json.RawMessage `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return nil, fmt.Errorf("mcp %q: decode resources/list result: %w", c.spec.Name, err)
+		}
+		resources = append(resources, result.Resources...)
+		return nextCursor(result.Next), nil
+	})
 	if err != nil {
 		if methodNotFound(err) {
 			return nil, nil
 		}
-		return nil, c.wrap(err, "resources/list")
+		return nil, err
 	}
-	var result struct {
-		Resources []Resource `json:"resources"`
+	return resources, nil
+}
+
+// forEachListPage calls method once per page, following the opaque cursor the
+// server returns until there is no nextCursor. fn decodes one page and returns
+// the cursor for the following one (nil means the last page). The first request
+// carries no params so single-page servers see the exact legacy request shape.
+// A repeated cursor or an excessive page count stops a broken server from
+// looping forever or growing memory without bound.
+func (c *client) forEachListPage(ctx context.Context, method string, fn func(json.RawMessage) (json.RawMessage, error)) error {
+	var cursor json.RawMessage
+	seen := make(map[string]bool)
+	for page := 0; page < maxListPages; page++ {
+		var params any
+		if len(cursor) > 0 {
+			// The cursor is opaque: pass the token back verbatim rather than
+			// coercing it to a string the server may not recognise.
+			params = map[string]any{"cursor": cursor}
+		}
+		raw, err := c.tr.call(ctx, method, params)
+		if err != nil {
+			return c.wrap(err, method)
+		}
+		next, err := fn(raw)
+		if err != nil {
+			return err
+		}
+		if len(next) == 0 {
+			return nil
+		}
+		key := string(next)
+		if seen[key] {
+			return fmt.Errorf("mcp %q: %s repeated pagination cursor %s; stopping", c.spec.Name, method, key)
+		}
+		seen[key] = true
+		cursor = next
 	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("mcp %q: decode resources/list result: %w", c.spec.Name, err)
+	return fmt.Errorf("mcp %q: %s exceeded %d pages; stopping pagination", c.spec.Name, method, maxListPages)
+}
+
+// nextCursor extracts an opaque pagination token from a list result. An absent,
+// null or empty-string token means the server has no more pages (nil). The token
+// is returned byte-for-byte so it can be replayed unchanged on the next request.
+func nextCursor(raw json.RawMessage) json.RawMessage {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || isJSONNull(t) || string(t) == `""` {
+		return nil
 	}
-	return result.Resources, nil
+	return append(json.RawMessage(nil), t...)
 }
 
 func (c *client) Close() error {

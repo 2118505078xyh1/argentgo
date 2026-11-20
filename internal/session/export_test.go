@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const plantedSecret = "AKIAFAKESECRETKEY1234"
@@ -271,10 +272,125 @@ func TestExportProjectCapsOutput(t *testing.T) {
 		if len(out) > maxExportBytes {
 			t.Errorf("%s export = %d bytes, over cap %d", format, len(out), maxExportBytes)
 		}
-		if !strings.Contains(string(out), "[truncated:") {
+		if format == "json" {
+			// JSON must stay parsable: the marker is a structured record, not
+			// bare text appended after the closing bracket.
+			if !json.Valid(out) {
+				t.Errorf("json export is not valid JSON (tail: %q)", exportTail(out, 96))
+			}
+			if !strings.Contains(string(out), exportTruncatedNote) {
+				t.Errorf("json export missing structured truncation note (tail: %q)", exportTail(out, 96))
+			}
+		} else if !strings.Contains(string(out), "[truncated:") {
 			t.Errorf("%s export missing truncation marker", format)
 		}
 	}
+}
+
+// A truncated JSON transcript must remain a valid, unmarshalable JSON array,
+// with the truncation explanation carried by a final structured record.
+func TestExportProjectJSONTruncatedIsValidJSON(t *testing.T) {
+	huge := strings.Repeat("x", maxExportBytes+1024)
+	dir, id := exportDirSession(t, "huge-json", []Record{
+		{ID: "n1", Kind: KindHeader, Data: json.RawMessage(`{"title":"huge"}`)},
+		{ID: "n2", Parent: "n1", Kind: KindUser, Data: mustJSON(t, map[string]any{"text": huge})},
+	})
+	out, err := ExportProject(dir, id, "", ExportOptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("json export: %v", err)
+	}
+	if len(out) > maxExportBytes {
+		t.Errorf("json export = %d bytes, over cap %d", len(out), maxExportBytes)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("truncated json export is not valid JSON (tail: %q)", exportTail(out, 96))
+	}
+	var entries []exportEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		t.Fatalf("unmarshal truncated json export: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("truncated json export has no entries")
+	}
+	last := entries[len(entries)-1]
+	if last.Kind != "truncated" || last.Note != exportTruncatedNote {
+		t.Errorf("last entry = %+v, want structured truncation record", last)
+	}
+	if !strings.Contains(string(out), exportTruncatedNote) {
+		t.Errorf("truncation note not visible (tail: %q)", exportTail(out, 96))
+	}
+}
+
+// CJK payloads are multi-byte per rune: truncation at entry boundaries must
+// never cut a rune, and the JSON artifact must still parse and show the note.
+func TestExportProjectJSONTruncatedCJKIsValidJSON(t *testing.T) {
+	huge := strings.Repeat("漢字", maxExportBytes) // 3 bytes per rune, well over 2 MiB
+	dir, id := exportDirSession(t, "huge-cjk", []Record{
+		{ID: "n1", Kind: KindHeader, Data: json.RawMessage(`{"title":"cjk"}`)},
+		{ID: "n2", Parent: "n1", Kind: KindUser, Data: mustJSON(t, map[string]any{"text": huge})},
+	})
+	out, err := ExportProject(dir, id, "", ExportOptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("json export: %v", err)
+	}
+	if len(out) > maxExportBytes {
+		t.Errorf("json export = %d bytes, over cap %d", len(out), maxExportBytes)
+	}
+	if !utf8.Valid(out) {
+		t.Fatal("truncated json export is not valid UTF-8")
+	}
+	if !json.Valid(out) {
+		t.Fatalf("truncated CJK json export is not valid JSON (tail: %q)", exportTail(out, 96))
+	}
+	var entries []exportEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		t.Fatalf("unmarshal truncated CJK json export: %v", err)
+	}
+	if len(entries) == 0 || entries[len(entries)-1].Kind != "truncated" {
+		t.Fatalf("missing structured truncation record (tail: %q)", exportTail(out, 96))
+	}
+	if !strings.Contains(string(out), exportTruncatedNote) {
+		t.Errorf("truncation note not visible (tail: %q)", exportTail(out, 96))
+	}
+}
+
+// Below the cap the JSON export must be byte-for-byte identical to the plain
+// renderer (no marker added, CJK kept as raw UTF-8 rather than escaped).
+func TestExportProjectJSONUnderCapUnchanged(t *testing.T) {
+	stamp := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	records := []Record{
+		{ID: "n1", TS: stamp, Kind: KindHeader, Data: json.RawMessage(`{"title":"small 漢字"}`)},
+		{ID: "n2", Parent: "n1", TS: stamp, Kind: KindUser, Data: json.RawMessage(`{"text":"你好世界 <tag>"}`)},
+	}
+	dir, id := exportDirSession(t, "small", records)
+	out, err := ExportProject(dir, id, "", ExportOptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("json export: %v", err)
+	}
+	chain, err := exportBranch(records, "")
+	if err != nil {
+		t.Fatalf("exportBranch: %v", err)
+	}
+	want, err := renderExportJSON(chain)
+	if err != nil {
+		t.Fatalf("renderExportJSON: %v", err)
+	}
+	if !bytes.Equal(out, want) {
+		t.Errorf("under-cap json export changed:\n got: %s\nwant: %s", out, want)
+	}
+	if strings.Contains(string(out), "truncated") {
+		t.Errorf("under-cap json export gained a truncation note: %s", out)
+	}
+	if !strings.Contains(string(out), "你好世界") {
+		t.Errorf("CJK content was escaped or dropped: %s", out)
+	}
+}
+
+func exportTail(data []byte, n int) string {
+	if len(data) > n {
+		data = data[len(data)-n:]
+	}
+	return string(data)
 }
 
 func TestExportProjectEmptySession(t *testing.T) {

@@ -20,7 +20,9 @@ type ExportOptions struct {
 }
 
 // maxExportBytes bounds the size of a share file so a very large session cannot
-// produce an unbounded artifact. Exceeding it appends exportTruncatedMarker.
+// produce an unbounded artifact. Text formats (HTML/Markdown) append
+// exportTruncatedMarker; the JSON format caps structurally (see capExportJSON)
+// so the artifact stays a valid JSON array.
 const maxExportBytes = 2 << 20 // 2 MiB
 
 const exportTruncatedMarker = "\n[truncated: export exceeded 2MiB limit]\n"
@@ -81,7 +83,13 @@ type exportEntry struct {
 	Tool string `json:"tool"`
 	TS   string `json:"ts"`
 	Kind string `json:"kind"`
+	Note string `json:"note,omitempty"` // only set on the synthetic truncation record
 }
+
+// exportTruncatedNote is the note carried by the synthetic record appended when
+// a JSON transcript is truncated, so the note is machine-readable and the
+// artifact stays a valid JSON array.
+const exportTruncatedNote = "truncated: export exceeded 2MiB limit"
 
 // ExportProject renders one branch of a session as a portable, optionally
 // redacted share file. project is either a *Session or a session directory
@@ -127,15 +135,23 @@ func ExportProject(project any, id, branch string, opts ExportOptions) ([]byte, 
 	switch format {
 	case "html":
 		out, err = renderExportHTML(path, chain, opts.Sanitize)
+		if err == nil {
+			out = capExport(out)
+		}
 	case "json":
-		out, err = renderExportJSON(chain)
+		// A plain-text marker appended after the closing bracket would leave an
+		// unparsable artifact, so cap the JSON structurally instead.
+		out, err = capExportJSON(chain)
 	case "markdown":
 		out, err = renderExportMarkdown(sessionID, chain)
+		if err == nil {
+			out = capExport(out)
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	return capExport(out), nil
+	return out, nil
 }
 
 // loadExportRecords resolves project into records, its backing path and id.
@@ -346,6 +362,61 @@ func renderExportJSON(chain []Record) ([]byte, error) {
 		return nil, fmt.Errorf("session: encode json export: %w", err)
 	}
 	return append(data, '\n'), nil
+}
+
+// capExportJSON bounds a JSON transcript at maxExportBytes without breaking its
+// structure. Unlike capExport (used by the text formats), it never appends bare
+// text after the closing bracket: it keeps the largest prefix of complete
+// entries that fits and appends a synthetic
+// {"kind":"truncated","note":"..."} record instead. The result is always a
+// valid JSON array that json.Unmarshal can read.
+func capExportJSON(chain []Record) ([]byte, error) {
+	entries := make([]exportEntry, 0, len(chain))
+	for _, record := range chain {
+		entries = append(entries, exportEntryFromRecord(record))
+	}
+
+	// Fast path: an export already under the cap must be byte-for-byte identical
+	// to the plain renderer (no marker, no schema change).
+	full, err := renderExportJSON(chain)
+	if err != nil {
+		return nil, err
+	}
+	if len(full) <= maxExportBytes {
+		return full, nil
+	}
+
+	// Marshal a prefix of n real entries plus the truncation record. Adding an
+	// entry only grows the array, so its size is monotonic in n and we can
+	// binary-search the largest prefix that still fits under the cap.
+	marshal := func(n int) ([]byte, error) {
+		view := make([]exportEntry, 0, n+1)
+		view = append(view, entries[:n]...)
+		view = append(view, exportEntry{Kind: "truncated", Role: "system", Note: exportTruncatedNote})
+		data, err := json.MarshalIndent(view, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("session: encode json export: %w", err)
+		}
+		return append(data, '\n'), nil
+	}
+
+	lo, hi, best := 0, len(entries), 0
+	for lo <= hi {
+		mid := lo + (hi-lo)/2
+		out, err := marshal(mid)
+		if err != nil {
+			return nil, err
+		}
+		if len(out) <= maxExportBytes {
+			best = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	// best == 0 still yields an array holding only the tiny truncation record,
+	// which is well under the 2 MiB cap.
+	return marshal(best)
 }
 
 func renderExportMarkdown(id string, chain []Record) ([]byte, error) {

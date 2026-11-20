@@ -45,10 +45,22 @@ func approvalDetail(args string) string {
 
 // approvalRequest is one tool call waiting for the operator.
 type approvalRequest struct {
-	name  string
-	args  string
-	reply chan bool
-	ctx   context.Context
+	name string
+	args string
+	// danger is a human-readable reason the call was flagged as dangerous.
+	// Empty (the default) keeps the historical modal byte-for-byte unchanged.
+	// When set, the modal shows the reason and pre-selects Deny as the safe
+	// default so a habitual Enter cannot approve a destructive command.
+	danger string
+	reply  chan bool
+	ctx    context.Context
+}
+
+// defaultsToDeny reports whether this request pre-selects Deny. Ordinary
+// requests keep Allow as the primary affordance and are deliberately left
+// untouched; only flagged requests flip the safe default.
+func (r *approvalRequest) defaultsToDeny() bool {
+	return r != nil && r.danger != ""
 }
 
 func (m *Model) answerApprovalLocked(key Key) KeyAction {
@@ -71,6 +83,13 @@ func (m *Model) answerApprovalLocked(key Key) KeyAction {
 		}
 	case KindEsc, KindCtrlC:
 		m.finishApprovalLocked(false, text(m.locale, "denied"))
+	case KindEnter:
+		// A flagged request pre-selects Deny: an ambiguous confirm key must
+		// never approve a destructive command. Non-danger requests keep their
+		// historical no-op so their behaviour is unchanged.
+		if request.defaultsToDeny() {
+			m.finishApprovalLocked(false, text(m.locale, "denied"))
+		}
 	}
 	return ActionNone
 }
@@ -116,8 +135,22 @@ func (m *Model) dropApprovalLocked(reply chan bool) {
 
 // Approve asks the operator to allow a tool call and blocks until the modal is
 // answered or ctx ends. The answer is returned through the injected
-// Options.Approval authority when one is installed.
+// Options.Approval authority when one is installed. It is the ordinary,
+// non-dangerous entry point: the modal keeps its historical Allow default.
 func (m *Model) Approve(ctx context.Context, name, args string) (bool, error) {
+	return m.approve(ctx, name, args, "")
+}
+
+// ApproveDanger is the dangerous-command entry point. A non-empty danger reason
+// is shown in the modal and flips the default answer to Deny. The app layer
+// (which owns security.FindFileEditingCommand) is responsible for supplying it;
+// the TUI package does not import security. With an empty danger it behaves
+// exactly like Approve.
+func (m *Model) ApproveDanger(ctx context.Context, name, args, danger string) (bool, error) {
+	return m.approve(ctx, name, args, danger)
+}
+
+func (m *Model) approve(ctx context.Context, name, args, danger string) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -131,7 +164,7 @@ func (m *Model) Approve(ctx context.Context, name, args string) (bool, error) {
 		m.mu.Unlock()
 		return true, nil
 	}
-	request := approvalRequest{name: name, args: args, reply: make(chan bool, 1), ctx: ctx}
+	request := approvalRequest{name: name, args: args, danger: danger, reply: make(chan bool, 1), ctx: ctx}
 	m.appendTaskLocked(Task{Name: name, Args: args, Status: TaskPending})
 	if m.pending == nil {
 		m.pending = &request

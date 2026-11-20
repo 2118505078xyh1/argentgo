@@ -25,6 +25,27 @@ func seededFrameModel() (*Model, frameCacheKey) {
 	return m, newFrameCacheKey(m, 80, 24)
 }
 
+// TestFrameCacheKeyIncludesPendingDanger keeps the cache honest when the modal
+// gains a danger reason: two otherwise identical frames with different danger
+// text must never share a cached paint.
+func TestFrameCacheKeyIncludesPendingDanger(t *testing.T) {
+	m := New(Config{})
+	m.now = func() time.Time { return fixedFrameClock() }
+	m.started = fixedFrameClock()
+
+	m.pending = &approvalRequest{name: "bash", args: "{}", danger: "rm"}
+	before := newFrameCacheKey(m, 80, 24)
+	m.pending = &approvalRequest{name: "bash", args: "{}", danger: "sudo rm -rf /"}
+	after := newFrameCacheKey(m, 80, 24)
+
+	if frameCacheHit(before, after) {
+		t.Fatal("a changed pending danger must miss the frame cache")
+	}
+	if isPureScrollChange(before, after) {
+		t.Fatal("a changed pending danger is not a pure scroll change")
+	}
+}
+
 func TestFrameCacheKeyHitAndMiss(t *testing.T) {
 	tests := []struct {
 		name           string

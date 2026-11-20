@@ -34,6 +34,7 @@ type frameCacheKey struct {
 	pending              bool
 	pendingName          string
 	pendingArgs          string
+	pendingDanger        string
 
 	// Panel geometry. Panel *data* changes bump version; these scalar fields
 	// cover the cursor/scroll/filter moves that only mark the model dirty.
@@ -89,6 +90,7 @@ func newFrameCacheKey(m *Model, width, height int) frameCacheKey {
 		k.pending = true
 		k.pendingName = m.pending.name
 		k.pendingArgs = m.pending.args
+		k.pendingDanger = m.pending.danger
 	}
 
 	// Legacy status has a 6-second display window that depends on now, not on

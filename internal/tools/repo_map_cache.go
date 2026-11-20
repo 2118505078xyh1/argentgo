@@ -144,10 +144,12 @@ func repoSymbolCacheStats() repoCacheStats {
 const fitBudgetTolerancePercent = 15
 
 // fitBudget returns the longest prefix of lines whose combined estimated
-// token cost stays within budget, allowing a 15% overshoot. Costs use the same
-// len(bytes)/4 estimate as the rest of the tool, so CJK runs are counted by
-// bytes but never split: whole lines only. Prefix sums plus sort.Search give a
-// binary search over the cut point (O(n) sums, O(log n) search).
+// token cost stays within budget, allowing a 15% overshoot. Costs come from
+// estimateRepoTokens, which counts wide CJK runes as roughly one token each
+// instead of three bytes: long Chinese lines are no longer under-counted.
+// Whole lines only, so a multi-byte rune is never split. Prefix sums plus
+// sort.Search give a binary search over the cut point (O(n) sums, O(log n)
+// search).
 func fitBudget(lines []string, budget int) []string {
 	if budget <= 0 || len(lines) == 0 {
 		return nil
@@ -156,7 +158,7 @@ func fitBudget(lines []string, budget int) []string {
 
 	prefix := make([]int, len(lines)+1)
 	for i, line := range lines {
-		prefix[i+1] = prefix[i] + repoMapTokenEstimate(line)
+		prefix[i+1] = prefix[i] + estimateRepoTokens(line)
 	}
 	// First index whose cumulative cost exceeds the limit; the answer is the
 	// one before it. prefix[0] == 0 <= limit, so the result is at least 1 and

@@ -154,7 +154,7 @@ func TestRepoSymbolsBudgetTrimsByPrefix(t *testing.T) {
 		if sym != ranked[i] {
 			t.Fatal("budgeted symbols are not a prefix of the ranked list")
 		}
-		cost += repoMapTokenEstimate(formatRepoSymbol(sym))
+		cost += estimateRepoTokens(formatRepoSymbol(sym))
 	}
 	if cost > budget {
 		t.Fatalf("kept symbols cost ~%d tokens, over budget %d", cost, budget)
@@ -241,5 +241,48 @@ func TestRepoMapSymbolSectionIsAdditiveAndToggleable(t *testing.T) {
 	}
 	if strings.Contains(plain, "symbols (") || !strings.Contains(plain, "files (2):") {
 		t.Fatalf("symbols:false should keep only the legacy view, got %q", plain)
+	}
+}
+
+func TestEstimateRepoTokensCJKAware(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"empty keeps old minimum", "", 1},
+		{"single ascii byte", "a", 1},
+		{"ascii multiple of four", strings.Repeat("a", 24), 6},
+		{"ascii partial group rounds up", strings.Repeat("a", 23), 6},
+		{"long ascii line", strings.Repeat("a", 1000), 250},
+		{"single cjk rune", "中", 1},
+		{"pure cjk", strings.Repeat("中", 20), 20},
+		{"long cjk line", strings.Repeat("你好", 50), 100},
+		{"cjk punctuation is wide", "函数：处理用户请求数据", 11},
+		{"mixed cjk and ascii", "abc中def", 3},
+		{"mixed code and cjk", "func 处理(): 返回数据", 9},
+		{"fullwidth forms are wide", "ＡＢＣ", 3},
+		{"emoji are wide", "🚀🚀🚀", 3},
+		{"emoji inside ascii", "go 🚀 build", 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := estimateRepoTokens(tc.in); got != tc.want {
+				t.Fatalf("estimateRepoTokens(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	// CJK is no longer counted by raw bytes: a 3-byte Han rune used to
+	// contribute 0.75 token, now it contributes about one.
+	cjk := strings.Repeat("中", 40)
+	if got, old := estimateRepoTokens(cjk), len(cjk)/4; got <= old {
+		t.Fatalf("CJK estimate %d is not above the old byte estimate %d", got, old)
+	}
+	// Pure ASCII drift from the old floor(len/4) estimate stays within a token.
+	ascii := strings.Repeat("x", 999)
+	delta := estimateRepoTokens(ascii) - len(ascii)/4
+	if delta < 0 || delta > 1 {
+		t.Fatalf("ASCII estimate drifted by %d from len/4 (want 0 or 1)", delta)
 	}
 }

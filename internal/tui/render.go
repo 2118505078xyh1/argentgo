@@ -443,6 +443,21 @@ func (m *Model) approvalLines(width int) []Line {
 		}
 		out = append(out, row(label+segment, m.palette.muted()))
 	}
+	// A dangerous call shows why it was flagged and marks Deny as the
+	// pre-selected default. Ordinary requests skip this block entirely, so the
+	// modal above and the hint rows below are byte-for-byte unchanged for them.
+	if danger := collapseSpace(m.pending.danger); danger != "" {
+		label := "⚠ " + text(m.locale, "danger") + ": "
+		continuation := strings.Repeat(" ", TextWidth(label))
+		for i, segment := range Wrap(danger, maxInt(inner-TextWidth(label), 1)) {
+			prefix := label
+			if i > 0 {
+				prefix = continuation
+			}
+			out = append(out, row(prefix+segment, m.palette.failure()))
+		}
+		out = append(out, row(text(m.locale, "default_deny"), m.palette.warning()))
+	}
 	out = append(out, row("", Style{}))
 	out = append(out, row("[y] "+text(m.locale, "allow")+"   [n] "+text(m.locale, "deny"), Style{}))
 	out = append(out, row("[a] "+text(m.locale, "allow_session"), m.palette.muted()))

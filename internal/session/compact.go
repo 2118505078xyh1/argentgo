@@ -432,6 +432,15 @@ func nextStepLines(content string, limit int) []string {
 		if trimmed == "" {
 			continue
 		}
+		// A previous compaction's summary is projected as a system Entry and
+		// fed back through Summarize when a later compaction drops it. Its own
+		// markdown section headers ("## Next steps", "# TODO", ...) contain
+		// the markers below but are structure, not a plan: matching them turns
+		// a header into a bullet like "- ## Next steps" in the new summary.
+		// Heading lines never carry an actionable next step, so skip them.
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
 		lower := strings.ToLower(trimmed)
 		marked := false
 		for _, marker := range nextStepMarkers {

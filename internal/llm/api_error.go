@@ -87,7 +87,14 @@ var (
 // with a status line such as "provider returned 429 Too Many Requests: ...".
 var (
 	notConfiguredRE = regexp.MustCompile(`(?i)(not[_\s-]?configured|not[_\s-]?set|no[_\s-]?(?:api[_\s-]?)?key|api[_\s-]?key[_\s-]?(?:is[_\s-]?)?required|missing[_\s-]?(?:api[_\s-]?)?key|no[_\s-]?credentials|provider[_\s-]?not[_\s-]?configured|configure[_\s-]+(?:an?[_\s-]+)?(?:api[_\s-]?)?key|set[_\s-]+(?:the[_\s-]+)?(?:api[_\s-]?)?key|尚未配置)`)
-	authRE          = regexp.MustCompile(`(?i)(\b401\b|\b403\b|unauthori[sz]ed|invalid[_\s-]?api[_\s-]?key|invalid[_\s-]?token|expired[_\s-]?token|authentication[_\s-]?(?:failed|error|required)|forbidden|login[_\s-]?required|sign[_\s-]?in[_\s-]?required|invalid[_\s-]?credentials?|api[_\s-]?key[_\s-]?invalid|认证失败|登录已过期)`)
+	// authRE covers both the adjacent forms ("invalid_api_key") and the two
+	// spaced-out phrasings providers actually return: an adjective before
+	// "api key" ("Incorrect API key provided: ...", OpenAI) and a predicate
+	// after it ("Your API key is invalid", "api key has been revoked"). The
+	// gaps are bounded so a quota/rate-limit message that merely mentions an
+	// api key cannot be pulled into the auth family; notConfiguredRE still
+	// runs first and keeps "no api key"/"api key is required" in config.
+	authRE = regexp.MustCompile(`(?i)(\b401\b|\b403\b|unauthori[sz]ed|invalid[_\s-]?api[_\s-]?key|invalid[_\s-]?token|expired[_\s-]?token|authentication[_\s-]?(?:failed|error|required)|forbidden|login[_\s-]?required|sign[_\s-]?in[_\s-]?required|invalid[_\s-]?credentials?|api[_\s-]?key[_\s-]?invalid|(?:incorrect|wrong|unknown|unrecogni[sz]ed|expired|revoked)[^\n]{0,24}?api[_\s-]?key|api[_\s-]?key[^\n]{0,32}?(?:invalid|incorrect|wrong|expired|revoked|unknown|unrecogni[sz]ed|rejected|not[_\s]+valid)|认证失败|登录已过期)`)
 	// quotaRE matches hard, non-retryable quota/billing limits. The generic
 	// words (billing, 配额, 额度) are deliberately NOT bare: a transient rate
 	// limit is usually phrased with them ("请求过于频繁，配额将在 30 秒后重置",
@@ -116,8 +123,9 @@ var (
 //
 // Behavior:
 //   - nil returns nil.
-//   - An *ActionableError is returned unchanged, so classification is
-//     idempotent for callers that may classify an error more than once.
+//   - An *ActionableError is returned unchanged, including when it is wrapped
+//     with %w, so classification is idempotent for callers that may classify an
+//     error more than once.
 //   - Any other non-nil error yields a family. Recognized families are chosen
 //     by errors.Is/errors.As sentinels first (net/context/stream failures),
 //     then by package-level patterns on RedactText(err.Error()). Errors from
@@ -132,7 +140,13 @@ func ClassifyAPIError(err error) *ActionableError {
 	if err == nil {
 		return nil
 	}
-	if own, ok := err.(*ActionableError); ok {
+	// errors.As (not a direct type assertion) keeps classification idempotent
+	// through the %w wrappers the wire clients add around an already-classified
+	// error. Without it the same ActionableError would be re-derived from its
+	// own redacted message, duplicating the detail and potentially changing
+	// the family when the message no longer matches the original signal.
+	var own *ActionableError
+	if errors.As(err, &own) {
 		return own
 	}
 	text := RedactError(err)

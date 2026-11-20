@@ -102,21 +102,24 @@ var keyValueNames = []struct {
 	{"private_key", "private key"},
 }
 
+// Needles are lowercase and matched against asciiLower(text): HTTP header
+// names and auth-scheme names are case-insensitive (RFC 7230/7235), so
+// `AUTHORIZATION: Basic ...` and `BEARER ...` are as valid as their canonical
+// spellings. Listing only two exact cases used to let the whole credential
+// leak. asciiLower keeps byte offsets intact, so the offsets found in the
+// lowered copy still index the original text.
 var headerPrefixes = []struct {
 	needle string
 	kind   string
 }{
-	{"Bearer ", "bearer token"},
 	{"bearer ", "bearer token"},
-	{"Authorization: ", "auth header"},
 	{"authorization: ", "auth header"},
 	// HTTP allows optional whitespace after the header colon (OWS), so
-	// `Authorization:Basic <b64>` is a valid header too. The spaced needles
-	// above miss that spelling entirely; without these the whole credential
+	// `Authorization:Basic <b64>` is a valid header too. The spaced needle
+	// above misses that spelling entirely; without this the whole credential
 	// leaks because a bare base64 token is not credential-shaped on its own.
 	// authValueEnd/skipHorizontalSpace handle both spellings identically, so
 	// a spaced header still produces the same single redaction.
-	{"Authorization:", "auth header"},
 	{"authorization:", "auth header"},
 }
 
@@ -215,7 +218,9 @@ func findSecret(text string) *secretMatch {
 		consider(loc[0], loc[1], "private key")
 	}
 	for _, entry := range headerPrefixes {
-		offset := strings.Index(text, entry.needle)
+		// Match in the lowercased copy: header and scheme names are
+		// case-insensitive. Offsets stay valid because asciiLower is per-byte.
+		offset := strings.Index(lowered, entry.needle)
 		if offset < 0 {
 			continue
 		}

@@ -152,6 +152,42 @@ func TestSummarizeFilesAreDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+// TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps covers repeated
+// compaction: a compaction record is stamped RetainAlways, so a later
+// compaction sees the previous summary as a system Entry (its Data is the old
+// Compaction payload) and re-runs the next-step heuristics on its markdown
+// text. The old summary's own "## Next steps" header matches the "next step"
+// marker, which used to surface as a literal "- ## Next steps" bullet in the
+// new summary. Markdown headings are structure, never a plan.
+func TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps(t *testing.T) {
+	oldSummary := "## Compaction\n- dropped 2 message(s), kept the last 1\n\n" +
+		"## Goal\n- build lexer\n\n" +
+		"## Files changed\n- (none)\n\n" +
+		"## Failures\n- (none)\n\n" +
+		"## Next steps\n- (none)\n"
+	data, _ := json.Marshal(map[string]any{"summary": oldSummary})
+	got := Summarize([]Entry{{Role: "system", Content: oldSummary, Data: data}}, 0)
+	for _, step := range got.NextSteps {
+		if strings.HasPrefix(strings.TrimSpace(step), "#") {
+			t.Fatalf("markdown header promoted to next step: %q\nsummary:\n%s", step, got.Summary)
+		}
+	}
+	if strings.Contains(got.Summary, "- ## ") {
+		t.Fatalf("summary contains a promoted section header:\n%s", got.Summary)
+	}
+}
+
+// TestSummarizeStillKeepsGenuineNextStepAfterHeader guards the fix above from
+// dropping real next steps that follow a heading in the same content.
+func TestSummarizeStillKeepsGenuineNextStepAfterHeader(t *testing.T) {
+	content := "## Plan\nNext steps: 加 lexer 并补测试"
+	data, _ := json.Marshal(map[string]any{"summary": content})
+	got := Summarize([]Entry{{Role: "system", Content: content, Data: data}}, 0)
+	if len(got.NextSteps) != 1 || !strings.Contains(got.NextSteps[0], "加 lexer 并补测试") {
+		t.Fatalf("genuine next step after a heading was lost: %q", got.NextSteps)
+	}
+}
+
 func TestSummarizeKeepsFirstLineMarkers(t *testing.T) {
 	dropped := []Entry{
 		{Role: "assistant", Content: "Next steps: 加 lexer 并补测试"},

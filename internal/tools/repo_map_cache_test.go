@@ -175,12 +175,12 @@ func TestFitBudgetSelectsLargestPrefixWithinTolerance(t *testing.T) {
 	limit := 10 + 10*fitBudgetTolerancePercent/100
 	cost := 0
 	for _, line := range got {
-		cost += repoMapTokenEstimate(line)
+		cost += estimateRepoTokens(line)
 	}
 	if cost > limit {
 		t.Fatalf("selected prefix costs %d tokens, over tolerated limit %d", cost, limit)
 	}
-	nextCost := cost + repoMapTokenEstimate(lines[len(got)])
+	nextCost := cost + estimateRepoTokens(lines[len(got)])
 	if nextCost <= limit {
 		t.Fatalf("fitBudget stopped early: adding line %d costs %d <= %d", len(got), nextCost, limit)
 	}
@@ -196,7 +196,7 @@ func TestFitBudgetMatchesLinearOracle(t *testing.T) {
 		want := 0
 		sum := 0
 		for _, line := range lines {
-			next := sum + repoMapTokenEstimate(line)
+			next := sum + estimateRepoTokens(line)
 			if next > limit {
 				break
 			}
@@ -220,9 +220,12 @@ func TestFitBudgetCJK(t *testing.T) {
 		"方法：校验输入并返回结果",
 		"常量：默认超时时间配置",
 	}
-	got := fitBudget(lines, 8)
-	if len(got) == 0 || len(got) > len(lines) {
-		t.Fatalf("fitBudget kept %d CJK lines: %q", len(got), got)
+	// Budget 30 calibrates to the CJK-aware estimate (each line costs ~10-12
+	// tokens, not the old byte/4 value of ~8). It must cut a non-empty prefix.
+	const budget = 30
+	got := fitBudget(lines, budget)
+	if len(got) == 0 || len(got) >= len(lines) {
+		t.Fatalf("fitBudget kept %d of %d CJK lines, want a non-empty proper prefix", len(got), len(lines))
 	}
 	if !reflect.DeepEqual(got, lines[:len(got)]) {
 		t.Fatal("CJK result is not a prefix of lines")
@@ -231,10 +234,10 @@ func TestFitBudgetCJK(t *testing.T) {
 	if !utf8.ValidString(out) || strings.ContainsRune(out, utf8.RuneError) {
 		t.Fatalf("CJK result is not valid UTF-8: %q", out)
 	}
-	limit := 8 + 8*fitBudgetTolerancePercent/100
+	limit := budget + budget*fitBudgetTolerancePercent/100
 	cost := 0
 	for _, line := range got {
-		cost += repoMapTokenEstimate(line)
+		cost += estimateRepoTokens(line)
 	}
 	if cost > limit {
 		t.Fatalf("CJK prefix costs %d tokens, over tolerated limit %d", cost, limit)
@@ -261,5 +264,32 @@ func TestFitBudgetEmptyInput(t *testing.T) {
 				t.Fatalf("fitBudget = %q, want empty", got)
 			}
 		})
+	}
+}
+
+func TestFitBudgetCJKNoLongerUnderestimates(t *testing.T) {
+	// Same byte length, very different real cost: len/4 used to score both
+	// lines 30 tokens, so a 30-token budget accepted the Chinese one too.
+	ascii := strings.Repeat("a", 120) // 30 ASCII tokens
+	cjk := strings.Repeat("中", 40)    // 120 bytes but 40 tokens
+
+	if got := estimateRepoTokens(ascii); got != 30 {
+		t.Fatalf("ASCII estimate = %d, want 30", got)
+	}
+	if got := estimateRepoTokens(cjk); got != 40 {
+		t.Fatalf("CJK estimate = %d, want 40", got)
+	}
+	const budget = 30
+	limit := budget + budget*fitBudgetTolerancePercent/100 // 34
+	if got := fitBudget([]string{ascii}, budget); len(got) != 1 {
+		t.Fatalf("ASCII line should fit, got %q", got)
+	}
+	if got := fitBudget([]string{cjk}, budget); len(got) != 0 {
+		t.Fatalf("CJK line of %d tokens must not fit a %d-token budget (limit %d): %q",
+			estimateRepoTokens(cjk), budget, limit, got)
+	}
+	// A generous budget still keeps the CJK line intact and UTF-8 safe.
+	if got := fitBudget([]string{cjk}, 100); len(got) != 1 || got[0] != cjk {
+		t.Fatalf("generous budget did not keep the CJK line: %q", got)
 	}
 }
