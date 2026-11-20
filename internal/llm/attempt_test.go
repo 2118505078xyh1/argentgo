@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -98,6 +99,26 @@ func TestClassifyError(t *testing.T) {
 		if got := llm.ClassifyError(tc.err); got != tc.want {
 			t.Errorf("ClassifyError(%v) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestNewAttemptRecordClipsErrorClassByRune(t *testing.T) {
+	// A byte-based clip used to cut this message in the middle of a rune.
+	long := strings.Repeat("中文", 200)
+	record := llm.NewAttemptRecord(llm.AttemptFailed, llm.ProtocolChatCompletions, "m", errors.New(long))
+	if !utf8.ValidString(record.ErrorClass) {
+		t.Fatalf("ErrorClass is not valid UTF-8: %q", record.ErrorClass)
+	}
+	if got := utf8.RuneCountInString(record.ErrorClass); got != 256 {
+		t.Fatalf("ErrorClass rune count = %d, want 256 (255 + ellipsis)", got)
+	}
+	if !strings.HasSuffix(record.ErrorClass, "…") {
+		t.Fatalf("ErrorClass = %q, want an ellipsis suffix", record.ErrorClass)
+	}
+
+	short := llm.NewAttemptRecord(llm.AttemptFailed, llm.ProtocolChatCompletions, "m", errors.New("中文"))
+	if short.ErrorClass != "中文" {
+		t.Fatalf("short ErrorClass = %q, want 中文", short.ErrorClass)
 	}
 }
 

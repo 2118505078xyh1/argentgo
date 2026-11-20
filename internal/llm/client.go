@@ -281,6 +281,7 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	partial := make(map[int]*ToolCall)
 	var usage *Usage
 	var finishReason string
+	var integrity streamIntegrity
 
 	// Reuse the shared SSE reader: a single event may carry its JSON payload
 	// across several data: lines, which the SSE spec allows and gateways use.
@@ -307,6 +308,7 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 			data = next
 		}
 		if data == "[DONE]" {
+			integrity.terminated = true
 			break
 		}
 
@@ -387,11 +389,13 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 		}
 		// A truncated or malformed argument fragment is not safe to hand to
 		// the tool dispatcher; fall back to the empty object like the other
-		// protocol clients do.
-		if strings.TrimSpace(call.Function.Arguments) == "" || !json.Valid([]byte(call.Function.Arguments)) {
-			call.Function.Arguments = "{}"
-		}
+		// protocol clients do. If the stream never reached [DONE], the
+		// fallback means the answer was cut off mid-tool-call: fail instead.
+		call.Function.Arguments = integrity.toolArguments(call.Function.Arguments)
 		calls = append(calls, call)
+	}
+	if err := integrity.eofError("[DONE]"); err != nil {
+		return Message{}, err
 	}
 
 	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage, FinishReason: finishReason}, nil

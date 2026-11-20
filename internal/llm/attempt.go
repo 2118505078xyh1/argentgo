@@ -2,8 +2,10 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrStreamError marks a failure that happened after the provider accepted the
@@ -76,12 +78,41 @@ func emitAttempt(hook func(AttemptRecord), record AttemptRecord) {
 	}
 }
 
+// clipErrorClass bounds an error class by runes. Byte slicing could cut a
+// multibyte message (e.g. Chinese) in the middle of a UTF-8 sequence.
 func clipErrorClass(text string) string {
-	const limit = 256
-	if len(text) <= limit {
-		return text
+	return clipRedacted(text, 256)
+}
+
+// streamIntegrity tracks whether a reply reached its protocol terminator and
+// whether any tool call had to be completed with an empty argument object
+// because the streamed arguments were empty or malformed. Reaching EOF in
+// that state means the provider cut the reply off mid-tool-call: dispatching
+// it would run a real tool with invented "{}" arguments. Text-only truncation
+// stays tolerated so gateways that omit the terminator keep working.
+type streamIntegrity struct {
+	terminated     bool
+	incompleteTool bool
+}
+
+// toolArguments completes streamed arguments, flagging a fallback to "{}" so
+// an unterminated stream can reject the reply rather than dispatch a tool with
+// arguments the provider never finished sending.
+func (s *streamIntegrity) toolArguments(arguments string) string {
+	if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
+		s.incompleteTool = true
+		return "{}"
 	}
-	return text[:limit-1] + "…"
+	return arguments
+}
+
+// eofError reports a truncation that must fail the attempt. marker is the
+// protocol's own terminator, included in the error for diagnostics.
+func (s *streamIntegrity) eofError(marker string) error {
+	if s.terminated || !s.incompleteTool {
+		return nil
+	}
+	return streamError("stream ended without %s while a tool call was incomplete", marker)
 }
 
 // streamError wraps a mid-stream failure with the sentinel the session layer

@@ -319,6 +319,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		usage        *Usage
 		finishReason string
 		order        []int
+		integrity    streamIntegrity
 		partials     = make(map[int]*responsesPartial)
 	)
 	var calls []ToolCall
@@ -332,10 +333,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		if strings.TrimSpace(partial.name) == "" {
 			return
 		}
-		arguments := partial.arguments.String()
-		if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
-			arguments = "{}"
-		}
+		arguments := integrity.toolArguments(partial.arguments.String())
 		id := partial.id
 		if id == "" {
 			id = fmt.Sprintf("call_%d", index+1)
@@ -366,6 +364,7 @@ streamLoop:
 			break
 		}
 		if data == "[DONE]" {
+			integrity.terminated = true
 			break
 		}
 
@@ -436,6 +435,7 @@ streamLoop:
 					usage.CachedTokens = details.CachedTokens
 				}
 			}
+			integrity.terminated = true
 			break streamLoop
 		case "response.failed", "error":
 			var fromResponse string
@@ -456,6 +456,9 @@ streamLoop:
 
 	for _, index := range order {
 		push(index)
+	}
+	if err := integrity.eofError("response.completed"); err != nil {
+		return Message{}, err
 	}
 
 	return Message{

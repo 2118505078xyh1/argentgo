@@ -385,6 +385,7 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		// is rebuilt from this base instead of summing the two snapshots.
 		baseInput    int
 		finishReason string
+		integrity    streamIntegrity
 		partials     = make(map[int]*anthropicPartial)
 	)
 	var calls []ToolCall
@@ -405,6 +406,7 @@ streamLoop:
 			break
 		}
 		if data == "[DONE]" {
+			integrity.terminated = true
 			break
 		}
 
@@ -477,9 +479,7 @@ streamLoop:
 			if strings.TrimSpace(arguments) == "" {
 				arguments = partial.start
 			}
-			if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
-				arguments = "{}"
-			}
+			arguments = integrity.toolArguments(arguments)
 			id := partial.id
 			if id == "" {
 				id = fmt.Sprintf("toolu_%d", event.Index)
@@ -519,6 +519,7 @@ streamLoop:
 				usage.PromptTokens = baseInput + usage.CachedTokens + usage.CacheWriteTokens
 			}
 		case "message_stop":
+			integrity.terminated = true
 			break streamLoop
 		case "error":
 			message := "unknown provider error"
@@ -536,9 +537,7 @@ streamLoop:
 		if strings.TrimSpace(arguments) == "" {
 			arguments = partial.start
 		}
-		if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
-			arguments = "{}"
-		}
+		arguments = integrity.toolArguments(arguments)
 		id := partial.id
 		if id == "" {
 			id = fmt.Sprintf("toolu_%d", index)
@@ -551,6 +550,9 @@ streamLoop:
 				Arguments: arguments,
 			},
 		})
+	}
+	if err := integrity.eofError("message_stop"); err != nil {
+		return Message{}, err
 	}
 
 	return Message{
