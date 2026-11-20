@@ -42,17 +42,26 @@ func TestRunDrivesAPromptTurnAndRestoresTheScreen(t *testing.T) {
 		return len(entries) >= 2 && strings.Contains(entries[1].Text, "echo: hi")
 	})
 
-	// ctrl+c with an empty input and no running turn leaves the UI.
-	if _, err := writer.Write([]byte{0x03}); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("run: %v", err)
+	// Ctrl+c leaves the UI. The streamed answer may still have a running turn
+	// at this point: the first ctrl+c aborts that turn (it does not quit), and
+	// a second one quits. Send them until Run returns so the test is robust to
+	// the abort/end-turn race, especially under -race or heavy load.
+	exited := false
+	deadline := time.After(30 * time.Second)
+	for !exited {
+		if _, err := writer.Write([]byte{0x03}); err != nil {
+			t.Fatalf("write: %v", err)
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatalf("Run did not return after ctrl+c")
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			exited = true
+		case <-time.After(250 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("Run did not return after ctrl+c")
+		}
 	}
 
 	written := out.String()
