@@ -485,7 +485,28 @@ func parseArgs(args json.RawMessage) (map[string]any, error) {
 	if fields == nil {
 		fields = map[string]any{}
 	}
+	normalizeCommandField(fields)
 	return fields, nil
+}
+
+// normalizeCommandField mirrors the tool layer's alias handling. Tools such as
+// powershell accept `script` as an alias for `command` and execute it whenever
+// `command` is empty (whitespace included). checkCommand and ruleDecision only
+// read `command`, so without this normalization a hard deny can be downgraded
+// to Ask simply by renaming the field — and auto-executed under --yolo.
+//
+// The fallback is deliberately conservative: an explicit, non-empty `command`
+// always wins and is never overwritten. Only the map used by the policy
+// evaluator is touched; the raw arguments forwarded to the tool stay untouched.
+func normalizeCommandField(fields map[string]any) {
+	if command, ok := fields["command"].(string); ok && strings.TrimSpace(command) != "" {
+		return
+	}
+	script, ok := fields["script"].(string)
+	if !ok || strings.TrimSpace(script) == "" {
+		return
+	}
+	fields["command"] = script
 }
 
 func stringList(raw json.RawMessage) ([]string, error) {

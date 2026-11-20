@@ -229,6 +229,27 @@ func (c *Client) initialize(ctx context.Context) error {
 				"hover":              map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
 				"publishDiagnostics": map[string]any{"relatedInformation": true},
 				"synchronization":    map[string]any{"didSave": true},
+				// Advertise the IDE-grade features implemented in features_ide.go
+				// and features_advanced.go so servers actually send results.
+				"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
+				"references":     map[string]any{},
+				"codeAction":     map[string]any{},
+				"rename":         map[string]any{"prepareSupport": false},
+				"formatting":     map[string]any{},
+				"codeLens":       map[string]any{},
+				"inlayHint":      map[string]any{},
+				"semanticTokens": map[string]any{
+					"requests": map[string]any{"full": map[string]any{"delta": true}},
+					"tokenTypes": []string{
+						"namespace", "type", "class", "enum", "interface", "struct",
+						"typeParameter", "parameter", "variable", "property", "enumMember",
+						"event", "function", "method", "macro", "keyword",
+					},
+					"tokenModifiers": []string{
+						"declaration", "definition", "readonly", "static", "deprecated",
+						"abstract", "async", "modification", "documentation", "defaultLibrary",
+					},
+				},
 			},
 			"workspace": map[string]any{"configuration": true, "workspaceFolders": true},
 		},

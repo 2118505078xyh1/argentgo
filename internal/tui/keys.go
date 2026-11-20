@@ -2,6 +2,10 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -50,13 +54,48 @@ const (
 	KindCtrlS // toggle the session rail
 	KindAltU  // undo last turn
 	KindAltR  // retry last turn
+
+	// Mouse report kinds are appended so the numeric values of every key
+	// above stay stable. Because of legacy decoding (see parseCSI), wheels and
+	// an unmodified left press keep their historical Kind values on the Key;
+	// Key.Mouse is always the authoritative description of a mouse report.
+	KindMousePress
+	KindMouseDrag
+	KindMouseRelease
+	KindMouseWheelUp
+	KindMouseWheelDown
 )
 
-// Key is one decoded keystroke.
+// MouseKind classifies one decoded SGR mouse report.
+type MouseKind int
+
+// Mouse report kinds.
+const (
+	MouseUnknown MouseKind = iota
+	MousePress
+	MouseDrag
+	MouseRelease
+	MouseWheelUp
+	MouseWheelDown
+)
+
+// MouseEvent is one decoded SGR mouse report. Col and Row are 1-based
+// terminal coordinates. Button holds the raw SGR bits: low two bits identify
+// left (0), middle (1) and right (2); bit 32 marks a drag; 64/65 are the wheel.
+type MouseEvent struct {
+	Kind   MouseKind
+	Button int
+	Col    int
+	Row    int
+}
+
+// Key is one decoded keystroke. Mouse is non-nil only for a decoded mouse
+// report; keyboard keys are unchanged.
 type Key struct {
-	Kind Kind
-	Rune rune
-	Text string // pasted block, for KindPaste
+	Kind  Kind
+	Rune  rune
+	Text  string      // pasted block, for KindPaste
+	Mouse *MouseEvent // decoded SGR mouse report, if any
 }
 
 // Decoder turns a byte stream into keys. Partial escape sequences are kept
@@ -233,23 +272,70 @@ func parseCSI(body string, final byte) Key {
 		}
 		return Key{Kind: KindIgnore}
 	case 'M', 'm':
-		// SGR mouse report: ESC [ < button ; col ; row M. The wheel scrolls.
-		if !strings.HasPrefix(body, "<") {
+		// SGR mouse report: ESC [ < button ; col ; row M (press) or m
+		// (release). decodeSGRMouse carries the full event on Key.Mouse.
+		key, ok := decodeSGRMouse(body, final == 'm')
+		if !ok {
 			return Key{Kind: KindIgnore}
 		}
-		parts := strings.Split(strings.TrimPrefix(body, "<"), ";")
-		if len(parts) != 3 {
-			return Key{Kind: KindIgnore}
+		// Keep the legacy Kind values that the original wheel decoder and its
+		// golden tests rely on: wheels were scroll keys and an unmodified
+		// left press was ignored. The run loop dispatches on Key.Mouse instead,
+		// so no mouse detail is lost by retaining these values.
+		switch key.Mouse.Kind {
+		case MouseWheelUp:
+			key.Kind = KindScrollUp
+		case MouseWheelDown:
+			key.Kind = KindScrollDown
+		case MousePress:
+			if key.Mouse.Button&0x3 == 0 {
+				key.Kind = KindIgnore
+			}
 		}
-		switch parts[0] {
-		case "64":
-			return Key{Kind: KindScrollUp}
-		case "65":
-			return Key{Kind: KindScrollDown}
-		}
-		return Key{Kind: KindIgnore}
+		return key
 	}
 	return Key{Kind: KindIgnore}
+}
+
+// decodeSGRMouse parses the body of an SGR report (everything after ESC [)
+// into a Key with a MouseEvent. release selects the final 'm' form. The third
+// result is false for anything that is not a well-formed SGR report, letting
+// callers fall back to the ordinary "ignore" path.
+//
+// Legacy X10 reports (ESC [ M followed by three raw bytes) are deliberately
+// not decoded: modern terminals in SGR mode (DECSET 1016) emit only the form
+// handled here, and the extra mode would complicate the byte-stream decoder.
+func decodeSGRMouse(body string, release bool) (Key, bool) {
+	if !strings.HasPrefix(body, "<") {
+		return Key{}, false
+	}
+	parts := strings.Split(strings.TrimPrefix(body, "<"), ";")
+	if len(parts) != 3 {
+		return Key{}, false
+	}
+	button, err1 := strconv.Atoi(parts[0])
+	col, err2 := strconv.Atoi(parts[1])
+	row, err3 := strconv.Atoi(parts[2])
+	if err1 != nil || err2 != nil || err3 != nil || button < 0 || col < 1 || row < 1 {
+		return Key{}, false
+	}
+	ev := &MouseEvent{Button: button, Col: col, Row: row}
+	key := Key{Mouse: ev}
+	switch {
+	case button&64 != 0:
+		if button&1 != 0 {
+			ev.Kind, key.Kind = MouseWheelDown, KindMouseWheelDown
+		} else {
+			ev.Kind, key.Kind = MouseWheelUp, KindMouseWheelUp
+		}
+	case release:
+		ev.Kind, key.Kind = MouseRelease, KindMouseRelease
+	case button&32 != 0:
+		ev.Kind, key.Kind = MouseDrag, KindMouseDrag
+	default:
+		ev.Kind, key.Kind = MousePress, KindMousePress
+	}
+	return key, true
 }
 
 // KeyBinding is one entry of the footer key bar. Key is the label drawn first
@@ -364,4 +450,30 @@ func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) str
 		used += textWidth(segment)
 	}
 	return out.String() + shortHelpEllipsis
+}
+
+// clipboardWrite is the pluggable clipboard backend. Tests replace it to
+// exercise CopyToClipboard without touching the real system clipboard.
+var clipboardWrite = writeClipboard
+
+// CopyToClipboard copies text to the system clipboard on a best-effort basis.
+// On Windows it pipes the text to clip.exe through os/exec (stdlib, no cgo and
+// no new module). On other platforms, or when clip.exe is unavailable, it is a
+// no-op so copy support can never break the run loop. Errors from a present
+// clip.exe are returned for the caller to log or ignore.
+func CopyToClipboard(text string) error { return clipboardWrite(text) }
+
+func writeClipboard(text string) error {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	if _, err := exec.LookPath("clip.exe"); err != nil {
+		return nil
+	}
+	cmd := exec.Command("clip.exe")
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tui: copy to clipboard: %w", err)
+	}
+	return nil
 }

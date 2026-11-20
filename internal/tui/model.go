@@ -60,6 +60,14 @@ type SessionInfo struct {
 	Title string
 }
 
+// BufferPos is a 0-based (row, col) position in the rendered buffer. Mouse
+// reports are 1-based; the run loop subtracts one before calling the
+// selection methods.
+type BufferPos struct {
+	Row int
+	Col int
+}
+
 // TurnAction is the narrow seam for undo / retry / rename. The TUI never
 // imports the session or app package; an integrator supplies the behaviour.
 type TurnAction func(ctx context.Context, arg string) error
@@ -140,6 +148,13 @@ type Model struct {
 	bodyH      int
 	version    int
 	entryCache []entryCacheSlot
+
+	// Text selection in 0-based buffer coordinates. selecting is true from
+	// MouseDown until MouseUp; anchor and active survive MouseUp so the range
+	// can still be copied afterwards.
+	selAnchor BufferPos
+	selActive BufferPos
+	selecting bool
 
 	// dirty records content changes between paints. The run loop gates its
 	// repaint on it; the buffer diff remains the final authority on what is
@@ -250,4 +265,134 @@ func (m *Model) SetContextInfo(window int, cost string) {
 	m.contextWindow = window
 	m.cost = cost
 	m.markDirtyLocked()
+}
+
+// MouseDown starts a selection at a 0-based buffer position. It replaces any
+// previous selection.
+func (m *Model) MouseDown(col, row int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.selAnchor = BufferPos{Row: row, Col: col}
+	m.selActive = m.selAnchor
+	m.selecting = true
+	m.markDirtyLocked()
+}
+
+// MouseDrag extends the current selection. A drag with no active MouseDown is
+// ignored, so stray motion reports cannot create a selection.
+func (m *Model) MouseDrag(col, row int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.selecting {
+		return
+	}
+	m.selActive = BufferPos{Row: row, Col: col}
+	m.markDirtyLocked()
+}
+
+// MouseUp ends the drag and keeps the range available for SelectedText.
+func (m *Model) MouseUp(col, row int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.selecting {
+		return
+	}
+	m.selActive = BufferPos{Row: row, Col: col}
+	m.selecting = false
+	m.markDirtyLocked()
+}
+
+// ClearSelection drops the current selection entirely.
+func (m *Model) ClearSelection() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.selAnchor = BufferPos{}
+	m.selActive = BufferPos{}
+	m.selecting = false
+	m.markDirtyLocked()
+}
+
+// SelectionActive reports whether a drag is currently in progress.
+func (m *Model) SelectionActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.selecting
+}
+
+// HasSelection reports whether there is a non-empty range to copy.
+func (m *Model) HasSelection() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hasSelectionLocked()
+}
+
+func (m *Model) hasSelectionLocked() bool { return m.selAnchor != m.selActive }
+
+// selectionRangeLocked returns the selection endpoints in reading order
+// (top-left first), regardless of drag direction.
+func (m *Model) selectionRangeLocked() (BufferPos, BufferPos) {
+	a, b := m.selAnchor, m.selActive
+	if b.Row < a.Row || (b.Row == a.Row && b.Col < a.Col) {
+		a, b = b, a
+	}
+	return a, b
+}
+
+// SelectedText extracts the plain text of the cells covered by the selection.
+// Wide-rune continuation cells are skipped and each line is right-trimmed, so
+// the result is paste-friendly. It returns "" when there is no selection or
+// the buffer is empty.
+func (m *Model) SelectedText(buf *Buffer) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if buf == nil || !m.hasSelectionLocked() || buf.Width() <= 0 || buf.Height() <= 0 {
+		return ""
+	}
+	a, b := m.selectionRangeLocked()
+	a.Row = clampCell(a.Row, 0, buf.Height()-1)
+	b.Row = clampCell(b.Row, 0, buf.Height()-1)
+	w := buf.Width()
+	lines := make([]string, 0, b.Row-a.Row+1)
+	for row := a.Row; row <= b.Row; row++ {
+		start, end := 0, w-1
+		if row == a.Row {
+			start = a.Col
+		}
+		if row == b.Row {
+			end = b.Col
+		}
+		if start > end {
+			start, end = end, start
+		}
+		start, end = clampCell(start, 0, w-1), clampCell(end, 0, w-1)
+		var line strings.Builder
+		for col := start; col <= end; col++ {
+			if r := buf.cells[row*w+col].R; r != 0 {
+				line.WriteRune(r)
+			}
+		}
+		lines = append(lines, strings.TrimRight(line.String(), " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// MouseWheel maps a wheel report to the existing three-row scroll behaviour.
+func (m *Model) MouseWheel(up bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if up {
+		m.scrollByLocked(3)
+	} else {
+		m.scrollByLocked(-3)
+	}
+}
+
+func clampCell(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }

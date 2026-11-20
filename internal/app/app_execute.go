@@ -194,6 +194,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		},
 	}}
 	configureSubagents(&loop.Opts, res)
+	// Per-model edit-format guidance is opt-in so byte-exact system-prompt
+	// assertions and callers that pin their own prompt keep unchanged bytes by
+	// default. Set ARGENT_EDIT_GUIDE=1 to append it. Appending here (after
+	// configureSubagents) keeps the orchestrator append order intact.
+	if env := stdio.Env; env != nil && env("ARGENT_EDIT_GUIDE") == "1" {
+		loop.Opts.System = agent.AppendEditFormat(loop.Opts.System, res.Model)
+	}
 	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)

@@ -95,6 +95,7 @@ type Client struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
+	Retry   RetryPolicy
 	Options Options
 }
 
@@ -114,6 +115,13 @@ func (c *Client) PromptCacheCapability() CacheCapability {
 		Protocol:  ProtocolChatCompletions,
 		Local:     isLocalEndpoint(c.BaseURL),
 	}
+}
+
+func (c *Client) httpClient() *http.Client {
+	if c.HTTP == nil {
+		return http.DefaultClient
+	}
+	return c.HTTP
 }
 
 type chatRequest struct {
@@ -216,17 +224,37 @@ func (c *Client) Chat(
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return Message{}, err
+	policy := c.Retry
+	if policy.IsZero() {
+		policy = DefaultRetryPolicy()
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	if c.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolChatCompletions,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
 	}
-
-	resp, err := c.HTTP.Do(req)
+	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
+		// A fresh request (and body reader) per attempt: streaming bodies
+		// cannot be replayed, and RetryPolicy.Do calls send again on failure.
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		if c.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
+		return c.httpClient().Do(req)
+	})
 	if err != nil {
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
@@ -255,17 +283,23 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	var usage *Usage
 	var finishReason string
 
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
+	// Reuse the shared SSE reader: a single event may carry its JSON payload
+	// across several data: lines, which the SSE spec allows and gateways use.
+	reader := newSSEReader(body)
+	for {
 		if err := ctx.Err(); err != nil {
 			return Message{}, err
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			continue
+		data, ok, err := reader.next()
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Message{}, ctxErr
+			}
+			return Message{}, streamError("read stream: %v", RedactError(err))
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if !ok {
+			break
+		}
 		if data == "[DONE]" {
 			break
 		}

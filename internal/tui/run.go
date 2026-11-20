@@ -156,13 +156,15 @@ func Run(ctx context.Context, opts Options) error {
 			restore = fn
 		}
 	}
-	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor)
+	// Enable SGR mouse reporting + drag tracking so the terminal sends press,
+	// drag and wheel events (decoded in keys.go) for text selection.
+	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h")
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			restore()
-			fmt.Fprint(out, showCursor+leaveAltScreen)
+			fmt.Fprint(out, "\x1b[?1002l\x1b[?1016l"+showCursor+leaveAltScreen)
 			if body := model.Plain(); body != "" {
 				fmt.Fprint(out, body)
 			}
@@ -241,6 +243,8 @@ func Run(ctx context.Context, opts Options) error {
 		}()
 	}
 
+	buffer := NewBuffer(width, height)
+
 	handleKeys := func(keys []Key) bool {
 		runAction := func(fn TurnAction, arg, done string) {
 			if fn == nil {
@@ -253,6 +257,25 @@ func Run(ctx context.Context, opts Options) error {
 			model.SetStatus(text(opts.Locale, done))
 		}
 		for _, key := range keys {
+			if key.Mouse != nil {
+				ev := key.Mouse
+				col, row := ev.Col-1, ev.Row-1 // SGR is 1-based; Model uses 0-based
+				switch ev.Kind {
+				case MousePress:
+					model.MouseDown(col, row)
+				case MouseDrag:
+					model.MouseDrag(col, row)
+				case MouseRelease:
+					model.MouseUp(col, row)
+					if text := model.SelectedText(buffer); text != "" {
+						_ = CopyToClipboard(text)
+						model.ClearSelection()
+					}
+				case MouseWheelUp, MouseWheelDown:
+					model.MouseWheel(ev.Kind == MouseWheelUp)
+				}
+				continue // wheels keep legacy ScrollUp/Down Kinds
+			}
 			switch model.HandleKey(key) {
 			case ActionSubmit:
 				startTurn(model.TakeSubmitted())
@@ -273,7 +296,6 @@ func Run(ctx context.Context, opts Options) error {
 		return false
 	}
 
-	buffer := NewBuffer(width, height)
 	buffer.SetNoColor(model.NoColor())
 	decoder := &Decoder{}
 	ticker := time.NewTicker(frameInterval)

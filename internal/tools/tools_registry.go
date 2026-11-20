@@ -56,6 +56,7 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 		// adjacent to the trailing tool_search (see TestMemoryToolsRegisteredAndOverridable).
 		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
 		newLspRenamePreviewTool(nil), newLspFormatTool(nil), newLspWorkspaceSymbolsTool(nil),
+		securityScanTool{},
 		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
 	} {
 		r.tools[tool.Name()] = tool

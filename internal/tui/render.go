@@ -152,7 +152,44 @@ func (m *Model) Paint(buf *Buffer) {
 	m.paintInput(buf, l)
 	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil, m.palette.dim()))
 	m.paintLine(buf, l.statusY, m.statusLineLocked(width))
+	m.paintSelectionLocked(buf)
 	m.dirty = false
+}
+
+// paintSelectionLocked inverts the style of every cell in the current range.
+// It runs after all other painting so header, transcript and input rows are
+// highlighted uniformly, and it is a no-op when nothing is selected, keeping
+// the default frame byte-for-byte unchanged.
+func (m *Model) paintSelectionLocked(buf *Buffer) {
+	if !m.hasSelectionLocked() || buf.Width() <= 0 || buf.Height() <= 0 {
+		return
+	}
+	a, b := m.selectionRangeLocked()
+	if a.Row >= buf.Height() || b.Row < 0 {
+		return
+	}
+	w := buf.Width()
+	for row := maxInt(a.Row, 0); row <= minInt(b.Row, buf.Height()-1); row++ {
+		start, end := 0, w-1
+		if row == a.Row {
+			start = a.Col
+		}
+		if row == b.Row {
+			end = b.Col
+		}
+		if start > end {
+			continue
+		}
+		for col := maxInt(start, 0); col <= minInt(end, w-1); col++ {
+			idx := row*w + col
+			if buf.cells[idx].R == 0 {
+				continue // second half of a wide rune
+			}
+			style := buf.cells[idx].S
+			style.Reverse = true
+			buf.cells[idx].S = style
+		}
+	}
 }
 
 func (m *Model) paintLine(buf *Buffer, y int, line Line) {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>argentgo</id>
+    <version>{{VERSION}}</version>
+    <title>argentgo (Install)</title>
+    <authors>2118505078xyh1</authors>
+    <owners>2118505078xyh1</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <licenseUrl>https://github.com/2118505078xyh1/argentgo/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/2118505078xyh1/argentgo</projectUrl>
+    <description>Personal coding-agent harness: streams model replies, runs tools, persists JSONL sessions, and ships a full-screen TUI plus a native Windows desktop UI.</description>
+    <summary>Streaming coding-agent harness (CLI/TUI and Windows desktop UI).</summary>
+    <tags>argentgo coding-agent agent cli tui windows</tags>
+    <dependencies />
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

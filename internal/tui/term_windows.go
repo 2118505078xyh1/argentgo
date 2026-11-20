@@ -18,6 +18,7 @@ const (
 	enableEchoInput                 = 0x0004
 	enableVirtualTerminalProcessing = 0x0004
 	enableVirtualTerminalInput      = 0x0200
+	enableMouseInput                = 0x0010 // ENABLE_MOUSE_INPUT: emit SGR mouse reports on stdin
 )
 
 var (
@@ -69,7 +70,7 @@ func enableRaw() (func(), error) {
 		return nil, errNotConsole
 	}
 	raw := inMode &^ (enableEchoInput | enableLineInput | enableProcessedInput)
-	raw |= enableVirtualTerminalInput
+	raw |= enableVirtualTerminalInput | enableMouseInput
 	if !setConsoleMode(in, raw) {
 		return nil, errNotConsole
 	}

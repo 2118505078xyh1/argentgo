@@ -132,6 +132,36 @@ type FormattingOptions struct {
 	TrimFinalNewlines      *bool `json:"trimFinalNewlines,omitempty"`
 }
 
+// SemanticTokens is the result of a textDocument/semanticTokens/full request.
+type SemanticTokens struct {
+	// Data is the flat, delta-encoded token stream: five uint32 values per
+	// token (deltaLine, deltaStart, length, tokenType, tokenModifiers). The
+	// client keeps the raw slice; decoding it into lines is a UI concern.
+	Data []uint32 `json:"data"`
+	// ResultID is the server's version tag, used by semanticTokens/full/delta.
+	ResultID string `json:"resultId"`
+}
+
+// InlayHint is one inline annotation the server offers for a document.
+type InlayHint struct {
+	Position Position `json:"position"`
+	// Label is the text shown to the user. Label parts from the wire are
+	// flattened to plain text by the parser.
+	Label        string `json:"label"`
+	Kind         int    `json:"kind,omitempty"`
+	Tooltip      string `json:"tooltip,omitempty"`
+	PaddingLeft  bool   `json:"paddingLeft,omitempty"`
+	PaddingRight bool   `json:"paddingRight,omitempty"`
+}
+
+// CodeLens is one clickable label attached to a range. IsResolved is derived
+// by the client: a lens without a command still needs codeLens/resolve.
+type CodeLens struct {
+	Range      Range    `json:"range"`
+	Command    *Command `json:"command,omitempty"`
+	IsResolved bool     `json:"-"`
+}
+
 // severityName maps the numeric LSP severity to a word.
 func severityName(severity int) string {
 	switch severity {
