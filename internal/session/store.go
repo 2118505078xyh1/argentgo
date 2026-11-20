@@ -18,6 +18,11 @@ type Meta struct {
 	Title   string    `json:"title"`
 	Updated time.Time `json:"updated"`
 	Turns   int       `json:"turns"`
+	// Modified is the transcript file's mtime, captured during List and used
+	// only to order sessions with equal in-record timestamps. It is never
+	// persisted (the sidecar still describes size+mtime elsewhere), so adding
+	// it does not change the on-disk format.
+	Modified time.Time `json:"-"`
 }
 
 // Container is a directory that holds session files.
@@ -166,13 +171,25 @@ func (c *Container) List() ([]Meta, error) {
 		if meta.Updated.IsZero() && statErr == nil {
 			meta.Updated = info.ModTime()
 		}
+		// Sidecars do not store Modified; capture it on every List so a cache
+		// hit still carries the information needed to break Updated ties.
+		if statErr == nil {
+			meta.Modified = info.ModTime()
+		}
 		metas = append(metas, meta)
 	}
 	sort.Slice(metas, func(i, j int) bool {
-		if metas[i].Updated.Equal(metas[j].Updated) {
-			return metas[i].ID > metas[j].ID
+		if !metas[i].Updated.Equal(metas[j].Updated) {
+			return metas[i].Updated.After(metas[j].Updated)
 		}
-		return metas[i].Updated.After(metas[j].Updated)
+		// The in-record clock can stamp two sessions identically (e.g. two
+		// sessions created in the same second). The file's mtime records the
+		// real order of writes, so a later append moves a session to the top;
+		// fall back to id only when both timestamps are identical.
+		if !metas[i].Modified.Equal(metas[j].Modified) {
+			return metas[i].Modified.After(metas[j].Modified)
+		}
+		return metas[i].ID > metas[j].ID
 	})
 	return metas, nil
 }
