@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.6.0 — 2026-11-20
+
+Sixteen rounds of study-and-harden cycles against charmbracelet/crush,
+block/goose, Aider, opencode, Cline, fzf, glamour and bubbletea, plus a full
+independent code review. stdlib-only Go; MyGo remains the sole native-shell
+dependency. Highlights:
+
+**TUI & interaction**
+- Session-panel fuzzy search (Ctrl+L): scored subsequence match, fzf query
+  syntax (`^` prefix, `!` inverse, `|` OR, exact/word-boundary), relevance
+  sort and character-level match highlighting.
+- Markdown tables (two-pass layout), word-level diff highlighting (changed
+  tokens only), and a streaming markdown boundary buffer (no mid-`**`/fence
+  flicker, no dropped text at turn end).
+- Grapheme-aware width (ZWJ families, flags, skin tones), an LRU-style entry
+  cache, a binding-list help bar with ellipsis, one-line thinking indicator,
+  activity summary, context-usage progress bar with threshold colors.
+
+**Agent loop & correctness**
+- Single-flight prompt with race-free Abort ownership; a watched-job marker
+  fixes the long-standing exit-code `-1` race (1500 stress runs clean).
+- Mistake tracker with injectable recovery guidance; tool-pairing normalization
+  across resume; schema projection for gemini/moonshot models.
+- Compaction now preserves non-first-line next steps / failures / changed
+  files, and mid-turn compaction carries tool-call IDs so no orphan tool
+  result survives. A prefix-hash summary cache avoids re-summarizing.
+
+**Security (audit-driven)**
+- Fixed workspace escape via symlink/Windows junction across read/write, MCP
+  routing and approval display (real-path resolution via GetFinalPathNameByHandle).
+- PowerShell `script` alias can no longer bypass `denyCommands` / command rules.
+- Credential redaction covers mainstream key formats (`sk-ant-…`, `sk-proj-…`,
+  `Authorization: Bearer/Basic …`, URL userinfo) in both LLM errors and audit logs.
+
+**LLM & providers**
+- Chat completions now retries transient failures (retry classification and
+  hard-quota fast-fail apply), parses multi-line SSE `data:`, avoids generated
+  tool-call ID collisions, and validates malformed tool arguments.
+- `ActionableError` classification surfaced in CLI with a recovery next-step.
+
+**Engineering**
+- CI adds `-race` and `GOOS=linux` cross-compile gates; maintainer + API
+  reference docs; benchmark baselines and golden snapshots for eval scenarios.
+
 ## v0.5.0 — 2026-11-20
 
 Six rounds of study-and-harden cycles against opencode, DeepSeek Harness,

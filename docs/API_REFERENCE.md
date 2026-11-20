@@ -28,7 +28,7 @@ argent <command> [args]
 Flags are registered in `internal/cli/flags_register.go`; the authoritative help
 text is `writeUsage` in `internal/cli/flags_usage.go`. `-h/--help` and
 `-V/--version` print help and the version. The version constant is
-`cli.Version = "0.5.0"`.
+`cli.Version = "0.6.0"`.
 
 ### 1.1 Subcommands
 
@@ -316,7 +316,7 @@ subdirectory. Override it with `ARGENT_STORAGE_DIR` or `ARGENT_HOME`.
 
 ### 5.3 Version literals
 
-The version string `0.5.0` appears in three source literals and must be bumped
+The version string `0.6.0` appears in three source literals and must be bumped
 together:
 
 | File | Symbol / use |
