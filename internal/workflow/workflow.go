@@ -102,6 +102,14 @@ func (w When) matches(prev string, havePrev bool) bool {
 	return true
 }
 
+// StepCheck is an objective shell check for a step. A zero exit code means the
+// step reached its goal; anything else (including a timeout) is a step failure
+// that goes through the normal retry path.
+type StepCheck struct {
+	Command        string `json:"command"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
 // Step is one unit of work.
 type Step struct {
 	Name   string `json:"name"`
@@ -116,6 +124,13 @@ type Step struct {
 	// Timeout bounds one attempt.
 	Timeout   Duration `json:"timeout,omitzero"`
 	OnFailure string   `json:"on_failure,omitempty"`
+	// SuccessCheck, when set, must pass after the primary action succeeds.
+	SuccessCheck *StepCheck `json:"success_check,omitempty"`
+	// CleanupCommand is a shell command run once when the step has failed, just
+	// before the on_failure policy is applied. Its output is appended to the
+	// failure diagnostic and its exit code never changes the decision. It is a
+	// separate field because OnFailure already names the failure policy.
+	CleanupCommand string `json:"cleanup,omitempty"`
 }
 
 // Definition is a parsed workflow document.

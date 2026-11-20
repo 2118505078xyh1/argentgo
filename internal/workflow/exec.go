@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
 // Step and run statuses.
@@ -17,6 +20,13 @@ const (
 
 // defaultBackoff is the delay before the first retry; it doubles per attempt.
 const defaultBackoff = 100 * time.Millisecond
+
+// defaultCheckTimeout bounds an objective success check or a cleanup command
+// when the definition does not give one.
+const defaultCheckTimeout = 30 * time.Second
+
+// maxCheckDiagnostic caps the command output copied into a failure message.
+const maxCheckDiagnostic = 8 << 10
 
 // Prompter sends one prompt to the model and returns its answer.
 type Prompter interface {
@@ -168,18 +178,27 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 			break
 		}
 	}
-	result.Duration = time.Since(started)
 	if lastErr != nil {
 		result.Status = StatusFailed
 		result.Error = lastErr.Error()
+		// Cleanup runs once, after all attempts are exhausted and before the
+		// caller applies the step's on_failure policy. Its output is added to
+		// the diagnostic but its exit code cannot change the decision.
+		if cleanup := runCleanupCommand(ctx, step); cleanup != "" {
+			result.Error += "\n" + cleanup
+		}
+		result.Duration = time.Since(started)
 		return result
 	}
+	result.Duration = time.Since(started)
 	result.Status = StatusOK
 	result.Output = output
 	return result
 }
 
-// attempt runs one step once, honouring the per-step timeout.
+// attempt runs one step once, honouring the per-step timeout. A configured
+// success check is part of the attempt, so a failed check is retried by runStep
+// exactly like a tool or prompter error.
 func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs map[string]string) (string, error) {
 	attemptCtx := ctx
 	if timeout := step.Timeout.Std(); timeout > 0 {
@@ -188,19 +207,33 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 		defer cancel()
 	}
 
+	var (
+		out string
+		err error
+	)
 	if step.Tool != "" {
 		if e.Tools == nil {
 			return "", fmt.Errorf("workflow: step %q needs a tool runner for %q", step.Name, step.Tool)
 		}
 		args := Substitute(step.Args, input, outputs)
-		out, err := e.Tools.Run(attemptCtx, step.Tool, args)
-		return out, timedOut(step, err, step.Timeout.Std())
+		out, err = e.Tools.Run(attemptCtx, step.Tool, args)
+		err = timedOut(step, err, step.Timeout.Std())
+	} else {
+		if e.Prompter == nil {
+			return "", fmt.Errorf("workflow: step %q needs a prompter", step.Name)
+		}
+		out, err = e.Prompter.Prompt(attemptCtx, Substitute(step.Prompt, input, outputs))
+		err = timedOut(step, err, step.Timeout.Std())
 	}
-	if e.Prompter == nil {
-		return "", fmt.Errorf("workflow: step %q needs a prompter", step.Name)
+	if err != nil {
+		return out, err
 	}
-	out, err := e.Prompter.Prompt(attemptCtx, Substitute(step.Prompt, input, outputs))
-	return out, timedOut(step, err, step.Timeout.Std())
+	if step.SuccessCheck != nil && strings.TrimSpace(step.SuccessCheck.Command) != "" {
+		if err := runSuccessCheck(ctx, step); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
 
 // timedOut re-labels a deadline error so the result says which step and how
@@ -210,6 +243,106 @@ func timedOut(step Step, err error, limit time.Duration) error {
 		return err
 	}
 	return fmt.Errorf("workflow: step %q timed out after %s", step.Name, limit)
+}
+
+// checkTimeout resolves a TimeoutSeconds value; zero or negative selects the
+// conservative default.
+func checkTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return defaultCheckTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// diagnosticTail keeps at most n bytes from the end of s. The cut is moved to a
+// rune boundary so a multibyte character is never split in half.
+func diagnosticTail(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
+}
+
+// commandDiagnostic picks the bounded output of a command for a failure
+// message, preferring stderr because that is where checks report errors.
+func commandDiagnostic(res proc.Result) string {
+	if text := strings.TrimSpace(res.Stderr); text != "" {
+		return diagnosticTail(text, maxCheckDiagnostic)
+	}
+	return diagnosticTail(strings.TrimSpace(res.Stdout), maxCheckDiagnostic)
+}
+
+func diagnosticSuffix(text string) string {
+	if text == "" {
+		return ""
+	}
+	return ": " + text
+}
+
+// runSuccessCheck verifies a step objectively through proc.Shell/proc.Run, the
+// same shell path every other command in the codebase uses. A non-zero exit, a
+// spawn error or a timeout becomes an error so runStep retries it through the
+// normal failure path.
+func runSuccessCheck(ctx context.Context, step Step) error {
+	check := step.SuccessCheck
+	command := strings.TrimSpace(check.Command)
+	limit := checkTimeout(check.TimeoutSeconds)
+	runCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+
+	cmd := proc.Shell(command)
+	cmd.Timeout = limit
+	// A check can spawn its own children (sleep, build tools); kill the whole
+	// tree on timeout so the step cannot outlive its budget.
+	cmd.KillTree = true
+	res, err := proc.Run(runCtx, cmd)
+	diagnostic := diagnosticSuffix(commandDiagnostic(res))
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("workflow: step %q success check timed out after %s%s", step.Name, limit, diagnostic)
+		}
+		return fmt.Errorf("workflow: step %q success check %q failed: %w%s", step.Name, command, err, diagnostic)
+	}
+	if !res.Success() {
+		return fmt.Errorf("workflow: step %q success check %q exited %d%s", step.Name, command, res.ExitCode, diagnostic)
+	}
+	return nil
+}
+
+// runCleanupCommand runs the step's cleanup command once and returns text that
+// is appended to the failure diagnostic. Its exit code is reported but never
+// changes the failure decision.
+func runCleanupCommand(ctx context.Context, step Step) string {
+	command := strings.TrimSpace(step.CleanupCommand)
+	if command == "" {
+		return ""
+	}
+	limit := checkTimeout(0)
+	runCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+
+	cmd := proc.Shell(command)
+	cmd.Timeout = limit
+	// Cleanup can spawn its own children; kill the whole tree on timeout so it
+	// cannot hold the run open after the step has already failed.
+	cmd.KillTree = true
+	res, err := proc.Run(runCtx, cmd)
+	var b strings.Builder
+	fmt.Fprintf(&b, "cleanup %q: ", command)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		fmt.Fprintf(&b, "timed out after %s", limit)
+	case err != nil:
+		fmt.Fprintf(&b, "%v", err)
+	default:
+		fmt.Fprintf(&b, "exit %d", res.ExitCode)
+	}
+	b.WriteString(diagnosticSuffix(commandDiagnostic(res)))
+	return b.String()
 }
 
 // backoffAt doubles the base delay, capped so a large retry budget cannot

@@ -52,7 +52,10 @@ func (p *PromptApprover) Ask(ctx context.Context, name string, args string) (boo
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.Out != nil {
-		question := fmt.Sprintf("Allow %s %s? [y/N] ", name, readableArgs(args))
+		question, hadTags := SanitizeInvisible(fmt.Sprintf("Allow %s %s? [y/N] ", name, readableArgs(args)))
+		if hadTags {
+			question = "⚠ 请求包含不可见字符（已清除 Unicode 标签）\n" + question
+		}
 		if _, err := io.WriteString(p.Out, question); err != nil {
 			return false, fmt.Errorf("security: writing approval prompt: %w", err)
 		}

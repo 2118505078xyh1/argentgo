@@ -18,13 +18,14 @@ func (multiEditTool) Description() string {
 }
 func (multiEditTool) Mutating() bool { return true }
 func (multiEditTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string","description":"alias for old"},"new_text":{"type":"string","description":"alias for new"}},"required":["old"]}}},"required":["path","edits"]}`
+	return `{"type":"object","properties":{"path":{"type":"string"},"repair":{"type":"boolean","description":"opt-in graded repair ladder for missing or non-literal matches"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string","description":"alias for old"},"new_text":{"type":"string","description":"alias for new"}},"required":["old"]}}},"required":["path","edits"]}`
 }
 
 func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path  string `json:"path"`
-		Edits []struct {
+		Path   string `json:"path"`
+		Repair bool   `json:"repair"`
+		Edits  []struct {
 			Old     string `json:"old"`
 			New     string `json:"new"`
 			OldText string `json:"old_text"`
@@ -49,7 +50,9 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 	}
 
 	// Validate and apply every edit in memory first; the file is written once.
+	// A failed repair batch writes nothing: multi_edit stays atomic.
 	text := string(data)
+	applied := 0
 	for i, edit := range args.Edits {
 		old := edit.Old
 		if old == "" {
@@ -61,6 +64,17 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 		}
 		if old == "" {
 			return "", fmt.Errorf("multi_edit: edit %d has an empty old text", i+1)
+		}
+		if args.Repair {
+			// repairReplace tries the exact match first and only falls back to
+			// the fuzzy rungs when the literal is missing or non-unique.
+			out, ok := repairReplace(text, old, newText)
+			if !ok {
+				return "", multiEditRepairError(args.Path, i+1, len(args.Edits), applied, text, old)
+			}
+			text = out
+			applied++
+			continue
 		}
 		count := strings.Count(text, old)
 		switch count {
