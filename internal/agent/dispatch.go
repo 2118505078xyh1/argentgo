@@ -36,6 +36,12 @@ const (
 	// noopEditHint is the aider-style nudge attached when an edit tool reports
 	// that nothing changed. It stops the model re-sending an identical edit.
 	noopEditHint = "The change appears to be already applied. Do not re-send the same edit; only address remaining differences."
+
+	// stopInvalidArguments ends a run when the invalid-argument breaker trips.
+	// It is an internal stop reason returned by runTools and carried through the
+	// loop's existing generic stop path; public Stop* constants and event
+	// semantics are unchanged (mirrors stopRepeatedMistakes).
+	stopInvalidArguments = "invalid_arguments"
 )
 
 // noopEditMarkers are lower-cased phrases edit tools use to say a change was
@@ -58,6 +64,30 @@ func isNoopEditTool(name string) bool {
 func hasNoopEditMarker(output string) bool {
 	lower := strings.ToLower(output)
 	for _, marker := range noopEditMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// invalidArgMarkers are the error-text fragments tools use when they reject a
+// call's arguments. Tool errors cross the ToolRunner boundary as plain strings
+// (runTool wraps err.Error()), so classification must be textual; the breaker
+// itself stays independent of tools and i18n (see mistake_tracker.go). Keep the
+// set narrow: an unrelated failure that happens to contain one of these only
+// clears the breaker, so over-matching would waste the circuit breaker's signal.
+var invalidArgMarkers = []string{
+	"bad arguments",     // malformed JSON — emitted by nearly every built-in tool
+	"invalid arguments", // i18n error.invalid_args (en) + skill/subagent tools
+	"参数无效",              // i18n error.invalid_args (zh-CN)
+}
+
+// isInvalidArgError reports whether a tool error text means the call's arguments
+// were rejected as invalid, as opposed to an unrelated runtime failure.
+func isInvalidArgError(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, marker := range invalidArgMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
@@ -164,9 +194,24 @@ func withProgressGate(ctx context.Context, emit func(string)) (context.Context, 
 	return context.WithValue(ctx, toolProgressKey, gate.gate(emit)), gate
 }
 
+// breaker returns this run's invalid-argument breaker, lazily constructed so
+// manually built run states (e.g. in tests) stay nil-safe. runTools initialises
+// it on the loop goroutine before any parallel worker can observe it.
+func (s *runState) breaker() *InvalidArgBreaker {
+	if s.invalidBreaker == nil {
+		s.invalidBreaker = NewInvalidArgBreaker(0)
+	}
+	return s.invalidBreaker
+}
+
 // runTools executes one batch, returning a stop reason only when the run ended
-// early (cancellation).
+// early (cancellation or the invalid-argument breaker tripping).
 func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall) string {
+	// The breaker counts invalid arguments within one turn: a fresh turn starts
+	// a fresh streak. Reset here, on the loop goroutine, before any worker can
+	// observe the counter.
+	s.breaker().Reset()
+
 	// Validate before the checkpoint or any dispatch decision: one bad ID
 	// invalidates the whole batch, so no call in it may be announced as runnable.
 	if hasInvalidCallIDs(calls) {
@@ -234,6 +279,9 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
 	}
+	if s.breaker().ShouldStop() {
+		return stopInvalidArguments
+	}
 	return ""
 }
 
@@ -285,6 +333,9 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 	if ctx.Err() != nil {
 		return StopCancelled
 	}
+	if s.breaker().ShouldStop() {
+		return stopInvalidArguments
+	}
 	return ""
 }
 
@@ -296,6 +347,9 @@ type callResult struct {
 	// intent is the concise `i` string stripped from the call's arguments
 	// before the tool ran. It is surfaced on the tool_end event.
 	intent string
+	// invalidArgs marks an error result caused by the tool rejecting the call's
+	// arguments. It feeds the invalid-argument breaker without re-parsing text.
+	invalidArgs bool
 }
 
 // approvalDigest returns a stable, bounded hash of the exact arguments an
@@ -347,6 +401,17 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 	} else {
 		s.mistakes.Reset()
 	}
+	// Narrower than the mistake streak: only argument-validation rejections
+	// advance the invalid-argument breaker. Success and any non-argument failure
+	// prove progress and clear it; unrun calls are neutral by omission because
+	// the approval paths above return before this line.
+	outcome := InvalidArgOutcomeSuccess
+	if res.invalidArgs {
+		outcome = InvalidArgOutcomeInvalidArgs
+	} else if res.isError {
+		outcome = InvalidArgOutcomeOtherFailure
+	}
+	s.breaker().Observe(outcome)
 	return res
 }
 
@@ -381,13 +446,17 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	output, meta, err := s.callTool(ctx, call.Function.Name, string(cleaned))
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
+		// Tool errors cross the runner boundary as text, so classify here where
+		// the original error is still available. The breaker uses this to tell a
+		// repeated argument-validation failure apart from an unrelated one.
+		invalid := isInvalidArgError(err.Error())
 		if isRecoverablePlanBlock(err) {
 			// A plan-mode command guard block is a recoverable tool error: the
 			// run continues and the model reads the guidance, unlike a hard
 			// StopError denial.
-			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, duration: time.Since(start)}
+			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, invalidArgs: invalid, duration: time.Since(start)}
 		}
-		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
+		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, invalidArgs: invalid, duration: time.Since(start)}
 	}
 	if isNoopEditTool(call.Function.Name) && hasNoopEditMarker(output) {
 		// A no-op edit is a strong signal the model is about to repeat itself.

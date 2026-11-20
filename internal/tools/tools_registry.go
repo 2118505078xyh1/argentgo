@@ -257,7 +257,42 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if r.jobs != nil {
 		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
 	}
-	return tool.Run(ctx, r.root, raw)
+	return runTool(tool, ctx, r.root, name, raw)
+}
+
+// maxPanicDescLen bounds the stringified panic value so a hostile or buggy
+// payload cannot flood the model's context through a tool error.
+const maxPanicDescLen = 512
+
+// describePanic sanitizes a recovered panic value before it crosses the wire:
+// control characters (including terminal escapes) become spaces and the result
+// is clipped by runes so the string stays valid UTF-8.
+func describePanic(v any) string {
+	s := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, fmt.Sprint(v))
+	runes := []rune(s)
+	if len(runes) > maxPanicDescLen {
+		return string(runes[:maxPanicDescLen]) + "…"
+	}
+	return s
+}
+
+// runTool executes one tool behind a panic boundary. A panic escaping a tool
+// would blow up the whole turn and leave the dispatch's fillUnrun pairing
+// unsettled, so it is normalized into a single error result — mirroring the
+// hooks PanicError pattern — that carries the tool name for diagnosis.
+func runTool(tool Tool, ctx context.Context, root, name string, raw json.RawMessage) (out string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			out = ""
+			err = fmt.Errorf("tool %q panicked: %s", name, describePanic(recovered))
+		}
+	}()
+	return tool.Run(ctx, root, raw)
 }
 
 // RunWithMeta executes one tool call and additionally returns the tool's

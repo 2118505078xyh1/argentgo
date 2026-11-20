@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"encoding/json"
+	"math/big"
 	"strings"
 	"unicode/utf8"
 )
@@ -59,13 +60,24 @@ func ProjectToolSchema(schemaJSON string, compat ModelCompat) string {
 		return schemaJSON
 	}
 
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false) // keep non-ASCII UTF-8 and <, >, & literal
-	if err := encoder.Encode(root); err != nil {
+	result, err := encodeSchemaJSON(root)
+	if err != nil {
 		return schemaJSON
 	}
-	return strings.TrimSuffix(buf.String(), "\n")
+	return result
+}
+
+// encodeSchemaJSON serializes a decoded schema deterministically: object keys
+// are sorted and non-ASCII UTF-8 plus <, >, & stay literal. Both projections
+// share it so a no-op projection can keep the caller's original bytes.
+func encodeSchemaJSON(root any) (string, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(root); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
 // projectSchemaNode walks a decoded JSON value in place and reports whether it
@@ -179,4 +191,182 @@ func inferEnumType(enum any) (string, bool) {
 		return "", false
 	}
 	return inferred, true
+}
+
+// safeIntMinBounds / safeIntMaxBounds are the sentinel bounds that effect (and
+// other schema generators) attach to every integer schema. They carry no
+// validation meaning for a tool call, but their presence changes the schema
+// bytes and busts prompt caches. The first pair is JS
+// Number.MIN/MAX_SAFE_INTEGER (used by opencode's flattenAllOf); the second is
+// the floor/ceiling of MinInt64/MaxInt64 divided by three, emitted by other
+// "safe integer" generators.
+var (
+	safeIntMinBounds = [...]int64{-9007199254740991, -3074457345618258603}
+	safeIntMaxBounds = [...]int64{9007199254740991, 3074457345618258602}
+)
+
+// FlattenToolSchema is a pure, opt-in projection for providers that handle
+// allOf poorly. It mirrors opencode's flattenAllOf:
+//
+//   - integer schemas lose their safe-integer sentinel minimum/maximum;
+//   - an allOf group is merged into its parent only when no key is declared by
+//     more than one member (parent keys other than "allOf" included), so
+//     required/type/properties semantics can never be overwritten;
+//   - the walk is recursive (objects, arrays, combinators) and the merge result
+//     is walked again in case it produced a new flattenable allOf.
+//
+// Invalid JSON, non-UTF-8 input and schemas that need no change are returned
+// byte-for-byte unchanged. The function never mutates its input and does not
+// alter ProjectToolSchema's default behavior; callers must opt in explicitly.
+func FlattenToolSchema(schemaJSON string) string {
+	if !utf8.ValidString(schemaJSON) || !json.Valid([]byte(schemaJSON)) {
+		return schemaJSON
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(schemaJSON))
+	decoder.UseNumber()
+	var root any
+	if err := decoder.Decode(&root); err != nil {
+		return schemaJSON
+	}
+
+	if !flattenAllOfNode(root) {
+		return schemaJSON
+	}
+
+	result, err := encodeSchemaJSON(root)
+	if err != nil {
+		return schemaJSON
+	}
+	return result
+}
+
+// flattenAllOfNode walks a decoded JSON value in place and reports whether it
+// changed anything. Maps and slices are reference types, so in-place mutation
+// is enough; scalars are returned untouched.
+func flattenAllOfNode(node any) bool {
+	switch value := node.(type) {
+	case map[string]any:
+		return flattenAllOfObject(value)
+	case []any:
+		changed := false
+		for _, element := range value {
+			if flattenAllOfNode(element) {
+				changed = true
+			}
+		}
+		return changed
+	default:
+		return false
+	}
+}
+
+func flattenAllOfObject(obj map[string]any) bool {
+	changed := false
+
+	// Drop the safe-integer sentinel range from integer schemas before looking
+	// at allOf, since the sentinel may itself live inside an allOf child.
+	if kind, _ := obj["type"].(string); kind == "integer" {
+		for _, bound := range safeIntMinBounds {
+			if numberEqualsInt64(obj["minimum"], bound) {
+				delete(obj, "minimum")
+				changed = true
+				break
+			}
+		}
+		for _, bound := range safeIntMaxBounds {
+			if numberEqualsInt64(obj["maximum"], bound) {
+				delete(obj, "maximum")
+				changed = true
+				break
+			}
+		}
+	}
+
+	// Recurse first, mirroring opencode: children (including allOf members) are
+	// flattened before the parent decides whether the group can be merged.
+	for _, value := range obj {
+		if flattenAllOfNode(value) {
+			changed = true
+		}
+	}
+
+	allOf, ok := obj["allOf"].([]any)
+	if !ok || !allOfHasObjects(allOf) || !canFlattenAllOf(allOf, obj) {
+		return changed
+	}
+
+	// Merge every member in order, then the parent's own keys. canFlattenAllOf
+	// guarantees no key appears twice, so member order cannot overwrite anything
+	// and no validation keyword (required, type, ...) is lost.
+	merged := make(map[string]any, len(obj)+len(allOf))
+	for _, item := range allOf {
+		for key, value := range item.(map[string]any) {
+			merged[key] = value
+		}
+	}
+	for key, value := range obj {
+		if key != "allOf" {
+			merged[key] = value
+		}
+	}
+	for key := range obj {
+		delete(obj, key)
+	}
+	for key, value := range merged {
+		obj[key] = value
+	}
+
+	// The merge can expose another flattenable allOf (e.g. an allOf key that
+	// lived inside a member). The JSON tree is finite and each pass consumes one
+	// allOf layer, so this always terminates.
+	flattenAllOfNode(obj)
+	return true
+}
+
+func allOfHasObjects(allOf []any) bool {
+	for _, item := range allOf {
+		if _, ok := item.(map[string]any); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// canFlattenAllOf reports whether every key is declared by at most one member
+// of allOf and does not collide with a parent key (other than "allOf").
+func canFlattenAllOf(allOf []any, parent map[string]any) bool {
+	seen := make(map[string]bool, len(parent))
+	for key := range parent {
+		if key != "allOf" {
+			seen[key] = true
+		}
+	}
+	for _, item := range allOf {
+		for key := range item.(map[string]any) {
+			if seen[key] {
+				return false
+			}
+			seen[key] = true
+		}
+	}
+	return true
+}
+
+// numberEqualsInt64 compares a decoded json.Number with an exact integer,
+// accepting both plain decimal literals ("9007199254740991") and forms that
+// Int64 cannot parse such as "9.007199254740991e15" or "...991.0".
+func numberEqualsInt64(value any, want int64) bool {
+	num, ok := value.(json.Number)
+	if !ok {
+		return false
+	}
+	if n, err := num.Int64(); err == nil {
+		return n == want
+	}
+	got, ok := new(big.Rat).SetString(num.String())
+	if !ok {
+		return false
+	}
+	return got.Cmp(new(big.Rat).SetInt64(want)) == 0
 }

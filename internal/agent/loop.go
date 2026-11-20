@@ -60,6 +60,10 @@ type runState struct {
 	// mistakes counts consecutive tool failures across turns. Nil-receiver
 	// methods make a manually built runState (e.g. in tests) safe without one.
 	mistakes *MistakeTracker
+	// invalidBreaker counts argument-validation rejections within a turn. It is
+	// lazily created by dispatch's breaker() and reset at each runTools entry, so
+	// manually built run states need no explicit construction.
+	invalidBreaker *InvalidArgBreaker
 	// stuck watches event patterns for repetition loops. Nil-receiver Observe
 	// keeps manually built run states safe without one.
 	stuck *StuckDetector

@@ -46,6 +46,10 @@ type Spec struct {
 	Headers map[string]string
 	// Timeout bounds one request; zero means 30s.
 	Timeout time.Duration
+	// DiscoveryTimeout is an optional per-server discovery timeout override.
+	// Zero selects the graded default (30s stdio / 5s remote); a positive value
+	// is clamped to [1s, 2m]. See EffectiveDiscoveryTimeout.
+	DiscoveryTimeout time.Duration
 	// Enabled defaults to true when nil. An explicit false disables the server:
 	// Connect refuses it and it is omitted from Specs/Tools views. A pointer is
 	// used so every pre-existing Spec literal keeps its zero-value meaning.

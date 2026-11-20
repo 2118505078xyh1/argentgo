@@ -156,6 +156,196 @@ func TestMaxPromptTokensStopsBeforeTheFirstRequest(t *testing.T) {
 	}
 }
 
+func TestParseTurnBudgetRecognisedForms(t *testing.T) {
+	cases := []struct {
+		prompt string
+		want   int64
+	}{
+		{"+500k", 500_000},
+		{"+2m", 2_000_000},
+		{"+500K", 500_000},
+		{"+1.5m", 1_500_000},
+		{"+ 500k", 500_000},
+		{"please +750k tokens for this task", 750_000},
+		{"use 2m tokens", 2_000_000},
+		{"USE 2M TOKENS", 2_000_000},
+		{"use 1.5m tokens", 1_500_000},
+		{"use 2m token", 2_000_000},
+		{"use 2m output tokens", 2_000_000},
+		{"budget 2m tokens", 2_000_000},
+		{"spend 500k tokens", 500_000},
+		{"cap 200k tokens", 200_000},
+		{"allocate 3m tokens for the refactor", 3_000_000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.prompt, func(t *testing.T) {
+			got, ok := ParseTurnBudget(tc.prompt)
+			if !ok || got != tc.want {
+				t.Fatalf("ParseTurnBudget(%q) = %d, %v; want %d, true", tc.prompt, got, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTurnBudgetClampsToRange(t *testing.T) {
+	cases := []struct {
+		prompt string
+		want   int64
+	}{
+		{"+1k", 1_000},
+		{"+100m", 100_000_000},
+		{"+0.1k", 1_000},                         // 100 clamps up to 1k
+		{"+0.5m", 500_000},                       // no clamping needed
+		{"+200m", 100_000_000},                   // clamps down to 100m
+		{"+999999999999999999999m", 100_000_000}, // saturates, then clamps
+	}
+	for _, tc := range cases {
+		t.Run(tc.prompt, func(t *testing.T) {
+			got, ok := ParseTurnBudget(tc.prompt)
+			if !ok || got != tc.want {
+				t.Fatalf("ParseTurnBudget(%q) = %d, %v; want %d, true", tc.prompt, got, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTurnBudgetIgnoresInjectedBlocks(t *testing.T) {
+	cases := []struct {
+		name   string
+		prompt string
+		want   int64
+		ok     bool
+	}{
+		{
+			name:   "system reminder before real declaration",
+			prompt: "<system-reminder>use 9m tokens</system-reminder>\nuse 2m tokens",
+			want:   2_000_000,
+			ok:     true,
+		},
+		{
+			name:   "declaration only inside system reminder",
+			prompt: "<system-reminder>use 9m tokens</system-reminder>",
+			ok:     false,
+		},
+		{
+			name:   "fenced code block",
+			prompt: "```\n+999m\n```\n+500k",
+			want:   500_000,
+			ok:     true,
+		},
+		{
+			name:   "tilde fenced code block",
+			prompt: "~~~\nuse 9m tokens\n~~~\nuse 2m tokens",
+			want:   2_000_000,
+			ok:     true,
+		},
+		{
+			name:   "inline code span",
+			prompt: "see `@src/x.go +999m` for details\n+500k",
+			want:   500_000,
+			ok:     true,
+		},
+		{
+			name:   "file attachment block",
+			prompt: "<file path=\"big.txt\">\n+999m tokens\n</file>\n+500k",
+			want:   500_000,
+			ok:     true,
+		},
+		{
+			name:   "declaration only inside file attachment",
+			prompt: "<file path=\"big.txt\">use 9m tokens</file>",
+			ok:     false,
+		},
+		{
+			name:   "project memory with nested file",
+			prompt: "<project-memory><file path=\"x\">+999m</file></project-memory>\n+500k",
+			want:   500_000,
+			ok:     true,
+		},
+		{
+			name:   "at file reference swallows attached number",
+			prompt: "@src/big.txt +999m tokens\n+500k",
+			want:   500_000,
+			ok:     true,
+		},
+		{
+			name:   "declaration only after at reference",
+			prompt: "please check @attachment.md +999m tokens",
+			ok:     false,
+		},
+		{
+			name:   "html tags are stripped but user text survives",
+			prompt: "<b>+500k</b> for this turn",
+			want:   500_000,
+			ok:     true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ParseTurnBudget(tc.prompt)
+			if ok != tc.ok || (tc.ok && got != tc.want) {
+				t.Fatalf("ParseTurnBudget() = %d, %v; want %d, %v", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestParseTurnBudgetNoDeclaration(t *testing.T) {
+	cases := []string{
+		"",
+		"just a normal prompt with 500k files",
+		"use 500 tokens",
+		"+ 500",
+		"I have 2 million tokens",
+		"git commit -500k",
+		"500miles away",
+		"the file has 2m lines",
+	}
+	for _, prompt := range cases {
+		t.Run(prompt, func(t *testing.T) {
+			if got, ok := ParseTurnBudget(prompt); ok {
+				t.Fatalf("ParseTurnBudget(%q) = %d, true; want ok=false", prompt, got)
+			}
+		})
+	}
+}
+
+func TestDeclaredTurnTokensParticipateInBreach(t *testing.T) {
+	usage := llm.Usage{PromptTokens: 600, CompletionTokens: 400}
+
+	reason, detail, hit := (Budget{DeclaredTurnTokens: 1_000}).Breach(usage, 10, 0, false)
+	if reason != StopDeclaredTurnBudget || !hit || detail == "" {
+		t.Fatalf("at limit: reason=%q hit=%v detail=%q", reason, hit, detail)
+	}
+
+	reason, _, hit = (Budget{DeclaredTurnTokens: 1_001}).Breach(usage, 10, 0, false)
+	if reason != "" || hit {
+		t.Fatalf("under limit: reason=%q hit=%v", reason, hit)
+	}
+
+	// A declared cap never relaxes an existing limit (usage total is 1000).
+	reason, _, hit = (Budget{MaxTotalTokens: 500, DeclaredTurnTokens: 2_000}).Breach(usage, 10, 0, false)
+	if reason != StopMaxTotalTokens || !hit {
+		t.Fatalf("existing limit still wins: reason=%q hit=%v", reason, hit)
+	}
+
+	if child := (Budget{DeclaredTurnTokens: 1_000}).sliceForChild(); child.DeclaredTurnTokens != 500 {
+		t.Fatalf("child declared budget = %d, want 500", child.DeclaredTurnTokens)
+	}
+}
+
+func TestParsedDeclarationFeedsBudget(t *testing.T) {
+	tokens, ok := ParseTurnBudget("use 2m tokens")
+	if !ok || tokens != 2_000_000 {
+		t.Fatalf("parse = %d, %v", tokens, ok)
+	}
+	usage := llm.Usage{PromptTokens: 1_900_000, CompletionTokens: 100_000}
+	reason, _, hit := (Budget{DeclaredTurnTokens: tokens}).Breach(usage, 10, 0, false)
+	if reason != StopDeclaredTurnBudget || !hit {
+		t.Fatalf("reason=%q hit=%v; want declared budget breach", reason, hit)
+	}
+}
+
 func TestEstimatedUsageFeedsTheBudgetWithoutProviderCounts(t *testing.T) {
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {

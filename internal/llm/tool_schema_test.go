@@ -158,6 +158,167 @@ func TestProjectToolSchema(t *testing.T) {
 	}
 }
 
+func TestFlattenToolSchema(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+		exact bool // compare raw bytes instead of JSON semantics
+	}{
+		{
+			name:  "invalid JSON is returned as-is",
+			input: `{"allOf":[`,
+			want:  `{"allOf":[`,
+			exact: true,
+		},
+		{
+			name:  "non-UTF-8 input is returned as-is",
+			input: "{\"description\":\"" + string([]byte{0xff, 0xfe}) + "\"}",
+			want:  "{\"description\":\"" + string([]byte{0xff, 0xfe}) + "\"}",
+			exact: true,
+		},
+		{
+			name:  "schema without allOf or sentinel is byte-identical",
+			input: `{"type":"object","properties":{"a":{"type":"string"}}}`,
+			want:  `{"type":"object","properties":{"a":{"type":"string"}}}`,
+			exact: true,
+		},
+		{
+			name:  "allOf members merge into the parent",
+			input: `{"allOf":[{"type":"object"},{"properties":{"a":{"type":"string"}}}]}`,
+			want:  `{"type":"object","properties":{"a":{"type":"string"}}}`,
+		},
+		{
+			name:  "parent keys survive the merge",
+			input: `{"title":"root","allOf":[{"description":"child","required":["a"]}]}`,
+			want:  `{"title":"root","description":"child","required":["a"]}`,
+		},
+		{
+			name:  "required is preserved through the merge",
+			input: `{"allOf":[{"properties":{"a":{"type":"string"}}},{"required":["a"]}]}`,
+			want:  `{"properties":{"a":{"type":"string"}},"required":["a"]}`,
+		},
+		{
+			name:  "effect-style integer constraint merges",
+			input: `{"type":"integer","allOf":[{"minimum":0}]}`,
+			want:  `{"type":"integer","minimum":0}`,
+		},
+		{
+			name:  "JS safe-integer sentinel is removed",
+			input: `{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}`,
+			want:  `{"type":"integer"}`,
+		},
+		{
+			name:  "int64/3 safe-integer sentinel is removed",
+			input: `{"type":"integer","minimum":-3074457345618258603,"maximum":3074457345618258602}`,
+			want:  `{"type":"integer"}`,
+		},
+		{
+			name:  "exponent-form sentinel is removed",
+			input: `{"type":"integer","minimum":-9.007199254740991e15,"maximum":9.007199254740991e15}`,
+			want:  `{"type":"integer"}`,
+		},
+		{
+			name:  "real bounds near the sentinel are kept",
+			input: `{"type":"integer","minimum":0,"maximum":9007199254740990}`,
+			want:  `{"type":"integer","minimum":0,"maximum":9007199254740990}`,
+			exact: true,
+		},
+		{
+			name:  "sentinel bounds on a non-integer schema are kept",
+			input: `{"type":"number","minimum":-9007199254740991,"maximum":9007199254740991}`,
+			want:  `{"type":"number","minimum":-9007199254740991,"maximum":9007199254740991}`,
+			exact: true,
+		},
+		{
+			name:  "conflicting keys in members keep allOf",
+			input: `{"allOf":[{"type":"object"},{"type":"string"}]}`,
+			want:  `{"allOf":[{"type":"object"},{"type":"string"}]}`,
+			exact: true,
+		},
+		{
+			name:  "parent/member key conflict keeps allOf",
+			input: `{"type":"object","allOf":[{"properties":{"a":{}}},{"type":"string"}]}`,
+			want:  `{"type":"object","allOf":[{"properties":{"a":{}}},{"type":"string"}]}`,
+			exact: true,
+		},
+		{
+			name:  "sentinel inside an unmergeable allOf child is still removed",
+			input: `{"type":"object","allOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}]}`,
+			want:  `{"type":"object","allOf":[{"type":"integer"}]}`,
+		},
+		{
+			name:  "sentinel in a mergeable allOf child is removed after the merge",
+			input: `{"type":"integer","allOf":[{"minimum":-9007199254740991,"maximum":9007199254740991}]}`,
+			want:  `{"type":"integer"}`,
+		},
+		{
+			name:  "nested allOf in properties is flattened",
+			input: `{"type":"object","properties":{"p":{"allOf":[{"type":"string"},{"minLength":1}]}}}`,
+			want:  `{"type":"object","properties":{"p":{"minLength":1,"type":"string"}}}`,
+		},
+		{
+			name:  "nested allOf in array items is flattened",
+			input: `{"type":"array","items":{"allOf":[{"type":"integer"},{"minimum":1}]}}`,
+			want:  `{"type":"array","items":{"minimum":1,"type":"integer"}}`,
+		},
+		{
+			name:  "allOf inside an allOf member is flattened recursively",
+			input: `{"allOf":[{"allOf":[{"type":"string"},{"minLength":1}]}]}`,
+			want:  `{"minLength":1,"type":"string"}`,
+		},
+		{
+			name:  "empty allOf is removed",
+			input: `{"allOf":[]}`,
+			want:  `{}`,
+			exact: true,
+		},
+		{
+			name:  "non-object allOf member prevents flattening",
+			input: `{"allOf":[true]}`,
+			want:  `{"allOf":[true]}`,
+			exact: true,
+		},
+		{
+			name:  "UTF-8 content survives flattening",
+			input: `{"properties":{"模式":{"allOf":[{"type":"string"},{"enum":["快速","慢速"]}]}}}`,
+			want:  `{"properties":{"模式":{"enum":["快速","慢速"],"type":"string"}}}`,
+			exact: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FlattenToolSchema(tt.input)
+			if tt.exact {
+				if got != tt.want {
+					t.Fatalf("FlattenToolSchema() = %q, want exact %q", got, tt.want)
+				}
+			} else {
+				assertSchemaJSONEqual(t, got, tt.want)
+			}
+			// Determinism: the same input must always produce the same output.
+			if again := FlattenToolSchema(tt.input); again != got {
+				t.Fatalf("non-deterministic result: first %q, second %q", got, again)
+			}
+		})
+	}
+}
+
+func TestFlattenIsOptInAndComposes(t *testing.T) {
+	input := `{"type":"integer","allOf":[{"minimum":0}],"properties":{"x":{"enum":["a","b"]}}}`
+
+	// The existing projection must stay byte-for-byte in charge of its own
+	// behavior: ProjectToolSchema never flattens, even with CompatAll.
+	projected := ProjectToolSchema(input, CompatAll)
+	assertSchemaJSONEqual(t, projected, `{"allOf":[{"minimum":0}],"properties":{"x":{"enum":["a","b"],"type":"string"}},"type":"integer"}`)
+
+	// Callers that opt in can compose the two pure functions in either order
+	// without losing enum typing or the merged allOf constraint.
+	composed := ProjectToolSchema(FlattenToolSchema(input), CompatAll)
+	assertSchemaJSONEqual(t, composed, `{"minimum":0,"properties":{"x":{"enum":["a","b"],"type":"string"}},"type":"integer"}`)
+}
+
 func assertSchemaJSONEqual(t *testing.T, got, want string) {
 	t.Helper()
 	var gotValue, wantValue any

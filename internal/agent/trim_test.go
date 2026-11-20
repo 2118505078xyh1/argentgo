@@ -544,3 +544,172 @@ func BenchmarkReclaimByMetaWithLargeToolMeta(b *testing.B) {
 		})
 	}
 }
+
+// ratioFixture builds a conversation with n tool results, each carrying the
+// same body. Every result except the newest is a trimming candidate; the cache
+// guard is disabled by the caller so the ratio behaviour is isolated.
+func ratioFixture(n int, body string) []llm.Message {
+	msgs := []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "q"},
+	}
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("c%d", i)
+		msgs = append(msgs,
+			llm.Message{Role: "assistant", Content: "step", ToolCalls: []llm.ToolCall{toolCall(id, "read", `{}`)}},
+			llm.Message{Role: "tool", ToolCallID: id, Content: body},
+		)
+	}
+	msgs = append(msgs, llm.Message{Role: "assistant", Content: "final"})
+	return msgs
+}
+
+// oneTrimFreed is the estimated token saving from stubbing one body.
+func oneTrimFreed(body string) int {
+	before := llm.Message{Role: "tool", Content: body}
+	after := before
+	after.Content = toolStub(body)
+	return EstimateMessage(before) - EstimateMessage(after)
+}
+
+func ratioTrimOpts(max int, ratio float64) TrimOptions {
+	return TrimOptions{
+		MaxTokens:                max,
+		KeepTurns:                1,
+		KeepToolTokens:           1,
+		CacheProtectSuffixTokens: 1 << 30,
+		TargetRatio:              ratio,
+	}
+}
+
+func TestBudgetTarget(t *testing.T) {
+	cases := []struct {
+		name  string
+		max   int
+		ratio float64
+		want  int
+	}{
+		{"zero keeps max", 1000, 0, 1000},
+		{"negative keeps max", 1000, -0.5, 1000},
+		{"one keeps max", 1000, 1, 1000},
+		{"above one keeps max", 1000, 1.2, 1000},
+		{"seventy percent", 1000, 0.7, 700},
+		{"three quarters", 1000, 0.75, 750},
+		{"tiny clamps to one", 1, 0.1, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := budgetTarget(tc.max, tc.ratio); got != tc.want {
+				t.Fatalf("budgetTarget(%d, %v) = %d, want %d", tc.max, tc.ratio, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTrimTargetRatioLeavesHeadroom verifies the P0 hysteresis: the trigger
+// stays at MaxTokens but the loop trims below it, so the next turn has room to
+// grow before trimming fires again and busts the prompt cache.
+func TestTrimTargetRatioLeavesHeadroom(t *testing.T) {
+	body := strings.Repeat("x", 2000)
+	msgs := ratioFixture(3, body)
+	freed := oneTrimFreed(body)
+	if freed <= 0 {
+		t.Fatalf("fixture does not free tokens when stubbed: %d", freed)
+	}
+	// max sits just above the level reached by one stub: the default stops
+	// after one prune, while a 0.7 target has to reclaim a second result.
+	max := EstimateMessages(msgs) - freed + 1
+	const ratio = 0.7
+	target := int(float64(max) * ratio)
+
+	defaultRes := Trim(msgs, ratioTrimOpts(max, 0))
+	hysteretic := Trim(msgs, ratioTrimOpts(max, ratio))
+
+	if defaultRes.Pruned != 1 {
+		t.Fatalf("default pruned = %d, want 1", defaultRes.Pruned)
+	}
+	if hysteretic.Pruned != 2 {
+		t.Fatalf("ratio pruned = %d, want 2 (more thorough)", hysteretic.Pruned)
+	}
+	defaultAfter := EstimateMessages(defaultRes.Messages)
+	hystereticAfter := EstimateMessages(hysteretic.Messages)
+	if defaultAfter <= target {
+		t.Fatalf("precondition: default trim already below target (%d <= %d)", defaultAfter, target)
+	}
+	if hystereticAfter > target {
+		t.Fatalf("ratio trim = %d, want <= target %d (headroom below %d)", hystereticAfter, target, max)
+	}
+	if hystereticAfter >= defaultAfter {
+		t.Fatalf("ratio trim (%d) must be smaller than default (%d)", hystereticAfter, defaultAfter)
+	}
+}
+
+// TestTrimTargetRatioDoesNotOverTrim checks the loop stops as soon as the
+// target is met, leaving further candidates verbatim.
+func TestTrimTargetRatioDoesNotOverTrim(t *testing.T) {
+	body := strings.Repeat("x", 2000)
+	msgs := ratioFixture(4, body)
+	max := EstimateMessages(msgs) - 1
+	const ratio = 0.7
+	target := int(float64(max) * ratio)
+	res := Trim(msgs, ratioTrimOpts(max, ratio))
+
+	if got := EstimateMessages(res.Messages); got > target {
+		t.Fatalf("trim = %d, want <= target %d", got, target)
+	}
+	if res.Pruned >= 3 {
+		t.Fatalf("pruned %d results, want fewer than the 3 candidates", res.Pruned)
+	}
+	// The oldest candidate (c0, index 3) stays verbatim: trimming stopped once
+	// the target was reached instead of walking every candidate.
+	if got := res.Messages[3].Content; got != body {
+		t.Fatalf("oldest tool result was over-trimmed: %q", got)
+	}
+}
+
+// TestTrimTargetRatioZeroPreservesDefault locks in backward compatibility:
+// the zero value and any ratio >= 1 must be indistinguishable from the old
+// behaviour of trimming exactly to MaxTokens.
+func TestTrimTargetRatioZeroPreservesDefault(t *testing.T) {
+	body := strings.Repeat("x", 2000)
+	msgs := ratioFixture(3, body)
+	max := EstimateMessages(msgs) - 1
+
+	baseline := Trim(msgs, ratioTrimOpts(max, 0))
+	for _, ratio := range []float64{0, 1, 1.5, -1} {
+		got := Trim(msgs, ratioTrimOpts(max, ratio))
+		if got.Pruned != baseline.Pruned || got.Freed != baseline.Freed {
+			t.Fatalf("ratio=%v: pruned/freed = %d/%d, baseline %d/%d", ratio, got.Pruned, got.Freed, baseline.Pruned, baseline.Freed)
+		}
+		if n, want := trimmedBytes(got.Messages), trimmedBytes(baseline.Messages); n != want {
+			t.Fatalf("ratio=%v changed the transcript: %d vs %d", ratio, n, want)
+		}
+	}
+}
+
+// TestTrimTargetRatioWithCJK exercises the ratio target with wide runes, which
+// EstimateTokens counts individually rather than at charsPerToken.
+func TestTrimTargetRatioWithCJK(t *testing.T) {
+	body := strings.Repeat("界", 900) // 900 wide runes ~= 900 tokens
+	msgs := ratioFixture(3, body)
+	freed := oneTrimFreed(body)
+	if freed <= 0 {
+		t.Fatalf("CJK body does not free tokens: %d", freed)
+	}
+	max := EstimateMessages(msgs) - freed + 1
+	const ratio = 0.7
+	target := int(float64(max) * ratio)
+	res := Trim(msgs, ratioTrimOpts(max, ratio))
+
+	if res.Pruned != 2 {
+		t.Fatalf("CJK ratio pruned = %d, want 2", res.Pruned)
+	}
+	if got := EstimateMessages(res.Messages); got > target {
+		t.Fatalf("CJK trim = %d, want <= target %d", got, target)
+	}
+	for _, m := range res.Messages {
+		if !utf8.ValidString(m.Content) || strings.ContainsRune(m.Content, utf8.RuneError) {
+			t.Fatalf("invalid UTF-8 after trimming CJK content: %q", m.Content)
+		}
+	}
+}

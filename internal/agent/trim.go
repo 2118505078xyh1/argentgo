@@ -125,6 +125,12 @@ type TrimOptions struct {
 	// CacheProtectSuffixTokens overrides the prompt-cache guard. Zero uses the
 	// conservative default.
 	CacheProtectSuffixTokens int
+	// TargetRatio is the fraction of MaxTokens the budget loop aims for. A
+	// value in (0, 1) makes Trim overshoot downwards to that fraction, leaving
+	// headroom so the next turn does not immediately re-trigger trimming and
+	// invalidate the prompt cache. Zero (the default) and values >= 1 keep the
+	// original behaviour of trimming exactly to MaxTokens.
+	TargetRatio float64
 }
 
 // TrimResult reports what trimming did.
@@ -134,6 +140,28 @@ type TrimResult struct {
 	Pruned int
 	// Freed is the estimated token saving.
 	Freed int
+}
+
+// fullBudgetRatio is the TargetRatio value that preserves the original
+// behaviour: trim exactly down to MaxTokens, with no growth headroom.
+const fullBudgetRatio = 1.0
+
+// budgetTarget returns the token level the budget loop aims for.
+//
+// A TargetRatio in (0, 1) requests hysteresis: trim below MaxTokens so the next
+// turn has room to grow before trimming fires again, keeping the prompt cache
+// warm. The zero value (the default) and ratios >= 1 keep the original
+// behaviour of trimming exactly to MaxTokens, so existing callers are
+// unaffected.
+func budgetTarget(maxTokens int, ratio float64) int {
+	if ratio <= 0 || ratio >= fullBudgetRatio {
+		return maxTokens
+	}
+	target := int(float64(maxTokens) * ratio)
+	if target < 1 {
+		return 1
+	}
+	return target
 }
 
 // Trim shrinks a conversation by replacing old tool output with a one-line
@@ -158,6 +186,9 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	if total <= opts.MaxTokens {
 		return res
 	}
+	// Hysteresis: the trigger stays at MaxTokens, but the loop aims below it so
+	// a successful trim leaves headroom instead of re-triggering next turn.
+	target := budgetTarget(opts.MaxTokens, opts.TargetRatio)
 
 	keepTurns := opts.KeepTurns
 	if keepTurns <= 0 {
@@ -203,7 +234,7 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 		res.Pruned++
 		res.Freed += freed
 		total -= freed
-		if total <= opts.MaxTokens {
+		if total <= target {
 			break
 		}
 	}

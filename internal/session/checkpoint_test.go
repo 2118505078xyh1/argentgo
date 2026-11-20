@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func testWorkspace(t *testing.T, files map[string]string) string {
@@ -499,5 +502,220 @@ func TestOldJSONLRecordsRemainReadableWithoutNewKinds(t *testing.T) {
 	meta := metaFromRecords("legacy", records)
 	if strings.Contains(meta.Title, "sk-proj") || !strings.Contains(meta.Title, "redacted") {
 		t.Fatalf("lazily generated title = %q", meta.Title)
+	}
+}
+
+// countingCheckpointReader counts file reads while delegating to os.ReadFile.
+// It is injected via captureCheckpoint so tests can observe cache hits directly.
+type countingCheckpointReader struct {
+	mu    sync.Mutex
+	reads int
+}
+
+func (r *countingCheckpointReader) read(path string) ([]byte, error) {
+	r.mu.Lock()
+	r.reads++
+	r.mu.Unlock()
+	return os.ReadFile(path)
+}
+
+func (r *countingCheckpointReader) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reads
+}
+
+// TestCaptureCheckpointHashCacheReusesUnchangedFiles asserts the core win: a
+// second checkpoint over an unchanged file serves hash and bytes from the
+// cache without re-reading, and the result is identical to the uncached path.
+func TestCaptureCheckpointHashCacheReusesUnchangedFiles(t *testing.T) {
+	ClearCheckpointHashCache()
+	root := testWorkspace(t, map[string]string{"a.txt": "stable bytes"})
+	reader := &countingCheckpointReader{}
+
+	first, err := captureCheckpoint(root, []string{"a.txt"}, reader.read)
+	if err != nil {
+		t.Fatalf("first captureCheckpoint: %v", err)
+	}
+	if reader.count() != 1 {
+		t.Fatalf("first capture reads = %d, want 1", reader.count())
+	}
+	second, err := captureCheckpoint(root, []string{"a.txt"}, reader.read)
+	if err != nil {
+		t.Fatalf("second captureCheckpoint: %v", err)
+	}
+	if reader.count() != 1 {
+		t.Fatalf("unchanged file was re-read: reads = %d, want 1", reader.count())
+	}
+
+	want := hashBytes([]byte("stable bytes"))
+	if first.Files[0].SHA256 != want || second.Files[0].SHA256 != want {
+		t.Fatalf("hashes = %q, %q, want %q", first.Files[0].SHA256, second.Files[0].SHA256, want)
+	}
+	if got := string(second.Files[0].Before); got != "stable bytes" {
+		t.Fatalf("cached Before = %q, want %q", got, "stable bytes")
+	}
+	first.Created = second.Created
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("cached checkpoint differs from uncached:\nfirst  = %+v\nsecond = %+v", first, second)
+	}
+}
+
+// TestCaptureCheckpointHashCacheRecomputesAfterChange asserts a changed file
+// gets a new stat-metadata key, so the stale hash is never served.
+func TestCaptureCheckpointHashCacheRecomputesAfterChange(t *testing.T) {
+	ClearCheckpointHashCache()
+	root := testWorkspace(t, map[string]string{"a.txt": "before"})
+	reader := &countingCheckpointReader{}
+
+	before, err := captureCheckpoint(root, []string{"a.txt"}, reader.read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(path, []byte("after changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Force a distinct mtime so the metadata key is guaranteed to differ.
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	after, err := captureCheckpoint(root, []string{"a.txt"}, reader.read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reader.count() != 2 {
+		t.Fatalf("reads = %d, want 2 (one per version)", reader.count())
+	}
+	if after.Files[0].SHA256 == before.Files[0].SHA256 {
+		t.Fatal("changed file reused the stale cached hash")
+	}
+	if got := string(after.Files[0].Before); got != "after changed" {
+		t.Fatalf("Before = %q, want the new bytes", got)
+	}
+	if want := hashBytes([]byte("after changed")); after.Files[0].SHA256 != want {
+		t.Fatalf("SHA256 = %q, want %q", after.Files[0].SHA256, want)
+	}
+}
+
+// TestCaptureCheckpointHashCacheConcurrentCalls exercises the cache from many
+// goroutines at once and asserts every caller sees a correct, complete manifest.
+func TestCaptureCheckpointHashCacheConcurrentCalls(t *testing.T) {
+	ClearCheckpointHashCache()
+	root := testWorkspace(t, map[string]string{"a.txt": "one", "b.txt": "two", "c.txt": "three"})
+	want := map[string]string{
+		"a.txt": hashBytes([]byte("one")),
+		"b.txt": hashBytes([]byte("two")),
+		"c.txt": hashBytes([]byte("three")),
+	}
+	reader := &countingCheckpointReader{}
+
+	const callers = 24
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	results := make(chan Checkpoint, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cp, err := captureCheckpoint(root, []string{"a.txt", "b.txt", "c.txt"}, reader.read)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- cp
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(results)
+
+	for err := range errs {
+		t.Fatalf("concurrent captureCheckpoint: %v", err)
+	}
+	got := 0
+	for cp := range results {
+		got++
+		if len(cp.Files) != 3 {
+			t.Fatalf("files = %d, want 3", len(cp.Files))
+		}
+		for _, file := range cp.Files {
+			if file.SHA256 != want[file.Path] {
+				t.Fatalf("%s SHA256 = %q, want %q", file.Path, file.SHA256, want[file.Path])
+			}
+		}
+	}
+	if got != callers {
+		t.Fatalf("results = %d, want %d", got, callers)
+	}
+	// Concurrent misses may duplicate reads, but never more than one per file
+	// per caller, and at least the three distinct files must have been read.
+	if n := reader.count(); n < 3 || n > 3*callers {
+		t.Fatalf("reads = %d, want between 3 and %d", n, 3*callers)
+	}
+}
+
+// TestClearAndInvalidateCheckpointHashCache covers both invalidation entry
+// points: targeted invalidation re-reads only the named file, while a full
+// clear forces every file to be read again.
+func TestClearAndInvalidateCheckpointHashCache(t *testing.T) {
+	ClearCheckpointHashCache()
+	root := testWorkspace(t, map[string]string{"a.txt": "a", "b.txt": "b"})
+	reader := &countingCheckpointReader{}
+	paths := []string{"a.txt", "b.txt"}
+
+	if _, err := captureCheckpoint(root, paths, reader.read); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := captureCheckpoint(root, paths, reader.read); err != nil {
+		t.Fatal(err)
+	}
+	if n := reader.count(); n != 2 {
+		t.Fatalf("reads after two captures = %d, want 2", n)
+	}
+
+	InvalidateCheckpointHashCache(root, "a.txt")
+	if _, err := captureCheckpoint(root, paths, reader.read); err != nil {
+		t.Fatal(err)
+	}
+	if n := reader.count(); n != 3 {
+		t.Fatalf("reads after invalidating a.txt = %d, want 3", n)
+	}
+
+	ClearCheckpointHashCache()
+	if _, err := captureCheckpoint(root, paths, reader.read); err != nil {
+		t.Fatal(err)
+	}
+	if n := reader.count(); n != 5 {
+		t.Fatalf("reads after clear = %d, want 5", n)
+	}
+
+	// Invalidation on an unknown or unsafe path is a harmless no-op.
+	InvalidateCheckpointHashCache(root, "../outside.txt")
+	InvalidateCheckpointHashCache(root, "missing.txt")
+}
+
+// TestCaptureCheckpointHashCacheIsolatedPerWorkspace guards cross-workspace
+// correctness: identical relative paths with different content must not share
+// a cache entry.
+func TestCaptureCheckpointHashCacheIsolatedPerWorkspace(t *testing.T) {
+	ClearCheckpointHashCache()
+	one := testWorkspace(t, map[string]string{"a.txt": "content one"})
+	two := testWorkspace(t, map[string]string{"a.txt": "content two"})
+
+	first, err := CaptureCheckpoint(one, []string{"a.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureCheckpoint(two, []string{"a.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Files[0].SHA256 == second.Files[0].SHA256 {
+		t.Fatal("identical paths in different workspaces shared a cached hash")
+	}
+	if got := string(second.Files[0].Before); got != "content two" {
+		t.Fatalf("second workspace Before = %q", got)
 	}
 }

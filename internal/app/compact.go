@@ -64,6 +64,31 @@ func compactionDecision(estimate, window, configured, percent int) (threshold in
 	return threshold, agent.InflateEstimate(estimate) >= threshold
 }
 
+// minCompactionSavingsDivisor is the gptme MIN_SAVINGS_RATIO floor expressed
+// as 1/minCompactionSavingsDivisor (a tenth, i.e. 10%): a compaction that
+// removes less than this fraction of the context is not worth the prompt-cache
+// invalidation it causes, so the decision paths leave the conversation intact.
+const minCompactionSavingsDivisor = 10
+
+// compactionWorthwhile reports whether swapping a context of `before`
+// estimated tokens for one of `after` tokens saves enough to justify busting
+// the prompt cache. The comparison is (before-after)/before >= 10%; it uses
+// integer math with a ceiling so it is deterministic and overflow-safe.
+// A non-positive `before` has no ratio and is never worth compacting, and an
+// `after` that is not strictly smaller than `before` is a net loss.
+func compactionWorthwhile(before, after int64) bool {
+	if before <= 0 || after >= before {
+		return false
+	}
+	// ceil(before / minCompactionSavingsDivisor), computed without a
+	// multiplication that could overflow.
+	required := before / minCompactionSavingsDivisor
+	if before%minCompactionSavingsDivisor != 0 {
+		required++
+	}
+	return before-after >= required
+}
+
 // usageAnchor is a native token count reported by the provider for one point in
 // the transcript. Tokens is the assistant reply's totalTokens and Index is that
 // assistant message's position in the message slice; only messages after Index
@@ -166,9 +191,6 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// collect next-step lines from the visible messages and let Summarize pick
 	// up tool failures from the dropped entries.
 	enrichCompaction(&compaction, agent.CollectCompactionEvidence(nil, messages))
-	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
-		return messages, false
-	}
 
 	out := make([]llm.Message, 0, len(messages)-start+2)
 	out = append(out, llm.Message{Role: "system", Content: compaction.Summary})
@@ -178,6 +200,16 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 		out = append(out, messages[0])
 	}
 	out = append(out, messages[start:]...)
+	// Post-hoc reduction check (gptme hook.py): if the folded view is not
+	// meaningfully smaller, compaction only invalidates the prompt cache and
+	// loses verbatim context. Leave the conversation intact in that case, and
+	// write no compaction record so a later turn can retry with more history.
+	if !compactionWorthwhile(int64(agent.EstimateMessages(messages)), int64(agent.EstimateMessages(out))) {
+		return messages, false
+	}
+	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
+		return messages, false
+	}
 	return out, true
 }
 

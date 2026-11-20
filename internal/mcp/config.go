@@ -111,6 +111,16 @@ func DecodeConfig(raw map[string]any) ([]Spec, []Problem) {
 				spec.Timeout = time.Duration(seconds * float64(time.Second))
 			}
 		}
+		if v, key, ok := pick(body, "discoveryTimeout", "discovery_timeout"); ok {
+			seconds, valid := decodeSeconds(v)
+			if !valid || seconds <= 0 {
+				problem(name, key, "want a positive number of seconds; ignored")
+			} else {
+				// Stored raw; clamping happens in EffectiveDiscoveryTimeout so
+				// programmatic Specs get the same bounds as decoded ones.
+				spec.DiscoveryTimeout = time.Duration(seconds * float64(time.Second))
+			}
+		}
 		if v, key, ok := pick(body, "enabled", "Enabled"); ok {
 			flag, valid := decodeBool(v)
 			if !valid {

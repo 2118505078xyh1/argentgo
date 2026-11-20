@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,9 +47,90 @@ type Checkpoint struct {
 	Created time.Time        `json:"created,omitempty"`
 }
 
+// hashCacheKey identifies one version of a file for the checkpoint hash cache.
+// It combines the resolved target path (which encodes both the workspace and
+// the relative path) with the stat metadata captured by CaptureCheckpoint. A
+// cached entry is reused only while size, mtime and mode stay unchanged.
+type hashCacheKey struct {
+	target string
+	size   int64
+	mtime  int64
+	mode   os.FileMode
+}
+
+// hashCacheEntry holds the pre-turn bytes and their hash together, because a
+// checkpoint stores the bytes in Before so undo stays self-contained. Skipping
+// the read therefore requires caching the bytes as well as the digest.
+type hashCacheEntry struct {
+	sha256 string
+	before []byte
+}
+
+var checkpointHashCache = struct {
+	sync.Mutex
+	entries map[hashCacheKey]hashCacheEntry
+}{entries: make(map[hashCacheKey]hashCacheEntry)}
+
+// lookupCheckpointHash returns a copy of the cached entry for key. Copying the
+// bytes keeps a caller mutating CheckpointFile.Before from corrupting the cache.
+func lookupCheckpointHash(key hashCacheKey) (hashCacheEntry, bool) {
+	checkpointHashCache.Lock()
+	defer checkpointHashCache.Unlock()
+	entry, ok := checkpointHashCache.entries[key]
+	if ok {
+		entry.before = append([]byte(nil), entry.before...)
+	}
+	return entry, ok
+}
+
+// rememberCheckpointHash caches the hash and bytes of a freshly read file.
+func rememberCheckpointHash(key hashCacheKey, sha256 string, before []byte) {
+	entry := hashCacheEntry{sha256: sha256, before: append([]byte(nil), before...)}
+	checkpointHashCache.Lock()
+	checkpointHashCache.entries[key] = entry
+	checkpointHashCache.Unlock()
+}
+
+// ClearCheckpointHashCache drops every cached checkpoint hash and byte slice.
+// The cache is a pure speed-up: clearing it never changes a checkpoint result,
+// it only makes the next CaptureCheckpoint re-read and re-hash its files.
+func ClearCheckpointHashCache() {
+	checkpointHashCache.Lock()
+	checkpointHashCache.entries = make(map[hashCacheKey]hashCacheEntry)
+	checkpointHashCache.Unlock()
+}
+
+// InvalidateCheckpointHashCache drops all cached versions of rel under
+// workspace. Call it when a file is known to have changed outside a checkpoint
+// turn and a stat-metadata-only key would not notice (for example a same-size
+// edit with a restored mtime). Unknown or unresolvable paths are a no-op.
+func InvalidateCheckpointHashCache(workspace, rel string) {
+	target, err := resolveWorkspacePath(workspace, rel)
+	if err != nil {
+		return
+	}
+	checkpointHashCache.Lock()
+	for key := range checkpointHashCache.entries {
+		if key.target == target {
+			delete(checkpointHashCache.entries, key)
+		}
+	}
+	checkpointHashCache.Unlock()
+}
+
+// checkpointFileReader is the injectable file reader used by CaptureCheckpoint.
+// Production callers use os.ReadFile; tests substitute a counting reader.
+type checkpointFileReader func(string) ([]byte, error)
+
 // CaptureCheckpoint snapshots the pre-turn bytes of paths, which must be
-// relative to workspace. Paths are deduplicated and sorted for a stable manifest.
+// relative to workspace. Paths are deduplicated and sorted for a stable
+// manifest. Unchanged files are served from the in-process hash cache; the
+// cache is strictly an optimization and is never required for correctness.
 func CaptureCheckpoint(workspace string, paths []string) (Checkpoint, error) {
+	return captureCheckpoint(workspace, paths, os.ReadFile)
+}
+
+func captureCheckpoint(workspace string, paths []string, read checkpointFileReader) (Checkpoint, error) {
 	cp := Checkpoint{Files: make([]CheckpointFile, 0, len(paths)), Created: time.Now().UTC()}
 	seen := make(map[string]bool, len(paths))
 	for _, raw := range paths {
@@ -74,12 +156,25 @@ func CaptureCheckpoint(workspace string, paths []string) (Checkpoint, error) {
 			if !info.Mode().IsRegular() {
 				return Checkpoint{}, fmt.Errorf("session: checkpoint path %q is not a regular file", rel)
 			}
-			bytes, err := os.ReadFile(target)
-			if err != nil {
-				return Checkpoint{}, fmt.Errorf("session: read %s: %w", rel, err)
+			key := hashCacheKey{
+				target: target,
+				size:   info.Size(),
+				mtime:  info.ModTime().UnixNano(),
+				mode:   info.Mode(),
+			}
+			var bytes []byte
+			if entry, ok := lookupCheckpointHash(key); ok {
+				bytes = entry.before
+				file.SHA256 = entry.sha256
+			} else {
+				bytes, err = read(target)
+				if err != nil {
+					return Checkpoint{}, fmt.Errorf("session: read %s: %w", rel, err)
+				}
+				file.SHA256 = hashBytes(bytes)
+				rememberCheckpointHash(key, file.SHA256, bytes)
 			}
 			file.Before = bytes
-			file.SHA256 = hashBytes(bytes)
 			file.Mode = uint32(info.Mode().Perm())
 		}
 		cp.Files = append(cp.Files, file)

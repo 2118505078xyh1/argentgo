@@ -2,6 +2,8 @@ package agent
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -17,6 +19,9 @@ const (
 	StopMaxPromptTokens = "max_prompt_tokens"
 	// StopMaxTotalTokens means the run's prompt+completion total hit the cap.
 	StopMaxTotalTokens = "max_total_tokens"
+	// StopDeclaredTurnBudget means the per-turn cap the user declared in the
+	// prompt (see ParseTurnBudget) was hit. It is opt-in via Budget field.
+	StopDeclaredTurnBudget = "declared_turn_budget"
 	// StopMaxCost means the estimated spend hit MaxCostUSD.
 	StopMaxCost = "max_cost"
 	// StopCancelled means the context was cancelled.
@@ -67,6 +72,10 @@ type Budget struct {
 	MaxTotalTokens int
 	// MaxCostUSD caps the estimated spend, using Options.Prices.
 	MaxCostUSD float64
+	// DeclaredTurnTokens is the per-turn output budget the user declared in
+	// their prompt (parse it with ParseTurnBudget). Zero means no declaration.
+	// It is an additional cumulative token cap and never relaxes the others.
+	DeclaredTurnTokens int64
 }
 
 // Breach returns the first exhausted limit as a stable reason string and a
@@ -75,6 +84,14 @@ type Budget struct {
 // lastPromptTokens is the prompt size of the most recent request (reported by
 // the provider, or estimated); costKnown is false when no price matched.
 func (b Budget) Breach(used llm.Usage, lastPromptTokens int, spentUSD float64, costKnown bool) (reason, detail string, ok bool) {
+	if b.DeclaredTurnTokens > 0 {
+		total := int64(used.PromptTokens) + int64(used.CompletionTokens)
+		if total >= b.DeclaredTurnTokens {
+			return StopDeclaredTurnBudget,
+				fmt.Sprintf("%s: %d tokens used (declared limit %d)", StopDeclaredTurnBudget, total, b.DeclaredTurnTokens),
+				true
+		}
+	}
 	if b.MaxTotalTokens > 0 {
 		total := used.PromptTokens + used.CompletionTokens
 		if total >= b.MaxTotalTokens {
@@ -162,5 +179,158 @@ func (b Budget) sliceForChild() Budget {
 	if b.MaxCostUSD > 0 {
 		out.MaxCostUSD = b.MaxCostUSD / 2
 	}
+	if b.DeclaredTurnTokens > 0 {
+		out.DeclaredTurnTokens = max(int64(1), b.DeclaredTurnTokens/2)
+	}
 	return out
+}
+
+// Limits applied to a user-declared turn budget. Declarations outside the
+// range are clamped rather than rejected so a typo cannot disable the feature.
+const (
+	turnBudgetMinTokens = int64(1_000)
+	turnBudgetMaxTokens = int64(100_000_000)
+)
+
+// Patterns used to remove everything that is not the user's own prose before
+// a declaration is looked for. RE2 has no backreferences, so each injection
+// container is matched by its own compiled pattern (built below).
+var (
+	fencedCodeBacktick = regexp.MustCompile("(?s)```.*?```")
+	fencedCodeTilde    = regexp.MustCompile("(?s)~~~.*?~~~")
+	inlineCode         = regexp.MustCompile("`[^`\\n]*`")
+	genericHTMLTag     = regexp.MustCompile(`(?s)<[A-Za-z/][^>]*>`)
+	atReference        = regexp.MustCompile(`(?m)@[A-Za-z0-9_./:\\-]+[^\n]*`)
+	atBracketReference = regexp.MustCompile(`(?m)@<[^>\n]*>[^\n]*`)
+	atQuotedReference  = regexp.MustCompile(`(?m)@"[^"\n]*"[^\n]*`)
+
+	// plusBudget matches the "+500k" / "+2m" shorthand (k = thousand,
+	// m = million). The sign is what makes a bare "500k" in prose safe to
+	// ignore, while the suffix word boundary rejects things like "500miles".
+	plusBudget = regexp.MustCompile(`\+\s*(\d+(?:\.\d+)?)\s*([kKmM])\b`)
+	// verbBudget matches "use 2m tokens" style phrases. A verb plus the
+	// "tokens" noun is required so ordinary quantities are not declarations.
+	verbBudget = regexp.MustCompile(`(?i)\b(?:use|spend|budget|limit|cap|with|set|allow|allocate|reserve)\s+(\d+(?:\.\d+)?)\s*([kKmM])\s+(?:(?:output|total|context)\s+)?tokens?\b`)
+)
+
+// injectionBlockTags are wrappers the harness uses to inject content that is
+// not the user's own text. The whole element (including its body) is dropped
+// so a budget-looking number inside an attachment cannot set the limit.
+var injectionBlockTags = []string{
+	"system-reminder", "system_reminder", "project-memory", "file",
+	"attachment", "attachments", "document", "context", "resource",
+	"resources", "mcp", "tool_result", "tool-result", "function_results",
+	"injected", "environment",
+}
+
+var injectionBlockPatterns = func() []*regexp.Regexp {
+	out := make([]*regexp.Regexp, 0, len(injectionBlockTags)*2)
+	for _, name := range injectionBlockTags {
+		out = append(out,
+			regexp.MustCompile(`(?is)<`+name+`\b[^>]*>.*?</`+name+`\s*>`),
+			regexp.MustCompile(`(?is)<`+name+`\b[^>]*/>`),
+		)
+	}
+	return out
+}()
+
+// ParseTurnBudget extracts the output budget the user declared for the current
+// turn. Two spellings are recognised, case-insensitively and with optional
+// decimals: "+500k" (also "+2m", "+1.5m") and "use 2m tokens" (with a small
+// set of budget verbs and an optional "output"/"total"/"context" qualifier).
+// The leftmost declaration in the user's text wins.
+//
+// Only the user's own prose is inspected. Code spans, <system-reminder> and
+// other injected XML blocks, @file/MCP references and remaining HTML tags are
+// stripped first, so a number inside an attachment cannot set the budget.
+// The result is clamped to [1k, 100m]; ok is false when no declaration exists.
+func ParseTurnBudget(prompt string) (tokens int64, ok bool) {
+	text := stripNonUserText(prompt)
+
+	// Find the leftmost of the two recognised forms.
+	best := len(text) + 1
+	var number, suffix string
+	if loc := plusBudget.FindStringSubmatchIndex(text); loc != nil {
+		best, number, suffix = loc[0], text[loc[2]:loc[3]], text[loc[4]:loc[5]]
+	}
+	if loc := verbBudget.FindStringSubmatchIndex(text); loc != nil && loc[0] < best {
+		best, number, suffix = loc[0], text[loc[2]:loc[3]], text[loc[4]:loc[5]]
+	}
+	if best > len(text) {
+		return 0, false
+	}
+
+	tokens = parseTokenCount(number, suffix)
+	if tokens < turnBudgetMinTokens {
+		tokens = turnBudgetMinTokens
+	} else if tokens > turnBudgetMaxTokens {
+		tokens = turnBudgetMaxTokens
+	}
+	return tokens, true
+}
+
+// stripNonUserText removes non-prose content from a prompt. The order matters:
+// code and injected blocks go before @-references, and generic tags go last
+// so the user's own text around a tag survives.
+func stripNonUserText(prompt string) string {
+	s := fencedCodeBacktick.ReplaceAllString(prompt, "")
+	s = fencedCodeTilde.ReplaceAllString(s, "")
+	s = inlineCode.ReplaceAllString(s, "")
+	for _, re := range injectionBlockPatterns {
+		s = re.ReplaceAllString(s, "")
+	}
+	s = atReference.ReplaceAllString(s, "")
+	s = atBracketReference.ReplaceAllString(s, "")
+	s = atQuotedReference.ReplaceAllString(s, "")
+	s = genericHTMLTag.ReplaceAllString(s, "")
+	return s
+}
+
+// parseTokenCount turns "1.5" + "m" into 1_500_000. Integer math avoids
+// floating-point drift; oversized inputs saturate before ParseTurnBudget
+// clamps them, so an absurd number cannot overflow int64.
+func parseTokenCount(number, suffix string) int64 {
+	multiplier := int64(1)
+	switch suffix {
+	case "k", "K":
+		multiplier = 1_000
+	case "m", "M":
+		multiplier = 1_000_000
+	}
+
+	const saturation = int64(1 << 62)
+	parts := strings.SplitN(number, ".", 2)
+	var total int64
+	for _, c := range parts[0] {
+		d := int64(c - '0')
+		if total > (saturation-d)/10 {
+			return saturation
+		}
+		total = total*10 + d
+	}
+	if total > saturation/multiplier {
+		return saturation
+	}
+	total *= multiplier
+
+	if len(parts) == 2 {
+		frac := parts[1]
+		if len(frac) > 6 {
+			frac = frac[:6]
+		}
+		var f int64
+		for _, c := range frac {
+			f = f*10 + int64(c-'0')
+		}
+		denom := int64(1)
+		for range frac {
+			denom *= 10
+		}
+		add := f * multiplier / denom
+		if total > saturation-add {
+			return saturation
+		}
+		total += add
+	}
+	return total
 }
