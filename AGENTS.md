@@ -24,9 +24,14 @@ $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
 go build -o argent.exe ./cmd/argent     # binary
 go test ./...                            # all packages
 go test ./internal/agent -run TestName   # one test
+go test -bench . -benchtime=10x ./...    # benchmark smoke: assertions must pass
 go vet ./...                             # vet everything
 gofmt -l .                               # must print nothing
 ```
+
+Benchmarks are tests: their assertions run under `go test`, so a stale
+assertion breaks the build even though CI never times them. Run the smoke pass
+whenever you touch a session/agent/tools hot path.
 
 Desktop frontend (`native/`, MyGo native UI):
 
