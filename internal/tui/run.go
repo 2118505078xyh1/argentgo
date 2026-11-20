@@ -20,6 +20,11 @@ const (
 	hideCursor     = "\x1b[?25l"
 	showCursor     = "\x1b[?25h"
 	clearScreen    = "\x1b[2J"
+	// Bracketed paste (DECSET/DECRST 2004): the terminal wraps pasted blocks
+	// in ESC[200~ ... ESC[201~ so newlines and command bytes arrive as text
+	// instead of being decoded as Enter / Ctrl keys and submitting early.
+	enablePaste  = "\x1b[?2004h"
+	disablePaste = "\x1b[?2004l"
 )
 
 const frameInterval = 50 * time.Millisecond
@@ -157,14 +162,16 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	// Enable SGR mouse reporting + drag tracking so the terminal sends press,
-	// drag and wheel events (decoded in keys.go) for text selection.
-	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h")
+	// drag and wheel events (decoded in keys.go) for text selection. Bracketed
+	// paste keeps multi-line input from being read as keystrokes (and from
+	// submitting on the first carriage return).
+	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h"+enablePaste)
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			restore()
-			fmt.Fprint(out, "\x1b[?1002l\x1b[?1016l"+showCursor+leaveAltScreen)
+			fmt.Fprint(out, "\x1b[?1002l\x1b[?1016l"+disablePaste+showCursor+leaveAltScreen)
 			if body := model.Plain(); body != "" {
 				fmt.Fprint(out, body)
 			}

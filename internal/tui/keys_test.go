@@ -2,6 +2,7 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -133,5 +134,36 @@ func TestDecoderReadsAltEnterAndPaste(t *testing.T) {
 	keys = split.Feed([]byte("\x1b[201~"))
 	if len(keys) != 1 || keys[0].Text != "abc" {
 		t.Fatalf("paste = %#v", keys)
+	}
+}
+
+func TestDecoderRecoversFromLostPasteEndMarker(t *testing.T) {
+	decoder := &Decoder{}
+	// A bracketed-paste opener whose terminator never arrives must not buffer
+	// forever or swallow every following key. Past the cap the decoder drops
+	// the ESC and re-decodes the accumulated bytes as ordinary input.
+	payload := strings.Repeat("x", maxPasteBytes+1)
+	keys := decoder.Feed(append([]byte("\x1b[200~"), []byte(payload)...))
+	if len(keys) == 0 {
+		t.Fatal("a lost paste end marker wedged the decoder: no keys decoded")
+	}
+	if decoder.Pending() {
+		t.Fatalf("the buffer was not drained after recovery: %d bytes", len(decoder.buf))
+	}
+	// Normal keys must be delivered again once the decoder has recovered.
+	more := decoder.Feed([]byte("\r"))
+	if len(more) != 1 || more[0].Kind != KindEnter {
+		t.Fatalf("keys after recovery = %#v, want Enter", more)
+	}
+}
+
+func TestDecoderKeepsLargeCompletePaste(t *testing.T) {
+	// The cap applies only to a missing terminator: a legitimate large paste
+	// that is properly closed is still delivered intact as a single key.
+	decoder := &Decoder{}
+	body := strings.Repeat("y", 4096)
+	keys := decoder.Feed(append(append([]byte("\x1b[200~"), []byte(body)...), []byte("\x1b[201~")...))
+	if len(keys) != 1 || keys[0].Kind != KindPaste || keys[0].Text != body {
+		t.Fatalf("large paste was not delivered intact: %d keys", len(keys))
 	}
 }

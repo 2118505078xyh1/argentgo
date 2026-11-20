@@ -194,6 +194,13 @@ func decodeKey(b []byte) (Key, int, bool) {
 	return Key{Kind: KindRune, Rune: r}, size, true
 }
 
+// maxPasteBytes bounds the bracketed-paste buffer. A terminal that emits the
+// ESC[200~ opener but loses the matching ESC[201~ would otherwise keep the
+// decoder waiting forever, growing the buffer and swallowing every keystroke.
+// Past this cap the leading ESC is dropped so the accumulated bytes are
+// re-decoded normally and the keyboard recovers.
+const maxPasteBytes = 1 << 20 // 1 MiB
+
 func decodeEscape(b []byte) (Key, int, bool) {
 	if len(b) == 1 {
 		return Key{}, 0, false // a lone ESC waits for FlushEscape
@@ -217,6 +224,11 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		rest := b[6:]
 		end := bytes.Index(rest, []byte("\x1b[201~"))
 		if end < 0 {
+			if len(b) > maxPasteBytes {
+				// End marker lost: drop the ESC and re-decode the buffered
+				// bytes as ordinary input so the keyboard never stays stuck.
+				return Key{Kind: KindIgnore}, 1, true
+			}
 			return Key{}, 0, false
 		}
 		return Key{Kind: KindPaste, Text: string(rest[:end])}, 6 + end + 6, true
