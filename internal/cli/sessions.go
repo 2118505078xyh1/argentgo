@@ -162,7 +162,13 @@ func sessionsShow(app App, store SessionStore, id string) int {
 		content.Write(line)
 		content.WriteByte('\n')
 	}
-	return reportLongOut(app, content.String())
+	output := content.String()
+	// 头尾预览是可选能力，默认关闭；显式开启后才折叠中间的行，
+	// 避免改变默认输出而破坏既有的逐字节行为。
+	if sessionsHeadTailEnabled(app) {
+		output = applyHeadTailToOutput(output)
+	}
+	return reportLongOut(app, output)
 }
 
 // sessionGrepper 是注入的 store 可以提供的可选读取端。回退方案会直接读取

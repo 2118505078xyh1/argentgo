@@ -1,41 +1,41 @@
 name: release
 
-# Tag-triggered, Windows-only release pipeline.
+# 由 tag 触发、仅面向 Windows 的发布流水线。
 #
-# Reproducibility: the tag must equal the Version compiled into the binaries
-# (enforced by check-release-consistency.ps1 and build-release.ps1), builds use
-# -trimpath with CGO_ENABLED=0, and scripts/verify-release.ps1 asserts the exact
-# artifacts before anything is published. The desktop client (native/) is built
-# from this tag's source and keeps using the standard latest-release updater;
-# no version is pinned here.
+# 可复现性：tag 必须等于编译进二进制文件的 Version（由 check-release-consistency.ps1
+# 和 build-release.ps1 强制校验），构建使用 -trimpath 与 CGO_ENABLED=0，
+# 并且在任何内容发布之前，scripts/verify-release.ps1 会断言制品完全一致。
+# 桌面客户端（native/）由此 tag 的源码构建，并继续使用标准的
+# latest-release 更新器；这里不固定任何版本。
 #
-# Full verification gate: `verify` mirrors ci.yml's `go` job and `race` mirrors
-# ci.yml's race job (ubuntu with internal/pty excluded). `release` waits for both.
+# 完整验证门禁：`verify` 对应 ci.yml 的 `go` 作业，
+# `race` 对应 ci.yml 的 race 作业（ubuntu，排除 internal/pty）。
+# `release` 会等待两者完成。
 
 on:
   push:
     tags: ['v*']
 
-# Least privilege: every job may read the repo; only `release` may write a
-# Release. The token is the automatically provided GITHUB_TOKEN secret. It is
-# never printed, written to a file, or hardcoded anywhere in this workflow.
+# 最小权限：每个作业都只能读取仓库；只有 `release` 可以写入 Release。
+# 令牌是自动提供的 GITHUB_TOKEN 密钥。它不会被打印、写入文件，也不会在本工作流的
+# 任何位置被硬编码。
 permissions:
   contents: read
 
 jobs:
-  # Same gates as ci.yml's `go` job: a tag must not release code that would
-  # fail CI. Runs on windows-latest because that is the shipped target.
+  # 与 ci.yml 的 `go` 作业使用相同的门禁：tag 不得发布会让 CI 失败的代码。
+  # 运行在 windows-latest 上，因为它是实际发布的目标。
   verify:
     name: verify (windows-latest)
     runs-on: windows-latest
     steps:
-      # Windows runners check out CRLF by default; gofmt must see the bytes
-      # that are actually committed, so disable autocrlf before checkout.
+      # Windows runner 默认以 CRLF 检出；gofmt 必须看到实际提交的字节，
+      # 因此要在 checkout 之前禁用 autocrlf。
       - name: Normalize line endings
         shell: pwsh
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
-      # Version comes from go.mod (1.27.3), the same input ci.yml uses.
+      # 版本来自 go.mod（1.27.3），与 ci.yml 使用的输入相同。
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -50,8 +50,8 @@ jobs:
             exit 1
           fi
 
-      # Native commands can return non-zero without stopping pwsh, so check
-      # $LASTEXITCODE explicitly on every gate.
+      # 原生命令返回非零值不一定会停止 pwsh，因此每个门禁都要显式检查
+      # $LASTEXITCODE。
       - name: go vet
         shell: pwsh
         run: |
@@ -82,9 +82,9 @@ jobs:
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw "cross-compile failed ($LASTEXITCODE)" }
 
-  # Mirrors ci.yml's race job: the race detector needs cgo + gcc, so it runs on
-  # ubuntu. internal/pty tests need a real controlling terminal and are excluded
-  # here (the Windows `verify` job covers that package).
+  # 与 ci.yml 的 race 作业一致：竞态检测器需要 cgo + gcc，因此运行在 ubuntu 上。
+  # internal/pty 的测试需要真正的控制终端，这里将其排除（Windows 上的 `verify` 作业
+  # 覆盖该包）。
   race:
     name: go test -race (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -99,13 +99,13 @@ jobs:
           CGO_ENABLED: '1'
         run: go test -race $(go list ./... | grep -v '/internal/pty$')
 
-  # Publish only after the full verification gate has passed.
+  # 仅在完整验证门禁全部通过后才发布。
   release:
     name: release (windows-latest)
     needs: [verify, race]
     runs-on: windows-latest
     permissions:
-      contents: write # required to create the Release and upload its assets
+      contents: write # 创建 Release 并上传其资源所必需的
     steps:
       - name: Normalize line endings
         shell: pwsh
@@ -116,8 +116,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Pass the tag through the environment instead of interpolating it into
-      # the script text, so an unusual tag cannot be parsed as shell code.
+      # 通过环境变量传递 tag，而不是将其插值到脚本文本中，这样特殊的 tag
+      # 就不会被当作 shell 代码解析。
       - name: Check release metadata
         shell: pwsh
         env:
@@ -126,9 +126,9 @@ jobs:
           pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { throw "release metadata check failed ($LASTEXITCODE)" }
 
-      # Builds argent.exe + argent-native.exe into dist/release and writes
-      # checksums.txt. `verify` and `race` already ran every quality gate, so
-      # the script's duplicate vet/test/gofmt pass is skipped here.
+      # 将 argent.exe + argent-native.exe 构建到 dist/release，并写入 checksums.txt。
+      # `verify` 和 `race` 已经运行了所有质量门禁，因此这里跳过脚本中重复的
+      # vet/test/gofmt 检查。
       - name: Build release artifacts
         shell: pwsh
         env:
@@ -137,9 +137,9 @@ jobs:
           pwsh -NoProfile -File scripts/build-release.ps1 -Tag $env:RELEASE_TAG -SkipChecks
           if ($LASTEXITCODE -ne 0) { throw "build-release.ps1 failed ($LASTEXITCODE)" }
 
-      # Independent assertion before upload: zip exists, contains both
-      # binaries, and its SHA-256 matches checksums.txt. Any mismatch fails
-      # the step and nothing is published.
+      # 上传前的独立断言：zip 存在、包含两个二进制文件，
+      # 且其 SHA-256 与 checksums.txt 一致。任何不一致都会使该步骤失败，
+      # 且不会发布任何内容。
       - name: Verify release artifacts
         shell: pwsh
         env:
@@ -157,9 +157,9 @@ jobs:
           pwsh -NoProfile -File scripts/extract-release-notes.ps1 -Tag $env:RELEASE_TAG -OutFile release-notes.md
           if ($LASTEXITCODE -ne 0) { throw "extract-release-notes.ps1 failed ($LASTEXITCODE)" }
 
-      # Chosen over softprops/action-gh-release: `gh` ships on GitHub-hosted
-      # runners, so no third-party action is trusted with the write token, and
-      # --verify-tag guarantees the Release targets this exact checked-out tag.
+      # 之所以选用它而不是 softprops/action-gh-release：`gh` 随 GitHub 托管的 runner
+      # 一同提供，因此无需信任任何第三方动作来持有写入令牌；而 --verify-tag 保证
+      # Release 指向的正是当前检出的这个 tag。
       - name: Publish GitHub Release
         shell: pwsh
         env:
@@ -172,7 +172,7 @@ jobs:
             --title $env:RELEASE_TAG --notes-file release-notes.md --verify-tag
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
 
-      # Post-publish assertion that the two expected assets actually landed.
+      # 发布后的断言，确认两个预期的资源确实已上传。
       - name: Verify published Release
         shell: pwsh
         env:

@@ -128,13 +128,16 @@ type Registry struct {
 
 	mu          sync.Mutex
 	jobs        map[string]*Job
-	next        int    // legacy global "job%d" sequence, used by Start/PromoteFromTimeout
-	sessionNext int    // session-scoped "job%d@session" sequence (guarded by mu)
-	version     uint64 // guarded by mu; bumped on every in-memory state change
-	dirty       bool   // guarded by mu; a state change has not reached the disk yet
-	persisted   uint64 // last version written to disk (read/written under ioMu+mu)
-	inflight    int    // guarded by mu; number of persist calls in progress
-	idleCond    *sync.Cond
+	next        int // legacy global "job%d" sequence, used by Start/PromoteFromTimeout
+	sessionNext int // session-scoped "job%d@session" sequence (guarded by mu)
+	// maxJobs 是作业数量上限（由 mu 保护）；0 表示不限制，这是默认值。
+	// 开启后 Start 会淘汰多余作业，详见 jobs_eviction.go。
+	maxJobs   int
+	version   uint64 // guarded by mu; bumped on every in-memory state change
+	dirty     bool   // guarded by mu; a state change has not reached the disk yet
+	persisted uint64 // last version written to disk (read/written under ioMu+mu)
+	inflight  int    // guarded by mu; number of persist calls in progress
+	idleCond  *sync.Cond
 
 	ioMu sync.Mutex // guards the encode + atomic replace of jobs.json
 
@@ -272,6 +275,11 @@ func (r *Registry) start(session string, cmd Command) (Job, error) {
 		defer r.bgWork.Done()
 		r.reap(id, child)
 	}()
+
+	// 开启数量上限时淘汰多余作业。默认上限为 0（关闭），
+	// 因此既有行为完全不变。
+	r.EnforceMaxJobs()
+
 	if saveErr != nil {
 		return job, saveErr
 	}

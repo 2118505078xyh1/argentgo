@@ -355,20 +355,23 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 		return "", c.wrap(err, "tools/call "+name)
 	}
 	var result struct {
-		Content []struct {
-			Type     string          `json:"type"`
-			Text     string          `json:"text"`
-			MIMEType string          `json:"mimeType"`
-			Resource ResourceContent `json:"resource"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
+		Content []ContentBlock `json:"content"`
+		IsError bool           `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return "", fmt.Errorf("mcp %q: decode tools/call result: %w", c.spec.Name, err)
 	}
 
-	parts := make([]string, 0, len(result.Content))
-	for _, block := range result.Content {
+	// 选择加入：设置 ARGENT_MCP_CONTENT_FILTER_MIN_PRIORITY 后，按 audience
+	// 与 priority 过滤内容块。未设置或无效时整段过滤都不执行，
+	// 输出与历史逐字节一致。
+	blocks := result.Content
+	if minPriority := contentFilterMinPriority(); minPriority > 0 {
+		blocks = filterContentBlocks(blocks, minPriority)
+	}
+
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
 		switch block.Type {
 		case "text":
 			if block.Text != "" {

@@ -67,8 +67,9 @@ func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 // 不需要任何配置键、标志或 CLI 改动，且没有角色的工作区保持逐字节相同的行为
 // （没有 `task` 工具，系统提示也不变）。
 //
-// 启用后，编排策略会追加到调用方的系统提示（绝不替换它），Subagent 被设置为空模型
-// ——agent 循环将其解释为"继承父模型"——以及默认深度限制 2。
+// 启用后，编排策略会追加到调用方的系统提示（绝不替换它），Subagent 使用
+// --secondary-model 指定的次要模型；未配置时该值为空，agent 循环将其解释为
+// "继承父模型"——以及默认深度限制 2。
 // 各个 task 调用请求的角色名，通过注入的 ResolvePersona 回调回到这里解析，
 // 因此 agent 包永远不需要导入本包。
 //
@@ -89,6 +90,8 @@ func configureSubagents(opts *agent.Options, res Resolved, bg *agent.BackgroundR
 	// 因此其行为逐字节不变。
 	opts.System = opts.System + "\n\n" + agent.OrchestratorPrompt()
 	opts.Subagent = &agent.SubagentConfig{
+		// 次要模型只赋给子代理，父级模型绝不改变；为空时保持零值以继承父级模型。
+		Model:    res.Options.SecondaryModel,
 		MaxDepth: agent.DefaultMaxDepth,
 		ResolvePersona: func(name string) (agent.SubagentConfig, bool) {
 			return PersonaSubagentConfig(res.Root, name)

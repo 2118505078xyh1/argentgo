@@ -28,7 +28,8 @@ func (readTool) Description() string {
 		"For focused context, set line (1-based) with before/after to read a window " +
 		"around a target; before/after are capped at 200 each and line wins over offset/limit. " +
 		"Set outline=true to read a Go file as a compact symbol list (kind, name, line) " +
-		"instead of full source; re-call without outline (optionally with offset/limit) to expand a section."
+		"instead of full source; re-call without outline (optionally with offset/limit) to expand a section. " +
+		"Binary files (NUL or dense control bytes) are rejected with a hint to use a suitable tool."
 }
 func (readTool) Mutating() bool { return false }
 func (readTool) Schema() string {
@@ -55,6 +56,11 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
+	}
+	// 先做二进制检测：含 NUL 或高密度控制字节的数据虽然是“合法
+	// UTF-8”，但读进模型只会污染上下文，必须带可读提示拒绝。
+	if looksLikeBinary(data) {
+		return "", fmt.Errorf("read %s: %w", args.Path, errBinaryFile)
 	}
 	if !utf8.Valid(data) {
 		return "", fmt.Errorf("%s is not UTF-8 text", args.Path)

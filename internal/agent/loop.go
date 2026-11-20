@@ -128,6 +128,10 @@ type runState struct {
 	compactor        Compactor
 	compactThreshold int
 
+	// compactRetries 统计本次运行已经用掉的"压缩后重放"次数。上限 MaxCompactRetries 为 1，
+	// 因此该计数同时是 once-per-step 的防空转保护：重放一旦发生，后续溢出都会直接停止。
+	compactRetries int
+
 	// consecutiveLengthFinishes 统计因输出长度而结束、且中间没有其他非长度回复的回复数。
 	// 它驱动无工具答案的继续预算，并在每次未被截断的回复时重置。
 	consecutiveLengthFinishes int
@@ -384,9 +388,28 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				return s.result(StopCancelled), ctxErr
 			}
 			failure := llm.ClassifyFailure(err)
-			s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error(), Failure: &failure})
-			s.emit(Event{Kind: EventStop, Reason: StopProviderError})
-			return s.result(StopProviderError), err
+			// 选择性的"压缩后重放"：默认关闭。只有 opt-in 开启、失败是上下文溢出且
+			// 预算未耗尽时，compactAndReplay 才会压缩记录并在同一轮次重发请求。
+			// 未发生重放时沿用下方的原有失败路径，事件与返回值保持不变。
+			if next, nextErr, retried := s.compactAndReplay(ctx, turn, failure); retried {
+				reply, err = next, nextErr
+				if err == nil {
+					// 压缩改变了提示大小：用重放时真正发出的记录重算估算，
+					// 使随后 account() 的用量与预算检查基于新历史。
+					promptEstimate = EstimateMessages(s.messages) + EstimateTools(s.specs)
+				}
+			}
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					s.appendAbortedAssistant()
+					s.emit(Event{Kind: EventStop, Reason: StopCancelled})
+					return s.result(StopCancelled), ctxErr
+				}
+				failure = llm.ClassifyFailure(err)
+				s.emit(Event{Kind: EventError, Turn: turn, Err: err.Error(), Failure: &failure})
+				s.emit(Event{Kind: EventStop, Reason: StopProviderError})
+				return s.result(StopProviderError), err
+			}
 		}
 		if reply.Reasoning != "" {
 			// 推理通过 Chatter 作为一个整体块到达；单独流式输出推理的提供方在这里仍能正确渲染。

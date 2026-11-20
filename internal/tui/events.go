@@ -22,6 +22,11 @@ const (
 	// EventRetry 是 TUI 独有的实时退避反馈（agent 流没有
 	// 专门的重试类别）。Retry* 字段描述待处理的尝试。
 	EventRetry EventKind = "retry"
+	// EventToolProgress 是长工具执行期间的阶段进度。Detail 携带
+	// 原始进度文本，HandleEvent 用 parseToolProgress 提取可读标签后
+	// 显示为通知。它对应 agent 的 tool_progress 通知，但刻意使用独立
+	// 种类，避免影响普通 EventNotice 的处理。
+	EventToolProgress EventKind = "tool_progress"
 )
 
 // Event 是 agent 事件流面向前端的子集。tui 保留自己的
@@ -36,7 +41,7 @@ type Event struct {
 	IsError    bool
 	DurationMS int64
 	Attempt    AttemptKind // EventAttempt only
-	Detail     string      // EventAttempt / EventError only: badge detail or error text
+	Detail     string      // EventAttempt / EventError / EventToolProgress only: badge detail, error text or raw progress text
 
 	// 仅 EventRetry：失败请求的实时退避反馈。
 	RetryReason  string
@@ -74,6 +79,13 @@ func (m *Model) HandleEvent(event Event) {
 		// 扫描记录。NoticeStack 按其 TTL 自行退休它，且
 		// 新的重试按严重度再按序号优先于旧的。
 		m.setStatusSeverityLocked(SeverityWarn, text)
+	case EventToolProgress:
+		// 只有能解析出阶段标签的进度才显示；无法识别的负载一律忽略，
+		// 与未知事件保持一致的副作用。沿用既有通知渲染路径，不新增
+		// 绘制分支，因此不改变任何现有事件的字节级输出。
+		if label, ok := parseToolProgress(event.Detail); ok {
+			m.appendNoticeEntryLocked(Entry{Kind: EntryNotice, Text: label})
+		}
 	}
 }
 

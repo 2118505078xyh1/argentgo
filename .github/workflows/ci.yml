@@ -1,7 +1,7 @@
 name: ci
 
-# Every PR and push to the main branch must satisfy the release gate defined
-# in docs/STATUS.md (Roadmap section). Release packaging lives in release.yml.
+# 每个 PR 以及推送到主分支都必须满足发布门禁，该门禁定义在
+# docs/STATUS.md（Roadmap 一节）中。发布打包流程在 release.yml 中。
 
 on:
   push:
@@ -18,13 +18,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The operator ships Windows only; validate on the host platform we
-        # actually distribute. Linux pty tests use ConPTY semantics and are
-        # not a release gate for this personal build.
+        # 运维者仅发布 Windows 版本；因此只在实际分发的宿主平台上验证。
+        # Linux 的 pty 测试使用 ConPTY 语义，对于这个个人构建而言
+        # 不属于发布门禁。
         os: [windows-latest]
     steps:
-      # GitHub's Windows runners default to core.autocrlf=true; without this,
-      # checkout rewrites .go files to CRLF and gofmt reports every file.
+      # GitHub 的 Windows runner 默认 core.autocrlf=true；如果不设置该项，
+      # checkout 会把 .go 文件改写为 CRLF，导致 gofmt 报出每一个文件。
       - name: Normalize line endings
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
@@ -44,14 +44,14 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
-      # Windows amd64 is the only shipped target; build it with no cgo here
-      # instead of producing binaries for platforms we do not distribute.
+      # Windows amd64 是唯一发布的目标；这里直接用无 cgo 方式构建它，
+      # 而不是为不发布的平台生成二进制文件。
       - name: build (no cgo)
         env:
           CGO_ENABLED: '0'
         run: go build ./cmd/argent
-      # AGENTS.md promises this cross-compile property; verify it on every PR
-      # instead of relying on a one-off local check.
+      # AGENTS.md 承诺了这一交叉编译特性；应在每个 PR 上验证它，
+      # 而不要依赖一次性的本地检查。
       - name: cross-compile (linux/amd64, no cgo)
         env:
           GOOS: linux
@@ -68,14 +68,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # The race detector needs cgo; Linux runners ship gcc, so this is the
-      # reliable place to enforce the concurrency release gate. (The Windows
-      # job cannot run -race reliably with the bundled MinGW toolchain.)
+      # 竞态检测器需要 cgo；Linux runner 自带 gcc，因此这里是执行并发
+      # 发布门禁的可靠位置。（Windows 作业使用附带的 MinGW 工具链无法
+      # 可靠地运行 -race。）
       - name: go test -race
         env:
           CGO_ENABLED: '1'
-        # internal/pty's tests require a real controlling terminal (ConPTY
-        # semantics) and cannot run on a CI runner; the Windows job covers
-        # them. Exclude only that package so the race gate still checks all
-        # cross-platform packages.
+        # internal/pty 的测试需要真正的控制终端（ConPTY 语义），
+        # 无法在 CI runner 上运行；Windows 作业已经覆盖了它们。
+        # 只排除该包，这样竞态门禁仍能检查所有
+        # 跨平台包。
         run: go test -race $(go list ./... | grep -v '/internal/pty$')

@@ -197,6 +197,12 @@ type Options struct {
 	// CompactThreshold 是轮次中压缩的估算 token 触发阈值。零值（或 nil 的 Compactor）会禁用它。
 	CompactThreshold int
 
+	// EnableCompactRetry 启用选择性的"上下文溢出后压缩并重放"恢复路径。
+	// 默认 false：未设置的运行与引入该路径之前逐字节一致。
+	// 开启后仍需要 Compactor 且重试预算未用尽才会真正重放；每次运行最多重放一次，
+	// 避免同一份超长请求在同一轮次里反复空转。
+	EnableCompactRetry bool
+
 	// Steer 在轮次之间被抽取；每个值都会成为一条用户消息。
 	Steer <-chan string
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。

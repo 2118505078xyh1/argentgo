@@ -19,12 +19,19 @@ import (
 // session/cancel、session/set_model、session/set_mode、session/request_permission。
 // 流式助手文本作为 session/update 通知发送。
 func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
+	return runACP(ctx, in, out, cfg, false)
+}
+
+// runACP 是 RunACP 与 RunACPWithFriendlyErrors 共用的实现。
+// friendlyErrors 为 true 时，错误回复会经 formatACPError 追加恢复文案。
+func runACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config, friendlyErrors bool) error {
 	ctx, cancelAll := context.WithCancel(ctx)
 
 	state := &acpState{
-		cfg:      cfg,
-		peer:     newPeer(out),
-		sessions: make(map[string]bool),
+		cfg:            cfg,
+		peer:           newPeer(out),
+		sessions:       make(map[string]bool),
+		friendlyErrors: friendlyErrors,
 	}
 
 	var wg sync.WaitGroup
@@ -56,11 +63,11 @@ func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 			}
 			var req request
 			if err := json.Unmarshal(res.line, &req); err != nil {
-				state.peer.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error())
+				state.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error(), nil)
 				continue
 			}
 			if req.Method == "" {
-				state.peer.fail(req.ID, codeInvalidRequest, "missing method")
+				state.fail(req.ID, codeInvalidRequest, "missing method", nil)
 				continue
 			}
 			state.handle(ctx, req, &wg)
@@ -71,6 +78,9 @@ func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 type acpState struct {
 	cfg  Config
 	peer *peer
+	// friendlyErrors 决定错误回复是否追加人可读的恢复文案。
+	// 默认 false，保持既有线协议消息不变。
+	friendlyErrors bool
 
 	mu           sync.Mutex
 	sessionID    string
@@ -119,9 +129,9 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 	case "session/request_permission":
 		s.requestPermission(req)
 	case "session/load":
-		s.peer.fail(req.ID, codeMethodNotFound, "session/load is not supported; start a new session")
+		s.fail(req.ID, codeMethodNotFound, "session/load is not supported; start a new session", nil)
 	default:
-		s.peer.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method))
+		s.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method), nil)
 	}
 }
 
@@ -136,11 +146,11 @@ type promptTerminal struct {
 func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGroup) {
 	text := promptText(req.Params)
 	if text == "" {
-		s.peer.fail(req.ID, codeInvalidParams, "prompt has no text")
+		s.fail(req.ID, codeInvalidParams, "prompt has no text", nil)
 		return
 	}
 	if s.cfg.Runner == nil {
-		s.peer.fail(req.ID, codeServerError, "no runner configured")
+		s.fail(req.ID, codeServerError, "no runner configured", nil)
 		return
 	}
 
@@ -157,11 +167,11 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 	_, known := s.sessions[requested]
 	s.mu.Unlock()
 	if !known {
-		s.peer.fail(req.ID, codeInvalidParams, "unknown session")
+		s.fail(req.ID, codeInvalidParams, "unknown session", nil)
 		return
 	}
 	if !s.busy.CompareAndSwap(false, true) {
-		s.peer.fail(req.ID, codeInvalidRequest, "a prompt is already running")
+		s.fail(req.ID, codeInvalidRequest, "a prompt is already running", nil)
 		return
 	}
 
@@ -221,7 +231,7 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 			// 都未改变。唯一的增加是可选的
 			// error.data 携带 "failure" 分类，使只消费
 			// turnEndReason 的调用方不再需要从 code 推断它。
-			s.peer.failWithData(id, codeInternalError, wireErrorText(err), failureTurnEndData(reason))
+			s.fail(id, codeInternalError, wireErrorText(err), failureTurnEndData(reason))
 			return
 		}
 		s.peer.respond(id, promptTerminal{StopReason: "end_turn", TurnEndReason: reason})
@@ -341,7 +351,7 @@ func (s *acpState) requestPermission(req request) {
 	var params RequestPermissionParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			s.peer.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+			s.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error(), nil)
 			return
 		}
 	}
