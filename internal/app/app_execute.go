@@ -265,6 +265,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			evidence = e
 		},
 		Emit: func(event agent.Event) {
+			// Publish to the per-run event hub so --serve / --rpc subscribers
+			// (SSE /v1/event, event/subscribe) see real agent events. The sink is
+			// injected into ctx by runner.Prompt; a no-op when absent.
+			EmitEvent(ctx, event)
 			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 				onText(event.Text)
 			}

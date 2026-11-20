@@ -28,6 +28,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // ProjectSubdir is where a repository keeps its slash commands.
@@ -59,6 +61,9 @@ type Command struct {
 	// Plugin is the plugin that provided the command, empty for project and
 	// user commands. It is also the name's namespace prefix.
 	Plugin string
+	// Warnings reports invisible characters found in the declarative content.
+	// It is metadata only: parsing never changes and never blocks on it.
+	Warnings []string
 }
 
 // Source is one directory to scan and the namespace its commands get.
@@ -152,9 +157,10 @@ func Parse(text, path string) Command {
 	text = strings.TrimPrefix(text, "\ufeff")
 	body := text
 	cmd = Command{
-		Name: commandNameFromPath(path),
-		Body: strings.TrimSpace(body),
-		Path: path,
+		Name:     commandNameFromPath(path),
+		Body:     strings.TrimSpace(body),
+		Path:     path,
+		Warnings: security.ScanArtifact(text).Warnings(),
 	}
 	for _, line := range strings.Split(cmd.Body, "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" {
@@ -173,9 +179,10 @@ func ParseStrict(text, path string) (Command, error) {
 	if !ok {
 		body = text
 		cmd := Command{
-			Name: commandNameFromPath(path),
-			Body: strings.TrimSpace(body),
-			Path: path,
+			Name:     commandNameFromPath(path),
+			Body:     strings.TrimSpace(body),
+			Path:     path,
+			Warnings: security.ScanArtifact(text).Warnings(),
 		}
 		for _, line := range strings.Split(cmd.Body, "\n") {
 			if trimmed := strings.TrimSpace(line); trimmed != "" {
@@ -202,6 +209,7 @@ func ParseStrict(text, path string) (Command, error) {
 		Agent:        fields.get("agent"),
 		Body:         strings.TrimSpace(body),
 		Path:         path,
+		Warnings:     security.ScanArtifact(text).Warnings(),
 	}, nil
 }
 

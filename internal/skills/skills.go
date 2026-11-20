@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // DefaultProjectSubdir is where a repository keeps its own skills.
@@ -43,6 +45,9 @@ type Skill struct {
 	Tools []string
 	// AllowedTools is the tool allow-list advertised by the skill.
 	AllowedTools []string
+	// Warnings reports invisible characters found in the declarative content.
+	// It is metadata only: parsing never changes and never blocks on it.
+	Warnings []string
 }
 
 // Entry is the compact form of a skill used by the index and by Match.
@@ -83,6 +88,7 @@ func Parse(text, path string) (Skill, error) {
 		Path:         path,
 		Tools:        fields.List("tools"),
 		AllowedTools: fields.List("allowed-tools"),
+		Warnings:     security.ScanArtifact(text).Warnings(),
 	}, nil
 }
 

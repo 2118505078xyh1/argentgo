@@ -20,10 +20,7 @@ import (
 func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 
-	hub := cfg.Events
-	if hub == nil {
-		hub = NewEventHub()
-	}
+	hub := selectHub(cfg)
 
 	p := newPeer(out)
 	var wg sync.WaitGroup

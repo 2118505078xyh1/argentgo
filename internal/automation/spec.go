@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // Missed policies decide what happens when the daemon wakes up after a
@@ -182,6 +184,9 @@ type Spec struct {
 	LastRun    *time.Time `json:"lastRun,omitempty"`
 	LastStatus string     `json:"lastStatus,omitempty"`
 	LastLog    string     `json:"lastLog,omitempty"`
+	// Warnings reports invisible characters found in the declarative content.
+	// It is metadata only: it is never serialised and never blocks a task.
+	Warnings []string `json:"-"`
 }
 
 // UnmarshalJSON applies the defaults a hand-written task file may omit:
@@ -225,6 +230,7 @@ func (s *Spec) UnmarshalJSON(data []byte) error {
 	if s.ID == "" {
 		s.ID = slug(s.Name)
 	}
+	s.Warnings = security.ScanArtifact(string(data)).Warnings()
 	return nil
 }
 

@@ -48,9 +48,27 @@ type Config struct {
 	// Sessions backs the session.list / session.load RPC methods. Optional.
 	Sessions SessionStore
 	// Events is the shared event hub for /v1/event and event/subscribe. When
-	// nil, each transport creates its own hub. Set it in the wirer to bridge
-	// agent events to every client with WireAgentEvents. Optional.
+	// nil, a runner exposing EventHub() *EventHub (as app.Factory's runner does)
+	// is used, so all headless transports share one hub without extra wiring.
+	// Only when neither is present does each transport create a private hub.
 	Events *EventHub
+}
+
+// selectHub resolves the hub a transport publishes to. An explicit Config.Events
+// wins; otherwise a runner built by internal/app exposes its shared hub through
+// a small interface that keeps this package independent of the wirer. The
+// interface assertion means fakes and standalone callers keep the original
+// "private hub" behaviour.
+func selectHub(cfg Config) *EventHub {
+	if cfg.Events != nil {
+		return cfg.Events
+	}
+	if typed, ok := cfg.Runner.(interface{ EventHub() *EventHub }); ok {
+		if hub := typed.EventHub(); hub != nil {
+			return hub
+		}
+	}
+	return NewEventHub()
 }
 
 // Listen binds the HTTP transport and returns the server plus its listener.
@@ -109,10 +127,7 @@ func Serve(ctx context.Context, cfg Config) error {
 // NewHandler builds the HTTP/SSE handler without binding a socket.
 func NewHandler(cfg Config) http.Handler {
 	h := &handler{cfg: cfg}
-	hub := cfg.Events
-	if hub == nil {
-		hub = NewEventHub()
-	}
+	hub := selectHub(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", h.health)
 	mux.HandleFunc("/v1/prompt", h.auth(h.prompt))

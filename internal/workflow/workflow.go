@@ -19,6 +19,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // Failure policies.
@@ -133,10 +135,41 @@ type Step struct {
 	CleanupCommand string `json:"cleanup,omitempty"`
 }
 
+// WorkflowParam declares one template parameter. Its value is supplied at run
+// time (or taken from Default) and is referenced as {{key}} in prompts and
+// tool args.
+type WorkflowParam struct {
+	Key         string   `json:"key"`
+	InputType   string   `json:"input_type"`
+	Requirement string   `json:"requirement"`
+	Description string   `json:"description,omitempty"`
+	Default     any      `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
+}
+
+// Parameter input types and requirements.
+const (
+	ParamTypeString  = "string"
+	ParamTypeNumber  = "number"
+	ParamTypeBoolean = "boolean"
+	ParamTypeDate    = "date"
+	ParamTypeFile    = "file"
+	ParamTypeSelect  = "select"
+
+	ParamRequired   = "required"
+	ParamOptional   = "optional"
+	ParamUserPrompt = "user_prompt"
+)
+
 // Definition is a parsed workflow document.
 type Definition struct {
 	Name  string `json:"name"`
 	Steps []Step `json:"steps"`
+	// Parameters declares the template variables a workflow accepts.
+	Parameters []WorkflowParam `json:"parameters,omitempty"`
+	// Warnings reports invisible characters found in the declarative content.
+	// It is metadata only: it is never serialised and never blocks a run.
+	Warnings []string `json:"-"`
 }
 
 // MaxRetries caps the retry budget so a typo cannot spin forever.
@@ -152,6 +185,7 @@ func ParseDefinition(data []byte) (*Definition, error) {
 	if err := def.Validate(); err != nil {
 		return nil, err
 	}
+	def.Warnings = security.ScanArtifact(string(data)).Warnings()
 	return &def, nil
 }
 
@@ -216,6 +250,9 @@ func (d *Definition) Validate() error {
 		if step.Timeout.Std() < 0 {
 			return fmt.Errorf("workflow: step %q has a negative timeout", name)
 		}
+	}
+	if err := ValidateParameters(*d); err != nil {
+		return err
 	}
 	return nil
 }
