@@ -59,6 +59,21 @@ func (f *recordingDispatcher) find(event string) (hooks.Payload, bool) {
 	return hooks.Payload{}, false
 }
 
+// eventResultDispatcher returns a distinct Result per event, so a test can give
+// PreToolUse a non-blocking message while leaving PostToolUse silent.
+type eventResultDispatcher struct {
+	mu      sync.Mutex
+	results map[string]hooks.Result
+	events  []string
+}
+
+func (d *eventResultDispatcher) Dispatch(_ context.Context, _ *hooks.Config, payload hooks.Payload) (hooks.Result, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.events = append(d.events, payload.Event)
+	return d.results[payload.Event], nil
+}
+
 const hookDocument = `{"hooks":{
 	"SessionStart":[{"hooks":[{"command":"true"}]}],
 	"UserPromptSubmit":[{"hooks":[{"command":"true"}]}],
@@ -263,6 +278,41 @@ func TestExecutePostToolUseSeesOutputAndHookFailureIsVisible(t *testing.T) {
 	}
 	if !toolOutputContains(t, sess, "dispatch panicked") {
 		t.Fatal("a hook panic was not converted into a tool-visible error")
+	}
+	if !toolOutputContains(t, sess, "hello-from-file") {
+		t.Fatal("the tool output was lost")
+	}
+}
+
+func TestExecutePreToolUseNonBlockingMessageReachesModel(t *testing.T) {
+	env, _ := testEnv(t)
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "note.txt"), "hello-from-file")
+	writeFile(t, filepath.Join(root, ".argent", "hooks.json"), hookDocument)
+	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustHookFile(t, filepath.Join(root, ".argent", "hooks.json"), res.Storage)
+	fake := &eventResultDispatcher{results: map[string]hooks.Result{
+		"PreToolUse": {Message: "pre-tool advice"},
+	}}
+	res.HookDispatcher = fake
+	res.Approve = autoApprover{}
+	res.Chatter = &toolCallChatter{first: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: "c1", Type: "function",
+		Function: llm.ToolCallFunction{Name: "read", Arguments: `{"path":"note.txt"}`},
+	}}}}
+	store := testStore(t, res)
+	sess, err := store.NewSession("hooks-pre-message")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(context.Background(), cli.IO{Env: env}, res, sess, "prompt", nil); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !toolOutputContains(t, sess, "pre-tool advice") {
+		t.Fatalf("non-blocking PreToolUse message was dropped: %v", fake.events)
 	}
 	if !toolOutputContains(t, sess, "hello-from-file") {
 		t.Fatal("the tool output was lost")

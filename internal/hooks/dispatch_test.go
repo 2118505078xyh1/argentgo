@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // TestMain doubles as the hook command under test: when the helper variable is
@@ -274,5 +275,48 @@ func TestOutcomeMessageDescribesFailures(t *testing.T) {
 		if got := test.outcome.Message(); !strings.Contains(got, test.want) {
 			t.Fatalf("Message() = %q, want %q", got, test.want)
 		}
+	}
+}
+
+func TestClipHelpersKeepUTF8Valid(t *testing.T) {
+	clippers := map[string]func(string) string{
+		"clip":        clip,
+		"clipCommand": clipCommand,
+	}
+	// A rune that straddles the byte limit must not be split. "界" is 3 bytes
+	// and "🙂" is 4 bytes, so 400 and 120 are guaranteed to land mid-rune for
+	// some repetition counts.
+	for _, rune := range []string{"界", "🙂", "a界🙂"} {
+		for name, clipFn := range clippers {
+			got := clipFn(strings.Repeat(rune, 200))
+			if !utf8.ValidString(got) {
+				t.Errorf("%s over %q produced invalid UTF-8: %q", name, rune, got)
+			}
+			if !strings.HasSuffix(got, "…") {
+				t.Errorf("%s over %q did not clip: %q", name, rune, got)
+			}
+		}
+	}
+	// Strings within the limit are returned unchanged (no stray ellipsis).
+	for name, clipFn := range clippers {
+		if got := clipFn("short"); got != "short" {
+			t.Errorf("%s changed a short string: %q", name, got)
+		}
+	}
+}
+
+func TestOutcomeMessageIsRuneSafeWhenClipped(t *testing.T) {
+	outcome := Outcome{
+		Event:    PreToolUse,
+		Command:  strings.Repeat("🙂", 80),  // 320 bytes > clipCommand's 120
+		Stdout:   strings.Repeat("界", 200), // 600 bytes > summaryClip's 400
+		ExitCode: 1,
+	}
+	got := outcome.Message()
+	if !utf8.ValidString(got) {
+		t.Fatalf("Message() produced invalid UTF-8: %q", got)
+	}
+	if !strings.Contains(got, "failed") {
+		t.Fatalf("Message() lost its prefix: %q", got)
 	}
 }

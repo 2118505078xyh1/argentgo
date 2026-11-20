@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -337,17 +338,25 @@ func (b *limitedBuffer) String() string {
 	return b.buf.String()
 }
 
-func clip(text string) string {
-	if len(text) <= summaryClip {
+// clipRunes bounds text to limit bytes without cutting a UTF-8 rune in half.
+// A trailing ellipsis takes the place of the dropped tail. The backoff walks
+// from limit-1 to the preceding RuneStart, so the cut always lands on a rune
+// boundary (and at worst yields just the ellipsis).
+func clipRunes(text string, limit int) string {
+	if len(text) <= limit {
 		return text
 	}
-	return text[:summaryClip] + "…"
+	cut := limit - 1 // leave room for the ellipsis
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…"
+}
+
+func clip(text string) string {
+	return clipRunes(text, summaryClip)
 }
 
 func clipCommand(command string) string {
-	const limit = 120
-	if len(command) <= limit {
-		return command
-	}
-	return command[:limit] + "…"
+	return clipRunes(command, 120)
 }

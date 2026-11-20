@@ -296,6 +296,10 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (string, error
 	}
 
 	out, runErr := h.inner.Run(ctx, name, args)
+	// A PreToolUse hook can succeed yet still carry advice for the model.
+	// Attach it to the tool result just like a PostToolUse note so the message
+	// is not silently dropped. appendHookNote is a no-op for an empty message.
+	out = appendHookNote(out, pre.Message)
 	if runErr != nil {
 		h.noteTool(ctx, hooks.PostToolUseFailure, hooks.Payload{
 			Tool: name, Args: raw, Error: runErr.Error(),

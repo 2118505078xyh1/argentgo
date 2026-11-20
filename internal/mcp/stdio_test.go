@@ -207,6 +207,36 @@ func TestStdioCancellationKillsTheChild(t *testing.T) {
 	}
 }
 
+func TestStdioFinishReapsKilledChild(t *testing.T) {
+	transport, err := newStdioTransport(helperSpec("silent", 5*time.Second))
+	if err != nil {
+		t.Fatalf("new transport: %v", err)
+	}
+	if transport.cmd.Process == nil {
+		t.Fatal("no child process was started")
+	}
+
+	// Simulate a call timeout / stream failure: finish must both kill and reap
+	// the child, not just kill it.
+	transport.finish(errors.New("finish under test"))
+
+	// reap is idempotent; call it on our own goroutine so the test observes
+	// completion whichever caller wins the sync.Once race with finish's goroutine.
+	reaped := make(chan struct{})
+	go func() { transport.reap(); close(reaped) }()
+	select {
+	case <-reaped:
+	case <-time.After(3 * time.Second):
+		t.Fatal("finish killed the child but never waited for it")
+	}
+	if transport.cmd.ProcessState == nil {
+		t.Fatal("child process was not reaped (ProcessState is nil)")
+	}
+	if err := transport.Close(); err != nil {
+		t.Fatalf("close after reap: %v", err)
+	}
+}
+
 func TestStdioMissingCommand(t *testing.T) {
 	_, err := Connect(context.Background(), Spec{
 		Name:      "missing",

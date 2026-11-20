@@ -165,6 +165,13 @@ func (t *stdioTransport) write(frame []byte) error {
 	return nil
 }
 
+// reap waits on the child exactly once and records the result. It must not run
+// on readLoop or drain: cmd.Wait closes the pipes those goroutines read from,
+// so calling it there could deadlock against itself.
+func (t *stdioTransport) reap() {
+	t.waitOnce.Do(func() { t.waitErr = t.cmd.Wait() })
+}
+
 // finish records why the connection ended and wakes every waiter.
 func (t *stdioTransport) finish(err error) {
 	t.closeOnce.Do(func() {
@@ -175,6 +182,10 @@ func (t *stdioTransport) finish(err error) {
 		t.waiters.failAll(err)
 		if t.cmd.Process != nil {
 			_ = t.cmd.Process.Kill()
+			// Killing is not enough: without a Wait the process stays unreaped
+			// (a zombie on Unix, a leaked handle on Windows). Reap it in the
+			// background so a call timeout never leaves the child behind.
+			go t.reap()
 		}
 		_ = t.stdin.Close()
 	})
@@ -197,7 +208,7 @@ func (t *stdioTransport) closedError(method string) error {
 func (t *stdioTransport) Close() error {
 	t.finish(fmt.Errorf("mcp %q: client closed", t.name))
 	if t.cmd.Process != nil {
-		t.waitOnce.Do(func() { t.waitErr = t.cmd.Wait() })
+		t.reap()
 	}
 	var exitErr *exec.ExitError
 	if t.waitErr != nil && !errors.As(t.waitErr, &exitErr) {

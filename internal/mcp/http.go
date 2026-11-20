@@ -82,7 +82,7 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 		return t, nil
 	}
 
-	if endpoint, ok := t.awaitEndpoint(ctx, timeout); ok {
+	if endpoint, ok := t.awaitEndpoint(ctx, timeout); ok && endpoint != "" {
 		t.postURL = endpoint
 	} else {
 		t.postURL = spec.URL
@@ -326,20 +326,28 @@ func forEachSSE(r io.Reader, handle func(event, data string)) error {
 	return scanner.Err()
 }
 
-// resolveEndpoint resolves the announced POST URL against the stream URL.
+// resolveEndpoint resolves the announced POST URL against the stream URL, but
+// only accepts an endpoint on the same origin (scheme and host) as the stream.
+// A server announcement pointing elsewhere is rejected with an empty string so
+// the caller falls back to the original URL: configured headers may carry
+// credentials, and they must never be forwarded to a different origin.
 func resolveEndpoint(streamURL, announced string) string {
-	parsed, err := url.Parse(announced)
-	if err != nil {
-		return announced
-	}
-	if parsed.IsAbs() {
-		return parsed.String()
-	}
 	base, err := url.Parse(streamURL)
 	if err != nil {
-		return announced
+		return ""
 	}
-	return base.ResolveReference(parsed).String()
+	parsed, err := url.Parse(announced)
+	if err != nil {
+		return ""
+	}
+	ref := parsed
+	if !parsed.IsAbs() {
+		ref = base.ResolveReference(parsed)
+	}
+	if !strings.EqualFold(ref.Scheme, base.Scheme) || !strings.EqualFold(ref.Host, base.Host) {
+		return ""
+	}
+	return ref.String()
 }
 
 func applyHeaders(req *http.Request, headers map[string]string) {
