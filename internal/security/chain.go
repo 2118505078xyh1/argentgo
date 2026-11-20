@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // Sentinel errors let a caller tell a hard deny from an operator refusal with
@@ -63,6 +64,57 @@ func (e *StopError) Unwrap() error {
 	return ErrDenied
 }
 
+// FeedbackRefusal is the error an Approver returns alongside a false decision
+// when the operator rejected a call and left a correction ("do it like this
+// instead"). Approver.Ask returns only a bool, so a typed error is the
+// additive channel for that text: no existing Approver signature changes and
+// approvers that never produce it keep the historical bool-only behaviour.
+//
+// The chain turns it into a RefusalError the model can read and act on instead
+// of a final StopError. A plain (false, nil) answer still means a hard refusal.
+type FeedbackRefusal struct {
+	Feedback string
+}
+
+func (e *FeedbackRefusal) Error() string {
+	return "security: the operator rejected the tool call with feedback: " + e.Feedback
+}
+
+// maxApprovalFeedbackRunes bounds the operator text copied into a tool error.
+// Feedback is model-facing; without a cap one reply could fill the next turn's
+// context with an arbitrary amount of operator text.
+const maxApprovalFeedbackRunes = 2000
+
+// RefusalError is a recoverable tool error produced when the operator rejects
+// a call and explains how to change it. It deliberately is *not* a StopError:
+// the finality sentence on a StopError tells the model to abandon that outcome,
+// which is the opposite of an actionable correction. The feedback reaches the
+// model as ordinary tool output, so the loop continues and the model can retry
+// with a changed request. errors.Is still matches ErrRefused.
+type RefusalError struct {
+	Tool     string
+	Feedback string
+}
+
+func (e *RefusalError) Error() string {
+	return fmt.Sprintf(
+		"security: the %s tool call was rejected by the operator: %s. Adjust the request and try again.",
+		e.Tool, e.Feedback,
+	)
+}
+
+// Unwrap keeps the refusal sentinel intact for callers using errors.Is.
+func (e *RefusalError) Unwrap() error { return ErrRefused }
+
+// clipApprovalFeedback trims rune-safely and marks a truncation so the model
+// knows the operator's instruction was shortened rather than ending there.
+func clipApprovalFeedback(text string) string {
+	if utf8.RuneCountInString(text) <= maxApprovalFeedbackRunes {
+		return text
+	}
+	return runeHead(text, maxApprovalFeedbackRunes) + "…[feedback clipped]"
+}
+
 // Chain combines the policy guard, the approval prompt and the audit log into
 // the single hook the tool registry calls before running anything.
 //
@@ -85,8 +137,9 @@ func NewChain(policy *Policy, approver Approver, audit *AuditLog, session string
 }
 
 // Check evaluates one tool call in order: policy, then approval, then audit.
-// A non-nil error means the call must not run; StopError is returned for both
-// a policy deny and an operator refusal.
+// A non-nil error means the call must not run. A policy deny or a plain operator
+// refusal returns a StopError; a refusal carrying feedback returns a
+// RefusalError so the model can read the correction and retry differently.
 func (c *Chain) Check(ctx context.Context, toolName string, args json.RawMessage) error {
 	return c.check(ctx, toolName, args, args)
 }
@@ -138,7 +191,21 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	// The tool and the audit log still use the original arguments.
 	ok, err := approver.Ask(ctx, name, string(approvalArgs(args, c.policy().Root())))
 	if err != nil {
-		return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
+		// A rejection carrying feedback is not an approval-infrastructure
+		// failure: it is the operator's correction and must reach the model as
+		// a readable, recoverable tool error. Keep the raw text out of the
+		// audit log; only the model-facing error carries it.
+		var corrected *FeedbackRefusal
+		if !ok && errors.As(err, &corrected) {
+			if feedback := strings.TrimSpace(corrected.Feedback); feedback != "" {
+				c.record(name, "refused", "the operator rejected the tool call with feedback", auditArgs)
+				return &RefusalError{Tool: name, Feedback: clipApprovalFeedback(feedback)}
+			}
+			// An empty correction is just a plain "no", not a failed prompt.
+			err = nil
+		} else {
+			return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
+		}
 	}
 	if !ok {
 		c.record(name, "refused", "the operator refused the tool call", auditArgs)

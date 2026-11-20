@@ -170,6 +170,108 @@ func TestEditRepairElisionRejectsAmbiguousPiece(t *testing.T) {
 	}
 }
 
+func TestRepairReplaceNormalizesPunctuation(t *testing.T) {
+	tests := []struct {
+		name, content, old, newText, want string
+	}{
+		{
+			name:    "curly single quotes",
+			content: "she said 'hello' softly\n",
+			old:     "she said ‘hello’ softly",
+			newText: "she said 'goodbye' softly",
+			want:    "she said 'goodbye' softly\n",
+		},
+		{
+			name:    "curly double quotes",
+			content: "he said \"stop\" loud\n",
+			old:     "he said “stop” loud",
+			newText: "he said \"go\" loud",
+			want:    "he said \"go\" loud\n",
+		},
+		{
+			name:    "en and em dashes",
+			content: "one - two - three\n",
+			old:     "one – two — three",
+			newText: "ONE - TWO - THREE",
+			want:    "ONE - TWO - THREE\n",
+		},
+		{
+			name:    "nbsp and ideographic space",
+			content: "a b c\n",
+			old:     "a\u00a0b\u3000c",
+			newText: "A B C",
+			want:    "A B C\n",
+		},
+		{
+			name:    "reverse direction straight old curly file",
+			content: "it’s fine\n",
+			old:     "it's fine",
+			newText: "it's ok",
+			want:    "it's ok\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := repairReplace(tt.content, tt.old, tt.newText)
+			if !ok {
+				t.Fatal("punctuation-normalized match not found")
+			}
+			if got != tt.want {
+				t.Fatalf("result = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepairReplacePunctuationRejectsAmbiguousMatch(t *testing.T) {
+	// Both windows normalize to "a-b", so no single occurrence may be picked.
+	content := "a-b and a-b\n"
+	if got, ok := repairReplace(content, "a–b", "X"); ok {
+		t.Fatalf("ambiguous normalized match was accepted: %q", got)
+	}
+}
+
+func TestRepairReplacePunctuationDoesNotMatchUnrelatedText(t *testing.T) {
+	// Plain text with no punctuation issues must not be fuzzy-matched.
+	if got, ok := repairReplace("alpha beta gamma\n", "completely different", "X"); ok {
+		t.Fatalf("unrelated text matched: %q", got)
+	}
+	// Only the full phrase matches after normalization: "this" occurs twice,
+	// but "fix 'this' now" occurs once, so the correct window is chosen.
+	content := "fix 'this' now and keep 'this' later\n"
+	got, ok := repairReplace(content, "fix ‘this’ now", "FIXED")
+	if !ok || got != "FIXED and keep 'this' later\n" {
+		t.Fatalf("result = %q, ok = %v, want the first window only", got, ok)
+	}
+}
+
+func TestEditRepairPunctuationLeavesUnrelatedBytesUntouched(t *testing.T) {
+	root := t.TempDir()
+	// The curly quote on the first line is unrelated and must survive verbatim.
+	path := writeFixture(t, root, "f.txt", "keep ‘this’\nchange 'this'\n")
+
+	_, err := runEditTool(t, root, "f.txt", "change ‘this’", "changed", true)
+	if err != nil {
+		t.Fatalf("punctuation repair via tool: %v", err)
+	}
+	if got, want := readFixture(t, path), "keep ‘this’\nchanged\n"; got != want {
+		t.Fatalf("content = %q, want %q (unrelated curly quote preserved)", got, want)
+	}
+}
+
+func TestEditRepairFalseDoesNotNormalizePunctuation(t *testing.T) {
+	root := t.TempDir()
+	path := writeFixture(t, root, "f.txt", "say 'hi'\n")
+
+	_, err := runEditTool(t, root, "f.txt", "say ‘hi’", "X", false)
+	if err == nil {
+		t.Fatal("repair=false should not normalize punctuation")
+	}
+	if got := readFixture(t, path); got != "say 'hi'\n" {
+		t.Fatalf("failed edit changed the file: %q", got)
+	}
+}
+
 func TestSimilarLinesRanksMostSimilarFirst(t *testing.T) {
 	lines := similarLines("alpha beta\nneedle one\nneedle two\n", "needle one", 5)
 	if len(lines) == 0 || lines[0] != "needle one" {

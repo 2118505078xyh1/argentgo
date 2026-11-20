@@ -174,3 +174,152 @@ func (t *MistakeTracker) Reset() {
 		delete(t.byKind, k)
 	}
 }
+
+// Invalid-argument circuit breaker.
+//
+// This complements MistakeTracker rather than replacing it. The tracker counts
+// *all* consecutive failures and, because guidance is normally injected, only
+// re-feeds the model; it never forces a hard stop. The breaker is deliberately
+// narrow: it counts only arguments a tool rejected as invalid (an
+// InvalidArgumentsError in the kilocode report). Three such rejections in one
+// user turn mean the model is not learning from the validation feedback, so the
+// breaker signals that the turn must end. A single successful call or any
+// failure that is NOT an argument-validation error proves progress and clears
+// the count immediately.
+//
+// The caller owns classification (which tool errors are "invalid arguments")
+// and the user-turn boundary (when to call Reset explicitly); this type is a
+// pure, concurrency-safe counter with no knowledge of tools or events.
+
+// DefaultInvalidArgThreshold is the trip point used when the breaker is built
+// without an explicit (positive) threshold.
+const DefaultInvalidArgThreshold = 3
+
+// InvalidArgBreakerCap bounds the internal counter so a stream of invalid-
+// argument results cannot grow it without limit. Once the counter reaches the
+// cap it saturates; ShouldStop stays true until Reset. A requested threshold
+// higher than the cap is clamped down to the cap so the breaker always remains
+// trippable.
+const InvalidArgBreakerCap = 64
+
+// InvalidArgOutcome is the breaker's view of one tool outcome. Keeping the
+// classification at the caller lets dispatch reuse its existing error
+// inspection (tool validation errors, i18n "error.invalid_args", etc.) without
+// this type depending on tools, i18n or error strings.
+type InvalidArgOutcome uint8
+
+const (
+	// InvalidArgOutcomeNone is a neutral outcome (e.g. an unrun, guarded or
+	// cancelled call). It neither counts nor clears — the call never reached a
+	// tool, so it says nothing about the model's argument quality.
+	InvalidArgOutcomeNone InvalidArgOutcome = iota
+	// InvalidArgOutcomeInvalidArgs means a tool rejected the arguments as
+	// invalid. This is the only outcome that advances the breaker.
+	InvalidArgOutcomeInvalidArgs
+	// InvalidArgOutcomeSuccess means a tool ran successfully. It clears the
+	// count because the model made progress.
+	InvalidArgOutcomeSuccess
+	// InvalidArgOutcomeOtherFailure means a tool ran but failed for a reason
+	// unrelated to argument validation. It clears the count: the constraint is
+	// specifically about repeated invalid arguments, and an unrelated failure
+	// is not evidence the model is ignoring validation feedback.
+	InvalidArgOutcomeOtherFailure
+)
+
+// InvalidArgBreaker counts invalid-argument rejections within one user turn and
+// reports when the configured threshold is reached. It is safe for concurrent
+// use, so tools running in parallel may observe outcomes without an external
+// lock.
+type InvalidArgBreaker struct {
+	mu        sync.Mutex
+	threshold int
+	count     int
+}
+
+// NewInvalidArgBreaker builds a breaker with the given threshold. A
+// non-positive threshold selects DefaultInvalidArgThreshold; a threshold above
+// InvalidArgBreakerCap is clamped to the cap.
+func NewInvalidArgBreaker(threshold int) *InvalidArgBreaker {
+	if threshold <= 0 {
+		threshold = DefaultInvalidArgThreshold
+	}
+	if threshold > InvalidArgBreakerCap {
+		threshold = InvalidArgBreakerCap
+	}
+	return &InvalidArgBreaker{threshold: threshold}
+}
+
+// Observe folds one tool outcome into the breaker and returns whether the
+// threshold has been reached. It is the single entry point intended for
+// dispatch: classify the call result, pass it here, and stop the turn when the
+// result is true. The decision is re-evaluated on every call until Reset, so
+// the caller stays in control of when the count clears.
+func (b *InvalidArgBreaker) Observe(outcome InvalidArgOutcome) (shouldStop bool) {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	switch outcome {
+	case InvalidArgOutcomeInvalidArgs:
+		if b.count < InvalidArgBreakerCap {
+			b.count++
+		}
+	case InvalidArgOutcomeSuccess, InvalidArgOutcomeOtherFailure:
+		// Both prove progress (or at least are not argument errors) and clear
+		// the streak immediately.
+		b.count = 0
+	case InvalidArgOutcomeNone:
+		// Neutral: leave the count untouched.
+	}
+	return b.count >= b.threshold
+}
+
+// RecordInvalidArgs is a convenience wrapper for reporting one
+// invalid-argument rejection. It returns the same stop signal as Observe.
+func (b *InvalidArgBreaker) RecordInvalidArgs() bool {
+	return b.Observe(InvalidArgOutcomeInvalidArgs)
+}
+
+// Reset clears the invalid-argument count. A caller typically invokes it at a
+// user-turn boundary; success and non-argument failures already reset via
+// Observe. The configured threshold is preserved.
+func (b *InvalidArgBreaker) Reset() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.count = 0
+}
+
+// ShouldStop reports whether the threshold has been reached without recording
+// a new outcome.
+func (b *InvalidArgBreaker) ShouldStop() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.count >= b.threshold
+}
+
+// Count returns the current invalid-argument count (saturated at the cap).
+func (b *InvalidArgBreaker) Count() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.count
+}
+
+// Threshold returns the effective trip point after defaulting and clamping.
+func (b *InvalidArgBreaker) Threshold() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.threshold
+}

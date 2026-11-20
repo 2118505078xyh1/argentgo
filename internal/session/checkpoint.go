@@ -175,7 +175,25 @@ func (s *Session) CheckpointBack(steps int) (Checkpoint, Record, error) {
 // UndoCheckpoint restores only the files named in cp. A file whose current
 // bytes match neither the recorded post-turn state nor the pre-turn state is a
 // conflicting manual edit and is refused with ErrCheckpointConflict.
+//
+// argent-go checkpoints are not git-based: there is no HEAD to reset and no
+// update-ref to compare against. The "refuse to destroy history" guarantee is
+// expressed per file instead. Before any write, every manifest entry must
+// still be at the post-turn state recorded when the checkpoint completed. If
+// any file has advanced (a manual edit or a later turn), undo is refused in
+// full instead of silently overwriting that work. Each write re-verifies the
+// expected state immediately before mutating the file -- the equivalent of
+// `git update-ref HEAD new old` -- which closes the time-of-check/time-of-use
+// window against a concurrent writer.
 func UndoCheckpoint(workspace string, cp Checkpoint) ([]string, error) {
+	return undoCheckpoint(workspace, cp, nil)
+}
+
+// undoCheckpoint implements UndoCheckpoint. beforeWrite, when non-nil, runs
+// immediately before each file is mutated; tests use it to simulate a
+// concurrent edit and assert that the CAS recheck rejects it. Production
+// callers reach it only through UndoCheckpoint with a nil hook.
+func undoCheckpoint(workspace string, cp Checkpoint, beforeWrite func(string)) ([]string, error) {
 	type action struct {
 		target string
 		file   CheckpointFile
@@ -233,6 +251,15 @@ func UndoCheckpoint(workspace string, cp Checkpoint) ([]string, error) {
 
 	restored := make([]string, 0, len(actions))
 	for _, item := range actions {
+		if beforeWrite != nil {
+			beforeWrite(item.target)
+		}
+		// CAS: re-verify the file is still at the post-turn state the manifest
+		// recorded (the "old" value). A concurrent edit that landed after the
+		// validation pass must not be overwritten.
+		if err := verifyRestoreTarget(item.target, item.file); err != nil {
+			return restored, err
+		}
 		if item.remove {
 			if err := os.Remove(item.target); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return restored, fmt.Errorf("session: remove %s: %w", item.file.Path, err)
@@ -256,6 +283,50 @@ func UndoCheckpoint(workspace string, cp Checkpoint) ([]string, error) {
 		restored = append(restored, item.file.Path)
 	}
 	return restored, nil
+}
+
+// verifyRestoreTarget re-checks that target is still in the post-turn state
+// recorded in file -- the "old" value of the conceptual compare-and-swap. It
+// mirrors the first-pass validation in undoCheckpoint and runs immediately
+// before each mutation so a concurrent edit cannot be silently clobbered.
+func verifyRestoreTarget(target string, file CheckpointFile) error {
+	info, err := os.Lstat(target)
+	exists := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("session: stat %s: %w", file.Path, err)
+	}
+	current := ""
+	if exists {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s is not a regular file", ErrCheckpointConflict, file.Path)
+		}
+		bytes, err := os.ReadFile(target)
+		if err != nil {
+			return fmt.Errorf("session: read %s: %w", file.Path, err)
+		}
+		current = hashBytes(bytes)
+	}
+	changed := fmt.Errorf("%w: %s changed concurrently after the checkpoint", ErrCheckpointConflict, file.Path)
+	switch {
+	case file.Absent:
+		// The turn created this file and undo removes it; it must still be the
+		// exact file the turn left behind.
+		if !exists || file.AfterSHA256 == "" || current != file.AfterSHA256 {
+			return changed
+		}
+	case file.AfterAbsent:
+		// The turn deleted this file and undo recreates it; it must still be absent.
+		if exists {
+			return changed
+		}
+	default:
+		// The turn modified this file and undo restores the pre-turn bytes; it
+		// must still match the post-turn hash recorded at checkpoint completion.
+		if !exists || file.AfterSHA256 == "" || current != file.AfterSHA256 {
+			return changed
+		}
+	}
+	return nil
 }
 
 // RetryFromCheckpoint forks s at the checkpoint's parent and records a retried

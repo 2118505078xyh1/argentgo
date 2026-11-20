@@ -220,7 +220,10 @@ func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string)
 //  1. exact literal match (a unique one only — ambiguity is never guessed);
 //  2. leading-whitespace-only mismatch, re-applying the file's indent to new;
 //  3. a single spurious leading/trailing blank line in old (and new);
-//  4. "..." elision, with every non-empty piece anchored uniquely in content.
+//  4. "..." elision, with every non-empty piece anchored uniquely in content;
+//  5. punctuation normalization (curly quotes, dashes, NBSP/full-width space)
+//     applied to both sides for comparison only; the matched original bytes
+//     are spliced out and new is inserted verbatim.
 //
 // It is pure: no I/O, no locking, no policy checks. The caller owns the file.
 // The bool reports whether any rung produced a usable replacement so the
@@ -241,6 +244,9 @@ func repairReplace(content, old, new string) (string, bool) {
 		return out, true
 	}
 	if out, ok := repairElision(content, old, new); ok {
+		return out, true
+	}
+	if out, ok := repairPunctuation(content, old, new); ok {
 		return out, true
 	}
 	return "", false
@@ -439,6 +445,87 @@ func repairElision(content, old, new string) (string, bool) {
 	}
 	b.WriteString(content[cursor:])
 	return b.String(), true
+}
+
+// normalizePunctRune maps common typographic punctuation emitted by models to
+// its ASCII counterpart. The mapping is a pure, per-rune substitution: it never
+// expands or drops a rune, so a normalized sequence has the same rune length as
+// its input. That makes the comparison deterministic and lets the caller track
+// original byte offsets while scanning, without touching the original content.
+func normalizePunctRune(r rune) rune {
+	switch r {
+	case '\u2018', '\u2019', '\u201a', '\u201b': // single curly / low-high quotes
+		return '\''
+	case '\u201c', '\u201d', '\u201e', '\u201f': // double curly / low-high quotes
+		return '"'
+	case '\u2013', '\u2014', '\u2015': // en dash, em dash, horizontal bar
+		return '-'
+	case '\u00a0', '\u3000': // no-break space, ideographic (full-width) space
+		return ' '
+	default:
+		return r
+	}
+}
+
+// repairPunctuation retries the match after normalizing both old and each
+// same-length window of content through normalizePunctRune. Normalization is
+// used for comparison only: once a unique window is found, the original bytes
+// of the rest of the file are preserved verbatim and new is inserted as given.
+// A match is accepted only when exactly one window qualifies; ambiguity is
+// never guessed, mirroring the exact-literal rung.
+func repairPunctuation(content, old, new string) (string, bool) {
+	oldRunes := []rune(old)
+	if len(oldRunes) == 0 {
+		return "", false
+	}
+	normOld := make([]rune, len(oldRunes))
+	for i, r := range oldRunes {
+		normOld[i] = normalizePunctRune(r)
+	}
+	width := len(normOld)
+
+	// Decode content once into runes paired with their byte offsets. ranging a
+	// string yields rune start offsets, so slicing content at those offsets is
+	// always on a valid UTF-8 boundary (invalid bytes decode to RuneError but
+	// still advance by one byte).
+	type positioned struct {
+		r   rune
+		off int
+	}
+	rs := make([]positioned, 0, len(content))
+	for off, r := range content {
+		rs = append(rs, positioned{r, off})
+	}
+
+	startRune := -1
+	matches := 0
+	for i := 0; i+width <= len(rs); i++ {
+		ok := true
+		for k := 0; k < width; k++ {
+			if normalizePunctRune(rs[i+k].r) != normOld[k] {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		matches++
+		if matches > 1 {
+			return "", false // ambiguous normalized match: refuse to guess
+		}
+		startRune = i
+	}
+	if matches == 0 {
+		return "", false
+	}
+
+	startByte := rs[startRune].off
+	endByte := len(content)
+	if startRune+width < len(rs) {
+		endByte = rs[startRune+width].off
+	}
+	return content[:startByte] + new + content[endByte:], true
 }
 
 // similarLines returns at most limit non-blank lines from content that share

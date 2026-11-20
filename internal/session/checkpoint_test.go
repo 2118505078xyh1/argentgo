@@ -297,6 +297,183 @@ func TestRetryForksAtCheckpointParentAndLeavesSourceUnchanged(t *testing.T) {
 	}
 }
 
+// TestUndoRefusesWhenAnyManifestFileAdvanced covers the git-less equivalent of
+// "HEAD moved past the checkpoint base": a later change to any manifest file
+// aborts the whole undo, and no file -- including untouched ones -- is written.
+func TestUndoRefusesWhenAnyManifestFileAdvanced(t *testing.T) {
+	root := testWorkspace(t, map[string]string{"a.txt": "before a", "b.txt": "before b"})
+	cp, err := CaptureCheckpoint(root, []string{"a.txt", "b.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, root, "a.txt", "after a")
+	writeWorkspaceFile(t, root, "b.txt", "after b")
+	if err := CompleteCheckpoint(root, &cp); err != nil {
+		t.Fatal(err)
+	}
+	// A user commit advances only b.txt after the checkpoint.
+	writeWorkspaceFile(t, root, "b.txt", "committed by user")
+
+	restored, err := UndoCheckpoint(root, cp)
+	if !errors.Is(err, ErrCheckpointConflict) {
+		t.Fatalf("error = %v, want ErrCheckpointConflict", err)
+	}
+	if len(restored) != 0 {
+		t.Fatalf("restored = %v, want none: undo must be all-or-nothing", restored)
+	}
+	if got := readWorkspaceFile(t, root, "a.txt"); got != "after a" {
+		t.Fatalf("a.txt was partially restored: %q", got)
+	}
+	if got := readWorkspaceFile(t, root, "b.txt"); got != "committed by user" {
+		t.Fatalf("user commit was overwritten: %q", got)
+	}
+}
+
+// TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite verifies the normal
+// path still restores every manifest file and that the CAS recheck runs once
+// per restored file.
+func TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite(t *testing.T) {
+	root := testWorkspace(t, map[string]string{"a.txt": "before a", "b.txt": "before b"})
+	cp, err := CaptureCheckpoint(root, []string{"a.txt", "b.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, root, "a.txt", "after a")
+	writeWorkspaceFile(t, root, "b.txt", "after b")
+	if err := CompleteCheckpoint(root, &cp); err != nil {
+		t.Fatal(err)
+	}
+
+	var checked []string
+	hook := func(target string) { checked = append(checked, filepath.Base(target)) }
+	restored, err := undoCheckpoint(root, cp, hook)
+	if err != nil {
+		t.Fatalf("undoCheckpoint: %v", err)
+	}
+	if len(restored) != 2 {
+		t.Fatalf("restored = %v, want two files", restored)
+	}
+	if len(checked) != 2 {
+		t.Fatalf("CAS rechecks = %v, want one per restored file", checked)
+	}
+	if got := readWorkspaceFile(t, root, "a.txt"); got != "before a" {
+		t.Fatalf("a.txt = %q", got)
+	}
+	if got := readWorkspaceFile(t, root, "b.txt"); got != "before b" {
+		t.Fatalf("b.txt = %q", got)
+	}
+}
+
+// TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite injects an edit
+// in the window between validation and the first write, and asserts the CAS
+// recheck aborts before clobbering concurrent work.
+func TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite(t *testing.T) {
+	root := testWorkspace(t, map[string]string{"a.txt": "before"})
+	cp, err := CaptureCheckpoint(root, []string{"a.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, root, "a.txt", "after turn")
+	if err := CompleteCheckpoint(root, &cp); err != nil {
+		t.Fatal(err)
+	}
+
+	hook := func(target string) {
+		if err := os.WriteFile(target, []byte("concurrent edit"), 0o644); err != nil {
+			t.Fatalf("simulate concurrent edit: %v", err)
+		}
+	}
+	restored, err := undoCheckpoint(root, cp, hook)
+	if !errors.Is(err, ErrCheckpointConflict) {
+		t.Fatalf("error = %v, want ErrCheckpointConflict", err)
+	}
+	if len(restored) != 0 {
+		t.Fatalf("restored = %v, want none (CAS must abort before writing)", restored)
+	}
+	if got := readWorkspaceFile(t, root, "a.txt"); got != "concurrent edit" {
+		t.Fatalf("concurrent edit was clobbered: %q", got)
+	}
+}
+
+// TestVerifyRestoreTargetRejectsDivergence covers every branch of the CAS
+// helper: files the turn created, modified, or deleted, and a concurrent change
+// to each of those states.
+func TestVerifyRestoreTargetRejectsDivergence(t *testing.T) {
+	root := testWorkspace(t, map[string]string{"exists.txt": "post", "gone.txt": "ignored"})
+	path := filepath.Join(root, "exists.txt")
+	missing := filepath.Join(root, "absent.txt")
+
+	cases := []struct {
+		name  string
+		path  string
+		file  CheckpointFile
+		setup func(t *testing.T)
+		want  bool
+	}{
+		{
+			name: "modified file still at post state",
+			path: path,
+			file: CheckpointFile{Path: "exists.txt", SHA256: hashBytes([]byte("pre")), AfterSHA256: hashBytes([]byte("post"))},
+		},
+		{
+			name: "modified file advanced",
+			path: path,
+			file: CheckpointFile{Path: "exists.txt", SHA256: hashBytes([]byte("pre")), AfterSHA256: hashBytes([]byte("post"))},
+			setup: func(t *testing.T) {
+				writeWorkspaceFile(t, root, "exists.txt", "newer commit")
+			},
+			want: true,
+		},
+		{
+			name: "created file still present",
+			path: path,
+			file: CheckpointFile{Path: "exists.txt", Absent: true, AfterSHA256: hashBytes([]byte("post"))},
+		},
+		{
+			name: "created file already removed",
+			path: path,
+			file: CheckpointFile{Path: "exists.txt", Absent: true, AfterSHA256: hashBytes([]byte("post"))},
+			setup: func(t *testing.T) {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: true,
+		},
+		{
+			name: "deleted file still absent",
+			path: missing,
+			file: CheckpointFile{Path: "absent.txt", SHA256: hashBytes([]byte("pre")), AfterAbsent: true},
+		},
+		{
+			name: "deleted file recreated concurrently",
+			path: missing,
+			file: CheckpointFile{Path: "absent.txt", SHA256: hashBytes([]byte("pre")), AfterAbsent: true},
+			setup: func(t *testing.T) {
+				writeWorkspaceFile(t, root, "absent.txt", "recreated")
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			writeWorkspaceFile(t, root, "exists.txt", "post")
+			_ = os.Remove(missing)
+			if tc.setup != nil {
+				tc.setup(t)
+			}
+			err := verifyRestoreTarget(tc.path, tc.file)
+			if tc.want && !errors.Is(err, ErrCheckpointConflict) {
+				t.Fatalf("verifyRestoreTarget error = %v, want ErrCheckpointConflict", err)
+			}
+			if !tc.want && err != nil {
+				t.Fatalf("verifyRestoreTarget: %v", err)
+			}
+		})
+	}
+}
+
 func TestOldJSONLRecordsRemainReadableWithoutNewKinds(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "legacy.jsonl")

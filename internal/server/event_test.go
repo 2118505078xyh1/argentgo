@@ -121,6 +121,108 @@ func TestEventHubEvictsSlowSubscriberOnly(t *testing.T) {
 	}
 }
 
+// TestEventHubDeliversTerminalWhenSubscriberBufferFull is the must-deliver
+// contract: a subscriber that has not drained its normal quota still receives
+// the completion event instead of being evicted and left waiting forever.
+func TestEventHubDeliversTerminalWhenSubscriberBufferFull(t *testing.T) {
+	hub := NewEventHub()
+	ch, stop := hub.Subscribe(0)
+	defer stop()
+
+	for i := 0; i < eventSubCap; i++ {
+		hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "pending"})
+	}
+	hub.Publish(agent.Event{Kind: agent.EventStop, Reason: agent.StopComplete})
+
+	if got := hub.Evicted(); got != 0 {
+		t.Fatalf("evicted = %d, want 0: a terminal must not evict a subscriber", got)
+	}
+	for i := 0; i < eventSubCap; i++ {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out draining progress event %d", i)
+		}
+	}
+	select {
+	case ev := <-ch:
+		if !ev.IsTerminal() || ev.Reason != agent.StopComplete {
+			t.Fatalf("delivered event = %+v, want stop/complete", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal event was not delivered to the full subscriber")
+	}
+}
+
+// TestEventHubKeepsTerminalsWhenReservedSlotFills covers the fallback: once the
+// reserved slot is also taken, the hub sacrifices one old progress event (still
+// in the replay log) rather than dropping the newer terminal or evicting the
+// subscriber. Both terminal events survive and stay in publish order.
+func TestEventHubKeepsTerminalsWhenReservedSlotFills(t *testing.T) {
+	hub := NewEventHub()
+	ch, stop := hub.Subscribe(0)
+	defer stop()
+
+	for i := 0; i < eventSubCap; i++ {
+		hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "pending"})
+	}
+	hub.Publish(agent.Event{Kind: agent.EventStop, Reason: "first"})
+	hub.Publish(agent.Event{Kind: agent.EventStop, Reason: "last"})
+
+	if got := hub.Evicted(); got != 0 {
+		t.Fatalf("evicted = %d, want 0", got)
+	}
+	stops, notices := 0, 0
+	for i := 0; i < eventSubCap+1; i++ {
+		select {
+		case ev := <-ch:
+			if ev.IsTerminal() {
+				stops++
+			} else {
+				notices++
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out draining event %d", i)
+		}
+	}
+	if stops != 2 || notices != eventSubCap-1 {
+		t.Fatalf("got %d terminal(s) and %d progress event(s), want 2 and %d",
+			stops, notices, eventSubCap-1)
+	}
+}
+
+// TestEventHubStillEvictsForFullNonTerminalBuffer guards the pre-existing
+// back-pressure behaviour: only terminal events get the must-deliver path.
+func TestEventHubStillEvictsForFullNonTerminalBuffer(t *testing.T) {
+	hub := NewEventHub()
+	ch, stop := hub.Subscribe(0)
+	defer stop()
+
+	for i := 0; i < eventSubCap; i++ {
+		hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "x"})
+	}
+	hub.Publish(agent.Event{Kind: agent.EventNotice, Text: "overflow"})
+
+	if got := hub.Evicted(); got != 1 {
+		t.Fatalf("evicted = %d, want 1 for a full non-terminal buffer", got)
+	}
+	for i := 0; i < eventSubCap; i++ {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out draining event %d", i)
+		}
+	}
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("evicted subscriber channel still open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("evicted subscriber channel was not closed")
+	}
+}
+
 func TestEventHubUnsubscribeIsIdempotent(t *testing.T) {
 	hub := NewEventHub()
 	ch, stop := hub.Subscribe(0)

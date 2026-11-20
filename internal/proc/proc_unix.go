@@ -41,6 +41,21 @@ func (p *platformProcess) killTree() {
 	_ = p.proc.Kill()
 }
 
+// terminateTree asks the whole process group to stop with SIGTERM, giving a
+// cooperative child a chance to clean up before killTree escalates to SIGKILL.
+// It mirrors killTree's group/pid targeting so every descendant gets the
+// signal, not just the direct child.
+func (p *platformProcess) terminateTree() {
+	if p.proc == nil {
+		return
+	}
+	pid := p.proc.Pid
+	if p.killAll && pid > 0 {
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+	}
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+}
+
 func (p *platformProcess) close() {}
 
 // configureDetached puts the child in its own session so it survives the shell

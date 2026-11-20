@@ -69,3 +69,13 @@ type Event struct {
 	// information a session checkpoint needs before a mutating batch starts.
 	Checkpoint *Checkpoint
 }
+
+// IsTerminal reports whether e ends a run and is therefore must-deliver: a
+// transport must not discard it even when a subscriber's buffer is full, or a
+// headless client waiting for the completion signal would hang.
+//
+// EventStop is the single run terminal. EventTurnEnd is only a per-turn
+// boundary (a run can emit many of them) and is deliberately not terminal.
+func (e Event) IsTerminal() bool {
+	return e.Kind == EventStop
+}

@@ -28,6 +28,13 @@ const DefaultMaxOutput = 64 << 10
 // that matters. Tests lower it.
 var MaxOutputBytes = DefaultMaxOutput
 
+// cancellationGracePeriod is how long a cancelled child gets to exit on its own
+// after the process tree is sent SIGTERM, before the kill is escalated to
+// SIGKILL. It is deliberately short: cooperative cleanup (flush buffers, drop
+// temp files, release locks) should finish in milliseconds. Tests shorten or
+// lengthen it through this variable.
+var cancellationGracePeriod = 500 * time.Millisecond
+
 const truncatedMarker = "\n... [output truncated] ...\n"
 
 // Command describes a child process to run.
@@ -225,8 +232,23 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		got = awaitOutcome(done)
 	case <-ctx.Done():
 		ctxErr = ctx.Err()
-		handle.killTree()
-		got = awaitOutcome(done)
+		if errors.Is(ctxErr, context.Canceled) {
+			// A user cancellation gives the child a brief chance to clean up:
+			// SIGTERM the whole tree, wait up to the grace period for it to
+			// exit on its own, then escalate to SIGKILL if it will not die.
+			handle.terminateTree()
+			select {
+			case got = <-done:
+			case <-time.After(cancellationGracePeriod):
+				handle.killTree()
+				got = awaitOutcome(done)
+			}
+		} else {
+			// A deadline (or any other cause) keeps the original immediate
+			// kill: timeout semantics must not be slowed by a grace wait.
+			handle.killTree()
+			got = awaitOutcome(done)
+		}
 	}
 
 	// cmd.Wait has returned on every path above, and with it exec's stdout and

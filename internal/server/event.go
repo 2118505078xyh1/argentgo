@@ -16,10 +16,17 @@ const (
 	// eventHistoryCap bounds the replay log. After a cursor, at most this many
 	// most-recent events are replayed before the live stream begins.
 	eventHistoryCap = 256
-	// eventSubCap is the per-subscriber buffer. It is >= eventHistoryCap so a
-	// replaying subscriber never blocks while the hub holds its write lock,
-	// and has headroom before the first live event can arrive.
+	// eventSubCap is the per-subscriber normal buffer quota. It is >=
+	// eventHistoryCap so a replaying subscriber never blocks while the hub
+	// holds its write lock, and has headroom before the first live event can
+	// arrive.
 	eventSubCap = 512
+	// eventTerminalSlots is capacity reserved beyond eventSubCap for
+	// must-deliver terminal events (EventStop). A subscriber is evicted once
+	// its normal quota is full, so the reserved slot lets a final terminal
+	// reach a slow subscriber instead of evicting it and leaving a headless
+	// client waiting forever for the completion event.
+	eventTerminalSlots = 1
 	// eventHeartbeatInterval keeps idle SSE connections alive through proxies.
 	eventHeartbeatInterval = 15 * time.Second
 )
@@ -29,9 +36,11 @@ const (
 // Publish assigns every event a monotonically increasing sequence number and
 // delivers it to each subscriber in that same order. Subscribe first replays
 // the tail of the history after a cursor, then follows live events. Subscriber
-// channels are buffered; a subscriber whose buffer fills is evicted (its
-// channel is closed and it is removed) instead of stalling the publisher or the
-// other subscribers.
+// channels are buffered; a subscriber whose normal buffer quota fills is
+// evicted (its channel is closed and it is removed) instead of stalling the
+// publisher or the other subscribers. Terminal events (EventStop) are the
+// exception: they are must-deliver and use a reserved slot rather than evicting
+// a full subscriber.
 //
 // The hub is safe for concurrent use by multiple publishers and subscribers.
 // It is deliberately transport-agnostic: both the HTTP/SSE and --rpc frontends
@@ -72,8 +81,9 @@ func (h *EventHub) Evicted() uint64 {
 // number, and broadcasts it to all current subscribers. It returns the assigned
 // sequence.
 //
-// Delivery is non-blocking. A subscriber whose buffer is full is evicted (its
-// channel is closed) and counted; this never delays the remaining subscribers.
+// Delivery is non-blocking. A subscriber whose normal buffer quota is full is
+// evicted (its channel is closed) and counted, except for must-deliver terminal
+// events, which still reach it. This never delays the remaining subscribers.
 func (h *EventHub) Publish(e agent.Event) uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -88,16 +98,32 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 	}
 
 	for ch := range h.subs {
-		select {
-		case ch <- e:
-		default:
+		if e.IsTerminal() {
+			// Must-deliver: never evict a subscriber for a terminal event, or
+			// a headless client that has not drained its progress events would
+			// miss the completion signal. The reserved slot is free whenever
+			// the subscriber still holds only its normal quota; if even that
+			// is taken, make room by discarding the oldest buffered progress
+			// event (still recoverable from the replay log) rather than losing
+			// the terminal.
+			select {
+			case ch <- e:
+			default:
+				<-ch
+				ch <- e
+			}
+			continue
+		}
+		if len(ch) >= eventSubCap {
 			// Slow consumer: close it and carry on. Deleting while ranging is
 			// safe in Go, and the map membership check in stop() prevents a
 			// double close if the subscriber unsubscribes at the same time.
 			close(ch)
 			delete(h.subs, ch)
 			h.evicted++
+			continue
 		}
+		ch <- e // cap > eventSubCap, so a sub below the quota cannot block.
 	}
 	return h.seq
 }
@@ -111,7 +137,7 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 // called concurrently with Publish or with itself. When a subscriber is
 // evicted its channel closes cleanly after the buffered events are drained.
 func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
-	ch := make(chan agent.Event, eventSubCap)
+	ch := make(chan agent.Event, eventSubCap+eventTerminalSlots)
 
 	h.mu.Lock()
 	if h.subs == nil {

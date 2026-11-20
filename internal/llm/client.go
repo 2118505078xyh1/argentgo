@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Message is one entry in the conversation.
@@ -96,6 +97,12 @@ type Client struct {
 	HTTP    *http.Client
 	Retry   RetryPolicy
 	Options Options
+	// IdleTimeout bounds the silence between stream events. An open connection
+	// can stop delivering data without ever reporting an error; with a positive
+	// IdleTimeout the read fails as a retryable stream error instead of hanging
+	// until the caller's context expires. Zero (the default) keeps synchronous
+	// reads and adds no timer or goroutine, so existing callers are unaffected.
+	IdleTimeout time.Duration
 }
 
 // New returns a client for an OpenAI-compatible endpoint.
@@ -287,6 +294,42 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	// across several data: lines, which the SSE spec allows and gateways use.
 	reader := newSSEReader(body)
 	var pending []string
+
+	// An open connection can stop delivering data without ever reporting an
+	// error. With IdleTimeout set, run the normally blocking SSE read in a
+	// goroutine and watch it with a timer so silence surfaces as a retryable
+	// stream error instead of hanging until the caller's context expires.
+	// IdleTimeout == 0 keeps the original synchronous read and adds no timer
+	// or goroutine, so existing callers are unaffected.
+	type readResult struct {
+		data string
+		ok   bool
+		err  error
+	}
+	reads := make(chan readResult, 1) // buffered: a late read can always exit
+	readStarted := false
+
+	var idle *time.Timer
+	var idleC <-chan time.Time
+	var resetIdle func()
+	if c.IdleTimeout > 0 {
+		idle = time.NewTimer(c.IdleTimeout)
+		idleC = idle.C
+		defer idle.Stop()
+		resetIdle = func() {
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(c.IdleTimeout)
+		}
+	} else {
+		resetIdle = func() {}
+	}
+
+streamLoop:
 	for {
 		if err := ctx.Err(); err != nil {
 			return Message{}, err
@@ -294,7 +337,7 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 		var data string
 		if len(pending) > 0 {
 			data, pending = pending[0], pending[1:]
-		} else {
+		} else if idle == nil {
 			next, ok, err := reader.next()
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -303,13 +346,42 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 				return Message{}, streamError("read stream: %v", RedactError(err))
 			}
 			if !ok {
-				break
+				break streamLoop
 			}
 			data = next
+		} else {
+			if !readStarted {
+				go func() {
+					next, ok, err := reader.next()
+					reads <- readResult{data: next, ok: ok, err: err}
+				}()
+				readStarted = true
+			}
+			select {
+			case <-ctx.Done():
+				return Message{}, ctx.Err()
+			case <-idleC:
+				return Message{}, streamError("stream idle for %s with no data", c.IdleTimeout)
+			case res := <-reads:
+				readStarted = false
+				if res.err != nil {
+					if ctxErr := ctx.Err(); ctxErr != nil {
+						return Message{}, ctxErr
+					}
+					return Message{}, streamError("read stream: %v", RedactError(res.err))
+				}
+				if !res.ok {
+					break streamLoop
+				}
+				data = res.data
+			}
 		}
+		// Any event that arrives pushes the silence deadline out.
+		resetIdle()
+
 		if data == "[DONE]" {
 			integrity.terminated = true
-			break
+			break streamLoop
 		}
 
 		// The SSE reader joins adjacent data lines with newlines. A gateway

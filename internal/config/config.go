@@ -100,6 +100,34 @@ type Config struct {
 	Raw map[string]any
 	// CWD is the workspace the configuration was resolved for.
 	CWD string
+
+	// The fields below are unexported reload metadata. They are populated by
+	// Load/LoadWithOverrides and let a long-lived caller detect on-disk changes
+	// (Changed) and rebuild the config (Reload) without restarting. They are
+	// additive: external packages constructing Config with keyed literals are
+	// unaffected.
+	loadEnv       func(string) string
+	loadOverrides map[string]any
+	generation    uint64
+	fingerprint   configFingerprint
+}
+
+// fileStamp is the cheap, parse-free identity of one config file. mtime and
+// size together catch rewrites even on filesystems with coarse timestamp
+// resolution; existence and statErr catch created/removed/unreadable files.
+type fileStamp struct {
+	path    string
+	modTime int64
+	size    int64
+	exists  bool
+	statErr bool
+}
+
+// configFingerprint is the ordered snapshot of every config file layer. The
+// file list always includes all candidate paths (even missing ones) so that a
+// newly created config file is detected as a change.
+type configFingerprint struct {
+	files []fileStamp
 }
 
 // Load merges every configuration layer for cwd. env supplies the process
@@ -172,6 +200,13 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	// lists env(provider.APIKeyEnv) as the last resort of its credential chain;
 	// copying it here would make it outrank the `argent login` key stored under
 	// providers.<name>.apiKey and break the documented priority.
+	//
+	// Attach reload metadata so a long-lived caller can poll Changed and call
+	// Reload. The first successful load is generation 1; every Reload bumps it.
+	cfg.loadEnv = env
+	cfg.loadOverrides = cloneTree(overrides)
+	cfg.generation = 1
+	cfg.fingerprint = newFingerprint(cwd, home)
 	return cfg, nil
 }
 
@@ -184,6 +219,59 @@ func (c Config) Validate() error {
 	}
 	first := diagnostics[0]
 	return fmt.Errorf("config: %s", first.Message)
+}
+
+// Generation returns the version of this config snapshot. The first load is
+// generation 1; each successful Reload increments it by one. A caller can use
+// it to notice that a peer rebuilt the config even when it did not poll Changed
+// at the exact moment of the rewrite.
+func (c Config) Generation() uint64 {
+	return c.generation
+}
+
+// Changed reports whether any config file on disk differs from the snapshot
+// this Config was loaded from. It is a cheap polling hook for long-lived
+// callers: it only stats the candidate files (mtime, size, existence) and never
+// parses or merges them, so it is safe to call on a hot path. When a change is
+// detected, call Reload to get the new values. A Config built by hand (not via
+// Load) has no snapshot to compare and always reports false.
+//
+// Changed only observes config files. Environment variables and flag overrides
+// are captured at load time; Changed cannot see them change. Reload reuses the
+// original env function, so an env function backed by os.Getenv will still pick
+// up process-level changes at reload time.
+//
+// Note: filesystem mtime resolution is finite. A rewrite that preserves both
+// size and mtime within one tick cannot be detected by this lightweight check;
+// callers needing stronger guarantees should hash the file bytes themselves.
+func (c Config) Changed() bool {
+	if len(c.fingerprint.files) == 0 {
+		return false
+	}
+	paths := make([]string, len(c.fingerprint.files))
+	for i, stamp := range c.fingerprint.files {
+		paths[i] = stamp.path
+	}
+	return !fingerprintPaths(paths).equal(c.fingerprint)
+}
+
+// Reload re-reads every config layer from disk using the same cwd, env and
+// flag overrides as the original load, and returns a NEW Config whose
+// Generation is one higher. The receiver is left untouched, and on error nil
+// is returned so the caller can keep using the current config. Precedence and
+// merge semantics are identical to Load because Reload delegates to
+// LoadWithOverrides.
+func (c Config) Reload() (*Config, error) {
+	cwd := c.CWD
+	if strings.TrimSpace(cwd) == "" {
+		cwd = "."
+	}
+	next, err := LoadWithOverrides(cwd, c.loadEnv, c.loadOverrides)
+	if err != nil {
+		return nil, err
+	}
+	next.generation = c.generation + 1
+	return &next, nil
 }
 
 func defaults(home, cwd string) map[string]any {
@@ -213,6 +301,50 @@ func configFiles(cwd, home string) []string {
 		filepath.Join(cwd, ".argent", "config.json"),
 		filepath.Join(cwd, "argent.json"),
 	}
+}
+
+// newFingerprint snapshots every config file candidate for cwd/home, including
+// missing files (recorded as exists=false) so that later creation is detected.
+func newFingerprint(cwd, home string) configFingerprint {
+	return fingerprintPaths(configFiles(cwd, home))
+}
+
+// fingerprintPaths stats each path and records a parse-free identity. A stat
+// error that is not "not exist" is recorded as statErr so a transient
+// unreadable file is conservatively treated as a change rather than matching
+// a missing-file snapshot.
+func fingerprintPaths(paths []string) configFingerprint {
+	stamps := make([]fileStamp, 0, len(paths))
+	for _, path := range paths {
+		stamp := fileStamp{path: path}
+		switch info, err := os.Stat(path); {
+		case err == nil:
+			stamp.exists = true
+			stamp.size = info.Size()
+			stamp.modTime = info.ModTime().UnixNano()
+		case os.IsNotExist(err):
+			// Missing file: leave the zero identity in place.
+		default:
+			stamp.statErr = true
+		}
+		stamps = append(stamps, stamp)
+	}
+	return configFingerprint{files: stamps}
+}
+
+// equal reports whether two fingerprints describe the same file identities.
+func (f configFingerprint) equal(other configFingerprint) bool {
+	if len(f.files) != len(other.files) {
+		return false
+	}
+	for i := range f.files {
+		a, b := f.files[i], other.files[i]
+		if a.path != b.path || a.exists != b.exists || a.size != b.size ||
+			a.modTime != b.modTime || a.statErr != b.statErr {
+			return false
+		}
+	}
+	return true
 }
 
 func homeDir(env func(string) string) string {
