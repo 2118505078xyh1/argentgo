@@ -123,6 +123,28 @@ func TestForEventFiltersByMatcher(t *testing.T) {
 	}
 }
 
+func TestDocumentHooksIgnoreInternalPriorityFields(t *testing.T) {
+	// The document format is unchanged: "priority" and "stopPropagation" are
+	// not document keys, so even a document that happens to carry them must
+	// parse into plain, priority-0, non-stopping commands.
+	config, err := ParseConfig([]byte(`{"hooks":{"PreToolUse":[{"hooks":[
+		{"command":"echo a","priority":100,"stopPropagation":true},
+		{"command":"echo b"}
+	]}]}}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	commands := config.ForEvent(PreToolUse, "")
+	if len(commands) != 2 {
+		t.Fatalf("unexpected commands: %+v", commands)
+	}
+	for _, command := range commands {
+		if command.Priority != 0 || command.StopPropagation {
+			t.Fatalf("document must not set internal fields: %+v", command)
+		}
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	cases := []struct {
 		pattern, value string

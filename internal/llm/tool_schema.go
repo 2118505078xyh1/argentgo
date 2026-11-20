@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -65,6 +66,92 @@ func ProjectToolSchema(schemaJSON string, compat ModelCompat) string {
 		return schemaJSON
 	}
 	return result
+}
+
+// --- cached projection -----------------------------------------------------
+
+// defaultSchemaCacheCapacity bounds the memo table. Tool registries rebuild
+// their specs every turn, so in practice only a few dozen distinct schemas are
+// ever projected; 256 leaves ample headroom while keeping memory bounded.
+const defaultSchemaCacheCapacity = 256
+
+// schemaCacheKey identifies one projection request. The compat flag is part of
+// the key on purpose: the same schema projected for Gemini and for Moonshot
+// yields different bytes, so keying on the schema alone would be incorrect.
+type schemaCacheKey struct {
+	schema string
+	compat ModelCompat
+}
+
+// schemaProjectionCache memoizes the pure ProjectToolSchema computation. It is
+// the Go counterpart of opencode's codecFor WeakMap ("built once per schema
+// object"): an expensive JSON decode/encode is paid once per distinct input
+// rather than once per turn. It is safe for concurrent use.
+//
+// Growth is bounded: when the table is full, the next miss clears it before
+// inserting. This is the simple "clear on capacity" strategy; the steady-state
+// working set is far below the cap, so clearing is rare, and memory can never
+// exceed capacity entries even as schemas change over a session.
+type schemaProjectionCache struct {
+	mu       sync.Mutex
+	entries  map[schemaCacheKey]string
+	capacity int
+	// projectFn is the underlying pure projection. It lives on the struct so
+	// tests can inject a counting function; production uses ProjectToolSchema.
+	projectFn func(string, ModelCompat) string
+}
+
+func newSchemaProjectionCache(capacity int, projectFn func(string, ModelCompat) string) *schemaProjectionCache {
+	if capacity <= 0 {
+		capacity = defaultSchemaCacheCapacity
+	}
+	if projectFn == nil {
+		projectFn = ProjectToolSchema
+	}
+	return &schemaProjectionCache{
+		entries:   make(map[schemaCacheKey]string, capacity),
+		capacity:  capacity,
+		projectFn: projectFn,
+	}
+}
+
+// project returns the cached projection for (schemaJSON, compat), computing it
+// on a miss. The decode/encode runs outside the lock so concurrent misses for
+// different keys do not serialize behind the CPU work.
+func (c *schemaProjectionCache) project(schemaJSON string, compat ModelCompat) string {
+	key := schemaCacheKey{schema: schemaJSON, compat: compat}
+
+	c.mu.Lock()
+	if got, ok := c.entries[key]; ok {
+		c.mu.Unlock()
+		return got
+	}
+	c.mu.Unlock()
+
+	result := c.projectFn(schemaJSON, compat)
+
+	c.mu.Lock()
+	if len(c.entries) >= c.capacity {
+		// Bounded growth: start fresh instead of retaining stale schemas.
+		c.entries = make(map[schemaCacheKey]string, c.capacity)
+	}
+	c.entries[key] = result
+	c.mu.Unlock()
+	return result
+}
+
+// defaultSchemaCache backs ProjectToolSchemaCached.
+var defaultSchemaCache = newSchemaProjectionCache(defaultSchemaCacheCapacity, ProjectToolSchema)
+
+// ProjectToolSchemaCached is ProjectToolSchema with a bounded memoization layer:
+// repeated (schema, compat) pairs reuse the first projection's bytes, so the
+// JSON decode/encode walk runs once per distinct schema rather than each turn.
+// It is semantically identical to ProjectToolSchema — same bytes in, same bytes
+// out, including invalid JSON, invalid UTF-8 and no-op projections — and is safe
+// for concurrent use. ProjectToolSchema itself is unchanged; callers opt in by
+// calling this variant.
+func ProjectToolSchemaCached(schemaJSON string, compat ModelCompat) string {
+	return defaultSchemaCache.project(schemaJSON, compat)
 }
 
 // encodeSchemaJSON serializes a decoded schema deterministically: object keys

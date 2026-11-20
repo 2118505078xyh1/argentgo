@@ -73,6 +73,19 @@ type Command struct {
 	Timeout time.Duration
 	OnError string // "block" (default), "allow" or "ignore"
 	Async   bool
+
+	// Priority orders hooks at dispatch time: higher values run first. It is
+	// internal-only (json:"-") so the on-disk hook document format is
+	// unchanged; document-parsed hooks all start at 0 and keep their
+	// declaration order. Programmatic callers (e.g. built-in security hooks)
+	// set a positive Priority to run ahead of user hooks.
+	Priority int `json:"-"`
+
+	// StopPropagation short-circuits dispatch: once a hook carrying this flag
+	// has run, no lower-priority hook is executed. Like Priority it is
+	// internal-only; a document hook never sets it, so existing documents
+	// still run every matching hook.
+	StopPropagation bool `json:"-"`
 }
 
 // BlocksOnFailure reports whether a failing command may block the action.

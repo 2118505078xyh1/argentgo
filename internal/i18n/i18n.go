@@ -8,6 +8,7 @@ package i18n
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -163,6 +164,111 @@ func Normalize(locale string) string {
 // Known returns the supported locale codes, sorted.
 func Known() []string {
 	return []string{EnUS, ZhCN}
+}
+
+// outputLanguageTokenMaxLength bounds an untrusted preference token before it
+// is validated. Prose longer than this can never be a language designation.
+const outputLanguageTokenMaxLength = 64
+
+// bcp47Tag is a deliberately strict BCP-47 shape: a 2-3 letter primary
+// subtag, an optional 4-letter script, an optional region (2 letters or 3
+// digits), and up to two variants in the grammar's two forms. Both letter
+// cases are spelled out instead of using (?i): RE2's case-insensitive mode
+// folds confusables such as U+212A KELVIN SIGN into [a-z], which would let a
+// repository-authored token pass as a language tag.
+var bcp47Tag = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-[A-Za-z]{2}|-[0-9]{3})?(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3,4})){0,2}$`)
+
+// outputLanguageEntry mirrors the product's output-language table. The table
+// is the closed set of designations the product itself writes; a token found
+// in a repository-writable file is trusted only when it is one of these
+// spellings (code, settings id, full English name, or native name).
+type outputLanguageEntry struct {
+	code       string
+	id         string
+	fullName   string
+	nativeName string
+}
+
+var outputLanguageTable = [...]outputLanguageEntry{
+	{code: "en", id: EnUS, fullName: "English", nativeName: "English"},
+	{code: "zh-TW", id: "zh-TW", fullName: "Traditional Chinese", nativeName: "繁體中文"},
+	{code: "zh", id: ZhCN, fullName: "Chinese", nativeName: "中文"},
+	{code: "ru", id: "ru-RU", fullName: "Russian", nativeName: "Русский"},
+	{code: "de", id: "de-DE", fullName: "German", nativeName: "Deutsch"},
+	{code: "ja", id: "ja-JP", fullName: "Japanese", nativeName: "日本語"},
+	{code: "pt", id: "pt-BR", fullName: "Portuguese", nativeName: "Português"},
+	{code: "fr", id: "fr-FR", fullName: "French", nativeName: "Français"},
+	{code: "ca", id: "ca-ES", fullName: "Catalan", nativeName: "Català"},
+}
+
+// asciiLower folds ASCII upper case only. strings.ToLower, strings.EqualFold
+// and RE2's (?i) also fold non-ASCII confusables (e.g. U+212A KELVIN SIGN to
+// "k"), which would let a case-disguised token slip into the closed set.
+func asciiLower(s string) string {
+	var out []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if out == nil {
+				out = []byte(s)
+			}
+			out[i] = c + ('a' - 'A')
+		}
+	}
+	if out == nil {
+		return s
+	}
+	return string(out)
+}
+
+var outputLanguageDesignations = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(outputLanguageTable)*5)
+	for _, entry := range outputLanguageTable {
+		for _, spelling := range [...]string{entry.code, entry.id, entry.fullName, entry.nativeName} {
+			if spelling == "" {
+				continue
+			}
+			set[asciiLower(spelling)] = struct{}{}
+			// Known non-ASCII native names are also accepted in their
+			// lower-cased spelling; only the untrusted token is never
+			// Unicode-folded.
+			if lower := strings.ToLower(spelling); lower != spelling {
+				set[lower] = struct{}{}
+			}
+		}
+	}
+	return set
+}()
+
+// ParseOutputLanguagePreference validates one output-language token that came
+// from an untrusted, repository-writable preference file.
+//
+// Only "auto", a designation from the output-language table (code, settings
+// id, full English name, or native name such as "中文" / "繁體中文"), or a
+// well-formed BCP-47 tag is accepted. A 13-character instruction written in
+// CJK needs no spaces and no punctuation, so a character class cannot tell it
+// apart from a language name — the closed set can. Everything else is
+// rejected with ok == false and an empty lang; callers must never hand the raw
+// string to a prompt.
+//
+// This is a pure function. It reads no configuration and changes no existing
+// locale behaviour in this package.
+func ParseOutputLanguagePreference(raw string) (lang string, ok bool) {
+	token := strings.TrimSpace(raw)
+	if token == "" || len(token) > outputLanguageTokenMaxLength {
+		return "", false
+	}
+	folded := asciiLower(token)
+	if folded == "auto" {
+		return "auto", true
+	}
+	if _, known := outputLanguageDesignations[folded]; known {
+		return token, true
+	}
+	if bcp47Tag.MatchString(token) {
+		return token, true
+	}
+	return "", false
 }
 
 // Keys returns every catalog key, sorted. Tests use it to check both locales

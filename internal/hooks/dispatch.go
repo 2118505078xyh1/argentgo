@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -119,8 +120,11 @@ func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, p
 	return d.Dispatch(ctx, document.Config, payload)
 }
 
-// Run executes the synchronous hooks for one event, in declaration order.
-// Async hooks are skipped: a deciding hook must answer synchronously.
+// Run executes the synchronous hooks for one event, highest Priority first.
+// Hooks with equal Priority keep their declaration order (stable sort), so
+// document hooks — all at priority 0 — behave exactly as before. Async hooks
+// are skipped: a deciding hook must answer synchronously. A command with
+// StopPropagation ends the run after it executes, shielding later hooks.
 func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) ([]Outcome, error) {
 	if config == nil {
 		return nil, nil
@@ -131,6 +135,9 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 	}
 
 	commands := config.ForEvent(event, payload.Tool)
+	sort.SliceStable(commands, func(i, j int) bool {
+		return commands[i].Priority > commands[j].Priority
+	})
 	outcomes := make([]Outcome, 0, len(commands))
 	for _, command := range commands {
 		if command.Async {
@@ -139,6 +146,9 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 		outcomes = append(outcomes, d.guardedRunCommand(ctx, command, payload))
 		if ctx.Err() != nil {
 			return outcomes, ctx.Err()
+		}
+		if command.StopPropagation {
+			break
 		}
 	}
 	return outcomes, nil

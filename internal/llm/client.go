@@ -61,6 +61,52 @@ func (u Usage) FreshPromptTokens() int {
 	return u.PromptTokens - u.CachedTokens
 }
 
+const (
+	// cacheWarmWindowStart is the fraction of a cache entry's lifetime after
+	// which a keepalive becomes eligible. pi arms a single timer at 90% of the
+	// lifetime (with a ten-second margin); the 80% floor here leaves a caller
+	// room to schedule inside that band without racing the expiry.
+	cacheWarmWindowStart = 0.8
+
+	// maxIdleWarmAge is the pi idle-phase safety cap: an entry is never warmed
+	// once the agent has been idle this long, even when its TTL is longer.
+	maxIdleWarmAge = 30 * time.Minute
+)
+
+// ShouldWarmCache reports whether a keepalive ("rent") request is worth sending
+// for a prompt cache entry. It is a pure decision helper: it neither sends a
+// request nor touches any client state, so a caller can arm it from a
+// turn-boundary timer without coupling wire protocols to the agent loop.
+//
+// The entry was last written or read at lastRequest and expires at ttl, an
+// absolute deadline (normally lastRequest plus the provider's cache lifetime).
+// A warm is eligible only in the final stretch of that lifetime, before the
+// deadline, and while the idle interval has not exceeded maxIdleWarmAge. The
+// economics gate requires the expected avoided miss cost
+// (missCost * continuationProb) to exceed the keepalive's own cost.
+//
+// A zero idleSince disables the idle-age check, for callers that do not track
+// idle time. NaN costs fail the economics gate, since every comparison with
+// NaN is false.
+func ShouldWarmCache(now, lastRequest, ttl, idleSince time.Time, warmCost, missCost, continuationProb float64) bool {
+	// An expired or inconsistent entry cannot be kept alive. The window check
+	// below also rejects a now before lastRequest (clock skew or a fresh entry).
+	if now.After(ttl) || !ttl.After(lastRequest) || now.Before(lastRequest) {
+		return false
+	}
+	// Idle safety cap: pi stops after 30 minutes between real requests. An
+	// idleSince at or after now yields a non-positive age and is not a cap.
+	if !idleSince.IsZero() && now.Sub(idleSince) > maxIdleWarmAge {
+		return false
+	}
+	lifetime := ttl.Sub(lastRequest)
+	elapsed := now.Sub(lastRequest)
+	if float64(elapsed) < cacheWarmWindowStart*float64(lifetime) {
+		return false
+	}
+	return missCost*continuationProb > warmCost
+}
+
 // Chatter is implemented by every streaming protocol client in this package.
 type Chatter interface {
 	Chat(ctx context.Context, model string, messages []Message, tools []ToolSpec, onText func(string)) (Message, error)

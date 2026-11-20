@@ -503,14 +503,36 @@ func firstLine(text string, limit int) string {
 	return string(runes)
 }
 
-// autoApprover grants every request; it backs --yolo and approval=auto.
-type autoApprover struct{}
+// autoApprover grants every request except mutating shell commands; it backs
+// --yolo and approval=auto. A destructive shell command is the one call auto
+// mode must never grant silently (aider's explicit_yes_required): with no human
+// in the loop the model could otherwise delete or overwrite files unnoticed.
+// Such calls are delegated to fallback for a real decision; with no fallback
+// they are refused (fail closed). Read-only tools and read-only shell commands
+// keep the single-check grant, so --yolo stays fast and convenient off the
+// command path. TUI/RPC inject their own approver through Resolved.Approve and
+// never use this type, so interactive approval is unchanged.
+type autoApprover struct {
+	fallback security.Approver
+}
 
-func (autoApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
+func (a autoApprover) Ask(ctx context.Context, name, args string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	return true, nil
+	// shellCommandOf already restricts this to bash/powershell and returns ""
+	// for everything else (including malformed payloads, a safe false negative),
+	// so non-shell tools never pay for command classification or a prompt.
+	command := shellCommandOf(name, json.RawMessage(args))
+	if command == "" || security.FindFileEditingCommand(command) == "" {
+		return true, nil
+	}
+	if a.fallback == nil {
+		// Auto mode has no standing to approve a destructive command on its
+		// own. (false, nil) becomes a refusal the model can read in Chain.Check.
+		return false, nil
+	}
+	return a.fallback.Ask(ctx, name, args)
 }
 
 func approverFor(stdio cli.IO, res Resolved) security.Approver {
@@ -518,7 +540,12 @@ func approverFor(stdio cli.IO, res Resolved) security.Approver {
 	case "never":
 		return security.NeverApprover{}
 	case "auto", "yolo":
-		return autoApprover{}
+		// Auto grants non-shell work without a prompt, but a mutating shell
+		// command still needs a human: PromptApprover accepts only y/yes and
+		// deliberately has no "approve all" shortcut. In headless --rpc/--serve
+		// runs callers inject Resolved.Approve instead, so this reader is only
+		// reached on the direct CLI path where stdio.In is the operator's tty.
+		return autoApprover{fallback: security.NewPromptApprover(stdio.In, stdio.Err)}
 	default:
 		inner := security.NewPromptApprover(stdio.In, stdio.Err)
 		if ttl, on := ttlApprovalGate(stdio.Env); on {

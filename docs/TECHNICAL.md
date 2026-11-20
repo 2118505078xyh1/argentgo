@@ -481,7 +481,7 @@ is clearly wrong is a genuine bug in the client and fails the test.
 ## API reference
 
 This document describes the programmatic surfaces of `argentgo` as implemented
-in this repository (version `0.6.0`). It is descriptive, not aspirational: every
+in this repository (version `0.7.0`). It is descriptive, not aspirational: every
 command, method, tool and field below was read from the code. The in-process
 architecture is covered by the [Architecture](#architecture) section; build and release
 details by [Distribution](USER_GUIDE.md#distribution).
@@ -508,7 +508,7 @@ argent <command> [args]
 Flags are registered in `internal/cli/flags_register.go`; the authoritative help
 text is `writeUsage` in `internal/cli/flags_usage.go`. `-h/--help` and
 `-V/--version` print help and the version. The version constant is
-`cli.Version = "0.6.0"`.
+`cli.Version = "0.7.0"`.
 
 #### 1.1 Subcommands
 
@@ -796,7 +796,7 @@ subdirectory. Override it with `ARGENT_STORAGE_DIR` or `ARGENT_HOME`.
 
 #### 5.3 Version literals
 
-The version string `0.6.0` appears in three source literals and must be bumped
+The version string `0.7.0` appears in three source literals and must be bumped
 together:
 
 | File | Symbol / use |

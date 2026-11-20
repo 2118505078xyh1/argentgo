@@ -70,6 +70,16 @@ type Config struct {
 	// ["go", "test", "./..."]). Empty disables the bounded reflection loop.
 	// app.NewVerifyFunc re-validates it against a strict allowlist before use.
 	VerifyCommand []string
+	// VerifyCommands is an optional per-language map from a language or file
+	// extension (e.g. "go", ".go", "py", ".py") to a whitespace-separated
+	// command string (e.g. "go test ./..."). When non-empty, the app dispatches
+	// one command per edited file's language instead of using VerifyCommand;
+	// paths with no matching key fall back to VerifyCommand when it is set.
+	// Values are parsed with strings.Fields and validated by app.NewVerifyFunc
+	// against the same strict allowlist as VerifyCommand — no shell is involved,
+	// so quoting and shell metacharacters are not supported. Empty preserves the
+	// single-command behaviour exactly.
+	VerifyCommands map[string]string
 	// VerifyTimeoutMS bounds one verification process (default 30000, capped
 	// at 120000). Zero selects the default.
 	VerifyTimeoutMS int
@@ -434,6 +444,7 @@ func decode(tree map[string]any, cwd string, sources []string) Config {
 		StorageDir:  stringField(tree, "storageDir", "storage_dir"),
 
 		VerifyCommand:        stringSliceField(tree, "verifyCommand", "verify_command"),
+		VerifyCommands:       stringMapField(tree, "verifyCommands", "verify_commands"),
 		VerifyTimeoutMS:      intField(tree, "verifyTimeoutMS", "verify_timeout_ms"),
 		VerifyMaxReflections: intField(tree, "verifyMaxReflections", "verify_max_reflections"),
 
@@ -512,6 +523,32 @@ func stringSliceField(tree map[string]any, keys ...string) []string {
 			return out
 		case []string:
 			return append([]string(nil), value...)
+		}
+	}
+	return nil
+}
+
+// stringMapField decodes a JSON object of string -> string (e.g. the
+// verifyCommands language map) from the merged tree. Both map[string]any
+// (from JSON and CLI overrides) and map[string]string (constructed in tests)
+// are accepted; non-string values are skipped rather than failing the config.
+func stringMapField(tree map[string]any, keys ...string) map[string]string {
+	for _, key := range keys {
+		switch value := tree[key].(type) {
+		case map[string]any:
+			out := make(map[string]string, len(value))
+			for name, raw := range value {
+				if text, ok := raw.(string); ok {
+					out[name] = text
+				}
+			}
+			return out
+		case map[string]string:
+			out := make(map[string]string, len(value))
+			for name, text := range value {
+				out[name] = text
+			}
+			return out
 		}
 	}
 	return nil

@@ -246,10 +246,157 @@ func verifyLabel(argv []string) string {
 	return llm.RedactText(label)
 }
 
+// verifyLangForms expands one language/extension key into the equivalent
+// spellings used to match a changed file's extension. The same expansion is
+// applied to config keys and to path extensions, so "go", ".go", "py",
+// ".py" and "python" all meet in the middle. The first two forms are always
+// the bare key and its dotted variant; the remainder are small, fixed aliases.
+func verifyLangForms(key string) []string {
+	base := strings.ToLower(strings.TrimSpace(key))
+	base = strings.TrimPrefix(base, ".")
+	if base == "" {
+		return nil
+	}
+	forms := []string{base, "." + base}
+	switch base {
+	case "py", "python":
+		forms = append(forms, "python", ".python", "py", ".py")
+	case "js", "javascript", "jsx", "mjs", "cjs":
+		forms = append(forms, "javascript", ".javascript", "js", ".js", "jsx", ".jsx", "mjs", ".mjs", "cjs", ".cjs")
+	case "ts", "typescript", "tsx":
+		forms = append(forms, "typescript", ".typescript", "ts", ".ts", "tsx", ".tsx")
+	case "rs", "rust":
+		forms = append(forms, "rust", ".rust", "rs", ".rs")
+	case "go", "golang":
+		forms = append(forms, "golang", ".golang", "go", ".go")
+	}
+	return forms
+}
+
+// canonicalVerifyCmd collapses a configured command string to its argv key so
+// selection and execution use the same spelling for the same command.
+func canonicalVerifyCmd(cmd string) string {
+	return strings.Join(strings.Fields(cmd), " ")
+}
+
+// verifyCommandIndex normalizes the configured language map once: every
+// spelling of a key points at the same command string.
+func verifyCommandIndex(commands map[string]string) map[string]string {
+	index := make(map[string]string, len(commands)*2)
+	for key, cmd := range commands {
+		for _, form := range verifyLangForms(key) {
+			index[form] = cmd
+		}
+	}
+	return index
+}
+
+// selectVerifyArgvs resolves the ordered, de-duplicated argv list to run for
+// changedPaths. It is deliberately pure (no process spawn) so per-language
+// dispatch can be unit-tested without executing commands. A path matches when
+// its extension matches a configured language key; unmatched paths use the
+// single-command fallback. When nothing can be selected, a configured
+// fallback runs once so a missing checkpoint still verifies something.
+func selectVerifyArgvs(commands map[string]string, fallback []string, changedPaths []string) [][]string {
+	index := verifyCommandIndex(commands)
+	seen := map[string]bool{}
+	var out [][]string
+	add := func(argv []string) {
+		if len(argv) == 0 {
+			return
+		}
+		key := strings.Join(argv, " ")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, argv)
+	}
+
+	for _, path := range changedPaths {
+		base := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+		matched := false
+		for _, form := range verifyLangForms(base) {
+			if cmd, ok := index[form]; ok {
+				add(strings.Fields(cmd))
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			add(append([]string(nil), fallback...))
+		}
+	}
+	if len(out) == 0 {
+		add(append([]string(nil), fallback...))
+	}
+	return out
+}
+
+// newVerifyDispatchFunc wraps NewVerifyFunc with per-language dispatch. Every
+// distinct configured command is validated once up front; on each call the
+// changed paths pick which of those pre-validated runners to execute. Results
+// are aggregated: a run passes only when every selected command passes, and
+// ok is false only when a selected command could not run.
+func newVerifyDispatchFunc(commands map[string]string, fallback []string, timeoutMS int, root string) func(context.Context, []string) (string, bool, string, bool) {
+	runners := map[string]func(context.Context, []string) (string, bool, string, bool){}
+	for _, cmd := range commands {
+		key := canonicalVerifyCmd(cmd)
+		if _, ok := runners[key]; !ok {
+			runners[key] = NewVerifyFunc(strings.Fields(cmd), timeoutMS, root)
+		}
+	}
+	if len(fallback) > 0 {
+		runners[canonicalVerifyCmd(strings.Join(fallback, " "))] = NewVerifyFunc(fallback, timeoutMS, root)
+	}
+
+	return func(ctx context.Context, changedPaths []string) (string, bool, string, bool) {
+		argvs := selectVerifyArgvs(commands, fallback, changedPaths)
+		if len(argvs) == 0 {
+			return "", false, "", false
+		}
+		labels := make([]string, 0, len(argvs))
+		outputs := make([]string, 0, len(argvs))
+		allPassed, allOK := true, true
+		for _, argv := range argvs {
+			key := strings.Join(argv, " ")
+			run := runners[key]
+			if run == nil {
+				// Selection only draws from pre-registered commands; building a
+				// fallback here keeps a future key-format change from panicking.
+				run = NewVerifyFunc(argv, timeoutMS, root)
+			}
+			label, passed, output, ok := run(ctx, argv)
+			labels = append(labels, label)
+			if output != "" {
+				outputs = append(outputs, output)
+			}
+			allPassed = allPassed && passed
+			allOK = allOK && ok
+		}
+		label := strings.Join(labels, "; ")
+		if runes := []rune(label); len(runes) > verifyLabelMax {
+			label = string(runes[:verifyLabelMax]) + "..."
+		}
+		return label, allPassed, strings.Join(outputs, "\n"), allOK
+	}
+}
+
+// verifyConfigured reports whether either verification form is enabled.
+func verifyConfigured(res Resolved) bool {
+	return len(res.Cfg.VerifyCommand) > 0 || len(res.Cfg.VerifyCommands) > 0
+}
+
 // verifyFuncFor returns nil unless the operator explicitly configured a
 // verification command, so an unconfigured run's Options stay byte-identical
-// (agent.Options.Verify == nil disables the whole loop).
+// (agent.Options.Verify == nil disables the whole loop). With only the legacy
+// VerifyCommand set the original fixed callback is returned unchanged; the
+// per-language map adds a dispatcher that consults the changed paths supplied
+// by the agent loop's checkpoint.
 func verifyFuncFor(res Resolved) func(context.Context, []string) (string, bool, string, bool) {
+	if len(res.Cfg.VerifyCommands) > 0 {
+		return newVerifyDispatchFunc(res.Cfg.VerifyCommands, res.Cfg.VerifyCommand, res.Cfg.VerifyTimeoutMS, res.Root)
+	}
 	if len(res.Cfg.VerifyCommand) == 0 {
 		return nil
 	}
@@ -259,7 +406,7 @@ func verifyFuncFor(res Resolved) func(context.Context, []string) (string, bool, 
 // verifyReflectionsFor resolves the per-run cap. Zero is returned when the
 // feature is off, so even this field matches the previous Options exactly.
 func verifyReflectionsFor(res Resolved) int {
-	if len(res.Cfg.VerifyCommand) == 0 {
+	if !verifyConfigured(res) {
 		return 0
 	}
 	if n := res.Cfg.VerifyMaxReflections; n > 0 {

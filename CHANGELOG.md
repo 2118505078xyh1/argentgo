@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.7.0 — 2026-11-20
+
+Ten study-and-harden rounds against qwen-code, Cursor, gptme, pi, oh-my-pi,
+Roo-Code, dsh, OpenHands, Codex, Crush, goose, kilocode, aider and opencode.
+stdlib-only Go; MyGo remains the sole native-shell dependency. Highlights:
+
+**Security & approval (audit-driven)**
+- `--yolo` / `approval=auto` no longer silently executes mutating shell commands:
+  they fall back to an interactive confirmation (y/yes only, no bulk "All").
+- New threat-pattern detector (forced-`rm`, `sudo`/`env`/`trap` wrappers,
+  `curl|bash`, reverse shells, encoded exec) with `guardrails` shadow/enforce/off
+  mode and fail-closed unknown handling.
+- Refusal feedback is surfaced as a model-readable tool error; checkpoint undo
+  rechecks each target before writing (CAS against concurrent edits).
+- Checkpoint capture caches file hashes per (path,size,mtime,mode) to avoid
+  re-reading unchanged files each turn.
+
+**Agent loop & correctness**
+- `InvalidArgBreaker` is wired into tool dispatch: three consecutive invalid
+  argument errors stop the turn; success / cross-turn reset re-arm it.
+- Structured recovery classification (clean / interrupted prompt / interrupted
+  turn / degraded history) with auto-continue and confirmation decisions.
+- User-declared turn budgets (`+500k`, `use 2m tokens`) parsed from prompts with
+  injected blocks stripped, then clamped and applied to the budget.
+- Duplicate-call detection now uses canonicalized arguments; trim keeps a
+  0.7 target-ratio headroom and prunes large tool results head+tail (rune-safe).
+- Tool panics are recovered into sanitized errors so a turn cannot be punctured.
+
+**Context & caching**
+- System prompt split into a cache-stable static prefix and a per-turn dynamic
+  user message (cwd / thinking / schema), gated by project trust.
+- Prompt-cache warm decision, schema-compilation cache, and a 10% compaction
+  savings gate. Compaction archives can be written with byte-range references
+  for precise replay; outline mode for large Go files.
+- MCP graded discovery timeouts + transient-error classification; graded inbox
+  buffer component; PowerShell UTF-8 pinned output; PTY terminal-query filtering.
+
+**Engineering**
+- Config hot-reload metadata (`Changed`/`Reload`/`Generation`), multi-language
+  verify commands, schema flattening (`flattenAllOf`) as an opt-in projection,
+  and output-language closed-set validation.
+
 ## v0.6.0 — 2026-11-20
 
 Sixteen rounds of study-and-harden cycles against charmbracelet/crush,

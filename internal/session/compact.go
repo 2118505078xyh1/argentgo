@@ -1,22 +1,55 @@
 package session
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
 
+// ArchiveRange is a half-open byte range [Start, End) locating one message in
+// a compaction archive. A reader can seek to Start and read End-Start bytes to
+// recover that message verbatim, without loading the whole archive. ID/Role are
+// copied from the original entry so a range can be matched to a summary bullet
+// without decoding the payload.
+type ArchiveRange struct {
+	ID    string `json:"id,omitempty"`
+	Role  string `json:"role,omitempty"`
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+}
+
+// ArchiveRef is an optional pointer to the lossless archive of the messages a
+// compaction dropped. Path is relative to the session store directory (the
+// same dir that holds the <id>.jsonl transcripts), so a record can carry it
+// without embedding a machine-specific absolute path. Bytes is the size of the
+// archive file; Ranges maps each dropped message, in order, to its byte range
+// inside that file.
+type ArchiveRef struct {
+	Path   string         `json:"path"`
+	Bytes  int64          `json:"bytes"`
+	Ranges []ArchiveRange `json:"ranges,omitempty"`
+}
+
 // Compaction is the payload of a kind:"compaction" record. The summary
 // replaces the dropped part of the conversation; Keep is how many of the most
 // recent messages still follow it verbatim.
+//
+// Archive is additive and optional (omitempty): older records have no archive
+// field and are read exactly as before. Existing compaction behaviour never
+// sets it; writers opt in by calling WriteCompactionArchive / WriteCompactionArchiveRef.
 type Compaction struct {
-	Summary   string   `json:"summary"`
-	Dropped   int      `json:"dropped"`
-	Keep      int      `json:"keep"`
-	Files     []string `json:"files,omitempty"`
-	Failures  []string `json:"failures,omitempty"`
-	NextSteps []string `json:"nextSteps,omitempty"`
+	Summary   string      `json:"summary"`
+	Dropped   int         `json:"dropped"`
+	Keep      int         `json:"keep"`
+	Files     []string    `json:"files,omitempty"`
+	Failures  []string    `json:"failures,omitempty"`
+	NextSteps []string    `json:"nextSteps,omitempty"`
+	Archive   *ArchiveRef `json:"archive,omitempty"`
 }
 
 // Compact replaces the older part of the conversation with one summary record
@@ -552,4 +585,255 @@ func addPath(out *[]string, seen map[string]bool, path string) {
 	}
 	seen[path] = true
 	*out = append(*out, path)
+}
+
+// ---------------------------------------------------------------------------
+// Lossless compaction archive.
+//
+// A compaction only adds a summary record; the original JSONL transcript is
+// never rewritten, so "lossless" already holds at the file level. These helpers
+// add the second half of the gptme audit item: a model-friendly, byte-addressable
+// copy of the dropped messages. They are deliberately pure (no wiring into
+// Compact/appendCompaction) so existing compaction stays byte-for-byte identical.
+// Archives live under <session-store-dir>/compactions/, a subdirectory that
+// Container.List already skips because it only considers *.jsonl files at the
+// top level. Nothing is written under .argent/.
+// ---------------------------------------------------------------------------
+
+const compactionArchiveDir = "compactions"
+
+// compactionArchiveID validates an archive id the same way Container.path
+// validates a session id, so an id can never escape the compactions directory.
+// A trailing ".jsonl" is accepted and stripped for convenience.
+func compactionArchiveID(id string) (string, error) {
+	clean := strings.TrimSpace(id)
+	if strings.HasSuffix(strings.ToLower(clean), fileExt) {
+		clean = clean[:len(clean)-len(fileExt)]
+	}
+	if clean == "" || clean == "." || clean == ".." ||
+		strings.ContainsAny(clean, `/\:*?"<>|`) {
+		return "", fmt.Errorf("session: invalid compaction archive id %q", id)
+	}
+	return clean, nil
+}
+
+// CompactionArchivePath returns the on-disk path of the archive for id:
+// <dir>/compactions/<id>.jsonl. The id is validated for path safety.
+func CompactionArchivePath(dir, id string) (string, error) {
+	if strings.TrimSpace(dir) == "" {
+		return "", fmt.Errorf("session: empty compaction archive directory")
+	}
+	clean, err := compactionArchiveID(id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, compactionArchiveDir, clean+fileExt), nil
+}
+
+// compactionArchiveRelPath is the path stored in an ArchiveRef: relative to the
+// session store directory, with forward slashes for stable records on any OS.
+func compactionArchiveRelPath(id string) string {
+	return filepath.ToSlash(filepath.Join(compactionArchiveDir, id+fileExt))
+}
+
+// writeCompactionArchive is the shared implementation. It writes messages as
+// JSONL atomically (temp file + rename), computes a byte range for every
+// message, and returns both the absolute path and an ArchiveRef whose Path is
+// relative to dir. No temp file is left behind on any error path.
+func writeCompactionArchive(dir, id string, messages []Entry) (path string, ref *ArchiveRef, err error) {
+	full, err := CompactionArchivePath(dir, id)
+	if err != nil {
+		return "", nil, err
+	}
+	clean, _ := compactionArchiveID(id) // already validated by CompactionArchivePath
+
+	archiveDir := filepath.Dir(full)
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		return "", nil, fmt.Errorf("session: create %s: %w", archiveDir, err)
+	}
+
+	tmp, err := os.CreateTemp(archiveDir, ".compact-*.tmp")
+	if err != nil {
+		return "", nil, fmt.Errorf("session: archive temp in %s: %w", archiveDir, err)
+	}
+	tmpName := tmp.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			tmp.Close()
+			os.Remove(tmpName)
+		}
+	}()
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keep original text byte-faithful (no \u003c etc.)
+
+	ranges := make([]ArchiveRange, 0, len(messages))
+	var offset int64
+	for _, entry := range messages {
+		buf.Reset()
+		if err := enc.Encode(entry); err != nil {
+			return "", nil, fmt.Errorf("session: encode archived message %q: %w", entry.ID, err)
+		}
+		start := offset
+		n, err := tmp.Write(buf.Bytes())
+		if err != nil {
+			return "", nil, fmt.Errorf("session: write archive %s: %w", full, err)
+		}
+		offset += int64(n)
+		ranges = append(ranges, ArchiveRange{
+			ID:    entry.ID,
+			Role:  entry.Role,
+			Start: start,
+			End:   offset,
+		})
+	}
+	if err := tmp.Close(); err != nil {
+		return "", nil, fmt.Errorf("session: close archive %s: %w", full, err)
+	}
+	// os.Rename does not overwrite an existing file on Windows, so drop a
+	// previous archive of the same id first. The id is expected to be unique
+	// per compaction; this only matters when a caller deliberately rewrites.
+	if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
+		return "", nil, fmt.Errorf("session: replace archive %s: %w", full, err)
+	}
+	if err := os.Rename(tmpName, full); err != nil {
+		return "", nil, fmt.Errorf("session: rename archive to %s: %w", full, err)
+	}
+	committed = true
+
+	return full, &ArchiveRef{
+		Path:   compactionArchiveRelPath(clean),
+		Bytes:  offset,
+		Ranges: ranges,
+	}, nil
+}
+
+// WriteCompactionArchive writes messages to the lossless archive
+// <dir>/compactions/<id>.jsonl and returns the on-disk path. The write is
+// atomic and leaves no temporary files behind.
+func WriteCompactionArchive(dir, id string, messages []Entry) (path string, err error) {
+	path, _, err = writeCompactionArchive(dir, id, messages)
+	return path, err
+}
+
+// WriteCompactionArchiveRef is WriteCompactionArchive plus the byte ranges and
+// store-relative path needed to embed a reference in a Compaction record.
+func WriteCompactionArchiveRef(dir, id string, messages []Entry) (*ArchiveRef, error) {
+	_, ref, err := writeCompactionArchive(dir, id, messages)
+	return ref, err
+}
+
+// resolveArchivePath turns a stored ref.Path into a filesystem path. Absolute
+// paths are used as-is; relative paths are resolved under dir. A ref.Path using
+// forward slashes (as written by compactionArchiveRelPath) works on Windows too.
+func resolveArchivePath(dir, path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", fmt.Errorf("session: empty compaction archive path")
+	}
+	candidate := trimmed
+	if !filepath.IsAbs(candidate) {
+		// Normalize a stored store-relative path (forward slashes) for this OS.
+		candidate = filepath.Join(dir, filepath.FromSlash(candidate))
+	}
+	// The path may come from a persisted record, so never let it escape the
+	// store directory (matching the invariant for every other filesystem path).
+	base, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("session: resolve archive dir %s: %w", dir, err)
+	}
+	full, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("session: resolve archive path %s: %w", path, err)
+	}
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("session: compaction archive path %q escapes store dir", path)
+	}
+	return full, nil
+}
+
+// ReadCompactionArchive reads an archive back into messages, preserving every
+// field (including the original json.RawMessage Data). Blank and malformed
+// lines are skipped, matching the leniency of readRecords. path may be the
+// absolute path returned by WriteCompactionArchive or the store-relative Path
+// stored in an ArchiveRef.
+func ReadCompactionArchive(dir, path string) ([]Entry, error) {
+	full, err := resolveArchivePath(dir, path)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(full)
+	if err != nil {
+		return nil, fmt.Errorf("session: read archive %s: %w", full, err)
+	}
+	defer file.Close()
+
+	entries := make([]Entry, 0, 16)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxLineLen)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var entry Entry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return entries, fmt.Errorf("session: read archive %s: %w", full, err)
+	}
+	return entries, nil
+}
+
+// ReadArchiveRange reads exactly one byte range from an archive, the primitive
+// that turns an ArchiveRange in a Compaction record into the original message
+// bytes. Bounds are checked against the file so a corrupt offset cannot read
+// past the archive.
+func ReadArchiveRange(dir, path string, rng ArchiveRange) ([]byte, error) {
+	full, err := resolveArchivePath(dir, path)
+	if err != nil {
+		return nil, err
+	}
+	if rng.Start < 0 || rng.End < rng.Start {
+		return nil, fmt.Errorf("session: invalid archive range [%d,%d)", rng.Start, rng.End)
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, fmt.Errorf("session: stat archive %s: %w", full, err)
+	}
+	if rng.End > info.Size() {
+		return nil, fmt.Errorf("session: archive range [%d,%d) exceeds file size %d", rng.Start, rng.End, info.Size())
+	}
+	file, err := os.Open(full)
+	if err != nil {
+		return nil, fmt.Errorf("session: read archive %s: %w", full, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, rng.End-rng.Start)
+	if _, err := file.ReadAt(buf, rng.Start); err != nil {
+		return nil, fmt.Errorf("session: read archive range [%d,%d): %w", rng.Start, rng.End, err)
+	}
+	return buf, nil
+}
+
+// CompactionArchiveNotice renders a short, model-readable reference that can
+// be appended to a compaction summary/notice so a resumed turn knows the exact
+// original text is recoverable and how to address it. It is a pure helper:
+// compression does not call it unless a caller opts in.
+func CompactionArchiveNotice(ref *ArchiveRef) string {
+	if ref == nil || strings.TrimSpace(ref.Path) == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## Lossless archive\n")
+	fmt.Fprintf(&b, "- The verbatim text of the dropped messages is preserved in `%s` (%d bytes).\n", ref.Path, ref.Bytes)
+	fmt.Fprintf(&b, "- To recover one message, read the byte range `start..end` for its index from the `archive.ranges` field of this compaction record.\n")
+	return b.String()
 }

@@ -26,6 +26,12 @@ const continueAfterOutputLimit = "Continue the work, but break the remaining ste
 // hits the same limit would keep the run alive until the turn budget expired.
 const maxConsecutiveLengthFinishes = 2
 
+// defaultTrimTargetRatio is the hysteresis ratio applied to the trimming
+// budget: Trim aims for this fraction of MaxTokens so a successful trim leaves
+// headroom and the next turn does not immediately re-trigger trimming (which
+// would invalidate the prompt cache). Mirrors gptme's 0.7 target.
+const defaultTrimTargetRatio = 0.7
+
 // stopRepeatedMistakes ends a run when consecutive tool failures reach the
 // mistake tracker's limit and no recovery guidance is available. It is an
 // internal stop reason: the public Stop* constants are unchanged.
@@ -186,6 +192,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 			MaxTokens:      trimTarget(opts),
 			KeepTurns:      opts.KeepTurns,
 			KeepToolTokens: opts.KeepToolTokens,
+			TargetRatio:    defaultTrimTargetRatio,
 		},
 		toolMeta:         make(map[string]ToolMeta),
 		compactor:        opts.Compactor,

@@ -233,6 +233,100 @@ func TestDispatchSkipsAsyncHooks(t *testing.T) {
 	}
 }
 
+func outcomeCommands(outcomes []Outcome) string {
+	commands := make([]string, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		commands = append(commands, outcome.Command)
+	}
+	return strings.Join(commands, ",")
+}
+
+func TestDispatchRunsHighestPriorityFirst(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	config := &Config{Commands: []Command{
+		{Event: PreToolUse, Command: "low", Timeout: time.Second},
+		{Event: PreToolUse, Command: "high", Priority: 10, Timeout: time.Second},
+		{Event: PreToolUse, Command: "mid", Priority: 5, Timeout: time.Second},
+	}}
+
+	outcomes, err := helperDispatcher(5*time.Second).Run(
+		context.Background(), config, Payload{Event: "PreToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := outcomeCommands(outcomes), "high,mid,low"; got != want {
+		t.Fatalf("priority order = %q, want %q", got, want)
+	}
+}
+
+func TestDispatchDefaultPriorityKeepsDeclarationOrder(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	config := &Config{Commands: []Command{
+		{Event: PostToolUse, Command: "first", Timeout: time.Second},
+		{Event: PostToolUse, Command: "second", Timeout: time.Second},
+		{Event: PostToolUse, Command: "third", Timeout: time.Second},
+	}}
+
+	outcomes, err := helperDispatcher(5*time.Second).Run(
+		context.Background(), config, Payload{Event: "PostToolUse"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := outcomeCommands(outcomes), "first,second,third"; got != want {
+		t.Fatalf("default order = %q, want %q", got, want)
+	}
+}
+
+func TestDispatchStopPropagationShortCircuits(t *testing.T) {
+	t.Setenv("ARGENT_HOOK_HELPER", "echo")
+	cases := []struct {
+		name     string
+		commands []Command
+		want     string
+	}{
+		{
+			name: "highest priority stops every later hook",
+			commands: []Command{
+				{Event: PreToolUse, Command: "low", Timeout: time.Second},
+				{Event: PreToolUse, Command: "mid", Priority: 5, Timeout: time.Second},
+				{Event: PreToolUse, Command: "high", Priority: 10, StopPropagation: true, Timeout: time.Second},
+			},
+			want: "high",
+		},
+		{
+			name: "stopping hook shields lower priorities only",
+			commands: []Command{
+				{Event: PreToolUse, Command: "low", Timeout: time.Second},
+				{Event: PreToolUse, Command: "mid", Priority: 5, StopPropagation: true, Timeout: time.Second},
+				{Event: PreToolUse, Command: "high", Priority: 10, Timeout: time.Second},
+			},
+			want: "high,mid",
+		},
+		{
+			name: "chain ends at the first hook that stops",
+			commands: []Command{
+				{Event: PreToolUse, Command: "low", Timeout: time.Second},
+				{Event: PreToolUse, Command: "mid", Priority: 5, StopPropagation: true, Timeout: time.Second},
+				{Event: PreToolUse, Command: "high", Priority: 10, StopPropagation: true, Timeout: time.Second},
+			},
+			want: "high",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			config := &Config{Commands: test.commands}
+			outcomes, err := helperDispatcher(5*time.Second).Run(
+				context.Background(), config, Payload{Event: "PreToolUse"})
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := outcomeCommands(outcomes); got != test.want {
+				t.Fatalf("executed = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestDispatchRejectsUnknownEvents(t *testing.T) {
 	_, err := helperDispatcher(time.Second).Dispatch(context.Background(), &Config{}, Payload{Event: "SesionStart"})
 	if err == nil || !strings.Contains(err.Error(), "unknown event") {

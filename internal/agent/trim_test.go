@@ -713,3 +713,85 @@ func TestTrimTargetRatioWithCJK(t *testing.T) {
 		}
 	}
 }
+
+// TestRunStateTrimUsesHeadroomRatio verifies the loop wires the hysteresis
+// ratio into the TrimOptions it builds, so every budget trim leaves headroom
+// rather than cutting exactly to the threshold (which would re-trim next turn
+// and bust the prompt cache).
+func TestRunStateTrimUsesHeadroomRatio(t *testing.T) {
+	state := newRunState(Options{MaxContextTokens: 1000}, "q", func(Event) {})
+	if got := state.trim.TargetRatio; got != defaultTrimTargetRatio {
+		t.Fatalf("TrimOptions.TargetRatio = %v, want %v", got, defaultTrimTargetRatio)
+	}
+}
+
+// TestLoopTrimLeavesHeadroom is the end-to-end counterpart: once the loop's
+// budget trim fires, the conversation actually sent to the model drops to
+// ~70% of the configured context budget. Small, numerous tool results keep the
+// trim granular enough that a 1.0 ratio (trim exactly to the threshold) would
+// stay above the ceiling, so this test fails if the wiring is removed.
+func TestLoopTrimLeavesHeadroom(t *testing.T) {
+	const (
+		maxContext = 3000
+		numCalls   = 30
+	)
+	body := strings.Repeat("x", 400) // ~100 estimated tokens per tool result
+	tools := &fakeTools{
+		specs: []llm.ToolSpec{toolSpec("read")},
+		run: func(context.Context, string, string) (string, error) {
+			return body, nil
+		},
+	}
+	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
+		if n <= numCalls {
+			// Distinct args keep the repeat guard and stuck detector quiet.
+			return toolReply(toolCall(fmt.Sprintf("c%d", n), "read", fmt.Sprintf(`{"n":%d}`, n))), nil
+		}
+		return textReply("final"), nil
+	}}
+	runner := &Runner{Opts: Options{
+		Model:            "m",
+		System:           "rules",
+		Chatter:          chat,
+		Tools:            tools,
+		MaxTurns:         numCalls + 2,
+		MaxContextTokens: maxContext,
+		KeepTurns:        1,
+		KeepToolTokens:   1,
+		MaxRepeats:       numCalls + 1,
+	}}
+
+	res, err := runner.Run(context.Background(), "explore")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Text != "final" {
+		t.Fatalf("text = %q, want final", res.Text)
+	}
+
+	ceiling := int(float64(maxContext) * defaultTrimTargetRatio)
+	trimmedRequests := 0
+	smallest := int(^uint(0) >> 1)
+	for _, request := range chat.requestsSeen() {
+		hasStub := false
+		for _, msg := range request {
+			if strings.HasPrefix(msg.Content, trimmedPrefix) {
+				hasStub = true
+				break
+			}
+		}
+		if hasStub {
+			trimmedRequests++
+			if est := EstimateMessages(request); est < smallest {
+				smallest = est
+			}
+		}
+	}
+	if trimmedRequests == 0 {
+		t.Fatal("no trimmed request was sent to the model")
+	}
+	if smallest > ceiling {
+		t.Fatalf("smallest trimmed request = %d tokens, want <= %d (%.0f%% of %d)",
+			smallest, ceiling, defaultTrimTargetRatio*100, maxContext)
+	}
+}

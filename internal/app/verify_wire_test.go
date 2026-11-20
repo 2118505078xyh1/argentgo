@@ -310,3 +310,135 @@ func TestVerifyWiringDefaultOffAndConfigured(t *testing.T) {
 		t.Fatalf("verifyReflectionsFor(explicit) = %d, want 7", got)
 	}
 }
+
+// joinedArgvs renders a selection result for table comparisons.
+func joinedArgvs(argvs [][]string) []string {
+	out := make([]string, len(argvs))
+	for i, argv := range argvs {
+		out[i] = strings.Join(argv, " ")
+	}
+	return out
+}
+
+func assertArgvs(t *testing.T, got [][]string, want ...string) {
+	t.Helper()
+	g := joinedArgvs(got)
+	if strings.Join(g, "|") != strings.Join(want, "|") {
+		t.Fatalf("selected = %q, want %q", g, want)
+	}
+}
+
+// TestSelectVerifyCommandsByExtension pins per-language dispatch: dotted and
+// bare keys, aliases and case differences all map a file extension to the
+// configured command without spawning a process.
+func TestSelectVerifyCommandsByExtension(t *testing.T) {
+	commands := map[string]string{
+		".go":        "go test ./go/...",
+		"py":         "go test ./py/...",
+		"TypeScript": "go test ./ts/...",
+	}
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"dotted key", "internal/app/main.go", "go test ./go/..."},
+		{"bare key", "internal/app/main.GO", "go test ./go/..."},
+		{"alias py", "scripts/tool.py", "go test ./py/..."},
+		{"python alias", "scripts/tool.python", "go test ./py/..."},
+		{"case insensitive key", "web/app.tsx", "go test ./ts/..."},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertArgvs(t, selectVerifyArgvs(commands, nil, []string{tc.path}), tc.want)
+		})
+	}
+}
+
+// TestSelectVerifyCommandsUnknownExtensionFallback pins the fallback: a path
+// with no matching language uses the single VerifyCommand; with no fallback at
+// all, nothing is selected so the loop skips verification for that batch.
+func TestSelectVerifyCommandsUnknownExtensionFallback(t *testing.T) {
+	commands := map[string]string{".go": "go test ./go/..."}
+	fallback := []string{"go", "build", "./..."}
+
+	assertArgvs(t, selectVerifyArgvs(commands, fallback, []string{"docs/readme.txt"}),
+		"go build ./...")
+	assertArgvs(t, selectVerifyArgvs(commands, fallback, []string{"main.go", "docs/readme.txt"}),
+		"go test ./go/...", "go build ./...")
+	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"docs/readme.txt"}))
+	// No checkpoint paths still exercises the fallback once.
+	assertArgvs(t, selectVerifyArgvs(commands, fallback, nil), "go build ./...")
+}
+
+// TestSelectVerifyCommandsMultipleFiles pins multi-file dispatch: every
+// distinct language command is selected once, in first-seen order, regardless
+// of how many files share that language.
+func TestSelectVerifyCommandsMultipleFiles(t *testing.T) {
+	commands := map[string]string{
+		".go": "go test ./go/...",
+		".py": "go test ./py/...",
+		".rs": "go test ./rs/...",
+	}
+	paths := []string{"a.go", "b.go", "x.py", "c.go", "d.rs", "y.py"}
+	assertArgvs(t, selectVerifyArgvs(commands, nil, paths),
+		"go test ./go/...", "go test ./py/...", "go test ./rs/...")
+}
+
+// TestVerifyWiringPerLanguageDispatch pins that the per-language map enables
+// the loop on its own (without a single command), keeps reflections wired, and
+// that a configured single command alone still takes the legacy path.
+func TestVerifyWiringPerLanguageDispatch(t *testing.T) {
+	root := t.TempDir()
+	res := Resolved{
+		Cfg:  config.Config{VerifyCommands: map[string]string{".go": "go test ./..."}},
+		Root: root,
+	}
+	if got := verifyFuncFor(res); got == nil {
+		t.Fatal("verifyFuncFor(map only) = nil, want dispatcher")
+	}
+	if got := verifyReflectionsFor(res); got != agent.DefaultMaxVerifyReflections {
+		t.Fatalf("verifyReflectionsFor(map only) = %d, want %d", got, agent.DefaultMaxVerifyReflections)
+	}
+	// A rejected command string yields ok=false but must not crash dispatch.
+	res.Cfg.VerifyCommands = map[string]string{".go": "bash -c echo hi"}
+	_, _, _, ok := verifyFuncFor(res)(context.Background(), []string{"main.go"})
+	if ok {
+		t.Fatal("dispatcher with disallowed command returned ok=true, want false")
+	}
+}
+
+// TestConfigDecodeVerifyCommands pins the config -> Config decode for the new
+// map at both the file and override layers, alongside the legacy single argv.
+func TestConfigDecodeVerifyCommands(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	writeVerifyFile(t, root, "argent.json", `{
+		"verifyCommand": ["go", "test", "./..."],
+		"verifyCommands": {".go": "go test ./go/...", "py": "go test ./py/..."}
+	}`)
+
+	cfg, err := config.Load(root, verifyTestEnv(home))
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if got := cfg.VerifyCommands[".go"]; got != "go test ./go/..." {
+		t.Fatalf("VerifyCommands[.go] = %q", got)
+	}
+	if got := cfg.VerifyCommands["py"]; got != "go test ./py/..." {
+		t.Fatalf("VerifyCommands[py] = %q", got)
+	}
+	if len(cfg.VerifyCommand) == 0 {
+		t.Fatal("VerifyCommand = empty, want legacy argv preserved")
+	}
+
+	cfg, err = config.LoadWithOverrides(root, verifyTestEnv(home), map[string]any{
+		"verifyCommands": map[string]any{".go": "go build ./go/..."},
+	})
+	if err != nil {
+		t.Fatalf("config.LoadWithOverrides: %v", err)
+	}
+	if got := cfg.VerifyCommands[".go"]; got != "go build ./go/..." {
+		t.Fatalf("override VerifyCommands[.go] = %q", got)
+	}
+}

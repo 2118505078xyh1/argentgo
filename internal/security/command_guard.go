@@ -161,6 +161,16 @@ func FindFileEditingCommand(command string) string {
 			}
 		}
 	}
+
+	// Additive threat detection: a dangerous command that is not a file edit
+	// (curl|bash, reverse shells, encoded execution, wrapper-launched deletion)
+	// is reported so every consumer of this classifier gates it. Only
+	// HIGH-confidence threats are returned; lower-confidence matches stay
+	// reserved for diagnostics. Returning Evidence keeps the token a substring
+	// of the command, preserving the classifier's existing length contract.
+	if m := DetectThreat(command); m.IsHigh() {
+		return m.Evidence
+	}
 	return ""
 }
 
@@ -190,7 +200,20 @@ func guardShellCommand(toolName string, args json.RawMessage) string {
 	if strings.TrimSpace(command) == "" {
 		command = payload.Script
 	}
-	return applyGuardrailMode(FindFileEditingCommand(command), mode)
+
+	// This is the interception decision point. A HIGH-confidence threat (as
+	// well as any file-editing token) is handed to the existing three-way
+	// guardrail: "enforce" returns the token so the caller blocks, "shadow"
+	// logs it but returns nothing, and "off" short-circuited above. The threat
+	// classifier is also folded into FindFileEditingCommand, so this fallback
+	// keeps the decision explicit and robust if that classifier is refactored.
+	token := FindFileEditingCommand(command)
+	if token == "" {
+		if m := DetectThreat(command); m.IsHigh() {
+			token = m.Evidence
+		}
+	}
+	return applyGuardrailMode(token, mode)
 }
 
 // sanitizeCommand masks heredoc bodies, then calls sanitizeLine on each line.

@@ -33,6 +33,59 @@ func emitProgress(ctx context.Context, text string) {
 	}
 }
 
+// bashCharsPerToken mirrors the agent loop's estimate so the volume hint uses a
+// familiar unit. internal/tools must not import internal/agent, so the estimate
+// is kept local to this package.
+const bashCharsPerToken = 4
+
+// isWideBashRune reports whether r belongs to a script that tokenizers treat as
+// roughly one token per rune: Han, Kana, Hangul, fullwidth forms, CJK
+// punctuation and common emoji. The ranges match agent.EstimateTokens.
+func isWideBashRune(r rune) bool {
+	return (r >= 0x1100 && r <= 0x115F) || // Hangul Jamo
+		(r >= 0x2E80 && r <= 0xA4CF) || // CJK radicals, Kangxi, Han
+		(r >= 0xAC00 && r <= 0xD7A3) || // Hangul syllables
+		(r >= 0xF900 && r <= 0xFAFF) || // CJK compatibility ideographs
+		(r >= 0xFE10 && r <= 0xFE19) || // CJK punctuation
+		(r >= 0xFE30 && r <= 0xFE6F) || // CJK compatibility forms
+		(r >= 0xFF00 && r <= 0xFF60) || // fullwidth forms
+		(r >= 0xFFE0 && r <= 0xFFE6) ||
+		(r >= 0x1F300 && r <= 0x1FAFF) || // symbols/emoji
+		(r >= 0x20000 && r <= 0x3FFFD) // CJK extension planes
+}
+
+// bashOutputTokens estimates the token cost of raw command output. Wide CJK
+// runes cost roughly one token each; other runes follow the chars-per-token
+// rule. Counting them separately avoids badly under-reporting CJK output.
+func bashOutputTokens(s string) int {
+	wide, narrow := 0, 0
+	for _, r := range s {
+		if isWideBashRune(r) {
+			wide++
+		} else {
+			narrow++
+		}
+	}
+	return wide + (narrow+bashCharsPerToken-1)/bashCharsPerToken
+}
+
+// clipBashOutput clips oversized command output and, only when content was
+// actually dropped, prefixes a short volume hint so the user and the model can
+// see the context cost of what the command produced. It is a pure text change:
+// it never touches the exit status, error path or clipping threshold.
+func clipBashOutput(ctx context.Context, text string) string {
+	limit := outputLimit(ctx)
+	if limit <= 0 {
+		limit = maxToolOutput
+	}
+	clipped := clip(ctx, text)
+	if len(text) <= limit {
+		return clipped
+	}
+	return fmt.Sprintf("[output: ~%.1fk tokens, clipped]\n%s",
+		float64(bashOutputTokens(text))/1000, clipped)
+}
+
 type bashTool struct{}
 
 func (bashTool) Name() string        { return "bash" }
@@ -75,7 +128,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	cmd := exec.CommandContext(runCtx, path, argv...)
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
-	text := clip(ctx, sanitizeShellOutput(string(output)))
+	text := clipBashOutput(ctx, sanitizeShellOutput(string(output)))
 	if runCtx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("bash: timed out after %s", timeout)
 	}
@@ -150,15 +203,15 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argent jobs` (output: `argent jobs tail %s`).",
 			job.ID, job.PID, command, job.ID)
 		if partial := strings.TrimSpace(res.Combined()); partial != "" {
-			out += "\nOutput so far:\n" + clip(ctx, sanitizeShellOutput(partial))
+			out += "\nOutput so far:\n" + clipBashOutput(ctx, sanitizeShellOutput(partial))
 		}
 		return out, nil
 	}
 
 	if err != nil {
-		return clip(ctx, sanitizeShellOutput(res.Combined())), fmt.Errorf("bash: %w", err)
+		return clipBashOutput(ctx, sanitizeShellOutput(res.Combined())), fmt.Errorf("bash: %w", err)
 	}
-	text := clip(ctx, sanitizeShellOutput(res.Combined()))
+	text := clipBashOutput(ctx, sanitizeShellOutput(res.Combined()))
 	if strings.TrimSpace(text) == "" {
 		return "(no output)", nil
 	}
