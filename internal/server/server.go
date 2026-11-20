@@ -47,6 +47,10 @@ type Config struct {
 	Runner Runner
 	// Sessions backs the session.list / session.load RPC methods. Optional.
 	Sessions SessionStore
+	// Events is the shared event hub for /v1/event and event/subscribe. When
+	// nil, each transport creates its own hub. Set it in the wirer to bridge
+	// agent events to every client with WireAgentEvents. Optional.
+	Events *EventHub
 }
 
 // Listen binds the HTTP transport and returns the server plus its listener.
@@ -105,10 +109,15 @@ func Serve(ctx context.Context, cfg Config) error {
 // NewHandler builds the HTTP/SSE handler without binding a socket.
 func NewHandler(cfg Config) http.Handler {
 	h := &handler{cfg: cfg}
+	hub := cfg.Events
+	if hub == nil {
+		hub = NewEventHub()
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", h.health)
 	mux.HandleFunc("/v1/prompt", h.auth(h.prompt))
 	mux.HandleFunc("/v1/abort", h.auth(h.abort))
+	mux.HandleFunc("/v1/event", h.auth(NewEventHandler(hub).ServeHTTP))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

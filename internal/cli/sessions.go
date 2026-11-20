@@ -259,7 +259,8 @@ func sessionsTree(app App, store SessionStore, id string) int {
 }
 
 func sessionsExport(app App, store SessionStore, id string, args []string) int {
-	outPath, branchID := "", ""
+	outPath, branchID, format := "", "", "html"
+	sanitize := false
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "-o" || args[i] == "--output":
@@ -280,6 +281,17 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 			}
 			i++
 			branchID = args[i]
+		case args[i] == "--format":
+			if i+1 >= len(args) {
+				sessionsUsage(app.IO.Err)
+				return 2
+			}
+			i++
+			format = args[i]
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
+		case args[i] == "--sanitize":
+			sanitize = true
 		default:
 			fmt.Fprintf(app.IO.Err, "argent: unexpected export argument %q\n", args[i])
 			return 2
@@ -298,7 +310,17 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 	}
 
 	var err error
-	if trees, ok := store.(sessionTreeStore); ok {
+	if sanitize || !strings.EqualFold(format, "html") {
+		// Structured and redacted exports are produced wholly in the session
+		// package; the plain-HTML path below keeps injected stores working.
+		var data []byte
+		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
+			Branch: branchID, Sanitize: sanitize, Format: format,
+		})
+		if err == nil {
+			_, err = w.Write(data)
+		}
+	} else if trees, ok := store.(sessionTreeStore); ok {
 		err = trees.RenderHTML(id, branchID, w)
 	} else {
 		var path string
@@ -340,7 +362,7 @@ func sessionsUsage(w io.Writer) {
         argent sessions undo <id> [-C <workspace>]
         argent sessions retry <id> [checkpoint-id]
         argent sessions name <id> <title>
-        argent sessions export <id> [-o file.html]
+        argent sessions export <id> [-o file] [--format html|json|markdown] [--sanitize] [--branch id]
 `)
 }
 

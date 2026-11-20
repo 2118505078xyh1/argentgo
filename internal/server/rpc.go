@@ -13,10 +13,17 @@ import (
 // RunRPC serves newline-delimited JSON-RPC 2.0 over in/out until in reaches
 // EOF or ctx is cancelled.
 //
-// Methods: prompt, abort, session.list, session.load. Streamed prompt text is
-// emitted as prompt/delta notifications before the prompt result is returned.
+// Methods: prompt, abort, session.list, session.load, event/subscribe. Streamed
+// prompt text is emitted as prompt/delta notifications before the prompt result
+// is returned; event/subscribe answers with the current seq then emits "event"
+// notifications until the transport ends.
 func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
+
+	hub := cfg.Events
+	if hub == nil {
+		hub = NewEventHub()
+	}
 
 	p := newPeer(out)
 	var wg sync.WaitGroup
@@ -41,12 +48,12 @@ func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 			p.fail(req.ID, codeInvalidRequest, "missing method")
 			continue
 		}
-		handleRPCRequest(ctx, p, cfg, req, &wg)
+		handleRPCRequest(ctx, p, cfg, req, &wg, hub)
 	}
 	return scanner.Err()
 }
 
-func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg *sync.WaitGroup) {
+func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg *sync.WaitGroup, hub *EventHub) {
 	switch req.Method {
 	case "prompt":
 		text := promptText(req.Params)
@@ -127,6 +134,38 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			events = []SessionEvent{}
 		}
 		p.respond(req.ID, map[string]any{"id": id, "events": events})
+	case "event/subscribe":
+		// Streaming in a goroutine keeps the scanner reading further requests.
+		// The method result reports the current seq; each event then arrives as
+		// an "event" notification. Cancelling the transport (EOF or ctx) stops it.
+		var params struct {
+			After uint64 `json:"after"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		id := req.ID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ch, stop := hub.Subscribe(params.After)
+			defer stop()
+			p.respond(id, map[string]any{"seq": hub.Seq()})
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case ev, ok := <-ch:
+					if !ok {
+						return
+					}
+					p.notify("event", map[string]any{"kind": ev.Kind, "event": ev})
+				}
+			}
+		}()
 	default:
 		p.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method))
 	}
