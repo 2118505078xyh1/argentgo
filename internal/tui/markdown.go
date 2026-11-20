@@ -279,6 +279,11 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 			return out
 		}
 		bodyWidth := maxInt(width-2, 1)
+		// 可选接线：默认关闭时走下方逐字节一致的旧预览路径；
+		// 打开开关后改用头尾窗口，保留长输出末尾的错误或结果。
+		if HeadTailToolPreview {
+			return append(out, headTailOutputLines(entry.Output, limit, bodyWidth, p)...)
+		}
 		rest := strings.TrimRight(entry.Output, "\n")
 		shown := 0
 		for rest != "" && shown < limit {

@@ -87,6 +87,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		overrideInt(&overrides, "maxParallel", "max-parallel"))
 	opts := &Options{
 		Overrides:   overrides,
+		Yes:         *values.yes,
 		Mode:        *values.mode,
 		Cwd:         *values.cwd,
 		Session:     *values.session,

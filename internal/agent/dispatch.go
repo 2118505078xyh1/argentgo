@@ -269,6 +269,9 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 			continue
 		}
 		res := s.invoke(ctx, call)
+		// 可选的二次确认（默认关闭）：仅当输出疑似敏感且规模较大时才可能阻塞询问 operator，
+		// 用于阻止命令输出未经确认就进入模型可见的对话。关闭时该调用是即时的空操作。
+		res.output = s.confirmToolOutputBeforeAppend(ctx, call, res.output)
 		// 把执行结果反馈给防护器，使输出签名能识别"不同参数、相同输出"的循环。
 		// 被阻断的调用永远不会到达这一行，因此其错误文本不会被记录为工具输出。
 		s.guard.recordOutput(call.Function.Name, normalized[i], res.output)
@@ -336,6 +339,8 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 			// 不得抹掉批次中排在它之前的失败。
 			s.observeOutcome(res)
 		}
+		// 可选的二次确认（默认关闭）：与串行路径在写回对话前同一位置门控输出。
+		res.output = s.confirmToolOutputBeforeAppend(ctx, call, res.output)
 		s.finishCall(turn, call, res)
 		s.appendTool(call, res.output)
 		if emitReceipt != nil {

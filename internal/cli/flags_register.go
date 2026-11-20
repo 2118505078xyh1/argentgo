@@ -15,6 +15,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.provider = fs.String("provider", "", "provider template id (see `argent models`)")
 	v.profile = fs.String("profile", "", "named config profile")
 	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
+	v.yes = fs.Bool("yes", false, "auto-confirm prompts in non-interactive environments")
 	v.maxTurns = fs.Int("max-turns", 12, "maximum model turns")
 	v.maxParallel = fs.Int("max-parallel", 0, "read-only tool workers per batch (0 uses the default, 1 disables)")
 	v.mode = fs.String("mode", "", "output mode: text or json (default: text)")

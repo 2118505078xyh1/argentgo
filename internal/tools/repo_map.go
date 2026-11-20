@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -40,15 +41,16 @@ func (repoMapTool) Description() string {
 }
 func (repoMapTool) Mutating() bool { return false }
 func (repoMapTool) Schema() string {
-	return `{"type":"object","properties":{"path":{"type":"string","description":"directory to map; defaults to the workspace root"},"mention":{"type":"string","description":"identifier or file path the user currently cares about; boosts matching symbols"},"mentions":{"type":"array","items":{"type":"string"},"description":"additional mention strings"},"symbols":{"type":"boolean","description":"include the ranked symbol section (default true)"}}}`
+	return `{"type":"object","properties":{"path":{"type":"string","description":"directory to map; defaults to the workspace root"},"mention":{"type":"string","description":"identifier or file path the user currently cares about; boosts matching symbols"},"mentions":{"type":"array","items":{"type":"string"},"description":"additional mention strings"},"symbols":{"type":"boolean","description":"include the ranked symbol section (default true)"},"respect_ignore":{"type":"boolean","description":"when true, exclude paths matched by .argentignore patterns at the mapped root (default false)"}}}`
 }
 
 func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
-		Path     string   `json:"path"`
-		Mention  string   `json:"mention"`
-		Mentions []string `json:"mentions"`
-		Symbols  *bool    `json:"symbols"`
+		Path          string   `json:"path"`
+		Mention       string   `json:"mention"`
+		Mentions      []string `json:"mentions"`
+		Symbols       *bool    `json:"symbols"`
+		RespectIgnore *bool    `json:"respect_ignore"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("repo_map: bad arguments: %w", err)
@@ -65,9 +67,26 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 		return "", fmt.Errorf("repo_map: %s is not a directory", args.Path)
 	}
 
+	// respect_ignore 是可选的退出选项（默认关闭），因此默认输出字节保持不变。
+	// 开启时只读取被映射目录根部的 .argentignore；发现失败按尽力而为处理。
+	respectIgnore := args.RespectIgnore != nil && *args.RespectIgnore
+	var ignorePatterns []string
+	if respectIgnore {
+		ignorePatterns = readRepoIgnorePatterns(base)
+	}
+
 	dirs, err := repoMapTopDirs(base)
 	if err != nil {
 		return "", err
+	}
+	if len(ignorePatterns) > 0 {
+		kept := dirs[:0]
+		for _, dir := range dirs {
+			if !isIgnoredPath(dir, ignorePatterns) {
+				kept = append(kept, dir)
+			}
+		}
+		dirs = kept
 	}
 	// 遍历整棵树，使在遍历顺序中靠后出现的重要文件
 	// （例如深层嵌套的 README 或 go.mod）仍可被发现。文件
@@ -76,6 +95,17 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	var relFiles []string // first repoMapMaxFiles walked paths, for Go symbols (legacy behaviour)
 	err = filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(base, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if len(ignorePatterns) > 0 && isIgnoredPath(rel, ignorePatterns) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if entry.IsDir() {
@@ -87,11 +117,6 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 		if !entry.Type().IsRegular() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(base, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
 		allFiles = append(allFiles, repoMapWalkedFile{rel: rel, path: path})
 		if len(relFiles) < repoMapMaxFiles {
 			relFiles = append(relFiles, rel)
@@ -175,6 +200,30 @@ func repoMapSelectFiles(all []repoMapWalkedFile) []string {
 		files = append(files, ordinary...)
 	}
 	return files
+}
+
+// repoMapIgnoreFileMax 是读取 .argentignore 时的单文件上限。超限的行集合
+// 会被整体忽略，避免超大文件影响地图枚举。
+const repoMapIgnoreFileMax = 1 << 20
+
+// readRepoIgnorePatterns 读取被映射目录根部的 .argentignore 行，供可选的
+// respect_ignore 过滤使用。它是尽力而为的：文件缺失、不可读、不是普通文件
+// 或超大时返回 nil，使地图枚举退化为不过滤。
+func readRepoIgnorePatterns(base string) []string {
+	f, err := os.Open(filepath.Join(base, ".argentignore"))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > repoMapIgnoreFileMax {
+		return nil
+	}
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return nil
+	}
+	return strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
 }
 
 func repoMapTopDirs(base string) ([]string, error) {

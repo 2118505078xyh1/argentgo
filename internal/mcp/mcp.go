@@ -70,6 +70,10 @@ type Spec struct {
 	AllowedTools []string
 	// DeniedTools 从允许集合中移除名称；拒绝优先于允许。
 	DeniedTools []string
+	// CompactSchemaMaxBytes 是可选的 inputSchema 体积上限（字节）。
+	// 大于 0 时，ListTools 会对清理后的 Schema 调用 compactSchema 做
+	// 分级有损压缩；零值表示关闭，工具定义保持原有行为。
+	CompactSchemaMaxBytes int
 }
 
 // ServerInfo 是 initialize 返回的元数据。
@@ -302,11 +306,15 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 			if strings.TrimSpace(item.Name) == "" {
 				continue
 			}
+			schema := normalizeInputSchema(item.InputSchema)
+			if c.spec.CompactSchemaMaxBytes > 0 {
+				schema = compactSchema(schema, c.spec.CompactSchemaMaxBytes)
+			}
 			tools = append(tools, Tool{
 				Name:           item.Name,
 				RawName:        item.Name,
 				Description:    item.Description,
-				Schema:         normalizeInputSchema(item.InputSchema),
+				Schema:         schema,
 				Server:         c.spec.Name,
 				ReadOnly:       annotations.ReadOnly,
 				RawInputSchema: append(json.RawMessage(nil), item.InputSchema...),

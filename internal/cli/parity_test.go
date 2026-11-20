@@ -74,6 +74,7 @@ var expectedFlags = []string{
 	"workflow-mode",
 	"workflow-resume",
 	"worktree",
+	"yes",
 	"yolo",
 }
 

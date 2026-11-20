@@ -161,6 +161,7 @@ type flagValues struct {
 	profile  *string
 
 	yolo        *bool
+	yes         *bool
 	maxTurns    *int
 	maxParallel *int
 	mode        *string

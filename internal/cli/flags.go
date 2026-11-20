@@ -29,13 +29,15 @@ const (
 
 // Options 是交给 runner 工厂的、完全解析后的命令行。
 type Options struct {
-	Model         string
-	Provider      string
-	Profile       string
-	BaseURL       string
-	APIKey        string
-	Protocol      string
-	Yolo          bool
+	Model    string
+	Provider string
+	Profile  string
+	BaseURL  string
+	APIKey   string
+	Protocol string
+	Yolo     bool
+	// Yes 表示在非交互环境下自动确认提示；默认 false 时不改变任何现有行为。
+	Yes           bool
 	MaxTurns      int
 	MaxParallel   int
 	Mode          string

@@ -51,6 +51,7 @@ flags:
       --api-key <key>           provider API key
       --protocol <name>         anthropic | openai | responses (default openai)
       --yolo                    auto-approve every tool call
+      --yes                     auto-confirm prompts in non-interactive environments
       --max-turns <n>           maximum model turns (default 12)
       --max-parallel <n>        read-only tool workers per batch (0 default, 1 serial)
       --max-tokens <n>          stop after this many billable tokens

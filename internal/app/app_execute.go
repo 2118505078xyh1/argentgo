@@ -399,6 +399,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if env := stdio.Env; env != nil && env("ARGENT_EDIT_GUIDE") == "1" {
 		loop.Opts.System = agent.AppendEditFormat(loop.Opts.System, res.Model)
 	}
+	// repo map 只读声明同样是选择性启用的：默认不追加，以免改变字节精确的系统提示断言。
+	// 设置 ARGENT_REPO_MAP_HINT=1 时，明确告诉模型"文件出现在 repo map 中不等于获得编辑授权"。
+	if repoMapHintEnabled(stdio.Env) {
+		loop.Opts.System += "\n" + repoMapReadOnlyHint()
+	}
 	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)
