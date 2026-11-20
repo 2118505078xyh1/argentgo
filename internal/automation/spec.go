@@ -142,6 +142,11 @@ func (s Schedule) Next(t time.Time) time.Time {
 		}
 		return c.Next(t)
 	case KindInterval:
+		// "1d" means "same time tomorrow", so advance the calendar instead
+		// of adding a fixed 24h, which drifts across DST transitions.
+		if days, ok := parseDays(s.Expr); ok {
+			return addCalendarDays(t, days)
+		}
 		d, err := ParseInterval(s.Expr)
 		if err != nil {
 			return time.Time{}

@@ -182,7 +182,16 @@ func (s *Store) Due(now time.Time) []Spec {
 }
 
 // RecordRun stores the outcome of one run and advances the next slot past at.
+// Manual runs have no scheduled slot, so the schedule resumes from at.
 func (s *Store) RecordRun(id, status, logPath string, at time.Time) error {
+	return s.recordRun(id, status, logPath, at, time.Time{})
+}
+
+// recordRun is RecordRun with the slot that triggered the run. When slot is
+// known, the next firing advances from that slot instead of from the (possibly
+// much later) completion time, so a slow task does not push the schedule
+// forward. at is still the time recorded as LastRun.
+func (s *Store) recordRun(id, status, logPath string, at, slot time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := s.indexLocked(id)
@@ -193,7 +202,18 @@ func (s *Store) RecordRun(id, status, logPath string, at time.Time) error {
 	s.specs[idx].LastRun = &run
 	s.specs[idx].LastStatus = status
 	s.specs[idx].LastLog = logPath
-	s.specs[idx].NextDue = s.specs[idx].Schedule.Next(at)
+	base := slot
+	if base.IsZero() {
+		base = at
+	}
+	next := s.specs[idx].Schedule.Next(base)
+	if !next.IsZero() && !next.After(at) {
+		// The slot we just advanced to is already in the past (the run
+		// started late or lasted longer than the interval). Resume from the
+		// run time so a run_once task does not fire again on the next tick.
+		next = s.specs[idx].Schedule.Next(at)
+	}
+	s.specs[idx].NextDue = next
 	return s.saveLocked()
 }
 

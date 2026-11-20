@@ -212,18 +212,44 @@ func (c *Cron) Next(t time.Time) time.Time {
 	return time.Time{}
 }
 
+// parseDays reports whether expr is a day-based interval ("1d", "2.5d",
+// "1 D") and returns the number of days. Day intervals advance the calendar,
+// not a fixed number of hours, so they keep the same wall-clock time across a
+// DST transition.
+func parseDays(expr string) (float64, bool) {
+	body, ok := strings.CutSuffix(strings.TrimSpace(strings.ToLower(expr)), "d")
+	if !ok {
+		return 0, false
+	}
+	days, err := strconv.ParseFloat(strings.TrimSpace(body), 64)
+	if err != nil || days <= 0 {
+		return 0, false
+	}
+	return days, true
+}
+
+// addCalendarDays advances t by whole calendar days, preserving its wall-clock
+// time and location across DST, then adds any fractional remainder as a plain
+// duration.
+func addCalendarDays(t time.Time, days float64) time.Time {
+	whole := int(days)
+	out := t.AddDate(0, 0, whole)
+	if frac := days - float64(whole); frac != 0 {
+		out = out.Add(time.Duration(frac * float64(24*time.Hour)))
+	}
+	return out
+}
+
 // ParseInterval parses an interval expression: anything time.ParseDuration
 // understands ("30m", "1h30m", "90s") plus a day suffix ("1d", "2.5d").
+// Days are returned as 24h durations here for validation and logging; the
+// scheduler calls addCalendarDays for day expressions so they survive DST.
 func ParseInterval(expr string) (time.Duration, error) {
 	text := strings.TrimSpace(strings.ToLower(expr))
 	if text == "" {
 		return 0, fmt.Errorf("interval: the expression is empty")
 	}
-	if body, ok := strings.CutSuffix(text, "d"); ok {
-		days, err := strconv.ParseFloat(strings.TrimSpace(body), 64)
-		if err != nil {
-			return 0, fmt.Errorf("interval: %q is not a number of days", expr)
-		}
+	if days, ok := parseDays(text); ok {
 		d := time.Duration(days * float64(24*time.Hour))
 		if d <= 0 {
 			return 0, fmt.Errorf("interval: %q must be greater than zero", expr)

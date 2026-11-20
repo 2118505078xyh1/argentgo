@@ -3,6 +3,7 @@ package automation
 import (
 	"testing"
 	"time"
+	_ "time/tzdata" // keep DST tests independent of the host's zone database
 )
 
 func mustTime(t *testing.T, value string) time.Time {
@@ -127,6 +128,65 @@ func TestParseInterval(t *testing.T) {
 		if _, err := ParseInterval(expr); err == nil {
 			t.Fatalf("ParseInterval(%q) should fail", expr)
 		}
+	}
+}
+
+func TestCalendarDayIntervalAcrossDST(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	cases := []struct {
+		name  string
+		expr  string
+		after time.Time
+		want  time.Time
+	}{
+		{
+			name:  "spring forward keeps noon",
+			expr:  "1d",
+			after: time.Date(2026, 3, 7, 12, 0, 0, 0, loc), // EST
+			want:  time.Date(2026, 3, 8, 12, 0, 0, 0, loc), // EDT, only 23h later
+		},
+		{
+			name:  "fall back keeps noon",
+			expr:  "1d",
+			after: time.Date(2026, 10, 31, 12, 0, 0, 0, loc), // EDT
+			want:  time.Date(2026, 11, 1, 12, 0, 0, 0, loc),  // EST, 25h later
+		},
+		{
+			name:  "two days still keep noon",
+			expr:  "2d",
+			after: time.Date(2026, 3, 6, 12, 0, 0, 0, loc),
+			want:  time.Date(2026, 3, 8, 12, 0, 0, 0, loc),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			schedule := Schedule{Kind: KindInterval, Expr: tc.expr}
+			got := schedule.Next(tc.after)
+			if !got.Equal(tc.want) {
+				t.Fatalf("%q after %s = %s, want %s", tc.expr, tc.after, got, tc.want)
+			}
+			if got.Hour() != tc.after.Hour() || got.Minute() != tc.after.Minute() {
+				t.Fatalf("%q moved off the wall-clock time: %s -> %s", tc.expr, tc.after, got)
+			}
+		})
+	}
+}
+
+func TestNonDayIntervalStaysAbsoluteAcrossDST(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	from := time.Date(2026, 3, 8, 1, 30, 0, 0, loc) // EST, one hour before spring forward
+	got := (Schedule{Kind: KindInterval, Expr: "1h"}).Next(from)
+	// An hour is an elapsed hour, so the local clock jumps from 01:30 EST
+	// to 03:30 EDT. Only day intervals are calendar-based.
+	want := time.Date(2026, 3, 8, 3, 30, 0, 0, loc)
+	if !got.Equal(want) {
+		t.Fatalf("1h after %s = %s, want %s", from, got, want)
 	}
 }
 

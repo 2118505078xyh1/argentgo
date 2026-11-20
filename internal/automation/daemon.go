@@ -67,6 +67,11 @@ type daemon struct {
 	logDir string
 	now    func() time.Time
 	tick   time.Duration
+	// startTime is when this daemon came up. A slot that was already due
+	// before then had no chance to run in this process, so missed=skip may
+	// drop it; a slot that came due while we were running is on time (the
+	// tick is coarse) and must be executed.
+	startTime time.Time
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -91,6 +96,7 @@ func newDaemon(opts Options) (*daemon, error) {
 	if d.now == nil {
 		d.now = time.Now
 	}
+	d.startTime = d.now()
 	if d.tick <= 0 {
 		d.tick = DefaultTick
 	}
@@ -134,10 +140,11 @@ func (d *daemon) scan(ctx context.Context) {
 		if !spec.IsDue(now) {
 			continue
 		}
-		if spec.MissedPolicy() == MissedSkip {
-			// Drop the missed slot and wait for the next one.
+		if spec.MissedPolicy() == MissedSkip && spec.NextDue.Before(d.startTime) {
+			// The slot passed before this process started, so there was no
+			// opportunity to run it: drop the slot and wait for the next one.
 			if d.claim(spec.ID) {
-				_ = d.store.RecordRun(spec.ID, StatusSkipped, "", now)
+				_ = d.store.recordRun(spec.ID, StatusSkipped, "", runTime(spec.NextDue, now), spec.NextDue)
 				d.release(spec.ID)
 			}
 			continue
@@ -148,6 +155,16 @@ func (d *daemon) scan(ctx context.Context) {
 		d.wg.Add(1)
 		go d.execute(ctx, spec)
 	}
+}
+
+// runTime is the timestamp recorded for a run: the current time, never earlier
+// than the slot that triggered it. It keeps LastRun from moving backwards when
+// a stale slot is executed or skipped.
+func runTime(slot, current time.Time) time.Time {
+	if slot.After(current) {
+		return slot
+	}
+	return current
 }
 
 func (d *daemon) claim(id string) bool {
@@ -171,6 +188,10 @@ func (d *daemon) execute(ctx context.Context, spec Spec) {
 	defer d.wg.Done()
 	defer d.release(spec.ID)
 
+	// Capture the slot the scan claimed. The next firing is derived from this
+	// slot, not from the completion time, so a slow task cannot push the whole
+	// schedule forward (12:00 + 10m stays 12:10 even if the run ends at 12:02).
+	slot := spec.NextDue
 	started := d.now()
 	runCtx := ctx
 	if timeout := spec.Timeout.Std(); timeout > 0 {
@@ -197,7 +218,7 @@ func (d *daemon) execute(ctx context.Context, spec Spec) {
 	}
 	logPath, _ := d.writeLogs(spec, res)
 	// A spec deleted while running has nothing to record; that is not an error.
-	_ = d.store.RecordRun(spec.ID, res.Status, logPath, finished)
+	_ = d.store.recordRun(spec.ID, res.Status, logPath, runTime(slot, finished), slot)
 }
 
 // wait blocks until in-flight runs finish.

@@ -74,7 +74,8 @@ func TestDaemonRunsDueTask(t *testing.T) {
 		t.Fatalf("OpenStore: %v", err)
 	}
 	now := mustTime(t, "2026-01-01T12:00:00Z")
-	if err := store.Put(dueSpec("nightly", now.Add(-time.Minute))); err != nil {
+	slot := now.Add(-time.Minute)
+	if err := store.Put(dueSpec("nightly", slot)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	clock := newFakeClock(now)
@@ -115,7 +116,9 @@ func TestDaemonRunsDueTask(t *testing.T) {
 	if spec.LastRun == nil || !spec.LastRun.Equal(now) {
 		t.Fatalf("last run = %v", spec.LastRun)
 	}
-	if want := now.Add(time.Hour); !spec.NextDue.Equal(want) {
+	// The slot was 11:59, so the next one is 12:59 — advancing from the
+	// completion time (12:00) would have produced 13:00 and caused drift.
+	if want := slot.Add(time.Hour); !spec.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s", spec.NextDue, want)
 	}
 	base := filepath.Join(dir, "logs", "nightly", strconv.FormatInt(now.Unix(), 10))
@@ -167,6 +170,75 @@ func TestDaemonMissedSkipDropsTheSlot(t *testing.T) {
 	}
 	if want := now.Add(time.Hour); !got.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s (the skipped slot must not repeat)", got.NextDue, want)
+	}
+}
+
+func TestDaemonSkipPolicyOnlyDropsSlotsMissedBeforeStart(t *testing.T) {
+	start := mustTime(t, "2026-01-01T12:00:00Z")
+	cases := []struct {
+		name       string
+		slot       time.Time
+		advance    time.Duration
+		wantCalls  int
+		wantStatus string
+		wantDue    time.Time
+	}{
+		{
+			name:       "slot missed before start",
+			slot:       start.Add(-2 * time.Hour),
+			wantStatus: StatusSkipped,
+			wantDue:    start.Add(time.Hour),
+		},
+		{
+			name:       "slot due exactly at start",
+			slot:       start,
+			wantCalls:  1,
+			wantStatus: StatusOK,
+			wantDue:    start.Add(time.Hour),
+		},
+		{
+			// With a 30s tick the daemon almost always sees a slot a few
+			// seconds late. That is not "missed" and must still run.
+			name:       "slot became due after start",
+			slot:       start.Add(15 * time.Second),
+			advance:    30 * time.Second,
+			wantCalls:  1,
+			wantStatus: StatusOK,
+			wantDue:    start.Add(time.Hour).Add(15 * time.Second),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := OpenStore(t.TempDir())
+			if err != nil {
+				t.Fatalf("OpenStore: %v", err)
+			}
+			spec := dueSpec("nightly", tc.slot)
+			spec.Missed = MissedSkip
+			if err := store.Put(spec); err != nil {
+				t.Fatalf("Put: %v", err)
+			}
+			clock := newFakeClock(start)
+			exec := &fakeExecutor{}
+			d, err := newDaemon(Options{Store: store, Executor: exec, Clock: clock.Now})
+			if err != nil {
+				t.Fatalf("newDaemon: %v", err)
+			}
+			clock.Advance(tc.advance)
+			d.scan(context.Background())
+			d.wait()
+
+			if exec.count() != tc.wantCalls {
+				t.Fatalf("executor called %d times, want %d", exec.count(), tc.wantCalls)
+			}
+			got, _ := store.Get("nightly")
+			if got.LastStatus != tc.wantStatus {
+				t.Fatalf("last status = %q, want %q", got.LastStatus, tc.wantStatus)
+			}
+			if !got.NextDue.Equal(tc.wantDue) {
+				t.Fatalf("next due = %s, want %s", got.NextDue, tc.wantDue)
+			}
+		})
 	}
 }
 
@@ -317,6 +389,85 @@ func TestDaemonAdvancesCronSlots(t *testing.T) {
 	got, _ := store.Get("quarter")
 	if want := mustTime(t, "2026-01-01T12:30:00Z"); !got.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s", got.NextDue, want)
+	}
+}
+
+func TestDaemonAdvancesIntervalFromSlotNotFinish(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	clock := newFakeClock(now)
+	spec := dueSpec("quick", now)
+	spec.Schedule = Schedule{Kind: KindInterval, Expr: "10m"}
+	if err := store.Put(spec); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	exec := &fakeExecutor{run: func(ctx context.Context, spec Spec) (RunResult, error) {
+		clock.Advance(2 * time.Minute) // the task takes two minutes
+		return RunResult{Status: StatusOK}, nil
+	}}
+	d, err := newDaemon(Options{Store: store, Executor: exec, Clock: clock.Now})
+	if err != nil {
+		t.Fatalf("newDaemon: %v", err)
+	}
+
+	d.scan(context.Background())
+	d.wait()
+	got, _ := store.Get("quick")
+	if want := now.Add(10 * time.Minute); !got.NextDue.Equal(want) {
+		t.Fatalf("next due = %s, want %s (the slot, not the finish time)", got.NextDue, want)
+	}
+	if got.LastRun == nil || !got.LastRun.Equal(now.Add(2*time.Minute)) {
+		t.Fatalf("last run = %v, want the finish time", got.LastRun)
+	}
+
+	// A second slot must not inherit the first run's delay: 12:10 -> 12:20,
+	// not 12:22. This is the long-term drift the probe reproduced.
+	d.scan(context.Background()) // 12:02, nothing due yet
+	d.wait()
+	clock.Advance(8 * time.Minute) // 12:10
+	d.scan(context.Background())
+	d.wait()
+	if exec.count() != 2 {
+		t.Fatalf("executor called %d times, want 2", exec.count())
+	}
+	got, _ = store.Get("quick")
+	if want := now.Add(20 * time.Minute); !got.NextDue.Equal(want) {
+		t.Fatalf("next due = %s, want %s", got.NextDue, want)
+	}
+}
+
+func TestDaemonLateRunResumesFromNow(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	now := mustTime(t, "2026-01-01T12:00:00Z")
+	spec := dueSpec("catchup", now.Add(-2*time.Hour))
+	spec.Schedule = Schedule{Kind: KindInterval, Expr: "10m"}
+	if err := store.Put(spec); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	exec := &fakeExecutor{}
+	d, err := newDaemon(Options{Store: store, Executor: exec, Clock: newFakeClock(now).Now})
+	if err != nil {
+		t.Fatalf("newDaemon: %v", err)
+	}
+	d.scan(context.Background())
+	d.wait()
+
+	// Advancing from the stale 10:00 slot alone would yield 10:10 and fire
+	// again immediately; the catch-up must resume from "now".
+	got, _ := store.Get("catchup")
+	if want := now.Add(10 * time.Minute); !got.NextDue.Equal(want) {
+		t.Fatalf("next due = %s, want %s", got.NextDue, want)
+	}
+	d.scan(context.Background())
+	d.wait()
+	if exec.count() != 1 {
+		t.Fatalf("executor called %d times, want exactly one catch-up run", exec.count())
 	}
 }
 
