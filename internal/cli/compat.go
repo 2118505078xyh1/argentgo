@@ -6,9 +6,8 @@ import (
 	"strings"
 )
 
-// unsupportedFlag reports the first flag whose subsystem is not migrated. The
-// message is one line so a script can surface it, and runMain exits 1: a flag
-// is never silently ignored.
+// unsupportedFlag 报告第一个其子系统尚未迁移的 flag。消息只有一行，
+// 便于脚本捕获，且 runMain 会以 1 退出：flag 绝不会被静默忽略。
 func unsupportedFlag(opts *Options) string {
 	switch {
 	case opts.Worktree != "":
@@ -33,16 +32,16 @@ func unsupportedFlag(opts *Options) string {
 	return ""
 }
 
-// CLI compatibility notes are only for flags that still parse but cannot act.
-// When a subsystem lands, its note must be removed here (and its test updated).
+// CLI 兼容性说明只针对那些仍能解析但无法生效的 flag。
+// 当某个子系统落地时，必须在此移除其说明（并更新对应测试）。
 func (a App) warnPartial(opts *Options) {
 	if strings.TrimSpace(opts.OutputSchema) != "" {
 		fmt.Fprintln(a.IO.Err, "note: --output-schema validates the final answer and retries once")
 	}
 }
 
-// listProfiles implements --list-profiles. It reads the profiles embedded in the
-// config file when no lister is injected.
+// listProfiles 实现 --list-profiles。当没有注入 lister 时，
+// 它读取配置文件中嵌入的 profiles。
 func (a App) listProfiles(opts Options) int {
 	var (
 		names  []string
@@ -73,7 +72,7 @@ func (a App) listProfiles(opts Options) int {
 	return 0
 }
 
-// configProfiles reads the `profiles` object from one config file.
+// configProfiles 从单个配置文件读取 `profiles` 对象。
 func configProfiles(path string) ([]string, error) {
 	cfg, err := loadConfigFile(path)
 	if err != nil {
@@ -87,7 +86,7 @@ func configProfiles(path string) ([]string, error) {
 	return names, nil
 }
 
-// printTokens implements --tokens.
+// printTokens 实现 --tokens。
 func (a App) printTokens(opts Options) int {
 	if a.TokenReport == nil {
 		fmt.Fprintln(a.IO.Err, "error: token report not configured")

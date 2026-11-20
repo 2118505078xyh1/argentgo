@@ -11,8 +11,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
-// runReplay implements `replay [id] [--json]`. With no id it replays the most
-// recently updated session.
+// runReplay 实现 `replay [id] [--json]`。不带 id 时重放最近更新的会话。
 func runReplay(app App, _ context.Context, args []string) int {
 	id := ""
 	asJSON := false
@@ -77,7 +76,7 @@ func runReplay(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// replayLine renders one session record as a transcript line.
+// replayLine 把一条会话记录渲染为一行转录文本。
 func replayLine(event server.SessionEvent) string {
 	payload := map[string]any{}
 	if len(event.Data) > 0 {

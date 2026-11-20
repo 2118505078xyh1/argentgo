@@ -2,21 +2,18 @@ package agent
 
 import "strconv"
 
-// budgetTierPercents are the context-window occupancy milestones at which the
-// model should get a model-visible reminder. A tier number is the count of
-// milestones already crossed, so it grows monotonically as the window fills.
+// budgetTierPercents 是上下文窗口占用率的里程碑，达到时模型应收到一条模型可见的提醒。
+// 层级编号是已跨越的里程碑数量，因此会随着窗口被填满而单调增长。
 var budgetTierPercents = [4]int{50, 75, 90, 95}
 
-// BudgetTier returns how many occupancy milestones used/window has crossed:
-// 0 below 50%, then 1/2/3/4 at 50%/75%/90%/95%. The comparison is done with
-// integer math (used*100 >= percent*window) so a boundary such as exactly half
-// a window lands on the higher tier without floating-point drift.
+// BudgetTier 返回 used/window 已跨越的占用率里程碑数量：
+// 低于 50% 为 0，达到 50%/75%/90%/95% 时依次为 1/2/3/4。比较使用
+// 整数运算（used*100 >= percent*window），这样恰好占用一半窗口这类边界
+// 会归入较高的层级，而不会出现浮点误差。
 //
-// Non-positive inputs are meaningless as an occupancy ratio and return 0, so a
-// caller can feed raw usage/provider values in without first sanitising them.
-// Token counts are far below the int64 range, so the widened product cannot
-// overflow in practice; the used >= window short-circuit also covers the case
-// where the window is completely consumed.
+// 非正输入作为占用率没有意义，返回 0，因此调用方可以直接传入原始的用量/提供方数值，
+// 无需先做清洗。token 数量远低于 int64 范围，扩宽后的乘积实际上不会溢出；
+// used >= window 的短路也覆盖了窗口被完全耗尽的情形。
 func BudgetTier(used, window int) int {
 	if used <= 0 || window <= 0 {
 		return 0
@@ -34,17 +31,14 @@ func BudgetTier(used, window int) int {
 	return tier
 }
 
-// ShouldRemind decides whether to deliver a budget reminder for curTier and
-// records the decision in delivered so the same tier is never announced twice
-// within one context window. It is a pure decision layer: no I/O, no clock, no
-// event construction — the caller decides how (or whether) to surface a true
-// result.
+// ShouldRemind 决定是否要为 curTier 发送预算提醒，并把决定记录在 delivered 中，
+// 使同一层级在同一个上下文窗口内不会重复播报。它是纯决策层：无 I/O、无时钟、不构造事件，
+// 由调用方决定如何（或是否）把 true 结果呈现出来。
 //
-// A reminder is warranted when the occupancy tier rises (curTier > prevTier)
-// or when a new window starts. A flat or falling tier is silent. Delivered keys
-// are tier numbers; newWindow clears them first, which lets an identical tier
-// warn once again in the fresh window. A nil delivered map is safe to pass: the
-// decision is still returned but nothing is recorded.
+// 当占用层级上升（curTier > prevTier）或开启新窗口时需要提醒。
+// 层级持平或下降时保持静默。delivered 的键是层级号；newWindow 会先清空它们，
+// 使相同层级能在新窗口中再次告警。传入 nil 的 delivered 是安全的：
+// 仍会返回决定，但不会记录任何内容。
 func ShouldRemind(prevTier, curTier int, delivered map[int]bool, newWindow bool) bool {
 	if newWindow {
 		for tier := range delivered {
@@ -62,30 +56,28 @@ func ShouldRemind(prevTier, curTier int, delivered map[int]bool, newWindow bool)
 	return true
 }
 
-// BudgetReminderText renders a model-visible budget reminder in English. It is
-// deliberately locale-independent: the instruction is written into the prompt
-// stream, where the model reads it, rather than shown to an operator.
+// BudgetReminderText 生成一条模型可见的英文预算提醒。它刻意与地区无关：
+// 这条指令是写进提示流供模型阅读的，而不是展示给操作人员。
 //
-// remaining is clamped to zero before formatting and rendered with a "k" unit
-// (1000 -> "1k", 1234 -> "1.2k"); the exact number is an approximation, hence
-// the "approximately" wording. window is accepted for symmetry with BudgetTier
-// and future phrasing, but the message reports the absolute remaining count
-// and is intentionally independent of it. The function is pure and stable:
-// identical arguments always produce an identical string.
+// remaining 在格式化前会被收紧到零，并以 "k" 为单位呈现
+// （1000 -> "1k"，1234 -> "1.2k"）；确切数字只是近似值，因此使用了
+// "approximately"（大约）的措辞。window 参数是为了与 BudgetTier 对称以及便于日后调整措辞而保留，
+// 但消息报告的是绝对剩余数量，有意与它无关。该函数纯净且稳定：
+// 相同的参数总是产生相同的字符串。
 func BudgetReminderText(remaining, window int) string {
 	_ = window
 	return "You have approximately " + formatTokensK(remaining) +
 		" tokens left in this context window; consider wrapping up or summarizing."
 }
 
-// formatTokensK renders a token count in thousands, rounding to the nearest
-// tenth of a k and omitting a trailing ".0". Negative counts become "0k".
+// formatTokensK 以千为单位呈现 token 数，四舍五入到 0.1k 并省略末尾的 ".0"。
+// 负数会变成 "0k"。
 func formatTokensK(n int) string {
 	if n < 0 {
 		n = 0
 	}
 	k := n / 1000
-	tenth := (n%1000 + 50) / 100 // 0..10, rounded to the nearest 100 tokens
+	tenth := (n%1000 + 50) / 100 // 0..10，四舍五入到最接近的 100 个 token
 	if tenth >= 10 {
 		k++
 		tenth = 0

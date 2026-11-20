@@ -154,7 +154,7 @@ func TestLocaleDisplayName(t *testing.T) {
 		code string
 		want string
 	}{
-		// Canonical short codes.
+		// 规范的短代码。
 		{name: "English code", code: "en", want: "English"},
 		{name: "Chinese code", code: "zh", want: "中文"},
 		{name: "Japanese code", code: "ja", want: "日本語"},
@@ -166,14 +166,14 @@ func TestLocaleDisplayName(t *testing.T) {
 		{name: "Spanish code", code: "es", want: "Español"},
 		{name: "Catalan code", code: "ca", want: "Català"},
 
-		// CJK native names resolve to the same display name.
+		// CJK 本地名称解析为相同的显示名。
 		{name: "Chinese native name", code: "中文", want: "中文"},
 		{name: "Simplified Chinese native name", code: "简体中文", want: "中文"},
 		{name: "Traditional Chinese native name", code: "繁體中文", want: "中文"},
 		{name: "Japanese native name", code: "日本語", want: "日本語"},
 		{name: "Korean native name", code: "한국어", want: "한국어"},
 
-		// Aliases and locale spellings.
+		// 别名和 locale 拼写。
 		{name: "three letter English alias", code: "eng", want: "English"},
 		{name: "three letter Chinese alias", code: "chi", want: "中文"},
 		{name: "zho alias", code: "zho", want: "中文"},
@@ -186,7 +186,7 @@ func TestLocaleDisplayName(t *testing.T) {
 		{name: "encoding modifier suffix", code: "ja_JP@euro", want: "日本語"},
 		{name: "trimmed and case folded", code: "  DE_de  ", want: "Deutsch"},
 
-		// Empty, neutral and unknown values yield no display name.
+		// 空值、中性值和未知值不产生显示名。
 		{name: "empty string", code: "", want: ""},
 		{name: "whitespace only", code: "   ", want: ""},
 		{name: "auto sentinel", code: "auto", want: ""},

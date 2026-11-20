@@ -1,9 +1,9 @@
-// Package cli is the testable command layer of the argentgo binary: flag
-// parsing, subcommand dispatch and the entry points for every transport.
+// Package cli 是 argentgo 二进制文件中可测试的命令层：flag
+// 解析、子命令分发，以及每种传输方式的入口点。
 //
-// The agent loop is injected. The integrator wires internal/agent by setting
-// DefaultRunner (or App.NewRunner), which keeps this package free of the
-// tools/session/security packages while the rest of the migration lands.
+// agent 循环是注入进来的。集成方通过设置 DefaultRunner
+// （或 App.NewRunner）来接入 internal/agent，这样在迁移的其余部分落地期间，
+// 本包就不依赖于 tools/session/security 等包。
 package cli
 
 import (
@@ -23,23 +23,23 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
-// Version is the version reported by --version, /v1/health and ACP initialize.
+// Version 是 --version、/v1/health 和 ACP initialize 所报告的版本号。
 const Version = "0.8.0"
 
-// IO carries the process streams so commands can be tested without os.Stdin.
+// IO 承载进程的各种流，使命令可以在不依赖 os.Stdin 的情况下进行测试。
 type IO struct {
 	In  io.Reader
 	Out io.Writer
 	Err io.Writer
 	Env func(string) string
-	// HasTerminal reports whether an interactive terminal is attached. OSIO
-	// wires the real platform check; tests inject a stub to simulate TTY and
-	// no-TTY environments. A nil value means "no terminal", so terminal-only
-	// commands bail out before doing any work.
+	// HasTerminal 报告是否连接了交互式终端。OSIO
+	// 接入真实的平台检测；测试注入一个桩来模拟 TTY 和
+	// 无 TTY 的环境。nil 值表示"无终端"，因此仅限终端的
+	// 命令会在做任何工作之前就退出。
 	HasTerminal func() bool
 }
 
-// OSIO returns the real process streams.
+// OSIO 返回真实的进程流。
 func OSIO() IO {
 	return IO{
 		In:          os.Stdin,
@@ -50,74 +50,73 @@ func OSIO() IO {
 	}
 }
 
-// Runner is the agent slice every transport drives.
+// Runner 是每种传输方式都驱动的 agent 切片。
 type Runner = server.Runner
 
-// RunnerFactory builds a runner from resolved options.
+// RunnerFactory 根据解析后的选项构建一个 runner。
 type RunnerFactory func(Options) (Runner, error)
 
-// DefaultRunner is the process-wide runner factory. It stays nil until the
-// integrator wires internal/agent into this package.
+// DefaultRunner 是进程级的 runner 工厂。在集成方把 internal/agent
+// 接入本包之前，它保持为 nil。
 var DefaultRunner RunnerFactory
 
-// SessionStore is the local session view used by `sessions` and the RPC/ACP
-// transports.
+// SessionStore 是 `sessions` 以及 RPC/ACP 所使用的本地会话视图
+// 传输方式。
 type SessionStore interface {
 	server.SessionStore
 	Delete(id string) error
 }
 
-// EvalReport is what one eval scenario is graded against.
+// EvalReport 是单个 eval 场景的评分依据。
 type EvalReport struct {
 	Text  string
 	Tools []string
 }
 
-// EvalSuiteRunner executes a whole scripted suite file. RunEval prefers it
-// when available; the narrow EvalRunner stays for simple injected fakes.
+// EvalSuiteRunner 执行整个脚本化的套件文件。RunEval 在可用时
+// 优先使用它；较窄的 EvalRunner 保留用于简单的注入假对象。
 type EvalSuiteRunner interface {
 	RunSuite(ctx context.Context, path string, out io.Writer) (passed, failed int, err error)
 }
 
-// EvalRunner executes one eval scenario.
+// EvalRunner 执行单个 eval 场景。
 type EvalRunner interface {
 	RunScenario(ctx context.Context, prompt string) (EvalReport, error)
 }
 
-// TUIFunc runs the full-screen terminal UI for one set of resolved options.
+// TUIFunc 针对一组解析后的选项运行全屏终端 UI。
 type TUIFunc func(ctx context.Context, opts Options) error
 
-// ProfileLister reports the profile names visible to a workspace and the one
-// currently selected.
+// ProfileLister 报告某个工作区可见的 profile 名称以及当前选中的那个。
 type ProfileLister func(opts Options) (names []string, active string, err error)
 
-// TokenReporter renders the request payload breakdown printed by --tokens.
+// TokenReporter 渲染 --tokens 打印的请求负载明细。
 type TokenReporter func(opts Options) (string, error)
 
-// App bundles the injected dependencies of the command layer.
+// App 汇集了命令层所注入的各项依赖。
 type App struct {
 	IO        IO
 	Version   string
 	NewRunner RunnerFactory
 	Sessions  SessionStore
-	// Eval accepts either an EvalRunner or an EvalSuiteRunner; runEval selects
-	// the richer suite interface at runtime when it is available.
+	// Eval 接受 EvalRunner 或 EvalSuiteRunner；runEval 在运行时
+	// 可用时会选择功能更丰富的套件接口。
 	Eval        any
 	TUI         TUIFunc
 	Profiles    ProfileLister
 	TokenReport TokenReporter
 	ConfigPath  string
 	StorageDir  string
-	// UpdateOps overrides the updater seams for tests; nil calls internal/update.
+	// UpdateOps 为测试覆盖更新器的接缝；为 nil 时调用 internal/update。
 	UpdateOps *UpdateOps
 }
 
-// Run executes the CLI and returns the process exit code.
+// Run 执行 CLI 并返回进程退出码。
 func Run(args []string, stdio IO) int {
 	return RunWith(App{IO: stdio}, args)
 }
 
-// RunWith executes the CLI with an explicit App, which is what tests use.
+// RunWith 使用显式的 App 执行 CLI，这是测试所用的形式。
 func RunWith(app App, args []string) int {
 	app = app.withDefaults()
 	ctx, stop := commandContext()
@@ -164,9 +163,9 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"version":    runVersion,
 }
 
-// subcommandOrder mirrors the dispatch map. It exists so completion does not
-// reference the map at package initialisation (which would be an import cycle
-// through runCompletion); parity_test asserts the two stay identical.
+// subcommandOrder 与分发映射保持一致。它存在的原因是让 completion 不必在
+// 包初始化时引用该映射（那会通过 runCompletion 形成导入循环）；
+// parity_test 断言两者始终相同。
 var subcommandOrder = []string{
 	"sessions", "replay", "usage", "doctor", "login", "logout", "auth",
 	"models", "mcp", "skills", "commands", "hooks", "policy", "audit",
@@ -175,9 +174,8 @@ var subcommandOrder = []string{
 	"help", "version",
 }
 
-// subcommandNames lists every dispatched command, sorted. Completion reads it
-// and the parity test cross-checks it against the dispatch map, so the two
-// cannot drift.
+// subcommandNames 列出所有被分发的命令，按序排列。completion 读取它，
+// 而 parity 测试将其与分发映射交叉核对，因此两者不会走样。
 func subcommandNames() []string {
 	names := append([]string(nil), subcommandOrder...)
 	sort.Strings(names)
@@ -212,10 +210,9 @@ func runVersion(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// writeVersionInfo prints the detailed build report. It deliberately reads no
-// config and opens no network connection, so the output is instant and
-// deterministic; the protocol list comes straight from the llm constants
-// instead of a copy of the strings, so it cannot drift from what ships.
+// writeVersionInfo 打印详细的构建报告。它故意不读取任何配置、也不打开网络连接，
+// 因此输出是即时且确定的；协议列表直接取自 llm 常量，而不是字符串的副本，
+// 所以它不会与实际发布的内容走样。
 func writeVersionInfo(w io.Writer, version string) {
 	protocols := []string{
 		llm.ProtocolAnthropicMessages,
@@ -236,8 +233,7 @@ and supported wire protocols. The -V/--version flag keeps the one-line form.
 `)
 }
 
-// usageError marks validation failures that still need a message after the
-// flag package has printed its own diagnostics.
+// usageError 标记那些在 flag 包打印完自身诊断信息后仍需要一条消息的校验失败。
 type usageError struct{ msg string }
 
 func (e *usageError) Error() string { return e.msg }
@@ -385,7 +381,7 @@ func (a App) acp(ctx context.Context, opts *Options, runner Runner) int {
 	return 0
 }
 
-// runPrompt streams one turn to IO and returns the exit code.
+// runPrompt 向 IO 流式输出一轮对话并返回退出码。
 func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt string) int {
 	jsonMode := opts.Mode == ModeJSON
 	streamed := false
@@ -406,8 +402,8 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 	if jsonMode {
 		event := map[string]any{"type": "result", "text": result, "error": errText(err)}
 		if cancelled {
-			// A user abort is a normal stop. Keep the event shape, but do not
-			// dress it up as a failed request for scripts to parse.
+			// 用户主动中止是正常停止。保留事件结构，但不要
+			// 把它包装成失败请求供脚本解析。
 			event["error"] = ""
 			event["stopReason"] = "cancelled"
 		}
@@ -415,8 +411,8 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 	}
 	if err != nil {
 		if cancelled {
-			// Nothing failed and there is no retry action: exit quietly, like
-			// the other transports' cancelled result.
+			// 没有任何失败，也没有重试动作：安静退出，与其他
+			// 传输方式的中止结果保持一致。
 			return 0
 		}
 		fmt.Fprintln(a.IO.Err, "error:", err)
@@ -432,11 +428,10 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 	return 0
 }
 
-// writeActionableError appends the normalized provider explanation and its
-// next step to the terse "error: ..." line. It is additive on purpose: the
-// original line is unchanged for callers that parse stderr, while the user
-// gets a concrete recovery action. Classification is a no-op for nil errors
-// and never changes the success path.
+// writeActionableError 把规范化后的提供方解释及其下一步追加到简短的
+// "error: ..." 行之后。它是有意增量式的：对于解析 stderr 的调用方来说
+// 原始行保持不变，而用户能获得一个具体的恢复动作。对 nil 错误，
+// 分类是空操作，并且永远不会改变成功路径。
 func writeActionableError(w io.Writer, err error) {
 	if err == nil {
 		return
@@ -526,14 +521,14 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// isCancelled mirrors the server transports' rule: a Ctrl-C or abort ends the
-// run normally. A deadline and every other error keep the failure path, so
-// writeActionableError still gets a chance to explain them.
+// isCancelled 沿用 server 各传输方式的规则：Ctrl-C 或 abort 会使运行
+// 正常结束。超时和其他所有错误都保留失败路径，这样
+// writeActionableError 仍有机会对它们作出解释。
 func isCancelled(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || ctx.Err() == context.Canceled
 }
 
-// commandContext is cancelled on Ctrl-C.
+// commandContext 在 Ctrl-C 时被取消。
 func commandContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt)
 }

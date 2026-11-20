@@ -1,47 +1,40 @@
-# User guide
+# 用户指南
 
-Installation, quickstart, distribution and package-manager recipes for argentgo.
-Command flags, transports and tools are documented in the
-[Technical reference](TECHNICAL.md); maintainer and release-gate notes live in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+argentgo 的安装、快速上手、分发和包管理器配方。命令标志、传输和工具见 [Technical reference](TECHNICAL.md)；维护者与发布门禁笔记见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 ## Install
 
-argentgo ships two Windows binaries from the same release:
+argentgo 在同一个发布包中提供两个 Windows 二进制：
 
-- `argent.exe` — the CLI, TUI and agent engine (built from `./cmd/argent`).
-- `argent-native.exe` — the MyGo desktop chat window (built from `./native`).
+- `argent.exe` —— CLI、TUI 和 agent 引擎（从 `./cmd/argent` 构建）。
+- `argent-native.exe` —— MyGo 原生聊天窗口（从 `./native` 构建）。
 
-The desktop client **stays on the latest release**: keep both binaries from the
-same zip so their versions match. There is no installer service, telemetry or
-background process.
+桌面客户端**始终跟随最新 Release**：请让两个二进制来自同一个 zip，以保证版本一致。没有安装服务、遥测或后台进程。
 
-All downloads and release notes are on the public GitHub page:
-<https://github.com/2118505078xyh1/argentgo/releases>.
+所有下载和发布说明都在公开的 GitHub 页面上：
+<https://github.com/2118505078xyh1/argentgo/releases>。
 
-### Requirements
+### 要求
 
-| Install method | Requirement |
+| 安装方式 | 要求 |
 |---|---|
-| Prebuilt zip (recommended) | Windows amd64; PowerShell (or Git Bash for `sha256sum`). No runtime needed. |
-| `go install` from source | Go 1.27.3 or newer (pinned as `go 1.27.3` in `go.mod`), network access to fetch the module. Builds entirely from source. |
-| Native desktop from source | A local checkout, Go 1.27.3+, and Windows (the desktop client is Windows-only). |
+| 预编译 zip（推荐） | Windows amd64；PowerShell（或用 Git Bash 跑 `sha256sum`）。无需运行时。 |
+| 从源码 `go install` | Go 1.27.3 或更新版本（`go.mod` 中固定为 `go 1.27.3`），需要联网拉取模块。完全从源码构建。 |
+| 从源码构建原生桌面 | 本地检出、Go 1.27.3+ 和 Windows（桌面客户端仅支持 Windows）。 |
 
-### Prebuilt binary (Windows, quickest path)
+### 预编译二进制（Windows，最快路径）
 
-1. Download the latest release assets from
-   <https://github.com/2118505078xyh1/argentgo/releases/latest>:
+1. 从 <https://github.com/2118505078xyh1/argentgo/releases/latest> 下载最新的发布资产：
    - `argent_<version>_windows_amd64.zip`
    - `checksums.txt`
 
-2. Verify the zip against the SHA-256 manifest. `checksums.txt` is a
-   `sha256sum`-style file (`<hash>  <filename>`), so in Git Bash:
+2. 用 SHA-256 清单校验 zip。`checksums.txt` 是 `sha256sum` 风格的文件（`<hash>  <filename>`），所以在 Git Bash 中：
 
    ```bash
    sha256sum -c checksums.txt
    ```
 
-   In PowerShell, compare the file's hash with the manifest line yourself:
+   在 PowerShell 中，自己把文件哈希与清单行比较：
 
    ```powershell
    $zip = 'argent_<version>_windows_amd64.zip'
@@ -50,27 +43,21 @@ All downloads and release notes are on the public GitHub page:
    if ($got -ne $want[0]) { throw 'checksum mismatch' }
    ```
 
-   The release notes also state the hash. A per-asset
-   `argent_<version>_windows_amd64.zip.sha256` is produced by the build script
-   for tools that take a single-hash file.
+   发布说明里也写有哈希。构建脚本还会为每个资产生成一个
+   `argent_<version>_windows_amd64.zip.sha256`，供只接受单哈希文件的工具使用。
 
-3. Extract and smoke-test:
+3. 解压并做 smoke 测试：
 
    ```powershell
    Expand-Archive -LiteralPath '.\argent_<version>_windows_amd64.zip' -DestinationPath .
    .\argent.exe --version
    ```
 
-   The zip extracts `argent.exe` and `argent-native.exe` at its root. **Keep the
-   two files in the same directory**: `argent gui` looks for `argent-native.exe`
-   beside `argent.exe` and fails if it is not there. Add that directory to your
-   `PATH` to run `argent` from any shell.
+   zip 会在根目录解出 `argent.exe` 和 `argent-native.exe`。**让两个文件保持在同一目录**：`argent gui` 会在 `argent.exe` 旁边找 `argent-native.exe`，找不到就会失败。把该目录加进 `PATH`，就能从任意 shell 运行 `argent`。
 
-### PowerShell one-liner installer
+### PowerShell 单行安装脚本
 
-For a local checkout with a downloaded release zip, `scripts/install-win.ps1`
-installs `argent.exe` into `%LOCALAPPDATA%\argentgo\bin` (override with
-`-InstallDir`). Its documented usage is:
+对于有下载好的发布 zip 的本地检出，`scripts/install-win.ps1` 会把 `argent.exe` 安装到 `%LOCALAPPDATA%\argentgo\bin`（可用 `-InstallDir` 覆盖）。文档中的用法是：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 `
@@ -78,106 +65,74 @@ powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 `
     [-InstallDir "$env:LOCALAPPDATA\argentgo\bin"]
 ```
 
-A concrete one-liner after placing the zip next to the script's checkout:
+把 zip 放在脚本所在检出旁边之后，一个具体的单行命令是：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 -ZipPath '.\argent_<version>_windows_amd64.zip'
 ```
 
-With no `-ZipPath`, the script looks for exactly one
-`argent_*_windows_amd64.zip` in `dist/release` (where
-`scripts/build-release.ps1` writes artifacts). It installs **only** the CLI
-binary; sessions/config under `~/.argentgo` are untouched. For the desktop
-window, copy `argent-native.exe` from the zip into the same install directory.
+不带 `-ZipPath` 时，脚本会在 `dist/release`（`scripts/build-release.ps1` 写产物的地方）中查找唯一一个 `argent_*_windows_amd64.zip`。它**只**安装 CLI 二进制；`~/.argentgo` 下的会话/配置不会被触碰。对于桌面窗口，请把 zip 中的 `argent-native.exe` 复制到同一个安装目录。
 
-### From source (`go install`)
+### 从源码安装（go install）
 
-`cmd/argent` is a `main` package, so the standard Go install path is valid:
+`cmd/argent` 是一个 `main` 包，因此标准的 Go 安装路径有效：
 
 ```powershell
 go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 ```
 
-This fetches the public module and **builds from source**; it needs the Go
-toolchain (1.27.3+) and is not a prebuilt binary. The resulting `argent.exe` is
-placed in `$GOBIN` if set, otherwise in `$(go env GOPATH)/bin` (check with
-`go env GOPATH`). Verify with `argent.exe --version`.
+这会拉取公开模块并**从源码构建**；它需要 Go 工具链（1.27.3+），不是预编译二进制。生成的 `argent.exe` 会放在 `$GOBIN`（如果设置了），否则放在 `$(go env GOPATH)/bin`（用 `go env GOPATH` 查看）。用 `argent.exe --version` 验证。
 
-`go install` installs only the CLI/engine. It does not build the desktop
-frontend. It also works on non-Windows hosts for CLI/TUI use, but `argent gui`
-requires Windows plus a separately built `argent-native.exe`.
+`go install` 只安装 CLI/引擎，不构建桌面前端。它也能在非 Windows 宿主上用于 CLI/TUI，但 `argent gui` 需要 Windows 以及单独构建的 `argent-native.exe`。
 
-### Building the native desktop frontend from source
+### 从源码构建原生桌面前端
 
-From a local checkout:
+在本地检出中：
 
 ```powershell
 go build -o argent-native.exe ./native
 ```
 
-`native/` is the single place that depends on the MyGo module
-(`github.com/egoist/mygo`, already pinned in `go.mod`); the engine core stays
-stdlib-only and cgo-free. `argent gui` launches this binary from the engine's
-directory and drives it over the existing `--rpc` transport. The desktop client
-is Windows-only. See [Distribution](#distribution) for the two-binary
-architecture.
+`native/` 是唯一依赖 MyGo 模块的地方（`github.com/egoist/mygo`，已在 `go.mod` 中固定）；引擎核心保持只用标准库且无 cgo。`argent gui` 会从引擎所在目录启动这个二进制，并通过已有的 `--rpc` 传输驱动它。桌面客户端仅支持 Windows。两个二进制的架构见 [Distribution](#distribution)。
 
-### Updating
+### 更新
 
-- **Prebuilt:** download the latest zip and `checksums.txt`, verify, and replace
-  **both** binaries together. Re-running the installer updates `argent.exe`
-  only, so copy the matching `argent-native.exe` as well.
-- **From source:** re-run
-  `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` and rebuild
-  `./native` from the updated checkout.
+- **预编译：** 下载最新的 zip 和 `checksums.txt`，校验，并**同时**替换两个二进制。重跑安装脚本只更新 `argent.exe`，所以也要复制匹配的 `argent-native.exe`。
+- **从源码：** 重跑 `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest`，并从更新后的检出重新构建 `./native`。
 
-### Uninstalling
+### 卸载
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/uninstall-win.ps1 `
     [-InstallDir "$env:LOCALAPPDATA\argentgo\bin"]
 ```
 
-The script removes only the installed `argent.exe` (and an empty install
-directory). User data under `~/.argentgo` — sessions, config, hooks and audit
-logs — is preserved. For manual/zip installs, delete the extracted directory;
-for `go install`, delete the binary from `$(go env GOPATH)/bin`. Remove
-`argent-native.exe` separately if you installed the desktop frontend.
+该脚本只移除已安装的 `argent.exe`（以及空的安装目录）。`~/.argentgo` 下的用户数据——会话、配置、hook 和审计日志——会被保留。手动/zip 安装的话，删除解压出的目录；`go install` 的话，从 `$(go env GOPATH)/bin` 删除该二进制。如果你装过桌面前端，还要单独删除 `argent-native.exe`。
 
 ## Quickstart
 
-This is the language-neutral, step-by-step path from "downloaded" to "first useful
-answer". All commands are Windows/PowerShell unless noted. See
-[Install](#install) for the full installation guide and
-[API reference](TECHNICAL.md#api-reference) for the complete command surface.
+这是从"已下载"到"第一个有用回答"的、语言无关的分步路径。除特别说明外，所有命令都是 Windows/PowerShell 的。完整安装指南见 [Install](#install)，完整命令表面见 [API reference](TECHNICAL.md#api-reference)。
 
-> `<your-key>` below is a placeholder. Replace it with your own API key and never
-> commit it to version control.
+> 下面的 `<your-key>` 是占位符。请替换成你自己的 API key，绝不要提交到版本库。
 
-### 1. Install
+### 1. 安装
 
-Fastest path — the prebuilt Windows zip:
+最快路径——预编译的 Windows zip：
 
-1. Download `argent_<version>_windows_amd64.zip` and `checksums.txt` from the
-   [latest release](https://github.com/2118505078xyh1/argentgo/releases/latest).
-2. Verify the SHA-256 manifest (Git Bash: `sha256sum -c checksums.txt`; PowerShell:
-   compare `Get-FileHash` output with `checksums.txt`).
-3. Extract and smoke-test:
+1. 从 [latest release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载 `argent_<version>_windows_amd64.zip` 和 `checksums.txt`。
+2. 校验 SHA-256 清单（Git Bash：`sha256sum -c checksums.txt`；PowerShell：把 `Get-FileHash` 输出与 `checksums.txt` 比较）。
+3. 解压并做 smoke 测试：
 
    ```powershell
    Expand-Archive .\argent_<version>_windows_amd64.zip -DestinationPath .
    .\argent.exe --version
    ```
 
-Keep `argent.exe` and `argent-native.exe` in the **same directory** — `argent gui`
-looks for the native binary beside the engine. The desktop client stays on the
-latest release, so always replace both binaries together. From source, use
-`go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` (Go 1.27.3+).
+让 `argent.exe` 和 `argent-native.exe` 待在**同一目录**——`argent gui` 会在引擎旁边找原生二进制。桌面客户端始终跟随最新 Release，所以一定要同时替换两个二进制。从源码安装用 `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest`（Go 1.27.3+）。
 
-### 2. Configure a provider
+### 2. 配置 provider
 
-`argent login <provider>` stores a key in the config file
-(`~/.argentgo/config.json`) and never echoes it back:
+`argent login <provider>` 会把 key 存进配置文件（`~/.argentgo/config.json`），绝不回显：
 
 ```powershell
 argent login openai --api-key <your-key>   # explicit key
@@ -185,55 +140,46 @@ argent login openai                        # prompts on stdin, without echo
 argent auth                                # show stored credential status
 ```
 
-The key is read from `--api-key`, `<PROVIDER>_API_KEY`, `ARGENT_API_KEY`, or from
-the interactive prompt. You can also skip `login` and set an environment
-variable for the current shell:
+key 从 `--api-key`、`<PROVIDER>_API_KEY`、`ARGENT_API_KEY` 或交互提示中读取。你也可以跳过 `login`，直接为当前 shell 设置环境变量：
 
 ```powershell
 $env:OPENAI_API_KEY = "<your-key>"
 ```
 
-Run `argent models` to list the built-in provider templates (`openai`,
-`anthropic`, `deepseek`, `qwen`, …). Use `argent logout [provider]` to remove
-stored credentials.
+运行 `argent models` 列出内置的 provider 模板（`openai`、`anthropic`、`deepseek`、`qwen` 等）。用 `argent logout [provider]` 移除已存储的凭据。
 
-### 3. First prompt in the TUI
+### 3. 在 TUI 中发出第一个 prompt
 
-Start the full-screen terminal UI:
+启动全屏终端 UI：
 
 ```powershell
 argent tui
 ```
 
-> `argent` with no prompt reads stdin and exits; it does not auto-open the TUI.
-> Use `argent tui` (or `argent --tui`) for the interactive UI. For a one-shot
-> answer, run `argent "your task"`.
+> 不带 prompt 的 `argent` 会读取 stdin 然后退出；它不会自动打开 TUI。
+> 交互界面请用 `argent tui`（或 `argent --tui`）。一次性回答请用 `argent "your task"`。
 
-Type a task and press **Enter** to send. Useful keys:
+输入任务并按 **Enter** 发送。常用按键：
 
-| Key | Action |
+| 按键 | 动作 |
 |---|---|
-| `Enter` | send |
-| `Alt+Enter` / `Ctrl+J` | newline |
-| `PgUp` / `PgDn`, `Shift+Up` / `Shift+Down` | scroll |
-| `Ctrl+C` | cancel the current turn; press again to quit |
-| `/quit` or `/exit` | quit |
+| `Enter` | 发送 |
+| `Alt+Enter` / `Ctrl+J` | 换行 |
+| `PgUp` / `PgDn`, `Shift+Up` / `Shift+Down` | 滚动 |
+| `Ctrl+C` | 取消当前轮次；再按一次退出 |
+| `/quit` 或 `/exit` | 退出 |
 
-Type `/help` in the input box to display the in-app key list.
+在输入框里输入 `/help` 可以显示应用内按键列表。
 
-### 4. Native desktop window
+### 4. 原生桌面窗口
 
 ```powershell
 argent gui
 ```
 
-This launches `argent-native.exe` from the engine's directory. The native client
-drives the engine over the built-in `--rpc` transport — no browser, no WebView,
-no HTTP service. It is Windows-only and requires `argent-native.exe` beside
-`argent.exe`. See [Frontend decision](TECHNICAL.md#frontend-decision) and
-[Distribution](#distribution).
+它会从引擎所在目录启动 `argent-native.exe`。原生客户端通过内置的 `--rpc` 传输驱动引擎——没有浏览器、没有 WebView、没有 HTTP 服务。它仅支持 Windows，且要求 `argent-native.exe` 与 `argent.exe` 在同一目录。见 [Frontend decision](TECHNICAL.md#frontend-decision) 和 [Distribution](#distribution)。
 
-### 5. Switch model or provider
+### 5. 切换模型或 provider
 
 ```powershell
 argent models                                   # list templates
@@ -241,11 +187,9 @@ argent --provider deepseek "帮我写个函数"        # use a built-in template
 argent -m gpt-4o "explain this diff"             # -m / --model overrides the model
 ```
 
-Other useful switches: `--protocol anthropic|openai|responses`, `--base-url <url>`,
-`--profile <name>`, and `-c/--config key=value` for dotted config overrides.
-Settings resolve from flags → `ARGENT_*` environment → config files → defaults.
+其他有用的开关：`--protocol anthropic|openai|responses`、`--base-url <url>`、`--profile <name>`，以及用于点分配置覆盖的 `-c/--config key=value`。设置的解析顺序是：标志 → `ARGENT_*` 环境变量 → 配置文件 → 默认值。
 
-### 6. Approvals and sandbox mode
+### 6. 审批与沙箱模式
 
 ```powershell
 argent --approval ask   "refactor this"   # default: prompt for approval
@@ -254,26 +198,17 @@ argent --approval never "refactor this"   # deny every approval request
 argent --sandbox-mode read-only "audit this dir"
 ```
 
-When an approval prompt appears: **y** allow, **n** deny, **a** allow for this
-session, **esc** deny. `--yolo` is a shortcut for `auto`. Sandbox modes are
-`read-only` (mutating tools removed), `workspace-write` (default, workspace
-boundary enforced) and `danger-full-access` (boundary removed). Approval and
-policy decisions are recorded in a redacted audit log under `~/.argentgo/audit/`.
+出现审批提示时：**y** 允许，**n** 拒绝，**a** 本次会话允许，**esc** 拒绝。`--yolo` 是 `auto` 的快捷方式。沙箱模式有 `read-only`（移除修改类工具）、`workspace-write`（默认，强制工作区边界）和 `danger-full-access`（移除边界）。审批和策略决策会记录在 `~/.argentgo/audit/` 下脱敏后的审计日志中。
 
-### 7. Slash commands
+### 7. 斜杠命令
 
-Verified built-in TUI commands: `/help`, `/clear`, `/expand`, `/undo`, `/retry`,
-`/name <title>`, `/quit` (alias `/exit`). `/undo` and `/retry` operate on the
-latest SHA-256 checkpoint.
+已验证的内置 TUI 命令：`/help`、`/clear`、`/expand`、`/undo`、`/retry`、`/name <title>`、`/quit`（别名 `/exit`）。`/undo` 和 `/retry` 作用于最新的 SHA-256 checkpoint。
 
-Markdown slash commands are also discovered from `.argent/commands` (project) and
-`~/.argentgo/commands` (user); `argent commands` lists them. Their bodies expand
-`$ARGUMENTS` / `$@` and `$1`…`$N`.
+Markdown 斜杠命令也会从 `.argent/commands`（项目）和 `~/.argentgo/commands`（用户）中发现；`argent commands` 会列出它们。它们的正文会展开 `$ARGUMENTS` / `$@` 以及 `$1`…`$N`。
 
-> There is **no** built-in `/compact` command. Context compaction is automatic;
-> disable it for one run with `--no-auto-compact`.
+> **没有**内置的 `/compact` 命令。上下文压缩是自动的；用 `--no-auto-compact` 可以在本次运行中禁用它。
 
-### 8. Troubleshooting
+### 8. 疑难解答
 
 ```powershell
 argent doctor                          # config, storage, provider, git, Go
@@ -281,57 +216,37 @@ argent doctor --base-url <url>         # probe a specific provider endpoint
 argent bug                             # write a diagnostics dump
 ```
 
-`doctor` prints `ok` / `warn` / `fail` per check. For install problems, re-read
-[Install](#install); for exact flags and return values, see
-[API reference](TECHNICAL.md#api-reference).
+`doctor` 会按检查项打印 `ok` / `warn` / `fail`。安装问题请重读 [Install](#install)；确切的标志和返回值见 [API reference](TECHNICAL.md#api-reference)。
 
 ## Distribution
 
-This section records how argentgo is packaged and shipped. Maintainer-facing
-release gates live in
-[CONTRIBUTING.md](../CONTRIBUTING.md#release-checklist).
+本节记录 argentgo 如何打包和交付。面向维护者的发布门禁在 [CONTRIBUTING.md](../CONTRIBUTING.md#release-checklist)。
 
-### The two binaries
+### 两个二进制
 
-A release ships exactly two Windows executables, built from the same source
-tree and the same version:
+一个发布恰好交付两个 Windows 可执行文件，从同一份源码树、同一版本构建：
 
-| Binary | Source | Role |
+| 二进制 | 来源 | 角色 |
 |---|---|---|
-| `argent.exe` | `./cmd/argent` (`package main`, `func main`) | CLI, full-screen TUI and the agent engine. Also exposes the headless transports `--serve` (HTTP/SSE), `--rpc` and `acp`. Reports its version via `--version`. |
-| `argent-native.exe` | `./native` | MyGo native desktop chat window, the only GUI frontend. Windows-only. |
+| `argent.exe` | `./cmd/argent`（`package main`, `func main`） | CLI、全屏 TUI 和 agent 引擎。还提供无头传输 `--serve`（HTTP/SSE）、`--rpc` 和 `acp`。通过 `--version` 报告版本。 |
+| `argent-native.exe` | `./native` | MyGo 原生桌面聊天窗口，唯一的 GUI 前端。仅支持 Windows。 |
 
-The engine core is stdlib-only and cgo-free. `github.com/egoist/mygo` (pinned in
-`go.mod`) is the single third-party dependency and is used only by `native/`.
-The browser frontend has been removed.
+引擎核心只用标准库且无 cgo。`github.com/egoist/mygo`（固定在 `go.mod` 中）是唯一的第三方依赖，且只被 `native/` 使用。浏览器前端已移除。
 
-### How they communicate (`--rpc`)
+### 它们如何通信（--rpc）
 
-The two programs do not link together; they talk over an existing transport:
+两个程序并不链接在一起；它们通过一个已有的传输对话：
 
-1. `argent gui` is detected in `cmd/argent/main.go`, which
-   calls `runGUI` in `cmd/argent/gui.go`. That resolves config, opens the
-   session store and refuses to run on non-Windows hosts.
-2. It looks for `argent-native.exe` **next to the running `argent.exe`**
-   (`os.Executable()`'s directory) and starts it with `ARGENT_EXE` set to the
-   engine path and `ARGENT_CWD` set to the workspace root. `ARGENT_CWD` also
-   becomes the child's working directory.
-3. `native/main.go` reads `ARGENT_EXE`; when present, `native/bridge.go` spawns
-   `argent --rpc` with the workspace as its working directory. When absent, the
-   native window runs a canned demo instead of a real engine.
-4. `--rpc` is newline-delimited JSON-RPC 2.0 over stdio (`internal/server/rpc.go`).
-   Methods include `prompt`, `prompt/delta` streaming notifications, `abort`,
-   `session.list` and `session.load`. The native UI sends prompts and renders
-   deltas; it never imports engine packages, so the core stays stdlib-only.
+1. `argent gui` 在 `cmd/argent/main.go` 中被识别，它调用 `cmd/argent/gui.go` 中的 `runGUI`。后者解析配置、打开会话存储，并拒绝在非 Windows 宿主上运行。
+2. 它会在**正在运行的 `argent.exe` 旁边**（`os.Executable()` 所在目录）查找 `argent-native.exe`，以指向引擎路径的 `ARGENT_EXE` 和指向工作区根的 `ARGENT_CWD` 启动它。`ARGENT_CWD` 也成为子进程的工作目录。
+3. `native/main.go` 读取 `ARGENT_EXE`；存在时，`native/bridge.go` 以工作区为工作目录拉起 `argent --rpc`。不存在时，原生窗口改为运行演示用的 canned 内容，而不是真实引擎。
+4. `--rpc` 是 stdio 上换行分隔的 JSON-RPC 2.0（`internal/server/rpc.go`）。方法包括 `prompt`、`prompt/delta` 流式通知、`abort`、`session.list` 和 `session.load`。原生 UI 发送 prompt 并渲染 delta；它从不 import 引擎包，因此核心保持只用标准库。
 
-### Release assets layout
+### 发布资产布局
 
-Releases are published on the public GitHub page:
-<https://github.com/2118505078xyh1/argentgo/releases>. A tagged commit is **not**
-a release by itself: `scripts/publish-win.ps1` waits for a published Release
-that has both required assets and fails if only a tag exists.
+发布在公开的 GitHub 页面上：<https://github.com/2118505078xyh1/argentgo/releases>。打了 tag 的 commit **本身**不是发布：`scripts/publish-win.ps1` 会等待一个同时具备两个必需资产的已发布 Release，只有 tag 存在时会失败。
 
-Per release:
+每次发布：
 
 ```text
 argent_<version>_windows_amd64.zip     # contains argent.exe + argent-native.exe at the root
@@ -339,23 +254,14 @@ argent_<version>_windows_amd64.zip.sha256  # single-hash sidecar
 checksums.txt                          # sha256sum-style manifest for all zips
 ```
 
-- `scripts/build-release.ps1` is the single source of truth for artifacts. It
-  builds `./cmd/argent` and `./native` with `CGO_ENABLED=0`, `GOOS=windows`,
-  `GOARCH=amd64` and `-trimpath`, then zips both binaries together.
-- The zip is a GUI-subsystem build (`-H=windowsgui`): no black console window
-  from a desktop shortcut, while CLI output still works from an existing
-  terminal.
-- `checksums.txt` is UTF-8 without BOM with LF endings so `sha256sum -c`
-  accepts it. Each line is `<sha256>  <filename>`. The combined manifest also
-  drives the updater's automatic verification; the per-zip `.sha256` sidecar is
-  for tools that expect one hash per asset.
-- The release notes restate the hash. `scripts/publish-win.ps1` can publish via
-  the repository's CI workflow using its built-in credentials, or the release
-  can be created manually with the same two assets uploaded.
+- `scripts/build-release.ps1` 是产物的唯一事实来源。它用 `CGO_ENABLED=0`、`GOOS=windows`、`GOARCH=amd64` 和 `-trimpath` 构建 `./cmd/argent` 和 `./native`，然后把两个二进制一起打包。
+- zip 是 GUI 子系统构建（`-H=windowsgui`）：从桌面快捷方式启动不会出现黑色控制台窗口，同时从已有终端运行的 CLI 输出仍然可用。
+- `checksums.txt` 是无 BOM、LF 换行的 UTF-8，因此 `sha256sum -c` 能接受它。每行是 `<sha256>  <filename>`。合并清单还驱动更新器的自动校验；每个 zip 的 `.sha256` 附带文件供那些期望每个资产一个哈希的工具使用。
+- 发布说明会重述哈希。`scripts/publish-win.ps1` 可以用仓库 CI 工作流及其内置凭据发布，也可以手动创建 Release 并上传同样两个资产。
 
-### Checksums
+### 校验和
 
-SHA-256 is computed with `Get-FileHash` at build time. Verification options:
+SHA-256 在构建时用 `Get-FileHash` 计算。校验方式：
 
 ```bash
 # Git Bash
@@ -367,118 +273,74 @@ sha256sum -c checksums.txt
 (Get-FileHash -LiteralPath '.\argent_<version>_windows_amd64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
 ```
 
-See [Install](#install) for a complete verification example.
+完整校验示例见 [Install](#install)。
 
-### Supported platforms
+### 支持的平台
 
-- **Windows amd64 is the only published binary target.** `scripts/build-release.ps1`
-  defines a single `windows/amd64` target, and `scripts/publish-win.ps1` requires
-  a `argent_*_windows_amd64.zip` asset.
-- There is **no cgo**, so `GOOS=linux go build ./...` cross-compiles successfully
-  and CI verifies it on every PR. No Linux binary or other platform zip is
-  published.
-- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` works on any
-  host with Go 1.27.3+, but it installs only the CLI/engine. The desktop client
-  is Windows-only and must be built as `./native` or taken from the release zip.
-- The desktop client stays on the latest release: install both binaries from
-  the same zip rather than mixing versions.
+- **Windows amd64 是唯一发布的二进制目标。** `scripts/build-release.ps1` 定义一个 `windows/amd64` 目标，`scripts/publish-win.ps1` 要求存在一个 `argent_*_windows_amd64.zip` 资产。
+- **没有 cgo**，因此 `GOOS=linux go build ./...` 能交叉编译成功，CI 会在每个 PR 上验证。不发布 Linux 二进制或其他平台的 zip。
+- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` 在任何装有 Go 1.27.3+ 的宿主上都可用，但只安装 CLI/引擎。桌面客户端仅支持 Windows，必须构建为 `./native` 或从发布 zip 中取用。
+- 桌面客户端始终跟随最新 Release：请从同一个 zip 安装两个二进制，不要混用版本。
 
 ### Version locations
 
-The version is duplicated in three source literals and must be bumped together:
+版本在三个源码字面量中重复出现，必须一起升级：
 
-| File | Constant / field |
+| 文件 | 常量 / 字段 |
 |---|---|
-| `internal/cli/cli.go` | `const Version` — reported by `--version`, `/v1/health` and ACP `initialize`; read by the release scripts. |
-| `internal/mcp/mcp.go` | `clientVersion` — sent as MCP `clientInfo.version`. |
-| `internal/lsp/client.go` | `version` in the LSP `clientInfo` of the `initialize` request. |
+| `internal/cli/cli.go` | `const Version` —— 由 `--version`、`/v1/health` 和 ACP `initialize` 报告；发布脚本读取它。 |
+| `internal/mcp/mcp.go` | `clientVersion` —— 作为 MCP `clientInfo.version` 发送。 |
+| `internal/lsp/client.go` | `initialize` 请求的 LSP `clientInfo` 中的 `version`。 |
 
-`scripts/build-release.ps1` reads the version **only** from `internal/cli/cli.go`
-and validates `-Version` / `-Tag` against it, so a mismatch in the other two
-files will not be caught by the packaging script. Keep all three in sync.
+`scripts/build-release.ps1` **只**从 `internal/cli/cli.go` 读取版本，并据此校验 `-Version` / `-Tag`，所以另外两个文件里不一致不会被打包脚本抓到。请让三个保持同步。
 
-## Package managers
+## 包管理器
 
-This section collects community package-manager **recipes** for installing
-argentgo. They are templates, not published artifacts: the project does **not**
-maintain or host a catalog entry in Scoop, Chocolatey or Homebrew. A maintainer
-(or downstream packager) copies a recipe into the relevant bucket / package
-repo / tap and fills in the placeholders at release time. Nothing here depends
-on a hosted catalog owned by this project.
+本节收集社区为安装 argentgo 准备的**配方模板**。它们是模板，不是已发布的产物：本项目**不**维护或托管 Scoop、Chocolatey 或 Homebrew 中的目录条目。维护者（或下游打包者）把配方复制到相应的 bucket / 包仓库 / tap，并在发布时填好占位符。这里没有任何东西依赖本项目自己托管的目录。
 
-Public repository: <https://github.com/2118505078xyh1/argentgo>
+公开仓库：<https://github.com/2118505078xyh1/argentgo>
 
-### Files
+### 文件
 
-| File | Package manager | Platform | What it installs |
+| 文件 | 包管理器 | 平台 | 安装内容 |
 | --- | --- | --- | --- |
-| `packaging/scoop/argentgo.json` | Scoop | Windows (amd64) | Downloads and unzips the release zip; shims `argent.exe` and `argent-native.exe`. |
-| `packaging/choco/argentgo.nuspec` | Chocolatey | Windows (amd64) | NuGet package metadata (dependency-free); the version must match the release. |
-| `packaging/choco/tools/chocolateyinstall.ps1` | Chocolatey | Windows (amd64) | Downloads the release zip with `Install-ChocolateyZipPackage` and verifies its SHA-256. |
-| `packaging/homebrew/argentgo.rb` | Homebrew | macOS / Linux | Builds the CLI/TUI from source with `go install`. The native desktop GUI is Windows-only and is not included. |
+| `packaging/scoop/argentgo.json` | Scoop | Windows (amd64) | 下载并解压发布 zip；为 `argent.exe` 和 `argent-native.exe` 创建 shim。 |
+| `packaging/choco/argentgo.nuspec` | Chocolatey | Windows (amd64) | NuGet 包元数据（无依赖）；版本必须与发布一致。 |
+| `packaging/choco/tools/chocolateyinstall.ps1` | Chocolatey | Windows (amd64) | 用 `Install-ChocolateyZipPackage` 下载发布 zip 并校验其 SHA-256。 |
+| `packaging/homebrew/argentgo.rb` | Homebrew | macOS / Linux | 用 `go install` 从源码构建 CLI/TUI。原生桌面 GUI 仅支持 Windows，不包含在内。 |
 
-All recipes use only public GitHub Releases URLs. There are no credentials,
-tokens or private paths.
+所有配方只使用公开的 GitHub Releases URL。没有凭据、token 或私有路径。
 
-### Placeholder convention
+### 占位符约定
 
-Recipes deliberately do **not** hardcode a current version. Release automation
-replaces these placeholders before publishing a package:
+配方有意**不**硬编码当前版本。发布自动化在发布包之前会替换这些占位符：
 
-- `{{VERSION}}` — the bare release version, e.g. `0.1.1` (no leading `v`).
-  It is used in asset names (`argent_{{VERSION}}_windows_amd64.zip`) and in the
-  release tag (`v{{VERSION}}`).
-- `{{SHA256}}` — the lowercase hex SHA-256 of the Windows zip. Take it from the
-  `checksums.txt` line whose second column is
-  `argent_<version>_windows_amd64.zip` (the file `scripts/build-release.ps1`
-  writes into `dist/release/`).
+- `{{VERSION}}` —— 不带 `v` 的纯发布版本，例如 `0.1.1`。用于资产名（`argent_{{VERSION}}_windows_amd64.zip`）和发布 tag（`v{{VERSION}}`）。
+- `{{SHA256}}` —— Windows zip 的小写十六进制 SHA-256。从 `checksums.txt` 中第二列为 `argent_<version>_windows_amd64.zip` 的那一行取（`scripts/build-release.ps1` 把该文件写进 `dist/release/`）。
 
-Example substitution for a `v0.1.1` release:
+以 `v0.1.1` 发布为例的替换：
 
-- URL:
+- URL：
   `https://github.com/2118505078xyh1/argentgo/releases/download/v0.1.1/argent_0.1.1_windows_amd64.zip`
 - `{{VERSION}}` -> `0.1.1`
-- `{{SHA256}}` -> the first column of the matching `checksums.txt` line
+- `{{SHA256}}` -> 匹配的 `checksums.txt` 行的第一列
 
-`scripts/build-release.ps1` prints the zip name and writes both the zip and
-`dist/release/checksums.txt`. Read the bare version from its
-`argent_<version>_windows_amd64.zip` output (it mirrors `cli.Version` in
-`internal/cli/cli.go`), and read the hash from the matching `checksums.txt`
-line; do not invent either value.
+`scripts/build-release.ps1` 会打印 zip 名并写出 zip 和 `dist/release/checksums.txt`。从它的 `argent_<version>_windows_amd64.zip` 输出中读取纯版本号（它对应 `internal/cli/cli.go` 中的 `cli.Version`），并从匹配的 `checksums.txt` 行读取哈希；不要凭空编造这两个值。
 
-### How a maintainer fills each file
+### 维护者如何填写每个文件
 
-1. Run `powershell -File scripts/build-release.ps1` (or take the already-published
-   release assets). Note the version and the `checksums.txt` hash for the
-   Windows amd64 zip.
-2. **Scoop** — replace `{{VERSION}}` and `{{SHA256}}` in
-   `packaging/scoop/argentgo.json`. The `hash` field is the value from `checksums.txt`,
-   so Scoop verifies the download. The manifest also carries `checkver` /
-   `autoupdate` blocks: Scoop's own `checkver` reads the GitHub releases (no
-   project-hosted catalog needed), and `autoupdate` rewrites the URL and pulls
-   the new hash from `checksums.txt` via regex. JSON cannot contain comments,
-   so this explanation lives here in this guide.
-3. **Chocolatey** — replace `{{VERSION}}` in `packaging/choco/argentgo.nuspec` and both
-   `{{VERSION}}` / `{{SHA256}}` in `packaging/choco/tools/chocolateyinstall.ps1`, then run
-   `choco pack`. The install script passes the hash from `checksums.txt` to
-   `Install-ChocolateyZipPackage` as `checksum64` / `checksumType64`, so a
-   tampered download fails. The package has no dependencies.
-4. **Homebrew** — replace `{{VERSION}}` in `packaging/homebrew/argentgo.rb` and publish to
-   a tap. `go install github.com/2118505078xyh1/argentgo/cmd/argent@{{VERSION}}`
-   requires a version the Go toolchain accepts; release tags are `v`-prefixed,
-   so fill that occurrence with the tag form (e.g. `v0.1.1`) if your tag is
-   `v0.1.1`. The `url` field already points at that tag's source archive.
+1. 运行 `powershell -File scripts/build-release.ps1`（或直接使用已发布的发布资产）。记下 Windows amd64 zip 的版本和 `checksums.txt` 中的哈希。
+2. **Scoop** —— 在 `packaging/scoop/argentgo.json` 中替换 `{{VERSION}}` 和 `{{SHA256}}`。`hash` 字段来自 `checksums.txt`，这样 Scoop 会校验下载。清单还带 `checkver` / `autoupdate` 块：Scoop 自己的 `checkver` 会读取 GitHub releases（无需项目托管的目录），`autoupdate` 会重写 URL 并通过正则从 `checksums.txt` 拉取新哈希。JSON 不能包含注释，所以这段说明放在本指南里。
+3. **Chocolatey** —— 在 `packaging/choco/argentgo.nuspec` 中替换 `{{VERSION}}`，在 `packaging/choco/tools/chocolateyinstall.ps1` 中替换 `{{VERSION}}` / `{{SHA256}}`，然后运行 `choco pack`。安装脚本把 `checksums.txt` 中的哈希作为 `checksum64` / `checksumType64` 传给 `Install-ChocolateyZipPackage`，这样被篡改的下载会失败。该包没有依赖。
+4. **Homebrew** —— 在 `packaging/homebrew/argentgo.rb` 中替换 `{{VERSION}}` 并发布到 tap。`go install github.com/2118505078xyh1/argentgo/cmd/argent@{{VERSION}}` 要求一个 Go 工具链接受的版本；发布 tag 带 `v` 前缀，如果你的 tag 是 `v0.1.1`，就把那一处填成 tag 形式（例如 `v0.1.1`）。`url` 字段已经指向该 tag 的源码归档。
 
-### Privacy note
+### 隐私说明
 
-These recipes reference only the public repository and public release assets.
-No API keys, tokens (`sk-`, `ghp_`, ...), e-mail addresses or private/local
-filesystem paths are embedded. Keep it that way: every value is either a public
-URL or a release-derived version/hash.
+这些配方只引用公开仓库和公开发布资产。没有嵌入 API key、token（`sk-`、`ghp_` 等）、邮箱地址或私有/本地文件系统路径。请保持如此：每个值要么是公开 URL，要么是从发布派生的版本/哈希。
 
-### Validation
+### 验证
 
-After substituting placeholders, validate before publishing:
+替换占位符后，发布前先验证：
 
 ```bash
 python -m json.tool packaging/scoop/argentgo.json >/dev/null

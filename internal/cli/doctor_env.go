@@ -9,11 +9,9 @@ import (
 	"strings"
 )
 
-// ProbeResult is one structured environment observation produced by
-// ProbeEnvironment. Value holds the raw observed value (never sliced in the
-// middle of a UTF-8 rune, so CJK values survive intact), OK reports whether the
-// observation is healthy, and Detail explains the result in human-readable
-// text. Fields are exported so callers and tests can inspect them directly.
+// ProbeResult 是由 ProbeEnvironment 产生的一条结构化环境观测。Value 保存原始
+// 观测值（绝不会从 UTF-8 rune 中间切开，因此中文值能完整保留），OK 报告该观测
+// 是否健康，Detail 以人类可读文本解释结果。字段导出以便调用方和测试直接检查。
 type ProbeResult struct {
 	Name   string
 	Value  string
@@ -21,8 +19,8 @@ type ProbeResult struct {
 	Detail string
 }
 
-// Probe names. Kept as constants so doctorAdvice, the formatter and tests
-// share a single vocabulary instead of repeating string literals.
+// 探测名称。保留为常量，使 doctorAdvice、格式化器和测试共享同一套词汇，
+// 而不是重复字符串字面量。
 const (
 	probeGoVersion = "go_version"
 	probePlatform  = "platform"
@@ -32,21 +30,20 @@ const (
 	probeEnv       = "env"
 )
 
-// envGetter is the injection seam used by probeEnvironment so tests can supply
-// a controlled environment without mutating the process environment.
+// envGetter 是 probeEnvironment 使用的注入接缝，使测试能在不改变进程环境
+// 的情况下提供受控环境。
 type envGetter func(string) string
 
-// lookPathFunc mirrors exec.LookPath so git detection can be faked in tests.
+// lookPathFunc 镜像 exec.LookPath，使 git 检测能在测试中被伪造。
 type lookPathFunc func(string) (string, error)
 
-// doctorKeyEnvVars are the environment variables whose presence doctor reports
-// in the "env" probe. The order is fixed so the probe's Value is deterministic.
+// doctorKeyEnvVars 是 doctor 在 "env" 探测中报告其存在性的环境变量。
+// 顺序固定，因此探测的 Value 是确定的。
 var doctorKeyEnvVars = []string{"PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP"}
 
-// doctorEnvGroups defines the "at least one of" groups that must be present for
-// the "env" probe to be healthy. A platform normally satisfies each group via a
-// different variable (HOME on POSIX, USERPROFILE on Windows), hence groups
-// instead of a flat required list.
+// doctorEnvGroups 定义了 "env" 探测健康时必须存在的 "至少其一" 分组。
+// 一个平台通常通过不同变量满足每组（POSIX 上是 HOME，Windows 上是
+// USERPROFILE），因此用分组而不是扁平的必需列表。
 var doctorEnvGroups = []struct {
 	vars []string
 	desc string
@@ -56,21 +53,20 @@ var doctorEnvGroups = []struct {
 	{vars: []string{"TMPDIR", "TEMP", "TMP"}, desc: "TMPDIR/TEMP/TMP"},
 }
 
-// ProbeEnvironment probes the local runtime and environment and returns a
-// stable, ordered slice of observations. It writes nothing to doctor's output
-// streams and does not mutate process state; it only reads runtime values, the
-// process environment and the git lookup.
+// ProbeEnvironment 探测本地运行时和环境，返回一个稳定、有序的观测切片。
+// 它不向 doctor 的输出流写入任何内容，也不改变进程状态；只读取运行时值、
+// 进程环境和 git 查找结果。
 func ProbeEnvironment() []ProbeResult {
 	return probeEnvironment(os.Getenv, exec.LookPath)
 }
 
-// probeEnvironment is the pure core behind ProbeEnvironment. Every external
-// input is injected, which makes the result fully deterministic under tests.
+// probeEnvironment 是 ProbeEnvironment 背后的纯核心。每一项外部输入都被注入，
+// 因此结果在测试中完全确定。
 func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 	probes := make([]ProbeResult, 0, 6)
 
-	// Go version and target platform are properties of the running binary, so
-	// they are always healthy; they are reported purely for context.
+	// Go 版本和目标平台是运行中二进制的属性，因此始终健康；
+	// 报告它们纯粹是为了提供上下文。
 	probes = append(probes, ProbeResult{
 		Name:   probeGoVersion,
 		Value:  runtime.Version(),
@@ -84,8 +80,8 @@ func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 		Detail: "GOOS/GOARCH",
 	})
 
-	// Shell: SHELL on POSIX shells, COMSPEC on Windows. We store the name (last
-	// path component) so the value stays short and stable across absolute paths.
+	// Shell：POSIX shell 上是 SHELL，Windows 上是 COMSPEC。我们存储名称
+	// （最后一段路径），使值保持简短，且不受绝对路径差异影响。
 	shellRaw := firstNonEmpty(env("SHELL"), env("COMSPEC"))
 	shellOK := shellRaw != ""
 	shellDetail := "shell detected"
@@ -99,7 +95,7 @@ func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 		Detail: shellDetail,
 	})
 
-	// Terminal: TERM on POSIX terminals, WT_SESSION inside Windows Terminal.
+	// 终端：POSIX 终端上是 TERM，Windows Terminal 内是 WT_SESSION。
 	term := env("TERM")
 	wtSession := env("WT_SESSION")
 	terminalValue := firstNonEmpty(term, wtSession)
@@ -115,8 +111,8 @@ func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 		Detail: terminalDetail,
 	})
 
-	// Git availability. Mirrors checkGit: missing git is a warning rather than
-	// a failure, so OK=false here never changes doctor's exit code.
+	// Git 可用性。与 checkGit 一致：缺少 git 是警告而非失败，
+	// 因此这里 OK=false 绝不会改变 doctor 的退出码。
 	gitPath, err := lookPath("git")
 	gitOK := err == nil
 	gitDetail := "git on PATH"
@@ -130,9 +126,8 @@ func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 		Detail: gitDetail,
 	})
 
-	// Key environment variable presence. "present" is reported as a stable,
-	// comma-joined list; "healthy" requires every group to have at least one
-	// member set.
+	// 关键环境变量的存在性。"present" 报告为一个稳定的逗号连接列表；
+	// "healthy" 要求每个分组至少设置了一个成员。
 	present := make([]string, 0, len(doctorKeyEnvVars))
 	for _, key := range doctorKeyEnvVars {
 		if isSet(env(key)) {
@@ -166,10 +161,9 @@ func probeEnvironment(env envGetter, lookPath lookPathFunc) []ProbeResult {
 	return probes
 }
 
-// shellName returns the last path component of a shell value. It splits on both
-// POSIX and Windows separators explicitly (rather than filepath.Base) so the
-// result is identical on every host, keeping probe output stable in
-// cross-platform tests. Slicing only at ASCII separators is rune-safe.
+// shellName 返回 shell 值的最后一段路径。它显式地同时按 POSIX 和 Windows
+// 分隔符切分（而不是用 filepath.Base），使结果在每台主机上都相同，从而在
+// 跨平台测试中保持探测输出稳定。只在 ASCII 分隔符处切分是 rune 安全的。
 func shellName(value string) string {
 	if i := strings.LastIndexAny(value, `/\`); i >= 0 {
 		return value[i+1:]
@@ -181,9 +175,8 @@ func isSet(value string) bool {
 	return strings.TrimSpace(value) != ""
 }
 
-// doctorAdvice turns unhealthy probe results into human-readable fix
-// suggestions. Output follows probe order, so it is deterministic; healthy
-// probes produce no advice.
+// doctorAdvice 把不健康的探测结果转换为人类可读的修复建议。
+// 输出遵循探测顺序，因此是确定的；健康的探测不产生建议。
 func doctorAdvice(probes []ProbeResult) []string {
 	var advice []string
 	for _, p := range probes {
@@ -206,10 +199,9 @@ func doctorAdvice(probes []ProbeResult) []string {
 	return advice
 }
 
-// writeDoctorEnvironment appends the structured environment section to doctor's
-// output. It is intentionally written last so every pre-existing doctor line
-// remains a byte-for-byte prefix of the new output. fmt's %-Ns padding counts
-// runes, so CJK values and details are never truncated mid-rune.
+// writeDoctorEnvironment 把结构化环境小节追加到 doctor 的输出。
+// 它有意最后写入，使每一条已有的 doctor 行都保持为新输出逐字节一致的前缀。
+// fmt 的 %-Ns 填充按 rune 计数，因此中文值和详情绝不会在 rune 中间被截断。
 func writeDoctorEnvironment(w io.Writer, probes []ProbeResult, advice []string) {
 	fmt.Fprintln(w, "\nenvironment:")
 	for _, p := range probes {

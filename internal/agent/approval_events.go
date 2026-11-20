@@ -6,39 +6,34 @@ import (
 	"unicode/utf8"
 )
 
-// Approval events are built on EventNotice (see events.go): the event-kind set
-// is owned by that file, so rather than add a new kind we reserve a stable text
-// prefix and carry a structured JSON payload in Event.Text. That keeps these
-// items on the ordinary agent stream, which means every transport — the
-// in-process Emit callback, --rpc and the native bridge (which only forwards
-// text deltas/notices) — delivers them without any protocol change.
+// 审批事件基于 EventNotice 构建（见 events.go）：事件种类集合由该文件掌管，
+// 因此这里不新增种类，而是保留一个稳定的文本前缀，并把结构化的 JSON 负载放进 Event.Text。
+// 这样这些条目仍走普通的 agent 流，意味着每一种传输方式——进程内的 Emit 回调、
+// --rpc 以及原生桥接（仅转发文本增量/通知）——都无需改动协议即可投递它们。
 //
-// Wire contract for the native bridge (and any other text-only consumer):
+// 供原生桥接（以及任何其他纯文本消费者）使用的线上契约：
 //
 //	approval:request  {"v":1,"tool":"<tool>","digest":"<hash>","id":"<id>"}
 //	approval:resolved {"v":1,"tool":"<tool>","digest":"","id":"<id>","granted":true|false}
 //
-// The prefix is followed immediately by a JSON object. "v" is the schema
-// version (currently 1). "id" correlates a resolved event back to its request
-// (callers normally pass the originating tool call id). "digest" is a stable
-// hash of the exact arguments and is always redacted/bounded. "granted" is
-// present only on resolved events. ParseApprovalEvent is the single decoder;
-// it returns ok=false for unrelated notices, bad prefixes and malformed
-// payloads so consumers can ignore everything else safely.
+// 前缀后面紧跟一个 JSON 对象。"v" 是 schema 版本（当前为 1）。"id" 用于把已解决事件
+// 与其请求关联起来（调用方通常传入发起该请求的工具调用 id）。"digest" 是对确切参数的
+// 稳定哈希，且始终经过脱敏/限长。"granted" 只出现在已解决事件中。ParseApprovalEvent
+// 是唯一的解码器；对无关通知、错误前缀和格式错误的负载它会返回 ok=false，
+// 这样消费者就能安全地忽略其他一切内容。
 const (
 	approvalRequestPrefix  = "approval:request "
 	approvalResolvedPrefix = "approval:resolved "
 	approvalWireVersion    = 1
 
-	// approvalFieldMaxRunes caps caller-supplied tool names, argument digests
-	// and correlation ids. A hex sha256 digest is 64 runes, so honest inputs
-	// pass through unchanged; the cap only bites on malformed/hostile values.
+	// approvalFieldMaxRunes 限制调用方提供的工具名、参数摘要和关联 id 的长度。
+	// 十六进制 sha256 摘要为 64 个 rune，因此正常输入会原样通过；
+	// 该上限只对畸形/恶意的值起作用。
 	approvalFieldMaxRunes = 128
 )
 
-// approvalWire is the JSON payload shared by both event constructors and the
-// parser. Granted is a pointer so the decoder can tell "denied" (false) from a
-// missing field (nil => malformed).
+// approvalWire 是两个事件构造函数和解析器共用的 JSON 负载。
+// Granted 是指针，这样解码器就能区分"拒绝"（false）与字段缺失（nil => 格式错误）。
 type approvalWire struct {
 	V       int    `json:"v"`
 	Tool    string `json:"tool"`
@@ -47,13 +42,12 @@ type approvalWire struct {
 	Granted *bool  `json:"granted,omitempty"`
 }
 
-// ApprovalRequestedEvent builds a notice announcing that approval is being
-// asked for tool. argsDigest should be a stable hash of the exact arguments
-// (e.g. a hex sha256); it is defensively bounded and stripped of control bytes
-// so a hostile value cannot inject an extra transcript line. id correlates the
-// later resolved event back to this request (normally the tool call id).
+// ApprovalRequestedEvent 构造一条通知，宣告正在请求对 tool 的审批。
+// argsDigest 应当是对确切参数的稳定哈希（例如十六进制 sha256）；它会被防御性地限长
+// 并剥离控制字节，因此恶意值无法注入额外的一行记录。id 用于把之后的已解决事件
+// 关联回本次请求（通常是工具调用 id）。
 func ApprovalRequestedEvent(tool, argsDigest, id string) Event {
-	// Marshaling a struct of only strings/bools/ints cannot fail.
+	// 对仅含字符串/布尔/整数的结构体做序列化不会失败。
 	payload, _ := json.Marshal(approvalWire{
 		V:      approvalWireVersion,
 		Tool:   redactApprovalField(tool),
@@ -63,11 +57,10 @@ func ApprovalRequestedEvent(tool, argsDigest, id string) Event {
 	return Event{Kind: EventNotice, Text: approvalRequestPrefix + string(payload)}
 }
 
-// ApprovalResolvedEvent builds a notice recording the outcome of the approval
-// request identified by id. tool and id must match the request event so a
-// consumer can pair the two into one transcript item.
+// ApprovalResolvedEvent 构造一条通知，记录由 id 标识的审批请求的结果。
+// tool 和 id 必须与请求事件一致，这样消费者才能把两者配成一条记录项。
 func ApprovalResolvedEvent(tool, id string, granted bool) Event {
-	// Marshaling a struct of only strings/bools/ints cannot fail.
+	// 对仅含字符串/布尔/整数的结构体做序列化不会失败。
 	payload, _ := json.Marshal(approvalWire{
 		V:       approvalWireVersion,
 		Tool:    redactApprovalField(tool),
@@ -77,10 +70,10 @@ func ApprovalResolvedEvent(tool, id string, granted bool) Event {
 	return Event{Kind: EventNotice, Text: approvalResolvedPrefix + string(payload)}
 }
 
-// ParseApprovalEvent decodes an event produced by ApprovalRequestedEvent or
-// ApprovalResolvedEvent. kind is "request" or "resolved"; granted is only
-// meaningful for "resolved". ok is false for any other event kind, an unknown
-// prefix or a malformed payload, so a consumer can ignore unrelated notices.
+// ParseApprovalEvent 解码由 ApprovalRequestedEvent 或 ApprovalResolvedEvent 产生的事件。
+// kind 为 "request" 或 "resolved"；granted 仅对 "resolved" 有意义。
+// 对任何其他事件种类、未知前缀或格式错误的负载都会返回 ok=false，
+// 这样消费者就能忽略无关通知。
 func ParseApprovalEvent(e Event) (kind, tool, id string, granted bool, ok bool) {
 	if e.Kind != EventNotice {
 		return "", "", "", false, false
@@ -109,11 +102,10 @@ func ParseApprovalEvent(e Event) (kind, tool, id string, granted bool, ok bool) 
 	}
 }
 
-// redactApprovalField drops control bytes and ANSI escape sequences so a value
-// can never inject an extra transcript line or escape codes, then truncates on
-// a rune boundary with an ellipsis marker so the total stays within
-// approvalFieldMaxRunes. (The wire payload is JSON-encoded, so newlines are
-// already escaped; stripping is defence in depth for text-only consumers.)
+// redactApprovalField 丢弃控制字节和 ANSI 转义序列，使一个值永远无法注入额外的
+// 记录行或转义码，然后在 rune 边界处用省略号标记截断，使总长度保持在
+// approvalFieldMaxRunes 之内。（线上负载是 JSON 编码的，换行已被转义；
+// 剥离控制字符对纯文本消费者而言是纵深防御。）
 func redactApprovalField(s string) string {
 	s = stripApprovalControls(s)
 	if utf8.RuneCountInString(s) <= approvalFieldMaxRunes {
@@ -122,20 +114,20 @@ func redactApprovalField(s string) string {
 	return truncateApprovalRunes(s, approvalFieldMaxRunes-1) + "…"
 }
 
-// stripApprovalControls removes ANSI CSI/OSC/bare-ESC sequences and control
-// bytes, keeping printable text. It never emits a newline or NUL.
+// stripApprovalControls 移除 ANSI CSI/OSC/裸 ESC 序列及控制字节，保留可打印文本。
+// 它绝不会输出换行符或 NUL。
 func stripApprovalControls(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for i := 0; i < len(s); {
 		c := s[i]
-		if c == 0x1b { // ESC: consume the whole escape sequence.
+		if c == 0x1b { // ESC：消耗整个转义序列。
 			i++
 			if i >= len(s) {
 				break
 			}
 			switch s[i] {
-			case '[': // CSI: through a final byte in 0x40..0x7e.
+			case '[': // CSI：直到 0x40..0x7e 范围内的终止字节。
 				i++
 				for i < len(s) {
 					last := s[i]
@@ -144,7 +136,7 @@ func stripApprovalControls(s string) string {
 						break
 					}
 				}
-			case ']': // OSC: through BEL (0x07) or ST (ESC '\').
+			case ']': // OSC：直到 BEL（0x07）或 ST（ESC '\'）。
 				i++
 				for i < len(s) {
 					if s[i] == 0x07 {
@@ -157,12 +149,12 @@ func stripApprovalControls(s string) string {
 					}
 					i++
 				}
-			default: // Other escapes: drop ESC and this one byte.
+			default: // 其他转义：丢弃 ESC 及这一个字节。
 				i++
 			}
 			continue
 		}
-		if c < 0x20 || c == 0x7f { // ASCII control byte, including \n and \r.
+		if c < 0x20 || c == 0x7f { // ASCII 控制字节，包括 \n 和 \r。
 			i++
 			continue
 		}
@@ -172,7 +164,7 @@ func stripApprovalControls(s string) string {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		if r >= 0x80 && r <= 0x9f { // C1 control byte encoded in UTF-8.
+		if r >= 0x80 && r <= 0x9f { // 以 UTF-8 编码的 C1 控制字节。
 			i += size
 			continue
 		}
@@ -182,8 +174,7 @@ func stripApprovalControls(s string) string {
 	return b.String()
 }
 
-// truncateApprovalRunes returns the first max runes of s, never splitting a
-// UTF-8 sequence.
+// truncateApprovalRunes 返回 s 的前 max 个 rune，绝不会切断 UTF-8 序列。
 func truncateApprovalRunes(s string, max int) string {
 	if max <= 0 {
 		return ""

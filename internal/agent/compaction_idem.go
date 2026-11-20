@@ -11,25 +11,23 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// canonicalCompactMessage is the byte-stable projection of an llm.Message used
-// only for prefix hashing. It deliberately carries just the fields that change
-// the *meaning* of the conversation.
+// canonicalCompactMessage 是 llm.Message 的字节稳定投影，仅用于前缀哈希。
+// 它刻意只携带会改变对话*含义*的字段。
 //
-// Excluded on purpose because they vary per round-trip and are documented as
-// transcript/wire metadata on llm.Message:
-//   - Reasoning, Usage, FinishReason, CacheControl
-//   - ToolCall.ID and Message.ToolCallID (provider-issued ids, not content)
+// 以下字段被有意排除，因为它们每次往返都会变化，且在 llm.Message 中被标记为
+// 记录/线上元数据：
+//   - Reasoning、Usage、FinishReason、CacheControl
+//   - ToolCall.ID 和 Message.ToolCallID（由提供方签发的 id，不是内容）
 //
-// Keeping the projection in a fixed-layout struct (rather than a map) gives a
-// deterministic field order under encoding/json, so the resulting hash is
-// stable across processes and Go versions.
+// 把投影保存在固定布局的结构体（而非 map）中，可在 encoding/json 下获得确定的字段顺序，
+// 因此生成的哈希在不同进程和 Go 版本之间都是稳定的。
 type canonicalCompactMessage struct {
 	Role    string                 `json:"role"`
 	Content string                 `json:"content"`
 	Tools   []canonicalCompactTool `json:"tools"`
 }
 
-// canonicalCompactTool keeps the tool action itself but drops its provider id.
+// canonicalCompactTool 保留工具动作本身，但去掉其提供方 id。
 type canonicalCompactTool struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
@@ -69,35 +67,33 @@ func SourcePrefixHash(messages []llm.Message) string {
 
 	data, err := json.Marshal(canonical)
 	if err != nil {
-		// The canonical types contain only strings and slices, so this cannot
-		// fail in practice; return the zero value rather than panicking.
+		// 规范化类型只包含字符串和切片，因此实际上不会失败；
+		// 这里返回零值而不是 panic。
 		return ""
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// summaryCacheEntry is one finished summary held by SummaryCache.
+// summaryCacheEntry 是 SummaryCache 持有的一条已完成摘要。
 type summaryCacheEntry struct {
 	prefixHash string
 	summary    string
 }
 
-// SummaryCache stores *finished* summaries keyed by SourcePrefixHash. It is
-// safe for concurrent use. At capacity it evicts the oldest inserted entry
-// (FIFO by first insertion); updating an existing key keeps its original
-// position. Get does not reorder, so a hot entry can still age out.
+// SummaryCache 按 SourcePrefixHash 存储*已完成*的摘要。它可安全并发使用。
+// 达到容量时，会淘汰最早插入的条目（按首次插入的 FIFO 顺序）；更新已有键会保留其原始位置。
+// Get 不会调整顺序，因此热点条目仍可能被淘汰。
 //
-// The zero value is ready to use and defaults to defaultSummaryCacheCapacity.
+// 零值即可使用，默认容量为 defaultSummaryCacheCapacity。
 type SummaryCache struct {
 	mu       sync.Mutex
 	capacity int
-	order    *list.List               // front = oldest insertion, back = newest
-	index    map[string]*list.Element // prefixHash -> element
+	order    *list.List               // 前端 = 最早插入，后端 = 最新
+	index    map[string]*list.Element // prefixHash -> 元素
 }
 
-// NewSummaryCache returns a cache with an explicit capacity. A non-positive
-// capacity falls back to defaultSummaryCacheCapacity.
+// NewSummaryCache 返回具有指定容量的缓存。非正容量会回退到 defaultSummaryCacheCapacity。
 func NewSummaryCache(capacity int) *SummaryCache {
 	c := &SummaryCache{capacity: capacity}
 	c.initLocked()
@@ -116,7 +112,7 @@ func (c *SummaryCache) initLocked() {
 	}
 }
 
-// Get returns the finished summary stored for prefixHash, if any.
+// Get 返回为 prefixHash 存储的已完成摘要（如果有）。
 func (c *SummaryCache) Get(prefixHash string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -128,9 +124,9 @@ func (c *SummaryCache) Get(prefixHash string) (string, bool) {
 	return element.Value.(*summaryCacheEntry).summary, true
 }
 
-// Put stores a finished summary for prefixHash. An empty summary is rejected:
-// it is the zero/"not finished yet" value, and a cache must never hold a
-// half-built summary that a later caller could mistake for a real result.
+// Put 为 prefixHash 存储一条已完成的摘要。空摘要会被拒绝：
+// 它是零值/"尚未完成"的标记，缓存绝不能持有一条半成品摘要，
+// 以免之后的调用方把它误当成真实结果。
 func (c *SummaryCache) Put(prefixHash, summary string) {
 	if summary == "" {
 		return

@@ -70,6 +70,9 @@ type responsesTool struct {
 }
 
 type responsesTextItem struct {
+	// 文本消息项必须携带 type:"message"：Responses API 在 content 使用带类型的分段
+	// （input_text / output_text）时依赖这个判别字段识别消息项，缺失会被服务端拒绝。
+	Type    string          `json:"type"`
 	Role    string          `json:"role"`
 	Content []responsesPart `json:"content"`
 }
@@ -205,12 +208,14 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 				continue
 			}
 			req.Input = append(req.Input, responsesTextItem{
+				Type:    "message",
 				Role:    "user",
 				Content: []responsesPart{{Type: "input_text", Text: message.Content}},
 			})
 		case "assistant":
 			if strings.TrimSpace(message.Content) != "" {
 				req.Input = append(req.Input, responsesTextItem{
+					Type:    "message",
 					Role:    "assistant",
 					Content: []responsesPart{{Type: "output_text", Text: message.Content}},
 				})
@@ -241,6 +246,7 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 
 	if len(req.Input) == 0 {
 		req.Input = append(req.Input, responsesTextItem{
+			Type:    "message",
 			Role:    "user",
 			Content: []responsesPart{{Type: "input_text", Text: "Continue."}},
 		})

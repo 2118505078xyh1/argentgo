@@ -1,87 +1,81 @@
 ---
-name: General issue
-about: Report a bug, propose a feature, or flag a documentation problem
+name: 通用 Issue
+about: 报告 bug、提议功能，或指出文档问题
 title: ''
 labels: ''
 assignees: ''
 ---
 
 <!--
-Pick the section that matches your issue and fill it in. Delete the others.
-Redact secrets, tokens, real e-mail addresses and local/private paths before
-posting. For questions and discussion, use the Discussions tab instead.
+选择与你问题相符的章节填写，删掉其余章节。
+发布前请把密钥、token、真实邮箱地址和本地/私有路径脱敏。
+提问或讨论请改用 Discussions 页面。
 -->
 
-## What kind of issue is this?
+## 这是哪类 Issue？
 
-- [ ] **Bug** — something does not work as expected
-- [ ] **Feature request** — an idea or improvement
-- [ ] **Documentation / question** — a docs problem or a usage question
+- [ ] **Bug** —— 某个行为没有按预期工作
+- [ ] **Feature request** —— 一个想法或改进建议
+- [ ] **Documentation / question** —— 文档问题或用法疑问
 
 ---
 
-## Bug report
+## Bug 报告
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**描述 bug**
+清晰简洁地描述这个 bug 是什么。
 
-**To reproduce**
-Steps to reproduce the behavior:
-1. Run `argent ...` / open the native window and ...
+**复现步骤**
+复现该行为的步骤：
+1. 运行 `argent ...` / 打开原生窗口，然后 ...
 2. ...
-3. See error
+3. 看到错误
 
-**Expected behavior**
-What you expected to happen.
+**期望行为**
+你原本期望发生什么。
 
-**Actual behavior**
-What actually happened. Include relevant log lines (redact any secrets, tokens,
-emails or local paths).
-
----
-
-## Feature request
-
-**Problem**
-What problem does this solve? What are you trying to do that is hard today?
-
-**Proposed behavior**
-Describe the behavior you would like. If it is a UI change in the native
-client, mention where it appears (sidebar / transcript / composer / approval).
-
-**Why it fits argentgo**
-argentgo is a local, offline-first, stdlib-only Go harness shipped as a single
-Windows binary. Explain how the idea fits those constraints. Ideas requiring a
-third-party core dependency, cgo, or a hosted service are likely out of scope.
-
-**Alternatives considered**
-Other approaches you thought about.
+**实际行为**
+实际发生了什么。附上相关日志行（把任何密钥、token、邮箱或本地路径都脱敏）。
 
 ---
 
-## Documentation / question
+## 功能提议
 
-**What is unclear or wrong**
-Point to the file or the command / UI step, and describe the confusion.
+**问题**
+这解决了什么问题？你目前想做什么但很难做到？
 
-**What you expected to find**
-What you were looking for.
+**期望的行为**
+描述你想要的行为。如果是原生客户端中的 UI 改动，请说明它出现在哪里（侧栏 / transcript / 输入框 / 审批）。
 
-**Suggested improvement** (optional)
-How you would word it or where you would add it.
+**为什么适合 argentgo**
+argentgo 是一个本地、离线优先、只用标准库的 Go 框架，以单个 Windows 二进制交付。请说明这个想法如何契合这些约束。需要第三方核心依赖、cgo 或托管服务的想法很可能超出范围。
+
+**考虑过的替代方案**
+你想到过的其他做法。
 
 ---
 
-## Environment (bugs and docs issues)
+## 文档 / 问题
 
-- argentgo version (`argent --version`):
-- OS / Windows version:
-- Go version (if building from source):
-- Frontend: native MyGo window / CLI / TUI / `--rpc`:
-- Where (docs issues): README / docs/ / CLI help / native window:
+**哪里不清楚或有误**
+指出文件或命令 / UI 步骤，并描述你的疑惑。
 
-## Additional context
+**你期望找到什么**
+你当时在找什么。
 
-Anything else that may help — e.g. whether a session file was left open or a
-checkpoint exists; links, examples from other tools, or screenshots (no personal
-data).
+**建议的改进**（可选）
+你会怎么写，或你会把它加在哪里。
+
+---
+
+## 环境（bug 和文档问题）
+
+- argentgo 版本（`argent --version`）：
+- 操作系统 / Windows 版本：
+- Go 版本（如果从源码构建）：
+- 前端：原生 MyGo 窗口 / CLI / TUI / `--rpc`：
+- 位置（文档问题）：README / docs/ / CLI 帮助 / 原生窗口：
+
+## 补充信息
+
+任何其他可能有帮助的内容——例如是否留有打开的会话文件或 checkpoint；链接、其他工具的示例，或截图（不含个人数据）。

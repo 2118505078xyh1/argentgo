@@ -10,7 +10,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// runSkills implements `skills [--json] [-C root]`.
+// runSkills 实现 `skills [--json] [-C root]`。
 func runSkills(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {

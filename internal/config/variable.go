@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// WarnFunc reports a non-fatal problem (a missing environment variable or an
-// unreadable file reference). A nil WarnFunc discards warnings.
+// WarnFunc 报告非致命问题（缺失的环境变量或
+// 不可读的文件引用）。nil WarnFunc 会丢弃警告。
 type WarnFunc func(format string, args ...any)
 
 var (
@@ -17,27 +17,27 @@ var (
 	fileRefRe = regexp.MustCompile(`\{file:[^}]+\}`)
 )
 
-// Substitute applies {env:VAR} and {file:path} references to raw config text.
-// Relative {file:} paths resolve against configDir (the config file's
-// directory). Missing references substitute an empty string and invoke warn.
+// Substitute 把 {env:VAR} 和 {file:path} 引用应用到原始配置文本。
+// 相对的 {file:} 路径基于 configDir（配置文件所在目录）
+// 解析。缺失的引用替换为空字符串并调用 warn。
 //
-// References written inside JSONC comments (both // and /* */) are left
-// untouched: they are documentation, not settings. Besides avoiding spurious
-// "variable not set" warnings, this matters for correctness — a substituted
-// env/file value containing "*/" would otherwise close a surrounding block
-// comment early and corrupt the rest of the JSONC document.
+// 写在 JSONC 注释中的引用（包括 // 和 /* */）保持
+// 不变：它们是文档，而非设置。除了避免虚假的
+// "变量未设置"警告，这对正确性也很重要——替换进来的
+// env/file 值若含 "*/"，否则会提前闭合块注释，
+// 破坏 JSONC 文档的其余部分。
 //
-// Environment values are substituted verbatim by default so configs that
-// parse today keep their meaning. The document is retried with JSON-string
-// escaping applied to env values when the verbatim result is malformed JSON
-// (a quote or control byte) OR when an env value contains a character that can
-// stay *syntactically* valid while silently changing the value: a backslash
-// (e.g. "\t" in C:\temp decodes as a tab), or a double quote inserted inside a
-// JSON string. A quote can close the surrounding string early and inject extra
-// JSON structure — e.g. an apiKey of `a", "role": "admin` would otherwise
-// decode as "a" plus a rogue "role" key while the document stays valid JSON.
-// References outside a string are intentionally left verbatim: that is how a
-// config may inject raw JSON (numbers, arrays or objects) from the environment.
+// 环境变量值默认原样替换，
+// 使当前能解析的配置保持原义。当原样替换的结果不是合法 JSON
+// （含引号或控制字节），或 env 值含有能在*语法上*保持合法、
+// 却悄悄改变取值的字符时，会用 JSON 字符串转义重试：
+// 例如反斜杠（C:\temp 中的 "\t" 会解码为制表符），或插入 JSON 字符串
+// 内部的双引号。引号可能提前闭合字符串并注入额外的 JSON 结构——
+// 例如 apiKey 为 `a", "role": "admin` 时，会在文档仍是合法 JSON
+// 的情况下被解码为 "a" 加上恶意的 "role" 键。
+// 字符串之外的引用有意保持原样：
+// 配置正是通过它从环境注入原始 JSON
+// （数字、数组或对象）。
 func Substitute(text, configDir string, env func(string) string, warn WarnFunc) string {
 	if env == nil {
 		env = func(string) string { return "" }
@@ -51,20 +51,20 @@ func Substitute(text, configDir string, env func(string) string, warn WarnFunc) 
 	if !strings.Contains(text, "{env:") || (isJSONConfig(raw) && !needsEscape) {
 		return raw
 	}
-	// The verbatim pass above has already warned about every missing reference.
-	// The retry visits the same references, so passing warn again would report
-	// each one twice (a backslash, or a quote inside a string, forces this retry).
-	// Escape-only, warning-free substitution keeps the one-warning-per-event
-	// contract while still producing a value-preserving document.
+	// 上面的原样替换已经对每个缺失的引用发出过警告。
+	// 重试会访问同样的引用，若再次传入 warn 就会把
+	// 每一个都报告两次（反斜杠或字符串内的引号会触发重试）。
+	// 只做转义、不重复警告的替换，既保持"每事件一次警告"的
+	// 约定，又能产出保留原值的文档。
 	quiet := func(string, ...any) {}
 	escapedEnvText, _ := replaceEnv(text, env, true, quiet)
 	return replaceFiles(escapedEnvText, configDir, env, quiet)
 }
 
-// replaceEnv substitutes {env:VAR} references. The second result reports
-// whether any substituted (non-comment) value needs JSON-string escaping to
-// preserve its meaning (a backslash anywhere, or a quote inside a string),
-// which the caller uses to decide whether to retry with escaping.
+// replaceEnv 替换 {env:VAR} 引用。第二个返回值报告
+// 是否有被替换的（非注释）值需要 JSON 字符串转义以
+// 保留其含义（任意位置的反斜杠，或字符串内的引号），
+// 调用方据此决定是否需要带转义重试。
 func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc) (string, bool) {
 	var out strings.Builder
 	out.Grow(len(text))
@@ -84,21 +84,21 @@ func replaceEnv(text string, env func(string) string, escape bool, warn WarnFunc
 		if value == "" {
 			warn("config: environment variable %q referenced in config is not set", name)
 		}
-		// A backslash can turn a valid JSON escape into a different value
-		// (C:\temp -> C:<TAB>), and a quote inside a JSON string can close that
-		// string early and inject structure. Both are invisible to a pure
-		// "is the result valid JSON?" check, so they force the escaping retry.
-		// A quote outside a string is left alone: injecting raw JSON there is
-		// intentional.
+		// 反斜杠能把合法的 JSON 转义变成不同的值
+		// （C:\temp -> C:<TAB>），JSON 字符串内的引号能提前闭合该
+		// 字符串并注入结构。纯"结果是否是合法 JSON？"的检查对此
+		// 视而不见，因此它们会触发转义重试。
+		// 字符串之外的引号保持不动：在那里注入原始 JSON 是
+		// 有意为之。
 		if strings.ContainsRune(value, '\\') ||
 			(strings.ContainsRune(value, '"') && inJSONCString(text, start)) {
 			needsEscape = true
 		}
 		if escape && inJSONCString(text, start) {
-			// Only references that landed inside a JSON string are escaped. A
-			// reference used as raw JSON (a number, array or object) stays
-			// verbatim, otherwise an escaping retry triggered by an unrelated
-			// string value would corrupt it.
+			// 只有落在 JSON 字符串内的引用才被转义。作为原始 JSON
+			// 使用的引用（数字、数组或对象）保持
+			// 原样，否则由无关字符串值触发的转义重试会破坏它。
+			// （承接上文）否则由无关字符串值触发的转义重试会破坏它。
 			out.WriteString(jsonStringBody(value))
 		} else {
 			out.WriteString(value)
@@ -117,9 +117,9 @@ func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc
 		cursor = end
 		token := text[start:end]
 
-		// A reference written inside a // or /* */ comment is not a real
-		// reference; leaving it intact also keeps its value from breaking out
-		// of a block comment when the referenced file contains "*/".
+		// 写在 // 或 /* */ 注释中的引用不是真正的
+		// 引用；保持其原样也能避免当被引用文件含 "*/" 时，其值
+		// 从块注释中逃逸出来。
 		if inJSONCComment(text, start) {
 			out.WriteString(token)
 			continue
@@ -131,19 +131,19 @@ func replaceFiles(text, configDir string, env func(string) string, warn WarnFunc
 			warn("config: file reference %q (%s) could not be read: %v", token, resolved, err)
 			continue
 		}
-		// File contents are always escaped: a secret may contain quotes, braces
-		// or newlines that must not break the surrounding JSON string.
+		// 文件内容总是被转义：密钥可能含引号、花括号
+		// 或换行，这些都不能破坏外围的 JSON 字符串。
 		out.WriteString(jsonStringBody(strings.TrimSpace(string(data))))
 	}
 	out.WriteString(text[cursor:])
 	return out.String()
 }
 
-// inJSONCComment reports whether the byte at offset lies inside a // line
-// comment or a /* */ block comment. It mirrors StripJSONC's scanner: quoted
-// strings (including escaped quotes and backslashes) are transparent, so a
-// "{file:...}" written inside a JSON string value is never mistaken for a
-// commented-out reference.
+// inJSONCComment 报告 offset 处的字节是否位于 // 行注释
+// 或 /* */ 块注释内。它模仿 StripJSONC 的扫描器：
+// 带引号的字符串（包括转义的引号与反斜杠）是透明的，
+// 因此写在 JSON 字符串值里的 "{file:...}"
+// 永远不会被误判为被注释掉的引用。
 func inJSONCComment(text string, offset int) bool {
 	if offset > len(text) {
 		offset = len(text)
@@ -188,11 +188,11 @@ func inJSONCComment(text string, offset int) bool {
 	return line || block
 }
 
-// inJSONCString reports whether the byte at offset lies inside a quoted JSON
-// string. It mirrors inJSONCComment's scanner so a quote in a // or /* */
-// comment never opens a string, and an escaped quote inside a string never
-// closes one. Substitute uses it to decide whether a double quote in an env
-// value needs JSON-string escaping or is a deliberate raw-JSON injection.
+// inJSONCString 报告 offset 处的字节是否位于带引号的 JSON
+// 字符串内。它模仿 inJSONCComment 的扫描器，使 // 或 /* */ 注释里的引号
+// 不会开启字符串，字符串内转义的引号也不会
+// 闭合它。Substitute 用它判断 env 值中的双引号
+// 是需要 JSON 字符串转义，还是有意的原始 JSON 注入。
 func inJSONCString(text string, offset int) bool {
 	if offset > len(text) {
 		offset = len(text)
@@ -251,9 +251,9 @@ func resolveFileRef(ref, configDir string, env func(string) string) string {
 	return filepath.Join(configDir, ref)
 }
 
-// jsonStringBody returns value escaped for inclusion inside a JSON string,
-// without the surrounding double quotes (the equivalent of
-// JSON.stringify(value).slice(1, -1) in the reference implementation).
+// jsonStringBody 返回转义后的 value，用于放入 JSON 字符串内部，
+// 不含外围双引号（相当于参考实现中的
+// JSON.stringify(value).slice(1, -1)）。
 func jsonStringBody(value string) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {

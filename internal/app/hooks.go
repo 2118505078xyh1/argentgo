@@ -327,6 +327,9 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (string, error
 	if post.Message != "" {
 		out = appendHookNote(out, post.Message)
 	}
+	// 可选的编辑后诊断：总开关默认关闭，关闭时零调用；仅在写类工具成功返回后
+	// 按 mutationPaths 报告的路径拉取 LSP 错误诊断并附加，绝不替换原输出。
+	h.appendEditDiagnostics(ctx, name, args, &out)
 	// After a successful mutating tool call, notify subscribers of the files
 	// that actually changed. This is opt-in end to end: without a trusted hook
 	// document subscribing to FileChanged the bridge dispatch is a no-op, and

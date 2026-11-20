@@ -15,6 +15,13 @@ func GlobMatch(pattern, path string) bool {
 	if pat == "" {
 		return false
 	}
+	// 以 `/` 结尾的模式表示“该目录及其下的全部内容”。若不加处理，字面量模式会在
+	// 比较时再拼出一个 `/`（"src/" + "/" = "src//"），导致 "src/file" 永远匹配不上；
+	// 通配符模式则因为末尾多出一个空段而漏掉目录内的文件。统一补成 `/**`，让两类
+	// 模式都能匹配目录本身以及它下面的任意深度路径。
+	if strings.HasSuffix(pat, "/") {
+		pat = strings.TrimRight(pat, "/") + "/**"
+	}
 	if !strings.ContainsAny(pat, "*?[") {
 		// Prefix semantics, checked on the whole path and on every tail.
 		for _, tail := range tails(text) {

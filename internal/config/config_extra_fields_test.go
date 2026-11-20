@@ -36,7 +36,7 @@ func TestStopTokenIDsDefaultsEmpty(t *testing.T) {
 		t.Fatalf("absent stopTokenIds = %v, want empty", cfg.StopTokenIDs)
 	}
 
-	// A wrongly-typed value is ignored rather than failing config load.
+	// 类型错误的值会被忽略，而不是让配置加载失败。
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
 		"stopTokenIds": "151643",
 	})
@@ -59,7 +59,7 @@ func TestStopTokenIDsLayeredOverride(t *testing.T) {
 	})
 	env := envFunc(map[string]string{"HOME": home})
 
-	// Arrays are replaced, not concatenated: the higher layer wins wholesale.
+	// 数组被替换而非拼接：更高层整体胜出。
 	cfg, err := Load(cwd, env)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -68,7 +68,7 @@ func TestStopTokenIDsLayeredOverride(t *testing.T) {
 		t.Fatalf("layered StopTokenIDs = %v, want %v", cfg.StopTokenIDs, want)
 	}
 
-	// Flag overrides sit above every file layer and accept a typed slice.
+	// flag 覆盖位于所有文件层之上，并接受带类型的切片。
 	cfg, err = LoadWithOverrides(cwd, env, map[string]any{
 		"stopTokenIds": []int64{7, 8},
 	})

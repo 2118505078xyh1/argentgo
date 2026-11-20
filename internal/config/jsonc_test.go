@@ -75,7 +75,7 @@ func TestStripJSONCEscapedQuoteDoesNotCloseString(t *testing.T) {
 	if err := json.Unmarshal([]byte(cleaned), &got); err != nil {
 		t.Fatalf("cleaned JSON is invalid: %v\n%s", err, cleaned)
 	}
-	// The value is a backslash followed by a quote, then // inside the string.
+	// 该值是一个反斜杠后跟一个引号，然后是字符串内的 //。
 	if got["text"] != `a\"//still string` {
 		t.Errorf("text = %q, want %q", got["text"], `a\"//still string`)
 	}

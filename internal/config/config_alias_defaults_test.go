@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// Compiled defaults must not shadow an alias spelling written in a config
-// file. defaults() used to inject canonical keys (model, baseURL, ...) at the
-// base layer; mergeTree then kept both spellings and decode read the canonical
-// default first, silently discarding the file value. Diagnostics even reported
-// a bogus "conflicting values ... using <canonical>" for the pair.
+// 编译期默认值不得遮蔽写在配置文件中的别名拼写。
+// defaults() 过去会在基础层注入规范键（model、baseURL 等）；
+// mergeTree 随后保留两种拼写，decode 先读规范
+// 默认值，从而悄悄丢弃文件中的值。诊断甚至会针对这对值报告
+// 虚假的 "conflicting values ... using <canonical>"。
 func TestAliasedFileKeysWinOverCompiledDefaults(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	store := filepath.Join(cwd, "store")
@@ -44,7 +44,7 @@ func TestAliasedFileKeysWinOverCompiledDefaults(t *testing.T) {
 	if cfg.StorageDir != store {
 		t.Errorf("storageDir = %q, want the file alias value", cfg.StorageDir)
 	}
-	// A single spelling is not a conflict; the default is no longer a key.
+	// 单一拼写不算冲突；默认值不再是一个键。
 	for _, d := range cfg.Diagnostics() {
 		if d.Kind == DiagnosticConflict {
 			t.Errorf("unexpected conflict diagnostic: %+v", d)
@@ -55,8 +55,8 @@ func TestAliasedFileKeysWinOverCompiledDefaults(t *testing.T) {
 	}
 }
 
-// Both accepted spellings still work for every aliased field, and the
-// canonical spelling keeps its documented preference inside one layer.
+// 两种可接受的拼写对每个带别名的字段仍然有效，
+// 且规范拼写在同一层内保持文档记录的优先级。
 func TestAliasedDefaultsAcceptBothSpellings(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -122,9 +122,9 @@ func TestAliasedDefaultsAcceptBothSpellings(t *testing.T) {
 	}
 }
 
-// Removing the compiled defaults must not mask an explicitly ill-typed value:
-// the setting is still present, so decode yields the zero value and diagnostics
-// report the bad type instead of quietly substituting the compiled default.
+// 移除编译期默认值不得掩盖显式类型错误的值：
+// 该设置仍然存在，因此 decode 得到零值，诊断
+// 报告错误类型，而不是悄悄替换为编译期默认值。
 func TestAliasedIllTypedValueDoesNotFallBackToDefault(t *testing.T) {
 	t.Run("modelName not a string", func(t *testing.T) {
 		home, cwd := t.TempDir(), t.TempDir()
@@ -172,11 +172,11 @@ func TestAliasedIllTypedValueDoesNotFallBackToDefault(t *testing.T) {
 	})
 }
 
-// verify_timeout_ms is an accepted alias of verifyTimeoutMS, so a file using
-// it must win over the compiled default. defaults() still injected the
-// canonical key for this setting while every other aliased setting had its
-// default moved into decode; mergeTree kept both spellings and intField read
-// the canonical default first, silently discarding the file value.
+// verify_timeout_ms 是 verifyTimeoutMS 可接受的别名，因此使用它的
+// 文件必须胜过编译期默认值。defaults() 仍会为该设置注入
+// 规范键，而其他带别名的设置都已把默认值移入 decode；
+// mergeTree 保留两种拼写，intField 先读
+// 规范默认值，从而悄悄丢弃文件中的值。
 func TestVerifyTimeoutAliasBeatsCompiledDefault(t *testing.T) {
 	home := t.TempDir()
 	cases := []struct {
@@ -206,8 +206,8 @@ func TestVerifyTimeoutAliasBeatsCompiledDefault(t *testing.T) {
 	}
 }
 
-// The alias must also reach fail-closed validation; a negative value hidden
-// behind the canonical default would otherwise load with a bogus 30000 timeout.
+// 别名也必须进入 fail-closed 校验；隐藏在规范默认值之后的负值
+// 否则会以虚假的 30000 超时加载成功。
 func TestVerifyTimeoutAliasFailClosed(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{"verify_timeout_ms": -1})
@@ -216,8 +216,8 @@ func TestVerifyTimeoutAliasFailClosed(t *testing.T) {
 	}
 }
 
-// Env and flag layers write canonical keys; they must still beat an alias
-// spelling from a file now that the default canonical key is absent.
+// env 层和 flag 层写入规范键；既然默认的规范键已不存在，
+// 它们仍须胜过文件中的别名拼写。
 func TestEnvAndOverrideBeatFileAlias(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{

@@ -8,56 +8,47 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// No-progress detection is a pure, state-free complement to the event-based
-// StuckDetector and the dispatch repeat guard. It answers one narrow question:
-// have the most recent tool calls been the same call returning the same result,
-// i.e. is the model spinning without learning anything new?
+// 无进展检测是对基于事件的 StuckDetector 和 dispatch 重复防护的纯逻辑、无状态补充。
+// 它只回答一个狭窄的问题：最近的工具调用是否一直是同一个调用返回同一个结果，
+// 也就是说模型是否在原地打转、没有学到任何新东西？
 //
-// The decision here is independent of timers, I/O and the loop, so it can be
-// unit-tested on its own and wired in behind an opt-in flag without changing an
-// unconfigured run.
+// 这里的判断独立于定时器、I/O 和循环，因此可以单独单元测试，
+// 并可以通过一个选择性启用的开关接入，而不改变未配置时的运行行为。
 
-// DefaultNoProgressThreshold is the tail length checked by DetectNoProgress.
-// Three matches stay in step with the event detector's repeat threshold and
-// remain conservative: two identical calls are a normal read-verify pattern.
+// DefaultNoProgressThreshold 是 DetectNoProgress 检查的尾部长度。
+// 三次匹配与事件检测器的重复阈值保持一致，并保持保守：两次相同调用是正常的读取-验证模式。
 const DefaultNoProgressThreshold = 3
 
-// ToolCallSignature is the stable identity of one tool call plus a compact
-// summary of the result it produced. Volatile fields (call id, turn, duration,
-// usage) are deliberately absent: two calls differing only in those fields are
-// the same call for loop detection.
+// ToolCallSignature 是一次工具调用的稳定身份，加上对其产生结果的紧凑摘要。
+// 易变字段（调用 id、轮次、耗时、用量）刻意不包含在内：仅在这些字段上不同的两次调用，
+// 对循环检测而言就是同一个调用。
 //
-// Args must be a normalized argument summary; callers can use NormalizeArgs, or
-// SignatureFromToolCall / SignaturesFromEvents which apply it for them. Result
-// is a hash of the output; an empty Result means "no result recorded", which
-// still counts as a stable (non-changing) value when every call in the window
-// shares it. Two calls with different results are progress, never a loop.
+// Args 必须是规范化后的参数摘要；调用方可以使用 NormalizeArgs，
+// 或使用会自动应用它的 SignatureFromToolCall / SignaturesFromEvents。Result 是输出的哈希；
+// 空的 Result 表示"未记录结果"，当窗口中每个调用都共享它时，仍算作稳定（不变化）的值。
+// 两次结果不同的调用属于进展，绝不是循环。
 type ToolCallSignature struct {
 	Name   string
 	Args   string
 	Result string
 }
 
-// NoProgressConfig enables the opt-in early-stop form of no-progress detection.
-// When Options.NoProgress is nil the loop never calls the detector, so existing
-// runs are unchanged.
+// NoProgressConfig 启用无进展检测的选择性提前停止形式。
+// 当 Options.NoProgress 为 nil 时，循环从不调用检测器，因此现有运行行为不变。
 type NoProgressConfig struct {
-	// Threshold is how many identical trailing calls trigger a stop. Zero uses
-	// DefaultNoProgressThreshold.
+	// Threshold 是触发停止所需的相同尾部调用数量。零表示使用 DefaultNoProgressThreshold。
 	Threshold int
 }
 
-// DetectNoProgress reports whether the trailing DefaultNoProgressThreshold
-// calls are all the same call with the same result. It is the pure, no-config
-// form; callers that need a different window use DetectNoProgressWithThreshold.
+// DetectNoProgress 报告末尾 DefaultNoProgressThreshold 个调用是否都是同一调用且结果相同。
+// 这是无需配置的纯形式；需要不同窗口的调用方使用 DetectNoProgressWithThreshold。
 func DetectNoProgress(calls []ToolCallSignature) (stuck bool, reason string) {
 	return DetectNoProgressWithThreshold(calls, DefaultNoProgressThreshold)
 }
 
-// DetectNoProgressWithThreshold is the configurable-threshold form. threshold
-// is the number of trailing calls that must all match; values below 1 fall back
-// to DefaultNoProgressThreshold so a misconfigured caller cannot flag a run on
-// an empty or single-call history.
+// DetectNoProgressWithThreshold 是可配置阈值形式。threshold 是必须全部匹配的尾部调用数量；
+// 小于 1 的值回退到 DefaultNoProgressThreshold，
+// 这样配置错误的调用方也不会因空历史或单次调用历史而误判运行。
 func DetectNoProgressWithThreshold(calls []ToolCallSignature, threshold int) (stuck bool, reason string) {
 	if threshold < 1 {
 		threshold = DefaultNoProgressThreshold
@@ -67,7 +58,7 @@ func DetectNoProgressWithThreshold(calls []ToolCallSignature, threshold int) (st
 	}
 	window := calls[len(calls)-threshold:]
 	first := window[0]
-	// An empty tool name is malformed input, not evidence of a loop.
+	// 空的工具名是畸形输入，不能作为循环的证据。
 	if first.Name == "" {
 		return false, ""
 	}
@@ -81,16 +72,14 @@ func DetectNoProgressWithThreshold(calls []ToolCallSignature, threshold int) (st
 		first.Name, threshold)
 }
 
-// SignatureFromToolCall projects one dispatched call before its result exists.
-// Args are normalized so JSON key order and whitespace cannot hide a repeat.
+// SignatureFromToolCall 在结果产生之前投影一次已派发的调用。
+// 参数会被规范化，因此 JSON 键顺序和空白无法掩盖重复。
 func SignatureFromToolCall(call llm.ToolCall) ToolCallSignature {
 	return ToolCallSignature{Name: call.Function.Name, Args: NormalizeArgs(call.Function.Arguments)}
 }
 
-// ToolCallSignatures pairs dispatched calls with their results by index. A
-// shorter results slice leaves the trailing calls without a result summary; a
-// nil results slice yields result-free signatures suitable for a pre-execution
-// check.
+// ToolCallSignatures 按索引把已派发的调用与其结果配对。较短的 results 切片会使尾部的调用
+// 没有结果摘要；nil 的 results 切片会产生无结果的签名，适用于执行前检查。
 func ToolCallSignatures(calls []llm.ToolCall, results []callResult) []ToolCallSignature {
 	out := make([]ToolCallSignature, 0, len(calls))
 	for i, call := range calls {
@@ -103,9 +92,8 @@ func ToolCallSignatures(calls []llm.ToolCall, results []callResult) []ToolCallSi
 	return out
 }
 
-// SignaturesFromEvents builds signatures from a run's recorded tool_end events.
-// Each tool_end carries both Args and Output, so no pairing with tool_start is
-// needed and unmatched starts are naturally ignored.
+// SignaturesFromEvents 从一次运行记录的 tool_end 事件构建签名。
+// 每个 tool_end 都带有 Args 和 Output，因此无需与 tool_start 配对，未匹配的开始事件会被自然忽略。
 func SignaturesFromEvents(events []Event) []ToolCallSignature {
 	out := make([]ToolCallSignature, 0, len(events))
 	for _, e := range events {
@@ -121,9 +109,8 @@ func SignaturesFromEvents(events []Event) []ToolCallSignature {
 	return out
 }
 
-// summarizeResult hashes an output into a compact, stable token. Hashing keeps
-// the signature small even for large tool results, mirroring the dedupe guard's
-// output window.
+// summarizeResult 把输出哈希为紧凑、稳定的标记。哈希使签名即使面对庞大的工具结果
+// 也能保持很小，这与重复防护器的输出窗口类似。
 func summarizeResult(output string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(output))

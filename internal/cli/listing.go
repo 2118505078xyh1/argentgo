@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// workspaceRoot resolves -C/--cwd (or the process directory) to an absolute
-// path for a subcommand.
+// workspaceRoot 把 -C/--cwd（或进程目录）解析为子命令使用的绝对路径。
 func workspaceRoot(app App, cwd string) (string, error) {
 	if strings.TrimSpace(cwd) == "" {
 		cwd, _ = os.Getwd()
@@ -15,7 +14,7 @@ func workspaceRoot(app App, cwd string) (string, error) {
 	return filepath.Abs(cwd)
 }
 
-// homeFromEnv finds the user's home directory for skill/command discovery.
+// homeFromEnv 找到用户主目录，用于 skill/command 的发现。
 func homeFromEnv(env func(string) string) string {
 	for _, key := range []string{"HOME", "USERPROFILE"} {
 		if value := strings.TrimSpace(env(key)); value != "" {
@@ -29,7 +28,7 @@ func homeFromEnv(env func(string) string) string {
 	return home
 }
 
-// splitRoot removes a leading -C/--cwd flag from a subcommand's arguments.
+// splitRoot 从子命令参数中移除开头的 -C/--cwd flag。
 func splitRoot(args []string) (cwd string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
 		switch {

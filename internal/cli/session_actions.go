@@ -7,9 +7,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// applySessionFlags performs the local part of --undo/--retry/--title before a
-// runner is built. It returns (exit code, handled); when handled is false the
-// normal prompt path continues, with opts.Session possibly pointing at a fork.
+// applySessionFlags 在构建 runner 之前执行 --undo/--retry/--title 的本地部分。
+// 它返回（退出码, 是否已处理）；当 handled 为 false 时，正常的 prompt 路径继续，
+// 此时 opts.Session 可能指向一个分叉。
 func (a App) applySessionFlags(opts *Options) (int, bool) {
 	if !opts.Undo && !opts.Retry && opts.Title == "" {
 		return 0, false
@@ -38,8 +38,7 @@ func (a App) applySessionFlags(opts *Options) (int, bool) {
 			id = metas[0].ID
 		}
 	}
-	// A title alone on a fresh session is applied by the app when it creates
-	// the session; this package cannot know the session id yet.
+	// 新会话上单独的标题由 app 在创建会话时应用；本包此时还不知道会话 id。
 	if id == "" {
 		if opts.Title != "" {
 			return 0, false
@@ -96,9 +95,9 @@ func (a App) applySessionFlags(opts *Options) (int, bool) {
 	return 0, false
 }
 
-// ApplyTitleToSession records an explicit title override on an open session.
-// It is exported so the integrator can honour --title on a session it just
-// created (see the app wiring hook in the session-agent report).
+// ApplyTitleToSession 在一个已打开的会话上记录显式的标题覆盖。
+// 它被导出，使集成方能在刚创建的会话上兑现 --title
+// （见 session-agent 报告中的 app 接线钩子）。
 func ApplyTitleToSession(sess *session.Session, title string) error {
 	if sess == nil {
 		return fmt.Errorf("cli: nil session")

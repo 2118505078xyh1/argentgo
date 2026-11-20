@@ -48,6 +48,10 @@ type Spec struct {
 	URL string
 	// Headers are extra HTTP headers (ignored for stdio).
 	Headers map[string]string
+	// ProtocolVersion optionally overrides the protocol version announced in
+	// the initialize request. Empty or invalid values fall back to the default,
+	// then to ARGENT_MCP_PROTOCOL_VERSION. See effectiveProtocolVersion.
+	ProtocolVersion string
 	// Timeout bounds one request; zero means 30s.
 	Timeout time.Duration
 	// DiscoveryTimeout is an optional per-server discovery timeout override.
@@ -195,13 +199,12 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 	defer cancel()
 
 	params := map[string]any{
-		"protocolVersion": protocolVersion,
-		// Advertise only capabilities we actually implement. handleOne drops
-		// every server-initiated request (it has no roots/list or
-		// sampling/createMessage handler), so claiming roots or sampling here
-		// invites a compliant server to send requests we silently ignore and
-		// then wait forever for a reply.
-		"capabilities": map[string]any{},
+		"protocolVersion": effectiveProtocolVersion(c.spec),
+		// 只宣告真正实现的能力：handleOne 会丢弃所有服务器发起的请求（没有
+		// roots/list、sampling/createMessage 或 elicitation/create 处理器），
+		// 此时若声称支持这些能力，合规服务器会发来我们无法回复的请求。
+		// 目前传入零值选项，因此声明空对象，与历史行为逐字节一致。
+		"capabilities": clientCapabilities(clientCapabilityOptions{}),
 		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
 	}
 	raw, err := c.tr.call(ctx, "initialize", params)

@@ -9,7 +9,7 @@ func TestContextWindowDecode(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 
-	// No context window keys: the field stays at its zero value.
+	// 没有上下文窗口键：该字段保持零值。
 	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -47,7 +47,7 @@ func TestContextWindowFromModelAndProviderEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// The model entry wins over the provider entry.
+	// model 条目胜过 provider 条目。
 	if cfg.ContextWindow != 200_000 {
 		t.Fatalf("model contextWindow = %d, want 200000", cfg.ContextWindow)
 	}
@@ -64,7 +64,7 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		},
 	})
 
-	// Absent profile keeps the zero value.
+	// profile 缺失时保持零值。
 	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -73,7 +73,7 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		t.Fatalf("absent percent = %d, want 0", cfg.AutoCondenseContextPercent)
 	}
 
-	// The active profile's percent is decoded into the field.
+	// 活动 profile 的百分比被解码到该字段中。
 	cfg, err = Load(cwd, envFunc(map[string]string{"HOME": home, "ARGENT_PROFILE": "fast"}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -85,7 +85,7 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		t.Fatalf("CondensePercent(fast) = %d, want 60", got)
 	}
 
-	// -1 parses as an explicit "inherit global" marker.
+	// -1 被解析为显式的"继承全局"标记。
 	cfg, err = Load(cwd, envFunc(map[string]string{"HOME": home, "ARGENT_PROFILE": "inherited"}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -97,7 +97,7 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		t.Fatalf("CondensePercent(inherited) = %d, want -1", got)
 	}
 
-	// A profile without the key reads as zero, not as another profile's value.
+	// 没有该键的 profile 读为零，而不是另一个 profile 的值。
 	cfg, err = Load(cwd, envFunc(map[string]string{"HOME": home, "ARGENT_PROFILE": "plain"}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -106,8 +106,8 @@ func TestAutoCondenseContextPercentDecode(t *testing.T) {
 		t.Fatalf("CondensePercent(plain) = %d, want 0", got)
 	}
 
-	// A flag-selected profile is read directly from the Profiles map even when
-	// it is not the config's active profile.
+	// flag 选定的 profile 直接从 Profiles map 读取，即使
+	// 它不是配置的当前活动 profile。
 	if got := cfg.CondensePercent("fast"); got != 60 {
 		t.Fatalf("CondensePercent(fast) = %d, want 60", got)
 	}

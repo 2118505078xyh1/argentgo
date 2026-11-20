@@ -17,11 +17,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/update"
 )
 
-// defaultUpdateRepo is where argentgo releases live.
+// defaultUpdateRepo 是 argentgo 发布版本所在的位置。
 const defaultUpdateRepo = "2118505078xyh1/argent"
 
-// UpdateOps is the seam the update command drives. Production leaves it nil so
-// every operation calls internal/update; tests inject fakes to avoid network.
+// UpdateOps 是 update 命令驱动的接缝。生产环境保持为 nil，使每个操作都调用
+// internal/update；测试注入假对象以避免网络访问。
 type UpdateOps struct {
 	Check    func(context.Context, string, string, *http.Client) (update.Release, bool, error)
 	Download func(context.Context, update.Asset, string, string) error
@@ -53,9 +53,9 @@ func (a App) updater() UpdateOps {
 	return ops
 }
 
-// runUpdate implements `update [--check|--apply] [--repo owner/name] ...`.
-// Without --apply it only checks and prints; with --apply it downloads a
-// checksum-verified asset and installs it.
+// runUpdate 实现 `update [--check|--apply] [--repo owner/name] ...`。
+// 不带 --apply 时只检查并打印；带上 --apply 时会下载经过校验和验证的
+// 资产并安装。
 func runUpdate(app App, ctx context.Context, args []string) int {
 	apply := false
 	asJSON := false
@@ -70,7 +70,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			updateUsage(app.IO.Out)
 			return 0
 		case args[i] == "--check":
-			// The default action; accepted for symmetry with --apply.
+			// 默认动作；接受它是为了与 --apply 对称。
 		case args[i] == "--apply":
 			apply = true
 		case args[i] == "--json":
@@ -217,12 +217,10 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	// Download verifies the checksum, but re-check the staged bytes here too so
-	// an injected or future downloader can never replace an unverified binary.
-	// A zip is the exception: Download verifies the archive's checksum, then
-	// unpacks the executable into stage, so stage no longer hashes to the
-	// published archive checksum. Instead guard that we never install a raw
-	// archive as the executable.
+	// Download 已经验证校验和，但这里仍要重新检查暂存字节，使注入的或未来的
+	// 下载器绝不可能替换成未经验证的二进制。zip 是例外：Download 验证归档的
+	// 校验和，然后把可执行文件解包到 stage，因此 stage 的哈希不再等于已发布的
+	// 归档校验和。取而代之的是确保我们绝不会把原始归档当作可执行文件安装。
 	if err := verifyStagedBinary(stage, asset.Name, checksum); err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
@@ -249,11 +247,10 @@ func applyRelease(app App, ctx context.Context, ops UpdateOps, client *http.Clie
 	return 0
 }
 
-// verifyStagedBinary re-verifies the staged file for a bare executable. For an
-// archive asset (zip or gzip-compressed tar) the published checksum covers the
-// archive, already verified by Download, while stage holds the extracted
-// executable; re-hashing it would always mismatch, so only an archive guard
-// applies.
+// verifyStagedBinary 对裸可执行文件的暂存文件重新校验。对于归档资产
+// （zip 或 gzip 压缩的 tar），已发布的校验和覆盖的是归档，Download 已经
+// 验证过它，而 stage 中存放的是解包后的可执行文件；重新计算哈希必然不匹配，
+// 因此只适用归档守卫。
 func verifyStagedBinary(stage, assetName, checksum string) error {
 	if isArchiveAssetName(assetName) {
 		return rejectArchive(stage)
@@ -261,18 +258,17 @@ func verifyStagedBinary(stage, assetName, checksum string) error {
 	return verifyChecksum(stage, checksum)
 }
 
-// isArchiveAssetName reports whether assetName denotes an archive that Download
-// unpacks before staging. It mirrors internal/update's zip/tar.gz detection so
-// the staged-binary re-check and the downloader agree on which assets are
-// extracted.
+// isArchiveAssetName 报告 assetName 是否表示 Download 在暂存前会解包的归档。
+// 它镜像 internal/update 的 zip/tar.gz 检测，使暂存二进制的重新检查与
+// 下载器对哪些资产会被解包达成一致。
 func isArchiveAssetName(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.EqualFold(filepath.Ext(name), ".zip") ||
 		strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
-// rejectArchive refuses to install a file that still looks like a compressed
-// archive (zip or gzip) as the executable.
+// rejectArchive 拒绝把看起来仍是压缩归档（zip 或 gzip）的文件当作可执行文件
+// 安装。
 func rejectArchive(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -312,8 +308,8 @@ func verifyChecksum(path, checksum string) error {
 	return nil
 }
 
-// fetchReleaseChecksum reads a SHA-256 digest from a release's checksum asset.
-// A release without one is an error: --apply never guesses or skips verification.
+// fetchReleaseChecksum 从发布版本的校验和资产中读取 SHA-256 摘要。
+// 没有校验和资产的版本会报错：--apply 绝不猜测或跳过验证。
 func fetchReleaseChecksum(ctx context.Context, release update.Release, asset update.Asset, client *http.Client) (string, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}

@@ -1,0 +1,100 @@
+// 为 app 层注册内置斜杠命令。
+// Discover 仅从磁盘读取 markdown 文件；像 /context 和 /review
+// 这样的内置描述符没有对应文件，调用方必须显式注册它们。
+// NewSetWithBuiltins 将该步骤集中在一处：app 通过
+// 该辅助函数构建命令集，并将匹配的斜杠输入路由到内置钩子。
+// internal/cli 中 `argent commands` 的列举路径保持不变，仍然只
+// 列举磁盘上的命令，因此用户可见的输出没有任何变化。
+// NewSetWithBuiltins 从各来源发现命令，并注册内置描述符
+// （当前为 /context 和 /review）。显式声明的 markdown 命令按名称优先，
+// 因为 Add 从不覆盖已有条目。
+// 以 Windows CRLF 换行保存的 .md 文件必须能像 LF 一样正确解析。
+// Package commands 发现 markdown 斜杠命令并展开其正文。
+// 命令是 `.md` 文件，位于 `.argent/commands`（项目级）或
+// `.argentgo/commands`（用户级）。可选的 frontmatter 携带 `description`、
+// `argument-hint`、`allowed-tools`、`model` 和 `aliases`；正文即
+// 提示词模板。
+// 替换规则与 Rust 实现一致：
+//   - `$ARGUMENTS` / `$@` —— 命令名之后的全部内容；
+//   - `$1` … `$99` —— 一个以空白分隔的参数；
+//   - `${1}` —— 同上，当相邻文本会吞掉数字时使用。
+// 带引号的参数（"two words" 或 'two words'）算作一个位置。当
+// ExpandOptions.RemainingAtHighest 启用时，正文中使用的最高编号位置
+// 吸收其余所有参数，符合 markdown 命令的惯例。安全的默认行为保留
+// 原有的一参数一位置的语义。
+// “ !`command` “ 片段会执行 shell 命令，但仅当调用方通过
+// ExpandOptions.AllowShell 显式选择启用；默认保持该片段不变。
+// ProjectSubdir 是仓库存放斜杠命令的位置。
+// HomeSubdir 是用户存放跨项目共享命令的位置。
+// Command 表示磁盘上发现的一条命令。
+// Name 是斜杠命令名，包含可能的命名空间前缀。
+// Aliases 是 CompleteCommands 接受的备用名称，来自
+// frontmatter 的 `aliases` 字段（逗号分隔）；空切片
+// 表示该命令没有别名。
+// Description 是 `/help` 显示的一行摘要。
+// ArgumentHint 是用量提示（frontmatter `argument-hint`）。
+// AllowedTools 缩小该提示词允许使用的工具列表。
+// Model 可选地为该提示词固定使用的模型。
+// Agent 可选地为该提示词固定使用的 agent/persona（frontmatter
+// `agent`）。它暴露给调用方应用；本包从不
+// 构建 agent。
+// Body 是模板正文，不含 frontmatter。
+// Path 是该命令的来源文件。
+// Plugin 是提供该命令的插件，对于项目和
+// 用户命令为空。它同时也是名称的命名空间前缀。
+// Warnings 报告在声明性内容中发现的不可见字符。
+// 它仅是元数据：解析过程永不因它改变，也永不阻塞。
+// Source 表示一个待扫描目录及其命令获得的命名空间。
+// 对项目和用户目录，Prefix 为空。插件来源将其设为
+// 插件名，因此其 `review` 命令可通过 `plugin:review` 访问，且
+// 不会与用户命令冲突。
+// DefaultSources 返回某个会话的命令目录，优先级从高到低：
+// 先是项目级，再是用户级。
+// Set 是某个会话解析后的命令列表。
+// Discover 加载 sources 下的所有命令。
+// 按序搜索各来源，同名命令以第一个为准，
+// 因此项目命令会遮蔽同名的用户命令。
+// 格式错误的命令文件无法参与发现；
+// 需要的调用方可从 ParseStrict 获得该错误报告。
+// Parse 读取单个命令文件。没有 frontmatter 的文件同样可用：其
+// 文件名主干即名称，第一个非空行即描述。格式错误的
+// frontmatter 会被宽松跳过；可用 ParseStrict 报告文件和行号。
+// ParseStrict 读取单个命令文件，并报告无效的 frontmatter，
+// 附带文件名和出错行的 1 基行号。
+// List 返回所有命令，按名称排序。
+// Len 返回命令数量。
+// Get 按名称查找单条命令。
+// Expand 用用户键入的参数渲染命令正文，使用
+// 安全默认设置（不进行 shell 插值）。
+// ExpandWith 渲染命令正文，并遵守给定选项。
+// Expand 是 Set.Get + Command.Expand 的便捷封装。
+// ExpandOptions 控制正文展开的可选部分。
+// AllowShell 启用 `` !`command` `` 插值。默认关闭，
+// 因为 markdown 文件可能来自用户尚未阅读过的插件。
+// Dir 是被插值命令的工作目录。
+// RemainingAtHighest 使正文中引用的最高 $N 吸收
+// 其余所有参数。默认关闭，以便使用 $1 和 $2 作为独立
+// 位置的既有模板保持原义。
+// Run 覆盖被插值命令的执行方式（测试、沙箱）。
+// 它接收命令文本并返回其输出。
+// substituteArgs 展开 $ARGUMENTS、$@ 和 $N/${N}。位置按
+// 引号分组解析，因此 "two words" 仍是一个参数。
+// dollarToken 解析 i 处一个以 $ 开头的标记。
+// splitArguments 按未加引号的空白拆分命令行。引号只
+// 用于分组参数；它们永远不会作为 shell 片段执行。
+// fields 是本包所需的最小 frontmatter 读取器。它是
+// skills 解析器标量部分的副本：导入该包会耦合两个
+// 本应独立的目录。
+// parseFieldsStrict 在读取值之前校验 frontmatter 语法，以便
+// 格式错误的行能附带其行号被报告。
+// splitFrontmatter 是本包内的分隔符切分器副本。
+// 先规范化 CRLF，与 skills.SplitFrontmatter 一致：在 Windows 上，
+// 以 CRLF 保存的文件其起始分隔符为 "---\r\n"，若不这样做，
+// 下面的前缀检查会失败，整个 frontmatter 会泄漏到
+// 正文中。仅含 LF 的文本不受影响。
+// 通过输入法键入的全角 ASCII 必须能匹配半角候选。
+// 命令参数补全。
+// CompleteArgument 是针对单个斜杠命令参数的纯匹配器：它
+// 从不读取文件、启动进程或修改其参数。候选
+// 值来自命令的 frontmatter `argument-hint`。某个提示
+// 标记（去掉一层可选的 <...> 或 [...] 包裹后）

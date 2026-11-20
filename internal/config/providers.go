@@ -2,11 +2,11 @@ package config
 
 import "strings"
 
-// Provider is one provider template: where to send requests, which wire
-// protocol to speak, which environment variable holds the key, and the model
-// used when none is configured. APIKey is the credential written by
-// `argent login` under providers.<name>.apiKey; callers prefer it over the
-// provider's environment variable but still allow an explicit flag to win.
+// Provider 是一个提供方模板：请求发往何处、使用哪种线
+// 协议、哪个环境变量存放密钥，以及未配置任何模型时
+// 使用的模型。APIKey 是 `argent login` 写入的凭据，
+// 位于 providers.<name>.apiKey 下；调用方优先于
+// 提供方的环境变量使用它，但仍允许显式 flag 胜出。
 type Provider struct {
 	Name         string
 	BaseURL      string
@@ -16,7 +16,7 @@ type Provider struct {
 	DefaultModel string
 }
 
-// builtinProviders are the fallbacks available without any config file.
+// builtinProviders 是无需任何配置文件即可用的回退项。
 var builtinProviders = map[string]Provider{
 	"anthropic": {
 		Name:         "anthropic",
@@ -40,10 +40,10 @@ var builtinProviders = map[string]Provider{
 	},
 }
 
-// Provider resolves a provider template by name. An empty name uses the
-// configured provider, then the protocol's natural provider. A configured
-// entry is merged over the built-in of the same name, so a config can change
-// only the base URL.
+// Provider 按名称解析提供方模板。空名称使用
+// 已配置的提供方，然后是协议天然的提供方。已配置的
+// 条目会合并到同名内置项之上，因此配置可以只改
+// base URL。
 func (c Config) Provider(name string) (Provider, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -105,7 +105,7 @@ func providerForProtocol(protocol string) string {
 	}
 }
 
-// providersFrom reads the `providers` map, keyed by lower-case name.
+// providersFrom 读取 `providers` map，以小写名称为键。
 func providersFrom(tree map[string]any) map[string]Provider {
 	raw, ok := tree["providers"].(map[string]any)
 	if !ok {

@@ -12,13 +12,13 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/auth"
 )
 
-// authStore opens the per-installation credential store: <storage>/auth.
+// authStore 打开按安装隔离的凭证存储：<storage>/auth。
 func authStore(app App) (*auth.Store, error) {
 	return auth.Open(filepath.Join(app.storageDir(), "auth"))
 }
 
-// runAuth implements `auth [--json]`: token status per provider plus which
-// config-file providers hold an API key. Secrets are never printed.
+// runAuth 实现 `auth [--json]`：每个提供方的 token 状态，以及哪些
+// 配置文件中的提供方持有 API key。密钥永远不会被打印。
 func runAuth(app App, _ context.Context, args []string) int {
 	asJSON := false
 	for _, arg := range args {
@@ -90,10 +90,10 @@ func runAuth(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// configProviderKeys lists providers with a non-empty apiKey in the config
-// file. It mirrors the apiKey aliases read by config.Provider (the source
-// app.Resolve now uses), so "configured" means the key is actually usable.
-// It returns names only, never the secrets.
+// configProviderKeys 列出配置文件中 apiKey 非空的提供方。
+// 它镜像 config.Provider 所读取的 apiKey 别名（app.Resolve 现在使用的来源），
+// 因此 "configured" 意味着该 key 确实可用。
+// 它只返回名称，绝不返回密钥本身。
 func configProviderKeys(path string) (map[string]bool, error) {
 	cfg, err := loadConfigFile(path)
 	if err != nil {

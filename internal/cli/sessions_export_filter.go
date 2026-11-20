@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// exportEntry mirrors the JSON schema of session's unexported exportEntry.
-// Matching the field order and tags exactly means re-marshaling an unfiltered
-// transcript with json.MarshalIndent(..., "", "  ") is byte-for-byte identical
-// to what session.ExportProject produced (including the trailing newline).
+// exportEntry 镜像 session 包中未导出的 exportEntry 的 JSON schema。
+// 字段顺序和标签完全一致，意味着用 json.MarshalIndent(..., "", "  ")
+// 重新序列化未过滤的转录，与 session.ExportProject 产生的输出逐字节相同
+// （包括末尾的换行）。
 type exportEntry struct {
 	Role string `json:"role"`
 	Text string `json:"text"`
@@ -20,26 +20,25 @@ type exportEntry struct {
 	Note string `json:"note,omitempty"`
 }
 
-// ExportFilter holds the optional predicates applied to a structured export.
-// Every empty field is ignored, so the zero value keeps every entry.
+// ExportFilter 保存应用于结构化导出的可选谓词。
+// 每个空字段都会被忽略，因此零值保留所有条目。
 type ExportFilter struct {
-	Since string   // inclusive lower bound on the entry timestamp
-	Until string   // inclusive upper bound on the entry timestamp
-	Types []string // accepted entry kinds or roles, case-insensitive
+	Since string   // 条目时间戳的包含性下界
+	Until string   // 条目时间戳的包含性上界
+	Types []string // 可接受的条目 kind 或角色，不区分大小写
 }
 
-// active reports whether any predicate is set. Values are trimmed so a flag
-// given with an empty value (e.g. --since=) is treated as no constraint.
+// active 报告是否设置了任一谓词。值会先去空白，因此以空值给出的 flag
+// （例如 --since=）会被视为没有约束。
 func (f ExportFilter) active() bool {
 	return strings.TrimSpace(f.Since) != "" || strings.TrimSpace(f.Until) != "" || len(f.Types) > 0
 }
 
-// filterExportEntries returns the entries satisfying every predicate: a
-// timestamp within [since, until] (inclusive) and a kind or role present in
-// types (case-insensitive). Time values are parsed by parseAuditTime, so RFC
-// 3339, plain dates and CJK forms (年月日 / 时分秒) all work. An entry whose
-// timestamp cannot be parsed is dropped whenever a time bound is active.
-// The input slice is never modified and the original order is preserved.
+// filterExportEntries 返回满足所有谓词的条目：时间戳落在 [since, until]
+// （含端点）区间内，且 kind 或角色出现在 types 中（不区分大小写）。时间值
+// 由 parseAuditTime 解析，因此 RFC 3339、纯日期以及中文形式（年月日 /
+// 时分秒）都可用。当时间边界生效时，时间戳无法解析的条目会被丢弃。
+// 输入切片永远不会被修改，原始顺序会被保留。
 func filterExportEntries(entries []exportEntry, since, until string, types []string) []exportEntry {
 	sinceTS, hasSince := parseAuditTime(since)
 	untilTS, hasUntil := parseAuditTime(until)
@@ -76,18 +75,16 @@ func filterExportEntries(entries []exportEntry, since, until string, types []str
 	return out
 }
 
-// isFilterableExport reports whether an export format is structured (JSON or
-// YAML), i.e. whether the CLI can filter it by re-parsing its entries. HTML and
-// Markdown are single rendered blobs and cannot be filtered structurally here.
+// isFilterableExport 报告导出格式是否是结构化的（JSON 或 YAML），即 CLI
+// 能否通过重新解析其条目来过滤它。HTML 和 Markdown 是单个渲染后的整体，
+// 无法在这里做结构化过滤。
 func isFilterableExport(format string) bool {
 	return strings.EqualFold(strings.TrimSpace(format), "json") || isYAMLExport(format)
 }
 
-// filterExportArtifact applies f to a rendered JSON or YAML export. YAML is a
-// leading comment followed by a JSON body; the comment is stripped, the body is
-// filtered and the comment is restored. When f is inactive, or the format is
-// not filterable, the original bytes are returned verbatim so unfiltered and
-// text exports stay byte-for-byte unchanged.
+// filterExportArtifact 对渲染后的 JSON 或 YAML 导出应用 f。YAML 由一个开头
+// 注释和随后的 JSON 主体组成；先去掉注释，过滤主体，再恢复注释。当 f 不活动
+// 或格式不可过滤时，原样返回原始数据，使未过滤的导出和文本导出逐字节不变。
 func filterExportArtifact(data []byte, format string, f ExportFilter) ([]byte, error) {
 	if !f.active() || !isFilterableExport(format) {
 		return data, nil

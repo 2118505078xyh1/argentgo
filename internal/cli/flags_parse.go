@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// parseArgs parses the flag surface, returning resolved options plus the
-// positional prompt words. Flags may appear before or between positional words.
+// parseArgs 解析 flag 集合，返回解析后的选项以及位置参数形式的 prompt 词。
+// flag 可以出现在位置参数之前，也可以穿插在位置参数之间。
 func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Options, []string, error) {
 	before, after := splitTerminator(args)
 
@@ -20,17 +20,16 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	fs.Usage = func() { writeUsage(stderr) }
 	values := &flagValues{}
 	newFlags(fs, values)
-	// Opt-in verification flags are parsed here rather than in newFlags so the
-	// locked parity flag list stays unchanged; they still flow into config via
-	// the override layer below.
+	// 选择加入的验证 flag 在这里解析，而不是在 newFlags 中，这样锁定的 parity
+	// flag 列表保持不变；它们仍然通过下面的覆盖层流入配置。
 	verify := registerVerifyFlags(fs)
-	// --privacy-mode follows the same out-of-band registration as the verify
-	// flags: it must not change flagSurface(), which the locked parity gate
-	// compares against an exact list. It reaches app/config as an override.
+	// --privacy-mode 采用与验证 flag 相同的带外注册方式：它绝不能改变
+	// flagSurface()，锁定的 parity 门禁会把它与精确列表比较。它作为覆盖值
+	// 到达 app/config。
 	privacy := registerPrivacyFlags(fs)
 
-	// Run the help pre-scan after the flag surface exists: it must distinguish
-	// a real help switch from a '-h'-looking value handed to another flag.
+	// 在 flag 集合建立之后再运行 help 预扫描：它必须区分真正的 help 开关
+	// 和传给另一个 flag 的、看起来像 '-h' 的值。
 	if hasHelpFlag(fs, before) {
 		return &Options{Help: true}, nil, nil
 	}
@@ -39,11 +38,10 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	if err != nil {
 		return nil, nil, err
 	}
-	// A lone "-" in the flag section is the documented spelling for reading the
-	// prompt from stdin ("argent [flags] -"), not a literal prompt word. Drop it
-	// so runMain's empty-prompt branch consumes IO.In instead of sending "-"
-	// to the runner. Words after "--" stay literal, so a trailing "-" there is
-	// still a real prompt.
+	// flag 区域中单独一个 "-" 是约定的从 stdin 读取 prompt 的写法
+	// （"argent [flags] -"），而不是字面的 prompt 词。把它去掉，
+	// 使 runMain 的空 prompt 分支改为消费 IO.In，而不是把 "-" 交给 runner。
+	// "--" 之后的词保持字面含义，因此那里末尾的 "-" 仍是真正的 prompt。
 	if len(positional) == 1 && positional[0] == "-" && len(after) == 0 {
 		positional = nil
 	}
@@ -53,10 +51,10 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	overrides := *values.overrides
-	// Verification flags reach app.Execute through config: the argv is written
-	// as a JSON array so Overrides.Nested() decodes it into []any, which config
-	// decodes into Config.VerifyCommand. Each --verify-cmd may hold several
-	// space-separated words, or the flag may be repeated, so both forms work.
+	// 验证 flag 通过配置到达 app.Execute：argv 被写成 JSON 数组，使
+	// Overrides.Nested() 把它解码为 []any，再由 config 解码为 Config.VerifyCommand。
+	// 每个 --verify-cmd 可以包含多个以空格分隔的词，也可以重复该 flag，
+	// 因此两种形式都可用。
 	if len(verify.cmd.values) > 0 {
 		var argv []string
 		for _, word := range verify.cmd.values {
@@ -74,9 +72,8 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		}
 		_ = overrides.Set("verifyTimeoutMS=" + strconv.Itoa(*verify.timeoutMS))
 	}
-	// --privacy-mode is canonicalized and validated before it enters the
-	// highest-precedence override layer, so config.LoadWithOverrides rejects a
-	// typo instead of silently widening the posture.
+	// --privacy-mode 在进入最高优先级的覆盖层之前先被规范化并校验，
+	// 这样 config.LoadWithOverrides 会拒绝拼写错误，而不是悄悄放宽安全姿态。
 	if set["privacy-mode"] {
 		mode := strings.ToLower(strings.TrimSpace(*privacy.mode))
 		switch mode {
@@ -140,15 +137,15 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	opts.AddDirs = append([]string(nil), values.addDirs.values...)
 	opts.OutputSchema = *values.outputSchema
 
-	// --json-lines is the strict one-shot JSONL mode.
+	// --json-lines 是严格的一次性 JSONL 模式。
 	if opts.JSONLines {
 		opts.Mode = ModeJSON
 	}
-	// --continue-session, --continue and --resume are aliases that share one
-	// storage pointer with --resume (see newFlags), so opts.Resume already
-	// carries the value of whichever spelling was used. Do not force it true
-	// from fs.Visit: an explicit --resume=false / --continue=false must stay
-	// false, and the last spelling on the command line must win.
+	// --continue-session、--continue 和 --resume 是别名，与 --resume 共享
+	// 同一个存储指针（见 newFlags），因此 opts.Resume 已经携带了无论哪种
+	// 写法所使用的值。不要根据 fs.Visit 强行把它置为 true：显式的
+	// --resume=false / --continue=false 必须保持为 false，且命令行上最后的
+	// 写法必须生效。
 
 	opts.Thinking = firstNonEmpty(*values.thinking, env("ARGENT_THINKING"))
 	opts.Theme = firstNonEmpty(*values.theme, env("ARGENT_THEME"))
@@ -166,9 +163,9 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	opts.PriceOutput = floatSetting(set, "price-output", *values.priceOutput, env, "ARGENT_PRICE_OUTPUT",
 		overrideFloat(&overrides, "priceOutput", "price-output"))
 
-	// -c overrides sit below env and flags. Leave compiled defaults out of
-	// Options: an empty field means "unset" and lets app.Resolve prefer the
-	// config file / profile layer over the compiled default.
+	// -c 覆盖值位于 env 和 flag 之下。不要把编译默认值放进 Options：
+	// 空字段表示"未设置"，使 app.Resolve 优先采用配置文件 / profile 层，
+	// 而不是编译默认值。
 	opts.Model = firstNonEmpty(opts.Model, overrideValue(&overrides, "model"))
 	opts.BaseURL = firstNonEmpty(opts.BaseURL, overrideValue(&overrides, "baseUrl", "base-url", "base_url"))
 	opts.APIKey = firstNonEmpty(opts.APIKey, overrideValue(&overrides, "apiKey", "api-key", "api_key"))
@@ -198,7 +195,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	return opts, positional, nil
 }
 
-// intSetting resolves a numeric flag as flag > env > override > zero.
+// intSetting 按 flag > env > override > 零值 的顺序解析数值 flag。
 func intSetting(set map[string]bool, name string, flagValue int, env func(string) string, envKey string, override int) int {
 	if set[name] {
 		return flagValue
@@ -214,7 +211,7 @@ func intSetting(set map[string]bool, name string, flagValue int, env func(string
 	return flagValue
 }
 
-// floatSetting resolves a float flag as flag > env > override > zero.
+// floatSetting 按 flag > env > override > 零值 的顺序解析浮点 flag。
 func floatSetting(set map[string]bool, name string, flagValue float64, env func(string) string, envKey string, override float64) float64 {
 	if set[name] {
 		return flagValue
@@ -255,15 +252,15 @@ func overrideFloat(o *Overrides, keys ...string) float64 {
 }
 
 func (o *Options) validate() error {
-	// Empty means "unset": the compiled default is applied by app.Resolve,
-	// after the config file and profile layers have had their say.
+	// 空值表示"未设置"：编译默认值由 app.Resolve 在配置文件和 profile 层
+	// 表达完自己的意见之后应用。
 	switch o.Mode {
 	case "", ModeText, ModeJSON:
 	default:
 		return fmt.Errorf("--mode must be text or json, got %q", o.Mode)
 	}
-	// Both the short CLI spellings and the config wire names are accepted;
-	// app.Resolve canonicalizes them before choosing the chat client.
+	// 短 CLI 写法和配置线上的名称都被接受；app.Resolve 会在选择聊天客户端
+	// 之前把它们规范化。
 	switch strings.ToLower(strings.TrimSpace(o.Protocol)) {
 	case "", ProtocolAnthropic, ProtocolOpenAI, ProtocolResponses,
 		"anthropic-messages", "openai-chat-completions", "openai-responses", "messages":
@@ -301,7 +298,7 @@ func (o *Options) validate() error {
 	return nil
 }
 
-// parseInterleaved parses flags that may be separated by positional words.
+// parseInterleaved 解析可以被位置参数分隔的 flag。
 func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	rest := args
@@ -327,20 +324,18 @@ func splitTerminator(args []string) (before, after []string) {
 	return args, nil
 }
 
-// hasHelpFlag recognises every spelling the flag package accepts for the two
-// help switches: one or two leading dashes and an optional truthy =value
-// (-h, --h, -help, --help, -h=true, --help=1, ...). The original check only
-// matched the exact "-h"/"--help" tokens, so the other spellings were parsed
-// into values.help but then discarded when Options.Help was recomputed from
-// this narrow check, dropping the user's help request. A false value is not a
-// request for help and an unknown switch is never treated as one.
+// hasHelpFlag 识别 flag 包为两个 help 开关接受的所有写法：一个或两个前导
+// 破折号，加上可选的 truthy =value（-h、--h、-help、--help、-h=true、
+// --help=1 等）。原来的检查只匹配精确的 "-h"/"--help" token，因此其他写法
+// 被解析进 values.help，但在根据这个狭窄检查重新计算 Options.Help 时被丢弃，
+// 从而丢失了用户的 help 请求。false 值不是 help 请求，未知开关也绝不会被
+// 当作 help。
 //
-// The scan walks the raw argv (so help still wins over an otherwise invalid
-// command line) but skips the token consumed as the value of a non-bool flag.
-// Go's flag package takes the next argument as a flag's value regardless of
-// whether it starts with '-', so in "argent --model -h" the "-h" is a model
-// id, not a request for help. Without that skip, any help-looking value turns
-// the whole invocation into a usage print with exit code 0.
+// 扫描遍历原始 argv（因此 help 仍然优先于其他无效的命令行），但会跳过
+// 被当作非 bool flag 值消费的 token。Go 的 flag 包无论下一个参数是否以 '-'
+// 开头都会把它当作 flag 的值，因此在 "argent --model -h" 中，"-h" 是模型
+// id，而非 help 请求。没有这个跳过逻辑，任何看起来像 help 的值都会把
+// 整个调用变成打印 usage 并以退出码 0 结束。
 func hasHelpFlag(fs *flag.FlagSet, args []string) bool {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -354,10 +349,10 @@ func hasHelpFlag(fs *flag.FlagSet, args []string) bool {
 		name, value, hasValue := strings.Cut(arg[dashes:], "=")
 		def := fs.Lookup(name)
 		if def == nil {
-			continue // unknown switch: never a help request
+			continue // 未知开关：绝不是 help 请求
 		}
-		// A bare non-bool flag swallows the next token as its value. Skip that
-		// token so a help-looking value is not mistaken for a help switch.
+		// 裸的非 bool flag 会吞掉下一个 token 作为它的值。跳过该 token，
+		// 使看起来像 help 的值不会被误认为 help 开关。
 		if !hasValue && !flagIsBool(def) {
 			if i+1 < len(args) {
 				i++
@@ -378,8 +373,7 @@ func hasHelpFlag(fs *flag.FlagSet, args []string) bool {
 	return false
 }
 
-// flagIsBool mirrors the unexported interface the flag package uses to decide
-// whether a switch may be written without a value.
+// flagIsBool 镜像 flag 包内部用来判断一个开关是否可以不带值书写的接口。
 func flagIsBool(f *flag.Flag) bool {
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && bf.IsBoolFlag()
@@ -403,10 +397,9 @@ func overrideValueOK(o *Overrides, keys ...string) (string, bool) {
 	return o.lookup(keys...)
 }
 
-// serveAddress combines --serve-address and --serve-port into a bind address.
-// A colon alone does not mean "host:port": a bare IPv6 literal (::1) has no
-// port yet and must be joined with --serve-port. Only an address that already
-// carries an explicit port is returned unchanged.
+// serveAddress 把 --serve-address 和 --serve-port 组合成一个绑定地址。
+// 单独一个冒号并不表示 "host:port"：裸的 IPv6 字面量（::1）此时还没有端口，
+// 必须与 --serve-port 拼接。只有已经带有显式端口的地址才会原样返回。
 func serveAddress(host string, port int) string {
 	host = strings.TrimSpace(host)
 	if host == "" {
@@ -414,7 +407,7 @@ func serveAddress(host string, port int) string {
 	}
 	portText := strconv.Itoa(port)
 
-	// Bracketed IPv6: [::1] still needs the port, [::1]:8080 already has one.
+	// 带方括号的 IPv6：[::1] 仍需要端口，[::1]:8080 则已经有了。
 	if strings.HasPrefix(host, "[") {
 		if end := strings.IndexByte(host, ']'); end >= 0 {
 			inner, rest := host[1:end], host[end+1:]
@@ -427,14 +420,14 @@ func serveAddress(host string, port int) string {
 		}
 	}
 
-	// A parsed IP literal is always a bare host, never host:port. Zone-scoped
-	// IPv6 (fe80::1%eth0) is not parsed by net.ParseIP but still has >1 colon,
-	// so it falls through to JoinHostPort below, which brackets it correctly.
+	// 解析出的 IP 字面量总是裸主机，绝不是 host:port。带 zone 的 IPv6
+	// （fe80::1%eth0）不会被 net.ParseIP 解析，但仍有超过 1 个冒号，
+	// 因此会落到下面的 JoinHostPort，由它正确加上方括号。
 	if net.ParseIP(host) != nil {
 		return net.JoinHostPort(host, portText)
 	}
 
-	// A hostname or IPv4 address with exactly one colon is already host:port.
+	// 恰好带一个冒号的主机名或 IPv4 地址已经是 host:port。
 	if strings.Count(host, ":") == 1 {
 		return host
 	}

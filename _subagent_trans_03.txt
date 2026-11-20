@@ -1,0 +1,100 @@
+// 折叠，使全角拉丁字母的行为与其 ASCII 形式完全一致。
+// foldWidth 将全角 ASCII 和表意空格折叠为
+// 半角形式。它与参数补全共用，因此两种输入都
+// 能接受通过中文输入法键入的文本。
+// 每个有文档记录的章节都会出现，包括逐条文档的截断原因。
+// JSON 合法，携带相同的规范化值和稳定的键。
+// 空输入仍能渲染所有章节而不会崩溃。
+// 病态输入无法撑大报告：在文本和 JSON 两个视图中，列表都有上限，名称
+// 均被裁剪。
+// 排序和裁剪使报告具有确定性，即使调用方的
+// 切片以不同顺序到达也是如此。
+// 内置描述符和钩子遵循 /review 的注册模式。
+// 内置 /context：模型上下文的只读可解释性视图。
+// 本包中的命令是数据（Command 描述符加钩子结构体），
+// 而非 Go 接口，因此核心逻辑位于纯构建器
+// BuildContextReport 中。内置钩子（ContextHook）和 markdown 命令都
+// 可以调用它，而无需本包导入 internal/app 或 internal/agent。
+// 所有输入都以普通切片/字符串注入，使函数保持
+// 确定性、仅依赖标准库且易于测试。
+// 边界限制防止病态输入产生无界报告（报告
+// 本身可能落入它所描述的上下文中）。
+// MemoryDoc 是当前注入系统提示的一条指令文件。
+// Bytes 是注入文本的长度；Reason 解释截断原因。
+// IgnoreStatus 是分层 .argentignore 发现的结果。
+// ContextInput 是渲染 /context 报告所需的一切。它只包含
+// 纯数据，因此调用方拥有 app/agent 状态，本包保持
+// 分层安全。
+// contextReport 是两种渲染器共用的规范化、有界形式。
+// 字段顺序固定，这也让 JSON 输出具有确定性。
+// normalizeContext 对输入排序、限界并裁剪。切片副本确保
+// 调用方的切片不被改动，因此相同输入的重复调用结果稳定。
+// BuildContextReport 渲染紧凑、易读的 "上下文中有什么"
+// 视图。即使输入为空，每个章节也会出现。输出有界
+// 且确定：相同输入总是渲染出相同文本。
+// BuildContextReportJSON 是 BuildContextReport 的机器可读孪生版本。
+// 它使用相同的规范化输入，因此两种视图始终一致。
+// clipContextText 将 s 限制在 max 字节内，且不拆分 UTF-8 rune。
+// ContextCommand 是内置斜杠命令描述符。注册是
+// 调用方（internal/app）的职责：在 Discover 之后调用 set.Add(ContextCommand())，
+// 并将 `/context` 路由到 ContextHook.Run，与 /review 一致。本包
+// 从不构建 app，也不为报告读取文件系统。
+// ContextHook 是 /context 斜杠命令的注册接缝。
+// 调用方提供其拥有的 ContextInput；Run 保持纯函数且永不报错。
+// Run 实现内置命令钩子所使用的钩子签名。
+// 命令发现诊断。
+// Discover 和 Set.Add 会刻意丢弃名称已被占用的候选，
+// 而 ParseStrict 拒绝格式错误的 frontmatter。这使解析后的
+// Set 保持精简，却掩盖了命令消失的原因。这里的函数是纯的、
+// 只读的检查器，供希望暴露这些决策的调用方使用（doctor
+// 输出、UI 警告、测试）：它们从不读取文件、修改输入或
+// 改变发现行为。
+// DiagnosticKind 对一种命令发现问题进行分类。
+// Diagnostic 表示检查命令候选时发现的一个问题。
+// 与名称相关的诊断会设置 Name。Winner 是
+// discovery 为重复名称或来源保留的、优先级更高的候选的路径。
+// Line 是语法错误在 frontmatter 中的 1 基行号，其他情况为零。
+// DiagnoseCommands 报告按优先级排序的候选列表中的所有问题。
+// 同名或同路径的第一个候选被视为胜者，
+// 与 Discover 和 Set.Add 一致。不进行任何过滤或修改；nil 或
+// 空列表不产生任何诊断。
+// 调用方应传入未去重的候选（每个解析过的命令文件一项，
+// 来源按优先级排序），以便被遮蔽的命令仍然可见。
+// 逐候选校验，按输入顺序进行。
+// 读取位置占位符的正文应说明该
+// 位置的含义。命名占位符（$ARGUMENTS/$@）自带说明，
+// 无需提示。
+// 被遮蔽的名称。按裁剪后的名称分组还能捕获仅在首尾空白处
+// 有差异的名称，Discover 会保留这类名称，但 Get 解析
+// 为第一个条目。
+// 同一文件被贡献了两次（例如两个来源指向同一目录）。
+// DiagnoseCommandText 诊断单个原始 markdown 命令文件。它是
+// 感知 frontmatter 的入口：语法错误变成携带文件及其 1 基行号的
+// Diagnostic，而可解析的文本交由 DiagnoseCommands
+// 检查。不读取任何文件。
+// 防御性处理：上述检查已接受该文本，因此这不可能发生；
+// 但仍将结果保留为诊断，而非半解析的命令。
+// pathKey 规范化路径以便比较重复来源。在 Windows 上
+// 文件系统不区分大小写，因此仅大小写不同不能掩盖重复。
+// highestPosition 镜像 substituteArgs 中的标记扫描，使诊断与
+// 展开对哪些 $-占位符是真实的一致。它不做任何展开：
+// 诊断只是只读观察。
+// 裁剪绝不能拆分多字节 rune：某条发现的 Detail 会进入
+// 易读报告（以及提示词），留下不完整的 UTF-8
+// 序列会产生无效文本。字符串先经过 Fields 规范化，
+// 因此在应用字节预算前会折叠内嵌空白。
+// 对真实 diff 路径产生的发现也必须保持同样的保证，
+// 即长的 Unicode TODO 行会流经 redactFinding + clipFinding。
+// 内置 /review：对脏 git 工作树的只读检查。它唯一
+// 可发出的命令是 `git status --porcelain` 和
+// `git diff --unified=3`，两者都通过注入的 runner 执行，以便调用方
+// 强制只读边界，测试也无需真实仓库。
+// reviewLargeDiffLines 标记某个文件的 diff 新增了异常多的
+// 行数。仅靠 git status 无法报告文件大小，因此这里用 diff 量作为
+// 只读的替代指标。
+// CommandRunner 运行单个只读进程并返回其 stdout。
+// 实现应拒绝 Review 请求的这两个 git 读取命令之外的
+// 任何命令。
+// RunnerFunc 将函数适配为 CommandRunner。
+// Run 实现 CommandRunner。
+// Finding 是一条紧凑的 review 观察结果。Detail 始终经过脱敏。

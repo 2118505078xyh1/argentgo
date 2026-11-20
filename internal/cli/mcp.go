@@ -11,7 +11,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// mcpServerView is one configured MCP server, as printed by `argent mcp`.
+// mcpServerView 是一个已配置的 MCP 服务器，即 `argent mcp` 所打印的内容。
 type mcpServerView struct {
 	Name      string   `json:"name"`
 	Transport string   `json:"transport"`
@@ -20,8 +20,8 @@ type mcpServerView struct {
 	URL       string   `json:"url,omitempty"`
 }
 
-// runMCP implements `mcp [--json] [-C root]`. It reads the merged config only;
-// no server is contacted.
+// runMCP 实现 `mcp [--json] [-C root]`。它只读取合并后的配置；
+// 不会联系任何服务器。
 func runMCP(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
@@ -85,7 +85,7 @@ func runMCP(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// mcpServersFromConfig accepts the `mcpServers` object shape and a list form.
+// mcpServersFromConfig 接受 `mcpServers` 的对象形式和列表形式。
 func mcpServersFromConfig(raw any) []mcpServerView {
 	var servers []mcpServerView
 	add := func(name string, body map[string]any) {

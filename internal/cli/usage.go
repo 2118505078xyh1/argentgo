@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-// sessionUsage is one session's accounted turns and tokens.
+// sessionUsage 是一个会话的轮次和 token 统计。
 type sessionUsage struct {
 	ID               string `json:"id"`
 	Title            string `json:"title"`
@@ -17,8 +17,7 @@ type sessionUsage struct {
 	ToolCalls        int    `json:"tool_calls"`
 }
 
-// runUsage implements `usage [--json]`: it sums the turn records the agent
-// appended to each session file.
+// runUsage 实现 `usage [--json]`：汇总 agent 追加到每个会话文件中的轮次记录。
 func runUsage(app App, _ context.Context, args []string) int {
 	asJSON := false
 	for _, arg := range args {

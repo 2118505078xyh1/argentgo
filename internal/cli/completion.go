@@ -7,9 +7,8 @@ import (
 	"strings"
 )
 
-// runCompletion implements `completion bash|zsh|powershell`. The flag and
-// command lists come from the live parser, so a new flag is completed as soon
-// as it is registered.
+// runCompletion 实现 `completion bash|zsh|powershell`。flag 和
+// 命令列表来自实时解析器，因此新 flag 一经注册就会立即被补全。
 func runCompletion(app App, _ context.Context, args []string) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		completionUsage(app.IO.Out)

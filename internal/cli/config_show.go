@@ -12,22 +12,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// configRedacted is printed in place of any non-empty secret. It is deliberately
-// not the real value, so `config show` output can be pasted into an issue safely.
+// configRedacted 在任何非空密钥的位置打印。它故意不是真实值，
+// 因此 `config show` 的输出可以安全地粘贴到 issue 中。
 const configRedacted = "<redacted>"
 
-// configShowField is one effective value plus where it came from. Source labels
-// are one of "default", "file", "env:ARGENT_*" or "flag:<key>".
+// configShowField 是一个有效值及其来源。来源标签是
+// "default"、"file"、"env:ARGENT_*" 或 "flag:<key>" 之一。
 type configShowField struct {
 	label  string
 	value  any
 	source string
 }
 
-// runConfigShow implements `config show [--json] [-C dir] [-c key=value]`.
-// It resolves the exact same layered config the engine uses, then prints it
-// with secrets replaced and a source label for every field. No network or
-// model is involved, so the command is safe to run in CI and bug reports.
+// runConfigShow 实现 `config show [--json] [-C dir] [-c key=value]`。
+// 它解析与引擎完全相同的分层配置，然后在替换密钥并为每个字段附上来源标签后
+// 打印出来。不涉及网络或模型，因此该命令可安全地在 CI 和 bug 报告中使用。
 func runConfigShow(app App, _ context.Context, args []string) int {
 	cwd, overrides, asJSON, help, err := configShowFlags(args)
 	if err != nil {
@@ -111,9 +110,9 @@ func addOverride(overrides **Overrides, spec string) error {
 	return (*overrides).Set(spec)
 }
 
-// configShowFieldSpec pairs a displayed field with the config keys it can be
-// set under (canonical first, aliases after) and the env var that overrides it.
-// The alias list keeps snake_case files from being mislabelled "default".
+// configShowFieldSpec 把一个显示的字段与它可以设置的配置键
+// （规范键在前，别名在后）以及覆盖它的环境变量配对。
+// 别名列表可防止 snake_case 文件被误标为 "default"。
 type configShowFieldSpec struct {
 	label   string
 	aliases []string
@@ -151,8 +150,8 @@ func configShowFields(cfg config.Config, env func(string) string, overrides *Ove
 		"storageDir":  cfg.StorageDir,
 	}
 
-	// Read each contributing file once so a key can be attributed to the
-	// highest-precedence file that actually sets it.
+	// 每个参与贡献的文件只读一次，这样某个键才能被归因到
+	// 实际设置它的最高优先级文件。
 	fileTrees := configShowFileTrees(cfg.Sources)
 
 	out := make([]configShowField, 0, len(configShowFieldSpecs))
@@ -171,7 +170,7 @@ func configShowFileTrees(sources []string) []map[string]any {
 	for _, path := range sources {
 		tree, err := loadConfigFile(path)
 		if err != nil {
-			continue // value is already resolved; only the label is affected
+			continue // 值已经解析完成；这里只影响来源标签
 		}
 		trees = append(trees, tree)
 	}
@@ -216,9 +215,9 @@ func isSecretKey(key string) bool {
 	return false
 }
 
-// redactConfigTree copies a config tree with every secret-bearing leaf masked.
-// It is used for the raw tree in --json so pasted output cannot leak a key that
-// lives under providers.<name> or any other nested object.
+// redactConfigTree 复制一棵配置树，并对每个含密钥的叶子进行掩码。
+// 它用于 --json 中的原始树，使粘贴的输出不会泄露位于
+// providers.<name> 或任何其他嵌套对象中的 key。
 func redactConfigTree(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:

@@ -1,35 +1,35 @@
 package config
 
-// PollReload is the long-lived caller's hot-reload polling primitive: it
-// checks whether the on-disk config differs from the snapshot cfg was loaded
-// from (or last reloaded into) and, if so, rebuilds it with the same cwd, env
-// and flag overrides.
+// PollReload 是长生命周期调用方的热重载轮询原语：它
+// 检查磁盘上的配置是否与 cfg 加载自（或上次重载进）的快照
+// 不同，如果不同，则用相同的 cwd、env 和 flag 覆盖
+// 重建配置。
 //
-// It is deliberately pure: no timers, no background goroutines, and no I/O
-// beyond what Changed/Reload already perform (file stats and re-reading config
-// files). Scheduling belongs to the caller — e.g. a long-lived engine can call
-// this once per turn boundary.
+// 它有意保持纯粹：没有定时器、没有后台 goroutine，除了
+// Changed/Reload 已经执行的 I/O（文件 stat 和重新读取配置
+// 文件）之外没有其他 I/O。调度由调用方负责——例如长生命周期引擎可以
+// 在每个轮次边界调用一次。
 //
-// Return contract:
+// 返回约定：
 //
-//   - No change: (cfg, false, nil). The current snapshot is still valid; the
-//     caller keeps using it and nothing was reloaded.
-//   - Change + successful reload: (next, true, nil). next is a fresh snapshot
-//     whose Generation is cfg.Generation()+1; adopt it as the new current.
-//   - Change + failed reload: (cfg, false, err). cfg is untouched and remains
-//     the last known-good snapshot; err describes the reload failure.
+//   - 无变化：(cfg, false, nil)。当前快照仍然有效；
+//     调用方继续使用它，没有发生任何重载。
+//   - 有变化且重载成功：(next, true, nil)。next 是新快照，
+//     其 Generation 为 cfg.Generation()+1；把它采纳为新的当前配置。
+//   - 有变化但重载失败：(cfg, false, err)。cfg 保持不变，仍是
+//     最后一个已知的良好快照；err 描述重载失败原因。
 //
-// Because a successful Reload captures a fresh fingerprint, repeated polls of
-// the returned snapshot are idempotent: once next is adopted, PollReload(next)
-// reports no change until the disk changes again.
+// 由于成功的 Reload 会捕获新的指纹，对返回快照的重复轮询
+// 是幂等的：一旦采纳 next，PollReload(next) 就会
+// 报告无变化，直到磁盘再次改变。
 //
-// PollReload only reads cfg (Changed and Reload both have value receivers and
-// the reload metadata is immutable after load), so the same *Config may be
-// polled concurrently from multiple goroutines. Callers that share a mutable
-// "current config" field must still serialize who adopts the returned snapshot.
+// PollReload 只读取 cfg（Changed 和 Reload 都是值接收者，且
+// 重载元数据在加载后不可变），因此同一个 *Config 可以被多个
+// goroutine 并发轮询。共享可变"当前配置"字段的调用方
+// 仍需串行化由谁来采纳返回的快照。
 //
-// A nil Config or one built by hand (not via Load) has no fingerprint to
-// compare and is returned unchanged with changed=false.
+// nil Config 或手工构造的（非经 Load 的）Config 没有可比较的
+// 指纹，会被原样返回且 changed=false。
 func PollReload(cfg *Config) (*Config, bool, error) {
 	if cfg == nil {
 		return cfg, false, nil
@@ -39,8 +39,8 @@ func PollReload(cfg *Config) (*Config, bool, error) {
 	}
 	next, err := cfg.Reload()
 	if err != nil {
-		// Keep the last known-good snapshot on failure; adoption is the
-		// caller's decision and a failed rebuild must not replace cfg.
+		// 失败时保留最后一个已知的良好快照；是否采纳是
+		// 调用方的决定，重建失败不得替换 cfg。
 		return cfg, false, err
 	}
 	return next, true, nil

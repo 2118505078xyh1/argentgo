@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-// ioctlReadTermios is TCGETS on Linux; a successful ioctl means fd is a tty.
+// ioctlReadTermios 在 Linux 上是 TCGETS；ioctl 成功即表示 fd 是 tty。
 const ioctlReadTermios = 0x5401
 
 func isTerminal(fd uintptr) bool {

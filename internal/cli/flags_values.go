@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// Overrides holds repeated `-c key=value` / `--config key=value` settings.
-// Dotted keys build nested objects, e.g. `-c tools.include='["read"]'`.
+// Overrides 保存重复的 `-c key=value` / `--config key=value` 设置。
+// 点分键会构建嵌套对象，例如 `-c tools.include='["read"]'`。
 type Overrides struct {
 	values map[string]string
 }
 
-// Set parses one key=value override. It implements flag.Value.
+// Set 解析一条 key=value 覆盖值。它实现 flag.Value。
 func (o *Overrides) Set(spec string) error {
 	key, value, ok := strings.Cut(spec, "=")
 	if !ok {
@@ -34,7 +34,7 @@ func (o *Overrides) Set(spec string) error {
 	return nil
 }
 
-// String implements flag.Value.
+// String 实现 flag.Value。
 func (o *Overrides) String() string {
 	if o == nil || len(o.values) == 0 {
 		return ""
@@ -51,7 +51,7 @@ func (o *Overrides) String() string {
 	return strings.Join(parts, ",")
 }
 
-// Get reports the raw value of one override key.
+// Get 报告某个覆盖键的原始值。
 func (o *Overrides) Get(key string) (string, bool) {
 	if o == nil {
 		return "", false
@@ -60,7 +60,7 @@ func (o *Overrides) Get(key string) (string, bool) {
 	return value, ok
 }
 
-// lookup returns the first override matching any of the given keys.
+// lookup 返回与给定任一键匹配的第一条覆盖值。
 func (o *Overrides) lookup(keys ...string) (string, bool) {
 	for _, key := range keys {
 		if value, ok := o.Get(key); ok {
@@ -70,7 +70,7 @@ func (o *Overrides) lookup(keys ...string) (string, bool) {
 	return "", false
 }
 
-// All returns a copy of the raw override map.
+// All 返回原始覆盖 map 的副本。
 func (o *Overrides) All() map[string]string {
 	out := make(map[string]string, len(o.values))
 	for key, value := range o.values {
@@ -79,8 +79,8 @@ func (o *Overrides) All() map[string]string {
 	return out
 }
 
-// Nested turns dotted overrides into nested maps, parsing values as JSON when
-// possible. It is what the config file writer consumes.
+// Nested 把点分覆盖值转换为嵌套 map，在可能的情况下把值解析为 JSON。
+// 这正是配置文件写入器所消费的形式。
 func (o *Overrides) Nested() map[string]any {
 	out := make(map[string]any, len(o.values))
 	for key, value := range o.values {
@@ -101,7 +101,7 @@ func validateDottedKey(key string) error {
 	return nil
 }
 
-// parseValue decodes a CLI/config value as JSON, falling back to a string.
+// parseValue 把 CLI/配置值解码为 JSON，失败时回退为字符串。
 func parseValue(raw string) any {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -114,7 +114,7 @@ func parseValue(raw string) any {
 	return raw
 }
 
-// stringList is a repeatable string flag (--add-dir, --plugins).
+// stringList 是可重复的 string flag（--add-dir、--plugins）。
 type stringList struct {
 	values []string
 }
@@ -130,8 +130,8 @@ func (l *stringList) Set(value string) error {
 	return nil
 }
 
-// optionalString is a flag whose value is optional: `--worktree` alone means
-// "auto", `--worktree=name` names the worktree.
+// optionalString 是值可选的 flag：单独的 `--worktree` 表示
+// "auto"，`--worktree=name` 则指定 worktree 名称。
 type optionalString struct {
 	value string
 }
@@ -147,11 +147,11 @@ func (o *optionalString) Set(value string) error {
 	return nil
 }
 
-// IsBoolFlag lets the flag package accept a bare --worktree.
+// IsBoolFlag 让 flag 包接受裸的 --worktree。
 func (o *optionalString) IsBoolFlag() bool { return true }
 
-// flagValues holds one pointer per registered flag. It exists so the flag
-// surface has exactly one definition, which the parity test inspects.
+// flagValues 为每个注册的 flag 保存一个指针。它存在的意义是让 flag 集合
+// 只有唯一一处定义，供 parity 测试检查。
 type flagValues struct {
 	model    *string
 	baseURL  *string

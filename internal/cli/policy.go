@@ -11,8 +11,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// runPolicy implements `policy [--json] [-C root]`: the effective sandbox,
-// approval mode, provider and policy document for a workspace.
+// runPolicy 实现 `policy [--json] [-C root]`：展示某个工作区有效的沙箱、
+// 审批模式、提供方以及策略文档。
 func runPolicy(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {

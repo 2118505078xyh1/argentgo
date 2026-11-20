@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-// writeUsage prints the command surface to w.
+// writeUsage 把命令 Usage 打印到 w。
 func writeUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent [flags] <prompt>
        argent [flags] -            (prompt from stdin)

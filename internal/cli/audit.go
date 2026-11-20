@@ -16,9 +16,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// runAudit implements `audit [--tail n] [--json] [--decision d] [--session id]
-// [--tool name] [--since time]`. Without a filter flag it keeps the original
-// "newest entries from the latest daily file" behavior unchanged.
+// runAudit 实现 `audit [--tail n] [--json] [--decision d] [--session id]
+// [--tool name] [--since time]`。不带过滤 flag 时，保持原有的
+// "来自最新每日文件的最新条目" 行为不变。
 func runAudit(app App, _ context.Context, args []string) int {
 	tail := 20
 	asJSON := false
@@ -26,8 +26,8 @@ func runAudit(app App, _ context.Context, args []string) int {
 	hasFilter := false
 
 	for i := 0; i < len(args); i++ {
-		// String-valued filter flags, in both "--flag value" and "--flag=value"
-		// spellings. Their presence switches runAudit to the cross-file search.
+		// 字符串值的过滤 flag，同时支持 "--flag value" 和 "--flag=value"
+		// 两种写法。它们的存在会把 runAudit 切换到跨文件搜索。
 		var target *string
 		var name string
 		switch {
@@ -105,8 +105,8 @@ func runAudit(app App, _ context.Context, args []string) int {
 	return printAuditEntries(app.IO.Out, app.IO.Err, entries, asJSON)
 }
 
-// takeAuditStringValue extracts the value of a string flag, advancing next to
-// the index of the consumed value token when the "--flag value" form is used.
+// takeAuditStringValue 提取字符串 flag 的值；当使用 "--flag value" 形式时，
+// 把 next 推进到被消费的值 token 的索引。
 func takeAuditStringValue(args []string, i int, name string) (value string, next int, errMsg string) {
 	arg := args[i]
 	if strings.HasPrefix(arg, name+"=") {
@@ -121,8 +121,8 @@ func takeAuditStringValue(args []string, i int, name string) (value string, next
 	return "", i, ""
 }
 
-// runAuditFiltered searches every daily audit file, applies filter and prints
-// the matches. It is only reached when at least one filter flag was supplied.
+// runAuditFiltered 搜索每个每日审计文件，应用过滤条件并打印
+// 匹配项。只有在提供了至少一个过滤 flag 时才会走到这里。
 func runAuditFiltered(app App, dir string, filter AuditFilter, tail int, asJSON bool) int {
 	files := allAuditFiles(dir)
 	if len(files) == 0 {
@@ -145,8 +145,8 @@ func runAuditFiltered(app App, dir string, filter AuditFilter, tail int, asJSON 
 	return printAuditEntries(app.IO.Out, app.IO.Err, entries, asJSON)
 }
 
-// allAuditFiles returns every .jsonl file under dir, name-sorted so the files
-// (and therefore their entries) are read oldest day first.
+// allAuditFiles 返回 dir 下所有的 .jsonl 文件，按名称排序，使文件
+// （从而其中的条目）按日期从早到晚读取。
 func allAuditFiles(dir string) []string {
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
@@ -166,8 +166,8 @@ func allAuditFiles(dir string) []string {
 	return paths
 }
 
-// printAuditEntries writes entries in the command's two supported formats.
-// It is shared by the default and filtered paths so both format identically.
+// printAuditEntries 以该命令支持的两种格式写入条目。
+// 默认路径和过滤路径共用它，因此两者的格式完全一致。
 func printAuditEntries(out, errOut io.Writer, entries []security.AuditEntry, asJSON bool) int {
 	if asJSON {
 		data, err := json.MarshalIndent(entries, "", "  ")
@@ -184,7 +184,7 @@ func printAuditEntries(out, errOut io.Writer, entries []security.AuditEntry, asJ
 	return 0
 }
 
-// latestAuditFile prefers today's file, then the newest daily file present.
+// latestAuditFile 优先选择当天的文件，其次是现有的最新每日文件。
 func latestAuditFile(dir string) string {
 	today := filepath.Join(dir, time.Now().UTC().Format("2006-01-02")+".jsonl")
 	if info, err := os.Stat(today); err == nil && !info.IsDir() {

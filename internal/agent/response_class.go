@@ -6,26 +6,22 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// ResponseKind is the completeness class of a single model reply. It is derived
-// from what the reply actually carries (tool parts, visible text, reasoning)
-// plus the provider's finish reason — never from Result.Stopped, which the loop
-// writes only after the run has ended.
+// ResponseKind 是单次模型回复的完整性类别。它根据回复实际携带的内容
+// （工具部分、可见文本、推理）以及提供方的结束原因推导——绝不依赖 Result.Stopped，
+// 因为循环只在运行结束后才写入它。
 //
-// The four primary kinds mirror the OpenHands/kilocode response audit:
+// 四种主要类别对应 OpenHands/kilocode 的回复审计：
 //
-//	ResponseToolCalls      one or more tool parts are present;
-//	ResponseContent        a visible answer arrived, with no tool parts;
-//	ResponseReasoningOnly  only private reasoning (and/or usage) arrived;
-//	ResponseEmpty          nothing usable arrived at all.
+//	ResponseToolCalls      存在一个或多个工具部分；
+//	ResponseContent        收到了可见答案，且没有工具部分；
+//	ResponseReasoningOnly  只收到了私有推理（和/或用量）；
+//	ResponseEmpty          完全没有收到可用内容。
 //
-// ResponseToolCallsMissing is a defensive classification, not a fifth kind of
-// answer: the provider announced a tool turn but no tool parts came back. Such
-// a reply must be downgraded to a normal stop, never dispatched as a tool turn
-// or used to trigger another nudge — otherwise the loop re-prompts with an
-// unchanged transcript and can spin until the turn budget expires.
+// ResponseToolCallsMissing 是防御性分类，并非第五种答案：提供方宣告了一个工具轮次，
+// 却没有返回任何工具部分。这样的回复必须降级为正常停止，绝不能作为工具轮次派发，
+// 也不能用于触发又一次提示——否则循环会用未改变的记录重新提示，一直空转到轮次预算耗尽。
 //
-// The numeric values start at 1 so the zero value is not a valid kind; callers
-// that forget to classify cannot accidentally look like a healthy answer.
+// 数值从 1 开始，因此零值不是有效类别；忘记分类的调用方不会意外看起来像一个健康的答案。
 type ResponseKind uint8
 
 const (
@@ -36,11 +32,10 @@ const (
 	ResponseToolCallsMissing
 )
 
-// isToolCallsFinish reports whether a provider finish reason announces a tool
-// turn. It covers the spellings of the supported protocols: OpenAI's
-// "tool_calls", Anthropic's "tool_use", and the Responses API's
-// "function_call" / "function_calls". Matching is case- and space-insensitive,
-// mirroring isLengthReason in dispatch.go.
+// isToolCallsFinish 报告提供方的结束原因是否宣告了一个工具轮次。
+// 它覆盖所支持协议的写法：OpenAI 的 "tool_calls"、Anthropic 的 "tool_use"，
+// 以及 Responses API 的 "function_call" / "function_calls"。
+// 匹配不区分大小写和空格，与 dispatch.go 中的 isLengthReason 一致。
 func isToolCallsFinish(reason string) bool {
 	switch strings.ToLower(strings.TrimSpace(reason)) {
 	case "tool_calls", "tool_use", "function_call", "function_calls":
@@ -50,20 +45,18 @@ func isToolCallsFinish(reason string) bool {
 	}
 }
 
-// ClassifyResponse is a pure function: it reads only its arguments, performs no
-// I/O and mutates no state. Usage/token metadata is deliberately absent from
-// its inputs, so a reply that carries only reasoning or only a usage record
-// cannot be mistaken for a visible answer.
+// ClassifyResponse 是纯函数：只读取参数，不做 I/O，也不修改状态。
+// 用量/token 元数据刻意不在输入中，因此只带推理或只带用量记录的回复
+// 不会被误认为可见答案。
 //
-// Precedence is intentional:
+// 优先级是刻意设计的：
 //
-//  1. Real tool parts win over any finish reason — a truncated tool batch is
-//     still a tool batch (the loop handles length separately).
-//  2. A finish reason that promises tools but delivered none is the downgrade
-//     signal; it outranks content/reasoning so callers stop instead of nudging
-//     a malformed tool turn back into another identical request.
-//  3. Visible content outranks reasoning: a short text answer alongside a
-//     long thought is a CONTENT reply, not a reasoning-only one.
+//  1. 真实的工具部分优先于任何结束原因——被截断的工具批次仍然是工具批次
+//     （长度由循环单独处理）。
+//  2. 宣告了工具却未交付任何工具的结束原因是降级信号；它高于内容/推理，
+//     使调用方停止，而不是把畸形的工具轮次再推回另一个相同的请求。
+//  3. 可见内容高于推理：一段简短的文本答案伴随长篇思考时属于 CONTENT 回复，
+//     而非纯推理回复。
 func ClassifyResponse(hasToolCalls, hasVisibleContent, hasReasoning bool, finishReason string) ResponseKind {
 	if hasToolCalls {
 		return ResponseToolCalls
@@ -80,11 +73,10 @@ func ClassifyResponse(hasToolCalls, hasVisibleContent, hasReasoning bool, finish
 	return ResponseEmpty
 }
 
-// ClassifyReply derives the three content flags from a reply and delegates to
-// ClassifyResponse. It is the single place that decides what "visible content"
-// means: reasoning and usage are transcript metadata, not an answer. Whitespace
-// (including Unicode spaces such as the full-width space) does not count, so a
-// reply made only of blank text is EMPTY and can be corrected by the caller.
+// ClassifyReply 从回复中派生三个内容标志，并委托给 ClassifyResponse。
+// 它是决定"可见内容"含义的唯一入口：推理和用量是记录元数据，不是答案。
+// 空白（包括全角空格等 Unicode 空白）不算数，因此仅由空白文本构成的回复属于 EMPTY，
+// 可由调用方纠正。
 func ClassifyReply(reply llm.Message) ResponseKind {
 	return ClassifyResponse(
 		len(reply.ToolCalls) > 0,
@@ -94,27 +86,26 @@ func ClassifyReply(reply llm.Message) ResponseKind {
 	)
 }
 
-// NeedsCorrection reports whether a reply is a tool-free, content-free turn
-// that a caller may nudge back into producing a usable answer. Reasoning-only
-// and empty replies qualify. A malformed tool turn deliberately does not: it
-// must be downgraded to a stop so an unchanged transcript is not re-sent.
+// NeedsCorrection 报告某回复是否为无工具、无内容的轮次，调用方可以提示模型重新产出可用答案。
+// 纯推理和空回复符合；畸形的工具轮次刻意不符合：它必须降级为停止，
+// 以免重新发送未改变的记录。
 func (k ResponseKind) NeedsCorrection() bool {
 	return k == ResponseReasoningOnly || k == ResponseEmpty
 }
 
-// IsToolTurn reports whether the reply should be dispatched as a tool batch.
-// ResponseToolCallsMissing is false here — that is the safe downgrade to a stop.
+// IsToolTurn 报告该回复是否应作为工具批次派发。
+// 这里 ResponseToolCallsMissing 为 false——这就是安全地降级为停止。
 func (k ResponseKind) IsToolTurn() bool {
 	return k == ResponseToolCalls
 }
 
-// IsDowngraded reports whether the finish reason claimed a tool turn that did
-// not materialise. Callers should treat such a reply as a safe stop.
+// IsDowngraded 报告结束原因是否宣告了一个并未实际出现的工具轮次。
+// 调用方应把这样的回复当作安全的停止。
 func (k ResponseKind) IsDowngraded() bool {
 	return k == ResponseToolCallsMissing
 }
 
-// String gives stable, English names for logs and diagnostics.
+// String 为日志和诊断提供稳定的英文名称。
 func (k ResponseKind) String() string {
 	switch k {
 	case ResponseToolCalls:

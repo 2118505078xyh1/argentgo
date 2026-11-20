@@ -16,7 +16,7 @@
 
 ---
 
-## Install
+## 安装
 
 完整安装指南见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md#install)。最快路径（Windows 预编译包）：从
 [最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载

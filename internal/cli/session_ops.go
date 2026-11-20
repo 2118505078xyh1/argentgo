@@ -9,7 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// sessionsUndo restores the files named by the newest checkpoint manifest.
+// sessionsUndo 恢复最新检查点清单中列出的文件。
 func sessionsUndo(app App, id string, args []string) int {
 	workspace, err := undoWorkspace(args)
 	if err != nil {
@@ -57,7 +57,7 @@ func undoWorkspace(args []string) (string, error) {
 	return filepath.Abs(root)
 }
 
-// sessionsRetry forks a session at a checkpoint parent and prints the new id.
+// sessionsRetry 在检查点的父节点处分叉会话并打印新的 id。
 func sessionsRetry(app App, id string, args []string) int {
 	checkpointID := ""
 	if len(args) > 0 {
@@ -76,7 +76,7 @@ func sessionsRetry(app App, id string, args []string) int {
 	return 0
 }
 
-// sessionsName stores an explicit title override.
+// sessionsName 存储显式的标题覆盖值。
 func sessionsName(app App, id, title string) int {
 	sess, err := session.OpenSession(app.sessionDir(), id)
 	if err != nil {

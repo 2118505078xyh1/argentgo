@@ -16,8 +16,7 @@ type loginArgs struct {
 	help     bool
 }
 
-// runLogin implements `login <provider>`: it stores an API key in the config
-// file and never echoes the key back.
+// runLogin 实现 `login <provider>`：把 API key 存入配置文件，且绝不回显该 key。
 func runLogin(app App, _ context.Context, args []string) int {
 	parsed, err := parseLoginArgs(args)
 	if err != nil {

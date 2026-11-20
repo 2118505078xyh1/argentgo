@@ -18,7 +18,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// runSessions implements `sessions list|show|rm|find|--grep|tree|export`.
+// runSessions 实现 `sessions list|show|rm|find|--grep|tree|export`。
 func runSessions(app App, _ context.Context, args []string) int {
 	if len(args) == 0 {
 		sessionsUsage(app.IO.Err)
@@ -55,13 +55,13 @@ func runSessions(app App, _ context.Context, args []string) int {
 		}
 		return sessionsFind(app, store, strings.Join(args[1:], " "))
 	case "--grep":
-		query, limit, err := parseGrepArgs(args[1:])
+		query, limit, filter, err := parseGrepArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(app.IO.Err, "argent: %v\n", err)
 			sessionsUsage(app.IO.Err)
 			return 2
 		}
-		return sessionsGrep(app, store, query, limit)
+		return sessionsGrep(app, store, query, limit, filter)
 	case "tree":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -165,53 +165,84 @@ func sessionsShow(app App, store SessionStore, id string) int {
 	return reportLongOut(app, content.String())
 }
 
-// sessionGrepper is the optional read side an injected store can provide. The
-// fallback reads the JSONL files in the storage directory directly.
+// sessionGrepper 是注入的 store 可以提供的可选读取端。回退方案会直接读取
+// 存储目录中的 JSONL 文件。
 type sessionGrepper interface {
 	Search(query string, limit int) ([]session.Hit, error)
 }
 
-// sessionTreeStore is the optional branch/export side of an injected store.
+// sessionTreeStore 是注入的 store 可选的分支/导出端。
 type sessionTreeStore interface {
 	Branches(id string) ([]session.Branch, error)
 	RenderHTML(id, branchID string, w io.Writer) error
 }
 
-func parseGrepArgs(args []string) (string, int, error) {
+func parseGrepArgs(args []string) (string, int, SessionFilter, error) {
 	limit := 20
+	var filter SessionFilter
 	var words []string
 	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		// 可选的多条件过滤 flag；未提供时 filter 保持零值。
+		if arg == "--title" || arg == "--since" || arg == "--until" ||
+			arg == "--in" || arg == "--text" ||
+			strings.HasPrefix(arg, "--title=") || strings.HasPrefix(arg, "--since=") ||
+			strings.HasPrefix(arg, "--until=") || strings.HasPrefix(arg, "--in=") ||
+			strings.HasPrefix(arg, "--text=") {
+			name := arg
+			if idx := strings.IndexByte(arg, '='); idx >= 0 {
+				name = arg[:idx]
+			}
+			value, next, errMsg := takeAuditStringValue(args, i, name)
+			if errMsg != "" {
+				return "", 0, SessionFilter{}, errors.New(errMsg)
+			}
+			switch name {
+			case "--title":
+				filter.Title = value
+			case "--since":
+				filter.Since = value
+			case "--until":
+				filter.Until = value
+			case "--in":
+				filter.In = value
+			case "--text":
+				filter.Text = value
+			}
+			i = next
+			continue
+		}
 		switch {
-		case args[i] == "--limit":
+		case arg == "--limit":
 			if i+1 >= len(args) {
-				return "", 0, errors.New("--grep needs a value for --limit")
+				return "", 0, SessionFilter{}, errors.New("--grep needs a value for --limit")
 			}
 			i++
 			value, err := strconv.Atoi(args[i])
 			if err != nil || value <= 0 {
-				return "", 0, fmt.Errorf("invalid --limit %q", args[i])
+				return "", 0, SessionFilter{}, fmt.Errorf("invalid --limit %q", args[i])
 			}
 			limit = value
-		case strings.HasPrefix(args[i], "--limit="):
-			value, err := strconv.Atoi(strings.TrimPrefix(args[i], "--limit="))
+		case strings.HasPrefix(arg, "--limit="):
+			value, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if err != nil || value <= 0 {
-				return "", 0, fmt.Errorf("invalid --limit %q", args[i])
+				return "", 0, SessionFilter{}, fmt.Errorf("invalid --limit %q", args[i])
 			}
 			limit = value
-		case strings.HasPrefix(args[i], "-"):
-			return "", 0, fmt.Errorf("unknown --grep option %q", args[i])
+		case strings.HasPrefix(arg, "-"):
+			return "", 0, SessionFilter{}, fmt.Errorf("unknown --grep option %q", arg)
 		default:
-			words = append(words, args[i])
+			words = append(words, arg)
 		}
 	}
 	query := strings.Join(words, " ")
 	if strings.TrimSpace(query) == "" {
-		return "", 0, errors.New("--grep needs search text")
+		return "", 0, SessionFilter{}, errors.New("--grep needs search text")
 	}
-	return query, limit, nil
+	return query, limit, filter, nil
 }
 
-func sessionsGrep(app App, store SessionStore, query string, limit int) int {
+func sessionsGrep(app App, store SessionStore, query string, limit int, filter SessionFilter) int {
 	var hits []session.Hit
 	var err error
 	if grepper, ok := store.(sessionGrepper); ok {
@@ -223,6 +254,8 @@ func sessionsGrep(app App, store SessionStore, query string, limit int) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	// 仅在提供了过滤 flag 时收窄命中；无过滤时命中原样输出，保持既有行为。
+	hits = filterSessionHits(hits, filter)
 	if len(hits) == 0 {
 		fmt.Fprintf(app.IO.Out, "no matches for %q\n", query)
 		return 0
@@ -336,15 +369,13 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 		}
 	}
 
-	// Render first, then write through the no-follow helper. Buffering keeps
-	// the file creation single-shot so the symlink checks cover the whole
-	// write, and avoids leaving a truncated file behind when rendering fails.
+	// 先渲染，再通过 no-follow 辅助函数写入。缓冲使文件创建成为一次性操作，
+	// 从而符号链接检查覆盖整个写入过程，并避免在渲染失败时留下被截断的文件。
 	var data []byte
 	var err error
 	if isYAMLExport(format) {
-		// The session package only knows html/json/markdown. Build YAML in this
-		// layer from its JSON transcript: JSON is a valid YAML 1.2 document, so
-		// no new dependency is needed and no exported field is lost.
+		// session 包只认识 html/json/markdown。在本层根据它的 JSON 转录构建
+		// YAML：JSON 是合法的 YAML 1.2 文档，因此无需新依赖，也不会丢失任何导出字段。
 		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
 			Branch: branchID, Sanitize: sanitize, Format: "json",
 		})
@@ -352,8 +383,8 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 			data, err = jsonExportToYAML(data)
 		}
 	} else if sanitize || !strings.EqualFold(format, "html") {
-		// Structured and redacted exports are produced wholly in the session
-		// package; the plain-HTML path below keeps injected stores working.
+		// 结构化和脱敏导出完全在 session 包中生成；下面的纯 HTML 路径
+		// 保证注入的 store 仍能正常工作。
 		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
 			Branch: branchID, Sanitize: sanitize, Format: format,
 		})
@@ -374,8 +405,8 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	// Structured exports can be narrowed to a time/type window in this layer.
-	// Text exports are left intact and the limitation is reported to the user.
+	// 结构化导出可以在本层收窄到时间/类型窗口。文本导出保持原样，
+	// 并向用户报告这一限制。
 	if filter.active() {
 		if !isFilterableExport(format) {
 			fmt.Fprintf(app.IO.Err, "argent: --since/--until/--type only apply to json/yaml exports; %s export is unchanged\n", format)
@@ -418,7 +449,7 @@ func sessionsUsage(w io.Writer) {
        argent sessions show <id>
        argent sessions rm <id>
        argent sessions find <keyword>
-        argent sessions --grep <text> [--limit N]
+        argent sessions --grep <text> [--limit N] [--title substr] [--since time] [--until time] [--in dir] [--text substr]
         argent sessions tree <id>
         argent sessions undo <id> [-C <workspace>]
         argent sessions retry <id> [checkpoint-id]
@@ -428,8 +459,8 @@ func sessionsUsage(w io.Writer) {
 `)
 }
 
-// fsStore reads JSONL session files directly from the storage directory. It is
-// the fallback used until the integrator injects internal/session.
+// fsStore 直接从存储目录读取 JSONL 会话文件。在集成方注入
+// internal/session 之前，它作为回退方案使用。
 type fsStore struct {
 	dir string
 }
@@ -517,7 +548,7 @@ func safeSessionID(id string) bool {
 	return true
 }
 
-// sessionTitle finds the first human-readable text in a session.
+// sessionTitle 找出会话中第一段人类可读的文本。
 func sessionTitle(events []server.SessionEvent) string {
 	for i, event := range events {
 		if i >= 40 {

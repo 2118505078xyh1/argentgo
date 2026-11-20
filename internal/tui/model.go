@@ -361,7 +361,10 @@ func (m *Model) SelectedText(buf *Buffer) string {
 	a.Row = clampCell(a.Row, 0, buf.Height()-1)
 	b.Row = clampCell(b.Row, 0, buf.Height()-1)
 	w := buf.Width()
+	codeColor := m.palette.Code
+	hasCodeColor := codeColor != ColorDefault
 	lines := make([]string, 0, b.Row-a.Row+1)
+	inCode := false
 	for row := a.Row; row <= b.Row; row++ {
 		start, end := 0, w-1
 		if row == a.Row {
@@ -376,13 +379,25 @@ func (m *Model) SelectedText(buf *Buffer) string {
 		start, end = clampCell(start, 0, w-1), clampCell(end, 0, w-1)
 		var line strings.Builder
 		for col := start; col <= end; col++ {
-			if t := buf.cells[row*w+col].Text; t != "" {
-				line.WriteString(t)
+			cell := buf.cells[row*w+col]
+			if cell.Text == "" { // 宽字符的续格没有文本，跳过
+				continue
 			}
+			// 行内代码段在屏幕上丢了反引号，用内部标记圈出，稍后由
+			// joinSelectedRows 还原。inCode 跨行延续，支持被折行切开的代码段。
+			isCode := hasCodeColor && cell.S.Fg == codeColor
+			if isCode != inCode {
+				line.WriteString(codeSpanMark)
+				inCode = isCode
+			}
+			line.WriteString(cell.Text)
 		}
 		lines = append(lines, strings.TrimRight(line.String(), " "))
 	}
-	return strings.Join(lines, "\n")
+	if inCode && len(lines) > 0 {
+		lines[len(lines)-1] += codeSpanMark
+	}
+	return joinSelectedRows(lines, w)
 }
 
 // MouseWheel maps a wheel report to the existing three-row scroll behaviour.

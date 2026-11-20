@@ -1,20 +1,16 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repository.
+本仓库中 AI agent 的工作指南。
 
-## What this is
+## 这是什么
 
-`argentgo` is a personal coding-agent harness: stream a model reply, run tools,
-append to a JSONL session, repeat. It is a Go rewrite of the frozen Rust project
-`argent` (v0.4.0, archived on GitHub). Behaviour should match that build; the
-feature checklist lives in `docs/TECHNICAL.md` (Feature parity section).
+`argentgo` 是一个个人编码 agent 框架：流式输出模型回复、运行工具、追加到 JSONL 会话，循环往复。它是已冻结的 Rust 项目 `argent`（v0.4.0，已在 GitHub 归档）的 Go 重写版。行为应与该版本保持一致；功能清单见 `docs/TECHNICAL.md`（Feature parity 一节）。
 
-Interfaces to match: OpenAI chat completions, OpenAI Responses, Anthropic
-Messages. UI strings are zh-CN and en-US, embedded in the binary.
+需要对齐的接口：OpenAI chat completions、OpenAI Responses、Anthropic Messages。UI 文案为 zh-CN 与 en-US，嵌入在二进制中。
 
-## Toolchain
+## 工具链
 
-Go 1.27. Windows host; use PowerShell. The toolchain lives at
+Go 1.27。宿主系统为 Windows，使用 PowerShell。工具链位于：
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
@@ -29,19 +25,17 @@ go vet ./...                             # vet everything
 gofmt -l .                               # must print nothing
 ```
 
-Benchmarks are tests: their assertions run under `go test`, so a stale
-assertion breaks the build even though CI never times them. Run the smoke pass
-whenever you touch a session/agent/tools hot path.
+基准测试也是测试：其断言在 `go test` 下运行，所以即使 CI 从不计时，过时的断言也会让构建失败。只要改动 session/agent/tools 的热路径，就跑一遍 smoke 测试。
 
-Desktop frontend (`native/`, MyGo native UI):
+桌面前端（`native/`，MyGo 原生 UI）：
 
 ```powershell
 go build -o argent-native.exe ./native   # the native chat window
 ```
 
-The browser frontend has been removed. `native/` drives the engine over `--rpc`.
+浏览器前端已移除。`native/` 通过 `--rpc` 驱动引擎。
 
-## Layout
+## 目录布局
 
 ```text
 cmd/argent          entry point; builds the App and calls cli.RunWith
@@ -75,74 +69,48 @@ internal/tui        full-screen terminal UI
 native/             MyGo native desktop chat window (the only GUI frontend)
 ```
 
-## Dependency rules
+## 依赖规则
 
-- **Core is stdlib only.** The `internal/{agent,session,llm,tools,security,...}` packages
-  must stay dependency-free. The native desktop shell (`native/`) is the single
-  explicit exception: it requires `github.com/egoist/mygo` for GPU-rendered UI.
-  It drives the engine over the stdlib `--rpc` transport. Do not add other modules.
-- **No cgo.** Everything must cross-compile with `GOOS=linux go build ./...`.
-- Go tools: `internal/app` is the only package allowed to import everything.
-  Library packages may import `internal/llm` and stdlib; otherwise take
-  interfaces (`ToolRunner`, `Approver`, `Recorder`, `Chatter`) as parameters.
-- Provider wire details live only in `internal/llm`. Keep protocol quirks out
-  of the agent loop.
-- `internal/tools` never imports `internal/agent`.
+- **核心只用标准库。** `internal/{agent,session,llm,tools,security,...}` 包必须保持零依赖。原生桌面壳（`native/`）是唯一显式例外：它需要 `github.com/egoist/mygo` 来做 GPU 渲染的 UI。它通过标准库的 `--rpc` 传输驱动引擎。不要添加其他模块。
+- **不使用 cgo。** 所有代码都必须能用 `GOOS=linux go build ./...` 交叉编译。
+- Go 工具：`internal/app` 是唯一允许 import 全部包的包。库包可以 import `internal/llm` 和标准库；其余依赖一律通过参数注入接口（`ToolRunner`、`Approver`、`Recorder`、`Chatter`）。
+- provider 的协议细节只放在 `internal/llm`，不要把协议怪癖带进 agent 循环。
+- `internal/tools` 永不 import `internal/agent`。
 
-## Organisation and paradigms
+## 组织方式与范式
 
-Three paradigms do different jobs here; do not force one to do another's work.
+三种范式在这里各司其职；不要强求一种范式去做另一种的工作。
 
-- **Modules are packages, not files.** The module boundary is `internal/<pkg>`
-  and the dependency rules above — splitting a large file into several
-  `foo_*.go` files is package-internal tidying and never changes the module
-  graph. Choose file boundaries by responsibility ("how many files to change
-  one behaviour?"), never by line count.
-- **OOP in Go is composition + interfaces, not classes or inheritance.** Structs
-  hold state, methods operate on it. Depend on small interfaces injected at the
-  call site (`ToolRunner`, `Approver`, `Recorder`, `Chatter`); define the
-  interface at the consumer, not the provider. Reuse by embedding/composing —
-  there is no inheritance, and faking one produces rigid hierarchies.
-- **Functional style is for streaming and strategy injection, not everywhere.**
-  First-class functions and closures are the right tool for callbacks (`onText`,
-  `Emit`, `Compactor`, `RecorderFunc`, lazy `sync.Once`), and for passing a
-  policy in without coupling to its implementation. Keep plain loops and
-  explicit state for ordinary transformations: Go has no rich higher-order
-  collection stdlib, and forcing map/filter/reduce hurts readability. Do not add
-  a dependency just to get functional helpers.
+- **模块是包，不是文件。** 模块边界是 `internal/<pkg>` 和上面的依赖规则——把一个大文件拆成多个 `foo_*.go` 只是包内整理，不会改变模块图。按职责（"改一个行为要动几个文件？"）来划分文件边界，而不是按行数。
+- **Go 里的 OOP 是组合 + 接口，不是类或继承。** 结构体持有状态，方法操作状态。依赖在调用点注入的小接口（`ToolRunner`、`Approver`、`Recorder`、`Chatter`）；接口定义在消费方，而不是提供方。通过嵌入/组合来复用——这里没有继承，硬造一套继承只会产生僵化的层级。
+- **函数式风格用于流式处理和策略注入，不是到处都用。** 一等函数与闭包适合做回调（`onText`、`Emit`、`Compactor`、`RecorderFunc`、惰性 `sync.Once`），也适合在不耦合实现的前提下传入策略。普通的转换就用直白的循环和显式状态：Go 没有丰富的泛型高阶集合标准库，硬套 map/filter/reduce 只会损害可读性。不要为了几个函数式辅助方法就引入依赖。
 
-## Invariants worth breaking tests over
+## 值得为之下测试的不变量
 
-- Every filesystem tool resolves paths inside the workspace; `..` and absolute
-  escapes are rejected.
-- Mutating tools go through the security chain (policy → approval → audit). A
-  policy deny ends the run; an approval denial becomes a tool error the model
-  can read.
-- `--sandbox-mode read-only` drops mutating tools; `workspace-write` (default)
-  keeps the workspace boundary; `danger-full-access` removes it.
-- Sessions are JSONL, one record per line, linked by `id`/`parent`. Compaction
-  must preserve changed files, failures and next steps.
-- Redaction happens before anything is written to the audit log.
-- A cancelled context stops the run within one turn, and tool output is never
-  truncated in the middle of a UTF-8 rune.
+- 每个文件系统工具都把路径解析到工作区内；`..` 和绝对路径逃逸一律拒绝。
+- 修改类工具走安全链（策略 → 审批 → 审计）。策略拒绝直接结束运行；审批拒绝变成模型可读的工具错误。
+- `--sandbox-mode read-only` 移除修改类工具；`workspace-write`（默认）保留工作区边界；`danger-full-access` 移除该边界。
+- 会话是 JSONL，一行一条记录，用 `id`/`parent` 相连。压缩必须保留改动文件、失败与下一步。
+- 脱敏发生在任何内容写入审计日志之前。
+- 取消 context 会在一轮之内停止运行，工具输出绝不会在一个 UTF-8 字符中间被截断。
 
-## Style
+## 风格
 
-- `snake_case` files, `PascalCase` types.
-- Split files by responsibility, not by line count. A cohesive 800-line file is
-  better than four fragmented 200-line files you have to jump between. Use the
-  real test: "how many files must I open to change one behaviour?" If the answer
-  is already one, leave it alone — do not split just to hit a number. Go's own
-  stdlib has multi-thousand-line files; length is not a smell, mixed concerns are.
-- Tests beside source, table-driven, no network, no real model. Name tests after
-  the behaviour: `TestEditRequiresUniqueMatch`.
-- Errors: wrapped with `%w`, sentinel errors for callers to match with `errors.Is`.
-- Comments explain *why*; identifiers are English.
-- Commits: `<area>: <imperative summary>` (e.g. `tools: reject path escapes`).
+- `snake_case` 文件名，`PascalCase` 类型名。
+- 按职责拆分文件，而不是按行数。一个内聚的 800 行文件，胜过四个你得来回跳转的碎片化 200 行文件。用这个标准检验："改一个行为要打开几个文件？" 如果答案已经是一个，就别动它——不要为了凑数字而拆分。Go 自己的标准库就有几千行的文件；长度不是坏味道，职责混杂才是。
+- 测试与源码同目录，表驱动，不联网，不用真实模型。测试名要体现行为：`TestEditRequiresUniqueMatch`。
+- 错误：用 `%w` 包装，提供哨兵错误供调用方用 `errors.Is` 匹配。
+- 注释解释*为什么*；标识符用英文。
+- **Language rule**: apart from code (identifiers, APIs, keywords, command text),
+  use Chinese whenever possible for comments and documentation. New comments
+  and docs under `docs/`, `AGENTS.md`, `CHANGELOG.md` and inline explanatory
+  comments should be written in Chinese (简体中文). Keep code identifiers,
+  function/type names and test names in English. User-facing UI strings stay in
+  the `i18n` tables (zh-CN / en-US) as before.
+- 提交格式：`<area>: <imperative summary>`（例如 `tools: reject path escapes`）。
 
-## Do not
+## 禁止
 
-- Never commit built binaries (`argent.exe`, `argent-native.exe`) or `node_modules`.
-  The native frontend is built from `native/` source at release time.
-- Do not edit the Feature parity statuses in `docs/TECHNICAL.md` without running the corresponding test.
-- Do not add a dependency to save 30 lines of code.
+- 绝不提交构建出来的二进制（`argent.exe`、`argent-native.exe`）或 `node_modules`。原生前端在发布时从 `native/` 源码构建。
+- 未运行对应测试前，不要改动 `docs/TECHNICAL.md` 中的 Feature parity 状态。
+- 不要为了省 30 行代码而引入依赖。

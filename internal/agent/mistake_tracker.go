@@ -5,14 +5,12 @@ import (
 	"sync"
 )
 
-// DefaultMistakeLimit is the consecutive-mistake threshold used when a
-// MistakeTracker is built without an explicit limit.
+// DefaultMistakeLimit 是未指定显式限制时构建 MistakeTracker 所使用的连续错误阈值。
 const DefaultMistakeLimit = 3
 
-// MistakeKind classifies a single failure so the recovery guidance can be
-// tailored to what actually went wrong. The three standard values mirror the
-// failures an agent loop can observe: a provider/API error, a malformed tool
-// call the model produced, and a tool that ran but reported failure.
+// MistakeKind 对单次失败分类，使恢复指引能针对实际出错的原因量身定制。
+// 三个标准值对应 agent 循环能观察到的失败：提供方/API 错误、模型产生的畸形工具调用，
+// 以及已运行但报告失败的工具。
 type MistakeKind string
 
 const (
@@ -21,9 +19,8 @@ const (
 	MistakeKindToolExecutionFailed MistakeKind = "tool_execution_failed"
 )
 
-// Valid reports whether k is one of the recognized mistake kinds. An empty or
-// unknown kind is ignored by Record so a caller passing a zero value cannot
-// inflate the consecutive count by accident.
+// Valid 报告 k 是否为可识别的错误种类。空值或未知种类会被 Record 忽略，
+// 因此传入零值的调用方不会意外抬高连续计数。
 func (k MistakeKind) Valid() bool {
 	switch k {
 	case MistakeKindAPIError, MistakeKindInvalidToolCall, MistakeKindToolExecutionFailed:
@@ -33,16 +30,13 @@ func (k MistakeKind) Valid() bool {
 	}
 }
 
-// MistakeGuidance builds a recovery instruction for the current run. It is
-// injected at construction (NewMistakeTracker) or later (SetGuidance), keeping
-// the tracker a pure state machine with no knowledge of prompts or locales.
+// MistakeGuidance 为当前运行构建恢复指令。它在构造时（NewMistakeTracker）
+// 或之后（SetGuidance）注入，使追踪器保持为纯状态机，不感知提示或地区。
 type MistakeGuidance func(kind MistakeKind, count int) string
 
-// MistakeAction is the decision returned once the consecutive limit is hit.
-// When Stop is false the run continues with Guidance (an injected recovery
-// instruction); when Stop is true no guidance was available and the run must
-// end. Kind and Count describe the streak that triggered the action so callers
-// can log or emit it without re-reading the tracker.
+// MistakeAction 是达到连续限制后返回的决定。Stop 为 false 时运行携带 Guidance
+// （注入的恢复指令）继续；Stop 为 true 时没有可用指引，运行必须结束。
+// Kind 和 Count 描述触发该决定的连续错误，使调用方无需重新读取追踪器即可记录或发出它。
 type MistakeAction struct {
 	Stop     bool
 	Guidance string
@@ -50,12 +44,9 @@ type MistakeAction struct {
 	Count    int
 }
 
-// MistakeTracker counts consecutive mistakes across all kinds until Reset,
-// which a caller invokes after a successful round. It is deliberately separate
-// from the repeat guard: the guard detects the *same* call repeated, while this
-// tracker detects a streak of *different* failures that keeps the run from
-// wandering through unrelated errors. It is safe for concurrent use, so tools
-// running in parallel may record failures without external locking.
+// MistakeTracker 统计各类别的连续错误，直到调用方在一轮成功后调用 Reset。
+// 它刻意与重复防护器分开：防护器检测*相同*调用的重复，而该追踪器检测*不同*失败的连续出现，
+// 避免运行在一连串无关错误中徘徊。它可安全并发使用，因此并行运行的工具无需外部锁即可记录失败。
 type MistakeTracker struct {
 	mu       sync.Mutex
 	limit    int
@@ -65,9 +56,8 @@ type MistakeTracker struct {
 	guidance MistakeGuidance
 }
 
-// NewMistakeTracker builds a tracker with the given consecutive limit (values
-// <= 0 select DefaultMistakeLimit). An optional guidance callback is injected
-// at construction; it may also be set later with SetGuidance.
+// NewMistakeTracker 用给定的连续限制构建追踪器（<= 0 的值选用 DefaultMistakeLimit）。
+// 可选的指引回调在构造时注入；也可以用 SetGuidance 稍后设置。
 func NewMistakeTracker(limit int, guidance ...MistakeGuidance) *MistakeTracker {
 	if limit <= 0 {
 		limit = DefaultMistakeLimit
@@ -82,8 +72,7 @@ func NewMistakeTracker(limit int, guidance ...MistakeGuidance) *MistakeTracker {
 	return t
 }
 
-// SetGuidance injects or replaces the recovery-guidance callback. Passing nil
-// removes it, in which case Check stops the run when the limit is reached.
+// SetGuidance 注入或替换恢复指引回调。传入 nil 会移除它，此时 Check 在达到限制时停止运行。
 func (t *MistakeTracker) SetGuidance(fn MistakeGuidance) {
 	if t == nil {
 		return
@@ -93,9 +82,8 @@ func (t *MistakeTracker) SetGuidance(fn MistakeGuidance) {
 	t.guidance = fn
 }
 
-// Record adds one mistake of the given kind to the current streak. Empty or
-// unrecognized kinds are ignored. Record is safe to call from several
-// goroutines.
+// Record 把给定种类的一次错误加入当前连续序列。空或未知种类会被忽略。
+// Record 可被多个 goroutine 安全地调用。
 func (t *MistakeTracker) Record(kind MistakeKind) {
 	if t == nil || !kind.Valid() {
 		return
@@ -107,7 +95,7 @@ func (t *MistakeTracker) Record(kind MistakeKind) {
 	t.byKind[kind]++
 }
 
-// Count returns the length of the current consecutive streak.
+// Count 返回当前连续错误的长度。
 func (t *MistakeTracker) Count() int {
 	if t == nil {
 		return 0
@@ -117,8 +105,7 @@ func (t *MistakeTracker) Count() int {
 	return t.count
 }
 
-// CountFor returns how many mistakes of kind k occurred in the current streak
-// (i.e. since the last Reset).
+// CountFor 返回当前连续序列中（即自上次 Reset 以来）种类 k 的错误数量。
 func (t *MistakeTracker) CountFor(k MistakeKind) int {
 	if t == nil {
 		return 0
@@ -128,14 +115,11 @@ func (t *MistakeTracker) CountFor(k MistakeKind) int {
 	return t.byKind[k]
 }
 
-// Check reports whether the streak has reached the configured limit. Below the
-// limit it returns (false, zero action). At or above the limit it returns an
-// action whose Kind/Count describe the streak: if a guidance callback is set
-// and returns a non-empty instruction, the run continues with that guidance;
-// otherwise the run must stop. The decision is re-evaluated on every call until
-// Reset is invoked, so the caller stays in control of when the streak clears.
-// The guidance callback is invoked outside the lock to avoid deadlocks if it
-// calls back into the tracker.
+// Check 报告连续错误是否达到配置的限制。低于限制时返回 (false, 零值 action)。
+// 达到或超过限制时返回的 action 中 Kind/Count 描述该连续序列：若设置了指引回调且返回非空指令，
+// 运行携带该指引继续；否则运行必须停止。在调用 Reset 之前，每次调用都会重新评估决定，
+// 因此何时清除连续序列由调用方掌控。指引回调在锁外调用，
+// 以避免它回调追踪器时发生死锁。
 func (t *MistakeTracker) Check() (shouldStop bool, action MistakeAction) {
 	if t == nil {
 		return false, MistakeAction{}
@@ -159,9 +143,8 @@ func (t *MistakeTracker) Check() (shouldStop bool, action MistakeAction) {
 	return true, action
 }
 
-// Reset clears the consecutive streak and its per-kind breakdown. Injected
-// guidance and the configured limit are preserved; callers typically invoke
-// Reset after a successful round so the next failure starts a fresh streak.
+// Reset 清除连续序列及其按种类的细分。注入的指引和配置限制会保留；
+// 调用方通常在一轮成功后调用 Reset，使下一次失败开启新的序列。
 func (t *MistakeTracker) Reset() {
 	if t == nil {
 		return
@@ -175,70 +158,55 @@ func (t *MistakeTracker) Reset() {
 	}
 }
 
-// Invalid-argument circuit breaker.
+// 无效参数熔断器。
 //
-// This complements MistakeTracker rather than replacing it. The tracker counts
-// *all* consecutive failures and, because guidance is normally injected, only
-// re-feeds the model; it never forces a hard stop. The breaker is deliberately
-// narrow: it counts only arguments a tool rejected as invalid (an
-// InvalidArgumentsError in the kilocode report). Three such rejections in one
-// user turn mean the model is not learning from the validation feedback, so the
-// breaker signals that the turn must end. A single successful call or any
-// failure that is NOT an argument-validation error proves progress and clears
-// the count immediately.
+// 它是对 MistakeTracker 的补充而非替代。追踪器统计*所有*连续失败，且由于通常注入了指引，
+// 它只会把信息重新喂给模型；从不强制硬停止。熔断器刻意很窄：只统计被工具判定为无效的参数
+// （kilocode 报告中的 InvalidArgumentsError）。在单个用户轮次中三次这样的拒绝，
+// 意味着模型没有从校验反馈中学习，因此熔断器发出必须结束该轮次的信号。
+// 一次成功调用，或任何并非参数校验错误的失败，都证明有进展并立即清除计数。
 //
-// The caller owns classification (which tool errors are "invalid arguments")
-// and the user-turn boundary (when to call Reset explicitly); this type is a
-// pure, concurrency-safe counter with no knowledge of tools or events.
+// 分类（哪些工具错误算"无效参数"）和用户轮次边界（何时显式调用 Reset）由调用方掌管；
+// 本类型是纯粹且并发安全的计数器，不感知工具或事件。
 
-// DefaultInvalidArgThreshold is the trip point used when the breaker is built
-// without an explicit (positive) threshold.
+// DefaultInvalidArgThreshold 是未指定显式（正）阈值时熔断器使用的跳闸点。
 const DefaultInvalidArgThreshold = 3
 
-// InvalidArgBreakerCap bounds the internal counter so a stream of invalid-
-// argument results cannot grow it without limit. Once the counter reaches the
-// cap it saturates; ShouldStop stays true until Reset. A requested threshold
-// higher than the cap is clamped down to the cap so the breaker always remains
-// trippable.
+// InvalidArgBreakerCap 限制内部计数器，使一连串无效参数结果不会让它无限增长。
+// 计数器达到上限后即饱和；ShouldStop 在 Reset 之前保持为 true。
+// 请求的阈值高于上限时会被收紧到上限，从而保证熔断器始终可跳闸。
 const InvalidArgBreakerCap = 64
 
-// InvalidArgOutcome is the breaker's view of one tool outcome. Keeping the
-// classification at the caller lets dispatch reuse its existing error
-// inspection (tool validation errors, i18n "error.invalid_args", etc.) without
-// this type depending on tools, i18n or error strings.
+// InvalidArgOutcome 是熔断器对一次工具结果的视图。把分类保留在调用方，
+// 使 dispatch 能复用其现有的错误检查（工具校验错误、i18n 的 "error.invalid_args" 等），
+// 而无需让本类型依赖 tools、i18n 或错误字符串。
 type InvalidArgOutcome uint8
 
 const (
-	// InvalidArgOutcomeNone is a neutral outcome (e.g. an unrun, guarded or
-	// cancelled call). It neither counts nor clears — the call never reached a
-	// tool, so it says nothing about the model's argument quality.
+	// InvalidArgOutcomeNone 是中性结果（例如未运行、被防护或已取消的调用）。
+	// 它既不计数也不清除——调用从未到达工具，因此无法说明模型的参数质量。
 	InvalidArgOutcomeNone InvalidArgOutcome = iota
-	// InvalidArgOutcomeInvalidArgs means a tool rejected the arguments as
-	// invalid. This is the only outcome that advances the breaker.
+	// InvalidArgOutcomeInvalidArgs 表示工具判定参数无效而拒绝。
+	// 这是唯一会推进熔断器的结果。
 	InvalidArgOutcomeInvalidArgs
-	// InvalidArgOutcomeSuccess means a tool ran successfully. It clears the
-	// count because the model made progress.
+	// InvalidArgOutcomeSuccess 表示工具成功运行。因为模型取得了进展，它会清除计数。
 	InvalidArgOutcomeSuccess
-	// InvalidArgOutcomeOtherFailure means a tool ran but failed for a reason
-	// unrelated to argument validation. It clears the count: the constraint is
-	// specifically about repeated invalid arguments, and an unrelated failure
-	// is not evidence the model is ignoring validation feedback.
+	// InvalidArgOutcomeOtherFailure 表示工具运行了，但因与参数校验无关的原因失败。
+	// 它会清除计数：这里的约束专门针对反复出现的无效参数，
+	// 无关失败并不能证明模型在无视校验反馈。
 	InvalidArgOutcomeOtherFailure
 )
 
-// InvalidArgBreaker counts invalid-argument rejections within one user turn and
-// reports when the configured threshold is reached. It is safe for concurrent
-// use, so tools running in parallel may observe outcomes without an external
-// lock.
+// InvalidArgBreaker 统计单个用户轮次内的无效参数拒绝，并在达到配置阈值时报告。
+// 它可安全并发使用，因此并行运行的工具无需外部锁即可观察结果。
 type InvalidArgBreaker struct {
 	mu        sync.Mutex
 	threshold int
 	count     int
 }
 
-// NewInvalidArgBreaker builds a breaker with the given threshold. A
-// non-positive threshold selects DefaultInvalidArgThreshold; a threshold above
-// InvalidArgBreakerCap is clamped to the cap.
+// NewInvalidArgBreaker 用给定阈值构建熔断器。非正阈值选用 DefaultInvalidArgThreshold；
+// 高于 InvalidArgBreakerCap 的阈值会被收紧到该上限。
 func NewInvalidArgBreaker(threshold int) *InvalidArgBreaker {
 	if threshold <= 0 {
 		threshold = DefaultInvalidArgThreshold
@@ -249,11 +217,9 @@ func NewInvalidArgBreaker(threshold int) *InvalidArgBreaker {
 	return &InvalidArgBreaker{threshold: threshold}
 }
 
-// Observe folds one tool outcome into the breaker and returns whether the
-// threshold has been reached. It is the single entry point intended for
-// dispatch: classify the call result, pass it here, and stop the turn when the
-// result is true. The decision is re-evaluated on every call until Reset, so
-// the caller stays in control of when the count clears.
+// Observe 把一次工具结果纳入熔断器，并返回是否达到阈值。
+// 这是供 dispatch 使用的唯一入口：对调用结果分类、传到这里，结果为 true 时结束该轮次。
+// 在 Reset 之前，每次调用都会重新评估决定，因此何时清除计数由调用方掌控。
 func (b *InvalidArgBreaker) Observe(outcome InvalidArgOutcome) (shouldStop bool) {
 	if b == nil {
 		return false
@@ -266,24 +232,21 @@ func (b *InvalidArgBreaker) Observe(outcome InvalidArgOutcome) (shouldStop bool)
 			b.count++
 		}
 	case InvalidArgOutcomeSuccess, InvalidArgOutcomeOtherFailure:
-		// Both prove progress (or at least are not argument errors) and clear
-		// the streak immediately.
+		// 两者都证明有进展（或至少不是参数错误），因此立即清除连续序列。
 		b.count = 0
 	case InvalidArgOutcomeNone:
-		// Neutral: leave the count untouched.
+		// 中性：保持计数不变。
 	}
 	return b.count >= b.threshold
 }
 
-// RecordInvalidArgs is a convenience wrapper for reporting one
-// invalid-argument rejection. It returns the same stop signal as Observe.
+// RecordInvalidArgs 是报告一次无效参数拒绝的便捷包装。它返回与 Observe 相同的停止信号。
 func (b *InvalidArgBreaker) RecordInvalidArgs() bool {
 	return b.Observe(InvalidArgOutcomeInvalidArgs)
 }
 
-// Reset clears the invalid-argument count. A caller typically invokes it at a
-// user-turn boundary; success and non-argument failures already reset via
-// Observe. The configured threshold is preserved.
+// Reset 清除无效参数计数。调用方通常在用户轮次边界调用它；
+// 成功和非参数失败已通过 Observe 自动重置。配置的阈值会保留。
 func (b *InvalidArgBreaker) Reset() {
 	if b == nil {
 		return
@@ -293,8 +256,7 @@ func (b *InvalidArgBreaker) Reset() {
 	b.count = 0
 }
 
-// ShouldStop reports whether the threshold has been reached without recording
-// a new outcome.
+// ShouldStop 报告是否已达到阈值，但不记录新结果。
 func (b *InvalidArgBreaker) ShouldStop() bool {
 	if b == nil {
 		return false
@@ -304,7 +266,7 @@ func (b *InvalidArgBreaker) ShouldStop() bool {
 	return b.count >= b.threshold
 }
 
-// Count returns the current invalid-argument count (saturated at the cap).
+// Count 返回当前的无效参数计数（在上限处饱和）。
 func (b *InvalidArgBreaker) Count() int {
 	if b == nil {
 		return 0
@@ -314,7 +276,7 @@ func (b *InvalidArgBreaker) Count() int {
 	return b.count
 }
 
-// Threshold returns the effective trip point after defaulting and clamping.
+// Threshold 返回经过默认值处理和收紧后的有效跳闸点。
 func (b *InvalidArgBreaker) Threshold() int {
 	if b == nil {
 		return 0

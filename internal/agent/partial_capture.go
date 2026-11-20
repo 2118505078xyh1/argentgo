@@ -6,19 +6,16 @@ import (
 	"unicode/utf8"
 )
 
-// defaultPartialByteLimit bounds how much streamed text one capture keeps. A
-// prefix is what a UI can meaningfully show after a cut, and 8 KiB is far beyond
-// a normal answer while still capping the memory a runaway stream can pin. The
-// cap is enforced as deltas arrive, not only when Snapshot is called.
+// defaultPartialByteLimit 限制一次捕获保留多少流式文本。前缀是截断后 UI 仍能有意义展示的内容，
+// 8 KiB 远超正常答案的长度，同时仍能为失控的流所占内存设定上限。
+// 该上限在增量到达时即强制执行，而不只是在调用 Snapshot 时。
 const defaultPartialByteLimit = 8 << 10
 
-// partialCapture accumulates the text a single model attempt managed to stream
-// before it failed or was cancelled. It is keyed to one model and one step, so
-// a fallback switch starts a fresh capture and never mixes two attempts' text.
+// partialCapture 累积单次模型尝试在失败或被取消前成功流式输出的文本。
+// 它与一个模型和一个步骤绑定，因此切换回退模型会开启新的捕获，绝不会混用两次尝试的文本。
 //
-// A mutex guards the builder: a provider's onText callback may run on its own
-// goroutine while the loop takes a Snapshot, so the capture must be safe under
-// -race without the loop having to coordinate with the stream.
+// 用互斥锁保护 builder：提供方的 onText 回调可能在循环执行 Snapshot 时运行于自己的
+// goroutine 上，因此捕获必须在 -race 下安全，而无需循环与流做协调。
 type partialCapture struct {
 	mu        sync.Mutex
 	model     string
@@ -35,9 +32,9 @@ func newPartialCapture(model string, turn, limit int) *partialCapture {
 	return &partialCapture{model: model, turn: turn, limit: limit}
 }
 
-// Add appends one streamed delta, keeping at most limit bytes of complete UTF-8
-// runes. When a delta would cross the cap, only the longest rune-safe prefix is
-// kept and truncated is latched so a consumer can mark the text as incomplete.
+// Add 追加一个流式增量，最多保留 limit 字节的完整 UTF-8 rune。
+// 当某个增量会越过上限时，只保留最长的 rune 安全前缀，并锁存 truncated，
+// 使消费者能把文本标记为不完整。
 func (c *partialCapture) Add(delta string) {
 	if delta == "" {
 		return
@@ -58,8 +55,8 @@ func (c *partialCapture) Add(delta string) {
 	c.truncated = true
 }
 
-// partialSnapshot is the value handed to the failure boundary. Its Text is an
-// independent copy: a later Add cannot mutate text a caller already read.
+// partialSnapshot 是交给失败边界的值。它的 Text 是独立副本：
+// 后续的 Add 无法修改调用方已读取的文本。
 type partialSnapshot struct {
 	Text       string
 	StopReason string
@@ -68,9 +65,8 @@ type partialSnapshot struct {
 	Truncated  bool
 }
 
-// Snapshot returns the text captured so far together with its provenance and
-// the stop reason the run is about to report. The stop reason is supplied by
-// the caller because the loop owns stop semantics; the capture owns only bytes.
+// Snapshot 返回目前捕获的文本、其来源信息以及运行即将报告的停止原因。
+// 停止原因由调用方提供，因为停止语义归循环所有；捕获只负责字节。
 func (c *partialCapture) Snapshot(stopReason string) partialSnapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -83,9 +79,8 @@ func (c *partialCapture) Snapshot(stopReason string) partialSnapshot {
 	}
 }
 
-// runeSafePrefixLen returns the largest n <= maxBytes for which s[:n] ends on a
-// UTF-8 rune boundary. Backing off from a continuation byte keeps CJK and emoji
-// intact even when the cap lands in the middle of a multi-byte sequence.
+// runeSafePrefixLen 返回满足 s[:n] 结束于 UTF-8 rune 边界的最大 n（<= maxBytes）。
+// 从续字节回退可保证即使上限落在多字节序列中间，CJK 和 emoji 也保持完整。
 func runeSafePrefixLen(s string, maxBytes int) int {
 	if maxBytes >= len(s) {
 		return len(s)
@@ -97,8 +92,8 @@ func runeSafePrefixLen(s string, maxBytes int) int {
 	return n
 }
 
-// partialStopReason maps the failure boundary to the stop reason the loop will
-// report: a cancelled context wins over the provider error that carried it.
+// partialStopReason 把失败边界映射到循环将报告的停止原因：
+// 被取消的上下文优先于携带它的提供方错误。
 func partialStopReason(cancelled bool) string {
 	if cancelled {
 		return StopCancelled
@@ -106,10 +101,11 @@ func partialStopReason(cancelled bool) string {
 	return StopProviderError
 }
 
-// emitPartial publishes a captured prefix as one additive event. It is a no-op
-// when nothing was streamed, so a failure that produced no text keeps its old
-// wire output (error + stop only). The event is not terminal: the loop still
-// emits EventStop as the single run terminal.
+// emitPartial 把捕获的前缀作为一个附加事件发布。没有流式输出时它是空操作，
+// 因此未产生文本的失败保留原有的线上输出（仅错误 + 停止）。该事件不是终结事件：
+// 循环仍会发出 EventStop 作为唯一的运行终结事件。
+// 启用部分文本落盘后，同一快照还会通过注入的 Recorder 写入一条记录，使 resume 能看到这段文本；
+// 无论开关如何，事件路径本身保持不变。
 func (s *runState) emitPartial(snap partialSnapshot) {
 	if snap.Text == "" {
 		return
@@ -124,4 +120,7 @@ func (s *runState) emitPartial(snap partialSnapshot) {
 		PartialModel:      snap.Model,
 		PartialTruncated:  snap.Truncated,
 	})
+	if partialRecordPersistenceEnabled() {
+		s.record(partialRecordKind, partialRecordPayload(snap))
+	}
 }

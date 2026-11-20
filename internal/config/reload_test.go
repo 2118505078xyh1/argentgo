@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// TestChangedDetectsDiskEditAndReload is the core P1 scenario: a long-lived
-// caller loads once, the operator edits a config file on disk, and without a
-// restart Changed() flips true and Reload() yields the new value with a bumped
-// generation.
+// TestChangedDetectsDiskEditAndReload 是核心 P1 场景：长生命周期
+// 调用方加载一次，运维人员在磁盘上编辑配置文件，无需
+// 重启，Changed() 就会翻为 true，Reload() 产生带递增
+// generation 的新值。
 func TestChangedDetectsDiskEditAndReload(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -30,8 +30,8 @@ func TestChangedDetectsDiskEditAndReload(t *testing.T) {
 		t.Fatal("Changed() true immediately after load with no disk edit")
 	}
 
-	// Use a different-length value so the size changes too; mtime alone can be
-	// coarse on some filesystems.
+	// 使用不同长度的值，使大小也发生变化；某些文件系统上
+	// mtime 可能较粗。
 	writeJSONFile(t, path, map[string]any{"model": "a-considerably-longer-after-model"})
 	if !cfg.Changed() {
 		t.Fatal("Changed() false after editing config on disk")
@@ -47,18 +47,18 @@ func TestChangedDetectsDiskEditAndReload(t *testing.T) {
 	if next.Generation() != cfg.Generation()+1 {
 		t.Errorf("generation = %d, want %d", next.Generation(), cfg.Generation()+1)
 	}
-	// The original snapshot is untouched.
+	// 原始快照保持不变。
 	if cfg.Model != "before" {
 		t.Errorf("receiver mutated: model = %q, want before", cfg.Model)
 	}
-	// After a successful reload, the new snapshot is clean again.
+	// 重载成功后，新快照再次是干净的。
 	if next.Changed() {
 		t.Error("Changed() true on freshly reloaded config")
 	}
 }
 
-// TestChangedNoFalsePositiveWithoutEdit guards against noisy polling: repeated
-// Changed() calls with no disk activity must stay false.
+// TestChangedNoFalsePositiveWithoutEdit 防止轮询噪声：没有磁盘活动时
+// 重复调用 Changed() 必须保持 false。
 func TestChangedNoFalsePositiveWithoutEdit(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{"model": "stable"})
@@ -73,8 +73,8 @@ func TestChangedNoFalsePositiveWithoutEdit(t *testing.T) {
 	}
 }
 
-// TestChangedDetectsNewConfigFile covers the case where a previously missing
-// layer appears (existence change), not just an edit to an existing file.
+// TestChangedDetectsNewConfigFile 覆盖此前缺失的层
+// 出现（存在性变化）的情形，而不仅是对现有文件的编辑。
 func TestChangedDetectsNewConfigFile(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
@@ -101,8 +101,8 @@ func TestChangedDetectsNewConfigFile(t *testing.T) {
 	}
 }
 
-// TestReloadKeepsOverridePriority verifies that Reload re-applies the original
-// flag overrides, so the documented precedence is unchanged across reloads.
+// TestReloadKeepsOverridePriority 验证 Reload 重新应用原始的
+// flag 覆盖，因此文档记录的优先级在重载后不变。
 func TestReloadKeepsOverridePriority(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -122,8 +122,8 @@ func TestReloadKeepsOverridePriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	// The flag override still outranks the edited file; env still outranks both
-	// for locale. Only the underlying disk value (unshadowed) would change.
+	// flag 覆盖仍胜过被编辑的文件；对于 locale，env 仍胜过两者。
+	// 只有底层（未被遮蔽的）磁盘值会改变。
 	if next.Model != "flag-wins" {
 		t.Errorf("override lost on reload: model = %q", next.Model)
 	}
@@ -132,8 +132,8 @@ func TestReloadKeepsOverridePriority(t *testing.T) {
 	}
 }
 
-// TestReloadReturnErrorOnMalformedDisk keeps reload failures non-destructive:
-// the caller keeps using the current config if the on-disk edit is invalid.
+// TestReloadReturnErrorOnMalformedDisk 保持重载失败的非破坏性：
+// 若磁盘编辑无效，调用方继续使用当前配置。
 func TestReloadReturnErrorOnMalformedDisk(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -156,14 +156,14 @@ func TestReloadReturnErrorOnMalformedDisk(t *testing.T) {
 	if next != nil {
 		t.Errorf("Reload returned a non-nil config on error: %+v", next)
 	}
-	// The receiver is still the last known-good snapshot.
+	// 接收者仍是最后一个已知的良好快照。
 	if cfg.Model != "valid" || cfg.Generation() != 1 {
 		t.Errorf("receiver damaged by failed reload: model=%q gen=%d", cfg.Model, cfg.Generation())
 	}
 }
 
-// TestHandBuiltConfigHasNoChangeDetection documents the safety default for
-// Config values created outside Load (as done in several app tests).
+// TestHandBuiltConfigHasNoChangeDetection 记录对在 Load 之外创建的
+// Config 值的安全默认（多个 app 测试就是这么做的）。
 func TestHandBuiltConfigHasNoChangeDetection(t *testing.T) {
 	cfg := Config{Model: "manual"}
 	if cfg.Changed() {

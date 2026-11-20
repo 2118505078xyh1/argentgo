@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// runLogout implements `logout [provider]`: it removes OAuth tokens and any
-// API key stored for that provider in the config file.
+// runLogout 实现 `logout [provider]`：移除该提供方存储的 OAuth token 以及
+// 配置文件中保存的任何 API key。
 func runLogout(app App, _ context.Context, args []string) int {
 	provider := ""
 	for _, arg := range args {
@@ -75,7 +75,7 @@ func runLogout(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// clearConfigAPIKey removes one provider's apiKey from the config file.
+// clearConfigAPIKey 从配置文件中移除某个提供方的 apiKey。
 func clearConfigAPIKey(path, provider string) error {
 	cfg, err := loadConfigFile(path)
 	if err != nil {

@@ -137,6 +137,56 @@ func TestMigrateRecordsV0HeaderUpdatedInPlace(t *testing.T) {
 	}
 }
 
+// TestMigrateRecordsMultipleV0HeadersIdempotent 覆盖多头记录的升级：当转录里
+// 出现多个版本一致的 v0 schema 头时，迁移必须把它们全部升级，并保证再次迁移
+// 结果与首次完全一致（幂等）。此前只升级第一个头，残留的 v0 头会在第二次
+// 迁移时触发“头冲突”错误。
+func TestMigrateRecordsMultipleV0HeadersIdempotent(t *testing.T) {
+	records := []Record{
+		testRecord("h1", KindSchema, `{"version":0}`),
+		testRecord("h2", KindSchema, `{"version":0}`),
+		testRecord("h3", KindSchema, `{"version":0}`),
+		testRecord("u", KindUser, `{"text":"hello"}`),
+	}
+	once, err := MigrateRecords(records)
+	if err != nil {
+		t.Fatalf("首次 MigrateRecords: %v", err)
+	}
+	// 头记录数量与顺序不变，且每个头都升级到当前版本。
+	if len(once) != len(records) {
+		t.Fatalf("记录数 = %d，期望 %d", len(once), len(records))
+	}
+	for i := 0; i < 3; i++ {
+		if once[i].Kind != KindSchema {
+			t.Fatalf("记录 %d 的 kind = %q，期望 %q", i, once[i].Kind, KindSchema)
+		}
+		var payload SchemaPayload
+		if err := json.Unmarshal(once[i].Data, &payload); err != nil {
+			t.Fatalf("解析头 %d: %v", i, err)
+		}
+		if payload.Version != CurrentSchemaVersion {
+			t.Errorf("头 %d 的版本 = %d，期望 %d", i, payload.Version, CurrentSchemaVersion)
+		}
+	}
+	if !reflect.DeepEqual(once[3], records[3]) {
+		t.Fatalf("非头记录被修改: got %#v, want %#v", once[3], records[3])
+	}
+
+	// 再次迁移必须无错误且结果不变。
+	twice, err := MigrateRecords(once)
+	if err != nil {
+		t.Fatalf("第二次 MigrateRecords（幂等性）: %v", err)
+	}
+	if !reflect.DeepEqual(twice, once) {
+		t.Fatalf("迁移不幂等:\n首次 %#v\n再次 %#v", once, twice)
+	}
+
+	// 各头的 Data 不共享底层数组，避免修改其中一个影响其他头记录。
+	if len(once) > 1 && &once[0].Data[0] == &once[1].Data[0] {
+		t.Fatal("多个 schema 头共享了 Data 底层数组")
+	}
+}
+
 // TestMigrateRecordsNewerVersionRejected: a header from a newer build must be a
 // clear error, never a silent downgrade.
 func TestMigrateRecordsNewerVersionRejected(t *testing.T) {

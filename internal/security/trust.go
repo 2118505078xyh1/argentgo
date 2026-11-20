@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// ErrIntegrity means a trusted file no longer matches its recorded digest.
+// ErrIntegrity 表示受信任的文件不再与其记录的摘要相符。
 var ErrIntegrity = errors.New("security: file integrity check failed")
 
-// DigestFile returns the lowercase hex SHA-256 of a file's bytes.
+// DigestFile 返回文件字节的小写十六进制 SHA-256。
 func DigestFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -22,9 +22,9 @@ func DigestFile(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// VerifyFile checks path against a recorded hex SHA-256 digest. Any tampering,
-// truncation or missing file is reported as ErrIntegrity so a hook loader can
-// refuse to execute an untrusted document.
+// VerifyFile 根据记录的小写十六进制 SHA-256 摘要检查 path。任何篡改、
+// 截断或文件缺失都会报告为 ErrIntegrity，使 hook 加载器能够拒绝执行
+// 不受信任的文档。
 func VerifyFile(path, want string) error {
 	want = strings.ToLower(strings.TrimSpace(want))
 	if len(want) != sha256.Size*2 {

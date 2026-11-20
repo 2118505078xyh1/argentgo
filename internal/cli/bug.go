@@ -13,8 +13,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// runBug implements `bug [--out path]`: a diagnostics dump an issue report can
-// attach. It never includes API keys or token secrets.
+// runBug 实现 `bug [--out path]`：生成一份可供 issue 报告附加的诊断转储。
+// 其中绝不包含 API key 或 token 密钥。
 func runBug(app App, _ context.Context, args []string) int {
 	outPath := ""
 	for i := 0; i < len(args); i++ {
@@ -55,8 +55,8 @@ func runBug(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// bugReport renders the dump. Every probe is fail-soft: a broken config is
-// reported as an error line, not a crash.
+// bugReport 渲染该转储。每一项探测都是"失败即软处理"的：损坏的配置
+// 会被报告为一行错误，而不是导致崩溃。
 func bugReport(app App) string {
 	var b strings.Builder
 	root, _ := os.Getwd()
@@ -96,7 +96,7 @@ func bugReport(app App) string {
 	return b.String()
 }
 
-// builtinToolNames lists the registry's tools without building a workspace.
+// builtinToolNames 列出 registry 中的工具，而无需构建工作区。
 func builtinToolNames() []string {
 	return []string{
 		"read", "write", "edit", "bash", "ls", "grep", "find",

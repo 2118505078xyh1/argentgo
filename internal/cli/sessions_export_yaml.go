@@ -6,16 +6,15 @@ import (
 	"strings"
 )
 
-// yamlExportHeader marks a transcript export as a YAML document. A leading
-// comment is legal YAML and makes the otherwise JSON body self-describing.
+// yamlExportHeader 把转录导出标记为 YAML 文档。开头的注释是合法的 YAML，
+// 使原本是 JSON 的主体具有自描述性。
 const yamlExportHeader = "# argent session export - YAML 1.2 (JSON-compatible)\n"
 
-// jsonExportToYAML renders a session JSON transcript as a YAML document without
-// any third-party YAML dependency. JSON is a proper subset of YAML 1.2, so the
-// pretty-printed JSON produced by session.ExportProject is already a valid YAML
-// document: it preserves every field (including CJK text as raw UTF-8) and is
-// parseable by both JSON and YAML readers. We only validate the payload and
-// prefix a YAML comment marker; no data is rewritten.
+// jsonExportToYAML 不依赖任何第三方 YAML 库，就把会话 JSON 转录渲染为 YAML
+// 文档。JSON 是 YAML 1.2 的真子集，因此 session.ExportProject 产生的美化 JSON
+// 已经是合法的 YAML 文档：它保留每个字段（包括作为原始 UTF-8 的中文文本），
+// 且能被 JSON 和 YAML 读取器同时解析。我们只验证负载并加上 YAML 注释标记前缀；
+// 不重写任何数据。
 func jsonExportToYAML(data []byte) ([]byte, error) {
 	if !json.Valid(data) {
 		return nil, fmt.Errorf("session: invalid JSON export cannot be rendered as YAML")
@@ -26,9 +25,8 @@ func jsonExportToYAML(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// isYAMLExport reports whether a user-supplied --format value selects the YAML
-// export. Case and surrounding whitespace are ignored, matching the other
-// structured formats handled by session.ExportProject.
+// isYAMLExport 报告用户提供的 --format 值是否选择 YAML 导出。
+// 忽略大小写和周围空白，与 session.ExportProject 处理的其他结构化格式一致。
 func isYAMLExport(format string) bool {
 	return strings.EqualFold(strings.TrimSpace(format), "yaml")
 }

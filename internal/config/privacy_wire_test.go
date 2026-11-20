@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestPrivacyModeDefaultAny pins the compiled default: with no file, env or
-// flag setting the posture is the historical permissive "any".
+// TestPrivacyModeDefaultAny 固定编译期默认值：没有文件、env 或
+// flag 设置时，姿态是历史上宽松的 "any"。
 func TestPrivacyModeDefaultAny(t *testing.T) {
 	cfg, err := Load(t.TempDir(), envFunc(map[string]string{"HOME": t.TempDir()}))
 	if err != nil {
@@ -18,8 +18,8 @@ func TestPrivacyModeDefaultAny(t *testing.T) {
 	}
 }
 
-// TestPrivacyModeFromConfigFile covers both documented spellings. The value is
-// canonicalized (trimmed, lower-case) so it matches the security enum exactly.
+// TestPrivacyModeFromConfigFile 覆盖两种文档记录的拼写。值会被
+// 规范化（去空白、转小写）以精确匹配 security 枚举。
 func TestPrivacyModeFromConfigFile(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -44,7 +44,7 @@ func TestPrivacyModeFromConfigFile(t *testing.T) {
 	}
 }
 
-// TestPrivacyModePrecedence pins file < env < flag for the new setting.
+// TestPrivacyModePrecedence 固定新设置的 file < env < flag 优先级。
 func TestPrivacyModePrecedence(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
@@ -52,7 +52,7 @@ func TestPrivacyModePrecedence(t *testing.T) {
 	})
 	baseEnv := envFunc(map[string]string{"HOME": home})
 
-	// File wins over the default.
+	// 文件胜过默认值。
 	cfg, err := Load(cwd, baseEnv)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -61,7 +61,7 @@ func TestPrivacyModePrecedence(t *testing.T) {
 		t.Fatalf("file PrivacyMode = %q, want %q", cfg.PrivacyMode, PrivacyModeLocalOnly)
 	}
 
-	// ARGENT_PRIVACY_MODE beats the file.
+	// ARGENT_PRIVACY_MODE 胜过文件。
 	cfg, err = Load(cwd, envFunc(map[string]string{
 		"HOME":                home,
 		"ARGENT_PRIVACY_MODE": PrivacyModeAny,
@@ -73,7 +73,7 @@ func TestPrivacyModePrecedence(t *testing.T) {
 		t.Fatalf("env PrivacyMode = %q, want %q", cfg.PrivacyMode, PrivacyModeAny)
 	}
 
-	// A flag/override beats both env and file.
+	// flag/覆盖同时胜过 env 和文件。
 	cfg, err = LoadWithOverrides(cwd, envFunc(map[string]string{
 		"HOME":                home,
 		"ARGENT_PRIVACY_MODE": PrivacyModeAny,
@@ -86,8 +86,8 @@ func TestPrivacyModePrecedence(t *testing.T) {
 	}
 }
 
-// TestPrivacyModeInvalidRejected documents the fail-closed choice: an
-// unrecognized value fails config load instead of silently widening to "any".
+// TestPrivacyModeInvalidRejected 记录 fail-closed 选择：
+// 无法识别的值会让配置加载失败，而不是悄悄放宽为 "any"。
 func TestPrivacyModeInvalidRejected(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
@@ -112,8 +112,8 @@ func TestPrivacyModeInvalidRejected(t *testing.T) {
 	}
 }
 
-// TestPrivacyModeBlankUsesDefault pins that an explicitly empty setting is not
-// an error: it falls back to the compiled "any" posture.
+// TestPrivacyModeBlankUsesDefault 固定：显式空设置不是
+// 错误，它会回退到编译期的 "any" 姿态。
 func TestPrivacyModeBlankUsesDefault(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{

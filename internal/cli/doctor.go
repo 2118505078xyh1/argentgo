@@ -16,7 +16,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
 )
 
-// Status values printed by `doctor`.
+// `doctor` 打印的状态值。
 const (
 	statusOK   = "ok"
 	statusWarn = "warn"
@@ -29,8 +29,8 @@ type doctorCheck struct {
 	detail string
 }
 
-// runDoctor reports config, MCP config, storage, provider, git and Go health,
-// followed by an informational structured environment probe section.
+// runDoctor 报告配置、MCP 配置、存储、提供方、git 和 Go 的健康状况，
+// 随后是一个提供信息的结构化环境探测小节。
 func runDoctor(app App, ctx context.Context, args []string) int {
 	baseURL, help, err := doctorFlags(args)
 	if err != nil {
@@ -56,9 +56,9 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	failures := 0
 	for _, check := range checks {
-		// Doctor output is pasted into issues verbatim, so never print a raw
-		// detail: it can carry a base URL with inline credentials or an error
-		// string quoting one. Clean details are unchanged byte-for-byte.
+		// doctor 的输出会被逐字粘贴到 issue 中，因此绝不要打印原始的
+		// detail：它可能带有内联凭证的 base URL，或是引用凭证的错误
+		// 字符串。干净的 detail 会逐字节保持不变。
 		fmt.Fprintf(app.IO.Out, "%-4s %-9s %s\n", check.status, check.name, redactDoctorDetail(check.detail))
 		if check.status == statusFail {
 			failures++
@@ -67,9 +67,9 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	if failures > 0 {
 		fmt.Fprintf(app.IO.Out, "\n%d check(s) failed\n", failures)
 	}
-	// The environment section is informational: it never changes the exit code
-	// or failure count, and it is written last so all existing output remains a
-	// byte-for-byte prefix. Git detection reuses exec.LookPath, matching checkGit.
+	// 环境小节仅提供信息：它从不改变退出码或失败计数，而且最后写入，
+	// 因此所有已有的输出都保持为逐字节一致的前缀。git 检测复用
+	// exec.LookPath，与 checkGit 保持一致。
 	environment := probeEnvironment(app.env, exec.LookPath)
 	writeDoctorEnvironment(app.IO.Out, environment, doctorAdvice(environment))
 	if failures > 0 {
@@ -113,20 +113,19 @@ func checkConfigFile(app App) doctorCheck {
 	return doctorCheck{name: "config", status: statusOK, detail: path}
 }
 
-// mcpConfigReport summarises the integrity of the configured mcpServers
-// section. servers counts entries the runtime decoder accepts; problems holds
-// everything doctor should surface, including issues the decoder skips.
+// mcpConfigReport 汇总已配置 mcpServers 小节的完整性。servers 统计运行时
+// 解码器接受的条目数；problems 包含 doctor 应报告的所有问题，包括解码器
+// 跳过的问题。
 type mcpConfigReport struct {
 	servers  int
 	problems []mcp.Problem
 	shapeOK  bool
 }
 
-// inspectMCPConfig validates the mcpServers section purely from parsed config
-// data; no server is contacted. It reuses mcp.DecodeConfig so doctor and the
-// agent agree on what a valid entry means, then adds two reachability checks
-// the decoder deliberately leaves to Connect: a missing command/url target and
-// an unsupported transport value. Disabled servers are exempt.
+// inspectMCPConfig 仅根据解析后的配置数据校验 mcpServers 小节；不会联系
+// 任何服务器。它复用 mcp.DecodeConfig，使 doctor 和 agent 对有效条目的
+// 定义达成一致，然后添加两项解码器有意留给 Connect 的可达性检查：
+// 缺失 command/url 目标，以及不支持的 transport 值。已禁用的服务器除外。
 func inspectMCPConfig(raw map[string]any) mcpConfigReport {
 	report := mcpConfigReport{shapeOK: true}
 	if raw == nil {
@@ -167,18 +166,17 @@ func inspectMCPConfig(raw map[string]any) mcpConfigReport {
 			})
 		}
 	}
-	// DecodeConfig sorts its own problems; our appended ones must not make the
-	// report order depend on spec iteration.
+	// DecodeConfig 会对自己的问题排序；我们追加的问题不应使
+	// 报告顺序依赖于 spec 的遍历顺序。
 	sort.Slice(report.problems, func(i, j int) bool {
 		return report.problems[i].Error() < report.problems[j].Error()
 	})
 	return report
 }
 
-// checkMCPConfig reports the integrity of the mcpServers section of the config
-// file. Missing targets, bad field types and unsupported transports are
-// warnings (the agent still runs); a structurally wrong mcpServers value is a
-// failure because it means the whole section was ignored.
+// checkMCPConfig 报告配置文件中 mcpServers 小节的完整性。缺失的目标、
+// 错误的字段类型和不支持的 transport 都属于警告（agent 仍会运行）；
+// mcpServers 值在结构上错误则是失败，因为这意味着整个小节都被忽略了。
 func checkMCPConfig(app App) doctorCheck {
 	cfg, err := loadConfigFile(app.configPath())
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-// ioctlReadTermios is TIOCGETA on darwin; a successful ioctl means fd is a tty.
+// ioctlReadTermios 在 darwin 上是 TIOCGETA；ioctl 成功即表示 fd 是 tty。
 const ioctlReadTermios = 0x40487413
 
 func isTerminal(fd uintptr) bool {

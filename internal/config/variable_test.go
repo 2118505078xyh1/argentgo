@@ -16,8 +16,8 @@ func TestSubstituteEnvRawAndEscapedFallback(t *testing.T) {
 		t.Errorf("raw substitution = %q", raw)
 	}
 
-	// A backslashed Windows path breaks JSON verbatim, so the escaped retry
-	// must kick in and still decode to the original value.
+	// 带反斜杠的 Windows 路径会破坏 JSON 的原样替换，因此转义重试
+	// 必须介入，并仍解码为原始值。
 	result := Substitute(`{"path":"{env:WINPATH}"}`, ".", env, nil)
 	var decoded map[string]string
 	if err := json.Unmarshal([]byte(result), &decoded); err != nil {
@@ -28,10 +28,10 @@ func TestSubstituteEnvRawAndEscapedFallback(t *testing.T) {
 	}
 }
 
-// A backslash in an env value must survive substitution even when it happens
-// to form a *valid* JSON escape ("\t", "\n", ...). The verbatim result is then
-// syntactically fine but decodes to a different string (C:\temp -> C:<TAB>emp),
-// so the JSON-validity check alone cannot detect the corruption.
+// env 值中的反斜杠即使在恰好构成*合法的* JSON 转义时
+// 也必须在替换后保留（"\t"、"\n" 等）。原样结果随后
+// 语法上没问题，却解码为另一个字符串（C:\temp -> C:<TAB>emp），
+// 因此单靠 JSON 合法性检查无法发现这种损坏。
 func TestSubstituteBackslashValueThatIsValidJSONEscape(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -57,9 +57,9 @@ func TestSubstituteBackslashValueThatIsValidJSONEscape(t *testing.T) {
 	}
 }
 
-// The same corruption must not happen on the real Load path: a config whose
-// apiKey is a Windows path with a valid JSON escape must decode to the literal
-// backslash sequence, not to a tab/newline.
+// 真正的 Load 路径上不能出现同样的损坏：apiKey 是带合法
+// JSON 转义的 Windows 路径时，配置必须解码为字面的
+// 反斜杠序列，而不是制表符/换行。
 func TestLoadPreservesEnvBackslashValue(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -113,9 +113,9 @@ func TestSubstituteWarnsMissingReferences(t *testing.T) {
 	}
 }
 
-// When a backslash in one env value forces Substitute's escaped retry, the
-// retry must not re-emit warnings already reported by the verbatim pass. A
-// missing reference is reported once per load, not once per substitution pass.
+// 当某个 env 值中的反斜杠迫使 Substitute 进行转义重试时，
+// 重试不得重新发出原样替换已报告过的警告。缺失的引用
+// 每次加载只报告一次，而不是每次替换都报告。
 func TestSubstituteWarnsOnceWhenEscapedFallbackRuns(t *testing.T) {
 	env := envFunc(map[string]string{"WINPATH": `C:\temp`})
 	var warnings []string
@@ -162,11 +162,11 @@ func TestSubstituteLeavesFileReferenceInCommentAlone(t *testing.T) {
 	}
 }
 
-// A reference inside a JSONC comment is documentation, not a setting. The old
-// scanner only skipped file refs in // comments that began a line, so a ref in
-// a /* */ block comment (or in a trailing // comment) was read and injected.
-// When the referenced value contained "*/" it closed the block comment early
-// and corrupted the whole document.
+// JSONC 注释中的引用是文档，不是设置。旧扫描器只跳过行首
+// // 注释中的 file 引用，因此 /* */ 块注释（或行尾 // 注释）
+// 中的引用会被读取并注入。
+// 当被引用的值包含 "*/" 时，会提前闭合块注释，
+// 破坏整个文档。
 func TestSubstituteIgnoresReferencesInComments(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "key.txt"), []byte("abc*/def"), 0o644); err != nil {
@@ -223,8 +223,8 @@ func TestSubstituteIgnoresReferencesInComments(t *testing.T) {
 			if len(warnings) != tc.wantWarn {
 				t.Errorf("warnings = %v, want %d", warnings, tc.wantWarn)
 			}
-			// Comments survive substitution but must still be stripped back
-			// into a strict, decodable JSON document.
+			// 注释在替换后保留，但仍必须被剥离
+			// 回严格、可解码的 JSON 文档。
 			var tree map[string]any
 			if err := json.Unmarshal([]byte(StripJSONC(got)), &tree); err != nil {
 				t.Fatalf("cleaned JSON is invalid: %v\n%s", err, StripJSONC(got))
@@ -251,11 +251,11 @@ func TestLoadBlockCommentFileRefDoesNotCorruptJSON(t *testing.T) {
 	}
 }
 
-// A double quote in an env value can close the surrounding JSON string early
-// while leaving the document syntactically valid. Without an escaping retry,
-// an apiKey of `a", "role": "admin` would silently decode as "a" plus a rogue
-// key. The value must survive byte-for-byte and the warning must still fire
-// only once even though the quote forces the escaping pass to run.
+// env 值中的双引号可能提前闭合外围的 JSON 字符串，
+// 同时让文档保持语法合法。没有转义重试时，apiKey 为
+// `a", "role": "admin` 会被悄悄解码为 "a" 加上恶意的
+// 键。该值必须逐字节保留，且警告仍必须
+// 只触发一次，即使引号迫使转义流程运行。
 func TestSubstituteEnvQuoteInsideStringCannotInjectJSON(t *testing.T) {
 	const payload = `a", "injected": "pwned`
 	env := envFunc(map[string]string{"VAL": payload})
@@ -278,8 +278,8 @@ func TestSubstituteEnvQuoteInsideStringCannotInjectJSON(t *testing.T) {
 	}
 }
 
-// The same injection must be stopped on the real Load path: a quote in an env
-// value must not be able to flip an unrelated security setting.
+// 真正的 Load 路径上也必须阻止同样的注入：env 值中的
+// 引号不得翻转一个无关的安全设置。
 func TestLoadPreservesEnvQuoteInStringValue(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -299,9 +299,9 @@ func TestLoadPreservesEnvQuoteInStringValue(t *testing.T) {
 	}
 }
 
-// Quotes are only dangerous inside a JSON string. A reference used as raw JSON
-// (an object here) must stay verbatim, including when an escaping retry is
-// triggered by an unrelated string-context value in the same document.
+// 引号只有在 JSON 字符串内才危险。作为原始 JSON 使用的引用
+// （此处为对象）必须原样保留，即使同一文档中无关的
+// 字符串上下文值触发了转义重试也是如此。
 func TestSubstituteEnvQuoteOutsideStringStaysRawJSON(t *testing.T) {
 	const obj = `{"a":1}`
 	env := envFunc(map[string]string{"OBJ": obj, "Q": `a", "x": "y`})

@@ -12,8 +12,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/hooks"
 )
 
-// runHooks implements `hooks [-C root]`: every hook document, its digest and
-// whether the trust store has granted that digest.
+// runHooks 实现 `hooks [-C root]`：列出每个 hook 文档、它的摘要，
+// 以及信任存储是否已授予该摘要。
 func runHooks(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
@@ -72,7 +72,7 @@ func runHooks(app App, _ context.Context, args []string) int {
 	return 0
 }
 
-// hookDocuments lists the hook files a session would consider, project first.
+// hookDocuments 列出会话会考虑的 hook 文件，项目级优先。
 func hookDocuments(root, home string) []string {
 	var paths []string
 	add := func(path string) {

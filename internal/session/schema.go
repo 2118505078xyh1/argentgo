@@ -63,13 +63,23 @@ func migrateV0ToV1(records []Record) ([]Record, error) {
 	}
 	out := make([]Record, len(records))
 	copy(out, records)
+	found := false
 	for i := range out {
-		if out[i].Kind == KindSchema {
-			out[i].Data = header.Data
-			return out, nil
+		if out[i].Kind != KindSchema {
+			continue
 		}
+		// 必须升级每一个 schema 头，不能只改第一个：schemaVersion 允许多个
+		// 版本一致的头记录（例如合并两段转录），若只升级其中一个，结果里会
+		// 残留版本 0 的头，再次调用 MigrateRecords 就会报头冲突，破坏幂等性；
+		// 一旦这份结果被写回磁盘，后续读取会直接失败。
+		// 逐条复制字节，避免多个头记录共享同一底层切片。
+		out[i].Data = append(json.RawMessage(nil), header.Data...)
+		found = true
 	}
-	return append([]Record{header}, out...), nil
+	if !found {
+		out = append([]Record{header}, out...)
+	}
+	return out, nil
 }
 
 // MigrateRecords upgrades records to CurrentSchemaVersion. It is pure (the

@@ -1,4 +1,4 @@
-// Package llm speaks the OpenAI-compatible chat completions protocol.
+// Package llm 实现与 OpenAI 兼容的 chat completions 协议。
 package llm
 
 import (
@@ -13,11 +13,11 @@ import (
 	"time"
 )
 
-// Message is one entry in the conversation.
+// Message 是对话中的一条记录。
 //
-// Reasoning, Usage and CacheControl are transcript metadata: they are attached
-// to assistant replies or stable-prefix requests by the protocol clients. They
-// are not ordinary upstream fields (see Chat).
+// Reasoning、Usage 和 CacheControl 是转录元数据：由协议客户端附加到
+// 助手回复或稳定前缀请求上。它们
+// 并非普通的上游字段（参见 Chat）。
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
@@ -25,36 +25,36 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Reasoning  string     `json:"reasoning,omitempty"`
 	Usage      *Usage     `json:"usage,omitempty"`
-	// FinishReason is the provider's stop reason for this reply (e.g. "stop",
-	// "tool_calls", "length"). It is wire metadata used by the agent loop to
-	// refuse a truncated tool batch, not ordinary transcript content.
+	// FinishReason 是提供方对本次回复的停止原因（例如 "stop"、
+	// "tool_calls"、"length"）。它是线协议元数据，供 agent 循环用于
+	// 拒绝被截断的工具调用批次，并非普通的转录内容。
 	FinishReason string `json:"finish_reason,omitempty"`
-	// CacheControl marks a stable system message for a caching gateway. It is
-	// never persisted in a transcript.
+	// CacheControl 为缓存网关标记稳定的系统消息。它
+	// 从不会持久化到转录中。
 	CacheControl *CacheControl `json:"-"`
 }
 
-// Usage reports the tokens a provider billed for one reply.
+// Usage 报告提供方对一次回复计费的 token 数。
 //
-// PromptTokens is the complete prompt cost: fresh plus cached tokens. The
-// cached breakdown is informational, so budget and cost code that reads
-// PromptTokens counts each token once.
+// PromptTokens 是完整的提示成本：新增 token 加上缓存 token。
+// 缓存细分仅供参考，因此读取 PromptTokens 的预算与成本代码
+// 应把每个 token 只计一次。
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
-	// CachedTokens is the portion of PromptTokens served from prompt cache.
+	// CachedTokens 是 PromptTokens 中由提示缓存提供的部分。
 	CachedTokens int `json:"cached_tokens,omitempty"`
-	// CacheWriteTokens is the portion of PromptTokens written to prompt cache.
+	// CacheWriteTokens 是 PromptTokens 中写入提示缓存的部分。
 	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
-// TotalTokens returns billable tokens for one reply, counting cached prompt
-// tokens only through PromptTokens.
+// TotalTokens 返回一次回复的可计费 token 数，其中缓存的提示 token
+// 仅通过 PromptTokens 计入。
 func (u Usage) TotalTokens() int {
 	return u.PromptTokens + u.CompletionTokens
 }
 
-// FreshPromptTokens returns prompt tokens that were not served from cache.
+// FreshPromptTokens 返回未由缓存提供的提示 token。
 func (u Usage) FreshPromptTokens() int {
 	if u.CachedTokens >= u.PromptTokens {
 		return 0
@@ -63,40 +63,40 @@ func (u Usage) FreshPromptTokens() int {
 }
 
 const (
-	// cacheWarmWindowStart is the fraction of a cache entry's lifetime after
-	// which a keepalive becomes eligible. pi arms a single timer at 90% of the
-	// lifetime (with a ten-second margin); the 80% floor here leaves a caller
-	// room to schedule inside that band without racing the expiry.
+	// cacheWarmWindowStart 是缓存条目生命周期中，在此比例之后
+	// 保活请求才有资格发出。pi 在生命周期 90% 处设置单个定时器
+	// （留十秒余量）；这里取 80% 作为下限，给调用方
+	// 在该区间内调度的余地，避免与过期时间竞争。
 	cacheWarmWindowStart = 0.8
 
-	// maxIdleWarmAge is the pi idle-phase safety cap: an entry is never warmed
-	// once the agent has been idle this long, even when its TTL is longer.
+	// maxIdleWarmAge 是 pi 空闲期的安全上限：空闲达到此时长后，条目
+	// 即使在 TTL 更长的情况下也不会再被保活。
 	maxIdleWarmAge = 30 * time.Minute
 )
 
-// ShouldWarmCache reports whether a keepalive ("rent") request is worth sending
-// for a prompt cache entry. It is a pure decision helper: it neither sends a
-// request nor touches any client state, so a caller can arm it from a
-// turn-boundary timer without coupling wire protocols to the agent loop.
+// ShouldWarmCache 报告是否值得为某个提示缓存条目发送保活（"rent"）请求。
+// 它是纯决策辅助函数：既不发送请求，
+// 也不触碰任何客户端状态，因此调用方可以在轮次边界的定时器上启用它，
+// 而无需将线协议与 agent 循环耦合。
 //
-// The entry was last written or read at lastRequest and expires at ttl, an
-// absolute deadline (normally lastRequest plus the provider's cache lifetime).
-// A warm is eligible only in the final stretch of that lifetime, before the
-// deadline, and while the idle interval has not exceeded maxIdleWarmAge. The
-// economics gate requires the expected avoided miss cost
-// (missCost * continuationProb) to exceed the keepalive's own cost.
+// 条目在 lastRequest 时最后被写入或读取，并在 ttl 这个绝对截止时间过期
+// （通常为 lastRequest 加上提供方的缓存生存期）。
+// 只有在该生存期的最后阶段、截止时间之前，且空闲间隔未超过
+// maxIdleWarmAge 时，保活才有资格。
+// 经济性门槛要求预期节省的未命中成本
+// (missCost * continuationProb) 超过保活自身的成本。
 //
-// A zero idleSince disables the idle-age check, for callers that do not track
-// idle time. NaN costs fail the economics gate, since every comparison with
-// NaN is false.
+// idleSince 为零会禁用空闲时长检查，适用于不跟踪空闲时间的调用方。
+// NaN 成本无法通过经济性门槛，因为与 NaN 的任何比较
+// 结果都是 false。
 func ShouldWarmCache(now, lastRequest, ttl, idleSince time.Time, warmCost, missCost, continuationProb float64) bool {
-	// An expired or inconsistent entry cannot be kept alive. The window check
-	// below also rejects a now before lastRequest (clock skew or a fresh entry).
+	// 已过期或状态不一致的条目无法保活。下面的窗口检查
+	// 也会拒绝早于 lastRequest 的 now（时钟偏差或新条目）。
 	if now.After(ttl) || !ttl.After(lastRequest) || now.Before(lastRequest) {
 		return false
 	}
-	// Idle safety cap: pi stops after 30 minutes between real requests. An
-	// idleSince at or after now yields a non-positive age and is not a cap.
+	// 空闲安全上限：两次真实请求间隔超过 30 分钟后 pi 停止保活。
+	// 等于或晚于 now 的 idleSince 会得到非正的空档时长，不构成上限。
 	if !idleSince.IsZero() && now.Sub(idleSince) > maxIdleWarmAge {
 		return false
 	}
@@ -108,28 +108,28 @@ func ShouldWarmCache(now, lastRequest, ttl, idleSince time.Time, warmCost, missC
 	return missCost*continuationProb > warmCost
 }
 
-// CacheWarmer is a reusable, network-free keepalive scheduler for long-lived
-// engines. It records when a real request refreshed the prompt cache and when
-// the agent went idle, then answers ShouldWarm so a caller can decide whether
-// to send a 1-token replay. It never sends a request or starts a timer itself;
-// the replay is left entirely to the caller.
+// CacheWarmer 是面向长生命周期引擎的、可复用的、无网络访问的保活调度器。
+// 它记录真实请求何时刷新了提示缓存，以及
+// agent 何时进入空闲，然后回答 ShouldWarm，让调用方决定是否
+// 发送一个 1-token 的重放请求。它自身从不发送请求或启动定时器；
+// 重放完全交由调用方处理。
 //
-// All mutable state is guarded by a mutex, so a background timer goroutine may
-// call ShouldWarm concurrently with the agent loop calling RecordRequest and
-// RecordIdle. The zero value is disabled: ShouldWarm returns false until a
-// caller opts in by setting Enabled, leaving existing request behaviour intact.
+// 所有可变状态都由互斥锁保护，因此后台定时器 goroutine 可以与
+// 调用 RecordRequest 和 RecordIdle 的 agent 循环并发调用 ShouldWarm。
+// 零值表示禁用：在调用方通过设置 Enabled 选择启用之前，
+// ShouldWarm 始终返回 false，从而保持既有请求行为不变。
 type CacheWarmer struct {
 	mu sync.Mutex
 
-	// Enabled opts the warmer in. Disabled by default (zero value).
+	// Enabled 用于启用保活调度器。默认禁用（零值）。
 	Enabled bool
 
-	// TTL is the provider cache lifetime measured from the last real request.
-	// A non-positive value falls back to defaultWarmTTL.
+	// TTL 是从上一次真实请求起算的提供方缓存生存期。
+	// 非正值将回退到 defaultWarmTTL。
 	TTL time.Duration
 
-	// WarmCost, MissCost and ContinuationProb drive ShouldWarmCache's economics
-	// gate. When all three are unset (zero) conservative defaults are used.
+	// WarmCost、MissCost 和 ContinuationProb 驱动 ShouldWarmCache 的经济性
+	// 门槛。三者都未设置（为零）时使用保守的默认值。
 	WarmCost         float64
 	MissCost         float64
 	ContinuationProb float64
@@ -139,21 +139,21 @@ type CacheWarmer struct {
 }
 
 const (
-	// defaultWarmTTL is the shortest retention tier the caching gateways
-	// accept, used when a CacheWarmer leaves TTL unset.
+	// defaultWarmTTL 是缓存网关接受的最短保留档位，
+	// 在 CacheWarmer 未设置 TTL 时使用。
 	defaultWarmTTL = 5 * time.Minute
-	// A 1-token replay is cheap relative to rebuilding a full prompt cache:
-	// these defaults clear the economics gate at a modest continuation chance,
-	// but still fail it when a caller sets a non-positive miss cost.
+	// 与重建整个提示缓存相比，1-token 重放代价很低：
+	// 这些默认值在适中的续接概率下能通过经济性门槛，
+	// 但当调用方设置非正的未命中成本时仍无法通过。
 	defaultWarmCost         = 1.0
 	defaultMissCost         = 10.0
 	defaultContinuationProb = 0.5
 )
 
-// RecordRequest records that a real request refreshed the prompt cache at now.
-// It restarts both clocks: the cache lifetime and warm window are measured from
-// this request, and the idle phase ends until the next RecordIdle at a turn
-// boundary, so a stale idle time can never suppress a fresh window.
+// RecordRequest 记录一次真实请求在 now 刷新了提示缓存。
+// 它会重启两个时钟：缓存生存期和保活窗口都从本次请求起算，
+// 空闲阶段结束，直到轮次边界上下一次 RecordIdle 为止，
+// 因此过期的空闲时间不会抑制新的窗口。
 func (cw *CacheWarmer) RecordRequest(now time.Time) {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
@@ -161,19 +161,19 @@ func (cw *CacheWarmer) RecordRequest(now time.Time) {
 	cw.idleSince = time.Time{}
 }
 
-// RecordIdle records that the agent became idle at now, normally at a turn
-// boundary. It resets the idle-age cap so a long-running but recently active
-// agent is not mistaken for one idle past maxIdleWarmAge.
+// RecordIdle 记录 agent 在 now 进入空闲，通常发生在轮次边界。
+// 它会重置空闲时长上限，避免一个长期运行但最近仍活跃的 agent
+// 被误判为空闲已超过 maxIdleWarmAge。
 func (cw *CacheWarmer) RecordIdle(now time.Time) {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 	cw.idleSince = now
 }
 
-// ShouldWarm reports whether a keepalive replay is due at now. It is safe to
-// call concurrently with RecordRequest and RecordIdle. A disabled warmer, one
-// that has never seen a request, or one whose economics gate does not clear all
-// return false.
+// ShouldWarm 报告在 now 是否该进行保活重放。可以安全地与
+// RecordRequest 和 RecordIdle 并发调用。被禁用的调度器、
+// 从未见过请求的调度器，或经济性门槛未通过的调度器，
+// 都返回 false。
 func (cw *CacheWarmer) ShouldWarm(now time.Time) bool {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
@@ -191,25 +191,25 @@ func (cw *CacheWarmer) ShouldWarm(now time.Time) bool {
 	return ShouldWarmCache(now, cw.lastRequest, cw.lastRequest.Add(ttl), cw.idleSince, warmCost, missCost, prob)
 }
 
-// Chatter is implemented by every streaming protocol client in this package.
+// Chatter 由本包中每个流式协议客户端实现。
 type Chatter interface {
 	Chat(ctx context.Context, model string, messages []Message, tools []ToolSpec, onText func(string)) (Message, error)
 }
 
-// ToolCall is a model request to run a tool.
+// ToolCall 是模型发出的运行工具的请求。
 type ToolCall struct {
 	ID       string           `json:"id"`
 	Type     string           `json:"type"`
 	Function ToolCallFunction `json:"function"`
 }
 
-// ToolCallFunction carries the name and raw JSON arguments.
+// ToolCallFunction 携带工具名称和原始 JSON 参数。
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
-// ToolSpec is the JSON schema advertised to the model.
+// ToolSpec 是向模型声明的 JSON schema。
 type ToolSpec struct {
 	Type     string `json:"type"`
 	Function struct {
@@ -219,23 +219,23 @@ type ToolSpec struct {
 	} `json:"function"`
 }
 
-// Client is a minimal streaming client for OpenAI-compatible chat
-// completions. It is cache-free unless Options.ForcePromptCache is set.
+// Client 是面向 OpenAI 兼容 chat completions 的最小化流式客户端。
+// 除非设置了 Options.ForcePromptCache，否则不使用缓存。
 type Client struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
 	Retry   RetryPolicy
 	Options Options
-	// IdleTimeout bounds the silence between stream events. An open connection
-	// can stop delivering data without ever reporting an error; with a positive
-	// IdleTimeout the read fails as a retryable stream error instead of hanging
-	// until the caller's context expires. Zero (the default) keeps synchronous
-	// reads and adds no timer or goroutine, so existing callers are unaffected.
+	// IdleTimeout 限制流事件之间的静默时长。一个已打开的连接可能
+	// 停止传送数据却从不报错；设置正的 IdleTimeout 后，读取会作为可重试的
+	// 流错误失败，而不是一直挂起直到调用方的 context 过期。
+	// 零值（默认）保持同步读取，不增加定时器或 goroutine，
+	// 因此现有调用方不受影响。
 	IdleTimeout time.Duration
 }
 
-// New returns a client for an OpenAI-compatible endpoint.
+// New 返回一个面向 OpenAI 兼容端点的客户端。
 func New(baseURL, apiKey string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
@@ -244,7 +244,7 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
-// PromptCacheCapability reports whether this client emits cache markers.
+// PromptCacheCapability 报告此客户端是否发出缓存标记。
 func (c *Client) PromptCacheCapability() CacheCapability {
 	return CacheCapability{
 		Supported: c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL),
@@ -274,25 +274,25 @@ type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-// chatMessage is the wire shape of one chat message. CacheControl is added
-// only to the first stable system message when caching is explicitly enabled.
+// chatMessage 是一条聊天消息的线协议形态。只有在显式启用缓存时，
+// 才会把 CacheControl 加到第一条稳定的系统消息上。
 type chatMessage struct {
 	Role         string        `json:"role"`
 	Content      string        `json:"content,omitempty"`
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
-	// ReasoningContent is the reasoning replayed on an assistant turn when
-	// Options.PreserveReasoning is enabled. It stays empty by default so the
-	// wire bytes are unchanged for every existing caller.
+	// ReasoningContent 是在启用 Options.PreserveReasoning 时，
+	// 在助手轮次上重放的推理内容。默认保持为空，
+	// 以使所有现有调用方发出的线协议字节保持不变。
 	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
-// wireMessages copies messages without transcript-only fields. With
-// preserveReasoning off (the default) it keeps the bytes sent upstream exactly
-// as before Reasoning/Usage existed; the opt-in flag alone adds the
-// reasoning_content field to assistant turns that carry reasoning. The bool is
-// variadic so the historical three-argument call form keeps compiling.
+// wireMessages 复制消息时不带仅用于转录的字段。在
+// preserveReasoning 关闭（默认）时，它保持上游字节与 Reasoning/Usage 出现之前
+// 完全一致；仅当显式开启该标志时，才会给携带推理的助手轮次
+// 添加 reasoning_content 字段。该 bool 参数是可变的，
+// 以便历史的三参数调用形式仍能编译。
 func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl, preserveReasoning ...bool) []chatMessage {
 	keepReasoning := len(preserveReasoning) > 0 && preserveReasoning[0]
 	out := make([]chatMessage, len(messages))
@@ -322,10 +322,10 @@ type chunk struct {
 	Choices []struct {
 		Delta struct {
 			Content string `json:"content"`
-			// ReasoningContent is the OpenAI-compatible incremental reasoning
-			// (DeepSeek, Qwen, ...). Reasoning is the alternate key some
-			// gateways use. Only one is written per delta; the first non-empty
-			// wins so a provider sending both cannot double the text.
+			// ReasoningContent 是 OpenAI 兼容的增量推理字段
+			// （DeepSeek、Qwen 等）。Reasoning 是部分网关使用的
+			// 备用键。每个 delta 只写入其中一个；取第一个非空值，
+			// 这样即使提供方同时发送两者，文本也不会重复。
 			ReasoningContent string `json:"reasoning_content"`
 			Reasoning        string `json:"reasoning"`
 			ToolCalls        []struct {
@@ -351,8 +351,8 @@ type chunk struct {
 	} `json:"error"`
 }
 
-// Chat streams one completion and returns the assembled assistant message.
-// onText, when non-nil, receives content deltas as they arrive.
+// Chat 流式获取一次补全并返回组装好的助手消息。
+// onText 非空时，会在内容增量到达时接收它们。
 func (c *Client) Chat(
 	ctx context.Context,
 	model string,
@@ -363,9 +363,9 @@ func (c *Client) Chat(
 	return c.chat(ctx, model, messages, tools, onText, nil)
 }
 
-// chat is the shared request/retry/stream pipeline. stopIDs, when non-empty,
-// is forwarded as the optional stop_token_ids field; Chat passes nil so its
-// wire format is unchanged. FillMiddle uses it to attach FIM stop tokens.
+// chat 是共享的请求/重试/流式处理管线。stopIDs 非空时，
+// 会作为可选的 stop_token_ids 字段转发；Chat 传入 nil，
+// 因此其线协议格式不变。FillMiddle 用它来附加 FIM 停止 token。
 func (c *Client) chat(
 	ctx context.Context,
 	model string,
@@ -411,8 +411,8 @@ func (c *Client) chat(
 		}
 	}
 	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
-		// A fresh request (and body reader) per attempt: streaming bodies
-		// cannot be replayed, and RetryPolicy.Do calls send again on failure.
+		// 每次尝试都重新创建请求（及 body reader）：流式 body
+		// 无法重放，而 RetryPolicy.Do 在失败时会再次调用 send。
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
@@ -447,13 +447,13 @@ func (c *Client) chat(
 
 func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
 	var text strings.Builder
-	// Reasoning deltas are appended verbatim as whole strings, so a CJK rune
-	// split across chunks is preserved exactly: no byte/rune slicing happens.
+	// 推理增量按完整字符串原样追加，因此跨分块拆开的 CJK 字符
+	// 会被精确保留：不进行任何字节/字符切片。
 	var reasoning strings.Builder
-	// A tool call is keyed by both its stream index and its id. Gateways may
-	// renumber a call or swap its id between deltas; both maps alias the same
-	// block so every fragment still lands in one place. blocks keeps the
-	// distinct calls in creation order for the final result.
+	// 工具调用同时以流索引和 id 作为键。网关可能在增量之间
+	// 重新编号调用或交换其 id；两个映射都指向同一个
+	// 块，因此每个片段仍会落到同一处。blocks 按创建顺序
+	// 保存各个不同的调用，用于生成最终结果。
 	blocks := make([]*ToolCall, 0, 2)
 	byIndex := make(map[int]*ToolCall)
 	byID := make(map[string]*ToolCall)
@@ -461,23 +461,23 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	var finishReason string
 	var integrity streamIntegrity
 
-	// Reuse the shared SSE reader: a single event may carry its JSON payload
-	// across several data: lines, which the SSE spec allows and gateways use.
+	// 复用共享的 SSE 读取器：单个事件的 JSON 载荷可能横跨多个 data: 行，
+	// 这是 SSE 规范允许且网关会使用的做法。
 	reader := newSSEReader(body)
 	var pending []string
 
-	// An open connection can stop delivering data without ever reporting an
-	// error. With IdleTimeout set, run the normally blocking SSE read in a
-	// goroutine and watch it with a timer so silence surfaces as a retryable
-	// stream error instead of hanging until the caller's context expires.
-	// IdleTimeout == 0 keeps the original synchronous read and adds no timer
-	// or goroutine, so existing callers are unaffected.
+	// 已打开的连接可能停止传送数据却从不报错。
+	// 设置 IdleTimeout 后，把通常阻塞的 SSE 读取放到 goroutine 中，
+	// 并用定时器监视它，使静默表现为可重试的
+	// 流错误，而不是一直挂起直到调用方的 context 过期。
+	// IdleTimeout == 0 保持原有的同步读取，不增加定时器
+	// 或 goroutine，因此现有调用方不受影响。
 	type readResult struct {
 		data string
 		ok   bool
 		err  error
 	}
-	reads := make(chan readResult, 1) // buffered: a late read can always exit
+	reads := make(chan readResult, 1) // 带缓冲：迟到的读取也总能退出
 	readStarted := false
 
 	var idle *time.Timer
@@ -548,16 +548,16 @@ streamLoop:
 					data = res.data
 				}
 			}
-			// Any event that arrives pushes the silence deadline out.
+			// 任何到达的事件都会把静默截止时间往后推。
 			resetIdle()
-			// One SSE event may carry several payloads: a JSON object split
-			// across data: lines, or independent events with no blank separator.
-			// Decode them one at a time through the same path below.
+			// 一个 SSE 事件可能携带多个载荷：跨 data: 行拆开的 JSON 对象，
+			// 或没有空行分隔的独立事件。
+			// 通过下面相同的路径逐个解码。
 			pending = splitSSEData(data)
 			data, pending = pending[0], pending[1:]
 		}
-		// An empty data: line is a legal SSE keepalive, not a JSON event.
-		// Skipping it keeps a proxy's heartbeat from failing the reply.
+		// 空的 data: 行是合法的 SSE 保活信号，不是 JSON 事件。
+		// 跳过它可以避免代理的心跳导致回复失败。
 		if isEmptySSEData(data) {
 			continue
 		}
@@ -581,15 +581,15 @@ streamLoop:
 			if details := event.Usage.PromptTokensDetails; details != nil {
 				next.CachedTokens = details.CachedTokens
 			}
-			// Usage is normally reported once, in the final chunk before
-			// [DONE]. Gateways also emit partial snapshots: an all-zero
-			// terminator, an early prompt-only count, or a final chunk that
-			// carries only the cached-token breakdown. Merge each field
-			// independently instead of replacing the whole snapshot: a zero
-			// field means "not reported in this chunk", never "reset". If a
-			// chunk with data replaced earlier totals, a cached-only tail
-			// would leave CachedTokens > PromptTokens and TotalTokens == 0,
-			// silently corrupting every downstream budget calculation.
+			// Usage 通常只在 [DONE] 前的最后一个分块中上报一次。
+			// 网关也会发出部分快照：全零的
+			// 终止快照、仅包含提示计数的早期快照，或只携带缓存 token 细分的
+			// 最终分块。应逐字段合并，
+			// 而不是替换整个快照：零值字段表示
+			// "本分块未上报"，绝不是"重置"。如果
+			// 带数据的分块替换了先前的总计，那么仅含缓存的尾部
+			// 会导致 CachedTokens > PromptTokens 且 TotalTokens == 0，
+			// 在无声中破坏所有下游的预算计算。
 			if usage == nil {
 				usage = &Usage{}
 			}
@@ -613,21 +613,21 @@ streamLoop:
 					onText(delta)
 				}
 			}
-			// Capture incremental reasoning without forwarding it to onText:
-			// reasoning is transcript metadata, not answer text. Prefer the
-			// OpenAI-compatible key; fall back to the alternate spelling.
+			// 捕获增量推理但不转发给 onText：
+			// 推理是转录元数据，而非回答文本。优先使用
+			// OpenAI 兼容的键；若不存在则回退到备用拼写。
 			if delta := choice.Delta.ReasoningContent; delta != "" {
 				reasoning.WriteString(delta)
 			} else if delta := choice.Delta.Reasoning; delta != "" {
 				reasoning.WriteString(delta)
 			}
 			for _, tc := range choice.Delta.ToolCalls {
-				// Resolve by id first: the provider's id is the call's stable
-				// identity, while index is only a stream position that gateways
-				// renumber mid-stream (or omit on a continuation delta). A known
-				// id under a stale index must still reach its own call; trusting
-				// the index first would append fragments to whichever call used
-				// to own that slot and silently swap two calls' arguments.
+				// 优先按 id 解析：提供方的 id 是调用的稳定标识，
+				// 而 index 只是一个流位置，网关可能在流中途重新编号
+				// （或在续接增量中省略）。已知 id 即使出现在旧索引下，
+				// 也必须找到它自己的调用；若先信任索引，
+				// 片段会被追加到曾占据该槽位的调用上，
+				// 在无声中交换两个调用的参数。
 				var call *ToolCall
 				if tc.ID != "" {
 					call = byID[tc.ID]
@@ -639,10 +639,10 @@ streamLoop:
 					call = &ToolCall{Type: "function"}
 					blocks = append(blocks, call)
 				}
-				// Register every key seen for this block as an alias. When a
-				// known id reappears under a different index, rebind that index
-				// to the id's call so later id-less deltas at the new position
-				// also land in the right block.
+				// 把该块出现过的每个键都注册为别名。当某个已知 id
+				// 以不同索引重新出现时，把该索引重新绑定到该 id 对应的调用，
+				// 使新位置上后续没有 id 的增量也能
+				// 落到正确的块中。
 				if tc.ID != "" || byIndex[tc.Index] == nil {
 					byIndex[tc.Index] = call
 				}
@@ -650,8 +650,8 @@ streamLoop:
 					if byID[tc.ID] == nil {
 						byID[tc.ID] = call
 					}
-					// Keep the first id: a mid-stream rename is an alias, not
-					// a second call, and the agent keys results on that id.
+					// 保留第一个 id：流中途的重命名是别名，不是
+					// 第二次调用，而且 agent 以该 id 为结果建立索引。
 					if call.ID == "" {
 						call.ID = tc.ID
 					}
@@ -661,8 +661,8 @@ streamLoop:
 			}
 		}
 	}
-	// Generated ids must not collide with an id the provider supplied: a
-	// duplicated call id makes the agent reject the whole tool batch.
+	// 生成的 id 不得与提供方提供的 id 冲突：
+	// 重复的调用 id 会让 agent 拒绝整个工具批次。
 	used := make(map[string]struct{}, len(blocks))
 	for _, block := range blocks {
 		if block.ID != "" {
@@ -675,10 +675,10 @@ streamLoop:
 		if call.ID == "" {
 			call.ID = uniqueToolCallID(used, "call_", i+1)
 		}
-		// A truncated or malformed argument fragment is not safe to hand to
-		// the tool dispatcher; fall back to the empty object like the other
-		// protocol clients do. If the stream never reached [DONE], the
-		// fallback means the answer was cut off mid-tool-call: fail instead.
+		// 被截断或格式错误的参数片段不能安全地交给
+		// 工具分发器；应像其他协议客户端一样回退到空对象。
+		// 如果流从未到达 [DONE]，则这种
+		// 回退意味着回复在工具调用中途被截断：此时应直接失败。
 		call.Function.Arguments = integrity.toolArguments(call.Function.Arguments)
 		calls = append(calls, call)
 	}

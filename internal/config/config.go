@@ -1,17 +1,17 @@
-// Package config resolves layered configuration for argentgo.
+// Package config 为 argentgo 解析分层配置。
 //
-// Precedence, lowest to highest:
+// 优先级，从低到高：
 //
-//  1. compiled defaults
+//  1. 编译期默认值
 //  2. $HOME/.argentgo/config.json
 //  3. <cwd>/.argent/config.json
 //  4. <cwd>/argent.json
-//  5. the selected profile (ARGENT_PROFILE, or "profile" in a file)
-//  6. ARGENT_* environment variables
-//  7. explicit flag overrides
+//  5. 选定的 profile（ARGENT_PROFILE，或文件中的 "profile"）
+//  6. ARGENT_* 环境变量
+//  7. 显式 flag 覆盖
 //
-// Unknown keys are preserved in Raw so a later setting or integration can read
-// them without adding a struct field here.
+// 未知键会保留在 Raw 中，以便后续的设置或集成读取
+// 它们，而无需在此添加结构体字段。
 package config
 
 import (
@@ -26,16 +26,16 @@ import (
 	"strings"
 )
 
-// Sandbox modes accepted by Validate.
+// Validate 接受的沙箱模式。
 const (
 	SandboxReadOnly         = "read-only"
 	SandboxWorkspaceWrite   = "workspace-write"
 	SandboxDangerFullAccess = "danger-full-access"
 )
 
-// Privacy modes accepted by validatePrivacyMode. They mirror
-// security.PrivacyAny / security.PrivacyLocalOnly; config deliberately stays
-// independent of the security package.
+// validatePrivacyMode 接受的网络模式。它们对应
+// security.PrivacyAny / security.PrivacyLocalOnly；config 有意保持
+// 与 security 包独立。
 const (
 	PrivacyModeAny       = "any"
 	PrivacyModeLocalOnly = "local-only"
@@ -48,13 +48,13 @@ const (
 	defaultProtocol = "openai-chat-completions"
 	defaultLocale   = "en-US"
 	defaultMaxTurns = 12
-	// defaultVerifyTimeoutMS is applied in decode (not defaults()) because the
-	// setting has aliases; injecting a canonical key at the base layer would
-	// shadow a file's "verify_timeout_ms" spelling.
+	// defaultVerifyTimeoutMS 在 decode 中应用（而非 defaults()），因为该
+	// 设置存在别名；在基础层注入规范键会遮蔽文件中的
+	// "verify_timeout_ms" 拼写。
 	defaultVerifyTimeoutMS = 30000
 )
 
-// Config is the merged configuration.
+// Config 是合并后的配置。
 type Config struct {
 	Model       string
 	BaseURL     string
@@ -62,101 +62,101 @@ type Config struct {
 	Protocol    string
 	Locale      string
 	SandboxMode string // read-only | workspace-write | danger-full-access
-	// PrivacyMode is the network posture: PrivacyModeAny ("any", the default)
-	// or PrivacyModeLocalOnly ("local-only"). local-only blocks remote endpoints
-	// and web tools. It is independent of SandboxMode, which governs file tools.
-	// Invalid values fail config load rather than silently widening the posture;
-	// app.ApplyPrivacyPosture is the production consumer.
+	// PrivacyMode 是网络姿态：PrivacyModeAny（"any"，默认值）
+	// 或 PrivacyModeLocalOnly（"local-only"）。local-only 会阻止远程端点
+	// 和 web 工具。它与管理文件工具的 SandboxMode 相互独立。
+	// 无效值会导致配置加载失败，而不是悄悄放宽姿态；
+	// app.ApplyPrivacyPosture 是实际使用方。
 	PrivacyMode string
 	MaxTurns    int
 	Yolo        bool
 	StorageDir  string
 
-	// VerifyCommand is the opt-in post-edit verification argv (e.g.
-	// ["go", "test", "./..."]). Empty disables the bounded reflection loop.
-	// app.NewVerifyFunc re-validates it against a strict allowlist before use.
+	// VerifyCommand 是选择启用的编辑后校验 argv（例如
+	// ["go", "test", "./..."]）。为空则禁用有界的反思循环。
+	// app.NewVerifyFunc 在使用前会按严格白名单再次校验它。
 	VerifyCommand []string
-	// VerifyCommands is an optional per-language map from a language or file
-	// extension (e.g. "go", ".go", "py", ".py") to a whitespace-separated
-	// command string (e.g. "go test ./..."). When non-empty, the app dispatches
-	// one command per edited file's language instead of using VerifyCommand;
-	// paths with no matching key fall back to VerifyCommand when it is set.
-	// Values are parsed with strings.Fields and validated by app.NewVerifyFunc
-	// against the same strict allowlist as VerifyCommand — no shell is involved,
-	// so quoting and shell metacharacters are not supported. Empty preserves the
-	// single-command behaviour exactly.
+	// VerifyCommands 是可选的映射，把语言或文件扩展名
+	// （例如 "go"、".go"、"py"、".py"）映射到以空格分隔的
+	// 命令字符串（例如 "go test ./..."）。非空时，应用会
+	// 按每个被编辑文件的语言派发一条命令，而不使用 VerifyCommand；
+	// 没有匹配键的路径在设置了 VerifyCommand 时回退到它。
+	// 值通过 strings.Fields 解析，并由 app.NewVerifyFunc 按与
+	// VerifyCommand 相同的严格白名单校验；不涉及 shell，
+	// 因此不支持引号和 shell 元字符。为空则完全保持
+	// 单命令的行为。
 	VerifyCommands map[string]string
-	// VerifyTimeoutMS bounds one verification process (default 30000, capped
-	// at 120000). Zero selects the default.
+	// VerifyTimeoutMS 限制单个校验进程（默认 30000，上限
+	// 120000）。零值选择默认值。
 	VerifyTimeoutMS int
-	// VerifyMaxReflections caps FAIL feedback turns; zero selects the loop's
-	// own default of 3.
+	// VerifyMaxReflections 限制 FAIL 反馈轮次；零值选择循环自身的
+	// 默认值 3。
 	VerifyMaxReflections int
 
-	// ContextWindow is the resolved model's context window in tokens. It is
-	// optional: zero means "unspecified", so callers fall back to the fixed
-	// threshold. It can be set at the top level or on a model/provider entry.
+	// ContextWindow 是解析后的模型上下文窗口（以 token 计）。它是
+	// 可选的：零表示"未指定"，调用方会回退到固定阈值。
+	// 可在顶层或某个 model/provider 条目上设置。
 	ContextWindow int
-	// StopTokenIDs are token ids that terminate a completion (for example FIM
-	// end-of-infill tokens). Optional: an empty slice leaves the LLM layer's
-	// existing stop handling untouched. Decoded from stopTokenIds/stop_token_ids.
+	// StopTokenIDs 是终止补全的 token id（例如 FIM 的
+	// 填充结束 token）。可选：空切片不改变 LLM 层现有的
+	// 停止处理。从 stopTokenIds/stop_token_ids 解码。
 	StopTokenIDs []int64
-	// ContextWindowInfo carries optional long-context metadata (currently rope
-	// scaling) that a long-context provider may forward to the upstream endpoint.
-	// Its zero value means "unspecified" and is ignored by callers.
+	// ContextWindowInfo 携带可选的长上下文元数据（目前是 rope
+	// scaling），长上下文提供方可能会把它转发到上游端点。
+	// 其零值表示"未指定"，会被调用方忽略。
 	ContextWindowInfo ContextWindowInfo
-	// AutoCondenseContextPercent is the per-profile percentage of the context
-	// window that triggers auto-compaction. 0 or -1 inherits the global token
-	// threshold; a positive value overrides it.
+	// AutoCondenseContextPercent 是每个 profile 触发自动压缩的
+	// 上下文窗口百分比。0 或 -1 继承全局 token
+	// 阈值；正值则覆盖它。
 	AutoCondenseContextPercent int
 
-	// ProviderName is the selected provider template id.
+	// ProviderName 是选定的提供方模板 id。
 	ProviderName string
-	// ActiveProfile is the profile merged over the file layers, if any.
+	// ActiveProfile 是合并到文件层之上的 profile（如果有）。
 	ActiveProfile string
-	// Profiles holds every inline profile definition, keyed by name.
+	// Profiles 保存所有内联 profile 定义，以名称为键。
 	Profiles map[string]map[string]any
-	// Providers holds provider templates from config, keyed by lower-case name.
+	// Providers 保存配置中的提供方模板，以小写名称为键。
 	Providers map[string]Provider
-	// Sources lists the config files that were merged, lowest precedence first.
+	// Sources 列出被合并的配置文件，优先级从低到高。
 	Sources []string
-	// Raw is the merged JSON tree, unknown keys included.
+	// Raw 是合并后的 JSON 树，包含未知键。
 	Raw map[string]any
-	// CWD is the workspace the configuration was resolved for.
+	// CWD 是解析此配置时所在的工作区。
 	CWD string
 
-	// The fields below are unexported reload metadata. They are populated by
-	// Load/LoadWithOverrides and let a long-lived caller detect on-disk changes
-	// (Changed) and rebuild the config (Reload) without restarting. They are
-	// additive: external packages constructing Config with keyed literals are
-	// unaffected.
+	// 下面的字段是未导出的重载元数据。它们由
+	// Load/LoadWithOverrides 填充，让长生命周期的调用方可以检测磁盘改动
+	// （Changed）并重建配置（Reload），而无需重启。它们是
+	// 附加性的：用键名字面量构造 Config 的外部包
+	// 不受影响。
 	loadEnv       func(string) string
 	loadOverrides map[string]any
 	generation    uint64
 	fingerprint   configFingerprint
 }
 
-// ContextWindowInfo is optional long-context metadata a provider can forward
-// to the upstream endpoint. All members stay zero-valued when the keys are
-// absent, so configs that do not use them decode exactly as before.
+// ContextWindowInfo 是提供方可以转发到上游端点的可选长上下文元数据。
+// 当相关键缺失时，所有成员保持零值，
+// 因此不使用它们的配置解码行为与之前完全一致。
 type ContextWindowInfo struct {
 	RopeScaling RopeScaling
 }
 
-// RopeScaling mirrors the `rope_scaling` object used by vLLM/llama.cpp-style
-// endpoints. Unknown keys are ignored during decoding.
+// RopeScaling 对应 vLLM/llama.cpp 风格端点使用的 `rope_scaling` 对象。
+// 解码时会忽略未知键。
 type RopeScaling struct {
 	Factor      float64
 	Type        string
 	OriginalMax int64
 }
 
-// fileStamp is the parse-free identity of one config file. mtime and size
-// catch ordinary rewrites; hash closes the gap where a rewrite preserves both
-// (e.g. same length edited within one mtime tick). Existence and statErr catch
-// created/removed/unreadable files. hash is zero when the file is missing or
-// unreadable, in which case the stat-only fields remain the identity (the
-// original, conservative behaviour).
+// fileStamp 是单个配置文件的免解析身份标识。mtime 和 size
+// 足以发现普通的重写；hash 弥补了重写前后两者都不变的缺口
+// （例如在同一 mtime 周期内进行的等长编辑）。Existence 和 statErr 用于捕获
+// 新建、删除或不可读的文件。文件缺失或不可读时 hash 为零，
+// 此时仅依靠 stat 相关的字段作为身份标识（保持
+// 原有的保守行为）。
 type fileStamp struct {
 	path    string
 	modTime int64
@@ -166,21 +166,21 @@ type fileStamp struct {
 	statErr bool
 }
 
-// configFingerprint is the ordered snapshot of every config file layer. The
-// file list always includes all candidate paths (even missing ones) so that a
-// newly created config file is detected as a change.
+// configFingerprint 是每一层配置文件有序的快照。文件列表
+// 始终包含所有候选路径（包括缺失的），以便
+// 把新建配置文件检测为一次变更。
 type configFingerprint struct {
 	files []fileStamp
 }
 
-// Load merges every configuration layer for cwd. env supplies the process
-// environment and is the only way Load reads it, which keeps tests hermetic.
+// Load 为 cwd 合并所有配置层。env 提供进程环境，
+// 且是 Load 读取环境的唯一途径，从而保证测试隔离。
 func Load(cwd string, env func(string) string) (Config, error) {
 	return LoadWithOverrides(cwd, env, nil)
 }
 
-// LoadWithOverrides is Load plus the highest-precedence flag layer. The
-// overrides map uses the same camelCase keys as the config files.
+// LoadWithOverrides 是 Load 加上优先级最高的 flag 层。
+// overrides map 使用与配置文件相同的 camelCase 键。
 func LoadWithOverrides(cwd string, env func(string) string, overrides map[string]any) (Config, error) {
 	if env == nil {
 		env = func(string) string { return "" }
@@ -207,12 +207,12 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 
 	profile := strings.TrimSpace(env("ARGENT_PROFILE"))
 	if profile == "" {
-		// A `-c profile=<name>` override selects a profile too. It sits at the
-		// file-override layer: it beats a "profile" key in a config file, but
-		// ARGENT_PROFILE (which also carries the --profile flag) still wins.
-		// Only the selector is read here; every other override keeps its
-		// original position after the env layer, so bringing profile
-		// selection forward cannot change how those values are merged.
+		// `-c profile=<name>` 覆盖也会选定 profile。它位于
+		// 文件覆盖层：胜过配置文件中的 "profile" 键，但
+		// ARGENT_PROFILE（同样承载 --profile flag）仍然优先。
+		// 这里只读取选择器；其他所有覆盖保持其在 env 层之后的
+		// 原始位置，因此把 profile 选择提前
+		// 不会改变这些值的合并方式。
 		profile = strings.TrimSpace(stringField(overrides, "profile", "activeProfile"))
 	}
 	if profile == "" {
@@ -235,21 +235,21 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	}
 
 	cfg := decode(tree, cwd, home, sources)
-	// Fail closed at load time on every invariant the fail-closed diagnostics
-	// summary reports. Keep Load, Diagnostics (doctor) and Validate on the same
-	// source of truth so a config that is unsafe to honour is never accepted on
-	// one path but quietly flagged on another.
+	// 对 fail-closed 诊断摘要报告的每一项不变量，都在加载时 fail closed。
+	// 让 Load、Diagnostics（doctor）和 Validate 共享同一事实来源，
+	// 这样不安全的配置不会在一条路径上被接受，
+	// 却在另一条路径上被悄悄标记。
 	if issues := cfg.failClosedDiagnostics(); len(issues) > 0 {
 		return Config{}, fmt.Errorf("config: %s", issues[0].Message)
 	}
 	cfg.ActiveProfile = profile
-	// Do not fold the provider's env key into cfg.APIKey. app.Resolve already
-	// lists env(provider.APIKeyEnv) as the last resort of its credential chain;
-	// copying it here would make it outrank the `argent login` key stored under
-	// providers.<name>.apiKey and break the documented priority.
+	// 不要把提供方的 env 键折叠进 cfg.APIKey。app.Resolve 已经
+	// 把 env(provider.APIKeyEnv) 列为凭据链的最后手段；
+	// 在这里复制会让它凌驾于 providers.<name>.apiKey 下
+	// `argent login` 保存的键之上，破坏文档记录的优先级。
 	//
-	// Attach reload metadata so a long-lived caller can poll Changed and call
-	// Reload. The first successful load is generation 1; every Reload bumps it.
+	// 附加重载元数据，让长生命周期的调用方可以轮询 Changed 并调用
+	// Reload。首次成功加载为第 1 代；每次 Reload 都会递增它。
 	cfg.loadEnv = env
 	cfg.loadOverrides = cloneTree(overrides)
 	cfg.generation = 1
@@ -257,10 +257,10 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	return cfg, nil
 }
 
-// Validate rejects configurations the rest of the program cannot honour. The
-// legacy value-level failures keep their first-error ordering for compatibility;
-// the fail-closed invariants are checked immediately after. Use Diagnostics to
-// see every problem at once.
+// Validate 拒绝程序其余部分无法执行的配置。
+// 旧的值级失败保留其首个错误的顺序以兼容旧行为；
+// 随后立即检查 fail-closed 不变量。使用 Diagnostics 可以
+// 一次看到所有问题。
 func (c Config) Validate() error {
 	diagnostics := c.validateDiagnostics()
 	diagnostics = append(diagnostics, c.failClosedDiagnostics()...)
@@ -271,32 +271,32 @@ func (c Config) Validate() error {
 	return fmt.Errorf("config: %s", first.Message)
 }
 
-// Generation returns the version of this config snapshot. The first load is
-// generation 1; each successful Reload increments it by one. A caller can use
-// it to notice that a peer rebuilt the config even when it did not poll Changed
+// Generation 返回此配置快照的版本。首次加载为
+// 第 1 代；每次成功的 Reload 递增一。调用方可以用它
+// 发现对等方重建了配置，即使它没有在重写的那一刻轮询 Changed。
 // at the exact moment of the rewrite.
 func (c Config) Generation() uint64 {
 	return c.generation
 }
 
-// Changed reports whether any config file on disk differs from the snapshot
-// this Config was loaded from. It is a polling hook for long-lived callers:
-// for every candidate file it compares mtime, size and existence, plus a
-// SHA-256 hash of the raw bytes. The hash closes the blind spot where a rewrite
-// keeps both size and mtime (possible with coarse filesystem timestamps), so
-// same-length in-place edits are detected too. Config files are small and are
-// read in full by Load anyway, so the extra read on each poll is cheap; Changed
-// never parses or merges them. When a change is detected, call Reload to get
-// the new values. A Config built by hand (not via Load) has no snapshot to
-// compare and always reports false.
+// Changed 报告磁盘上的配置文件是否与此 Config 加载自的快照
+// 不同。它是面向长生命周期调用方的轮询钩子：
+// 对每个候选文件比较 mtime、size 和存在性，外加原始字节的
+// SHA-256 hash。hash 弥补了重写同时保留 size 和 mtime 的盲区
+// （在文件系统时间戳较粗时可能发生），因此
+// 等长的原地编辑也能被检测到。配置文件很小，而且 Load 本来就会
+// 完整读取它们，所以每次轮询额外读取的开销很低；Changed
+// 从不解析或合并它们。检测到变化时，调用 Reload 获取
+// 新值。手工构造的 Config（非经 Load）没有可比较的快照，
+// 因此总是返回 false。
 //
-// Changed only observes config files. Environment variables and flag overrides
-// are captured at load time; Changed cannot see them change. Reload reuses the
-// original env function, so an env function backed by os.Getenv will still pick
-// up process-level changes at reload time.
+// Changed 只观察配置文件。环境变量和 flag 覆盖
+// 在加载时即被捕获；Changed 无法看到它们的变化。Reload 复用
+// 原始的 env 函数，因此基于 os.Getenv 的 env 函数在重载时
+// 仍能拾取进程级的变化。
 //
-// A missing or unreadable file keeps a zero hash and falls back to the
-// stat-only identity (mtime, size, existence), matching the original behaviour.
+// 缺失或不可读的文件保持零 hash，并回退到
+// 仅依靠 stat 的身份标识（mtime、size、存在性），与原有行为一致。
 func (c Config) Changed() bool {
 	if len(c.fingerprint.files) == 0 {
 		return false
@@ -308,12 +308,12 @@ func (c Config) Changed() bool {
 	return !fingerprintPaths(paths).equal(c.fingerprint)
 }
 
-// Reload re-reads every config layer from disk using the same cwd, env and
-// flag overrides as the original load, and returns a NEW Config whose
-// Generation is one higher. The receiver is left untouched, and on error nil
-// is returned so the caller can keep using the current config. Precedence and
-// merge semantics are identical to Load because Reload delegates to
-// LoadWithOverrides.
+// Reload 使用与原始加载相同的 cwd、env 和 flag 覆盖，从磁盘
+// 重新读取每一层配置，并返回一个 Generation 加一的
+// 新 Config。接收者保持不变，出错时返回 nil，
+// 以便调用方继续使用当前配置。优先级和
+// 合并语义与 Load 完全相同，因为 Reload 委托给
+// LoadWithOverrides。
 func (c Config) Reload() (*Config, error) {
 	cwd := c.CWD
 	if strings.TrimSpace(cwd) == "" {
@@ -328,27 +328,27 @@ func (c Config) Reload() (*Config, error) {
 }
 
 func defaults(cwd string) map[string]any {
-	// Only keys without an accepted alias belong here. A canonical default
-	// injected at the base layer would shadow an alias spelling from a config
-	// file (e.g. "modelName" or "max_turns"): mergeTree keeps both keys and
-	// stringField/intField read the canonical one first, silently discarding
-	// the file value and even reporting a bogus "conflict" in diagnostics.
-	// Aliased settings apply their default in decode instead, exactly as
-	// decodePrivacyMode already does for privacyMode/privacy_mode.
+	// 这里只放没有可接受别名的键。在基础层注入规范默认值
+	// 会遮蔽配置文件中的别名拼写
+	// （例如 "modelName" 或 "max_turns"）：mergeTree 会保留两个键，
+	// stringField/intField 先读规范键，从而悄悄丢弃
+	// 文件中的值，甚至在诊断中报告虚假的"冲突"。
+	// 带别名的设置改为在 decode 中应用默认值，正如
+	// decodePrivacyMode 对 privacyMode/privacy_mode 所做的那样。
 	return map[string]any{
 		"protocol": defaultProtocol,
 		"locale":   defaultLocale,
 		"yolo":     false,
 		"provider": "",
 		"cwd":      cwd,
-		// Opt-in verification is default-off: an empty argv leaves the runner's
-		// Verify callback nil, so existing runs stay byte-identical. The timeout
-		// default is applied in decode via intFieldDefault so an aliased file
-		// key is not shadowed by a canonical key here.
+		// 选择启用的校验默认关闭：空的 argv 会让 runner 的
+		// Verify 回调为 nil，因此现有运行保持字节级一致。超时
+		// 默认值通过 intFieldDefault 在 decode 中应用，以免这里
+		// 的规范键遮蔽带别名的文件键。
 	}
 }
 
-// configFiles lists the file layers, lowest precedence first.
+// configFiles 列出各文件层，优先级从低到高。
 func configFiles(cwd, home string) []string {
 	return []string{
 		filepath.Join(home, appDir, "config.json"),
@@ -357,20 +357,20 @@ func configFiles(cwd, home string) []string {
 	}
 }
 
-// newFingerprint snapshots every config file candidate for cwd/home, including
-// missing files (recorded as exists=false) so that later creation is detected.
+// newFingerprint 为 cwd/home 快照每个候选配置文件，包括
+// 缺失的文件（记录为 exists=false），以便检测之后的创建。
 func newFingerprint(cwd, home string) configFingerprint {
 	return fingerprintPaths(configFiles(cwd, home))
 }
 
-// fingerprintPaths stats each path and records a parse-free identity, then
-// hashes the raw bytes of any existing file. Hashing the content (not the
-// parsed JSON) means even a same-size, same-mtime rewrite is detected, while
-// BOM/comment/whitespace-only edits are still faithfully observed. A stat
-// error that is not "not exist" is recorded as statErr so a transient
-// unreadable file is conservatively treated as a change rather than matching
-// a missing-file snapshot. Missing files and read failures keep a zero hash
-// and rely on the stat-only identity, preserving the original behaviour.
+// fingerprintPaths 对每个路径执行 stat 并记录免解析身份，然后
+// 对任何已存在文件的原始字节做 hash。对内容（而非解析后的 JSON）
+// 做 hash 意味着即使是等长、等 mtime 的重写也能被检测到，同时
+// BOM、注释或纯空白的编辑也能被忠实记录。非"不存在"的 stat
+// 错误会记录为 statErr，从而把暂时不可读的文件保守地
+// 当作变更，而不是匹配
+// 一个缺失文件的快照。缺失文件和读取失败保持零 hash，
+// 并依赖仅基于 stat 的身份标识，保持原有行为。
 func fingerprintPaths(paths []string) configFingerprint {
 	stamps := make([]fileStamp, 0, len(paths))
 	for _, path := range paths {
@@ -380,13 +380,13 @@ func fingerprintPaths(paths []string) configFingerprint {
 			stamp.exists = true
 			stamp.size = info.Size()
 			stamp.modTime = info.ModTime().UnixNano()
-			// Config files are read in full by Load anyway; hashing the same
-			// bytes here keeps the snapshot and every Changed() poll identical.
+			// Load 本来就会完整读取配置文件；在这里对相同的
+			// 字节做 hash，可保证快照与每次 Changed() 轮询一致。
 			if data, readErr := os.ReadFile(path); readErr == nil {
 				stamp.hash = sha256.Sum256(data)
 			}
 		case os.IsNotExist(err):
-			// Missing file: leave the zero identity in place.
+			// 文件缺失：保持零身份标识不变。
 		default:
 			stamp.statErr = true
 		}
@@ -395,7 +395,7 @@ func fingerprintPaths(paths []string) configFingerprint {
 	return configFingerprint{files: stamps}
 }
 
-// equal reports whether two fingerprints describe the same file identities.
+// equal 报告两个指纹是否描述相同的文件身份。
 func (f configFingerprint) equal(other configFingerprint) bool {
 	if len(f.files) != len(other.files) {
 		return false
@@ -419,10 +419,10 @@ func homeDir(env func(string) string) string {
 	return "."
 }
 
-// readConfig reads one JSONC object. Variable references are substituted and
-// comments/trailing commas stripped before decoding. A missing file is not an
-// error; a malformed file is, because the operator needs to know a setting is
-// not in effect.
+// readConfig 读取一个 JSONC 对象。解码前会替换变量引用，
+// 并剥离注释和尾随逗号。文件缺失不算错误；
+// 格式错误则是错误，因为运维人员需要知道某项设置
+// 并未生效。
 func readConfig(path string, env func(string) string, warn WarnFunc) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -431,9 +431,9 @@ func readConfig(path string, env func(string) string, warn WarnFunc) (map[string
 		}
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}
-	// PowerShell 5.x writes "UTF-8 with BOM"; encoding/json rejects the BOM as
-	// an invalid leading character. Strip it before the empty check so a
-	// BOM-only file is treated exactly like an empty file.
+	// PowerShell 5.x 写出的是"UTF-8 with BOM"；encoding/json 会把 BOM 当作
+	// 非法的首字符而拒绝。在空检查之前剥离它，使
+	// 只含 BOM 的文件与空文件完全一样处理。
 	text := strings.TrimPrefix(string(data), "\ufeff")
 	if len(strings.TrimSpace(text)) == 0 {
 		return nil, nil
@@ -483,9 +483,9 @@ func applyEnv(tree map[string]any, env func(string) string) error {
 	return nil
 }
 
-// decode builds Config from the fully merged tree. home is needed only for
-// storageDir's compiled default, which (like the other aliased settings) is
-// applied here instead of in defaults() so an alias from a file wins.
+// decode 从完全合并后的树构造 Config。home 仅用于
+// storageDir 的编译期默认值，它（与其他带别名的设置一样）
+// 在这里而非 defaults() 中应用，以便文件中的别名优先。
 func decode(tree map[string]any, cwd, home string, sources []string) Config {
 	return Config{
 		Model:       stringFieldDefault(tree, defaultModel, "model", "modelName"),
@@ -517,8 +517,8 @@ func decode(tree map[string]any, cwd, home string, sources []string) Config {
 	}
 }
 
-// mergeTree merges overlay into base: objects merge recursively, every other
-// value (arrays included) is replaced.
+// mergeTree 把 overlay 合并进 base：对象递归合并，其他
+// 值（包括数组）被替换。
 func mergeTree(base, overlay map[string]any) {
 	for key, value := range overlay {
 		if child, ok := value.(map[string]any); ok {
@@ -565,9 +565,9 @@ func stringField(tree map[string]any, keys ...string) string {
 	return ""
 }
 
-// anyKeyPresent reports whether at least one of keys exists in tree, whatever
-// its value type. Defaults must not be applied over an explicit setting, even
-// an ill-typed one: Validate/diagnostics still need to see that bad value.
+// anyKeyPresent 报告 keys 中是否至少有一个存在于 tree 中，无论其
+// 值类型如何。默认值不能覆盖显式设置，即使
+// 该设置类型错误：Validate/诊断仍然需要看到那个错误的值。
 func anyKeyPresent(tree map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		if _, ok := tree[key]; ok {
@@ -577,10 +577,10 @@ func anyKeyPresent(tree map[string]any, keys ...string) bool {
 	return false
 }
 
-// stringFieldDefault is stringField with a compiled fallback used only when
-// none of the aliases is present. This is the inverse of injecting canonical
-// keys into defaults(): a file that spells the setting "base_url" now wins
-// over the default "baseURL" instead of being silently shadowed by it.
+// stringFieldDefault 是带编译期回退值的 stringField，仅当
+// 所有别名都不存在时才使用。这与向 defaults() 注入规范键相反：
+// 现在文件中写作 "base_url" 的设置会胜过
+// 默认值 "baseURL"，而不再被它悄悄遮蔽。
 func stringFieldDefault(tree map[string]any, def string, keys ...string) string {
 	if !anyKeyPresent(tree, keys...) {
 		return def
@@ -588,7 +588,7 @@ func stringFieldDefault(tree map[string]any, def string, keys ...string) string 
 	return stringField(tree, keys...)
 }
 
-// intFieldDefault is intField with the same presence-based fallback.
+// intFieldDefault 是采用相同"基于存在性"回退的 intField。
 func intFieldDefault(tree map[string]any, def int, keys ...string) int {
 	if !anyKeyPresent(tree, keys...) {
 		return def
@@ -596,9 +596,9 @@ func intFieldDefault(tree map[string]any, def int, keys ...string) int {
 	return intField(tree, keys...)
 }
 
-// stringSliceField decodes an argv-style JSON array from the merged tree. Both
-// []any (from JSON/CLI overrides) and []string (constructed in tests) are
-// accepted; non-string members are skipped rather than failing a whole config.
+// stringSliceField 从合并后的树解码 argv 风格的 JSON 数组。
+// []any（来自 JSON/CLI 覆盖）和 []string（测试中构造）
+// 都可接受；非字符串成员会被跳过，而不会让整个配置失败。
 func stringSliceField(tree map[string]any, keys ...string) []string {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -617,10 +617,10 @@ func stringSliceField(tree map[string]any, keys ...string) []string {
 	return nil
 }
 
-// stringMapField decodes a JSON object of string -> string (e.g. the
-// verifyCommands language map) from the merged tree. Both map[string]any
-// (from JSON and CLI overrides) and map[string]string (constructed in tests)
-// are accepted; non-string values are skipped rather than failing the config.
+// stringMapField 从合并后的树解码 string -> string 的 JSON 对象
+// （例如 verifyCommands 的语言映射）。map[string]any
+// （来自 JSON 和 CLI 覆盖）和 map[string]string（测试中构造）
+// 都可接受；非字符串值会被跳过，而不会让配置失败。
 func stringMapField(tree map[string]any, keys ...string) map[string]string {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -665,11 +665,11 @@ func intField(tree map[string]any, keys ...string) int {
 	return 0
 }
 
-// int64SliceField decodes an array of integer ids (e.g. stopTokenIds) from the
-// merged tree. Both []any (from JSON/CLI overrides) and []int64 (constructed in
-// tests) are accepted; members that are not integral numbers inside the int64
-// range are skipped rather than failing the whole config, matching
-// stringSliceField's tolerance.
+// int64SliceField 从合并后的树解码整数 id 数组（例如 stopTokenIds）。
+// []any（来自 JSON/CLI 覆盖）和 []int64（测试中构造）
+// 都可接受；不在 int64 范围内的非整数成员会被跳过，
+// 而不会让整个配置失败，与 stringSliceField 的
+// 容忍度一致。
 func int64SliceField(tree map[string]any, keys ...string) []int64 {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -688,13 +688,13 @@ func int64SliceField(tree map[string]any, keys ...string) []int64 {
 	return nil
 }
 
-// int64Value converts the numeric forms produced by JSON, flags and tests into
-// int64. Fractional or out-of-range values are rejected.
+// int64Value 把 JSON、flag 和测试产生的数值形式转换为
+// int64。小数或超出范围的值会被拒绝。
 func int64Value(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case float64:
-		// 2^63 is the exact float64 boundary: int64's maximum (2^63-1) rounds
-		// up to it, so a strict upper bound is required to avoid overflow.
+		// 2^63 是精确的 float64 边界：int64 的最大值（2^63-1）会
+		// 向上舍入到它，因此需要严格的上界以避免溢出。
 		const limit = 9223372036854775808.0
 		if typed == math.Trunc(typed) && typed >= -limit && typed < limit {
 			return int64(typed), true
@@ -711,8 +711,8 @@ func int64Value(value any) (int64, bool) {
 	return 0, false
 }
 
-// int64Field decodes one integer, accepting the numeric forms of int64Value as
-// well as numeric strings.
+// int64Field 解码一个整数，既接受 int64Value 的数值形式，
+// 也接受数字字符串。
 func int64Field(tree map[string]any, keys ...string) int64 {
 	for _, key := range keys {
 		if id, ok := int64Value(tree[key]); ok {
@@ -727,8 +727,8 @@ func int64Field(tree map[string]any, keys ...string) int64 {
 	return 0
 }
 
-// float64Field decodes a floating-point setting from the merged tree. It is
-// used for rope scaling's factor; an absent or invalid value stays zero.
+// float64Field 从合并后的树解码浮点设置。它
+// 用于 rope scaling 的 factor；缺失或无效的值保持为零。
 func float64Field(tree map[string]any, keys ...string) float64 {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -751,8 +751,8 @@ func float64Field(tree map[string]any, keys ...string) float64 {
 	return 0
 }
 
-// objectField returns the first key holding a JSON object, so callers can read
-// nested settings through either spelling without a separate nil-check loop.
+// objectField 返回第一个持有 JSON 对象的键，这样调用方可以
+// 通过任一拼写读取嵌套设置，而无需单独做 nil 检查循环。
 func objectField(tree map[string]any, keys ...string) map[string]any {
 	for _, key := range keys {
 		if obj, ok := tree[key].(map[string]any); ok {
@@ -786,12 +786,12 @@ func parseBool(value string) (bool, error) {
 	return false, fmt.Errorf("not a boolean: %q", value)
 }
 
-// decodePrivacyMode reads the privacy posture from either spelling and
-// canonicalizes it (trimmed, lower-case) so it matches the security enum. An
-// unset/blank value falls back to the default "any" posture. The default is
-// applied here rather than in defaults() so an explicit "privacy_mode" key can
-// never be shadowed by a canonical "privacyMode" key injected at the base
-// layer.
+// decodePrivacyMode 从任一拼写读取网络姿态，并将其
+// 规范化（去空白、转小写）以匹配 security 枚举。
+// 未设置或空值回退到默认的 "any" 姿态。默认值
+// 在这里而非 defaults() 中应用，这样显式的 "privacy_mode" 键
+// 永远不会被基础层注入的规范 "privacyMode" 键
+// 遮蔽。
 func decodePrivacyMode(tree map[string]any) string {
 	mode := strings.ToLower(strings.TrimSpace(stringField(tree, "privacyMode", "privacy_mode")))
 	if mode == "" {
@@ -800,12 +800,12 @@ func decodePrivacyMode(tree map[string]any) string {
 	return mode
 }
 
-// validatePrivacyMode rejects values the privacy helpers cannot honor. A typo
-// fails config load instead of silently falling back to the permissive "any"
-// posture: security.AllowRemote already fails closed for unknown modes, and a
-// load-time error keeps that invariant consistent. The error carries no "config:"
-// prefix so it can be reused verbatim as a Diagnostic message; callers add the
-// prefix when surfacing it as an error.
+// validatePrivacyMode 拒绝隐私辅助函数无法执行的值。拼写错误
+// 会导致配置加载失败，而不是悄悄回退到宽松的 "any"
+// 姿态：security.AllowRemote 对未知模式本就 fail closed，而加载时
+// 报错能让该不变量保持一致。错误不带 "config:"
+// 前缀，因此可原样复用为 Diagnostic 消息；调用方在
+// 把它作为错误呈现时再加上前缀。
 func validatePrivacyMode(mode string) error {
 	switch mode {
 	case PrivacyModeAny, PrivacyModeLocalOnly:
@@ -815,10 +815,10 @@ func validatePrivacyMode(mode string) error {
 	}
 }
 
-// contextWindowFrom resolves the model context window from the merged tree.
-// A top-level contextWindow (or alias) wins; then a model entry under "models"
-// keyed by the configured model, then the active provider entry. Configs that
-// omit these keys keep decoding to zero, so existing behaviour is unchanged.
+// contextWindowFrom 从合并后的树解析模型上下文窗口。
+// 顶层的 contextWindow（或别名）优先；然后是 "models" 下以
+// 所配置模型为键的条目，最后是活动的提供方条目。省略这些键的
+// 配置仍解码为零，因此现有行为不变。
 func contextWindowFrom(tree map[string]any) int {
 	if value := intField(tree, "contextWindow", "contextWindowTokens", "context_window"); value > 0 {
 		return value
@@ -850,9 +850,9 @@ func contextWindowFrom(tree map[string]any) int {
 	return 0
 }
 
-// contextWindowInfoFrom decodes the optional long-context metadata from either
-// spelling of the outer and nested keys. A missing or wrongly-typed object
-// decodes to the zero value; layered config files still merge the nested object
+// contextWindowInfoFrom 从外层和嵌套键的任一拼写解码可选的长上下文元数据。
+// 缺失或类型错误的对象解码为零值；分层配置文件在本次调用前
+// 仍会递归合并嵌套对象，因此部分覆盖会被保留。
 // recursively before this runs, so partial overlays are preserved.
 func contextWindowInfoFrom(tree map[string]any) ContextWindowInfo {
 	obj := objectField(tree, "contextWindowInfo", "context_window_info")
@@ -870,9 +870,9 @@ func contextWindowInfoFrom(tree map[string]any) ContextWindowInfo {
 	}}
 }
 
-// CondensePercent returns the auto-condense percentage configured for profile.
-// An explicit per-profile value wins over the merged/global value; 0 and -1
-// are preserved so callers can inherit the global token threshold.
+// CondensePercent 返回为 profile 配置的自动压缩百分比。
+// 显式的每 profile 值胜过合并后的全局值；0 和 -1
+// 会被保留，以便调用方继承全局 token 阈值。
 func (c Config) CondensePercent(profile string) int {
 	if strings.TrimSpace(profile) != "" {
 		if entry, ok := lookupFold(c.Profiles, profile); ok {
@@ -900,7 +900,7 @@ func profilesFrom(tree map[string]any) map[string]map[string]any {
 	return out
 }
 
-// lookupFold finds a map entry by name, ignoring case.
+// lookupFold 按名称查找 map 条目，忽略大小写。
 func lookupFold[V any](values map[string]V, name string) (V, bool) {
 	if value, ok := values[name]; ok {
 		return value, true

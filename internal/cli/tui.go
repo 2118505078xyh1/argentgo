@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-// runTUI implements `argent tui [flags]`.
+// runTUI 实现 `argent tui [flags]`。
 func runTUI(app App, ctx context.Context, args []string) int {
 	opts, positional, err := parseArgs(args, app.env, app.IO.Err)
 	if err != nil {
@@ -31,12 +31,11 @@ func runTUI(app App, ctx context.Context, args []string) int {
 	return app.runTUI(ctx, opts)
 }
 
-// runTUI hands resolved options to the injected full-screen frontend.
+// runTUI 把解析后的选项交给注入的全屏前端。
 func (a App) runTUI(ctx context.Context, opts *Options) int {
-	// Bail out before the frontend loads config or draws anything when there
-	// is no terminal to draw on, e.g. package-manager validators or CI jobs
-	// that run the binary with redirected streams and no console. This is the
-	// single choke point for both `argent tui` and `argent --tui`.
+	// 当没有可绘制的终端时，在前端加载配置或绘制任何内容之前就退出，
+	// 例如包管理器校验器或用重定向流、无控制台运行二进制的 CI 作业。
+	// 这是 `argent tui` 和 `argent --tui` 两者的唯一汇合点。
 	if !a.hasTerminal() {
 		fmt.Fprintln(a.IO.Err, "argent needs an interactive terminal for the TUI; pass a prompt argument or pipe stdin for non-interactive use.")
 		return 0

@@ -9,7 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/commands"
 )
 
-// runCommands implements `commands [--json] [-C root]`.
+// runCommands 实现 `commands [--json] [-C root]`。
 func runCommands(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {

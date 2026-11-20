@@ -45,18 +45,37 @@ const (
 // The hub is safe for concurrent use by multiple publishers and subscribers.
 // It is deliberately transport-agnostic: both the HTTP/SSE and --rpc frontends
 // can share one instance via Config.Events.
+//
+// 除 Subscribe/SubscribeAfter 外，SubscribeTyped 允许订阅者只接收指定 Kind 的事件，
+// 用于节省带宽与解码开销；它不改变其它订阅者的行为。
 type EventHub struct {
 	mu      sync.RWMutex
 	seq     uint64
-	subs    map[chan agent.Event]struct{}
+	subs    map[chan agent.Event]*subscriber
 	history []agent.Event
 	evicted uint64
+}
+
+// subscriber 描述一个订阅者的投递偏好。types 为 nil 或空时不过滤，接收全部事件；
+// 否则只接收 Kind 命中该集合的事件。所有订阅者共用同一个发布循环，因此保序。
+type subscriber struct {
+	types map[string]struct{}
+}
+
+// matches 报告该订阅者是否希望接收 e。过滤只依据事件的 Kind 字符串，
+// 因此 CJK 等非 ASCII 类型名与内置 EventKind 一视同仁。
+func (s *subscriber) matches(e agent.Event) bool {
+	if len(s.types) == 0 {
+		return true
+	}
+	_, ok := s.types[string(e.Kind)]
+	return ok
 }
 
 // NewEventHub returns an empty hub ready for use.
 func NewEventHub() *EventHub {
 	return &EventHub{
-		subs:    make(map[chan agent.Event]struct{}),
+		subs:    make(map[chan agent.Event]*subscriber),
 		history: make([]agent.Event, 0, eventHistoryCap),
 	}
 }
@@ -97,7 +116,12 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 		h.history = append(h.history, e)
 	}
 
-	for ch := range h.subs {
+	for ch, sub := range h.subs {
+		// 类型过滤：不关心的事件直接跳过，既不占用订阅者缓冲，也不触发淘汰。
+		// 终态事件的“必达”语义只在订阅者确实订阅了该类型时才有意义。
+		if !sub.matches(e) {
+			continue
+		}
 		if e.IsTerminal() {
 			// Must-deliver: never evict a subscriber for a terminal event, or
 			// a headless client that has not drained its progress events would
@@ -157,6 +181,32 @@ func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 	return ch, stop
 }
 
+// registerSubscriber 在调用方已持有 h.mu 的前提下登记一个订阅者。
+func (h *EventHub) registerSubscriber(ch chan agent.Event, sub *subscriber) {
+	if h.subs == nil {
+		h.subs = make(map[chan agent.Event]*subscriber)
+	}
+	h.subs[ch] = sub
+}
+
+// unsubscribe 幂等地退订并关闭 ch；即使订阅者已被淘汰也不会重复关闭。
+func (h *EventHub) unsubscribe(ch chan agent.Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.subs[ch]; ok {
+		close(ch)
+		delete(h.subs, ch)
+	}
+}
+
+// newStop 返回一个幂等、可与 Publish 或其它调用并发执行的退订函数。
+func (h *EventHub) newStop(ch chan agent.Event) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() { h.unsubscribe(ch) })
+	}
+}
+
 // SubscribeAfter registers a subscriber and also returns the hub sequence at
 // the exact instant of registration. That value is the safe resume cursor for
 // the returned stream: every event up to it that is newer than after has already
@@ -174,10 +224,7 @@ func (h *EventHub) SubscribeAfter(after uint64) (<-chan agent.Event, func(), uin
 	ch := make(chan agent.Event, eventSubCap+eventTerminalSlots)
 
 	h.mu.Lock()
-	if h.subs == nil {
-		h.subs = make(map[chan agent.Event]struct{})
-	}
-	h.subs[ch] = struct{}{}
+	h.registerSubscriber(ch, &subscriber{}) // 无类型过滤：接收全部事件
 	seqAt := h.seq
 
 	// The oldest retained event has sequence h.seq - len(history) + 1.
@@ -205,18 +252,32 @@ func (h *EventHub) SubscribeAfter(after uint64) (<-chan agent.Event, func(), uin
 	}
 	h.mu.Unlock()
 
-	var once sync.Once
-	stop := func() {
-		once.Do(func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			if _, ok := h.subs[ch]; ok {
-				close(ch)
-				delete(h.subs, ch)
-			}
-		})
+	return ch, h.newStop(ch), seqAt
+}
+
+// SubscribeTyped 登记一个只接收指定类型事件的订阅者。types 中每一项都与
+// agent.Event.Kind 的字符串形式精确比较（区分大小写，支持 CJK 等任意 Unicode
+// 类型名）；types 为空或 nil 时不过滤，行为与 Subscribe 一致——接收全部事件。
+//
+// 该订阅只投递订阅时刻之后发布的实时事件，不回放历史；需要游标续传的调用方
+// 应使用 SubscribeAfter。投递与所有订阅者共用同一个发布循环，因此保序。
+// 返回的 stop 函数幂等，可与 Publish 或自身并发调用；被淘汰的订阅者其通道会在
+// 缓冲事件排空后干净地关闭。
+func (h *EventHub) SubscribeTyped(types []string) (<-chan agent.Event, func()) {
+	ch := make(chan agent.Event, eventSubCap+eventTerminalSlots)
+	sub := &subscriber{}
+	if len(types) > 0 {
+		sub.types = make(map[string]struct{}, len(types))
+		for _, typ := range types {
+			sub.types[typ] = struct{}{}
+		}
 	}
-	return ch, stop, seqAt
+
+	h.mu.Lock()
+	h.registerSubscriber(ch, sub)
+	h.mu.Unlock()
+
+	return ch, h.newStop(ch)
 }
 
 // NewEventHandler exposes the hub as a Server-Sent Events stream.

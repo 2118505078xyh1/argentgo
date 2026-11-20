@@ -12,8 +12,8 @@ var (
 	procGetConsoleMode = kernel32DLL.NewProc("GetConsoleMode")
 )
 
-// isTerminal asks the Windows console API whether fd is an interactive
-// console handle. Non-console handles (pipes, files) make the call fail.
+// isTerminal 向 Windows 控制台 API 询问 fd 是否是交互式控制台句柄。
+// 非控制台句柄（管道、文件）会使调用失败。
 func isTerminal(fd uintptr) bool {
 	var mode uint32
 	r, _, _ := procGetConsoleMode.Call(fd, uintptr(unsafe.Pointer(&mode)))

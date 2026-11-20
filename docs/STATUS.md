@@ -1,65 +1,47 @@
-# Project status
+# 项目状态
 
-Where argentgo is going (Roadmap) and an evidence-based self-assessment (Honest
-score). The behaviour checklist lives in the
-[Technical reference](TECHNICAL.md#feature-parity).
+argentgo 要往哪里去（Roadmap），以及一份基于证据的自我评估（Honest score）。行为清单在 [Technical reference](TECHNICAL.md#feature-parity) 中。
 
 ## Roadmap
 
-The Rust reference (`argent` v0.4.0) is archived upstream and its local checkout
-has been deleted. `argentgo` is the only local source of truth. This roadmap
-records what comes next and why; the Feature parity section of
-`docs/TECHNICAL.md` remains the behaviour checklist.
+Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已删除。`argentgo` 是唯一本地的事实来源。这份路线图记录接下来要做什么以及为什么；`docs/TECHNICAL.md` 的 Feature parity 一节仍是行为清单。
 
-### Source of the next-step list
+### 下一步清单的来源
 
-Weekly star deltas for 2026-11-04 → 11-11 were supplied by the user as a snapshot:
-DeepSeek Harness (dsh), Hermes Agent, Codex CLI, OpenCode, Pi. GitHub does not
-expose weekly deltas, so the ordering is the snapshot's claim, not an
-independently verified statistic. The features below were selected by reading
-each project's primary docs, not by copying their implementation. Nothing here
-adds a Go dependency, cgo, or a hosted service.
+2026-11-04 → 11-11 的每周 star 增量由用户以快照形式提供：DeepSeek Harness (dsh)、Hermes Agent、Codex CLI、OpenCode、Pi。GitHub 不公开每周增量，因此这个排序是该快照的说法，不是独立验证过的统计。下面的功能是通过阅读各项目的主要文档选出的，而不是照抄它们的实现。这里没有任何一项会引入 Go 依赖、cgo 或托管服务。
 
-### Wave 5 — close the production-wiring gap (done)
+### Wave 5 —— 补齐生产接线缺口（完成）
 
-All six items below are complete; see the Feature parity section of
-`docs/TECHNICAL.md` for their done status.
+下面六项都已完成；完成状态见 `docs/TECHNICAL.md` 的 Feature parity 一节。
 
-- Configured security rules reach `security.Policy` instead of an empty policy.
-- Hook documents dispatch PreToolUse/PostToolUse/SessionStart/SessionEnd.
-- Auto-compaction is verified to be active by default.
-- TUI gains tasks / workspace / plan panels.
-- MCP honours per-server `enabled`, `readOnly`, `allowedTools`, `deniedTools`.
-- `current_time`, `web_search`, `repo_map`, `submit_plan`, `tool_search` exist.
+- 配置好的安全规则会进入 `security.Policy`，而不是空策略。
+- hook 文档会派发 PreToolUse/PostToolUse/SessionStart/SessionEnd。
+- 已验证自动压缩默认开启。
+- TUI 增加 tasks / workspace / plan 面板。
+- MCP 遵守每个服务器的 `enabled`、`readOnly`、`allowedTools`、`deniedTools`。
+- `current_time`、`web_search`、`repo_map`、`submit_plan`、`tool_search` 已存在。
 
-### Wave 6 — portable ideas from the five projects (in progress)
+### Wave 6 —— 来自五个项目的可移植点子（进行中）
 
-This wave is owned by another worker with in-progress changes in the working
-tree; this round does not touch any of its code.
+这一波由另一位 worker 负责，工作树中已有进行中的改动；本轮不触碰它的任何代码。
 
-| # | Feature | Source idea | Acceptance |
+| # | 功能 | 来源点子 | 验收标准 |
 |---|---|---|---|
-| 1 | `/review` read-only diff review | Codex CLI | dirty tree → findings; tree byte-identical afterwards |
-| 2 | `sessions --grep` full-text search | Hermes | matches in tool output found; snippets redacted |
-| 3 | Shell timeout → background job | OpenCode | long command survives tool timeout; job id returned |
-| 4 | `/tree` branch nav + offline HTML export | Pi | forked session renders; output has no network refs |
-| 5 | Self-authored `SKILL.md` | Hermes + dsh | `save_skill` writes a discoverable skill; opt-in |
+| 1 | `/review` 只读 diff 评审 | Codex CLI | 脏树 → 给出发现；之后树的字节完全一致 |
+| 2 | `sessions --grep` 全文搜索 | Hermes | 能找到工具输出中的匹配；片段已脱敏 |
+| 3 | shell 超时 → 后台 job | OpenCode | 长命令在工具超时后仍存活；返回 job id |
+| 4 | `/tree` 分支导航 + 离线 HTML 导出 | Pi | fork 的会话能渲染；输出中没有网络引用 |
+| 5 | 自写 `SKILL.md` | Hermes + dsh | `save_skill` 写入一个可被发现的 skill；可选启用 |
 
-Explicitly rejected from those projects: Node/Cordis plugin graphs, SQLite/FTS5,
-Honcho user modelling, chat-platform bots, OS sandbox primitives outside Go's
-stdlib, remote sandboxes, JS code-mode VMs and hosted catalogs. They are either
-heavy dependencies, services, or positioning rather than portable behaviour.
+从这些项目中明确拒绝的有：Node/Cordis 插件图、SQLite/FTS5、Honcho 用户建模、聊天平台机器人、Go 标准库之外的操作系统沙箱原语、远程沙箱、JS code-mode 虚拟机和托管目录。它们要么是重量级依赖、服务，要么是定位上的取舍，而不是可移植的行为。
 
-### Release gate
+### 发布门禁
 
-1. `go vet ./...`, `go test ./...`, `gofmt -l .` clean on Windows and Linux cross-build.
-2. `argent eval evals/core.json` passes through the scripted provider and the
-   real agent loop (no network).
-3. `argent gui` end-to-end: stream → approval → tool → `turn_done`.
-4. Privacy scan: no keys, tokens, real emails or personal paths in tracked files
-   or git history. Local paths are replaced with `<local-checkout>` before push.
-5. Push with the pen name from the writer workspace as the commit author; no
-   other personal information is included.
+1. `go vet ./...`、`go test ./...`、`gofmt -l .` 在 Windows 和 Linux 交叉编译上都干净。
+2. `argent eval evals/core.json` 能通过脚本化 provider 和真实 agent 循环（不联网）。
+3. `argent gui` 端到端：stream → 审批 → 工具 → `turn_done`。
+4. 隐私扫描：已跟踪文件和 git 历史中没有密钥、token、真实邮箱或个人路径。推送前本地路径替换为 `<local-checkout>`。
+5. 用 writer workspace 中的笔名作为提交作者推送；不包含其他个人信息。
 
 ### 发行范围
 
@@ -68,15 +50,11 @@ heavy dependencies, services, or positioning rather than portable behaviour.
 
 自更新的 GitHub Release 路线不启用：本地自用，无需跨平台上架。
 
-### Distribution & IDE
+### 分发与 IDE
 
-- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` is a supported
-  source distribution path (Go 1.27.3+); prebuilt Windows release zips remain the
-  primary route. See the [User guide](USER_GUIDE.md).
-- IDE-grade LSP: grow the current `definition`/`hover` client toward
-  `documentSymbol`, `references`, `codeAction` and `rename` — stdlib-only, no new
-  Go module.
-- Out of scope: C-ABI plugin loaders, tree-sitter AST and DAP adapters.
+- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` 是受支持的源码分发路径（Go 1.27.3+）；预编译的 Windows 发布 zip 仍是主要途径。见 [User guide](USER_GUIDE.md)。
+- IDE 级 LSP：把当前的 `definition`/`hover` 客户端扩展到 `documentSymbol`、`references`、`codeAction` 和 `rename`——只用标准库，不新增 Go 模块。
+- 超出范围：C-ABI 插件加载器、tree-sitter AST 和 DAP 适配器。
 
 ## Honest score
 

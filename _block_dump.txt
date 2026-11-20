@@ -1,0 +1,5 @@
+internal/tools\glob.go:18: func (globTool) Description() string { return "Find files by glob pattern, such as '**/*.go'." }
+internal/tools\tools_extra_test.go:101: 	out := mustRun(t, registry, "glob", `{"pattern":"**/*.go"}`)
+internal/tools\tools_extra_test.go:103: 		t.Fatalf("glob **/*.go = %q", out)
+internal/tools\tools_extra_test.go:113: 	scoped := mustRun(t, registry, "glob", `{"pattern":"src/**/*.go"}`)
+internal/tools\tools_extra_test.go:115: 		t.Fatalf("glob src/**/*.go = %q", scoped)

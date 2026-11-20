@@ -134,7 +134,7 @@ func TestProfileMergesOverBase(t *testing.T) {
 		t.Errorf("activeProfile = %q, want fast", cfg.ActiveProfile)
 	}
 
-	// Env wins over the profile.
+	// env 胜过 profile。
 	cfg, err = Load(cwd, envFunc(map[string]string{
 		"HOME":           home,
 		"ARGENT_PROFILE": "fast",
@@ -280,7 +280,7 @@ func TestProviderResolution(t *testing.T) {
 		t.Errorf("ollama = %+v, ok=%v", ollama, ok)
 	}
 
-	// An empty name follows the protocol, which defaults to OpenAI.
+	// 空名称遵循协议，协议默认使用 OpenAI。
 	openai, ok := cfg.Provider("")
 	if !ok || openai.Protocol != "openai-chat-completions" {
 		t.Errorf("protocol fallback = %+v, ok=%v", openai, ok)
@@ -289,7 +289,7 @@ func TestProviderResolution(t *testing.T) {
 		t.Error("unknown provider resolved")
 	}
 
-	// Config entries merge over the built-in instead of replacing it.
+	// 配置条目合并到内置项之上，而不是替换它。
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{
 		"provider": "anthropic",
 		"providers": map[string]any{
@@ -313,14 +313,14 @@ func TestProviderResolution(t *testing.T) {
 	if custom.Protocol != "anthropic-messages" || custom.APIKeyEnv != "ANTHROPIC_API_KEY" {
 		t.Errorf("custom provider did not inherit built-in fields: %+v", custom)
 	}
-	// Load must not fold the provider env key into the top-level apiKey: that
-	// would outrank the `argent login` key in app.Resolve. The env fallback now
-	// sits at the end of app's credential chain instead.
+	// Load 不得把提供方的 env 键折叠进顶层 apiKey：
+	// 那样会凌驾于 app.Resolve 中 `argent login` 的键之上。
+	// env 回退现在位于应用凭据链的末尾。
 	if cfg.APIKey != "" {
 		t.Errorf("apiKey = %q, want empty (provider env must not pollute the top level)", cfg.APIKey)
 	}
 
-	// ARGENT_PROVIDER selects the default provider name.
+	// ARGENT_PROVIDER 选择默认提供方名称。
 	cfg, err = Load(cwd, envFunc(map[string]string{
 		"HOME":            home,
 		"ARGENT_PROVIDER": "ollama",
@@ -346,8 +346,8 @@ func TestEnvValidationErrors(t *testing.T) {
 	}
 }
 
-// PowerShell 5.x saves "UTF-8 with BOM"; the BOM must not reach json.Unmarshal
-// (it reports `invalid character 'ï'`), and a BOM-only file is just empty.
+// PowerShell 5.x 保存的是"UTF-8 with BOM"；BOM 不能进入 json.Unmarshal
+// （它会报告 `invalid character 'ï'`），只含 BOM 的文件等同于空文件。
 func TestLoadStripsUTF8BOM(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -385,9 +385,9 @@ func TestLoadBOMOnlyFileIsIgnored(t *testing.T) {
 	}
 }
 
-// A provider's API-key env var must stay at the bottom of the credential
-// chain (app.Resolve) instead of being copied into the top-level apiKey,
-// where it would outrank the `argent login` key under providers.<name>.apiKey.
+// 提供方的 API key 环境变量必须停留在凭据链
+// （app.Resolve）的最底部，而不是被复制进顶层 apiKey，
+// 否则会凌驾于 providers.<name>.apiKey 下 `argent login` 的键之上。
 func TestLoadDoesNotPolluteAPIKeyFromProviderEnv(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{

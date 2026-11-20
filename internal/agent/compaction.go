@@ -10,17 +10,17 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Failure is one tool or provider failure that happened during a run.
+// Failure 表示一次运行中发生的工具或提供方失败。
 type Failure struct {
 	Turn   int
 	Tool   string
 	Reason string
-	Error  bool // true for a provider-level error event
+	Error  bool // 提供方级别的错误事件为 true
 }
 
-// CompactionEvidence is the runtime-side information a compactor must keep.
-// A session compactor should carry Failures and NextSteps into its summary:
-// dropping them loses exactly the context a resumed run needs most.
+// CompactionEvidence 是压缩器必须保留的运行时信息。
+// 会话压缩器应把 Failures 和 NextSteps 带进摘要：
+// 丢弃它们恰好会丢失恢复运行最需要的上下文。
 type CompactionEvidence struct {
 	Failures  []Failure
 	NextSteps []string
@@ -36,8 +36,7 @@ var nextStepPrefixes = []string{
 	"remaining:", "下一步", "后续",
 }
 
-// CollectCompactionEvidence extracts failure records and explicit next-step
-// lines from one run's events and model-visible messages.
+// CollectCompactionEvidence 从一次运行的事件和模型可见消息中，提取失败记录与明确的后续步骤行。
 func CollectCompactionEvidence(events []Event, messages []llm.Message) CompactionEvidence {
 	out := CompactionEvidence{}
 	for _, event := range events {
@@ -80,8 +79,8 @@ func CollectCompactionEvidence(events []Event, messages []llm.Message) Compactio
 	return out
 }
 
-// isNextStep recognises the short explicit markers a model uses to record
-// unfinished work. It is deliberately narrow: ordinary prose is not a plan.
+// isNextStep 识别模型用来记录未完成工作的简短显式标记。它刻意保持严格：
+// 普通正文并不算计划。
 func isNextStep(line string) bool {
 	lowered := strings.ToLower(line)
 	for _, prefix := range nextStepPrefixes {
@@ -92,7 +91,7 @@ func isNextStep(line string) bool {
 	return false
 }
 
-// trimEvidence keeps a readable, rune-safe line for a compaction summary.
+// trimEvidence 为压缩摘要保留一行可读、rune 安全的文本。
 func trimEvidence(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if utf8.RuneCountInString(text) <= evidenceStepRunes {
@@ -102,8 +101,8 @@ func trimEvidence(text string) string {
 	return string(runes[:evidenceStepRunes]) + "..."
 }
 
-// SortFailuresByTurn returns failures ordered by turn then tool, so a summary
-// written from different event sinks is byte-stable.
+// SortFailuresByTurn 返回按轮次、再按工具排序的失败记录，
+// 这样从不同事件来源写出的摘要都是字节稳定的。
 func SortFailuresByTurn(failures []Failure) []Failure {
 	out := append([]Failure(nil), failures...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -118,33 +117,27 @@ func SortFailuresByTurn(failures []Failure) []Failure {
 	return out
 }
 
-// cachingCompactor memoises a Compactor's output by SourcePrefixHash so an
-// identical run prefix is never summarised twice. It is the agent-side wiring
-// point for SummaryCache: the call site is still the injected Compactor, but a
-// cache hit skips it entirely and replays the already-finished view.
+// cachingCompactor 按 SourcePrefixHash 缓存 Compactor 的输出，
+// 因此相同的运行前缀永远不会被重复摘要。它是 SummaryCache 在 agent 侧的接入点：
+// 调用点仍然是注入的 Compactor，但命中缓存会完全跳过它，直接重放已完成的视图。
 //
-// The cached value is the JSON of the compacted view (which embeds the summary
-// text). Storing the whole view instead of just the summary string keeps a hit
-// byte-identical to the original summarisation without duplicating the
-// app/session cut logic inside this dependency-free package.
+// 缓存的值是压缩后视图的 JSON（其中内嵌了摘要文本）。存储整个视图而非仅摘要字符串，
+// 能让缓存命中与原始摘要逐字节一致，同时无需在这个无依赖的包里重复 app/session 的裁剪逻辑。
 //
-// The key is the source prefix hash alone. The compaction window is derived
-// from the fixed trigger threshold of one Runner, so it is stable for the
-// lifetime of the cache held by that Runner.
+// 键仅仅是源前缀哈希。压缩窗口由单个 Runner 固定的触发阈值推导得出，
+// 因此在该 Runner 持有的缓存生命周期内它是稳定的。
 type cachingCompactor struct {
 	inner Compactor
 	cache *SummaryCache
 
-	// mu serialises the whole cache-aside section. Compaction normally runs on
-	// the single loop goroutine; the lock keeps a concurrent call burst (and the
-	// side-effecting inner hook) single-flight so one prefix is never summarised
-	// from several goroutines at once.
+	// mu 串行化整个缓存旁路区。压缩通常运行在单一的循环 goroutine 上；
+	// 该锁使并发的调用突增（以及有副作用的内部钩子）保持 single-flight，
+	// 因此同一个前缀绝不会被多个 goroutine 同时摘要。
 	mu sync.Mutex
 }
 
-// newCachingCompactor wraps inner with a summary cache. A nil inner stays nil
-// (preserving the "no compactor" behaviour); a nil cache gets a fresh
-// default-capacity one.
+// newCachingCompactor 用摘要缓存包装 inner。inner 为 nil 时仍返回 nil
+// （保留"无压缩器"的行为）；cache 为 nil 时会新建一个默认容量的缓存。
 func newCachingCompactor(inner Compactor, cache *SummaryCache) Compactor {
 	if inner == nil {
 		return nil
@@ -155,7 +148,7 @@ func newCachingCompactor(inner Compactor, cache *SummaryCache) Compactor {
 	return &cachingCompactor{inner: inner, cache: cache}
 }
 
-// MaybeCompact implements Compactor.
+// MaybeCompact 实现 Compactor 接口。
 func (c *cachingCompactor) MaybeCompact(messages []llm.Message, window int) ([]llm.Message, bool) {
 	hash := SourcePrefixHash(messages)
 	c.mu.Lock()
@@ -165,8 +158,7 @@ func (c *cachingCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 		if out, ok := decodeCompactedView(encoded); ok {
 			return out, true
 		}
-		// A corrupt/stale entry must not change compaction semantics: fall
-		// through to the real summariser and overwrite it.
+		// 损坏/过期的条目不能改变压缩语义：继续走真正的摘要器并覆盖它。
 	}
 
 	out, changed := c.inner.MaybeCompact(messages, window)

@@ -5,27 +5,23 @@ import (
 	"encoding/json"
 )
 
-// This file implements the "concise intent" (`i`) plumbing described by omp
-// G1. The model is asked to include an `i` string as the first property of every
-// tool call; the agent strips it before the tool sees its arguments and keeps
-// it on the resulting event so a verbose or malformed call can be explained
-// after the fact. These helpers are pure and deliberately kept out of schema
-// generation: the registry (out of this file's ownership) decides when, if
-// ever, to advertise the extra property.
+// 本文件实现 omp G1 描述的"简洁意图"（`i`）管线。模型被要求在每个工具调用中
+// 把 `i` 字符串作为第一个属性；agent 在工具看到参数之前将其剥离，
+// 并把它保留在生成的事件上，以便事后解释冗长或畸形的调用。
+// 这些辅助函数是纯函数，且刻意不参与 schema 生成：是否、何时公布该额外属性，
+// 由注册表（不在本文件职责范围内）决定。
 
 const intentKey = "i"
 
-// orderedField is one key/value pair of a JSON object. encoding/json's maps
-// lose key order, so the object is decoded into an ordered slice instead: the
-// caller needs `i` to be the *first* property while every other field keeps
-// its original position and raw encoding.
+// orderedField 是 JSON 对象的一个键值对。encoding/json 的 map 会丢失键顺序，
+// 因此改为把对象解码为有序切片：调用方需要 `i` 作为*第一个*属性，
+// 同时其他每个字段保持其原始位置和原始编码。
 type orderedField struct {
 	key   string
 	value json.RawMessage
 }
 
-// decodeObject parses raw into an ordered list of top-level fields. It reports
-// false for invalid JSON or any value that is not a JSON object.
+// decodeObject 把 raw 解析为顶层字段的有序列表。对无效 JSON 或任何非 JSON 对象的值返回 false。
 func decodeObject(raw json.RawMessage) ([]orderedField, bool) {
 	if !json.Valid(raw) {
 		return nil, false
@@ -51,14 +47,13 @@ func decodeObject(raw json.RawMessage) ([]orderedField, bool) {
 		}
 		fields = append(fields, orderedField{key: key, value: value})
 	}
-	if _, err := dec.Token(); err != nil { // closing '}'
+	if _, err := dec.Token(); err != nil { // 结束的 '}'
 		return nil, false
 	}
 	return fields, true
 }
 
-// encodeObject rebuilds a JSON object from ordered fields, preserving both
-// their order and the raw bytes of each value.
+// encodeObject 从有序字段重建 JSON 对象，保留其顺序以及每个值的原始字节。
 func encodeObject(fields []orderedField) json.RawMessage {
 	var b bytes.Buffer
 	b.WriteByte('{')
@@ -75,10 +70,9 @@ func encodeObject(fields []orderedField) json.RawMessage {
 	return json.RawMessage(b.Bytes())
 }
 
-// ExtractIntent removes the `i` key from a tool-call arguments object and
-// returns its string value. The cleaned arguments are what the tool receives.
-// When there is no `i`, or the input is not an object, args is returned
-// byte-for-byte unchanged. Invalid JSON behaves the same way.
+// ExtractIntent 从工具调用参数对象中移除 `i` 键，并返回其字符串值。
+// 清理后的参数是工具实际收到的内容。没有 `i` 或输入不是对象时，args 会逐字节原样返回。
+// 无效 JSON 的处理方式相同。
 func ExtractIntent(args json.RawMessage) (intent string, cleaned json.RawMessage) {
 	fields, ok := decodeObject(args)
 	if !ok {
@@ -90,8 +84,8 @@ func ExtractIntent(args json.RawMessage) (intent string, cleaned json.RawMessage
 	for _, f := range fields {
 		if f.key == intentKey {
 			found = true
-			// A non-string `i` carries no usable intent, but is still stripped
-			// so the tool never sees the internal field.
+			// 非字符串的 `i` 不携带可用意图，但仍会被剥离，
+			// 使工具永远看不到这个内部字段。
 			var s string
 			if err := json.Unmarshal(f.value, &s); err == nil {
 				intent = s

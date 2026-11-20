@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestPollReloadPicksUpDiskChange verifies the happy path of the polling
-// primitive: no change on a clean poll, then a disk edit is detected, reloaded
-// into a new snapshot, and reported as changed. A follow-up poll of the new
-// snapshot is clean (idempotence).
+// TestPollReloadPicksUpDiskChange 验证轮询原语的顺利路径：
+// 干净轮询时无变化，随后检测到磁盘编辑、重载
+// 进新快照并报告为已变化。对新快照的后续轮询
+// 是干净的（幂等性）。
 func TestPollReloadPicksUpDiskChange(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -26,7 +26,7 @@ func TestPollReloadPicksUpDiskChange(t *testing.T) {
 		t.Fatalf("clean poll = (%p, %v, %v), want (cfg, false, nil)", same, changed, err)
 	}
 
-	// Different length so the size changes too; mtime alone can be coarse.
+	// 长度不同，大小也随之变化；mtime 可能较粗。
 	writeJSONFile(t, path, map[string]any{"model": "a-considerably-longer-after-model"})
 
 	next, changed, err := PollReload(&cfg)
@@ -45,21 +45,21 @@ func TestPollReloadPicksUpDiskChange(t *testing.T) {
 	if next.Generation() != cfg.Generation()+1 {
 		t.Errorf("generation = %d, want %d", next.Generation(), cfg.Generation()+1)
 	}
-	// Receiver was not mutated.
+	// 接收者未被修改。
 	if cfg.Model != "before" || cfg.Generation() != 1 {
 		t.Errorf("receiver damaged: model=%q gen=%d", cfg.Model, cfg.Generation())
 	}
 
-	// Idempotence: adopting next makes the next poll a no-op.
+	// 幂等性：采纳 next 会使下一次轮询成为空操作。
 	again, changed, err := PollReload(next)
 	if err != nil || changed || again != next {
 		t.Errorf("poll of reloaded snapshot = (%p, %v, %v), want (next, false, nil)", again, changed, err)
 	}
 }
 
-// TestPollReloadNoChangeKeepsSnapshot guards against noisy polling: repeated
-// calls with no disk activity return the same snapshot, changed=false and nil
-// error, without bumping the generation.
+// TestPollReloadNoChangeKeepsSnapshot 防止轮询噪声：没有磁盘活动时
+// 重复调用返回相同快照、changed=false 和 nil
+// error，且不递增 generation。
 func TestPollReloadNoChangeKeepsSnapshot(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{"model": "stable"})
@@ -79,9 +79,9 @@ func TestPollReloadNoChangeKeepsSnapshot(t *testing.T) {
 	}
 }
 
-// TestPollReloadFailureKeepsLastGoodSnapshot keeps reload failures
-// non-destructive: a malformed on-disk edit yields an error, changed=false and
-// the original last-known-good snapshot, which stays usable.
+// TestPollReloadFailureKeepsLastGoodSnapshot 保持重载失败的非破坏性：
+// 磁盘编辑格式错误会产生 error、changed=false，
+// 以及原样保留、仍可用的最后已知良好快照。
 func TestPollReloadFailureKeepsLastGoodSnapshot(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -110,9 +110,9 @@ func TestPollReloadFailureKeepsLastGoodSnapshot(t *testing.T) {
 	}
 }
 
-// TestPollReloadGenerationIncrementsAcrossEdits exercises the long-lived usage
-// pattern: adopt the returned snapshot, then poll again after another edit.
-// Generation must climb 1 -> 2 -> 3 and overrides/env must survive each hop.
+// TestPollReloadGenerationIncrementsAcrossEdits 演练长生命周期用法：
+// 采纳返回的快照，然后在另一次编辑后再次轮询。
+// generation 必须依次递增 1 -> 2 -> 3，且每次都保留覆盖/env。
 func TestPollReloadGenerationIncrementsAcrossEdits(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -127,8 +127,8 @@ func TestPollReloadGenerationIncrementsAcrossEdits(t *testing.T) {
 		t.Fatalf("initial generation = %d, want 1", cfg.Generation())
 	}
 
-	// adopt asserts the poll found a changed, error-free reload and returns the
-	// snapshot to adopt. PollReload's multi-value return is its sole argument.
+	// adopt 断言轮询找到了已变化的、无错误的重载，并返回要采纳的
+	// 快照。PollReload 的多返回值是它的唯一参数。
 	adopt := func(next *Config, changed bool, err error) (*Config, error) {
 		t.Helper()
 		if err != nil {
@@ -157,15 +157,15 @@ func TestPollReloadGenerationIncrementsAcrossEdits(t *testing.T) {
 	if current.Generation() != 3 {
 		t.Fatalf("generation after second edit = %d, want 3", current.Generation())
 	}
-	// Original overrides and env still win over the edited disk file.
+	// 原有覆盖和 env 仍胜过被编辑的磁盘文件。
 	if current.Model != "flag-wins" || current.Locale != "zh-CN" {
 		t.Errorf("precedence lost across reloads: model=%q locale=%q", current.Model, current.Locale)
 	}
 }
 
-// TestPollReloadConcurrent verifies the same *Config can be polled from many
-// goroutines at once without races: each caller observes a consistent,
-// changed snapshot with the bumped generation.
+// TestPollReloadConcurrent 验证同一个 *Config 可以被多个
+// goroutine 并发轮询而无竞态：每个调用方都观察到一致、
+// 已变化且 generation 已递增的快照。
 func TestPollReloadConcurrent(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -205,9 +205,9 @@ func TestPollReloadConcurrent(t *testing.T) {
 	}
 }
 
-// TestPollReloadNoFingerprint documents the safety default for a nil Config
-// and for Config values created outside Load: no fingerprint means no change
-// detection, so they are returned unchanged with changed=false.
+// TestPollReloadNoFingerprint 记录 nil Config 以及
+// 在 Load 之外创建的 Config 的安全默认：没有指纹意味着没有
+// 变更检测，因此它们被原样返回且 changed=false。
 func TestPollReloadNoFingerprint(t *testing.T) {
 	same, changed, err := PollReload(nil)
 	if err != nil || changed || same != nil {

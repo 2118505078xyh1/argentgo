@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// telemetryPreference is the no-op value written by `telemetry off`. This
-// personal build never collects or transmits anything; the file only records
-// the user's explicit choice so a GUI can show the same state.
+// telemetryPreference 是 `telemetry off` 写入的空操作值。这个个人构建
+// 从不收集或传输任何数据；该文件只记录用户的明确选择，以便 GUI 显示相同状态。
 type telemetryPreference struct {
 	Enabled bool   `json:"enabled"`
 	Mode    string `json:"mode"`
@@ -21,8 +20,8 @@ type telemetryPreference struct {
 
 const personalBuildTelemetry = "telemetry disabled in personal build"
 
-// runTelemetry implements `telemetry <status|off>`. It deliberately has no
-// network path: status reports, off persists a no-op preference.
+// runTelemetry 实现 `telemetry <status|off>`。它故意没有网络路径：
+// status 仅作报告，off 持久化一个空操作偏好。
 func runTelemetry(app App, _ context.Context, args []string) int {
 	action := "status"
 	if len(args) > 0 {

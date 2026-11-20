@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-// newFlags registers the whole flag surface on fs.
+// newFlags 在 fs 上注册完整的 flag 集合。
 func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.model = fs.String("m", "", "model id")
 	v.baseURL = fs.String("base-url", "", "provider base URL")
@@ -76,7 +76,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.overrides = &Overrides{}
 	fs.Var(v.overrides, "c", "config override key=value (repeatable)")
 
-	// Aliases share the same storage, so either spelling is equivalent.
+	// 别名共享同一存储，因此任一写法都是等价的。
 	fs.StringVar(v.model, "model", "", "model id")
 	fs.StringVar(v.cwd, "C", "", "workspace root")
 	fs.StringVar(v.session, "session-id", "", "resume the session with this id")
@@ -89,11 +89,10 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	fs.Var(v.overrides, "config", "config override key=value (repeatable)")
 }
 
-// verifyFlagValues holds the opt-in verification flag pointers. These flags
-// are registered outside newFlags on purpose: flagSurface (and the locked
-// docs/PARITY.md gate that compares against it) enumerates newFlags, and
-// verification is an additive, opt-in feature that is not yet part of that
-// documented surface. parseArgs calls registerVerifyFlags directly.
+// verifyFlagValues 保存选择加入的验证 flag 指针。这些 flag 故意注册在
+// newFlags 之外：flagSurface（以及与之比较的锁定的 docs/PARITY.md 门禁）
+// 枚举的是 newFlags，而验证是一个附加的、选择加入的功能，尚未属于那份
+// 文档化的 flag 集合。parseArgs 直接调用 registerVerifyFlags。
 type verifyFlagValues struct {
 	cmd       *stringList
 	timeoutMS *int
@@ -106,20 +105,18 @@ func registerVerifyFlags(fs *flag.FlagSet) verifyFlagValues {
 	return verifyFlagValues{cmd: cmd, timeoutMS: timeoutMS}
 }
 
-// privacyModeAny / privacyModeLocalOnly mirror config.PrivacyModeAny and
-// security.PrivacyLocalOnly. The CLI values are canonicalized before they reach
-// the config override layer.
+// privacyModeAny / privacyModeLocalOnly 镜像 config.PrivacyModeAny 和
+// security.PrivacyLocalOnly。CLI 值在到达配置覆盖层之前会被规范化。
 const (
 	privacyModeAny       = "any"
 	privacyModeLocalOnly = "local-only"
 )
 
-// privacyFlagValues holds the --privacy-mode pointer. Like verifyFlagValues it
-// is registered outside newFlags on purpose: flagSurface (and the locked
-// TestFlagSurfaceMatchesParityList gate) enumerates newFlags, and this flag is
-// an additive, opt-in posture that is not part of that documented surface.
-// parseArgs calls registerPrivacyFlags directly and pushes the value into the
-// config override layer under "privacyMode".
+// privacyFlagValues 保存 --privacy-mode 指针。与 verifyFlagValues 一样，它
+// 故意注册在 newFlags 之外：flagSurface（以及锁定的
+// TestFlagSurfaceMatchesParityList 门禁）枚举的是 newFlags，而这个 flag 是
+// 一个附加的、选择加入的安全姿态，不属于那份文档化的集合。parseArgs 直接
+// 调用 registerPrivacyFlags，并把值以 "privacyMode" 推入配置覆盖层。
 type privacyFlagValues struct {
 	mode *string
 }
@@ -129,8 +126,8 @@ func registerPrivacyFlags(fs *flag.FlagSet) privacyFlagValues {
 	return privacyFlagValues{mode: mode}
 }
 
-// flagSurface reports every long flag name the CLI accepts, sorted. It builds a
-// throwaway flag set so the list can never drift from the parser.
+// flagSurface 报告 CLI 接受的所有长 flag 名称，按序排列。它构建一个临时的
+// flag 集合，使列表绝不会与解析器走样。
 func flagSurface() []string {
 	fs := flag.NewFlagSet("argent", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

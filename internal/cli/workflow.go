@@ -13,9 +13,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/workflow"
 )
 
-// runWorkflow implements `workflow <list|run|show>`. Definitions are JSON files
-// under <cwd>/.argent/workflows or <storage>/workflows; `run` also accepts a
-// direct path. Every prompt step is driven by the injected App.NewRunner.
+// runWorkflow 实现 `workflow <list|run|show>`。定义是位于
+// <cwd>/.argent/workflows 或 <storage>/workflows 下的 JSON 文件；`run`
+// 也接受直接路径。每个 prompt 步骤都由注入的 App.NewRunner 驱动。
 func runWorkflow(app App, ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		workflowUsage(app.IO.Err)
@@ -43,8 +43,7 @@ type workflowEntry struct {
 	def  *workflow.Definition
 }
 
-// workflowDirs is where definitions are discovered: the workspace first, then
-// the user-level storage directory.
+// workflowDirs 是发现定义的位置：先是工作区，然后是用户级存储目录。
 func workflowDirs(app App, cwd string) []string {
 	dirs := make([]string, 0, 2)
 	if root, err := workspaceRoot(app, cwd); err == nil {
@@ -184,9 +183,8 @@ func workflowShow(app App, args []string) int {
 	return 0
 }
 
-// runnerPrompter adapts the injected Runner to workflow.Prompter. The workflow
-// package only needs the final answer; streamed chunks are intentionally
-// discarded so one step produces one result line.
+// runnerPrompter 把注入的 Runner 适配为 workflow.Prompter。workflow 包只需要
+// 最终答案；流式分块被有意丢弃，使每个步骤只产生一行结果。
 type runnerPrompter struct{ runner Runner }
 
 func (p runnerPrompter) Prompt(ctx context.Context, text string) (string, error) {
@@ -254,8 +252,8 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	// Resolve before building a runner: a missing required value blocks the
-	// run here, and defaults/value caps follow the workflow package's rules.
+	// 在构建 runner 之前先解析：缺少必需值会在此处阻止运行，
+	// 默认值和取值上限遵循 workflow 包的规则。
 	params, err := workflow.ResolveParameters(*def, values)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
@@ -294,9 +292,9 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 	return 0
 }
 
-// parseWorkflowParam splits one --param token into a declaration key and a
-// value. Empty values are legal: ResolveParameters turns them into the default
-// or a missing-required error. Keys are trimmed just like declaration keys.
+// parseWorkflowParam 把一个 --param token 拆成声明键和值。空值是合法的：
+// ResolveParameters 会把它们变成默认值或"缺少必需值"错误。键会像声明键
+// 一样被去除空白。
 func parseWorkflowParam(app App, token string) (key, value string, ok bool) {
 	key, value, found := strings.Cut(token, "=")
 	key = strings.TrimSpace(key)

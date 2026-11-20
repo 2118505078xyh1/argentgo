@@ -1,41 +1,31 @@
-# Contributing to argentgo
+# 为 argentgo 做贡献
 
-Thanks for your interest in improving argentgo. This project is a personal,
-stdlib-only Go coding-agent harness with a native MyGo desktop client. We
-welcome bug reports, feature proposals, documentation fixes and code PRs.
+感谢你有兴趣改进 argentgo。这是一个个人的、仅依赖标准库的 Go 编码 agent 框架，配有原生 MyGo 桌面客户端。我们欢迎 bug 报告、功能提议、文档修正和代码 PR。
 
-This single document also carries the community Code of Conduct, the security
-model, the CI contract, the architecture dependency guard, the maintainer
-release checklist and the local release-validation harness — all formerly
-standalone files, kept here as titled sections below.
+这一份文档还承载了社区行为准则、安全模型、CI 契约、架构依赖守卫、维护者发布清单和本地发布验证脚本——它们原本都是独立文件，作为带标题的章节保留在下面。
 
-## Ground rules
+## 基本规则
 
-- **Core stays stdlib-only.** `internal/{agent,session,llm,tools,security,...}`
-  must not gain third-party dependencies. The only exception is `native/`,
-  which uses `github.com/egoist/mygo` for the desktop UI.
-- **No cgo.** Everything must cross-compile with `GOOS=linux go build ./...`.
-- **Windows host** is the release target; Linux cross-build must stay green.
-- **No secrets, tokens, personal emails or local paths** in commits, issues,
-  PRs or release notes.
-- Be respectful. See [Code of Conduct](#code-of-conduct).
+- **核心保持只用标准库。** `internal/{agent,session,llm,tools,security,...}` 不得引入第三方依赖。唯一的例外是 `native/`，它使用 `github.com/egoist/mygo` 来实现桌面 UI。
+- **不使用 cgo。** 所有代码都必须能用 `GOOS=linux go build ./...` 交叉编译。
+- **Windows 宿主**是发布目标；Linux 交叉构建必须保持通过。
+- 提交、Issue、PR 或发布说明中**不得出现密钥、token、个人邮箱或本地路径**。
+- 保持友善。参见[行为准则](#code-of-conduct)。
 
-## Reporting a bug
+## 报告 bug
 
-Open an issue using the **Bug report** template. Include:
+用 **Bug report** 模板开一个 Issue。包含：
 
-- argentgo version (`argent --version`) and OS/Go versions.
-- Minimal reproduction (CLI command, or steps in the native window).
-- Expected vs actual behavior, and the relevant log lines (redact secrets).
-- For crashes: what you were doing and whether a session file was left open.
+- argentgo 版本（`argent --version`）以及 OS/Go 版本。
+- 最小复现（CLI 命令，或在原生窗口中的操作步骤）。
+- 期望行为与实际行为，以及相关日志行（把密钥脱敏）。
+- 对于崩溃：说明你当时在做什么，以及是否有会话文件处于打开状态。
 
-## Proposing a feature
+## 提议新功能
 
-Open an issue using the **Feature request** template. Explain the problem, the
-proposed behavior, and why it fits a local, offline-first, single-binary tool.
-Large ideas are welcome but may be split into smaller PRs.
+用 **Feature request** 模板开一个 Issue。说明问题、期望的行为，以及为什么它适合一个本地、离线优先、单二进制的工具。欢迎宏大的想法，但可能会拆成更小的 PR。
 
-## Development setup
+## 开发环境搭建
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"   # if Go not on PATH
@@ -47,346 +37,216 @@ go test ./... -count=1
 go build -o argent-native.exe ./native
 ```
 
-Run the CLI with `argent --help`. The native client is built from `native/`
-and speaks to the engine over the existing stdio `--rpc` transport.
+用 `argent --help` 运行 CLI。原生客户端从 `native/` 构建，并通过已有的 stdio `--rpc` 传输与引擎通信。
 
-## Pull requests
+## 提交 Pull request
 
-1. Fork the repo and create a topic branch from `main`.
-2. Make a focused change with tests at the boundary you touch. Name tests after
-   behavior (`TestUndoRefusesConflictingManualEdits`), table-driven where useful.
-3. Run the full verification above; CI runs the same on Linux and Windows.
-4. Open a PR using the template. Link the issue it fixes (`Fixes #123`).
-5. Keep commits focused; use `<area>: <imperative summary>` (e.g.
-   `session: reject torn JSONL tail`).
+1. fork 仓库，从 `main` 创建一个主题分支。
+2. 做一个聚焦的改动，并在你触及的边界上添加测试。测试名要体现行为（`TestUndoRefusesConflictingManualEdits`），适用时用表驱动。
+3. 运行上面完整的验证；CI 在 Linux 和 Windows 上跑同样的检查。
+4. 用模板开 PR。关联它修复的 Issue（`Fixes #123`）。
+5. 保持提交聚焦；使用 `<area>: <imperative summary>`（例如 `session: reject torn JSONL tail`）。
 
-A maintainer will review. We may ask for changes, split the PR, or decline it
-if it conflicts with the stdlib-only/no-cgo/single-binary constraints. Once
-merged, your contribution appears in the next release notes and your commit
-is attributed to you.
+维护者会进行评审。我们可能要求修改、拆分 PR，或在它违反只用标准库/无 cgo/单二进制的约束时拒绝它。合并后，你的贡献会出现在下个发布说明中，你的提交也会署名归你。
 
-## What we are unlikely to accept
+## 我们不太可能接受的内容
 
-Items deliberately out of scope for this personal harness: C-ABI plugin
-loaders, tree-sitter AST, Rhai scripting, device control, telemetry, plugin
-marketplaces, plugin graphs, SQLite/FTS5, remote sandboxes and hosted
-catalogs. Check with an issue before investing in these.
+以下事项有意超出这个个人框架的范围：C-ABI 插件加载器、tree-sitter AST、Rhai 脚本、设备控制、遥测、插件市场、插件图、SQLite/FTS5、远程沙箱和托管目录。在这些方向上投入之前，请先开 Issue 确认。
 
-## Release process
+## 发布流程
 
-Maintainers tag `vX.Y.Z` and publish a Windows zip + `checksums.txt` through
-`.github/workflows/release.yml`. Contributors do not need to touch release
-scripts.
+维护者打 `vX.Y.Z` 标签，并通过 `.github/workflows/release.yml` 发布 Windows zip + `checksums.txt`。贡献者不需要触碰发布脚本。
 
 ## Code of Conduct
 
-### Our pledge
+### 我们的承诺
 
-We pledge to make participation in the argentgo community a harassment-free
-experience for everyone, regardless of age, body size, disability, ethnicity,
-sex characteristics, gender identity and expression, level of experience,
-education, socio-economic status, nationality, personal appearance, race,
-religion, or sexual identity and orientation.
+我们承诺让参与 argentgo 社区的体验对所有人都免受骚扰，无论年龄、体型、残障、族裔、性征、性别认同与表达、经验水平、教育程度、社会经济地位、国籍、个人外貌、种族、宗教，或性认同与取向。
 
-### Our standards
+### 我们的标准
 
-Examples of behavior that contributes to a positive environment:
+有助于营造积极环境的行为示例：
 
-- Using welcoming and inclusive language.
-- Being respectful of differing viewpoints and experiences.
-- Gracefully accepting constructive criticism.
-- Focusing on what is best for the community.
-- Showing empathy towards other community members.
+- 使用友善、包容的语言。
+- 尊重不同的观点与经历。
+- 优雅地接受建设性批评。
+- 以社区的最佳利益为重。
+- 对其他社区成员表达同理心。
 
-Examples of unacceptable behavior:
+不可接受的行为示例：
 
-- The use of sexualized language or imagery and unwelcome sexual attention.
-- Trolling, insulting or derogatory comments, and personal or political attacks.
-- Public or private harassment.
-- Publishing others' private information, such as a physical or electronic
-  address, without explicit permission.
-- Other conduct which could reasonably be considered inappropriate in a
-  professional setting.
+- 使用性化语言或图像，以及不受欢迎的性关注。
+- 挑衅、侮辱或贬低性评论，以及人身或政治攻击。
+- 公开或私下骚扰。
+- 未经明确许可发布他人的私人信息，例如物理或电子地址。
+- 其他在职业环境中可合理视为不当的行为。
 
-### Enforcement responsibilities
+### 执行责任
 
-Project maintainers are responsible for clarifying and enforcing these
-standards and will take appropriate and fair corrective action in response to
-any behavior that they deem inappropriate, threatening, offensive or harmful.
+项目维护者负责澄清并执行这些标准，并会对任何他们认为不当、威胁、冒犯或有害的行为采取适当且公正的纠正措施。
 
-### Scope
+### 适用范围
 
-This Code of Conduct applies within all community spaces, and also applies
-when an individual is officially representing the project in public spaces.
+本行为准则适用于所有社区空间，也适用于个人在公共场合正式代表项目时的行为。
 
-### Enforcement
+### 执行
 
-Instances of abusive, harassing or otherwise unacceptable behavior may be
-reported to the project maintainers by opening a confidential issue or
-contacting them through GitHub. All complaints will be reviewed and
-investigated promptly and fairly. Maintainers are obligated to respect the
-privacy and security of the reporter of any incident.
+辱骂、骚扰或其他不可接受的行为，可以通过开一个保密 Issue 或通过 GitHub 联系维护者来举报。所有投诉都会被及时、公正地审查和调查。维护者有义务尊重任何事件举报者的隐私与安全。
 
-### Attribution
+### 出处
 
-This Code of Conduct is adapted from the [Contributor Covenant][homepage],
-version 2.1, available at
-https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
+本行为准则改编自 [Contributor Covenant][homepage] 2.1 版，见
+https://www.contributor-covenant.org/version/2/1/code_of_conduct.html。
 
 [homepage]: https://www.contributor-covenant.org
 
 ## Security
 
-`argentgo` treats every tool call as untrusted until it has passed a short,
-deterministic chain in `internal/security`. The chain is deliberately small and
-stdlib-only so its behavior can be reviewed end to end. It is a set of
-guardrails for an operator running an agent on their own machine, not a sandbox
-against a determined attacker.
+`argentgo` 把每一次工具调用都视为不可信，直到它通过了 `internal/security` 中一条简短、确定性的链条。这条链刻意做得很小、只用标准库，以便端到端审查它的行为。它是给在自己机器上跑 agent 的操作员的一组护栏，而不是用来对抗坚定攻击者的沙箱。
 
-### The chain: policy → approval → audit
+### 链条：策略 → 审批 → 审计
 
-`security.Chain.Check` evaluates one call in a fixed order:
+`security.Chain.Check` 按固定顺序评估一次调用：
 
-1. **Optional plan-mode command guard.** When `PlanCommandGuard` is enabled, a
-   mutating shell command is stopped *before* anything else with a recoverable
-   error the model can read and retry. No approval prompt, no policy deny, no
-   audit entry — the call never reaches the chain.
-2. **Policy decides.** `Policy.Evaluate` applies deny/allow tool lists, path
-   rules, command rules and an ordered rules table. A deny ends the run with a
-   `StopError` that wraps `ErrDenied`, plus a finality sentence telling the
-   model not to retry or route around the block.
-3. **Approval asks.** If the policy says `Ask`, the `Approver` asks the operator.
-   Only `y`/`yes` approves; EOF and empty answers deny. A refusal ends the run
-   with `ErrRefused`, which is also a `StopError`. A nil approval channel is
-   unavailable (not a refusal).
-4. **Audit records.** Every reached decision is appended to a JSONL audit file
-   under a private directory. Audit is evidence, not a gate: a write failure is
-   reported but never blocks the run.
+1. **可选的 plan-mode 命令守卫。** 当 `PlanCommandGuard` 启用时，修改性 shell 命令会在其他一切之前被拦下，并返回一个模型可读、可重试的错误。没有审批提示、没有策略拒绝、没有审计条目——这次调用根本不会到达链条。
+2. **策略决定。** `Policy.Evaluate` 应用拒绝/允许工具列表、路径规则、命令规则和一个有序规则表。拒绝会以包装了 `ErrDenied` 的 `StopError` 结束运行，并附上一句终结性的话，告诉模型不要重试或绕过拦截。
+3. **审批询问。** 如果策略判定为 `Ask`，`Approver` 会询问操作员。只有 `y`/`yes` 表示批准；EOF 和空回答表示拒绝。拒绝会以 `ErrRefused` 结束运行，它同样是一个 `StopError`。nil 审批通道表示不可用（不是拒绝）。
+4. **审计记录。** 每个到达的决策都会追加到私有目录下的 JSONL 审计文件中。审计是证据，不是门禁：写入失败会上报，但绝不阻断运行。
 
-Both a policy deny and an operator refusal are terminal; an approval denial is
-turned into a tool error the model can read. Checkpoint restores go through the
-same chain via `CheckRestore`, so an undo cannot bypass policy or approval.
+策略拒绝和操作员拒绝都是终态的；审批拒绝会变成一个模型可读的工具错误。checkpoint 恢复通过 `CheckRestore` 走同一条链，因此撤销无法绕过策略或审批。
 
-**Redaction before evidence.** `Chain.record` calls `RedactJSON` on tool
-arguments and `Redact` on reasons; `AuditLog.Record` redacts again before
-writing. There is no path that writes unredacted arguments to the audit log.
-`Redact` recognizes provider key prefixes, auth headers, key/value credentials,
-URL userinfo and common token formats; `RedactPath` collapses the home directory
-and credential-shaped path segments; `RedactJSON` scrubs values under
-credential-named keys without flattening the document.
+**先脱敏，再留证。** `Chain.record` 会对工具参数调用 `RedactJSON`，对原因调用 `Redact`；`AuditLog.Record` 在写入前会再次脱敏。不存在把未脱敏参数写进审计日志的路径。`Redact` 能识别 provider 密钥前缀、认证头、键值凭据、URL userinfo 和常见 token 格式；`RedactPath` 会折叠主目录和凭据形状的路径段；`RedactJSON` 会清洗凭据命名键下的值，而不打平文档。
 
-### Sandbox modes
+### 沙箱模式
 
-`--sandbox-mode` selects the file-tool policy via `security.FromString`:
+`--sandbox-mode` 通过 `security.FromString` 选择文件工具策略：
 
-| Mode | Behavior |
+| 模式 | 行为 |
 | --- | --- |
-| `read-only` | Drops every mutating tool; only the known safe tools remain. |
-| `workspace-write` (default) | Writes are allowed but bounded to the workspace and any `--add-dir` write roots. |
-| `danger-full-access` | Removes the write-root boundary. Policy rules still apply. |
+| `read-only` | 移除所有修改类工具；只保留已知安全的工具。 |
+| `workspace-write`（默认） | 允许写入，但限定在工作区以及任何 `--add-dir` 写入根内。 |
+| `danger-full-access` | 移除写入根目录边界。策略规则仍然生效。 |
 
-`InWriteRoots` resolves both the candidate path and every root before comparing
-them, so a symlink or Windows junction inside a root cannot redirect a write
-outside it. An unresolvable path is a denial, not a pass.
+`InWriteRoots` 在比较前会同时解析候选路径和每个根目录，因此根目录内的符号链接或 Windows junction 无法把写入重定向到外面。无法解析的路径会被拒绝，而不是放行。
 
-### Path boundaries
+### 路径边界
 
-Every tool path is normalized (backslashes, case, leading slashes) and matched
-with `GlobMatch`, which supports `*` within a segment, `**` across segments and
-`?` for one character. Literal patterns use prefix semantics. `Policy.checkPath`
-additionally rejects relative `..` escapes and checks the canonical on-disk
-location, so a link that points outside the workspace is denied even when no
-explicit deny rule is configured. Permission rules use `WildcardMatch` with
-deny-wins evaluation for safety.
+每个工具路径都会先规范化（反斜杠、大小写、前导斜杠），再用 `GlobMatch` 匹配，它支持段内的 `*`、跨段的 `**` 以及表示单个字符的 `?`。字面模式使用前缀语义。`Policy.checkPath` 还会拒绝相对的 `..` 逃逸，并检查磁盘上的规范位置，因此即使没有配置显式拒绝规则，指向工作区外的链接也会被拒绝。权限规则使用 `WildcardMatch`，并采用拒绝优先的评估以保证安全。
 
-### Invisible Unicode
+### 不可见 Unicode
 
-Text shown to the operator is sanitized before an approval prompt is printed.
-`ContainsInvisibleTags` detects Unicode Tag Block characters (Plane 14), which
-render as nothing and can hide an injection payload inside readable text.
-`SanitizeInvisible` removes those tags, reports whether any were found so the
-prompt can warn, and escapes bidi/format controls with `EscapeBidi` so the
-operator sees them as `\uXXXX` sequences. Only the prompt copy is sanitized:
-the executed arguments are never modified, so display and execution do not
-silently diverge.
+展示给操作员的内容在打印审批提示前会被清理。`ContainsInvisibleTags` 检测 Unicode Tag Block 字符（第 14 平面），它们不渲染任何内容，可以把注入载荷藏在可读文本里。`SanitizeInvisible` 会移除这些标签、报告是否发现过它们以便提示给出警告，并用 `EscapeBidi` 转义双向/格式控制字符，让操作员看到的是 `\uXXXX` 序列。只有提示副本会被清理：实际执行的参数从不修改，因此显示与执行不会悄悄分叉。
 
-### Command guard
+### 命令守卫
 
-`FindFileEditingCommand` is a token-aware classifier used in plan mode. It masks
-quoted strings, backtick substitutions, heredoc bodies and shell comments
-before looking for POSIX, cmd.exe and PowerShell file mutators, subcommands such
-as `git push`, and non-temp output redirection. It is conservative: read-only
-commands (`ls`, `cat`, `git status`, `go test`, `Get-Content`, ...) must not be
-flagged, while a mutating command may occasionally slip through and be caught
-by the normal policy/approval path instead.
+`FindFileEditingCommand` 是 plan mode 中使用的 token 感知分类器。在寻找 POSIX、cmd.exe 和 PowerShell 的文件修改器、`git push` 这样的子命令以及非临时输出重定向之前，它会先遮蔽带引号的字符串、反引号替换、heredoc 正文和 shell 注释。它偏保守：只读命令（`ls`、`cat`、`git status`、`go test`、`Get-Content` 等）绝不能被标记，而修改性命令偶尔可能漏过，再由正常的策略/审批路径拦下。
 
-### Threat model
+### 威胁模型
 
-**What this defends against**
+**这能防御什么**
 
-- Accidental secret leakage into transcripts or the audit log (redaction).
-- Lexical and symlink/junction path escapes from the workspace (path boundaries).
-- Prompt injection hidden in invisible Unicode characters or bidi overrides
-  (tag stripping and visible escapes in approval prompts).
-- Destructive shell commands executed while the user believes they are in a
-  read-only planning phase (the optional plan-mode command guard).
-- Unattended mutation without an explicit decision (policy defaults, approval,
-  terminal errors).
+- 密钥意外泄露到 transcript 或审计日志（脱敏）。
+- 词法层面以及符号链接/junction 形式的出工作区路径逃逸（路径边界）。
+- 藏在不可见 Unicode 字符或双向覆盖中的 prompt 注入（审批提示中的标签剥离与可见转义）。
+- 用户以为处于只读规划阶段时执行破坏性 shell 命令（可选的 plan-mode 命令守卫）。
+- 没有明确决策的无人值守修改（策略默认值、审批、终态错误）。
 
-**What this does not defend against**
+**这不能防御什么**
 
-- **Malicious language servers or plugins.** MCP servers, LSP servers, hooks
-  and plugins run with the agent's privileges. Their trust is established
-  elsewhere (hook SHA-256 checks, manifest review); this chain only gates tool
-  calls that reach it.
-- **Compromised dependencies or a compromised Go toolchain.** The core imports
-  only the standard library, but the native desktop shell depends on a third
-  party UI module and its transitive tree. Supply-chain compromise is outside
-  this chain's scope.
-- **OS-level attacks:** root/admin compromise, kernel exploits, other local
-  users, physical access, or malware already on the machine.
-- **Determined prompt injection that stays visible.** If the operator can read
-  the text and still approves it, the chain has done its job; it does not judge
-  intent.
-- **Network-level secrets management.** Tokens live in config or the
-  environment; the audit scrubber reduces spread, it is not a secret store.
+- **恶意语言服务器或插件。** MCP 服务器、LSP 服务器、hook 和插件以 agent 的权限运行。它们的信任在别处建立（hook SHA-256 校验、清单审查）；这条链只门禁到达它的工具调用。
+- **被攻陷的依赖或被攻陷的 Go 工具链。** 核心只导入标准库，但原生桌面壳依赖第三方 UI 模块及其传递依赖树。供应链攻陷不在这条链的范围之内。
+- **操作系统层面的攻击：** root/admin 失陷、内核漏洞、其他本地用户、物理接触，或机器上已有的恶意软件。
+- **保持可见的坚定 prompt 注入。** 如果操作员能读懂文本却仍然批准，那么这条链已经尽职；它不判断意图。
+- **网络层面的密钥管理。** token 存在配置或环境变量里；审计清洗器只是减少扩散，它不是密钥库。
 
-### Validation and audit
+### 验证与审计
 
-Run the reproducible audit (offline; Windows PowerShell):
+运行可复现的审计（离线；Windows PowerShell）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/security-audit.ps1
 ```
 
-It runs, in order: `go vet ./...`, `gofmt -l .` (must be empty), `govulncheck
-./...` when the tool is on PATH, the fuzz seed corpora via `go test
-./internal/security -run Fuzz -count=1`, a `go list -m all` dependency
-allowlist check, a stdlib-only check of `internal/` imports, and a privacy scan
-of tracked source for token-like literals. A missing `govulncheck` prints an
-install hint and is skipped; that is the only soft failure. Everything else
-exits non-zero on a problem and the script prints a short summary.
+它依次运行：`go vet ./...`、`gofmt -l .`（必须为空）、PATH 上有该工具时运行 `govulncheck ./...`、通过 `go test ./internal/security -run Fuzz -count=1` 运行 fuzz 种子语料、`go list -m all` 依赖白名单检查、对 `internal/` import 的只用标准库检查，以及对已跟踪源码中类 token 字面量的隐私扫描。缺少 `govulncheck` 会打印安装提示并跳过；这是唯一的软失败。其余任何问题都会非零退出，脚本会打印简短摘要。
 
-Fuzzing itself is opt-in and uses the Go standard library's `testing.F`:
+fuzz 本身是可选启用的，使用 Go 标准库的 `testing.F`：
 
 ```powershell
 go test ./internal/security -fuzz FuzzRedact -fuzztime=30s
 go test ./internal/security -fuzz FuzzSanitizeInvisible -fuzztime=30s
 ```
 
-The seed corpora in `internal/security/fuzz_test.go` are also executed as
-ordinary tests, so a plain `go test ./internal/security` checks them without a
-fuzzing engine.
+`internal/security/fuzz_test.go` 里的种子语料也会作为普通测试运行，所以直接跑 `go test ./internal/security` 无需 fuzz 引擎就能检查它们。
 
-#### Notes on the allowlists
+#### 关于白名单的说明
 
-- The dependency allowlist contains `github.com/egoist/mygo` **and** its pinned
-  transitive modules, because `go list -m all` reports the whole module graph.
-  The invariant it enforces is "no module outside this reviewed set"; the
-  separate `go list -deps ./internal/...` check enforces "the core imports only
-  the standard library". Adding a dependency is a deliberate review step that
-  must update the allowlist in the audit script.
-- The privacy scan allowlists two synthetic credential fixtures embedded in
-  unit tests, keyed by exact file path and matched value. New matches — even in
-  those same files — fail the audit. Do not add real credentials to source.
+- 依赖白名单包含 `github.com/egoist/mygo` **以及**它固定的传递模块，因为 `go list -m all` 会报告整个模块图。它强制的不变量是"没有这个已审查集合之外的模块"；单独的 `go list -deps ./internal/...` 检查则强制"核心只导入标准库"。添加依赖是一个有意的审查步骤，必须更新审计脚本里的白名单。
+- 隐私扫描对嵌在单元测试中的两个合成凭据 fixture 开了白名单，按精确文件路径和匹配值限定。新的匹配——即使出现在同样的文件里——也会让审计失败。不要把真实凭据加进源码。
 
 ## CI
 
-This repository has three workflows with non-overlapping triggers. Together they
-are the release gate: a change is "green" only when every workflow that applies
-to it passes.
+本仓库有三个触发条件互不重叠的工作流。它们共同构成发布门禁：只有当适用于某个改动的所有工作流都通过时，它才算"绿"。
 
-### Workflows and when they run
+### 工作流及其触发时机
 
-| Workflow | Trigger | Purpose |
+| 工作流 | 触发条件 | 用途 |
 | --- | --- | --- |
-| `ci.yml` | push to `main`/`master`, and every pull request | Fast gate on the shipped Windows target: `gofmt`, `go vet`, `go test`, no-cgo build, plus a Linux `-race` job. |
-| `matrix.yml` | every pull request, and manual `workflow_dispatch` | End-to-end portability proof: no-cgo cross-builds, unit tests without cgo, the race gate, and the architecture guard. |
-| `release.yml` | tags matching `v*` | Reproducible packaging, gated by its own `verify` and `race` jobs; publishes only after both pass. |
+| `ci.yml` | push 到 `main`/`master`，以及每个 pull request | 对交付的 Windows 目标做快速门禁：`gofmt`、`go vet`、`go test`、无 cgo 构建，外加一个 Linux `-race` job。 |
+| `matrix.yml` | 每个 pull request，以及手动 `workflow_dispatch` | 端到端可移植性证明：无 cgo 交叉编译、不含 cgo 的单元测试、race 门禁和架构守卫。 |
+| `release.yml` | 匹配 `v*` 的 tag | 可复现的打包，由自身的 `verify` 和 `race` job 门禁；两者都通过后才发布。 |
 
-`matrix.yml` is intentionally **not** tag-triggered: `release.yml` owns tags, and
-duplicating the matrix on a tag would spend runner time without adding a gate.
-Run it manually from the Actions tab when you want the full portability signal
-on a branch.
+`matrix.yml` 有意**不**由 tag 触发：`release.yml` 掌管 tag，在 tag 上重复跑 matrix 只会消耗 runner 时间而不增加门禁。如果你想在分支上拿到完整的可移植性信号，可以从 Actions 页面手动运行它。
 
-All three workflows use `permissions: contents: read` except the single
-publishing job in `release.yml`, which needs write access to create the release.
-No workflow in this repository requires user-supplied authentication.
+三个工作流都使用 `permissions: contents: read`，只有 `release.yml` 中那个负责发布的 job 例外，它需要写权限来创建 Release。本仓库没有任何工作流需要用户提供的认证。
 
-### What each job proves
+### 每个 job 验证了什么
 
 #### `ci.yml`
 
-- **`go` (windows-latest)** — source is gofmt-clean, vet-clean, all tests pass,
-  and the shipped `windows/amd64` binary builds with `CGO_ENABLED=0`. It also
-  cross-compiles to `linux/amd64`, which was the original spot-check of the
-  no-cgo promise.
-- **`race` (ubuntu-latest)** — `go test -race` passes for every package except
-  `internal/pty` (see the rationale below). Linux runners ship gcc, which the
-  race detector needs.
+- **`go`（windows-latest）** — 源码是 gofmt 干净的、vet 干净的、全部测试通过，交付的 `windows/amd64` 二进制能以 `CGO_ENABLED=0` 构建。它还会交叉编译到 `linux/amd64`，这是对无 cgo 承诺最初的抽查。
+- **`race`（ubuntu-latest）** — 除 `internal/pty` 外每个包的 `go test -race` 都通过（原因见下文）。Linux runner 自带 gcc，race 检测器需要它。
 
 #### `matrix.yml`
 
-- **`crossbuild`** — `go build ./...` with `CGO_ENABLED=0` for all five targets
-  below. Building `./...` includes `native/`, so an accidental cgo dependency or
-  a platform-only import fails the job. No artifact is uploaded: a successful
-  build *is* the proof of portability.
-- **`unit`** — `CGO_ENABLED=0 go test ./...` on a stock Linux runner, proving the
-  unit suite needs no C toolchain.
-- **`race`** — mirrors `ci.yml`'s race gate with a generous `-timeout 20m`, so a
-  hung test fails instead of blocking the job.
-- **`archguard`** — `go test ./internal/archguard -count=1` (see below).
+- **`crossbuild`** — 对下面五个目标全部以 `CGO_ENABLED=0` 运行 `go build ./...`。构建 `./...` 包含 `native/`，所以意外的 cgo 依赖或仅平台可用的 import 都会让 job 失败。不上传产物：构建成功*本身就是*可移植性的证明。
+- **`unit`** — 在干净的 Linux runner 上运行 `CGO_ENABLED=0 go test ./...`，证明单元测试套件不需要 C 工具链。
+- **`race`** — 复刻 `ci.yml` 的 race 门禁，并给一个宽松的 `-timeout 20m`，这样挂住的测试会失败，而不是卡住 job。
+- **`archguard`** — `go test ./internal/archguard -count=1`（见下文）。
 
 #### `release.yml`
 
-- **`verify` / `race`** — mirror the `ci.yml` gates so a tag cannot release code
-  that would fail CI.
-- **`release`** — only after both gates pass; builds with `-trimpath` and
-  `CGO_ENABLED=0`, verifies the artifacts, then publishes them.
+- **`verify` / `race`** — 复刻 `ci.yml` 的门禁，这样 tag 不会发布通不过 CI 的代码。
+- **`release`** — 只在两个门禁都通过后运行；用 `-trimpath` 和 `CGO_ENABLED=0` 构建，校验产物，然后发布。
 
-### No-cgo cross-build matrix
+### 无 cgo 交叉编译矩阵
 
-| GOOS | GOARCH | Notes |
+| GOOS | GOARCH | 说明 |
 | --- | --- | --- |
-| `windows` | `amd64` | The only distributed desktop target. |
-| `linux` | `amd64` | Common CI host; already spot-checked in `ci.yml`. |
-| `linux` | `arm64` | Proves the pure-Go core is architecture-independent. |
-| `darwin` | `amd64` | Intel macOS portability. |
-| `darwin` | `arm64` | Apple-silicon portability. |
+| `windows` | `amd64` | 唯一分发的桌面目标。 |
+| `linux` | `amd64` | 常见 CI 宿主；已在 `ci.yml` 中抽查。 |
+| `linux` | `arm64` | 证明纯 Go 核心与架构无关。 |
+| `darwin` | `amd64` | Intel macOS 可移植性。 |
+| `darwin` | `arm64` | Apple 芯片可移植性。 |
 
-Every entry runs with `CGO_ENABLED=0`, `GOOS` and `GOARCH` set, and
-`fail-fast: false` so one failure never hides another. This makes the
-`AGENTS.md` rule "everything must cross-compile with `GOOS=linux go build ./...`"
-an enforced, multi-target contract instead of a local claim.
+每一项都以 `CGO_ENABLED=0` 并设置 `GOOS` 和 `GOARCH` 运行，且 `fail-fast: false`，这样一个失败不会掩盖另一个。这使得 `AGENTS.md` 的规则"所有代码都必须能用 `GOOS=linux go build ./...` 交叉编译"成为一条被强制执行的多目标契约，而不只是本地的口头承诺。
 
-### Race gate and the pty exclusion
+### race 门禁与 pty 排除
 
-The race detector requires cgo, so both race jobs run on `ubuntu-latest` where
-gcc is available (the Windows bundled toolchain is not a reliable race host).
-The command excludes exactly one package:
+race 检测器需要 cgo，因此两个 race job 都跑在 `ubuntu-latest` 上，那里有 gcc（Windows 自带的工具链不是可靠的 race 宿主）。该命令只排除一个包：
 
 ```sh
 go test -race $(go list ./... | grep -v '/internal/pty$')
 ```
 
-`internal/pty` tests require a real controlling terminal with ConPTY semantics;
-a headless CI runner cannot provide one. Excluding only that package keeps the
-concurrency gate on every cross-platform package, and the Windows `ci.yml` job
-still exercises `internal/pty` (without `-race`).
+`internal/pty` 的测试需要一个具有 ConPTY 语义的真实控制终端；headless 的 CI runner 提供不了。只排除这个包，可以让并发门禁覆盖其余所有跨平台包，而 Windows 的 `ci.yml` job 仍然会运行 `internal/pty`（不带 `-race`）。
 
-### Architecture guard
+### 架构守卫
 
-`internal/archguard` encodes the dependency rules from `AGENTS.md` as a test:
-the core stays standard-library-only, forbidden import edges are rejected, and
-no new module is introduced. It is the machine-checkable form of the layering
-rules. `-count=1` disables the Go test cache so the invariant is actually
-evaluated on every pull request rather than reused from a cached result.
+`internal/archguard` 把 `AGENTS.md` 中的依赖规则编码成一个测试：核心保持只用标准库、禁止的 import 边会被拒绝、不引入新模块。它是分层规则的机器可检查形式。`-count=1` 会禁用 Go 测试缓存，让不变量在每个 PR 上真正被求值，而不是复用缓存结果。
 
-### Detecting flakes locally with `scripts/flake-guard.ps1`
+### 用 `scripts/flake-guard.ps1` 在本地检测不稳定测试
 
-Wall-clock-sensitive tests (the TUI ctrl+c path, hook shell timeouts, job
-process tests, agent timing logic) were historically flaky and only mitigated,
-not monitored. The flake guard reruns those packages to expose instability:
+对墙钟时间敏感的测试（TUI 的 ctrl+c 路径、hook shell 超时、job 进程测试、agent 计时逻辑）过去时不时不稳，只是被缓解而非被监控。flake guard 会重跑这些包以暴露不稳定性：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flake-guard.ps1
@@ -395,88 +255,53 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flake-guard.ps1 -Pac
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/flake-guard.ps1 -Race -Count 3
 ```
 
-Parameters:
+参数：
 
-- `-Count` — repetitions per package (default `5`). Passed straight to
-  `go test -count=N`, which bypasses the test cache.
-- `-Packages` — package list (default `internal/tui`, `internal/hooks`,
-  `internal/jobs`, `internal/agent`). Paths are relative to the repository root.
-- `-Race` — adds `-race` and sets `CGO_ENABLED=1`. Off by default to keep runtime
-  bounded; the CI race gate already covers concurrency.
+- `-Count` — 每个包的重复次数（默认 `5`）。会直接传给 `go test -count=N`，从而绕过测试缓存。
+- `-Packages` — 包列表（默认 `internal/tui`、`internal/hooks`、`internal/jobs`、`internal/agent`）。路径相对于仓库根目录。
+- `-Race` — 加上 `-race` 并设置 `CGO_ENABLED=1`。默认关闭以控制运行时长；CI 的 race 门禁已经覆盖并发。
 
-Each package is run as `go test <pkg> -count=<Count> -timeout 300s`. Any failure
-prints the failing package and its output and exits non-zero, so the script is
-usable as a local pre-push check or in a scheduled job. It creates no temporary
-files and prints total runtime at the end.
+每个包按 `go test <pkg> -count=<Count> -timeout 300s` 运行。任何失败都会打印失败的包及其输出，并非零退出，因此该脚本可用作本地的推送前检查或定时任务。它不创建临时文件，并在结尾打印总运行时长。
 
-The script is deliberately not a required CI gate on every PR: multiplying the
-full suite by N would make every pull request slow. Use it when a timing-related
-test changes, when investigating a suspicious CI failure, or periodically as a
-scheduled job.
+该脚本有意不作为每个 PR 的必需 CI 门禁：把完整套件乘以 N 会让每个 PR 都很慢。当计时相关的测试发生变化、排查可疑的 CI 失败，或定期作为定时任务运行时使用它。
 
-### What "green CI" means
+### "CI 全绿" 的含义
 
-A change is ready to merge when:
+一个改动在以下情况下可以合并：
 
-1. `ci.yml` passes on the pull request (format, vet, tests, Windows build,
-   Linux race gate including all non-pty packages).
-2. `matrix.yml` passes on the same pull request: all five no-cgo cross-builds,
-   the cgo-free unit suite, the race gate, and the architecture guard.
-3. If `scripts/flake-guard.ps1` was run locally for touched timing-sensitive
-   code, it reported PASS with no unstable packages.
+1. `ci.yml` 在该 pull request 上通过（格式、vet、测试、Windows 构建、包含所有非 pty 包的 Linux race 门禁）。
+2. `matrix.yml` 在同一个 pull request 上通过：全部五个无 cgo 交叉编译、不含 cgo 的单元测试套件、race 门禁和架构守卫。
+3. 如果针对触及的计时敏感代码在本地运行过 `scripts/flake-guard.ps1`，它报告 PASS 且没有不稳定的包。
 
-For a release, `release.yml` additionally must pass its `verify` and `race`
-gates and publish the expected artifacts before the tag is considered shipped.
-A red matrix job is never acceptable just because `ci.yml` is green: the matrix
-is the objective portability proof.
+对于发布，`release.yml` 还必须通过它的 `verify` 和 `race` 门禁，并在 tag 被视为已发布之前产出预期的产物。仅仅因为 `ci.yml` 是绿的，就接受一个红的 matrix job 是绝不允许的：matrix 才是客观的可移植性证明。
 
 ## Architecture dependency guard
 
-Architecture dependency-guard test for `argentgo`. It turns the dependency
-rules in the repository-level `AGENTS.md` into an automated check so a bad
-import is caught by `go test` instead of by code review.
+这是 `argentgo` 的架构依赖守卫测试。它把仓库级 `AGENTS.md` 中的依赖规则变成自动检查，让错误的 import 由 `go test` 发现，而不是靠代码评审。
 
-### What it enforces
+### 它强制什么
 
-The test (`internal/archguard/arch_test.go`) discovers the module path by reading
-`go.mod` (it is never hardcoded), then walks every `.go` file under `internal/`
-and `native/`, parsing imports with `go/parser` (`parser.ImportsOnly`). It asserts:
+该测试（`internal/archguard/arch_test.go`）通过读取 `go.mod` 来发现模块路径（绝不硬编码），然后遍历 `internal/` 和 `native/` 下的每个 `.go` 文件，用 `go/parser`（`parser.ImportsOnly`）解析 import。它断言：
 
-- **Stdlib-only core.** No file under `internal/**` may import a third-party
-  module — an import whose first path segment contains a `.` (`github.com/...`,
-  `golang.org/...`, `gopkg.in/...`). Imports of this repository's own module
-  (`<module>/...`) are intra-repo references, not third party, and are allowed.
-- **No cgo.** No file anywhere uses `import "C"`, so `GOOS=linux go build ./...`
-  keeps working.
-- **Layering (internal packages are libraries).**
-  - `internal/tools` must not import `internal/agent`.
-  - `internal/agent` must not import `internal/app` (`app` is the top-level
-    wirer and is the only package allowed to import everything).
-  - `internal/llm` is the wire layer and must not import `internal/agent`,
-    `internal/tools`, or `internal/app`.
-- **Single external exception.** `native/` is the only place allowed to use a
-  third-party module, and that module is `github.com/egoist/mygo` (including
-  its sub-packages such as `mygo/ui`). Any other external import in `native/`
-  fails the test.
+- **核心只用标准库。** `internal/**` 下的任何文件都不得 import 第三方模块——即第一个路径段包含 `.` 的 import（`github.com/...`、`golang.org/...`、`gopkg.in/...`）。对本仓库自身模块（`<module>/...`）的 import 属于仓库内引用，不是第三方，允许。
+- **不使用 cgo。** 任何地方都没有文件使用 `import "C"`，因此 `GOOS=linux go build ./...` 能继续工作。
+- **分层（内部包是库）。**
+  - `internal/tools` 不得 import `internal/agent`。
+  - `internal/agent` 不得 import `internal/app`（`app` 是顶层装配器，是唯一允许 import 一切的包）。
+  - `internal/llm` 是协议层，不得 import `internal/agent`、`internal/tools` 或 `internal/app`。
+- **单一外部例外。** `native/` 是唯一允许使用第三方模块的地方，且该模块是 `github.com/egoist/mygo`（包括它的子包，如 `mygo/ui`）。`native/` 中任何其他外部 import 都会让测试失败。
 
-Notes on strictness / allow-list:
+关于严格性 / 白名单的说明：
 
-- All `.go` files are checked, including `_test.go`, platform/build-tag
-  variants (`_windows.go`, `_linux.go`, …), and generated/mock sources. There
-  are no silent exceptions.
-- The archguard test itself imports only the standard library.
-- The test is stdlib-only, uses no cgo, adds no module, and never compiles the
-  packages it inspects — it only parses imports, so it is safe on any host and
-  for cross-compilation.
+- 所有 `.go` 文件都会被检查，包括 `_test.go`、平台/构建标签变体（`_windows.go`、`_linux.go` 等）以及生成的/mock 源码。没有静默例外。
+- archguard 测试本身只导入标准库。
+- 该测试只用标准库、不用 cgo、不添加模块，也从不编译它检查的包——它只解析 import，因此在任何宿主上都安全，也适用于交叉编译。
 
-### Why
+### 为什么
 
-`AGENTS.md` states these rules in prose. An executable guard prevents drift:
-accidentally pulling e.g. a UUID or CLI library into `internal/`, adding cgo,
-or letting the wire layer depend on the agent loop will break the build/test
-immediately, preserving a dependency-free, portable core.
+`AGENTS.md` 用自然语言陈述了这些规则。一个可执行的守卫能防止漂移：比如不小心把 UUID 或 CLI 库拉进 `internal/`、引入 cgo，或让协议层依赖 agent 循环，都会立刻破坏构建/测试，从而保住一个零依赖、可移植的核心。
 
-### Run
+### 运行
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
@@ -488,113 +313,67 @@ gofmt -l internal/archguard             # must print nothing
 
 ## Release checklist
 
-Internal engineering notes for people working on argentgo itself. **User-facing
-documentation (install, quickstart, configuration, commands, troubleshooting)
-lives in the root `README.md`** — do not duplicate it here. The `docs/` files are
-for design decisions, parity tracking and release gates.
+这是给从事 argentgo 本身工作的人看的内部工程笔记。**面向用户的文档（安装、快速上手、配置、命令、疑难解答）在根目录的 `README.md`**——不要在这里重复。`docs/` 下的文件用于设计决策、对齐跟踪和发布门禁。
 
-### Dependency policy
+### 依赖策略
 
-- The engine core (`internal/{agent,session,llm,tools,security,...}`) stays
-  stdlib-only. `internal/app` wires everything; library packages take interfaces
-  (`ToolRunner`, `Approver`, `Recorder`, `Chatter`) instead of importing up.
-- `github.com/egoist/mygo` is the single explicit exception, used by `native/`
-  for the GPU-rendered desktop shell. It talks to the engine over the stdlib
-  `--rpc` transport. Its transitive requirements (`purego`, `golang.org/x/*`)
-  are indirect dependencies of that one module, not new core dependencies.
-- The only desktop frontend is `native/` (MyGo). The browser frontend and its
-  HTTP+SSE bridge have been removed; `argent gui` launches `argent-native.exe`.
-  `cmd/argent/gui.go` only resolves the engine and starts that binary.
-- No cgo. Everything must cross-compile with `GOOS=linux go build ./...`.
-- Do not add a dependency to save a few lines of code.
+- 引擎核心（`internal/{agent,session,llm,tools,security,...}`）保持只用标准库。`internal/app` 负责装配所有东西；库包接受接口（`ToolRunner`、`Approver`、`Recorder`、`Chatter`），而不是反向 import。
+- `github.com/egoist/mygo` 是唯一显式例外，`native/` 用它实现 GPU 渲染的桌面壳。它通过标准库的 `--rpc` 传输与引擎通信。它的传递需求（`purego`、`golang.org/x/*`）是这一个模块的间接依赖，不是新的核心依赖。
+- 唯一的桌面前端是 `native/`（MyGo）。浏览器前端及其 HTTP+SSE 桥已移除；`argent gui` 启动 `argent-native.exe`。`cmd/argent/gui.go` 只负责解析引擎并启动该二进制。
+- 不使用 cgo。所有代码都必须能用 `GOOS=linux go build ./...` 交叉编译。
+- 不要为了省几行代码而引入依赖。
 
-### CI gates
+### CI 门禁
 
-`.github/workflows/ci.yml` enforces on every PR and push to main:
+`.github/workflows/ci.yml` 在每个 PR 和 push 到 main 时强制：
 
-| Gate | Why |
+| 门禁 | 原因 |
 | --- | --- |
-| `gofmt -l .` | Windows runners default to `core.autocrlf=true`; CI normalizes it first. |
-| `go vet ./...` | Static correctness. |
-| `go test ./...` | All package tests. |
-| `go test -race ./...` | Concurrency is a release gate (session fd/ID indexes, broker channels, job registry). Runs on `windows-latest`, which ships MinGW for CGO. The local dev host has no gcc and skips this. |
-| `build (no cgo)` | Produces the Windows/amd64 binary we actually ship. |
-| `cross-compile (linux/amd64, no cgo)` | Verifies the `AGENTS.md` portability promise on every PR, not just locally. |
-| `ui` (ubuntu) | `bun install --frozen-lockfile`, typecheck, test, build of `ui/`. |
+| `gofmt -l .` | Windows runner 默认 `core.autocrlf=true`；CI 会先规范化它。 |
+| `go vet ./...` | 静态正确性。 |
+| `go test ./...` | 所有包的测试。 |
+| `go test -race ./...` | 并发是发布门禁（session fd/ID 索引、broker channel、job 注册表）。跑在自带 MinGW 以支持 CGO 的 `windows-latest` 上。本地开发宿主没有 gcc，会跳过。 |
+| `build (no cgo)` | 产出我们实际交付的 Windows/amd64 二进制。 |
+| `cross-compile (linux/amd64, no cgo)` | 在每个 PR 上验证 `AGENTS.md` 的可移植性承诺，而不只是在本地。 |
+| `ui`（ubuntu） | 对 `ui/` 执行 `bun install --frozen-lockfile`、类型检查、测试和构建。 |
 
-Race and cross-compile were added after the fact because the original CI only
-checked the shipped platform; concurrency and portability were validated by
-hand. Keep them in the gate.
+race 和交叉编译是后来补上的，因为最初的 CI 只检查交付平台；并发和可移植性当时靠手工验证。把它们留在门禁里。
 
-### Performance baseline
+### 性能基线
 
-No `Benchmark*` functions exist yet; adding the bench gate before there is a
-baseline would be a no-op. When a benchmark is added:
+目前还没有 `Benchmark*` 函数；在有基线之前加 bench 门禁只会是空操作。添加基准测试时：
 
 ```powershell
 go test -run=^$ -bench=. -benchmem ./internal/...
 ```
 
-Record the numbers in this file (with Go version, OS and host) so a regression
-is visible. Do not chase micro-optimizations without a measured baseline.
+把数字（连同 Go 版本、OS 和宿主）记录在这个文件里，这样回退才看得见。没有测得的基线，就不要追逐微优化。
 
-### Release gate
+### 发布门禁
 
-The authoritative release checklist is `docs/STATUS.md`; packaging is in
-`.github/workflows/release.yml`. The operator ships **Windows/amd64 only**.
-`scripts/build-release.ps1` is the single source of truth for artifacts and
-SHA-256 checksums.
+权威的发布清单是 `docs/STATUS.md`；打包在 `.github/workflows/release.yml`。操作员**只交付 Windows/amd64**。`scripts/build-release.ps1` 是产物和 SHA-256 校验和的唯一事实来源。
 
-### Release checklist steps
+### 发布清单步骤
 
-Run in order; keep the version identical in every source location:
+按顺序执行；每个源文件位置的版本号必须保持一致：
 
-1. **Bump the version** in `internal/cli/cli.go` (`const Version`),
-   `internal/mcp/mcp.go` (`clientVersion`) and `internal/lsp/client.go`
-   (`clientInfo.version` in `initialize`). `scripts/build-release.ps1` reads only
-   `cli.go`, so sync the other two by hand.
-2. **Update `CHANGELOG.md`** with a `## v<version>` section; the consistency
-   check rejects a release without it.
-3. **Full verification** on a clean tree: `gofmt -l .`, `go vet ./...`,
-   `go test ./...`, `go test -race ./...` (needs gcc/MinGW on the Windows host),
-   and the no-cgo cross-compile `GOOS=linux GOARCH=amd64 go build ./...`. Also run
-   `argent eval evals/core.json`, the `argent gui` end-to-end smoke test, and
-   `scripts/privacy-scan.ps1` (no keys, tokens, real emails or local paths).
-4. **Build artifacts** with
-   `powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1` — writes
-   `dist/release/argent_<version>_windows_amd64.zip` (both binaries), its
-   `.sha256` sidecar and `checksums.txt`. `scripts/publish-win.ps1 -DryRun`
-   repeats every gate without pushing.
-5. **Commit, tag, push**: focused commit, `git tag -a v<version>`, then push the
-   commit and the tag. Authenticate through the normal git credential helper
-   (`git credential fill`); no credential or token is stored in these docs or
-   scripts. `scripts/publish-win.ps1` can perform the tag and push itself.
-6. **Publish the release** — either create the GitHub Release manually and
-   upload the zip plus `checksums.txt`, or let `scripts/publish-win.ps1` trigger
-   the workflow and wait for it. A tag alone is not a release: the publisher
-   fails if the published Release lacks either asset.
-7. **Update the local desktop**: re-download the latest zip (or re-run
-   `scripts/install-win.ps1`), verify, and replace **both** binaries together so
-   the desktop client stays on the latest release.
+1. **升级版本**：在 `internal/cli/cli.go`（`const Version`）、`internal/mcp/mcp.go`（`clientVersion`）和 `internal/lsp/client.go`（`initialize` 中的 `clientInfo.version`）里改。`scripts/build-release.ps1` 只读 `cli.go`，所以另外两处要手工同步。
+2. **更新 `CHANGELOG.md`**，加一个 `## v<version>` 章节；一致性检查会拒绝缺少它的发布。
+3. **在干净的树上做完整验证**：`gofmt -l .`、`go vet ./...`、`go test ./...`、`go test -race ./...`（Windows 宿主上需要 gcc/MinGW），以及无 cgo 交叉编译 `GOOS=linux GOARCH=amd64 go build ./...`。还要跑 `argent eval evals/core.json`、`argent gui` 端到端 smoke 测试，以及 `scripts/privacy-scan.ps1`（不得有密钥、token、真实邮箱或本地路径）。
+4. **构建产物**：运行 `powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1`——写出 `dist/release/argent_<version>_windows_amd64.zip`（两个二进制）、它的 `.sha256` 附带文件和 `checksums.txt`。`scripts/publish-win.ps1 -DryRun` 会重复所有门禁但不推送。
+5. **提交、打标签、推送**：聚焦的提交，`git tag -a v<version>`，然后推送提交和标签。通过常规的 git 凭据助手认证（`git credential fill`）；这些文档和脚本里不存储任何凭据或 token。`scripts/publish-win.ps1` 可以自己完成打标签和推送。
+6. **发布 Release**——要么手动创建 GitHub Release 并上传 zip 加 `checksums.txt`，要么让 `scripts/publish-win.ps1` 触发工作流并等待它。只有 tag 不算发布：如果发布的 Release 缺少任一资产，发布脚本会失败。
+7. **更新本地桌面**：重新下载最新的 zip（或重跑 `scripts/install-win.ps1`），校验，并**同时**替换两个二进制，让桌面客户端保持最新版本。
 
-## Release validation
+## 发布验证
 
-`scripts/test-release-workflow.ps1` is a **local, offline** harness for
-`.github/workflows/release.yml`. It closes the "release.yml is never validated"
-gap by checking, on a developer machine, that the workflow is wired correctly
-and that the artifact-verification step it runs actually succeeds on a
-release-shaped artifact.
+`scripts/test-release-workflow.ps1` 是针对 `.github/workflows/release.yml` 的**本地、离线**验证脚本。它通过检查工作流接线正确、且它运行的产物校验步骤确实能在发布形状的产物上成功，来补上"release.yml 从未被验证"的缺口。
 
-> **Honest scope statement:** this is a *partial* validation, not an end-to-end
-> publish test. No GitHub Actions run, no `gh` CLI publish, no real tag and no
-> real token are involved. A genuine end-to-end release still requires pushing
-> a `v*` tag and letting GitHub Actions run `release.yml` with the automatically
-> provided `GITHUB_TOKEN`. Passing this harness must not be read as "the
-> release pipeline has been proven end-to-end".
+> **诚实的范围说明：** 这是*部分*验证，不是端到端的发布测试。不涉及 GitHub Actions 运行、不涉及 `gh` CLI 发布、没有真实 tag、也没有真实 token。真正端到端的发布仍然需要推送一个 `v*` 标签，并让 GitHub Actions 用自动提供的 `GITHUB_TOKEN` 运行 `release.yml`。通过本验证脚本绝不能解读为"发布流水线已被端到端证明"。
 
-### How to run
+### 如何运行
 
-From the repository root, using the toolchain in `AGENTS.md`:
+在仓库根目录，使用 `AGENTS.md` 中的工具链：
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"   # only needed for -FullBuild
@@ -606,71 +385,51 @@ powershell -ExecutionPolicy Bypass -File scripts/test-release-workflow.ps1
 powershell -ExecutionPolicy Bypass -File scripts/test-release-workflow.ps1 -FullBuild
 ```
 
-Requirements for the default path: Windows PowerShell 5.1 or `pwsh`, and
-nothing else. `-FullBuild` additionally needs a working Go toolchain and the
-modules in `go.mod` already cached (otherwise it is not offline).
+默认路径的要求：Windows PowerShell 5.1 或 `pwsh`，仅此而已。`-FullBuild` 还需要可用的 Go 工具链以及 `go.mod` 里的模块已缓存（否则就不是离线的）。
 
-The script prints a `PASS`/`FAIL` line per assertion and a final summary with a
-`RESULT: PASS` / `RESULT: FAIL` line. It exits `0` on success and `1` if any
-assertion failed. All temp directories are removed in a `finally` block, even
-when an assertion fails.
+脚本会为每条断言打印 `PASS`/`FAIL` 行，并在最后给出带 `RESULT: PASS` / `RESULT: FAIL` 行的总结。成功时退出 `0`，任一断言失败则退出 `1`。所有临时目录都在 `finally` 块中删除，即使断言失败也一样。
 
-### What the harness validates
+### 该脚本验证什么
 
-#### 1. Static structure of `release.yml` (parsed as text)
+#### 1. `release.yml` 的静态结构（按文本解析）
 
-| Area | Assertions |
+| 方面 | 断言 |
 | --- | --- |
-| Job graph | jobs `verify`, `race`, `release` all declared; `release` has `needs: [verify, race]` |
-| Trigger | tag push trigger `tags: ['v*']` |
-| Least privilege | top-level `permissions:` with `contents: read`; `release` job overrides with `permissions: contents: write` |
-| Token wiring | `release` references `${{ secrets.GITHUB_TOKEN }}` and sets `GH_TOKEN` from it — asserted as a **literal placeholder string only**; the value is never read, resolved or printed |
-| Quality gates | `verify` runs gofmt / `go vet` / `go test` with `CGO_ENABLED='0'`; `race` runs `go test -race` with `CGO_ENABLED='1'` |
-| Local scripts called | `release` calls `check-release-consistency.ps1`, `build-release.ps1`, `verify-release.ps1`, `extract-release-notes.ps1` |
-| Publish step | `release` runs `gh release create` with `--verify-tag`, then `gh release view` to confirm the two assets |
+| job 图 | job `verify`、`race`、`release` 都已声明；`release` 有 `needs: [verify, race]` |
+| 触发 | tag push 触发 `tags: ['v*']` |
+| 最小权限 | 顶层 `permissions:` 带 `contents: read`；`release` job 覆盖为 `permissions: contents: write` |
+| token 接线 | `release` 引用 `${{ secrets.GITHUB_TOKEN }}` 并从中设置 `GH_TOKEN`——只作为**字面占位字符串**断言；值从不被读取、解析或打印 |
+| 质量门禁 | `verify` 在 `CGO_ENABLED='0'` 下运行 gofmt / `go vet` / `go test`；`race` 在 `CGO_ENABLED='1'` 下运行 `go test -race` |
+| 调用的本地脚本 | `release` 调用 `check-release-consistency.ps1`、`build-release.ps1`、`verify-release.ps1`、`extract-release-notes.ps1` |
+| 发布步骤 | `release` 运行带 `--verify-tag` 的 `gh release create`，然后用 `gh release view` 确认两个资产 |
 
-Each job-specific assertion is scoped to that job's block in the YAML, so a
-setting on one job cannot satisfy a check meant for another.
+每条针对具体 job 的断言都限定在该 job 的 YAML 块内，因此一个 job 上的设置无法满足本该由另一个 job 满足的检查。
 
-#### 2. Local artifact verification
+#### 2. 本地产物验证
 
-The workflow's "Verify release artifacts" step is reproduced against a temp
-directory:
+工作流的 "Verify release artifacts" 步骤会在一个临时目录上复现：
 
-- **Default:** fabricate a `argent_<version>_windows_amd64.zip` containing
-  `argent.exe` and `argent-native.exe` plus a matching sha256sum-style
-  `checksums.txt` — the exact shape `build-release.ps1` produces.
-- **`-FullBuild`:** run the real `scripts/build-release.ps1 -SkipChecks -Tag v<version>`
-  into the temp dir first.
+- **默认：** 伪造一个 `argent_<version>_windows_amd64.zip`，包含 `argent.exe` 和 `argent-native.exe`，外加一个匹配的 sha256sum 风格 `checksums.txt`——正是 `build-release.ps1` 产出的形状。
+- **`-FullBuild`：** 先把真正的 `scripts/build-release.ps1 -SkipChecks -Tag v<version>` 跑进临时目录。
 
-Then `scripts/verify-release.ps1 -ArtifactDir <temp> -Version <version>` is run
-in a separate PowerShell process (exactly as the workflow invokes it) and must
-exit `0`. That verifies zip presence, both binaries inside it, and the SHA-256
-in `checksums.txt` against the actual bytes.
+然后 `scripts/verify-release.ps1 -ArtifactDir <temp> -Version <version>` 在一个独立的 PowerShell 进程中运行（与工作流调用方式完全一致），必须退出 `0`。它会校验 zip 存在、其中两个二进制齐全，以及 `checksums.txt` 中的 SHA-256 与实际字节一致。
 
-#### 3. Optional YAML syntax check
+#### 3. 可选的 YAML 语法检查
 
-If `python` is on `PATH`, the harness additionally tries
-`yaml.safe_load` on `release.yml` and reports the result. A missing Python or
-missing PyYAML is reported as `SKIP`, never `FAIL` — the textual assertions are
-authoritative. A genuine parse error is reported as a failure.
+如果 `python` 在 `PATH` 上，验证脚本还会尝试对 `release.yml` 执行 `yaml.safe_load` 并报告结果。缺少 Python 或 PyYAML 会报 `SKIP` 而绝不报 `FAIL`——文本断言才是权威的。真正的解析错误会报失败。
 
-### What only a real tag push can validate
+### 只有真实 tag 推送才能验证的内容
 
-These are intentionally **not** claimed by the harness:
+以下这些验证脚本有意**不**声称能验证：
 
-- GitHub Actions actually scheduling and running the `verify` and `race` jobs on
-  `windows-latest` / `ubuntu-latest`, including toolchain setup and caching.
-- The `release` job's `needs: [verify, race]` gating being honoured by Actions.
-- `GITHUB_TOKEN` being issued, scoped to `contents: write`, and accepted by
-  `gh release create`; no token value is ever accessed locally.
-- `--verify-tag` resolving against a real pushed tag and the checked-out commit.
-- The real `gh release create` call, network round-trip and the post-publish
-  `gh release view` asset assertion.
-- Version/tag consistency under a real tag (`check-release-consistency.ps1`),
-  and the `native/` GUI binary built from that tag's source.
+- GitHub Actions 实际在 `windows-latest` / `ubuntu-latest` 上调度并运行 `verify` 和 `race` job，包括工具链设置和缓存。
+- `release` job 的 `needs: [verify, race]` 门禁被 Actions 遵守。
+- `GITHUB_TOKEN` 被签发、限定为 `contents: write` 并被 `gh release create` 接受；本地从不访问任何 token 值。
+- `--verify-tag` 针对真实推送的 tag 和检出的 commit 解析。
+- 真实的 `gh release create` 调用、网络往返和发布后的 `gh release view` 资产断言。
+- 真实 tag 下的版本/tag 一致性（`check-release-consistency.ps1`），以及从该 tag 源码构建的 `native/` GUI 二进制。
 
-### Release job graph
+### 发布 job 图
 
 ```
 push tag v*  (on.push.tags: ['v*'])
@@ -696,28 +455,17 @@ push tag v*  (on.push.tags: ['v*'])
    6. gh release view --json assets  (assert both assets present)
 ```
 
-Steps 2–3 are the local part this harness reproduces. Steps 1 and 4–6 require
-a real checkout/tag/token and are only structure-asserted here.
+步骤 2–3 是本验证脚本复现的本地部分。步骤 1 和 4–6 需要真实的 checkout/tag/token，这里只做结构断言。
 
-### Privacy and safety
+### 隐私与安全
 
-- No secrets, tokens, credentials or private filesystem paths are embedded in
-  the harness or this document. The token appears only as the literal YAML
-  placeholder `${{ secrets.GITHUB_TOKEN }}` used for the assertion, and its
-  value is never read or printed.
-- The harness never contacts the network and never calls `gh`.
-- It writes only to a uniquely named temp directory and deletes it in
-  `finally`; it does not touch `dist/` or the working tree.
+- 验证脚本和本文档中都不含任何密钥、token、凭据或私有文件系统路径。token 只作为用于断言的字面 YAML 占位符 `${{ secrets.GITHUB_TOKEN }}` 出现，其值从不被读取或打印。
+- 验证脚本从不联网，从不调用 `gh`。
+- 它只写入一个唯一命名的临时目录，并在 `finally` 中删除；不触碰 `dist/` 或工作树。
 
-### Failure triage
+### 故障排查
 
-- A static assertion fails: `release.yml` drifted from the gated layout. Fix the
-  workflow, not the harness (the harness is intentionally strict).
-- `verify-release.ps1 exited 0` fails: the fabricated/real artifact is not
-  release-shaped; check the printed verifier output and the `Version` constant
-  in `internal/cli/cli.go`.
-- `-FullBuild` build step fails: check the Go toolchain, cached modules and
-  `native/` dependencies; the default offline run remains the authoritative
-  check for wiring.
-- `python yaml.safe_load` reports a failure (not `SKIP`): `release.yml` has a
-  real YAML syntax error that the textual checks cannot catch.
+- 静态断言失败：`release.yml` 偏离了带门禁的布局。修工作流，而不是修验证脚本（脚本有意很严格）。
+- `verify-release.ps1 exited 0` 失败：伪造/真实产物不是发布形状的；检查打印出来的校验器输出，以及 `internal/cli/cli.go` 中的 `Version` 常量。
+- `-FullBuild` 构建步骤失败：检查 Go 工具链、缓存模块和 `native/` 依赖；默认的离线运行仍是接线是否正确的权威检查。
+- `python yaml.safe_load` 报告失败（不是 `SKIP`）：`release.yml` 有文本检查抓不到的真实 YAML 语法错误。

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// writeRawFile writes exact bytes (no JSON re-marshalling) so tests can control
-// the file size down to the byte.
+// writeRawFile 写入精确字节（不做 JSON 重新编组），使测试可以
+// 把文件大小精确控制到字节级。
 func writeRawFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -47,10 +47,10 @@ func stampFor(t *testing.T, fp configFingerprint, path string) fileStamp {
 	return fileStamp{}
 }
 
-// TestChangedDetectsSameSizeSameMtimeRewrite is the regression test for the
-// codex P-high audit finding: a rewrite that preserves both size and mtime was
-// invisible to the old stat-only fingerprint. The content hash must close that
-// gap end-to-end through Load/Changed/Reload.
+// TestChangedDetectsSameSizeSameMtimeRewrite 是针对
+// codex P-high 审计发现的回归测试：保留 size 和 mtime 的重写
+// 对旧的仅 stat 指纹不可见。内容 hash 必须通过 Load/Changed/Reload
+// 端到端地弥补这一缺口。
 func TestChangedDetectsSameSizeSameMtimeRewrite(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -80,8 +80,8 @@ func TestChangedDetectsSameSizeSameMtimeRewrite(t *testing.T) {
 		t.Fatal("existing readable file has a zero hash")
 	}
 
-	// In-place rewrite with identical bytes length, then restore the exact
-	// mtime so mtime and size alone cannot reveal the edit.
+	// 原地重写且字节长度相同，然后恢复精确
+	// mtime，使仅靠 mtime 和 size 无法发现该编辑。
 	writeRawFile(t, path, after)
 	setMTime(t, path, fixed)
 
@@ -106,8 +106,8 @@ func TestChangedDetectsSameSizeSameMtimeRewrite(t *testing.T) {
 	}
 }
 
-// TestFingerprintHashChangesOnOrdinaryEdit guards the normal-change path: a
-// regular edit (different size) must still produce a different fingerprint.
+// TestFingerprintHashChangesOnOrdinaryEdit 守护正常变更路径：
+// 普通编辑（大小不同）仍须产生不同的指纹。
 func TestFingerprintHashChangesOnOrdinaryEdit(t *testing.T) {
 	cwd := t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -125,9 +125,9 @@ func TestFingerprintHashChangesOnOrdinaryEdit(t *testing.T) {
 	}
 }
 
-// TestChangedNoFileFallsBackToStatIdentity verifies the no-file case: missing
-// candidates carry a zero hash and rely on existence, and creating a file is
-// still detected (now backed by a real hash too).
+// TestChangedNoFileFallsBackToStatIdentity 验证无文件情形：缺失
+// 的候选文件携带零 hash 并依赖存在性，创建文件
+// 仍会被检测到（现在也有真实 hash 支撑）。
 func TestChangedNoFileFallsBackToStatIdentity(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	cfg, err := Load(cwd, envFunc(map[string]string{"HOME": home}))
@@ -154,9 +154,9 @@ func TestChangedNoFileFallsBackToStatIdentity(t *testing.T) {
 	}
 }
 
-// TestContentHashIncludesCJKRewrite checks that non-ASCII (UTF-8/CJK) content
-// is hashed byte-for-byte: a one-rune CJK edit with identical size and mtime is
-// detected, and the resulting hash is nonzero and stable.
+// TestContentHashIncludesCJKRewrite 检查非 ASCII（UTF-8/CJK）内容
+// 是否按字节逐字 hash：等长、等 mtime 的单字符 CJK 编辑
+// 会被检测到，且得到的 hash 非零且稳定。
 func TestContentHashIncludesCJKRewrite(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -202,9 +202,9 @@ func TestContentHashIncludesCJKRewrite(t *testing.T) {
 	}
 }
 
-// TestContentHashStable pins determinism: hashing the same bytes twice yields
-// the same SHA-256, repeated fingerprints compare equal, and equal() only flips
-// when content actually differs.
+// TestContentHashStable 固定确定性：对相同字节 hash 两次得到
+// 相同的 SHA-256，重复的指纹比较相等，且只有内容
+// 真正不同时 equal() 才会翻转。
 func TestContentHashStable(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
@@ -225,9 +225,9 @@ func TestContentHashStable(t *testing.T) {
 	}
 }
 
-// TestFingerprintReadFailureFallsBackToStat documents the read-failure path:
-// a path that stats but cannot be read as a file (a directory here) keeps a
-// zero hash, and equal() still works from the stat-only identity.
+// TestFingerprintReadFailureFallsBackToStat 记录读取失败路径：
+// 能 stat 但无法作为文件读取的路径（此处为目录）保持
+// 零 hash，且 equal() 仍能基于仅 stat 的身份正常工作。
 func TestFingerprintReadFailureFallsBackToStat(t *testing.T) {
 	dir := t.TempDir() // stat succeeds; os.ReadFile fails with "is a directory".
 	fp := fingerprintPaths([]string{dir})

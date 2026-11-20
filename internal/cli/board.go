@@ -15,9 +15,9 @@ func (a App) automationDir() string {
 	return filepath.Join(a.storageDir(), "automations")
 }
 
-// runBoard prints a read-only view of background jobs and scheduled tasks. It
-// never Starts, Stops or Put()s anything: the only writes are the registry and
-// store constructors reading their existing JSON files.
+// runBoard 打印后台作业和定时任务的只读视图。它绝不会 Start、Stop
+// 或 Put() 任何东西：唯一的"写入"只是 registry 和 store 的构造函数
+// 读取它们已有的 JSON 文件。
 func runBoard(app App, _ context.Context, args []string) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		boardUsage(app.IO.Out)

@@ -50,7 +50,7 @@ func TestProviderOverlayKeepsConfiguredAPIKey(t *testing.T) {
 	if provider.BaseURL != "http://example.test/v1" {
 		t.Errorf("BaseURL = %q, want the configured URL", provider.BaseURL)
 	}
-	// The login key is an overlay: built-in protocol and env name survive.
+	// 登录密钥是覆盖层：内置协议和 env 名称保留。
 	if provider.Protocol != "openai-chat-completions" || provider.APIKeyEnv != "OPENAI_API_KEY" {
 		t.Errorf("built-in fields lost: %+v", provider)
 	}

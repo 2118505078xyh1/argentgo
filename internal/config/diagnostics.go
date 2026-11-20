@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// DiagnosticKind classifies a configuration diagnostic. The three kinds match
-// the ones reported by the reference implementation: a value that cannot be
-// honoured (invalid), two recognized keys that disagree (conflict), and a
-// recognized but unsupported legacy setting (unsupported).
+// DiagnosticKind 对配置诊断进行分类。三种类型对应
+// 参考实现报告的：无法执行的值（invalid）、一致但冲突的两个键
+// （conflict），以及可识别但不受支持的旧设置
+// （unsupported）。
 type DiagnosticKind string
 
 const (
@@ -21,38 +21,38 @@ const (
 	DiagnosticUnsupported DiagnosticKind = "unsupported"
 )
 
-// Diagnostic is one problem found while inspecting a resolved Config. Path is
-// a JSON path such as "$.sandboxMode" or "$.providers.anthropic.baseURL".
-// Unlike Validate, Diagnostics never stops at the first problem.
+// Diagnostic 是检查已解析 Config 时发现的一个问题。Path 是
+// 类似 "$.sandboxMode" 或 "$.providers.anthropic.baseURL" 的 JSON 路径。
+// 与 Validate 不同，Diagnostics 不会在第一个问题处停止。
 type Diagnostic struct {
 	Path    string         `json:"path"`
 	Kind    DiagnosticKind `json:"kind"`
 	Message string         `json:"message"`
 }
 
-// Diagnostics reports every problem it can find in c at once. The three groups
-// are kept in a stable order: the legacy value-level failures Validate has
-// always reported, the fail-closed invariants that Load/startup enforce, and
-// finally the informational problems discovered in the merged Raw tree. This
-// is the single "fail-closed summary" CLI doctor and startup can consume.
+// Diagnostics 一次报告它能在 c 中发现的所有问题。三组
+// 保持固定顺序：Validate 一直报告的旧值级失败、Load/启动强制执行的
+// fail-closed 不变量，以及最后在合并后的 Raw 树中发现的
+// 提示性问题。这是 CLI doctor 和启动可以消费的唯一
+// "fail-closed 摘要"。
 func (c Config) Diagnostics() []Diagnostic {
 	out := c.validateDiagnostics()
 	out = append(out, c.failClosedDiagnostics()...)
 	return append(out, treeDiagnostics(c.Raw)...)
 }
 
-// failClosedDiagnostics reports the safety-critical invariants that a caller
-// must not ignore. Unlike treeDiagnostics (which merely explains how a raw key
-// was interpreted), every issue here is enforced at load time by
-// LoadWithOverrides, so doctor, startup and an explicit Validate all agree on
-// what an unacceptable config is. Collecting them together keeps the
-// fail-closed posture: one bad value is reported without masking the others.
+// failClosedDiagnostics 报告调用方不得忽略的安全关键不变量。
+// 与 treeDiagnostics（仅解释原始键如何被解读）不同，
+// 这里的每个问题都在加载时由 LoadWithOverrides 强制执行，
+// 因此 doctor、启动和显式 Validate 对何种配置不可接受
+// 保持一致。集中收集保持了 fail-closed 姿态：
+// 报告一个坏值的同时不会掩盖其他问题。
 func (c Config) failClosedDiagnostics() []Diagnostic {
 	var out []Diagnostic
 
-	// privacyMode is load-fatal because the security layer fails closed on an
-	// unknown posture. A Config built by hand or mutated after Load bypasses
-	// that gate, so surface the exact same rule here.
+	// privacyMode 会导致加载失败，因为安全层对未知姿态采取 fail closed。
+	// 手工构造或在 Load 之后被修改的 Config 绕过了
+	// 该关卡，因此这里实施完全相同的规则。
 	if err := validatePrivacyMode(c.PrivacyMode); err != nil {
 		out = append(out, Diagnostic{
 			Path:    "$.privacyMode",
@@ -61,8 +61,8 @@ func (c Config) failClosedDiagnostics() []Diagnostic {
 		})
 	}
 
-	// Numeric ranges the rest of the program cannot honour. A percentage above
-	// 100 silently disables compaction, and negative bounds are always a typo.
+	// 程序其余部分无法执行的数值范围。百分比超过
+	// 100 会悄悄禁用压缩，负值则总是拼写错误。
 	if c.AutoCondenseContextPercent < -1 || c.AutoCondenseContextPercent > 100 {
 		out = append(out, Diagnostic{
 			Path:    "$.autoCondenseContextPercent",
@@ -95,9 +95,9 @@ func (c Config) failClosedDiagnostics() []Diagnostic {
 	return out
 }
 
-// validateDiagnostics is the exact set of hard failures Validate has always
-// reported. Keeping it separate prevents new informational diagnostics from
-// changing Validate's compatibility contract.
+// validateDiagnostics 是 Validate 一直报告的硬性失败的精确集合。
+// 将其独立保存，可防止新增的提示性诊断改变
+// Validate 的兼容性约定。
 func (c Config) validateDiagnostics() []Diagnostic {
 	var out []Diagnostic
 
@@ -127,8 +127,8 @@ func (c Config) validateDiagnostics() []Diagnostic {
 	return out
 }
 
-// configAliases lists every recognized key family. The first entry is the
-// canonical spelling decode() prefers; the rest are accepted aliases.
+// configAliases 列出所有可识别的键家族。第一项是
+// decode() 优先使用的规范拼写，其余为可接受的别名。
 var configAliases = map[string][]string{
 	"model":       {"model", "modelName"},
 	"baseURL":     {"baseURL", "baseUrl", "base_url"},
@@ -142,9 +142,9 @@ var configAliases = map[string][]string{
 	"provider":    {"provider"},
 }
 
-// unsupportedKeys are recognized legacy settings that argentgo deliberately
-// ignores. Unknown keys are preserved in Raw and stay valid; only these are
-// called out, mirroring the reference implementation's unsupported list.
+// unsupportedKeys 是 argentgo 有意忽略的可识别旧设置。
+// 未知键会保留在 Raw 中并保持有效；只把这些键
+// 标记出来，与参考实现的 unsupported 列表一致。
 var unsupportedKeys = []string{"logLevel", "subagent_depth", "layout", "server"}
 
 func treeDiagnostics(raw map[string]any) []Diagnostic {
@@ -171,10 +171,10 @@ func treeDiagnostics(raw map[string]any) []Diagnostic {
 			continue
 		}
 
-		// decode() reads aliases in order and returns the first value with the
-		// right type, skipping an ill-typed canonical key. Mirror that rule so
-		// the "using X" message names the value that actually reached Config;
-		// present[0] is only a fallback when every alias is ill-typed.
+		// decode() 按顺序读取别名并返回第一个类型正确的值，
+		// 跳过类型错误的规范键。这里照搬该规则，使
+		// "using X" 消息指明确实进入 Config 的值；
+		// present[0] 仅当所有别名类型都错误时作为回退。
 		winner := present[0]
 		for _, key := range present {
 			if configValueTypeOK(field, raw[key]) {

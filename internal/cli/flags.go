@@ -1,33 +1,33 @@
 package cli
 
-// Output modes.
+// 输出模式。
 const (
 	ModeText = "text"
 	ModeJSON = "json"
 )
 
-// Approval modes.
+// 审批模式。
 const (
 	ApprovalAsk   = "ask"
 	ApprovalNever = "never"
 	ApprovalAuto  = "auto"
 )
 
-// Sandbox modes, matching the Rust CLI.
+// 沙箱模式，与 Rust CLI 保持一致。
 const (
 	SandboxReadOnly         = "read-only"
 	SandboxWorkspaceWrite   = "workspace-write"
 	SandboxDangerFullAccess = "danger-full-access"
 )
 
-// Protocol names accepted by --protocol.
+// --protocol 接受的协议名称。
 const (
 	ProtocolOpenAI    = "openai"
 	ProtocolAnthropic = "anthropic"
 	ProtocolResponses = "responses"
 )
 
-// Options is the fully resolved command line handed to the runner factory.
+// Options 是交给 runner 工厂的、完全解析后的命令行。
 type Options struct {
 	Model         string
 	Provider      string
@@ -50,7 +50,7 @@ type Options struct {
 	Locale        string
 	NoPromptCache bool
 
-	// Output and listing switches.
+	// 输出与列举开关。
 	JSONLines     bool
 	ListProfiles  bool
 	ListSessions  bool
@@ -63,7 +63,7 @@ type Options struct {
 	Theme         string
 	Plugins       []string
 
-	// Budgets and prices.
+	// 预算与价格。
 	MaxTokens      int
 	MaxCost        float64
 	MaxSeconds     int
@@ -74,9 +74,9 @@ type Options struct {
 	AddDirs        []string
 	OutputSchema   string
 
-	// Flags parsed for compatibility. The subsystems behind Background,
-	// Worktree, EnableBrowser, EnableDesktop, EnableService, GUI and the
-	// workflow trio are not migrated yet; runMain refuses them explicitly.
+	// 为兼容性而解析的 flag。Background、Worktree、EnableBrowser、
+	// EnableDesktop、EnableService、GUI 以及 workflow 三件套背后的子系统
+	// 尚未迁移；runMain 会显式拒绝它们。
 	Background      bool
 	Worktree        string
 	EnableBrowser   bool
@@ -90,7 +90,7 @@ type Options struct {
 
 	Overrides Overrides
 
-	// Transports.
+	// 传输方式。
 	Serve      bool
 	RPC        bool
 	ACP        bool

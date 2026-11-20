@@ -9,37 +9,35 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Skill-authoring tools are opt-in. The interfaces below are declared locally,
-// with the exact signatures of their skills-package counterparts, so this
-// package never imports internal/skills and the app layer can wire either
-// implementation through a tiny adapter.
+// 技能创作工具是选择性启用的。下面的接口在本地声明，签名与 skills 包中对应类型完全一致，
+// 因此本包从不导入 internal/skills，app 层可以通过一个很小的适配器接入任一实现。
 
 const (
-	// SaveSkillToolName is the built-in tool that persists a reusable procedure.
+	// SaveSkillToolName 是持久化可复用流程的内置工具。
 	SaveSkillToolName = "save_skill"
-	// ListSkillsToolName is the read-only tool that lists installed skills.
+	// ListSkillsToolName 是列出已安装技能的只读工具。
 	ListSkillsToolName = "list_skills"
 )
 
-// SkillWriter is the seam for authoring a SKILL.md. Its method signature
-// matches skills.Author exactly; no import of that package is needed.
+// SkillWriter 是创作 SKILL.md 的接口接缝。它的方法签名与 skills.Author 完全一致，
+// 无需导入那个包。
 type SkillWriter interface {
 	Author(root, name, description, body string) (string, error)
 }
 
-// SkillEntry is the local view of one installed skill returned by a lister.
+// SkillEntry 是列表器返回的单个已安装技能的本地视图。
 type SkillEntry struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 }
 
-// SkillLister is the seam for the read-only list_skills tool. An adapter over
-// skills.Registry can satisfy it in the app layer.
+// SkillLister 是只读 list_skills 工具的接口接缝。app 层中用 skills.Registry 包一层适配器
+// 即可满足它。
 type SkillLister interface {
 	ListSkills() []SkillEntry
 }
 
-// SaveSkillToolSpec describes the save_skill tool to the model.
+// SaveSkillToolSpec 向模型描述 save_skill 工具。
 func SaveSkillToolSpec() llm.ToolSpec {
 	var spec llm.ToolSpec
 	spec.Type = "function"
@@ -59,7 +57,7 @@ func SaveSkillToolSpec() llm.ToolSpec {
 	return spec
 }
 
-// ListSkillsToolSpec describes the read-only list_skills tool to the model.
+// ListSkillsToolSpec 向模型描述只读的 list_skills 工具。
 func ListSkillsToolSpec() llm.ToolSpec {
 	var spec llm.ToolSpec
 	spec.Type = "function"
@@ -73,8 +71,8 @@ func ListSkillsToolSpec() llm.ToolSpec {
 	return spec
 }
 
-// skillTools wraps a ToolRunner with the opt-in skill tools. It advertises
-// only the tools whose seam was configured and delegates every other call.
+// skillTools 用选择性启用的技能工具包装 ToolRunner。它只公布已配置接缝的工具，
+// 其余所有调用都委托给内部运行器。
 type skillTools struct {
 	inner  ToolRunner
 	writer SkillWriter
@@ -85,8 +83,8 @@ type skillTools struct {
 	specs  []llm.ToolSpec
 }
 
-// newSkillTools builds the wrapper, filtering any same-named tool already
-// advertised by the inner runner so the built-in handler always wins.
+// newSkillTools 构建包装器，过滤掉内部运行器已公布的同名工具，
+// 使内置处理器始终优先。
 func newSkillTools(inner ToolRunner, opts Options) *skillTools {
 	innerSpecs := inner.Specs()
 	specs := make([]llm.ToolSpec, 0, len(innerSpecs)+2)
@@ -136,16 +134,15 @@ func (t *skillTools) Run(ctx context.Context, name, args string) (string, error)
 	return t.inner.Run(ctx, name, args)
 }
 
-// saveSkillArgs is the save_skill argument shape.
+// saveSkillArgs 是 save_skill 的参数结构。
 type saveSkillArgs struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Steps       []string `json:"steps"`
 }
 
-// saveSkill renders the steps as an ordered markdown procedure and persists
-// it through the injected writer. On success it emits a notice so the operator
-// can see that a file was created even before the model answers.
+// saveSkill 把步骤渲染为有序的 markdown 流程，并通过注入的 writer 持久化。
+// 成功时它会发出一条通知，使操作人员即使在模型作答之前也能看到文件已创建。
 func (t *skillTools) saveSkill(raw string) (string, error) {
 	var args saveSkillArgs
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
@@ -182,7 +179,7 @@ func (t *skillTools) saveSkill(raw string) (string, error) {
 	return fmt.Sprintf("Saved skill %q to %s.", name, path), nil
 }
 
-// listSkills formats the lister's entries as a compact tool result.
+// listSkills 把列表器的条目格式化为紧凑的工具结果。
 func (t *skillTools) listSkills() string {
 	entries := t.lister.ListSkills()
 	if len(entries) == 0 {

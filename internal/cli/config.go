@@ -13,7 +13,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// runConfig implements `config get|set` over dotted keys.
+// runConfig 通过点分键实现 `config get|set`。
 func runConfig(app App, ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		configUsage(app.IO.Err)
@@ -86,9 +86,9 @@ func formatConfigValue(value any) string {
 	return string(data)
 }
 
-// loadConfigFile reads a JSONC object, treating a missing file as empty. It
-// reuses the same JSONC cleaner as the main config loader so subcommands and
-// the engine accept exactly the same syntax (comments, trailing commas).
+// loadConfigFile 读取 JSONC 对象，把缺失的文件当作空对象。它复用与主配置
+// 加载器相同的 JSONC 清理器，使子命令和引擎接受完全相同的语法
+// （注释、尾随逗号）。
 func loadConfigFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -108,9 +108,9 @@ func loadConfigFile(path string) (map[string]any, error) {
 	return cfg, nil
 }
 
-// warnJSONCRewrite tells the operator when `config set` is about to discard
-// JSONC syntax that the loader accepts. saveConfigFile writes strict JSON, so
-// comments and trailing commas in a hand-edited file cannot survive.
+// warnJSONCRewrite 在 `config set` 即将丢弃加载器可接受的 JSONC 语法时
+// 提醒操作员。saveConfigFile 写入严格的 JSON，因此手工编辑文件中的
+// 注释和尾随逗号无法保留。
 func warnJSONCRewrite(w io.Writer, path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -122,7 +122,7 @@ func warnJSONCRewrite(w io.Writer, path string) {
 	fmt.Fprintln(w, "warning: config set rewrites as strict JSON; comments and trailing commas are not preserved")
 }
 
-// saveConfigFile writes a JSON object atomically with owner-only permissions.
+// saveConfigFile 以仅所有者可见的权限原子地写入 JSON 对象。
 func saveConfigFile(path string, cfg map[string]any) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -156,7 +156,7 @@ func saveConfigFile(path string, cfg map[string]any) error {
 	return nil
 }
 
-// setDotted stores value at a dotted path, creating intermediate objects.
+// setDotted 在点分路径处存储 value，并按需创建中间对象。
 func setDotted(root map[string]any, key string, value any) {
 	segments := strings.Split(key, ".")
 	current := root
@@ -171,7 +171,7 @@ func setDotted(root map[string]any, key string, value any) {
 	current[segments[len(segments)-1]] = value
 }
 
-// getDotted reads a dotted path.
+// getDotted 读取点分路径。
 func getDotted(root map[string]any, key string) (any, bool) {
 	var current any = root
 	for _, segment := range strings.Split(key, ".") {

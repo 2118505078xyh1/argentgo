@@ -138,7 +138,13 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 			ok = false
 		}
 		if !ok {
-			return "", editRepairError(text, args.Old)
+			err := editRepairError(text, args.Old)
+			if replaceAlreadyPresent(text, args.New) {
+				// 替换文本已在文件里：模型很可能重复发送了同一个编辑。
+				// 追加提示，避免它继续触发模糊修复并做无效重试。
+				err = fmt.Errorf("%w; %s", err, alreadyAppliedHint(args.Path))
+			}
+			return "", err
 		}
 		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
 			return "", err
@@ -691,6 +697,39 @@ func editRepairError(content, old string) error {
 		msg += "; " + s
 	}
 	return errors.New(msg)
+}
+
+// replaceAlreadyPresent 判断 newText 是否已经出现在 content 中。
+//
+// 这是给失败诊断用的纯函数：模型重复发送同一编辑时，old 已被移除而 new
+// 往往还留在文件里。先用 strings.Contains 做精确匹配，再做一次空白归一化
+// 比较，以覆盖缩进/换行被改动但内容实质相同的情况。空文本必须返回 false，
+// 否则 strings.Contains 会把任意文件都判成“已应用”，造成误判。
+func replaceAlreadyPresent(content, newText string) bool {
+	if newText == "" {
+		return false
+	}
+	// 精确匹配优先：避免归一化把不相关的空白差异误判为命中。
+	if strings.Contains(content, newText) {
+		return true
+	}
+	// strings.Fields 按 unicode.IsSpace 分割，天然支持 CJK 文本与全角空格；
+	// 折叠成单个半角空格后，换行与缩进差异不再影响比较。
+	normNew := strings.Join(strings.Fields(newText), " ")
+	if normNew == "" {
+		return false
+	}
+	normContent := strings.Join(strings.Fields(content), " ")
+	return strings.Contains(normContent, normNew)
+}
+
+// alreadyAppliedHint 生成“替换文本已存在”的诊断文案。
+//
+// 文案沿用本文件其他工具错误的既有风格（英文、以工具名开头），注释保持中文。
+// 调用方负责把它追加到既有诊断之后，不要替换原文案。
+func alreadyAppliedHint(path string) string {
+	return "edit: REPLACE text is already present in " + path +
+		"; this edit may have already been applied; skip it and verify the file before retrying"
 }
 
 // multiEditRepairError builds the atomicity-preserving diagnostic for a failed

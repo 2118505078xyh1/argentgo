@@ -9,15 +9,15 @@ import (
 	"strings"
 )
 
-// evalScenario is one scripted eval case.
+// evalScenario 是一个脚本化的 eval 用例。
 type evalScenario struct {
 	Prompt     string `json:"prompt"`
 	ExpectTool string `json:"expect_tool"`
 	ExpectText string `json:"expect_text"`
 }
 
-// runEval implements `eval <file>`: it runs every scenario through the injected
-// EvalRunner and grades tool usage and answer text.
+// runEval 实现 `eval <file>`：把每个场景交给注入的 EvalRunner 运行，
+// 并对工具使用和回答文本评分。
 func runEval(app App, ctx context.Context, args []string) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		evalUsage(app.IO.Out)

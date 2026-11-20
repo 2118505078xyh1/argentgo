@@ -8,48 +8,47 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Stop reasons reported in Result.Stopped and Event.Reason. They are stable
-// strings so frontends and tests can compare them directly.
+// 停止原因，记录在 Result.Stopped 和 Event.Reason 中。它们是稳定的
+// 字符串，因此前端和测试可以直接比较。
 const (
-	// StopComplete means the model answered without asking for more tools.
+	// StopComplete 表示模型已作答，没有请求更多工具。
 	StopComplete = "complete"
-	// StopMaxTurns means the turn budget was exhausted.
+	// StopMaxTurns 表示轮次预算已耗尽。
 	StopMaxTurns = "max_turns"
-	// StopMaxPromptTokens means one request would exceed MaxPromptTokens.
+	// StopMaxPromptTokens 表示某个请求将超过 MaxPromptTokens。
 	StopMaxPromptTokens = "max_prompt_tokens"
-	// StopMaxTotalTokens means the run's prompt+completion total hit the cap.
+	// StopMaxTotalTokens 表示本次运行的 prompt+completion 总量达到了上限。
 	StopMaxTotalTokens = "max_total_tokens"
-	// StopDeclaredTurnBudget means the per-turn cap the user declared in the
-	// prompt (see ParseTurnBudget) was hit. It is opt-in via Budget field.
+	// StopDeclaredTurnBudget 表示用户在提示中声明的单轮上限（见 ParseTurnBudget）
+	// 已被触及。它需要经由 Budget 字段选择性启用。
 	StopDeclaredTurnBudget = "declared_turn_budget"
-	// StopMaxCost means the estimated spend hit MaxCostUSD.
+	// StopMaxCost 表示估算花费达到了 MaxCostUSD。
 	StopMaxCost = "max_cost"
-	// StopCancelled means the context was cancelled.
+	// StopCancelled 表示上下文已被取消。
 	StopCancelled = "cancelled"
-	// StopProviderError means the provider failed; Run also returns an error.
+	// StopProviderError 表示提供方调用失败；Run 也会返回一个错误。
 	StopProviderError = "provider_error"
-	// StopStuck is reserved for runs halted by stuck detection. Detection
-	// nudges by default and does not stop, so no stop logic uses this yet.
+	// StopStuck 保留用于被"卡住检测"中止的运行。检测默认只做提示而不停止，
+	// 因此目前还没有停止逻辑会用到它。
 	StopStuck = "stuck"
 )
 
-// Price is what a provider charges for one million tokens of a model.
+// Price 表示提供方对某模型每百万 token 的收费。
 type Price struct {
-	// Input is USD per million prompt tokens.
+	// Input 是每百万提示 token 的美元价格。
 	Input float64
-	// Output is USD per million completion tokens.
+	// Output 是每百万补全 token 的美元价格。
 	Output float64
 }
 
-// Cost estimates the spend for one usage snapshot. Cached prompt tokens are
-// billed as ordinary prompt tokens; the provider's cache discount is not
-// modelled.
+// Cost 估算一次用量快照的花费。缓存的提示 token 按普通提示 token
+// 计费；不建模提供方的缓存折扣。
 func (p Price) Cost(u llm.Usage) float64 {
 	return float64(u.PromptTokens)/1_000_000*p.Input +
 		float64(u.CompletionTokens)/1_000_000*p.Output
 }
 
-// PriceFor looks a model up in a price table, falling back to the "" entry.
+// PriceFor 在价格表中查找模型，找不到时回退到 "" 条目。
 func PriceFor(prices map[string]Price, model string) (Price, bool) {
 	if len(prices) == 0 {
 		return Price{}, false
@@ -61,28 +60,27 @@ func PriceFor(prices map[string]Price, model string) (Price, bool) {
 	return p, ok
 }
 
-// Budget limits one run. A zero field is unlimited.
+// Budget 限制一次运行。字段值为零表示不限制。
 type Budget struct {
-	// MaxTurns caps the number of model requests.
+	// MaxTurns 限制模型请求的数量。
 	MaxTurns int
-	// MaxPromptTokens caps the prompt size of a single request, in tokens.
-	// Trimming runs first; this is the hard stop when trimming cannot help.
+	// MaxPromptTokens 限制单次请求的提示大小（以 token 计）。
+	// 会先执行裁剪；当裁剪无能为力时，这是硬性停止线。
 	MaxPromptTokens int
-	// MaxTotalTokens caps cumulative prompt+completion tokens.
+	// MaxTotalTokens 限制累计的 prompt+completion token 数。
 	MaxTotalTokens int
-	// MaxCostUSD caps the estimated spend, using Options.Prices.
+	// MaxCostUSD 使用 Options.Prices 限制估算花费。
 	MaxCostUSD float64
-	// DeclaredTurnTokens is the per-turn output budget the user declared in
-	// their prompt (parse it with ParseTurnBudget). Zero means no declaration.
-	// It is an additional cumulative token cap and never relaxes the others.
+	// DeclaredTurnTokens 是用户在提示中声明的单轮输出预算（用 ParseTurnBudget 解析）。
+	// 零表示未声明。它是一个额外的累计 token 上限，绝不会放宽其他上限。
 	DeclaredTurnTokens int64
 }
 
-// Breach returns the first exhausted limit as a stable reason string and a
-// human-readable detail line. ok is false when the run may continue.
+// Breach 返回第一个被突破的限制，以稳定的原因字符串和人类可读的明细行表示。
+// 当运行可以继续时 ok 为 false。
 //
-// lastPromptTokens is the prompt size of the most recent request (reported by
-// the provider, or estimated); costKnown is false when no price matched.
+// lastPromptTokens 是最近一次请求的提示大小（由提供方报告或估算得出）；
+// 当没有匹配到价格时 costKnown 为 false。
 func (b Budget) Breach(used llm.Usage, lastPromptTokens int, spentUSD float64, costKnown bool) (reason, detail string, ok bool) {
 	if b.DeclaredTurnTokens > 0 {
 		total := int64(used.PromptTokens) + int64(used.CompletionTokens)
@@ -113,34 +111,32 @@ func (b Budget) Breach(used llm.Usage, lastPromptTokens int, spentUSD float64, c
 	return "", "", false
 }
 
-// Context-aware compaction thresholds. A percentage of the model context
-// window is the preferred trigger; the token constants are fallbacks for
-// configurations that do not publish a context window.
+// 上下文感知的压缩阈值。优先使用模型上下文窗口的百分比作为触发条件；
+// 对于未公布上下文窗口的配置，则回退到 token 常量。
 const (
 	defaultCompactionTokens = 32000
-	// reservedOutputFraction withholds 1/20 of the window for the reply that
-	// follows a summarised prompt; reservedOutputTokens caps that reserve.
+	// reservedOutputFraction 为摘要后提示所对应的回复预留窗口的 1/20；
+	// reservedOutputTokens 为该预留量设置上限。
 	reservedOutputFraction = 20
 	reservedOutputTokens   = 8000
-	// Estimate inflation is 1.3x expressed as integers: ceil(n*13/10).
+	// 估算膨胀系数用整数表示为 1.3 倍：ceil(n*13/10)。
 	estimateInflationNumerator   = 13
 	estimateInflationDenominator = 10
 )
 
-// CompactionThreshold returns the estimated-token trigger for auto-compaction.
+// CompactionThreshold 返回自动压缩的估算 token 触发阈值。
 //
-// A positive percent wins: the trigger is floor(contextWindow*percent/100)
-// minus a reserved output buffer of min(contextWindow/20, 8000), clamped to at
-// least 1. Otherwise a positive configuredTokens is used verbatim, and the
-// compiled default is the last resort. Non-positive percent values (-1/0)
-// inherit the global threshold, matching the per-profile config semantics.
+// percent 为正时优先：触发阈值为 floor(contextWindow*percent/100)
+// 减去大小为 min(contextWindow/20, 8000) 的预留输出缓冲，且至少为 1。
+// 否则按原样使用为正的 configuredTokens，编译时的默认值作为最后兜底。
+// 非正的 percent 值（-1/0）继承全局阈值，与按 profile 配置的语义一致。
 func CompactionThreshold(contextWindow, configuredTokens, percent int) int {
 	if percent > 0 {
 		reserve := contextWindow / reservedOutputFraction
 		if reserve > reservedOutputTokens {
 			reserve = reservedOutputTokens
 		}
-		// int64 product avoids overflow on large windows before the /100.
+		// 使用 int64 相乘可避免在 /100 之前对大窗口发生溢出。
 		threshold := int(int64(contextWindow)*int64(percent)/100) - reserve
 		if threshold < 1 {
 			return 1
@@ -153,9 +149,8 @@ func CompactionThreshold(contextWindow, configuredTokens, percent int) int {
 	return defaultCompactionTokens
 }
 
-// InflateEstimate applies the 1.3x safety factor used before comparing an
-// estimated prompt size against a compaction threshold. Integer math only,
-// rounded up (ceil), so n=1 becomes 2 and n=100 becomes 130.
+// InflateEstimate 应用在把估算提示大小与压缩阈值比较之前使用的 1.3 倍安全系数。
+// 仅使用整数运算并向上取整（ceil），因此 n=1 变为 2，n=100 变为 130。
 func InflateEstimate(n int) int {
 	if n <= 0 {
 		return 0
@@ -163,8 +158,8 @@ func InflateEstimate(n int) int {
 	return int((int64(n)*estimateInflationNumerator + estimateInflationDenominator - 1) / estimateInflationDenominator)
 }
 
-// sliceForChild derives a child run's budget from the parent's: half of every
-// limit, so a delegate cannot spend the whole parent allowance.
+// sliceForChild 从父运行的预算派生子运行的预算：每项限制减半，
+// 这样被委派者就无法花光父级的全部额度。
 func (b Budget) sliceForChild() Budget {
 	out := Budget{}
 	if b.MaxTurns > 0 {
@@ -185,16 +180,15 @@ func (b Budget) sliceForChild() Budget {
 	return out
 }
 
-// Limits applied to a user-declared turn budget. Declarations outside the
-// range are clamped rather than rejected so a typo cannot disable the feature.
+// 对用户声明的轮次预算施加的限制。超出范围的声明会被收紧而非拒绝，
+// 这样一次笔误就不会使该功能失效。
 const (
 	turnBudgetMinTokens = int64(1_000)
 	turnBudgetMaxTokens = int64(100_000_000)
 )
 
-// Patterns used to remove everything that is not the user's own prose before
-// a declaration is looked for. RE2 has no backreferences, so each injection
-// container is matched by its own compiled pattern (built below).
+// 在查找声明之前，用于移除所有非用户本人文本内容的模式。RE2 不支持反向引用，
+// 因此每种注入容器都由各自编译的模式来匹配（见下方构建）。
 var (
 	fencedCodeBacktick = regexp.MustCompile("(?s)```.*?```")
 	fencedCodeTilde    = regexp.MustCompile("(?s)~~~.*?~~~")
@@ -204,18 +198,17 @@ var (
 	atBracketReference = regexp.MustCompile(`(?m)@<[^>\n]*>[^\n]*`)
 	atQuotedReference  = regexp.MustCompile(`(?m)@"[^"\n]*"[^\n]*`)
 
-	// plusBudget matches the "+500k" / "+2m" shorthand (k = thousand,
-	// m = million). The sign is what makes a bare "500k" in prose safe to
-	// ignore, while the suffix word boundary rejects things like "500miles".
+	// plusBudget 匹配 "+500k" / "+2m" 简写（k = 千，m = 百万）。
+	// 正号使得正文里单独的 "500k" 可以安全地忽略，
+	// 而后缀的词边界会拒绝 "500miles" 这类内容。
 	plusBudget = regexp.MustCompile(`\+\s*(\d+(?:\.\d+)?)\s*([kKmM])\b`)
-	// verbBudget matches "use 2m tokens" style phrases. A verb plus the
-	// "tokens" noun is required so ordinary quantities are not declarations.
+	// verbBudget 匹配 "use 2m tokens" 这类短语。必须同时出现动词和名词
+	// "tokens"，这样普通数量就不会被当成声明。
 	verbBudget = regexp.MustCompile(`(?i)\b(?:use|spend|budget|limit|cap|with|set|allow|allocate|reserve)\s+(\d+(?:\.\d+)?)\s*([kKmM])\s+(?:(?:output|total|context)\s+)?tokens?\b`)
 )
 
-// injectionBlockTags are wrappers the harness uses to inject content that is
-// not the user's own text. The whole element (including its body) is dropped
-// so a budget-looking number inside an attachment cannot set the limit.
+// injectionBlockTags 是框架用来注入非用户本人文本的包装标签。整个元素（包括其主体）
+// 都会被丢弃，这样附件中形似预算的数字就无法设置上限。
 var injectionBlockTags = []string{
 	"system-reminder", "system_reminder", "project-memory", "file",
 	"attachment", "attachments", "document", "context", "resource",
@@ -234,20 +227,18 @@ var injectionBlockPatterns = func() []*regexp.Regexp {
 	return out
 }()
 
-// ParseTurnBudget extracts the output budget the user declared for the current
-// turn. Two spellings are recognised, case-insensitively and with optional
-// decimals: "+500k" (also "+2m", "+1.5m") and "use 2m tokens" (with a small
-// set of budget verbs and an optional "output"/"total"/"context" qualifier).
-// The leftmost declaration in the user's text wins.
+// ParseTurnBudget 提取用户为当前轮次声明的输出预算。可识别两种写法，
+// 均不区分大小写且支持小数："+500k"（也支持 "+2m"、"+1.5m"）和
+// "use 2m tokens"（带一组有限的预算动词，以及可选的
+// "output"/"total"/"context" 限定词）。用户文本中最靠左的声明优先。
 //
-// Only the user's own prose is inspected. Code spans, <system-reminder> and
-// other injected XML blocks, @file/MCP references and remaining HTML tags are
-// stripped first, so a number inside an attachment cannot set the budget.
-// The result is clamped to [1k, 100m]; ok is false when no declaration exists.
+// 只检查用户本人的文本。代码段、<system-reminder> 及其他注入的 XML 块、
+// @file/MCP 引用和其余 HTML 标签都会先被剥离，因此附件中的数字无法设置预算。
+// 结果会被收紧到 [1k, 100m]；没有声明时 ok 为 false。
 func ParseTurnBudget(prompt string) (tokens int64, ok bool) {
 	text := stripNonUserText(prompt)
 
-	// Find the leftmost of the two recognised forms.
+	// 找出两种可识别形式中最靠左的那个。
 	best := len(text) + 1
 	var number, suffix string
 	if loc := plusBudget.FindStringSubmatchIndex(text); loc != nil {
@@ -269,9 +260,9 @@ func ParseTurnBudget(prompt string) (tokens int64, ok bool) {
 	return tokens, true
 }
 
-// stripNonUserText removes non-prose content from a prompt. The order matters:
-// code and injected blocks go before @-references, and generic tags go last
-// so the user's own text around a tag survives.
+// stripNonUserText 从提示中移除非正文内容。顺序很重要：
+// 代码块和注入块先于 @-引用处理，通用标签最后处理，
+// 这样标签周围的用户原文才能保留下来。
 func stripNonUserText(prompt string) string {
 	s := fencedCodeBacktick.ReplaceAllString(prompt, "")
 	s = fencedCodeTilde.ReplaceAllString(s, "")
@@ -286,9 +277,9 @@ func stripNonUserText(prompt string) string {
 	return s
 }
 
-// parseTokenCount turns "1.5" + "m" into 1_500_000. Integer math avoids
-// floating-point drift; oversized inputs saturate before ParseTurnBudget
-// clamps them, so an absurd number cannot overflow int64.
+// parseTokenCount 把 "1.5" + "m" 转换为 1_500_000。整数运算避免浮点误差；
+// 超大输入会在 ParseTurnBudget 收紧之前先行饱和，
+// 因此再荒谬的数字也不会使 int64 溢出。
 func parseTokenCount(number, suffix string) int64 {
 	multiplier := int64(1)
 	switch suffix {

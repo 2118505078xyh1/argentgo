@@ -12,9 +12,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// modelAttempts resolves the ordered model list for a single turn. The first
-// entry of FallbackModels is the primary; an empty field keeps the legacy
-// Options.Model behaviour so callers written before wave 4 need no changes.
+// modelAttempts 解析单轮次的有序模型列表。FallbackModels 的第一项是主模型；
+// 字段为空时保留旧版 Options.Model 行为，这样在 wave 4 之前编写的调用方无需改动。
 func modelAttempts(opts Options) []string {
 	if len(opts.FallbackModels) > 0 {
 		out := make([]string, 0, len(opts.FallbackModels))
@@ -31,16 +30,14 @@ func modelAttempts(opts Options) []string {
 	return []string{opts.Model}
 }
 
-// chatWithFallback issues the turn's model request, walking the fallback list
-// when the provider fails in a retryable way. Retries re-send the exact same
-// message slice: nothing is appended to the transcript until this returns an
-// answer, so a switch can never duplicate a user turn or a tool result.
+// chatWithFallback 发起本轮次的模型请求，当提供方以可重试的方式失败时，
+// 依次尝试回退列表。重试会重新发送完全相同的消息切片：在返回答案之前不会向记录追加任何内容，
+// 因此切换模型绝不会重复用户轮次或工具结果。
 func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message, error) {
 	models := modelAttempts(s.opts)
-	// The configured list is the hard ceiling; the +1 is the legacy
-	// single-model attempt and keeps the bound explicit.
+	// 配置的列表是硬上限；+1 对应旧版单模型尝试，使上限显式可见。
 	maxAttempts := 1 + len(s.opts.FallbackModels)
-	live := len(models) == 1 // no fallback configured: keep streaming as before
+	live := len(models) == 1 // 未配置回退：像以前一样保持流式输出
 
 	var (
 		lastErr error
@@ -57,10 +54,9 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 		s.model = model
 
 		var buffered []string
-		// Capture this attempt's stream regardless of live/buffered mode. On a
-		// successful attempt the capture is discarded; on the attempt the run
-		// ultimately reports as failed it is published as an additive EventPartial
-		// so the real half-written answer is not lost at the failure boundary.
+		// 无论处于实时还是缓冲模式，都捕获本次尝试的流。成功时丢弃该捕获；
+		// 对运行最终报告为失败的那次尝试，会以附加的 EventPartial 形式发布它，
+		// 这样真实的半截答案不会在失败边界处丢失。
 		capture := newPartialCapture(model, turn, defaultPartialByteLimit)
 		onDelta := func(delta string) {
 			capture.Add(delta)
@@ -80,18 +76,16 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 		lastErr = err
 		cancelled := ctx.Err() != nil
 		if cancelled || !isRetryableProviderError(err) || i == len(models)-1 {
-			// This attempt is the one the run reports. Surface whatever the
-			// provider streamed before it failed so a UI can show the real
-			// partial text; a retryable failure that will be retried emits
-			// nothing, because the next attempt owns the final answer.
+			// 这一次就是运行要报告的尝试。把提供方在失败前流式输出的内容呈现出来，
+			// 以便 UI 显示真实的部分文本；将被重试的可重试失败不发出任何内容，
+			// 因为最终答案归下一次尝试所有。
 			s.emitPartial(capture.Snapshot(partialStopReason(cancelled)))
 			break
 		}
 		next := models[i+1]
-		// A provider switch is the retry signal the agent can see on its own:
-		// per-attempt backoff lives inside llm.RetryPolicy and never reaches
-		// this layer. Publish the switch as a structured retry so a frontend can
-		// show progress, and keep the legacy notice untouched for old consumers.
+		// 切换提供方是 agent 自己能看到的重试信号：每次尝试的退避位于 llm.RetryPolicy 内部，
+		// 不会到达这一层。把切换作为结构化重试发布，便于前端显示进度，
+		// 同时为旧消费者保留原有通知不变。
 		s.emit(Event{
 			Kind: EventRetry,
 			Turn: turn,
@@ -114,14 +108,13 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 	return llm.Message{}, fmt.Errorf("agent: all %d model(s) failed (%s): %w", len(tried), strings.Join(tried, ", "), lastErr)
 }
 
-// httpStatusRE finds an HTTP status code in a provider error string such as
-// "provider returned 429: ..." or "HTTP 503: service unavailable". The status
-// is the only reliable typed signal those errors carry, so it is handed to
-// llm.IsRetryableStatus instead of being compared against local constants.
+// httpStatusRE 从提供方错误字符串中查找 HTTP 状态码，例如
+// "provider returned 429: ..." 或 "HTTP 503: service unavailable"。状态码是这类错误
+// 携带的唯一可靠类型化信号，因此交给 llm.IsRetryableStatus 判断，而不是与本地常量比较。
 var httpStatusRE = regexp.MustCompile(`\b([1-5][0-9]{2})\b`)
 
-// statusCodeInError extracts the first HTTP status from a provider error
-// message. It reports false when the text carries no plausible status code.
+// statusCodeInError 从提供方错误消息中提取第一个 HTTP 状态码。
+// 文本中没有看似合理的状态码时返回 false。
 func statusCodeInError(text string) (int, bool) {
 	match := httpStatusRE.FindStringSubmatch(text)
 	if match == nil {
@@ -134,13 +127,10 @@ func statusCodeInError(text string) (int, bool) {
 	return code, true
 }
 
-// isRetryableProviderError decides whether another model can plausibly serve
-// the same turn. llm.ClassifyRetryError owns transport failures and
-// llm.IsRetryableStatus owns HTTP status codes; the decisions here are their
-// union with the legacy prose vocabulary, so a provider that reports a
-// retryable condition without a typed error or a numeric status keeps working.
-// Cancellation and validation failures stay final because repeating the same
-// messages cannot fix them.
+// isRetryableProviderError 判断另一个模型是否可能服务同一轮次。
+// 传输失败由 llm.ClassifyRetryError 负责，HTTP 状态码由 llm.IsRetryableStatus 负责；
+// 这里的判断是它们与旧版文本词汇的并集，因此即使提供方在没有类型化错误或数字状态码时
+// 报告可重试状况，也仍然能正常工作。取消和校验失败保持为最终结果，因为重复相同的消息无法修复它们。
 func isRetryableProviderError(err error) bool {
 	if err == nil {
 		return false
@@ -149,13 +139,13 @@ func isRetryableProviderError(err error) bool {
 		return false
 	}
 	lower := strings.ToLower(err.Error())
-	// Validation errors cannot be fixed by repeating the same messages.
+	// 校验错误无法通过重复相同的消息来修复。
 	if containsAny(lower, "invalid request", "validation", "bad request", "unauthorized", "forbidden", "permission denied") {
 		return false
 	}
 
-	// Keep the legacy prose vocabulary: some providers describe the condition
-	// without a typed error or a parseable status ("quota exceeded", "5xx").
+	// 保留旧版文本词汇：有些提供方在没有类型化错误或可解析状态码时
+	// 也会描述这种状况（"quota exceeded"、"5xx"）。
 	legacyRetryable := containsAny(lower,
 		"429", "too many requests", "rate limit", "quota", "overloaded", "try again",
 		"500", "502", "503", "504", "5xx",
@@ -164,26 +154,22 @@ func isRetryableProviderError(err error) bool {
 		"timeout", "timed out",
 	)
 
-	// A numeric status means the provider answered, so the status is the more
-	// specific signal. llm owns which statuses are retryable; the prose signal
-	// is unioned in so an unusual status paired with "quota" keeps its old
-	// decision.
+	// 数字状态码意味着提供方已作答，因此它是更具体的信号。哪些状态码可重试由 llm 掌管；
+	// 文本信号也被并入并集，这样与 "quota" 搭配的异常状态码仍保留旧有的判断。
 	if code, ok := statusCodeInError(lower); ok {
 		return llm.IsRetryableStatus(code) || legacyRetryable
 	}
 
-	// Without a status, llm classifies the transport failure. Timeouts and
-	// unreachable hosts are the classes worth another model; a bare
-	// ReasonNotSent (an ordinary application error) is deliberately not, since
-	// repeating the same request is unlikely to change its answer.
+	// 没有状态码时，由 llm 对传输失败分类。超时和不可达主机是值得换模型的类别；
+	// 单纯的 ReasonNotSent（普通应用错误）刻意不包括在内，
+	// 因为重复相同请求不太可能改变其结果。
 	switch llm.ClassifyRetryError(err) {
 	case llm.ReasonTimeout, llm.ReasonUnreachable:
 		return true
 	}
 
-	// The legacy matcher switched models on any failed network operation,
-	// including causes the typed classifier cannot name. Keep that case so the
-	// decision stays the union of the old and new signals.
+	// 旧版匹配器在任何网络操作失败时都会切换模型，包括类型化分类器无法命名的原因。
+	// 保留该分支，使判断始终是新旧信号的并集。
 	var opErr *net.OpError
 	if errors.As(err, &opErr) {
 		return true
@@ -191,11 +177,10 @@ func isRetryableProviderError(err error) bool {
 	return legacyRetryable
 }
 
-// retryReason reduces a retryable provider error to one fixed, wire-safe token.
-// It never copies provider text: the error may carry a credential, and even a
-// redacted body does not belong on a progress badge. The tokens are the llm
-// retry classes when a typed signal exists, "status" for a retryable HTTP code,
-// and "not_sent" as a conservative default.
+// retryReason 把可重试的提供方错误归纳为一个固定、可安全上线传输的标记。
+// 它绝不复制提供方文本：错误中可能带有凭据，即使经过脱敏的正文也不该出现在进度徽标上。
+// 有类型化信号时标记取 llm 的重试类别，可重试 HTTP 状态码取 "status"，
+// 保守的默认值为 "not_sent"。
 func retryReason(err error) string {
 	if err == nil {
 		return string(llm.ReasonNone)
@@ -209,7 +194,7 @@ func retryReason(err error) string {
 	return string(llm.ReasonNotSent)
 }
 
-// containsAny reports whether text holds any of the lower-case needles.
+// containsAny 报告 text 是否包含任意一个小写 needle。
 func containsAny(text string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(text, needle) {

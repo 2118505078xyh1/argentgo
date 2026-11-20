@@ -1,39 +1,37 @@
-## What does this PR do?
+## 这个 PR 做了什么？
 
-A concise description of the change and why it is needed.
+简要描述改动以及为什么需要它。
 
-## Related issue
+## 相关 Issue
 
-Fixes #___   (or "No issue — small cleanup")
+Fixes #___   （或 "No issue — small cleanup"）
 
-## Type of change
+## 改动类型
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Documentation
-- [ ] Refactor / test / tooling
+- [ ] Bug 修复
+- [ ] 新功能
+- [ ] 文档
+- [ ] 重构 / 测试 / 工具
 
-## Verification
+## 验证
 
 - [ ] `go build ./...`
-- [ ] `GOOS=linux go build ./...` (cross-build)
+- [ ] `GOOS=linux go build ./...`（交叉编译）
 - [ ] `go vet ./...`
-- [ ] `gofmt -l .` prints nothing
+- [ ] `gofmt -l .` 无输出
 - [ ] `go test ./... -count=1`
-- [ ] `go build -o argent-native.exe ./native` (if the desktop client changed)
+- [ ] `go build -o argent-native.exe ./native`（如果改动了桌面客户端）
 
-Describe any manual verification (e.g. ran `argent --version`, clicked through
-the native window, checked a checkpoint round-trip).
+描述任何手动验证（例如运行了 `argent --version`、在原生窗口里点过一遍、检查了 checkpoint 的往返恢复）。
 
-## Constraints checklist
+## 约束检查清单
 
-- [ ] No new dependency in the core packages (stdlib-only)
-- [ ] No cgo; cross-build passes
-- [ ] No secrets, tokens, personal emails or local paths added
-- [ ] Tests added at the boundary changed
+- [ ] 核心包没有新增依赖（只用标准库）
+- [ ] 不使用 cgo；交叉编译通过
+- [ ] 没有加入密钥、token、个人邮箱或本地路径
+- [ ] 在改动的边界上添加了测试
 
-## Notes for reviewers
+## 给评审者的说明
 
-Anything that needs special attention, known limitations, or follow-up work.
-Maintainers may ask for changes, split the PR, or decline it if it conflicts
-with the single-binary / offline-first design.
+任何需要特别关注的事项、已知限制或后续工作。
+维护者可能要求修改、拆分 PR，或在它违反单二进制 / 离线优先的设计时拒绝它。

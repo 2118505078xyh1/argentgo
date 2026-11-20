@@ -2,28 +2,23 @@ package agent
 
 import "strings"
 
-// ReasoningOp is the rewrite a frontend must apply to its displayed reasoning
-// text. When Replace is set the frontend replaces the whole displayed block
-// with Text; otherwise Text is a fragment appended to the tail. Carrying both
-// forms in one value lets a stream mix incremental deltas with an authoritative
-// end frame that re-sends the complete block.
+// ReasoningOp 是前端必须对其展示的推理文本执行的改写操作。
+// Replace 置位时，前端用 Text 替换整个显示的文本块；否则 Text 是追加到末尾的片段。
+// 在一个值中同时承载两种形式，使流可以把增量片段与重新发送完整文本块的权威结束帧混合起来。
 type ReasoningOp struct {
 	Replace bool
 	Text    string
 }
 
-// MergeReasoningDelta folds one incremental reasoning fragment into the text
-// accumulated so far. It returns the new accumulated text and whether the
-// frontend must replace (rather than append) to avoid rendering the block
-// twice.
+// MergeReasoningDelta 把一个增量推理片段折叠进目前已累积的文本。
+// 它返回新的累积文本，以及前端是否必须替换（而非追加）以避免把文本块渲染两次。
 //
-// Some providers emit cumulative snapshots ("让", "让我", "让我思考") instead
-// of strict increments. A fragment that already starts with everything seen so
-// far is such a snapshot: the longer one wins and the frontend replaces. An
-// exact repeat is a no-op. Strictly new fragments are appended.
+// 有些提供方发送的是累积快照（"让"、"让我"、"让我思考"），而非严格的增量。
+// 一个已经以目前所见全部内容开头的片段就是这样的快照：较长者胜出，前端执行替换。
+// 完全相同的重复是空操作。严格新增的片段会被追加。
 //
-// The operation is byte-oriented (strings.HasPrefix / concatenation), so a
-// multi-byte rune is never split: CJK and emoji text stays intact.
+// 该操作是面向字节的（strings.HasPrefix / 拼接），因此多字节 rune 永远不会被切断：
+// CJK 和 emoji 文本保持完整。
 func MergeReasoningDelta(current, delta string) (next string, replace bool) {
 	if delta == "" {
 		return current, false
@@ -33,18 +28,16 @@ func MergeReasoningDelta(current, delta string) (next string, replace bool) {
 	}
 	if strings.HasPrefix(delta, current) {
 		if len(delta) == len(current) {
-			return current, false // exact duplicate: nothing to do
+			return current, false // 完全重复：无需处理
 		}
-		return delta, true // cumulative snapshot: replace, don't duplicate
+		return delta, true // 累积快照：替换，不要重复
 	}
 	return current + delta, false
 }
 
-// ReasoningEndOverride applies the terminal reasoning frame. A provider that
-// re-sends the complete block at the end must override whatever the incremental
-// frames produced: the end frame is authoritative, never appended. An empty end
-// frame leaves the accumulated text untouched and an identical one is a no-op,
-// so an idempotent provider does not trigger a redundant repaint.
+// ReasoningEndOverride 应用终结推理帧。在结束时重新发送完整文本块的提供方，
+// 必须覆盖增量帧产生的任何内容：结束帧是权威的，绝不会被追加。空的结束帧不改动累积文本，
+// 完全相同的结束帧是空操作，因此幂等的提供方不会触发多余的重绘。
 func ReasoningEndOverride(current, final string) (next string, replace bool) {
 	if final == "" {
 		return current, false
@@ -55,16 +48,15 @@ func ReasoningEndOverride(current, final string) (next string, replace bool) {
 	return final, true
 }
 
-// ReasoningAggregator is a stateful wrapper around the two pure merge helpers.
-// It lets a caller that owns a per-request reasoning stream feed fragments in
-// order and translate each returned ReasoningOp into a frontend event. The type
-// is pure in-memory state: no I/O, no events and no dependencies, so callers
-// keep full control over when and how to emit. A zero value is ready to use.
+// ReasoningAggregator 是对两个纯合并辅助函数的有状态包装。
+// 它让拥有单次请求推理流的调用方按顺序输入片段，并把每个返回的 ReasoningOp 转换为前端事件。
+// 该类型是纯内存状态：无 I/O、无事件、无依赖，因此何时以及如何发出完全由调用方掌控。
+// 零值即可使用。
 type ReasoningAggregator struct {
 	text string
 }
 
-// Add folds one incremental fragment in and returns the op to emit.
+// Add 折叠一个增量片段，并返回要发出的操作。
 func (a *ReasoningAggregator) Add(delta string) ReasoningOp {
 	next, replace := MergeReasoningDelta(a.text, delta)
 	a.text = next
@@ -74,7 +66,7 @@ func (a *ReasoningAggregator) Add(delta string) ReasoningOp {
 	return ReasoningOp{Text: delta}
 }
 
-// Finish applies the authoritative end frame and returns the op to emit.
+// Finish 应用权威的结束帧，并返回要发出的操作。
 func (a *ReasoningAggregator) Finish(final string) ReasoningOp {
 	next, replace := ReasoningEndOverride(a.text, final)
 	a.text = next
@@ -84,7 +76,7 @@ func (a *ReasoningAggregator) Finish(final string) ReasoningOp {
 	return ReasoningOp{}
 }
 
-// Text returns everything accumulated so far (the full displayed block).
+// Text 返回目前为止累积的全部内容（完整的显示文本块）。
 func (a *ReasoningAggregator) Text() string {
 	return a.text
 }

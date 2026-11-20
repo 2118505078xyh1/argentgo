@@ -27,7 +27,7 @@ func TestDiagnosticsReportsAllProblemsAtOnce(t *testing.T) {
 			t.Errorf("diagnostic %d kind = %q, want invalid", i, diagnostic.Kind)
 		}
 	}
-	// Validate keeps its first-error contract for existing callers.
+	// Validate 为现有调用方保持"首个错误"约定。
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "sandboxMode") {
 		t.Errorf("Validate error = %v, want a sandboxMode complaint", err)
 	}
@@ -63,15 +63,15 @@ func TestDiagnosticsConflictAndUnsupported(t *testing.T) {
 	if unsupported == nil || unsupported.Path != "$.logLevel" {
 		t.Fatalf("unsupported diagnostic = %+v, want $.logLevel", unsupported)
 	}
-	// A conflict is informational: the config remains usable.
+	// 冲突仅供参考：配置仍然可用。
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate rejected conflicting aliases: %v", err)
 	}
 }
 
-// Diagnostics must name the alias decode actually used. decode() skips an
-// ill-typed canonical key and falls through to the next alias, so reporting
-// present[0] as the winner would point at a value that never reached Config.
+// Diagnostics 必须指出 decode 实际使用的别名。decode() 会跳过
+// 类型错误的规范键并回退到下一个别名，因此把
+// present[0] 报告为胜出者会指向一个从未进入 Config 的值。
 func TestDiagnosticsConflictNamesValueActuallyUsed(t *testing.T) {
 	cases := []struct {
 		name           string

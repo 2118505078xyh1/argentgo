@@ -8,40 +8,35 @@ import (
 	"strings"
 )
 
-// defaultRepeatWindow is how many recent tool calls the repeat guard keeps in
-// its sliding window. Only repeats inside this window count toward the block
-// threshold, so a burst of duplicates long ago no longer blocks a legitimate
-// retry much later in the same run.
+// defaultRepeatWindow 是重复防护在其滑动窗口中保留的最近工具调用数量。
+// 只有该窗口内的重复才计入阻断阈值，因此很久以前的一串重复调用
+// 不会在同一运行中阻塞很久之后的合法重试。
 const defaultRepeatWindow = 10
 
-// dedupe is the repeat guard. Two independent signals feed the same decision:
+// dedupe 是重复防护器。两个独立信号共同决定同一结果：
 //
-//   - the argument window counts (tool, normalized args) pairs in the most
-//     recent calls; more than max repeats of one signature in that window is a
-//     blocked "stuck on the same call" loop;
-//   - the output window groups recent results of one tool by output hash. When
-//     more than max distinct argument sets produced the same output, the model
-//     is making only pseudo-progress (e.g. re-reading different files that all
-//     return the same body) and the next call is blocked too.
+//   - 参数窗口统计最近调用中的（工具, 规范化参数）对；某个签名在该窗口中重复超过
+//     max 次，就会被判定为"卡在同一个调用"的循环并阻断；
+//   - 输出窗口按输出哈希对某个工具最近的结果分组。当超过 max 组不同参数产生了相同输出时，
+//     说明模型只是在制造伪进展（例如反复读取不同文件却都返回相同内容），下一次调用也会被阻断。
 //
-// A call that is answered with an error result never touches the workspace
-// again, which keeps a stuck model from burning the whole turn budget.
+// 以错误结果回应的调用绝不会再次访问工作区，从而避免卡住的模型耗尽整个轮次预算。
 type dedupe struct {
 	max    int
 	window int
 
-	// args-based ring buffer, holding normalizedKey values.
+	// 基于参数的环形缓冲区，保存 normalizedKey 值。
 	ring   []string
 	head   int
 	filled int
 	counts map[string]int
 
-	// output-based ring buffer, one per tool name.
+	// 基于输出的环形缓冲区，每个工具名一个。
 	outputs map[string]*outputWindow
 }
 
-// outputWindow holds the most recent (normalized args, output hash) pairs for
-// one tool. The hash stands in for the output so a large result is not retained.
+// outputWindow 保存某个工具最近的（规范化参数, 输出哈希）对。
+// 用哈希代替输出本身，这样不会保留庞大的结果。
 type outputWindow struct {
 	entries []outputEntry
 	head    int
@@ -57,9 +52,8 @@ func newDedupe(maxRepeats int) *dedupe {
 	return newDedupeWindow(maxRepeats, defaultRepeatWindow)
 }
 
-// newDedupeWindow is the windowed constructor. newDedupe is the thin wrapper
-// used by the rest of the package; this form exists so tests can pick a small
-// window and exercise eviction without a long scripted run.
+// newDedupeWindow 是可指定窗口的构造函数。newDedupe 是包内其余代码使用的轻量包装；
+// 提供这个形式是为了让测试能选用较小的窗口，无需冗长的脚本运行即可验证淘汰逻辑。
 func newDedupeWindow(maxRepeats, window int) *dedupe {
 	if maxRepeats <= 0 {
 		maxRepeats = defaultMaxRepeats
@@ -76,9 +70,8 @@ func newDedupeWindow(maxRepeats, window int) *dedupe {
 	}
 }
 
-// NormalizeArgs canonicalizes a raw JSON argument object so two spellings of
-// the same call compare equal: object keys are sorted recursively and
-// whitespace is dropped. Non-JSON arguments are whitespace-collapsed.
+// NormalizeArgs 规范化原始 JSON 参数对象，使同一调用的两种写法可比较相等：
+// 递归排序对象的键并去除空白。非 JSON 参数则折叠空白。
 func NormalizeArgs(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -95,16 +88,14 @@ func NormalizeArgs(raw string) string {
 	return string(normalized)
 }
 
-// normalizedKey builds the map key shared by both the cached-key and the raw
-// argument paths of the guard. Keeping it in one place guarantees the two agree
-// byte-for-byte.
+// normalizedKey 构建防护器中缓存键路径和原始参数路径共用的映射键。
+// 把它集中在一处可保证两者逐字节一致。
 func normalizedKey(name, normalized string) string {
 	return name + "\x00" + normalized
 }
 
-// recordNormalized appends (name, normalized) to the argument window, evicting
-// the oldest entry when the window is full, and returns the resulting number of
-// identical signatures currently in the window.
+// recordNormalized 把 (name, normalized) 追加到参数窗口，窗口满时淘汰最旧的条目，
+// 并返回当前窗口中相同签名的数量。
 func (d *dedupe) recordNormalized(name, normalized string) int {
 	key := normalizedKey(name, normalized)
 	if d.filled == d.window {
@@ -122,10 +113,8 @@ func (d *dedupe) recordNormalized(name, normalized string) int {
 	return d.counts[key]
 }
 
-// outputWouldBlock reports whether recent calls to name have returned the same
-// output for more than max distinct argument sets. That pattern means the model
-// is varying the request but the tool keeps answering the same thing, i.e. a
-// pseudo-progress loop that the argument-only signature cannot see.
+// outputWouldBlock 报告对 name 的最近调用是否在超过 max 组不同参数下返回了相同输出。
+// 这种模式意味着模型在改变请求，但工具始终回答同样的内容，即仅靠参数签名无法发现的伪进展循环。
 func (d *dedupe) outputWouldBlock(name string) bool {
 	ow := d.outputs[name]
 	if ow == nil || ow.filled == 0 {
@@ -153,9 +142,8 @@ func (d *dedupe) outputWouldBlock(name string) bool {
 	return false
 }
 
-// recordOutput attaches the result of an executed call to the output window.
-// It is a no-op for a nil/disabled guard and for output the caller cannot
-// supply; it never blocks anything on its own.
+// recordOutput 把已执行调用的结果附加到输出窗口。
+// 对 nil/已禁用的防护器以及调用方无法提供输出的情况，它是空操作；它本身从不阻断任何东西。
 func (d *dedupe) recordOutput(name, normalized, output string) {
 	if d == nil || d.max <= 0 {
 		return
@@ -174,18 +162,16 @@ func (d *dedupe) recordOutput(name, normalized, output string) {
 	}
 }
 
-// blockedMessage is the single wording for every repeat block. Keeping both
-// signals on the same message preserves the transcript contract: callers match
-// on "duplicate call blocked" regardless of which signal fired.
+// blockedMessage 是所有重复阻断共用的唯一措辞。两个信号使用同一条消息，
+// 保持了记录契约：无论哪个信号触发，调用方都按 "duplicate call blocked" 匹配。
 func (d *dedupe) blockedMessage(name string) string {
 	return fmt.Sprintf(
 		"[duplicate call blocked] %s was already called %d times with the same arguments in this run; use the earlier result instead of calling it again",
 		name, d.max)
 }
 
-// wouldBlockNormalized is wouldBlock for arguments the caller already
-// normalized. It projects the argument window one call ahead (accounting for
-// an eviction when the window is full) without recording anything.
+// wouldBlockNormalized 适用于调用方已规范化参数的情形，相当于 wouldBlock。
+// 它把参数窗口向前推演一次调用（考虑窗口满时的淘汰），但不记录任何内容。
 func (d *dedupe) wouldBlockNormalized(name, normalized string) bool {
 	if d == nil || d.max <= 0 {
 		return false
@@ -193,15 +179,14 @@ func (d *dedupe) wouldBlockNormalized(name, normalized string) bool {
 	key := normalizedKey(name, normalized)
 	projected := d.counts[key] + 1
 	if d.filled == d.window && d.ring[d.head] == key {
-		// Adding this call evicts an identical oldest entry and adds one back.
+		// 加入本次调用会淘汰一个相同的最旧条目，再补回一个。
 		projected--
 	}
 	return projected > d.max
 }
 
-// checkNormalized is check for arguments the caller already normalized. It
-// records the call in the argument window and reports whether it must be
-// answered with an error result instead of executed.
+// checkNormalized 适用于调用方已规范化参数的情形，相当于 check。
+// 它把调用记录到参数窗口，并报告是否必须以错误结果回应而非执行。
 func (d *dedupe) checkNormalized(name, normalized string) (blocked bool, message string) {
 	if d == nil || d.max <= 0 {
 		return false, ""
@@ -213,8 +198,7 @@ func (d *dedupe) checkNormalized(name, normalized string) (blocked bool, message
 	return false, ""
 }
 
-// wouldBlock reports whether the next identical call would be blocked, without
-// recording it. Used to decide whether a batch may run in parallel.
+// wouldBlock 报告下一次相同调用是否会被阻断，但不做记录。用于决定某批次能否并行运行。
 func (d *dedupe) wouldBlock(name, args string) bool {
 	if d == nil || d.max <= 0 {
 		return false
@@ -222,8 +206,7 @@ func (d *dedupe) wouldBlock(name, args string) bool {
 	return d.wouldBlockNormalized(name, NormalizeArgs(args))
 }
 
-// check records one request and reports whether it must be answered with an
-// error result instead of executed.
+// check 记录一次请求，并报告是否必须以错误结果回应而非执行。
 func (d *dedupe) check(name, args string) (blocked bool, message string) {
 	if d == nil || d.max <= 0 {
 		return false, ""

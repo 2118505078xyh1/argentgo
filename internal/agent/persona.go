@@ -10,40 +10,37 @@ import (
 	"strings"
 )
 
-// OrchestratorPrompt is the portable, dependency-free delegation strategy.
-// The caller decides where to place it in the conversation; this package only
-// owns the text.
+// OrchestratorPrompt 是可移植、无依赖的委派策略。
+// 由调用方决定把它放在对话中的什么位置；本包只负责文本内容。
 //
 //go:embed prompts/orchestrator.txt
 var orchestratorText string
 
-// OrchestratorPrompt returns the wave-based orchestration instructions as a
-// trimmed string, so embedded trailing newlines never leak into a system prompt.
+// OrchestratorPrompt 返回经过修剪的、基于波次的编排指令字符串，
+// 使内嵌的尾部换行不会泄漏进系统提示。
 func OrchestratorPrompt() string {
 	return strings.TrimSpace(orchestratorText)
 }
 
-// Limits keep a workspace from loading an unbounded set of persona files into
-// the agent loop by accident.
+// 这些限制用于避免工作区意外地把无数量上限的角色文件加载进 agent 循环。
 const (
 	maxPersonaFiles = 256
 	maxPersonaBytes = 64 * 1024
 )
 
-// Persona is one named subagent definition loaded from a markdown file.
+// Persona 是从 markdown 文件加载的一个具名子 agent 定义。
 type Persona struct {
-	// Name identifies the persona when a task requests a role.
+	// 当任务请求某个角色时，Name 用于标识该角色。
 	Name string
-	// System is the markdown body, used as the child's system prompt.
+	// System 是 markdown 主体，用作子 agent 的系统提示。
 	System string
-	// AllowedTools is the optional tool allow-list for the child.
+	// AllowedTools 是子 agent 的可选工具白名单。
 	AllowedTools []string
 }
 
-// SubagentConfig adapts a persona to the built-in `task` tool's child config.
-// Name has no SubagentConfig field: it is the lookup key, not child state. The
-// adapter is deliberately thin - budgets, depth limits and event bridging stay
-// with the delegation caller.
+// SubagentConfig 把一个角色适配为内置 `task` 工具的子配置。
+// Name 没有对应的 SubagentConfig 字段：它是查找键，而非子级状态。
+// 该适配器刻意很薄——预算、深度限制和事件桥接仍由委派调用方负责。
 func (p Persona) SubagentConfig() SubagentConfig {
 	return SubagentConfig{
 		System:       p.System,
@@ -51,19 +48,17 @@ func (p Persona) SubagentConfig() SubagentConfig {
 	}
 }
 
-// LoadPersonas reads subagent definitions from the *.md files directly inside
-// dir (for example `.argent/agents`). Subdirectories are ignored.
+// LoadPersonas 从 dir（例如 `.argent/agents`）直接包含的 *.md 文件中读取子 agent 定义。
+// 子目录会被忽略。
 //
-// A file counts as a persona only when its frontmatter marks it as a subagent
-// (`subagent: true`, or the Kilo-style `mode: subagent`). Other markdown files
-// are skipped. The `name` key is optional: when absent it is derived from the
-// filename, and `tools` accepts either a comma-separated list or a JSON array.
+// 只有当文件的 frontmatter 将其标记为子 agent 时才算作角色
+// （`subagent: true`，或 Kilo 风格的 `mode: subagent`）。其他 markdown 文件会被跳过。
+// `name` 键是可选的：缺省时从文件名派生；`tools` 接受逗号分隔列表或 JSON 数组。
 //
-// Loading is best-effort: a malformed file is skipped rather than aborting the
-// scan. The first error is returned alongside whatever personas were collected,
-// so callers can either surface it or ignore it for a lenient startup. Files
-// without a complete frontmatter fence are treated as "not a persona" rather
-// than reported as errors.
+// 加载是尽力而为的：格式错误的文件会被跳过，而不是中止扫描。
+// 第一个错误会与已收集到的角色一起返回，因此调用方既可以选择呈现它，
+// 也可以为了宽松启动而忽略它。缺少完整 frontmatter 围栏的文件会被视为"不是角色"，
+// 而不是报告为错误。
 func LoadPersonas(dir string) (map[string]Persona, error) {
 	out := make(map[string]Persona)
 	if strings.TrimSpace(dir) == "" {
@@ -125,8 +120,8 @@ func LoadPersonas(dir string) (map[string]Persona, error) {
 	return out, firstErr
 }
 
-// parsePersona parses one markdown file. ok is false for files that are simply
-// not subagent definitions; err is non-nil for malformed frontmatter.
+// parsePersona 解析一个 markdown 文件。对于根本不是子 agent 定义的文件，ok 为 false；
+// frontmatter 格式错误时 err 非 nil。
 func parsePersona(text, filename string) (Persona, bool, error) {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	front, body, ok := splitPersonaFrontmatter(text)
@@ -166,8 +161,8 @@ func parsePersona(text, filename string) (Persona, bool, error) {
 	return Persona{Name: name, System: strings.TrimSpace(body), AllowedTools: tools}, true, nil
 }
 
-// splitPersonaFrontmatter separates a leading `---` fence from the markdown
-// body. A missing or unterminated fence means the file is not a persona.
+// splitPersonaFrontmatter 把开头的 `---` 围栏与 markdown 主体分离。
+// 围栏缺失或未闭合意味着该文件不是角色定义。
 func splitPersonaFrontmatter(text string) (front, body string, ok bool) {
 	if !strings.HasPrefix(text, "---\n") {
 		return "", "", false
@@ -181,9 +176,8 @@ func splitPersonaFrontmatter(text string) (front, body string, ok bool) {
 	return "", "", false
 }
 
-// parsePersonaFields is a small, local frontmatter reader. Importing
-// internal/commands would couple independent directories, so this mirrors
-// only the scalar half of that parser.
+// parsePersonaFields 是一个小型的本地 frontmatter 读取器。
+// 导入 internal/commands 会耦合独立的目录，因此这里只镜像该解析器的标量部分。
 func parsePersonaFields(front string) (map[string]string, error) {
 	fields := make(map[string]string)
 	for i, line := range strings.Split(front, "\n") {
@@ -226,7 +220,7 @@ func unquotePersona(value string) string {
 	return value
 }
 
-// parsePersonaTools accepts `read, write` and `["read", "write"]` alike.
+// parsePersonaTools 同时接受 `read, write` 和 `["read", "write"]` 两种写法。
 func parsePersonaTools(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

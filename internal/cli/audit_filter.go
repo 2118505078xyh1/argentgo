@@ -8,27 +8,27 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// AuditFilter holds the optional predicates used by FilterAuditEntries.
-// An empty field is ignored, so a zero-value filter keeps every entry.
+// AuditFilter 保存 FilterAuditEntries 使用的可选谓词。
+// 字段为空时会被忽略，因此零值过滤器会保留所有条目。
 type AuditFilter struct {
-	// Decision matches security.AuditEntry.Decision case-insensitively
-	// (allow, ask, deny, refused, unavailable, error).
+	// Decision 不区分大小写地匹配 security.AuditEntry.Decision
+	// （allow、ask、deny、refused、unavailable、error）。
 	Decision string
-	// Session matches security.AuditEntry.Session exactly.
+	// Session 精确匹配 security.AuditEntry.Session。
 	Session string
-	// Tool matches security.AuditEntry.Tool exactly.
+	// Tool 精确匹配 security.AuditEntry.Tool。
 	Tool string
-	// Since is an inclusive lower bound on the entry timestamp.
+	// Since 是条目时间戳的包含性下界。
 	Since string
-	// Until is an inclusive upper bound on the entry timestamp.
+	// Until 是条目时间戳的包含性上界。
 	Until string
-	// Text is a case-insensitive substring matched against every text field
-	// of an entry (timestamp, tool, decision, reason, args, session, privacy).
+	// Text 是对条目的每个文本字段进行匹配的不区分大小写的子串
+	// （timestamp、tool、decision、reason、args、session、privacy）。
 	Text string
 }
 
-// cjkTimeReplacer maps Chinese date/time punctuation onto ASCII separators so
-// values such as "2026年01月02日 15时04分05秒" parse like "2026-01-02 15:04:05".
+// cjkTimeReplacer 把中文日期/时间标点映射为 ASCII 分隔符，
+// 使诸如 "2026年01月02日 15时04分05秒" 的值能像 "2026-01-02 15:04:05" 一样解析。
 var cjkTimeReplacer = strings.NewReplacer(
 	"年", "-",
 	"月", "-",
@@ -38,8 +38,8 @@ var cjkTimeReplacer = strings.NewReplacer(
 	"秒", "",
 )
 
-// auditTimeLayouts are tried in order by parseAuditTime. Layouts without a
-// zone are interpreted in UTC, matching the UTC timestamps written by audit.
+// auditTimeLayouts 由 parseAuditTime 按顺序尝试。不带时区的布局
+// 会按 UTC 解释，与 audit 写入的 UTC 时间戳一致。
 var auditTimeLayouts = []string{
 	time.RFC3339Nano,
 	time.RFC3339,
@@ -50,9 +50,9 @@ var auditTimeLayouts = []string{
 	"2006-1-2",
 }
 
-// parseAuditTime parses an audit timestamp. It accepts RFC 3339, plain date
-// and date-time forms, and their CJK equivalents (年月日 / 时分秒). The
-// boolean reports whether the value could be parsed at all.
+// parseAuditTime 解析审计时间戳。它接受 RFC 3339、纯日期
+// 和日期时间形式，以及它们的中文等价形式（年月日 / 时分秒）。
+// 布尔值报告该值是否根本可被解析。
 func parseAuditTime(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -74,8 +74,8 @@ func parseAuditTime(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// matchesAuditText reports whether any text field of entry contains needle.
-// needle is expected to be lower-cased by the caller.
+// matchesAuditText 报告 entry 的任何文本字段是否包含 needle。
+// needle 应由调用方预先转为小写。
 func matchesAuditText(entry security.AuditEntry, needle string) bool {
 	for _, field := range []string{
 		entry.TS, entry.Tool, entry.Decision, entry.Reason,
@@ -88,10 +88,10 @@ func matchesAuditText(entry security.AuditEntry, needle string) bool {
 	return false
 }
 
-// FilterAuditEntries returns the entries satisfying every set field of filter,
-// sorted by timestamp ascending (oldest first). The input slice is never
-// modified. Entries with an unparseable timestamp sort after dated ones while
-// keeping their original relative order.
+// FilterAuditEntries 返回满足 filter 中每个已设置字段的条目，
+// 按时间戳升序排列（最早的在前）。输入切片永远不会被
+// 修改。时间戳无法解析的条目排在有时戳的条目之后，同时
+// 保持它们原有的相对顺序。
 func FilterAuditEntries(entries []security.AuditEntry, filter AuditFilter) []security.AuditEntry {
 	since, hasSince := parseAuditTime(filter.Since)
 	until, hasUntil := parseAuditTime(filter.Until)

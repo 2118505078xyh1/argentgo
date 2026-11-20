@@ -10,8 +10,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
-// runModels implements `models [--json]`: the provider template table, without
-// touching the network.
+// runModels 实现 `models [--json]`：列出提供方模板表，不访问网络。
 func runModels(app App, _ context.Context, args []string) int {
 	asJSON := false
 	for _, arg := range args {

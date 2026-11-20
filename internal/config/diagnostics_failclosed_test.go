@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// failClosedValidConfig is a hand-built Config that satisfies every invariant
-// the fail-closed summary checks. It deliberately leaves all other fields at
-// their zero values: Diagnostics only inspects the settings under test here.
+// failClosedValidConfig 是手工构造的 Config，满足 fail-closed 摘要
+// 检查的每一项不变量。它有意把所有其他字段
+// 保持为零值：这里 Diagnostics 只检查被测的设置。
 func failClosedValidConfig() Config {
 	return Config{
 		Model:                      "test-model",
@@ -36,8 +36,8 @@ func TestFailClosedDiagnosticsTable(t *testing.T) {
 			wantPaths: []string{"$.privacyMode"},
 		},
 		{
-			// A hand-built Config has an empty PrivacyMode (Load always
-			// canonicalizes it to "any"). The summary must still fail closed.
+			// 手工构造的 Config 的 PrivacyMode 为空（Load 总是
+			// 把它规范化为 "any"）。摘要仍必须 fail closed。
 			name:      "empty privacy mode",
 			mutate:    func(c *Config) { c.PrivacyMode = "" },
 			wantPaths: []string{"$.privacyMode"},
@@ -113,8 +113,8 @@ func TestFailClosedDiagnosticsTable(t *testing.T) {
 	}
 }
 
-// The summary must not stop at the first fail-closed problem: all issues are
-// reported together, in a stable order, so doctor can print them in one pass.
+// 摘要不得在第一个 fail-closed 问题处停止：所有问题按
+// 稳定顺序一起报告，以便 doctor 一次性打印。
 func TestFailClosedDiagnosticsCollectsAllIssues(t *testing.T) {
 	cfg := failClosedValidConfig()
 	cfg.PrivacyMode = "bogus"
@@ -137,7 +137,7 @@ func TestFailClosedDiagnosticsCollectsAllIssues(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("diagnostic paths = %v, want %v", got, want)
 	}
-	// The legacy checks still run first and still own Validate's first error.
+	// 旧检查仍然先运行，并且仍拥有 Validate 的首个错误。
 	cfg.SandboxMode = "loose"
 	if first := cfg.Diagnostics()[0]; first.Path != "$.sandboxMode" {
 		t.Errorf("first diagnostic = %+v, want $.sandboxMode", first)
@@ -147,9 +147,9 @@ func TestFailClosedDiagnosticsCollectsAllIssues(t *testing.T) {
 	}
 }
 
-// The fail-closed summary is enforced at load time, not just when a caller
-// explicitly asks for diagnostics. This is the "effective" part: an unsafe
-// config cannot reach the agent loop through the normal startup path.
+// fail-closed 摘要在加载时强制执行，而不仅在调用方
+// 显式请求诊断时执行。这就是"有效"之处：不安全的
+// 配置无法经由正常启动路径到达 agent 循环。
 func TestLoadFailsClosedOnSummaryIssues(t *testing.T) {
 	cases := []struct {
 		name string
@@ -175,8 +175,8 @@ func TestLoadFailsClosedOnSummaryIssues(t *testing.T) {
 		})
 	}
 
-	// A config that only uses the legacy value-level failures still loads;
-	// those remain an explicit Validate() contract, not a load-time one.
+	// 只使用旧值级失败的配置仍能加载；
+	// 那些仍属于显式的 Validate() 约定，而非加载时约定。
 	cfg, err := LoadWithOverrides(t.TempDir(),
 		envFunc(map[string]string{"HOME": t.TempDir()}),
 		map[string]any{"sandboxMode": "loose"})

@@ -14,13 +14,13 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 )
 
-// jobsDir is where the registry and its logs live for this storage directory.
+// jobsDir 是该存储目录下 registry 及其日志所在的位置。
 func (a App) jobsDir() string {
 	return filepath.Join(a.storageDir(), "jobs")
 }
 
-// openJobs refuses to invent a registry: a missing jobs directory means no job
-// has ever been started here, which the caller reports as a one-line error.
+// openJobs 拒绝凭空创建 registry：jobs 目录缺失意味着这里从未启动过任何作业，
+// 调用方会将其报告为一行错误。
 func (a App) openJobs() (*jobs.Registry, string, error) {
 	dir := a.jobsDir()
 	info, err := os.Stat(dir)
@@ -120,7 +120,7 @@ func runLogs(app App, _ context.Context, args []string) int {
 	return reportLongOut(app, content.String())
 }
 
-// runJobs is the optional `jobs` alias for `logs`.
+// runJobs 是 `logs` 的可选别名 `jobs`。
 func runJobs(app App, ctx context.Context, args []string) int {
 	return runLogs(app, ctx, args)
 }
@@ -195,7 +195,7 @@ func runFollow(app App, ctx context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	// Print the requested history first, then stream only appended bytes.
+	// 先打印所请求的历史内容，然后只流式输出新追加的字节。
 	if text, tailErr := registry.Tail(id, lines); tailErr == nil && text != "" {
 		fmt.Fprintln(app.IO.Out, text)
 	}
@@ -250,8 +250,8 @@ func followLog(ctx context.Context, out, errOut io.Writer, path string) int {
 	}
 }
 
-// parseTailArgs accepts `<id>`, `[-n|--lines] N` and `--lines=N`. The line
-// count is optional for commands that do not tail a log.
+// parseTailArgs 接受 `<id>`、`[-n|--lines] N` 和 `--lines=N`。对于不跟踪
+// 日志的命令，行数是可选的。
 func parseTailArgs(args []string) (id string, lines int, err error) {
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -284,8 +284,8 @@ func parseTailArgs(args []string) (id string, lines int, err error) {
 	return id, lines, nil
 }
 
-// errHelp is returned by parseTailArgs for -h so callers can route usage to
-// stdout without treating it as an error.
+// parseTailArgs 遇到 -h 时返回 errHelp，使调用方可以把 usage 输出到
+// stdout，而不把它当作错误。
 var errHelp = fmt.Errorf("help requested")
 
 func jobsUsage(w io.Writer) {

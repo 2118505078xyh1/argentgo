@@ -7,22 +7,20 @@ import (
 	"os"
 )
 
-// writeFileNoFollow writes data to path without following a symbolic link at
-// the target path. It is a drop-in, stdlib-only replacement for os.WriteFile
-// used by the CLI's export paths (sessions export -o, bug --out).
+// writeFileNoFollow 把 data 写入 path，且不跟随目标路径处的符号链接。它是
+// 一个仅依赖标准库、可直接替换 os.WriteFile 的实现，供 CLI 的导出路径
+// （sessions export -o、bug --out）使用。
 //
-// Protection is layered:
-//   - an existing symlink at path is rejected before the open;
-//   - on Unix the open itself uses O_NOFOLLOW, so a link swapped in between
-//     the check and the create is rejected atomically by the kernel;
-//   - after closing, path is checked again so a swap is detected rather than
-//     silently accepted.
+// 保护是分层进行的：
+//   - 打开之前先拒绝 path 处已存在的符号链接；
+//   - 在 Unix 上，打开本身使用 O_NOFOLLOW，因此在检查与创建之间被替换的
+//     链接会被内核原子地拒绝；
+//   - 关闭后再次检查 path，从而检测到替换，而不是悄悄接受。
 //
-// On platforms without a portable O_NOFOLLOW (Windows and others) the Lstat
-// guards are the only protection; they still block the reported attack where
-// the user points an export at a pre-existing symlink such as ~/.bashrc.
-// Windows junctions and other reparse points surface as os.ModeIrregular and
-// are rejected as well.
+// 在没有可移植 O_NOFOLLOW 的平台上（Windows 等），Lstat 守卫是唯一的保护；
+// 它们仍能阻止所报告的攻击：用户把导出指向一个已存在的符号链接（如
+// ~/.bashrc）。Windows 的 junction 和其他重解析点表现为 os.ModeIrregular，
+// 同样会被拒绝。
 func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	if fi, err := os.Lstat(path); err == nil {
 		if isNoFollowViolation(fi.Mode()) {
@@ -58,9 +56,9 @@ func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// isNoFollowViolation reports whether a path's mode marks it as a link that
-// must never be written through. ModeIrregular covers Windows junctions and
-// other reparse points; Unix Lstat never sets it for ordinary files.
+// isNoFollowViolation 报告某个路径的 mode 是否把它标记为绝不能写入穿过的
+// 链接。ModeIrregular 涵盖 Windows junction 和其他重解析点；Unix 的 Lstat
+// 对普通文件从不设置它。
 func isNoFollowViolation(mode os.FileMode) bool {
 	return mode&(os.ModeSymlink|os.ModeIrregular) != 0
 }

@@ -11,17 +11,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// Import format values accepted by `sessions import --format`.
+// `sessions import --format` 接受的导入格式值。
 const (
 	importFormatAuto   = "auto"
 	importFormatClaude = "claude"
 	importFormatCodex  = "codex"
 )
 
-// sessionsImport converts a foreign JSONL transcript into a native session and
-// prints the new session id. The import functions themselves live in
-// internal/session and are pure readers; persistence is done here through the
-// session store, the same way `sessions undo|retry|name` open a session by dir.
+// sessionsImport 把外部 JSONL 转录转换为原生会话，并打印新的会话 id。
+// 导入函数本身位于 internal/session，是纯读取器；持久化在这里通过会话
+// store 完成，与 `sessions undo|retry|name` 按目录打开会话的方式一致。
 func sessionsImport(app App, path string, args []string) int {
 	format := importFormatAuto
 	for i := 0; i < len(args); i++ {
@@ -90,11 +89,10 @@ func sessionsImport(app App, path string, args []string) int {
 	return 0
 }
 
-// sniffImportFormat detects the foreign format from the leading lines. Claude
-// Code emits type=user/assistant events; Codex opens with a session_meta line.
-// A bounded window is scanned so a leading summary/progress line cannot hide
-// the real format. Malformed and blank lines are skipped, matching the lenient
-// reader in internal/session.
+// sniffImportFormat 从开头的几行检测外部格式。Claude Code 发出
+// type=user/assistant 事件；Codex 以一行 session_meta 开头。扫描窗口有界，
+// 使开头的 summary/progress 行无法隐藏真正的格式。格式错误和空行会被跳过，
+// 与 internal/session 中宽松的读取器保持一致。
 func sniffImportFormat(data []byte) (string, error) {
 	const scanLimit = 64
 	scanned := 0
@@ -124,14 +122,13 @@ func sniffImportFormat(data []byte) (string, error) {
 	return "", errors.New("unrecognized transcript format (want Claude Code user/assistant events or a Codex session_meta line)")
 }
 
-// persistImportedSession writes the projected entries as a fresh native
-// session. CLI's injected SessionStore is read-only, so the write goes through
-// internal/session directly; the returned id is the store's own session id.
+// persistImportedSession 把投影后的条目作为一个全新的原生会话写入。CLI
+// 注入的 SessionStore 是只读的，因此写入直接走 internal/session；返回的
+// id 是 store 自己的会话 id。
 //
-// Imported Entry ids/parents/timestamps are provenance from the foreign file;
-// the store mints its own n%06d record ids, parent chain and timestamps on
-// AppendRecord. Role, content, tool calls and usage survive in the record data,
-// which is what the conversation view reads back.
+// 导入条目的 id/parent/时间戳是来自外部文件的溯源信息；store 在
+// AppendRecord 时会生成自己的 n%06d 记录 id、父子链和时间戳。角色、内容、
+// 工具调用和 usage 会保留在记录数据中，对话视图读取的正是这些内容。
 func persistImportedSession(app App, entries []session.Entry) (string, error) {
 	store, err := session.Open(app.sessionDir())
 	if err != nil {
@@ -154,8 +151,8 @@ func persistImportedSession(app App, entries []session.Entry) (string, error) {
 	return sess.ID(), nil
 }
 
-// importEntryKind maps a projected role onto a native record kind. Unknown
-// roles are dropped rather than written as unusable records.
+// importEntryKind 把投影后的角色映射为原生记录 kind。未知角色会被丢弃，
+// 而不是写成不可用的记录。
 func importEntryKind(role string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "user":
@@ -171,11 +168,10 @@ func importEntryKind(role string) (string, bool) {
 	}
 }
 
-// importEntryPayload returns the data to store for one imported entry. Import
-// helpers already build a role/content/tool_calls/usage object, so it is passed
-// through verbatim. Only entries without data (the synthetic aborted tool
-// results ReconcileToolPairs inserts) need a payload rebuilt from the projected
-// fields, otherwise their content and tool-call id would be lost on read-back.
+// importEntryPayload 返回单个导入条目要存储的数据。导入辅助函数已经构建了
+// role/content/tool_calls/usage 对象，因此它会被原样传递。只有没有数据的
+// 条目（ReconcileToolPairs 插入的合成中止工具结果）需要基于投影字段重建
+// 负载，否则它们的内容和工具调用 id 会在回读时丢失。
 func importEntryPayload(entry session.Entry) json.RawMessage {
 	if len(entry.Data) > 0 && json.Valid(entry.Data) {
 		var object map[string]json.RawMessage

@@ -1,10 +1,6 @@
 # Technical reference
 
-Architecture, diagrams, frontend decision, LSP integration, API surface and
-feature parity for `argentgo`. Installation and distribution live in the
-[User guide](USER_GUIDE.md); maintainer and release-gate notes live in
-[CONTRIBUTING.md](../CONTRIBUTING.md). Project direction and scoring live in
-[STATUS.md](STATUS.md).
+`argentgo` 的架构、图示、前端决策、LSP 集成、API 表面和功能对齐。安装与分发见 [User guide](USER_GUIDE.md)；维护者与发布门禁笔记见 [CONTRIBUTING.md](../CONTRIBUTING.md)。项目方向与评分见 [STATUS.md](STATUS.md)。
 
 ## Architecture
 
@@ -95,24 +91,18 @@ CLI / --serve / --rpc / acp ─┐
 - 本地安装/卸载用 `scripts/install-win.ps1` / `scripts/uninstall-win.ps1`
   （默认 `%LOCALAPPDATA%\argentgo\bin`），不会动 `~/.argentgo` 里的会话和配置。
 
-### See also
+### 另见
 
-- [Diagrams](#diagrams) — Mermaid views of the layers, request flow, session tree,
-  LSP activation and distribution pipeline.
-- [API reference](#api-reference) — CLI subcommands and flags, RPC/HTTP-SSE
-  transports, built-in tools, MCP configuration and config layering.
+- [Diagrams](#diagrams) —— 分层、请求流、会话树、LSP 激活和分发流水线的 Mermaid 视图。
+- [API reference](#api-reference) —— CLI 子命令与标志、RPC/HTTP-SSE 传输、内置工具、MCP 配置和配置分层。
 
 ## Diagrams
 
-Companion to the [Architecture](#architecture) section above. The diagrams below
-are Mermaid (fences are plain text) and mirror what the code and the
-`internal/archguard` test actually enforce. They are a map, not a second
-specification: when a diagram and the source disagree, the source wins.
+上文 [Architecture](#architecture) 一节的配套内容。下面的图是 Mermaid（代码围栏是纯文本），反映的是代码和 `internal/archguard` 测试实际强制的约束。它们是地图，不是第二份规范：当图与源码冲突时，以源码为准。
 
-### 1. Package layers and dependency rules
+### 1. 包分层与依赖规则
 
-`internal/archguard` parses every `.go` import and checks: stdlib-only core, no
-cgo, one-way layering, and a single third-party exception in `native/`.
+`internal/archguard` 解析每个 `.go` 文件的 import，检查：核心只用标准库、不使用 cgo、单向分层，以及 `native/` 中唯一的第三方例外。
 
 ```mermaid
 flowchart TB
@@ -167,16 +157,11 @@ flowchart TB
   classDef bad fill:#ffe6e6,stroke:#cc0000,color:#900;
 ```
 
-Notes: `internal/tools` never imports `internal/agent`; `internal/agent` never
-imports `internal/app`; `internal/llm` imports neither the loop nor tools;
-`internal/app` is the sole wirer. `native/` is the only module that may depend on
-`github.com/egoist/mygo` and reaches the engine over stdio JSON-RPC instead of
-linking it.
+说明：`internal/tools` 永不 import `internal/agent`；`internal/agent` 永不 import `internal/app`；`internal/llm` 既不 import 循环也不 import 工具；`internal/app` 是唯一的装配器。`native/` 是唯一可以依赖 `github.com/egoist/mygo` 的模块，并且通过 stdio JSON-RPC 访问引擎，而不是链接它。
 
-### 2. Request flow — prompt to events
+### 2. 请求流 —— 从 prompt 到事件
 
-One turn, from any surface, through the single loop. `app.Execute` injects every
-collaborator; the transports and TUI are interchangeable.
+一个轮次，从任意表面出发，穿过唯一的循环。`app.Execute` 注入每个协作者；传输层和 TUI 可以互换。
 
 ```mermaid
 sequenceDiagram
@@ -212,15 +197,11 @@ sequenceDiagram
   F-->>U: text chunks, SSE frames or prompt/delta
 ```
 
-`--serve` emits `data:` SSE frames, `--rpc` emits `prompt/delta` notifications
-plus the final `{"text":...}` result, and `acp` emits `session/update`. All three
-forward the same streamed text supplied by the loop's `onText` callback.
+`--serve` 发出 `data:` SSE 帧，`--rpc` 发出 `prompt/delta` 通知加上最终的 `{"text":...}` 结果，`acp` 发出 `session/update`。三者转发的都是循环 `onText` 回调提供的同一份流式文本。
 
-### 3. Session tree, compaction and checkpoints
+### 3. 会话树、压缩与 checkpoint
 
-A session is one append-only JSONL file. Records carry `id` / `parent`, so a
-conversation is the path from root to the active leaf and forks never rewrite
-history.
+会话是一个只追加的 JSONL 文件。记录携带 `id` / `parent`，因此一段对话就是从根到活跃叶子的路径，fork 永远不会重写历史。
 
 ```mermaid
 flowchart LR
@@ -236,16 +217,11 @@ flowchart LR
   FORK --> LEAF2["new active leaf"]
 ```
 
-`Compact(keep)` and `CompactBudget(budget)` both append a `compaction` record;
-`adjustCut` keeps a tool call and its result on the same side. Checkpoints are
-captured before a mutating batch and are recorded through the same
-policy → approval → audit chain as a tool call.
+`Compact(keep)` 和 `CompactBudget(budget)` 都会追加一条 `compaction` 记录；`adjustCut` 会把工具调用及其结果留在同一侧。checkpoint 在修改性批次前抓取，并像工具调用一样通过同一条策略 → 审批 → 审计链记录。
 
-### 4. LSP activation — lazy spawn and cached clients
+### 4. LSP 激活 —— 惰性启动与客户端缓存
 
-Nothing is spawned at startup. The six `lsp_*` tools are always advertised; the
-app installs an adapter, and a language server is only launched on the first
-tool call for a given root and language.
+启动时不会拉起任何进程。六个 `lsp_*` 工具始终对外通告；app 安装适配器，只有当某个根 + 语言首次发生工具调用时才启动语言服务器。
 
 ```mermaid
 flowchart TD
@@ -268,12 +244,9 @@ flowchart TD
   DTO --> OUT["edits returned as text<br/>never applied by preview tools"]
 ```
 
-The manager is a process-level singleton (`sync.Once`), keyed by workspace root
-plus server name, so clients survive across runs and multiple write roots.
-Built-in mappings cover gopls, rust-analyzer, TypeScript and pyright; a missing
-binary degrades to an actionable error rather than a stall.
+manager 是进程级单例（`sync.Once`），以工作区根 + 服务器名为键，因此客户端跨运行和多个写入根存活。内置映射覆盖 gopls、rust-analyzer、TypeScript 和 pyright；缺少可执行文件时会降级为可操作的错误，而不是卡住。
 
-### 5. Distribution and install flow (Windows)
+### 5. 分发与安装流程（Windows）
 
 ```mermaid
 flowchart TB
@@ -297,15 +270,11 @@ flowchart TB
   INST --> BIN
 ```
 
-Windows/amd64 is the only published binary target. The tag alone is not a
-release: the publish script waits for a published Release carrying both the zip
-and the checksum manifest. `go install` produces only the CLI/engine; the desktop
-client is built from `./native` and ships in the same zip as `argent.exe`.
+Windows/amd64 是唯一发布的二进制目标。只有 tag 不算发布：发布脚本会等待一个同时带有 zip 和校验和清单的已发布 Release。`go install` 只产出 CLI/引擎；桌面客户端从 `./native` 构建，并与 `argent.exe` 打进同一个 zip。
 
 ## Frontend decision
 
-记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已冻结；Go 版的前端是 **MyGo 原生 UI**，
-浏览器前端已完全移除。
+记录**当前决定**。Rust 版 `argent` 的 Tauri 壳已冻结；Go 版的前端是 **MyGo 原生 UI**，浏览器前端已完全移除。
 
 ### 决定
 
@@ -358,22 +327,15 @@ client is built from `./native` and ships in the same zip as `argent.exe`.
 - [架构](#architecture) — 请求流、会话存储、权限、TLS、传输
 - [路线图](STATUS.md#roadmap) · [功能对齐](#feature-parity) · [更新日志](../CHANGELOG.md)
 
-## LSP integration
+## LSP 集成
 
-`internal/lsp` is a stdlib-only JSON-RPC client that speaks LSP over stdio to
-external language-server processes. No language server is bundled and no Go
-module is added for one: `gopls`, `rust-analyzer`, `typescript-language-server`
-and `pyright-langserver` are ordinary programs found on `PATH` (see
-`DefaultServers()` in `internal/lsp/servers.go`). A missing server never breaks
-startup — it fails at first use with an actionable message.
+`internal/lsp` 是一个只用标准库的 JSON-RPC 客户端，通过 stdio 与外部语言服务器进程讲 LSP。不捆绑任何语言服务器，也不为它添加 Go 模块：`gopls`、`rust-analyzer`、`typescript-language-server` 和 `pyright-langserver` 都是 `PATH` 上可找到的普通程序（见 `internal/lsp/servers.go` 中的 `DefaultServers()`）。缺少服务器不会破坏启动——它会在首次使用时以可操作的消息失败。
 
-### Implemented methods
+### 已实现的方法
 
-The client in `internal/lsp` implements the following LSP requests. Every
-`...At` helper is a convenience wrapper that opens the file first and then
-calls the URI-based method.
+`internal/lsp` 中的客户端实现了以下 LSP 请求。每个 `...At` 辅助函数都是便捷包装：先打开文件，再调用基于 URI 的方法。
 
-| Method | Client helper(s) | File |
+| 方法 | 客户端辅助函数 | 文件 |
 | --- | --- | --- |
 | `initialize` / `initialized` + server→client request answers | `Start` / `initialize` / `answer` | `client.go` |
 | `textDocument/didOpen`, `didChange`, `didSave`, `didClose` | `Open`, `Refresh`, `DidOpen`, `DidChange`, `DidSave`, `DidClose` | `documents.go` |
@@ -390,39 +352,21 @@ calls the URI-based method.
 | `textDocument/inlayHint` | `InlayHints`, `InlayHintsAt` | `features_advanced.go` |
 | `textDocument/codeLens`, `codeLens/resolve` | `CodeLens`, `CodeLensAt`, `ResolveCodeLens` | `features_advanced.go` |
 
-The parsers deliberately accept the several wire shapes a method may return
-(a single `Location` vs. an array, `Location` vs. `LocationLink`, `DocumentSymbol`
-trees vs. flat `SymbolInformation`, markup as a string / `MarkupContent` / an
-array), so results are normalized instead of silently dropped.
+解析器有意接受一个方法可能返回的多种线格式（单个 `Location` 与数组、`Location` 与 `LocationLink`、`DocumentSymbol` 树与扁平的 `SymbolInformation`、markup 为字符串 / `MarkupContent` / 数组），这样结果会被归一化，而不是被静默丢弃。
 
-### Activation in the app (lazy, on-demand)
+### 在 app 中的激活（惰性、按需）
 
-`internal/app/lsp_adapter.go` is the only bridge between the dormant client and
-the six `lsp_*` tools in `internal/tools` (`tools` never imports `lsp`).
+`internal/app/lsp_adapter.go` 是休眠的客户端与 `internal/tools` 中六个 `lsp_*` 工具之间唯一的桥（`tools` 从不 import `lsp`）。
 
-- **Nothing is spawned at startup or at toolset build time.** Wiring the
-  adapter only makes the tools *callable*. A language server process is launched
-  on the **first** `lsp_*` call that resolves to a file, using
-  `Registry.ForPath(path)` to pick the server by file extension.
-- One process-scoped `lspManager` (`sync.Once`) caches clients by
-  `root + "|" + server.Name`, reuses them across runs, and uses a per-key
-  barrier so concurrent calls spawn at most one process per key. A failed spawn
-  is negatively cached (no retry storm); unsupported extensions return a clear
-  error.
-- The initialize handshake is bounded (~15s) and each request is bounded
-  (~10s), so a broken server degrades to a tool error rather than hanging the
-  run.
+- **启动时和构建工具集时都不拉起任何进程。** 接上适配器只是让工具*可被调用*。当某个 `lsp_*` 调用解析到一个文件时，才会在**首次**调用时启动语言服务器进程，用 `Registry.ForPath(path)` 按扩展名选择服务器。
+- 一个进程级的 `lspManager`（`sync.Once`）按 `root + "|" + server.Name` 缓存客户端，跨运行复用，并使用按 key 的屏障让并发调用每个 key 最多启动一个进程。启动失败会被负缓存（不会有重试风暴）；不支持的扩展名会返回清晰的错误。
+- initialize 握手有界限（约 15 秒），每个请求也有界限（约 10 秒），因此坏掉的服务器会降级为工具错误，而不是挂住运行。
 
-**Kill switch:** set `ARGENT_LSP=0` and `NewLspIdeAdapter` returns `nil`; the
-`lsp_*` tools keep reporting "LSP IDE integration is not available" and no
-process is ever spawned. Any other value (or unset) activates the adapter.
+**关闭开关：** 设置 `ARGENT_LSP=0` 时 `NewLspIdeAdapter` 返回 `nil`；`lsp_*` 工具会持续报告 "LSP IDE integration is not available"，且绝不会启动进程。其他任何值（或未设置）都会激活适配器。
 
-### Running the real-server integration test
+### 运行真实 server 的集成测试
 
-`internal/lsp/gopls_integration_test.go` drives an **actual gopls** process over
-stdio. It builds a throwaway Go module with a struct, a const, two functions and
-a call site, then exercises definition, document symbols, references, hover,
-workspace symbols and formatting.
+`internal/lsp/gopls_integration_test.go` 通过 stdio 驱动一个**真实的 gopls** 进程。它构造一个一次性的 Go 模块，里面有一个结构体、一个常量、两个函数和一个调用点，然后测试 definition、document symbols、references、hover、workspace symbols 和 formatting。
 
 ```powershell
 # needs gopls on PATH, or at %USERPROFILE%\go\bin\gopls.exe
@@ -430,74 +374,37 @@ $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
 go test ./internal/lsp -run TestIntegrationGopls -count=1 -v
 ```
 
-- **Skips gracefully** when gopls is absent (not on `PATH` and no
-  `%USERPROFILE%\go\bin\gopls.exe`), so CI without gopls stays green. It also
-  skips under `go test -short`, and skips (rather than fails) if gopls is too
-  slow to start or resolve the definition — this test is optional.
-- The test locates gopls, prepends its directory to `PATH` with `t.Setenv` so
-  `exec.Command("gopls")` in `lsp.Start` finds it, and sets `GOFLAGS=-mod=mod`
-  and `GOTOOLCHAIN=local` to prevent network/toolchain downloads.
-- A plain `go test ./internal/lsp` also runs it automatically whenever gopls is
-  installed; a normal run completes in about one second on a warm cache.
+- **优雅跳过**：当 gopls 不存在时（不在 `PATH` 上且没有 `%USERPROFILE%\go\bin\gopls.exe`），测试会跳过，所以没有 gopls 的 CI 仍保持绿色。它也会在 `go test -short` 下跳过，并且在 gopls 启动或解析定义太慢时跳过（而不是失败）——这个测试是可选的。
+- 测试会定位 gopls，用 `t.Setenv` 把它的目录前置到 `PATH`，让 `lsp.Start` 中的 `exec.Command("gopls")` 能找到它，并设置 `GOFLAGS=-mod=mod` 和 `GOTOOLCHAIN=local` 来阻止网络/工具链下载。
+- 直接运行 `go test ./internal/lsp` 时，只要装了 gopls 也会自动运行它；在缓存热的情况下普通运行约一秒完成。
 
-### What is verified vs. best-effort
+### 哪些是硬验证，哪些是尽力而为
 
-The test divides its assertions into two tiers so an optional external tool
-cannot make the suite flaky:
+测试把断言分成两档，让一个可选外部工具不会让套件不稳定：
 
-- **Verified (hard assertions).** Once gopls answers, the test requires correct
-  results: `DefinitionAt` at the call site must resolve to `main.go` at the
-  declaration line (a location in the wrong file is a real finding reported
-  with `t.Errorf`); `DocumentSymbolAt` must contain `RunService`, `Service`,
-  `AppName`, `Help` and `main`; `ReferencesAt` must return at least the
-  declaration and the call site. Diagnostics for the valid fixture must publish
-  (its wait is best-effort, but a clean file is logged, not asserted on).
-- **Best-effort (reported, never fails).** Hover content, `workspace/symbol`
-  results and formatting edits are logged. Empty hover, a filtered workspace
-  query, or zero formatting edits (the fixture is already gofmt-formatted) are
-  valid outcomes and produce only `t.Log` output.
+- **已验证（硬断言）。** 一旦 gopls 给出回答，测试要求结果正确：调用点上的 `DefinitionAt` 必须解析到声明行的 `main.go`（位置落在错误文件里是真正的发现，会用 `t.Errorf` 报告）；`DocumentSymbolAt` 必须包含 `RunService`、`Service`、`AppName`、`Help` 和 `main`；`ReferencesAt` 至少要返回声明和调用点。合法 fixture 的诊断必须发布（等待是尽力而为的，但干净文件只会记录日志，不做断言）。
+- **尽力而为（只报告，绝不失败）。** hover 内容、`workspace/symbol` 结果和格式化编辑只记日志。空 hover、被过滤的 workspace 查询、零条格式化编辑（fixture 已经是 gofmt 格式）都是合法结果，只产生 `t.Log` 输出。
 
-This distinction matters: environment failures skip; a successful response that
-is clearly wrong is a genuine bug in the client and fails the test.
+这个区分很重要：环境失败会跳过；一个成功返回但明显错误的结果才是客户端真正的 bug，会让测试失败。
 
-### Limitations
+### 限制
 
-- **Advanced features depend on server capabilities.** Semantic tokens, inlay
-  hints and code lenses are implemented and advertised in `initialize`, but
-  whether they return anything is entirely up to the server's support and
-  settings. The client keeps the raw delta-encoded semantic-token stream and
-  leaves decoding to the UI. `ResolveCodeLens` cannot resolve lenses from
-  servers that require opaque `data` to be echoed back, because the client does
-  not retain that field.
-- **No DAP, no tree-sitter, by design.** Debug Adapter Protocol and embedded
-  syntax-tree parsing are explicitly out of scope (see the Roadmap section of
-  `docs/STATUS.md`); this project keeps the native shell dependency-free and
-  drives everything over stdlib JSON-RPC.
-- **Server is an external tool.** gopls (and the other default servers) are not
-  installed or vendored by this repository. Version drift between servers can
-  change the exact hover text, symbol names or formatting output; the hard
-  assertions above are chosen to be stable across gopls versions.
+- **高级功能取决于服务器能力。** semantic tokens、inlay hints 和 code lens 都已实现并在 `initialize` 中通告，但能否返回任何内容完全取决于服务器的支持和设置。客户端保留原始 delta 编码的 semantic-token 流，解码交给 UI。`ResolveCodeLens` 无法解析那些要求回显不透明 `data` 字段的服务器的 lens，因为客户端不保留该字段。
+- **按设计不支持 DAP，也不支持 tree-sitter。** Debug Adapter Protocol 和内嵌语法树解析明确不在范围内（见 `docs/STATUS.md` 的 Roadmap 一节）；本项目让原生壳保持零依赖，并通过标准库 JSON-RPC 驱动一切。
+- **服务器是外部工具。** gopls（以及其他默认服务器）不由本仓库安装或 vendored。服务器之间的版本漂移可能改变 hover 文本、符号名或格式化输出；上面的硬断言被选为跨 gopls 版本稳定的那些。
 
 ## API reference
 
-This document describes the programmatic surfaces of `argentgo` as implemented
-in this repository (version `0.7.0`). It is descriptive, not aspirational: every
-command, method, tool and field below was read from the code. The in-process
-architecture is covered by the [Architecture](#architecture) section; build and release
-details by [Distribution](USER_GUIDE.md#distribution).
+本文档描述本仓库中已实现的 `argentgo` 编程界面（版本 `0.7.0`）。它是描述性的，不是展望性的：下面每个命令、方法、工具和字段都是从代码里读出来的。进程内架构见 [Architecture](#architecture) 一节；构建与发布细节见 [Distribution](USER_GUIDE.md#distribution)。
 
-There are two surfaces:
+有两个界面：
 
-1. the **CLI** (`cmd/argent` → `internal/cli`), including the headless transports
-   `--serve`, `--rpc` and `acp`;
-2. the **tool / integration API** exposed to the model and to external systems
-   (`internal/tools`, `internal/mcp`), plus the layered configuration that wires
-   them.
+1. **CLI**（`cmd/argent` → `internal/cli`），包括无头传输 `--serve`、`--rpc` 和 `acp`；
+2. 暴露给模型和外部系统的**工具 / 集成 API**（`internal/tools`、`internal/mcp`），以及把它们接起来的分层配置。
 
-### 1. CLI surface
+### 1. CLI 界面
 
-`internal/cli/cli.go` builds a dispatch map (`subcommands`) and falls back to a
-single one-shot prompt. The accepted invocation forms are:
+`internal/cli/cli.go` 构造一个分发映射（`subcommands`），并回退到单次提示。可接受的调用形式是：
 
 ```text
 argent [flags] <prompt>
@@ -505,83 +412,72 @@ argent [flags] -              # prompt read from stdin
 argent <command> [args]
 ```
 
-Flags are registered in `internal/cli/flags_register.go`; the authoritative help
-text is `writeUsage` in `internal/cli/flags_usage.go`. `-h/--help` and
-`-V/--version` print help and the version. The version constant is
-`cli.Version = "0.7.0"`.
+标志注册在 `internal/cli/flags_register.go`；权威的帮助文本是 `internal/cli/flags_usage.go` 中的 `writeUsage`。`-h/--help` 和 `-V/--version` 打印帮助和版本。版本常量是 `cli.Version = "0.7.0"`。
 
-#### 1.1 Subcommands
+#### 1.1 子命令
 
-All 30 dispatched names from `subcommands` / `subcommandOrder`. `--json` selects
-machine-readable output where the handler supports it; `-C <dir>` selects the
-workspace root where noted.
+来自 `subcommands` / `subcommandOrder` 的全部 30 个分发名称。在处理器支持的地方，`--json` 选择机器可读输出；在注明的地方，`-C <dir>` 选择工作区根。
 
-| Command | Purpose | Key arguments / flags |
+| 命令 | 用途 | 关键参数 / 标志 |
 |---|---|---|
-| `sessions` | Inspect stored sessions. | `list`, `show <id>`, `rm <id>`, `find <keyword>`, `--grep <text>`, `--limit N`, `tree <id>`, `undo <id> [-C <workspace>]`, `retry <id> [checkpoint-id]`, `name <id> <title>`, `export <id> [-o file.html]` |
-| `replay` | Print a stored transcript (most recent if no id). | `[<id>] [--json]` |
-| `usage` | Summarise turns, tokens and tool calls per session. | `[--json]` |
-| `doctor` | Check config, storage, provider reachability, git and Go. | `[--base-url <url>]` |
-| `login` | Store an API key in the config file (never echoed). | `<provider> [--api-key <key>] [--base-url <url>]`; also reads `<PROVIDER>_API_KEY`, `ARGENT_API_KEY` or stdin |
-| `logout` | Remove stored credentials. | `[provider]` (no provider removes all) |
-| `auth` | Show credential status; secrets are never printed. | `[--json]` |
-| `models` | List built-in provider templates. | `[--json]` |
-| `mcp` | List MCP servers declared in the merged config; no server is contacted. | `[--json] [-C <dir>]` |
-| `skills` | List discovered `SKILL.md` documents. | `[--json] [-C <dir>]` |
-| `commands` | List discovered markdown slash commands. | `[--json] [-C <dir>]` |
-| `hooks` | List hook documents and SHA-256 trust state. | `[-C <dir>]` |
-| `policy` | Print effective sandbox, approval, provider and policy. | `[--json] [-C <dir>]` |
-| `audit` | Tail the redacted audit log. | `[--tail <n>] [--json]` |
-| `update` | Check GitHub releases; optionally verify and install. | `[--check] [--apply] [--repo <owner/name>] [--current <version>] [--asset <name>] [--sha256 <hex>] [--target <path>]` |
-| `completion` | Print a shell completion script. | `bash\|zsh\|powershell` |
-| `tui` | Run the full-screen terminal UI. | `[flags]` (same flags as one-shot mode) |
-| `bug` | Write a secret-free diagnostics dump. | `[--out <path>]` |
-| `eval` | Run scripted JSON eval scenarios. | `<file.json>` |
-| `config` | Read or write dotted config keys. | `get <dotted.key>`, `set <dotted.key> <value>`, `path` |
-| `workflow` | Inspect and run workflow definitions. | `list [-C dir] [--json]`, `show <name\|path> [-C dir]`, `run <file.json> [--input s]` |
-| `telemetry` | Report the personal-build telemetry preference (no-op). | `status\|off` |
-| `attach` | Print the tail of a background job log. | `<id> [-n N]` |
-| `logs` | List background jobs and their logs. | `[<id>]` (`jobs` is an alias) |
-| `jobs` | Alias for `logs`. | — |
-| `follow` | Tail a job log until interrupted. | `<id> [-n N]` |
-| `stop` | Kill a background job. | `<id>` |
-| `board` | Read-only view of jobs and scheduled automations. | — |
-| `help` | Print the command/flag help. | — |
-| `version` | Print `argentgo <version>`. | — |
+| `sessions` | 查看已存储的会话。 | `list`, `show <id>`, `rm <id>`, `find <keyword>`, `--grep <text>`, `--limit N`, `tree <id>`, `undo <id> [-C <workspace>]`, `retry <id> [checkpoint-id]`, `name <id> <title>`, `export <id> [-o file.html]` |
+| `replay` | 打印一份已存储的 transcript（没有 id 时取最近一次）。 | `[<id>] [--json]` |
+| `usage` | 按会话汇总轮次、token 和工具调用。 | `[--json]` |
+| `doctor` | 检查配置、存储、provider 可达性、git 和 Go。 | `[--base-url <url>]` |
+| `login` | 把 API key 存进配置文件（绝不回显）。 | `<provider> [--api-key <key>] [--base-url <url>]`；也读取 `<PROVIDER>_API_KEY`、`ARGENT_API_KEY` 或 stdin |
+| `logout` | 移除已存储的凭据。 | `[provider]`（不带 provider 表示移除全部） |
+| `auth` | 显示凭据状态；绝不打印密钥。 | `[--json]` |
+| `models` | 列出内置的 provider 模板。 | `[--json]` |
+| `mcp` | 列出合并配置中声明的 MCP 服务器；不会联系任何服务器。 | `[--json] [-C <dir>]` |
+| `skills` | 列出发现的 `SKILL.md` 文档。 | `[--json] [-C <dir>]` |
+| `commands` | 列出发现的 markdown 斜杠命令。 | `[--json] [-C <dir>]` |
+| `hooks` | 列出 hook 文档及 SHA-256 信任状态。 | `[-C <dir>]` |
+| `policy` | 打印生效的沙箱、审批、provider 和策略。 | `[--json] [-C <dir>]` |
+| `audit` | tail 脱敏后的审计日志。 | `[--tail <n>] [--json]` |
+| `update` | 检查 GitHub release；可选地校验并安装。 | `[--check] [--apply] [--repo <owner/name>] [--current <version>] [--asset <name>] [--sha256 <hex>] [--target <path>]` |
+| `completion` | 打印 shell 补全脚本。 | `bash\|zsh\|powershell` |
+| `tui` | 运行全屏终端 UI。 | `[flags]`（与一次性提示模式相同的标志） |
+| `bug` | 写一份不含密钥的诊断转储。 | `[--out <path>]` |
+| `eval` | 运行脚本化的 JSON eval 场景。 | `<file.json>` |
+| `config` | 读写点分配置键。 | `get <dotted.key>`, `set <dotted.key> <value>`, `path` |
+| `workflow` | 查看并运行 workflow 定义。 | `list [-C dir] [--json]`, `show <name\|path> [-C dir]`, `run <file.json> [--input s]` |
+| `telemetry` | 报告个人构建的遥测偏好（空操作）。 | `status\|off` |
+| `attach` | 打印后台 job 日志的尾部。 | `<id> [-n N]` |
+| `logs` | 列出后台 job 及其日志。 | `[<id>]`（`jobs` 是别名） |
+| `jobs` | `logs` 的别名。 | — |
+| `follow` | tail 一个 job 日志直到被打断。 | `<id> [-n N]` |
+| `stop` | 杀掉一个后台 job。 | `<id>` |
+| `board` | 只读查看 job 和定时自动化。 | — |
+| `help` | 打印命令/标志帮助。 | — |
+| `version` | 打印 `argentgo <version>`。 | — |
 
-There is **no `plugins` / `plugin` subcommand** in this rewrite. Plugins are
-enabled per run with the repeatable `--plugins <name>` flag (`all` loads every
-one) and contribute skills, commands and MCP servers; discovery itself lives in
-`internal/plugins`.
+在这个重写版中**没有 `plugins` / `plugin` 子命令**。插件通过可重复的 `--plugins <name>` 标志按次启用（`all` 加载全部），贡献 skills、命令和 MCP 服务器；发现本身在 `internal/plugins` 中。
 
-#### 1.2 One-shot flags (selected)
+#### 1.2 一次性提示的标志（部分）
 
-| Flag | Meaning |
+| 标志 | 含义 |
 |---|---|
-| `-m`, `--model <id>` | Model id (default `gpt-4o-mini`). |
-| `--provider <id>` | Provider template id (see `argent models`). |
-| `--profile <name>`, `--list-profiles` | Select / list config profiles. |
-| `--base-url <url>`, `--api-key <key>`, `--protocol <name>` | Provider endpoint, key and wire protocol (`anthropic`, `openai`, `responses`). |
-| `-C`, `--cwd <dir>` | Workspace root (default current directory). |
-| `--sandbox-mode <mode>` | `read-only`, `workspace-write` (default) or `danger-full-access`. |
-| `--approval <mode>` | `ask`, `never` or `auto`. |
-| `--yolo` | Auto-approve every tool call. |
-| `--max-turns`, `--max-parallel` | Turn budget; read-only tool workers per batch. |
-| `--max-tokens`, `--max-cost`, `--max-seconds` | Budget stop conditions. |
-| `--session <id>`, `--resume`, `--undo`, `--retry` | Session resume and checkpoint operations. |
-| `--mode text\|json`, `--json-lines` | Streaming output shape. |
-| `-c`, `--config <key=value>` | Config override, dotted keys nest (repeatable). |
-| `--serve`, `--rpc`, `--acp` | Start a headless transport (see §2). |
-| `--serve-address`, `--serve-port`, `--serve-token` | HTTP bind settings; a serve token is mandatory. |
+| `-m`, `--model <id>` | 模型 id（默认 `gpt-4o-mini`）。 |
+| `--provider <id>` | provider 模板 id（见 `argent models`）。 |
+| `--profile <name>`, `--list-profiles` | 选择 / 列出配置 profile。 |
+| `--base-url <url>`, `--api-key <key>`, `--protocol <name>` | provider 端点、密钥和线协议（`anthropic`、`openai`、`responses`）。 |
+| `-C`, `--cwd <dir>` | 工作区根（默认当前目录）。 |
+| `--sandbox-mode <mode>` | `read-only`、`workspace-write`（默认）或 `danger-full-access`。 |
+| `--approval <mode>` | `ask`、`never` 或 `auto`。 |
+| `--yolo` | 自动批准每一次工具调用。 |
+| `--max-turns`, `--max-parallel` | 轮次预算；每批只读工具的工作线程数。 |
+| `--max-tokens`, `--max-cost`, `--max-seconds` | 预算停止条件。 |
+| `--session <id>`, `--resume`, `--undo`, `--retry` | 会话恢复与 checkpoint 操作。 |
+| `--mode text\|json`, `--json-lines` | 流式输出形态。 |
+| `-c`, `--config <key=value>` | 配置覆盖，点分键嵌套（可重复）。 |
+| `--serve`, `--rpc`, `--acp` | 启动一个无头传输（见 §2）。 |
+| `--serve-address`, `--serve-port`, `--serve-token` | HTTP 绑定设置；serve token 必填。 |
 
-Aliases share storage with their canonical flag (for example `--token` =
-`--serve-token`, `--session-id` = `--session`, `--continue` = `--resume`,
-`-V` = `--version`). Flags marked "not migrated" in `flags_register.go` are
-parsed but inert.
+别名与规范标志共享存储（例如 `--token` = `--serve-token`，`--session-id` = `--session`，`--continue` = `--resume`，`-V` = `--version`）。在 `flags_register.go` 中标注为 "not migrated" 的标志会被解析但不起作用。
 
-### 2. Headless transports (`internal/server`)
+### 2. 无头传输（`internal/server`）
 
-All three transports drive the same injected interface:
+三种传输都驱动同一个注入的接口：
 
 ```go
 type Runner interface {
@@ -590,24 +486,19 @@ type Runner interface {
 }
 ```
 
-`Config` carries `Addr`, `Token`, `Version`, `Runner` and an optional `Sessions`
-store (`List() ([]SessionInfo, error)` and `Load(id) ([]SessionEvent, error)`).
+`Config` 携带 `Addr`、`Token`、`Version`、`Runner` 以及可选的 `Sessions` 存储（`List() ([]SessionInfo, error)` 和 `Load(id) ([]SessionEvent, error)`）。
 
-#### 2.1 `--serve` — HTTP + SSE
+#### 2.1 `--serve` —— HTTP + SSE
 
-Default address `127.0.0.1:7777` (`server.DefaultAddr`), overridable with
-`--serve-address` / `--serve-port`. `Listen` refuses to start without a token
-(`--serve-token` or `ARGENT_SERVE_TOKEN`). Every endpoint except health requires
-the shared secret in the `Authorization` header (HTTP bearer scheme) or the
-`token` query parameter; comparison is constant-time.
+默认地址 `127.0.0.1:7777`（`server.DefaultAddr`），可用 `--serve-address` / `--serve-port` 覆盖。没有 token 时 `Listen` 拒绝启动（`--serve-token` 或 `ARGENT_SERVE_TOKEN`）。除 health 外的每个端点都要求在 `Authorization` 头（HTTP bearer scheme）或 `token` 查询参数中提供共享密钥；比较是常数时间的。
 
-| Method & path | Behaviour |
+| 方法与路径 | 行为 |
 |---|---|
-| `GET /v1/health` | `{"status":"ok","version":"..."}`; no auth. |
-| `POST /v1/prompt` | Runs one turn, responds `Content-Type: text/event-stream`. |
-| `POST /v1/abort` | Aborts the current turn, `{"ok":true}`. |
+| `GET /v1/health` | `{"status":"ok","version":"..."}`；无需认证。 |
+| `POST /v1/prompt` | 运行一轮，响应 `Content-Type: text/event-stream`。 |
+| `POST /v1/abort` | 中止当前轮次，`{"ok":true}`。 |
 
-SSE frames are one JSON object per `data:` line:
+SSE 帧在每个 `data:` 行上是一个 JSON 对象：
 
 ```text
 data: {"type":"text","text":"..."}     # streamed chunk (0..n)
@@ -615,199 +506,144 @@ data: {"type":"error","error":"..."}   # on failure, then the stream ends
 data: {"type":"done"}                  # on success
 ```
 
-Prompt bodies are accepted as raw text, `{"text":"..."}`, `{"prompt":"..."}` or
-`{"prompt":[{"type":"text","text":"..."}]}` by `promptText`, which is the single
-parser shared by all three transports. Request bodies are capped at 1 MiB.
+prompt 请求体可以是纯文本、`{"text":"..."}`、`{"prompt":"..."}` 或 `{"prompt":[{"type":"text","text":"..."}]}`，由 `promptText` 处理，它是三种传输共用的单一解析器。请求体上限为 1 MiB。
 
-#### 2.2 `--rpc` — newline-delimited JSON-RPC 2.0 (stdio)
+#### 2.2 `--rpc` —— 换行分隔的 JSON-RPC 2.0（stdio）
 
-`RunRPC` reads one JSON object per line from stdin and writes one per line to
-stdout; diagnostics go to stderr. `native/` drives the engine exclusively
-through this transport (`native/bridge.go` spawns `argent --rpc`).
+`RunRPC` 从 stdin 每行读一个 JSON 对象，向 stdout 每行写一个；诊断信息走 stderr。`native/` 只通过这个传输驱动引擎（`native/bridge.go` 拉起 `argent --rpc`）。
 
-| Method | Params | Result |
+| 方法 | 参数 | 结果 |
 |---|---|---|
-| `prompt` | `{"text":"..."}` (any `promptText` carrier) | `{"text":"<final answer>"}`; streamed chunks arrive first as `prompt/delta` notifications `{"text":"..."}` |
-| `abort` | none | `{"ok":true}` |
-| `session.list` | none | `{"sessions":[{"id","title","updated"}, ...]}` |
-| `session.load` | `{"id":"..."}` or `{"sessionId":"..."}` | `{"id":"...","events":[{"id","parent","kind","ts","data"}, ...]}` |
+| `prompt` | `{"text":"..."}`（任意 `promptText` 载体） | `{"text":"<final answer>"}`；流式块先作为 `prompt/delta` 通知 `{"text":"..."}` 到达 |
+| `abort` | 无 | `{"ok":true}` |
+| `session.list` | 无 | `{"sessions":[{"id","title","updated"}, ...]}` |
+| `session.load` | `{"id":"..."}` 或 `{"sessionId":"..."}` | `{"id":"...","events":[{"id","parent","kind","ts","data"}, ...]}` |
 
-Responses are `{"jsonrpc":"2.0","id":<id>,"result":...}`; errors are
-`{"jsonrpc":"2.0","id":<id>,"error":{"code":...,"message":...}}` with standard
-codes (`-32700` parse, `-32600` invalid request, `-32601` method not found,
-`-32602` invalid params, `-32603` internal, `-32000` server). Notifications omit
-`id`. `session.load` returns records shaped like the JSONL session contract
-(`id` / `parent` / `kind` / `ts` / `data`).
+响应是 `{"jsonrpc":"2.0","id":<id>,"result":...}`；错误是 `{"jsonrpc":"2.0","id":<id>,"error":{"code":...,"message":...}}`，使用标准错误码（`-32700` parse、`-32600` invalid request、`-32601` method not found、`-32602` invalid params、`-32603` internal、`-32000` server）。通知省略 `id`。`session.load` 返回的记录形状与 JSONL 会话契约一致（`id` / `parent` / `kind` / `ts` / `data`）。
 
-#### 2.3 `acp` — Agent Client Protocol (stdio)
+#### 2.3 `acp` —— Agent Client Protocol（stdio）
 
-`RunACP` is JSON-RPC 2.0 over stdio, one message per line. Methods:
-`initialize`, `authenticate`, `session/new`, `session/prompt`, `session/cancel`,
-`session/set_model`, `session/set_mode`. Streamed assistant text is delivered as
-`session/update` notifications; `session/load` is explicitly not supported.
+`RunACP` 是 stdio 上的 JSON-RPC 2.0，每条消息一行。方法包括：`initialize`、`authenticate`、`session/new`、`session/prompt`、`session/cancel`、`session/set_model`、`session/set_mode`。流式助手文本通过 `session/update` 通知传递；明确不支持 `session/load`。
 
-#### 2.4 In-process event vocabulary (`internal/agent/events.go`)
+#### 2.4 进程内事件词汇（`internal/agent/events.go`）
 
-The agent loop emits `agent.Event` values with a `Kind` plus the fields that
-make sense for that kind. Frontends switch on `Kind`; the transports above
-currently forward streamed text through their own simpler frames rather than
-serialising this struct.
+agent 循环发出 `agent.Event` 值，带一个 `Kind` 以及适合该 kind 的字段。前端按 `Kind` 分支；上面的传输目前用自己的更简单帧转发流式文本，而不是序列化这个结构。
 
-| Kind | Populated fields |
+| Kind | 填充的字段 |
 |---|---|
 | `turn_start`, `turn_end` | `Turn`, `PendingMessages` |
-| `checkpoint_ready` | `Turn`, `Checkpoint` (emitted before a mutating batch) |
+| `checkpoint_ready` | `Turn`, `Checkpoint`（在修改性批次前发出） |
 | `text_delta` | `Turn`, `Text` |
-| `reasoning_delta` | `Turn`, `Text` (whole reasoning block) |
+| `reasoning_delta` | `Turn`, `Text`（整个 reasoning 块） |
 | `tool_start` | `Turn`, `ToolCallID`, `ToolName`, `Args`, `Intent` |
 | `tool_end` | `Turn`, `ToolCallID`, `ToolName`, `Output`, `IsError`, `DurationMS`, `Intent` |
-| `usage` | `Turn`, `Usage` (this request), `TotalUsage` (run total) |
+| `usage` | `Turn`, `Usage`（本次请求）, `TotalUsage`（整个运行） |
 | `error` | `Err` |
 | `notice` | `Text` |
 | `stop` | `Reason`, `PendingMessages` |
 | `subagent_start` | `Text`, `ToolName`, `Depth` |
 | `subagent_end` | `Text`, `Output`, `IsError`, `Err`, `Depth` |
 
-`Depth` is 0 for the root run and increases for delegated subagents.
+根运行的 `Depth` 为 0，委派的子代理依次递增。
 
-### 3. Tool API (`internal/tools`)
+### 3. 工具 API（`internal/tools`）
 
-A tool implements `Name() string`, `Description() string`, `Schema() string`,
-`Mutating() bool` and `Run(ctx, root, args json.RawMessage)`. The `Registry`
-owns the tools, enforces the workspace boundary (`resolve` rejects `..` and
-absolute escapes), runs the guard before every call, and clips output to 40 000
-characters by default. `Specs()` exposes each tool as an `llm.ToolSpec` function
-schema. Tool descriptions are clipped to 1024 runes before crossing the wire.
+一个工具实现 `Name() string`、`Description() string`、`Schema() string`、`Mutating() bool` 和 `Run(ctx, root, args json.RawMessage)`。`Registry` 持有工具，强制工作区边界（`resolve` 拒绝 `..` 和绝对路径逃逸），在每次调用前运行 guard，并默认把输出裁剪到 40000 个字符。`Specs()` 把每个工具暴露为一个 `llm.ToolSpec` 函数 schema。工具描述在过线前会裁剪到 1024 个 rune。
 
-#### 3.1 Registered built-ins
+#### 3.1 已注册的内置工具
 
-Registration order is from `tools_registry.go:NewWithLimit`. **M** = `Mutating()
-== true`, so the call goes through the security chain (policy → approval →
-audit) and is hidden in `read-only` sandbox mode; tools marked **R** are
-read-only (`Mutating() == false`). Calls to M tools without `--yolo` are
-rejected by the registry as well. Key arguments are taken from each `Schema()`.
+注册顺序来自 `tools_registry.go:NewWithLimit`。**M** 表示 `Mutating() == true`，因此调用会走安全链（策略 → 审批 → 审计），并在 `read-only` 沙箱模式下隐藏；标记为 **R** 的工具是只读的（`Mutating() == false`）。在没有 `--yolo` 时对 M 工具的调用也会被注册表拒绝。关键参数取自各自的 `Schema()`。
 
-| Tool | M/R | Purpose | Key arguments |
+| 工具 | M/R | 用途 | 关键参数 |
 |---|---|---|---|
-| `read` | R | Read a UTF-8 text file; paged with `offset`/`limit`. | `path` (required), `offset`, `limit` |
-| `write` | **M** | Create or overwrite a file. | `path`, `content` (required) |
-| `edit` | **M** | Replace one unique occurrence of old text. | `path`, `old`/`new` (or `old_text`/`new_text`), `repair`, `anchor`, `anchor_hash`, `hashline` |
-| `bash` | **M** | Run a shell command in the workspace root. | `command` (required), `timeout_seconds`, `background_after_ms` |
-| `ls` | R | List a directory. | `path` |
-| `grep` | R | Search file contents with a regular expression. | `pattern` (required), `path` |
-| `find` | R | Find files by name glob. | `pattern` (required), `path` |
-| `powershell` | **M** | Run a PowerShell script on Windows. | `command` or `script`, `timeout_seconds` |
-| `glob` | R | Find files by path glob, e.g. `**/*.go`. | `pattern` (required), `path` |
-| `todo` | R | Maintain the session task list. | `op` (`write`/`read`), `todos[]` (`id`, `text`, `status`) |
-| `multi_edit` | **M** | Apply several ordered replacements to one file; all must match. | `path`, `edits[]` (`old`/`new`), `repair` |
-| `web_fetch` | R | Fetch an http(s) URL as plain text. | `url` (required), `allowLocal` |
-| `git_status` | R | `git status --short --branch`. | none |
-| `current_time` | R | Current UTC/zone time. | `timezone`, `format` (`rfc3339`/`date`/`time`/`unix`) |
-| `web_search` | R | Search via the optional `ARGENT_WEB_SEARCH_URL` endpoint. | `query` (required), `limit` |
-| `repo_map` | R | Map workspace directories, files and ranked Go symbols. | `path`, `mention`, `mentions[]`, `symbols` |
-| `submit_plan` | R | Store plan steps as `plan.json`; never executes them. | `steps[]`, `status` |
-| `lsp_symbols` | R | Document symbols (functions, types, methods, variables). | `path` (required) |
-| `lsp_references` | R | References to the symbol at a position. | `path`, `line`, `character`, `includeDeclaration` |
-| `lsp_code_actions` | R | Quick fixes / refactorings for a range. | `path`, `startLine`, `startChar`, `endLine`, `endChar` |
-| `lsp_rename_preview` | R | **Read-only preview** of rename workspace edits; returns text, never applies it. | `path`, `line`, `character`, `newName` |
-| `lsp_format` | R | **Read-only preview** of formatting text edits; never applies them. | `path`, `tabSize`, `insertSpaces` |
-| `lsp_workspace_symbols` | R | Workspace-wide symbol search. | `query` (required) |
-| `memory_retain` | **M** | Persist a durable fact into the cross-session memory bank (redacted first). | `text` (required), `tags[]`, `source` |
-| `memory_recall` | R | Search the memory bank by word overlap and tags. | `query`, `tags[]`, `limit` |
-| `memory_forget` | **M** | Remove one memory by id. | `id` (required) |
-| `tool_search` | R | Find up to 20 tools by name/description relevance. | `query` (required), `limit` |
+| `read` | R | 读取 UTF-8 文本文件；用 `offset`/`limit` 分页。 | `path`（必填）, `offset`, `limit` |
+| `write` | **M** | 创建或覆盖文件。 | `path`, `content`（必填） |
+| `edit` | **M** | 替换唯一的旧文本匹配。 | `path`, `old`/`new`（或 `old_text`/`new_text`）, `repair`, `anchor`, `anchor_hash`, `hashline` |
+| `bash` | **M** | 在工作区根运行 shell 命令。 | `command`（必填）, `timeout_seconds`, `background_after_ms` |
+| `ls` | R | 列出目录。 | `path` |
+| `grep` | R | 用正则搜索文件内容。 | `pattern`（必填）, `path` |
+| `find` | R | 按名称 glob 查找文件。 | `pattern`（必填）, `path` |
+| `powershell` | **M** | 在 Windows 上运行 PowerShell 脚本。 | `command` 或 `script`, `timeout_seconds` |
+| `glob` | R | 按路径 glob 查找文件，如 `**/*.go`。 | `pattern`（必填）, `path` |
+| `todo` | R | 维护会话任务列表。 | `op`（`write`/`read`）, `todos[]`（`id`, `text`, `status`） |
+| `multi_edit` | **M** | 对一个文件应用多个有序替换；全部必须匹配。 | `path`, `edits[]`（`old`/`new`）, `repair` |
+| `web_fetch` | R | 以纯文本抓取 http(s) URL。 | `url`（必填）, `allowLocal` |
+| `git_status` | R | `git status --short --branch`。 | 无 |
+| `current_time` | R | 当前 UTC/时区时间。 | `timezone`, `format`（`rfc3339`/`date`/`time`/`unix`） |
+| `web_search` | R | 通过可选的 `ARGENT_WEB_SEARCH_URL` 端点搜索。 | `query`（必填）, `limit` |
+| `repo_map` | R | 映射工作区目录、文件和排序后的 Go 符号。 | `path`, `mention`, `mentions[]`, `symbols` |
+| `submit_plan` | R | 把计划步骤存为 `plan.json`；绝不执行它们。 | `steps[]`, `status` |
+| `lsp_symbols` | R | 文档符号（函数、类型、方法、变量）。 | `path`（必填） |
+| `lsp_references` | R | 某个位置上符号的引用。 | `path`, `line`, `character`, `includeDeclaration` |
+| `lsp_code_actions` | R | 某个范围的快速修复 / 重构。 | `path`, `startLine`, `startChar`, `endLine`, `endChar` |
+| `lsp_rename_preview` | R | 重命名工作区编辑的**只读预览**；返回文本，绝不应用。 | `path`, `line`, `character`, `newName` |
+| `lsp_format` | R | 格式化文本编辑的**只读预览**；绝不应用。 | `path`, `tabSize`, `insertSpaces` |
+| `lsp_workspace_symbols` | R | 全工作区符号搜索。 | `query`（必填） |
+| `memory_retain` | **M** | 把一条持久事实存入跨会话记忆库（先脱敏）。 | `text`（必填）, `tags[]`, `source` |
+| `memory_recall` | R | 按词重叠和标签搜索记忆库。 | `query`, `tags[]`, `limit` |
+| `memory_forget` | **M** | 按 id 移除一条记忆。 | `id`（必填） |
+| `tool_search` | R | 按名称/描述相关性查找最多 20 个工具。 | `query`（必填）, `limit` |
 
-Notes:
+说明：
 
-- Every schema also accepts an `i` string (a concise per-call intent) injected by
-  `internal/agent/tool_intent.go`; it is surfaced on tool events.
-- `lsp_code_actions`, `lsp_rename_preview` and `lsp_format` are previews: they
-  propose edits but never write files. Use `edit`/`write` to apply them. All six
-  `lsp_*` tools report "not available" until the app installs an LSP adapter.
-- `internal/app` adds one more advertised tool, `use_skill`
-  (`internal/skills/tool.go`, argument `name`), which loads a `SKILL.md` body on
-  demand. MCP tools are appended as `server__tool` (see §4).
+- 每个 schema 还接受一个 `i` 字符串（每次调用的简短意图），由 `internal/agent/tool_intent.go` 注入；它会出现在工具事件上。
+- `lsp_code_actions`、`lsp_rename_preview` 和 `lsp_format` 是预览：它们提出编辑但绝不写文件。用 `edit`/`write` 来应用。在 app 安装 LSP 适配器之前，六个 `lsp_*` 工具都会报告 "not available"。
+- `internal/app` 额外通告一个工具 `use_skill`（`internal/skills/tool.go`，参数 `name`），按需加载 `SKILL.md` 正文。MCP 工具以 `server__tool` 形式追加（见 §4）。
 
-Three further tools exist as opt-in constructors but are **not** in the default
-registry and are not advertised by a normal run: `checkpoint_diff`
-(`SetCheckpointSource`), `memory_reflect` and `memory_learn`
-(`MemoryAdvancedTools`).
+还有三个工具以可选构造函数的形式存在，但**不在**默认注册表中，普通运行也不会通告它们：`checkpoint_diff`（`SetCheckpointSource`）、`memory_reflect` 和 `memory_learn`（`MemoryAdvancedTools`）。
 
-### 4. MCP integration (`internal/mcp`)
+### 4. MCP 集成（`internal/mcp`）
 
-Servers are declared under the `mcpServers` key of the merged config (§5). The
-key accepts either an object keyed by server name or an array of objects with a
-`name` field; both camelCase and snake_case spellings are read for permission
-fields. Malformed entries are skipped with a warning rather than failing the
-whole config (`DecodeConfig`).
+服务器在合并配置的 `mcpServers` 键下声明（§5）。该键既可以是以服务器名为键的对象，也可以是带 `name` 字段的对象数组；权限字段同时接受 camelCase 和 snake_case 拼写。格式错误的条目会被跳过并给出警告，而不是让整个配置失败（`DecodeConfig`）。
 
-| Field | Meaning |
+| 字段 | 含义 |
 |---|---|
-| `name` | Server id; namespaces its tools as `server__tool`. Required for object form. |
-| `command`, `args`, `env` | stdio program, arguments and extra `KEY=VALUE` environment entries. |
-| `url`, `headers` | HTTP endpoint and extra headers. |
-| `transport` | `stdio` or `http` (`sse` accepted); inferred from `command` vs `url` when empty. |
-| `timeout` | Per-request seconds (default 30s). |
-| `enabled` | Defaults to true; explicit false disables the server. |
-| `readOnly` | Blocks calls to tools that look mutating before any request is sent. |
-| `allowedTools`, `deniedTools` | Tool allowlist / denylist; deny wins over allow. |
+| `name` | 服务器 id；把它的工具命名空间化为 `server__tool`。对象形式必填。 |
+| `command`, `args`, `env` | stdio 程序、参数以及额外的 `KEY=VALUE` 环境项。 |
+| `url`, `headers` | HTTP 端点和额外的头。 |
+| `transport` | `stdio` 或 `http`（接受 `sse`）；为空时按 `command` 与 `url` 推断。 |
+| `timeout` | 每次请求的秒数（默认 30s）。 |
+| `enabled` | 默认为 true；显式 false 会禁用该服务器。 |
+| `readOnly` | 在任何请求发出前，拦截看起来是修改性的工具调用。 |
+| `allowedTools`, `deniedTools` | 工具白名单 / 黑名单；拒绝优先于允许。 |
 
-Additional sources merged at run time (`internal/app/mcp.go`): MCP servers from
-enabled plugin bundles, and `<workspace>/.argent/mcp.json`, which is read **only**
-when `--trust-project` is set. Handshakes are bounded at 5 seconds and failures
-are fail-soft: a broken server is reported once and skipped.
+运行时还会合并额外来源（`internal/app/mcp.go`）：来自已启用插件包的 MCP 服务器，以及 `<workspace>/.argent/mcp.json`——后者**只有**在设置 `--trust-project` 时才会读取。握手限制在 5 秒内，失败采用失败即软处理：坏掉的服务器只报告一次并跳过。
 
-`argent mcp [--json] [-C <dir>]` lists the configured servers (name, transport,
-target) from the merged config. It does not contact any server.
+`argent mcp [--json] [-C <dir>]` 会从合并配置中列出已配置的服务器（名称、传输、目标）。它不会联系任何服务器。
 
-### 5. Configuration (`internal/config`)
+### 5. 配置（internal/config）
 
-#### 5.1 Precedence and locations
+#### 5.1 优先级与位置
 
-Lowest to highest precedence:
+从低到高的优先级：
 
-1. compiled defaults (`model=gpt-4o-mini`, `protocol=openai-chat-completions`,
-   `sandboxMode=workspace-write`, `maxTurns=12`, `locale=en-US`, storage under
-   the home directory);
-2. `~/.argentgo/config.json` (home resolved from `HOME` or `USERPROFILE`);
-3. `<cwd>/.argent/config.json`;
-4. `<cwd>/argent.json`;
-5. the selected profile;
-6. `ARGENT_*` environment variables;
-7. explicit flag overrides (`-c` / `--config`).
+1. 编译默认值（`model=gpt-4o-mini`、`protocol=openai-chat-completions`、`sandboxMode=workspace-write`、`maxTurns=12`、`locale=en-US`、存储位于 home 目录下）；
+2. `~/.argentgo/config.json`（home 从 `HOME` 或 `USERPROFILE` 解析）；
+3. `<cwd>/.argent/config.json`；
+4. `<cwd>/argent.json`；
+5. 选中的 profile；
+6. `ARGENT_*` 环境变量；
+7. 显式的标志覆盖（`-c` / `--config`）。
 
-Objects merge recursively; arrays and scalars replace. Files may use JSONC
-(comments and trailing commas) and `{env:VAR}` / `{file:path}` references;
-relative `{file:}` paths resolve against the config file's directory.
+对象递归合并；数组和标量替换。文件可以使用 JSONC（注释和尾随逗号）以及 `{env:VAR}` / `{file:path}` 引用；相对的 `{file:}` 路径按配置文件所在目录解析。
 
-#### 5.2 Profiles and environment
+#### 5.2 Profile 与环境变量
 
-A profile is selected with `ARGENT_PROFILE` or the `profile` / `activeProfile`
-key, and defined inline under `profiles` in any file layer; an unknown name is an
-error when profiles exist. Recognised environment overrides include
-`ARGENT_MODEL`, `ARGENT_BASE_URL`, `ARGENT_API_KEY`, `ARGENT_PROTOCOL`,
-`ARGENT_LOCALE`, `ARGENT_SANDBOX_MODE`, `ARGENT_STORAGE_DIR`, `ARGENT_PROVIDER`,
-`ARGENT_MAX_TURNS` and `ARGENT_YOLO`. `-c key=value` overrides nest on dotted
-keys (for example `-c models.gpt-4o.contextWindow=128000`) and sit above all
-file and environment layers.
+profile 用 `ARGENT_PROFILE` 或 `profile` / `activeProfile` 键选择，并在任意文件层的 `profiles` 下内联定义；当存在 profiles 时，未知名称会报错。可识别的环境覆盖包括 `ARGENT_MODEL`、`ARGENT_BASE_URL`、`ARGENT_API_KEY`、`ARGENT_PROTOCOL`、`ARGENT_LOCALE`、`ARGENT_SANDBOX_MODE`、`ARGENT_STORAGE_DIR`、`ARGENT_PROVIDER`、`ARGENT_MAX_TURNS` 和 `ARGENT_YOLO`。`-c key=value` 的覆盖在点分键上嵌套（例如 `-c models.gpt-4o.contextWindow=128000`），位于所有文件和环境层之上。
 
-Storage defaults to `<home>/.argentgo`; sessions live in its `sessions/`
-subdirectory. Override it with `ARGENT_STORAGE_DIR` or `ARGENT_HOME`.
+存储默认在 `<home>/.argentgo`；会话在它的 `sessions/` 子目录里。可用 `ARGENT_STORAGE_DIR` 或 `ARGENT_HOME` 覆盖。
 
-#### 5.3 Version literals
+#### 5.3 版本字面量
 
-The version string `0.7.0` appears in three source literals and must be bumped
-together:
+版本字符串 `0.7.0` 出现在三个源码字面量中，必须一起升级：
 
-| File | Symbol / use |
+| 文件 | 符号 / 用途 |
 |---|---|
-| `internal/cli/cli.go` | `const Version` — `--version`, `/v1/health`, ACP `initialize`; the packaging scripts read this one. |
-| `internal/mcp/mcp.go` | `clientVersion` — MCP `clientInfo.version`. |
-| `internal/lsp/client.go` | `version` in the LSP `initialize` `clientInfo`. |
+| `internal/cli/cli.go` | `const Version` —— `--version`、`/v1/health`、ACP `initialize`；打包脚本读这一个。 |
+| `internal/mcp/mcp.go` | `clientVersion` —— MCP `clientInfo.version`。 |
+| `internal/lsp/client.go` | LSP `initialize` 请求 `clientInfo` 中的 `version`。 |
 
-`scripts/build-release.ps1` validates `-Version` / `-Tag` only against
-`cli.Version`; it does not check the other two. See
-[Distribution](USER_GUIDE.md#version-locations) for release-gate details.
+`scripts/build-release.ps1` 只针对 `cli.Version` 校验 `-Version` / `-Tag`；它不检查另外两个。发布门禁细节见 [Distribution](USER_GUIDE.md#version-locations)。
 
 ## Feature parity
 

@@ -2,16 +2,16 @@ package config
 
 import "strings"
 
-// StripJSONC removes // and /* */ comments and trailing commas from a JSONC
-// document, producing strict JSON that encoding/json can decode.
+// StripJSONC 从 JSONC 文档中移除 // 和 /* */ 注释以及尾随逗号，
+// 产出 encoding/json 可以解码的严格 JSON。
 //
-// It is a hand-written scanner: string contents (including sequences such as
-// "http://..." or "/* not a comment */") are copied verbatim, so a comment-like
-// fragment inside a quoted value can never be mistaken for syntax.
+// 它是一个手写的扫描器：字符串内容（包括
+// "http://..." 或 "/* not a comment */" 这样的序列）会被原样复制，
+// 因此带引号的值里类似注释的片段永远不会被误当作语法。
 func StripJSONC(text string) string {
-	// A UTF-8 BOM (common in files saved by PowerShell 5.x) is not JSON
-	// whitespace; drop it at the shared entry so every caller can feed the
-	// result straight to encoding/json.
+	// UTF-8 BOM（在 PowerShell 5.x 保存的文件中常见）不是 JSON
+	// 空白；在公共入口处剥离它，使每个调用方都能把结果
+	// 直接交给 encoding/json。
 	text = strings.TrimPrefix(text, "\ufeff")
 	var out strings.Builder
 	out.Grow(len(text))
@@ -22,7 +22,7 @@ func StripJSONC(text string) string {
 		if inString {
 			out.WriteByte(char)
 			if char == '\\' && i+1 < len(text) {
-				// An escaped byte cannot close the string or open a comment.
+				// 被转义的字节不可能闭合字符串或开启注释。
 				out.WriteByte(text[i+1])
 				i += 2
 				continue
@@ -59,7 +59,7 @@ func StripJSONC(text string) string {
 					i++
 				}
 				if i+1 < len(text) {
-					i += 2 // consume the closing */
+					i += 2 // 消费掉结束的 */
 				}
 			default:
 				out.WriteByte(char)
@@ -81,9 +81,9 @@ func StripJSONC(text string) string {
 	return out.String()
 }
 
-// nextJSONCSignificant returns the index of the first byte at or after from
-// that is not whitespace and not part of a comment. Callers use it only while
-// outside a string, which is sufficient for trailing-comma detection.
+// nextJSONCSignificant 返回从 from 起（含）第一个既非空白
+// 也不属于注释的字节的索引。调用方只在字符串之外使用它，
+// 这足以检测尾随逗号。
 func nextJSONCSignificant(text string, from int) int {
 	for i := from; i < len(text); {
 		switch {
