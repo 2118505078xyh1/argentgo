@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round21 后，2026-11-20 12:50）
+
+> round21：接线 approval.list RPC（重连可列 pending 审批）、fail-soft inspector（ARGENT_INSPECTION=1 门控）、TTL 审批（ARGENT_APPROVAL_TTL 门控）、DefinitionCache（fingerprint 去重扫描）；新增指令快照继承（agent/instruction_snapshot.go）、4 个安全跨模块集成测试。全量 3000+ 测试 + race + linux 全绿（一次 session sidecar 同秒 flake 由并发会话的 071ce5f 修复，重跑绿）。
+> **诚实标注**：大量 building block 已接线（事件 hub、审批、inspector、TTL、缓存）；aider 深挖指出最后一个 L 级真实功能缺口是**有界验证反射循环**（max_reflections=3，验证失败反馈成下一轮 user turn），下一轮重点。客观天花板不变（生态分发、真实模型/生产验证）。
+
 ## 评分表（round20 后，2026-11-20 12:40）
 
 > round20（goose + opencode 接线）：**事件 hub 真正接入主流程**——app.Factory 创建 hub，runner.Prompt 注入 emit sink，Execute 的 Emit 里 `EmitEvent(ctx, event)` 发布真实 agent 事件，`/v1/event` SSE 与 `event/subscribe` RPC 现在收到实时事件（180+ 测试通过）。审批 pending 也已接（WithPendingApprovals：Add/Resolve）。另加 typed workflow 参数（secret-safe canary 测试）、审批 TTL/persistence、invisible-tag 扫描（4 解析器）、fail-soft inspector（deny-dominant+panic recovery）。全量 3000+ 测试、race、linux 全绿。
