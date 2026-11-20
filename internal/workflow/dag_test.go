@@ -157,8 +157,8 @@ func TestValidateDAG(t *testing.T) {
 	}
 }
 
-// The capability is wired into definition validation: a cycle or a dangling
-// step reference is rejected before any model or tool is invoked.
+// 用户中断。
+// 该能力已接入定义校验：循环或悬空步骤引用在任何模型或工具被调用前就被拒绝。
 func TestValidateDAGWiredIntoParseDefinition(t *testing.T) {
 	good := `{"steps":[
 		{"name":"scan","prompt":"scan"},

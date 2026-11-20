@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// panicBoundaryTool is a Tool whose Run is supplied by the test, so a fake can
-// panic without touching any real filesystem or process.
+// panicBoundaryTool 是一个 Run 由测试提供的 Tool，因此假对象可以
+// 在完全不触碰真实文件系统或进程的情况下 panic。
 type panicBoundaryTool struct {
 	name string
 	run  func(ctx context.Context, root string, args json.RawMessage) (string, error)

@@ -9,12 +9,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestClassifyAPIErrorAuthSpacedPhrasing covers the real-world credential
-// errors that put a few words between "api key" and the verdict. The old
-// authRE only matched the adjacent forms ("invalid api key", "api_key=..."),
-// so OpenAI's "Incorrect API key provided" and the equally common "Your API
-// key is invalid" fell through to FamilyUnknown, whose UserAction is "none" —
-// the user was never guided to re-login.
+// TestClassifyAPIErrorAuthSpacedPhrasing 覆盖真实世界的凭据错误，
+// 它们在 "api key" 与判定语之间插入了几个词。旧的
+// authRE 只匹配相邻形式（"invalid api key"、"api_key=..."），
+// 因此 OpenAI 的 "Incorrect API key provided" 和同样常见的 "Your API
+// key is invalid" 会落入 FamilyUnknown，其 UserAction 为 "none"——
+// 用户从未被引导去重新登录。
 func TestClassifyAPIErrorAuthSpacedPhrasing(t *testing.T) {
 	auth := []string{
 		"Incorrect API key provided: sk-proj-abcdefghijklmnop",
@@ -36,8 +36,8 @@ func TestClassifyAPIErrorAuthSpacedPhrasing(t *testing.T) {
 		})
 	}
 
-	// The new alternatives must not pull config, quota or rate-limit failures
-	// into the auth family just because they mention an api key.
+	// 新的可选分支不得仅仅因为提到 api key，就把 config、quota 或限流失败
+	// 拉入 auth 家族。
 	others := []struct {
 		msg  string
 		want string
@@ -57,12 +57,12 @@ func TestClassifyAPIErrorAuthSpacedPhrasing(t *testing.T) {
 	}
 }
 
-// TestClassifyAPIErrorIsIdempotentThroughWrappers checks the documented
-// contract that classifying an error twice yields the same result. A direct
-// type assertion only recognises an unwrapped *ActionableError; a wire client
-// that wraps it with %w would get a freshly derived copy whose detail is
-// duplicated ("额度或配额已用尽: chat: 额度或配额已用尽: ...") and whose family
-// can change when the message no longer carries the original signal.
+// TestClassifyAPIErrorIsIdempotentThroughWrappers 检查文档记录的
+// 约定：对错误分类两次会得到相同结果。直接
+// 类型断言只识别未包装的 *ActionableError；用 %w 包装它的线客户端
+// 会得到一个重新派生的副本，其细节被
+// 重复（"额度或配额已用尽: chat: 额度或配额已用尽: ..."），而且当消息
+// 不再携带原始信号时，其家族可能改变。
 func TestClassifyAPIErrorIsIdempotentThroughWrappers(t *testing.T) {
 	for _, baseErr := range []error{
 		errors.New("provider returned 402 Payment Required: insufficient quota"),
@@ -79,8 +79,8 @@ func TestClassifyAPIErrorIsIdempotentThroughWrappers(t *testing.T) {
 		}
 	}
 
-	// A caller-built ActionableError keeps its own family even when its
-	// message has no pattern that could reproduce it from text.
+	// 调用方构造的 ActionableError 保留自己的家族，即使其
+	// 消息中没有任何可从文本重现它的模式。
 	custom := &llm.ActionableError{Family: "custom_family", Message: "opaque upstream failure", NextStep: "contact support"}
 	if got := llm.ClassifyAPIError(fmt.Errorf("wrapped: %w", custom)); got != custom || got.Family != "custom_family" {
 		t.Fatalf("wrapped custom ActionableError = %#v, want the original", got)

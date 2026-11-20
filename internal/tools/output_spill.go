@@ -11,16 +11,16 @@ import (
 	"unicode/utf8"
 )
 
-// Centralized artifact spill for large tool results, ported from the omp audit
-// (output-meta.ts). It is a standalone utility: it is NOT wired into the tool
-// execution loop yet. Wiring notes live at the bottom of this file.
+// 针对大型工具结果的集中式产出溢出，移植自 omp 审计
+// （output-meta.ts）。它是一个独立工具：尚未接入工具的
+// 执行循环尚未接入。接线说明位于本文件末尾。
 
 const (
-	// spillMarkerOpen tags the middle-elision marker this package inserts. The
-	// marker's presence means the output has already been spilled, so a second
-	// SpillLargeOutput call is a no-op (no duplicate artifact, no misleading
-	// second recovery link). An ASCII tag keeps the guard stable across locales
-	// and independent of the marker's changing byte count.
+	// spillMarkerOpen 标记本包插入的中段省略标记。该标记
+	// 的存在意味着输出已经被溢出过，因此再次调用
+	// SpillLargeOutput 是空操作（不产生重复产出，也不产生误导性的
+	// 第二条恢复链接）。ASCII 标签使守卫跨语言环境保持稳定，
+	// 且不受标记字节数变化的影响。
 	spillMarkerOpen = "\n[output-spill: "
 	spillMarkerEnd  = "]\n"
 
@@ -28,10 +28,10 @@ const (
 	spillArtifactSuffix = ".log"
 )
 
-// SpillLargeOutput bounds a tool output for the model context. When output is
-// longer than threshold bytes it writes the full text to a fresh artifact under
-// dir and returns a head+tail view (middle elided) whose marker names the
-// artifact path, so the dropped bytes stay recoverable.
+// SpillLargeOutput 限制进入模型上下文的工具输出。当输出
+// 超过 threshold 字节时，它把全文写入 dir 下一个新的
+// 产出文件，并返回头+尾视图（中段省略），其标记命名
+// 产出路径，从而被丢弃的字节仍可恢复。
 //
 // 失败安全：写工件是尽力而为的。写入失败时输出仍会被截断，只是没有恢复链接，
 // 且 err 保持为 nil —— spill 失败绝不能把一次成功的工具调用变成错误。返回的 err
@@ -42,14 +42,14 @@ const (
 // 普通工具输出里仅出现标记片段不会被信任：否则任意输出都能绕过字节上限。
 // 切分点始终落在 UTF-8 字形边界上，因此中文和 emoji 不会被切坏。
 func SpillLargeOutput(output string, threshold int, dir string) (result string, artifactPath string, err error) {
-	// A non-positive threshold disables spilling; at or below the threshold the
-	// output already fits the context budget and is returned verbatim.
+	// 非正的 threshold 会禁用溢出；输出小于或等于阈值时
+	// 已经符合上下文预算，会被原样返回。
 	if threshold <= 0 || len(output) <= threshold {
 		return output, "", nil
 	}
-	// Already spilled: never spill a second time. Trust only an intact marker
-	// that names a real artifact, not a substring that happens to appear in
-	// untrusted tool output (which would bypass the bound entirely).
+	// 已经溢出过：绝不二次溢出。只信任命名了真实产出的完整标记，
+	// 而非恰好出现在不可信工具输出中的子串
+	// （那会完全绕过上限）。
 	if isOwnSpillResult(output, dir) {
 		return output, "", nil
 	}
@@ -108,7 +108,7 @@ func spillWindows(output string, threshold, reserve int) (head, tail string) {
 	return output[:headEnd], output[tailStart:]
 }
 
-// spillRuneCeil returns the smallest i >= at that starts a UTF-8 rune.
+// spillRuneCeil 返回 >= at 且开启一个 UTF-8 rune 的最小 i。
 func spillRuneCeil(s string, at int) int {
 	if at <= 0 {
 		return 0
@@ -123,12 +123,12 @@ func spillRuneCeil(s string, at int) int {
 	return i
 }
 
-// spillResultArtifacts scans text for complete markers emitted by
-// formatSpillMarker and returns the recovery paths they advertise. Matching the
-// whole marker (a numeric elision count, the link and the closing tag) instead
-// of just its "\n[output-spill: " prefix is essential: the prefix alone can
-// occur in arbitrary tool output, and treating that as "already spilled" would
-// skip both spilling and the ordinary output cap.
+// spillArtifacts 扫描文本，查找 formatSpillMarker 发出的完整标记，
+// 并返回它们公布的恢复路径。匹配整个标记
+// （数字省略计数、链接和闭合标签）而非仅匹配其 "\n[output-spill: " 前缀
+// 至关重要：仅前缀可能出现在任意工具输出中，
+// 把它当作"已经溢出"会跳过溢出
+// 和普通输出上限这两者。
 func spillResultArtifacts(text string) []string {
 	const elided = " bytes elided"
 	const link = "; full output: "
@@ -171,12 +171,12 @@ func spillResultArtifacts(text string) []string {
 	return paths
 }
 
-// spillArtifactAbsInDir reports whether p is a canonically-named, regular
-// artifact located inside dir, returning its absolute path when valid. This is
-// the single source of truth for artifact path validation: the idempotence
-// guard (isOwnSpillResult) and the line-range reader (readSpillRangeInDir)
-// share it, so a forged or escaping path cannot be mistaken for one of our
-// artifacts. The checks are unchanged from the original inlined version.
+// spillArtifactAbsInDir 报告 p 是否为位于 dir 内、规范命名的普通
+// 产出文件，有效时返回其绝对路径。这是产出路径校验的
+// 唯一真实来源：幂等守卫（isOwnSpillResult）与按行
+// 读取器（readSpillRangeInDir）共用它，因此伪造或越界的
+// 路径不会被误认为我们的产出。校验逻辑与最初的
+// 内联版本保持一致。
 func spillArtifactAbsInDir(dir, p string) (string, bool) {
 	if strings.TrimSpace(p) == "" {
 		return "", false
@@ -206,11 +206,11 @@ func spillArtifactAbsInDir(dir, p string) (string, bool) {
 	return absPath, true
 }
 
-// isOwnSpillResult reports whether text is a result this package actually
-// spilled: some marker must name an existing, canonically-named artifact under
-// the configured directory. A forged marker in untrusted tool output cannot
-// satisfy that, so such output is bounded normally instead of being passed
-// through verbatim.
+// isOwnSpillResult 报告 text 是否为本包实际
+// 溢出过的结果：某个标记必须指向已存在的、位于配置目录下的、
+// 规范命名的产出。不可信工具输出中的伪造标记无法
+// 满足这一点，因此此类输出会被正常限幅，而不是
+// 被原样透传。
 func isOwnSpillResult(text, dir string) bool {
 	for _, p := range spillResultArtifacts(text) {
 		if _, ok := spillArtifactAbsInDir(dir, p); ok {
@@ -220,10 +220,10 @@ func isOwnSpillResult(text, dir string) bool {
 	return false
 }
 
-// spillArtifactName is the filename contract of writeSpillArtifact: the fixed
-// prefix, a 16-character lowercase hex id and the fixed suffix. It is kept in
-// production code (rather than reusing the test-only regexp) so idempotence
-// checks cannot be fooled by a look-alike path.
+// spillArtifactName 是 writeSpillArtifact 的文件名契约：固定
+// 前缀、16 位小写十六进制 id 和固定后缀。它保留在
+// 生产代码中（而非复用仅用于测试的正则），使幂等
+// 检查不会被形似路径欺骗。
 func spillArtifactName(name string) bool {
 	if !strings.HasPrefix(name, spillArtifactPrefix) || !strings.HasSuffix(name, spillArtifactSuffix) {
 		return false
@@ -240,8 +240,8 @@ func spillArtifactName(name string) bool {
 	return true
 }
 
-// formatSpillMarker renders the middle-elision marker. The recovery path is
-// included only when the artifact was written successfully.
+// formatSpillMarker 渲染中段省略标记。恢复路径
+// 仅在产出写入成功时才包含。
 func formatSpillMarker(omitted int, path string) string {
 	if path == "" {
 		return fmt.Sprintf("%s%d bytes elided%s", spillMarkerOpen, omitted, spillMarkerEnd)
@@ -249,11 +249,11 @@ func formatSpillMarker(omitted int, path string) string {
 	return fmt.Sprintf("%s%d bytes elided; full output: %s%s", spillMarkerOpen, omitted, path, spillMarkerEnd)
 }
 
-// writeSpillArtifact persists the full output under dir with a safe,
-// collision-resistant filename. os.OpenFile with O_EXCL guarantees we never
-// overwrite an existing file, and the hex id contains no path separators or
-// shell metacharacters. It returns the created path or an error; callers decide
-// how to surface (or swallow) that error.
+// writeSpillArtifact 以安全的、防冲突的文件名把完整输出
+// 持久化到 dir 下。os.OpenFile 配合 O_EXCL 保证永不
+// 覆盖已有文件，且十六进制 id 不含路径分隔符或
+// shell 元字符。它返回创建的路径或错误；调用方决定
+// 如何呈现（或忽略）该错误。
 func writeSpillArtifact(dir string, data []byte) (string, error) {
 	if dir == "" {
 		dir = "."
@@ -293,7 +293,7 @@ func writeSpillArtifact(dir string, data []byte) (string, error) {
 	return "", fmt.Errorf("tools: could not create a unique spill artifact in %s", dir)
 }
 
-// randomSpillID returns 16 lowercase hex characters from the crypto RNG.
+// randomSpillID 从加密随机数生成器返回 16 位小写十六进制字符。
 func randomSpillID() (string, error) {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -303,21 +303,21 @@ func randomSpillID() (string, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Wiring notes (not implemented here, by design — this utility is optional):
+// 接线说明（设计上不在此实现 —— 此工具是可选的）：
 //
-//   - Where: after a tool's output is produced and before it is appended to the
-//     model context / session transcript. In this repo the ingress points are
-//     `clip(ctx, text)` and its callers (tools_builtin_bash.go,
-//     tools_builtin_read.go, tools_builtin_search.go, git_status.go, glob.go,
-//     repo_map.go) plus the TUI's `AppendTool`/`truncateToolOutput` in
-//     internal/tui/model_mutate.go. A single adapter that calls
-//     SpillLargeOutput(rawOutput, threshold, artifactDir) at those ingress
-//     points would give the model both a bounded body and a recovery path.
-//   - artifactDir convention: this codebase has no session artifact directory
-//     yet. Candidates are a per-session dir under the session store, or a
-//     `.argent/artifacts/` dir under the workspace (see the security note on
-//     never committing `.argent/`). The dir is intentionally a parameter here.
-//   - On a non-nil artifactPath, callers may emit an advisory notice ("full
-//     output saved to <path>"); the marker already contains the path, so a
-//     separate notice is optional. Never fail the tool on a spill write error.
+//   - 位置：在工具输出产生之后、被追加到
+//     模型上下文 / 会话记录。本仓库中的入口点是
+//     `clip(ctx, text)` 及其调用方（tools_builtin_bash.go、
+//     tools_builtin_read.go、tools_builtin_search.go、git_status.go、glob.go、
+//     repo_map.go），以及 TUI 中 internal/tui/model_mutate.go 的
+//     `AppendTool`/`truncateToolOutput`。一个在这些入口调用
+//     SpillLargeOutput(rawOutput, threshold, artifactDir) 的适配器即可
+//     同时给模型一个有界的正文和一条恢复路径。
+//   - artifactDir 约定：本代码库尚无会话产出目录，
+//     目前尚未实现。候选方案是会话存储下的按会话目录，或者
+//     workspace 下的 `.argent/artifacts/` 目录（见写入
+//     `.argent/` 的安全说明）。这里的目录有意作为参数保留。
+//   - 当 artifactPath 非 nil 时，调用方可以发出提示（"full
+//     output saved to <path>"）；标记已包含路径，因此
+//     单独的提示是可选的。绝不能因溢出写入失败而让工具失败。
 // ---------------------------------------------------------------------------

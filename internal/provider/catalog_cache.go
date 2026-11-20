@@ -1,12 +1,12 @@
-// Package provider model-catalog refresh strategy.
+// Package provider 模型目录刷新策略。
 //
-// This file ports the policy half of omp's model-manager.ts without any of its
-// I/O: no HTTP discovery, no cache database, no clock/side effects. A caller
-// owns the actual fetch and persistence; it calls ShouldRefresh to decide
-// whether to fetch, Merge to combine a fetched roster with the static table,
-// and FingerprintStatic to invalidate caches written against an older static
-// catalog. Keeping the policy pure makes it deterministic and safe to call from
-// any goroutine.
+// 本文件移植 omp 的 model-manager.ts 的策略部分，不含任何 I/O：无 HTTP 发现、无缓存数据库、无时钟/副作用。调用方拥有实际的抓取和持久化；它调用 ShouldRefresh 决定是否抓取，Merge 把抓取的名册与静态表合并，
+// 无 I/O：无 HTTP 发现、无缓存数据库、无时钟/副作用。调用方
+// 拥有实际的抓取和持久化；它调用 ShouldRefresh 决定是否
+// 抓取，Merge 把抓取的名册与静态表合并，
+// 以及 FingerprintStatic 使针对较旧静态目录写入的缓存
+// 失效。保持策略纯函数使其确定且可从任何 goroutine 安全调用。
+// 以及 FingerprintStatic 使针对较旧静态目录写入的缓存失效。保持策略纯函数使其确定且可从任何 goroutine 安全调用。
 package provider
 
 import (
@@ -17,45 +17,45 @@ import (
 	"time"
 )
 
-// Default catalog freshness knobs, matching omp's DEFAULT_CACHE_TTL_MS (2h)
-// and NON_AUTHORITATIVE_RETRY_MS (5min). Callers may pass their own values.
+// 默认目录新鲜度旋钮，匹配 omp 的 DEFAULT_CACHE_TTL_MS（2h）和 NON_AUTHORITATIVE_RETRY_MS（5min）。调用方可以传入自己的值。
+// 和 NON_AUTHORITATIVE_RETRY_MS（5min）。调用方可以传入自己的值。
 const (
 	DefaultCatalogTTL       = 2 * time.Hour
 	DefaultStaleRetryWindow = 5 * time.Minute
 )
 
-// RefreshPolicy controls when dynamic model discovery is allowed to run.
-// It mirrors omp's ModelRefreshStrategy.
+// RefreshPolicy 控制何时允许运行动态模型发现。
+// RefreshPolicy 控制何时允许运行动态模型发现。它镜像 omp 的 ModelRefreshStrategy。
 type RefreshPolicy string
 
-// Supported refresh strategies.
+// 支持的刷新策略。
 const (
-	// RefreshOnline always refreshes from the dynamic source, even when a
-	// fresh authoritative snapshot exists.
+	// RefreshOnline 总是从动态源刷新，即使存在新鲜的权威快照。
+	// 即使存在新鲜的权威快照。
 	RefreshOnline RefreshPolicy = "online"
-	// RefreshOffline never refreshes; only static data and an existing cache
-	// are used.
+	// RefreshOffline 从不刷新；只使用静态数据和已有缓存。
+	// 只使用静态数据和已有缓存。
 	RefreshOffline RefreshPolicy = "offline"
-	// RefreshOnlineIfUncached refreshes when there is no snapshot, when the
-	// snapshot exceeded its TTL, or when a non-authoritative snapshot aged past
-	// the short retry window. This is the default strategy.
+	// RefreshOnlineIfUncached 在没有快照、快照
+	// RefreshOnlineIfUncached 在没有快照、快照超过 TTL，或非权威快照超过短暂重试窗口时刷新。这是默认策略。
+	// 超过短暂重试窗口时刷新。这是默认策略。
 	RefreshOnlineIfUncached RefreshPolicy = "online-if-uncached"
 )
 
-// Model is the minimal catalog row the policy layer needs: a stable identity
-// for merging/de-duplicating and a display name so a discovered row can carry
-// a new name over a static one. The full wire model lives in internal/llm;
-// callers map between the two at the integration boundary.
+// Model 是策略层所需的最小目录行：稳定标识
+// 用于合并/去重，以及显示名称，使发现的行的名称
+// Model 是策略层所需的最小目录行：用于合并/去重的稳定标识和显示名称，使发现的行的名称能覆盖静态行的名称。完整线上模型在 internal/llm 中；
+// 调用方在集成边界在两者之间映射。
 type Model struct {
 	ID   string
 	Name string
 }
 
-// CatalogSnapshot is a point-in-time view of a provider's model catalog.
-// Authoritative reports that the snapshot came from a complete discovery
-// result (not a fallback after a failed fetch); Stale marks a snapshot that
-// must not enjoy the full TTL. FetchedAt is zero when no snapshot has ever
-// been stored.
+// CatalogSnapshot 是某 provider 模型目录的时间点视图。
+// Authoritative 表示快照来自完整发现结果
+// 调用方在集成边界在两者之间映射。
+// CatalogSnapshot 是某 provider 模型目录的时间点视图。Authoritative 表示快照来自完整发现结果（而非失败抓取后的回退）；Stale 标记不得享受完整 TTL 的快照。FetchedAt 在从未存储快照时为零。
+// 从未存储快照时为零。
 type CatalogSnapshot struct {
 	Models        []Model
 	Authoritative bool
@@ -63,8 +63,8 @@ type CatalogSnapshot struct {
 	FetchedAt     time.Time
 }
 
-// ParseRefreshPolicy normalizes a config/CLI string into a RefreshPolicy.
-// The boolean reports whether the value was recognized.
+// ParseRefreshPolicy 把配置/CLI 字符串规范化为 RefreshPolicy。布尔值报告该值是否被识别。
+// 布尔值报告该值是否被识别。
 func ParseRefreshPolicy(value string) (RefreshPolicy, bool) {
 	policy := RefreshPolicy(strings.ToLower(strings.TrimSpace(value)))
 	switch policy {
@@ -75,21 +75,21 @@ func ParseRefreshPolicy(value string) (RefreshPolicy, bool) {
 	}
 }
 
-// ShouldRefresh decides whether dynamic discovery should run now.
+// ShouldRefresh 决定是否现在应运行动态发现。策略语义：
 //
-// Policy semantics:
-//   - offline: never.
-//   - online: always.
-//   - online-if-uncached (and any unrecognized policy, treated as the
-//     conservative default): refresh when there is no snapshot, when its age
-//     exceeds ttl, or when it is non-authoritative and its age reached
+// 策略语义：
+//   - offline：从不。
+//   - online：总是。
+//   - online-if-uncached（以及任何未识别的策略，视为保守默认）：在没有快照、快照年龄超过 ttl，或非权威且年龄达到短重试窗口时刷新。
+//     保守默认）：在没有快照、快照年龄超过 ttl，或非权威且
+//     年龄达到短重试窗口时刷新。
 //     staleRetryWindow.
 //
-// A snapshot counts as authoritative only when Authoritative is true and Stale
-// is false, so a stale snapshot is refreshed on the short retry window rather
-// than waiting out the full TTL. A zero FetchedAt means "uncached". Negative
-// ages (a clock moved backwards) are clamped to zero. Passing a non-positive
-// staleRetryWindow makes non-authoritative snapshots refresh immediately.
+// 只有 Authoritative 为 true 且 Stale 为 false 时快照才算权威，因此陈旧快照在短重试窗口刷新，而非等完整 TTL。零 FetchedAt 表示"未缓存"。负
+// 为 false，因此陈旧快照在短重试窗口刷新，而非
+// 等完整 TTL。零 FetchedAt 表示"未缓存"。负
+// 年龄（时钟倒退）被限制为零。传入非正的
+// 年龄（时钟倒退）被限制为零。传入非正的 staleRetryWindow 使非权威快照立即刷新。
 func ShouldRefresh(snapshot CatalogSnapshot, now time.Time, ttl, staleRetryWindow time.Duration, policy RefreshPolicy) bool {
 	if policy == RefreshOffline {
 		return false
@@ -114,11 +114,11 @@ func ShouldRefresh(snapshot CatalogSnapshot, now time.Time, ttl, staleRetryWindo
 	return false
 }
 
-// Merge overlays discovered models on the static catalog by ID. Static rows
-// keep their order; a discovered row with a known ID replaces that row in
-// place, and discovered-only IDs are appended. Empty IDs are ignored, and the
-// last duplicate of an ID wins (matching the map-based merge in omp). The
-// returned slice is fresh and never aliases either input.
+// Merge 按 ID 把发现的模型叠加到静态目录上。静态行
+// 保持顺序；ID 已知的行就地替换，仅发现的行
+// 追加。空 ID 被忽略，ID 的最后一个重复项胜出（匹配 omp 中基于 map 的合并）。
+// Merge 按 ID 把发现的模型叠加到静态目录上。静态行保持顺序；ID 已知的行就地替换，仅发现的行追加。空 ID 被忽略，ID 的最后一个重复项胜出（匹配 omp 中基于 map 的合并）。
+// 返回的切片是全新的且绝不与任一输入共享底层数组。
 func Merge(static, discovered []Model) []Model {
 	order := make([]string, 0, len(static)+len(discovered))
 	byID := make(map[string]Model, len(static)+len(discovered))
@@ -143,10 +143,10 @@ func Merge(static, discovered []Model) []Model {
 	return out
 }
 
-// FingerprintStatic returns a stable content identity for a static catalog.
-// A cached snapshot written against one fingerprint must be discarded when
-// the current fingerprint differs (a static-table upgrade or policy change).
-// Length-prefixing each field avoids ambiguity between model ids and names.
+// FingerprintStatic 返回静态目录的稳定内容标识。当当前指纹不同（静态表升级或策略修改）时，针对某一指纹写入的缓存快照必须丢弃。
+// 当当前指纹不同（静态表升级或策略修改）时，针对某一指纹写入的缓存快照
+// 必须丢弃。
+// 每个字段加长度前缀避免模型 id 与名称之间的歧义。
 func FingerprintStatic(models []Model) string {
 	var b strings.Builder
 	for _, model := range models {

@@ -1,0 +1,300 @@
+2401	// 让 `go build` 启动任意二进制，绕过命令白名单。
+2402	// ExecResult 是一次 exec 检查观察到的结果。StdoutTail 和
+2403	// StderrTail 最多保存最后 64KB 输出，被截断时带有前缀标记（标记保持在 rune 边界上）。
+2404	// 被截断时（标记保持在 rune 边界上）。
+2405	// RunExecCheck 在 workspace 内运行 c。该工作区预期是由 eval harness 种入的
+2406	// 由 eval harness 种入的一次性临时目录；此函数从不
+2407	// 一次性临时目录；此函数从不自行切换目录，也从不启动 shell。
+2408	// 在应用 Dir 之前，先在父级的上下文中把 "go" 解析为绝对路径。
+2409	// 应用。否则工作区中被种入的 go.exe 可能被选中。
+2410	// 否则，工作区中被种入的 go.exe 可能在 Windows 上被相对的 PATH 条目选中。
+2411	// 启动/chdir 失败：命令从未运行，因此绝不能评分成
+2412	// 启动/chdir 失败：命令从未运行，因此绝不能评分成成功的退出 0。
+2413	// execDeadline 将 fixture 的 TimeoutMS 解析为有界的挂钟截止时间。小于等于零的值使用默认值；超过上限的值
+2414	// 截止时间。小于等于零的值使用默认值；超过上限的值
+2415	// 被限制到上限。
+2416	// 上限在转换为 time.Duration 之前先以毫秒应用。
+2417	// 先用大整数乘以 time.Millisecond 可能使 int64 溢出并回绕成负时长，那会立即触发 context 截止时间
+2418	// 回绕成负时长，那会立即触发 context 截止时间
+2419	// 而非应用文档记载的 120s 上限。
+2420	// GradeExecCheck 是纯评分函数：退出码必须匹配，且在被要求时
+2421	// GradeExecCheck 是纯评分函数：退出码必须匹配，且在被要求时 stdout 必须包含 needle。超时或启动失败
+2422	// 总是失败。非零退出恰好是检查想要的结果时是可以的。
+2423	// execEnvironment 去掉 GOFLAGS，使 fixture 无法通过环境把额外标志（例如 -toolexec）偷偷带入白名单的 go 命令。
+2424	// 例如 -toolexec）通过环境带入白名单的 go 命令。
+2425	// tailBuffer 只保留写入它的最后 execOutputCap 字节。裁剪
+2426	// tailBuffer 只保留写入它的最后 execOutputCap 字节。裁剪会前进到下一个 rune 边界，使尾部从不从 UTF-8 rune 中间开始。
+2427	// 前进到 rune 边界可能比 execOutputCap 本身丢弃更多字节，因此保留的尾部短于 cap。
+2428	// 本身丢弃更多字节，因此保留的尾部短于 cap。
+2429	// 截断到恰好复制过去的字节。在这里截断到 cap
+2430	// 会在尾部留下复制前的陈旧字节（可能
+2431	// 截断到恰好复制过去的字节。在这里截断到 cap 会在尾部留下复制前的陈旧字节（可能是半个 rune），String() 随后会暴露它们。
+2432	// 本文件在核心 eval 套件之上增加了一层 golden 快照。常规套件只断言 core.json 中每个场景的期望；golden 快照还冻结少数稳定场景的
+2433	// 常规套件只断言 core.json 中每个场景的期望；golden 快照还冻结
+2434	// 少数稳定场景的*可观察输出*，使静默变化
+2435	// 可观察输出，使循环中事件序列或最终答案的静默变化
+2436	// 导致测试失败而非悄悄溜过。
+2437	// 这里的一切都仅用于测试：它复用同包中的 fakeRun（脚本化循环）和
+2438	// runOne（harness），不添加导出符号，也不需要真实模型、网络或时钟。
+2439	// 也不需要真实模型、网络或时钟。
+2440	// goldenScenarios 选择 core.json 的一个小而确定的子集。这些都不依赖网络、时钟或随机性：每个回复来自
+2441	// 这些都不依赖网络、时钟或随机性：每个回复来自
+2442	// 脚本化 provider，每个文件都被种入临时工作区。
+2443	// 四个用例覆盖不同行为：普通回答、工具结果喂给
+2444	// 四个用例覆盖不同行为：普通回答、工具结果喂给下一次请求、审批门、策略门以及双工具/三轮
+2445	// updateGolden 报告调用方是否要求重新生成快照。
+2446	// 使用环境变量而非标志，使 `go test` 的标志保持
+2447	// 使 `go test ./internal/eval` 保持其通常行为。
+2448	// TestGoldenScenarios 通过脚本化循环运行每个选定场景并
+2449	// TestGoldenScenarios 通过脚本化循环运行每个选定场景，并将其规范化输出与提交的 golden 文件比较。不匹配时
+2450	// 打印行级 diff。设置 ARGENT_UPDATE_GOLDEN=1 可重写快照。
+2451	// runOne 对场景评分并返回可观察结果：
+2452	// 工具事件序列、最终助手文本、轮数、
+2453	// 工具事件序列、最终助手文本、轮数、
+2454	// 停止标志以及通过/原因结果。对这些脚本化场景它是完全确定的。
+2455	// formatGolden 将 Result 渲染为稳定、易读的快照。格式是面向行的，使行为变化产生可读的 diff。
+2456	// 格式面向行，使行为变化产生可读的 diff。
+2457	// 末尾的助手文本原样保留（这些脚本只包含
+2458	// 末尾的助手文本原样保留（这些脚本只包含短的单行 ASCII 答案），放在显式分隔符内。
+2459	// diffText 生成一个小的统一风格行 diff 作为不匹配提示。
+2460	// 它使用 LCS，使未变化的上下文行对齐而非全部偏移。
+2461	// findOrchestrationScenario 返回磁盘上具有给定 ID 的场景。
+2462	// TestOrchestrationExtraScenariosLoadAndPass 固定扩展套件：文档至少包含十个场景，四个复杂场景存在，
+2463	// 文档至少包含十个场景，四个复杂场景存在，
+2464	// 且每个场景都通过真实循环/真实 task 工具。
+2465	// TestOrchestrationExtraScenariosDriveTheRealLoop 记录新场景中什么是真实的：
+2466	// TestOrchestrationExtraScenariosDriveTheRealLoop 记录新场景中什么是真实的：不得走直接的 board-API 捷径，且每个必须
+2467	// 断言子运行次数加最终答案内容。
+2468	// TestOrchestrationExtraAssertionsDetectCorruption 证明新期望是真实的：每个场景破坏一个断言必须产生具体的
+2469	// 是真实的：每个场景破坏一个断言必须产生具体的
+2470	// 失败，原因中带断言名，绝不是静默通过。
+2471	// 失败，原因中带有断言名，绝不是静默通过。
+2472	// TestOrchestrationMatchViolationsAreDetected 证明请求内容检查是承重的。S8 对真实 depth-guard 工具错误文本的匹配
+2473	// 是拒绝确实到达子级的断言，因此把它
+2474	// 改成循环无法产生的字符串必须使场景失败。
+2475	// 是拒绝确实到达子级的断言，因此把它改成循环无法产生的字符串必须使场景失败。
+2476	// TestOrchestrationSuitePasses 是端到端检查：所有场景都通过真实 agent 循环/真实 task 工具运行并必须通过其具体
+2477	// TestOrchestrationSuiteCoverage 固定场景集合，使某个编排机制的静默删除无法悄悄降低覆盖率。
+2478	// 某个编排机制的静默删除无法悄悄降低覆盖率。
+2479	// TestOrchestrationAssertionsDetectAWrongScenario 证明断言是
+2480	// TestOrchestrationAssertionsDetectAWrongScenario 证明断言是真实的：破坏一个期望计数必须使 harness 报告带
+2481	// 具体原因的失败，而非静默通过。
+2482	// TestOrchestrationReportCountsKeepsGoing 检查一个坏场景不会停止套件且报告保持完整。
+2483	// 停止套件且报告保持完整。
+2484	// TestParseOrchestrationAcceptsABareArray 覆盖加载器宣称的第二种文档形态。
+2485	// 加载器宣称的第二种文档形态。
+2486	// 端到端编排 eval。
+2487	// 与核心套件（其 fakeRun 是循环的手写替身）不同，
+2488	// 此 harness 驱动真实的 agent 循环和真实的 task 工具。唯一注入的假对象是真实 harness 总会注入的：一个假模型
+2489	// 注入的假对象是真实 harness 总会注入的：假模型
+2490	// （llm.Chatter，如 scripted.go 的 Scripted）和一个用于非 task 工具的 no-op ToolRunner。
+2491	// Persona 解析、PARENT-RECHECK 验证、有界重试循环、后台队列/排空以及 TaskBoard 全都是
+2492	// 重试循环、后台队列/排空以及 TaskBoard 全都是真实的
+2493	// 来自 internal/agent 的真实实现。
+2494	// 假模型是*路由式*的而非单一全局队列：子代理
+2495	// 假模型是*路由式*的而非单一全局队列：子代理与其父级共享 Chatter，因此脚本必须按参与者
+2496	// （根/子/验证子）选择回复。scripted.go 中的 Scripted 做不到；
+2497	// 本文件复用其 Respond/ToolCall 线上类型，但按请求的
+2498	// 系统提示路由每一轮。这让单个 JSON 文档能描述整个多轮委派，包括交错在
+2499	// 描述整个多轮委派，包括交错在父级各轮之间的
+2500	// 子级轮次。
+2501	// 父级各轮之间的子级轮次。
+2502	// 无网络、无真实模型、无 cgo。后台场景用 channel 门控子级回复，使"先确认、后结果"是确定的。
+2503	// 脚本目标。"verify" 也是子级（它运行嵌套循环），但
+2504	// 脚本目标。"verify" 也是子级（它运行嵌套循环），但因验证提示很独特而被单独分类。
+2505	// orchRootSystem 是根请求的系统提示。系统消息与之不同的任何请求都是子代理请求。
+2506	// 系统消息与之不同的任何请求都是子代理请求。
+2507	// OrchestrationScenario 是一个脚本化多轮编排 eval。
+2508	// Kind 对直接的 TaskBoard API 场景为 "board"（board 工具尚不可从循环到达；TaskBoardIO 只是为将来
+2509	// 尚不可从循环到达；TaskBoardIO 只是为将来准备的
+2510	// board_post / board_read 工具准备的接口）。其他情况都驱动真实循环。
+2511	// Prompt 是第一个（根）提示。FollowupPrompt 设置后作为同一 runner 上的
+2512	// 同一 runner 上的第二个提示，使排队的后台结果被排入
+2513	// 第二个提示发送，使排队的后台结果被排入该运行的合成用户轮次。
+2514	// System 设置后追加到根系统标记，使场景仍能描述根提示而不与子提示冲突。
+2515	// 仍能描述根提示而不与子提示冲突。
+2516	// Personas 作为真实的 ResolvePersona resolver 安装到 task 工具上。
+2517	// Turns 是假模型脚本，按轮次发生的顺序。Target 选择哪个参与者消费每条记录。
+2518	// 哪个参与者消费每条记录。
+2519	// Board 仅被直接的 API（"board"）场景使用。
+2520	// OrchPersona 是交给真实 persona resolver 的具名子代理定义。
+2521	// OrchTurn 是一条假模型回复。Respond 复用核心套件的线上类型。
+2522	// Match 列出必须出现在触发此轮的请求中的子串（消息文本、工具名和工具参数）。
+2523	// 此轮的请求中的子串（消息文本、工具名和工具参数）。
+2524	// Respond 是回复，复用 internal/eval 的脚本化响应形态。
+2525	// BlockUntilRelease 用 harness 的 release channel 门控后台子级的回复，
+2526	// BlockUntilRelease 用 harness 的 release channel 门控后台子级的回复，使"先确认、后结果"契约可观察。
+2527	// OrchAssertion 是一个具体检查。Equals 用于计数和精确
+2528	// OrchAssertion 是一个具体检查。Equals 用于计数和精确有序列表（Values）；Value 用于子串检查。
+2529	// OrchBoard 描述一个直接的 TaskBoard 发布/读取流程。
+2530	// OrchBoardPost 是真实 TaskBoard 上的一次发布。
+2531	// OrchBoardRead 是真实 TaskBoard 上的一次读取。Name 标记该观察，使断言能检查其消息数。
+2532	// 使断言能检查其消息数。
+2533	// OrchestrationFailure 是一个失败场景的诊断。
+2534	// OrchestrationReport 汇总一次运行。字段名是任务
+2535	// OrchestrationReport 汇总一次运行。字段名是任务要求的：Total、Passed、Failed、Failures。
+2536	// LoadOrchestration 从磁盘读取编排场景文档。
+2537	// ParseOrchestration 解码 {"scenarios":[...]} 或裸数组。
+2538	// orchRequest 是假模型对一次请求的视图。保留 phase 和 target 使评分器能精确断言消息角色和参与者数量。
+2539	// 使评分器能精确断言消息角色和参与者数量。
+2540	// orchChatter 是路由式假模型。它镜像 scripted.go 的 Scripted，但为每个 target 保留一个游标而非单一全局游标，因为父级
+2541	// 为每个 target 保留一个游标而非单一全局游标，因为父级
+2542	// 循环及其子代理共享同一个 Chatter 实例。
+2543	// 后台门控。当脚本化子级轮次设置 BlockUntilRelease 时，
+2544	// 后台门控。当脚本化子级轮次设置 BlockUntilRelease 时，回复在此等待；子级进入时发信号 started。
+2545	// classify 仅用请求字节区分根请求与子级、验证子级与原始子级。
+2546	// 与原始子级，仅用请求字节。
+2547	// 保持分发与 Scenario.Validate 一致，后者检查裁剪后的名称：手写脚本中带填充的名称必须到达目标工具，而不是 registry 精确名称查找产生的
+2548	// 检查裁剪后的名称：手写脚本中带填充的名称
+2549	// 必须到达目标工具，而不是未知工具
+2550	// 未知工具错误。
+2551	// orchTools 是用于非 task 工具的 no-op ToolRunner。task 工具本身由 internal/agent 中真实的 newToolset 包装在这个 runner 之上。
+2552	// 由 internal/agent 中真实的 newToolset 包装在这个 runner 之上。
+2553	// noticeSink 收集父级通知；后台子级从自身 goroutine 发出，因此用
+2554	// noticeSink 收集父级通知；后台子级从自身 goroutine 发出，因此用互斥锁保护。
+2555	// orchObservation 是 harness 拥有的某次场景运行的视图。
+2556	// RunOrchestration 通过真实 agent 循环运行每个场景并返回完整报告。一个失败的场景永不停止套件。
+2557	// 完整报告。一个失败的场景永不停止套件。
+2558	// runOneOrchestration 为一个场景驱动真实 agent 循环（或直接的 board API），并收集断言要评分的观察结果。
+2559	// 一个场景并收集断言要评分的观察结果。
+2560	// 真实的 persona resolver、真实的后台队列。NewChild 有意
+2561	// 真实的 persona resolver、真实的后台队列。NewChild 有意留空，使 task 工具构建真实的 *agent.Runner 子循环。
+2562	// 后台场景：第一次运行必须在子级仍
+2563	// 阻塞于假模型时返回。只有随后我们释放它并发送第二个
+2564	// 后台场景：第一次运行必须在子级仍阻塞于假模型时返回。只有随后我们释放它并发送第二个
+2565	// 提示，把排队结果排入合成用户轮次。
+2566	// collectRequests 把假模型记录的请求与运行结果折叠进观察。phaseFilter "" 收集第一次运行的请求。
+2567	// runBoardScenario 直接演练真实 TaskBoard API。没有
+2568	// runBoardScenario 直接演练真实 TaskBoard API。循环中还没有 board_post / board_read 工具（TaskBoardIO 只是未来的
+2569	// 接缝），因此这有意是一个直接的 API 场景。
+2570	// checkOrchestration 对一个观察评分，所有断言成立时返回 ""。每个失败都是具体的：计数、子串或消息角色。
+2571	// 成立时返回 ""。每个失败都是具体的：计数、子串或消息角色。
+2572	// Workspace 是 RunFunc 运行一个场景所需的一切。
+2573	// Dir 是种入的临时目录，必须是循环的 cwd。
+2574	// Chatter 是该场景的脚本化 provider。直接与 provider 对话的 runner（而非接受 provider 的循环）使用它。
+2575	// 直接与 provider 对话的 runner（而非接受 provider 的循环）使用它。
+2576	// Trace 是一次运行报告自身的內容。
+2577	// Tools 是按顺序运行过的工具名。
+2578	// Text 是最终助手答案。
+2579	// Usage 是模型报告的累计计费用量。
+2580	// Stopped 报告结束运行的不是模型：轮数上限、策略拦截、取消。
+2581	// 轮数上限、策略拦截、取消。
+2582	// RunFunc 执行一个场景。harness 种入工作区并评分结果；调用方拥有循环，因此本包从不导入 agent。
+2583	// 结果；调用方拥有循环，因此本包从不导入 agent。
+2584	// 返回 context.Canceled 或 context.DeadlineExceeded 被视为正常取消而非失败。
+2585	// 取消而非失败。
+2586	// Options 配置一次套件运行。
+2587	// Verbose 为每个场景添加一行 TAP 诊断。
+2588	// Out 接收类似 TAP 的报告。默认为 os.Stdout。
+2589	// Keep 保留临时目录，用于调试失败。
+2590	// Result 是一个场景的评分结果。
+2591	// Duration 是执行场景所花的挂钟时间。它是
+2592	// Duration 是执行场景所花的挂钟时间。它是 AggregateScores 消费的诊断信号；从不影响评分。
+2593	// Report 汇总一次套件运行。
+2594	// Run 执行每个场景并打印类似 TAP 的报告。
+2595	// 任一场景失败时返回非 nil 错误；报告仍然完整，因此调用方可以同时打印两者。
+2596	// 因此调用方可以同时打印两者。
+2597	// runOne 种入临时工作区，在其中运行场景并评分。
+2598	// 被取消的运行是停止，而非 harness 失败。
+2599	// callRun 把 panic 的 runner 变成失败的场景而非死掉的
+2600	// workspacePath 在临时工作区内解析 fixture 声明的路径。
+2601	// 场景文件路径文档记载为相对于工作区，harness 承诺其 I/O
+2602	// 场景文件路径文档记载为相对于工作区，harness 承诺其 I/O 保持在 runOne 之后移除的一次性目录内。".." 或绝对路径会逃逸
+2603	// runOne 之后移除的一次性目录内。".." 或绝对路径会逃逸
+2604	// （在 Windows 上 filepath.Join 会把 "../x" 变成 dir 的父级），写入或检查临时目录之外的文件并在 RemoveAll 之后泄漏。应拒绝
+2605	// 检查临时目录之外的文件并在 RemoveAll 之后泄漏。应拒绝
+2606	// 这些路径，而不是静默突破边界。
+2607	// seed 将场景的起始文件写入工作区。
+2608	// observation 是 harness 拥有的脚本化 provider 所见内容的视图。
+2609	// evaluate 对一次运行评分，所有期望成立时返回 ""。
+2610	// exec 检查是严格选择加入的（AllowExec）。它们在其他检查之后运行于一次性临时工作区；没有该标志时绝不启动任何命令，因此现有 fixture 保持旧行为。
+2611	// 临时工作区在其他检查之后运行；没有该标志时
+2612	// 绝不启动任何命令，因此现有 fixture 保持旧行为。
+2613	// execFailureReason 将失败的 exec 检查渲染为 TAP 报告内容。
+2614	// checkWorkspace 在运行后验证种入的工作区。
+2615	// oneLine 让失败原因保持在一条 TAP 行内。
+2616	// clip 折叠空白并截断值以适合报告行。
+2617	// limit 计算字符（rune）数而非字节数：被裁剪的文本是模型
+2618	// limit 计算字符（rune）数而非字节数：被裁剪的文本是模型输出、种入的文件内容和 exec 输出，其中任何一个都可能包含 CJK 或
+2619	// emoji。按字节索引切片 Go 字符串过去会在切点留下半个 UTF-8 rune，使失败原因成为无效 UTF-8。少保留一个 rune
+2620	// rune 在切点，使失败原因成为无效 UTF-8。少保留一个 rune
+2621	// 并追加省略号，使结果仍至多为 limit 个 rune。
+2622	// Package eval 对脚本化模型运行确定性的 agent 场景。
+2623	// 单元测试证明函数返回它应返回的内容。它不证明 agent、其工具和其策略在修改后仍彼此一致。
+2624	// 单元测试证明函数返回它应返回的内容。它不证明 agent、其工具和其策略在修改后仍彼此一致。
+2625	// 这正是 eval 的用途：一组场景，每个带有脚本化模型，
+2626	// 针对真实循环运行并检查实际发生的事情。
+2627	// 这正是 eval 的用途：一组场景，每个带有脚本化模型，针对真实循环运行并检查实际发生的事情。
+2628	// 模型是脚本化的，因此 eval 是确定的且无成本。循环及其工具是真实的，因此损坏的工具会让 eval 失败。
+2629	//	    "name": "reads a file before answering",
+2630	//	    "prompt": "what is in notes.txt?",
+2631	//	    "files": {"notes.txt": "the release notes are here\n"},
+2632	//	      {"respond": {"tool_calls": [{"name": "read", "arguments": {"path": "notes.txt"}}]}},
+2633	//	      {"expect_request_contains": ["release notes"],
+2634	//	       "respond": {"text": "notes.txt says the release notes are here"}}
+2635	//	    "expect": {"tool_calls": ["read"], "text_contains": ["release notes"], "turns": 2},
+2636	//	    "check": {"files_exist": ["notes.txt"], "file_contains": {"notes.txt": "release"}}
+2637	// 本包不导入 agent：调用方注入 RunFunc，因此同一场景可以驱动任何循环实现。
+2638	// 因此同一场景可以驱动任何循环实现。
+2639	// ToolCall 是脚本化模型请求的一次工具调用。
+2640	// Arguments 是原始 JSON。也接受内含 JSON 的 JSON 字符串（"{\"path\":\"a\"}"），因为脚本是手写的。
+2641	// 也接受，因为脚本是手写的。
+2642	// UnmarshalJSON 接受对象或 JSON 字符串形式的参数。
+2643	// ArgumentsString 返回原始参数，默认为空对象。
+2644	// Respond 是脚本化模型为一轮返回的消息。
+2645	// Usage 是这一轮的计费用量，包括任何 cached_tokens 计数。
+2646	// ScriptTurn 是一条脚本化模型回复以及关于触发它的请求的可选期望。
+2647	// 触发它的请求。
+2648	// ExpectRequestContains 列出必须出现在发给模型的对话中的子串：消息文本、工具名、工具参数
+2649	// 发给模型的对话中的子串：消息文本、工具名、工具参数
+2650	// 和工具结果。这是场景断言工具结果确实
+2651	// 和工具结果。这是场景断言工具结果确实回到上下文的方式。
+2652	// ExpectRequestCacheFree 当请求中任何消息带有稳定前缀缓存标记时失败（提示缓存选择退出情形）。
+2653	// 稳定前缀缓存标记时失败（提示缓存选择退出情形）。
+2654	// ExpectRequestCached 当没有消息带有缓存标记时失败。
+2655	// Expect 是场景期望已发生的事情。
+2656	// ToolCalls 是精确的工具序列，按顺序。nil 表示"不检查"；空（非 nil）列表表示"不得运行任何工具"。
+2657	// "不检查"；空（非 nil）列表表示"不得运行任何工具"。
+2658	// TextContains 列出最终答案必须包含的子串。
+2659	// TextNotContains 列出最终答案不得包含的子串。
+2660	// Turns 是期望的模型轮数，由 harness 从脚本化 provider 计数，而非由循环报告。
+2661	// 由脚本化 provider 计数，而非由循环报告。
+2662	// Stopped 说明运行是否被模型完成以外的事情停止：轮数上限、策略拦截、取消。
+2663	// 模型完成以外的事情：轮数上限、策略拦截、取消。
+2664	// CachedTokens 是期望的缓存提示 token 总数，由
+2665	// CachedTokens 是脚本化 provider 报告的缓存提示 token 期望总数。nil 表示"不检查"。
+2666	// Check 在运行后检查工作区。
+2667	// FilesExist 列出必须存在的、相对于工作区的路径。
+2668	// FileContains 将路径映射到其内容必须包含的 needle。
+2669	// Exec 设置且 AllowExec 为 true 时，在其他检查之后运行于种入的临时工作区（见 RunExecCheck / GradeExecCheck）。
+2670	// 种入的临时工作区在其他检查之后运行（见 RunExecCheck / GradeExecCheck）。
+2671	// AllowExec 是对 Exec 的显式选择加入。命令执行
+2672	// AllowExec 是对 Exec 的显式选择加入。命令执行默认关闭：没有 AllowExec 的 Exec 永不运行，因此场景文档无法执行
+2673	// 未明确点名的命令。
+2674	// Scenario 是一个脚本化 eval 用例。
+2675	// Model 和 System 原样传给循环；Model 默认为
+2676	// Provider 是假模型重放的脚本，每轮一条。
+2677	// Files 在运行前种入工作区，路径 → 内容。
+2678	// 下面的字段是给调用方 RunFunc 的提示。harness 本身
+2679	// 下面的字段是给调用方 RunFunc 的提示。harness 本身只强制 Repeat（通过脚本化 provider）；其余描述场景想让循环做什么，使 runner 不必
+2680	// 场景想让循环做什么，使 runner 不必
+2681	// 按名称对场景做特例处理。
+2682	// MaxTurns 是运行的轮数预算（0 = 循环的默认值）。
+2683	// CancelAfter 要求 runner 在那么多轮后取消运行。
+2684	// Approve 是审批门应给出的答案（nil = runner 的默认值）。
+2685	// DenyPaths 列出策略必须拒绝的路径。
+2686	// Repeat 循环播放脚本，使模型永不自行停止，只有上限结束运行。
+2687	// 且只有上限结束运行。
+2688	// PromptCache 是 runner 提示：当 runner 组装支持缓存的请求时标记稳定的系统前缀。
+2689	// runner 组装支持缓存的请求时标记稳定的系统前缀。
+2690	// NoPromptCache 镜像 --no-prompt-cache：runner 不得发出缓存标记，即使协议支持它们。
+2691	// 缓存标记，即使协议支持它们。
+2692	// DefaultModel 是场景未指定时交给循环的模型 id。
+2693	// Load 从磁盘读取场景文档。
+2694	// Parse 解码场景文档：{"scenarios": [...]} 或裸数组。
+2695	// 规范化之后再验证，使错误消息能点名场景，
+2696	// 规范化之后再验证，使错误消息能点名场景，包括那些继承了生成名称的场景。
+2697	// normalize 应用手写文档可能省略的默认值。
+2698	// Scripted 是重放场景脚本而非与 provider 对话的 llm.Chatter。它记录每个请求，使 harness 能检查
+2699	// 与 provider 对话。它记录每个请求，使 harness 能检查
+2700	// expect_request_contains 并统计轮数。

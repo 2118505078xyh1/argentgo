@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// PathToURI converts a filesystem path to a file:// URI. Windows paths become
-// file:///C:/x/y; characters outside the URI safe set are percent-encoded.
+// PathToURI 把文件系统路径转换为 file:// URI。Windows 路径变成
+// PathToURI 把文件系统路径转换为 file:// URI。Windows 路径变成 file:///C:/x/y；URI 安全集之外的字符被百分号编码。
 func PathToURI(path string) string {
 	cleaned := filepath.ToSlash(filepath.Clean(path))
 	if !strings.HasPrefix(cleaned, "/") {
@@ -32,7 +32,7 @@ func PathToURI(path string) string {
 	return out.String()
 }
 
-// URIToPath turns a file:// URI back into a filesystem path.
+// URIToPath 把 file:// URI 转回文件系统路径。
 func URIToPath(uri string) string {
 	rest := strings.TrimPrefix(uri, "file://")
 	decoded := make([]byte, 0, len(rest))
@@ -47,7 +47,7 @@ func URIToPath(uri string) string {
 		decoded = append(decoded, rest[i])
 	}
 	path := string(decoded)
-	// /C:/x is the URI form of C:\x.
+	// /C:/x 是 C:\x 的 URI 形式。
 	if len(path) > 2 && path[0] == '/' && path[2] == ':' {
 		path = path[1:]
 	}

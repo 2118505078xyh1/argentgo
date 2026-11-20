@@ -9,16 +9,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// TestSpecsForClampsLongDescription checks that the policy-filtered catalog
-// applies the same description cap as Specs. A long MCP/tool description is a
-// prompt-injection vector, so every catalog path that crosses the wire must
-// clamp it — not just Specs.
+// TestSpecsForClampsLongDescription 检查经策略过滤后的目录
+// 是否应用与 Specs 相同的描述长度上限。过长的 MCP/工具描述是
+// 提示注入的载体，因此每一条跨越传输层的目录路径都必须
+// 截断它 —— 而不只是 Specs。
 func TestSpecsForClampsLongDescription(t *testing.T) {
 	r := New(t.TempDir(), true)
 	const name = "specsfor_desc_cap"
 	long := strings.Repeat("中😀", maxToolDescLen)
-	// Register after wrapSchemas (as app Set* helpers do) so the tool is not
-	// wrapped and SpecsFor cannot rely on a decorator to clamp its description.
+	// 在 wrapSchemas 之后注册（如同 app 的 Set* 助手那样），使工具
+	// 不被包装，从而 SpecsFor 无法依赖装饰器来截断其描述。
 	r.tools[name] = descCapFakeTool{name: name, desc: long}
 	r.order = append(r.order, name)
 
@@ -40,11 +40,11 @@ func TestSpecsForClampsLongDescription(t *testing.T) {
 	}
 }
 
-// TestSpecsForAdvertisesIntentForLateWiredTools checks that tools replaced after
-// New (usage/history/checkpoint_diff via Set* helpers) still advertise the `i`
-// intent field in the policy-filtered catalog. Specs() injects it explicitly;
-// SpecsFor used to depend solely on the wrapper installed at construction, so
-// late-wired tools silently lost it.
+// TestSpecsForAdvertisesIntentForLateWiredTools 检查在 New 之后被替换的工具
+// （通过 Set* 助手替换的 usage/history/checkpoint_diff）仍在
+// 经策略过滤的目录中公布 `i` 意图字段。Specs() 会显式注入它；
+// SpecsFor 过去仅依赖构造时安装的包装器，因此
+// 后接入的工具会悄悄丢失它。
 func TestSpecsForAdvertisesIntentForLateWiredTools(t *testing.T) {
 	r := New(t.TempDir(), true)
 	r.SetUsageSource(&fakeUsageSource{json: `{"tokens":0}`})
@@ -76,7 +76,7 @@ func TestSpecsForAdvertisesIntentForLateWiredTools(t *testing.T) {
 		}
 	}
 
-	// The gate still honours the operator opt-out through SpecsFor as well.
+	// 该开关仍通过 SpecsFor 遵守操作员的 opt-out。
 	t.Setenv(intentSchemaEnv, "1")
 	for _, spec := range r.SpecsFor(nil, security.SandboxWorkspaceWrite) {
 		var schema struct {
@@ -91,8 +91,8 @@ func TestSpecsForAdvertisesIntentForLateWiredTools(t *testing.T) {
 	}
 }
 
-// TestSpecsForAndSpecsAgreeOnLateWiredTool asserts the contract that the two
-// catalog builders produce identical specs for the same registry state.
+// TestSpecsForAndSpecsAgreeOnLateWiredTool 断言这样一个契约：在相同注册表状态下，
+// 两个目录构建器产出完全一致的 spec。
 func TestSpecsForAndSpecsAgreeOnLateWiredTool(t *testing.T) {
 	r := New(t.TempDir(), true)
 	r.SetUsageSource(&fakeUsageSource{json: `{"tokens":0}`})

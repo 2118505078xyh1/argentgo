@@ -7,36 +7,36 @@ import (
 	"time"
 )
 
-// cronMonthNames and cronWeekdayNames are the English names used by the
-// human-readable description. Keeping them here (rather than in the CLI)
-// makes the description locale-independent and reusable by any frontend.
+// cronMonthNames 和 cronWeekdayNames 是易读描述中使用的英文名称。把它们保留在这里（而非 CLI）
+// 易读描述中使用的英文名称。把它们保留在这里（而非 CLI）
+// 使描述与语言环境无关且可被任何前端复用。
 var (
 	cronMonthNames   = [12]string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
 	cronWeekdayNames = [7]string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 )
 
-// CronDescription is a display-ready explanation of a schedule. Summary is a
-// short English sentence suitable for a CLI/TUI list, and Next holds the next
-// n firing times (in ascending order) strictly after the requested instant.
-// A schedule that cannot fire has an empty Next.
+// 使描述与语言环境无关且可被任何前端复用。
+// CronDescription 是调度的可直接展示的说明。Summary 是适合 CLI/TUI 列表的简短英文句子，Next 保存严格晚于请求时刻的
+// 接下来 n 个触发时间（升序）。
+// 无法触发的调度其 Next 为空。
 type CronDescription struct {
 	Expression string
 	Summary    string
 	Next       []time.Time
 }
 
-// String renders the short human-readable summary. Use Next directly when a
-// frontend wants to show the upcoming firing times.
+// String 渲染简短易读的摘要。当前端想显示接下来的触发时间时直接使用 Next。
+// 当前端想显示接下来的触发时间时直接使用 Next。
 func (d CronDescription) String() string { return d.Summary }
 
-// DescribeCron explains a five-field cron expression and computes its next n
-// firing times after after. It returns an error for an invalid expression.
-// Passing n <= 0 or a zero after skips the time computation, which is useful
-// when only the summary is needed (for example when rendering a task list).
+// DescribeCron 解释五字段 cron 表达式并计算其在此之后的接下来 n 个触发时间。表达式无效时返回错误。
+// 触发时间。表达式无效时返回错误。
+// 传入 n <= 0 或零 after 会跳过时间计算，这在只需要摘要时很有用（例如渲染任务列表时）。
+// 只需要摘要时很有用（例如渲染任务列表时）。
 //
-// The summary is built from the parsed field sets and the next times come from
-// the very same scheduler (ParseCron/Next) the daemon uses, so the description
-// cannot drift from what will actually run.
+// 摘要由解析后的字段集合构建，而接下来的时间来自
+// daemon 所使用的同一个调度器（ParseCron/Next），因此描述不会偏离实际会运行的内容。
+// 描述不会偏离实际会运行的内容。
 func DescribeCron(expr string, after time.Time, n int) (CronDescription, error) {
 	c, err := ParseCron(expr)
 	if err != nil {
@@ -49,8 +49,8 @@ func DescribeCron(expr string, after time.Time, n int) (CronDescription, error) 
 	}, nil
 }
 
-// Describe explains a schedule (cron or interval) and computes its next n
-// firing times after after. It is the general form of DescribeCron.
+// Describe 解释一个调度（cron 或间隔）并计算其在此之后的接下来 n 个触发时间。它是 DescribeCron 的通用形式。
+// 触发时间。它是 DescribeCron 的通用形式。
 func (s Schedule) Describe(after time.Time, n int) (CronDescription, error) {
 	kind := s.kind()
 	if kind == KindCron {
@@ -69,9 +69,9 @@ func (s Schedule) Describe(after time.Time, n int) (CronDescription, error) {
 	}, nil
 }
 
-// NextTimes returns the next n firing times strictly after after, in ascending
-// order. It returns nil when n <= 0, after is zero, or the schedule cannot fire.
-// Both cron and interval schedules are supported through Schedule.Next.
+// NextTimes 严格返回 after 之后接下来 n 个触发时间，按升序
+// NextTimes 严格返回 after 之后接下来 n 个触发时间，按升序排列。当 n <= 0、after 为零或调度无法触发时返回 nil。
+// cron 和间隔调度都通过 Schedule.Next 支持。
 func (s Schedule) NextTimes(after time.Time, n int) []time.Time {
 	if n <= 0 || after.IsZero() {
 		return nil
@@ -89,10 +89,10 @@ func (s Schedule) NextTimes(after time.Time, n int) []time.Time {
 	return out
 }
 
-// describeCronSummary renders c as a short English sentence. Common shapes
-// ("every minute", "every N minutes", "every day at HH:MM") get a dedicated
-// phrase; anything else falls back to a generic but still readable form built
-// from the allowed values of each field.
+// describeCronSummary 把 c 渲染为简短英文句子。常见形态
+// describeCronSummary 把 c 渲染为简短英文句子。常见形态（"every minute"、"every N minutes"、"every day at HH:MM"）有专用
+// 短语；其他情况回退到由允许值构建的通用但仍可读形式。
+// 短语；其他情况回退到由每个字段允许值构建的通用但仍可读的形式。
 func describeCronSummary(c *Cron) string {
 	minuteAll := cronFieldAll(c.minute, minuteMin, minuteMax)
 	hourAll := cronFieldAll(c.hour, hourMin, hourMax)
@@ -106,7 +106,7 @@ func describeCronSummary(c *Cron) string {
 		return "every minute"
 	}
 
-	// "*/N" over a whole hour, with every other field unrestricted.
+	// 整小时上的 "*/N"，且其他字段均不受限。
 	if hourAll && domAll && monthAll && dowAll && len(minutes) > 1 {
 		if step := minutes[1] - minutes[0]; step > 1 && minutes[0] == 0 &&
 			minutes[len(minutes)-1]+step > minuteMax {
@@ -123,12 +123,12 @@ func describeCronSummary(c *Cron) string {
 		}
 	}
 
-	// "every hour at :MM" on every day is more naturally just "hourly at :MM".
+	// 每天 "every hour at :MM" 更自然地写作 "hourly at :MM"。
 	if hourAll && domAll && dowAll && monthAll && len(minutes) == 1 {
 		return fmt.Sprintf("hourly at :%02d", minutes[0])
 	}
 
-	// The time-of-day phrase. It always starts with either "at " or "every ".
+	// 时刻短语。它总是以 "at " 或 "every " 开头。
 	var timePart string
 	switch {
 	case minuteAll && hourAll:
@@ -149,7 +149,7 @@ func describeCronSummary(c *Cron) string {
 		timePart = "at minutes " + formatIntList(minutes) + " during hours " + formatIntList(hours)
 	}
 
-	// The day phrase, including the Vixie dom/dow OR rule.
+	// 日期短语，包括 Vixie 的 dom/dow OR 规则。
 	var dayPart string
 	switch {
 	case domAll && dowAll:
@@ -174,7 +174,7 @@ func describeCronSummary(c *Cron) string {
 	return strings.Join(parts, sep) + sep + timePart
 }
 
-// cronFieldAll reports whether f contains every value in [min, max].
+// cronFieldAll 报告 f 是否包含 [min, max] 中的每个值。
 func cronFieldAll(f fieldSet, min, max int) bool {
 	for v := min; v <= max; v++ {
 		if !f.has(v) {
@@ -184,7 +184,7 @@ func cronFieldAll(f fieldSet, min, max int) bool {
 	return true
 }
 
-// cronFieldValues returns the sorted allowed values of f within [min, max].
+// cronFieldValues 返回 f 在 [min, max] 内的已排序允许值。
 func cronFieldValues(f fieldSet, min, max int) []int {
 	var out []int
 	for v := min; v <= max; v++ {
@@ -195,7 +195,7 @@ func cronFieldValues(f fieldSet, min, max int) []int {
 	return out
 }
 
-// formatIntList renders sorted integers, collapsing consecutive runs into
+// formatIntList 渲染已排序整数，把连续段折叠为
 // ranges ("1-5,8,10-12").
 func formatIntList(values []int) string {
 	var parts []string
@@ -214,18 +214,18 @@ func formatIntList(values []int) string {
 	return strings.Join(parts, ",")
 }
 
-// formatWeekdayList renders Sunday=0 .. Saturday=6 values as named days.
+// formatWeekdayList 把 Sunday=0 .. Saturday=6 的值渲染为具名星期。
 func formatWeekdayList(values []int) string {
 	return formatNamedList(values, 0, cronWeekdayNames[:])
 }
 
-// formatMonthList renders 1-based month values as named months.
+// formatMonthList 把 1 基月份值渲染为具名月份。
 func formatMonthList(values []int) string {
 	return formatNamedList(values, 1, cronMonthNames[:])
 }
 
-// formatNamedList renders sorted values using names[value-offset], collapsing
-// consecutive runs into named ranges ("Monday-Friday", "January-March").
+// formatNamedList 用 names[value-offset] 渲染已排序值，把连续段折叠为
+// 具名范围（"Monday-Friday"、"January-March"）。
 func formatNamedList(values []int, offset int, names []string) string {
 	var parts []string
 	for i := 0; i < len(values); {

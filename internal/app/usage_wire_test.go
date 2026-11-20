@@ -26,7 +26,7 @@ func TestUsageSourceReportsRealSnapshotJSON(t *testing.T) {
 	if got.Turn != 3 || got.Usage != usage || got.TotalUsage != total {
 		t.Fatalf("snapshot = %+v, want turn=3 usage=%+v total=%+v", got, usage, total)
 	}
-	// The JSON must use the documented wire keys, not Go field names.
+	// JSON 必须使用文档化的线上键，而非 Go 字段名。
 	for _, key := range []string{`"turn"`, `"usage"`, `"total_usage"`, `"prompt_tokens"`} {
 		if !strings.Contains(raw, key) {
 			t.Errorf("UsageJSON %q missing key %s", raw, key)
@@ -70,7 +70,7 @@ func TestUsageUnavailableWithoutWiredSource(t *testing.T) {
 	if out != "usage data unavailable" {
 		t.Fatalf("unwired usage tool = %q, want %q", out, "usage data unavailable")
 	}
-	// A nil source must be a no-op, not a panic.
+	// nil 的源必须是空操作，而不是 panic。
 	wireUsage(registry, nil)
 	wireUsage(nil, newUsageSource())
 }
@@ -96,8 +96,8 @@ func TestToolsetWiresUsageIntoEveryRegistryAndUpdateUsage(t *testing.T) {
 	if len(set.base.regs) == 0 {
 		t.Fatal("toolset has no registries")
 	}
-	// The first call reports a real (zero) snapshot rather than "unavailable"
-	// on every registry, proving SetUsageSource took effect at wiring time.
+	// 第一次调用报告真实的（零）快照，而非在所有注册表上都显示 "unavailable"，
+	// 证明 SetUsageSource 在接线时生效。
 	const unavailable = "usage data unavailable"
 	for i, reg := range set.base.regs {
 		out, err := reg.Run(context.Background(), "usage", `{}`)
@@ -122,7 +122,7 @@ func TestToolsetWiresUsageIntoEveryRegistryAndUpdateUsage(t *testing.T) {
 		}
 	}
 
-	// UpdateUsage on a nil toolset must stay a safe no-op.
+	// 对 nil 工具集的 UpdateUsage 必须保持安全的空操作。
 	var nilSet *toolset
 	nilSet.UpdateUsage(1, llm.Usage{}, llm.Usage{})
 }

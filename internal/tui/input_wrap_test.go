@@ -2,12 +2,12 @@ package tui
 
 import "testing"
 
-// The input box uses the same grapheme-boundary rule as the transcript: a ZWJ
-// family emoji, a regional-indicator flag and a combining sequence are single
-// visible glyphs and must never be folded across two rows. wrapInput used to
-// measure each rune on its own, so the second pictograph of a ZWJ sequence (or
-// the second flag letter) could be pushed onto the next row, leaving a dangling
-// joiner / half a flag behind.
+// 输入框使用与记录相同的字素边界规则：ZWJ
+// 家庭 emoji、区域指示符旗帜和组合序列都是单一
+// 可见字形，绝不能被折到两行。wrapInput 过去
+// 逐个 rune 测量，因此 ZWJ 序列中的第二个图形（或
+// 旗帜的第二个字母）可能被推到下一行，留下悬空的
+// 连接符 / 半面旗帜。
 func TestWrapInputKeepsGraphemeClustersWhole(t *testing.T) {
 	family := "A👨‍👩‍👧B" // A + family emoji + B, 1+2+1 = 4 cells
 	rows := wrapInput([]rune(family), 4)
@@ -33,7 +33,7 @@ func TestWrapInputDoesNotSplitFlagPair(t *testing.T) {
 	}
 }
 
-// Explicit newlines and ordinary wide/CJK text must keep their old behaviour.
+// 显式换行和普通宽/CJK 文本必须保持旧行为。
 func TestWrapInputStillFoldsLinesAndWideRunes(t *testing.T) {
 	rows := wrapInput([]rune("你ab\ncd"), 3)
 	want := []string{"你a", "b", "cd"}

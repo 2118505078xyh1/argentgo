@@ -2,36 +2,36 @@ package provider
 
 import "strings"
 
-// IsImportantProjectFile reports whether path names a high-value project file
-// that a repository map should keep even when a symbol/token budget would
-// otherwise crowd it out (the aider "important files first" guarantee).
+// IsImportantProjectFile 报告 path 是否命名一个高价值项目文件，即使符号/token 预算本会把它挤掉，仓库地图也应保留它（aider 的"重要文件优先"保证）。
+// 即使符号/token 预算本会把它挤掉，仓库地图也应保留它
+// （aider 的"重要文件优先"保证）。
 //
-// It is a pure classification helper: no I/O, no environment, no mutation of
-// its input. Matching is case-insensitive and looks only at the file's base
-// name, so directory prefixes (including CJK path segments and either slash
-// style) do not affect the result. It is meant to be called by the repo-map
-// tool when deciding which entries to pin into the map; keeping the policy here
-// lets that decision stay consistent across frontends without importing config.
+// 它是纯分类辅助函数：无 I/O、无环境、不修改输入。匹配不区分大小写且只看文件的基础
+// 它是纯分类辅助函数：无 I/O、无环境、不修改输入。匹配不区分大小写且只看文件的基础
+// 名，因此目录前缀（包括 CJK 路径段和任一斜杠
+// 名，因此目录前缀（包括 CJK 路径段和任一斜杠风格）不影响结果。它供 repo-map 工具在决定哪些条目钉入地图时调用；把策略放在这里
+// 工具在决定哪些条目钉入地图时调用；把策略放在这里
+// 使该决策在前端保持一致而无需导入 config。
 //
-// Two rules are combined:
-//   - an exact set of well-known manifest / metadata file names;
-//   - a set of "families" matched on a base-name prefix followed by a name
-//     separator (., -, _), covering README/license/Dockerfile/Makefile variants.
+// 组合两条规则：
+//   - 精确的知名清单/元数据文件名集合；
+// 组合两条规则：精确的知名清单/元数据文件名集合；以及按基础名前缀后跟名称
+// 分隔符（.、-、_）匹配的"家族"集合，覆盖 README/license/Dockerfile/Makefile 变体。
 //
-// CI workflow files under a .github/workflows directory are always important
-// regardless of their individual file name.
+// .github/workflows 目录下的 CI 工作流文件始终重要，无论其单个文件名如何。
+// 无论其单个文件名如何。
 func IsImportantProjectFile(path string) bool {
-	// Normalize both slash styles so Windows and POSIX paths classify the same.
+	// 规范化两种斜杠风格，使 Windows 和 POSIX 路径分类一致。
 	normalized := strings.ReplaceAll(path, "\\", "/")
 	lower := strings.ToLower(normalized)
 
-	// CI workflows are important by location, not by file name.
+	// CI 工作流因位置而重要，而非文件名。
 	if strings.HasPrefix(lower, ".github/workflows/") ||
 		strings.Contains(lower, "/.github/workflows/") {
 		return true
 	}
 
-	// Extract the base name, ignoring trailing slashes and "."/".." segments.
+	// 提取基础名，忽略末尾斜杠和 "."/".." 段。
 	trimmed := strings.TrimSuffix(normalized, "/")
 	if trimmed == "" {
 		return false
@@ -56,10 +56,10 @@ func IsImportantProjectFile(path string) bool {
 	return false
 }
 
-// matchesFileFamily reports whether base is prefix itself or starts with
-// prefix followed by a name separator. The separator requirement avoids false
-// positives such as "licenseplate.go" for the "license" family while keeping
-// README.md, README-zh.md, Dockerfile.dev and LICENSE-MIT.
+// matchesFileFamily 报告 base 是否就是 prefix 或以
+// 提取基础名，忽略末尾斜杠和 "."/".." 段。
+// matchesFileFamily 报告 base 是否就是 prefix 或以 prefix 后跟名称分隔符开头。分隔符要求避免误报，例如把 "licenseplate.go" 当作 "license" 家族，同时保留
+// README.md、README-zh.md、Dockerfile.dev 和 LICENSE-MIT。
 func matchesFileFamily(base, prefix string) bool {
 	if base == prefix {
 		return true
@@ -79,8 +79,8 @@ func matchesFileFamily(base, prefix string) bool {
 	}
 }
 
-// importantProjectFiles is the exact, case-folded set of manifest, metadata and
-// guidance file names worth pinning into a repository map. Read-only.
+// importantProjectFiles 是值得钉入仓库地图的清单、元数据和指导文件名的精确大小写折叠集合。只读。
+// 值得钉入仓库地图的清单、元数据和指导文件名的精确大小写折叠集合。只读。
 var importantProjectFiles = map[string]struct{}{
 	// Go
 	"go.mod": {}, "go.sum": {}, "go.work": {}, "go.work.sum": {},
@@ -98,24 +98,24 @@ var importantProjectFiles = map[string]struct{}{
 	"settings.gradle": {}, "settings.gradle.kts": {}, "gradlew": {},
 	// Ruby / PHP
 	"gemfile": {}, "gemfile.lock": {}, "composer.json": {}, "composer.lock": {},
-	// Docs and agent guidance
+	// 文档和 agent 指导
 	"agents.md": {}, "claude.md": {}, "contributing.md": {}, "changelog.md": {},
 	"code_of_conduct.md": {},
-	// Repository / tool dotfile config
+	// 仓库/工具 dotfile 配置
 	".gitignore": {}, ".gitattributes": {}, ".gitmodules": {},
 	".dockerignore": {}, ".editorconfig": {}, ".env.example": {},
 	".golangci.yml": {}, ".golangci.yaml": {},
-	// Build systems
+	// 构建系统
 	"meson.build": {}, "build.bazel": {}, "workspace": {}, "workspace.bazel": {},
-	// Task runners
+	// 任务运行器
 	"justfile": {}, "taskfile.yml": {}, "taskfile.yaml": {},
-	// CI config (location-based .github/workflows is handled above)
+	// CI 配置（基于位置的 .github/workflows 在上面处理）
 	".gitlab-ci.yml": {}, ".travis.yml": {}, "jenkinsfile": {},
 	"azure-pipelines.yml": {}, "appveyor.yml": {}, "circle.yml": {},
 }
 
-// importantFileFamilies are base-name prefixes (already lowercase) whose
-// variants are all considered important. See matchesFileFamily.
+// importantFileFamilies 是其变体都被视为重要的基础名前缀（已小写）。
+// importantFileFamilies 是其变体都被视为重要的基础名前缀（已小写）。见 matchesFileFamily。
 var importantFileFamilies = []string{
 	"readme", "license", "licence", "copying", "dockerfile",
 	"docker-compose", "compose", "makefile", "gnumakefile", "cmakelists",

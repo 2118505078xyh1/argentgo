@@ -14,9 +14,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// writeReloadConfig writes a config whose model string changes length between
-// edits, so config.Changed detects the rewrite via file size even on filesystems
-// with coarse mtime resolution.
+// writeReloadConfig 写入一份配置，其模型字符串在编辑之间长度会变化，
+// 因此即使在 mtime 分辨率较粗的文件系统上，config.Changed 也能通过文件大小检测到重写。
+// （接上行）
 func writeReloadConfig(t *testing.T, path, model string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(`{"model":"`+model+`"}`), 0o644); err != nil {
@@ -24,8 +24,8 @@ func writeReloadConfig(t *testing.T, path, model string) {
 	}
 }
 
-// reloadCfg loads a config from an isolated temp workspace and returns its
-// snapshot plus the config file path so a test can simulate an on-disk edit.
+// reloadCfg 从隔离的临时工作区加载配置，并返回其快照以及配置文件路径，
+// 使测试能模拟磁盘上的编辑。
 func reloadCfg(t *testing.T, model string) (*config.Config, string) {
 	t.Helper()
 	home, cwd := t.TempDir(), t.TempDir()
@@ -67,7 +67,7 @@ func TestConfigReloaderAdoptsDiskChangeAndLogs(t *testing.T) {
 	if !strings.Contains(logs.String(), "reloaded:") || !strings.Contains(logs.String(), "generation 2") {
 		t.Errorf("change was not logged: %q", logs.String())
 	}
-	// Adopting the returned snapshot makes the next poll a no-op.
+	// 采用返回的快照会使下一次轮询成为空操作。
 	if r.poll() {
 		t.Fatal("second poll adopted again (not idempotent)")
 	}
@@ -125,7 +125,7 @@ func TestRunnerPollsConfigAtTurnBoundaryOnly(t *testing.T) {
 	}
 	before := r.reload.snapshot()
 
-	// One-shot: a single prompt never reaches a turn boundary, so no poll.
+	// 一次性运行：单个提示永远不会到达轮次边界，因此不会轮询。
 	if _, err := r.Prompt(context.Background(), "first", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -136,10 +136,10 @@ func TestRunnerPollsConfigAtTurnBoundaryOnly(t *testing.T) {
 		t.Fatal("snapshot changed after the first prompt")
 	}
 
-	// An operator edits the config between turns.
+	// 操作人员在轮次之间编辑配置。
 	writeReloadConfig(t, path, "a-considerably-longer-after-model")
 
-	// The second prompt crosses a turn boundary and adopts the new snapshot.
+	// 第二个提示跨越轮次边界并采用新快照。
 	if _, err := r.Prompt(context.Background(), "second", nil); err != nil {
 		t.Fatal(err)
 	}

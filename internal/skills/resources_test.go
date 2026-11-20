@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// writeResource creates a file at rel inside dir (creating parent directories)
-// and returns its byte size.
+// writeResource 在 dir 内 rel 处创建文件（创建父目录）并返回其字节大小。
+// 并返回其字节大小。
 func writeResource(t *testing.T, dir, rel, content string) int64 {
 	t.Helper()
 	path := filepath.Join(dir, filepath.FromSlash(rel))
@@ -168,7 +168,7 @@ func TestListSkillResourcesCJKPaths(t *testing.T) {
 			t.Errorf("resource[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	// Sorting must be deterministic in path order.
+	// 排序必须按路径确定。
 	paths := resourcePaths(got)
 	sorted := append([]string(nil), paths...)
 	sort.Strings(sorted)

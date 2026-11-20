@@ -12,26 +12,24 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// ExportOptions controls how ExportProject renders a transcript.
+// ExportOptions 控制 ExportProject 如何渲染转录。
 type ExportOptions struct {
-	Branch   string // record id (or unique prefix) whose path to export; empty follows the active leaf
-	Sanitize bool   // redact content, paths, tool payloads and credentials before rendering
+	Branch   string // 要导出其路径的记录 id（或唯一前缀）；为空则跟随活动叶节点
+	Sanitize bool   // 渲染前对内容、路径、工具载荷和凭据进行脱敏
 	Format   string // "html" (default), "json" or "markdown"
 }
 
-// maxExportBytes bounds the size of a share file so a very large session cannot
-// produce an unbounded artifact. Text formats (HTML/Markdown) append
-// exportTruncatedMarker; the JSON format caps structurally (see capExportJSON)
-// so the artifact stays a valid JSON array.
+// maxExportBytes 限制分享文件的大小，使非常大的会话不会产出无界的文件。
+// 文本格式（HTML/Markdown）追加 exportTruncatedMarker；
+// JSON 格式则从结构上限制（见 capExportJSON），使产物始终是有效的 JSON 数组。
 const maxExportBytes = 2 << 20 // 2 MiB
 
 const exportTruncatedMarker = "\n[truncated: export exceeded 2MiB limit]\n"
 
-// sensitiveExportKeys maps a JSON key to the "kind" placed in its redaction
-// placeholder. Fields with these names carry content, filesystem paths,
-// commands or tool payloads and must never leave the process in clear text in
-// a portable share file. The map is intentionally exhaustive: an unknown key
-// still gets the credential-pattern pass from security.Redact.
+// sensitiveExportKeys 将 JSON 键映射到其脱敏占位符中使用的"kind"。
+// 具有这些名称的字段携带内容、文件系统路径、命令或工具载荷，
+// 绝不能以明文形式出现在可移植的分享文件中。该映射刻意做到详尽：
+// 未知的键仍会经过 security.Redact 的凭据模式检查。
 var sensitiveExportKeys = map[string]string{
 	"content":     "content",
 	"text":        "text",
@@ -76,25 +74,23 @@ var sensitiveExportKeys = map[string]string{
 	"query":       "query",
 }
 
-// exportEntry is one record of a structured (JSON/Markdown) transcript.
+// exportEntry 是结构化（JSON/Markdown）转录中的一条记录。
 type exportEntry struct {
 	Role string `json:"role"`
 	Text string `json:"text"`
 	Tool string `json:"tool"`
 	TS   string `json:"ts"`
 	Kind string `json:"kind"`
-	Note string `json:"note,omitempty"` // only set on the synthetic truncation record
+	Note string `json:"note,omitempty"` // 仅在合成的截断记录上设置
 }
 
-// exportTruncatedNote is the note carried by the synthetic record appended when
-// a JSON transcript is truncated, so the note is machine-readable and the
-// artifact stays a valid JSON array.
+// exportTruncatedNote 是 JSON 转录被截断时追加的合成记录所携带的说明，
+// 使该说明可被机器读取，且产物仍是有效的 JSON 数组。
 const exportTruncatedNote = "truncated: export exceeded 2MiB limit"
 
-// ExportProject renders one branch of a session as a portable, optionally
-// redacted share file. project is either a *Session or a session directory
-// (string); id identifies the session when a directory is given. branch in the
-// argument list takes precedence over opts.Branch.
+// ExportProject 将会话的一个分支渲染为可移植的、可选择脱敏的分享文件。
+// project 可以是 *Session 或会话目录（字符串）；给定目录时，id 用于标识会话。
+// 参数列表中的 branch 优先于 opts.Branch。
 func ExportProject(project any, id, branch string, opts ExportOptions) ([]byte, error) {
 	if branch == "" {
 		branch = opts.Branch
@@ -139,8 +135,7 @@ func ExportProject(project any, id, branch string, opts ExportOptions) ([]byte, 
 			out = capExport(out)
 		}
 	case "json":
-		// A plain-text marker appended after the closing bracket would leave an
-		// unparsable artifact, so cap the JSON structurally instead.
+		// 在右方括号之后追加纯文本标记会使产物无法解析，因此改为从结构上限制 JSON。
 		out, err = capExportJSON(chain)
 	case "markdown":
 		out, err = renderExportMarkdown(sessionID, chain)
@@ -154,7 +149,7 @@ func ExportProject(project any, id, branch string, opts ExportOptions) ([]byte, 
 	return out, nil
 }
 
-// loadExportRecords resolves project into records, its backing path and id.
+// loadExportRecords 将 project 解析为记录、其支撑路径和 id。
 func loadExportRecords(project any, id string) ([]Record, string, string, error) {
 	switch p := project.(type) {
 	case *Session:
@@ -175,9 +170,8 @@ func loadExportRecords(project any, id string) ([]Record, string, string, error)
 	}
 }
 
-// exportBranch selects the root-to-leaf record chain for branch. It mirrors
-// RenderHTML's walk: an empty branch follows the active (last) record, and an
-// unknown branch is an error rather than a silent fallback.
+// exportBranch 选择 branch 从根到叶的记录链。它镜像 RenderHTML 的遍历：
+// 空 branch 跟随活动（最后一条）记录，未知 branch 会报错，而不是静默回退。
 func exportBranch(records []Record, branch string) ([]Record, error) {
 	if len(records) == 0 {
 		return nil, nil
@@ -185,7 +179,7 @@ func exportBranch(records []Record, branch string) ([]Record, error) {
 	byID := indexByID(records)
 	leaf := branch
 	if leaf != "" {
-		// Accept a full record id or a unique prefix, mirroring ResolvePath.
+		// 接受完整的记录 id 或唯一前缀，与 ResolvePath 一致。
 		if _, ok := byID[leaf]; !ok {
 			if resolved, ok := resolveRecordPrefix(byID, leaf); ok {
 				leaf = resolved
@@ -220,7 +214,7 @@ func resolveRecordPrefix(byID map[string]Record, prefix string) (string, bool) {
 	for id := range byID {
 		if strings.HasPrefix(id, prefix) {
 			if found != "" {
-				return "", false // ambiguous
+				return "", false // 不唯一
 			}
 			found = id
 		}
@@ -228,9 +222,8 @@ func resolveRecordPrefix(byID map[string]Record, prefix string) (string, bool) {
 	return found, found != ""
 }
 
-// sanitizeRecords returns a deep copy of records whose Data payloads have all
-// sensitive fields replaced with "[redacted:<kind>:<id>]" placeholders and
-// whose remaining strings have passed through security.Redact.
+// sanitizeRecords 返回记录的深拷贝，其 Data 载荷中所有敏感字段都被替换为
+// "[redacted:<kind>:<id>]" 占位符，其余字符串都经过 security.Redact。
 func sanitizeRecords(records []Record) []Record {
 	out := make([]Record, len(records))
 	for i, record := range records {
@@ -244,10 +237,9 @@ func sanitizeRecord(record Record) Record {
 		return record
 	}
 	var value any
-	// Decode with UseNumber so integer payloads survive the round trip exactly.
-	// json.Unmarshal into any would turn every number into float64, silently
-	// rounding values above 2^53 (large ids, timestamps in microseconds, token
-	// counters) and corrupting an otherwise faithful sanitized export.
+	// 使用 UseNumber 解码，使整数载荷在往返中精确保留。
+	// json.Unmarshal 到 any 会把每个数字变成 float64，静默舍入超过 2^53 的值
+	// （大 id、微秒级时间戳、token 计数器），从而破坏原本忠实的脱敏导出。
 	dec := json.NewDecoder(bytes.NewReader(record.Data))
 	dec.UseNumber()
 	if err := dec.Decode(&value); err != nil {
@@ -256,7 +248,7 @@ func sanitizeRecord(record Record) Record {
 	}
 	var sanitized any
 	if _, ok := value.(string); ok {
-		// A bare string payload is message text with no key to classify it.
+		// 裸字符串载荷就是消息文本，没有可用于分类的键。
 		sanitized = redactedText("text", record.ID)
 	} else {
 		sanitized = sanitizeExportValue(value, "", record.ID)
@@ -286,13 +278,13 @@ func sanitizeExportValue(value any, key string, id string) any {
 	case []any:
 		out := make([]any, len(typed))
 		for i, inner := range typed {
-			// Array elements inherit the parent key: `args: ["cmd", ...]`
-			// must redact every element, not just the array itself.
+			// 数组元素继承父键：`args: ["cmd", ...]`
+			// 必须对每个元素脱敏，而不只是对数组本身。
 			out[i] = sanitizeExportValue(inner, key, id)
 		}
 		return out
 	default:
-		// Numbers, booleans and null carry no free-form text.
+		// 数字、布尔值和 null 不携带自由格式文本。
 		return value
 	}
 }
@@ -306,13 +298,11 @@ func redactedJSON(kind, id string) json.RawMessage {
 	return data
 }
 
-// renderExportHTML delegates to RenderHTML. HTML cannot be built from records
-// in memory without editing tree.go, so a sanitized export writes the already
-// redacted chain to a temporary JSONL file and renders that instead. For an
-// unsanitized export the original file is rendered directly, but the leaf of
-// the already-resolved chain must still be passed as the branch: RenderHTML
-// with an empty branch follows the active (last) record, which would silently
-// export the wrong path when the caller selected a non-active branch.
+// renderExportHTML 委托给 RenderHTML。若不修改 tree.go，就无法从内存中的记录构建 HTML，
+// 因此脱敏导出会把已脱敏的记录链写入临时 JSONL 文件再渲染它。对于未脱敏的导出，
+// 直接渲染原文件，但仍必须把已解析链的叶节点作为 branch 传入：
+// RenderHTML 在 branch 为空时跟随活动（最后一条）记录，
+// 当调用方选择了非活动分支时，这会静默导出错误的路径。
 func renderExportHTML(path string, chain []Record, sanitize bool) ([]byte, error) {
 	if !sanitize {
 		leaf := ""
@@ -364,20 +354,18 @@ func renderExportJSON(chain []Record) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// capExportJSON bounds a JSON transcript at maxExportBytes without breaking its
-// structure. Unlike capExport (used by the text formats), it never appends bare
-// text after the closing bracket: it keeps the largest prefix of complete
-// entries that fits and appends a synthetic
-// {"kind":"truncated","note":"..."} record instead. The result is always a
-// valid JSON array that json.Unmarshal can read.
+// capExportJSON 在不破坏结构的前提下将 JSON 转录限制在 maxExportBytes 之内。
+// 与 capExport（用于文本格式）不同，它从不在右方括号后追加裸文本：
+// 它保留能容纳的最长完整条目前缀，并追加一条合成的
+// {"kind":"truncated","note":"..."} 记录。结果始终是 json.Unmarshal 可读的有效 JSON 数组。
 func capExportJSON(chain []Record) ([]byte, error) {
 	entries := make([]exportEntry, 0, len(chain))
 	for _, record := range chain {
 		entries = append(entries, exportEntryFromRecord(record))
 	}
 
-	// Fast path: an export already under the cap must be byte-for-byte identical
-	// to the plain renderer (no marker, no schema change).
+	// 快速路径：已经在上限之内的导出必须与普通渲染器逐字节一致
+	// （没有标记，也没有 schema 变化）。
 	full, err := renderExportJSON(chain)
 	if err != nil {
 		return nil, err
@@ -386,9 +374,8 @@ func capExportJSON(chain []Record) ([]byte, error) {
 		return full, nil
 	}
 
-	// Marshal a prefix of n real entries plus the truncation record. Adding an
-	// entry only grows the array, so its size is monotonic in n and we can
-	// binary-search the largest prefix that still fits under the cap.
+	// 序列化 n 条真实条目的前缀再加上截断记录。增加条目只会让数组变大，
+	// 因此其大小随 n 单调，我们可以二分查找仍能容纳在上限内的最长前缀。
 	marshal := func(n int) ([]byte, error) {
 		view := make([]exportEntry, 0, n+1)
 		view = append(view, entries[:n]...)
@@ -414,8 +401,8 @@ func capExportJSON(chain []Record) ([]byte, error) {
 			hi = mid - 1
 		}
 	}
-	// best == 0 still yields an array holding only the tiny truncation record,
-	// which is well under the 2 MiB cap.
+	// best == 0 仍会得到一个只包含极小截断记录的数组，
+	// 它远低于 2 MiB 的上限。
 	return marshal(best)
 }
 
@@ -429,9 +416,9 @@ func renderExportMarkdown(id string, chain []Record) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// exportEntryFromRecord projects one record onto the export schema. Metadata
-// records (header, attempt, compaction, ...) are rendered with a best-effort
-// text so the share file is a complete transcript rather than messages only.
+// exportEntryFromRecord 将一条记录投影到导出 schema。
+// 元数据记录（header、attempt、compaction 等）以尽力而为的文本渲染，
+// 使分享文件是完整的转录，而不只是消息。
 func exportEntryFromRecord(record Record) exportEntry {
 	entry := exportEntry{Kind: record.Kind, Role: record.Kind}
 	if !record.TS.IsZero() {
@@ -479,8 +466,8 @@ func emptyExport(format, id string) []byte {
 	}
 }
 
-// capExport bounds the artifact at maxExportBytes, backing up to a UTF-8 rune
-// boundary so a truncated share file never ends in the middle of a code point.
+// capExport 将产物限制在 maxExportBytes 之内，并回退到 UTF-8 符文边界，
+// 使截断的分享文件永远不会停在某个码点的中间。
 func capExport(data []byte) []byte {
 	if len(data) <= maxExportBytes {
 		return data

@@ -72,7 +72,7 @@ func TestRunWithParamsBlocksUnresolvedParameters(t *testing.T) {
 		})
 	}
 
-	// The backwards-compatible three-argument entry point obeys the same gate.
+	// 向后兼容的三参数入口遵守同一门。
 	rec := &recorder{}
 	exec := &Executor{Prompter: rec.prompter(func(string) (string, error) { return "ok", nil })}
 	if _, err := exec.Run(context.Background(), def, "diff"); err == nil || !strings.Contains(err.Error(), `parameter "repo" is required`) {
@@ -96,12 +96,12 @@ func TestSubstituteResolvesParamsWithoutShadowingBuiltins(t *testing.T) {
 		t.Fatalf("Substitute = %q, want %q", got, want)
 	}
 
-	// Existing three-argument callers see unchanged behaviour.
+	// 现有三参数调用方看到不变的行为。
 	if got := Substitute("{{repo}} {{input}}", "I", outputs); got != "{{repo}} I" {
 		t.Fatalf("Substitute without params = %q", got)
 	}
 
-	// Inserted values are not rescanned; a value cannot inject another token.
+	// 插入的值不会被重扫；一个值无法注入另一个标记。
 	if got := Substitute("{{repo}}", "I", nil, map[string]string{"repo": "{{input}}"}); got != "{{input}}" {
 		t.Fatalf("parameter value was rescanned: %q", got)
 	}

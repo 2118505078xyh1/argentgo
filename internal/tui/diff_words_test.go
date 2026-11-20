@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// segString renders Changed runs as [brackets] so expectations stay readable.
+// segString 把 Changed 段渲染为 [方括号]，使期望值可读。
 func segString(segs []WordSegment) string {
 	var b strings.Builder
 	for _, s := range segs {

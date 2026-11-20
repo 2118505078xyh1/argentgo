@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// TestCompactionRestoresOldSummaryText covers the compaction+retention
-// interaction: a compaction record is stamped RetainAlways, so when a later
-// compaction drops it, retainedForCompaction re-emits it. entryKind maps the
-// compaction's system Entry to KindSummary, but the re-emitted record keeps the
-// Compaction payload (which has a "summary" key, not "text"/"content"). Without
-// "summary" in messageEntry's KindSummary keys, the restored message loses all
-// its text and resurfaces as an empty system entry.
+// TestCompactionRestoresOldSummaryText 覆盖压缩+保留的交互：
+// 压缩记录被标记为 RetainAlways，因此当后续
+// 压缩丢弃它时，retainedForCompaction 会重新发出它。entryKind 把
+// 压缩的 system Entry 映射为 KindSummary，但重新发出的记录仍保留
+// Compaction 载荷（它有 "summary" 键，而不是 "text"/"content"）。如果
+// messageEntry 的 KindSummary 键中没有 "summary"，恢复的消息会丢失
+// 全部文本，变成一条空的系统消息。
 func TestCompactionRestoresOldSummaryText(t *testing.T) {
 	store, err := Open(t.TempDir())
 	if err != nil {
@@ -42,9 +42,9 @@ func TestCompactionRestoresOldSummaryText(t *testing.T) {
 		t.Fatal("first compaction produced no summary")
 	}
 
-	// Grow the conversation past the first compaction and compact again. The
-	// cut now drops the first compaction's system Entry, which is flagged for
-	// retention because KindCompaction is stamped RetainAlways.
+	// 让对话增长到第一次压缩之后，再压缩一次。此时
+	// 切分会丢弃第一次压缩的 system Entry，它被标记为
+	// 保留，因为 KindCompaction 被标记为 RetainAlways。
 	for i := 5; i < 9; i++ {
 		if err := s.Append(KindUser, fmt.Sprintf("m%d", i)); err != nil {
 			t.Fatal(err)
@@ -54,9 +54,9 @@ func TestCompactionRestoresOldSummaryText(t *testing.T) {
 		t.Fatalf("second Compact: %v", err)
 	}
 
-	// The re-emitted summary must still carry the original text, not an empty
-	// system message. There are now two system entries: the new compaction's
-	// summary and the restored one; the earlier one must survive verbatim.
+	// 重新发出的摘要仍必须携带原始文本，而不是空的
+	// 系统消息。现在有两条系统条目：新压缩的
+	// 摘要和被恢复的那条；较早的那条必须逐字保留。
 	var sawRestored, sawEmpty bool
 	for _, e := range s.Messages() {
 		if e.Role != "system" {
@@ -77,9 +77,9 @@ func TestCompactionRestoresOldSummaryText(t *testing.T) {
 	}
 }
 
-// TestMessageEntrySummaryKey documents that a KindSummary carrying the
-// canonical "summary" payload key projects onto the same Entry as one carrying
-// "text" — the invariant retainedForCompaction relies on.
+// TestMessageEntrySummaryKey 记录这样一个事实：携带规范 "summary" 载荷键的
+// KindSummary 与携带 "text" 的条目投影到相同的 Entry——
+// 这正是 retainedForCompaction 所依赖的不变量。
 func TestMessageEntrySummaryKey(t *testing.T) {
 	data, _ := json.Marshal(map[string]any{"summary": "kept summary"})
 	entry, ok := messageEntry(Record{Kind: KindSummary, Data: data})

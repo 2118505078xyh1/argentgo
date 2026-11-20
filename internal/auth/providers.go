@@ -2,22 +2,22 @@ package auth
 
 import "strings"
 
-// Provider is a named login preset. Kind says how a credential is obtained:
-// KindAPIKey means the user pastes a key, KindOAuth uses the browser flow and
-// the device kind uses RFC 8628.
+// Provider 是具名的登录预设。Kind 说明凭据如何获得：
+// Provider 是具名的登录预设。Kind 说明凭据如何获得：KindAPIKey 表示用户粘贴 key，KindOAuth 使用浏览器流程，设备种类使用 RFC 8628。
+// 设备种类使用 RFC 8628。
 type Provider struct {
 	ID     string
 	Name   string
 	Kind   string
 	Config Config
-	// Note is a short hint shown by login commands.
+	// Note 是登录命令显示的简短提示。
 	Note string
 }
 
-// Kind device-code presets report this in Provider.Kind.
+// 设备码种类预设在 Provider.Kind 中报告此值。
 const KindDevice = "device"
 
-// presets is ordered: it is the order login commands should list providers in.
+// presets 是有序的：它是登录命令列出 provider 的顺序。
 var presets = []Provider{
 	{
 		ID:   "anthropic",
@@ -68,14 +68,14 @@ var presets = []Provider{
 	},
 }
 
-// Presets lists the built-in provider presets in display order.
+// Presets 按显示顺序列出内置 provider 预设。
 func Presets() []Provider {
 	out := make([]Provider, len(presets))
 	copy(out, presets)
 	return out
 }
 
-// Preset looks up a preset by id (case-insensitive).
+// Preset 按 id（不区分大小写）查找预设。
 func Preset(id string) (Provider, bool) {
 	wanted := strings.ToLower(strings.TrimSpace(id))
 	for _, preset := range presets {

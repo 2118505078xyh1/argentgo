@@ -39,8 +39,8 @@ func TestReasoningSummaryLineIsAlwaysOneRow(t *testing.T) {
 		})
 	}
 
-	// The wiring reuses the same function, so a long reasoning Entry still
-	// contributes exactly one transcript row.
+	// 接线复用了同一个函数，因此很长的推理 Entry 仍然
+	// 只贡献一条记录行。
 	m := New(Config{})
 	m.AppendReasoning(strings.Repeat("thinking hard ", 500))
 	m.mu.Lock()

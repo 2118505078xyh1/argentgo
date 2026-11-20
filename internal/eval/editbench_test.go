@@ -20,8 +20,8 @@ func loadBenchFixture(t *testing.T) []EditCase {
 	return cases
 }
 
-// TestLoadEditCasesParsesFixture checks that the fixture decodes into well-
-// formed cases: a unique ID, a known mode, and at least one expectation.
+// TestLoadEditCasesParsesFixture 检查 fixture 解码为格式良好的用例：唯一 ID、已知模式，以及至少一个期望。
+// 格式良好的用例：唯一 ID、已知模式，以及至少一个期望。
 func TestLoadEditCasesParsesFixture(t *testing.T) {
 	cases := loadBenchFixture(t)
 	if len(cases) < 20 {
@@ -57,8 +57,8 @@ func TestLoadEditCasesParsesFixture(t *testing.T) {
 	}
 }
 
-// TestEditBenchFixtureCoversScenarios guards the benchmark's breadth: it must
-// exercise both successful and rejected edits in every mode, plus UTF-8.
+// TestEditBenchFixtureCoversScenarios 守护基准的广度：它必须
+// TestEditBenchFixtureCoversScenarios 守护基准的广度：它必须在每种模式下同时覆盖成功和拒绝的编辑，外加 UTF-8。
 func TestEditBenchFixtureCoversScenarios(t *testing.T) {
 	cases := loadBenchFixture(t)
 	var success, failure, cjk, shifted int
@@ -86,9 +86,9 @@ func TestEditBenchFixtureCoversScenarios(t *testing.T) {
 	}
 }
 
-// TestRunEditBenchMatchesFixtureExpectations is the core assertion: for every
-// case the real edit tool (invoked through tools.Registry.Run) must behave as
-// the fixture says it should. A harness that always passes would not detect a
+// TestRunEditBenchMatchesFixtureExpectations 是核心断言：对每个用例，
+// TestRunEditBenchMatchesFixtureExpectations 是核心断言：对每个用例，真实编辑工具（通过 tools.Registry.Run 调用）必须按
+// fixture 所说的表现。一个总是通过的 harness 无法检测回归。
 // regression.
 func TestRunEditBenchMatchesFixtureExpectations(t *testing.T) {
 	cases := loadBenchFixture(t)
@@ -109,8 +109,8 @@ func TestRunEditBenchMatchesFixtureExpectations(t *testing.T) {
 	}
 }
 
-// TestRunEditBenchByModeAggregation verifies that ByMode counts add up to the
-// totals and match an independent tally of the fixture.
+// TestRunEditBenchByModeAggregation 验证 ByMode 计数合计等于总数并与 fixture 的独立统计一致。
+// 总数并与 fixture 的独立统计一致。
 func TestRunEditBenchByModeAggregation(t *testing.T) {
 	cases := loadBenchFixture(t)
 	want := make(map[string]int)
@@ -142,8 +142,8 @@ func TestRunEditBenchByModeAggregation(t *testing.T) {
 	}
 }
 
-// TestEditBenchReportString checks that the summary carries a pass rate for
-// every mode and is stable across calls.
+// TestEditBenchReportString 检查摘要带有每种模式的通过率且跨调用稳定。
+// 每种模式的通过率且跨调用稳定。
 func TestEditBenchReportString(t *testing.T) {
 	cases := loadBenchFixture(t)
 	report := RunEditBench(cases)
@@ -164,9 +164,9 @@ func TestEditBenchReportString(t *testing.T) {
 	}
 }
 
-// TestEditArgsReflectDeclaredFieldsOnly checks that the JSON handed to the real
-// tool carries exactly the fields the case declares (plus the mode flag), so
-// the benchmark measures the fixture's intent rather than harness defaults.
+// TestEditArgsReflectDeclaredFieldsOnly 检查交给真实工具的 JSON 恰好携带用例声明的字段（加模式标志），使
+// 工具恰好携带用例声明的字段（加模式标志），使
+// 基准测量 fixture 的意图而非 harness 默认值。
 func TestEditArgsReflectDeclaredFieldsOnly(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -221,10 +221,10 @@ func TestEditArgsReflectDeclaredFieldsOnly(t *testing.T) {
 	}
 }
 
-// TestRunEditCaseUsesRealToolRegistry proves the harness reaches the shipped
-// registry rather than a local resolver: only the registry enforces the
-// mutating-tool gate, so yolo=false must reject the edit before the tool runs.
-// With yolo=true the same case must really mutate the scratch file.
+// TestRunEditCaseUsesRealToolRegistry 证明 harness 到达已发布的 registry 而非本地解析器：只有 registry 强制
+// registry 而非本地解析器：只有 registry 强制
+// 修改类工具门，因此 yolo=false 必须在工具运行前拒绝编辑。
+// yolo=true 时同一用例必须真正修改临时文件。
 func TestRunEditCaseUsesRealToolRegistry(t *testing.T) {
 	c := EditCase{
 		ID: "registry-gate", Mode: modeExact,
@@ -250,10 +250,10 @@ func TestRunEditCaseUsesRealToolRegistry(t *testing.T) {
 	}
 }
 
-// TestRealPathDetectsDeliberatelyWrongExpectation proves the benchmark is not
-// trivially passing: flip a fixture case's expectation and the harness must
-// report a failure with a reason. It checks both directions (expected success
-// that should be an error, and expected error that should be a success).
+// TestRealPathDetectsDeliberatelyWrongExpectation 证明基准不是
+// TestRealPathDetectsDeliberatelyWrongExpectation 证明基准不是轻易通过：翻转 fixture 用例的期望后，harness 必须
+// 报告带原因的失败。它检查两个方向（期望成功
+// 报告带原因的失败。它检查两个方向（期望成功却应为错误，以及期望错误却应为成功）。
 func TestRealPathDetectsDeliberatelyWrongExpectation(t *testing.T) {
 	cases := loadBenchFixture(t)
 	var successCase, errorCase EditCase
@@ -282,9 +282,9 @@ func TestRealPathDetectsDeliberatelyWrongExpectation(t *testing.T) {
 	}
 }
 
-// TestRunEditCaseDetectsMismatch proves the grader is not vacuous: it must
-// report failure when the observed outcome contradicts the declared
-// expectation, in both directions (expected success vs. expected error).
+// TestRunEditCaseDetectsMismatch 证明评分器非空：当观察到的结果与声明的期望矛盾时，它必须
+// 报告失败，当观察到的结果与声明的期望矛盾时。
+// 报告失败，两个方向都检查（期望成功与期望错误）。
 func TestRunEditCaseDetectsMismatch(t *testing.T) {
 	cases := []struct {
 		name string
@@ -343,8 +343,8 @@ func TestRunEditCaseDetectsMismatch(t *testing.T) {
 	}
 }
 
-// TestLoadEditCasesErrors confirms malformed documents are rejected rather
-// than silently graded as all-pass.
+// TestLoadEditCasesErrors 确认畸形文档被拒绝，而非静默评分为全通过。
+// 而非静默评分为全通过。
 func TestLoadEditCasesErrors(t *testing.T) {
 	for _, doc := range []string{
 		`{"cases":[]}`,
@@ -356,7 +356,7 @@ func TestLoadEditCasesErrors(t *testing.T) {
 			t.Errorf("ParseEditCases accepted invalid document: %s", doc)
 		}
 	}
-	// A bare array is accepted too.
+	// 裸数组也被接受。
 	cases, err := ParseEditCases([]byte(`[{"id":"a","mode":"exact","original":"x","old":"x","new":"y","want_result":"y"}]`))
 	if err != nil {
 		t.Fatalf("bare array rejected: %v", err)
@@ -366,8 +366,8 @@ func TestLoadEditCasesErrors(t *testing.T) {
 	}
 }
 
-// TestEditBenchFixturePath ensures the documented fixture location resolves
-// from the package directory, where `go test` runs.
+// TestEditBenchFixturePath 确保文档记载的 fixture 位置能
+// 从 `go test` 运行的包目录解析。
 func TestEditBenchFixturePath(t *testing.T) {
 	if _, err := filepath.Abs(editBenchFixture); err != nil {
 		t.Fatal(err)
@@ -375,7 +375,7 @@ func TestEditBenchFixturePath(t *testing.T) {
 	loadBenchFixture(t)
 }
 
-// ---- similarity diagnostics (DIAGNOSTIC, never authoritative) ----
+// ---- 相似度诊断（仅诊断，绝不作为依据）----
 
 func TestLevenshteinKnownCases(t *testing.T) {
 	cases := []struct {
@@ -465,8 +465,8 @@ func TestTokenExactMatch(t *testing.T) {
 func TestEditBenchSimilarityIsDiagnosticOnly(t *testing.T) {
 	cases := []EditCase{
 		{ID: "exact-hit", Mode: modeExact, Original: "abc\n", Old: "abc", New: "xyz", WantResult: "xyz\n"},
-		// Produced "abcdefghik\n" vs expected "abcdefghij\n": one rune off, so
-		// similarity is high but the authoritative Contains check must fail.
+		// 产生的是 "abcdefghik\n" 而期望是 "abcdefghij\n"：只差一个 rune，所以
+		// 相似度很高但权威的 Contains 检查必须失败。
 		{ID: "close-but-wrong", Mode: modeExact, Original: "abcdefghij\n", Old: "abcdefghij", New: "abcdefghik", WantResult: "abcdefghij\n"},
 	}
 	report := RunEditBench(cases)
@@ -494,7 +494,7 @@ func TestEditBenchSimilarityIsDiagnosticOnly(t *testing.T) {
 		t.Fatalf("per-mode diagnostics disagree with report: %+v", stat)
 	}
 
-	// Cross-check: the recorded score really is computed from produced bytes.
+	// 交叉检查：记录的分数确实由产生的字节计算得出。
 	dir := t.TempDir()
 	c := cases[1]
 	if _, err := seedEditFile(dir, c); err != nil {

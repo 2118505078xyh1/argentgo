@@ -7,11 +7,11 @@ import (
 )
 
 func TestCompactionDecisionUsesPercentAndInflation(t *testing.T) {
-	// contextWindow=100000, percent=50 -> floor(100000*50/100)=50000 minus a
-	// 5000-token reserve (5% of the window, below the 8000 cap) -> 45000.
+	// contextWindow=100000、percent=50 -> floor(100000*50/100)=50000 减去
+	// 5000 token 的预留（窗口的 5%，低于 8000 上限）-> 45000。
 	const window = 100_000
 	const percent = 50
-	const configured = 5_000 // must lose to the percentage
+	const configured = 5_000 // 必须输给百分比
 
 	cases := []struct {
 		name     string
@@ -37,8 +37,8 @@ func TestCompactionDecisionUsesPercentAndInflation(t *testing.T) {
 }
 
 func TestCompactionDecisionInheritsConfiguredThreshold(t *testing.T) {
-	// Percent <= 0 inherits the configured token threshold; inflation still
-	// applies to the estimate before the comparison.
+	// Percent <= 0 继承配置的 token 阈值；在比较之前仍会对估算值
+	// 应用膨胀系数。
 	const configured = 5_000
 	for _, percent := range []int{0, -1} {
 		if _, compact := compactionDecision(3_800, 100_000, configured, percent); compact {
@@ -61,7 +61,7 @@ func TestCompactionInputs(t *testing.T) {
 		},
 	}
 
-	// A named profile overrides the decoded field.
+	// 具名 profile 会覆盖解码出的字段。
 	window, configured, percent := compactionInputs(Resolved{
 		Cfg:               cfg,
 		Profile:           "fast",
@@ -71,14 +71,14 @@ func TestCompactionInputs(t *testing.T) {
 		t.Fatalf("inputs = %d/%d/%d, want 100000/9000/70", window, configured, percent)
 	}
 
-	// -1 is preserved so CompactionThreshold inherits the global threshold.
+	// -1 被保留，使 CompactionThreshold 继承全局阈值。
 	_, _, percent = compactionInputs(Resolved{Cfg: cfg, Profile: "inherited"})
 	if percent != -1 {
 		t.Fatalf("inherited percent = %d, want -1", percent)
 	}
 
-	// Without a known context window the percentage is ignored, falling back
-	// to the configured token threshold.
+	// 不知道上下文窗口时百分比会被忽略，回退到
+	// 配置的 token 阈值。
 	_, _, percent = compactionInputs(Resolved{
 		Cfg:               config.Config{AutoCondenseContextPercent: 50},
 		AutoCompactTokens: 9_000,
@@ -100,8 +100,8 @@ func TestSessionCompactorThresholdUsesContextWindow(t *testing.T) {
 		t.Fatalf("context-aware threshold = %d, want 45000", got)
 	}
 
-	// A negative configured threshold still disables compaction entirely,
-	// even when a percentage is present.
+	// 负的配置阈值仍会完全禁用压缩，
+	// 即使存在百分比也是如此。
 	res.AutoCompactTokens = -1
 	if got := newSessionCompactor(res, nil).CompactThreshold(); got != 0 {
 		t.Fatalf("disabled threshold = %d, want 0", got)

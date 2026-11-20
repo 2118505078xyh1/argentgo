@@ -93,7 +93,7 @@ func TestParseShellCommandsDeduplicatesKeepingFirst(t *testing.T) {
 	if len(spans) != 2 {
 		t.Fatalf("spans = %#v, want 2 entries", spans)
 	}
-	// The span kept for "same" is the first occurrence, not the last.
+	// 为"相同"保留的区间是第一次出现，而非最后一次。
 	if token := body[spans[0].Start:spans[0].End]; token != "`!same`" {
 		t.Errorf("first span = %q", token)
 	}

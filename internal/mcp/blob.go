@@ -11,47 +11,47 @@ import (
 	"strings"
 )
 
-// This file closes the MCP "binary resource black hole": a tools/call result
-// can embed a "resource" content block whose resource carries base64 `blob`
-// data (binary, audio, images, PDFs, ...). The old CallTool parser only read
-// `resource.text`, so blob-only resources contributed nothing.
+// 本文件堵上 MCP"二进制资源黑洞"：tools/call 结果可以嵌入
+// 一个 "resource" 内容块，其资源携带 base64 的 `blob` 数据
+// （二进制、音频、图片、PDF 等）。旧的 CallTool 解析器只读取
+// `resource.text`，因此只有 blob 的资源什么也贡献不了。
 //
-// Design constraints (from the audit):
-//   - Default behaviour is byte-for-byte unchanged. Blob artifacts are written
-//     only when an artifact directory is explicitly configured via
-//     ARGENT_MCP_BLOB_ARTIFACT_DIR. With the variable unset, CallTool takes the
-//     exact same code path it always did.
-//   - No new dependencies; stdlib only, mirroring the artifact conventions in
-//     internal/tools/output_spill*.go (0700 dir, 0600 O_EXCL file, random hex
-//     name, best-effort writes that never fail the originating tool call).
-//   - Untrusted input is the server-supplied blob and mimeType. Both are
-//     bounded/sanitized before they can affect memory or the filesystem.
+// 设计约束（来自审计）：
+//   - 默认行为逐字节不变。只有当显式通过
+//     ARGENT_MCP_BLOB_ARTIFACT_DIR 配置了产物目录时，才写入 blob 产物。
+//     该变量未设置时，CallTool
+//     走与以往完全相同的代码路径。
+//   - 不引入新依赖；仅用标准库，仿照 internal/tools/output_spill*.go 中的
+//     产物约定（0700 目录、0600 O_EXCL 文件、随机十六进制
+//     名称、尽力而为且绝不让原工具调用失败的写入）。
+//   - 不可信输入是服务器提供的 blob 和 mimeType。两者在影响内存或
+//     文件系统之前，都会被限制/净化。
 
 const (
-	// maxResourceBlobBytes caps the decoded size of one embedded resource blob.
-	// The cap is checked BEFORE decoding so a hostile server cannot force a
-	// large allocation via base64 amplification (4 encoded chars -> 3 bytes).
+	// maxResourceBlobBytes 限制单个嵌入资源 blob 解码后的大小。
+	// 该上限在解码*之前*检查，使恶意服务器无法通过
+	// base64 放大（4 个编码字符 -> 3 字节）强制大量分配。
 	maxResourceBlobBytes = 16 << 20 // 16 MiB
 
-	// blobArtifactDirEnv opts the CallTool blob handling into writing artifacts.
-	// Empty/unset keeps the legacy behaviour (blob resources are ignored).
+	// blobArtifactDirEnv 让 CallTool 的 blob 处理选择写入产物。
+	// 为空/未设置保持旧行为（忽略 blob 资源）。
 	blobArtifactDirEnv = "ARGENT_MCP_BLOB_ARTIFACT_DIR"
 
 	blobArtifactPrefix = "mcp-blob-"
-	blobIDBytes        = 8  // -> 16 lowercase hex chars
-	maxArtifactExtLen  = 12 // generous for ".svg", ".webp", ".jpeg", ...
+	blobIDBytes        = 8  // -> 16 个小写十六进制字符
+	maxArtifactExtLen  = 12 // 对 ".svg"、".webp"、".jpeg" 等足够宽松
 )
 
-// Sentinel errors let callers distinguish why a blob could not be decoded.
+// 哨兵错误让调用方区分 blob 无法解码的原因。
 var (
 	ErrBlobEmpty     = errors.New("mcp: resource blob is empty")
 	ErrBlobTooLarge  = errors.New("mcp: resource blob exceeds 16 MiB limit")
 	ErrBlobBadBase64 = errors.New("mcp: resource blob is not valid base64")
 )
 
-// ResourceContent is the embedded resource of a "resource" content block in a
-// tools/call result. Per MCP the resource carries either `text` or a base64
-// `blob`; both may be present but a well-formed block uses one.
+// ResourceContent 是 tools/call 结果中 "resource" 内容块的嵌入资源。
+// 根据 MCP，资源携带 `text` 或 base64 的 `blob`；
+// 两者可同时存在，但格式良好的块只使用其中一个。
 type ResourceContent struct {
 	URI      string `json:"uri,omitempty"`
 	MIMEType string `json:"mimeType,omitempty"`
@@ -59,14 +59,14 @@ type ResourceContent struct {
 	Blob     string `json:"blob,omitempty"`
 }
 
-// DecodeResourceBlob decodes the base64 `blob` of an embedded MCP resource.
-// It is a pure function: no I/O, no global state. It returns the decoded bytes
-// and the (trimmed) MIME type advertised by the server.
+// DecodeResourceBlob 解码嵌入 MCP 资源的 base64 `blob`。
+// 它是纯函数：无 I/O、无全局状态。它返回解码后的字节
+// 以及服务器宣告的（去空白后的）MIME 类型。
 //
-// The decoded payload is bounded at maxResourceBlobBytes. The encoded length
-// is checked first, so an oversized string from an untrusted server is rejected
-// before base64.StdEncoding allocates its output buffer. Padded std base64 and
-// unpadded raw std base64 are both accepted.
+// 解码后的载荷受 maxResourceBlobBytes 限制。编码长度
+// 会先检查，使来自不可信服务器的超大字符串在 base64.StdEncoding
+// 分配输出缓冲区之前就被拒绝。带填充的标准 base64 和
+// 不带填充的原始标准 base64 都可接受。
 func DecodeResourceBlob(resource ResourceContent) (data []byte, mime string, err error) {
 	mime = strings.TrimSpace(resource.MIMEType)
 	encoded := strings.TrimSpace(resource.Blob)
@@ -74,9 +74,9 @@ func DecodeResourceBlob(resource ResourceContent) (data []byte, mime string, err
 		return nil, mime, ErrBlobEmpty
 	}
 
-	// Upper bound on encoded characters for a 16 MiB payload, plus a small
-	// cushion for padding / raw encodings. Bounding here prevents memory
-	// amplification: we never call DecodeString on an arbitrarily large string.
+	// 16 MiB 载荷的编码字符上限，加上少量
+	// 填充/原始编码的余量。在此限制可防止内存
+	// 放大：我们绝不会对任意大的字符串调用 DecodeString。
 	maxEncoded := base64.StdEncoding.EncodedLen(maxResourceBlobBytes) + 4
 	if len(encoded) > maxEncoded {
 		return nil, mime, fmt.Errorf("%w: encoded length %d", ErrBlobTooLarge, len(encoded))
@@ -84,7 +84,7 @@ func DecodeResourceBlob(resource ResourceContent) (data []byte, mime string, err
 
 	data, err = base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		// Some servers omit padding; accept raw std base64 as a fallback.
+		// 有些服务器省略填充；作为回退接受原始标准 base64。
 		var rawErr error
 		data, rawErr = base64.RawStdEncoding.DecodeString(encoded)
 		if rawErr != nil {
@@ -97,17 +97,17 @@ func DecodeResourceBlob(resource ResourceContent) (data []byte, mime string, err
 	return data, mime, nil
 }
 
-// blobArtifactDir reports the configured artifact directory. Empty means the
-// blob feature is disabled and CallTool must keep its legacy behaviour.
+// blobArtifactDir 报告配置的产物目录。为空表示
+// blob 功能禁用，CallTool 必须保持旧行为。
 func blobArtifactDir() string {
 	return strings.TrimSpace(os.Getenv(blobArtifactDirEnv))
 }
 
-// saveBlobAsArtifact is the CallTool-side adapter: decode, persist under dir,
-// and render the marker the model sees. It is deliberately best-effort — on
-// any failure it returns an empty string, so a decoding or write problem never
-// fails an otherwise successful tool call (the blob stays as invisible as it
-// was before this change).
+// saveBlobAsArtifact 是 CallTool 侧的适配器：解码、写入 dir 下、
+// 并渲染模型看到的标记。它有意尽力而为——
+// 任何失败都返回空字符串，因此解码或写入问题绝不会让
+// 本已成功的工具调用失败（blob 保持与本次改动之前
+// 一样不可见）。
 func saveBlobAsArtifact(dir string, resource ResourceContent) string {
 	if strings.TrimSpace(dir) == "" {
 		return ""
@@ -123,16 +123,16 @@ func saveBlobAsArtifact(dir string, resource ResourceContent) string {
 	return fmt.Sprintf("[Binary resource saved to %s]", path)
 }
 
-// SaveBlobArtifact writes data to a fresh, safely-named file inside dir and
-// returns its path. It mirrors internal/tools' spill-artifact contract without
-// importing or modifying that package (which is owned by another agent).
+// SaveBlobArtifact 把 data 写入 dir 下一个全新的、安全命名的文件，
+// 并返回其路径。它仿照 internal/tools 的产物溢出约定，但不
+// 导入或修改那个包（它由另一位 agent 负责）。
 //
-// Security: `ext` is server-influenced (derived from mimeType), so it is
-// strictly sanitized — any path separator, ".." or non-alphanumeric character
-// is rejected, which closes the path-escape vector. The final path is also
-// verified to stay under dir. Files are created 0600 with O_EXCL inside a 0700
-// directory and a random hex name, so existing files are never overwritten and
-// the name holds no shell or path metacharacters.
+// 安全：`ext` 受服务器影响（源自 mimeType），因此经过
+// 严格净化——任何路径分隔符、".." 或非字母数字字符
+// 都会被拒绝，从而堵上路径逃逸途径。最终路径还会
+// 验证保持在 dir 之下。文件以 0600、O_EXCL 创建在 0700
+// 目录中，并使用随机十六进制名称，因此现有文件绝不会被覆盖，
+// 且名称不含 shell 或路径元字符。
 func SaveBlobArtifact(dir string, data []byte, ext string) (path string, err error) {
 	if strings.TrimSpace(dir) == "" {
 		return "", fmt.Errorf("mcp: artifact directory is empty")
@@ -157,22 +157,22 @@ func SaveBlobArtifact(dir string, data []byte, ext string) (path string, err err
 		}
 		name := blobArtifactPrefix + id + cleanExt
 		candidate := filepath.Join(absDir, name)
-		// Defense in depth: even though name is generated, confirm the joined
-		// path cannot escape the artifact directory.
+		// 纵深防御：即使 name 是生成的，也要确认拼接后的
+		// 路径不会逃逸出产物目录。
 		if !pathWithinDir(absDir, candidate) {
 			return "", fmt.Errorf("mcp: artifact path escapes directory: %s", candidate)
 		}
 
 		f, err := os.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if errors.Is(err, os.ErrExist) {
-			continue // astronomically unlikely; try a fresh id
+			continue // 极其不可能；换一个新 id 再试
 		}
 		if err != nil {
 			return "", err
 		}
 		if _, werr := f.Write(data); werr != nil {
 			f.Close()
-			os.Remove(candidate) // never leave a partial artifact behind
+			os.Remove(candidate) // 绝不留下不完整的产物
 			return "", werr
 		}
 		if cerr := f.Close(); cerr != nil {
@@ -184,14 +184,14 @@ func SaveBlobArtifact(dir string, data []byte, ext string) (path string, err err
 	return "", fmt.Errorf("mcp: could not create a unique blob artifact in %s", absDir)
 }
 
-// sanitizeArtifactExt normalizes an optional file extension. It accepts at
-// most maxArtifactExtLen ASCII alphanumerics with an optional leading dot and
-// returns a leading-dot lowercase form. Anything else (separators, "..",
-// whitespace, punctuation) is an error so it cannot alter the target path.
+// sanitizeArtifactExt 规范化可选的文件扩展名。它最多接受
+// maxArtifactExtLen 个 ASCII 字母数字，可带一个前导点，并
+// 返回带前导点的小写形式。其他任何内容（分隔符、".."、
+// 空白、标点）都是错误，以免改变目标路径。
 func sanitizeArtifactExt(ext string) (string, error) {
 	ext = strings.TrimSpace(ext)
 	if ext == "" {
-		return "", nil // an extensionless artifact is fine
+		return "", nil // 无扩展名的产物也可以
 	}
 	ext = strings.TrimPrefix(ext, ".")
 	if ext == "" || len(ext) > maxArtifactExtLen {
@@ -205,8 +205,8 @@ func sanitizeArtifactExt(ext string) (string, error) {
 	return "." + strings.ToLower(ext), nil
 }
 
-// pathWithinDir reports whether p resolves to a location inside dir. It is the
-// same containment rule internal/tools uses for its spill artifacts.
+// pathWithinDir 报告 p 是否解析到 dir 内部的位置。它与
+// internal/tools 对其产物溢出使用的包含规则相同。
 func pathWithinDir(dir, p string) bool {
 	rel, err := filepath.Rel(dir, p)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -215,7 +215,7 @@ func pathWithinDir(dir, p string) bool {
 	return !filepath.IsAbs(rel)
 }
 
-// randomBlobID returns blobIDBytes*2 lowercase hex characters from crypto/rand.
+// randomBlobID 从 crypto/rand 返回 blobIDBytes*2 个小写十六进制字符。
 func randomBlobID() (string, error) {
 	var b [blobIDBytes]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -224,9 +224,9 @@ func randomBlobID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// blobExtFromMIME maps a (server-supplied) MIME type to a safe, fixed file
-// extension. Unknown types fall back to ".bin"; the result is always accepted
-// by sanitizeArtifactExt, so mimeType can never influence the path.
+// blobExtFromMIME 把（服务器提供的）MIME 类型映射为安全、固定的文件
+// 扩展名。未知类型回退到 ".bin"；结果总能被
+// sanitizeArtifactExt 接受，因此 mimeType 永远无法影响路径。
 func blobExtFromMIME(mime string) string {
 	base := strings.ToLower(strings.TrimSpace(strings.Split(mime, ";")[0]))
 	switch base {

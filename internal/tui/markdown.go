@@ -6,16 +6,16 @@ import (
 	"strings"
 )
 
-// markdownLines renders a block with the small subset of markdown the model
-// actually emits: fenced code, inline code, bold, headings and tables.
+// markdownLines 用模型实际发出的那一小部分 markdown 渲染一个块：
+// 围栏代码、行内代码、粗体、标题和表格。
 func markdownLines(textValue string, width int, first, rest string, p Palette) []Line {
 	var out []Line
 	inCode := false
 	firstLine := true
-	// Every emitted row carries a first/rest prefix (assistant mark "◆ " or
-	// its indent), so the content budget is width minus that prefix — exactly
-	// the rule wrapStyled uses for ordinary lines. Tables must use the same
-	// budget or their right border runs past the transcript edge.
+	// 每个输出行都带有 first/rest 前缀（助手标记 "◆ " 或
+	// 其缩进），因此内容预算是宽度减去该前缀 —— 正是
+	// wrapStyled 对普通行使用的规则。表格必须使用相同的
+	// 预算，否则其右边框会越过记录边缘。
 	prefixWidth := maxInt(TextWidth(first), TextWidth(rest))
 	bodyWidth := maxInt(width-prefixWidth, 1)
 	lines := strings.Split(textValue, "\n")
@@ -37,8 +37,8 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 			i++
 			continue
 		}
-		// A table block is a line with '|' immediately followed by a delimiter
-		// row. Render it as a whole so columns stay aligned, then skip past it.
+		// 表格块是这样一行：紧跟一个由 '|' 构成的分隔符
+		// 行。把它整体渲染以保持列对齐，然后跳过它。
 		if i+1 < len(lines) && strings.Contains(lineText, "|") {
 			if _, ok := parseTableDelimiter(lines[i+1]); ok {
 				end := i + 2
@@ -74,8 +74,8 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 	return out
 }
 
-// inlineSpans splits one line into styled runs: `code`, **bold**, headings and
-// bullet markers.
+// inlineSpans 把一行拆为带样式的片段：`code`、**粗体**、标题和
+// 项目符号标记。
 func inlineSpans(lineText string, p Palette) []Span {
 	if strings.HasPrefix(lineText, "#") {
 		body := strings.TrimSpace(strings.TrimLeft(lineText, "#"))
@@ -136,18 +136,18 @@ func parseInline(textValue string, p Palette) []Span {
 	return spans
 }
 
-// styledCluster is one grapheme cluster with the style of the span it came
-// from. Wrapping works on clusters, not runes, so a ZWJ emoji, a flag or a
-// combining sequence is never split across lines (see Wrap in screen.go).
+// styledCluster 是带有其所属 span 样式的一个字素簇。
+// 换行按簇而非 rune 进行，因此 ZWJ emoji、旗帜或
+// 组合序列绝不会被拆到两行（见 screen.go 中的 Wrap）。
 type styledCluster struct {
 	text  string
 	s     Style
 	cells int
 }
 
-// splitGraphemes returns the grapheme clusters of s in order. nextGrapheme is
-// the single authority for cluster boundaries and cell widths; reusing it here
-// keeps the transcript wrapping consistent with TextWidth/Clip/Wrap.
+// splitGraphemes 按顺序返回 s 的字素簇。nextGrapheme 是
+// 是簇边界和单元格宽度的唯一权威；在这里复用它
+// 使记录换行与 TextWidth/Clip/Wrap 保持一致。
 func splitGraphemes(s string) []string {
 	if s == "" {
 		return nil
@@ -161,9 +161,9 @@ func splitGraphemes(s string) []string {
 	return out
 }
 
-// wrapStyled wraps styled runs, breaking at a space when one is available and
-// hard-breaking otherwise (which is the normal path for Chinese). Breaks are
-// made between grapheme clusters so multi-rune emoji stay intact.
+// wrapStyled 对带样式的片段换行：有空格时在空格处断行，
+// 否则硬断（这是中文的常见路径）。断点落在
+// 字素簇之间，使多 rune 的 emoji 保持完整。
 func wrapStyled(spans []Span, width int, first, rest string) []Line {
 	prefixWidth := maxInt(TextWidth(first), TextWidth(rest))
 	bodyWidth := maxInt(width-prefixWidth, 1)
@@ -228,7 +228,7 @@ func buildStyledLine(chunk []styledCluster, prefix string) Line {
 	return line
 }
 
-// wrappedBlock wraps plain text with a prefix on every row.
+// wrappedBlock 用每行都带的前缀包装纯文本。
 func wrappedBlock(body string, width int, first, rest string, style Style) []Line {
 	var out []Line
 	for _, paragraph := range strings.Split(body, "\n") {
@@ -245,7 +245,7 @@ func wrappedBlock(body string, width int, first, rest string, style Style) []Lin
 	return out
 }
 
-// toolLines renders name(args-summary) plus a truncated output preview.
+// toolLines 渲染 name(args-summary) 加上截断的输出预览。
 func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 	glyph := toolMark
 	style := p.tool()
@@ -288,9 +288,9 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 			} else {
 				rest = ""
 			}
-			// Only wrap as many segments as there are rows left. The final
-			// segment is clipped instead of wrapping an arbitrarily long row
-			// into every segment before the limit check rejects them.
+			// 只折叠与剩余行数一样多的片段。最后
+			// 一个片段被截断，而不是把任意长的行折叠进
+			// 每个片段，直到限额检查拒绝它们。
 			for _, segment := range wrapLimited(row, bodyWidth, limit-shown) {
 				line := NewLine()
 				line.Push("  ", Style{})
@@ -309,8 +309,8 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 	return out
 }
 
-// editCall covers both the edit schema and the multi_edit batch schema. Edits
-// recursively holds the per-file calls of a batch.
+// editCall 同时覆盖 edit schema 和 multi_edit 批次 schema。Edits
+// 递归保存批次中每个文件的调用。
 type editCall struct {
 	Old     string     `json:"old"`
 	New     string     `json:"new"`
@@ -319,9 +319,9 @@ type editCall struct {
 	Edits   []editCall `json:"edits"`
 }
 
-// editTexts returns the before/after text of an edit or multi_edit call. A
-// non-edit tool, malformed JSON or a missing side returns ok=false so the
-// caller keeps the original output-preview rendering.
+// editTexts 返回 edit 或 multi_edit 调用的 before/after 文本。
+// 非 edit 工具、格式错误的 JSON 或缺失的一侧返回 ok=false，使
+// 调用方保留原来的输出预览渲染。
 func editTexts(name, args string) (oldText, newText string, ok bool) {
 	if name != "edit" && name != "multi_edit" {
 		return "", "", false
@@ -360,17 +360,17 @@ func editTexts(name, args string) (oldText, newText string, ok bool) {
 	return oldText, newText, oldText != "" && newText != ""
 }
 
-// diffPreviewLines renders a diff with the same row budget and "N more lines"
-// marker as the ordinary tool-output preview. Adjacent "-"/"+" rows are
-// aligned word by word so a small edit highlights only the changed words.
+// diffPreviewLines 用与普通工具输出预览相同的行预算和 "N more lines"
+// 标记渲染差异。相邻的 "-"/"+" 行按词
+// 对齐，使小改动只高亮变化的词。
 func diffPreviewLines(diffs []DiffLine, limit, width int, p Palette) []Line {
 	var out []Line
 	bodyWidth := maxInt(width-4, 1)
 	shown := 0
 	for shown < limit && shown < len(diffs) {
 		diff := diffs[shown]
-		// Pairing only when both rows still fit the budget keeps the row count
-		// and "N more lines" result identical to the whole-line baseline.
+		// 仅当两行都仍在预算内时才配对，使行数
+		// 和 "N more lines" 结果与整行基准一致。
 		if diff.Kind == DiffDel && shown+1 < limit && shown+1 < len(diffs) &&
 			diffs[shown+1].Kind == DiffAdd {
 			oldSegs, newSegs := WordDiff(diff.Text, diffs[shown+1].Text)
@@ -393,8 +393,8 @@ func diffPreviewLines(diffs []DiffLine, limit, width int, p Palette) []Line {
 	return out
 }
 
-// plainDiffRow renders an unpaired diff row with one whole-line span, which is
-// the original behaviour an isolated deletion or addition still falls back to.
+// plainDiffRow 用单个整行 span 渲染不成对的差异行，这是
+// 孤立删除或新增仍然回退到的原始行为。
 func plainDiffRow(diff DiffLine, bodyWidth int, p Palette) Line {
 	line := NewLine()
 	line.Push("  ", Style{})
@@ -412,11 +412,11 @@ func plainDiffRow(diff DiffLine, bodyWidth int, p Palette) Line {
 	return line
 }
 
-// wordDiffRow renders one side of a paired del/add row. Unchanged segments
-// keep the row's ordinary style; changed segments get a strong background so
-// the edited word stands out. Segments share one width budget accumulated in
-// display cells, and a segment that crosses the edge is clipped on a grapheme
-// boundary rather than cut mid-rune (so CJK and emoji stay intact).
+// wordDiffRow 渲染成对 del/add 行的一侧。未变化的片段
+// 保持行的普通样式；变化的片段获得强背景色，使
+// 被编辑的词突出。各片段共享一个按显示单元格累加的宽度预算，
+// 越过边界的片段在字素边界处被截断，而不是在 rune 中间切开
+// （使 CJK 和 emoji 保持完整）。
 func wordDiffRow(marker string, segs []WordSegment, bodyWidth int, p Palette, add bool) Line {
 	line := NewLine()
 	line.Push("  ", Style{})
@@ -445,9 +445,9 @@ func wordDiffRow(marker string, segs []WordSegment, bodyWidth int, p Palette, ad
 	return line
 }
 
-// changedWordStyle gives a changed word a coloured background band. It reuses
-// the failure/tool palette colours so themes and NO_COLOR degrade the same way
-// as the rest of the renderer.
+// changedWordStyle 给变化的词一个彩色背景带。它复用
+// 失败/工具的调色板颜色，使主题和 NO_COLOR 的降级方式
+// 与渲染器的其余部分一致。
 func changedWordStyle(p Palette, add bool) Style {
 	if p.noColor {
 		return Style{}
@@ -458,8 +458,8 @@ func changedWordStyle(p Palette, add bool) Style {
 	return Style{Bg: p.Error, Bold: true}
 }
 
-// countLines counts rows without allocating the []string that strings.Split
-// would build for an oversized tool output.
+// countLines 统计行数，而不分配 strings.Split 会为
+// 过大工具输出构建的 []string。
 func countLines(s string) int {
 	if s == "" {
 		return 0
@@ -467,12 +467,12 @@ func countLines(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// wrapFirst mirrors one step of Wrap: it returns the first wrapped segment and
-// the unconsumed remainder, stopping as soon as the first break is found. It
-// walks grapheme clusters through nextGrapheme — the same authority Wrap, Clip
-// and Buffer.WriteString use — so a ZWJ emoji, a flag or a combining sequence is
-// never torn across two preview rows. Measuring each rune with RuneWidth here
-// used to leave a dangling joiner or half a flag at the end of a row.
+// wrapFirst 镜像 Wrap 的一步：返回第一个折叠后的片段和
+// 未消费的剩余部分，一找到第一个断点就停止。它
+// 通过 nextGrapheme 遍历字素簇 —— 与 Wrap、Clip
+// 和 Buffer.WriteString 使用的同一权威 —— 使 ZWJ emoji、旗帜或组合序列
+// 绝不会被撕到两个预览行之间。在这里用 RuneWidth 逐个 rune 测量
+// 过去会在行尾留下悬空的连接符或半面旗帜。
 func wrapFirst(text string, width int) (string, string) {
 	if width < 1 {
 		width = 1
@@ -503,8 +503,8 @@ func wrapFirst(text string, width int) (string, string) {
 	return strings.Join(cur, ""), ""
 }
 
-// wrapLimited wraps at most maxLines segments; the last one is clipped so a
-// single huge row costs O(maxLines*width) work, not O(row length) segments.
+// wrapLimited 最多折叠 maxLines 个片段；最后一个被截断，使
+// 单个巨大行的开销为 O(maxLines*width)，而不是 O(行长度) 个片段。
 func wrapLimited(text string, width, maxLines int) []string {
 	if maxLines <= 0 {
 		return nil
@@ -532,8 +532,8 @@ func wrapLimited(text string, width, maxLines int) []string {
 	return out
 }
 
-// summarizeArgs picks the one argument worth showing: the path, command or
-// query that makes a tool call recognisable at a glance.
+// summarizeArgs 选出唯一值得展示的参数：让工具调用一眼可辨的
+// path、command 或 query。
 func summarizeArgs(args string) string {
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(args), &decoded); err == nil {

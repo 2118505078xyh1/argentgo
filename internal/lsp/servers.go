@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// DefaultServers returns the built-in launch specifications. Nothing is
-// installed automatically: a server missing from PATH fails at Start with an
-// actionable message.
+// DefaultServers 返回内置的启动规格。不会自动
+// DefaultServers 返回内置的启动规格。不会自动安装任何内容：PATH 中缺失的服务器会在 Start 时以可操作的消息失败。
+// 安装任何内容：PATH 中缺失的服务器会在 Start 时以可操作消息失败。
 func DefaultServers() []Server {
 	return []Server{
 		{Name: "gopls", Command: "gopls", LanguageIDs: []string{"go"}},
@@ -28,13 +28,13 @@ func DefaultServers() []Server {
 	}
 }
 
-// Registry maps a language or a file to a server. A caller that needs a
-// different mapping registers its own server instead of changing the defaults.
+// Registry 把语言或文件映射到服务器。需要不同映射的调用方应注册自己的服务器，而不是更改默认值。
+// 不同映射的调用方应注册自己的服务器，而不是更改默认值。
 type Registry struct {
 	byLanguage map[string]Server
 }
 
-// NewRegistry returns a registry preloaded with DefaultServers.
+// NewRegistry 返回预载了 DefaultServers 的 registry。
 func NewRegistry() *Registry {
 	registry := &Registry{byLanguage: make(map[string]Server)}
 	for _, server := range DefaultServers() {
@@ -43,7 +43,7 @@ func NewRegistry() *Registry {
 	return registry
 }
 
-// Register adds or replaces a server for every language id it declares.
+// Register 为其声明的每个语言 id 添加或替换服务器。
 func (r *Registry) Register(server Server) {
 	if r.byLanguage == nil {
 		r.byLanguage = make(map[string]Server)
@@ -57,18 +57,18 @@ func (r *Registry) Register(server Server) {
 	}
 }
 
-// Lookup returns the server owning a language id.
+// Lookup 返回拥有某语言 id 的服务器。
 func (r *Registry) Lookup(language string) (Server, bool) {
 	server, ok := r.byLanguage[strings.ToLower(strings.TrimSpace(language))]
 	return server, ok
 }
 
-// ForPath returns the server owning a file, chosen by extension.
+// ForPath 按扩展名返回拥有某文件的服务器。
 func (r *Registry) ForPath(path string) (Server, bool) {
 	return r.Lookup(LanguageForPath(path))
 }
 
-// Languages lists the registered language ids.
+// Languages 列出已注册的语言 id。
 func (r *Registry) Languages() []string {
 	languages := make([]string, 0, len(r.byLanguage))
 	for language := range r.byLanguage {
@@ -78,7 +78,7 @@ func (r *Registry) Languages() []string {
 	return languages
 }
 
-// LanguageForPath maps a file path to its LSP language id.
+// LanguageForPath 把文件路径映射到其 LSP 语言 id。
 func LanguageForPath(path string) string {
 	extension := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
 	if language, ok := extensionLanguages[extension]; ok {

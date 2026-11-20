@@ -53,8 +53,8 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 		return "", err
 	}
 
-	// Validate and apply every edit in memory first; the file is written once.
-	// A failed repair batch writes nothing: multi_edit stays atomic.
+	// 先在内存中校验并应用每一处编辑；文件只写入一次。
+	// 修复批次失败则什么也不写：multi_edit 保持原子性。
 	text := string(data)
 	applied := 0
 	for i, edit := range args.Edits {
@@ -70,8 +70,8 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 			return "", fmt.Errorf("multi_edit: edit %d has an empty old text", i+1)
 		}
 		if args.Repair {
-			// repairReplace tries the exact match first and only falls back to
-			// the fuzzy rungs when the literal is missing or non-unique.
+			// repairReplace 先尝试精确匹配，仅当字面量缺失或不唯一时
+			// 才回退到模糊级别。
 			out, ok := repairReplace(text, old, newText)
 			if !ok {
 				err := multiEditRepairError(args.Path, i+1, len(args.Edits), applied, text, old)
@@ -96,7 +96,7 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 			return "", fmt.Errorf("multi_edit: edit %d: old text not found in %s%s", i+1, args.Path, hint)
 		case 1:
 		default:
-			// Keep the Rust-compatible count phrase for the eval suite.
+			// 保留与 Rust 兼容的计数短语，供 eval 套件使用。
 			return "", fmt.Errorf("multi_edit: edit %d: old text appears %d times in %s (not unique); a unique match is required", i+1, count, args.Path)
 		}
 		text = strings.Replace(text, old, newText, 1)
@@ -108,19 +108,19 @@ func (multiEditTool) Run(ctx context.Context, root string, raw json.RawMessage) 
 	return fmt.Sprintf("edited %s (%d edits)", args.Path, len(args.Edits)), nil
 }
 
-// multiEditRelocateMaxFile caps how large a workspace file may be before the
-// read-only relocation scan skips it, so one huge file cannot dominate a
-// diagnosis.
+// multiEditRelocateMaxFile 限制工作区文件在只读重定位扫描中
+// 被跳过的大小上限，避免单个巨大文件主导
+// 诊断结果。
 const multiEditRelocateMaxFile = 4 << 20 // 4 MiB
 
-// multiEditRelocateHint is the opt-in, read-only half of wrong-filename
-// recovery. It snapshots the workspace, runs planMultiEdit on the single
-// failing block and, when the SEARCH text lives literally (or only via the
-// repair ladder) in a different file, reports those candidate paths. It never
-// writes and never auto-picks a winner: guessing which file the model meant
-// could silently edit a file it did not name. An empty return means "nothing
-// useful to add", so callers can append the hint to an existing error without
-// changing the default (relocate off) output at all.
+// multiEditRelocateHint 是文件名写错恢复机制的 opt-in、只读部分。
+// 恢复。它对工作区做快照，对单个失败块运行 planMultiEdit，当 SEARCH
+// 文本字面存在（或仅通过修复阶梯）于另一个文件时，报告这些候选路径。它
+// 从不写入，也从不自动选出胜者：猜测模型本意是哪个文件
+// 可能会悄悄编辑一个它并未指名的文件。空返回表示"没有
+// 可补充的有用信息"，因此调用方可以把提示附加到现有错误上，
+// 而不会改变默认（重定位关闭）的输出。
+// 完全不改变默认（重定位关闭）的输出。
 func multiEditRelocateHint(root, intendedPath, old, newText string) string {
 	if old == "" {
 		return ""

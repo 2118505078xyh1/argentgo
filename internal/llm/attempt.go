@@ -8,12 +8,12 @@ import (
 	"strings"
 )
 
-// ErrStreamError marks a failure that happened after the provider accepted the
-// request, while the answer was still streaming. The session layer uses it to
-// record a stream-error attempt rather than a request failure.
+// ErrStreamError 标记在提供方接受请求之后、答复仍在流式传输时
+// 发生的失败。会话层用它记录一次流错误尝试，
+// 而非请求失败。
 var ErrStreamError = errors.New("provider stream error")
 
-// AttemptKind is the stable reason attached to a provider attempt record.
+// AttemptKind 是附加到提供方尝试记录上的稳定原因。
 type AttemptKind string
 
 const (
@@ -24,8 +24,8 @@ const (
 	AttemptStreamError AttemptKind = "stream_error"
 )
 
-// AttemptRecord is a redacted attempt notification for the session layer. It
-// carries no prompt text, response body or credential material.
+// AttemptRecord 是给会话层的脱敏尝试通知。它
+// 不含提示文本、响应体或凭据材料。
 type AttemptRecord struct {
 	Kind       AttemptKind
 	Protocol   string
@@ -35,9 +35,9 @@ type AttemptRecord struct {
 	ErrorClass string
 }
 
-// RetryAttempt describes one retry decision inside RetryPolicy.Do. Reason
-// explains why the attempt is retried; it never carries a response body or a
-// credential.
+// RetryAttempt 描述 RetryPolicy.Do 内部的一次重试决策。Reason
+// 解释为何重试该尝试；它从不携带响应体或
+// 凭据。
 type RetryAttempt struct {
 	Attempt    int
 	StatusCode int
@@ -45,9 +45,9 @@ type RetryAttempt struct {
 	Reason     Reason
 }
 
-// ClassifyError maps a provider error onto an attempt kind. Cancellation wins
-// over stream errors so an aborted mid-stream read is not counted as a failed
-// model answer.
+// ClassifyError 把提供方错误映射到尝试类别。取消优先于
+// 流错误，使中途被中止的读取不被算作失败的
+// 模型答复。
 func ClassifyError(err error) AttemptKind {
 	switch {
 	case err == nil:
@@ -61,11 +61,11 @@ func ClassifyError(err error) AttemptKind {
 	}
 }
 
-// NewAttemptRecord builds a record whose ErrorClass has already been redacted
-// and shortened, so hooks can log it directly.
+// NewAttemptRecord 构建一个 ErrorClass 已脱敏
+// 并缩短的记录，使 hooks 可以直接记录它。
 func NewAttemptRecord(kind AttemptKind, protocol, model string, err error) AttemptRecord {
 	record := AttemptRecord{Kind: kind, Protocol: protocol, Model: model}
-	// Cancellation is a stop reason, not a provider error class.
+	// 取消是停止原因，而非提供方错误类别。
 	if err != nil && kind != AttemptCancelled {
 		record.ErrorClass = clipErrorClass(RedactError(err))
 	}
@@ -78,26 +78,26 @@ func emitAttempt(hook func(AttemptRecord), record AttemptRecord) {
 	}
 }
 
-// clipErrorClass bounds an error class by runes. Byte slicing could cut a
-// multibyte message (e.g. Chinese) in the middle of a UTF-8 sequence.
+// clipErrorClass 按字符数限制错误类别的长度。按字节切片可能把
+// 多字节消息（如中文）从 UTF-8 序列中间切断。
 func clipErrorClass(text string) string {
 	return clipRedacted(text, 256)
 }
 
-// streamIntegrity tracks whether a reply reached its protocol terminator and
-// whether any tool call had to be completed with an empty argument object
-// because the streamed arguments were empty or malformed. Reaching EOF in
-// that state means the provider cut the reply off mid-tool-call: dispatching
-// it would run a real tool with invented "{}" arguments. Text-only truncation
-// stays tolerated so gateways that omit the terminator keep working.
+// streamIntegrity 跟踪答复是否到达其协议终止符，以及
+// 是否有工具调用因流式参数为空或格式错误，
+// 而不得不用空参数对象补全。在此状态下到达 EOF 意味着提供方
+// 在工具调用中途截断了答复：分发它会用捏造的 "{}" 参数
+// 运行真实工具。纯文本截断仍然容忍，
+// 使省略终止符的网关能继续工作。
 type streamIntegrity struct {
 	terminated     bool
 	incompleteTool bool
 }
 
-// toolArguments completes streamed arguments, flagging a fallback to "{}" so
-// an unterminated stream can reject the reply rather than dispatch a tool with
-// arguments the provider never finished sending.
+// toolArguments 补全流式参数，标记曾回退到 "{}"，使
+// 未终止的流可以拒绝该答复，而不是用提供方从未发完的
+// 参数分发工具。
 func (s *streamIntegrity) toolArguments(arguments string) string {
 	if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
 		s.incompleteTool = true
@@ -106,8 +106,8 @@ func (s *streamIntegrity) toolArguments(arguments string) string {
 	return arguments
 }
 
-// eofError reports a truncation that must fail the attempt. marker is the
-// protocol's own terminator, included in the error for diagnostics.
+// eofError 报告必须让尝试失败的截断。marker 是
+// 协议自身的终止符，包含在错误中以便诊断。
 func (s *streamIntegrity) eofError(marker string) error {
 	if s.terminated || !s.incompleteTool {
 		return nil
@@ -115,18 +115,18 @@ func (s *streamIntegrity) eofError(marker string) error {
 	return streamError("stream ended without %s while a tool call was incomplete", marker)
 }
 
-// streamError wraps a mid-stream failure with the sentinel the session layer
-// classifies as a stream-error attempt.
+// streamError 用会话层会归类为流错误尝试的哨兵错误
+// 包装一次流中途失败。
 func streamError(format string, args ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{ErrStreamError}, args...)...)
 }
 
-// uniqueToolCallID returns a generated id that cannot collide with any id the
-// provider supplied (or with another generated id). used must contain every
-// provider id in the reply; the returned id is inserted into it so successive
-// calls with the same seed still get distinct ids. A duplicated call id makes
-// the agent reject the whole batch, so every protocol client must route its
-// fallback ids through here rather than formatting a name from a stream index.
+// uniqueToolCallID 返回一个不会与提供方提供的任何 id
+// （或另一个生成的 id）冲突的生成 id。used 必须包含回复中每个提供方 id；
+// 返回的 id 会被插入其中，使使用相同种子的连续调用仍得到不同的 id。
+// 重复的调用 id 会让 agent 拒绝整个批次，因此每个协议客户端都必须
+// 让其回退 id 经过这里，
+// 而不是根据流索引格式化一个名字。
 func uniqueToolCallID(used map[string]struct{}, prefix string, seed int) string {
 	for n := seed; ; n++ {
 		candidate := fmt.Sprintf("%s%d", prefix, n)

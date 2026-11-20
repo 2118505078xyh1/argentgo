@@ -11,11 +11,11 @@ import (
 	"unicode/utf8"
 )
 
-// Kind enumerates the logical keys the UI understands. Escape sequences are
-// decoded to this shape so the model never sees raw bytes.
+// Kind 枚举 UI 理解的逻辑按键。转义序列被
+// 解码为这种形状，使模型永远看不到原始字节。
 type Kind int
 
-// Key kinds.
+// 按键种类。
 const (
 	KindRune Kind = iota
 	KindEnter
@@ -46,8 +46,8 @@ const (
 	KindPaste
 	KindIgnore
 
-	// Panel toggles are appended so the numeric values of the keys above stay
-	// the same for callers that decode bytes into Kind values directly.
+	// 面板切换被追加在后面，使上面按键的数值
+	// 对直接把字节解码为 Kind 值的调用方保持不变。
 	KindCtrlT // toggle the tasks panel
 	KindCtrlB // toggle the workspace panel
 	KindCtrlP // toggle the plan panel
@@ -55,10 +55,10 @@ const (
 	KindAltU  // undo last turn
 	KindAltR  // retry last turn
 
-	// Mouse report kinds are appended so the numeric values of every key
-	// above stay stable. Because of legacy decoding (see parseCSI), wheels and
-	// an unmodified left press keep their historical Kind values on the Key;
-	// Key.Mouse is always the authoritative description of a mouse report.
+	// 鼠标报告种类被追加在后面，使上面每个按键的数值
+	// 保持稳定。由于历史解码（见 parseCSI），滚轮和
+	// 未修改的左键在 Key 上保留其历史 Kind 值；
+	// Key.Mouse 始终是鼠标报告的权威描述。
 	KindMousePress
 	KindMouseDrag
 	KindMouseRelease
@@ -68,10 +68,10 @@ const (
 	KindCtrlG // ctrl+g: edit the prompt in $VISUAL / $EDITOR
 )
 
-// MouseKind classifies one decoded SGR mouse report.
+// MouseKind 对一条解码后的 SGR 鼠标报告分类。
 type MouseKind int
 
-// Mouse report kinds.
+// 鼠标报告种类。
 const (
 	MouseUnknown MouseKind = iota
 	MousePress
@@ -81,9 +81,9 @@ const (
 	MouseWheelDown
 )
 
-// MouseEvent is one decoded SGR mouse report. Col and Row are 1-based
-// terminal coordinates. Button holds the raw SGR bits: low two bits identify
-// left (0), middle (1) and right (2); bit 32 marks a drag; 64/65 are the wheel.
+// MouseEvent 是一条解码后的 SGR 鼠标报告。Col 和 Row 是基于 1 的
+// 终端坐标。Button 保存原始 SGR 位：低两位标识
+// 左键 (0)、中键 (1) 和右键 (2)；第 32 位标记拖拽；64/65 是滚轮。
 type MouseEvent struct {
 	Kind   MouseKind
 	Button int
@@ -91,8 +91,8 @@ type MouseEvent struct {
 	Row    int
 }
 
-// Key is one decoded keystroke. Mouse is non-nil only for a decoded mouse
-// report; keyboard keys are unchanged.
+// Key 是一次解码后的按键。仅对解码出的鼠标报告 Mouse 才非 nil；
+// 键盘按键保持不变。
 type Key struct {
 	Kind  Kind
 	Rune  rune
@@ -100,16 +100,16 @@ type Key struct {
 	Mouse *MouseEvent // decoded SGR mouse report, if any
 }
 
-// Decoder turns a byte stream into keys. Partial escape sequences are kept
-// between reads, so a sequence split across two reads is not lost.
+// Decoder 把字节流转换为按键。不完整的转义序列在
+// 两次读取之间保留，因此跨两次读取拆分的序列不会丢失。
 type Decoder struct {
 	buf []byte
 }
 
-// Pending reports whether an incomplete sequence is buffered.
+// Pending 报告是否有不完整的序列被缓冲。
 func (d *Decoder) Pending() bool { return len(d.buf) > 0 }
 
-// Feed appends bytes and returns every complete key they contain.
+// Feed 追加字节并返回其中包含的所有完整按键。
 func (d *Decoder) Feed(p []byte) []Key {
 	if len(p) > 0 {
 		d.buf = append(d.buf, p...)
@@ -117,8 +117,8 @@ func (d *Decoder) Feed(p []byte) []Key {
 	return d.drain()
 }
 
-// FlushEscape turns a lone pending ESC into the Esc key. The run loop calls it
-// when no further bytes arrive quickly, so a single Esc still aborts at once.
+// FlushEscape 把单个待处理的 ESC 变成 Esc 按键。run 循环在没有
+// 新字节迅速到达时调用它，使单个 Esc 仍能立即中止。
 func (d *Decoder) FlushEscape() []Key {
 	if len(d.buf) != 1 || d.buf[0] != 0x1b {
 		return nil
@@ -143,8 +143,8 @@ func (d *Decoder) drain() []Key {
 	return keys
 }
 
-// decodeKey decodes one key from the front of b. The third result is false
-// when b is a prefix of a longer sequence.
+// decodeKey 从 b 的前端解码一个按键。当 b 是更长序列的前缀时，
+// 第三个结果为 false。
 func decodeKey(b []byte) (Key, int, bool) {
 	if len(b) == 0 {
 		return Key{}, 0, false
@@ -198,11 +198,11 @@ func decodeKey(b []byte) (Key, int, bool) {
 	return Key{Kind: KindRune, Rune: r}, size, true
 }
 
-// maxPasteBytes bounds the bracketed-paste buffer. A terminal that emits the
-// ESC[200~ opener but loses the matching ESC[201~ would otherwise keep the
-// decoder waiting forever, growing the buffer and swallowing every keystroke.
-// Past this cap the leading ESC is dropped so the accumulated bytes are
-// re-decoded normally and the keyboard recovers.
+// maxPasteBytes 限制括号粘贴缓冲区。如果终端发出
+// ESC[200~ 起始符却丢失配对的 ESC[201~，否则会
+// 让解码器永远等待，缓冲区不断增长并吞掉每次按键。
+// 超过此上限时丢弃开头的 ESC，使累积的字节
+// 被正常重新解码，键盘得以恢复。
 const maxPasteBytes = 1 << 20 // 1 MiB
 
 func decodeEscape(b []byte) (Key, int, bool) {
@@ -220,8 +220,8 @@ func decodeEscape(b []byte) (Key, int, bool) {
 	case 'r', 'R':
 		return Key{Kind: KindAltR}, 2, true
 	default:
-		// ESC followed by something else: the Esc was pressed on its own and
-		// the next byte is a normal key.
+		// ESC 后跟其他内容：Esc 是被单独按下的，
+		// 下一个字节是普通按键。
 		return Key{Kind: KindEsc}, 1, true
 	}
 	if b[1] == '[' && len(b) >= 6 && bytes.HasPrefix(b[2:], []byte("200~")) {
@@ -229,8 +229,8 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		end := bytes.Index(rest, []byte("\x1b[201~"))
 		if end < 0 {
 			if len(b) > maxPasteBytes {
-				// End marker lost: drop the ESC and re-decode the buffered
-				// bytes as ordinary input so the keyboard never stays stuck.
+				// 结束标记丢失：丢弃 ESC 并把缓冲的
+				// 字节作为普通输入重新解码，使键盘永不卡住。
 				return Key{Kind: KindIgnore}, 1, true
 			}
 			return Key{}, 0, false
@@ -243,14 +243,14 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		}
 	}
 	if len(b) > 32 {
-		// A runaway sequence: drop the ESC and carry on instead of growing
-		// the buffer forever.
+		// 失控的序列：丢弃 ESC 并继续，而不是让
+		// 缓冲区无限增长。
 		return Key{Kind: KindIgnore}, 1, true
 	}
 	return Key{}, 0, false
 }
 
-// parseCSI maps the body and final byte of a control sequence to a key.
+// parseCSI 把控制序列的正文和结束字节映射为按键。
 func parseCSI(body string, final byte) Key {
 	switch final {
 	case 'A':
@@ -288,16 +288,16 @@ func parseCSI(body string, final byte) Key {
 		}
 		return Key{Kind: KindIgnore}
 	case 'M', 'm':
-		// SGR mouse report: ESC [ < button ; col ; row M (press) or m
-		// (release). decodeSGRMouse carries the full event on Key.Mouse.
+		// SGR 鼠标报告：ESC [ < button ; col ; row M（按下）或 m
+		// （释放）。decodeSGRMouse 把完整事件带到 Key.Mouse。
 		key, ok := decodeSGRMouse(body, final == 'm')
 		if !ok {
 			return Key{Kind: KindIgnore}
 		}
-		// Keep the legacy Kind values that the original wheel decoder and its
-		// golden tests rely on: wheels were scroll keys and an unmodified
-		// left press was ignored. The run loop dispatches on Key.Mouse instead,
-		// so no mouse detail is lost by retaining these values.
+		// 保留原始滚轮解码器及其基准测试所依赖的历史 Kind 值：
+		// 滚轮曾是滚动键，未修改的左键被忽略。run 循环改为按 Key.Mouse 分派，
+		// 因此保留这些值不会丢失任何鼠标细节。
+		// 因此保留这些值不会丢失任何鼠标细节。
 		switch key.Mouse.Kind {
 		case MouseWheelUp:
 			key.Kind = KindScrollUp
@@ -313,14 +313,14 @@ func parseCSI(body string, final byte) Key {
 	return Key{Kind: KindIgnore}
 }
 
-// decodeSGRMouse parses the body of an SGR report (everything after ESC [)
-// into a Key with a MouseEvent. release selects the final 'm' form. The third
-// result is false for anything that is not a well-formed SGR report, letting
-// callers fall back to the ordinary "ignore" path.
+// decodeSGRMouse 把 SGR 报告的正文（ESC [ 之后的所有内容）
+// 解析为带 MouseEvent 的 Key。release 选择结尾的 'm' 形式。第三个
+// 结果对任何非格式良好的 SGR 报告为 false，使
+// 调用方回退到普通的"忽略"路径。
 //
-// Legacy X10 reports (ESC [ M followed by three raw bytes) are deliberately
-// not decoded: modern terminals in SGR mode (DECSET 1016) emit only the form
-// handled here, and the extra mode would complicate the byte-stream decoder.
+// 旧式 X10 报告（ESC [ M 后跟三个原始字节）有意
+// 不解码：SGR 模式（DECSET 1016）下的现代终端只发出
+// 这里处理的形式，额外的模式会让字节流解码器复杂化。
 func decodeSGRMouse(body string, release bool) (Key, bool) {
 	if !strings.HasPrefix(body, "<") {
 		return Key{}, false
@@ -354,10 +354,10 @@ func decodeSGRMouse(body string, release bool) (Key, bool) {
 	return key, true
 }
 
-// KeyBinding is one entry of the footer key bar. Key is the label drawn first
-// (for example "ctrl+c"), Desc is its human-readable meaning, and Enabled
-// lets a caller hide entries that do not apply to the current UI state without
-// rebuilding the whole list.
+// KeyBinding 是底部按键栏的一项。Key 是首先绘制的标签
+// （例如 "ctrl+c"），Desc 是其人可读的含义，Enabled
+// 使调用方可以隐藏不适用于当前 UI 状态的条目，而无需
+// 重建整个列表。
 type KeyBinding struct {
 	Key     string
 	Desc    string
@@ -369,11 +369,11 @@ const (
 	shortHelpEllipsis = "…"
 )
 
-// HintBindings splits a localised hint string such as
-// "enter send · alt+enter newline · /help" into bindings, all enabled. It lets
-// callers keep the existing locale data while gaining per-entry control
-// (Enabled, order, width-aware rendering) through ShortHelp. A key with no
-// description ("/help") is kept as a Key-only binding.
+// HintBindings 把本地化提示字符串（如
+// "enter send · alt+enter newline · /help"）拆为绑定，全部启用。它让
+// 调用方保留现有区域设置数据，同时通过 ShortHelp 获得逐项控制
+// （Enabled、顺序、感知宽度的渲染）。没有
+// 描述的按键（"/help"）保留为仅 Key 的绑定。
 func HintBindings(hint string) []KeyBinding {
 	if strings.TrimSpace(hint) == "" {
 		return nil
@@ -397,16 +397,16 @@ func HintBindings(hint string) []KeyBinding {
 	return bindings
 }
 
-// ShortHelp renders bindings in order as "key desc" entries joined by
-// shortHelpSep. Disabled entries are skipped. When the joined text does not
-// fit in width, whole entries are dropped and a trailing ellipsis is appended
-// instead of cutting a key in half, so a narrow terminal never shows a
-// silently truncated binding.
+// ShortHelp 按顺序把绑定渲染为 "key desc" 条目，用
+// shortHelpSep 连接。禁用的条目被跳过。当连接后的文本
+// 放不进 width 时，丢弃整个条目并追加尾随省略号，
+// 而不是把某个按键切成两半，因此窄终端绝不会显示
+// 被静默截断的绑定。
 //
-// textWidth is injected (normally tui.TextWidth) so this helper measures cells
-// with the caller's width model; a nil callback falls back to TextWidth. The
-// returned string never occupies more than width cells when textWidth is the
-// package's TextWidth.
+// textWidth 是注入的（通常是 tui.TextWidth），使该辅助函数用
+// 调用方的宽度模型测量单元格；nil 回调回退到 TextWidth。
+// 当 textWidth 是本包的 TextWidth 时，返回的字符串
+// 占用的单元格永不超过 width。
 func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) string {
 	if width <= 0 {
 		return ""
@@ -442,7 +442,7 @@ func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) str
 		return full
 	}
 
-	// Reserve room for the ellipsis and keep only whole segments that fit.
+	// 为省略号预留空间，只保留放得下的完整片段。
 	limit := width - textWidth(shortHelpEllipsis)
 	if limit < 0 {
 		limit = 0
@@ -468,15 +468,15 @@ func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) str
 	return out.String() + shortHelpEllipsis
 }
 
-// clipboardWrite is the pluggable clipboard backend. Tests replace it to
-// exercise CopyToClipboard without touching the real system clipboard.
+// clipboardWrite 是可插拔的剪贴板后端。测试替换它，
+// 以便在不触碰真实系统剪贴板的情况下测试 CopyToClipboard。
 var clipboardWrite = writeClipboard
 
-// CopyToClipboard copies text to the system clipboard on a best-effort basis.
-// On Windows it pipes the text to clip.exe through os/exec (stdlib, no cgo and
-// no new module). On other platforms, or when clip.exe is unavailable, it is a
-// no-op so copy support can never break the run loop. Errors from a present
-// clip.exe are returned for the caller to log or ignore.
+// CopyToClipboard 尽力把文本复制到系统剪贴板。
+// 在 Windows 上它通过 os/exec 把文本管道给 clip.exe（仅标准库，无 cgo 且
+// 无新模块）。在其他平台，或 clip.exe 不可用时，它是
+// 空操作，因此复制支持绝不会破坏 run 循环。存在的
+// clip.exe 返回的错误交给调用方记录或忽略。
 func CopyToClipboard(text string) error { return clipboardWrite(text) }
 
 func writeClipboard(text string) error {

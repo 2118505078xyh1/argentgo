@@ -13,9 +13,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatIdleTimeoutSurfacedAsStreamError checks the public path: the field is
-// wired through Chat and a dead-but-open connection becomes a stream_error
-// attempt (retryable class) rather than a hang until the context expires.
+// TestChatIdleTimeoutSurfacedAsStreamError 检查公共路径：该字段
+// 经 Chat 接线，一个已死但保持打开的连接会变成 stream_error
+// 尝试（可重试类别），而不是一直挂起到 context 过期。
 func TestChatIdleTimeoutSurfacedAsStreamError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -23,7 +23,7 @@ func TestChatIdleTimeoutSurfacedAsStreamError(t *testing.T) {
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
-		<-r.Context().Done() // stay connected but silent
+		<-r.Context().Done() // 保持连接但静默
 	}))
 	defer server.Close()
 

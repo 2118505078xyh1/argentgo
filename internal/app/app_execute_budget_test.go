@@ -7,9 +7,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// These are the stable announcement strings declared in internal/session. They
-// are duplicated here (rather than referenced) because the session package
-// keeps them unexported; the app adapter's contract is the literal text.
+// 这些是 internal/session 中声明的稳定宣告字符串。它们
+// 在这里被复制（而非引用），因为 session 包
+// 将它们保持为未导出；app 适配器的契约就是字面文本。
 const (
 	noticeInterruptedPrompt = "Session recovery: the last user prompt had no reply before the run stopped; it will be answered on resume."
 	noticeInterruptedTurn   = "Session recovery: the previous turn stopped mid-execution; unanswered tool calls will be answered with an aborted result before continuing."
@@ -43,7 +43,7 @@ func TestApplyDeclaredTurnBudgetFillsDeclaration(t *testing.T) {
 			if b.DeclaredTurnTokens != tc.want {
 				t.Fatalf("DeclaredTurnTokens = %d, want %d", b.DeclaredTurnTokens, tc.want)
 			}
-			// The adapter must not touch any other budget limit.
+			// 该适配器不得触碰任何其他预算限制。
 			if b.MaxTurns != 5 || b.MaxPromptTokens != 100 || b.MaxTotalTokens != 1_000 || b.MaxCostUSD != 1.5 {
 				t.Fatalf("other budget fields changed: %+v", b)
 			}
@@ -64,8 +64,8 @@ func TestApplyDeclaredTurnBudgetWithoutDeclarationIsNoOp(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// A preset value must survive a prompt with no declaration: the
-			// adapter only fills, it never clears.
+			// 预设值必须能经受没有声明的提示：该
+			// 适配器只填充，从不清除。
 			b := agent.Budget{MaxTurns: 7, DeclaredTurnTokens: 42}
 			applyDeclaredTurnBudget(tc.prompt, &b)
 			if b.DeclaredTurnTokens != 42 {
@@ -79,14 +79,14 @@ func TestApplyDeclaredTurnBudgetWithoutDeclarationIsNoOp(t *testing.T) {
 }
 
 func TestApplyDeclaredTurnBudgetNilBudget(t *testing.T) {
-	// A nil budget must be tolerated so callers can invoke the adapter without
-	// guarding for a not-yet-constructed budget.
+	// 必须容忍 nil 预算，使调用方无需防范尚未构造的预算，
+	// 即可调用该适配器。
 	applyDeclaredTurnBudget("+500k", nil)
 }
 
-// recoveryMessages returns a transcript for each of the categories classified
-// by session.ClassifyRecovery. Entries carry ids/parents and tool ids directly;
-// an empty Data field makes session.toolCallIDs fall back to ToolCallID.
+// recoveryMessages 为 session.ClassifyRecovery 分类的每一类返回一份记录。
+// 条目直接携带 id/parent 和工具 id；
+// 空的 Data 字段使 session.toolCallIDs 回退到 ToolCallID。
 func recoveryMessages(category string) []session.Entry {
 	switch category {
 	case "clean":
@@ -154,8 +154,8 @@ func TestRecoveryNeedsConfirmationByCategory(t *testing.T) {
 }
 
 func TestRecoveryDecisionForCombinesNoticeAndConfirmation(t *testing.T) {
-	// Only degraded history both announces and pauses. Interrupted states
-	// announce but remain auto-continuable.
+	// 只有降级的历史既宣告又暂停。被中断的状态
+	// 会宣告，但仍可自动继续。
 	cases := []struct {
 		category  string
 		notice    string
@@ -175,7 +175,7 @@ func TestRecoveryDecisionForCombinesNoticeAndConfirmation(t *testing.T) {
 		})
 	}
 
-	// Empty transcripts classify as clean through the adapter as well.
+	// 空记录经适配器分类后也属于干净状态。
 	if got := recoveryDecisionFor(nil); got.Notice != "" || got.NeedsConfirmation {
 		t.Fatalf("empty transcript decision = %+v, want clean", got)
 	}

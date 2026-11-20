@@ -10,16 +10,16 @@ import (
 	"time"
 )
 
-// This file records performance baselines for the session hot paths: JSONL
-// append, full transcript parsing, and the List/sidecar index. All inputs are
-// fixed in-memory fixtures written to b.TempDir(); no network, model or real
-// wall-clock dependency is involved. No wall-clock thresholds are asserted —
-// the numbers exist only so later runs can be compared.
+// 本文件记录会话热路径的性能基线：JSONL
+// 追加、完整转录解析以及 List/旁车索引。所有输入都是
+// 写入 b.TempDir() 的固定内存夹具；不涉及网络、模型或真实的
+// 时钟依赖。不断言任何时钟阈值——
+// 这些数字的存在只是为了让后续运行可以比较。
 
 var benchMetaSink Meta
 
-// benchWriteTranscript writes a JSONL file with n well-formed records. The
-// timestamp is fixed so repeated runs produce byte-identical files.
+// benchWriteTranscript 写入一个包含 n 条格式良好记录的 JSONL 文件。
+// 时间戳是固定的，因此重复运行产生逐字节相同的文件。
 func benchWriteTranscript(b *testing.B, path string, n int, payload string) {
 	b.Helper()
 	stamp := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -56,7 +56,7 @@ func benchWriteTranscript(b *testing.B, path string, n int, payload string) {
 	}
 }
 
-// benchTranscriptPath returns the path of a freshly written fixture transcript.
+// benchTranscriptPath 返回新写入的夹具转录的路径。
 func benchTranscriptPath(b *testing.B, n int, payload string) string {
 	b.Helper()
 	path := filepath.Join(b.TempDir(), "bench.jsonl")
@@ -64,9 +64,9 @@ func benchTranscriptPath(b *testing.B, n int, payload string) string {
 	return path
 }
 
-// BenchmarkAppendRecord measures steady-state AppendRecord throughput: the
-// index is warm after the header, so each iteration exercises payload encoding,
-// id minting, one JSONL write and the post-write stat/sync.
+// BenchmarkAppendRecord 测量稳态 AppendRecord 吞吐量：header 之后
+// 索引已预热，因此每次迭代覆盖载荷编码、
+// id 生成、一次 JSONL 写入以及写入后的 stat/sync。
 func BenchmarkAppendRecord(b *testing.B) {
 	cases := []struct {
 		name    string
@@ -99,8 +99,8 @@ func BenchmarkAppendRecord(b *testing.B) {
 	}
 }
 
-// BenchmarkReadRecords measures the full JSONL parse used by every history
-// read, across the three history sizes called out in the performance brief.
+// BenchmarkReadRecords 测量每次历史读取所用的完整 JSONL 解析，
+// 覆盖性能简报中提到的三种历史规模。
 func BenchmarkReadRecords(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -109,8 +109,8 @@ func BenchmarkReadRecords(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				records, err := readRecords(path)
-				// readRecords prepends one synthetic schema header for v0
-				// transcripts, so a fixture of n records parses to n+1.
+				// readRecords 会为 v0 转录在前面加一条合成 schema 头，
+				// 因此 n 条记录的夹具解析为 n+1 条。
 				if err != nil || len(records) != n+1 {
 					b.Fatalf("readRecords: %d records, err %v; want %d", len(records), err, n+1)
 				}
@@ -119,8 +119,8 @@ func BenchmarkReadRecords(b *testing.B) {
 	}
 }
 
-// BenchmarkSessionRecords measures the public Records() wrapper, which reads
-// through the Session's own path rather than a raw file path.
+// BenchmarkSessionRecords 测量公开的 Records() 包装器，它读取
+// 的是 Session 自身的路径，而不是原始文件路径。
 func BenchmarkSessionRecords(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -130,8 +130,8 @@ func BenchmarkSessionRecords(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				records, err := s.Records()
-				// Records() exposes the same synthetic schema header readRecords
-				// prepends, so a fixture of n records yields n+1.
+				// Records() 暴露与 readRecords 相同的合成 schema 头，
+				// 因此 n 条记录的夹具产生 n+1 条。
 				if err != nil || len(records) != n+1 {
 					b.Fatalf("Records: %d records, err %v; want %d", len(records), err, n+1)
 				}
@@ -140,9 +140,9 @@ func BenchmarkSessionRecords(b *testing.B) {
 	}
 }
 
-// BenchmarkList measures the store listing after sidecars are warm: each call
-// still validates every transcript but reads metadata from the .idx cache
-// instead of parsing the whole file.
+// BenchmarkList 测量旁车文件预热后的 store 列表：每次调用
+// 仍会校验每份转录，但从 .idx 缓存读取元数据，
+// 而不是解析整个文件。
 func BenchmarkList(b *testing.B) {
 	for _, n := range []int{10, 100, 500} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -150,7 +150,7 @@ func BenchmarkList(b *testing.B) {
 			for i := 0; i < n; i++ {
 				benchWriteTranscript(b, filepath.Join(dir, fmt.Sprintf("bench-%04d.jsonl", i)), 4, "list entry")
 			}
-			// One warm-up List builds the sidecars; the timed loop is the hot path.
+			// 一次预热 List 构建旁车文件；计时循环是热路径。
 			if _, err := List(dir); err != nil {
 				b.Fatal(err)
 			}
@@ -166,8 +166,8 @@ func BenchmarkList(b *testing.B) {
 	}
 }
 
-// BenchmarkMetaFromRecords isolates the index builder that a cold List runs on
-// every transcript without a usable sidecar.
+// BenchmarkMetaFromRecords 隔离冷 List 在没有可用旁车文件时，
+// 对每份转录运行的索引构建器。
 func BenchmarkMetaFromRecords(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {

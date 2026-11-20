@@ -33,10 +33,10 @@ func TestFuzzyMatchBasic(t *testing.T) {
 }
 
 func TestFuzzyMatchSmartCase(t *testing.T) {
-	// No uppercase in pattern -> case-insensitive.
+	// 模式中没有大写 -> 不区分大小写。
 	checkMatch(t, "abc", "aBc", false, true, []int{0, 1, 2})
 	checkMatch(t, "abc", "xxABC", false, true, []int{2, 3, 4})
-	// Uppercase in pattern -> case-sensitive.
+	// 模式中有大写 -> 区分大小写。
 	checkMatch(t, "AbC", "xxAbCyy", false, true, []int{2, 3, 4})
 	checkMatch(t, "AbC", "abc", false, false, nil)
 	checkMatch(t, "HTTP", "http", false, false, nil)
@@ -81,7 +81,7 @@ func TestFuzzyMatchGapPenalty(t *testing.T) {
 	if !(tight > smallGap && smallGap > largeGap) {
 		t.Fatalf("gap penalty not monotonic: tight=%d small=%d large=%d", tight, smallGap, largeGap)
 	}
-	// A leading gap costs points too.
+	// 前导间隔同样扣分。
 	leading := checkMatch(t, "ab", "ZZab", false, true, nil)
 	if leading >= tight {
 		t.Fatalf("leading gap scored %d, want < tight score %d", leading, tight)
@@ -101,7 +101,7 @@ func TestFuzzyMatchPathMode(t *testing.T) {
 		t.Fatalf("pathMode score %d should exceed plain score %d", score, plainScore)
 	}
 
-	// ':' is a boundary only in pathMode.
+	// ':' 仅在 pathMode 下是边界。
 	pathScore := checkMatch(t, "bc", "a:bcd", true, true, nil)
 	normalScore := checkMatch(t, "bc", "a:bcd", false, true, nil)
 	if pathScore <= normalScore {
@@ -120,7 +120,7 @@ func TestFuzzyMatchCJKAndEmoji(t *testing.T) {
 		t.Fatalf("positions are not rune indices into the original text")
 	}
 
-	// Emoji are single runes; positions must count runes, not UTF-8 bytes.
+	// Emoji 是单个 rune；位置必须按 rune 计，而非 UTF-8 字节。
 	checkMatch(t, "🚀X", "a🚀bXc", false, true, []int{1, 3})
 	checkMatch(t, "界🚀", "世界🚀!", false, true, []int{1, 2})
 }
@@ -157,7 +157,7 @@ func TestSortFuzzyResultsDeterministic(t *testing.T) {
 		t.Fatalf("sorted Index order = %v, want %v", got, wantIndexOrder)
 	}
 
-	// Fully identical entries stay in their original order (stable).
+	// 完全相同的条目保持原有顺序（稳定）。
 	equal := []FuzzyResult{
 		{Score: 5, TextLen: 2, Positions: []int{0}, Index: 7},
 		{Score: 5, TextLen: 2, Positions: []int{0}, Index: 7},

@@ -5,24 +5,24 @@ import (
 	"unicode/utf8"
 )
 
-// WordSegment is a contiguous run of text on one side of a word diff. Changed
-// reports that the run has no counterpart on the other side. Concatenating the
-// Text of every segment reproduces the original line exactly, whitespace and
-// punctuation included.
+// WordSegment 是词差异某一侧上的连续文本段。Changed
+// 表示该段在另一侧没有对应项。把所有段的
+// Text 连接起来可精确还原原始行，包括空白和
+// 标点。
 type WordSegment struct {
 	Text    string
 	Changed bool
 }
 
-// maxWordDiffCells caps the token LCS table, mirroring maxDiffLCSCells in
-// diff.go. A line pair this large is not worth aligning token by token.
+// maxWordDiffCells 限制 token 的 LCS 表，与 diff.go 中的
+// maxDiffLCSCells 一致。这么大的行对不值得逐 token 对齐。
 const maxWordDiffCells = 64 * 1024
 
-// WordDiff aligns a pair of -/+ lines at token granularity and returns the
-// unique runs of each side. Small edits highlight only the words involved;
-// loosely related lines degrade to one whole-line Changed segment on each
-// side rather than producing a distracting stripe of coloured fragments.
-// Empty input yields no segments.
+// WordDiff 以 token 粒度对齐一对 -/+ 行，并返回
+// 两侧各自的唯一段。小改动只高亮涉及的词；
+// 松散相关的行降级为每侧一个整行 Changed 段，
+// 而不是产生一堆令人分心的彩色碎片。
+// 空输入不产生任何段。
 func WordDiff(oldLine, newLine string) (oldSegs, newSegs []WordSegment) {
 	if oldLine == newLine {
 		if oldLine == "" {
@@ -37,9 +37,9 @@ func WordDiff(oldLine, newLine string) (oldSegs, newSegs []WordSegment) {
 		return wholeWordSegs(oldLine), wholeWordSegs(newLine)
 	}
 
-	// Same backward DP and forward walk as diffMiddle, but over tokens. Using
-	// the identical tie-break (delete on >=) keeps results stable and makes an
-	// unchanged token align with the same neighbour as in the line diff.
+	// 与 diffMiddle 相同的反向 DP 和正向遍历，但基于 token。使用
+	// 相同的决胜规则（>= 时删除）使结果稳定，并使
+	// 未改变的 token 与行差异中相同的邻居对齐。
 	dp := make([][]int, n+1)
 	for i := range dp {
 		dp[i] = make([]int, m+1)
@@ -80,9 +80,9 @@ func WordDiff(oldLine, newLine string) (oldSegs, newSegs []WordSegment) {
 		newChanged[j] = true
 	}
 
-	// Degrade when more than half of the token occurrences changed, or when
-	// one line is more than three times longer than the other. In either case
-	// the token alignment is too weak to be a useful highlight.
+	// 当超过一半的 token 出现发生变化，或
+	// 某一行比另一行长三倍以上时降级。这两种情况下
+	// token 对齐都太弱，无法作为有用的高亮。
 	if (n+m-2*lcs)*2 > n+m || wordLengthSkew(oldLine, newLine) {
 		return wholeWordSegs(oldLine), wholeWordSegs(newLine)
 	}
@@ -90,7 +90,7 @@ func WordDiff(oldLine, newLine string) (oldSegs, newSegs []WordSegment) {
 	return mergeWordSegs(oldToks, oldChanged), mergeWordSegs(newToks, newChanged)
 }
 
-// wholeWordSegs marks an entire non-empty line as changed.
+// wholeWordSegs 把整个非空行标记为已改变。
 func wholeWordSegs(text string) []WordSegment {
 	if text == "" {
 		return nil
@@ -98,8 +98,8 @@ func wholeWordSegs(text string) []WordSegment {
 	return []WordSegment{{Text: text, Changed: true}}
 }
 
-// mergeWordSegs concatenates neighbouring tokens carrying the same Changed
-// flag so a one-word edit produces three spans, not one per token.
+// mergeWordSegs 合并带有相同 Changed 标志的相邻
+// token，使一个单词的编辑产生三个 span，而不是每个 token 一个。
 func mergeWordSegs(toks []string, changed []bool) []WordSegment {
 	var out []WordSegment
 	for i, tok := range toks {
@@ -115,9 +115,9 @@ func mergeWordSegs(toks []string, changed []bool) []WordSegment {
 	return out
 }
 
-// wordLengthSkew reports whether one line is more than three times as long as
-// the other. The comparison counts runes so CJK is not penalised for its byte
-// width.
+// wordLengthSkew 报告某一行是否比另一行长三倍以上。
+// 该比较按 rune 计数，使 CJK 不会因其字节
+// 宽度而吃亏。
 func wordLengthSkew(oldLine, newLine string) bool {
 	a, b := utf8.RuneCountInString(oldLine), utf8.RuneCountInString(newLine)
 	if a > b {
@@ -135,10 +135,10 @@ const (
 	classIdeograph
 )
 
-// wordTokens splits a line into lossless tokens: runs of letters/digits/_,
-// runs of whitespace, runs of punctuation or symbols, and individual CJK
-// ideographs. Ideographs are not whitespace-separated, so one rune per token
-// gives a finer highlight while staying safe on UTF-8 byte boundaries.
+// wordTokens 把一行切分为无损 token：字母/数字/_ 的连续段、
+// 空白的连续段、标点或符号的连续段，以及单独的 CJK
+// 表意文字。表意文字不由空白分隔，因此每个 rune 一个 token
+// 可提供更细的高亮，同时保持 UTF-8 字节边界安全。
 func wordTokens(line string) []string {
 	if line == "" {
 		return nil

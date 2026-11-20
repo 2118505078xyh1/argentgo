@@ -13,9 +13,9 @@ import (
 
 func retryHeaderNoWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
-// TestRetryHeadersShouldRetryOverridesStatus checks the observable decision of
-// the retry loop: a provider verdict wins over the HTTP status, while an
-// unrecognised value defers to the status as before.
+// TestRetryHeadersShouldRetryOverridesStatus 检查重试循环可观察到的决策：
+// 提供方的判定胜过 HTTP 状态，而无法识别的值
+// 仍像之前一样服从状态。
 func TestRetryHeadersShouldRetryOverridesStatus(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -54,8 +54,8 @@ func TestRetryHeadersShouldRetryOverridesStatus(t *testing.T) {
 				t.Fatal("Do returned a nil response")
 			}
 			defer resp.Body.Close()
-			// When the verdict stops the retry, the provider's body must stay
-			// readable. On a retry path the last response is the (empty) 200.
+			// 当判定停止重试时，提供方的响应体必须保持
+			// 可读。在重试路径上，最后一个响应是（空的）200。
 			if tc.wantSends == 1 {
 				body, err := io.ReadAll(resp.Body)
 				if err != nil {
@@ -69,8 +69,8 @@ func TestRetryHeadersShouldRetryOverridesStatus(t *testing.T) {
 	}
 }
 
-// TestRetryHeadersDelayPriority checks which header actually sets the sleep:
-// retry-after-ms in milliseconds must win over a seconds-valued Retry-After.
+// TestRetryHeadersDelayPriority 检查哪个头部实际决定等待时长：
+// 以毫秒计的 retry-after-ms 必须胜过以秒计的 Retry-After。
 func TestRetryHeadersDelayPriority(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -126,9 +126,9 @@ func TestRetryHeadersDelayPriority(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyDeclinesOverCapProviderDelay checks that an absurd provider
-// hint is not silently shortened into a too-early retry: the original response
-// (status and full body) is returned untouched and no retry is attempted.
+// TestRetryPolicyDeclinesOverCapProviderDelay 检查荒谬的提供方
+// 提示不会被悄悄缩短成过早的重试：原始响应
+// （状态和完整响应体）原样返回，且不尝试重试。
 func TestRetryPolicyDeclinesOverCapProviderDelay(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -136,8 +136,8 @@ func TestRetryPolicyDeclinesOverCapProviderDelay(t *testing.T) {
 	}{
 		{"retry-after-ms over cap", http.Header{"Retry-After-Ms": []string{"999999999"}}},
 		{"retry-after over cap", http.Header{"Retry-After": []string{"3600"}}},
-		// A seconds value that overflows time.Duration used to wrap negative,
-		// bypass this decline check and trigger a retry. It must saturate.
+		// 超过 time.Duration 的秒值过去会回绕为负，
+		// 绕过此拒绝检查并触发重试。它必须饱和。
 		{"retry-after seconds overflow", http.Header{"Retry-After": []string{"9223372037"}}},
 	}
 	for _, tc := range cases {
@@ -145,7 +145,7 @@ func TestRetryPolicyDeclinesOverCapProviderDelay(t *testing.T) {
 			sends, sleeps := 0, 0
 			policy := llm.RetryPolicy{
 				MaxAttempts: 3,
-				MaxDelay:    500 * time.Millisecond, // ceiling 1.5s
+				MaxDelay:    500 * time.Millisecond, // 上限 1.5 秒
 				Sleep: func(ctx context.Context, _ time.Duration) error {
 					sleeps++
 					return ctx.Err()

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Redacted is the placeholder used wherever a credential would be shown.
+// Redacted 是在任何会显示凭据之处使用的占位符。
 const Redacted = "[REDACTED]"
 
 var redactedHeaderNames = map[string]bool{
@@ -31,43 +31,43 @@ var defaultRedactedJSONFields = []string{
 	"token",
 }
 
-// Secret is a credential whose raw value can only be reached explicitly.
+// Secret 是一种原始值只能显式访问的凭据。
 //
-// Its unexported field and formatting methods keep the value out of fmt
-// output, JSON and probe-based dumps. The only way to send it upstream is
-// Value(), which should be called at the wire boundary and nowhere else.
+// 它的未导出字段和格式化方法使该值不会出现在 fmt
+// 输出、JSON 和基于探测的转储中。把它发送到上游的唯一方式是
+// Value()，它只应在协议边界调用，不应在其他地方调用。
 type Secret struct {
 	value string
 }
 
-// NewSecret wraps a credential so accidental logging cannot reveal it.
+// NewSecret 包装凭据，使意外的日志记录无法泄露它。
 func NewSecret(value string) Secret {
 	return Secret{value: value}
 }
 
-// Value returns the raw credential. Use it only when writing the auth header.
+// Value 返回原始凭据。只在写认证头时使用它。
 func (s Secret) Value() string {
 	return s.value
 }
 
-// String makes fmt.Sprint, %v and %+v print a placeholder instead of the key.
+// String 让 fmt.Sprint、%v 和 %+v 打印占位符而不是密钥。
 func (s Secret) String() string {
 	return Redacted
 }
 
-// GoString makes %#v print a placeholder as well.
+// GoString 让 %#v 也打印占位符。
 func (s Secret) GoString() string {
 	return Redacted
 }
 
-// MarshalJSON keeps the raw value out of encoded request logs and snapshots.
+// MarshalJSON 使原始值不会出现在编码后的请求日志和快照中。
 func (s Secret) MarshalJSON() ([]byte, error) {
 	return json.Marshal(Redacted)
 }
 
-// RedactHeaders returns a copy of headers with credential-bearing header
-// values replaced. The input is not modified, so the original request can
-// still be sent with its real credentials.
+// RedactHeaders 返回头部的一份副本，其中含凭据的头部值
+// 已被替换。输入不会被修改，因此原始请求仍可
+// 带着真实凭据发送。
 func RedactHeaders(headers http.Header) http.Header {
 	if headers == nil {
 		return nil
@@ -88,8 +88,8 @@ func RedactHeaders(headers http.Header) http.Header {
 	return out
 }
 
-// RedactURL returns a copy of u with the query and userinfo removed. Host and
-// path are kept because they are useful in logs and rarely carry secrets.
+// RedactURL 返回 u 的一份副本，移除其 query 和 userinfo。Host 和
+// path 保留，因为它们对日志有用且很少携带秘密。
 func RedactURL(u *url.URL) *url.URL {
 	if u == nil {
 		return nil
@@ -101,9 +101,9 @@ func RedactURL(u *url.URL) *url.URL {
 	return &out
 }
 
-// RedactJSONFields returns a copy of value with credential-shaped fields
-// replaced, including fields nested in maps and slices. names extends the
-// default field list; matching ignores case and non-alphanumeric characters.
+// RedactJSONFields 返回 value 的一份副本，其中凭据形态的字段
+// （包括嵌套在 map 和 slice 中的字段）已被替换。names 扩展
+// 默认字段列表；匹配忽略大小写和非字母数字字符。
 func RedactJSONFields(value map[string]any, names []string) map[string]any {
 	fields := make(map[string]bool, len(defaultRedactedJSONFields)+len(names))
 	for _, name := range defaultRedactedJSONFields {

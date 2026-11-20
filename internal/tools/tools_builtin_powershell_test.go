@@ -12,9 +12,9 @@ import (
 	"unicode/utf16"
 )
 
-// putFakePowerShellOnPATH creates a harmless file named pwsh(.exe) in a temp
-// directory and makes that the only PATH entry. exec.LookPath finds it without
-// ever executing it, so the resolution order is testable on any host.
+// putFakePowerShellOnPATH 在临时目录中创建一个无害的、
+// 名为 pwsh(.exe) 的文件，并让它成为唯一的 PATH 项。exec.LookPath 会找到它但
+// 从不执行它，因此解析顺序可在任何主机上测试。
 func putFakePowerShellOnPATH(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -58,10 +58,10 @@ func decodePowerShellEncodedCommand(t *testing.T, encoded string) string {
 }
 
 func TestPowerShellEncodedCommandRoundTrip(t *testing.T) {
-	// Quotes, newlines and non-ASCII text must survive the UTF-16LE encoding
-	// byte-for-byte; that is what keeps a script safe behind -EncodedCommand.
-	// The decoded payload is the UTF-8 encoding prefix followed by the caller's
-	// script unchanged.
+	// 引号、换行和非 ASCII 文本必须逐字节经过 UTF-16LE 编码
+	// 保留；这正是脚本在 -EncodedCommand 后保持安全的原因。
+	// 解码后的载荷是 UTF-8 编码前缀，其后是调用方
+	// 原样不变的脚本。
 	script := "Write-Output 'héllo'\r\nGet-ItemProperty 'HKCU:\\Software\\Example' | Select-Object -First 1"
 
 	argv := powershellArgs(script)
@@ -81,9 +81,9 @@ func TestPowerShellEncodedCommandRoundTrip(t *testing.T) {
 }
 
 func TestPowerShellUtf8PrefixPinsConsoleAndPipeline(t *testing.T) {
-	// Windows PowerShell 5.1 defaults to the OEM code page; both the console's
-	// output encoding and $OutputEncoding (the string-to-native pipeline) must
-	// be pinned to UTF-8 so non-ASCII output is not garbled.
+	// Windows PowerShell 5.1 默认使用 OEM 代码页；控制台的
+	// 输出编码和 $OutputEncoding（字符串到原生管道的转换）都必须
+	// 固定为 UTF-8，以免非 ASCII 输出被弄乱。
 	for _, want := range []string{
 		"[Console]::OutputEncoding",
 		"$OutputEncoding",
@@ -117,8 +117,8 @@ func TestPowerShellEnvOverrides(t *testing.T) {
 }
 
 func TestPowerShellProcCommandWiresPrefixAndEnv(t *testing.T) {
-	// Run hands this exact command to proc.Run, so checking it here verifies
-	// the prefix and env overrides are actually wired in, not just defined.
+	// Run 把这个精确的命令交给 proc.Run，因此在这里检查
+	// 可以验证前缀和环境覆盖确实接线了，而不只是定义了。
 	cmd := powershellProcCommand("pwsh", "Get-ChildItem", t.TempDir())
 	if cmd.Path != "pwsh" {
 		t.Errorf("Path = %q, want pwsh", cmd.Path)
@@ -185,7 +185,7 @@ func TestPowerShellToolIsRegistered(t *testing.T) {
 }
 
 func TestPowerShellRunRejectsEmptyCommand(t *testing.T) {
-	// This fails before program resolution, so it needs no PowerShell install.
+	// 这发生在程序解析之前，因此无需安装 PowerShell。
 	var tool powershellTool
 	if _, err := tool.Run(context.Background(), t.TempDir(), json.RawMessage(`{}`)); err == nil {
 		t.Fatal("Run accepted an empty command")

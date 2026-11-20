@@ -8,7 +8,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
-// diagnosticsFields returns the set of Field values carrying a given severity.
+// diagnosticsFields 返回携带给定严重性的 Field 集合。
 func diagnosticsFields(diagnostics []provider.Diagnostic, severity provider.Severity) map[string]bool {
 	fields := make(map[string]bool)
 	for _, d := range diagnostics {
@@ -28,8 +28,8 @@ func TestValidateBuiltInCatalogIsClean(t *testing.T) {
 		t.Fatalf("built-in catalog has %d diagnostics, want 0", len(diagnostics))
 	}
 
-	// Every built-in template must also stand on its own, independent of the
-	// alias cross-checks performed by ValidateAll.
+	// 每个内置模板还必须独立成立，不依赖
+	// 每个内置模板还必须独立成立，不依赖 ValidateAll 执行的别名交叉检查。
 	for _, template := range provider.List() {
 		if issues := provider.Validate(template); len(issues) != 0 {
 			t.Errorf("Validate(%q) = %v, want clean", template.Name, issues)
@@ -218,7 +218,7 @@ func TestValidateCatalogDetectsDuplicateNames(t *testing.T) {
 		t.Fatalf("duplicate name findings = %d, want 1 (diagnostics: %v)", duplicates, diagnostics)
 	}
 
-	// Validating a single template cannot see cross-template duplicates.
+	// 验证单个模板无法看到跨模板重复。
 	if issues := provider.Validate(template); len(issues) != 0 {
 		t.Fatalf("single Validate should be clean: %v", issues)
 	}

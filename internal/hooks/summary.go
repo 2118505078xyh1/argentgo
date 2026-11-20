@@ -2,9 +2,9 @@ package hooks
 
 import "sort"
 
-// EventSummary is one row of a PendingEventSummary: the registration
-// statistics for a single lifecycle event. It is pure data; building a summary
-// never dispatches or mutates hooks.
+// EventSummary 是 PendingEventSummary 的一行：单个生命周期事件的注册
+// 单个生命周期事件的注册统计。它是纯数据；构建摘要
+// 统计。它是纯数据；构建摘要从不分发或修改钩子。
 type EventSummary struct {
 	Event       Event
 	Count       int // total hooks registered for the event
@@ -12,14 +12,14 @@ type EventSummary struct {
 	Async       int // hooks marked for background execution
 }
 
-// PendingEventSummary reports, for every event with at least one registered
-// hook, how many hooks it has, how many carry a specific matcher, and how many
-// are async. This is a read-only diagnostic intended for CLI `doctor` output or
-// debugging: it describes what is configured to fire, not what has fired.
+// PendingEventSummary 报告每个至少有一个注册钩子的事件的钩子数量、带特定匹配器的
+// 钩子，它有多少钩子、多少带特定匹配器、多少
+// 数量以及异步数量。这是用于 CLI `doctor` 输出或
+// 调试：它描述配置了什么要触发，而非已经触发了什么。
 //
-// Rows follow AllEvents order; events outside AllEvents (set by programmatic
-// callers, e.g. built-in hooks) come last in name order. An empty or nil config
-// yields nil.
+// 调试的只读诊断：它描述配置了什么要触发，而非已经触发了什么。
+// 行按 AllEvents 顺序；AllEvents 之外（由编程调用方设置的事件，例如内置钩子）按名称排最后。空或 nil 配置
+// 产生 nil。
 func (c *Config) PendingEventSummary() []EventSummary {
 	if c == nil || len(c.Commands) == 0 {
 		return nil

@@ -17,13 +17,13 @@ import (
 	"time"
 )
 
-// Client-side errors.
+// 客户端错误。
 var (
-	// ErrClosed reports a client whose server has exited or been closed.
+	// ErrClosed 报告服务端已退出或被关闭的客户端。
 	ErrClosed = errors.New("lsp: client is closed")
-	// ErrNoCommand reports a server specification without a program to run.
+	// ErrNoCommand 报告没有可执行程序的服务器规格。
 	ErrNoCommand = errors.New("lsp: server has no command")
-	// ErrTimeout reports a diagnostics wait that expired before a publish.
+	// ErrTimeout 报告在发布之前过期的诊断等待。
 	ErrTimeout = errors.New("lsp: timed out waiting for diagnostics")
 )
 
@@ -34,23 +34,23 @@ const (
 	stderrTailLines   = 20
 )
 
-// Server describes how to launch one language server.
+// Server 描述如何启动一个语言服务器。
 type Server struct {
-	// Name identifies the server in messages, e.g. "gopls".
+	// Name 在消息中标识服务器，例如 "gopls"。
 	Name string
-	// Command is the program, resolved through PATH.
+	// Command 是程序，通过 PATH 解析。
 	Command string
-	// Args are passed to the program.
+	// Args 传给程序。
 	Args []string
-	// Env holds extra KEY=VALUE pairs layered over the current environment.
+	// Env 保存叠加在当前环境之上的额外 KEY=VALUE 对。
 	Env []string
-	// LanguageIDs are the LSP language ids this server owns.
+	// LanguageIDs 是该服务器拥有的 LSP 语言 id。
 	LanguageIDs []string
-	// RootURI overrides the workspace URI derived from the root path.
+	// RootURI 覆盖从根路径推导的工作区 URI。
 	RootURI string
 }
 
-// Client is one running language server and the documents it knows about.
+// Client 是一个运行中的语言服务器及其已知文档。
 type Client struct {
 	server  Server
 	root    string
@@ -91,8 +91,8 @@ type documentState struct {
 	version    int
 	open       bool
 	languageID string
-	// mark is the publish sequence at the time of the last didOpen/didChange,
-	// used to tell new diagnostics apart from ones the caller already saw.
+	// mark 是最后一次 didOpen/didChange 时的发布序号，用于把新诊断与调用方已见过的区分开。
+	// 用于把新诊断与调用方已见过的区分开。
 	mark uint64
 }
 
@@ -106,7 +106,7 @@ type diagWaiter struct {
 	ch  chan struct{}
 }
 
-// inbound is one decoded JSON-RPC message, whatever its kind.
+// inbound 是一条解码后的 JSON-RPC 消息，无论其种类。
 type inbound struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -128,9 +128,9 @@ func (e *rpcError) Error() string {
 	return fmt.Sprintf("json-rpc error %d: %s", e.Code, e.Message)
 }
 
-// Start launches the server for root, completes the initialize handshake, and
-// returns a ready client. The context bounds the handshake only; the client
-// keeps running until Close.
+// Start 为 root 启动服务器，完成 initialize 握手，并返回就绪的客户端。context 只限制握手；客户端一直运行到 Close。
+// 返回就绪的客户端。context 只限制握手；客户端
+// 一直运行到 Close。
 func Start(ctx context.Context, server Server, root string) (*Client, error) {
 	if strings.TrimSpace(server.Command) == "" {
 		return nil, fmt.Errorf("%w (%s)", ErrNoCommand, server.Name)
@@ -179,8 +179,8 @@ func Start(ctx context.Context, server Server, root string) (*Client, error) {
 	return client, nil
 }
 
-// newClient wires a client onto an already connected transport. Tests use it
-// with an io.Pipe pair; Start uses it with a child process.
+// newClient 把客户端接到已连接的传输上。测试用
+// newClient 把客户端接到已连接的传输上。测试用 io.Pipe 对；Start 用子进程。
 func newClient(server Server, root string, stdin io.WriteCloser, stdout io.Reader) *Client {
 	client := &Client{
 		server:    server,
@@ -199,13 +199,13 @@ func newClient(server Server, root string, stdin io.WriteCloser, stdout io.Reade
 	return client
 }
 
-// Root returns the absolute workspace root the client was started for.
+// Root 返回客户端启动时所在的绝对工作区根。
 func (c *Client) Root() string { return c.root }
 
-// ServerName returns the specification's name.
+// ServerName 返回规格中的名称。
 func (c *Client) ServerName() string { return c.server.Name }
 
-// initialize performs the LSP handshake.
+// initialize 执行 LSP 握手。
 func (c *Client) initialize(ctx context.Context) error {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
@@ -229,8 +229,8 @@ func (c *Client) initialize(ctx context.Context) error {
 				"hover":              map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
 				"publishDiagnostics": map[string]any{"relatedInformation": true},
 				"synchronization":    map[string]any{"didSave": true},
-				// Advertise the IDE-grade features implemented in features_ide.go
-				// and features_advanced.go so servers actually send results.
+				// 声明 features_ide.go 和 features_advanced.go 中实现的 IDE 级功能，使服务器确实发送结果。
+				// features_advanced.go 中实现的 IDE 级功能，使服务器确实发送结果。
 				"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
 				"references":     map[string]any{},
 				"codeAction":     map[string]any{},
@@ -264,7 +264,7 @@ func (c *Client) initialize(ctx context.Context) error {
 	return c.notify(ctx, "initialized", map[string]any{})
 }
 
-// call sends a request and waits for the matching response.
+// call 发送请求并等待匹配的响应。
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	replies := make(chan response, 1)
 	c.mu.Lock()
@@ -310,7 +310,7 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 	}
 }
 
-// notify sends a notification, which has no response.
+// notify 发送通知，它没有响应。
 func (c *Client) notify(ctx context.Context, method string, params any) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("lsp %s: %s: %w", c.server.Name, method, err)
@@ -326,7 +326,7 @@ func (c *Client) notify(ctx context.Context, method string, params any) error {
 	return c.write(payload)
 }
 
-// cancelRequest asks the server to drop an abandoned request.
+// cancelRequest 要求服务器放弃被废弃的请求。
 func (c *Client) cancelRequest(id uint64) {
 	payload, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
@@ -352,7 +352,7 @@ func (c *Client) write(payload []byte) error {
 	return nil
 }
 
-// readLoop turns framed messages into responses, notifications and answers.
+// readLoop 把分帧消息转换为响应、通知和应答。
 func (c *Client) readLoop() {
 	defer close(c.readDone)
 	for {
@@ -369,11 +369,11 @@ func (c *Client) readLoop() {
 	}
 }
 
-// dispatch routes one decoded message.
+// dispatch 路由一条解码后的消息。
 func (c *Client) dispatch(payload []byte) {
 	var message inbound
 	if err := json.Unmarshal(payload, &message); err != nil {
-		// A server may print banners on stdout; ignore unparsable frames.
+		// 服务器可能在 stdout 上打印横幅；忽略无法解析的帧。
 		return
 	}
 	if message.Method != "" {
@@ -405,12 +405,12 @@ func (c *Client) dispatch(payload []byte) {
 	}
 }
 
-// answer replies to a server-initiated request so the server never blocks.
+// answer 回复服务器发起的请求，使服务器永不阻塞。
 func (c *Client) answer(id json.RawMessage, method string) {
 	var result any
 	switch method {
 	case "workspace/configuration":
-		// We have no settings to offer; an empty array is the documented answer.
+		// 我们没有可提供的设置；空数组是文档规定的答案。
 		result = []any{}
 	case "workspace/workspaceFolders":
 		result = []any{}
@@ -434,7 +434,7 @@ func (c *Client) answer(id json.RawMessage, method string) {
 	_ = c.write(payload)
 }
 
-// handleNotification keeps the state the tools read.
+// handleNotification 保存工具读取的状态。
 func (c *Client) handleNotification(method string, params json.RawMessage) {
 	if method != "textDocument/publishDiagnostics" {
 		return
@@ -442,7 +442,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 	c.storeDiagnostics(params)
 }
 
-// finish records the terminal error and wakes every waiter exactly once.
+// finish 记录终止错误并恰好唤醒每个等待者一次。
 func (c *Client) finish(err error) {
 	c.finishOnce.Do(func() {
 		c.mu.Lock()
@@ -480,7 +480,7 @@ func (c *Client) closedError(method string) error {
 	return fmt.Errorf("%w (during %s)", err, method)
 }
 
-// Close shuts the server down: shutdown, exit, then kill as a backstop.
+// Close 关闭服务器：shutdown、exit，最后以 kill 兜底。
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -488,12 +488,12 @@ func (c *Client) Close() error {
 		_ = c.notify(ctx, "exit", nil)
 		cancel()
 		c.finish(ErrClosed)
-		// Closing stdin under the write lock keeps it from racing a straggler.
+		// 在写锁下关闭 stdin，防止其与迟到的写入竞争。
 		c.writeMu.Lock()
 		_ = c.stdin.Close()
 		c.writeMu.Unlock()
-		// Give the server a moment to exit on its own; killing a process that
-		// is already leaving turns a clean exit into a spurious failure.
+		// 给服务器一点时间自行退出；杀掉正在离开的进程
+		// 给服务器一点时间自行退出；杀掉正在离开的进程会把干净的退出变成虚假的失败。
 		select {
 		case <-c.readDone:
 		case <-time.After(readerGrace):
@@ -512,7 +512,7 @@ func (c *Client) Close() error {
 	return c.waitErr
 }
 
-// drainStderr keeps the tail of the server's stderr for diagnostics.
+// drainStderr 保留服务器 stderr 的尾部供诊断。
 func (c *Client) drainStderr(stderr io.Reader) {
 	reader := bufio.NewReaderSize(stderr, 4<<10)
 	for {
@@ -540,7 +540,7 @@ func parseID(raw json.RawMessage) (uint64, bool) {
 	return id, true
 }
 
-// tailBuffer keeps the last n lines of a stream.
+// tailBuffer 保留流中最后 n 行。
 type tailBuffer struct {
 	mu    sync.Mutex
 	lines []string

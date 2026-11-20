@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// pageTestRecords builds n records with uniform line lengths so a byte cap
-// maps cleanly to a fixed number of records per page. Parent is left empty on
-// purpose: pagination is file-order based, and equal-length lines keep the
-// page-size arithmetic exact.
+// pageTestRecords 构建 n 条行长度统一的记录，使字节上限
+// 能干净地映射为每页固定的记录数。Parent 故意留空：
+// 分页基于文件顺序，而等长行能保持
+// 页大小计算的精确性。
 func pageTestRecords(n int) []Record {
 	ts := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	records := make([]Record, 0, n)
@@ -46,14 +46,14 @@ func pageTestIDs(records []Record) []string {
 	return ids
 }
 
-// (a) Walking forward with Next must visit every record exactly once, in
-// order, with no page over the byte cap.
+// (a) 用 Next 向前遍历必须按顺序恰好访问每条记录一次，
+// 且没有任何页超过字节上限。
 func TestReadPageWalksForwardWithCursor(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "walk.jsonl")
 	records := pageTestRecords(10)
 	writeRawSession(t, path, records)
 	lineLen := pageTestLineLen(t, path)
-	maxBytes := 3*lineLen + 1 // exactly three uniform records fit
+	maxBytes := 3*lineLen + 1 // 恰好容纳三条等长记录
 
 	var got []string
 	after := ""
@@ -99,8 +99,8 @@ func TestReadPageWalksForwardWithCursor(t *testing.T) {
 	}
 }
 
-// (b) fromEnd=true returns the last page; feeding Next back walks backwards
-// until every record has been seen exactly once.
+// (b) fromEnd=true 返回最后一页；把 Next 传回可向前（往回）遍历，
+// 直到每条记录都被恰好看到一次。
 func TestReadPageFromEndReturnsLastRecords(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tail.jsonl")
 	records := pageTestRecords(10)
@@ -159,7 +159,7 @@ func TestReadPageFromEndReturnsLastRecords(t *testing.T) {
 	}
 }
 
-// (c) Malformed and blank lines are skipped leniently, in both directions.
+// (c) 双向遍历时都宽松地跳过格式错误和空白行。
 func TestReadPageSkipsMalformedLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "malformed.jsonl")
 	valid1 := `{"id":"r000001","ts":"2026-11-19T12:00:00Z","kind":"user","data":"one"}`
@@ -183,8 +183,8 @@ func TestReadPageSkipsMalformedLines(t *testing.T) {
 	}
 }
 
-// (d) A record larger than the whole cap is returned whole and alone; when
-// more records follow, HasMore lets the caller continue past it.
+// (d) 大于整个上限的记录会整条单独返回；当后面
+// 还有更多记录时，HasMore 让调用方可以继续。
 func TestReadPageReturnsOversizedRecordAlone(t *testing.T) {
 	big := json.RawMessage(`"` + strings.Repeat("x", 4096) + `"`)
 	small := json.RawMessage(`"small"`)
@@ -244,14 +244,14 @@ func TestReadPageReturnsOversizedRecordAlone(t *testing.T) {
 	})
 }
 
-// (e) A non-empty afterID resumes strictly after that record for forward
-// reads. A cursor past the end yields an empty page.
+// (e) 非空 afterID 对正向读取严格从该记录之后恢复。
+// 越过末尾的游标返回空页。
 func TestReadPageAfterIDResumes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "resume.jsonl")
 	records := pageTestRecords(6)
 	writeRawSession(t, path, records)
 	lineLen := pageTestLineLen(t, path)
-	maxBytes := 2*lineLen + 1 // two records per page
+	maxBytes := 2*lineLen + 1 // 每页两条记录
 
 	first, err := ReadPage(path, "", maxBytes, false)
 	if err != nil {
@@ -278,7 +278,7 @@ func TestReadPageAfterIDResumes(t *testing.T) {
 		t.Fatal("third page reports more records after the last one")
 	}
 
-	// A cursor on the final record has nothing after it.
+	// 位于最后一条记录上的游标之后没有任何内容。
 	empty, err := ReadPage(path, "r000006", maxBytes, false)
 	if err != nil {
 		t.Fatalf("cursor at end: %v", err)
@@ -287,7 +287,7 @@ func TestReadPageAfterIDResumes(t *testing.T) {
 		t.Fatalf("cursor at end = %+v, want empty page", empty)
 	}
 
-	// An unknown cursor is lenient: forward reads start from the beginning.
+	// 未知游标是宽松的：正向读取从开头开始。
 	unknown, err := ReadPage(path, "does-not-exist", maxBytes, false)
 	if err != nil {
 		t.Fatalf("unknown cursor: %v", err)
@@ -297,7 +297,7 @@ func TestReadPageAfterIDResumes(t *testing.T) {
 	}
 }
 
-// (f) An empty (or absent) file yields an empty page without an error.
+// (f) 空文件（或不存在的文件）返回空页且不报错。
 func TestReadPageEmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.jsonl")
@@ -323,8 +323,8 @@ func TestReadPageEmptyFile(t *testing.T) {
 	}
 }
 
-// Generated IDs must agree with readRecords so a cursor minted from one read
-// API resolves in the other.
+// 生成的 id 必须与 readRecords 一致，使一个读取 API 生成的游标
+// 能在另一个中解析。
 func TestReadPageGeneratedIDsMatchReadRecords(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "no-ids.jsonl")
 	writeRawSession(t, path, []Record{
@@ -339,14 +339,14 @@ func TestReadPageGeneratedIDsMatchReadRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadPage: %v", err)
 	}
-	// readRecords injects a read-time schema header that ReadPage (a lenient
-	// raw-file reader) does not; compare the transcript's own records only.
+	// readRecords 会注入读取时的 schema 头，而 ReadPage（宽松的
+	// 原始文件读取器）不会；因此只比较转录自身的记录。
 	if !reflect.DeepEqual(pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full))) {
 		t.Fatalf("ids = %v, want %v", pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full)))
 	}
 }
 
-// The Session method must delegate to the same file the handle writes to.
+// Session 方法必须委托给句柄写入的同一个文件。
 func TestSessionReadPageDelegates(t *testing.T) {
 	s := newTestSession(t, t.TempDir(), "delegate")
 	appendAll(t, s, KindUser, KindAssistant, KindTool)

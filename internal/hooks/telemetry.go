@@ -2,9 +2,9 @@ package hooks
 
 import "time"
 
-// HookTelemetry is one completed hook observation. A Dispatcher.Telemetry
-// callback receives one of these per hook executed by Dispatch/Run, from the
-// hook's own goroutine (hooks run in parallel).
+// HookTelemetry 是一次完成的钩子观察。Dispatch/Run 的
+// HookTelemetry 是一次完成的钩子观察。Dispatch/Run 执行的每个钩子会从钩子自身
+// goroutine（钩子并行运行）向 Dispatcher.Telemetry 回调传递一个这样的值。
 type HookTelemetry struct {
 	Name     string        // hook identity: the command string
 	Event    Event         // lifecycle event that triggered the hook
@@ -16,27 +16,27 @@ type HookTelemetry struct {
 	Slow     bool          // Elapsed reached Dispatcher.SlowThreshold, when set
 }
 
-// Failed reports whether the hook did not complete successfully. It mirrors
-// the conditions Summarize warns on: a launch error, a timeout, a block
-// signal, or a non-zero exit status all count as failures.
+// Failed 报告钩子是否未成功完成。它镜像
+// Failed 报告钩子是否未成功完成。它镜像 Summarize 告警的条件：启动错误、超时、拦截
+// 信号或非零退出状态都算失败。
 func (r HookTelemetry) Failed() bool {
 	return r.Err != nil || r.ExitCode != 0 || r.TimedOut || r.Blocked
 }
 
-// TelemetryFunc observes completed hooks. Implementations MUST be safe for
-// concurrent use: each hook reports from its own goroutine while hooks run in
-// parallel. A nil callback (the default) collects nothing and adds no work.
+// TelemetryFunc 观察完成的钩子。实现必须并发
+// 并发安全：每个钩子从自身 goroutine 报告，而钩子并行
+// 安全：每个钩子从自身 goroutine 报告，而钩子并行运行。nil 回调（默认）不收集任何内容，也不增加工作。
 type TelemetryFunc func(HookTelemetry)
 
-// WithTelemetry is a convenience constructor for callers that prefer a
-// functional form over a struct literal. The zero-value Dispatcher stays
-// valid; only the two telemetry fields are set here.
+// WithTelemetry 是偏好函数式形式的调用方的便捷
+// WithTelemetry 是偏好函数式形式而非结构体字面量的调用方的便捷构造函数。零值 Dispatcher 仍然
+// 有效；这里只设置两个遥测字段。
 func WithTelemetry(callback TelemetryFunc, slowThreshold time.Duration) *Dispatcher {
 	return &Dispatcher{Telemetry: callback, SlowThreshold: slowThreshold}
 }
 
-// reportTelemetry delivers one record. A panicking observer is contained just
-// like a panicking hook callback so telemetry can never break dispatch.
+// reportTelemetry 投递一条记录。panic 的观察者会像 panic 的钩子回调一样被隔离，
+// 使遥测永不破坏分发。
 func (d *Dispatcher) reportTelemetry(record HookTelemetry) {
 	defer func() { _ = recover() }()
 	d.Telemetry(record)

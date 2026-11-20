@@ -104,7 +104,7 @@ func TestCheckpointDiffAddedAndDeletedFiles(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
-	// Sorted by path: gone.txt before new.txt.
+	// 按路径排序：gone.txt 在 new.txt 之前。
 	if len(decoded.Files) != 2 || decoded.Files[0].Path != "gone.txt" || decoded.Files[1].Path != "new.txt" {
 		t.Fatalf("files = %+v, want sorted added/deleted entries", decoded.Files)
 	}

@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-// TestTTLCacheExpiredCleanupKeepsConcurrentlyRenewedGrant covers a race between
-// an observer whose in-memory copy of a grant has expired and another instance
-// that renews the same grant (under the cross-process lock) while the observer
-// is on its way to that lock. The cleanup must re-check the latest on-disk
-// expiry before deleting: an unconditional delete erases the fresh grant that
-// was just written, so neither this process nor a fresh one honours it.
+// TestTTLCacheExpiredCleanupKeepsConcurrentlyRenewedGrant 覆盖这样一种竞态：
+// 观察者的内存中授予副本已过期，而另一个实例
+// 在观察者正要获取跨进程锁时（在跨进程锁下）续期了同一条授予。
+// 清理在删除前必须重新检查磁盘上的最新
+// 过期时间：无条件删除会抹掉刚刚写入的新授予，
+// 这样本进程和新进程都不会认可它。
 func TestTTLCacheExpiredCleanupKeepsConcurrentlyRenewedGrant(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Now().Truncate(time.Second)
@@ -27,16 +27,16 @@ func TestTTLCacheExpiredCleanupKeepsConcurrentlyRenewedGrant(t *testing.T) {
 		t.Fatalf("Allow: %v", err)
 	}
 
-	// The observer loaded the original grant while it was still live.
+	// 观察者在原始授予仍有效时加载了它。
 	observer := NewTTLCache(dir, ttl)
 	observer.now = func() time.Time { return base }
 	if !observer.IsAllowed(key) {
 		t.Fatal("observer should see the original grant before its expiry")
 	}
 
-	// Pin the observer past the original expiry. Its first clock read is the
-	// one in IsAllowed, before it reaches the cross-process lock; hold it there
-	// until the renewer has written a fresh grant for the same key.
+	// 把观察者的时钟钉在原始过期时间之后。它第一次读时钟是在 IsAllowed 中，
+	// 发生在到达跨进程锁之前；在那里一直保持，
+	// 直到续期者为同一个键写入了一条新的授予。
 	started := make(chan struct{})
 	renewed := make(chan struct{})
 	var once sync.Once
@@ -62,8 +62,8 @@ func TestTTLCacheExpiredCleanupKeepsConcurrentlyRenewedGrant(t *testing.T) {
 		t.Fatal("IsAllowed must honour a grant that another instance renewed concurrently")
 	}
 
-	// A fresh process must still see the renewed grant on disk: the expired
-	// cleanup must not have overwritten it.
+	// 新进程必须仍能在磁盘上看到续期后的授予：过期清理
+	// 绝不能覆盖它。
 	final := newTTLTestCache(t, dir, ttl, expiredAt)
 	if !final.IsAllowed(key) {
 		t.Fatal("the renewed grant was erased from disk by the expired cleanup")

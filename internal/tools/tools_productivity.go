@@ -10,11 +10,11 @@ import (
 
 // ---- stdlib-portable productivity tools ----
 //
-// diff compares two workspace files with a bounded, prefix/suffix hunk. usage
-// and history report run/session data through consumer-side interfaces declared
-// here, so internal/tools stays independent of internal/agent (runState) and
-// internal/session. The app wires the real sources with SetUsageSource and
-// SetHistorySource; until then those tools report that data is unavailable.
+// diff 用有界的前缀/后缀块比较两个工作区文件。usage
+// 和 history 通过此处声明的消费侧接口报告运行/会话数据，
+// 使 internal/tools 保持独立于 internal/agent（runState）和
+// internal/session。app 用 SetUsageSource 和
+// SetHistorySource 接线真实数据源；在此之前这些工具报告数据不可用。
 
 // ---- diff ----
 
@@ -69,10 +69,10 @@ const (
 	diffHunkLines    = 20 // maximum paired changed lines shown before collapsing
 )
 
-// renderFileDiff trims the common prefix and suffix, then renders the changed
-// middle as a compact unified-style hunk. Counts are derived from that same
-// middle region so the numbers always match the lines shown. CRLF is
-// normalized by splitDiffLines so a line-ending change alone is not a diff.
+// renderFileDiff 修剪公共前缀和后缀，然后把变化的
+// 中间部分渲染为紧凑的统一风格块。计数从同一个
+// 中间区域推导，因此数字始终与显示的行一致。CRLF 由
+// splitDiffLines 规范化，因此仅行尾变化不构成差异。
 func renderFileDiff(pathA, pathB string, before, after []byte) string {
 	a := splitDiffLines(before)
 	b := splitDiffLines(after)
@@ -136,11 +136,11 @@ func renderFileDiff(pathA, pathB string, before, after []byte) string {
 
 const usageUnavailable = "usage data unavailable"
 
-// UsageSource supplies the current run's token/cost usage as a JSON string.
-// Declared on the consumer side so internal/tools does not import internal/agent
-// and its runState. App wiring: implement UsageJSON on an adapter over the
-// runState (e.g. its accumulated llm.Usage / spent USD) and call
-// Registry.SetUsageSource(adapter) once the run state exists.
+// UsageSource 以 JSON 字符串提供当前运行的 token/成本用量。
+// 在消费侧声明，使 internal/tools 不导入 internal/agent
+// 及其 runState。app 接线：在适配器上实现 UsageJSON，该适配器包装
+// runState（例如其累计的 llm.Usage / 花费美元数）并实现
+// Registry.SetUsageSource(adapter)，一旦运行态存在即可调用。
 type UsageSource interface {
 	UsageJSON() string
 }
@@ -168,10 +168,10 @@ func (t *usageTool) Run(ctx context.Context, _ string, _ json.RawMessage) (strin
 	return clip(ctx, t.source.UsageJSON()), nil
 }
 
-// SetUsageSource installs the source behind the usage tool. Following the
-// SetCheckpointSource pattern the tool is rebuilt in place, so registration
-// order and advertised specs stay stable. A nil source makes the tool report
-// that usage data is unavailable instead of failing the run.
+// SetUsageSource 安装 usage 工具背后的数据源。遵循
+// SetCheckpointSource 的模式，工具在原位置重建，因此注册
+// 顺序和公布的 spec 保持稳定。nil 数据源使工具报告
+// 用量数据不可用，而不是让运行失败。
 func (r *Registry) SetUsageSource(src UsageSource) {
 	t := &usageTool{source: src}
 	if _, exists := r.tools[t.Name()]; !exists {
@@ -184,11 +184,11 @@ func (r *Registry) SetUsageSource(src UsageSource) {
 
 const historyUnavailable = "history unavailable"
 
-// HistorySource searches the current session's JSONL records. Declared on the
-// consumer side so internal/tools does not import internal/session. App wiring:
-// implement Search on an adapter over the active *session.Session and call
-// Registry.SetHistorySource(adapter) once the session is known. The adapter
-// decides how an empty query and a non-positive or oversized limit behave.
+// HistorySource 搜索当前会话的 JSONL 记录。在消费侧声明，
+// 使 internal/tools 不导入 internal/session。app 接线：
+// 在覆盖活动 *session.Session 的适配器上实现 Search，并在
+// 会话已知后调用 Registry.SetHistorySource(adapter)。适配器
+// 决定空查询以及非正或过大限制的行为。
 type HistorySource interface {
 	Search(query string, limit int) string
 }
@@ -225,9 +225,9 @@ func (t *historyTool) Run(ctx context.Context, _ string, raw json.RawMessage) (s
 	return clip(ctx, t.source.Search(args.Query, args.Limit)), nil
 }
 
-// SetHistorySource installs the source behind the history tool. The tool is
-// rebuilt in place so registration order stays stable; a nil source makes the
-// tool report that history is unavailable instead of failing the run.
+// SetHistorySource 安装 history 工具背后的数据源。工具
+// 在原位置重建，因此注册顺序保持稳定；nil 数据源使
+// 工具报告历史不可用，而不是让运行失败。
 func (r *Registry) SetHistorySource(src HistorySource) {
 	t := &historyTool{source: src}
 	if _, exists := r.tools[t.Name()]; !exists {

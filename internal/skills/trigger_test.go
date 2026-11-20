@@ -243,7 +243,7 @@ func TestParseLeavesTriggersEmptyWhenAbsent(t *testing.T) {
 }
 
 func TestResolveTriggeredSkillsIntersectsFiltersInRegistryOrder(t *testing.T) {
-	// Insertion order is intentionally not sorted: the aggregate must keep it.
+	// 插入顺序刻意不排序：聚合必须保留它。
 	registry := New()
 	registry.Add(Skill{Name: "always"})
 	registry.Add(Skill{Name: "go", Triggers: Triggers{Paths: []string{"**/*.go"}}})

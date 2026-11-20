@@ -31,8 +31,8 @@ func TestResolveCacheTierExplicitWins(t *testing.T) {
 }
 
 func TestResolveCacheTierSubscriptionDefaultAndDowngrade(t *testing.T) {
-	// Unset config: a subscription seat defaults to long only when the endpoint
-	// supports it; everyone else stays short.
+	// 未设置配置时：订阅席位仅在端点支持时默认使用长效层级；
+	// 其他情况保持短层级。
 	if got := ResolveCacheTier("", true, true); got != CacheTierLong {
 		t.Fatalf("subscription default = %q, want long", got)
 	}
@@ -46,22 +46,22 @@ func TestResolveCacheTierSubscriptionDefaultAndDowngrade(t *testing.T) {
 		t.Fatalf("non-subscription without long support = %q, want short", got)
 	}
 
-	// An explicit long request is downgraded when long retention is unavailable.
+	// 不支持长期保留时，显式的长效请求会被降级。
 	if got := ResolveCacheTier("long", true, false); got != CacheTierShort {
 		t.Fatalf("explicit long without support = %q, want short downgrade", got)
 	}
 	if got := ResolveCacheTier("1h", false, false); got != CacheTierShort {
 		t.Fatalf("explicit 1h hint without support = %q, want short downgrade", got)
 	}
-	// A short request is never upgraded, even for a subscription seat.
+	// 短请求从不会被升级，即使对订阅席位也是如此。
 	if got := ResolveCacheTier("short", true, true); got != CacheTierShort {
 		t.Fatalf("explicit short on subscription = %q, want short", got)
 	}
 }
 
 func TestResolveCacheTierUnknownFallsBackToDefault(t *testing.T) {
-	// An unrecognized value is treated as unset, so the subscription-aware
-	// default still applies rather than becoming a bogus tier.
+	// 无法识别的值按未设置处理，因此感知订阅的
+	// 默认值仍然生效，而不会变成一个伪造的层级。
 	if got := ResolveCacheTier("bogus", true, true); got != CacheTierLong {
 		t.Fatalf("unknown tier on subscription = %q, want long default", got)
 	}
@@ -106,8 +106,8 @@ func TestObservedCacheTierZeroValueIsNone(t *testing.T) {
 }
 
 func TestCacheTierCJKIndependent(t *testing.T) {
-	// Non-ASCII retention text is not a recognized tier: it neither resolves
-	// to a tier nor is mistaken for one, so both functions stay locale-neutral.
+	// 非 ASCII 的保留文本不是可识别的层级：它既不会解析为层级，
+	// 也不会被误认为层级，因此两个函数都保持地区中立。
 	if got := ResolveCacheTier("长时间", true, true); got != CacheTierLong {
 		t.Fatalf("CJK config tier = %q, want subscription default long", got)
 	}
@@ -117,7 +117,7 @@ func TestCacheTierCJKIndependent(t *testing.T) {
 	if got := ObservedCacheTier(0, 120, "缓存一小时"); got != CacheTierNone {
 		t.Fatalf("CJK ttl hint = %q, want none", got)
 	}
-	// Recognized ASCII tiers are unaffected by the presence of CJK elsewhere.
+	// 可识别的 ASCII 层级不受别处存在 CJK 的影响。
 	if got := ObservedCacheTier(0, 120, " 1h "); got != CacheTierLong {
 		t.Fatalf("ASCII tier with surrounding space = %q, want long", got)
 	}

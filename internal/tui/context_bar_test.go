@@ -141,7 +141,7 @@ func TestHeaderContextBarIsPlainWhenColourSuppressed(t *testing.T) {
 	}
 }
 
-// contextSpan finds the header span that carries the context usage readout.
+// contextSpan 找到承载上下文用量读数的头部 span。
 func contextSpan(line Line) (Span, bool) {
 	for _, span := range line.Spans {
 		if strings.HasPrefix(span.Text, "ctx ") {

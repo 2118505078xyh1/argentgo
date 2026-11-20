@@ -7,8 +7,8 @@ import (
 )
 
 func TestIsImportantProjectFileManifestsAndMetadata(t *testing.T) {
-	// One representative from every ecosystem plus the guidance files that a
-	// repo map should pin regardless of symbol budget.
+	// 来自每个生态的一个代表加上仓库地图无论符号预算如何都应钉住的指导文件。
+	// 来自每个生态的一个代表加上仓库地图无论符号预算如何都应钉住的指导文件。
 	for _, path := range []string{
 		"go.mod", "go.sum", "go.work", "Cargo.toml", "Cargo.lock",
 		"package.json", "package-lock.json", "yarn.lock", "tsconfig.json",
@@ -26,8 +26,8 @@ func TestIsImportantProjectFileManifestsAndMetadata(t *testing.T) {
 }
 
 func TestIsImportantProjectFileFamilies(t *testing.T) {
-	// README/license/Dockerfile/Makefile variants share a prefix plus a name
-	// separator, so every spelling and extension is recognized.
+	// README/license/Dockerfile/Makefile 变体共享一个前缀加名称分隔符，因此每种拼写和扩展名都被识别。
+	// 分隔符，因此每种拼写和扩展名都被识别。
 	for _, path := range []string{
 		"README", "README.md", "readme.rst", "README.zh-CN.md", "README_OLD.txt",
 		"LICENSE", "LICENSE.md", "LICENSE-MIT", "LICENCE.txt", "COPYING.LESSER",
@@ -70,7 +70,7 @@ func TestIsImportantProjectFileIgnoresDirectoryAndSlashStyle(t *testing.T) {
 }
 
 func TestIsImportantProjectFileAcceptsCJKPaths(t *testing.T) {
-	// CJK directory segments are irrelevant; the base name decides.
+	// CJK 目录段无关紧要；基础名决定结果。
 	for _, path := range []string{
 		"文档/README.md",
 		"项目\\配置\\go.mod",

@@ -94,11 +94,11 @@ func TestRowTextSkipsContinuationCells(t *testing.T) {
 }
 
 func TestWriteStringKeepsGraphemeClustersWhole(t *testing.T) {
-	// The layout measures a ZWJ family as two cells (TextWidth), so the buffer
-	// must paint exactly those two cells and keep every byte of the cluster —
-	// including the invisible ZWJ — in the painted output. Iterating per rune
-	// used to drop the ZWJ and reserve six cells, tearing the glyph apart and
-	// pushing the following span three cells too far right.
+	// 布局把 ZWJ 家庭 emoji 测为两个单元格（TextWidth），因此缓冲区
+	// 必须恰好绘制这两个单元格，并把该簇的每个字节 ——
+	// 包括不可见的 ZWJ —— 保留在绘制输出中。按 rune 遍历
+	// 过去会丢掉 ZWJ 并预留六个单元格，把字形撕开，
+	// 并使后面的 span 向右多推三个单元格。
 	for _, tc := range []struct {
 		name, text string
 	}{

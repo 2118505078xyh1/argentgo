@@ -13,7 +13,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// opaqueChatter intentionally does not implement PromptCacheCapable.
+// opaqueChatter 有意不实现 PromptCacheCapable。
 type opaqueChatter struct{}
 
 func (opaqueChatter) Chat(context.Context, string, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
@@ -261,8 +261,8 @@ func TestResponsesUsesStableCacheKeyAndCountsCachedTokens(t *testing.T) {
 		t.Fatal("an unset retention hint must not be serialized")
 	}
 
-	// A different stable prefix must produce a different key, and the same
-	// prefix must be deterministic across requests.
+	// 不同的稳定前缀必须产生不同的键，且相同的
+	// 前缀在各请求之间必须是确定性的。
 	firstKey := key
 	if _, err := client.Chat(context.Background(), "m", stableMessages(), twoToolSpecs(), nil); err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -399,9 +399,9 @@ func TestCancellationMidStreamLeavesNoPartialAccounting(t *testing.T) {
 	}
 }
 
-// anthropicRequestBody runs one Chat against a local test server and returns
-// the decoded request body. The client is configured by the caller so each
-// case can exercise caching enablement and retention independently.
+// anthropicRequestBody 对本地测试服务器运行一次 Chat，并返回
+// 解码后的请求体。客户端由调用方配置，使每个
+// 用例可以独立演练缓存启用与保留设置。
 func anthropicRequestBody(t *testing.T, configure func(*llm.AnthropicClient), messages []llm.Message, tools []llm.ToolSpec) map[string]any {
 	t.Helper()
 	var body map[string]any
@@ -427,8 +427,8 @@ func anthropicRequestBody(t *testing.T, configure func(*llm.AnthropicClient), me
 	return body
 }
 
-// toolResultBlocks returns every tool_result block in wire order across all
-// messages, so tests can distinguish the last one from earlier results.
+// toolResultBlocks 按线协议顺序返回所有消息中的每个 tool_result 块，
+// 使测试能区分最后一个与更早的结果。
 func toolResultBlocks(body map[string]any) []map[string]any {
 	wire, _ := body["messages"].([]any)
 	var blocks []map[string]any

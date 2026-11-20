@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// EntryKind classifies a transcript block.
+// EntryKind 对一个记录块分类。
 type EntryKind int
 
-// Transcript block kinds.
+// 记录块种类。
 const (
 	EntryUser EntryKind = iota
 	EntryAssistant
@@ -19,11 +19,11 @@ const (
 	EntryNotice
 )
 
-// AttemptKind is the non-committed outcome attached to a transcript block.
-// It is display metadata only: the agent history never sees these labels.
+// AttemptKind 是附着在记录块上的未提交结果。
+// 它仅是展示元数据：agent 历史永远看不到这些标签。
 type AttemptKind string
 
-// Attempt outcomes the UI can badge.
+// UI 可以加徽章的尝试结果。
 const (
 	AttemptFailed      AttemptKind = "failed"
 	AttemptRetried     AttemptKind = "retried"
@@ -31,9 +31,9 @@ const (
 	AttemptStreamError AttemptKind = "stream_error"
 )
 
-// Entry is one transcript block. Assistant text accumulates while streaming;
-// tool entries carry the call and a truncated output. Attempt is set for
-// failed / retried / cancelled rows so the operator can see them at a glance.
+// Entry 是一个记录块。助手文本在流式传输时累积；
+// 工具条目携带调用和截断的输出。失败/重试/取消的行
+// 会设置 Attempt，使操作员一眼可见。
 type Entry struct {
 	Kind    EntryKind
 	Text    string
@@ -46,33 +46,33 @@ type Entry struct {
 
 	live bool // the assistant entry still receiving stream deltas
 
-	// Display-only timing for a reasoning block. Entry has no public time
-	// field; these are stamped on first paint by reasoningLines and used only
-	// to build the one-line summary, so no public API or event changes.
+	// 推理块的仅用于展示的计时。Entry 没有公开的 time
+	// 字段；这些值在首次绘制时由 reasoningLines 打上，仅用于
+	// 构建单行摘要，因此不改变公共 API 或事件。
 	thinkingAt  time.Time
 	thinkingEnd time.Time
 }
 
-// SessionInfo is one row of the optional session rail. Title is the generated
-// (or explicitly renamed) title; Path stays available for tooltips and hooks.
+// SessionInfo 是可选会话栏的一行。Title 是生成的
+// （或显式重命名的）标题；Path 保留给提示和钩子使用。
 type SessionInfo struct {
 	Path  string
 	Title string
 }
 
-// BufferPos is a 0-based (row, col) position in the rendered buffer. Mouse
-// reports are 1-based; the run loop subtracts one before calling the
-// selection methods.
+// BufferPos 是已渲染缓冲区中基于 0 的 (row, col) 位置。鼠标
+// 报告基于 1；run 循环在调用
+// 选择方法前减一。
 type BufferPos struct {
 	Row int
 	Col int
 }
 
-// TurnAction is the narrow seam for undo / retry / rename. The TUI never
-// imports the session or app package; an integrator supplies the behaviour.
+// TurnAction 是 undo / retry / rename 的窄接缝。TUI 从不
+// 导入 session 或 app 包；由集成方提供行为。
 type TurnAction func(ctx context.Context, arg string) error
 
-// Config seeds a Model.
+// Config 为 Model 提供种子。
 type Config struct {
 	Root     string
 	Model    string
@@ -84,10 +84,10 @@ type Config struct {
 	Sessions []string
 }
 
-// KeyAction tells the event loop what a key asks for after the model update.
+// KeyAction 告诉事件循环，模型更新后某个按键请求什么。
 type KeyAction int
 
-// Actions a key can produce.
+// 一个按键可以产生的动作。
 const (
 	ActionNone KeyAction = iota
 	ActionSubmit
@@ -98,9 +98,9 @@ const (
 	ActionRename
 )
 
-// entryCacheKey captures every input that changes how one transcript entry is
-// rendered. Keeping it per entry (rather than one key for the whole body) is
-// what lets a streamed delta or a tool status change repaint a single block.
+// entryCacheKey 捕获改变某个记录条目渲染方式的所有输入。
+// 按条目保留它（而非整个正文一个键），
+// 使流式增量或工具状态变化只重绘单个块。
 type entryCacheKey struct {
 	kind       EntryKind
 	text       string
@@ -117,14 +117,14 @@ type entryCacheKey struct {
 	locale     string
 }
 
-// entryCacheSlot is one rendered entry aligned by index with Model.entries.
+// entryCacheSlot 是与 Model.entries 按下标对齐的一个已渲染条目。
 type entryCacheSlot struct {
 	key   entryCacheKey
 	lines []Line
 }
 
-// Model is the whole UI state. It owns no terminal: every method can be driven
-// from a test, and the run loop is the only thing that touches the screen.
+// Model 是整个 UI 状态。它不拥有终端：每个方法都可以由
+// 测试驱动，且只有 run 循环触碰屏幕。
 type Model struct {
 	mu sync.Mutex
 
@@ -152,22 +152,22 @@ type Model struct {
 	version     int
 	entryCache  []entryCacheSlot
 
-	// notices is the severity-ranked status notification stack. New status
-	// messages go here; the two legacy fields below are kept only so code that
-	// still writes them directly keeps working (statusLineLocked falls back to
-	// them when the stack is empty).
+	// notices 是按严重度排序的状态通知栈。新的状态
+	// 消息进入这里；下面两个旧字段仅为让仍直接写它们的
+	// 代码继续工作而保留（栈为空时 statusLineLocked 回退到
+	// 它们）。
 	notices NoticeStack
 
-	// Text selection in 0-based buffer coordinates. selecting is true from
-	// MouseDown until MouseUp; anchor and active survive MouseUp so the range
-	// can still be copied afterwards.
+	// 基于 0 的缓冲区坐标中的文本选择。从 MouseDown 到 MouseUp
+	// selecting 为 true；anchor 和 active 在 MouseUp 后保留，使该范围
+	// 之后仍可被复制。
 	selAnchor BufferPos
 	selActive BufferPos
 	selecting bool
 
-	// dirty records content changes between paints. The run loop gates its
-	// repaint on it; the buffer diff remains the final authority on what is
-	// actually written to the terminal.
+	// dirty 记录两次绘制之间的内容变化。run 循环以此门控
+	// 重绘；缓冲区差异仍是
+	// 实际写入终端内容的最终权威。
 	dirty      bool
 	themeEpoch int // bumped when palette/font-related state changes
 
@@ -184,29 +184,29 @@ type Model struct {
 	usageCached int
 	expanded    bool
 
-	// Optional header metadata. Both unset keeps the classic header exactly
-	// as it was before these fields existed.
+	// 可选的头部元数据。两者都未设置时，头部保持这些字段
+	// 出现之前的经典样式。
 	contextWindow int
 	cost          string
 
-	// Action hooks are installed by the integrator. nil means the command is
-	// recognised but answered with a clear "not wired" notice.
+	// 动作钩子由集成方安装。nil 表示该命令被识别但会以清晰的
+	// "未接线"通知作答。
 	undoFn    TurnAction
 	retryFn   TurnAction
 	renameFn  TurnAction
 	actionArg string
 
-	// The optional side rail. All three are hidden by default so the classic
-	// transcript view and its keybindings are byte-for-byte unchanged.
+	// 可选的侧边栏。三者默认全部隐藏，使经典
+	// 记录视图及其按键绑定逐字节不变。
 	showTasks      bool
 	showWorkspace  bool
 	showPlan       bool
 	showSessions   bool
 	sessionsCursor int
 	sessionsScroll int
-	// sessionFilter is the parsed fuzzy query shown above the session rows;
-	// sessionFiltering is true while that filter bar owns the keyboard.
-	// Both are inert until the session rail is shown.
+	// sessionFilter 是显示在会话行上方的已解析模糊查询；
+	// sessionFiltering 在该过滤栏持有键盘时为 true。
+	// 两者在会话栏显示前都是无效果的。
 	sessionFilter    string
 	sessionFiltering bool
 	tasks            []Task
@@ -229,8 +229,8 @@ type Model struct {
 	now func() time.Time
 }
 
-// New returns a model ready to render. An empty Theme selects the dark
-// palette, keeping callers that predate themes unchanged.
+// New 返回一个可渲染的模型。空的 Theme 选择深色
+// 调色板，使早于主题功能的调用方保持不变。
 func New(cfg Config) *Model {
 	locale := cfg.Locale
 	if locale == "" {
@@ -262,9 +262,9 @@ func New(cfg Config) *Model {
 	return m
 }
 
-// SetContextInfo supplies the optional header metadata: the model's context
-// window (for the usage percentage) and a preformatted cost string. Passing 0
-// and "" restores the original header. Safe to call while the run loop paints.
+// SetContextInfo 提供可选的头部元数据：模型的 context
+// 窗口（用于用量百分比）和预格式化的成本字符串。传入 0
+// 和 "" 恢复原始头部。在 run 循环绘制时调用是安全的。
 func (m *Model) SetContextInfo(window int, cost string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -276,8 +276,8 @@ func (m *Model) SetContextInfo(window int, cost string) {
 	m.markDirtyLocked()
 }
 
-// MouseDown starts a selection at a 0-based buffer position. It replaces any
-// previous selection.
+// MouseDown 在基于 0 的缓冲区位置开始选择。它替换任何
+// 先前的选择。
 func (m *Model) MouseDown(col, row int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -287,8 +287,8 @@ func (m *Model) MouseDown(col, row int) {
 	m.markDirtyLocked()
 }
 
-// MouseDrag extends the current selection. A drag with no active MouseDown is
-// ignored, so stray motion reports cannot create a selection.
+// MouseDrag 扩展当前选择。没有活动 MouseDown 的拖拽被
+// 忽略，因此杂散的移动报告无法创建选择。
 func (m *Model) MouseDrag(col, row int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -299,7 +299,7 @@ func (m *Model) MouseDrag(col, row int) {
 	m.markDirtyLocked()
 }
 
-// MouseUp ends the drag and keeps the range available for SelectedText.
+// MouseUp 结束拖拽并保留该范围供 SelectedText 使用。
 func (m *Model) MouseUp(col, row int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -311,7 +311,7 @@ func (m *Model) MouseUp(col, row int) {
 	m.markDirtyLocked()
 }
 
-// ClearSelection drops the current selection entirely.
+// ClearSelection 完全丢弃当前选择。
 func (m *Model) ClearSelection() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -321,14 +321,14 @@ func (m *Model) ClearSelection() {
 	m.markDirtyLocked()
 }
 
-// SelectionActive reports whether a drag is currently in progress.
+// SelectionActive 报告当前是否正在进行拖拽。
 func (m *Model) SelectionActive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.selecting
 }
 
-// HasSelection reports whether there is a non-empty range to copy.
+// HasSelection 报告是否有非空范围可复制。
 func (m *Model) HasSelection() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -337,8 +337,8 @@ func (m *Model) HasSelection() bool {
 
 func (m *Model) hasSelectionLocked() bool { return m.selAnchor != m.selActive }
 
-// selectionRangeLocked returns the selection endpoints in reading order
-// (top-left first), regardless of drag direction.
+// selectionRangeLocked 按阅读顺序（左上优先）返回选择端点，
+// 与拖拽方向无关。
 func (m *Model) selectionRangeLocked() (BufferPos, BufferPos) {
 	a, b := m.selAnchor, m.selActive
 	if b.Row < a.Row || (b.Row == a.Row && b.Col < a.Col) {
@@ -347,10 +347,10 @@ func (m *Model) selectionRangeLocked() (BufferPos, BufferPos) {
 	return a, b
 }
 
-// SelectedText extracts the plain text of the cells covered by the selection.
-// Wide-rune continuation cells are skipped and each line is right-trimmed, so
-// the result is paste-friendly. It returns "" when there is no selection or
-// the buffer is empty.
+// SelectedText 提取选择覆盖的单元格的纯文本。
+// 宽 rune 的延续单元格被跳过，每行右修剪，使
+// 结果便于粘贴。没有选择或
+// 缓冲区为空时返回 ""。
 func (m *Model) SelectedText(buf *Buffer) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -384,7 +384,7 @@ func (m *Model) SelectedText(buf *Buffer) string {
 				continue
 			}
 			// 行内代码段在屏幕上丢了反引号，用内部标记圈出，稍后由
-			// joinSelectedRows 还原。inCode 跨行延续，支持被折行切开的代码段。
+			// 由 joinSelectedRows 还原。inCode 跨行延续，支持被折行切开的代码段。
 			isCode := hasCodeColor && cell.S.Fg == codeColor
 			if isCode != inCode {
 				line.WriteString(codeSpanMark)
@@ -400,7 +400,7 @@ func (m *Model) SelectedText(buf *Buffer) string {
 	return joinSelectedRows(lines, w)
 }
 
-// MouseWheel maps a wheel report to the existing three-row scroll behaviour.
+// MouseWheel 把滚轮报告映射到现有的三行滚动行为。
 func (m *Model) MouseWheel(up bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

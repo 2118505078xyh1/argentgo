@@ -65,8 +65,8 @@ func TestMultiEditRepairFailureIsAtomicAndConsistent(t *testing.T) {
 			t.Fatalf("diagnostic %q missing %q", msg, want)
 		}
 	}
-	// The instruction must not contradict the atomic write semantics: nothing
-	// was written, so no edit may be described as already applied.
+	// 指令不得与原子写入语义矛盾：什么都没有写入，
+	// 因此不得把任何编辑描述为已应用。
 	for _, bad := range []string{
 		"were applied successfully",
 		"do not re-send them",
@@ -81,8 +81,8 @@ func TestMultiEditRepairFailureIsAtomicAndConsistent(t *testing.T) {
 }
 
 func TestMultiEditRepairErrorMessageNeverTellsModelToSkipEdits(t *testing.T) {
-	// With any positive applied count the message must stay internally
-	// consistent: edits matched in memory, no bytes written, re-send all.
+	// 只要应用计数为正，消息就必须保持内部
+	// 一致：编辑在内存中匹配，没有写入任何字节，请全部重新发送。
 	msg := multiEditRepairError("f.txt", 2, 3, 1, "alpha\nbeta\n", "beta").Error()
 	if !strings.Contains(msg, "no bytes were written (atomic batch)") ||
 		!strings.Contains(msg, "re-send the whole batch") {
@@ -92,8 +92,8 @@ func TestMultiEditRepairErrorMessageNeverTellsModelToSkipEdits(t *testing.T) {
 		t.Fatalf("message still contradicts atomic semantics: %q", msg)
 	}
 
-	// The zero-applied branch must give the same actionable guidance and must
-	// not mention skipped edits.
+	// 零应用分支必须给出同样可操作的指引，并且
+	// 不得提及被跳过的编辑。
 	msg = multiEditRepairError("f.txt", 1, 1, 0, "alpha\n", "missing").Error()
 	if !strings.Contains(msg, "no edit matched") || !strings.Contains(msg, "re-send the whole batch") {
 		t.Fatalf("zero-applied message lost its guidance: %q", msg)

@@ -13,7 +13,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// chatNoWait keeps retry tests fast without touching the shared test helper.
+// chatNoWait 让重试测试保持快速，而不触碰共享的测试辅助函数。
 func chatNoWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
 func TestChatClientRetriesTransientFailure(t *testing.T) {
@@ -117,8 +117,8 @@ data: [DONE]
 }
 
 func TestChatClientGeneratedToolCallIDsDoNotCollide(t *testing.T) {
-	// The first call arrives without an id; the second one really is named
-	// call_1. The generated id must skip that name.
+	// 第一个调用到达时没有 id；第二个实际名为
+	// call_1。生成的 id 必须跳过该名称。
 	script := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"a","arguments":"{}"}}]}}]}
 
 data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_1","function":{"name":"b","arguments":"{}"}}]}}]}
@@ -182,8 +182,8 @@ data: [DONE]
 }
 
 func TestChatClientZeroRetryStillStreams(t *testing.T) {
-	// New() leaves Retry at its zero value; that must still be a working
-	// client (falling back to DefaultRetryPolicy) with no configuration.
+	// New() 让 Retry 保持零值；即便没有任何配置，它也必须是一个
+	// 可用的客户端（回退到 DefaultRetryPolicy）。
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n")
 	}))

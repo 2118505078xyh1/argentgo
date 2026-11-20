@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestAppendVerifyNoteAppendsPassVerdict checks that a passing verify note is
-// attached as an ordinary PostToolUse-style hook line.
+// TestAppendVerifyNoteAppendsPassVerdict 检查通过的验证注释是否作为
+// 普通的 PostToolUse 风格钩子行附加。
 func TestAppendVerifyNoteAppendsPassVerdict(t *testing.T) {
 	got := AppendVerifyNote("tool out", " lint ", true, "noisy output")
 	want := "tool out\n[hook] [verify: LINT] PASS"
@@ -15,8 +15,8 @@ func TestAppendVerifyNoteAppendsPassVerdict(t *testing.T) {
 	}
 }
 
-// TestAppendVerifyNoteEmptyOutputIsVerdictOnly checks that a note on empty
-// output is just the verdict, with no empty output section.
+// TestAppendVerifyNoteEmptyOutputIsVerdictOnly 检查空输出上的注释只有结论，
+// 没有空的输出部分。
 func TestAppendVerifyNoteEmptyOutputIsVerdictOnly(t *testing.T) {
 	got := AppendVerifyNote("", "test", false, "  \n\t ")
 	want := "[hook] [verify: TEST] FAIL"
@@ -25,9 +25,9 @@ func TestAppendVerifyNoteEmptyOutputIsVerdictOnly(t *testing.T) {
 	}
 }
 
-// TestAppendVerifyNoteFailRedactsAndKeepsTail checks that a failed verify note
-// carries the redacted tail of the command output and leaves the tool's own
-// result untouched.
+// TestAppendVerifyNoteFailRedactsAndKeepsTail 检查失败的验证注释携带
+// 命令输出经脱敏后的尾部，并保持工具自身的结果不变。
+// （接上行）
 func TestAppendVerifyNoteFailRedactsAndKeepsTail(t *testing.T) {
 	cmdOutput := "api_key=sk_live_abcdefghijklmnop failed at step 3"
 	got := AppendVerifyNote("edit result", "test", false, cmdOutput)

@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// artifactNameRE is the externally observable filename contract: the spill is
-// a plain ".log" file with a random hex id and no path separators or attacker
-// controlled characters (safe filename + O_EXCL uniqueness).
+// artifactNameRE 是外部可观察的文件名契约：溢出产物
+// 是普通的 ".log" 文件，带有随机十六进制 id，不含路径分隔符或攻击者
+// 可控字符（安全文件名 + O_EXCL 唯一性）。
 var artifactNameRE = regexp.MustCompile(`^tool-output-[0-9a-f]{16}\.log$`)
 
 func TestSpillLargeOutputSpillsTruncatesAndLinks(t *testing.T) {
@@ -33,7 +33,7 @@ func TestSpillLargeOutputSpillsTruncatesAndLinks(t *testing.T) {
 		t.Fatalf("unsafe artifact filename %q", filepath.Base(path))
 	}
 
-	// The full, unmodified output must be recoverable from the artifact.
+	// 完整的、未修改的输出必须能从产出中恢复。
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(artifact): %v", err)
@@ -42,7 +42,7 @@ func TestSpillLargeOutputSpillsTruncatesAndLinks(t *testing.T) {
 		t.Fatal("artifact does not contain the full output")
 	}
 
-	// The returned body is a middle-elided head+tail view naming the artifact.
+	// 返回的正文是一个命名了该产出的、中段省略的头+尾视图。
 	if len(result) >= len(big) {
 		t.Fatalf("result is %d bytes, not truncated from %d", len(result), len(big))
 	}
@@ -62,8 +62,8 @@ func TestSpillLargeOutputSpillsTruncatesAndLinks(t *testing.T) {
 
 func TestSpillLargeOutputWriteFailureStillTruncates(t *testing.T) {
 	base := t.TempDir()
-	// A regular file used as the spill dir makes MkdirAll fail: the real write
-	// failure path, not a simulated one.
+	// 把普通文件用作溢出目录会让 MkdirAll 失败：这是真实的写入
+	// 失败路径，而非模拟的。
 	badDir := filepath.Join(base, "not-a-directory")
 	if err := os.WriteFile(badDir, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -150,8 +150,8 @@ func TestSpillLargeOutputCJKAndEmojiRuneSafe(t *testing.T) {
 		t.Fatal("result was not truncated")
 	}
 
-	// Sweep thresholds so the head/tail boundaries land inside CJK and emoji
-	// runes; every produced result must remain valid UTF-8.
+	// 遍历各种阈值，让头/尾边界落在 CJK 和 emoji 的
+	// rune 内部；每个产出的结果都必须是有效 UTF-8。
 	for n := 2; n <= 80; n += 3 {
 		_, _, err := SpillLargeOutput(big, n, dir)
 		if err != nil {

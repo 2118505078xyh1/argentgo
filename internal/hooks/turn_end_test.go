@@ -40,8 +40,8 @@ func TestClassifyTurnEndEvent(t *testing.T) {
 }
 
 func TestClassifyTurnEndEventReasonsAreTheEventNames(t *testing.T) {
-	// The classifier returns the event name, so callers can emit the result
-	// directly as an Event without a mapping table.
+	// 分类器返回事件名，因此调用方可以直接发出结果，
+	// 分类器返回事件名，因此调用方可以直接把结果作为 Event 发出，无需映射表。
 	reasons := []struct {
 		reason string
 		event  Event
@@ -65,7 +65,7 @@ func TestClassifyTurnEndEventReasonsAreTheEventNames(t *testing.T) {
 		}
 	}
 
-	// Every reason is actually reachable from the classifier.
+	// 每个原因都确实可由分类器触发。
 	seen := map[string]bool{}
 	seen[ClassifyTurnEndEvent(true, nil)] = true
 	seen[ClassifyTurnEndEvent(false, errors.New("x"))] = true
@@ -76,8 +76,8 @@ func TestClassifyTurnEndEventReasonsAreTheEventNames(t *testing.T) {
 }
 
 func TestTurnEndEventsAreSupportedAndStopIsRetained(t *testing.T) {
-	// All three new events parse, land on the whitelist and survive a full
-	// document round trip — as does the legacy Stop event.
+	// 每个原因都确实可由分类器触发。
+	// 三个新事件都能解析、进入白名单并经历完整的文档往返 —— 旧的 Stop 事件也是如此。
 	document := []byte(`{"hooks":{
 		"Stop":[{"command":"echo stop"}],
 		"interrupt":[{"command":"echo i"}],
@@ -106,8 +106,8 @@ func TestTurnEndEventsAreSupportedAndStopIsRetained(t *testing.T) {
 }
 
 func TestHookPayloadFieldIsOptionalAndZeroValueCompatible(t *testing.T) {
-	// A payload without HookPayload keeps its exact JSON shape: adding the
-	// field must not change any existing serialized document.
+	// 没有 HookPayload 的 payload 保持其精确 JSON 形状：添加该字段不得改变任何现有序列化文档。
+	// 该字段不得改变任何现有序列化文档。
 	encoded, err := json.Marshal(Payload{Event: "Stop", Prompt: "hi", Output: "bye"})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -116,7 +116,7 @@ func TestHookPayloadFieldIsOptionalAndZeroValueCompatible(t *testing.T) {
 		t.Fatalf("empty HookPayload must be omitted: %s", encoded)
 	}
 
-	// A populated HookPayload round trips.
+	// 带 HookPayload 的 payload 可往返。
 	withPayload := Payload{Event: string(EventStopFailure), HookPayload: "provider 500"}
 	encoded, err = json.Marshal(withPayload)
 	if err != nil {

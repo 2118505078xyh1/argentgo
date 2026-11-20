@@ -13,20 +13,20 @@ import (
 
 // ---- context_pack ----
 //
-// context_pack is the multi-file counterpart of read's gap-centred window: it
-// packs real file contents around an edit anchor under a byte budget so the
-// model can skip a "read whole file" round trip. It is read-only, bounded, and
-// never splits a UTF-8 rune.
+// context_pack 是 read 的以间隔为中心窗口的多文件对应物：它在
+// 字节预算内围绕编辑锚点打包真实文件内容，使
+// 模型可以跳过"读取整个文件"的往返。它只读、有界，且
+// 从不拆分 UTF-8 rune。
 
 const (
 	contextPackDefaultBudget = 8000
 	contextPackMaxBudget     = 32000
-	// A smaller budget cannot even hold the truncation marker, so tiny values
-	// are clamped up rather than emitting an over-budget marker.
+	// 较小的预算甚至容不下截断标记，因此过小的
+	// 值会被向上钳制，而不是发出超出预算的标记。
 	contextPackMinBudget = 64
-	// Per-side line window cap, matching readTool's readWindowCap.
+	// 每侧行窗口上限，与 readTool 的 readWindowCap 一致。
 	contextPackWindowCap = 200
-	// Auto-selected neighbours are bounded so one call cannot walk a huge tree.
+	// 自动选择的邻居文件有上限，使单次调用不会遍历巨大的树。
 	contextPackMaxFiles = 24
 )
 
@@ -50,10 +50,10 @@ func (contextPackTool) Schema() string {
 	return `{"type":"object","properties":{"target":{"type":"string","description":"workspace-relative edit anchor file; always packed last"},"files":{"type":"array","items":{"type":"string"},"description":"explicit workspace-relative files to pack; overrides automatic selection"},"budget_bytes":{"type":"integer","description":"total output byte budget (default 8000, cap 32000)"},"line":{"type":"integer","description":"1-based anchor line; when > 0 only the gap window of the target is emitted"},"before":{"type":"integer","description":"lines above the anchor (0-200, capped)"},"after":{"type":"integer","description":"lines below the anchor (0-200, capped)"}},"required":["target"]}`
 }
 
-// registerContextPack installs the tool before the memory_* tail so that tail
-// stays adjacent to the trailing tool_search. It is exported so a caller that
-// owns a Registry but cannot edit tools_registry.go can install the tool too;
-// the default New/NewWithLimit path already calls it. Repeat calls are no-ops.
+// registerContextPack 在 memory_* 尾部之前安装该工具，使
+// 该尾部仍与末尾的 tool_search 相邻。它导出是为了让拥有 Registry
+// 但无法编辑 tools_registry.go 的调用方也能安装该工具；
+// 默认的 New/NewWithLimit 路径已经调用它。重复调用为空操作。
 func registerContextPack(r *Registry) {
 	if r == nil {
 		return
@@ -129,27 +129,27 @@ func (contextPackTool) Run(ctx context.Context, root string, raw json.RawMessage
 		}
 		content, err := contextPackRead(abs)
 		if err != nil {
-			// A missing or unreadable neighbour must not kill the whole pack;
-			// explicit path escapes were already rejected by resolve above.
+			// 缺失或不可读的邻居文件不能毁掉整个打包；
+			// 显式路径越界已在上面的解析中被拒绝。
 			continue
 		}
 		blocks = append(blocks, fmt.Sprintf("## %s ##\n%s", rel, content))
 	}
-	// Nearest-last: the anchor is the final block the model reads.
+	// 最近优先：锚点是模型读取的最后一个块。
 	blocks = append(blocks, fmt.Sprintf("## %s ##\n%s", targetRel, targetContent))
 
 	out, _ := contextPackAssemble(blocks, contextPackBudget(args.BudgetBytes))
 	return out, nil
 }
 
-// contextPackOthers selects the non-target files. Explicit files win; otherwise
-// take the target's siblings plus repo entry points. The result is deduplicated
-// and ordered so same-directory (nearest) files come last, just before target.
+// contextPackOthers 选择非目标文件。显式文件优先；否则
+// 取目标的同级文件加上 repo 入口点。结果会去重
+// 并排序，使同目录（最近）的文件排在最后，紧邻目标。
 //
-// The nil/empty distinction is significant: an omitted `files` field means
-// "choose automatically", while an explicitly supplied empty array means "no
-// other files" (json.Unmarshal produces a non-nil empty slice for `[]`). Using
-// len() here silently re-enabled auto-selection and leaked sibling contents.
+// nil/空的区别很重要：省略 `files` 字段表示
+// "自动选择"，而显式提供的空数组表示"没有其他
+// 文件"（json.Unmarshal 对 `[]` 产生非 nil 的空切片）。这里用
+// len() 会悄悄重新启用自动选择并泄漏同级文件内容。
 func contextPackOthers(root string, explicit []string, targetRel string) ([]string, error) {
 	var rels []string
 	if explicit != nil {
@@ -190,7 +190,7 @@ func contextPackOthers(root string, explicit []string, targetRel string) ([]stri
 		return uniq[i] < uniq[j]
 	})
 	if len(uniq) > contextPackMaxFiles {
-		// Nearest files sort last, so keep the tail.
+		// 最近的文件排在最后，因此保留尾部。
 		uniq = uniq[len(uniq)-contextPackMaxFiles:]
 	}
 	return uniq, nil
@@ -203,9 +203,9 @@ func contextPackRank(rel, targetDir string) int {
 	return 0
 }
 
-// contextPackAuto picks files next to the target plus entry points at the
-// workspace root. Only immediate children are considered, symlinks are skipped,
-// and the repo_map ignore list keeps build/CI noise out of the pack.
+// contextPackAuto 选择目标旁边加上工作区根目录的
+// 入口点的文件。只考虑直接子项，跳过符号链接，
+// 并由 repo_map 忽略列表把构建/CI 噪声挡在包外。
 func contextPackAuto(root, targetRel string) ([]string, error) {
 	rootAbs, err := resolve(root, ".")
 	if err != nil {
@@ -243,9 +243,9 @@ func contextPackAuto(root, targetRel string) ([]string, error) {
 	return rels, nil
 }
 
-// contextPackWindow mirrors readTool's gap-centred window: before/after are
-// independent per-side budgets clamped to [0, 200], and the trailing newline
-// sentinel is not counted as a real line.
+// contextPackWindow 沿用 readTool 的以间隔为中心窗口：before/after 是
+// 钳制在 [0, 200] 的独立每侧预算，且尾随换行
+// 哨兵不算作真实行。
 func contextPackWindow(content string, line, before, after int) string {
 	if content == "" {
 		return ""
@@ -291,10 +291,10 @@ func contextPackBudget(v int) int {
 	return v
 }
 
-// contextPackAssemble joins whole blocks until the next one would exceed the
-// byte budget. Truncation therefore happens at a block boundary: no block and
-// no UTF-8 rune is ever cut in half. The marker's own bytes are reserved, so
-// the returned string never exceeds budget.
+// contextPackAssemble 连接完整的块，直到下一个块会超出
+// 字节预算。因此截断发生在块边界：不会把任何块或
+// 任何 UTF-8 rune 切掉一半。标记自身的字节会被预留，所以
+// 返回的字符串永不超过预算。
 func contextPackAssemble(blocks []string, budget int) (string, bool) {
 	included := make([]string, 0, len(blocks))
 	used := 0

@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// TestSearchStripsUppercaseJSONLExtension covers a case-inconsistency bug:
-// Search matches the ".jsonl" suffix case-insensitively but used a
-// case-sensitive strings.TrimSuffix to derive the session id. A hand-copied
-// transcript named "SESSION.JSONL" therefore produced Hit.ID "SESSION.JSONL",
-// which no longer resolves through Store.OpenSession. The id must be stripped
-// by length, the same way Container.List does, preserving the original case.
+// TestSearchStripsUppercaseJSONLExtension 覆盖一个大小写不一致的 bug：
+// Search 以不区分大小写的方式匹配 ".jsonl" 后缀，却用
+// 区分大小写的 strings.TrimSuffix 派生会话 id。因此手工复制的
+// 名为 "SESSION.JSONL" 的转录会产生 Hit.ID "SESSION.JSONL"，
+// 再也无法通过 Store.OpenSession 解析。必须按长度剥离 id，
+// 与 Container.List 一样，并保留原始大小写。
 func TestSearchStripsUppercaseJSONLExtension(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"UPPER.JSONL", "Mixed.Jsonl", "lower.jsonl"} {

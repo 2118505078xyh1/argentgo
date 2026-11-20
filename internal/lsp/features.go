@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Definition returns where the symbol at position is declared.
+// Definition 返回 position 处符号的声明位置。
 func (c *Client) Definition(ctx context.Context, uri string, position Position) ([]Location, error) {
 	raw, err := c.call(ctx, "textDocument/definition", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -19,7 +19,7 @@ func (c *Client) Definition(ctx context.Context, uri string, position Position) 
 	return parseLocations(raw), nil
 }
 
-// DefinitionAt opens path (if needed) and asks for the definition there.
+// DefinitionAt 打开 path（若需要）并在那里请求定义。
 func (c *Client) DefinitionAt(ctx context.Context, path string, position Position) ([]Location, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -28,7 +28,7 @@ func (c *Client) DefinitionAt(ctx context.Context, path string, position Positio
 	return c.Definition(ctx, uri, position)
 }
 
-// Hover returns the documentation at position, or nil when the server has none.
+// Hover 返回 position 处的文档，服务器没有时为 nil。
 func (c *Client) Hover(ctx context.Context, uri string, position Position) (*Hover, error) {
 	raw, err := c.call(ctx, "textDocument/hover", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -40,7 +40,7 @@ func (c *Client) Hover(ctx context.Context, uri string, position Position) (*Hov
 	return parseHover(raw), nil
 }
 
-// HoverAt opens path (if needed) and asks for hover information there.
+// HoverAt 打开 path（若需要）并在那里请求 hover 信息。
 func (c *Client) HoverAt(ctx context.Context, path string, position Position) (*Hover, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -49,7 +49,7 @@ func (c *Client) HoverAt(ctx context.Context, path string, position Position) (*
 	return c.Hover(ctx, uri, position)
 }
 
-// rawLocation covers both Location and LocationLink.
+// rawLocation 同时覆盖 Location 和 LocationLink。
 type rawLocation struct {
 	URI                  string `json:"uri"`
 	Range                *Range `json:"range"`
@@ -58,8 +58,8 @@ type rawLocation struct {
 	TargetRange          *Range `json:"targetRange"`
 }
 
-// parseLocations normalizes null, a single Location, an array of Locations and
-// an array of LocationLinks into one slice.
+// parseLocations 把 null、单个 Location、Location 数组和 LocationLink 数组规范化为一个切片。
+// 和 LocationLink 数组规范化为一个切片。
 func parseLocations(raw json.RawMessage) []Location {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
@@ -124,7 +124,7 @@ func parseHover(raw json.RawMessage) *Hover {
 	return &Hover{Contents: text, Range: payload.Range}
 }
 
-// renderMarkup flattens MarkupContent, MarkedString and arrays of either.
+// renderMarkup 展平 MarkupContent、MarkedString 以及它们的数组。
 func renderMarkup(raw json.RawMessage) string {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {

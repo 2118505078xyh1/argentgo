@@ -47,8 +47,8 @@ func TestShortHelpNarrowAppendsEllipsisWithoutHalfKeys(t *testing.T) {
 		}
 	}
 
-	// A single entry that cannot fit still yields just the ellipsis, never a
-	// half-written key.
+	// 单个放不下的条目也只产生省略号，绝不会是
+	// 半个写出的按键。
 	got := ShortHelp([]KeyBinding{{Key: "alt+enter", Desc: "newline", Enabled: true}}, 6, TextWidth)
 	if got != "…" {
 		t.Fatalf("ShortHelp() = %q, want %q", got, "…")
@@ -74,7 +74,7 @@ func TestShortHelpSkipsDisabledBindings(t *testing.T) {
 		t.Fatalf("disabled binding leaked into narrow output %q", narrow)
 	}
 
-	// Disabling every entry is the same as having no bindings.
+	// 禁用所有条目等同于没有任何绑定。
 	allOff := []KeyBinding{
 		{Key: "enter", Desc: "send"},
 		{Key: "ctrl+c", Desc: "cancel"},
@@ -95,7 +95,7 @@ func TestShortHelpCJKWidth(t *testing.T) {
 	if full != want {
 		t.Fatalf("ShortHelp() = %q, want %q", full, want)
 	}
-	// TextWidth counts each CJK glyph as two cells; a rune count would be 35.
+	// TextWidth 把每个 CJK 字形算作两个单元格；按 rune 计数会是 35。
 	if got := TextWidth(full); got != 41 {
 		t.Fatalf("TextWidth(%q) = %d, want 41", full, got)
 	}
@@ -155,9 +155,9 @@ func TestShortHelpDeterministicAndOrdered(t *testing.T) {
 }
 
 func TestShortHelpUsesInjectedTextWidth(t *testing.T) {
-	// Count every rune as two cells: with this model even "a one" alone does
-	// not fit, so only the ellipsis is shown. The default TextWidth model
-	// would show "a one…" at the same width.
+	// 把每个 rune 算作两个单元格：在这个模型下，即使 "a one" 单独也
+	// 放不下，因此只显示省略号。默认的 TextWidth 模型
+	// 在相同宽度下会显示 "a one…"。
 	double := func(s string) int { return 2 * len([]rune(s)) }
 	bindings := []KeyBinding{
 		{Key: "a", Desc: "one", Enabled: true},

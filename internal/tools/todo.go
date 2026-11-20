@@ -15,24 +15,24 @@ import (
 // ---- todo ----
 
 const (
-	// defaultTodoMaxChars bounds the characters a single todo write may persist
-	// to session state. Without it a model can dump an unbounded plan into
-	// todos.json, which is replayed into context on every later turn. The value
-	// mirrors goose's GOOSE_TODO_MAX_CHARS default.
+	// defaultTodoMaxChars 限制单次 todo 写入可持久化到
+	// 会话状态的字符数。没有它，模型可以把无界计划倾倒进
+	// todos.json，而后者会在之后的每一回合被重放到上下文中。该值
+	// 与 goose 的 GOOSE_TODO_MAX_CHARS 默认值一致。
 	defaultTodoMaxChars = 50_000
 
-	// todoMaxCharsEnv overrides the budget at runtime. It is read on every call
-	// (like intentSchemaDisabled) so tests and long-lived runtimes can change it
-	// without a restart. A missing, malformed or non-positive value falls back to
-	// the default so a typo can never silently disable the safety valve.
+	// todoMaxCharsEnv 在运行时覆盖预算。它在每次调用时读取，
+	// 像 intentSchemaDisabled 那样）使测试和长寿命运行时可以更改它
+	// 无需重启。缺失、格式错误或非正的值会回退到
+	// 默认值，因此拼写错误绝不会悄悄禁用这个安全阀。
 	todoMaxCharsEnv = "ARGENT_TODO_MAX_CHARS"
 )
 
-// ErrTodoTooLarge is returned when a todo write would exceed the character
-// budget. Callers can match it with errors.Is.
+// 当一次 todo 写入会超出字符预算时返回 ErrTodoTooLarge。
+// 调用方可以用 errors.Is 匹配它。
 var ErrTodoTooLarge = errors.New("todo: content exceeds character budget")
 
-// todoMaxChars resolves the active character budget for a todo write.
+// todoMaxChars 解析一次 todo 写入的有效字符预算。
 func todoMaxChars() int {
 	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(todoMaxCharsEnv))); err == nil && n > 0 {
 		return n
@@ -40,16 +40,16 @@ func todoMaxChars() int {
 	return defaultTodoMaxChars
 }
 
-// marshalTodos serializes the list exactly as it is persisted. Both the budget
-// check and the write go through it so the counted characters are the ones that
-// actually land in session state.
+// marshalTodos 按持久化的原样序列化列表。预算
+// 检查和写入都经过它，因此被计数的字符就是
+// 真正落入会话状态的字符。
 func marshalTodos(items []todoItem) ([]byte, error) {
 	return json.MarshalIndent(struct {
 		Todos []todoItem `json:"todos"`
 	}{Todos: items}, "", "  ")
 }
 
-// todoItem is one tracked task in the session task list.
+// todoItem 是会话任务列表中被跟踪的一个任务。
 type todoItem struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
@@ -121,8 +121,8 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err != nil {
 		return "", err
 	}
-	// Count runes, not bytes: a CJK character is three bytes in UTF-8, so a byte
-	// budget would reject plans roughly three times earlier than advertised.
+	// 按 rune 计数，而非字节：一个 CJK 字符在 UTF-8 中占三个字节，因此按
+	// 字节计数会让计划被拒绝的时机比宣称的早大约三倍。
 	limit := todoMaxChars()
 	if used := utf8.RuneCount(data); used > limit {
 		return "", fmt.Errorf("%w: %d runes exceed the %d-rune limit (set %s to raise it)", ErrTodoTooLarge, used, limit, todoMaxCharsEnv)

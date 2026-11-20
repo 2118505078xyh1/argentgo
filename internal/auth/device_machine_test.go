@@ -48,8 +48,8 @@ func TestClassifyDevicePoll(t *testing.T) {
 }
 
 func TestClassifyDevicePollSlowDownIsCumulative(t *testing.T) {
-	// Feed each decision's Wait back in: two slow_down responses lengthen the
-	// interval twice, which is how DevicePoll keeps backing off.
+	// 把每个决定的 Wait 反馈回去：两次 slow_down 响应使间隔延长两次，这正是 DevicePoll 持续退避的方式。
+	// 间隔两次，这正是 DevicePoll 持续退避的方式。
 	interval := 2 * time.Second
 	for i := 0; i < 2; i++ {
 		decision := ClassifyDevicePoll(&tokenError{Code: "slow_down"}, interval)

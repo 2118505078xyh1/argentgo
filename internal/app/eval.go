@@ -17,11 +17,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// NewEvaler returns the cli.EvalRunner used by `argent eval`.
+// NewEvaler 返回供 `argent eval` 使用的 cli.EvalRunner。
 //
-// The suite runner uses internal/eval's scripted provider with the production
-// agent loop, tool registry and security chain. RunScenario remains as the
-// narrow seam for callers that only have a prompt.
+// 套件运行器使用 internal/eval 的脚本化提供方，配合生产环境的 agent 循环、工具注册表和安全链。
+// RunScenario 保留为只拥有提示的调用方所使用的窄接缝。
 func NewEvaler(stdio cli.IO) cli.EvalRunner {
 	return &evaler{stdio: stdio}
 }
@@ -31,15 +30,14 @@ type evaler struct {
 	cwd   string
 }
 
-// WithCwd points the evaluator at another workspace (tests use it).
+// WithCwd 把评估器指向另一个工作区（测试使用）。
 func (e *evaler) WithCwd(cwd string) *evaler {
 	e.cwd = cwd
 	return e
 }
 
-// RunSuite executes a scenario document through the real agent loop. Each
-// scenario gets its own scratch workspace from internal/eval; the provider is
-// the script embedded in the document, so no network or API key is involved.
+// RunSuite 通过真实的 agent 循环执行一份场景文档。每个场景都从 internal/eval 获得自己的临时工作区；
+// 提供方是文档中内嵌的脚本，因此不涉及网络或 API key。
 func (e *evaler) RunSuite(ctx context.Context, path string, out io.Writer) (int, int, error) {
 	scenarios, err := eval.Load(path)
 	if err != nil {
@@ -103,8 +101,8 @@ func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, worksp
 		Chatter:  chatter,
 		Tools:    registry,
 		Budget:   agent.Budget{MaxTurns: maxTurns},
-		// Eval scenarios assert exact request counts (e.g. the turn-limit case).
-		// The one-shot final answer is covered by internal/agent tests instead.
+		// eval 场景会断言精确的请求次数（例如轮次限制的情形）。
+		// 一次性最终答案改由 internal/agent 的测试覆盖。
 		NoFinalAnswer: true,
 	}}
 	result, err := loop.Run(runCtx, workspace.Prompt)
@@ -124,9 +122,8 @@ func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, worksp
 	return trace, nil
 }
 
-// cancelAfterChatter stops the run before the model turn that would exceed the
-// scenario's budget. The scripted provider is not called for that turn, so the
-// harness counts exactly the turns that reached the model.
+// cancelAfterChatter 在会超出场景预算的模型轮次之前停止运行。该轮次不会调用脚本化提供方，
+// 因此测试框架统计的正是真正到达模型的轮次。
 type cancelAfterChatter struct {
 	inner  llm.Chatter
 	after  int

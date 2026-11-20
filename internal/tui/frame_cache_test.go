@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// fixedFrameClock is a deterministic time source for frame-key tests. Pinning
-// now and started keeps the header clock stable so only the mutation under test
-// can change the key.
+// fixedFrameClock 是帧键测试的确定性时间源。固定
+// now 和 started 使头部时钟保持稳定，这样只有被测的变更
+// 能改变键。
 func fixedFrameClock() time.Time {
 	return time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 }
 
-// seededFrameModel returns a painted model with a long transcript, so a small
-// Scroll actually moves the viewport and the status-line scroll marker.
+// seededFrameModel 返回一个带长记录的已绘制模型，使较小的
+// Scroll 就能移动视口和状态行滚动标记。
 func seededFrameModel() (*Model, frameCacheKey) {
 	m := New(Config{})
 	base := fixedFrameClock()
@@ -25,9 +25,9 @@ func seededFrameModel() (*Model, frameCacheKey) {
 	return m, newFrameCacheKey(m, 80, 24)
 }
 
-// TestFrameCacheKeyIncludesPendingDanger keeps the cache honest when the modal
-// gains a danger reason: two otherwise identical frames with different danger
-// text must never share a cached paint.
+// TestFrameCacheKeyIncludesPendingDanger 在弹窗
+// 加入 danger 原因时保持缓存诚实：两个其他方面相同但 danger
+// 文本不同的帧绝不能共享缓存的绘制结果。
 func TestFrameCacheKeyIncludesPendingDanger(t *testing.T) {
 	m := New(Config{})
 	m.now = func() time.Time { return fixedFrameClock() }
@@ -220,9 +220,9 @@ func TestFrameCacheKeyEqualKeyPaintsEqualBytes(t *testing.T) {
 	}
 }
 
-// TestPureScrollRepaintIsRequired records why draw must not skip Paint on a
-// scroll-only frame: the body window and the status-line "↑N" marker both move,
-// so the emitted bytes legitimately change even though version is untouched.
+// TestPureScrollRepaintIsRequired 记录为何 draw 在
+// 仅滚动的帧上不能跳过 Paint：正文窗口和状态行 "↑N" 标记都会移动，
+// 因此即使 version 未变，发出的字节也确实改变。
 func TestPureScrollRepaintIsRequired(t *testing.T) {
 	m, before := seededFrameModel()
 	first := m.Frame(80, 24)

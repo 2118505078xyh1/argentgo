@@ -1,9 +1,9 @@
 package tools
 
-// Advanced memory tools: reflect (read-only extractive synthesis) and learn
-// (retain a lesson and optionally promote it into a managed SKILL.md). Both take
-// an injected *memory.Bank, matching the existing memory tools, so there is no
-// global state and callers can wire any bank they like.
+// 高级记忆工具：reflect（只读的抽取式综合）和 learn
+// （保留一条经验，并可选地提升为受管理的 SKILL.md）。两者都接受
+// 注入的 *memory.Bank，与现有记忆工具一致，因此没有
+// 全局状态，调用方可以接线任意库。
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 
 type memoryReflectTool struct{ bank *memory.Bank }
 
-// NewMemoryReflectTool builds the read-only memory_reflect tool.
+// NewMemoryReflectTool 构建只读的 memory_reflect 工具。
 func NewMemoryReflectTool(bank *memory.Bank) *memoryReflectTool {
 	return &memoryReflectTool{bank: bank}
 }
@@ -56,7 +56,7 @@ func (t *memoryReflectTool) Run(_ context.Context, _ string, raw json.RawMessage
 
 type memoryLearnTool struct{ bank *memory.Bank }
 
-// NewMemoryLearnTool builds the mutating memory_learn tool.
+// NewMemoryLearnTool 构建具有变更性的 memory_learn 工具。
 func NewMemoryLearnTool(bank *memory.Bank) *memoryLearnTool { return &memoryLearnTool{bank: bank} }
 
 func (t *memoryLearnTool) Name() string { return "memory_learn" }
@@ -98,14 +98,14 @@ func (t *memoryLearnTool) Run(_ context.Context, _ string, raw json.RawMessage) 
 		return "", fmt.Errorf("memory_learn: encode: %w", err)
 	}
 	if learnErr != nil {
-		// The lesson was still retained; surface the id alongside the failure.
+		// 经验仍被保留；把 id 连同失败一起呈现出来。
 		return string(data), fmt.Errorf("memory_learn: %w", learnErr)
 	}
 	return string(data), nil
 }
 
-// MemoryAdvancedTools returns the advanced memory tools in a stable order,
-// ready to be appended to a registry's default tool list.
+// MemoryAdvancedTools 以稳定顺序返回高级记忆工具，
+// 可直接追加到注册表的默认工具列表。
 func MemoryAdvancedTools(bank *memory.Bank) []Tool {
 	return []Tool{NewMemoryReflectTool(bank), NewMemoryLearnTool(bank)}
 }

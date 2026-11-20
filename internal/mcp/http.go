@@ -15,19 +15,19 @@ import (
 )
 
 const (
-	// maxHTTPBody caps a JSON response body read from an HTTP server.
+	// maxHTTPBody 限制从 HTTP 服务器读取的 JSON 响应体大小。
 	maxHTTPBody = 8 * 1024 * 1024
-	// handshakeWindow bounds how long Connect waits for an SSE endpoint event.
+	// handshakeWindow 限制 Connect 等待 SSE 端点事件的时间。
 	handshakeWindow = 2 * time.Second
 )
 
-// httpTransport speaks JSON-RPC over HTTP.
+// httpTransport 通过 HTTP 传输 JSON-RPC。
 //
-// Two shapes are supported. A legacy SSE server answers the GET with an event
-// stream whose first "endpoint" event names the URL requests are POSTed to
-// (usually /message?sessionId=...). A streamable server takes POSTs at the
-// URL itself and answers with JSON (or its own event stream), and refuses the
-// GET; that refusal selects the streamable shape.
+// 支持两种形态。旧的 SSE 服务器用事件流回复 GET，其第一个 "endpoint"
+// 事件指明请求 POST 到哪个 URL（通常是 /message?sessionId=...）。
+// 流式服务器直接在 URL 上接受 POST，并用 JSON（或其自己的事件流）
+// 回复，同时拒绝 GET；
+// 该拒绝即选择流式形态。
 type httpTransport struct {
 	name    string
 	url     string
@@ -74,32 +74,32 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 		done:       make(chan struct{}),
 	}
 
-	// The event stream must outlive Connect, so it uses its own cancellable
-	// context with no deadline. The *handshake* (waiting for the GET response
-	// headers) is bounded by ctx instead: otherwise a server that accepts the
-	// GET but never answers would make Connect hang forever, ignoring both the
-	// caller's deadline and the configured timeout.
+	// 事件流必须比 Connect 活得更久，因此它使用自己的、无截止时间的
+	// 可取消 context。而*握手*（等待 GET 响应头）
+	// 则受 ctx 限制：否则一个接受 GET 却从不回复的服务器
+	// 会让 Connect 永远挂起，
+	// 无视调用方的截止时间和配置的超时。
 	streamCtx, cancel := context.WithCancel(context.Background())
 	t.streamCancel = cancel
 	if err := t.openStream(ctx, streamCtx, cancel); err != nil {
-		// No event stream: treat the URL as a streamable single endpoint.
+		// 没有事件流：把该 URL 当作流式单端点。
 		cancel()
 		return t, nil
 	}
 
-	// A legacy SSE server announces its POST endpoint on the stream. readStream
-	// applies every valid announcement directly to postURL, including one that
-	// arrives after this window closes. Waiting here only lets a prompt
-	// announcement land before Connect returns so the first request already
-	// uses it; a late one is still honoured by readStream.
+	// 旧的 SSE 服务器在流上宣告其 POST 端点。readStream
+	// 把每个有效宣告直接应用到 postURL，包括在该窗口关闭后
+	// 才到达的宣告。这里等待只是让较早的宣告在 Connect 返回前
+	// 落地，使第一个请求就能使用它；
+	// 较晚的宣告仍会被 readStream 采纳。
 	t.awaitEndpoint(ctx, timeout)
 	return t, nil
 }
 
-// setEndpoint retargets subsequent POSTs to a stream-announced endpoint. An
-// empty value (a cross-origin or malformed announcement rejected by
-// resolveEndpoint) is ignored so configured headers never leave the origin.
-// It is safe to call at any time, including after the handshake window.
+// setEndpoint 把后续 POST 重定向到流宣告的端点。
+// 空值（被 resolveEndpoint 拒绝的跨域或格式错误宣告）会被忽略，
+// 使配置的头部永远不会离开本源。
+// 可以在任何时刻调用，包括握手窗口之后。
 func (t *httpTransport) setEndpoint(resolved string) {
 	if resolved == "" {
 		return
@@ -109,17 +109,17 @@ func (t *httpTransport) setEndpoint(resolved string) {
 	t.mu.Unlock()
 }
 
-// openStream starts the long-lived GET event stream.
+// openStream 启动长生命周期的 GET 事件流。
 //
-// The request uses streamCtx, which has no deadline so the stream can live for
-// the whole session. But only the *handshake* — receiving the response headers
-// — is allowed to take ctx's remaining time. ctx carries the caller's deadline
-// or the configured request timeout (set by newHTTPTransport). Waiting on the
-// request context alone would let a server that accepts the GET and then goes
-// silent block Connect indefinitely, leaking the connection and the goroutine.
+// 该请求使用 streamCtx，它没有截止时间，使流能持续
+// 整个会话。但只有*握手*——接收响应头——
+// 才允许消耗 ctx 的剩余时间。ctx 携带调用方的截止时间
+// 或配置的请求超时（由 newHTTPTransport 设置）。只等待
+// 请求上下文会让接受 GET 后沉默的服务器无限期阻塞 Connect，
+// 泄漏连接和 goroutine。
 //
-// streamCancel aborts the in-flight GET when ctx ends before the headers do.
-// The caller then treats the URL as a streamable single endpoint, so no stream
+// 如果 ctx 先于响应头结束，streamCancel 会中止在途的 GET。
+// 调用方随后把该 URL 当作流式单端点，因此中止不会丢失任何流。
 // is lost by the abort.
 func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel context.CancelFunc) error {
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, t.url, nil)
@@ -157,8 +157,8 @@ func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel 
 		go t.readStream(streamCtx, response.Body)
 		return nil
 	case <-ctx.Done():
-		// Abort the in-flight GET. If it won the race and produced a response,
-		// close the body once the Do goroutine hands it over so nothing leaks.
+		// 中止在途的 GET。如果它赢得竞争并产生了响应，
+		// 在 Do goroutine 交出响应体后关闭它，确保没有泄漏。
 		streamCancel()
 		go func() {
 			result := <-results
@@ -170,23 +170,23 @@ func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel 
 	}
 }
 
-// readStream feeds SSE messages into the waiters and records the endpoint.
+// readStream 把 SSE 消息喂给等待者并记录端点。
 func (t *httpTransport) readStream(ctx context.Context, body io.ReadCloser) {
 	defer body.Close()
 	err := forEachSSE(body, func(event, data string) {
 		if event == "endpoint" {
 			announced := strings.TrimSpace(data)
 			if announced == "" {
-				// An empty announcement must not retarget POSTs. Without this
-				// guard, resolveEndpoint would resolve the empty reference to
-				// the stream URL itself, overwriting a previously announced
-				// POST endpoint and silently breaking the connection.
+				// 空宣告不得重定向 POST。没有这个保护，
+				// resolveEndpoint 会把空引用解析为流 URL 本身，
+				// 覆盖之前宣告的 POST 端点，
+				// 并在无声中破坏连接。
 				return
 			}
 			resolved := resolveEndpoint(t.url, announced)
 			t.setEndpoint(resolved)
-			// Keep feeding the handshake window too; a prompt announcement
-			// still lets Connect return as soon as it is seen.
+			// 也继续供给握手窗口；较早的宣告
+			// 仍能让 Connect 在看到它时立即返回。
 			select {
 			case t.endpointCh <- resolved:
 			default:
@@ -200,8 +200,8 @@ func (t *httpTransport) readStream(ctx context.Context, body io.ReadCloser) {
 	}
 }
 
-// awaitEndpoint waits for the endpoint announcement, but not forever: a
-// streamable server may accept a GET stream yet never send one.
+// awaitEndpoint 等待端点宣告，但不是永远：流式
+// 服务器可能接受 GET 流却从不发送端点宣告。
 func (t *httpTransport) awaitEndpoint(ctx context.Context, timeout time.Duration) (string, bool) {
 	window := handshakeWindow
 	if timeout > 0 && timeout < window {
@@ -236,14 +236,14 @@ func (t *httpTransport) call(ctx context.Context, method string, params any) (js
 
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		// A streamable server may keep the POST's event stream open so it can
-		// push server-initiated messages later. Draining it inline would block
-		// this call until the stream closes (or the request deadline expires),
-		// even though the reply for our id may already have been delivered by
-		// the first event. Process the stream in the background and let the
-		// waiter below decide when this call is done; the deferred Close then
-		// releases the stream. Responses for other in-flight calls are still
-		// routed through the shared waiters, so concurrent calls keep working.
+		// 流式服务器可能保持 POST 的事件流打开，
+		// 以便稍后推送服务器发起的消息。
+		// 内联排空它会阻塞本次调用直到流关闭（或请求截止时间到期），
+		// 即使我们 id 的回复可能已经由第一个事件送达。
+		// 在后台处理该流，让下面的等待者决定调用何时结束；
+		// 延迟的 Close 随后释放它。其他在途调用的回复仍通过
+		// 共享的等待者路由，
+		// 因此并发调用继续工作。
 		go func() {
 			_ = forEachSSE(response.Body, func(event, data string) {
 				if event == "endpoint" {
@@ -288,7 +288,7 @@ func (t *httpTransport) notify(ctx context.Context, method string, params any) e
 	return nil
 }
 
-// post sends one frame to the request endpoint.
+// post 发送一帧到请求端点。
 func (t *httpTransport) post(ctx context.Context, frame []byte) (*http.Response, error) {
 	t.mu.Lock()
 	target := t.postURL
@@ -334,7 +334,7 @@ func (t *httpTransport) Close() error {
 	return nil
 }
 
-// fail closes the transport once, releasing every waiter.
+// fail 只关闭一次传输，释放所有等待者。
 func (t *httpTransport) fail(err error) {
 	t.failOnce.Do(func() {
 		t.mu.Lock()
@@ -358,7 +358,7 @@ func (t *httpTransport) closedError(method string) error {
 	return fmt.Errorf("%w (during %s)", err, method)
 }
 
-// forEachSSE decodes server-sent events from r.
+// forEachSSE 从 r 解码服务器发送的事件。
 func forEachSSE(r io.Reader, handle func(event, data string)) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), maxLineBytes)
@@ -402,16 +402,16 @@ func forEachSSE(r io.Reader, handle func(event, data string)) error {
 	return scanner.Err()
 }
 
-// resolveEndpoint resolves the announced POST URL against the stream URL, but
-// only accepts an endpoint on the same origin (scheme and host) as the stream.
-// A server announcement pointing elsewhere is rejected with an empty string so
-// the caller falls back to the original URL: configured headers may carry
-// credentials, and they must never be forwarded to a different origin.
+// resolveEndpoint 把宣告的 POST URL 相对于流 URL 解析，但
+// 只接受与流同源（scheme 和 host）的端点。
+// 指向别处的服务器宣告会被拒绝（返回空字符串），使
+// 调用方回退到原始 URL：配置的头部可能携带
+// 凭据，绝不能转发到不同的源。
 func resolveEndpoint(streamURL, announced string) string {
 	if strings.TrimSpace(announced) == "" {
-		// An empty reference resolves to the base URL, which would retarget
-		// POSTs to the SSE endpoint. Treat it as no announcement instead so
-		// the caller can fall back to the current POST URL.
+		// 空引用会解析为基础 URL，那会把 POST 重定向到 SSE 端点。
+		// 应把它当作没有宣告，使调用方
+		// 能回退到当前的 POST URL。
 		return ""
 	}
 	base, err := url.Parse(streamURL)

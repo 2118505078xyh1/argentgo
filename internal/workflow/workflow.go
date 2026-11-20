@@ -1,6 +1,6 @@
-// Package workflow runs scripted multi-step tasks.
+// Package workflow 运行脚本化的多步骤任务。
 //
-// A definition is a small JSON document:
+// 定义是一个小的 JSON 文档：
 //
 //	{"name":"review","steps":[
 //	  {"name":"scan","prompt":"list the changed files"},
@@ -8,10 +8,10 @@
 //	  {"name":"report","prompt":"write the report","when":{"previous_contains":"BUG"}}
 //	]}
 //
-// Steps run in dependency order: a step that reads {{steps.NAME.output}} runs
-// after the step that produces it. Each step either prompts the model or calls
-// a tool, and can carry a condition on the previous step's output, a timeout,
-// retries with exponential backoff, and an on_failure policy.
+// 步骤按依赖顺序运行：读取 {{steps.NAME.output}} 的步骤在产生它的步骤之后运行。每个步骤要么提示模型要么调用
+// 在产生它的步骤之后运行。每个步骤要么提示模型要么调用
+// 工具，并可携带对上一步输出的条件、超时、
+// 带指数退避的重试以及 on_failure 策略。
 package workflow
 
 import (
@@ -24,33 +24,33 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Failure policies.
+// 失败策略。
 const (
-	// OnFailureStop ends the run; the remaining steps are recorded as skipped.
+	// OnFailureStop 结束运行；其余步骤被记录为跳过。
 	OnFailureStop = "stop"
-	// OnFailureContinue keeps going with the next step.
+	// OnFailureContinue 继续执行下一步。
 	OnFailureContinue = "continue"
-	// OnFailureRetry retries the step (at least once) and stops when the
-	// attempts are exhausted.
+	// OnFailureRetry 重试该步骤（至少一次），当尝试耗尽时停止。
+	// 尝试耗尽。
 	OnFailureRetry = "retry"
 )
 
-// Duration is a JSON-friendly time.Duration: it marshals as a string ("30s")
-// and accepts a duration string or a number of seconds when decoding.
+// Duration 是 JSON 友好的 time.Duration：它编码为字符串（"30s"）
+// 并在解码时接受时长字符串或秒数。
 type Duration time.Duration
 
-// Std returns the value as a time.Duration.
+// Std 以 time.Duration 形式返回值。
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
-// String renders the duration the way time.Duration does.
+// String 按 time.Duration 的方式渲染时长。
 func (d Duration) String() string { return time.Duration(d).String() }
 
-// MarshalJSON writes the duration as a string.
+// MarshalJSON 将时长写为字符串。
 func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
 }
 
-// UnmarshalJSON accepts "45s", 90 (seconds), "" and null.
+// UnmarshalJSON 接受 "45s"、90（秒）、"" 和 null。
 func (d *Duration) UnmarshalJSON(data []byte) error {
 	text := strings.TrimSpace(string(data))
 	if text == "null" {
@@ -81,17 +81,17 @@ func (d *Duration) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// When gates a step on the output of the previous step.
+// When 根据上一步的输出为步骤设置门槛。
 type When struct {
-	// PreviousContains runs the step only if the previous output contains it.
+	// PreviousContains 仅在上一步输出包含它时运行步骤。
 	PreviousContains string `json:"previous_contains,omitempty"`
-	// PreviousNotContains runs the step only if the previous output does not
-	// contain it.
+	// PreviousNotContains 仅在上一步输出不包含它时运行步骤。
+	// 包含它。
 	PreviousNotContains string `json:"previous_not_contains,omitempty"`
 }
 
-// matches reports whether the condition holds. prev is the output of the last
-// step that actually ran; a skipped step never becomes the previous.
+// matches 报告条件是否成立。prev 是最后一个实际运行的步骤的输出；被跳过的步骤永远不会成为前一个。
+// 实际运行的步骤；被跳过的步骤永远不会成为前一个。
 func (w When) matches(prev string, havePrev bool) bool {
 	if !havePrev {
 		return w.PreviousContains == "" && w.PreviousNotContains == ""
@@ -105,40 +105,40 @@ func (w When) matches(prev string, havePrev bool) bool {
 	return true
 }
 
-// StepCheck is an objective shell check for a step. A zero exit code means the
-// step reached its goal; anything else (including a timeout) is a step failure
-// that goes through the normal retry path.
+// StepCheck 是步骤的客观 shell 检查。退出码零表示步骤达成了目标；其他任何情况（包括超时）都是步骤失败
+// 步骤达成了目标；其他任何情况（包括超时）都是步骤失败
+// 经由正常的重试路径处理。
 type StepCheck struct {
 	Command        string `json:"command"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
-// Step is one unit of work.
+// Step 是一个工作单元。
 type Step struct {
 	Name   string `json:"name"`
 	Prompt string `json:"prompt,omitempty"`
-	// Tool names a tool to call instead of prompting the model.
+	// Tool 指定要调用的工具，而非提示模型。
 	Tool string `json:"tool,omitempty"`
-	// Args is the tool argument JSON; it supports the same templates as Prompt.
+	// Args 是工具参数的 JSON；它支持与 Prompt 相同的模板。
 	Args string `json:"args,omitempty"`
 	When When   `json:"when,omitzero"`
-	// Retries is the number of extra attempts after a failure.
+	// Retries 是失败后额外尝试的次数。
 	Retries int `json:"retries,omitempty"`
-	// Timeout bounds one attempt.
+	// Timeout 限制单次尝试。
 	Timeout   Duration `json:"timeout,omitzero"`
 	OnFailure string   `json:"on_failure,omitempty"`
-	// SuccessCheck, when set, must pass after the primary action succeeds.
+	// SuccessCheck 设置后必须在主动作成功后通过。
 	SuccessCheck *StepCheck `json:"success_check,omitempty"`
-	// CleanupCommand is a shell command run once when the step has failed, just
-	// before the on_failure policy is applied. Its output is appended to the
-	// failure diagnostic and its exit code never changes the decision. It is a
-	// separate field because OnFailure already names the failure policy.
+	// CleanupCommand 是步骤失败时运行一次的 shell 命令，就在
+	// 应用 on_failure 策略之前。其输出被追加到
+	// 失败诊断中，其退出码从不改变决策。它是
+	// 失败诊断中，其退出码从不改变决策。它是独立字段，因为 OnFailure 已经命名了失败策略。
 	CleanupCommand string `json:"cleanup,omitempty"`
 }
 
-// WorkflowParam declares one template parameter. Its value is supplied at run
-// time (or taken from Default) and is referenced as {{key}} in prompts and
-// tool args.
+// WorkflowParam 声明一个模板参数。其值在运行时提供
+// WorkflowParam 声明一个模板参数。其值在运行时提供（或取自 Default），并在提示和工具参数中作为 {{key}} 引用。
+// 工具参数中。
 type WorkflowParam struct {
 	Key         string   `json:"key"`
 	InputType   string   `json:"input_type"`
@@ -148,7 +148,7 @@ type WorkflowParam struct {
 	Options     []string `json:"options,omitempty"`
 }
 
-// Parameter input types and requirements.
+// 参数输入类型与必需性。
 const (
 	ParamTypeString  = "string"
 	ParamTypeNumber  = "number"
@@ -162,21 +162,21 @@ const (
 	ParamUserPrompt = "user_prompt"
 )
 
-// Definition is a parsed workflow document.
+// Definition 是解析后的工作流文档。
 type Definition struct {
 	Name  string `json:"name"`
 	Steps []Step `json:"steps"`
-	// Parameters declares the template variables a workflow accepts.
+	// Parameters 声明工作流接受的模板变量。
 	Parameters []WorkflowParam `json:"parameters,omitempty"`
 	// Warnings 报告在声明性内容中发现的不可见字符。
-	// It is metadata only: it is never serialised and never blocks a run.
+	// 它仅是元数据：从不被序列化，从不阻塞运行。
 	Warnings []string `json:"-"`
 }
 
-// MaxRetries caps the retry budget so a typo cannot spin forever.
+// MaxRetries 限制重试预算，使拼写错误不会永远循环。
 const MaxRetries = 10
 
-// ParseDefinition decodes and validates a workflow document.
+// ParseDefinition 解码并验证工作流文档。
 func ParseDefinition(data []byte) (*Definition, error) {
 	var def Definition
 	if err := json.Unmarshal(data, &def); err != nil {
@@ -190,7 +190,7 @@ func ParseDefinition(data []byte) (*Definition, error) {
 	return &def, nil
 }
 
-// LoadDefinition reads a workflow document from disk.
+// LoadDefinition 从磁盘读取工作流文档。
 func LoadDefinition(path string) (*Definition, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -209,12 +209,12 @@ func (d *Definition) normalise() {
 	}
 	for i := range d.Steps {
 		step := &d.Steps[i]
-		// Names are trimmed here as well as in Validate/ValidateDAG so the
-		// executor can key step outputs by the exact same name a
-		// {{steps.NAME.output}} reference resolves to. Without this, a name
-		// with surrounding whitespace passes validation but every consumer
-		// of its output is skipped with an "undefined dependency" error and
-		// the placeholder is left unsubstituted in the prompt.
+		// 名称在这里以及 Validate/ValidateDAG 中都会被裁剪，使
+		// executor 能用与引用解析到的完全相同的名称作为步骤输出键。
+		// executor 能用与 {{steps.NAME.output}} 引用解析到的完全相同的名称作为步骤输出键。否则，
+		// 带首尾空白的名称会通过验证，但其每个消费者
+		// 带首尾空白的名称会通过验证，但其输出的每个消费者都会因"未定义依赖"错误被跳过，且
+		// 占位符在提示中保持未替换。
 		step.Name = strings.TrimSpace(step.Name)
 		if strings.TrimSpace(step.OnFailure) == "" {
 			step.OnFailure = OnFailureStop
@@ -229,7 +229,7 @@ func (d *Definition) normalise() {
 	}
 }
 
-// Validate checks names, actions, conditions and policies.
+// Validate 检查名称、动作、条件和策略。
 func (d *Definition) Validate() error {
 	if d == nil {
 		return fmt.Errorf("workflow: the definition is nil")
@@ -259,18 +259,18 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("workflow: step %q has a negative timeout", name)
 		}
 	}
-	// Step-output references are dependencies. Reject a broken graph here so
-	// a definition cannot reach the executor with a cycle or a dangling
-	// {{steps.NAME.output}} reference.
+	// 步骤输出引用是依赖。在这里拒绝损坏的图，使
+	// 步骤输出引用是依赖。在这里拒绝损坏的图，使
+	// 定义不会带着环或悬空的 {{steps.NAME.output}} 引用到达 executor。
 	if _, err := ValidateDAG(d.Steps); err != nil {
 		return err
 	}
 	if err := ValidateParameters(*d); err != nil {
 		return err
 	}
-	// A default whose value contradicts its declared input_type would be
-	// stringified into a prompt or tool arg at run time; reject it here so a
-	// definition cannot reach the executor with a malformed default.
+	// 值与声明的 input_type 矛盾的默认值会在运行时被字符串化进提示或工具参数；在这里拒绝它，使
+	// 会在运行时被字符串化进提示或工具参数；在这里拒绝它，使
+	// 带畸形默认值的定义无法到达 executor。
 	if err := ValidateParamDefaults(*d); err != nil {
 		return err
 	}

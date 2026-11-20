@@ -8,18 +8,15 @@ import (
 	"strings"
 )
 
-// Redact replaces credential-shaped substrings with a placeholder. It is
-// deliberately conservative: a false positive costs a redacted string, a
-// false negative leaks a key.
+// Redact 把具有凭据形状的子串替换为占位符。它刻意保守：误报的代价只是一段
+// 字符串被脱敏，而漏报则会泄露密钥。
 func Redact(text string) string {
 	return string(redactBytes(text))
 }
 
-// RedactRow redacts the credential-shaped spans of one output line while
-// leaving every other byte untouched. That includes ANSI escape sequences:
-// replacing only the matched spans keeps colour and cursor sequences exactly
-// where they were relative to the surrounding text, so the terminal layout is
-// unchanged. Uses the same pattern table as Redact.
+// RedactRow 对一行输出中具有凭据形状的片段脱敏，其余每个字节都保持不变。
+// 这包括 ANSI 转义序列：只替换匹配的片段，使颜色和光标序列相对于周围文本的
+// 位置完全不变，因此终端布局不受影响。它使用与 Redact 相同的模式表。
 func RedactRow(line []byte) []byte {
 	if len(line) == 0 {
 		return line
@@ -27,9 +24,8 @@ func RedactRow(line []byte) []byte {
 	return redactBytes(string(line))
 }
 
-// redactBytes replaces each secret span with its placeholder and copies all
-// remaining bytes verbatim. It is shared by Redact and RedactRow so there is a
-// single pattern table and a single replacement policy.
+// redactBytes 把每个秘密片段替换为其占位符，并逐字复制其余所有字节。
+// 它由 Redact 和 RedactRow 共享，因此只有一份模式表和一套替换策略。
 func redactBytes(text string) []byte {
 	out := make([]byte, 0, len(text))
 	rest := text
@@ -78,8 +74,8 @@ var tokenPrefixes = []struct {
 	{"npm_", "token"},
 	{"pypi-", "token"},
 	{"eyJ", "jwt"},
-	// Stripe secret keys use an underscore after sk/rk; the hyphenated `sk-`
-	// above does not match them. Google OAuth2 access tokens start with ya29.
+	// Stripe 密钥在 sk/rk 后使用下划线；上面的带连字符 `sk-` 无法匹配它们。
+	// Google OAuth2 访问令牌以 ya29 开头。
 	{"sk_live_", "api key"},
 	{"sk_test_", "api key"},
 	{"rk_live_", "api key"},
@@ -102,31 +98,27 @@ var keyValueNames = []struct {
 	{"private_key", "private key"},
 }
 
-// Needles are lowercase and matched against asciiLower(text): HTTP header
-// names and auth-scheme names are case-insensitive (RFC 7230/7235), so
-// `AUTHORIZATION: Basic ...` and `BEARER ...` are as valid as their canonical
-// spellings. Listing only two exact cases used to let the whole credential
-// leak. asciiLower keeps byte offsets intact, so the offsets found in the
-// lowered copy still index the original text.
+// 搜索串是全小写的，并与 asciiLower(text) 匹配：HTTP 头名和认证方案名不区分
+// 大小写（RFC 7230/7235），因此 `AUTHORIZATION: Basic ...` 和 `BEARER ...`
+// 与其规范写法一样有效。过去只列出两种精确写法会让整个凭据泄露。asciiLower
+// 保持字节偏移不变，因此在小写副本中找到的偏移仍然可以索引原始文本。
 var headerPrefixes = []struct {
 	needle string
 	kind   string
 }{
 	{"bearer ", "bearer token"},
 	{"authorization: ", "auth header"},
-	// HTTP allows optional whitespace after the header colon (OWS), so
-	// `Authorization:Basic <b64>` is a valid header too. The spaced needle
-	// above misses that spelling entirely; without this the whole credential
-	// leaks because a bare base64 token is not credential-shaped on its own.
-	// authValueEnd/skipHorizontalSpace handle both spellings identically, so
-	// a spaced header still produces the same single redaction.
+	// HTTP 允许头冒号后有可选空白（OWS），因此 `Authorization:Basic <b64>`
+	// 也是合法的头。上面带空格的搜索串完全匹配不到这种写法；如果没有这一条，
+	// 整个凭据就会泄露，因为裸 base64 token 本身不具有凭据形状。
+	// authValueEnd/skipHorizontalSpace 对两种写法一视同仁，因此带空格的头
+	// 仍然只产生一次相同的脱敏。
 	{"authorization:", "auth header"},
 }
 
-// PEM private keys carry their shape in an unmistakable armour header. The
-// block form also scrubs the base64 body; the header form keeps RedactRow
-// effective when a tool prints the file one line at a time. Only PRIVATE KEY
-// armour is matched, so public keys and certificates are left untouched.
+// PEM 私钥通过其标志明确的装甲头携带其形状。块形式还会清洗 base64 正文；
+// 当工具逐行打印文件时，头形式让 RedactRow 仍然有效。只匹配 PRIVATE KEY 装甲，
+// 因此公钥和证书保持不变。
 var (
 	pemPrivateKeyBlockRe  = regexp.MustCompile(`(?is)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----.*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
 	pemPrivateKeyHeaderRe = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)
@@ -143,9 +135,8 @@ func skipHorizontalSpace(text string, at int) int {
 	return at
 }
 
-// authValueEnd returns the end of a complete Authorization value: the scheme
-// word plus the credential word that follows it. Quotes and other delimiters
-// end the value, so surrounding shell/JSON syntax stays in place.
+// authValueEnd 返回完整 Authorization 值的结束位置：方案词加上其后的凭据词。
+// 引号和其他分隔符会结束该值，因此周围的 shell/JSON 语法保持原样。
 func authValueEnd(text string, start int) int {
 	end := start
 	for end < len(text) && !isHeaderValueDelimiter(text[end]) {
@@ -185,7 +176,7 @@ func isURLSchemeByte(ch byte) bool {
 	return isAlnum(ch) || ch == '+' || ch == '-' || ch == '.'
 }
 
-// findSecret returns the earliest credential-shaped substring, if any.
+// findSecret 返回最早的具有凭据形状的子串（如果有）。
 func findSecret(text string) *secretMatch {
 	lowered := asciiLower(text)
 	best := (*secretMatch)(nil)
@@ -208,9 +199,8 @@ func findSecret(text string) *secretMatch {
 			from = start + len(entry.prefix)
 		}
 	}
-	// A complete PEM block wins over its own header at the same start (the
-	// longer end is kept), while a header with no trailing END marker is still
-	// scrubbed so a truncated key cannot leak through.
+	// 同一位置起始时，完整的 PEM 块优先于其自身的头（保留更长的结束位置）；
+	// 而没有尾部 END 标记的头仍会被清洗，这样被截断的密钥也不会泄露出去。
 	for _, loc := range pemPrivateKeyBlockRe.FindAllStringIndex(text, -1) {
 		consider(loc[0], loc[1], "private key")
 	}
@@ -218,27 +208,26 @@ func findSecret(text string) *secretMatch {
 		consider(loc[0], loc[1], "private key")
 	}
 	for _, entry := range headerPrefixes {
-		// Match in the lowercased copy: header and scheme names are
-		// case-insensitive. Offsets stay valid because asciiLower is per-byte.
+		// 在小写副本中匹配：头名和方案名不区分大小写。由于 asciiLower 是逐字节的，
+		// 偏移仍然有效。
 		offset := strings.Index(lowered, entry.needle)
 		if offset < 0 {
 			continue
 		}
 		start := offset + len(entry.needle)
 		if isAuthorizationNeedle(entry.needle) {
-			// Every Authorization scheme (Bearer, Basic, Mac, unknown ...)
-			// carries the credential in the value after the colon. Redact the
-			// scheme together with its token so a base64 credential following
-			// `Basic ` cannot survive just because tokenEnd stops at the space.
+			// 每种 Authorization 方案（Bearer、Basic、Mac、未知……）都把凭据放在冒号后的
+			// 值里。把方案连同其 token 一起脱敏，这样跟在 `Basic ` 后面的 base64
+			// 凭据就不会因为 tokenEnd 遇空格停止而残留。
 			start = skipHorizontalSpace(text, start)
 			consider(start, authValueEnd(text, start), entry.kind)
 			continue
 		}
 		consider(start, tokenEnd(text, start), entry.kind)
 	}
-	// `scheme://user:pass@host` puts the credential in the URL userinfo. The
-	// colon and @ are tokenEnd delimiters, so this needs its own rule: scrub
-	// `user:pass@` and leave the scheme and host intact.
+	// `scheme://user:pass@host` 把凭据放在 URL 的 userinfo 中。冒号和 @ 是
+	// tokenEnd 的分隔符，因此需要专门的规则：清洗 `user:pass@`，保留方案和主机
+	// 不变。
 	for from := 0; from < len(text); {
 		sep := strings.Index(text[from:], "://")
 		if sep < 0 {
@@ -260,8 +249,8 @@ func findSecret(text string) *secretMatch {
 				limit++
 			}
 			authority := text[infoStart:limit]
-			// The last @ in the authority is the userinfo/host separator;
-			// a password may itself contain an unescaped @.
+			// 授权部分中最后一个 @ 是 userinfo/host 的分隔符；
+			// 密码本身可能包含未转义的 @。
 			if at := strings.LastIndexByte(authority, '@'); at > 0 && strings.Contains(authority[:at], ":") {
 				consider(infoStart, infoStart+at+1, "url credentials")
 			}
@@ -291,10 +280,9 @@ func findSecret(text string) *secretMatch {
 	return best
 }
 
-// tokenEnd finds the end of a credential-shaped run. Base64 credentials carry
-// `+`, `/` and `=` padding and may be followed by `:` or `@` (e.g. in a URL),
-// so the whole run is consumed as one segment. Whitespace, control bytes such
-// as ANSI escapes, and structural punctuation still delimit it.
+// tokenEnd 找到具有凭据形状的连续串的结束位置。Base64 凭据带有 `+`、`/` 和
+// `=` 填充，后面可能跟着 `:` 或 `@`（例如在 URL 中），因此整个连续串会作为
+// 一个片段被消耗。空白、ANSI 转义等控制字节以及结构性标点仍会将其分隔。
 func tokenEnd(text string, start int) int {
 	end := start
 	for end < len(text) {
@@ -313,7 +301,7 @@ func isAlnum(ch byte) bool {
 	return ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
 }
 
-// asciiLower lowercases ASCII letters only, so byte offsets stay valid.
+// asciiLower 只把 ASCII 字母转为小写，因此字节偏移保持有效。
 func asciiLower(text string) string {
 	out := make([]byte, len(text))
 	for i := 0; i < len(text); i++ {
@@ -330,9 +318,12 @@ func placeholder(kind string) string {
 	return "[redacted:" + kind + "]"
 }
 
-var secretKeyPattern = regexp.MustCompile(`(?i)(key|token|secret|password|authorization)`)
+// 键名闸门必须覆盖 secretKeyKind 分支里出现的每一种写法。此前这里漏了 passwd，
+// 而下面的 switch 又显式处理了它，结果 {"passwd":"..."} 这类参数以明文写入审计
+// 日志：RedactJSON 只在键名被识别后才把整个子树标记为机密。
+var secretKeyPattern = regexp.MustCompile(`(?i)(key|token|secret|password|passwd|authorization)`)
 
-// secretKeyKind reports whether an object key names a credential.
+// secretKeyKind 报告对象键是否命名了凭据。
 func secretKeyKind(key string) string {
 	if !secretKeyPattern.MatchString(key) {
 		return ""
@@ -353,12 +344,12 @@ func secretKeyKind(key string) string {
 	return "secret"
 }
 
-// pathCredentialSegment matches a path component that carries a credential in
-// its name, e.g. `/repo/token-sk-abcdef/.env` or `\repo\api_key=abc123\`.
+// pathCredentialSegment 匹配名称中带有凭据的路径组件，例如
+// `/repo/token-sk-abcdef/.env` 或 `\repo\api_key=abc123\`。
 var pathCredentialSegment = regexp.MustCompile(`(?i)(^|[\\/])((?:api[_-]?key|token|secret|password|passwd)[-_=])[A-Za-z0-9._~+/=-]{4,}`)
 
-// RedactPath scrubs one path before it reaches an audit record: credential
-// shapes are replaced and a user's home directory is collapsed to `~`.
+// RedactPath 在路径进入审计记录之前对其进行清洗：凭据形状会被替换，
+// 用户的主目录会被折叠为 `~`。
 func RedactPath(path string) string {
 	path = Redact(path)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
@@ -372,9 +363,8 @@ func RedactPath(path string) string {
 	return pathCredentialSegment.ReplaceAllString(path, "${1}${2}[redacted:path credential]")
 }
 
-// RedactManifestPaths returns redacted JSON for the path fields of a restore
-// or checkpoint action. Other fields are left untouched; the audit log applies
-// its usual RedactJSON pass on top.
+// RedactManifestPaths 为恢复或 checkpoint 动作的路径字段返回脱敏后的 JSON。
+// 其他字段保持不变；审计日志会在其上再执行通常的 RedactJSON。
 func RedactManifestPaths(raw json.RawMessage) json.RawMessage {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -403,9 +393,8 @@ func RedactManifestPaths(raw json.RawMessage) json.RawMessage {
 	return out
 }
 
-// RedactJSON redacts a JSON document without flattening it: a value held under
-// a credential-named key becomes a placeholder, every other string is scrubbed
-// with Redact. Invalid JSON falls back to text redaction.
+// RedactJSON 在不扁平化的情况下对 JSON 文档脱敏：以凭据命名的键下的值会变成
+// 占位符，其他每个字符串都用 Redact 清洗。无效 JSON 回退为文本脱敏。
 func RedactJSON(raw []byte) string {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -428,10 +417,10 @@ func redactValue(value any, secretKind string) any {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
 		for key, inner := range typed {
-			// A secret-named key marks its whole subtree as secret. Carry that
-			// context down so a string nested under it cannot slip through just
-			// because its own key looks harmless (e.g. {"secret":{"note":...}}).
-			// A key naming a secret itself wins, keeping the more specific kind.
+			// 以秘密命名的键会把其整个子树标记为秘密。把这个上下文向下传递，
+			// 这样嵌套在其中的字符串不会因为自己的键看起来无害就漏过去
+			// （例如 {"secret":{"note":...}}）。直接命名秘密的键优先，
+			// 保留更具体的种类。
 			kind := secretKeyKind(key)
 			if kind == "" {
 				kind = secretKind
@@ -442,10 +431,9 @@ func redactValue(value any, secretKind string) any {
 	case []any:
 		out := make([]any, len(typed))
 		for i, inner := range typed {
-			// Array elements have no key of their own, so they inherit the
-			// enclosing secret context. Without this, {"tokens":["hunter2"]}
-			// would leak every element: Redact only catches credential-shaped
-			// strings, and an arbitrary secret is not credential-shaped.
+			// 数组元素没有自己的键，因此它们继承外层的秘密上下文。没有这一点，
+			// {"tokens":["hunter2"]} 会泄露每个元素：Redact 只捕获具有凭据形状的
+			// 字符串，而任意秘密并不一定具有凭据形状。
 			out[i] = redactValue(inner, secretKind)
 		}
 		return out

@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// This file records performance baselines for the TUI's per-frame hot paths:
-// markdown rendering, grapheme-aware width/clip/wrap and line diffing. Fixtures
-// are fixed strings; no terminal, network or real wall-clock dependency is
-// involved. No wall-clock thresholds are asserted.
+// 本文件记录 TUI 每帧热路径的性能基线：
+// markdown 渲染、感知字素的宽度/裁剪/换行和行差异。夹具
+// 是固定的字符串；不涉及终端、网络或真实墙上时钟
+// 依赖。不断言任何墙上时钟阈值。
 
 var (
 	benchTuiInt    int
@@ -27,8 +27,8 @@ func benchTuiPalette(b *testing.B) Palette {
 	return p
 }
 
-// benchMarkdownText builds a markdown block of roughly n lines mixing headings,
-// bullets, inline code, a fenced block and a table.
+// benchMarkdownText 构建一个约 n 行的 markdown 块，混合标题、
+// 项目符号、行内代码、围栏块和表格。
 func benchMarkdownText(n int) string {
 	var sb strings.Builder
 	sb.WriteString("# Heading with **bold** and `code`\n")
@@ -49,7 +49,7 @@ func benchMarkdownText(n int) string {
 	return sb.String()
 }
 
-// BenchmarkMarkdownLines measures the renderer used for every assistant block.
+// BenchmarkMarkdownLines 测量用于每个助手块的渲染器。
 func BenchmarkMarkdownLines(b *testing.B) {
 	p := benchTuiPalette(b)
 	for _, n := range []int{10, 100, 500} {
@@ -64,8 +64,8 @@ func BenchmarkMarkdownLines(b *testing.B) {
 	}
 }
 
-// BenchmarkTextWidth measures the grapheme-cluster width scan with ASCII bulk
-// paths, CJK, emoji/ZWJ sequences and mixed content.
+// BenchmarkTextWidth 测量感知字素簇的宽度扫描，覆盖 ASCII 批量
+// 路径、CJK、emoji/ZWJ 序列和混合内容。
 func BenchmarkTextWidth(b *testing.B) {
 	cases := []struct {
 		name string
@@ -87,8 +87,8 @@ func BenchmarkTextWidth(b *testing.B) {
 	}
 }
 
-// BenchmarkClip measures the cell-bounded, grapheme-safe clipper used by the
-// renderer whenever a line must fit the terminal width.
+// BenchmarkClip 测量渲染器在行必须适配终端宽度时使用的
+// 按单元格限界、字素安全的裁剪器。
 func BenchmarkClip(b *testing.B) {
 	cases := []struct {
 		name string
@@ -111,8 +111,8 @@ func BenchmarkClip(b *testing.B) {
 	}
 }
 
-// BenchmarkWrap measures line breaking, including the CJK no-space path where
-// the hard break dominates and the ZWJ-break avoidance path.
+// BenchmarkWrap 测量断行，包括 CJK 无空格路径（硬断占主导）
+// 和避免 ZWJ 断开的路径。
 func BenchmarkWrap(b *testing.B) {
 	cases := []struct {
 		name  string
@@ -135,8 +135,8 @@ func BenchmarkWrap(b *testing.B) {
 	}
 }
 
-// benchDiffText builds two texts sharing a fixed prefix and suffix with a
-// changed middle region, so the LCS middle path is exercised.
+// benchDiffText 构建两段共享固定前缀和后缀、
+// 中间区域不同的文本，使 LCS 中间路径被覆盖。
 func benchDiffText(n int) (string, string) {
 	var oldB, newB strings.Builder
 	for i := 0; i < n; i++ {
@@ -154,8 +154,8 @@ func benchDiffText(n int) (string, string) {
 	return oldB.String(), newB.String()
 }
 
-// BenchmarkDiffLines measures the line diff used for tool output previews and
-// buffer change rendering, across a few history sizes.
+// BenchmarkDiffLines 测量用于工具输出预览和
+// 缓冲区变化渲染的行差异，覆盖几种历史大小。
 func BenchmarkDiffLines(b *testing.B) {
 	for _, n := range []int{20, 100, 500} {
 		b.Run(fmt.Sprintf("lines=%d", n), func(b *testing.B) {

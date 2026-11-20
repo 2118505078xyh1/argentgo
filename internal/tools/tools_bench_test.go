@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// This file records performance baselines for the tools hot paths: output
-// clipping, schema projection and the repo map walk. Fixtures are fixed trees
-// under b.TempDir() or fixed strings; no network, model or real wall-clock
-// dependency is involved. No wall-clock thresholds are asserted.
+// 本文件记录工具热路径的性能基线：输出
+// 截断、schema 投影和 repo 地图遍历。夹具是
+// b.TempDir() 下的固定树或固定字符串；不涉及网络、模型或真实
+// 墙上时钟依赖。不断言任何墙上时钟阈值。
 
 var (
 	benchToolsClipSink   string
@@ -21,9 +21,9 @@ var (
 	benchToolsRepoSink   string
 )
 
-// BenchmarkClipToSizes measures the UTF-8-aware head/tail clipper over several
-// input sizes and scripts (a separate large-input baseline already lives in
-// tools_clip_diff_test.go).
+// BenchmarkClipToSizes 测量感知 UTF-8 的头尾裁剪器在几种
+// 输入大小和脚本上的表现（另一个大输入基线已在
+// tools_clip_diff_test.go 中）。
 func BenchmarkClipToSizes(b *testing.B) {
 	cases := []struct {
 		name  string
@@ -47,8 +47,8 @@ func BenchmarkClipToSizes(b *testing.B) {
 	}
 }
 
-// BenchmarkClip measures clip through the context-configured output limit,
-// i.e. the call every tool result makes before crossing the wire.
+// BenchmarkClip 测量通过 context 配置的输出上限进行的 clip，
+// 即每个工具结果在跨越传输层前都会进行的调用。
 func BenchmarkClip(b *testing.B) {
 	ctx := context.Background()
 	cases := []struct {
@@ -71,7 +71,7 @@ func BenchmarkClip(b *testing.B) {
 	}
 }
 
-// benchSchemaParams builds a tool parameter schema with n string properties.
+// benchSchemaParams 构建带 n 个字符串属性的工具参数 schema。
 func benchSchemaParams(n int) json.RawMessage {
 	var sb strings.Builder
 	sb.WriteString(`{"type":"object","properties":{`)
@@ -85,8 +85,8 @@ func benchSchemaParams(n int) json.RawMessage {
 	return json.RawMessage(sb.String())
 }
 
-// BenchmarkInjectIntentSchema measures the ordered JSON rewrite that advertises
-// the `i` intent property on every tool schema.
+// BenchmarkInjectIntentSchema 测量在所有工具 schema 上公布
+// `i` 意图属性的有序 JSON 重写。
 func BenchmarkInjectIntentSchema(b *testing.B) {
 	cases := []struct {
 		name   string
@@ -107,7 +107,7 @@ func BenchmarkInjectIntentSchema(b *testing.B) {
 	}
 }
 
-// benchSpecTool is a minimal Tool used only to exercise Registry.Specs.
+// benchSpecTool 是一个最小的 Tool，仅用于测试 Registry.Specs。
 type benchSpecTool struct {
 	name   string
 	desc   string
@@ -122,8 +122,8 @@ func (t benchSpecTool) Run(context.Context, string, json.RawMessage) (string, er
 	return "", nil
 }
 
-// BenchmarkRegistrySpecs measures the full advertised-schema build: description
-// capping plus intent projection for every registered tool.
+// BenchmarkRegistrySpecs 测量完整的公布 schema 构建：
+// 描述截断加上对每个已注册工具的意图投影。
 func BenchmarkRegistrySpecs(b *testing.B) {
 	for _, n := range []int{8, 32, 64} {
 		b.Run(fmt.Sprintf("tools=%d", n), func(b *testing.B) {
@@ -148,7 +148,7 @@ func BenchmarkRegistrySpecs(b *testing.B) {
 
 var benchToolsIntSink int
 
-// benchRepoTree writes a fixed repository tree with n Go-ish source files.
+// benchRepoTree 写入一个固定的仓库树，包含 n 个类 Go 源文件。
 func benchRepoTree(b *testing.B, n int) string {
 	b.Helper()
 	root := b.TempDir()
@@ -170,8 +170,8 @@ func benchRepoTree(b *testing.B, n int) string {
 	return root
 }
 
-// BenchmarkRepoMap measures the directory walk, line counting and symbol
-// section that run on every repo_map call, up to the 80-file cap.
+// BenchmarkRepoMap 测量每次 repo_map 调用都会运行的目录遍历、
+// 行数统计和符号区，直到 80 文件上限。
 func BenchmarkRepoMap(b *testing.B) {
 	for _, n := range []int{10, 60, 200} {
 		b.Run(fmt.Sprintf("files=%d", n), func(b *testing.B) {
@@ -191,8 +191,8 @@ func BenchmarkRepoMap(b *testing.B) {
 	}
 }
 
-// BenchmarkRepoMapSymbolSection isolates the ranking and token-budgeted render
-// of the symbol section, independent of filesystem walking.
+// BenchmarkRepoMapSymbolSection 单独测量符号区的排名和 token 预算渲染，
+// 与文件系统遍历无关。
 func BenchmarkRepoMapSymbolSection(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {

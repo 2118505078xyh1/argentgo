@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// TestRunStopsOnCancelledContext checks the executor's obligation to observe
-// the run context even when the injected seams ignore it: once the context is
-// done, no further prompt or tool call may start and the step must not be
-// reported as a success just because a seam returned a value.
+// TestRunStopsOnCancelledContext 检查 executor 是否必须遵守
+// 运行 context，即使注入的 seam 忽略它：一旦 context
+// 结束，就不得再启动新的提示或工具调用，且该步骤不得仅因 seam 返回了值就
+// 被报告为成功。
 func TestRunStopsOnCancelledContext(t *testing.T) {
 	cases := []struct {
 		name            string
@@ -81,8 +81,8 @@ func TestRunStopsOnCancelledContext(t *testing.T) {
 					cancel()
 				}
 			}
-			// Both seams deliberately ignore their context and return a value,
-			// so only the executor itself can stop the run.
+			// 两个 seam 都刻意忽略其 context 并返回值，
+			// 因此只有 executor 自身能停止运行。
 			exec := &Executor{
 				Prompter: prompterFunc(func(context.Context, string) (string, error) {
 					call()

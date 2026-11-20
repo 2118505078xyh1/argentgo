@@ -13,8 +13,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// backgroundFakeChild is an in-memory process used to drive the bash tool's
-// promotion path without launching a real long-running command.
+// backgroundFakeChild 是一个内存中的进程，用于驱动 bash 工具的
+// 提升路径，而无需启动真正的长时运行命令。
 type backgroundFakeChild struct {
 	pid       int
 	code      int
@@ -58,8 +58,8 @@ func (f *backgroundFakeChild) wasKilled() bool {
 	return f.killed
 }
 
-// installBackgroundFake installs a starter that counts starts and seeds the
-// child with output, so the test can prove the command was not run twice.
+// installBackgroundFake 安装一个会对启动次数计数的 starter，并给子进程预置输出，
+// 这样测试就能证明该命令没有被运行第二次。
 func installBackgroundFake(t *testing.T, child *backgroundFakeChild, seed string) *int {
 	t.Helper()
 	var starts int
@@ -123,7 +123,7 @@ func TestBashPromotesLongCommandInsteadOfBlocking(t *testing.T) {
 		t.Fatalf("log tail = %q, err = %v", tail, err)
 	}
 
-	// Killing through the registry reaches the very process the tool started.
+	// 通过注册表执行杀死操作，能命中工具启动的那个进程本身。
 	if err := registry.Stop(job.ID); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestEditAmbiguityErrorIncludesCountPhrase(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "appears 2 times") {
 		t.Fatalf("multi_edit err = %v, want the count phrase", err)
 	}
-	// Both tools must leave an ambiguous file untouched.
+	// 两个工具都必须让存在歧义的文件保持原样。
 	data, readErr := os.ReadFile(filepath.Join(root, "notes.txt"))
 	if readErr != nil || string(data) != "dup\ndup\n" {
 		t.Fatalf("content = %q, err = %v", data, readErr)

@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-// recoveryLink attaches a stable id/parent pair to an entry so parent-chain
-// checks have something to compare.
+// recoveryLink 给条目附加稳定的 id/parent 对，使 parent 链检查
+// 有可比较的对象。
 func recoveryLink(entry Entry, id, parent string) Entry {
 	entry.ID = id
 	entry.Parent = parent
 	return entry
 }
 
-// recoveryCall builds an assistant entry that declares one or more tool calls.
+// recoveryCall 构建声明一个或多个工具调用的 assistant 条目。
 func recoveryCall(id, parent string, callIDs ...string) Entry {
 	return recoveryLink(reconcilerCall(callIDs...), id, parent)
 }
 
-// recoveryResult builds a real (non-synthetic) tool result entry.
+// recoveryResult 构建真实的（非合成）工具结果条目。
 func recoveryResult(id, parent, callID, output string) Entry {
 	return recoveryLink(reconcilerResult(callID, output), id, parent)
 }
@@ -120,7 +120,7 @@ func TestClassifyRecoveryInterruptedTurnDanglingCall(t *testing.T) {
 }
 
 func TestClassifyRecoveryInterruptedTurnTrailingResult(t *testing.T) {
-	// The tool batch finished but the final assistant answer was never written.
+	// 工具批次已完成，但最终的 assistant 应答从未写入。
 	messages := []Entry{
 		{ID: "n1", Role: "user", Content: "read a file"},
 		recoveryCall("n2", "n1", "c1"),
@@ -185,8 +185,8 @@ func TestClassifyRecoveryDegradedHistoryOrphanResult(t *testing.T) {
 }
 
 func TestClassifyRecoveryDeduplicatesOrphans(t *testing.T) {
-	// The same call id is declared twice (a retry) and two results refer to a
-	// call that never existed. Both lists must be deduplicated and stable.
+	// 同一个调用 id 被声明了两次（重试），两个结果指向一个
+	// 从未存在的调用。两个列表都必须去重且稳定。
 	messages := []Entry{
 		{ID: "n1", Role: "user", Content: "question"},
 		recoveryCall("n2", "n1", "c1", "c1"),
@@ -236,9 +236,9 @@ func TestClassifyRecoveryReplayedTranscriptKeepsOrphanAndChain(t *testing.T) {
 }
 
 func TestClassifyRecoveryCompactionBoundaryIsNotBroken(t *testing.T) {
-	// The kept suffix after compaction points at pre-compaction parents, not
-	// at the compaction summary that now precedes it. That boundary is not a
-	// broken link.
+	// 压缩后保留的后缀指向压缩前的 parent，而不是
+	// 现在位于其前的压缩摘要。这个边界不是
+	// 断开的链接。
 	messages := []Entry{
 		{ID: "c1", Parent: "n0", Role: "system", Content: "## Compaction\nsummary"},
 		{ID: "n5", Parent: "n4", Role: "assistant", Content: "final answer"},

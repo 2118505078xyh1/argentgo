@@ -93,9 +93,9 @@ func TestWrapOfEmptyTextIsOneEmptyLine(t *testing.T) {
 }
 
 func TestWrapDoesNotEmitBlankLineForLeadingWhitespace(t *testing.T) {
-	// Indented lines reach Wrap from markdown code blocks and plain paragraphs.
-	// When the indentation exceeds the budget, the head before the breaking
-	// space trims to the empty string; appending it drew a spurious blank row.
+	// 缩进的行从 markdown 代码块和普通段落到达 Wrap。
+	// 当缩进超过预算时，断点空格之前的前缀
+	// 修剪为空字符串；追加它会画出多余的空行。
 	cases := []struct {
 		name  string
 		text  string

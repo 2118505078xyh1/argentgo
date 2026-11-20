@@ -10,12 +10,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestRetryPolicyNeverReplaysSuccessfulResponse covers a gateway that marks a
-// successful 2xx response with x-should-retry: true (a misconfigured or
-// copy-forwarded header). A completed request must never be replayed: doing so
-// duplicates billing and any side effects the first call already committed.
-// The verdict header may only override the status-code heuristic on an error
-// response; a success is always terminal with its body intact.
+// TestRetryPolicyNeverReplaysSuccessfulResponse 覆盖这样的网关：它用
+// x-should-retry: true 标记一个成功的 2xx 响应（配置错误或
+// 转发而来的头部）。已完成的请求绝不能被重放：那样会
+// 重复计费以及第一次调用已经提交的所有副作用。
+// 判定头部只能在错误响应上覆盖状态码启发式；
+// 成功响应始终是终态，且响应体完整。
 func TestRetryPolicyNeverReplaysSuccessfulResponse(t *testing.T) {
 	cases := []struct {
 		name   string

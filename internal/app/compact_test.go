@@ -16,7 +16,7 @@ func TestExecuteAutoCompactsLongTranscriptUnlessDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No configured threshold means the compiled default is in force.
+	// 未配置阈值意味着编译默认值生效。
 	if res.AutoCompactTokens != 0 || res.NoAutoCompact {
 		t.Fatalf("unexpected compact settings: threshold=%d disabled=%v", res.AutoCompactTokens, res.NoAutoCompact)
 	}

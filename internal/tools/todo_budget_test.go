@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 )
 
-// writeTodo runs a todo write with a single pending item carrying text. It
-// exercises the same Run path the agent uses, including the context seam.
+// writeTodo 执行一次带单个待处理文本项的 todo 写入。它
+// 走与 agent 相同的 Run 路径，包括上下文接缝。
 func writeTodo(t *testing.T, root, text string) (string, error) {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
@@ -57,14 +57,14 @@ func TestTodoBudgetBoundary(t *testing.T) {
 	}
 	exact := utf8.RuneCount(data)
 
-	// Exactly at the budget is allowed.
+	// 恰好等于预算是允许的。
 	t.Setenv(todoMaxCharsEnv, strconv.Itoa(exact))
 	root := t.TempDir()
 	if _, err := writeTodo(t, root, items[0].Text); err != nil {
 		t.Fatalf("write at exactly %d runes rejected: %v", exact, err)
 	}
 
-	// One rune over is rejected.
+	// 超出一个 rune 会被拒绝。
 	t.Setenv(todoMaxCharsEnv, strconv.Itoa(exact-1))
 	root2 := t.TempDir()
 	if _, err := writeTodo(t, root2, items[0].Text); !errors.Is(err, ErrTodoTooLarge) {
@@ -73,8 +73,8 @@ func TestTodoBudgetBoundary(t *testing.T) {
 }
 
 func TestTodoBudgetCountsRunesNotBytes(t *testing.T) {
-	// Derive the fixed JSON overhead so the test stays correct if the written
-	// shape changes: total runes = overhead + text runes.
+	// 推导固定的 JSON 开销，使测试在写入的
+	// 结构变化时仍然正确：总 rune 数 = 开销 + 文本 rune 数。
 	base, err := marshalTodos([]todoItem{{ID: "1", Text: "", Status: "pending"}})
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestTodoBudgetCountsRunesNotBytes(t *testing.T) {
 	const limit = 1000
 	t.Setenv(todoMaxCharsEnv, strconv.Itoa(limit))
 
-	// A CJK plan well under the rune budget but far over it in bytes must pass.
+	// CJK 计划远低于 rune 预算但字节数远超时，必须通过。
 	ok := strings.Repeat("中", limit-overhead-20)
 	if len(ok) <= limit {
 		t.Fatalf("test setup: byte length %d should exceed limit %d", len(ok), limit)
@@ -93,7 +93,7 @@ func TestTodoBudgetCountsRunesNotBytes(t *testing.T) {
 		t.Fatalf("CJK plan of %d runes (%d bytes) rejected: %v", utf8.RuneCountInString(ok), len(ok), err)
 	}
 
-	// The same script pushed over the rune budget is rejected.
+	// 同样被推过 rune 预算的脚本会被拒绝。
 	big := strings.Repeat("中", limit-overhead+20)
 	root2 := t.TempDir()
 	if _, err := writeTodo(t, root2, big); !errors.Is(err, ErrTodoTooLarge) {

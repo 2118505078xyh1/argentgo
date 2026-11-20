@@ -34,7 +34,7 @@ func TestLastMatchDecision(t *testing.T) {
 	rules := []WildcardRule{
 		{Pattern: "*", Effect: Allow},
 		{Pattern: "bash", Effect: Deny},
-		{Pattern: "bash", Effect: Allow}, // later allow supersedes the deny
+		{Pattern: "bash", Effect: Allow}, // 后面的 allow 取代 deny
 	}
 	if got := LastMatchDecision(rules, "bash"); got != Allow {
 		t.Errorf("bash = %v, want Allow (last match wins)", got)
@@ -54,7 +54,7 @@ func TestDenyWinsDecision(t *testing.T) {
 	rules := []WildcardRule{
 		{Pattern: "*", Effect: Allow},
 		{Pattern: "bash", Effect: Deny},
-		{Pattern: "bash", Effect: Allow}, // deny still wins despite the later allow
+		{Pattern: "bash", Effect: Allow}, // 尽管后面有 allow，deny 仍然胜出
 	}
 	if got := DenyWinsDecision(rules, "bash"); got != Deny {
 		t.Errorf("bash = %v, want Deny (deny wins)", got)
@@ -63,7 +63,7 @@ func TestDenyWinsDecision(t *testing.T) {
 		t.Errorf("write = %v, want Allow", got)
 	}
 
-	// Without a matching deny, the last matching rule still decides.
+	// 没有匹配的 deny 时，最后一条匹配的规则仍然决定结果。
 	allows := []WildcardRule{
 		{Pattern: "*", Effect: Allow},
 		{Pattern: "read", Effect: Ask},

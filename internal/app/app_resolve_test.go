@@ -30,10 +30,10 @@ func isolatedEnv(home string, extra map[string]string) func(string) string {
 	return envFrom(pairs)
 }
 
-// An empty Options.Model/Protocol (as produced by parseArgs when no flag or
-// ARGENT_* variable is set) must let the config file and profile win instead
-// of the compiled defaults; this is the bug behind "gpt-4o-mini (openai)"
-// showing up even when argent.json selects another provider.
+// 空的 Options.Model/Protocol（当没有设置标志或 ARGENT_* 变量时，由 parseArgs 产生）
+// 必须让配置文件和 profile 优先，而非
+// 编译默认值；这就是即使 argent.json 选择了另一个提供方，仍显示
+// "gpt-4o-mini (openai)" 的那个 bug。
 func TestResolveConfigModelAndProviderBeatCompiledDefaults(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	writeArgentConfig(t, root, `{"provider":"anthropic","model":"claude-test"}`)
@@ -77,16 +77,16 @@ func TestResolveProfileModelAndProviderBeatCompiledDefaults(t *testing.T) {
 	}
 }
 
-// `argent login` writes providers.<name>.apiKey; Resolve must actually use it
-// when neither a flag, an env var nor a top-level config key is present.
+// `argent login` 写入 providers.<name>.apiKey；当没有标志、环境变量或顶层配置键时，
+// Resolve 必须实际使用它。
 func TestResolveUsesLoginProviderAPIKey(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		config string
 	}{
 		{"apiKey", `{"provider":"openai","providers":{"openai":{"apiKey":"sk-login"}}}`},
-		// `argent login openai` only writes providers.openai.apiKey; it does
-		// not add a top-level "provider" setting.
+		// `argent login openai` 只写入 providers.openai.apiKey；它
+		// 不会添加顶层的 "provider" 设置。
 		{"no top-level provider", `{"providers":{"openai":{"apiKey":"sk-login"}}}`},
 		{"api_key alias", `{"provider":"openai","providers":{"openai":{"api_key":"sk-login"}}}`},
 	} {
@@ -104,9 +104,9 @@ func TestResolveUsesLoginProviderAPIKey(t *testing.T) {
 	}
 }
 
-// A config overlay on a built-in provider must win over the hard-coded
-// template. lookupProvider used to call provider.Resolve first, which swallowed
-// providers.<name>.baseURL overrides for built-ins such as anthropic/openai.
+// 内置提供方上的配置覆盖层必须优先于硬编码的
+// 模板。lookupProvider 以前先调用 provider.Resolve，这会吞掉
+// 对 anthropic/openai 等内置项的 providers.<name>.baseURL 覆盖。
 func TestResolveProviderConfigOverridesBuiltinBaseURL(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	writeArgentConfig(t, root, `{
@@ -122,8 +122,8 @@ func TestResolveProviderConfigOverridesBuiltinBaseURL(t *testing.T) {
 	}
 }
 
-// Reordering lookupProvider (config before built-ins) must not lose aliases:
-// "claude" still resolves through provider.Resolve to the anthropic template.
+// 重排 lookupProvider（配置优先于内置项）不得丢失别名：
+// "claude" 仍通过 provider.Resolve 解析为 anthropic 模板。
 func TestResolveProviderAliasStillResolves(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	res, err := Resolve(cli.IO{Env: isolatedEnv(home, nil)}, cli.Options{Cwd: root, Provider: "claude"})
@@ -202,7 +202,7 @@ func TestResolveAPIKeyPrecedence(t *testing.T) {
 	}
 }
 
-// The short flag spellings and the wire names must resolve to one protocol.
+// 标志的简短写法和线上名称必须解析为同一个协议。
 func TestResolveCanonicalizesProtocol(t *testing.T) {
 	cases := []struct {
 		protocol string
@@ -230,8 +230,8 @@ func TestResolveCanonicalizesProtocol(t *testing.T) {
 	}
 }
 
-// End-to-end proof that the login key is not merely parsed but actually sent
-// as the Authorization header of the provider request.
+// 端到端证明登录密钥不只是被解析，而是实际作为提供方请求的
+// Authorization 头发送出去。
 func TestResolveLoginKeyReachesProviderRequest(t *testing.T) {
 	var authorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +283,7 @@ func TestResolveSandboxAndApprovalFromConfig(t *testing.T) {
 		t.Errorf("approval = %q, want never", res.Approval)
 	}
 
-	// An explicit flag still wins.
+	// 显式标志仍然优先。
 	flagOpts := cli.Options{Cwd: root, SandboxMode: "danger-full-access", Approval: "auto"}
 	res, err = Resolve(env, flagOpts)
 	if err != nil {
@@ -294,10 +294,10 @@ func TestResolveSandboxAndApprovalFromConfig(t *testing.T) {
 	}
 }
 
-// Resolved.TrustProject must interpret ARGENT_TRUST_PROJECT through the same
-// parseTrustEnv helper the prompt path uses: true/yes/on are trusted,
-// false/no/off are untrusted. Before the fix Resolve only recognized the
-// literal "1", so "true"/"yes"/"on" disagreed with trustFromEnv.
+// Resolved.TrustProject 必须通过提示路径使用的同一个 parseTrustEnv 辅助函数，
+// 来解释 ARGENT_TRUST_PROJECT：true/yes/on 为受信任，
+// false/no/off 为不受信任。修复之前 Resolve 只识别字面量 "1"，
+// 因此 "true"/"yes"/"on" 与 trustFromEnv 不一致。
 func TestResolveTrustProjectFromEnv(t *testing.T) {
 	cases := []struct {
 		value string
@@ -311,9 +311,9 @@ func TestResolveTrustProjectFromEnv(t *testing.T) {
 		{"no", false},
 		{"off", false},
 		{"0", false},
-		// Unset env leaves the explicit (false) flag in charge: the security
-		// gate must not inherit parseTrustEnv's prompt-path "unset = trusted"
-		// default, or --trust-project=false would silently be overridden.
+		// 未设置环境变量时，由显式的（false）标志主导：安全
+		// 门控不得继承 parseTrustEnv 在提示路径上的 "未设置 = 受信任"
+		// 默认值，否则 --trust-project=false 会被静默覆盖。
 		{"", false},
 	}
 	for _, tc := range cases {
@@ -328,10 +328,10 @@ func TestResolveTrustProjectFromEnv(t *testing.T) {
 			if res.TrustProject != tc.want {
 				t.Errorf("ARGENT_TRUST_PROJECT=%q: TrustProject = %v, want %v", tc.value, res.TrustProject, tc.want)
 			}
-			// The two paths share parseTrustEnv for explicitly set values.
-			// An unset value intentionally differs: the prompt path keeps its
-			// legacy "always inject" default while the security gate defers to
-			// the explicit flag.
+			// 两条路径对显式设置的值共享 parseTrustEnv。
+			// 未设置的值有意不同：提示路径保留其
+			// 旧版 "总是注入" 默认值，而安全门控则遵从
+			// 显式标志。
 			if tc.value != "" {
 				if want := trustFromEnv(env.Env); res.TrustProject != want {
 					t.Errorf("ARGENT_TRUST_PROJECT=%q: Resolve TrustProject = %v, prompt path = %v", tc.value, res.TrustProject, want)
@@ -340,7 +340,7 @@ func TestResolveTrustProjectFromEnv(t *testing.T) {
 		})
 	}
 
-	// An explicit --trust flag still wins regardless of the env value.
+	// 无论环境变量值如何，显式的 --trust 标志仍然优先。
 	root, home := t.TempDir(), t.TempDir()
 	writeArgentConfig(t, root, `{}`)
 	env := cli.IO{Env: isolatedEnv(home, map[string]string{"ARGENT_TRUST_PROJECT": "off"})}

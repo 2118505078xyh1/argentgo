@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestValidateParamDefaultsAcceptsWellTypedDefaults pins the accepted Go
-// kinds for each input_type. The set mirrors stringifyDefault so a value that
-// passes validation can always be rendered by the resolver.
+// TestValidateParamDefaultsAcceptsWellTypedDefaults 固定接受的 Go
+// TestValidateParamDefaultsAcceptsWellTypedDefaults 固定每种 input_type 接受的 Go 类型。该集合镜像 stringifyDefault，使通过验证的值总能被解析器渲染。
+// 通过验证的值总能被解析器渲染。
 func TestValidateParamDefaultsAcceptsWellTypedDefaults(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -35,9 +35,9 @@ func TestValidateParamDefaultsAcceptsWellTypedDefaults(t *testing.T) {
 	}
 }
 
-// TestValidateParamDefaultsRejectsMismatchedDefaults covers the declaration
-// bugs the resolver used to accept silently: a default of the wrong Go kind,
-// a malformed date, and a select default outside its options.
+// TestValidateParamDefaultsRejectsMismatchedDefaults 覆盖声明
+// 解析器过去静默接受的错误：错误 Go 类型的默认值、
+// TestValidateParamDefaultsRejectsMismatchedDefaults 覆盖解析器过去静默接受的声明错误：错误 Go 类型的默认值、畸形日期，以及不在选项中的 select 默认值。
 func TestValidateParamDefaultsRejectsMismatchedDefaults(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -107,10 +107,10 @@ func TestValidateParamDefaultsRejectsMismatchedDefaults(t *testing.T) {
 	}
 }
 
-// TestDefinitionValidateWiresParamDefaultCheck proves the new check is reachable
-// through the public entry points, not just when called directly. Both
-// ParseDefinition (which validates) and Definition.Validate must reject a
-// well-formed declaration whose default contradicts its input_type.
+// TestDefinitionValidateWiresParamDefaultCheck 证明新检查通过
+// 公共入口可达，而非仅在直接调用时生效。ParseDefinition 和
+// TestDefinitionValidateWiresParamDefaultCheck 证明新检查通过公共入口可达，而非仅在直接调用时生效。ParseDefinition（会验证）和 Definition.Validate 都必须拒绝默认值与 input_type 矛盾的格式良好声明。
+// 默认值与 input_type 矛盾的格式良好声明。
 func TestDefinitionValidateWiresParamDefaultCheck(t *testing.T) {
 	bad := `{"name":"review","parameters":[
 		{"key":"repo","input_type":"string","requirement":"required"},
@@ -132,8 +132,8 @@ func TestDefinitionValidateWiresParamDefaultCheck(t *testing.T) {
 		t.Fatalf("a well-typed declaration should validate: %v", err)
 	}
 
-	// The executor shares the same validation gate, so a malformed default is
-	// rejected before any model or tool is invoked.
+	// executor 共享同一验证门，因此畸形默认值会在任何模型或工具被调用前被拒绝。
+	// 在任何模型或工具被调用前被拒绝。
 	exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) {
 		t.Fatal("the prompter must not run for a definition with a bad default")
 		return "", nil
@@ -151,8 +151,8 @@ func TestDefinitionValidateWiresParamDefaultCheck(t *testing.T) {
 	}
 }
 
-// TestValidateParamDefaultsErrorsAreSecretSafe guards the rule that validation
-// errors may name a key and a type but never echo the declared value.
+// TestValidateParamDefaultsErrorsAreSecretSafe 守护如下规则：验证错误可以点名键和类型，但绝不回显声明的值。
+// 错误可以点名键和类型但绝不回显声明的值。
 func TestValidateParamDefaultsErrorsAreSecretSafe(t *testing.T) {
 	const canary = "canary-secret-242"
 	def := Definition{Parameters: []WorkflowParam{

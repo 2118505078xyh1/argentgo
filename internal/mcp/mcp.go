@@ -1,5 +1,5 @@
-// Package mcp speaks the Model Context Protocol to external tool servers over
-// stdio or HTTP/SSE and exposes their tools through one small Client interface.
+// Package mcp 通过 stdio 或 HTTP/SSE 与外部工具服务器通信
+// Model Context Protocol，并用一个小巧的 Client 接口暴露其工具。
 package mcp
 
 import (
@@ -14,65 +14,65 @@ import (
 )
 
 const (
-	// defaultTimeout bounds one request when the context carries no deadline.
+	// defaultTimeout 在 context 不带截止时间时限制一次请求。
 	defaultTimeout = 30 * time.Second
-	// protocolVersion is the MCP revision this client announces.
+	// protocolVersion 是本客户端宣告的 MCP 版本。
 	protocolVersion = "2024-11-05"
-	// clientName is reported to servers in clientInfo.
+	// clientName 在 clientInfo 中报告给服务器。
 	clientName = "argentgo"
-	// clientVersion is reported to servers in clientInfo.
+	// clientVersion 在 clientInfo 中报告给服务器。
 	clientVersion = "0.7.0"
-	// maxListPages bounds cursor-driven list pagination. A broken server that
-	// keeps minting new cursors must not hang discovery or grow memory without
-	// limit; ordinary servers use a handful of pages.
+	// maxListPages 限制游标驱动的列表分页。一个故障服务器不断
+	// 生成新游标，不得让发现过程挂起或无界增长内存；
+	// 普通服务器只用几页。
 	maxListPages = 1000
 )
 
-// ErrUnsupportedTransport reports a transport this package cannot speak.
+// ErrUnsupportedTransport 报告本包不支持的传输方式。
 var ErrUnsupportedTransport = errors.New(`mcp: transport must be "stdio" or "http"`)
 
-// Spec describes how to reach one server.
+// Spec 描述如何连接一台服务器。
 type Spec struct {
-	// Name identifies the server; it namespaces its tools.
+	// Name 标识服务器；它为工具提供命名空间。
 	Name string
-	// Transport is "stdio" or "http" (an empty value is inferred).
+	// Transport 是 "stdio" 或 "http"（空值会被推断）。
 	Transport string
-	// Command is the stdio program to spawn.
+	// Command 是要启动的 stdio 程序。
 	Command string
-	// Args are the stdio program's arguments.
+	// Args 是 stdio 程序的参数。
 	Args []string
-	// Env entries ("KEY=VALUE") are added to the child's inherited environment.
+	// Env 条目（"KEY=VALUE"）会加到子进程继承的环境中。
 	Env []string
-	// URL is the HTTP endpoint. A legacy SSE endpoint announces where requests
-	// are POSTed; a streamable endpoint takes JSON-RPC POSTs directly.
+	// URL 是 HTTP 端点。旧的 SSE 端点会宣告请求 POST 到哪里；
+	// 流式端点则直接接受 JSON-RPC POST。
 	URL string
-	// Headers are extra HTTP headers (ignored for stdio).
+	// Headers 是额外的 HTTP 头部（stdio 忽略）。
 	Headers map[string]string
-	// ProtocolVersion optionally overrides the protocol version announced in
-	// the initialize request. Empty or invalid values fall back to the default,
-	// then to ARGENT_MCP_PROTOCOL_VERSION. See effectiveProtocolVersion.
+	// ProtocolVersion 可选地覆盖 initialize 请求中宣告的协议版本。
+	// 空值或无效值回退到默认值，再回退到 ARGENT_MCP_PROTOCOL_VERSION。
+	// 参见 effectiveProtocolVersion。
 	ProtocolVersion string
-	// Timeout bounds one request; zero means 30s.
+	// Timeout 限制一次请求；零值表示 30 秒。
 	Timeout time.Duration
-	// DiscoveryTimeout is an optional per-server discovery timeout override.
-	// Zero selects the graded default (30s stdio / 5s remote); a positive value
-	// is clamped to [1s, 2m]. See EffectiveDiscoveryTimeout.
+	// DiscoveryTimeout 是可选的每服务器发现超时覆盖。
+	// 零值选择分级默认值（stdio 30 秒 / 远程 5 秒）；正值
+	// 会被钳制到 [1s, 2m]。参见 EffectiveDiscoveryTimeout。
 	DiscoveryTimeout time.Duration
-	// Enabled defaults to true when nil. An explicit false disables the server:
-	// Connect refuses it and it is omitted from Specs/Tools views. A pointer is
-	// used so every pre-existing Spec literal keeps its zero-value meaning.
+	// Enabled 为 nil 时默认为 true。显式 false 会禁用该服务器：
+	// Connect 会拒绝它，且它会被从 Specs/Tools 视图中省略。使用指针是
+	// 为了让所有已有的 Spec 字面量保持其零值含义。
 	Enabled *bool
-	// ReadOnly blocks calls to tools that look mutating before any request is
-	// sent. See MarkMutating/IsMutating.
+	// ReadOnly 在任何请求发出之前，阻止调用看起来会修改状态的工具。
+	// 参见 MarkMutating/IsMutating。
 	ReadOnly bool
-	// AllowedTools is a tool allowlist; empty means every tool. Entries may be
-	// plain ("search") or qualified ("server__search").
+	// AllowedTools 是工具白名单；空值表示允许所有工具。条目可以是
+	// 简单名（"search"）或限定名（"server__search"）。
 	AllowedTools []string
-	// DeniedTools removes names from the allowed set; deny wins over allow.
+	// DeniedTools 从允许集合中移除名称；拒绝优先于允许。
 	DeniedTools []string
 }
 
-// ServerInfo is the metadata returned by initialize.
+// ServerInfo 是 initialize 返回的元数据。
 type ServerInfo struct {
 	Name            string
 	Version         string
@@ -81,32 +81,37 @@ type ServerInfo struct {
 	Capabilities    json.RawMessage
 }
 
-// Tool is a tool advertised by a server.
+// Tool 是服务器宣告的一个工具。
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Schema is the normalized inputSchema: it always has a "type" and carries
-	// no malformed "properties"/"required". It is safe to put straight into a
-	// provider tool spec (see internal/app's mcpBinding wiring).
+	// Schema 是规范化的 inputSchema：它总有 "type"，且不含
+	// 格式错误的 "properties"/"required"。可以直接放入
+	// 提供方工具规格（参见 internal/app 的 mcpBinding 接线）。
 	Schema json.RawMessage `json:"schema,omitempty"`
 	Server string          `json:"server,omitempty"`
-	// ReadOnly mirrors the MCP annotations.readOnlyHint bit.
+	// ReadOnly 对应 MCP 的 annotations.readOnlyHint 位。
 	ReadOnly bool `json:"read_only,omitempty"`
 	// Annotations 是该工具完整的 MCP annotations 解析结果（加法字段）。
 	// 它与 ReadOnly 并存：ReadOnly 保留历史 readOnlyHint 行为，本字段额外提供
 	// destructiveHint/idempotentHint/openWorldHint/title 等信息。
 	Annotations ToolAnnotations `json:"annotations,omitempty"`
 
-	// RawInputSchema is the unmodified inputSchema as advertised by the server.
-	// Additive and omitted when empty; callers building provider specs should
-	// keep using Schema, which is already cleaned.
+	// RawInputSchema 是服务器宣告的未经修改的 inputSchema。
+	// 它是加法字段，为空时省略；构造提供方规格的调用方
+	// 应继续使用已经清理过的 Schema。
 	RawInputSchema json.RawMessage `json:"raw_input_schema,omitempty"`
-	// OutputSchema is the server's outputSchema member, passed through as-is.
-	// Additive and omitted when empty.
+	// OutputSchema 是服务器的 outputSchema 成员，原样透传。
+	// 它是加法字段，为空时省略。
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+
+	// RawName 是服务器广播的原始工具名，供协议调用（tools/call）使用。
+	// 面向模型的名字经过归一化（转义、截断、重名消解）后可能与原名不同，
+	// 调用服务器时必须使用原名，否则服务器无法识别。加法字段，为空时等同于 Name。
+	RawName string `json:"raw_name,omitempty"`
 }
 
-// Resource is a resource advertised by a server.
+// Resource 是服务器宣告的一个资源。
 type Resource struct {
 	URI         string `json:"uri"`
 	Name        string `json:"name,omitempty"`
@@ -114,8 +119,8 @@ type Resource struct {
 	MIMEType    string `json:"mimeType,omitempty"`
 }
 
-// Client is one connected server. Initialize must succeed before the other
-// calls are meaningful; Close is safe to call more than once.
+// Client 是一台已连接的服务器。必须先成功调用 Initialize，其他
+// 调用才有意义；Close 可以安全地多次调用。
 type Client interface {
 	Initialize(ctx context.Context) (ServerInfo, error)
 	ListTools(ctx context.Context) ([]Tool, error)
@@ -124,20 +129,20 @@ type Client interface {
 	Close() error
 }
 
-// transport is the wire behind a Client.
+// transport 是 Client 背后的线协议实现。
 type transport interface {
 	call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	notify(ctx context.Context, method string, params any) error
 	Close() error
 }
 
-// Namespaced joins a server and tool name into the name shown to the model.
+// Namespaced 把服务器名和工具名拼接为展示给模型的名字。
 func Namespaced(server, tool string) string {
 	return server + "__" + tool
 }
 
-// Connect opens the transport named by spec. The MCP handshake is not part of
-// Connect: call Initialize before ListTools or CallTool.
+// Connect 打开 spec 指定的传输。MCP 握手不属于
+// Connect：请在 ListTools 或 CallTool 之前调用 Initialize。
 func Connect(ctx context.Context, spec Spec) (Client, error) {
 	if !spec.IsEnabled() {
 		return nil, fmt.Errorf("%w: %q", ErrDisabled, spec.Name)
@@ -185,14 +190,14 @@ func Connect(ctx context.Context, spec Spec) (Client, error) {
 	return &client{spec: spec, tr: tr, timeout: timeout}, nil
 }
 
-// client implements Client on top of a transport.
+// client 在传输之上实现 Client。
 type client struct {
 	spec    Spec
 	tr      transport
 	timeout time.Duration
 
-	// mu guards the last successfully listed tool view exposed by Tools and
-	// the capabilities parsed from the initialize response.
+	// mu 保护 Tools 暴露的最后一次成功列出的工具视图，以及
+	// 从 initialize 响应解析出的能力。
 	mu    sync.RWMutex
 	tools []Tool
 	caps  ServerCapabilities
@@ -234,9 +239,9 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 		Instructions:    result.Instructions,
 		Capabilities:    result.Capabilities,
 	}
-	// Parse once at the boundary and remember the result: ListTools and
-	// ListResources use it to skip requests the server cannot serve. Keep the
-	// raw payload in ServerInfo unchanged for callers that want it.
+	// 在边界处解析一次并记住结果：ListTools 和
+	// ListResources 用它跳过服务器无法处理的请求。保留 ServerInfo 中的
+	// 原始载荷不变，供需要它的调用方使用。
 	c.mu.Lock()
 	c.caps = ParseCapabilities(result.Capabilities)
 	c.mu.Unlock()
@@ -246,11 +251,11 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 	return info, nil
 }
 
-// capabilitySkipped reports whether a list request should be suppressed
-// because the server named some capabilities but not this one. Servers that
-// sent no capabilities, an empty "{}" or only unknown keys are treated as
-// unknown and still get the request, so legacy and under-declaring servers
-// keep working.
+// capabilitySkipped 报告是否应抑制某个列表请求，因为服务器
+// 宣告了一些能力但没有宣告这一项。没有发送能力、只发送空 "{}"
+// 或只有未知键的服务器被视为未知，仍会收到请求，因此旧服务器
+// 和宣告不足的服务器
+// 仍能工作。
 func (c *client) capabilitySkipped(cap string) bool {
 	c.mu.RLock()
 	caps := c.caps
@@ -266,9 +271,9 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 	defer cancel()
 
 	tools := make([]Tool, 0)
-	// A server may paginate tools/list with an opaque nextCursor. Follow every
-	// page so tools beyond the first are not silently lost. Decode each entry
-	// separately: a single malformed tool must not sink the whole table.
+	// 服务器可能用不透明的 nextCursor 对 tools/list 分页。跟随每一
+	// 页，使第一页之后的工具不会悄悄丢失。逐项解码：
+	// 单个格式错误的工具不应拖垮整张表。
 	err := c.forEachListPage(ctx, "tools/list", func(raw json.RawMessage) (json.RawMessage, error) {
 		var result struct {
 			Tools []json.RawMessage `json:"tools"`
@@ -286,7 +291,7 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 				Annotations  json.RawMessage `json:"annotations"`
 			}
 			if err := json.Unmarshal(itemRaw, &item); err != nil {
-				continue // skip only the bad entry, keep the rest of the table
+				continue // 只跳过坏条目，保留表的其余部分
 			}
 			// 保持历史容错语义：annotations 若存在且不能解码成带布尔
 			// readOnlyHint 的对象（或 null），视为坏工具跳过。
@@ -299,6 +304,7 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 			}
 			tools = append(tools, Tool{
 				Name:           item.Name,
+				RawName:        item.Name,
 				Description:    item.Description,
 				Schema:         normalizeInputSchema(item.InputSchema),
 				Server:         c.spec.Name,
@@ -313,8 +319,8 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Apply per-server permissions here so callers never see tools that the
-	// server config disallows. Keep the advertising order for stable output.
+	// 在这里应用每服务器权限，使调用方永远看不到服务器配置
+	// 不允许的工具。保持宣告顺序以获得稳定输出。
 	tools = FilterTools(c.spec, tools)
 	c.mu.Lock()
 	c.tools = append([]Tool(nil), tools...)
@@ -322,12 +328,12 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 	return tools, nil
 }
 
-// CallTool invokes one tool and returns its text content, joined by newlines.
-// An isError result is returned as the text plus an error, so a caller that
-// wants to show the server's explanation still has it.
+// CallTool 调用一个工具并返回其文本内容，用换行符连接。
+// isError 结果作为文本加错误返回，这样想要展示服务器解释的
+// 调用方仍能拿到它。
 func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	// Fail closed before touching the transport: read-only servers must never
-	// send a mutating call, and filtered-out tools must never be invoked.
+	// 在触碰传输之前 fail closed：只读服务器绝不能
+	// 发送修改类调用，被过滤掉的工具绝不能被调用。
 	if c.spec.ReadOnly && IsMutating(name) {
 		return "", fmt.Errorf("%w: tool %q on server %q looks mutating; call blocked before contacting the server, no request was sent (set readOnly=false in the server config if writes are intended)", ErrReadOnly, name, c.spec.Name)
 	}
@@ -372,10 +378,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 			if block.Resource.Text != "" {
 				parts = append(parts, block.Resource.Text)
 			} else if dir := blobArtifactDir(); dir != "" && block.Resource.Blob != "" {
-				// Opt-in only (ARGENT_MCP_BLOB_ARTIFACT_DIR). With no directory
-				// configured this branch is skipped, so output is byte-for-byte
-				// identical to the legacy behaviour. Save failures are silent,
-				// so a bad blob never fails the tool call.
+				// 仅选择加入（ARGENT_MCP_BLOB_ARTIFACT_DIR）。没有配置目录时
+				// 会跳过该分支，因此输出与旧行为逐字节
+				// 一致。保存失败是静默的，因此坏 blob 绝不会让
+				// 工具调用失败。
 				if marker := saveBlobAsArtifact(dir, block.Resource); marker != "" {
 					parts = append(parts, marker)
 				}
@@ -392,9 +398,9 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	if out == "" {
 		out = string(raw)
 	}
-	// Opt-in: bound very large MCP results so one chatty server cannot flood the
-	// model context. With ARGENT_MCP_SPILL_DIR unset this is a no-op, so the
-	// legacy output (and every existing test) stays byte-for-byte identical.
+	// 选择加入：限制非常大的 MCP 结果，使一个话痨服务器无法淹没
+	// 模型上下文。未设置 ARGENT_MCP_SPILL_DIR 时这是空操作，因此
+	// 旧输出（以及所有现有测试）保持逐字节一致。
 	out, _, _ = spillMCPOutput(out, mcpSpillThreshold())
 	if result.IsError {
 		return out, fmt.Errorf("mcp %q: tool %q reported an error: %s", c.spec.Name, name, out)
@@ -402,8 +408,8 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	return out, nil
 }
 
-// ListResources returns the server's resources. A server that does not
-// implement resources/list yields an empty list rather than an error.
+// ListResources 返回服务器的资源。未实现 resources/list 的
+// 服务器会返回空列表，而不是错误。
 func (c *client) ListResources(ctx context.Context) ([]Resource, error) {
 	if c.capabilitySkipped("resources") {
 		return nil, nil
@@ -432,20 +438,20 @@ func (c *client) ListResources(ctx context.Context) ([]Resource, error) {
 	return resources, nil
 }
 
-// forEachListPage calls method once per page, following the opaque cursor the
-// server returns until there is no nextCursor. fn decodes one page and returns
-// the cursor for the following one (nil means the last page). The first request
-// carries no params so single-page servers see the exact legacy request shape.
-// A repeated cursor or an excessive page count stops a broken server from
-// looping forever or growing memory without bound.
+// forEachListPage 每页调用一次 method，跟随服务器返回的不透明游标，
+// 直到没有 nextCursor。fn 解码一页并返回下一页的
+// 游标（nil 表示最后一页）。第一个请求不带 params，
+// 使单页服务器看到与历史完全相同的请求形态。重复的游标或过多
+// 页数会阻止故障服务器
+// 无限循环或无界增长内存。
 func (c *client) forEachListPage(ctx context.Context, method string, fn func(json.RawMessage) (json.RawMessage, error)) error {
 	var cursor json.RawMessage
 	seen := make(map[string]bool)
 	for page := 0; page < maxListPages; page++ {
 		var params any
 		if len(cursor) > 0 {
-			// The cursor is opaque: pass the token back verbatim rather than
-			// coercing it to a string the server may not recognise.
+			// 游标是不透明的：把 token 原样传回，而不是
+			// 强制转换为服务器可能无法识别的字符串。
 			params = map[string]any{"cursor": cursor}
 		}
 		raw, err := c.tr.call(ctx, method, params)
@@ -469,9 +475,9 @@ func (c *client) forEachListPage(ctx context.Context, method string, fn func(jso
 	return fmt.Errorf("mcp %q: %s exceeded %d pages; stopping pagination", c.spec.Name, method, maxListPages)
 }
 
-// nextCursor extracts an opaque pagination token from a list result. An absent,
-// null or empty-string token means the server has no more pages (nil). The token
-// is returned byte-for-byte so it can be replayed unchanged on the next request.
+// nextCursor 从列表结果中提取不透明的分页 token。缺失、
+// null 或空字符串 token 表示服务器没有更多页（nil）。该 token
+// 逐字节返回，以便在下一次请求中原样重放。
 func nextCursor(raw json.RawMessage) json.RawMessage {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 || isJSONNull(t) || string(t) == `""` {
@@ -484,7 +490,7 @@ func (c *client) Close() error {
 	return c.tr.Close()
 }
 
-// timeoutContext bounds a request without overriding the caller's deadline.
+// timeoutContext 限制一次请求，但不覆盖调用方的截止时间。
 func (c *client) timeoutContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
@@ -493,15 +499,15 @@ func (c *client) timeoutContext(ctx context.Context) (context.Context, context.C
 }
 
 func (c *client) wrap(err error, method string) error {
-	// Enrich an opaque stdio connection failure with the server's captured
-	// stderr. No process replay: the stderr ring already holds what the child
-	// printed before it died, so the app's plain "print the error" path gains
-	// the audit's missing context without any change on its side.
+	// 用服务器捕获的 stderr 丰富不透明的 stdio 连接失败信息。
+	// 不重放进程：stderr 环形缓冲区已经保存了子进程退出前
+	// 打印的内容，因此应用简单的"打印错误"路径无需任何改动
+	// 就获得了审计所缺失的上下文。
 	return c.enrichStderr(fmt.Errorf("mcp %q: %s: %w", c.spec.Name, method, err))
 }
 
-// Stderr returns the tail of a stdio server's stderr, for diagnostics. It is
-// empty for HTTP clients or clients built by other packages.
+// Stderr 返回 stdio 服务器 stderr 的尾部，用于诊断。对 HTTP 客户端
+// 或由其他包构造的客户端，它为空。
 func Stderr(c Client) string {
 	concrete, ok := c.(*client)
 	if !ok {

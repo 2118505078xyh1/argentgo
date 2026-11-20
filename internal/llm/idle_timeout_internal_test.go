@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// stagedReader yields pre-built SSE chunks, pausing before every chunk after
-// the first. With hold set it blocks instead of reaching EOF, modelling a
-// connection that stays open but goes silent.
+// stagedReader 产出预先构建的 SSE 分块，在第一个之后每块前都暂停。
+// 设置 hold 时它会阻塞而非到达 EOF，模拟一个
+// 保持打开但静默的连接。
 type stagedReader struct {
 	chunks  [][]byte
 	pause   time.Duration
@@ -34,7 +34,7 @@ func (r *stagedReader) Read(p []byte) (int, error) {
 	if r.idx >= len(r.chunks) {
 		if r.hold {
 			<-r.release
-			r.hold = false // release once, then report EOF
+			r.hold = false // 释放一次，然后报告 EOF
 			return 0, io.EOF
 		}
 		return 0, io.EOF
@@ -81,8 +81,8 @@ func TestReadStreamIdleTimeoutFailsSilentConnection(t *testing.T) {
 }
 
 func TestReadStreamIdleTimeoutResetsOnActivity(t *testing.T) {
-	// Ten 20ms gaps total 200ms, longer than the 150ms idle window: the read
-	// must keep succeeding because each event pushes the deadline out.
+	// 十个 20ms 间隔共 200ms，超过 150ms 空闲窗口：读取
+	// 必须持续成功，因为每个事件都会把截止时间往后推。
 	chunks := make([]string, 0, 11)
 	for i := 0; i < 10; i++ {
 		chunks = append(chunks, sseDelta("x"))
@@ -104,8 +104,8 @@ func TestReadStreamIdleTimeoutResetsOnActivity(t *testing.T) {
 }
 
 func TestReadStreamZeroIdleTimeoutWaitsThroughSilence(t *testing.T) {
-	// IdleTimeout == 0 must preserve the old behaviour: wait through the
-	// 250ms gap until [DONE] instead of failing early.
+	// IdleTimeout == 0 必须保持旧行为：等待
+	// 250ms 的间隔直到 [DONE]，而不是提前失败。
 	r := newStagedReader(false, 250*time.Millisecond, sseDelta("a"), sseDone)
 
 	client := &Client{}

@@ -192,9 +192,8 @@ func (c *TTLCache) IsAllowed(key string) bool {
 	// 内存中的副本已过期。对于持久化缓存，另一个进程可能在本调用
 	// 等待跨进程锁期间续期了同一条授予。在决定前重新读取磁盘上的最新
 	// 集合：只有当新条目也过期时才删除。
-	// delete when the fresh entry is expired too. An unconditional delete here
-	// would erase a grant that is still live, so neither this process nor a
-	// freshly started one would honour it.
+	// 仅当新条目也已过期时才删除。这里无条件删除会抹掉仍然有效的授予，
+	// 这样本进程和新启动的进程都不会认可它。
 	if c.dir == "" {
 		delete(c.entries, key)
 		return false
@@ -222,8 +221,8 @@ func (c *TTLCache) IsAllowed(key string) bool {
 	return allowed
 }
 
-// Deny removes any grant for key. Denials are never persisted: the remaining
-// grants are rewritten, but no "denied" record is ever created.
+// Deny 移除 key 的任何授予。拒绝从不持久化：剩余的授予会被重写，
+// 但永远不会创建"denied"记录。
 func (c *TTLCache) Deny(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -250,11 +249,9 @@ func (c *TTLCache) Deny(key string) {
 	})
 }
 
-// Load reads <dir>/grants.json and keeps only unexpired grants; expired ones
-// are purged from both memory and the file. It is a no-op for a memory-only
-// cache and treats a missing file as success. A read/decode failure returns an
-// error and marks the cache untrusted (fail-closed); a later successful Load
-// clears that state.
+// Load 读取 <dir>/grants.json，只保留未过期的授予；过期的会从内存和文件中
+// 一并清除。对于纯内存缓存它是空操作，文件不存在则视为成功。读取/解码失败会
+// 返回错误并把缓存标记为不可信（失败即拒绝）；后续成功的 Load 会清除该状态。
 func (c *TTLCache) Load() error {
 	if c.dir == "" {
 		return nil
@@ -276,8 +273,8 @@ func (c *TTLCache) Load() error {
 	})
 }
 
-// withGrantLock runs fn while holding the cross-process lock on the sidecar
-// file. The caller must hold c.mu. It is a no-op for a memory-only cache.
+// withGrantLock 在持有 sidecar 文件跨进程锁的情况下运行 fn。调用方必须持有
+// c.mu。对于纯内存缓存它是空操作。
 func (c *TTLCache) withGrantLock(fn func() error) error {
 	if c.dir == "" {
 		return fn()
@@ -293,12 +290,10 @@ func (c *TTLCache) withGrantLock(fn func() error) error {
 	return fn()
 }
 
-// readGrantsLocked reads the persisted grant set and returns a fresh map with
-// expired entries dropped and readable context re-sanitized. dirty reports
-// whether the file representation differs from the returned map and therefore
-// ought to be rewritten. A missing file is an empty, clean set; a read or
-// decode error is returned so callers can fail closed. The caller holds the
-// cross-process lock and c.mu.
+// readGrantsLocked 读取持久化的授予集合，返回一个新 map，丢弃过期条目并
+// 重新清洗可读上下文。dirty 报告文件的表示是否与返回的 map 不同、因而需要
+// 重写。文件不存在表示空的、干净的集合；读取或解码错误会被返回，以便调用方
+// 失败即拒绝。调用方持有跨进程锁和 c.mu。
 func (c *TTLCache) readGrantsLocked() (map[string]ttlEntry, bool, error) {
 	data, err := os.ReadFile(filepath.Join(c.dir, ttlGrantsFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -319,7 +314,7 @@ func (c *TTLCache) readGrantsLocked() (map[string]ttlEntry, bool, error) {
 			dirty = true
 			continue
 		}
-		// Re-sanitize on load so a hand-edited file cannot smuggle a secret in.
+		// 加载时重新清洗，这样手工编辑的文件无法夹带秘密。
 		clean := ttlSafeContext(e.Readable)
 		if clean != e.Readable {
 			dirty = true
@@ -333,8 +328,8 @@ func (c *TTLCache) readGrantsLocked() (map[string]ttlEntry, bool, error) {
 	return entries, dirty, nil
 }
 
-// writeGrantsLocked atomically writes the whole grant set as a sorted JSON
-// array. The caller holds the cross-process lock and c.mu.
+// writeGrantsLocked 把整个授予集合原子地写成有序 JSON 数组。调用方持有
+// 跨进程锁和 c.mu。
 func (c *TTLCache) writeGrantsLocked(entries map[string]ttlEntry) error {
 	list := make([]ttlEntry, 0, len(entries))
 	for _, e := range entries {
@@ -375,12 +370,12 @@ func (c *TTLCache) writeGrantsLocked(entries map[string]ttlEntry) error {
 	return nil
 }
 
-// newTTLGrant builds a grant entry with sanitized, bounded readable context.
+// newTTLGrant 构造一个带已清洗、有界可读上下文的授予条目。
 func newTTLGrant(key, readable string, expires time.Time) ttlEntry {
 	return ttlEntry{Key: key, Readable: ttlSafeContext(readable), ExpiresAt: expires}
 }
 
-// purgeGrantEntries drops grants whose expiry is not in the future.
+// purgeGrantEntries 丢弃过期时间不在未来的授予。
 func purgeGrantEntries(entries map[string]ttlEntry, now time.Time) bool {
 	removed := false
 	for key, e := range entries {
@@ -392,9 +387,8 @@ func purgeGrantEntries(entries map[string]ttlEntry, now time.Time) bool {
 	return removed
 }
 
-// capGrantEntries evicts the soonest-to-expire grants when the set grows past
-// maxTTLGrantEntries. Ordering by expiry keeps eviction deterministic and
-// drops the least-trusted grants first.
+// capGrantEntries 在集合超过 maxTTLGrantEntries 时淘汰最快过期的授予。
+// 按过期时间排序使淘汰具有确定性，并优先丢弃最不可信的授予。
 func capGrantEntries(entries map[string]ttlEntry) bool {
 	if len(entries) <= maxTTLGrantEntries {
 		return false
@@ -419,9 +413,8 @@ func capGrantEntries(entries map[string]ttlEntry) bool {
 	return true
 }
 
-// ttlSafeContext strips control bytes, redacts credential-shaped spans and
-// caps the result on a rune boundary so a persisted context can never carry a
-// secret or an unbounded blob.
+// ttlSafeContext 去除控制字节、对凭据形状的片段脱敏，并在 rune 边界限制
+// 结果长度，使持久化的上下文永远不会携带秘密或无界数据块。
 func ttlSafeContext(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -441,8 +434,7 @@ func ttlSafeContext(s string) string {
 	return ttlRuneHead(Redact(b.String()), maxTTLReadableRunes)
 }
 
-// ttlRuneHead returns the first n runes of s without splitting a UTF-8
-// sequence.
+// ttlRuneHead 返回 s 的前 n 个 rune，且不切开 UTF-8 序列。
 func ttlRuneHead(s string, n int) string {
 	if n <= 0 {
 		return ""

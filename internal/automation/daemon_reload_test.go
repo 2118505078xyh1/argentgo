@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// TestDaemonDoesNotRerunSlotHandledByAnotherProcess guards the shared-store
-// reload: a separate `automation run` process can handle a slot and advance
-// NextDue on disk while this daemon's in-memory copy still shows the old slot.
-// Without a refresh the daemon would claim and run that slot a second time.
+// TestDaemonDoesNotRerunSlotHandledByAnotherProcess 守护共享 store 的
+// 重载：一个独立的 `automation run` 进程可以处理某时隙并推进
+// NextDue，而此时该 daemon 的内存副本仍显示旧的时隙。没有刷新，daemon 会再次认领并运行该时隙。
+// 没有刷新，daemon 会再次认领并运行该时隙。
 func TestDaemonDoesNotRerunSlotHandledByAnotherProcess(t *testing.T) {
 	dir := t.TempDir()
 	daemonStore, err := OpenStore(dir)
@@ -21,9 +21,9 @@ func TestDaemonDoesNotRerunSlotHandledByAnotherProcess(t *testing.T) {
 		t.Fatalf("Put: %v", err)
 	}
 
-	// Simulate a different process opening the same store file, running the
-	// due task and advancing its next slot. Its writes go to disk only; the
-	// daemon's cached Spec stays at the old 12:00 slot.
+	// 模拟另一个进程打开同一个 store 文件、运行
+	// 到期任务并推进其下一个时隙。它的写入只落到磁盘；
+	// 模拟另一个进程打开同一个 store 文件、运行到期任务并推进其下一个时隙。它的写入只落到磁盘；daemon 缓存的 Spec 仍停在旧的 12:00 时隙。
 	other, err := OpenStore(dir)
 	if err != nil {
 		t.Fatalf("OpenStore (other): %v", err)
@@ -49,9 +49,9 @@ func TestDaemonDoesNotRerunSlotHandledByAnotherProcess(t *testing.T) {
 	}
 }
 
-// TestDaemonReloadPicksUpTaskAddedByAnotherProcess is the positive counterpart:
-// the refresh must also make tasks added to the file by another process visible
-// to the very next scan, rather than suppressing all work.
+// TestDaemonReloadPicksUpTaskAddedByAnotherProcess 是正向对应情形：刷新必须也让另一个进程添加到文件中的任务在紧接着的扫描中
+// 刷新必须也让另一个进程添加到文件中的任务在紧接着的扫描中
+// 可见，而不是抑制所有工作。
 func TestDaemonReloadPicksUpTaskAddedByAnotherProcess(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(dir)
@@ -65,7 +65,7 @@ func TestDaemonReloadPicksUpTaskAddedByAnotherProcess(t *testing.T) {
 		t.Fatalf("newDaemon: %v", err)
 	}
 
-	// Another process adds an already-due task after the daemon was created.
+	// daemon 创建后另一个进程添加了一个已经到期的任务。
 	other, err := OpenStore(dir)
 	if err != nil {
 		t.Fatalf("OpenStore (other): %v", err)

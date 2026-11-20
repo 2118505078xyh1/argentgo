@@ -46,7 +46,7 @@ func TestPendingStoreAddListRoundtrip(t *testing.T) {
 
 func TestPendingStoreListSortedByCreated(t *testing.T) {
 	store := newPendingTestStore(t)
-	// Insert out of order; List must sort by Created ascending.
+	// 乱序插入；List 必须按 Created 升序排列。
 	for _, p := range []PendingApproval{
 		pendingAt("c", "2026-01-01T00:00:03Z"),
 		pendingAt("a", "2026-01-01T00:00:01Z"),
@@ -91,7 +91,7 @@ func TestPendingStoreResolveRemovesAndRecordsDecision(t *testing.T) {
 		t.Fatalf("after Resolve got %+v, want only b", got)
 	}
 
-	// A one-line decision record was appended to the hashed decisions file.
+	// 一行式决定记录已追加到哈希命名的决定文件中。
 	entries, err := os.ReadDir(store.dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
@@ -159,7 +159,7 @@ func TestPendingStoreClearEmpties(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("after Clear got %d items, want 0", len(got))
 	}
-	// Clearing an already-empty session is also fine.
+	// 清空一个已经为空的会话也是可以的。
 	if err := store.Clear("sess-1"); err != nil {
 		t.Fatalf("second Clear: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestPendingStoreRedactsSecrets(t *testing.T) {
 			t.Errorf("secret %q leaked to disk: %s", secret, onDisk)
 		}
 	}
-	// The redacted placeholder is present, proving the field was written at all.
+	// 脱敏占位符存在，证明该字段确实被写入了。
 	if !strings.Contains(onDisk, "[redacted:") {
 		t.Errorf("expected a redaction placeholder on disk: %s", onDisk)
 	}
@@ -248,7 +248,7 @@ func TestPendingStoreFilenameSafety(t *testing.T) {
 	if !strings.HasSuffix(name, ".json") || len(name) != len("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json") {
 		t.Errorf("filename %q is not a 64-hex hash plus .json", name)
 	}
-	// Hashing keeps lookups stable for the original session string.
+	// 哈希使原始 session 字符串的查找保持稳定。
 	got, err := store.List(session)
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -315,7 +315,7 @@ func TestPendingStoreConcurrentAccess(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("all requests were resolved, but %d remain", len(got))
 	}
-	// Every decision was recorded in the bounded JSONL log.
+	// 每个决定都记录在有界的 JSONL 日志中。
 	entries, err := os.ReadDir(store.dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
@@ -337,7 +337,7 @@ func TestPendingStoreConcurrentAccess(t *testing.T) {
 func TestPendingStoreCreatesNonexistentDir(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "nested", "deeper", "pending")
-	// Construct directly so Add, not the constructor, must create the dir.
+	// 直接构造，使创建目录的责任落在 Add 而非构造函数上。
 	store := &PendingStore{dir: dir}
 	if err := store.Add(pendingAt("a", "2026-01-01T00:00:01Z")); err != nil {
 		t.Fatalf("Add with missing dir: %v", err)

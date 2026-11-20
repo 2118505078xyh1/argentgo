@@ -278,7 +278,7 @@ func TestGuardRunsBeforeYoloCheck(t *testing.T) {
 	registry := tools.New(t.TempDir(), false)
 	registry.SetGuard(&denyReadGuard{})
 
-	// "write" is mutating, but the guard must be consulted (and win) first.
+	// "write" 具有变更性，但守卫必须先被咨询（并且胜出）。
 	_, err := registry.Run(context.Background(), "write", `{"path":"a.txt","content":"x"}`)
 	if err == nil || !strings.Contains(err.Error(), "--yolo") {
 		t.Fatalf("err = %v, want the --yolo hint (guard allows write)", err)

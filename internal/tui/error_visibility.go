@@ -6,32 +6,32 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Stream-error visibility helpers (goose study items 3 and 5).
+// 流错误可见性辅助函数（goose 研究项 3 和 5）。
 //
-// The renderer already knows how to badge any AttemptKind (see
-// Model.attemptLinesLocked) and the locale table already ships the
-// attempt_stream_error / attempt_retried labels. What was missing was a producer:
-// stream errors reached HandleEvent but were ignored, and backoff had no event
-// at all. These helpers build the transcript entries that producer needs. They
-// are pure — no I/O, no model mutation — so callers decide when to append.
+// 渲染器已经知道如何给任何 AttemptKind 加徽章（见
+// Model.attemptLinesLocked），区域设置表也已经带有
+// attempt_stream_error / attempt_retried 标签。缺少的是一个生产者：
+// 流错误到达 HandleEvent 后却被忽略，而退避根本没有
+// 任何事件。这些辅助函数构建该生产者所需的记录条目。
+// 它们是纯函数 —— 无 I/O、无模型修改 —— 因此调用方决定何时追加。
 
 const (
-	// maxStreamErrorDetail bounds the text kept in a stream-error notice. The
-	// renderer clips again to the terminal width, but the model must not pin an
-	// arbitrarily large provider error until the process exits.
+	// maxStreamErrorDetail 限制流错误通知中保留的文本。
+	// 渲染器会再次按终端宽度裁剪，但模型不能把
+	// 任意大的 provider 错误钉在上下文里直到进程退出。
 	maxStreamErrorDetail = 240
-	// maxRetryReason bounds the free-form reason in a retry notice so a hostile
-	// or malformed producer cannot widen the transcript with one event.
+	// maxRetryReason 限制重试通知中的自由格式原因，使恶意的
+	// 或格式错误的生产者无法用单个事件撑宽记录。
 	maxRetryReason = 120
 )
 
-// StreamErrorEntry builds the non-committed notice for a failed LLM stream.
+// StreamErrorEntry 为失败的 LLM 流构建未提交的通知。
 //
-// The detail is collapsed to one line, redacted with the supplied function
-// (normally llm.RedactText), and bounded to maxStreamErrorDetail grapheme cells.
-// A nil redact function leaves the text unredacted, which keeps the helper
-// easy to exercise in table-driven tests. AttemptStreamError drives the existing
-// badge renderer; no new paint path is involved.
+// 详情被折叠为一行，用提供的函数清洗
+// （通常是 llm.RedactText），并限制在 maxStreamErrorDetail 个字素簇内。
+// nil 的清洗函数让文本不被清洗，这使该辅助函数
+// 便于在表驱动测试中使用。AttemptStreamError 驱动现有的
+// 徽章渲染器；不涉及新的绘制路径。
 func StreamErrorEntry(detail string, redact func(string) string) Entry {
 	if redact != nil {
 		detail = redact(detail)
@@ -43,15 +43,15 @@ func StreamErrorEntry(detail string, redact func(string) string) Entry {
 	}
 }
 
-// RetryNotice formats one line of live backoff feedback:
+// RetryNotice 格式化一行实时的退避反馈：
 //
 //	⟳ retry <reason> in <waitMS>ms (attempt/max)
 //
-// The reason is redacted through llm.RedactText, collapsed, and bounded; the
-// counts are clamped to non-negative values so the string is stable for
-// malformed callers. The leading mark is part of the text because this notice
-// is appended as a plain EntryNotice: the renderer draws one badge per entry,
-// and a second attempt badge here would duplicate the "⟳" glyph.
+// 原因通过 llm.RedactText 清洗、折叠并限制长度；
+// 计数被钳制为非负值，使字符串对
+// 格式错误的调用方也稳定。前导标记是文本的一部分，因为该通知
+// 作为普通 EntryNotice 追加：渲染器为每条记录画一个徽章，
+// 这里再来一个尝试徽章会重复 "⟳" 字形。
 func RetryNotice(reason string, attempt, max int, waitMS int64) string {
 	reason = Truncate(collapseSpace(llm.RedactText(reason)), maxRetryReason)
 	if reason == "" {

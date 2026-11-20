@@ -1,8 +1,8 @@
 package tools
 
-// End-to-end coverage for checkpoint_diff through Registry.Run. The source is
-// injected with SetCheckpointSource (the same wiring internal/app uses), so the
-// fake exercises the real registration, output-cap and read-only paths.
+// 对通过 Registry.Run 使用 checkpoint_diff 的端到端覆盖。数据源通过
+// SetCheckpointSource 注入（与 internal/app 使用的接线方式相同），因此
+// 这个假对象会走真实的注册、输出上限和只读路径。
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"unicode/utf8"
 )
 
-// Scenario 1: a wired source's added/modified/deleted files survive the full
-// Run path with correct status, hashes, line counts and deterministic order.
+// 场景 1：已接线数据源的新增/修改/删除文件会经历完整的
+// Run 路径，并带有正确的状态、哈希、行数和确定性顺序。
 func TestCheckpointDiffIntegrationRegistryRunRendersChanges(t *testing.T) {
 	added := FileChangeFromBytes("a-added.go", nil, []byte("hello\nworld\n"))
 	deleted := FileChangeFromBytes("b-deleted.go", []byte("bye\n"), nil)
@@ -71,10 +71,10 @@ func TestCheckpointDiffIntegrationRegistryRunRendersChanges(t *testing.T) {
 	}
 }
 
-// Scenario 2: an unwired registry does not advertise the tool; once wired with
-// a nil or failing source it is present but degrades to an "unavailable" result.
-// Observed behaviour: absent (unknown tool) before wiring, graceful message
-// after wiring — both are asserted here.
+// 场景 2：未接线的注册表不会公布该工具；一旦接线上 nil 或
+// 会失败的数据源，工具存在但降级为 "unavailable" 结果。
+// 观察到的行为：接线前不存在（未知工具），接线后给出优雅的提示
+// —— 两者都在此断言。
 func TestCheckpointDiffIntegrationUnavailableWithoutUsableSource(t *testing.T) {
 	registry := New(t.TempDir(), false)
 	for _, name := range registry.Names() {
@@ -106,8 +106,8 @@ func TestCheckpointDiffIntegrationUnavailableWithoutUsableSource(t *testing.T) {
 	}
 }
 
-// Scenario 3: checkpoint_diff is read-only — it runs in a yolo=false registry
-// while a mutating tool in the very same registry is rejected with --yolo.
+// 场景 3：checkpoint_diff 是只读的 —— 它在 yolo=false 的注册表中
+// 运行，而同一注册表中的变更性工具使用 --yolo 时会被拒绝。
 func TestCheckpointDiffIntegrationReadOnlyWithoutYolo(t *testing.T) {
 	registry := New(t.TempDir(), false)
 	registry.SetCheckpointSource(&fakeCheckpointSource{changes: []FileChange{{Path: "f.go", Status: "modified"}}})
@@ -131,9 +131,9 @@ func TestCheckpointDiffIntegrationReadOnlyWithoutYolo(t *testing.T) {
 	}
 }
 
-// Scenario 4: 5000 files are rendered but the output stays within the
-// registry's cap and carries a rune-safe truncation marker. The emitted count
-// still proves the source produced all 5000 records.
+// 场景 4：渲染了 5000 个文件，但输出保持在
+// 注册表的上限之内，并带有 rune 安全的截断标记。发出的计数
+// 仍证明数据源产出了全部 5000 条记录。
 func TestCheckpointDiffIntegrationBounds5000Files(t *testing.T) {
 	changes := make([]FileChange, 5000)
 	for i := range changes {

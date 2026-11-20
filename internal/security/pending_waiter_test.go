@@ -34,8 +34,8 @@ func TestPendingStoreResolveWakesRegisteredWaiter(t *testing.T) {
 				t.Fatal("Resolve did not wake the registered waiter")
 			}
 
-			// A replayed decision must not deliver a second answer: the waiter
-			// is consumed by the first Resolve, which makes Resolve idempotent.
+			// 重放的决定不得投递第二次回答：等待者已被第一次 Resolve 消耗，
+			// 这使 Resolve 具有幂等性。
 			if err := store.Resolve(session, id, !granted); err != nil {
 				t.Fatalf("replayed Resolve: %v", err)
 			}
@@ -49,9 +49,8 @@ func TestPendingStoreResolveWakesRegisteredWaiter(t *testing.T) {
 }
 
 func TestPendingStoreResolveWakesWaiterWithoutPendingRecord(t *testing.T) {
-	// Liveness: a waiter may be registered before the record is persisted, or
-	// the record may already have been removed by a reconnecting client. In
-	// both cases Resolve must still deliver, otherwise Ask would hang forever.
+	// 活性：等待者可能在记录持久化之前就已注册，或者记录可能已被重新连接的客户端
+	// 移除。两种情况下 Resolve 仍必须投递，否则 Ask 会永远挂起。
 	store := newPendingTestStore(t)
 	ch, cancel := store.RegisterWaiter("sess-1", "call_1")
 	defer cancel()
@@ -92,7 +91,7 @@ func TestPendingStoreCancelledWaiterIsNotDelivered(t *testing.T) {
 	const session, id = "sess-1", "call_1"
 	ch, cancel := store.RegisterWaiter(session, id)
 	cancel()
-	cancel() // idempotent: a defer plus an explicit call is safe
+	cancel() // 幂等：defer 加上显式调用是安全的
 	if err := store.Add(pendingAt(id, "2026-01-01T00:00:01Z")); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -113,7 +112,7 @@ func TestPendingStoreReregisterReplacesWaiter(t *testing.T) {
 	second, cancelSecond := store.RegisterWaiter(session, id)
 	defer cancelFirst()
 	defer cancelSecond()
-	// Cancelling the replaced waiter must not remove the current one.
+	// 取消被替换的等待者不得移除当前的等待者。
 	cancelFirst()
 	if err := store.Resolve(session, id, false); err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -197,7 +196,7 @@ func TestPendingStoreWaitersCleanedUpAfterResolveAndCancel(t *testing.T) {
 	if got := len(store.waiters); got != 0 {
 		t.Fatalf("waiters after Resolve = %d, want 0", got)
 	}
-	cancelB() // no-op after the waiter was consumed
+	cancelB() // 等待者被消耗后为空操作
 	if got := len(store.waiters); got != 0 {
 		t.Fatalf("waiters after redundant cancel = %d, want 0", got)
 	}

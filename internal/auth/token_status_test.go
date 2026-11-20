@@ -32,8 +32,8 @@ func TestTokenStatus(t *testing.T) {
 }
 
 func TestTokenStatusOverflowStaysValid(t *testing.T) {
-	// expiresAt-now would wrap negative; the deadline is effectively infinite,
-	// so it must not be classified as expired or expiring.
+	// expiresAt-now 会回绕成负数；截止时间实际上是无限的，因此不得被分类为已过期或即将过期。
+	// 因此不得被分类为已过期或即将过期。
 	got := TokenStatus(int64(1<<63-1), int64(-1<<63), 60)
 	if got != TokenValid {
 		t.Fatalf("TokenStatus(MaxInt64, MinInt64, 60) = %q, want valid", got)
@@ -41,7 +41,7 @@ func TestTokenStatusOverflowStaysValid(t *testing.T) {
 }
 
 func TestTokenStatusUsesNowArgument(t *testing.T) {
-	// The same deadline moves from valid to expiring to expired as now advances.
+	// 同一截止时间随 now 推进从有效变为即将过期再变为已过期。
 	expires := int64(1_800_000_600)
 	if got := TokenStatus(expires, 1_800_000_000, 60); got != TokenValid {
 		t.Fatalf("early now = %q, want valid", got)

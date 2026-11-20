@@ -11,7 +11,7 @@ import (
 
 // ---- current_time ----
 
-// currentTimeNow is a variable so tests can pin the clock.
+// currentTimeNow 是一个变量，便于测试固定时钟。
 var currentTimeNow = time.Now
 
 type currentTimeTool struct{}
@@ -66,7 +66,7 @@ func (currentTimeTool) Run(_ context.Context, _ string, raw json.RawMessage) (st
 	return fmt.Sprintf("utc: %s\n%s: %s", formatTime(now.UTC(), format), zone, formatTime(now.In(loc), format)), nil
 }
 
-// formatTime renders one instant in the requested model-friendly form.
+// formatTime 按请求的、对模型友好的形式渲染某个时刻。
 func formatTime(t time.Time, format string) string {
 	switch format {
 	case "date":

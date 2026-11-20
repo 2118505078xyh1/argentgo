@@ -2,27 +2,24 @@ package security
 
 import "strings"
 
-// ArtifactInvisibleWarning is the stable, user-facing warning emitted when a
-// declarative artifact (workflow, skill, slash command or automation task)
-// carries invisible characters. It is a warning, not an error: the parser keeps
-// the original bytes, so parsing and execution semantics are unchanged.
+// ArtifactInvisibleWarning 是当声明式产物（workflow、skill、slash 命令或自动化
+// 任务）携带不可见字符时发出的稳定、面向用户的警告。它是警告而不是错误：
+// 解析器保留原始字节，因此解析和执行语义不变。
 const ArtifactInvisibleWarning = "⚠ artifact contains invisible characters (Unicode tags or bidi controls) that may hide instructions"
 
-// maxArtifactScanBytes bounds the work done for one artifact. Artifacts are
-// hand-written declarative files, so a megabyte is far beyond a realistic one.
-// Only the first MiB is examined; a payload after the cap is not flagged.
+// maxArtifactScanBytes 限制对一个产物所做的工作量。产物是手写的声明式文件，
+// 一兆字节已远超现实大小。只检查前 1 MiB；上限之后的载荷不会被标记。
 const maxArtifactScanBytes = 1 << 20
 
-// ArtifactScanResult is the outcome of scanning a declarative artifact for
-// characters that can hide a prompt-injection payload.
+// ArtifactScanResult 是对声明式产物扫描可隐藏提示注入载荷的字符的结果。
 type ArtifactScanResult struct {
-	HasTags bool   // Unicode Tag Block characters were found.
-	HasBidi bool   // bidi/format controls were found.
-	Warning string // ArtifactInvisibleWarning when either flag is set, else empty.
+	HasTags bool   // 发现了 Unicode Tag Block 字符。
+	HasBidi bool   // 发现了 bidi/格式控制符。
+	Warning string // 任一标志置位时为 ArtifactInvisibleWarning，否则为空。
 }
 
-// Warnings returns Warning as a one-element slice, or nil for clean content.
-// It lets parsers add a warning with a single call and no empty-string check.
+// Warnings 把 Warning 作为单元素切片返回，内容干净时返回 nil。
+// 它让解析器一次调用即可添加警告，无需检查空字符串。
 func (r ArtifactScanResult) Warnings() []string {
 	if r.Warning == "" {
 		return nil
@@ -30,15 +27,14 @@ func (r ArtifactScanResult) Warnings() []string {
 	return []string{r.Warning}
 }
 
-// ScanArtifact reports invisible characters in content. It reuses the detector
-// from invisible.go: ContainsInvisibleTags for the Unicode Tag Block and
-// isBidiOrFormat (the exact rune set EscapeBidi escapes) for bidi controls.
-// Nothing is modified and no error is produced: callers decide how to warn.
+// ScanArtifact 报告 content 中的不可见字符。它复用 invisible.go 中的检测器：
+// 用 ContainsInvisibleTags 检测 Unicode Tag Block，用 isBidiOrFormat
+// （EscapeBidi 转义的确切 rune 集合）检测 bidi 控制符。不修改任何内容，也不产生
+// 错误：如何警告由调用方决定。
 //
-// Scanning is bounded to the first maxArtifactScanBytes bytes. A leading UTF-8
-// BOM is ignored because it is a byte-order mark, not a hidden instruction;
-// otherwise every BOM-prefixed command/skill file would warn. A BOM or any
-// other bidi control elsewhere in the text is still detected.
+// 扫描限于前 maxArtifactScanBytes 字节。开头的 UTF-8 BOM 会被忽略，因为它是
+// 字节序标记，而不是隐藏指令；否则每个带 BOM 前缀的 command/skill 文件都会
+// 触发警告。文本中其他位置的 BOM 或任何 bidi 控制符仍会被检测到。
 func ScanArtifact(content string) ArtifactScanResult {
 	if len(content) > maxArtifactScanBytes {
 		content = content[:maxArtifactScanBytes]
@@ -54,10 +50,9 @@ func ScanArtifact(content string) ArtifactScanResult {
 	return res
 }
 
-// ContainsBidi reports whether s contains any bidi/format control character.
-// It calls isBidiOrFormat from invisible.go rather than duplicating its rune
-// ranges, so detection can never drift from the escapes shown in an approval
-// prompt.
+// ContainsBidi 报告 s 是否包含任何 bidi/格式控制字符。它调用 invisible.go 的
+// isBidiOrFormat，而不是复制其 rune 范围，因此检测永远不会与审批提示中显示的
+// 转义产生偏差。
 func ContainsBidi(s string) bool {
 	for _, r := range s {
 		if isBidiOrFormat(r) {
@@ -67,17 +62,14 @@ func ContainsBidi(s string) bool {
 	return false
 }
 
-// RedactArtifactContent returns a display-safe copy of content: Unicode Tag
-// Block characters are removed and bidi/format controls become visible
-// \uXXXX escapes. It reuses SanitizeInvisible and EscapeBidi from invisible.go
-// rather than reimplementing either transform; SanitizeInvisible already
-// escapes bidi, so the extra EscapeBidi pass is a harmless no-op that keeps the
-// display contract explicit.
+// RedactArtifactContent 返回 content 的显示安全副本：Unicode Tag Block 字符会被
+// 移除，bidi/格式控制符会变成可见的 \uXXXX 转义。它复用 invisible.go 的
+// SanitizeInvisible 和 EscapeBidi，而不是重新实现这两种转换；SanitizeInvisible
+// 已经转义了 bidi，因此额外的 EscapeBidi 处理只是无害的空操作，让显示契约更明确。
 //
-// This is for display only. It never changes what an artifact executes:
-// parsers keep the original content and use ScanArtifact to warn. As with
-// ScanArtifact, only the first maxArtifactScanBytes bytes are returned, so a
-// caller cannot accidentally render an unbounded document.
+// 这仅用于显示。它从不改变产物实际执行的内容：解析器保留原始内容，并使用
+// ScanArtifact 发出警告。与 ScanArtifact 一样，只返回前 maxArtifactScanBytes
+// 字节，因此调用方不会意外渲染出无界的文档。
 func RedactArtifactContent(content string) string {
 	if len(content) > maxArtifactScanBytes {
 		content = content[:maxArtifactScanBytes]

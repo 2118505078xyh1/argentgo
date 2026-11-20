@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// railText flattens a rail render into searchable text.
+// railText 把一次栏渲染扁平化为可搜索的文本。
 func railText(lines []Line) string {
 	var b strings.Builder
 	for _, line := range lines {
@@ -21,8 +21,8 @@ func TestTasksRailStreamsPartialArgs(t *testing.T) {
 	fixed := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return fixed }
 	m.started = fixed.Add(-3 * time.Second)
-	// Both a running row (truncated mid-string) and a pending row (no closing
-	// brace) must show the fields recovered so far, not the old single value.
+	// 运行中的行（字符串中间被截断）和待处理的行（没有闭合
+	// 花括号）都必须显示目前恢复的字段，而不是旧的单值。
 	m.tasks = []Task{
 		{
 			Name: "read", Status: TaskRunning, Started: fixed.Add(-500 * time.Millisecond),
@@ -53,14 +53,14 @@ func TestTasksRailAdaptiveElapsed(t *testing.T) {
 		Args: `{"path":"a.go"}`,
 	}}
 
-	// Below the threshold the whole-turn clock (3s) is more informative than
-	// the tool's own 0.5s.
+	// 低于阈值时，整回合时钟（3s）比
+	// 工具自身的 0.5s 更有信息量。
 	if got := railText(m.tasksLines(80, 10)); !strings.Contains(got, "3.0s") {
 		t.Fatalf("below threshold should show turn elapsed: %q", got)
 	}
 
-	// Once the tool's own elapsed passes the threshold it takes over (3.1s),
-	// and the larger turn clock (5.6s) must no longer be shown.
+	// 一旦工具自身的经过时间超过阈值，它就接管（3.1s），
+	// 且较大的回合时钟（5.6s）不得再显示。
 	advanced := fixed.Add(2600 * time.Millisecond)
 	m.now = func() time.Time { return advanced }
 	got := railText(m.tasksLines(80, 10))
@@ -88,8 +88,8 @@ func TestTasksRailArgsFallback(t *testing.T) {
 			m.tasks = []Task{{Name: "read", Status: TaskRunning, Args: tc.args}}
 			got := railText(m.tasksLines(80, 10))
 			if tc.want == "" {
-				// No streamed fields and no classic summary: the row carries
-				// only the name and duration, never a stray "()".
+				// 没有流式字段也没有经典摘要：该行只携带
+				// 名称和时长，绝不带多余的 "()"。
 				if strings.Contains(got, "()") {
 					t.Errorf("unexpected empty argument label: %q", got)
 				}
@@ -125,9 +125,9 @@ func TestTasksRailCancelledUsesSharedRenderer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("paletteFor: %v", err)
 	}
-	// The live rail rows now share formatPartialArgs/adaptiveElapsed with
-	// toolPendingLine. Verify the cancelled branch of that shared renderer
-	// still shows the cancelled glyph/label and never animates.
+	// 活动栏行现在与 formatPartialArgs/adaptiveElapsed 共享
+	// toolPendingLine。验证该共享渲染器的已取消分支
+	// 仍显示取消字形/标签且永不动画化。
 	cancelled := toolPendingLine("read", `{"path":"a.go","command":"ls -l`,
 		time.Second, 0, 80, true, false, true, "zh", p)
 	got := cancelled.Text()

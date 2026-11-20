@@ -42,10 +42,10 @@ func TestRunDrivesAPromptTurnAndRestoresTheScreen(t *testing.T) {
 		return len(entries) >= 2 && strings.Contains(entries[1].Text, "echo: hi")
 	})
 
-	// Ctrl+c leaves the UI. The streamed answer may still have a running turn
-	// at this point: the first ctrl+c aborts that turn (it does not quit), and
-	// a second one quits. Send them until Run returns so the test is robust to
-	// the abort/end-turn race, especially under -race or heavy load.
+	// Ctrl+c 退出 UI。此时流式回答可能仍有运行中的回合
+	// 在这里：第一个 ctrl+c 中止该回合（而不是退出），
+	// 第二个才退出。持续发送直到 Run 返回，使测试对
+	// 中止/结束回合的竞态稳健，尤其是在 -race 或重负载下。
 	exited := false
 	deadline := time.After(30 * time.Second)
 	for !exited {
@@ -101,8 +101,8 @@ func TestRunBracketedPasteDoesNotSubmitEarly(t *testing.T) {
 		t.Fatalf("Run never became ready")
 	}
 
-	// A carriage return inside the pasted block would be decoded as Enter
-	// without bracketed paste and submit only the first line.
+	// 没有括号粘贴时，粘贴块中的回车会被解码为 Enter
+	// 并只提交第一行。
 	pasted := "first line\nsecond line\rthird line"
 	if _, err := writer.Write([]byte("\x1b[200~" + pasted + "\x1b[201~")); err != nil {
 		t.Fatalf("write: %v", err)
@@ -120,7 +120,7 @@ func TestRunBracketedPasteDoesNotSubmitEarly(t *testing.T) {
 		t.Fatalf("paste appended to the transcript: %#v", entries)
 	}
 
-	// A real Enter must still submit the whole pasted block, newlines and all.
+	// 真正的 Enter 仍必须提交整个粘贴块，包括所有换行。
 	if _, err := writer.Write([]byte("\r")); err != nil {
 		t.Fatalf("write: %v", err)
 	}

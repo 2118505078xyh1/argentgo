@@ -15,7 +15,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
-// countingApprover records how many times the operator was asked.
+// countingApprover 记录操作人员被询问的次数。
 type countingApprover struct {
 	calls int
 	grant bool
@@ -33,7 +33,7 @@ func (a *countingApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
 	return a.grant, nil
 }
 
-// verdictInspector is a controllable security.Inspector for the wiring tests.
+// verdictInspector 是供接线测试使用的可控 security.Inspector。
 type verdictInspector struct {
 	name    string
 	verdict security.Verdict
@@ -119,8 +119,8 @@ func TestInspectionGuardRequireApprovalRefusedIsStopError(t *testing.T) {
 
 func TestInspectionGuardRequireApprovalAskedOnce(t *testing.T) {
 	approver := &countingApprover{grant: true}
-	// The chain's own approver refuses: if Chain.Check re-asked, the call would
-	// fail. A fixed replay approver must prevent that second prompt.
+	// 链自身的审批器拒绝：若 Chain.Check 再次询问，调用会失败。
+	// 一个固定的重放审批器必须阻止这第二次提示。
 	chainApprover := &countingApprover{grant: false}
 	guard := &inspectionGuard{
 		manager: managerWith(verdictInspector{
@@ -179,7 +179,7 @@ func TestDestructiveCommandInspectorVerdicts(t *testing.T) {
 	if bad.Action != security.InspectRequireApproval {
 		t.Fatalf("destructive shell verdict = %v, want RequireApproval", bad.Action)
 	}
-	// A non-shell tool carrying a "command" field is not a shell command.
+	// 带有 "command" 字段的非 shell 工具不是 shell 命令。
 	nonShell, _ := inspector.Inspect(ctx, "read", json.RawMessage(`{"command":"rm -rf /tmp/x"}`))
 	if nonShell.Action != security.InspectAllow {
 		t.Fatalf("non-shell verdict = %v, want Allow", nonShell.Action)
@@ -254,8 +254,8 @@ func TestTTLApproverCachesGrantsButNotRefusals(t *testing.T) {
 	}
 }
 
-// pendingRunner is a server.Runner that also exposes the durable pending store
-// through the optional accessor approval.list discovers.
+// pendingRunner 是一个 server.Runner，同时通过 approval.list 发现的可选访问器
+// 暴露持久化的待处理存储。
 type pendingRunner struct {
 	pending *security.PendingStore
 }

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-// TestActiveConcurrentAppendAndRead exercises the s.active data race: many
-// goroutines append (which writes s.active under mu) while others read through
-// Records/Messages/Path (which must read s.active via activeSnapshot under mu).
+// TestActiveConcurrentAppendAndRead 检验 s.active 的数据竞争：多个
+// goroutine 执行追加（在 mu 下写 s.active），同时其他 goroutine 通过
+// Records/Messages/Path 读取（它们必须通过 activeSnapshot 在 mu 下读 s.active）。
 //
-// This machine has no cgo, so the race detector cannot run. The test therefore
-// asserts logical invariants instead: no panic, the final record count is
-// exact, and every id/parent link is intact. Running with -race on a cgo host
-// would additionally catch the original unsynchronised read.
+// 本机没有 cgo，因此无法运行竞态检测器。所以该测试改为
+// 断言逻辑不变量：不 panic、最终记录数准确，
+// 且每个 id/parent 链接完好。在带 cgo 的主机上用 -race 运行
+// 还能额外捕获最初那个未同步的读取。
 func TestActiveConcurrentAppendAndRead(t *testing.T) {
 	const (
 		writers   = 8
@@ -23,10 +23,10 @@ func TestActiveConcurrentAppendAndRead(t *testing.T) {
 
 	s := newTestSession(t, t.TempDir(), "concurrent")
 
-	// assertChain checks a snapshot a concurrent reader may observe. Because
-	// appends are serialised by mu and only ever extend a single chain, any
-	// snapshot the reader sees is a clean prefix: ids are unique and every
-	// non-root parent resolves inside the snapshot.
+	// assertChain 检查并发读取者可能观察到的快照。由于
+	// 追加由 mu 串行化且只会延长单条链，因此读取者看到的
+	// 任何快照都是干净的前缀：id 唯一，且每个
+	// 非根节点的 parent 都能在快照内解析。
 	assertChain := func(records []Record) {
 		ids := make(map[string]bool, len(records))
 		for _, r := range records {
@@ -72,7 +72,7 @@ func TestActiveConcurrentAppendAndRead(t *testing.T) {
 						t.Errorf("concurrent Path returned %d records, snapshot has %d", len(path), len(records))
 					}
 				}
-				// Messages walks the tree via activePath -> activeSnapshot.
+				// Messages 通过 activePath -> activeSnapshot 遍历树。
 				for _, entry := range s.Messages() {
 					if entry.Role == "" {
 						t.Error("concurrent Messages returned an entry with no role")
@@ -103,14 +103,14 @@ func TestActiveConcurrentAppendAndRead(t *testing.T) {
 	close(stop)
 	readersWG.Wait()
 
-	// Authoritative check once all writers are done: exact count and a single
-	// unbroken id chain from the header to the active leaf.
+	// 所有写入方完成后的权威检查：数量准确，且从 header 到活动叶节点
+	// 是一条完整不间断的 id 链。
 	records, err := s.Records()
 	if err != nil {
 		t.Fatalf("final Records: %v", err)
 	}
 	records = withoutSchemaHeader(records)
-	want := 1 + writers*perWriter // header + appended records
+	want := 1 + writers*perWriter // header + 追加的记录
 	if len(records) != want {
 		t.Fatalf("final records = %d, want %d", len(records), want)
 	}

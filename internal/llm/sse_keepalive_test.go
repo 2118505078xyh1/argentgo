@@ -9,12 +9,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestProtocolStreamsSkipEmptySSEDataEvents covers gateways that send an empty
-// data: line as a keepalive between real events. The SSE spec treats such an
-// event as carrying no data; every client must ignore it rather than try to
-// decode it as JSON and abort an otherwise valid reply with a stream error.
-// Both the bare "data:" spelling and "data: " (a single optional space) are
-// covered, as is the whitespace-only payload some proxies emit.
+// TestProtocolStreamsSkipEmptySSEDataEvents 覆盖这样的网关：它在真实事件之间
+// 发送空的 data: 行作为保活。SSE 规范把这种
+// 事件视为不带数据；每个客户端都必须忽略它，而不是尝试
+// 将其解码为 JSON，并用一个流错误中止原本有效的回复。
+// 裸的 "data:" 写法和 "data: "（一个可选空格）都
+// 在覆盖范围内，某些代理发出的纯空白载荷也覆盖。
 func TestProtocolStreamsSkipEmptySSEDataEvents(t *testing.T) {
 	cases := []struct {
 		name        string

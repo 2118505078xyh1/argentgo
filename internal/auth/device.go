@@ -12,21 +12,21 @@ import (
 	"time"
 )
 
-// DeviceAuth is the result of starting an RFC 8628 device-code flow.
+// DeviceAuth 是启动 RFC 8628 设备码流程的结果。
 type DeviceAuth struct {
 	DeviceCode      string
 	UserCode        string
 	VerificationURI string
-	// Interval is the polling interval in seconds.
+	// Interval 是以秒为单位的轮询间隔。
 	Interval int
-	// ExpiresIn is the device code lifetime in seconds.
+	// ExpiresIn 是设备码的生命周期秒数。
 	ExpiresIn int
 }
 
-// ErrDeviceExpired reports that the device code (or the polling window) ran out.
+// ErrDeviceExpired 报告设备码（或轮询窗口）已用尽。
 var ErrDeviceExpired = errors.New("auth: device code expired")
 
-// ErrDeviceDenied reports that the user declined the authorization.
+// ErrDeviceDenied 报告用户拒绝了授权。
 var ErrDeviceDenied = errors.New("auth: authorization was denied")
 
 const (
@@ -36,14 +36,14 @@ const (
 	deviceSlowDownStep  = 5 * time.Second
 )
 
-// deviceSleep and deviceNow are variables so tests can run the polling loop
-// without real waits.
+// deviceSleep 和 deviceNow 是变量，使测试能运行轮询循环而无需真实等待。
+// 而无需真实等待。
 var (
 	deviceSleep = sleepContext
 	deviceNow   = time.Now
 )
 
-// DeviceStart asks the provider for a device code and a user code.
+// DeviceStart 向 provider 请求设备码和用户码。
 func DeviceStart(ctx context.Context, cfg Config) (DeviceAuth, error) {
 	if cfg.DeviceURL == "" {
 		return DeviceAuth{}, errors.New("auth: config has no device endpoint")
@@ -114,8 +114,8 @@ func DeviceStart(ctx context.Context, cfg Config) (DeviceAuth, error) {
 	return auth, nil
 }
 
-// DevicePoll polls the token endpoint until the user approves, declines or the
-// code expires. It honours authorization_pending and slow_down.
+// DevicePoll 轮询令牌端点直到用户批准、拒绝或
+// DevicePoll 轮询令牌端点直到用户批准、拒绝或码过期。它遵守 authorization_pending 和 slow_down。
 func DevicePoll(ctx context.Context, cfg Config, auth DeviceAuth) (Token, error) {
 	if auth.DeviceCode == "" {
 		return Token{}, errors.New("auth: missing device code")
@@ -144,8 +144,8 @@ func DevicePoll(ctx context.Context, cfg Config, auth DeviceAuth) (Token, error)
 		case DevicePollFailed:
 			return Token{}, err
 		}
-		// DevicePollWaiting: adopt the (possibly lengthened) interval, then
-		// wait before the next poll.
+		// DevicePollWaiting：采用（可能已延长的）间隔，然后在下次轮询前
+		// 等待。
 		interval = decision.Wait
 		if err := deviceSleep(ctx, interval); err != nil {
 			return Token{}, err
@@ -161,7 +161,7 @@ func deviceToken(ctx context.Context, cfg Config, deviceCode string) (tokenRespo
 	return postToken(ctx, cfg, form)
 }
 
-// sleepContext waits for d but gives up as soon as ctx is cancelled.
+// sleepContext 等待 d，但一旦 ctx 被取消就放弃。
 func sleepContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		select {

@@ -18,15 +18,15 @@ import (
 
 // ---- bash ----
 
-// toolProgressKey mirrors agent.toolProgressKey. The two packages cannot share
-// a typed context key without tools importing agent, which the layering rules
-// forbid, so they agree on this literal and on a plain func(string) value.
+// toolProgressKey 镜像 agent.toolProgressKey。两个包不能共享
+// 带类型的 context key，除非 tools 导入 agent，而分层规则
+// 禁止这样做，因此双方约定使用这个字面量和普通的 func(string) 值。
 const toolProgressKey = "argent.tool.progress"
 
-// emitProgress publishes one intermediate progress row through the emitter the
-// agent loop installed in ctx. It is a silent no-op when no emitter is present,
-// and the loop's gate drops the row once the tool call has returned. A shell
-// job that outlives bashTool.Run therefore cannot append a stale row.
+// emitProgress 通过 agent 循环安装在 ctx 中的发射器发布一条
+// 中间进度行。没有发射器时它是静默的空操作，
+// 且循环的门控会在工具调用返回后丢弃该行。因此，一个存活期超过 bashTool.Run 的
+// shell 作业无法追加陈旧的进度行。
 func emitProgress(ctx context.Context, text string) {
 	emitter, _ := ctx.Value(toolProgressKey).(func(string))
 	if emitter != nil {
@@ -34,24 +34,24 @@ func emitProgress(ctx context.Context, text string) {
 	}
 }
 
-// bashOutputTokens estimates the token cost of raw command output. It is the
-// shared internal/tokenize estimate, so the volume hint uses the same unit as
-// the agent's budget loop without importing internal/agent.
+// bashOutputTokens 估算原始命令输出的 token 成本。它是
+// 共享的 internal/tokenize 估算器，因此体量提示使用的单位与
+// agent 的预算循环一致，且无需导入 internal/agent。
 func bashOutputTokens(s string) int {
 	return tokenize.Estimate(s)
 }
 
-// clipBashOutput sanitizes and clips raw command output and, only when content
-// was actually dropped, prefixes a short volume hint so the user and the model
-// can see the context cost of what the command produced. It is a pure text
-// change: it never touches the exit status, error path or clipping threshold.
+// clipBashOutput 清洗并裁剪原始命令输出，且仅在内容
+// 确实被丢弃时，加上简短的体量提示，使用户和模型
+// 能看到命令产生内容的上下文成本。它是纯文本
+// 改动：绝不触碰退出状态、错误路径或裁剪阈值。
 //
-// It takes the raw output on purpose. Sanitizing first collapses runs of
-// identical lines, and deciding on the collapsed text both under-reported the
-// volume and skipped the hint for exactly the repetitive output that needs it
-// most (3000 identical lines compress to one line, so the budget check no
-// longer fired). Size and estimate therefore come from raw; only the body that
-// reaches the model is sanitized.
+// 它有意接收原始输出。先清洗会折叠连续
+// 相同的行，基于折叠后的文本判断既低估了
+// 体量，也恰恰跳过了最需要提示的重复输出的提示
+// （3000 行相同内容压缩成一行，于是预算检查不再
+// 触发）。因此大小和估算都来自原始输出；只有送达
+// 模型的正文被清洗。
 func clipBashOutput(ctx context.Context, raw string) string {
 	limit := outputLimit(ctx)
 	if limit <= 0 {
@@ -93,8 +93,8 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
 	path, argv := shellInvocation(args.Command)
 
-	// Promotion is opt-in and needs somewhere to record the job. Without a
-	// registry (or the argument), keep the original hard-kill behaviour.
+	// 提升是 opt-in 的，且需要有地方记录作业。没有
+	// 注册表（或参数）时，保持原有的硬杀死行为。
 	if args.BackgroundAfterMS > 0 {
 		if registry := jobRegistry(ctx); registry != nil {
 			return runPromotableBash(ctx, root, registry, args.Command, path, argv,
@@ -120,9 +120,9 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	return text, nil
 }
 
-// shellInvocation returns the program and leading arguments that execute a
-// command line. It is shared by the hard-timeout and promotable paths so a
-// command is spelled the same way in both.
+// shellInvocation 返回执行某条命令行所用的程序和前置参数。
+// 它由硬超时和可提升路径共用，使同一命令在两处的
+// 拼写方式一致。
 func shellInvocation(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		if _, err := exec.LookPath("bash"); err == nil {
@@ -133,13 +133,13 @@ func shellInvocation(command string) (string, []string) {
 	return "sh", []string{"-lc", command}
 }
 
-// runPromotableBash waits at most backgroundAfter for the command. On that
-// deadline the still-running child is handed to the jobs registry; the model
-// gets a normal tool result with the job id, so the turn is never blocked.
+// runPromotableBash 最多等待 backgroundAfter 时间。到该
+// 截止时间时，仍在运行的子进程被交给作业注册表；模型
+// 得到一个带作业 id 的普通工具结果，因此回合永不被阻塞。
 func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry,
 	command, path string, argv []string, hardTimeout, backgroundAfter time.Duration) (string, error) {
-	// The caller's context and the hard timeout still bound the whole call; the
-	// soft deadline is what turns a slow child into a job.
+	// 调用方的 context 和硬超时仍然约束整个调用；
+	// 软截止时间才是把慢子进程变成作业的原因。
 	runCtx, cancel := context.WithTimeout(ctx, hardTimeout)
 	defer cancel()
 
@@ -160,14 +160,14 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 			return "", fmt.Errorf("bash: create job log: %w", fileErr)
 		}
 		logPath := logFile.Name()
-		// Flush what was captured before the timeout and send the rest of the
-		// child's output straight to the log the job will tail.
+		// 冲刷超时前捕获的内容，并把子进程其余的输出
+		// 直接送往作业将要 tail 的日志。
 		live.SetOutput(logFile)
-		// The job watcher reads the same Done channel; once it closes, every
-		// write to the log is finished and the file can be released. This
-		// goroutine outlives bashTool.Run: its progress row is deliberately
-		// routed through the gated emitter so a late update cannot reach the
-		// transcript after the tool result has been recorded.
+		// 作业监视器读取同一个 Done 通道；它一关闭，所有的
+		// 日志写入就已完成，文件可以释放。这个
+		// goroutine 的存活期超过 bashTool.Run：它的进度行被有意
+		// 经由带门控的发射器路由，使迟到的更新无法在工具结果
+		// 已被记录后到达记录。
 		go func() {
 			<-live.Done()
 			emitProgress(ctx, "bash job finished: "+command)

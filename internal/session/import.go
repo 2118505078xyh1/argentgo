@@ -1,14 +1,12 @@
-// Package session — foreign transcript import.
+// Package session —— 外部转录导入。
 //
-// These helpers convert the JSONL transcripts written by other coding agents
-// into argent-go's native Entry projection, the same shape Session.Messages()
-// returns. They are pure readers: nothing here touches the store, mints record
-// ids in the store's namespace, or wires a CLI subcommand.
+// 这些辅助函数把其他编码 agent 写入的 JSONL 转录转换为 argent-go 原生的 Entry 投影，
+// 即 Session.Messages() 返回的相同形态。它们是纯读取器：这里没有任何代码触碰 store、
+// 在 store 的命名空间中生成记录 id，或接线 CLI 子命令。
 //
-// The strategy mirrors goose's session/import_formats: parse each line leniently
-// (blank and malformed lines are skipped), map the foreign events onto messages,
-// then run the package's canonical tool-pair reconciliation so the result is a
-// valid conversation a store can replay.
+// 该策略参照 goose 的 session/import_formats：宽松解析每一行（跳过空白和格式错误的行），
+// 把外部事件映射为消息，然后运行本包规范的 tool-pair 协调，
+// 使结果成为 store 可以重放的有效对话。
 package session
 
 import (
@@ -22,24 +20,24 @@ import (
 	"time"
 )
 
-// Import id prefixes are deliberately distinct from the store's "n%06d" ids so
-// imported provenance stays recognizable and cannot collide with store ids.
+// 导入 id 的前缀刻意区别于 store 的 "n%06d" id，
+// 使导入来源保持可识别，且不会与 store 的 id 冲突。
 const (
 	claudeImportIDPrefix = "cc"
 	codexImportIDPrefix  = "cx"
 )
 
-// claudeCall is the shape stored in an assistant Entry's `tool_calls` array.
-// It is exported to tests indirectly through Entry.Data; keeping it flat makes
-// the payload both readable and usable by toolCallIDs, which only needs `id`.
+// claudeCall 是存储在 assistant Entry 的 `tool_calls` 数组中的形态。
+// 它通过 Entry.Data 间接暴露给测试；保持扁平结构使载荷既易读，
+// 又能被只需要 `id` 的 toolCallIDs 使用。
 type claudeCall struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-// claudeUsage is the token accounting Claude Code attaches to assistant
-// events. It is preserved in Entry.Data under `usage`.
+// claudeUsage 是 Claude Code 附加在 assistant 事件上的 token 统计。
+// 它被保留在 Entry.Data 的 `usage` 键下。
 type claudeUsage struct {
 	InputTokens              int64 `json:"input_tokens"`
 	OutputTokens             int64 `json:"output_tokens"`
@@ -47,28 +45,25 @@ type claudeUsage struct {
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
-// ImportClaudeCodeJSONL converts a Claude Code `.jsonl` transcript into the
-// linear conversation argent-go projects from its own records.
+// ImportClaudeCodeJSONL 把 Claude Code 的 `.jsonl` 转录转换为
+// argent-go 从其自身记录投影出的线性对话。
 //
-// Claude Code writes one typed event per line. Only `user` and `assistant`
-// events carry conversation content; every other line (attachments, progress,
-// queue operations, titles, ...) is ignored. A message's `content` is either a
-// plain string (typical for user prompts) or an array of blocks:
+// Claude Code 每行写入一个带类型的事件。只有 `user` 和 `assistant` 事件携带对话内容；
+// 其他每一行（附件、进度、队列操作、标题等）都会被忽略。消息的 `content` 要么是普通字符串
+// （用户提示的典型情况），要么是块数组：
 //
-//   - `text`        — message text, joined with newlines;
-//   - `tool_use`    — an assistant tool call, preserved in Entry.Data under
-//     `tool_calls` so toolCallIDs/ReconcileToolPairs can pair it;
-//   - `tool_result` — delivered inside a `user` event, emitted as a `tool`
-//     Entry whose ToolCallID is the originating tool_use id;
-//   - anything else (image, thinking, ...) is skipped.
+//   - `text`        —— 消息文本，用换行符连接；
+//   - `tool_use`    —— assistant 工具调用，保留在 Entry.Data 的 `tool_calls` 下，
+//     以便 toolCallIDs/ReconcileToolPairs 配对；
+//   - `tool_result` —— 在 `user` 事件中传递，输出为一个 `tool` Entry，
+//     其 ToolCallID 是发起它的 tool_use id；
+//   - 其他任何内容（图片、思考等）都会被跳过。
 //
-// Assistant `message.usage` is preserved verbatim in Entry.Data under `usage`.
-// Timestamps are parsed as RFC3339 and normalized to UTC; an unparseable or
-// missing timestamp leaves Entry.TS zero.
+// assistant 的 `message.usage` 原样保留在 Entry.Data 的 `usage` 下。
+// 时间戳按 RFC3339 解析并规范化为 UTC；无法解析或缺失的时间戳使 Entry.TS 保持零值。
 //
-// The source is read leniently: malformed lines are skipped rather than
-// failing the whole import. An empty (or entirely non-message) transcript
-// yields an empty, non-nil slice. Only a nil reader is an error.
+// 源数据以宽松方式读取：格式错误的行会被跳过，而不是让整个导入失败。
+// 空的（或完全不含消息的）转录会返回空的非 nil 切片。只有 nil 读取器才是错误。
 func ImportClaudeCodeJSONL(src io.Reader) ([]Entry, error) {
 	lines, err := readImportLines(src)
 	if err != nil {
@@ -176,15 +171,13 @@ func ImportClaudeCodeJSONL(src io.Reader) ([]Entry, error) {
 	return ReconcileToolPairs(builder.entries), nil
 }
 
-// ImportCodexJSONL converts a Codex (OpenAI Responses) `.jsonl` rollout into
-// the native Entry projection. Codex transcripts begin with a `session_meta`
-// line and then carry conversation items as `response_item` lines whose payload
-// type is `message`, `function_call` or `function_call_output`. `event_msg`
-// lines (token accounting) and all other event types are metadata and skipped.
+// ImportCodexJSONL 把 Codex（OpenAI Responses）的 `.jsonl` 运行记录转换为
+// 原生 Entry 投影。Codex 转录以一行 `session_meta` 开始，随后以 `response_item` 行
+// 携带对话条目，其载荷类型为 `message`、`function_call` 或 `function_call_output`。
+// `event_msg` 行（token 统计）和所有其他事件类型都是元数据，会被跳过。
 //
-// Developer/system messages are harness prompts and are skipped. The `cwd`,
-// `id` and usage totals found in session_meta/event_msg do not belong on an
-// Entry and are intentionally not surfaced here.
+// developer/system 消息是框架提示，会被跳过。session_meta/event_msg 中的 `cwd`、
+// `id` 和用量总数不属于 Entry，刻意不在这里呈现。
 func ImportCodexJSONL(src io.Reader) ([]Entry, error) {
 	lines, err := readImportLines(src)
 	if err != nil {
@@ -233,7 +226,7 @@ func ImportCodexJSONL(src io.Reader) ([]Entry, error) {
 			if name == "" {
 				name = "unknown_tool"
 			}
-			// Codex stores arguments as a JSON-encoded string.
+			// Codex 将参数存储为 JSON 编码的字符串。
 			args, _ := json.Marshal(importString(payload, "arguments"))
 			calls := []claudeCall{importToolCall(callID, name, args)}
 			toolNames[callID] = name
@@ -250,8 +243,8 @@ func ImportCodexJSONL(src io.Reader) ([]Entry, error) {
 	return ReconcileToolPairs(builder.entries), nil
 }
 
-// importEntryBuilder chains imported entries by parent and mints fallback ids
-// only when a source event does not carry one.
+// importEntryBuilder 用 parent 把导入的条目链接起来，
+// 仅在源事件没有携带 id 时才生成回退 id。
 type importEntryBuilder struct {
 	entries []Entry
 	parent  string
@@ -289,8 +282,8 @@ func (b *importEntryBuilder) add(role, content, name, callID string, data map[st
 	b.parent = id
 }
 
-// readImportLines parses every non-blank line that is a JSON object. Bad lines
-// are skipped so a torn or foreign export cannot make the whole import fail.
+// readImportLines 解析每一个非空且为 JSON 对象的行。坏行会被跳过，
+// 使残缺或外部来源的导出不会让整个导入失败。
 func readImportLines(src io.Reader) ([]map[string]any, error) {
 	if src == nil {
 		return nil, errors.New("session: nil import source")
@@ -309,8 +302,7 @@ func readImportLines(src io.Reader) ([]map[string]any, error) {
 		}
 		lines = append(lines, object)
 	}
-	// A scanner error (line too long or read failure) ends the stream; whatever
-	// was decoded so far is still a usable, lenient import.
+	// 扫描器错误（行过长或读取失败）会结束流；至此已解码的内容仍是一个可用的宽松导入结果。
 	return lines, nil
 }
 
@@ -338,9 +330,8 @@ func importBool(object map[string]any, key string) bool {
 	return value
 }
 
-// importTimestamp parses an RFC3339 timestamp, accepting the fractional
-// seconds Claude Code and Codex both emit. A bad timestamp stays zero so callers
-// can distinguish it from the Unix epoch.
+// importTimestamp 解析 RFC3339 时间戳，接受 Claude Code 和 Codex 都会输出的小数秒。
+// 无效时间戳保持零值，使调用方可以将其与 Unix 纪元区分开。
 func importTimestamp(line map[string]any) time.Time {
 	stamp := importString(line, "timestamp")
 	if stamp == "" {
@@ -353,8 +344,8 @@ func importTimestamp(line map[string]any) time.Time {
 	return parsed.UTC()
 }
 
-// importBlockID gives each block within one event a distinct id while keeping
-// the source uuid as provenance. A missing uuid falls back to a minted id.
+// importBlockID 为同一事件内的每个块赋予不同的 id，同时保留源 uuid 作为来源标记。
+// 缺少 uuid 时回退到生成的 id。
 func importBlockID(base string, index int) string {
 	if base == "" {
 		return ""
@@ -391,8 +382,8 @@ func assistantImportData(text string, calls []claudeCall, usage *claudeUsage) ma
 	return data
 }
 
-// importedToolResultText flattens a Claude Code tool_result `content`, which is
-// either a string or an array of text/tool_reference blocks.
+// importedToolResultText 把 Claude Code 的 tool_result `content` 展平，
+// 它要么是字符串，要么是 text/tool_reference 块的数组。
 func importedToolResultText(content any) string {
 	switch value := content.(type) {
 	case string:
@@ -428,7 +419,7 @@ func importedToolResultText(content any) string {
 	return ""
 }
 
-// codexMessageText joins the text-bearing blocks of a Codex message payload.
+// codexMessageText 连接 Codex 消息载荷中携带文本的块。
 func codexMessageText(content any) string {
 	switch value := content.(type) {
 	case string:

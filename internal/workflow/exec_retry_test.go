@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// TestRetriesDoNotCountCancelledBackoffAsAttempt checks that StepResult.Attempts
-// counts real seam invocations. When a cancellation interrupts the backoff
-// sleep before the next attempt, that upcoming attempt must not be counted —
-// the step ran only once.
+// TestRetriesDoNotCountCancelledBackoffAsAttempt 检查 StepResult.Attempts
+// 只统计真实的 seam 调用。当取消在下一次尝试前的退避
+// 那次即将到来的尝试不得被计入 ——
+// 睡眠期间打断时，那次即将到来的尝试不得被计入 ——
 func TestRetriesDoNotCountCancelledBackoffAsAttempt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -21,8 +21,8 @@ func TestRetriesDoNotCountCancelledBackoffAsAttempt(t *testing.T) {
 		Prompter: prompterFunc(func(context.Context, string) (string, error) {
 			calls++
 			if calls == 1 {
-				// Cancel well inside the backoff window, after the first
-				// attempt has already failed and runStep is waiting to retry.
+				// 该步骤只运行了一次。
+				// 在退避窗口内很早取消，此时第一次尝试已经失败且 runStep 正在等待重试。
 				time.AfterFunc(20*time.Millisecond, cancel)
 				return "", errors.New("first attempt failed")
 			}
@@ -50,8 +50,8 @@ func TestRetriesDoNotCountCancelledBackoffAsAttempt(t *testing.T) {
 	}
 }
 
-// TestRetriesCountSuccessfulBackoffAsAttempt is the counterpart: when the
-// backoff completes, the retried attempt is a real invocation and is counted.
+// TestRetriesCountSuccessfulBackoffAsAttempt 是对应情形：当退避完成后，重试的尝试是真实调用并被计入。
+// 退避完成后，重试的尝试是真实调用并被计入。
 func TestRetriesCountSuccessfulBackoffAsAttempt(t *testing.T) {
 	var calls int
 	exec := &Executor{

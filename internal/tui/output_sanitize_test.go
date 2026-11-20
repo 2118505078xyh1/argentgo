@@ -50,8 +50,8 @@ func TestStripCursorControlRemovesCursorAndEraseSequences(t *testing.T) {
 }
 
 func TestStripCursorControlKeepsColorOSCAndUnknownSequences(t *testing.T) {
-	// OSC 8 hyperlinks use BEL or ST; SGR uses 'm'; device-status queries use
-	// an unknown final byte and must pass through rather than lose data.
+	// OSC 8 超链接使用 BEL 或 ST；SGR 使用 'm'；设备状态查询使用
+	// 未知终结字节，必须原样通过而不丢失数据。
 	for _, tc := range []struct {
 		name, in, want string
 	}{
@@ -130,8 +130,8 @@ func TestNormalizeOutputSpaceExpandsTabsAndCRLF(t *testing.T) {
 }
 
 func TestNormalizeToolOutputCargoProgress(t *testing.T) {
-	// A cargo-style build: two erased progress frames, then a coloured
-	// "Finished" line. Only the final frame of the progress row may survive.
+	// 一个 cargo 风格的构建：两帧被擦除的进度，然后一行彩色的
+	// "Finished"。只有进度行的最后一帧可以保留。
 	raw := "   Compiling demo v0.1.0\r\x1b[2K   Compiling demo v0.1.0: 25%\r" +
 		"\x1b[2K   Compiling demo v0.1.0: 100%\n" +
 		"\x1b[32m    Finished\x1b[0m dev [unoptimized]\n"
@@ -155,8 +155,8 @@ func TestNormalizeToolOutputKeepsCJKAndEmoji(t *testing.T) {
 }
 
 func TestNormalizeToolOutputIdenticalWithoutControls(t *testing.T) {
-	// No ESC, CR or TAB: every byte must survive unchanged, including a final
-	// newline and multi-byte runes.
+	// 没有 ESC、CR 或 TAB：每个字节都必须原样保留，包括尾随
+	// 换行和多字节 rune。
 	for _, raw := range []string{"", "plain text", "汉字😀\nsecond 中文\n", "a\nb\nc"} {
 		if got := normalizeToolOutput(raw); got != raw {
 			t.Fatalf("normalizeToolOutput(%q) = %q, want byte-identical input", raw, got)
@@ -165,8 +165,8 @@ func TestNormalizeToolOutputIdenticalWithoutControls(t *testing.T) {
 }
 
 func TestNormalizeToolOutputHandlesFullANSISequence(t *testing.T) {
-	// A git-style status line: SGR + OSC link survive, cursor erase is dropped
-	// and the bare CR keeps only the final frame.
+	// 一个 git 风格的状态行：SGR + OSC 链接保留，光标擦除被丢弃
+	// 且裸 CR 只保留最后一帧。
 	raw := "\x1b[?25l\x1b[2K\rremote: Counting objects  1%\r" +
 		"\x1b[2Kremote: Counting objects 100%\x1b[?25h\n" +
 		"\x1b]8;;https://example.com/commit\x07done\x1b]8;;\x07\n"

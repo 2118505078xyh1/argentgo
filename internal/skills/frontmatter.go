@@ -5,23 +5,23 @@ import (
 	"strings"
 )
 
-// Fields holds the values parsed from a YAML-ish frontmatter block.
+// Fields 保存从类 YAML frontmatter 块解析出的值。
 //
-// Only the subset a skill or command file needs is supported: `key: scalar`,
-// quoted scalars, `key: [a, b]` inline lists, indented `- item` lists and the
-// `>` / `|` block scalars. There is deliberately no YAML dependency: the input
-// is hand-written markdown, and a full parser would accept documents we do not
-// want to read anyway.
+// 只支持技能或命令文件所需的子集：`key: scalar`、
+// 带引号的标量、`key: [a, b]` 内联列表、缩进的 `- item` 列表以及
+// `>` / `|` 块标量。刻意没有 YAML 依赖：输入是手写的 markdown，一个完整的解析器反而会接受我们本不想读取的文档。
+// 输入是手写的 markdown，一个完整的解析器反而会接受我们
+// 本不想读取的文档。
 type Fields struct {
 	scalars map[string]string
 	lists   map[string][]string
 }
 
-// ParseFields parses the text between the two `---` fences.
+// ParseFields 解析两个 `---` 栅栏之间的文本。
 //
-// Keys are lower-cased. A repeated key keeps its last value. Lines that are
-// not `key: value` and are not part of an indented block are ignored, so a
-// stray prose line cannot fail a whole document.
+// 键被转为小写。重复键保留最后一个值。不属于
+// `key: value` 且不属于缩进块的行被忽略，因此
+// 游离的散文行不会使整个文档失败。
 func ParseFields(frontmatter string) Fields {
 	f := Fields{scalars: make(map[string]string), lists: make(map[string][]string)}
 	lines := strings.Split(strings.ReplaceAll(frontmatter, "\r\n", "\n"), "\n")
@@ -33,8 +33,8 @@ func ParseFields(frontmatter string) Fields {
 			continue
 		}
 		if indentOf(line) > 0 {
-			// An indented line with no owning key: part of a block already
-			// consumed, or junk. Either way there is nothing to attach it to.
+			// 游离的散文行不会使整个文档失败。
+			// 没有所属键的缩进行：属于已消费的块，或是垃圾。无论哪种都没有可附加之处。
 			continue
 		}
 		key, value, ok := splitField(line)
@@ -68,13 +68,13 @@ func ParseFields(frontmatter string) Fields {
 	return f
 }
 
-// Get returns the scalar value for key, or "" when it is absent.
+// Get 返回 key 的标量值，缺失时返回 ""。
 func (f Fields) Get(key string) string {
 	return f.scalars[strings.ToLower(strings.TrimSpace(key))]
 }
 
-// List returns the values for key. A scalar `a, b` is split on commas, so both
-// `tools: [a, b]` and `tools:\n  - a\n  - b` behave the same way.
+// List 返回 key 的值。标量 `a, b` 按逗号拆分，因此
+// `tools: [a, b]` 和 `tools:\n  - a\n  - b` 行为相同。
 func (f Fields) List(key string) []string {
 	key = strings.ToLower(strings.TrimSpace(key))
 	if values, ok := f.lists[key]; ok {
@@ -85,7 +85,7 @@ func (f Fields) List(key string) []string {
 	return splitInlineList(f.scalars[key])
 }
 
-// Keys returns every key seen, sorted.
+// Keys 返回见到的所有键，已排序。
 func (f Fields) Keys() []string {
 	seen := make(map[string]bool, len(f.scalars)+len(f.lists))
 	for key := range f.scalars {
@@ -131,7 +131,7 @@ func gatherBlock(lines []string, from int) (block []string, next int) {
 		}
 		block = append(block, line)
 	}
-	// Trailing blank lines belong to the next field, not this block.
+	// 末尾空行属于下一个字段而非本块。
 	for len(block) > 0 && strings.TrimSpace(block[len(block)-1]) == "" {
 		block = block[:len(block)-1]
 		next--
@@ -202,9 +202,9 @@ func splitInlineList(value string) []string {
 	return values
 }
 
-// blockText renders a `>`, `|` or plain indented block. Trailing blank lines
-// are always dropped; chomping indicators (`>-`, `|-`) therefore mean the same
-// thing as their plain forms.
+// blockText 渲染 `>`、`|` 或普通缩进块。末尾空行
+// 总是被去掉；因此裁剪指示符（`>-`、`|-`）含义相同
+// 于其普通形式。
 func blockText(marker string, block []string) string {
 	lines := dedent(block)
 	if len(lines) == 0 {
@@ -266,9 +266,9 @@ func unquote(value string) string {
 		if value[len(value)-1] != '"' {
 			return value
 		}
-		// Decode escapes left-to-right. A chained ReplaceAll would rewrite
-		// `\n` before `\\`, turning the literal `\\n` (backslash + "n") into a
-		// newline and corrupting values such as a Windows path in quotes.
+		// 转义从左到右解码。链式 ReplaceAll 会在
+		// `\n` 在 `\\` 之前，把字面量 `\\n`（反斜杠 + "n"）变成
+		// 换行并破坏引号中的 Windows 路径等值。
 		inner := value[1 : len(value)-1]
 		var b strings.Builder
 		for i := 0; i < len(inner); {
@@ -287,7 +287,7 @@ func unquote(value string) string {
 			case 't':
 				b.WriteByte('\t')
 			default:
-				// Unknown escape: keep both bytes verbatim.
+				// 未知转义：逐字节保留。
 				b.WriteByte('\\')
 				b.WriteByte(inner[i+1])
 			}
@@ -303,11 +303,11 @@ func unquote(value string) string {
 	return value
 }
 
-// SplitFrontmatter splits a leading `---` block from the body.
+// SplitFrontmatter 从正文中拆分开头的 `---` 块。起始栅栏必须是第一行，结束栅栏必须独占一行。没有块的文件返回 ok=false，由调用方决定
 //
-// The opening fence must be the first line and the closing fence a line of its
-// own. A file without a block returns ok=false and the caller decides whether
-// that is an error (skills) or acceptable (commands).
+// 起始栅栏必须是第一行，结束栅栏必须独占
+// 一行。没有块的文件返回 ok=false，由调用方决定
+// 那是错误（技能）还是可接受（命令）。
 func SplitFrontmatter(text string) (frontmatter, body string, ok bool) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	text = strings.ReplaceAll(text, "\r\n", "\n")

@@ -457,7 +457,12 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	// 在工具看到参数之前剥离模型的简洁意图。没有 `i` 时清理后的字节与原值相同，
 	// 因此对所有现有工具调用的行为都不变。
 	intent, cleaned := ExtractIntent(json.RawMessage(call.Function.Arguments))
-	output, meta, err := s.callTool(ctx, call.Function.Name, string(cleaned))
+	toolArgs := string(cleaned)
+	if toolArgumentCoercionEnabled() {
+		// 强转只影响工具实际收到的参数：审批摘要、事件与会话记录仍使用模型原始字节。
+		toolArgs = coerceToolArgumentsJSON(toolArgs, s.toolSchemaFor(call.Function.Name))
+	}
+	output, meta, err := s.callTool(ctx, call.Function.Name, toolArgs)
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
 		// 工具错误以文本形式跨过运行器边界，因此在原始错误仍可用的这里进行分类。

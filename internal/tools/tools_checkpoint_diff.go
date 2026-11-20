@@ -12,10 +12,10 @@ import (
 
 const checkpointDiffUnavailable = "checkpoint diff unavailable: no checkpoint source configured"
 
-// FileChange is the neutral per-file diff summary rendered by checkpoint_diff.
-// It mirrors only what a checkpoint record can provide (paths, before/after
-// hashes, optional line counts) so this package does not need to import
-// internal/session.
+// FileChange 是 checkpoint_diff 渲染的、中性的逐文件差异摘要。
+// 它只镜像检查点记录能提供的信息（路径、前/后
+// 哈希、可选行数），使本包无需导入
+// internal/session。
 type FileChange struct {
 	Path         string `json:"path"`
 	Status       string `json:"status,omitempty"` // modified | added | deleted | unchanged
@@ -25,20 +25,20 @@ type FileChange struct {
 	Removed      int    `json:"removed,omitempty"`
 }
 
-// CheckpointSource supplies checkpoint diff data. It is declared here, on the
-// consumer side, so internal/tools stays independent of internal/session.
+// CheckpointSource 提供检查点差异数据。它在消费侧、
+// 即此处声明，使 internal/tools 保持独立于 internal/session。
 //
-// The app adapter wraps a session and the workspace root: find the checkpoint
-// by id (empty means latest), map each session.CheckpointFile to a FileChange
-// with FileChangeFromBytes using f.Before and the current workspace bytes, and
-// return the slice. Register the adapter with Registry.SetCheckpointSource.
+// app 适配器包装一个会话和工作区根目录：按 id 找到检查点
+// （空表示最新），用 FileChangeFromBytes 把每个 session.CheckpointFile 映射为
+// FileChange，使用 f.Before 和当前工作区字节，并
+// 返回切片。用 Registry.SetCheckpointSource 注册该适配器。
 type CheckpointSource interface {
 	Diff(id string) ([]FileChange, error)
 }
 
-// SetCheckpointSource registers the read-only checkpoint_diff tool. Call it
-// from internal/app once the session directory is known. Passing nil registers
-// a tool that reports "checkpoint diff unavailable" instead of failing the run.
+// SetCheckpointSource 注册只读的 checkpoint_diff 工具。在
+// internal/app 知道会话目录后调用它。传入 nil 注册
+// 一个报告"checkpoint diff unavailable"而非让运行失败的工具。
 func (r *Registry) SetCheckpointSource(src CheckpointSource) {
 	t := newCheckpointDiffTool(src)
 	if _, exists := r.tools[t.Name()]; !exists {
@@ -77,9 +77,9 @@ func (t *checkpointDiffTool) Run(ctx context.Context, root string, raw json.RawM
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("checkpoint_diff: bad arguments: %w", err)
 	}
-	// The workspace root is bound into the adapter at construction time. The
-	// optional root field is accepted for schema compatibility but not needed
-	// here, since Tool.Run already receives the authoritative registry root.
+	// 工作区根目录在构造时绑定到适配器。可选的
+	// root 字段为 schema 兼容性而接受，但这里
+	// 不需要，因为 Tool.Run 已收到权威的注册表根目录。
 	_ = args.Root
 	_ = root
 
@@ -95,9 +95,9 @@ func (t *checkpointDiffTool) Run(ctx context.Context, root string, raw json.RawM
 
 const checkpointDiffMarker = "\n... [truncated] ...\n"
 
-// clipCheckpointDiff is a strictly bounded clip: clipTo adds a marker on top of
-// its head/tail budget, so the caller's limit is reduced by the marker size to
-// keep the whole output (marker included) within the configured cap.
+// clipCheckpointDiff 是严格有界的裁剪：clipTo 在其头尾预算之上
+// 再加一个标记，因此把调用方的上限减去标记大小，
+// 使整个输出（含标记）保持在配置的上限内。
 func clipCheckpointDiff(ctx context.Context, text string) string {
 	limit := outputLimit(ctx) - len(checkpointDiffMarker)
 	if limit < 1 {
@@ -111,8 +111,8 @@ type checkpointDiffOutput struct {
 	Files []FileChange `json:"files"`
 }
 
-// renderCheckpointDiff emits compact JSON with a stable path order so the
-// model sees a deterministic summary regardless of source iteration order.
+// renderCheckpointDiff 发出紧凑 JSON，路径顺序稳定，使
+// 模型无论数据源迭代顺序如何都看到确定性的摘要。
 func renderCheckpointDiff(changes []FileChange) string {
 	files := make([]FileChange, 0, len(changes))
 	files = append(files, changes...)
@@ -125,9 +125,9 @@ func renderCheckpointDiff(changes []FileChange) string {
 	return string(data)
 }
 
-// FileChangeFromBytes builds a FileChange from the pre/post bytes a checkpoint
-// adapter has at hand. A nil slice means the file was absent on that side; an
-// empty non-nil slice is an empty file that exists.
+// FileChangeFromBytes 用检查点适配器手头的前/后字节
+// 构建 FileChange。nil 切片表示文件在那一侧不存在；
+// 非 nil 的空切片表示一个存在的空文件。
 func FileChangeFromBytes(path string, before, after []byte) FileChange {
 	change := FileChange{Path: path, Status: "modified"}
 	switch {
@@ -150,11 +150,11 @@ func FileChangeFromBytes(path string, before, after []byte) FileChange {
 
 const maxDiffLinesForLCS = 4000
 
-// DiffLineCounts returns (added, removed) line counts between before and
-// after. It uses a bounded LCS so unchanged lines are not counted as edits;
-// for very large inputs it falls back to whole-file counts rather than
-// allocating a quadratic table. CRLF is normalized to LF so a line-ending
-// change alone does not inflate the result.
+// DiffLineCounts 返回 before 与 after 之间的 (新增, 删除) 行数。
+// 它使用有界 LCS，使未变化的行不被计为编辑；
+// 对于非常大的输入，它回退到整文件计数，而不是
+// 分配一个平方级的表。CRLF 会被规范化为 LF，因此仅行尾
+// 变化不会夸大结果。
 func DiffLineCounts(before, after []byte) (added, removed int) {
 	a := splitDiffLines(before)
 	b := splitDiffLines(after)
@@ -162,7 +162,7 @@ func DiffLineCounts(before, after []byte) (added, removed int) {
 		len(a)*len(b) > maxDiffLinesForLCS*maxDiffLinesForLCS {
 		return len(b), len(a)
 	}
-	// dp[i][j] is the LCS length of a[:i] and b[:j].
+	// dp[i][j] 是 a[:i] 与 b[:j] 的 LCS 长度。
 	dp := make([][]int, len(a)+1)
 	for i := range dp {
 		dp[i] = make([]int, len(b)+1)

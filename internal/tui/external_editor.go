@@ -6,24 +6,24 @@ import (
 	"unicode"
 )
 
-// editorLookPath is the PATH resolver used on Windows to turn a bare command
-// name into a full path, so .cmd/.bat shims (e.g. code -> code.cmd) launch
-// correctly. It is a package variable, mirroring clipboardWrite in keys.go, so
-// tests can swap in a deterministic resolver; production uses exec.LookPath.
+// editorLookPath 是 Windows 上使用的 PATH 解析器，把裸命令
+// 名转成完整路径，使 .cmd/.bat 包装（如 code -> code.cmd）能
+// 正确启动。它是包变量，仿照 keys.go 中的 clipboardWrite，
+// 使测试可以换成确定性的解析器；生产使用 exec.LookPath。
 var editorLookPath = exec.LookPath
 
-// ResolveExternalEditor resolves the external editor command from the VISUAL
-// and EDITOR environment variables. VISUAL takes precedence over EDITOR, and a
-// raw value such as "code --wait" is split into a command plus its arguments.
+// ResolveExternalEditor 从 VISUAL 和 EDITOR 环境变量解析
+// 外部编辑器命令。VISUAL 优先于 EDITOR，
+// 像 "code --wait" 这样的原始值会被拆成命令及其参数。
 //
-// The env lookup is injected (rather than calling os.Getenv) so this is a pure
-// query: callers provide the environment and tests never touch the real one.
-// On Windows the command is additionally resolved through PATH; a bare name is
-// kept unchanged when resolution fails, matching the shim behaviour of the
-// original implementation.
+// 环境查找是注入的（而非调用 os.Getenv），因此这是一个纯
+// 查询：调用方提供环境，测试从不触碰真实环境。
+// 在 Windows 上命令还会通过 PATH 解析；
+// 当解析失败时保留裸名不变，与原实现的包装行为
+// 一致。
 //
-// It returns ok=false when neither variable is set or the chosen value has no
-// command token.
+// 当两个变量都未设置，或所选值没有命令 token 时
+// 返回 ok=false。
 func ResolveExternalEditor(lookup func(string) (string, bool)) (cmd string, args []string, ok bool) {
 	if lookup == nil {
 		return "", nil, false
@@ -51,10 +51,10 @@ func ResolveExternalEditor(lookup func(string) (string, bool)) (cmd string, args
 	return cmd, args, true
 }
 
-// splitEditorCommand splits an editor command string into fields, honoring
-// single and double quotes so paths containing spaces stay in one field. A
-// backslash escapes only a following quote or backslash, so ordinary Windows
-// path separators survive untouched.
+// splitEditorCommand 把编辑器命令字符串按字段拆分，遵循
+// 单引号和双引号，使含空格的路径留在同一字段。反斜杠
+// 只转义紧跟其后的引号或反斜杠，因此普通的 Windows
+// 路径分隔符原样保留。
 func splitEditorCommand(raw string) []string {
 	rs := []rune(raw)
 	var fields []string

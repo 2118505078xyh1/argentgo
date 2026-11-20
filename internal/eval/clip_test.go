@@ -6,11 +6,11 @@ import (
 	"unicode/utf8"
 )
 
-// TestClipNeverSplitsAUTF8Rune guards the failure-reason formatter. clip is
-// called on model answers, seeded file contents and exec output, all of which
-// may contain CJK or emoji. Slicing a Go string by byte index can cut a
-// multibyte rune in half, producing invalid UTF-8 in the TAP report (and a
-// replacement character once the report is rendered or JSON-encoded).
+// TestClipNeverSplitsAUTF8Rune 守护失败原因格式化器。clip
+// 被用于模型回答、种子文件内容和 exec 输出，它们都
+// 被用于模型回答、种子文件内容和 exec 输出，它们都可能包含 CJK 或 emoji。按字节索引切片 Go 字符串会切开
+// 多字节 rune，在 TAP 报告中产生无效 UTF-8（报告渲染或 JSON 编码后变成替换字符）。
+// 报告渲染或 JSON 编码后变成替换字符）。
 func TestClipNeverSplitsAUTF8Rune(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -41,8 +41,8 @@ func TestClipNeverSplitsAUTF8Rune(t *testing.T) {
 	}
 }
 
-// TestClipIsValidUTF8ForEveryLimit is a property sweep: no limit may leave an
-// invalid byte sequence, even when it lands on a 3- or 4-byte rune.
+// TestClipIsValidUTF8ForEveryLimit 是属性扫描：任何限制都不得留下
+// TestClipIsValidUTF8ForEveryLimit 是属性扫描：任何限制都不得留下无效字节序列，即使落在 3 或 4 字节 rune 上。
 func TestClipIsValidUTF8ForEveryLimit(t *testing.T) {
 	samples := []string{
 		"你好世界，这是一段中文答案",
@@ -63,8 +63,8 @@ func TestClipIsValidUTF8ForEveryLimit(t *testing.T) {
 	}
 }
 
-// TestEditbenchClipNeverSplitsAUTF8Rune covers the edit benchmark's own
-// formatter, which has the same byte-slicing shape as clip.
+// TestEditbenchClipNeverSplitsAUTF8Rune 覆盖 edit 基准自带的格式化器，它与 clip 有相同的字节切片形态。
+// 格式化器，它与 clip 有相同的字节切片形态。
 func TestEditbenchClipNeverSplitsAUTF8Rune(t *testing.T) {
 	tests := []struct {
 		name string

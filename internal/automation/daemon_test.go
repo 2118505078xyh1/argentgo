@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// fakeClock is a manually advanced clock.
+// fakeClock 是手动推进的时钟。
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -32,7 +32,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-// fakeExecutor records every call and can block or fail on demand.
+// fakeExecutor 记录每次调用并可按需要阻塞或失败。
 type fakeExecutor struct {
 	mu    sync.Mutex
 	calls int
@@ -116,8 +116,8 @@ func TestDaemonRunsDueTask(t *testing.T) {
 	if spec.LastRun == nil || !spec.LastRun.Equal(now) {
 		t.Fatalf("last run = %v", spec.LastRun)
 	}
-	// The slot was 11:59, so the next one is 12:59 — advancing from the
-	// completion time (12:00) would have produced 13:00 and caused drift.
+	// 时隙是 11:59，因此下一个是 12:59 —— 从完成时间推进
+	// 时隙是 11:59，因此下一个是 12:59 —— 从完成时间（12:00）推进会得到 13:00 并造成漂移。
 	if want := slot.Add(time.Hour); !spec.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s", spec.NextDue, want)
 	}
@@ -200,8 +200,8 @@ func TestDaemonSkipPolicyOnlyDropsSlotsMissedBeforeStart(t *testing.T) {
 			wantDue:    start.Add(time.Hour),
 		},
 		{
-			// With a 30s tick the daemon almost always sees a slot a few
-			// seconds late. That is not "missed" and must still run.
+			// 使用 30s tick 时，daemon 几乎总是晚几秒看到某个时隙。这不是"错过"且仍必须运行。
+			// 晚几秒。这不是"错过"且仍必须运行。
 			name:       "slot became due after start",
 			slot:       start.Add(15 * time.Second),
 			advance:    30 * time.Second,
@@ -262,7 +262,7 @@ func TestDaemonMissedRunOnceRunsOnce(t *testing.T) {
 	}
 	d.scan(context.Background())
 	d.wait()
-	// A second scan with the same clock must find nothing left to do.
+	// 相同时钟下的第二次扫描必须找不到任何待办。
 	d.scan(context.Background())
 	d.wait()
 
@@ -330,8 +330,8 @@ func TestDaemonNeverRunsTheSameIdConcurrently(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the executor never started")
 	}
-	// The slot is still in the past, so a second scan would fire again if the
-	// daemon did not track in-flight runs.
+	// 相同时钟下的第二次扫描必须找不到任何待办。
+	// 该时隙仍在过去，因此若 daemon 不跟踪进行中的运行，第二次扫描会再次触发。
 	d.scan(context.Background())
 	close(release)
 	d.wait()
@@ -426,8 +426,8 @@ func TestDaemonAdvancesIntervalFromSlotNotFinish(t *testing.T) {
 		t.Fatalf("last run = %v, want the finish time", got.LastRun)
 	}
 
-	// A second slot must not inherit the first run's delay: 12:10 -> 12:20,
-	// not 12:22. This is the long-term drift the probe reproduced.
+	// 第二个时隙不得继承第一次运行的延迟：12:10 -> 12:20，而不是 12:22。这是探针复现的长期漂移。
+	// 而不是 12:22。这是探针复现的长期漂移。
 	d.scan(context.Background()) // 12:02, nothing due yet
 	d.wait()
 	clock.Advance(8 * time.Minute) // 12:10
@@ -461,8 +461,8 @@ func TestDaemonLateRunResumesFromNow(t *testing.T) {
 	d.scan(context.Background())
 	d.wait()
 
-	// Advancing from the stale 10:00 slot alone would yield 10:10 and fire
-	// again immediately; the catch-up must resume from "now".
+	// 仅从陈旧的 10:00 时隙推进会得到 10:10 并立即再次触发；追赶必须从"现在"恢复。
+	// 并立即再次触发；追赶必须从"现在"恢复。
 	got, _ := store.Get("catchup")
 	if want := now.Add(10 * time.Minute); !got.NextDue.Equal(want) {
 		t.Fatalf("next due = %s, want %s", got.NextDue, want)
@@ -642,8 +642,8 @@ func TestRunNowLogsInSameSecondDoNotCollide(t *testing.T) {
 		t.Fatalf("expected two distinct run records, got %v (err %v)", records, err)
 	}
 	got, _ := store.Get("nightly")
-	// Glob returns sorted names; the later sequence is the second entry and
-	// must be the one recorded as the most recent log.
+	// Glob 返回排序后的名称；较晚的序列号是第二项，且必须是被记录为最近日志的那个。
+	// 必须是被记录为最近日志的那个。
 	if got.LastLog != logs[1] {
 		t.Fatalf("LastLog = %q, want the newest log %q", got.LastLog, logs[1])
 	}

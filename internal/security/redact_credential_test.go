@@ -195,12 +195,11 @@ func TestRedactJSONScrubsAuthorizationAndURL(t *testing.T) {
 	}
 }
 
-// TestRedactAuthorizationWithoutSpace covers the HTTP-valid spelling with no
-// OWS after the header colon. The headerPrefixes table used to only match
-// "Authorization: " (with a trailing space), so `Authorization:Basic <b64>`
-// leaked its credential: a bare base64 token is not credential-shaped and the
-// spaced needles never matched. Both the raw-text and JSON/row paths must be
-// safe because audit reasons and terminal output use them.
+// TestRedactAuthorizationWithoutSpace 覆盖头冒号后无 OWS 的合法 HTTP 写法。
+// headerPrefixes 表过去只匹配 "Authorization: "（带尾随空格），因此
+// `Authorization:Basic <b64>` 会泄露其凭据：裸 base64 token 不具有凭据形状，
+// 而带空格的搜索串又匹配不上。原始文本路径和 JSON/行路径都必须安全，
+// 因为审计原因和终端输出会使用它们。
 func TestRedactAuthorizationWithoutSpace(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -256,10 +255,9 @@ func TestRedactAuthorizationWithoutSpace(t *testing.T) {
 	}
 }
 
-// TestRedactAuthorizationNoSpaceStructuredPaths checks that the no-space
-// spelling is scrubbed on the row and JSON paths too, and that the existing
-// spaced spelling still produces a single placeholder (the two needles must
-// not stack into a double redaction).
+// TestRedactAuthorizationNoSpaceStructuredPaths 检查无空格写法在行路径和 JSON 路径上
+// 也会被清洗，并且原有的带空格写法仍只产生一个占位符（两个搜索串不得叠加成双重
+// 脱敏）。
 func TestRedactAuthorizationNoSpaceStructuredPaths(t *testing.T) {
 	spaced := Redact(`Authorization: Basic dXNlcjpwYXNz`)
 	if want := "Authorization: " + placeholder("auth header"); spaced != want {

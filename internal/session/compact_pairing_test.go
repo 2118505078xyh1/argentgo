@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// assistantWithCalls builds an assistant Entry whose Data carries the full
-// llm.Message payload shape persisted by the agent loop: "tool_calls" is an
-// array of objects with an "id".
+// assistantWithCalls 构建 assistant Entry，其 Data 携带 agent 循环持久化的
+// 完整 llm.Message 载荷形态："tool_calls" 是一个
+// 带 "id" 的对象数组。
 func assistantWithCalls(content string, ids ...string) Entry {
 	calls := make([]any, 0, len(ids))
 	for _, id := range ids {
@@ -28,8 +28,8 @@ func assistantWithCalls(content string, ids ...string) Entry {
 	return Entry{Role: "assistant", Content: content, Data: data}
 }
 
-// toolResult builds a tool Entry with the result id recorded under the same
-// key the transcript uses ("id"), which messageEntry maps to ToolCallID.
+// toolResult 构建工具 Entry，其结果 id 记录在与转录相同的
+// 键（"id"）下，messageEntry 会把它映射为 ToolCallID。
 func toolResult(id, content string) Entry {
 	data, _ := json.Marshal(map[string]any{"id": id, "name": "read", "output": content})
 	return Entry{Role: "tool", Content: content, ToolCallID: id, Data: data}
@@ -67,8 +67,8 @@ func TestAdjustCutKeepsEveryToolPairOnOneSide(t *testing.T) {
 				toolResult("c3", "t3"),
 				{Role: "assistant", Content: "done"},
 			},
-			start: 4, // points at the third result
-			want:  1, // whole batch + assistant moved to the kept side
+			start: 4, // 指向第三个结果
+			want:  1, // 整批 + assistant 移到保留侧
 		},
 		{
 			name: "interleaved results move back over the issuing assistant",
@@ -80,14 +80,14 @@ func TestAdjustCutKeepsEveryToolPairOnOneSide(t *testing.T) {
 				toolResult("c2", "t2"),
 				{Role: "assistant", Content: "done"},
 			},
-			start: 4, // points at the second result; both calls are at 1
-			want:  1, // back up over the first call too, so no pair is split
+			start: 4, // 指向第二个结果；两个调用都在 1
+			want:  1, // 也回退跳过第一个调用，使任何配对都不被拆分
 		},
 		{
 			name: "cut that strands a call moves back over an intervening user message",
-			// The legacy helper only looks at a trailing run of tool results.
-			// Here start points at a user message, so the old cut would leave
-			// assistant's call in the summary while keeping its result.
+			// 旧版辅助函数只看末尾连续的工具结果。
+			// 这里 start 指向一条用户消息，因此旧切分会留下
+			// assistant 的调用在摘要中，却保留它的结果。
 			entries: []Entry{
 				{Role: "user", Content: "u"},
 				assistantA1,

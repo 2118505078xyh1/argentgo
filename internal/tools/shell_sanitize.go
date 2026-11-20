@@ -6,16 +6,16 @@ import (
 	"unicode/utf8"
 )
 
-// sanitizeShellOutput makes raw shell output safe to hand to the model.
+// sanitizeShellOutput 让原始 shell 输出可以安全地交给模型。
 //
-// Pipeline: ANSI escape sequences are consumed whole (dropping only ESC used
-// to leave literal "[36m"-style garbage in colored logs such as vite's), other
-// C0 controls are removed, interlinear annotation characters are removed.
-// The surviving text is then normalized the way a terminal would render it:
-// carriage returns overwrite line content so only the last progress frame
-// remains, backspaces destructively erase the preceding character, and runs of
-// identical lines are collapsed with a marker. Runes, including CJK, are never
-// split across UTF-8 boundaries.
+// 处理流水线：完整消费 ANSI 转义序列（只丢弃 ESC，避免像 vite 这样的
+// 彩色日志中留下字面上的 "[36m" 垃圾），移除其他
+// C0 控制字符，移除行间注释字符。
+// 随后按终端渲染的方式规范化幸存文本：
+// 回车会覆盖行内容，因此只保留最后一个进度帧；
+// 退格会破坏性地擦除前一个字符；连续
+// 相同的行会被折叠并加标记。包括 CJK 在内的 rune 绝不会
+// 在 UTF-8 边界处被拆分。
 func sanitizeShellOutput(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -47,29 +47,29 @@ func sanitizeShellOutput(s string) string {
 			i += size
 			continue
 		}
-		// Keep the original bytes, including an invalid UTF-8 byte, rather
-		// than substituting a rune and corrupting the surrounding text.
+		// 保留原始字节，包括无效的 UTF-8 字节，而不是
+		// 替换成某个 rune 从而破坏周围文本。
 		b.WriteString(s[i : i+size])
 		i += size
 	}
-	// Strip escape bodies before interpreting overwrites: ANSI sequences take
-	// up no columns on a real terminal, so counting them would misalign the
-	// cursor and corrupt progress frames. Run the terminal-style passes only
-	// on the cleaned text, and compress repeated lines last.
+	// 在解释覆盖之前先剥离转义正文：ANSI 序列在真实终端上不占
+	// 任何列，因此把它们计入会导致光标错位并破坏进度帧。终端风格的
+	// 处理只在清理后的文本上运行，
+	// 最后再压缩重复行。
 	text := b.String()
 	text = processCarriageReturns(text)
 	text = processBackspaces(text)
 	return applyRunLengthEncoding(text)
 }
 
-// processCarriageReturns simulates a real terminal: within each line, a CR
-// moves the cursor back to column zero and the following runes overwrite what
-// is already there. That leaves only the final frame of a progress display.
+// processCarriageReturns 模拟真实终端：在每行内，回车
+// 把光标移回第 0 列，其后的 rune 覆盖
+// 已有内容。这样只留下进度显示的最后一帧。
 //
-// Cline's reference implementation works on UTF-16 code units and pads a space
-// when a partial overwrite splits a surrogate pair. Overwriting here is done
-// on whole runes, so a multi-byte character is replaced as a unit and can
-// never be split — no padding is needed and CJK/emoji stay intact.
+// Cline 的参考实现基于 UTF-16 码元工作，并在部分覆盖拆分
+// 代理对时补一个空格。这里的覆盖按完整 rune 进行，因此多字节字符
+// 会作为一个整体被替换，永远不会被拆分 ——
+// 无需补空格，CJK/emoji 保持完好。
 func processCarriageReturns(s string) string {
 	if !strings.ContainsRune(s, '\r') {
 		return s
@@ -101,10 +101,10 @@ func processCarriageReturnLine(line string) string {
 	return string(out)
 }
 
-// processBackspaces treats a backspace as destructive deletion of the rune
-// immediately before it, matching the terminal-output optimization used by
-// Cline/Roo-Code for progress spinners. Leading backspaces and those with
-// nothing left to erase are no-ops.
+// processBackspaces 把退格视为对其前一个 rune 的破坏性删除，
+// 与 Cline/Roo-Code 用于进度指示器的终端输出优化一致。开头的
+// 退格以及没有内容可擦除的
+// 退格都是空操作。
 func processBackspaces(s string) string {
 	if !strings.ContainsRune(s, '\b') {
 		return s
@@ -122,10 +122,10 @@ func processBackspaces(s string) string {
 	return string(out)
 }
 
-// applyRunLengthEncoding collapses consecutive identical lines into the first
-// line plus a "<previous line repeated N additional times>" marker. The
-// marker is only used when the compressed form is shorter than the original
-// run; repeated short lines are left untouched.
+// applyRunLengthEncoding 把连续相同的行折叠为第一行
+// 加上一个"<前一行额外重复了 N 次>"标记。仅当压缩形式比原始
+// 连续行更短时才使用该标记；重复的短行
+// 保持不变。
 func applyRunLengthEncoding(s string) string {
 	if s == "" {
 		return s
@@ -182,12 +182,12 @@ func applyRunLengthEncoding(s string) string {
 	return out.String()
 }
 
-// skipShellEscapeSequence consumes one escape sequence body starting just
-// after the ESC byte and returns the index of the first following byte. It
-// handles CSI (ESC '[' ... final byte 0x40..0x7e), OSC (ESC ']' ... BEL or
-// ESC '\'), charset designators (ESC '(' X / ESC ')' X), and a generic escape
-// that swallows one following character. A sequence truncated at end of input
-// is consumed to the end instead of panicking or leaking its body.
+// skipShellEscapeSequence 消费从 ESC 字节之后开始的一个转义
+// 序列正文，并返回紧随其后的第一个字节的索引。它
+// 处理 CSI（ESC '[' ... 结束字节 0x40..0.7e）、OSC（ESC ']' ... BEL 或
+// ESC '\'）、字符集指定符（ESC '(' X / ESC ')' X），以及吞掉
+// 一个后继字符的通用转义。在输入末尾被截断的序列
+// 会被消费到末尾，而不是 panic 或泄漏其正文。
 func skipShellEscapeSequence(s string, i int) int {
 	if i >= len(s) {
 		return i

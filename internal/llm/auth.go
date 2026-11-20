@@ -5,20 +5,20 @@ import (
 	"strings"
 )
 
-// Auth is one resolved auth header. A zero-value Auth means "no auth": it
-// writes no header, which is how apiKey:false / NoAuth is represented.
+// Auth 是一个已解析的认证头。零值 Auth 表示"无认证"：它
+// 不写入任何头部，这正是 apiKey:false / NoAuth 的表示方式。
 type Auth struct {
 	Header string
 	Value  Secret
 }
 
-// NoAuth returns the sentinel used when a provider needs no credential.
+// NoAuth 返回提供方不需要凭据时使用的哨兵值。
 func NoAuth() Auth {
 	return Auth{}
 }
 
-// OrElse returns the receiver when it carries a credential, otherwise the
-// fallback. Chaining it models an ordered list of env var sources.
+// OrElse 在接收者带有凭据时返回它，否则返回
+// fallback。链式调用它可模拟有序的环境变量来源列表。
 func (a Auth) OrElse(fallback Auth) Auth {
 	if a.Value.Value() != "" {
 		return a
@@ -26,7 +26,7 @@ func (a Auth) OrElse(fallback Auth) Auth {
 	return fallback
 }
 
-// Apply writes the resolved header. NoAuth deliberately writes nothing.
+// Apply 写入已解析的头部。NoAuth 有意不写入任何东西。
 func (a Auth) Apply(headers http.Header) {
 	if headers == nil || a.Header == "" || a.Value.Value() == "" {
 		return
@@ -34,8 +34,8 @@ func (a Auth) Apply(headers http.Header) {
 	headers.Set(a.Header, a.Value.Value())
 }
 
-// ResolveCredential returns the first non-empty value from names. An empty
-// name is skipped; whitespace-only values count as missing.
+// ResolveCredential 返回 names 中第一个非空值。空
+// 名称会被跳过；仅含空白的值视为缺失。
 func ResolveCredential(lookup func(string) string, names []string) string {
 	for _, name := range names {
 		if strings.TrimSpace(name) == "" || lookup == nil {
@@ -48,9 +48,9 @@ func ResolveCredential(lookup func(string) string, names []string) string {
 	return ""
 }
 
-// ResolveAuth builds an auth header from the first non-empty credential in
-// names. scheme is prepended when set ("Bearer" for Authorization); an empty
-// scheme sends the raw value (x-api-key). No names or no value yields NoAuth.
+// ResolveAuth 根据 names 中第一个非空凭据构建认证头。
+// 设置 scheme 时会加在前面（Authorization 用 "Bearer"）；空
+// scheme 则发送原始值（x-api-key）。没有 names 或没有值都产生 NoAuth。
 func ResolveAuth(lookup func(string) string, names []string, header, scheme string) Auth {
 	credential := ResolveCredential(lookup, names)
 	if credential == "" {

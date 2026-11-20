@@ -48,14 +48,14 @@ func TestPlanMultiEditClassifiesAndSimulatesInOrder(t *testing.T) {
 			t.Fatalf("Failed[%d] = %+v, want index %d kind %q", i, got, want.idx, want.kind)
 		}
 	}
-	// Successful edits are visible to later blocks; failed ones are not.
+	// 成功的编辑对后续块可见；失败的则不可见。
 	if got, want := plan.Snapshot["a.txt"], "ALPHA\nBETA\ngamma\n"; got != want {
 		t.Fatalf("simulated a.txt = %q, want %q", got, want)
 	}
 	if got, want := plan.Snapshot["b.txt"], "ONE\ntwo\n"; got != want {
 		t.Fatalf("simulated b.txt = %q, want %q", got, want)
 	}
-	// A dry run must not mutate the caller's snapshot either.
+	// dry run 也不得改变调用方的快照。
 	if got, want := files["a.txt"], "alpha\nbeta\ngamma\n"; got != want {
 		t.Fatalf("input snapshot mutated: %q, want %q", got, want)
 	}
@@ -105,8 +105,8 @@ func TestResolveBlockFileFindsUniqueLiteralInAnotherFile(t *testing.T) {
 		t.Fatalf("candidates = %+v, want exactly the literal match in src/main.go", cands)
 	}
 
-	// When two files each hold one literal match, neither is privileged: the
-	// caller must decide, because auto-picking would edit the wrong file.
+	// 当两个文件各持有一个字面匹配时，二者不分主次：
+	// 调用方必须决策，因为自动挑选会改错文件。
 	known["src/other.go"] = "func hello() {}\n"
 	cands = resolveBlockFile(block, known)
 	if len(cands) != 2 || cands[0].Path != "src/main.go" || cands[1].Path != "src/other.go" {
@@ -176,7 +176,7 @@ func TestPlanMultiEditRelocatesWrongFilenameWithoutWriting(t *testing.T) {
 	if got, want := plan.Snapshot[canonicalEditPath(right)], "APPLE\nbanana\n"; got != want {
 		t.Fatalf("simulated 正确.txt = %q, want %q", got, want)
 	}
-	// Neither file was touched: a plan is a dry run even with CJK paths.
+	// 两个文件都未被触碰：即使使用 CJK 路径，计划也只是 dry run。
 	if got, err := os.ReadFile(right); err != nil || string(got) != "apple\nbanana\n" {
 		t.Fatalf("right file changed: %q, %v", got, err)
 	}

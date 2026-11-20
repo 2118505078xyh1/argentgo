@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// externalEditorRun spawns the resolved editor on a temporary prompt file. It
-// is a package variable, like clipboardWrite and editorLookPath, so tests can
-// swap in a fake editor without launching a real process. Production wires the
-// editor to the real terminal streams because it owns the screen while running.
+// externalEditorRun 在临时提示文件上启动解析出的编辑器。
+// 它是包变量，像 clipboardWrite 和 editorLookPath 一样，使测试可以
+// 换成假编辑器而不启动真实进程。生产环境把编辑器接到
+// 真实的终端流，因为它在运行期间拥有屏幕。
 var externalEditorRun = func(cmd string, args []string, path string) error {
 	all := append(append([]string{}, args...), path)
 	c := exec.Command(cmd, all...)
@@ -19,12 +19,12 @@ var externalEditorRun = func(cmd string, args []string, path string) error {
 	return c.Run()
 }
 
-// externalEditorScreen, when installed by the run loop, wraps the editor
-// process so the TUI can leave the alternate screen (and raw mode) first. A nil
-// callback keeps model-only callers, including tests, working unchanged.
+// 当 run 循环安装 externalEditorScreen 时，它包装编辑器
+// 进程，使 TUI 能先离开备用屏幕（和原始模式）。nil
+// 回调让仅使用模型的调用方（包括测试）保持不变。
 var externalEditorScreen func(fn func())
 
-// HandleKey applies one keystroke and reports what the loop should do.
+// HandleKey 应用一次按键并报告循环应做什么。
 func (m *Model) HandleKey(key Key) KeyAction {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -48,9 +48,9 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindIgnore:
 		return ActionNone
 	case KindCtrlL:
-		// Ctrl+L is decoded but otherwise unused; with the session rail open
-		// it focuses the filter bar. It leaves the prompt untouched so slash
-		// commands like /help still type normally.
+		// Ctrl+L 被解码但其他方面未使用；会话栏打开时
+		// 它聚焦过滤栏。它不触碰提示，使 /help 这样的斜杠
+		// 命令仍能正常输入。
 		if m.showSessions {
 			m.sessionFiltering = true
 		}
@@ -200,10 +200,10 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	return ActionNone
 }
 
-// openExternalEditorLocked edits the current prompt through $VISUAL / $EDITOR.
-// The prompt is written to a temporary file, the editor is given exclusive use
-// of the terminal, and the file is read back into the prompt. Every failure
-// path is a no-op: the original text stays in place and the loop never breaks.
+// openExternalEditorLocked 通过 $VISUAL / $EDITOR 编辑当前提示。
+// 提示被写入临时文件，编辑器独占使用
+// 终端，然后把文件读回提示。每条失败
+// 路径都是空操作：原始文本保持不变，循环永不中断。
 func (m *Model) openExternalEditorLocked() KeyAction {
 	if m.working {
 		m.setStatusLocked(text(m.locale, "busy"))
@@ -255,10 +255,10 @@ func (m *Model) openExternalEditorLocked() KeyAction {
 	return ActionNone
 }
 
-// filterKeyLocked routes keys while the session filter bar owns the keyboard.
-// Filtering is live: every keystroke re-renders the rail. Esc cancels and
-// clears the query, Enter confirms and keeps it, Ctrl+L leaves focus without
-// changing the query. No key is ever forwarded to the prompt in this mode.
+// filterKeyLocked 在会话过滤栏持有键盘时路由按键。
+// 过滤是实时的：每次按键都重新渲染侧边栏。Esc 取消并
+// 清空查询，Enter 确认并保留，Ctrl+L 离开焦点而不
+// 改变查询。此模式下任何按键都不会被转发到提示。
 func (m *Model) filterKeyLocked(key Key) KeyAction {
 	switch key.Kind {
 	case KindEsc:
@@ -283,7 +283,7 @@ func (m *Model) filterKeyLocked(key Key) KeyAction {
 		m.sessionFilter += key.Text
 		m.sessionsScroll = 0
 	case KindIgnore:
-		// nothing to do
+		// 无事可做
 	}
 	return ActionNone
 }
@@ -363,8 +363,8 @@ func (m *Model) commandLocked(body string) KeyAction {
 	return ActionNone
 }
 
-// requestActionLocked reports an action to the run loop. An uninstalled hook
-// keeps the command discoverable but never pretends it did anything.
+// requestActionLocked 向 run 循环报告一个动作。未安装的钩子
+// 让命令保持可发现，但绝不假装它做了什么。
 func (m *Model) requestActionLocked(action KeyAction, arg string) KeyAction {
 	if m.working {
 		m.setStatusLocked(text(m.locale, "busy"))

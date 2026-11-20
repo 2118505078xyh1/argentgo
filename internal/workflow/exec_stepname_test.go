@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// TestStepNameWhitespaceIsNormalisedForOutputReferences checks that a step
-// name with surrounding whitespace — which Validate accepts because it
-// already trims for the uniqueness check — resolves from a
-// {{steps.NAME.output}} reference. Before normalisation the executor keyed
-// outputs by the raw name while the reference carried the trimmed name, so
-// every consumer was skipped and the token was left unsubstituted.
+// TestStepNameWhitespaceIsNormalisedForOutputReferences 检查带首尾空白的步骤
+// 名 —— Validate 接受它，因为唯一性检查已先做了裁剪 —— 能从
+// 唯一性检查已做裁剪 —— 能从引用中解析。
+// {{steps.NAME.output}} 引用中解析。在规范化之前，executor 用原始名称作为输出键，而引用携带裁剪后的名称，导致
+// 用原始名称作为输出键，而引用携带裁剪后的名称，因此
+// 每个消费者都被跳过且标记保持未替换。
 func TestStepNameWhitespaceIsNormalisedForOutputReferences(t *testing.T) {
 	rec := &recorder{}
 	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
@@ -46,9 +46,9 @@ func TestStepNameWhitespaceIsNormalisedForOutputReferences(t *testing.T) {
 	}
 }
 
-// TestRunNormalisesStepNamesOnACopy guards the direct-Definition path: a
-// caller that builds a Definition in code (rather than parsing JSON) still
-// gets working output references, and its original definition is not mutated.
+// 每个消费者都被跳过且标记保持未替换。
+// TestRunNormalisesStepNamesOnACopy 守护直接 Definition 路径：在代码中构造 Definition（而非解析 JSON）的调用方
+// 仍能使用输出引用，且其原始定义不被修改。
 func TestRunNormalisesStepNamesOnACopy(t *testing.T) {
 	def := &Definition{Steps: []Step{
 		{Name: " produce ", Prompt: "produce"},
@@ -74,7 +74,7 @@ func TestRunNormalisesStepNamesOnACopy(t *testing.T) {
 	if out, ok := run.Output("produce"); !ok || out != "DATA" {
 		t.Errorf("Output(produce) = %q, ok=%v", out, ok)
 	}
-	// The caller's definition must be untouched.
+	// 仍能使用输出引用，且其原始定义不被修改。
 	if def.Steps[0].Name != " produce " || def.Steps[1].Name != "report " {
 		t.Errorf("Run mutated the caller's definition: %+v", def.Steps)
 	}

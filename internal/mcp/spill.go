@@ -9,52 +9,52 @@ import (
 	"unicode/utf8"
 )
 
-// This file bounds very large MCP tool outputs before they reach the model
-// context. The goose audit found that CallTool joined every text/resource block
-// verbatim, so a single chatty server could flood the context; built-in tools
-// already spill oversized output to an artifact (internal/tools/output_spill*.go)
-// and this brings the same cap + recovery link to MCP.
+// 本文件在非常大的 MCP 工具输出进入模型上下文之前对其进行限制。
+// goose 审计发现 CallTool 会逐字拼接每个 text/resource 块，
+// 因此单个话痨服务器就能淹没上下文；内置工具早已把超大输出
+// 溢出到产物（internal/tools/output_spill*.go），这里把同样的
+// 上限 + 恢复链接带到 MCP。
 //
-// Design constraints (mirrors blob.go):
-//   - Default behaviour is byte-for-byte unchanged. Spilling only runs when an
-//     artifact directory is explicitly configured via ARGENT_MCP_SPILL_DIR (and
-//     CallTool additionally reads ARGENT_MCP_SPILL_THRESHOLD). With neither set,
-//     spillMCPOutput is a no-op and CallTool keeps its legacy code path.
-//   - Stdlib only; the artifact conventions (0700 dir, 0600 O_EXCL file, random
-//     hex name, best-effort writes that never fail the originating call) are
-//     reused from SaveBlobArtifact rather than importing internal/tools.
-//   - The marker format is the SAME as internal/tools' SpillLargeOutput, so the
-//     model and any recovery tooling see one consistent contract:
-//     "\n[output-spill: N bytes elided; full output: PATH]\n".
-//   - Cuts always land on UTF-8 rune boundaries, so CJK/emoji are never split.
+// 设计约束（仿照 blob.go）：
+//   - 默认行为逐字节不变。只有通过 ARGENT_MCP_SPILL_DIR 显式配置了产物
+//     目录时才进行溢出（CallTool 还会读取 ARGENT_MCP_SPILL_THRESHOLD）。
+//     两者都未设置时，spillMCPOutput 是空操作，
+//     CallTool 保持其旧代码路径。
+//   - 仅用标准库；产物约定（0700 目录、0600 O_EXCL 文件、随机十六进制
+//     名称、尽力而为且绝不让原调用失败的写入）复用自 SaveBlobArtifact，
+//     而不导入 internal/tools。
+//   - 标记格式与 internal/tools 的 SpillLargeOutput 完全相同，因此模型和
+//     任何恢复工具都看到一致的约定：
+//     "\n[output-spill: N bytes elided; full output: PATH]\n"。
+//   - 切分总是落在 UTF-8 字符边界上，因此 CJK/emoji 绝不会被拆开。
 
 const (
-	// mcpSpillDirEnv opts CallTool output spilling into writing artifacts. Empty
-	// or unset keeps the legacy behaviour (no spilling at all).
+	// mcpSpillDirEnv 让 CallTool 的输出溢出选择写入产物。为空
+	// 或未设置保持旧行为（完全不溢出）。
 	mcpSpillDirEnv = "ARGENT_MCP_SPILL_DIR"
-	// mcpSpillThresholdEnv optionally overrides the byte threshold used by
-	// CallTool. A non-positive or unparsable value selects the default.
+	// mcpSpillThresholdEnv 可选地覆盖 CallTool 使用的字节阈值。
+	// 非正值或无法解析的值会选择默认值。
 	mcpSpillThresholdEnv = "ARGENT_MCP_SPILL_THRESHOLD"
-	// defaultMCPSpillThreshold matches tools.DefaultOutputSpillThreshold: well
-	// above the ordinary clip bound, so only genuinely huge outputs spill.
+	// defaultMCPSpillThreshold 与 tools.DefaultOutputSpillThreshold 一致：远高于
+	// 普通裁剪上限，因此只有真正巨大的输出才会溢出。
 	defaultMCPSpillThreshold = 200 << 10 // 200 KiB
 
-	// Marker strings are copied verbatim from internal/tools/output_spill.go so
-	// the two packages emit the identical, recognised recovery marker.
+	// 标记字符串从 internal/tools/output_spill.go 逐字复制，使两个包发出
+	// 完全一致、可识别的恢复标记。
 	mcpSpillMarkerOpen    = "\n[output-spill: "
 	mcpSpillMarkerEnd     = "]\n"
-	mcpSpillMarkerReserve = 256 // room for the marker + recovery path in the budget
+	mcpSpillMarkerReserve = 256 // 为标记 + 恢复路径在预算中留出空间
 )
 
-// mcpSpillDir returns the configured artifact directory. Empty means spilling
-// is disabled and both spillMCPOutput and CallTool keep their legacy behaviour.
+// mcpSpillDir 报告配置的产物目录。为空表示溢出
+// 禁用，spillMCPOutput 和 CallTool 都保持旧行为。
 func mcpSpillDir() string {
 	return strings.TrimSpace(os.Getenv(mcpSpillDirEnv))
 }
 
-// mcpSpillThreshold returns the byte threshold CallTool uses for spilling. It
-// is read from the env so the integration can be tuned without a rebuild; the
-// default keeps ordinary MCP replies untouched.
+// mcpSpillThreshold 返回 CallTool 用于溢出的字节阈值。它
+// 从环境读取，使集成无需重新构建即可调整；默认值
+// 使普通 MCP 回复保持不变。
 func mcpSpillThreshold() int {
 	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(mcpSpillThresholdEnv)))
 	if err != nil || n <= 0 {
@@ -63,27 +63,27 @@ func mcpSpillThreshold() int {
 	return n
 }
 
-// spillMCPOutput bounds one MCP tool result for the model context. When text is
-// longer than threshold bytes AND an artifact directory is configured, it writes
-// the full text to a fresh artifact under that directory and returns a
-// head+tail view (middle elided) carrying the recovery path marker. Otherwise it
-// returns the text verbatim with spilled == false.
+// spillMCPOutput 为模型上下文限制一次 MCP 工具结果。当文本长于
+// 阈值字节且配置了产物目录时，它把完整文本写入该目录下的
+// 一新产物，并返回一个 head+tail 视图（中间省略），
+// 携带恢复路径标记。否则原样返回文本且 spilled == false。
+// 它绝不会让原工具调用失败：写入失败时文本
 //
-// It never fails the originating tool call: on a write failure the text is still
-// bounded, but the marker omits the recovery path and artifactPath is empty.
-// Cuts land on UTF-8 rune boundaries, so CJK text and emoji stay intact.
+// 仍会被限制，但标记省略恢复路径且 artifactPath 为空。
+// 切分落在 UTF-8 字符边界上，因此 CJK 文本和 emoji
+// 保持完整。
 func spillMCPOutput(text string, threshold int) (result string, artifactPath string, spilled bool) {
-	// Non-positive threshold and at-or-below-threshold output need no work.
+	// 非正阈值和输出在阈值及以下都无需处理。
 	if threshold <= 0 || len(text) <= threshold {
 		return text, "", false
 	}
 	dir := mcpSpillDir()
 	if dir == "" {
-		// No opt-in directory: legacy behaviour, never spill.
+		// 没有选择加入的目录：旧行为，绝不溢出。
 		return text, "", false
 	}
-	// An intact marker naming one of our real artifacts means this text was
-	// already spilled; do not spill (or truncate) it a second time.
+	// 完整的标记指向我们某个真实产物，说明这段文本已被
+	// 溢出过；不要第二次溢出（或截断）它。
 	if isMCPSpillResult(text, dir) {
 		return text, "", false
 	}
@@ -91,7 +91,7 @@ func spillMCPOutput(text string, threshold int) (result string, artifactPath str
 	head, tail := mcpSpillWindows(text, threshold)
 	omitted := len(text) - len(head) - len(tail)
 
-	// Best-effort persistence: a failure only drops the recovery link.
+	// 尽力而为的持久化：失败只会丢失恢复链接。
 	path, err := SaveBlobArtifact(dir, []byte(text), ".txt")
 	if err != nil {
 		path = ""
@@ -99,9 +99,9 @@ func spillMCPOutput(text string, threshold int) (result string, artifactPath str
 	return head + formatMCPSpillMarker(omitted, path) + tail, path, true
 }
 
-// mcpSpillWindows returns the rune-safe head and tail slices kept from an
-// oversized result. The reserve keeps the marker and recovery path from pushing
-// the rebuilt result back over the threshold.
+// mcpSpillWindows 返回从超大结果中保留的、字符安全的 head 和 tail 切片。
+// 预留空间使标记和恢复路径不会把重建后的结果再次推过
+// 阈值。
 func mcpSpillWindows(text string, threshold int) (head, tail string) {
 	budget := threshold - mcpSpillMarkerReserve
 	if budget <= 0 {
@@ -119,7 +119,7 @@ func mcpSpillWindows(text string, threshold int) (head, tail string) {
 	return text[:headEnd], text[tailStart:]
 }
 
-// mcpRuneFloor returns the largest i <= at that starts a UTF-8 rune.
+// mcpRuneFloor 返回 <= at 且是一个 UTF-8 字符起始位置的最大 i。
 func mcpRuneFloor(s string, at int) int {
 	if at <= 0 {
 		return 0
@@ -134,7 +134,7 @@ func mcpRuneFloor(s string, at int) int {
 	return i
 }
 
-// mcpRuneCeil returns the smallest i >= at that starts a UTF-8 rune.
+// mcpRuneCeil 返回 >= at 且是一个 UTF-8 字符起始位置的最小 i。
 func mcpRuneCeil(s string, at int) int {
 	if at <= 0 {
 		return 0
@@ -149,8 +149,8 @@ func mcpRuneCeil(s string, at int) int {
 	return i
 }
 
-// formatMCPSpillMarker renders the middle-elision marker. The recovery path is
-// included only when the artifact was written successfully.
+// formatMCPSpillMarker 渲染中间省略标记。恢复路径仅当
+// 产物写入成功时才包含。
 func formatMCPSpillMarker(omitted int, path string) string {
 	if path == "" {
 		return fmt.Sprintf("%s%d bytes elided%s", mcpSpillMarkerOpen, omitted, mcpSpillMarkerEnd)
@@ -158,10 +158,10 @@ func formatMCPSpillMarker(omitted int, path string) string {
 	return fmt.Sprintf("%s%d bytes elided; full output: %s%s", mcpSpillMarkerOpen, omitted, path, mcpSpillMarkerEnd)
 }
 
-// isMCPSpillResult reports whether text is a result this feature actually
-// spilled: some complete marker must name an existing, canonically-named
-// artifact under dir. A forged marker substring in untrusted server output is
-// NOT trusted, so such output is bounded normally instead of passing through.
+// isMCPSpillResult 报告 text 是否是本功能实际溢出过的结果：
+// 必须有某个完整标记指向 dir 下存在且规范命名的产物。
+// 不可信服务器输出中伪造的标记子串*不*被信任，因此这类输出
+// 会被正常限制，而不是直接通过。
 func isMCPSpillResult(text, dir string) bool {
 	const (
 		elided = " bytes elided"
@@ -206,8 +206,8 @@ func isMCPSpillResult(text, dir string) bool {
 	}
 }
 
-// mcpArtifactAbsInDir validates p as a canonical artifact produced by
-// SaveBlobArtifact inside dir, returning its absolute path when valid.
+// mcpArtifactAbsInDir 把 p 校验为由 SaveBlobArtifact 在 dir 下产生的
+// 规范产物，有效时返回其绝对路径。
 func mcpArtifactAbsInDir(dir, p string) (string, bool) {
 	if strings.TrimSpace(p) == "" || strings.TrimSpace(dir) == "" {
 		return "", false
@@ -230,8 +230,8 @@ func mcpArtifactAbsInDir(dir, p string) (string, bool) {
 	return absPath, true
 }
 
-// mcpArtifactName checks the filename contract of SaveBlobArtifact: the fixed
-// blob prefix, a 16-character lowercase hex id and an optional safe extension.
+// mcpArtifactName 检查 SaveBlobArtifact 的文件名约定：固定的
+// blob 前缀、16 位小写十六进制 id，以及可选的安全扩展名。
 func mcpArtifactName(name string) bool {
 	if !strings.HasPrefix(name, blobArtifactPrefix) {
 		return false

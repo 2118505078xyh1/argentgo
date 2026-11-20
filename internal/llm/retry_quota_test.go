@@ -13,9 +13,9 @@ import (
 
 func quotaNoWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
-// TestQuotaClassifierSeparatesTransientWordingFromHardLimits pins the tightened
-// nonRetryableQuotaRE: bare 配额/额度 and bare "billing" are rate-limit wording,
-// not proof of an exhausted account. Explicit codes remain authoritative.
+// TestQuotaClassifierSeparatesTransientWordingFromHardLimits 固定收紧后的
+// nonRetryableQuotaRE：裸的 配额/额度 和裸的 "billing" 是限流措辞，
+// 而非账户耗尽的证据。显式错误码仍然具有权威性。
 func TestQuotaClassifierSeparatesTransientWordingFromHardLimits(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -118,9 +118,9 @@ func TestQuotaClassifierSeparatesTransientWordingFromHardLimits(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyRetriesTransientChineseQuotaWording reproduces the regression:
-// a 429 carrying 配额 reset wording must be retried and the provider's
-// Retry-After honoured, instead of being handed back after a single attempt.
+// TestRetryPolicyRetriesTransientChineseQuotaWording 复现该回归：
+// 带 配额 重置措辞的 429 必须被重试，并遵守提供方的
+// Retry-After，而不是一次尝试后就交回。
 func TestRetryPolicyRetriesTransientChineseQuotaWording(t *testing.T) {
 	body := `{"error":{"message":"请求过于频繁，配额将在 30 秒后重置，请稍后重试"}}`
 	var sends int
@@ -166,8 +166,8 @@ func TestRetryPolicyRetriesTransientChineseQuotaWording(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyStopsOnHardChineseQuotaWording keeps the other half of the
-// behaviour: an exhausted 配额 is still non-retryable and its body survives.
+// TestRetryPolicyStopsOnHardChineseQuotaWording 保持行为的另一半：
+// 已耗尽的 配额 仍然不可重试，且其响应体保留。
 func TestRetryPolicyStopsOnHardChineseQuotaWording(t *testing.T) {
 	body := `{"error":{"message":"配额已用尽，请更换模型"}}`
 	var sends int
@@ -199,10 +199,10 @@ func TestRetryPolicyStopsOnHardChineseQuotaWording(t *testing.T) {
 	}
 }
 
-// TestRetryAfterIsNeverJitteredDownwards covers the window where Retry-After
-// falls inside the exponential backoff: the server asks for a minimum, so even
-// a value just below the backoff must not be reduced by jitter (jitter=1 is the
-// strongest downward pull). Retry-After=0 still takes the jittered path.
+// TestRetryAfterIsNeverJitteredDownwards 覆盖 Retry-After
+// 落在指数退避之内的窗口：服务器要求一个最小值，因此即使
+// 一个略低于退避的值也不得被抖动降低（jitter=1 是
+// 最强的向下拉力）。Retry-After=0 仍走抖动路径。
 func TestRetryAfterIsNeverJitteredDownwards(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -235,8 +235,8 @@ func TestRetryAfterIsNeverJitteredDownwards(t *testing.T) {
 	}
 }
 
-// TestRetryAfterDoesNotConsumeJitter makes the authority explicit: with a
-// Retry-After present the jitter source is not consulted at all.
+// TestRetryAfterDoesNotConsumeJitter 明确了权威性：存在
+// Retry-After 时根本不查询抖动来源。
 func TestRetryAfterDoesNotConsumeJitter(t *testing.T) {
 	calls := 0
 	policy := llm.RetryPolicy{

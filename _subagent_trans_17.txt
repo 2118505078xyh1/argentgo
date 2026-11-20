@@ -1,0 +1,152 @@
+// Load 返回完整技能，含正文。
+// Match 按与提示的关键词重叠度对技能排序。分数统计同时出现在名称（权重 4）、when_to_use 提示（权重 3）或描述（权重 2）中的不同提示词。只返回正分的技能，最佳优先，然后按名称。
+// Suggest 列出与 name 松散相关的技能名，用于拼写错误提示。
+// stopwords 防止填充词单独产生匹配。
+// keywords 把 s 转为小写并拆分为不同的词标记，去掉填充词和单字符。
+// ToolSpec 描述调用方可用自己的 registry 注册的工具。它镜像每个 provider 期望的线上形态（`type: function`、`function: {name, description, parameters}`），但刻意使用本地类型，使本包不依赖 agent 或 llm 包。
+// ToolSchema 是 ToolSpec 的函数部分。
+// UseSkillSpec 返回调用方应公布的工具，使模型能按名称加载技能正文。
+// UseSkillSpec 是同一个规格绑定到 registry 的版本，供按会话构建它的调用方使用。
+// HandleUseSkill 用原始 JSON 参数执行 use_skill 工具。空或缺失的 `name` 列出已安装技能；已知名称返回带来源路径的完整正文；未知名称返回错误，其消息建议相近的匹配项。
+// 插入顺序刻意不排序：聚合必须保留它。
+// Triggers 保存技能的可选自动激活规则。每个列表都是独立过滤器，空列表表示"无限制"：零触发器的技能在任何地方都符合条件。调用方组合适合其事件（文件路径、提示、模型家族）的
+// 过滤器，而不是依赖模型按名称调用 use_skill。这里的匹配是纯的：无文件系统访问，除标准库外无依赖。
+// 路径是 gitignore 风格的 glob，与 agent 即将读取或编辑的文件路径匹配。
+// 关键词是与提示文本匹配的不区分大小写的子串。
+// Models 把技能限制在这些模型家族（例如 "claude"、"gemini"）。空列表、"all" 或 "*" 表示所有家族。
+// MatchPath 报告 p 是否匹配中任一 gitignore 风格 glob。
+// 语法：`**` 跨越零个或多个路径段，`*` 停留在单个段内，不含斜杠的模式在任意深度针对基础名测试。
+// 模式与 p 用同样的方式规范化：反斜杠变斜杠，去掉前导 `./` 或 `/`，比较不区分大小写。因此一条规则同时适用于 Windows 和 POSIX 路径。
+// matchSegments 一起遍历模式和各路径段。`**` 模式段消耗零个或多个路径段；其他每段交给 path.Match，它拥有 `*` / `?` / `[...]` 通配符语法。
+// normalizeGlobPath 使模式或具体路径可比较：单一分隔符、无前导标记、单一大小写。小写化让 Windows 风格不区分大小写的路径无需构建标签或运行时检查即可工作。
+// SkillsForPath 返回适合某文件路径的技能：无路径触发器的技能加上路径触发器匹配 p 的技能。保留 registry 顺序。
+// MatchKeywords 报告 text 是否包含任一不区分大小写的关键词。子串匹配使 CJK 关键词仍然可用，而基于词的切分会丢弃它们。
+// SkillsForKeywords 返回适合提示文本的技能：无关键词触发器的技能加上有关键词命中的技能。保留 registry 顺序。
+// SkillsForModel 返回某模型家族可用的技能。family 不区分大小写比较；无模型限制（或为 "all" / "*"）的技能对所有家族可用。保留 registry 顺序。
+// ResolveTriggeredSkills 是自动技能激活的唯一入口。它用文件路径、提示文本和模型家族描述一个 agent 事件，并返回适合该事件的每个技能。
+// 三个触发维度是独立约束：只有当技能声明的每个列表为空（无限制）或被匹配参数满足时，它才符合条件。换句话说，路径、关键词和模型过滤器是交集而非并集 —— 模型限制不得仅因某关键词恰好匹配而被绕过。
+// 因此空参数会排除限制到该维度的技能，所以在没有上下文时只留下无限制技能（加上模型通配符技能）。
+// 保留 registry 顺序（每个过滤器只移除条目）且没有名称返回两次。nil registry 产生 nil。
+// resolveTriggeredSkills 是 ResolveTriggeredSkills 基于切片的核心。单独保留它使去重保证能用手建切片直接演练（Registry 已强制名称唯一）。
+// Auth 解析此模板的凭据。调用方拥有请求头名称和值的方案（对 OpenAI 兼容端点是 Authorization/Bearer，对 Anthropic 是 x-api-key/空）以及环境查找，使 config 和 app 能采用该链而无需 provider 表依赖其中任何一个。
+// NoAuth 胜过每个凭据源。否则 APIKeyEnv 和 APIKeyEnvs 中第一个非空值胜出；没有值时结果是 llm.NoAuth 哨兵且调用方不写请求头。
+// Package provider 模型目录刷新策略。
+// 本文件移植 omp 的 model-manager.ts 的策略部分，不含任何 I/O：无 HTTP 发现、无缓存数据库、无时钟/副作用。调用方拥有实际的抓取和持久化；它调用 ShouldRefresh 决定是否抓取，Merge 把抓取的名册与静态表合并，
+// 以及 FingerprintStatic 使针对较旧静态目录写入的缓存失效。保持策略纯函数使其确定且可从任何 goroutine 安全调用。
+// 默认目录新鲜度旋钮，匹配 omp 的 DEFAULT_CACHE_TTL_MS（2h）和 NON_AUTHORITATIVE_RETRY_MS（5min）。调用方可以传入自己的值。
+// RefreshPolicy 控制何时允许运行动态模型发现。它镜像 omp 的 ModelRefreshStrategy。
+// 支持的刷新策略。
+// RefreshOnline 总是从动态源刷新，即使存在新鲜的权威快照。
+// RefreshOffline 从不刷新；只使用静态数据和已有缓存。
+// RefreshOnlineIfUncached 在没有快照、快照超过 TTL，或非权威快照超过短暂重试窗口时刷新。这是默认策略。
+// Model 是策略层所需的最小目录行：用于合并/去重的稳定标识和显示名称，使发现的行的名称能覆盖静态行的名称。完整线上模型在 internal/llm 中；
+// 调用方在集成边界在两者之间映射。
+// CatalogSnapshot 是某 provider 模型目录的时间点视图。Authoritative 表示快照来自完整发现结果（而非失败抓取后的回退）；Stale 标记不得享受完整 TTL 的快照。FetchedAt 在从未存储快照时为零。
+// ParseRefreshPolicy 把配置/CLI 字符串规范化为 RefreshPolicy。布尔值报告该值是否被识别。
+// ShouldRefresh 决定是否现在应运行动态发现。策略语义：
+//   - offline：从不。
+//   - online：总是。
+//   - online-if-uncached（以及任何未识别的策略，视为保守默认）：在没有快照、快照年龄超过 ttl，或非权威且年龄达到短重试窗口时刷新。
+// 只有 Authoritative 为 true 且 Stale 为 false 时快照才算权威，因此陈旧快照在短重试窗口刷新，而非等完整 TTL。零 FetchedAt 表示"未缓存"。负
+// 年龄（时钟倒退）被限制为零。传入非正的 staleRetryWindow 使非权威快照立即刷新。
+// Merge 按 ID 把发现的模型叠加到静态目录上。静态行保持顺序；ID 已知的行就地替换，仅发现的行追加。空 ID 被忽略，ID 的最后一个重复项胜出（匹配 omp 中基于 map 的合并）。
+// 返回的切片是全新的且绝不与任一输入共享底层数组。
+// FingerprintStatic 返回静态目录的稳定内容标识。当当前指纹不同（静态表升级或策略修改）时，针对某一指纹写入的缓存快照必须丢弃。
+// 每个字段加长度前缀避免模型 id 与名称之间的歧义。
+// probeFrom 构建确定性的注入式探针：failed 中的每个 URL 报告不健康，其他都健康。它不执行网络 I/O 且可安全并发读取，因此同一探针可被下面的纯函数测试复用。
+// 调用方的输入绝不能被探针运行修改。
+// Package provider 端点健康探测。
+// 本文件移植 opencode 的 vLLM provider 健康检查中的端点过滤部分，不含任何 I/O：无 HTTP 客户端、无计时器、无副作用。调用方拥有实际的探测（对 <baseURL>/health 的 HTTP GET、
+// TCP 拨号或其他任何方式）并把它作为函数注入。ProbeHealthy 将该策略应用于候选 base URL 列表并返回回答健康的子集。保持策略纯函数使其确定、
+// 保序且可从任何 goroutine 安全调用。
+// ProbeHealthy 把 baseURLs 过滤为通过注入探测的端点。对每个唯一 URL，按输入顺序，probe(url) 恰好调用一次：nil 错误标记端点健康并保留，任何非 nil 错误丢弃
+// 它。重复 URL 只探测一次且在结果中最多出现一次，位于其第一次出现的位置。返回的切片是全新
+// 分配的且绝不与 baseURLs 共享底层数组；nil 或空输入产生空（非 nil）切片。
+// probe 始终在调用 goroutine 上顺序调用，因此它不必并发安全；只需可重复调用。nil
+// 探针是无操作过滤器：每个唯一 URL 都被视为健康，这对只想去重很有用。
+// 来自每个生态的一个代表加上仓库地图无论符号预算如何都应钉住的指导文件。
+// README/license/Dockerfile/Makefile 变体共享一个前缀加名称分隔符，因此每种拼写和扩展名都被识别。
+// CJK 目录段无关紧要；基础名决定结果。
+// IsImportantProjectFile 报告 path 是否命名一个高价值项目文件，即使符号/token 预算本会把它挤掉，仓库地图也应保留它（aider 的"重要文件优先"保证）。
+// 它是纯分类辅助函数：无 I/O、无环境、不修改输入。匹配不区分大小写且只看文件的基础
+// 名，因此目录前缀（包括 CJK 路径段和任一斜杠风格）不影响结果。它供 repo-map 工具在决定哪些条目钉入地图时调用；把策略放在这里
+// 使该决策在前端保持一致而无需导入 config。
+// 组合两条规则：精确的知名清单/元数据文件名集合；以及按基础名前缀后跟名称
+// 分隔符（.、-、_）匹配的"家族"集合，覆盖 README/license/Dockerfile/Makefile 变体。
+// .github/workflows 目录下的 CI 工作流文件始终重要，无论其单个文件名如何。
+// 规范化两种斜杠风格，使 Windows 和 POSIX 路径分类一致。
+// CI 工作流因位置而重要，而非文件名。
+// 提取基础名，忽略末尾斜杠和 "."/".." 段。
+// matchesFileFamily 报告 base 是否就是 prefix 或以 prefix 后跟名称分隔符开头。分隔符要求避免误报，例如把 "licenseplate.go" 当作 "license" 家族，同时保留
+// README.md、README-zh.md、Dockerfile.dev 和 LICENSE-MIT。
+// importantProjectFiles 是值得钉入仓库地图的清单、元数据和指导文件名的精确大小写折叠集合。只读。
+// JavaScript / TypeScript
+// Ruby / PHP
+// 文档和 agent 指导
+// 仓库/工具 dotfile 配置
+// 构建系统
+// 任务运行器
+// CI 配置（基于位置的 .github/workflows 在上面处理）
+// importantFileFamilies 是其变体都被视为重要的基础名前缀（已小写）。见 matchesFileFamily。
+// Package provider 保存内置 provider 模板：每个供应商在哪里、它讲哪种线上协议，以及默认使用哪个模型。
+// 模板是数据，镜像 Rust 实现中的 crates/provider/providers.json，但硬编码使 Go 二进制无需 asset 文件。该表只描述端点；凭据由调用方通过 Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数从环境读取。
+// Protocol 命名由 internal/llm 实现的线上协议。
+// 支持的协议。
+// ProtocolAnthropic 是 Anthropic Messages API（llm.AnthropicClient）。
+// ProtocolOpenAI 是 OpenAI chat completions（llm.Client）。
+// ProtocolResponses 是 OpenAI Responses API（llm.ResponsesClient）。
+// Template 描述一个 provider 端点。
+// Name 是 Resolve 和命令行使用的规范 id。
+// Protocol 是要使用的线上协议。
+// BaseURL 是 API 根；llm 客户端会追加自己的路径。
+// APIKeyEnv 命名保存 key 的旧版单一环境变量。空表示该端点通常无需认证（本地服务器）。
+// APIKeyEnvs 按优先级命名额外的凭据来源：第一个非空值胜出。Auth 为兼容性先尝试 APIKeyEnv，再尝试这些名称。
+// NoAuth 完全跳过凭据查找且不发送认证请求头。它建模上游 provider 选项中的 apiKey:false。
+// DefaultModel 在用户未指定模型时使用。
+// CacheSupport 报告该 provider 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在具有显式稳定前缀表示的协议上发出它们，且本地/兼容端点默认无缓存。
+// templates 是内置表，按应向用户展示的顺序排列。
+// aliases 把替代拼写映射到规范名称。
+// List 按展示顺序返回内置模板。切片是副本，修改它不影响该表。
+// Resolve 按规范名称或别名不区分大小写查找模板。第二个结果报告该名称是否已知。
+// NormalizeModel 跨模板规范化模型 id：去掉首尾空白，unicode 破折号/下划线变为 '-'，重复分隔符折叠，内置默认值的大小写变体解析回该默认值的规范拼写。未知 id 保持自己的大小写，
+// 包括 "anthropic/claude-sonnet-4.5" 这样的供应商前缀。
+// Model 返回规范化后的覆盖值，或 override 为空时返回模板的规范默认值。app/cli 中的调用方可以使用这个钩子而无需 provider 包了解 config 或 profiles。
+// 短别名和规范化
+// 未知/空回退到无
+// 未知 effort 回退到空覆盖
+// effort 协议忽略预算，budget 协议忽略 effort 字符串：两者都不会发明对方不理解的旋钮。
+// toggle 协议对任何可识别的 effort 或正预算报告 "on"，对空请求报告 "off"。
+// 未知协议无论请求如何都返回零配置。
+// 在数据层强制这一点：零 Options 必须让 Thinking 为 nil，使在接线落地前没有默认请求携带 thinking 字段。
+// ThinkingSupport 返回的思考支持种类。它们描述线上协议如何表达推理控制，而非是否启用。
+// ThinkingSupport 按推理控制形态对线上协议分类：
+//   - "effort"：OpenAI chat-completions 和 Responses 使用 reasoning_effort / reasoning.effort 中的命名级别（"low"/"medium"/"high"）。
+//   - "budget"：Anthropic Messages 在其扩展思考块上使用显式 budget_tokens 值。
+//   - "toggle"：布尔开关。目前没有内置协议使用它；为只暴露开关的 provider 保留，使 ResolveThinking 仍能为此类协议规范化请求。
+//   - "none"：协议没有推理控制。这也是空或无法识别名称的回退。
+// 匹配忽略首尾空白和大小写。接受来自 internal/llm 的规范线上名称和常见短 provider 别名。
+// 四种支持种类本身也被接受并原样返回，因此函数是幂等的，调用方可以传入已分类的
+// 种类。这是纯函数：无 I/O 且无全局状态。
+// 思考预算边界。Anthropic 的扩展思考拒绝低于 1024 token 的预算；上限防止不合理的请求被转发，同时远高于任何当前模型的可用额度。
+// normalizeEffort 把用户提供的推理 effort 映射到 OpenAI 风格线上字段理解的规范小写级别。去掉首尾空白且匹配不区分大小写；常见 CJK 拼写
+// 无法识别或空值返回 ""，使绝不转发无效级别。
+// clampBudget 限制思考 token 预算。非正值表示"未设置"并保持 0，使调用方完全不发出预算字段；正值被限制在 [minThinkingBudget, maxThinkingBudget]。
+// ResolveThinking 针对线上协议规范化用户的思考请求。它是纯函数：无 I/O、不修改输入，且不依赖
+// config 或 session 状态。返回的 llm.ThinkingConfig 是供未来线上客户端接线步骤使用的数据；在该步骤落地前，保持
+// llm.Options.Thinking 为 nil 使当前线上字节不变。
+//   - effort 协议只保留规范化的 Effort 级别；
+//   - budget 协议只保留限制后的 BudgetTokens 值；
+//   - toggle 协议仅在请求要求 "on" 时设置 Enabled；
+//   - 不支持的协议返回零 ThinkingConfig。
+// diagnosticsFields 返回携带给定严重性的 Field 集合。
+// 每个内置模板还必须独立成立，不依赖 ValidateAll 执行的别名交叉检查。
+// 验证单个模板无法看到跨模板重复。
+// Package provider 模板验证。
+// 本文件把以前分散在测试中的结构假设（非空字段、可解析的端点 URL、已知协议）变成
+// 一个可复用、无副作用的诊断 API。CLI 的 `doctor` 路径或配置加载器可以调用 Validate/ValidateCatalog/ValidateAll 并显示
+// 发现的问题，而无需 provider 包导入 config 或网络。
+// 这里没有任何内容执行 I/O 或查询环境：验证只看 Template 的形状。发现的问题被返回，绝不记录日志或 panic。
+// Severity 分类验证发现。
+// 支持的严重性。错误使模板不可用；警告描述可疑但可能是有意的配置。
+// Diagnostic 是关于模板的一条发现。Template 是产生该发现的规范名称（名称本身损坏时为空），Field 是 Template 字段（对跨模板发现为 "catalog"），Message 是易读说明。
+// String 渲染诊断以供直接显示："[severity] template/field: message"。空的 Template/Field 部分被省略。

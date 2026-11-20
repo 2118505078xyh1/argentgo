@@ -12,47 +12,47 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
-// Step and run statuses.
+// 步骤与运行状态。
 const (
 	StatusOK      = "ok"
 	StatusFailed  = "failed"
 	StatusSkipped = "skipped"
 )
 
-// defaultBackoff is the delay before the first retry; it doubles per attempt.
+// defaultBackoff 是第一次重试前的延迟；每次尝试翻倍。
 const defaultBackoff = 100 * time.Millisecond
 
-// defaultCheckTimeout bounds an objective success check or a cleanup command
-// when the definition does not give one.
+// defaultCheckTimeout 在定义未给定时限制客观成功检查或清理命令。
+// 定义未给定时。
 const defaultCheckTimeout = 30 * time.Second
 
-// maxCheckDiagnostic caps the command output copied into a failure message.
+// maxCheckDiagnostic 限制复制到失败消息中的命令输出。
 const maxCheckDiagnostic = 8 << 10
 
-// maxCheckAnchorOutput bounds the redacted check output copied into the retry
-// hint. It is deliberately smaller than a raw diagnostic: the hint is a nudge,
-// not a second copy of the command output.
+// maxCheckAnchorOutput 限制复制到重试提示中的脱敏检查输出。它刻意小于原始诊断：提示只是轻推，
+// 提示。它刻意小于原始诊断：提示只是轻推，
+// 而不是命令输出的第二份副本。
 const maxCheckAnchorOutput = 512
 
-// Prompter sends one prompt to the model and returns its answer.
+// Prompter 向模型发送一个提示并返回其答案。
 type Prompter interface {
 	Prompt(ctx context.Context, text string) (string, error)
 }
 
-// ToolRunner calls one tool by name with raw JSON arguments.
+// ToolRunner 按名称和原始 JSON 参数调用一个工具。
 type ToolRunner interface {
 	Run(ctx context.Context, name, args string) (string, error)
 }
 
-// Executor runs a definition against the injected model and tool seams.
+// Executor 用注入的模型和工具 seam 运行一个定义。
 type Executor struct {
 	Prompter Prompter
 	Tools    ToolRunner
-	// Backoff is the base retry delay (default 100ms, doubled per attempt).
+	// Backoff 是基础重试延迟（默认 100ms，每次尝试翻倍）。
 	Backoff time.Duration
 }
 
-// StepResult is the outcome of one step.
+// StepResult 是一个步骤的结果。
 type StepResult struct {
 	Name     string
 	Status   string
@@ -62,17 +62,17 @@ type StepResult struct {
 	Duration time.Duration
 }
 
-// Run is the outcome of one workflow.
+// Run 是一次工作流的结果。
 type Run struct {
 	Name   string
 	Status string
 	Steps  []StepResult
 }
 
-// Succeeded reports whether every step ended ok or was skipped.
+// Succeeded 报告是否每个步骤都成功或被跳过。
 func (r Run) Succeeded() bool { return r.Status == StatusOK }
 
-// Output returns the output of a step by name.
+// Output 按名称返回某步骤的输出。
 func (r Run) Output(name string) (string, bool) {
 	for _, step := range r.Steps {
 		if step.Name == name {
@@ -82,23 +82,23 @@ func (r Run) Output(name string) (string, bool) {
 	return "", false
 }
 
-// Run executes the steps in dependency order and returns every result.
-// Definitions with declared parameters need their values supplied through
+// Run 按依赖顺序执行步骤并返回所有结果。
+// 带声明参数的定义需要通过以下方式提供值
 // RunWithParams.
 func (e *Executor) Run(ctx context.Context, def *Definition, input string) (Run, error) {
 	return e.RunWithParams(ctx, def, input, nil)
 }
 
-// RunWithParams executes the steps in dependency order (a step reading
-// {{steps.NAME.output}} runs after its producer), additionally resolving {{key}}
-// placeholders from the definition's declared parameters. Values are resolved
-// here as well as by the CLI so a caller cannot bypass required/default checks
-// by passing raw values; re-resolving an already resolved map is idempotent.
+// 带声明参数的定义需要通过以下方式提供值
+// RunWithParams 按依赖顺序执行步骤（读取 {{steps.NAME.output}} 的步骤在其生产者之后运行），并额外从定义声明的参数中解析 {{key}}
+// 占位符。值在此处和 CLI 都会被解析，
+// 占位符。值在此处和 CLI 都会被解析，使调用方无法通过传原始值绕过必需/默认检查；对已解析的映射重复解析是幂等的。
+// 通过传原始值绕过检查；对已解析映射重复解析是幂等的。
 //
-// A step that fails is retried up to step.Retries extra times with exponential
-// backoff; once the attempts are exhausted the step's on_failure policy decides
-// whether the run stops or continues. Errors are returned only for an invalid
-// definition or unresolved parameters — step failures are part of the result.
+// 失败的步骤会额外重试最多 step.Retries 次并采用指数
+// 退避；尝试耗尽后步骤的 on_failure 策略决定运行是停止还是继续。错误只在定义无效或参数未解析时返回 —— 步骤失败属于结果的一部分。
+// 运行是停止还是继续。错误只在定义无效时返回，
+// 参数未解析时返回 —— 步骤失败属于结果的一部分。
 func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input string, params map[string]string) (Run, error) {
 	if def == nil {
 		return Run{}, errors.New("workflow: the definition is nil")
@@ -117,10 +117,10 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 		ctx = context.Background()
 	}
 
-	// Validate() has already rejected cycles and dangling step references; the
-	// order it computed there is the order execution must follow. A step that
-	// reads {{steps.NAME.output}} has to run after its producer, otherwise the
-	// token is left unsubstituted in the prompt or tool args.
+	// Validate() 已经拒绝了环和悬空步骤引用；
+	// 它计算出的顺序就是执行必须遵循的顺序。读取以下内容的步骤
+	// Validate() 已经拒绝了环和悬空步骤引用；它计算出的顺序就是执行必须遵循的顺序。读取 {{steps.NAME.output}} 的步骤
+	// 必须在其生产者之后运行，否则标记会原样留在提示或工具参数中。
 	order, err := ValidateDAG(local.Steps)
 	if err != nil {
 		return Run{}, err
@@ -155,11 +155,11 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 			})
 			continue
 		}
-		// A {{steps.NAME.output}} reference is a real dependency, not just a
-		// template hint: the consumer must not run when its producer produced
-		// no output. The global stop flag is not enough here because a producer
-		// can fail under on_failure:continue, or be skipped by its own When
-		// condition, leaving the consumer with a literal unresolved token.
+		// {{steps.NAME.output}} 引用是真实依赖，而不只是模板提示：生产者没有产生输出时消费者不得运行。全局停止标志在这里不够，因为生产者
+		// 模板提示：生产者没有产生输出时消费者不得运行。全局停止标志这里不够，因为生产者
+		// 可能失败，或被跳过，
+		// 可能在 on_failure:continue 下失败，或被其自身 When 条件跳过，使消费者留下字面量未解析标记。
+		// 条件跳过，使消费者留下字面量未解析标记。
 		missing := ""
 		for _, dep := range referencedSteps(step) {
 			if _, ok := outputs[dep]; !ok {
@@ -202,7 +202,7 @@ func (e *Executor) RunWithParams(ctx context.Context, def *Definition, input str
 	return run, nil
 }
 
-// runStep performs one step, retrying with backoff.
+// runStep 执行一个步骤，带退避重试。
 func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs, params map[string]string, backoff time.Duration) StepResult {
 	attempts := 1 + step.Retries
 	if step.OnFailure == OnFailureRetry && attempts < 2 {
@@ -214,10 +214,10 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 	var output string
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		// A finished context cannot be recovered by another attempt. Check
-		// before invoking the seam: a prompter or tool runner may ignore its
-		// context, and a cancelled run must still stop without starting new
-		// work. Attempts stays zero when nothing was actually attempted.
+		// 已结束的 context 无法通过另一次尝试恢复。在调用 seam 之前
+		// 已结束的 context 无法通过另一次尝试恢复。在调用 seam 之前检查：prompter 或 tool runner 可能忽略其
+		// context，而被取消的运行仍必须停止而不启动
+		// context，而被取消的运行仍必须停止而不启动新工作。若实际未尝试任何内容，Attempts 保持为零。
 		if err := ctx.Err(); err != nil {
 			if lastErr == nil {
 				lastErr = err
@@ -230,15 +230,15 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 				break
 			}
 		}
-		// Attempts counts real seam invocations. Increment it only once the
-		// backoff has been survived, so a cancellation during the wait does
-		// not inflate the count with an attempt that never actually ran.
+		// Attempts 统计真实的 seam 调用。仅在退避成功结束后才增加它，使等待期间的取消不会用一个从未真正运行的尝试抬高计数。
+		// 退避成功结束后才增加，使等待期间的取消
+		// 不会用一个从未真正运行的尝试抬高计数。
 		result.Attempts = attempt
 		output, lastErr = e.attempt(ctx, step, input, outputs, params)
 		if err := ctx.Err(); err != nil {
-			// Cancelled or out of time: another attempt cannot help. If the
-			// seam ignored cancellation and returned a value, surface the
-			// context error so the cancelled step is not reported as a success.
+			// 已取消或超时：另一次尝试无济于事。若 seam
+			// 已取消或超时：另一次尝试无济于事。若 seam 忽略取消并返回了值，应暴露
+			// context 错误，使被取消的步骤不被报告为成功。
 			if lastErr == nil {
 				lastErr = err
 			}
@@ -249,18 +249,18 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 		}
 	}
 	if lastErr != nil {
-		// A failed success check is re-run by this loop, so tell the model not
-		// to repeat it unchanged. The hint is added only when a retry was
-		// configured; the check's own diagnostics stay byte-identical.
+		// 失败的成功检查会被该循环重新运行，因此告诉模型不要
+		// 原样重复它。仅当配置了重试时才添加提示；
+		// 检查自身的诊断保持逐字节不变。
 		var failedCheck *checkFailure
 		if attempts > 1 && errors.As(lastErr, &failedCheck) {
 			lastErr = fmt.Errorf("%w\n%s", lastErr, checkRetryHint(step, failedCheck.output))
 		}
 		result.Status = StatusFailed
 		result.Error = lastErr.Error()
-		// Cleanup runs once, after all attempts are exhausted and before the
-		// caller applies the step's on_failure policy. Its output is added to
-		// the diagnostic but its exit code cannot change the decision.
+		// 失败的成功检查会被该循环重新运行，因此告诉模型不要原样重复它。仅当配置了重试时才添加提示；检查自身的诊断保持逐字节不变。
+		// 清理在所有尝试耗尽之后、调用方应用步骤的 on_failure 策略之前运行一次。其输出被加入
+		// 诊断，但其退出码不能改变决策。
 		if cleanup := runCleanupCommand(ctx, step); cleanup != "" {
 			result.Error += "\n" + cleanup
 		}
@@ -273,9 +273,9 @@ func (e *Executor) runStep(ctx context.Context, step Step, input string, outputs
 	return result
 }
 
-// attempt runs one step once, honouring the per-step timeout. A configured
-// success check is part of the attempt, so a failed check is retried by runStep
-// exactly like a tool or prompter error.
+// 诊断，但其退出码不能改变决策。
+// attempt 运行一个步骤一次，遵守步骤局部超时。配置的成功检查是 attempt 的一部分，因此失败的检查由 runStep 像工具或 prompter 错误一样重试。
+// 像工具或 prompter 错误一样被重试。
 func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs, params map[string]string) (string, error) {
 	attemptCtx := ctx
 	if timeout := step.Timeout.Std(); timeout > 0 {
@@ -302,12 +302,12 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 	}
 	err = timedOut(step, err, step.Timeout.Std())
 	if err == nil {
-		// A seam may ignore its context and return a value after the attempt's
-		// deadline has passed. A step-local timeout does not cancel the parent
-		// run context, so runStep cannot notice this on ctx.Err(); the executor
-		// must enforce the bound itself or a late result is recorded as a
-		// success. runStep's cancellation check still applies to a parent
-		// cancellation, which attemptCtx inherits.
+		// seam 可能忽略其 context 并在 attempt 截止时间已过后返回值。步骤局部超时不会取消父
+		// 截止时间已过后返回值。步骤局部超时不会取消父
+		// 运行 context，因此 runStep 无法通过 ctx.Err() 察觉；executor 必须自身强制执行绑定，否则迟到的结果会被记为
+		// executor 必须自身强制执行绑定，否则迟到的结果会被记为
+		// 成功。runStep 的取消检查仍适用于父取消，
+		// 成功。runStep 的取消检查仍适用于父取消，attemptCtx 继承了它。
 		if ctxErr := attemptCtx.Err(); ctxErr != nil {
 			err = timedOut(step, ctxErr, step.Timeout.Std())
 		}
@@ -323,8 +323,8 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 	return out, nil
 }
 
-// timedOut re-labels a deadline error so the result says which step and how
-// long it was allowed to run.
+// timedOut 重新标记截止时间错误，使结果说明是哪个步骤以及
+// 它允许运行多久。
 func timedOut(step Step, err error, limit time.Duration) error {
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) || limit <= 0 {
 		return err
@@ -332,8 +332,8 @@ func timedOut(step Step, err error, limit time.Duration) error {
 	return fmt.Errorf("workflow: step %q timed out after %s: %w", step.Name, limit, err)
 }
 
-// checkTimeout resolves a TimeoutSeconds value; zero or negative selects the
-// conservative default.
+// checkTimeout 解析 TimeoutSeconds 值；零或负数选择保守默认值。
+// 保守默认值。
 func checkTimeout(seconds int) time.Duration {
 	if seconds <= 0 {
 		return defaultCheckTimeout
@@ -341,8 +341,8 @@ func checkTimeout(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// diagnosticTail keeps at most n bytes from the end of s. The cut is moved to a
-// rune boundary so a multibyte character is never split in half.
+// diagnosticTail 最多保留 s 末尾的 n 字节。切点移到 rune 边界，使多字节字符从不被切掉一半。
+// rune 边界，使多字节字符从不被切掉一半。
 func diagnosticTail(s string, n int) string {
 	if n <= 0 || len(s) <= n {
 		return s
@@ -354,8 +354,8 @@ func diagnosticTail(s string, n int) string {
 	return s[start:]
 }
 
-// commandDiagnostic picks the bounded output of a command for a failure
-// message, preferring stderr because that is where checks report errors.
+// commandDiagnostic 为失败消息挑选有界的命令输出，
+// commandDiagnostic 为失败消息挑选有界的命令输出，优先 stderr，因为检查在那里报告错误。
 func commandDiagnostic(res proc.Result) string {
 	if text := strings.TrimSpace(res.Stderr); text != "" {
 		return diagnosticTail(text, maxCheckDiagnostic)
@@ -370,9 +370,9 @@ func diagnosticSuffix(text string) string {
 	return ": " + text
 }
 
-// checkFailure wraps a failed success check so runStep can recognise it and add
-// a bounded retry hint. The original message and error chain are preserved: the
-// Error text is unchanged and Unwrap keeps DeadlineExceeded matchable.
+// checkFailure 包装失败的成功检查，使 runStep 能识别并添加
+// 有界的重试提示。原始消息和错误链被保留：
+// checkFailure 包装失败的成功检查，使 runStep 能识别它并添加有界的重试提示。原始消息和错误链被保留：Error 文本不变，Unwrap 保持 DeadlineExceeded 可匹配。
 type checkFailure struct {
 	output string
 	cause  error
@@ -381,10 +381,10 @@ type checkFailure struct {
 func (c *checkFailure) Error() string { return c.cause.Error() }
 func (c *checkFailure) Unwrap() error { return c.cause }
 
-// checkRetryHint mirrors agent.VerificationFeedback for the workflow layer,
-// which is not allowed to import agent. It redacts the check output before
-// clipping it to a rune-safe tail, then adds a next-step instruction so a retry
-// does not re-run the very same check against unchanged code.
+// checkRetryHint 在工作流层镜像 agent.VerificationFeedback，该层不允许导入 agent。它在裁剪到 rune 安全的尾部之前对检查输出脱敏，然后添加下一步指令，使重试
+// 该层不允许导入 agent。它在裁剪之前对检查输出脱敏，
+// 裁剪到 rune 安全的尾部，然后添加下一步指令，使重试
+// 不会在代码未变的情况下重跑同一个检查。
 func checkRetryHint(step Step, output string) string {
 	label := strings.ToUpper(strings.TrimSpace(step.Name))
 	if label == "" {
@@ -399,17 +399,17 @@ func checkRetryHint(step Step, output string) string {
 	return b.String()
 }
 
-// runSuccessCheck verifies a step objectively through proc.Shell/proc.Run, the
-// same shell path every other command in the codebase uses. A non-zero exit, a
-// spawn error or a timeout becomes an error so runStep retries it through the
-// normal failure path.
+// runSuccessCheck 通过 proc.Shell/proc.Run 客观验证步骤，这是代码库中所有其他命令使用的同一 shell 路径。非零退出、spawn 错误或超时都会变成错误，使 runStep 通过
+// 代码库中所有其他命令使用的同一 shell 路径。非零退出、
+// spawn 错误或超时都会变成错误，使 runStep 通过
+// 正常的失败路径重试。
 func runSuccessCheck(ctx context.Context, step Step) error {
 	check := step.SuccessCheck
 	command := strings.TrimSpace(check.Command)
 	limit := checkTimeout(check.TimeoutSeconds)
-	// The check is part of the attempt, so it must never outlive the attempt's
-	// remaining budget. When the context carries a deadline (the step timeout),
-	// clamp the configured check timeout to the time still left on that budget.
+	// 正常的失败路径重试它。
+	// 检查是 attempt 的一部分，因此它绝不能比 attempt 的剩余预算活得更久。当 context 带有截止时间（步骤超时）时，
+	// 把配置的检查超时限制到该预算剩余的时间。
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining < limit {
 			limit = remaining
@@ -420,8 +420,8 @@ func runSuccessCheck(ctx context.Context, step Step) error {
 
 	cmd := proc.Shell(command)
 	cmd.Timeout = limit
-	// A check can spawn its own children (sleep, build tools); kill the whole
-	// tree on timeout so the step cannot outlive its budget.
+	// 检查可能产生自己的子进程（sleep、构建工具）；超时时杀掉整棵树，使步骤不会超出其预算。
+	// 超时时杀掉整棵树，使步骤不会超出其预算。
 	cmd.KillTree = true
 	res, err := proc.Run(runCtx, cmd)
 	diagnostic := diagnosticSuffix(commandDiagnostic(res))
@@ -439,9 +439,9 @@ func runSuccessCheck(ctx context.Context, step Step) error {
 	return &checkFailure{output: commandDiagnostic(res), cause: failure}
 }
 
-// runCleanupCommand runs the step's cleanup command once and returns text that
-// is appended to the failure diagnostic. Its exit code is reported but never
-// changes the failure decision.
+// runCleanupCommand 运行步骤的清理命令一次并返回被追加到失败诊断的文本。其退出码被报告但从不
+// 被追加到失败诊断。其退出码被报告但从不
+// 改变失败决策。
 func runCleanupCommand(ctx context.Context, step Step) string {
 	command := strings.TrimSpace(step.CleanupCommand)
 	if command == "" {
@@ -453,8 +453,8 @@ func runCleanupCommand(ctx context.Context, step Step) string {
 
 	cmd := proc.Shell(command)
 	cmd.Timeout = limit
-	// Cleanup can spawn its own children; kill the whole tree on timeout so it
-	// cannot hold the run open after the step has already failed.
+	// 清理可能产生自己的子进程；超时时杀掉整棵树，使它
+	// 改变失败决策。
 	cmd.KillTree = true
 	res, err := proc.Run(runCtx, cmd)
 	var b strings.Builder
@@ -471,8 +471,8 @@ func runCleanupCommand(ctx context.Context, step Step) string {
 	return b.String()
 }
 
-// backoffAt doubles the base delay, capped so a large retry budget cannot
-// overflow the duration.
+// 清理可能产生自己的子进程；超时时杀掉整棵树，使它不能在步骤失败后仍让运行挂住。
+// backoffAt 将基础延迟翻倍，并设上限使大的重试预算不会导致 duration 溢出。
 func backoffAt(base time.Duration, attempt int) time.Duration {
 	if attempt > 20 {
 		attempt = 20
@@ -494,11 +494,11 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Substitute replaces {{input}}, {{steps.NAME.output}} and, when params is
-// supplied, {{key}} placeholders from resolved workflow parameters. Built-in
-// tokens take precedence, and keys with no value are left untouched so a
-// template meant for the model survives. Inserted values are written verbatim
-// and never rescanned, so a value containing "{{...}}" cannot inject tokens.
+// Substitute 替换 {{input}}、{{steps.NAME.output}}，并在提供 params 时替换来自已解析工作流参数的 {{key}}
+// 提供 params 时来自已解析工作流参数的 {{key}} 占位符。内置
+// 标记优先，无值的键保持原样，使面向模型的模板得以
+// 占位符。内置标记优先，无值的键保持原样，使面向模型的模板得以保留。插入的值被原样写入
+// 且不再重扫，因此包含 "{{...}}" 的值无法注入标记。
 func Substitute(text, input string, outputs map[string]string, params ...map[string]string) string {
 	if !strings.Contains(text, "{{") {
 		return text
@@ -535,9 +535,9 @@ func Substitute(text, input string, outputs map[string]string, params ...map[str
 	return out.String()
 }
 
-// lookupParam finds the first map that holds key. The variadic argument of
-// Substitute normally carries exactly one map; accepting more keeps the call
-// site simple when a caller composes parameter sources.
+// lookupParam 找到第一个持有 key 的 map。Substitute 的可变参数通常只携带一个 map；接受更多使调用方
+// Substitute 的可变参数通常只携带一个 map；接受更多使调用方
+// 组合参数来源时调用点保持简单。
 func lookupParam(params []map[string]string, key string) (string, bool) {
 	for _, p := range params {
 		if value, ok := p[key]; ok {

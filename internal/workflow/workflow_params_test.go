@@ -49,7 +49,7 @@ func TestExtractPlaceholdersMatchesSubstituteSyntax(t *testing.T) {
 			t.Fatalf("names = %q, want %q", got, want)
 		}
 	}
-	// The very same token spelling is what Substitute parses.
+	// Substitute 解析的正是同一种标记拼写。
 	out := Substitute(text, "I", map[string]string{"scan": "S"})
 	wantOut := "I / S / {{again}} / {{again}} / {{unterminated"
 	if out != wantOut {
@@ -76,8 +76,8 @@ func TestValidateParametersAcceptsValidDeclarations(t *testing.T) {
 		t.Fatalf("Definition.Validate: %v", err)
 	}
 
-	// The JSON path with no parameters keeps working, and a well-formed
-	// parameterized document parses through ParseDefinition.
+	// 无参数的 JSON 路径仍可用，且格式良好的
+	// 无参数的 JSON 路径仍可用，且格式良好的参数化文档能通过 ParseDefinition 解析。
 	body := `{"name":"params","parameters":[
 		{"key":"name","input_type":"string","requirement":"required"},
 		{"key":"count","input_type":"number","requirement":"optional","default":3},
@@ -205,13 +205,13 @@ func TestValidateParametersRejectsDisallowedDefaults(t *testing.T) {
 }
 
 func TestValidateParametersAllowsOptionalDefaultButNotRequiredOne(t *testing.T) {
-	// An optional (and a user_prompt) parameter may carry a default.
+	// 可选参数（以及 user_prompt 参数）可以带默认值。
 	withDefault := paramDefinition([]Step{{Name: "a", Prompt: "{{city}}"}},
 		WorkflowParam{Key: "city", InputType: ParamTypeString, Requirement: ParamOptional, Default: "Paris"})
 	if err := ValidateParameters(withDefault); err != nil {
 		t.Fatalf("optional with default: %v", err)
 	}
-	// A required one may not.
+	// 必需参数不可以。
 	required := paramDefinition([]Step{{Name: "a", Prompt: "{{city}}"}},
 		WorkflowParam{Key: "city", InputType: ParamTypeString, Requirement: ParamRequired})
 	if err := ValidateParameters(required); err != nil {
@@ -220,7 +220,7 @@ func TestValidateParametersAllowsOptionalDefaultButNotRequiredOne(t *testing.T) 
 }
 
 func TestValidateParametersEnforcesCaps(t *testing.T) {
-	// Too many parameters.
+	// 参数过多。
 	var steps []Step
 	params := make([]WorkflowParam, 0, maxWorkflowParams+1)
 	for i := 0; i <= maxWorkflowParams; i++ {
@@ -232,7 +232,7 @@ func TestValidateParametersEnforcesCaps(t *testing.T) {
 		t.Fatalf("parameter count cap: err = %v", err)
 	}
 
-	// Too many select options in total.
+	// select 选项总数过多。
 	options := make([]string, maxTotalSelectOptions+1)
 	for i := range options {
 		options[i] = fmt.Sprintf("o%d", i)
@@ -243,7 +243,7 @@ func TestValidateParametersEnforcesCaps(t *testing.T) {
 		t.Fatalf("select option cap: err = %v", err)
 	}
 
-	// Serialized parameters too large.
+	// 序列化参数过大。
 	def = paramDefinition([]Step{{Name: "a", Prompt: "{{blob}}"}},
 		WorkflowParam{Key: "blob", InputType: ParamTypeString, Requirement: ParamOptional, Default: strings.Repeat("x", maxSerializedParamsBytes+1)})
 	if err := ValidateParameters(def); err == nil || !strings.Contains(err.Error(), "when serialized") {
@@ -323,7 +323,7 @@ func TestResolveParametersFillsAndCoerces(t *testing.T) {
 		t.Fatal("an optional parameter without a value should be absent")
 	}
 
-	// A provided value wins over the default.
+	// 序列化参数过大。
 	got, err = ResolveParameters(def, map[string]string{"name": "Ada", "count": "9"})
 	if err != nil {
 		t.Fatalf("ResolveParameters (override): %v", err)
@@ -375,8 +375,8 @@ func TestResolveParametersCapsValues(t *testing.T) {
 }
 
 func TestParameterlessWorkflowsKeepWorking(t *testing.T) {
-	// Existing documents use custom-looking tokens for the model; with no
-	// declared parameters they must remain valid.
+	// 提供的值优先于默认值。
+	// 现有文档使用看起来自定义的标记为模型保留内容；在没有声明参数时它们必须仍然有效。
 	def := mustDefinition(t, `{"steps":[
 		{"name":"a","prompt":"use {{legacy_token}} and {{input}}"}
 	]}`)
@@ -389,7 +389,7 @@ func TestParameterlessWorkflowsKeepWorking(t *testing.T) {
 	if err := ValidateParameters(Definition{Steps: []Step{{Prompt: "{{anything}}"}}}); err != nil {
 		t.Fatalf("no declarations means no new checks: %v", err)
 	}
-	// Existing templates still render exactly as before.
+	// 现有模板仍像以前一样渲染。
 	got := Substitute("review {{steps.scan.output}} for {{input}}", "diff", map[string]string{"scan": "files"})
 	if got != "review files for diff" {
 		t.Fatalf("Substitute = %q", got)

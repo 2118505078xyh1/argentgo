@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// spansWithStyle returns the text of every span drawn with style.
+// spansWithStyle 返回用 style 绘制的每个 span 的文本。
 func spansWithStyle(line Line, style Style) []string {
 	var out []string
 	for _, span := range line.Spans {
@@ -51,8 +51,8 @@ func TestDiffPreviewHighlightsOnlyChangedWords(t *testing.T) {
 		t.Errorf("add row text = %q", got)
 	}
 
-	// Only the edited word carries the strong background; the surrounding text
-	// keeps the ordinary failure/tool foreground.
+	// 只有被编辑的词带有强背景色；周围文本
+	// 保持普通的失败/工具前景色。
 	changedDel, changedAdd := changedWordStyle(p, false), changedWordStyle(p, true)
 	if got := spansWithStyle(lines[0], changedDel); !containsSpan(got, "left") {
 		t.Errorf("del changed spans = %q, want [left]", got)
@@ -86,7 +86,7 @@ func TestDiffPreviewWholeLineReplacementUsesOneChangedSpan(t *testing.T) {
 	if got := spansWithStyle(lines[1], changedWordStyle(p, true)); !containsSpan(got, "delta epsilon zeta") {
 		t.Errorf("add changed spans = %q, want the whole line", got)
 	}
-	// A wholesale replacement has no unchanged body segment to keep.
+	// 整体替换没有可保留的未变更正文段。
 	for _, line := range lines {
 		for _, style := range []Style{p.failure(), p.tool()} {
 			for _, text := range spansWithStyle(line, style) {
@@ -109,7 +109,7 @@ func TestDiffPreviewUnpairedRowsKeepWholeLineStyle(t *testing.T) {
 		t.Fatalf("got %d rows, want 3: %s", len(lines), lineTexts(lines))
 	}
 
-	// Each unpaired row still has exactly one whole-line body span.
+	// 每个不成对的行仍然恰好有一个整行正文 span。
 	want := [][2]string{
 		{"old alone", "- "},
 		{"same", "  "},
@@ -184,8 +184,8 @@ func TestDiffPreviewCJKClipsOnGraphemeBoundary(t *testing.T) {
 		t.Errorf("CJK row width = %d, want 16", got)
 	}
 
-	// With no room for a full two-cell ideograph, the changed word is dropped
-	// whole instead of being cut into an invalid fragment.
+	// 当没有空间容纳完整的双单元格汉字时，变化的词被
+	// 整体丢弃，而不是被切成无效碎片。
 	narrow := diffPreviewLines(diffs, 10, 15, p)[0]
 	if got := narrow.Width(); got > 15 {
 		t.Errorf("narrow CJK row width = %d, want <= 15", got)
@@ -215,8 +215,8 @@ func TestDiffPreviewRowCapMatchesBaseline(t *testing.T) {
 		t.Errorf("overflow marker = %q", got)
 	}
 
-	// A pair is only formed when both rows fit; otherwise the leading deletion
-	// falls back to the whole-line path and the addition counts as overflow.
+	// 只有当两行都放得下时才组成一对；否则前导的删除
+	// 回退到整行路径，新增则计为溢出。
 	boundary := []DiffLine{
 		{Kind: DiffContext, Text: "keep"},
 		{Kind: DiffDel, Text: "left"},

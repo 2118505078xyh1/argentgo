@@ -10,10 +10,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatClientToolCallIDWinsWhenIndexIsReassigned covers a gateway that
-// renumbers tool calls mid-stream: a later delta carries a known call id under
-// an index that originally belonged to a different call. The id is the stable
-// identity, so the fragment must follow the id, not the stale index.
+// TestChatClientToolCallIDWinsWhenIndexIsReassigned 覆盖在流中途重新编号
+// 工具调用的网关：一个较晚的增量携带已知的调用 id，但其索引
+// 原本属于另一个调用。id 是稳定的标识，因此片段必须跟随 id，
+// 而不是陈旧的索引。
 func TestChatClientToolCallIDWinsWhenIndexIsReassigned(t *testing.T) {
 	script := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_A","function":{"name":"read","arguments":"{\"path\":"}}]}}]}
 

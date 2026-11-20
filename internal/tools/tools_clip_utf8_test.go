@@ -6,12 +6,12 @@ import (
 	"unicode/utf8"
 )
 
-// clipMarker is the separator clipTo inserts between the retained head and tail.
-// It is pure ASCII, so it cannot by itself break UTF-8 validity.
+// clipMarker 是 clipTo 在保留的头尾之间插入的分隔符。
+// 它是纯 ASCII，因此本身不会破坏 UTF-8 有效性。
 const clipMarker = "\n... [truncated] ...\n"
 
-// splitClipped splits a clipped result into its retained head/tail. It reports
-// whether the marker (hence truncation) was present.
+// splitClipped 把截断结果拆成保留的头/尾。它报告
+// 标记（因而截断）是否存在。
 func splitClipped(t *testing.T, got string) (head, tail string, truncated bool) {
 	t.Helper()
 	if !strings.Contains(got, clipMarker) {
@@ -24,9 +24,9 @@ func splitClipped(t *testing.T, got string) (head, tail string, truncated bool) 
 	return parts[0], parts[1], true
 }
 
-// assertClipInvariants checks the core invariant from AGENTS.md: tool output is
-// never truncated in the middle of a UTF-8 rune. It also checks the byte/rune
-// budget for the retained content (the marker is fixed ASCII overhead).
+// assertClipInvariants 检查 AGENTS.md 中的核心不变量：工具输出
+// 绝不会在 UTF-8 rune 中间被截断。它还检查保留内容的
+// 字节/rune 预算（标记是固定的 ASCII 开销）。
 func assertClipInvariants(t *testing.T, text string, limit int, got string) {
 	t.Helper()
 	budget := limit
@@ -69,8 +69,8 @@ func TestClipToNeverCutsUTF8Rune(t *testing.T) {
 		{"mixed scripts", strings.Repeat("ab中😀c\u0301", 6), 13},
 		{"limit inside three byte rune", "中文测试中文测试", 7},
 		{"limit inside four byte emoji", "😀😀😀😀😀😀", 5},
-		// The trailing 4-byte emoji makes len(text)-tail land mid-rune while
-		// text[tail] is a rune start: this used to produce invalid UTF-8.
+		// 尾随的四字节 emoji 使 len(text)-tail 落在 rune 中间，
+		// 而 text[tail] 是一个 rune 起点：这过去会产生无效 UTF-8。
 		{"tail boundary mid emoji", "中中😀中中😀", 9},
 		{"limit one", strings.Repeat("中", 12), 1},
 		{"limit two", strings.Repeat("中", 12), 2},
@@ -84,8 +84,8 @@ func TestClipToNeverCutsUTF8Rune(t *testing.T) {
 	}
 }
 
-// TestClipToStaysValidAcrossLimits sweeps every limit around each text length so
-// that head/tail offsets land on every possible byte position within runes.
+// TestClipToStaysValidAcrossLimits 遍历每段文本长度附近的所有限制，
+// 使头/尾偏移落在 rune 内每个可能的字节位置上。
 func TestClipToStaysValidAcrossLimits(t *testing.T) {
 	texts := []string{
 		"abcdefghij",
@@ -112,7 +112,7 @@ func TestClipToRespectsByteBudget(t *testing.T) {
 		if kept := len(head) + len(tail); kept > limit {
 			t.Fatalf("clipTo(..., %d) kept %d bytes, over budget", limit, kept)
 		}
-		// Marker overhead is constant and does not scale with the input.
+		// 标记开销恒定，不随输入规模变化。
 		if removed := len(got) - (len(head) + len(tail)); removed != len(clipMarker) {
 			t.Fatalf("clipTo(..., %d) marker overhead = %d bytes, want %d", limit, removed, len(clipMarker))
 		}

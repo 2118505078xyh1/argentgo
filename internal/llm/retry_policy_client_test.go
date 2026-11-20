@@ -11,12 +11,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestWireClientsKeepRetryPolicyHookWhenItIsTheOnlyField covers the fallout of
-// an IsZero that ignored function fields: a caller that configures only an
-// OnRetry hook (a natural way to subscribe to retry notifications without
-// touching delays) had its whole policy replaced by DefaultRetryPolicy, so the
-// hook never fired. The retry itself still happens, which makes the silent
-// loss easy to miss. All three wire clients share this pipeline.
+// TestWireClientsKeepRetryPolicyHookWhenItIsTheOnlyField 覆盖这样的后果：
+// 一个忽略函数字段的 IsZero 会让只配置了
+// OnRetry 钩子的调用方（这是订阅重试通知而不触碰延迟的自然方式）
+// 的整个策略被替换为 DefaultRetryPolicy，导致钩子永不触发。
+// 重试本身仍会发生，因此这种静默丢失很容易被忽视。
+// 三个线客户端共享这条管线。
 func TestWireClientsKeepRetryPolicyHookWhenItIsTheOnlyField(t *testing.T) {
 	cases := []struct {
 		name      string

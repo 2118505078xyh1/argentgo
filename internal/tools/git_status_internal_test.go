@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestGitStatusHelperProcess is re-executed as a fake git binary.
+// TestGitStatusHelperProcess 作为假的 git 二进制被重新执行。
 func TestGitStatusHelperProcess(t *testing.T) {
 	if os.Getenv("ARGENT_GO_WANT_GIT_HELPER") != "1" {
 		return

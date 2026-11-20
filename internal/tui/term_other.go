@@ -2,8 +2,8 @@
 
 package tui
 
-// Stubs for platforms without a terminal backend here. The UI still builds and
-// tests run; Run simply leaves the terminal alone.
+// 没有终端后端支持平台的桩。UI 仍能构建且
+// 测试仍能运行；Run 只是不触碰终端。
 
 func enableRaw() (func(), error) { return func() {}, nil }
 

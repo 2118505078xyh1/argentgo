@@ -377,7 +377,7 @@ func readLine(reader io.Reader) (string, error) {
 // maxTTLGrantEntries 限制内存中和磁盘上的授予集合大小。
 // maxTTLCanonicalBytes 限制 Key 检查的参数文本量。
 // maxTTLReadableRunes 限制每条授予保留的人类可读上下文。
-// between the head and the tail and an explicit "省略 N 字符" marker sits
+// 位于头部与尾部之间，并带有一个明确的"省略 N 字符"标记
 // ttlGrantsFile 是在 dir 内创建的持久化文件。
 // 结果保持在历史上的 runeCap+1 rune 上限之内。
 func readableArgs(args string) string {
@@ -447,7 +447,7 @@ func stripANSIAndControls(s string) string {
 				break
 			}
 			switch s[i] {
-			case '[': // CSI: consumed through a final byte in 0x40..0x7e.
+			case '[': // CSI：一直消费到 0x40..0x7e 范围内的结束字节
 				i++
 				for i < len(s) {
 					last := s[i]
@@ -456,7 +456,7 @@ func stripANSIAndControls(s string) string {
 						break
 					}
 				}
-			case ']': // OSC: consumed through BEL (0x07) or ST (ESC '\\').
+			case ']': // OSC：一直消费到 BEL (0x07) 或 ST (ESC '\\')
 				i++
 				for i < len(s) {
 					if s[i] == 0x07 {
@@ -469,7 +469,7 @@ func stripANSIAndControls(s string) string {
 					}
 					i++
 				}
-			default: // Other escape sequences: drop ESC and this one byte.
+			default: // 其他转义序列：丢弃 ESC 和这一个字节
 				i++
 			}
 			continue
@@ -480,7 +480,7 @@ func stripANSIAndControls(s string) string {
 			continue
 		}
 		if c < 0x20 || c == 0x7f {
-			i++ // any other ASCII control byte
+			i++ // 其他任意 ASCII 控制字节
 			continue
 		}
 		if c < 0x80 {
@@ -490,7 +490,7 @@ func stripANSIAndControls(s string) string {
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r >= 0x80 && r <= 0x9f {
-			i += size // C1 control byte encoded in UTF-8
+			i += size // 以 UTF-8 编码的 C1 控制字节
 			continue
 		}
 		b.WriteString(s[i : i+size])

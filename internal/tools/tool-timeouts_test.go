@@ -41,9 +41,9 @@ func TestClampTimeout(t *testing.T) {
 	}
 }
 
-// TestSetMaxTimeoutCapsToolDeadline checks the registry-to-tool plumbing with
-// an observable deadline: the fake git command records the context it receives
-// instead of inspecting internal fields.
+// TestSetMaxTimeoutCapsToolDeadline 用一个可观察的 deadline 检查
+// 从注册表到工具的传递：假的 git 命令记录它收到的 context，
+// 而不是检查内部字段。
 func TestSetMaxTimeoutCapsToolDeadline(t *testing.T) {
 	t.Setenv("ARGENT_GO_WANT_GIT_HELPER", "1")
 	previous := gitStatusCommand
@@ -60,9 +60,9 @@ func TestSetMaxTimeoutCapsToolDeadline(t *testing.T) {
 		wantMin time.Duration
 		wantMax time.Duration
 	}{
-		// The lower bound must tolerate a slow command plus scheduler/race
-		// overhead: the point is that the default is ~20s and not capped,
-		// not that the command finishes within a specific wall-clock window.
+		// 下界必须容忍较慢的命令以及调度器/race 检测器的
+		// 开销：重点在于默认值约为 20s 且未被钳制，
+		// 而不是命令在某个特定的墙上时钟窗口内完成。
 		{"default uncapped", 0, 10 * time.Second, 20 * time.Second},
 		{"registry cap", 2 * time.Second, 0, 2 * time.Second},
 	} {

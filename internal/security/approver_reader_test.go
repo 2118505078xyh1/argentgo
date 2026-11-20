@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// gatedAnswerReader parks in Read until release is closed, then yields payload
-// one byte at a time (the shape readLine expects). It reports the first entry
-// into Read on entered so a test can synchronise on the reader being parked
-// without sleeping.
+// gatedAnswerReader 在 Read 中停驻直到 release 被关闭，然后逐字节
+// 产出 payload（readLine 期望的形式）。它在 entered 上报告第一次
+// 进入 Read，使测试可以在 reader 已停驻这一点上同步，
+// 而无需 sleep。
 type gatedAnswerReader struct {
 	entered     chan struct{}
 	release     chan struct{}
@@ -46,9 +46,9 @@ type promptAskResult struct {
 	err error
 }
 
-// TestPromptApproverCancelledReaderDoesNotStealNextAnswer covers the reader
-// leak behind a cancelled Ask: its goroutine stays parked in readLine holding
-// readMu, so the following Ask must not read In concurrently with it.
+// TestPromptApproverCancelledReaderDoesNotStealNextAnswer 覆盖被取消的 Ask
+// 背后的 reader 泄漏：其 goroutine 停在 readLine 中并持有
+// readMu，因此后续 Ask 不得与它并发读取 In。
 func TestPromptApproverCancelledReaderDoesNotStealNextAnswer(t *testing.T) {
 	const timeout = 5 * time.Second
 
@@ -64,8 +64,8 @@ func TestPromptApproverCancelledReaderDoesNotStealNextAnswer(t *testing.T) {
 		done <- promptAskResult{ok: ok, err: err}
 	}()
 
-	// Wait until the reader goroutine is genuinely parked in Read before
-	// cancelling, so Ask really does leak a live reader holding readMu.
+	// 在取消之前，等待 reader goroutine 真正停在 Read 中，
+	// 这样 Ask 确实会泄漏一个持有 readMu 的活 reader。
 	select {
 	case <-first.entered:
 	case <-time.After(timeout):
@@ -85,9 +85,9 @@ func TestPromptApproverCancelledReaderDoesNotStealNextAnswer(t *testing.T) {
 		t.Fatal("Ask did not return promptly after cancellation")
 	}
 
-	// Ask returned but its reader is still parked holding readMu. Release it,
-	// then wait until readMu is free before swapping in fresh input; that
-	// proves the leaked readLine has finished and no longer touches p.In.
+	// Ask 已返回，但其 reader 仍停驻并持有 readMu。释放它，
+	// 然后等 readMu 空闲后再换入新输入；这
+	// 证明泄漏的 readLine 已经结束，不再触碰 p.In。
 	close(first.release)
 
 	lockDone := make(chan struct{})
@@ -102,8 +102,8 @@ func TestPromptApproverCancelledReaderDoesNotStealNextAnswer(t *testing.T) {
 		t.Fatal("leaked reader never released readMu")
 	}
 
-	// Release happened before this second Ask's read, so its goroutine can
-	// acquire readMu and read the new input without deadlocking.
+	// 释放发生在这第二次 Ask 读取之前，因此其 goroutine 可以
+	// 获取 readMu 并读取新输入，而不会死锁。
 	p.In = strings.NewReader("y\n")
 	ok, err := p.Ask(context.Background(), "shell", "echo hi")
 	if err != nil {

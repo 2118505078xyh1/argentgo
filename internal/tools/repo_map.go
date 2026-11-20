@@ -16,15 +16,15 @@ import (
 
 const repoMapMaxFiles = 80
 
-// repoMapIgnoredDirs is a small .gitignore-style deny list. The walk and the
-// top-level directory listing share it so the two views never disagree.
+// repoMapIgnoredDirs 是一个小型的 .gitignore 风格拒绝列表。遍历和
+// 顶层目录列表共用它，使两个视图永远不会不一致。
 var repoMapIgnoredDirs = map[string]bool{
 	".git": true, "node_modules": true, "target": true, "dist": true,
 	".argent": true, "vendor": true, ".idea": true, ".vscode": true,
 	"build": true, "out": true,
 }
 
-// repoMapEntryPoints are filenames worth flagging for a model reading the map.
+// repoMapEntryPoints 是阅读地图的模型值得关注的文件名。
 var repoMapEntryPoints = map[string]bool{
 	"main.go": true, "go.mod": true, "cargo.toml": true, "package.json": true,
 	"readme.md": true, "makefile": true, "dockerfile": true, "main.rs": true,
@@ -69,9 +69,9 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	if err != nil {
 		return "", err
 	}
-	// Walk the whole tree so important files that appear late in walk order
-	// (e.g. a deeply nested README or go.mod) are still discoverable. The file
-	// view is budgeted afterwards, with important files pinned to the front.
+	// 遍历整棵树，使在遍历顺序中靠后出现的重要文件
+	// （例如深层嵌套的 README 或 go.mod）仍可被发现。文件
+	// 不会被漏掉；视图随后再做预算控制，重要文件固定在最前面。
 	var allFiles []repoMapWalkedFile
 	var relFiles []string // first repoMapMaxFiles walked paths, for Go symbols (legacy behaviour)
 	err = filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
@@ -119,8 +119,8 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	if len(allFiles) >= repoMapMaxFiles {
 		lines = append(lines, fmt.Sprintf("... [capped at %d files]", repoMapMaxFiles))
 	}
-	// The ranked symbol view is additive: the dirs/files view above is kept
-	// verbatim for existing consumers. Pass {"symbols":false} to opt out.
+	// 排名后的符号视图是附加性的：上面的 dirs/files 视图保持
+	// 原样不变，供现有消费者使用。传入 {"symbols":false} 可退出。
 	if args.Symbols == nil || *args.Symbols {
 		mentions := make([]string, 0, 1+len(args.Mentions))
 		if strings.TrimSpace(args.Mention) != "" {
@@ -132,11 +132,11 @@ func (repoMapTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	return clip(ctx, strings.Join(lines, "\n")), nil
 }
 
-// repoMapWalkedFile is one regular file discovered by the map walk.
+// repoMapWalkedFile 是地图遍历发现的一个普通文件。
 type repoMapWalkedFile struct{ rel, path string }
 
-// repoMapFormatFile renders one walked file as the legacy "rel:lines[marker]"
-// line. Sorting these strings reproduces the old sort.Strings(files) order.
+// repoMapFormatFile 把遍历到的文件渲染为旧式的 "rel:lines[marker]"
+// 行。对这些字符串排序即可复现旧的 sort.Strings(files) 顺序。
 func repoMapFormatFile(rel, path string) string {
 	marker := ""
 	if repoMapEntryPoints[strings.ToLower(filepath.Base(rel))] {
@@ -145,11 +145,11 @@ func repoMapFormatFile(rel, path string) string {
 	return fmt.Sprintf("%s:%d%s", rel, countLines(path), marker)
 }
 
-// repoMapSelectFiles builds the budgeted file view. Important project files
-// (go.mod, README, Cargo.toml, Dockerfile, CI workflows, ...) are pinned ahead
-// of the ordinary files so neither the repoMapMaxFiles cap nor the final output
-// clip can crowd them out. Within each group the original lexical order is
-// preserved, so ordinary symbol/file ordering is unchanged otherwise.
+// repoMapSelectFiles 构建带预算的文件视图。重要的项目文件
+// （go.mod、README、Cargo.toml、Dockerfile、CI 工作流等）排在
+// 排在普通文件之前，使 repoMapMaxFiles 上限和最终输出
+// 截断都不会把它们挤掉。每组内部保持原有的词法顺序，
+// 因此其他方面的普通符号/文件顺序不变。
 func repoMapSelectFiles(all []repoMapWalkedFile) []string {
 	var important, ordinary []string
 	for _, f := range all {
@@ -192,8 +192,8 @@ func repoMapTopDirs(base string) ([]string, error) {
 	return dirs, nil
 }
 
-// countLines treats a trailing newline as terminating the last line, matching
-// how editors and `wc -l` report line counts.
+// countLines 把尾随换行视为终止最后一行，与
+// 编辑器和 `wc -l` 报告行数的方式一致。
 func countLines(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {

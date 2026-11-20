@@ -14,7 +14,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Hit is one matching record inside a transcript.
+// Hit 是转录中一条匹配的记录。
 type Hit struct {
 	Path    string    `json:"path"`
 	ID      string    `json:"id"`
@@ -24,14 +24,12 @@ type Hit struct {
 	TS      time.Time `json:"ts"`
 }
 
-// Search scans every JSONL transcript under dir for query, case-insensitively.
-// Hits are ordered by session (newest first) and then by line number (ascending).
-// limit caps the total number of hits; a value <= 0 means no cap.
+// Search 以不区分大小写的方式在 dir 下的每个 JSONL 转录中搜索 query。
+// 命中按会话排序（最新的在前），再按行号排序（升序）。
+// limit 限制命中总数；值 <= 0 表示不设上限。
 //
-// Snippets are passed through security.Redact before being returned. The
-// session package can import internal/security without a cycle (security only
-// depends on the standard library), which keeps redaction consistent with the
-// audit log instead of maintaining a second regex set here.
+// 片段在返回前会经过 security.Redact。session 包可以导入 internal/security 而不产生循环
+// （security 只依赖标准库），这使脱敏与审计日志保持一致，而无需在此维护第二套正则。
 func Search(dir, query string, limit int) ([]Hit, error) {
 	needle := strings.TrimSpace(query)
 	if needle == "" {
@@ -62,18 +60,16 @@ func Search(dir, query string, limit int) ([]Hit, error) {
 		if err != nil {
 			continue
 		}
-		// The suffix match above is case-insensitive, so strip by length just
-		// like Container.List does. A case-sensitive TrimSuffix would leave the
-		// extension on the id for "SESSION.JSONL", producing a Hit.ID that no
-		// longer resolves through Store.OpenSession.
+		// 上面的后缀匹配不区分大小写，因此像 Container.List 一样按长度剥离。
+		// 区分大小写的 TrimSuffix 会在 "SESSION.JSONL" 的 id 上留下扩展名，
+		// 产生一个再也无法通过 Store.OpenSession 解析的 Hit.ID。
 		id := entry.Name()[:len(entry.Name())-len(fileExt)]
 		records := make([]Record, 0, len(lines))
 		for _, line := range lines {
 			records = append(records, line.record)
 		}
-		// A hit can live in any record's payload, so every transcript still has
-		// to be scanned. The sidecar removes the meta recomputation (title and
-		// turn counting) and is only trusted while its stat still matches.
+		// 命中可能位于任何记录的载荷中，因此仍必须扫描每一份转录。
+		// 旁车文件省去了元数据的重算（标题和轮次计数），且只在其 stat 仍匹配时才被信任。
 		info, statErr := entry.Info()
 		var meta Meta
 		cached := false
@@ -122,13 +118,13 @@ func Search(dir, query string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
-// Search is also available on an open store for callers that already own one.
+// 对于已经拥有 store 的调用方，Search 也可在打开的 store 上调用。
 func (s *Store) Search(query string, limit int) ([]Hit, error) {
 	return Search(s.dir, query, limit)
 }
 
-// numberedRecord keeps the physical JSONL line number: readRecords deliberately
-// skips malformed lines, but a search hit must point at the line a user sees.
+// numberedRecord 保留物理 JSONL 行号：readRecords 刻意跳过格式错误的行，
+// 但搜索命中必须指向用户看到的那一行。
 type numberedRecord struct {
 	number int
 	record Record
@@ -159,8 +155,8 @@ func readNumberedRecords(path string) ([]numberedRecord, error) {
 	if err := scanner.Err(); err != nil {
 		return out, fmt.Errorf("session: read %s: %w", path, err)
 	}
-	// Same deferred, conflict-free synthetic ids as readRecords and ReadPage
-	// (session audit #5); the physical line numbers stay untouched.
+	// 与 readRecords 和 ReadPage 相同的延迟、无冲突合成 id
+	// （session 审计 #5）；物理行号保持不变。
 	records := make([]Record, len(out))
 	for i := range out {
 		records[i] = out[i].record
@@ -174,18 +170,16 @@ func readNumberedRecords(path string) ([]numberedRecord, error) {
 	return out, nil
 }
 
-// snippetFor finds the first string value in a record payload containing the
-// needle and returns a redacted, single-line window around it. Tool output is
-// included because it is stored as a plain string value in the payload.
+// snippetFor 在记录载荷中查找第一个包含 needle 的字符串值，
+// 并返回其周围经过脱敏的单行窗口。工具输出也包含在内，因为它在载荷中是作为普通字符串值存储的。
 func snippetFor(raw json.RawMessage, needle string) (string, bool) {
 	wanted := strings.ToLower(needle)
 	for _, value := range stringValues(raw) {
 		lowered := strings.ToLower(value)
 		if index := strings.Index(lowered, wanted); index >= 0 {
-			// strings.Index returns a byte offset into lowered, but lowercasing
-			// can change byte lengths (e.g. İ→i, ẞ→ß). Convert it to a rune
-			// offset first: strings.ToLower folds rune-by-rune, so the rune
-			// index is identical in lowered and in the original value.
+			// strings.Index 返回的是 lowered 中的字节偏移，但小写化可能改变字节长度
+			// （例如 İ→i、ẞ→ß）。先将其转换为符文偏移：strings.ToLower 按符文逐一折叠，
+			// 因此符文索引在 lowered 和原始值中完全相同。
 			runeIndex := utf8.RuneCountInString(lowered[:index])
 			return contextWindow(value, runeIndex, len([]rune(needle))), true
 		}
@@ -193,7 +187,7 @@ func snippetFor(raw json.RawMessage, needle string) (string, bool) {
 	return "", false
 }
 
-// stringValues walks a JSON payload and returns every string it contains.
+// stringValues 遍历 JSON 载荷并返回其中包含的所有字符串。
 func stringValues(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
@@ -212,13 +206,9 @@ func collectStrings(value any, out *[]string) {
 	case string:
 		*out = append(*out, typed)
 	case map[string]any:
-		// A JSON object is decoded into a Go map, whose iteration order is
-		// randomized. Walking it directly would make "the first string value
-		// containing the needle" (see snippetFor) depend on the map's random
-		// seed, so two searches of the same transcript could return different
-		// snippets. Visit keys in sorted order instead: the set of strings is
-		// unchanged, but the order — and therefore the chosen snippet — is
-		// deterministic for a given record.
+		// JSON 对象解码为 Go map，其迭代顺序是随机的。直接遍历它会使"第一个包含 needle 的
+		// 字符串值"（见 snippetFor）依赖于 map 的随机种子，因此同一转录的两次搜索可能返回不同的片段。
+		// 改为按排序后的顺序访问键：字符串集合不变，但顺序——以及所选择的片段——对给定记录是确定的。
 		keys := make([]string, 0, len(typed))
 		for key := range typed {
 			keys = append(keys, key)
@@ -234,9 +224,8 @@ func collectStrings(value any, out *[]string) {
 	}
 }
 
-// contextWindow slices a snippet around a rune index without breaking UTF-8,
-// then redacts credentials before collapsing whitespace. Redaction happens
-// before truncation so a token placeholder is never cut in half.
+// contextWindow 在符文索引周围切出片段而不破坏 UTF-8，然后在折叠空白之前对凭据脱敏。
+// 脱敏发生在截断之前，因此 token 占位符永远不会被切成两半。
 func contextWindow(value string, runeIndex, needleRunes int) string {
 	runes := []rune(value)
 	index := runeIndex

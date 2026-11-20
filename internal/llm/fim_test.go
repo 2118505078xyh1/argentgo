@@ -13,9 +13,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestRenderFIMTemplates pins the exact wire prompt and explicit stop ids each
-// model family produces. A wrong marker or stop id makes the endpoint generate
-// the wrong span or never terminate the infill.
+// TestRenderFIMTemplates 固定每个模型系列产生的精确线协议提示和显式停止 id。
+// 错误的标记或停止 id 会让端点生成错误的片段范围，
+// 或永远不终止填充。
 func TestRenderFIMTemplates(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -86,9 +86,9 @@ func TestRenderFIMTemplates(t *testing.T) {
 	}
 }
 
-// TestRenderFIMPreservesCJKAndMarkers checks that bilingual code and text that
-// merely looks like a control token reach the wire verbatim: RenderFIM only
-// adds its own markers and must not escape or reinterpret caller content.
+// TestRenderFIMPreservesCJKAndMarkers 检查双语代码以及只是看起来像控制 token 的文本
+// 是否原样到达线协议：RenderFIM 只添加自己的标记，
+// 绝不能转义或重新解释调用方内容。
 func TestRenderFIMPreservesCJKAndMarkers(t *testing.T) {
 	prefix := "func 你好(x int) {\n  // 注意 <fim_middle> 不是真实标记\n"
 	suffix := "\n  return \"世界\"\n}"
@@ -102,8 +102,8 @@ func TestRenderFIMPreservesCJKAndMarkers(t *testing.T) {
 	}
 }
 
-// TestRenderFIMReturnsIndependentStopIDs guards the shared template table: a
-// caller mutating the returned slice must not poison later renders.
+// TestRenderFIMReturnsIndependentStopIDs 守护共享的模板表：调用方修改
+// 返回的切片不得污染后续的渲染。
 func TestRenderFIMReturnsIndependentStopIDs(t *testing.T) {
 	_, first := llm.RenderFIM("a", "b", "qwen")
 	first[0] = 999
@@ -113,8 +113,8 @@ func TestRenderFIMReturnsIndependentStopIDs(t *testing.T) {
 	}
 }
 
-// TestFIMTemplateName checks the diagnostic selector resolves the same families
-// as RenderFIM, including the unknown-model fallback.
+// TestFIMTemplateName 检查诊断选择器解析出的系列与 RenderFIM 一致，
+// 包括未知模型的回退。
 func TestFIMTemplateName(t *testing.T) {
 	tests := []struct{ model, want string }{
 		{"Qwen2.5-Coder", "qwen"},
@@ -131,8 +131,8 @@ func TestFIMTemplateName(t *testing.T) {
 	}
 }
 
-// captureChatRequest serves a minimal SSE reply and records the raw request
-// body so wire-shape assertions can be made on it.
+// captureChatRequest 提供一个最小的 SSE 回复并记录原始请求体，
+// 以便对其做线协议形态断言。
 func captureChatRequest(t *testing.T, reply string) (*string, *llm.Client) {
 	t.Helper()
 	var body string
@@ -149,8 +149,8 @@ func captureChatRequest(t *testing.T, reply string) (*string, *llm.Client) {
 	return &body, llm.New(srv.URL, "k")
 }
 
-// TestChatDoesNotSendStopIDs is the no-regression check: Chat shares the new
-// pipeline but its request must stay byte-compatible (no stop_token_ids key).
+// TestChatDoesNotSendStopIDs 是无回归检查：Chat 共享新的管线，
+// 但其请求必须保持字节兼容（不含 stop_token_ids 键）。
 func TestChatDoesNotSendStopIDs(t *testing.T) {
 	reply := sse("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n", "data: [DONE]\n\n")
 	body, c := captureChatRequest(t, reply)
@@ -162,9 +162,9 @@ func TestChatDoesNotSendStopIDs(t *testing.T) {
 	}
 }
 
-// TestFillMiddleSendsFIMAndStopIDs checks the full wire effect: the FIM prompt
-// becomes the user message, the template stop ids are sent, deltas stream back,
-// and the assembled infill is returned.
+// TestFillMiddleSendsFIMAndStopIDs 检查完整的线协议效果：FIM 提示
+// 成为 user 消息，模板的停止 id 被发送，增量流式返回，
+// 并返回组装好的填充内容。
 func TestFillMiddleSendsFIMAndStopIDs(t *testing.T) {
 	reply := sse(
 		"data: {\"choices\":[{\"delta\":{\"content\":\"mid\"},\"finish_reason\":\"stop\"}]}\n\n",
@@ -209,8 +209,8 @@ func TestFillMiddleSendsFIMAndStopIDs(t *testing.T) {
 	}
 }
 
-// TestFillMiddleStopOverride checks that a caller-supplied stop list replaces
-// the template default on the wire.
+// TestFillMiddleStopOverride 检查调用方提供的停止列表在线协议上
+// 替换模板的默认值。
 func TestFillMiddleStopOverride(t *testing.T) {
 	reply := sse("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n", "data: [DONE]\n\n")
 	body, c := captureChatRequest(t, reply)
@@ -230,8 +230,8 @@ func TestFillMiddleStopOverride(t *testing.T) {
 	}
 }
 
-// TestFillMiddleNoNetworkIsConstructionOnly checks the network-free mode: the
-// rendered prompt is reported and the endpoint is never contacted.
+// TestFillMiddleNoNetworkIsConstructionOnly 检查无网络模式：报告渲染后的提示，
+// 且绝不联系端点。
 func TestFillMiddleNoNetworkIsConstructionOnly(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -254,8 +254,8 @@ func TestFillMiddleNoNetworkIsConstructionOnly(t *testing.T) {
 	}
 }
 
-// TestFillMiddleUnknownModelUsesPlainText checks that an unrecognised model
-// still produces a usable request with no forced stop ids.
+// TestFillMiddleUnknownModelUsesPlainText 检查无法识别的模型
+// 仍产生可用的请求，且不强制添加停止 id。
 func TestFillMiddleUnknownModelUsesPlainText(t *testing.T) {
 	reply := sse("data: {\"choices\":[{\"delta\":{\"content\":\"mid\"}}]}\n\n", "data: [DONE]\n\n")
 	body, c := captureChatRequest(t, reply)

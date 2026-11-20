@@ -9,9 +9,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// modelUsage is one model's aggregated share of a session's per-request usage
-// records. Model names are kept verbatim (including CJK characters) so the
-// report names the model that actually served the requests.
+// modelUsage 是某个模型在会话的逐次请求用量记录中的聚合份额。
+// 模型名被原样保留（包括 CJK 字符），使报告能指出实际服务这些请求的模型。
 type modelUsage struct {
 	Model  string
 	Input  int
@@ -20,16 +19,13 @@ type modelUsage struct {
 	Calls  int
 }
 
-// cumulativeSessionUsage is the production reader for the session package's
-// cumulative APIs. AggregateStats supplies the cross-resume token/cost roll-up,
-// and UsageRecords supplies the per-model breakdown from raw per-request facts.
-// A session with no stats records yields zero totals; a session with no usage
-// records yields an empty breakdown. Both are valid states, not errors.
+// cumulativeSessionUsage 是 session 包累积 API 的生产读取方。
+// AggregateStats 提供跨恢复的 token/花费汇总，UsageRecords 从原始逐次请求事实中提供按模型的细分。
+// 没有统计记录的会话产生零总量；没有用量记录的会话产生空的细分。两者都是有效状态，而非错误。
 //
-// This is the app-side consumer that gives session.AggregateStats/UsageRecords
-// a real production call path: without it those APIs were only exercised by
-// session's own tests, so a resumed session's reported usage could silently be
-// the last run's value rather than the accumulated total.
+// 这个 app 侧消费者让 session.AggregateStats/UsageRecords 拥有真实的生产调用路径：
+// 没有它，这些 API 只会被 session 自身的测试触及，
+// 一个已恢复会话报告的用量可能静默地是上一次运行的值，而非累积总量。
 func cumulativeSessionUsage(sess *session.Session) (session.SessionStats, []modelUsage) {
 	if sess == nil {
 		return session.SessionStats{}, nil
@@ -61,9 +57,9 @@ func cumulativeSessionUsage(sess *session.Session) (session.SessionStats, []mode
 	return total, out
 }
 
-// appendSessionCumulative adds a cross-resume usage block to --tokens output.
-// It runs only when --session addresses a session, so a plain `--tokens` call
-// keeps its exact existing output and no agent event or protocol shape changes.
+// appendSessionCumulative 向 --tokens 输出添加一个跨恢复的用量块。
+// 它只在 --session 指向某个会话时运行，因此普通的 `--tokens` 调用保持其原有输出不变，
+// 且不会改变任何 agent 事件或协议形状。
 func appendSessionCumulative(b *strings.Builder, res Resolved) error {
 	id := strings.TrimSpace(res.Options.Session)
 	if id == "" {

@@ -7,18 +7,18 @@ import (
 	"time"
 )
 
-// Cron is a parsed five-field cron expression:
+// Cron 是解析后的五字段 cron 表达式：
 //
 //	minute hour day-of-month month day-of-week
 //
-// Each field accepts `*`, a single value `n`, a range `a-b`, a step `*/n`,
-// a list `a,b,c`, and a stepped range `a-b/n`. Day of week 0 is Sunday and 7 is
-// accepted as Sunday too. Times are evaluated in the location of the time value
-// passed to Next.
+// 每个字段接受 `*`、`n` 单值、范围 `a-b`、步长 `*/n`、
+// 列表 `a,b,c` 和带步长的范围 `a-b/n`。星期 0 是星期日，7 也
+// 被接受为星期日。时间按传给 Next 的 time 值的位置求值。
+// 被接受为星期日。时间按传给 Next 的 time 值的位置求值。
 //
-// Day-of-month and day-of-week follow the traditional Vixie rule: when both are
-// restricted (neither starts with `*`) a day matches if either field matches,
-// otherwise the restricted field must match.
+// 日和星期遵循传统的 Vixie 规则：当两者都
+// 日和星期遵循传统的 Vixie 规则：当两者都受限（都不以 `*` 开头）时，任一字段匹配即匹配，否则受限字段必须匹配。
+// 否则受限字段必须匹配。
 type Cron struct {
 	expr    string
 	minute  fieldSet
@@ -30,7 +30,7 @@ type Cron struct {
 	dowStar bool
 }
 
-// fieldSet is a bitmap of allowed values; cron fields are always below 64.
+// fieldSet 是允许值的位图；cron 字段始终小于 64。
 type fieldSet struct {
 	bits uint64
 }
@@ -42,8 +42,8 @@ func (f fieldSet) has(value int) bool {
 	return f.bits&(1<<uint(value)) != 0
 }
 
-// Cron field bounds. Day of week is parsed as 0-7 so that 7 (=Sunday) is
-// accepted, then folded onto 0.
+// Cron 字段边界。星期按 0-7 解析以接受 7（=星期日），然后折叠到 0。
+// 接受 7（=星期日），然后折叠到 0。
 const (
 	minuteMin, minuteMax = 0, 59
 	hourMin, hourMax     = 0, 23
@@ -52,7 +52,7 @@ const (
 	dowMin, dowMax       = 0, 7
 )
 
-// ParseCron parses a five-field cron expression.
+// ParseCron 解析五字段 cron 表达式。
 func ParseCron(expr string) (*Cron, error) {
 	fields := strings.Fields(strings.TrimSpace(expr))
 	if len(fields) != 5 {
@@ -75,7 +75,7 @@ func ParseCron(expr string) (*Cron, error) {
 	if c.dow, err = parseCronField(fields[4], dowMin, dowMax, "day-of-week"); err != nil {
 		return nil, err
 	}
-	// Fold 7 onto 0 so both spellings of Sunday match.
+	// 把 7 折叠到 0，使星期日的两种拼写都匹配。
 	if c.dow.has(7) {
 		c.dow.bits |= 1
 		c.dow.bits &^= 1 << 7
@@ -85,7 +85,7 @@ func ParseCron(expr string) (*Cron, error) {
 	return c, nil
 }
 
-// parseCronField expands one field into a bitmap.
+// parseCronField 把一个字段展开为位图。
 func parseCronField(text string, min, max int, name string) (fieldSet, error) {
 	var out fieldSet
 	if strings.TrimSpace(text) == "" {
@@ -129,7 +129,7 @@ func parseCronField(text string, min, max int, name string) (fieldSet, error) {
 			lo = v
 			hi = v
 			if hasStep {
-				// "5/15" means 5,20,35,50 in the traditional grammar.
+				// "5/15" 在传统语法中表示 5,20,35,50。
 				hi = max
 			}
 		}
@@ -143,7 +143,7 @@ func parseCronField(text string, min, max int, name string) (fieldSet, error) {
 	return out, nil
 }
 
-// Expression returns the normalised expression.
+// Expression 返回规范化后的表达式。
 func (c *Cron) Expression() string {
 	if c == nil {
 		return ""
@@ -151,7 +151,7 @@ func (c *Cron) Expression() string {
 	return c.expr
 }
 
-// Matches reports whether t falls exactly on a cron slot (seconds are ignored).
+// Matches 报告 t 是否恰好落在某个 cron 时隙（忽略秒）。
 func (c *Cron) Matches(t time.Time) bool {
 	if c == nil {
 		return false
@@ -162,7 +162,7 @@ func (c *Cron) Matches(t time.Time) bool {
 		c.minute.has(t.Minute())
 }
 
-// matchesDay applies the day-of-month / day-of-week OR rule.
+// matchesDay 应用日/星期的 OR 规则。
 func (c *Cron) matchesDay(t time.Time) bool {
 	dom := c.dom.has(t.Day())
 	dow := c.dow.has(int(t.Weekday()))
@@ -178,9 +178,9 @@ func (c *Cron) matchesDay(t time.Time) bool {
 	}
 }
 
-// Next returns the first matching time strictly after t, truncated to the
-// minute. It returns the zero time when the expression cannot fire within five
-// years (for example "0 0 31 2 *").
+// Next 返回严格晚于 t 的第一个匹配时间，截断到
+// 分钟。当表达式在五年内无法触发时返回零时间
+// Next 返回严格晚于 t 的第一个匹配时间，截断到分钟。当表达式在五年内无法触发时返回零时间（例如 "0 0 31 2 *"）。
 func (c *Cron) Next(t time.Time) time.Time {
 	if c == nil {
 		return time.Time{}
@@ -189,23 +189,23 @@ func (c *Cron) Next(t time.Time) time.Time {
 	limit := next.AddDate(5, 0, 0)
 	for next.Before(limit) {
 		if !c.month.has(int(next.Month())) {
-			// Jump to the first minute of the next month.
+			// 跳到下个月的第一分钟。
 			next = nextMonthStart(next)
 			continue
 		}
 		if !c.matchesDay(next) {
-			// Jump to midnight of the following day.
+			// 跳到下个月的第一分钟。
 			next = nextDayStart(next)
 			continue
 		}
 		if !c.hour.has(next.Hour()) {
-			// Jump to the start of the next wall-clock hour using duration
-			// arithmetic, not time.Date at the same wall hour. During a DST
-			// fall-back the local hour occurs twice and time.Date resolves to
-			// the earlier occurrence, so rebuilding here would keep landing on
-			// the same excluded hour forever. Adding the remaining minutes
-			// advances in absolute time and terminates after at most two steps
-			// (once for each occurrence of a repeated hour).
+			// 跳到第二天的午夜。
+			// 用时长运算而非同一挂钟小时的 time.Date 跳到下一个挂钟小时的起点。在 DST
+			// 回拨期间本地小时出现两次，time.Date 解析为较早的那次，因此在这里重建会一直落在同一个被排除的小时上。加上剩余分钟
+			// 较早的那次，因此在这里重建会一直落在
+			// 同一个被排除的小时上。加上剩余分钟
+			// 以绝对时间前进，最多两步后终止
+			// 以绝对时间前进，最多两步后终止（重复小时的每个出现各一次）。
 			next = next.Add(time.Hour - time.Duration(next.Minute())*time.Minute)
 			continue
 		}
@@ -218,17 +218,17 @@ func (c *Cron) Next(t time.Time) time.Time {
 	return time.Time{}
 }
 
-// nextDayStart returns the first instant of the local day after t.
-// nextMonthStart returns the first instant of the local month after t.
+// nextDayStart 返回 t 之后本地那一天的第一个时刻。
+// nextMonthStart 返回 t 之后本地那一个月的第一个时刻。
 //
-// Both rebuild a wall-clock boundary with time.Date, which is unsafe when the
-// zone shifts DST at midnight: a nonexistent 00:00 is normalised backwards onto
-// the previous day (for example 2026-03-08 00:00 in America/Havana becomes
-// 2026-03-07 23:00). Advancing to such a candidate can fail to move forward at
-// all, so Next would spin on the same excluded day forever. Falling back to an
-// absolute top-of-hour step keeps every iteration strictly increasing in real
-// time, which both terminates the loop and preserves the Vixie-style rule that
-// a midnight lost to DST has no firing slot that day.
+// 两者都用 time.Date 重建挂钟边界，当该时区
+// 两者都用 time.Date 重建挂钟边界，当该时区在午夜切换 DST 时这不安全：不存在的 00:00 会被向后规范化到
+// 前一天（例如 America/Havana 的 2026-03-08 00:00 变成 2026-03-07 23:00）。前进到这样的候选可能根本无法向前移动，
+// 2026-03-07 23:00）。前进到这样的候选可能根本无法向前移动，
+// 于是 Next 会永远在同一个被排除的日期上打转。回退到绝对整点步进使每次迭代在真实时间上严格递增，这既终止循环，
+// 绝对整点步进使每次迭代在真实时间上严格递增，这
+// 既终止循环又保留了 Vixie 风格的规则：
+// 又保留了 Vixie 风格的规则：因 DST 失去午夜的那一天没有触发时隙。
 func nextDayStart(t time.Time) time.Time {
 	y, m, d := t.Date()
 	return forwardOrNextHour(t, time.Date(y, m, d+1, 0, 0, 0, 0, t.Location()))
@@ -238,10 +238,10 @@ func nextMonthStart(t time.Time) time.Time {
 	return forwardOrNextHour(t, time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location()))
 }
 
-// forwardOrNextHour returns candidate when it is strictly after t, otherwise
-// an absolute step to the top of the following hour. The latter always moves
-// forward (by at least one minute) and is the same arithmetic the hour branch
-// of Next uses to walk past repeated or skipped wall-clock hours.
+// forwardOrNextHour 当 candidate 严格晚于 t 时返回它，否则绝对步进到下一小时的整点。后者总是向前移动
+// 绝对步进到下一小时的整点。后者总是向前移动
+// （至少一分钟），且与 Next 的小时分支用来越过重复或跳过挂钟小时的运算相同。
+// （至少一分钟），且与 Next 的小时分支用来越过重复或跳过的挂钟小时的运算相同。
 func forwardOrNextHour(t, candidate time.Time) time.Time {
 	if candidate.After(t) {
 		return candidate
@@ -249,10 +249,10 @@ func forwardOrNextHour(t, candidate time.Time) time.Time {
 	return t.Add(time.Hour - time.Duration(t.Minute())*time.Minute)
 }
 
-// parseDays reports whether expr is a day-based interval ("1d", "2.5d",
-// "1 D") and returns the number of days. Day intervals advance the calendar,
-// not a fixed number of hours, so they keep the same wall-clock time across a
-// DST transition.
+// parseDays 报告 expr 是否为基于日的间隔（"1d"、"2.5d"、"1 D"）并返回天数。日间隔推进日历
+// "1 D"）并返回天数。日间隔推进日历
+// 而非固定的小时数，因此在 DST 过渡中保持相同的挂钟时间。
+// 而非固定的小时数，因此在 DST 过渡中保持相同的挂钟时间。
 func parseDays(expr string) (float64, bool) {
 	body, ok := strings.CutSuffix(strings.TrimSpace(strings.ToLower(expr)), "d")
 	if !ok {
@@ -265,8 +265,8 @@ func parseDays(expr string) (float64, bool) {
 	return days, true
 }
 
-// addCalendarDays advances t by whole calendar days, preserving its wall-clock
-// time and location across DST, then adds any fractional remainder as a plain
+// addCalendarDays 按整个日历日推进 t，在 DST 中保持其挂钟时间和位置，然后把任何小数余量作为普通
+// 时间和位置，然后把任何小数余量作为普通的
 // duration.
 func addCalendarDays(t time.Time, days float64) time.Time {
 	whole := int(days)
@@ -277,10 +277,10 @@ func addCalendarDays(t time.Time, days float64) time.Time {
 	return out
 }
 
-// ParseInterval parses an interval expression: anything time.ParseDuration
-// understands ("30m", "1h30m", "90s") plus a day suffix ("1d", "2.5d").
-// Days are returned as 24h durations here for validation and logging; the
-// scheduler calls addCalendarDays for day expressions so they survive DST.
+// ParseInterval 解析间隔表达式：time.ParseDuration
+// ParseInterval 解析间隔表达式：time.ParseDuration 能理解的任何内容（"30m"、"1h30m"、"90s"）加上日后缀（"1d"、"2.5d"）。
+// 这里天数作为 24h 时长返回，用于验证和日志；
+// 这里天数作为 24h 时长返回，用于验证和日志；调度器对日表达式调用 addCalendarDays，使它们能经受 DST。
 func ParseInterval(expr string) (time.Duration, error) {
 	text := strings.TrimSpace(strings.ToLower(expr))
 	if text == "" {

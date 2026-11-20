@@ -12,17 +12,17 @@ import (
 	"time"
 )
 
-// Terminal control sequences. Everything the UI does to the screen is one of
-// these plus absolute cursor moves; there is no platform terminal library.
+// 终端控制序列。UI 对屏幕所做的一切都是这些序列
+// 加上绝对光标移动；没有平台终端库。
 const (
 	enterAltScreen = "\x1b[?1049h"
 	leaveAltScreen = "\x1b[?1049l"
 	hideCursor     = "\x1b[?25l"
 	showCursor     = "\x1b[?25h"
 	clearScreen    = "\x1b[2J"
-	// Bracketed paste (DECSET/DECRST 2004): the terminal wraps pasted blocks
-	// in ESC[200~ ... ESC[201~ so newlines and command bytes arrive as text
-	// instead of being decoded as Enter / Ctrl keys and submitting early.
+	// 括号粘贴（DECSET/DECRST 2004）：终端把粘贴块包装在
+	// ESC[200~ ... ESC[201~ 中，使换行和命令字节作为文本到达
+	// 而不是被解码为 Enter / Ctrl 键并提前提交。
 	enablePaste  = "\x1b[?2004h"
 	disablePaste = "\x1b[?2004l"
 )
@@ -31,14 +31,14 @@ const frameInterval = 50 * time.Millisecond
 
 var errNotConsole = errors.New("tui: not a terminal")
 
-// IO replaces the terminal streams. The default is os.Stdin / os.Stdout; when
-// it is set no raw-mode setup happens, so a test can drive Run with pipes.
+// IO 替换终端流。默认是 os.Stdin / os.Stdout；当
+// 设置它时不进行原始模式设置，使测试可以用管道驱动 Run。
 type IO struct {
 	In  io.Reader
 	Out io.Writer
 }
 
-// Options configures Run.
+// Options 配置 Run。
 type Options struct {
 	Root     string
 	Model    string
@@ -48,24 +48,24 @@ type Options struct {
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	FS       FileSystem          // injected read-only workspace for the panel
 	Sessions []string
-	// ContextWindow and Cost are optional header metadata. Zero / empty keeps
-	// the header byte-for-byte identical to builds that never set them.
+	// ContextWindow 和 Cost 是可选的头部元数据。零/空值使
+	// 头部与从未设置它们的构建逐字节一致。
 	ContextWindow int
 	Cost          string
 	IO            *IO
 	Prompt        func(ctx context.Context, text string, onText func(string)) error
 	Approval      func(ctx context.Context, name, args string) (bool, error)
-	// Events, when set, feeds tool events into the optional side panels. A
-	// closed channel simply disables further updates.
+	// Events 在设置时把工具事件喂给可选的侧边栏。
+	// 已关闭的通道只是禁用后续更新。
 	Events <-chan Event
-	// Undo, Retry and Rename are the checkpoint/session seams. nil means the
-	// matching slash command explains that the host has not wired it yet.
+	// Undo、Retry 和 Rename 是检查点/会话接缝。nil 表示
+	// 相应的斜杠命令解释宿主尚未接线。
 	Undo   TurnAction
 	Retry  TurnAction
 	Rename TurnAction
-	// OnReady, when set, receives the live model once the first frame is up.
-	// It is the hook an integration uses to run the agent and to submit
-	// approval requests from another goroutine via Model.Approve.
+	// OnReady 在设置时于第一帧显示后接收活动模型。
+	// 它是集成方用来运行 agent 的钩子，并通过 Model.Approve
+	// 从另一个 goroutine 提交审批请求。
 	OnReady func(*Model)
 }
 
@@ -83,22 +83,22 @@ func (o *Options) streams() (io.Reader, io.Writer) {
 	return os.Stdin, os.Stdout
 }
 
-// size is a terminal geometry notification.
+// size 是终端几何通知。
 type size struct {
 	w, h int
 }
 
-// frameWriter remembers the caret position written by the previous frame. The
-// buffer already diffs rows; this adds the same diff for the cursor sequence,
-// which otherwise went out on every 50 ms tick even while the UI was idle.
+// frameWriter 记住上一帧写入的光标位置。缓冲区已经按行
+// 做差异比较；这为光标序列增加了同样的差异比较，
+// 否则即使 UI 空闲，它也会在每个 50 ms tick 发出。
 type frameWriter struct {
 	lastRow, lastCol int
 	haveCursor       bool
 }
 
-// draw paints the model, flushes the row diff and emits the caret only when
-// something actually changed. A resize passes force so the full repaint (and
-// the cursor sequence after clearScreen) still happens.
+// draw 绘制模型、刷新行差异，并仅在确实发生变化时发出光标。
+// 尺寸变化传入 force，使完整的重绘（以及
+// clearScreen 之后的光标序列）仍然发生。
 func (fw *frameWriter) draw(m *Model, buffer *Buffer, out io.Writer, force bool) error {
 	if force || m.Dirty() {
 		m.Paint(buffer)
@@ -118,9 +118,9 @@ func (fw *frameWriter) draw(m *Model, buffer *Buffer, out io.Writer, force bool)
 	return nil
 }
 
-// Run owns the terminal until the operator quits or ctx ends. The screen is
-// restored through a deferred cleanup, so an error, a signal or a panic all
-// leave the terminal usable.
+// Run 拥有终端，直到操作员退出或 ctx 结束。屏幕通过
+// 延迟清理恢复，因此错误、信号或 panic 都会
+// 让终端保持可用。
 func Run(ctx context.Context, opts Options) error {
 	if opts.Theme != "" {
 		if _, err := paletteFor(opts.Theme); err != nil {
@@ -161,10 +161,10 @@ func Run(ctx context.Context, opts Options) error {
 			restore = fn
 		}
 	}
-	// Enable SGR mouse reporting + drag tracking so the terminal sends press,
-	// drag and wheel events (decoded in keys.go) for text selection. Bracketed
-	// paste keeps multi-line input from being read as keystrokes (and from
-	// submitting on the first carriage return).
+	// 启用 SGR 鼠标报告 + 拖拽跟踪，使终端发送按下、
+	// 拖拽和滚轮事件（在 keys.go 中解码）用于文本选择。括号粘贴
+	// 防止多行输入被当作按键读取（以及
+	// 在第一个回车时提交）。
 	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h"+enablePaste)
 
 	var once sync.Once
@@ -179,8 +179,8 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer cleanup()
 
-	// A signal must restore the terminal, so it cancels the loop instead of
-	// letting the process die with the alternate screen still up.
+	// 信号必须恢复终端，因此它取消循环，而不是
+	// 让进程在备用屏幕仍然打开时死亡。
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -252,10 +252,10 @@ func Run(ctx context.Context, opts Options) error {
 
 	buffer := NewBuffer(width, height)
 
-	// ctrl+g hands the terminal to an external editor. Leave the alternate
-	// screen and raw mode while it runs (so vim/nano behave normally), then
-	// re-enter and repaint from scratch: leaving the alternate screen discards
-	// the pixels the row diff was built against.
+	// ctrl+g 把终端交给外部编辑器。在其运行期间离开备用
+	// 屏幕和原始模式（使 vim/nano 行为正常），然后
+	// 重新进入并从头重绘：离开备用屏幕会丢弃
+	// 行差异所依据的像素。
 	forceRedraw := false
 	prevEditorScreen := externalEditorScreen
 	externalEditorScreen = func(fn func()) {
@@ -381,8 +381,8 @@ func Run(ctx context.Context, opts Options) error {
 					drained = true
 				}
 			}
-			// HandleEvent may mutate an existing entry in place (for instance
-			// flipping Failed on a tool row); the loop owns the dirty signal.
+			// HandleEvent 可能就地基改某个条目（例如
+			// 翻转某个工具行的 Failed）；循环拥有脏信号。
 			model.MarkDirty()
 		case next := <-resizes:
 			buffer.Resize(next.w, next.h)
@@ -395,8 +395,8 @@ func Run(ctx context.Context, opts Options) error {
 			}
 			model.Tick()
 			model.PruneNotices(time.Now())
-			// The header clock and the working spinner are derived from the
-			// current time, so every tick is a potential visual change.
+			// 头部时钟和工作中的 spinner 源自
+			// 当前时间，因此每个 tick 都可能是视觉变化。
 			model.MarkDirty()
 		case <-runCtx.Done():
 			quit = true
@@ -417,7 +417,7 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// CursorPosition is the ANSI 1-based row and column of the input caret.
+// CursorPosition 是输入光标的 ANSI 基于 1 的行列。
 func (m *Model) CursorPosition(width, height int) (int, int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

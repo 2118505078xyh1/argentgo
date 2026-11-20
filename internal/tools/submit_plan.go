@@ -21,8 +21,8 @@ const (
 	planMaxStatus    = 64
 )
 
-// planState is the session-scoped record written by submit_plan. A plan is
-// documentation for the model, never an execution queue.
+// planState 是 submit_plan 写入的会话级记录。计划只是
+// 给模型的文档，绝不是执行队列。
 type planState struct {
 	Steps     []string `json:"steps"`
 	Status    string   `json:"status"`

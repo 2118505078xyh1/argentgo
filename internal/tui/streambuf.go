@@ -2,22 +2,22 @@ package tui
 
 import "strings"
 
-// MarkdownStreamBuf holds back the tail of a streamed assistant reply until
-// the markdown constructs it might start are complete. Deltas can split a
-// `**`, a backtick or a ``` fence at any byte; rendering such a prefix makes
-// the marker flicker as it briefly appears and then vanishes. Push returns the
-// prefix that is safe to render, and keeps everything else for the next delta.
-// Flush releases the remainder when the turn ends.
+// MarkdownStreamBuf 暂时保留流式助手回复的尾部，直到
+// 它可能开启的 markdown 结构完成。增量可以在任意字节处
+// 拆开 `**`、反引号或 ``` 围栏；渲染这样的前缀会让
+// 标记短暂出现又消失，产生闪烁。Push 返回
+// 可安全渲染的前缀，其余留给下一个增量。
+// Flush 在回合结束时释放剩余部分。
 //
-// The buffer is deliberately stateless apart from the withheld text: every
-// Push re-derives the fence / inline-code / emphasis state from the pending
-// bytes, so a cut can only land where no construct is open.
+// 除被保留的文本外，缓冲区刻意无状态：每次
+// Push 都从待处理字节重新推导围栏/行内代码/强调状态，
+// 因此切割只能落在没有结构打开的位置。
 type MarkdownStreamBuf struct {
 	pending string
 }
 
-// Push adds a delta and returns the portion safe to render right now. Normal
-// text passes straight through; only a possible marker prefix is withheld.
+// Push 添加一个增量，返回现在可安全渲染的部分。普通
+// 文本直接通过；只有可能的标记前缀被保留。
 func (b *MarkdownStreamBuf) Push(delta string) string {
 	if delta == "" {
 		return ""
@@ -32,14 +32,14 @@ func (b *MarkdownStreamBuf) Push(delta string) string {
 	return out
 }
 
-// Flush releases every withheld byte, for example when the turn ends.
+// Flush 释放所有被保留的字节，例如在回合结束时。
 func (b *MarkdownStreamBuf) Flush() string {
 	out := b.pending
 	b.pending = ""
 	return out
 }
 
-// Reset drops any withheld tail without emitting it.
+// Reset 丢弃任何被保留的尾部而不输出它。
 func (b *MarkdownStreamBuf) Reset() {
 	b.pending = ""
 }
@@ -48,8 +48,8 @@ func isMarkdownMarker(c rune) bool {
 	return c == '*' || c == '_' || c == '`'
 }
 
-// commitFrontier returns the byte index in s before the first incomplete
-// markdown construct. Everything before that index renders without flicker.
+// commitFrontier 返回 s 中第一个不完整的 markdown 结构之前的
+// 字节索引。该索引之前的所有内容渲染时不会闪烁。
 func commitFrontier(s string) int {
 	r := []rune(s)
 	n := len(r)
@@ -58,7 +58,7 @@ func commitFrontier(s string) int {
 	}
 	bol := 0 // rune index of the current line's first character
 	i := 0
-	// advance moves i forward and keeps bol in sync with crossed newlines.
+	// advance 把 i 向前移动，并保持 bol 与跨过的换行同步。
 	advance := func(to int) {
 		for ; i < to; i++ {
 			if r[i] == '\n' {
@@ -68,8 +68,8 @@ func commitFrontier(s string) int {
 	}
 	consumed := 0 // rune index just past the last fully consumed construct
 	for i < n {
-		// A fence is a run of >=3 backticks at the start of a line (after
-		// optional whitespace), matching markdownLines' TrimSpace + HasPrefix.
+		// 围栏是行首（跳过可选空白后）连续 >=3 个反引号，
+		// 与 markdownLines 的 TrimSpace + HasPrefix 一致。
 		if lineStartWhitespace(r, bol, i) {
 			k := i
 			for k < n && (r[k] == ' ' || r[k] == '\t') {
@@ -82,15 +82,15 @@ func commitFrontier(s string) int {
 						consumed = i
 						continue
 					}
-					// Fence opened but not closed: hold from its delimiter.
+					// 围栏已打开但未闭合：从其分隔符开始保留。
 					return runeByteOffset(r, k)
 				}
 			}
 		}
-		// A table is a block-level construct: markdownLines renders the whole
-		// block at once because column widths depend on every row. Committing a
-		// partial table would re-render its earlier rows as new body rows
-		// arrive, so hold it until a later row proves the block has ended.
+		// 表格是块级结构：markdownLines 一次渲染整个
+		// 块，因为列宽取决于每一行。提交部分表格会
+		// 在后续行到达时把早期行重新渲染成新的正文行
+		// ，因此保留它直到更后面的行证明块已结束。
 		if i == bol {
 			if commit, hold, ok := tableBlockFrontier(r, i); ok {
 				if hold {
@@ -133,10 +133,10 @@ func commitFrontier(s string) int {
 			bol = i
 		}
 	}
-	// No construct is open. Still withhold a trailing run of one or two marker
-	// characters: it could be the start of a `**`, an inline code span or a
-	// fence once the next delta arrives. A run of >=3 is already a complete
-	// fence marker, so it can be committed.
+	// 没有结构打开。仍保留尾部连续的一或两个标记
+	// 字符：下一个增量到达时，它可能是 `**`、行内代码段或
+	// 围栏的开头。连续 >=3 个已经是完整的
+	// 围栏标记，因此可以提交。
 	start := trailingMarkerRun(r)
 	if start < n && n-start <= 2 && start >= consumed {
 		return runeByteOffset(r, start)
@@ -144,8 +144,8 @@ func commitFrontier(s string) int {
 	return len(s)
 }
 
-// lineStartWhitespace reports whether r[bol:i] is empty or only spaces/tabs,
-// i.e. i is the first non-blank rune of its line.
+// lineStartWhitespace 报告 r[bol:i] 是否为空或只有空格/制表符，
+// 即 i 是其所在行的第一个非空白 rune。
 func lineStartWhitespace(r []rune, bol, i int) bool {
 	for j := bol; j < i; j++ {
 		if r[j] != ' ' && r[j] != '\t' {
@@ -163,9 +163,9 @@ func backtickRun(r []rune, i int) int {
 	return j - i
 }
 
-// findFenceClose returns the rune index just past the next line's opening
-// backtick run of >=3, i.e. the fence closer. Scanning starts on the line
-// after from, matching the renderer's line-by-line toggle.
+// findFenceClose 返回下一行开头连续 >=3 个反引号之后的
+// rune 索引，即围栏闭合符。扫描从 from 的
+// 下一行开始，与渲染器逐行切换的方式一致。
 func findFenceClose(r []rune, from int) int {
 	n := len(r)
 	i := from
@@ -195,8 +195,8 @@ func findFenceClose(r []rune, from int) int {
 	return -1
 }
 
-// findInlineClose finds a closing backtick with at least one rune of content
-// between it and the opener at from, matching parseInline.
+// findInlineClose 查找闭合反引号，其与 from 处开启符之间
+// 至少有一个内容 rune，与 parseInline 一致。
 func findInlineClose(r []rune, from int) int {
 	for j := from + 2; j < len(r); j++ {
 		if r[j] == '`' {
@@ -206,8 +206,8 @@ func findInlineClose(r []rune, from int) int {
 	return -1
 }
 
-// findPairClose finds a closing ** or __ pair with at least one content rune
-// after from, matching parseInline's bold branch.
+// findPairClose 查找 from 之后至少有一个内容 rune 的
+// 闭合 ** 或 __ 对，与 parseInline 的粗体分支一致。
 func findPairClose(r []rune, from int, mark rune) int {
 	for j := from + 1; j+1 < len(r); j++ {
 		if r[j] == mark && r[j+1] == mark {
@@ -225,15 +225,15 @@ func trailingMarkerRun(r []rune) int {
 	return i
 }
 
-// runeByteOffset converts a rune index to a byte index so cuts never split a
-// UTF-8 sequence, including CJK and emoji.
+// runeByteOffset 把 rune 索引转换为字节索引，使切割永不拆分
+// UTF-8 序列，包括 CJK 和 emoji。
 func runeByteOffset(r []rune, idx int) int {
 	return len(string(r[:idx]))
 }
 
-// lineEnd returns the rune index of the newline ending the line at i, or len(r)
-// if the line is the last one. It mirrors the raw lines that markdownLines
-// splits on before it tests for a table.
+// lineEnd 返回结束 i 所在行的换行符的 rune 索引，若该行是
+// 最后一行则返回 len(r)。它镜像 markdownLines 在测试表格前
+// 所依据的原始行切分。
 func lineEnd(r []rune, i int) int {
 	for i < len(r) && r[i] != '\n' {
 		i++
@@ -241,18 +241,18 @@ func lineEnd(r []rune, i int) int {
 	return i
 }
 
-// tableBlockFrontier checks the line starting at start for a markdown table
-// and returns where rendering may safely resume. A line containing '|' is a
-// potential header until the following line is complete and rules out a
-// delimiter row; until then it must be held, otherwise a raw header would be
-// shown and then replaced by the aligned table once the delimiter arrives.
-// ok=false means there is nothing to hold here (no '|', or the line is an
-// ordinary pipe line already resolved). hold=true means withhold from start;
-// hold=false returns in commit the rune index just past a completed block.
+// tableBlockFrontier 检查从 start 开始的行是否为 markdown 表格，
+// 并返回渲染可安全恢复的位置。含 '|' 的行是
+// 潜在的表头，直到下一行完整并排除
+// 分隔符行；在那之前必须保留它，否则原始表头会
+// 先显示，再在分隔符到达时被替换为对齐的表格。
+// ok=false 表示这里没有需要保留的内容（没有 '|'，或该行是
+// 已解析的普通竖线行）。hold=true 表示从 start 开始保留；
+// hold=false 在 commit 中返回刚过完整块的 rune 索引。
 //
-// markdownLines decides a block is over at the first non-blank row without
-// '|'. Waiting for that row keeps column widths stable for every row already
-// shown, since every body row can change the width of every column.
+// markdownLines 在第一个不含 '|' 的非空白行处判定块结束。
+// 等待该行使已显示的每一行的列宽保持稳定，
+// 因为每个正文行都可能改变每一列的宽度。
 func tableBlockFrontier(r []rune, start int) (commit int, hold, ok bool) {
 	headerEnd := lineEnd(r, start)
 	if !strings.Contains(string(r[start:headerEnd]), "|") {
@@ -275,8 +275,8 @@ func tableBlockFrontier(r []rune, start int) (commit int, hold, ok bool) {
 			pos = end + 1
 			continue
 		}
-		// Only a complete row can end the block. An unterminated row could
-		// still grow a '|' and become part of the table on the next delta.
+		// 只有完整的行才能结束块。未终结的行可能
+		// 在下一个增量中长出一个 '|' 并成为表格的一部分。
 		if end < len(r) {
 			return pos, false, true
 		}

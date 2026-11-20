@@ -12,21 +12,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/lsp"
 )
 
-// This file is an end-to-end integration test: it speaks real LSP over stdio
-// to an actual gopls process. It is build-tag-free so `go test ./internal/lsp`
-// exercises it whenever gopls happens to be installed, but every failure that
-// is about the *environment* (gopls missing, slow, or refusing to start) is a
-// t.Skip, never a suite failure. Only a successful response that is clearly
-// wrong (definition in the wrong file, missing declared symbols, too few
-// references) is reported with t.Errorf — that is a real client finding.
+// 本文件是端到端集成测试：它通过 stdio 讲真实 LSP
+// 本文件是端到端集成测试：它通过 stdio 与实际 gopls 进程讲真实的 LSP。它没有构建标签，所以只要恰好安装了 gopls，`go test ./internal/lsp` 就会执行它，但所有与*环境*有关的失败（gopls 缺失、缓慢或拒绝启动）都是
+// 只要安装了 gopls 就会执行它，但所有与
+// *环境*有关的失败（gopls 缺失、缓慢或拒绝启动）都是
+// t.Skip，绝不是套件失败。只有明确错误的成功响应才是
+// （定义落在错误文件、缺少声明的符号、引用过少）
+// t.Skip，绝不是套件失败。只有明确错误的成功响应（定义落在错误文件、缺少声明的符号、引用过少）才用 t.Errorf 报告 —— 那是真正的客户端发现。
 //
-// `go test -short ./internal/lsp` skips it via testing.Short().
+// `go test -short ./internal/lsp` 通过 testing.Short() 跳过它。
 
-// integrationSource is a small but valid Go module body. RunService is
-// declared once and called once: that gives definition/references a precise
-// target, while the struct, const and second function give documentSymbol a
-// varied tree to flatten. Keep everything ASCII so a byte offset within a line
-// is also the LSP UTF-16 character offset.
+// integrationSource 是一个小而有效的 Go 模块主体。RunService 声明一次并调用一次：这给 definition/references 一个精确目标，而结构体、常量和第二个函数给 documentSymbol 一棵可供展平的多样树。全部保持 ASCII，使行内字节偏移
+// 声明一次并调用一次：这给 definition/references 一个精确
+// 目标，而结构体、常量和第二个函数给 documentSymbol 一棵
+// 多样树以供展平。全部保持 ASCII，使行内字节偏移
+// 同时也是 LSP UTF-16 字符偏移。
 const integrationSource = `package main
 
 import "fmt"
@@ -58,9 +58,9 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	}
 
 	gopls := locateGopls(t)
-	// lsp.Start launches the server with exec.Command("gopls"), so it must be
-	// discoverable through PATH even when it lives in the Go bin directory
-	// that is not on the default PATH.
+	// lsp.Start 用 exec.Command("gopls") 启动服务器，因此它必须能通过 PATH 被发现，即使它位于不在默认 PATH 中的 Go bin 目录。
+	// 必须能通过 PATH 被发现，即使它位于
+	// 不在默认 PATH 中的 Go bin 目录。
 	t.Setenv("PATH", filepath.Dir(gopls)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("GOTOOLCHAIN", "local") // never try to download a toolchain during CI
@@ -68,8 +68,8 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	workspace := t.TempDir()
 	mainPath := writeIntegrationWorkspace(t, workspace, integrationSource)
 
-	// The initialize handshake is bounded separately: a cold gopls may spend a
-	// while indexing the standard library on its very first run.
+	// initialize 握手单独设限：冷启动的 gopls 首次运行时可能花一段时间索引标准库。
+	// 首次运行时索引标准库可能花一段时间。
 	startCtx, startCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	client, err := lsp.Start(startCtx, lsp.Server{
 		Name:        "gopls",
@@ -82,8 +82,8 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	// One generous budget for all subsequent requests; the whole test stays
-	// well under 120s because each phase has its own shorter deadline.
+	// 后续所有请求共用一个宽松预算；整个测试
+	// 后续所有请求共用一个宽松预算；由于每个阶段都有自己的更短截止时间，整个测试远低于 120s。
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -92,9 +92,9 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 		t.Skipf("gopls did not accept the document (integration optional): %v", err)
 	}
 
-	// Diagnostics is a useful readiness hint (gopls publishes an empty set for
-	// a clean file), but it is best-effort: some versions skip the publish
-	// entirely when there is nothing to report.
+	// Diagnostics 是有用的就绪提示（gopls 对干净文件发布空集合），但只是尽力而为：某些版本在没什么可报告时干脆跳过发布。
+	// 对干净文件发布空集合），但只是尽力而为：某些版本跳过发布
+	// 完全，当没什么可报告时。
 	diagnostics, diagErr := client.Diagnostics(ctx, uri, 20*time.Second)
 	if diagErr != nil {
 		t.Logf("diagnostics wait: %v (continuing)", diagErr)
@@ -106,9 +106,9 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	callPos := findToken(t, integrationSource, "RunService", 1) // RunService(s)
 	declLine := declPos.Line
 
-	// Readiness gate: definition needs gopls to have type-checked the package,
-	// which can lag behind didOpen. Poll until the call site resolves to the
-	// declaration line, then make the real assertions from that result.
+	// 就绪门：definition 需要 gopls 已经对包做了类型检查，这可能滞后于 didOpen。轮询直到调用点解析到声明行，然后从该结果做真正的断言。
+	// 这可能滞后于 didOpen。轮询直到调用点解析到
+	// 声明行，然后从该结果做真正的断言。
 	deadline := time.Now().Add(30 * time.Second)
 	var defs []lsp.Location
 	var defErr error
@@ -127,14 +127,14 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	}
 	t.Logf("DefinitionAt(call site) -> %d location(s), first at %s", len(defs), defs[0].Range.Start.String())
 
-	// CORE: a definition that lands in another file is a real finding.
+	// CORE：落在另一个文件的定义是真正的发现。
 	for _, loc := range defs {
 		if !sameFile(loc.URI, mainPath) {
 			t.Errorf("DefinitionAt returned %q, want the workspace main.go", loc.URI)
 		}
 	}
 
-	// CORE: documentSymbol must list the declarations we wrote.
+	// CORE：documentSymbol 必须列出我们写下的声明。
 	symbols, err := client.DocumentSymbolAt(ctx, mainPath)
 	if err != nil {
 		t.Skipf("gopls documentSymbol failed (integration optional): %v", err)
@@ -152,8 +152,8 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 		}
 	}
 
-	// CORE: references at the declaration must include the declaration itself
-	// and the call site.
+	// CORE：声明处的引用必须包括声明本身和调用点。
+	// 和调用点。
 	refs, err := client.ReferencesAt(ctx, mainPath, declPos, true)
 	if err != nil {
 		t.Skipf("gopls references failed (integration optional): %v", err)
@@ -163,8 +163,8 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 		t.Errorf("ReferencesAt found %d location(s), want >= 2 (declaration + call site)", len(refs))
 	}
 
-	// BEST-EFFORT: report what the server gave us; never fail the suite for
-	// an empty hover, a filtered workspace query or already-formatted code.
+	// BEST-EFFORT：报告服务器给我们的内容；绝不因空 hover、被过滤的工作区查询或已格式化的代码而使套件失败。
+	// 空 hover、被过滤的工作区查询或已格式化的代码。
 	hover, err := client.HoverAt(ctx, mainPath, callPos)
 	switch {
 	case err != nil:
@@ -192,9 +192,9 @@ func TestIntegrationGoplsEndToEnd(t *testing.T) {
 	}
 }
 
-// locateGopls finds gopls on PATH or in the conventional Go bin directory. A
-// missing server makes the whole integration test skip, so CI without gopls
-// stays green.
+// locateGopls 在 PATH 或常规 Go bin 目录中查找 gopls。服务器缺失使整个集成测试跳过，因此没有 gopls 的 CI 保持绿色。
+// 服务器缺失使整个集成测试跳过，因此没有 gopls 的 CI
+// 保持绿色。
 func locateGopls(t *testing.T) string {
 	t.Helper()
 	if found, err := exec.LookPath("gopls"); err == nil {
@@ -210,7 +210,7 @@ func locateGopls(t *testing.T) string {
 	return ""
 }
 
-// writeIntegrationWorkspace writes the minimal valid module the server loads.
+// writeIntegrationWorkspace 写入服务器加载的最小有效模块。
 func writeIntegrationWorkspace(t *testing.T, dir, source string) string {
 	t.Helper()
 	goMod := "module example.com/lsptest\n\ngo 1.21\n"
@@ -224,9 +224,9 @@ func writeIntegrationWorkspace(t *testing.T, dir, source string) string {
 	return mainPath
 }
 
-// findToken returns the zero-based LSP position of the occurrence-th match of
-// token in source (counting from 0). The fixture is ASCII, so byte and UTF-16
-// offsets coincide.
+// findToken 返回 source 中 token 第 occurrence-th 次匹配的从 0 开始的 LSP 位置
+// findToken 返回 source 中 token 第 occurrence-th 次匹配的从 0 开始的 LSP 位置（从 0 计数）。fixture 是 ASCII，因此字节和 UTF-16 偏移一致。
+// 偏移一致。
 func findToken(t *testing.T, source, token string, occurrence int) lsp.Position {
 	t.Helper()
 	seen := 0
@@ -248,7 +248,7 @@ func findToken(t *testing.T, source, token string, occurrence int) lsp.Position 
 	return lsp.Position{}
 }
 
-// definitionAtLine reports whether one location points at path's line.
+// definitionAtLine 报告某个位置是否指向 path 的某一行。
 func definitionAtLine(locations []lsp.Location, path string, line int) bool {
 	for _, location := range locations {
 		if sameFile(location.URI, path) && location.Range.Start.Line == line {
@@ -258,9 +258,9 @@ func definitionAtLine(locations []lsp.Location, path string, line int) bool {
 	return false
 }
 
-// sameFile compares a URI and a filesystem path in both directions so URI
-// casing or percent-encoding differences between gopls and PathToURI do not
-// produce false findings.
+// sameFile 双向比较 URI 和文件系统路径，使 URI
+// sameFile 双向比较 URI 和文件系统路径，使 gopls 与 PathToURI 之间的 URI 大小写或百分号编码差异不会产生虚假发现。
+// 大小写或百分号编码差异不产生虚假发现。
 func sameFile(uri, path string) bool {
 	if strings.EqualFold(uri, lsp.PathToURI(path)) {
 		return true

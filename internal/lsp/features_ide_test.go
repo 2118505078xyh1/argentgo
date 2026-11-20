@@ -13,14 +13,14 @@ import (
 	"time"
 )
 
-// ideResponder answers one JSON-RPC request. A non-nil rpcError is sent as the
-// response's "error" member so the client's call helper propagates it.
+// ideResponder 回答一条 JSON-RPC 请求。非 nil 的 rpcError 作为响应的 "error" 成员发送，使客户端的 call 辅助函数传播它。
+// 作为响应的 "error" 成员发送，使客户端的 call 辅助函数传播它。
 type ideResponder func(method string, params json.RawMessage) (any, *rpcError)
 
-// newIDEFakeClient starts a small in-process language server over two pipes.
-// It exercises the same framing and call path as the production client, but
-// answers only the feature requests under test. Notifications (no id) are
-// ignored; every request with an id is passed to responder.
+// newIDEFakeClient 在两条管道上启动一个小的进程内语言服务器。它演练与生产客户端相同的分帧和调用路径，但
+// 它演练与生产客户端相同的分帧和调用路径，但
+// 只回答被测的功能请求。通知（无 id）被
+// 只回答被测的功能请求。通知（无 id）被忽略；每个带 id 的请求传给 responder。
 func newIDEFakeClient(t *testing.T, responder ideResponder) *Client {
 	t.Helper()
 	clientToServerRead, clientToServerWrite, err := os.Pipe()
@@ -107,8 +107,8 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return encoded
 }
 
-// ideCall adapts a typed client method into the uniform call signature used by
-// the table test below, with a bounded context so a stalled fake cannot hang.
+// ideCall 把类型化客户端方法适配为统一调用签名，供
+// ideCall 把类型化客户端方法适配为下面表测试使用的统一调用签名，并带有有界 context，使卡住的假服务器不会挂住。
 func ideCall[T any](fn func(context.Context, *Client) (T, error)) func(*Client) (any, error) {
 	return func(c *Client) (any, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -240,7 +240,7 @@ func TestParseWorkspaceEditMergesChangesAndDocumentChanges(t *testing.T) {
 				"textDocument": map[string]any{"uri": "file:///b.go", "version": 3},
 				"edits":        []any{map[string]any{"range": rangeMap(other), "newText": "fromDoc"}},
 			},
-			// A create-file resource operation carries no edits and is skipped.
+			// 创建文件类资源操作不带编辑，被跳过。
 			map[string]any{"kind": "create", "uri": "file:///new.go"},
 		},
 	})

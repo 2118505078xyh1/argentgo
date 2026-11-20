@@ -9,29 +9,29 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Scripted is an llm.Chatter that replays a scenario's script instead of
-// talking to a provider. It records every request so the harness can check
-// expect_request_contains and count turns.
+// Scripted 是重放场景脚本而非与 provider 对话的 llm.Chatter。它记录每个请求，使 harness 能检查
+// 与 provider 对话。它记录每个请求，使 harness 能检查
+// expect_request_contains 并统计轮数。
 type Scripted struct {
 	mu     sync.Mutex
 	turns  []ScriptTurn
 	repeat bool
 	calls  int
-	// history holds the messages of every request, in call order.
+	// history 按调用顺序保存每个请求的消息。
 	history [][]llm.Message
-	// violations collects broken expect_request_contains expectations.
+	// violations 收集被破坏的 expect_request_contains 期望。
 	violations []string
 }
 
 var _ llm.Chatter = (*Scripted)(nil)
 
-// NewScripted builds a provider that plays turns in order. With repeat, the
-// script loops forever, so the scripted model never stops on its own.
+// NewScripted 构建一个按顺序播放各轮的 provider。使用 repeat 时脚本无限循环，因此脚本化模型永不自行停止。
+// 脚本无限循环，因此脚本化模型永不自行停止。
 func NewScripted(turns []ScriptTurn, repeat bool) *Scripted {
 	return &Scripted{turns: append([]ScriptTurn(nil), turns...), repeat: repeat}
 }
 
-// Chat returns the next scripted turn.
+// Chat 返回下一条脚本化回复。
 func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.Message{}, err
@@ -69,8 +69,8 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 	s.mu.Unlock()
 
 	if !ok {
-		// A real gateway always answers; an exhausted script says so instead
-		// of hanging the loop.
+		// 真实网关总会回答；脚本耗尽时明确说明，而不是
+		// 真实网关总会回答；脚本耗尽时明确说明，而不是挂住循环。
 		reply := "the script ended"
 		emit(onText, reply)
 		return llm.Message{Role: "assistant", Content: reply}, nil
@@ -81,16 +81,16 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 		emit(onText, reply.Content)
 	}
 	for i, call := range turn.Respond.ToolCalls {
-		// The id must be unique per request: an identical id on two calls in
-		// the same history confuses tool-result pairing.
+		// id 在每次请求中必须唯一：同一历史中两次调用使用相同 id 会混淆工具结果配对。
+		// 同一历史中两次调用使用相同 id 会混淆工具结果配对。
 		reply.ToolCalls = append(reply.ToolCalls, llm.ToolCall{
 			ID:   fmt.Sprintf("call-%d-%d", index+1, i+1),
 			Type: "function",
 			Function: llm.ToolCallFunction{
-				// Validate trims the name to check it is non-empty; dispatch
-				// the same canonical value. A hand-written script with a
-				// padded name must reach the tool the author meant, not fail
-				// an exact-name registry lookup as an unknown tool.
+				// Validate 裁剪名称以检查其非空；分发时使用相同的规范值。手写脚本中带填充的名称必须到达作者想要的工具，而不是
+				// 使用相同的规范值。手写脚本中带填充的名称
+				// 必须到达作者想要的工具，而不是失败于
+				// 在 registry 的精确名称查找中作为未知工具失败。
 				Name:      strings.TrimSpace(call.Name),
 				Arguments: call.ArgumentsString(),
 			},
@@ -99,7 +99,7 @@ func (s *Scripted) Chat(ctx context.Context, _ string, messages []llm.Message, _
 	return reply, nil
 }
 
-// pick returns the turn for a call index.
+// pick 返回某个调用索引对应的轮次。
 func (s *Scripted) pick(index int) (ScriptTurn, bool) {
 	if len(s.turns) == 0 {
 		return ScriptTurn{}, false
@@ -113,21 +113,21 @@ func (s *Scripted) pick(index int) (ScriptTurn, bool) {
 	return ScriptTurn{}, false
 }
 
-// Calls is the number of model turns served so far.
+// Calls 是迄今服务的模型轮数。
 func (s *Scripted) Calls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
 }
 
-// Violations lists the broken expect_request_contains expectations.
+// Violations 列出被破坏的 expect_request_contains 期望。
 func (s *Scripted) Violations() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.violations...)
 }
 
-// History returns the messages of every request, in call order.
+// History 按调用顺序返回每个请求的消息。
 func (s *Scripted) History() [][]llm.Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -144,8 +144,8 @@ func emit(onText func(string), text string) {
 	}
 }
 
-// flatten renders the request as searchable text: message contents, tool call
-// names and arguments, tool results.
+// flatten 将请求渲染为可搜索文本：消息内容、工具调用名与参数、工具结果。
+// 名与参数、工具结果。
 func flatten(messages []llm.Message) []string {
 	parts := make([]string, 0, len(messages))
 	for _, message := range messages {

@@ -10,10 +10,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestProtocolStreamsTolerateUnknownWireValues checks that each client ignores
-// an event type, a status/finish_reason enum and extra fields it has never seen.
-// "Terminal event still produced" means Chat returned the assembled message:
-// the stream reached its [DONE]/message_stop/response.completed marker.
+// TestProtocolStreamsTolerateUnknownWireValues 检查每个客户端是否忽略它从未见过的
+// 事件类型、status/finish_reason 枚举和额外字段。
+// "仍产生终态事件"意味着 Chat 返回了组装好的消息：
+// 流到达了它的 [DONE]/message_stop/response.completed 标记。
 func TestProtocolStreamsTolerateUnknownWireValues(t *testing.T) {
 	cases := []struct {
 		name        string

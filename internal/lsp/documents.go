@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// DidOpen announces a document with its current text.
+// DidOpen 宣布一份文档及其当前文本。
 func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string) error {
 	if languageID == "" {
 		languageID = LanguageForPath(URIToPath(uri))
@@ -36,8 +36,8 @@ func (c *Client) DidOpen(ctx context.Context, uri, languageID, text string) erro
 	})
 }
 
-// DidChange replaces a document's content and bumps its version. An unknown
-// document is opened first, because servers reject changes for closed files.
+// DidChange 替换文档内容并增加其版本。未知文档会先被打开，因为服务器拒绝关闭文件的变更。
+// 会先被打开，因为服务器拒绝关闭文件的变更。
 func (c *Client) DidChange(ctx context.Context, uri, text string) error {
 	c.diagMu.Lock()
 	state := c.docs[uri]
@@ -56,7 +56,7 @@ func (c *Client) DidChange(ctx context.Context, uri, text string) error {
 	})
 }
 
-// DidSave reports that the document was written to disk.
+// DidSave 报告文档已写入磁盘。
 func (c *Client) DidSave(ctx context.Context, uri string) error {
 	c.diagMu.Lock()
 	if state := c.docs[uri]; state != nil {
@@ -68,7 +68,7 @@ func (c *Client) DidSave(ctx context.Context, uri string) error {
 	})
 }
 
-// DidClose tells the server the document is no longer tracked.
+// DidClose 告诉服务器不再跟踪该文档。
 func (c *Client) DidClose(ctx context.Context, uri string) error {
 	c.diagMu.Lock()
 	if state := c.docs[uri]; state != nil {
@@ -80,7 +80,7 @@ func (c *Client) DidClose(ctx context.Context, uri string) error {
 	})
 }
 
-// Version reports the version last sent for a document, or 0 if unknown.
+// Version 报告某文档最后发送的版本，未知时为 0。
 func (c *Client) Version(uri string) int {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -90,7 +90,7 @@ func (c *Client) Version(uri string) int {
 	return 0
 }
 
-// LanguageID reports the language id a document was opened with.
+// LanguageID 报告某文档打开时使用的语言 id。
 func (c *Client) LanguageID(uri string) string {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -100,8 +100,8 @@ func (c *Client) LanguageID(uri string) string {
 	return ""
 }
 
-// Open reads a file, sends didOpen (or didChange when already open) and
-// returns its URI.
+// Open 读取文件，发送 didOpen（已打开时为 didChange），并返回其 URI。
+// 并返回其 URI。
 func (c *Client) Open(ctx context.Context, path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -124,12 +124,12 @@ func (c *Client) Open(ctx context.Context, path string) (string, error) {
 	return uri, nil
 }
 
-// Refresh re-reads a file from disk and sends didChange.
+// Refresh 从磁盘重新读取文件并发送 didChange。
 func (c *Client) Refresh(ctx context.Context, path string) (string, error) {
 	return c.Open(ctx, path)
 }
 
-// publishParams is the textDocument/publishDiagnostics payload.
+// publishParams 是 textDocument/publishDiagnostics 的 payload。
 type publishParams struct {
 	URI         string          `json:"uri"`
 	Version     *int            `json:"version,omitempty"`
@@ -146,7 +146,7 @@ type rawDiagnostic struct {
 	Source   string `json:"source"`
 }
 
-// storeDiagnostics replaces the diagnosis for one URI and wakes its waiters.
+// storeDiagnostics 替换某个 URI 的诊断并唤醒其等待者。
 func (c *Client) storeDiagnostics(params []byte) {
 	var payload publishParams
 	if err := json.Unmarshal(params, &payload); err != nil || payload.URI == "" {
@@ -169,12 +169,12 @@ func (c *Client) storeDiagnostics(params []byte) {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
 
-	// LSP allows a server to publish diagnostics for an older document version
-	// after a newer one (delayed or out-of-order publishes). Such a result is
-	// stale: accepting it would bump seq past the caller's edit mark and make
-	// Diagnostics hand back old diagnostics as if they were current. Drop it
-	// without touching seq, the cache or any waiter. Servers that omit the
-	// version are unaffected: their publishes keep the original behaviour.
+	// LSP 允许服务器在较新版本之后发布较旧文档版本的
+	// 诊断（延迟或乱序发布）。这样的结果是
+	// 陈旧的：接受它会把 seq 推过调用方的编辑标记，使
+	// LSP 允许服务器在较新版本之后发布较旧文档版本的诊断（延迟或乱序发布）。这样的结果是陈旧的：接受它会把 seq 推过调用方的编辑标记，使 Diagnostics 把旧诊断当当前诊断返回。应丢弃它
+	// 而不触碰 seq、缓存或任何等待者。省略版本的服务器不受影响：它们的发布保持原有行为。
+	// 省略版本的服务器不受影响：它们的发布保持原有行为。
 	if payload.Version != nil {
 		if state := c.docs[payload.URI]; state != nil && *payload.Version < state.version {
 			return
@@ -191,13 +191,13 @@ func (c *Client) storeDiagnostics(params []byte) {
 	}
 }
 
-// Diagnostics returns the diagnostics for uri.
+// Diagnostics 返回 uri 的诊断。
 //
-// It returns immediately when the server has already published newer
-// diagnostics than the caller's last edit. Otherwise it waits up to wait for
-// the next publish, and honours ctx. A timeout is reported as ErrTimeout;
-// context cancellation as the context error. In both cases any diagnostics
-// that did arrive are returned alongside the error.
+// 当服务器已经发布了比调用方上次编辑更新的
+// 诊断时立即返回。否则最多等待 wait 时间等待
+// 当服务器已经发布了比调用方上次编辑更新的诊断时立即返回。否则最多等待 wait 时间等待下一次发布，并遵守 ctx。超时报告为 ErrTimeout；context 取消作为 context 错误。两种情况下任何
+// context 取消作为 context 错误。两种情况下任何诊断
+// 已到达的诊断都随错误一起返回。
 func (c *Client) Diagnostics(ctx context.Context, uri string, wait time.Duration) ([]Diagnostic, error) {
 	baseline := c.documentMark(uri)
 	if items, ok := c.publishedAfter(uri, baseline); ok {
@@ -210,7 +210,7 @@ func (c *Client) Diagnostics(ctx context.Context, uri string, wait time.Duration
 
 	ch, cancel := c.addWaiter(uri)
 	defer cancel()
-	// A publish may have landed between the first check and registration.
+	// 发布可能在第一次检查与注册之间落地。
 	if items, ok := c.publishedAfter(uri, baseline); ok {
 		return items, nil
 	}
@@ -233,7 +233,7 @@ func (c *Client) Diagnostics(ctx context.Context, uri string, wait time.Duration
 	}
 }
 
-// DiagnosticsAll returns every diagnostic the server currently reports.
+// DiagnosticsAll 返回服务器当前报告的所有诊断。
 func (c *Client) DiagnosticsAll() []Diagnostic {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -244,7 +244,7 @@ func (c *Client) DiagnosticsAll() []Diagnostic {
 	return out
 }
 
-// documentMark is the publish sequence at the caller's last edit of uri.
+// documentMark 是调用方上次编辑 uri 时的发布序号。
 func (c *Client) documentMark(uri string) uint64 {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -254,7 +254,7 @@ func (c *Client) documentMark(uri string) uint64 {
 	return 0
 }
 
-// publishedAfter returns the diagnosis when it is newer than baseline.
+// publishedAfter 在诊断比基线新时返回该诊断。
 func (c *Client) publishedAfter(uri string, baseline uint64) ([]Diagnostic, bool) {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -265,7 +265,7 @@ func (c *Client) publishedAfter(uri string, baseline uint64) ([]Diagnostic, bool
 	return append([]Diagnostic(nil), entry.items...), true
 }
 
-// current returns the cached diagnosis for uri, if one was published.
+// current 返回 uri 的缓存诊断（若已发布）。
 func (c *Client) current(uri string) ([]Diagnostic, bool) {
 	c.diagMu.Lock()
 	defer c.diagMu.Unlock()
@@ -276,7 +276,7 @@ func (c *Client) current(uri string) ([]Diagnostic, bool) {
 	return append([]Diagnostic(nil), entry.items...), true
 }
 
-// addWaiter registers interest in the next publish for uri.
+// addWaiter 注册对 uri 下一次发布的关注。
 func (c *Client) addWaiter(uri string) (chan struct{}, func()) {
 	ch := make(chan struct{})
 	c.diagMu.Lock()

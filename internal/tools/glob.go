@@ -59,8 +59,8 @@ func (globTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	return clip(ctx, strings.Join(hits, "\n")), nil
 }
 
-// globMatch matches a slash-separated path against a pattern. A "**" segment
-// matches zero or more path segments; other segments use path.Match syntax.
+// globMatch 用模式匹配以斜杠分隔的路径。"**" 段
+// 匹配零个或多个路径段；其他段使用 path.Match 语法。
 func globMatch(pattern, name string) bool {
 	pattern = strings.TrimPrefix(filepath.ToSlash(pattern), "./")
 	name = strings.TrimPrefix(filepath.ToSlash(name), "./")

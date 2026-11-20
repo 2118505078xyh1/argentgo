@@ -1,12 +1,12 @@
 package llm
 
-// FailureKind is the closed vocabulary of failure classes exposed to callers.
-// The string values are stable so frontends and the session layer can persist
-// or compare them without importing this package's types.
+// FailureKind 是向调用方暴露的失败类别的封闭词汇表。
+// 字符串值是稳定的，因此前端和会话层无需导入本包类型即可
+// 持久化或比较它们。
 //
-// It is deliberately coarser than ActionableError.Family: several provider
-// families (network, server) collapse into "transient", and a provider-side
-// content block is an "agent_action" rather than a transport failure.
+// 它刻意比 ActionableError.Family 更粗：若干提供方
+// 家族（network、server）归为 "transient"，而提供方侧的
+// 内容拦截是 "agent_action"，而非传输失败。
 type FailureKind string
 
 const (
@@ -17,19 +17,19 @@ const (
 	FailureTransient       FailureKind = "transient"
 	FailureAgentAction     FailureKind = "agent_action"
 	FailureContextOverflow FailureKind = "context_overflow"
-	// FailureInternal is reserved for faults inside this process. ClassifyFailure
-	// does not emit it yet; it exists so the vocabulary is closed and a future
-	// internal-fault signal can be routed without changing the type.
+	// FailureInternal 保留给本进程内部的故障。ClassifyFailure
+	// 目前不会发出它；它存在是为了让词汇表封闭，并让未来的
+	// 内部故障信号无需改动类型即可路由。
 	FailureInternal FailureKind = "internal"
 	FailureUnknown  FailureKind = "unknown"
 )
 
-// UserAction is the affordance a caller should offer after a failure. It is a
-// three-value routing hint, not UI copy:
+// UserAction 是失败后调用方应提供的处置方式。它是
+// 三值路由提示，而非 UI 文案：
 //
-//	none     nothing for the user to do; report the failure or handle it internally
-//	retry    the user may try again (after a wait or a revised request)
-//	settings the user must fix credentials, a model or other settings first
+// none     用户无需做任何事；报告失败或在内部处理
+// retry    用户可以重试（等待或修改请求后）
+// settings 用户必须先修复凭据、模型或其他设置
 type UserAction string
 
 const (
@@ -38,9 +38,9 @@ const (
 	UserActionSettings UserAction = "settings"
 )
 
-// FailureInfo is a redacted classification of a failed call. It deliberately
-// has no message, body or detail field: ErrorID is a fixed identifier picked
-// from a table, so it is safe to log, persist and send to a frontend.
+// FailureInfo 是对失败调用的脱敏分类。它刻意
+// 没有 message、body 或 detail 字段：ErrorID 是从表中选取的固定标识符，
+// 因此可以安全地记录、持久化和发送给前端。
 type FailureInfo struct {
 	Kind       FailureKind
 	Retryable  bool
@@ -48,18 +48,18 @@ type FailureInfo struct {
 	ErrorID    string
 }
 
-// failureByFamily translates an ActionableError family into the closed
-// vocabulary. Keeping the translation here means no sentinel or regex logic is
-// duplicated: ClassifyAPIError stays the single source of truth for "what
-// happened", including its authoritative-exception-first ordering, and this
-// table only decides the kind, retryability, user affordance and short id.
+// failureByFamily 把 ActionableError 家族转换为封闭的
+// 词汇表。把转换放在这里意味着不重复任何哨兵或正则逻辑：
+// ClassifyAPIError 仍是"发生了什么"的唯一事实来源，
+// 包括其权威异常优先的顺序，而这张
+// 表只决定类别、可重试性、用户处置方式和简短 id。
 //
-// Retryable answers "will an unchanged retry succeed on its own?" while
-// UserAction answers "what should the user do?". They can differ: a content
-// block is not safe to replay unchanged (Retryable=false) but the user is still
-// guided to revise the prompt and try again (UserAction=retry). A context
-// overflow is also Retryable=false (the same oversized request would fail
-// again) and is routed to settings so the caller can trigger compaction.
+// Retryable 回答"不做改动的重试会自行成功吗？"，而
+// UserAction 回答"用户该做什么？"。两者可能不同：内容
+// 拦截不能安全地原样重放（Retryable=false），但仍
+// 引导用户修改提示后重试（UserAction=retry）。上下文
+// 溢出也是 Retryable=false（同样的超大请求会再次
+// 失败），并被路由到设置，让调用方触发压缩。
 var failureByFamily = map[string]FailureInfo{
 	FamilyNotConfigured:   {FailureConfig, false, UserActionSettings, "config.not_configured"},
 	FamilyAuth:            {FailureAuth, false, UserActionSettings, "auth.invalid_key"},
@@ -73,21 +73,21 @@ var failureByFamily = map[string]FailureInfo{
 	FamilyUnknown:         {FailureUnknown, false, UserActionNone, "unknown"},
 }
 
-// unknownFailure is the fallback for a nil error or a family this build does
-// not know (for example an ActionableError constructed by a newer caller).
-// An unrecognized failure is never assumed retryable and asks nothing of the
-// user, so no request is silently replayed and no detail is invented.
+// unknownFailure 是 nil 错误或本构建不认识的家族的回退
+// （例如由更新调用方构造的 ActionableError）。
+// 无法识别的失败绝不会被假定为可重试，也不会对用户
+// 提出任何要求，因此不会静默重放请求，也不会捏造细节。
 var unknownFailure = FailureInfo{FailureUnknown, false, UserActionNone, "unknown"}
 
-// ClassifyFailure maps any error onto the closed failure vocabulary.
+// ClassifyFailure 把任意错误映射到封闭的失败词汇表。
 //
-// It reuses ClassifyAPIError, so authoritative exception classes (net/context
-// sentinels, wrapped stream errors) win over generic text patterns before the
-// family is translated. The result carries no provider text or credential:
+// 它复用 ClassifyAPIError，因此在转换家族之前，权威异常类别（net/context
+// 哨兵、包装的流错误）会胜过通用文本模式。结果不含提供方文本或凭据：
+// ErrorID 始终是 failureByFamily 中的固定标识符之一。
 // ErrorID is always one of the fixed identifiers in failureByFamily.
 //
-// nil is reported as unknown/none with no detail; callers that treat "no
-// error" specially can keep checking err before calling.
+// nil 被报告为 unknown/none 且不含细节；把"无错误"当作
+// 特殊情况的调用方，可以在调用前继续检查 err。
 func ClassifyFailure(err error) FailureInfo {
 	if err == nil {
 		return unknownFailure

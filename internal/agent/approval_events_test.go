@@ -109,7 +109,7 @@ func TestParseApprovalEventRejectsMalformedPrefixAndPayload(t *testing.T) {
 
 func TestApprovalEventBoundsAndRedactsFields(t *testing.T) {
 	long := strings.Repeat("A", approvalFieldMaxRunes+50)
-	// Embed control bytes and a newline that must never reach the transcript.
+	// 嵌入控制字节和换行，它们绝不能进入记录。
 	hostile := "bash\n\x1b[31m\x00rm"
 	digest := long
 
@@ -122,8 +122,7 @@ func TestApprovalEventBoundsAndRedactsFields(t *testing.T) {
 		t.Fatalf("tool = %q, want control bytes stripped to %q", tool, "bashrm")
 	}
 
-	// The digest field is not returned by ParseApprovalEvent; check it on the
-	// wire payload by round-tripping through the raw text instead.
+	// ParseApprovalEvent 不返回 digest 字段；改为通过原始文本往返，在在线负载上检查它。
 	var wire approvalWire
 	payload := strings.TrimPrefix(request.Text, approvalRequestPrefix)
 	if err := json.Unmarshal([]byte(payload), &wire); err != nil {
@@ -139,7 +138,7 @@ func TestApprovalEventBoundsAndRedactsFields(t *testing.T) {
 		t.Fatalf("event text contains an injected control byte: %q", request.Text)
 	}
 
-	// A long tool name is bounded too.
+	// 过长的工具名也会被限长。
 	_, boundedTool, _, _, ok := ParseApprovalEvent(ApprovalRequestedEvent(long, "digest", "id"))
 	if !ok {
 		t.Fatal("bounded request event did not parse")

@@ -2,16 +2,16 @@ package tui
 
 import "math"
 
-// minInkContrast is the WCAG AA floor for large/bold text (3:1). Badge labels
-// are short and bold, so this is the ratio an ink must clear before we leave
-// it alone.
+// minInkContrast 是 WCAG AA 对大号/粗体文字的下限（3:1）。徽章标签
+// 短且加粗，因此这是墨色在我们可以对其置之不理之前
+// 必须达到的比率。
 const minInkContrast = 3.0
 
-// parseHexColor decodes #rgb, #rgba, #rrggbb and #rrggbbaa into 8-bit
-// channels. Alpha, when present, must still be well formed but is ignored:
-// luminance is defined on opaque colours and the renderer paints badges over
-// the opaque terminal row. The bool reports whether the input was one of the
-// supported, well-formed forms.
+// parseHexColor 把 #rgb、#rgba、#rrggbb 和 #rrggbbaa 解码为 8 位
+// 通道。Alpha 若存在仍必须格式良好但会被忽略：
+// 亮度定义在不透明颜色上，而渲染器把徽章画在
+// 不透明的终端行上。布尔值报告输入是否属于
+// 受支持的、格式良好的形式。
 func parseHexColor(s string) (r, g, b uint8, ok bool) {
 	if len(s) == 0 || s[0] != '#' {
 		return 0, 0, 0, false
@@ -19,10 +19,10 @@ func parseHexColor(s string) (r, g, b uint8, ok bool) {
 	digits := s[1:]
 	switch len(digits) {
 	case 3:
-		// Expand #abc to #aabbcc so every form below is at least six wide.
+		// 把 #abc 展开为 #aabbcc，使下面每种形式都至少六位宽。
 		digits = string([]byte{digits[0], digits[0], digits[1], digits[1], digits[2], digits[2]})
 	case 4:
-		// Expand #abcd to #aabbccdd; the last pair is validated but unused.
+		// 把 #abcd 展开为 #aabbccdd；最后一对会被校验但不使用。
 		digits = string([]byte{digits[0], digits[0], digits[1], digits[1], digits[2], digits[2], digits[3], digits[3]})
 	case 6, 8: // 8 is rrggbbaa; the trailing pair is validated but unused.
 	default:
@@ -69,8 +69,8 @@ func parseHexColor(s string) (r, g, b uint8, ok bool) {
 	return r, g, b, true
 }
 
-// relativeLuminance is the WCAG 2.0 relative luminance of an opaque sRGB
-// colour: linearise each channel, then apply the sRGB luma weights.
+// relativeLuminance 是不透明 sRGB 颜色的 WCAG 2.0 相对
+// 亮度：先对每个通道线性化，再应用 sRGB 亮度权重。
 func relativeLuminance(r, g, b uint8) float64 {
 	linear := func(v uint8) float64 {
 		c := float64(v) / 255
@@ -82,8 +82,8 @@ func relativeLuminance(r, g, b uint8) float64 {
 	return 0.2126*linear(r) + 0.7152*linear(g) + 0.0722*linear(b)
 }
 
-// contrast computes the WCAG ratio without exposing a success flag. The bool
-// is false when either colour is not a supported hex form.
+// contrast 计算 WCAG 比率而不暴露成功标志。布尔值
+// 在任一颜色不是受支持的十六进制形式时为 false。
 func contrast(hexA, hexB string) (float64, bool) {
 	ar, ag, ab, aok := parseHexColor(hexA)
 	br, bgG, bb, bok := parseHexColor(hexB)
@@ -97,10 +97,10 @@ func contrast(hexA, hexB string) (float64, bool) {
 	return (la + 0.05) / (lb + 0.05), true
 }
 
-// ContrastRatio returns the WCAG contrast ratio between two hex colours, in
-// [0, 21]. Black on white is 21 and a colour against itself is 1. Invalid
-// input yields 0, the conservative value: a caller thresholding on it treats
-// the pair as illegible rather than guessing.
+// ContrastRatio 返回两个十六进制颜色之间的 WCAG 对比度，范围
+// [0, 21]。黑底白字为 21，颜色与自身为 1。无效
+// 输入产生 0 这个保守值：用它做阈值的调用方会把该
+// 颜色对视为不可读，而不是猜测。
 func ContrastRatio(hexA, hexB string) float64 {
 	ratio, ok := contrast(hexA, hexB)
 	if !ok {
@@ -109,13 +109,13 @@ func ContrastRatio(hexA, hexB string) float64 {
 	return ratio
 }
 
-// LegibleInk chooses the badge ink to paint on bg. The original ink is kept
-// when it already clears minInkContrast, when alt is not strictly better, or
-// when any colour is unparseable — so callers that cannot trust their inputs
-// never change what they were going to draw.
+// LegibleInk 选择画在 bg 上的徽章墨色。当原墨色
+// 已达到 minInkContrast、当 alt 并非严格更优，或
+// 当任一颜色无法解析时，保留原墨色 —— 因此不能信任输入的调用方
+// 永远不会改变它们原本要绘制的内容。
 //
-// The built-in palettes store SGR codes rather than hex, so this helper is not
-// yet wired into the badge renderer; see the wiring note at the end of file.
+// 内置调色板存储的是 SGR 码而非十六进制，因此该辅助函数
+// 尚未接入徽章渲染器；见文件末尾的接线说明。
 func LegibleInk(bg, ink, alt string) string {
 	inkRatio, ok := contrast(bg, ink)
 	if !ok || inkRatio >= minInkContrast {
@@ -128,11 +128,11 @@ func LegibleInk(bg, ink, alt string) string {
 	return alt
 }
 
-// Wiring note (deliberately not applied here): Palette roles in theme.go are
-// SGR strings such as "33"/"43", not hex, and there is no per-theme badge
-// background role to compare against. Applying LegibleInk at render time first
-// needs a hex ink/bg pair on Palette populated only for non-built-in themes;
-// the call sites would then be Model.attemptLinesLocked (render.go, the "⟳"
-// attempt badge) and the notice/banner ink selection in renderEntryLocked.
-// Built-in palettes keep their SGR colours, so the renderer is untouched and
-// every shipped theme's output stays identical.
+// 接线说明（有意不在此应用）：theme.go 中的 Palette 角色是
+// "33"/"43" 这样的 SGR 字符串，而非十六进制，而且没有按主题的徽章
+// 背景角色可供比较。在渲染时应用 LegibleInk，首先需要
+// 在 Palette 上仅对非内置主题填充十六进制的墨色/背景对；
+// 然后调用点将是 Model.attemptLinesLocked（render.go 中的 "⟳"
+// 尝试徽章）和 renderEntryLocked 中的通知/横幅墨色选择。
+// 内置调色板保持其 SGR 颜色，因此渲染器不变，
+// 每个随附主题的输出保持完全一致。

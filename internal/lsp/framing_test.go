@@ -68,10 +68,10 @@ func TestReadFrameRejectsMalformedFrames(t *testing.T) {
 	}
 }
 
-// TestReadFrameBoundsHeaderLineWithoutNewline verifies the size guard applies
-// before the whole line is buffered. ReadString used to scan an unbounded
-// slice looking for '\n', so a header line with no terminator could exhaust
-// memory before the limit was checked.
+// TestReadFrameBoundsHeaderLineWithoutNewline 验证大小守卫在
+// 整行被缓冲之前生效。ReadString 过去会无界扫描切片
+// TestReadFrameBoundsHeaderLineWithoutNewline 验证大小守卫在整行被缓冲之前生效。ReadString 过去会无界扫描切片寻找 '\n'，因此没有终止符的头部行可能在检查限制之前耗尽内存。
+// 在检查限制之前耗尽内存。
 func TestReadFrameBoundsHeaderLineWithoutNewline(t *testing.T) {
 	cases := map[string]string{
 		"over limit, no newline": "Content-Length: " + strings.Repeat("1", maxHeaderLine),

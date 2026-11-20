@@ -13,8 +13,8 @@ import (
 
 const toolSearchMaxResults = 20
 
-// toolSearchTool reads the registry's own specs, so it needs no dependency on
-// the agent package that consumes those specs.
+// toolSearchTool 读取注册表自身的 spec，因此不需要依赖
+// 消费这些 spec 的 agent 包。
 type toolSearchTool struct {
 	registry *Registry
 }
@@ -90,16 +90,16 @@ func (t toolSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) 
 	return clip(ctx, strings.Join(lines, "\n")), nil
 }
 
-// searchTokens splits a query into lowercase words. Underscores are kept so a
-// tool name such as web_fetch stays one token; punctuation is ignored.
+// searchTokens 把查询拆为小写词。保留下划线，使
+// 像 web_fetch 这样的工具名保持一个 token；忽略标点。
 func searchTokens(query string) []string {
 	return strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
 	})
 }
 
-// toolMatchScore scores one spec. Every token must match somewhere: a query
-// with several words should not return tools that match only one of them.
+// toolMatchScore 给一个 spec 打分。每个 token 都必须在某处匹配：
+// 含多个词的查询不应返回只匹配其中一个的工具。
 func toolMatchScore(name, description string, tokens []string, queryLower string) (int, bool) {
 	lowerName := strings.ToLower(name)
 	lowerDescription := strings.ToLower(description)

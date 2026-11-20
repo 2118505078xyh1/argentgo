@@ -1,7 +1,7 @@
 package tools
 
-// Wrappers around the persistent memory bank. Each tool carries its own bank,
-// so there is no global state and tests can inject a temp-dir bank.
+// 对持久化记忆库的包装。每个工具携带自己的库，
+// 因此没有全局状态，测试可以注入临时目录的库。
 
 import (
 	"context"

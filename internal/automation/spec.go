@@ -1,17 +1,17 @@
-// Package automation schedules agent prompts: a cron- or interval-based task
-// list, a durable JSON store, and a daemon that fires due tasks through an
-// injected executor.
+// Package automation 调度 agent 提示：基于 cron 或间隔的任务列表、持久 JSON store，以及通过注入的 executor 触发到期任务的 daemon。
+// 列表、持久 JSON store，以及通过注入的 executor 触发到期任务的
+// daemon。
 //
-// A task is a small JSON document:
+// 一个任务是一个小的 JSON 文档：
 //
 //	{"id":"nightly","name":"nightly review",
 //	 "schedule":{"kind":"cron","expr":"0 3 * * *"},
 //	 "prompt":"review yesterday's commits","cwd":"/repo",
 //	 "enabled":true,"missed":"run_once","timeout":"30m"}
 //
-// Everything here is sequential dependency-free Go: the daemon never spawns
-// the agent itself, it calls an Executor, so the CLI (or a test) wires the real
-// agent loop in afterwards.
+// 这里的一切都是顺序、无依赖的 Go：daemon 从不自行启动
+// 这里的一切都是顺序、无依赖的 Go：daemon 从不自行启动 agent，而是调用 Executor，因此 CLI（或测试）在之后再接入真实的
+// agent 循环。
 package automation
 
 import (
@@ -23,27 +23,27 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Missed policies decide what happens when the daemon wakes up after a
-// scheduled slot has already passed.
+// Missed 策略决定 daemon 在错过时隙后醒来时该怎么做。
+// 已安排的时隙已过去。
 const (
-	// MissedRunOnce runs the task once immediately, then resumes the schedule.
+	// MissedRunOnce 立即运行任务一次，然后恢复调度。
 	MissedRunOnce = "run_once"
-	// MissedSkip drops the missed slot and waits for the next one.
+	// MissedSkip 丢弃错过的时隙并等待下一个。
 	MissedSkip = "skip"
 )
 
-// Duration is a JSON-friendly time.Duration. It marshals as a duration string
-// ("30m") and accepts either a duration string or a number of seconds when
-// decoding, so hand-written config files stay readable.
+// Duration 是 JSON 友好的 time.Duration。它编码为时长字符串（"30m"），解码时接受时长字符串或秒数，使手写配置文件保持可读。
+// （"30m"），解码时接受时长字符串或秒数，
+// 使手写配置文件保持可读。
 type Duration time.Duration
 
-// Std returns the value as a time.Duration.
+// Std 以 time.Duration 形式返回值。
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
-// String renders the duration the way time.Duration does.
+// String 按 time.Duration 的方式渲染时长。
 func (d Duration) String() string { return time.Duration(d).String() }
 
-// Or returns the duration, or def when it is not positive.
+// Or 返回该时长，非正时返回 def。
 func (d Duration) Or(def time.Duration) time.Duration {
 	if v := time.Duration(d); v > 0 {
 		return v
@@ -51,12 +51,12 @@ func (d Duration) Or(def time.Duration) time.Duration {
 	return def
 }
 
-// MarshalJSON writes the duration as a string.
+// MarshalJSON 将时长写为字符串。
 func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
 }
 
-// UnmarshalJSON accepts "45s", 90 (seconds), "" and null.
+// UnmarshalJSON 接受 "45s"、90（秒）、"" 和 null。
 func (d *Duration) UnmarshalJSON(data []byte) error {
 	text := strings.TrimSpace(string(data))
 	if text == "null" {
@@ -87,21 +87,21 @@ func (d *Duration) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Schedule says when a task fires.
+// Schedule 说明任务何时触发。
 type Schedule struct {
-	// Kind is "cron" or "interval". An empty kind is inferred from Expr.
+	// Kind 是 "cron" 或 "interval"。空 kind 从 Expr 推断。
 	Kind string `json:"kind"`
-	// Expr is a five-field cron expression or a Go duration ("30m", "1d").
+	// Expr 是五字段 cron 表达式或 Go 时长（"30m"、"1d"）。
 	Expr string `json:"expr"`
 }
 
-// Normalised schedule kinds.
+// 规范化后的调度种类。
 const (
 	KindCron     = "cron"
 	KindInterval = "interval"
 )
 
-// kind resolves an empty or misspelled kind from the expression shape.
+// kind 从表达式形态解析空或拼错的 kind。
 func (s Schedule) kind() string {
 	switch strings.ToLower(strings.TrimSpace(s.Kind)) {
 	case KindCron:
@@ -117,7 +117,7 @@ func (s Schedule) kind() string {
 	return strings.ToLower(strings.TrimSpace(s.Kind))
 }
 
-// Validate reports whether the schedule can be parsed.
+// Validate 报告调度是否可解析。
 func (s Schedule) Validate() error {
 	switch s.kind() {
 	case KindCron:
@@ -130,8 +130,8 @@ func (s Schedule) Validate() error {
 	return fmt.Errorf("automation: unknown schedule kind %q (use cron or interval)", s.Kind)
 }
 
-// Next returns the first firing time strictly after t. A zero time means the
-// expression never fires (for example "0 0 31 2 *") or cannot be parsed.
+// Next 返回严格晚于 t 的第一个触发时间。零时间表示
+// Next 返回严格晚于 t 的第一个触发时间。零时间表示表达式永不触发（例如 "0 0 31 2 *"）或无法解析。
 func (s Schedule) Next(t time.Time) time.Time {
 	if t.IsZero() {
 		return time.Time{}
@@ -144,8 +144,8 @@ func (s Schedule) Next(t time.Time) time.Time {
 		}
 		return c.Next(t)
 	case KindInterval:
-		// "1d" means "same time tomorrow", so advance the calendar instead
-		// of adding a fixed 24h, which drifts across DST transitions.
+		// "1d" 表示"明天的同一时间"，因此推进日历而非
+		// "1d" 表示"明天的同一时间"，因此推进日历而非加上固定 24h，后者会在 DST 过渡中漂移。
 		if days, ok := parseDays(s.Expr); ok {
 			return addCalendarDays(t, days)
 		}
@@ -158,10 +158,10 @@ func (s Schedule) Next(t time.Time) time.Time {
 	return time.Time{}
 }
 
-// String renders the schedule for logs and for read-only task lists. The
-// canonical "kind expr" is always kept as a prefix; a valid cron expression
-// additionally gets a human-readable summary in parentheses so a CLI/TUI list
-// can show what the schedule actually means without a separate lookup.
+// String 为日志和只读任务列表渲染调度。规范的
+// String 为日志和只读任务列表渲染调度。规范的 "kind expr" 始终保留为前缀；有效的 cron 表达式额外在括号中给出易读摘要，使 CLI/TUI 列表
+// 额外在括号中给出易读摘要，使 CLI/TUI 列表
+// 无需单独查找即可显示调度的实际含义。
 func (s Schedule) String() string {
 	kind := s.kind()
 	if kind == "" {
@@ -176,7 +176,7 @@ func (s Schedule) String() string {
 	return base
 }
 
-// Spec is one scheduled task plus its persisted run state.
+// Spec 是一个计划任务及其持久化的运行状态。
 type Spec struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
@@ -184,22 +184,22 @@ type Spec struct {
 	Prompt   string   `json:"prompt"`
 	Cwd      string   `json:"cwd,omitempty"`
 	Enabled  bool     `json:"enabled"`
-	// Missed is "run_once" (default) or "skip".
+	// Missed 是 "run_once"（默认）或 "skip"。
 	Missed  string   `json:"missed,omitempty"`
 	Timeout Duration `json:"timeout,omitzero"`
-	// NextDue is the slot the daemon is waiting for. It is seeded by the store
-	// and advanced after every run, so a task never fires twice for one slot.
+	// NextDue 是 daemon 等待的时隙。它由 store 种入并在每次运行后推进，使任务不会因一个时隙触发两次。
+	// 并在每次运行后推进，使任务不会因一个时隙触发两次。
 	NextDue    time.Time  `json:"nextDue,omitzero"`
 	LastRun    *time.Time `json:"lastRun,omitempty"`
 	LastStatus string     `json:"lastStatus,omitempty"`
 	LastLog    string     `json:"lastLog,omitempty"`
 	// Warnings 报告在声明性内容中发现的不可见字符。
-	// It is metadata only: it is never serialised and never blocks a task.
+	// 它仅是元数据：从不被序列化且永不阻塞任务。
 	Warnings []string `json:"-"`
 }
 
-// UnmarshalJSON applies the defaults a hand-written task file may omit:
-// enabled=true, missed="run_once", and an id derived from the name.
+// UnmarshalJSON 应用手写任务文件可能省略的默认值：
+// UnmarshalJSON 应用手写任务文件可能省略的默认值：enabled=true、missed="run_once"，以及从名称派生的 id。
 func (s *Spec) UnmarshalJSON(data []byte) error {
 	type specJSON struct {
 		ID         string     `json:"id"`
@@ -243,8 +243,8 @@ func (s *Spec) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MissedPolicy normalises the missed field; unknown values behave like
-// run_once so a typo never silently drops work.
+// MissedPolicy 规范化 missed 字段；未知值表现为 run_once，使拼写错误永不静默丢弃工作。
+// 为 run_once，使拼写错误永不静默丢弃工作。
 func (s Spec) MissedPolicy() string {
 	if strings.EqualFold(strings.TrimSpace(s.Missed), MissedSkip) {
 		return MissedSkip
@@ -252,7 +252,7 @@ func (s Spec) MissedPolicy() string {
 	return MissedRunOnce
 }
 
-// Validate checks the fields the daemon relies on.
+// Validate 检查 daemon 依赖的字段。
 func (s Spec) Validate() error {
 	if strings.TrimSpace(s.ID) == "" {
 		return fmt.Errorf("automation: a task needs an id")
@@ -277,7 +277,7 @@ func (s Spec) Validate() error {
 	return nil
 }
 
-// IsDue reports whether the task should run at now.
+// IsDue 报告任务是否应在 now 运行。
 func (s Spec) IsDue(now time.Time) bool {
 	if !s.Enabled || s.NextDue.IsZero() {
 		return false
@@ -285,10 +285,10 @@ func (s Spec) IsDue(now time.Time) bool {
 	return !s.NextDue.After(now)
 }
 
-// TimeoutOr returns the run timeout, falling back to def.
+// TimeoutOr 返回运行超时，否则回退到 def。
 func (s Spec) TimeoutOr(def time.Duration) time.Duration { return s.Timeout.Or(def) }
 
-// slug turns a task name into a filesystem-safe id.
+// slug 把任务名转换为文件系统安全的 id。
 func slug(text string) string {
 	var out strings.Builder
 	for _, ch := range strings.ToLower(text) {

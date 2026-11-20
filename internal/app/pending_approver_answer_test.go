@@ -15,10 +15,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
-// gatedApprover is a local approver that announces when it has been engaged
-// and then blocks until the test releases a y/n answer (or ctx is cancelled).
-// It models both a real TUI popup and, by never being released, a headless run
-// where no human answers at stdin.
+// gatedApprover 是一个本地审批器，它会在被调用时发出通知，
+// 然后阻塞直到测试释放一个 y/n 答案（或 ctx 被取消）。
+// 它既模拟真实的 TUI 弹窗，也通过永不释放来模拟无人通过 stdin 回答的
+// 无界面运行。
 type gatedApprover struct {
 	called chan struct{}
 	local  chan bool
@@ -46,8 +46,8 @@ type askOutcome struct {
 	err     error
 }
 
-// waitForPendingID polls the durable mirror until Ask has persisted its
-// request; it returns the correlation id an approval.answer must carry.
+// waitForPendingID 轮询持久化镜像，直到 Ask 持久化了它的请求；
+// 它返回 approval.answer 必须携带的关联 id。
 func waitForPendingID(t *testing.T, store *security.PendingStore, session string) string {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -77,7 +77,7 @@ func TestPendingApproverExternalAnswerUnblocksAsk(t *testing.T) {
 			base := t.TempDir()
 			store := security.NewPendingStore(base)
 			const session = "sess-rpc"
-			inner := newGatedApprover() // never released: no human at stdin
+			inner := newGatedApprover() // 永不释放：stdin 处没有人类
 			approver := WithPendingApprovals(store, session, inner)
 
 			resCh := make(chan askOutcome, 1)
@@ -87,7 +87,7 @@ func TestPendingApproverExternalAnswerUnblocksAsk(t *testing.T) {
 			}()
 
 			id := waitForPendingID(t, store, session)
-			// Simulate approval.answer: the RPC handler resolves the decision.
+			// 模拟 approval.answer：RPC 处理器解析该决定。
 			if err := store.Resolve(session, id, tc.granted); err != nil {
 				t.Fatalf("Resolve: %v", err)
 			}
@@ -106,8 +106,8 @@ func TestPendingApproverExternalAnswerUnblocksAsk(t *testing.T) {
 			if items, err := store.List(session); err != nil || len(items) != 0 {
 				t.Fatalf("pending after answer = %v, %v; want empty", items, err)
 			}
-			// Replaying the decision (a reconnect race) must be a safe no-op:
-			// no fatal error and no duplicate decision on disk.
+			// 重放该决定（重连竞态）必须是安全的空操作：
+			// 没有致命错误，磁盘上也没有重复的决定。
 			if err := store.Resolve(session, id, !tc.granted); err != nil {
 				t.Fatalf("replayed Resolve: %v", err)
 			}
@@ -146,7 +146,7 @@ func TestPendingApproverLocalAnswerStillWorks(t *testing.T) {
 				resCh <- askOutcome{granted: granted, err: err}
 			}()
 
-			// No external approval.answer: the local approver must decide.
+			// 没有外部的 approval.answer：必须由本地审批器做决定。
 			select {
 			case <-inner.called:
 			case <-time.After(2 * time.Second):
@@ -196,8 +196,8 @@ func TestPendingApproverCancelUnblocksAsk(t *testing.T) {
 	}
 }
 
-// approvalAnswerRunner is the minimal server.Runner seam approval.answer needs:
-// a durable pending store (EventHub is optional; selectHub makes one).
+// approvalAnswerRunner 是 approval.answer 所需的最小 server.Runner 接缝：
+// 一个持久化的待处理存储（EventHub 可选；selectHub 会创建）。
 type approvalAnswerRunner struct {
 	pending *security.PendingStore
 }
@@ -208,9 +208,9 @@ func (r *approvalAnswerRunner) Prompt(context.Context, string, func(string)) (st
 func (r *approvalAnswerRunner) Abort()                               {}
 func (r *approvalAnswerRunner) PendingStore() *security.PendingStore { return r.pending }
 
-// TestPendingApproverApprovalAnswerEndToEnd drives a real approval.answer RPC
-// through server.RunRPC, proving the full chain:
-// approval.answer -> PendingStore.Resolve -> waiter -> pendingApprover.Ask.
+// TestPendingApproverApprovalAnswerEndToEnd 通过 server.RunRPC 驱动一次真实的
+// approval.answer RPC，证明完整链路：
+// approval.answer -> PendingStore.Resolve -> waiter -> pendingApprover.Ask。
 func TestPendingApproverApprovalAnswerEndToEnd(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -222,7 +222,7 @@ func TestPendingApproverApprovalAnswerEndToEnd(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := security.NewPendingStore(t.TempDir())
 			const session = "sess-rpc"
-			inner := newGatedApprover() // headless: stdin never answers
+			inner := newGatedApprover() // 无界面：stdin 从不回答
 			approver := WithPendingApprovals(store, session, inner)
 
 			resCh := make(chan askOutcome, 1)

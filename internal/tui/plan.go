@@ -6,21 +6,21 @@ import (
 	"strings"
 )
 
-// planFileName is the tool name whose result the plan panel displays.
+// planFileName 是计划面板显示其结果的工具名。
 const planToolName = "submit_plan"
 
-// Plan is the last submit_plan result seen on the event stream. Steps are
-// documentation, not a queue: the tool never executes them.
+// Plan 是在事件流上看到的最后一次 submit_plan 结果。步骤是
+// 文档，而非队列：工具从不执行它们。
 type Plan struct {
 	Status string
 	Steps  []string
 	Result string
 }
 
-// parsePlanResult reads the human-readable output submit_plan returns. It also
-// falls back to the call's JSON arguments when the output was replaced by a
-// short error string, so a plan submitted with an odd tool wrapper still shows
-// its steps.
+// parsePlanResult 读取 submit_plan 返回的人可读输出。当输出被
+// 替换为简短错误字符串时，它还回退到该调用的 JSON 参数，
+// 使使用奇怪工具包装器提交的计划仍能显示
+// 其步骤。
 func parsePlanResult(output, args string) Plan {
 	var plan Plan
 	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
@@ -99,7 +99,7 @@ func (m *Model) capturePlanLocked(event Event) {
 	m.version++
 }
 
-// planLines renders the plan panel. With no plan yet it is a one-line hint.
+// planLines 渲染计划面板。尚无计划时它是一行提示。
 func (m *Model) planLines(width, height int) []Line {
 	title := NewLine()
 	title.Push(text(m.locale, "plan_title"), m.palette.accent())

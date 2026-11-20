@@ -1,0 +1,560 @@
+=== active_concurrent_test.go (11) ===
+  10: // goroutines append (which writes s.active under mu) while others read through
+  11: // Records/Messages/Path (which must read s.active via activeSnapshot under mu).
+  13: // This machine has no cgo, so the race detector cannot run. The test therefore
+  14: // asserts logical invariants instead: no panic, the final record count is
+  15: // exact, and every id/parent link is intact. Running with -race on a cgo host
+  16: // would additionally catch the original unsynchronised read.
+  26: // assertChain checks a snapshot a concurrent reader may observe. Because
+  27: // appends are serialised by mu and only ever extend a single chain, any
+  28: // snapshot the reader sees is a clean prefix: ids are unique and every
+  106: // Authoritative check once all writers are done: exact count and a single
+  107: // unbroken id chain from the header to the active leaf.
+=== append_rollback_test.go (11) ===
+  9: // A write that fails to reach the JSONL file must not leave the in-memory
+  10: // append index ahead of the disk: the minted id stays unused, the active leaf
+  11: // still points at the last record that was actually written, and the next
+  12: // append can reuse that id and continue the chain without a gap.
+  17: // Warm the cached append state with one successful append.
+  29: // On platforms that keep an append fd open, closing it without clearing the
+  30: // cached stat snapshot keeps the state "valid" so the failure happens in
+  31: // writeAppend (not in the earlier full-read rebuild). chmod alone would not
+  32: // stop writes through a handle opened before the file became read-only.
+  66: // Restore write access. The next append must succeed, reuse the id minted
+  67: // by the failed append (no gap), and link to the same unchanged leaf.
+=== checkpoint.go (1) ===
+  269: // 锛坱ime-of-check/time-of-use锛夌獥鍙ｃ€傚鏋滃悗缁枃浠舵湭閫氳繃璇ュ鏌ワ紝鏈宸茶繕鍘熺殑鏂囦欢浼氬洖婊氾紝
+=== checkpoint_test.go (33) ===
+  303: // TestUndoRefusesWhenAnyManifestFileAdvanced covers the git-less equivalent of
+  304: // "HEAD moved past the checkpoint base": a later change to any manifest file
+  305: // aborts the whole undo, and no file -- including untouched ones -- is written.
+  317: // A user commit advances only b.txt after the checkpoint.
+  335: // TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite verifies the normal
+  336: // path still restores every manifest file and that the CAS recheck runs once
+  371: // in the window between validation and the first write, and asserts the CAS
+  401: // TestUndoIsTransactionalAcrossFiles pins the all-or-nothing guarantee when a
+  402: // CAS recheck fails after earlier files were already written. Before the fix,
+  403: // a conflict on a later file left earlier files half-reverted even though the
+  404: // call reported an error and no files were reported as restored.
+  409: // file sabotaged by the before-write hook; "" = none
+  474: // a conflict on a later file must also undo the earlier removal and recreation.
+  493: // The manifest sorts paths: a.txt (modify), del.txt (recreate), new.txt
+  494: // (remove). Sabotaging new.txt forces rollback of the first two actions.
+  518: // TestVerifyRestoreTargetRejectsDivergence covers every branch of the CAS
+  519: // helper: files the turn created, modified, or deleted, and a concurrent change
+  520: // to each of those states.
+  625: // countingCheckpointReader counts file reads while delegating to os.ReadFile.
+  626: // It is injected via captureCheckpoint so tests can observe cache hits directly.
+  645: // TestCaptureCheckpointHashCacheReusesUnchangedFiles asserts the core win: a
+  646: // second checkpoint over an unchanged file serves hash and bytes from the
+  647: // cache without re-reading, and the result is identical to the uncached path.
+  682: // gets a new stat-metadata key, so the stale hash is never served.
+  696: // Force a distinct mtime so the metadata key is guaranteed to differ.
+  719: // TestCaptureCheckpointHashCacheConcurrentCalls exercises the cache from many
+  720: // goroutines at once and asserts every caller sees a correct, complete manifest.
+  769: // Concurrent misses may duplicate reads, but never more than one per file
+  770: // per caller, and at least the three distinct files must have been read.
+  777: // points: targeted invalidation re-reads only the named file, while a full
+  778: // clear forces every file to be read again.
+  811: // Invalidation on an unknown or unsafe path is a harmless no-op.
+  817: // correctness: identical relative paths with different content must not share
+=== compact_activity.go (1) ===
+  23: // 涔嬩竴锛屽啀鍔犱笂 offset/limit 鎴栦互琛屽彿涓轰腑蹇冪殑绐楀彛锛坙ine/before/after锛夛紝
+=== compact_activity_test.go (8) ===
+  10: // activityToolEntry builds a tool result record in the shape the agent writes:
+  11: // top-level name plus arguments serialized as a JSON string.
+  20: // activityAssistantEntry builds an assistant record carrying tool_calls, the
+  21: // other layout a transcript can contain.
+  61: // line/before/after
+  63: // edit records the path only
+  70: // An edit has no diff in the recorded data, so it must not invent a range.
+  145: // "bash " prefix plus a command clipped to activityCommandLimit runes.
+=== compact_archive_test.go (10) ===
+  15: // archiveTestEntries returns a mix of plain CJK text and raw JSON payloads so
+  16: // the round-trip covers both Entry.Content and the original json.RawMessage.
+  49: // The store-relative path stored in a ref must resolve through dir too.
+  110: // A CJK payload must survive as UTF-8, never as \uXXXX escapes.
+  129: // No file may appear outside the compactions directory.
+  138: // A trailing .jsonl suffix is accepted and does not duplicate the extension.
+  152: // Rewriting the same id must leave exactly one archive, no temp files.
+  173: // An encode failure must not leave a temp file behind. Invalid RawMessage
+  174: // makes json.Encoder fail on that entry.
+  211: // The Archive field is additive: absent when nil, present when set.
+=== compact_budget_test.go (5) ===
+  23: // first tool result: walk back over the whole tool run
+  24: // second result of the same run
+  25: // single tool result: back up to its assistant
+  45: // Each padded entry costs about 4 + 50 tokens; 120 fits the last two.
+  84: // A compacted history that already fits the budget is a no-op.
+=== compact_exit_case_test.go (11) ===
+  10: // failureReason located "[exit N]" case-insensitively but then stripped the
+  11: // literal lowercase prefix from the ORIGINAL text. A shell that printed
+  12: // "[EXIT 1]" (or "[Exit 2]") therefore parsed no digits and the failure was
+  13: // dropped from the compaction summary even though the marker had been found.
+  14: // The digits must be read from the lowered string, where case folding cannot
+  15: // change ASCII digits, while the returned text keeps the original spelling.
+  46: // negative half of the fix: only a non-zero numeric exit code is a failure,
+  47: // regardless of the marker's case.
+  61: // TestSummarizeKeepsUppercaseExitFailure is the end-to-end guard: a dropped
+  62: // tool result whose output carries an upper-case exit marker must still surface
+  63: // as a failure in the compaction summary, so a resumed turn does not forget it.
+=== compact_pairing_test.go (12) ===
+  8: // assistantWithCalls builds an assistant Entry whose Data carries the full
+  9: // llm.Message payload shape persisted by the agent loop: "tool_calls" is an
+  10: // array of objects with an "id".
+  31: // toolResult builds a tool Entry with the result id recorded under the same
+  32: // key the transcript uses ("id"), which messageEntry maps to ToolCallID.
+  70: // points at the third result
+  71: // whole batch + assistant moved to the kept side
+  83: // points at the second result; both calls are at 1
+  84: // back up over the first call too, so no pair is split
+  88: // The legacy helper only looks at a trailing run of tool results.
+  89: // Here start points at a user message, so the old cut would leave
+  90: // assistant's call in the summary while keeping its result.
+=== compact_retention_summary_test.go (15) ===
+  10: // interaction: a compaction record is stamped RetainAlways, so when a later
+  11: // compaction drops it, retainedForCompaction re-emits it. entryKind maps the
+  12: // compaction's system Entry to KindSummary, but the re-emitted record keeps the
+  13: // Compaction payload (which has a "summary" key, not "text"/"content"). Without
+  14: // "summary" in messageEntry's KindSummary keys, the restored message loses all
+  15: // its text and resurfaces as an empty system entry.
+  45: // Grow the conversation past the first compaction and compact again. The
+  46: // cut now drops the first compaction's system Entry, which is flagged for
+  47: // retention because KindCompaction is stamped RetainAlways.
+  57: // The re-emitted summary must still carry the original text, not an empty
+  58: // system message. There are now two system entries: the new compaction's
+  59: // summary and the restored one; the earlier one must survive verbatim.
+  80: // TestMessageEntrySummaryKey documents that a KindSummary carrying the
+  81: // canonical "summary" payload key projects onto the same Entry as one carrying
+  82: // "text" 鈥?the invariant retainedForCompaction relies on.
+=== compact_structured_test.go (4) ===
+  47: // Existing free text from Summarize: legacy headings must be recognized
+  128: // None of these carry a recognized markdown heading, so the caller must
+  129: // keep treating the summary as free text instead of a trusted DTO.
+  198: // The projection is read-only: the underlying free text is untouched.
+=== compact_summarize_test.go (23) ===
+  11: // pathEntry builds a tool entry whose payload carries a file path, matching
+  12: // the "path" key that pathsFromData collects.
+  57: // Appearance order: the three lexically largest paths are oldest, the
+  58: // three lexically smallest are newest. Sorting before tailItems (the old
+  59: // behaviour) would keep the wrong twelve.
+  88: // Display order is still sorted for a stable summary.
+  94: // Summarize keeps only the most recent twelve file paths before sorting. When
+  95: // the twelve-path cutoff falls inside a single payload that carries several
+  96: // paths, the chosen subset must not depend on Go's randomized map iteration:
+  97: // the same transcript must always produce the same "Files changed" section.
+  98: // This mirrors the deterministic-key rule collectStrings uses in search.go.
+  104: // One payload carrying ten paths in random map order; combined with the
+  105: // entries below, tailItems(files, 12) cuts through this very block.
+  133: // Whatever the internal appearance order, the five oldest paths must be
+  134: // the ones dropped and the eight newest ones the ones kept.
+  156: // compaction: a compaction record is stamped RetainAlways, so a later
+  157: // compaction sees the previous summary as a system Entry (its Data is the old
+  158: // Compaction payload) and re-runs the next-step heuristics on its markdown
+  159: // text. The old summary's own "## Next steps" header matches the "next step"
+  160: // marker, which used to surface as a literal "- ## Next steps" bullet in the
+  161: // new summary. Markdown headings are structure, never a plan.
+  180: // TestSummarizeStillKeepsGenuineNextStepAfterHeader guards the fix above from
+  181: // dropping real next steps that follow a heading in the same content.
+=== compact_utf8_test.go (12) ===
+  10: // compaction bug: failureReason lowercased the whole tool output to locate the
+  11: // "[exit N]" marker case-insensitively, then used that LOWERCASED byte offset to
+  12: // slice the ORIGINAL text. strings.ToLower folds rune-by-rune, so a rune whose
+  13: // lowercase form is fewer bytes (陌 2鈫?, 岷?3鈫?, 鈩?3鈫?) before the marker shifts
+  14: // the offset off a rune boundary. The result was a garbled tail, a failed prefix
+  15: // match, and 鈥?when no other failure marker existed 鈥?the failure being dropped
+  16: // from the compaction summary entirely. The offset must be mapped back through
+  17: // rune indices before slicing the original string.
+  45: // TestSummarizeKeepsFailureWithUnicodeBeforeExitCode is the end-to-end guard:
+  46: // a dropped tool result whose output carries a length-changing rune before an
+  47: // exit code must still surface as a failure in the compaction summary, rather
+  48: // than silently losing the evidence a resumed turn needs.
+=== durable_test.go (6) ===
+  46: // Progress is a durability record and must not become model history.
+  127: // Committing that turn's assistant message makes its progress obsolete.
+  135: // A checkpoint for the next turn is valid again.
+  178: // The no-argument form is a durability barrier and must not add records.
+  203: // Simulate a crash: drop every in-memory handle without a clean shutdown
+  204: // and rebuild the session from the transcript on disk.
+=== export_test.go (13) ===
+  15: // exportDirSession writes records to <dir>/<id>.jsonl and returns both, so the
+  134: // Sanitizing only rewrites text fields, so numeric payload values must survive
+  135: // byte-for-byte. Decoding into any would round integers above 2^53 through
+  136: // float64 and silently corrupt ids/counters in an otherwise faithful export.
+  138: // 2^53+1, not exactly representable as float64
+  276: // JSON must stay parsable: the marker is a structured record, not
+  277: // bare text appended after the closing bracket.
+  290: // A truncated JSON transcript must remain a valid, unmarshalable JSON array,
+  291: // with the truncation explanation carried by a final structured record.
+  324: // CJK payloads are multi-byte per rune: truncation at entry boundaries must
+  325: // never cut a rune, and the JSON artifact must still parse and show the note.
+  357: // Below the cap the JSON export must be byte-for-byte identical to the plain
+  358: // renderer (no marker added, CJK kept as raw UTF-8 rather than escaped).
+=== fork_title_test.go (14) ===
+  6: // the fork point can sit after an older title record but before a newer title
+  7: // override. Checking only whether *any* title record is on the copied path
+  8: // made the fork inherit the stale older title instead of the title the source
+  9: // session actually showed when the fork was taken.
+  29: // Freeze the fork point before the newer override lands. The copied path
+  30: // still contains the "First" title record.
+  46: // The fork's newest title record must be the carried-over title, not the
+  47: // stale one already on the copied path.
+  63: // TestForkCarriesDerivedTitleWhenOverrideClearedAfterForkPoint is the mirror
+  64: // image of the stale-title case: clearing an override after the fork point
+  65: // makes the source fall back to its prompt-derived title, and the fork must
+  66: // show that derived title rather than the now-cleared explicit one.
+  104: // path: when the copied path already shows the source's effective title, no
+  105: // extra title record is appended and the fork is a faithful copy.
+=== import_test.go (3) ===
+  10: // The assertions below intentionally inspect Entry's public shape rather than
+  11: // the importers' private helpers, so they describe the import contract without
+  12: // depending on how the Data payload is organized internally.
+=== ordinal_test.go (12) ===
+  11: // stamped builds a message record with an explicit ordinal in its Data envelope.
+  20: // unstamped builds a legacy message record with no ordinal metadata at all.
+  36: // normalizedSeqObject decodes a JSON object for semantic comparison, ignoring
+  37: // the reserved ordinal key and any insignificant formatting differences.
+  74: // A reserved field from another feature must survive untouched.
+  153: // Decode as RawMessage: the reserved _seq is a number, not a string.
+  182: // All three records were written in the same clock tick: TS cannot order
+  183: // them, so only the ordinal can. Deliberately list the winner in the middle.
+  194: // "c" has the highest seq (3)
+  222: // A legacy record with the same ts and a lexically greater id must not win.
+  240: // Equal timestamps fall back to the greater id, matching Store.List.
+  292: // Legacy records have no _seq; their array index is the effective ordinal.
+=== page_test.go (20) ===
+  14: // pageTestRecords builds n records with uniform line lengths so a byte cap
+  15: // maps cleanly to a fixed number of records per page. Parent is left empty on
+  16: // purpose: pagination is file-order based, and equal-length lines keep the
+  49: // (a) Walking forward with Next must visit every record exactly once, in
+  50: // order, with no page over the byte cap.
+  102: // (b) fromEnd=true returns the last page; feeding Next back walks backwards
+  103: // until every record has been seen exactly once.
+  162: // (c) Malformed and blank lines are skipped leniently, in both directions.
+  186: // (d) A record larger than the whole cap is returned whole and alone; when
+  187: // more records follow, HasMore lets the caller continue past it.
+  247: // (e) A non-empty afterID resumes strictly after that record for forward
+  248: // reads. A cursor past the end yields an empty page.
+  281: // A cursor on the final record has nothing after it.
+  290: // An unknown cursor is lenient: forward reads start from the beginning.
+  300: // (f) An empty (or absent) file yields an empty page without an error.
+  326: // Generated IDs must agree with readRecords so a cursor minted from one read
+  327: // API resolves in the other.
+  342: // readRecords injects a read-time schema header that ReadPage (a lenient
+  343: // raw-file reader) does not; compare the transcript's own records only.
+  349: // The Session method must delegate to the same file the handle writes to.
+=== property_test.go (35) ===
+  16: // These are deterministic property/roundtrip tests over the durable session
+  17: // engine. They are deliberately bounded (small N, a few fixed seeds) so the
+  18: // whole file stays fast while still exploring arbitrary-looking sequences.
+  19: // No production code is touched here: everything below drives the public and
+  20: // package-internal APIs through temp dirs only.
+  24: // propText builds a bounded string from ASCII, CJK, emoji and combining marks.
+  25: // The pool contains no credential-shaped substrings, so security.Redact leaves
+  26: // progress/attempt text untouched and the roundtrips below compare exact bytes.
+  39: // Include NUL and high bytes regularly so the manifest carries real
+  40: // binary payloads (base64-encoded by encoding/json), not just text.
+  295: // byPath holds value copies from before completion; refresh them so the
+  336: // A manual edit after the checkpoint must refuse the whole undo, with no
+  337: // partial restore of any other manifest file.
+  372: // propAssistantCalls builds an assistant Entry carrying a real tool_calls
+  373: // payload, optionally with a file path in the call arguments so Summarize must
+  374: // preserve it as a changed file.
+  406: // propEntrySequence builds a transcript whose first block carries unique
+  437: // A distinct assistant carries any extra call ids in the batch so
+  438: // every result has a matching call in the transcript.
+  461: // propAssertNoSplitPairs checks that no cut strictly separates the last call
+  462: // declaring an id from the tool result carrying it.
+  488: // propAssertEvidenceSurvives checks the documented compaction contract: if an
+  489: // evidence-bearing entry falls in the dropped prefix, its marker must appear
+  490: // in the corresponding section of the summary payload.
+  496: // kept verbatim, nothing to preserve in the summary
+  526: // A budget that fits exactly the final entry forces every evidence
+  527: // entry into the dropped prefix.
+  554: // End-to-end: append the transcript, compact with the small budget,
+  555: // and verify the surviving messages have whole tool pairs and carry
+  617: // Property 4: rune clipping always yields valid UTF-8 and a rune-safe prefix.
+  740: // The barrier form must be durable without adding a record.
+  767: // Committing the turn makes its mid-turn progress stale by position.
+  775: // A checkpoint whose turn number is not ahead of the committed count is
+  776: // stale even though it is the newest record on the branch.
+  787: // The next turn's progress is recoverable again and survives a reopen.
+=== reasoning_test.go (12) ===
+  10: // TestAssistantReasoningRoundTrip verifies that an assistant record written
+  11: // with reasoning survives a close/reopen and is projected onto Entry, including
+  12: // multi-byte CJK text that must not be cut anywhere along the way.
+  48: // TestReasoningOfAcceptsWireAliases checks both the neutral reasoning key and
+  49: // the OpenAI-compatible reasoning_content key, and that a missing key leaves
+  50: // the entry empty so legacy transcripts are unchanged.
+  72: // TestLegacyAssistantEntryHasNoReasoning guards the compatibility contract: an
+  73: // old assistant record without any reasoning key still yields a valid entry
+  96: // TestAssistantRecordOmitsEmptyReasoning ensures a write with no reasoning does
+  97: // not introduce a new field into the persisted payload, keeping old bytes.
+  117: // empty reasoning is omitted entirely so archives from older builds stay
+  118: // byte-identical, and a non-empty value round-trips.
+=== reconcile_test.go (7) ===
+  11: // reconcilerCall builds an assistant Entry whose Data carries the full
+  12: // llm.Message "tool_calls" payload shape persisted by the agent loop.
+  26: // reconcilerResult builds a tool Entry whose result id is recorded under the
+  33: // abortedEntry is the expected synthetic result for a dangling call id.
+  58: // Input must be untouched.
+  113: // A tool entry with no call metadata must pass through verbatim.
+  124: // Nil and empty inputs are unchanged.
+=== recovery_fuzz_test.go (29) ===
+  13: // FuzzSessionRecordRoundtrip drives arbitrary payloads through AppendRecord and
+  14: // then through the lenient read/repair path used on resume. The properties
+  15: // checked are: no panic on any input, every line that survives repair is a
+  16: // well-formed JSON record, and the known-good sentinel record is never lost to
+  17: // a torn or malformed tail. Hard corruption is an accepted (non-panicking)
+  18: // outcome and is reported as such by ValidateAndRepair/OpenSession.
+  29: // Truncated payload and torn final line: payload falls back to a JSON
+  30: // string, tail is dropped by torn-tail repair.
+  34: // Nested payload and a valid extra record appended as raw JSON.
+  36: // Empty payload (stored as null) and non-JSON garbage tail.
+  38: // Combining marks and a structurally valid extra tail record.
+  40: // A syntax error on a non-final physical line is hard corruption.
+  42: // A schema error (kind is not a string) is hard corruption.
+  55: // Keep each fuzz case small and bounded; the seed corpus already stays well
+  56: // under this limit.
+  66: // A deterministic short prefix exercises the multi-record append/rebuild
+  67: // path as well as the single fuzzed payload.
+  80: // Feed arbitrary bytes through AppendRecord. Invalid JSON may be rejected
+  81: // (and must be rolled back cleanly); the only hard requirement is no panic.
+  88: // This record is our witness that lenient repair never discards valid
+  89: // history while coping with a damaged tail.
+  115: // Validation must classify every line without panicking. Only hard
+  116: // corruption is an error; a torn final line is reported, not rejected.
+  127: // hard corruption is an accepted, non-panicking outcome
+  130: // After repair every surviving physical line is a well-formed record.
+  155: // A record may legitimately omit "data" entirely (decodeLine only
+  156: // requires a non-empty kind); when present it must be valid JSON.
+  175: // TestFuzzSessionRecordRoundtripSeeds runs the fuzz seed corpus as an ordinary
+  176: // deterministic test so the regression cases are always covered by go test.
+=== recovery_plan_test.go (8) ===
+  9: // recoveryLink attaches a stable id/parent pair to an entry so parent-chain
+  10: // checks have something to compare.
+  17: // recoveryCall builds an assistant entry that declares one or more tool calls.
+  123: // The tool batch finished but the final assistant answer was never written.
+  188: // The same call id is declared twice (a retry) and two results refer to a
+  189: // call that never existed. Both lists must be deduplicated and stable.
+  239: // The kept suffix after compaction points at pre-compaction parents, not
+  240: // at the compaction summary that now precedes it. That boundary is not a
+=== repair_test.go (10) ===
+  126: // added by Records() is not one of them.
+  233: // Listing-style validation never writes, even for a missing newline.
+  245: // TestValidateAndRepairIsIdempotentWithoutValidPrefix covers a torn first line
+  246: // (or an empty/blank file): repairing must not publish a bare "\n", which
+  247: // decodeLine classifies as yet another torn tail. A repaired transcript must be
+  248: // clean on the next validation, otherwise every resume rewrites the file again.
+  285: // TestValidateAndRepairKeepsValidPrefixBeforeTornTail makes sure the fix for a
+  286: // torn first line does not strip the terminating newline when a real prefix
+  287: // survives: the kept records must stay byte-identical and terminate cleanly.
+  322: // Directory Sync returns EINVAL on Windows; it must not fail publication.
+=== retention_test.go (5) ===
+  10: // markedRecord builds a message record whose Data carries the retention hint.
+  19: // plainRecord builds a message record with no retention metadata at all.
+  32: // normalizedObject decodes a JSON object for semantic comparison, ignoring the
+  33: // reserved retention key and any insignificant formatting differences.
+  180: // The hint adds only a small field; the payload is not copied or truncated.
+=== retention_write_test.go (10) ===
+  48: // TestAppendWithRetentionExplicitHintBeatsKindDefault covers the case where a
+  49: // caller asks for a hint that differs from the kind's automatic default. The
+  51: // e.g. a summary marked in_thread silently becomes always and leaks into child
+  52: // sessions against the caller's intent.
+  195: // An important kind with a non-object payload keeps its bytes: a hint must
+  196: // never cost the payload itself.
+  343: // The compaction summary also quotes the dropped text; only count
+  344: // conversation records, not the summary record itself.
+  349: // entryKind maps a "user" role back to KindUser when the compactor
+  350: // re-emits the flagged record, so the restored copy has that kind.
+=== schema_read_test.go (22) ===
+  10: // This file wires schema migration into the shared read path and guards the
+  11: // behaviour end to end: legacy transcripts gain a header on read, explicit
+  12: // versions are respected, and a newer version is rejected rather than guessed
+  15: // withoutSchemaHeader drops a leading, read-time schema header so the existing
+  16: // tree/chain tests can keep asserting on the transcript's own records. The
+  17: // injected header is metadata with no parent and an empty id; it never joins
+  26: // withoutSchemaBranches is the Branch counterpart of withoutSchemaHeader.
+  37: // TestReadRecordsLegacyV0GainsHeader: a v0 transcript (no schema header) read
+  38: // through the shared reader comes back upgraded to v1, with the original
+  39: // records preserved after the injected metadata header.
+  57: // The injected header is metadata with an empty id: it never enters the
+  58: // parent chain and must not consume an id slot used by appends.
+  70: // TestReadRecordsExplicitV1Unchanged: a transcript that already carries an
+  71: // explicit v1 schema header is returned unchanged (no duplicate header).
+  97: // TestReadRecordsNewerVersionErrors: a transcript from a newer build is a
+  98: // clear error, not a silent downgrade. readRecords must propagate ErrNewerSchemaVersion.
+  116: // TestMigratedSessionBranchesAndMessages: after a v0 transcript is migrated on
+  117: // read, the conversation view is unaffected 鈥?messages follow the real parent
+  118: // links and the schema header never appears as a message.
+  132: // The injected schema header is metadata: it shows up as a branch but never
+  133: // as a message, and the real records keep their ids/parents/depths.
+  149: // Messages walks from the active leaf and skips metadata records.
+=== schema_test.go (17) ===
+  47: // TestMigrateRecordsLegacyV0AddsHeader: a transcript with no schema header is
+  48: // v0 and gains exactly one header on top; nothing else changes.
+  76: // TestMigrateRecordsExplicitV1Unchanged: a transcript already at the current
+  77: // version passes through byte-for-byte.
+  92: // TestMigrateRecordsIdempotent: migrating twice yields the same result as once,
+  93: // for both a legacy (v0) and an already-current (v1) input.
+  114: // TestMigrateRecordsV0HeaderUpdatedInPlace: an explicit v0 header is bumped in
+  115: // place rather than duplicated.
+  190: // TestMigrateRecordsNewerVersionRejected: a header from a newer build must be a
+  191: // clear error, never a silent downgrade.
+  207: // TestMigrateRecordsEmpty: an empty transcript is a no-op.
+  225: // TestMigrateRecordsPreservesUnknownKinds: kinds are open; an unrecognised kind
+  251: // TestMigrateRecordsCJK: non-ASCII payloads are carried through unchanged.
+  273: // TestMigrateRecordsDoesNotMutateInput: the caller's slice is never modified.
+  288: // TestMigrateRecordsMalformedHeader: a broken header is reported, not silently
+  297: // TestMigrateRecordsConflictingHeaders: two headers disagreeing on the version
+  298: // are reported rather than guessed at.
+=== search_case_ext_test.go (4) ===
+  12: // Search matches the ".jsonl" suffix case-insensitively but used a
+  13: // case-sensitive strings.TrimSuffix to derive the session id. A hand-copied
+  15: // which no longer resolves through Store.OpenSession. The id must be stripped
+  16: // by length, the same way Container.List does, preserving the original case.
+=== search_test.go (13) ===
+  60: // A JSON object is decoded into a Go map, whose iteration order is randomized.
+  61: // When several string values in one record contain the needle, the chosen
+  62: // snippet must still be stable across calls: revisiting the same transcript
+  63: // must not yield a different window into the same text. This pins the fix in
+  79: // With sorted keys, "alpha" is always visited first, so the window must
+  80: // always come from its value (the leading run of A's).
+  95: // stringValues feeds a payload's strings to snippetFor. Its order must be a
+  96: // function of the payload alone, never of the Go map's random seed; otherwise
+  97: // the "first" matching string is not well defined.
+  148: // searchByFullScan is the pre-index Search, used as the semantic baseline: no
+  149: // sidecar is consulted and every transcript is parsed from scratch.
+  263: // A second pass must use the sidecars and return identical hits.
+  273: // A corrupt sidecar is ignored: the body is still searched in full.
+=== search_unicode_test.go (7) ===
+  11: // a lead character such as 陌 (2鈫? bytes), the Kelvin sign (3鈫?) or 岷?(3鈫?)
+  12: // shortens the byte string, so using the lowered byte offset to slice the
+  13: // original value shifts the snippet window. The rune offset is stable because
+  25: // One folded rune up front, 60 x's, the needle, then enough y's
+  26: // that the 96-rune tail is fully materialised (and ellipsised).
+  45: // TestSnippetForFoldedNeedle checks the symmetric case: the needle itself
+  46: // contains a rune whose lowercase form has a different byte length.
+=== session_bench_test.go (23) ===
+  13: // This file records performance baselines for the session hot paths: JSONL
+  14: // append, full transcript parsing, and the List/sidecar index. All inputs are
+  15: // fixed in-memory fixtures written to b.TempDir(); no network, model or real
+  16: // wall-clock dependency is involved. No wall-clock thresholds are asserted 鈥?
+  17: // the numbers exist only so later runs can be compared.
+  21: // benchWriteTranscript writes a JSONL file with n well-formed records. The
+  22: // timestamp is fixed so repeated runs produce byte-identical files.
+  59: // benchTranscriptPath returns the path of a freshly written fixture transcript.
+  68: // index is warm after the header, so each iteration exercises payload encoding,
+  69: // id minting, one JSONL write and the post-write stat/sync.
+  102: // BenchmarkReadRecords measures the full JSONL parse used by every history
+  103: // read, across the three history sizes called out in the performance brief.
+  113: // transcripts, so a fixture of n records parses to n+1.
+  122: // BenchmarkSessionRecords measures the public Records() wrapper, which reads
+  123: // through the Session's own path rather than a raw file path.
+  133: // Records() exposes the same synthetic schema header readRecords
+  134: // prepends, so a fixture of n records yields n+1.
+  143: // BenchmarkList measures the store listing after sidecars are warm: each call
+  144: // still validates every transcript but reads metadata from the .idx cache
+  145: // instead of parsing the whole file.
+  153: // One warm-up List builds the sidecars; the timed loop is the hot path.
+  169: // BenchmarkMetaFromRecords isolates the index builder that a cold List runs on
+  170: // every transcript without a usable sidecar.
+=== session_case_ext_test.go (18) ===
+  11: // transcriptStem must strip a trailing ".jsonl" exactly as the case-insensitive
+  12: // discovery in List/resolvePath matches it. A case-sensitive strings.TrimSuffix
+  13: // leaves the extension on "SESSION.JSONL", which corrupts the id of a session
+  14: // opened through a prefix on case-sensitive filesystems.
+  31: // path: a transcript named "Mixed.JSONL" is found by the case-insensitive
+  32: // prefix lookup in resolvePath, and the returned Session must keep the bare id
+  33: // so Session.path() points at the real file (not "Mixed.JSONL.jsonl").
+  52: // The handle must keep the exact spelling ResolvePath found. On Windows
+  53: // that may be the canonical lower-case spelling (the FS is insensitive);
+  54: // on Linux it is the real "Mixed.JSONL". Either way, deriving the path
+  55: // from the bare id would lose that information.
+  68: // An append must land in the original transcript and be visible on reopen.
+  79: // No phantom transcript with a doubled extension may be created.
+  92: // of resolvePath on every platform. "Mixe" has no exact file even on Windows,
+  93: // so the lookup must fall back to the scan and return the real entry name
+  94: // "Mixed.JSONL". A handle built from that path must read and append to the very
+  95: // same file; reconstructing dir/id+".jsonl" loses the extension case and would
+  96: // silently point at a different (or missing) file on Linux.
+=== session_id_test.go (6) ===
+  11: // without an id must never be minted the same id as an explicit n000001 in the
+  12: // same file, regardless of which one appears first. All three lenient read
+  13: // paths must agree, otherwise a page cursor minted by one cannot be resolved
+  14: // by the other.
+  87: // TestNextIDSynthesizedIDsAreDistinct guards the shared helper itself: once a
+  88: // synthetic id has been filled in it must count as used for the next record.
+=== session_test.go (14) ===
+  354: // A reopened session sees the same compacted view.
+  363: // Compacting a history that already fits is a no-op.
+  388: // The in-memory index must make steady-state appends O(1) in JSON parsing: one
+  389: // full read when it is built, none afterwards. The counting hook verifies the
+  390: // behaviour directly instead of relying on a fragile timing threshold.
+  400: // newTestSession wrote the header before the hook was attached; start with
+  401: // a cold index so the first append below builds it through the hook.
+  481: // Replacing the file (temp + rename, as a rewrite/compaction would) must make
+  482: // the next append rebuild its index: no id may collide with the new records.
+  494: // Warm the index through the counting hook before replacing the file.
+  517: // An active id absent from the rewritten file exercises the same fallback
+  518: // the old full-read path used: link to the last record in file order.
+  560: // Rewrite the same inode with a shorter file; a stale index would mint an
+  561: // id that no longer matches the on-disk transcript.
+=== stats_test.go (3) ===
+  99: // n05 is on a different branch but is the newest stats record in file
+  100: // order. The active leaf (n06) walks back through n03, so n03 must win.
+  119: // The fallback path covers a branch with no stats of its own.
+=== store.go (1) ===
+  51: // Container returns the directory handle behind the store.
+=== store_list_order_test.go (8) ===
+  11: // writeOrderedSession writes a transcript whose records all share stamp, so
+  12: // metaFromRecords derives the same in-record Updated for every session here.
+  13: // mtime is set explicitly to model the real order of writes on disk, which is
+  14: // what a --resume needs when two sessions were created in the same second.
+  40: // first's id sorts after second's id, so an ID-only tiebreak would place
+  41: // it first even though second was written later.
+  111: // This mirrors openOrCreateSession's --resume path: take List()[0] and
+  112: // reopen it. It must be the session with the later mtime.
+=== store_test.go (15) ===
+  13: // listByFullScan is the pre-index implementation, kept as the semantic
+  14: // baseline: every transcript is parsed and nothing trusts a sidecar.
+  61: // pinSidecars moves every .idx back in time so a rebuild is observable: the
+  62: // cache is never stat'ed for freshness, only the transcript is.
+  121: // The sidecar holds exactly the meta the full scan derived.
+  131: // A second List must read the sidecars instead of reparsing transcripts.
+  251: // Appends go through Session.Append, which cannot be hooked from the
+  252: // store without changing session.go. The stat check detects the growth.
+  296: // TestListTrustsFreshSidecarWithoutFullValidation pins the contract that keeps
+  297: // List O(1) per transcript: a sidecar matching size and mtime is only written
+  298: // after those exact bytes parsed cleanly, so List does not re-read or
+  299: // re-validate the transcript. The trust boundary is (size, mtime); a rewrite
+  300: // that preserves both stays invisible until something touches the file again.
+  317: // Rewrite the last line as hard corruption (numeric kind) while keeping the
+  318: // byte length and the recorded mtime, so the sidecar still matches.
+=== sync_test.go (1) ===
+  43: // Sync must be repeatable and must not change the transcript.
+=== tree_test.go (5) ===
+  47: // TestBranchDepthCachesUnderOriginalID covers session audit #6: the depth of
+  48: // a chain must be cached under the id whose depth was requested, not under the
+  49: // top ancestor the walk ended on. Otherwise a later descendant of that
+  75: // TestBranchesDescribeOutOfOrderTree exercises audit #6 through the public
+  76: // path: children are listed before their parents, as happens with a repaired
+=== wire_blocks_test.go (17) ===
+  49: // TestCompactRestoresFlaggedRetentionAcrossCut verifies the compaction wiring:
+  50: // a record marked RetainInThread survives a cut that would otherwise drop it,
+  77: // TestCompactRestoresFlaggedToolPair verifies tool-pair safety: re-emitting a
+  78: // flagged tool result also brings back the assistant call that declared it, so
+  79: // compaction never leaves an orphaned result in the survived context.
+  118: // TestCompactBudgetRestoresFlaggedRetention verifies the budget overload also
+  119: // honours retention hints, not only Compact(keep).
+  128: // A small budget keeps only the newest message; the flagged one is older.
+  138: // TestAgentStatsWireShapeReadsBack validates the wire contract between the
+  139: // agent's stat payload (JSON field names) and this package's readers.
+  168: // Exec check: opt-in command execution in the eval harness.
+  169: // (Kept in the session test package because eval imports agent, so an agent
+  170: // test importing eval would form an import cycle.)
+  173: // TestEvalExecCheckOptIn builds a trivial Go module in the seeded workspace and
+  174: // verifies an explicitly enabled Exec check runs and grades successfully.
+  212: // TestEvalExecCheckDefaultOff verifies a command is never run unless the
+  213: // scenario opts in: an Exec that would fail is ignored when AllowExec is false.
+TOTAL HITS 515

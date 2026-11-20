@@ -7,8 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// Block prefixes. The assistant uses a hollow diamond and tools a filled
-// circle, so the two never read as the same ink blot in a CJK font.
+// 块前缀。助手使用空心菱形，工具使用实心
+// 圆，使两者在 CJK 字体中不会被读成同一个墨点。
 const (
 	userMark         = "› "
 	assistantMark    = "◆ "
@@ -22,8 +22,8 @@ const (
 	maxBodyWidth = 120
 	maxInputRows = 4
 
-	// contextBarCells is the glyph count inside the brackets of the header's
-	// context usage bar. Ten is compact yet still changes every ten percent.
+	// contextBarCells 是头部上下文用量条括号内的字形数。
+	// 十是紧凑的，但仍每百分之十变化一次。
 	contextBarCells = 10
 )
 
@@ -36,8 +36,8 @@ func spinnerFrame(tick int) string {
 	return spinnerFrames[tick%len(spinnerFrames)]
 }
 
-// layout is the frame geometry, shared by the painter and the caret query so
-// the two can never disagree.
+// layout 是帧的几何，绘制器与光标查询共享它，使
+// 两者永不一致。
 type layout struct {
 	width, height  int
 	bodyX, bodyW   int
@@ -59,8 +59,8 @@ func (m *Model) layoutLocked(width, height int) layout {
 		l.height = 1
 	}
 	if m.panelsVisible() {
-		// The rail takes a third of the screen, up to a readable maximum. The
-		// separator occupies panelX-1, so the transcript ends before it.
+		// 侧边栏占屏幕三分之一，上限为易读的最大值。
+		// 分隔符占据 panelX-1，因此记录在它之前结束。
 		panelW := minInt(36, maxInt(l.width/3, 20))
 		if panelW > l.width-2 {
 			panelW = maxInt(l.width-2, 1)
@@ -76,7 +76,7 @@ func (m *Model) layoutLocked(width, height int) layout {
 	}
 
 	runes := m.editor.Runes()
-	// "│ " + mark (2) + text + " │" leaves width-6 cells for the text.
+	// "│ " + 标记 (2) + 文本 + " │" 为文本留下 width-6 个单元格。
 	wrapped := wrapInput(runes, maxInt(l.width-6, 1))
 	visible, cursorRow := inputWindow(wrapped, m.editor.Cursor(), maxInputRows)
 	l.rows = visible
@@ -95,15 +95,15 @@ func (m *Model) layoutLocked(width, height int) layout {
 	return l
 }
 
-// Frame renders the model into a fresh buffer.
+// Frame 把模型渲染到一个新的缓冲区。
 func (m *Model) Frame(width, height int) *Buffer {
 	buf := NewBuffer(width, height)
 	m.Paint(buf)
 	return buf
 }
 
-// Paint draws the model into an existing buffer. The buffer remembers the last
-// frame, so Flush only rewrites rows that changed.
+// Paint 把模型绘制到已有缓冲区。缓冲区记住上一
+// 帧，因此 Flush 只重写变化的行。
 func (m *Model) Paint(buf *Buffer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,9 +120,9 @@ func (m *Model) Paint(buf *Buffer) {
 	m.paintLine(buf, 1, ruleLine(width, m.palette.border()))
 
 	body := m.bodyLinesLocked(l.bodyW)
-	// Cache the geometry the input path uses to clamp scroll at the moment a
-	// wheel/page key arrives, instead of letting overscroll accumulate between
-	// paints and making a large transcript feel stuck at the top.
+	// 缓存输入路径在滚轮/翻页按键到达时用于钳制滚动的几何，
+	// 而不是让过度滚动在两次绘制之间累积，
+	// 使长记录感觉卡在顶部。
 	m.bodyW = l.bodyW
 	m.bodyLines = len(body)
 	m.bodyVersion = m.version
@@ -158,10 +158,10 @@ func (m *Model) Paint(buf *Buffer) {
 	m.dirty = false
 }
 
-// paintSelectionLocked inverts the style of every cell in the current range.
-// It runs after all other painting so header, transcript and input rows are
-// highlighted uniformly, and it is a no-op when nothing is selected, keeping
-// the default frame byte-for-byte unchanged.
+// paintSelectionLocked 反转当前范围内每个单元格的样式。
+// 它在所有其他绘制之后运行，使头部、记录和输入行
+// 被统一高亮，且没有选择时为空操作，保持
+// 默认帧逐字节不变。
 func (m *Model) paintSelectionLocked(buf *Buffer) {
 	if !m.hasSelectionLocked() || buf.Width() <= 0 || buf.Height() <= 0 {
 		return
@@ -218,9 +218,9 @@ func ruleLine(width int, style Style) Line {
 	return line
 }
 
-// contextBar renders a 0-100 percentage as a bracketed bar of cells glyphs.
-// The fraction is rounded half up; both █ and ░ are one terminal cell wide,
-// so the result always occupies cells+2 cells regardless of the fill level.
+// contextBar 把 0-100 的百分比渲染为带括号的单元格字形条。
+// 分数四舍五入；█ 和 ░ 都恰好占一个终端单元格宽，
+// 因此无论填充级别如何，结果始终占 cells+2 个单元格。
 func contextBar(pct int, cells int) string {
 	if pct < 0 {
 		pct = 0
@@ -238,10 +238,10 @@ func contextBar(pct int, cells int) string {
 	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", cells-filled) + "]"
 }
 
-// contextStyle maps a context usage percentage onto an existing palette role:
-// muted below half, warning through 85, and failure above it. Suppressed colour
-// (--no-color or a degraded terminal) stays plain text, so no SGR escapes leak
-// into the header where the rest of the row is already unstyled.
+// contextStyle 把上下文用量百分比映射到现有调色板角色：
+// 一半以下为 muted，到 85 为 warning，再高为 failure。被抑制的颜色
+// （--no-color 或降级的终端）保持纯文本，因此没有 SGR 转义泄漏
+// 到该行其余部分已无样式的头部中。
 func (m *Model) contextStyle(pct int) Style {
 	if m.noColor || m.degraded {
 		return Style{}
@@ -322,8 +322,8 @@ func (m *Model) statusLineLocked(width int) Line {
 			style = m.palette.warning()
 		}
 	} else if m.status != "" && now.Sub(m.statusAt) < 6*time.Second {
-		// Legacy direct writers still render, but new notices always use the
-		// stack above and take precedence when both are present.
+		// 旧的直接写入者仍然渲染，但新通知总是使用上面的
+		// 栈，且两者同时存在时优先。
 		message = m.status
 	} else if m.working {
 		message = spinnerFrame(m.tickLocked()) + " " + text(m.locale, "working")
@@ -335,8 +335,8 @@ func (m *Model) statusLineLocked(width int) Line {
 	}
 	right := NewLine()
 	var parts []string
-	// The theme is worth a permanent reminder only when it differs from the
-	// default; dark needs no label because it is the historic appearance.
+	// 主题只有在与默认不同时才值得永久提醒；深色不需要标签，因为
+	// 它是历史外观。
 	if m.theme != ThemeDark {
 		parts = append(parts, text(m.locale, "theme")+" "+m.theme)
 	}
@@ -386,8 +386,8 @@ func (m *Model) paintInput(buf *Buffer, l layout) {
 	m.paintLine(buf, l.inputTop+1+len(l.rows), bottom)
 }
 
-// paintApproval draws the modal over a blanked band so the transcript behind
-// it never shows through the box margins.
+// paintApproval 在清空的条带上绘制弹窗，使背后的记录
+// 绝不会从框的边距透出。
 func (m *Model) paintApproval(buf *Buffer, l layout) {
 	lines := m.approvalLines(l.bodyW)
 	if len(lines) == 0 {
@@ -408,7 +408,7 @@ func (m *Model) paintApproval(buf *Buffer, l layout) {
 	}
 }
 
-// approvalLines draws the modal that blocks input until y / n / a is pressed.
+// approvalLines 绘制阻塞输入直到按下 y / n / a 的弹窗。
 func (m *Model) approvalLines(width int) []Line {
 	if m.pending == nil {
 		return nil
@@ -443,9 +443,9 @@ func (m *Model) approvalLines(width int) []Line {
 		}
 		out = append(out, row(label+segment, m.palette.muted()))
 	}
-	// A dangerous call shows why it was flagged and marks Deny as the
-	// pre-selected default. Ordinary requests skip this block entirely, so the
-	// modal above and the hint rows below are byte-for-byte unchanged for them.
+	// 危险调用显示其被标记的原因，并把 Deny 标记为
+	// 预选默认值。普通请求完全跳过此块，因此上面的弹窗和下面的提示行
+	// 对它们逐字节不变。
 	if danger := collapseSpace(m.pending.danger); danger != "" {
 		label := "⚠ " + text(m.locale, "danger") + ": "
 		continuation := strings.Repeat(" ", TextWidth(label))
@@ -467,9 +467,9 @@ func (m *Model) approvalLines(width int) []Line {
 	return out
 }
 
-// entryCacheKey captures every input that can change how one entry renders.
-// Concentrating it here keeps the cache honest when a new field is added to
-// Entry: forgetting to add it to the key is a one-line fix in one place.
+// entryCacheKey 捕获所有可能改变某个条目渲染方式的输入。
+// 把它集中在这里，可在向 Entry 添加新字段时保持缓存诚实：
+// 忘记把它加入键只需在一处改一行。
 func (m *Model) entryCacheKeyLocked(entry Entry, width int) entryCacheKey {
 	return entryCacheKey{
 		kind:       entry.Kind,
@@ -488,9 +488,9 @@ func (m *Model) entryCacheKeyLocked(entry Entry, width int) entryCacheKey {
 	}
 }
 
-// bodyLinesLocked renders the transcript, reusing cached lines for every
-// entry whose key is unchanged. A streamed delta therefore repaints just one
-// block, and a theme change invalidates all of them through themeEpoch.
+// bodyLinesLocked 渲染记录，对键未变的每个条目复用缓存行。
+// 因此一个流式增量只重绘一条
+// 块，且主题变更通过 themeEpoch 使它们全部失效。
 func (m *Model) bodyLinesLocked(width int) []Line {
 	m.flushStreamLocked()
 	if len(m.entryCache) > len(m.entries) {
@@ -500,9 +500,9 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 	for i, entry := range m.entries {
 		var lines []Line
 		if entry.Kind == EntryReasoning || isLiveToolEntry(entry) {
-			// The summary/spinner carries a live elapsed that changes without
-			// any entry field changing, so never read it back from the cache.
-			// A slot is still stored at index i to keep the cache aligned.
+			// 摘要/spinner 带有实时经过时间，它会在
+			// 没有任何条目字段变化的情况下改变，因此绝不能从缓存读回。
+			// 但仍在索引 i 处存储一个槽，以保持缓存对齐。
 			lines = m.renderEntryLocked(entry, width)
 		} else {
 			key := m.entryCacheKeyLocked(entry, width)
@@ -531,8 +531,8 @@ func (m *Model) renderBodyLocked(width int) []Line {
 	return out
 }
 
-// renderEntryLocked draws exactly one transcript block, including its attempt
-// badge above it.
+// renderEntryLocked 精确绘制一个记录块，包括其上的
+// 尝试徽章。
 func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 	var out []Line
 	if entry.Attempt != "" {
@@ -557,8 +557,8 @@ func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 	return out
 }
 
-// attemptLinesLocked draws the non-committed outcome badge above the row it
-// belongs to. The wording is localised; the shape is stable for tests.
+// attemptLinesLocked 在所属行的上方绘制未提交结果徽章。
+// 措辞已本地化；形状保持稳定以便测试。
 func (m *Model) attemptLinesLocked(entry Entry, width int) []Line {
 	label := text(m.locale, "attempt_"+string(entry.Attempt))
 	if label == "attempt_"+string(entry.Attempt) {
@@ -573,22 +573,22 @@ func (m *Model) attemptLinesLocked(entry Entry, width int) []Line {
 	return []Line{line}
 }
 
-// reasoningSummaryMaxCells caps the extracted phrase so a single thinking row
-// stays compact; reasoningMinPhraseCells discards a too-short leading sentence
-// ("Ok.") in favour of the following, more informative text.
+// reasoningSummaryMaxCells 限制提取的短语，使单个思考行
+// 保持紧凑；reasoningMinPhraseCells 丢弃过短的首句
+// （"Ok."），改用后面更有信息量的文本。
 const (
 	reasoningSummaryMaxCells = 48
 	reasoningMinPhraseCells  = 8
 )
 
-// thinkingLabel keeps the i18n lookup out of reasoningSummaryLine, whose first
-// parameter deliberately shadows the package-level text() helper.
+// thinkingLabel 把 i18n 查找放在 reasoningSummaryLine 之外，后者的第一个
+// 参数有意遮蔽了包级 text() 辅助函数。
 func thinkingLabel(locale string) string { return text(locale, "thinking") }
 
-// reasoningPhrase flattens a reasoning block to one short key phrase: the first
-// substantial sentence (or the whole flattened text when no sentence qualifies),
-// clipped with an ellipsis to max cells. Truncate/Clip are grapheme-aware, so
-// CJK text and emoji are never cut in the middle of a rune.
+// reasoningPhrase 把一个推理块扁平化为一个简短的关键短语：第一个
+// 实质性的句子（或在没有合格句子时取整个扁平化文本），
+// 用省略号截断到 max 个单元格。Truncate/Clip 感知字素，因此
+// CJK 文本和 emoji 绝不会在 rune 中间被切开。
 func reasoningPhrase(raw string, max int) string {
 	flat := collapseSpace(raw)
 	if flat == "" || max <= 0 {
@@ -602,18 +602,18 @@ func reasoningPhrase(raw string, max int) string {
 	return Truncate(flat, max)
 }
 
-// reasoningSummaryLine renders any amount of thinking text as exactly one row:
-// a live row shows a spinner and an ellipsis, a completed row shows the elapsed
-// duration. Fixed decoration is measured first so the phrase gets the cells
-// that remain, and the whole row is clipped to width. The signature guarantees
-// a single Line, so long reasoning can never reflow the transcript layout.
+// reasoningSummaryLine 把任意量的思考文本渲染为恰好一行：
+// 活动行显示 spinner 和省略号，已完成行显示经过的
+// 时长。先测量固定装饰，使短语得到剩余的
+// 单元格，并把整行裁剪到宽度。签名保证
+// 只返回一个 Line，因此很长的推理绝不会重排记录布局。
 func reasoningSummaryLine(text string, elapsed time.Duration, width int, done bool, locale string, p Palette) Line {
 	line := NewLine()
 
 	spinner := ""
 	if !done {
-		// Deriving the frame from elapsed keeps this function pure (no tick
-		// parameter) while still animating as the caller's clock advances.
+		// 从 elapsed 推导帧使此函数保持纯（无 tick
+		// 参数），同时仍能随调用方时钟推进而动画化。
 		spinner = spinnerFrame(int(elapsed/(120*time.Millisecond))) + " "
 	}
 	tail := " …"
@@ -644,8 +644,8 @@ func reasoningSummaryLine(text string, elapsed time.Duration, width int, done bo
 }
 
 func (m *Model) reasoningLines(entry Entry, width int) []Line {
-	// Entry has no public timing field, so stamp private display timestamps on
-	// first paint. The original reasoning text is never modified or dropped.
+	// Entry 没有公开的计时字段，因此在首次绘制时打上私有的展示时间戳。
+	// 原始推理文本从不被修改或丢弃。
 	idx := -1
 	for i := len(m.entries) - 1; i >= 0; i-- {
 		candidate := &m.entries[i]
@@ -654,8 +654,8 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 			break
 		}
 	}
-	// A trailing reasoning block is live only while a turn is still running;
-	// once the agent moves on (or the turn ends) it shows its final duration.
+	// 尾随的推理块仅在回合仍在运行时是活动的；
+	// 一旦 agent 继续（或回合结束），它显示最终时长。
 	live := m.working && idx >= 0 && idx == len(m.entries)-1
 	elapsed := time.Duration(0)
 	if idx >= 0 {
@@ -676,31 +676,31 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 	return []Line{reasoningSummaryLine(entry.Text, elapsed, width, !live, m.locale, m.palette)}
 }
 
-// --- streaming tool arguments ------------------------------------------------
+// --- 流式工具参数 ------------------------------------------------
 //
-// A tool call can arrive while its arguments JSON is still being streamed in.
-// These helpers recover the top-level fields that are already complete so the
-// pending row can show a useful preview instead of a half-finished JSON blob.
-// They are pure and never error: malformed or partial input simply yields
-// fewer (or no) fields.
+// 一次工具调用可能在其参数 JSON 仍在流入时到达。
+// 这些辅助函数恢复已经完整的顶层字段，使
+// 待处理行能显示有用的预览，而不是半成品的 JSON 块。
+// 它们是纯函数且从不报错：格式错误或不完整的输入只会
+// 产生更少（或没有）字段。
 
-// argField is one top-level field recovered from a streaming args JSON object.
+// argField 是从流式参数 JSON 对象中恢复的一个顶层字段。
 type argField struct {
 	Key   string
 	Value string
 }
 
-// toolElapsedThreshold is the point at which a running tool's own elapsed time
-// becomes more informative than the whole-turn clock in a pending row. Before
-// it, the row shows the turn elapsed; past it, the row switches to the tool's
-// own elapsed so a single slow call stands out.
+// toolElapsedThreshold 是这样一个临界点：运行中的工具自身的经过时间
+// 在待处理行中变得比整回合时钟更有信息量。在此之前，
+// 该行显示回合经过时间；超过之后，该行切换到工具自身的
+// 经过时间，使单个缓慢的调用凸显出来。
 const toolElapsedThreshold = 2 * time.Second
 
-// partialArgsSummary extracts the complete top-level fields of a tool-args
-// JSON object that may still be streaming in. A final string without its
-// closing quote is salvaged with the text accumulated so far; an incomplete
-// trailing escape or \uXXXX is dropped rather than leaking a replacement rune.
-// Non-object, malformed and empty input yield no fields.
+// partialArgsSummary 提取可能仍在流入的工具参数 JSON 对象中
+// 已完成的顶层字段。没有闭合引号的最终字符串用
+// 目前累积的文本挽救；不完整的尾部转义或 \uXXXX 被丢弃，
+// 而不是泄漏替换 rune。
+// 非对象、格式错误和空输入不产生字段。
 func partialArgsSummary(args string) []argField {
 	i := skipJSONSpace(args, 0)
 	if i >= len(args) || args[i] != '{' {
@@ -754,9 +754,9 @@ func skipJSONSpace(s string, i int) int {
 	return i
 }
 
-// scanJSONString decodes a JSON string starting at the opening quote. When the
-// string is truncated (no closing quote yet) it returns the decoded prefix
-// with complete=false; an incomplete trailing escape or \u escape is dropped.
+// scanJSONString 解码从起始引号开始的 JSON 字符串。当字符串
+// 被截断（尚无闭合引号）时，它返回带 complete=false 的
+// 已解码前缀；不完整的尾部转义或 \u 转义被丢弃。
 func scanJSONString(s string, i int) (decoded string, next int, complete bool) {
 	i++ // consume '"'
 	var b strings.Builder
@@ -801,7 +801,7 @@ func scanJSONString(s string, i int) (decoded string, next int, complete bool) {
 			appendValidRune(&b, r)
 			i = after
 		default:
-			// Unknown escape: keep the literal byte (tolerant, never error).
+			// 未知转义：保留字面字节（宽容处理，绝不报错）。
 			b.WriteByte(s[i])
 			i++
 		}
@@ -809,7 +809,7 @@ func scanJSONString(s string, i int) (decoded string, next int, complete bool) {
 	return b.String(), i, false // EOF before the closing quote
 }
 
-// parseHex4 reads four hex digits following a 'u' at index u.
+// parseHex4 读取索引 u 处 'u' 之后的四个十六进制数字。
 func parseHex4(s string, u int) (int, int, bool) {
 	if u+5 > len(s) {
 		return 0, u, false
@@ -833,8 +833,8 @@ func parseHex4(s string, u int) (int, int, bool) {
 	return value, u + 5, true
 }
 
-// scanUnicodeEscape decodes the \uXXXX at index u (pointing at 'u'), joining a
-// high/low surrogate pair into one rune. An incomplete code point is dropped.
+// scanUnicodeEscape 解码索引 u（指向 'u'）处的 \uXXXX，把
+// 高/低代理对合并为一个 rune。不完整的代码点被丢弃。
 func scanUnicodeEscape(s string, u int) (rune, int, bool) {
 	code, next, ok := parseHex4(s, u)
 	if !ok {
@@ -844,8 +844,8 @@ func scanUnicodeEscape(s string, u int) (rune, int, bool) {
 		return 0, next, false // lone low surrogate: drop
 	}
 	if code >= 0xD800 && code <= 0xDBFF {
-		// A high surrogate needs a following \uXXXX low surrogate; while that
-		// half is still streaming, drop the pair rather than show garbage.
+		// 高代理需要一个随后的 \uXXXX 低代理；当那一半
+		// 仍在流入时，丢弃该对而不是显示乱码。
 		if next+6 <= len(s) && s[next] == '\\' && s[next+1] == 'u' {
 			low, lowNext, ok := parseHex4(s, next+1)
 			if ok && low >= 0xDC00 && low <= 0xDFFF {
@@ -865,10 +865,10 @@ func appendValidRune(b *strings.Builder, r rune) {
 	b.WriteRune(r)
 }
 
-// scanJSONValue returns a short summary of the value at i and the index just
-// after it. Strings decode escapes; objects/arrays collapse to "{…}"/"[…]";
-// scalars keep their literal text. All paths advance i so the caller cannot
-// loop forever on truncated input.
+// scanJSONValue 返回 i 处值的简短摘要及其后紧接的索引。
+// 字符串解码转义；对象/数组折叠为 "{…}"/"[…]"；
+// 标量保留其字面文本。所有路径都推进 i，使调用方
+// 不会在截断输入上无限循环。
 func scanJSONValue(s string, i int) (string, int) {
 	if i >= len(s) {
 		return "", i
@@ -892,9 +892,9 @@ func scanJSONValue(s string, i int) (string, int) {
 	}
 }
 
-// scanJSONContainer scans a balanced {...} or [...] with string awareness and
-// returns a compact placeholder. A truncated container is still summarised so
-// the field is not lost; the caller's field loop stops at EOF.
+// scanJSONContainer 扫描平衡的 {...} 或 [...]（感知字符串），
+// 并返回紧凑的占位符。被截断的容器仍被摘要，使
+// 该字段不会丢失；调用方的字段循环在 EOF 处停止。
 func scanJSONContainer(s string, i int) (string, int) {
 	empty, nonempty := "{}", "{…}"
 	if s[i] == '[' {
@@ -936,8 +936,8 @@ func scanJSONContainer(s string, i int) (string, int) {
 	return empty, i
 }
 
-// formatPartialArgs renders recovered fields as a compact "key=value" list,
-// capped at three fields and 48 cells. Empty input yields an empty string.
+// formatPartialArgs 把恢复的字段渲染为紧凑的 "key=value" 列表，
+// 上限为三个字段和 48 个单元格。空输入产生空字符串。
 func formatPartialArgs(args string) string {
 	fields := partialArgsSummary(args)
 	if len(fields) == 0 {
@@ -954,8 +954,8 @@ func formatPartialArgs(args string) string {
 	return Clip(strings.Join(parts, ", "), 48)
 }
 
-// adaptiveElapsed picks the elapsed shown by a pending row: the whole-turn
-// clock until the tool's own elapsed passes the threshold, then the tool time.
+// adaptiveElapsed 选择待处理行显示的经过时间：整回合
+// 时钟，直到工具自身的经过时间超过阈值，然后显示工具时间。
 func adaptiveElapsed(tool, turn, threshold time.Duration) time.Duration {
 	if threshold <= 0 || tool >= threshold {
 		return tool
@@ -963,16 +963,16 @@ func adaptiveElapsed(tool, turn, threshold time.Duration) time.Duration {
 	return turn
 }
 
-// isLiveToolEntry reports whether an entry still needs a live (uncached) row
-// because its spinner/elapsed changes without any entry field changing.
+// isLiveToolEntry 报告某个条目是否仍需要活动（未缓存）的行，
+// 因为其 spinner/经过时间会在没有任何条目字段变化时改变。
 func isLiveToolEntry(entry Entry) bool {
 	return entry.Kind == EntryTool && (entry.Running || entry.Attempt == AttemptCancelled)
 }
 
-// liveToolLines renders a running or cancelled tool entry with the streaming
-// args preview. It reads the matching in-flight task (without mutating state)
-// for tool-specific elapsed and uses the turn clock for whole-round elapsed.
-// One entry always yields exactly one row.
+// liveToolLines 用流式参数预览渲染运行中或已取消的工具条目。
+// 它读取匹配的活动任务（不修改状态）以获取工具特定的经过时间，
+// 并使用回合时钟作为整轮经过时间。
+// 一个条目始终恰好产生一行。
 func (m *Model) liveToolLines(entry Entry, width int) []Line {
 	now := m.now()
 	turn := time.Duration(0)
@@ -995,10 +995,10 @@ func (m *Model) liveToolLines(entry Entry, width int) []Line {
 		cancelled || !entry.Running, entry.Failed, cancelled, m.locale, m.palette)}
 }
 
-// toolPendingLine renders one tool-call row. A live call animates a spinner and
-// shows adaptive elapsed; a finished or failed call shows its outcome glyph and
-// final duration; a cancelled call shows a cancelled glyph and label. The
-// arguments are rendered from the possibly-streaming JSON via formatPartialArgs.
+// toolPendingLine 渲染一行工具调用。活动调用动画化 spinner 并
+// 显示自适应经过时间；已完成或失败的调用显示其结果字形和
+// 最终时长；已取消的调用显示取消字形和标签。
+// 参数通过 formatPartialArgs 从可能仍在流入的 JSON 渲染。
 func toolPendingLine(name, args string, elapsed, turn time.Duration, width int, done, failed, cancelled bool, locale string, p Palette) Line {
 	line := NewLine()
 	glyph, style := toolMark, p.tool()
@@ -1078,7 +1078,7 @@ func clipLine(line Line, width int) Line {
 	return out
 }
 
-// hintLine is the footer key bar.
+// hintLine 是底部按键栏。
 func hintLine(width int, locale string, modal bool, style Style) Line {
 	hint := text(locale, "hint")
 	if modal {

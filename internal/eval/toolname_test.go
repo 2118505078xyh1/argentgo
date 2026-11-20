@@ -9,13 +9,13 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestToolNamesAreNormalizedBeforeDispatch covers a boundary the existing
-// validation only checks halfway: validateTurn accepts a tool name with
-// surrounding whitespace (it checks strings.TrimSpace(call.Name)), but the
-// scripted providers forwarded the raw name to the tool runner. The real tool
-// registry does an exact map lookup, so " read " became "unknown tool" at run
-// time even though the document was accepted as valid. The canonical name is
-// the trimmed one; both providers must dispatch that same value validation
+// TestToolNamesAreNormalizedBeforeDispatch 覆盖现有验证只检查了
+// 一半的边界：validateTurn 接受带首尾空白的工具名，
+// TestToolNamesAreNormalizedBeforeDispatch 覆盖现有验证只检查了一半的边界：validateTurn 接受带首尾空白的工具名（它检查 strings.TrimSpace(call.Name)），但
+// 脚本化 provider 却把原始名称转发给工具 runner。真实工具 registry 做精确
+// 脚本化 provider 把原始名称转发给工具 runner。真实工具 registry 做精确 map 查找，因此 " read " 在运行时变成"未知工具"，即使文档被接受为有效。规范名称是
+// 查找，因此 " read " 在运行时变成未知工具，即使文档被接受为有效。规范名称是
+// 裁剪后的那个；两个 provider 都必须分发验证所使用的同一值。
 // inspected.
 func TestToolNamesAreNormalizedBeforeDispatch(t *testing.T) {
 	t.Run("validation accepts padded names", func(t *testing.T) {
@@ -66,8 +66,8 @@ func TestToolNamesAreNormalizedBeforeDispatch(t *testing.T) {
 		}
 	})
 
-	// End to end: fakeTools only knows "ls", so an untrimmed name would come
-	// back as an unknown tool and the expected tool sequence would not match.
+	// 端到端：fakeTools 只认识 "ls"，因此未裁剪的名称会作为未知工具返回，期望的工具序列不匹配。
+	// 作为未知工具返回，期望的工具序列不匹配。
 	t.Run("a padded name still reaches the real tool through the runner", func(t *testing.T) {
 		scenario := Scenario{
 			Name:   "padded name",

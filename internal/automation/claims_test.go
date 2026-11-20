@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// TestClaimIsStaleFreshUnstampedMarker captures the window between O_EXCL
-// creating a lock file and the owner writing its stamp. The marker is empty
-// but brand new; treating it as an abandoned claim lets a second caller steal
-// a run that is already in flight.
+// TestClaimIsStaleFreshUnstampedMarker 捕获 O_EXCL 创建锁文件与所有者写入其标记之间的窗口。标记为空
+// 创建锁文件与所有者写入其标记之间的窗口。标记为空
+// 但崭新；把它当作被放弃的认领会让第二个调用方窃取
+// 但崭新；把它当作被放弃的认领会让第二个调用方窃取一个已在运行的任务。
 func TestClaimIsStaleFreshUnstampedMarker(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "fresh.lock")
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
@@ -23,10 +23,10 @@ func TestClaimIsStaleFreshUnstampedMarker(t *testing.T) {
 	}
 }
 
-// TestClaimIsStaleUnusableMarker verifies the documented contract: a marker
-// that cannot be read as a regular file must be reclaimable rather than
-// wedging the task forever. A directory at the lock path is the portable way
-// to make the marker unusable on every platform.
+// TestClaimIsStaleUnusableMarker 验证文档记载的契约：不能被当作普通文件读取的标记必须可回收，而非
+// 不能被当作普通文件读取的标记必须可回收，而非
+// 永远卡住任务。在锁路径放一个目录是在所有平台上使标记不可用的
+// 永远卡住任务。在锁路径放一个目录是在所有平台上使标记不可用的可移植方式。
 func TestClaimIsStaleUnusableMarker(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "blocked.lock")
 	if err := os.Mkdir(path, 0o755); err != nil {
@@ -60,10 +60,10 @@ func TestClaimIsStaleByModificationTime(t *testing.T) {
 	}
 }
 
-// TestClaimRejectsFreshUnstampedLock is the end-to-end version of the race:
-// while one caller owns a just-created lock (before its stamp is written), a
-// second caller must get errBusy instead of stealing the claim and running the
-// same task twice.
+// TestClaimRejectsFreshUnstampedLock 是该竞态的端到端版本：当一个调用方拥有刚创建的锁（其标记尚未写入）时，第二个调用方
+// 当一个调用方拥有刚创建的锁（其标记尚未写入）时，第二个调用方
+// 必须得到 errBusy，而非窃取认领并运行两次同一任务。
+// 必须得到 errBusy，而非窃取认领并运行两次同一任务。
 func TestClaimRejectsFreshUnstampedLock(t *testing.T) {
 	store, err := OpenStore(t.TempDir())
 	if err != nil {
@@ -73,7 +73,7 @@ func TestClaimRejectsFreshUnstampedLock(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	// Simulate the instant right after the first caller's O_EXCL succeeded.
+	// 模拟第一个调用方的 O_EXCL 成功之后紧接着的瞬间。
 	if err := os.WriteFile(lock, nil, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -86,8 +86,8 @@ func TestClaimRejectsFreshUnstampedLock(t *testing.T) {
 	}
 }
 
-// TestClaimReclaimsAbandonedLock is the positive counterpart: a genuinely old
-// claim must still be recoverable so a crashed process cannot wedge a task.
+// TestClaimReclaimsAbandonedLock 是正向对应情形：真正旧的认领必须仍可恢复，使崩溃的进程不会卡住任务。
+// 认领必须仍可恢复，使崩溃的进程不会卡住任务。
 func TestClaimReclaimsAbandonedLock(t *testing.T) {
 	store, err := OpenStore(t.TempDir())
 	if err != nil {

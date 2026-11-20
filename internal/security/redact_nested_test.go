@@ -6,17 +6,15 @@ import (
 	"testing"
 )
 
-// TestRedactJSONPropagatesSecretContextIntoContainers verifies that a value
-// stored under a credential-named key is redacted all the way down. Without
-// propagating the secret context through maps and arrays, plaintext secrets
-// such as {"tokens":["hunter2"]} reached the audit log untouched: Redact only
-// recognises credential-shaped strings, and an arbitrary secret is not
-// credential-shaped.
+// TestRedactJSONPropagatesSecretContextIntoContainers 验证以凭据命名的键下的值会被
+// 一路向下脱敏。如果没有把秘密上下文穿过 map 和数组传播，像 {"tokens":["hunter2"]}
+// 这样的明文秘密就会原封不动地进入审计日志：Redact 只识别具有凭据形状的字符串，
+// 而任意秘密并不一定具有凭据形状。
 func TestRedactJSONPropagatesSecretContextIntoContainers(t *testing.T) {
 	cases := []struct {
 		name    string
 		input   string
-		secrets []string // must not appear anywhere in the output
+		secrets []string // 不得出现在输出的任何位置
 		check   func(t *testing.T, value map[string]any)
 	}{
 		{

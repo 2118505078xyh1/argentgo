@@ -53,7 +53,7 @@ func TestShouldRemindOnTierCrossOnly(t *testing.T) {
 		t.Fatal("tier 1 should be recorded as delivered")
 	}
 
-	// Same tier, next call: silent even though the tier is not delivered yet.
+	// 层级相同、下次调用：即使该层级尚未被记录，也应保持静默。
 	flat := map[int]bool{}
 	if ShouldRemind(2, 2, flat, false) {
 		t.Fatal("flat tier should not remind")
@@ -62,13 +62,12 @@ func TestShouldRemindOnTierCrossOnly(t *testing.T) {
 		t.Fatalf("flat tier should not record delivery, got %v", flat)
 	}
 
-	// A shrinking window is silent, not a warning.
+	// 窗口缩小应静默，而不是告警。
 	if ShouldRemind(3, 1, map[int]bool{}, false) {
 		t.Fatal("falling tier should not remind")
 	}
 
-	// Jumping several tiers still produces exactly one reminder, for the tier
-	// actually reached.
+	// 跨越多个层级仍只产生一条提醒，针对实际到达的层级。
 	jump := map[int]bool{}
 	if !ShouldRemind(0, 3, jump, false) {
 		t.Fatal("crossing 0 -> 3 should remind")
@@ -90,7 +89,7 @@ func TestShouldRemindDeduplicatesWithinWindow(t *testing.T) {
 		t.Fatalf("tier 3 should be recorded, got %v", delivered)
 	}
 
-	// Descend then climb back to an announced tier: still deduplicated.
+	// 下降后再爬回已宣告的层级：仍应去重。
 	if ShouldRemind(3, 1, delivered, false) {
 		t.Fatal("falling tier should not remind")
 	}
@@ -107,12 +106,12 @@ func TestShouldRemindNewWindowResetsAndWarns(t *testing.T) {
 	if len(delivered) != 1 || !delivered[1] {
 		t.Fatalf("new window should clear old deliveries and record only the current tier, got %v", delivered)
 	}
-	// The freshly delivered tier is deduplicated without another reset.
+	// 刚记录的层级在没有再次重置的情况下也应去重。
 	if ShouldRemind(1, 1, delivered, false) {
 		t.Fatal("tier 1 should not repeat in the same new window")
 	}
 
-	// A new window also warns at tier 0 (fresh window, nothing consumed).
+	// 新窗口在层级 0 也会告警（全新窗口，尚未消耗任何内容）。
 	fresh := map[int]bool{}
 	if !ShouldRemind(4, 0, fresh, true) {
 		t.Fatal("a new window should warn even at tier 0")
@@ -140,7 +139,7 @@ func TestBudgetReminderTextContentAndStability(t *testing.T) {
 	if again := BudgetReminderText(50000, 200000); again != got {
 		t.Fatalf("text is not stable: %q then %q", got, again)
 	}
-	// The instruction is English and locale-independent: no non-ASCII bytes.
+	// 该指令是英文且与地区无关：不含非 ASCII 字节。
 	if !utf8.ValidString(got) {
 		t.Fatalf("invalid UTF-8 in %q", got)
 	}
@@ -194,7 +193,7 @@ func TestBudgetReminderTextIgnoresWindowAndCJKLocale(t *testing.T) {
 			t.Fatalf("window %d changed the text: %q vs %q", window, got, base)
 		}
 	}
-	// No CJK characters can appear regardless of call site or arguments.
+	// 无论调用点或参数如何，都不能出现 CJK 字符。
 	for _, r := range BudgetReminderText(-1, 0) {
 		if r > utf8.RuneSelf {
 			t.Fatalf("CJK/non-ASCII character in reminder text: %q", r)

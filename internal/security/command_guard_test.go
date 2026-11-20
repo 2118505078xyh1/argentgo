@@ -14,7 +14,7 @@ func TestFindFileEditingCommand(t *testing.T) {
 	cases := []struct {
 		name    string
 		command string
-		want    string // "" means no match; otherwise a substring of the token
+		want    string // "" 表示无匹配；否则为 token 的子串
 	}{
 		{"rm flagged", "rm -rf x", "rm"},
 		{"git status safe", "git status", ""},
@@ -52,9 +52,9 @@ func TestFindFileEditingCommand(t *testing.T) {
 	}
 }
 
-// TestIsTempPathCollapsesTraversalBeforePrefixCheck verifies that a target
-// which merely spells a scratch directory but escapes it with ".." is not
-// treated as a harmless temp write. The old raw-prefix check whitelisted it.
+// TestIsTempPathCollapsesTraversalBeforePrefixCheck 验证：一个仅写法上指向临时
+// 目录、但用 ".." 逃逸出去的目标不会被当作无害的临时写入。旧的裸前缀检查会
+// 把它加入白名单。
 func TestIsTempPathCollapsesTraversalBeforePrefixCheck(t *testing.T) {
 	cases := []struct {
 		name string
@@ -82,14 +82,13 @@ func TestIsTempPathCollapsesTraversalBeforePrefixCheck(t *testing.T) {
 	}
 }
 
-// TestFindFileEditingCommandRejectsTempTraversalRedirect verifies the guard's
-// end-to-end decision: a redirection that escapes a scratch directory with
-// ".." is gated as mutating, while a genuine scratch write stays clear.
+// TestFindFileEditingCommandRejectsTempTraversalRedirect 验证守卫的端到端决定：
+// 用 ".." 逃出临时目录的重定向会被当作修改类拦截，而真正的临时写入仍不受影响。
 func TestFindFileEditingCommandRejectsTempTraversalRedirect(t *testing.T) {
 	cases := []struct {
 		name    string
 		command string
-		want    string // substring expected in the offending token; "" = no match
+		want    string // 违规 token 中期望的子串；"" 表示无匹配
 	}{
 		{"posix temp traversal", "echo hi > /tmp/../etc/passwd", "etc/passwd"},
 		{"var tmp traversal", "echo hi > /var/tmp/../etc/shadow", "etc/shadow"},
@@ -112,16 +111,15 @@ func TestFindFileEditingCommandRejectsTempTraversalRedirect(t *testing.T) {
 	}
 }
 
-// TestFindFileEditingCommandSeesThroughWrappers verifies that a wrapper program
-// (sudo/env/nohup/command/builtin/exec) cannot hide an otherwise-detected
-// mutating command. The threat classifier already reduces wrappers; the token
-// classifier must do the same or `sudo rm file.txt` slips through while plain
-// `rm file.txt` is gated.
+// TestFindFileEditingCommandSeesThroughWrappers 验证包装程序
+// （sudo/env/nohup/command/builtin/exec）无法隐藏本可被检测到的修改类命令。
+// 威胁分类器已经归约包装器；token 分类器也必须这样做，否则 `sudo rm file.txt`
+// 会漏过，而普通的 `rm file.txt` 却被拦截。
 func TestFindFileEditingCommandSeesThroughWrappers(t *testing.T) {
 	cases := []struct {
 		name    string
 		command string
-		want    string // substring expected in the offending token
+		want    string // 违规 token 中期望的子串
 	}{
 		{"sudo rm", "sudo rm file.txt", "rm"},
 		{"env cp", "env cp a b", "cp"},
@@ -199,8 +197,8 @@ func TestChainWithoutPlanGuardUsesNormalPath(t *testing.T) {
 	}
 }
 
-// TestGuardrailMode verifies env parsing: case-insensitive shadow/enforce/off,
-// with unset, empty and unknown values falling back to the enforce default.
+// TestGuardrailMode 验证环境变量解析：shadow/enforce/off 不区分大小写，
+// 未设置、空值和未知值都会回退到默认的 enforce。
 func TestGuardrailMode(t *testing.T) {
 	cases := []struct {
 		name string
@@ -227,9 +225,8 @@ func TestGuardrailMode(t *testing.T) {
 	}
 }
 
-// TestGuardrailModeGuardShellCommand checks the token handed to the blocking
-// decision point: enforce (and the default/unknown fallback) return the
-// offending token, shadow and off return nothing.
+// TestGuardrailModeGuardShellCommand 检查交给拦截决策点的 token：enforce
+// （以及默认/未知回退）返回违规 token，shadow 和 off 不返回任何东西。
 func TestGuardrailModeGuardShellCommand(t *testing.T) {
 	mutating := json.RawMessage(`{"command":"rm -rf x"}`)
 	cases := []struct {
@@ -254,8 +251,8 @@ func TestGuardrailModeGuardShellCommand(t *testing.T) {
 	}
 }
 
-// TestGuardrailShadowLogsWithoutBlocking asserts that shadow mode records what
-// would have been blocked but still hands no token to the caller.
+// TestGuardrailShadowLogsWithoutBlocking 断言 shadow 模式会记录本会被拦截的内容，
+// 但仍不向调用方返回任何 token。
 func TestGuardrailShadowLogsWithoutBlocking(t *testing.T) {
 	t.Setenv("ARGENT_GUARDRAILS", "shadow")
 	var buf bytes.Buffer
@@ -271,10 +268,9 @@ func TestGuardrailShadowLogsWithoutBlocking(t *testing.T) {
 	}
 }
 
-// TestGuardrailModeChainBlocking exercises the real blocking decision point:
-// enforce-mode (and the default/unknown fallback) block before approval/audit,
-// while shadow and off let the call flow through the normal policy -> approval
-// -> audit chain.
+// TestGuardrailModeChainBlocking 检验真正的拦截决策点：enforce 模式
+// （以及默认/未知回退）在审批/审计之前拦截，而 shadow 和 off 让调用走正常的
+// 策略 -> 审批 -> 审计链。
 func TestGuardrailModeChainBlocking(t *testing.T) {
 	cases := []struct {
 		name      string

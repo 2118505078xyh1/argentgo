@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// stubDeviceSleep replaces the polling wait so tests never sleep for real.
+// stubDeviceSleep 替换轮询等待，使测试永不真正睡眠。
 func stubDeviceSleep(t *testing.T) *[]time.Duration {
 	t.Helper()
 	original := deviceSleep
@@ -80,7 +80,7 @@ func TestDeviceStartRejectsIncompleteConfig(t *testing.T) {
 	}
 }
 
-// deviceScript answers each token poll with the next scripted body.
+// deviceScript 用下一条脚本化正文回答每次令牌轮询。
 func deviceScript(t *testing.T, bodies []string) *httptest.Server {
 	t.Helper()
 	index := 0
@@ -184,7 +184,7 @@ func TestDevicePollStopsWhenTheWindowCloses(t *testing.T) {
 	deviceNow = func() time.Time {
 		calls++
 		if calls == 1 {
-			// The deadline is derived from this first reading.
+			// 截止时间由此首次读取推导。
 			return start
 		}
 		return start.Add(time.Hour)
@@ -204,8 +204,8 @@ func TestDevicePollRequiresADeviceCode(t *testing.T) {
 	}
 }
 
-// TestDevicePollSendsClientSecretWhenConfigured covers the device-grant token
-// request: a confidential client must authenticate its polls too.
+// TestDevicePollSendsClientSecretWhenConfigured 覆盖设备授权令牌请求：机密客户端也必须为其轮询认证。
+// 请求：机密客户端也必须为其轮询认证。
 func TestDevicePollSendsClientSecretWhenConfigured(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -256,7 +256,7 @@ func TestDevicePollSendsClientSecretWhenConfigured(t *testing.T) {
 	}
 }
 
-// containsAll asserts every fragment occurs in a request body.
+// containsAll 断言每个片段都出现在请求正文中。
 func containsAll(text string, parts ...string) bool {
 	for _, part := range parts {
 		if !strings.Contains(text, part) {

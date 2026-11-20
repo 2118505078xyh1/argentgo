@@ -6,15 +6,15 @@ import (
 	"unicode/utf8"
 )
 
-// Color is a foreground/background SGR pair. The zero value is the terminal
-// default colour, which is what most text uses.
+// Color 是前景/背景 SGR 对。零值是终端
+// 默认颜色，这也是大多数文本使用的颜色。
 type Color struct {
 	fg string
 	bg string
 }
 
-// The eight base colours plus the bright grey/white pair, mirroring the Rust
-// screen model (`crates/core/src/screen.rs`).
+// 八种基础颜色加上亮灰/白对，仿照 Rust
+// 的屏幕模型（`crates/core/src/screen.rs`）。
 var (
 	ColorDefault = Color{}
 	ColorRed     = Color{"31", "41"}
@@ -27,19 +27,19 @@ var (
 	ColorWhite   = Color{"97", "107"}
 )
 
-// Fixed returns a colour from the 256-colour palette.
+// Fixed 从 256 色调色板返回一个颜色。
 func Fixed(n uint8) Color {
 	index := strconv.Itoa(int(n))
 	return Color{"38;5;" + index, "48;5;" + index}
 }
 
-// RGB returns a 24-bit colour.
+// RGB 返回一个 24 位颜色。
 func RGB(r, g, b uint8) Color {
 	body := strconv.Itoa(int(r)) + ";" + strconv.Itoa(int(g)) + ";" + strconv.Itoa(int(b))
 	return Color{"38;2;" + body, "48;2;" + body}
 }
 
-// Style is how a span is drawn.
+// Style 是某个 span 的绘制方式。
 type Style struct {
 	Fg      Color
 	Bg      Color
@@ -48,7 +48,7 @@ type Style struct {
 	Reverse bool
 }
 
-// SGR is the escape sequence that turns the style on, or "" for no styling.
+// SGR 是开启该样式的转义序列，无样式时为 ""。
 func (s Style) SGR() string {
 	var out strings.Builder
 	sep := false
@@ -80,30 +80,30 @@ func (s Style) SGR() string {
 	return "\x1b[" + out.String() + "m"
 }
 
-// BoldStyle returns a bold style in the given colour.
+// BoldStyle 返回给定颜色的粗体样式。
 func BoldStyle(c Color) Style { return Style{Fg: c, Bold: true} }
 
-// Span is a run of text with one style.
+// Span 是带有一种样式的连续文本。
 type Span struct {
 	Text  string
 	Style Style
 }
 
-// Width is how many cells the span covers.
+// Width 是该 span 覆盖的单元格数。
 func (s Span) Width() int { return TextWidth(s.Text) }
 
-// Line is one rendered row.
+// Line 是一个已渲染的行。
 type Line struct {
 	Spans []Span
 }
 
-// NewLine starts an empty line.
+// NewLine 创建一个空行。
 func NewLine() Line { return Line{} }
 
-// PlainLine is a line of unstyled text.
+// PlainLine 是无样式文本的一行。
 func PlainLine(text string) Line { return Line{Spans: []Span{{Text: text}}} }
 
-// Push appends styled text.
+// Push 追加带样式的文本。
 func (l *Line) Push(text string, style Style) {
 	if text == "" {
 		return
@@ -111,7 +111,7 @@ func (l *Line) Push(text string, style Style) {
 	l.Spans = append(l.Spans, Span{Text: text, Style: style})
 }
 
-// PushSpan appends a span.
+// PushSpan 追加一个 span。
 func (l *Line) PushSpan(s Span) {
 	if s.Text == "" {
 		return
@@ -119,7 +119,7 @@ func (l *Line) PushSpan(s Span) {
 	l.Spans = append(l.Spans, s)
 }
 
-// Width is the number of cells the line covers.
+// Width 是该行覆盖的单元格数。
 func (l Line) Width() int {
 	total := 0
 	for _, span := range l.Spans {
@@ -128,7 +128,7 @@ func (l Line) Width() int {
 	return total
 }
 
-// Text is the unstyled content of the line.
+// Text 是该行的无样式内容。
 func (l Line) Text() string {
 	var out strings.Builder
 	for _, span := range l.Spans {
@@ -137,19 +137,19 @@ func (l Line) Text() string {
 	return out.String()
 }
 
-// Fill pads the line with styled spaces until it covers width cells.
+// Fill 用带样式的空格填充该行，直到覆盖 width 个单元格。
 func (l *Line) Fill(width int, style Style) {
 	if used := l.Width(); used < width {
 		l.Spans = append(l.Spans, Span{Text: strings.Repeat(" ", width-used), Style: style})
 	}
 }
 
-// RuneWidth is the number of terminal cells one rune occupies.
+// RuneWidth 是一个 rune 占用的终端单元格数。
 //
-// Zero-width: combining marks and variation selectors. Two cells: the East
-// Asian ranges and emoji that actually show up in prose and paths. Everything
-// printable else is one cell. This is the same approximation as the Rust
-// reference table, kept small on purpose.
+// 零宽：组合标记和变体选择符。两单元格：东亚
+// 范围以及实际出现在正文和路径中的 emoji。其他
+// 可打印字符都是一单元格。这与 Rust 参考表采用相同的近似，
+// 有意保持精简。
 func RuneWidth(r rune) int {
 	code := int32(r)
 	switch {
@@ -191,15 +191,15 @@ func RuneWidth(r rune) int {
 
 const zwj = 0x200D
 
-// isRegionalIndicator reports whether r is one of the paired flag letters.
+// isRegionalIndicator 报告 r 是否为成对的旗帜字母之一。
 func isRegionalIndicator(r rune) bool {
 	return r >= 0x1F1E6 && r <= 0x1F1FF
 }
 
-// isExtend reports whether r attaches to the rune before it in the same
-// grapheme cluster (combining marks, variation selectors, ZWJ, emoji
-// skin-tone modifiers, ...). C0 controls and DEL are deliberately excluded:
-// they are zero-width in RuneWidth but must not glue two clusters together.
+// isExtend 报告 r 是否在同一字素簇中附着于其前的
+// rune（组合标记、变体选择符、ZWJ、emoji
+// 肤色修饰符等）。C0 控制字符和 DEL 被有意排除：
+// 它们在 RuneWidth 中为零宽，但不得把两个簇粘在一起。
 func isExtend(r rune) bool {
 	if r >= 0x1F3FB && r <= 0x1F3FF { // emoji skin-tone modifiers
 		return true
@@ -207,28 +207,28 @@ func isExtend(r rune) bool {
 	return r >= 0x20 && r != 0x7F && RuneWidth(r) == 0
 }
 
-// nextGrapheme returns the byte range [start, end) and display width of the
-// grapheme cluster beginning at start in s. This is a deliberately small
-// approximation of UAX #29 extended grapheme clusters, covering the cases
-// that matter for terminal cells:
+// nextGrapheme 返回 s 中从 start 开始的字素簇的字节范围
+// [start, end) 及其显示宽度。这是有意简化的
+// UAX #29 扩展字素簇近似，只覆盖
+// 对终端单元格重要的情况：
 //
-//   - Base + (Extend | ZWJ Base)* is one cluster whose width is the widest
-//     rune in it. A ZWJ pulls the following pictograph into the same cluster,
-//     so 👨‍👩‍👧 measures two cells instead of six.
-//   - Two adjacent regional indicators form one flag, always two cells.
-//   - ASCII is a single-byte, single-cell cluster (fast path).
+//   - Base + (Extend | ZWJ Base)* 是一个簇，其宽度取其中
+//     最宽的 rune。ZWJ 把后面的图形拉进同一簇，
+//     因此 👨‍👩‍👧 测得两个单元格而非六个。
+//   - 两个相邻的区域指示符组成一面旗帜，始终两个单元格。
+//   - ASCII 是单字节、单单元格的簇（快速路径）。
 //
-// RuneWidth stays the authority for individual rune widths.
+// RuneWidth 仍是单个 rune 宽度的权威。
 func nextGrapheme(s string, start int) (end, width int) {
 	if b := s[start]; b < utf8.RuneSelf {
 		if b < 0x20 || b == 0x7F {
-			// Controls are zero-width and must not glue clusters together.
+			// 控制字符为零宽，且不得把簇粘在一起。
 			return start + 1, 0
 		}
 		end, width = start+1, 1
-		// Fast path: an ASCII base followed only by ASCII cannot pick up an
-		// Extend rune (every Extend rune is non-ASCII). A non-ASCII successor
-		// falls through so a combining mark, VS or ZWJ sequence joins the base.
+		// 快速路径：后面只有 ASCII 的 ASCII 基础字符不可能吸收
+		// Extend rune（每个 Extend rune 都是非 ASCII）。非 ASCII 的后继
+		// 会落到下面，使组合标记、VS 或 ZWJ 序列并入基础字符。
 		if end == len(s) || s[end] < utf8.RuneSelf {
 			return end, width
 		}
@@ -236,8 +236,8 @@ func nextGrapheme(s string, start int) (end, width int) {
 		r, size := utf8.DecodeRuneInString(s[start:])
 		end, width = start+size, RuneWidth(r)
 
-		// A pair of adjacent regional indicators is one flag: two cells, even
-		// though each indicator alone is only one cell wide.
+		// 一对相邻的区域指示符是一面旗帜：两个单元格，即使
+		// 每个指示符单独只有一个单元格宽。
 		if isRegionalIndicator(r) && end < len(s) {
 			if r2, size2 := utf8.DecodeRuneInString(s[end:]); isRegionalIndicator(r2) {
 				end += size2
@@ -261,9 +261,9 @@ func nextGrapheme(s string, start int) (end, width int) {
 		case r2 == zwj:
 			afterZWJ = true
 		case isExtend(r2):
-			// An extender stays in the current cluster.
+			// 扩展符留在当前簇中。
 		case afterZWJ && r2 >= 0x20 && r2 != 0x7F:
-			// A base joined to the cluster by a preceding ZWJ.
+			// 由 preceding ZWJ 连接到簇的基础字符。
 			afterZWJ = false
 		default:
 			return end, width
@@ -276,17 +276,17 @@ func nextGrapheme(s string, start int) (end, width int) {
 	return end, width
 }
 
-// TextWidth is the number of cells a string occupies, counted in grapheme
-// clusters so a ZWJ emoji or a flag is never double-counted.
+// TextWidth 是字符串占用的单元格数，按字素簇计数，
+// 使 ZWJ emoji 或旗帜不会被重复计算。
 func TextWidth(text string) int {
 	total := 0
 	for i := 0; i < len(text); {
 		if text[i] < utf8.RuneSelf {
-			// Bulk ASCII path: printable bytes are one cell, controls zero.
-			// Stop before a byte whose successor is non-ASCII: that byte may
-			// start a cluster that continues across the boundary (a combining
-			// mark, a variation selector or a ZWJ-joined emoji), which only
-			// nextGrapheme can measure correctly.
+			// 批量 ASCII 路径：可打印字节为一个单元格，控制字符为零。
+			// 在后继字节非 ASCII 的字节之前停止：该字节可能
+			// 开启一个跨边界延续的簇（组合
+			// 标记、变体选择符或 ZWJ 连接的 emoji），只有
+			// nextGrapheme 能正确测量它。
 			start := i
 			for i < len(text) && text[i] < utf8.RuneSelf &&
 				(i+1 == len(text) || text[i+1] < utf8.RuneSelf) {
@@ -306,9 +306,9 @@ func TextWidth(text string) int {
 	return total
 }
 
-// Clip cuts text so it occupies at most max cells. A cluster that would
-// straddle the boundary is dropped whole, so ZWJ emoji, flags and combining
-// sequences are never split down the middle.
+// Clip 切分 text，使其最多占 max 个单元格。跨越
+// 边界的簇被整体丢弃，使 ZWJ emoji、旗帜和组合
+// 序列绝不会被从中间切开。
 func Clip(text string, max int) string {
 	if max <= 0 {
 		return ""
@@ -326,7 +326,7 @@ func Clip(text string, max int) string {
 	return text[:end]
 }
 
-// Truncate clips text and marks the cut with an ellipsis.
+// Truncate 裁剪文本并用省略号标记切口。
 func Truncate(text string, max int) string {
 	if TextWidth(text) <= max {
 		return text
@@ -337,7 +337,7 @@ func Truncate(text string, max int) string {
 	return Clip(text, max-1) + "…"
 }
 
-// Pad clips or pads text so it covers exactly width cells.
+// Pad 裁剪或填充文本，使其恰好覆盖 width 个单元格。
 func Pad(text string, width int) string {
 	clipped := Clip(text, width)
 	if used := TextWidth(clipped); used < width {
@@ -346,11 +346,11 @@ func Pad(text string, width int) string {
 	return clipped
 }
 
-// Wrap breaks text into lines of at most width cells, preferring a space in
-// the tail of the line. CJK has no spaces, so the hard break is the normal
-// path for Chinese rather than an edge case. Line breaks happen on grapheme
-// boundaries: a ZWJ emoji, a flag or a combining sequence is never folded in
-// the middle.
+// Wrap 把文本断为每行最多 width 个单元格，优先在行尾
+// 的空格处断开。CJK 没有空格，因此硬断是中文的
+// 正常路径，而非边缘情况。换行发生在字素
+// 边界：ZWJ emoji、旗帜或组合序列绝不会被折在
+// 中间。
 func Wrap(text string, width int) []string {
 	if width < 1 {
 		width = 1
@@ -364,8 +364,8 @@ func Wrap(text string, width int) []string {
 		if curWidth+cell > width && curEnd > curStart {
 			if lastSpace > curStart {
 				head := strings.TrimRight(text[curStart:lastSpace], " ")
-				// Leading whitespace before the first word trims to nothing.
-				// Emitting it would add a blank row above an indented line.
+				// 第一个词之前的前导空白修剪为空。
+				// 输出它会在缩进行上方画出多余的空行。
 				if head != "" {
 					out = append(out, head)
 				}
@@ -398,7 +398,7 @@ func Wrap(text string, width int) []string {
 	return out
 }
 
-// compactCount renders a token count as 942 / 8.2k / 1.6M.
+// compactCount 把 token 计数渲染为 942 / 8.2k / 1.6M。
 func compactCount(n int) string {
 	if n < 0 {
 		n = 0
@@ -420,7 +420,7 @@ func compactCount(n int) string {
 	return strconv.FormatFloat(m, 'f', 1, 64) + "M"
 }
 
-// clock renders elapsed time as 0:07 / 12:04 / 1:02:03.
+// clock 把经过时间渲染为 0:07 / 12:04 / 1:02:03。
 func clock(seconds int) string {
 	if seconds < 0 {
 		seconds = 0

@@ -8,17 +8,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Record kinds for statistics and per-request usage. Kinds are intentionally
-// open in the session format (see session.go), so these live here rather than
-// extending the core kind table.
+// 用于统计和每次请求用量的记录 kind。会话格式中 kind 是开放的（见 session.go），
+// 因此它们放在这里，而不是扩展核心 kind 表。
 const (
 	kindStats = "stats"
 	kindUsage = "usage"
 )
 
 const (
-	// modelLimit bounds the only free-form string on a usage record so a single
-	// JSONL line stays bounded. stampLimit does the same for caller timestamps.
+	// modelLimit 限制用量记录中唯一的自由格式字符串，使单条 JSONL 行保持有界。
+	// stampLimit 对调用方时间戳做同样的处理。
 	modelLimit = 128
 	stampLimit = 64
 
@@ -26,9 +25,8 @@ const (
 	costSourceEstimated = "estimated"
 )
 
-// SessionStats is a persisted token/cost roll-up for one run. Storing it as a
-// `kind:"stats"` record makes session state survive resume: the JSONL
-// transcript is the single source of truth, not in-memory run state.
+// SessionStats 是一次运行的持久化 token/成本汇总。将其存储为 `kind:"stats"` 记录
+// 使会话状态能在恢复后存活：JSONL 转录是唯一的事实来源，而不是内存中的运行状态。
 type SessionStats struct {
 	PromptTokens     int     `json:"prompt_tokens"`
 	CompletionTokens int     `json:"completion_tokens"`
@@ -39,9 +37,8 @@ type SessionStats struct {
 	Updated          string  `json:"updated,omitempty"`
 }
 
-// UsageRecord is one billable request's usage, kept for cost provenance. It is
-// deliberately distinct from SessionStats: usage records are raw per-request
-// facts, while stats records are the roll-up callers display.
+// UsageRecord 是一次计费请求的用量，用于成本溯源。它刻意区别于 SessionStats：
+// 用量记录是原始的逐请求事实，而统计记录是调用方展示的汇总。
 type UsageRecord struct {
 	Model  string `json:"model,omitempty"`
 	Input  int    `json:"input"`
@@ -50,16 +47,15 @@ type UsageRecord struct {
 	TS     string `json:"ts,omitempty"`
 }
 
-// AppendStats persists one stats record through the normal append path, so it
-// inherits ids, branching and the durability guarantees of every other record.
+// AppendStats 通过普通追加路径持久化一条统计记录，
+// 因此它继承 id、分支以及每条记录的持久性保证。
 func (s *Session) AppendStats(st SessionStats) error {
 	_, err := s.AppendRecord(kindStats, normalizeStats(st))
 	return err
 }
 
-// AppendUsage persists one per-request usage record. The model string and the
-// caller timestamp are scrubbed and bounded before they reach disk; token
-// counts are clamped non-negative.
+// AppendUsage 持久化一条逐请求的用量记录。模型字符串和调用方时间戳在写入磁盘前
+// 会被清理和限制；token 计数被限制为非负。
 func (s *Session) AppendUsage(u UsageRecord) error {
 	u.Model = scrubText(u.Model, modelLimit)
 	u.TS = scrubText(u.TS, stampLimit)
@@ -70,9 +66,8 @@ func (s *Session) AppendUsage(u UsageRecord) error {
 	return err
 }
 
-// LatestStats returns the newest stats record on the active branch, falling
-// back to the newest record anywhere in the file when the branch has none.
-// The bool reports whether any stats record was found.
+// LatestStats 返回活动分支上最新的统计记录，当该分支没有统计记录时，
+// 回退到文件中任意位置最新的记录。布尔值报告是否找到任何统计记录。
 func (s *Session) LatestStats() (SessionStats, bool) {
 	records, err := s.Records()
 	if err != nil {
@@ -103,10 +98,9 @@ func (s *Session) LatestStats() (SessionStats, bool) {
 	return newest, foundAny
 }
 
-// AggregateStats merges every stats record in file order into one roll-up.
-// Each record is a per-run delta, so token counts, calls and cost are summed;
-// CostSource and Updated come from the newest record that carried them. This
-// is what recovers a total across resumes.
+// AggregateStats 按文件顺序将所有统计记录合并为一个汇总。每条记录是一次运行的增量，
+// 因此 token 计数、调用次数和成本被相加；CostSource 和 Updated 来自携带它们的最新记录。
+// 这就是跨恢复恢复总数的方式。
 func (s *Session) AggregateStats() SessionStats {
 	records, err := s.Records()
 	if err != nil {
@@ -136,7 +130,7 @@ func (s *Session) AggregateStats() SessionStats {
 	return total
 }
 
-// UsageRecords returns every usage record in append order, for cost auditing.
+// UsageRecords 按追加顺序返回所有用量记录，用于成本审计。
 func (s *Session) UsageRecords() []UsageRecord {
 	records, err := s.Records()
 	if err != nil {
@@ -161,12 +155,11 @@ func normalizeStats(st SessionStats) SessionStats {
 	st.CompletionTokens = max(0, st.CompletionTokens)
 	st.CachedTokens = max(0, st.CachedTokens)
 	st.Calls = max(0, st.Calls)
-	// NaN/Inf cannot be encoded as JSON and would break the whole append.
+	// NaN/Inf 无法编码为 JSON，会破坏整个追加。
 	if st.CostUSD < 0 || math.IsNaN(st.CostUSD) || math.IsInf(st.CostUSD, 0) {
 		st.CostUSD = 0
 	}
-	// A cost source is a closed set; dropping anything else also drops secrets
-	// a caller may have put in this otherwise free-form field.
+	// 成本来源是封闭集合；丢弃其他内容也会丢弃调用方可能放在这个自由格式字段中的秘密。
 	st.CostSource = normalizeCostSource(st.CostSource)
 	st.Updated = scrubText(st.Updated, stampLimit)
 	return st

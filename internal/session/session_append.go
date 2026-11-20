@@ -9,16 +9,15 @@ import (
 	"time"
 )
 
-// Append writes one record as a child of the active leaf and makes it the new
-// active leaf. The payload is encoded as JSON; nil is stored as `null`.
+// Append 写入一条记录作为活动叶节点的子节点，并使其成为新的活动叶节点。
+// 载荷编码为 JSON；nil 存储为 `null`。
 func (s *Session) Append(kind string, payload any) error {
 	_, err := s.AppendRecord(kind, payload)
 	return err
 }
 
-// AppendRecord writes one record like Append but also returns the stored
-// record, so callers can link later records (checkpoints, retries, attempts)
-// to the exact id that was minted.
+// AppendRecord 像 Append 一样写入一条记录，但还返回存储的记录，
+// 使调用方可以把后续记录（检查点、重试、尝试）链接到刚生成的确切 id。
 func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
@@ -28,29 +27,26 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	// Auto-stamp durable kinds (checkpoint/summary/compaction/title) so the
-	// compaction and child-context selectors can find them. Default kinds stay
-	// byte-identical, so ordinary message/tool writes are unchanged.
+	// 自动为持久 kind（checkpoint/summary/compaction/title）打标记，
+	// 使压缩和子上下文选择器能找到它们。默认 kind 保持逐字节一致，
+	// 因此普通消息/工具写入不受影响。
 	data = StampIfImportant(kind, data)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// prepareAppend mints an id and bumps nextSeq before anything reaches the
-	// disk. Keep the pre-append value so a failed write can undo that drift and
-	// leave the index describing exactly what is in the file.
+	// prepareAppend 在任何内容写入磁盘之前先生成 id 并递增 nextSeq。
+	// 保留追加前的值，使写入失败时可以撤销这一偏移，让索引精确描述文件中的内容。
 	prevNextSeq := s.nextSeq
 
 	parent, id, err := s.prepareAppend()
 	if err != nil {
 		return Record{}, err
 	}
-	// Records() is always a fresh read from disk, so `active`, `lastID` and the
-	// `ids` entry for this record are only advanced after a successful write.
-	// On failure the only in-memory change left behind is the bumped nextSeq;
-	// drop the minted id from the index as well in case a writer added it
-	// before reporting an error. writeAppend already drops the fd/cache when
-	// the write itself failed, so the next append safely rebuilds from disk.
+	// Records() 始终从磁盘重新读取，因此 `active`、`lastID` 以及该记录的 `ids` 条目
+	// 只在写入成功后才推进。失败时留下的唯一内存改动是递增后的 nextSeq；
+	// 也要从索引中删除已生成的 id，以防写入方在报错前把它加了进去。
+	// writeAppend 在写入本身失败时已经丢弃 fd/缓存，因此下一次追加会安全地从磁盘重建。
 	rollback := func() {
 		s.nextSeq = prevNextSeq
 		if s.ids != nil {
@@ -80,10 +76,9 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	return record, nil
 }
 
-// prepareAppend returns the parent and a fresh id for the next record. It
-// lazily builds the in-memory index, and rebuilds it whenever the append fd is
-// missing or stale. The id rule is the same as nextID: the lowest unused
-// n%06d, so external records with gaps cannot cause a collision.
+// prepareAppend 返回下一条记录的 parent 和新的 id。它惰性构建内存索引，
+// 并在追加 fd 缺失或过期时重建。id 规则与 nextID 相同：最小的未使用 n%06d，
+// 因此有间隙的外部记录不会导致冲突。
 func (s *Session) prepareAppend() (parent, id string, err error) {
 	if !s.appendStateValid() {
 		if err := s.rebuildAppendState(); err != nil {
@@ -92,8 +87,8 @@ func (s *Session) prepareAppend() (parent, id string, err error) {
 	}
 	parent = s.active
 	if _, ok := s.ids[parent]; !ok {
-		// Same fallback as the old full-read path: an active id that is not
-		// in the file (forks, external rewrites) links to the last record.
+		// 与旧的全量读取路径相同的回退：不在文件中的活动 id（分叉、外部重写）
+		// 链接到最后一条记录。
 		parent = s.lastID
 	}
 	id = fmt.Sprintf("n%06d", s.nextSeq)
@@ -108,11 +103,10 @@ func (s *Session) prepareAppend() (parent, id string, err error) {
 	return parent, id, nil
 }
 
-// appendStateValid checks that the cached index still describes the file on
-// disk: same inode/volume, same size, same modtime. A replacement by rename, a
-// truncation, or an edit by another writer fails one of these checks, so the
-// caller falls back to the full-read rebuild path. On Windows there is no held
-// fd, so the path identity recorded at last sync is used for the inode check.
+// appendStateValid 检查缓存索引是否仍描述磁盘上的文件：相同的 inode/卷、大小和修改时间。
+// 通过重命名替换、截断或其他写入方的编辑都会让其中一项检查失败，
+// 因此调用方回退到全量读取的重建路径。Windows 上没有持有的 fd，
+// 因此用上次同步时记录的路径标识来做 inode 检查。
 func (s *Session) appendStateValid() bool {
 	if s.ids == nil {
 		return false
@@ -138,10 +132,9 @@ func (s *Session) appendStateValid() bool {
 	return true
 }
 
-// rebuildAppendState is the full-read fallback: read the transcript once,
-// rebuild the id index, then open a fresh append fd. It retries when the file
-// changes between the read and the fstat, so the index can never lag behind
-// bytes already in the file.
+// rebuildAppendState 是全量读取回退路径：读取一次转录，重建 id 索引，
+// 然后打开一个新的追加 fd。当文件在读取和 fstat 之间发生变化时会重试，
+// 因此索引永远不会落后于文件中已有的字节。
 func (s *Session) rebuildAppendState() error {
 	s.closeAppendFD()
 	for attempt := 0; attempt < 3; attempt++ {
@@ -182,13 +175,13 @@ func (s *Session) rebuildAppendState() error {
 			return fmt.Errorf("session: stat %s: %w", s.path(), err)
 		}
 		if info.Size() != expectedSize {
-			// Another writer moved the file between the read and the open;
-			// start over instead of trusting a stale index.
+			// 另一个写入方在读取和打开之间移动了文件；
+			// 重新开始，而不是信任过期的索引。
 			fd.Close()
 			continue
 		}
-		// Stat the path after the open: O_CREATE may have just created the
-		// file, so this is the first reliable identity/modtime snapshot.
+		// 在打开之后对路径执行 Stat：O_CREATE 可能刚刚创建了文件，
+		// 因此这是第一个可靠的标识/修改时间快照。
 		postInfo, err := os.Stat(s.path())
 		if err != nil {
 			fd.Close()
@@ -199,7 +192,7 @@ func (s *Session) rebuildAppendState() error {
 			continue
 		}
 		if !keepAppendFD {
-			// See keepAppendFD: never leave a Windows handle open.
+			// 见 keepAppendFD：绝不让 Windows 句柄保持打开。
 			fd.Close()
 			fd = nil
 		}
@@ -220,10 +213,9 @@ func (s *Session) openAppendFile() (*os.File, error) {
 	return fd, nil
 }
 
-// writeAppend writes one JSONL line and updates the index in memory. On Unix
-// the long-lived fd is reused; on Windows a short-lived fd is opened per append
-// (see keepAppendFD). Any anomaly drops the cached state so the next append
-// takes the safe full-read path.
+// writeAppend 写入一行 JSONL 并更新内存索引。在 Unix 上复用长生命周期的 fd；
+// 在 Windows 上每次追加都打开短生命周期的 fd（见 keepAppendFD）。
+// 任何异常都会丢弃缓存状态，使下一次追加走安全的全量读取路径。
 func (s *Session) writeAppend(id string, buf []byte) error {
 	fd := s.fd
 	temporary := fd == nil
@@ -252,19 +244,16 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 	s.lastID = id
 
 	expected := s.fdSize + int64(len(buf))
-	// One stat per append is enough to catch a file replaced behind our back.
-	// The size check proves the write landed on the file currently at path;
-	// the inode comparison against lastInfo (captured when the fd was opened
-	// and refreshed on every append since) proves that file is still the one
-	// the fd writes through. The former fd.Stat() cross-check added no case the
-	// pair above misses — any replacement of the path shows up as a size or
-	// inode mismatch — and it doubled the syscall cost of every append.
+	// 每次追加做一次 stat 就足以发现背后被替换的文件。
+	// 大小检查证明写入落在了当前位于该路径的文件上；
+	// 与 lastInfo（在 fd 打开时捕获，此后每次追加都刷新）的 inode 比较，
+	// 证明该文件仍是 fd 所写入的那个。之前的 fd.Stat() 交叉检查没有覆盖上面这对检查遗漏的任何情况
+	// ——路径的任何替换都会表现为大小或 inode 不匹配——反而让每次追加的系统调用成本翻倍。
 	pathInfo, err := os.Stat(s.path())
 	if err != nil || s.lastInfo == nil ||
 		!os.SameFile(pathInfo, s.lastInfo) || pathInfo.Size() != expected {
-		// The file was replaced or written to behind our back during the
-		// append. The line reached a handle that is no longer current; drop
-		// the cache so the next append rebuilds from what is really on disk.
+		// 在追加期间，文件在我们背后被替换或写入。这一行写入了一个已不再有效的句柄；
+		// 丢弃缓存，使下一次追加根据磁盘上的真实内容重建。
 		s.invalidateAppendState()
 		return nil
 	}
@@ -274,7 +263,7 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 	return nil
 }
 
-// invalidateAppendState drops both the fd and the id index.
+// invalidateAppendState 丢弃 fd 和 id 索引。
 func (s *Session) invalidateAppendState() {
 	s.closeAppendFD()
 	s.ids = nil
@@ -291,7 +280,7 @@ func (s *Session) closeAppendFD() {
 	s.lastInfo = nil
 }
 
-// readAll goes through the overridable reader so tests can count full reads.
+// readAll 通过可覆盖的读取器，使测试可以统计全量读取次数。
 func (s *Session) readAll() ([]Record, error) {
 	if s.readRecordsFn != nil {
 		return s.readRecordsFn(s.path())
@@ -299,10 +288,9 @@ func (s *Session) readAll() ([]Record, error) {
 	return readRecords(s.path())
 }
 
-// invalidateAppendCacheAfterRewrite drops cached append state. Code that
-// rewrites the session file (compaction, repair tools) should call this so the
-// next append re-reads the file. Validation normally detects such rewrites via
-// inode/size/modtime, but this makes it explicit and immediate.
+// invalidateAppendCacheAfterRewrite 丢弃缓存的追加状态。重写会话文件的代码
+// （压缩、修复工具）应调用它，使下一次追加重新读取文件。
+// 校验通常能通过 inode/大小/修改时间检测到此类重写，但这让处理变得明确且即时。
 func (s *Session) invalidateAppendCacheAfterRewrite() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

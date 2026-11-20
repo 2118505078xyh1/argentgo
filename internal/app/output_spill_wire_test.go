@@ -11,7 +11,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// spillTestEnv builds a stdio-style env func from a sparse map.
+// spillTestEnv 从一个稀疏的映射构建 stdio 风格的 env 函数。
 func spillTestEnv(values map[string]string) func(string) string {
 	return func(key string) string { return values[key] }
 }
@@ -23,8 +23,8 @@ func writeSpillTestFile(t *testing.T, root, name, content string) {
 	}
 }
 
-// spillArtifactIn reports the single canonical artifact under dir (the app
-// convention directory) and fails if there is not exactly one.
+// spillArtifactIn 返回 dir 下唯一的规范产物（app 约定的目录），
+// 若不是恰好一个则失败。
 func spillArtifactIn(t *testing.T, dir string) (string, string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -52,12 +52,12 @@ func TestOutputSpillEnabledTruthyValues(t *testing.T) {
 	}
 }
 
-// No opt-in (nil env and empty env alike) must leave ctx untouched: large tool
-// output follows the ordinary clipTo path and no artifact directory appears.
+// 未启用时（nil env 和空 env 都一样）必须保持 ctx 不变：大型工具
+// 输出走普通的 clipTo 路径，不会出现产物目录。
 func TestConfigureOutputSpillDefaultLeavesOutputUnchanged(t *testing.T) {
 	storage := t.TempDir()
 	root := t.TempDir()
-	big := strings.Repeat("abcdefghij", 30_000) // 300 KiB, over the default spill threshold
+	big := strings.Repeat("abcdefghij", 30_000) // 300 KiB，超过默认的落盘阈值
 	writeSpillTestFile(t, root, "big.txt", big)
 	reg := tools.New(root, true)
 
@@ -84,8 +84,8 @@ func TestConfigureOutputSpillDefaultLeavesOutputUnchanged(t *testing.T) {
 	}
 }
 
-// With the opt-in on, a large tool output spills into the convention directory
-// under storage, returns a bounded view, and the full text is recoverable.
+// 启用后，大型工具输出会落盘到存储下的约定目录，返回有界的视图，
+// 且完整文本可恢复。
 func TestConfigureOutputSpillOptInSpillsToConventionDir(t *testing.T) {
 	storage := t.TempDir()
 	root := t.TempDir()
@@ -119,8 +119,8 @@ func TestConfigureOutputSpillOptInSpillsToConventionDir(t *testing.T) {
 	}
 }
 
-// The assembly step runs a retention sweep when opted in: stale artifacts in
-// the convention directory disappear while fresh ones survive.
+// 启用时，组装步骤会运行保留清理：约定目录中的过期产物消失，
+// 新的产物保留。
 func TestConfigureOutputSpillCleansExpiredArtifacts(t *testing.T) {
 	storage := t.TempDir()
 	dir := outputSpillArtifactDir(storage)
@@ -150,8 +150,8 @@ func TestConfigureOutputSpillCleansExpiredArtifacts(t *testing.T) {
 	}
 }
 
-// A threshold override is honoured: a 5 KiB output spills when the assembly
-// sets a 1 KiB threshold, instead of falling through to the ordinary cap.
+// 阈值覆盖会被遵守：当组装设置 1 KiB 阈值时，5 KiB 的输出会落盘，
+// 而不是落回普通的裁剪上限。
 func TestConfigureOutputSpillThresholdOverride(t *testing.T) {
 	storage := t.TempDir()
 	root := t.TempDir()

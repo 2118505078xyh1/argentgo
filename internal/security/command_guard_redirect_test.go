@@ -5,16 +5,15 @@ import (
 	"testing"
 )
 
-// TestFindFileEditingCommandChecksEveryRedirect covers a redirection bypass:
-// several `>` operators can share one shell word (e.g. `>/etc/passwd>/tmp/x`).
-// The old LastIndex code only inspected the final target, so a scratch target
-// at the end hid an earlier write to a real file. Each redirection in the word
-// must be checked independently.
+// TestFindFileEditingCommandChecksEveryRedirect 覆盖一种重定向绕过：
+// 多个 `>` 操作符可以共用一个 shell 词（例如 `>/etc/passwd>/tmp/x`）。
+// 旧的 LastIndex 代码只检查最终目标，因此末尾的临时目标会隐藏更早对真实文件的
+// 写入。词中的每个重定向都必须独立检查。
 func TestFindFileEditingCommandChecksEveryRedirect(t *testing.T) {
 	cases := []struct {
 		name    string
 		command string
-		want    string // substring expected in the offending token; "" = no match
+		want    string // 违规 token 中期望的子串；"" 表示无匹配
 	}{
 		{
 			name:    "real file before scratch target is still a write",

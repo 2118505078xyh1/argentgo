@@ -12,9 +12,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatStreamCapturesReasoningContent covers the OpenAI-compatible chat
-// protocol: incremental reasoning_content is aggregated into Reply.Reasoning,
-// is never forwarded to onText, and CJK text survives byte-for-byte.
+// TestChatStreamCapturesReasoningContent 覆盖 OpenAI 兼容的 chat
+// 协议：增量 reasoning_content 被聚合到 Reply.Reasoning，
+// 绝不转发给 onText，且 CJK 文本逐字节保留。
 func TestChatStreamCapturesReasoningContent(t *testing.T) {
 	script := `data: {"choices":[{"delta":{"reasoning_content":"让我"}}]}
 
@@ -49,8 +49,8 @@ data: [DONE]
 	}
 }
 
-// TestChatStreamReasoningAliasPrefersContent makes sure a provider that emits
-// both reasoning_content and reasoning in one delta does not double the text.
+// TestChatStreamReasoningAliasPrefersContent 确保在一个增量中同时发出
+// reasoning_content 和 reasoning 的提供方不会让文本重复。
 func TestChatStreamReasoningAliasPrefersContent(t *testing.T) {
 	script := `data: {"choices":[{"delta":{"reasoning_content":"A","reasoning":"B"}}]}
 
@@ -73,8 +73,8 @@ data: [DONE]
 	}
 }
 
-// TestAnthropicStreamCapturesCJKReasoning confirms thinking deltas are
-// aggregated into Reply.Reasoning without cutting any rune.
+// TestAnthropicStreamCapturesCJKReasoning 确认思考增量被聚合到
+// Reply.Reasoning，且不切断任何字符。
 func TestAnthropicStreamCapturesCJKReasoning(t *testing.T) {
 	script := `data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
 
@@ -101,8 +101,8 @@ data: {"type":"message_stop"}
 	}
 }
 
-// TestResponsesStreamCapturesCJKReasoning confirms the Responses reasoning
-// delta events are aggregated into Reply.Reasoning.
+// TestResponsesStreamCapturesCJKReasoning 确认 Responses 的推理
+// 增量事件被聚合到 Reply.Reasoning。
 func TestResponsesStreamCapturesCJKReasoning(t *testing.T) {
 	script := `data: {"type":"response.reasoning_summary_text.delta","delta":"先分析"}
 
@@ -125,9 +125,9 @@ data: {"type":"response.completed","response":{"status":"completed"}}
 	}
 }
 
-// TestChatWireReasoningIsOptIn asserts the end-to-end wire contract: with the
-// switch off no reasoning_content is sent; with it on, only the assistant turn
-// carries the exact reasoning text captured earlier.
+// TestChatWireReasoningIsOptIn 断言端到端的线协议约定：关闭开关时不发送
+// reasoning_content；开启时，只有助手轮次携带之前捕获的
+// 精确推理文本。
 func TestChatWireReasoningIsOptIn(t *testing.T) {
 	cases := []struct {
 		name      string

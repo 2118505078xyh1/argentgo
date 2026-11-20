@@ -16,8 +16,8 @@ func delta(turn, depth int, text string) agent.Event {
 	return agent.Event{Kind: agent.EventTextDelta, Turn: turn, Depth: depth, Text: text}
 }
 
-// TestDeltaBatcherMergesBurst proves a burst of text deltas becomes one Event
-// with concatenated Text and inherited Turn/Depth metadata.
+// TestDeltaBatcherMergesBurst 证明一串文本增量会合并为一个事件，
+// 其 Text 是拼接结果，并继承 Turn/Depth 元数据。
 func TestDeltaBatcherMergesBurst(t *testing.T) {
 	b := newDeltaBatcher(16, 1024)
 	for _, e := range []agent.Event{
@@ -42,8 +42,8 @@ func TestDeltaBatcherMergesBurst(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherFlushTail proves Flush emits the tail and is idempotent when
-// nothing is pending.
+// TestDeltaBatcherFlushTail 证明 Flush 会发出尾部，且在没有待处理内容时
+// 是幂等的。
 func TestDeltaBatcherFlushTail(t *testing.T) {
 	b := newDeltaBatcher(0, 0)
 	b.Add(delta(0, 0, "tail-"))
@@ -57,8 +57,8 @@ func TestDeltaBatcherFlushTail(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherMaxDeltas proves the count limit flushes early and bounds a
-// burst so it cannot grow without limit.
+// TestDeltaBatcherMaxDeltas 证明数量上限会提前刷新，并限制
+// 一串增量使其不会无限增长。
 func TestDeltaBatcherMaxDeltas(t *testing.T) {
 	b := newDeltaBatcher(3, 0)
 	var emitted []agent.Event
@@ -81,11 +81,11 @@ func TestDeltaBatcherMaxDeltas(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherMaxRunes proves the rune limit flushes on UI-safe boundaries
-// and never splits a UTF-8 rune, including CJK and emoji.
+// TestDeltaBatcherMaxRunes 证明 rune 上限会在 UI 安全的边界处刷新，
+// 且从不切断 UTF-8 rune，包括 CJK 和 emoji。
 func TestDeltaBatcherMaxRunes(t *testing.T) {
-	// Each "界" and "🙂" is one rune but three/four bytes. A byte-based limit
-	// would split them; a rune-based limit must not.
+	// 每个 "界" 和 "🙂" 都是一个 rune 但占三/四个字节。按字节的上限
+	// 会切断它们；按 rune 的上限则不会。
 	b := newDeltaBatcher(0, 4)
 	var emitted []string
 	feed := []string{"你", "好", "世", "界", "🙂", "A", "B"}
@@ -97,7 +97,7 @@ func TestDeltaBatcherMaxRunes(t *testing.T) {
 	if tail, ok := b.Flush(); ok {
 		emitted = append(emitted, tail.Text)
 	}
-	// Concatenation must be lossless and rune-valid regardless of boundaries.
+	// 无论边界如何，拼接都必须无损且 rune 合法。
 	if got, want := strings.Join(emitted, ""), strings.Join(feed, ""); got != want {
 		t.Fatalf("lossless concat = %q, want %q", got, want)
 	}
@@ -111,8 +111,8 @@ func TestDeltaBatcherMaxRunes(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherCJKAndEmoji proves multi-byte text is preserved byte-for-byte
-// through merging and flushing.
+// TestDeltaBatcherCJKAndEmoji 证明多字节文本在合并和刷新过程中
+// 逐字节保持不变。
 func TestDeltaBatcherCJKAndEmoji(t *testing.T) {
 	b := newDeltaBatcher(16, 1024)
 	parts := []string{"中文", "🚀", "🎉 mixed", "テスト", "한국어"}
@@ -130,8 +130,8 @@ func TestDeltaBatcherCJKAndEmoji(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherEmptyInput proves empty text and non-delta events are ignored
-// without perturbing the burst.
+// TestDeltaBatcherEmptyInput 证明空文本和非增量事件会被忽略，
+// 且不会扰乱当前串。
 func TestDeltaBatcherEmptyInput(t *testing.T) {
 	b := newDeltaBatcher(0, 0)
 	ignored := []agent.Event{
@@ -151,8 +151,8 @@ func TestDeltaBatcherEmptyInput(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherPreservesOrder proves concatenation follows Add order even
-// when other event kinds are interleaved between deltas.
+// TestDeltaBatcherPreservesOrder 证明即使其他种类的事件夹杂在增量之间，
+// 拼接也遵循 Add 的顺序。
 func TestDeltaBatcherPreservesOrder(t *testing.T) {
 	b := newDeltaBatcher(32, 4096)
 	b.Add(delta(0, 0, "a"))
@@ -166,8 +166,8 @@ func TestDeltaBatcherPreservesOrder(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherBoundaryFlushes proves a Turn/Depth change flushes the current
-// burst first, so a merged event never spans two runs/agents.
+// TestDeltaBatcherBoundaryFlushes 证明 Turn/Depth 改变会先刷新当前串，
+// 使合并事件绝不会跨越两次运行/agent。
 func TestDeltaBatcherBoundaryFlushes(t *testing.T) {
 	b := newDeltaBatcher(32, 4096)
 	b.Add(delta(1, 0, "one"))
@@ -185,8 +185,8 @@ func TestDeltaBatcherBoundaryFlushes(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherOversizedDeltaNotSplit proves a single delta larger than the
-// rune limit is emitted intact instead of being truncated or split.
+// TestDeltaBatcherOversizedDeltaNotSplit 证明单个大于 rune 上限的增量
+// 会被完整发出，而非被截断或拆分。
 func TestDeltaBatcherOversizedDeltaNotSplit(t *testing.T) {
 	b := newDeltaBatcher(0, 2)
 	big := strings.Repeat("🙂", 5)
@@ -200,7 +200,7 @@ func TestDeltaBatcherOversizedDeltaNotSplit(t *testing.T) {
 	}
 }
 
-// TestDeltaBatcherReset proves Reset discards the pending tail without emitting.
+// TestDeltaBatcherReset 证明 Reset 会丢弃待处理的尾部而不发出它。
 func TestDeltaBatcherReset(t *testing.T) {
 	b := newDeltaBatcher(0, 0)
 	b.Add(delta(0, 0, "discard"))
@@ -213,8 +213,8 @@ func TestDeltaBatcherReset(t *testing.T) {
 	}
 }
 
-// collectEmits drains events from a channel into a slice once the producer has
-// signalled completion, avoiding races on the shared slice.
+// collectEmits 在生产方发出完成信号后，把通道中的事件抽取到切片中，
+// 避免对共享切片产生竞态。
 type emitCollector struct {
 	mu     sync.Mutex
 	events []agent.Event
@@ -232,8 +232,8 @@ func (c *emitCollector) snapshot() []agent.Event {
 	return append([]agent.Event(nil), c.events...)
 }
 
-// TestRunDeltaBatchTimerFlushOnClose proves the timer driver merges a quick
-// burst and releases the tail when its input channel closes.
+// TestRunDeltaBatchTimerFlushOnClose 证明定时器驱动器会合并快速到达的
+// 一串增量，并在输入通道关闭时释放尾部。
 func TestRunDeltaBatchTimerFlushOnClose(t *testing.T) {
 	in := make(chan agent.Event)
 	var c emitCollector
@@ -259,8 +259,8 @@ func TestRunDeltaBatchTimerFlushOnClose(t *testing.T) {
 	}
 }
 
-// TestRunDeltaBatchTimerTicks proves a delta is flushed by the window tick
-// (not only on close), which is the low-latency behaviour the driver provides.
+// TestRunDeltaBatchTimerTicks 证明增量会被窗口计时刷新
+// （不只在关闭时），这正是驱动器提供的低延迟行为。
 func TestRunDeltaBatchTimerTicks(t *testing.T) {
 	in := make(chan agent.Event)
 	emitted := make(chan agent.Event, 4)
@@ -299,13 +299,13 @@ func TestRunDeltaBatchTimerTicks(t *testing.T) {
 	}
 }
 
-// TestRunDeltaBatchTimerCancelFlushesTail proves cancellation releases the tail
-// exactly once and unblocks the driver.
+// TestRunDeltaBatchTimerCancelFlushesTail 证明取消会恰好释放一次尾部，
+// 并解除驱动器的阻塞。
 func TestRunDeltaBatchTimerCancelFlushesTail(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// Unbuffered: the send completes only once the driver has received the
-	// delta, guaranteeing it is folded into the batcher before we cancel.
+	// 无缓冲：只有在驱动器接收到增量之后，发送才完成，
+	// 从而保证在我们取消之前，它已被折叠进批处理器。
 	in := make(chan agent.Event)
 	var c emitCollector
 	done := make(chan struct{})
@@ -337,7 +337,7 @@ func TestRunDeltaBatchTimerCancelFlushesTail(t *testing.T) {
 	}
 }
 
-// TestDefaultDeltaBatchWindow documents the deliberate low-latency window.
+// TestDefaultDeltaBatchWindow 记录这个刻意设置的低延迟窗口。
 func TestDefaultDeltaBatchWindow(t *testing.T) {
 	if DefaultDeltaBatchWindow <= 0 || DefaultDeltaBatchWindow > 50*time.Millisecond {
 		t.Fatalf("DefaultDeltaBatchWindow = %v, want a low-latency window in (0, 50ms]", DefaultDeltaBatchWindow)

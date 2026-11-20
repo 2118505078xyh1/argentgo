@@ -7,51 +7,44 @@ import (
 	"strings"
 )
 
-// This file implements the deterministic, zero-LLM "tool activity" part of a
-// compaction summary. When a span of the conversation is dropped, the next turn
-// still needs to know which files were read (and which lines), which were
-// changed, and which commands were run — otherwise the agent re-reads the same
-// files or forgets a change it already made. Unlike the goal / failure / next
-// step extraction, nothing here calls a model: it reads the recorded tool calls
-// directly from the dropped entries.
+// 本文件实现压缩摘要中确定性的、无需 LLM 的"工具活动"部分。当一段对话被丢弃后，
+// 下一轮仍需要知道读取了哪些文件（以及哪些行）、修改了哪些文件、运行了哪些命令——
+// 否则 agent 会重复读取相同的文件，或忘记它已经做过的改动。与目标/失败/下一步的提取不同，
+// 这里没有调用模型：它直接从被丢弃的条目中读取记录下来的工具调用。
 
 const (
-	activityCommandLimit = 100 // cline-style truncation for a command line
-	activityPathLimit    = 120 // keep a path from eating the whole bullet
-	activityBulletLimit  = 200 // hard cap on one rendered activity line
-	activityMaxBullets   = 24  // keep the summary bounded regardless of transcript size
+	activityCommandLimit = 100 // 对命令行进行类似 cline 的截断
+	activityPathLimit    = 120 // 防止路径占满整个项目符号
+	activityBulletLimit  = 200 // 单条渲染活动行的硬上限
+	activityMaxBullets   = 24  // 无论转录多大都保持摘要有界
 )
 
-// activityReadTools are tools whose arguments describe reading a file. The
-// recorded arguments carry one of path/file/file_path plus offset/limit or a
-// line-centred window (line/before/after), from which a path:start-end range is
-// reconstructed.
+// activityReadTools 是其参数描述读取文件的工具。记录下来的参数携带 path/file/file_path
+// 之一，再加上 offset/limit 或以行号为中心的窗口（line/before/after），
+// 从中重建出 path:start-end 范围。
 var activityReadTools = map[string]bool{"read": true, "cat": true}
 
-// activityEditTools are tools that change files. Only the path is recoverable
-// from a recorded edit: the tool result is a bare "edited <path>" line with no
-// diff, so no reliable line range can be derived without touching the file (a
-// pure function must not).
+// activityEditTools 是修改文件的工具。从记录下来的编辑中只能恢复路径：
+// 工具结果只是一行裸的 "edited <path>"，没有 diff，因此不触碰文件就无法得出可靠的行范围
+// （纯函数不应触碰文件）。
 var activityEditTools = map[string]bool{
 	"edit": true, "write": true, "multi_edit": true, "patch": true,
 }
 
-// activityCommandTools are tools whose arguments carry a shell command.
+// activityCommandTools 是参数中携带 shell 命令的工具。
 var activityCommandTools = map[string]bool{
 	"bash": true, "shell": true, "sh": true, "powershell": true, "pwsh": true,
 }
 
-// activityCall is one tool invocation projected out of a transcript record: a
-// name and its decoded arguments. It is built only from map lookups, never from
-// map iteration, so extraction is deterministic.
+// activityCall 是从转录记录中投影出的一次工具调用：一个名称及其解码后的参数。
+// 它只通过 map 查找构建，绝不通过 map 迭代，因此提取是确定性的。
 type activityCall struct {
 	name string
 	args map[string]any
 }
 
-// summarizeToolActivity returns a markdown "Tool activity" section built from
-// the read/edit/command calls in dropped, or "" when there is no such activity.
-// It is a pure function: deterministic, deduplicated and bounded in size.
+// summarizeToolActivity 根据 dropped 中的读取/编辑/命令调用返回一个 markdown
+// "Tool activity" 章节；没有此类活动时返回 ""。它是纯函数：确定、去重且大小有界。
 func summarizeToolActivity(dropped []Entry) string {
 	var bullets []string
 	seen := make(map[string]bool)
@@ -68,8 +61,8 @@ func summarizeToolActivity(dropped []Entry) string {
 	if len(bullets) == 0 {
 		return ""
 	}
-	// Chronological order is kept; when there are too many, the most recent
-	// activities survive (the ones a resumed turn is most likely to need).
+	// 保持时间顺序；当活动过多时，保留最近的活动
+	// （恢复的轮次最可能需要这些）。
 	bullets = tailItems(bullets, activityMaxBullets)
 
 	var b strings.Builder
@@ -80,11 +73,10 @@ func summarizeToolActivity(dropped []Entry) string {
 	return b.String()
 }
 
-// callsFromData extracts tool invocations from one record's payload. Two
-// layouts occur in a session file:
-//   - a tool result record with top-level "name" and "arguments";
-//   - an assistant record with a "tool_calls" (or "toolCalls") array whose
-//     items carry function.name and function.arguments.
+// callsFromData 从一条记录的载荷中提取工具调用。会话文件中会出现两种布局：
+//   - 工具结果记录，顶层带有 "name" 和 "arguments"；
+//   - assistant 记录，带有 "tool_calls"（或 "toolCalls"）数组，
+//     其元素携带 function.name 和 function.arguments。
 func callsFromData(raw json.RawMessage) []activityCall {
 	if len(raw) == 0 {
 		return nil
@@ -142,8 +134,8 @@ func callsFromData(raw json.RawMessage) []activityCall {
 	return out
 }
 
-// decodedArgs accepts arguments serialized either as a JSON string (the usual
-// case in a tool record) or as an already-decoded JSON object.
+// decodedArgs 接受以 JSON 字符串序列化的参数（工具记录中的常见情况），
+// 或已解码的 JSON 对象。
 func decodedArgs(raw any) map[string]any {
 	switch typed := raw.(type) {
 	case string:
@@ -157,8 +149,7 @@ func decodedArgs(raw any) map[string]any {
 	return nil
 }
 
-// activityBullet renders one tool call as a single activity line. Unknown tools
-// and calls without the expected argument are ignored.
+// activityBullet 将一次工具调用渲染为单行活动记录。未知工具以及缺少预期参数的调用会被忽略。
 func activityBullet(call activityCall) (string, bool) {
 	name := strings.ToLower(strings.TrimSpace(call.name))
 	args := call.args
@@ -191,8 +182,7 @@ func activityBullet(call activityCall) (string, bool) {
 	return "", false
 }
 
-// activityPath returns the file a tool call refers to, preferring the keys the
-// built-in tools actually use.
+// activityPath 返回工具调用所指的文件，优先使用内置工具实际使用的键。
 func activityPath(args map[string]any) string {
 	for _, key := range []string{"path", "file", "file_path"} {
 		if text, ok := args[key].(string); ok {
@@ -204,9 +194,9 @@ func activityPath(args map[string]any) string {
 	return ""
 }
 
-// activityPathRange appends a line range to a read path. Explicit window
-// arguments win; otherwise a line selector already embedded in the path
-// (":10", ":10:20", "#L10", "#L10-L20") is normalised to "path:start-end".
+// activityPathRange 在读取路径后附加行范围。显式的窗口参数优先；
+// 否则把路径中已嵌入的行选择器（":10"、":10:20"、"#L10"、"#L10-L20"）
+// 规范化为 "path:start-end"。
 func activityPathRange(path string, args map[string]any) string {
 	line := activityInt(args, "line")
 	if line > 0 {
@@ -246,8 +236,8 @@ func activityFormatPath(path string, start, end int) string {
 	return fmt.Sprintf("%s:%d-%d", truncateRunes(path, activityPathLimit), start, end)
 }
 
-// activityInt reads an integer argument. encoding/json decodes numbers into
-// float64 when unmarshalling into any, which is the common case here.
+// activityInt 读取整数参数。encoding/json 在反序列化到 any 时把数字解码为 float64，
+// 这里正是这种常见情况。
 func activityInt(args map[string]any, key string) int {
 	switch typed := args[key].(type) {
 	case float64:
@@ -261,10 +251,9 @@ func activityInt(args map[string]any, key string) int {
 	return 0
 }
 
-// splitTrailingRange recognises a line selector embedded in a path and returns
-// the path without the selector plus the inclusive start/end lines. It is
-// careful not to mistake "C:\dir" for a selector (a colon must be followed by
-// digits) and returns ok=false when no selector is present.
+// splitTrailingRange 识别路径中嵌入的行选择器，返回去掉选择器的路径以及含端点的起始/结束行。
+// 它小心避免把 "C:\dir" 误认为选择器（冒号后面必须跟数字），
+// 没有选择器时返回 ok=false。
 func splitTrailingRange(path string) (base string, start, end int, ok bool) {
 	if idx := strings.LastIndex(path, "#"); idx >= 0 {
 		base = path[:idx]
@@ -309,14 +298,14 @@ func splitTrailingRange(path string) (base string, start, end int, ok bool) {
 	return path[:i], start, end, true
 }
 
-// activityRangeToken parses the part after "#", e.g. "L10", "10-20" or
-// "L10-L20", into an inclusive line range.
+// activityRangeToken 将 "#" 之后的部分（例如 "L10"、"10-20" 或 "L10-L20"）
+// 解析为含端点的行范围。
 func activityRangeToken(token string) (start, end int, ok bool) {
 	parts := strings.FieldsFunc(token, func(r rune) bool { return r == '-' || r == ':' })
 	if len(parts) == 0 {
 		return 0, 0, false
 	}
-	// Each component may carry its own "L" prefix, e.g. "L10-L20".
+	// 每个组件都可以自带 "L" 前缀，例如 "L10-L20"。
 	partInt := func(part string) (int, bool) {
 		part = strings.TrimPrefix(strings.TrimPrefix(part, "L"), "l")
 		n, err := strconv.Atoi(part)

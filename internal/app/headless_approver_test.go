@@ -17,9 +17,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// countingReader stands in for os.Stdin. It records every Read so a test can
-// prove a headless approver never touches the stream the RPC server owns, and
-// it keeps unread bytes intact so a stolen RPC frame would be visible too.
+// countingReader 代替 os.Stdin。它记录每一次 Read，使测试能
+// 证明无界面审批器从不触碰 RPC 服务拥有的流，并
+// 保持未读字节完整，使被窃取的 RPC 帧也能被看到。
 type countingReader struct {
 	mu    sync.Mutex
 	data  []byte
@@ -50,8 +50,8 @@ func (r *countingReader) remaining() string {
 	return string(r.data)
 }
 
-// captureApproverExecute is the runner's Execute seam: it records the approver
-// the runner installed for the run and returns without a real model call.
+// captureApproverExecute 是运行器的 Execute 接缝：它记录运行器为该次运行安装的
+// 审批器，并在不调用真实模型的情况下返回。
 func captureApproverExecute(ch chan<- security.Approver) func(context.Context, cli.IO, Resolved, *session.Session, string, func(string)) (agent.Result, error) {
 	return func(_ context.Context, _ cli.IO, res Resolved, _ *session.Session, _ string, _ func(string)) (agent.Result, error) {
 		ch <- res.Approve
@@ -59,9 +59,9 @@ func captureApproverExecute(ch chan<- security.Approver) func(context.Context, c
 	}
 }
 
-// approvalTestRunner builds a runner with the given transport flags, drives one
-// Prompt through it, and returns the runner, its pending mirror and a channel
-// carrying the approver resolved for that run.
+// approvalTestRunner 用给定的传输标志构建运行器，驱动一次
+// Prompt，并返回运行器、其待处理镜像以及一个通道，
+// 该通道携带为该次运行解析出的审批器。
 func approvalTestRunner(t *testing.T, opts cli.Options, in io.Reader) (*runner, *security.PendingStore, <-chan security.Approver) {
 	t.Helper()
 	env, _ := testEnv(t)
@@ -85,10 +85,10 @@ func approvalTestRunner(t *testing.T, opts cli.Options, in io.Reader) (*runner, 
 	return r, pending, captured
 }
 
-// TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer is the regression
-// for the shared-stdin hazard: --rpc/--serve/--acp resolve an approver that
-// must not read a byte from stdin, because server.scanLines is reading JSON-RPC
-// frames from the same stream. The operator decision arrives via Resolve.
+// TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer 是针对共享 stdin
+// 隐患的回归测试：--rpc/--serve/--acp 解析出的审批器
+// 绝不能从 stdin 读取一个字节，因为 server.scanLines 正在从同一流中读取
+// JSON-RPC 帧。操作人员的决定通过 Resolve 到达。
 func TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -107,8 +107,8 @@ func TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer(t *testing.T) {
 			{name: "deny", granted: false},
 		} {
 			t.Run(tc.name+"/"+answer.name, func(t *testing.T) {
-				// Stdin holds a plausible local "y" line. A PromptApprover would
-				// consume it; a headless approver must leave it untouched.
+				// stdin 中有一行看似合理的本地 "y"。PromptApprover 会消费它；
+				// 无界面审批器必须保持其原样不动。
 				in := newCountingReader("y\n")
 				r, pending, captured := approvalTestRunner(t, tc.opts, in)
 				sessionID := r.SessionID()
@@ -127,8 +127,8 @@ func TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer(t *testing.T) {
 				}()
 
 				id := waitForPendingID(t, pending, sessionID)
-				// No external answer yet: stdin must be completely idle while
-				// the approval is pending, and the buffered line stays intact.
+				// 尚无外部答案：在审批待处理期间，stdin 必须完全空闲，
+				// 缓冲的那一行保持完整。
 				if got := in.readCount(); got != 0 {
 					t.Fatalf("stdin reads while pending = %d, want 0", got)
 				}
@@ -161,9 +161,9 @@ func TestHeadlessApproverNeverReadsStdinAndHonoursExternalAnswer(t *testing.T) {
 	}
 }
 
-// TestHeadlessApproverCancellationUnblocksWithoutReadingStdin covers the case
-// where no operator ever answers: the run context must release Ask, and stdin
-// still must not be touched.
+// TestHeadlessApproverCancellationUnblocksWithoutReadingStdin 覆盖无人回答的情形：
+// 运行 context 必须释放 Ask，且 stdin
+// 仍不得被触碰。
 func TestHeadlessApproverCancellationUnblocksWithoutReadingStdin(t *testing.T) {
 	in := newCountingReader("y\n")
 	r, pending, captured := approvalTestRunner(t, cli.Options{RPC: true}, in)
@@ -193,7 +193,7 @@ func TestHeadlessApproverCancellationUnblocksWithoutReadingStdin(t *testing.T) {
 }
 
 // TestCLIDirectApproverStillReadsLocalYn proves the non-headless path is byte-
-// for-byte unchanged: a direct CLI run still asks y/n on the operator's tty.
+// 直接的 CLI 运行仍在操作人员的 tty 上询问 y/n。
 func TestCLIDirectApproverStillReadsLocalYn(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -223,10 +223,10 @@ func TestCLIDirectApproverStillReadsLocalYn(t *testing.T) {
 	}
 }
 
-// TestHeadlessApproverNilStoreIsUnavailable pins the null-object behaviour:
-// with no pending mirror there is no answer channel at all. That is an
-// unavailable approval channel, not an operator refusal — the model must not
-// receive a "final, do not retry" hint for a channel that may come back.
+// TestHeadlessApproverNilStoreIsUnavailable 锁定空对象行为：
+// 没有待处理镜像时根本没有答案通道。这是不可用的审批通道，
+// 而非操作人员的拒绝——对于可能恢复的通道，模型绝不能
+// 收到 "最终、不可重试" 的提示。
 func TestHeadlessApproverNilStoreIsUnavailable(t *testing.T) {
 	approver := WithHeadlessPendingApprovals(nil, "s")
 	if _, ok := approver.(security.UnavailableApprover); !ok {
@@ -250,10 +250,10 @@ func TestHeadlessApproverNilStoreIsUnavailable(t *testing.T) {
 	}
 }
 
-// TestNilStoreHeadlessChainAuditsUnavailableNotRefused wires the nil-store
-// headless approver into a real chain. The audit must record "unavailable" and
-// the returned tool error must stay free of refusal/finality wording, unlike an
-// explicitly configured NeverApprover.
+// TestNilStoreHeadlessChainAuditsUnavailableNotRefused 把 nil 存储的无界面审批器
+// 接入真实链。审计必须记录 "unavailable"，且
+// 返回的工具错误不得带有拒绝/终结性的措辞，这与显式配置的
+// NeverApprover 不同。
 func TestNilStoreHeadlessChainAuditsUnavailableNotRefused(t *testing.T) {
 	root := t.TempDir()
 	audit := security.NewAuditLog(root)
@@ -287,10 +287,10 @@ func TestNilStoreHeadlessChainAuditsUnavailableNotRefused(t *testing.T) {
 	}
 }
 
-// TestExplicitApproversKeepTheirVerdict proves the fix is confined to the nil
-// channel: an explicitly configured refusal is still a final StopError audited
-// as "refused", and an explicit grant is still allowed. Mirroring through
-// WithPendingApprovals must stay transparent for both decisions.
+// TestExplicitApproversKeepTheirVerdict 证明修复仅限于 nil 通道：
+// 显式配置的拒绝仍是最终的 StopError，并审计为
+// "refused"，显式的批准仍被允许。通过
+// WithPendingApprovals 的镜像对这两种决定都必须保持透明。
 func TestExplicitApproversKeepTheirVerdict(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

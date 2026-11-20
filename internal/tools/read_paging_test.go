@@ -32,7 +32,7 @@ func runPagingRead(t *testing.T, root, args string) string {
 }
 
 func TestReadFullFileHasNoPagingNotice(t *testing.T) {
-	// A trailing newline must not create a phantom line or change the bytes.
+	// 尾随换行不得产生幻影行，也不得改变字节。
 	content := "one\ntwo\nthree\n"
 	root := pagingRoot(t, "f.txt", content)
 	out := runPagingRead(t, root, `{"path":"f.txt"}`)
@@ -63,7 +63,7 @@ func TestReadMiddleSliceReportsCorrectRange(t *testing.T) {
 }
 
 func TestReadExactEndHasNoPagingNotice(t *testing.T) {
-	// Reaching the final real line (no trailing newline) must stay quiet.
+	// 读到最后一行真实内容（无尾随换行）时必须保持安静。
 	root := pagingRoot(t, "f.txt", "a\nb\nc\nd\ne")
 	out := runPagingRead(t, root, `{"path":"f.txt","offset":4,"limit":2}`)
 	if out != "d\ne" {
@@ -75,9 +75,9 @@ func TestReadExactEndHasNoPagingNotice(t *testing.T) {
 }
 
 func TestReadHugeLimitReadsToEndWithoutOverflow(t *testing.T) {
-	// start-1+limit used to overflow int for a huge limit and a non-zero
-	// offset, making the slice end negative and panicking. Such a limit must
-	// behave like "read from offset to the end" instead.
+	// 对于巨大的 limit 和非零 offset，start-1+limit 曾会使 int 溢出，
+	// 导致切片末端为负并 panic。这样的 limit 必须
+	// 表现为"从 offset 读到末尾"。
 	const content = "a\nb\nc\nd\ne\n"
 	root := pagingRoot(t, "f.txt", content)
 	for _, huge := range []string{
@@ -163,8 +163,8 @@ func TestReadGapWindowClampedAtStartAndEnd(t *testing.T) {
 }
 
 func TestReadGapWindowCapsBeforeAndAfter(t *testing.T) {
-	// A 500-line file with budgets far above the cap must show exactly 401
-	// lines (200 above + target + 200 below), not the whole file.
+	// 一个 500 行的文件，预算远高于上限时，必须恰好显示 401
+	// 行（上方 200 + 目标 + 下方 200），而不是整个文件。
 	root := pagingRoot(t, "f.txt", numberedLines(500))
 	out := runPagingRead(t, root, `{"path":"f.txt","line":250,"before":9999,"after":9999}`)
 	want := fmt.Sprintf(pagingNoticeFmt, 50, 450, 500)

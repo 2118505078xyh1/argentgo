@@ -9,9 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// feedbackApprover is an Approver that can answer with an operator correction.
-// It exercises the new channel through the same Ask(bool, error) API every
-// existing approver uses.
+// feedbackApprover 是一个能用操作员更正意见回答的 Approver。
+// 它通过每个现有审批器都在使用的同一 Ask(bool, error) API 来检验这条新通道。
 type feedbackApprover struct {
 	allow    bool
 	feedback string

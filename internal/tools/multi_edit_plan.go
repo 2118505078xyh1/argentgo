@@ -7,40 +7,40 @@ import (
 	"strings"
 )
 
-// This file holds the pure, read-only layer for multi_edit planning. It does
-// no I/O, takes no locks and writes no bytes. The live multi_edit path consults
-// it only from the opt-in, read-only relocate diagnostic (relocate=true), so
-// default behaviour stays byte-for-byte identical. Cross-file relocation
-// changes edit semantics and could silently edit a file the model did not
-// name, which is why the live path reports candidates but never auto-applies
-// them.
+// 本文件保存 multi_edit 规划的纯只读层。它不做
+// 任何 I/O、不取锁、不写字节。实际的 multi_edit 路径只在
+// opt-in 的只读重定位诊断（relocate=true）中查询它，
+// 因此默认行为保持逐字节一致。跨文件重定位
+// 会改变编辑语义，并可能悄悄编辑模型未指名的文件，
+// 这就是实际路径只报告候选而从不自动应用
+// 它们的原因。
 
-// multiEditBlock is one SEARCH/REPLACE block for a dry run. Path is the file
-// the model intended to edit, Old is the SEARCH text and New the REPLACE text.
-// Alias normalization (old_text/new_text) and workspace path resolution stay
-// with the calling tool, so this remains a plain value.
+// multiEditBlock 是供 dry run 使用的单个 SEARCH/REPLACE 块。Path 是模型
+// 打算编辑的文件，Old 是 SEARCH 文本，New 是 REPLACE 文本。
+// 别名归一化（old_text/new_text）和工作区路径解析仍由
+// 调用方工具负责，因此这里仍是纯值对象。
 type multiEditBlock struct {
 	Path string
 	Old  string
 	New  string
 }
 
-// multiEditKnownFiles is a read-only snapshot of candidate files, keyed by
-// canonical path. See canonicalEditPath for the normalization rule.
+// multiEditKnownFiles 是候选文件的只读快照，以规范路径为键。
+// 归一化规则见 canonicalEditPath。
 type multiEditKnownFiles map[string]string
 
-// multiEditFileResolver supplies the snapshot a dry run needs. Content returns
-// a file's current content and whether the file is known; Paths lists every
-// file that may be considered when a SEARCH block misses its intended target.
-// Implementations must not write to disk.
+// multiEditFileResolver 提供 dry run 所需的快照。Content 返回
+// 文件的当前内容以及该文件是否已知；Paths 列出当 SEARCH 块
+// 未命中目标时可以考虑的所有文件。
+// 实现方不得写磁盘。
 type multiEditFileResolver interface {
 	Content(path string) (string, bool)
 	Paths() []string
 }
 
-// multiEditSnapshotResolver adapts an in-memory snapshot to the resolver
-// interface. It is useful both in tests and for a future caller that has
-// already read the candidate files.
+// multiEditSnapshotResolver 把内存快照适配到 resolver
+// 接口。它在测试中很有用，也适用于已经
+// 读过候选文件的未来调用方。
 type multiEditSnapshotResolver struct {
 	files multiEditKnownFiles
 }
@@ -59,24 +59,24 @@ func (r multiEditSnapshotResolver) Paths() []string {
 	return out
 }
 
-// canonicalEditPath makes path comparisons stable across callers that use
-// either slash or backslash separators. It is purely lexical: no filesystem
-// access, so symlinks and CJK names are left alone (CJK bytes are untouched by
-// Clean/ToSlash). Callers pass workspace-relative or already-resolved paths.
+// canonicalEditPath 使使用斜杠或反斜杠分隔符的调用方之间的
+// 路径比较保持稳定。它纯粹是词法层面的：不访问文件系统，
+// 因此符号链接和 CJK 名称保持原样（CJK 字节不会被
+// Clean/ToSlash 改动）。调用方传入工作区相对路径或已解析的路径。
 func canonicalEditPath(path string) string {
 	return filepath.ToSlash(filepath.Clean(path))
 }
 
-// multiEditFileCandidate is a file other than the block's intended target in
-// which the SEARCH text was found. ViaRepair reports that only the graded
-// repair ladder matched: such a candidate needs an explicit decision before it
-// is used, because a fuzzy match is weaker evidence than a literal one.
+// multiEditFileCandidate 是块目标文件之外、在其中找到了
+// SEARCH 文本的文件。ViaRepair 表示只有分级修复
+// 阶梯匹配：这样的候选在使用前需要显式决策，
+// 因为模糊匹配比字面匹配证据更弱。
 type multiEditFileCandidate struct {
 	Path      string
 	ViaRepair bool
 }
 
-// multiEditFailureKind classifies why a block cannot be applied as written.
+// multiEditFailureKind 对块为何无法按原样应用进行分类。
 type multiEditFailureKind string
 
 const (
@@ -87,9 +87,9 @@ const (
 	multiEditWrongFile   multiEditFailureKind = "wrong_file"
 )
 
-// multiEditBlockFailure is one failed block of a dry-run plan. Index is the
-// 0-based position in the input batch; Candidates is populated for wrong_file
-// and needs_repair failures and is sorted by path for deterministic output.
+// multiEditFileFailure 是 dry-run 计划中一个失败的块。Index 是
+// 这是输入批次中基于 0 的位置；对 wrong_file 会填充 Candidates
+// 以及 needs_repair 失败，并按路径排序以获得确定性输出。
 type multiEditBlockFailure struct {
 	Index      int
 	Kind       multiEditFailureKind
@@ -97,33 +97,33 @@ type multiEditBlockFailure struct {
 	Candidates []multiEditFileCandidate
 }
 
-// multiEditPlan is the result of a dry run. Applicable holds the 0-based indices
-// of blocks that match literally and uniquely in their own file, in input
-// order. Failed holds one entry per block that needs a decision. Snapshot holds
-// the simulated contents after applying only the Applicable edits in order;
-// failed blocks are never simulated, so a later block never sees a speculative
-// relocation or fuzzy edit.
+// multiEditPlan 是 dry run 的结果。Applicable 保存
+// 在其自身文件中字面且唯一匹配的块的 0 基索引，
+// 按输入顺序排列。Failed 为每个需要决策的块保存一条记录。Snapshot 保存
+// 按顺序只应用 Applicable 编辑后的模拟内容；
+// 失败的块从不参与模拟，因此后续块看不到任何推测性的
+// 重定位或模糊编辑。
 type multiEditPlan struct {
 	Applicable []int
 	Failed     []multiEditBlockFailure
 	Snapshot   multiEditKnownFiles
 }
 
-// OK reports whether every block can be applied literally as written.
+// OK 报告是否每个块都能按原样字面应用。
 func (p multiEditPlan) OK() bool { return len(p.Failed) == 0 }
 
-// planMultiEdit validates a whole batch in memory and classifies each block.
-// It never writes. Blocks are evaluated in order against a snapshot, so a
-// successful edit is visible to the blocks that follow it (matching the live
-// tool's sequential semantics), while a failed edit is not.
+// planMultiEdit 在内存中校验整个批次并对每个块分类。
+// 它从不写入。各块按顺序针对快照求值，因此
+// 成功的编辑对后续块可见（与实际工具的
+// 顺序语义一致），失败的编辑则不可见。
 //
-// The classification is intentionally conservative:
-//   - a unique literal match in the intended file is applicable;
-//   - a unique literal match only in another known file is wrong_file;
-//   - a match recoverable only through the repair ladder is needs_repair;
-//   - several literal matches in the intended file are not_unique (never
-//     guessed, mirroring repairReplace);
-//   - no match anywhere is not_found; an empty Old is empty_search.
+// 分类有意保持保守：
+//   - 目标文件中唯一的字面匹配是 applicable；
+//   - 仅在另一个已知文件中唯一的字面匹配是 wrong_file；
+//   - 只能通过修复阶梯恢复的匹配是 needs_repair；
+//   - 目标文件中有多个字面匹配则是 not_unique（绝不
+//     （猜测的结果，与 repairReplace 保持一致）；
+//   - 任何地方都没有匹配是 not_found；空的 Old 是 empty_search。
 func planMultiEdit(blocks []multiEditBlock, resolver multiEditFileResolver) multiEditPlan {
 	plan := multiEditPlan{Snapshot: make(multiEditKnownFiles)}
 	for _, path := range resolver.Paths() {
@@ -147,8 +147,8 @@ func planMultiEdit(blocks []multiEditBlock, resolver multiEditFileResolver) mult
 				plan.Snapshot[path] = strings.Replace(content, block.Old, block.New, 1)
 				continue
 			case 0:
-				// Literal miss: record a recoverable in-file repair separately
-				// from a wrong filename, but apply neither without a decision.
+				// 字面未命中：把可在文件内修复的情况单独记录，
+				// 与文件名写错区分开，但未经决策两者都不应用。
 				if _, ok := repairReplace(content, block.Old, block.New); ok {
 					plan.Failed = append(plan.Failed, multiEditBlockFailure{
 						Index: i, Kind: multiEditNeedsRepair, Path: block.Path,
@@ -176,14 +176,14 @@ func planMultiEdit(blocks []multiEditBlock, resolver multiEditFileResolver) mult
 	return plan
 }
 
-// resolveBlockFile looks for a SEARCH block in every known file other than its
-// intended target, which is how a wrong filename written by the model can be
-// recovered. Literal unique matches are returned first, fuzzy (repair-ladder)
-// matches after them; each group is sorted by path so callers get stable output
-// and can choose to ignore the weaker group entirely.
+// resolveBlockFile 在每个已知文件中查找 SEARCH 块（目标文件除外），
+// 以此恢复模型写错的文件名。字面唯一匹配优先返回，
+// 其后是模糊（修复阶梯）匹配；每组按路径排序，使调用方获得
+// 稳定的输出，并可以选择
+// 完全忽略较弱的一组。
 //
-// It is a pure diagnostic: it never edits anything and never picks a winner
-// when two files both match, since guessing would change the wrong file.
+// 它是纯诊断：从不编辑任何内容，当两个文件都匹配时也从不挑选胜者，
+// 因为猜测会改错文件。
 func resolveBlockFile(block multiEditBlock, knownFiles multiEditKnownFiles) []multiEditFileCandidate {
 	if block.Old == "" {
 		return nil
@@ -208,16 +208,16 @@ func resolveBlockFile(block multiEditBlock, knownFiles multiEditKnownFiles) []mu
 	return append(exact, fuzzy...)
 }
 
-// multiEditBatchDiagnostic builds a self-consistent diagnostic for a failed
-// batch. The instruction always follows the actual write semantics:
-//   - atomic (today's multi_edit): no bytes were written, so the whole batch
-//     must be re-sent;
-//   - graded (a possible future partial writer): matched edits were written,
-//     so only failing blocks should be re-sent.
+// multiEditBatchDiagnostic 为失败的批次构建自洽的诊断。
+// 指令始终遵循实际写入语义：
+//   - atomic（当前的 multi_edit）：没有写入任何字节，因此整个批次
+//     必须重新发送；
+//   - graded（未来可能的局部写入器）：已写入匹配的编辑，
+//     因此只有失败的块才应重新发送。
 //
-// multiEditRepairError in tools_builtin_write_edit.go is kept in sync with the
-// atomic branch here; both are asserted byte-for-byte by their tests, so a
-// wording change must land in both places together.
+// tools_builtin_write_edit.go 中的 multiEditRepairError 与此处
+// 原子分支保持同步；两者都由各自测试逐字节断言，因此
+// 措辞更改必须同时落在两处。
 func multiEditBatchDiagnostic(path string, failedIdx, total, applied int, content, sample string, atomic bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "multi_edit: repair failed at edit %d of %d after %d edit(s) attempted in %s", failedIdx, total, total, path)

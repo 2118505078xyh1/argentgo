@@ -27,13 +27,13 @@ func TestMapNeutralDiagnosticsUsesOneBasedPositions(t *testing.T) {
 func TestFormatDiagnosticsFiltersErrorsCapsAndMarksTruncation(t *testing.T) {
 	diags := []NeutralDiagnostic{{Line: 1, Severity: "warning", Message: "a warning"}}
 	for i := 0; i < 25; i++ {
-		// Lines 30..6; sorted output must start at 6 (ascending).
+		// 第 30..6 行；排序后的输出必须从 6 开始（升序）。
 		diags = append(diags, NeutralDiagnostic{Line: 30 - i, Column: 2, Severity: "error", Message: "boom", Source: "gopls"})
 	}
 
 	got := FormatDiagnostics("main.go", diags, 20)
 	lines := strings.Split(got, "\n")
-	if len(lines) != 21 { // 20 capped errors + 1 truncation line
+	if len(lines) != 21 { // 20 条被限制的错误 + 1 行截断标记
 		t.Fatalf("FormatDiagnostics lines = %d, want 21:\n%s", len(lines), got)
 	}
 	if !strings.HasPrefix(lines[0], "main.go:6:2 [gopls]: boom") {
@@ -114,7 +114,7 @@ func TestLspAdapterDiagnosticsGracefulWithoutServer(t *testing.T) {
 		t.Fatalf("spawn calls = %d, want one cached attempt", calls)
 	}
 
-	// Unsupported extension never spawns and still degrades quietly.
+	// 不支持的扩展名绝不会派生进程，并仍会静默降级。
 	got, err = a.Diagnostics(context.Background(), "notes.xyz")
 	if err != nil || got == nil || len(got) != 0 {
 		t.Fatalf("unsupported path: got=%+v err=%v, want empty and no error", got, err)
@@ -126,7 +126,7 @@ func TestLspAdapterDiagnosticsGracefulWithoutServer(t *testing.T) {
 
 func TestLspAdapterDiagnosticsSwallowsFetchErrors(t *testing.T) {
 	withStartFn(t, func(context.Context, lsp.Server, string) (*lsp.Client, error) {
-		return &lsp.Client{}, nil // never dereferenced: fetchDiagnostics is swapped
+		return &lsp.Client{}, nil // 从不被解引用：fetchDiagnostics 已被替换
 	})
 	previous := fetchDiagnostics
 	fetchDiagnostics = func(context.Context, *lsp.Client, string) ([]lsp.Diagnostic, error) {

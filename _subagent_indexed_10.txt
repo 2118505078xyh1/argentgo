@@ -1,0 +1,300 @@
+1801	// 被下面的拓扑遍历报告为环。
+1802	// 没有就绪步骤剩余，因此尚未处理的步骤构成至少
+1803	// 一个环（可能包含依赖该环的步骤）。
+1804	// TestRunStopsOnCancelledContext 检查 executor 是否必须遵守
+1805	// 运行 context，即使注入的 seam 忽略它：一旦 context
+1806	// 结束，就不得再启动新的提示或工具调用，且该步骤不得仅因 seam 返回了值就
+1807	// 被报告为成功。
+1808	// 两个 seam 都刻意忽略其 context 并返回值，
+1809	// 因此只有 executor 自身能停止运行。
+1810	// TestRunExecutesStepsInDependencyOrder 检查步骤输出引用即使在生产者声明于消费者之后时
+1811	// 也能在运行时被解析。
+1812	// ValidateDAG 接受前向引用并计算依赖在前的顺序；
+1813	// 依赖必须先行；executor 必须遵守该顺序，否则
+1814	// executor 必须遵守该顺序，否则消费者的提示中会残留字面量 {{steps...output}} 标记。
+1815	// TestRunSkipsDependentWhenProducerFails 检查当生产者失败时，消费者绝不会带着未解析的步骤输出占位符运行。
+1816	// 带着未解析的步骤输出占位符运行，即使其生产者已失败。
+1817	// TestRunSkipsDependentWhenProducerFailsButContinues 检查 on_failure:
+1818	// continue 不会让消费者带着字面量 {{steps...output}} 运行。
+1819	// "继续"不得破坏 DAG 验证所建立的依赖关系。
+1820	// TestRunSkipsDependentWhenProducerSkippedByCondition 检查读取另一步骤输出的步骤在该生产者
+1821	// 读取另一步骤输出的步骤在该生产者自身被跳过时也被跳过，
+1822	// 自身被 When 条件跳过时也被跳过，而不是把未解析标记泄漏到
+1823	// 消费者的提示中。
+1824	// 被跳过的生产者不是失败；运行本身保持成功。
+1825	// TestRetriesDoNotCountCancelledBackoffAsAttempt 检查 StepResult.Attempts
+1826	// 只统计真实的 seam 调用。当取消在下一次尝试前的退避
+1827	// 那次即将到来的尝试不得被计入 ——
+1828	// 睡眠期间打断时，那次即将到来的尝试不得被计入 ——
+1829	// 该步骤只运行了一次。
+1830	// 在退避窗口内很早取消，此时第一次尝试已经失败且 runStep 正在等待重试。
+1831	// TestRetriesCountSuccessfulBackoffAsAttempt 是对应情形：当退避完成后，重试的尝试是真实调用并被计入。
+1832	// 退避完成后，重试的尝试是真实调用并被计入。
+1833	// TestStepNameWhitespaceIsNormalisedForOutputReferences 检查带首尾空白的步骤
+1834	// 名 —— Validate 接受它，因为唯一性检查已先做了裁剪 —— 能从
+1835	// 唯一性检查已做裁剪 —— 能从引用中解析。
+1836	// {{steps.NAME.output}} 引用中解析。在规范化之前，executor 用原始名称作为输出键，而引用携带裁剪后的名称，导致
+1837	// 用原始名称作为输出键，而引用携带裁剪后的名称，因此
+1838	// 每个消费者都被跳过且标记保持未替换。
+1839	// 每个消费者都被跳过且标记保持未替换。
+1840	// TestRunNormalisesStepNamesOnACopy 守护直接 Definition 路径：在代码中构造 Definition（而非解析 JSON）的调用方
+1841	// 仍能使用输出引用，且其原始定义不被修改。
+1842	// 仍能使用输出引用，且其原始定义不被修改。
+1843	// 调用方的定义必须保持不变。
+1844	// TestStepTimeoutFailsSeamThatIgnoresContext 检查步骤局部超时由 executor 自身强制执行。在每次尝试的截止时间之后，父运行 context 仍然健康，
+1845	// 在每次尝试的截止时间之后，runStep 无法检测这种情况；attempt
+1846	// 因此 runStep 无法检测这种情况；attempt 必须注意到绑定 context 已过期，即使注入的 seam
+1847	// 忽略了它并返回了成功的值。
+1848	// TestStepTimeoutKeepsFastSeamOK 守护截止时间检查的另一面：
+1849	// 在其预算内完成的 seam 不得被标记为超时。
+1850	// 步骤与运行状态。
+1851	// defaultBackoff 是第一次重试前的延迟；每次尝试翻倍。
+1852	// defaultCheckTimeout 在定义未给定时限制客观成功检查或清理命令。
+1853	// 定义未给定时。
+1854	// maxCheckDiagnostic 限制复制到失败消息中的命令输出。
+1855	// maxCheckAnchorOutput 限制复制到重试提示中的脱敏检查输出。它刻意小于原始诊断：提示只是轻推，
+1856	// 提示。它刻意小于原始诊断：提示只是轻推，
+1857	// 而不是命令输出的第二份副本。
+1858	// Prompter 向模型发送一个提示并返回其答案。
+1859	// ToolRunner 按名称和原始 JSON 参数调用一个工具。
+1860	// Executor 用注入的模型和工具 seam 运行一个定义。
+1861	// Backoff 是基础重试延迟（默认 100ms，每次尝试翻倍）。
+1862	// StepResult 是一个步骤的结果。
+1863	// Run 是一次工作流的结果。
+1864	// Succeeded 报告是否每个步骤都成功或被跳过。
+1865	// Output 按名称返回某步骤的输出。
+1866	// Run 按依赖顺序执行步骤并返回所有结果。
+1867	// 带声明参数的定义需要通过以下方式提供值
+1868	// 带声明参数的定义需要通过以下方式提供值
+1869	// RunWithParams 按依赖顺序执行步骤（读取 {{steps.NAME.output}} 的步骤在其生产者之后运行），并额外从定义声明的参数中解析 {{key}}
+1870	// 占位符。值在此处和 CLI 都会被解析，
+1871	// 占位符。值在此处和 CLI 都会被解析，使调用方无法通过传原始值绕过必需/默认检查；对已解析的映射重复解析是幂等的。
+1872	// 通过传原始值绕过检查；对已解析映射重复解析是幂等的。
+1873	// 失败的步骤会额外重试最多 step.Retries 次并采用指数
+1874	// 退避；尝试耗尽后步骤的 on_failure 策略决定运行是停止还是继续。错误只在定义无效或参数未解析时返回 —— 步骤失败属于结果的一部分。
+1875	// 运行是停止还是继续。错误只在定义无效时返回，
+1876	// 参数未解析时返回 —— 步骤失败属于结果的一部分。
+1877	// Validate() 已经拒绝了环和悬空步骤引用；
+1878	// 它计算出的顺序就是执行必须遵循的顺序。读取以下内容的步骤
+1879	// Validate() 已经拒绝了环和悬空步骤引用；它计算出的顺序就是执行必须遵循的顺序。读取 {{steps.NAME.output}} 的步骤
+1880	// 必须在其生产者之后运行，否则标记会原样留在提示或工具参数中。
+1881	// {{steps.NAME.output}} 引用是真实依赖，而不只是模板提示：生产者没有产生输出时消费者不得运行。全局停止标志在这里不够，因为生产者
+1882	// 模板提示：生产者没有产生输出时消费者不得运行。全局停止标志这里不够，因为生产者
+1883	// 可能失败，或被跳过，
+1884	// 可能在 on_failure:continue 下失败，或被其自身 When 条件跳过，使消费者留下字面量未解析标记。
+1885	// 条件跳过，使消费者留下字面量未解析标记。
+1886	// runStep 执行一个步骤，带退避重试。
+1887	// 已结束的 context 无法通过另一次尝试恢复。在调用 seam 之前
+1888	// 已结束的 context 无法通过另一次尝试恢复。在调用 seam 之前检查：prompter 或 tool runner 可能忽略其
+1889	// context，而被取消的运行仍必须停止而不启动
+1890	// context，而被取消的运行仍必须停止而不启动新工作。若实际未尝试任何内容，Attempts 保持为零。
+1891	// Attempts 统计真实的 seam 调用。仅在退避成功结束后才增加它，使等待期间的取消不会用一个从未真正运行的尝试抬高计数。
+1892	// 退避成功结束后才增加，使等待期间的取消
+1893	// 不会用一个从未真正运行的尝试抬高计数。
+1894	// 已取消或超时：另一次尝试无济于事。若 seam
+1895	// 已取消或超时：另一次尝试无济于事。若 seam 忽略取消并返回了值，应暴露
+1896	// context 错误，使被取消的步骤不被报告为成功。
+1897	// 失败的成功检查会被该循环重新运行，因此告诉模型不要
+1898	// 原样重复它。仅当配置了重试时才添加提示；
+1899	// 检查自身的诊断保持逐字节不变。
+1900	// 失败的成功检查会被该循环重新运行，因此告诉模型不要原样重复它。仅当配置了重试时才添加提示；检查自身的诊断保持逐字节不变。
+1901	// 清理在所有尝试耗尽之后、调用方应用步骤的 on_failure 策略之前运行一次。其输出被加入
+1902	// 诊断，但其退出码不能改变决策。
+1903	// 诊断，但其退出码不能改变决策。
+1904	// attempt 运行一个步骤一次，遵守步骤局部超时。配置的成功检查是 attempt 的一部分，因此失败的检查由 runStep 像工具或 prompter 错误一样重试。
+1905	// 像工具或 prompter 错误一样被重试。
+1906	// seam 可能忽略其 context 并在 attempt 截止时间已过后返回值。步骤局部超时不会取消父
+1907	// 截止时间已过后返回值。步骤局部超时不会取消父
+1908	// 运行 context，因此 runStep 无法通过 ctx.Err() 察觉；executor 必须自身强制执行绑定，否则迟到的结果会被记为
+1909	// executor 必须自身强制执行绑定，否则迟到的结果会被记为
+1910	// 成功。runStep 的取消检查仍适用于父取消，
+1911	// 成功。runStep 的取消检查仍适用于父取消，attemptCtx 继承了它。
+1912	// timedOut 重新标记截止时间错误，使结果说明是哪个步骤以及
+1913	// 它允许运行多久。
+1914	// checkTimeout 解析 TimeoutSeconds 值；零或负数选择保守默认值。
+1915	// 保守默认值。
+1916	// diagnosticTail 最多保留 s 末尾的 n 字节。切点移到 rune 边界，使多字节字符从不被切掉一半。
+1917	// rune 边界，使多字节字符从不被切掉一半。
+1918	// commandDiagnostic 为失败消息挑选有界的命令输出，
+1919	// commandDiagnostic 为失败消息挑选有界的命令输出，优先 stderr，因为检查在那里报告错误。
+1920	// checkFailure 包装失败的成功检查，使 runStep 能识别并添加
+1921	// 有界的重试提示。原始消息和错误链被保留：
+1922	// checkFailure 包装失败的成功检查，使 runStep 能识别它并添加有界的重试提示。原始消息和错误链被保留：Error 文本不变，Unwrap 保持 DeadlineExceeded 可匹配。
+1923	// checkRetryHint 在工作流层镜像 agent.VerificationFeedback，该层不允许导入 agent。它在裁剪到 rune 安全的尾部之前对检查输出脱敏，然后添加下一步指令，使重试
+1924	// 该层不允许导入 agent。它在裁剪之前对检查输出脱敏，
+1925	// 裁剪到 rune 安全的尾部，然后添加下一步指令，使重试
+1926	// 不会在代码未变的情况下重跑同一个检查。
+1927	// runSuccessCheck 通过 proc.Shell/proc.Run 客观验证步骤，这是代码库中所有其他命令使用的同一 shell 路径。非零退出、spawn 错误或超时都会变成错误，使 runStep 通过
+1928	// 代码库中所有其他命令使用的同一 shell 路径。非零退出、
+1929	// spawn 错误或超时都会变成错误，使 runStep 通过
+1930	// 正常的失败路径重试。
+1931	// 正常的失败路径重试它。
+1932	// 检查是 attempt 的一部分，因此它绝不能比 attempt 的剩余预算活得更久。当 context 带有截止时间（步骤超时）时，
+1933	// 把配置的检查超时限制到该预算剩余的时间。
+1934	// 检查可能产生自己的子进程（sleep、构建工具）；超时时杀掉整棵树，使步骤不会超出其预算。
+1935	// 超时时杀掉整棵树，使步骤不会超出其预算。
+1936	// runCleanupCommand 运行步骤的清理命令一次并返回被追加到失败诊断的文本。其退出码被报告但从不
+1937	// 被追加到失败诊断。其退出码被报告但从不
+1938	// 改变失败决策。
+1939	// 清理可能产生自己的子进程；超时时杀掉整棵树，使它
+1940	// 改变失败决策。
+1941	// 清理可能产生自己的子进程；超时时杀掉整棵树，使它不能在步骤失败后仍让运行挂住。
+1942	// backoffAt 将基础延迟翻倍，并设上限使大的重试预算不会导致 duration 溢出。
+1943	// Substitute 替换 {{input}}、{{steps.NAME.output}}，并在提供 params 时替换来自已解析工作流参数的 {{key}}
+1944	// 提供 params 时来自已解析工作流参数的 {{key}} 占位符。内置
+1945	// 标记优先，无值的键保持原样，使面向模型的模板得以
+1946	// 占位符。内置标记优先，无值的键保持原样，使面向模型的模板得以保留。插入的值被原样写入
+1947	// 且不再重扫，因此包含 "{{...}}" 的值无法注入标记。
+1948	// lookupParam 找到第一个持有 key 的 map。Substitute 的可变参数通常只携带一个 map；接受更多使调用方
+1949	// Substitute 的可变参数通常只携带一个 map；接受更多使调用方
+1950	// 组合参数来源时调用点保持简单。
+1951	// RecoveryStep 是纯函数：保留一份副本，使日志的修改能被发现，即使返回的决策正确。
+1952	// 能被发现，即使返回的决策正确。
+1953	// StepRecord 是持久化步骤日志中的一条记录。Index 是步骤在
+1954	// StepRecord 是持久化步骤日志中的一条记录。Index 是步骤在工作流定义中的位置；Name 和 Status 镜像被记录的 StepResult。
+1955	// 被记录的 StepResult。记录可能以任意顺序到达（例如从日志
+1956	// 记录可能以任意顺序到达（例如从日志重放运行时），因此用 Index 而非切片位置标识步骤。
+1957	// 只有 StatusOK 算完成；失败和跳过的步骤必须重试。
+1958	// RecoveryStep 根据已记录步骤的日志和当前步骤索引决定幂等重放应从哪里恢复。
+1959	// 已记录步骤的日志和当前步骤索引。
+1960	// 当日志中至少有一条该索引的记录且状态为 StatusOK 时，
+1961	// 步骤被视为完成；失败和跳过的记录不算。函数
+1962	// 从 current 向前遍历，返回第一个未完成的索引作为
+1963	// 当日志中至少有一条该索引的记录且状态为 StatusOK 时，步骤被视为完成；失败和跳过的记录不算。函数从 current 向前遍历，返回第一个未完成的索引作为 resumeFrom。skipCompleted 报告遍历是否越过了
+1964	// current（current 处的步骤及可能的更多步骤已完成，
+1965	// 应跳过而非重跑）。若从 current 到最后一条记录索引的所有步骤
+1966	// current（current 处的步骤及可能的更多步骤已完成，应跳过而非重跑）。若从 current 到最后一条记录索引的所有步骤都已完成，resumeFrom 为该最后索引之后一位，
+1967	// 表示没有内容需要重放。
+1968	// 表示没有内容需要重放。
+1969	// 函数是纯函数：从不修改日志，也不依赖切片顺序。负数 current 视为零。Index 为负的记录被忽略。
+1970	// 被忽略。
+1971	// requireWorkflowShell 在没有可用 shell 运行客观检查与清理命令时跳过测试。
+1972	// 运行客观检查与清理命令。
+1973	// shellSupports 报告 shell 能否成功运行命令。
+1974	// shellSupports 也证明 shell 可用，因此这里无需额外探测。
+1975	// 检查省略了 timeout_seconds（因此会得到 30s 默认值），但成功检查是 attempt 的一部分且仍必须遵守步骤预算。
+1976	// 成功检查是 attempt 的一部分且仍必须遵守步骤预算。
+1977	// TestFailedCheckAddsRetryHintWhenRetriesConfigured 检查失败的
+1978	// TestFailedCheckAddsRetryHintWhenRetriesConfigured 检查失败的 StepCheck 在步骤将被重试时带有有界、脱敏的结论和下一步轻推。
+1979	// 步骤将被重试。
+1980	// TestFailedCheckWithoutRetriesHasNoHint 检查没有重试预算的步骤保持失败诊断不变。
+1981	// 保持失败诊断不变。
+1982	// TestRunSuccessCheckMarksFailureForRetryHint 检查检查失败
+1983	// TestRunSuccessCheckMarksFailureForRetryHint 检查检查失败能被 runStep 识别而不改变其错误文本或 unwrap 链。
+1984	// TestCheckFailureKeepsDeadlineExceededChain 检查包装检查
+1985	// TestCheckFailureKeepsDeadlineExceededChain 检查包装检查失败不会对调用方隐藏底层 context 错误。
+1986	// TestCheckRetryHintRedactsAndBoundsOutput 检查提示从不泄漏
+1987	// TestCheckRetryHintRedactsAndBoundsOutput 检查提示从不泄漏凭据、从不在 rune 中间截断且保持在其字节预算内。
+1988	// TestValidateParamDefaultsAcceptsWellTypedDefaults 固定接受的 Go
+1989	// TestValidateParamDefaultsAcceptsWellTypedDefaults 固定每种 input_type 接受的 Go 类型。该集合镜像 stringifyDefault，使通过验证的值总能被解析器渲染。
+1990	// 通过验证的值总能被解析器渲染。
+1991	// TestValidateParamDefaultsRejectsMismatchedDefaults 覆盖声明
+1992	// 解析器过去静默接受的错误：错误 Go 类型的默认值、
+1993	// TestValidateParamDefaultsRejectsMismatchedDefaults 覆盖解析器过去静默接受的声明错误：错误 Go 类型的默认值、畸形日期，以及不在选项中的 select 默认值。
+1994	// TestDefinitionValidateWiresParamDefaultCheck 证明新检查通过
+1995	// 公共入口可达，而非仅在直接调用时生效。ParseDefinition 和
+1996	// TestDefinitionValidateWiresParamDefaultCheck 证明新检查通过公共入口可达，而非仅在直接调用时生效。ParseDefinition（会验证）和 Definition.Validate 都必须拒绝默认值与 input_type 矛盾的格式良好声明。
+1997	// 默认值与 input_type 矛盾的格式良好声明。
+1998	// executor 共享同一验证门，因此畸形默认值会在任何模型或工具被调用前被拒绝。
+1999	// 在任何模型或工具被调用前被拒绝。
+2000	// TestValidateParamDefaultsErrorsAreSecretSafe 守护如下规则：验证错误可以点名键和类型，但绝不回显声明的值。
+2001	// 错误可以点名键和类型但绝不回显声明的值。
+2002	// 向后兼容的三参数入口遵守同一门。
+2003	// 现有三参数调用方看到不变的行为。
+2004	// 插入的值不会被重扫；一个值无法注入另一个标记。
+2005	// Substitute 解析的正是同一种标记拼写。
+2006	// 无参数的 JSON 路径仍可用，且格式良好的
+2007	// 无参数的 JSON 路径仍可用，且格式良好的参数化文档能通过 ParseDefinition 解析。
+2008	// 可选参数（以及 user_prompt 参数）可以带默认值。
+2009	// 必需参数不可以。
+2010	// 参数过多。
+2011	// select 选项总数过多。
+2012	// 序列化参数过大。
+2013	// 序列化参数过大。
+2014	// 提供的值优先于默认值。
+2015	// 现有文档使用看起来自定义的标记为模型保留内容；在没有声明参数时它们必须仍然有效。
+2016	// 现有模板仍像以前一样渲染。
+2017	// 限制镜像 goose 的配方参数上限。它们使工作流保持足够小以便共享，并阻止畸形声明在验证时耗尽内存。
+2018	// 以便共享，并阻止畸形声明在验证时耗尽
+2019	// 内存。
+2020	// nextPlaceholder 返回 text 中第一个 {{...}} 标记。start 是
+2021	// "{{" 的索引，tokenEnd 是刚好越过 "}}" 的索引，name 是裁剪后的内部
+2022	// nextPlaceholder 返回 text 中第一个 {{...}} 标记。start 是 "{{" 的索引，tokenEnd 是刚好越过 "}}" 的索引，name 是裁剪后的内部文本。当 text 没有完整标记时 ok 为 false。这是校验用的 ExtractPlaceholders 和渲染用的 Substitute 共享的占位符语法的唯一真相来源。
+2023	// 占位符语法的唯一真相来源，由 ExtractPlaceholders（验证）
+2024	// 和 Substitute（渲染）共享。
+2025	// ExtractPlaceholders 返回每个 {{...}} 标记内去重并排序后的
+2026	// ExtractPlaceholders 返回 s 中每个 {{...}} 标记内去重并排序后的名称。未终止和空的标记被忽略。
+2027	// isBuiltinPlaceholder 报告 name 是否为 runner 的保留占位符而非声明的参数。
+2028	// 占位符而非声明的参数。
+2029	// ValidateParameters 检查参数声明，并在工作流声明参数时强制声明与提示和工具参数中使用的占位符双向一致。
+2030	// 声明参数时强制声明与占位符双向一致
+2031	// 提示与工具参数中使用的占位符之间的一致性。
+2032	// 每个错误都点名一个字段/键和规则；声明的值（默认值和
+2033	// 选项）从不被包含，使工作流可被共享且验证错误可粘贴到 issue
+2034	// 每个错误都点名一个字段/键和规则；声明的值（默认值和选项）从不被包含，使工作流可被共享且验证错误可粘贴到 issue 而不泄漏秘密。
+2035	// 旧工作流没有参数：其模板只使用
+2036	// 旧工作流没有参数：其模板只使用内置 {{input}} / {{steps...}} 占位符（且可能有意把其他标记留给模型），因此不适用新检查。
+2037	// 把其他标记留给模型），因此不适用新检查。
+2038	// 只有序列化大小与上限有关；绝不回显内容。
+2039	// 提示或参数中的每个非内置占位符都必须被声明。
+2040	// 而每个声明都必须被实际引用。
+2041	// dateLayout 是日期输入默认值唯一被接受的形式。保持单一布局使声明检查确定，并给作者一个具体格式目标。
+2042	// 单一布局使声明检查确定，并给作者一个
+2043	// 具体格式目标。
+2044	// ValidateParamDefaults 检查每个声明的默认值是否与
+2045	// ValidateParamDefaults 检查每个声明的默认值与其 input_type 一致（对 select 还要与其选项一致）。它是在验证时运行的声明检查，使畸形默认值无法到达 ResolveParameters，在那里它会被原样字符串化进提示或工具参数。
+2046	// 验证时运行，使畸形默认值无法到达
+2047	// ResolveParameters，在那里它会被原样字符串化进提示或
+2048	// 工具参数。
+2049	// 这补充了 ValidateParameters：后者检查声明的
+2050	// 形状（键、类型、必需性、上限、使用），而本函数检查
+2051	// 默认值是否符合声明类型。错误点名参数
+2052	// 和期望类型；值从不回显，使工作流可被共享
+2053	// 这补充了 ValidateParameters：后者检查声明的形状（键、类型、必需性、上限、使用），而本函数按声明类型检查默认值。错误点名参数和期望类型；值从不回显，使工作流可被共享且验证错误可粘贴到 issue 而不泄漏秘密。
+2054	// 没有默认值意味着值在运行时来自调用方；
+2055	// 这里没有可检查的类型。
+2056	// 没有默认值意味着值在运行时来自调用方；这里没有可检查的类型。
+2057	// defaultMatchesType 报告声明的默认值是否为其 input_type 的良类型值。接受的 Go 类型镜像 stringifyDefault，使通过验证的值总能被解析器渲染。
+2058	// 通过验证的值总能被解析器渲染。
+2059	// 文件输入没有默认值；ValidateParameters 会拒绝该声明本身，因此这里的默认值永远不是良类型。
+2060	// 声明本身，因此这里的默认值永远不是良类型。
+2061	// 未知的 input_type 会先被 ValidateParameters 拒绝。
+2062	// isDateValue 报告 s 是否能按声明的日期布局解析。
+2063	// ResolveParameters 从提供的输入或其声明默认值中为每个参数填充值。值被强制转为字符串并限制大小。
+2064	// 默认值。值被强制转为字符串并限制大小。
+2065	// 错误是秘密安全的：它们点名参数和规则，绝不点名值。
+2066	// 可选和 user_prompt 参数没有值时直接缺席。
+2067	// stringifyDefault 将声明的默认值强制转为模板字符串。一个
+2068	// stringifyDefault 将声明的默认值强制转为模板字符串。nil 默认值表示"无值"。
+2069	// recorder 保存每个提示和工具调用以供断言。
+2070	// Package workflow 运行脚本化的多步骤任务。
+2071	// 定义是一个小的 JSON 文档：
+2072	//	{"name":"review","steps":[
+2073	//	  {"name":"scan","prompt":"list the changed files"},
+2074	//	  {"name":"review","prompt":"review {{steps.scan.output}} for {{input}}"},
+2075	//	  {"name":"report","prompt":"write the report","when":{"previous_contains":"BUG"}}
+2076	// 步骤按依赖顺序运行：读取 {{steps.NAME.output}} 的步骤在产生它的步骤之后运行。每个步骤要么提示模型要么调用
+2077	// 在产生它的步骤之后运行。每个步骤要么提示模型要么调用
+2078	// 工具，并可携带对上一步输出的条件、超时、
+2079	// 带指数退避的重试以及 on_failure 策略。
+2080	// 失败策略。
+2081	// OnFailureStop 结束运行；其余步骤被记录为跳过。
+2082	// OnFailureContinue 继续执行下一步。
+2083	// OnFailureRetry 重试该步骤（至少一次），当尝试耗尽时停止。
+2084	// 尝试耗尽。
+2085	// Duration 是 JSON 友好的 time.Duration：它编码为字符串（"30s"）
+2086	// 并在解码时接受时长字符串或秒数。
+2087	// Std 以 time.Duration 形式返回值。
+2088	// String 按 time.Duration 的方式渲染时长。
+2089	// MarshalJSON 将时长写为字符串。
+2090	// UnmarshalJSON 接受 "45s"、90（秒）、"" 和 null。
+2091	*d = Duration(v)
+2092		*d = Duration(time.Duration(seconds * float64(time.Second)))
+2093	// When 根据上一步的输出为步骤设置门槛。
+2094	// PreviousContains 仅在上一步输出包含它时运行步骤。
+2095	// PreviousNotContains 仅在上一步输出不包含它时运行步骤。
+2096	// 包含它。
+2097	// matches 报告条件是否成立。prev 是最后一个实际运行的步骤的输出；被跳过的步骤永远不会成为前一个。
+2098	// 实际运行的步骤；被跳过的步骤永远不会成为前一个。
+2099	// StepCheck 是步骤的客观 shell 检查。退出码零表示步骤达成了目标；其他任何情况（包括超时）都是步骤失败
+2100	// 步骤达成了目标；其他任何情况（包括超时）都是步骤失败

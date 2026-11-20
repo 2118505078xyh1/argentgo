@@ -9,15 +9,15 @@ import (
 	"unicode/utf8"
 )
 
-// FileSystem is the read-only view of the workspace used by the workspace
-// panel. The default reads the real filesystem; tests inject a fake tree, and
-// no rendering path reaches for os.Getenv or os.ReadFile on its own.
+// FileSystem 是工作区面板使用的 workspace 只读视图。
+// 默认读取真实文件系统；测试注入假树，且
+// 任何渲染路径都不会自行调用 os.Getenv 或 os.ReadFile。
 type FileSystem interface {
 	ReadDir(path string) ([]FileInfo, error)
 	ReadFile(path string) ([]byte, error)
 }
 
-// FileInfo is the portable subset of os.DirEntry the tree needs.
+// FileInfo 是 tree 所需的 os.DirEntry 的可移植子集。
 type FileInfo struct {
 	Name  string
 	IsDir bool
@@ -46,8 +46,8 @@ const (
 	maxPreviewLines     = 80
 )
 
-// workspaceIgnoredDirs are build outputs and dependency trees: walking them
-// would bury the source in noise.
+// workspaceIgnoredDirs 是构建输出和依赖树：遍历它们
+// 会把源码埋没在噪声中。
 var workspaceIgnoredDirs = map[string]bool{
 	".git":         true,
 	"node_modules": true,
@@ -130,8 +130,8 @@ func (m *Model) moveWorkspaceCursorLocked(delta int) {
 	}
 	m.workspaceCursor += delta
 	m.clampWorkspaceCursorLocked()
-	// A cursor near the bottom keeps the newest row in view without scrolling
-	// on every keystroke near the top.
+	// 靠近底部的光标让最新行保持可见，而无需在
+	// 靠近顶部时每次按键都滚动。
 	treeRows := maxInt((m.bodyH-3)/2, 1)
 	if m.workspaceCursor >= m.workspaceScroll+treeRows {
 		m.workspaceScroll = m.workspaceCursor - treeRows + 1
@@ -173,8 +173,8 @@ func (m *Model) refreshPreviewLocked() {
 	m.previewScroll = clampScroll(m.previewScroll, len(lines))
 }
 
-// workspaceLines renders the tree above a read-only preview of the cursor's
-// file. The result is exactly height rows long so panel sections align.
+// workspaceLines 在光标文件的只读预览上方渲染树。
+// 结果恰好是 height 行，使面板各节对齐。
 func (m *Model) workspaceLines(width, height int) []Line {
 	title := NewLine()
 	title.Push(text(m.locale, "workspace_title"), m.palette.accent())

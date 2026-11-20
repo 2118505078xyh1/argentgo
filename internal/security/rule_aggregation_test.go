@@ -8,10 +8,9 @@ import (
 	"testing"
 )
 
-// TestRuleDecisionDenyNotMaskedByEarlierAllow is the core regression: an allow
-// rule placed before a deny rule used to win simply because it came first,
-// hiding a high-risk operation later in the same call. The strictest decision
-// must win regardless of row order.
+// TestRuleDecisionDenyNotMaskedByEarlierAllow 是核心回归测试：放在 deny 规则之前的
+// allow 规则过去仅因排在前面就胜出，从而隐藏同一调用中后面的高风险操作。
+// 无论行序如何，最严格的判定都必须胜出。
 func TestRuleDecisionDenyNotMaskedByEarlierAllow(t *testing.T) {
 	command := mustArgs(t, `{"command":"echo hi && rm -rf /"}`)
 	cases := []struct {
@@ -41,8 +40,8 @@ func TestRuleDecisionDenyNotMaskedByEarlierAllow(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionAskOverridesAllow verifies that an ask row absorbs a matching
-// allow row in either order: allow must never downgrade a pending approval.
+// TestRuleDecisionAskOverridesAllow 验证 ask 行无论顺序如何都会吸收匹配的 allow 行：
+// allow 绝不能降低待处理的审批。
 func TestRuleDecisionAskOverridesAllow(t *testing.T) {
 	command := mustArgs(t, `{"command":"git push origin main"}`)
 	cases := []struct {
@@ -72,8 +71,8 @@ func TestRuleDecisionAskOverridesAllow(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionDenyBeatsAskAndAllow checks the full deny > ask > allow
-// ordering when all three rules match the same call.
+// TestRuleDecisionDenyBeatsAskAndAllow 检查三条规则都匹配同一调用时的完整
+// deny > ask > allow 顺序。
 func TestRuleDecisionDenyBeatsAskAndAllow(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{Rules: []Rule{
 		{Decision: Allow, Command: "push"},
@@ -85,9 +84,8 @@ func TestRuleDecisionDenyBeatsAskAndAllow(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionAggregatesAcrossCommandSegments covers a chained shell
-// program whose first segment is allowed but whose later segment is denied.
-// Both rules match the full command string, so aggregation keeps the deny.
+// TestRuleDecisionAggregatesAcrossCommandSegments 覆盖一条链式 shell 程序，其第一段
+// 被允许、后面的段被拒绝。两条规则都匹配完整命令串，因此聚合保留了 deny。
 func TestRuleDecisionAggregatesAcrossCommandSegments(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{Rules: []Rule{
 		{Decision: Allow, Command: "ls"},
@@ -109,9 +107,8 @@ func TestRuleDecisionAggregatesAcrossCommandSegments(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionNoMatchKeepsDefault ensures that when no row matches the
-// aggregation layer reports "no match" and Evaluate falls back to its existing
-// tool-kind defaults (read-only allow, mutating ask).
+// TestRuleDecisionNoMatchKeepsDefault 确保没有行匹配时，聚合层报告"无匹配"，
+// Evaluate 回退到其现有的工具类型默认值（只读 allow，修改类 ask）。
 func TestRuleDecisionNoMatchKeepsDefault(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{Rules: []Rule{
 		{Decision: Allow, Tool: "read", Path: "src/**"},
@@ -133,9 +130,8 @@ func TestRuleDecisionNoMatchKeepsDefault(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionSingleMatchUnchanged guards the non-overlapping cases: a
-// single matching row keeps its decision and reason, and disjoint rows keep
-// their original first-match-equivalent behaviour.
+// TestRuleDecisionSingleMatchUnchanged 守护不重叠的情况：单条匹配行保留其判定和
+// 原因，互不相交的行保持原有的等价于首条匹配的行为。
 func TestRuleDecisionSingleMatchUnchanged(t *testing.T) {
 	denyPolicy := NewPolicy(t.TempDir(), PolicyConfig{Rules: []Rule{
 		{Decision: Deny, Tool: "read", Path: "**/.env"},
@@ -159,9 +155,8 @@ func TestRuleDecisionSingleMatchUnchanged(t *testing.T) {
 	}
 }
 
-// TestChainAggregatedDenyStopsBeforeApproval confirms the approval-chain
-// contract is intact: an aggregated deny is a hard StopError (ErrDenied, not
-// ErrRefused), the approver is never consulted, and the audit records a deny.
+// TestChainAggregatedDenyStopsBeforeApproval 确认审批链契约完好：聚合的 deny 是硬性的
+// StopError（ErrDenied，而非 ErrRefused），审批器从不被询问，且审计记录一条 deny。
 func TestChainAggregatedDenyStopsBeforeApproval(t *testing.T) {
 	dir := t.TempDir()
 	approver := &countingApprover{allow: true}

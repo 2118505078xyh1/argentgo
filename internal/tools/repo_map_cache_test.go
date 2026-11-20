@@ -41,7 +41,7 @@ func TestRepoSymbolCacheHitOnSameStamp(t *testing.T) {
 		t.Fatalf("stats = %+v, want entries=1 misses=1 hits=1", stats)
 	}
 
-	// non-Go files are ignored and never enter the cache.
+	// 非 Go 文件会被忽略，绝不进入缓存。
 	if syms, hit := cachedRepoSymbols(root, "notes.txt"); hit || len(syms) != 0 {
 		t.Fatalf("non-Go file = (%+v, %v), want (nil, false)", syms, hit)
 	}
@@ -66,7 +66,7 @@ func TestRepoSymbolCacheInvalidatesOnChange(t *testing.T) {
 	}
 	findRepoSym(t, first, "Old")
 
-	// New content, different size, and a different mtime: the stamp changes.
+	// 新内容、不同大小和不同的 mtime：戳会改变。
 	writeSymFile(t, root, "alpha.go", "package alpha\n\ntype BrandNewType struct{}\n\nfunc Fresh() {}\n")
 	mtime2 := time.Unix(1_700_000_500, 0)
 	if err := os.Chtimes(path, mtime2, mtime2); err != nil {
@@ -86,7 +86,7 @@ func TestRepoSymbolCacheInvalidatesOnChange(t *testing.T) {
 	if stats.misses != 2 || stats.entries != 2 {
 		t.Fatalf("stats = %+v, want misses=2 entries=2 (old stamp retained but unused)", stats)
 	}
-	// The new stamp is now cached and hits.
+	// 新戳现在已被缓存并命中。
 	if _, hit := cachedRepoSymbols(root, "alpha.go"); !hit {
 		t.Fatal("new file stamp should now hit the cache")
 	}
@@ -154,7 +154,7 @@ func TestCachedRepoSymbolsForFilesMatchesExtract(t *testing.T) {
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("cached symbols differ from uncached:\n%+v\n%+v", want, got)
 	}
-	// A second pass served entirely from the cache is still identical.
+	// 完全由缓存服务的第二遍仍然一致。
 	if got2 := cachedRepoSymbolsForFiles(root, files); !reflect.DeepEqual(want, got2) {
 		t.Fatalf("cache hit pass differs:\n%+v\n%+v", want, got2)
 	}
@@ -170,8 +170,8 @@ func TestFitBudgetSelectsLargestPrefixWithinTolerance(t *testing.T) {
 	if len(got) != 2 || !reflect.DeepEqual(got, lines[:2]) {
 		t.Fatalf("fitBudget kept %d lines, want the first 2: %q", len(got), got)
 	}
-	// The 15% tolerance is exactly what lets the 5-token second line through:
-	// a strict 10-token limit would keep only the first 6-token line.
+	// 15% 的容差正是让 5-token 的第二行得以通过的原因：
+	// 严格的 10-token 上限只会保留第一行 6-token 的行。
 	limit := 10 + 10*fitBudgetTolerancePercent/100
 	cost := 0
 	for _, line := range got {
@@ -220,8 +220,8 @@ func TestFitBudgetCJK(t *testing.T) {
 		"方法：校验输入并返回结果",
 		"常量：默认超时时间配置",
 	}
-	// Budget 30 calibrates to the CJK-aware estimate (each line costs ~10-12
-	// tokens, not the old byte/4 value of ~8). It must cut a non-empty prefix.
+	// 预算 30 按 CJK 感知的估算校准（每行约 10-12 个
+	// token，而非旧的按字节/4 得到的约 8）。它必须切出一个非空前缀。
 	const budget = 30
 	got := fitBudget(lines, budget)
 	if len(got) == 0 || len(got) >= len(lines) {
@@ -268,8 +268,8 @@ func TestFitBudgetEmptyInput(t *testing.T) {
 }
 
 func TestFitBudgetCJKNoLongerUnderestimates(t *testing.T) {
-	// Same byte length, very different real cost: len/4 used to score both
-	// lines 30 tokens, so a 30-token budget accepted the Chinese one too.
+	// 字节长度相同，真实成本却大不相同：len/4 过去给两行都打
+	// 30 token，因此 30-token 预算连中文那行也接受了。
 	ascii := strings.Repeat("a", 120) // 30 ASCII tokens
 	cjk := strings.Repeat("中", 40)    // 120 bytes but 40 tokens
 
@@ -288,7 +288,7 @@ func TestFitBudgetCJKNoLongerUnderestimates(t *testing.T) {
 		t.Fatalf("CJK line of %d tokens must not fit a %d-token budget (limit %d): %q",
 			estimateRepoTokens(cjk), budget, limit, got)
 	}
-	// A generous budget still keeps the CJK line intact and UTF-8 safe.
+	// 充足的预算仍保持 CJK 行完整且 UTF-8 安全。
 	if got := fitBudget([]string{cjk}, 100); len(got) != 1 || got[0] != cjk {
 		t.Fatalf("generous budget did not keep the CJK line: %q", got)
 	}

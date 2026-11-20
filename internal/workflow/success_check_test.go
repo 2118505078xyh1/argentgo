@@ -11,8 +11,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
-// requireWorkflowShell skips a test when no usable shell is available to run
-// the objective check and cleanup commands with.
+// requireWorkflowShell 在没有可用 shell 运行客观检查与清理命令时跳过测试。
+// 运行客观检查与清理命令。
 func requireWorkflowShell(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -24,7 +24,7 @@ func requireWorkflowShell(t *testing.T) {
 	}
 }
 
-// shellSupports reports whether the shell can run command successfully.
+// shellSupports 报告 shell 能否成功运行命令。
 func shellSupports(command string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -170,7 +170,7 @@ func TestWithoutSuccessCheckBehaviorUnchanged(t *testing.T) {
 }
 
 func TestSuccessCheckTimeoutSecondsIsRespected(t *testing.T) {
-	// shellSupports also proves a shell is available, so no extra probe here.
+	// shellSupports 也证明 shell 可用，因此这里无需额外探测。
 	if !shellSupports("sleep 0") {
 		t.Skip("the workflow shell does not support sleep")
 	}
@@ -195,8 +195,8 @@ func TestStepTimeoutBoundsSuccessCheck(t *testing.T) {
 		t.Skip("the workflow shell does not support sleep")
 	}
 	exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) { return "done", nil })}
-	// The check omits timeout_seconds (so it would get the 30s default), but a
-	// success check is part of the attempt and must still obey the step budget.
+	// 检查省略了 timeout_seconds（因此会得到 30s 默认值），但成功检查是 attempt 的一部分且仍必须遵守步骤预算。
+	// 成功检查是 attempt 的一部分且仍必须遵守步骤预算。
 	def := mustDefinition(t, `{"steps":[{"name":"a","prompt":"a","timeout":"50ms","success_check":{"command":"sleep 1"}}]}`)
 
 	started := time.Now()

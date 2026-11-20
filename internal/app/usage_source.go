@@ -8,26 +8,22 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// usageSnapshot is the JSON payload the `usage` tool reports. It deliberately
-// mirrors the fields agent.EventUsage carries (see internal/agent/events.go):
-// the 1-based turn number, this request's usage delta and the run-wide total.
-// Coin/cost provenance is persisted separately in session stats; EventUsage does
-// not carry a cost, so this tool reports the token data that is actually on the
-// event stream rather than inventing a number.
+// usageSnapshot 是 `usage` 工具报告的 JSON 负载。它刻意对应 agent.EventUsage 携带的字段
+// （见 internal/agent/events.go）：从 1 开始的轮次号、本次请求的用量增量以及运行总量。
+// 货币/花费来源单独持久化在会话统计中；EventUsage 不携带花费，因此该工具报告事件流上实际存在的
+// token 数据，而不是凭空编造一个数字。
 type usageSnapshot struct {
 	Turn       int       `json:"turn"`
 	Usage      llm.Usage `json:"usage"`
 	TotalUsage llm.Usage `json:"total_usage"`
 }
 
-// usageSource is a thread-safe holder that satisfies tools.UsageSource.
+// usageSource 是满足 tools.UsageSource 的线程安全持有者。
 //
-// The agent's live usage lives in runState (internal/agent), which internal/tools
-// cannot import. Following the historySource pattern, the app-side holder keeps
-// the consumer interface in tools and adapts the run data here. The Execute loop
-// pushes each EventUsage into the holder via toolset.UpdateUsage; the `usage`
-// tool reads it back through UsageJSON. A zero-valued holder is valid and
-// reports a zero snapshot until the first event arrives.
+// agent 的实时用量位于 runState（internal/agent）中，而 internal/tools 无法导入它。
+// 沿用 historySource 的模式，app 侧持有者把消费方接口留在 tools 中，并在这里适配运行数据。
+// Execute 循环通过 toolset.UpdateUsage 把每个 EventUsage 推入持有者；`usage` 工具通过 UsageJSON 读回。
+// 零值持有者是有效的，在第一个事件到达之前报告零快照。
 type usageSource struct {
 	mu   sync.RWMutex
 	snap usageSnapshot
@@ -35,11 +31,11 @@ type usageSource struct {
 
 var _ tools.UsageSource = (*usageSource)(nil)
 
-// newUsageSource returns an empty holder. It is safe to use before any Update.
+// newUsageSource 返回一个空的持有者。在任何 Update 之前使用它都是安全的。
 func newUsageSource() *usageSource { return &usageSource{} }
 
-// Update records the latest usage event. turn is the event's 1-based turn,
-// usage is the current request's delta and total is the accumulated run total.
+// Update 记录最新的用量事件。turn 是事件从 1 开始的轮次号，usage 是当前请求的增量，
+// total 是累积的运行总量。
 func (u *usageSource) Update(turn int, usage, total llm.Usage) {
 	if u == nil {
 		return
@@ -49,8 +45,7 @@ func (u *usageSource) Update(turn int, usage, total llm.Usage) {
 	u.snap = usageSnapshot{Turn: turn, Usage: usage, TotalUsage: total}
 }
 
-// Snapshot returns a copy of the current snapshot for callers that need the
-// structured values instead of JSON.
+// Snapshot 为需要结构化值而非 JSON 的调用方返回当前快照的副本。
 func (u *usageSource) Snapshot() usageSnapshot {
 	if u == nil {
 		return usageSnapshot{}
@@ -60,22 +55,20 @@ func (u *usageSource) Snapshot() usageSnapshot {
 	return u.snap
 }
 
-// UsageJSON implements tools.UsageSource. It always returns valid JSON with a
-// stable shape, even before the first Update (all zeros).
+// UsageJSON 实现 tools.UsageSource。即使在第一次 Update 之前（全零），它也始终返回形状稳定的合法 JSON。
 func (u *usageSource) UsageJSON() string {
 	snap := u.Snapshot()
 	data, err := json.Marshal(snap)
 	if err != nil {
-		// usageSnapshot is made only of ints and llm.Usage (also ints), so this
-		// cannot happen; keep the tool's contract of always returning JSON.
+		// usageSnapshot 只由 int 和 llm.Usage（也是 int）组成，因此这不可能发生；
+		// 保持该工具始终返回 JSON 的契约。
 		return `{}`
 	}
 	return string(data)
 }
 
-// wireUsage installs a usage source on a registry. The tool is rebuilt in place
-// by Registry.SetUsageSource, so registration order and advertised specs stay
-// stable — the same guarantee SetHistorySource relies on.
+// wireUsage 把一个用量源安装到注册表上。Registry.SetUsageSource 会就地重建该工具，
+// 因此注册顺序和公布的工具规格保持稳定——这与 SetHistorySource 所依赖的保证相同。
 func wireUsage(registry *tools.Registry, src *usageSource) {
 	if registry == nil || src == nil {
 		return

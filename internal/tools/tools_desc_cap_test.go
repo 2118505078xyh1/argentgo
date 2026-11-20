@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// descCapFakeTool is a Tool with a caller-supplied description.
+// descCapFakeTool 是一个描述由调用方提供的 Tool。
 type descCapFakeTool struct {
 	name string
 	desc string
@@ -48,7 +48,7 @@ func TestClipDescriptionClipsLongASCII(t *testing.T) {
 }
 
 func TestClipDescriptionUTF8Safe(t *testing.T) {
-	// The cutoff lands between runes, so a byte-based slice would break them.
+	// 截断点落在 rune 之间，因此按字节切片会破坏它们。
 	s := strings.Repeat("中😀", maxToolDescLen)
 	got := clipDescription(s)
 	if !utf8.ValidString(got) {

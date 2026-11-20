@@ -12,15 +12,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// singleflightCtl drives the Execute seam so a prompt can be held in flight,
-// released normally, or cancelled via its context without a real model call.
+// singleflightCtl 驱动 Execute 接缝，使提示可以被保持在途、
+// 正常释放，或通过其 context 取消，而无需真实模型调用。
 type singleflightCtl struct {
 	calls   atomic.Int32
 	entered chan context.Context
 	release chan struct{}
 }
 
-// resume lets exactly one in-flight Execute finish with a successful result.
+// resume 让恰好一个在途 Execute 以成功结果结束。
 func (c *singleflightCtl) resume() { c.release <- struct{}{} }
 
 type promptResult struct {
@@ -99,7 +99,7 @@ func TestRunnerSingleFlight(t *testing.T) {
 			name: "second concurrent prompt is refused before Execute",
 			run: func(t *testing.T, r *runner, ctl *singleflightCtl) {
 				first := promptAsync(r, "first")
-				awaitEntered(t, ctl) // first prompt is still in flight
+				awaitEntered(t, ctl) // 第一个提示仍在途
 
 				got, err := r.Prompt(context.Background(), "second", nil)
 				if err == nil || err.Error() != "prompt already running" {
@@ -153,8 +153,8 @@ func TestRunnerSingleFlight(t *testing.T) {
 					t.Fatalf("first Execute ctx err = %v, want context.Canceled", ctx1.Err())
 				}
 
-				// The aborted run released the single-flight slot; a later
-				// prompt must run with a fresh, uncancelled context.
+				// 被中止的运行释放了 single-flight 槽位；后续
+				// 提示必须以全新的、未被取消的 context 运行。
 				second := promptAsync(r, "second")
 				ctx2 := awaitEntered(t, ctl)
 				if ctx2.Err() != nil {

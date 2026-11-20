@@ -5,32 +5,32 @@ import (
 	"strings"
 )
 
-// TokenState describes how usable a token deadline is, independent of any
-// store or clock. It is the pure counterpart of Status: TokenStatus works on
-// raw Unix seconds so callers can classify without loading a credential file
-// and can choose their own refresh margin.
+// TokenState 描述令牌截止时间的可用程度，与任何
+// TokenState 描述令牌截止时间的可用程度，与任何 store 或时钟无关。它是 Status 的纯对应物：TokenStatus 处理
+// 原始 Unix 秒，使调用方无需加载凭据文件即可分类，并可自行选择刷新余量。
+// 并可自行选择刷新余量。
 type TokenState string
 
-// TokenState values reported by TokenStatus.
+// TokenStatus 报告的 TokenState 值。
 const (
 	TokenValid    TokenState = "valid"
 	TokenExpiring TokenState = "expiring"
 	TokenExpired  TokenState = "expired"
-	// TokenUnknown means no deadline is known (the on-disk zero sentinel).
+	// TokenUnknown 表示不知道截止时间（磁盘上零哨兵）。
 	TokenUnknown TokenState = "unknown"
 )
 
-// String implements fmt.Stringer.
+// String 实现 fmt.Stringer。
 func (s TokenState) String() string { return string(s) }
 
-// TokenStatus classifies an access-token deadline. expiresAt and now are Unix
-// seconds; refreshMargin is the number of seconds before expiry at which a
-// still-valid token is considered close enough to warrant a proactive refresh.
+// TokenStatus 分类访问令牌截止时间。expiresAt 和 now 是 Unix 秒；refreshMargin 是在过期前多少秒把仍有效的令牌视为足够接近从而值得主动刷新。
+// 秒；refreshMargin 是在过期前多少秒使仍有效令牌
+// 被认为足够接近从而值得主动刷新。
 //
-// A non-positive expiresAt is the "no expiry" sentinel and yields TokenUnknown.
-// A negative refreshMargin is treated as zero (refresh only once expired). The
-// comparison is overflow-safe: deadlines far outside the int64 subtraction
-// range are reported as TokenValid rather than wrapping into the past.
+// 非正的 expiresAt 是"无过期时间"哨兵并产生 TokenUnknown。负的 refreshMargin 被视为零（仅在过期后刷新）。比较是溢出安全的：远超 int64 减法
+// 负的 refreshMargin 被视为零（仅在过期后刷新）。
+// 比较是溢出安全的：远超 int64 减法的
+// 范围的截止时间被报告为 TokenValid，而非回绕到过去。
 func TokenStatus(expiresAt, now, refreshMargin int64) TokenState {
 	if expiresAt <= 0 {
 		return TokenUnknown
@@ -38,8 +38,8 @@ func TokenStatus(expiresAt, now, refreshMargin int64) TokenState {
 	if expiresAt <= now {
 		return TokenExpired
 	}
-	// expiresAt > here, so a non-positive difference means expiresAt-now
-	// wrapped: the true deadline is effectively infinite and still healthy.
+	// expiresAt > here，因此非正的差值意味着 expiresAt-now 回绕了：真实截止时间实际上无限且仍然健康。
+	// 回绕：真实截止时间实际上无限且仍然健康。
 	left := expiresAt - now
 	if left <= 0 {
 		return TokenValid
@@ -53,10 +53,10 @@ func TokenStatus(expiresAt, now, refreshMargin int64) TokenState {
 	return TokenValid
 }
 
-// tokenRefreshMarkers are the token-invalidity phrases that make a refresh
-// worthwhile. Deliberately narrower than the general auth-error classification
-// in internal/llm: a 403 or an invalid API key cannot be fixed by refreshing.
-// Matching is case-insensitive; CJK markers are unaffected by lowering.
+// tokenRefreshMarkers 是使刷新值得进行的
+// 令牌失效短语。刻意比通用认证错误分类更窄
+// tokenRefreshMarkers 是使刷新值得进行的令牌失效短语。刻意比 internal/llm 中的通用认证错误分类更窄：403 或无效 API key 无法通过刷新修复。
+// 匹配不区分大小写；CJK 标记不受小写化影响。
 var tokenRefreshMarkers = []string{
 	"invalid_token", "invalid token", "invalid-token",
 	"expired_token", "expired token", "expired-token",
@@ -66,11 +66,11 @@ var tokenRefreshMarkers = []string{
 	"无效令牌", "无效的令牌", "令牌无效",
 }
 
-// ShouldRefreshOnError reports whether a provider failure is a token-expiry
-// signal worth refreshing for. Only an explicit 401 or an invalid/expired-token
-// message qualifies; every other status or message returns false so transient
-// or permission errors never trigger a needless refresh. The decision is a pure
-// function of its two arguments and visible to callers (transparent).
+// ShouldRefreshOnError 报告 provider 失败是否是值得刷新的令牌过期信号。只有显式 401 或无效/过期令牌消息
+// 值得刷新的信号。只有显式 401 或无效/过期令牌消息
+// 才算；其他任何状态或消息都返回 false，使临时或权限错误永不触发不必要的刷新。该决定是两个参数的纯
+// 才算；其他任何状态或消息返回 false，使临时或权限错误永不触发不必要刷新。该决定是
+// 函数且对调用方可见（透明）。
 func ShouldRefreshOnError(statusCode int, errBody string) bool {
 	if statusCode == http.StatusUnauthorized {
 		return true

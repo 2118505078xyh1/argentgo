@@ -15,9 +15,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// readOnlyMCPResolved builds a Resolved with one fake MCP server advertising a
-// read-only tool and one ordinary tool. Extra config keys (permissions, etc.)
-// are layered on top so the merge and deny cases share the same harness.
+// readOnlyMCPResolved 构建一个 Resolved，包含一个公布只读工具的伪 MCP 服务
+// 和一个普通工具。额外的配置键（permissions 等）叠加在其上，
+// 使合并与拒绝场景共享同一套测试装置。
 func readOnlyMCPResolved(root string, extra map[string]any) Resolved {
 	raw := map[string]any{
 		"mcpServers": map[string]any{
@@ -57,9 +57,9 @@ func newReadOnlyMCPToolset(t *testing.T, res Resolved, chain *security.Chain) *t
 	return set
 }
 
-// TestMCPBindingPreservesReadOnlyHint pins the discarded-annotation bug: the
-// parsed readOnlyHint must survive into the binding, and an unannotated tool
-// must stay ordinary.
+// TestMCPBindingPreservesReadOnlyHint 锁定注解被丢弃的 bug：解析出的 readOnlyHint
+// 必须保留到绑定中，而未带注解的工具
+// 必须保持普通。
 func TestMCPBindingPreservesReadOnlyHint(t *testing.T) {
 	root := t.TempDir()
 	res := readOnlyMCPResolved(root, nil)
@@ -86,9 +86,9 @@ func TestMCPBindingPreservesReadOnlyHint(t *testing.T) {
 	}
 }
 
-// TestMCPReadOnlyHintSkipsApproval is the end-to-end fix: after discovery the
-// read-only tool is granted by the chain without ever asking the operator,
-// while an ordinary tool still goes through the approval path.
+// TestMCPReadOnlyHintSkipsApproval 是端到端修复：发现完成后，
+// 只读工具由链直接批准，从不询问操作人员，
+// 而普通工具仍走审批路径。
 func TestMCPReadOnlyHintSkipsApproval(t *testing.T) {
 	root := t.TempDir()
 	res := readOnlyMCPResolved(root, nil)
@@ -113,8 +113,8 @@ func TestMCPReadOnlyHintSkipsApproval(t *testing.T) {
 	}
 }
 
-// TestMCPReadOnlyMergesWithConfiguredReadOnlyTools checks that runtime MCP
-// names and the config-file readOnlyTools list coexist in the policy.
+// TestMCPReadOnlyMergesWithConfiguredReadOnlyTools 检查运行时 MCP 名称与配置文件中的
+// readOnlyTools 列表在策略中共存。
 func TestMCPReadOnlyMergesWithConfiguredReadOnlyTools(t *testing.T) {
 	root := t.TempDir()
 	res := readOnlyMCPResolved(root, map[string]any{
@@ -136,8 +136,8 @@ func TestMCPReadOnlyMergesWithConfiguredReadOnlyTools(t *testing.T) {
 	}
 }
 
-// TestMCPReadOnlyDoesNotOverrideDeny keeps the policy priority: an explicit
-// deny still wins over a readOnlyHint annotation.
+// TestMCPReadOnlyDoesNotOverrideDeny 保持策略优先级：显式的
+// 拒绝仍优先于 readOnlyHint 注解。
 func TestMCPReadOnlyDoesNotOverrideDeny(t *testing.T) {
 	root := t.TempDir()
 	res := readOnlyMCPResolved(root, map[string]any{

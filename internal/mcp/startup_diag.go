@@ -11,50 +11,50 @@ import (
 	"time"
 )
 
-// startupReplayTimeout bounds one diagnostic replay. The shipped value is 2s;
-// it is a var only so tests can shorten it. The replay is diagnostic-only: it
-// must never be able to stall the caller's startup path.
+// startupReplayTimeout 限制一次诊断重放。发布值为 2 秒；
+// 之所以是变量，只是为了让测试能缩短它。重放仅用于诊断：
+// 它绝不能拖慢调用方的启动路径。
 var startupReplayTimeout = 2 * time.Second
 
-// startupReplayGrace is a brief window after the deadline to collect a result
-// from a run that was honouring the context, so its partial output is not lost
-// to a race between ctx.Done() and the result channel.
+// startupReplayGrace 是截止时间之后的一个短暂窗口，用于从遵守 context 的
+// 运行中收集结果，使其部分输出不会因 ctx.Done() 与结果通道之间的
+// 竞态而丢失。
 const startupReplayGrace = 25 * time.Millisecond
 
-// stderrDrainWait bounds how long stdio error enrichment waits for the async
-// stderr drain goroutine to catch up with a server that just exited. A server
-// that prints a startup error and dies closes stdout (waking readLoop) before
-// the stderr drain is guaranteed to have run; a short bounded wait makes the
-// diagnostic deterministic without ever stalling the caller's error path. A
-// var so tests can shorten it.
+// stderrDrainWait 限制 stdio 错误丰富化等待异步 stderr 排空
+// goroutine 追上一个刚退出服务器的时间。打印启动错误后死亡的
+// 服务器会在 stderr 排空保证运行之前就关闭 stdout（唤醒 readLoop）；
+// 一个短的有界等待使诊断具有确定性，同时
+// 绝不拖慢调用方的错误路径。
+// 它是变量，以便测试能缩短它。
 var stderrDrainWait = 50 * time.Millisecond
 
-// maxStartupReplayRunes caps how much child output is folded into one error
-// line. A chatty server must not turn a failed startup into a huge log line.
+// maxStartupReplayRunes 限制把多少子进程输出折叠进一行错误信息。
+// 话痨服务器不得把失败的启动变成一行巨大的日志。
 const maxStartupReplayRunes = 4096
 
-// startupOutcome is what one diagnostic replay produced.
+// startupOutcome 是一次诊断重放产生的结果。
 type startupOutcome struct {
 	out []byte
 	err error
 }
 
-// EnrichStartupError turns an opaque stdio startup failure (a bare EOF or a
-// dropped connection) into an error that also carries what the server command
-// actually printed. The original error is always kept with %w, so callers that
-// classify with errors.Is are unaffected.
+// EnrichStartupError 把不透明的 stdio 启动失败（裸 EOF 或
+// 连接断开）转换为一个错误，该错误还携带服务器命令实际打印
+// 的内容。原始错误总是用 %w 保留，因此使用 errors.Is 分类的
+// 调用方不受影响。
 //
-// The replay is **diagnostic only** and deliberately not wired into Connect:
-// starting a server twice has side effects, so the app layer must opt in by
-// supplying run (typically exec.CommandContext(ctx, cmd, args...).CombinedOutput).
-// With a nil run, a non-connection error, or an empty command, the error is
-// returned unchanged — byte-for-byte identical error handling by default.
+// 重放仅用于**诊断**，有意不接入 Connect：
+// 启动服务器两次有副作用，因此应用层必须通过提供 run 来选择加入
+// （通常是 exec.CommandContext(ctx, cmd, args...).CombinedOutput）。
+// 当 run 为 nil、错误不是连接错误或命令为空时，错误
+// 原样返回——默认情况下错误处理逐字节相同。
 //
-// run receives a context with a 2s deadline. The timeout is also enforced here
-// with a select, so a run that ignores its context cannot stall EnrichStartupError;
-// a timed-out replay is rewritten to "timed out after 2s". Keeping replay behind
-// an injected function keeps this package stdlib-only and fully testable without
-// spawning a process.
+// run 收到一个带 2 秒截止时间的 context。这里也用 select 强制
+// 该超时，使忽略 context 的 run 无法拖慢 EnrichStartupError；
+// 超时的重放会被改写为 "timed out after 2s"。把重放留在
+// 注入的函数之后，使本包保持仅依赖标准库，且无需启动进程
+// 即可完全测试。
 func EnrichStartupError(err error, cmd string, args []string, run func(context.Context, string, []string) ([]byte, error)) error {
 	if !isStartupConnectionError(err) || run == nil || strings.TrimSpace(cmd) == "" {
 		return err
@@ -73,17 +73,17 @@ func EnrichStartupError(err error, cmd string, args []string, run func(context.C
 	timedOut := false
 	select {
 	case outcome = <-results:
-		// A well-behaved run returns its context error instead of making us
-		// wait for the deadline; that is still a timeout, so report it as one.
+		// 行为良好的 run 会返回其 context 错误而不是让我们
+		// 等待截止时间；那仍是超时，因此按超时报告。
 		if errors.Is(outcome.err, context.DeadlineExceeded) || errors.Is(outcome.err, os.ErrDeadlineExceeded) {
 			timedOut = true
 		}
 	case <-ctx.Done():
 		timedOut = true
-		// A run that honours its context returns right around the deadline.
-		// Give it a brief grace window to hand over its partial output; a
-		// run that ignores the context is bounded by this window too. The
-		// channel is buffered, so the goroutine can never block on the send.
+		// 遵守 context 的 run 会在截止时间附近返回。
+		// 给它一个短暂宽限期交出部分输出；
+		// 忽略 context 的 run 也受该窗口限制。通道是带缓冲的，
+		// 因此 goroutine 绝不会在发送时阻塞。
 		select {
 		case outcome = <-results:
 		case <-time.After(startupReplayGrace):
@@ -93,10 +93,10 @@ func EnrichStartupError(err error, cmd string, args []string, run func(context.C
 	return enrichStartupOutcome(err, cmd, args, outcome, timedOut)
 }
 
-// isStartupConnectionError reports whether err is the kind of opaque failure
-// worth replaying for diagnostics: a bare EOF (including errors.New("EOF")),
-// a wrapped EOF, or a dropped/refused connection. It deliberately excludes
-// ordinary errors so the vast majority of failures pass through untouched.
+// isStartupConnectionError 报告 err 是否是值得为诊断重放的
+// 那种不透明失败：裸 EOF（包括 errors.New("EOF")）、
+// 被包装的 EOF，或连接断开/被拒绝。它有意排除
+// 普通错误，使绝大多数失败原样通过。
 func isStartupConnectionError(err error) bool {
 	if err == nil {
 		return false
@@ -106,9 +106,9 @@ func isStartupConnectionError(err error) bool {
 		errors.Is(err, syscall.EPIPE) {
 		return true
 	}
-	// A transport can flatten the cause to text: stdio.readLoop turns io.EOF
-	// into "server closed the connection" without wrapping it, which is exactly
-	// the bare-EOF report the audit called out. Match those phrasings too.
+	// 传输层可能把原因压平为文本：stdio.readLoop 把 io.EOF
+	// 转为 "server closed the connection" 而不包装它，这正是
+	// 审计指出的裸 EOF 报告。也匹配这些措辞。
 	text := strings.ToLower(err.Error())
 	for _, needle := range []string{
 		"eof",
@@ -124,8 +124,8 @@ func isStartupConnectionError(err error) bool {
 	return false
 }
 
-// enrichStartupOutcome folds one replay result into the original error. When
-// the replay yielded no new information the original error is returned as-is.
+// enrichStartupOutcome 把一次重放结果折叠进原始错误。当
+// 重放没有产生新信息时，原样返回原始错误。
 func enrichStartupOutcome(err error, cmd string, args []string, outcome startupOutcome, timedOut bool) error {
 	output := trimStartupOutput(outcome.out)
 	label := startupCommandLabel(cmd, args)
@@ -149,12 +149,12 @@ func enrichStartupOutcome(err error, cmd string, args []string, outcome startupO
 	return fmt.Errorf("%w (startup diagnostic replay of %s: %s)", err, label, detail)
 }
 
-// appendStderrContext folds a server's captured stderr into an opaque startup
-// connection error. It is a no-op unless err is the kind of bare EOF/dropped
-// connection the audit called out and tail carries something useful, so the
-// overwhelming majority of errors keep their byte-for-byte original text. The
-// original error is always kept with %w, leaving errors.Is classification
-// untouched.
+// appendStderrContext 把服务器捕获的 stderr 折叠进一个不透明的启动
+// 连接错误。除非 err 是审计指出的裸 EOF/连接断开
+// 这类错误且 tail 带有有用内容，否则它是空操作，因此
+// 绝大多数错误保持其逐字节的原始文本。原始错误总是用 %w 保留，
+// 使 errors.Is 分类
+// 不受影响。
 func appendStderrContext(err error, tail string) error {
 	if !isStartupConnectionError(err) {
 		return err
@@ -166,13 +166,13 @@ func appendStderrContext(err error, tail string) error {
 	return fmt.Errorf("%w (server stderr: %s)", err, trimmed)
 }
 
-// enrichStderr attaches the stdio server's already-captured stderr to a
-// connection error, with **no process replay and no side effects**. This is the
-// in-package counterpart to EnrichStartupError: because newStdioTransport keeps
-// a bounded stderr ring, the app's existing "print the error" path becomes
-// self-sufficient — it needs neither a command re-run nor any code change.
-// Non-stdio transports, non-connection errors and empty stderr leave err
-// untouched.
+// enrichStderr 把 stdio 服务器已经捕获的 stderr 附加到
+// 连接错误，**不重放进程且无副作用**。这是
+// EnrichStartupError 的包内对应物：因为 newStdioTransport 保留了
+// 有界的 stderr 环形缓冲区，应用现有的"打印错误"路径变得
+// 自给自足——既不需要重跑命令，也不需要任何代码改动。
+// 非 stdio 传输、非连接错误和空 stderr 保持 err
+// 不变。
 func (c *client) enrichStderr(err error) error {
 	if c == nil || !isStartupConnectionError(err) {
 		return err
@@ -184,16 +184,16 @@ func (c *client) enrichStderr(err error) error {
 	return appendStderrContext(err, stdio.stderrWithDrain())
 }
 
-// trimStartupOutput normalises replay output for a single log line: trim outer
-// whitespace and cap the length. Truncation runs on runes so a CJK string is
-// never cut in the middle of a UTF-8 sequence.
+// trimStartupOutput 为单行日志规范化重放输出：去除外围
+// 空白并限制长度。截断按字符进行，因此 CJK 字符串
+// 绝不会在 UTF-8 序列中间被切断。
 func trimStartupOutput(out []byte) string {
 	return trimDiagnosticOutput(out, "[startup replay output truncated]")
 }
 
-// trimDiagnosticOutput is trimStartupOutput with a caller-supplied truncation
-// marker, so live-stderr enrichment can label its own truncation without
-// changing the replay wording existing callers rely on.
+// trimDiagnosticOutput 是带调用方提供的截断标记的 trimStartupOutput，
+// 使实时 stderr 丰富化可以标记自己的截断，而不改变
+// 现有调用方所依赖的重放措辞。
 func trimDiagnosticOutput(out []byte, marker string) string {
 	s := strings.TrimSpace(string(out))
 	if s == "" {
@@ -205,8 +205,8 @@ func trimDiagnosticOutput(out []byte, marker string) string {
 	return s
 }
 
-// startupCommandLabel renders the replayed command as one quoted string. %q
-// keeps printable Unicode (e.g. CJK paths) readable.
+// startupCommandLabel 把重放的命令渲染为一个带引号的字符串。%q
+// 使可打印的 Unicode（如 CJK 路径）保持可读。
 func startupCommandLabel(cmd string, args []string) string {
 	parts := make([]string, 0, len(args)+1)
 	parts = append(parts, cmd)

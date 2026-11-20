@@ -62,9 +62,9 @@ func TestFormatInspectionReason(t *testing.T) {
 	}
 }
 
-// reasonRecordingApprover records what the guard handed it. It implements both
-// the plain Approver and the optional reason-aware seam so a test can tell
-// which path was taken.
+// reasonRecordingApprover 记录防护器交给它的内容。它同时实现普通的
+// Approver 和可选的原因感知接缝，使测试能判断
+// 走的是哪条路径。
 type reasonRecordingApprover struct {
 	grant      bool
 	calls      int
@@ -108,7 +108,7 @@ func TestAskInspectionApprovalPassesReasonWithUnchangedInputs(t *testing.T) {
 	if want := formatInspectionReason(v); approver.reason != want {
 		t.Fatalf("reason = %q, want %q", approver.reason, want)
 	}
-	// The finding ID must be part of the context, not just the free-form reason.
+	// 发现 ID 必须是上下文的一部分，而不只是自由格式的原因。
 	if !strings.Contains(approver.reason, "SEC-ABCD") {
 		t.Fatalf("reason lacks finding ID: %q", approver.reason)
 	}
@@ -125,11 +125,11 @@ func TestAskInspectionApprovalFallsBackToPlainAsk(t *testing.T) {
 	}
 }
 
-// TestInspectionReasonDoesNotDriftApprovalCache is the regression guard for
-// the audit finding: a reason that changes between identical tool calls must
-// NOT change the CachedApprover key. If a [security: ...] prefix were folded
-// into name or args, the second and third calls would miss the cache and the
-// inner approver would be asked three times instead of once.
+// TestInspectionReasonDoesNotDriftApprovalCache 是针对审计发现的回归防护：
+// 在相同工具调用之间变化的原因，绝不能改变 CachedApprover 的键。
+// 如果把 [security: ...] 前缀折进 name 或 args，
+// 第二和第三次调用会缓存未命中，内部审批器会被询问三次而非一次。
+// （接上行）
 func TestInspectionReasonDoesNotDriftApprovalCache(t *testing.T) {
 	inner := &countingApprover{grant: true}
 	cached := security.NewCachedApprover(inner)
@@ -182,7 +182,7 @@ func TestInspectionGuardCheckPassesReasonToAwareApprover(t *testing.T) {
 	if !strings.Contains(approver.reason, "SEC-FIND-1") || !strings.Contains(approver.reason, "destructive shell command") {
 		t.Fatalf("Check reason = %q, want finding ID and reason", approver.reason)
 	}
-	// The replayed chain call must not prompt a second time.
+	// 重放的链调用不得再次提示。
 	if chainApprover.calls != 0 {
 		t.Fatalf("chain re-prompted %d times", chainApprover.calls)
 	}

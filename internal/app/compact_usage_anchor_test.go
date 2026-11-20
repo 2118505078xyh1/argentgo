@@ -33,9 +33,9 @@ func TestEstimateContextTokensAnchorsPrefixAndEstimatesTail(t *testing.T) {
 	if got := estimateContextTokens(messages, anchor); got != want {
 		t.Fatalf("anchored = %d, want %d", got, want)
 	}
-	// The native totalTokens (420) is far below the chars/4 estimate of the
-	// long prefix, so the anchored value must be much smaller than a full
-	// re-estimate — otherwise the anchor was ignored.
+	// 原生 totalTokens（420）远低于长前缀按字符数/4 的估算值，
+	// 因此锚定值必须远小于完整
+	// 重新估算——否则说明锚点被忽略了。
 	if full := agent.EstimateMessages(messages); want >= full {
 		t.Fatalf("anchored %d must be below full estimate %d", want, full)
 	}
@@ -124,8 +124,8 @@ func TestAssistantNativeUsageFromRecordPayload(t *testing.T) {
 		t.Fatalf("totalTokens = %d, want 575", usage.TotalTokens())
 	}
 
-	// Older records and metadata-only payloads carry no usage, so they must not
-	// produce an anchor.
+	// 较旧的记录和仅含元数据的负载不携带用量，因此不得
+	// 产生锚点。
 	for _, raw := range []string{`{"role":"assistant","content":"older"}`, `{}`, `not json`} {
 		if _, ok := assistantNativeUsage([]byte(raw)); ok {
 			t.Fatalf("payload %q unexpectedly yielded a usage anchor", raw)
@@ -143,9 +143,9 @@ func TestMaybeAutoCompactUsesNativeUsageAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A threshold just below the inflated native totalTokens (1000 * 1.3).
-	// The plain chars/4 estimate of this short transcript is far below it, so
-	// compaction can only come from the usage anchor.
+	// 一个略低于膨胀后原生 totalTokens（1000 * 1.3）的阈值。
+	// 这段短记录按字符数/4 的普通估算远低于它，因此
+	// 压缩只能来自用量锚点。
 	res.AutoCompactTokens = 1200
 	res.Cfg.ContextWindow = 0
 	res.Cfg.AutoCondenseContextPercent = 0

@@ -16,13 +16,13 @@ func TestFileMutationKeyUsesNearestExistingAncestor(t *testing.T) {
 	path := filepath.Join(root, "sub", "missing", "file.txt")
 	key := fileMutationKey(path)
 
-	// Equivalent spellings (including dot/dot-dot segments) must collapse to
-	// the same key even though the file itself does not exist yet.
+	// 等价的拼写（包括点/点点段）必须折叠为
+	// 同一个键，即使文件本身尚不存在。
 	alt := filepath.Join(root, "sub", ".", "missing", "..", "missing", "file.txt")
 	if other := fileMutationKey(alt); other != key {
 		t.Fatalf("equivalent paths produced different keys: %q vs %q", key, other)
 	}
-	// Windows path comparison is case-insensitive.
+	// Windows 路径比较不区分大小写。
 	if other := fileMutationKey(strings.ToUpper(path)); other != key {
 		t.Fatalf("case variant produced a different key: %q vs %q", key, other)
 	}
@@ -55,8 +55,8 @@ func TestFileMutationQueueSerializesSamePath(t *testing.T) {
 	case <-secondEntered:
 		t.Error("second writer entered the critical section while the first held the lock")
 	case <-time.After(2 * time.Second):
-		// Expected: the second writer waits for the first one to finish.
-		// The timer is only a deadlock guard, not a performance assertion.
+		// 预期：第二个写入者等待第一个写入者完成。
+		// 计时器只是死锁保护，不是性能断言。
 	}
 
 	close(releaseFirst)
@@ -87,8 +87,8 @@ func TestFileMutationQueueDifferentPathsDoNotBlock(t *testing.T) {
 
 	select {
 	case <-enteredB:
-		// B reached its critical section while A was still inside its own:
-		// a channel handshake, not a wall-clock speed measurement.
+		// B 进入了临界区，而 A 仍在自己的临界区内：
+		// 这是通道握手，而不是墙上时钟的速度测量。
 	case <-time.After(2 * time.Second):
 		close(releaseA)
 		t.Fatal("writes to different paths blocked each other")

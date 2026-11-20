@@ -5,10 +5,10 @@ import (
 	"unicode/utf8"
 )
 
-// sessionsLines renders generated session titles in the optional side rail.
-// The rail reuses the same geometry as the tasks / workspace / plan panels, so
-// no extra layout branch is needed in the renderer. An active filter adds one
-// bar under the title, then lists only the matching sessions in relevance order.
+// sessionsLines 在可选侧边栏中渲染生成的会话标题。
+// 该栏复用与任务/工作区/计划面板相同的几何，因此
+// 渲染器中无需额外的布局分支。活动过滤器在标题下方添加一条
+// 栏，然后只按相关性顺序列出匹配的会话。
 func (m *Model) sessionsLines(width, height int) []Line {
 	matches := m.sessionMatches()
 
@@ -17,9 +17,9 @@ func (m *Model) sessionsLines(width, height int) []Line {
 	title.Push(" "+itoa(len(m.sessions)), m.palette.muted())
 	out := []Line{title}
 
-	// Keep the bar directly under the title so it stays visible even when the
-	// rail is only a few rows tall. Focus is shown with the accent style and a
-	// caret; a confirmed-but-unfocused filter stays muted.
+	// 让过滤栏紧贴在标题下方，使其即使在
+	// 侧边栏只有几行高。焦点用强调样式和
+	// 插入符表示；已确认但未聚焦的过滤栏保持暗色。
 	if m.sessionFiltering || strings.TrimSpace(m.sessionFilter) != "" {
 		bar := NewLine()
 		bar.Push("> ", m.palette.muted())
@@ -50,11 +50,11 @@ func (m *Model) sessionsLines(width, height int) []Line {
 		out = append(out, line)
 		rendered++
 	}
-	// "no sessions yet" is only truthful when the rail is genuinely empty.
-	// A filter that excludes every row is a different state — the title above
-	// already shows the real session count, and the filter bar shows the query
-	// — so claiming there are no sessions here would be misleading. With a
-	// filter active, the empty list below the rule is self-explanatory.
+	// "no sessions yet" 仅在侧边栏真正为空时才真实。
+	// 一个排除所有行的过滤是不同状态 —— 上方的标题
+	// 已显示真实会话数，过滤栏显示查询
+	// —— 因此在这里宣称没有会话会产生误导。当过滤活动时，
+	// 分隔线下方的空列表是不言自明的。
 	if rendered == 0 && len(out) < height && len(m.sessions) == 0 {
 		hint := NewLine()
 		hint.Push(Clip(text(m.locale, "no_sessions"), width), m.palette.dim())
@@ -63,8 +63,8 @@ func (m *Model) sessionsLines(width, height int) []Line {
 	return out
 }
 
-// sessionLabel is the text the filter and highlight operate on: the generated
-// title, falling back to the path for untitled sessions.
+// sessionLabel 是过滤和高亮操作的文本：生成的
+// 标题，未命名的会话回退到路径。
 func sessionLabel(row SessionInfo) string {
 	if row.Title != "" {
 		return row.Title
@@ -72,23 +72,23 @@ func sessionLabel(row SessionInfo) string {
 	return row.Path
 }
 
-// sessionFuzzy adapts FuzzyMatch to the callback shape MatchPattern expects.
+// sessionFuzzy 把 FuzzyMatch 适配为 MatchPattern 期望的回调形状。
 func sessionFuzzy(pattern, text string) (int, []int, bool) {
 	return FuzzyMatch(pattern, text, false)
 }
 
-// sessionMatch is one row of the filtered rail. index stays the original
-// m.sessions index so the existing cursor/scroll state keeps its meaning;
-// score and positions drive relevance order and character highlighting.
+// sessionMatch 是过滤后侧边栏的一行。index 保持原始的
+// m.sessions 下标，使现有的光标/滚动状态保持意义；
+// score 和 positions 驱动相关性顺序和字符高亮。
 type sessionMatch struct {
 	index     int
 	score     int
 	positions []int
 }
 
-// firstFilterPattern extracts the first positive term body for scoring and
-// highlighting. Operators and inverse terms still affect MatchPattern's
-// yes/no decision; only the first positive body drives visual emphasis.
+// firstFilterPattern 提取第一个正项正文用于评分和
+// 高亮。操作符和取反项仍影响 MatchPattern 的
+// 是/否判定；只有第一个正项正文驱动视觉强调。
 func firstFilterPattern(terms []SearchTerm) string {
 	for _, term := range terms {
 		if term.Kind == TermOr || term.Kind == TermInverse || term.Text == "" {
@@ -99,9 +99,9 @@ func firstFilterPattern(terms []SearchTerm) string {
 	return ""
 }
 
-// sessionMatches returns the sessions that satisfy the current filter, ordered
-// by relevance. An empty (or whitespace-only) query returns every session in
-// its original order: the pre-filter rendering baseline.
+// sessionMatches 返回满足当前过滤的会话，按相关性
+// 排序。空（或仅空白）的查询按
+// 原始顺序返回所有会话：即过滤前的渲染基线。
 func (m *Model) sessionMatches() []sessionMatch {
 	terms := ParsePattern(m.sessionFilter)
 	highlight := firstFilterPattern(terms)
@@ -117,8 +117,8 @@ func (m *Model) sessionMatches() []sessionMatch {
 		}
 		matches = append(matches, sessionMatch{index: i, score: score, positions: positions})
 	}
-	// With no positive term there is no relevance signal (e.g. "!draft"), so
-	// keep the original order instead of sorting on length alone.
+	// 没有正项时就没有相关性信号（例如 "!draft"），因此
+	// 保持原始顺序，而不是仅按长度排序。
 	if len(terms) == 0 || highlight == "" {
 		return matches
 	}
@@ -140,10 +140,10 @@ func (m *Model) sessionMatches() []sessionMatch {
 	return ordered
 }
 
-// pushFilterLabel renders label with matched runes in the accent style. The
-// positions are rune indices from FuzzyMatch; out-of-range entries are ignored
-// so a stale position can never slice past the string. maxCells is measured in
-// display cells, matching the old Clip(label, width-4) behaviour for CJK.
+// pushFilterLabel 渲染 label，把匹配的 rune 用强调样式显示。
+// 位置来自 FuzzyMatch 的 rune 索引；越界的条目被忽略，
+// 使过期的位置绝不会切过字符串。maxCells 按显示单元格
+// 测量，与旧的 Clip(label, width-4) 对 CJK 的行为一致。
 func (m *Model) pushFilterLabel(line *Line, label string, positions []int, selected bool, maxCells int) {
 	runes := []rune(label)
 	marked := make([]bool, len(runes))

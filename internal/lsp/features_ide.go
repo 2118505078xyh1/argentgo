@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 )
 
-// DocumentSymbol returns the symbols declared in uri, flattened from the
-// server's DocumentSymbol tree. Depth records nesting (top level is 0).
+// 创建文件类资源操作不带编辑，被跳过。
+// DocumentSymbol 返回 uri 中声明的符号，从服务器的 DocumentSymbol 树展平。Depth 记录嵌套（顶层为 0）。
 func (c *Client) DocumentSymbol(ctx context.Context, uri string) ([]Symbol, error) {
 	raw, err := c.call(ctx, "textDocument/documentSymbol", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -18,7 +18,7 @@ func (c *Client) DocumentSymbol(ctx context.Context, uri string) ([]Symbol, erro
 	return parseSymbols(raw), nil
 }
 
-// DocumentSymbolAt opens path (if needed) and lists its symbols.
+// DocumentSymbolAt 打开 path（若需要）并列出其符号。
 func (c *Client) DocumentSymbolAt(ctx context.Context, path string) ([]Symbol, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -27,7 +27,7 @@ func (c *Client) DocumentSymbolAt(ctx context.Context, path string) ([]Symbol, e
 	return c.DocumentSymbol(ctx, uri)
 }
 
-// References returns every reference to the symbol at position.
+// References 返回对 position 处符号的所有引用。
 func (c *Client) References(ctx context.Context, uri string, position Position, includeDeclaration bool) ([]Location, error) {
 	raw, err := c.call(ctx, "textDocument/references", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -40,7 +40,7 @@ func (c *Client) References(ctx context.Context, uri string, position Position, 
 	return parseLocations(raw), nil
 }
 
-// ReferencesAt opens path (if needed) and finds references at position.
+// ReferencesAt 打开 path（若需要）并在该处查找引用。
 func (c *Client) ReferencesAt(ctx context.Context, path string, position Position, includeDeclaration bool) ([]Location, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -49,8 +49,8 @@ func (c *Client) ReferencesAt(ctx context.Context, path string, position Positio
 	return c.References(ctx, uri, position, includeDeclaration)
 }
 
-// CodeActions returns the actions the server offers for a range. The supplied
-// diagnostics are forwarded in the request context so quick fixes can target
+// CodeActions 返回服务器为某范围提供的动作。提供的诊断在请求上下文中转发，使快速修复能针对
+// 诊断在请求上下文中转发，使快速修复能针对
 // them.
 func (c *Client) CodeActions(ctx context.Context, uri string, rng Range, diagnostics []Diagnostic) ([]CodeAction, error) {
 	raw, err := c.call(ctx, "textDocument/codeAction", map[string]any{
@@ -64,7 +64,7 @@ func (c *Client) CodeActions(ctx context.Context, uri string, rng Range, diagnos
 	return parseCodeActions(raw), nil
 }
 
-// CodeActionsAt opens path (if needed) and offers actions for a range.
+// CodeActionsAt 打开 path（若需要）并为某范围提供动作。
 func (c *Client) CodeActionsAt(ctx context.Context, path string, rng Range, diagnostics []Diagnostic) ([]CodeAction, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -73,7 +73,7 @@ func (c *Client) CodeActionsAt(ctx context.Context, path string, rng Range, diag
 	return c.CodeActions(ctx, uri, rng, diagnostics)
 }
 
-// Rename asks the server for the edits that rename the symbol at position.
+// Rename 向服务器请求重命名 position 处符号的编辑。
 func (c *Client) Rename(ctx context.Context, uri string, position Position, newName string) (*WorkspaceEdit, error) {
 	raw, err := c.call(ctx, "textDocument/rename", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -86,7 +86,7 @@ func (c *Client) Rename(ctx context.Context, uri string, position Position, newN
 	return parseWorkspaceEdit(raw), nil
 }
 
-// RenameAt opens path (if needed) and computes rename edits there.
+// RenameAt 打开 path（若需要）并在那里计算重命名编辑。
 func (c *Client) RenameAt(ctx context.Context, path string, position Position, newName string) (*WorkspaceEdit, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -95,7 +95,7 @@ func (c *Client) RenameAt(ctx context.Context, path string, position Position, n
 	return c.Rename(ctx, uri, position, newName)
 }
 
-// Formatting returns the edits that format the whole document.
+// Formatting 返回格式化整个文档的编辑。
 func (c *Client) Formatting(ctx context.Context, uri string, options FormattingOptions) ([]TextEdit, error) {
 	raw, err := c.call(ctx, "textDocument/formatting", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
@@ -107,7 +107,7 @@ func (c *Client) Formatting(ctx context.Context, uri string, options FormattingO
 	return parseTextEdits(raw), nil
 }
 
-// FormattingAt opens path (if needed) and returns its formatting edits.
+// FormattingAt 打开 path（若需要）并返回其格式化编辑。
 func (c *Client) FormattingAt(ctx context.Context, path string, options FormattingOptions) ([]TextEdit, error) {
 	uri, err := c.Open(ctx, path)
 	if err != nil {
@@ -116,7 +116,7 @@ func (c *Client) FormattingAt(ctx context.Context, path string, options Formatti
 	return c.Formatting(ctx, uri, options)
 }
 
-// WorkspaceSymbols queries the workspace for symbols matching query.
+// WorkspaceSymbols 在工作区中查询匹配 query 的符号。
 func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolInformation, error) {
 	raw, err := c.call(ctx, "workspace/symbol", map[string]any{"query": query})
 	if err != nil {
@@ -125,8 +125,8 @@ func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]SymbolIn
 	return parseSymbolInformation(raw), nil
 }
 
-// rawArray returns the elements of a JSON array result, or nil for null, an
-// empty result, or a non-array value.
+// rawArray 返回 JSON 数组结果的元素，或对 null、空结果或非数组值返回 nil。
+// 空结果或非数组值。
 func rawArray(raw json.RawMessage) []json.RawMessage {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" || trimmed[0] != '[' {
@@ -139,8 +139,8 @@ func rawArray(raw json.RawMessage) []json.RawMessage {
 	return entries
 }
 
-// rawDocumentSymbol covers both the tree-shaped DocumentSymbol and the flat
-// SymbolInformation shape some servers return for documentSymbol.
+// rawDocumentSymbol 同时覆盖树状的 DocumentSymbol 和扁平的
+// rawDocumentSymbol 同时覆盖树状的 DocumentSymbol 和某些服务器为 documentSymbol 返回的扁平 SymbolInformation 形态。
 type rawDocumentSymbol struct {
 	Name           string            `json:"name"`
 	Kind           int               `json:"kind"`
@@ -151,9 +151,9 @@ type rawDocumentSymbol struct {
 	Location       *Location         `json:"location"`
 }
 
-// parseSymbols flattens a textDocument/documentSymbol result. DocumentSymbol
-// children are walked recursively with an increasing Depth; a server that
-// returns SymbolInformation entries is normalized from each location.
+// parseSymbols 展平 textDocument/documentSymbol 结果。DocumentSymbol 的子级以递增的 Depth 递归遍历；返回 SymbolInformation 条目的服务器则按每个位置规范化。
+// 子级以递增的 Depth 递归遍历；返回
+// SymbolInformation 条目的服务器则按每个位置规范化。
 func parseSymbols(raw json.RawMessage) []Symbol {
 	entries := rawArray(raw)
 	if len(entries) == 0 {
@@ -170,7 +170,7 @@ func flattenSymbols(entries []json.RawMessage, depth int) []Symbol {
 			continue
 		}
 		if sym.Location != nil {
-			// SymbolInformation fallback: a leaf with a location and no children.
+			// SymbolInformation 回退：有位置且无子级的叶节点。
 			out = append(out, Symbol{
 				Name:           sym.Name,
 				Kind:           sym.Kind,
@@ -204,7 +204,7 @@ func flattenSymbols(entries []json.RawMessage, depth int) []Symbol {
 	return out
 }
 
-// parseSymbolInformation decodes a workspace/symbol result.
+// parseSymbolInformation 解码 workspace/symbol 结果。
 func parseSymbolInformation(raw json.RawMessage) []SymbolInformation {
 	entries := rawArray(raw)
 	if len(entries) == 0 {
@@ -224,8 +224,8 @@ func parseSymbolInformation(raw json.RawMessage) []SymbolInformation {
 	return out
 }
 
-// parseTextEdits decodes a formatting result: an array of TextEdits, a single
-// TextEdit object, or null.
+// parseTextEdits 解码格式化结果：TextEdits 数组、单个
+// parseTextEdits 解码格式化结果：TextEdits 数组、单个 TextEdit 对象或 null。
 func parseTextEdits(raw json.RawMessage) []TextEdit {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
@@ -245,9 +245,9 @@ func parseTextEdits(raw json.RawMessage) []TextEdit {
 	return edits
 }
 
-// parseWorkspaceEdit decodes a WorkspaceEdit, accepting both the legacy
-// changes map and the documentChanges array. Text edits from both shapes are
-// merged into Changes so callers can read a single per-file view.
+// parseWorkspaceEdit 解码 WorkspaceEdit，同时接受旧的
+// parseWorkspaceEdit 解码 WorkspaceEdit，同时接受旧的 changes map 和 documentChanges 数组。两种形态的文本编辑被合并到 Changes，使调用方能读取单一按文件的视图。
+// 合并到 Changes，使调用方能读取单一按文件的视图。
 func parseWorkspaceEdit(raw json.RawMessage) *WorkspaceEdit {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" || trimmed[0] != '{' {
@@ -277,7 +277,7 @@ func parseWorkspaceEdit(raw json.RawMessage) *WorkspaceEdit {
 			continue
 		}
 		if doc.Kind != "" {
-			// Resource operation (create/rename/delete): no text edits to apply.
+			// 资源操作（创建/重命名/删除）：无文本编辑可应用。
 			continue
 		}
 		uri := doc.TextDocument.URI
@@ -293,8 +293,8 @@ func parseWorkspaceEdit(raw json.RawMessage) *WorkspaceEdit {
 	return edit
 }
 
-// rawCodeAction mirrors the wire shape of a CodeAction. Diagnostics stay raw
-// because their severity is numeric on the wire but a word in Diagnostic.
+// rawCodeAction 镜像 CodeAction 的线上形态。诊断保持原始，因为其严重性在线上是数字而在 Diagnostic 中是词。
+// 因为其严重性在线上是数字而在 Diagnostic 中是词。
 type rawCodeAction struct {
 	Title       string          `json:"title"`
 	Kind        string          `json:"kind"`
@@ -307,8 +307,8 @@ type rawCodeAction struct {
 	} `json:"disabled"`
 }
 
-// parseCodeActions decodes a textDocument/codeAction result. Command-shaped
-// legacy entries are kept via their Command field.
+// parseCodeActions 解码 textDocument/codeAction 结果。命令形态的旧条目通过其 Command 字段保留。
+// 命令形态的旧条目通过其 Command 字段保留。
 func parseCodeActions(raw json.RawMessage) []CodeAction {
 	entries := rawArray(raw)
 	if len(entries) == 0 {
@@ -346,8 +346,8 @@ func parseCodeActions(raw json.RawMessage) []CodeAction {
 	return out
 }
 
-// lspDiagnostics converts our word-severity diagnostics back to the numeric
-// form that the code action request context expects.
+// lspDiagnostics 把我们的词形严重性诊断转回代码动作请求上下文期望的数字形式。
+// 代码动作请求上下文期望的数字形式。
 func lspDiagnostics(items []Diagnostic) []map[string]any {
 	out := make([]map[string]any, 0, len(items))
 	for _, d := range items {

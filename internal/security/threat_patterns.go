@@ -5,11 +5,9 @@ import (
 	"strings"
 )
 
-// ThreatCategory names a class of dangerous command that the token-aware
-// file-editing classifier in FindFileEditingCommand does not cover (piped
-// shells, reverse shells, encoded execution and wrapper-launched deletion).
-// The constants are additive: the existing classifier and its semantics stay
-// exactly as they were.
+// ThreatCategory 命名一类 FindFileEditingCommand 中感知 token 的文件编辑分类器
+// 不覆盖的危险命令（管道 shell、反弹 shell、编码执行和通过包装器发起的删除）。
+// 这些常量是附加性的：现有分类器及其语义完全保持不变。
 type ThreatCategory string
 
 const (
@@ -21,8 +19,8 @@ const (
 	ThreatEncodedExec  ThreatCategory = "encoded-exec"
 )
 
-// ThreatConfidence is an ordinal confidence level. Higher values are more
-// certain; only ConfidenceHigh threats are acted on by the guardrail.
+// ThreatConfidence 是有序的置信度等级。值越高越确定；护栏只对 ConfidenceHigh
+// 的威胁采取行动。
 type ThreatConfidence int
 
 const (
@@ -32,19 +30,18 @@ const (
 	ConfidenceHigh
 )
 
-// ThreatMatch is the pure result of inspecting a command for known dangerous
-// patterns. Evidence is always a substring of the inspected command, so a
-// caller may use it directly as the offending token in a block decision.
+// ThreatMatch 是检查命令中已知危险模式得到的纯结果。Evidence 始终是被检查命令
+// 的子串，因此调用方可以直接把它作为拦截决定中的违规 token。
 type ThreatMatch struct {
 	Category   ThreatCategory
 	Confidence ThreatConfidence
 	Evidence   string
 }
 
-// Detected reports whether any threat was recognised.
+// Detected 报告是否识别出了任何威胁。
 func (m ThreatMatch) Detected() bool { return m.Category != ThreatNone }
 
-// IsHigh reports whether the match is confident enough to act on.
+// IsHigh 报告该匹配是否足够可信、可以据此采取行动。
 func (m ThreatMatch) IsHigh() bool { return m.Confidence >= ConfidenceHigh }
 
 type threatPattern struct {
@@ -53,53 +50,50 @@ type threatPattern struct {
 	re         *regexp.Regexp
 }
 
-// All patterns are compiled once at package init. They are intentionally
-// conservative and RE2-safe (no backreferences or look-around).
+// 所有模式都在包初始化时编译一次。它们刻意保守且符合 RE2（不使用反向引用或
+// 环视）。
 var (
-	// Wrapper prefixes are stripped before the core patterns run: a dangerous
-	// command hidden behind sudo/env/nohup/command is still dangerous. This is
-	// the "dimensionality reduction" step; group 1 keeps the preceding
-	// separator so commands joined with ; | & are still split correctly.
+	// 核心模式运行之前会剥离包装器前缀：隐藏在 sudo/env/nohup/command 后面的危险
+	// 命令仍然是危险的。这是"降维"步骤；第 1 组保留前面的分隔符，因此用 ; | &
+	// 连接的命令仍能正确拆分。
 	wrapperPrefixRe = regexp.MustCompile(`(?i)(^|[\s;|&(])(sudo|env|nohup|command|builtin|exec)\s+`)
 
-	// A trap payload normally lives inside quotes, which sanitizeCommand blanks.
-	// Recover quoted payloads from trap invocations and classify them separately.
-	// RE2 has no backreferences, so single and double quotes use distinct regexes.
+	// trap 载荷通常位于引号内，而 sanitizeCommand 会把引号置为空白。从 trap 调用中
+	// 恢复带引号的载荷并单独分类。RE2 没有反向引用，因此单引号和双引号使用不同
+	// 的正则表达式。
 	trapSingleRe = regexp.MustCompile(`(?i)\btrap\s+'([^']*)'`)
 	trapDoubleRe = regexp.MustCompile(`(?i)\btrap\s+"([^"]*)"`)
 
-	// A forced rm aimed at a root/wide target is catastrophic and confidence is
-	// raised to HIGH. Specific paths stay MEDIUM unless a wrapper bumps them.
+	// 针对根目录/大范围目标的强制 rm 是灾难性的，置信度提升为 HIGH。具体路径保持
+	// MEDIUM，除非包装器将其提升。
 	wideTargetRe = regexp.MustCompile(`(^|\s)(/(\s|$)|/\*|/(etc|usr|var|bin|boot|home|opt|root|srv)(/|\s|$)|~(/|\s|$)|\$home(/|\s|$)|\.\.(/|\s|$))`)
 	forcedRMRe   = regexp.MustCompile(`\brm\b[^\n]*\s(-[a-zA-Z]*f[a-zA-Z]*|--force)\b`)
 
 	corePatterns = []threatPattern{
-		// Reverse shells.
+		// 反弹 shell。
 		{ThreatReverseShell, ConfidenceHigh, regexp.MustCompile(`/dev/tcp/`)},
 		{ThreatReverseShell, ConfidenceHigh, regexp.MustCompile(`\b(nc|netcat|ncat)\b[^\n]*\s-(e|exec)\b`)},
 		{ThreatReverseShell, ConfidenceHigh, regexp.MustCompile(`\b(nc|netcat|ncat)\b[^\n]*\s--(sh-)?exec\b`)},
 		{ThreatReverseShell, ConfidenceHigh, regexp.MustCompile(`\bsocat\b[^\n]*exec:`)},
-		// Download-and-execute (curl/wget piped into a shell).
+		// 下载即执行（curl/wget 通过管道传给 shell）。
 		{ThreatDownloadExec, ConfidenceHigh, regexp.MustCompile(`\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b`)},
-		// Encoded execution (base64/hex decoded into a shell).
+		// 编码执行（base64/hex 解码后传给 shell）。
 		{ThreatEncodedExec, ConfidenceHigh, regexp.MustCompile(`\bbase64\s+(-d|--decode|-di)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b`)},
 		{ThreatEncodedExec, ConfidenceHigh, regexp.MustCompile(`\bxxd\s+-r\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b`)},
 	}
 )
 
-// DetectThreat inspects command for dangerous non-file-editing patterns and
-// returns the highest-confidence match. It is a pure function: quoted strings,
-// heredoc bodies and comments are masked with the same token-aware sanitiser
-// used by FindFileEditingCommand, so literal text never produces a false
-// positive. An empty command yields the zero ThreatMatch.
+// DetectThreat 检查 command 中危险的非文件编辑模式，返回置信度最高的匹配。
+// 它是纯函数：引号字符串、heredoc 正文和注释都使用与 FindFileEditingCommand
+// 相同的感知 token 清洗器进行遮盖，因此字面量文本绝不会产生误报。空命令返回零值
+// ThreatMatch。
 func DetectThreat(command string) ThreatMatch {
 	return detectThreatDepth(command, 0)
 }
 
-// detectThreatDepth is DetectThreat with an explicit recursion budget for
-// literal payloads recovered from wrappers (trap and shell -c). Each level
-// consumes at least the wrapper text, so the budget is a defensive bound rather
-// than a termination requirement.
+// detectThreatDepth 是带显式递归预算的 DetectThreat，用于从包装器（trap 和
+// shell -c）恢复的字面量载荷。每一层至少消耗包装器文本，因此预算是防御性上界，
+// 而非终止的必要条件。
 func detectThreatDepth(command string, depth int) ThreatMatch {
 	if strings.TrimSpace(command) == "" {
 		return ThreatMatch{}
@@ -107,8 +101,7 @@ func detectThreatDepth(command string, depth int) ThreatMatch {
 
 	best := ThreatMatch{}
 
-	// Mask quoted strings, heredocs and comments, then reduce wrappers before
-	// matching the core patterns.
+	// 遮盖引号字符串、heredoc 和注释，然后在匹配核心模式之前归约包装器。
 	sanitized := strings.ToLower(sanitizeCommand(command))
 	reduced, hadWrapper := reduceWrappers(sanitized)
 	if m := detectCore(reduced, hadWrapper); m.Confidence > best.Confidence {
@@ -116,26 +109,23 @@ func detectThreatDepth(command string, depth int) ThreatMatch {
 	}
 
 	if depth < maxShellLiteralDepth {
-		// trap payloads were blanked by the sanitiser; inspect them from the raw
-		// command. The trap keyword itself is a wrapper, so a medium core threat
-		// found inside a trap is promoted to HIGH.
+		// trap 载荷已被清洗器置为空白；从原始命令中检查它们。trap 关键字本身是包装器，
+		// 因此在 trap 中发现的中等置信度核心威胁会被提升为 HIGH。
 		for _, payload := range trapPayloads(command) {
 			if m := detectCore(strings.ToLower(payload), true); m.Confidence > best.Confidence {
 				best = m
 			}
-			// A trap payload can itself launch `bash -c ...`; recurse so nested
-			// literals are not hidden behind two layers of quoting.
+			// trap 载荷本身可以启动 `bash -c ...`；递归处理，使嵌套的字面量不会被两层引号
+			// 隐藏。
 			if m := detectThreatDepth(payload, depth+1); m.Confidence > best.Confidence {
 				best = m
 			}
 		}
 
-		// P0 fix: `bash -c`/`sh -c`/`bash -lc` (and friends) wrap a quoted command
-		// that sanitizeCommand blanks before the classifiers run. Recover the
-		// literal payload from the raw command and run both the wrapper-aware
-		// core patterns (promoting medium threats to HIGH) and a full recursive
-		// classification. Extraction is conservative: only real quoted payloads
-		// at a command position are returned, so benign strings never match.
+		// P0 修复：`bash -c`/`sh -c`/`bash -lc`（及类似形式）会包裹一个带引号的命令，
+		// sanitizeCommand 在分类器运行前会把它清空。从原始命令中恢复字面量载荷，
+		// 并同时运行感知包装器的核心模式（把中等威胁提升为 HIGH）和完整的递归分类。
+		// 提取是保守的：只返回命令位置真正带引号的载荷，因此良性字符串永不匹配。
 		for _, payload := range shellLiteralPayloads(command) {
 			if m := detectCore(strings.ToLower(payload), true); m.Confidence > best.Confidence {
 				best = m
@@ -149,7 +139,7 @@ func detectThreatDepth(command string, depth int) ThreatMatch {
 	return best
 }
 
-// detectCore runs the compiled patterns against a single normalised command.
+// detectCore 对单条规范化命令运行编译好的模式。
 func detectCore(s string, hadWrapper bool) ThreatMatch {
 	best := ThreatMatch{}
 
@@ -171,8 +161,7 @@ func detectCore(s string, hadWrapper bool) ThreatMatch {
 		if wideTargetRe.MatchString(s) {
 			confidence = ConfidenceHigh
 		}
-		// Launching a forced delete through a wrapper is itself suspicious, even
-		// when the target path is specific.
+		// 通过包装器发起强制删除本身就可疑，即使目标路径很具体。
 		if hadWrapper && confidence < ConfidenceHigh {
 			confidence = ConfidenceHigh
 		}
@@ -189,9 +178,8 @@ func detectCore(s string, hadWrapper bool) ThreatMatch {
 	return best
 }
 
-// reduceWrappers strips leading sudo/env/nohup/command/builtin/exec prefixes,
-// repeating until stable so stacked wrappers (sudo env rm ...) are handled. It
-// reports whether any wrapper was removed.
+// reduceWrappers 剥离开头的 sudo/env/nohup/command/builtin/exec 前缀，重复直到
+// 稳定，从而处理堆叠的包装器（sudo env rm ...）。它报告是否移除了任何包装器。
 func reduceWrappers(s string) (string, bool) {
 	reduced := s
 	found := false
@@ -205,7 +193,7 @@ func reduceWrappers(s string) (string, bool) {
 	}
 }
 
-// trapPayloads returns the quoted command payload of each trap invocation.
+// trapPayloads 返回每次 trap 调用的带引号命令载荷。
 func trapPayloads(command string) []string {
 	var out []string
 	for _, re := range []*regexp.Regexp{trapSingleRe, trapDoubleRe} {

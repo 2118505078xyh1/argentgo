@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// runEditTool calls the registered edit tool with yolo enabled so the mutation
-// gate does not interfere with these filesystem assertions.
+// runEditTool 在启用 yolo 的情况下调用已注册的 edit 工具，使变更
+// 门控不会干扰这些文件系统断言。
 func runEditTool(t *testing.T, root, rel, old, newText string, repair bool) (string, error) {
 	t.Helper()
 	args := map[string]any{
@@ -50,8 +50,8 @@ func readFixture(t *testing.T, path string) string {
 }
 
 func TestRepairReplacePrefersExactLiteralMatch(t *testing.T) {
-	// The first block is an exact, unique match; the second only matches after
-	// stripping its extra indent. Rung 1 must win over the fuzzy rung.
+	// 第一个块是精确且唯一的匹配；第二个只有在
+	// 去掉多余缩进后才匹配。第 1 级必须胜过模糊级别。
 	got, ok := repairReplace("foo\nbar\n    foo\n    bar\n", "foo\nbar", "X\nY")
 	if !ok {
 		t.Fatal("repairReplace did not find the exact match")
@@ -81,7 +81,7 @@ func TestEditRepairReappliesOriginalIndentation(t *testing.T) {
 	root := t.TempDir()
 	path := writeFixture(t, root, "f.txt", "\tfoo()\n\tbar()\n")
 
-	// The old/new blocks use spaces; the file uses tabs. The literal is absent.
+	// old/new 块使用空格；文件使用制表符。字面量不存在。
 	got, ok := repairReplace("\tfoo()\n\tbar()\n", "    foo()\n    bar()", "    foo()\n    baz()")
 	if !ok {
 		t.Fatal("indentation-only mismatch was not repaired")
@@ -106,7 +106,7 @@ func TestEditRepairDropsSpuriousBlankLine(t *testing.T) {
 	root := t.TempDir()
 	path := writeFixture(t, root, "f.txt", "alpha\nbeta\ngamma\n")
 
-	// Leading blank line in both old and new.
+	// old 和 new 中都有前导空行。
 	out, err := runEditTool(t, root, "f.txt", "\nalpha\nbeta\n", "\nalpha\nBETA\n", true)
 	if err != nil {
 		t.Fatalf("leading blank repair: %v", err)
@@ -118,7 +118,7 @@ func TestEditRepairDropsSpuriousBlankLine(t *testing.T) {
 		t.Fatalf("content = %q, want %q", got, want)
 	}
 
-	// Trailing blank line in both old and new.
+	// old 和 new 中都有尾随空行。
 	path = writeFixture(t, root, "g.txt", "alpha\nbeta\ngamma\n")
 	if _, err := runEditTool(t, root, "g.txt", "beta\ngamma\n\n", "BETA\ngamma\n\n", true); err != nil {
 		t.Fatalf("trailing blank repair: %v", err)
@@ -224,9 +224,9 @@ func TestRepairReplaceNormalizesPunctuation(t *testing.T) {
 }
 
 func TestNormalizePunctRuneExpandedMapping(t *testing.T) {
-	// Per-rune substitutions introduced for the codex audit: horizontal bars
-	// and the remaining Unicode space family. Every case must map to a single
-	// ASCII rune and never change rune length.
+	// 为 codex 审计引入的逐 rune 替换：横杠
+	// 以及其余 Unicode 空格家族。每种情况都必须映射到单个
+	// ASCII rune，且永不改变 rune 长度。
 	tests := []struct {
 		name string
 		in   rune
@@ -263,9 +263,9 @@ func TestNormalizePunctRuneExpandedMapping(t *testing.T) {
 }
 
 func TestRepairReplaceNormalizesExpandedPunctuation(t *testing.T) {
-	// Integration: each newly mapped rune must let a finite old block match the
-	// ASCII file text through repairReplace, and leave unrelated bytes alone.
-	// content is the ASCII form; old is the same text with one rune swapped.
+	// 集成测试：每个新映射的 rune 都必须让有限的 old 块通过
+	// repairReplace 匹配到 ASCII 文件内容，并保持无关字节不变。
+	// content 是 ASCII 形式；old 是同一文本替换了一个 rune。
 	tests := []struct {
 		name, content, old, want string
 	}{
@@ -294,7 +294,7 @@ func TestRepairReplaceNormalizesExpandedPunctuation(t *testing.T) {
 }
 
 func TestRepairReplacePunctuationRejectsAmbiguousMatch(t *testing.T) {
-	// Both windows normalize to "a-b", so no single occurrence may be picked.
+	// 两个窗口都归一化为 "a-b"，因此不能选中任何单个出现位置。
 	content := "a-b and a-b\n"
 	if got, ok := repairReplace(content, "a–b", "X"); ok {
 		t.Fatalf("ambiguous normalized match was accepted: %q", got)
@@ -302,12 +302,12 @@ func TestRepairReplacePunctuationRejectsAmbiguousMatch(t *testing.T) {
 }
 
 func TestRepairReplacePunctuationDoesNotMatchUnrelatedText(t *testing.T) {
-	// Plain text with no punctuation issues must not be fuzzy-matched.
+	// 没有标点问题的纯文本不得被模糊匹配。
 	if got, ok := repairReplace("alpha beta gamma\n", "completely different", "X"); ok {
 		t.Fatalf("unrelated text matched: %q", got)
 	}
-	// Only the full phrase matches after normalization: "this" occurs twice,
-	// but "fix 'this' now" occurs once, so the correct window is chosen.
+	// 归一化后只有完整短语匹配："this" 出现两次，
+	// 但 "fix 'this' now" 出现一次，因此选中了正确的窗口。
 	content := "fix 'this' now and keep 'this' later\n"
 	got, ok := repairReplace(content, "fix ‘this’ now", "FIXED")
 	if !ok || got != "FIXED and keep 'this' later\n" {
@@ -317,7 +317,7 @@ func TestRepairReplacePunctuationDoesNotMatchUnrelatedText(t *testing.T) {
 
 func TestEditRepairPunctuationLeavesUnrelatedBytesUntouched(t *testing.T) {
 	root := t.TempDir()
-	// The curly quote on the first line is unrelated and must survive verbatim.
+	// 第一行的弯引号与此无关，必须逐字保留。
 	path := writeFixture(t, root, "f.txt", "keep ‘this’\nchange 'this'\n")
 
 	_, err := runEditTool(t, root, "f.txt", "change ‘this’", "changed", true)
@@ -361,8 +361,8 @@ func TestRepairReplaceTrailingWhitespace(t *testing.T) {
 			want:    "ALPHA\nBETA\n",
 		},
 		{
-			// old uses a tab so the exact-literal rung cannot win (it is not a
-			// substring of the space-padded file line); only rstrip matches.
+			// old 使用制表符，因此精确字面级别无法取胜（它不是
+			// 带空格填充的文件行的子串）；只有 rstrip 能匹配。
 			name:    "single line trailing whitespace",
 			content: "foo   \n",
 			old:     "foo\t",
@@ -398,8 +398,8 @@ func TestRepairReplaceTrailingWhitespace(t *testing.T) {
 }
 
 func TestRepairReplaceTrailingWhitespaceRejectsAmbiguousMatch(t *testing.T) {
-	// Both "foo \nbar" and "foo\t\nbar" normalize to ["foo", "bar"], so no
-	// single window may be picked.
+	// "foo \nbar" 和 "foo\t\nbar" 都归一化为 ["foo", "bar"]，因此不能
+	// 选中任何单个窗口。
 	content := "foo \nbar\nfoo\t\nbar\n"
 	if got, ok := repairReplace(content, "foo\nbar", "X"); ok {
 		t.Fatalf("ambiguous trailing-whitespace match was accepted: %q", got)
@@ -417,8 +417,8 @@ func TestRepairReplaceTrailingWhitespaceRejectsAmbiguousMatch(t *testing.T) {
 
 func TestEditRepairTrailingWhitespaceLeavesUnrelatedLinesUntouched(t *testing.T) {
 	root := t.TempDir()
-	// The first line's trailing spaces are unrelated to the edited block and
-	// must survive byte-for-byte.
+	// 第一行的尾随空格与被编辑的块无关，
+	// 必须逐字节保留。
 	path := writeFixture(t, root, "f.txt", "keep   \nchange \nlast\n")
 
 	_, err := runEditTool(t, root, "f.txt", "change\nlast", "DONE\nlast", true)
@@ -431,8 +431,8 @@ func TestEditRepairTrailingWhitespaceLeavesUnrelatedLinesUntouched(t *testing.T)
 }
 
 func TestRepairReplaceTrailingWhitespacePreservesCRLF(t *testing.T) {
-	// CRLF files: the \r must be treated as trailing whitespace for matching,
-	// yet the original CRLF line endings must survive the splice.
+	// CRLF 文件：\r 必须被视为用于匹配的尾随空白，
+	// 但原始 CRLF 行尾必须在拼接后保留。
 	content := "a \r\nb\r\nc\r\n"
 	got, ok := repairReplace(content, "a\nb", "X")
 	if !ok {

@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// TestNarrowVerifyArgvByChangedFiles pins the core optimisation: a full-repo
-// `go test ./...` target is replaced by the deduplicated, sorted set of changed
-// Go packages, and the configured argv slice is left untouched.
+// TestNarrowVerifyArgvByChangedFiles 锁定核心优化：全仓库的 `go test ./...` 目标
+// 被去重、排序的改动 Go 包集合取代，且配置的 argv 切片保持原样。
+// （接上行）
 func TestNarrowVerifyArgvByChangedFiles(t *testing.T) {
 	root := t.TempDir()
 	argv := []string{"go", "test", "./..."}
@@ -32,24 +32,24 @@ func TestNarrowVerifyArgvByChangedFiles(t *testing.T) {
 	}
 }
 
-// TestVerifyNarrowTargetsRejectsUnsafeAndOutOfWorkspacePaths pins the security
-// boundary: traversal, absolute/drive/UNC paths, shell metacharacters,
-// whitespace, NUL and empty inputs are all skipped rather than interpolated.
+// TestVerifyNarrowTargetsRejectsUnsafeAndOutOfWorkspacePaths 锁定安全边界：
+// 遍历、绝对/盘符/UNC 路径、shell 元字符、空白、NUL 和空输入都会被跳过而非插值。
+// （接上行）
 func TestVerifyNarrowTargetsRejectsUnsafeAndOutOfWorkspacePaths(t *testing.T) {
 	root := t.TempDir()
 	unsafe := []string{
-		"../escape.go",                // lexical traversal
-		"a/../../escape.go",           // traversal after clean
-		`..\evil.go`,                  // windows-style traversal
-		"internal/app/..\\secret.go",  // traversal through a mixed separator
-		"/etc/passwd",                 // absolute unix
-		`C:\Windows\system32\evil.go`, // windows drive prefix
-		`\\server\share\evil.go`,      // UNC root
-		"internal/app/x.go; rm -rf /", // shell separator
-		"internal/app/$(whoami).go",   // command substitution
+		"../escape.go",                // 词法遍历
+		"a/../../escape.go",           // clean 之后的遍历
+		`..\evil.go`,                  // Windows 风格的遍历
+		"internal/app/..\\secret.go",  // 通过混合分隔符的遍历
+		"/etc/passwd",                 // Unix 绝对路径
+		`C:\Windows\system32\evil.go`, // Windows 盘符前缀
+		`\\server\share\evil.go`,      // UNC 根目录
+		"internal/app/x.go; rm -rf /", // shell 分隔符
+		"internal/app/$(whoami).go",   // 命令替换
 		"internal/app/a.go|cat",       // pipe
 		"internal/app/a b.go",         // whitespace
-		"internal/app/a.go\x00.go",    // embedded NUL
+		"internal/app/a.go\x00.go",    // 内嵌 NUL
 		"",                            // empty
 	}
 	targets, skipped := verifyNarrowTargets(root, unsafe)
@@ -60,8 +60,8 @@ func TestVerifyNarrowTargetsRejectsUnsafeAndOutOfWorkspacePaths(t *testing.T) {
 		t.Fatalf("skipped = %d, want %d", skipped, len(unsafe))
 	}
 
-	// Even with one safe path alongside the unsafe ones, only the safe one is
-	// used and the bad paths are counted as skipped.
+	// 即使安全路径与不安全路径并存，也只使用安全路径，
+	// 坏路径计为跳过。
 	targets, skipped = verifyNarrowTargets(root, append([]string{"ok/ok.go"}, unsafe...))
 	if !reflect.DeepEqual(targets, []string{"./ok"}) {
 		t.Fatalf("targets = %q, want [./ok]", targets)
@@ -71,8 +71,8 @@ func TestVerifyNarrowTargetsRejectsUnsafeAndOutOfWorkspacePaths(t *testing.T) {
 	}
 }
 
-// TestNarrowVerifyArgvNoPathsKeepsFullCommand pins the unchanged behaviour when
-// no changed paths are available: the configured full command runs verbatim.
+// TestNarrowVerifyArgvNoPathsKeepsFullCommand 锁定没有改动路径时的不变行为：
+// 配置的完整命令原样运行。
 func TestNarrowVerifyArgvNoPathsKeepsFullCommand(t *testing.T) {
 	for _, argv := range [][]string{
 		{"go", "test", "./..."},
@@ -90,9 +90,9 @@ func TestNarrowVerifyArgvNoPathsKeepsFullCommand(t *testing.T) {
 	}
 }
 
-// TestVerifyNarrowTargetsCJKPaths pins that Unicode (CJK) path components are
-// accepted by the character allowlist and survive as a valid package pattern,
-// while a non-Go file in the same batch is still skipped.
+// TestVerifyNarrowTargetsCJKPaths 确认 Unicode（CJK）路径组件被字符白名单接受并作为有效包模式保留，
+// 而同一批次中的非 Go 文件仍被跳过。
+// （接上行）
 func TestVerifyNarrowTargetsCJKPaths(t *testing.T) {
 	root := t.TempDir()
 	paths := []string{"内部/模块/工具.go", "内部/模块/另一个.go", "docs/说明.md"}
@@ -114,9 +114,9 @@ func TestVerifyNarrowTargetsCJKPaths(t *testing.T) {
 	}
 }
 
-// TestNarrowVerifyArgvModesAndNoOps pins the two narrowing modes and every case
-// where narrowing must be refused: explicit operator targets, unknown command
-// shapes and .exe commands keep their exact configured argv.
+// TestNarrowVerifyArgvModesAndNoOps 锁定两种收窄模式以及所有必须拒绝收窄的情形：
+// 显式操作人员目标、未知命令形状和 .exe 命令都保持其精确配置的 argv。
+// （接上行）
 func TestNarrowVerifyArgvModesAndNoOps(t *testing.T) {
 	root := t.TempDir()
 	paths := []string{"a/a.go"}
@@ -176,9 +176,9 @@ func TestNarrowVerifyArgvModesAndNoOps(t *testing.T) {
 	}
 }
 
-// writeNarrowProbeModule creates a tiny module with one passing package (a) and
-// one failing package (b). A full `go test ./...` fails; a narrowed
-// `go test ./a` passes, which lets the tests observe narrowing end to end.
+// writeNarrowProbeModule 创建一个微型模块，包含一个通过的包 (a) 和一个失败的包 (b)。
+// 完整的 `go test ./...` 会失败；收窄后的 `go test ./a` 会通过，
+// 使测试能端到端观察收窄。
 func writeNarrowProbeModule(t *testing.T, workspace string) {
 	t.Helper()
 	writeVerifyFile(t, workspace, "go.mod", "module narrowprobe\n\ngo 1.21\n")
@@ -194,9 +194,9 @@ func writeNarrowProbeModule(t *testing.T, workspace string) {
 		"package b\n\nimport \"testing\"\n\nfunc TestFail(t *testing.T) { t.Fatal(\"BOOM_B\") }\n")
 }
 
-// TestNewVerifyFuncNarrowsGoTestToChangedPackage is the end-to-end proof: with a
-// changed path in package a the runner passes (only ./a is tested); with no
-// paths it falls back to ./... and sees the deliberately failing package b.
+// TestNewVerifyFuncNarrowsGoTestToChangedPackage 是端到端证明：包 a 中有改动路径时运行器通过（只测试 ./a）；
+// 没有路径时回退到 ./... 并看到故意失败的包 b。
+// （接上行）
 func TestNewVerifyFuncNarrowsGoTestToChangedPackage(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)
@@ -215,10 +215,10 @@ func TestNewVerifyFuncNarrowsGoTestToChangedPackage(t *testing.T) {
 	}
 }
 
-// TestVerifyDispatchForwardsChangedPaths guards the dispatcher wiring: the
-// per-language runner must receive the checkpoint paths, not its own command
-// argv. With the wildcard command below, a forwarded argv would be mistaken for
-// package names (./go, ./test) and the check would fail spuriously.
+// TestVerifyDispatchForwardsChangedPaths 守护分派器接线：按语言的运行器必须接收检查点路径，
+// 而非它自己的命令 argv。有了下面的通配符命令，转发的 argv 会被误认为包名
+// （./go、./test），检查会虚假失败。
+// （接上行）
 func TestVerifyDispatchForwardsChangedPaths(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)

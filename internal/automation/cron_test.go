@@ -84,11 +84,11 @@ func TestCronMatches(t *testing.T) {
 	}
 }
 
-// TestCronNextAcrossDSTTransitions guards the wall-clock hour jump in Next.
-// A DST fall-back makes one local hour occur twice; rebuilding the time with
-// time.Date at that hour resolves to the first occurrence, so an hour-advance
-// that ignores this can spin forever. Each case runs under a timeout so a
-// regression fails loudly instead of hanging the suite.
+// TestCronNextAcrossDSTTransitions 守护 Next 中的挂钟小时跳转。
+// 标记消失或无法检查：不要卡住任务。
+// TestCronNextAcrossDSTTransitions 守护 Next 中的挂钟小时跳转。DST 回拨使某个本地小时出现两次；用 time.Date 在该小时重建时间会解析为第一次出现，因此忽略这一点的
+// 忽略这一点可能永远循环。每个用例都在超时下运行，使
+// 回归大声失败而非挂住套件。
 func TestCronNextAcrossDSTTransitions(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -114,9 +114,9 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 		want time.Time
 	}{
 		{
-			// Regression: hour 1 is excluded, so Next must advance past BOTH
-			// occurrences of 01:00 on the fall-back day. Rebuilding the time
-			// at 01:00 pinned the loop to the first occurrence forever.
+			// 小时前进可能永远循环。每个用例都在超时下运行，使回归大声失败而非挂住套件。
+			// 回归：小时 1 被排除，因此 Next 必须越过回拨日 01:00 的两个出现。在
+			// 01:00 重建时间会把循环永远钉在第一次出现上。
 			name: "fall back with the repeated hour excluded",
 			expr: "0 0 * * *",
 			loc:  ny,
@@ -124,7 +124,7 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 			want: in(ny, "2026-11-02T00:00:00"),
 		},
 		{
-			// The repeated hour is allowed: the first occurrence is next.
+			// 重复的小时被允许：第一次出现是下一个。
 			name: "fall back with the repeated hour allowed",
 			expr: "30 1 * * *",
 			loc:  ny,
@@ -132,8 +132,8 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 			want: time.Date(2026, 11, 1, 1, 30, 0, 0, ny), // 01:30 EDT
 		},
 		{
-			// 02:30 does not exist on the spring-forward day; the next valid
-			// slot is the following morning.
+			// 02:30 在春季前拨日不存在；下一个有效时段是第二天早上。
+			// 时段是第二天早上。
 			name: "spring forward skips a nonexistent wall time",
 			expr: "30 2 * * *",
 			loc:  ny,
@@ -141,8 +141,8 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 			want: in(ny, "2026-03-09T02:30:00"),
 		},
 		{
-			// Lord Howe shifts by 30 minutes, so a duration-based jump must
-			// still land on a real wall-clock minute.
+			// Lord Howe 偏移 30 分钟，因此基于时长的跳转仍必须落在真实的挂钟分钟上。
+			// 仍必须落在真实的挂钟分钟上。
 			name: "half hour fall back with the repeated hour excluded",
 			expr: "0 0 * * *",
 			loc:  lh,
@@ -150,7 +150,7 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 			want: in(lh, "2026-04-06T00:00:00"),
 		},
 		{
-			// Jumping to the next hour must normalise the minute to zero.
+			// 跳到下一小时必须把分钟规范化为零。
 			name: "hour jump starts at the top of the hour",
 			expr: "0 9 * * *",
 			loc:  ny,
@@ -178,12 +178,12 @@ func TestCronNextAcrossDSTTransitions(t *testing.T) {
 	}
 }
 
-// TestCronNextAcrossMidnightDST guards the day/month jumps in Next. Zones that
-// shift DST at 00:00 have a nonexistent midnight, which time.Date normalises
-// backwards onto the previous day. Rebuilding a day boundary from that value
-// can leave Next spinning on the same excluded day forever (and, in the daemon,
-// wedge the store mutex because recordRun calls Next while holding it). Each
-// case runs under a timeout so a regression fails loudly instead of hanging.
+// 跳到下一小时必须把分钟规范化为零。
+// TestCronNextAcrossMidnightDST 守护 Next 中的日/月跳转。在 00:00 切换 DST 的时区有一个不存在的午夜，time.Date 会把它向后规范化到前一天。从该值重建日边界
+// 前一天。从该值重建日边界
+// 会让 Next 永远在同一个被排除的日期上打转（并且在 daemon 中，
+// 会让 Next 永远在同一个被排除的日期上打转（并且在 daemon 中，因为 recordRun 持有 mutex 时调用 Next，会卡住 store mutex）。每个
+// 用例都在超时下运行，使回归大声失败而非挂住。
 func TestCronNextAcrossMidnightDST(t *testing.T) {
 	havana, err := time.LoadLocation("America/Havana")
 	if err != nil {
@@ -208,33 +208,33 @@ func TestCronNextAcrossMidnightDST(t *testing.T) {
 		want time.Time
 	}{
 		{
-			// The spring-forward day (2026-03-08) has no 00:00 in Havana;
-			// a "day 1" task must resume from April rather than spin on March.
+			// 春季前拨日（2026-03-08）在 Havana 没有 00:00；"day 1" 任务必须从四月恢复，而不是在三月打转。
+			// "day 1" 任务必须从四月恢复，而不是在三月打转。
 			name: "monthly day skipped over a midnight spring forward",
 			expr: "0 0 1 * *",
 			from: in(havana, "2026-03-08T23:31:00"),
 			want: in(havana, "2026-04-01T00:00:00"),
 		},
 		{
-			// A weekday task starting on a Sunday during the transition must
-			// reach Monday 09:30, not loop on the repeated 23:00 wall hour.
+			// 过渡期从星期日开始的星期任务必须
+			// 过渡期从星期日开始的星期任务必须到达星期一 09:30，而不是在被重复的 23:00 挂钟小时上循环。
 			name: "weekday task after a midnight spring forward",
 			expr: "30 9 * * 1-5",
 			from: in(havana, "2026-03-08T23:31:00"),
 			want: in(havana, "2026-03-09T09:30:00"),
 		},
 		{
-			// 01:00 on the transition day is the first valid instant after
-			// the skipped midnight; the fallback step must land there rather
-			// than skipping the day entirely.
+			// 过渡日的 01:00 是被跳过的午夜之后的第一个有效时刻；回退步骤必须落在那里，而不是
+			// 被跳过的午夜；回退步骤必须落在那里，而不是
+			// 完全跳过那一天。
 			name: "first valid instant of the transition day",
 			expr: "0 1 8 * *",
 			from: in(havana, "2026-03-07T23:31:00"),
 			want: in(havana, "2026-03-08T01:00:00"),
 		},
 		{
-			// Beirut also springs forward at midnight; a mid-month day must
-			// land on the next month at its post-transition offset.
+			// Beirut 也在午夜前拨；月中的某一天必须落在下个月过渡后的偏移量上。
+			// 落在下个月过渡后的偏移量上。
 			name: "mid month day across a midnight spring forward",
 			expr: "0 0 15 * *",
 			from: in(beirut, "2026-03-28T23:31:00"),
@@ -366,8 +366,8 @@ func TestNonDayIntervalStaysAbsoluteAcrossDST(t *testing.T) {
 	}
 	from := time.Date(2026, 3, 8, 1, 30, 0, 0, loc) // EST, one hour before spring forward
 	got := (Schedule{Kind: KindInterval, Expr: "1h"}).Next(from)
-	// An hour is an elapsed hour, so the local clock jumps from 01:30 EST
-	// to 03:30 EDT. Only day intervals are calendar-based.
+	// 一小时是经过的一小时，因此本地时钟从 01:30 EST 跳到
+	// 03:30 EDT。只有日间隔是基于日历的。
 	want := time.Date(2026, 3, 8, 3, 30, 0, 0, loc)
 	if !got.Equal(want) {
 		t.Fatalf("1h after %s = %s, want %s", from, got, want)
@@ -384,7 +384,7 @@ func TestScheduleNext(t *testing.T) {
 	if got, want := cron.Next(now), mustTime(t, "2026-01-01T00:15:00Z"); !got.Equal(want) {
 		t.Fatalf("cron next = %s, want %s", got, want)
 	}
-	// An empty kind is inferred from the expression shape.
+	// 空的 kind 从表达式形态推断。
 	inferred := Schedule{Expr: "*/15 * * * *"}
 	if got, want := inferred.Next(now), mustTime(t, "2026-01-01T00:15:00Z"); !got.Equal(want) {
 		t.Fatalf("inferred cron next = %s, want %s", got, want)

@@ -57,7 +57,7 @@ func TestAppendToolTruncationNeverSplitsRunes(t *testing.T) {
 }
 
 func TestAppendToolEnforcesLineLimit(t *testing.T) {
-	// 10 KB total: under the byte cap, over the line cap.
+	// 总共 10 KB：低于字节上限，高于行上限。
 	m := New(Config{})
 	m.AppendTool("read", `{}`, strings.Repeat("x\n", 5000), false)
 	out := m.Transcript()[0].Output

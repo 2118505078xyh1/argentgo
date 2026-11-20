@@ -7,8 +7,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// MarkDirty records that the rendered content changed and the next frame must
-// be painted. It is safe to call from any goroutine.
+// MarkDirty 记录已渲染内容发生变化、下一帧必须
+// 重绘。从任何 goroutine 调用都是安全的。
 func (m *Model) MarkDirty() {
 	m.mu.Lock()
 	m.markDirtyLocked()
@@ -19,44 +19,44 @@ func (m *Model) markDirtyLocked() {
 	m.dirty = true
 }
 
-// Dirty reports whether content changed since the last paint.
+// Dirty 报告自上次绘制以来内容是否变化。
 func (m *Model) Dirty() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.dirty
 }
 
-// ClearDirty acknowledges a paint. Most callers never need it: Paint clears
-// the flag itself.
+// ClearDirty 确认一次绘制。大多数调用方从不需要它：Paint 会
+// 自行清除该标志。
 func (m *Model) ClearDirty() {
 	m.mu.Lock()
 	m.dirty = false
 	m.mu.Unlock()
 }
 
-// SetTheme switches the palette at runtime. Unknown names leave the current
-// theme in place and return an error wrapping ErrUnknownTheme.
+// SetTheme 在运行时切换调色板。未知名称保持当前
+// 主题不变，并返回包装了 ErrUnknownTheme 的错误。
 func (m *Model) SetTheme(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.applyThemeLocked(name)
 }
 
-// Theme is the canonical name of the active theme.
+// Theme 是活动主题的规范名称。
 func (m *Model) Theme() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.theme
 }
 
-// Palette returns the palette currently driving the renderer.
+// Palette 返回当前驱动渲染器的调色板。
 func (m *Model) Palette() Palette {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.palette
 }
 
-// SetNoColor toggles colour suppression without rebuilding the model.
+// SetNoColor 切换颜色抑制，而无需重建模型。
 func (m *Model) SetNoColor(v bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -67,22 +67,22 @@ func (m *Model) SetNoColor(v bool) {
 	_ = m.applyThemeLocked(m.theme)
 }
 
-// NoColor reports whether colour SGR codes are suppressed.
+// NoColor 报告颜色 SGR 码是否被抑制。
 func (m *Model) NoColor() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.noColor
 }
 
-// Degraded reports whether the injected environment asked for monochrome.
+// Degraded 报告注入的环境是否要求单色。
 func (m *Model) Degraded() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.degraded
 }
 
-// applyThemeLocked rebuilds the palette from the theme, environment and
-// NoColor flag. It always bumps the version so a repaint picks up the change.
+// applyThemeLocked 根据主题、环境和
+// NoColor 标志重建调色板。它总是提升版本，使重绘采纳变更。
 func (m *Model) applyThemeLocked(name string) error {
 	p, err := paletteFor(name)
 	if err != nil {
@@ -113,8 +113,8 @@ func sessionInfos(paths []string) []SessionInfo {
 	return out
 }
 
-// SetSessions replaces the session rail. An empty slice hides the rail but
-// keeps the previously selected row for the next fill.
+// SetSessions 替换会话栏。空切片隐藏侧边栏，但
+// 保留之前选中的行供下次填充使用。
 func (m *Model) SetSessions(rows []SessionInfo) {
 	m.mu.Lock()
 	m.sessions = append([]SessionInfo{}, rows...)
@@ -124,22 +124,22 @@ func (m *Model) SetSessions(rows []SessionInfo) {
 	m.mu.Unlock()
 }
 
-// Sessions returns a copy of the session rail rows.
+// Sessions 返回会话栏各行的一个副本。
 func (m *Model) Sessions() []SessionInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]SessionInfo{}, m.sessions...)
 }
 
-// SetTurnActions installs the undo / retry / rename seams. Passing nil clears
-// one action, which makes its slash command answer with a notice instead.
+// SetTurnActions 安装 undo / retry / rename 接缝。传入 nil 清除
+// 某个动作，使其斜杠命令以通知作答。
 func (m *Model) SetTurnActions(undo, retry, rename TurnAction) {
 	m.mu.Lock()
 	m.undoFn, m.retryFn, m.renameFn = undo, retry, rename
 	m.mu.Unlock()
 }
 
-// TakeActionArg returns the argument of the last action-producing command.
+// TakeActionArg 返回最后一次产生动作的命令的参数。
 func (m *Model) TakeActionArg() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -148,43 +148,43 @@ func (m *Model) TakeActionArg() string {
 	return arg
 }
 
-// SetApproval installs the injected approval authority. It is consulted after
-// the operator presses y/a; a nil function means the answer is final.
+// SetApproval 安装注入的审批权威。它在
+// 操作员按下 y/a 后被咨询；nil 函数表示答案即为最终结果。
 func (m *Model) SetApproval(fn func(ctx context.Context, name, args string) (bool, error)) {
 	m.mu.Lock()
 	m.approvalFn = fn
 	m.mu.Unlock()
 }
 
-// Quit reports whether the operator asked to leave.
+// Quit 报告操作员是否要求离开。
 func (m *Model) Quit() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.quit
 }
 
-// Busy reports whether a turn is running.
+// Busy 报告是否正在运行某个回合。
 func (m *Model) Busy() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.working
 }
 
-// Input is the current prompt text.
+// Input 是当前提示文本。
 func (m *Model) Input() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.editor.Text()
 }
 
-// Cursor is the caret position as a rune index.
+// Cursor 是以 rune 索引表示的光标位置。
 func (m *Model) Cursor() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.editor.Cursor()
 }
 
-// Transcript is a copy of the current blocks.
+// Transcript 是当前各块的一个副本。
 func (m *Model) Transcript() []Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -192,7 +192,7 @@ func (m *Model) Transcript() []Entry {
 	return append([]Entry{}, m.entries...)
 }
 
-// TakeSubmitted returns the text of the last submitted prompt and clears it.
+// TakeSubmitted 返回最后一次提交的提示文本并清空它。
 func (m *Model) TakeSubmitted() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -201,7 +201,7 @@ func (m *Model) TakeSubmitted() string {
 	return text
 }
 
-// SetUsage records token totals for the header.
+// SetUsage 记录用于头部的 token 总数。
 func (m *Model) SetUsage(prompt, completion int) {
 	m.mu.Lock()
 	m.usageIn, m.usageOut = prompt, completion
@@ -209,7 +209,7 @@ func (m *Model) SetUsage(prompt, completion int) {
 	m.mu.Unlock()
 }
 
-// SetCachedTokens records the cached-prefix portion of the prompt tokens.
+// SetCachedTokens 记录提示 token 中的缓存前缀部分。
 func (m *Model) SetCachedTokens(cached int) {
 	m.mu.Lock()
 	m.usageCached = cached
@@ -217,8 +217,8 @@ func (m *Model) SetCachedTokens(cached int) {
 	m.mu.Unlock()
 }
 
-// Plain renders the transcript as unstyled text, for the scroll-back that
-// stays in the terminal after the alternate screen is left.
+// Plain 把记录渲染为无样式文本，用于离开备用屏幕后
+// 仍留在终端中的回滚浏览。
 func (m *Model) Plain() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -247,9 +247,9 @@ func (m *Model) Plain() string {
 	return out.String()
 }
 
-// plainOutputPreview keeps the scroll-back short. The full output already
-// lives in Entry.Output for the interactive view, but dumping it on exit would
-// flood the terminal; only a bounded head is handed back here.
+// plainOutputPreview 让回滚保持简短。完整输出已经
+// 存在于 Entry.Output 中供交互式视图使用，但退出时倾倒它会
+// 淹没终端；这里只返回有界的头部。
 func plainOutputPreview(output string) string {
 	const (
 		maxPreviewBytes = 512
@@ -287,9 +287,9 @@ func errorText(locale string, err error) string {
 	if err == context.Canceled {
 		return text(locale, "cancelled")
 	}
-	// A turn-ending error may still carry a raw provider message (the agent also
-	// publishes a redacted EventError). Redact, fold to one line and bound it so
-	// a credential or a multi-line dump cannot leak into or widen the transcript.
+	// 回合结束的错误可能仍携带原始 provider 消息（agent 也
+	// 会发布清洗后的 EventError）。清洗、折叠为一行并限制长度，使
+	// 凭据或多行转储无法泄漏进记录或将其撑宽。
 	detail := Truncate(collapseSpace(llm.RedactText(err.Error())), maxStreamErrorDetail)
 	return text(locale, "error") + ": " + detail
 }
@@ -308,20 +308,20 @@ func minInt(a, b int) int {
 	return b
 }
 
-// visibleWindow returns the half-open item interval [start, end) that a
-// scrolled list should render: the viewport starting at scrollOffset and
-// spanning viewportHeight items, grown by overscan items on each side so rows
-// just outside the view are warm when the operator scrolls.
+// visibleWindow 返回一个滚动列表应渲染的半开项区间 [start, end)：
+// 以 scrollOffset 开始、跨 viewportHeight 个项的视口，两侧各扩展 overscan 个项，
+// 使视图外紧邻的行在操作员滚动时预热。
+// 即视图外紧邻的行在滚动时预热。
 //
-// It is a pure integer helper (it counts items, not bytes or runes, so CJK and
-// wrapped display widths are irrelevant here) and is safe for out-of-range
-// input: negative totals yield an empty window, offsets are clamped into
-// [0, total], a non-positive viewport yields an empty window at the offset,
-// and both ends always stay within [0, total] with start <= end.
+// 这是一个纯整数辅助函数（它统计项而非字节或 rune，因此 CJK 和
+// 折叠后的显示宽度在这里无关），且对越界输入安全：负数 total 产生空窗口，
+// 偏移被钳制到 [0, total]，非正的 viewport 在偏移处产生空窗口，
+// 且两端始终保持在 [0, total] 内
+// 并满足 start <= end。
 //
-// This is the reusable basis for windowing the transcript in
-// bodyLinesLocked; wiring it in is deliberately left to the owner of
-// render.go.
+// 这是在 bodyLinesLocked 中对记录做窗口化的可复用基础；
+// 把它接线进去有意留给
+// render.go 的负责人。
 func visibleWindow(total, scrollOffset, viewportHeight, overscan int) (start, end int) {
 	if total <= 0 {
 		return 0, 0
@@ -337,8 +337,8 @@ func visibleWindow(total, scrollOffset, viewportHeight, overscan int) (start, en
 	if overscan < 0 {
 		overscan = 0
 	}
-	// A value larger than the list cannot widen a clamped window, so capping
-	// here keeps the additions below from overflowing on extreme inputs.
+	// 大于列表长度的值不会扩大钳制后的窗口，因此在这里限制
+	// 可防止下面的加法在极端输入下溢出。
 	if viewportHeight > total {
 		viewportHeight = total
 	}

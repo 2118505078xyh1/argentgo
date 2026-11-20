@@ -12,9 +12,8 @@ import (
 	"testing"
 )
 
-// makeJunction creates a directory junction without requiring administrator
-// privileges. filepath.EvalSymlinks does not follow junctions on Windows, so a
-// separate test is needed for the reparse-point escape.
+// makeJunction 创建一个目录 junction，无需管理员权限。filepath.EvalSymlinks 在
+// Windows 上不跟随 junction，因此需要单独的测试来覆盖重解析点逃逸。
 func makeJunction(t *testing.T, link, target string) {
 	t.Helper()
 	out, err := exec.Command("cmd", "/C", "mklink", "/J", link, target).CombinedOutput()
@@ -33,14 +32,14 @@ func TestJunctionEscapeIsDeniedForReadsAndWrites(t *testing.T) {
 	link := filepath.Join(root, "home")
 	makeJunction(t, link, outside)
 
-	// The helper must see through the junction, unlike EvalSymlinks.
+	// 与 EvalSymlinks 不同，该辅助函数必须看穿 junction。
 	real, err := ResolveRealPath(filepath.Join(link, "id_rsa"))
 	if err != nil {
 		t.Fatalf("ResolveRealPath through a junction: %v", err)
 	}
-	// Compare against the resolved target: on Windows a temp dir may come back
-	// as an 8.3 short name (C:\Users\RUNNER~1\...) while ResolveRealPath returns
-	// the long form (C:\Users\runneradmin\...). Both name the same file.
+	// 要与解析后的目标比较：在 Windows 上临时目录可能返回 8.3 短名
+	// （C:\Users\RUNNER~1\...），而 ResolveRealPath 返回长形式
+	// （C:\Users\runneradmin\...）。两者指向同一个文件。
 	want, err := ResolveRealPath(secret)
 	if err != nil {
 		t.Fatalf("ResolveRealPath of the secret: %v", err)

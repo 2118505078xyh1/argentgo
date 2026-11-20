@@ -7,8 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// activityToolEntry builds a tool result record in the shape the agent writes:
-// top-level name plus arguments serialized as a JSON string.
+// activityToolEntry 按 agent 写入的形态构建一条工具结果记录：
+// 顶层 name 加上序列化为 JSON 字符串的 arguments。
 func activityToolEntry(name, arguments string) Entry {
 	data, _ := json.Marshal(map[string]any{
 		"id": "call-1", "name": name, "arguments": arguments,
@@ -17,8 +17,8 @@ func activityToolEntry(name, arguments string) Entry {
 	return Entry{Role: "tool", Name: name, Data: data}
 }
 
-// activityAssistantEntry builds an assistant record carrying tool_calls, the
-// other layout a transcript can contain.
+// activityAssistantEntry 构建携带 tool_calls 的 assistant 记录，这是
+// 转录中可能出现的另一种布局。
 func activityAssistantEntry(calls ...map[string]any) Entry {
 	data, _ := json.Marshal(map[string]any{
 		"role": "assistant", "content": "", "tool_calls": calls,
@@ -59,15 +59,15 @@ func TestSummarizeToolActivityReadsEditsCommands(t *testing.T) {
 	for _, want := range []string{
 		"read internal/foo.go:10-14", // offset/limit
 		"read a.txt:18-23",           // line/before/after
-		"read b.go:30-40",            // inline path selector
-		"edit c.go",                  // edit records the path only
+		"read b.go:30-40",            // 内联路径选择器
+		"edit c.go",                  // 编辑只记录路径
 		"bash go test ./internal/session -count=1",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("activity section missing %q:\n%s", want, section)
 		}
 	}
-	// An edit has no diff in the recorded data, so it must not invent a range.
+	// 记录的数据中编辑没有 diff，因此不得凭空捏造行范围。
 	if strings.Contains(section, "edit c.go:") {
 		t.Errorf("edit should not carry a fabricated line range:\n%s", section)
 	}
@@ -108,10 +108,10 @@ func TestSummarizeToolActivityFromAssistantToolCalls(t *testing.T) {
 func TestSummarizeToolActivityDeduplicates(t *testing.T) {
 	dropped := []Entry{
 		activityToolEntry("read", `{"path":"a.go","offset":1,"limit":3}`),
-		activityToolEntry("read", `{"path":"a.go","offset":1,"limit":3}`), // duplicate
+		activityToolEntry("read", `{"path":"a.go","offset":1,"limit":3}`), // 重复
 		activityToolEntry("bash", `{"command":"go build ./..."}`),
-		activityToolEntry("bash", `{"command":"go build ./..."}`), // duplicate
-		activityToolEntry("bash", `{"cmd":"go build ./..."}`),     // same command, alias key
+		activityToolEntry("bash", `{"command":"go build ./..."}`), // 重复
+		activityToolEntry("bash", `{"cmd":"go build ./..."}`),     // 同一命令，别名键
 	}
 	bullets := activityBulletLines(summarizeToolActivity(dropped))
 	if len(bullets) != 2 {
@@ -142,7 +142,7 @@ func TestSummarizeToolActivityTruncatesLongValues(t *testing.T) {
 	if len(bullets) != 1 {
 		t.Fatalf("bullets = %q, want 1", bullets)
 	}
-	// "bash " prefix plus a command clipped to activityCommandLimit runes.
+	// "bash " 前缀加上裁剪到 activityCommandLimit 个符文的命令。
 	if got := utf8.RuneCountInString(bullets[0]); got != len("bash ")+activityCommandLimit {
 		t.Fatalf("command bullet has %d runes, want %d", got, len("bash ")+activityCommandLimit)
 	}

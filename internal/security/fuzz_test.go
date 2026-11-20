@@ -8,14 +8,12 @@ import (
 	"unicode/utf8"
 )
 
-// The seed corpora are shared by the fuzz targets and by the deterministic
-// tests at the bottom of this file. `go test ./internal/security` therefore
-// exercises exactly the inputs a `go test -fuzz` run starts from, and the
-// invariants hold on every seed without a fuzzing engine installed.
+// 种子语料库由 fuzz 目标和本文件底部的确定性测试共用。因此
+// `go test ./internal/security` 恰好覆盖 `go test -fuzz` 运行起始的那些输入，
+// 并且无需安装 fuzz 引擎即可在每个种子上验证不变量。
 //
-// Credentials in the seeds are assembled at runtime so the repository never
-// contains a literal token that the privacy scan would reject. They are all
-// synthetic strings of the letter 'a'.
+// 种子中的凭据在运行时拼装，因此仓库中从不包含会被隐私扫描拒绝的字面量 token。
+// 它们全部是由字母 'a' 组成的合成字符串。
 func secret(prefix string, n int) string { return prefix + strings.Repeat("a", n) }
 
 var (
@@ -38,14 +36,14 @@ var (
 		"",
 		"echo hello",
 		"日本語 🚀",
-		"\U000e0000", // lowest Unicode Tag Block code point
-		"\U000e007f", // highest Unicode Tag Block code point
+		"\U000e0000", // 最低的 Unicode Tag Block 码位
+		"\U000e007f", // 最高的 Unicode Tag Block 码位
 		"echo \U000e0041hi",
-		"a\u202eb", // bidi override
+		"a\u202eb", // bidi 覆盖符
 		"\u061c\u200e\u200f\ufeff",
 		"\u202a\u202b\u202c\u202d\u202e",
 		"\u2066\u2067\u2068\u2069",
-		"\U000e0041\u202e\xff\x00", // mixed tags, bidi and invalid UTF-8
+		"\U000e0041\u202e\xff\x00", // 混合 tag、bidi 和无效 UTF-8
 	}
 
 	globSeeds = [][2]string{
@@ -58,7 +56,7 @@ var (
 		{"a?c", "abc"},
 		{"a[bc]d", "abd"},
 		{"**\\*", "a\\b\\c"},
-		{"[", "abc"}, // malformed pattern must not panic
+		{"[", "abc"}, // 格式错误的模式不得 panic
 		{"a*a*a*a*a", "aaaaaaaaaaaa"},
 	}
 
@@ -82,21 +80,19 @@ var (
 		{"read", "read"},
 		{"read*", "read/file.txt"},
 		{"*.go", "x.go"},
-		{"[", "x"}, // malformed pattern must not panic
+		{"[", "x"}, // 格式错误的模式不得 panic
 		{"a?c", "abc"},
 		{"**", "a/b"},
 	}
 
-	// canonicalSecretPattern recognises a high-confidence credential: a known
-	// provider prefix followed by at least twelve token characters. tokenEnd in
-	// redact.go consumes exactly this character set, so a match here must be
-	// gone from Redact's output.
+	// canonicalSecretPattern 识别高置信度凭据：已知的提供商前缀后跟至少十二个 token
+	// 字符。redact.go 中的 tokenEnd 恰好消费这个字符集，因此这里匹配到的内容必须
+	// 从 Redact 的输出中消失。
 	canonicalSecretPattern = regexp.MustCompile(`(?i)(?:sk-proj-|sk-ant-|sk-or-|sk-|gh[pousr]_|github_pat_|AKIA|ASIA|AIza|xox[abps]-|r8_|hf_|glpat-|npm_|pypi-)[A-Za-z0-9_.~+/=:@%-]{12,}`)
 )
 
-// FuzzRedact checks the core redaction promise: no high-confidence credential
-// survives, and the scrubber neither panics nor corrupts UTF-8 nor expands
-// without bound on arbitrary bytes.
+// FuzzRedact 检查脱敏的核心承诺：没有高置信度凭据能残留，并且清洗器在任意字节上
+// 既不 panic、也不破坏 UTF-8、更不会无界膨胀。
 func FuzzRedact(f *testing.F) {
 	for _, seed := range redactSeeds {
 		f.Add(seed)
@@ -115,9 +111,8 @@ func checkRedact(t *testing.T, s string) {
 	if utf8.ValidString(s) && !utf8.ValidString(out) {
 		t.Fatalf("Redact produced invalid UTF-8: in %q out %q", s, out)
 	}
-	// Every accepted match consumes at least a three-byte token prefix and is
-	// replaced by a placeholder shorter than 32 bytes, so 16x plus slack is a
-	// generous bound that still catches runaway replacement loops.
+	// 每个被接受的匹配至少消费三字节的 token 前缀，并被替换为短于 32 字节的占位符，
+	// 因此 16 倍加余量是一个宽松但仍能捕获失控替换循环的上界。
 	if len(out) > 16*len(s)+128 {
 		t.Fatalf("Redact output length %d is implausible for input length %d", len(out), len(s))
 	}
@@ -128,8 +123,8 @@ func checkRedact(t *testing.T, s string) {
 	}
 }
 
-// FuzzSanitizeInvisible checks that the prompt sanitizer removes every tag,
-// makes every bidi/format rune visible, and reports tags accurately.
+// FuzzSanitizeInvisible 检查提示清洗器移除每个 tag、使每个 bidi/格式 rune 可见，
+// 并准确报告 tag。
 func FuzzSanitizeInvisible(f *testing.F) {
 	for _, seed := range invisibleSeeds {
 		f.Add(seed)
@@ -152,10 +147,9 @@ func checkSanitizeInvisible(t *testing.T, s string) {
 		if !utf8.ValidString(cleaned) {
 			t.Fatalf("SanitizeInvisible produced invalid UTF-8: in %q out %q", s, cleaned)
 		}
-		// With valid input, UTF-8 encodings are self-delimiting, so skipping tag
-		// runes cannot accidentally reassemble a tag from neighbouring bytes.
-		// (Invalid input can: stray continuation bytes may concatenate into a
-		// tag encoding after the real tag is removed.)
+		// 输入有效时，UTF-8 编码是自定界的，因此跳过 tag rune 不会意外地从相邻字节
+		// 重新拼出一个 tag。（无效输入则可能：真正的 tag 被移除后，游离的续字节
+		// 可能连接成一个 tag 编码。）
 		if ContainsInvisibleTags(cleaned) {
 			t.Fatalf("a Unicode Tag Block character survived sanitizing %q: %q", s, cleaned)
 		}
@@ -165,14 +159,14 @@ func checkSanitizeInvisible(t *testing.T, s string) {
 			t.Fatalf("bidi rune U+%04X was not made visible: %q -> %q", r, s, cleaned)
 		}
 	}
-	// An escape is six bytes for a rune of at most four bytes.
+	// 一个最多四字节的 rune 对应的转义是六字节。
 	if len(cleaned) > 6*len(s)+16 {
 		t.Fatalf("SanitizeInvisible output length %d is implausible for input length %d", len(cleaned), len(s))
 	}
 }
 
-// FuzzContainsInvisibleTags compares the detector against an independent
-// reference: probing every code point of the tag block with strings.ContainsRune.
+// FuzzContainsInvisibleTags 把检测器与一个独立参照比较：用 strings.ContainsRune
+// 探测 tag 块中的每个码位。
 func FuzzContainsInvisibleTags(f *testing.F) {
 	for _, seed := range invisibleSeeds {
 		f.Add(seed)
@@ -196,7 +190,7 @@ func checkContainsInvisibleTags(t *testing.T, s string) {
 	}
 }
 
-// FuzzEscapeBidi checks the visible-escape helper used by approval prompts.
+// FuzzEscapeBidi 检查审批提示使用的可见转义辅助函数。
 func FuzzEscapeBidi(f *testing.F) {
 	for _, seed := range invisibleSeeds {
 		f.Add(seed)
@@ -222,9 +216,8 @@ func checkEscapeBidi(t *testing.T, s string) {
 	}
 }
 
-// FuzzGlobMatch checks the policy path matcher for panics, nondeterminism and
-// regressions in its literal-pattern (prefix) semantics. The Go fuzz engine's
-// own per-input timeout catches backtracking blowups on adversarial patterns.
+// FuzzGlobMatch 检查策略路径匹配器是否 panic、不确定，以及其字面量模式（前缀）
+// 语义是否退化。Go fuzz 引擎自身的每输入超时会捕获对抗性模式上的回溯爆炸。
 func FuzzGlobMatch(f *testing.F) {
 	for _, pair := range globSeeds {
 		f.Add(pair[0], pair[1])
@@ -239,10 +232,9 @@ func checkGlobMatch(t *testing.T, pattern, path string) {
 	if got := GlobMatch(pattern, path); got != GlobMatch(pattern, path) {
 		t.Fatalf("GlobMatch is not deterministic for (%q, %q)", pattern, path)
 	}
-	// A pattern with no metacharacter (and no home or trailing slash, which
-	// normalize() rewrites) must match its own spelling and must not match an
-	// empty path. Glob metacharacters such as '*' legitimately match empty
-	// runs, so this rule only applies to literal patterns.
+	// 不含元字符（也不含 normalize() 会改写的 home 或尾部斜杠）的模式必须匹配其
+	// 自身写法，且不得匹配空路径。像 '*' 这样的 glob 元字符合法匹配空串，
+	// 因此该规则只适用于字面量模式。
 	if pattern != "" && !strings.ContainsAny(pattern, `*?[~\`) && !strings.HasSuffix(pattern, "/") {
 		if GlobMatch(pattern, "") {
 			t.Fatalf("literal pattern %q matched an empty path", pattern)
@@ -253,10 +245,9 @@ func checkGlobMatch(t *testing.T, pattern, path string) {
 	}
 }
 
-// FuzzFindFileEditingCommand checks that the plan-mode command guard never
-// panics on arbitrary bytes and never flags a read-only command. The second
-// fuzz argument is normalized into an inert argument list before being spliced
-// into `git status`, so any mutation of it is guaranteed harmless.
+// FuzzFindFileEditingCommand 检查计划模式命令守卫在任意字节上永不 panic，
+// 且永不标记只读命令。第二个 fuzz 参数在拼接进 `git status` 之前会被规范化为
+// 无作用的参数列表，因此对它的任何改动都保证无害。
 func FuzzFindFileEditingCommand(f *testing.F) {
 	for _, seed := range commandGuardSeeds {
 		f.Add(seed.command, seed.suffix)
@@ -280,9 +271,8 @@ func checkCommandGuard(t *testing.T, command, suffix string) {
 	}
 }
 
-// safeShellArg maps arbitrary bytes to a shell word made only of letters,
-// digits and inert separators, so it cannot introduce a mutating token or a
-// redirection into the command it is spliced into.
+// safeShellArg 把任意字节映射为只由字母、数字和无害分隔符组成的 shell 词，
+// 因此它无法向所拼接的命令引入修改类 token 或重定向。
 func safeShellArg(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -299,8 +289,8 @@ func safeShellArg(s string) string {
 	return b.String()
 }
 
-// FuzzWildcardMatch checks the permission-rule matcher for panics on malformed
-// patterns and for the reflexive property of literal patterns.
+// FuzzWildcardMatch 检查权限规则匹配器在格式错误模式上是否 panic，
+// 以及字面量模式的自反性。
 func FuzzWildcardMatch(f *testing.F) {
 	for _, pair := range wildcardSeeds {
 		f.Add(pair[0], pair[1])
@@ -320,11 +310,11 @@ func checkWildcardMatch(t *testing.T, pattern, subject string) {
 	}
 }
 
-// --- Deterministic seed tests ------------------------------------------------
+// --- 确定性种子测试 ------------------------------------------------
 //
-// Fuzz targets only run their seeds during `go test` (without -fuzz). These
-// tests call the same invariant helpers so a plain `go test ./internal/security`
-// guards the seeds and the assertions without needing a fuzzing engine.
+// fuzz 目标在 `go test`（不带 -fuzz）期间只运行其种子。这些测试调用相同的不变量
+// 辅助函数，因此普通的 `go test ./internal/security` 无需 fuzz 引擎就能守护种子
+// 和断言。
 
 func TestRedactSeedCorpus(t *testing.T) {
 	for _, seed := range redactSeeds {
@@ -368,10 +358,9 @@ func TestWildcardMatchSeedCorpus(t *testing.T) {
 	}
 }
 
-// TestGlobMatchTerminatesOnBacktrackingPattern bounds the matcher on a small
-// adversarial input that exercises its recursive '*' backtracking. The generous
-// timeout only catches a regression that turns the linear-in-practice walk into
-// a hang; it is not a performance benchmark.
+// TestGlobMatchTerminatesOnBacktrackingPattern 在一个能触发递归 '*' 回溯的小型
+// 对抗性输入上限定匹配器。宽松的超时只用于捕获把实际呈线性的遍历变成挂起的
+// 退化；它不是性能基准测试。
 func TestGlobMatchTerminatesOnBacktrackingPattern(t *testing.T) {
 	pattern := "a*a*a*a*a"
 	path := strings.Repeat("a", 20) + "b"

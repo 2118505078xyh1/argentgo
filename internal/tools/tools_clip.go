@@ -6,15 +6,15 @@ import (
 )
 
 func clip(ctx context.Context, text string) string {
-	// Opt-in only: with no spill configuration in ctx (and no env switch) this
-	// is exactly the old clipTo path, so every existing caller is unaffected.
+	// 仅限 opt-in：当 ctx 中没有溢出配置（也没有 env 开关）时，
+	// 这正是旧的 clipTo 路径，因此所有现有调用方都不受影响。
 	if out, handled := spillToolOutput(ctx, text); handled {
 		return out
 	}
 	return clipTo(text, outputLimit(ctx))
 }
 
-// clipTo keeps the head and the tail of an oversized output.
+// clipTo 保留过大输出的头部和尾部。
 func clipTo(text string, limit int) string {
 	if limit <= 0 {
 		limit = maxToolOutput
@@ -25,10 +25,10 @@ func clipTo(text string, limit int) string {
 	head := limit * 2 / 3
 	tail := limit - head
 	head = trimPartialRune(text, head)
-	// The tail slice begins at len(text)-tail, not at tail. Backing that start
-	// off with trimPartialRune would check the wrong byte and could leave the
-	// suffix starting in the middle of a rune; move it forward to the next
-	// rune boundary instead so the kept suffix is always valid UTF-8.
+	// 尾部切片从 len(text)-tail 开始，而不是从 tail 开始。用
+	// trimPartialRune 回退这个起点会检查错误的字节，并可能让
+	// 后缀从 rune 中间开始；应把它向前移到下一个
+	// rune 边界，使保留的后缀始终是有效 UTF-8。
 	tailStart := len(text) - tail
 	for tailStart < len(text) && !utf8.RuneStart(text[tailStart]) {
 		tailStart++
@@ -36,7 +36,7 @@ func clipTo(text string, limit int) string {
 	return text[:head] + "\n... [truncated] ...\n" + text[tailStart:]
 }
 
-// trimPartialRune backs a byte offset off the middle of a UTF-8 sequence.
+// trimPartialRune 把字节偏移从 UTF-8 序列的中间回退。
 func trimPartialRune(text string, offset int) int {
 	if offset <= 0 {
 		return 0

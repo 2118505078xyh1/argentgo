@@ -6,21 +6,18 @@ import (
 	"fmt"
 )
 
-// seqKey is the reserved field SetSeq writes into a record's JSON data
-// envelope. Like retentionKey, it lives in the existing Data blob, so no
-// Record schema change and no extra JSONL column are needed, and Data keeps
-// reaching the conversation view verbatim.
+// seqKey 是 SetSeq 写入记录 JSON 数据包络的保留字段。与 retentionKey 一样，
+// 它位于现有的 Data 块中，因此无需改动 Record schema，也无需增加 JSONL 列，
+// 且 Data 仍逐字到达对话视图。
 //
-// A record's ordinal is a monotonic append-order counter. Unlike TS it cannot
-// collide when several records are written inside one clock tick, which makes
-// "newest" and fork points deterministic.
+// 记录的序号是单调递增的追加顺序计数器。与 TS 不同，当多条记录在同一时钟周期内写入时，
+// 它不会冲突，从而使"最新"和分叉点具有确定性。
 const seqKey = "_seq"
 
-// GetSeq reads the explicit ordinal from a record's JSON data envelope. It
-// reports (seq, true) only for a JSON object whose seqKey holds a non-negative
-// integer that fits in int64. Missing, malformed, non-object, null, fractional,
-// string and negative values all report (0, false), so records written before
-// ordinals existed (and hand-written ones) fall back to derived order.
+// GetSeq 从记录的 JSON 数据包络中读取显式序号。只有当 JSON 对象的 seqKey 持有
+// 一个能放进 int64 的非负整数时，才返回 (seq, true)。缺失、格式错误、非对象、null、
+// 小数、字符串和负值都返回 (0, false)，因此序号出现之前写入的记录（以及手写的记录）
+// 会回退到派生的顺序。
 func GetSeq(data []byte) (int64, bool) {
 	var fields map[string]json.RawMessage
 	if len(data) == 0 || json.Unmarshal(data, &fields) != nil || fields == nil {
@@ -30,7 +27,7 @@ func GetSeq(data []byte) (int64, bool) {
 	if !ok {
 		return 0, false
 	}
-	// json.Unmarshal(null, &int64) succeeds and leaves zero, so reject it here.
+	// json.Unmarshal(null, &int64) 会成功并保留零值，因此在这里拒绝它。
 	if string(bytes.TrimSpace(raw)) == "null" {
 		return 0, false
 	}
@@ -41,12 +38,10 @@ func GetSeq(data []byte) (int64, bool) {
 	return seq, true
 }
 
-// SetSeq injects seq into a record's JSON data envelope under seqKey,
-// preserving every other field. An empty data slice is treated as an empty
-// object. A non-empty slice that is not a JSON object (or is malformed) is an
-// error: replacing a payload whose other fields cannot be preserved would be
-// worse than refusing to stamp it. Negative ordinals are rejected because an
-// ordinal must be usable as a monotonic replay point.
+// SetSeq 将 seq 注入记录 JSON 数据包络中 seqKey 对应的位置，保留所有其他字段。
+// 空的 data 切片视为空对象。非空但不是 JSON 对象（或格式错误）的切片会报错：
+// 替换一个无法保全其他字段的载荷，比拒绝打标记更糟糕。负序号会被拒绝，
+// 因为序号必须可用作单调的重放点。
 func SetSeq(data []byte, seq int64) ([]byte, error) {
 	if seq < 0 {
 		return nil, fmt.Errorf("session: set seq: negative ordinal %d", seq)
@@ -57,7 +52,7 @@ func SetSeq(data []byte, seq int64) ([]byte, error) {
 			return nil, fmt.Errorf("session: set seq: parse data: %w", err)
 		}
 	}
-	if fields == nil { // JSON "null" unmarshals to a nil map.
+	if fields == nil { // JSON "null" 会反序列化为 nil map。
 		fields = make(map[string]json.RawMessage)
 	}
 	value, err := json.Marshal(seq)
@@ -73,17 +68,15 @@ func SetSeq(data []byte, seq int64) ([]byte, error) {
 	return out, nil
 }
 
-// SeqOf reports the explicit ordinal carried by r, if any.
+// SeqOf 报告 r 携带的显式序号（如果有）。
 func SeqOf(r Record) (int64, bool) { return GetSeq(r.Data) }
 
-// RecordSeqs returns one effective ordinal per record, in the same order.
-// Records carrying an explicit _seq use it; records without one derive their
-// ordinal from their zero-based array index. The derived fallback lets fork and
-// replay helpers work on legacy transcripts that predate ordinals.
+// RecordSeqs 按相同顺序为每条记录返回一个有效序号。带有显式 _seq 的记录使用它；
+// 没有的记录从其在数组中的零基索引派生序号。派生的回退让分叉和重放辅助函数
+// 能处理序号出现之前的旧转录。
 //
-// Mixing explicit and derived ordinals is only meaningful when the explicit
-// ones increase in file order, as they do for an append-only session. Writers
-// should stamp every new record with SetSeq instead of relying on the fallback.
+// 只有当显式序号按文件顺序递增时（仅追加会话就是如此），混用显式和派生的序号才有意义。
+// 写入方应为每条新记录调用 SetSeq 打标记，而不是依赖回退。
 func RecordSeqs(records []Record) []int64 {
 	seqs := make([]int64, len(records))
 	for i := range records {
@@ -96,15 +89,12 @@ func RecordSeqs(records []Record) []int64 {
 	return seqs
 }
 
-// NewestBySeq returns the record with the highest ordinal. An explicit ordinal
-// is authoritative: any record carrying _seq is newer than a legacy record
-// without one, and among stamped records the greater seq wins.
+// NewestBySeq 返回序号最高的记录。显式序号具有权威性：任何携带 _seq 的记录都比
+// 没有它的旧记录更新，而在已打标记的记录中，seq 更大者胜出。
 //
-// When neither candidate carries a seq (or their seqs tie), the tiebreak is TS
-// then ID — the same "later timestamp, then greater id" rule Store.List uses.
-// That keeps "newest" deterministic when several records share one second, the
-// exact ambiguity that makes timestamp-only resume flaky. An empty input
-// returns the zero Record.
+// 当两个候选都没有 seq（或 seq 相同）时，用 TS 再以 ID 决胜——与 Store.List 使用的
+// "时间戳较晚者优先，再以 id 较大者优先"规则相同。这使多条记录共享同一秒时"最新"仍然确定，
+// 而正是这种模糊性让仅基于时间戳的恢复变得不稳定。空输入返回零值 Record。
 func NewestBySeq(records []Record) Record {
 	if len(records) == 0 {
 		return Record{}
@@ -115,7 +105,7 @@ func NewestBySeq(records []Record) Record {
 		seq, hasSeq := SeqOf(record)
 		switch {
 		case hasSeq != newestHasSeq:
-			// A stamped record always outranks an un-stamped one.
+			// 已打标记的记录始终优先于未打标记的记录。
 			if hasSeq {
 				newest, newestSeq, newestHasSeq = record, seq, hasSeq
 			}
@@ -124,7 +114,7 @@ func NewestBySeq(records []Record) Record {
 				newest, newestSeq = record, seq
 			}
 		default:
-			// Both lack seq, or their seqs tie.
+			// 两者都没有 seq，或它们的 seq 相同。
 			if newerByTimeAndID(record, newest) {
 				newest, newestSeq, newestHasSeq = record, seq, hasSeq
 			}
@@ -133,8 +123,8 @@ func NewestBySeq(records []Record) Record {
 	return newest
 }
 
-// newerByTimeAndID breaks ties the way Store.List does: later timestamp wins,
-// then the lexicographically greater id.
+// newerByTimeAndID 按 Store.List 的方式决胜：时间戳较晚者胜出，
+// 然后是字典序较大的 id。
 func newerByTimeAndID(a, b Record) bool {
 	if a.TS.Equal(b.TS) {
 		return a.ID > b.ID
@@ -142,16 +132,13 @@ func newerByTimeAndID(a, b Record) bool {
 	return a.TS.After(b.TS)
 }
 
-// ForkBeforeSeq returns the leading records whose effective ordinal is < seq,
-// in their original order. It is the replay prefix for a fork at an ordinal:
-// everything strictly before the target, nothing from the target onward.
-// Effective ordinals come from RecordSeqs, so legacy records without _seq are
-// ordered by array index and remain forkable.
+// ForkBeforeSeq 返回有效序号 < seq 的前导记录，保持原始顺序。它是在某个序号处分叉的
+// 重放前缀：严格位于目标之前的全部内容，不包含目标及其之后的任何内容。
+// 有效序号来自 RecordSeqs，因此没有 _seq 的旧记录按数组索引排序，仍可分叉。
 //
-// The result is a copy, never a slice of the caller's backing array. An empty
-// prefix (target at or below the first ordinal) returns nil; a target above
-// every ordinal returns a copy of the whole slice. Callers should keep ordinals
-// increasing in file order — the prefix stops at the first ordinal >= seq.
+// 结果是副本，绝不是调用方底层数组的切片。空前缀（目标位于第一个序号处或之下）返回 nil；
+// 高于所有序号的目标返回整个切片的副本。调用方应保持序号按文件顺序递增——
+// 前缀在第一个 >= seq 的序号处停止。
 func ForkBeforeSeq(records []Record, seq int64) []Record {
 	seqs := RecordSeqs(records)
 	i := 0

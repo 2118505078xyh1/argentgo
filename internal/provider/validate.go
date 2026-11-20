@@ -1,13 +1,13 @@
-// Package provider template validation.
+// Package provider 模板验证。
 //
-// This file turns the structural assumptions that were previously spread
-// across tests (non-empty fields, parseable endpoint URL, known protocol) into
-// one reusable, side-effect-free diagnostic API. A CLI `doctor` path or a
-// config loader can call Validate/ValidateCatalog/ValidateAll and surface the
-// findings without the provider package importing config or the network.
+// 本文件把以前分散在测试中的结构假设（非空字段、可解析的端点 URL、已知协议）变成
+// 本文件把以前分散在测试中的结构假设（非空字段、可解析的端点 URL、已知协议）变成
+// 一个可复用、无副作用的诊断 API。CLI 的 `doctor` 路径或配置加载器可以调用 Validate/ValidateCatalog/ValidateAll 并显示
+// 配置加载器可以调用 Validate/ValidateCatalog/ValidateAll 并显示
+// 发现的问题，而无需 provider 包导入 config 或网络。
 //
-// Nothing here performs I/O or consults the environment: validation only looks
-// at the shape of a Template. Findings are returned, never logged or panicked.
+// 这里没有任何内容执行 I/O 或查询环境：验证只看 Template 的形状。发现的问题被返回，绝不记录日志或 panic。
+// 只看 Template 的形状。发现的问题被返回，绝不记录日志或 panic。
 package provider
 
 import (
@@ -18,20 +18,20 @@ import (
 	"strings"
 )
 
-// Severity classifies a validation finding.
+// Severity 分类验证发现。
 type Severity string
 
-// Supported severities. Errors make a template unusable; warnings describe a
-// suspicious but potentially intentional configuration.
+// 支持的严重性。错误使模板不可用；警告描述
+// 可疑但可能是有意的配置。
 const (
 	SeverityError   Severity = "error"
 	SeverityWarning Severity = "warning"
 )
 
-// Diagnostic is one finding about a template. Template is the canonical name
-// under which the finding was produced (empty when the name itself is broken),
-// Field is the Template field (or "catalog" for cross-template findings), and
-// Message is a human-readable explanation.
+// Diagnostic 是关于模板的一条发现。Template 是产生该发现的规范名称
+// 支持的严重性。错误使模板不可用；警告描述可疑但可能是有意的配置。
+// Diagnostic 是关于模板的一条发现。Template 是产生该发现的规范名称（名称本身损坏时为空），Field 是 Template 字段（对跨模板发现为 "catalog"），Message 是易读说明。
+// Message 是易读说明。
 type Diagnostic struct {
 	Severity Severity
 	Template string
@@ -39,8 +39,8 @@ type Diagnostic struct {
 	Message  string
 }
 
-// String renders a diagnostic for direct display: "[severity] template/field:
-// message". Empty Template/Field components are omitted.
+// String 渲染诊断以供直接显示："[severity] template/field: message"。空的 Template/Field 部分被省略。
+// message"。空的 Template/Field 部分被省略。
 func (d Diagnostic) String() string {
 	where := d.Field
 	if d.Template != "" {

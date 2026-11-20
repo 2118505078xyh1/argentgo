@@ -9,16 +9,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// TestWireRunEventsPublishesToHubSubscribers proves the wiring contract the
-// headless transports rely on: an agent.Event forwarded through the run context
-// reaches a hub subscriber, and the bridge stops with the run context.
+// TestWireRunEventsPublishesToHubSubscribers 证明无界面传输所依赖的接线契约：
+// 通过运行 context 转发的 agent.Event 能到达 hub 订阅者，
+// 且桥接器会随运行 context 一起停止。
 func TestWireRunEventsPublishesToHubSubscribers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	hub := NewEventHub()
 	emit, done := WireRunEvents(hub, ctx)
-	// This is the context hand-off used by app_execute.go's Emit callback.
+	// 这正是 app_execute.go 的 Emit 回调所使用的 context 交接方式。
 	ctx = withEventEmit(ctx, emit)
 
 	ch, stop := hub.Subscribe(0)
@@ -44,8 +44,8 @@ func TestWireRunEventsPublishesToHubSubscribers(t *testing.T) {
 	}
 }
 
-// TestEmitEventWithoutBridgeIsNoOp guards the default-safe contract: callers
-// that do not wire a hub keep the in-process-only behaviour.
+// TestEmitEventWithoutBridgeIsNoOp 守护默认安全的契约：没有接入 hub 的调用方
+// 保持仅在进程内的行为。
 func TestEmitEventWithoutBridgeIsNoOp(t *testing.T) {
 	emit, done := WireRunEvents(nil, context.Background())
 	select {
@@ -72,9 +72,9 @@ func (f *fakeApprover) Ask(_ context.Context, _, _ string) (bool, error) {
 	return f.granted, f.err
 }
 
-// TestPendingApprovalsMirrorRequestsAndResolveOnAnswer exercises the durable
-// approval path through a fake approver: the request is on disk while the
-// operator is being asked, and is removed once the answer is recorded.
+// TestPendingApprovalsMirrorRequestsAndResolveOnAnswer 通过伪审批器演练持久化
+// 审批路径：询问操作人员期间请求在磁盘上，
+// 答案记录后即被移除。
 func TestPendingApprovalsMirrorRequestsAndResolveOnAnswer(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -128,8 +128,8 @@ func TestPendingApprovalsMirrorRequestsAndResolveOnAnswer(t *testing.T) {
 	}
 }
 
-// TestPendingStoreClearDropsStaleRequests covers the run-start cleanup the
-// runner performs so a crashed run cannot leave phantom approvals behind.
+// TestPendingStoreClearDropsStaleRequests 覆盖运行器在运行开始时执行的清理，
+// 使崩溃的运行不会留下幽灵审批。
 func TestPendingStoreClearDropsStaleRequests(t *testing.T) {
 	store := security.NewPendingStore(t.TempDir())
 	const session = "sess-456"
@@ -147,8 +147,8 @@ func TestPendingStoreClearDropsStaleRequests(t *testing.T) {
 	}
 }
 
-// TestWithPendingApprovalsDisabled keeps the decorator optional for callers
-// that have no durable store or no inner approver.
+// TestWithPendingApprovalsDisabled 让该装饰器对没有持久化存储或没有内部审批器的
+// 调用方保持可选。
 func TestWithPendingApprovalsDisabled(t *testing.T) {
 	inner := &fakeApprover{granted: true}
 	if got := WithPendingApprovals(nil, "s", inner); got != inner {

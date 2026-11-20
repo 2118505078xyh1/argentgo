@@ -71,7 +71,7 @@ func TestPanelTogglesAreHiddenByDefaultAndRestoreTheFrame(t *testing.T) {
 		t.Fatal("all panels must start hidden")
 	}
 
-	// The three toggles use bytes the decoder previously discarded.
+	// 三个切换使用解码器以前会丢弃的字节。
 	for _, tc := range []struct {
 		input byte
 		kind  Kind
@@ -222,7 +222,7 @@ func TestWorkspaceTreeIgnoresDirsAndCapsPreview(t *testing.T) {
 		}
 	}
 
-	// One oversized single line must still be clipped by the byte cap.
+	// 单个超长行仍必须被字节上限截断。
 	fs := testWorkspaceFS(root)
 	fs.files[filepath.Join(root, "big.txt")] = strings.Repeat("x", maxPreviewBytes*2)
 	m2 := New(Config{Root: root, FS: fs})

@@ -1,12 +1,12 @@
-// Package eval runs deterministic agent scenarios against a scripted model.
+// Package eval 对脚本化模型运行确定性的 agent 场景。
 //
-// A unit test proves that a function returns what it should. It does not prove
-// that the agent, its tools and its policy still agree with each other after a
-// change. That is what an eval is for: a set of scenarios, each with a scripted
-// model, run against the real loop and checked against what actually happened.
+// 单元测试证明函数返回它应返回的内容。它不证明 agent、其工具和其策略在修改后仍彼此一致。
+// 单元测试证明函数返回它应返回的内容。它不证明 agent、其工具和其策略在修改后仍彼此一致。
+// 这正是 eval 的用途：一组场景，每个带有脚本化模型，
+// 针对真实循环运行并检查实际发生的事情。
 //
-// The model is scripted, so an eval is deterministic and costs nothing. The
-// loop and its tools are real, so a broken tool fails the eval.
+// 这正是 eval 的用途：一组场景，每个带有脚本化模型，针对真实循环运行并检查实际发生的事情。
+// 模型是脚本化的，因此 eval 是确定的且无成本。循环及其工具是真实的，因此损坏的工具会让 eval 失败。
 //
 //	{
 //	  "scenarios": [{
@@ -23,8 +23,8 @@
 //	  }]
 //	}
 //
-// The package does not import the agent: the caller injects a RunFunc, so the
-// same scenarios can drive any loop implementation.
+// 本包不导入 agent：调用方注入 RunFunc，因此同一场景可以驱动任何循环实现。
+// 因此同一场景可以驱动任何循环实现。
 package eval
 
 import (
@@ -36,15 +36,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// ToolCall is a tool invocation the scripted model asks for.
+// ToolCall 是脚本化模型请求的一次工具调用。
 type ToolCall struct {
 	Name string `json:"name"`
-	// Arguments is raw JSON. A JSON string holding JSON ("{\"path\":\"a\"}")
-	// is accepted too, because scripts are written by hand.
+	// Arguments 是原始 JSON。也接受内含 JSON 的 JSON 字符串（"{\"path\":\"a\"}"），因为脚本是手写的。
+	// 也接受，因为脚本是手写的。
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-// UnmarshalJSON accepts arguments as either an object or a JSON string.
+// UnmarshalJSON 接受对象或 JSON 字符串形式的参数。
 func (c *ToolCall) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		Name      string          `json:"name"`
@@ -64,7 +64,7 @@ func (c *ToolCall) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ArgumentsString returns the raw arguments, defaulting to an empty object.
+// ArgumentsString 返回原始参数，默认为空对象。
 func (c ToolCall) ArgumentsString() string {
 	trimmed := string(bytes.TrimSpace(c.Arguments))
 	if trimmed == "" || trimmed == "null" {
@@ -73,111 +73,111 @@ func (c ToolCall) ArgumentsString() string {
 	return trimmed
 }
 
-// Respond is the message the scripted model returns for one turn.
+// Respond 是脚本化模型为一轮返回的消息。
 type Respond struct {
 	Text      string     `json:"text,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	// Usage is billed usage for this turn, including any cached_tokens count.
+	// Usage 是这一轮的计费用量，包括任何 cached_tokens 计数。
 	Usage *llm.Usage `json:"usage,omitempty"`
 }
 
-// ScriptTurn is one scripted model reply plus an optional expectation about the
-// request that triggered it.
+// ScriptTurn 是一条脚本化模型回复以及关于触发它的请求的可选期望。
+// 触发它的请求。
 type ScriptTurn struct {
-	// ExpectRequestContains lists substrings that must appear in the
-	// conversation the model is sent: message text, tool names, tool arguments
-	// and tool results. It is how a scenario asserts that a tool result really
-	// made it back into the context.
+	// ExpectRequestContains 列出必须出现在发给模型的对话中的子串：消息文本、工具名、工具参数
+	// 发给模型的对话中的子串：消息文本、工具名、工具参数
+	// 和工具结果。这是场景断言工具结果确实
+	// 和工具结果。这是场景断言工具结果确实回到上下文的方式。
 	ExpectRequestContains []string `json:"expect_request_contains,omitempty"`
-	// ExpectRequestCacheFree fails when any message in the request carries a
-	// stable-prefix cache marker (the prompt-cache opt-out case).
+	// ExpectRequestCacheFree 当请求中任何消息带有稳定前缀缓存标记时失败（提示缓存选择退出情形）。
+	// 稳定前缀缓存标记时失败（提示缓存选择退出情形）。
 	ExpectRequestCacheFree bool `json:"expect_request_cache_free,omitempty"`
-	// ExpectRequestCached fails when no message carries a cache marker.
+	// ExpectRequestCached 当没有消息带有缓存标记时失败。
 	ExpectRequestCached bool    `json:"expect_request_cached,omitempty"`
 	Respond             Respond `json:"respond"`
 }
 
-// Expect is what a scenario expects to have happened.
+// Expect 是场景期望已发生的事情。
 type Expect struct {
-	// ToolCalls is the exact tool sequence, in order. nil means "do not
-	// check"; an empty (non-nil) list means "no tool may run".
+	// ToolCalls 是精确的工具序列，按顺序。nil 表示"不检查"；空（非 nil）列表表示"不得运行任何工具"。
+	// "不检查"；空（非 nil）列表表示"不得运行任何工具"。
 	ToolCalls []string `json:"tool_calls"`
-	// TextContains lists substrings the final answer must contain.
+	// TextContains 列出最终答案必须包含的子串。
 	TextContains []string `json:"text_contains,omitempty"`
-	// TextNotContains lists substrings the final answer must not contain.
+	// TextNotContains 列出最终答案不得包含的子串。
 	TextNotContains []string `json:"text_not_contains,omitempty"`
-	// Turns is the expected number of model turns, counted by the harness from
-	// the scripted provider, not reported by the loop.
+	// Turns 是期望的模型轮数，由 harness 从脚本化 provider 计数，而非由循环报告。
+	// 由脚本化 provider 计数，而非由循环报告。
 	Turns *int `json:"turns,omitempty"`
-	// Stopped says whether the run was stopped by something other than the
-	// model finishing: a turn limit, a policy block, a cancellation.
+	// Stopped 说明运行是否被模型完成以外的事情停止：轮数上限、策略拦截、取消。
+	// 模型完成以外的事情：轮数上限、策略拦截、取消。
 	Stopped *bool `json:"stopped,omitempty"`
-	// CachedTokens is the expected total of cached prompt tokens reported by
-	// the scripted provider. nil means "do not check".
+	// CachedTokens 是期望的缓存提示 token 总数，由
+	// CachedTokens 是脚本化 provider 报告的缓存提示 token 期望总数。nil 表示"不检查"。
 	CachedTokens *int `json:"cached_tokens,omitempty"`
 }
 
-// Check inspects the workspace after the run.
+// Check 在运行后检查工作区。
 type Check struct {
-	// FilesExist lists paths, relative to the workspace, that must exist.
+	// FilesExist 列出必须存在的、相对于工作区的路径。
 	FilesExist []string `json:"files_exist,omitempty"`
-	// FileContains maps a path to a needle its content must contain.
+	// FileContains 将路径映射到其内容必须包含的 needle。
 	FileContains map[string]string `json:"file_contains,omitempty"`
 
-	// Exec, when set and AllowExec is true, is run inside the seeded temp
-	// workspace after the other checks (see RunExecCheck / GradeExecCheck).
+	// Exec 设置且 AllowExec 为 true 时，在其他检查之后运行于种入的临时工作区（见 RunExecCheck / GradeExecCheck）。
+	// 种入的临时工作区在其他检查之后运行（见 RunExecCheck / GradeExecCheck）。
 	Exec *ExecCheck `json:"exec,omitempty"`
-	// AllowExec is the explicit opt-in for Exec. Command execution is
-	// default-off: an Exec without AllowExec is never run, so a scenario
-	// document cannot execute a command unless it asks for it by name.
+	// AllowExec 是对 Exec 的显式选择加入。命令执行
+	// AllowExec 是对 Exec 的显式选择加入。命令执行默认关闭：没有 AllowExec 的 Exec 永不运行，因此场景文档无法执行
+	// 未明确点名的命令。
 	AllowExec bool `json:"allow_exec,omitempty"`
 }
 
-// Scenario is one scripted eval case.
+// Scenario 是一个脚本化 eval 用例。
 type Scenario struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Model and System are passed to the loop as-is; Model defaults to
+	// Model 和 System 原样传给循环；Model 默认为
 	// DefaultModel.
 	Model  string `json:"model,omitempty"`
 	System string `json:"system,omitempty"`
 	Prompt string `json:"prompt"`
-	// Provider is the script the fake model replays, one entry per turn.
+	// Provider 是假模型重放的脚本，每轮一条。
 	Provider []ScriptTurn `json:"provider"`
 	Expect   Expect       `json:"expect"`
-	// Files seeds the workspace before the run, path → content.
+	// Files 在运行前种入工作区，路径 → 内容。
 	Files map[string]string `json:"files,omitempty"`
 	Check Check             `json:"check"`
 
-	// The fields below are hints for the caller's RunFunc. The harness itself
-	// only enforces Repeat (through the scripted provider); the rest describe
-	// what the scenario wants the loop to do, so a runner does not have to
-	// special-case scenarios by name.
+	// 下面的字段是给调用方 RunFunc 的提示。harness 本身
+	// 下面的字段是给调用方 RunFunc 的提示。harness 本身只强制 Repeat（通过脚本化 provider）；其余描述场景想让循环做什么，使 runner 不必
+	// 场景想让循环做什么，使 runner 不必
+	// 按名称对场景做特例处理。
 	//
-	// MaxTurns is the turn budget for the run (0 = the loop's default).
+	// MaxTurns 是运行的轮数预算（0 = 循环的默认值）。
 	MaxTurns int `json:"max_turns,omitempty"`
-	// CancelAfter asks the runner to cancel the run after that many turns.
+	// CancelAfter 要求 runner 在那么多轮后取消运行。
 	CancelAfter int `json:"cancel_after,omitempty"`
-	// Approve is the answer the approval gate should give (nil = runner's
+	// Approve 是审批门应给出的答案（nil = runner 的默认值）。
 	// default).
 	Approve *bool `json:"approve,omitempty"`
-	// DenyPaths lists paths the policy must refuse.
+	// DenyPaths 列出策略必须拒绝的路径。
 	DenyPaths []string `json:"deny_paths,omitempty"`
-	// Repeat plays the script in a loop, so the model never stops on its own
-	// and only a limit ends the run.
+	// Repeat 循环播放脚本，使模型永不自行停止，只有上限结束运行。
+	// 且只有上限结束运行。
 	Repeat bool `json:"repeat,omitempty"`
-	// PromptCache is a runner hint: mark the stable system prefix when the
-	// runner assembles a cache-capable request.
+	// PromptCache 是 runner 提示：当 runner 组装支持缓存的请求时标记稳定的系统前缀。
+	// runner 组装支持缓存的请求时标记稳定的系统前缀。
 	PromptCache bool `json:"prompt_cache,omitempty"`
-	// NoPromptCache mirrors --no-prompt-cache: the runner must not emit cache
-	// markers, even when the protocol supports them.
+	// NoPromptCache 镜像 --no-prompt-cache：runner 不得发出缓存标记，即使协议支持它们。
+	// 缓存标记，即使协议支持它们。
 	NoPromptCache bool `json:"no_prompt_cache,omitempty"`
 }
 
-// DefaultModel is the model id handed to the loop when a scenario is silent.
+// DefaultModel 是场景未指定时交给循环的模型 id。
 const DefaultModel = "scripted"
 
-// Load reads a scenario document from disk.
+// Load 从磁盘读取场景文档。
 func Load(path string) ([]Scenario, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -190,7 +190,7 @@ func Load(path string) ([]Scenario, error) {
 	return scenarios, nil
 }
 
-// Parse decodes a scenario document: {"scenarios": [...]} or a bare array.
+// Parse 解码场景文档：{"scenarios": [...]} 或裸数组。
 func Parse(data []byte) ([]Scenario, error) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var document struct {
@@ -210,8 +210,8 @@ func Parse(data []byte) ([]Scenario, error) {
 	for i := range document.Scenarios {
 		document.Scenarios[i].normalize(i)
 	}
-	// Validate after normalising so error messages can name the scenario,
-	// including the ones that inherited a generated name.
+	// 规范化之后再验证，使错误消息能点名场景，
+	// 规范化之后再验证，使错误消息能点名场景，包括那些继承了生成名称的场景。
 	for _, scenario := range document.Scenarios {
 		if err := scenario.Validate(); err != nil {
 			return nil, err
@@ -220,7 +220,7 @@ func Parse(data []byte) ([]Scenario, error) {
 	return document.Scenarios, nil
 }
 
-// normalize applies the defaults a hand-written document may omit.
+// normalize 应用手写文档可能省略的默认值。
 func (s *Scenario) normalize(index int) {
 	if s.Name == "" {
 		s.Name = fmt.Sprintf("scenario %d", index+1)

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// editorEnvLookup builds an injected lookup backed by a fixed map. It replaces
-// os.Getenv so these tests never read the real environment.
+// editorEnvLookup 构建一个由固定 map 支持的注入式查找。它替代
+// os.Getenv，使这些测试从不读取真实环境。
 func editorEnvLookup(vars map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		v, ok := vars[key]
@@ -16,8 +16,8 @@ func editorEnvLookup(vars map[string]string) func(string) (string, bool) {
 	}
 }
 
-// stubEditorLookPath swaps the Windows PATH resolver for the duration of a
-// test, so assertions on bare commands do not depend on the machine's PATH.
+// stubEditorLookPath 在测试期间替换 Windows PATH 解析器，
+// 使对裸命令的断言不依赖机器的 PATH。
 func stubEditorLookPath(t *testing.T, fn func(string) (string, error)) {
 	t.Helper()
 	orig := editorLookPath
@@ -102,7 +102,7 @@ func TestResolveExternalEditorKeepsQuotedWindowsPath(t *testing.T) {
 	if !ok {
 		t.Fatal("ok = false, want true")
 	}
-	// A quoted path stays a single field and is kept unchanged.
+	// 带引号的路径保持为单一字段且原样保留。
 	if cmd != `C:\Program Files\Editor\code.cmd` {
 		t.Errorf("cmd = %q, want the quoted path", cmd)
 	}

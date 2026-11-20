@@ -122,10 +122,10 @@ func TestFrontmatterQuotingBlocksAndEdgeCases(t *testing.T) {
 	}
 }
 
-// YAML double-quoted scalars process escapes left-to-right: "\\\\" is a single
-// literal backslash, so a following "n" or "t" is ordinary text. A chain of
-// ReplaceAll calls processes "\n" before "\\\\" and corrupts an escaped
-// Windows path such as "C:\\temp\\name" into tabs and newlines.
+// 可信度是调用方的职责。
+// YAML 双引号标量从左到右处理转义："\\\\" 是单个字面反斜杠，因此后面的 "n" 或 "t" 是普通文本。链式
+// ReplaceAll 调用会在 "\\\\" 之前处理 "\n"，把转义的
+// ReplaceAll 调用会在 "\\\\" 之前处理 "\n"，把 "C:\\temp\\name" 这样的转义 Windows 路径破坏成制表符和换行。
 func TestParseDoubleQuotedEscapesInOrder(t *testing.T) {
 	cases := []struct {
 		name, value, want string
@@ -289,7 +289,7 @@ func TestIndexTextKeepsOneLinePerSkill(t *testing.T) {
 			if !strings.Contains(index, tc.wantLine) {
 				t.Errorf("IndexText = %q, want it to contain %q", index, tc.wantLine)
 			}
-			// Header plus exactly one line for the skill.
+			// 头部加恰好一行用于技能。
 			lines := strings.Split(strings.TrimSuffix(index, "\n"), "\n")
 			if len(lines) != 2 {
 				t.Errorf("IndexText has %d lines, want 2: %q", len(lines), index)

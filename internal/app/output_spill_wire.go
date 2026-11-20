@@ -10,33 +10,28 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// Output-artifact spilling is wired here, at the one place allowed to see both
-// the resolved storage directory and the tool registry. The tools package owns
-// the mechanism (WithOutputSpill / SpillLargeOutput); this file only decides
-// whether a run opts in and where the artifacts live.
+// 输出产物落盘在这里接线，这是唯一能同时看到已解析存储目录和工具注册表的位置。
+// tools 包拥有实现机制（WithOutputSpill / SpillLargeOutput）；本文件只决定
+// 某次运行是否选择启用，以及产物存放的位置。
 const (
-	// outputSpillEnableEnv is the single, simple opt-in. Truthy values mirror
-	// the repo's other feature gates ("1", "true", "yes", "on"). With it unset,
-	// configureOutputSpill returns ctx untouched and every existing run keeps
-	// byte-identical tool output.
+	// outputSpillEnableEnv 是唯一的简单启用开关。真值与仓库中其他功能开关一致
+	// （"1"、"true"、"yes"、"on"）。未设置时，configureOutputSpill 原样返回 ctx，
+	// 每个现有运行的工具输出都逐字节不变。
 	outputSpillEnableEnv = "ARGENT_OUTPUT_SPILL"
 
-	// These two names mirror the tools package's spillConfig env switches so an
-	// operator can override the directory or the byte threshold at assembly
-	// time. They are kept as literals here to avoid widening the tools API.
+	// 这两个名字对应 tools 包的 spillConfig 环境变量开关，使操作人员能在组装时
+	// 覆盖目录或字节阈值。它们在这里保持为字面量，以免扩大 tools 的 API。
 	outputSpillDirEnv       = "ARGENT_OUTPUT_SPILL_DIR"
 	outputSpillThresholdEnv = "ARGENT_OUTPUT_SPILL_THRESHOLD"
 
-	// spillArtifactDirName is the convention: artifacts sit under the resolved
-	// storage directory, not under the workspace, so they never pollute a repo
-	// and are shared by every session/run of this installation.
+	// spillArtifactDirName 是一个约定：产物位于已解析的存储目录下，而非工作区下，
+	// 因此它们绝不会污染仓库，并由该安装的所有会话/运行共享。
 	spillArtifactDirName = "artifacts"
 )
 
-// outputSpillArtifactDir resolves the stable artifact directory for a run. The
-// storage directory is always set by Resolve in real runs; the os.TempDir()
-// fallback only protects direct callers that build a bare Resolved (e.g. tests)
-// from writing a relative "artifacts" directory into the current workspace.
+// outputSpillArtifactDir 解析某次运行稳定的产物目录。真实运行中存储目录总是由 Resolve 设置；
+// os.TempDir() 回退只是保护那些构建裸 Resolved 的直接调用方（例如测试），
+// 以免把一个相对的 "artifacts" 目录写进当前工作区。
 func outputSpillArtifactDir(storage string) string {
 	base := strings.TrimSpace(storage)
 	if base == "" {
@@ -45,7 +40,7 @@ func outputSpillArtifactDir(storage string) string {
 	return filepath.Join(base, spillArtifactDirName)
 }
 
-// outputSpillEnabled reports whether the opt-in switch is truthy.
+// outputSpillEnabled 报告启用开关是否为真值。
 func outputSpillEnabled(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
@@ -55,18 +50,16 @@ func outputSpillEnabled(raw string) bool {
 	}
 }
 
-// configureOutputSpill opts a run's tool outputs into artifact spilling.
+// configureOutputSpill 让某次运行的工具输出选择启用产物落盘。
 //
-// Default (no opt-in) is a no-op: ctx is returned unchanged, so the tools
-// package sees no config and falls back to the ordinary clipTo path — output
-// bytes are exactly as before and no directory is created or scanned.
+// 默认（未启用）是空操作：ctx 原样返回，因此 tools 包看不到配置，回退到普通的 clipTo 路径——
+// 输出字节与之前完全一致，也不会创建或扫描任何目录。
 //
-// When opted in via ARGENT_OUTPUT_SPILL, the returned ctx carries
-// tools.WithOutputSpill with a stable artifact directory (<storage>/artifacts)
-// and the conservative default threshold. ARGENT_OUTPUT_SPILL_DIR and
-// ARGENT_OUTPUT_SPILL_THRESHOLD can override either. A one-shot, best-effort
-// retention sweep removes artifacts older than tools.DefaultSpillRetention;
-// its failure is deliberately ignored so cleanup can never break a run.
+// 通过 ARGENT_OUTPUT_SPILL 启用时，返回的 ctx 带有 tools.WithOutputSpill，
+// 使用稳定的产物目录（<storage>/artifacts）和保守的默认阈值。
+// ARGENT_OUTPUT_SPILL_DIR 和 ARGENT_OUTPUT_SPILL_THRESHOLD 可以覆盖这两者。
+// 一次性的、尽力而为的保留清理会移除早于 tools.DefaultSpillRetention 的产物；
+// 其失败会被刻意忽略，使清理绝不会中断运行。
 func configureOutputSpill(ctx context.Context, env func(string) string, storage string) context.Context {
 	get := func(key string) string {
 		if env == nil {

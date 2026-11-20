@@ -10,8 +10,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// fallbackScriptChatter is a fake Chatter that records the models it was asked
-// to use and drives each call from a script. No network or real model is used.
+// fallbackScriptChatter 是一个伪 Chatter，记录它被要求使用的模型，
+// 并由脚本驱动每次调用。不使用网络或真实模型。
 type fallbackScriptChatter struct {
 	calls  []string
 	script func(call int, model string, onText func(string)) (llm.Message, error)
@@ -30,9 +30,9 @@ func emit(text string, onText func(string)) {
 	}
 }
 
-// TestFallbackChatterDropsPartialPrimaryText pins bug #1: a primary model that
-// streams a half-answer and then fails must not leak that text into the
-// fallback model's answer.
+// TestFallbackChatterDropsPartialPrimaryText 锁定 bug #1：主模型
+// 流式输出半个答案后失败，其文本绝不能泄漏进
+// 回退模型的答案。
 func TestFallbackChatterDropsPartialPrimaryText(t *testing.T) {
 	primary := "PARTIAL-FROM-PRIMARY-"
 	backup := "FULL-ANSWER-FROM-FALLBACK"
@@ -72,9 +72,9 @@ func TestFallbackChatterDropsPartialPrimaryText(t *testing.T) {
 	}
 }
 
-// TestFallbackChatterReplaysSuccessfulPrimaryText keeps the success path: when
-// the primary succeeds, its deltas are forwarded and no fallback request is
-// made, even though a fallback model is configured.
+// TestFallbackChatterReplaysSuccessfulPrimaryText 保持成功路径：当
+// 主模型成功时，其增量会被转发，且不会发出回退请求，
+// 即使配置了回退模型也是如此。
 func TestFallbackChatterReplaysSuccessfulPrimaryText(t *testing.T) {
 	answer := "ANSWER-FROM-PRIMARY"
 	inner := &fallbackScriptChatter{script: func(call int, _ string, onText func(string)) (llm.Message, error) {
@@ -100,9 +100,9 @@ func TestFallbackChatterReplaysSuccessfulPrimaryText(t *testing.T) {
 	}
 }
 
-// TestFallbackChatterRetriesOnlyRetryableErrors pins bug #2: deterministic
-// provider errors are returned immediately while transient failures still
-// switch to the fallback model.
+// TestFallbackChatterRetriesOnlyRetryableErrors 锁定 bug #2：确定性的
+// 提供方错误会立即返回，而瞬时失败仍会
+// 切换到回退模型。
 func TestFallbackChatterRetriesOnlyRetryableErrors(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -159,8 +159,8 @@ func TestFallbackChatterRetriesOnlyRetryableErrors(t *testing.T) {
 	}
 }
 
-// TestFallbackChatterDoesNotRetryAfterCancellation keeps the cancellation
-// guarantee: a cancelled context stops the run with a single request.
+// TestFallbackChatterDoesNotRetryAfterCancellation 保持取消
+// 保证：被取消的 context 会以单次请求停止运行。
 func TestFallbackChatterDoesNotRetryAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -170,8 +170,8 @@ func TestFallbackChatterDoesNotRetryAfterCancellation(t *testing.T) {
 	}}
 	chatter := &fallbackChatter{primary: inner, fallback: "backup"}
 
-	// The provider's error is returned as-is; the point is that the cancelled
-	// context stops the run without issuing a second request.
+	// 提供方的错误被原样返回；关键在于被取消的
+	// context 会停止运行，而不发出第二次请求。
 	if _, err := chatter.Chat(ctx, "primary", nil, nil, nil); err == nil {
 		t.Fatal("cancelled run returned nil error")
 	}
@@ -180,8 +180,8 @@ func TestFallbackChatterDoesNotRetryAfterCancellation(t *testing.T) {
 	}
 }
 
-// TestFallbackChatterDropsPartialFallbackTextOnFailure covers the case where
-// both models fail: neither model's partial text may reach the operator.
+// TestFallbackChatterDropsPartialFallbackTextOnFailure 覆盖两个模型都失败的情形：
+// 任何一个模型的部分文本都不能到达操作人员。
 func TestFallbackChatterDropsPartialFallbackTextOnFailure(t *testing.T) {
 	inner := &fallbackScriptChatter{script: func(call int, _ string, onText func(string)) (llm.Message, error) {
 		if call == 1 {

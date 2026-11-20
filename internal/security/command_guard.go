@@ -9,23 +9,21 @@ import (
 	"unicode"
 )
 
-// Guardrail runtime modes, selected with ARGENT_GUARDRAILS.
+// 护栏运行时模式，由 ARGENT_GUARDRAILS 选择。
 const (
 	guardrailShadow  = "shadow"
 	guardrailEnforce = "enforce"
 	guardrailOff     = "off"
 
-	// defaultGuardrailMode is intentionally "enforce": argentgo is a personal
-	// local tool and must keep blocking mutating commands exactly as before the
-	// switch existed. Operators who want to measure false positives first can
-	// opt into "shadow" explicitly.
+	// defaultGuardrailMode 刻意设为 "enforce"：argentgo 是个人本地工具，
+	// 必须像该开关出现之前一样继续拦截修改类命令。想先测量误报的操作员可以
+	// 显式选择 "shadow"。
 	defaultGuardrailMode = guardrailEnforce
 )
 
-// GuardrailMode returns the runtime guardrail mode from ARGENT_GUARDRAILS.
-// Values are case-insensitive and surrounding whitespace is ignored. Unset,
-// empty or unrecognised values fall back to "enforce", so the default security
-// behaviour (a detected mutating command is blocked) is preserved.
+// GuardrailMode 从 ARGENT_GUARDRAILS 返回运行时护栏模式。
+// 值不区分大小写，并忽略周围的空白。未设置、空值或无法识别的值都会
+// 回退到 "enforce"，从而保留默认安全行为（检测到的修改类命令会被拦截）。
 func GuardrailMode() string {
 	return normalizeGuardrailMode(os.Getenv("ARGENT_GUARDRAILS"))
 }
@@ -43,10 +41,9 @@ func normalizeGuardrailMode(value string) string {
 	}
 }
 
-// applyGuardrailMode turns a detected mutating token into the decision the
-// caller acts on. "enforce" returns the token unchanged so the caller blocks;
-// "shadow" records what would have been blocked but returns no token, and
-// "off" also returns no token (callers short-circuit detection entirely).
+// applyGuardrailMode 把检测到的修改类 token 转成调用方据以行动的决定。
+// "enforce" 原样返回 token，让调用方拦截；"shadow" 记录本会被拦截的内容但
+// 不返回 token；"off" 同样不返回 token（调用方会完全跳过检测）。
 func applyGuardrailMode(token, mode string) string {
 	if token == "" {
 		return ""
@@ -62,35 +59,31 @@ func applyGuardrailMode(token, mode string) string {
 	}
 }
 
-// FindFileEditingCommand returns the mutating shell token in command, or "" if
-// none was found. It is a token-aware classifier in the spirit of Cline's
-// command guard: quoted strings, backtick substitutions, heredoc bodies and
-// shell comments are masked before tokenizing, so a literal "rm" inside a
-// string does not trigger a false positive. The one exception is a quoted
-// payload passed to `bash -c`/`sh -c`/`bash -lc`: that literal is recovered
-// from the raw command and classified recursively, so it cannot hide a
-// mutating command behind the wrapper.
+// FindFileEditingCommand 返回 command 中的修改类 shell token，没找到则返回
+// ""。它是一个感知 token 的分类器，思路借鉴 Cline 的命令守卫：在分词之前会
+// 遮盖引号字符串、反引号替换、heredoc 正文和 shell 注释，因此字符串里的字面量
+// "rm" 不会触发误报。唯一的例外是传给 `bash -c`/`sh -c`/`bash -lc` 的带引号
+// 载荷：该字面量会从原始命令中恢复出来并递归分类，因此无法借包装器隐藏修改类
+// 命令。
 //
-// The function is pure: it has no side effects and keeps no global state. It is
-// deliberately conservative — a mutating command may slip through, but reading
-// commands (ls, cat, echo, git status, go test, rg, find, type, Get-Content)
-// must not be blocked. The returned value is the offending token as it appeared
-// in the command (for example "rm" or ">/etc/passwd").
+// 该函数是纯函数：没有副作用，也不保留全局状态。它刻意保守 —— 修改类命令可能
+// 漏过，但读取类命令（ls、cat、echo、git status、go test、rg、find、type、
+// Get-Content）绝不能被拦截。返回值是违规 token 在命令中的原样
+// （例如 "rm" 或 ">/etc/passwd"）。
 func FindFileEditingCommand(command string) string {
 	return findFileEditingCommandDepth(command, 0)
 }
 
-// findFileEditingCommandDepth is FindFileEditingCommand with a recursion budget
-// for literal payloads recovered from shell -c wrappers. Every recursive step
-// consumes at least the wrapper text, so nesting is finite; the cap keeps a
-// hostile deeply-nested command cheap to classify.
+// findFileEditingCommandDepth 是带递归预算的 FindFileEditingCommand，用于
+// 从 shell -c 包装器中恢复的字面量载荷。每一步递归至少消耗包装器文本，因此
+// 嵌套是有限的；上限使恶意的深层嵌套命令也能被低成本分类。
 func findFileEditingCommandDepth(command string, depth int) string {
 	if strings.TrimSpace(command) == "" {
 		return ""
 	}
 
-	// POSIX file/shell mutators plus cmd.exe and PowerShell equivalents. A token
-	// is compared case-insensitively because PowerShell cmdlets and aliases are.
+	// POSIX 文件/shell 修改命令，加上 cmd.exe 和 PowerShell 的等价命令。
+	// token 比较不区分大小写，因为 PowerShell cmdlet 和别名也不区分。
 	mutating := map[string]bool{
 		// POSIX.
 		"rm": true, "rmdir": true, "mv": true, "cp": true, "sed": true,
@@ -100,7 +93,7 @@ func findFileEditingCommandDepth(command string, depth int) string {
 		// cmd.exe.
 		"del": true, "erase": true, "move": true, "copy": true, "xcopy": true,
 		"robocopy": true, "ren": true, "rename": true, "md": true, "rd": true,
-		// PowerShell cmdlets and common aliases.
+		// PowerShell cmdlet 和常见别名。
 		"remove-item": true, "set-content": true, "out-file": true,
 		"add-content": true, "clear-content": true, "move-item": true,
 		"copy-item": true, "new-item": true, "set-item": true,
@@ -109,9 +102,9 @@ func findFileEditingCommandDepth(command string, depth int) string {
 		"ri": true, "ni": true, "si": true, "rni": true, "clc": true,
 	}
 
-	// Tools whose second token decides whether the call mutates. Read-only
-	// subcommands (git status, go test, go vet, go list, cargo check, npm view,
-	// pip freeze, ...) are intentionally absent.
+	// 由第二个 token 决定调用是否产生修改的工具。只读子命令
+	// （git status、go test、go vet、go list、cargo check、npm view、
+	// pip freeze 等）刻意不列入。
 	subcommands := map[string]map[string]bool{
 		"git": {
 			"push": true, "commit": true, "checkout": true, "reset": true,
@@ -137,21 +130,19 @@ func findFileEditingCommandDepth(command string, depth int) string {
 	}
 
 	cleaned := sanitizeCommand(command)
-	// Wrapper programs (sudo, env, nohup, command, builtin, exec) do not change
-	// what the wrapped command does. The threat classifier already strips them
-	// with reduceWrappers (threat_patterns.go); the token classifier must do
-	// the same or one wrapper word hides every mutating command from the
-	// plan-mode guard and the auto approver. reduceWrappers keeps the preceding
-	// separator in place, so command splitting still works after the reduction.
+	// 包装程序（sudo、env、nohup、command、builtin、exec）不会改变被包装命令的
+	// 行为。威胁分类器已经用 reduceWrappers（threat_patterns.go）剥离它们；
+	// token 分类器也必须这样做，否则一个包装词就能把所有修改类命令对计划模式
+	// 守卫和自动审批器隐藏起来。reduceWrappers 会保留前面的分隔符，因此归约后
+	// 命令拆分仍然有效。
 	reduced, _ := reduceWrappers(cleaned)
 	for _, segment := range splitOnSeparators(reduced) {
 		fields := strings.Fields(segment)
 		if len(fields) == 0 {
 			continue
 		}
-		// `env FOO=1 rm file` leaves an assignment at the front once the
-		// wrapper is gone. Skip leading assignments to find the executable,
-		// then judge that word exactly as an unwrapped command.
+		// 包装器去掉后，`env FOO=1 rm file` 会在开头留下一个赋值。跳过开头的赋值
+		// 找到可执行文件，然后像对待未包装的命令一样判断这个词。
 		cmdAt := 0
 		for cmdAt < len(fields) && isAssignmentWord(fields[cmdAt]) {
 			cmdAt++
@@ -170,19 +161,18 @@ func findFileEditingCommandDepth(command string, depth int) string {
 			}
 		}
 		for i, field := range fields {
-			// A single shell word can carry more than one redirection
-			// (e.g. `>/etc/passwd>/tmp/scratch`). Checking only the last `>`
-			// would whitelist the whole word when the final target is a scratch
-			// path, even though the earlier `>` still truncates a real file.
-			// Examine every `>` in the word so no earlier write is hidden.
+			// 一个 shell 词可以携带多个重定向（例如 `>/etc/passwd>/tmp/scratch`）。
+			// 只检查最后一个 `>`，当最终目标是临时路径时就会把整个词加入白名单，
+			// 尽管更早的 `>` 仍然会截断真实文件。检查词中的每个 `>`，
+			// 确保没有更早的写入被隐藏。
 			for off := 0; off < len(field); {
 				rel := strings.IndexByte(field[off:], '>')
 				if rel < 0 {
 					break
 				}
 				idx := off + rel
-				// `>>` is an append redirect: skip the whole operator run. The
-				// target runs to the next `>` in the same word (or to its end).
+				// `>>` 是追加重定向：跳过整个操作符序列。目标延伸到同一词中的下一个 `>`
+				// （或到词尾）。
 				start := idx + 1
 				for start < len(field) && field[start] == '>' {
 					start++
@@ -199,7 +189,7 @@ func findFileEditingCommandDepth(command string, depth int) string {
 				}
 				off = end
 				if target == "" || strings.HasPrefix(target, "&") {
-					continue // 2>&1 and friends are not file writes
+					continue // 2>&1 之类的不是文件写入
 				}
 				lower := strings.ToLower(strings.Trim(target, "\"'"))
 				if lower == "null" || lower == "/dev/null" || lower == "nul" || lower == "nul:" {
@@ -212,22 +202,19 @@ func findFileEditingCommandDepth(command string, depth int) string {
 		}
 	}
 
-	// Additive threat detection: a dangerous command that is not a file edit
-	// (curl|bash, reverse shells, encoded execution, wrapper-launched deletion)
-	// is reported so every consumer of this classifier gates it. Only
-	// HIGH-confidence threats are returned; lower-confidence matches stay
-	// reserved for diagnostics. Returning Evidence keeps the token a substring
-	// of the command, preserving the classifier's existing length contract.
+	// 附加威胁检测：不是文件编辑的危险命令（curl|bash、反弹 shell、编码执行、
+	// 通过包装器发起的删除）会被报告，使该分类器的每个消费方都对其进行拦截。
+	// 只返回 HIGH 置信度的威胁；较低置信度的匹配留作诊断。返回 Evidence 使
+	// token 保持为命令的子串，保留分类器现有的长度约定。
 	if m := DetectThreat(command); m.IsHigh() {
 		return m.Evidence
 	}
 
-	// P0 fix: a quoted payload behind `bash -c`/`sh -c`/`bash -lc` was blanked
-	// by sanitizeCommand, hiding mutating tokens (rm, mv, git push, ...) from
-	// the classifier above. Recover the literal payload from the raw command
-	// and run the whole classifier on it. The extraction only fires at a real
-	// command position and requires a quoted payload, so benign commands that
-	// merely mention "bash -c" inside a string stay clear.
+	// P0 修复：`bash -c`/`sh -c`/`bash -lc` 后面的带引号载荷会被 sanitizeCommand
+	// 清空，从而对上面的分类器隐藏修改类 token（rm、mv、git push 等）。
+	// 从原始命令中恢复字面量载荷并在其上运行整个分类器。提取只在真实命令位置
+	// 触发且要求带引号载荷，因此只是在字符串中提到 "bash -c" 的良性命令
+	// 不受影响。
 	if depth < maxShellLiteralDepth {
 		for _, payload := range shellLiteralPayloads(command) {
 			if token := findFileEditingCommandDepth(payload, depth+1); token != "" {
@@ -238,16 +225,14 @@ func findFileEditingCommandDepth(command string, depth int) string {
 	return ""
 }
 
-// guardShellCommand extracts the command string from a shell tool's JSON
-// arguments and applies the runtime guardrail mode: "enforce" returns the
-// mutating token so the caller blocks, "shadow" logs but returns no token,
-// and "off" skips detection. Only bash and powershell are shell tools;
-// everything else is ignored. A malformed payload yields no match (false
-// negatives are safe).
+// guardShellCommand 从 shell 工具的 JSON 参数中提取命令字符串，并应用运行时
+// 护栏模式："enforce" 返回修改类 token 让调用方拦截，"shadow" 记录但不返回
+// token，"off" 跳过检测。只有 bash 和 powershell 是 shell 工具；其他一律忽略。
+// 格式错误的载荷不会产生匹配（漏报是安全的）。
 func guardShellCommand(toolName string, args json.RawMessage) string {
 	mode := GuardrailMode()
 	if mode == guardrailOff {
-		return "" // off: skip detection entirely, never block
+		return "" // off：完全跳过检测，永不拦截
 	}
 	name := strings.ToLower(strings.TrimSpace(toolName))
 	if name != "bash" && name != "powershell" {
@@ -265,12 +250,10 @@ func guardShellCommand(toolName string, args json.RawMessage) string {
 		command = payload.Script
 	}
 
-	// This is the interception decision point. A HIGH-confidence threat (as
-	// well as any file-editing token) is handed to the existing three-way
-	// guardrail: "enforce" returns the token so the caller blocks, "shadow"
-	// logs it but returns nothing, and "off" short-circuited above. The threat
-	// classifier is also folded into FindFileEditingCommand, so this fallback
-	// keeps the decision explicit and robust if that classifier is refactored.
+	// 这是拦截决策点。HIGH 置信度威胁（以及任何文件编辑 token）会被交给现有的
+	// 三态护栏："enforce" 返回 token 让调用方拦截，"shadow" 记录但不返回任何
+	// 东西，"off" 已在上面短路。威胁分类器也已并入 FindFileEditingCommand，
+	// 因此这个兜底让决策保持显式，即使该分类器被重构也很稳健。
 	token := FindFileEditingCommand(command)
 	if token == "" {
 		if m := DetectThreat(command); m.IsHigh() {
@@ -280,16 +263,15 @@ func guardShellCommand(toolName string, args json.RawMessage) string {
 	return applyGuardrailMode(token, mode)
 }
 
-// sanitizeCommand masks heredoc bodies, then calls sanitizeLine on each line.
+// sanitizeCommand 遮盖 heredoc 正文，然后逐行调用 sanitizeLine。
 func sanitizeCommand(command string) string {
 	lines := strings.Split(command, "\n")
 	heredoc := ""
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if heredoc != "" {
-			// A line containing only the delimiter closes the heredoc. Both the
-			// body and the delimiter line are replaced with blanks so no token
-			// inside them can be mistaken for a command.
+			// 只包含分隔符的行表示 heredoc 结束。正文和分隔符行都会被替换为空白，
+			// 这样其中的任何 token 都不会被误认为命令。
 			if strings.TrimSpace(line) == heredoc {
 				heredoc = ""
 			}
@@ -303,9 +285,9 @@ func sanitizeCommand(command string) string {
 	return strings.Join(out, "\n")
 }
 
-// sanitizeLine blanks quoted strings, backtick substitutions, shell comments
-// and the marker of a heredoc opener. Non-ignored characters (including shell
-// separators) are preserved so the caller can still split commands apart.
+// sanitizeLine 把引号字符串、反引号替换、shell 注释以及 heredoc 起始标记
+// 置为空白。未被忽略的字符（包括 shell 分隔符）会保留，因此调用方仍可以把
+// 命令拆开。
 func sanitizeLine(line string) (string, string) {
 	var b strings.Builder
 	var heredoc string
@@ -391,9 +373,8 @@ func sanitizeLine(line string) (string, string) {
 	return b.String(), heredoc
 }
 
-// splitOnSeparators splits a shell program into individual commands. The
-// separators themselves are discarded; `;` && `||` `|` `&` parentheses and
-// newlines all end a command. Redirection `>` is NOT a separator.
+// splitOnSeparators 把一个 shell 程序拆成单条命令。分隔符本身会被丢弃；
+// `;`、`&&`、`||`、`|`、`&`、括号和换行都会结束一条命令。重定向 `>` 不是分隔符。
 func splitOnSeparators(s string) []string {
 	out := []string{}
 	var b strings.Builder
@@ -409,10 +390,9 @@ func splitOnSeparators(s string) []string {
 	return append(out, b.String())
 }
 
-// isAssignmentWord reports whether word is a leading VAR=value assignment, as
-// accepted by `env` and by POSIX shells before a command. Only plain ASCII
-// identifier names count, so an ordinary argument containing '=' is not
-// mistaken for an assignment and skipped over.
+// isAssignmentWord 报告 word 是否是命令开头由 `env` 和 POSIX shell 接受的
+// VAR=value 赋值。只认纯 ASCII 标识符名，因此含 '=' 的普通参数不会被误认为
+// 赋值而跳过。
 func isAssignmentWord(word string) bool {
 	eq := strings.IndexByte(word, '=')
 	if eq <= 0 {
@@ -441,15 +421,13 @@ func isSeparatorByte(b byte) bool {
 	return unicode.IsSpace(rune(b))
 }
 
-// isTempPath reports whether path points into a scratch directory whose writes
-// are harmless for the purpose of this guard. os.TempDir is an environment
-// read, not a side effect, so the classifier stays free of global state.
+// isTempPath 报告 path 是否指向一个对此守卫而言写入无害的临时目录。
+// os.TempDir 是读取环境变量，不是副作用，因此分类器保持无全局状态。
 func isTempPath(candidate string) bool {
 	p := strings.ReplaceAll(strings.Trim(strings.TrimSpace(candidate), "\"'"), "\\", "/")
-	// Collapse "." and ".." before the prefix test. A target only *spells* a
-	// scratch directory — "/tmp/../etc/passwd" or "%TEMP%/../../evil" — but
-	// writes outside it; a raw prefix check would wrongly whitelist it and let
-	// the redirection guard miss a mutating command entirely.
+	// 在前缀检查前先折叠 "." 和 ".."。目标可能只是*写法上*指向临时目录 ——
+	// "/tmp/../etc/passwd" 或 "%TEMP%/../../evil" —— 但实际写到外面；
+	// 裸前缀检查会错误地将其加入白名单，让重定向守卫完全漏掉修改类命令。
 	p = path.Clean(p)
 	lower := strings.ToLower(p)
 	roots := []string{

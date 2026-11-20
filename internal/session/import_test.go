@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// The assertions below intentionally inspect Entry's public shape rather than
-// the importers' private helpers, so they describe the import contract without
-// depending on how the Data payload is organized internally.
+// 下面的断言刻意检查 Entry 的公开形态，而不是
+// 导入器的私有辅助函数，因此它们描述导入契约，而不
+// 依赖 Data 载荷在内部如何组织。
 
 func importDataMap(t *testing.T, entry Entry) map[string]any {
 	t.Helper()

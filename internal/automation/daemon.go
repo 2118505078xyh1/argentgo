@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Run statuses recorded in the store and in each run log.
+// 记录在 store 和每个运行日志中的运行状态。
 const (
 	StatusOK      = "ok"
 	StatusFailed  = "failed"
@@ -21,17 +21,17 @@ const (
 	StatusSkipped = "skipped"
 )
 
-// DefaultTick is how often the daemon looks for due tasks.
+// DefaultTick 是 daemon 查找到期任务的频率。
 const DefaultTick = 30 * time.Second
 
-// Executor runs one task. The daemon supplies the task and honours its timeout;
-// the executor only has to turn a spec into a result (in the CLI that means
-// driving the agent loop, here it is an injected seam).
+// Executor 运行一个任务。daemon 提供任务并遵守其超时；
+// Executor 运行一个任务。daemon 提供任务并遵守其超时；executor 只需把 spec 变成结果（在 CLI 中意味着
+// 驱动 agent 循环，这里是一个注入的 seam）。
 type Executor interface {
 	Run(ctx context.Context, spec Spec) (RunResult, error)
 }
 
-// RunResult is the outcome of one run.
+// RunResult 是一次运行的结果。
 type RunResult struct {
 	ID       string
 	Status   string
@@ -41,37 +41,37 @@ type RunResult struct {
 	Finished time.Time
 }
 
-// Success reports whether the run finished cleanly.
+// Success 报告运行是否干净完成。
 func (r RunResult) Success() bool {
 	return r.Status == "" || r.Status == StatusOK
 }
 
-// Options configures the daemon.
+// Options 配置 daemon。
 type Options struct {
-	// Store is the task list (required).
+	// Store 是任务列表（必需）。
 	Store *Store
-	// Executor runs due tasks (required).
+	// Executor 运行到期任务（必需）。
 	Executor Executor
-	// LogDir receives <id>/<epoch>-<seq>.log and the matching .json. It
-	// defaults to <store dir>/runs.
+	// LogDir 接收 <id>/<epoch>-<seq>.log 及匹配的 .json。默认为 <store dir>/runs。
+	// 默认为 <store dir>/runs。
 	LogDir string
-	// Clock overrides time.Now; tests drive the schedule with it.
+	// Clock 覆盖 time.Now；测试用它驱动调度。
 	Clock func() time.Time
-	// Tick is the polling interval; it defaults to DefaultTick.
+	// Tick 是轮询间隔；默认为 DefaultTick。
 	Tick time.Duration
 }
 
-// daemon is the running scheduler.
+// daemon 是正在运行的调度器。
 type daemon struct {
 	store  *Store
 	exec   Executor
 	logDir string
 	now    func() time.Time
 	tick   time.Duration
-	// startTime is when this daemon came up. A slot that was already due
-	// before then had no chance to run in this process, so missed=skip may
-	// drop it; a slot that came due while we were running is on time (the
-	// tick is coarse) and must be executed.
+	// daemon 是正在运行的调度器。
+	// startTime 是该 daemon 启动的时刻。在此之前就已到期的时隙在本进程中没有机会运行，因此 missed=skip 可能
+	// 丢弃它；在我们运行期间到期的时隙是准时的（tick 很粗）且
+	// 丢弃它；在我们运行期间到期的时隙是准时的（tick 很粗）且必须执行。
 	startTime time.Time
 
 	wg sync.WaitGroup
@@ -104,12 +104,12 @@ func newDaemon(opts Options) (*daemon, error) {
 	return d, nil
 }
 
-// Run polls the store until ctx is cancelled and returns nil on shutdown.
+// Run 轮询 store 直到 ctx 被取消并在关闭时返回 nil。
 //
-// One scan happens immediately, so a daemon that starts after a slot was missed
-// applies the task's missed policy right away. Each task runs in its own
-// goroutine and at most one run per id is in flight; a run that is still
-// executing when the next tick arrives is simply left alone.
+// 立即执行一次扫描，因此在某时隙被错过之后启动的 daemon 会立即应用该任务的 missed 策略。每个任务在其自身
+// 立即应用该任务的 missed 策略。每个任务在其自身
+// goroutine 中运行且每个 id 至多一个运行在进行中；下一个 tick 到来时仍在运行的任务就保持不动。
+// goroutine 中运行且每个 id 至多一个运行在进行中；下一个 tick 到来时仍在
 func Run(ctx context.Context, opts Options) error {
 	d, err := newDaemon(opts)
 	if err != nil {
@@ -128,16 +128,16 @@ func Run(ctx context.Context, opts Options) error {
 	}
 }
 
-// scan starts every task that is due and not already running.
+// scan 启动所有到期且未运行的任务。
 func (d *daemon) scan(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	// The task list is a shared JSON file. A separate `automation run` process
-	// may have handled a slot and advanced NextDue since our last scan. Refresh
-	// first so a stale in-memory view cannot fire that slot a second time. If
-	// the file cannot be read, wait for the next tick rather than act on stale
-	// data that might duplicate a run.
+	// 任务列表是共享 JSON 文件。自我们上次扫描以来，另一个 `automation run` 进程可能处理了某个时隙并推进了 NextDue。先
+	// 自我们上次扫描以来可能处理了某个时隙并推进了 NextDue。先
+	// 刷新，使陈旧的内存视图不会再次触发该时隙。若文件无法读取，等待
+	// 刷新，使陈旧的内存视图不会再次触发该时隙。若文件无法读取，等待下一个 tick，而不是根据可能重复运行的陈旧
+	// 数据行动。
 	if err := d.store.Reload(); err != nil {
 		return
 	}
@@ -147,8 +147,8 @@ func (d *daemon) scan(ctx context.Context) {
 			continue
 		}
 		if spec.MissedPolicy() == MissedSkip && spec.NextDue.Before(d.startTime) {
-			// The slot passed before this process started, so there was no
-			// opportunity to run it: drop the slot and wait for the next one.
+			// 数据行动。
+			// 该时隙在本进程启动前就已过去，因此没有运行它的机会：丢弃该时隙并等待下一个。
 			if _, err := d.store.claim(spec.ID); err == nil {
 				_ = d.store.recordRun(spec.ID, StatusSkipped, "", runTime(spec.NextDue, now), spec.NextDue)
 				d.store.release(spec.ID)
@@ -157,7 +157,7 @@ func (d *daemon) scan(ctx context.Context) {
 		}
 		seq, err := d.store.claim(spec.ID)
 		if err != nil {
-			// Already in flight here or in another process (e.g. a RunNow).
+			// 此处或另一个进程中已在运行（例如 RunNow）。
 			continue
 		}
 		d.wg.Add(1)
@@ -165,9 +165,9 @@ func (d *daemon) scan(ctx context.Context) {
 	}
 }
 
-// runTime is the timestamp recorded for a run: the current time, never earlier
-// than the slot that triggered it. It keeps LastRun from moving backwards when
-// a stale slot is executed or skipped.
+// runTime 是为某次运行记录的时间戳：当前时间，绝不会早于
+// runTime 是为某次运行记录的时间戳：当前时间，绝不会早于触发它的时隙。这防止 LastRun 在执行或跳过陈旧时隙时
+// 向后移动。
 func runTime(slot, current time.Time) time.Time {
 	if slot.After(current) {
 		return slot
@@ -175,14 +175,14 @@ func runTime(slot, current time.Time) time.Time {
 	return current
 }
 
-// execute runs one task, writes its logs and records the outcome.
+// execute 运行一个任务、写入其日志并记录结果。
 func (d *daemon) execute(ctx context.Context, spec Spec, seq uint64) {
 	defer d.wg.Done()
 	defer d.store.release(spec.ID)
 
-	// Capture the slot the scan claimed. The next firing is derived from this
-	// slot, not from the completion time, so a slow task cannot push the whole
-	// schedule forward (12:00 + 10m stays 12:10 even if the run ends at 12:02).
+	// 捕获扫描认领的时隙。下一次触发由此刻的时隙派生，
+	// 捕获扫描认领的时隙。下一次触发由此刻的时隙派生，而非完成时间，使慢任务不能把整个
+	// 调度表向前推（12:00 + 10m 仍是 12:10，即使运行在 12:02 结束）。
 	slot := spec.NextDue
 	started := d.now()
 	runCtx := ctx
@@ -209,14 +209,14 @@ func (d *daemon) execute(ctx context.Context, spec Spec, seq uint64) {
 		}
 	}
 	logPath, _ := d.writeLogs(spec, res, seq)
-	// A spec deleted while running has nothing to record; that is not an error.
+	// 运行中被删除的 spec 无可记录；这不是错误。
 	_ = d.store.recordRun(spec.ID, res.Status, logPath, runTime(slot, finished), slot)
 }
 
-// wait blocks until in-flight runs finish.
+// wait 阻塞直到进行中的运行完成。
 func (d *daemon) wait() { d.wg.Wait() }
 
-// runRecord is the JSON side of a run log.
+// runRecord 是运行日志的 JSON 侧。
 type runRecord struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
@@ -229,13 +229,13 @@ type runRecord struct {
 	Error      string    `json:"error,omitempty"`
 }
 
-// maxRunLogs is how many run pairs (.log + .json) are kept per task. Older
-// runs are pruned after every write so runs/<id>/ does not grow without bound.
+// maxRunLogs 是每个任务保留的运行对（.log + .json）数量。较旧的运行在每次写入后被裁剪，使 runs/<id>/ 不会无界增长。
+// 较旧的运行在每次写入后被裁剪，使 runs/<id>/ 不会无界增长。
 const maxRunLogs = 20
 
-// writeLogs writes <logDir>/<id>/<epoch>-<seq>.log plus the matching .json
-// record and returns the log path. seq comes from the store claim, so two runs
-// that start in the same second still get distinct, ordered names.
+// writeLogs 写入 <logDir>/<id>/<epoch>-<seq>.log 及匹配的 .json
+// 记录并返回日志路径。seq 来自 store 的认领，因此同一秒开始的两个运行仍获得不同的有序名称。
+// 同一秒开始的两个运行仍获得不同的有序名称。
 func (d *daemon) writeLogs(spec Spec, res RunResult, seq uint64) (string, error) {
 	dir := filepath.Join(d.logDir, spec.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -286,8 +286,8 @@ func (d *daemon) writeLogs(spec Spec, res RunResult, seq uint64) (string, error)
 	return logPath, nil
 }
 
-// rotateLogs keeps only the newest keep run pairs in dir. Names are
-// "<epoch>-<zero-padded seq>", so lexicographic order is chronological order.
+// rotateLogs 只保留 dir 中最新的 keep 个运行对。名称格式为 "<epoch>-<补零的 seq>"，因此字典序即时间序。
+// 名称格式，因此字典序即时间序。
 func rotateLogs(dir string, keep int) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -325,8 +325,8 @@ func rotateLogs(dir string, keep int) {
 	}
 }
 
-// RunNow runs one stored task immediately, outside the daemon loop, and records
-// the outcome. The CLI uses it for `automation run <id>`.
+// RunNow 在 daemon 循环之外立即运行一个存储的任务并记录
+// RunNow 在 daemon 循环之外立即运行一个存储的任务并记录结果。CLI 用它实现 `automation run <id>`。
 func RunNow(ctx context.Context, store *Store, ex Executor, logDir, id string, at time.Time) (RunResult, error) {
 	if store == nil {
 		return RunResult{}, errors.New("automation: RunNow needs a store")
@@ -338,9 +338,9 @@ func RunNow(ctx context.Context, store *Store, ex Executor, logDir, id string, a
 	if !ok {
 		return RunResult{}, fmt.Errorf("automation: no task %q", id)
 	}
-	// Claim through the same store-level mechanism the daemon uses, so a
-	// manual run can never overlap a daemon run (or another RunNow) for the
-	// same id, even when they live in different processes.
+	// 通过与 daemon 相同的 store 级机制认领，使
+	// 通过与 daemon 相同的 store 级机制认领，使手动运行对同一 id 绝不可能与 daemon 运行（或另一个 RunNow）重叠，
+	// 即使它们位于不同进程中。
 	seq, err := store.claim(id)
 	if err != nil {
 		if errors.Is(err, errBusy) {

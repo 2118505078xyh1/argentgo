@@ -13,23 +13,23 @@ import (
 )
 
 const (
-	// defaultDiscoveryTimeoutStdio bounds discovery against local stdio
-	// servers, which may need time to boot their runtime before answering
-	// initialize / tools-list.
+	// defaultDiscoveryTimeoutStdio 限制对本地 stdio 服务器的发现，
+	// 它们在回答 initialize / tools-list 之前
+	// 可能需要时间启动运行时。
 	defaultDiscoveryTimeoutStdio = 30 * time.Second
-	// defaultDiscoveryTimeoutRemote bounds discovery against HTTP/SSE servers;
-	// a remote that cannot answer within this window is treated as unavailable.
+	// defaultDiscoveryTimeoutRemote 限制对 HTTP/SSE 服务器的发现；
+	// 在此窗口内无法回答的远程服务器被视为不可用。
 	defaultDiscoveryTimeoutRemote = 5 * time.Second
-	// minDiscoveryTimeout and maxDiscoveryTimeout bound any per-server
-	// discovery timeout override so a bad config cannot disable or stall
-	// discovery.
+	// minDiscoveryTimeout 和 maxDiscoveryTimeout 限制任何每服务器的
+	// 发现超时覆盖，使错误的配置无法禁用或拖慢
+	// 发现。
 	minDiscoveryTimeout = time.Second
 	maxDiscoveryTimeout = 2 * time.Minute
 )
 
-// DiscoveryTimeouts is the graded discovery-timeout policy. A zero-valued
-// field falls back to its package default, so callers may override only the
-// parts they care about.
+// DiscoveryTimeouts 是分级的发现超时策略。零值字段
+// 回退到其包级默认值，因此调用方可以
+// 只覆盖它们关心的部分。
 type DiscoveryTimeouts struct {
 	Stdio  time.Duration
 	Remote time.Duration
@@ -37,8 +37,8 @@ type DiscoveryTimeouts struct {
 	Max    time.Duration
 }
 
-// DefaultDiscoveryTimeouts returns the shipped policy: 30s for stdio, 5s for
-// remote, with per-server overrides clamped to [1s, 2m].
+// DefaultDiscoveryTimeouts 返回发布时策略：stdio 30 秒、远程 5 秒，
+// 每服务器覆盖钳制到 [1s, 2m]。
 func DefaultDiscoveryTimeouts() DiscoveryTimeouts {
 	return DiscoveryTimeouts{
 		Stdio:  defaultDiscoveryTimeoutStdio,
@@ -48,8 +48,8 @@ func DefaultDiscoveryTimeouts() DiscoveryTimeouts {
 	}
 }
 
-// clamp bounds an explicit per-server override. A non-positive override means
-// "no override" and is returned unchanged so the graded default applies.
+// clamp 限制显式的每服务器覆盖。非正的覆盖表示
+// "无覆盖"，原样返回，使分级默认值生效。
 func (d DiscoveryTimeouts) clamp(override time.Duration) time.Duration {
 	if override <= 0 {
 		return 0
@@ -73,9 +73,9 @@ func (d DiscoveryTimeouts) clamp(override time.Duration) time.Duration {
 	return override
 }
 
-// Effective returns the discovery timeout for transport (a value accepted by
-// Spec.transportKind) given an optional per-server override, which is clamped
-// to the configured bounds.
+// Effective 返回 transport（Spec.transportKind 接受的一个值）的发现超时，
+// 给定可选的每服务器覆盖，该覆盖被钳制
+// 到配置的界限内。
 func (d DiscoveryTimeouts) Effective(transport string, override time.Duration) time.Duration {
 	if clamped := d.clamp(override); clamped > 0 {
 		return clamped
@@ -93,8 +93,8 @@ func (d DiscoveryTimeouts) Effective(transport string, override time.Duration) t
 	return remote
 }
 
-// transportKind mirrors the inference used by Connect: an explicit transport
-// wins, otherwise a command means stdio and a URL means remote.
+// transportKind 模仿 Connect 使用的推断：显式 transport
+// 优先，否则有 command 表示 stdio，有 URL 表示远程。
 func (s Spec) transportKind() string {
 	kind := strings.ToLower(strings.TrimSpace(s.Transport))
 	if kind != "" {
@@ -106,19 +106,19 @@ func (s Spec) transportKind() string {
 	return "http"
 }
 
-// EffectiveDiscoveryTimeout returns the discovery timeout for this server:
-// the clamped per-server DiscoveryTimeout override when set, otherwise the
-// graded default selected by transport kind (30s stdio / 5s remote).
+// EffectiveDiscoveryTimeout 返回本服务器的发现超时：
+// 设置时取钳制后的每服务器 DiscoveryTimeout 覆盖，否则取
+// 按传输类型选择的分级默认值（stdio 30 秒 / 远程 5 秒）。
 //
-// It is deliberately independent of Spec.Timeout, which keeps its original
-// meaning as a fallback bound for ordinary requests.
+// 它有意与 Spec.Timeout 无关，后者保持其作为普通
+// 请求回退界限的原始含义。
 func (s Spec) EffectiveDiscoveryTimeout() time.Duration {
 	return DefaultDiscoveryTimeouts().Effective(s.transportKind(), s.DiscoveryTimeout)
 }
 
-// HTTPStatusError carries an HTTP response status code so the retry policy
-// can classify a failure without parsing error strings. Transports should wrap
-// non-2xx responses in this type when they adopt the retry policy.
+// HTTPStatusError 携带 HTTP 响应状态码，使重试策略
+// 无需解析错误字符串即可分类失败。传输在采用重试策略时，应把
+// 非 2xx 响应包装为此类型。
 type HTTPStatusError struct {
 	StatusCode int
 	Message    string
@@ -131,30 +131,30 @@ func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Message)
 }
 
-// IsRetryable reports whether err is a transient failure worth backing off and
-// retrying. Only a narrow allowlist is retryable:
+// IsRetryable 报告 err 是否是值得退避并重试的短暂失败。
+// 只有狭窄的允许列表可重试：
 //
-//   - network resets and timeouts (ECONNRESET, ETIMEDOUT, net timeout errors);
-//   - HTTP 502, 503 and 504.
+//   - 网络重置和超时（ECONNRESET、ETIMEDOUT、net 超时错误）；
+//   - HTTP 502、503 和 504。
 //
-// Everything else is permanent and must fail immediately. In particular 401,
-// 403 and JSON-RPC method-not-found (-32601) are never retryable.
+// 其他一切都是永久性的，必须立即失败。特别是 401、
+// 403 和 JSON-RPC method-not-found (-32601) 绝不重试。
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Permanent JSON-RPC errors win over any other signal in the chain.
+	// 永久性的 JSON-RPC 错误胜过链中任何其他信号。
 	var rpcErr *rpcErrorBody
 	if errors.As(err, &rpcErr) && rpcErr.Code == -32601 {
 		return false
 	}
-	// HTTP status: the typed error first, then the "HTTP %d" form emitted by
-	// the current HTTP transport so the policy is useful before transports
+	// HTTP 状态：先是有类型错误，然后是当前 HTTP 传输发出的 "HTTP %d"
+	// 形式，使策略在传输采用有类型错误之前就可用。
 	// adopt the typed error.
 	if status := httpStatusFrom(err); status > 0 {
 		return status == 502 || status == 503 || status == 504
 	}
-	// Network-level transient conditions.
+	// 网络层的短暂状况。
 	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ETIMEDOUT) ||
 		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
 		return true
@@ -163,9 +163,9 @@ func IsRetryable(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// httpStatusFrom extracts an HTTP status code from err, either from a typed
-// HTTPStatusError or from the "HTTP <code>" text the HTTP transport emits.
-// It returns 0 when no status code is present.
+// httpStatusFrom 从 err 中提取 HTTP 状态码，来源可以是有类型的
+// HTTPStatusError，也可以是 HTTP 传输发出的 "HTTP <code>" 文本。
+// 没有状态码时返回 0。
 func httpStatusFrom(err error) int {
 	var statusErr *HTTPStatusError
 	if errors.As(err, &statusErr) {

@@ -2,14 +2,14 @@ package provider
 
 import "github.com/2118505078xyh1/argentgo/internal/llm"
 
-// Auth resolves the credential for this template. The caller owns the header
-// name and value scheme (Authorization/Bearer for OpenAI-compatible endpoints,
-// x-api-key/empty for Anthropic) and the environment lookup, so config and app
-// can adopt the chain without the provider table depending on either.
+// Auth 解析此模板的凭据。调用方拥有请求头
+// 名称和值的方案（对 OpenAI 兼容端点是 Authorization/Bearer，对 Anthropic 是 x-api-key/空）
+// Auth 解析此模板的凭据。调用方拥有请求头名称和值的方案（对 OpenAI 兼容端点是 Authorization/Bearer，对 Anthropic 是 x-api-key/空）以及环境查找，使 config 和 app 能采用该链而无需 provider 表依赖其中任何一个。
+// 使 config 和 app 能采用该链而无需 provider 表依赖其中任何一个。
 //
-// NoAuth wins over every credential source. Otherwise the first non-empty
-// value among APIKeyEnv and APIKeyEnvs wins; with no value the result is the
-// llm.NoAuth sentinel and the caller writes no header.
+// NoAuth 胜过每个凭据源。否则第一个非空
+// 值（在 APIKeyEnv 和 APIKeyEnvs 中）胜出；没有值时结果是
+// NoAuth 胜过每个凭据源。否则 APIKeyEnv 和 APIKeyEnvs 中第一个非空值胜出；没有值时结果是 llm.NoAuth 哨兵且调用方不写请求头。
 func (t Template) Auth(lookup func(string) string, header, scheme string) llm.Auth {
 	if t.NoAuth {
 		return llm.NoAuth()

@@ -7,25 +7,25 @@ import (
 	"unicode"
 )
 
-// Sentinel errors returned before a request reaches the transport. Callers can
-// match them with errors.Is and show the wrapped message to the model.
+// 在请求到达传输之前返回的哨兵错误。调用方可以用 errors.Is
+// 匹配它们，并把包装后的消息展示给模型。
 var (
-	// ErrDisabled reports a spec whose Enabled field is explicitly false.
+	// ErrDisabled 报告 Enabled 字段显式为 false 的 spec。
 	ErrDisabled = errors.New("mcp: server is disabled")
-	// ErrReadOnly reports a mutating call blocked by a read-only server.
+	// ErrReadOnly 报告被只读服务器阻止的修改类调用。
 	ErrReadOnly = errors.New("mcp: server is read-only")
-	// ErrToolNotAllowed reports a call excluded by allowedTools/deniedTools.
+	// ErrToolNotAllowed 报告被 allowedTools/deniedTools 排除的调用。
 	ErrToolNotAllowed = errors.New("mcp: tool not allowed")
 )
 
-// IsEnabled reports whether the spec may be connected. A nil Enabled means the
-// zero-value default: enabled.
+// IsEnabled 报告该 spec 是否可以被连接。Enabled 为 nil 表示
+// 零值默认值：启用。
 func (s Spec) IsEnabled() bool {
 	return s.Enabled == nil || *s.Enabled
 }
 
-// splitQualified separates "server__tool" into its two parts. A plain name has
-// an empty server part.
+// splitQualified 把 "server__tool" 拆成两部分。普通名称的
+// server 部分为空。
 func splitQualified(name string) (server, tool string) {
 	if i := strings.LastIndex(name, "__"); i >= 0 {
 		return strings.TrimSpace(name[:i]), strings.TrimSpace(name[i+2:])
@@ -33,9 +33,9 @@ func splitQualified(name string) (server, tool string) {
 	return "", strings.TrimSpace(name)
 }
 
-// matchesTool compares an allow/deny entry with a tool. Plain entries match the
-// short tool name on any server; qualified entries (or a qualified advertised
-// name) also require the server to agree. "*" is accepted as a wildcard part.
+// matchesTool 把允许/拒绝条目与工具比较。普通条目在任何服务器上
+// 匹配工具简称；限定条目（或限定式的宣告名称）还要求服务器一致。
+// "*" 可作为通配符部分。
 func matchesTool(pattern, server, name string) bool {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -55,7 +55,7 @@ func matchesTool(pattern, server, name string) bool {
 	return false
 }
 
-// toolPermitted applies deny first so deny always wins over allow.
+// toolPermitted 先应用拒绝，使拒绝始终胜过允许。
 func toolPermitted(spec Spec, tool Tool) bool {
 	name := strings.TrimSpace(tool.Name)
 	if name == "" {
@@ -81,8 +81,8 @@ func toolPermitted(spec Spec, tool Tool) bool {
 	return false
 }
 
-// FilterTools applies spec's allow/deny lists to tools while preserving their
-// order. A disabled spec exposes no tools at all.
+// FilterTools 对工具应用 spec 的允许/拒绝列表，同时保持其
+// 顺序。禁用的 spec 不暴露任何工具。
 func FilterTools(spec Spec, tools []Tool) []Tool {
 	if !spec.IsEnabled() {
 		return nil
@@ -96,7 +96,7 @@ func FilterTools(spec Spec, tools []Tool) []Tool {
 	return out
 }
 
-// EnabledSpecs returns only enabled specs, in the original order.
+// EnabledSpecs 只返回启用的 spec，保持原始顺序。
 func EnabledSpecs(specs []Spec) []Spec {
 	out := make([]Spec, 0, len(specs))
 	for _, spec := range specs {
@@ -107,8 +107,8 @@ func EnabledSpecs(specs []Spec) []Spec {
 	return out
 }
 
-// Tools returns the tools cached by the last successful ListTools call, after
-// permission filtering. It is empty until ListTools has been called.
+// Tools 返回最后一次成功 ListTools 调用缓存的工具，经过
+// 权限过滤。在调用 ListTools 之前它为空。
 func (c *client) Tools() []Tool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -118,11 +118,11 @@ func (c *client) Tools() []Tool {
 	return append([]Tool(nil), c.tools...)
 }
 
-// Spec returns the configuration this client was built with.
+// Spec 返回构造此客户端时使用的配置。
 func (c *client) Spec() Spec { return c.spec }
 
-// Specs returns this server's spec when enabled, or nothing when disabled. It
-// lets callers build a uniform view from a group of clients.
+// Specs 在启用时返回本服务器的 spec，禁用时什么也不返回。它
+// 使调用方能从一组客户端构造统一的视图。
 func (c *client) Specs() []Spec {
 	if !c.spec.IsEnabled() {
 		return nil
@@ -130,13 +130,13 @@ func (c *client) Specs() []Spec {
 	return []Spec{c.spec}
 }
 
-// Clients is an ordered group of connected MCP servers, for example the
-// t.clients slice in the app layer. Tools and Specs expose only enabled
-// servers and apply each server's tool filters; foreign Client implementations
-// contribute nothing because they have no cached, filtered tool view.
+// Clients 是一组有序的已连接 MCP 服务器，例如应用层中的
+// t.clients 切片。Tools 和 Specs 只暴露启用的服务器并应用每台
+// 服务器的工具过滤器；外来的 Client 实现不贡献任何内容，因为它们
+// 没有缓存的、已过滤的工具视图。
 type Clients []Client
 
-// Specs returns one spec per enabled server in connection order.
+// Specs 按连接顺序为每个启用的服务器返回一个 spec。
 func (cs Clients) Specs() []Spec {
 	out := make([]Spec, 0, len(cs))
 	for _, c := range cs {
@@ -147,7 +147,7 @@ func (cs Clients) Specs() []Spec {
 	return out
 }
 
-// Tools returns the filtered tools of every enabled server in connection order.
+// Tools 按连接顺序返回每台启用服务器的过滤后工具。
 func (cs Clients) Tools() []Tool {
 	out := make([]Tool, 0, len(cs))
 	for _, c := range cs {
@@ -158,16 +158,16 @@ func (cs Clients) Tools() []Tool {
 	return out
 }
 
-// The registry is process-wide so callers can teach the heuristic about custom
-// tool names before any server is connected.
+// 注册表是进程级的，使调用方能在任何服务器连接之前，让启发式规则
+// 获知自定义工具名。
 var (
 	mutatingMu    sync.RWMutex
 	mutatingExtra = make(map[string]bool)
 )
 
-// MarkMutating registers an extra tool name as mutating. Matching uses the
-// short (unqualified) name and is case-insensitive, so both "deploy" and
-// "prod__deploy" are covered.
+// MarkMutating 把额外的工具名注册为修改类。匹配使用
+// 短（非限定）名称且不区分大小写，因此 "deploy" 和
+// "prod__deploy" 都能覆盖。
 func MarkMutating(name string) {
 	key := strings.ToLower(shortName(name))
 	if key == "" {
@@ -178,10 +178,10 @@ func MarkMutating(name string) {
 	mutatingMu.Unlock()
 }
 
-// IsMutating reports whether name looks like a tool that changes state. It
-// combines a conservative built-in heuristic with names added by MarkMutating;
-// unknown names are treated as read-only so a novel tool is not silently
-// allowed to write.
+// IsMutating 报告 name 看起来是否是会改变状态的工具。它
+// 结合保守的内置启发式与 MarkMutating 添加的名称；
+// 未知名称被视为只读，使新工具不会被悄悄
+// 允许写入。
 func IsMutating(name string) bool {
 	key := shortName(name)
 	if key == "" {
@@ -198,8 +198,8 @@ func shortName(name string) string {
 	return tool
 }
 
-// mutatingVerbs covers common write verbs and their abbreviations. Tokens are
-// compared exactly, so "read_file" is not flagged while "writeFile" is.
+// mutatingVerbs 覆盖常见的写动词及其缩写。token 按
+// 精确比较，因此 "read_file" 不会被标记，而 "writeFile" 会。
 var mutatingVerbs = map[string]bool{
 	"add": true, "append": true, "apply": true, "bash": true, "bootstrap": true,
 	"checkout": true, "chmod": true, "chown": true, "clean": true, "clear": true,
@@ -229,8 +229,8 @@ func builtinMutating(name string) bool {
 	return false
 }
 
-// toolTokens splits snake_case, kebab-case, camelCase and letter/digit changes
-// into lowercase words without pulling in a regexp dependency.
+// toolTokens 把 snake_case、kebab-case、camelCase 以及字母/数字变化
+// 拆分成小写单词，而不引入 regexp 依赖。
 func toolTokens(name string) []string {
 	runes := []rune(name)
 	var tokens []string

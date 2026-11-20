@@ -8,19 +8,16 @@ import (
 	"strings"
 )
 
-// defaultPageMaxBytes bounds a page when the caller passes maxBytes <= 0.
-// It keeps a single read well below the size of a large transcript while still
-// returning a useful amount of history.
+// defaultPageMaxBytes 在调用方传入 maxBytes <= 0 时限制页大小。
+// 它使单次读取远低于大转录的大小，同时仍返回有用的历史量。
 const defaultPageMaxBytes = 4 << 20
 
-// Page is one byte-bounded slice of a transcript, in file order.
+// Page 是按文件顺序、受字节限制的转录片段。
 //
-// Bytes is the sum of the raw line lengths (newline excluded) of Records: the
-// number of transcript bytes the page carries, not decoded payload sizes.
-// HasMore reports whether more records exist on the unread side of the page.
-// Next is the cursor for the next call: with fromEnd=false it is the last
-// returned record's ID (resume AFTER it); with fromEnd=true it is the first
-// returned record's ID (resume BEFORE it). Next is empty when HasMore is false.
+// Bytes 是 Records 原始行长度之和（不含换行符）：该页携带的转录字节数，
+// 不是解码后载荷的大小。HasMore 报告页的未读一侧是否还有更多记录。
+// Next 是下一次调用的游标：fromEnd=false 时是最后一条返回记录的 ID（在其后恢复）；
+// fromEnd=true 时是第一条返回记录的 ID（在其前恢复）。HasMore 为 false 时 Next 为空。
 type Page struct {
 	Records []Record
 	Next    string
@@ -28,26 +25,22 @@ type Page struct {
 	Bytes   int
 }
 
-// parsedRecord pairs a decoded record with the size of its line on disk.
+// parsedRecord 将解码后的记录与其磁盘上的行大小配对。
 type parsedRecord struct {
 	record Record
 	size   int
 }
 
-// ReadPage returns one page of at most maxBytes of transcript data. When
-// maxBytes <= 0, defaultPageMaxBytes is used.
+// ReadPage 返回一页最多 maxBytes 字节的转录数据。当 maxBytes <= 0 时，使用 defaultPageMaxBytes。
 //
-// afterID is an exclusive cursor. With fromEnd=false, records strictly after
-// that ID are returned; with fromEnd=true, records strictly before it are
-// returned, so a caller can walk backwards by feeding Next straight back in.
-// If the cursor ID is absent, the page starts at the beginning (forward) or
-// at the end of the file (backward). Records on the far side of the cursor are
-// still parsed to locate it but are never counted toward maxBytes or returned.
+// afterID 是排他游标。fromEnd=false 时返回严格位于该 ID 之后的记录；
+// fromEnd=true 时返回严格位于其之前的记录，因此调用方可以把 Next 直接传回以向前（往回）遍历。
+// 如果游标 ID 不存在，页从文件开头（正向）或文件末尾（反向）开始。
+// 游标另一侧的记录仍会被解析以定位它，但从不计入 maxBytes，也不会返回。
 //
-// Lines are decoded leniently, exactly like readRecords: blank and malformed
-// lines are skipped. A record whose encoded line alone exceeds maxBytes is
-// never split — it is returned as the page's only record — so every page holds
-// whole records and no decoded record is ever truncated.
+// 行的解码是宽松的，与 readRecords 完全一致：空白行和格式错误的行会被跳过。
+// 仅编码后的一行就超过 maxBytes 的记录永远不会被拆分——它作为该页唯一的记录返回——
+// 因此每页都包含完整的记录，任何解码后的记录都不会被截断。
 func ReadPage(path string, afterID string, maxBytes int, fromEnd bool) (Page, error) {
 	limit := maxBytes
 	if limit <= 0 {
@@ -79,9 +72,8 @@ func ReadPage(path string, afterID string, maxBytes int, fromEnd bool) (Page, er
 	return pageFromStart(parsed[start:], limit), nil
 }
 
-// parseRecordsForPage decodes the whole file in file order. No index exists
-// yet, so locating a cursor requires a full lenient pass; the returned page
-// itself is still bounded by the byte limit.
+// parseRecordsForPage 按文件顺序解码整个文件。目前还没有索引，
+// 因此定位游标需要一次完整的宽松扫描；返回的页本身仍受字节上限约束。
 func parseRecordsForPage(path string) ([]parsedRecord, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -110,9 +102,8 @@ func parseRecordsForPage(path string) ([]parsedRecord, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("session: read %s: %w", path, err)
 	}
-	// Defer synthetic ids until every explicit id is known, then use the same
-	// helper as readRecords so cursors minted by one read API resolve in the
-	// other (session audit #5).
+	// 延迟生成合成 id，直到所有显式 id 都已知，然后使用与 readRecords 相同的辅助函数，
+	// 使一个读取 API 生成的游标能在另一个中解析（session 审计 #5）。
 	records := make([]Record, len(parsed))
 	for i := range parsed {
 		records[i] = parsed[i].record
@@ -126,7 +117,7 @@ func parseRecordsForPage(path string) ([]parsedRecord, error) {
 	return parsed, nil
 }
 
-// pageFromStart returns the leading page of records, bounded by limit.
+// pageFromStart 返回开头的记录页，受 limit 限制。
 func pageFromStart(records []parsedRecord, limit int) Page {
 	page := Page{Records: make([]Record, 0)}
 	for i := range records {
@@ -139,7 +130,7 @@ func pageFromStart(records []parsedRecord, limit int) Page {
 		page.Records = append(page.Records, rec.record)
 		page.Bytes += rec.size
 		if rec.size > limit {
-			// An oversized record cannot be split: return it whole and alone.
+			// 超大记录不能拆分：整条单独返回。
 			if i+1 < len(records) {
 				page.HasMore = true
 				page.Next = rec.record.ID
@@ -150,8 +141,8 @@ func pageFromStart(records []parsedRecord, limit int) Page {
 	return page
 }
 
-// pageFromEnd returns the trailing page of records, bounded by limit. Next is
-// the first returned record's ID so a caller can step further backwards.
+// pageFromEnd 返回末尾的记录页，受 limit 限制。Next 是第一条返回记录的 ID，
+// 使调用方可以继续往回翻页。
 func pageFromEnd(records []parsedRecord, limit int) Page {
 	page := Page{Records: make([]Record, 0)}
 	total := 0
@@ -164,7 +155,7 @@ func pageFromEnd(records []parsedRecord, limit int) Page {
 		first = i
 		total += rec.size
 		if rec.size > limit {
-			// An oversized record cannot be split: return it whole and alone.
+			// 超大记录不能拆分：整条单独返回。
 			break
 		}
 	}

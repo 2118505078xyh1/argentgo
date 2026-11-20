@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestStopErrorIncludesFinality checks that a StopError keeps its original
-// denial/refusal wording while carrying the anti-retry finality sentence.
+// TestStopErrorIncludesFinality 检查 StopError 保留其原始的
+// 拒绝/否决措辞，同时携带防重试的终结语句。
 func TestStopErrorIncludesFinality(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -44,8 +44,8 @@ func TestStopErrorIncludesFinality(t *testing.T) {
 	}
 }
 
-// TestFinalitySentenceWording locks the key phrases that tell the model the
-// block is not transient and must not be retried.
+// TestFinalitySentenceWording 锁定那些告诉模型拦截并非暂时性、
+// 且不得重试的关键措辞。
 func TestFinalitySentenceWording(t *testing.T) {
 	if !strings.Contains(finalitySentence, "intentional") {
 		t.Fatalf("finality sentence %q lacks \"intentional\"", finalitySentence)
@@ -55,8 +55,8 @@ func TestFinalitySentenceWording(t *testing.T) {
 	}
 }
 
-// TestChainDenialCarriesFinality checks the tool-facing seam: a policy deny
-// produced by Chain.Check must reach the model with the finality text intact.
+// TestChainDenialCarriesFinality 检查面向工具的接缝：Chain.Check 产生的
+// 策略拒绝必须带着完整的终结文本到达模型。
 func TestChainDenialCarriesFinality(t *testing.T) {
 	dir := t.TempDir()
 	chain := NewChain(

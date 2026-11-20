@@ -7,9 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// Fixture credentials are assembled from parts so secret scanners do not
-// mistake these synthetic test values for live keys. The assembled strings
-// are intentionally realistic so the redactor is exercised on real shapes.
+// 夹具凭据由多个部分拼装，以免秘密扫描器把这些合成测试值误认为真实密钥。
+// 拼装出的字符串刻意做得逼真，使脱敏器能在真实形态上得到检验。
 var (
 	stripeLiveFixture       = "sk_" + "live_51H8xQ2eZvKYlo2Ca" + "bcdefghIJ"
 	stripeRestrictedFixture = "rk_" + "test_abc123" + "def456"
@@ -18,9 +17,8 @@ var (
 	oauthTokenAltFixture    = "ya29." + "a0AfH6SMBx-example.token.part"
 )
 
-// TestRedactCredentialShapeCoverage audits the credential shapes the redactor
-// is expected to recognise. The first four were already covered before this
-// audit and act as regression guards; the last five are the newly added forms.
+// TestRedactCredentialShapeCoverage 审计脱敏器应识别的凭据形态。前四种在此次审计
+// 之前已被覆盖，作为回归守护；后五种是新增的形态。
 func TestRedactCredentialShapeCoverage(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -102,8 +100,8 @@ func TestRedactCredentialShapeCoverage(t *testing.T) {
 	}
 }
 
-// TestRedactNewShapesNoFalsePositives guards the conservative contract:
-// neighbouring text that merely resembles a credential prefix must survive.
+// TestRedactNewShapesNoFalsePositives 守护保守性契约：仅仅形似凭据前缀的相邻文本
+// 必须保留。
 func TestRedactNewShapesNoFalsePositives(t *testing.T) {
 	cases := []string{
 		"the PRIVATE KEY text in the docs",

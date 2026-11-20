@@ -5,18 +5,18 @@ import (
 	"testing"
 )
 
-// The table cell truncation helpers are the last width path in the package
-// that still walks runes one by one. Everywhere else (TextWidth, Clip, Wrap,
-// Buffer.WriteString, wrapInput) measures grapheme clusters so a ZWJ emoji, a
-// flag or a combining sequence is never left with a dangling joiner or half a
-// flag at the cut. These tests pin the same rule for table cells.
+// 表格单元格截断辅助函数是包中最后一个仍逐个 rune
+// 遍历的宽度路径。其他所有地方（TextWidth、Clip、Wrap、
+// Buffer.WriteString、wrapInput）都按字素簇测量，使 ZWJ emoji、
+// 旗帜或组合序列在切割处不会留下悬空的连接符或半面
+// 旗帜。这些测试为表格单元格固定同样的规则。
 
 func TestTruncateTableCellKeepsZWJClusterIntact(t *testing.T) {
 	family := familyZWJ // 👨‍👩‍👧, one 2-cell cluster
 	text := family + "中"
-	// 4 cells total; a 3-cell budget has room for the whole family but not
-	// for the following CJK rune. A run-wise loop stops after the first
-	// pictograph and leaves a dangling ZWJ before the ellipsis.
+	// 共 4 个单元格；3 个单元格的预算容得下整个家庭 emoji，但容不下
+	// 其后的 CJK rune。按 rune 遍历的循环在第一个
+	// 图形处停止，在省略号前留下悬空的 ZWJ。
 	got := truncateTableCell(text, 3, TextWidth)
 	want := family + "…"
 	if got != want {
@@ -30,8 +30,8 @@ func TestTruncateTableCellKeepsZWJClusterIntact(t *testing.T) {
 
 func TestClipTableCellDropsWholeFlag(t *testing.T) {
 	text := flagCN + "中" // flag (2 cells) + CJK (2 cells)
-	// A one-cell column cannot hold the two-cell flag. The whole cluster must
-	// be dropped instead of clipping after the first regional indicator.
+	// 单单元格列容不下双单元格的旗帜。必须丢弃整个簇，
+	// 而不是在第一个区域指示符后截断。
 	got := clipTableCell(text, 1, TextWidth)
 	if got != "" {
 		t.Fatalf("clipTableCell(%q, 1) = %q, want empty (no half a flag)", text, got)
@@ -39,9 +39,9 @@ func TestClipTableCellDropsWholeFlag(t *testing.T) {
 }
 
 func TestRenderMarkdownTableKeepsGraphemesWithSpaceOnlyBreaker(t *testing.T) {
-	// A caller may inject a breaker that only splits on whitespace and does
-	// not hard-break a long token. With such a breaker the whole cell reaches
-	// truncateTableCell, which must still cut on grapheme boundaries.
+	// 调用方可以注入一个只在空白处断开、且不硬断长 token 的
+	// breaker。使用这样的 breaker 时，整个单元格会到达
+	// truncateTableCell，后者仍必须在字素边界处切割。
 	breaker := func(s string, width int) []string { return strings.Fields(s) }
 	family := familyZWJ
 	lines := []string{

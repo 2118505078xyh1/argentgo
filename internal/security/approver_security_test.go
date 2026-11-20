@@ -9,8 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// recordingApprover approves or denies every request and remembers the exact
-// (name, args) pairs it was asked about. It is safe for concurrent use.
+// recordingApprover 批准或拒绝每个请求，并记住被询问的确切
+// (name, args) 对。它可并发安全使用。
 type recordingApprover struct {
 	mu       sync.Mutex
 	answer   bool
@@ -35,8 +35,8 @@ func (r *recordingApprover) count() int {
 	return len(r.requests)
 }
 
-// Bug #3: approving a harmless invocation must not authorize a destructive
-// invocation of the same tool with different arguments.
+// Bug #3：批准一次无害的调用，不得授权对同一工具使用不同参数的
+// 破坏性调用。
 func TestCachedApproverDoesNotShareAuthorizationAcrossArgs(t *testing.T) {
 	inner := &recordingApprover{answer: true}
 	cached := NewCachedApprover(inner)
@@ -76,8 +76,8 @@ func TestCachedApproverArgsAreScopedPerToolAndPerPath(t *testing.T) {
 	}
 }
 
-// The cache key canonicalizes JSON, so cosmetic differences in the same call
-// still hit the cache instead of prompting repeatedly.
+// 缓存键会规范化 JSON，因此同一调用中仅外观上的差异
+// 仍会命中缓存，而不是反复提示。
 func TestCachedApproverReusesIdenticalCanonicalArgs(t *testing.T) {
 	inner := &recordingApprover{answer: true}
 	cached := NewCachedApprover(inner)
@@ -136,8 +136,8 @@ func TestCachedApproverConcurrentDistinctArgsStayIsolated(t *testing.T) {
 	}
 }
 
-// Bug #4: the tail of an overlong argument must remain visible, otherwise a
-// destructive action hidden after harmless padding never reaches the operator.
+// Bug #4：过长参数的尾部必须保持可见，否则隐藏在无害填充后的
+// 破坏性动作永远不会到达操作员。
 func TestReadableArgsKeepsDangerousTailVisible(t *testing.T) {
 	const malicious = "; rm -rf /important"
 	args := "echo ok " + strings.Repeat("x", 600) + malicious
@@ -151,7 +151,7 @@ func TestReadableArgsKeepsDangerousTailVisible(t *testing.T) {
 }
 
 func TestReadableArgsWarnsAboutOmittedRunes(t *testing.T) {
-	args := strings.Repeat("a", 1000) // 600 runes beyond the cap
+	args := strings.Repeat("a", 1000) // 超出上限 600 个 rune
 	got := readableArgs(args)
 	if !strings.Contains(got, "省略") {
 		t.Fatalf("missing omission marker: %q", got)

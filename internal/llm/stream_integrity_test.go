@@ -11,9 +11,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestStreamEOFWithIncompleteToolArgumentsFails covers the truncation bug: a
-// provider that closes the SSE body mid-tool-call must not have its partial
-// JSON silently replaced by "{}" and dispatched as a complete answer.
+// TestStreamEOFWithIncompleteToolArgumentsFails 覆盖截断缺陷：
+// 在工具调用中途关闭 SSE 响应体的提供方，其不完整的
+// JSON 不得被悄悄替换为 "{}" 并当作完整答复分发。
 func TestStreamEOFWithIncompleteToolArgumentsFails(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -27,7 +27,7 @@ func TestStreamEOFWithIncompleteToolArgumentsFails(t *testing.T) {
 				c.Options.AttemptHook = hook
 				return c
 			},
-			// No [DONE]; the arguments stop inside a JSON string.
+			// 没有 [DONE]；参数在 JSON 字符串内部截断。
 			script: `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tc_1","function":{"name":"read","arguments":"{\"path\":\"a.rs"}}]}}]}` + "\n\n",
 		},
 		{
@@ -37,7 +37,7 @@ func TestStreamEOFWithIncompleteToolArgumentsFails(t *testing.T) {
 				c.Options.AttemptHook = hook
 				return c
 			},
-			// No content_block_stop and no message_stop.
+			// 没有 content_block_stop 也没有 message_stop。
 			script: `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read","input":{}}}` + "\n\n" +
 				`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"a.rs"}}` + "\n\n",
 		},
@@ -48,7 +48,7 @@ func TestStreamEOFWithIncompleteToolArgumentsFails(t *testing.T) {
 				c.Options.AttemptHook = hook
 				return c
 			},
-			// No output_item.done and no response.completed.
+			// 没有 output_item.done 也没有 response.completed。
 			script: `data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"read","arguments":""}}` + "\n\n" +
 				`data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"path\":\"a.rs"}` + "\n\n",
 		},
@@ -82,9 +82,9 @@ func TestStreamEOFWithIncompleteToolArgumentsFails(t *testing.T) {
 	}
 }
 
-// TestStreamEOFWithoutMarkerKeepsCompleteReplies documents the compatibility
-// choice: gateways that omit the terminal marker but still finish their reply
-// are accepted. Only an incomplete tool call (handled above) is fatal.
+// TestStreamEOFWithoutMarkerKeepsCompleteReplies 记录兼容性
+// 选择：省略终止标记但仍完成答复的网关会被接受。
+// 只有不完整的工具调用（上文已处理）是致命的。
 func TestStreamEOFWithoutMarkerKeepsCompleteReplies(t *testing.T) {
 	cases := []struct {
 		name        string

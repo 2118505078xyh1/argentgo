@@ -6,20 +6,20 @@ import (
 	"strings"
 )
 
-// Built-in theme names. The empty string always means ThemeDark so callers
-// that have not been upgraded keep the original colours.
+// 内置主题名。空字符串始终表示 ThemeDark，使尚未
+// 升级的调用方保持原始颜色。
 const (
 	ThemeDark  = "dark"
 	ThemeLight = "light"
 	ThemeANSI  = "ansi"
 )
 
-// ErrUnknownTheme is returned by SetTheme for a name with no palette.
+// ErrUnknownTheme 由 SetTheme 对没有调色板的名称返回。
 var ErrUnknownTheme = errors.New("tui: unknown theme")
 
-// Palette assigns a colour to each semantic role used by the renderer. Themes
-// are data: rendering code asks for a role and never names a raw colour, so a
-// new theme is one more entry in themePalettes.
+// Palette 为渲染器使用的每个语义角色分配颜色。主题
+// 是数据：渲染代码请求一个角色，从不指定原始颜色，因此
+// 新主题只是 themePalettes 中的另一个条目。
 type Palette struct {
 	User      Color
 	Assistant Color
@@ -30,8 +30,8 @@ type Palette struct {
 	Border    Color
 	Muted     Color
 
-	// Warning and Code cover the two roles the transcript uses beyond the
-	// eight core ones: yellow notices/running tools and inline code.
+	// Warning 和 Code 覆盖记录用到的、超出
+	// 八个核心角色之外的两个角色：黄色通知/运行中工具和行内代码。
 	Warning Color
 	Code    Color
 
@@ -43,9 +43,9 @@ var (
 	colorWhite = Color{"37", "47"}
 )
 
-// themePalettes holds the three built-ins. All colours are plain 16-colour
-// SGR codes; neither 256-colour (38;5) nor RGB (38;2) escapes are used, which
-// keeps the ANSI theme safe on terminals without truecolor support.
+// themePalettes 保存三个内置主题。所有颜色都是普通的 16 色
+// SGR 码；既不用 256 色 (38;5) 也不用 RGB (38;2) 转义，这
+// 使 ANSI 主题在不支持真彩的终端上安全。
 var themePalettes = map[string]Palette{
 	ThemeDark: {
 		User: ColorCyan, Assistant: ColorDefault, Tool: ColorGreen,
@@ -64,7 +64,7 @@ var themePalettes = map[string]Palette{
 	},
 }
 
-// canonicalTheme folds aliases and the empty name onto a built-in.
+// canonicalTheme 把别名和空名称折叠到内置主题。
 func canonicalTheme(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", ThemeDark:
@@ -78,10 +78,10 @@ func canonicalTheme(name string) string {
 	}
 }
 
-// ThemeNames returns the built-in names in a stable order for help text.
+// ThemeNames 按稳定顺序返回内置名称，用于帮助文本。
 func ThemeNames() []string { return []string{ThemeDark, ThemeLight, ThemeANSI} }
 
-// paletteFor looks up a theme's palette. Unknown names return ErrUnknownTheme.
+// paletteFor 查找主题的调色板。未知名称返回 ErrUnknownTheme。
 func paletteFor(name string) (Palette, error) {
 	canonical := canonicalTheme(name)
 	p, ok := themePalettes[canonical]
@@ -91,8 +91,8 @@ func paletteFor(name string) (Palette, error) {
 	return p, nil
 }
 
-// monochrome drops every foreground/background while leaving bold and dim
-// attributes intact. NO_COLOR and dumb terminals keep their text attributes.
+// monochrome 去掉所有前景/背景，同时保留粗体和暗色
+// 属性。NO_COLOR 和 dumb 终端保留其文本属性。
 func monochrome(p Palette) Palette {
 	p.User, p.Assistant, p.Tool = ColorDefault, ColorDefault, ColorDefault
 	p.Reasoning, p.Error, p.Accent = ColorDefault, ColorDefault, ColorDefault
@@ -100,9 +100,9 @@ func monochrome(p Palette) Palette {
 	return p
 }
 
-// detectDegradation reads only the injected environment. An empty lookup is a
-// perfectly valid "no variables set" answer; os.Getenv is never consulted by
-// the detection path itself.
+// detectDegradation 只读取注入的环境。空的查找是
+// 一个完全有效的"没有设置变量"答案；检测路径本身
+// 从不查询 os.Getenv。
 func detectDegradation(env func(string) string) bool {
 	if env == nil {
 		return false
@@ -113,8 +113,8 @@ func detectDegradation(env func(string) string) bool {
 	return strings.EqualFold(strings.TrimSpace(env("TERM")), "dumb")
 }
 
-// Role styles. Everything the painter needs comes from these helpers so a
-// theme change is a single palette swap, and NoColor can blank them all at once.
+// 角色样式。绘制器所需的一切都来自这些辅助函数，因此
+// 主题变更只需替换一次调色板，且 NoColor 可一次性清空全部。
 func (p Palette) user() Style {
 	if p.noColor {
 		return Style{}

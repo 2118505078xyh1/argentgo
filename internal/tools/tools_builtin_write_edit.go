@@ -40,9 +40,9 @@ func (writeTool) Run(_ context.Context, root string, raw json.RawMessage) (strin
 	}
 	unlock := lockFileMutation(path)
 	defer unlock()
-	// Rewriting identical bytes is a no-op: skip the syscall so the file's
-	// modTime is left untouched (which also avoids needless watcher churn).
-	// A missing or unreadable target falls through to the normal create/write.
+	// 重写相同的字节是空操作：跳过系统调用，使文件的
+	// modTime 保持不变（也避免不必要的监视器抖动）。
+	// 缺失或不可读的目标会落到普通的创建/写入流程。
 	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, []byte(args.Content)) {
 		return fmt.Sprintf("%s already contains the requested content; no write needed", args.Path), nil
 	}
@@ -89,9 +89,9 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	if args.New == "" {
 		args.New = args.NewText
 	}
-	// In hashline mode the anchor is the authoritative original text, so it can
-	// stand in for old. This is gated on Hashline to leave the default path
-	// byte-for-byte unchanged when the feature is off.
+	// 在 hashline 模式下，锚点是权威的原始文本，因此它可以
+	// 代替 old。这由 Hashline 控制，使功能关闭时默认路径
+	// 保持逐字节不变。
 	if args.Hashline && args.Old == "" && args.Anchor != "" {
 		args.Old = args.Anchor
 	}
@@ -110,8 +110,8 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	}
 	text := string(data)
 
-	// Opt-in hashline anchoring. It only changes how old -> new is resolved;
-	// path resolution, mutation locking and the write below are unchanged.
+	// opt-in 的 hashline 锚定。它只改变 old -> new 的解析方式；
+	// 路径解析、变更锁和下面的写入都不变。
 	if args.Hashline && (args.Anchor != "" || args.AnchorHash != "") {
 		out, err := resolveHashlineEdit(text, args.Path, args.Anchor, args.AnchorHash, args.Old, args.New)
 		if err != nil {
@@ -133,8 +133,8 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		case 0:
 			out, ok = repairReplace(text, args.Old, args.New)
 		default:
-			// A literal string that already occurs more than once is ambiguous;
-			// no rung of the ladder may pick one of those occurrences for us.
+			// 已出现多次的字面字符串具有歧义；
+			// 阶梯中的任何一级都不能替我们选中其中某个出现位置。
 			ok = false
 		}
 		if !ok {
@@ -156,8 +156,8 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 		return "", fmt.Errorf("edit: old text not found in %s", args.Path)
 	case 1:
 	default:
-		// The count phrase matches the frozen Rust build's tool error, which
-		// the eval suite asserts on; the rest explains what the model must do.
+		// 计数短语与冻结的 Rust 构建的工具错误一致，
+		// eval 套件正是对此断言；其余部分解释模型必须做什么。
 		return "", fmt.Errorf("edit: old text appears %d times in %s (not unique); a unique match is required", count, args.Path)
 	}
 	if err := os.WriteFile(path, []byte(strings.Replace(text, args.Old, args.New, 1)), 0o644); err != nil {
@@ -166,26 +166,26 @@ func (editTool) Run(_ context.Context, root string, raw json.RawMessage) (string
 	return "edited " + args.Path, nil
 }
 
-// hashlineHash returns the first 12 hex characters of the SHA-256 digest of s's
-// exact bytes. The contract a model must reproduce is: take the original text
-// it saw verbatim (byte-for-byte, newlines included), SHA-256 those bytes, hex
-// encode the 32-byte digest, and keep the leading 12 lowercase hex characters.
+// hashlineHash 返回 s 的精确字节的 SHA-256 摘要的
+// 前 12 个十六进制字符。模型必须复现的契约是：取它看到的原文
+// （逐字节，包括换行），对这些字节做 SHA-256，将
+// 32 字节摘要十六进制编码，并保留前 12 个小写十六进制字符。
 func hashlineHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// resolveHashlineEdit resolves an opt-in, content-hash-anchored edit and returns
-// the full replacement content for the file (the caller owns the write).
+// resolveHashlineEdit 解析一种 opt-in 的、内容哈希锚定的编辑，返回
+// 文件的完整替换内容（写入由调用方负责）。
 //
-// Resolution order:
-//  1. If anchor_hash is supplied it must equal hashlineHash(anchor). A mismatch
-//     is a recoverable "stale anchor" error: the file changed since it was read.
-//  2. A unique literal occurrence of the anchor wins immediately. Line shifts
-//     are irrelevant here because matching is by content, not line number.
-//  3. If the anchor is absent, but its hash was verified (or none was supplied),
-//     the graded repair ladder is retried to recover slightly shifted content.
-//  4. Otherwise a "no longer present" error lists the most similar lines.
+// 解析顺序：
+//  1. 如果提供了 anchor_hash，它必须等于 hashlineHash(anchor)。不匹配
+//     是可恢复的"锚点过期"错误：文件在读取后发生了变化。
+//  2. 锚点的唯一字面出现位置立即胜出。行号偏移
+//     在这里无关紧要，因为匹配基于内容而非行号。
+//  3. 如果锚点不存在，但其哈希已验证（或未提供哈希），
+//     则重试分级修复阶梯以恢复略有偏移的内容。
+//  4. 否则，"已不存在"错误会列出最相似的行。
 func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string) (string, error) {
 	if anchorHash != "" {
 		want := hashlineHash(anchor)
@@ -194,8 +194,8 @@ func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string)
 		}
 	}
 
-	// The anchor is the authoritative original text; fall back to old when the
-	// model omitted anchor (the caller still routes here only when one is set).
+	// 锚点是权威的原始文本；当模型省略 anchor 时回退到 old
+	// （调用方仍只在设置了锚点时才路由到这里）。
 	oldText := anchor
 	if oldText == "" {
 		oldText = old
@@ -206,7 +206,7 @@ func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string)
 	case 1:
 		return strings.Replace(content, oldText, newText, 1), nil
 	case 0:
-		// Anchor not found: try the repair ladder for stale-anchor recovery.
+		// 未找到锚点：尝试修复阶梯以恢复过期锚点。
 	default:
 		return "", fmt.Errorf("edit: stale anchor appears %d times in %s (not unique); file unchanged", count, path)
 	}
@@ -222,25 +222,25 @@ func resolveHashlineEdit(content, path, anchor, anchorHash, old, newText string)
 	return "", errors.New(msg)
 }
 
-// repairReplace walks the graded Aider-style repair ladder, in order:
-//  1. exact literal match (a unique one only — ambiguity is never guessed);
-//  2. trailing-whitespace-only mismatch, per line (original bytes preserved);
-//  3. leading-whitespace-only mismatch, re-applying the file's indent to new;
-//  4. a single spurious leading/trailing blank line in old (and new);
-//  5. "..." elision, with every non-empty piece anchored uniquely in content;
-//  6. punctuation normalization (curly quotes, dashes, NBSP/full-width space)
-//     applied to both sides for comparison only; the matched original bytes
-//     are spliced out and new is inserted verbatim.
+// repairReplace 依次遍历分级的 Aider 风格修复阶梯：
+//  1. 精确字面匹配（仅限唯一者 —— 绝不猜测有歧义的情况）；
+//  2. 仅尾随空白不匹配，逐行进行（保留原始字节）；
+//  3. 仅前导空白不匹配，把文件的缩进重新应用到 new；
+//  4. old（及 new）中单个多余的前导/尾随空行；
+//  5. "..." 省略，每个非空片段都在内容中唯一锚定；
+//  6. 标点归一化（弯引号、破折号、NBSP/全角空格）
+//     只应用于双方以作比较；匹配到的原始字节
+//     被拼接移除，new 按原样插入。
 //
-// It is pure: no I/O, no locking, no policy checks. The caller owns the file.
-// The bool reports whether any rung produced a usable replacement so the
-// caller can build a diagnostic when every rung fails.
+// 它是纯函数：无 I/O、无锁、无策略检查。文件由调用方负责。
+// 布尔值报告是否有某级产生了可用的替换，以便
+// 所有级别都失败时调用方能构建诊断。
 func repairReplace(content, old, new string) (string, bool) {
 	switch strings.Count(content, old) {
 	case 1:
 		return strings.Replace(content, old, new, 1), true
 	case 0:
-		// fall through to the fuzzy rungs
+		// 继续落到模糊级别
 	default:
 		return "", false // ambiguous exact match: refuse to guess
 	}
@@ -262,13 +262,13 @@ func repairReplace(content, old, new string) (string, bool) {
 	return "", false
 }
 
-// repairTrailingWhitespace matches after discarding trailing horizontal
-// whitespace on every line of old and of each same-width window of content.
-// This recovers the common case where a model echoes a block with extra (or
-// missing) trailing spaces/tabs. Only trailing whitespace is ignored; byte
-// offsets are computed against the original content so the matched lines'
-// original bytes — including their line endings — stay intact outside the
-// splice. Ambiguous matches are refused (mirroring the exact-literal rung).
+// repairTrailingWhitespace 在丢弃 old 每一行以及 content 每个等宽窗口中
+// 的尾部水平空白后再进行匹配。
+// 这覆盖了模型回显某个块时带多余（或
+// 缺失）尾随空格/制表符的常见情况。只忽略尾随空白；字节
+// 偏移基于原始内容计算，使匹配行的
+// 原始字节 —— 包括其行尾 —— 在拼接之外保持
+// 完好。有歧义的匹配被拒绝（与精确字面级别一致）。
 func repairTrailingWhitespace(content, old, new string) (string, bool) {
 	const trailing = " \t\r" // ASCII space/tab plus CR (for CRLF files); never NBSP/full-width, those belong to the punctuation rung
 	oldLines := strings.Split(old, "\n")
@@ -304,10 +304,10 @@ func repairTrailingWhitespace(content, old, new string) (string, bool) {
 		return "", false
 	}
 
-	// Byte offset of the first matched line, and end of the last matched
-	// line's original bytes. strings.Split removes the "\n" separators, so add
-	// one byte back for each; the trailing "\n" of the last line (if any) stays
-	// in content[endByte:], preserving the original line ending verbatim.
+	// 首个匹配行的字节偏移，以及最后匹配
+	// 行原始字节的结束位置。strings.Split 移除了 "\n" 分隔符，因此
+	// 每个都要补回一个字节；最后一行尾随的 "\n"（如有）留在
+	// content[endByte:] 中，逐字节保留原始行尾。
 	startByte := 0
 	for i := 0; i < start; i++ {
 		startByte += len(contentLines[i]) + 1
@@ -323,8 +323,8 @@ func repairTrailingWhitespace(content, old, new string) (string, bool) {
 	return content[:startByte] + new + content[endByte:], true
 }
 
-// commonIndent returns the longest leading whitespace prefix shared by every
-// non-blank line. Blank lines are ignored so one does not collapse the prefix.
+// commonIndent 返回每个非空行共享的最长前导空白前缀。
+// 空行被忽略，以免某一行破坏该前缀。
 func commonIndent(lines []string) string {
 	indent := ""
 	seen := false
@@ -382,8 +382,8 @@ func equalLines(a, b []string) bool {
 	return true
 }
 
-// repairIndent matches a block after removing each side's common leading
-// indent, then re-applies the indentation found in the file to the new text.
+// repairIndent 在移除双方共同的前导缩进后匹配块，
+// 然后把文件中找到的缩进重新应用到新文本。
 func repairIndent(content, old, new string) (string, bool) {
 	oldLines := strings.Split(old, "\n")
 	strippedOld := stripIndent(oldLines, commonIndent(oldLines))
@@ -420,8 +420,8 @@ func repairIndent(content, old, new string) (string, bool) {
 	return strings.Join(out, "\n"), true
 }
 
-// repairBlankLine retries the literal match with one spurious blank line
-// removed from old (and from new when present), leading or trailing.
+// repairBlankLine 用移除 old（以及 new 中若存在）中一个
+// 多余空行（前导或尾随）的方式重试字面匹配。
 func repairBlankLine(content, old, new string) (string, bool) {
 	type pair struct{ old, new string }
 	var pairs []pair
@@ -464,8 +464,8 @@ func dropTrailingBlankLine(s string) (string, bool) {
 	return s, false
 }
 
-// splitElision cuts s on lines that are exactly "..." (after TrimSpace) and
-// reports whether at least one marker was present.
+// splitElision 按内容恰为 "..." 的行（TrimSpace 后）切分 s，
+// 并报告是否至少存在一个标记。
 func splitElision(s string) ([]string, bool) {
 	lines := strings.Split(s, "\n")
 	pieces := []string{}
@@ -484,9 +484,9 @@ func splitElision(s string) ([]string, bool) {
 	return pieces, markers > 0
 }
 
-// repairElision anchors every non-empty piece of old exactly once in content,
-// then splices the corresponding new piece at each anchor while preserving the
-// file text between anchors (the elided middle).
+// repairElision 把 old 的每个非空片段在 content 中恰好锚定一次，
+// 然后在每个锚点处拼接对应的新片段，同时保留
+// 锚点之间的文件文本（被省略的中间部分）。
 func repairElision(content, old, new string) (string, bool) {
 	oldPieces, hasOldMarkers := splitElision(old)
 	newPieces, hasNewMarkers := splitElision(new)
@@ -498,7 +498,7 @@ func repairElision(content, old, new string) (string, bool) {
 	cursor := 0
 	for i, piece := range oldPieces {
 		if strings.TrimSpace(piece) == "" {
-			// No anchor to pin this piece to; append it at the current position.
+			// 没有可固定此片段的锚点；在当前位置追加它。
 			b.WriteString(newPieces[i])
 			continue
 		}
@@ -518,11 +518,11 @@ func repairElision(content, old, new string) (string, bool) {
 	return b.String(), true
 }
 
-// normalizePunctRune maps common typographic punctuation emitted by models to
-// its ASCII counterpart. The mapping is a pure, per-rune substitution: it never
-// expands or drops a rune, so a normalized sequence has the same rune length as
-// its input. That makes the comparison deterministic and lets the caller track
-// original byte offsets while scanning, without touching the original content.
+// normalizePunctRune 把模型输出的常见排版标点映射到
+// 其 ASCII 对应物。该映射是纯的逐 rune 替换：它从不
+// 扩展或丢弃 rune，因此归一化后的序列与输入具有相同的 rune 长度。
+// 这使比较具有确定性，并让调用方在扫描时跟踪
+// 原始字节偏移，而无需触碰原始内容。
 func normalizePunctRune(r rune) rune {
 	switch r {
 	case '\u2018', '\u2019', '\u201a', '\u201b': // single curly / low-high quotes
@@ -538,12 +538,12 @@ func normalizePunctRune(r rune) rune {
 	}
 }
 
-// repairPunctuation retries the match after normalizing both old and each
-// same-length window of content through normalizePunctRune. Normalization is
-// used for comparison only: once a unique window is found, the original bytes
-// of the rest of the file are preserved verbatim and new is inserted as given.
-// A match is accepted only when exactly one window qualifies; ambiguity is
-// never guessed, mirroring the exact-literal rung.
+// repairPunctuation 在把 old 和 content 的每个等长窗口都通过
+// normalizePunctRune 归一化后重试匹配。归一化
+// 只用于比较：一旦找到唯一窗口，文件其余部分的原始字节
+// 会被逐字保留，new 按给定内容插入。
+// 仅当恰好一个窗口符合条件时才接受匹配；有歧义时
+// 绝不猜测，与精确字面级别一致。
 func repairPunctuation(content, old, new string) (string, bool) {
 	oldRunes := []rune(old)
 	if len(oldRunes) == 0 {
@@ -555,10 +555,10 @@ func repairPunctuation(content, old, new string) (string, bool) {
 	}
 	width := len(normOld)
 
-	// Decode content once into runes paired with their byte offsets. ranging a
-	// string yields rune start offsets, so slicing content at those offsets is
-	// always on a valid UTF-8 boundary (invalid bytes decode to RuneError but
-	// still advance by one byte).
+	// 把 content 一次解码为带有字节偏移的 rune 对。range 一个
+	// 字符串会得到 rune 起始偏移，因此在这些偏移处切片
+	// 始终位于有效的 UTF-8 边界（无效字节解码为 RuneError，但
+	// 仍按一个字节前进）。
 	type positioned struct {
 		r   rune
 		off int
@@ -599,9 +599,9 @@ func repairPunctuation(content, old, new string) (string, bool) {
 	return content[:startByte] + new + content[endByte:], true
 }
 
-// similarLines returns at most limit non-blank lines from content that share
-// the most words/runes with sample. Ties keep file order. It uses only strings,
-// runes and sort so the diagnostic stays dependency-free and deterministic.
+// similarLines 返回 content 中与 sample 共享最多
+// 词/rune 的最多 limit 个非空行。平局时保持文件顺序。它只使用 strings、
+// rune 和 sort，使诊断保持无依赖且确定。
 func similarLines(content, sample string, limit int) []string {
 	if limit <= 0 {
 		return nil
@@ -620,7 +620,7 @@ func similarLines(content, sample string, limit int) []string {
 		}
 	}
 	if len(candidates) == 0 {
-		// Nothing shared a token: still show a few real lines for context.
+		// 没有任何共享标记：仍展示几行真实内容作为上下文。
 		for _, ln := range strings.Split(content, "\n") {
 			if strings.TrimSpace(ln) == "" {
 				continue
@@ -732,13 +732,13 @@ func alreadyAppliedHint(path string) string {
 		"; this edit may have already been applied; skip it and verify the file before retrying"
 }
 
-// multiEditRepairError builds the atomicity-preserving diagnostic for a failed
-// multi_edit batch. multi_edit writes the file once at the very end, so a
-// failed batch leaves the file untouched: the instruction must always tell the
-// model to re-send the whole batch and must never suggest skipping the edits
-// that merely matched in memory. Keep this wording in sync with
-// multiEditBatchDiagnostic(..., atomic=true) in multi_edit_plan.go; both are
-// asserted byte-for-byte by their respective tests.
+// multiEditRepairError 为失败的 multi_edit 批次构建保持原子性的诊断。
+// multi_edit 只在最后写一次文件，因此失败的批次
+// 会让文件保持原样：指令必须始终告诉
+// 模型重新发送整个批次，且绝不能建议跳过那些
+// 仅在内存中匹配的编辑。保持此措辞与
+// multi_edit_plan.go 中的 multiEditBatchDiagnostic(..., atomic=true) 同步；两者都由
+// 各自测试逐字节断言。
 func multiEditRepairError(path string, failedIdx, total, applied int, content, sample string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "multi_edit: repair failed at edit %d of %d after %d edit(s) attempted in %s; file unchanged (atomic batch)", failedIdx, total, total, path)

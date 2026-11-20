@@ -56,8 +56,7 @@ func TestEscapeBidiEscapesEveryControlRange(t *testing.T) {
 		})
 	}
 
-	// Check every code point of the two contiguous ranges individually so an
-	// off-by-one in either bound is caught.
+	// 逐个检查两个连续区间中的每个码位，以便捕获任一端点的差一错误。
 	for r := rune(0x202a); r <= 0x202e; r++ {
 		in := string(r)
 		if got, want := EscapeBidi(in), `\u`+hex4(r); got != want {
@@ -72,7 +71,7 @@ func TestEscapeBidiEscapesEveryControlRange(t *testing.T) {
 	}
 }
 
-// hex4 mirrors the lowercase four-digit form used by the production escapes.
+// hex4 镜像生产环境转义所使用的小写四位形式。
 func hex4(r rune) string {
 	const digits = "0123456789abcdef"
 	var out [4]byte

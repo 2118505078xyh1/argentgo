@@ -2,10 +2,9 @@ package security
 
 import "testing"
 
-// TestScriptAliasCannotBypassDenyCommands verifies that the `script` alias
-// (accepted by the powershell tool) is subject to the same denyCommands red
-// line as `command`. Before normalization, a hard deny silently degraded to
-// Ask under the alias.
+// TestScriptAliasCannotBypassDenyCommands 验证 `script` 别名（powershell 工具接受）
+// 与 `command` 一样受 denyCommands 红线约束。规范化之前，硬 deny 在该别名下会
+// 悄悄降级为 Ask。
 func TestScriptAliasCannotBypassDenyCommands(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{DenyCommands: []string{"Remove-Item"}})
 	cases := []struct {
@@ -26,8 +25,8 @@ func TestScriptAliasCannotBypassDenyCommands(t *testing.T) {
 	}
 }
 
-// TestScriptAliasCannotBypassRuleDecision verifies that permission-table
-// command rules match the normalized command field, not just the literal one.
+// TestScriptAliasCannotBypassRuleDecision 验证权限表的命令规则匹配规范化后的
+// command 字段，而不只是字面量那个字段。
 func TestScriptAliasCannotBypassRuleDecision(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{Rules: []Rule{
 		{Decision: Deny, Tool: "powershell", Command: "Remove-Item*"},
@@ -51,8 +50,8 @@ func TestScriptAliasCannotBypassRuleDecision(t *testing.T) {
 	}
 }
 
-// TestScriptAliasCannotBypassDenyCommandPaths verifies denyCommandPaths sees
-// the normalized command value too.
+// TestScriptAliasCannotBypassDenyCommandPaths 验证 denyCommandPaths 也能看到
+// 规范化后的 command 值。
 func TestScriptAliasCannotBypassDenyCommandPaths(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{DenyCommandPaths: []string{"~/.ssh"}})
 	cases := []struct {
@@ -71,9 +70,8 @@ func TestScriptAliasCannotBypassDenyCommandPaths(t *testing.T) {
 	}
 }
 
-// TestExplicitCommandWinsOverScript ensures normalization never overwrites an
-// explicit, non-empty command. The policy must judge exactly what the tool
-// executes (the tool itself prefers a non-empty command over script).
+// TestExplicitCommandWinsOverScript 确保规范化绝不覆盖显式非空的 command。
+// 策略必须判断工具实际执行的内容（工具本身优先使用非空 command 而非 script）。
 func TestExplicitCommandWinsOverScript(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{DenyCommands: []string{"Remove-Item"}})
 	if got := policy.Check("powershell", mustArgs(t,
@@ -86,8 +84,8 @@ func TestExplicitCommandWinsOverScript(t *testing.T) {
 	}
 }
 
-// TestScriptAliasLeavesOtherToolsUnaffected confirms normalization does not
-// change policy decisions for tools that do not use the script alias.
+// TestScriptAliasLeavesOtherToolsUnaffected 确认规范化不会改变不使用 script 别名
+// 的工具的策略决定。
 func TestScriptAliasLeavesOtherToolsUnaffected(t *testing.T) {
 	policy := NewPolicy(t.TempDir(), PolicyConfig{DenyCommands: []string{"rm -rf /"}})
 	cases := []struct {
@@ -107,8 +105,8 @@ func TestScriptAliasLeavesOtherToolsUnaffected(t *testing.T) {
 	}
 }
 
-// TestScriptAliasNormalizationUnit tests the normalization helper directly,
-// including normal text with no command fields at all.
+// TestScriptAliasNormalizationUnit 直接测试规范化辅助函数，包括完全没有命令字段的
+// 普通文本。
 func TestScriptAliasNormalizationUnit(t *testing.T) {
 	cases := []struct {
 		name    string

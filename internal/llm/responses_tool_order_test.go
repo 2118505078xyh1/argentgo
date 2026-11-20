@@ -10,14 +10,14 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestResponsesToolCallsFollowAddedOrder covers a gateway that emits the
-// output_item.done events for parallel function calls in a different order
-// than their output_item.added events. The call list must stay in the order the
-// items were announced (output_index order), not done-notification order:
-// the agent loop associates each result with a call by position in some paths,
-// and a swapped batch is indistinguishable from a provider that reordered its
-// tools. The order slice already records the announcement order, but calls are
-// appended eagerly on done, which silently loses it.
+// TestResponsesToolCallsFollowAddedOrder 覆盖以与 output_item.added 事件
+// 不同的顺序发出并行函数调用的 output_item.done 事件的网关。
+// 调用列表必须保持各项被宣布的顺序（output_index 顺序），
+// 而非 done 通知顺序：agent 循环在某些路径中按位置把结果与调用关联，
+// 而批次被交换与提供方重排了工具无法区分。
+// order 切片已记录宣布顺序，但调用在 done 时
+// 被急切追加，
+// 从而悄悄丢失了该顺序。
 func TestResponsesToolCallsFollowAddedOrder(t *testing.T) {
 	script := sse(
 		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_A","name":"read","arguments":""}}`+"\n\n",

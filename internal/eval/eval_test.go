@@ -17,8 +17,8 @@ import (
 
 // ---------------------------------------------------------------- fixtures
 
-// fakeTools is a tiny tool table for the fake loop: just enough behaviour to
-// exercise the scenarios, with the real gates (policy, approval, uniqueness).
+// fakeTools 是 fake 循环的一个极小工具表：恰好足够的行为来
+// 演练场景，并带有真实的门（策略、审批、唯一性）。
 type fakeTools struct {
 	dir     string
 	approve bool
@@ -72,7 +72,7 @@ func (t *fakeTools) run(name, arguments string) string {
 		if t.denied(args.Path) {
 			return fmt.Sprintf("error: the path %q is denied by policy", args.Path)
 		}
-		// Mutating tools always pass the approval gate first.
+		// 修改类工具总是先通过审批门。
 		t.asked = append(t.asked, name+":"+args.Path)
 		if !t.approve {
 			return fmt.Sprintf("error: the user denied the %s to %q", name, args.Path)
@@ -153,11 +153,11 @@ func (t *fakeTools) run(name, arguments string) string {
 	return fmt.Sprintf("error: unknown tool %q", name)
 }
 
-// fakeRun is a hand-written stand-in for the real agent loop: it asks the
-// scripted provider for a turn, runs the requested tools, and reports what
-// happened. It honours the scenario hints (turn budget, cancellation, approval,
-// denied paths) so the scenarios keep their Rust intent without importing the
-// agent package.
+// fakeRun 是真实 agent 循环的手写替身：它向脚本化 provider 请求一轮，运行请求的工具，并报告
+// 向脚本化 provider 请求一轮，运行请求的工具，并报告
+// 发生了什么。它遵守场景提示（轮数预算、取消、审批、
+// 发生了什么。它遵守场景提示（轮数预算、取消、审批、
+// 被拒路径），使场景保持 Rust 的意图而不导入 agent 包。
 func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace, error) {
 	approve := true
 	if scenario.Approve != nil {
@@ -182,8 +182,8 @@ func fakeRun(ctx context.Context, scenario Scenario, workspace Workspace) (Trace
 		{Role: "user", Content: workspace.Prompt},
 	}
 	if scenario.PromptCache && !scenario.NoPromptCache && messages[0].Content != "" {
-		// Mimic a cache-capable client's stable-prefix assembly so the
-		// scripted provider can assert opt-in and opt-out wire behaviour.
+		// 模拟支持缓存的客户端的稳定前缀组装，使
+		// 模拟支持缓存的客户端的稳定前缀组装，使脚本化 provider 能断言选择加入和选择退出的线上行为。
 		messages[0].CacheControl = llm.EphemeralCacheControl()
 	}
 	for turn := 1; turn <= maxTurns; turn++ {

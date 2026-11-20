@@ -83,11 +83,11 @@ func TestAuthorizeURLCarriesThePKCEParameters(t *testing.T) {
 	}
 }
 
-// TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters guards the
-// precedence between provider extras and the OAuth protocol parameters. An
-// Extra entry named "state" or "code_challenge" must not replace the values
-// passed to AuthorizeURL: Callback.Wait validates against the former and
-// Exchange proves possession of the verifier for the latter.
+// TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters 守护
+// 凭据文件永不被误认为健康。
+// TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters 守护 provider extras 与 OAuth 协议参数之间的优先级。名为 "state" 或 "code_challenge" 的 Extra 条目不得替换
+// 传给 AuthorizeURL 的值：Callback.Wait 针对前者验证，Exchange 针对后者证明持有 verifier。
+// Exchange 为后者证明持有 verifier。
 func TestAuthorizeURLDoesNotLetExtraOverrideSecurityParameters(t *testing.T) {
 	cfg := Config{
 		Provider:     "demo",
@@ -183,17 +183,17 @@ func TestExchangePostsTheCodeVerifier(t *testing.T) {
 	if token.Provider != "demo" || token.Kind != KindOAuth || token.Access != "new" || token.Refresh != "next" {
 		t.Fatalf("token = %+v", token)
 	}
-	// The 60-second safety margin is applied to expires_in.
+	// 60 秒安全余量应用于 expires_in。
 	left := time.Until(token.ExpiresAt)
 	if left < 58*time.Minute || left > 60*time.Minute {
 		t.Fatalf("expiry is %v from now, want about 59m", left)
 	}
 }
 
-// TestExchangeKeepsShortLivedTokensUsable guards the expiry-safety margin: a
-// credential whose lifetime is shorter than the safety window must not be born
-// expired. The margin exists to trigger an early refresh, not to discard an
-// otherwise valid token the moment it is issued.
+// TestExchangeKeepsShortLivedTokensUsable 守护过期安全余量：生命周期短于安全窗口的凭据不得一出生就
+// 生命周期短于安全窗口的凭据不得一出生就
+// 过期。余量用于触发提前刷新，而非丢弃
+// 一个本有效的令牌在签发瞬间。
 func TestExchangeKeepsShortLivedTokensUsable(t *testing.T) {
 	const lifetime = 30 * time.Second
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -278,9 +278,9 @@ func TestRefreshWithoutARefreshTokenFails(t *testing.T) {
 	}
 }
 
-// TestTokenRequestsSendClientSecretWhenConfigured guards the confidential-client
-// path: a Config with a ClientSecret must authenticate every token-endpoint
-// request, while public PKCE clients must not emit an empty client_secret.
+// 过期。余量用于触发提前刷新，而非在令牌签发时立即丢弃一个本来有效的令牌。
+// TestTokenRequestsSendClientSecretWhenConfigured 守护机密客户端路径：带 ClientSecret 的 Config 必须在每个令牌端点
+// 请求上认证，而公开 PKCE 客户端不得发出空的 client_secret。
 func TestTokenRequestsSendClientSecretWhenConfigured(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -393,9 +393,9 @@ func TestCallbackChecksStateAndReturnsTheCode(t *testing.T) {
 	}
 }
 
-// TestCallbackRejectsRedirectWithoutCode guards the callback's success path: a
-// redirect that carries the expected state but no code and no error must be
-// reported as a failure, never as a successful login with an empty code.
+// TestCallbackRejectsRedirectWithoutCode 守护回调的成功路径：
+// TestCallbackRejectsRedirectWithoutCode 守护回调的成功路径：携带预期 state 但没有 code 也没有 error 的重定向必须
+// 被报告为失败，绝不能作为空 code 的成功登录。
 func TestCallbackRejectsRedirectWithoutCode(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -458,10 +458,10 @@ func TestCallbackHonoursContextCancellation(t *testing.T) {
 	}
 }
 
-// TestCallbackCloseCancelsAPendingWait guards the contract in Close's doc:
-// closing the callback must unblock a Wait even when its context is never
-// cancelled. Closing only the TCP listener leaves the HTTP server idle and the
-// Wait stuck on its select forever.
+// TestCallbackCloseCancelsAPendingWait 守护 Close 文档中的契约：
+// TestCallbackCloseCancelsAPendingWait 守护 Close 文档中的契约：关闭回调必须解除 Wait 的阻塞，即使其 context 从未
+// 取消。只关闭 TCP 监听器会让 HTTP 服务器空闲，而
+// 被取消。只关闭 TCP 监听器会让 HTTP 服务器空闲，而 Wait 永远卡在其 select 上。
 func TestCallbackCloseCancelsAPendingWait(t *testing.T) {
 	callback, err := Listen("127.0.0.1:0")
 	if err != nil {
@@ -502,8 +502,8 @@ func TestCallbackCloseIsIdempotent(t *testing.T) {
 	if err := callback.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
-	// A second Close must not panic (the closed channel may only be closed
-	// once) and must not report a new error.
+	// 第二次 Close 不得 panic（已关闭的通道只能关闭一次）且不得报告新错误。
+	// 一次）且不得报告新错误。
 	if err := callback.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
@@ -511,8 +511,8 @@ func TestCallbackCloseIsIdempotent(t *testing.T) {
 
 func TestWaitCallbackStateBindsAndReturns(t *testing.T) {
 	addr := "127.0.0.1:0"
-	// WaitCallbackState with a zero port cannot report the chosen address to the
-	// caller, so bind explicitly to exercise the redirect path.
+	// 端口为零的 WaitCallbackState 无法把选定的地址报告给调用方，因此显式绑定以演练重定向路径。
+	// 调用方，因此显式绑定以演练重定向路径。
 	callback, err := Listen(addr)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -533,7 +533,7 @@ func TestWaitCallbackStateBindsAndReturns(t *testing.T) {
 }
 
 func TestTokenJSONShapeStaysSecret(t *testing.T) {
-	// Guards against silently renaming the wire fields the Rust store uses.
+	// 防止静默重命名 Rust store 使用的线上字段。
 	token := Token{Provider: "p", Kind: KindOAuth, Access: "a", Refresh: "r"}
 	encoded, err := json.Marshal(token)
 	if err != nil {

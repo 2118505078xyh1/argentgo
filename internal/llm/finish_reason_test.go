@@ -11,9 +11,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestWireClientsExposeFinishReason checks that each protocol client captures
-// the provider's stop/truncation reason onto llm.Message. The agent loop uses
-// it to refuse a tool batch whose arguments may have been cut off by length.
+// TestWireClientsExposeFinishReason 检查每个协议客户端是否把提供方的
+// 停止/截断原因捕获到 llm.Message 上。agent 循环用它
+// 拒绝参数可能被长度截断的工具批次。
 func TestWireClientsExposeFinishReason(t *testing.T) {
 	t.Run("anthropic", func(t *testing.T) {
 		script := sse("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n",

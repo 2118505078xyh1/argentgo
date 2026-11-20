@@ -7,28 +7,28 @@ import (
 	"strings"
 )
 
-// StructuredToolResults opts tool-result previews into the structured renderer:
-// JSON objects/arrays are pretty-printed, unified diffs keep their framing, and
-// plain text falls back to ordinary line splitting (see formatToolResultContent).
+// StructuredToolResults 让工具结果预览选择结构化渲染器：
+// JSON 对象/数组被漂亮打印，统一差异保留其框架，
+// 纯文本回退到普通的行切分（见 formatToolResultContent）。
 //
-// It is OFF by default. The original preview rendering in toolLines is kept as
-// the canonical, byte-for-byte path so existing layout and golden tests do not
-// change; flip this switch to preview the structured path. Keeping the switch
-// as a plain package variable lets a later change wire it to a CLI flag/config
-// without touching the renderer.
+// 它默认关闭。toolLines 中的原始预览渲染保留为
+// 规范的、逐字节一致的路径，使现有布局和基准测试
+// 不发生变化；打开此开关可预览结构化路径。把开关
+// 保留为普通包变量，使以后的更改可把它接到 CLI 标志/配置
+// 而无需触碰渲染器。
 var StructuredToolResults = false
 
-// structuredOutputLines renders a tool result through formatToolResultContent.
-// The formatter already caps the row count and appends its own "… N more lines"
-// marker, so this helper only applies the visual prefix and styles and never
-// adds a second overflow marker. The marker row uses the dimmer style to match
-// the original preview's overflow line.
+// structuredOutputLines 通过 formatToolResultContent 渲染工具结果。
+// 该格式化器已经限制行数并追加自己的 "… N more lines"
+// 标记，因此该辅助函数只应用视觉前缀和样式，绝不
+// 添加第二个溢出标记。标记行使用较暗的样式以匹配
+// 原始预览的溢出行。
 func structuredOutputLines(raw string, limit, width int, p Palette) []Line {
 	bodyWidth := maxInt(width-2, 1)
-	// This renderer is only reached when StructuredToolResults is enabled. The
-	// legacy byte-for-byte preview in toolLines stays untouched; sanitising
-	// here keeps progress-bar cursor escapes out of the frame cache and the
-	// rows painted after a tool result.
+	// 只有启用 StructuredToolResults 时才会到达此渲染器。
+	// toolLines 中逐字节一致的旧预览保持不变；在这里清洗
+	// 可防止进度条光标转义进入帧缓存以及
+	// 工具结果之后绘制的行。
 	textLines := formatToolResultContent(normalizeToolOutput(raw), limit)
 	out := make([]Line, 0, len(textLines))
 	for _, text := range textLines {
@@ -44,15 +44,15 @@ func structuredOutputLines(raw string, limit, width int, p Palette) []Line {
 	return out
 }
 
-// formatToolResultContent turns a raw tool-result string into display lines.
-// It is a pure formatter with no renderer dependency: structured payloads that
-// MCP tools commonly emit (pretty-printed JSON, unified diffs) are kept as
-// readable per-line text instead of being flattened into one unreadable blob.
-// Plain text falls back to ordinary line splitting.
+// formatToolResultContent 把原始工具结果字符串转换为展示行。
+// 它是纯格式化器，不依赖渲染器：MCP 工具常发出的结构化载荷
+// （漂亮打印的 JSON、统一差异）被保留为
+// 可读的逐行文本，而不是扁平化为一个不可读的块。
+// 纯文本回退到普通行切分。
 //
-// The output is capped at maxLines rows (the last slot becomes a "… N more
-// lines" marker when content is dropped) and never splits a UTF-8 rune: every
-// break happens on the ASCII '\n' byte. No new dependencies are introduced.
+// 输出被限制在 maxLines 行（当内容被丢弃时最后一位成为
+// "… N more lines" 标记），且绝不拆分 UTF-8 rune：每次
+// 断行都发生在 ASCII '\n' 字节上。不引入新依赖。
 func formatToolResultContent(raw string, maxLines int) []string {
 	if maxLines <= 0 {
 		return nil
@@ -70,10 +70,10 @@ func formatToolResultContent(raw string, maxLines int) []string {
 	return capResultLines(lines, maxLines)
 }
 
-// isJSONObjectOrArray reports whether raw is valid JSON whose top-level value
-// is an object or an array. Scalars (strings, numbers, true/false, null) are
-// deliberately excluded: indenting them adds no readability and a bare word
-// should keep the plain-text path.
+// isJSONObjectOrArray 报告 raw 是否为顶层值为
+// 对象或数组的有效 JSON。标量（字符串、数字、true/false、null）被
+// 有意排除：缩进它们不会增加可读性，而一个裸词
+// 应保留纯文本路径。
 func isJSONObjectOrArray(raw string) bool {
 	trimmed := strings.TrimSpace(raw)
 	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
@@ -82,22 +82,22 @@ func isJSONObjectOrArray(raw string) bool {
 	return json.Valid([]byte(trimmed))
 }
 
-// prettyJSONLines indents a validated JSON object/array with two-space steps
-// and returns one string per output row. Indent is byte-preserving for UTF-8
-// string values, so CJK and emoji inside the JSON survive untouched.
+// prettyJSONLines 以两空格步长缩进已验证的 JSON 对象/数组，
+// 并为每个输出行返回一个字符串。对 UTF-8 字符串值，缩进保持字节不变，
+// 因此 JSON 中的 CJK 和 emoji 原样保留。
 func prettyJSONLines(raw string) []string {
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, []byte(strings.TrimSpace(raw)), "", "  "); err != nil {
-		// Defensive: json.Valid already passed, but never corrupt the payload.
+		// 防御性：json.Valid 已通过，但绝不破坏载荷。
 		return splitResultLines(raw)
 	}
 	return splitResultLines(buf.String())
 }
 
-// looksLikeUnifiedDiff recognises the standard unified-diff framing. A hunk
-// header ("@@ ...") is a strong signal on its own; otherwise both file
-// headers ("--- " and "+++ ") must be present. Requiring the pair avoids
-// mistaking a lone markdown horizontal rule ("---") for a diff.
+// looksLikeUnifiedDiff 识别标准的统一差异框架。一个块
+// 头（"@@ ..."）本身就是强信号；否则必须同时存在两个文件
+// 头（"--- " 和 "+++ "）。要求成对可避免
+// 把单独一行 markdown 水平线（"---"）误认为差异。
 func looksLikeUnifiedDiff(raw string) bool {
 	hasMinus, hasPlus, hasHunk := false, false, false
 	for _, line := range strings.Split(raw, "\n") {
@@ -117,9 +117,9 @@ func looksLikeUnifiedDiff(raw string) bool {
 	return false
 }
 
-// splitResultLines breaks raw into logical lines on '\n', normalising CRLF and
-// dropping the empty sentinel a final newline would otherwise create. Splitting
-// on an ASCII byte keeps every multi-byte rune and ANSI escape sequence intact.
+// splitResultLines 按 '\n' 把 raw 切分为逻辑行，规范化 CRLF 并
+// 丢弃尾随换行本会产生的空哨兵。切分
+// 在 ASCII 字节上切分使每个多字节 rune 和 ANSI 转义序列保持完整。
 func splitResultLines(raw string) []string {
 	if raw == "" {
 		return nil
@@ -134,9 +134,9 @@ func splitResultLines(raw string) []string {
 	return lines
 }
 
-// capResultLines keeps at most maxLines rows. When content has to be dropped a
-// "… N more lines" marker takes the last slot (matching the renderer's own
-// preview convention), so the returned slice never exceeds the budget.
+// capResultLines 最多保留 maxLines 行。当必须丢弃内容时，
+// "… N more lines" 标记占据最后一个槽位（与渲染器自身的
+// 预览约定一致），使返回的切片永不超出预算。
 func capResultLines(lines []string, maxLines int) []string {
 	if len(lines) <= maxLines {
 		return lines

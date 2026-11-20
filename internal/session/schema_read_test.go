@@ -7,15 +7,15 @@ import (
 	"time"
 )
 
-// This file wires schema migration into the shared read path and guards the
-// behaviour end to end: legacy transcripts gain a header on read, explicit
-// versions are respected, and a newer version is rejected rather than guessed
-// at.
+// 本文件把 schema 迁移接入共享读取路径，并端到端守护该行为：
+// 旧转录在读取时获得一个头，显式版本被尊重，
+// 而更新的版本被拒绝而不是靠猜测
+// 处理。
 
-// withoutSchemaHeader drops a leading, read-time schema header so the existing
-// tree/chain tests can keep asserting on the transcript's own records. The
-// injected header is metadata with no parent and an empty id; it never joins
-// the id/parent chain.
+// withoutSchemaHeader 去掉开头的读取时 schema 头，使现有的
+// 树/链测试仍能对转录自身的记录进行断言。注入的头是元数据，
+// 没有 parent 且 id 为空；它永远不会加入
+// id/parent 链。
 func withoutSchemaHeader(records []Record) []Record {
 	if len(records) > 0 && records[0].Kind == KindSchema {
 		return records[1:]
@@ -23,7 +23,7 @@ func withoutSchemaHeader(records []Record) []Record {
 	return records
 }
 
-// withoutSchemaBranches is the Branch counterpart of withoutSchemaHeader.
+// withoutSchemaBranches 是 withoutSchemaHeader 的 Branch 对应版本。
 func withoutSchemaBranches(branches []Branch) []Branch {
 	out := make([]Branch, 0, len(branches))
 	for _, b := range branches {
@@ -34,9 +34,9 @@ func withoutSchemaBranches(branches []Branch) []Branch {
 	return out
 }
 
-// TestReadRecordsLegacyV0GainsHeader: a v0 transcript (no schema header) read
-// through the shared reader comes back upgraded to v1, with the original
-// records preserved after the injected metadata header.
+// TestReadRecordsLegacyV0GainsHeader：通过共享读取器读取的 v0 转录
+// （没有 schema 头）会升级到 v1 返回，原始记录
+// 保留在注入的元数据头之后。
 func TestReadRecordsLegacyV0GainsHeader(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.jsonl")
 	writeRawSession(t, path, []Record{
@@ -54,8 +54,8 @@ func TestReadRecordsLegacyV0GainsHeader(t *testing.T) {
 	if records[0].Kind != KindSchema {
 		t.Fatalf("first kind = %q, want %q", records[0].Kind, KindSchema)
 	}
-	// The injected header is metadata with an empty id: it never enters the
-	// parent chain and must not consume an id slot used by appends.
+	// 注入的头是 id 为空的元数据：它永远不会进入
+	// parent 链，也不能占用追加所使用的 id 槽位。
 	if records[0].ID != "" {
 		t.Fatalf("injected schema header id = %q, want empty", records[0].ID)
 	}
@@ -67,8 +67,8 @@ func TestReadRecordsLegacyV0GainsHeader(t *testing.T) {
 	}
 }
 
-// TestReadRecordsExplicitV1Unchanged: a transcript that already carries an
-// explicit v1 schema header is returned unchanged (no duplicate header).
+// TestReadRecordsExplicitV1Unchanged：已经带有显式 v1 schema 头的转录
+// 原样返回（不产生重复头）。
 func TestReadRecordsExplicitV1Unchanged(t *testing.T) {
 	schema, err := SchemaRecord(CurrentSchemaVersion)
 	if err != nil {
@@ -94,8 +94,8 @@ func TestReadRecordsExplicitV1Unchanged(t *testing.T) {
 	}
 }
 
-// TestReadRecordsNewerVersionErrors: a transcript from a newer build is a
-// clear error, not a silent downgrade. readRecords must propagate ErrNewerSchemaVersion.
+// TestReadRecordsNewerVersionErrors：来自更新构建的转录是明确的错误，
+// 而不是静默降级。readRecords 必须传播 ErrNewerSchemaVersion。
 func TestReadRecordsNewerVersionErrors(t *testing.T) {
 	schema, err := SchemaRecord(CurrentSchemaVersion + 10)
 	if err != nil {
@@ -113,9 +113,9 @@ func TestReadRecordsNewerVersionErrors(t *testing.T) {
 	}
 }
 
-// TestMigratedSessionBranchesAndMessages: after a v0 transcript is migrated on
-// read, the conversation view is unaffected — messages follow the real parent
-// links and the schema header never appears as a message.
+// TestMigratedSessionBranchesAndMessages：v0 转录在读取时迁移后，
+// 对话视图不受影响——消息跟随真实的 parent
+// 链接，schema 头永远不会作为消息出现。
 func TestMigratedSessionBranchesAndMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "migrate-view.jsonl")
 	stamp := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
@@ -129,8 +129,8 @@ func TestMigratedSessionBranchesAndMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
-	// The injected schema header is metadata: it shows up as a branch but never
-	// as a message, and the real records keep their ids/parents/depths.
+	// 注入的 schema 头是元数据：它作为分支出现，但永远不会
+	// 作为消息出现，真实记录保留其 id/parent/depth。
 	sawSchema := false
 	for _, b := range branches {
 		if b.Kind == KindSchema {
@@ -146,7 +146,7 @@ func TestMigratedSessionBranchesAndMessages(t *testing.T) {
 		}
 	}
 
-	// Messages walks from the active leaf and skips metadata records.
+	// Messages 从活动叶节点遍历并跳过元数据记录。
 	session := &Session{dir: filepath.Dir(path), id: "migrate-view", active: "a1"}
 	messages := session.Messages()
 	if len(messages) != 2 {

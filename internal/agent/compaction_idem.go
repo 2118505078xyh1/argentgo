@@ -36,13 +36,11 @@ type canonicalCompactTool struct {
 
 const defaultSummaryCacheCapacity = 64
 
-// SourcePrefixHash returns a stable, fixed-length hex SHA-256 key for a run
-// prefix. Two prefixes that differ only in volatile metadata (or in user text
-// that differs solely by surrounding whitespace) produce the same key, which
-// lets a compactor reuse a previously finished summary instead of re-summarising
-// the same content every turn.
+// SourcePrefixHash 为运行前缀返回一个稳定、定长的十六进制 SHA-256 键。
+// 仅在易变元数据上不同（或用户文本仅两端空白不同）的两个前缀会产生相同的键，
+// 使压缩器能复用之前已完成的摘要，而不必每个轮次都对相同内容重新摘要。
 //
-// It is a pure function: it never mutates the input slice or its messages.
+// 它是纯函数：从不修改输入切片或其消息。
 func SourcePrefixHash(messages []llm.Message) string {
 	canonical := make([]canonicalCompactMessage, 0, len(messages))
 	for _, message := range messages {

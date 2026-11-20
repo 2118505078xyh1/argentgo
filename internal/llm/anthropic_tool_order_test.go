@@ -10,12 +10,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestAnthropicToolCallsFollowBlockStartOrder covers gateways that finish
-// parallel tool_use blocks in a different order than they announced them. The
-// call list must stay in content_block_start (announcement) order, not
-// content_block_stop order: a swapped batch is indistinguishable from a
-// provider that reordered its tools, and the agent keys results by position in
-// some paths.
+// TestAnthropicToolCallsFollowBlockStartOrder 覆盖以与宣布顺序不同的顺序
+// 完成并行 tool_use 块的网关。调用列表必须保持
+// content_block_start（宣布）顺序，而非 content_block_stop 顺序：
+// 批次被交换与提供方重排了工具无法区分，而且 agent
+// 在某些路径中按位置索引
+// 结果。
 func TestAnthropicToolCallsFollowBlockStartOrder(t *testing.T) {
 	cases := []struct {
 		name   string

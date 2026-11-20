@@ -14,15 +14,29 @@ type loginArgs struct {
 	apiKey   string
 	baseURL  string
 	help     bool
+	device   bool
 }
 
 // runLogin 实现 `login <provider>`：把 API key 存入配置文件，且绝不回显该 key。
-func runLogin(app App, _ context.Context, args []string) int {
+// 传入 --device 时改走 RFC 8628 设备码流程；不带该标志时原有行为逐字节不变。
+func runLogin(app App, ctx context.Context, args []string) int {
 	parsed, err := parseLoginArgs(args)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		loginUsage(app.IO.Err)
 		return 2
+	}
+	// 设备流程优先：它的帮助与参数校验走独立入口，不能影响原有 API key 路径。
+	if parsed.device {
+		if parsed.help {
+			deviceLoginUsage(app.IO.Out)
+			return 0
+		}
+		if parsed.provider == "" {
+			deviceLoginUsage(app.IO.Err)
+			return 2
+		}
+		return runDeviceLogin(app, ctx, parsed.provider)
 	}
 	if parsed.help {
 		loginUsage(app.IO.Out)
@@ -104,6 +118,8 @@ func parseLoginArgs(args []string) (loginArgs, error) {
 			parsed.baseURL = args[i]
 		case strings.HasPrefix(arg, "--base-url="):
 			parsed.baseURL = strings.TrimPrefix(arg, "--base-url=")
+		case arg == "--device":
+			parsed.device = true
 		case strings.HasPrefix(arg, "-"):
 			return parsed, fmt.Errorf("unknown flag %q", arg)
 		default:

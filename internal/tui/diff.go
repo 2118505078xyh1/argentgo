@@ -2,30 +2,30 @@ package tui
 
 import "strings"
 
-// DiffKind is the role of one row in a line diff.
+// DiffKind 是行差异中某一行的角色。
 type DiffKind uint8
 
-// Diff row roles.
+// Diff 的行角色。
 const (
 	DiffContext DiffKind = iota
 	DiffAdd
 	DiffDel
 )
 
-// DiffLine is one row of a line diff. Text never carries the +/- marker; the
-// renderer adds it so the same helper can be reused by plain-text output.
+// DiffLine 是行差异的一行。Text 从不携带 +/- 标记；
+// 渲染器添加它，使同一辅助函数可复用于纯文本输出。
 type DiffLine struct {
 	Kind DiffKind
 	Text string
 }
 
-// maxDiffLCSCells bounds the dynamic-programming table. Beyond this the hunk is
-// emitted as a wholesale delete+add, which is still correct, just less tight.
+// maxDiffLCSCells 限制动态规划表。超过此值时，块被
+// 整体作为删除+新增输出，这仍然正确，只是不够紧凑。
 const maxDiffLCSCells = 64 * 1024
 
-// DiffLines returns a context/add/delete line diff of two texts. It trims the
-// identical prefix and suffix first, then runs a small LCS over the middle;
-// both stages use only the standard library.
+// DiffLines 返回两段文本的上下文/新增/删除行差异。它先修剪
+// 相同的的前缀和后缀，然后对中间部分运行一个小型 LCS；
+// 两个阶段都只使用标准库。
 func DiffLines(oldText, newText string) []DiffLine {
 	oldLines, newLines := diffSplit(oldText), diffSplit(newText)
 
@@ -50,7 +50,7 @@ func DiffLines(oldText, newText string) []DiffLine {
 	return out
 }
 
-// diffSplit drops the empty element a trailing newline would otherwise add.
+// diffSplit 丢弃尾随换行本会添加的空元素。
 func diffSplit(text string) []string {
 	if text == "" {
 		return nil
@@ -62,8 +62,8 @@ func diffSplit(text string) []string {
 	return lines
 }
 
-// diffMiddle aligns the changed region. Over the cap it degrades to del+add
-// rather than allocating an unbounded table.
+// diffMiddle 对齐变化区域。超过上限时它降级为 del+add，
+// 而不是分配无界的表。
 func diffMiddle(oldLines, newLines []string) []DiffLine {
 	n, m := len(oldLines), len(newLines)
 	out := make([]DiffLine, 0, n+m)

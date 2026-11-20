@@ -7,35 +7,29 @@ import (
 	"strings"
 )
 
-// retentionKey is the reserved field SetRetention writes into a record's JSON
-// data envelope. Keeping retention in the existing Data blob means no schema
-// change to Record and no extra JSONL column, and messageEntry already copies
-// Data verbatim into Entry.Data so the hint reaches the conversation view.
+// retentionKey 是 SetRetention 写入记录 JSON 数据包络的保留字段。
+// 将保留策略放在现有的 Data 块中，意味着无需改动 Record 的 schema，也无需增加 JSONL 列；
+// 而且 messageEntry 已逐字复制 Data 到 Entry.Data，因此该提示能到达对话视图。
 const retentionKey = "_retention"
 
-// Retention is a per-record hint about how long a record must live. It governs
-// two independent lifetimes: compaction of the parent thread and propagation
-// into child sessions (subagents).
+// Retention 是逐条记录的提示，指明记录必须保留多久。它管理两个独立的生命周期：
+// 父线程的压缩，以及传播到子会话（子代理）。
 type Retention uint8
 
 const (
-	// RetainDefault is normal behaviour: the record may be compacted away and
-	// is not copied into child sessions. Records that never carried the hint
-	// also read back as RetainDefault.
+	// RetainDefault 是默认行为：记录可能被压缩掉，且不会复制到子会话。
+	// 从未携带该提示的记录读回时也是 RetainDefault。
 	RetainDefault Retention = iota
-	// RetainAlways keeps the record across compaction AND propagates it to
-	// child sessions.
+	// RetainAlways 既在压缩后保留该记录，又将其传播到子会话。
 	RetainAlways
-	// RetainInThread keeps the record across compaction only; it is not
-	// propagated to child sessions.
+	// RetainInThread 仅在压缩后保留该记录；不传播到子会话。
 	RetainInThread
-	// RetainInChildren propagates the record to child sessions only; it may
-	// still be compacted away in the parent thread.
+	// RetainInChildren 只将记录传播到子会话；在父线程中它仍可能被压缩掉。
 	RetainInChildren
 )
 
-// String implements fmt.Stringer. It returns the stable lowercase wire value
-// used by SetRetention, or a descriptive form for an out-of-range value.
+// String 实现 fmt.Stringer。它返回 SetRetention 使用的稳定小写线格式值，
+// 对于超出范围的值则返回描述性形式。
 func (r Retention) String() string {
 	switch r {
 	case RetainDefault:
@@ -51,22 +45,20 @@ func (r Retention) String() string {
 	}
 }
 
-// SurvivesCompaction reports whether r must be preserved across compaction.
+// SurvivesCompaction 报告 r 是否必须在压缩后保留。
 func (r Retention) SurvivesCompaction() bool {
 	return r == RetainAlways || r == RetainInThread
 }
 
-// SurvivesChildren reports whether r must be seeded into child sessions.
+// SurvivesChildren 报告 r 是否必须植入子会话。
 func (r Retention) SurvivesChildren() bool {
 	return r == RetainAlways || r == RetainInChildren
 }
 
-// hasRetentionHint reports whether data is a JSON object carrying a _retention
-// field whose value is a string. Presence alone is what matters here: even an
-// unrecognised value is an explicit caller choice, and GetRetention already
-// maps it to RetainDefault. The automatic kind-based default must never replace
-// an explicit hint, or a caller asking for (say) in_thread on a summary would
-// silently get always and leak that record into child sessions.
+// hasRetentionHint 报告 data 是否为带有字符串值 _retention 字段的 JSON 对象。
+// 这里只看字段是否存在：即使是无法识别的值，也是调用方的显式选择，
+// 而 GetRetention 已经把它映射为 RetainDefault。基于 kind 的自动默认值绝不能取代显式提示，
+// 否则调用方对摘要请求（例如）in_thread 时，会静默得到 always，并把该记录泄漏到子会话。
 func hasRetentionHint(data []byte) bool {
 	var fields map[string]json.RawMessage
 	if len(data) == 0 || json.Unmarshal(data, &fields) != nil || fields == nil {
@@ -76,8 +68,8 @@ func hasRetentionHint(data []byte) bool {
 	if !ok {
 		return false
 	}
-	// json.Unmarshal(null, &string) succeeds with an empty string; a null hint
-	// means "no hint", so the automatic default still applies.
+	// json.Unmarshal(null, &string) 会以空字符串成功返回；null 提示表示"无提示"，
+	// 因此仍适用自动默认值。
 	if string(bytes.TrimSpace(raw)) == "null" {
 		return false
 	}
@@ -85,9 +77,8 @@ func hasRetentionHint(data []byte) bool {
 	return json.Unmarshal(raw, &text) == nil
 }
 
-// parseRetention reads a stored wire value. It is deliberately permissive
-// (trimmed, case-folded) so hand-written or older records still read back, and
-// it falls back to RetainDefault for anything unrecognised.
+// parseRetention 读取存储的线格式值。它刻意宽松（去空白、忽略大小写），
+// 使手写或较旧的记录仍能读回，并对任何无法识别的值回退到 RetainDefault。
 func parseRetention(text string) Retention {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "always":
@@ -101,11 +92,9 @@ func parseRetention(text string) Retention {
 	}
 }
 
-// SetRetention injects r into a record's JSON data envelope under retentionKey,
-// preserving every other field. An empty data slice is treated as an empty
-// object. A non-empty slice that is not a JSON object (or is malformed) is an
-// error: retaining a payload whose other fields cannot be preserved would be
-// worse than refusing to mark it.
+// SetRetention 将 r 注入记录 JSON 数据包络中 retentionKey 对应的位置，
+// 保留所有其他字段。空的 data 切片视为空对象。非空但不是 JSON 对象（或格式错误）的切片会报错：
+// 保留一个无法保全其他字段的载荷，比拒绝标记它更糟糕。
 func SetRetention(data []byte, r Retention) ([]byte, error) {
 	fields := make(map[string]json.RawMessage)
 	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 {
@@ -113,7 +102,7 @@ func SetRetention(data []byte, r Retention) ([]byte, error) {
 			return nil, fmt.Errorf("session: set retention: parse data: %w", err)
 		}
 	}
-	if fields == nil { // JSON "null" unmarshals to a nil map.
+	if fields == nil { // JSON "null" 会反序列化为 nil map。
 		fields = make(map[string]json.RawMessage)
 	}
 
@@ -130,9 +119,9 @@ func SetRetention(data []byte, r Retention) ([]byte, error) {
 	return out, nil
 }
 
-// GetRetention reads the retention hint from a record's JSON data envelope.
-// Missing, malformed, non-object, or unrecognised values all mean
-// RetainDefault, so records written before this hint existed behave normally.
+// GetRetention 从记录的 JSON 数据包络中读取保留提示。
+// 缺失、格式错误、非对象或无法识别的值都表示 RetainDefault，
+// 因此在该提示出现之前写入的记录表现正常。
 func GetRetention(data []byte) Retention {
 	var fields map[string]json.RawMessage
 	if len(data) == 0 || json.Unmarshal(data, &fields) != nil || fields == nil {
@@ -149,15 +138,12 @@ func GetRetention(data []byte) Retention {
 	return parseRetention(text)
 }
 
-// SelectForCompaction returns the records that must survive compaction: those
-// marked RetainAlways or RetainInThread, regardless of where the compactor's
-// cut lands. It is a pure helper; the caller decides how to merge the result
-// into the kept suffix.
+// SelectForCompaction 返回必须在压缩后保留的记录：标记为 RetainAlways 或 RetainInThread 的记录，
+// 无论压缩器的切分点落在哪里。它是纯辅助函数；调用方决定如何把结果合并到保留的后缀中。
 //
-// budget caps how many records are returned (it is a count, not a token
-// estimate). A non-positive budget means no cap. When the cap forces a choice,
-// the most recently occurring flagged records win, mirroring KeepForBudget's
-// "newest context survives" rule. The result is in original record order.
+// budget 限制返回的记录数量（是条数，不是 token 估算）。非正数表示不设上限。
+// 当上限迫使做出选择时，最近出现的带标记记录优先，与 KeepForBudget 的"最新上下文得以保留"规则一致。
+// 结果按原始记录顺序排列。
 func SelectForCompaction(records []Record, budget int) []Record {
 	flagged := make([]Record, 0, len(records))
 	for i := len(records) - 1; i >= 0; i-- {
@@ -178,10 +164,9 @@ func SelectForCompaction(records []Record, budget int) []Record {
 	return flagged
 }
 
-// SelectForChildren returns the records that must be seeded into child
-// sessions: those marked RetainAlways or RetainInChildren, in original record
-// order. RetainInThread is intentionally excluded — it survives compaction in
-// the parent but must not leak into subagent context.
+// SelectForChildren 返回必须植入子会话的记录：标记为 RetainAlways 或 RetainInChildren 的记录，
+// 按原始记录顺序排列。RetainInThread 被刻意排除——它在父线程中能熬过压缩，
+// 但绝不能泄漏到子代理的上下文中。
 func SelectForChildren(records []Record) []Record {
 	var out []Record
 	for _, record := range records {

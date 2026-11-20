@@ -9,12 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// cronFieldNames are the canonical names of the five cron fields, in order.
+// cronFieldNames 是五个 cron 字段的规范名称，按顺序。
 var cronFieldNames = [5]string{"minute", "hour", "day-of-month", "month", "day-of-week"}
 
-// cronWeekdayAliases maps common weekday spellings to the numeric value the
-// grammar expects. The grammar is numeric-only, so aliases are diagnosed rather
-// than parsed; the mapped value is used only to suggest a replacement.
+// cronWeekdayAliases 把常见星期拼写映射到语法期望的数字值。该语法只接受数字，因此别名被诊断而非
+// 语法期望的数字值。该语法只接受数字，因此别名被诊断而非
+// 解析；映射值仅用于建议替换。
 var cronWeekdayAliases = map[string]int{
 	"sun": 0, "sunday": 0,
 	"mon": 1, "monday": 1,
@@ -30,9 +30,9 @@ const (
 	cronSeverityWarning = "warning"
 )
 
-// CronIssue is one problem found by ValidateCron. Start and End are zero-based
-// byte offsets into the original expression, so they stay correct even when a
-// multibyte (for example CJK) character precedes the offending text.
+// CronIssue 是 ValidateCron 发现的一个问题。Start 和 End 是原始表达式中从零开始的字节偏移，因此即使在违规文本之前有
+// 原始表达式中从零开始的字节偏移，因此即使在违规文本之前有
+// 多字节（例如 CJK）字符，它们也保持正确。
 type CronIssue struct {
 	Field    int    // 0-based field index (0=minute ... 4=day-of-week); -1 when not field-specific
 	Start    int    // byte offset of the offending text; -1 when unknown
@@ -42,7 +42,7 @@ type CronIssue struct {
 	Severity string // cronSeverityError or cronSeverityWarning
 }
 
-// String renders the issue as a single readable line with its position.
+// String 将问题渲染为带位置的单行可读文本。
 func (i CronIssue) String() string {
 	where := "expression"
 	if i.Field >= 0 && i.Field < len(cronFieldNames) {
@@ -64,17 +64,17 @@ func (i CronIssue) String() string {
 	return b.String()
 }
 
-// ValidateCron checks a five-field cron expression and returns every problem
-// it finds. Unlike ParseCron, which stops at the first error, ValidateCron
-// reports all issues together with the field name and byte position, so a CLI
-// or editor can point at the exact mistake.
+// ValidateCron 检查五字段 cron 表达式并返回它找到的所有
+// ValidateCron 检查五字段 cron 表达式并返回它找到的所有问题。与遇到第一个错误就停止的 ParseCron 不同，ValidateCron
+// 报告所有问题以及字段名和字节位置，使 CLI 或编辑器能指向确切的错误。
+// 或编辑器能指向确切的错误。
 //
-// It is a pure function: the result depends only on expr, and every diagnostic
-// is in English and independent of any CJK or other locale. Field counts,
-// ranges, steps, weekday aliases and illegal combinations (reversed ranges,
-// repeated step separators) are checked. A syntactically valid expression that
-// can never fire (for example day-of-month 31 restricted to February) is
-// reported as a warning. A valid expression returns an empty, non-nil slice.
+// 它是纯函数：结果只依赖 expr，且每条诊断
+// 它是纯函数：结果只依赖 expr，且每条诊断都是英文且与任何 CJK 或其他语言环境无关。检查字段数量、
+// 范围、步长、星期别名和非法组合（反向范围、
+// 重复步长分隔符）。语法有效但永不触发的表达式
+// 范围、步长、星期别名和非法组合（反向范围、重复步长分隔符）。语法有效但永不触发的表达式（例如限定在二月的 31 日）
+// 被报告为警告。有效表达式返回空但非 nil 的切片。
 func ValidateCron(expr string) []CronIssue {
 	issues := make([]CronIssue, 0)
 	fields := splitCronFields(expr)
@@ -101,17 +101,17 @@ func ValidateCron(expr string) []CronIssue {
 		}
 		issues = append(issues, validateCronField(field.text, field.start, i, bounds[i][0], bounds[i][1])...)
 	}
-	// Cross-field checks only make sense when all five fields are present and
-	// structurally valid, so parsing cannot fail.
+	// 跨字段检查只有在所有五个字段都存在且
+	// 结构有效时才有意义，因此解析不会失败。
 	if len(fields) == 5 && !hasCronError(issues) {
 		issues = append(issues, cronNeverFiresIssues(expr)...)
 	}
 	return issues
 }
 
-// cronNeverFiresIssues warns when expr is syntactically valid but has no
-// matching time within five years. It reuses ParseCron/Next so the diagnostic
-// cannot drift from the scheduler's own definition of "fires".
+// 跨字段检查只有在所有五个字段都存在且结构有效时才有意义，因此解析不会失败。
+// cronNeverFiresIssues 在 expr 语法有效但五年内没有匹配时间时发出警告。它复用 ParseCron/Next，使诊断
+// 不会偏离调度器自己对"触发"的定义。
 func cronNeverFiresIssues(expr string) []CronIssue {
 	c, err := ParseCron(expr)
 	if err != nil {
@@ -130,16 +130,16 @@ func cronNeverFiresIssues(expr string) []CronIssue {
 	return nil
 }
 
-// cronFieldToken is one whitespace-separated field plus its byte offsets.
+// cronFieldToken 是一个以空白分隔的字段及其字节偏移。
 type cronFieldToken struct {
 	text  string
 	start int // byte offset of the first byte of the field
 	end   int // byte offset just past the last byte of the field
 }
 
-// splitCronFields splits expr on Unicode whitespace while keeping byte
-// offsets. It matches strings.Fields semantics but remains CJK-independent:
-// offsets stay correct even when multibyte characters precede a bad field.
+// splitCronFields 在 Unicode 空白上拆分 expr 并保留字节
+// splitCronFields 在 Unicode 空白上拆分 expr 并保留字节偏移。它匹配 strings.Fields 语义但保持 CJK 无关：
+// 即使多字节字符出现在坏字段之前，偏移也保持正确。
 func splitCronFields(expr string) []cronFieldToken {
 	var out []cronFieldToken
 	pos := 0
@@ -179,8 +179,8 @@ func hasCronError(issues []CronIssue) bool {
 	return false
 }
 
-// validateCronField reports every issue in a single field. base is the byte
-// offset of the field within the original expression.
+// validateCronField 报告单个字段中的所有问题。base 是该字段在原始表达式中的字节偏移。
+// 该字段在原始表达式中的字节偏移。
 func validateCronField(text string, base, idx, min, max int) []CronIssue {
 	var issues []CronIssue
 	add := func(start, end int, fragment, message string) {
@@ -219,7 +219,7 @@ func validateCronField(text string, base, idx, min, max int) []CronIssue {
 		}
 		switch {
 		case body == "*":
-			// Unrestricted: always valid.
+			// 无限制：始终有效。
 		case strings.Contains(body, "-"):
 			first, last, found := strings.Cut(body, "-")
 			if !found || strings.Contains(last, "-") {
@@ -239,8 +239,8 @@ func validateCronField(text string, base, idx, min, max int) []CronIssue {
 	return issues
 }
 
-// validateCronValue validates one numeric value (or a weekday alias), returning
-// the parsed number and whether it is usable for range checks.
+// validateCronValue 验证一个数字值（或星期别名），返回解析出的数字以及它是否可用于范围检查。
+// 解析出的数字以及它是否可用于范围检查。
 func validateCronValue(token string, start int, min, max, idx int, add func(int, int, string, string)) (int, bool) {
 	lead := len(token) - len(strings.TrimLeftFunc(token, unicode.IsSpace))
 	trimmed := strings.TrimSpace(token)
@@ -269,7 +269,7 @@ func validateCronValue(token string, start int, min, max, idx int, add func(int,
 	return v, true
 }
 
-// validateCronStep reports a non-positive or non-numeric step value.
+// validateCronStep 报告非正或非数字的步长值。
 func validateCronStep(stepText string, start int, add func(int, int, string, string)) {
 	lead := len(stepText) - len(strings.TrimLeftFunc(stepText, unicode.IsSpace))
 	trimmed := strings.TrimSpace(stepText)

@@ -19,29 +19,29 @@ import (
 
 // ---- powershell ----
 
-// powerShellFixedPath is the default PowerShell 7 install location on Windows.
-// It is only consulted after both PATH lookups fail, so scoop/winget/user
-// installs (which put pwsh on PATH but not here) win over this fixed path.
+// powerShellFixedPath 是 Windows 上 PowerShell 7 的默认安装位置。
+// 只有在两次 PATH 查找都失败后才会查询它，因此 scoop/winget/用户级
+// 安装（它们把 pwsh 放进 PATH 但没放进这里）优先于这个固定路径。
 const powerShellFixedPath = `C:\Program Files\PowerShell\7\pwsh.exe`
 
-// powerShellUtf8Prefix is prepended to every script before it is UTF-16LE
-// encoded into -EncodedCommand. Windows PowerShell 5.1 defaults its console to
-// the OEM code page, which mangles non-ASCII output (e.g. Chinese) into '?';
-// pinning both the console's output encoding and $OutputEncoding (what the
-// pipeline uses to talk to native commands) to UTF-8 fixes that. PowerShell 7
-// already defaults to UTF-8, so the assignments are harmless there.
+// powerShellUtf8Prefix 会在每段脚本被 UTF-16LE 编码进
+// -EncodedCommand 之前前置。Windows PowerShell 5.1 的控制台默认使用
+// OEM 代码页，会把非 ASCII 输出（如中文）弄成 '?'；
+// 把控制台的输出编码和 $OutputEncoding（管道与原生命令通信所用）
+// 都固定为 UTF-8 即可解决。PowerShell 7
+// 已经默认使用 UTF-8，因此这些赋值在那里无害。
 //
-// The prefix lives inside the script rather than in a separate -Command
-// argument so the whole payload stays one encoded argument that no outer shell
-// can reinterpret. This mirrors dsh; the tradeoff is that a script whose very
-// first statement is `using` or `param` would be pushed off the first line,
-// which PowerShell rejects — acceptable for agent-generated scripts.
+// 前缀放在脚本内部，而不是单独的 -Command
+// 参数里，使整个载荷保持为一个编码参数，任何外层 shell 都
+// 无法重新解释。这与 dsh 的做法一致；代价是首条语句为 `using` 或
+// `param` 的脚本会被推离第一行，
+// 而 PowerShell 会拒绝这种情况 —— 对 agent 生成的脚本可以接受。
 const powerShellUtf8Prefix = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncoding=[Text.Encoding]::UTF8; "
 
-// powerShellEnvOverrides returns the per-call environment appended to the
-// inherited one by proc.Run. NO_COLOR and the pager overrides keep captured
-// output deterministic: no ANSI colour codes and no interactive pager waiting
-// on stdin, which would otherwise garble or stall the parsed result.
+// powerShellEnvOverrides 返回由 proc.Run 追加到
+// 继承环境中的每次调用环境。NO_COLOR 和 pager 覆盖让捕获到的
+// 输出具有确定性：没有 ANSI 颜色码，也没有在 stdin 上等待的交互式 pager，
+// 否则后者会扰乱或拖住解析结果。
 func powerShellEnvOverrides() []string {
 	return []string{
 		"NO_COLOR=1",
@@ -50,9 +50,9 @@ func powerShellEnvOverrides() []string {
 	}
 }
 
-// resolvePowerShellProgram finds a PowerShell executable, preferring PATH.
-// Keeping the lookup order in one small function makes it testable with a fake
-// executable on PATH without requiring a real PowerShell installation.
+// resolvePowerShellProgram 查找 PowerShell 可执行文件，优先使用 PATH。
+// 把查找顺序集中在一个小函数里，使其可以通过 PATH 上的假
+// 可执行文件来测试，而无需真实安装 PowerShell。
 func resolvePowerShellProgram() (string, error) {
 	if path, err := exec.LookPath("pwsh"); err == nil {
 		return path, nil
@@ -66,16 +66,16 @@ func resolvePowerShellProgram() (string, error) {
 	return "", fmt.Errorf("powershell: no PowerShell found (tried pwsh and powershell on PATH, then %s)", powerShellFixedPath)
 }
 
-// encodePowerShellCommand is the Go equivalent of
-// base64.StdEncoding.EncodeToString(utf16.EncodeToLE([]byte(script))).
-// Go 1.27's stdlib has no utf16.EncodeToLE, so the UTF-16 code units from
-// utf16.Encode are written explicitly in little-endian order.
+// encodePowerShellCommand 是如下 Go 等价实现：
+// base64.StdEncoding.EncodeToString(utf16.EncodeToLE([]byte(script)))。
+// Go 1.27 的标准库没有 utf16.EncodeToLE，因此把
+// utf16.Encode 得到的 UTF-16 码元按小端序显式写出。
 //
-// The script is passed as one -EncodedCommand argument instead of being staged
-// in a temp .ps1 file like rpi does. That deviates from rpi's wrapper approach
-// (which avoids ParserError for scripts whose first statement is `using` or
-// `param`) but keeps this tool dependency-free and leaves no temp files to
-// clean up; PowerShell's -EncodedCommand accepts any complete script.
+// 脚本作为单个 -EncodedCommand 参数传入，而不是像 rpi 那样暂存
+// 到临时 .ps1 文件。这偏离了 rpi 的包装方式
+// （后者可避免首条语句为 `using` 或 `param` 的脚本出现 ParserError，
+// 见上），但让本工具不依赖任何东西，也不留下临时文件
+// 需要清理；PowerShell 的 -EncodedCommand 接受任何完整脚本。
 func encodePowerShellCommand(script string) string {
 	units := utf16.Encode([]rune(script))
 	buf := make([]byte, len(units)*2)
@@ -85,16 +85,16 @@ func encodePowerShellCommand(script string) string {
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
-// powershellArgs builds the argv that runs script through PowerShell. The
-// UTF-8 prefix and the caller's script are encoded together, so quotes,
-// newlines and host-path characters cannot be reinterpreted by an outer shell.
+// powershellArgs 构建通过 PowerShell 运行脚本的 argv。
+// UTF-8 前缀和调用方的脚本被一起编码，因此引号、
+// 换行和主机路径字符都不会被外层 shell 重新解释。
 func powershellArgs(script string) []string {
 	return []string{"-NoProfile", "-NonInteractive", "-EncodedCommand", encodePowerShellCommand(powerShellUtf8Prefix + script)}
 }
 
-// powershellProcCommand builds the proc.Command that Run executes. Kept apart
-// from Run so the UTF-8 prefix and the environment overrides are verifiable in
-// a unit test without needing a real PowerShell installation.
+// powershellProcCommand 构建 Run 执行的 proc.Command。它与 Run 分开
+// 保留，使 UTF-8 前缀和环境覆盖可以在
+// 单元测试中验证，而无需真实安装 PowerShell。
 func powershellProcCommand(program, script, root string) proc.Command {
 	return proc.Command{
 		Path:     program,
@@ -150,9 +150,9 @@ func (powershellTool) Run(ctx context.Context, root string, raw json.RawMessage)
 	if args.TimeoutSeconds > 0 {
 		requested = time.Duration(args.TimeoutSeconds) * time.Second
 	}
-	// Reuse the shell budget so PowerShell obeys the same default, floor,
-	// ceiling and registry-wide cap as bash. The guard and inherited environment
-	// are handled by the registry and proc.Run respectively, exactly as for bash.
+	// 复用 shell 预算，使 PowerShell 遵守与 bash 相同的默认值、下限、
+	// 上限和注册表级上限。守卫与继承环境
+	// 分别由注册表和 proc.Run 处理，与 bash 完全一致。
 	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

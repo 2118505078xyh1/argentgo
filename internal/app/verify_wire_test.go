@@ -14,10 +14,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// TestValidateVerifyArgvAllowlist pins the local copy of the eval exec allowlist:
-// only `go test|build ...` and a relative .exe are accepted, and every known
-// escape (shells, absolute paths, traversal, metacharacters, -exec/-toolexec)
-// is refused.
+// TestValidateVerifyArgvAllowlist 锁定 eval exec 白名单的本地副本：只接受 `go test|build ...` 和相对的 .exe，
+// 每一种已知的逃逸（shell、绝对路径、遍历、元字符、-exec/-toolexec）都被拒绝。
+// （接上行）
+// （接上行）
 func TestValidateVerifyArgvAllowlist(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -60,8 +60,8 @@ func TestValidateVerifyArgvAllowlist(t *testing.T) {
 	}
 }
 
-// TestNewVerifyFuncMisconfigurationIsUnrunnable checks that an empty or
-// disallowed command yields ok=false, so the loop injects no feedback.
+// TestNewVerifyFuncMisconfigurationIsUnrunnable 检查空命令或被拒绝的命令会产生 ok=false，
+// 使循环不注入任何反馈。
 func TestNewVerifyFuncMisconfigurationIsUnrunnable(t *testing.T) {
 	for _, argv := range [][]string{nil, {"bash", "-c", "echo hi"}} {
 		verify := NewVerifyFunc(argv, 0, t.TempDir())
@@ -91,9 +91,9 @@ func TestVerifyEnvironmentStripsGOFLAGS(t *testing.T) {
 	}
 }
 
-// verifyProbeProgram is a trivial temp Go module used to exercise the runner
-// without a shell. Modes: default exit 0, "fail" exits 1 with a planted secret,
-// "huge" writes 200KB, and "sleep" blocks until killed by the deadline.
+// verifyProbeProgram 是一个用来在不使用 shell 的情况下演练运行器的微型临时 Go 模块。
+// 模式：默认退出 0，"fail" 退出 1 并带一个植入的机密，
+// "huge" 写入 200KB，"sleep" 阻塞直到被截止时间杀掉。
 const verifyProbeProgram = `package main
 
 import (
@@ -121,8 +121,8 @@ func main() {
 }
 `
 
-// buildVerifyProbe builds the probe inside workspace and returns its relative
-// .exe name. It skips when the Go toolchain is unavailable.
+// buildVerifyProbe 在工作区内构建探针并返回其相对 .exe 名称。
+// Go 工具链不可用时跳过。
 func buildVerifyProbe(t *testing.T, workspace string) string {
 	t.Helper()
 	writeVerifyFile(t, workspace, "go.mod", "module verifyprobe\n\ngo 1.21\n")
@@ -145,8 +145,8 @@ func writeVerifyFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-// TestNewVerifyFuncOutcomes drives pass, fail (with redaction), bounded output
-// and timeout through a relative .exe built from a trivial temp Go module.
+// TestNewVerifyFuncOutcomes 通过从微型临时 Go 模块构建的 .exe，演练通过、失败（带脱敏）、有界输出和超时。
+// （接上行）
 func TestNewVerifyFuncOutcomes(t *testing.T) {
 	workspace := t.TempDir()
 	exe := buildVerifyProbe(t, workspace)
@@ -206,8 +206,8 @@ func TestNewVerifyFuncOutcomes(t *testing.T) {
 	})
 }
 
-// TestNewVerifyFuncAcceptsGoTest exercises the `go` branch with a real (tiny)
-// temp module. It skips when go is not on PATH.
+// TestNewVerifyFuncAcceptsGoTest 用真实的（微型）临时模块演练 `go` 分支。
+// go 不在 PATH 上时跳过。
 func TestNewVerifyFuncAcceptsGoTest(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)
@@ -233,8 +233,8 @@ func verifyTestEnv(home string) func(string) string {
 	}
 }
 
-// TestConfigDecodeVerifySettings pins the config -> Config field decode for
-// both the file layer and the override layer (which is how the CLI flags land).
+// TestConfigDecodeVerifySettings 锁定文件层和覆盖层（CLI 标志的落点）的 config -> Config 字段解码。
+// （接上行）
 func TestConfigDecodeVerifySettings(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
@@ -255,7 +255,7 @@ func TestConfigDecodeVerifySettings(t *testing.T) {
 		t.Fatalf("VerifyMaxReflections = %d, want 5", cfg.VerifyMaxReflections)
 	}
 
-	// CLI flags write typed overrides; the same shape must win over the file.
+	// CLI 标志写入带类型的覆盖；同样的形状必须优先于文件。
 	cfg, err = config.LoadWithOverrides(root, verifyTestEnv(home), map[string]any{
 		"verifyCommand":   []any{"go", "build", "./..."},
 		"verifyTimeoutMS": 4321,
@@ -284,9 +284,9 @@ func TestConfigVerifyDefaultsAreOptIn(t *testing.T) {
 	}
 }
 
-// TestVerifyWiringDefaultOffAndConfigured pins the helpers used by the Options
-// construction in app_execute.go: no command means nil Verify and a zero cap
-// (byte-identical Options); a configured command enables the loop with a cap.
+// TestVerifyWiringDefaultOffAndConfigured 锁定 app_execute.go 中 Options 构造所用的辅助函数：
+// 没有命令意味着 Verify 为 nil 且上限为零（Options 逐字节不变）；
+// 配置的命令则启用带上限的循环。
 func TestVerifyWiringDefaultOffAndConfigured(t *testing.T) {
 	if got := verifyFuncFor(Resolved{}); got != nil {
 		t.Fatal("verifyFuncFor(empty) = non-nil, want nil")
@@ -312,18 +312,18 @@ func TestVerifyWiringDefaultOffAndConfigured(t *testing.T) {
 	}
 }
 
-// TestVerifyTailBufferKeepsRuneAlignedTailClean pins the truncation path when
-// the cap boundary splits a multi-byte rune. The buffer must drop the leading
-// partial rune and must NOT append stale bytes from before the retained tail
-// window (Truncate still saw the original, larger length).
+// TestVerifyTailBufferKeepsRuneAlignedTailClean 锁定上限边界切断多字节 rune 时的截断路径：
+// 缓冲区必须丢弃开头的不完整 rune，且绝不能追加保留窗口之前的过期字节
+// （Truncate 仍看到原始的、更大的长度）。
+// （接上行）
 func TestVerifyTailBufferKeepsRuneAlignedTailClean(t *testing.T) {
 	tail := strings.Repeat("A", verifyOutputCap-1)
 	for _, tc := range []struct {
 		name   string
 		writes []string
 	}{
-		{"single write", []string{"é" + tail}}, // cap boundary splits the leading 2-byte rune
-		{"split writes", []string{"é", tail}},  // same, but the tail arrives incrementally
+		{"single write", []string{"é" + tail}}, // 上限边界切断开头的 2 字节 rune
+		{"split writes", []string{"é", tail}},  // 相同情形，但尾部是增量到达的
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var w verifyTailBuffer
@@ -343,7 +343,7 @@ func TestVerifyTailBufferKeepsRuneAlignedTailClean(t *testing.T) {
 	}
 }
 
-// joinedArgvs renders a selection result for table comparisons.
+// joinedArgvs 把选择结果渲染成便于表格比较的字符串。
 func joinedArgvs(argvs [][]string) []string {
 	out := make([]string, len(argvs))
 	for i, argv := range argvs {
@@ -360,9 +360,9 @@ func assertArgvs(t *testing.T, got [][]string, want ...string) {
 	}
 }
 
-// TestSelectVerifyCommandsByExtension pins per-language dispatch: dotted and
-// bare keys, aliases and case differences all map a file extension to the
-// configured command without spawning a process.
+// TestSelectVerifyCommandsByExtension 锁定按语言分派：带点和裸的键、别名以及大小写差异
+// 都能把文件扩展名映射到配置的命令，且不派生进程。
+// （接上行）
 func TestSelectVerifyCommandsByExtension(t *testing.T) {
 	commands := map[string]string{
 		".go":        "go test ./go/...",
@@ -387,9 +387,9 @@ func TestSelectVerifyCommandsByExtension(t *testing.T) {
 	}
 }
 
-// TestSelectVerifyCommandsUnknownExtensionFallback pins the fallback: a path
-// with no matching language uses the single VerifyCommand; with no fallback at
-// all, nothing is selected so the loop skips verification for that batch.
+// TestSelectVerifyCommandsUnknownExtensionFallback 锁定回退：没有匹配语言的路径使用单一的 VerifyCommand；
+// 完全没有回退时不选择任何内容，循环会跳过该批次的验证。
+// （接上行）
 func TestSelectVerifyCommandsUnknownExtensionFallback(t *testing.T) {
 	commands := map[string]string{".go": "go test ./go/..."}
 	fallback := []string{"go", "build", "./..."}
@@ -399,13 +399,13 @@ func TestSelectVerifyCommandsUnknownExtensionFallback(t *testing.T) {
 	assertArgvs(t, selectVerifyArgvs(commands, fallback, []string{"main.go", "docs/readme.txt"}),
 		"go test ./go/...", "go build ./...")
 	assertArgvs(t, selectVerifyArgvs(commands, nil, []string{"docs/readme.txt"}))
-	// No checkpoint paths still exercises the fallback once.
+	// 没有检查点路径时仍会演练一次回退。
 	assertArgvs(t, selectVerifyArgvs(commands, fallback, nil), "go build ./...")
 }
 
-// TestSelectVerifyCommandsMultipleFiles pins multi-file dispatch: every
-// distinct language command is selected once, in first-seen order, regardless
-// of how many files share that language.
+// TestSelectVerifyCommandsMultipleFiles 锁定多文件分派：每个不同的语言命令只选择一次，按首次出现顺序，
+// 与多少个文件共享该语言无关。
+// （接上行）
 func TestSelectVerifyCommandsMultipleFiles(t *testing.T) {
 	commands := map[string]string{
 		".go": "go test ./go/...",
@@ -417,10 +417,10 @@ func TestSelectVerifyCommandsMultipleFiles(t *testing.T) {
 		"go test ./go/...", "go test ./py/...", "go test ./rs/...")
 }
 
-// TestSelectVerifyAllLanguagesFallback pins the "*" catch-all contract: a file
-// whose extension has no language-specific command uses the configured
-// all-languages command. It runs once (de-duplicated) for any number of such
-// files, and also covers a checkpoint with no paths at all.
+// TestSelectVerifyAllLanguagesFallback 锁定 "*" 兜底契约：扩展名没有专用命令的文件使用配置的全语言命令。
+// 它对任意数量的此类文件只运行一次（去重），也覆盖完全没有路径的检查点。
+// （接上行）
+// （接上行）
 func TestSelectVerifyAllLanguagesFallback(t *testing.T) {
 	commands := map[string]string{"*": "go test ./..."}
 
@@ -433,9 +433,9 @@ func TestSelectVerifyAllLanguagesFallback(t *testing.T) {
 	assertArgvs(t, selectVerifyArgvs(commands, nil, nil), "go test ./...")
 }
 
-// TestSelectVerifySpecificOverridesAllLanguages pins that a language-specific
-// command takes precedence over "*": the catch-all is not run for a file that
-// already has its own command, but still covers other files in the same batch.
+// TestSelectVerifySpecificOverridesAllLanguages 确认语言专用命令优先于 "*"：对已有自己命令的文件不运行兜底，
+// 但仍覆盖同一批次中的其他文件。
+// （接上行）
 func TestSelectVerifySpecificOverridesAllLanguages(t *testing.T) {
 	commands := map[string]string{
 		".go": "go test ./go/...",
@@ -447,25 +447,25 @@ func TestSelectVerifySpecificOverridesAllLanguages(t *testing.T) {
 		"go test ./go/...", "go test ./...")
 }
 
-// TestSelectVerifyAllLanguagesBeatsVerifyCommand pins the fallback priority
-// when both the "*" key and the legacy VerifyCommand field are configured:
-// "*" wins as the single catch-all. With no "*" key, VerifyCommand remains the
-// fallback, so the legacy behaviour is unchanged.
+// TestSelectVerifyAllLanguagesBeatsVerifyCommand 锁定同时配置 "*" 键和旧版 VerifyCommand 字段时的回退优先级：
+// "*" 胜出作为唯一的兜底。没有 "*" 键时 VerifyCommand 仍是回退，因此旧版行为不变。
+// （接上行）
+// （接上行）
 func TestSelectVerifyAllLanguagesBeatsVerifyCommand(t *testing.T) {
 	fallback := []string{"go", "build", "./..."}
 
 	assertArgvs(t,
 		selectVerifyArgvs(map[string]string{"*": "go test ./all/..."}, fallback, []string{"readme.txt"}),
 		"go test ./all/...")
-	// No "*": VerifyCommand is still the fallback for an unmatched path.
+	// 没有 "*"：VerifyCommand 仍是未匹配路径的回退。
 	assertArgvs(t,
 		selectVerifyArgvs(map[string]string{".go": "go test ./go/..."}, fallback, []string{"readme.txt"}),
 		"go build ./...")
 }
 
-// TestSelectVerifyFallbackPriorityChain pins the full precedence in a mixed
-// batch: specific language commands first (first-seen order), then "*" for
-// every other language, with VerifyCommand never running once "*" is present.
+// TestSelectVerifyFallbackPriorityChain 锁定混合批次中的完整优先级：先是语言专用命令（按首次出现顺序），
+// 然后 "*" 覆盖其他所有语言，一旦存在 "*"，VerifyCommand 永不运行。
+// （接上行）
 func TestSelectVerifyFallbackPriorityChain(t *testing.T) {
 	commands := map[string]string{
 		".go": "go test ./go/...",
@@ -478,9 +478,9 @@ func TestSelectVerifyFallbackPriorityChain(t *testing.T) {
 		"go test ./go/...", "go test ./py/...", "go test ./all/...")
 }
 
-// TestVerifyWiringAllLanguagesDispatch pins that a "*"-only map enables the
-// loop and that a disallowed catch-all command is still rejected by the
-// allowlist at the runner boundary (selection itself never validates).
+// TestVerifyWiringAllLanguagesDispatch 确认只有 "*" 的映射会启用循环，且被拒绝的兜底命令仍会被运行器边界的白名单拒绝
+// （选择本身从不校验）。
+// （接上行）
 func TestVerifyWiringAllLanguagesDispatch(t *testing.T) {
 	res := Resolved{
 		Cfg:  config.Config{VerifyCommands: map[string]string{"*": "bash -c echo hi"}},
@@ -496,9 +496,9 @@ func TestVerifyWiringAllLanguagesDispatch(t *testing.T) {
 	}
 }
 
-// TestVerifyWiringPerLanguageDispatch pins that the per-language map enables
-// the loop on its own (without a single command), keeps reflections wired, and
-// that a configured single command alone still takes the legacy path.
+// TestVerifyWiringPerLanguageDispatch 确认按语言的映射自身就能启用循环（无需单一命令）、保持反思接线，
+// 且单独配置的一条命令仍走旧版路径。
+// （接上行）
 func TestVerifyWiringPerLanguageDispatch(t *testing.T) {
 	root := t.TempDir()
 	res := Resolved{
@@ -511,7 +511,7 @@ func TestVerifyWiringPerLanguageDispatch(t *testing.T) {
 	if got := verifyReflectionsFor(res); got != agent.DefaultMaxVerifyReflections {
 		t.Fatalf("verifyReflectionsFor(map only) = %d, want %d", got, agent.DefaultMaxVerifyReflections)
 	}
-	// A rejected command string yields ok=false but must not crash dispatch.
+	// 被拒绝的命令字符串产生 ok=false，但不得使分派崩溃。
 	res.Cfg.VerifyCommands = map[string]string{".go": "bash -c echo hi"}
 	_, _, _, ok := verifyFuncFor(res)(context.Background(), []string{"main.go"})
 	if ok {
@@ -519,8 +519,8 @@ func TestVerifyWiringPerLanguageDispatch(t *testing.T) {
 	}
 }
 
-// TestConfigDecodeVerifyCommands pins the config -> Config decode for the new
-// map at both the file and override layers, alongside the legacy single argv.
+// TestConfigDecodeVerifyCommands 锁定新映射在文件和覆盖层的 config -> Config 解码，以及旧的单一 argv。
+// （接上行）
 func TestConfigDecodeVerifyCommands(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()

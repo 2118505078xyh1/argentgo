@@ -12,12 +12,12 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// TestAutoApproverGrantsReadOnlyTools pins the --yolo convenience half of the
-// gate: ordinary tools and read-only shell commands are granted without ever
-// consulting the confirmation fallback, so auto mode stays fast off the
-// command path.
+// TestAutoApproverGrantsReadOnlyTools 锁定 --yolo 的便捷部分：
+// 门控对普通工具和只读 shell 命令直接批准，从不
+// 咨询确认回退，使 auto 模式在非命令路径上保持快捷。
+// （接上行）
 func TestAutoApproverGrantsReadOnlyTools(t *testing.T) {
-	fallback := &countingApprover{grant: false} // refuse everything if asked
+	fallback := &countingApprover{grant: false} // 被询问时拒绝一切
 	a := autoApprover{fallback: fallback}
 	ctx := context.Background()
 	for _, tc := range []struct{ name, args string }{
@@ -36,10 +36,10 @@ func TestAutoApproverGrantsReadOnlyTools(t *testing.T) {
 	}
 }
 
-// TestAutoApproverRefusesMutatingShellWithoutFallback is the core P1 fix: a
-// zero-value autoApprover (used by callers that inject it directly) must not
-// silently grant a destructive command. Fail closed. A non-shell tool carrying
-// a "command" field must be unaffected.
+// TestAutoApproverRefusesMutatingShellWithoutFallback 是核心 P1 修复：一个
+// 零值 autoApprover（由直接注入它的调用方使用）绝不能
+// 静默批准破坏性命令。安全失败。一个带有
+// "command" 字段的非 shell 工具不受影响。
 func TestAutoApproverRefusesMutatingShellWithoutFallback(t *testing.T) {
 	a := autoApprover{}
 	ctx := context.Background()
@@ -58,9 +58,9 @@ func TestAutoApproverRefusesMutatingShellWithoutFallback(t *testing.T) {
 	}
 }
 
-// TestAutoApproverDelegatesMutatingShellToFallback proves the approval chain is
-// still usable for explicit authorization: a mutating shell command consults
-// the fallback exactly once and follows its decision.
+// TestAutoApproverDelegatesMutatingShellToFallback 证明审批链仍然可用：
+// 变更型 shell 命令会恰好咨询回退一次，
+// 并遵循其决定。
 func TestAutoApproverDelegatesMutatingShellToFallback(t *testing.T) {
 	ctx := context.Background()
 	for _, grant := range []bool{true, false} {
@@ -76,9 +76,9 @@ func TestAutoApproverDelegatesMutatingShellToFallback(t *testing.T) {
 	}
 }
 
-// TestAutoChainDoesNotSilentlyRunMutatingBash is the wiring-level regression
-// test: with policy asking for both tools, the same auto approver still grants
-// read but produces a refusal for a mutating bash command through Chain.Check.
+// TestAutoChainDoesNotSilentlyRunMutatingBash 是接线层的回归
+// 测试：当策略要求两个工具都审批时，同一 auto 审批器仍批准
+// read，但通过 Chain.Check 对变更型 bash 命令产生拒绝。
 func TestAutoChainDoesNotSilentlyRunMutatingBash(t *testing.T) {
 	policy := security.NewPolicy(t.TempDir(), security.PolicyConfig{
 		Rules: []security.Rule{
@@ -99,10 +99,10 @@ func TestAutoChainDoesNotSilentlyRunMutatingBash(t *testing.T) {
 	}
 }
 
-// TestApproverForAutoWiresHumanFallback checks that --yolo / approval=auto get
-// a real confirmation fallback, and that it only accepts y/yes — an "A"
-// (approve all) answer must not authorize a destructive command, matching
-// aider's explicit_yes_required.
+// TestApproverForAutoWiresHumanFallback 检查 --yolo / approval=auto 获得
+// 一个真实的确认回退，且它只接受 y/yes——一个 "A"
+// （全部批准）的答案不得授权破坏性命令，与
+// aider 的 explicit_yes_required 一致。
 func TestApproverForAutoWiresHumanFallback(t *testing.T) {
 	for _, tc := range []struct {
 		answer string
@@ -130,9 +130,9 @@ func TestApproverForAutoWiresHumanFallback(t *testing.T) {
 	}
 }
 
-// TestYoloAndAutoShareTheSamePath guards against the two flags diverging:
-// --yolo resolves to approval=auto, so both spellings must route through the
-// same gated approver.
+// TestYoloAndAutoShareTheSamePath 防止两个标志产生分歧：
+// --yolo 解析为 approval=auto，因此两种写法都必须经由
+// 同一个带门控的审批器。
 func TestYoloAndAutoShareTheSamePath(t *testing.T) {
 	for _, mode := range []string{"auto", "yolo"} {
 		stdio := cli.IO{In: strings.NewReader("n\n"), Err: &bytes.Buffer{}}

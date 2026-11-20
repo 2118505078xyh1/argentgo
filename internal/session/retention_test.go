@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// markedRecord builds a message record whose Data carries the retention hint.
+// markedRecord 构建一条 Data 中带有保留提示的消息记录。
 func markedRecord(id string, r Retention) Record {
 	data, err := SetRetention([]byte(`{"content":"`+id+`"}`), r)
 	if err != nil {
@@ -16,7 +16,7 @@ func markedRecord(id string, r Retention) Record {
 	return Record{ID: id, Kind: KindMessage, Data: data}
 }
 
-// plainRecord builds a message record with no retention metadata at all.
+// plainRecord 构建一条完全没有保留元数据的消息记录。
 func plainRecord(id string) Record {
 	return Record{ID: id, Kind: KindMessage, Data: json.RawMessage(`{"content":"` + id + `"}`)}
 }
@@ -29,8 +29,8 @@ func recordIDs(records []Record) []string {
 	return out
 }
 
-// normalizedObject decodes a JSON object for semantic comparison, ignoring the
-// reserved retention key and any insignificant formatting differences.
+// normalizedObject 解码 JSON 对象以进行语义比较，忽略
+// 保留的保留策略键以及任何无关紧要的格式差异。
 func normalizedObject(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 	var value map[string]any
@@ -177,7 +177,7 @@ func TestSetRetentionLargeDataBounded(t *testing.T) {
 	if got := GetRetention(out); got != RetainInThread {
 		t.Fatalf("GetRetention = %v, want RetainInThread", got)
 	}
-	// The hint adds only a small field; the payload is not copied or truncated.
+	// 该提示只增加一个很小的字段；载荷不会被复制或截断。
 	if len(out) > len(original)+128 {
 		t.Fatalf("bounded data violated: original %d bytes, output %d bytes", len(original), len(out))
 	}

@@ -1,8 +1,8 @@
-// Package tui is the full-screen terminal interface: an alternate-screen
-// renderer over a cell Buffer that only repaints changed rows, the prompt
-// editor, the scrollable transcript and the blocking approval modal.
+// Package tui 是全屏终端界面：一个基于单元格 Buffer 的备用屏幕
+// 渲染器，它只重绘变化的行，加上提示
+// 编辑器、可滚动的记录和阻塞式审批弹窗。
 //
-// All UI state lives in Model, which never touches the terminal, so tests
-// drive it directly. Run owns the terminal, the key decoder and the event
-// loop, and restores the screen through a deferred cleanup.
+// 所有 UI 状态都在 Model 中，它从不触碰终端，因此测试
+// 可以直接驱动它。Run 拥有终端、按键解码器和事件
+// 循环，并通过延迟清理恢复屏幕。
 package tui

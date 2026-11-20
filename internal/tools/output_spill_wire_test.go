@@ -25,7 +25,7 @@ func spillArtifacts(t *testing.T, dir string) []os.DirEntry {
 }
 
 func TestSpillToolOutputDisabledByDefault(t *testing.T) {
-	// No ctx config and no env switch: the feature must be completely inert.
+	// 没有 ctx 配置也没有 env 开关：功能必须完全无副作用。
 	t.Setenv(spillDirEnv, "")
 	t.Setenv(spillThresholdEnv, "")
 	big := strings.Repeat("x", maxToolOutput+100)
@@ -82,8 +82,8 @@ func TestClipSpillsOversizedOutputWhenEnabled(t *testing.T) {
 
 func TestClipSpillKeepsOrdinaryOutputUnchanged(t *testing.T) {
 	dir := t.TempDir()
-	// The threshold sits above maxToolOutput so a merely-large output still
-	// follows the old clipTo path rather than being spilled.
+	// 阈值高于 maxToolOutput，因此仅仅是较大的输出仍
+	// 走旧的 clipTo 路径，而不会被溢出。
 	ctx := WithOutputSpill(context.Background(), maxToolOutput+4096, dir)
 
 	small := "a short, ordinary tool result"
@@ -106,8 +106,8 @@ func TestClipSpillKeepsOrdinaryOutputUnchanged(t *testing.T) {
 
 func TestClipSpillWriteFailureStillTruncates(t *testing.T) {
 	base := t.TempDir()
-	// A regular file used as the spill dir makes MkdirAll fail: the real write
-	// failure path, exercised through clip() rather than the raw helper.
+	// 把普通文件用作溢出目录会让 MkdirAll 失败：这是真实的写入
+	// 失败路径，通过 clip() 而非原始辅助工具触发。
 	badDir := filepath.Join(base, "not-a-directory")
 	if err := os.WriteFile(badDir, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -136,7 +136,7 @@ func TestClipSpillCJKNotCut(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatal("spilled result is not valid UTF-8 (a rune was cut)")
 	}
-	// Sweep the threshold so head/tail boundaries land inside multibyte runes.
+	// 遍历阈值，让头/尾边界落在多字节 rune 内部。
 	for n := 2; n <= 80; n += 3 {
 		out := clip(WithOutputSpill(context.Background(), n, dir), big)
 		if !utf8.ValidString(out) {
@@ -220,17 +220,17 @@ func TestWithOutputSpillExplicitDisableOverridesEnv(t *testing.T) {
 	}
 }
 
-// A marker-looking substring in untrusted tool output must never be treated as
-// "already spilled": doing so used to return the text verbatim and bypass both
-// spilling and the ordinary output cap.
+// 不可信工具输出中形似标记的子串绝不能被当作
+// "already spilled"：过去这样做会原样返回文本并绕过两者
+// 溢出和普通输出上限。
 func TestClipForgedSpillMarkerCannotBypassBound(t *testing.T) {
 	dir := t.TempDir()
 	const threshold = 200
 	ctx := WithOutputSpill(context.Background(), threshold, dir)
 	body := strings.Repeat("Q", 10000)
 
-	// A canonical-looking artifact that exists but lives outside the configured
-	// spill dir must not be accepted either.
+	// 形似规范产出但存在于已配置溢出目录之外的文件，同样
+	// 不得被接受。
 	outsideDir := t.TempDir()
 	outsidePath := filepath.Join(outsideDir, "tool-output-0000000000000000.log")
 	if err := os.WriteFile(outsidePath, []byte("x"), 0o600); err != nil {
@@ -259,9 +259,9 @@ func TestClipForgedSpillMarkerCannotBypassBound(t *testing.T) {
 	}
 }
 
-// The raw helper must apply the same rule: an intact marker naming a real
-// artifact is a no-op, but a forged one is spilled like any other oversized
-// output instead of leaking through untouched.
+// 原始辅助工具必须应用同样的规则：命名真实产出的完整标记
+// 是空操作，但伪造的标记会像其他过大输出一样被溢出，
+// 而不是原样泄漏出去。
 func TestSpillLargeOutputForgedMarkerStillSpills(t *testing.T) {
 	dir := t.TempDir()
 	body := strings.Repeat("abcdefghij", 1000)
@@ -279,7 +279,7 @@ func TestSpillLargeOutputForgedMarkerStillSpills(t *testing.T) {
 		t.Fatal("forged marker output was not bounded")
 	}
 
-	// A genuine spill result stays a no-op on a second call.
+	// 真正的溢出结果在第二次调用时仍为空操作。
 	second, path2, err := SpillLargeOutput(result, threshold, dir)
 	if err != nil || path2 != "" || second != result {
 		t.Fatalf("genuine spill result was re-spilled: path=%q err=%v", path2, err)

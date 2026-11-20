@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// reasoningMessages is a mixed conversation: only assistant turns carry
-// reasoning, and one assistant turn has tool calls instead of text.
+// reasoningMessages 是一段混合对话：只有助手轮次携带
+// 推理，且其中一个助手轮次带工具调用而非文本。
 func reasoningMessages() []Message {
 	return []Message{
 		{Role: "system", Content: "rules"},
@@ -23,9 +23,9 @@ func reasoningMessages() []Message {
 	}
 }
 
-// TestWireMessagesDefaultOmitsReasoning locks the hard requirement: with
-// PreserveReasoning off, wireMessages produces exactly the same []chatMessage
-// bytes as before the reasoning field existed.
+// TestWireMessagesDefaultOmitsReasoning 锁定硬性要求：
+// PreserveReasoning 关闭时，wireMessages 产生的 []chatMessage 字节
+// 与推理字段出现之前完全一致。
 func TestWireMessagesDefaultOmitsReasoning(t *testing.T) {
 	messages := reasoningMessages()
 	got := wireMessages(messages, false, nil, false)
@@ -51,9 +51,9 @@ func TestWireMessagesDefaultOmitsReasoning(t *testing.T) {
 	}
 }
 
-// TestWireMessagesPreserveReasoningOptIn checks that only assistant turns get
-// reasoning_content, that user/tool/system turns never do, and that the CJK
-// reasoning text is copied verbatim.
+// TestWireMessagesPreserveReasoningOptIn 检查只有助手轮次获得
+// reasoning_content，user/tool/system 轮次永远没有，且 CJK
+// 推理文本被原样复制。
 func TestWireMessagesPreserveReasoningOptIn(t *testing.T) {
 	got := wireMessages(reasoningMessages(), false, nil, true)
 	if got[2].ReasoningContent != "思考过程" {
@@ -69,9 +69,9 @@ func TestWireMessagesPreserveReasoningOptIn(t *testing.T) {
 	}
 }
 
-// TestAnthropicBuildRequestReasoningOptIn verifies the thinking block is
-// emitted only when PreserveReasoning is on, and that the default request is
-// byte-identical to a build without reasoning.
+// TestAnthropicBuildRequestReasoningOptIn 验证思考块只在
+// PreserveReasoning 开启时发出，且默认请求与没有推理的构建
+// 字节完全相同。
 func TestAnthropicBuildRequestReasoningOptIn(t *testing.T) {
 	messages := reasoningMessages()
 	client := &AnthropicClient{}
@@ -87,8 +87,8 @@ func TestAnthropicBuildRequestReasoningOptIn(t *testing.T) {
 
 	client.Options.PreserveReasoning = true
 	req := client.buildRequest("m", messages, nil)
-	// Assistant turns are req.Messages[1] and [3]; each must start with a
-	// thinking block carrying the exact reasoning text.
+	// 助手轮次是 req.Messages[1] 和 [3]；每个都必须以携带精确
+	// 推理文本的思考块开头。
 	for _, tc := range []struct {
 		index int
 		want  string

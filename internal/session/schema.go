@@ -6,28 +6,26 @@ import (
 	"fmt"
 )
 
-// CurrentSchemaVersion is the JSONL schema version this build writes and reads.
-// It is bumped only when the *meaning* of an existing record changes: adding a
-// new, unknown kind needs no bump because kinds are open (see Record).
+// CurrentSchemaVersion 是本版本写入和读取的 JSONL schema 版本。
+// 仅当现有记录的*含义*发生变化时才会提升它：添加新的未知 kind 无需提升，
+// 因为 kind 是开放的（见 Record）。
 const CurrentSchemaVersion = 1
 
-// KindSchema marks the explicit schema header record. Like KindHeader it is
-// metadata: the conversation view ignores it, so inserting one never changes
-// which messages a session yields.
+// KindSchema 标记显式的 schema 头记录。与 KindHeader 一样，它是元数据：
+// 对话视图会忽略它，因此插入一条永远不会改变会话产生的消息。
 const KindSchema = "schema"
 
-// ErrNewerSchemaVersion reports a transcript written by a newer build than this
-// one. MigrateRecords refuses to guess how to downgrade such a file.
+// ErrNewerSchemaVersion 表示转录由比本版本更新的构建写入。
+// MigrateRecords 拒绝猜测如何降级这样的文件。
 var ErrNewerSchemaVersion = errors.New("session: schema version is newer than supported")
 
-// SchemaPayload is the data carried by a KindSchema header record.
+// SchemaPayload 是 KindSchema 头记录携带的数据。
 type SchemaPayload struct {
 	Version int `json:"version"`
 }
 
-// SchemaRecord builds the explicit schema header record for version. It is a
-// pure constructor: the returned Record carries only Kind and Data, leaving
-// ID/Parent/TS for the caller (or the append path) to fill in.
+// SchemaRecord 为 version 构建显式的 schema 头记录。它是纯构造函数：
+// 返回的 Record 只携带 Kind 和 Data，ID/Parent/TS 留给调用方（或追加路径）填充。
 func SchemaRecord(version int) (Record, error) {
 	if version < 0 {
 		return Record{}, fmt.Errorf("session: negative schema version %d", version)
@@ -39,23 +37,21 @@ func SchemaRecord(version int) (Record, error) {
 	return Record{Kind: KindSchema, Data: data}, nil
 }
 
-// migration upgrades records from one schema version to the next. A step must
-// be pure: it returns a new slice and never mutates its input. Register a step
-// for source version N to upgrade N -> N+1 when CurrentSchemaVersion is bumped.
+// migration 将记录从一个 schema 版本升级到下一个版本。每一步必须是纯函数：
+// 返回新切片，永不修改输入。当 CurrentSchemaVersion 提升时，为源版本 N 注册一步，
+// 将 N 升级到 N+1。
 type migration func(records []Record) ([]Record, error)
 
-// migrations is the upgrade hook table, keyed by source version. Today the only
-// step is v0 -> v1 (give the legacy, header-less transcript an explicit header).
-// A future v1 -> v2 bump adds a `1: migrateV1ToV2` entry here without touching
-// MigrateRecords.
+// migrations 是按源版本索引的升级钩子表。目前唯一的一步是 v0 -> v1
+// （给旧的无头转录加上显式头）。将来 v1 -> v2 的提升会在这里添加
+// `1: migrateV1ToV2` 条目，而无需改动 MigrateRecords。
 var migrations = map[int]migration{
 	0: migrateV0ToV1,
 }
 
-// migrateV0ToV1 upgrades the legacy format to v1 by giving the transcript an
-// explicit schema header. If a v0 header is already present its version field
-// is updated in place; otherwise a new header is prepended. Every other record
-// keeps its order, ids, parents and payload verbatim.
+// migrateV0ToV1 通过给转录添加显式 schema 头，将旧格式升级到 v1。
+// 如果已存在 v0 头，则原地更新其 version 字段；否则在前面加一个新头。
+// 其他每条记录都逐字保留其顺序、id、parent 和载荷。
 func migrateV0ToV1(records []Record) ([]Record, error) {
 	header, err := SchemaRecord(1)
 	if err != nil {
@@ -82,12 +78,10 @@ func migrateV0ToV1(records []Record) ([]Record, error) {
 	return out, nil
 }
 
-// MigrateRecords upgrades records to CurrentSchemaVersion. It is pure (the
-// input is never mutated) and idempotent: a transcript already at the current
-// version is returned unchanged, so re-running it is a no-op. A transcript with
-// no schema header is treated as v0; one carrying a newer version is rejected
-// with ErrNewerSchemaVersion rather than being silently downgraded. Unknown
-// kinds are always preserved verbatim.
+// MigrateRecords 将记录升级到 CurrentSchemaVersion。它是纯函数（输入永不被修改）且幂等：
+// 已处于当前版本的转录原样返回，因此重运行是空操作。没有 schema 头的转录按 v0 处理；
+// 携带更新版本的转录会被拒绝并返回 ErrNewerSchemaVersion，而不是被静默降级。
+// 未知 kind 始终逐字保留。
 func MigrateRecords(records []Record) ([]Record, error) {
 	if len(records) == 0 {
 		return records, nil
@@ -115,10 +109,9 @@ func MigrateRecords(records []Record) ([]Record, error) {
 	return out, nil
 }
 
-// schemaVersion reports the version declared by the schema header record, or 0
-// when the transcript has none. headerIndex is -1 in the latter case. A
-// malformed or conflicting header is an error so it is never silently treated
-// as v0.
+// schemaVersion 报告 schema 头记录声明的版本；当转录没有头时返回 0。
+// 后一种情况下 headerIndex 为 -1。格式错误或冲突的头会被报错，
+// 绝不会被静默当作 v0。
 func schemaVersion(records []Record) (version, headerIndex int, err error) {
 	headerIndex = -1
 	for i := range records {

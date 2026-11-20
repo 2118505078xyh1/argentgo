@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// decodeOne feeds a complete byte string and expects exactly one decoded key.
+// decodeOne 喂入一个完整字节串，并期望恰好解码出一个按键。
 func decodeOne(t *testing.T, input string) Key {
 	t.Helper()
 	decoder := &Decoder{}
@@ -49,8 +49,8 @@ func TestDecoderReadsSGRMouseReports(t *testing.T) {
 }
 
 func TestDecoderIgnoresMalformedSGRMouseReports(t *testing.T) {
-	// These bodies contain no byte in the CSI-final range before M, so the
-	// generic escape decoder hands the whole body to decodeSGRMouse.
+	// 这些正文在 M 之前不含 CSI 终结范围内的字节，因此
+	// 通用转义解码器把整个正文交给 decodeSGRMouse。
 	for _, input := range []string{"\x1b[<0;5M", "\x1b[<0;5;0M", "\x1b[<1;2M\x1b[<0;5M"} {
 		decoder := &Decoder{}
 		keys := decoder.Feed([]byte(input))
@@ -152,8 +152,8 @@ func TestSelectedTextExtractsSingleAndMultiLineRanges(t *testing.T) {
 		t.Fatalf("single-line selection = %q, want %q", got, "hello")
 	}
 
-	// Drag backwards from row 1 col 2 to row 0 col 6: endpoints are
-	// normalised, so this still copies "world\nsec".
+	// 从第 1 行第 2 列向后拖拽到第 0 行第 6 列：端点会
+	// 被归一化，因此仍复制 "world\nsec"。
 	m.MouseDown(2, 1)
 	m.MouseDrag(6, 0)
 	m.MouseUp(6, 0)
@@ -178,7 +178,7 @@ func TestCopyToClipboardIsBestEffort(t *testing.T) {
 		t.Fatalf("clipboard backend got %q, want %q", got, "copied")
 	}
 
-	// A missing/failing clip.exe must surface as an error, never a panic.
+	// 缺失/失败的 clip.exe 必须表现为错误，绝不 panic。
 	clipboardWrite = func(string) error { return errors.New("clip.exe missing") }
 	func() {
 		defer func() {

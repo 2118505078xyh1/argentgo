@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// runMultiEditRelocate invokes multi_edit with an explicit relocate flag so the
-// opt-in path can be tested alongside the untouched default path.
+// runMultiEditRelocate 使用显式 relocate 标志调用 multi_edit，以便
+// 在测试未改动的默认路径的同时测试 opt-in 路径。
 func runMultiEditRelocate(t *testing.T, root, rel string, edits []map[string]any, repair, relocate bool) (string, error) {
 	t.Helper()
 	return runToolArgs(t, root, "multi_edit", map[string]any{
@@ -20,9 +20,9 @@ func runMultiEditRelocate(t *testing.T, root, rel string, edits []map[string]any
 	})
 }
 
-// With relocate absent (the default), a mistyped filename must produce exactly
-// the legacy error string: no candidate hint, no extra text, no behaviour
-// change at all. This guards the opt-in promise byte-for-byte.
+// 当 relocate 缺失（默认）时，拼错的文件名必须产生完全
+// 相同的旧错误字符串：没有候选提示、没有额外文本、没有任何
+// 行为变化。这逐字节守护 opt-in 的承诺。
 func TestMultiEditRelocateDefaultOffIsByteIdentical(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "wrong.txt", "nothing here\n")
@@ -40,7 +40,7 @@ func TestMultiEditRelocateDefaultOffIsByteIdentical(t *testing.T) {
 		t.Fatalf("default-off error leaked a relocation hint: %q", err)
 	}
 
-	// The repair=true default path must stay free of hints as well.
+	// repair=true 的默认路径同样必须没有提示。
 	_, err = runToolArgs(t, root, "multi_edit", map[string]any{
 		"path":   "wrong.txt",
 		"repair": true,
@@ -54,8 +54,8 @@ func TestMultiEditRelocateDefaultOffIsByteIdentical(t *testing.T) {
 	}
 }
 
-// Opt-in relocation reports where the SEARCH text actually lives, but never
-// writes to that file: the model must correct the filename and re-send.
+// opt-in 重定位会报告 SEARCH 文本实际所在位置，但从不
+// 写入该文件：模型必须更正文件名并重新发送。
 func TestMultiEditRelocateReportsCandidateWithoutWriting(t *testing.T) {
 	root := t.TempDir()
 	wrong := writeFixture(t, root, "wrong.txt", "nothing here\n")
@@ -89,9 +89,9 @@ func TestMultiEditRelocateReportsCandidateWithoutWriting(t *testing.T) {
 	}
 }
 
-// The relocation hint also works when the only recoverable match is a fuzzy
-// one (repair ladder), and it is appended to the repair diagnostic rather than
-// replacing it.
+// 当唯一可恢复的匹配是模糊匹配（修复阶梯）时，重定位提示同样有效，
+// 并且它被附加到修复诊断中，而不是
+// 替换它。
 func TestMultiEditRelocateReportsFuzzyCandidateInRepairMode(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, root, "wrong.txt", "nothing here\n")
@@ -119,8 +119,8 @@ func TestMultiEditRelocateReportsFuzzyCandidateInRepairMode(t *testing.T) {
 	}
 }
 
-// Candidate paths with CJK characters must survive the walk, the canonical
-// path comparison and the relative-path formatting as valid UTF-8.
+// 含 CJK 字符的候选路径必须在遍历、规范
+// 路径比较和相对路径格式化后仍为有效 UTF-8。
 func TestMultiEditRelocateReportsCJKCandidate(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "文档")
@@ -156,8 +156,8 @@ func TestMultiEditRelocateReportsCJKCandidate(t *testing.T) {
 		t.Fatalf("CJK candidate file was modified: %q", got)
 	}
 
-	// Default behaviour on CJK paths stays unchanged even with the opt-in flag
-	// wired in: a correct filename still edits normally.
+	// 即使接上了 opt-in 标志，CJK 路径上的默认行为仍保持不变：
+	// 正确的文件名仍可正常编辑。
 	out, err := runMultiEditRelocate(t, root, "文档/正确.txt", []map[string]any{
 		{"old": "香蕉", "new": "香瓜"},
 	}, false, true)

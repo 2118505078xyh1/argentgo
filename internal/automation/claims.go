@@ -13,33 +13,33 @@ import (
 	"time"
 )
 
-// errBusy reports that an id already has an in-flight run. It is the single
-// claim signal shared by the daemon loop and RunNow, so both paths honour the
-// same "at most one run per id" rule even in different processes.
+// errBusy 报告某 id 已有进行中的运行。它是唯一的
+// errBusy 报告某 id 已有进行中的运行。它是 daemon 循环与 RunNow 共享的唯一
+// 认领信号，使两条路径即使在各自独立的进程中也遵守同一条"每个 id 至多一次运行"规则。
 var errBusy = errors.New("automation: task is already running")
 
-// staleClaimAfter is how old a claim must be before a fresh process treats it
-// as abandoned. A normal run releases its claim on completion; this only
-// recovers from a process that died mid-run. It is deliberately long so a
-// slow-but-live task is never duplicated.
+// staleClaimAfter 是新进程把认领视为被放弃之前该认领必须达到的年龄。正常运行在完成时释放认领；这只
+// 视为被放弃。正常运行在完成时释放认领；这只
+// 用于从运行中途死掉的进程中恢复。它刻意设得很长，使
+// 缓慢但仍存活的任务永不被重复。
 const staleClaimAfter = time.Hour
 
-// claimDir holds the cross-process in-flight markers and the per-id run
-// counters. It lives in the store directory, which every caller of RunNow and
-// every daemon shares, even when their log directories differ.
+// 用于从运行中途死掉的进程中恢复。它刻意设得很长，使缓慢但仍存活的任务永不被重复。
+// claimDir 保存跨进程的进行中标记和每个 id 的运行计数器。它位于 store 目录中，RunNow 的每个调用方和
+// 每个 daemon 都共享该目录，即使它们的日志目录不同。
 func (s *Store) claimDir() string { return filepath.Join(s.dir, ".claims") }
 
-// claimFileName maps an arbitrary (possibly hand-written) task id to a safe,
-// stable file name without trusting it as a path component.
+// claimFileName 把任意（可能是手写的）任务 id 映射为安全、稳定的文件名，而不把它当作路径组成部分信任。
+// 稳定的文件名，而不把它当作路径组成部分信任。
 func claimFileName(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return hex.EncodeToString(sum[:])
 }
 
-// claim atomically reserves id for one run and returns the run's monotonic
-// sequence number. The reservation is a file created with O_EXCL, so it is
-// visible to the daemon and to RunNow even when they run in separate processes.
-// A caller that gets a nil error must call release when its run finishes.
+// claim 原子地为一次运行预留 id 并返回该运行的单调
+// 序列号。预留是用 O_EXCL 创建的文件，因此
+// claim 原子地为一次运行预留 id 并返回该运行的单调序列号。预留是用 O_EXCL 创建的文件，因此即使 daemon 和 RunNow 运行在不同进程中，它也对它们可见。
+// 得到 nil 错误的调用方必须在其运行结束时调用 release。
 func (s *Store) claim(id string) (uint64, error) {
 	dir := s.claimDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -49,8 +49,8 @@ func (s *Store) claim(id string) (uint64, error) {
 	lock := filepath.Join(dir, key+".lock")
 	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if errors.Is(err, fs.ErrExist) && claimIsStale(lock) {
-		// A crashed process cannot release its claim; reclaim it after the
-		// grace period so a restarted daemon is not wedged forever.
+		// 崩溃的进程无法释放其认领；在宽限期后回收它，
+		// 崩溃的进程无法释放其认领；在宽限期后回收它，使重启的 daemon 不会永远卡住。
 		_ = os.Remove(lock)
 		f, err = os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	}
@@ -67,16 +67,16 @@ func (s *Store) claim(id string) (uint64, error) {
 	return seq, nil
 }
 
-// release drops the in-flight reservation for id. Releasing an id that was
-// never claimed is harmless.
+// release 丢弃 id 的进行中预留。释放从未被认领的 id 是无害的。
+// 从未被认领的 id 是无害的。
 func (s *Store) release(id string) {
 	_ = os.Remove(filepath.Join(s.claimDir(), claimFileName(id)+".lock"))
 }
 
-// nextSeq returns the next per-id run sequence. It is only ever called while
-// the matching claim is held, so the read-modify-write is safe across
-// processes. The counter survives release and restarts, which makes it a
-// stable, collision-free basis for log file names.
+// nextSeq 返回下一个每 id 运行序列号。它只在持有对应认领时调用，因此读-改-写跨进程是安全的。计数器在释放和重启后保留，这使它成为
+// 对应认领被持有，因此读-改-写跨
+// 进程是安全的。计数器在释放和重启后保留，这使它成为
+// 稳定、无冲突的日志文件名基础。
 func (s *Store) nextSeq(dir, key string) (uint64, error) {
 	path := filepath.Join(dir, key+".seq")
 	var n uint64
@@ -92,20 +92,20 @@ func (s *Store) nextSeq(dir, key string) (uint64, error) {
 	return n, nil
 }
 
-// claimIsStale reports whether a claim file is old enough to be abandoned.
-// An unreadable, unusable or old marker is treated as stale so it cannot wedge
-// the task permanently.
+// claimIsStale 报告认领文件是否旧到可以被放弃。不可读、不可用或旧的标记都被视为陈旧，使它不能永久卡住任务。
+// 不可读、不可用或旧的标记被视为陈旧，使它不能
+// 永久卡住任务。
 //
-// Freshness must come from the file's modification time, not from the stamp
-// written inside it: os.OpenFile(O_EXCL) creates an empty lock file before the
-// owner writes the stamp, and in that window a stamp-based check reads an empty
-// marker, treats it as malformed, and lets a second caller steal an in-flight
-// run. The stamp stays in the file for human inspection only; mtime is recorded
-// by the same create/write step and is already current when the file appears.
+// 新鲜度必须来自文件的修改时间，而非其中写入的标记：
+// 新鲜度必须来自文件的修改时间，而非其中写入的标记：os.OpenFile(O_EXCL) 在所有者写入标记之前先创建一个空的锁文件，而在那个窗口里基于标记的
+// 所有者写入标记，在那个窗口里基于标记的检查读到空
+// 检查会读到空标记，把它视为畸形，并让第二个调用方窃取一个进行中的
+// 运行。标记留在文件中仅供人工检查；mtime 由同一个创建/写入步骤记录，在文件出现时已经是最新的。
+// 由同一个创建/写入步骤记录，在文件出现时已是最新。
 func claimIsStale(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
-		// The marker vanished or cannot be inspected: do not wedge the task.
+		// 标记消失或无法检查：不要卡住任务。
 		return true
 	}
 	return !info.Mode().IsRegular() || time.Since(info.ModTime()) > staleClaimAfter

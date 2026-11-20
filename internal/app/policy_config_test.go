@@ -17,7 +17,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// toolCallChatter asks for one tool call on the first turn, then finishes.
+// toolCallChatter 在第一轮请求一次工具调用，然后结束。
 type toolCallChatter struct {
 	mu    sync.Mutex
 	calls int
@@ -101,7 +101,7 @@ func TestPolicyConfigDangerFullAccessRemovesWriteClipping(t *testing.T) {
 		t.Fatalf("workspace-write outside root = %v, want deny", got)
 	}
 
-	// An explicit user rule survives the wider write boundary.
+	// 显式的用户规则在更宽的写入边界下仍然保留。
 	full := policyFor(Resolved{
 		Root: root,
 		Cfg: config.Config{Raw: map[string]any{

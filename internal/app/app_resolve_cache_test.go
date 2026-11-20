@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// assertCacheOptions compares the cache knobs the wiring may set. llm.Options
-// carries a func field, so it cannot be compared with ==.
+// assertCacheOptions 比较接线可能设置的缓存开关。llm.Options
+// 带有 func 字段，因此不能用 == 比较。
 func assertCacheOptions(t *testing.T, got, want llm.Options) {
 	t.Helper()
 	if got.NoPromptCache != want.NoPromptCache || got.CacheRetention != want.CacheRetention {
@@ -19,9 +19,9 @@ func assertCacheOptions(t *testing.T, got, want llm.Options) {
 }
 
 func TestResolveCacheOptionsUnsetKeepsExistingOptions(t *testing.T) {
-	// The conservative fact set used by the production wiring resolves an
-	// unset tier to short, which must produce exactly the old literal —
-	// llm.Options{NoPromptCache: opts.NoPromptCache} — with no retention hint.
+	// 生产接线使用的保守事实集把未设置的层级解析为 short，
+	// 这必须精确产生旧的字面量——
+	// llm.Options{NoPromptCache: opts.NoPromptCache}——且无保留提示。
 	if got := ResolveCacheTier("", false, true); got != CacheTierShort {
 		t.Fatalf("ResolveCacheTier(\"\", false, true) = %q, want short", got)
 	}
@@ -59,19 +59,19 @@ func TestResolveCacheOptionsExplicitTierTakesEffect(t *testing.T) {
 }
 
 func TestResolveCacheOptionsLongDowngradesWithoutSupport(t *testing.T) {
-	// An explicit long tier is downgraded to short when long retention is
-	// unavailable: no 1h hint may reach the wire.
+	// 当不支持长期保留时，显式的长效层级会被降级为 short：
+	// 不得有 1h 提示到达线上。
 	for _, tier := range []string{"long", "1h", "24h"} {
 		got := resolveCacheOptions(tier, false, false, false)
 		if got.CacheRetention != "" {
 			t.Fatalf("resolveCacheOptions(%q, supportsLong=false).CacheRetention = %q, want empty", tier, got.CacheRetention)
 		}
 	}
-	// With support present the same tier emits the hint.
+	// 有支持时，同一层级会发出该提示。
 	if got := resolveCacheOptions("long", false, true, false); got.CacheRetention != "1h" {
 		t.Fatalf("resolveCacheOptions(\"long\", supportsLong=true).CacheRetention = %q, want 1h", got.CacheRetention)
 	}
-	// The subscription default follows the same gating.
+	// 订阅默认值遵循同样的门控。
 	if got := resolveCacheOptions("", true, true, false); got.CacheRetention != "1h" {
 		t.Fatalf("subscription default with support = %+v, want 1h", got)
 	}

@@ -12,10 +12,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/workflow"
 )
 
-// testTag is a Unicode Tag Block letter: invisible in an editor or terminal.
+// testTag 是一个 Unicode Tag Block 字母：在编辑器或终端中不可见。
 const testTag = "\U000e0041"
 
-// wantWarning asserts the single stable warning contract shared by all parsers.
+// wantWarning 断言所有解析器共用的单一稳定警告契约。
 func wantWarning(t *testing.T, warnings []string) {
 	t.Helper()
 	if len(warnings) != 1 || warnings[0] != security.ArtifactInvisibleWarning {
@@ -58,9 +58,9 @@ func TestScanArtifactDetectsTagsAndBidi(t *testing.T) {
 }
 
 func TestScanArtifactCoversEveryBidiRange(t *testing.T) {
-	// Same runes as EscapeBidi: ALM, LRM, RLM, the embedding/override block,
-	// the isolate block, and BOM. A leading BOM alone is deliberately ignored,
-	// so prefix each one to keep the check about the rune itself.
+	// 与 EscapeBidi 相同的 rune：ALM、LRM、RLM、嵌入/覆盖块、
+	// 隔离块以及 BOM。开头的 BOM 本身被刻意忽略，
+	// 因此给每个字符加上前缀，使检查只针对该 rune 本身。
 	for _, r := range []rune{
 		'\u061C', '\u200E', '\u200F',
 		'\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
@@ -78,12 +78,12 @@ func TestScanArtifactCoversEveryBidiRange(t *testing.T) {
 
 func TestScanArtifactIsBounded(t *testing.T) {
 	const capBytes = 1 << 20
-	// A hidden tag ending exactly at the cap is still flagged (it is 4 bytes).
+	// 恰好在上限处结束的隐藏 tag 仍会被标记（它是 4 字节）。
 	within := strings.Repeat("a", capBytes-len(testTag)) + testTag
 	if !security.ScanArtifact(within).HasTags {
 		t.Fatal("tag within the scan cap was not detected")
 	}
-	// The same tag one byte past the cap is outside the bounded scan.
+	// 同一 tag 超出上限一个字节就位于有界扫描之外。
 	beyond := strings.Repeat("a", capBytes) + testTag
 	if got := security.ScanArtifact(beyond); got.HasTags || got.Warning != "" {
 		t.Fatalf("content past the scan cap was flagged: %+v", got)
@@ -109,7 +109,7 @@ func TestRedactArtifactContent(t *testing.T) {
 		})
 	}
 
-	// Redaction is bounded too: an oversized document is truncated to the cap.
+	// 脱敏也是有界的：超大的文档会被截断到上限。
 	const capBytes = 1 << 20
 	if got := len(security.RedactArtifactContent(strings.Repeat("a", capBytes+1))); got != capBytes {
 		t.Fatalf("oversized redaction length = %d, want %d", got, capBytes)
@@ -160,7 +160,7 @@ func TestSkillsParseWarnsOnInvisibleContent(t *testing.T) {
 }
 
 func TestCommandsParseWarnsOnInvisibleContent(t *testing.T) {
-	// Frontmatter path.
+	// frontmatter 路径。
 	doc := "---\ndescription: d\n---\nDo " + testTag + "this\n"
 	cmd, err := commands.ParseStrict(doc, "review.md")
 	if err != nil {
@@ -171,14 +171,14 @@ func TestCommandsParseWarnsOnInvisibleContent(t *testing.T) {
 		t.Fatalf("body = %q, want unchanged %q", cmd.Body, want)
 	}
 
-	// No-frontmatter path.
+	// 无 frontmatter 路径。
 	plain, err := commands.ParseStrict("Do "+testTag+"this\n", "review.md")
 	if err != nil {
 		t.Fatalf("ParseStrict(no frontmatter): %v", err)
 	}
 	wantWarning(t, plain.Warnings)
 
-	// Lenient Parse path: malformed frontmatter is skipped, warning still set.
+	// 宽松 Parse 路径：格式错误的 frontmatter 会被跳过，仍设置警告。
 	lenient := commands.Parse("---\n: bad\n---\nDo "+testTag+"this\n", "review.md")
 	wantWarning(t, lenient.Warnings)
 
@@ -213,7 +213,7 @@ func TestAutomationUnmarshalWarnsOnInvisibleContent(t *testing.T) {
 	}
 }
 
-// assertNoWarningsField guards the "no JSON shape change" contract.
+// assertNoWarningsField 守护"不改变 JSON 结构"的契约。
 func assertNoWarningsField(t *testing.T, v any) {
 	t.Helper()
 	data, err := json.Marshal(v)

@@ -124,9 +124,9 @@ func TestForEventFiltersByMatcher(t *testing.T) {
 }
 
 func TestDocumentHooksIgnoreInternalPriorityFields(t *testing.T) {
-	// The document format is unchanged: "priority" and "stopPropagation" are
-	// not document keys, so even a document that happens to carry them must
-	// parse into plain, priority-0, non-stopping commands.
+	// 文档格式不变："priority" 和 "stopPropagation"
+	// 不是文档键，因此即使文档碰巧携带它们，也必须
+	// 解析为普通的优先级 0、不停止的命令。
 	config, err := ParseConfig([]byte(`{"hooks":{"PreToolUse":[{"hooks":[
 		{"command":"echo a","priority":100,"stopPropagation":true},
 		{"command":"echo b"}
@@ -165,10 +165,10 @@ func TestGlobMatch(t *testing.T) {
 }
 
 func TestGlobMatchStarIsAWildcardEvenWhenValueContainsStar(t *testing.T) {
-	// A '*' in the pattern is always a wildcard. The old case order let a
-	// literal '*' in the value consume the pattern's star as a literal match,
-	// so matching failed even though the wildcard should absorb it. Paths and
-	// tool names can legitimately contain '*' (e.g. on Unix file systems).
+	// 模式中的 '*' 始终是通配符。旧的 case 顺序让值中的字面 '*'
+	// 值中的字面 '*' 消耗模式星号作为字面匹配，
+	// 把模式的星号当作字面匹配消耗掉，于是尽管通配符本应吸收它，匹配仍失败。路径和
+	// 工具名合法地可以包含 '*'（例如在 Unix 文件系统上）。
 	cases := []struct {
 		pattern, value string
 		want           bool
@@ -190,9 +190,9 @@ func TestGlobMatchStarIsAWildcardEvenWhenValueContainsStar(t *testing.T) {
 }
 
 func TestForEventMatcherWorksWhenValueContainsStar(t *testing.T) {
-	// End-to-end through the document parser and ForEvent: a FileChanged hook
-	// with a "*.go" matcher must still match a changed path that itself has a
-	// literal '*' in a directory or file name.
+	// 端到端经过文档解析器和 ForEvent：带 "*.go" 匹配器的 FileChanged 钩子
+	// 带 "*.go" 匹配器的 FileChanged 钩子必须仍能匹配变更路径，即使
+	// 其目录或文件名中含字面 '*'。
 	config, err := ParseConfig([]byte(`{"hooks":{"FileChanged":[
 		{"matcher":"*.go","hooks":[{"command":"go-hook"}]},
 		{"matcher":"*.md","hooks":[{"command":"md-hook"}]}
@@ -200,8 +200,8 @@ func TestForEventMatcherWorksWhenValueContainsStar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	// The leading '*' in the path collides with the pattern's wildcard on the
-	// first comparison, which is exactly where the old case order failed.
+	// 必须仍能匹配自身在目录或文件名中含字面 '*' 的变更路径。
+	// 路径中前导的 '*' 在第一次比较时就与模式的通配符冲突，这正是旧 case 顺序失败的地方。
 	got := config.ForEvent(FileChanged, "*scratch/main.go")
 	if len(got) != 1 || got[0].Command != "go-hook" {
 		t.Fatalf("matcher with '*' in value selected %+v", got)
@@ -224,7 +224,7 @@ func TestValidateWarnsAboutSilentTypos(t *testing.T) {
 		}
 	}
 
-	// Forgiving parsing still yields the runnable command.
+	// 宽松解析仍产生可运行的命令。
 	config, err := ParseConfig(document)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -302,11 +302,11 @@ func TestFileChangedIsAFullLifecycleEvent(t *testing.T) {
 	if len(commands) != 1 || commands[0].Command != "echo changed" {
 		t.Fatalf("FileChanged command lost: %+v", commands)
 	}
-	// A known event must not be reported as a silent typo.
+	// 已知事件不得被报告为静默拼写错误。
 	if warnings := Validate(document); len(warnings) != 0 {
 		t.Fatalf("Validate warned on a supported event: %v", warnings)
 	}
-	// Unknown events are still skipped, as before.
+	// 未知事件仍像以前一样被跳过。
 	if _, ok := ParseEvent("FileChange"); ok {
 		t.Fatal("a near-miss must not parse as FileChanged")
 	}
@@ -325,7 +325,7 @@ func TestPayloadMarshalsFileChangedPath(t *testing.T) {
 	if string(fields["path"]) != `"internal/hooks/hooks.go"` {
 		t.Fatalf("payload lost path: %s", encoded)
 	}
-	// Other events omit the field entirely.
+	// 其他事件完全省略该字段。
 	other, err := json.Marshal(Payload{Event: "Stop"})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

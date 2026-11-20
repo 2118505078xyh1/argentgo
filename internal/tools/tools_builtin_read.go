@@ -14,8 +14,8 @@ import (
 
 // ---- read ----
 
-// readWindowCap bounds each side of a line-centred window so a single call can
-// never dump an unbounded amount of context.
+// readWindowCap 限制以某行为中心的窗口的每一侧，使单次调用
+// 绝不会倾泻无界数量的上下文。
 const readWindowCap = 200
 
 type readTool struct{}
@@ -61,22 +61,22 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	lines := strings.Split(string(data), "\n")
 
-	// A trailing newline terminates the final line; strings.Split leaves an
-	// empty sentinel after it that is not a line worth paging toward. Keep the
-	// sentinel in the slice above so a full read stays byte-identical, but count
-	// only real lines here.
+	// 尾随换行终止最后一行；strings.Split 会在其后留下一个
+	// 空哨兵，它不值得作为分页目标。把这个
+	// 哨兵保留在上面的切片中，使完整读取保持逐字节一致，但这里
+	// 只统计真实行数。
 	totalLines := len(lines)
 	if len(data) > 0 && data[len(data)-1] == '\n' {
 		totalLines--
 	}
 
 	if args.Outline {
-		// Outline mode is a file-level "signature directory": for Go files we
-		// reuse the repo-map extractor to list top-level declarations instead of
-		// dumping the whole source. Line/offset selectors are intentionally
-		// ignored here; callers expand a section with a normal (outline=false)
-		// read. Non-Go files have no extractor yet, so fall back to a normal read
-		// rather than returning an empty or misleading outline.
+		// 大纲模式是文件级的"签名目录"：对 Go 文件，我们
+		// 复用 repo-map 提取器列出顶层声明，而不是
+		// 倾倒整个源码。行/偏移选择器在这里被有意
+		// 忽略；调用方通过普通（outline=false）读取展开某个小节。
+		// 非 Go 文件目前没有提取器，因此回退到普通读取，
+		// 而不是返回空大纲或误导性的大纲。
 		if strings.HasSuffix(strings.ToLower(path), ".go") {
 			return clip(ctx, outlineGoFile(args.Path, path)), nil
 		}
@@ -84,8 +84,8 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 
 	start, end := 1, len(lines)
 	if args.Line > 0 {
-		// Gap-centred mode: line wins over offset/limit. before/after are
-		// independent per-side budgets, clamped to [0, readWindowCap].
+		// 以间隔为中心的模式下：line 优先于 offset/limit。before/after 是
+		// 彼此独立的每侧预算，钳制在 [0, readWindowCap] 内。
 		before, after := args.Before, args.After
 		if before < 0 {
 			before = 0
@@ -107,13 +107,13 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		if end > totalLines {
 			end = totalLines
 		}
-		// A target past the last real line has no window to show; mirror the
-		// offset path's out-of-range behaviour.
+		// 超出最后一行的目标没有窗口可显示；与
+		// offset 路径越界时的行为保持一致。
 		if start > totalLines {
 			return "", nil
 		}
 	} else {
-		// Legacy offset/limit path: unchanged when line == 0.
+		// 旧的 offset/limit 路径：当 line == 0 时不变。
 		start = args.Offset
 		if start < 1 {
 			start = 1
@@ -123,11 +123,11 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		}
 		end = len(lines)
 		if args.Limit > 0 {
-			// Compute the end without adding the raw limit to start-1: a huge
-			// limit (e.g. 9223372036854775807) would overflow int, making end
-			// negative and panicking on the slice below. A limit at or beyond
-			// the remaining line count means "read to the end", which is the
-			// same result the un-overflowed arithmetic produced.
+			// 计算结束位置时不把原始 limit 直接加到 start-1 上：巨大的
+			// limit（如 9223372036854775807）会使 int 溢出，导致 end
+			// 为负并在下面的切片处 panic。大于或等于
+			// 剩余行数意味着"读到末尾"，这与未溢出算术产生的
+			// 结果相同。
 			remaining := len(lines) - start + 1 // start <= len(lines) here, so >= 1
 			if args.Limit >= remaining {
 				end = len(lines)
@@ -138,19 +138,19 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	out := clip(ctx, strings.Join(lines[start-1:end], "\n"))
 
-	// end is the last displayed 1-based line; a smaller real total means the
-	// caller has not reached the end of the file yet, so steer them to page.
+	// end 是最后显示的、基于 1 的行号；较小的真实总数表示
+	// 调用方尚未到达文件末尾，因此引导它继续分页。
 	if end < totalLines {
 		out += fmt.Sprintf("\n[showing lines %d–%d of %d; re-call with offset/limit to page]", start, end, totalLines)
 	}
 	return out, nil
 }
 
-// outlineGoFile renders a Go file as a compact "signature directory": one line
-// per top-level declaration with its kind and 1-based line number. It reuses
-// the repo-map symbol extractor so "what counts as a symbol" stays consistent
-// between the read tool and the repo map. display is the caller-supplied path
-// (used only in the header); disk is the resolved absolute path to parse.
+// outlineGoFile 把 Go 文件渲染为紧凑的"签名目录"：每个
+// 顶层声明一行，带上类别和基于 1 的行号。它复用
+// repo-map 符号提取器，使"什么算符号"在
+// read 工具和 repo 地图之间保持一致。display 是调用方提供的路径
+// （仅用于头部）；disk 是待解析的绝对路径。
 func outlineGoFile(display, disk string) string {
 	syms := extractRepoSymbols(filepath.Dir(disk), []string{filepath.Base(disk)})
 	var b strings.Builder
@@ -169,9 +169,9 @@ func outlineGoFile(display, disk string) string {
 	return b.String()
 }
 
-// Meta reports a supersede key derived from the file path alone. Line/offset
-// selectors are dropped: a later read of any range of the same file makes an
-// earlier read of that file stale for context purposes.
+// Meta 报告仅从文件路径派生的取代键。行/偏移
+// 选择器被丢弃：对同一文件任意范围的后续读取，都会使
+// 该文件先前的读取在上下文意义上失效。
 func (readTool) Meta(args json.RawMessage, _ string, err error) ToolMeta {
 	if err != nil {
 		return ToolMeta{}
@@ -189,12 +189,12 @@ func (readTool) Meta(args json.RawMessage, _ string, err error) ToolMeta {
 	return ToolMeta{SupersedeKey: "read|" + p}
 }
 
-// readSelector matches the common line-range suffixes appended to a path:
-// ":10", ":10:20", "#L10", "#L10-L20" and their comma variants.
+// readSelector 匹配追加到路径后的常见行范围后缀：
+// ":10"、":10:20"、"#L10"、"#L10-L20" 及其逗号变体。
 var readSelector = regexp.MustCompile(`(?::[0-9]+(?:[:,-][0-9]+)*|#[Ll]?[0-9]+(?:[-:][Ll]?[0-9]+)?)+$`)
 
-// normalizeReadPath cleans a read path and removes line selectors so two reads
-// of the same file share one supersede key regardless of their ranges.
+// normalizeReadPath 清理读取路径并移除行选择器，使对
+// 同一文件的两次读取无论范围如何都共用一个取代键。
 func normalizeReadPath(raw string) string {
 	p := strings.TrimSpace(raw)
 	if p == "" {

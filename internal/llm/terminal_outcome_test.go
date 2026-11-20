@@ -11,8 +11,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// terminalNoWait keeps Do's backoff out of the tests without depending on the
-// noWait helpers declared in other test files.
+// terminalNoWait 让 Do 的退避不进入测试，同时不依赖其他测试文件中
+// 声明的 noWait 辅助函数。
 func terminalNoWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }
 
 func TestIsTerminalProviderOutcome(t *testing.T) {
@@ -22,8 +22,8 @@ func TestIsTerminalProviderOutcome(t *testing.T) {
 		status int
 		want   bool
 	}{
-		// Every terminal code is detected, on a retryable status where the
-		// retry loop would otherwise wait and try again.
+		// 每个终态码都能被检测到，即便在本来会等待并重试的
+		// 可重试状态上也是如此。
 		{"session_budget_exceeded", `{"error":{"code":"session_budget_exceeded"}}`, 429, true},
 		{"spend_limit_exceeded", `{"error":{"code":"spend_limit_exceeded"}}`, 429, true},
 		{"spend_limit", `{"error":{"code":"spend_limit"}}`, 500, true},
@@ -33,34 +33,34 @@ func TestIsTerminalProviderOutcome(t *testing.T) {
 		{"insufficient_quota", `{"error":{"code":"insufficient_quota"}}`, 429, true},
 		{"organization_budget_exceeded", `{"error":{"code":"organization_budget_exceeded"}}`, 429, true},
 
-		// Case variations and separator/message forms.
+		// 大小写变体及分隔符/消息形式。
 		{"uppercase code", `SESSION_BUDGET_EXCEEDED`, 429, true},
 		{"mixed case code", `Spend_Limit_Exceeded`, 429, true},
 		{"hyphenated message", `Inference-Hook-Denied by policy`, 400, true},
 		{"spaced message", `usage accounting failed`, 500, true},
 
-		// 402 is terminal on its own, even with an unrecognised body.
+		// 402 本身即为终态，即使响应体无法识别。
 		{"payment required 402", `{"error":{"message":"payment required"}}`, 402, true},
 		{"payment required 402 empty body", ``, 402, true},
 
-		// Non-terminal, transient errors must not be flagged.
+		// 非终态的短暂错误不得被标记。
 		{"rate limit", `{"error":{"code":"rate_limit_exceeded","message":"try again"}}`, 429, false},
 		{"too many requests", `too many requests`, 429, false},
 		{"server error", `{"error":{"message":"internal server error"}}`, 500, false},
 		{"timeout", `{"error":{"code":"timeout"}}`, 504, false},
 		{"empty body on 429", ``, 429, false},
 
-		// A secret that contains a pattern word is redacted before matching,
-		// so it cannot create a false positive.
+		// 含有模式词的密钥会在匹配前被脱敏，
+		// 因此不会造成误报。
 		{"credential-shaped value is redacted", `api_key=spend_limit_secretvalue1234567890`, 429, false},
 
-		// Truncated/malformed bodies must not panic.
+		// 被截断/格式错误的响应体不得 panic。
 		{"truncated but still contains a code", `{"error":{"code":"session_budget_exceeded"`, 429, true},
 		{"malformed without a full code", `{"error":{"code":"infer`, 429, false},
 		{"random bytes", string([]byte{0x00, 0xff, 0x80, '{', '}'}), 500, false},
 
-		// Scanning is bounded at 64KB: a code inside the window is found, a
-		// code pushed beyond it is not.
+		// 扫描受 64KB 限制：窗口内的码能被找到，
+		// 超出窗口的码则不能。
 		{"code within scan window then huge padding", `session_budget_exceeded` + strings.Repeat("x", 200*1024), 429, true},
 		{"code beyond 64KB window", strings.Repeat("x", 70*1024) + `session_budget_exceeded`, 429, false},
 	}
@@ -104,9 +104,9 @@ func TestTerminalOutcomeReason(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyStopsOnTerminalProviderOutcome is the integration point: a
-// terminal body on a normally-retryable status must stop after one attempt and
-// leave the full body readable by the caller.
+// TestRetryPolicyStopsOnTerminalProviderOutcome 是集成点：
+// 处于通常可重试状态上的终态响应体必须在一次尝试后停止，且
+// 完整响应体仍可被调用方读取。
 func TestRetryPolicyStopsOnTerminalProviderOutcome(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -160,8 +160,8 @@ func TestRetryPolicyStopsOnTerminalProviderOutcome(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyStillRetriesRateLimitOutcome guards the other half: adding
-// terminal classification must not swallow ordinary transient rate limits.
+// TestRetryPolicyStillRetriesRateLimitOutcome 守护另一半：添加
+// 终态分类不得吞掉普通的短暂限流。
 func TestRetryPolicyStillRetriesRateLimitOutcome(t *testing.T) {
 	var sends int
 	policy := llm.RetryPolicy{MaxAttempts: 2, Sleep: terminalNoWait}

@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// TestRetryEventPublishesSeverityStatusNotice checks that an EventRetry is
-// mirrored onto the severity-ranked status line (NoticeStack), carrying the
-// attempt, backoff delay and reason in one visible string. Keeping it on the
-// status line as well as the transcript is what makes backoff live feedback
-// rather than a permanent scroll of history rows.
+// TestRetryEventPublishesSeverityStatusNotice 检查 EventRetry 被
+// 镜像到按严重度排序的状态行（NoticeStack），并在一个可见字符串中
+// 携带尝试次数、退避延迟和原因。把它同时放在状态行
+// 和记录中，才使退避成为实时反馈
+// 而不是永久滚动的历史行。
 func TestRetryEventPublishesSeverityStatusNotice(t *testing.T) {
 	m := New(Config{})
 	m.HandleEvent(Event{
@@ -39,9 +39,9 @@ func TestRetryEventPublishesSeverityStatusNotice(t *testing.T) {
 	}
 }
 
-// TestRetryStatusAndTranscriptRedactSecret verifies the wire-safe promise
-// end-to-end: a credential-shaped reason is redacted in both the status notice
-// and the transcript entry, never painted verbatim.
+// TestRetryStatusAndTranscriptRedactSecret 端到端验证传输安全承诺：
+// 形如凭据的原因在状态通知和记录条目中都被清洗，
+// 绝不逐字绘制。
 func TestRetryStatusAndTranscriptRedactSecret(t *testing.T) {
 	m := New(Config{})
 	m.HandleEvent(Event{
@@ -69,8 +69,8 @@ func TestRetryStatusAndTranscriptRedactSecret(t *testing.T) {
 	}
 }
 
-// TestRetryStatusNoticePaintedInFrame checks that the live retry hint reaches
-// the rendered frame, not just the model's internal stack.
+// TestRetryStatusNoticePaintedInFrame 检查实时重试提示到达
+// 渲染后的画面，而不只是模型的内部栈。
 func TestRetryStatusNoticePaintedInFrame(t *testing.T) {
 	m := New(Config{})
 	m.HandleEvent(Event{
@@ -88,8 +88,8 @@ func TestRetryStatusNoticePaintedInFrame(t *testing.T) {
 	}
 }
 
-// TestRetryStatusNoticeExpiresOnTTL checks that the live hint retires itself
-// after its TTL, keeping a transient backoff hint off the status line forever.
+// TestRetryStatusNoticeExpiresOnTTL 检查实时提示在其 TTL 后
+// 自行退休，使瞬时退避提示不会永远留在状态行。
 func TestRetryStatusNoticeExpiresOnTTL(t *testing.T) {
 	m := New(Config{})
 	m.HandleEvent(Event{
@@ -104,20 +104,20 @@ func TestRetryStatusNoticeExpiresOnTTL(t *testing.T) {
 		t.Fatal("missing status notice")
 	}
 
-	// Still live just before expiry.
+	// 到期前一刻仍然存活。
 	m.PruneNotices(n.At.Add(DefaultNoticeTTL - time.Nanosecond))
 	if got, ok := m.notices.Peek(); !ok || got.Seq != n.Seq {
 		t.Fatal("retry notice should still be live before TTL")
 	}
-	// Gone at the TTL boundary.
+	// 在 TTL 边界处消失。
 	m.PruneNotices(n.At.Add(DefaultNoticeTTL))
 	if _, ok := m.notices.Peek(); ok {
 		t.Fatal("retry notice should have expired at its TTL")
 	}
 }
 
-// TestRetryEventDoesNotDisturbToolEvents guards against regressions: a retry
-// interleaved with tool events must not reorder, drop or mutate those tasks.
+// TestRetryEventDoesNotDisturbToolEvents 防止回归：与工具事件
+// 交错的重试不得重排、丢弃或修改那些任务。
 func TestRetryEventDoesNotDisturbToolEvents(t *testing.T) {
 	m := New(Config{})
 	m.HandleEvent(Event{Kind: EventToolStart, ToolCallID: "1", ToolName: "read", Args: `{"path":"a.go"}`})

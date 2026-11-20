@@ -172,7 +172,7 @@ func TestAuthorPublishIsSafeWithConcurrentDiscovery(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			// A partially written document would be skipped by Parse.
+			// 部分写入的文档会被 Parse 跳过。
 			Discover([]string{discoveryRoot})
 		}
 		errs <- nil

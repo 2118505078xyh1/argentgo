@@ -8,11 +8,10 @@ import (
 	"testing"
 )
 
-// TestDenyPathsApplyToEveryPathArgumentName guards the fix for a real policy
-// bypass: pathValues used to recognise only "path"/"file"/"dir"/"directory"/
-// "target", while the built-in diff tool spells its operands "path_a" and
-// "path_b". A deny-path rule therefore saw no path at all in a diff call and
-// let a denied file be read (Ask falls through to auto-approval).
+// TestDenyPathsApplyToEveryPathArgumentName 守护一次真实策略绕过漏洞的修复：
+// pathValues 过去只识别 "path"/"file"/"dir"/"directory"/"target"，而内置 diff
+// 工具把它操作数写作 "path_a" 和 "path_b"。因此 deny-path 规则在 diff 调用中
+// 根本看不到路径，让被拒绝的文件得以被读取（Ask 会落到自动批准）。
 func TestDenyPathsApplyToEveryPathArgumentName(t *testing.T) {
 	root := t.TempDir()
 	policy := NewPolicy(root, PolicyConfig{DenyPaths: []string{"**/.env"}})
@@ -27,8 +26,8 @@ func TestDenyPathsApplyToEveryPathArgumentName(t *testing.T) {
 		})
 	}
 
-	// A field whose name does not denote a path must stay outside the path
-	// rules, otherwise the fix would turn into an over-broad string scan.
+	// 名字不表示路径的字段必须留在路径规则之外，否则该修复会变成过于宽泛的
+	// 字符串扫描。
 	t.Run("non path field untouched", func(t *testing.T) {
 		args := json.RawMessage(`{"note":".env"}`)
 		if got := policy.Evaluate("read", args); got.Decision != Allow {
@@ -37,9 +36,9 @@ func TestDenyPathsApplyToEveryPathArgumentName(t *testing.T) {
 	})
 }
 
-// TestDenyPathsApplyToEveryPathArray covers the array forms: "paths" from the
-// checkpoint restore manifest and "files" from context_pack. Both read file
-// contents, so a deny-path rule must apply to their elements too.
+// TestDenyPathsApplyToEveryPathArray 覆盖数组形式：checkpoint 恢复清单中的
+// "paths" 和 context_pack 中的 "files"。两者都会读取文件内容，因此 deny-path
+// 规则也必须应用到它们的元素上。
 func TestDenyPathsApplyToEveryPathArray(t *testing.T) {
 	root := t.TempDir()
 	policy := NewPolicy(root, PolicyConfig{DenyPaths: []string{"**/.env"}})
@@ -54,9 +53,8 @@ func TestDenyPathsApplyToEveryPathArray(t *testing.T) {
 	}
 }
 
-// TestRuleDecisionCoversAlternatePathKeys proves the permissions table sees
-// the same resources as the deny-path gate, including array entries under the
-// new key names. A deny row anywhere in the table is absolute.
+// TestRuleDecisionCoversAlternatePathKeys 证明权限表与 deny-path 关卡看到相同的
+// 资源，包括新键名下的数组条目。表中任意位置的 deny 行都是绝对的。
 func TestRuleDecisionCoversAlternatePathKeys(t *testing.T) {
 	root := t.TempDir()
 	policy := NewPolicy(root, PolicyConfig{Rules: []Rule{
@@ -73,8 +71,8 @@ func TestRuleDecisionCoversAlternatePathKeys(t *testing.T) {
 		{"scalar file_path", `{"file_path":"notes.txt"}`, Ask},
 		{"array files", `{"target":"main.go","files":["notes.txt"]}`, Ask},
 		{"array paths", `{"paths":["main.go","notes.txt"]}`, Ask},
-		// A deny on an array entry must win over an Ask on a scalar: this is
-		// the strictest-wins walk that a missing key used to break.
+		// 数组条目上的 deny 必须胜过标量上的 Ask：这正是遗漏某个键过去会破坏的
+		// 取最严格判定的遍历。
 		{"deny in path_b", `{"path_a":"notes.txt","path_b":"secret.txt"}`, Deny},
 		{"deny in files", `{"files":["notes.txt","secret.txt"]}`, Deny},
 	}
@@ -88,8 +86,8 @@ func TestRuleDecisionCoversAlternatePathKeys(t *testing.T) {
 	}
 }
 
-// TestWriteRootsCoverAlternatePathKeys verifies that a mutating tool cannot
-// escape the write boundary just by naming its path argument differently.
+// TestWriteRootsCoverAlternatePathKeys 验证修改类工具不能仅通过给路径参数换个
+// 名字就逃出写入边界。
 func TestWriteRootsCoverAlternatePathKeys(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -107,9 +105,8 @@ func TestWriteRootsCoverAlternatePathKeys(t *testing.T) {
 	}
 }
 
-// TestApprovalArgsRewritesAlternatePathKeys keeps the prompt display honest:
-// a link under an alternate path key must be shown at its real location, not
-// at the harmless lexical spelling the tool received.
+// TestApprovalArgsRewritesAlternatePathKeys 保证提示显示诚实：备用路径键下的链接
+// 必须显示在其真实位置，而不是工具收到的无害词法写法。
 func TestApprovalArgsRewritesAlternatePathKeys(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

@@ -13,7 +13,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// writeAppPersona drops a valid subagent definition into a workspace root.
+// writeAppPersona 把一个有效的子 agent 定义放入工作区根目录。
 func writeAppPersona(t *testing.T, root, name, system, tools string) {
 	t.Helper()
 	dir := filepath.Join(root, filepath.FromSlash(personaDir))
@@ -85,7 +85,7 @@ func TestConfigureSubagentsKeepsQueuePerRun(t *testing.T) {
 	if optsA.Subagent.Background == optsB.Subagent.Background {
 		t.Fatal("two root runs must not share one background queue")
 	}
-	// Even at the same root depth, a result from run A is invisible to run B.
+	// 即使在相同的根深度下，运行 A 的结果对运行 B 也是不可见的。
 	bgA.PushFor(bgA.RootOwner(), 0, "A-only")
 	if got := bgB.DrainFor(bgB.RootOwner()); len(got) != 0 {
 		t.Fatalf("run B drained %v from run A's queue", got)
@@ -96,7 +96,7 @@ func TestConfigureSubagentsKeepsQueuePerRun(t *testing.T) {
 }
 
 func TestConfigureSubagentsWithoutOptInKeepsDefaults(t *testing.T) {
-	root := t.TempDir() // no .argent/agents directory
+	root := t.TempDir() // 没有 .argent/agents 目录
 	res := Resolved{Root: root, System: "base system"}
 	opts := &agent.Options{System: res.System}
 
@@ -112,7 +112,7 @@ func TestConfigureSubagentsWithoutOptInKeepsDefaults(t *testing.T) {
 
 func TestConfigureSubagentsIgnoresNonPersonaMarkdown(t *testing.T) {
 	root := t.TempDir()
-	// A markdown file that is not marked as a subagent must not opt the run in.
+	// 未标记为子 agent 的 markdown 文件不得让运行启用委派。
 	writeFile(t, filepath.Join(root, filepath.FromSlash(personaDir), "notes.md"), "just notes\n")
 	res := Resolved{Root: root, System: "base system"}
 	opts := &agent.Options{System: res.System}
@@ -146,8 +146,8 @@ func TestPersonaSubagentConfigResolvesTempDir(t *testing.T) {
 	}
 }
 
-// specCaptureChatter records the system prompt and advertised tools so the
-// production Execute wiring can be asserted without a model or network.
+// specCaptureChatter 记录系统提示和公布的工具，使
+// 无需模型或网络即可断言生产环境的 Execute 接线。
 type specCaptureChatter struct {
 	mu      sync.Mutex
 	systems []string

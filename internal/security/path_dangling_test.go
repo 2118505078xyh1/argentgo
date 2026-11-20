@@ -10,10 +10,9 @@ import (
 	"testing"
 )
 
-// TestDanglingSymlinkCannotEscapeWriteRoots covers a link whose target does not
-// exist yet. os.Open reports it as "missing", so the lexical tail-reattachment
-// path used to keep the link's own name and let a write follow it outside the
-// workspace. The real target must be resolved even before it exists.
+// TestDanglingSymlinkCannotEscapeWriteRoots 覆盖目标尚不存在的链接。os.Open 会把它
+// 报告为"缺失"，因此词法尾部重挂的路径过去会保留链接自身的名字，让写入顺着它
+// 落到工作区之外。即使目标尚不存在，也必须解析出真实目标。
 func TestDanglingSymlinkCannotEscapeWriteRoots(t *testing.T) {
 	requireSymlinks(t)
 	cases := []struct {
@@ -57,9 +56,9 @@ func TestDanglingSymlinkCannotEscapeWriteRoots(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// The link resolves to its target, so the expected real path is the
-			// link target itself (made absolute for the relative-target case).
-			// The in-root case must not be compared with the outside escape path.
+			// 链接会解析到其目标，因此期望的真实路径就是链接目标本身
+			// （相对目标的情况会转成绝对路径）。
+			// 根内的情况不得与外部逃逸路径比较。
 			want := symlinkTarget
 			if !filepath.IsAbs(want) {
 				want = filepath.Join(root, want)
@@ -69,9 +68,8 @@ func TestDanglingSymlinkCannotEscapeWriteRoots(t *testing.T) {
 	}
 }
 
-// TestDanglingSymlinkInIntermediateComponentCannotEscape covers a dangling
-// link in the middle of a not-yet-created tail. The boundary must fail closed
-// even though no ancestor of the final path exists on disk.
+// TestDanglingSymlinkInIntermediateComponentCannotEscape 覆盖尚未创建的路径尾部
+// 中间的悬空链接。即使最终路径的任何祖先都不存在于磁盘上，边界也必须失败即拒绝。
 func TestDanglingSymlinkInIntermediateComponentCannotEscape(t *testing.T) {
 	requireSymlinks(t)
 	base := t.TempDir()
@@ -93,9 +91,8 @@ func TestDanglingSymlinkInIntermediateComponentCannotEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRealPath: %v", err)
 	}
-	// On Windows t.TempDir() may yield an 8.3 short path while ResolveRealPath
-	// returns the long form; resolve the expected path through the same helper
-	// so both sides are spelled identically.
+	// 在 Windows 上 t.TempDir() 可能产生 8.3 短路径，而 ResolveRealPath 返回长形式；
+	// 通过同一个辅助函数解析期望路径，使两边写法一致。
 	want, err := ResolveRealPath(target)
 	if err != nil {
 		t.Fatalf("ResolveRealPath(target): %v", err)
@@ -108,9 +105,8 @@ func TestDanglingSymlinkInIntermediateComponentCannotEscape(t *testing.T) {
 	}
 }
 
-// TestDanglingJunctionCannotEscapeWriteRoots is the Windows counterpart:
-// junctions need no symlink privilege, so this runs where os.Symlink is
-// unavailable and proves the reparse-point path is covered too.
+// TestDanglingJunctionCannotEscapeWriteRoots 是 Windows 对应版本：junction 不需要
+// 符号链接权限，因此它在 os.Symlink 不可用的地方运行，并证明重解析点路径也被覆盖。
 func TestDanglingJunctionCannotEscapeWriteRoots(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("junctions are Windows-only")
@@ -147,18 +143,16 @@ func TestDanglingJunctionCannotEscapeWriteRoots(t *testing.T) {
 	}
 }
 
-// assertDanglingLinkBoundary checks the shared contract: ResolveRealPath sees
-// the link's real target, and the write boundary accepts only targets that
-// actually lie inside root.
+// assertDanglingLinkBoundary 检查共用契约：ResolveRealPath 能看到链接的真实目标，
+// 且写入边界只接受确实位于 root 内的目标。
 func assertDanglingLinkBoundary(t *testing.T, root, link, target string, wantInside bool) {
 	t.Helper()
 	resolved, err := ResolveRealPath(link)
 	if err != nil {
 		t.Fatalf("ResolveRealPath(%q): %v", link, err)
 	}
-	// Compare against the resolved target, not the raw lexical path: on Windows
-	// the temp dir may contain 8.3 short-name components while ResolveRealPath
-	// returns the canonical long form, and EqualFold cannot bridge the two.
+	// 要与解析后的目标比较，而不是原始词法路径：在 Windows 上临时目录可能包含 8.3
+	// 短名组件，而 ResolveRealPath 返回规范的长形式，EqualFold 无法弥合两者。
 	wantResolved, err := ResolveRealPath(target)
 	if err != nil {
 		t.Fatalf("ResolveRealPath(target %q): %v", target, err)

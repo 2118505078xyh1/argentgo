@@ -24,8 +24,8 @@ func ioctl(fd, request uintptr, arg unsafe.Pointer) error {
 	return nil
 }
 
-// enableRaw puts the terminal into raw mode so every keystroke arrives
-// immediately and no echo reaches the alternate screen.
+// enableRaw 把终端置入原始模式，使每次按键立即
+// 到达且没有回显进入备用屏幕。
 func enableRaw() (func(), error) {
 	fd := os.Stdin.Fd()
 	var original syscall.Termios
@@ -49,7 +49,7 @@ func enableRaw() (func(), error) {
 	}, nil
 }
 
-// terminalSize reports the window size in cells.
+// terminalSize 以单元格报告窗口大小。
 func terminalSize() (int, int) {
 	var ws winsize
 	if err := ioctl(os.Stdout.Fd(), uintptr(ioctlGetWinsize), unsafe.Pointer(&ws)); err != nil {
@@ -58,7 +58,7 @@ func terminalSize() (int, int) {
 	return int(ws.Col), int(ws.Row)
 }
 
-// watchResize turns SIGWINCH into geometry notifications.
+// watchResize 把 SIGWINCH 转换为几何通知。
 func watchResize() (<-chan size, func()) {
 	notify := make(chan os.Signal, 4)
 	signal.Notify(notify, syscall.SIGWINCH)

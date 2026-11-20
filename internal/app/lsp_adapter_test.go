@@ -12,8 +12,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// withStartFn swaps the process spawner for the duration of a test. Tests in
-// this file are intentionally not parallel: startFn is a package variable.
+// withStartFn 在测试期间替换进程派生器。本文件中的测试刻意不并行：
+// startFn 是包级变量。
 func withStartFn(t *testing.T, fn func(context.Context, lsp.Server, string) (*lsp.Client, error)) {
 	t.Helper()
 	previous := startFn
@@ -32,7 +32,7 @@ func testRange(sl, sc, el, ec int) lsp.Range {
 func TestMapPositionRangeAndSymbol(t *testing.T) {
 	source := lsp.Symbol{
 		Name:           "Compute",
-		Kind:           12, // numeric LSP function kind
+		Kind:           12, // 数字形式的 LSP 函数种类
 		Range:          testRange(3, 1, 9, 2),
 		SelectionRange: testRange(3, 9, 3, 17),
 		URI:            "file:///workspace/compute.go",
@@ -53,8 +53,8 @@ func TestMapPositionRangeAndSymbol(t *testing.T) {
 		t.Fatalf("mapSymbol() = %+v, want %+v", got, want)
 	}
 
-	// Range and position conversion are exercised indirectly above, but check
-	// them directly so a regression names the failing helper.
+	// 范围和位置转换在上面已间接覆盖，但这里直接检查它们，
+	// 使回归时能指明出错的辅助函数。
 	if gotRange := mapRange(testRange(0, 4, 7, 11)); gotRange != (tools.LspRange{
 		Start: tools.LspPos{Line: 0, Character: 4},
 		End:   tools.LspPos{Line: 7, Character: 11},
@@ -65,7 +65,7 @@ func TestMapPositionRangeAndSymbol(t *testing.T) {
 		t.Fatalf("mapPosition() = %+v", gotPos)
 	}
 
-	// LspSymbol.Depth is wire-hidden but must survive the in-process mapping.
+	// LspSymbol.Depth 不出现在线上格式中，但必须在进程内映射后保留。
 	if got.Depth != source.Depth {
 		t.Fatalf("mapSymbol depth = %d, want %d", got.Depth, source.Depth)
 	}
@@ -107,8 +107,8 @@ func TestMapWorkspaceEditPreservesChangesAndDocumentChanges(t *testing.T) {
 		t.Fatalf("mapWorkspaceEdit() = %+v, want %+v", got, want)
 	}
 
-	// Same URI in both shapes stays in both views: the lsp client already
-	// merges documentChanges into Changes, and the DTO must not lose that.
+	// 相同 URI 在两种形式中都保留：lsp 客户端已经把 documentChanges
+	// 合并进 Changes，DTO 不得丢失这一点。
 	merged := &lsp.WorkspaceEdit{
 		Changes: map[string][]lsp.TextEdit{"file:///a.go": {{NewText: "legacy"}}},
 		DocumentChanges: []lsp.DocumentEdit{{
@@ -200,7 +200,7 @@ func TestLspManagerCachesSuccessPerRootAndServer(t *testing.T) {
 	var calls int
 	withStartFn(t, func(context.Context, lsp.Server, string) (*lsp.Client, error) {
 		calls++
-		// A zero-value client is enough: caching never dereferences it.
+		// 零值客户端就足够了：缓存从不解引用它。
 		return &lsp.Client{}, nil
 	})
 	m := newLspManager(context.Background())
@@ -235,7 +235,7 @@ func TestLspManagerCachesSuccessPerRootAndServer(t *testing.T) {
 		t.Fatalf("spawn calls after a python lookup = %d, want 2", calls)
 	}
 
-	// Same server name under a different root is a different cache key.
+	// 不同根目录下相同的服务名是不同的缓存键。
 	otherRoot, err := m.clientFor(goServer, t.TempDir())
 	if err != nil || otherRoot == first {
 		t.Fatalf("different root should get its own client: client=%v err=%v", otherRoot, err)

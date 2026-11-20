@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// strings holds the two locales the UI ships; the user-facing text of the
-// whole harness lives in one table so a third language is a data change.
+// strings 保存 UI 随附的两种区域设置；整个 harness 的用户可见文本
+// 都在一张表中，因此第三种语言只是数据变更。
 var localeStrings = map[string]map[string]string{
 	"en": {
 		"hint":                 "enter send · alt+enter newline · pgup/pgdn scroll · ctrl+c cancel · /help",
@@ -123,7 +123,7 @@ func language(locale string) string {
 	return "en"
 }
 
-// text returns one UI string, falling back to English then to the key.
+// text 返回一条 UI 字符串，先回退到英语，再回退到键名。
 func text(locale, key string) string {
 	table := localeStrings[language(locale)]
 	if value, ok := table[key]; ok {

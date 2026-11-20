@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// TestMain doubles as the entry point of the helper process used by
-// TestStartSpawnsARealProcess: with the environment variable set the binary
-// speaks LSP on stdin/stdout instead of running tests.
+// TestMain 同时充当 TestStartSpawnsARealProcess 所用
+// helper 进程的入口：设置环境变量后，该二进制
+// TestMain 同时充当 TestStartSpawnsARealProcess 所用 helper 进程的入口：设置环境变量后，该二进制在 stdin/stdout 上讲 LSP 而非运行测试。
 func TestMain(m *testing.M) {
 	if os.Getenv("ARGENT_GO_LSP_HELPER") != "" {
 		os.Exit(runFakeHelper())
@@ -30,15 +30,15 @@ func runFakeHelper() int {
 	return 0
 }
 
-// fakeOptions tweaks the fake server's behaviour.
+// fakeOptions 调整假服务器的行为。
 type fakeOptions struct {
-	// neverPublish makes didOpen/didChange silent, for the timeout test.
+	// neverPublish 使 didOpen/didChange 静默，用于超时测试。
 	neverPublish bool
-	// noServerRequests skips the server-to-client requests sent after initialize.
+	// noServerRequests 跳过 initialize 之后发送的服务器到客户端请求。
 	noServerRequests bool
 }
 
-// fakeRecorder collects what the fake server saw, safe for concurrent reads.
+// fakeRecorder 收集假服务器所见内容，可安全并发读取。
 type fakeRecorder struct {
 	mu          sync.Mutex
 	initialized bool
@@ -100,8 +100,8 @@ func (r *fakeRecorder) answer(method string) (string, bool) {
 	return value, ok
 }
 
-// serveFake implements enough of a language server for the client tests: the
-// handshake, document sync with diagnostics, definition and hover.
+// serveFake 为客户端测试实现了足够多的语言服务器功能：
+// serveFake 为客户端测试实现了足够多的语言服务器功能：握手、带诊断的文档同步、definition 和 hover。
 func serveFake(input io.Reader, output io.Writer, opts fakeOptions, recorder *fakeRecorder) error {
 	reader := bufio.NewReader(input)
 	send := func(value any) error {
@@ -233,8 +233,8 @@ func serveFake(input io.Reader, output io.Writer, opts fakeOptions, recorder *fa
 	}
 }
 
-// publishDiagnostics sends one textDocument/publishDiagnostics notification. An
-// empty message clears the URI, as the protocol intends.
+// publishDiagnostics 发送一条 textDocument/publishDiagnostics 通知。空消息按协议意图清除该 URI。
+// 空消息按协议意图清除该 URI。
 func publishDiagnostics(send func(any) error, uri string, version, severity int, message string) error {
 	items := []any{}
 	if message != "" {
@@ -259,8 +259,8 @@ func publishDiagnostics(send func(any) error, uri string, version, severity int,
 	})
 }
 
-// startPipeClient starts a client over an in-process pipe pair, which exercises
-// the same framing and goroutines as a real child process.
+// startPipeClient 在进程内管道对上启动客户端，它演练与真实子进程相同的分帧和 goroutine。
+// 与真实子进程相同的分帧和 goroutine。
 func startPipeClient(t *testing.T, opts fakeOptions) (*Client, *fakeRecorder) {
 	t.Helper()
 	clientToServerRead, clientToServerWrite, err := os.Pipe()
@@ -296,7 +296,7 @@ func startPipeClient(t *testing.T, opts fakeOptions) (*Client, *fakeRecorder) {
 	return client, recorder
 }
 
-// waitFor polls cond until it holds or the deadline passes.
+// waitFor 轮询 cond 直到其成立或截止时间到达。
 func waitFor(t *testing.T, description string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

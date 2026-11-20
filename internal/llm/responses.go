@@ -11,15 +11,15 @@ import (
 	"strings"
 )
 
-// DefaultResponsesMaxOutputTokens is used when ResponsesClient.MaxOutputTokens
-// is unset.
+// DefaultResponsesMaxOutputTokens 在 ResponsesClient.MaxOutputTokens
+// 未设置时使用。
 const DefaultResponsesMaxOutputTokens = 8192
 
-// ResponsesClient streams the OpenAI Responses protocol (/responses).
+// ResponsesClient 流式处理 OpenAI Responses 协议（/responses）。
 //
-// It speaks items rather than messages: user/assistant turns keep their role,
-// function calls become function_call items, and tool output is returned as a
-// function_call_output item keyed by call_id.
+// 它使用 item 而非 message：user/assistant 轮次保留其角色，
+// 函数调用变成 function_call item，工具输出作为以 call_id 为键的
+// function_call_output item 返回。
 type ResponsesClient struct {
 	BaseURL         string
 	APIKey          string
@@ -29,7 +29,7 @@ type ResponsesClient struct {
 	Options         Options
 }
 
-// NewResponses returns a Responses client for baseURL (usually ".../v1").
+// NewResponses 返回面向 baseURL（通常为 ".../v1"）的 Responses 客户端。
 func NewResponses(baseURL, apiKey string) *ResponsesClient {
 	return &ResponsesClient{
 		BaseURL: strings.TrimRight(baseURL, "/"),
@@ -41,7 +41,7 @@ func NewResponses(baseURL, apiKey string) *ResponsesClient {
 var _ Chatter = (*ResponsesClient)(nil)
 var _ PromptCacheCapable = (*ResponsesClient)(nil)
 
-// PromptCacheCapability reports whether a stable-prefix cache key is emitted.
+// PromptCacheCapability 报告是否发出稳定前缀的缓存键。
 func (c *ResponsesClient) PromptCacheCapability() CacheCapability {
 	return CacheCapability{
 		Supported: c.Options.cacheEnabled(ProtocolResponses, c.BaseURL),
@@ -95,7 +95,7 @@ type responsesOutputItem struct {
 	Output string `json:"output"`
 }
 
-// Chat streams one assistant turn and assembles text, reasoning and calls.
+// Chat 流式获取一个助手轮次，并组装文本、推理和调用。
 func (c *ResponsesClient) Chat(
 	ctx context.Context,
 	model string,
@@ -335,12 +335,12 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		order        []int
 		integrity    streamIntegrity
 		partials     = make(map[int]*responsesPartial)
-		// A completed call is parked by its output index instead of being
-		// appended right away. output_item.done events can arrive out of the
-		// order in which output_item.added announced the items (gateways batch
-		// and reorder notifications); emitting on done would silently swap two
-		// parallel calls. The final assembly below walks order, which is the
-		// provider's announcement sequence, so the call list always matches it.
+		// 已完成的调用按其 output index 停放，而不是
+		// 立即追加。output_item.done 事件的到达顺序可能与
+		// output_item.added 宣布项的顺序不同（网关会批处理
+		// 并重排通知）；在 done 时发出会悄悄交换两个
+		// 并行调用。下面的最终组装按 order（即提供方的宣布顺序）遍历，
+		// 因此调用列表始终与该顺序一致。
 		completed = make(map[int]ToolCall)
 	)
 	var pending []string
@@ -355,8 +355,8 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 			return
 		}
 		arguments := integrity.toolArguments(partial.arguments.String())
-		// An absent provider id stays empty until the final assembly, where a
-		// fallback can be chosen against every provider id in the reply.
+		// 缺失的提供方 id 在最终组装前保持为空，届时
+		// 可以根据回复中每个提供方 id 选择一个回退值。
 		completed[index] = ToolCall{
 			ID:   partial.id,
 			Type: "function",
@@ -389,8 +389,8 @@ streamLoop:
 			pending = splitSSEData(next)
 			data, pending = pending[0], pending[1:]
 		}
-		// An empty data: line is a legal SSE keepalive, not a JSON event.
-		// Skipping it keeps a proxy's heartbeat from failing the reply.
+		// 空的 data: 行是合法的 SSE 保活，不是 JSON 事件。
+		// 跳过它可避免代理的心跳导致回复失败。
 		if isEmptySSEData(data) {
 			continue
 		}
@@ -460,14 +460,21 @@ streamLoop:
 			}
 			partial.id = firstNonEmpty(partial.id, event.Item.CallID, event.Item.ID)
 			partial.name = firstNonEmpty(partial.name, event.Item.Name)
-			if partial.arguments.Len() == 0 {
+			// 与 response.function_call_arguments.done 一致：这里的 item
+			// 是完整的输出项，其 arguments 是本次调用参数的权威值。网关
+			// 可能只发送增量（且增量在传输中丢失或被截断），或者只在
+			// output_item.added 中附带部分参数；此时必须用完整参数覆盖
+			// 此前累积的片段，否则工具会以错误的 "{}" 参数被派发。
+			// 事件未携带参数时保留增量，避免用空串抹掉已收到的内容。
+			if event.Item.Arguments != "" {
+				partial.arguments.Reset()
 				partial.arguments.WriteString(event.Item.Arguments)
 			}
 			push(event.OutputIndex)
 		case "response.completed", "response.incomplete":
 			if event.Response != nil {
-				// Responses reports truncation in incomplete_details.reason
-				// (e.g. "max_output_tokens"); fall back to the raw status.
+				// Responses 在 incomplete_details.reason 中报告截断
+				// （如 "max_output_tokens"）；否则回退到原始状态。
 				if event.Response.IncompleteDetails != nil && event.Response.IncompleteDetails.Reason != "" {
 					finishReason = event.Response.IncompleteDetails.Reason
 				} else if event.Response.Status != "" {
@@ -505,17 +512,17 @@ streamLoop:
 	for _, index := range order {
 		push(index)
 	}
-	// Collect provider ids first: fallback ids are only safe once every real id
-	// in the reply is known, otherwise a generated "call_N" can duplicate one.
+	// 先收集提供方 id：只有知道回复中每个真实 id 后，
+	// 回退 id 才安全，否则生成的 "call_N" 可能与某个重复。
 	used := make(map[string]struct{}, len(order))
 	for _, index := range order {
 		if call, ok := completed[index]; ok && call.ID != "" {
 			used[call.ID] = struct{}{}
 		}
 	}
-	// Assemble in announcement order, not completion order. done handlers may
-	// create a partial without a matching added (some gateways only send done),
-	// which appends an index a second time; emit each call only once.
+	// 按宣布顺序而非完成顺序组装。done 处理器可能创建没有对应 added 的
+	// 部分项（有些网关只发 done），这会第二次追加某个索引；
+	// 每个调用只发出一次。
 	calls := make([]ToolCall, 0, len(order))
 	emitted := make(map[int]bool, len(order))
 	for _, index := range order {

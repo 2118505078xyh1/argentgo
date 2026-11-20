@@ -21,7 +21,7 @@ func (f toolsFunc) Run(ctx context.Context, name, args string) (string, error) {
 	return f(ctx, name, args)
 }
 
-// recorder keeps every prompt and tool call for assertions.
+// recorder 保存每个提示和工具调用以供断言。
 type recorder struct {
 	mu      sync.Mutex
 	prompts []string

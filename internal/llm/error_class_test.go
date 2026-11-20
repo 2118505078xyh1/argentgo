@@ -48,8 +48,8 @@ func TestClassifyFailureKinds(t *testing.T) {
 }
 
 func TestClassifyFailureIdempotentOnActionableError(t *testing.T) {
-	// ClassifyAPIError is idempotent for its own type; ClassifyFailure inherits
-	// that because it translates the already normalized family.
+	// ClassifyAPIError 对其自身类型是幂等的；ClassifyFailure 继承
+	// 这一点，因为它转换的是已规范化的家族。
 	err := llm.ClassifyAPIError(errors.New("provider returned 401 Unauthorized"))
 	first := llm.ClassifyFailure(err)
 	for i := 0; i < 10; i++ {
@@ -63,9 +63,9 @@ func TestClassifyFailureIdempotentOnActionableError(t *testing.T) {
 }
 
 func TestClassifyFailureAuthoritativeExceptionBeforeText(t *testing.T) {
-	// The text mentions quota/401, but sentinels are authoritative: a DNS or
-	// deadline failure must stay transient. This verifies the reuse of
-	// ClassifyAPIError's ordering rather than a second text-only classifier.
+	// 文本提到了配额/401，但哨兵是权威的：DNS 或
+	// 截止时间失败必须保持 transient。这验证了复用
+	// ClassifyAPIError 的顺序，而非第二个纯文本分类器。
 	cases := []struct {
 		name string
 		err  error
@@ -88,8 +88,8 @@ func TestClassifyFailureAuthoritativeExceptionBeforeText(t *testing.T) {
 }
 
 func TestClassifyFailureRetryableMatchesClassifyRetryError(t *testing.T) {
-	// For transport-level failures ClassifyRetryError's ReasonNone is the only
-	// "do not retry" answer; Retryable must agree with it.
+	// 对于传输层失败，ClassifyRetryError 的 ReasonNone 是唯一
+	// 的"不重试"答案；Retryable 必须与它一致。
 	cases := []struct {
 		name string
 		err  error
@@ -113,7 +113,7 @@ func TestClassifyFailureRetryableMatchesClassifyRetryError(t *testing.T) {
 }
 
 func TestClassifyFailureUserActionRouting(t *testing.T) {
-	// settings: the user must fix credentials/model/billing before retrying.
+	// settings：重试前用户必须修复凭据/模型/计费。
 	settings := []error{
 		errors.New("provider not configured: no api key"),
 		errors.New("provider returned 401 Unauthorized: invalid api key"),
@@ -126,7 +126,7 @@ func TestClassifyFailureUserActionRouting(t *testing.T) {
 		}
 	}
 
-	// retry: waiting or revising the request is enough.
+	// retry：等待或修改请求就足够了。
 	retry := []error{
 		errors.New("provider returned 429 Too Many Requests: rate limit exceeded"),
 		errors.New("provider returned 503 Service Unavailable"),
@@ -139,7 +139,7 @@ func TestClassifyFailureUserActionRouting(t *testing.T) {
 		}
 	}
 
-	// none: nothing actionable for the user.
+	// none：用户无可采取的动作。
 	none := []error{
 		nil,
 		context.Canceled,
@@ -209,8 +209,8 @@ func TestClassifyFailureErrorIDStableAndRedacted(t *testing.T) {
 }
 
 func TestClassifyFailureNeverCarriesDetail(t *testing.T) {
-	// The whole struct must be drawn from fixed tables; no provider text may
-	// reach any field, including for a foreign error with arbitrary content.
+	// 整个结构体必须来自固定表；任何提供方文本都不得
+	// 进入任何字段，包括内容任意的外部错误。
 	errs := []error{
 		errors.New("provider returned 401 Unauthorized: api_key=sk-abcdefghijklmnop"),
 		errors.New("unknown gateway failure with trace 0123456789abcdef0123456789abcdef"),
@@ -284,9 +284,9 @@ func TestFailureVocabularyIsClosed(t *testing.T) {
 }
 
 func TestClassifyFailureContextOverflowIsNotRetryable(t *testing.T) {
-	// An oversized context will not clear on replay: the failure must be
-	// Retryable=false (so no automatic retry) while still being a distinct kind
-	// the caller can use to trigger compaction. ClassifyRetryError agrees.
+	// 超大的上下文不会因重放而消除：失败必须是
+	// Retryable=false（不自动重试），同时仍是一种调用方
+	// 可用来触发压缩的独立类别。ClassifyRetryError 也认同。
 	want := llm.FailureInfo{llm.FailureContextOverflow, false, llm.UserActionSettings, "context_overflow.exceeded"}
 	cases := []struct {
 		name string
@@ -316,8 +316,8 @@ func TestClassifyFailureContextOverflowIsNotRetryable(t *testing.T) {
 }
 
 func TestClassifyFailureContextOverflowErrorIDStableAndRedacted(t *testing.T) {
-	// The error ID is a fixed table value: identical across provider wordings,
-	// languages and credentials, and never carries the original error text.
+	// 错误 ID 是固定的表值：跨提供方措辞、
+	// 语言和凭据都相同，且从不携带原始错误文本。
 	first := llm.ClassifyFailure(errors.New("provider returned 400 Bad Request: prompt is too long api_key=sk-abcdefghijklmnop"))
 	second := llm.ClassifyFailure(errors.New("上下文窗口已用尽, user@example.com"))
 	if first.ErrorID != "context_overflow.exceeded" || second.ErrorID != first.ErrorID {

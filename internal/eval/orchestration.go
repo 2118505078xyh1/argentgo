@@ -1,25 +1,25 @@
 package eval
 
-// End-to-end orchestration evals.
+// 端到端编排 eval。
 //
-// Unlike the core suite (whose fakeRun is a hand-written stand-in for the loop),
-// this harness drives the REAL agent loop and the REAL task tool. The only
-// injected fakes are the things a real harness always injects: a fake model
-// (an llm.Chatter, like scripted.go's Scripted) and a no-op ToolRunner for
-// non-task tools. Persona resolution, PARENT-RECHECK verification, the bounded
-// retry loop, the background queue / drain and the TaskBoard are all the real
-// implementations from internal/agent.
+// 与核心套件（其 fakeRun 是循环的手写替身）不同，
+// 此 harness 驱动真实的 agent 循环和真实的 task 工具。唯一注入的假对象是真实 harness 总会注入的：一个假模型
+// 注入的假对象是真实 harness 总会注入的：假模型
+// （llm.Chatter，如 scripted.go 的 Scripted）和一个用于非 task 工具的 no-op ToolRunner。
+// Persona 解析、PARENT-RECHECK 验证、有界重试循环、后台队列/排空以及 TaskBoard 全都是
+// 重试循环、后台队列/排空以及 TaskBoard 全都是真实的
+// 来自 internal/agent 的真实实现。
 //
-// The fake model is *routing* rather than a single global queue: a subagent
-// shares its parent's Chatter, so the script must choose replies by participant
-// (root / child / verification child). Scripted in scripted.go cannot do that;
-// this file reuses its Respond/ToolCall wire types but routes each turn by the
-// system prompt of the request. That is what lets a single JSON document
-// describe a whole multi-turn delegation, including child turns interleaved
-// between the parent's turns.
+// 假模型是*路由式*的而非单一全局队列：子代理
+// 假模型是*路由式*的而非单一全局队列：子代理与其父级共享 Chatter，因此脚本必须按参与者
+// （根/子/验证子）选择回复。scripted.go 中的 Scripted 做不到；
+// 本文件复用其 Respond/ToolCall 线上类型，但按请求的
+// 系统提示路由每一轮。这让单个 JSON 文档能描述整个多轮委派，包括交错在
+// 描述整个多轮委派，包括交错在父级各轮之间的
+// 子级轮次。
 //
-// No network, no real model, no cgo. The background scenario gates the child
-// reply on a channel so "ack first, result later" is deterministic.
+// 父级各轮之间的子级轮次。
+// 无网络、无真实模型、无 cgo。后台场景用 channel 门控子级回复，使"先确认、后结果"是确定的。
 
 import (
 	"bytes"
@@ -35,69 +35,69 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Script targets. "verify" is a child as well (it runs a nested loop), but it
-// is classified separately because the verify prompt is distinctive.
+// 脚本目标。"verify" 也是子级（它运行嵌套循环），但
+// 脚本目标。"verify" 也是子级（它运行嵌套循环），但因验证提示很独特而被单独分类。
 const (
 	orchTargetParent = "parent"
 	orchTargetChild  = "child"
 	orchTargetVerify = "verify"
 
-	// orchRootSystem is the root request's system prompt. Any request whose
-	// system message differs from this is a subagent request.
+	// orchRootSystem 是根请求的系统提示。系统消息与之不同的任何请求都是子代理请求。
+	// 系统消息与之不同的任何请求都是子代理请求。
 	orchRootSystem = "orch-eval-root: you are the root orchestrator"
 
 	orchBoardKind = "board"
 )
 
-// OrchestrationScenario is one scripted multi-turn orchestration eval.
+// OrchestrationScenario 是一个脚本化多轮编排 eval。
 type OrchestrationScenario struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Kind is "board" for a direct TaskBoard API scenario (board tools are not
-	// reachable from the loop yet; TaskBoardIO is only an interface for future
-	// board_post / board_read tools). Everything else drives the real loop.
+	// Kind 对直接的 TaskBoard API 场景为 "board"（board 工具尚不可从循环到达；TaskBoardIO 只是为将来
+	// 尚不可从循环到达；TaskBoardIO 只是为将来准备的
+	// board_post / board_read 工具准备的接口）。其他情况都驱动真实循环。
 	Kind string `json:"kind,omitempty"`
-	// Prompt is the first (root) prompt. FollowupPrompt, when set, is sent as a
-	// second prompt on the SAME runner so a queued background result is drained
-	// into that run's synthetic user turn.
+	// Prompt 是第一个（根）提示。FollowupPrompt 设置后作为同一 runner 上的
+	// 同一 runner 上的第二个提示，使排队的后台结果被排入
+	// 第二个提示发送，使排队的后台结果被排入该运行的合成用户轮次。
 	Prompt         string `json:"prompt"`
 	FollowupPrompt string `json:"followup_prompt,omitempty"`
-	// System, when set, is appended to the root system marker so scenarios can
-	// still describe a root prompt without colliding with child prompts.
+	// System 设置后追加到根系统标记，使场景仍能描述根提示而不与子提示冲突。
+	// 仍能描述根提示而不与子提示冲突。
 	System string `json:"system,omitempty"`
-	// Personas are installed as a real ResolvePersona resolver on the task tool.
+	// Personas 作为真实的 ResolvePersona resolver 安装到 task 工具上。
 	Personas []OrchPersona `json:"personas,omitempty"`
-	// Turns is the fake model script, in the order turns occur. Target selects
-	// which participant consumes each entry.
+	// Turns 是假模型脚本，按轮次发生的顺序。Target 选择哪个参与者消费每条记录。
+	// 哪个参与者消费每条记录。
 	Turns      []OrchTurn      `json:"turns"`
 	Assertions []OrchAssertion `json:"assertions"`
-	// Board is used only by the direct API ("board") scenario.
+	// Board 仅被直接的 API（"board"）场景使用。
 	Board *OrchBoard `json:"board,omitempty"`
 }
 
-// OrchPersona is a named subagent definition handed to the real persona resolver.
+// OrchPersona 是交给真实 persona resolver 的具名子代理定义。
 type OrchPersona struct {
 	Name         string   `json:"name"`
 	System       string   `json:"system"`
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 }
 
-// OrchTurn is one fake model reply. Respond reuses the core suite's wire type.
+// OrchTurn 是一条假模型回复。Respond 复用核心套件的线上类型。
 type OrchTurn struct {
 	Target string `json:"target"`
-	// Match lists substrings that must appear in the request that triggers this
-	// turn (message text, tool names and tool arguments).
+	// Match 列出必须出现在触发此轮的请求中的子串（消息文本、工具名和工具参数）。
+	// 此轮的请求中的子串（消息文本、工具名和工具参数）。
 	Match []string `json:"match_request_contains,omitempty"`
-	// Respond is the reply, reusing internal/eval's scripted response shape.
+	// Respond 是回复，复用 internal/eval 的脚本化响应形态。
 	Respond Respond `json:"respond"`
-	// BlockUntilRelease gates a background child's reply on the harness's
-	// release channel so the "ack first, result later" contract is observable.
+	// BlockUntilRelease 用 harness 的 release channel 门控后台子级的回复，
+	// BlockUntilRelease 用 harness 的 release channel 门控后台子级的回复，使"先确认、后结果"契约可观察。
 	BlockUntilRelease bool `json:"block_until_release,omitempty"`
 }
 
-// OrchAssertion is one concrete check. Equals is used for counts and exact
-// ordered lists (Values); Value is used for substring checks.
+// OrchAssertion 是一个具体检查。Equals 用于计数和精确
+// OrchAssertion 是一个具体检查。Equals 用于计数和精确有序列表（Values）；Value 用于子串检查。
 type OrchAssertion struct {
 	Kind   string   `json:"kind"`
 	Value  string   `json:"value,omitempty"`
@@ -105,13 +105,13 @@ type OrchAssertion struct {
 	Values []string `json:"values,omitempty"`
 }
 
-// OrchBoard describes a direct TaskBoard post/read flow.
+// OrchBoard 描述一个直接的 TaskBoard 发布/读取流程。
 type OrchBoard struct {
 	Posts []OrchBoardPost `json:"posts,omitempty"`
 	Reads []OrchBoardRead `json:"reads,omitempty"`
 }
 
-// OrchBoardPost is one post on the real TaskBoard.
+// OrchBoardPost 是真实 TaskBoard 上的一次发布。
 type OrchBoardPost struct {
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -119,23 +119,23 @@ type OrchBoardPost struct {
 	Body string `json:"body"`
 }
 
-// OrchBoardRead is one read on the real TaskBoard. Name labels the observation
-// so an assertion can check its message count.
+// OrchBoardRead 是真实 TaskBoard 上的一次读取。Name 标记该观察，使断言能检查其消息数。
+// 使断言能检查其消息数。
 type OrchBoardRead struct {
 	Name  string `json:"name"`
 	Since int    `json:"since"`
 	To    string `json:"to"`
 }
 
-// OrchestrationFailure is one failed scenario's diagnosis.
+// OrchestrationFailure 是一个失败场景的诊断。
 type OrchestrationFailure struct {
 	ID     string
 	Name   string
 	Reason string
 }
 
-// OrchestrationReport summarizes a run. The field names are the ones the task
-// asks for: Total, Passed, Failed, Failures.
+// OrchestrationReport 汇总一次运行。字段名是任务
+// OrchestrationReport 汇总一次运行。字段名是任务要求的：Total、Passed、Failed、Failures。
 type OrchestrationReport struct {
 	Total    int
 	Passed   int
@@ -143,7 +143,7 @@ type OrchestrationReport struct {
 	Failures []OrchestrationFailure
 }
 
-// LoadOrchestration reads an orchestration scenario document from disk.
+// LoadOrchestration 从磁盘读取编排场景文档。
 func LoadOrchestration(path string) ([]OrchestrationScenario, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -156,7 +156,7 @@ func LoadOrchestration(path string) ([]OrchestrationScenario, error) {
 	return scenarios, nil
 }
 
-// ParseOrchestration decodes {"scenarios":[...]} or a bare array.
+// ParseOrchestration 解码 {"scenarios":[...]} 或裸数组。
 func ParseOrchestration(data []byte) ([]OrchestrationScenario, error) {
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var scenarios []OrchestrationScenario
@@ -185,17 +185,17 @@ func ParseOrchestration(data []byte) ([]OrchestrationScenario, error) {
 	return scenarios, nil
 }
 
-// orchRequest is the fake model's view of one request. Keeping phase and target
-// lets the grader assert message roles and participant counts precisely.
+// orchRequest 是假模型对一次请求的视图。保留 phase 和 target 使评分器能精确断言消息角色和参与者数量。
+// 使评分器能精确断言消息角色和参与者数量。
 type orchRequest struct {
 	phase    string
 	target   string
 	messages []llm.Message
 }
 
-// orchChatter is the routing fake model. It mirrors scripted.go's Scripted but
-// keeps one cursor per target instead of one global cursor, because the parent
-// loop and its subagents share the same Chatter instance.
+// orchChatter 是路由式假模型。它镜像 scripted.go 的 Scripted，但为每个 target 保留一个游标而非单一全局游标，因为父级
+// 为每个 target 保留一个游标而非单一全局游标，因为父级
+// 循环及其子代理共享同一个 Chatter 实例。
 type orchChatter struct {
 	mu         sync.Mutex
 	rootSystem string
@@ -206,8 +206,8 @@ type orchChatter struct {
 	requests   []orchRequest
 	violations []string
 
-	// Background gating. When a scripted child turn sets BlockUntilRelease,
-	// the reply waits here; started is signalled once the child enters it.
+	// 后台门控。当脚本化子级轮次设置 BlockUntilRelease 时，
+	// 后台门控。当脚本化子级轮次设置 BlockUntilRelease 时，回复在此等待；子级进入时发信号 started。
 	release chan struct{}
 	started chan struct{}
 }
@@ -227,8 +227,8 @@ func (c *orchChatter) setPhase(phase string) {
 	c.mu.Unlock()
 }
 
-// classify tells a root request from a child, and a verification child from
-// the original child, using only the request bytes.
+// classify 仅用请求字节区分根请求与子级、验证子级与原始子级。
+// 与原始子级，仅用请求字节。
 func (c *orchChatter) classify(messages []llm.Message) string {
 	if len(messages) == 0 || messages[0].Role != "system" {
 		return orchTargetParent
@@ -307,10 +307,10 @@ func (c *orchChatter) Chat(ctx context.Context, _ string, messages []llm.Message
 				ID:   fmt.Sprintf("orch-%d-%d", seq, i+1),
 				Type: "function",
 				Function: llm.ToolCallFunction{
-					// Keep dispatch consistent with Scenario.Validate, which
-					// checks the trimmed name: a padded name in a hand-written
-					// script must reach the intended tool, not an unknown-tool
-					// error from the registry's exact-name lookup.
+					// 保持分发与 Scenario.Validate 一致，后者检查裁剪后的名称：手写脚本中带填充的名称必须到达目标工具，而不是 registry 精确名称查找产生的
+					// 检查裁剪后的名称：手写脚本中带填充的名称
+					// 必须到达目标工具，而不是未知工具
+					// 未知工具错误。
 					Name:      strings.TrimSpace(call.Name),
 					Arguments: call.ArgumentsString(),
 				},
@@ -331,8 +331,8 @@ func (c *orchChatter) snapshot() ([]orchRequest, []string) {
 	return requests, append([]string(nil), c.violations...)
 }
 
-// orchTools is the no-op ToolRunner for non-task tools. The task tool itself is
-// wrapped around this runner by the real newToolset in internal/agent.
+// orchTools 是用于非 task 工具的 no-op ToolRunner。task 工具本身由 internal/agent 中真实的 newToolset 包装在这个 runner 之上。
+// 由 internal/agent 中真实的 newToolset 包装在这个 runner 之上。
 type orchTools struct{}
 
 func (orchTools) Specs() []llm.ToolSpec {
@@ -348,8 +348,8 @@ func (orchTools) Run(_ context.Context, name, args string) (string, error) {
 	return "ok: " + name + " " + args, nil
 }
 
-// noticeSink collects parent notices; background children emit from their own
-// goroutine, so it is mutex protected.
+// noticeSink 收集父级通知；后台子级从自身 goroutine 发出，因此用
+// noticeSink 收集父级通知；后台子级从自身 goroutine 发出，因此用互斥锁保护。
 type noticeSink struct {
 	mu      sync.Mutex
 	notices []string
@@ -370,7 +370,7 @@ func (s *noticeSink) all() []string {
 	return append([]string(nil), s.notices...)
 }
 
-// orchObservation is the harness-owned view of one scenario run.
+// orchObservation 是 harness 拥有的某次场景运行的视图。
 type orchObservation struct {
 	finalText       string
 	parentToolCalls []string
@@ -395,8 +395,8 @@ type orchObservation struct {
 	boardReadSize map[string]int
 }
 
-// RunOrchestration runs every scenario through the real agent loop and returns
-// a complete report. One failing scenario never stops the suite.
+// RunOrchestration 通过真实 agent 循环运行每个场景并返回完整报告。一个失败的场景永不停止套件。
+// 完整报告。一个失败的场景永不停止套件。
 func RunOrchestration(ctx context.Context, scenarios []OrchestrationScenario) OrchestrationReport {
 	report := OrchestrationReport{
 		Total:    len(scenarios),
@@ -425,8 +425,8 @@ func RunOrchestration(ctx context.Context, scenarios []OrchestrationScenario) Or
 	return report
 }
 
-// runOneOrchestration drives the real agent loop (or the direct board API) for
-// one scenario and collects the observation the assertions grade.
+// runOneOrchestration 为一个场景驱动真实 agent 循环（或直接的 board API），并收集断言要评分的观察结果。
+// 一个场景并收集断言要评分的观察结果。
 func runOneOrchestration(ctx context.Context, s OrchestrationScenario) (orchObservation, error) {
 	if s.Kind == orchBoardKind {
 		return runBoardScenario(s)
@@ -436,8 +436,8 @@ func runOneOrchestration(ctx context.Context, s OrchestrationScenario) (orchObse
 	chatter := newOrchChatter(rootSystem, s.Turns)
 	notices := &noticeSink{}
 
-	// Real persona resolver, real background queue. NewChild is intentionally
-	// left nil so the task tool builds real *agent.Runner child loops.
+	// 真实的 persona resolver、真实的后台队列。NewChild 有意
+	// 真实的 persona resolver、真实的后台队列。NewChild 有意留空，使 task 工具构建真实的 *agent.Runner 子循环。
 	personas := make(map[string]agent.SubagentConfig, len(s.Personas))
 	for _, p := range s.Personas {
 		personas[p.Name] = agent.SubagentConfig{
@@ -479,9 +479,9 @@ func runOneOrchestration(ctx context.Context, s OrchestrationScenario) (orchObse
 		obs.notices = notices.all()
 		return obs, err
 	}
-	// Background scenario: the first run must return while the child is still
-	// blocked in the fake model. Only then do we release it and send a second
-	// prompt, which drains the queued result into a synthetic user turn.
+	// 后台场景：第一次运行必须在子级仍
+	// 阻塞于假模型时返回。只有随后我们释放它并发送第二个
+	// 后台场景：第一次运行必须在子级仍阻塞于假模型时返回。只有随后我们释放它并发送第二个
 	select {
 	case <-chatter.started:
 	case <-time.After(3 * time.Second):
@@ -504,8 +504,8 @@ func runOneOrchestration(ctx context.Context, s OrchestrationScenario) (orchObse
 	return obs, err2
 }
 
-// collectRequests folds the fake model's recorded requests and the run result
-// into the observation. phaseFilter "" collects the first-run requests.
+// 提示，把排队结果排入合成用户轮次。
+// collectRequests 把假模型记录的请求与运行结果折叠进观察。phaseFilter "" 收集第一次运行的请求。
 func collectRequests(obs orchObservation, chatter *orchChatter, phaseFilter string) orchObservation {
 	requests, violations := chatter.snapshot()
 	obs.violations = append(obs.violations, violations...)
@@ -548,9 +548,9 @@ func collectRequests(obs orchObservation, chatter *orchChatter, phaseFilter stri
 	return obs
 }
 
-// runBoardScenario exercises the real TaskBoard API directly. There are no
-// board_post / board_read tools in the loop yet (TaskBoardIO is only a future
-// seam), so this is intentionally a direct API scenario.
+// runBoardScenario 直接演练真实 TaskBoard API。没有
+// runBoardScenario 直接演练真实 TaskBoard API。循环中还没有 board_post / board_read 工具（TaskBoardIO 只是未来的
+// 接缝），因此这有意是一个直接的 API 场景。
 func runBoardScenario(s OrchestrationScenario) (orchObservation, error) {
 	obs := orchObservation{boardReadSize: make(map[string]int)}
 	if s.Board == nil {
@@ -570,8 +570,8 @@ func runBoardScenario(s OrchestrationScenario) (orchObservation, error) {
 	return obs, nil
 }
 
-// checkOrchestration grades one observation and returns "" when every assertion
-// holds. Every failure is concrete: a count, a substring or a message role.
+// checkOrchestration 对一个观察评分，所有断言成立时返回 ""。每个失败都是具体的：计数、子串或消息角色。
+// 成立时返回 ""。每个失败都是具体的：计数、子串或消息角色。
 func checkOrchestration(s OrchestrationScenario, obs orchObservation) string {
 	for _, assertion := range s.Assertions {
 		if reason := checkAssertion(assertion, obs); reason != "" {

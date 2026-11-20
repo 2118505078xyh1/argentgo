@@ -9,10 +9,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 )
 
-// probeFrom builds a deterministic, injected probe: every URL in failed is
-// reported unhealthy, everything else is healthy. It performs no network I/O
-// and is safe for concurrent reads, so the same probe can be reused by the
-// purity test below.
+// probeFrom 构建确定性的注入式探针：failed 中的每个 URL 报告不健康，其他都健康。它不执行网络 I/O 且可安全并发读取，因此同一探针可被下面的纯函数测试复用。
+// 报告不健康，其他都健康。它不执行网络 I/O
+// 且可安全并发读取，因此同一探针可被下面的
+// 纯函数测试复用。
 func probeFrom(failed ...string) func(string) error {
 	bad := make(map[string]struct{}, len(failed))
 	for _, url := range failed {
@@ -151,7 +151,7 @@ func TestProbeHealthyIsPureUnderConcurrentUse(t *testing.T) {
 	for err := range errs {
 		t.Fatal(err)
 	}
-	// The caller's input must never be modified by a probe run.
+	// 调用方的输入绝不能被探针运行修改。
 	if urls[0] != "http://a.test/v1" || len(urls) != 4 {
 		t.Fatal("ProbeHealthy mutated its input")
 	}

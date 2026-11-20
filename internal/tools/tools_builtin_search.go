@@ -102,7 +102,7 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	return clip(ctx, strings.Join(matches, "\n")), nil
 }
 
-// Meta marks an empty grep result useless.
+// Meta 把空的 grep 结果标记为无用。
 func (grepTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
 	if err != nil {
 		return ToolMeta{}
@@ -155,7 +155,7 @@ func (findTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	return clip(ctx, strings.Join(found, "\n")), nil
 }
 
-// Meta marks an empty find result useless.
+// Meta 把空的 find 结果标记为无用。
 func (findTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
 	if err != nil {
 		return ToolMeta{}
@@ -163,9 +163,9 @@ func (findTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
 	return ToolMeta{Useless: strings.TrimSpace(output) == "(no matches)"}
 }
 
-// Meta marks an empty glob result useless. globTool lives in glob.go but the
-// method is declared beside the other meta producers; same package, same
-// semantics: the hint is derived from the actual output of the call.
+// Meta 把空的 glob 结果标记为无用。globTool 位于 glob.go 中，但该
+// 方法与其他 meta 生产者声明在一起：同一个包、同样的
+// 语义：提示来自该调用的实际输出。
 func (globTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
 	if err != nil {
 		return ToolMeta{}
@@ -173,8 +173,8 @@ func (globTool) Meta(_ json.RawMessage, output string, err error) ToolMeta {
 	return ToolMeta{Useless: strings.HasPrefix(strings.TrimSpace(output), "no files match ")}
 }
 
-// walkFiles visits regular files under base, skipping noisy directories.
-// The callback returns false to stop the walk.
+// walkFiles 遍历 base 下的普通文件，跳过嘈杂的目录。
+// 回调返回 false 时停止遍历。
 func walkFiles(base string, visit func(string) bool) {
 	skip := map[string]bool{".git": true, "node_modules": true, "target": true, "dist": true}
 	_ = filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {

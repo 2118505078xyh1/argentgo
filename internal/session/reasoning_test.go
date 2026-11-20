@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestAssistantReasoningRoundTrip verifies that an assistant record written
-// with reasoning survives a close/reopen and is projected onto Entry, including
-// multi-byte CJK text that must not be cut anywhere along the way.
+// TestAssistantReasoningRoundTrip 验证带推理内容写入的 assistant 记录在
+// 关闭/重新打开后能存活并投影到 Entry，包括其中
+// 绝不能被切断的多字节中文文本。
 func TestAssistantReasoningRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	s := newTestSession(t, dir, "reasoning")
@@ -45,9 +45,9 @@ func TestAssistantReasoningRoundTrip(t *testing.T) {
 	}
 }
 
-// TestReasoningOfAcceptsWireAliases checks both the neutral reasoning key and
-// the OpenAI-compatible reasoning_content key, and that a missing key leaves
-// the entry empty so legacy transcripts are unchanged.
+// TestReasoningOfAcceptsWireAliases 检查中性的 reasoning 键和
+// OpenAI 兼容的 reasoning_content 键，以及缺失键会让
+// 条目保持为空，使旧转录不变。
 func TestReasoningOfAcceptsWireAliases(t *testing.T) {
 	cases := []struct {
 		name string
@@ -69,9 +69,9 @@ func TestReasoningOfAcceptsWireAliases(t *testing.T) {
 	}
 }
 
-// TestLegacyAssistantEntryHasNoReasoning guards the compatibility contract: an
-// old assistant record without any reasoning key still yields a valid entry
-// whose Reasoning is empty.
+// TestLegacyAssistantEntryHasNoReasoning 守护兼容性契约：
+// 没有任何推理键的旧 assistant 记录仍能产生有效条目，
+// 其 Reasoning 为空。
 func TestLegacyAssistantEntryHasNoReasoning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "legacy.jsonl")
@@ -93,8 +93,8 @@ func TestLegacyAssistantEntryHasNoReasoning(t *testing.T) {
 	}
 }
 
-// TestAssistantRecordOmitsEmptyReasoning ensures a write with no reasoning does
-// not introduce a new field into the persisted payload, keeping old bytes.
+// TestAssistantRecordOmitsEmptyReasoning 确保不带推理的写入
+// 不会在持久化载荷中引入新字段，从而保持旧字节。
 func TestAssistantRecordOmitsEmptyReasoning(t *testing.T) {
 	payload := AssistantRecord("done", "")
 	raw, err := json.Marshal(payload)
@@ -113,9 +113,9 @@ func TestAssistantRecordOmitsEmptyReasoning(t *testing.T) {
 	}
 }
 
-// TestEntryJSONReasoningOmittedWhenEmpty checks the Entry archive encoding:
-// empty reasoning is omitted entirely so archives from older builds stay
-// byte-identical, and a non-empty value round-trips.
+// TestEntryJSONReasoningOmittedWhenEmpty 检查 Entry 归档编码：
+// 空推理被完全省略，使较早版本生成的归档保持
+// 逐字节一致，而非空值能正确往返。
 func TestEntryJSONReasoningOmittedWhenEmpty(t *testing.T) {
 	empty, err := json.Marshal(Entry{Role: "assistant", Content: "hi"})
 	if err != nil {

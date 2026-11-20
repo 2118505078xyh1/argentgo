@@ -18,8 +18,8 @@ func enabledWarmer() *CacheWarmer {
 	}
 }
 
-// TestCacheWarmerTriggersInWindow pins that an enabled warmer fires only in
-// the final stretch of the cache lifetime, before expiry.
+// TestCacheWarmerTriggersInWindow 固定：启用的 warmer 只在缓存生存期的
+// 最后阶段、过期之前触发。
 func TestCacheWarmerTriggersInWindow(t *testing.T) {
 	cw := enabledWarmer()
 	cw.RecordRequest(warmerBase)
@@ -36,30 +36,30 @@ func TestCacheWarmerTriggersInWindow(t *testing.T) {
 	}
 }
 
-// TestCacheWarmerRecordIdleResetsIdleCap pins that reporting a fresh idle time
-// at a turn boundary clears a stale idle age that would otherwise block a warm.
+// TestCacheWarmerRecordIdleResetsIdleCap 固定：在轮次边界报告新的空闲时间
+// 会清除陈旧的空闲时长，否则它会阻止保活。
 func TestCacheWarmerRecordIdleResetsIdleCap(t *testing.T) {
 	cw := enabledWarmer()
 	cw.RecordRequest(warmerBase)
 	cw.RecordIdle(warmerBase)
 
-	// Idle since the original request: 54 minutes exceeds the 30-minute cap.
+	// 自最初请求以来一直空闲：54 分钟超过 30 分钟上限。
 	if cw.ShouldWarm(warmerBase.Add(54 * time.Minute)) {
 		t.Fatal("warm fired while idle past the cap")
 	}
 
-	// The agent was active again and went idle recently; the cap resets.
+	// agent 再次活跃且最近才空闲；上限已重置。
 	cw.RecordIdle(warmerBase.Add(50 * time.Minute))
 	if !cw.ShouldWarm(warmerBase.Add(54 * time.Minute)) {
 		t.Fatal("warm blocked after the idle clock was reset")
 	}
 }
 
-// TestCacheWarmerUnprofitableDoesNotWarm pins the economics gate: a warm whose
-// cost is not beaten by the expected avoided miss cost never fires.
+// TestCacheWarmerUnprofitableDoesNotWarm 固定经济性门槛：若预期节省的
+// 未命中成本不优于保活成本，则永不触发。
 func TestCacheWarmerUnprofitableDoesNotWarm(t *testing.T) {
 	cw := enabledWarmer()
-	cw.WarmCost = 6 // 10*0.5 = 5 expected saving, below the warm cost.
+	cw.WarmCost = 6 // 10*0.5 = 5 的预期节省，低于保活成本。
 	cw.RecordRequest(warmerBase)
 	cw.RecordIdle(warmerBase.Add(45 * time.Minute))
 
@@ -68,8 +68,8 @@ func TestCacheWarmerUnprofitableDoesNotWarm(t *testing.T) {
 	}
 }
 
-// TestCacheWarmerDisabledDoesNotWarm pins that the zero value, and a warmer
-// that has never observed a request, never fire.
+// TestCacheWarmerDisabledDoesNotWarm 固定：零值以及
+// 从未见过请求的 warmer 永不触发。
 func TestCacheWarmerDisabledDoesNotWarm(t *testing.T) {
 	var zero CacheWarmer
 	zero.RecordRequest(warmerBase)
@@ -79,14 +79,14 @@ func TestCacheWarmerDisabledDoesNotWarm(t *testing.T) {
 	}
 
 	cw := enabledWarmer()
-	cw.RecordIdle(warmerBase) // idle observed, but no request ever refreshed cache
+	cw.RecordIdle(warmerBase) // 观察到空闲，但从未有请求刷新过缓存
 	if cw.ShouldWarm(warmerBase.Add(54 * time.Minute)) {
 		t.Fatal("warmer fired without a recorded request")
 	}
 }
 
-// TestCacheWarmerRequestRestartsWindow pins that a new real request re-times
-// the lifetime and warm window (and clears the idle phase).
+// TestCacheWarmerRequestRestartsWindow 固定：新的真实请求会重新计时
+// 生存期和保活窗口（并清除空闲阶段）。
 func TestCacheWarmerRequestRestartsWindow(t *testing.T) {
 	cw := enabledWarmer()
 	cw.RecordRequest(warmerBase)
@@ -109,10 +109,10 @@ func TestCacheWarmerRequestRestartsWindow(t *testing.T) {
 	}
 }
 
-// TestCacheWarmerDefaultsUseConservativeValues pins that an enabled warmer
-// with unset TTL and costs still behaves sensibly.
+// TestCacheWarmerDefaultsUseConservativeValues 固定：启用的 warmer 即使
+// 未设置 TTL 和成本也仍表现合理。
 func TestCacheWarmerDefaultsUseConservativeValues(t *testing.T) {
-	cw := &CacheWarmer{Enabled: true} // TTL and costs left at zero.
+	cw := &CacheWarmer{Enabled: true} // TTL 和成本保持为零。
 	cw.RecordRequest(warmerBase)
 	cw.RecordIdle(warmerBase)
 
@@ -124,8 +124,8 @@ func TestCacheWarmerDefaultsUseConservativeValues(t *testing.T) {
 	}
 }
 
-// TestCacheWarmerConcurrentUse exercises the mutex under concurrent access;
-// it fails on a deadlock or panic and is clean under the race detector.
+// TestCacheWarmerConcurrentUse 在并发访问下演练互斥锁；
+// 死锁或 panic 会使其失败，且在竞态检测器下干净通过。
 func TestCacheWarmerConcurrentUse(t *testing.T) {
 	cw := enabledWarmer()
 	cw.RecordRequest(warmerBase)

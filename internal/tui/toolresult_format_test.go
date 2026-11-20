@@ -116,7 +116,7 @@ func TestFormatToolResultContentFallsBackForInvalidJSON(t *testing.T) {
 }
 
 func TestFormatToolResultContentScalarJSONUsesPlainPath(t *testing.T) {
-	// A valid JSON scalar is not an object/array: keep it as plain text.
+	// 有效的 JSON 标量不是对象/数组：保留为纯文本。
 	raw := `"just a string"`
 	if got := formatToolResultContent(raw, 20); !reflect.DeepEqual(got, []string{raw}) {
 		t.Fatalf("JSON scalar formatted as %q, want %q", got, []string{raw})
@@ -133,7 +133,7 @@ func TestFormatToolResultContentPreservesANSI(t *testing.T) {
 }
 
 func TestFormatToolResultContentIgnoresMarkdownHorizontalRule(t *testing.T) {
-	// A lone "---" is a markdown rule, not a unified diff header pair.
+	// 单独的 "---" 是 markdown 水平线，不是统一差异头对。
 	raw := "intro\n---\noutro"
 	want := []string{"intro", "---", "outro"}
 	if got := formatToolResultContent(raw, 20); !reflect.DeepEqual(got, want) {

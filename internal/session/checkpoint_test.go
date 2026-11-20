@@ -300,9 +300,9 @@ func TestRetryForksAtCheckpointParentAndLeavesSourceUnchanged(t *testing.T) {
 	}
 }
 
-// TestUndoRefusesWhenAnyManifestFileAdvanced covers the git-less equivalent of
-// "HEAD moved past the checkpoint base": a later change to any manifest file
-// aborts the whole undo, and no file -- including untouched ones -- is written.
+// TestUndoRefusesWhenAnyManifestFileAdvanced 覆盖无 git 环境下等价于
+// "HEAD 移过了检查点基线"的情形：清单中任何文件在之后发生更改，
+// 都会中止整个撤销，且不会写入任何文件——包括未被触碰的文件。
 func TestUndoRefusesWhenAnyManifestFileAdvanced(t *testing.T) {
 	root := testWorkspace(t, map[string]string{"a.txt": "before a", "b.txt": "before b"})
 	cp, err := CaptureCheckpoint(root, []string{"a.txt", "b.txt"})
@@ -314,7 +314,7 @@ func TestUndoRefusesWhenAnyManifestFileAdvanced(t *testing.T) {
 	if err := CompleteCheckpoint(root, &cp); err != nil {
 		t.Fatal(err)
 	}
-	// A user commit advances only b.txt after the checkpoint.
+	// 用户的提交在检查点之后只推进了 b.txt。
 	writeWorkspaceFile(t, root, "b.txt", "committed by user")
 
 	restored, err := UndoCheckpoint(root, cp)
@@ -332,9 +332,9 @@ func TestUndoRefusesWhenAnyManifestFileAdvanced(t *testing.T) {
 	}
 }
 
-// TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite verifies the normal
-// path still restores every manifest file and that the CAS recheck runs once
-// per restored file.
+// TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite 验证正常路径
+// 仍会还原每个清单文件，且 CAS 复查对每个
+// 被还原的文件只运行一次。
 func TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite(t *testing.T) {
 	root := testWorkspace(t, map[string]string{"a.txt": "before a", "b.txt": "before b"})
 	cp, err := CaptureCheckpoint(root, []string{"a.txt", "b.txt"})
@@ -367,9 +367,9 @@ func TestUndoRestoresWhenFilesUnchangedAndRechecksEachWrite(t *testing.T) {
 	}
 }
 
-// TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite injects an edit
-// in the window between validation and the first write, and asserts the CAS
-// recheck aborts before clobbering concurrent work.
+// TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite 在校验与首次写入
+// 之间注入一次编辑，并断言 CAS 复查会在
+// 覆盖并发工作之前中止。
 func TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite(t *testing.T) {
 	root := testWorkspace(t, map[string]string{"a.txt": "before"})
 	cp, err := CaptureCheckpoint(root, []string{"a.txt"})
@@ -398,15 +398,15 @@ func TestUndoCASRefusesConcurrentChangeBetweenValidationAndWrite(t *testing.T) {
 	}
 }
 
-// TestUndoIsTransactionalAcrossFiles pins the all-or-nothing guarantee when a
-// CAS recheck fails after earlier files were already written. Before the fix,
-// a conflict on a later file left earlier files half-reverted even though the
-// call reported an error and no files were reported as restored.
+// TestUndoIsTransactionalAcrossFiles 固化当较早文件已经写入、
+// 而 CAS 复查失败时的全有或全无保证。修复之前，
+// 后续文件上的冲突会让较早的文件处于半还原状态，即使
+// 调用报告了错误且没有任何文件被报告为已还原。
 func TestUndoIsTransactionalAcrossFiles(t *testing.T) {
 	files := []string{"a.txt", "b.txt", "c.txt"}
 	cases := []struct {
 		name       string
-		conflictAt string // file sabotaged by the before-write hook; "" = none
+		conflictAt string // 被写前钩子破坏的文件；"" 表示无
 	}{
 		{name: "no conflict restores every file"},
 		{name: "conflict on first file writes nothing", conflictAt: "a.txt"},
@@ -470,8 +470,8 @@ func TestUndoIsTransactionalAcrossFiles(t *testing.T) {
 	}
 }
 
-// TestUndoRollsBackCreatedAndDeletedFiles covers the non-overwrite action kinds:
-// a conflict on a later file must also undo the earlier removal and recreation.
+// TestUndoRollsBackCreatedAndDeletedFiles 覆盖非覆盖类的操作：
+// 后续文件上的冲突也必须撤销较早的删除和重建。
 func TestUndoRollsBackCreatedAndDeletedFiles(t *testing.T) {
 	root := testWorkspace(t, map[string]string{
 		"a.txt":   "before a",
@@ -490,8 +490,8 @@ func TestUndoRollsBackCreatedAndDeletedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The manifest sorts paths: a.txt (modify), del.txt (recreate), new.txt
-	// (remove). Sabotaging new.txt forces rollback of the first two actions.
+	// 清单按路径排序：a.txt（修改）、del.txt（重建）、new.txt
+	// （删除）。破坏 new.txt 会强制回滚前两个操作。
 	hook := func(target string) {
 		if filepath.Base(target) == "new.txt" {
 			_ = os.WriteFile(target, []byte("concurrent edit"), 0o644)
@@ -515,9 +515,9 @@ func TestUndoRollsBackCreatedAndDeletedFiles(t *testing.T) {
 	}
 }
 
-// TestVerifyRestoreTargetRejectsDivergence covers every branch of the CAS
-// helper: files the turn created, modified, or deleted, and a concurrent change
-// to each of those states.
+// TestVerifyRestoreTargetRejectsDivergence 覆盖 CAS 辅助函数的每个分支：
+// 轮次创建、修改或删除的文件，以及对其中每种状态的
+// 并发更改。
 func TestVerifyRestoreTargetRejectsDivergence(t *testing.T) {
 	root := testWorkspace(t, map[string]string{"exists.txt": "post", "gone.txt": "ignored"})
 	path := filepath.Join(root, "exists.txt")
@@ -622,8 +622,8 @@ func TestOldJSONLRecordsRemainReadableWithoutNewKinds(t *testing.T) {
 	}
 }
 
-// countingCheckpointReader counts file reads while delegating to os.ReadFile.
-// It is injected via captureCheckpoint so tests can observe cache hits directly.
+// countingCheckpointReader 在委托给 os.ReadFile 的同时统计文件读取次数。
+// 它通过 captureCheckpoint 注入，使测试可以直接观察缓存命中。
 type countingCheckpointReader struct {
 	mu    sync.Mutex
 	reads int
@@ -642,9 +642,9 @@ func (r *countingCheckpointReader) count() int {
 	return r.reads
 }
 
-// TestCaptureCheckpointHashCacheReusesUnchangedFiles asserts the core win: a
-// second checkpoint over an unchanged file serves hash and bytes from the
-// cache without re-reading, and the result is identical to the uncached path.
+// TestCaptureCheckpointHashCacheReusesUnchangedFiles 断言核心收益：
+// 对未更改文件的第二次检查点从缓存提供哈希和字节，
+// 无需重新读取，且结果与无缓存路径完全相同。
 func TestCaptureCheckpointHashCacheReusesUnchangedFiles(t *testing.T) {
 	ClearCheckpointHashCache()
 	root := testWorkspace(t, map[string]string{"a.txt": "stable bytes"})
@@ -678,8 +678,8 @@ func TestCaptureCheckpointHashCacheReusesUnchangedFiles(t *testing.T) {
 	}
 }
 
-// TestCaptureCheckpointHashCacheRecomputesAfterChange asserts a changed file
-// gets a new stat-metadata key, so the stale hash is never served.
+// TestCaptureCheckpointHashCacheRecomputesAfterChange 断言更改后的文件
+// 会得到新的 stat 元数据键，因此过期哈希永不会被提供。
 func TestCaptureCheckpointHashCacheRecomputesAfterChange(t *testing.T) {
 	ClearCheckpointHashCache()
 	root := testWorkspace(t, map[string]string{"a.txt": "before"})
@@ -693,7 +693,7 @@ func TestCaptureCheckpointHashCacheRecomputesAfterChange(t *testing.T) {
 	if err := os.WriteFile(path, []byte("after changed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Force a distinct mtime so the metadata key is guaranteed to differ.
+	// 强制一个不同的 mtime，确保元数据键一定不同。
 	later := time.Now().Add(time.Hour)
 	if err := os.Chtimes(path, later, later); err != nil {
 		t.Fatal(err)
@@ -716,8 +716,8 @@ func TestCaptureCheckpointHashCacheRecomputesAfterChange(t *testing.T) {
 	}
 }
 
-// TestCaptureCheckpointHashCacheConcurrentCalls exercises the cache from many
-// goroutines at once and asserts every caller sees a correct, complete manifest.
+// TestCaptureCheckpointHashCacheConcurrentCalls 让许多 goroutine 同时使用缓存，
+// 并断言每个调用方都能看到正确、完整的清单。
 func TestCaptureCheckpointHashCacheConcurrentCalls(t *testing.T) {
 	ClearCheckpointHashCache()
 	root := testWorkspace(t, map[string]string{"a.txt": "one", "b.txt": "two", "c.txt": "three"})
@@ -766,16 +766,16 @@ func TestCaptureCheckpointHashCacheConcurrentCalls(t *testing.T) {
 	if got != callers {
 		t.Fatalf("results = %d, want %d", got, callers)
 	}
-	// Concurrent misses may duplicate reads, but never more than one per file
-	// per caller, and at least the three distinct files must have been read.
+	// 并发未命中可能重复读取，但每个调用方对每个文件
+	// 最多读取一次，且三个不同文件至少都被读取过。
 	if n := reader.count(); n < 3 || n > 3*callers {
 		t.Fatalf("reads = %d, want between 3 and %d", n, 3*callers)
 	}
 }
 
-// TestClearAndInvalidateCheckpointHashCache covers both invalidation entry
-// points: targeted invalidation re-reads only the named file, while a full
-// clear forces every file to be read again.
+// TestClearAndInvalidateCheckpointHashCache 覆盖两个失效入口：
+// 定向失效只重新读取指定文件，而完全
+// 清空会强制重新读取每个文件。
 func TestClearAndInvalidateCheckpointHashCache(t *testing.T) {
 	ClearCheckpointHashCache()
 	root := testWorkspace(t, map[string]string{"a.txt": "a", "b.txt": "b"})
@@ -808,14 +808,14 @@ func TestClearAndInvalidateCheckpointHashCache(t *testing.T) {
 		t.Fatalf("reads after clear = %d, want 5", n)
 	}
 
-	// Invalidation on an unknown or unsafe path is a harmless no-op.
+	// 对未知或不安全路径的失效操作是无害的空操作。
 	InvalidateCheckpointHashCache(root, "../outside.txt")
 	InvalidateCheckpointHashCache(root, "missing.txt")
 }
 
-// TestCaptureCheckpointHashCacheIsolatedPerWorkspace guards cross-workspace
-// correctness: identical relative paths with different content must not share
-// a cache entry.
+// TestCaptureCheckpointHashCacheIsolatedPerWorkspace 守护跨工作区
+// 正确性：内容不同但相对路径相同的条目不得共享
+// 同一个缓存条目。
 func TestCaptureCheckpointHashCacheIsolatedPerWorkspace(t *testing.T) {
 	ClearCheckpointHashCache()
 	one := testWorkspace(t, map[string]string{"a.txt": "content one"})

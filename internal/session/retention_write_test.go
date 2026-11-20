@@ -45,11 +45,11 @@ func TestAppendWithRetentionStoresHint(t *testing.T) {
 	}
 }
 
-// TestAppendWithRetentionExplicitHintBeatsKindDefault covers the case where a
-// caller asks for a hint that differs from the kind's automatic default. The
-// explicit value must survive AppendRecord's StampIfImportant step; otherwise
-// e.g. a summary marked in_thread silently becomes always and leaks into child
-// sessions against the caller's intent.
+// TestAppendWithRetentionExplicitHintBeatsKindDefault 覆盖调用方请求的提示
+// 与 kind 的自动默认值不同的情形。显式值必须能
+// 经受住 AppendRecord 的 StampIfImportant 步骤；否则
+// 例如标记为 in_thread 的摘要会静默变成 always，并违背调用方意图
+// 泄漏到子会话中。
 func TestStampIfImportantPreservesExplicitHint(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -77,9 +77,9 @@ func TestAppendWithRetentionExplicitHintBeatsKindDefault(t *testing.T) {
 		kind string
 		want Retention
 	}{
-		{KindSummary, RetainInChildren},  // automatic default: RetainAlways
-		{KindCheckpoint, RetainInThread}, // automatic default: RetainAlways
-		{KindTitle, RetainAlways},        // automatic default: RetainInChildren
+		{KindSummary, RetainInChildren},  // 自动默认值：RetainAlways
+		{KindCheckpoint, RetainInThread}, // 自动默认值：RetainAlways
+		{KindTitle, RetainAlways},        // 自动默认值：RetainInChildren
 	} {
 		t.Run(tc.kind+"/"+tc.want.String(), func(t *testing.T) {
 			sess := newTestSession(t, t.TempDir(), "explicit hint")
@@ -192,8 +192,8 @@ func TestStampIfImportantMarksOnlyImportantKinds(t *testing.T) {
 		}
 	}
 
-	// An important kind with a non-object payload keeps its bytes: a hint must
-	// never cost the payload itself.
+	// 载荷非对象的重要 kind 保留其字节：提示绝不能
+	// 以牺牲载荷本身为代价。
 	bare := []byte(`"just text"`)
 	if out := StampIfImportant(KindCheckpoint, bare); !bytes.Equal(out, bare) {
 		t.Errorf("non-object payload changed: %q, want %q", out, bare)
@@ -340,14 +340,14 @@ func TestCompactionRestoresStampedRecord(t *testing.T) {
 	count := 0
 	restored := false
 	for _, record := range records {
-		// The compaction summary also quotes the dropped text; only count
-		// conversation records, not the summary record itself.
+		// 压缩摘要也会引用被丢弃的文本；只统计
+		// 对话记录，不统计摘要记录本身。
 		if record.Kind == KindCompaction || !strings.Contains(string(record.Data), pinned) {
 			continue
 		}
 		count++
-		// entryKind maps a "user" role back to KindUser when the compactor
-		// re-emits the flagged record, so the restored copy has that kind.
+		// 压缩器重新发出带标记的记录时，entryKind 会把 "user" 角色
+		// 映射回 KindUser，因此恢复的副本具有该 kind。
 		if record.Kind == KindUser {
 			restored = true
 		}

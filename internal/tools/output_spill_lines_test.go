@@ -9,8 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// writeRangeArtifact drops a file with a canonical spill name into dir and
-// returns its path. The fixed id is fine here: these tests only read.
+// writeRangeArtifact 把一个具有规范溢出名称的文件放入 dir，并
+// 返回其路径。固定 id 在这里没问题：这些测试只做读取。
 func writeRangeArtifact(t *testing.T, dir, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, "tool-output-0123456789abcdef.log")
@@ -114,7 +114,7 @@ func TestReadSpillRangeCJKAndEmojiRuneSafe(t *testing.T) {
 		t.Fatalf("range contains broken runes: %q", got)
 	}
 
-	// A to-EOF read must also stay rune-safe and keep the trailing newline.
+	// 读到 EOF 的读取也必须保持 rune 安全并保留尾随换行。
 	full, total, err := ReadSpillRange(path, 1, 0)
 	if err != nil || total != 4 || full != content {
 		t.Fatalf("full read = (%q, %d, %v), want (%q, 4, nil)", full, total, err, content)
@@ -125,20 +125,20 @@ func TestReadSpillRangeRejectsEscapingAndNonArtifactPaths(t *testing.T) {
 	dir := t.TempDir()
 	artifact := writeRangeArtifact(t, dir, "ok\n")
 
-	// An artifact-shaped file with a traversal segment must be rejected even
-	// though it resolves back to a real file in the spill dir. Build the string
-	// directly: filepath.Join would Clean the ".." away and turn this into the
-	// legitimate artifact path, which would then (correctly) be readable.
+	// 带遍历段的、形似产出的文件必须被拒绝，即使
+	// 它解析回溢出目录中的真实文件。直接构造该字符串：
+	// filepath.Join 会把 ".." 清理掉，使其变成
+	// 合法的产出路径，那样（正确地）就可读了。
 	sep := string(filepath.Separator)
 	traversal := dir + sep + ".." + sep + filepath.Base(dir) + sep + "tool-output-0123456789abcdef.log"
 
-	// A plain non-artifact name inside the spill dir must be rejected too.
+	// 溢出目录内的普通非产出文件名同样必须被拒绝。
 	notes := filepath.Join(dir, "notes.txt")
 	if err := os.WriteFile(notes, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	// A symlink with a canonical artifact name pointing at an outside file.
+	// 一个具有规范产出名称、但指向外部文件的符号链接。
 	outside := t.TempDir()
 	secret := filepath.Join(outside, "secret.txt")
 	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
@@ -174,7 +174,7 @@ func TestReadSpillRangeRejectsEscapingAndNonArtifactPaths(t *testing.T) {
 		})
 	}
 
-	// Sanity: the legitimate artifact in the same dir still reads fine.
+	// 健全性检查：同一目录中合法的产出仍可正常读取。
 	if got, total, err := ReadSpillRange(artifact, 1, 1); err != nil || got != "ok" || total != 1 {
 		t.Fatalf("legitimate artifact = (%q, %d, %v)", got, total, err)
 	}
@@ -191,8 +191,8 @@ func TestReadSpillRangeCorruptUTF8ArtifactRejected(t *testing.T) {
 }
 
 func TestReadSpillRangeRejectsPathWithDotDotSuffix(t *testing.T) {
-	// A trailing ".." segment is an escape even without a filename after it.
-	// Build the string directly: filepath.Join would clean the segment away.
+	// 尾随的 ".." 段即便其后没有文件名，也属于越界。
+	// 直接构造字符串：filepath.Join 会把该段清理掉。
 	path := t.TempDir() + string(filepath.Separator) + ".."
 	if _, _, err := ReadSpillRange(path, 1, 1); !errors.Is(err, errSpillInvalidPath) {
 		t.Fatalf("error = %v, want errSpillInvalidPath", err)

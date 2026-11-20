@@ -9,42 +9,42 @@ import (
 	"sync"
 )
 
-// ErrInvalidSkillName is returned when a name is not lowercase kebab-case or
-// tries to escape its skills root.
+// ErrInvalidSkillName 在名称不是小写 kebab-case 或试图逃逸其 skills 根目录时返回。
+// 或试图逃逸其 skills 根目录。
 var ErrInvalidSkillName = errors.New("invalid skill name")
 
-// ErrSkillExists is returned when a skill already exists at the target path
-// and the caller did not opt into overwriting it.
+// ErrSkillExists 在目标路径已存在技能且调用方未选择覆盖时返回。
+// 且调用方未选择覆盖它。
 var ErrSkillExists = errors.New("skill already exists")
 
-// maxNameLength bounds authored names so a model cannot create absurd paths.
+// maxNameLength 限制作者命名的长度，使模型无法创建荒谬的路径。
 const maxNameLength = 64
 
-// AuthorOptions configures AuthorWithOptions.
+// AuthorOptions 配置 AuthorWithOptions。
 type AuthorOptions struct {
-	// Overwrite permits replacing an existing SKILL.md at the target path.
+	// Overwrite 允许替换目标路径处已有的 SKILL.md。
 	Overwrite bool
 }
 
-// AuthorResult is the outcome of a successful authoring operation.
+// AuthorResult 是成功创作操作的结果。
 type AuthorResult struct {
-	// Path is the SKILL.md file that was written.
+	// Path 是被写入的 SKILL.md 文件。
 	Path string
-	// Name is the validated skill name.
+	// Name 是验证过的技能名。
 	Name string
 }
 
-// authorMu serialises authors within one process so the no-overwrite check is
-// reliable when several callers race to create the same skill. Discovery in
-// this package is safe without the lock because publishing uses temp+rename.
+// authorMu 在一个进程内串行化创作，使多个调用方争相创建同一技能时无覆盖检查仍然可靠。本包中的发现无需该锁也安全，因为发布使用临时文件+重命名。
+// 使多个调用方争相创建同一技能时无覆盖检查仍然可靠。本包中的发现
+// 无需该锁也安全，因为发布使用临时文件+重命名。
 var authorMu sync.Mutex
 
-// Author writes a well-formed SKILL.md for name under root and returns its
-// path. With an empty root the user's skill directory is used. Existing skills
-// are never replaced; use AuthorWithOptions with Overwrite to allow that.
+// Author 在 root 下为 name 写入一个格式良好的 SKILL.md 并返回其路径。root 为空时使用用户的技能目录。已有技能
+// 并返回其路径。root 为空时使用用户的技能目录。已有技能
+// 从不被替换；使用带 Overwrite 的 AuthorWithOptions 来允许替换。
 //
-// The signature deliberately uses only stdlib types so an agent package can
-// declare an identical local interface without importing this one.
+// 该签名刻意只使用标准库类型，使 agent 包能声明一个相同的本地接口而无需导入本包。
+// 可声明一个相同的本地接口而无需导入本包。
 func Author(root, name, description, body string) (string, error) {
 	res, err := AuthorWithOptions(root, name, description, body, AuthorOptions{})
 	if err != nil {
@@ -53,7 +53,7 @@ func Author(root, name, description, body string) (string, error) {
 	return res.Path, nil
 }
 
-// AuthorWithOptions is Author with explicit options.
+// AuthorWithOptions 是带显式选项的 Author。
 func AuthorWithOptions(root, name, description, body string, opts AuthorOptions) (AuthorResult, error) {
 	if err := validateName(name); err != nil {
 		return AuthorResult{}, err
@@ -72,9 +72,9 @@ func AuthorWithOptions(root, name, description, body string, opts AuthorOptions)
 	return AuthorResult{Path: target, Name: name}, nil
 }
 
-// validateName enforces lowercase kebab-case with no path traversal. The
-// character rules alone reject dots, separators and uppercase, but the
-// explicit ".." check gives callers a clearer diagnostic.
+// validateName 强制小写 kebab-case 且无路径遍历。字符规则本身已拒绝点、分隔符和大写，但显式的 ".." 检查给调用方更清晰的错误诊断。
+// 字符规则本身已拒绝点、分隔符和大写，但
+// 显式的 ".." 检查给调用方更清晰的错误诊断。
 func validateName(name string) error {
 	if strings.Contains(name, "..") {
 		return fmt.Errorf("%w: %q contains '..'", ErrInvalidSkillName, name)
@@ -103,8 +103,8 @@ func validateName(name string) error {
 	return nil
 }
 
-// authorTarget resolves the absolute location of a new skill. A non-empty root
-// is a workspace (project skills); an empty root uses the user's home skills.
+// authorTarget 解析新技能的绝对位置。非空 root 是工作区（项目技能）；空 root 使用用户主目录的技能。
+// 是工作区（项目技能）；空 root 使用用户主目录的技能。
 func authorTarget(root, name string) (string, error) {
 	base, subdir := root, DefaultProjectSubdir
 	if base == "" {
@@ -117,10 +117,10 @@ func authorTarget(root, name string) (string, error) {
 	return filepath.Join(base, filepath.FromSlash(subdir), name, "SKILL.md"), nil
 }
 
-// renderSkill builds the document. name is validated before it is embedded,
-// so it needs no quoting; description is written as a single-quoted YAML
-// scalar with doubled quotes and newlines folded to spaces, which round-trips
-// through ParseFields exactly and cannot break out of the frontmatter block.
+// renderSkill 构建文档。name 在嵌入前已验证，
+// renderSkill 构建文档。name 在嵌入前已验证，因此无需引用；description 写为单引号 YAML 标量，引号加倍且换行折叠为空格，这能
+// 带引号的 YAML 标量，引号加倍且换行折叠为空格，这能
+// 经由 ParseFields 精确往返且无法突破 frontmatter 块。
 func renderSkill(name, description, body string) []byte {
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -142,9 +142,9 @@ func yamlScalar(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-// publishSkill writes to a temp file in the same directory and renames it
-// into place. A concurrent Discover therefore sees either the old file or the
-// complete new one, never a half-written document.
+// publishSkill 在同一目录写入临时文件并
+// publishSkill 在同一目录写入临时文件并重命名到位。因此并发的 Discover 看到的是旧文件或完整的新文件，绝不是半写的文档。
+// 完整的新文件，绝不是半写的文档。
 func publishSkill(target string, content []byte, overwrite bool) error {
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

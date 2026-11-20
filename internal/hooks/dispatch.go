@@ -113,39 +113,39 @@ func (o Outcome) Message() string {
 // 取消和截止时间，使 dispatcher 的超时仍能限制钩子。
 type CommandRunner func(ctx context.Context, command Command, payload Payload) Outcome
 
-// Dispatcher runs hook commands.
+// Dispatcher 运行钩子命令。
 type Dispatcher struct {
-	// Timeout bounds one command when the command itself sets none; zero
-	// means 30 seconds.
+	// Timeout 在命令自身未设置超时时限制单条命令；零
+	// 表示 30 秒。
 	Timeout time.Duration
-	// Shell overrides the command interpreter, for tests and odd platforms.
-	// The default is bash -c (cmd /C on Windows when bash is absent).
+	// Shell 覆盖命令解释器，用于测试和小众平台。
+	// 默认是 bash -c（没有 bash 的 Windows 上为 cmd /C）。
 	Shell func(command string) (name string, args []string)
 
-	// Telemetry, when non-nil, is invoked once per hook executed by
-	// Dispatch/Run with its elapsed time, exit status and failure reason. It
-	// runs from the hook's own goroutine while hooks are parallel, so the
-	// callback must be safe for concurrent use. Leaving it nil (the default)
-	// adds no telemetry work to a run.
+	// Telemetry 非 nil 时，对 Dispatch/Run 执行的每个钩子调用一次，
+	// 传入其耗时、退出状态和失败原因。它
+	// 在钩子自身的 goroutine 中运行（钩子并行时），因此
+	// 回调必须并发安全。留空（默认）
+	// 回调必须并发安全。留空（默认）不会给运行增加任何遥测工作。
 	Telemetry TelemetryFunc
-	// SlowThreshold marks HookTelemetry.Slow true once a hook's elapsed time
-	// reaches it. Zero (the default) disables the mark. It never changes
-	// dispatch or timing; callers decide how to warn on slow records.
+	// SlowThreshold 在钩子耗时达到该值时将 HookTelemetry.Slow 置 true。
+	// 达到该值时置为 true。零（默认）禁用标记。它从不改变
+	// 零（默认）禁用该标记。它从不改变分发或计时；调用方决定如何对慢记录告警。
 	SlowThreshold time.Duration
 
-	// Runner, when non-nil, replaces the built-in process runner for every
-	// hook, synchronous or asynchronous. It is the injection seam used by
-	// tests to observe hooks without spawning a real shell.
+	// Runner 非 nil 时，替换所有钩子（同步或异步）的内置进程 runner。
+	// 钩子，同步或异步。它是测试用于
+	// 它是测试在不启动真实 shell 的情况下观察钩子的注入接缝。
 	Runner CommandRunner
 
-	// asyncWG tracks background hooks launched by Run. Run never waits on it:
-	// an async hook must not delay the decision that triggered it. WaitAsync
-	// lets callers drain them (tests, graceful shutdown).
+	// asyncWG 跟踪 Run 启动的后台钩子。Run 从不在其上等待：
+	// 异步钩子不得延迟触发它的决策。WaitAsync
+	// 让调用方排空它们（测试、优雅关闭）。
 	asyncWG sync.WaitGroup
 }
 
-// Dispatch runs every matching hook for payload.Event and returns the
-// aggregate decision.
+// Dispatch 为 payload.Event 运行所有匹配的钩子并返回
+// 聚合决策。
 func (d *Dispatcher) Dispatch(ctx context.Context, config *Config, payload Payload) (Result, error) {
 	outcomes, err := d.Run(ctx, config, payload)
 	if err != nil {
@@ -154,7 +154,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, config *Config, payload Paylo
 	return Summarize(outcomes), nil
 }
 
-// DispatchDocument runs the hooks of a trusted document.
+// DispatchDocument 运行受信任文档中的钩子。
 func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, payload Payload) (Result, error) {
 	if document == nil || document.Config == nil {
 		return Result{}, ErrUntrusted
@@ -162,27 +162,27 @@ func (d *Dispatcher) DispatchDocument(ctx context.Context, document *Document, p
 	return d.Dispatch(ctx, document.Config, payload)
 }
 
-// FireFileChanged dispatches a FileChanged lifecycle event for one changed
-// path. It is a convenience wrapper that fixes the event name and payload
-// field, so every caller produces the same hook document shape. Callers that
-// need session/cwd context fill those on the app-side bridge, which owns the
-// run context, before dispatching.
+// FireFileChanged 为某个变更路径分发 FileChanged 生命周期事件。
+// 它是便捷包装器，固定事件名和 payload
+// 字段，使每个调用方产生相同形状的钩子文档。需要上下文的调用方
+// 字段，使每个调用方产生相同形状的钩子文档。需要会话/cwd 上下文的调用方
+// 在分发之前于掌握运行上下文的 app 侧桥接处填写这些字段。
 func (d *Dispatcher) FireFileChanged(ctx context.Context, config *Config, path string) (Result, error) {
 	return d.Dispatch(ctx, config, Payload{Event: string(FileChanged), Path: path})
 }
 
-// Run executes the synchronous hooks for one event, highest Priority first.
-// Hooks with equal Priority keep their declaration order (stable sort), so
-// document hooks — all at priority 0 — behave exactly as before. Async hooks
-// are launched in the background and never enter the returned decision: a
-// deciding hook must answer synchronously. A command with StopPropagation ends
-// the run after it executes, shielding later hooks.
+// Run 为某个事件执行同步钩子，Priority 高的先执行。
+// Priority 相同的钩子保持声明顺序（稳定排序），因此
+// 文档钩子（优先级均为 0）的行为完全不变。异步钩子
+// 在后台启动且永不进入返回的决策：决定性的
+// 在后台启动且永不进入返回的决策：决定性钩子必须同步回答。带 StopPropagation
+// 钩子必须同步回答。带 StopPropagation 的命令执行后结束运行，保护后面的钩子。
 //
-// Hooks of one priority tier run concurrently; tiers are drained in priority
-// order. Aggregate latency drops from O(N×T) to roughly O(T) per tier, while
-// the executed set and the order of the returned outcomes stay identical to
-// the previous serial loop. StopPropagation is a static flag, so planRun can
-// compute the short-circuit boundary before any command starts.
+// 的命令执行后结束运行，保护后面的钩子。
+// 同一优先级的钩子并发运行；各层级按优先级顺序排空。聚合延迟从 O(N×T) 降到每层约
+// O(T)，而执行的集合和返回结果的顺序与
+// 之前的串行循环完全一致。StopPropagation 是静态标志，因此 planRun 可以在任何命令启动前
+// 计算短路边界。
 func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) ([]Outcome, error) {
 	if config == nil {
 		return nil, nil
@@ -192,10 +192,10 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 		return nil, fmt.Errorf("hooks: unknown event %q", payload.Event)
 	}
 
-	// FileChanged matchers describe the affected file ("*.go"), not the tool
-	// that changed it. FireFileChanged and other direct callers carry only
-	// Payload.Path; ForEvent skips matcher-bearing hooks when the match value
-	// is empty, so without this the documented file matchers never fire.
+	// FileChanged 匹配器描述受影响的文件（"*.go"），而非
+	// 改变它的工具。FireFileChanged 和其他直接调用方只携带
+	// Payload.Path；ForEvent 在匹配值为空时跳过带匹配器的钩子，
+	// 否则文档记载的文件匹配器永不触发。
 	matchValue := payload.Tool
 	if event == FileChanged && payload.Path != "" {
 		matchValue = payload.Path
@@ -205,8 +205,8 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 		return commands[i].Priority > commands[j].Priority
 	})
 
-	// Launch background hooks before the synchronous tiers so a slow or
-	// cancelled tier cannot stop them from starting. Run never waits for them.
+	// 在同步层级之前启动后台钩子，使缓慢或
+	// 被取消的层级无法阻止它们启动。Run 从不等待它们。
 	d.launchAsync(ctx, planAsync(commands), payload)
 
 	tiers := planRun(commands)
@@ -224,14 +224,14 @@ func (d *Dispatcher) Run(ctx context.Context, config *Config, payload Payload) (
 	return outcomes, nil
 }
 
-// claimedCommands walks the sorted command list once and returns the commands
-// that actually execute: duplicate command strings are dropped (the first
-// occurrence in priority/declaration order wins) and a StopPropagation command
-// ends the walk, shielding every later hook. A duplicate still honours its own
-// stop boundary. Both planRun and planAsync derive from this single walk so
-// they cannot disagree about which commands were claimed: every command goes
-// to exactly one of the synchronous or background paths, and a stop on either
-// path shields later hooks in both.
+// claimedCommands 遍历排序后的命令列表一次，返回实际
+// 执行的命令：重复的命令字符串被丢弃（按优先级/声明顺序第一次
+// 出现者胜出），StopPropagation 命令结束遍历，
+// 结束遍历，保护后面每个钩子。重复项仍遵守其自身的停止边界。
+// 保护后面每个钩子。重复项仍遵守其自身的停止边界。planRun 和 planAsync 都从这单次遍历派生，
+// 它们不会就认领哪些命令产生分歧：每条命令只进入
+// 因此它们不会就哪些命令被认领产生分歧：每条命令只进入
+// 同步或后台路径之一，任一路径上的停止都会保护两条路径中后面的钩子。
 func claimedCommands(commands []Command) []Command {
 	seen := make(map[string]struct{}, len(commands))
 	claimed := make([]Command, 0, len(commands))
@@ -251,9 +251,9 @@ func claimedCommands(commands []Command) []Command {
 	return claimed
 }
 
-// planRun mirrors the old serial loop's control flow using the claimed set:
-// synchronous commands are grouped into priority tiers, each holding
-// equal-priority commands that may run concurrently, in execution order.
+// planRun 使用认领集合镜像旧串行循环的控制流：
+// 同步命令按优先级分组，每组包含
+// 同步命令按优先级分组，每组包含可并发执行的同优先级命令，按执行顺序排列。
 func planRun(commands []Command) [][]Command {
 	claimed := claimedCommands(commands)
 	tiers := make([][]Command, 0, len(claimed))
@@ -280,9 +280,9 @@ func planRun(commands []Command) [][]Command {
 	return tiers
 }
 
-// resultCollector gathers outcomes from concurrent hook runs. The mutex keeps
-// collection race-free; each goroutine records under its original index so
-// ordered() can rebuild declaration order regardless of completion order.
+// resultCollector 从并发钩子运行中收集结果。互斥锁保证
+// 收集无竞态；每个 goroutine 按其原始索引记录，使
+// ordered() 能重建声明顺序而不受完成顺序影响。
 type resultCollector struct {
 	mu      sync.Mutex
 	results map[int]Outcome
@@ -302,9 +302,9 @@ func (c *resultCollector) ordered(n int) []Outcome {
 	return outcomes
 }
 
-// runTier runs one priority tier concurrently. A cancelled context stops new
-// hooks from launching; hooks already started finish under their own timeout
-// and are still collected. Outcomes are returned in tier declaration order.
+// runTier 并发运行一个优先级层级。被取消的 context 阻止新
+// 钩子启动；已启动的钩子在其自身超时下完成并仍被收集。
+// 钩子启动；已启动的钩子在其自身超时下完成并仍被收集。结果按层级声明顺序返回。
 func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payload) []Outcome {
 	collector := &resultCollector{results: make(map[int]Outcome, len(tier))}
 	var wg sync.WaitGroup
@@ -324,9 +324,9 @@ func (d *Dispatcher) runTier(ctx context.Context, tier []Command, payload Payloa
 	return collector.ordered(launched)
 }
 
-// commandRunner returns the runner used for every hook. The zero value keeps
-// the original process-spawning behaviour; only tests that need an injection
-// seam override it.
+// commandRunner 返回所有钩子使用的 runner。零值保持
+// 原有的进程启动行为；只有需要注入接缝的测试才覆盖它。
+// 原有的进程启动行为；只有需要注入接缝的测试才覆盖它。
 func (d *Dispatcher) commandRunner() CommandRunner {
 	if d.Runner != nil {
 		return d.Runner
@@ -334,10 +334,10 @@ func (d *Dispatcher) commandRunner() CommandRunner {
 	return d.RunCommand
 }
 
-// timeoutFor resolves the effective timeout of a command: the command's own
-// value, then the dispatcher's, then defaultTimeout, clamped to minTimeout.
-// Both the synchronous process path and the background path use it so a hook
-// is bounded the same way regardless of how it was launched.
+// timeoutFor 解析命令的有效超时：先命令自身的值，
+// 再 dispatcher 的值，再 defaultTimeout，并限制到 minTimeout。
+// 同步进程路径和后台路径都使用它，使钩子无论以何种方式启动
+// 都受到相同的限制。
 func (d *Dispatcher) timeoutFor(command Command) time.Duration {
 	timeout := command.Timeout
 	if timeout <= 0 {
@@ -352,14 +352,14 @@ func (d *Dispatcher) timeoutFor(command Command) time.Duration {
 	return timeout
 }
 
-// guardedRunCommand runs one hook with panic containment. The only in-process
-// callbacks a hook can panic through are Dispatcher.Shell and Runner; a command
-// that panics becomes an Outcome with a PanicError, and the loop still reaches
-// the next command. The command string is the fallback identity when the caller
-// did not supply a tool call ID.
+// guardedRunCommand 运行一个带 panic 隔离的钩子。钩子能 panic 穿出的唯一进程内
+// 回调是 Dispatcher.Shell 和 Runner；一个 panic 的命令变成带 PanicError 的 Outcome，
+// 的命令变成带 PanicError 的 Outcome，循环仍会到达
+// 下一个命令。调用方未提供工具调用 ID 时，命令字符串是回退标识。
+// 循环仍会到达下一个命令。当调用方未提供工具调用 ID 时，命令字符串是回退标识。
 func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, payload Payload) Outcome {
-	// Take the clock only when telemetry is on, so the default path pays no
-	// extra timing cost beyond what RunCommand already does.
+	// 仅在启用遥测时才取时钟，使默认路径除 RunCommand 已有开销外
+	// 不支付额外计时成本。
 	var started time.Time
 	if d.Telemetry != nil {
 		started = time.Now()
@@ -393,7 +393,7 @@ func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, pay
 	return outcome
 }
 
-// RunCommand runs one hook command with the payload on stdin.
+// RunCommand 用 stdin 上的 payload 运行一条钩子命令。
 func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Payload) Outcome {
 	started := time.Now()
 	outcome := Outcome{Event: command.Event, Command: command.Command, ExitCode: -1}
@@ -410,11 +410,11 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 
 	timeout := d.timeoutFor(command)
 
-	// A caller-supplied Shell has already chosen the interpreter. Resolving
-	// the default one first would run findBash's probes (up to five processes
-	// with a two-second deadline each on Windows) even though the result is
-	// discarded — and it happens before runCtx exists, so that cost is not
-	// covered by the hook's timeout.
+	// 调用方提供的 Shell 已经选好解释器。先解析默认解释器
+	// 调用方提供的 Shell 已经选好了解释器。先解析默认解释器会运行 findBash 的探测
+	// （在 Windows 上最多五个进程，每个两秒超时），即使结果会被
+	// 丢弃 —— 而且这发生在 runCtx 存在之前，因此不在钩子超时
+	// 不在钩子超时的覆盖范围内。
 	var name string
 	var args []string
 	if d.Shell != nil {
@@ -426,16 +426,16 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	process := exec.CommandContext(runCtx, name, args...)
-	// A timed-out or killed process may leave a grandchild holding the pipe
-	// write ends; bound how long Wait waits for those pipes so the timeout
-	// above really bounds wall-clock time.
+	// 覆盖范围内。
+	// 超时或被杀死的进程可能留下持有管道写端的孙进程；限制 Wait 等待这些管道的时间，使
+	// 上面的超时真正限制挂钟时间。
 	process.WaitDelay = waitDelay
-	// The context can expire while Wait is still draining the captured pipes
-	// after the process itself has exited — a hook that leaves a background
-	// child holding stdout keeps them open past the deadline. os/exec still
-	// calls Cancel in that case, but Kill returns ErrProcessDone: the hook did
-	// not time out. Track only a Kill of a live process so a completed hook is
-	// not mislabelled as timed out (which would also drop its exit-2 block).
+	// 在进程自身退出后，context 仍可能在 Wait 排空被捕获管道期间
+	// 在进程自身退出后 —— 留下后台子进程持有 stdout 的钩子
+	// 到期 —— 留下持有 stdout 的后台子进程的钩子会让管道保持打开越过截止时间。os/exec 在
+	// 这种情况下仍调用 Cancel，但 Kill 返回 ErrProcessDone：钩子没有
+	// 超时。只跟踪对存活进程的 Kill，使已完成的钩子
+	// 不被误标为超时（那也会丢弃其 exit-2 拦截）。
 	var killedByDeadline atomic.Bool
 	process.Cancel = func() error {
 		err := process.Process.Kill()
@@ -467,19 +467,19 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 
 	outcome.ExitCode, outcome.TimedOut, outcome.Err = classifyRunResult(runErr, process.ProcessState, killedByDeadline.Load())
 
-	// Exit status 2 is the hook protocol's "block" signal, and only PreToolUse
-	// may block an action.
+	// 退出状态 2 是钩子协议的"拦截"信号，且只有 PreToolUse
+	// 可以拦截动作。
 	if command.Event == PreToolUse && outcome.ExitCode == 2 && !outcome.TimedOut && command.BlocksOnFailure() {
 		outcome.Blocked = true
 	}
 	return outcome
 }
 
-// classifyRunResult turns a finished process wait into the status fields of an
-// Outcome. killedByDeadline is true only when the timeout actually killed a
-// live hook. Without it, a context that expired while Wait was draining pipes
-// left over by a background child must not rewrite the process's real exit
-// status: the hook already finished, and its exit-2 block must survive.
+// 可以拦截动作。
+// classifyRunResult 将完成的进程等待转换为 Outcome 的状态字段。killedByDeadline 仅当超时确实杀死了
+// 存活的钩子时为 true。否则，在 Wait 排空后台子进程遗留管道期间到期的 context
+// 后台子进程遗留的，不得改写进程的真实退出
+// 不得改写进程的真实退出状态：钩子已经完成，其 exit-2 拦截必须保留。
 func classifyRunResult(runErr error, state *os.ProcessState, killedByDeadline bool) (exitCode int, timedOut bool, err error) {
 	switch {
 	case killedByDeadline:
@@ -493,8 +493,8 @@ func classifyRunResult(runErr error, state *os.ProcessState, killedByDeadline bo
 		}
 		if state != nil {
 			code := state.ExitCode()
-			// ErrWaitDelay and a late context error only mean the captured
-			// pipes outlived the process; they are not hook failures.
+			// ErrWaitDelay 和迟到的 context 错误只表示被捕获的管道比进程活得久；它们不是钩子失败。
+			// 管道比进程活得久；它们不是钩子失败。
 			if errors.Is(runErr, exec.ErrWaitDelay) ||
 				errors.Is(runErr, context.Canceled) ||
 				errors.Is(runErr, context.DeadlineExceeded) {
@@ -506,7 +506,7 @@ func classifyRunResult(runErr error, state *os.ProcessState, killedByDeadline bo
 	}
 }
 
-// Summarize turns outcomes into the block/warn decision.
+// Summarize 将结果转换为拦截/警告决策。
 func Summarize(outcomes []Outcome) Result {
 	var result Result
 	var messages []string
@@ -524,8 +524,8 @@ func Summarize(outcomes []Outcome) Result {
 	return result
 }
 
-// shellCommand picks the interpreter for a hook command. Hooks are shell
-// scripts, so bash is preferred when a working one is installed.
+// shellCommand 为钩子命令选择解释器。钩子是 shell
+// 脚本，因此安装了可用的 bash 时优先使用。
 func shellCommand(command string) (string, []string) {
 	if bash := findBash(); bash != "" {
 		return bash, []string{"-c", command}
@@ -541,9 +541,9 @@ var (
 	bashPath string
 )
 
-// findBash returns a bash that actually runs. On Windows the first "bash" on
-// PATH is often the WSL alias in System32, which fails when no distro is
-// installed, so each candidate is probed once.
+// findBash 返回一个确实能运行的 bash。在 Windows 上 PATH 中第一个 "bash"
+// 通常是 System32 里的 WSL 别名，未安装发行版时会失败，因此每个候选探测一次。
+// 未安装时会失败，因此每个候选探测一次。
 func findBash() string {
 	bashOnce.Do(func() {
 		var candidates []string
@@ -568,15 +568,15 @@ func findBash() string {
 	return bashPath
 }
 
-// bashRuns probes one candidate interpreter. It is a variable so tests can
-// count probes without spawning processes.
+// bashRuns 探测一个候选解释器。它是变量，使测试能在不启动进程的情况下
+// 统计探测次数。
 var bashRuns = func(path string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return exec.CommandContext(ctx, path, "-c", "exit 0").Run() == nil
 }
 
-// limitedBuffer captures at most maxCapture bytes.
+// limitedBuffer 最多捕获 maxCapture 字节。
 type limitedBuffer struct {
 	buf       bytes.Buffer
 	truncated bool
@@ -603,10 +603,10 @@ func (b *limitedBuffer) String() string {
 	return b.buf.String()
 }
 
-// clipRunes bounds text to limit bytes without cutting a UTF-8 rune in half.
-// A trailing ellipsis takes the place of the dropped tail. The backoff walks
-// from limit-1 to the preceding RuneStart, so the cut always lands on a rune
-// boundary (and at worst yields just the ellipsis).
+// clipRunes 将文本限制在 limit 字节内且不切开 UTF-8 rune。
+// 末尾的省略号取代被丢弃的尾部。回退
+// 末尾的省略号取代被丢弃的尾部。回退从 limit-1 向前走到前一个 RuneStart，
+// 因此切点总落在 rune 边界（最坏情况只得到省略号）。
 func clipRunes(text string, limit int) string {
 	if len(text) <= limit {
 		return text

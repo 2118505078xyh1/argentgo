@@ -221,8 +221,8 @@ func TestLiveToolEntryWiresStreamingPreview(t *testing.T) {
 		t.Fatalf("body should use the whole-turn elapsed below threshold: %q", got)
 	}
 
-	// A live row must not be served from the cache: advancing the clock must
-	// change the rendered duration.
+	// 活动行不得由缓存提供：推进时钟必须
+	// 改变渲染出的时长。
 	advanced := fixed.Add(2 * time.Second)
 	m.now = func() time.Time { return advanced }
 	again := m.bodyLinesLocked(80)
@@ -230,8 +230,8 @@ func TestLiveToolEntryWiresStreamingPreview(t *testing.T) {
 	for _, line := range again {
 		body2.WriteString(line.Text())
 	}
-	// Once the tool's own elapsed passes the 2s threshold the row switches to
-	// it (2.5s), proving both the adaptive switch and the cache bypass.
+	// 一旦工具自身的经过时间超过 2s 阈值，该行切换到
+	// 它（2.5s），证明自适应切换和缓存绕过。
 	if !strings.Contains(body2.String(), "2.5s") {
 		t.Fatalf("cache served a stale elapsed: %q", body2.String())
 	}

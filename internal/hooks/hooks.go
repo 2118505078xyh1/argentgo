@@ -1,5 +1,5 @@
-// Package hooks parses Claude-Code-compatible hook documents, checks their
-// SHA-256 trust, and dispatches lifecycle events to shell commands.
+// Package hooks 解析兼容 Claude Code 的钩子文档，检查其
+// SHA-256 信任，并将生命周期事件分发给 shell 命令。
 package hooks
 
 import (
@@ -12,52 +12,52 @@ import (
 	"time"
 )
 
-// Event is one lifecycle event a hook can subscribe to.
+// Event 是钩子可订阅的一种生命周期事件。
 type Event string
 
-// Event constants are the lifecycle points a hook can subscribe to. The names
-// match Claude Code, so an existing hook document keeps firing. The comment on
-// each constant records its intended trigger point; the full set is available
-// as a report from ReportTriggers.
+// Event 常量是钩子可订阅的生命周期点。名称
+// 与 Claude Code 一致，因此现有钩子文档仍能触发。每个
+// 每个常量记录预期触发点；完整集合可通过
+// 常量上的注释记录其预期触发点；完整集合可通过 ReportTriggers 以报告形式获取。
 const (
-	// SessionStart fires once when a session begins, before the first prompt.
+	// SessionStart 在会话开始、第一个提示之前触发一次。
 	SessionStart Event = "SessionStart"
-	// UserPromptSubmit fires when the user sends a prompt.
+	// UserPromptSubmit 在用户发送提示时触发。
 	UserPromptSubmit Event = "UserPromptSubmit"
-	// PreToolUse fires before a tool call; exit status 2 may block it.
+	// PreToolUse 在工具调用前触发；退出状态 2 可拦截它。
 	PreToolUse Event = "PreToolUse"
-	// PermissionRequest fires when a tool call needs an approval decision.
+	// PermissionRequest 在工具调用需要审批决定时触发。
 	PermissionRequest Event = "PermissionRequest"
-	// PostToolUse fires after a tool call succeeds.
+	// PostToolUse 在工具调用成功后触发。
 	PostToolUse Event = "PostToolUse"
-	// PostToolUseFailure fires after a tool call fails.
+	// PostToolUseFailure 在工具调用失败后触发。
 	PostToolUseFailure Event = "PostToolUseFailure"
-	// Notification fires for informational messages shown to the user.
+	// Notification 在展示给用户的信息性消息时触发。
 	Notification Event = "Notification"
-	// PreCompact fires just before the conversation is compacted.
+	// PreCompact 在对话压缩前触发。
 	PreCompact Event = "PreCompact"
-	// SessionEnd fires when a session ends, including on cancellation.
+	// SessionEnd 在会话结束时触发，包括取消时。
 	SessionEnd Event = "SessionEnd"
-	// SubagentStop fires when a subagent finishes its run.
+	// SubagentStop 在子代理完成运行时触发。
 	SubagentStop Event = "SubagentStop"
-	// Stop fires when the assistant finishes a turn. It is kept for backwards
-	// compatibility; new callers should prefer the three turn-end events below,
-	// which say *how* the turn finished. Stop is still dispatched as before.
+	// Stop 在助手完成一轮时触发。为向后兼容保留；
+	// 新调用方应优先使用下面三个回合结束事件，它们说明回合
+	// *如何*结束。Stop 仍照常分发。
 	Stop Event = "Stop"
-	// EventInterrupt fires when the assistant turn was interrupted by the user
-	// or the transport (an explicit cancellation or a context.Canceled error).
+	// EventInterrupt 在助手回合被用户中断时触发
+	// EventInterrupt 在助手回合被用户或传输层（显式取消或 context.Canceled 错误）中断时触发。
 	EventInterrupt Event = "interrupt"
-	// EventStopFailure fires when the assistant turn ended in a non-cancellation
-	// error: a provider failure, a tool error, a deadline, and so on.
+	// EventStopFailure 在助手回合以非取消错误结束时触发
+	// EventStopFailure 在助手回合以非取消错误结束时触发：provider 失败、工具错误、截止时间等。
 	EventStopFailure Event = "stop_failure"
-	// EventTurnEnd fires when the assistant turn completed cleanly.
+	// EventTurnEnd 在助手回合干净完成时触发。
 	EventTurnEnd Event = "turn_end"
-	// FileChanged fires when a tool creates, modifies or deletes a file. The
-	// affected path is carried in Payload.Path.
+	// FileChanged 在工具创建、修改或删除文件时触发。
+	// FileChanged 在工具创建、修改或删除文件时触发。受影响路径在 Payload.Path 中携带。
 	FileChanged Event = "FileChanged"
 )
 
-// AllEvents lists every supported event.
+// AllEvents 列出所有支持的事件。
 var AllEvents = []Event{
 	SessionStart,
 	UserPromptSubmit,
@@ -77,13 +77,13 @@ var AllEvents = []Event{
 }
 
 const (
-	// defaultTimeout bounds one hook command.
+	// defaultTimeout 限制单条钩子命令。
 	defaultTimeout = 30 * time.Second
-	// minTimeout is the floor a document's timeoutMs is clamped to.
+	// minTimeout 是文档 timeoutMs 被限制到的下限。
 	minTimeout = 100 * time.Millisecond
 )
 
-// ParseEvent maps a document event name to an Event.
+// ParseEvent 将文档事件名映射为 Event。
 func ParseEvent(name string) (Event, bool) {
 	for _, event := range AllEvents {
 		if string(event) == name {
@@ -95,20 +95,20 @@ func ParseEvent(name string) (Event, bool) {
 
 func (e Event) String() string { return string(e) }
 
-// TriggerReport pairs a lifecycle event with the point at which callers should
-// fire it. It is the machine-readable form of the trigger-timing documentation
-// on the event constants, useful for diagnostics and for auditing which events
-// a hook document can subscribe to.
+// TriggerReport 将生命周期事件与调用方应触发它的时机配对。
+// 触发它的时机。它是事件常量上触发时机文档的机器可读形式
+// 它是事件常量上触发时机文档的机器可读形式，用于诊断和审计钩子文档
+// 可以订阅哪些事件。
 type TriggerReport struct {
 	Event   Event
 	Trigger string // when the event should be dispatched
 	Payload string // payload fields that carry event-specific detail
 }
 
-// ReportTriggers returns one row per supported event in AllEvents order. The
-// report is data only: dispatching an event is the caller's responsibility. The
-// app layer fires the session/prompt/tool events around one Execute; a caller
-// that mutates files should fire FileChanged with the affected Payload.Path.
+// ReportTriggers 按 AllEvents 顺序为每个支持的事件返回一行。
+// 报告只是数据：分发事件是调用方的职责。app 层在一次 Execute 前后
+// 报告只是数据：分发事件是调用方的职责。app 层在一次 Execute 前后触发
+// 会话/提示/工具事件；修改文件的调用方应触发带受影响 Payload.Path 的 FileChanged。
 func ReportTriggers() []TriggerReport {
 	rows := make([]TriggerReport, 0, len(AllEvents))
 	for _, event := range AllEvents {
@@ -162,7 +162,7 @@ func ReportTriggers() []TriggerReport {
 	return rows
 }
 
-// Command is one parsed hook command.
+// Command 是一条解析后的钩子命令。
 type Command struct {
 	Event   Event
 	Matcher string // empty or "*" matches everything
@@ -171,37 +171,37 @@ type Command struct {
 	OnError string // "block" (default), "allow" or "ignore"
 	Async   bool
 
-	// Priority orders hooks at dispatch time: higher values run first. It is
-	// internal-only (json:"-") so the on-disk hook document format is
-	// unchanged; document-parsed hooks all start at 0 and keep their
-	// declaration order. Programmatic callers (e.g. built-in security hooks)
-	// set a positive Priority to run ahead of user hooks.
+	// Priority 在分发时排列钩子：值越大越先运行。它是仅供内部使用的
+	// 仅供内部（json:"-"），因此磁盘上的文档格式不变；
+	// （json:"-"），因此磁盘上的钩子文档格式不变；文档解析的钩子都从 0 开始并保持
+	// 声明顺序。编程调用方（例如内置安全钩子）
+	// 声明顺序。编程调用方（例如内置安全钩子）设置正的 Priority 以先于用户钩子运行。
 	Priority int `json:"-"`
 
-	// StopPropagation short-circuits dispatch: once a hook carrying this flag
-	// has run, no lower-priority hook is executed. Like Priority it is
-	// internal-only; a document hook never sets it, so existing documents
-	// still run every matching hook.
+	// StopPropagation 使分发短路：一旦带此标志的钩子
+	// StopPropagation 使分发短路：带此标志的钩子运行后，不再执行更低优先级的钩子。与 Priority 一样它是
+	// 仅供内部；文档钩子从不设置它，因此现有文档仍运行所有匹配的钩子。
+	// 仅供内部的；文档钩子从不设置它，因此现有文档仍运行所有匹配的钩子。
 	StopPropagation bool `json:"-"`
 }
 
-// BlocksOnFailure reports whether a failing command may block the action.
+// BlocksOnFailure 报告失败的命令是否可以拦截动作。
 func (c Command) BlocksOnFailure() bool {
 	return c.OnError != "allow" && c.OnError != "ignore"
 }
 
-// Config is the hooks parsed from one or more documents.
+// Config 是从一个或多个文档解析出的钩子。
 type Config struct {
 	Commands []Command
 }
 
-// rawDocument mirrors a hook document. Unknown events are tolerated and
-// skipped, matching Claude Code's forgiving loader.
+// rawDocument 镜像钩子文档。未知事件被容忍并
+// 跳过，与 Claude Code 的宽松加载器一致。
 type rawDocument struct {
 	Hooks map[string][]json.RawMessage `json:"hooks"`
 }
 
-// rawCommand is one group or one command; the two shapes share fields.
+// rawCommand 是一组或一条命令；两种形态共享字段。
 type rawCommand struct {
 	Type      string       `json:"type"`
 	Command   string       `json:"command"`
@@ -212,7 +212,7 @@ type rawCommand struct {
 	Hooks     []rawCommand `json:"hooks"`
 }
 
-// ParseConfig parses a hook document.
+// ParseConfig 解析钩子文档。
 func ParseConfig(data []byte) (*Config, error) {
 	var document rawDocument
 	if err := json.Unmarshal(data, &document); err != nil {
@@ -238,7 +238,7 @@ func ParseConfig(data []byte) (*Config, error) {
 	return config, nil
 }
 
-// LoadConfig reads and parses a hook document.
+// LoadConfig 读取并解析钩子文档。
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -303,7 +303,7 @@ func onErrorOf(value string) string {
 	}
 }
 
-// Merge appends another document's commands.
+// Merge 追加另一个文档的命令。
 func (c *Config) Merge(other *Config) {
 	if c == nil || other == nil {
 		return
@@ -311,7 +311,7 @@ func (c *Config) Merge(other *Config) {
 	c.Commands = append(c.Commands, other.Commands...)
 }
 
-// ForEvent returns the commands for an event, filtered by the tool matcher.
+// ForEvent 返回某事件的命令，按工具匹配器过滤。
 func (c *Config) ForEvent(event Event, tool string) []Command {
 	if c == nil {
 		return nil
@@ -335,7 +335,7 @@ func (c *Config) ForEvent(event Event, tool string) []Command {
 	return commands
 }
 
-// Validate reports the silent typos a forgiving parse would swallow.
+// Validate 报告宽松解析会吞掉的静默拼写错误。
 func Validate(data []byte) []string {
 	var document rawDocument
 	if err := json.Unmarshal(data, &document); err != nil {
@@ -394,8 +394,8 @@ func sortedEventNames(hooks map[string][]json.RawMessage) []string {
 	return names
 }
 
-// globMatch matches "*" against any run of characters; everything else is
-// literal. This is the matcher syntax hook documents use for tool names.
+// globMatch 将 "*" 匹配任意字符序列；其余均按字面。这是钩子文档用于工具名的匹配器语法。
+// 其余按字面。这是钩子文档用于工具名的匹配器语法。
 func globMatch(pattern, value string) bool {
 	if pattern == "*" {
 		return true
@@ -406,12 +406,12 @@ func globMatch(pattern, value string) bool {
 	star, starV := -1, 0
 	for v < len(valueRunes) {
 		switch {
-		// The wildcard case must come first. If the literal-equality case ran
-		// first, a '*' in the pattern would be consumed as a literal when the
-		// value happened to contain '*' too (e.g. pattern "a*" against value
-		// "a*b"), leaving no star to backtrack to and failing the match. Tool
-		// names and file paths can carry a literal '*', so treat the pattern's
-		// '*' as a wildcard unconditionally.
+		// 通配符分支必须放在前面。若字面相等分支先运行，
+		// 模式中的 '*' 会在值也恰好含 '*' 时被当作字面消耗
+		// 通配符分支必须放在前面。若字面相等分支先运行，当值也恰好含 '*' 时，模式中的 '*'
+		// 会被当作字面消耗（例如模式 "a*" 对值 "a*b"），导致没有星号可回溯、匹配失败。工具
+		// 名和文件路径可以携带字面 '*'，因此无条件把模式的
+		// '*' 当作通配符。
 		case p < len(patternRunes) && patternRunes[p] == '*':
 			star = p
 			starV = v

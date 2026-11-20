@@ -1,9 +1,9 @@
 package tools
 
-// End-to-end coverage for the persistent memory bank: every assertion goes
-// through Registry.Run so the real guard/yolo/context wiring is exercised,
-// not just the tool structs in isolation. The bank is a real temp-dir bank
-// injected with SetMemoryBank, so all five memory_* tools share it.
+// 对持久化记忆库的端到端覆盖：每条断言都经过
+// Registry.Run，因此走的是真实的守卫/yolo/上下文接线，
+// 而不只是孤立的工具结构体。记忆库是真实的临时目录库，
+// 通过 SetMemoryBank 注入，因此五个 memory_* 工具共享它。
 
 import (
 	"context"
@@ -16,8 +16,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 )
 
-// memoryIntegrationRun calls a tool the way the agent loop does and fails on a
-// tool error, so a passing assertion always means the full Run path succeeded.
+// memoryIntegrationRun 以 agent 循环的方式调用工具，并在
+// 工具出错时失败，因此断言通过始终意味着完整的 Run 路径成功。
 func memoryIntegrationRun(t *testing.T, r *Registry, name, args string) string {
 	t.Helper()
 	out, err := r.Run(context.Background(), name, args)
@@ -27,8 +27,8 @@ func memoryIntegrationRun(t *testing.T, r *Registry, name, args string) string {
 	return out
 }
 
-// memoryIntegrationJSON encodes tool arguments without hand-escaping strings
-// that may contain secret-shaped text.
+// memoryIntegrationJSON 编码工具参数，无需对可能包含
+// 类似密钥文本的字符串手工转义。
 func memoryIntegrationJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)
@@ -38,8 +38,8 @@ func memoryIntegrationJSON(t *testing.T, v any) string {
 	return string(data)
 }
 
-// memoryIntegrationHits decodes the JSON array emitted by memory_recall and
-// checks it is the expected kind of result (not an "unavailable" notice).
+// memoryIntegrationHits 解析 memory_recall 发出的 JSON 数组，
+// 并检查它是预期的结果类型（而非 "unavailable" 通知）。
 func memoryIntegrationHits(t *testing.T, out string) []memory.Memory {
 	t.Helper()
 	var hits []memory.Memory
@@ -49,9 +49,9 @@ func memoryIntegrationHits(t *testing.T, out string) []memory.Memory {
 	return hits
 }
 
-// Scenario A: capture three tagged facts, recall the right one by keyword,
-// reflect over another, forget it, then invalidate a third. All observations
-// are read back through Registry.Run against the same real bank.
+// 场景 A：捕获三条带标签的事实，通过关键词回忆出正确的一条，
+// 对另一条进行 reflect，遗忘它，再使第三条失效。所有观察
+// 都通过 Registry.Run 针对同一个真实库读回。
 func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 	dir := t.TempDir()
 	bank := memory.NewBank(dir)
@@ -89,7 +89,7 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("retained ids are not distinct: %v", ids)
 	}
 
-	// Keyword recall must select the runbook fact and nothing else.
+	// 关键词回忆必须选出 runbook 那条事实，且仅此一条。
 	out := memoryIntegrationRun(t, registry, "memory_recall", `{"query":"runbook","limit":5}`)
 	hits := memoryIntegrationHits(t, out)
 	if len(hits) != 1 || hits[0].ID != ids[0] || hits[0].Text != runbook {
@@ -99,8 +99,8 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("recall output = %q, want the retained text", out)
 	}
 
-	// Reflect is extractive: the synthesis must contain the retained text of
-	// the fact most relevant to the query.
+	// Reflect 是抽取式的：综合结果必须包含与查询最相关的
+	// 那条事实的保留文本。
 	out = memoryIntegrationRun(t, registry, "memory_reflect", `{"query":"backup","limit":5}`)
 	if !strings.HasPrefix(out, "Reflection (extractive synthesis):") {
 		t.Fatalf("reflect output has no extractive header: %q", out)
@@ -112,7 +112,7 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("reflect output = %q, want only relevant memories", out)
 	}
 
-	// Forget removes the fact from the bank; recall can no longer find it.
+	// Forget 会从库中移除该事实；回忆再也找不到它。
 	out = memoryIntegrationRun(t, registry, "memory_forget", memoryIntegrationJSON(t, map[string]any{"id": ids[1]}))
 	if out != "forgot memory "+ids[1] {
 		t.Fatalf("forget output = %q, want %q", out, "forgot memory "+ids[1])
@@ -122,9 +122,9 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("recall after forget = %q, want no memories found", out)
 	}
 
-	// There is no memory_invalidate tool, so invalidation is applied to the
-	// very bank the registry tools read from. Exclusion is then verified
-	// through Registry.Run, which is the behaviour under test.
+	// 没有 memory_invalidate 工具，因此失效直接应用于
+	// 注册表工具所读取的同一个库。随后通过 Registry.Run
+	// 验证排除效果，这正是被测行为。
 	if err := bank.Invalidate(ids[0], "superseded by newer runbook"); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
@@ -137,8 +137,8 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("reflect after invalidate = %q, want empty notice", out)
 	}
 
-	// Invalidation is a tombstone, not a delete: the record stays on disk, so
-	// All still has the invalidated fact plus the one untouched fact.
+	// 失效是墓碑标记，而非删除：记录仍留在磁盘上，因此
+	// All 仍包含已失效的事实加那条未改动的事实。
 	if all := bank.All(); len(all) != 2 {
 		t.Fatalf("All() after forget+invalidate = %#v, want 2 records", all)
 	}
@@ -150,7 +150,7 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 		t.Fatalf("invalidation reason not persisted: %s", raw)
 	}
 
-	// The fact that was neither forgotten nor invalidated is still reachable.
+	// 既未被遗忘也未被失效的事实仍然可达。
 	out = memoryIntegrationRun(t, registry, "memory_recall", `{"query":"approval","limit":5}`)
 	hits = memoryIntegrationHits(t, out)
 	if len(hits) != 1 || hits[0].ID != ids[2] || hits[0].Text != release {
@@ -158,8 +158,8 @@ func TestMemoryIntegrationCaptureRecallReflectForgetInvalidate(t *testing.T) {
 	}
 }
 
-// Scenario B: memory_learn with promote=true writes a SKILL.md-compatible file
-// under the bank directory, and the lesson is still found by memory_recall.
+// 场景 B：promote=true 的 memory_learn 会在库目录下写入一个
+// 兼容 SKILL.md 的文件，且该经验仍能被 memory_recall 找到。
 func TestMemoryIntegrationLearnPromotesSkillAndIsRecalled(t *testing.T) {
 	dir := t.TempDir()
 	bank := memory.NewBank(dir)
@@ -211,8 +211,8 @@ func TestMemoryIntegrationLearnPromotesSkillAndIsRecalled(t *testing.T) {
 	}
 }
 
-// Scenario C: a credential-shaped key never reaches the JSONL log and is never
-// echoed by recall, even though the surrounding fact is stored normally.
+// 场景 C：形如凭据的键永远不会进入 JSONL 日志，也不会被
+// 回忆回显，即使周围的事实被正常存储。
 func TestMemoryIntegrationSecretNeverPersistedOrRecalled(t *testing.T) {
 	dir := t.TempDir()
 	bank := memory.NewBank(dir)
@@ -249,8 +249,8 @@ func TestMemoryIntegrationSecretNeverPersistedOrRecalled(t *testing.T) {
 	}
 }
 
-// Scenario D: swapping the bank behind the tools moves subsequent writes to the
-// new directory and hides facts from the previous bank.
+// 场景 D：交换工具背后的库会将后续写入移到
+// 新目录，并隐藏旧库中的事实。
 func TestMemoryIntegrationSetMemoryBankRedirectsWrites(t *testing.T) {
 	bank1 := memory.NewBank(t.TempDir())
 	bank2 := memory.NewBank(t.TempDir())

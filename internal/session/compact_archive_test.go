@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// archiveTestEntries returns a mix of plain CJK text and raw JSON payloads so
-// the round-trip covers both Entry.Content and the original json.RawMessage.
+// archiveTestEntries 返回纯中文文本与原始 JSON 载荷的混合，使
+// 往返能同时覆盖 Entry.Content 和原始的 json.RawMessage。
 func archiveTestEntries() []Entry {
 	return []Entry{
 		{ID: "r1", Role: "user", Content: "目标：实现词法分析器", TS: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Data: json.RawMessage("null")},
@@ -46,7 +46,7 @@ func TestWriteCompactionArchiveRoundTrip(t *testing.T) {
 		t.Fatalf("archive round-trip mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
 
-	// The store-relative path stored in a ref must resolve through dir too.
+	// 引用中存储的相对于 store 的路径也必须能通过 dir 解析。
 	rel, err := WriteCompactionArchiveRef(dir, "session-002", want)
 	if err != nil {
 		t.Fatalf("WriteCompactionArchiveRef: %v", err)
@@ -107,7 +107,7 @@ func TestWriteCompactionArchiveByteRanges(t *testing.T) {
 		if !reflect.DeepEqual(entry, messages[i]) {
 			t.Fatalf("range[%d] recovered message mismatch:\n got: %#v\nwant: %#v", i, entry, messages[i])
 		}
-		// A CJK payload must survive as UTF-8, never as \uXXXX escapes.
+		// 中文载荷必须以 UTF-8 保留，绝不能变成 \uXXXX 转义。
 		if i == 0 && !bytes.Contains(raw, []byte("词法分析器")) {
 			t.Errorf("range[0] lost literal CJK bytes: %s", raw)
 		}
@@ -126,7 +126,7 @@ func TestWriteCompactionArchivePathSafety(t *testing.T) {
 			t.Errorf("id %q: expected rejection, got nil error", id)
 		}
 	}
-	// No file may appear outside the compactions directory.
+	// compactions 目录之外不得出现任何文件。
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "evil.jsonl")); !os.IsNotExist(err) {
 		t.Errorf("archive escaped store dir: stat err = %v", err)
 	}
@@ -135,7 +135,7 @@ func TestWriteCompactionArchivePathSafety(t *testing.T) {
 		t.Errorf("invalid ids created files: %v", entries)
 	}
 
-	// A trailing .jsonl suffix is accepted and does not duplicate the extension.
+	// 结尾的 .jsonl 后缀会被接受，且不会重复扩展名。
 	path, err := WriteCompactionArchive(dir, "ok.jsonl", messages)
 	if err != nil {
 		t.Fatalf("suffixed id rejected: %v", err)
@@ -149,7 +149,7 @@ func TestWriteCompactionArchiveNoResidue(t *testing.T) {
 	dir := t.TempDir()
 	archiveDir := filepath.Join(dir, compactionArchiveDir)
 
-	// Rewriting the same id must leave exactly one archive, no temp files.
+	// 重写同一 id 必须只留一个归档，没有临时文件。
 	first := archiveTestEntries()[:1]
 	second := archiveTestEntries()
 	if _, err := WriteCompactionArchive(dir, "same", first); err != nil {
@@ -170,8 +170,8 @@ func TestWriteCompactionArchiveNoResidue(t *testing.T) {
 		t.Fatalf("rewrite did not replace content")
 	}
 
-	// An encode failure must not leave a temp file behind. Invalid RawMessage
-	// makes json.Encoder fail on that entry.
+	// 编码失败不得留下临时文件。无效的 RawMessage
+	// 会让 json.Encoder 在该条目上失败。
 	bad := []Entry{{ID: "bad", Role: "user", Content: "x", Data: json.RawMessage([]byte("{broken"))}}
 	if _, err := WriteCompactionArchive(dir, "bad", bad); err == nil {
 		t.Fatal("expected encode error for invalid RawMessage")
@@ -208,7 +208,7 @@ func TestCompactionArchiveNoticeAndField(t *testing.T) {
 		}
 	}
 
-	// The Archive field is additive: absent when nil, present when set.
+	// Archive 字段是附加的：nil 时不存在，设置时存在。
 	plain, err := json.Marshal(Compaction{Summary: "S"})
 	if err != nil {
 		t.Fatal(err)

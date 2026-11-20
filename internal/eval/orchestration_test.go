@@ -16,8 +16,8 @@ func loadOrchestration(t *testing.T) []OrchestrationScenario {
 	return scenarios
 }
 
-// TestOrchestrationSuitePasses is the end-to-end check: all scenarios are run
-// through the real agent loop / real task tool and must pass their concrete
+// 是拒绝确实到达子级的断言，因此把它改成循环无法产生的字符串必须使场景失败。
+// TestOrchestrationSuitePasses 是端到端检查：所有场景都通过真实 agent 循环/真实 task 工具运行并必须通过其具体
 // assertions.
 func TestOrchestrationSuitePasses(t *testing.T) {
 	scenarios := loadOrchestration(t)
@@ -34,8 +34,8 @@ func TestOrchestrationSuitePasses(t *testing.T) {
 	}
 }
 
-// TestOrchestrationSuiteCoverage pins the scenario set so a silent deletion of
-// one of the orchestration mechanisms cannot quietly lower the coverage.
+// TestOrchestrationSuiteCoverage 固定场景集合，使某个编排机制的静默删除无法悄悄降低覆盖率。
+// 某个编排机制的静默删除无法悄悄降低覆盖率。
 func TestOrchestrationSuiteCoverage(t *testing.T) {
 	scenarios := loadOrchestration(t)
 	if len(scenarios) < 10 {
@@ -60,9 +60,9 @@ func TestOrchestrationSuiteCoverage(t *testing.T) {
 	}
 }
 
-// TestOrchestrationAssertionsDetectAWrongScenario proves the assertions are
-// real: corrupting one expected count must make the harness report a failure
-// with a concrete reason, not silently pass.
+// TestOrchestrationAssertionsDetectAWrongScenario 证明断言是
+// TestOrchestrationAssertionsDetectAWrongScenario 证明断言是真实的：破坏一个期望计数必须使 harness 报告带
+// 具体原因的失败，而非静默通过。
 func TestOrchestrationAssertionsDetectAWrongScenario(t *testing.T) {
 	scenarios := loadOrchestration(t)
 	var wrong OrchestrationScenario
@@ -94,8 +94,8 @@ func TestOrchestrationAssertionsDetectAWrongScenario(t *testing.T) {
 	}
 }
 
-// TestOrchestrationReportCountsKeepsGoing checks that one bad scenario does not
-// stop the suite and that the report stays complete.
+// TestOrchestrationReportCountsKeepsGoing 检查一个坏场景不会停止套件且报告保持完整。
+// 停止套件且报告保持完整。
 func TestOrchestrationReportCountsKeepsGoing(t *testing.T) {
 	scenarios := loadOrchestration(t)
 	bad := scenarios[0]
@@ -116,8 +116,8 @@ func TestOrchestrationReportCountsKeepsGoing(t *testing.T) {
 	}
 }
 
-// TestParseOrchestrationAcceptsABareArray covers the second document shape the
-// loader advertises.
+// TestParseOrchestrationAcceptsABareArray 覆盖加载器宣称的第二种文档形态。
+// 加载器宣称的第二种文档形态。
 func TestParseOrchestrationAcceptsABareArray(t *testing.T) {
 	data := []byte(`[{"id":"X","prompt":"p","turns":[],"assertions":[]}]`)
 	scenarios, err := ParseOrchestration(data)

@@ -7,9 +7,9 @@ import (
 	"unicode/utf8"
 )
 
-// withStructuredToolResults runs f with the opt-in switch set to want and
-// always restores the previous value, keeping the package-level default intact
-// for the rest of the suite.
+// withStructuredToolResults 以 want 设置 opt-in 开关运行 f，并
+// 总是恢复之前的值，使包级默认值在
+// 其余测试中保持完整。
 func withStructuredToolResults(t *testing.T, want bool, f func()) {
 	t.Helper()
 	old := StructuredToolResults
@@ -24,8 +24,8 @@ func TestStructuredToolResultsDefaultOffKeepsLegacyRendering(t *testing.T) {
 		entry := Entry{Kind: EntryTool, Name: "exec", Args: `{}`, Output: `{"a":1,"b":2}`}
 
 		got := lineTexts(toolLines(entry, 60, false, p))
-		// The original preview keeps compact JSON on a single clipped row and
-		// uses the tool palette style — byte-for-byte the legacy output.
+		// 原始预览把紧凑 JSON 保留在单个被截断的行上，并
+		// 使用工具调色板样式 —— 逐字节保持旧输出。
 		want := strings.Join([]string{"● exec()", `  {"a":1,"b":2}`}, "\n")
 		if got != want {
 			t.Fatalf("default (off) rendering changed:\n got: %q\nwant: %q", got, want)
@@ -124,8 +124,8 @@ func TestStructuredToolResultsOnKeepsCJKIntact(t *testing.T) {
 }
 
 func TestStructuredToolResultsDoesNotAffectEditDiffPreview(t *testing.T) {
-	// The edit/multi_edit diff preview takes an early return in toolLines and
-	// must be identical whether the structured switch is on or off.
+	// edit/multi_edit 的差异预览在 toolLines 中提前返回，且
+	// 无论结构化开关开关与否都必须一致。
 	p, _ := paletteFor(ThemeDark)
 	entry := Entry{
 		Kind: EntryTool,

@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestRunExecutesStepsInDependencyOrder checks that a step-output reference is
-// resolved at run time even when the producer is declared after the consumer.
-// ValidateDAG accepts forward references and computes the order in which the
-// dependencies come first; the executor must honour that order or the
-// consumer's prompt keeps a literal {{steps...output}} token.
+// TestRunExecutesStepsInDependencyOrder 检查步骤输出引用即使在生产者声明于消费者之后时
+// 也能在运行时被解析。
+// ValidateDAG 接受前向引用并计算依赖在前的顺序；
+// 依赖必须先行；executor 必须遵守该顺序，否则
+// executor 必须遵守该顺序，否则消费者的提示中会残留字面量 {{steps...output}} 标记。
 func TestRunExecutesStepsInDependencyOrder(t *testing.T) {
 	rec := &recorder{}
 	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
@@ -49,8 +49,8 @@ func TestRunExecutesStepsInDependencyOrder(t *testing.T) {
 	}
 }
 
-// TestRunSkipsDependentWhenProducerFails checks that a consumer is never run
-// with an unresolved step-output placeholder when its producer failed.
+// TestRunSkipsDependentWhenProducerFails 检查当生产者失败时，消费者绝不会带着未解析的步骤输出占位符运行。
+// 带着未解析的步骤输出占位符运行，即使其生产者已失败。
 func TestRunSkipsDependentWhenProducerFails(t *testing.T) {
 	rec := &recorder{}
 	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
@@ -79,9 +79,9 @@ func TestRunSkipsDependentWhenProducerFails(t *testing.T) {
 	}
 }
 
-// TestRunSkipsDependentWhenProducerFailsButContinues checks that on_failure:
-// continue does not let a consumer run with a literal {{steps...output}}
-// placeholder. "Continue" must not defeat the dependency that DAG validation
+// TestRunSkipsDependentWhenProducerFailsButContinues 检查 on_failure:
+// continue 不会让消费者带着字面量 {{steps...output}} 运行。
+// "继续"不得破坏 DAG 验证所建立的依赖关系。
 // established.
 func TestRunSkipsDependentWhenProducerFailsButContinues(t *testing.T) {
 	rec := &recorder{}
@@ -111,10 +111,10 @@ func TestRunSkipsDependentWhenProducerFailsButContinues(t *testing.T) {
 	}
 }
 
-// TestRunSkipsDependentWhenProducerSkippedByCondition checks that a step
-// reading another step's output is skipped when that producer was itself
-// skipped by a When condition, instead of leaking the unresolved token into
-// the consumer's prompt.
+// TestRunSkipsDependentWhenProducerSkippedByCondition 检查读取另一步骤输出的步骤在该生产者
+// 读取另一步骤输出的步骤在该生产者自身被跳过时也被跳过，
+// 自身被 When 条件跳过时也被跳过，而不是把未解析标记泄漏到
+// 消费者的提示中。
 func TestRunSkipsDependentWhenProducerSkippedByCondition(t *testing.T) {
 	rec := &recorder{}
 	exec := &Executor{Prompter: rec.prompter(func(text string) (string, error) {
@@ -135,7 +135,7 @@ func TestRunSkipsDependentWhenProducerSkippedByCondition(t *testing.T) {
 	if rec.promptCount() != 0 {
 		t.Fatalf("no seam should run: %q", rec.prompts)
 	}
-	// A skipped producer is not a failure; the run itself stays successful.
+	// 被跳过的生产者不是失败；运行本身保持成功。
 	if run.Status != StatusOK {
 		t.Fatalf("status = %q, want %q", run.Status, StatusOK)
 	}

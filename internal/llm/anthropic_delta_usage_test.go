@@ -9,11 +9,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestAnthropicDeltaInputTokensAreUsed covers the Anthropic pass-through shape
-// used by gateways such as LiteLLM/OpenRouter: message_start reports zero usage
-// while the final message_delta carries the real input_tokens (the full prompt
-// cost, like chat-completions' prompt_tokens). Ignoring that field reports zero
-// prompt tokens and silently corrupts every downstream budget/cost calculation.
+// TestAnthropicDeltaInputTokensAreUsed 覆盖 LiteLLM/OpenRouter 等网关使用的
+// Anthropic 透传形态：message_start 报告零用量，
+// 而最终的 message_delta 携带真实的 input_tokens（完整的提示成本，
+// 类似 chat-completions 的 prompt_tokens）。忽略该字段会报告零
+// 提示 token，并在无声中破坏所有下游预算/成本计算。
 func TestAnthropicDeltaInputTokensAreUsed(t *testing.T) {
 	tests := []struct {
 		name           string

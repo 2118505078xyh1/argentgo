@@ -12,8 +12,8 @@ import (
 
 const plantedSecret = "AKIAFAKESECRETKEY1234"
 
-// exportDirSession writes records to <dir>/<id>.jsonl and returns both, so the
-// tests exercise the directory-based ExportProject entry point.
+// exportDirSession 把记录写入 <dir>/<id>.jsonl 并返回两者，使测试
+// 能覆盖基于目录的 ExportProject 入口。
 func exportDirSession(t *testing.T, id string, records []Record) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -131,11 +131,11 @@ func TestSanitizeRecordRedactsSensitiveFields(t *testing.T) {
 	}
 }
 
-// Sanitizing only rewrites text fields, so numeric payload values must survive
-// byte-for-byte. Decoding into any would round integers above 2^53 through
-// float64 and silently corrupt ids/counters in an otherwise faithful export.
+// 脱敏只重写文本字段，因此数字载荷值必须
+// 逐字节保留。解码到 any 会把超过 2^53 的整数经
+// float64 舍入，从而在本应忠实的导出中静默破坏 id/计数器。
 func TestSanitizeRecordPreservesLargeIntegers(t *testing.T) {
-	const big = "9007199254740993" // 2^53+1, not exactly representable as float64
+	const big = "9007199254740993" // 2^53+1，无法用 float64 精确表示
 	record := Record{ID: "n9", Kind: KindTool, Data: json.RawMessage(`{
 		"name":"fs.read",
 		"big":` + big + `,
@@ -205,7 +205,7 @@ func TestExportProjectSelectsBranch(t *testing.T) {
 	}{
 		{branch: "n3", want: "branch A", absent: "branch B"},
 		{branch: "n4", want: "branch B", absent: "branch A"},
-		{branch: "", want: "branch B", absent: "branch A"}, // active leaf
+		{branch: "", want: "branch B", absent: "branch A"}, // 活动叶节点
 	} {
 		out, err := ExportProject(dir, id, tc.branch, ExportOptions{Format: "json"})
 		if err != nil {
@@ -235,7 +235,7 @@ func TestExportProjectHTMLSelectsBranch(t *testing.T) {
 		{branch: "n3", want: "branch A", absent: "branch B"},
 		{branch: "n3", sanitize: true, want: "[redacted:text:n3]", absent: "[redacted:text:n4]"},
 		{branch: "n4", want: "branch B", absent: "branch A"},
-		{branch: "", want: "branch B", absent: "branch A"}, // active leaf
+		{branch: "", want: "branch B", absent: "branch A"}, // 活动叶节点
 	} {
 		out, err := ExportProject(dir, id, tc.branch, ExportOptions{Format: "html", Sanitize: tc.sanitize})
 		if err != nil {
@@ -273,8 +273,8 @@ func TestExportProjectCapsOutput(t *testing.T) {
 			t.Errorf("%s export = %d bytes, over cap %d", format, len(out), maxExportBytes)
 		}
 		if format == "json" {
-			// JSON must stay parsable: the marker is a structured record, not
-			// bare text appended after the closing bracket.
+			// JSON 必须保持可解析：标记是一条结构化记录，而不是
+			// 追加在右方括号之后的裸文本。
 			if !json.Valid(out) {
 				t.Errorf("json export is not valid JSON (tail: %q)", exportTail(out, 96))
 			}
@@ -287,8 +287,8 @@ func TestExportProjectCapsOutput(t *testing.T) {
 	}
 }
 
-// A truncated JSON transcript must remain a valid, unmarshalable JSON array,
-// with the truncation explanation carried by a final structured record.
+// 被截断的 JSON 转录必须仍是有效、可反序列化的 JSON 数组，
+// 截断说明由最后一条结构化记录携带。
 func TestExportProjectJSONTruncatedIsValidJSON(t *testing.T) {
 	huge := strings.Repeat("x", maxExportBytes+1024)
 	dir, id := exportDirSession(t, "huge-json", []Record{
@@ -321,10 +321,10 @@ func TestExportProjectJSONTruncatedIsValidJSON(t *testing.T) {
 	}
 }
 
-// CJK payloads are multi-byte per rune: truncation at entry boundaries must
-// never cut a rune, and the JSON artifact must still parse and show the note.
+// 中文载荷每符文多字节：在条目边界截断时绝不能
+// 切断符文，且 JSON 产物仍必须可解析并显示说明。
 func TestExportProjectJSONTruncatedCJKIsValidJSON(t *testing.T) {
-	huge := strings.Repeat("漢字", maxExportBytes) // 3 bytes per rune, well over 2 MiB
+	huge := strings.Repeat("漢字", maxExportBytes) // 每符文 3 字节，远超 2 MiB
 	dir, id := exportDirSession(t, "huge-cjk", []Record{
 		{ID: "n1", Kind: KindHeader, Data: json.RawMessage(`{"title":"cjk"}`)},
 		{ID: "n2", Parent: "n1", Kind: KindUser, Data: mustJSON(t, map[string]any{"text": huge})},
@@ -354,8 +354,8 @@ func TestExportProjectJSONTruncatedCJKIsValidJSON(t *testing.T) {
 	}
 }
 
-// Below the cap the JSON export must be byte-for-byte identical to the plain
-// renderer (no marker added, CJK kept as raw UTF-8 rather than escaped).
+// 在上限之下，JSON 导出必须与普通渲染器逐字节一致
+// （不添加标记，中文保留为原始 UTF-8 而非转义）。
 func TestExportProjectJSONUnderCapUnchanged(t *testing.T) {
 	stamp := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	records := []Record{

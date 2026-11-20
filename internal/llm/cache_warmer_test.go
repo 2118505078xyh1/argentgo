@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// TestShouldWarmCache pins the pure keepalive decision: a warm is eligible only
-// in the final fifth of the cache lifetime, before expiry, within the 30-minute
-// idle cap, and only when the expected avoided miss cost beats the warm cost.
+// TestShouldWarmCache 固定纯保活决策：只有在缓存生存期的最后五分之一、
+// 过期之前、30 分钟空闲上限之内，且仅当预期节省的未命中成本
+// 超过保活成本时，保活才有资格。
 func TestShouldWarmCache(t *testing.T) {
 	base := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) time.Time { return base.Add(d) }

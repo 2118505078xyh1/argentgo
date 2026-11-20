@@ -75,8 +75,8 @@ func TestEditDiffRendersPlusAndMinusRows(t *testing.T) {
 		}
 	}
 
-	// A small diff fits under both caps: expanding shows every row and drops
-	// the overflow marker entirely.
+	// 小差异在两个上限之下：展开显示每一行并去掉
+	// 溢出标记。
 	expanded := lineTexts(toolLines(entry, 60, true, p))
 	if strings.Contains(expanded, "more lines") {
 		t.Fatalf("a short diff should not be truncated when expanded:\n%s", expanded)

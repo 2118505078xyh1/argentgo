@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// writeArtifactForTest creates a canonical spill artifact and back-dates its
-// mtime by age, returning its path.
+// writeArtifactForTest 创建一个规范的溢出产出，并把它
+// 的 mtime 回退 age，返回其路径。
 func writeArtifactForTest(t *testing.T, dir, id, content string, age time.Duration) string {
 	t.Helper()
 	path := filepath.Join(dir, spillArtifactPrefix+id+spillArtifactSuffix)
@@ -26,7 +26,7 @@ func TestCleanSpillArtifactsRemovesExpiredOnly(t *testing.T) {
 	dir := t.TempDir()
 	old := writeArtifactForTest(t, dir, "0000000000000001", "old", 8*24*time.Hour)
 	fresh := writeArtifactForTest(t, dir, "0000000000000002", "fresh", time.Hour)
-	// Unrelated files must survive even when they look old.
+	// 无关文件即使看起来很旧也必须保留。
 	unrelated := filepath.Join(dir, "notes.txt")
 	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
@@ -57,11 +57,11 @@ func TestCleanSpillArtifactsIsIdempotentAndSafe(t *testing.T) {
 	dir := t.TempDir()
 	old := writeArtifactForTest(t, dir, "0000000000000003", "old", 30*24*time.Hour)
 
-	// A missing directory is a no-op, not an error.
+	// 目录不存在是空操作，而非错误。
 	if n, err := CleanSpillArtifacts(filepath.Join(dir, "absent"), DefaultSpillRetention); n != 0 || err != nil {
 		t.Fatalf("missing dir: removed=%d err=%v", n, err)
 	}
-	// A non-positive age disables cleanup entirely.
+	// 非正的 age 会完全禁用清理。
 	if n, err := CleanSpillArtifacts(dir, 0); n != 0 || err != nil {
 		t.Fatalf("disabled cleanup: removed=%d err=%v", n, err)
 	}
@@ -79,8 +79,8 @@ func TestCleanSpillArtifactsIsIdempotentAndSafe(t *testing.T) {
 
 func TestCleanSpillArtifactsIgnoresLookalikeNames(t *testing.T) {
 	dir := t.TempDir()
-	// Near-miss names share the prefix/suffix but are not canonical artifacts;
-	// retention must not delete them.
+	// 近似名称共享前缀/后缀，但不是规范产出；
+	// 清理不得删除它们。
 	for _, name := range []string{
 		"tool-output-xyz.log",
 		"tool-output-0000000000000001.log.tmp",

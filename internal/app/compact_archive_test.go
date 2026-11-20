@@ -12,8 +12,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// archiveTestMessages mirrors the mid-turn compaction fixture: enough distinct
-// content that the dropped prefix can be recovered verbatim from the archive.
+// archiveTestMessages 对应轮次中压缩的固定样本：足够多不同的
+// 内容，使被丢弃的前缀能从归档中原样恢复。
 func archiveTestMessages() []llm.Message {
 	return []llm.Message{
 		{Role: "system", Content: "rules"},
@@ -88,7 +88,7 @@ func TestMaybeCompactWritesLosslessArchiveWhenEnabled(t *testing.T) {
 		t.Fatalf("archive byte size = %d, want > 0", ref.Bytes)
 	}
 
-	// The archive file exists under the session store and its size matches.
+	// 归档文件存在于会话存储下，且其大小匹配。
 	onDisk := filepath.Join(sess.Dir(), filepath.FromSlash(ref.Path))
 	info, err := os.Stat(onDisk)
 	if err != nil {
@@ -98,8 +98,8 @@ func TestMaybeCompactWritesLosslessArchiveWhenEnabled(t *testing.T) {
 		t.Fatalf("archive size on disk = %d, ref says %d", info.Size(), ref.Bytes)
 	}
 
-	// Every dropped entry has a contiguous, non-empty byte range, and reading
-	// the archive back recovers the original messages verbatim.
+	// 每条被丢弃的条目都有连续且非空的字节范围，读回归档
+	// 能原样恢复原始消息。
 	entries := entriesFromMessages(messages)
 	start := session.CutForBudget(entries, 150)
 	if start <= 0 {
@@ -129,7 +129,7 @@ func TestMaybeCompactWritesLosslessArchiveWhenEnabled(t *testing.T) {
 		}
 	}
 
-	// The recovery notice is part of both the stored summary and the folded view.
+	// 恢复通知既是所存储摘要的一部分，也是折叠视图的一部分。
 	if !strings.Contains(compaction.Summary, "## Lossless archive") ||
 		!strings.Contains(compaction.Summary, ref.Path) {
 		t.Fatalf("summary lacks the archive recovery notice:\n%s", compaction.Summary)
@@ -209,7 +209,7 @@ func TestCompactionArchivePathStaysInsideStore(t *testing.T) {
 		t.Fatal("expected an archive")
 	}
 
-	// The produced reference resolves under the store dir, never above it.
+	// 生成的引用解析到存储目录之下，绝不会在其之上。
 	full, err := session.CompactionArchivePath(sess.Dir(), strings.TrimSuffix(strings.TrimPrefix(ref.Path, "compactions/"), ".jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -219,11 +219,11 @@ func TestCompactionArchivePathStaysInsideStore(t *testing.T) {
 		t.Fatalf("archive path %s escapes store dir %s (rel %s, err %v)", full, sess.Dir(), rel, err)
 	}
 
-	// A malicious stored path cannot read out of the store.
+	// 恶意的存储路径无法读出存储之外的内容。
 	if _, err := session.ReadCompactionArchive(sess.Dir(), "../../outside.jsonl"); err == nil {
 		t.Fatal("ReadCompactionArchive must reject a path escaping the store")
 	}
-	// A malicious id cannot write out of the store either.
+	// 恶意的 id 同样无法写到存储之外。
 	if _, err := session.WriteCompactionArchiveRef(sess.Dir(), "../escape", entriesFromMessages(messages)); err == nil {
 		t.Fatal("WriteCompactionArchiveRef must reject an escaping id")
 	}
@@ -237,7 +237,7 @@ func TestLegacyCompactionRecordWithoutArchiveStillReads(t *testing.T) {
 	}
 	sess := archiveTestSession(t, res, nil)
 
-	// An old-style record has no "archive" field at all.
+	// 旧式记录根本没有 "archive" 字段。
 	legacy := `{"summary":"## Compaction\n- dropped 2 message(s), kept the last 1","dropped":2,"keep":1}`
 	if err := sess.Append(session.KindCompaction, json.RawMessage(legacy)); err != nil {
 		t.Fatal(err)
@@ -249,8 +249,8 @@ func TestLegacyCompactionRecordWithoutArchiveStillReads(t *testing.T) {
 	if !strings.Contains(compaction.Summary, "dropped 2 message(s)") {
 		t.Fatalf("legacy summary lost: %q", compaction.Summary)
 	}
-	// Messages() projects a nil-Archive compaction into the system summary just
-	// as before; no regression in the read path.
+	// Messages() 把 Archive 为 nil 的压缩投影到系统摘要中，与之前
+	// 完全一样；读取路径没有回归。
 	entries := sess.Messages()
 	if len(entries) == 0 || !strings.HasPrefix(entries[0].Content, "## Compaction") {
 		t.Fatalf("legacy compaction did not project to a summary: %+v", entries)

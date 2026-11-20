@@ -9,15 +9,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestClientsDecodeSSEJSONSplitAcrossDataLines covers a gateway that wraps a
-// single SSE event's JSON payload across several data: lines. The shared SSE
-// reader joins those lines with newlines; when the split falls inside a JSON
-// string the joined payload is invalid JSON until the synthetic newlines are
-// removed. The chat client has always tolerated this; the Anthropic and
-// Responses clients must as well.
+// TestClientsDecodeSSEJSONSplitAcrossDataLines 覆盖这样的网关：它把单个 SSE 事件的
+// JSON 载荷包装到多个 data: 行。共享的 SSE
+// 读取器按规范用换行符连接这些行；当拆分落在 JSON
+// 字符串内部时，连接后的载荷在移除合成换行符之前是无效 JSON。
+// chat 客户端一直容忍这一点；Anthropic 和
+// Responses 客户端也必须如此。
 //
-// A second shape is a gateway that emits several independent events as adjacent
-// data: lines with no blank separator: each line must be decoded in order.
+// 第二种形态是网关把多个独立事件作为相邻的
+// data: 行发出且没有空行分隔：每行必须按顺序解码。
 func TestClientsDecodeSSEJSONSplitAcrossDataLines(t *testing.T) {
 	cases := []struct {
 		name        string

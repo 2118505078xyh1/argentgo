@@ -15,7 +15,7 @@ func TestThinkingSupportClassifiesEachProtocol(t *testing.T) {
 		{string(provider.ProtocolOpenAI), provider.ThinkingEffort},
 		{string(provider.ProtocolResponses), provider.ThinkingEffort},
 		{string(provider.ProtocolAnthropic), provider.ThinkingBudget},
-		// short aliases and normalisation
+		// 短别名和规范化
 		{"openai", provider.ThinkingEffort},
 		{"responses", provider.ThinkingEffort},
 		{"anthropic", provider.ThinkingBudget},
@@ -23,7 +23,7 @@ func TestThinkingSupportClassifiesEachProtocol(t *testing.T) {
 		{"  OPENAI-CHAT-COMPLETIONS  ", provider.ThinkingEffort},
 		{"OpenAI-Responses", provider.ThinkingEffort},
 		{"Anthropic-Messages", provider.ThinkingBudget},
-		// unknown / empty fall back to none
+		// 未知/空回退到无
 		{"", provider.ThinkingNone},
 		{"  ", provider.ThinkingNone},
 		{"gemini", provider.ThinkingNone},
@@ -45,7 +45,7 @@ func TestResolveThinkingNormalizesEffort(t *testing.T) {
 		{"middle", "medium"},
 		{"high", "high"},
 		{"  High  ", "high"},
-		// unknown effort falls back to an empty override
+		// 未知 effort 回退到空覆盖
 		{"", ""},
 		{"extreme", ""},
 		{"  nonsense  ", ""},
@@ -111,8 +111,8 @@ func TestResolveThinkingClampsBudgetAtBoundaries(t *testing.T) {
 }
 
 func TestResolveThinkingKeepsOnlyProtocolRelevantFields(t *testing.T) {
-	// An effort protocol ignores the budget and a budget protocol ignores the
-	// effort string: neither invents a knob the other side does not understand.
+	// effort 协议忽略预算，budget 协议忽略 effort 字符串：两者都不会发明对方不理解的旋钮。
+	// effort 字符串：两者都不会发明对方不理解的旋钮。
 	if got := provider.ResolveThinking(string(provider.ProtocolOpenAI), "high", 999_999); got.Effort != "high" || got.BudgetTokens != 0 {
 		t.Errorf("effort protocol leaked budget: %+v", got)
 	}
@@ -122,8 +122,8 @@ func TestResolveThinkingKeepsOnlyProtocolRelevantFields(t *testing.T) {
 }
 
 func TestResolveThinkingToggleAndUnknownProtocol(t *testing.T) {
-	// A toggle protocol reports "on" for any recognized effort or a positive
-	// budget, and "off" for an empty request.
+	// toggle 协议对任何可识别的 effort 或正预算报告 "on"，对空请求报告 "off"。
+	// 正预算报告 "on"，对空请求报告 "off"。
 	for _, tc := range []struct {
 		effort string
 		budget int64
@@ -143,7 +143,7 @@ func TestResolveThinkingToggleAndUnknownProtocol(t *testing.T) {
 		}
 	}
 
-	// Unknown protocols return the zero config regardless of the request.
+	// 未知协议无论请求如何都返回零配置。
 	for _, name := range []string{"", "gemini", "bogus"} {
 		got := provider.ResolveThinking(name, "high", 50_000)
 		if got.Effort != "" || got.BudgetTokens != 0 || got.Enabled != nil {
@@ -153,8 +153,8 @@ func TestResolveThinkingToggleAndUnknownProtocol(t *testing.T) {
 }
 
 func TestThinkingDefaultsKeepWireRequestsUnchanged(t *testing.T) {
-	// Forcing this at the data layer: the zero Options must leave Thinking nil,
-	// so no default request carries a thinking field until wiring lands.
+	// 在数据层强制这一点：零 Options 必须让 Thinking 为 nil，使在接线落地前没有默认请求携带 thinking 字段。
+	// 使在接线落地前没有默认请求携带 thinking 字段。
 	if got := (llm.Options{}); got.Thinking != nil {
 		t.Fatalf("zero llm.Options has non-nil Thinking: %+v", got.Thinking)
 	}

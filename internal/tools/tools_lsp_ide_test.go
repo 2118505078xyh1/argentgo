@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// fakeLspIde is a deterministic LspIde that returns canned DTOs and records
-// every argument it receives so the tools' pass-through behaviour is testable.
+// fakeLspIde 是一个确定性的 LspIde，返回固定的 DTO 并记录
+// 它收到的每个参数，使工具的透传行为可测试。
 type fakeLspIde struct {
 	symbols []LspSymbol
 	refs    []LspLocation
@@ -125,8 +125,8 @@ func mustJSON(t *testing.T, v any) string {
 	return string(data)
 }
 
-// TestLspIdeToolsReturnExpectedJSON verifies each tool serializes the adapter's
-// result as compact JSON of the neutral DTOs.
+// TestLspIdeToolsReturnExpectedJSON 验证每个工具把适配器的
+// 结果序列化为中立 DTO 的紧凑 JSON。
 func TestLspIdeToolsReturnExpectedJSON(t *testing.T) {
 	ctx := context.Background()
 	fake := cannedFake()
@@ -162,8 +162,8 @@ func TestLspIdeToolsReturnExpectedJSON(t *testing.T) {
 	}
 }
 
-// TestLspIdeToolsUnavailableWithoutAdapter checks that a nil adapter yields a
-// graceful message, no error, and no panic for all six tools.
+// TestLspIdeToolsUnavailableWithoutAdapter 检查 nil 适配器时
+// 六个工具都给出优雅消息、无错误且不 panic。
 func TestLspIdeToolsUnavailableWithoutAdapter(t *testing.T) {
 	ctx := context.Background()
 	tools := []Tool{
@@ -184,8 +184,8 @@ func TestLspIdeToolsUnavailableWithoutAdapter(t *testing.T) {
 	}
 }
 
-// TestLspIdeToolsMetadata validates schemas, read-only nature and description
-// length so the tools are safe to advertise in a read-only sandbox.
+// TestLspIdeToolsMetadata 验证 schema、只读性质和描述
+// 长度，使这些工具可安全地在只读沙箱中公布。
 func TestLspIdeToolsMetadata(t *testing.T) {
 	tools := []Tool{
 		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
@@ -206,8 +206,8 @@ func TestLspIdeToolsMetadata(t *testing.T) {
 	}
 }
 
-// TestSetLspIdeSwapsAdapter verifies app wiring: before SetLspIde the tools
-// report unavailable, afterwards they call the newly installed adapter.
+// TestSetLspIdeSwapsAdapter 验证 app 接线：SetLspIde 之前工具
+// 报告不可用，之后它们调用新安装的适配器。
 func TestSetLspIdeSwapsAdapter(t *testing.T) {
 	ctx := context.Background()
 	r := New(t.TempDir(), false)
@@ -234,7 +234,7 @@ func TestSetLspIdeSwapsAdapter(t *testing.T) {
 		t.Fatalf("adapter received path %q, want %q", fake.symbolPath, "a.go")
 	}
 
-	// All six tools are registered and now point at the new adapter.
+	// 六个工具都已注册，现在指向新的适配器。
 	for _, name := range []string{
 		"lsp_symbols", "lsp_references", "lsp_code_actions",
 		"lsp_rename_preview", "lsp_format", "lsp_workspace_symbols",
@@ -255,8 +255,8 @@ func TestSetLspIdeSwapsAdapter(t *testing.T) {
 	}
 }
 
-// TestLspIdeToolsPassZeroBasedPositions checks that coordinates reach the
-// adapter unchanged (no 1-based conversion) and formatting defaults are sane.
+// TestLspIdeToolsPassZeroBasedPositions 检查坐标原样到达
+// 适配器（不做基于 1 的转换）且格式化默认值合理。
 func TestLspIdeToolsPassZeroBasedPositions(t *testing.T) {
 	ctx := context.Background()
 	fake := cannedFake()
@@ -286,7 +286,7 @@ func TestLspIdeToolsPassZeroBasedPositions(t *testing.T) {
 		t.Fatalf("rename got line=%d char=%d name=%q", fake.renameLine, fake.renameChar, fake.renameNewName)
 	}
 
-	// Explicit formatting options are passed through.
+	// 显式的格式化选项被原样透传。
 	if _, err := newLspFormatTool(fake).Run(ctx, t.TempDir(),
 		json.RawMessage(`{"path":"a.go","tabSize":8,"insertSpaces":false}`)); err != nil {
 		t.Fatalf("format: %v", err)
@@ -295,7 +295,7 @@ func TestLspIdeToolsPassZeroBasedPositions(t *testing.T) {
 		t.Fatalf("format got tabSize=%d insertSpaces=%v", fake.fmtTabSize, fake.fmtInsertSpaces)
 	}
 
-	// Defaults when options are omitted: tabSize 4, insertSpaces true.
+	// 省略选项时的默认值：tabSize 4、insertSpaces true。
 	if _, err := newLspFormatTool(fake).Run(ctx, t.TempDir(),
 		json.RawMessage(`{"path":"a.go"}`)); err != nil {
 		t.Fatalf("format defaults: %v", err)

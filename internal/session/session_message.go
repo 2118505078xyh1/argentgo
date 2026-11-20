@@ -23,8 +23,7 @@ func encodePayload(payload any) (json.RawMessage, error) {
 	return data, nil
 }
 
-// messageEntry projects one record onto the conversation, or reports false
-// when the record is metadata, an event, or a compaction marker.
+// messageEntry 将一条记录投影到对话上；当记录是元数据、事件或压缩标记时返回 false。
 func messageEntry(record Record) (Entry, bool) {
 	entry := Entry{
 		ID:     record.ID,
@@ -66,13 +65,10 @@ func messageEntry(record Record) (Entry, bool) {
 		}
 	case KindSummary:
 		entry.Role = "system"
-		// "summary" is the canonical key of a Compaction payload. When a later
-		// compaction drops an earlier one, retainedForCompaction re-emits its
-		// system Entry as a KindSummary carrying that original Compaction Data
-		// (entryKind only sees the role). Reading "summary" here keeps the
-		// restored message's text identical to the Entry that was dropped;
-		// otherwise it resurfaces as an empty system message and the earlier
-		// summary is lost from the conversation view.
+		// "summary" 是 Compaction 载荷的规范键。当后续压缩丢弃更早的压缩时，
+		// retainedForCompaction 会把它作为携带原始 Compaction Data 的 KindSummary 重新发出 system Entry
+		// （entryKind 只能看到角色）。在这里读取 "summary" 可使恢复后的消息文本与被丢弃的 Entry 完全一致；
+		// 否则它会变成一条空的系统消息，先前的摘要就会从对话视图中丢失。
 		entry.Content = firstNonEmpty(fieldString(record.Data, "text"),
 			fieldString(record.Data, "summary"), textOf(record.Data))
 	default:
@@ -94,20 +90,17 @@ func messageEntries(records []Record) []Entry {
 	return ReconcileToolPairs(out)
 }
 
-// reasoningOf reads the model's thought text from an assistant record. Both
-// the neutral "reasoning" key and the OpenAI-compatible "reasoning_content"
-// key are accepted so imported transcripts keep their reasoning too. A record
-// without either key simply yields an empty string, which keeps legacy
-// sessions unchanged.
+// reasoningOf 从 assistant 记录中读取模型的思考文本。中性的 "reasoning" 键和
+// OpenAI 兼容的 "reasoning_content" 键都被接受，使导入的转录也能保留其推理内容。
+// 两个键都不存在的记录只会得到空字符串，从而使旧会话保持不变。
 func reasoningOf(raw json.RawMessage) string {
 	return fieldString(raw, "reasoning", "reasoning_content")
 }
 
-// AssistantRecord builds the persisted payload for an assistant message that
-// carries its reasoning text. Empty fields are omitted so records written by
-// earlier builds stay byte-identical. Use it with Session.Append(KindAssistant,
-// ...) when a caller has reasoning to preserve; the agent loop's llm.Message
-// payload already carries the same "reasoning" key.
+// AssistantRecord 为携带推理文本的 assistant 消息构建持久化载荷。空字段会被省略，
+// 使较早版本写入的记录保持逐字节一致。当调用方有推理内容需要保留时，
+// 可将其与 Session.Append(KindAssistant, ...) 一起使用；agent 循环的 llm.Message
+// 载荷已经携带相同的 "reasoning" 键。
 func AssistantRecord(content, reasoning string) map[string]any {
 	payload := make(map[string]any, 2)
 	if content != "" {
@@ -119,7 +112,7 @@ func AssistantRecord(content, reasoning string) map[string]any {
 	return payload
 }
 
-// fieldString reads the first matching string key from a JSON object payload.
+// fieldString 从 JSON 对象载荷中读取第一个匹配的字符串键。
 func fieldString(raw json.RawMessage, keys ...string) string {
 	if len(raw) == 0 {
 		return ""
@@ -136,8 +129,8 @@ func fieldString(raw json.RawMessage, keys ...string) string {
 	return ""
 }
 
-// textOf reads a message payload: a bare JSON string, or the usual text keys
-// of an object (`content`, `text`, `output`, `result`, `message`).
+// textOf 读取消息载荷：裸 JSON 字符串，或对象常用的文本键
+// （`content`、`text`、`output`、`result`、`message`）。
 func textOf(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -167,7 +160,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// truncateRunes clips text to limit runes, collapsing it to one line first.
+// truncateRunes 将文本裁剪到 limit 个符文，先将其折叠为一行。
 func truncateRunes(text string, limit int) string {
 	cleaned := strings.Join(strings.Fields(strings.ReplaceAll(text, "\n", " ")), " ")
 	if limit <= 0 {

@@ -5,32 +5,32 @@ import (
 	"strings"
 )
 
-// Triggers holds optional automatic-activation rules for a skill.
+// Triggers 保存技能的可选自动激活规则。每个列表都是独立过滤器，空列表表示"无限制"：零触发器的技能在任何地方都符合条件。调用方组合适合其事件（文件路径、提示、模型家族）的
 //
-// Each list is an independent filter and an empty list means "no restriction":
-// a skill with zero triggers is eligible everywhere. Callers combine the
-// filters that fit their event (a file path, a prompt, a model family) instead
-// of relying on the model to call use_skill by name. Matching here is pure: no
-// filesystem access and no dependencies beyond the standard library.
+// 每个列表都是独立过滤器，空列表表示"无限制"：
+// 零触发器的技能在任何地方都符合条件。调用方组合
+// 适合其事件（文件路径、提示、模型家族）的过滤器，而不是
+// 过滤器，而不是依赖模型按名称调用 use_skill。这里的匹配是纯的：无文件系统访问，除标准库外无依赖。
+// 无文件系统访问，除标准库外无依赖。
 type Triggers struct {
-	// Paths are gitignore-style globs matched against the path of a file the
-	// agent is about to read or edit.
+	// 路径是 gitignore 风格的 glob，与 agent 即将读取或编辑的文件
+	// 路径是 gitignore 风格的 glob，与 agent 即将读取或编辑的文件路径匹配。
 	Paths []string
-	// Keywords are case-insensitive substrings matched against prompt text.
+	// 关键词是与提示文本匹配的不区分大小写的子串。
 	Keywords []string
-	// Models restricts the skill to these model families (e.g. "claude",
-	// "gemini"). An empty list, "all" or "*" means every family.
+	// 关键词是与提示文本匹配的不区分大小写的子串。
+	// Models 把技能限制在这些模型家族（例如 "claude"、"gemini"）。空列表、"all" 或 "*" 表示所有家族。
 	Models []string
 }
 
-// MatchPath reports whether p matches any of the gitignore-style globs in
+// MatchPath 报告 p 是否匹配中任一 gitignore 风格 glob。
 // patterns.
 //
-// Syntax: `**` spans zero or more path segments, `*` stays inside one segment,
-// and a pattern without a slash is tested against the basename at any depth.
-// Patterns and p are normalised the same way: backslashes become slashes, a
-// leading `./` or `/` is dropped and comparison is case-insensitive. One rule
-// therefore works for both Windows and POSIX paths.
+// 语法：`**` 跨越零个或多个路径段，`*` 停留在单个段内，不含斜杠的模式在任意深度针对基础名测试。
+// 不含斜杠的模式在任意深度针对基础名测试。
+// 模式与 p 用同样的方式规范化：反斜杠变斜杠，
+// 模式与 p 用同样的方式规范化：反斜杠变斜杠，去掉前导 `./` 或 `/`，比较不区分大小写。因此一条规则同时适用于 Windows 和 POSIX 路径。
+// 因此一条规则同时适用于 Windows 和 POSIX 路径。
 func MatchPath(patterns []string, p string) bool {
 	segments := strings.Split(normalizeGlobPath(p), "/")
 	for _, pattern := range patterns {
@@ -48,9 +48,9 @@ func MatchPath(patterns []string, p string) bool {
 	return false
 }
 
-// matchSegments walks pattern and segments together. A `**` pattern segment
-// consumes zero or more path segments; every other segment is handed to
-// path.Match, which owns the `*` / `?` / `[...]` wildcard syntax.
+// matchSegments 一起遍历模式和各路径段。`**` 模式段
+// 消耗零个或多个路径段；其他每段交给
+// path.Match 拥有 `*` / `?` / `[...]` 通配符语法。
 func matchSegments(pattern, segments []string, pi, si int) bool {
 	for pi < len(pattern) {
 		if pattern[pi] == "**" {
@@ -74,9 +74,9 @@ func matchSegments(pattern, segments []string, pi, si int) bool {
 	return si == len(segments)
 }
 
-// normalizeGlobPath makes a pattern or a concrete path comparable: one
-// separator, no leading marker and one case. Lower-casing keeps Windows-style
-// case-insensitive paths working without a build tag or a runtime check.
+// normalizeGlobPath 使模式或具体路径可比较：单一
+// normalizeGlobPath 使模式或具体路径可比较：单一分隔符、无前导标记、单一大小写。小写化让 Windows 风格不区分大小写的路径无需构建标签或运行时检查即可工作。
+// 不区分大小写的路径无需构建标签或运行时检查即可工作。
 func normalizeGlobPath(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.ReplaceAll(p, `\`, "/")
@@ -85,8 +85,8 @@ func normalizeGlobPath(p string) string {
 	return strings.ToLower(p)
 }
 
-// SkillsForPath returns the skills eligible for a file path: those with no
-// path triggers plus those whose path triggers match p. Registry order is kept.
+// SkillsForPath 返回适合某文件路径的技能：无路径触发器的技能加上
+// SkillsForPath 返回适合某文件路径的技能：无路径触发器的技能加上路径触发器匹配 p 的技能。保留 registry 顺序。
 func SkillsForPath(skills []Skill, p string) []Skill {
 	var out []Skill
 	for _, skill := range skills {
@@ -97,9 +97,9 @@ func SkillsForPath(skills []Skill, p string) []Skill {
 	return out
 }
 
-// MatchKeywords reports whether text contains any of the case-insensitive
-// keywords. Substring matching keeps CJK keywords working, where word-based
-// tokenisation would drop them.
+// MatchKeywords 报告 text 是否包含任一不区分大小写的关键词。子串匹配使 CJK 关键词仍然可用，而基于词的切分会丢弃它们。
+// 关键词。子串匹配使 CJK 关键词仍然可用，而基于词的
+// 切分会丢弃它们。
 func MatchKeywords(keywords []string, text string) bool {
 	if len(keywords) == 0 {
 		return false
@@ -114,8 +114,8 @@ func MatchKeywords(keywords []string, text string) bool {
 	return false
 }
 
-// SkillsForKeywords returns the skills eligible for prompt text: those with no
-// keyword triggers plus those with a keyword hit. Registry order is kept.
+// SkillsForKeywords 返回适合提示文本的技能：无关键词触发器的技能加上有关键词命中的技能。保留 registry 顺序。
+// 有关键词命中的技能。保留 registry 顺序。
 func SkillsForKeywords(skills []Skill, text string) []Skill {
 	var out []Skill
 	for _, skill := range skills {
@@ -126,9 +126,9 @@ func SkillsForKeywords(skills []Skill, text string) []Skill {
 	return out
 }
 
-// SkillsForModel returns the skills available to a model family. family is
-// compared case-insensitively; skills with no model restriction (or with
-// "all" / "*") are available to every family. Registry order is kept.
+// SkillsForModel 返回某模型家族可用的技能。family 是
+// 不区分大小写比较；无模型限制（或为
+// SkillsForModel 返回某模型家族可用的技能。family 不区分大小写比较；无模型限制（或为 "all" / "*"）的技能对所有家族可用。保留 registry 顺序。
 func SkillsForModel(skills []Skill, family string) []Skill {
 	family = strings.ToLower(strings.TrimSpace(family))
 	var out []Skill
@@ -148,20 +148,20 @@ func SkillsForModel(skills []Skill, family string) []Skill {
 	return out
 }
 
-// ResolveTriggeredSkills is the single entry point for automatic skill
-// activation. It describes one agent event with a file path, prompt text and
-// model family and returns every skill eligible for that event.
+// ResolveTriggeredSkills 是自动技能激活的唯一入口。
+// ResolveTriggeredSkills 是自动技能激活的唯一入口。它用文件路径、提示文本和模型家族描述一个 agent 事件，并返回适合该事件的每个技能。
+// 模型家族描述一个 agent 事件，并返回适合该事件的每个技能。
 //
-// The three trigger dimensions are independent constraints: a skill is
-// eligible only when each list it declares is either empty (no restriction)
-// or satisfied by the matching argument. In other words the path, keyword and
-// model filters are intersected, never unioned — a model restriction must not
-// be bypassed just because a keyword happened to match. An empty argument
-// therefore excludes skills restricted to that dimension, so with no context
-// only unrestricted skills (plus model-wildcard skills) remain.
+// 三个触发维度是独立约束：只有当技能声明的每个列表为空（无限制）
+// 或被匹配参数满足时，它才符合条件。换句话说，路径、关键词和
+// 或被匹配参数满足。换句话说，路径、关键词和
+// 模型过滤器是交集而非并集 —— 模型限制不得
+// 仅因某关键词恰好匹配而被绕过。空参数
+// 因此排除限制到该维度的技能，所以在没有上下文时
+// 三个触发维度是独立约束：只有当技能声明的每个列表为空（无限制）或被匹配参数满足时，它才符合条件。换句话说，路径、关键词和模型过滤器是交集而非并集 —— 模型限制不得仅因某关键词恰好匹配而被绕过。
 //
-// Registry order is preserved (each filter only removes entries) and no name
-// is returned twice. A nil registry yields nil.
+// 因此空参数会排除限制到该维度的技能，所以在没有上下文时只留下无限制技能（加上模型通配符技能）。
+// 保留 registry 顺序（每个过滤器只移除条目）且没有名称返回两次。nil registry 产生 nil。
 func ResolveTriggeredSkills(registry *Registry, path, keywords, modelFamily string) []Skill {
 	if registry == nil {
 		return nil
@@ -169,9 +169,9 @@ func ResolveTriggeredSkills(registry *Registry, path, keywords, modelFamily stri
 	return resolveTriggeredSkills(registry.All(), path, keywords, modelFamily)
 }
 
-// resolveTriggeredSkills is the slice-based core of ResolveTriggeredSkills.
-// Keeping it separate lets the de-duplication guarantee be exercised directly
-// with a hand-built slice (a Registry already enforces unique names).
+// resolveTriggeredSkills 是 ResolveTriggeredSkills 基于切片的核心。单独保留它使去重保证能用手建切片直接演练（Registry 已强制名称唯一）。
+// 单独保留它使去重保证能直接演练
+// 用手建切片（Registry 已强制名称唯一）。
 func resolveTriggeredSkills(skills []Skill, path, keywords, modelFamily string) []Skill {
 	eligible := SkillsForPath(skills, path)
 	eligible = SkillsForKeywords(eligible, keywords)

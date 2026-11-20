@@ -39,7 +39,7 @@ func TestTTLCacheCorruptGrantFileFailsClosed(t *testing.T) {
 		t.Fatalf("untrusted grants file must not be overwritten, got: %s", data)
 	}
 
-	// An explicit successful reload restores trust and the persisted grant.
+	// 一次显式成功的重新加载会恢复信任和持久化的授予。
 	valid, err := json.Marshal([]ttlEntry{{Key: key, Readable: "x", ExpiresAt: base.Add(time.Hour)}})
 	if err != nil {
 		t.Fatalf("encode valid grants: %v", err)
@@ -57,8 +57,8 @@ func TestTTLCacheCorruptGrantFileFailsClosed(t *testing.T) {
 
 func TestTTLCacheUnreadableGrantFileFailsClosed(t *testing.T) {
 	dir := t.TempDir()
-	// A directory at the grants path makes ReadFile fail on every platform,
-	// without relying on permission bits (which Windows/admins may ignore).
+	// 在 grants 路径上放一个目录会让 ReadFile 在每个平台上都失败，
+	// 而不依赖权限位（Windows/管理员可能忽略权限位）。
 	if err := os.Mkdir(ttlGrantPath(dir), 0o700); err != nil {
 		t.Fatalf("create directory at grants path: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestTTLCacheSharedFileWritesDoNotClobber(t *testing.T) {
 	if err := c1.Allow(keyA, "A"); err != nil {
 		t.Fatalf("c1.Allow: %v", err)
 	}
-	// c2 has never seen keyA in memory; its write must re-read it from disk.
+	// c2 从未在内存中见过 keyA；它的写入必须从磁盘重新读取。
 	if err := c2.Allow(keyB, "B"); err != nil {
 		t.Fatalf("c2.Allow: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestTTLCacheSharedFileWritesDoNotClobber(t *testing.T) {
 		t.Fatal("grant written by the second instance was lost")
 	}
 
-	// Deny through one instance must preserve the other instance's grant.
+	// 通过一个实例执行 Deny 必须保留另一个实例的授予。
 	c1.Deny(keyA)
 	afterDeny := newTTLTestCache(t, dir, time.Hour, base)
 	if afterDeny.IsAllowed(keyA) {
@@ -152,9 +152,9 @@ func TestTTLCacheSharedFileConcurrentWrites(t *testing.T) {
 	}
 }
 
-// TestTTLCacheCrossProcessKeepsBothGrants re-executes this test binary so two
-// genuinely separate processes contend for the sidecar lock. Without the
-// cross-process lock, the child's write would overwrite the parent's grant.
+// TestTTLCacheCrossProcessKeepsBothGrants 重新执行本测试二进制，使两个
+// 真正独立的进程竞争 sidecar 锁。没有跨进程锁，
+// 子进程的写入会覆盖父进程的授予。
 func TestTTLCacheCrossProcessKeepsBothGrants(t *testing.T) {
 	const helperEnv = "ARGENT_TTL_LOCK_HELPER"
 	if os.Getenv(helperEnv) == "1" {

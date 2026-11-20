@@ -125,7 +125,7 @@ func TestPolicyFromJSONAcceptsSnakeCaseAndCamelCaseKeys(t *testing.T) {
 		t.Fatal("camelCase rule was ignored")
 	}
 
-	// If both spellings appear, the documented camelCase key wins.
+	// 如果两种写法都出现，以文档记载的 camelCase 键为准。
 	both, err := PolicyFromJSON(dir, []byte(`{"denyTools":["bash"],"deny_tools":["write"]}`))
 	if err != nil {
 		t.Fatalf("mixed parse: %v", err)

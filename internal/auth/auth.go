@@ -1,44 +1,44 @@
-// Package auth stores provider credentials and runs OAuth 2.0 logins without
-// third-party SDKs.
+// Package auth 存储 provider 凭据并运行 OAuth 2.0 登录，不依赖第三方 SDK。
+// 不依赖第三方 SDK。
 //
-// Tokens live in a single JSON file inside a directory (mode 0600, written
-// atomically). Two login flows are supported: the browser authorization-code
-// flow with PKCE (RFC 7636) and the device-code flow (RFC 8628). Provider
-// presets supply the endpoints; the package itself only knows the standards.
+// 令牌存放在某目录下的单个 JSON 文件中（模式 0600，原子
+// 写入）。支持两种登录流程：浏览器授权码
+// 令牌存放在某目录下的单个 JSON 文件中（模式 0600，原子写入）。支持两种登录流程：带 PKCE 的浏览器授权码流程（RFC 7636）和设备码流程（RFC 8628）。provider 预设提供端点；包本身只了解标准。
+// provider 预设提供端点；包本身只了解标准。
 package auth
 
 import (
 	"time"
 )
 
-// Token kinds.
+// 令牌种类。
 const (
-	// KindOAuth marks a token obtained from an OAuth flow.
+	// KindOAuth 标记从 OAuth 流程获得的令牌。
 	KindOAuth = "oauth"
-	// KindAPIKey marks a manually pasted API key.
+	// KindAPIKey 标记手动粘贴的 API key。
 	KindAPIKey = "api_key"
 )
 
-// expirySafety refreshes a token slightly before the provider's own deadline,
-// mirroring the Rust implementation's 60-second margin.
+// expirySafety 在 provider 自己的截止时间之前稍早刷新令牌，
+// expirySafety 在 provider 自己的截止时间之前稍早刷新令牌，镜像 Rust 实现的 60 秒余量。
 const expirySafety = 60 * time.Second
 
-// Token is one stored credential.
+// Token 是一条存储的凭据。
 type Token struct {
 	Provider string `json:"provider"`
-	// Kind is KindOAuth or KindAPIKey.
+	// Kind 是 KindOAuth 或 KindAPIKey。
 	Kind string `json:"kind"`
-	// Access is the bearer secret: an OAuth access token or an API key.
+	// Access 是要发给 provider 的秘密：OAuth 访问令牌或 API key。
 	Access string `json:"access,omitempty"`
-	// Refresh is the OAuth refresh token, empty for API keys.
+	// Refresh 是 OAuth 刷新令牌，API key 时为空。
 	Refresh string `json:"refresh,omitempty"`
-	// ExpiresAt is the access-token deadline; the zero value means "no expiry".
+	// ExpiresAt 是访问令牌截止时间；零值表示"无过期时间"。
 	ExpiresAt time.Time `json:"-"`
-	// Account optionally records which account the token belongs to.
+	// Account 可选地记录令牌属于哪个账号。
 	Account string `json:"account,omitempty"`
 }
 
-// Bearer returns the secret to send to the provider.
+// Bearer 返回要发给 provider 的秘密。
 func (t Token) Bearer() string {
 	if t.Access != "" {
 		return t.Access
@@ -46,10 +46,10 @@ func (t Token) Bearer() string {
 	return t.Refresh
 }
 
-// Status describes how usable a stored token is right now.
+// Status 描述存储令牌此刻的可用程度。
 type Status string
 
-// Status values reported by Store.Status.
+// Store.Status 报告的 Status 值。
 const (
 	StatusValid    Status = "valid"
 	StatusExpiring Status = "expiring"
@@ -57,9 +57,9 @@ const (
 	StatusMissing  Status = "missing"
 )
 
-// String implements fmt.Stringer.
+// String 实现 fmt.Stringer。
 func (s Status) String() string { return string(s) }
 
-// expirySkew is the window in which a still-valid token is reported as
-// expiring, so callers can refresh ahead of time.
+// expirySkew 是仍有效的令牌被报告为即将过期的窗口，使调用方能提前刷新。
+// 即将过期，使调用方能提前刷新。
 const expirySkew = 5 * time.Minute

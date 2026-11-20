@@ -19,8 +19,8 @@ const (
 	storeDirMode  = 0o700
 )
 
-// fileToken is the on-disk shape: a Unix timestamp keeps zero values out of the
-// file instead of serialising year 1.
+// fileToken 是磁盘形态：Unix 时间戳使零值不出现在文件中，而非序列化第 1 年。
+// 而非序列化第 1 年。
 type fileToken struct {
 	Provider  string `json:"provider"`
 	Kind      string `json:"kind"`
@@ -35,15 +35,15 @@ type fileDoc struct {
 	Tokens  []fileToken `json:"tokens"`
 }
 
-// Store keeps provider tokens in one JSON file inside a directory.
+// Store 把 provider 令牌保存在某目录下的单个 JSON 文件中。
 type Store struct {
 	dir  string
 	path string
 	mu   sync.Mutex
 }
 
-// Open prepares dir (creating it with mode 0700) and returns a store backed by
-// the auth.json file inside it. Nothing is read until the first lookup.
+// Open 准备 dir（以模式 0700 创建它）并返回由其中 auth.json 文件支撑的 store。直到第一次查找才读取任何内容。
+// 由其中 auth.json 文件支撑的 store。直到第一次查找才读取任何内容。
 func Open(dir string) (*Store, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -55,7 +55,7 @@ func Open(dir string) (*Store, error) {
 	return &Store{dir: dir, path: filepath.Join(dir, storeFileName)}, nil
 }
 
-// DefaultDir returns the per-user credential directory, <config>/argent.
+// DefaultDir 返回每用户凭据目录 <config>/argent。
 func DefaultDir() (string, error) {
 	root, err := os.UserConfigDir()
 	if err != nil {
@@ -64,10 +64,10 @@ func DefaultDir() (string, error) {
 	return filepath.Join(root, "argent"), nil
 }
 
-// Path is the JSON file backing the store.
+// Path 是支撑 store 的 JSON 文件。
 func (s *Store) Path() string { return s.path }
 
-// Get returns the token stored for provider.
+// Get 返回为 provider 存储的令牌。
 func (s *Store) Get(provider string) (Token, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,14 +83,14 @@ func (s *Store) Get(provider string) (Token, bool) {
 	return Token{}, false
 }
 
-// List returns every stored token, ordered by provider id.
+// List 返回所有存储的令牌，按 provider id 排序。
 func (s *Store) List() ([]Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.load()
 }
 
-// Put stores a token, replacing any previous entry for the same provider.
+// Put 存储令牌，替换同一 provider 的任何旧条目。
 func (s *Store) Put(token Token) error {
 	if strings.TrimSpace(token.Provider) == "" {
 		return errors.New("auth: token provider must not be empty")
@@ -124,7 +124,7 @@ func (s *Store) Put(token Token) error {
 	return s.save(tokens)
 }
 
-// Delete removes the token for provider and reports whether it existed.
+// Delete 删除 provider 的令牌并报告它是否存在。
 func (s *Store) Delete(provider string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,8 +147,8 @@ func (s *Store) Delete(provider string) error {
 	return s.save(kept)
 }
 
-// Status reports whether the provider's token is valid, close to expiry,
-// already expired, or absent. now is explicit so callers and tests share one
+// Status 报告 provider 的令牌是有效、接近过期、已过期还是不存在。now 是显式的，使调用方和测试共享一个
+// 或不存在。now 是显式的，使调用方和测试共享一个
 // clock.
 func (s *Store) Status(provider string, now time.Time) Status {
 	token, ok := s.Get(provider)
@@ -201,8 +201,8 @@ func (s *Store) load() ([]Token, error) {
 	return tokens, nil
 }
 
-// save writes the whole document through a temporary file so a crash never
-// leaves a half-written credential file behind.
+// save 通过临时文件写入整个文档，使崩溃绝不会留下半写的凭据文件。
+// 留下半写的凭据文件。
 func (s *Store) save(tokens []Token) error {
 	doc := fileDoc{Version: storeVersion, Tokens: make([]fileToken, 0, len(tokens))}
 	for _, token := range tokens {
@@ -248,8 +248,8 @@ func (s *Store) save(tokens []Token) error {
 	if err := os.Rename(name, s.path); err != nil {
 		return fmt.Errorf("auth: replace %s: %w", s.path, err)
 	}
-	// Rename keeps the temp file's mode; set it again for filesystems that
-	// ignore modes on create.
+	// Rename 保留临时文件的模式；对创建时忽略模式的.filesystem 再次设置它。
+	// 在创建时忽略模式的 filesystem 再次设置它。
 	_ = os.Chmod(s.path, storeFileMode)
 	return nil
 }

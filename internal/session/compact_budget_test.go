@@ -20,11 +20,11 @@ func TestAdjustCutNeverSplitsToolPair(t *testing.T) {
 		start int
 		want  int
 	}{
-		{3, 2}, // first tool result: walk back over the whole tool run
-		{4, 2}, // second result of the same run
-		{6, 5}, // single tool result: back up to its assistant
-		{5, 5}, // assistant: unchanged
-		{7, 7}, // trailing assistant: unchanged
+		{3, 2}, // 第一个工具结果：回退跳过整个工具运行段
+		{4, 2}, // 同一运行段的第二个结果
+		{6, 5}, // 单个工具结果：回退到它的 assistant
+		{5, 5}, // assistant：不变
+		{7, 7}, // 末尾的 assistant：不变
 	}
 	for _, tc := range cases {
 		if got := adjustCut(entries, tc.start); got != tc.want {
@@ -42,7 +42,7 @@ func TestKeepForBudgetAndCutForBudget(t *testing.T) {
 		{Role: "user", Content: strings.Repeat("d", 200)},
 		{Role: "user", Content: strings.Repeat("e", 200)},
 	}
-	// Each padded entry costs about 4 + 50 tokens; 120 fits the last two.
+	// 每条填充条目约耗 4 + 50 个 token；120 容得下最后两条。
 	if keep := KeepForBudget(entries, 120); keep != 2 {
 		t.Fatalf("KeepForBudget = %d, want 2", keep)
 	}
@@ -81,7 +81,7 @@ func TestCompactBudgetKeepsTokenDerivedTail(t *testing.T) {
 	if !strings.Contains(messages[0].Content, "dropped 3 message(s)") {
 		t.Fatalf("summary missing drop count:\n%s", messages[0].Content)
 	}
-	// A compacted history that already fits the budget is a no-op.
+	// 已经符合预算的压缩历史是空操作。
 	before, _ := sess.Records()
 	if err := sess.CompactBudget(100000); err != nil {
 		t.Fatal(err)

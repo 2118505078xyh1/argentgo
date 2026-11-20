@@ -6,25 +6,25 @@ import (
 	"strings"
 )
 
-// ToolSpec describes a tool the caller can register with its own registry.
+// ToolSpec 描述调用方可用自己的 registry 注册的工具。
 //
-// It mirrors the wire shape every provider expects (`type: function`,
-// `function: {name, description, parameters}`) but is deliberately a local type
-// so this package does not depend on the agent or llm packages.
+// 它镜像每个 provider 期望的线上形态（`type: function`、
+// `function: {name, description, parameters}`），但刻意使用本地类型
+// 使本包不依赖 agent 或 llm 包。
 type ToolSpec struct {
 	Type     string     `json:"type"`
 	Function ToolSchema `json:"function"`
 }
 
-// ToolSchema is the function half of a ToolSpec.
+// ToolSchema 是 ToolSpec 的函数部分。
 type ToolSchema struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
-// UseSkillSpec returns the tool the caller should advertise so the model can
-// load a skill body by name.
+// UseSkillSpec 返回调用方应公布的工具，使模型能按名称加载技能正文。
+// 使模型能按名称加载技能正文。
 func UseSkillSpec() ToolSpec {
 	return ToolSpec{
 		Type: "function",
@@ -45,15 +45,15 @@ func UseSkillSpec() ToolSpec {
 	}
 }
 
-// UseSkillSpec is the same spec bound to a registry, for callers that build it
-// per session.
+// UseSkillSpec 是同一个规格绑定到 registry 的版本，供按会话构建它的调用方使用。
+// 供按会话构建它的调用方使用。
 func (r *Registry) UseSkillSpec() ToolSpec { return UseSkillSpec() }
 
-// HandleUseSkill executes the use_skill tool with raw JSON arguments.
+// HandleUseSkill 用原始 JSON 参数执行 use_skill 工具。
 //
-// An empty or missing `name` lists the installed skills; a known name returns
-// the full body with its source path; an unknown name returns an error whose
-// message suggests close matches.
+// 空或缺失的 `name` 列出已安装技能；已知名称返回
+// 带来源路径的完整正文；未知名称返回错误，其消息
+// 建议相近的匹配项。
 func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	var call struct {
 		Name string `json:"name"`

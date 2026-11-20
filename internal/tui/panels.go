@@ -2,7 +2,7 @@ package tui
 
 import "strings"
 
-// panelSection is one vertical slice of the right-hand rail.
+// panelSection 是右侧栏的一个垂直切片。
 type panelSection struct {
 	top, height int
 	lines       []Line
@@ -31,8 +31,8 @@ func (m *Model) panelsVisible() bool {
 	return m.showTasks || m.showWorkspace || m.showPlan || m.showSessions
 }
 
-// panelSections divides the rail between the panels that are currently on.
-// The transcript, prompt and approval modal keep their existing geometry.
+// panelSections 在当前开启的面板之间划分侧边栏。
+// 记录、提示和审批弹窗保持其现有几何。
 func (m *Model) panelSections(l layout) []panelSection {
 	var kinds []int
 	if m.showTasks {
@@ -83,8 +83,8 @@ func (m *Model) panelSections(l layout) []panelSection {
 	return out
 }
 
-// paintPanels draws the separator and each visible panel. Buffer.Flush diffs
-// whole rows, so an updated task or preview repaints only the affected lines.
+// paintPanels 绘制分隔符和每个可见面板。Buffer.Flush 按
+// 整行做差异比较，因此更新的任务或预览只重绘受影响的行。
 func (m *Model) paintPanels(buf *Buffer, l layout) {
 	if l.panelW <= 0 || l.panelX <= 0 {
 		return

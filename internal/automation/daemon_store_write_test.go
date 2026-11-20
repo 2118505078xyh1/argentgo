@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// TestDaemonRunDoesNotClobberConcurrentStoreEdits guards the write side of the
-// shared-store story. Reloading at scan start (see daemon_reload_test.go) keeps
-// a daemon from re-running a slot handled elsewhere, but the run outcome is
-// later saved from the in-memory snapshot taken at scan time. If another
-// process adds, edits or deletes a task while that run is in flight, saving the
-// whole list from the stale snapshot silently drops the additions and
-// resurrects the deletions. recordRun must refresh from disk before writing.
+// TestDaemonRunDoesNotClobberConcurrentStoreEdits 守护共享 store 故事的
+// TestDaemonRunDoesNotClobberConcurrentStoreEdits 守护共享 store故事的写入侧。扫描开始时重载（见 daemon_reload_test.go）防止
+// daemon 重跑别处已处理的时隙，但运行结果是由扫描时取得的内存快照稍后保存的。如果另一个进程在该运行进行中
+// 由扫描时取得的内存快照稍后保存。如果另一个
+// 进程在该运行进行中添加、编辑或删除任务，保存
+// 添加、编辑或删除任务，从陈旧快照保存整个列表会静默丢弃新增项并
+// 复活删除项。recordRun 必须在写入前从磁盘刷新。
 func TestDaemonRunDoesNotClobberConcurrentStoreEdits(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(dir)
@@ -27,8 +27,8 @@ func TestDaemonRunDoesNotClobberConcurrentStoreEdits(t *testing.T) {
 		t.Fatalf("Put doomed: %v", err)
 	}
 
-	// Block the executor so no further scan reload happens before the run
-	// finishes: the only snapshot in play is the one scan() took above.
+	// 阻塞 executor，使运行完成前不再发生扫描重载：唯一在用的快照就是上面 scan() 取得的那个。
+	// 完成前不再发生扫描重载：唯一在用的快照就是上面 scan() 取得的。
 	started := make(chan struct{})
 	release := make(chan struct{})
 	exec := &fakeExecutor{run: func(ctx context.Context, spec Spec) (RunResult, error) {
@@ -47,7 +47,7 @@ func TestDaemonRunDoesNotClobberConcurrentStoreEdits(t *testing.T) {
 		t.Fatal("the executor never started")
 	}
 
-	// A separate process edits the shared task list while the run is in flight.
+	// 一个独立进程在运行进行中编辑共享任务列表。
 	other, err := OpenStore(dir)
 	if err != nil {
 		t.Fatalf("OpenStore (other): %v", err)

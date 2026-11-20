@@ -5,8 +5,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// skillWriter adapts the skills package to the local seam in internal/agent,
-// keeping the loop provider-agnostic and the app layer the only wiring point.
+// skillWriter 把 skills 包适配为 internal/agent 中的本地接缝，
+// 使循环保持与提供方无关，且 app 层是唯一的接线点。
 type skillWriter struct{}
 
 func (skillWriter) Author(root, name, description, body string) (string, error) {

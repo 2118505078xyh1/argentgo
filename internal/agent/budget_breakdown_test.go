@@ -8,9 +8,9 @@ import (
 
 func TestBudgetBreakdownAttributesEachContributor(t *testing.T) {
 	blocks := BudgetBreakdown(
-		strings.Repeat("a", 40),            // 10 tokens
-		strings.Repeat("b", 80),            // 20 tokens
-		[]string{strings.Repeat("c", 200)}, // 50 tokens
+		strings.Repeat("a", 40),            // 10 个 token
+		strings.Repeat("b", 80),            // 20 个 token
+		[]string{strings.Repeat("c", 200)}, // 50 个 token
 	)
 
 	want := map[string]int{
@@ -33,7 +33,7 @@ func TestBudgetBreakdownAttributesEachContributor(t *testing.T) {
 }
 
 func TestBudgetBreakdownCountsCJKRunesAsOneTokenEach(t *testing.T) {
-	system := strings.Repeat("价", 7) // 7 wide runes -> 7, not ceil(7/4)=2
+	system := strings.Repeat("价", 7) // 7 个宽 rune -> 7，而非 ceil(7/4)=2
 	blocks := BudgetBreakdown(system, "", nil)
 	if len(blocks) != 1 {
 		t.Fatalf("got %d blocks, want 1: %+v", len(blocks), blocks)
@@ -51,9 +51,9 @@ func TestBudgetBreakdownCountsCJKRunesAsOneTokenEach(t *testing.T) {
 
 func TestBudgetBreakdownSortsByTokensAndSumsToHundred(t *testing.T) {
 	blocks := BudgetBreakdown("", "", []string{
-		strings.Repeat("a", 400), // 100 tokens
-		strings.Repeat("b", 160), // 40 tokens
-		strings.Repeat("c", 240), // 60 tokens
+		strings.Repeat("a", 400), // 100 个 token
+		strings.Repeat("b", 160), // 40 个 token
+		strings.Repeat("c", 240), // 60 个 token
 	})
 
 	wantTokens := []int{100, 60, 40}
@@ -92,7 +92,7 @@ func TestBudgetBreakdownEmptyInputReturnsNoBlocks(t *testing.T) {
 
 func TestBudgetBreakdownSkipsEmptyContributors(t *testing.T) {
 	blocks := BudgetBreakdown("", strings.Repeat("x", 8), []string{"", "note"})
-	// history: ceil(8/4)=2; "note": ceil(4/4)=1 -> history first.
+	// history：ceil(8/4)=2；"note"：ceil(4/4)=1 -> history 在前。
 	if len(blocks) != 2 {
 		t.Fatalf("got %d blocks, want 2: %+v", len(blocks), blocks)
 	}
@@ -134,8 +134,8 @@ func TestDominantBlockRequiresStrictMajority(t *testing.T) {
 }
 
 func TestDominantBlockFindsLargestRegardlessOfOrder(t *testing.T) {
-	// Percent values are supplied explicitly; DominantBlock must scan for the
-	// largest block instead of trusting slice order.
+	// 显式提供了 Percent 值；DominantBlock 必须扫描找出最大的分片，
+	// 而不是信任切片顺序。
 	blocks := []BudgetBlock{
 		{Name: "small", Tokens: 10, Percent: 10},
 		{Name: "big", Tokens: 60, Percent: 60},
@@ -152,7 +152,7 @@ func TestDominantBlockFindsLargestRegardlessOfOrder(t *testing.T) {
 }
 
 func TestDominantBlockComputesPercentWhenMissing(t *testing.T) {
-	// Callers that only supply Tokens still get the >50% decision.
+	// 只提供 Tokens 的调用方仍应得到 >50% 的判断。
 	blocks := []BudgetBlock{{Name: "a", Tokens: 60}, {Name: "b", Tokens: 40}}
 	got, ok := DominantBlock(blocks)
 	if !ok || got.Name != "a" {

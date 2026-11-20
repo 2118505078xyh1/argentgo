@@ -2,9 +2,9 @@ package tui
 
 import "testing"
 
-// visibleWindow counts items, not bytes or runes, so CJK (and wrapped display
-// widths) never enters the arithmetic. Every case below is pure integers for
-// that reason.
+// visibleWindow 统计项而非字节或 rune，因此 CJK（以及折叠后的
+// 显示宽度）永不进入算术。下面每个用例都是纯整数，
+// 正因如此。
 func TestVisibleWindow(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -42,9 +42,9 @@ func TestVisibleWindow(t *testing.T) {
 	}
 }
 
-// TestVisibleWindowBounds is a property check over many inputs: the returned
-// interval is always ordered and contained in [0, total], and its width never
-// exceeds the viewport plus twice the overscan.
+// TestVisibleWindowBounds 是对大量输入的属性检查：返回的
+// 区间始终有序且包含在 [0, total] 内，其宽度永不
+// 超过视口加上两倍 overscan。
 func TestVisibleWindowBounds(t *testing.T) {
 	for total := -2; total <= 40; total++ {
 		for offset := -5; offset <= total+5; offset++ {

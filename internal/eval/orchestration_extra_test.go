@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// findOrchestrationScenario returns the on-disk scenario with the given ID.
+// findOrchestrationScenario 返回磁盘上具有给定 ID 的场景。
 func findOrchestrationScenario(t *testing.T, id string) OrchestrationScenario {
 	t.Helper()
 	for _, scenario := range loadOrchestration(t) {
@@ -18,9 +18,9 @@ func findOrchestrationScenario(t *testing.T, id string) OrchestrationScenario {
 	return OrchestrationScenario{}
 }
 
-// TestOrchestrationExtraScenariosLoadAndPass pins the expanded suite: the
-// document holds at least ten scenarios, the four complex ones are present,
-// and every scenario passes through the real loop / real task tool.
+// TestOrchestrationExtraScenariosLoadAndPass 固定扩展套件：文档至少包含十个场景，四个复杂场景存在，
+// 文档至少包含十个场景，四个复杂场景存在，
+// 且每个场景都通过真实循环/真实 task 工具。
 func TestOrchestrationExtraScenariosLoadAndPass(t *testing.T) {
 	scenarios := loadOrchestration(t)
 	if len(scenarios) < 10 {
@@ -53,9 +53,9 @@ func TestOrchestrationExtraScenariosLoadAndPass(t *testing.T) {
 	}
 }
 
-// TestOrchestrationExtraScenariosDriveTheRealLoop documents what is REAL in the
-// new scenarios: none may take the direct board-API shortcut, and each must
-// assert child-run counts plus final answer content.
+// TestOrchestrationExtraScenariosDriveTheRealLoop 记录新场景中什么是真实的：
+// TestOrchestrationExtraScenariosDriveTheRealLoop 记录新场景中什么是真实的：不得走直接的 board-API 捷径，且每个必须
+// 断言子运行次数加最终答案内容。
 func TestOrchestrationExtraScenariosDriveTheRealLoop(t *testing.T) {
 	for _, id := range []string{"S6", "S7", "S8", "S9"} {
 		scenario := findOrchestrationScenario(t, id)
@@ -75,9 +75,9 @@ func TestOrchestrationExtraScenariosDriveTheRealLoop(t *testing.T) {
 	}
 }
 
-// TestOrchestrationExtraAssertionsDetectCorruption proves the new expectations
-// are real: corrupting one assertion per scenario must produce a concrete
-// failure with the assertion's name in the reason, never a silent pass.
+// TestOrchestrationExtraAssertionsDetectCorruption 证明新期望是真实的：每个场景破坏一个断言必须产生具体的
+// 是真实的：每个场景破坏一个断言必须产生具体的
+// 失败，原因中带断言名，绝不是静默通过。
 func TestOrchestrationExtraAssertionsDetectCorruption(t *testing.T) {
 	cases := []struct {
 		id      string
@@ -119,10 +119,10 @@ func TestOrchestrationExtraAssertionsDetectCorruption(t *testing.T) {
 	}
 }
 
-// TestOrchestrationMatchViolationsAreDetected proves the request-content
-// checks are load-bearing. S8's match on the real depth-guard tool-error text
-// is the assertion that the refusal really reached the child, so changing it
-// to a string the loop cannot produce must fail the scenario.
+// 失败，原因中带有断言名，绝不是静默通过。
+// TestOrchestrationMatchViolationsAreDetected 证明请求内容检查是承重的。S8 对真实 depth-guard 工具错误文本的匹配
+// 是拒绝确实到达子级的断言，因此把它
+// 改成循环无法产生的字符串必须使场景失败。
 func TestOrchestrationMatchViolationsAreDetected(t *testing.T) {
 	scenario := findOrchestrationScenario(t, "S8")
 	corrupted := false

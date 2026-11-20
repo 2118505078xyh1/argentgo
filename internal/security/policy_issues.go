@@ -6,33 +6,30 @@ import (
 	"strings"
 )
 
-// IssueKindInvalidDecision marks a rule that was skipped because its decision
-// was missing or was not a recognized verdict.
+// IssueKindInvalidDecision 标记因决定缺失或不是可识别的判定而被跳过的规则。
 const IssueKindInvalidDecision = "invalid_decision"
 
-// PolicyIssue describes one problem found while parsing a policy. A malformed
-// rule is skipped — an unknown verdict is never executed — but recording the
-// skip keeps a mistyped deny from silently widening the effective policy with
-// no observable signal.
+// PolicyIssue 描述解析策略时发现的一个问题。格式错误的规则会被跳过 —— 未知的
+// 判定永远不会执行 —— 但记录该跳过可防止拼错的 deny 在没有任何可观察信号的
+// 情况下悄悄扩大实际生效的策略。
 type PolicyIssue struct {
-	// Kind is a stable machine-readable category, e.g. IssueKindInvalidDecision.
+	// Kind 是稳定的机器可读类别，例如 IssueKindInvalidDecision。
 	Kind string
-	// Index is the zero-based position of the offending rule in the rules array.
+	// Index 是违规规则在 rules 数组中从零开始的位置。
 	Index int
-	// Raw is the original JSON of the offending rule, for operator diagnosis.
+	// Raw 是违规规则的原始 JSON，供操作员诊断。
 	Raw string
-	// Reason is a human-readable explanation of the problem.
+	// Reason 是该问题的人类可读说明。
 	Reason string
 }
 
-// String renders one issue on a single line.
+// String 把一个问题渲染到单行。
 func (i PolicyIssue) String() string {
 	return fmt.Sprintf("security: rules[%d]: %s: %s (rule %s)", i.Index, i.Kind, i.Reason, i.Raw)
 }
 
-// FormatPolicyIssues renders issues one per line, or an empty string when
-// there are none. It lets callers surface skipped rules in a log or startup
-// warning without changing the PolicyFromJSON signature.
+// FormatPolicyIssues 把每个问题渲染为一行，没有问题时返回空字符串。它让调用方
+// 可以在日志或启动警告中呈现被跳过的规则，而无需改变 PolicyFromJSON 的签名。
 func FormatPolicyIssues(issues []PolicyIssue) string {
 	if len(issues) == 0 {
 		return ""
@@ -47,16 +44,13 @@ func FormatPolicyIssues(issues []PolicyIssue) string {
 	return b.String()
 }
 
-// ParsePolicyWithIssues parses the `permissions` block of a settings file and
-// returns, alongside the policy, every rule that had to be skipped. The JSON
-// shape and field handling are identical to PolicyFromJSON; the only addition
-// is the diagnostic slice. Callers that ignore the slice keep the original
-// behaviour exactly.
+// ParsePolicyWithIssues 解析设置文件的 `permissions` 块，并连同策略一起返回所有
+// 不得不跳过的规则。JSON 形状和字段处理与 PolicyFromJSON 完全相同；唯一的新增
+// 是诊断切片。忽略该切片的调用方完全保持原有行为。
 //
-// A rule with an unknown or missing decision is not executed (fail-closed: an
-// unrecognized verdict never grants or denies anything). It is reported as an
-// IssueKindInvalidDecision issue so a typo such as "denyy" is no longer
-// silently dropped.
+// 判定未知或缺失的规则不会被执行（失败即拒绝：无法识别的判定既不授权也不拒绝
+// 任何东西）。它会作为 IssueKindInvalidDecision 问题报告，这样像 "denyy" 这样的
+// 拼写错误不再被悄悄丢弃。
 func ParsePolicyWithIssues(root string, data []byte) (*Policy, []PolicyIssue, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -101,10 +95,9 @@ func ParsePolicyWithIssues(root string, data []byte) (*Policy, []PolicyIssue, er
 	return NewPolicy(root, cfg), issues, nil
 }
 
-// parseRulesWithIssues decodes the rules array while preserving each element's
-// original bytes, so a skipped rule can be reported verbatim. A structurally
-// malformed element still fails the whole parse, matching the previous
-// behaviour of unmarshalling the array in one step.
+// parseRulesWithIssues 解码 rules 数组，同时保留每个元素的原始字节，以便被跳过
+// 的规则可以逐字报告。结构上格式错误的元素仍会使整个解析失败，与之前一步就
+// 反序列化数组的行为一致。
 func parseRulesWithIssues(raw json.RawMessage) ([]Rule, []PolicyIssue, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {

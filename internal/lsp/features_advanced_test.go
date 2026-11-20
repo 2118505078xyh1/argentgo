@@ -265,7 +265,7 @@ func TestParseSemanticTokensPreservesRawStream(t *testing.T) {
 	if got := parseSemanticTokens(mustJSON(t, map[string]any{"resultId": "v2"})); !reflect.DeepEqual(got, &SemanticTokens{ResultID: "v2"}) {
 		t.Fatalf("parseSemanticTokens(missing data) = %#v", got)
 	}
-	// A malformed data element leaves an empty stream, not a failed request.
+	// 畸形的 data 元素留下空流，而非失败的请求。
 	if got := parseSemanticTokens(mustJSON(t, map[string]any{"data": []any{"bad"}})); got == nil || len(got.Data) != 0 {
 		t.Fatalf("parseSemanticTokens(malformed data) = %#v, want empty stream", got)
 	}

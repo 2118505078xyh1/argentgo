@@ -28,7 +28,7 @@ func TestEntryCacheReusesUnchangedEntries(t *testing.T) {
 	first := &m.entryCache[0].lines[0]
 	second := &m.entryCache[1].lines[0]
 
-	// A new streamed entry must not invalidate the two existing ones.
+	// 新的流式条目不得使已有的两条失效。
 	m.AppendStream("delta")
 	m.Frame(80, 24)
 	if len(m.entryCache) != 3 {

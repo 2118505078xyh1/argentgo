@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// runWriteTool invokes the registered "write" tool with yolo enabled so the
-// mutating-tool gate does not interfere with these filesystem assertions.
+// runWriteTool 在启用 yolo 的情况下调用已注册的 "write" 工具，使
+// 变更工具门控不会干扰这些文件系统断言。
 func runWriteTool(t *testing.T, root, rel, content string) (string, error) {
 	t.Helper()
 	raw, err := json.Marshal(struct {
@@ -24,9 +24,9 @@ func runWriteTool(t *testing.T, root, rel, content string) (string, error) {
 	return New(root, true).Run(context.Background(), "write", string(raw))
 }
 
-// setStaleModTime pins a file's modTime to a fixed point in the distant past.
-// A real write then moves it to "now", so the two cases are distinguishable
-// regardless of the filesystem's modTime resolution.
+// setStaleModTime 把文件的 modTime 固定到久远的某个时间点。
+// 真正的写入随后会把它移到"现在"，从而两种情况可区分，
+// 而不受文件系统 modTime 分辨率的影响。
 func setStaleModTime(t *testing.T, path string) {
 	t.Helper()
 	old := time.Unix(1_000_000, 0)

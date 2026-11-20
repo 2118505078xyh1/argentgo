@@ -81,11 +81,11 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 		return "", fmt.Errorf("web_search: endpoint returned %s", resp.Status)
 	}
 	if len(body) > maxFetchBytes {
-		// A plain body[:maxFetchBytes] can cut a multibyte UTF-8 rune in half,
-		// handing invalid bytes to parseWebSearchResults (whose json.Unmarshal
-		// then rejects the trailing fragment) or leaking a replacement rune
-		// into a snippet. web_fetch uses the same rune-safe cap; keep the two
-		// in sync so the 200 KB boundary never lands inside CJK/emoji.
+		// 简单的 body[:maxFetchBytes] 可能把多字节 UTF-8 rune 切成两半，
+		// 把无效字节交给 parseWebSearchResults（其 json.Unmarshal
+		// 随后拒绝尾部碎片），或把一个替换 rune 泄漏
+		// 到片段中。web_fetch 使用同样的 rune 安全上限；保持两者
+		// 同步，使 200 KB 边界永不落在 CJK/emoji 内部。
 		body = truncateFetchBody(body, maxFetchBytes)
 	}
 
@@ -99,8 +99,8 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	return clip(ctx, renderWebSearchResults(query, results)), nil
 }
 
-// parseWebSearchResults deliberately accepts several common result envelopes
-// and alternative field names so a self-hosted endpoint needs no adapter.
+// parseWebSearchResults 有意接受数种常见结果封装
+// 和替代字段名，使自托管端点无需适配器。
 func parseWebSearchResults(body []byte) ([]webSearchResult, error) {
 	var envelope struct {
 		Results json.RawMessage `json:"results"`

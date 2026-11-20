@@ -93,9 +93,9 @@ func TestExtractRepoSymbolsUsesProcessCache(t *testing.T) {
 		t.Fatalf("repeated extractRepoSymbols differ:\n%+v\n%+v", first, second)
 	}
 
-	// First call parses each Go file once (miss); the second call is served
-	// entirely from the cache (hit). This proves extractRepoSymbols is wired
-	// to the process-local cache rather than re-reading every file.
+	// 第一次调用每个 Go 文件解析一次（未命中）；第二次调用则完全
+	// 由缓存提供（命中）。这证明 extractRepoSymbols 接到了
+	// 进程内缓存，而不是重新读取每个文件。
 	stats := repoSymbolCacheStats()
 	if stats.misses != len(files) {
 		t.Fatalf("misses = %d, want %d (one per Go file on first call)", stats.misses, len(files))
@@ -126,7 +126,7 @@ func TestRepoSymbolsRankingDeterministicAndMentionWeighted(t *testing.T) {
 		t.Fatalf("path mention should boost beta.go symbols, got %+v", byPath[0])
 	}
 
-	// Reversing the input order must not change the ranking.
+	// 反转输入顺序不得改变排名。
 	reversed := make([]repoSymbol, len(syms))
 	for i, s := range syms {
 		reversed[len(syms)-1-i] = s
@@ -168,7 +168,7 @@ func TestRepoSymbolsBudgetTrimsByPrefix(t *testing.T) {
 	if !strings.Contains(out, "token budget") {
 		t.Fatalf("section did not report omitted symbols: %q", out)
 	}
-	// A generous budget keeps everything and reports no omission.
+	// 充足的预算保留所有内容，且不报告任何省略。
 	all := repoMapSymbolSection(syms, nil, 100000)
 	if !strings.Contains(strings.Join(all, "\n"), "symbols (60):") ||
 		strings.Contains(strings.Join(all, "\n"), "omitted") {
@@ -212,9 +212,9 @@ func TestRepoSymbolsNoSymbolsDoesNotPanic(t *testing.T) {
 		t.Fatalf("repo map missing symbol header: %q", got)
 	}
 
-	// A syntactically broken Go file must not panic either. go/parser may
-	// recover a placeholder declaration, so only the absence of a panic is
-	// asserted here.
+	// 语法损坏的 Go 文件同样不得 panic。go/parser 可能
+	// 恢复出一个占位声明，因此这里只断言
+	// 没有发生 panic。
 	writeSymFile(t, root, "broken.go", "package broken\nfunc (\n")
 	_ = repoMapSymbolSection(extractRepoSymbols(root, []string{"broken.go"}), nil, repoMapSymbolTokenBudget)
 }
@@ -273,13 +273,13 @@ func TestEstimateRepoTokensCJKAware(t *testing.T) {
 		})
 	}
 
-	// CJK is no longer counted by raw bytes: a 3-byte Han rune used to
-	// contribute 0.75 token, now it contributes about one.
+	// CJK 不再按原始字节计数：一个 3 字节的汉字 rune 过去
+	// 贡献 0.75 个 token，现在贡献约一个。
 	cjk := strings.Repeat("中", 40)
 	if got, old := estimateRepoTokens(cjk), len(cjk)/4; got <= old {
 		t.Fatalf("CJK estimate %d is not above the old byte estimate %d", got, old)
 	}
-	// Pure ASCII drift from the old floor(len/4) estimate stays within a token.
+	// 旧的 floor(len/4) 估算在纯 ASCII 上的偏移保持在一个 token 以内。
 	ascii := strings.Repeat("x", 999)
 	delta := estimateRepoTokens(ascii) - len(ascii)/4
 	if delta < 0 || delta > 1 {

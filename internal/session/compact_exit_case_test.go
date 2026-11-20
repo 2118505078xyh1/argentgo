@@ -6,13 +6,13 @@ import (
 	"unicode/utf8"
 )
 
-// TestFailureReasonRecognizesExitMarkerInAnyCase covers a real compaction bug:
-// failureReason located "[exit N]" case-insensitively but then stripped the
-// literal lowercase prefix from the ORIGINAL text. A shell that printed
-// "[EXIT 1]" (or "[Exit 2]") therefore parsed no digits and the failure was
-// dropped from the compaction summary even though the marker had been found.
-// The digits must be read from the lowered string, where case folding cannot
-// change ASCII digits, while the returned text keeps the original spelling.
+// TestFailureReasonRecognizesExitMarkerInAnyCase 覆盖一个真实的压缩 bug：
+// failureReason 以不区分大小写的方式定位 "[exit N]"，但随后从
+// 原始文本中剥离了字面小写前缀。因此，打印
+// "[EXIT 1]"（或 "[Exit 2]"）的 shell 解析不出数字，失败
+// 会从压缩摘要中丢失，尽管标记已经被找到了。
+// 数字必须从小写化后的字符串中读取，那里大小写折叠不会
+// 改变 ASCII 数字，同时返回的文本保留原始拼写。
 func TestFailureReasonRecognizesExitMarkerInAnyCase(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -42,15 +42,15 @@ func TestFailureReasonRecognizesExitMarkerInAnyCase(t *testing.T) {
 	}
 }
 
-// TestFailureReasonStillRejectsSuccessfulAndMalformedExitMarkers guards the
-// negative half of the fix: only a non-zero numeric exit code is a failure,
-// regardless of the marker's case.
+// TestFailureReasonStillRejectsSuccessfulAndMalformedExitMarkers 守护修复的
+// 否定面：只有非零数字退出码才算失败，
+// 与标记的大小写无关。
 func TestFailureReasonStillRejectsSuccessfulAndMalformedExitMarkers(t *testing.T) {
 	for _, content := range []string{
-		"compile done [EXIT 0]",  // success
-		"compile done [Exit 00]", // zero with leading zeroes
-		"compile done [EXIT x]",  // non-numeric
-		"compile done [EXIT -1]", // negative
+		"compile done [EXIT 0]",  // 成功
+		"compile done [Exit 00]", // 带前导零的零
+		"compile done [EXIT x]",  // 非数字
+		"compile done [EXIT -1]", // 负数
 	} {
 		if reason, ok := failureReason(content); ok {
 			t.Errorf("failureReason(%q) = %q, true; want no failure", content, reason)
@@ -58,9 +58,9 @@ func TestFailureReasonStillRejectsSuccessfulAndMalformedExitMarkers(t *testing.T
 	}
 }
 
-// TestSummarizeKeepsUppercaseExitFailure is the end-to-end guard: a dropped
-// tool result whose output carries an upper-case exit marker must still surface
-// as a failure in the compaction summary, so a resumed turn does not forget it.
+// TestSummarizeKeepsUppercaseExitFailure 是端到端的守护：被丢弃的工具结果
+// 若输出带有大写退出标记，必须仍能作为失败出现在
+// 压缩摘要中，使恢复的轮次不会忘记它。
 func TestSummarizeKeepsUppercaseExitFailure(t *testing.T) {
 	dropped := []Entry{
 		{Role: "tool", Name: "bash", Content: "[EXIT 7]"},

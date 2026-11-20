@@ -13,16 +13,16 @@ import (
 	"sync"
 )
 
-// ErrUntrusted reports a hook document whose digest is not in the trust store.
+// ErrUntrusted 报告摘要不在信任存储中的钩子文档。
 var ErrUntrusted = errors.New("hooks: document digest is not trusted")
 
-// Digest returns the lowercase hex SHA-256 of data.
+// Digest 返回 data 的小写十六进制 SHA-256。
 func Digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// DigestFile hashes one file.
+// DigestFile 对一个文件做哈希。
 func DigestFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -31,25 +31,25 @@ func DigestFile(path string) (string, error) {
 	return Digest(data), nil
 }
 
-// TrustEntry is one remembered path/digest pair.
+// TrustEntry 是一组被记住的路径/摘要对。
 type TrustEntry struct {
 	Path   string `json:"path"`
 	Digest string `json:"digest"`
 }
 
-// TrustStore remembers which hook documents may run. A document is executed
-// only when its current digest was granted for its path.
+// TrustStore 记住哪些钩子文档可以运行。文档仅当其当前摘要被授予给其路径时才执行。
+// 仅当其当前摘要被授予给其路径时才执行。
 type TrustStore struct {
 	mu      sync.Mutex
 	entries map[string]string
 }
 
-// NewTrustStore returns an empty store.
+// NewTrustStore 返回空存储。
 func NewTrustStore() *TrustStore {
 	return &TrustStore{entries: make(map[string]string)}
 }
 
-// Trust records that path may run with this digest.
+// Trust 记录 path 可以以此摘要运行。
 func (s *TrustStore) Trust(path, digest string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,7 +59,7 @@ func (s *TrustStore) Trust(path, digest string) {
 	s.entries[normalizePath(path)] = normalizeDigest(digest)
 }
 
-// IsTrusted reports whether this exact path/digest pair was granted.
+// IsTrusted 报告这个精确的路径/摘要对是否被授予。
 func (s *TrustStore) IsTrusted(path, digest string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,7 +67,7 @@ func (s *TrustStore) IsTrusted(path, digest string) bool {
 	return ok && known == normalizeDigest(digest)
 }
 
-// TrustFile hashes path and records the digest; it returns the digest.
+// TrustFile 对 path 做哈希并记录摘要；它返回该摘要。
 func (s *TrustStore) TrustFile(path string) (string, error) {
 	digest, err := DigestFile(path)
 	if err != nil {
@@ -77,7 +77,7 @@ func (s *TrustStore) TrustFile(path string) (string, error) {
 	return digest, nil
 }
 
-// Entries lists the granted pairs in path order.
+// Entries 按路径顺序列出被授予的对。
 func (s *TrustStore) Entries() []TrustEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -89,20 +89,20 @@ func (s *TrustStore) Entries() []TrustEntry {
 	return entries
 }
 
-// RevokeAll forgets every grant.
+// RevokeAll 忘记所有授权。
 func (s *TrustStore) RevokeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries = make(map[string]string)
 }
 
-// trustDocument is the on-disk shape of a trust store.
+// trustDocument 是信任存储在磁盘上的形态。
 type trustDocument struct {
 	Version int          `json:"version"`
 	Hooks   []TrustEntry `json:"hooks"`
 }
 
-// LoadFile reads a trust store. A missing file is an empty store.
+// LoadFile 读取信任存储。文件缺失即为空存储。
 func (s *TrustStore) LoadFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -129,7 +129,7 @@ func (s *TrustStore) LoadFile(path string) error {
 	return nil
 }
 
-// SaveFile writes a trust store, creating parent directories.
+// SaveFile 写入信任存储，创建父目录。
 func (s *TrustStore) SaveFile(path string) error {
 	document := trustDocument{Version: 1, Hooks: s.Entries()}
 	data, err := json.MarshalIndent(document, "", "  ")
@@ -147,15 +147,15 @@ func (s *TrustStore) SaveFile(path string) error {
 	return nil
 }
 
-// Document is a hook document whose bytes were hashed and trusted.
+// Document 是字节已做哈希并被信任的钩子文档。
 type Document struct {
 	Path   string
 	Digest string
 	Config *Config
 }
 
-// LoadDocument reads a hook document and refuses it unless the trust store
-// already holds its digest. The returned error wraps ErrUntrusted.
+// LoadDocument 读取钩子文档，除非信任存储已持有其摘要否则拒绝。
+// LoadDocument 读取钩子文档，除非信任存储已持有其摘要，否则拒绝它。返回的错误包装 ErrUntrusted。
 func LoadDocument(path string, trust *TrustStore) (*Document, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -172,8 +172,8 @@ func LoadDocument(path string, trust *TrustStore) (*Document, error) {
 	return &Document{Path: path, Digest: digest, Config: config}, nil
 }
 
-// normalizePath makes trust keys separator-insensitive: manifests written with
-// "/" must match paths assembled with "\".
+// normalizePath 使信任键与分隔符无关：用 "/" 写的清单必须匹配用 "\" 拼出的路径。
+// 用 "/" 写的清单必须匹配用 "\" 拼出的路径。
 func normalizePath(path string) string {
 	if path == "" {
 		return ""

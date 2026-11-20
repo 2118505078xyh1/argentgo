@@ -107,8 +107,8 @@ func TestMarkdownStreamBufResetClearsState(t *testing.T) {
 }
 
 func TestMarkdownStreamBufConcatenationIsLossless(t *testing.T) {
-	// Every byte that is pushed must eventually be emitted, in order, either
-	// by Push or by the final Flush. This guards against silently eating text.
+	// 每个被推入的字节最终都必须按顺序输出，要么由
+	// Push 输出，要么由最后的 Flush 输出。这防止悄悄吞掉文本。
 	deltas := []string{
 		"intro **bold", "** and `code", "` then\n```", "go\nline", "\n```\ndone *_x_",
 	}
@@ -147,8 +147,8 @@ func TestMarkdownStreamBufHoldsTableUntilBlockEnds(t *testing.T) {
 }
 
 func TestMarkdownStreamBufHoldsTrailingTableBodyRow(t *testing.T) {
-	// A body row without '|' that is still streaming must not end the block:
-	// committing it would render narrow columns that grow on the next delta.
+	// 仍在流式传输的不含 '|' 的正文行不得结束块：
+	// 提交它会渲染窄列，而后者在下一个增量中变宽。
 	var b MarkdownStreamBuf
 	if got := b.Push("a|b\n---|---\n1|2\nlong "); got != "" {
 		t.Fatalf("Push partial block = %q, want nothing", got)
@@ -159,8 +159,8 @@ func TestMarkdownStreamBufHoldsTrailingTableBodyRow(t *testing.T) {
 }
 
 func TestMarkdownStreamBufCommitsOrdinaryPipeLine(t *testing.T) {
-	// A '|' line whose next complete line is not a delimiter is ordinary
-	// text; it must not be held forever just because it contained a pipe.
+	// 下一完整行不是分隔符的 '|' 行是普通
+	// 文本；绝不能只因为它含竖线就永远保留它。
 	var b MarkdownStreamBuf
 	if got := b.Push("use a|b"); got != "" {
 		t.Fatalf("Push pipe line = %q, want held until the next line", got)

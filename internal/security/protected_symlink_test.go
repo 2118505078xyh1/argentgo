@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-// makeDirectoryLink creates a link to a directory at link. On POSIX that is a
-// symlink; on Windows a junction needs no elevated privilege, so it is used as
-// the fallback when os.Symlink is unavailable.
+// makeDirectoryLink 在 link 处创建一个指向目录的链接。在 POSIX 上是符号链接；
+// 在 Windows 上 junction 不需要提升权限，因此在 os.Symlink 不可用时用作回退。
 func makeDirectoryLink(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.Symlink(target, link); err == nil {
@@ -25,10 +24,9 @@ func makeDirectoryLink(t *testing.T, target, link string) {
 	}
 }
 
-// TestProtectedSubpathCannotBeBypassedByInternalLink verifies that a link inside
-// a writable root pointing at a protected subpath does not make a write to that
-// subpath look writable. The lexical spelling (<root>/alias/id_rsa) is harmless,
-// but the real destination (<root>/.ssh/id_rsa) must still be denied.
+// TestProtectedSubpathCannotBeBypassedByInternalLink 验证可写根目录内指向受保护
+// 子路径的链接不会让对该子路径的写入看起来可写。词法写法 (<root>/alias/id_rsa)
+// 无害，但真实目标 (<root>/.ssh/id_rsa) 仍必须被拒绝。
 func TestProtectedSubpathCannotBeBypassedByInternalLink(t *testing.T) {
 	root := t.TempDir()
 	ssh := filepath.Join(root, ".ssh")
@@ -50,9 +48,8 @@ func TestProtectedSubpathCannotBeBypassedByInternalLink(t *testing.T) {
 	}
 }
 
-// TestOrdinaryInternalLinkStaysWritable guards against over-blocking: a link to
-// an ordinary subdirectory must remain writable, because its real location does
-// not fall under any protected name.
+// TestOrdinaryInternalLinkStaysWritable 防止过度拦截：指向普通子目录的链接必须保持
+// 可写，因为其真实位置不属于任何受保护名字。
 func TestOrdinaryInternalLinkStaysWritable(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "src")

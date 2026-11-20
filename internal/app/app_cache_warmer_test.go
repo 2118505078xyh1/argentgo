@@ -28,7 +28,7 @@ func TestNewCacheWarmerDefaultsDisabled(t *testing.T) {
 	if w == nil || w.Enabled {
 		t.Fatalf("default warmer must exist and be disabled: %+v", w)
 	}
-	// A disabled warmer stays inert even long after a recorded request.
+	// 禁用的预热器即使在记录请求很久之后也保持惰性。
 	now := time.Now()
 	w.RecordRequest(now)
 	if w.ShouldWarm(now.Add(time.Hour)) {
@@ -40,19 +40,19 @@ func TestCacheWarmerProbeRecordsBoundaries(t *testing.T) {
 	probe := &cacheWarmerProbe{warmer: newCacheWarmer(true)}
 	base := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 
-	// With no recorded request there is nothing to warm.
+	// 没有记录请求时，没有可预热的内容。
 	if probe.shouldWarm(base) {
 		t.Fatal("warmer signalled before any request")
 	}
 
 	probe.recordRequest(base)
-	// Inside the warm window (80% of the 5m default TTL = 4m, with the default
-	// economics) a warm is due; the probe only answers, it never sends anything.
+	// 在预热窗口内（默认 5m TTL 的 80% = 4m，按默认
+	// 经济策略）应当预热；探针只作答，从不发送任何内容。
 	if !probe.shouldWarm(base.Add(4 * time.Minute)) {
 		t.Fatal("warmer did not signal inside the warm window")
 	}
 
-	// An idle marker restarts the idle-age cap but does not clear the request.
+	// 空闲标记会重启空闲时长上限，但不会清除请求。
 	probe.recordIdle(base.Add(4 * time.Minute))
 	if !probe.shouldWarm(base.Add(4 * time.Minute)) {
 		t.Fatal("idle marker must not cancel a live warm window")

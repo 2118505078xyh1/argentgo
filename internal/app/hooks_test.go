@@ -15,8 +15,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// recordingDispatcher stands in for the shell dispatcher so tests observe
-// exactly which events a real Execute produced.
+// recordingDispatcher 代替 shell 分发器，使测试能精确观察到
+// 一次真实 Execute 产生了哪些事件。
 type recordingDispatcher struct {
 	mu       sync.Mutex
 	payloads []hooks.Payload
@@ -59,8 +59,8 @@ func (f *recordingDispatcher) find(event string) (hooks.Payload, bool) {
 	return hooks.Payload{}, false
 }
 
-// eventResultDispatcher returns a distinct Result per event, so a test can give
-// PreToolUse a non-blocking message while leaving PostToolUse silent.
+// eventResultDispatcher 为每个事件返回不同的 Result，使测试能给
+// PreToolUse 一个非阻塞消息，而让 PostToolUse 保持静默。
 type eventResultDispatcher struct {
 	mu      sync.Mutex
 	results map[string]hooks.Result
@@ -198,7 +198,7 @@ func TestHookBridgeAcceptsConfigPathAndTildePath(t *testing.T) {
 		Cfg:            config.Config{Raw: map[string]any{"hooks": "~/.argent/my-hooks.json"}},
 		HookDispatcher: fake,
 	}
-	// The trust key is the resolved path, matching `argent hooks`.
+	// 信任键是解析后的路径，与 `argent hooks` 一致。
 	trustHookFile(t, path, storage)
 	if bridge := newHookBridge(res, "s", nil); bridge == nil {
 		t.Fatal("config path document was not loaded")
@@ -352,8 +352,8 @@ func TestExecuteFiresPostToolUseFailureOnToolError(t *testing.T) {
 	}
 }
 
-// fileChangedHookDocument subscribes only to FileChanged, so a run with this
-// document proves the app fires the event after a real file mutation.
+// fileChangedHookDocument 只订阅 FileChanged，因此带有该文档的运行
+// 能证明 app 在真实文件变更之后发出该事件。
 const fileChangedHookDocument = `{"hooks":{
 	"FileChanged":[{"hooks":[{"command":"true"}]}]
 }}`
@@ -389,8 +389,8 @@ func TestExecuteFiresFileChangedAfterWrite(t *testing.T) {
 	if !ok {
 		t.Fatalf("FileChanged not fired: %v", fake.events())
 	}
-	// The path is workspace-relative and slash-normalised, so a hook matcher
-	// such as "*.txt" sees the affected file rather than the tool name.
+	// 路径是工作区相对且斜杠规范化的，因此像 "*.txt" 这样的钩子匹配器
+	// 看到的是受影响的文件，而非工具名。
 	if payload.Path != "src/changed.txt" {
 		t.Fatalf("FileChanged path = %q, want src/changed.txt", payload.Path)
 	}
@@ -412,8 +412,8 @@ func TestExecuteDoesNotFireFileChangedForReadOnlyTool(t *testing.T) {
 	fake := &recordingDispatcher{}
 	res.HookDispatcher = fake
 	res.Approve = autoApprover{}
-	// A read call carries a path argument but mutates nothing; it must not
-	// produce a FileChanged event.
+	// 一次读取调用带有 path 参数但不做任何修改；它不得
+	// 产生 FileChanged 事件。
 	res.Chatter = &toolCallChatter{first: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
 		ID: "c1", Type: "function",
 		Function: llm.ToolCallFunction{Name: "read", Arguments: `{"path":"note.txt"}`},

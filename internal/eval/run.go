@@ -14,49 +14,49 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// Workspace is everything a RunFunc needs for one scenario.
+// Workspace 是 RunFunc 运行一个场景所需的一切。
 type Workspace struct {
-	// Dir is the seeded scratch directory, which must be the loop's cwd.
+	// Dir 是种入的临时目录，必须是循环的 cwd。
 	Dir    string
 	Prompt string
 	System string
 	Model  string
-	// Chatter is the scripted provider for this scenario. A runner that talks
-	// to a provider directly (instead of a loop that takes one) uses this.
+	// Chatter 是该场景的脚本化 provider。直接与 provider 对话的 runner（而非接受 provider 的循环）使用它。
+	// 直接与 provider 对话的 runner（而非接受 provider 的循环）使用它。
 	Chatter llm.Chatter
 }
 
-// Trace is what a run reports about itself.
+// Trace 是一次运行报告自身的內容。
 type Trace struct {
-	// Tools are the tool names that ran, in order.
+	// Tools 是按顺序运行过的工具名。
 	Tools []string
-	// Text is the final assistant answer.
+	// Text 是最终助手答案。
 	Text string
-	// Usage is the cumulative billed usage reported by the model.
+	// Usage 是模型报告的累计计费用量。
 	Usage llm.Usage
-	// Stopped reports that something other than the model ended the run: a
-	// turn limit, a policy block, a cancellation.
+	// Stopped 报告结束运行的不是模型：轮数上限、策略拦截、取消。
+	// 轮数上限、策略拦截、取消。
 	Stopped bool
 }
 
-// RunFunc executes one scenario. The harness seeds the workspace and grades the
-// result; the caller owns the loop, so this package never imports the agent.
+// RunFunc 执行一个场景。harness 种入工作区并评分结果；调用方拥有循环，因此本包从不导入 agent。
+// 结果；调用方拥有循环，因此本包从不导入 agent。
 //
-// Returning context.Canceled or context.DeadlineExceeded is treated as a normal
-// cancellation, not a failure.
+// 返回 context.Canceled 或 context.DeadlineExceeded 被视为正常取消而非失败。
+// 取消而非失败。
 type RunFunc func(ctx context.Context, scenario Scenario, workspace Workspace) (Trace, error)
 
-// Options configures a suite run.
+// Options 配置一次套件运行。
 type Options struct {
-	// Verbose adds a TAP diagnostic line per scenario.
+	// Verbose 为每个场景添加一行 TAP 诊断。
 	Verbose bool
-	// Out receives the TAP-ish report. Defaults to os.Stdout.
+	// Out 接收类似 TAP 的报告。默认为 os.Stdout。
 	Out io.Writer
-	// Keep leaves the scratch directories behind, for debugging a failure.
+	// Keep 保留临时目录，用于调试失败。
 	Keep bool
 }
 
-// Result is the graded outcome of one scenario.
+// Result 是一个场景的评分结果。
 type Result struct {
 	Index   int
 	Name    string
@@ -66,22 +66,22 @@ type Result struct {
 	Text    string
 	Turns   int
 	Stopped bool
-	// Duration is the wall-clock time spent executing the scenario. It is a
-	// diagnostic signal consumed by AggregateScores; it never affects grading.
+	// Duration 是执行场景所花的挂钟时间。它是
+	// Duration 是执行场景所花的挂钟时间。它是 AggregateScores 消费的诊断信号；从不影响评分。
 	Duration time.Duration
 }
 
-// Report summarises a suite run.
+// Report 汇总一次套件运行。
 type Report struct {
 	Passed  int
 	Failed  int
 	Results []Result
 }
 
-// Run executes every scenario and prints a TAP-ish report.
+// Run 执行每个场景并打印类似 TAP 的报告。
 //
-// It returns a non-nil error when any scenario fails; the report is still
-// complete, so a caller can print both.
+// 任一场景失败时返回非 nil 错误；报告仍然完整，因此调用方可以同时打印两者。
+// 因此调用方可以同时打印两者。
 func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (Report, error) {
 	if run == nil {
 		return Report{}, errors.New("eval: RunFunc is nil")
@@ -115,7 +115,7 @@ func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (
 	return report, nil
 }
 
-// runOne seeds a scratch workspace, runs the scenario there and grades it.
+// runOne 种入临时工作区，在其中运行场景并评分。
 func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts Options) Result {
 	result := Result{Index: index, Name: scenario.Name}
 
@@ -157,7 +157,7 @@ func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts
 	switch {
 	case runErr == nil:
 	case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded):
-		// A cancelled run is a stop, not a harness failure.
+		// 被取消的运行是停止，而非 harness 失败。
 		trace.Stopped = true
 		result.Stopped = true
 	default:
@@ -170,7 +170,7 @@ func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts
 	return result
 }
 
-// callRun turns a panicking runner into a failed scenario instead of a dead
+// callRun 把 panic 的 runner 变成失败的场景而非死掉的
 // suite.
 func callRun(ctx context.Context, run RunFunc, scenario Scenario, workspace Workspace) (trace Trace, err error) {
 	defer func() {
@@ -181,14 +181,14 @@ func callRun(ctx context.Context, run RunFunc, scenario Scenario, workspace Work
 	return run(ctx, scenario, workspace)
 }
 
-// workspacePath resolves a fixture-declared path inside the scratch workspace.
+// workspacePath 在临时工作区内解析 fixture 声明的路径。
 //
-// Scenario file paths are documented as relative to the workspace, and the
-// harness promises that its I/O stays inside the disposable directory that
-// runOne removes afterwards. A ".." or absolute path would otherwise escape
-// (on Windows filepath.Join turns "../x" into the parent of dir), write or
-// check a file outside the scratch dir and leak it past RemoveAll. Reject
-// those paths instead of silently breaching the boundary.
+// 场景文件路径文档记载为相对于工作区，harness 承诺其 I/O
+// 场景文件路径文档记载为相对于工作区，harness 承诺其 I/O 保持在 runOne 之后移除的一次性目录内。".." 或绝对路径会逃逸
+// runOne 之后移除的一次性目录内。".." 或绝对路径会逃逸
+// （在 Windows 上 filepath.Join 会把 "../x" 变成 dir 的父级），写入或检查临时目录之外的文件并在 RemoveAll 之后泄漏。应拒绝
+// 检查临时目录之外的文件并在 RemoveAll 之后泄漏。应拒绝
+// 这些路径，而不是静默突破边界。
 func workspacePath(dir, name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("fixture path is empty")
@@ -205,7 +205,7 @@ func workspacePath(dir, name string) (string, error) {
 	return target, nil
 }
 
-// seed writes the scenario's starting files into the workspace.
+// seed 将场景的起始文件写入工作区。
 func seed(dir string, files map[string]string) error {
 	paths := make([]string, 0, len(files))
 	for path := range files {
@@ -227,13 +227,13 @@ func seed(dir string, files map[string]string) error {
 	return nil
 }
 
-// observation is the harness-owned view of what the scripted provider saw.
+// observation 是 harness 拥有的脚本化 provider 所见内容的视图。
 type observation struct {
 	calls      int
 	violations []string
 }
 
-// evaluate grades one run and returns "" when every expectation holds.
+// evaluate 对一次运行评分，所有期望成立时返回 ""。
 func evaluate(scenario Scenario, trace Trace, observed observation, dir string) string {
 	if len(observed.violations) > 0 {
 		return observed.violations[0]
@@ -261,9 +261,9 @@ func evaluate(scenario Scenario, trace Trace, observed observation, dir string) 
 	if expect.CachedTokens != nil && *expect.CachedTokens != trace.Usage.CachedTokens {
 		return fmt.Sprintf("expected %d cached tokens, the model reported %d", *expect.CachedTokens, trace.Usage.CachedTokens)
 	}
-	// Exec checks are strictly opt-in (AllowExec). They run in the disposable
-	// temp workspace after the other checks; without the flag no command is
-	// ever started, so existing fixtures keep their old behaviour.
+	// exec 检查是严格选择加入的（AllowExec）。它们在其他检查之后运行于一次性临时工作区；没有该标志时绝不启动任何命令，因此现有 fixture 保持旧行为。
+	// 临时工作区在其他检查之后运行；没有该标志时
+	// 绝不启动任何命令，因此现有 fixture 保持旧行为。
 	if scenario.Check.AllowExec && scenario.Check.Exec != nil {
 		check := scenario.Check.Exec
 		res := RunExecCheck(dir, *check)
@@ -274,7 +274,7 @@ func evaluate(scenario Scenario, trace Trace, observed observation, dir string) 
 	return checkWorkspace(scenario.Check, dir)
 }
 
-// execFailureReason renders a failed exec check for the TAP report.
+// execFailureReason 将失败的 exec 检查渲染为 TAP 报告内容。
 func execFailureReason(res ExecResult, c ExecCheck) string {
 	switch {
 	case res.TimedOut:
@@ -289,7 +289,7 @@ func execFailureReason(res ExecResult, c ExecCheck) string {
 	}
 }
 
-// checkWorkspace verifies the seeded workspace after the run.
+// checkWorkspace 在运行后验证种入的工作区。
 func checkWorkspace(check Check, dir string) string {
 	for _, path := range check.FilesExist {
 		target, err := workspacePath(dir, path)
@@ -345,18 +345,18 @@ func nilOr(tools []string) []string {
 	return tools
 }
 
-// oneLine keeps a failure reason on one TAP line.
+// oneLine 让失败原因保持在一条 TAP 行内。
 func oneLine(reason string) string {
 	return strings.Join(strings.Fields(reason), " ")
 }
 
-// clip collapses whitespace and truncates a value for a report line.
+// clip 折叠空白并截断值以适合报告行。
 //
-// limit counts characters (runes), not bytes: the text being clipped is model
-// output, seeded file content and exec output, any of which may hold CJK or
-// emoji. Slicing a Go string by byte index used to leave a half-written UTF-8
-// rune at the cut, which made failure reasons invalid UTF-8. Keep one rune
-// fewer and append the ellipsis so the result is still at most limit runes.
+// limit 计算字符（rune）数而非字节数：被裁剪的文本是模型
+// limit 计算字符（rune）数而非字节数：被裁剪的文本是模型输出、种入的文件内容和 exec 输出，其中任何一个都可能包含 CJK 或
+// emoji。按字节索引切片 Go 字符串过去会在切点留下半个 UTF-8 rune，使失败原因成为无效 UTF-8。少保留一个 rune
+// rune 在切点，使失败原因成为无效 UTF-8。少保留一个 rune
+// 并追加省略号，使结果仍至多为 limit 个 rune。
 func clip(text string, limit int) string {
 	joined := strings.Join(strings.Fields(text), " ")
 	runes := []rune(joined)

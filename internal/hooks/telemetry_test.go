@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// telemetrySink is a concurrency-safe observer: hook callbacks run from the
-// hook goroutines, so recording must be locked (the package is tested with
+// telemetrySink 是并发安全的观察者：钩子回调从钩子 goroutine 运行，因此记录必须加锁（本包以
+// 钩子 goroutine，因此记录必须加锁（本包以
 // -race).
 type telemetrySink struct {
 	mu      sync.Mutex

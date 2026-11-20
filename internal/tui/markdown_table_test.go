@@ -34,7 +34,7 @@ func TestRenderMarkdownTableStandard(t *testing.T) {
 	got := tableRender(lines, 80)
 	assertTableRows(t, got, want)
 
-	// Same input must produce byte-identical output on every call.
+	// 相同输入每次都必须产生逐字节一致的输出。
 	assertTableRows(t, tableRender(lines, 80), want)
 }
 
@@ -74,8 +74,8 @@ func TestRenderMarkdownTableNarrowWraps(t *testing.T) {
 		}
 	}
 
-	// Even an impossibly narrow width stays within the requested budget by
-	// shrinking every column to its one-cell minimum.
+	// 即使宽度窄到不可能，也通过把每列缩小到其一单元格的
+	// 最小值来保持在请求的预算内。
 	tiny := tableRender(lines, 10)
 	for _, row := range tiny {
 		if w := TextWidth(row); w > 10 {
@@ -114,7 +114,7 @@ func TestRenderMarkdownTableNonTableLinesPassThrough(t *testing.T) {
 	}
 	assertTableRows(t, tableRender(lines, 80), lines)
 
-	// A real table block must not swallow the plain line that follows it.
+	// 真实表格块不得吞掉其后紧跟的纯文本行。
 	mixed := []string{
 		"| a | b |",
 		"|:--- |---:|",
@@ -159,8 +159,8 @@ func TestRenderMarkdownTableMissingSeparator(t *testing.T) {
 }
 
 func TestRenderMarkdownTableUsesInjectedFunctions(t *testing.T) {
-	// Rune-count measurement makes each Chinese character one cell instead of
-	// the two cells TextWidth reports, proving the injected function is used.
+	// 按 rune 计数的测量让每个汉字算作一个单元格，而不是
+	// TextWidth 报告的两个单元格，证明注入的函数被使用了。
 	measure := func(s string) int { return utf8.RuneCountInString(s) }
 	breaker := func(s string, width int) []string {
 		runes := []rune(s)
@@ -184,7 +184,7 @@ func TestRenderMarkdownTableUsesInjectedFunctions(t *testing.T) {
 	got := renderMarkdownTable(lines, 80, measure, breaker)
 	assertTableRows(t, got, want)
 
-	// The injected breaker decides where a too-wide cell is split.
+	// 注入的 breaker 决定过宽的单元格在哪里被拆分。
 	long := []string{
 		"| k |",
 		"| --- |",

@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestProjectToolSchemaCachedMatchesProject proves the cache layer is
-// byte-for-byte transparent for every compat mode, including inputs that need
-// no projection and malformed ones that are returned as supplied.
+// TestProjectToolSchemaCachedMatchesProject 证明缓存层对每种 compat 模式都是
+// 逐字节透明的，包括无需投影的输入以及按原样返回的
+// 格式错误输入。
 func TestProjectToolSchemaCachedMatchesProject(t *testing.T) {
 	inputs := []string{
 		`{"type":"object","properties":{"path":{"type":"string"}}}`,
@@ -30,8 +30,8 @@ func TestProjectToolSchemaCachedMatchesProject(t *testing.T) {
 	for _, compat := range modes {
 		for _, input := range inputs {
 			want := ProjectToolSchema(input, compat)
-			// Exercise both the injectable cache and the exported wrapper so
-			// the memo layer and its public entry point are both covered.
+			// 同时覆盖可注入的缓存和导出的包装函数，使
+			// memo 层及其公开入口都被测到。
 			cache := newSchemaProjectionCache(defaultSchemaCacheCapacity, nil)
 			if got := cache.project(input, compat); got != want {
 				t.Fatalf("cached projection differs for compat=%d input=%q\n got: %q\nwant: %q", compat, input, got, want)
@@ -43,9 +43,9 @@ func TestProjectToolSchemaCachedMatchesProject(t *testing.T) {
 	}
 }
 
-// TestProjectToolSchemaCacheHitAvoidsRecompute verifies that a repeated key
-// reuses the compiled result and that both dimensions of the key (schema and
-// compat) are honored.
+// TestProjectToolSchemaCacheHitAvoidsRecompute 验证重复的键会
+// 复用编译结果，且键的两个维度（schema 和
+// compat）都被尊重。
 func TestProjectToolSchemaCacheHitAvoidsRecompute(t *testing.T) {
 	var calls atomic.Int64
 	cache := newSchemaProjectionCache(16, func(schema string, compat ModelCompat) string {
@@ -67,7 +67,7 @@ func TestProjectToolSchemaCacheHitAvoidsRecompute(t *testing.T) {
 		t.Fatalf("same (schema, compat) recomputed: calls = %d, want 1", calls.Load())
 	}
 
-	// Same schema, different compat: distinct key, must recompute.
+	// 相同 schema、不同 compat：不同的键，必须重新计算。
 	if got := cache.project(a, CompatMoonshot); got != ProjectToolSchema(a, CompatMoonshot) {
 		t.Fatalf("compat-specific result wrong: %q", got)
 	}
@@ -75,7 +75,7 @@ func TestProjectToolSchemaCacheHitAvoidsRecompute(t *testing.T) {
 		t.Fatalf("different compat did not recompute: calls = %d, want 2", calls.Load())
 	}
 
-	// Different schema: distinct key, must recompute.
+	// 不同 schema：不同的键，必须重新计算。
 	if got := cache.project(b, CompatGemini); got != ProjectToolSchema(b, CompatGemini) {
 		t.Fatalf("schema-specific result wrong: %q", got)
 	}
@@ -84,8 +84,8 @@ func TestProjectToolSchemaCacheHitAvoidsRecompute(t *testing.T) {
 	}
 }
 
-// TestProjectToolSchemaCacheBoundsGrowth ensures the table never grows past
-// its capacity even when many distinct schemas stream through it.
+// TestProjectToolSchemaCacheBoundsGrowth 确保即使大量不同的 schema 流过，
+// 表也绝不会超过其容量。
 func TestProjectToolSchemaCacheBoundsGrowth(t *testing.T) {
 	const capacity = 8
 	cache := newSchemaProjectionCache(capacity, ProjectToolSchema)
@@ -102,9 +102,9 @@ func TestProjectToolSchemaCacheBoundsGrowth(t *testing.T) {
 	}
 }
 
-// TestProjectToolSchemaCacheConcurrent projects the same keys from many
-// goroutines and checks every result is correct. Run with -race to catch any
-// synchronization bug; the mutex also makes this safe under normal runs.
+// TestProjectToolSchemaCacheConcurrent 从多个 goroutine 投影相同的键，
+// 并检查每个结果都正确。用 -race 运行可捕获任何
+// 同步缺陷；互斥锁也使正常运行时安全。
 func TestProjectToolSchemaCacheConcurrent(t *testing.T) {
 	cache := newSchemaProjectionCache(defaultSchemaCacheCapacity, ProjectToolSchema)
 	keys := []struct {

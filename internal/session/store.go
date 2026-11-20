@@ -12,30 +12,29 @@ import (
 	"time"
 )
 
-// Meta is what a session list shows without loading a transcript into memory.
+// Meta 是会话列表无需将转录加载到内存即可显示的内容。
 type Meta struct {
 	ID      string    `json:"id"`
 	Title   string    `json:"title"`
 	Updated time.Time `json:"updated"`
 	Turns   int       `json:"turns"`
-	// Modified is the transcript file's mtime, captured during List and used
-	// only to order sessions with equal in-record timestamps. It is never
-	// persisted (the sidecar still describes size+mtime elsewhere), so adding
-	// it does not change the on-disk format.
+	// Modified 是转录文件的 mtime，在 List 期间捕获，
+	// 仅用于在记录内时间戳相同时排列会话顺序。它永不被持久化
+	// （旁车文件仍在别处描述 size+mtime），因此添加它不会改变磁盘格式。
 	Modified time.Time `json:"-"`
 }
 
-// Container is a directory that holds session files.
+// Container 是存放会话文件的目录。
 type Container struct {
 	dir string
 }
 
-// Store is the entry point for one session directory.
+// Store 是单个会话目录的入口。
 type Store struct {
 	dir string
 }
 
-// Open creates dir when it is missing and returns a store over it.
+// Open 在 dir 不存在时创建它，并返回基于它的 store。
 func Open(dir string) (*Store, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("session: empty directory")
@@ -46,49 +45,49 @@ func Open(dir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
-// Dir reports the directory that holds the session files.
+// Dir 报告存放会话文件的目录。
 func (s *Store) Dir() string { return s.dir }
 
-// Container returns the directory handle behind the store.
+// Container 返回 store 背后的目录句柄。
 func (s *Store) Container() *Container { return &Container{dir: s.dir} }
 
-// NewSession creates a session file holding one header record.
+// NewSession 创建只含一条 header 记录的会话文件。
 func (s *Store) NewSession(title string) (*Session, error) {
 	return s.Container().NewSession(title)
 }
 
-// OpenSession reopens a stored session by id (an exact id or a unique prefix).
+// OpenSession 按 id（精确 id 或唯一前缀）重新打开已存储的会话。
 func (s *Store) OpenSession(id string) (*Session, error) {
 	return s.Container().OpenSession(id)
 }
 
-// List reports every session, newest first.
+// List 报告所有会话，最新的在前。
 func (s *Store) List() ([]Meta, error) { return s.Container().List() }
 
-// Find reports the sessions whose id or title contains query.
+// Find 报告 id 或标题包含 query 的会话。
 func (s *Store) Find(query string) ([]Meta, error) { return s.Container().Find(query) }
 
-// Delete removes one session file.
+// Delete 删除一个会话文件。
 func (s *Store) Delete(id string) error { return s.Container().Delete(id) }
 
-// OpenSession reopens a stored session by id (an exact id or a unique prefix).
+// OpenSession 按 id（精确 id 或唯一前缀）重新打开已存储的会话。
 func OpenSession(dir, id string) (*Session, error) {
 	return (&Container{dir: dir}).OpenSession(id)
 }
 
-// List reports every session under dir, newest first.
+// List 报告 dir 下的所有会话，最新的在前。
 func List(dir string) ([]Meta, error) { return (&Container{dir: dir}).List() }
 
-// Find reports the sessions under dir whose id or title contains query.
+// Find 报告 dir 下 id 或标题包含 query 的会话。
 func Find(dir, query string) ([]Meta, error) { return (&Container{dir: dir}).Find(query) }
 
-// Delete removes one session file under dir.
+// Delete 删除 dir 下的一个会话文件。
 func Delete(dir, id string) error { return (&Container{dir: dir}).Delete(id) }
 
-// Dir reports the directory that holds the session files.
+// Dir 报告存放会话文件的目录。
 func (c *Container) Dir() string { return c.dir }
 
-// NewSession creates a session file holding one header record.
+// NewSession 创建只含一条 header 记录的会话文件。
 func (c *Container) NewSession(title string) (*Session, error) {
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return nil, fmt.Errorf("session: create %s: %w", c.dir, err)
@@ -105,7 +104,7 @@ func (c *Container) NewSession(title string) (*Session, error) {
 	return session, nil
 }
 
-// OpenSession reopens a stored session by id (an exact id or a unique prefix).
+// OpenSession 按 id（精确 id 或唯一前缀）重新打开已存储的会话。
 func (c *Container) OpenSession(id string) (*Session, error) {
 	path, err := c.resolvePath(id)
 	if err != nil {
@@ -129,9 +128,8 @@ func (c *Container) OpenSession(id string) (*Session, error) {
 	return session, nil
 }
 
-// List reports every session, newest first. Transcripts are not parsed when a
-// matching sidecar exists; a missing, corrupt, or stale one falls back to the
-// original full scan and is refreshed on the way out.
+// List 报告所有会话，最新的在前。当存在匹配的旁车文件时不会解析转录；
+// 旁车文件缺失、损坏或过期时，会回退到原始的全量扫描，并在返回前刷新。
 func (c *Container) List() ([]Meta, error) {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
@@ -155,8 +153,8 @@ func (c *Container) List() ([]Meta, error) {
 			meta, cached = loadIndex(path, info, id)
 		}
 		if !cached {
-			// Listing never repairs: hard-corrupt transcripts are invisible here,
-			// and a torn tail stays untouched until an explicit resume.
+			// 列表操作从不修复：严重损坏的转录在这里不可见，
+			// 残缺的尾部会保持原样，直到显式恢复时才处理。
 			if _, err := ValidateAndRepair(path, false); err != nil {
 				continue
 			}
@@ -172,8 +170,8 @@ func (c *Container) List() ([]Meta, error) {
 		if meta.Updated.IsZero() && statErr == nil {
 			meta.Updated = info.ModTime()
 		}
-		// Sidecars do not store Modified; capture it on every List so a cache
-		// hit still carries the information needed to break Updated ties.
+		// 旁车文件不存储 Modified；每次 List 都捕获它，
+		// 这样即使缓存命中也带有打破 Updated 并列所需的信息。
 		if statErr == nil {
 			meta.Modified = info.ModTime()
 		}
@@ -183,10 +181,9 @@ func (c *Container) List() ([]Meta, error) {
 		if !metas[i].Updated.Equal(metas[j].Updated) {
 			return metas[i].Updated.After(metas[j].Updated)
 		}
-		// The in-record clock can stamp two sessions identically (e.g. two
-		// sessions created in the same second). The file's mtime records the
-		// real order of writes, so a later append moves a session to the top;
-		// fall back to id only when both timestamps are identical.
+		// 记录内的时钟可能为两个会话打上相同的时间戳（例如同一秒创建的两个会话）。
+		// 文件的 mtime 记录了真实的写入顺序，因此较晚的追加会把会话移到顶部；
+		// 只有当两个时间戳完全相同时才回退到 id。
 		if !metas[i].Modified.Equal(metas[j].Modified) {
 			return metas[i].Modified.After(metas[j].Modified)
 		}
@@ -195,7 +192,7 @@ func (c *Container) List() ([]Meta, error) {
 	return metas, nil
 }
 
-// Find reports the sessions whose id or title contains query, newest first.
+// Find 报告 id 或标题包含 query 的会话，最新的在前。
 func (c *Container) Find(query string) ([]Meta, error) {
 	all, err := c.List()
 	if err != nil {
@@ -215,7 +212,7 @@ func (c *Container) Find(query string) ([]Meta, error) {
 	return matches, nil
 }
 
-// Delete removes one session file.
+// Delete 删除一个会话文件。
 func (c *Container) Delete(id string) error {
 	path, err := c.resolvePath(id)
 	if err != nil {
@@ -224,13 +221,13 @@ func (c *Container) Delete(id string) error {
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("session: delete %s: %w", path, err)
 	}
-	// The sidecar is only a cache; remove it with its transcript so a later
-	// session with a reused id cannot inherit stale metadata.
+	// 旁车文件只是缓存；随转录一起删除它，
+	// 这样之后复用 id 的会话就不会继承过期的元数据。
 	_ = os.Remove(path + idxExt)
 	return nil
 }
 
-// path turns an id into a file path, rejecting anything that could escape dir.
+// path 将 id 转换为文件路径，拒绝任何可能逃出 dir 的内容。
 func (c *Container) path(id string) (string, error) {
 	clean := strings.TrimSpace(id)
 	if clean == "" {
@@ -246,7 +243,7 @@ func (c *Container) path(id string) (string, error) {
 	return filepath.Join(c.dir, clean+fileExt), nil
 }
 
-// resolvePath accepts an exact id, otherwise a unique case-insensitive prefix.
+// resolvePath 接受精确的 id，否则接受唯一的、不区分大小写的前缀。
 func (c *Container) resolvePath(id string) (string, error) {
 	exact, err := c.path(id)
 	if err != nil {
@@ -280,13 +277,11 @@ func (c *Container) resolvePath(id string) (string, error) {
 	}
 }
 
-// transcriptStem strips a trailing transcript extension from a file name
-// regardless of case. Discovery paths match the ".jsonl" suffix
-// case-insensitively (see List and resolvePath), so the id derived from a
-// resolved path must strip it the same way. A case-sensitive strings.TrimSuffix
-// would leave "SESSION.JSONL" as the id, making Session.path() point at
-// "SESSION.JSONL.jsonl" and every read come back empty on case-sensitive
-// filesystems. Names without the suffix are returned unchanged.
+// transcriptStem 从文件名中剥离末尾的转录扩展名，不区分大小写。
+// 发现路径以不区分大小写的方式匹配 ".jsonl" 后缀（见 List 和 resolvePath），
+// 因此从解析后的路径派生 id 时必须以同样方式剥离它。区分大小写的 strings.TrimSuffix
+// 会把 "SESSION.JSONL" 当作 id，使 Session.path() 指向 "SESSION.JSONL.jsonl"，
+// 在区分大小写的文件系统上每次读取都返回空结果。没有该后缀的名称原样返回。
 func transcriptStem(name string) string {
 	if len(name) >= len(fileExt) &&
 		strings.EqualFold(name[len(name)-len(fileExt):], fileExt) {
@@ -295,7 +290,7 @@ func transcriptStem(name string) string {
 	return name
 }
 
-// newID mints a timestamped id with a random suffix and its unused file path.
+// newID 生成带时间戳和随机后缀的 id 及其未使用的文件路径。
 func (c *Container) newID() (string, string, error) {
 	stamp := time.Now().Format("20060102-150405")
 	for attempt := 0; attempt < 32; attempt++ {
@@ -316,10 +311,9 @@ func randomSuffix() string {
 	return hex.EncodeToString(buf)
 }
 
-// Sidecars are caches, never the authority for session content. An entry
-// stores only the fields List/Search need plus the transcript's size and mtime,
-// so an append that bypasses the cache, or any external edit, is detected and
-// the transcript is parsed again.
+// 旁车文件只是缓存，绝不是会话内容的权威来源。条目只存储 List/Search 需要的字段
+// 以及转录的大小和 mtime，因此绕过缓存的追加或任何外部编辑都会被检测到，
+// 转录会被重新解析。
 const (
 	idxExt       = ".idx"
 	indexVersion = 1
@@ -332,9 +326,8 @@ type indexEntry struct {
 	Meta    Meta  `json:"meta"`
 }
 
-// loadIndex returns the cached meta only when the sidecar is readable, current
-// for this version, and describes the transcript's exact size and mtime. Any
-// doubt is reported as a miss and handled by a full scan.
+// 只有当旁车文件可读、版本为当前版本，且描述的大小和 mtime 与转录完全一致时，
+// loadIndex 才返回缓存的 meta。任何疑点都按未命中处理，交由全量扫描处理。
 func loadIndex(path string, info os.FileInfo, id string) (Meta, bool) {
 	data, err := os.ReadFile(path + idxExt)
 	if err != nil {
@@ -351,8 +344,8 @@ func loadIndex(path string, info os.FileInfo, id string) (Meta, bool) {
 	return entry.Meta, true
 }
 
-// saveIndex refreshes a sidecar atomically so a concurrent reader never sees a
-// half-written file. Failure is harmless: the next read just parses the file.
+// saveIndex 原子地刷新旁车文件，使并发读取者永远不会看到半写入的文件。
+// 失败是无害的：下一次读取只会解析该文件。
 func saveIndex(path string, info os.FileInfo, meta Meta) {
 	data, err := json.Marshal(indexEntry{
 		Version: indexVersion,
@@ -382,7 +375,7 @@ func saveIndex(path string, info os.FileInfo, meta Meta) {
 	}
 }
 
-// metaFromRecords derives a list entry from the transcript alone.
+// metaFromRecords 仅根据转录派生一个列表条目。
 func metaFromRecords(id string, records []Record) Meta {
 	meta := Meta{ID: id, Title: titleFromRecords(id, records)}
 	for _, record := range records {

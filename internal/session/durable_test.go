@@ -43,7 +43,7 @@ func TestAppendProgressWritesRetrievableRecord(t *testing.T) {
 	if got.TS.IsZero() {
 		t.Fatal("LatestProgress lost its timestamp")
 	}
-	// Progress is a durability record and must not become model history.
+	// Progress 是持久性记录，绝不能变成模型历史。
 	for _, entry := range sess.Messages() {
 		if entry.Content == want.AssistantText {
 			t.Fatalf("progress leaked into model history: %+v", entry)
@@ -124,7 +124,7 @@ func TestRecoverProgressRejectsStaleProgress(t *testing.T) {
 		t.Fatalf("in-flight progress rejected: %+v, %v", got, ok)
 	}
 
-	// Committing that turn's assistant message makes its progress obsolete.
+	// 提交该轮次的 assistant 消息会使其进度过时。
 	if err := sess.Append(KindAssistant, "complete answer"); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestRecoverProgressRejectsStaleProgress(t *testing.T) {
 		t.Fatalf("stale progress accepted after assistant commit: %+v", got)
 	}
 
-	// A checkpoint for the next turn is valid again.
+	// 下一轮次的检查点重新有效。
 	if err := sess.AppendProgress(Progress{Turn: 2, AssistantText: "next partial"}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestSyncProgressPersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("ProgressCount after reopen = %d, want 1", count)
 	}
 
-	// The no-argument form is a durability barrier and must not add records.
+	// 无参数形式是持久性屏障，绝不能添加记录。
 	if err := reopened.SyncProgress(); err != nil {
 		t.Fatalf("SyncProgress (barrier): %v", err)
 	}
@@ -200,8 +200,8 @@ func TestLatestProgressSurvivesMidTurnCrash(t *testing.T) {
 	}
 	id := sess.ID()
 
-	// Simulate a crash: drop every in-memory handle without a clean shutdown
-	// and rebuild the session from the transcript on disk.
+	// 模拟崩溃：不执行干净关闭就丢弃所有内存句柄，
+	// 并从磁盘上的转录重建会话。
 	sess = nil
 	reopened, err := OpenSession(dir, id)
 	if err != nil {

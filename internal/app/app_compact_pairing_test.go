@@ -8,9 +8,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// toolCallMessages is a transcript whose cut would land between the call at
-// index 1 and its result at index 3 if the call id were lost in adaptation.
-// The intervening user message also defeats the legacy trailing-tool backoff.
+// toolCallMessages 是一份记录，若在适配中丢失调用 id，其切点会落在
+// 索引 1 的调用与其索引 3 的结果之间。
+// 中间的用户消息也会使旧版尾部工具回退失效。
 func toolCallMessages() []llm.Message {
 	return []llm.Message{
 		{Role: "system", Content: "rules"},
@@ -66,9 +66,9 @@ func TestEntriesFromMessagesPairingSurvivesBudgetCut(t *testing.T) {
 		if start > 0 {
 			sawCut = true
 		}
-		// A cut strictly between the call and its result would summarise the
-		// call while keeping the result verbatim, producing an orphan tool
-		// result that the next provider request rejects.
+		// 严格位于调用与其结果之间的切点，会摘要该调用，
+		// 却原样保留结果，产生一个孤立的、下一次提供方请求会拒绝的
+		// 工具结果。
 		if start > callIndex && start <= resultIndex {
 			t.Fatalf("CutForBudget(%d) = %d splits call %d from result %d", budget, start, callIndex, resultIndex)
 		}
@@ -82,8 +82,8 @@ func TestEntriesFromMessagesChangedFilesSurviveSummarize(t *testing.T) {
 	messages := toolCallMessages()
 	entries := entriesFromMessages(messages)
 
-	// Drop the system/user messages plus the assistant tool call, as a real
-	// mid-turn compaction would once the window budget forces that cut.
+	// 丢弃系统/用户消息以及助手的工具调用，正如一次真实的
+	// 轮次中压缩在窗口预算迫使该切点时会做的那样。
 	compaction := session.Summarize(entries[:2], len(entries)-2)
 	if !containsString(compaction.Files, "src/a.go") || !containsString(compaction.Files, "src/b.go") {
 		t.Fatalf("compaction files = %+v, want src/a.go and src/b.go", compaction.Files)

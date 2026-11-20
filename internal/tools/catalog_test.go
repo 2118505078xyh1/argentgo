@@ -75,7 +75,7 @@ func TestSpecsForFiltersAdvertisedCatalog(t *testing.T) {
 			policy: blanketDenyBash,
 			mode:   security.SandboxWorkspaceWrite,
 			absent: []string{"bash"},
-			// A rule with no path/command is a permanent deny.
+			// 没有 path/command 的规则是永久拒绝。
 		},
 		{
 			name:    "ask rule keeps the tool advertised",

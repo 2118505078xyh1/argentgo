@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// stamped builds a message record with an explicit ordinal in its Data envelope.
+// stamped 构建一条在 Data 信封中带有显式序号的消息记录。
 func stamped(id string, seq int64) Record {
 	data, err := SetSeq([]byte(`{"content":"`+id+`"}`), seq)
 	if err != nil {
@@ -17,7 +17,7 @@ func stamped(id string, seq int64) Record {
 	return Record{ID: id, Kind: KindMessage, Data: data}
 }
 
-// unstamped builds a legacy message record with no ordinal metadata at all.
+// unstamped 构建一条完全没有序号元数据的旧消息记录。
 func unstamped(id string) Record {
 	return Record{ID: id, Kind: KindMessage, Data: json.RawMessage(`{"content":"` + id + `"}`)}
 }
@@ -33,8 +33,8 @@ func ordinalIDs(records []Record) []string {
 	return out
 }
 
-// normalizedSeqObject decodes a JSON object for semantic comparison, ignoring
-// the reserved ordinal key and any insignificant formatting differences.
+// normalizedSeqObject 解码 JSON 对象以进行语义比较，忽略
+// 保留的序号键以及任何无关紧要的格式差异。
 func normalizedSeqObject(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 	var value map[string]any
@@ -71,7 +71,7 @@ func TestSetSeqPreservesComplexFields(t *testing.T) {
 	if got, want := normalizedSeqObject(t, out), normalizedSeqObject(t, original); !reflect.DeepEqual(got, want) {
 		t.Fatalf("other fields changed: got %v, want %v", got, want)
 	}
-	// A reserved field from another feature must survive untouched.
+	// 来自其他特性的保留字段必须原样保留。
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(out, &fields); err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestGetSeqRejectsMalformed(t *testing.T) {
 		[]byte(`{"_seq":1.5}`),
 		[]byte(`{"_seq":true}`),
 		[]byte(`{"_seq":-1}`),
-		[]byte(`{"_seq":9223372036854775808}`), // overflows int64
+		[]byte(`{"_seq":9223372036854775808}`), // 超出 int64 范围
 		[]byte(`{"content":"no ordinal"}`),
 	} {
 		if got, ok := GetSeq(data); ok || got != 0 {
@@ -150,7 +150,7 @@ func TestSetSeqLargeDataBounded(t *testing.T) {
 	if len(out) > len(original)+128 {
 		t.Fatalf("bounded data violated: original %d bytes, output %d bytes", len(original), len(out))
 	}
-	// Decode as RawMessage: the reserved _seq is a number, not a string.
+	// 按 RawMessage 解码：保留字段 _seq 是数字，而不是字符串。
 	var decoded map[string]json.RawMessage
 	if err := json.Unmarshal(out, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
@@ -179,8 +179,8 @@ func TestNewestBySeqEmpty(t *testing.T) {
 }
 
 func TestNewestBySeqHighestSeqWinsWithTiedTimestamps(t *testing.T) {
-	// All three records were written in the same clock tick: TS cannot order
-	// them, so only the ordinal can. Deliberately list the winner in the middle.
+	// 三条记录都写入于同一时钟周期：TS 无法排序，
+	// 只有序号可以。故意把胜者放在中间。
 	ts := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	records := []Record{
 		{ID: "a", TS: ts, Kind: KindMessage},
@@ -191,7 +191,7 @@ func TestNewestBySeqHighestSeqWinsWithTiedTimestamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records[1].Data = data // "c" has the highest seq (3)
+	records[1].Data = data // "c" 的 seq 最高（3）
 	data, err = SetSeq([]byte(`{}`), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestNewestBySeqSameSecondTimestampsDeterministic(t *testing.T) {
 	if forward.ID != "newer" || reverse.ID != "newer" {
 		t.Fatalf("same-second tie broke: forward %q, reverse %q, want %q", forward.ID, reverse.ID, "newer")
 	}
-	// A legacy record with the same ts and a lexically greater id must not win.
+	// ts 相同但字典序 id 更大的旧记录不能胜出。
 	legacy := unstamped("zzz")
 	legacy.TS = ts
 	if got := NewestBySeq([]Record{legacy, older, newer}); got.ID != "newer" {
@@ -237,7 +237,7 @@ func TestNewestBySeqFallsBackForUnstampedRecords(t *testing.T) {
 		t.Fatalf("NewestBySeq by TS = %q, want %q", got.ID, "newer")
 	}
 
-	// Equal timestamps fall back to the greater id, matching Store.List.
+	// 时间戳相等时回退到较大的 id，与 Store.List 一致。
 	a, z := unstamped("a"), unstamped("z")
 	a.TS, z.TS = ts, ts
 	if got := NewestBySeq([]Record{a, z}); got.ID != "z" {
@@ -289,7 +289,7 @@ func TestForkBeforeSeqPrefixAndBoundaries(t *testing.T) {
 }
 
 func TestForkBeforeSeqWithMissingSeq(t *testing.T) {
-	// Legacy records have no _seq; their array index is the effective ordinal.
+	// 旧记录没有 _seq；它们的数组索引就是有效序号。
 	records := []Record{unstamped("a"), unstamped("b"), unstamped("c")}
 	tests := []struct {
 		target int64

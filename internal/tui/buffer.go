@@ -6,19 +6,19 @@ import (
 	"strings"
 )
 
-// Cell is one terminal cell. Text holds the exact bytes painted at that cell.
-// For a wide grapheme cluster the first cell carries the whole cluster (so a
-// ZWJ emoji, a flag or a combining sequence reaches the terminal intact) and
-// the second cell has an empty Text, which the renderer skips because the
-// terminal already advanced two columns.
+// Cell 是一个终端单元格。Text 保存绘制在该单元格的精确字节。
+// 对于宽字素簇，第一个单元格持有整个簇（使
+// ZWJ emoji、旗帜或组合序列完整到达终端），
+// 第二个单元格的 Text 为空，渲染器会跳过它，因为
+// 终端已经前进了两列。
 type Cell struct {
 	Text string
 	S    Style
 }
 
-// Buffer is a grid of cells that remembers the last flushed frame so Flush
-// only rewrites rows that changed. Redrawing a whole row is what keeps a line
-// of CJK from being torn in half by a partial repaint.
+// Buffer 是单元格网格，它记住上次刷新的帧，使 Flush
+// 只重写发生变化的行。重绘整行正是避免一行
+// CJK 被局部重绘撕成两半的方法。
 type Buffer struct {
 	w, h  int
 	cells []Cell
@@ -29,20 +29,20 @@ type Buffer struct {
 	noColor bool // skip every SGR escape when the operator asked for --no-color
 }
 
-// NewBuffer allocates a buffer of w by h cells.
+// NewBuffer 分配一个 w 列 h 行的缓冲区。
 func NewBuffer(w, h int) *Buffer {
 	b := &Buffer{prevW: -1, prevH: -1}
 	b.Resize(w, h)
 	return b
 }
 
-// Width is the buffer's column count.
+// Width 是缓冲区的列数。
 func (b *Buffer) Width() int { return b.w }
 
-// Height is the buffer's row count.
+// Height 是缓冲区的行数。
 func (b *Buffer) Height() int { return b.h }
 
-// Resize changes the grid, keeping the overlapping cells.
+// Resize 改变网格，保留重叠的单元格。
 func (b *Buffer) Resize(w, h int) {
 	if w < 0 {
 		w = 0
@@ -62,16 +62,16 @@ func (b *Buffer) Resize(w, h int) {
 	b.w, b.h, b.cells = w, h, next
 }
 
-// Clear fills the buffer with blank cells.
+// Clear 用空白单元格填充缓冲区。
 func (b *Buffer) Clear() {
 	for i := range b.cells {
 		b.cells[i] = Cell{Text: " "}
 	}
 }
 
-// Set writes one grapheme cluster at (x, y), reserving the following cell when
-// the cluster is double width. text must be exactly one cluster as returned by
-// nextGrapheme; callers normally go through WriteString.
+// Set 在 (x, y) 写入一个字素簇，当该簇为双宽时
+// 预留其后的单元格。text 必须是 nextGrapheme 返回的
+// 恰好一个簇；调用方通常通过 WriteString 进行。
 func (b *Buffer) Set(x, y int, text string, style Style) {
 	if x < 0 || y < 0 || y >= b.h || x >= b.w {
 		return
@@ -90,11 +90,11 @@ func (b *Buffer) Set(x, y int, text string, style Style) {
 	}
 }
 
-// WriteString writes text at (x, y), clipped to max cells, and returns the
-// number of cells used. It walks grapheme clusters (the same authority as
-// TextWidth/Wrap/Clip) so a ZWJ emoji or a flag is painted as one glyph and
-// occupies the same number of cells the layout code reserved for it. Iterating
-// per rune here would drop the ZWJ and overcount the cluster's width.
+// WriteString 在 (x, y) 写入 text，裁剪到 max 个单元格，并返回
+// 使用的单元格数。它按字素簇遍历（与
+// TextWidth/Wrap/Clip 采用同一权威），使 ZWJ emoji 或旗帜被绘制为一个字形，
+// 并占据布局代码为其预留的相同单元格数。在这里按
+// rune 遍历会丢掉 ZWJ 并高估簇的宽度。
 func (b *Buffer) WriteString(x, y, max int, text string, style Style) int {
 	used := 0
 	for pos := 0; pos < len(text); {
@@ -113,9 +113,9 @@ func (b *Buffer) WriteString(x, y, max int, text string, style Style) int {
 	return used
 }
 
-// RowText is the unstyled content of one row with trailing blanks trimmed.
-// Wide-rune continuation cells are skipped, so the length of the string is the
-// cell width of what is visible.
+// RowText 是某一行去掉尾随空白后的无样式内容。
+// 宽 rune 的延续单元格被跳过，因此字符串的长度就是
+// 可见内容的单元格宽度。
 func (b *Buffer) RowText(y int) string {
 	if y < 0 || y >= b.h {
 		return ""
@@ -131,8 +131,8 @@ func (b *Buffer) RowText(y int) string {
 	return strings.TrimRight(out.String(), " ")
 }
 
-// Flush writes the diff against the previously flushed frame and returns the
-// number of rows written. A size change forces a full repaint.
+// Flush 写入与上次刷新帧的差异，并返回
+// 写入的行数。尺寸变化会强制整屏重绘。
 func (b *Buffer) Flush(out io.Writer) (int, error) {
 	if b.w == 0 || b.h == 0 {
 		return 0, nil
@@ -159,14 +159,14 @@ func (b *Buffer) Flush(out io.Writer) (int, error) {
 	return written, err
 }
 
-// Invalidate forgets the previous frame, so the next Flush repaints everything.
+// Invalidate 遗忘上一帧，使下一次 Flush 重绘所有内容。
 func (b *Buffer) Invalidate() {
 	b.prevW, b.prevH = -1, -1
 	b.prev = nil
 }
 
-// SetNoColor controls whether Flush emits SGR colour escapes. Switching it
-// forces a full repaint because every cell's bytes change.
+// SetNoColor 控制 Flush 是否发出 SGR 颜色转义。切换它会
+// 强制整屏重绘，因为每个单元格的字节都变了。
 func (b *Buffer) SetNoColor(v bool) {
 	if b.noColor == v {
 		return
@@ -187,13 +187,13 @@ func rowEqual(a, b []Cell) bool {
 	return true
 }
 
-// cursorTo is the ANSI absolute cursor move to a 1-based row and column.
+// cursorTo 是移动到基于 1 的行列的 ANSI 绝对光标定位。
 func cursorTo(row, col int) string {
 	return "\x1b[" + strconv.Itoa(row) + ";" + strconv.Itoa(col) + "H"
 }
 
-// writeRow emits one row, trimming trailing blank cells and clearing the rest
-// of the line with EL. Trailing spaces are what make a redraw flicker-free.
+// writeRow 输出一行，修剪尾随空白单元格，并用 EL 清除该行
+// 其余部分。尾随空格正是让重绘无闪烁的原因。
 func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 	end := len(row)
 	for end > 0 {
@@ -205,7 +205,7 @@ func writeRow(out *strings.Builder, row []Cell, noColor bool) {
 		break
 	}
 	if noColor {
-		// Not even a reset: the operator asked for zero SGR colour sequences.
+		// 连重置都不发：操作员要求零个 SGR 颜色序列。
 		for _, cell := range row[:end] {
 			if cell.Text != "" {
 				out.WriteString(cell.Text)

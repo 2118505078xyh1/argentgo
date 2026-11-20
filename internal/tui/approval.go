@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// approvalGrantKey scopes a session grant to one tool plus its detail. The NUL
-// separator keeps name/detail pairs from colliding with bare name keys.
+// approvalGrantKey 把会话授权限定到某个工具及其详情。NUL
+// 分隔符防止 name/detail 组合与纯 name 键冲突。
 func approvalGrantKey(name, args string) string {
 	return name + "\x00" + approvalDetail(args)
 }
 
-// approvalDetail extracts the argument that identifies a call. JSON calls use
-// the first path/command field (cleaned), so granting `bash` with `ls` cannot
-// silently grant `bash` with `sudo`. Plain-string args, used by older callers,
-// fall back to the first token; that keeps "ls" and "ls -la" on one grant,
-// matching the historical coarse behaviour for those inputs.
+// approvalDetail 提取标识一次调用的参数。JSON 调用使用
+// 第一个 path/command 字段（清洗后），因此用 `ls` 授权 `bash` 不能
+// 悄悄授权带 `sudo` 的 `bash`。旧调用方使用的纯字符串参数
+// 回退到第一个 token；这让 "ls" 和 "ls -la" 共用一次授权，
+// 与这些输入历史上的粗粒度行为一致。
 func approvalDetail(args string) string {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "{") {
@@ -44,14 +44,14 @@ func approvalDetail(args string) string {
 	return ""
 }
 
-// approvalRequest is one tool call waiting for the operator.
+// approvalRequest 是等待操作员处理的一次工具调用。
 type approvalRequest struct {
 	name string
 	args string
-	// danger is a human-readable reason the call was flagged as dangerous.
-	// Empty (the default) keeps the historical modal byte-for-byte unchanged.
-	// When set, the modal shows the reason and pre-selects Deny as the safe
-	// default so a habitual Enter cannot approve a destructive command.
+	// danger 是人可读的原因，说明该调用为何被标记为危险。
+	// 空值（默认）使历史弹窗逐字节保持不变。
+	// 设置后，弹窗显示原因并预选 Deny 作为安全的
+	// 默认值，使习惯性的 Enter 不会批准破坏性命令。
 	danger string
 	reply  chan bool
 	ctx    context.Context
@@ -61,9 +61,9 @@ type approvalRequest struct {
 	openedAt time.Time
 }
 
-// defaultsToDeny reports whether this request pre-selects Deny. Ordinary
-// requests keep Allow as the primary affordance and are deliberately left
-// untouched; only flagged requests flip the safe default.
+// defaultsToDeny 报告此请求是否预选 Deny。普通
+// 请求保留 Allow 作为主要操作项，并有意保持
+// 不变；只有被标记的请求才翻转安全默认值。
 func (r *approvalRequest) defaultsToDeny() bool {
 	return r != nil && r.danger != ""
 }
@@ -81,17 +81,17 @@ func (m *Model) answerApprovalLocked(key Key) KeyAction {
 		case 'n', 'N':
 			m.finishApprovalLocked(false, text(m.locale, "denied"))
 		case 'a', 'A':
-			// Grant only this exact call: a coarse name key would allow every
-			// later invocation of the same tool with different arguments.
+			// 只授权这次精确调用：粗粒度的 name 键会允许之后
+			// 用不同参数对同一工具的每次调用。
 			m.allowed[approvalGrantKey(request.name, request.args)] = true
 			m.finishApprovalLocked(true, text(m.locale, "approved_session"))
 		}
 	case KindEsc, KindCtrlC:
 		m.finishApprovalLocked(false, text(m.locale, "denied"))
 	case KindEnter:
-		// A flagged request pre-selects Deny: an ambiguous confirm key must
-		// never approve a destructive command. Non-danger requests keep their
-		// historical no-op so their behaviour is unchanged.
+		// 被标记的请求预选 Deny：含义模糊的确认键绝不能
+		// 批准破坏性命令。非危险请求保持其
+		// 历史空操作，因此行为不变。
 		if request.defaultsToDeny() {
 			m.finishApprovalLocked(false, text(m.locale, "denied"))
 		}
@@ -140,19 +140,19 @@ func (m *Model) dropApprovalLocked(reply chan bool) {
 	}
 }
 
-// Approve asks the operator to allow a tool call and blocks until the modal is
-// answered or ctx ends. The answer is returned through the injected
-// Options.Approval authority when one is installed. It is the ordinary,
-// non-dangerous entry point: the modal keeps its historical Allow default.
+// Approve 请求操作员允许一次工具调用，并阻塞直到弹窗
+// 被回答或 ctx 结束。安装时，答案通过注入的
+// Options.Approval 权限返回。这是普通的、
+// 非危险入口点：弹窗保持其历史 Allow 默认值。
 func (m *Model) Approve(ctx context.Context, name, args string) (bool, error) {
 	return m.approve(ctx, name, args, "")
 }
 
-// ApproveDanger is the dangerous-command entry point. A non-empty danger reason
-// is shown in the modal and flips the default answer to Deny. The app layer
-// (which owns security.FindFileEditingCommand) is responsible for supplying it;
-// the TUI package does not import security. With an empty danger it behaves
-// exactly like Approve.
+// ApproveDanger 是危险命令的入口点。非空的 danger 原因
+// 会显示在弹窗中，并把默认答案翻转为 Deny。app 层
+// （它拥有 security.FindFileEditingCommand）负责提供该原因；
+// TUI 包不导入 security。danger 为空时，其行为
+// 与 Approve 完全一致。
 func (m *Model) ApproveDanger(ctx context.Context, name, args, danger string) (bool, error) {
 	return m.approve(ctx, name, args, danger)
 }
@@ -165,8 +165,8 @@ func (m *Model) approve(ctx context.Context, name, args, danger string) (bool, e
 		return false, err
 	}
 	m.mu.Lock()
-	// The bare name key is still honoured so grants created by older callers
-	// (which cached m.allowed directly) keep working. New grants are composite.
+	// 纯 name 键仍被遵守，使旧调用方创建的授权
+	// （它们直接缓存 m.allowed）继续工作。新授权是复合的。
 	if m.allowed[name] || m.allowed[approvalGrantKey(name, args)] {
 		m.mu.Unlock()
 		return true, nil
@@ -202,7 +202,7 @@ func (m *Model) approve(ctx context.Context, name, args, danger string) (bool, e
 	return true, nil
 }
 
-// PendingApproval reports the tool call the modal is showing.
+// PendingApproval 报告弹窗正在显示的工具调用。
 func (m *Model) PendingApproval() (name, args string, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -212,7 +212,7 @@ func (m *Model) PendingApproval() (name, args string, ok bool) {
 	return m.pending.name, m.pending.args, true
 }
 
-// Tick drops an approval whose context is gone; the loop calls it each frame.
+// Tick 丢弃上下文已消失的授权；循环每帧调用它。
 func (m *Model) Tick() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -10,9 +10,9 @@ import (
 
 const bashHintPrefix = "[output: ~"
 
-// TestClipBashOutputAddsHintWhenClipped verifies that an oversized command
-// output gets a short volume hint at the head, without disturbing the clipped
-// body or the truncation marker.
+// TestClipBashOutputAddsHintWhenClipped 验证过大的命令
+// 输出会在头部获得简短的体量提示，且不干扰被裁剪的
+// 正文或截断标记。
 func TestClipBashOutputAddsHintWhenClipped(t *testing.T) {
 	ctx := context.WithValue(context.Background(), outputLimitKey{}, 512)
 	raw := strings.Repeat("abcdefgh", 512) // 4096 bytes, well over the 512-byte cap
@@ -30,8 +30,8 @@ func TestClipBashOutputAddsHintWhenClipped(t *testing.T) {
 	}
 }
 
-// TestClipBashOutputUsesDefaultLimitHint covers the no-limit-in-context branch:
-// output beyond maxToolOutput must still be hinted.
+// TestClipBashOutputUsesDefaultLimitHint 覆盖 context 中没有限制的分支：
+// 超过 maxToolOutput 的输出仍必须被提示。
 func TestClipBashOutputUsesDefaultLimitHint(t *testing.T) {
 	raw := strings.Repeat("x", maxToolOutput+100)
 	got := clipBashOutput(context.Background(), raw)
@@ -40,8 +40,8 @@ func TestClipBashOutputUsesDefaultLimitHint(t *testing.T) {
 	}
 }
 
-// TestClipBashOutputNoHintWhenSmall verifies that small output is returned
-// byte-for-byte unchanged, with no volume hint.
+// TestClipBashOutputNoHintWhenSmall 验证小输出被
+// 逐字节原样返回，且没有体量提示。
 func TestClipBashOutputNoHintWhenSmall(t *testing.T) {
 	ctx := context.WithValue(context.Background(), outputLimitKey{}, 512)
 	const raw = "short output\n"
@@ -54,8 +54,8 @@ func TestClipBashOutputNoHintWhenSmall(t *testing.T) {
 	}
 }
 
-// TestBashOutputTokensCoversWideAndNarrowRunes verifies the lightweight estimate:
-// CJK runes count as one token each, other runes follow chars/4 (rounded up).
+// TestBashOutputTokensCoversWideAndNarrowRunes 验证这个轻量估算：
+// CJK rune 每个算一个 token，其他 rune 按 chars/4（向上取整）。
 func TestBashOutputTokensCoversWideAndNarrowRunes(t *testing.T) {
 	cases := []struct {
 		name string
@@ -78,8 +78,8 @@ func TestBashOutputTokensCoversWideAndNarrowRunes(t *testing.T) {
 	}
 }
 
-// TestClipBashOutputHintUsesCJKEstimate verifies the hint reflects the CJK-aware
-// estimate rather than a naive byte/4 or rune/4 count.
+// TestClipBashOutputHintUsesCJKEstimate 验证提示反映的是 CJK 感知的
+// 估算，而非朴素的 byte/4 或 rune/4 计数。
 func TestClipBashOutputHintUsesCJKEstimate(t *testing.T) {
 	ctx := context.WithValue(context.Background(), outputLimitKey{}, 256)
 	raw := strings.Repeat("中", 2000) // 2000 wide runes => ~2.0k tokens
@@ -91,16 +91,16 @@ func TestClipBashOutputHintUsesCJKEstimate(t *testing.T) {
 	}
 }
 
-// TestBashClippedOutputPreservesExitStatus verifies the text-only enhancement
-// did not change exit-status handling: a non-zero exit still yields an error,
-// and the (clipped) output still carries the hint.
+// TestBashClippedOutputPreservesExitStatus 验证纯文本增强
+// 没有改变退出状态处理：非零退出仍产生错误，
+// 且（被裁剪的）输出仍带有提示。
 func TestBashClippedOutputPreservesExitStatus(t *testing.T) {
 	path, _ := shellInvocation("")
 	if path == "cmd" {
 		t.Skip("portable status command requires a POSIX shell")
 	}
-	// Some Windows installs expose a WindowsApps bash.exe stub that is not a
-	// usable shell; the tool cannot run any command through it.
+	// 某些 Windows 安装会暴露一个 WindowsApps bash.exe 存根，它不是
+	// 可用的 shell；工具无法通过它运行任何命令。
 	if resolved, err := exec.LookPath(path); err == nil && strings.Contains(resolved, "WindowsApps") {
 		t.Skip("bash resolves to the WindowsApps stub, not a real shell")
 	}

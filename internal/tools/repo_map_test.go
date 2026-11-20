@@ -46,8 +46,8 @@ func TestRepoMapListsDirsFilesAndEntryPoints(t *testing.T) {
 
 func TestRepoMapPinsImportantFilesWhenCrowdedOut(t *testing.T) {
 	root := t.TempDir()
-	// 100 filler files in a directory that sorts before the important ones,
-	// so a naive "first 80 walked files" cap would drop everything under zz/.
+	// 在排序上位于重要文件之前的目录中放 100 个填充文件，
+	// 因此朴素的"前 80 个遍历到的文件"上限会丢掉 zz/ 下的所有内容。
 	for i := 0; i < 100; i++ {
 		writeFile(t, root, fmt.Sprintf("aaa/f%03d.txt", i), "filler\n")
 	}
@@ -69,8 +69,8 @@ func TestRepoMapPinsImportantFilesWhenCrowdedOut(t *testing.T) {
 			t.Fatalf("repo_map missing %q under a tight file budget:\n%s", want, out)
 		}
 	}
-	// Important files are pinned to the front even though their paths sort
-	// after the ordinary filler files.
+	// 重要文件固定在最前面，即使它们的路径排序
+	// 在普通填充文件之后。
 	firstImportant := strings.Index(out, "zz/README.md")
 	firstOrdinary := strings.Index(out, "aaa/f000.txt")
 	if firstImportant < 0 || firstOrdinary < 0 || firstImportant > firstOrdinary {
@@ -86,7 +86,7 @@ func TestRepoMapSymbolOrderingUnchangedByImportantPinning(t *testing.T) {
 
 	registry := tools.New(root, true)
 
-	// An exact mention still wins regardless of the important-file pinning.
+	// 精确提及仍然胜出，不受重要文件置顶的影响。
 	mentioned := mustRun(t, registry, "repo_map", `{"mention":"Other"}`)
 	other := strings.Index(mentioned, "[func] ordinary.go:3 Other")
 	helper := strings.Index(mentioned, "[func] main.go:3 Helper")
@@ -94,7 +94,7 @@ func TestRepoMapSymbolOrderingUnchangedByImportantPinning(t *testing.T) {
 		t.Fatalf("exact mention should rank Other above Helper:\n%s", mentioned)
 	}
 
-	// Without a mention, the entry-point base-score boost still applies.
+	// 没有提及词时，入口点的基础分提升仍然生效。
 	plain := mustRun(t, registry, "repo_map", `{}`)
 	helper = strings.Index(plain, "[func] main.go:3 Helper")
 	other = strings.Index(plain, "[func] ordinary.go:3 Other")

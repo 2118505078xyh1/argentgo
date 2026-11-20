@@ -61,7 +61,7 @@ func TestContextPackMultiFileTargetLast(t *testing.T) {
 	contextPackWrite(t, root, "b.go", "B")
 	contextPackWrite(t, root, "anchor.go", "Z")
 
-	// Explicit files are reordered deterministically; the anchor stays last.
+	// 显式文件会按确定性规则重排；锚点保持在最后。
 	out := contextPackRun(t, root, `{"target":"anchor.go","files":["b.go","a.go"]}`)
 	want := "## a.go ##\nA\n## b.go ##\nB\n## anchor.go ##\nZ"
 	if out != want {
@@ -89,7 +89,7 @@ func TestContextPackTargetGapWindow(t *testing.T) {
 		t.Fatalf("window leaked lines outside [3,7]: %q", out)
 	}
 
-	// Per-side caps apply independently: 9999 clamps to 200 on each side.
+	// 每侧上限独立生效：9999 在每侧钳制到 200。
 	var big strings.Builder
 	for i := 1; i <= 500; i++ {
 		fmt.Fprintf(&big, "L%03d\n", i)
@@ -103,8 +103,8 @@ func TestContextPackTargetGapWindow(t *testing.T) {
 		t.Fatalf("window exceeded the 200-line cap: %q", out)
 	}
 
-	// A line past EOF yields an empty body but still names the anchor. Use a
-	// fresh root so sibling files do not appear ahead of the target.
+	// 超出 EOF 的行会产生空正文但仍命名锚点。使用
+	// 新的 root，使同级文件不会出现在目标之前。
 	smallRoot := t.TempDir()
 	contextPackWrite(t, smallRoot, "short.go", "one\ntwo\nthree\n")
 	out = contextPackRun(t, smallRoot, `{"target":"short.go","files":[],"line":99,"before":1,"after":1}`)
@@ -133,7 +133,7 @@ func TestContextPackByteBudgetTruncation(t *testing.T) {
 		t.Fatalf("a non-fitting block was partially emitted: %q", out)
 	}
 
-	// With room for the whole CJK block the content is verbatim, no marker.
+	// 有足够空间容纳整个 CJK 块时，内容逐字保留，无标记。
 	exact := len("## a.txt ##\nhello") + 1 + len("## z.txt ##\n"+cjk)
 	out = contextPackRun(t, root, fmt.Sprintf(`{"target":"z.txt","files":["a.txt"],"budget_bytes":%d}`, exact))
 	if !strings.Contains(out, cjk) || strings.Contains(out, "[truncated") {
@@ -146,14 +146,14 @@ func TestContextPackExplicitEmptyFilesSuppressesAutoSelection(t *testing.T) {
 	contextPackWrite(t, root, "anchor.txt", "ANCHOR")
 	contextPackWrite(t, root, "sibling.txt", "SIBLING")
 
-	// An explicitly supplied empty list is an override meaning "no other
-	// files": it must not fall back to auto-selecting the target's siblings.
+	// 显式提供的空列表是一个覆盖，表示"没有其他
+	// 文件"：它不得回退到自动选择目标的同级文件。
 	out := contextPackRun(t, root, `{"target":"anchor.txt","files":[]}`)
 	if out != "## anchor.txt ##\nANCHOR" {
 		t.Fatalf("empty files override = %q, want only the anchor block", out)
 	}
 
-	// Omitting the field still selects siblings automatically.
+	// 省略该字段仍会自动选择同级文件。
 	out = contextPackRun(t, root, `{"target":"anchor.txt"}`)
 	if !strings.Contains(out, "## sibling.txt ##") {
 		t.Fatalf("omitted files should auto-select the sibling: %q", out)
@@ -164,10 +164,10 @@ func TestContextPackPathEscapeRejected(t *testing.T) {
 	root := t.TempDir()
 	contextPackWrite(t, root, "ok.txt", "ok")
 
-	// Use a platform-appropriate absolute path outside the workspace: on
-	// Windows drive-qualified paths are absolute, on POSIX a leading slash is.
-	// The literal "C:/Windows/win.ini" is NOT absolute on Linux, so it must not
-	// be used as a cross-platform escape fixture.
+	// 使用工作区外平台适用的绝对路径：在
+	// Windows 上带盘符的路径是绝对路径，在 POSIX 上前导斜杠才是。
+	// 字面量 "C:/Windows/win.ini" 在 Linux 上并非绝对路径，因此不能
+	// 用作跨平台的越界夹具。
 	absOutside := "/etc/passwd"
 	if runtime.GOOS == "windows" {
 		absOutside = `C:\Windows\win.ini`
@@ -308,7 +308,7 @@ func TestContextPackBudgetCaps(t *testing.T) {
 		}
 	}
 
-	// End-to-end: a big target with the default budget stays bounded.
+	// 端到端：默认预算下的大目标仍保持有界。
 	root := t.TempDir()
 	contextPackWrite(t, root, "big.txt", strings.Repeat("a", 20000))
 	out := contextPackRun(t, root, `{"target":"big.txt","files":[],"budget_bytes":0}`)

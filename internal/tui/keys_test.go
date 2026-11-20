@@ -139,9 +139,9 @@ func TestDecoderReadsAltEnterAndPaste(t *testing.T) {
 
 func TestDecoderRecoversFromLostPasteEndMarker(t *testing.T) {
 	decoder := &Decoder{}
-	// A bracketed-paste opener whose terminator never arrives must not buffer
-	// forever or swallow every following key. Past the cap the decoder drops
-	// the ESC and re-decodes the accumulated bytes as ordinary input.
+	// 起始符永不结束的括号粘贴不得无限缓冲
+	// 或吞掉其后每个按键。超过上限后解码器丢弃
+	// ESC 并把累积的字节作为普通输入重新解码。
 	payload := strings.Repeat("x", maxPasteBytes+1)
 	keys := decoder.Feed(append([]byte("\x1b[200~"), []byte(payload)...))
 	if len(keys) == 0 {
@@ -150,7 +150,7 @@ func TestDecoderRecoversFromLostPasteEndMarker(t *testing.T) {
 	if decoder.Pending() {
 		t.Fatalf("the buffer was not drained after recovery: %d bytes", len(decoder.buf))
 	}
-	// Normal keys must be delivered again once the decoder has recovered.
+	// 解码器恢复后，普通按键必须能再次送达。
 	more := decoder.Feed([]byte("\r"))
 	if len(more) != 1 || more[0].Kind != KindEnter {
 		t.Fatalf("keys after recovery = %#v, want Enter", more)
@@ -158,8 +158,8 @@ func TestDecoderRecoversFromLostPasteEndMarker(t *testing.T) {
 }
 
 func TestDecoderKeepsLargeCompletePaste(t *testing.T) {
-	// The cap applies only to a missing terminator: a legitimate large paste
-	// that is properly closed is still delivered intact as a single key.
+	// 上限只适用于缺失结束符的情况：正确闭合的
+	// 大型粘贴仍作为单个按键完整送达。
 	decoder := &Decoder{}
 	body := strings.Repeat("y", 4096)
 	keys := decoder.Feed(append(append([]byte("\x1b[200~"), []byte(body)...), []byte("\x1b[201~")...))

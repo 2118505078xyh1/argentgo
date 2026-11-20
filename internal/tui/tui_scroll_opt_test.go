@@ -98,9 +98,9 @@ func TestScrollTranscriptSaturates(t *testing.T) {
 	}
 }
 
-// TestScrollTranscriptBounds is a property check: no combination of stale
-// offset, delta, total or viewport can produce an out-of-range result, even
-// when the transcript is shorter than the viewport.
+// TestScrollTranscriptBounds 是一个属性检查：任何陈旧的
+// 偏移、delta、total 或 viewport 组合都不会产生越界结果，即使
+// 记录比视口还短。
 func TestScrollTranscriptBounds(t *testing.T) {
 	for total := -2; total <= 30; total++ {
 		for viewport := -2; viewport <= 12; viewport++ {

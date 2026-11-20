@@ -8,25 +8,20 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// tuiEventBridgeCap is the buffer in front of the TUI event loop. run.go drains
-// it on every frame; a full buffer means the UI is genuinely behind, so single
-// events are dropped instead of stalling the shared hub (which would evict this
-// subscriber and lose the rest of the stream).
+// tuiEventBridgeCap 是 TUI 事件循环前面的缓冲区。run.go 每帧都会抽取它；缓冲区满意味着
+// UI 确实落后了，因此丢弃单个事件，而不是拖住共享 hub（那会淘汰这个订阅者并丢失后续流）。
 const tuiEventBridgeCap = 256
 
-// AgentToTUIEvent converts one agent event into the frontend-facing subset the
-// full-screen UI consumes. internal/tui.EventKind mirrors the two tool kinds,
-// error and retry (see internal/tui/events.go); there is no text, notice, usage
-// or approval kind, so those events have no TUI mapping and return false.
+// AgentToTUIEvent 把一个 agent 事件转换为全屏 UI 消费的、面向前端的子集。
+// internal/tui.EventKind 对应两种工具事件、错误和重试（见 internal/tui/events.go）；
+// 没有文本、通知、用量或审批种类，因此这些事件没有 TUI 映射，返回 false。
 //
-// Text deltas reach the TUI through Execute's onText callback, not this channel.
-// Approval cards are created by Model.Approve (called by the app's Approver) and
-// are promoted in place when the matching tool_start arrives; emitting a
-// synthetic TUI event for an approval notice would mark the card running before
-// the operator had answered. ParseApprovalEvent is used to recognise those
-// notices explicitly so they can be skipped on purpose rather than by accident.
+// 文本增量通过 Execute 的 onText 回调到达 TUI，而不是这个通道。审批卡片由 Model.Approve 创建
+// （由 app 的 Approver 调用），并在匹配的 tool_start 到达时就地提升；
+// 为一条审批通知发出合成的 TUI 事件，会在操作人员回答之前就把卡片标记为运行中。
+// 这里用 ParseApprovalEvent 显式识别这些通知，使它们被有意跳过，而非意外跳过。
 //
-// A false result is safe to ignore: HandleEvent ignores unknown kinds anyway.
+// 返回 false 可以安全忽略：HandleEvent 本来就会忽略未知种类。
 func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	switch e.Kind {
 	case agent.EventToolStart:
@@ -47,15 +42,12 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 			DurationMS: e.DurationMS,
 		}, true
 	case agent.EventError:
-		// EventError was added to tui.EventKind for exactly this copy: Detail
-		// carries the agent's already-redacted error text.
+		// EventError 被加入 tui.EventKind 正是为了这次拷贝：Detail 携带 agent 已经脱敏的错误文本。
 		return tui.Event{Kind: tui.EventError, Detail: e.Err}, true
 	case agent.EventRetry:
-		// EventRetry is live backoff feedback. RetryInfo is wire-safe: Reason
-		// is a closed decision token (never free-form provider text), and the
-		// TUI redacts it again when rendering RetryNotice. A producer that
-		// builds an EventRetry without the payload has nothing to show, so
-		// drop it rather than fabricate an empty countdown.
+		// EventRetry 是实时的退避反馈。RetryInfo 可安全上线传输：Reason 是封闭的决定标记
+		// （绝不是自由格式的提供方文本），且 TUI 在渲染 RetryNotice 时会再次脱敏。
+		// 构造 EventRetry 时没有负载的生产者没有内容可显示，因此丢弃它，而不是编造一个空的倒计时。
 		if e.Retry == nil {
 			return tui.Event{}, false
 		}
@@ -67,9 +59,8 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 			RetryWaitMS:  e.Retry.DelayMS,
 		}, true
 	case agent.EventNotice:
-		// Approval request/resolution notices ride the ordinary event stream for
-		// the native and SSE transports. They have no TUI EventKind, and the
-		// approval card is already rendered by Model.Approve, so skip them here.
+		// 审批请求/解决通知为原生和 SSE 传输走普通事件流。它们没有 TUI EventKind，
+		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
 		if kind, _, _, _, ok := agent.ParseApprovalEvent(e); ok && kind != "" {
 			return tui.Event{}, false
 		}
@@ -79,11 +70,9 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	}
 }
 
-// StartTUIEventBridge subscribes to hub and forwards mapped events into a
-// buffered channel suitable for tui.Options.Events. It stops when ctx is done
-// or the hub subscription ends, closing the returned channel exactly once.
-// The send into out is non-blocking: a slow TUI drops events rather than
-// stalling the hub read loop.
+// StartTUIEventBridge 订阅 hub，并把映射后的事件转发到一个适合 tui.Options.Events 的缓冲通道。
+// ctx 结束或 hub 订阅结束时它停止，且恰好关闭返回的通道一次。
+// 向 out 的发送是非阻塞的：缓慢的 TUI 会丢弃事件，而不是拖住 hub 读取循环。
 func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.Event {
 	out := make(chan tui.Event, tuiEventBridgeCap)
 	go func() {
@@ -110,7 +99,7 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 				case <-ctx.Done():
 					return
 				default:
-					// Slow consumer: drop this event, keep draining the hub.
+					// 消费者缓慢：丢弃此事件，继续抽取 hub。
 				}
 			}
 		}
@@ -118,9 +107,8 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 	return out
 }
 
-// TUIEventPipeline is the bundle the full-screen host needs to feed real agent
-// events to the frontend: the channel for tui.Options.Events, the sink attached
-// to each run context, and a cancel function that shuts both bridges down.
+// TUIEventPipeline 是全屏宿主把真实 agent 事件喂给前端所需的组合：
+// tui.Options.Events 的通道、附着到每次运行 context 上的接收器，以及关闭两条桥接器的 cancel 函数。
 type TUIEventPipeline struct {
 	Events <-chan tui.Event
 	Emit   func(agent.Event)
@@ -128,11 +116,10 @@ type TUIEventPipeline struct {
 	cancel context.CancelFunc
 }
 
-// NewTUIEventPipeline creates a private event hub, wires an emitter into it and
-// starts the converter bridge. The TUI host calls Execute directly rather than
-// going through a cli.Runner, so it has no runner EventHub to borrow; this is
-// the same kind of hub app.Factory gives a runner. Each prompt attaches Emit to
-// its run context with withEventEmit so Execute's Emit callback publishes here.
+// NewTUIEventPipeline 创建一个私有事件 hub，把发出器接入其中，并启动转换桥接器。
+// TUI 宿主直接调用 Execute，而不是通过 cli.Runner，因此没有可借用的运行器 EventHub；
+// 这与 app.Factory 给运行器的 hub 是同一种。每次提示用 withEventEmit 把 Emit 附到其运行 context 上，
+// 使 Execute 的 Emit 回调向这里发布。
 func NewTUIEventPipeline(ctx context.Context) *TUIEventPipeline {
 	bridgeCtx, cancel := context.WithCancel(ctx)
 	hub := NewEventHub()
@@ -144,5 +131,5 @@ func NewTUIEventPipeline(ctx context.Context) *TUIEventPipeline {
 	}
 }
 
-// Stop cancels the bridges; the Events channel closes as a result.
+// Stop 取消桥接器；由此 Events 通道会关闭。
 func (p *TUIEventPipeline) Stop() { p.cancel() }

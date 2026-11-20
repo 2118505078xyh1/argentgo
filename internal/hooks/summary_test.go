@@ -74,8 +74,8 @@ func TestPendingEventSummaryNilConfig(t *testing.T) {
 }
 
 func TestPendingEventSummaryProgrammaticEventsSortedLast(t *testing.T) {
-	// Unknown events are skipped by the document parser but may be set by
-	// programmatic callers; they must still appear in a deterministic order.
+	// 名和文件路径可以携带字面 '*'，因此无条件把模式中的 '*' 当作通配符。
+	// 未知事件被文档解析器跳过，但可由编程调用方设置；它们仍必须以确定的顺序出现。
 	config := &Config{Commands: []Command{
 		{Event: "Zeta", Command: "echo z"},
 		{Event: PreToolUse, Command: "echo pre"},

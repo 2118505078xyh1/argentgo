@@ -2,11 +2,10 @@ package security
 
 import "testing"
 
-// TestWildcardMatchMalformedPatternNeverMatches guards the documented contract
-// that a malformed pattern never matches. The '*' prefix fallback used to run
-// even when path.Match reported ErrBadPattern, so a typo like "[*" still
-// matched every subject starting with "[" - silently turning a rule into an
-// unintended allow.
+// TestWildcardMatchMalformedPatternNeverMatches 守护"格式错误的模式永不匹配"这一
+// 文档化契约。'*' 前缀回退过去即使 path.Match 报告 ErrBadPattern 也会运行，因此像
+// "[*" 这样的拼写错误仍会匹配所有以 "[" 开头的主体 —— 悄悄把规则变成非预期的
+// allow。
 func TestWildcardMatchMalformedPatternNeverMatches(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -27,11 +26,10 @@ func TestWildcardMatchMalformedPatternNeverMatches(t *testing.T) {
 	}
 }
 
-// TestWildcardMatchWindowsSeparators verifies that rules written with Windows
-// path separators match the paths they name. path.Match treats '\' as an escape
-// on every platform, so without normalisation an exact rule like
-// "C:\Windows\System32" did not even match the identical subject, and a
-// "dir\file?.txt" rule could never match "dir\file1.txt".
+// TestWildcardMatchWindowsSeparators 验证用 Windows 路径分隔符编写的规则能匹配它们
+// 所命名的路径。path.Match 在每个平台上都把 '\' 当作转义符，因此没有规范化时，
+// 像 "C:\Windows\System32" 这样的精确规则甚至匹配不上完全相同的主体，而
+// "dir\file?.txt" 规则永远无法匹配 "dir\file1.txt"。
 func TestWildcardMatchWindowsSeparators(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -55,9 +53,8 @@ func TestWildcardMatchWindowsSeparators(t *testing.T) {
 	}
 }
 
-// TestWildcardMatchValidPatternsUnchanged is a regression guard: the malformed
-// and platform fixes must not alter the behaviour of well-formed patterns,
-// including the trailing-'*' prefix fallback that crosses separators.
+// TestWildcardMatchValidPatternsUnchanged 是回归守护：格式错误和平台相关的修复不得
+// 改变良构模式的行为，包括跨越分隔符的尾部 '*' 前缀回退。
 func TestWildcardMatchValidPatternsUnchanged(t *testing.T) {
 	cases := []struct {
 		pattern string

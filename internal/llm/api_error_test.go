@@ -17,7 +17,7 @@ func TestClassifyAPIErrorFamilies(t *testing.T) {
 		name string
 		err  error
 		want string
-		step string // substring expected in NextStep
+		step string // NextStep 中预期的子串
 	}{
 		{"not configured", errors.New("provider not configured: no api key"), llm.FamilyNotConfigured, "login"},
 		{"auth 401", errors.New("provider returned 401 Unauthorized: invalid api key"), llm.FamilyAuth, "登录"},
@@ -59,12 +59,12 @@ func TestClassifyAPIErrorFamilies(t *testing.T) {
 	}
 }
 
-// TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord covers replies that
-// mention a quota/billing word while actually describing a transient rate
-// limit. quotaRE runs before rateLimitRE, so a bare "配额"/"额度"/"billing"
-// match would classify them as hard quota (non-retryable, settings action) and
-// stop the caller from retrying. Retry.go deliberately treats the same wording
-// as retryable; ClassifyAPIError must agree.
+// TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord 覆盖这样的回复：
+// 它提到配额/计费词，但实际描述的是短暂的限流。
+// quotaRE 在 rateLimitRE 之前运行，因此裸的 "配额"/"额度"/"billing"
+// 匹配会把它们归类为硬性配额（不可重试、路由到设置），并
+// 阻止调用方重试。Retry.go 有意把相同措辞视为
+// 可重试；ClassifyAPIError 必须保持一致。
 func TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord(t *testing.T) {
 	rateLimits := []string{
 		"请求过于频繁，配额将在30秒后重置",
@@ -85,9 +85,9 @@ func TestClassifyAPIErrorRateLimitNotShadowedByQuotaWord(t *testing.T) {
 		})
 	}
 
-	// Explicit hard limits must still win even though they carry the same
-	// words; the fix must not turn real quota exhaustion into a retryable rate
-	// limit.
+	// 显式的硬性限制仍必须胜出，即使它们带有
+	// 相同的词；该修复不得把真正的配额耗尽
+	// 变成可重试的限流。
 	hardQuotas := []string{
 		"配额已用尽",
 		"额度不足，请充值",
@@ -131,8 +131,8 @@ func TestClassifyAPIErrorRedactsCredentials(t *testing.T) {
 }
 
 func TestClassifyAPIErrorRedactsBeforeMatching(t *testing.T) {
-	// The secret contains quota wording; if classification ran on raw text it
-	// would falsely report quota_exhausted instead of the 5xx server failure.
+	// 该密钥含有配额措辞；若分类在原始文本上运行，
+	// 会错误地报告 quota_exhausted，而非 5xx 服务器失败。
 	err := errors.New("provider returned 500 Internal Server Error: api_key=quota_exhausted_value_1234567890")
 	got := llm.ClassifyAPIError(err)
 	if got == nil || got.Family != llm.FamilyServer {
@@ -172,9 +172,9 @@ func TestClassifyAPIErrorBoundsMessage(t *testing.T) {
 }
 
 func TestClassifyAPIErrorContextOverflowProviders(t *testing.T) {
-	// Each message is a real-world provider wording for an input/context that
-	// exceeds the model window. All must map to the new family so callers can
-	// react with compaction instead of a passive failure.
+	// 每条消息都是真实世界中表示输入/上下文超出模型窗口的提供方措辞。
+	// 它们都必须映射到新家族，使调用方
+	// 能通过压缩来响应，而不是被动失败。
 	cases := []struct {
 		name string
 		err  error
@@ -208,9 +208,9 @@ func TestClassifyAPIErrorContextOverflowProviders(t *testing.T) {
 }
 
 func TestClassifyAPIErrorContextOverflowDoesNotShadowOtherFamilies(t *testing.T) {
-	// Adding the new family must not change any existing classification. A
-	// stronger signal keeps its family, and generic length/limit wording is not
-	// mistaken for a context-window overflow.
+	// 添加新家族不得改变任何现有的分类。更强的
+	// 信号保留其家族，通用的长度/限制措辞也不会
+	// 被误认为上下文窗口溢出。
 	cases := []struct {
 		name string
 		err  error
@@ -231,8 +231,8 @@ func TestClassifyAPIErrorContextOverflowDoesNotShadowOtherFamilies(t *testing.T)
 		})
 	}
 
-	// Output-token caps and payload-size limits are not context-window overflow:
-	// compaction would not fix them, so they must not be captured by the pattern.
+	// 输出 token 上限和载荷大小限制不是上下文窗口溢出：
+	// 压缩无法解决它们，因此它们不得被该模式捕获。
 	notOverflow := []error{
 		errors.New("provider returned 400 Bad Request: maximum output tokens exceeded, reduce max_tokens"),
 		errors.New("request payload is too large"),
@@ -247,8 +247,8 @@ func TestClassifyAPIErrorContextOverflowDoesNotShadowOtherFamilies(t *testing.T)
 }
 
 func TestClassifyAPIErrorContextOverflowRedactsAndBounds(t *testing.T) {
-	// A credential that happens to sit next to overflow wording is redacted
-	// before both classification and display; a CJK message stays rune-safe.
+	// 恰好位于溢出措辞旁的凭据会在分类和显示之前
+	// 被脱敏；CJK 消息保持字符安全。
 	err := errors.New("prompt is too long: api_key=sk-abcdefghijklmnop context window exceeded user@example.com")
 	got := llm.ClassifyAPIError(err)
 	if got == nil || got.Family != llm.FamilyContextOverflow {

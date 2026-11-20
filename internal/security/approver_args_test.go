@@ -45,13 +45,13 @@ func TestReadableArgsStripsANSIAndControlBytes(t *testing.T) {
 }
 
 func TestReadableArgsTruncatesOnRuneBoundary(t *testing.T) {
-	// 401 CJK runes (3 bytes each); the cut must not split the 401st rune.
+	// 401 个中日韩 rune（每个 3 字节）；截断不得切开第 401 个 rune。
 	args := strings.Repeat("界", 401)
 	got := readableArgs(args)
 	if !utf8.ValidString(got) {
 		t.Fatalf("truncated args are not valid UTF-8: %q", got)
 	}
-	if n := utf8.RuneCountInString(got); n != 401 { // 400 kept + ellipsis
+	if n := utf8.RuneCountInString(got); n != 401 { // 保留 400 个 + 省略号
 		t.Fatalf("got %d runes, want 401 (400 + ellipsis)", n)
 	}
 	if !strings.HasSuffix(got, "…") {

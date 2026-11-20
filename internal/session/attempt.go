@@ -9,8 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// Attempt reasons recorded as append-only audit records. They never enter the
-// model-visible message history.
+// Attempt 原因记录为仅追加的审计记录。它们永远不会进入模型可见的消息历史。
 const (
 	AttemptFailed      = "failed"
 	AttemptRetried     = "retried"
@@ -18,9 +17,8 @@ const (
 	AttemptStreamError = "stream_error"
 )
 
-// Attempt is the payload of a kind:"attempt" record. Error text is redacted
-// before it is written; only the committed messages are reconstructed as model
-// history.
+// Attempt 是 kind:"attempt" 记录的载荷。错误文本在写入前会被脱敏；
+// 只有已提交的消息会被重建为模型历史。
 type Attempt struct {
 	Reason        string    `json:"reason"`
 	Message       string    `json:"message,omitempty"`
@@ -31,9 +29,8 @@ type Attempt struct {
 	TS            time.Time `json:"-"`
 }
 
-// NewAttempt builds an attempt record from an error. A nil error records just
-// the reason; a non-nil error contributes a redacted message and its Go type as
-// a stable error class.
+// NewAttempt 根据错误构建一条尝试记录。nil 错误只记录原因；
+// 非 nil 错误会贡献一条脱敏后的消息及其 Go 类型作为稳定的错误类别。
 func NewAttempt(reason string, err error) Attempt {
 	attempt := Attempt{Reason: strings.TrimSpace(reason)}
 	if err == nil {
@@ -44,7 +41,7 @@ func NewAttempt(reason string, err error) Attempt {
 	return attempt
 }
 
-// AppendAttempt records one attempt and returns the stored record.
+// AppendAttempt 记录一次尝试并返回存储的记录。
 func (s *Session) AppendAttempt(attempt Attempt) (Record, error) {
 	attempt.Reason = strings.TrimSpace(attempt.Reason)
 	if attempt.Reason == "" {
@@ -58,13 +55,13 @@ func (s *Session) AppendAttempt(attempt Attempt) (Record, error) {
 	return s.AppendRecord(KindAttempt, attempt)
 }
 
-// RecordAttemptError is the error-shaped convenience wrapper around
-// AppendAttempt, used by callers that only have an error to report.
+// RecordAttemptError 是 AppendAttempt 的错误形式便捷包装，
+// 供只有错误需要报告的调用方使用。
 func (s *Session) RecordAttemptError(reason string, err error) (Record, error) {
 	return s.AppendAttempt(NewAttempt(reason, err))
 }
 
-// Attempts lists the attempt records on the active branch, oldest first.
+// Attempts 列出活动分支上的尝试记录，最早的在前。
 func (s *Session) Attempts() ([]Attempt, error) {
 	records, err := s.Records()
 	if err != nil {
@@ -85,7 +82,7 @@ func (s *Session) Attempts() ([]Attempt, error) {
 	return out, nil
 }
 
-// Snippet is the short, redacted text used by tree and export views.
+// Snippet 是树视图和导出视图使用的简短脱敏文本。
 func (a Attempt) Snippet() string {
 	if text := truncateRunes(a.Message, 60); text != "" {
 		return text
@@ -96,28 +93,26 @@ func (a Attempt) Snippet() string {
 	return a.Reason
 }
 
-// kindProgress is the record kind for durable assistant-progress checkpoints.
-// The other record Kind constants live in session.go, which this change does
-// not own, so the progress kind is deliberately kept local to this file.
+// kindProgress 是持久的 assistant 进度检查点所对应的记录 kind。
+// 其他记录 Kind 常量位于 session.go，本次改动不拥有该文件，
+// 因此进度 kind 被刻意保留在本文件内。
 const kindProgress = "progress"
 
-// Bounds for one progress checkpoint. A checkpoint is written after every
-// streamed chunk or tool batch, so records must stay small. Limits are in runes
-// (not bytes) so a multi-byte UTF-8 rune is never cut in half.
+// 单个进度检查点的上限。每收到一个流式块或工具批次后都会写入检查点，
+// 因此记录必须保持很小。限制以符文（而非字节）为单位，
+// 确保多字节 UTF-8 符文永远不会被从中间切断。
 const (
-	maxProgressTextRunes = 8 << 10 // 8 KiB of assistant text per checkpoint
-	maxProgressToolCalls = 64      // tool calls kept per checkpoint
-	maxProgressToolRunes = 256     // characters kept per tool call name/argument
+	maxProgressTextRunes = 8 << 10 // 每个检查点保留 8 KiB 的 assistant 文本
+	maxProgressToolCalls = 64      // 每个检查点保留的工具调用数
+	maxProgressToolRunes = 256     // 每个工具调用名称/参数保留的字符数
 )
 
-// Progress is the payload of a kind:"progress" record: committed progress
-// WITHIN a turn, so a crash mid-run can resume from the last checkpoint rather
-// than only from the last complete assistant message. Like Attempt, it is a
-// durability/audit record and is never rebuilt into model-visible history.
+// Progress 是 kind:"progress" 记录的载荷：记录一个轮次之内已提交的进度，
+// 使运行中途崩溃时可以从最后一个检查点恢复，而不只是从最后一条完整的 assistant 消息恢复。
+// 与 Attempt 一样，它是持久性/审计记录，永远不会被重建为模型可见的历史。
 //
-// Turn is 1-based and should match the turn the assistant reply belongs to.
-// TS is filled from the enclosing record on read; the stored value is just a
-// convenience for callers that construct a Progress directly.
+// Turn 从 1 开始，应与 assistant 回复所属的轮次匹配。
+// TS 在读取时由外层记录填充；存储的值只是为直接构造 Progress 的调用方提供便利。
 type Progress struct {
 	Turn          int       `json:"turn"`
 	AssistantText string    `json:"assistantText,omitempty"`
@@ -125,7 +120,7 @@ type Progress struct {
 	TS            time.Time `json:"ts"`
 }
 
-// capProgressRunes clips text to limit runes without otherwise changing it.
+// capProgressRunes 将文本裁剪到 limit 个符文，其他方面不做改动。
 func capProgressRunes(text string, limit int) string {
 	if limit <= 0 {
 		return ""
@@ -137,10 +132,9 @@ func capProgressRunes(text string, limit int) string {
 	return string(runes[:limit])
 }
 
-// sanitizeProgress bounds and redacts a progress payload before it reaches the
-// transcript. Redaction runs before truncation so a credential that straddles
-// the cap can never survive as a partially-cut secret. Tool calls are bounded
-// in both count and length to keep a single record small.
+// sanitizeProgress 在进度载荷写入转录之前限制大小并脱敏。脱敏在截断之前进行，
+// 这样跨越上限的凭据就不会以被切断的部分形式残留。工具调用在数量和长度上都受限，
+// 以保持单条记录很小。
 func sanitizeProgress(p Progress) Progress {
 	p.AssistantText = capProgressRunes(security.Redact(p.AssistantText), maxProgressTextRunes)
 	if len(p.ToolCalls) > maxProgressToolCalls {
@@ -154,16 +148,16 @@ func sanitizeProgress(p Progress) Progress {
 	return p
 }
 
-// AppendProgress appends one durable progress checkpoint via the normal append
-// path and returns an error only when the record could not be written. The
-// payload is redacted and bounded first, so callers may pass raw streamed text.
+// AppendProgress 通过普通追加路径追加一个持久的进度检查点，
+// 仅在记录无法写入时返回错误。载荷会先被脱敏和限制大小，
+// 因此调用方可以传入原始的流式文本。
 func (s *Session) AppendProgress(p Progress) error {
 	_, err := s.AppendRecord(kindProgress, sanitizeProgress(p))
 	return err
 }
 
-// progressScope returns the records a progress query should scan: the active
-// branch when one is resolvable, otherwise every record in file order.
+// progressScope 返回进度查询应扫描的记录：可解析时返回活动分支，
+// 否则按文件顺序返回所有记录。
 func progressScope(s *Session, records []Record) []Record {
 	if path := s.activePath(records); len(path) > 0 {
 		return path
@@ -171,9 +165,8 @@ func progressScope(s *Session, records []Record) []Record {
 	return records
 }
 
-// latestProgressRecord returns the last progress record in a file-ordered
-// slice together with its index, so callers can compare its position with a
-// committed assistant message. The boolean reports whether one was found.
+// latestProgressRecord 返回按文件排序的切片中最后一个进度记录及其索引，
+// 使调用方可以把它与已提交的 assistant 消息比较位置。布尔值报告是否找到了记录。
 func latestProgressRecord(records []Record) (Progress, int, bool) {
 	var found Progress
 	idx := -1
@@ -185,16 +178,15 @@ func latestProgressRecord(records []Record) (Progress, int, bool) {
 		if jsonUnmarshal(record.Data, &p) != nil {
 			continue
 		}
-		p.TS = record.TS // the record timestamp is authoritative on read
+		p.TS = record.TS // 记录的时间戳在读取时具有权威性
 		found, idx = p, i
 	}
 	return found, idx, idx >= 0
 }
 
-// LatestProgress returns the most recent progress checkpoint on the active
-// branch (or the newest record when no active branch can be resolved). The
-// boolean reports whether any checkpoint was found. It is the raw query; use
-// RecoverProgress for staleness-checked crash recovery.
+// LatestProgress 返回活动分支上最新的进度检查点
+// （当无法解析活动分支时返回最新的记录）。布尔值报告是否找到任何检查点。
+// 这是原始查询；如需带过期检查的崩溃恢复，请使用 RecoverProgress。
 func (s *Session) LatestProgress() (Progress, bool) {
 	records, err := s.Records()
 	if err != nil {
@@ -204,8 +196,8 @@ func (s *Session) LatestProgress() (Progress, bool) {
 	return progress, ok
 }
 
-// ProgressCount reports how many progress checkpoints are stored, including
-// ones on inactive branches. It is intended for tests and metrics.
+// ProgressCount 报告存储了多少个进度检查点，包括非活动分支上的检查点。
+// 它用于测试和指标统计。
 func (s *Session) ProgressCount() int {
 	records, err := s.Records()
 	if err != nil {

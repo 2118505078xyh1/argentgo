@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// wrapStyled wraps the transcript's styled spans. Its breaks must land on
-// grapheme boundaries, the same rule TextWidth/Clip/Wrap use, so a multi-rune
-// emoji is never cut in half (the input box already honoured this rule).
+// wrapStyled 对记录的带样式 span 换行。其断点必须落在
+// 字素边界上，与 TextWidth/Clip/Wrap 使用相同的规则，使多 rune
+// emoji 绝不会被切成两半（输入框已经遵守此规则）。
 func TestWrapStyledKeepsGraphemeClustersIntact(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -51,9 +51,9 @@ func TestWrapStyledKeepsGraphemeClustersIntact(t *testing.T) {
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("wrapStyled(%q, %d) = %q, want %q", tc.text, tc.width, got, tc.want)
 			}
-			// No output row may contain a dangling ZWJ/modifier that would
-			// render as a broken glyph. Reconstructing the input is the real
-			// invariant: wrapping must not add or drop any rune.
+			// 任何输出行都不得包含会渲染成损坏字形的悬空 ZWJ/修饰符。
+			// 重建输入是真正的不变量：
+			// 换行不得添加或丢弃任何 rune。
 			if joined := strings.Join(got, ""); joined != tc.text {
 				t.Fatalf("wrapped rows reconstruct to %q, want %q", joined, tc.text)
 			}
@@ -86,7 +86,7 @@ func TestWrapStyledPreservesStylesAcrossClusters(t *testing.T) {
 	}
 }
 
-// Ordinary text must wrap exactly as before; only grapheme clusters change.
+// 普通文本必须像以前一样换行；只有字素簇改变。
 func TestWrapStyledASCIIWrapUnchanged(t *testing.T) {
 	lines := wrapStyled([]Span{{Text: "alpha beta"}}, 5, "> ", "  ")
 	got := make([]string, len(lines))
@@ -99,8 +99,8 @@ func TestWrapStyledASCIIWrapUnchanged(t *testing.T) {
 	}
 }
 
-// markdownLines drives wrapStyled for normal transcript paragraphs; the emoji
-// must survive the full path, not just the helper.
+// markdownLines 为普通记录段落驱动 wrapStyled；emoji
+// 必须走完整路径，而不只是辅助函数。
 func TestMarkdownLinesKeepZWJEmojiIntact(t *testing.T) {
 	p, _ := paletteFor(ThemeDark)
 	lines := markdownLines("A"+familyZWJ+"B", 3, "", "", p)
@@ -120,10 +120,10 @@ func TestMarkdownLinesKeepZWJEmojiIntact(t *testing.T) {
 	}
 }
 
-// A markdown table must honour the same prefix-adjusted content budget as an
-// ordinary transcript line. markdownLines prepends the "◆ " assistant mark (or
-// its indent) to every rendered row, so handing the full body width to the
-// table renderer used to push the right border past the transcript edge.
+// markdown 表格必须遵守与普通记录行相同的、按前缀调整的内容预算。
+// markdownLines 会给每个渲染行前置 "◆ " 助手标记（或
+// 其缩进），因此把完整正文宽度交给
+// 表格渲染器过去会把右边框推过记录边缘。
 func TestMarkdownLinesTableRespectsPrefixWidth(t *testing.T) {
 	p, _ := paletteFor(ThemeDark)
 	const width = 20
@@ -140,7 +140,7 @@ func TestMarkdownLinesTableRespectsPrefixWidth(t *testing.T) {
 	if got := lines[0].Spans[0].Text; got != "◆ " {
 		t.Fatalf("first row prefix = %q, want the assistant mark", got)
 	}
-	// The block is still a rendered table (divider present), not dropped text.
+	// 该块仍是渲染好的表格（有分隔线），而不是被丢弃的文本。
 	var joined strings.Builder
 	for _, line := range lines {
 		joined.WriteString(line.Text())

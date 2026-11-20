@@ -12,7 +12,7 @@ func TestProjectToolSchema(t *testing.T) {
 		input  string
 		compat ModelCompat
 		want   string
-		exact  bool // compare raw bytes instead of JSON semantics
+		exact  bool // 比较原始字节而非 JSON 语义
 	}{
 		{
 			name:   "none leaves normal schema byte-identical",
@@ -150,7 +150,7 @@ func TestProjectToolSchema(t *testing.T) {
 			} else {
 				assertSchemaJSONEqual(t, got, tt.want)
 			}
-			// Determinism: the same input must always produce the same output.
+			// 确定性：相同输入必须总是产生相同输出。
 			if again := ProjectToolSchema(tt.input, tt.compat); again != got {
 				t.Fatalf("non-deterministic result: first %q, second %q", got, again)
 			}
@@ -163,7 +163,7 @@ func TestFlattenToolSchema(t *testing.T) {
 		name  string
 		input string
 		want  string
-		exact bool // compare raw bytes instead of JSON semantics
+		exact bool // 比较原始字节而非 JSON 语义
 	}{
 		{
 			name:  "invalid JSON is returned as-is",
@@ -297,7 +297,7 @@ func TestFlattenToolSchema(t *testing.T) {
 			} else {
 				assertSchemaJSONEqual(t, got, tt.want)
 			}
-			// Determinism: the same input must always produce the same output.
+			// 确定性：相同输入必须总是产生相同输出。
 			if again := FlattenToolSchema(tt.input); again != got {
 				t.Fatalf("non-deterministic result: first %q, second %q", got, again)
 			}
@@ -308,13 +308,13 @@ func TestFlattenToolSchema(t *testing.T) {
 func TestFlattenIsOptInAndComposes(t *testing.T) {
 	input := `{"type":"integer","allOf":[{"minimum":0}],"properties":{"x":{"enum":["a","b"]}}}`
 
-	// The existing projection must stay byte-for-byte in charge of its own
-	// behavior: ProjectToolSchema never flattens, even with CompatAll.
+	// 现有投影必须逐字节保持对自己行为的完全掌控：
+	// ProjectToolSchema 绝不扁平化，即使使用 CompatAll。
 	projected := ProjectToolSchema(input, CompatAll)
 	assertSchemaJSONEqual(t, projected, `{"allOf":[{"minimum":0}],"properties":{"x":{"enum":["a","b"],"type":"string"}},"type":"integer"}`)
 
-	// Callers that opt in can compose the two pure functions in either order
-	// without losing enum typing or the merged allOf constraint.
+	// 选择加入的调用方可以按任一顺序组合这两个纯函数，
+	// 而不会丢失枚举类型或合并后的 allOf 约束。
 	composed := ProjectToolSchema(FlattenToolSchema(input), CompatAll)
 	assertSchemaJSONEqual(t, composed, `{"minimum":0,"properties":{"x":{"enum":["a","b"],"type":"string"}},"type":"integer"}`)
 }

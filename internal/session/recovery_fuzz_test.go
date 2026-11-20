@@ -10,12 +10,12 @@ import (
 	"testing"
 )
 
-// FuzzSessionRecordRoundtrip drives arbitrary payloads through AppendRecord and
-// then through the lenient read/repair path used on resume. The properties
-// checked are: no panic on any input, every line that survives repair is a
-// well-formed JSON record, and the known-good sentinel record is never lost to
-// a torn or malformed tail. Hard corruption is an accepted (non-panicking)
-// outcome and is reported as such by ValidateAndRepair/OpenSession.
+// FuzzSessionRecordRoundtrip 把任意载荷送入 AppendRecord，
+// 再送入恢复时使用的宽松读取/修复路径。检查的属性有：
+// 任何输入都不 panic、修复后幸存的每一行都是
+// 格式良好的 JSON 记录，且已知的哨兵记录绝不会因
+// 残缺或格式错误的尾部而丢失。严重损坏是可接受的（不 panic）
+// 结果，并由 ValidateAndRepair/OpenSession 如实报告。
 
 type sessionFuzzSeed struct {
 	seed    int64
@@ -24,22 +24,22 @@ type sessionFuzzSeed struct {
 }
 
 var sessionFuzzSeeds = []sessionFuzzSeed{
-	// Well-formed object payload, clean tail.
+	// 格式良好的对象载荷，干净的尾部。
 	{1, `{"role":"user","content":"你好🙂"}`, ""},
-	// Truncated payload and torn final line: payload falls back to a JSON
-	// string, tail is dropped by torn-tail repair.
+	// 截断的载荷和残缺的最后一行：载荷回退为 JSON
+	// 字符串，尾部由残缺尾部修复丢弃。
 	{2, `{"content":"trailed`, `{"id":"tor`},
-	// Valid non-object JSON payload plus a bare newline tail.
+	// 有效的非对象 JSON 载荷加上一个裸换行尾部。
 	{3, `42`, "\n"},
-	// Nested payload and a valid extra record appended as raw JSON.
+	// 嵌套载荷以及作为原始 JSON 追加的一条有效额外记录。
 	{4, `{"nested":{"x":[1,2,3]}}`, `{"kind":"entry"}`},
-	// Empty payload (stored as null) and non-JSON garbage tail.
+	// 空载荷（存为 null）和非 JSON 垃圾尾部。
 	{5, "", "garbage\n"},
-	// Combining marks and a structurally valid extra tail record.
+	// 组合字符和一条结构上有效的额外尾部记录。
 	{6, `{"role":"assistant","content":"combining e\u0301"}`, `{"id":"x","kind":"message","data":null}`},
-	// A syntax error on a non-final physical line is hard corruption.
+	// 非最后一条物理行上的语法错误属于严重损坏。
 	{7, `{"role":"tool","output":"[exit 1] failed"}`, "{\"kind\":\"message\"}\n{oops}\n{\"kind\":\"user\"}"},
-	// A schema error (kind is not a string) is hard corruption.
+	// schema 错误（kind 不是字符串）属于严重损坏。
 	{8, `{"id":"x","kind":"message"}`, `{"kind":123}`},
 }
 
@@ -52,8 +52,8 @@ func FuzzSessionRecordRoundtrip(f *testing.F) {
 
 func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 	t.Helper()
-	// Keep each fuzz case small and bounded; the seed corpus already stays well
-	// under this limit.
+	// 让每个 fuzz 用例保持小且有界；种子语料本身已远
+	// 低于这个限制。
 	const maxFuzzBytes = 4096
 	if len(payload) > maxFuzzBytes || len(tail) > maxFuzzBytes ||
 		len(payload)+len(tail) > maxFuzzBytes {
@@ -63,8 +63,8 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 	dir := t.TempDir()
 	sess := newTestSession(t, dir, "fuzz")
 
-	// A deterministic short prefix exercises the multi-record append/rebuild
-	// path as well as the single fuzzed payload.
+	// 确定性的短前缀同时覆盖多记录追加/重建路径
+	// 和单个 fuzz 载荷。
 	rng := rand.New(rand.NewSource(seed))
 	prefixKinds := []string{KindUser, KindAssistant, KindTool, KindMessage}
 	prefixCount := rng.Intn(4)
@@ -77,16 +77,16 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 		}
 	}
 
-	// Feed arbitrary bytes through AppendRecord. Invalid JSON may be rejected
-	// (and must be rolled back cleanly); the only hard requirement is no panic.
+	// 把任意字节送入 AppendRecord。无效 JSON 可能被拒绝
+	// （且必须干净回滚）；唯一的硬性要求是不 panic。
 	if json.Valid([]byte(payload)) {
 		_, _ = sess.AppendRecord(KindMessage, json.RawMessage(payload))
 	} else {
 		_, _ = sess.AppendRecord(KindMessage, payload)
 	}
 
-	// This record is our witness that lenient repair never discards valid
-	// history while coping with a damaged tail.
+	// 这条记录是我们的见证：宽松修复在处理损坏尾部时
+	// 绝不会丢弃有效历史。
 	if _, err := sess.AppendRecord(KindUser, map[string]any{"content": "sentinel"}); err != nil {
 		t.Fatalf("append sentinel: %v", err)
 	}
@@ -112,8 +112,8 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 		}
 	}
 
-	// Validation must classify every line without panicking. Only hard
-	// corruption is an error; a torn final line is reported, not rejected.
+	// 校验必须对每一行分类而不 panic。只有严重
+	// 损坏才算错误；残缺的最后一行只报告而不拒绝。
 	_, reportErr := ValidateAndRepair(path, false)
 	if reportErr != nil && !errors.Is(reportErr, ErrHardCorruption) {
 		t.Fatalf("ValidateAndRepair: %v", reportErr)
@@ -124,10 +124,10 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 		if !errors.Is(err, ErrHardCorruption) {
 			t.Fatalf("OpenSession: %v", err)
 		}
-		return // hard corruption is an accepted, non-panicking outcome
+		return // 严重损坏是可接受的、不 panic 的结果
 	}
 
-	// After repair every surviving physical line is a well-formed record.
+	// 修复后每一条幸存的物理行都是格式良好的记录。
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read repaired file: %v", err)
@@ -152,8 +152,8 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 		if record.ID == "" {
 			t.Fatal("record with an empty id survived reopen")
 		}
-		// A record may legitimately omit "data" entirely (decodeLine only
-		// requires a non-empty kind); when present it must be valid JSON.
+		// 记录合法地可以完全省略 "data"（decodeLine 只
+		// 要求 kind 非空）；存在时必须是有效 JSON。
 		if len(record.Data) != 0 && !json.Valid(record.Data) {
 			t.Fatalf("record %s has malformed data: %s", record.ID, record.Data)
 		}
@@ -172,8 +172,8 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 	}
 }
 
-// TestFuzzSessionRecordRoundtripSeeds runs the fuzz seed corpus as an ordinary
-// deterministic test so the regression cases are always covered by go test.
+// TestFuzzSessionRecordRoundtripSeeds 把 fuzz 种子语料作为普通的
+// 确定性测试运行，使回归用例始终被 go test 覆盖。
 func TestFuzzSessionRecordRoundtripSeeds(t *testing.T) {
 	for _, item := range sessionFuzzSeeds {
 		t.Run(fmt.Sprintf("seed=%d", item.seed), func(t *testing.T) {

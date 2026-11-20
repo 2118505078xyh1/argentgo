@@ -15,14 +15,14 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// maxToolDescLen bounds a tool description shipped to the model. A long MCP
-// description is a prompt-injection vector and eats context, so Specs clips it
-// before the schema crosses the wire. The Tool interface and Schema are intact.
+// maxToolDescLen 限制发给模型的工具描述长度。过长的 MCP
+// 描述是提示注入的载体并会吃掉上下文，因此 Specs 会在 schema
+// 跨越传输层之前截断它。Tool 接口和 Schema 保持完整。
 const maxToolDescLen = 1024
 
-// clipDescription keeps at most maxToolDescLen runes, appending an ellipsis
-// when it truncates. Slicing by runes keeps the result valid UTF-8 even when a
-// multibyte character straddles the limit.
+// clipDescription 最多保留 maxToolDescLen 个 rune，截断时
+// 追加省略号。按 rune 切片使结果在 multibyte 字符跨越
+// 限制时仍是有效 UTF-8。
 func clipDescription(s string) string {
 	runes := []rune(s)
 	if len(runes) <= maxToolDescLen {
@@ -31,17 +31,17 @@ func clipDescription(s string) string {
 	return string(runes[:maxToolDescLen-1]) + "…"
 }
 
-// intentSchemaEnv opts out of advertising the `i` (concise intent) property in
-// tool parameter schemas. Injection is ON by default: the agent strips `i` on
-// the read side (agent.ExtractIntent), so every schema crossing the wire must
-// list it for the API_REFERENCE "every schema accepts i" contract to hold.
-// Set this to a truthy value (1, true, yes, on, ...) to restore pre-injection
-// schemas; "", 0, false, no and off leave injection enabled.
+// intentSchemaEnv 用于退出在工具参数 schema 中公布 `i`（简洁意图）属性。
+// 注入默认开启：agent 在读取侧剥离 `i`（agent.ExtractIntent），
+// 因此每条跨越传输层的 schema 都必须列出它，API_REFERENCE
+// 的"每个 schema 都接受 i"契约才能成立。
+// 把它设为真值（1、true、yes、on 等）可恢复注入前的
+// schema；""、0、false、no 和 off 让注入保持启用。
 const intentSchemaEnv = "ARGENT_NO_INTENT_SCHEMA"
 
-// intentSchemaDisabled reports whether `i` should be omitted from advertised
-// schemas. The env var is read on every call rather than cached so tests and
-// long-lived runtimes can toggle it without a restart.
+// intentSchemaDisabled 报告是否应从公布的 schema 中省略 `i`。
+// 环境变量在每次调用时读取而非缓存，使测试和
+// 长寿命运行时无需重启即可切换。
 func intentSchemaDisabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(intentSchemaEnv))) {
 	case "", "0", "false", "no", "off":
@@ -51,10 +51,10 @@ func intentSchemaDisabled() bool {
 	}
 }
 
-// advertiseIntentSchema adds the `i` intent property to a tool parameter
-// schema unless the operator opted out. InjectIntentSchema is idempotent, so a
-// schema that already carries `i` (e.g. one returned by intentSchemaTool below)
-// is returned unchanged; there is no double-injection.
+// advertiseIntentSchema 给工具参数 schema 添加 `i` 意图属性，
+// 除非操作员选择退出。InjectIntentSchema 是幂等的，因此已
+// 携带 `i` 的 schema（例如下面的 intentSchemaTool 返回的）
+// 会被原样返回；不会出现双重注入。
 func advertiseIntentSchema(params json.RawMessage) json.RawMessage {
 	if intentSchemaDisabled() {
 		return params
@@ -62,12 +62,12 @@ func advertiseIntentSchema(params json.RawMessage) json.RawMessage {
 	return InjectIntentSchema(params)
 }
 
-// intentSchemaTool decorates a Tool so the schema it advertises carries the
-// `i` intent property. Runtime behaviour is delegated unchanged; only the
-// Schema crossing the wire is augmented. Wrapping the stored tools — rather
-// than patching only Specs — keeps every schema reader in the package (Specs,
-// SpecsFor, tool_search) consistent. The gate is evaluated per call so the
-// env toggle is honoured even for an already-built registry.
+// intentSchemaTool 装饰一个 Tool，使其公布的 schema 携带
+// `i` 意图属性。运行时行为原样委托；只有
+// 跨越传输层的 Schema 被增强。包装存储的工具 —— 而非
+// 只修补 Specs —— 使包内每个 schema 读取方（Specs、
+// SpecsFor、tool_search）保持一致。开关在每次调用时求值，
+// 因此即使注册表已构建也能遵守 env 开关。
 type intentSchemaTool struct {
 	Tool
 }
@@ -80,9 +80,9 @@ func (t intentSchemaTool) Schema() string {
 	return string(advertiseIntentSchema(json.RawMessage(t.Tool.Schema())))
 }
 
-// Meta forwards the optional reclamation hook so wrapping never changes
-// RunWithMeta behaviour. A wrapped tool without an inner Meta yields the zero
-// ToolMeta, which callers already treat as "no metadata".
+// Meta 转发可选的回收钩子，使包装永不改变
+// RunWithMeta 的行为。没有内部 Meta 的被包装工具产生零值
+// ToolMeta，调用方本就把它当作"无元数据"。
 func (t intentSchemaTool) Meta(args json.RawMessage, output string, err error) ToolMeta {
 	if m, ok := t.Tool.(metaTool); ok {
 		return m.Meta(args, output, err)
@@ -90,62 +90,62 @@ func (t intentSchemaTool) Meta(args json.RawMessage, output string, err error) T
 	return ToolMeta{}
 }
 
-// New returns a registry rooted at root with the default output cap.
+// New 返回一个以 root 为根、使用默认输出上限的注册表。
 func New(root string, yolo bool) *Registry {
 	return NewWithLimit(root, yolo, maxToolOutput)
 }
 
-// NewWithLimit returns a registry rooted at root whose tool output is clipped to
-// maxOutput characters (head and tail kept). A non-positive limit restores the
-// default.
+// NewWithLimit 返回一个以 root 为根、工具输出被截断到
+// maxOutput 个字符（保留头尾）的注册表。非正值恢复
+// 默认值。
 func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 	if maxOutput <= 0 {
 		maxOutput = maxToolOutput
 	}
 	r := &Registry{root: root, yolo: yolo, maxOutput: maxOutput, tools: make(map[string]Tool)}
-	// A default bank keeps the memory tools usable before the app wires a real
-	// session directory. SetMemoryBank overrides it once that directory exists.
+	// 默认库使记忆工具在 app 接线真实会话目录之前保持可用。
+	// 一旦该目录存在，SetMemoryBank 会覆盖它。
 	bank := memory.NewBank(filepath.Join(root, ".argent"))
 	for _, tool := range []Tool{
 		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{}, powershellTool{},
 		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
 		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
-		// LSP IDE tools are always advertised. Until the app wires an adapter
-		// with SetLspIde they report "not available" without failing the turn.
-		// They are registered before the memory tools so the memory_* tools stay
-		// adjacent to the trailing tool_search (see TestMemoryToolsRegisteredAndOverridable).
+		// LSP IDE 工具始终被公布。在 app 通过 SetLspIde 接线适配器
+		// 之前，它们报告"不可用"而不使回合失败。
+		// 它们注册在记忆工具之前，使 memory_* 工具保持
+		// 与末尾 tool_search 相邻（见 TestMemoryToolsRegisteredAndOverridable）。
 		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
 		newLspRenamePreviewTool(nil), newLspFormatTool(nil), newLspWorkspaceSymbolsTool(nil),
 		securityScanTool{},
-		// Stdlib-portable productivity tools. usage/history start with nil
-		// sources and report unavailable until the app calls SetUsageSource /
-		// SetHistorySource. Registered before the memory tools so the memory_*
-		// tail stays adjacent to tool_search (TestMemoryToolsRegisteredAndOverridable).
+		// 标准库可移植的效率工具。usage/history 以 nil 数据源开始，
+		// 在 app 调用 SetUsageSource /
+		// SetHistorySource 之前报告不可用。注册在记忆工具之前，使 memory_*
+		// 尾部与 tool_search 保持相邻（TestMemoryToolsRegisteredAndOverridable）。
 		&diffTool{}, &usageTool{}, &historyTool{},
 		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
 	} {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
-	// context_pack packs real file contents around an edit anchor; register it
-	// here so it sits before the memory_* tail and the trailing tool_search.
+	// context_pack 在编辑锚点周围打包真实文件内容；在此注册
+	// 使它位于 memory_* 尾部和末尾 tool_search 之前。
 	registerContextPack(r)
 	for _, tool := range MemoryAdvancedTools(bank) {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}
-	// tool_search reads the finished registry so it can search every spec.
+	// tool_search 读取已完成的注册表，使它能搜索每个 spec。
 	r.tools["tool_search"] = toolSearchTool{registry: r}
 	r.order = append(r.order, "tool_search")
-	// Advertise the `i` intent field on every schema. Wrapping the stored tools
-	// once here covers Specs, SpecsFor and tool_search uniformly; tools rebuilt
-	// later by Set* helpers are wrapped in place as well.
+	// 在每个 schema 上公布 `i` 意图字段。在此一次性包装存储的工具
+	// 统一覆盖 Specs、SpecsFor 和 tool_search；稍后由 Set* 助手重建的
+	// 工具也会被原位置包装。
 	r.wrapSchemas()
 	return r
 }
 
-// wrapSchemas decorates every registered tool so its advertised Schema carries
-// the `i` intent field. It is idempotent: an already-wrapped tool is left as-is.
+// wrapSchemas 装饰每个已注册的工具，使其公布的 Schema 携带
+// `i` 意图字段。它是幂等的：已包装的工具保持原样。
 func (r *Registry) wrapSchemas() {
 	for name, tool := range r.tools {
 		if _, wrapped := tool.(intentSchemaTool); !wrapped {
@@ -154,20 +154,20 @@ func (r *Registry) wrapSchemas() {
 	}
 }
 
-// SetGuard installs the pre-call guard. Passing nil removes it.
+// SetGuard 安装调用前守卫。传入 nil 会移除它。
 func (r *Registry) SetGuard(g Guard) {
 	r.guard = g
 }
 
-// SetSessionDir points state tools (todo) at a session directory. When unset,
-// they fall back to <root>/.argent.
+// SetSessionDir 把有状态工具（todo）指向某个会话目录。未设置时，
+// 它们回退到 <root>/.argent。
 func (r *Registry) SetSessionDir(dir string) {
 	r.sessionDir = dir
 }
 
-// SetMemoryBank replaces the bank behind the memory_* tools without changing
-// registration order. The app calls this once the real session directory is
-// known; nil leaves the current bank in place.
+// SetMemoryBank 替换 memory_* 工具背后的库，而不改变
+// 注册顺序。app 在真实会话目录已知后调用它；
+// nil 让当前库保持不变。
 func (r *Registry) SetMemoryBank(bank *memory.Bank) {
 	if bank == nil {
 		return
@@ -181,17 +181,17 @@ func (r *Registry) SetMemoryBank(bank *memory.Bank) {
 	r.wrapSchemas()
 }
 
-// SetJobs installs the background-job registry used by the bash tool when a
-// command supplies background_after_ms. Without it that argument is ignored
-// and the command keeps the usual kill-on-timeout behaviour.
+// SetJobs 安装 bash 工具在命令提供 background_after_ms 时
+// 使用的后台作业注册表。没有它时该参数被忽略，
+// 命令保持通常的超时杀死行为。
 func (r *Registry) SetJobs(j *jobs.Registry) {
 	r.jobs = j
 }
 
-// SetLspIde installs the adapter behind the six lsp_* tools. The app calls this
-// once a language server is available; nil leaves the tools reporting that the
-// integration is unavailable. Following the SetMemoryBank pattern, the tools
-// are rebuilt in place so registration order and advertised specs stay stable.
+// SetLspIde 安装六个 lsp_* 工具背后的适配器。app 在
+// 语言服务器可用后调用它；nil 让工具继续报告
+// 集成不可用。遵循 SetMemoryBank 的模式，工具在
+// 原位置重建，因此注册顺序和公布的 spec 保持稳定。
 func (r *Registry) SetLspIde(adapter LspIde) {
 	r.tools["lsp_symbols"] = newLspSymbolsTool(adapter)
 	r.tools["lsp_references"] = newLspReferencesTool(adapter)
@@ -202,21 +202,21 @@ func (r *Registry) SetLspIde(adapter LspIde) {
 	r.wrapSchemas()
 }
 
-// SetMaxTimeout caps the resolved timeout of every timed tool at d. A
-// non-positive value disables the cap. The default of 0 keeps the pre-table
-// behaviour unchanged for callers that never opt in.
+// SetMaxTimeout 把所有计时工具解析后的超时上限钳制为 d。
+// 非正值禁用上限。默认值 0 让从未 opt-in 的调用方
+// 保持本表引入之前的行为。
 func (r *Registry) SetMaxTimeout(d time.Duration) {
 	r.maxTimeout = d
 }
 
-// Names returns the registered tool names in registration order.
+// Names 按注册顺序返回已注册的工具名。
 func (r *Registry) Names() []string {
 	names := make([]string, len(r.order))
 	copy(names, r.order)
 	return names
 }
 
-// Specs returns the tool schemas in a stable order.
+// Specs 以稳定顺序返回工具 schema。
 func (r *Registry) Specs() []llm.ToolSpec {
 	specs := make([]llm.ToolSpec, 0, len(r.order))
 	for _, name := range r.order {
@@ -224,16 +224,16 @@ func (r *Registry) Specs() []llm.ToolSpec {
 		spec := llm.ToolSpec{Type: "function"}
 		spec.Function.Name = tool.Name()
 		spec.Function.Description = clipDescription(tool.Description())
-		// advertiseIntentSchema is the safety net for tools rebuilt by Set*
-		// helpers living outside this file. InjectIntentSchema is idempotent,
-		// so tools already wrapped by wrapSchemas are not injected twice.
+		// advertiseIntentSchema 是对位于本文件之外的 Set* 助手所重建工具的安全网。
+		// InjectIntentSchema 是幂等的，因此已被 wrapSchemas 包装的工具
+		// 不会被二次注入。
 		spec.Function.Parameters = advertiseIntentSchema(json.RawMessage(tool.Schema()))
 		specs = append(specs, spec)
 	}
 	return specs
 }
 
-// Run executes one tool call.
+// Run 执行单次工具调用。
 func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	tool, ok := r.tools[name]
 	if !ok {
@@ -260,13 +260,13 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	return runTool(tool, ctx, r.root, name, raw)
 }
 
-// maxPanicDescLen bounds the stringified panic value so a hostile or buggy
-// payload cannot flood the model's context through a tool error.
+// maxPanicDescLen 限制字符串化的 panic 值，使恶意或有缺陷的
+// 载荷无法通过工具错误淹没模型的上下文。
 const maxPanicDescLen = 512
 
-// describePanic sanitizes a recovered panic value before it crosses the wire:
-// control characters (including terminal escapes) become spaces and the result
-// is clipped by runes so the string stays valid UTF-8.
+// describePanic 在恢复的 panic 值跨越传输层前对其进行清理：
+// 控制字符（包括终端转义）变为空格，结果
+// 按 rune 截断，使字符串保持有效 UTF-8。
 func describePanic(v any) string {
 	s := strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
@@ -281,10 +281,10 @@ func describePanic(v any) string {
 	return s
 }
 
-// runTool executes one tool behind a panic boundary. A panic escaping a tool
-// would blow up the whole turn and leave the dispatch's fillUnrun pairing
-// unsettled, so it is normalized into a single error result — mirroring the
-// hooks PanicError pattern — that carries the tool name for diagnosis.
+// runTool 在 panic 边界内执行单个工具。逃逸出工具的 panic
+// 会毁掉整个回合并让分派的 fillUnrun 配对
+// 悬而未决，因此它被规范化为单个错误结果 —— 仿照
+// hooks 的 PanicError 模式 —— 并携带工具名以供诊断。
 func runTool(tool Tool, ctx context.Context, root, name string, raw json.RawMessage) (out string, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -295,9 +295,9 @@ func runTool(tool Tool, ctx context.Context, root, name string, raw json.RawMess
 	return tool.Run(ctx, root, raw)
 }
 
-// RunWithMeta executes one tool call and additionally returns the tool's
-// reclamation metadata. Behaviour and output are identical to Run: the meta is
-// derived from the same arguments and result, never from a second execution.
+// RunWithMeta 执行单次工具调用，并额外返回工具的
+// 回收元数据。行为和输出与 Run 相同：元数据来自
+// 同一组参数和结果，绝不来自第二次执行。
 func (r *Registry) RunWithMeta(ctx context.Context, name, args string) (string, ToolMeta, error) {
 	out, err := r.Run(ctx, name, args)
 	if err != nil {
@@ -317,7 +317,7 @@ func (r *Registry) RunWithMeta(ctx context.Context, name, args string) (string, 
 	return out, mt.Meta(json.RawMessage(args), out, nil), nil
 }
 
-// checkGuard runs the guard without letting a panic escape into the agent loop.
+// checkGuard 运行守卫，但不让 panic 逃逸到 agent 循环中。
 func (r *Registry) checkGuard(ctx context.Context, name string, args json.RawMessage) (err error) {
 	if r.guard == nil {
 		return nil
@@ -330,10 +330,10 @@ func (r *Registry) checkGuard(ctx context.Context, name string, args json.RawMes
 	return r.guard.Check(ctx, name, args)
 }
 
-// resolve keeps every path inside the workspace root. The lexical check alone
-// is not a boundary: a symlink or Windows junction under the root can point
-// outside, so the real location is resolved before the path is handed to a
-// filesystem tool.
+// resolve 把所有路径保持在workspace根目录之内。仅做词法检查
+// 并非边界：根目录下的符号链接或 Windows junction 可以指向
+// 外部，因此在把路径交给文件系统工具之前要解析
+// 真实位置。
 func resolve(root, path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		path = "."
@@ -358,13 +358,13 @@ func resolve(root, path string) (string, error) {
 	return abs, nil
 }
 
-// outputLimitKey carries the per-registry output cap into tool implementations.
+// outputLimitKey 把每注册表的输出上限带入工具实现。
 type outputLimitKey struct{}
 
-// sessionDirKey carries the session directory used by state tools.
+// sessionDirKey 携带有状态工具使用的会话目录。
 type sessionDirKey struct{}
 
-// jobsKey carries the background-job registry used by the bash tool.
+// jobsKey 携带 bash 工具使用的后台作业注册表。
 type jobsKey struct{}
 
 func outputLimit(ctx context.Context) int {

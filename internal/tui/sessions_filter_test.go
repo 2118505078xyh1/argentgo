@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// sessionFilterModel builds a model with the session rail visible and a set of
-// titled sessions, which is the state the filter bar operates in.
+// sessionFilterModel 构建一个会话栏可见、且带一组
+// 有标题会话的模型，这是过滤栏操作的状态。
 func sessionFilterModel(titles ...string) *Model {
 	m := New(Config{})
 	m.showSessions = true
@@ -41,7 +41,7 @@ func TestSessionsFilterHitAndMiss(t *testing.T) {
 		t.Errorf("missing query matched %v, want none", got)
 	}
 
-	// OR groups and inverse terms are parsed by ParsePattern / MatchPattern.
+	// OR 组和取反项由 ParsePattern / MatchPattern 解析。
 	m.sessionFilter = "al | ga"
 	if got, want := matchTitles(m), []string{"alpha", "gamma"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("OR filter = %v, want %v", got, want)
@@ -78,12 +78,12 @@ func TestSessionsFilterHighlightPositionsInBounds(t *testing.T) {
 			continue
 		}
 		found = true
-		// The mark plus the highlighted label must reconstruct exactly; a
-		// rune-index position must never slice a CJK/ASCII string by bytes.
+		// 标记加上高亮的标签必须精确重建；rune 索引位置
+		// 绝不能按字节切 CJK/ASCII 字符串。
 		if line.Text() != "  alpha" {
 			t.Errorf("row text = %q, want %q", line.Text(), "  alpha")
 		}
-		// mark + highlighted "alp" + plain "ha" => at least three spans.
+		// 标记 + 高亮的 "alp" + 普通的 "ha" => 至少三个 span。
 		if len(line.Spans) < 3 {
 			t.Errorf("highlighted row has %d spans, want at least 3: %+v", len(line.Spans), line.Spans)
 		}
@@ -92,7 +92,7 @@ func TestSessionsFilterHighlightPositionsInBounds(t *testing.T) {
 		t.Error("the filtered session row was not rendered")
 	}
 
-	// Explicitly out-of-range positions are ignored rather than sliced.
+	// 显式越界的位置被忽略，而不是用于切片。
 	line := NewLine()
 	m.pushFilterLabel(&line, "ab", []int{-5, 0, 1, 100}, false, 10)
 	if line.Text() != "ab" {
@@ -139,7 +139,7 @@ func TestSessionsFilterEscEnterState(t *testing.T) {
 		t.Errorf("filter after backspace = %q, want %q", m.sessionFilter, "a")
 	}
 
-	// Enter confirms the live filter and returns the keyboard to the prompt.
+	// Enter 确认实时过滤并把键盘交还给提示。
 	if action := m.HandleKey(Key{Kind: KindEnter}); action != ActionNone {
 		t.Errorf("filter Enter returned %v, want ActionNone", action)
 	}
@@ -153,7 +153,7 @@ func TestSessionsFilterEscEnterState(t *testing.T) {
 		t.Errorf("Enter cleared the confirmed filter: %q", m.sessionFilter)
 	}
 
-	// Esc cancels: leave the bar and reset the query.
+	// Esc 取消：离开过滤栏并重置查询。
 	m.HandleKey(Key{Kind: KindCtrlL})
 	if !m.sessionFiltering {
 		t.Fatal("ctrl+l did not re-focus the filter bar")
@@ -163,7 +163,7 @@ func TestSessionsFilterEscEnterState(t *testing.T) {
 		t.Errorf("after Esc: filtering=%v filter=%q, want false and empty", m.sessionFiltering, m.sessionFilter)
 	}
 
-	// Ctrl+L is inert when the session rail is hidden.
+	// Ctrl+L 在会话栏隐藏时无效果。
 	m.showSessions = false
 	m.HandleKey(Key{Kind: KindCtrlL})
 	if m.sessionFiltering {
@@ -202,9 +202,9 @@ func TestSessionsFilterNoMatchesDoesNotClaimNoSessions(t *testing.T) {
 	m := sessionFilterModel(titles...)
 	hint := text(m.locale, "no_sessions")
 
-	// A query that filters every row out must not render "no sessions yet":
-	// the rail still holds sessions, as the title count shows. The filter bar
-	// and the empty row area below the rule convey the state instead.
+	// 过滤掉所有行的查询不得渲染 "no sessions yet"：
+	// 侧边栏仍持有会话，如标题计数所示。过滤栏
+	// 和分隔线下方的空行区域改而传达该状态。
 	m.sessionFilter = "zzz"
 	var bar bool
 	for _, line := range m.sessionsLines(40, 12) {
@@ -219,7 +219,7 @@ func TestSessionsFilterNoMatchesDoesNotClaimNoSessions(t *testing.T) {
 		t.Error("active filter did not render the filter bar")
 	}
 
-	// A genuinely empty rail must still explain itself with the same hint.
+	// 真正空的侧边栏仍必须用同样的提示自我说明。
 	empty := sessionFilterModel()
 	for _, line := range empty.sessionsLines(40, 12) {
 		if strings.Contains(line.Text(), hint) {
@@ -237,7 +237,7 @@ func TestSessionsFilterCJK(t *testing.T) {
 		t.Errorf("CJK substring filter = %v, want %v", got, want)
 	}
 
-	// A fuzzy subsequence must use rune (not byte) indices into the label.
+	// 模糊子序列必须使用标签中的 rune（而非字节）索引。
 	m.sessionFilter = "开配"
 	scores, positions, ok := FuzzyMatch(m.sessionFilter, "打开配置文件", false)
 	if !ok || len(positions) != 2 {

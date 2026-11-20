@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// fakeApprover records every Ask call and returns a configurable answer. It is
-// safe for concurrent use so it can back the -race concurrency test.
+// fakeApprover 记录每次 Ask 调用并返回可配置的回答。它可并发安全使用，因此能为
+// -race 并发测试提供支撑。
 type fakeApprover struct {
 	mu      sync.Mutex
 	answer  bool
@@ -162,8 +162,7 @@ func TestScopedApproverConcurrentAskIsSafe(t *testing.T) {
 	for msg := range errs {
 		t.Error(msg)
 	}
-	// Only the 40 calls past the 10-grant budget may reach inner; always calls
-	// must never reach it.
+	// 只有超出 10 次授予预算的那 40 次调用才可能到达 inner；always 调用绝不能到达。
 	if got := inner.callCount(); got != workers-10 {
 		t.Fatalf("inner asked %d times, want %d", got, workers-10)
 	}
@@ -202,10 +201,9 @@ func TestScopedApproverConcurrentGrantsAreSafe(t *testing.T) {
 	}
 }
 
-// TestScopedApproverDenyOverridesAlways is the core deny-wins guarantee: a name
-// that was always-granted is still refused once it has been denied, regardless
-// of the order the two decisions were recorded. The inner approver approves
-// everything here, so an allow result would prove the deny did not short-circuit.
+// TestScopedApproverDenyOverridesAlways 是核心的 deny 优先保证：一个曾被永久授予的
+// 名字一旦被拒绝就会被拒绝，无论两个决定以何种顺序记录。这里内部审批器批准一切，
+// 因此 allow 结果将证明 deny 没有短路。
 func TestScopedApproverDenyOverridesAlways(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -231,9 +229,8 @@ func TestScopedApproverDenyOverridesAlways(t *testing.T) {
 	}
 }
 
-// TestScopedApproverDenyShortCircuitsNGrantAndDelegation checks that deny is
-// consulted before the bounded grant (and would be before inner): the N budget
-// is left untouched and no delegation happens.
+// TestScopedApproverDenyShortCircuitsNGrantAndDelegation 检查 deny 在有限授予之前
+// （也会在 inner 之前）被查询：N 预算保持不动，且不发生委托。
 func TestScopedApproverDenyShortCircuitsNGrantAndDelegation(t *testing.T) {
 	inner := &fakeApprover{answer: true}
 	scoped := NewScopedApprover(inner)
@@ -252,11 +249,9 @@ func TestScopedApproverDenyShortCircuitsNGrantAndDelegation(t *testing.T) {
 	}
 }
 
-// TestScopedApproverRevokePrefixClearsAllBuckets verifies the extension-uninstall
-// path: revoking "srv__" drops the always grant, the N grant and the refusal for
-// every tool from that server, while a different server's grant survives. The
-// inner approver denies, so any name that no longer has a local decision falls
-// through to it.
+// TestScopedApproverRevokePrefixClearsAllBuckets 验证扩展卸载路径：撤销 "srv__" 会
+// 丢弃该服务器所有工具的永久授予、N 次授予和拒绝，而另一服务器的授予仍然存在。
+// 内部审批器拒绝一切，因此任何不再有本地决定的名字都会落到它那里。
 func TestScopedApproverRevokePrefixClearsAllBuckets(t *testing.T) {
 	inner := &fakeApprover{answer: false}
 	scoped := NewScopedApprover(inner)
@@ -279,7 +274,7 @@ func TestScopedApproverRevokePrefixClearsAllBuckets(t *testing.T) {
 		t.Fatalf("inner asked %d times after revoke, want 3 (one per revoked name)", got)
 	}
 
-	// A grant under a different prefix is untouched and still short-circuits.
+	// 不同前缀下的授予不受影响，仍然短路。
 	if ok, err := scoped.Ask(context.Background(), "other__read", "{}"); err != nil || !ok {
 		t.Fatalf("other__read: ok=%v err=%v, want the surviving always grant", ok, err)
 	}
@@ -288,9 +283,8 @@ func TestScopedApproverRevokePrefixClearsAllBuckets(t *testing.T) {
 	}
 }
 
-// TestScopedApproverDenyOnOneNameDoesNotAffectAnother guards against a deny
-// bucket leaking to unrelated tools: a denied name must not block a normal
-// always grant for a different name.
+// TestScopedApproverDenyOnOneNameDoesNotAffectAnother 防止 deny 桶泄漏到无关工具：
+// 被拒绝的名字不得阻止另一个名字的正常永久授予。
 func TestScopedApproverDenyOnOneNameDoesNotAffectAnother(t *testing.T) {
 	inner := &fakeApprover{answer: false}
 	scoped := NewScopedApprover(inner)

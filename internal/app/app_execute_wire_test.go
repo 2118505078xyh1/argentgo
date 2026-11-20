@@ -13,9 +13,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// budgetProbeChatter always asks for one tool call and reports a fixed usage.
-// The tool call keeps the loop alive long enough for the declared-budget breach
-// check (which runs right after the reply, before tool execution) to fire.
+// budgetProbeChatter 总是请求一次工具调用，并报告固定的用量。
+// 该工具调用让循环保持足够长的存活时间，使声明预算的越界
+// 检查（在回复之后、工具执行之前运行）得以触发。
 type budgetProbeChatter struct {
 	mu      sync.Mutex
 	calls   int
@@ -44,9 +44,9 @@ func (c *budgetProbeChatter) Chat(_ context.Context, _ string, messages []llm.Me
 	}, nil
 }
 
-// executeWithBudgetProbe runs one prompt with a probing chatter. thinking is
-// set after Resolve so its text reaches only the injected dynamic-context
-// prefix, never the caller's raw prompt.
+// executeWithBudgetProbe 用探测型 chatter 运行一个提示。thinking 在
+// Resolve 之后设置，使其文本只到达注入的动态上下文
+// 前缀，绝不进入调用方的原始提示。
 func executeWithBudgetProbe(t *testing.T, thinking, prompt string, usage llm.Usage) (agent.Result, error, *budgetProbeChatter) {
 	t.Helper()
 	env, root, _ := wiringEnv(t)
@@ -69,9 +69,9 @@ func executeWithBudgetProbe(t *testing.T, thinking, prompt string, usage llm.Usa
 	return result, err, chatter
 }
 
-// TestExecuteFillsDeclaredBudgetFromRawPrompt proves the wiring: a declaration
-// in the caller's own words reaches Budget.DeclaredTurnTokens and stops the
-// run with the declared-turn-budget reason once usage exceeds it.
+// TestExecuteFillsDeclaredBudgetFromRawPrompt 证明接线生效：调用方原文中的声明
+// 会到达 Budget.DeclaredTurnTokens，并在用量超过它时以
+// declared-turn-budget 原因停止运行。
 func TestExecuteFillsDeclaredBudgetFromRawPrompt(t *testing.T) {
 	result, err, chatter := executeWithBudgetProbe(t, "", "use 2m tokens please do the thing", llm.Usage{PromptTokens: 2_100_000})
 	if err != nil {
@@ -85,9 +85,9 @@ func TestExecuteFillsDeclaredBudgetFromRawPrompt(t *testing.T) {
 	}
 }
 
-// TestExecuteIgnoresDeclaredBudgetFromInjectedPrefix proves the raw-prompt
-// capture: a "+500k" that arrives only in the injected dynamic-context prefix
-// must not become a hidden cap, even though it sits in the text sent to the
+// TestExecuteIgnoresDeclaredBudgetFromInjectedPrefix 证明原始提示
+// 捕获：只出现在注入的动态上下文前缀中的 "+500k"
+// 绝不能成为隐藏上限，即使它位于发送给
 // model.
 func TestExecuteIgnoresDeclaredBudgetFromInjectedPrefix(t *testing.T) {
 	result, err, chatter := executeWithBudgetProbe(t, "low +500k", "do the thing", llm.Usage{PromptTokens: 600_000})
@@ -120,9 +120,9 @@ func containsText(texts []string, want string) bool {
 	return false
 }
 
-// TestExecuteAnnouncesRecoveryNotice proves the Execute-level wiring: an
-// interrupted transcript announces its notice through both existing channels,
-// and the run still continues (interrupted history is auto-continuable).
+// TestExecuteAnnouncesRecoveryNotice 证明 Execute 层的接线：被中断的记录
+// 会通过两个既有通道宣告其通知，
+// 且运行仍会继续（被中断的历史可自动继续）。
 func TestExecuteAnnouncesRecoveryNotice(t *testing.T) {
 	env, root, _ := wiringEnv(t)
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
@@ -160,9 +160,9 @@ func TestExecuteAnnouncesRecoveryNotice(t *testing.T) {
 	}
 }
 
-// TestAnnounceRecoveryPausesDegradedHistory proves the degraded path: because
-// Execute has no confirmation channel, it writes an explicit warning, emits it,
-// and returns an error so the agent loop is never entered.
+// TestAnnounceRecoveryPausesDegradedHistory 证明降级路径：因为
+// Execute 没有确认通道，它会写一条明确的警告、发出它，
+// 并返回错误，使 agent 循环永远不会被进入。
 func TestAnnounceRecoveryPausesDegradedHistory(t *testing.T) {
 	decision := recoveryDecisionFor(recoveryMessages("degraded_history"))
 	if !decision.NeedsConfirmation || decision.Notice == "" {
@@ -191,15 +191,15 @@ func TestAnnounceRecoveryPausesDegradedHistory(t *testing.T) {
 	}
 }
 
-// TestRecoveryMessagesForClassificationIgnoresMetadataParentGaps guards the
-// false-positive that a resumed session would otherwise hit: metadata records
-// (usage/stats/turn) live between messages but are filtered out of
-// Session.Messages, so a message's parent can name a record absent from the
-// projection. That gap is not degraded history and must not gate the run.
+// TestRecoveryMessagesForClassificationIgnoresMetadataParentGaps 防范恢复会话
+// 否则会命中的误报：元数据记录
+// （usage/stats/turn）存在于消息之间，但被过滤出
+// Session.Messages，因此消息的 parent 可能指向投影中不存在的记录。
+// 该缺口不是降级历史，不得阻止运行。
 func TestRecoveryMessagesForClassificationIgnoresMetadataParentGaps(t *testing.T) {
 	messages := []session.Entry{
 		{ID: "n1", Role: "user", Content: "question"},
-		{ID: "n4", Parent: "n2", Role: "assistant", Content: "answer"}, // n2 is a filtered metadata record
+		{ID: "n4", Parent: "n2", Role: "assistant", Content: "answer"}, // n2 是一条被过滤掉的元数据记录
 	}
 	if got := recoveryDecisionFor(messages); !got.NeedsConfirmation {
 		t.Fatalf("fixture must look degraded before normalization: %+v", got)
@@ -213,8 +213,8 @@ func TestRecoveryMessagesForClassificationIgnoresMetadataParentGaps(t *testing.T
 	}
 }
 
-// TestAnnounceRecoveryCleanIsNoOp guards the common path: a clean transcript
-// produces no notice, no event and no error.
+// TestAnnounceRecoveryCleanIsNoOp 守护常见路径：干净的记录
+// 不产生通知、事件或错误。
 func TestAnnounceRecoveryCleanIsNoOp(t *testing.T) {
 	var emitted []agent.Event
 	ctx := withEventEmit(context.Background(), func(e agent.Event) { emitted = append(emitted, e) })

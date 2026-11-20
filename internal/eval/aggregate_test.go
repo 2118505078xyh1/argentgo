@@ -10,8 +10,8 @@ import (
 	"unicode/utf8"
 )
 
-// scored is a helper that builds a structurally valid Result with a chosen
-// duration. Invalid-result cases start from this and then break one field.
+// scored 是一个辅助函数，构建具有选定时长的结构有效 Result。
+// 无效结果的情况从它开始，然后破坏一个字段。
 func scored(index int, passed bool, reason string, d time.Duration) Result {
 	return Result{Index: index, Passed: passed, Reason: reason, Turns: 1, Duration: d}
 }
@@ -187,8 +187,8 @@ func TestAggregateScoresOrderIndependent(t *testing.T) {
 		t.Fatalf("reversed order changed the summary:\n got %+v\nwant %+v", got, want)
 	}
 
-	// Results collected from concurrent workers arrive in a nondeterministic
-	// order; the aggregate must still be identical.
+	// 从并发 worker 收集的结果以不确定的
+	// 顺序到达；聚合结果仍必须完全相同。
 	ch := make(chan Result, len(base))
 	var wg sync.WaitGroup
 	for _, r := range base {

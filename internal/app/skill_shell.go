@@ -10,18 +10,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
-// skillShellOptInKeys are the config keys that opt a run into executing the
-// `!`cmd“ spans embedded in SKILL.md bodies. They are deliberately unknown to
-// internal/config: app reads them from Config.Raw, the same way cacheTier and
-// hooks do, so no lower layer has to change for this wiring to take effect.
+// skillShellOptInKeys 是让某次运行选择执行 SKILL.md 正文中内嵌的 `!`cmd“ 片段的配置键。
+// 它们刻意对 internal/config 不可见：app 从 Config.Raw 读取它们，与 cacheTier 和 hooks 一样，
+// 因此无需改动任何更低层，此接线即可生效。
 var skillShellOptInKeys = []string{"allowSkillShell", "allow-skill-shell", "skillShell", "skill_shell"}
 
-// skillShellEnabled is the trust gate for skill shell injection. It is false
-// unless the operator explicitly opts in, and KILO_DISABLE_SKILL_SHELL wins
-// unconditionally. Keeping the default off means an unconfigured run's
-// use_skill output stays byte-identical and never spawns a shell from skill
-// content. Once enabled, every command still goes through the full security
-// approval chain (see toolset.runSkillShell).
+// skillShellEnabled 是技能 shell 注入的信任门槛。除非操作人员显式选择启用，否则为 false，
+// 且 KILO_DISABLE_SKILL_SHELL 无条件优先。保持默认关闭意味着未配置运行的 use_skill 输出
+// 逐字节不变，且绝不会根据技能内容派生 shell。一旦启用，每条命令仍会经过完整的安全审批链
+// （见 toolset.runSkillShell）。
 func skillShellEnabled(raw map[string]any, getenv func(string) string) bool {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -32,9 +29,8 @@ func skillShellEnabled(raw map[string]any, getenv func(string) string) bool {
 	return cfgBool(raw, skillShellOptInKeys...)
 }
 
-// skillShellKillSwitchOn treats any value except the usual falsy spellings as
-// an active kill switch, so an accidental "yes"/"1"/"true" always disables
-// execution and only an explicit false re-enables it.
+// skillShellKillSwitchOn 把除常见假值写法之外的任何值都视为生效的关闭开关，
+// 因此误设的 "yes"/"1"/"true" 总会禁用执行，只有显式的 false 才能重新启用。
 func skillShellKillSwitchOn(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "0", "false", "no", "off":
@@ -44,8 +40,7 @@ func skillShellKillSwitchOn(value string) bool {
 	}
 }
 
-// cfgBool reads the first truthy boolean-ish key from a merged config tree.
-// It accepts native booleans, the common string spellings and JSON numbers.
+// cfgBool 从合并配置树中读取第一个为真的类布尔键。它接受原生布尔值、常见的字符串写法和 JSON 数字。
 func cfgBool(tree map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch value := tree[key].(type) {
@@ -67,9 +62,8 @@ func cfgBool(tree map[string]any, keys ...string) bool {
 	return false
 }
 
-// skillShellToolName is the built-in shell tool used to execute a parsed
-// command. Both names are always registered and both route through the
-// security chain before a process is spawned.
+// skillShellToolName 是用于执行解析出的命令的内置 shell 工具。两个名字总是被注册，
+// 且在派生进程之前都经过安全链。
 func skillShellToolName() string {
 	if runtime.GOOS == "windows" {
 		return "powershell"
@@ -77,10 +71,8 @@ func skillShellToolName() string {
 	return "bash"
 }
 
-// runSkillShell hands one command to the built-in shell tool. That path applies
-// the full policy -> approval -> audit chain plus the registry's output and
-// timeout caps, so a command from a skill is never more privileged than a
-// model-initiated shell call.
+// runSkillShell 把一条命令交给内置 shell 工具。该路径应用完整的 策略 -> 审批 -> 审计 链，
+// 加上注册表的输出和超时上限，因此来自技能的命令绝不会比模型发起的 shell 调用拥有更高权限。
 func (t *toolset) runSkillShell(ctx context.Context, command string) (string, error) {
 	args, err := json.Marshal(struct {
 		Command string `json:"command"`
@@ -91,12 +83,9 @@ func (t *toolset) runSkillShell(ctx context.Context, command string) (string, er
 	return t.base.Run(ctx, skillShellToolName(), string(args))
 }
 
-// expandSkillShell replaces each executable `!`cmd“ span in a loaded skill
-// body with the output of running that command through the security chain.
-// Parsing is owned by internal/skills; this function only adds execution and
-// substitution. Spans are applied in order so the byte offsets from the parser
-// stay valid. A failed or denied command becomes a short, readable marker the
-// model can see -- never a silent drop and never raw stderr.
+// expandSkillShell 把已加载技能正文中每个可执行的 `!`cmd“ 片段，替换为该命令经过安全链执行后的输出。
+// 解析由 internal/skills 负责；本函数只增加执行和替换。片段按顺序应用，使解析器给出的字节偏移保持有效。
+// 失败或被拒绝的命令会变成模型可见的简短可读标记——绝不静默丢弃，也绝不输出原始 stderr。
 func (t *toolset) expandSkillShell(ctx context.Context, body string) string {
 	commands, spans := skills.ParseShellCommands(body)
 	if len(commands) == 0 {
@@ -108,7 +97,7 @@ func (t *toolset) expandSkillShell(ctx context.Context, body string) string {
 	for i, command := range commands {
 		span := spans[i]
 		if span.Start < prev || span.End > len(body) || span.End <= span.Start {
-			continue // defensive: never slice outside the parsed body
+			continue // 防御性：绝不在解析出的正文之外切片
 		}
 		out.WriteString(body[prev:span.Start])
 
@@ -130,8 +119,7 @@ func (t *toolset) expandSkillShell(ctx context.Context, body string) string {
 	return out.String()
 }
 
-// boundedSkillShellError clips a tool error and strips control characters so a
-// hostile command cannot flood the model's context through the injected marker.
+// boundedSkillShellError 裁剪工具错误并剥离控制字符，使恶意命令无法通过注入的标记淹没模型的上下文。
 func boundedSkillShellError(message string) string {
 	const max = 512
 	message = strings.Map(func(r rune) rune {

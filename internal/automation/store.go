@@ -12,15 +12,15 @@ import (
 	"time"
 )
 
-// storeFile is the on-disk shape of the task list.
+// storeFile 是任务列表的磁盘形态。
 type storeFile struct {
 	Version int    `json:"version"`
 	Specs   []Spec `json:"specs"`
 }
 
-// Store is the durable task list: one JSON file in a directory, written
-// atomically (temp file + rename) and guarded by a mutex so concurrent
-// goroutines can read and write it safely.
+// Store 是持久任务列表：目录中的一个 JSON 文件，原子写入（临时文件 + 重命名）并由 mutex 保护，使并发
+// 原子写入（临时文件 + 重命名）并由 mutex 保护，使并发
+// goroutine 能安全读写它。
 type Store struct {
 	mu    sync.Mutex
 	dir   string
@@ -29,7 +29,7 @@ type Store struct {
 	specs []Spec
 }
 
-// OpenStore loads (or creates) the task list in dir.
+// OpenStore 加载（或创建）dir 中的任务列表。
 func OpenStore(dir string) (*Store, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -45,19 +45,19 @@ func OpenStore(dir string) (*Store, error) {
 	return s, nil
 }
 
-// Reload refreshes the in-memory task list from the on-disk JSON file. The
-// store is a shared file: a separate process (for example `automation run`)
-// can advance a slot or add a task while a daemon is running. Reloading lets
-// the daemon observe those changes instead of acting on a stale cached view,
-// which would fire an already-handled slot a second time.
+// Reload 从磁盘 JSON 文件刷新内存任务列表。store 是
+// Reload 从磁盘 JSON 文件刷新内存任务列表。store 是共享文件：另一个进程（例如 `automation run`）
+// 可以在 daemon 运行时推进某个时隙或添加任务。重载让
+// 可以在 daemon 运行时推进某个时隙或添加任务。重载让 daemon 观察到这些变化，而不是根据陈旧的缓存视图行动，
+// 后者会再次触发一个已处理的时隙。
 func (s *Store) Reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.reloadLocked()
 }
 
-// reloadLocked parses the JSON file into s.specs. The caller must hold s.mu.
-// A missing file means an empty task list (a freshly created store).
+// reloadLocked 把 JSON 文件解析进 s.specs。调用方必须持有 s.mu。
+// 文件缺失表示空任务列表（新建的 store）。
 func (s *Store) reloadLocked() error {
 	data, err := os.ReadFile(s.file)
 	switch {
@@ -85,13 +85,13 @@ func (s *Store) reloadLocked() error {
 	return nil
 }
 
-// Dir returns the store directory.
+// Dir 返回 store 目录。
 func (s *Store) Dir() string { return s.dir }
 
-// File returns the path of the JSON task list.
+// File 返回 JSON 任务列表的路径。
 func (s *Store) File() string { return s.file }
 
-// SetClock overrides the clock used to seed next-run times.
+// SetClock 覆盖用于种入下次运行时间的时钟。
 func (s *Store) SetClock(now func() time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -100,7 +100,7 @@ func (s *Store) SetClock(now func() time.Time) {
 	}
 }
 
-// List returns a copy of every task, in insertion order.
+// List 按插入顺序返回所有任务的副本。
 func (s *Store) List() []Spec {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,7 +109,7 @@ func (s *Store) List() []Spec {
 	return out
 }
 
-// Get returns one task.
+// Get 返回一个任务。
 func (s *Store) Get(id string) (Spec, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,8 +120,8 @@ func (s *Store) Get(id string) (Spec, bool) {
 	return s.specs[idx], true
 }
 
-// Put validates and upserts a task, then persists the list. A task added
-// without a next-run time is seeded with the next slot from the store clock.
+// Put 验证并更新（upsert）一个任务，然后持久化列表。没有下次运行时间的
+// Put 验证并更新（upsert）一个任务，然后持久化列表。没有下次运行时间的任务会用 store 时钟的下一个时隙种入。
 func (s *Store) Put(spec Spec) error {
 	if strings.TrimSpace(spec.ID) == "" {
 		spec.ID = slug(spec.Name)
@@ -132,7 +132,7 @@ func (s *Store) Put(spec Spec) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if idx := s.indexLocked(spec.ID); idx >= 0 {
-		// Keep the run history when the caller only supplied the definition.
+		// 调用方只提供定义时保留运行历史。
 		old := s.specs[idx]
 		if spec.LastRun == nil {
 			spec.LastRun = old.LastRun
@@ -164,7 +164,7 @@ func (s *Store) Put(spec Spec) error {
 	return s.saveLocked()
 }
 
-// Delete removes a task and persists the list.
+// Delete 删除一个任务并持久化列表。
 func (s *Store) Delete(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -176,7 +176,7 @@ func (s *Store) Delete(id string) (bool, error) {
 	return true, s.saveLocked()
 }
 
-// SetEnabled flips a task on or off.
+// SetEnabled 打开或关闭任务。
 func (s *Store) SetEnabled(id string, enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,7 +191,7 @@ func (s *Store) SetEnabled(id string, enabled bool) error {
 	return s.saveLocked()
 }
 
-// Due returns the enabled tasks whose next slot has passed.
+// Due 返回下次时隙已过的启用任务。
 func (s *Store) Due(now time.Time) []Spec {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -204,27 +204,27 @@ func (s *Store) Due(now time.Time) []Spec {
 	return due
 }
 
-// RecordRun stores the outcome of one run and advances the next slot past at.
-// Manual runs have no scheduled slot, so the schedule resumes from at.
+// RecordRun 存储一次运行的结果并把下一时隙推进到 at 之后。
+// 手动运行没有计划时隙，因此调度从 at 恢复。
 func (s *Store) RecordRun(id, status, logPath string, at time.Time) error {
 	return s.recordRun(id, status, logPath, at, time.Time{})
 }
 
-// recordRun is RecordRun with the slot that triggered the run. When slot is
-// known, the next firing advances from that slot instead of from the (possibly
-// much later) completion time, so a slow task does not push the schedule
-// forward. at is still the time recorded as LastRun.
+// recordRun 是带触发运行的时隙的 RecordRun。当时隙已知时，下一次触发从该时隙而非从（可能晚得多的）完成时间推进，
+// 已知时，下一次触发从该时隙而非从（可能
+// 晚得多的）完成时间推进，使慢任务不会把调度表
+// 使慢任务不会把调度表向前推。at 仍是记录为 LastRun 的时间。
 func (s *Store) recordRun(id, status, logPath string, at, slot time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// A run can outlive a scan, and the task list is a shared JSON file. While
-	// the run was in flight another process may have added, edited or deleted
-	// tasks. Saving the outcome from the in-memory snapshot taken at scan time
-	// would clobber those edits (and resurrect a task deleted mid-run), because
-	// saveLocked rewrites the whole list. Refresh from disk while holding the
-	// lock so this is a read-modify-write of the current file. A task deleted
-	// meanwhile simply disappears from the list, which callers already treat as
-	// "nothing to record".
+	// 一次运行可能比一次扫描活得更久，而任务列表是共享 JSON 文件。运行进行期间另一个进程可能添加、编辑或删除
+	// 运行进行期间另一个进程可能添加、编辑或删除
+	// 任务。从扫描时取得的内存快照保存结果
+	// 会破坏这些编辑（并复活运行中删除的任务），因为
+	// 任务。从扫描时取得的内存快照保存结果会破坏这些编辑（并复活运行中删除的任务），因为 saveLocked 重写整个列表。
+	// 持锁，使这成为对当前文件的读-改-写。同时被删除的任务
+	// 只是从列表中消失，调用方已将其视为
+	// "无可记录"。
 	if err := s.reloadLocked(); err != nil {
 		return err
 	}
@@ -242,16 +242,16 @@ func (s *Store) recordRun(id, status, logPath string, at, slot time.Time) error 
 	}
 	next := s.specs[idx].Schedule.Next(base)
 	if !next.IsZero() && !next.After(at) {
-		// The slot we just advanced to is already in the past (the run
-		// started late or lasted longer than the interval). Resume from the
-		// run time so a run_once task does not fire again on the next tick.
+		// 持锁时从磁盘刷新，使这成为对当前文件的读-改-写。同时被删除的任务只是从列表中消失，调用方已将其视为
+		// "无可记录"。
+		// 我们刚推进到的时隙已在过去（运行开始晚或持续时间超过间隔）。从运行时间恢复，使 run_once 任务不会在下一个 tick 再次触发。
 		next = s.specs[idx].Schedule.Next(at)
 	}
 	s.specs[idx].NextDue = next
 	return s.saveLocked()
 }
 
-// Save rewrites the task list.
+// Save 重写任务列表。
 func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -279,8 +279,8 @@ func (s *Store) saveLocked() error {
 	return nil
 }
 
-// writeAtomic writes data to a temporary file in the destination directory and
-// renames it into place, so a reader never sees a half-written file.
+// writeAtomic 把数据写入目标目录中的临时文件并重命名到位，使读取者永不会看到半写的文件。
+// 重命名到位，使读取者永不会看到半写的文件。
 func writeAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")

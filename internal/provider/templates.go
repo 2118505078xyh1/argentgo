@@ -1,55 +1,55 @@
-// Package provider holds the built-in provider templates: where each vendor
-// lives, which wire protocol it speaks, and which model to use by default.
+// Package provider 保存内置 provider 模板：每个供应商在哪里、它讲哪种线上协议，以及默认使用哪个模型。
+// 每个供应商在哪里、它讲哪种线上协议，以及默认使用哪个模型。
 //
-// Templates are data, mirroring crates/provider/providers.json in the Rust
-// implementation, but hard-coded so the Go binary needs no asset files. The
-// table only describes endpoints; credentials are read from the environment by
-// the caller via Template.APIKeyEnv / Template.APIKeyEnvs and the Auth helper.
+// 模板是数据，镜像 Rust 实现中的 crates/provider/providers.json，但硬编码使 Go 二进制无需 asset 文件。该表只描述端点；凭据由调用方通过 Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数从环境读取。
+// 实现，但硬编码使 Go 二进制无需 asset 文件。该表只描述端点；凭据由
+// 环境读取，由调用方通过
+// Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数。
 package provider
 
 import "strings"
 
-// Protocol names a wire protocol implemented by internal/llm.
+// Protocol 命名由 internal/llm 实现的线上协议。
 type Protocol string
 
-// Supported protocols.
+// 支持的协议。
 const (
-	// ProtocolAnthropic is the Anthropic Messages API (llm.AnthropicClient).
+	// ProtocolAnthropic 是 Anthropic Messages API（llm.AnthropicClient）。
 	ProtocolAnthropic Protocol = "anthropic-messages"
-	// ProtocolOpenAI is OpenAI chat completions (llm.Client).
+	// ProtocolOpenAI 是 OpenAI chat completions（llm.Client）。
 	ProtocolOpenAI Protocol = "openai-chat-completions"
-	// ProtocolResponses is the OpenAI Responses API (llm.ResponsesClient).
+	// ProtocolResponses 是 OpenAI Responses API（llm.ResponsesClient）。
 	ProtocolResponses Protocol = "openai-responses"
 )
 
-// Template describes one provider endpoint.
+// Template 描述一个 provider 端点。
 type Template struct {
-	// Name is the canonical id used by Resolve and on the command line.
+	// Name 是 Resolve 和命令行使用的规范 id。
 	Name string
-	// Protocol is the wire protocol to use.
+	// Protocol 是要使用的线上协议。
 	Protocol Protocol
-	// BaseURL is the API root; llm clients append their own path.
+	// BaseURL 是 API 根；llm 客户端会追加自己的路径。
 	BaseURL string
-	// APIKeyEnv names the legacy single environment variable holding the key.
-	// Empty means the endpoint is normally unauthenticated (local servers).
+	// APIKeyEnv 命名保存 key 的旧版单一环境变量。空表示该端点通常无需认证（本地服务器）。
+	// 空表示该端点通常无需认证（本地服务器）。
 	APIKeyEnv string
-	// APIKeyEnvs names additional credential sources in priority order: the
-	// first non-empty value wins. Auth tries APIKeyEnv first for compatibility,
-	// then these names.
+	// APIKeyEnvs 按优先级命名额外的凭据来源：
+	// APIKeyEnvs 按优先级命名额外的凭据来源：第一个非空值胜出。Auth 为兼容性先尝试 APIKeyEnv，再尝试这些名称。
+	// 再尝试这些名称。
 	APIKeyEnvs []string
-	// NoAuth skips credential lookup entirely and sends no auth header.
-	// It models apiKey:false in the upstream provider options.
+	// NoAuth 完全跳过凭据查找且不发送认证请求头。
+	// NoAuth 完全跳过凭据查找且不发送认证请求头。它建模上游 provider 选项中的 apiKey:false。
 	NoAuth bool
-	// DefaultModel is used when the user does not name a model.
+	// DefaultModel 在用户未指定模型时使用。
 	DefaultModel string
-	// CacheSupport reports that the provider supports prompt caching on at
-	// least one protocol. It does not force wire markers: llm still emits them
-	// only on protocols with an explicit stable-prefix representation, and
-	// local/open-compatible endpoints stay cache-free by default.
+	// CacheSupport 报告该 provider 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在具有显式稳定前缀表示的协议上发出它们，且本地/兼容端点默认无缓存。
+	// 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在
+	// 具有显式稳定前缀表示的协议上发出它们，且
+	// 本地/兼容端点默认无缓存。
 	CacheSupport bool
 }
 
-// templates is the built-in table, ordered as it should be presented to users.
+// templates 是内置表，按应向用户展示的顺序排列。
 var templates = []Template{
 	{
 		Name:         "anthropic",
@@ -151,7 +151,7 @@ var templates = []Template{
 	},
 }
 
-// aliases maps alternate spellings onto canonical names.
+// aliases 把替代拼写映射到规范名称。
 var aliases = map[string]string{
 	"claude":      "anthropic",
 	"kimi":        "moonshot",
@@ -166,16 +166,16 @@ var aliases = map[string]string{
 	"grok":        "xai",
 }
 
-// List returns the built-in templates in presentation order. The slice is a
-// copy; mutating it does not affect the table.
+// List 按展示顺序返回内置模板。切片是副本，修改它不影响该表。
+// 副本，修改它不影响该表。
 func List() []Template {
 	out := make([]Template, len(templates))
 	copy(out, templates)
 	return out
 }
 
-// Resolve looks up a template by canonical name or alias, case-insensitively.
-// The second result reports whether the name was known.
+// Resolve 按规范名称或别名不区分大小写查找模板。第二个结果报告该名称是否已知。
+// 第二个结果报告该名称是否已知。
 func Resolve(name string) (Template, bool) {
 	key := strings.ToLower(strings.TrimSpace(name))
 	if canonical, ok := aliases[key]; ok {
@@ -194,11 +194,11 @@ var modelSeparators = strings.NewReplacer(
 	"\u2014", "-", "\u2212", "-", "_", "-", " ", "-",
 )
 
-// NormalizeModel canonicalizes a model id across templates: surrounding
-// whitespace is trimmed, unicode dashes/underscores become '-', repeated
-// separators collapse, and a case variant of a built-in default resolves back
-// to that default's canonical spelling. Unknown ids keep their own casing,
-// including vendor prefixes such as "anthropic/claude-sonnet-4.5".
+// NormalizeModel 跨模板规范化模型 id：去掉首尾空白，unicode 破折号/下划线变为 '-'，重复分隔符折叠，内置默认值的大小写变体解析回该默认值的规范拼写。未知 id 保持自己的大小写，
+// 去掉首尾空白，unicode 破折号/下划线变为 '-'，重复
+// 分隔符折叠，内置默认值的大小写变体解析回
+// 该默认值的规范拼写。未知 id 保持自己的大小写，
+// 包括 "anthropic/claude-sonnet-4.5" 这样的供应商前缀。
 func NormalizeModel(id string) string {
 	value := modelSeparators.Replace(strings.TrimSpace(id))
 	for strings.Contains(value, "--") {
@@ -216,9 +216,9 @@ func NormalizeModel(id string) string {
 	return value
 }
 
-// Model returns the normalized override, or the template's canonical default
-// when override is empty. Callers in app/cli can use this hook without the
-// provider package knowing about config or profiles.
+// Model 返回规范化后的覆盖值，或 override 为空时返回模板的规范默认值。
+// app/cli 中的调用方可以使用这个钩子而无需
+// Model 返回规范化后的覆盖值，或 override 为空时返回模板的规范默认值。app/cli 中的调用方可以使用这个钩子而无需 provider 包了解 config 或 profiles。
 func (t Template) Model(override string) string {
 	if strings.TrimSpace(override) == "" {
 		return NormalizeModel(t.DefaultModel)

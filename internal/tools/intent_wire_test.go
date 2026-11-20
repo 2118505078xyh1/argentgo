@@ -8,9 +8,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// assertAdvertisesIntent checks that a parameter schema carries the `i` intent
-// property and lists it as required — the contract agent.ExtractIntent relies
-// on when it strips `i` from incoming tool calls.
+// assertAdvertisesIntent 检查参数 schema 是否携带 `i` 意图
+// 属性并将其列为必填 —— 这是 agent.ExtractIntent 在从传入
+// 工具调用中剥离 `i` 时所依赖的契约。
 func assertAdvertisesIntent(t *testing.T, raw json.RawMessage) {
 	t.Helper()
 	if !json.Valid(raw) {
@@ -93,12 +93,12 @@ func TestIntentWireSpecWithoutParamsIsLeftAlone(t *testing.T) {
 func TestIntentWireGateDisablesInjection(t *testing.T) {
 	registry := New(t.TempDir(), true)
 
-	// Default (unset) is injection ON.
+	// 默认（未设置）为注入开启。
 	for _, spec := range registry.Specs() {
 		assertAdvertisesIntent(t, spec.Function.Parameters)
 	}
 
-	// A truthy gate disables injection on the very same registry (no caching).
+	// 真值的开关会在同一注册表上关闭注入（无缓存）。
 	t.Setenv(intentSchemaEnv, "1")
 	for _, spec := range registry.Specs() {
 		assertNoIntent(t, spec.Function.Parameters)
@@ -107,7 +107,7 @@ func TestIntentWireGateDisablesInjection(t *testing.T) {
 		assertNoIntent(t, spec.Function.Parameters)
 	}
 
-	// Falsy values restore injection.
+	// 假值恢复注入。
 	for _, value := range []string{"0", "false", "off", ""} {
 		t.Setenv(intentSchemaEnv, value)
 		for _, spec := range registry.Specs() {

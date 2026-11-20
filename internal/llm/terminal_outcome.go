@@ -5,21 +5,21 @@ import (
 	"regexp"
 )
 
-// maxTerminalScanBytes bounds how much of a response body the terminal-outcome
-// classifier examines. Provider error payloads are small; a pathological or
-// hostile body must not make classification unbounded.
+// maxTerminalScanBytes 限制终态结果分类器检查响应体的篇幅。
+// 提供方的错误载荷很小；畸形或恶意的响应体
+// 不得让分类变成无界操作。
 const maxTerminalScanBytes = 64 * 1024
 
-// terminalOutcomePatterns lists provider-reported outcomes that cannot be
-// settled by retrying: the bill cannot be settled, the accounting record cannot
-// be produced, or a policy/hook has already denied the request. They mirror the
-// terminal classes Codex refuses to retry. Patterns are matched
-// case-insensitively and tolerate '_', '-' and spaces between words so both
-// JSON error codes and human-readable messages are recognised.
+// terminalOutcomePatterns 列出提供方报告的、无法通过重试解决的
+// 结果：账单无法结算、账目记录无法生成，
+// 或某个策略/hook 已经拒绝了请求。它们对应
+// Codex 拒绝重试的终态类别。模式匹配
+// 不区分大小写，并容忍词间的 '_'、'-' 和空格，因此
+// JSON 错误码和易读消息都能被识别。
 //
-// Order matters: more specific codes precede their shorter prefixes, so
-// TerminalOutcomeReason reports the precise reason (spend_limit_exceeded rather
-// than spend_limit).
+// 顺序很重要：更具体的码排在较短的前缀之前，因此
+// TerminalOutcomeReason 报告准确的原因（spend_limit_exceeded 而非
+// spend_limit）。
 var terminalOutcomePatterns = []struct {
 	reason string
 	re     *regexp.Regexp
@@ -34,36 +34,36 @@ var terminalOutcomePatterns = []struct {
 	{"insufficient_quota", regexp.MustCompile(`(?i)insufficient[\s_-]*quota`)},
 }
 
-// IsTerminalProviderOutcome reports whether a provider response describes a
-// terminal outcome: retrying it cannot clear the condition (the session or
-// organization budget is spent, the spend limit is hit, usage accounting
-// failed, an inference hook denied the request, and so on). Such a response
-// must be handed back to the caller with its body intact rather than waited
-// out, because no amount of backoff will make it succeed.
+// IsTerminalProviderOutcome 报告某提供方响应是否描述了一个
+// 终态结果：重试无法消除该状况（会话或
+// 组织预算已用尽、支出上限已触发、用量计费
+// 失败、推理 hook 拒绝了请求等）。这类响应
+// 必须原样交回调用方，而不是等待，
+// 因为任何退避都不会让它成功。
 //
-// body is expected to be an already-redacted response body (callers pass a
-// bounded prefix). This classifier never logs or echoes the body; the only
-// strings it returns are the fixed canonical reasons below. Redaction is
-// re-applied defensively so a secret that happens to contain a pattern word
-// cannot create a false positive. Scanning is capped at maxTerminalScanBytes
-// so a pathological body stays bounded. HTTP 402 (Payment Required) is
-// terminal on its own, even with an empty or unrecognised body.
+// body 应为已经脱敏的响应体（调用方传入有界前缀）。
+// 该分类器从不记录或回显响应体；它返回的唯一字符串
+// 就是下面固定的规范原因。脱敏被防御性地
+// 再次应用，使恰好含模式词的密钥不会
+// 造成误报。扫描受 maxTerminalScanBytes 限制，
+// 因此畸形响应体也保持有界。HTTP 402（Payment Required）
+// 本身即为终态，即使响应体为空或无法识别。
 func IsTerminalProviderOutcome(body []byte, statusCode int) bool {
 	return TerminalOutcomeReason(body, statusCode) != ""
 }
 
-// TerminalOutcomeReason returns the canonical reason string for a terminal
-// provider outcome, or "" when the response is not terminal. Callers may
-// include the returned reason in a user-facing message without ever exposing
-// the raw body.
+// TerminalOutcomeReason 返回某个终态提供方结果的规范原因字符串，
+// 或当响应非终态时返回 ""。调用方可以把返回的原因
+// 包含在面向用户的消息中，
+// 而绝不暴露原始响应体。
 func TerminalOutcomeReason(body []byte, statusCode int) string {
-	// Bound the scan before any allocation or matching.
+	// 在任何分配或匹配之前先限制扫描范围。
 	if len(body) > maxTerminalScanBytes {
 		body = body[:maxTerminalScanBytes]
 	}
 	if len(body) > 0 {
-		// Defensive redaction: a credential-shaped value must not influence the
-		// decision. Normal callers already pass a redacted body.
+		// 防御性脱敏：凭据形态的值不得影响
+		// 判定。正常调用方已经传入脱敏后的响应体。
 		text := RedactText(string(body))
 		for _, p := range terminalOutcomePatterns {
 			if p.re.MatchString(text) {

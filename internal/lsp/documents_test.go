@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// publishPayload builds a textDocument/publishDiagnostics body with a single
-// diagnostic carrying message. A nil version emulates a server that omits the
-// optional version field.
+// publishPayload 构建一条 textDocument/publishDiagnostics 正文，其中带有
+// publishPayload 构建一条 textDocument/publishDiagnostics 正文，其中带有携带 message 的单个诊断。nil version 模拟省略可选版本字段的服务器。
+// 可选版本字段。
 func publishPayload(uri string, version *int, message string) []byte {
 	params := map[string]any{
 		"uri":         uri,
@@ -39,8 +39,8 @@ func publishPayload(uri string, version *int, message string) []byte {
 
 func intPtr(v int) *int { return &v }
 
-// diagClient returns just enough client state to exercise storeDiagnostics
-// without starting a transport.
+// diagClient 返回刚好够用于测试 storeDiagnostics 的客户端状态，无需启动传输。
+// 而无需启动传输。
 func diagClient(uri string, version int) *Client {
 	return &Client{
 		docs:      map[string]*documentState{uri: {version: version}},
@@ -166,10 +166,10 @@ func TestDiagnosticsIgnoresStalePublishAfterChange(t *testing.T) {
 		t.Fatalf("diagnostics after change = %+v, want 'changed'", diagnostics)
 	}
 
-	// A delayed publish for the previous version lands after the change.
+	// 对上一版本的延迟发布在变更之后到达。
 	client.storeDiagnostics(publishPayload(uri, intPtr(1), "stale"))
 
-	// The caller's mark still points at the change; the current result must win.
+	// 对上一版本的延迟发布在变更之后到达。调用方的 mark 仍指向该变更；当前结果必须胜出。
 	diagnostics, err = client.Diagnostics(context.Background(), uri, 0)
 	if err != nil {
 		t.Fatalf("Diagnostics after stale publish: %v", err)

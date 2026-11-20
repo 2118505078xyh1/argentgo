@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Grapheme sequences used below. Escape literals keep the exact code points
-// unambiguous regardless of how the source file is stored.
+// 下面使用的字素序列。转义字面量保持精确的码点，
+// 无论源文件如何存储都无歧义。
 const (
 	familyZWJ    = "\U0001F468\u200D\U0001F469\u200D\U0001F467"   // 👨‍👩‍👧
 	coupleHeartZ = "\U0001F468\u200D\u2764\uFE0F\u200D\U0001F468" // 👨‍❤️‍👨
@@ -111,10 +111,10 @@ func TestWrapBreaksOnlyOnGraphemeBoundaries(t *testing.T) {
 }
 
 func TestGraphemeFixChangesZWJWidth(t *testing.T) {
-	// The old implementation summed RuneWidth per rune (the loop below), which
-	// measured a ZWJ family as six cells and could cut it in half. The new
-	// cluster-aware TextWidth measures two. Kept as documentation of the
-	// regression so a future refactor cannot silently reintroduce it.
+	// 旧实现逐 rune 累加 RuneWidth（下面的循环），
+	// 把 ZWJ 家庭 emoji 测为六个单元格并可能把它切成两半。新的
+	// 感知簇的 TextWidth 测得两个。保留它作为
+	// 回归的文档，使未来的重构无法悄悄重新引入它。
 	legacy := func(s string) int {
 		total := 0
 		for _, r := range s {

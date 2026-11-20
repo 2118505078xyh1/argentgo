@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// The hashline feature is opt-in: with hashline=false (or absent) every error
-// string and the repair ladder must stay byte-identical to the pre-feature
-// tool, because the eval goldens assert on those exact bytes.
+// hashline 功能是 opt-in 的：当 hashline=false（或未设置）时，每条错误
+// 字符串和修复阶梯都必须与功能引入前的工具保持逐字节一致，
+// 因为 eval 的基准输出会对这些精确字节做断言。
 func TestHashlineFalsePreservesDefaultErrorStrings(t *testing.T) {
 	root := t.TempDir()
 	path := writeFixture(t, root, "x.txt", "dup\ndup\n")
@@ -64,7 +64,7 @@ func TestHashlineCorrectAnchorAndHashAppliesEdit(t *testing.T) {
 	anchor := "func add(a, b int) int {\n\treturn a + b\n}"
 	path := writeFixture(t, root, "calc.go", "package calc\n\n"+anchor+"\n")
 
-	// No `old` is supplied: the anchor itself is the original text.
+	// 没有提供 `old`：锚点本身即原始文本。
 	_, err := runToolArgs(t, root, "edit", map[string]any{
 		"path":        "calc.go",
 		"hashline":    true,
@@ -109,9 +109,9 @@ func TestHashlineWrongAnchorHashReturnsStaleError(t *testing.T) {
 func TestHashlineRecoversWhenAnchorShifted(t *testing.T) {
 	root := t.TempDir()
 	anchor := "gamma\ndelta"
-	// The model read "gamma\ndelta" at line 3. Lines were inserted above it;
-	// the anchor content is intact, so a content match must find it at its new
-	// location without relying on the old line number.
+	// 模型在第 3 行读到了 "gamma\ndelta"。其上方插入了若干行；
+	// 锚点内容完好，因此内容匹配必须在新位置找到它，
+	// 而不能依赖旧的行号。
 	path := writeFixture(t, root, "f.txt", "alpha\nbeta\n"+anchor+"\nepsilon\n")
 
 	_, err := runToolArgs(t, root, "edit", map[string]any{
@@ -132,8 +132,8 @@ func TestHashlineRecoversWhenAnchorShifted(t *testing.T) {
 
 func TestHashlineChangedAnchorReturnsClearStaleError(t *testing.T) {
 	root := t.TempDir()
-	// What the model saw and hashed. The file now holds "new delta" instead,
-	// so neither a literal match nor the repair ladder can recover the anchor.
+	// 模型看到并哈希的内容。现在文件里是 "new delta"，
+	// 因此字面匹配和修复阶梯都无法恢复该锚点。
 	saw := "gamma\nold delta"
 	content := "alpha\nbeta\ngamma\nnew delta\nepsilon\n"
 	path := writeFixture(t, root, "f.txt", content)

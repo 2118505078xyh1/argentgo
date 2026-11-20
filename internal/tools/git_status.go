@@ -10,8 +10,8 @@ import (
 
 // ---- git_status ----
 
-// gitStatusCommand builds the read-only git invocation. It is a variable so
-// tests can substitute a deterministic command.
+// gitStatusCommand 构建只读的 git 调用。它是一个变量，
+// 以便测试可以替换为一个确定性的命令。
 var gitStatusCommand = func(ctx context.Context, dir string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", "status", "--short", "--branch")
 	cmd.Dir = dir

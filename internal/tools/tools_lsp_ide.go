@@ -1,23 +1,23 @@
 package tools
 
-// LSP IDE capability tools. These expose the language-server methods that were
-// added for IDE support (document/workspace symbols, references, code actions,
-// rename and formatting) to the model as read-only tools.
+// LSP IDE 能力工具。它们把为 IDE 支持添加的语言服务器方法
+// （文档/工作区符号、引用、代码操作、
+// 重命名和格式化）作为只读工具暴露给模型。
 //
-// DEPENDENCY CONTRACT
+// 依赖契约
 // -------------------
-// internal/tools must not import internal/lsp (the archguard test enforces the
-// core layering), and must not import its types either. Instead this file owns
-// small neutral DTOs that mirror the JSON shape of the corresponding lsp types,
-// plus a consumer-side interface (LspIde) whose methods return those DTOs.
+// internal/tools 不得导入 internal/lsp（archguard 测试强制
+// 执行核心分层），也不得导入它的类型。相反，本文件拥有
+// 镜像对应 lsp 类型 JSON 形状的小型中立 DTO，
+// 以及一个消费-side 接口（LspIde），其方法返回这些 DTO。
 //
-// WIRING: internal/app must inject an adapter that wraps *lsp.Client, calls the
-// typed IDE methods, and converts their results into the neutral DTOs below.
-// The adapter is installed on the Registry with SetLspIde. Until it is
-// installed the six tools are still advertised in Specs but report
-// "LSP IDE integration is not available" without an error.
+// 接线：internal/app 必须注入一个包装 *lsp.Client 的适配器，调用
+// 带类型的 IDE 方法，并把结果转换成下面的中立 DTO。
+// 该适配器通过 SetLspIde 安装到 Registry 上。在安装之前，
+// 六个工具仍会在 Specs 中公布，但报告
+// "LSP IDE integration is not available" 而不返回错误。
 //
-// The adapter has this exact shape (lsp types are converted field-by-field):
+// 该适配器具有如下精确形状（lsp 类型逐字段转换）：
 //
 //	type lspIdeAdapter struct{ client *lsp.Client }
 //
@@ -42,10 +42,10 @@ package tools
 //	    a.client.WorkspaceSymbols(ctx, query)
 //	}
 //
-// All six tools are READ-ONLY previews: rename and formatting return the edits
-// the server proposes as text and never apply them. The actual modification is
-// performed by the ordinary edit/write tools. Consequently Mutating() is false
-// for every tool here and they remain available in the read-only sandbox.
+// 六个工具全部是只读预览：rename 和 formatting 把
+// 服务器提议的编辑作为文本返回，从不应用它们。实际修改
+// 由普通的 edit/write 工具完成。因此这里每个工具的 Mutating() 都是 false
+// 且在只读沙箱中保持可用。
 
 import (
 	"context"
@@ -53,33 +53,33 @@ import (
 	"fmt"
 )
 
-// lspIdeUnavailable is returned (without an error) when no adapter has been
-// wired yet. Keeping it a graceful message lets the model see the capability
-// exists without failing the turn in environments with no language server.
+// 当尚未接线适配器时返回 lspIdeUnavailable（不返回错误）。
+// 保持它是一条优雅的消息，让模型看到该能力
+// 存在，同时在没有语言服务器的环境中不使回合失败。
 const lspIdeUnavailable = "LSP IDE integration is not available"
 
-// ---- Neutral DTOs mirroring the JSON shape of the lsp types ----
+// ---- 镜像 lsp 类型 JSON 形状的中立 DTO ----
 
-// LspPos is a zero-based LSP position (line and UTF-16 character offset).
+// LspPos 是基于 0 的 LSP 位置（行和 UTF-16 字符偏移）。
 type LspPos struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`
 }
 
-// LspRange is a span between two zero-based positions.
+// LspRange 是两个基于 0 的位置之间的跨度。
 type LspRange struct {
 	Start LspPos `json:"start"`
 	End   LspPos `json:"end"`
 }
 
-// LspLocation is a definition/reference target.
+// LspLocation 是定义/引用目标。
 type LspLocation struct {
 	URI   string   `json:"uri"`
 	Range LspRange `json:"range"`
 }
 
-// LspSymbol is one flat document-symbol entry. Kind mirrors the numeric LSP
-// symbol kind; Depth is derived by the client and is not part of the wire JSON.
+// LspSymbol 是一条扁平的文档符号条目。Kind 镜像数字的 LSP
+// 符号类别；Depth 由客户端推导，不属于传输 JSON。
 type LspSymbol struct {
 	Name           string   `json:"name"`
 	Kind           int      `json:"kind"`
@@ -90,25 +90,25 @@ type LspSymbol struct {
 	Depth          int      `json:"-"`
 }
 
-// LspTextEdit is one replacement of a document range with new text.
+// LspTextEdit 是用新文本替换某段文档范围的一次操作。
 type LspTextEdit struct {
 	Range   LspRange `json:"range"`
 	NewText string   `json:"newText"`
 }
 
-// LspDocumentEdit is one file's edits from a WorkspaceEdit.documentChanges.
+// LspDocumentEdit 是来自 WorkspaceEdit.documentChanges 的某个文件的编辑。
 type LspDocumentEdit struct {
 	URI   string        `json:"uri"`
 	Edits []LspTextEdit `json:"edits"`
 }
 
-// LspWorkspaceEdit groups text edits by file URI.
+// LspWorkspaceEdit 按文件 URI 分组文本编辑。
 type LspWorkspaceEdit struct {
 	Changes         map[string][]LspTextEdit `json:"changes,omitempty"`
 	DocumentChanges []LspDocumentEdit        `json:"documentChanges,omitempty"`
 }
 
-// LspDiagnostic is one problem attached to a code action.
+// LspDiagnostic 是附着在代码操作上的一个问题。
 type LspDiagnostic struct {
 	Range    LspRange `json:"range"`
 	Severity string   `json:"severity"`
@@ -116,21 +116,21 @@ type LspDiagnostic struct {
 	Source   string   `json:"source,omitempty"`
 }
 
-// LspCommand is a command reference carried by a code action. Arguments stay
-// as `any` because their shape is server-defined; this matches lsp.Command so
-// the app adapter can assign the slice directly.
+// LspCommand 是代码操作携带的命令引用。参数保持
+// 为 `any`，因为其形状由服务器定义；这与 lsp.Command 一致，
+// 使 app 适配器可以直接赋值该切片。
 type LspCommand struct {
 	Title     string `json:"title"`
 	Command   string `json:"command"`
 	Arguments []any  `json:"arguments,omitempty"`
 }
 
-// LspCodeActionDisabled explains why an action is unavailable.
+// LspCodeActionDisabled 解释某项操作为何不可用。
 type LspCodeActionDisabled struct {
 	Reason string `json:"reason"`
 }
 
-// LspCodeAction is one fix or refactor the server offers for a range.
+// LspCodeAction 是服务器针对某范围提供的一个修复或重构。
 type LspCodeAction struct {
 	Title       string                 `json:"title"`
 	Kind        string                 `json:"kind,omitempty"`
@@ -141,7 +141,7 @@ type LspCodeAction struct {
 	Disabled    *LspCodeActionDisabled `json:"disabled,omitempty"`
 }
 
-// LspSymbolInfo is one flat entry from a workspace symbol query.
+// LspSymbolInfo 是工作区符号查询中的一条扁平条目。
 type LspSymbolInfo struct {
 	Name          string      `json:"name"`
 	Kind          int         `json:"kind"`
@@ -149,9 +149,9 @@ type LspSymbolInfo struct {
 	ContainerName string      `json:"containerName,omitempty"`
 }
 
-// LspIde is the consumer-side interface satisfied by the app-provided adapter
-// around *lsp.Client. All positions are zero-based LSP coordinates; the tools
-// pass them through unchanged.
+// LspIde 是由 app 提供的、包装 *lsp.Client 的适配器所满足的
+// 消费侧接口。所有位置都是基于 0 的 LSP 坐标；工具
+// 原样透传它们。
 type LspIde interface {
 	DocumentSymbol(path string) ([]LspSymbol, error)
 	References(path string, line, character int, includeDecl bool) ([]LspLocation, error)
@@ -161,9 +161,9 @@ type LspIde interface {
 	WorkspaceSymbols(query string) ([]LspSymbolInfo, error)
 }
 
-// lspIdeTool is a single generic read-only tool. Each instance carries its own
-// adapter and a call closure that decodes arguments and invokes one LspIde
-// method, keeping the six tools DRY while preserving per-tool metadata.
+// lspIdeTool 是单个通用只读工具。每个实例携带自己的
+// 适配器和一个调用闭包，该闭包解码参数并调用某个 LspIde
+// 方法，在保持每个工具元数据的同时让六个工具 DRY。
 type lspIdeTool struct {
 	name        string
 	description string
@@ -192,7 +192,7 @@ func (t *lspIdeTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	return clip(ctx, string(data)), nil
 }
 
-// ---- Argument decoders ----
+// ---- 参数解码器 ----
 
 type lspPathArgs struct {
 	Path string `json:"path"`
@@ -238,7 +238,7 @@ func decodeLspArgs[T any](raw json.RawMessage) (T, error) {
 	return args, nil
 }
 
-// ---- Constructors ----
+// ---- 构造器 ----
 
 func newLspSymbolsTool(ide LspIde) Tool {
 	return &lspIdeTool{

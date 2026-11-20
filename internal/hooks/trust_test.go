@@ -57,7 +57,7 @@ func TestLoadDocumentRequiresTrust(t *testing.T) {
 		t.Fatalf("unexpected document: %+v", document)
 	}
 
-	// Editing the document invalidates the grant.
+	// 编辑文档会使授权失效。
 	if err := os.WriteFile(path, []byte(trustedDocument+" "), 0o644); err != nil {
 		t.Fatalf("tamper: %v", err)
 	}

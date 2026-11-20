@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// wrapFirst is the streaming sibling of Wrap: it is used by wrapLimited for
-// tool-output preview rows. Like Wrap/Clip/Buffer.WriteString it must measure
-// and break on grapheme clusters, not runes, or a ZWJ emoji or regional-indicator
-// flag is torn apart and a dangling joiner/modifier is painted on its own row.
+// wrapFirst 是 Wrap 的流式兄弟：wrapLimited 用它处理
+// 工具输出预览行。与 Wrap/Clip/Buffer.WriteString 一样，它必须
+// 按字素簇而非 rune 测量和断行，否则 ZWJ emoji 或区域指示符
+// 旗帜会被撕开，悬空的连接符/修饰符被单独画在一行。
 func TestWrapFirstKeepsGraphemeClustersIntact(t *testing.T) {
 	cases := []struct {
 		name     string

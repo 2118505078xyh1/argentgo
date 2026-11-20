@@ -103,7 +103,7 @@ func TestClassifyError(t *testing.T) {
 }
 
 func TestNewAttemptRecordClipsErrorClassByRune(t *testing.T) {
-	// A byte-based clip used to cut this message in the middle of a rune.
+	// 基于字节的裁剪过去会在字符中间切断这条消息。
 	long := strings.Repeat("中文", 200)
 	record := llm.NewAttemptRecord(llm.AttemptFailed, llm.ProtocolChatCompletions, "m", errors.New(long))
 	if !utf8.ValidString(record.ErrorClass) {

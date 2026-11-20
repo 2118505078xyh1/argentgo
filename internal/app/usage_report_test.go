@@ -22,8 +22,8 @@ func newReportSession(t *testing.T, title string) *session.Session {
 	return sess
 }
 
-// The cumulative reader must sum every persisted stats delta, not just return
-// the newest one, so a resumed session reports the accumulated total.
+// 累积读取器必须对所有持久化的统计增量求和，而不只是返回
+// 最新的那一条，使恢复的会话报告累积总量。
 func TestCumulativeSessionUsageAggregatesAcrossRuns(t *testing.T) {
 	sess := newReportSession(t, "aggregate")
 	if err := sess.AppendStats(session.SessionStats{
@@ -62,8 +62,8 @@ func TestCumulativeSessionUsageAggregatesAcrossRuns(t *testing.T) {
 	}
 }
 
-// A session with no stats or usage records is a normal empty state: zero totals
-// and no models. A nil session must be safe for callers that have not opened one.
+// 没有统计或用量记录的会话是正常的空状态：总量为零、没有模型。
+// 对尚未打开会话的调用方，nil 会话必须是安全的。
 func TestCumulativeSessionUsageEmptySessionIsZero(t *testing.T) {
 	sess := newReportSession(t, "empty")
 
@@ -81,8 +81,8 @@ func TestCumulativeSessionUsageEmptySessionIsZero(t *testing.T) {
 	}
 }
 
-// Model names come straight from usage records and are kept verbatim, including
-// CJK characters: the reader must not slice bytes or drop non-ASCII runes.
+// 模型名直接来自用量记录并被原样保留，包括 CJK 字符：
+// 读取器不得按字节切片或丢弃非 ASCII rune。
 func TestCumulativeSessionUsagePreservesCJKModelNames(t *testing.T) {
 	sess := newReportSession(t, "cjk")
 	records := []session.UsageRecord{
@@ -114,8 +114,8 @@ func TestCumulativeSessionUsagePreservesCJKModelNames(t *testing.T) {
 	}
 }
 
-// --tokens gains the cumulative block only when --session addresses a session;
-// the plain report keeps its exact prior output and no event format changes.
+// 只有 --session 指向某个会话时，--tokens 才会增加累积块；
+// 普通报告保持其原有输出，事件格式也不变。
 func TestTokenReportWithSessionShowsCumulativeUsage(t *testing.T) {
 	root := t.TempDir()
 	storage := t.TempDir()

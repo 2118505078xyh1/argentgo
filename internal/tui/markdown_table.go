@@ -2,10 +2,10 @@ package tui
 
 import "strings"
 
-// This file is deliberately self-contained: it adds markdown table rendering
-// without touching markdown.go. The main entry point takes textWidth and wrap
-// as injected functions so the layout can be tested without a Palette; passing
-// nil selects the real TextWidth/Wrap implementations from this package.
+// 本文件刻意自包含：它添加 markdown 表格渲染
+// 而不触碰 markdown.go。主入口接受 textWidth 和 wrap
+// 作为注入函数，使布局可在没有 Palette 的情况下测试；传入
+// nil 则选用本包真实的 TextWidth/Wrap 实现。
 
 type tableAlign uint8
 
@@ -16,12 +16,12 @@ const (
 	tableAlignRight                    // ---:
 )
 
-// renderMarkdownTable replaces every recognised markdown table block in lines
-// with aligned rows. Everything else is copied through unchanged. A block is
-// recognised when a line contains '|' and the immediately following line is a
-// delimiter row made only of '-' and optional leading/trailing ':' per cell,
-// e.g. |---|:---:|---:|. Subsequent lines containing '|' are body rows; the
-// first line without '|' ends the block.
+// renderMarkdownTable 把 lines 中每个被识别的 markdown 表格块替换
+// 为对齐的行。其他所有内容原样复制。当某行含 '|' 且紧随其后的一行是
+// 仅由 '-' 以及每格可选的前导/尾随 ':' 构成的分隔符行时，
+// 该块被识别，例如 |---|:---:|---:|。其后含 '|' 的行是正文行；
+// 第一个不含 '|' 的行
+// 结束该块。
 func renderMarkdownTable(lines []string, width int, textWidth func(string) int, wrap func(string, int) []string) []string {
 	measure := textWidth
 	if measure == nil {
@@ -56,8 +56,8 @@ func renderMarkdownTable(lines []string, width int, textWidth func(string) int, 
 	return out
 }
 
-// splitTableRow splits on '|' and drops the empty ends produced by a leading
-// or trailing pipe, then trims each cell. Interior empty cells are kept.
+// splitTableRow 按 '|' 切分并丢弃由前导或尾随竖线产生的空端，
+// 然后修剪每个单元格。内部空单元格被保留。
 func splitTableRow(line string) []string {
 	parts := strings.Split(strings.TrimSpace(line), "|")
 	if len(parts) > 0 && strings.TrimSpace(parts[0]) == "" {
@@ -72,9 +72,9 @@ func splitTableRow(line string) []string {
 	return parts
 }
 
-// parseTableDelimiter accepts only cells of at least three dashes with at most
-// one leading and one trailing colon. The strictness is what keeps a normal
-// two-column row from being mistaken for a separator.
+// parseTableDelimiter 只接受至少三个破折号、且最多一个前导和一个尾随冒号的单元格。
+// 这种严格性使普通的
+// 两列行不会被误认为分隔符。
 func parseTableDelimiter(line string) ([]tableAlign, bool) {
 	trimmed := strings.TrimSpace(line)
 	if !strings.Contains(trimmed, "|") {
@@ -116,9 +116,9 @@ func parseTableDelimiterCell(cell string) (tableAlign, bool) {
 	}
 }
 
-// tableColumnWidths measures every cell, then shrinks the widest column one
-// cell at a time until the row fits width. A row occupies 3*n+1 cells of pipe
-// and space overhead: "| c0 | c1 | ... |".
+// tableColumnWidths 测量每个单元格，然后每次把最宽的列缩小
+// 一个单元格，直到整行放得进 width。一行占用 3*n+1 个单元格的竖线
+// 和空格开销："| c0 | c1 | ... |"。
 func tableColumnWidths(rows [][]string, width int, measure func(string) int) []int {
 	n := 0
 	for _, row := range rows {
@@ -186,8 +186,8 @@ func renderTableBlock(header []string, aligns []tableAlign, body [][]string, wid
 	}
 	widths := tableColumnWidths(rows, width, measure)
 
-	// First pass over cells: wrap into column-sized segments and hard-truncate
-	// any segment a narrow column still cannot hold (wide runes, fake measures).
+	// 第一遍遍历单元格：折叠成列大小的片段，并硬截断
+	// 窄列仍放不下的任何片段（宽 rune、伪造的测量值）。
 	segments := make([][][]string, len(rows))
 	for r, row := range rows {
 		segments[r] = make([][]string, n)
@@ -197,8 +197,8 @@ func renderTableBlock(header []string, aligns []tableAlign, body [][]string, wid
 				parts = []string{""}
 			}
 			for i, part := range parts {
-				// Wrap keeps the space that triggered a break on the next
-				// segment; trim it so columns do not drift by one cell.
+				// Wrap 会把触发断行的空格保留在下一个
+				// 片段；修剪它，使列不会偏移一个单元格。
 				part = strings.TrimSpace(part)
 				if measure(part) > widths[c] {
 					part = truncateTableCell(part, widths[c], measure)
@@ -239,12 +239,12 @@ func renderTableBlock(header []string, aligns []tableAlign, body [][]string, wid
 	return out
 }
 
-// cellClusters walks text one grapheme cluster at a time and reports the byte
-// range [start, end) and the cluster's measured width. nextGrapheme is the same
-// boundary authority used by TextWidth, Clip, Wrap and Buffer.WriteString, so a
-// ZWJ emoji, a flag or a combining sequence stays intact when a cell is cut.
-// Widths still go through the injected measure so custom width models keep
-// working; only the cut points become cluster boundaries.
+// cellClusters 逐个字素簇遍历 text，报告字节
+// 范围 [start, end) 和该簇的测量宽度。nextGrapheme 与
+// TextWidth、Clip、Wrap 和 Buffer.WriteString 使用同一边界权威，因此
+// 单元格被切割时 ZWJ emoji、旗帜或组合序列保持完整。
+// 宽度仍通过注入的 measure 计算，使自定义宽度模型继续
+// 工作；只有切割点变成簇边界。
 func cellClusters(text string, measure func(string) int, fn func(start, end int, cells int) bool) {
 	for pos := 0; pos < len(text); {
 		next, _ := nextGrapheme(text, pos)
@@ -280,7 +280,7 @@ func truncateTableCell(text string, max int, measure func(string) int) string {
 	})
 	result := out.String() + ellipsis
 	if measure(result) > max {
-		// A measure that counts "…" wider than the column: drop the mark.
+		// 一个把 "…" 测量得比列还宽的 measure：丢弃该标记。
 		return clipTableCell(text, max, measure)
 	}
 	return result

@@ -13,13 +13,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// TUI returns the frontend the command layer runs for `argent tui` / --tui.
+// TUI 返回命令层为 `argent tui` / --tui 运行的前端。
 //
-// It reuses the agent wiring of Execute: a prompt streams through the same
-// registry, policy and session store, and approvals are answered by the TUI
-// modal. The live model is captured from tui.Options.OnReady and every
-// security.Approver call blocks on Model.Approve until the operator answers or
-// the turn's context ends.
+// 它复用 Execute 的 agent 接线：提示经由同一注册表、策略和会话存储流式输出，
+// 审批由 TUI 模态框回答。实时模型从 tui.Options.OnReady 捕获，
+// 每次 security.Approver 调用都会阻塞在 Model.Approve 上，直到操作人员回答或该轮次的 context 结束。
 func TUI(stdio cli.IO) cli.TUIFunc {
 	return func(ctx context.Context, opts cli.Options) error {
 		res, err := Resolve(stdio, opts)
@@ -34,9 +32,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		approver := NewApprover()
 		res.Approve = approver
 
-		// Feed real agent events to the TUI's tool cards. The TUI host calls
-		// Execute directly (no cli.Runner), so it owns a private hub and attaches
-		// its emitter to each run context below. Stop closes the bridge on exit.
+		// 把真实 agent 事件喂给 TUI 的工具卡片。TUI 宿主直接调用 Execute（没有 cli.Runner），
+		// 因此它拥有一个私有 hub，并在下方把其发出器附着到每次运行的 context 上。
+		// 退出时 Stop 会关闭桥接器。
 		events := NewTUIEventPipeline(ctx)
 		defer events.Stop()
 
@@ -58,12 +56,10 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			return sess, nil
 		}
 
-		// TurnAction hooks back the /undo, /retry and /name commands (and the
-		// Alt+U / Alt+R keys) with real session operations. Without them the TUI
-		// advertised those commands but only printed "host has not wired it".
-		// currentSession returns the live session, or an error before the first
-		// prompt creates one; the hooks share sessionFor's mutex so a concurrent
-		// prompt cannot race with checkpoint/fork/title writes.
+		// TurnAction 钩子用真实的会话操作接回 /undo、/retry 和 /name 命令（以及 Alt+U / Alt+R 按键）。
+		// 没有它们，TUI 虽然公布了这些命令，却只会打印"宿主尚未接线"。
+		// currentSession 返回实时会话；在第一次提示创建会话之前返回错误；
+		// 这些钩子共享 sessionFor 的互斥锁，使并发提示不会与检查点/分叉/标题写入发生竞态。
 		currentSession := func() (*session.Session, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -94,7 +90,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				return err
 			}
 			mu.Lock()
-			current = fork // subsequent prompts continue on the forked branch
+			current = fork // 后续提示在分叉出的分支上继续
 			mu.Unlock()
 			return nil
 		}
@@ -127,7 +123,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			},
 			OnReady: func(model *tui.Model) { approver.attach(model) },
 		}
-		// A test (or a pipe) must not put the terminal into raw mode.
+		// 测试（或管道）不得让终端进入 raw 模式。
 		if !realStreams(stdio) {
 			frontendOpts.IO = &tui.IO{In: stdio.In, Out: stdio.Out}
 		}
@@ -135,7 +131,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 	}
 }
 
-// Approver satisfies security.Approver by delegating to the TUI modal.
+// Approver 通过委托给 TUI 模态框来满足 security.Approver。
 type Approver struct {
 	mu    sync.Mutex
 	model *tui.Model
@@ -143,12 +139,12 @@ type Approver struct {
 	once  sync.Once
 }
 
-// NewApprover returns an Approver whose modal is not attached yet.
+// NewApprover 返回一个尚未附着模态框的 Approver。
 func NewApprover() *Approver {
 	return &Approver{ready: make(chan struct{})}
 }
 
-// attach records the live model; the first call opens the ready latch.
+// attach 记录实时模型；第一次调用会打开 ready 闩锁。
 func (a *Approver) attach(model *tui.Model) {
 	a.mu.Lock()
 	a.model = model
@@ -156,7 +152,7 @@ func (a *Approver) attach(model *tui.Model) {
 	a.once.Do(func() { close(a.ready) })
 }
 
-// Ask blocks until the modal resolves or ctx ends.
+// Ask 阻塞直到模态框给出结果或 ctx 结束。
 func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	select {
 	case <-a.ready:
@@ -172,7 +168,7 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	return model.Approve(ctx, name, args)
 }
 
-// sessionTitles renders the picker entries, newest first.
+// sessionTitles 渲染选择器条目，最新的排在最前。
 func sessionTitles(store *session.Store) []string {
 	metas, err := store.List()
 	if err != nil {
@@ -190,8 +186,7 @@ func sessionTitles(store *session.Store) []string {
 	return titles
 }
 
-// realStreams reports whether stdio is the process terminal, which is the only
-// case where the TUI should take over raw mode.
+// realStreams 报告 stdio 是否为进程终端，这是 TUI 应当接管 raw 模式的唯一情形。
 func realStreams(stdio cli.IO) bool {
 	return stdio.In == os.Stdin && stdio.Out == os.Stdout
 }

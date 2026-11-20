@@ -31,8 +31,7 @@ func TestParsePolicyWithIssuesInvalidDecisionIsReportedAndSkipped(t *testing.T) 
 	if !strings.Contains(got.Reason, "invalid decision") || !strings.Contains(got.Reason, "denyy") {
 		t.Errorf("reason = %q, want it to name the bad decision", got.Reason)
 	}
-	// Fail-closed skip: the unrecognized verdict is never executed, so the
-	// existing behaviour (no deny) is preserved.
+	// 失败即拒绝的跳过：无法识别的判定永远不会执行，因此保留原有行为（不拒绝）。
 	if decision := policy.Check("read", mustArgs(t, `{"path":"secret.txt"}`)); decision != Allow {
 		t.Fatalf("skipped deny rule must not block the call: got %v, want allow", decision)
 	}
@@ -102,7 +101,7 @@ func TestParsePolicyWithIssuesMixedRulesKeepIndicesAndOrder(t *testing.T) {
 			t.Errorf("issue %d: raw = %q, want decision %q", i, issues[i].Raw, want.decision)
 		}
 	}
-	// The valid rules around the skipped ones are still enforced.
+	// 被跳过规则周围的有效规则仍会被执行。
 	if got := policy.Check("bash", mustArgs(t, `{"command":"rm -rf /tmp/x"}`)); got != Deny {
 		t.Fatalf("first deny rule: got %v, want deny", got)
 	}
@@ -135,7 +134,7 @@ func TestParsePolicyWithIssuesPreservesCJKInRaw(t *testing.T) {
 	if !strings.Contains(issues[0].Reason, "拒绝") {
 		t.Errorf("reason %q should name the CJK decision", issues[0].Reason)
 	}
-	// A valid rule carrying CJK text is still applied and produces no issue.
+	// 携带中日韩文本的有效规则仍会应用，且不会产生问题。
 	if got := policy.Check("bash", mustArgs(t, `{"command":"删除 机密.txt"}`)); got != Deny {
 		t.Fatalf("CJK deny rule: got %v, want deny", got)
 	}

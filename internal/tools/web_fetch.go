@@ -94,8 +94,8 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	return clip(ctx, text), nil
 }
 
-// checkFetchURL validates the scheme and, unless allowLocal is set, refuses
-// hosts that resolve to loopback, private, link-local or unspecified addresses.
+// checkFetchURL 校验 scheme，并且除非设置了 allowLocal，否则拒绝
+// 解析到回环、私有、链路本地或未指定地址主机。
 func checkFetchURL(ctx context.Context, raw string, allowLocal bool) (*url.URL, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -129,12 +129,12 @@ func blockedIP(ip net.IP) bool {
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
 }
 
-// truncateFetchBody cuts body to at most limit bytes without leaving half of a
-// multibyte UTF-8 rune at the end. A plain body[:limit] can slice a CJK
-// character or emoji in two; clip()'s rune-safe head/tail windows cannot repair
-// a rune that is already broken at the source, so the bad byte reaches the
-// model. Reusing trimPartialRune here keeps the cap byte-exact whenever it
-// already lands on a rune boundary and drops the whole rune otherwise.
+// truncateFetchBody 把 body 切到至多 limit 字节，且不在末尾留下半个
+// 多字节 UTF-8 rune。简单的 body[:limit] 可能把一个 CJK
+// 字符或 emoji 切成两半；clip() 的 rune 安全头尾窗口无法修复
+// 在源头就已损坏的 rune，于是坏字节会到达
+// 模型。这里复用 trimPartialRune，使上限在恰好落在 rune 边界时
+// 字节精确，否则丢弃整个 rune。
 func truncateFetchBody(body []byte, limit int) []byte {
 	if len(body) <= limit {
 		return body
@@ -150,8 +150,8 @@ func looksHTML(contentType, body string) bool {
 	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
 }
 
-// htmlToText drops script/style content, turns block tags into line breaks and
-// removes the remaining markup.
+// htmlToText 丢弃 script/style 内容，把块级标签变成换行，并
+// 移除剩余的标记。
 func htmlToText(body string) string {
 	body = reDropBlocks.ReplaceAllString(body, " ")
 	body = reBreakTags.ReplaceAllString(body, "\n")

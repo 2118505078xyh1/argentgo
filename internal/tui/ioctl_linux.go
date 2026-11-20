@@ -2,7 +2,7 @@
 
 package tui
 
-// Linux ioctl requests: TCGETS, TCSETS, TIOCGWINSZ.
+// Linux ioctl 请求：TCGETS、TCSETS、TIOCGWINSZ。
 const (
 	ioctlGetTermios = 0x5401
 	ioctlSetTermios = 0x5402

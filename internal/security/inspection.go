@@ -13,18 +13,17 @@ import (
 	"sync/atomic"
 )
 
-// This file is an ADDITIONAL, independent inspection layer in front of the
-// existing security Chain. It does not implement policy, approval or audit:
-// Chain.Check still owns all three (policy -> approval -> audit) and is still
-// the single gate the tool registry calls. The manager only produces one more
-// verdict that the composition root may fold into that decision.
+// 本文件是在现有 security Chain 之前额外增加的一层独立检查。它不实现策略、
+// 审批或审计：Chain.Check 仍然负责这三者（策略 -> 审批 -> 审计），并且仍然是
+// 工具注册表调用的单一关卡。管理器只多产生一个裁决，由组装根决定如何把它
+// 并入该决策。
 //
-// Wiring, done by internal/app (the only package allowed to compose internals):
+// 接线由 internal/app 完成（它是唯一允许组合内部包的包）：
 //
 //	verdict := inspectors.Resolve(ctx, toolName, args)
 //	switch verdict.Action {
 //	case security.InspectDeny:
-//		// Inspector deny is a hard stop; the run must not retry.
+//		// 检查器拒绝是硬性停止；运行不得重试。
 //		return &security.StopError{Tool: toolName, Reason: verdict.Reason}
 //	case security.InspectRequireApproval:
 //		ok, err := approver.Ask(ctx, toolName, string(args))
@@ -34,20 +33,19 @@ import (
 //		if !ok {
 //			return &security.StopError{Tool: toolName, Reason: verdict.Reason, Refused: true}
 //		}
-//		// Approved: fall through to the chain for policy + audit.
+//		// 已批准：继续走链，执行策略 + 审计。
 //	case security.InspectAllow:
-//		// No extra gate: fall through to the chain.
+//		// 没有额外关卡：继续走链。
 //	}
 //	return chain.Check(ctx, toolName, args)
 //
-// A RequireApproval that was already answered can be replayed to Chain.Check
-// through an approver wrapper that returns the recorded answer, so the
-// operator is not prompted twice. Deny never reaches Chain.Check. Allow means
-// "no additional gate", never "skip the chain": policy and audit still run.
-// The manager never writes to the chain, the approver or the audit log.
+// 已经回答过的 RequireApproval 可以通过一个返回所记录答案的审批器包装器重放给
+// Chain.Check，这样操作员不会被提示两次。Deny 永远不会到达 Chain.Check。
+// Allow 意味着"没有额外关卡"，绝不是"跳过链"：策略和审计仍然运行。
+// 管理器从不写入链、审批器或审计日志。
 
-// InspectionAction is a coarse decision. Values are ordered by strictness so
-// a larger value always outranks a smaller one when merging.
+// InspectionAction 是粗略的决策。值按严格程度排序，因此合并时较大的值总是
+// 优先于较小的值。
 type InspectionAction uint8
 
 const (
@@ -56,9 +54,9 @@ const (
 	InspectDeny
 )
 
-// Verdict is one inspector's independent finding. All string fields are
-// bounded and redacted by InspectionManager.Resolve before the verdict is
-// returned, because reasons and finding IDs commonly reach logs and prompts.
+// Verdict 是一个检查器的独立发现。所有字符串字段都会在裁决返回之前被
+// InspectionManager.Resolve 限制长度并脱敏，因为原因和发现 ID 常常会出现在
+// 日志和提示中。
 type Verdict struct {
 	Action     InspectionAction
 	Reason     string
@@ -67,18 +65,17 @@ type Verdict struct {
 	FindingID  string
 }
 
-// Inspector is one independent check. Implementations must be safe for
-// concurrent use, treat ctx cancellation as a hint to return quickly, and
-// keep Name cheap and free of side effects. An error or a panic is logged by
-// the manager and skipped (fail-soft); it never stops the other inspectors.
+// Inspector 是一项独立检查。实现必须可并发安全使用，把 ctx 取消当作尽快
+// 返回的提示，并让 Name 保持廉价且无副作用。错误或 panic 会被管理器记录并
+// 跳过（失败即软失败）；它绝不会阻止其他检查器。
 type Inspector interface {
 	Name() string
 	Inspect(ctx context.Context, tool string, args json.RawMessage) (Verdict, error)
 }
 
-// Limits keep one inspector from monopolising Resolve with a huge request or
-// an unbounded reason string. maxInspectionArgs is measured in raw bytes;
-// string limits are measured in runes so UTF-8 sequences are never cut in half.
+// 这些限制防止某个检查器用巨大的请求或无界的原因字符串独占 Resolve。
+// maxInspectionArgs 以原始字节计；字符串限制以 rune 计，因此 UTF-8 序列永远
+// 不会被截断一半。
 const (
 	maxInspectionArgs      = 1 << 20 // 1 MiB
 	maxVerdictReasonRunes  = 512
@@ -87,22 +84,20 @@ const (
 	maxFindingKindRunes    = 16
 )
 
-// InspectionManager runs inspectors in registration order and merges their
-// verdicts. It is safe for concurrent use: Add/Disable/SetErrorHandler may be
-// called while Resolve is running. Resolve snapshots the configuration and
-// runs inspectors without holding the lock.
+// InspectionManager 按注册顺序运行检查器并合并它们的裁决。它可并发安全使用：
+// Add/Disable/SetErrorHandler 可以在 Resolve 运行时调用。Resolve 会先对配置
+// 做快照，然后在不持锁的情况下运行检查器。
 type InspectionManager struct {
 	mu           sync.RWMutex
 	inspectors   []Inspector
 	disabled     map[string]bool
 	onErr        func(string, error)
-	newFindingID func(string) string // injectable for deterministic tests
+	newFindingID func(string) string // 可注入，便于确定性测试
 }
 
-// Add registers an inspector at the end of the run order. Nil inspectors and
-// ones with an empty name are ignored. Names need not be unique: Disable
-// skips every inspector carrying the given name. Re-adding re-enables nothing
-// — Disable is sticky until this package grows an explicit Enable method.
+// Add 把一个检查器注册到运行顺序的末尾。nil 检查器和名字为空的检查器会被
+// 忽略。名字不必唯一：Disable 会跳过所有带该名字的检查器。重新添加不会重新
+// 启用任何东西 —— 在本包增加显式的 Enable 方法之前，Disable 是粘性的。
 func (m *InspectionManager) Add(inspector Inspector) {
 	if m == nil || inspector == nil {
 		return
@@ -116,7 +111,7 @@ func (m *InspectionManager) Add(inspector Inspector) {
 	m.mu.Unlock()
 }
 
-// Disable skips every inspector registered under name (now and later added).
+// Disable 跳过所有以 name 注册（包括现在和以后添加的）的检查器。
 func (m *InspectionManager) Disable(name string) {
 	if m == nil {
 		return
@@ -133,10 +128,9 @@ func (m *InspectionManager) Disable(name string) {
 	m.mu.Unlock()
 }
 
-// SetErrorHandler installs the callback for skipped inspectors (errors and
-// panics). A nil handler silences logging. The callback should redact before
-// writing the error anywhere durable; the original error is passed through so
-// callers can still use errors.Is.
+// SetErrorHandler 设置被跳过检查器（错误和 panic）的回调。nil 处理器会关闭
+// 日志。回调在把错误写入任何持久位置之前应先脱敏；原始错误会被透传，
+// 因此调用方仍然可以使用 errors.Is。
 func (m *InspectionManager) SetErrorHandler(fn func(string, error)) {
 	if m == nil {
 		return
@@ -146,23 +140,19 @@ func (m *InspectionManager) SetErrorHandler(fn func(string, error)) {
 	m.mu.Unlock()
 }
 
-// Resolve runs the enabled inspectors in order and merges their verdicts with
-// DENY-DOMINANT rules:
+// Resolve 按顺序运行启用的检查器，并按 DENY 优先规则合并它们的裁决：
 //
-//  1. Any Deny wins; among denies, the highest confidence wins.
-//  2. Else any RequireApproval wins; among those, highest confidence wins.
-//  3. Else the highest-confidence Allow wins.
-//  4. No verdicts (no inspectors, all disabled, all errored/panicked, or an
-//     already-cancelled context) is a fail-closed RequireApproval with an
-//     empty FindingID and reason "no inspector produced a verdict" — goose's
-//     unknown-request rule.
+//  1. 任何 Deny 都胜出；多个 Deny 中置信度最高者胜出。
+//  2. 否则任何 RequireApproval 胜出；其中置信度最高者胜出。
+//  3. 否则置信度最高的 Allow 胜出。
+//  4. 没有裁决（没有检查器、全部被禁用、全部出错/panic，或 context 已取消）
+//     会失败即拒绝为一个 RequireApproval，FindingID 为空，原因为
+//     "no inspector produced a verdict" —— goose 的未知请求规则。
 //
-// Allow never overrides a stricter verdict. On equal confidence the first
-// inspector in registration order wins, which keeps merges deterministic.
-// An inspector error or panic is reported through onErr (if set) and skipped;
-// the remaining inspectors still run. Requests larger than maxInspectionArgs
-// bytes are never handed to inspectors: they fail closed to RequireApproval.
-// The returned verdict's string fields are bounded and redacted.
+// Allow 永远不会覆盖更严格的裁决。置信度相同时，注册顺序中第一个检查器胜出，
+// 这使合并保持确定性。检查器出错或 panic 会通过 onErr（若设置）报告并跳过；
+// 其余检查器仍会运行。超过 maxInspectionArgs 字节的请求绝不会交给检查器：
+// 它们失败即拒绝为 RequireApproval。返回裁决的字符串字段会被限制长度并脱敏。
 func (m *InspectionManager) Resolve(ctx context.Context, tool string, args json.RawMessage) Verdict {
 	if m == nil {
 		return noVerdictVerdict()
@@ -218,9 +208,8 @@ func (m *InspectionManager) Resolve(ctx context.Context, tool string, args json.
 	return sanitizeVerdict(merged)
 }
 
-// mergeVerdicts is pure: it never calls back into inspectors or the manager.
-// Unknown action values are treated as RequireApproval so a buggy inspector
-// cannot silently downgrade a decision to Allow.
+// mergeVerdicts 是纯函数：它从不回调检查器或管理器。未知的 Action 值会被
+// 当作 RequireApproval，这样有缺陷的检查器无法把决策悄悄降级为 Allow。
 func mergeVerdicts(verdicts []Verdict) Verdict {
 	var allow, approval, deny *Verdict
 	for i := range verdicts {
@@ -258,8 +247,8 @@ func mergeVerdicts(verdicts []Verdict) Verdict {
 	}
 }
 
-// inspectOne isolates a single inspector so a panic cannot take down the
-// process or skip the rest of the run. Both errors and panics are fail-soft.
+// inspectOne 隔离单个检查器，使 panic 不会拖垮进程或跳过其余运行。
+// 错误和 panic 都是失败即软失败。
 func inspectOne(ctx context.Context, inspector Inspector, name, tool string, args json.RawMessage, onErr func(string, error)) (v Verdict, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -275,8 +264,7 @@ func inspectOne(ctx context.Context, inspector Inspector, name, tool string, arg
 	return v, true
 }
 
-// reportInspectorError keeps a misbehaving error handler from turning a
-// fail-soft skip into a crash.
+// reportInspectorError 防止行为异常的错误处理器把失败即软失败变成崩溃。
 func reportInspectorError(onErr func(string, error), name string, err error) {
 	if onErr == nil {
 		return
@@ -316,8 +304,8 @@ func sanitizeVerdict(v Verdict) Verdict {
 	return v
 }
 
-// boundString truncates on a rune boundary and leaves room for an ellipsis,
-// so a verdict never ends in the middle of a UTF-8 sequence.
+// boundString 在 rune 边界截断，并为省略号留出空间，因此裁决绝不会在
+// UTF-8 序列中间结束。
 func boundString(s string, maxRunes int) string {
 	if maxRunes <= 0 {
 		return ""
@@ -346,8 +334,8 @@ func (m *InspectionManager) generateFindingID(kind string) string {
 
 var findingCounter atomic.Uint64
 
-// NewFindingID returns a bounded SEC-<16 hex>[-<KIND>] identifier. It uses
-// crypto/rand, falling back to an atomic counter if the system source fails.
+// NewFindingID 返回一个有界的 SEC-<16 hex>[-<KIND>] 标识符。它使用
+// crypto/rand，若系统随机源失败则回退到原子计数器。
 func NewFindingID(kind string) string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {

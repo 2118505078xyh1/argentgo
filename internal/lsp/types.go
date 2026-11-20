@@ -2,20 +2,20 @@ package lsp
 
 import "fmt"
 
-// Position is a zero-based location in a document, as LSP defines it.
+// Position 是 LSP 定义的文档中从零开始的位置。
 type Position struct {
-	// Line is zero-based.
+	// Line 从零开始。
 	Line int `json:"line"`
-	// Character is a zero-based UTF-16 code unit offset within the line.
+	// Character 是行内从零开始的 UTF-16 码元偏移。
 	Character int `json:"character"`
 }
 
-// String renders the position as 1-based line:column, the way humans count.
+// String 按人类习惯的 1 基 行:列 渲染位置。
 func (p Position) String() string {
 	return fmt.Sprintf("%d:%d", p.Line+1, p.Character+1)
 }
 
-// Human converts a 1-based line and column to a Position.
+// Human 把 1 基的行和列转换为 Position。
 func Human(line, column int) Position {
 	if line < 1 {
 		line = 1
@@ -26,13 +26,13 @@ func Human(line, column int) Position {
 	return Position{Line: line - 1, Character: column - 1}
 }
 
-// Range is a span between two positions.
+// Range 是两个位置之间的区间。
 type Range struct {
 	Start Position `json:"start"`
 	End   Position `json:"end"`
 }
 
-// Diagnostic is one problem the server reported for a document.
+// Diagnostic 是服务器报告的一处文档问题。
 type Diagnostic struct {
 	URI      string `json:"uri"`
 	Range    Range  `json:"range"`
@@ -41,27 +41,27 @@ type Diagnostic struct {
 	Source   string `json:"source,omitempty"`
 }
 
-// Location is a definition target, normalized from Location or LocationLink.
+// Location 是定义目标，从 Location 或 LocationLink 规范化而来。
 type Location struct {
 	URI   string `json:"uri"`
 	Range Range  `json:"range"`
 }
 
-// Hover is the documentation the server offered at a position.
+// Hover 是服务器在某位置提供的文档。
 type Hover struct {
 	Contents string
 	Range    *Range
 }
 
-// TextEdit is one replacement of a document range with new text.
+// TextEdit 是用新文本替换文档某区间的一次操作。
 type TextEdit struct {
 	Range   Range  `json:"range"`
 	NewText string `json:"newText"`
 }
 
-// Symbol is one flat entry from a document symbol tree or a workspace symbol
-// list. Depth is 0 for top-level entries and grows with nesting; it is derived
-// by the client, so it is not part of the wire format.
+// Symbol 是来自文档符号树或工作区符号列表的一个扁平条目。顶层条目的
+// Symbol 是来自文档符号树或工作区符号列表的一个扁平条目。顶层条目的 Depth 为 0，随嵌套增长；它由客户端推导，因此不属于线上格式。
+// 由客户端推导，因此不属于线上格式。
 type Symbol struct {
 	Name           string `json:"name"`
 	Kind           int    `json:"kind"`
@@ -72,8 +72,8 @@ type Symbol struct {
 	Depth          int    `json:"-"`
 }
 
-// SymbolInformation is the flat SymbolInformation shape returned by
-// workspace/symbol and by servers that use it for document symbols.
+// SymbolInformation 是扁平 SymbolInformation 形态，由
+// SymbolInformation 是 workspace/symbol 以及用它作为文档符号的服务器返回的扁平 SymbolInformation 形态。
 type SymbolInformation struct {
 	Name          string   `json:"name"`
 	Kind          int      `json:"kind"`
@@ -83,35 +83,35 @@ type SymbolInformation struct {
 	Tags          []int    `json:"tags,omitempty"`
 }
 
-// DocumentEdit is one file's text edits from a WorkspaceEdit.documentChanges
-// array. Resource operations (create/rename/delete) carry no text edits and
-// are skipped.
+// DocumentEdit 是来自 WorkspaceEdit.documentChanges 数组的单个文件的文本编辑。资源操作（创建/重命名/删除）不带文本编辑，被跳过。
+// 数组。资源操作（创建/重命名/删除）不带文本编辑且
+// 被跳过。
 type DocumentEdit struct {
 	URI   string     `json:"uri"`
 	Edits []TextEdit `json:"edits"`
 }
 
-// WorkspaceEdit groups text edits by file. Changes always holds the merged
-// view of the legacy changes map and documentChanges; DocumentChanges keeps
-// the per-file entries as the server sent them.
+// WorkspaceEdit 按文件对文本编辑分组。Changes 始终保存合并
+// WorkspaceEdit 按文件对文本编辑分组。Changes 始终保存旧 changes map 与 documentChanges 的合并视图；DocumentChanges 保留服务器发送的原样按文件条目。
+// 按文件条目保持服务器发送时的原样。
 type WorkspaceEdit struct {
 	Changes         map[string][]TextEdit `json:"changes,omitempty"`
 	DocumentChanges []DocumentEdit        `json:"documentChanges,omitempty"`
 }
 
-// Command describes a command reference carried by a code action.
+// Command 描述代码动作携带的命令引用。
 type Command struct {
 	Title     string `json:"title"`
 	Command   string `json:"command"`
 	Arguments []any  `json:"arguments,omitempty"`
 }
 
-// CodeActionDisabled explains why an action is unavailable.
+// CodeActionDisabled 解释某动作为何不可用。
 type CodeActionDisabled struct {
 	Reason string `json:"reason"`
 }
 
-// CodeAction is one fix or refactor the server offers for a range.
+// CodeAction 是服务器为某区间提供的一个修复或重构。
 type CodeAction struct {
 	Title       string              `json:"title"`
 	Kind        string              `json:"kind,omitempty"`
@@ -122,8 +122,8 @@ type CodeAction struct {
 	Disabled    *CodeActionDisabled `json:"disabled,omitempty"`
 }
 
-// FormattingOptions is the standard formatting options object. Pointer
-// booleans distinguish "unset" from an explicit false.
+// FormattingOptions 是标准格式化选项对象。布尔指针
+// FormattingOptions 是标准格式化选项对象。布尔指针用于区分"未设置"与显式 false。
 type FormattingOptions struct {
 	TabSize                int   `json:"tabSize"`
 	InsertSpaces           bool  `json:"insertSpaces"`
@@ -132,21 +132,21 @@ type FormattingOptions struct {
 	TrimFinalNewlines      *bool `json:"trimFinalNewlines,omitempty"`
 }
 
-// SemanticTokens is the result of a textDocument/semanticTokens/full request.
+// SemanticTokens 是 textDocument/semanticTokens/full 请求的结果。
 type SemanticTokens struct {
-	// Data is the flat, delta-encoded token stream: five uint32 values per
-	// token (deltaLine, deltaStart, length, tokenType, tokenModifiers). The
-	// client keeps the raw slice; decoding it into lines is a UI concern.
+	// Data 是扁平的增量编码 token 流：每 token 五个 uint32 值
+	// Data 是扁平的增量编码 token 流：每个 token 五个 uint32 值（deltaLine、deltaStart、length、tokenType、tokenModifiers）。客户端保留原始切片；把它解码成行是 UI 的事。
+	// 客户端保留原始切片；把它解码成行是 UI 的事。
 	Data []uint32 `json:"data"`
-	// ResultID is the server's version tag, used by semanticTokens/full/delta.
+	// ResultID 是服务器的版本标签，用于 semanticTokens/full/delta。
 	ResultID string `json:"resultId"`
 }
 
-// InlayHint is one inline annotation the server offers for a document.
+// InlayHint 是服务器为文档提供的一条内联注解。
 type InlayHint struct {
 	Position Position `json:"position"`
-	// Label is the text shown to the user. Label parts from the wire are
-	// flattened to plain text by the parser.
+	// Label 是展示给用户的文本。线上来的 Label parts 被解析器展平为纯文本。
+	// 被解析器展平为纯文本。
 	Label        string `json:"label"`
 	Kind         int    `json:"kind,omitempty"`
 	Tooltip      string `json:"tooltip,omitempty"`
@@ -154,15 +154,15 @@ type InlayHint struct {
 	PaddingRight bool   `json:"paddingRight,omitempty"`
 }
 
-// CodeLens is one clickable label attached to a range. IsResolved is derived
-// by the client: a lens without a command still needs codeLens/resolve.
+// CodeLens 是附加到某区间的可点击标签。IsResolved 由
+// CodeLens 是附加到某区间的可点击标签。IsResolved 由客户端推导：没有 command 的 lens 仍需要 codeLens/resolve。
 type CodeLens struct {
 	Range      Range    `json:"range"`
 	Command    *Command `json:"command,omitempty"`
 	IsResolved bool     `json:"-"`
 }
 
-// severityName maps the numeric LSP severity to a word.
+// severityName 把数字 LSP 严重性映射为词。
 func severityName(severity int) string {
 	switch severity {
 	case 1:

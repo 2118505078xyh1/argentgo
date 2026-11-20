@@ -6,13 +6,11 @@ import (
 	"testing"
 )
 
-// TestRedactHeaderNamesAreCaseInsensitive covers RFC 7230/7235 case-insensitive
-// header and auth-scheme names. headerPrefixes used to hold exact-case needles
-// and searched the raw text, so `AUTHORIZATION: Basic <b64>` — a perfectly
-// valid header — leaked the whole base64 credential: a bare base64 token is
-// not credential-shaped on its own and no other rule matched it. The fix
-// matches the needles against the ASCII-lowercased copy (byte offsets stay
-// valid), which also makes a standalone `BEARER <token>` safe.
+// TestRedactHeaderNamesAreCaseInsensitive 覆盖 RFC 7230/7235 中不区分大小写的头名
+// 和认证方案名。headerPrefixes 过去保存精确大小写的搜索串并搜索原始文本，因此
+// `AUTHORIZATION: Basic <b64>` —— 一个完全合法的头 —— 泄露了整个 base64 凭据：
+// 裸 base64 token 本身不具有凭据形状，也没有其他规则匹配它。修复方案是把搜索串
+// 与 ASCII 小写副本匹配（字节偏移仍然有效），这也让独立的 `BEARER <token>` 变得安全。
 func TestRedactHeaderNamesAreCaseInsensitive(t *testing.T) {
 	const secret = "dXNlcjpwYXNz"
 	cases := []struct {
@@ -87,9 +85,8 @@ func TestRedactHeaderNamesAreCaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestRedactHeaderCaseStructuredPaths checks that the case-insensitive header
-// rule also protects the terminal row and audit JSON paths, and that ANSI
-// colour sequences keep their exact positions relative to the surrounding text.
+// TestRedactHeaderCaseStructuredPaths 检查不区分大小写的头规则也保护终端行和审计
+// JSON 路径，并且 ANSI 颜色序列相对于周围文本保持其确切位置。
 func TestRedactHeaderCaseStructuredPaths(t *testing.T) {
 	const secret = "dXNlcjpwYXNz"
 

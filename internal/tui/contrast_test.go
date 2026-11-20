@@ -86,10 +86,10 @@ func TestLegibleInkSwitchesOnlyWhenAltIsBetterAndInkIsFaint(t *testing.T) {
 }
 
 func TestLegibleInkLeavesBuiltInBadgeInksAlone(t *testing.T) {
-	// The shipped themes are already high contrast: dark/ansi paint their
-	// warning badge yellow on a dark row (~19.56:1) and light paints it red on
-	// white (~4:1). Both clear the 3:1 floor, so once a hex-capable palette is
-	// wired in, these choices must stay byte-identical.
+	// 随附的主题已经是高对比度的：dark/ansi 把
+	// 警告徽章画成深色行上的黄色（约 19.56:1），light 把它画成
+	// 白底红色（约 4:1）。两者都超过 3:1 下限，因此一旦接入支持十六进制的调色板，
+	// 这些选择必须保持逐字节一致。
 	tests := []struct {
 		name, bg, ink, alt string
 	}{

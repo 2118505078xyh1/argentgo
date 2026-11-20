@@ -10,18 +10,18 @@ import (
 	"strings"
 )
 
-// MutationSnapshot is the pre-turn state of one path in a checkpoint manifest.
-// A missing file is recorded with Exists=false and an empty digest, so a
-// checkpoint can distinguish "deleted by the turn" from "never existed".
+// MutationSnapshot 是检查点清单中某路径在回合前的状态。
+// 缺失的文件以 Exists=false 和空摘要记录，从而
+// 检查点可以区分“在本回合中被删除”与“从未存在过”。
 type MutationSnapshot struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256,omitempty"`
 	Exists bool   `json:"exists"`
 }
 
-// MutationPaths is the checkpoint seam: it reports the workspace-relative
-// paths a mutating tool call can change. It is an optional interface on the
-// registry so the agent loop can stay independent of the tools package.
+// MutationPaths 是检查点的接缝：它报告一次变更性工具调用
+// 可能改变的工作区相对路径。它是注册表上的可选接口，
+// 以便 agent 循环保持与 tools 包无关。
 func (r *Registry) MutationPaths(name, args string) []string {
 	tool, ok := r.tools[name]
 	if !ok || !tool.Mutating() {
@@ -40,8 +40,8 @@ func (r *Registry) MutationPaths(name, args string) []string {
 		}
 		absolute, err := resolve(r.root, path)
 		if err != nil {
-			// A denied escape is never a checkpoint path. The policy gate
-			// reports it separately before the tool can run.
+			// 被拒绝的越界路径绝不会成为检查点路径。策略门控
+			// 会在工具运行前单独报告它。
 			return
 		}
 		rel, err := filepath.Rel(r.root, absolute)
@@ -66,9 +66,9 @@ func (r *Registry) MutationPaths(name, args string) []string {
 	return paths
 }
 
-// SnapshotMutations reads the pre-turn bytes of each path for a checkpoint
-// manifest. Paths that lexically escape root are rejected rather than silently
-// recorded.
+// SnapshotMutations 读取检查点清单中每个路径在回合前的字节。
+// 词法上越出 root 的路径会被拒绝，而非被悄悄
+// 记录。
 func SnapshotMutations(root string, paths []string) ([]MutationSnapshot, error) {
 	snapshots := make([]MutationSnapshot, 0, len(paths))
 	for _, path := range paths {

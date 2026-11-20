@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// stubEditorRun swaps the editor process launcher for a fake. Production code
-// never launches a real editor in these tests.
+// stubEditorRun 把编辑器进程启动器换成假对象。这些测试中
+// 生产代码从不启动真实编辑器。
 func stubEditorRun(t *testing.T, fn func(cmd string, args []string, path string) error) {
 	t.Helper()
 	orig := externalEditorRun
@@ -20,7 +20,7 @@ func stubEditorRun(t *testing.T, fn func(cmd string, args []string, path string)
 	t.Cleanup(func() { externalEditorRun = orig })
 }
 
-// editorConfigEnv is the injected environment lookup used by the model tests.
+// editorConfigEnv 是模型测试使用的注入式环境查找。
 func editorConfigEnv(value string) func(string) string {
 	return func(key string) string {
 		if key == "EDITOR" {
@@ -36,7 +36,7 @@ func TestDecoderReadsCtrlGAsExternalEditorKey(t *testing.T) {
 		t.Fatalf("ctrl+g decoded to %v, want KindCtrlG", keys)
 	}
 
-	// Existing control keys must keep their decoded meaning.
+	// 现有控制键必须保持其解码后的含义。
 	if keys := (&Decoder{}).Feed([]byte{0x05}); len(keys) != 1 || keys[0].Kind != KindCtrlE {
 		t.Fatalf("ctrl+e decoded to %v, want KindCtrlE", keys)
 	}

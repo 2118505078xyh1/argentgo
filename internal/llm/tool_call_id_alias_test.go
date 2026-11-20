@@ -10,10 +10,10 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatClientToolCallIDAliases covers a gateway that renumbers a tool call
-// or swaps its id mid-stream. Every fragment must land in a single call with
-// the first provider id; otherwise the agent sees fake calls with duplicate
-// ids and rejects the whole batch.
+// TestChatClientToolCallIDAliases 覆盖在流中途重新编号工具调用
+// 或交换其 id 的网关。每个片段都必须落到以第一个提供方 id 标识的
+// 单一调用中；否则 agent 会看到 id 重复的假调用，
+// 并拒绝整个批次。
 func TestChatClientToolCallIDAliases(t *testing.T) {
 	cases := []struct {
 		name   string

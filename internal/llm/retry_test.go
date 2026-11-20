@@ -51,11 +51,11 @@ func TestParseRetryAfter(t *testing.T) {
 		{" 12 ", 12 * time.Second},
 		{"0", 0},
 		{"-3", 0},
-		{"Wed, 21 Oct 2015 07:28:00 GMT", 0}, // in the past
+		{"Wed, 21 Oct 2015 07:28:00 GMT", 0}, // 过去的时间
 		{"not a date", 0},
-		// A whole-second value beyond time.Duration's range must saturate, not
-		// wrap into a negative delay (which Do would read as "no hint").
-		{"9223372037", time.Duration(^uint64(0) >> 1)}, // max int64 seconds + 1
+		// 超过 time.Duration 范围的整秒值必须饱和，而不是
+		// 回绕成负的延迟（Do 会把它读作"无提示"）。
+		{"9223372037", time.Duration(^uint64(0) >> 1)}, // 最大 int64 秒数 + 1
 		{"10000000000", time.Duration(^uint64(0) >> 1)},
 	}
 	for _, tc := range cases {
@@ -69,7 +69,7 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestRetryPolicyDelayGrowsAndCaps(t *testing.T) {
-	// Jitter returning 0 makes the jitter factor 1, keeping the exact values.
+	// Jitter 返回 0 会使抖动因子为 1，保持精确值。
 	policy := llm.RetryPolicy{
 		BaseDelay: 100 * time.Millisecond,
 		MaxDelay:  500 * time.Millisecond,
@@ -97,8 +97,8 @@ func TestRetryPolicyDelayGrowsAndCaps(t *testing.T) {
 }
 
 func TestRetryPolicyDelayJitter(t *testing.T) {
-	// Deterministic jitter source: [0, 0.5, 0.999] stays pinned at the last
-	// value so a Retry-After test still sees the strongest possible jitter.
+	// 确定性的抖动来源：[0, 0.5, 0.999] 固定在最后一个
+	// 值，使 Retry-After 测试仍能看到最强的抖动。
 	seq := []float64{0, 0.5, 0.999}
 	next := 0
 	policy := llm.RetryPolicy{
@@ -133,9 +133,9 @@ func TestRetryPolicyDelayJitter(t *testing.T) {
 		}
 	}
 
-	// An explicit Retry-After is authoritative: never jitter it, and keep the
-	// 3x MaxDelay ceiling. The jitter source is still at 0.999 here, so an
-	// accidental downward jitter would be clearly visible.
+	// 显式的 Retry-After 是权威的：绝不抖动它，并保持
+	// 3 倍 MaxDelay 的上限。这里的抖动来源仍为 0.999，因此
+	// 任何意外的向下抖动都会清晰可见。
 	if got := policy.Delay(1, 800*time.Millisecond); got != 800*time.Millisecond {
 		t.Fatalf("Retry-After delay = %v, want unjittered 800ms", got)
 	}
@@ -257,7 +257,7 @@ func TestRetryPolicyUnreachableDoesNotSpendAttemptBudget(t *testing.T) {
 	var sends int
 	var reasons []llm.Reason
 	policy := llm.RetryPolicy{
-		MaxAttempts: 1, // a single ordinary failure would end the loop
+		MaxAttempts: 1, // 一次普通失败就会结束循环
 		Sleep:       noWait,
 		OnRetry:     func(attempt llm.RetryAttempt) { reasons = append(reasons, attempt.Reason) },
 	}
@@ -297,7 +297,7 @@ func TestRetryPolicyCapsTimeoutRetries(t *testing.T) {
 	var sends int
 	var reasons []llm.Reason
 	policy := llm.RetryPolicy{
-		MaxAttempts: 10, // the timeout cap, not the general budget, must stop us
+		MaxAttempts: 10, // 必须是超时上限，而非通用预算，来阻止我们
 		Sleep:       noWait,
 		OnRetry:     func(attempt llm.RetryAttempt) { reasons = append(reasons, attempt.Reason) },
 	}
@@ -417,8 +417,8 @@ func TestIsNonRetryableQuotaResponse(t *testing.T) {
 		{"too many requests", 429, `too many requests`, false},
 		{"quota wording on 500 is not a quota response", 500, `insufficient_quota`, false},
 		{"empty body", 429, ``, false},
-		// A credential-shaped value is redacted before matching, so a secret
-		// containing a pattern word cannot influence the decision.
+		// 凭据形态的值会在匹配前被脱敏，因此含有
+		// 模式词的密钥无法影响判定。
 		{"credential-shaped value is redacted before matching", 429, `api_key=billing_secret_value1234567890`, false},
 	}
 	for _, tc := range cases {
@@ -482,8 +482,8 @@ func TestRetryPolicyDoesNotRetryQuotaResponses(t *testing.T) {
 			if string(got) != tc.body {
 				t.Fatalf("body = %q, want the full original body", got)
 			}
-			// No retry record and no error text is produced for a quota limit,
-			// so credential-shaped values in the body cannot leak via Do.
+			// 配额限制不会产生重试记录或错误文本，
+			// 因此响应体中凭据形态的值不会经 Do 泄露。
 			for _, a := range attempts {
 				if strings.Contains(a.Cause, "sk_secretvalue") {
 					t.Fatalf("retry attempt leaked credential: %+v", a)

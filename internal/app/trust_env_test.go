@@ -68,10 +68,10 @@ func TestTrustFromEnv(t *testing.T) {
 	}
 }
 
-// TestTrustFromEnvMatchesParseTrustEnv pins the contract that the prompt path
-// and any caller of parseTrustEnv (notably Resolve's TrustProject field) read
-// ARGENT_TRUST_PROJECT the same way. Before the fix, "false" was trusted here
-// while Resolve treated it as untrusted -- the inconsistency reported in
+// TestTrustFromEnvMatchesParseTrustEnv 锁定提示路径与 parseTrustEnv 的任何调用方（尤其是 Resolve 的 TrustProject 字段）
+// 以相同方式读取 ARGENT_TRUST_PROJECT 的契约。修复之前这里把 "false" 视为受信任，
+// 而 Resolve 视为不受信任——这正是所报告的不一致。
+// （接上行）
 // audit #5.
 func TestTrustFromEnvMatchesParseTrustEnv(t *testing.T) {
 	for _, value := range []string{"", "0", "false", "no", "off", "1", "true", "yes", "on", "FALSE", "On", "maybe"} {

@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// typeBytes feeds a raw byte stream through the decoder into the model, the
-// same path the terminal takes.
+// typeBytes 把原始字节流喂给解码器并进入模型，
+// 这与终端走的路径相同。
 func typeBytes(m *Model, input string) []KeyAction {
 	decoder := &Decoder{}
 	keys := decoder.Feed([]byte(input))

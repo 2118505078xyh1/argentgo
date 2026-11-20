@@ -7,23 +7,23 @@ import (
 	"unicode/utf8"
 )
 
-// TestSnippetForCaseFoldKeepsRuneAlignment covers session audit #7. Lowercasing
-// a lead character such as İ (2→1 bytes), the Kelvin sign (3→1) or ẞ (3→2)
-// shortens the byte string, so using the lowered byte offset to slice the
-// original value shifts the snippet window. The rune offset is stable because
-// strings.ToLower folds rune by rune.
+// TestSnippetForCaseFoldKeepsRuneAlignment 覆盖 session 审计 #7。小写化
+// 首字符，如 İ（2→1 字节）、开尔文符号（3→1）或 ẞ（3→2），
+// 会缩短字节串，因此用小写化后的字节偏移切分
+// 原始值会推移片段窗口。符文偏移是稳定的，因为
+// strings.ToLower 按符文逐一折叠。
 func TestSnippetForCaseFoldKeepsRuneAlignment(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		prefix string
 	}{
-		{"dotted-capital-i", "İ"}, // U+0130 -> i: 2 bytes -> 1
-		{"kelvin-sign", "\u212a"}, // U+212A -> k: 3 bytes -> 1
-		{"capital-sharp-s", "ẞ"},  // U+1E9E -> ß: 3 bytes -> 2
+		{"dotted-capital-i", "İ"}, // U+0130 -> i：2 字节 -> 1
+		{"kelvin-sign", "\u212a"}, // U+212A -> k：3 字节 -> 1
+		{"capital-sharp-s", "ẞ"},  // U+1E9E -> ß：3 字节 -> 2
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// One folded rune up front, 60 x's, the needle, then enough y's
-			// that the 96-rune tail is fully materialised (and ellipsised).
+			// 开头一个被折叠的符文，60 个 x，needle，然后足够多的 y，
+			// 使 96 符文的尾部被完整生成（并被省略）。
 			value := tc.prefix + strings.Repeat("x", 60) + "needle" + strings.Repeat("y", 200)
 			data, err := json.Marshal(value)
 			if err != nil {
@@ -42,8 +42,8 @@ func TestSnippetForCaseFoldKeepsRuneAlignment(t *testing.T) {
 	}
 }
 
-// TestSnippetForFoldedNeedle checks the symmetric case: the needle itself
-// contains a rune whose lowercase form has a different byte length.
+// TestSnippetForFoldedNeedle 检查对称情形：needle 本身
+// 包含一个小写形式字节长度不同的符文。
 func TestSnippetForFoldedNeedle(t *testing.T) {
 	value := "prefix " + "İSTANBUL" + " suffix"
 	data, err := json.Marshal(value)

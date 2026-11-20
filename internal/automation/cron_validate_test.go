@@ -186,8 +186,8 @@ func TestValidateCronNeverFiresWarning(t *testing.T) {
 }
 
 func TestValidateCronCJKIndependent(t *testing.T) {
-	// A multibyte (CJK) field before the bad value must not corrupt byte
-	// offsets, and the same expression must always yield the same diagnostics.
+	// 坏值之前的多字节（CJK）字段不得破坏字节偏移，且同一表达式必须始终产生相同的诊断。
+	// 偏移，且同一表达式必须始终产生相同的诊断。
 	expr := "每 3 * * 8"
 	first := ValidateCron(expr)
 	if len(first) != 2 {
@@ -197,7 +197,7 @@ func TestValidateCronCJKIndependent(t *testing.T) {
 		t.Fatalf("first issue = %+v, want byte 0 / %q", first[0], "每")
 	}
 	// "每" is 3 bytes, space at 3, "3" at 4, space at 5, "*" at 6, space at 7,
-	// "*" at 8, space at 9, "8" at 10.
+	// "*" 在偏移 8，空格在 9，"8" 在 10。
 	if first[1].Start != 10 || first[1].Text != "8" {
 		t.Fatalf("second issue = %+v, want byte 10 / %q", first[1], "8")
 	}
@@ -212,7 +212,7 @@ func TestValidateCronCJKIndependent(t *testing.T) {
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("ValidateCron is not deterministic: %v vs %v", first, second)
 	}
-	// A CJK-dominated 6-field expression reports the field-count issue first.
+	// 以 CJK 为主的 6 字段表达式首先报告字段数量问题。
 	if issues := ValidateCron("0 3 * * * 每天"); len(issues) == 0 || issues[0].Field != -1 {
 		t.Fatalf("CJK extra field = %v, want a field-count issue", issues)
 	}

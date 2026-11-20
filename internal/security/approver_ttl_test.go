@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 )
 
-// newTTLTestCache pins the expiry clock so tests never depend on wall time.
+// newTTLTestCache 固定过期时钟，使测试永不依赖墙上时间。
 func newTTLTestCache(t *testing.T, dir string, ttl time.Duration, at time.Time) *TTLCache {
 	t.Helper()
 	c := NewTTLCache(dir, ttl)
@@ -60,8 +60,8 @@ func TestTTLCachePersistsAcrossInstances(t *testing.T) {
 		t.Fatalf("Allow: %v", err)
 	}
 
-	// The new instance loads from disk; its clock is pinned to the same base
-	// so the grant is still inside its lifetime.
+	// 新实例从磁盘加载；它的时钟被钉在同一个基准上，
+	// 因此授予仍处于其有效期内。
 	c2 := NewTTLCache(dir, ttl)
 	c2.now = func() time.Time { return base }
 	if !c2.IsAllowed(key) {
@@ -80,7 +80,7 @@ func TestTTLCacheLoadPurgesExpiredGrants(t *testing.T) {
 		t.Fatalf("Allow: %v", err)
 	}
 
-	c2 := NewTTLCache(dir, ttl) // real clock: the grant is not expired yet
+	c2 := NewTTLCache(dir, ttl) // 真实时钟：授予尚未过期
 	c2.now = func() time.Time { return base.Add(ttl + time.Second) }
 	if err := c2.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -240,8 +240,8 @@ func TestTTLCacheKeyCanonicalization(t *testing.T) {
 		t.Fatal("the tool name must be part of the key")
 	}
 
-	// The key must agree with CachedApprover's session cache so a caller can
-	// reuse one identity for both caches.
+	// 该键必须与 CachedApprover 的会话缓存一致，这样调用方可以
+	// 为两个缓存复用同一个标识。
 	if want := approvalCacheKey("shell", `{"a":1,"b":2}`).argsHash; first != want {
 		t.Fatalf("key %s disagrees with CachedApprover key %s", first, want)
 	}

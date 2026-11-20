@@ -39,7 +39,7 @@ func TestApprovalModalBlocksInputAndDenies(t *testing.T) {
 		t.Fatalf("pending = %q %q %v", name, args, ok)
 	}
 
-	// Input is blocked while the modal is up.
+	// 弹窗打开时输入被阻塞。
 	m.HandleKey(Key{Kind: KindRune, Rune: 'x'})
 	if got := m.Input(); got != "" {
 		t.Fatalf("typing into a blocked modal changed the input: %q", got)

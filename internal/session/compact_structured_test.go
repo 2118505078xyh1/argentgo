@@ -44,8 +44,8 @@ func TestParseStructuredSummaryCanonicalSections(t *testing.T) {
 }
 
 func TestParseStructuredSummaryFromSummarizeText(t *testing.T) {
-	// Existing free text from Summarize: legacy headings must be recognized
-	// without changing what Summarize writes.
+	// Summarize 产生的现有自由文本：旧标题必须能被识别，
+	// 而不改变 Summarize 写入的内容。
 	data, _ := json.Marshal(map[string]any{"path": "lexer.go"})
 	dropped := []Entry{
 		{Role: "user", Content: "build a lexer"},
@@ -125,8 +125,8 @@ func TestParseStructuredSummaryCJK(t *testing.T) {
 }
 
 func TestParseStructuredSummaryFormatDriftFallsBack(t *testing.T) {
-	// None of these carry a recognized markdown heading, so the caller must
-	// keep treating the summary as free text instead of a trusted DTO.
+	// 这些都不带有可识别的 markdown 标题，因此调用方必须
+	// 继续把摘要当作自由文本，而不是可信的 DTO。
 	cases := []string{
 		"Progress:\n- built lexer\nUncertainties:\n- windows build fails\nUser actions:\n- review patch\n",
 		"## Progress update\n- built lexer\n## Unknowns today\n- x\n## Actions for later\n- y\n",
@@ -167,7 +167,7 @@ func TestRenderStructuredSummaryRoundTrip(t *testing.T) {
 			Uncertainties: []string{"windows build fails"},
 			UserActions:   []string{"review patch"},
 		},
-		{}, // empty fields round-trip through "- (none)" placeholders
+		{}, // 空字段通过 "- (none)" 占位符往返
 	}
 	for _, want := range cases {
 		text := RenderStructuredSummary(want)
@@ -195,7 +195,7 @@ func TestCompactionStructuredIsOptInProjection(t *testing.T) {
 	if !reflect.DeepEqual(got.Progress, []string{"did a thing"}) {
 		t.Fatalf("Progress = %q, want [did a thing]", got.Progress)
 	}
-	// The projection is read-only: the underlying free text is untouched.
+	// 该投影是只读的：底层自由文本不受影响。
 	if c.Summary != "## Progress\n- did a thing\n" {
 		t.Fatalf("Structured mutated Compaction.Summary: %q", c.Summary)
 	}

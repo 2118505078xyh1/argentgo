@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// subseqFuzzy is a minimal stand-in for the real matcher: pattern and text
-// arrive already case-normalised from matchOne.
+// subseqFuzzy 是真实匹配器的最小替身：pattern 和 text
+// 从 matchOne 到达时已做大小写归一化。
 func subseqFuzzy(pattern, text string) (int, []int, bool) {
 	pr, tr := []rune(pattern), []rune(text)
 	positions := make([]int, 0, len(pr))

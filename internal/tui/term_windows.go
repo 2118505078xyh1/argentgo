@@ -9,9 +9,9 @@ import (
 	"unsafe"
 )
 
-// Console modes from wincon.h. Virtual terminal input is what makes Windows
-// deliver escape sequences on stdin instead of raw key records; without it the
-// arrow keys never reach the decoder.
+// 来自 wincon.h 的控制台模式。虚拟终端输入让 Windows
+// 在 stdin 上传递转义序列，而不是原始按键记录；没有它
+// 方向键永远到不了解码器。
 const (
 	enableProcessedInput            = 0x0001
 	enableLineInput                 = 0x0002
@@ -59,8 +59,8 @@ func setConsoleMode(handle syscall.Handle, mode uint32) bool {
 	return ok != 0
 }
 
-// enableRaw switches the console to virtual-terminal input with echo and line
-// buffering off, so single keys arrive immediately.
+// enableRaw 把控制台切换到虚拟终端输入，关闭回显和行
+// 缓冲，使单个按键立即到达。
 func enableRaw() (func(), error) {
 	in := syscall.Handle(os.Stdin.Fd())
 	out := syscall.Handle(os.Stdout.Fd())
@@ -81,7 +81,7 @@ func enableRaw() (func(), error) {
 	}, nil
 }
 
-// terminalSize reads the visible window rectangle.
+// terminalSize 读取可见窗口矩形。
 func terminalSize() (int, int) {
 	out := syscall.Handle(os.Stdout.Fd())
 	var info consoleScreenBufferInfo
@@ -94,7 +94,7 @@ func terminalSize() (int, int) {
 	return width, height
 }
 
-// watchResize polls the console size: Windows has no SIGWINCH.
+// watchResize 轮询控制台尺寸：Windows 没有 SIGWINCH。
 func watchResize() (<-chan size, func()) {
 	out := make(chan size, 4)
 	done := make(chan struct{})

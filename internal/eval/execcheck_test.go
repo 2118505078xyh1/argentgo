@@ -13,8 +13,8 @@ import (
 	"unicode/utf8"
 )
 
-// seedExecWorkspace writes a tiny module into a throwaway directory. It mirrors
-// the harness' workspace seeding without depending on run.go.
+// seedExecWorkspace 将一个小模块写入一次性目录。它镜像
+// harness 的工作区种入而不依赖 run.go。
 func seedExecWorkspace(t *testing.T, files map[string]string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -45,13 +45,13 @@ func TestExecCheckValidate(t *testing.T) {
 		{"go run denied", ExecCheck{Command: "go", Args: []string{"run", "main.go"}}, ErrExecGoSubcommand},
 		{"go with no subcommand denied", ExecCheck{Command: "go"}, ErrExecGoSubcommand},
 		{"absolute exe denied", ExecCheck{Command: absTool}, ErrExecBadPath},
-		// A leading "/" is rooted on both Windows and Unix: Go accepts "/" as
-		// a separator on Windows too, and Validate checks it explicitly, so
-		// these cases are safe to assert on every platform.
+		// 前导 "/" 在 Windows 和 Unix 上都是根路径：Go 在 Windows 上也接受 "/" 作为
+		// 分隔符，且 Validate 显式检查它，因此这些用例在所有平台上断言都是安全的。
+		// 这些用例在所有平台上断言都是安全的。
 		{"rooted slash path denied", ExecCheck{Command: `/tool.exe`}, ErrExecBadPath},
 		{"rooted nested slash path denied", ExecCheck{Command: `/tools/run.exe`}, ErrExecBadPath},
-		// Validate splits on both "/" and "\", so a backslash ".." traversal
-		// is refused even on Unix where "\" is an ordinary filename character.
+		// Validate 同时按 "/" 和 "\" 拆分，因此反斜杠 ".." 遍历
+		// 即使在 "\" 是普通文件名字符的 Unix 上也会被拒绝。
 		{"backslash parent traversal denied", ExecCheck{Command: `..\tools\run.exe`}, ErrExecBadPath},
 		{"parent traversal denied", ExecCheck{Command: "../tools/run.exe"}, ErrExecBadPath},
 		{"inner parent traversal denied", ExecCheck{Command: "tools/../run.exe"}, ErrExecBadPath},
@@ -67,10 +67,10 @@ func TestExecCheckValidate(t *testing.T) {
 		{"empty command denied", ExecCheck{}, ErrExecEmptyCommand},
 	}
 
-	// A leading "\" is rooted only on Windows: it resolves against the drive
-	// of cmd.Dir (the disposable workspace), so Validate must refuse it there.
-	// On Unix "\" is an ordinary filename character, not a path separator, so
-	// asserting ErrExecBadPath for these there would be wrong.
+	// 前导 "\" 仅在 Windows 上是根路径：它相对于盘符解析
+	// 前导 "\" 仅在 Windows 上是根路径：它相对于 cmd.Dir（一次性工作区）的盘符解析，因此 Validate 必须在那里拒绝它。
+	// 在 Unix 上 "\" 是普通文件名字符而非路径分隔符，因此
+	// 在 Unix 上 "\" 是普通文件名字符而非路径分隔符，因此在那里断言 ErrExecBadPath 是错误的。
 	if runtime.GOOS == "windows" {
 		tests = append(tests,
 			validateCase{"rooted backslash path denied", ExecCheck{Command: `\tool.exe`}, ErrExecBadPath},
@@ -94,11 +94,11 @@ func TestExecCheckValidate(t *testing.T) {
 	}
 }
 
-// TestExecDeadlineBoundsTheTimeout pins the documented timeout contract: 0
-// (and negative) use the 30s default, positives are taken verbatim, and any
-// value above 120000 is capped. In particular a very large TimeoutMS must not
-// overflow into a negative duration, which would make the deadline fire
-// immediately rather than applying the cap.
+// TestExecDeadlineBoundsTheTimeout 固定文档记载的超时契约：0
+// （和负数）使用 30s 默认值，正数原样采用，任何超过 120000 的
+// 值都被限制。特别地，很大的 TimeoutMS 不得溢出成负时长，那会使截止时间
+// 溢出成负时长，那会使截止时间
+// 立即触发而非应用上限。
 func TestExecDeadlineBoundsTheTimeout(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -125,9 +125,9 @@ func TestExecDeadlineBoundsTheTimeout(t *testing.T) {
 	}
 }
 
-// TestRunExecCheckHugeTimeoutDoesNotExpireImmediately proves the overflow fix
-// end to end: a huge TimeoutMS must behave like the 120s cap, so a fast
-// command is graded on its exit code rather than an instantaneous deadline.
+// 立即触发而非应用上限。
+// TestRunExecCheckHugeTimeoutDoesNotExpireImmediately 端到端证明溢出修复：很大的 TimeoutMS 必须表现得就像 120s 上限，使快速的
+// 命令按退出码评分而非因瞬时截止时间失败。
 func TestRunExecCheckHugeTimeoutDoesNotExpireImmediately(t *testing.T) {
 	dir := seedExecWorkspace(t, map[string]string{
 		"go.mod":  "module example.com/exechuge\n\ngo 1.27\n",
@@ -163,13 +163,13 @@ func TestRunExecCheckRejectsDisallowedCommand(t *testing.T) {
 	}
 }
 
-// TestRunExecCheckRejectsRootedPath proves a rooted command is refused before
-// any process starts. On Windows a leading "\" is rooted against the drive of
-// cmd.Dir (the disposable workspace), so "\tool.exe" would otherwise run from
-// the drive root — outside the workspace entirely. A leading "/" is rooted on
-// every platform and is exercised unconditionally; the backslash forms are
-// Windows-only because on Unix "\" is an ordinary filename character, not a
-// path separator.
+// 命令按退出码评分而非因瞬时截止时间失败。
+// TestRunExecCheckRejectsRootedPath 证明根路径命令在任何进程启动前被拒绝。在 Windows 上前导 "\" 相对于
+// cmd.Dir（一次性工作区）的盘符是根路径，因此 "\tool.exe" 否则会从
+// 盘符根目录运行 —— 完全在工作区之外。前导 "/" 在
+// 所有平台上都是根路径并无条件演练；反斜杠形式仅
+// 适用于 Windows，因为在 Unix 上 "\" 是普通文件名字符而非路径分隔符。
+// 路径分隔符。
 func TestRunExecCheckRejectsRootedPath(t *testing.T) {
 	commands := []string{`/tool.exe`, `/tools/run.exe`}
 	if runtime.GOOS == "windows" {
@@ -270,8 +270,8 @@ func TestAlwaysFails(t *testing.T) {
 	if res.ExitCode == 0 {
 		t.Fatalf("expected a non-zero exit, got 0 (stdout=%q)", res.StdoutTail)
 	}
-	// A real *exec.ExitError is expected here; it must not block a grade that
-	// explicitly wants this non-zero exit code.
+	// 这里预期真实的 *exec.ExitError；它不得阻塞明确想要这个非零退出码的评分。
+	// 明确想要这个非零退出码。
 	if !GradeExecCheck(res, c) {
 		t.Fatalf("GradeExecCheck = false for expected exit %d; err=%v stderr=%q", res.ExitCode, res.Err, res.StderrTail)
 	}
@@ -342,19 +342,19 @@ func TestLoud(t *testing.T) {
 }
 
 func TestTailBufferTrimsAtRuneBoundaryWithoutStaleBytes(t *testing.T) {
-	// execOutputCap%3 == 1, so a total payload of execOutputCap+2 bytes made
-	// mostly of 3-byte runes puts the initial drop (2) on a continuation byte:
-	// the trim has to advance to the next rune boundary and therefore keeps
-	// fewer than cap bytes. The old code copied that many bytes but truncated
-	// to cap, leaving a stale byte at the tail.
+	// execOutputCap%3 == 1，因此主要由 3 字节 rune 组成的、总长为 execOutputCap+2 字节的 payload 会使
+	// 主要由 3 字节 rune 组成的 payload 会使初始丢弃（2）落在一个续字节上：
+	// 初始丢弃（2）落在一个续字节上：裁剪必须前进到下一个 rune 边界，因此保留
+	// 少于 cap 字节。旧代码复制了那么多字节但截断
+	// 少于 cap 字节。旧代码复制了那么多字节但截断到 cap，在尾部留下陈旧字节。
 	header := strings.Join([]string{
 		"第一行：你好，世界 😀\n",
 		"第二行：emoji 🎉 边界检查\n",
 		"第三行：尾部内容\n",
 	}, "")
 	// Keep the prefix aligned to a rune boundary so the "中" padding starts at
-	// an index divisible by 3; that makes the byte the buggy code would leave
-	// at cap-1 a UTF-8 rune starter (and hence invalid on its own).
+	// 一个能被 3 整除的索引；这让有 bug 的代码会留在 cap-1 处的字节
+	// 成为一个 UTF-8 rune 起始符（因而单独无效）。
 	if r := len(header) % 3; r != 0 {
 		header += strings.Repeat(" ", 3-r)
 	}
@@ -376,8 +376,8 @@ func TestTailBufferTrimsAtRuneBoundaryWithoutStaleBytes(t *testing.T) {
 		t.Fatalf("test setup: stale byte at cap-1 is %x, want a rune starter", payload[execOutputCap-1])
 	}
 
-	// The trim advances drop from 2 to 3, so the correct tail is payload[3:]
-	// with nothing appended to it.
+	// 裁剪将 drop 从 2 前进到 3，因此正确的尾部是 payload[3:]
+	// 且不追加任何内容。
 	wantTail := payload[3:]
 	tests := []struct {
 		name   string

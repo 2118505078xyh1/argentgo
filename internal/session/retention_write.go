@@ -9,27 +9,20 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// retentionDataLimit leaves headroom under maxLineLen for the record envelope
-// and the small _retention field SetRetention adds. A payload above the limit
-// is refused rather than producing a JSONL line the reader would skip as
-// oversized.
+// retentionDataLimit 在 maxLineLen 之下为记录信封和 SetRetention 添加的小 _retention 字段
+// 留出余量。超过限制的载荷会被拒绝，而不是生成一条会被读取器视为过大而跳过的 JSONL 行。
 const retentionDataLimit = maxLineLen - 8192
 
-// RetentionFromKind maps a record kind to its default retention hint. The
-// policy is deliberately small and automatic, so callers do not have to
-// remember to stamp each important record:
+// RetentionFromKind 将记录 kind 映射到其默认保留提示。该策略刻意简单且自动，
+// 这样调用方不必记得为每条重要记录打标记：
 //
-//   - checkpoint, summary, compaction: durable context anchors. They carry the
-//     state needed to resume or explain a run, so they survive compaction and
-//     are seeded into child sessions (RetainAlways).
-//   - title: cheap orientation for a subagent, but not worth pinning in the
-//     parent thread; propagate to children only (RetainInChildren).
-//   - everything else (messages, tools, attempts, progress, stats, usage,
-//     header, unknown kinds): RetainDefault. Read and write behaviour stays
-//     exactly as it was before these hints existed.
+//   - checkpoint、summary、compaction：持久的上下文锚点。它们携带恢复或解释一次运行所需的状态，
+//     因此在压缩后保留，并植入子会话（RetainAlways）。
+//   - title：为子代理提供廉价的定位信息，但不值得固定在父线程中；只传播到子会话（RetainInChildren）。
+//   - 其他所有类型（消息、工具、尝试、进度、统计、用量、header、未知 kind）：RetainDefault。
+//     读写行为与这些提示出现之前完全一致。
 //
-// Matching is case-insensitive and trims surrounding whitespace, so kinds
-// authored outside this package still get the sensible default.
+// 匹配不区分大小写并去除首尾空白，因此在本包之外定义的 kind 也能得到合理的默认值。
 func RetentionFromKind(kind string) Retention {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case KindCheckpoint, KindSummary, KindCompaction:
@@ -41,22 +34,18 @@ func RetentionFromKind(kind string) Retention {
 	}
 }
 
-// StampIfImportant applies RetentionFromKind to an already-encoded payload and
-// returns the bytes to write. Default kinds are returned byte-identical, so
-// ordinary message/tool writes are unchanged. If an important kind's payload is
-// not a JSON object, SetRetention refuses to mark it and the original bytes are
-// returned rather than sacrificing the payload to attach a hint. A payload that
-// already carries an explicit _retention hint is returned unchanged: the kind
-// default is only a fallback for callers that did not choose one.
+// StampIfImportant 将 RetentionFromKind 应用于已编码的载荷，并返回要写入的字节。
+// 默认 kind 的字节原样返回，因此普通消息/工具写入不受影响。如果重要 kind 的载荷不是 JSON 对象，
+// SetRetention 会拒绝标记它，并返回原始字节，而不是为了附加提示而牺牲载荷本身。
+// 已经带有显式 _retention 提示的载荷原样返回：kind 默认值只是给未做选择的调用方兜底。
 func StampIfImportant(kind string, data []byte) []byte {
 	r := RetentionFromKind(kind)
 	if r == RetainDefault {
 		return data
 	}
-	// An explicit hint wins over the kind's automatic default.
-	// AppendWithRetention stamps its own value before calling AppendRecord, and
-	// compaction re-emits records that already carry a hint, so overwriting it
-	// here would silently change retention semantics on either path.
+	// 显式提示优先于 kind 的自动默认值。AppendWithRetention 在调用 AppendRecord 前
+	// 已打上自己的值，压缩也会重新发出已带提示的记录，因此在这里覆盖它会
+	// 悄然改变这两条路径上的保留语义。
 	if hasRetentionHint(data) {
 		return data
 	}
@@ -67,13 +56,12 @@ func StampIfImportant(kind string, data []byte) []byte {
 	return stamped
 }
 
-// AppendWithRetention writes a pre-serialized record with an explicit retention
-// hint. The payload is bounded and passed through the shared JSON redactor
-// before stamping, then written through AppendRecord, so ids, branching and
-// durability behave exactly like any other append.
+// AppendWithRetention 写入一条带有显式保留提示的预序列化记录。载荷会先被限制大小
+// 并通过共享的 JSON 脱敏器，然后打上标记，最后经 AppendRecord 写入，
+// 因此 id、分支和持久性与任何其他追加完全一致。
 //
-// data must be a JSON object envelope (or empty/null): SetRetention rejects
-// other shapes rather than rewriting a payload it cannot safely preserve.
+// data 必须是 JSON 对象信封（或为空/null）：SetRetention 会拒绝其他形状，
+// 而不是重写一个它无法安全保留的载荷。
 func (s *Session) AppendWithRetention(kind string, data []byte, r Retention) (Record, error) {
 	if len(data) > retentionDataLimit {
 		return Record{}, fmt.Errorf("session: retention payload too large: %d bytes (limit %d)", len(data), retentionDataLimit)

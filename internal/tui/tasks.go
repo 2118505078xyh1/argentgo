@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// TaskStatus is the state of one tool call in the tasks rail.
+// TaskStatus 是任务栏中某次工具调用的状态。
 type TaskStatus int
 
-// Tool-call states, from waiting for approval to a finished result.
+// 工具调用状态，从等待审批到已完成结果。
 const (
 	TaskPending TaskStatus = iota
 	TaskRunning
@@ -17,11 +17,11 @@ const (
 	TaskError
 )
 
-// maxTasks bounds the history so a long session cannot grow the rail forever.
+// maxTasks 限制历史，使长会话不会让侧边栏无限增长。
 const maxTasks = 100
 
-// Status marks are single cells: a dotted circle for running avoids the
-// per-frame spinner repaint that would make the side rail shimmer.
+// 状态标记是单个单元格：对运行中的调用使用点状圆，避免
+// 每帧 spinner 重绘使侧边栏闪烁。
 const (
 	taskPendingMark = "·"
 	taskRunningMark = "◌"
@@ -29,7 +29,7 @@ const (
 	taskErrorMark   = "✗"
 )
 
-// Task is one row of the tasks panel.
+// Task 是任务面板的一行。
 type Task struct {
 	ID       string
 	Name     string
@@ -59,11 +59,11 @@ func (m *Model) taskDuration(task Task) string {
 	return formatDuration(task.Duration)
 }
 
-// taskArgsLabel renders a task's arguments for the side rail. While a call is
-// still live its JSON may be truncated mid-field, so formatPartialArgs shows
-// every field recovered so far. When that yields nothing — no args, a
-// non-object, or text that cannot be parsed — the classic single-value summary
-// keeps the row informative instead of leaving a blank label.
+// taskArgsLabel 为侧边栏渲染任务的参数。调用仍活动时，
+// 其 JSON 可能在字段中间被截断，因此 formatPartialArgs 显示
+// 到目前为止恢复的每个字段。当结果为空 —— 没有参数、
+// 非对象或无法解析的文本 —— 时，经典的单值摘要
+// 保持该行有信息量，而不是留下空白标签。
 func taskArgsLabel(args string) string {
 	if label := formatPartialArgs(args); label != "" {
 		return label
@@ -71,11 +71,11 @@ func taskArgsLabel(args string) string {
 	return summarizeArgs(args)
 }
 
-// taskLiveElapsed picks the elapsed shown by a running or pending rail row.
-// It mirrors toolPendingLine's adaptive clock: the whole-turn time is shown
-// until the tool's own elapsed passes toolElapsedThreshold, then the tool time
-// takes over so one slow call stands out. A pending task has not started, so
-// it shows the turn clock; a missing/zero clock degrades to 0ms.
+// taskLiveElapsed 选择运行中或待处理栏行显示的经过时间。
+// 它镜像 toolPendingLine 的自适应时钟：显示整回合时间，
+// 直到工具自身的经过时间超过 toolElapsedThreshold，然后工具时间
+// 接管，使单个缓慢调用凸显。待处理任务尚未开始，因此
+// 显示回合时钟；缺失/零时钟降级为 0ms。
 func (m *Model) taskLiveElapsed(task Task) time.Duration {
 	now := m.now()
 	turn := time.Duration(0)
@@ -107,9 +107,9 @@ func formatDuration(d time.Duration) string {
 	return strconv.Itoa(int(d.Minutes())) + "m"
 }
 
-// activityFamily groups a tool name into one coarse bucket for the recap.
-// Unrecognised tools fall into "other" so registering a new tool never
-// reshuffles the buckets that already exist.
+// activityFamily 把工具名归入一个粗粒度类别以用于回顾。
+// 未识别的工具归入 "other"，因此注册新工具永不
+// 重排已有的类别。
 func activityFamily(name string) string {
 	tool := strings.ToLower(strings.TrimSpace(name))
 	switch {
@@ -128,9 +128,9 @@ func activityFamily(name string) string {
 	}
 }
 
-// countLabel renders "1 edit" / "3 edits". The English tokens are the neutral
-// form of the i18n activity.* labels; keeping them here lets the pure counter
-// stay locale-free while the catalog carries the localised variants.
+// countLabel 渲染 "1 edit" / "3 edits"。这些英文标记是
+// i18n activity.* 标签的中性形式；把它们保留在这里使纯计数器
+// 无需区域设置，而目录承载本地化的变体。
 func countLabel(n int, singular, plural string) string {
 	word := plural
 	if n == 1 {
@@ -139,12 +139,12 @@ func countLabel(n int, singular, plural string) string {
 	return strconv.Itoa(n) + " " + word
 }
 
-// activitySummary returns a stable one-line recap of finished tool calls,
-// e.g. "3 commands · 1 edit · 2 reads". Only TaskOK rows count: pending and
-// running calls are still changing and failed calls are not work completed,
-// so streaming details never make the line flicker or reshuffle. Categories
-// are emitted in a fixed order, independent of task insertion order. An empty
-// recap is "".
+// activitySummary 返回已完成工具调用的稳定单行回顾，
+// 例如 "3 commands · 1 edit · 2 reads"。只有 TaskOK 行计入：待处理和
+// 运行中的调用仍在变化，失败的调用不是已完成的工作，
+// 因此流式细节绝不会使该行闪烁或重排。类别
+// 按固定顺序输出，与任务插入顺序无关。为空时
+// 回顾为 ""。
 func activitySummary(tasks []Task) string {
 	var commands, edits, reads, other int
 	for _, task := range tasks {
@@ -178,8 +178,8 @@ func activitySummary(tasks []Task) string {
 	return strings.Join(parts, " · ")
 }
 
-// tasksLines renders the tasks rail newest first. The caller clips the result
-// to the rows assigned to this panel.
+// tasksLines 以最新优先渲染任务栏。调用方把结果裁剪
+// 到分配给该面板的行。
 func (m *Model) tasksLines(width, height int) []Line {
 	title := NewLine()
 	title.Push(text(m.locale, "tasks_title"), m.palette.accent())
@@ -214,9 +214,9 @@ func (m *Model) tasksLines(width, height int) []Line {
 		}
 		line.Push(taskMark(task.Status)+" ", style)
 		line.Push(Clip(task.Name, maxInt(width-10, 1)), Style{Bold: task.Status == TaskRunning})
-		// Live rows stream their arguments and use the adaptive clock, the same
-		// primitives toolPendingLine uses for transcript rows. Finished rows
-		// keep the stable summary and final duration so they never flicker.
+		// 活动行流式输出其参数并使用自适应时钟，与
+		// toolPendingLine 用于记录行的原语相同。已完成的行
+		// 保持稳定摘要和最终时长，因此永不闪烁。
 		label := ""
 		duration := ""
 		switch task.Status {

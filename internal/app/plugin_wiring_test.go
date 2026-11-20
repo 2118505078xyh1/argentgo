@@ -13,9 +13,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/hooks"
 )
 
-// pluginWiringEnv isolates both the workspace and the process home so plugin
-// discovery sees only the bundles the test plants. plugins.Discover resolves
-// the user directory through os.UserHomeDir, hence both env vars are set.
+// pluginWiringEnv 隔离工作区和进程主目录，使插件发现只看到测试放置的包。
+// plugins.Discover 通过 os.UserHomeDir 解析用户目录，
+// 因此两个环境变量都被设置。
 func pluginWiringEnv(t *testing.T, trust bool) (Resolved, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -46,13 +46,13 @@ func TestPluginCommandsRespectTrustGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			res, root, home := pluginWiringEnv(t, tc.trust)
 
-			// A command installed by the user: always available.
+			// 用户安装的命令：始终可用。
 			userDir := filepath.Join(home, ".argentgo", "plugins", "utility")
 			writeFile(t, filepath.Join(userDir, "plugin.json"),
 				`{"name":"utility","commands":["commands"]}`)
 			writeFile(t, filepath.Join(userDir, "commands", "hello.md"), userCommandDoc)
 
-			// A command shipped by the repository: gated on TrustProject.
+			// 仓库附带的命令：受 TrustProject 门控。
 			projectDir := filepath.Join(root, ".argent", "plugins", "evil")
 			writeFile(t, filepath.Join(projectDir, "plugin.json"),
 				`{"name":"evil","commands":["commands"]}`)
@@ -78,8 +78,8 @@ func TestPluginCommandsRespectTrustGate(t *testing.T) {
 				t.Fatal("untrusted project plugin command leaked into the set")
 			}
 
-			// The app-level assembly point (/context) must see the same set.
-			wantCount := 3 // 2 builtins + the user plugin command
+			// app 层的组装点（/context）必须看到同一集合。
+			wantCount := 3 // 2 个内置命令 + 用户插件命令
 			if tc.trust {
 				wantCount = 4
 			}
@@ -167,8 +167,8 @@ func TestLoadHookDocumentsLoadsTrustedPluginHook(t *testing.T) {
 			projectHook := filepath.Join(projectDir, "hooks", "project.json")
 			writeFile(t, projectHook, projectHookDoc)
 
-			// Grant both digests: the only remaining gate is trust gating on
-			// which paths are offered to the loader at all.
+			// 批准两个摘要：剩下的唯一门槛是对哪些路径交给加载器的信任门控。
+			// （接上行）
 			trust := hooks.NewTrustStore()
 			if _, err := trust.TrustFile(userHook); err != nil {
 				t.Fatal(err)

@@ -1,10 +1,9 @@
-// Package session stores a conversation as JSONL files whose records form a tree.
+// Package session 将对话存储为 JSONL 文件，其记录构成一棵树。
 //
-// One file lives under a directory per session. Every line is a record
-// `{"id","parent","ts","kind","data"}`; a record's parent is the id of the
-// record it follows, so branching never rewrites history. The conversation the
-// model sees is the path from the root to the active leaf, and a compaction
-// record replaces the older part of that path with a summary.
+// 每个会话有一个目录，其中存放一个文件。每一行都是一条记录
+// `{"id","parent","ts","kind","data"}`；记录的 parent 是它所跟随记录的 id，
+// 因此分支永远不会重写历史。模型看到的对话是从根到活动叶节点的路径，
+// 而压缩记录会用摘要替换该路径中较旧的部分。
 package session
 
 import (
@@ -15,8 +14,7 @@ import (
 	"time"
 )
 
-// Record kinds written by the store. Kinds are open: an unknown kind is kept
-// verbatim and ignored by the conversation view.
+// store 写入的记录 kind。kind 是开放的：未知 kind 会被逐字保留，并被对话视图忽略。
 const (
 	KindHeader     = "header"
 	KindMessage    = "message"
@@ -35,15 +33,14 @@ const (
 	titleLimit = 60
 	maxLineLen = 16 << 20
 
-	// keepAppendFD is false on Windows: os.OpenFile there does not request
-	// FILE_SHARE_DELETE, so a held handle blocks os.Remove/os.Rename of the
-	// session file (and breaks t.TempDir cleanup). The id index still removes
-	// the O(n^2) re-read on every platform; Windows just repeats the cheap
-	// open/write/close trio per append.
+	// keepAppendFD 在 Windows 上为 false：那里的 os.OpenFile 不请求 FILE_SHARE_DELETE，
+	// 因此持有的句柄会阻塞对会话文件的 os.Remove/os.Rename（并破坏 t.TempDir 清理）。
+	// id 索引在所有平台上仍然消除了 O(n^2) 的重复读取；Windows 只是每次追加重复执行
+	// 开销很小的 open/write/close 三步骤。
 	keepAppendFD = runtime.GOOS != "windows"
 )
 
-// Record is one line of a session file.
+// Record 是会话文件中的一行。
 type Record struct {
 	ID     string          `json:"id"`
 	Parent string          `json:"parent"`
@@ -52,60 +49,57 @@ type Record struct {
 	Data   json.RawMessage `json:"data"`
 }
 
-// Entry is one message on the linear conversation.
+// Entry 是线性对话中的一条消息。
 type Entry struct {
 	ID      string
 	Parent  string
 	Role    string // system | user | assistant | tool
 	Content string
-	// Reasoning is the model's thought text on an assistant turn. It is
-	// transcript-only metadata: empty on legacy records and on non-assistant
-	// turns, and omitted from archives when unset so old bytes stay identical.
+	// Reasoning 是 assistant 轮次中模型的思考文本。它是仅存在于转录中的元数据：
+	// 在旧记录和非 assistant 轮次上为空，未设置时从归档中省略，以便旧字节保持一致。
 	Reasoning  string `json:"Reasoning,omitempty"`
-	Name       string // tool name, when the record carries one
+	Name       string // 记录携带时的工具名称
 	ToolCallID string
 	TS         time.Time
 	Data       json.RawMessage
 }
 
-// Header is the first record of every session.
+// Header 是每个会话的第一条记录。
 type Header struct {
 	Title   string    `json:"title,omitempty"`
 	Created time.Time `json:"created"`
 }
 
-// Session is an append-only handle to one session file.
+// Session 是单个会话文件的仅追加句柄。
 type Session struct {
 	mu     sync.Mutex
 	dir    string
 	id     string
 	active string
-	// file is the exact on-disk path resolved when the session was opened or
-	// created. Discovery matches the ".jsonl" suffix case-insensitively, so a
-	// transcript may be named "Mixed.JSONL"; deriving the path from id+fileExt
-	// would point at "Mixed.jsonl" and read nothing on case-sensitive files.
-	// Empty only for sessions constructed directly from dir+id in tests.
+	// file 是会话打开或创建时解析出的精确磁盘路径。发现过程以不区分大小写的方式
+	// 匹配 ".jsonl" 后缀，因此转录文件可能命名为 "Mixed.JSONL"；从 id+fileExt
+	// 派生路径会指向 "Mixed.jsonl"，在区分大小写的文件系统上什么也读不到。
+	// 仅对于测试中直接由 dir+id 构造的会话为空。
 	file string
 
-	// Append state is built lazily on the first AppendRecord and reused while
-	// the backing file is untouched. All fields below are guarded by mu.
-	// Rebuilding it means one full JSONL read; steady-state appends only write
-	// one line and update these fields, avoiding O(n^2) re-parsing.
-	ids      map[string]struct{} // ids of the records currently in the file
-	lastID   string              // id of the last record in file order
-	nextSeq  int                 // next n%06d candidate to mint
-	fd       *os.File            // long-lived O_CREATE|O_WRONLY|O_APPEND handle (nil on Windows)
-	fdSize   int64               // file size at last sync
-	fdMTime  time.Time           // modtime at last sync
-	lastInfo os.FileInfo         // path identity at last sync (inode/volume on Windows)
+	// 追加状态在第一次 AppendRecord 时惰性构建，并在支撑文件未被改动时复用。
+	// 以下所有字段都由 mu 保护。重建它意味着一次完整的 JSONL 读取；
+	// 稳态追加只写一行并更新这些字段，避免 O(n^2) 的重复解析。
+	ids      map[string]struct{} // 当前文件中记录的 id
+	lastID   string              // 按文件顺序最后一条记录的 id
+	nextSeq  int                 // 下一个待生成的 n%06d 候选 id
+	fd       *os.File            // 长生命周期的 O_CREATE|O_WRONLY|O_APPEND 句柄（Windows 上为 nil）
+	fdSize   int64               // 上次同步时的文件大小
+	fdMTime  time.Time           // 上次同步时的修改时间
+	lastInfo os.FileInfo         // 上次同步时的路径标识（Windows 上为 inode/卷）
 
-	// readRecordsFn, when set by tests, overrides the full read used to build
-	// or rebuild the index. Records() deliberately stays on readRecords.
+	// readRecordsFn 由测试设置时，会覆盖用于构建或重建索引的全量读取。
+	// Records() 刻意始终使用 readRecords。
 	readRecordsFn func(string) ([]Record, error)
 }
 
-// ID is the session id, which is also its file name without the extension.
+// ID 是会话 id，也就是去掉扩展名后的文件名。
 func (s *Session) ID() string { return s.id }
 
-// Dir reports the directory that holds the session file.
+// Dir 报告存放会话文件的目录。
 func (s *Session) Dir() string { return s.dir }

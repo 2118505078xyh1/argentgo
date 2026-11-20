@@ -219,11 +219,11 @@ func TestScheduleStringIncludesCronSummary(t *testing.T) {
 	}{
 		{Schedule{Kind: KindCron, Expr: "0 3 * * *"}, "cron 0 3 * * * (every day at 03:00)"},
 		{Schedule{Kind: KindCron, Expr: "*/15 * * * *"}, "cron */15 * * * * (every 15 minutes)"},
-		// The kind is inferred from the five-field expression.
+		// kind 从五字段表达式推断。
 		{Schedule{Expr: "0 9 * * 1-5"}, "cron 0 9 * * 1-5 (every Monday-Friday at 09:00)"},
-		// Invalid cron keeps the canonical form so logs stay readable.
+		// 无效的 cron 保留规范形式，使日志保持可读。
 		{Schedule{Kind: KindCron, Expr: "bogus"}, "cron bogus"},
-		// Interval schedules are untouched.
+		// 间隔调度保持不变。
 		{Schedule{Kind: KindInterval, Expr: "30m"}, "interval 30m"},
 	}
 	for _, tc := range cases {

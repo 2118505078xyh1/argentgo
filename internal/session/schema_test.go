@@ -44,8 +44,8 @@ func TestSchemaRecordRejectsNegativeVersion(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsLegacyV0AddsHeader: a transcript with no schema header is
-// v0 and gains exactly one header on top; nothing else changes.
+// TestMigrateRecordsLegacyV0AddsHeader：没有 schema 头的转录是 v0，
+// 升级时只在顶部增加一个头；其他内容不变。
 func TestMigrateRecordsLegacyV0AddsHeader(t *testing.T) {
 	records := []Record{
 		testRecord("a", KindHeader, `{"title":"t"}`),
@@ -73,8 +73,8 @@ func TestMigrateRecordsLegacyV0AddsHeader(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsExplicitV1Unchanged: a transcript already at the current
-// version passes through byte-for-byte.
+// TestMigrateRecordsExplicitV1Unchanged：已处于当前版本的转录
+// 逐字节原样通过。
 func TestMigrateRecordsExplicitV1Unchanged(t *testing.T) {
 	records := []Record{
 		schemaHeader(t, 1),
@@ -89,8 +89,8 @@ func TestMigrateRecordsExplicitV1Unchanged(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsIdempotent: migrating twice yields the same result as once,
-// for both a legacy (v0) and an already-current (v1) input.
+// TestMigrateRecordsIdempotent：迁移两次与迁移一次结果相同，
+// 无论输入是旧版（v0）还是已处于当前版本（v1）。
 func TestMigrateRecordsIdempotent(t *testing.T) {
 	inputs := [][]Record{
 		{testRecord("a", KindUser, `{"text":"x"}`)},
@@ -111,8 +111,8 @@ func TestMigrateRecordsIdempotent(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsV0HeaderUpdatedInPlace: an explicit v0 header is bumped in
-// place rather than duplicated.
+// TestMigrateRecordsV0HeaderUpdatedInPlace：显式的 v0 头被原地提升，
+// 而不是被复制。
 func TestMigrateRecordsV0HeaderUpdatedInPlace(t *testing.T) {
 	records := []Record{
 		schemaHeader(t, 0),
@@ -187,8 +187,8 @@ func TestMigrateRecordsMultipleV0HeadersIdempotent(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsNewerVersionRejected: a header from a newer build must be a
-// clear error, never a silent downgrade.
+// TestMigrateRecordsNewerVersionRejected：来自更新版本的头必须产生
+// 明确的错误，绝不能静默降级。
 func TestMigrateRecordsNewerVersionRejected(t *testing.T) {
 	header := schemaHeader(t, 999)
 	records := []Record{header, testRecord("b", KindUser, `{"text":"x"}`)}
@@ -204,7 +204,7 @@ func TestMigrateRecordsNewerVersionRejected(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsEmpty: an empty transcript is a no-op.
+// TestMigrateRecordsEmpty：空转录是空操作。
 func TestMigrateRecordsEmpty(t *testing.T) {
 	got, err := MigrateRecords(nil)
 	if err != nil {
@@ -222,8 +222,8 @@ func TestMigrateRecordsEmpty(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsPreservesUnknownKinds: kinds are open; an unrecognised kind
-// survives migration untouched.
+// TestMigrateRecordsPreservesUnknownKinds：kind 是开放的；无法识别的 kind
+// 在迁移中保持原样。
 func TestMigrateRecordsPreservesUnknownKinds(t *testing.T) {
 	unknown := testRecord("u", "future_kind_from_newer_build", `{"opaque":[1,2,3]}`)
 	records := []Record{
@@ -248,7 +248,7 @@ func TestMigrateRecordsPreservesUnknownKinds(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsCJK: non-ASCII payloads are carried through unchanged.
+// TestMigrateRecordsCJK：非 ASCII 载荷原样通过。
 func TestMigrateRecordsCJK(t *testing.T) {
 	cjk := testRecord("b", KindUser, `{"text":"你好，世界 — 日本語・한국어 🚀"}`)
 	records := []Record{
@@ -270,7 +270,7 @@ func TestMigrateRecordsCJK(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsDoesNotMutateInput: the caller's slice is never modified.
+// TestMigrateRecordsDoesNotMutateInput：调用方的切片永不被修改。
 func TestMigrateRecordsDoesNotMutateInput(t *testing.T) {
 	original := []Record{
 		testRecord("a", KindUser, `{"text":"x"}`),
@@ -285,8 +285,8 @@ func TestMigrateRecordsDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsMalformedHeader: a broken header is reported, not silently
-// treated as v0.
+// TestMigrateRecordsMalformedHeader：损坏的头会被报告，而不是
+// 被静默当作 v0。
 func TestMigrateRecordsMalformedHeader(t *testing.T) {
 	records := []Record{testRecord("h", KindSchema, `not json`)}
 	if _, err := MigrateRecords(records); err == nil {
@@ -294,8 +294,8 @@ func TestMigrateRecordsMalformedHeader(t *testing.T) {
 	}
 }
 
-// TestMigrateRecordsConflictingHeaders: two headers disagreeing on the version
-// are reported rather than guessed at.
+// TestMigrateRecordsConflictingHeaders：两个版本不一致的头会被报告，
+// 而不是靠猜测处理。
 func TestMigrateRecordsConflictingHeaders(t *testing.T) {
 	records := []Record{
 		schemaHeader(t, 1),

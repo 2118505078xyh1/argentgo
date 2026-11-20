@@ -7,21 +7,21 @@ import (
 	"unicode/utf8"
 )
 
-// Tool output is bounded at the point it enters the model: a single read of a
-// generated file must not pin 100 MB in memory until the process exits. The
-// head+tail windows keep both the interesting start and the final lines (where
-// errors usually are). The truncation is byte- and line-aware and never cuts a
-// UTF-8 rune in half.
+// 工具输出在进入模型时就被限制：单次读取生成的
+// 文件不得把 100 MB 钉在内存中直到进程退出。
+// 头+尾窗口同时保留有趣的开头和最后几行（错误
+// 通常在那里）。截断感知字节和行，且绝不在
+// UTF-8 rune 中间切开。
 const (
 	maxToolOutputBytes = 64 << 10
 	maxToolOutputLines = 2000
 
-	// markerReserve leaves room for the "[…N 字节省略…]" marker so the stored
-	// string stays under maxToolOutputBytes even after the hint is appended.
+	// markerReserve 为 "[…N 字节省略…]" 标记预留空间，使存储的
+	// 字符串即使追加提示后仍在 maxToolOutputBytes 之内。
 	markerReserve = 64
 )
 
-// AppendAttempt adds a non-committed attempt badge to the transcript.
+// AppendAttempt 向记录添加未提交的尝试徽章。
 func (m *Model) AppendAttempt(kind AttemptKind, detail string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -35,32 +35,32 @@ func (m *Model) appendAttemptLocked(kind AttemptKind, detail string) {
 	m.markDirtyLocked()
 }
 
-// SetStatus shows a transient informational message on the status line.
+// SetStatus 在状态行显示一条短暂的信息消息。
 func (m *Model) SetStatus(text string) {
 	m.mu.Lock()
 	m.setStatusLocked(text)
 	m.mu.Unlock()
 }
 
-// SetStatusSeverity shows a transient message with an explicit severity.
-// Higher-severity notices outrank informational ones while they are live.
+// SetStatusSeverity 显示一条带显式严重度的短暂消息。
+// 高严重度通知在存活期间优先于信息性通知。
 func (m *Model) SetStatusSeverity(sev Severity, text string) {
 	m.mu.Lock()
 	m.setStatusSeverityLocked(sev, text)
 	m.mu.Unlock()
 }
 
-// Scroll moves the transcript back (positive) or toward the bottom (negative).
+// Scroll 把记录向后（正）或向底部（负）滚动。
 func (m *Model) Scroll(delta int) {
 	m.mu.Lock()
 	m.scrollByLocked(delta)
 	m.mu.Unlock()
 }
 
-// transcriptMetricsLocked returns the inputs the pure scroll arithmetic needs.
-// Paint caches the rendered line count and viewport height each frame; before
-// the first paint (or right after entries are appended) we derive a fresh count
-// so key input still scrolls instead of being clamped to a stale zero.
+// transcriptMetricsLocked 返回纯滚动算术所需的输入。
+// Paint 每帧缓存已渲染的行数和视口高度；在
+// 首次绘制之前（或刚追加条目之后）我们重新推导一个计数，
+// 使按键仍能滚动，而不会被钳制到陈旧的零。
 func (m *Model) transcriptMetricsLocked() (total, viewport int) {
 	total, viewport = m.bodyLines, m.bodyH
 	if viewport <= 0 {
@@ -116,9 +116,9 @@ func (m *Model) setStatusLocked(text string) {
 	m.setStatusSeverityLocked(SeverityInfo, text)
 }
 
-// setStatusSeverityLocked publishes a status notice. Empty text retires every
-// live notice, preserving the old setStatusLocked("") "clear the status line"
-// behaviour used on submit and after a successful action.
+// setStatusSeverityLocked 发布一条状态通知。空文本退休所有
+// 存活的通知，保留旧 setStatusLocked("") "清空状态行"
+// 在提交时和动作成功后使用的行为。
 func (m *Model) setStatusSeverityLocked(sev Severity, text string) {
 	if text == "" {
 		clearNoticeStack(&m.notices)
@@ -140,16 +140,16 @@ func (m *Model) setStatusSeverityLocked(sev Severity, text string) {
 	m.markDirtyLocked()
 }
 
-// clearNoticeStack retires all live notices without rebuilding the stack, so
-// the mutex inside it is never copied and sequence numbers stay unique.
+// clearNoticeStack 退休所有存活通知而不重建栈，因此
+// 其中的互斥锁从不被复制，序号保持唯一。
 func clearNoticeStack(s *NoticeStack) {
 	s.mu.Lock()
 	s.notices = nil
 	s.mu.Unlock()
 }
 
-// PruneNotices retires notices whose TTL has elapsed. The run loop calls it on
-// every tick so expiry does not depend on a repaint of the status row.
+// PruneNotices 退休 TTL 已过的通知。run 循环每次 tick
+// 调用它，使过期不依赖状态行的重绘。
 func (m *Model) PruneNotices(now time.Time) {
 	m.mu.Lock()
 	if m.notices.Prune(now) > 0 {
@@ -158,7 +158,7 @@ func (m *Model) PruneNotices(now time.Time) {
 	m.mu.Unlock()
 }
 
-// AppendUser adds a user block.
+// AppendUser 添加一个用户块。
 func (m *Model) AppendUser(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -180,7 +180,7 @@ func attemptFromFailed(failed bool) AttemptKind {
 	return ""
 }
 
-// AppendReasoning adds (or extends) a reasoning block.
+// AppendReasoning 添加（或扩展）一个推理块。
 func (m *Model) AppendReasoning(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -194,8 +194,8 @@ func (m *Model) AppendReasoning(text string) {
 	m.markDirtyLocked()
 }
 
-// AppendTool adds a finished or running tool call. Output is bounded here, at
-// the ingress, so a single entry can never pin an unbounded string in memory.
+// AppendTool 添加一个已完成或运行中的工具调用。输出在这里、在入口处
+// 受限，使单个条目绝无法在内存中钉住无界字符串。
 func (m *Model) AppendTool(name, args, output string, failed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -213,9 +213,9 @@ func (m *Model) AppendTool(name, args, output string, failed bool) {
 	m.scroll = 0
 }
 
-// truncateToolOutput keeps a head and a tail window of output, dropping the
-// middle. Both byte and line budgets are enforced, and every cut lands on a
-// UTF-8 rune boundary so CJK text and emoji are never corrupted.
+// truncateToolOutput 保留输出的头尾窗口，丢弃
+// 中间。同时强制字节和行预算，且每次切割都落在
+// UTF-8 rune 边界，使 CJK 文本和 emoji 永不损坏。
 func truncateToolOutput(output string) string {
 	if len(output) <= maxToolOutputBytes && strings.Count(output, "\n") < maxToolOutputLines {
 		return output
@@ -224,12 +224,12 @@ func truncateToolOutput(output string) string {
 	headBytes, tailBytes := budget/2, budget-budget/2
 	headLines, tailLines := maxToolOutputLines/2, maxToolOutputLines-maxToolOutputLines/2
 
-	// Head window: at most headBytes bytes and headLines lines.
+	// 头窗口：至多 headBytes 字节和 headLines 行。
 	headEnd := runeFloor(output, headBytes)
 	if cut := prefixLineEnd(output[:headEnd], headLines); cut < headEnd {
 		headEnd = cut
 	}
-	// Tail window: at most tailBytes bytes and tailLines lines.
+	// 尾窗口：至多 tailBytes 字节和 tailLines 行。
 	tailStart := runeCeil(output, len(output)-tailBytes)
 	if cut := suffixLineStart(output[tailStart:], tailLines); cut > 0 {
 		tailStart += cut
@@ -245,7 +245,7 @@ func truncateToolOutput(output string) string {
 	return head + marker + tail
 }
 
-// runeFloor returns the greatest i <= limit that starts a UTF-8 rune.
+// runeFloor 返回 <= limit 且开启一个 UTF-8 rune 的最大 i。
 func runeFloor(s string, limit int) int {
 	if limit >= len(s) {
 		return len(s)
@@ -260,7 +260,7 @@ func runeFloor(s string, limit int) int {
 	return i
 }
 
-// runeCeil returns the smallest i >= limit that starts a UTF-8 rune.
+// runeCeil 返回 >= limit 且开启一个 UTF-8 rune 的最小 i。
 func runeCeil(s string, limit int) int {
 	if limit <= 0 {
 		return 0
@@ -275,7 +275,7 @@ func runeCeil(s string, limit int) int {
 	return i
 }
 
-// prefixLineEnd returns the byte index just after the nth newline, or len(s).
+// prefixLineEnd 返回紧接第 n 个换行之后的字节索引，或 len(s)。
 func prefixLineEnd(s string, n int) int {
 	count := 0
 	for i := 0; i < len(s); i++ {
@@ -289,8 +289,8 @@ func prefixLineEnd(s string, n int) int {
 	return len(s)
 }
 
-// suffixLineStart returns an offset into s such that the suffix covers at
-// most n lines. A newline is ASCII, so the result is always a rune boundary.
+// suffixLineStart 返回一个 s 中的偏移，使后缀最多覆盖 n 行。
+// 换行是 ASCII，因此结果始终是 rune 边界。
 func suffixLineStart(s string, n int) int {
 	if n <= 0 {
 		return len(s)
@@ -307,7 +307,7 @@ func suffixLineStart(s string, n int) int {
 	return 0
 }
 
-// AppendNotice adds a system notice.
+// AppendNotice 添加一条系统通知。
 func (m *Model) AppendNotice(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -321,12 +321,12 @@ func (m *Model) appendNoticeLocked(text string) {
 	m.markDirtyLocked()
 }
 
-// AppendStream appends assistant text as it streams in. It does not bump the
-// render version: the text is folded into the entry once per frame, so a turn
-// of a thousand deltas costs one copy per repaint rather than one per delta.
-// Text that could be the start of an incomplete markdown marker is held back
-// by streamBuf until the construct completes (or the turn ends), so half a
-// `**` or a ``` fence never flickers into the rendered transcript.
+// AppendStream 在助手文本流入时追加。它不提升
+// 渲染版本：文本每帧被折叠进条目一次，因此一千个增量的回合
+// 每次重绘只复制一次，而不是每个增量复制一次。
+// 可能是未完成 markdown 标记开头的文本会被
+// streamBuf 暂时保留，直到该结构完成（或回合结束），因此半个
+// `**` 或 ``` 围栏绝不会闪现在已渲染的记录中。
 func (m *Model) AppendStream(delta string) {
 	if delta == "" {
 		return
@@ -352,12 +352,12 @@ func (m *Model) flushStreamLocked() {
 	m.markDirtyLocked()
 }
 
-// EndTurn closes the running turn. A non-nil error becomes a notice.
+// EndTurn 结束正在进行的回合。非 nil 错误变成一条通知。
 func (m *Model) EndTurn(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Release any marker prefix still held back at the end of the turn so no
-	// streamed byte is lost; flushStreamLocked folds it into the live entry.
+	// 释放回合结束时仍被保留的任何标记前缀，使
+	// 没有流式字节丢失；flushStreamLocked 把它折叠进存活的条目。
 	m.stream.WriteString(m.streamBuf.Flush())
 	m.flushStreamLocked()
 	if n := len(m.entries); n > 0 {

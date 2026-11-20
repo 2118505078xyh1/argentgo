@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// expiringFixture builds one store covering every classification the scanner
-// must distinguish. now is fixed so each token's state is unambiguous.
+// expiringFixture 构建一个覆盖扫描器必须区分的所有分类的 store。now 固定，使每个令牌的状态明确。
+// 扫描器必须区分。now 固定，使每个令牌状态明确。
 func expiringFixture(t *testing.T, now time.Time) *Store {
 	t.Helper()
 	store := scratchStore(t)
@@ -84,8 +84,8 @@ func TestExpiringTokensRedactsSecrets(t *testing.T) {
 }
 
 func TestExpiringTokensSkipsEntryWithoutSecret(t *testing.T) {
-	// Put rejects a secretless token, but a manually edited file can contain
-	// one; the scanner must skip it rather than report an unusable credential.
+	// Put 拒绝无秘密的令牌，但手动编辑的文件可能包含一个；扫描器必须跳过它而非报告不可用的凭据。
+	// 令牌；扫描器必须跳过它而非报告不可用的凭据。
 	now := time.Unix(1_800_000_000, 0).UTC()
 	store := scratchStore(t)
 	doc := `{"version":1,"tokens":[` +

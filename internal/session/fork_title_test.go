@@ -2,11 +2,11 @@ package session
 
 import "testing"
 
-// TestForkInheritsNewestTitleWhenOlderTitleIsOnPath covers a real fork bug:
-// the fork point can sit after an older title record but before a newer title
-// override. Checking only whether *any* title record is on the copied path
-// made the fork inherit the stale older title instead of the title the source
-// session actually showed when the fork was taken.
+// TestForkInheritsNewestTitleWhenOlderTitleIsOnPath 覆盖一个真实的分叉 bug：
+// 分叉点可能位于较旧标题记录之后、较新标题覆盖之前。
+// 只检查复制路径上是否*存在*标题记录，
+// 会让分叉继承过时的旧标题，而不是源会话在分叉时
+// 实际显示的标题。
 func TestForkInheritsNewestTitleWhenOlderTitleIsOnPath(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)
@@ -26,8 +26,8 @@ func TestForkInheritsNewestTitleWhenOlderTitleIsOnPath(t *testing.T) {
 	if err := sess.Append(KindUser, "second prompt"); err != nil {
 		t.Fatal(err)
 	}
-	// Freeze the fork point before the newer override lands. The copied path
-	// still contains the "First" title record.
+	// 在较新覆盖生效之前固定分叉点。复制的路径
+	// 仍包含 "First" 标题记录。
 	forkPoint := sess.activeSnapshot()
 	if err := sess.SetTitle("Second"); err != nil {
 		t.Fatal(err)
@@ -43,8 +43,8 @@ func TestForkInheritsNewestTitleWhenOlderTitleIsOnPath(t *testing.T) {
 	if got := fork.Title(); got != "Second" {
 		t.Fatalf("fork title = %q, want %q (source's effective title)", got, "Second")
 	}
-	// The fork's newest title record must be the carried-over title, not the
-	// stale one already on the copied path.
+	// 分叉中最新的标题记录必须是带过来的标题，而不是
+	// 复制路径上已有的过时标题。
 	records, err := fork.Records()
 	if err != nil {
 		t.Fatal(err)
@@ -60,10 +60,10 @@ func TestForkInheritsNewestTitleWhenOlderTitleIsOnPath(t *testing.T) {
 	}
 }
 
-// TestForkCarriesDerivedTitleWhenOverrideClearedAfterForkPoint is the mirror
-// image of the stale-title case: clearing an override after the fork point
-// makes the source fall back to its prompt-derived title, and the fork must
-// show that derived title rather than the now-cleared explicit one.
+// TestForkCarriesDerivedTitleWhenOverrideClearedAfterForkPoint 是过时标题情形的
+// 镜像情形：在分叉点之后清除覆盖，
+// 使源回退到从 prompt 派生的标题，而分叉必须
+// 显示该派生标题，而不是已被清除的显式标题。
 func TestForkCarriesDerivedTitleWhenOverrideClearedAfterForkPoint(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)
@@ -100,9 +100,9 @@ func TestForkCarriesDerivedTitleWhenOverrideClearedAfterForkPoint(t *testing.T) 
 	}
 }
 
-// TestForkDoesNotDuplicateTitleWhenSourceTitleUnchanged guards the common
-// path: when the copied path already shows the source's effective title, no
-// extra title record is appended and the fork is a faithful copy.
+// TestForkDoesNotDuplicateTitleWhenSourceTitleUnchanged 守护常见路径：
+// 当复制路径已显示源的有效标题时，不会
+// 追加额外的标题记录，分叉是忠实的副本。
 func TestForkDoesNotDuplicateTitleWhenSourceTitleUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir)

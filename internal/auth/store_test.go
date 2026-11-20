@@ -56,7 +56,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatalf("api key round trip = %+v, %v", key, ok)
 	}
 
-	// Replacement keeps a single entry per provider.
+	// 替换使每个 provider 只保留一个条目。
 	if err := reopened.Put(Token{Provider: "openai", Kind: KindOAuth, Access: "access-2"}); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if _, ok := reopened.Get("openai"); ok {
 		t.Fatal("deleted token still present")
 	}
-	// Deleting a missing provider is not an error.
+	// 删除不存在的 provider 不是错误。
 	if err := reopened.Delete("openai"); err != nil {
 		t.Fatalf("second Delete: %v", err)
 	}

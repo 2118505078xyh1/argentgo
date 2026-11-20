@@ -9,8 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// outlineGoSrc is used by several tests. Line numbers of the declarations are
-// deliberately non-trivial so the outline's line reporting is exercised.
+// outlineGoSrc 被多个测试使用。其中声明的行号
+// 刻意设置得非平凡，以便检验 outline 的行号报告。
 const outlineGoSrc = `package alpha
 
 // Client is a thing. 中文注释

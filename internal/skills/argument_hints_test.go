@@ -117,9 +117,9 @@ func TestParseArgumentHint(t *testing.T) {
 		t.Errorf("hints[deploy] = %v, want %v", got, want)
 	}
 
-	// An unquoted [...] is normalised by the frontmatter parser into a bare
-	// comma-joined scalar (the brackets are dropped), yet the candidates are
-	// still recovered from the '|' separators.
+	// 未加引号的 [...] 会被 frontmatter 解析器规范化为裸的逗号连接标量（括号被去掉），但候选项仍从 '|' 分隔符中恢复。
+	// 逗号连接的标量（括号被去掉），但候选项仍
+	// 从 '|' 分隔符中恢复。
 	bare, err := Parse("---\nname: bare\nargument-hint: [dev|stage|prod]\n---\nbody", "bare.md")
 	if err != nil {
 		t.Fatalf("parse bare: %v", err)
@@ -130,9 +130,9 @@ func TestParseArgumentHint(t *testing.T) {
 }
 
 func TestArgumentHintCandidatesMultipleTokens(t *testing.T) {
-	// Each whitespace-delimited token is inspected on its own; a single value
-	// enclosed in a wrapper must not leak in just because another token is a
-	// real enumeration.
+	// 每个以空白分隔的标记单独检查；仅因另一个标记是
+	// 真实枚举，就把包裹中的单个值泄漏进来是不允许的。
+	// 每个以空白分隔的标记单独检查；仅因另一个标记是真实枚举，就把包裹中的单个值泄漏进来是不允许的。
 	hint := "env dev|stage <path> x|y|z"
 	got := argumentHintCandidates(hint)
 	want := []string{"dev", "stage", "x", "y", "z"}

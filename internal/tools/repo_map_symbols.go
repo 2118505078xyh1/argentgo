@@ -15,15 +15,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
-// repoMapSymbolTokenBudget is the approximate token ceiling for the ranked
-// symbol section. Costs come from estimateRepoTokens, which counts wide CJK
-// runes separately so a Chinese-heavy repo map cannot slip past the budget.
-// The file-path view is emitted in full as before.
+// repoMapSymbolTokenBudget 是排名符号区的近似 token 上限。
+// 成本来自 estimateRepoTokens，它单独计算宽 CJK
+// rune，使中文密集的 repo 地图无法悄悄突破预算。
+// 文件路径视图照旧完整输出。
 const repoMapSymbolTokenBudget = 2000
 
-// repoSymbol is one top-level Go declaration found by the repo map.
-// Receiver is set for methods and is used only for display; Name stays the
-// bare identifier so mention matching works uniformly.
+// repoSymbol 是 repo 地图找到的一个顶层 Go 声明。
+// 方法会设置 Receiver，它仅用于展示；Name 保持
+// 裸标识符，使提及匹配统一进行。
 type repoSymbol struct {
 	File     string // slash-separated, relative to the mapped root
 	Name     string
@@ -38,9 +38,9 @@ type rankedRepoSymbol struct {
 	score float64
 }
 
-// repoReceiverName unwraps *T, T[P] and parenthesised receivers down to the
-// base type identifier. Unknown expression shapes yield an empty string, in
-// which case the method is still listed (just without a qualifier).
+// repoReceiverName 把 *T、T[P] 和带括号的接收者解包为
+// 基础类型标识符。未知的表达式形式返回空字符串，
+// 此时方法仍会被列出（只是没有限定符）。
 func repoReceiverName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -58,22 +58,22 @@ func repoReceiverName(expr ast.Expr) string {
 	}
 }
 
-// extractRepoSymbols parses every Go file under base and returns its top-level
-// declarations. Syntax errors are tolerated: go/parser returns the partial AST
-// alongside the error, and a partial map is more useful than no map. Non-Go
-// files are ignored for now (no lightweight lexer for other languages yet).
+// extractRepoSymbols 解析 base 下每个 Go 文件，返回其顶层
+// 声明。语法错误被容忍：go/parser 会连同错误一起返回部分 AST，
+// 而部分地图总比没有地图有用。目前忽略非 Go
+// 文件（尚无针对其他语言的轻量词法分析器）。
 //
-// Parsing goes through the process-local symbol cache so long-lived processes
-// (RPC/serve) reuse previous parses across repeated repo-map calls. The cache
-// wrapper is byte-for-byte identical to the original read-and-parse logic.
+// 解析走进程内的符号缓存，使长寿命进程
+// （RPC/serve）在重复的 repo-map 调用间复用先前的解析。缓存
+// 包装器与原始的"读取并解析"逻辑逐字节一致。
 func extractRepoSymbols(base string, relFiles []string) []repoSymbol {
 	return cachedRepoSymbolsForFiles(base, relFiles)
 }
 
-// parseGoSource parses one Go file's source into top-level declarations. It is
-// deliberately a pure function of (rel, src) so the mtime symbol cache can
-// reuse the exact same parse logic on a cache miss. Syntax errors are
-// tolerated: go/parser returns a partial AST alongside the error.
+// parseGoSource 把某个 Go 文件的源码解析为顶层声明。它
+// 刻意是 (rel, src) 的纯函数，使 mtime 符号缓存能在
+// 未命中时复用完全相同的解析逻辑。语法错误被
+// 容忍：go/parser 会连同错误一起返回部分 AST。
 func parseGoSource(rel string, src []byte) []repoSymbol {
 	fset := token.NewFileSet()
 	file, _ := parser.ParseFile(fset, rel, src, 0)
@@ -141,9 +141,9 @@ func parseGoSource(rel string, src []byte) []repoSymbol {
 	return out
 }
 
-// repoParseMentions splits free-form mention text into identifier-like tokens
-// used for symbol-name matching. File paths are matched separately (as whole
-// lowercased strings) in rankRepoSymbols.
+// repoParseMentions 把自由格式的提及文本切成类似标识符的
+// 标记，用于符号名匹配。文件路径另行匹配（作为整体
+// 小写字符串）在 rankRepoSymbols 中使用。
 func repoParseMentions(mentions []string) []string {
 	var out []string
 	seen := make(map[string]bool)
@@ -162,10 +162,10 @@ func repoParseMentions(mentions []string) []string {
 	return out
 }
 
-// repoBaseScore is the mention-independent prior. Entry points, exported
-// declarations and "declaration-like" kinds rank higher; long names and deep
-// line positions are mildly penalised. Both penalties are capped so they can
-// never reorder two otherwise identical symbols by accident.
+// repoBaseScore 是与提及无关的基础分。入口点、导出的
+// 声明以及"类似声明"的类别排名更高；较长的名字和较深的
+// 行位置会被轻微扣分。两项扣分都设有上限，因此它们
+// 绝不会意外地重排两个其他方面相同的符号。
 func repoBaseScore(s repoSymbol) float64 {
 	score := 0.0
 	switch s.Kind {
@@ -189,9 +189,9 @@ func repoBaseScore(s repoSymbol) float64 {
 	return score
 }
 
-// rankRepoSymbols scores symbols then sorts with a total-order tiebreak, so
-// the result is byte-for-byte deterministic regardless of file walk or map
-// iteration order.
+// rankRepoSymbols 先给符号打分，再按全序的决胜规则排序，因此
+// 结果逐字节确定，不受文件遍历顺序或 map
+// 迭代顺序影响。
 func rankRepoSymbols(syms []repoSymbol, mentions []string) []repoSymbol {
 	tokens := repoParseMentions(mentions)
 	paths := make([]string, 0, len(mentions))
@@ -254,10 +254,10 @@ func formatRepoSymbol(s repoSymbol) string {
 	return fmt.Sprintf("  * [%s] %s:%d %s", s.Kind, s.File, s.Line, name)
 }
 
-// estimateRepoTokens estimates the token cost of one repo-map line, using the
-// shared internal/tokenize estimate so the repo map, the bash volume hint and
-// the agent's budget loop all count CJK the same way. The floor of one
-// preserves the old len(bytes)/4 minimum for empty and tiny inputs.
+// estimateRepoTokens 估算 repo 地图某一行的 token 成本，使用
+// 共享的 internal/tokenize 估算器，使 repo 地图、bash 的体量提示和
+// agent 的预算循环都以相同方式计算 CJK。下限为一
+// 保留了旧的空输入和微小输入下的 len(bytes)/4 最小值。
 func estimateRepoTokens(s string) int {
 	n := tokenize.Estimate(s)
 	if n < 1 {
@@ -266,9 +266,9 @@ func estimateRepoTokens(s string) int {
 	return n
 }
 
-// budgetRepoSymbols keeps the longest prefix of ranked symbols whose combined
-// estimated tokens fit the budget. Prefix sums plus sort.Search give a binary
-// search over the cut point (O(n log n)); no partial lines are ever emitted.
+// budgetRepoSymbols 保留排名符号的最长前缀，其合计
+// 估算 token 数符合预算。前缀和加上 sort.Search 给出对
+// 切分点的二分查找（O(n log n)）；绝不输出部分行。
 func budgetRepoSymbols(ranked []repoSymbol, budget int) []repoSymbol {
 	if budget <= 0 || len(ranked) == 0 {
 		return nil
@@ -277,7 +277,7 @@ func budgetRepoSymbols(ranked []repoSymbol, budget int) []repoSymbol {
 	for i, sym := range ranked {
 		prefix[i+1] = prefix[i] + estimateRepoTokens(formatRepoSymbol(sym))
 	}
-	// First prefix whose cost exceeds the budget; the answer is the one before.
+	// 成本超过预算的第一个前缀；答案是它前面的那个。
 	n := sort.Search(len(prefix), func(i int) bool { return prefix[i] > budget }) - 1
 	if n < 0 {
 		n = 0
@@ -285,8 +285,8 @@ func budgetRepoSymbols(ranked []repoSymbol, budget int) []repoSymbol {
 	return ranked[:n]
 }
 
-// repoMapSymbolSection renders the ranked, budgeted symbol list as extra lines
-// appended to the standard repo map output.
+// repoMapSymbolSection 把排名、限额后的符号列表渲染为附加行，
+// 追加到标准 repo 地图输出之后。
 func repoMapSymbolSection(syms []repoSymbol, mentions []string, budget int) []string {
 	ranked := rankRepoSymbols(syms, mentions)
 	kept := budgetRepoSymbols(ranked, budget)

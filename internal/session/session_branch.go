@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Path returns the records from the session root down to entryID, oldest first.
+// Path 返回从会话根到 entryID 的记录，最早的在前。
 func (s *Session) Path(entryID string) ([]Record, error) {
 	records, err := s.Records()
 	if err != nil {
@@ -36,9 +36,8 @@ func (s *Session) Path(entryID string) ([]Record, error) {
 	return chain, nil
 }
 
-// Fork copies the path to entryID into a new session and returns it. The
-// original session is untouched, and the copy keeps the original entry ids so
-// the history it points at is unchanged.
+// Fork 将到 entryID 的路径复制到一个新会话并返回。原会话不受影响，
+// 副本保留原有的条目 id，因此它所指向的历史不变。
 func Fork(dir, id, entryID string) (*Session, error) {
 	store, err := Open(dir)
 	if err != nil {
@@ -51,7 +50,7 @@ func Fork(dir, id, entryID string) (*Session, error) {
 	return source.Fork(entryID)
 }
 
-// Fork copies the path to entryID into a new session in the same directory.
+// Fork 将到 entryID 的路径复制到同一目录下的新会话。
 func (s *Session) Fork(entryID string) (*Session, error) {
 	path, err := s.Path(entryID)
 	if err != nil {
@@ -60,9 +59,8 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 	if len(path) == 0 {
 		return nil, fmt.Errorf("session: entry %q is not on a path", entryID)
 	}
-	// A fork taken from a mid-turn record would otherwise lose the header and
-	// its explicit title. Copy the original header when the path omits it, and
-	// carry the effective title across as a fresh title record.
+	// 从轮次中途的记录分叉会丢失 header 及其显式标题。
+	// 当路径不包含 header 时，复制原始 header，并把有效标题作为一条新的标题记录带过去。
 	all, err := s.Records()
 	if err != nil {
 		return nil, err
@@ -84,11 +82,9 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 			}
 		}
 	}
-	// Presence of a title record on the path is not enough: a newer override
-	// may have been appended after the fork point, leaving the path with an
-	// older title. Compare the source's effective title with the title the
-	// copied path would show, and carry the former across when they differ so
-	// the fork resumes under the same name the session had when it was forked.
+	// 路径上存在标题记录还不够：更新的覆盖可能是在分叉点之后追加的，
+	// 使路径上留下的是较旧的标题。把源会话的有效标题与复制路径所显示的标题进行比较，
+	// 不同时将前者带过去，这样分叉恢复时使用的名字与会话被分叉时的名字相同。
 	sourceTitle := titleFromRecords(s.ID(), all)
 	pathTitle := titleFromRecords(s.ID(), path)
 	if !hasTitle || pathTitle != sourceTitle {
@@ -144,11 +140,9 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 	return &Session{dir: container.dir, id: id, file: target, active: path[len(path)-1].ID}, nil
 }
 
-// path is the session file location. A session opened through ResolvePath keeps
-// the exact spelling of the file it found (which may use an upper-case
-// extension); only sessions built directly from dir+id need the canonical
-// id+fileExt spelling. Rebuilding the path from the id would lose the original
-// case and break every read/write on a case-sensitive filesystem.
+// path 是会话文件的位置。通过 ResolvePath 打开的会话会保留它所找到文件的确切拼写
+// （可能使用大写扩展名）；只有直接由 dir+id 构造的会话才需要规范的 id+fileExt 拼写。
+// 从 id 重建路径会丢失原始大小写，并在区分大小写的文件系统上破坏每一次读写。
 func (s *Session) path() string {
 	if s.file != "" {
 		return s.file
@@ -156,18 +150,16 @@ func (s *Session) path() string {
 	return filepath.Join(s.dir, s.id+fileExt)
 }
 
-// activeSnapshot returns the active leaf under the mutex. Every read path that
-// walks the tree goes through this helper so the s.active field is never read
-// outside the lock, while the caller still does its own file I/O lock-free.
+// activeSnapshot 在互斥锁下返回活动叶节点。每条遍历树的读取路径都经过这个辅助函数，
+// 使 s.active 字段永远不会在锁外被读取，而调用方仍可在无锁状态下执行自己的文件 I/O。
 func (s *Session) activeSnapshot() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.active
 }
 
-// activePath walks from the active leaf to the root and returns the records
-// oldest first. Records that are not reachable from the leaf are branches and
-// stay out of the conversation.
+// activePath 从活动叶节点走到根节点，并返回记录（最早的在前）。
+// 从叶节点不可达的记录属于分支，不会出现在对话中。
 func (s *Session) activePath(records []Record) []Record {
 	byID := indexByID(records)
 	leaf := s.activeSnapshot()
@@ -205,7 +197,7 @@ func indexByID(records []Record) map[string]Record {
 	return index
 }
 
-// nextID mints the lowest id that is not already used.
+// nextID 生成未被使用的最小 id。
 func nextID(records []Record) string {
 	used := make(map[string]bool, len(records))
 	for _, record := range records {

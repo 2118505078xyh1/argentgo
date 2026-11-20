@@ -2,15 +2,15 @@ package tui
 
 import "time"
 
-// frameCacheKey is a snapshot of every input that can change the cell grid Paint
-// writes into a Buffer. Two frames with equal keys are guaranteed to paint the
-// same cells; two frames with different keys require a fresh Paint.
+// frameCacheKey 是 Paint 写入 Buffer 的单元格网格的所有输入的快照。
+// 键相同的两帧保证绘制相同的单元格；键不同的两帧需要重新 Paint。
+// 相同的单元格；键不同的两帧需要重新 Paint。
 //
-// This is a *capability* only: nothing in the run loop consumes it yet. It is
-// deliberately conservative — when time-sensitive content is on screen the key
-// carries a raw clock token so no two instants can compare equal, which forbids
-// reuse rather than risk a stale frame. See the report in the change description
-// for why draw is not wired to this key.
+// 这只是一种*能力*：run 循环中尚无消费者使用它。它
+// 刻意保守 —— 当屏幕上有时间敏感内容时，键
+// 携带原始时钟 token，使任意两个时刻都不可能相等，从而禁止
+// 复用而不是冒陈旧帧的风险。关于 draw 为何未接到此键，见变更说明
+// 中的报告。
 type frameCacheKey struct {
 	width, height int
 	version       int // content version: entries, editor, theme, sessions, plan, ...
@@ -18,11 +18,11 @@ type frameCacheKey struct {
 	themeEpoch    int
 	noColor       bool
 
-	// clockSecond tracks the header clock (1-second resolution).
+	// clockSecond 跟踪头部时钟（1 秒分辨率）。
 	clockSecond int
-	// timeSensitive is true when a notice, spinner, live reasoning/tool row or
-	// legacy status is visible. In that case nowNanos pins the exact instant so
-	// the key never matches a later frame. When false, nowNanos is zero.
+	// timeSensitive 在有通知、spinner、实时推理/工具行或
+	// 旧式状态可见时为 true。此时 nowNanos 固定到精确时刻，使
+	// 该键永不与后续帧匹配。为 false 时，nowNanos 为零。
 	timeSensitive bool
 	nowNanos      int64
 
@@ -36,8 +36,8 @@ type frameCacheKey struct {
 	pendingArgs          string
 	pendingDanger        string
 
-	// Panel geometry. Panel *data* changes bump version; these scalar fields
-	// cover the cursor/scroll/filter moves that only mark the model dirty.
+	// 面板几何。面板*数据*变化会提升 version；这些标量字段
+	// 涵盖只把模型标脏的光标/滚动/筛选移动。
 	showTasks, showWorkspace, showPlan, showSessions bool
 	tasksScroll, workspaceCursor, workspaceScroll    int
 	previewScroll, planScroll                        int
@@ -47,10 +47,10 @@ type frameCacheKey struct {
 	expanded                                         bool
 }
 
-// newFrameCacheKey snapshots the model under its own lock. It never mutates the
-// model: notice presence is read with Len rather than Current, which prunes
-// expired notices (and would therefore alter the stack) as a side effect. An
-// expired-but-not-yet-pruned notice only makes the key more conservative.
+// newFrameCacheKey 在其自己的锁下快照模型。它从不修改
+// 模型：通知的存在用 Len 而非 Current 读取，后者会裁剪
+// 过期通知（从而改变栈）作为副作用。一个
+// 过期但尚未裁剪的通知只会让键更保守。
 func newFrameCacheKey(m *Model, width, height int) frameCacheKey {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,8 +93,8 @@ func newFrameCacheKey(m *Model, width, height int) frameCacheKey {
 		k.pendingDanger = m.pending.danger
 	}
 
-	// Legacy status has a 6-second display window that depends on now, not on
-	// any version. Treat a live legacy status as time-sensitive as well.
+	// 旧式状态有 6 秒的显示窗口，取决于 now 而非
+	// 任何版本。同样把存活的旧式状态视为时间敏感。
 	legacyStatusLive := m.status != "" && now.Sub(m.statusAt) < 6*time.Second
 	noticeLive := m.notices.Len() > 0
 	liveEntry := false
@@ -112,16 +112,16 @@ func newFrameCacheKey(m *Model, width, height int) frameCacheKey {
 	return k
 }
 
-// frameCacheHit reports whether the frame rendered for prev can be reused for
-// cur without repainting. Equal keys are the only safe case.
+// frameCacheHit 报告为 prev 渲染的帧能否复用于
+// cur 而无需重绘。只有键相等才是安全的情况。
 func frameCacheHit(prev, cur frameCacheKey) bool {
 	return prev == cur
 }
 
-// isPureScrollChange reports whether cur differs from prev only by the
-// transcript scroll offset: the content version and every other visual input
-// are unchanged. Such a transition is a cache MISS — scrolling shifts the body
-// window and the status-line "↑N" marker, so its bytes must be repainted.
+// isPureScrollChange 报告 cur 与 prev 是否仅在
+// 记录滚动偏移上不同：内容版本和所有其他视觉输入
+// 都未改变。这样的转换是缓存未命中 —— 滚动会移动正文
+// 窗口和状态行的 "↑N" 标记，因此其字节必须重绘。
 func isPureScrollChange(prev, cur frameCacheKey) bool {
 	if prev == cur {
 		return false

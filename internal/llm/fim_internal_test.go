@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestChatRequestStopTokenIDsSerialization pins the wire field name and the
-// omitempty contract: Chat (nil stop ids) must not emit the field at all, while
-// FillMiddle's ids appear as a top-level integer array.
+// TestChatRequestStopTokenIDsSerialization 固定线协议字段名和
+// omitempty 约定：Chat（停止 id 为 nil）必须完全不发出该字段，而
+// FillMiddle 的 id 作为顶层整数数组出现。
 func TestChatRequestStopTokenIDsSerialization(t *testing.T) {
 	base := chatRequest{Model: "m", Messages: []chatMessage{{Role: "user", Content: "hi"}}, Stream: true}
 
@@ -33,8 +33,8 @@ func TestChatRequestStopTokenIDsSerialization(t *testing.T) {
 		t.Fatalf("stop ids not encoded as a top-level integer array: %s", with)
 	}
 
-	// An explicitly empty (non-nil) slice is also omitted by omitempty, so a
-	// caller cannot accidentally send an empty stop list.
+	// 显式为空（非 nil）的切片也会被 omitempty 省略，因此
+	// 调用方不会意外发送空的停止列表。
 	empty, err := json.Marshal(chatRequest{Model: "m", Messages: base.Messages, StopTokenIDs: []int64{}, Stream: true})
 	if err != nil {
 		t.Fatal(err)

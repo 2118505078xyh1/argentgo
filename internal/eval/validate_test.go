@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// TestValidateRejectsInvalidScriptedTurns covers the scripted-step checks at
-// the boundary: a turn that cannot produce a usable reply must be rejected
-// before any scenario runs.
+// TestValidateRejectsInvalidScriptedTurns 在边界覆盖脚本化步骤检查：无法产生可用回复的轮次必须在任何场景运行前被拒绝。
+// 在边界：无法产生可用回复的轮次必须被拒绝
+// 在任何场景运行之前。
 func TestValidateRejectsInvalidScriptedTurns(t *testing.T) {
 	tests := []struct {
 		name string
@@ -93,15 +93,15 @@ func TestValidateRejectsInvalidScriptedTurns(t *testing.T) {
 	}
 }
 
-// TestValidateReportsScenarioAndTurn checks the diagnostic context: the
-// generated name is used when a document omits "name".
+// TestValidateReportsScenarioAndTurn 检查诊断上下文：
+// TestValidateReportsScenarioAndTurn 检查诊断上下文：当文档省略 "name" 时使用生成的名称。
 func TestValidateReportsScenarioAndTurn(t *testing.T) {
 	scenario := Scenario{Provider: []ScriptTurn{
 		{Respond: Respond{Text: "first"}},
 		{Respond: Respond{ToolCalls: []ToolCall{{Name: "read"}}}},
 		{Respond: Respond{ToolCalls: []ToolCall{{}}}},
 	}}
-	// Emulate what Parse does before validating.
+	// 模拟 Parse 在验证之前所做的事。
 	scenario.normalize(0)
 	err := scenario.Validate()
 	if err == nil {
@@ -114,8 +114,8 @@ func TestValidateReportsScenarioAndTurn(t *testing.T) {
 	}
 }
 
-// TestParseRejectsInvalidScriptedSteps verifies the validation is wired into
-// scenario loading, not just available as a standalone helper.
+// TestParseRejectsInvalidScriptedSteps 验证校验被接入场景加载，而不仅是作为独立辅助函数可用。
+// 场景加载，而不仅是作为独立辅助函数可用。
 func TestParseRejectsInvalidScriptedSteps(t *testing.T) {
 	tests := []struct {
 		name string
@@ -154,8 +154,8 @@ func TestParseRejectsInvalidScriptedSteps(t *testing.T) {
 	}
 }
 
-// TestParseAcceptsStringWrappedArguments checks that unwrapping happens before
-// validation: a JSON string holding an object is valid script syntax.
+// TestParseAcceptsStringWrappedArguments 检查解包发生在
+// TestParseAcceptsStringWrappedArguments 检查解包发生在验证之前：内含对象的 JSON 字符串是合法的脚本语法。
 func TestParseAcceptsStringWrappedArguments(t *testing.T) {
 	doc := `{"scenarios":[{"name":"ok","prompt":"p","provider":[
 		{"respond":{"tool_calls":[{"name":"read","arguments":"{\"path\":\"a\"}"}]}}
@@ -165,9 +165,9 @@ func TestParseAcceptsStringWrappedArguments(t *testing.T) {
 	}
 }
 
-// TestLoadRejectsInvalidScriptedSteps confirms the error reaches callers of
-// Load with the document path attached, so a bad fixture is caught at load
-// time rather than mid-suite.
+// TestLoadRejectsInvalidScriptedSteps 确认错误到达 Load 的调用方，
+// TestLoadRejectsInvalidScriptedSteps 确认错误连同文档路径到达 Load 的调用方，使坏 fixture 在加载时而非套件中途被捕获。
+// 加载时而非套件中途。
 func TestLoadRejectsInvalidScriptedSteps(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broken.json")
 	doc := `{"scenarios":[{"name":"broken","prompt":"p","provider":[{"respond":{"tool_calls":[{"name":"read","arguments":[1]}]}}]}]}`

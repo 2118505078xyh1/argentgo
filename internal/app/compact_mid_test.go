@@ -38,7 +38,7 @@ func TestSessionCompactorMaybeCompactUsesBudgetAndEvidence(t *testing.T) {
 	messages := []llm.Message{
 		{Role: "system", Content: "rules"},
 		{Role: "user", Content: "goal"},
-		{Role: "assistant", Content: "后续: add the lexer"}, // only CollectCompactionEvidence sees this prefix
+		{Role: "assistant", Content: "后续: add the lexer"}, // 只有 CollectCompactionEvidence 能看到这个前缀
 		{Role: "tool", ToolCallID: "c1", Content: strings.Repeat("x", 400)},
 		{Role: "assistant", Content: "continue"},
 		{Role: "tool", ToolCallID: "c2", Content: strings.Repeat("y", 400)},
@@ -63,8 +63,8 @@ func TestSessionCompactorMaybeCompactUsesBudgetAndEvidence(t *testing.T) {
 	if out[1].Role != "system" || out[1].Content != "rules" {
 		t.Fatal("original system prompt must survive compaction")
 	}
-	// The kept tail starts with the assistant that precedes the newest result,
-	// never with a bare tool message.
+	// 保留的尾部以最新结果之前的助手消息开头，
+	// 绝不会以一条裸工具消息开头。
 	if out[2].Role != "assistant" || out[3].Role != "tool" {
 		t.Fatalf("cut split a tool pair: %+v", out[2:])
 	}
@@ -106,5 +106,5 @@ func TestSessionCompactorNoopOnSmallHistory(t *testing.T) {
 	}
 }
 
-// agent-facing interface check: the app compactor satisfies agent.Compactor.
+// 面向 agent 的接口检查：app 的压缩器满足 agent.Compactor。
 var _ agent.Compactor = (*sessionCompactor)(nil)

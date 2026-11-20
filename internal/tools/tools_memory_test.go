@@ -123,9 +123,9 @@ func TestMemoryToolsRegisteredAndOverridable(t *testing.T) {
 	if !strings.Contains(string(data), "override bank fact") {
 		t.Fatalf("override bank file = %q, want the new fact", data)
 	}
-	// tool_search is appended after the registered list, so the memory tools
-	// must still sit consecutively just before it. SetMemoryBank must not change
-	// that order even though it swaps the bank behind each tool.
+	// tool_search 被追加在注册列表之后，因此记忆工具
+	// 仍必须连续地紧邻它之前。SetMemoryBank 不得改变
+	// 该顺序，即使它交换了每个工具背后的库。
 	names := registry.Names()
 	last := len(names) - 1
 	wantTail := []string{"memory_retain", "memory_recall", "memory_forget", "memory_reflect", "memory_learn"}

@@ -7,11 +7,10 @@ import (
 	"testing"
 )
 
-// TestNilChainFailsClosedWithoutPanicking covers a nil *Chain used directly as
-// a Guard. Policy(), record() and the plan-command-guard branch all honour a
-// nil receiver, so the approval branch must be nil-safe too: an Ask decision
-// must degrade to "approval unavailable" instead of dereferencing c.Approver
-// and crashing the caller.
+// TestNilChainFailsClosedWithoutPanicking 覆盖直接用作 Guard 的 nil *Chain。
+// Policy()、record() 和计划命令守卫分支都兼容 nil 接收者，
+// 因此审批分支也必须 nil 安全：Ask 决定必须降级为"审批不可用"，
+// 而不是解引用 c.Approver 并让调用方崩溃。
 func TestNilChainFailsClosedWithoutPanicking(t *testing.T) {
 	var chain *Chain
 	ctx := context.Background()
@@ -30,9 +29,9 @@ func TestNilChainFailsClosedWithoutPanicking(t *testing.T) {
 	})
 
 	t.Run("ask is unavailable, not a refusal", func(t *testing.T) {
-		// "bash" is mutating and falls through to approval. With no chain there
-		// is no approver, so this must be the recoverable "unavailable" error
-		// and never a StopError claiming the operator refused.
+		// "bash" 是修改类工具，会落到审批。没有链就没有审批器，
+		// 因此这必须是可恢复的 "unavailable" 错误，
+		// 绝不能是声称操作员否决的 StopError。
 		err := chain.Check(ctx, "bash", json.RawMessage(`{"command":"ls"}`))
 		if err == nil {
 			t.Fatal("nil chain must not approve a mutating call")

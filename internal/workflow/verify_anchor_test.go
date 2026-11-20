@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// TestFailedCheckAddsRetryHintWhenRetriesConfigured checks that a failed
-// StepCheck carries a bounded, redacted verdict and a next-step nudge when the
-// step will be retried.
+// TestFailedCheckAddsRetryHintWhenRetriesConfigured 检查失败的
+// TestFailedCheckAddsRetryHintWhenRetriesConfigured 检查失败的 StepCheck 在步骤将被重试时带有有界、脱敏的结论和下一步轻推。
+// 步骤将被重试。
 func TestFailedCheckAddsRetryHintWhenRetriesConfigured(t *testing.T) {
 	requireWorkflowShell(t)
 	exec := &Executor{
@@ -44,8 +44,8 @@ func TestFailedCheckAddsRetryHintWhenRetriesConfigured(t *testing.T) {
 	}
 }
 
-// TestFailedCheckWithoutRetriesHasNoHint checks that a step with no retry
-// budget keeps its failure diagnostic unchanged.
+// TestFailedCheckWithoutRetriesHasNoHint 检查没有重试预算的步骤保持失败诊断不变。
+// 保持失败诊断不变。
 func TestFailedCheckWithoutRetriesHasNoHint(t *testing.T) {
 	requireWorkflowShell(t)
 	exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) { return "done", nil })}
@@ -68,8 +68,8 @@ func TestFailedCheckWithoutRetriesHasNoHint(t *testing.T) {
 	}
 }
 
-// TestRunSuccessCheckMarksFailureForRetryHint checks that a check failure is
-// recognisable by runStep without changing its error text or unwrap chain.
+// TestRunSuccessCheckMarksFailureForRetryHint 检查检查失败
+// TestRunSuccessCheckMarksFailureForRetryHint 检查检查失败能被 runStep 识别而不改变其错误文本或 unwrap 链。
 func TestRunSuccessCheckMarksFailureForRetryHint(t *testing.T) {
 	requireWorkflowShell(t)
 	err := runSuccessCheck(context.Background(), Step{
@@ -88,8 +88,8 @@ func TestRunSuccessCheckMarksFailureForRetryHint(t *testing.T) {
 	}
 }
 
-// TestCheckFailureKeepsDeadlineExceededChain checks that wrapping a check
-// failure does not hide the underlying context error from callers.
+// TestCheckFailureKeepsDeadlineExceededChain 检查包装检查
+// TestCheckFailureKeepsDeadlineExceededChain 检查包装检查失败不会对调用方隐藏底层 context 错误。
 func TestCheckFailureKeepsDeadlineExceededChain(t *testing.T) {
 	cause := context.DeadlineExceeded
 	failed := &checkFailure{output: "boom", cause: cause}
@@ -101,8 +101,8 @@ func TestCheckFailureKeepsDeadlineExceededChain(t *testing.T) {
 	}
 }
 
-// TestCheckRetryHintRedactsAndBoundsOutput checks that the hint never leaks a
-// credential, never truncates inside a rune and stays within its byte budget.
+// TestCheckRetryHintRedactsAndBoundsOutput 检查提示从不泄漏
+// TestCheckRetryHintRedactsAndBoundsOutput 检查提示从不泄漏凭据、从不在 rune 中间截断且保持在其字节预算内。
 func TestCheckRetryHintRedactsAndBoundsOutput(t *testing.T) {
 	out := strings.Repeat("界x", 400) + "api_key=sk_live_abcdefghijklmnop1234 FAIL_TAIL"
 	got := checkRetryHint(Step{Name: " build "}, out)

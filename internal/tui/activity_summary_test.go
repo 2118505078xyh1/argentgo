@@ -129,7 +129,7 @@ func TestActivitySummaryEnglishLabelsMatchCatalog(t *testing.T) {
 		if got, want := i18n.T(i18n.EnUS, manyKey, 3), "3 "+tc.many; got != want {
 			t.Errorf("%s en = %q, want %q", manyKey, got, want)
 		}
-		// The neutral tokens emitted by activitySummary must stay in sync.
+		// activitySummary 发出的中性标记必须保持同步。
 		if got, want := countLabel(1, tc.one, tc.many), i18n.T(i18n.EnUS, oneKey, 1); got != want {
 			t.Errorf("neutral label %q drifted from catalog %q", got, want)
 		}

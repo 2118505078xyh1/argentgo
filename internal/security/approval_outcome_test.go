@@ -39,8 +39,8 @@ func TestClassifyApprovalContextErrorsAreCancelled(t *testing.T) {
 		{"wrapped deadline", fmt.Errorf("prompt: %w", context.DeadlineExceeded), false},
 		{"double wrapped canceled", fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", context.Canceled)), true},
 		{"joined canceled", errors.Join(errors.New("side"), context.Canceled), true},
-		// A granted flag paired with a context error must still be cancelled,
-		// never promoted to an allow.
+		// 带有 context 错误的 granted 标志仍必须被视为已取消，
+		// 绝不能被提升为 allow。
 		{"granted but canceled", context.Canceled, true},
 		{"granted but deadline exceeded", context.DeadlineExceeded, true},
 	}
@@ -74,8 +74,8 @@ func TestClassifyApprovalOtherErrorsAreUnavailable(t *testing.T) {
 }
 
 func TestClassifyApprovalNeverFailsOpen(t *testing.T) {
-	// Exhaust every interesting (granted, err) combination and assert the
-	// fail-closed invariant: an error is never consent, whatever the bool says.
+	// 穷举每一种有意义的 (granted, err) 组合，并断言
+	// 失败即拒绝的不变量：无论 bool 如何，错误都绝不代表同意。
 	errorsToTry := []error{
 		nil,
 		errors.New("unknown"),
@@ -106,7 +106,7 @@ func TestApprovalOutcomeAllows(t *testing.T) {
 		{ApprovalRejected, false},
 		{ApprovalUnavailable, false},
 		{ApprovalCancelled, false},
-		{ApprovalOutcome("bogus"), false}, // unknown values fail closed
+		{ApprovalOutcome("bogus"), false}, // 未知值失败即拒绝
 	}
 	for _, tt := range tests {
 		if got := tt.outcome.Allows(); got != tt.want {
@@ -115,9 +115,9 @@ func TestApprovalOutcomeAllows(t *testing.T) {
 	}
 }
 
-// machineApprover models a headless / sub-agent approval path whose channel is
-// missing: it answers affirmatively but also reports a channel error. The chain
-// must fail closed rather than treating the true as consent.
+// machineApprover 模拟一个无头/子 agent 的审批路径，其通道
+// 缺失：它给出肯定回答，但也报告通道错误。链
+// 必须失败即拒绝，而不是把 true 当作同意。
 type machineApprover struct {
 	granted bool
 	err     error

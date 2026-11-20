@@ -11,9 +11,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// TokenReport renders the --tokens breakdown: the fixed part of each request
-// (system prompt plus tool schemas) and the configured limits. It does not call
-// the provider.
+// TokenReport 渲染 --tokens 的明细：每次请求的固定部分（系统提示加上工具 schema）以及配置的限制。
+// 它不会调用提供方。
 func TokenReport(stdio cli.IO, opts cli.Options) (string, error) {
 	res, err := Resolve(stdio, opts)
 	if err != nil {
@@ -42,15 +41,14 @@ func TokenReport(stdio cli.IO, opts cli.Options) (string, error) {
 	if len(res.AddDirs) > 0 {
 		fmt.Fprintf(&b, "extra dirs: %s\n", strings.Join(res.AddDirs, ", "))
 	}
-	// --session makes --tokens also report the persisted cross-resume totals.
-	// Without it the report is byte-for-byte identical to before this change.
+	// --session 使 --tokens 同时报告持久化的跨恢复总量。没有它时，报告与本次改动之前逐字节一致。
 	if err := appendSessionCumulative(&b, res); err != nil {
 		return "", err
 	}
 	return b.String(), nil
 }
 
-// ListProfiles reports the config profile names and the selected one.
+// ListProfiles 报告配置 profile 的名称以及当前选中的那个。
 func ListProfiles(stdio cli.IO, opts cli.Options) ([]string, string, error) {
 	env := stdio.Env
 	if env == nil {

@@ -8,37 +8,38 @@ import (
 	"strings"
 )
 
-// ResourceInfo describes one auxiliary file shipped alongside a skill's
-// SKILL.md (for example a script under scripts/ or a document under
-// references/). Path is a slash-separated path relative to the skill
-// directory; Size is the file size in bytes. Callers use this manifest to tell
-// a model which files it can read or run after the skill has been loaded.
+// 排序必须按路径确定。
+// ResourceInfo 描述随技能 SKILL.md 一起发布的辅助文件（例如 scripts/ 下的脚本或 references/ 下的文档）。Path 是相对于技能
+// references/ 下的文档）。Path 是相对于技能目录的斜杠分隔路径；
+// 目录的斜杠分隔路径；Size 是文件字节大小。调用方用此清单告诉模型在技能加载后可以读取或运行哪些文件。
+// 供模型在技能加载后读取或运行哪些文件。
 type ResourceInfo struct {
 	Path string `json:"path"`
 	Size int64  `json:"size"`
 }
 
-// ListSkillResources lists the auxiliary files under skillDir. It is a
-// read-only scan with no dependencies and no global state: the result depends
-// only on the directory contents and maxBytes.
+// ListSkillResources 列出 skillDir 下的辅助文件。它是无依赖、无全局状态的只读扫描：结果仅取决于目录内容和 maxBytes。
+// 它是无依赖、无全局状态的只读扫描：结果
+// 仅取决于目录内容和 maxBytes。
 //
 // Rules:
 //
-//   - the skill document itself (SKILL.md or SKILL.markdown, case-insensitive,
-//     at any depth) is not a resource and is omitted;
-//   - hidden files and directories (names starting with '.') are skipped, and
-//     hidden directories are never descended into;
-//   - symlinks that resolve outside skillDir are skipped, as are symlinks to
-//     anything other than a regular file. Symlinks that stay inside are listed
-//     under the link's own relative path with the size of their target;
-//   - only regular files are listed;
-//   - results are sorted by Path;
-//   - maxBytes is the total byte budget. Files are accumulated in path order
-//     and any file that would overflow the remaining budget is skipped, which
-//     also excludes any single file larger than maxBytes. A non-positive
-//     maxBytes yields no resources.
+//   - 技能文档本身（SKILL.md 或 SKILL.markdown，不区分大小写，任意深度）不是资源，被省略；
 //
-// Unreadable entries are skipped rather than failing the whole scan.
+// 任意深度）不是资源，被省略；
+//   - 隐藏文件和目录（以 '.' 开头）被跳过，且
+//   - 隐藏文件和目录（以 '.' 开头）被跳过，且不进入隐藏目录；
+//   - 解析到 skillDir 之外的符号链接被跳过，指向非常规文件的符号链接也被跳过。停留在内部的符号链接按其自身相对路径列出，大小为其目标的大小；
+//   - 指向非常规文件的符号链接也被跳过。停留在内部的符号链接按其自身相对路径列出，
+//     大小为其目标的大小；
+//   - 只列出普通文件；
+//   - 结果按 Path 排序；
+//   - maxBytes 是总字节预算。文件按路径顺序累加，
+//     任何会超出剩余预算的文件被跳过，这也
+//   - maxBytes 是总字节预算。文件按路径顺序累加，任何会超出剩余预算的文件被跳过，这也排除了任何大于 maxBytes 的单个文件。非正数
+//     maxBytes 不产生资源。
+//
+// 不可读的条目被跳过，而非使整个扫描失败。
 func ListSkillResources(skillDir string, maxBytes int64) []ResourceInfo {
 	if maxBytes <= 0 {
 		return nil
@@ -107,17 +108,17 @@ func ListSkillResources(skillDir string, maxBytes int64) []ResourceInfo {
 	return out
 }
 
-// isSkillDocument reports whether name is a skill document rather than a
-// resource. Matching is case-insensitive so a differently-cased duplicate on
-// Windows cannot leak into the manifest.
+// isSkillDocument 报告 name 是否为技能文档而非资源。匹配不区分大小写，使 Windows 上大小写不同的重复项不会泄漏进清单。
+// 资源。匹配不区分大小写，使 Windows 上大小写不同的
+// 重复项不会泄漏进清单。
 func isSkillDocument(name string) bool {
 	lower := strings.ToLower(name)
 	return lower == "skill.md" || lower == "skill.markdown"
 }
 
-// resourceSize returns the size of the regular file p represents. Symlinks are
-// resolved; ones escaping root or pointing at a non-regular file are rejected,
-// while ones that stay inside are reported with their target's size.
+// resourceSize 返回 p 所代表的普通文件的大小。符号链接被解析；逃逸 root 或指向非常规文件的被拒绝，停留在内部的按其目标大小报告。
+// 符号链接被解析；逃逸 root 或指向非常规文件的被拒绝，
+// 停留在内部的按其目标大小报告。
 func resourceSize(p string, d fs.DirEntry, root string) (int64, bool) {
 	if d.Type()&os.ModeSymlink != 0 {
 		resolved, err := filepath.EvalSymlinks(p)
@@ -137,8 +138,8 @@ func resourceSize(p string, d fs.DirEntry, root string) (int64, bool) {
 	return info.Size(), true
 }
 
-// pathWithin reports whether target is root itself or lives beneath it. It is
-// the containment check that rejects symlinks escaping the skill directory.
+// pathWithin 报告 target 是否为 root 本身或其下的路径。它是拒绝逃逸技能目录的符号链接的包含性检查。
+// 它是拒绝逃逸技能目录的符号链接的包含性检查。
 func pathWithin(root, target string) bool {
 	rel, err := filepath.Rel(root, target)
 	if err != nil {

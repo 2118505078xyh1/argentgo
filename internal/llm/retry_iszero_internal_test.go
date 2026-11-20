@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-// TestRetryPolicyIsZeroIncludesFunctionFields guards the contract documented on
-// IsZero: a policy is "zero" only when no field was set. The two function
-// fields are part of that contract. Treating a policy that carries only an
-// OnRetry hook (or only a Jitter source) as zero makes every wire client throw
-// it away and install DefaultRetryPolicy, silently dropping the caller's
-// retry notifications and deterministic backoff.
+// TestRetryPolicyIsZeroIncludesFunctionFields 守护 IsZero 上记录的约定：
+// 只有当没有任何字段被设置时，策略才是"零值"。两个函数
+// 字段是该约定的一部分。把只带有 OnRetry 钩子（或只有 Jitter 来源）
+// 的策略当作零值，会让每个线客户端丢弃它并安装 DefaultRetryPolicy，
+// 从而悄悄丢弃调用方的重试通知
+// 和确定性退避。
 func TestRetryPolicyIsZeroIncludesFunctionFields(t *testing.T) {
 	cases := []struct {
 		name   string

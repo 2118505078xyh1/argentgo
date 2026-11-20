@@ -1,37 +1,37 @@
 package skills
 
-// Skill argument-hint completion metadata.
+// Skill 参数提示补全元数据。
 //
-// SkillArgumentHints turns the declarative `argument-hint` frontmatter of a set
-// of skills into enumerated candidate values keyed by skill name. A frontend
-// (for example a slash command that invokes a skill) can use the map to offer
-// live argument suggestions without parsing frontmatter or duplicating the
-// package's hint grammar. The helper is pure: it reads only its argument, never
-// touches the filesystem and never mutates the skills it is given.
+// SkillArgumentHints 把一组技能的声明性 `argument-hint` frontmatter 转换为以技能名为键的枚举候选值。前端
+// 技能转换为以技能名为键的枚举候选值。前端
+// （例如调用技能的一个斜杠命令）可以用该映射提供
+// （例如调用技能的一个斜杠命令）可以用该映射提供实时参数建议，而无需解析 frontmatter 或重复本包的
+// 提示语法。该辅助函数是纯函数：只读取其参数，从不
+// 触碰文件系统，也从不修改给它的技能。
 //
-// The hint grammar mirrors slash-command argument hints. A whitespace-delimited
-// token containing '|' is an enumerated choice, e.g. `dev|stage|prod` or
-// `[dev|stage|prod]`; one optional <...> or [...] wrapper is stripped first.
-// Plain placeholders such as `<file>` describe an open-ended value and yield
-// no candidates. Full-width ASCII (including the full-width '|' and brackets)
-// is folded to half-width so hints authored through a Chinese IME are read the
-// same way as their ASCII spelling.
+// 提示语法。该辅助函数是纯函数：只读取其参数，从不触碰文件系统，也从不修改给它的技能。
+// 提示语法镜像斜杠命令的参数提示。含 '|' 的以空白分隔标记是枚举选项，例如 `dev|stage|prod` 或
+// `[dev|stage|prod]`；先去掉一层可选的 <...> 或 [...] 包裹。
+// 像 `<file>` 这样的普通占位符描述开放取值且不产生
+// 候选项。全角 ASCII（包括全角 '|' 和括号）被折叠为半角，使通过中文输入法编写的提示被以与 ASCII 拼写
+// 被折叠为半角，使通过中文输入法编写的提示被以
+// 相同的方式读取。
 
 import "strings"
 
-// SkillArgumentHints returns the enumerated argument candidates of every skill
-// that declares at least one, keyed by skill name.
+// SkillArgumentHints 返回每个声明了至少一个候选参数的技能的枚举参数候选项，以技能名为键。
+// 声明了至少一个候选参数的技能，以技能名为键。
 //
 // Rules:
 //
-//   - Only tokens that, after stripping one optional <...> or [...] wrapper,
-//     contain '|' contribute; a group needs two or more distinct values to
-//     count as an enumeration.
-//   - Empty alternatives and duplicates are dropped; order follows the hint.
-//   - Skills with no hint, or with only open placeholders, get no entry, so a
-//     lookup for them returns a nil slice.
-//   - Duplicate names: the last occurrence wins (ordinary map semantics).
-//   - A nil or empty input yields an empty, non-nil map.
+//   - 只有在去掉一层可选 <...> 或 [...] 包裹后
+//     包含 '|' 的标记才有贡献；一组需要两个或更多不同值
+//     才算枚举。
+//   - 只有在去掉一层可选 <...> 或 [...] 包裹后包含 '|' 的标记才有贡献；一组需要两个或更多不同值才算枚举。
+//   - 空备选项和重复项被丢弃；顺序遵循提示。
+//   - 没有提示或只有开放占位符的技能没有条目，因此对它们的查找返回 nil 切片。
+//   - 重复名称：最后一次出现胜出（普通 map 语义）。
+//   - nil 或空输入产生空但非 nil 的 map。
 func SkillArgumentHints(skills []Skill) map[string][]string {
 	out := make(map[string][]string, len(skills))
 	for _, skill := range skills {
@@ -44,7 +44,7 @@ func SkillArgumentHints(skills []Skill) map[string][]string {
 	return out
 }
 
-// argumentHintCandidates extracts the enumerated values from one argument-hint.
+// argumentHintCandidates 从一个 argument-hint 中提取枚举值。
 func argumentHintCandidates(hint string) []string {
 	var out []string
 	for _, raw := range strings.Fields(hint) {
@@ -77,9 +77,9 @@ func argumentHintCandidates(hint string) []string {
 	return out
 }
 
-// foldHintWidth folds full-width ASCII and the ideographic space into their
-// half-width forms, mirroring slash-command completion so a hint typed through
-// a Chinese IME is recognised. CJK characters themselves are left untouched.
+// foldHintWidth 把全角 ASCII 和表意空格折叠为半角形式，镜像斜杠命令补全，使通过中文输入法键入的提示被识别。CJK 字符本身保持不变。
+// 半角形式，镜像斜杠命令补全，使通过
+// 中文输入法键入的提示被识别。CJK 字符本身保持不变。
 func foldHintWidth(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

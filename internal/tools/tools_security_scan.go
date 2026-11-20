@@ -17,11 +17,11 @@ import (
 
 // ---- security_scan ----
 //
-// A local, read-only static check for the workspace: it walks text files and
-// flags credential shapes, dangerous code and (on Unix) world-writable file
-// modes. It never opens a network connection or spawns a subprocess. Every
-// snippet is scrubbed with security.Redact, so the tool never echoes the
-// secret it just found.
+// 对工作区的本地只读静态检查：遍历文本文件并
+// 标记凭据形状、危险代码以及（在 Unix 上）全局可写的文件
+// 模式。它从不建立网络连接或生成子进程。每段
+// 片段都用 security.Redact 清洗，因此工具绝不会回显
+// 它刚发现的秘密。
 
 const (
 	securityScanDefaultMaxFiles = 500
@@ -30,17 +30,17 @@ const (
 	securityScanSnippetRunes    = 200
 )
 
-// securityScanIgnoredDirs keeps vendored/generated trees out of the walk. The
-// names mirror the other workspace-walking tools so their views agree.
+// securityScanIgnoredDirs 让 vendored/生成的代码树不进入遍历。这些
+// 名称与其他遍历工作区的工具一致，使两者视图相符。
 var securityScanIgnoredDirs = map[string]bool{
 	".git": true, "node_modules": true, "target": true, "vendor": true,
 	".argent": true, "dist": true, "build": true, "out": true,
 	".idea": true, ".vscode": true,
 }
 
-// scanRule is one compiled detector. redactSpan is true for credential
-// detectors: the matched span is replaced before security.Redact runs, so the
-// raw token cannot survive even if Redact's pattern table changes later.
+// scanRule 是一个编译好的检测器。对凭据检测器，redactSpan 为 true：
+// 匹配到的片段在 security.Redact 运行前被替换，因此即使
+// Redact 的模式表以后变化，原始 token 也无法留存。
 type scanRule struct {
 	category   string
 	re         *regexp.Regexp
@@ -144,7 +144,7 @@ func (securityScanTool) Run(ctx context.Context, root string, raw json.RawMessag
 		}
 		scanned++
 		scanFileLines(rel, data, addFinding)
-		// File modes are not meaningful on Windows; skip this category there.
+		// 文件模式在 Windows 上没有意义；在那里跳过这一类。
 		if runtime.GOOS != "windows" && info.Mode().Perm()&0o002 != 0 {
 			addFinding(rel, 0, "world_writable",
 				fmt.Sprintf("mode %o is world-writable", info.Mode().Perm()))
@@ -201,8 +201,8 @@ func (securityScanTool) Run(ctx context.Context, root string, raw json.RawMessag
 	return marshalScanResult(scanned, findings, capped, outputLimit(ctx)), nil
 }
 
-// scanFileLines applies every detector to each line. One finding per rule per
-// line keeps the output bounded while still surfacing every category present.
+// scanFileLines 把每个检测器应用到每一行。每条规则每行
+// 只产生一条发现，使输出保持有界，同时仍能呈现存在的每个类别。
 func scanFileLines(rel string, data []byte, add func(string, int, string, string)) {
 	for i, rawLine := range strings.Split(string(data), "\n") {
 		line := strings.TrimRight(rawLine, "\r")
@@ -224,8 +224,8 @@ func scanFileLines(rel string, data []byte, add func(string, int, string, string
 	}
 }
 
-// scanIsEnvReference filters out assignments whose "value" is just a variable
-// name or a documented placeholder rather than a literal credential.
+// scanIsEnvReference 过滤掉这样的赋值：其"值"只是变量
+// 名或文档中的占位符，而非字面凭据。
 func scanIsEnvReference(span string) bool {
 	lowered := strings.ToLower(span)
 	for _, needle := range []string{
@@ -258,9 +258,9 @@ func clipScanSnippet(s string, limit int) string {
 	return string(runes[:limit-3]) + "..."
 }
 
-// compileScanGlobs turns simple globs into anchored regexps. In addition to
-// single-segment '*' and '?', a "**" spans directories and "**/" spans zero or
-// more leading directories.
+// compileScanGlobs 把简单 glob 转为锚定的正则。除
+// 单段 '*' 和 '?' 外，"**" 跨越目录，"**/" 跨越零个或
+// 更多前导目录。
 func compileScanGlobs(patterns []string) ([]*regexp.Regexp, error) {
 	if len(patterns) == 0 {
 		return nil, nil
@@ -313,8 +313,8 @@ func scanGlobMatch(globs []*regexp.Regexp, rel string) bool {
 	return false
 }
 
-// marshalScanResult keeps the JSON valid while clipping oversized results: it
-// keeps as many findings as fit and flags the rest with truncated/marker.
+// marshalScanResult 在截断过大结果时保持 JSON 有效：它
+// 保留尽可能多的发现，并用 truncated/marker 标记其余部分。
 func marshalScanResult(scanned int, findings []securityScanFinding, capped bool, limit int) string {
 	build := func(subset []securityScanFinding, truncated bool) string {
 		if subset == nil {

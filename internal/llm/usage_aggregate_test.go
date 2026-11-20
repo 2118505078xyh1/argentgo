@@ -9,11 +9,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestChatUsageEmptyTerminatorDoesNotEraseTotals covers a gateway that appends
-// an all-zero usage object after the real final usage chunk (often as part of
-// a trailing, choice-less terminator event). The empty snapshot must not
-// replace the totals already received, or every downstream budget/cost
-// calculation silently reports zero.
+// TestChatUsageEmptyTerminatorDoesNotEraseTotals 覆盖在真实最终用量分块之后
+// 追加全零用量对象的网关（通常是尾部无 choice 终止事件的一部分）。
+// 这个空快照不得替换已收到的总计，
+// 否则所有下游预算/成本计算都会
+// 悄悄报告为零。
 func TestChatUsageEmptyTerminatorDoesNotEraseTotals(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -72,11 +72,11 @@ data: [DONE]
 	}
 }
 
-// TestChatUsagePartialSnapshotsAreMerged covers gateways that split one reply's
-// usage across several chunks instead of reporting it all in the final one.
-// A chunk that omits a counter must not erase a count already received: doing
-// so yields a Usage where CachedTokens exceeds PromptTokens and TotalTokens
-// reads zero, which corrupts budget/cost accounting downstream.
+// TestChatUsagePartialSnapshotsAreMerged 覆盖把一次回复的用量拆分到
+// 多个分块上报、而非在最后一个分块全部上报的网关。
+// 省略某个计数器的分块不得抹掉已经收到的计数：否则会产生这样的 Usage——
+// CachedTokens 超过 PromptTokens 且 TotalTokens 为零，
+// 从而破坏下游的预算/成本核算。
 func TestChatUsagePartialSnapshotsAreMerged(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -154,11 +154,11 @@ data: [DONE]
 	}
 }
 
-// TestAnthropicMessageDeltaZeroCacheResetsMessageStart covers a gateway that
-// reports cache counts in message_start and then authoritative zero counts in
-// message_delta (a cache miss on the final accounting snapshot). An explicit
-// zero must clear the stale message_start values; an omitted field must keep
-// them. Getting this wrong corrupts CachedTokens and FreshPromptTokens.
+// TestAnthropicMessageDeltaZeroCacheResetsMessageStart 覆盖这样的网关：
+// 它在 message_start 报告缓存计数，随后在 message_delta 中给出权威的零计数
+// （最终核算快照上的缓存未命中）。显式的零必须清除陈旧的 message_start 值；
+// 省略的字段必须保留它们。弄错这一点会破坏
+// CachedTokens 和 FreshPromptTokens。
 func TestAnthropicMessageDeltaZeroCacheResetsMessageStart(t *testing.T) {
 	cases := []struct {
 		name       string

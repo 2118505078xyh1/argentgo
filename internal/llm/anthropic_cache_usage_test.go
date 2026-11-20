@@ -9,9 +9,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// message_delta carries the final cache counts. They must be reflected in
-// PromptTokens (the complete prompt cost), never double-counted with a cache
-// value from message_start, and CachedTokens must stay within PromptTokens.
+// message_delta 携带最终的缓存计数。它们必须反映在
+// PromptTokens（完整提示成本）中，绝不能与来自 message_start 的缓存值
+// 重复计算，且 CachedTokens 必须不超过 PromptTokens。
 func TestAnthropicDeltaCacheTokensAreCountedInPrompt(t *testing.T) {
 	tests := []struct {
 		name           string

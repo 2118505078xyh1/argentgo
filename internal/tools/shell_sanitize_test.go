@@ -42,7 +42,7 @@ func TestSanitizeShellOutput(t *testing.T) {
 			want: "a\nb",
 		},
 		{
-			// CR now overwrites the line instead of being silently dropped.
+			// 现在回车会覆盖该行，而不是被静默丢弃。
 			name: "bare CR overwrites earlier line content",
 			in:   "a\r\nb\rc",
 			want: "a\nc",
@@ -114,8 +114,8 @@ func TestSanitizeShellOutput(t *testing.T) {
 }
 
 func TestSanitizeShellOutputKeepsTextAroundTruncatedSequence(t *testing.T) {
-	// A truncated sequence at the very end must not corrupt text that came
-	// before it, nor run past the end of the string.
+	// 位于最末尾的截断序列不得破坏它之前的文本，
+	// 也不得越过字符串末尾。
 	in := "ok\x1b[31m-red\x1b[0m-done\x1b[9"
 	want := "ok-red-done"
 	if got := sanitizeShellOutput(in); got != want {
@@ -250,8 +250,8 @@ func TestApplyRunLengthEncodingOnlyCompressesShorterRuns(t *testing.T) {
 }
 
 func TestSanitizeShellOutputProgressWithANSI(t *testing.T) {
-	// ANSI colour codes occupy no columns, so the CR overwrite must keep only
-	// the last frame and the escape bytes must never leak into the result.
+	// ANSI 颜色码不占列，因此回车覆盖必须只保留
+	// 最后一帧，且转义字节绝不能泄漏到结果中。
 	in := "start\n\x1b[32m\rStep 1/3\x1b[0m\rStep 2/3\rStep 3/3 done\n"
 	want := "start\nStep 3/3 done\n"
 	if got := sanitizeShellOutput(in); got != want {
@@ -260,7 +260,7 @@ func TestSanitizeShellOutputProgressWithANSI(t *testing.T) {
 }
 
 func TestSanitizeShellOutputBackspaceWithANSI(t *testing.T) {
-	// The backspace is preserved by ANSI stripping and erased while cleaning.
+	// 退格在 ANSI 剥离中保留，并在清理时被擦除。
 	in := "\x1b[36mabc\b\bxy\x1b[39m"
 	want := "axy"
 	if got := sanitizeShellOutput(in); got != want {

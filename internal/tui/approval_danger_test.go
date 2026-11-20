@@ -8,9 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// startDangerApproval raises a modal through the real ApproveDanger path and
-// returns the channel the caller answers on. An empty danger is the ordinary
-// request shape used by every existing caller.
+// startDangerApproval 通过真实的 ApproveDanger 路径唤起弹窗，
+// 并返回调用方作答的通道。空的 danger 是
+// 所有现有调用方使用的普通请求形态。
 func startDangerApproval(t *testing.T, m *Model, danger string) <-chan bool {
 	t.Helper()
 	done := make(chan bool, 1)
@@ -28,9 +28,9 @@ func startDangerApproval(t *testing.T, m *Model, danger string) <-chan bool {
 	return done
 }
 
-// TestDangerRequestDefaultsToDeny pins the P1 fix: a flagged command marks Deny
-// as the safe default, and the ambiguous confirm key (Enter) refuses it rather
-// than approving it.
+// TestDangerRequestDefaultsToDeny 固定了 P1 修复：被标记的命令把 Deny
+// 标记为安全默认值，而含义模糊的确认键（Enter）会拒绝而不是
+// 批准它。
 func TestDangerRequestDefaultsToDeny(t *testing.T) {
 	m := New(Config{})
 	done := startDangerApproval(t, m, "destructive shell command: sudo rm -rf /")
@@ -51,10 +51,10 @@ func TestDangerRequestDefaultsToDeny(t *testing.T) {
 	}
 }
 
-// TestNonDangerRequestKeepsHistoricalModalAndAllowDefault proves the additive
-// change is inert for every existing caller: defaultsToDeny is false, no danger
-// text appears in the box, the hint rows are byte-for-byte the historical ones,
-// and Enter still leaves the modal unanswered.
+// TestNonDangerRequestKeepsHistoricalModalAndAllowDefault 证明该附加
+// 更改对所有现有调用方无影响：defaultsToDeny 为 false，没有 danger
+// 文本出现在框中，提示行逐字节保持历史原样，
+// 且 Enter 仍让弹窗保持未回答。
 func TestNonDangerRequestKeepsHistoricalModalAndAllowDefault(t *testing.T) {
 	m := New(Config{})
 	done := startDangerApproval(t, m, "")
@@ -104,8 +104,8 @@ func TestNonDangerRequestKeepsHistoricalModalAndAllowDefault(t *testing.T) {
 	}
 }
 
-// TestDangerReasonIsShown verifies the reason is rendered inside the box, on
-// its own styled rows, and that the default-deny affordance is visible.
+// TestDangerReasonIsShown 验证原因被渲染在框内、
+// 位于其自己的样式行上，且默认拒绝的提示是可见的。
 func TestDangerReasonIsShown(t *testing.T) {
 	m := New(Config{})
 	done := startDangerApproval(t, m, "mutating shell command: sudo rm -rf /")
@@ -132,9 +132,9 @@ func TestDangerReasonIsShown(t *testing.T) {
 	}
 }
 
-// TestCJKDangerReasonRendersIntact guards the CJK audit: a Chinese reason must
-// survive Wrap/Pad with valid UTF-8 and intact glyphs, alongside the zh-CN
-// "default: deny" affordance.
+// TestCJKDangerReasonRendersIntact 守护 CJK 审计：中文原因必须
+// 在 Wrap/Pad 后保持有效 UTF-8 和完整字形，并与 zh-CN 的
+// "default: deny" 提示同时呈现。
 func TestCJKDangerReasonRendersIntact(t *testing.T) {
 	m := New(Config{Locale: "zh"})
 	done := startDangerApproval(t, m, "sudo rm -rf / 会递归删除根目录")

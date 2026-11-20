@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// gateReader blocks in Read until release is closed, so a test can cancel the
-// context while Ask is genuinely stuck in the underlying stdin read.
+// gateReader 在 Read 中阻塞直到 release 被关闭，因此测试可以在
+// Ask 真正卡在底层 stdin 读取上时才取消 context。
 type gateReader struct {
 	once    sync.Once
 	entered chan struct{}
@@ -41,7 +41,7 @@ func TestPromptApproverAskReturnsOnCancellation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			gate := newGateReader()
-			defer close(gate.release) // let the (possibly leaked) read goroutine finish
+			defer close(gate.release) // 让（可能泄漏的）读取 goroutine 结束
 
 			var out bytes.Buffer
 			var w io.Writer

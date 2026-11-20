@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// verifyEnvHasValue reports whether any "K=V" entry in env has exactly value
-// as its value. Tests use unique sentinels set via t.Setenv so the assertions
-// are independent of whatever else the parent environment contains.
+// verifyEnvHasValue 报告 env 中是否有 "K=V" 条目的值恰好等于给定值。
+// 测试通过 t.Setenv 设置唯一哨兵，使断言与父环境中的其他内容无关。
+// （接上行）
 func verifyEnvHasValue(env []string, value string) bool {
 	for _, entry := range env {
 		_, v, _ := strings.Cut(entry, "=")
@@ -22,7 +22,7 @@ func verifyEnvHasValue(env []string, value string) bool {
 	return false
 }
 
-// verifyEnvHasEntry reports whether the exact "K=V" entry is present.
+// verifyEnvHasEntry 报告是否存在确切的 "K=V" 条目。
 func verifyEnvHasEntry(env []string, want string) bool {
 	for _, entry := range env {
 		if entry == want {
@@ -32,10 +32,10 @@ func verifyEnvHasEntry(env []string, want string) bool {
 	return false
 }
 
-// TestVerifyEnvironmentSanitizesHostPrivateVars pins the P1 fix: the verify
-// child must not inherit the host's session plumbing. proc.SanitizeEnv removes
-// the exact names ARGENT_SESSION_ID / ARGENT_RUN_ID and the prefixes
-// ARGENT_PARENT_* / SUBAGENT_PARENT_*; the legacy GOFLAGS strip must remain.
+// TestVerifyEnvironmentSanitizesHostPrivateVars 锁定 P1 修复：验证子进程
+// 不得继承主机的会话管道。proc.SanitizeEnv 移除确切的名称
+// ARGENT_SESSION_ID / ARGENT_RUN_ID 以及前缀
+// ARGENT_PARENT_* / SUBAGENT_PARENT_*；旧版的 GOFLAGS 剥离必须保留。
 func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 	const (
 		sessionVal   = "vSentinel-session-9f3a"
@@ -46,8 +46,8 @@ func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 		keepVal      = "vSentinel-keep-5b2c"
 	)
 
-	// Mirror the platform case rules used by proc.SanitizeEnv: a mixed-case
-	// private key is filtered on Windows and preserved elsewhere.
+	// 镜像 proc.SanitizeEnv 使用的平台大小写规则：混合大小写的
+	// 私有键在 Windows 上被过滤， elsewhere 保留。
 	mixedCaseKey := "argent_session_id"
 	mixedCaseVal := "vSentinel-mixedcase-8e1d"
 
@@ -61,14 +61,14 @@ func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 
 	got := verifyEnvironment()
 
-	// Host-private values must be gone; GOFLAGS must still be stripped.
+	// 主机私有的值必须消失；GOFLAGS 仍必须被剥离。
 	for _, leaked := range []string{sessionVal, runVal, parentVal, subParentVal, goflagsVal} {
 		if verifyEnvHasValue(got, leaked) {
 			t.Errorf("verifyEnvironment leaked private/unsafe value %q", leaked)
 		}
 	}
-	// The mixed-case private key follows the same platform rules as proc:
-	// filtered on Windows (case-insensitive), preserved elsewhere.
+	// 混合大小写的私有键遵循与 proc 相同的平台规则：
+	// 在 Windows 上过滤（不区分大小写），其他地方保留。
 	if runtime.GOOS == "windows" {
 		if verifyEnvHasValue(got, mixedCaseVal) {
 			t.Errorf("verifyEnvironment leaked mixed-case private value %q", mixedCaseVal)
@@ -76,7 +76,7 @@ func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 	} else if !verifyEnvHasValue(got, mixedCaseVal) {
 		t.Errorf("verifyEnvironment dropped the case-sensitive normal variable %q", mixedCaseKey)
 	}
-	// No GOFLAGS entry under any spelling.
+	// 任何写法下都没有 GOFLAGS 条目。
 	for _, entry := range got {
 		key, _, _ := strings.Cut(entry, "=")
 		if strings.EqualFold(key, "GOFLAGS") {
@@ -84,8 +84,8 @@ func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 		}
 	}
 
-	// Legitimate variables — a custom operator var plus inherited system vars —
-	// pass through unchanged, so verify behaviour does not regress.
+	// 合法的变量——自定义的操作人员变量加上继承的系统变量——
+	// 原样透传，使验证行为不退化。
 	if !verifyEnvHasEntry(got, "ARGENT_VERIFY_KEEP="+keepVal) {
 		t.Errorf("verifyEnvironment dropped the normal variable ARGENT_VERIFY_KEEP")
 	}
@@ -97,8 +97,8 @@ func TestVerifyEnvironmentSanitizesHostPrivateVars(t *testing.T) {
 	}
 }
 
-// verifyHasKey reports whether any entry in env has the given key (case-folded,
-// matching how on Windows PATH/Path casing can vary).
+// verifyHasKey 报告 env 中是否有条目具有给定键（大小写折叠，
+// 以匹配 Windows 上 PATH/Path 大小写可能变化的情况）。
 func verifyHasKey(env []string, key string) bool {
 	for _, entry := range env {
 		k, _, _ := strings.Cut(entry, "=")
@@ -109,10 +109,10 @@ func verifyHasKey(env []string, key string) bool {
 	return false
 }
 
-// verifyEnvProbeProgram prints a marker for each watched variable it can see.
-// It is built into a temp .exe and launched through NewVerifyFunc so the test
-// observes the *actual* environment the verify child receives, not just the
-// slice returned by verifyEnvironment().
+// verifyEnvProbeProgram 为它能看到的每个受监视变量打印一个标记。
+// 它被构建为临时 .exe 并通过 NewVerifyFunc 启动，使测试观察到验证子进程
+// 收到的*实际*环境，而不只是 verifyEnvironment() 返回的切片。
+// （接上行）
 const verifyEnvProbeProgram = `package main
 
 import (
@@ -136,8 +136,8 @@ func main() {
 }
 `
 
-// buildVerifyEnvProbe builds the env probe inside workspace and returns its
-// relative .exe name. It skips when the Go toolchain is unavailable.
+// buildVerifyEnvProbe 在工作区内构建环境探针并返回其相对 .exe 名称。
+// Go 工具链不可用时跳过。
 func buildVerifyEnvProbe(t *testing.T, workspace string) string {
 	t.Helper()
 	writeVerifyFile(t, workspace, "go.mod", "module verifyenvprobe\n\ngo 1.21\n")
@@ -146,18 +146,18 @@ func buildVerifyEnvProbe(t *testing.T, workspace string) string {
 	const exe = "verifyenvprobe.exe"
 	cmd := exec.Command("go", "build", "-o", exe, ".")
 	cmd.Dir = workspace
-	cmd.Env = verifyEnvironment() // build with the same sanitized env
+	cmd.Env = verifyEnvironment() // 用相同的清理后环境构建
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Skipf("Go toolchain unavailable for env probe build: %v: %s", err, out)
 	}
 	return exe
 }
 
-// TestVerifyChildCannotSeeHostPrivateEnv is the end-to-end counterpart of the
-// filter test: the sentinel values are planted in the parent process, then a
-// real verify subprocess reports which variables it can actually see. The
-// normal sentinel must be visible (proving env inheritance works), while every
-// host-private variable and GOFLAGS must be absent from the child.
+// TestVerifyChildCannotSeeHostPrivateEnv 是过滤测试的端到端对应：哨兵值被植入父进程，
+// 然后一个真实的验证子进程报告它实际能看到哪些变量。
+// 普通哨兵必须可见（证明环境继承有效），而每个主机私有变量和 GOFLAGS
+// 都必须不出现在子进程中。
+// （接上行）
 func TestVerifyChildCannotSeeHostPrivateEnv(t *testing.T) {
 	const (
 		sessionVal   = "childSentinel-session-3a7f"
@@ -184,11 +184,11 @@ func TestVerifyChildCannotSeeHostPrivateEnv(t *testing.T) {
 		t.Fatalf("probe failed to run: (label=%q, passed=%v, output=%q, ok=%v)", label, passed, output, ok)
 	}
 
-	// The normal variable proves the child really inherited a filtered env.
+	// 普通变量证明子进程确实继承了经过清理的环境。
 	if !strings.Contains(output, "ARGENT_VERIFY_KEEP="+keepVal) {
 		t.Errorf("child did not see the normal variable; env inheritance broken: %q", output)
 	}
-	// No host-private sentinel and no GOFLAGS value may reach the child.
+	// 任何主机私有哨兵和 GOFLAGS 值都不能到达子进程。
 	for _, leaked := range []string{sessionVal, runVal, parentVal, subParentVal, goflagsVal} {
 		if strings.Contains(output, leaked) {
 			t.Errorf("verify child observed private/unsafe value %q: %q", leaked, output)

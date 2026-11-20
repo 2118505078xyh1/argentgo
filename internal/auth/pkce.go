@@ -19,37 +19,37 @@ import (
 	"time"
 )
 
-// Config describes one provider's OAuth endpoints and client identity. The
-// presets in this package fill it in; a custom provider may set the fields
+// Config 描述一个 provider 的 OAuth 端点和客户端身份。本包中的预设填充它；自定义 provider 可以设置这些字段。
+// 本包中的预设填充它；自定义 provider 可以设置
 // directly.
 type Config struct {
-	// Provider is the id stored with the token (for example "openai").
+	// Provider 是与令牌一起存储的 id（例如 "openai"）。
 	Provider string
-	// ClientID is the public OAuth client identifier.
+	// ClientID 是公开的 OAuth 客户端标识。
 	ClientID string
-	// ClientSecret is only needed by providers that are not public clients.
+	// ClientSecret 仅非公开客户端的 provider 需要。
 	ClientSecret string
-	// AuthorizeURL is the browser authorization endpoint.
+	// AuthorizeURL 是浏览器授权端点。
 	AuthorizeURL string
-	// TokenURL exchanges codes and refresh tokens.
+	// TokenURL 交换 code 和刷新令牌。
 	TokenURL string
-	// DeviceURL starts a device-code flow (RFC 8628).
+	// DeviceURL 启动设备码流程（RFC 8628）。
 	DeviceURL string
-	// RedirectURI must match the loopback listener used for the callback.
+	// RedirectURI 必须匹配用于回调的 loopback 监听器。
 	RedirectURI string
-	// Scopes are joined with spaces in requests.
+	// Scopes 在请求中用空格连接。
 	Scopes []string
-	// Audience is an optional extra authorize parameter (Auth0 style).
+	// Audience 是可选的额外授权参数（Auth0 风格）。
 	Audience string
-	// Extra adds provider-specific authorize parameters.
+	// Extra 添加 provider 专属的授权参数。
 	Extra map[string]string
-	// HTTPClient overrides the default client (useful in tests).
+	// HTTPClient 覆盖默认客户端（测试中有用）。
 	HTTPClient *http.Client
 }
 
 const tokenBodyLimit = 1 << 20
 
-// PKCE returns a fresh RFC 7636 verifier and its S256 challenge.
+// PKCE 返回一个新的 RFC 7636 verifier 及其 S256 challenge。
 func PKCE() (verifier, challenge string, err error) {
 	buf := make([]byte, 48)
 	if _, err := rand.Read(buf); err != nil {
@@ -59,26 +59,26 @@ func PKCE() (verifier, challenge string, err error) {
 	return verifier, S256(verifier), nil
 }
 
-// S256 is the base64url-encoded SHA-256 of verifier, the code_challenge value.
+// S256 是 verifier 的 base64url 编码 SHA-256，即 code_challenge 值。
 func S256(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// ValidatePKCE reports whether verifier produces challenge under method, using
-// the code_challenge_method values defined by RFC 7636 section 4.2:
+// ValidatePKCE 报告 verifier 在 method 下是否产生 challenge，使用
+// ValidatePKCE 报告 verifier 在 method 下是否产生 challenge，使用 RFC 7636 第 4.2 节定义的
 //
-//   - "S256": challenge must equal BASE64URL-ENCODE(SHA256(ASCII(verifier))),
-//     i.e. the value returned by S256.
-//   - "plain": challenge must equal verifier verbatim. An empty method is
-//     treated as "plain", which is the RFC 7636 default when the parameter is
-//     absent from a request.
+// code_challenge_method 值："S256" 时 challenge 必须等于 BASE64URL-ENCODE(SHA256(ASCII(verifier)))，即 S256 返回的值。"plain" 时
+// 即 S256 返回的值。
+// challenge 必须逐字等于 verifier。空 method 被视为 "plain"，这是 RFC 7636 在请求中缺少该参数时的默认值。
+// 被视为 "plain"，这是 RFC 7636 在参数
+// 从请求中缺失时的默认值。
 //
-// Any other method is unknown and yields false, even if the strings would
-// match under a known method. The verifier/challenge comparison is
-// constant-time. ValidatePKCE is a pure function: it performs no I/O and never
-// panics, so callers can use it to diagnose a broken PKCE pair before sending
-// it to a provider.
+// 任何其他 method 都未知并产生 false，即使字符串会
+// 任何其他 method 都是未知的并产生 false，即使字符串在已知 method 下会匹配。verifier/challenge 的比较是
+// 常量时间的。ValidatePKCE 是纯函数：不执行 I/O 且从不 panic，因此调用方可用它在把一对 PKCE 值发给 provider 之前诊断损坏的配对。
+// 从不 panic，因此调用方可用它在把 PKCE 配对发给 provider 之前
+// 诊断损坏的配对。
 func ValidatePKCE(verifier, challenge, method string) bool {
 	var want string
 	switch method {
@@ -92,7 +92,7 @@ func ValidatePKCE(verifier, challenge, method string) bool {
 	return subtle.ConstantTimeCompare([]byte(want), []byte(challenge)) == 1
 }
 
-// AuthorizeURL builds the browser URL for the authorization-code flow.
+// AuthorizeURL 构建授权码流程的浏览器 URL。
 func AuthorizeURL(cfg Config, state, challenge string) (string, error) {
 	if cfg.AuthorizeURL == "" {
 		return "", errors.New("auth: config has no authorize endpoint")
@@ -108,11 +108,11 @@ func AuthorizeURL(cfg Config, state, challenge string) (string, error) {
 		return "", fmt.Errorf("auth: bad authorize endpoint: %w", err)
 	}
 	query := parsed.Query()
-	// Provider extras are applied first so they can contribute optional
-	// parameters (prompt, access_type, ...), but the protocol-critical values
-	// set below always win. Letting an Extra entry override `state` would break
-	// the CSRF check in Callback.Wait; overriding the PKCE challenge or method
-	// would make the verifier sent by Exchange fail at the token endpoint.
+	// 先应用 provider extras，使它们能提供可选
+	// 参数（prompt、access_type 等），但协议关键值
+	// 参数，但下面设置的协议关键值始终胜出。让 Extra 条目覆盖 `state` 会破坏
+	// Callback.Wait 中的 CSRF 检查；覆盖 PKCE challenge 或 method
+	// 会使 Exchange 发送的 verifier 在令牌端点失败。
 	for key, value := range cfg.Extra {
 		query.Set(key, value)
 	}
@@ -144,8 +144,8 @@ type tokenResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-// tokenError is a structured OAuth error response. Device polling inspects the
-// code, so the endpoint status travels with the message.
+// tokenError 是结构化的 OAuth 错误响应。设备轮询检查其 code，因此端点状态随消息一起传递。
+// code，因此端点状态随消息一起传递。
 type tokenError struct {
 	Status      int
 	Code        string
@@ -170,7 +170,7 @@ func (c Config) httpClient() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
-// Exchange swaps an authorization code for tokens.
+// Exchange 用授权码换取令牌。
 func Exchange(ctx context.Context, cfg Config, code, verifier string) (Token, error) {
 	if code == "" {
 		return Token{}, errors.New("auth: missing authorization code")
@@ -193,8 +193,8 @@ func Exchange(ctx context.Context, cfg Config, code, verifier string) (Token, er
 	return tokenFromResponse(cfg, response, Token{})
 }
 
-// Refresh exchanges a refresh token for a new access token. The previous token
-// supplies the provider, kind, account and refresh-token fallback.
+// Refresh 用刷新令牌换取新的访问令牌。先前的令牌
+// Refresh 用刷新令牌换取新的访问令牌。先前的令牌提供 provider、种类、账号和刷新令牌回退。
 func Refresh(ctx context.Context, cfg Config, token Token) (Token, error) {
 	if token.Refresh == "" {
 		return Token{}, errors.New("auth: token has no refresh token")
@@ -215,10 +215,10 @@ func postToken(ctx context.Context, cfg Config, form url.Values) (tokenResponse,
 	if cfg.TokenURL == "" {
 		return empty, errors.New("auth: config has no token endpoint")
 	}
-	// Confidential clients authenticate at the token endpoint with their
-	// secret (RFC 6749 sec 2.3.1). Public PKCE clients leave it empty, so no
-	// parameter is added for them. Doing this here covers code exchange,
-	// refresh and the device grant in one place.
+	// 机密客户端在令牌端点用其
+	// 机密客户端在令牌端点用其秘密认证（RFC 6749 第 2.3.1 节）。公开 PKCE 客户端留空，因此不为它们添加
+	// 任何参数。在这里做此事一处覆盖 code 交换、刷新和设备授权。
+	// 刷新和设备授权在一处覆盖。
 	if cfg.ClientSecret != "" {
 		form.Set("client_secret", cfg.ClientSecret)
 	}
@@ -255,8 +255,8 @@ func postToken(ctx context.Context, cfg Config, form url.Values) (tokenResponse,
 	return parsed, nil
 }
 
-// tokenFromResponse converts the wire response into a stored token. expires_in
-// is shortened by expirySafety so refresh happens before the provider's own
+// tokenFromResponse 把线上响应转换为存储的令牌。expires_in
+// tokenFromResponse 把线上响应转换为存储的令牌。expires_in 被 expirySafety 缩短，使刷新发生在 provider 自己的截止时间之前。
 // deadline.
 func tokenFromResponse(cfg Config, response tokenResponse, previous Token) (Token, error) {
 	if response.AccessToken == "" {
@@ -277,11 +277,11 @@ func tokenFromResponse(cfg Config, response tokenResponse, previous Token) (Toke
 	}
 	if response.ExpiresIn > 0 {
 		lifetime := time.Duration(response.ExpiresIn) * time.Second
-		// The safety margin is a hint to refresh early, not a reason to throw
-		// away a credential that is still valid. When the provider issues a
-		// token whose whole lifetime fits inside the margin, clamp the margin
-		// to half the lifetime so the token remains usable until close to its
-		// real deadline instead of being reported as expired at issuance.
+		// 安全余量是提前刷新的提示，而非丢弃
+		// 安全余量是提前刷新的提示，而非丢弃仍有效凭据的理由。当 provider 签发的令牌整个生命周期都落在余量内时，把余量
+		// 令牌整个生命周期都落在余量内时，把余量
+		// 限制为生命周期的一半，使令牌在接近其真实截止时间前
+		// 限制为生命周期的一半，使令牌在接近其真实截止时间前仍可用，而不是在签发时就被报告为已过期。
 		margin := expirySafety
 		if lifetime <= margin {
 			margin = lifetime / 2
@@ -291,31 +291,31 @@ func tokenFromResponse(cfg Config, response tokenResponse, previous Token) (Toke
 	return token, nil
 }
 
-// ErrStateMismatch is returned when the provider echoes an unexpected state,
-// which means the callback did not belong to this login attempt.
+// ErrStateMismatch 在 provider 回显意外 state 时返回，这意味着回调不属于本次登录尝试。
+// 这意味着回调不属于本次登录尝试。
 var ErrStateMismatch = errors.New("auth: oauth state mismatch")
 
-// ErrNoAuthorizationCode is returned when the redirect carries the expected
-// state but neither an authorization code nor an error. Such a callback cannot
-// complete the login and must never be reported as a success.
+// ErrNoAuthorizationCode 在重定向携带预期
+// ErrNoAuthorizationCode 在重定向携带预期 state 但既无授权码也无错误时返回。这样的回调无法完成登录，绝不能被报告为成功。
+// 完成登录，绝不能被报告为成功。
 var ErrNoAuthorizationCode = errors.New("auth: oauth callback has no authorization code")
 
-// ErrCallbackClosed is returned by Wait when Callback.Close is called before
-// the redirect arrives. Closing the listener alone cannot unblock Wait, since
-// the HTTP server simply stops serving and never delivers a result.
+// ErrCallbackClosed 在重定向到达前调用 Callback.Close 时由 Wait 返回。只关闭监听器无法解除 Wait 阻塞，因为 HTTP 服务器只是停止服务而永不投递结果。
+// 重定向到达。只关闭监听器无法解除 Wait 阻塞，因为
+// HTTP 服务器只是停止服务且永不投递结果。
 var ErrCallbackClosed = errors.New("auth: oauth callback closed")
 
-// Callback is a loopback listener that receives one OAuth redirect.
+// Callback 是接收一个 OAuth 重定向的 loopback 监听器。
 type Callback struct {
 	listener net.Listener
-	// closed is signalled by Close so a pending Wait can unblock even when the
-	// caller did not provide a cancellable context.
+	// closed 由 Close 发信号，使待处理的 Wait 能解除阻塞，即使调用方没有提供可取消的 context。
+	// 调用方没有提供可取消的 context。
 	closed    chan struct{}
 	closeOnce sync.Once
 	closeErr  error
 }
 
-// Listen binds addr (empty means 127.0.0.1:0) and returns the pending callback.
+// Listen 绑定 addr（空表示 127.0.0.1:0）并返回待处理的回调。
 func Listen(addr string) (*Callback, error) {
 	if strings.TrimSpace(addr) == "" {
 		addr = "127.0.0.1:0"
@@ -327,15 +327,15 @@ func Listen(addr string) (*Callback, error) {
 	return &Callback{listener: listener, closed: make(chan struct{})}, nil
 }
 
-// Addr is the bound loopback address, for example 127.0.0.1:51234.
+// Addr 是绑定的 loopback 地址，例如 127.0.0.1:51234。
 func (c *Callback) Addr() string { return c.listener.Addr().String() }
 
-// URL is the redirect URI to hand to the provider.
+// URL 是要交给 provider 的重定向 URI。
 func (c *Callback) URL() string { return "http://" + c.Addr() + "/callback" }
 
-// Wait serves the redirect and returns the authorization code. Every response
-// is a small HTML page so the browser shows something friendly. When state is
-// non-empty it must match the callback's state parameter.
+// Wait 服务重定向并返回授权码。每个响应
+// Wait 服务重定向并返回授权码。每个响应都是一个小的 HTML 页面，使浏览器显示友好内容。当 state 非空时必须匹配回调的 state 参数。
+// 非空时必须匹配回调的 state 参数。
 func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 	type result struct {
 		code string
@@ -369,10 +369,10 @@ func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 		}
 		code := query.Get("code")
 		if code == "" {
-			// A redirect with the right state but no code (and no error) is
-			// not a completed login. Treat it as a failure so callers never
-			// receive an empty code together with a nil error, and the browser
-			// is not told the authorization succeeded when it did not.
+			// 携带正确 state 但没有 code（也没有错误）的重定向
+			// 不是一次完成的登录。把它当作失败，使调用方永不
+			// 携带正确 state 但没有 code（也没有错误）的重定向不是一次完成的登录。把它当作失败，使调用方永不收到空 code 加 nil 错误，且浏览器
+			// 不会在授权实际未成功时被告知成功。
 			writePage(writer, http.StatusBadRequest, "Authorization failed",
 				"The authorization server did not return an authorization code.")
 			deliver(result{err: ErrNoAuthorizationCode})
@@ -397,8 +397,8 @@ func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 	}
 }
 
-// Close releases the listener and cancels a pending Wait. It is safe to call
-// more than once; the first call's listener error is returned to the caller.
+// Close 释放监听器并取消待处理的 Wait。可安全多次调用；第一次调用的监听器错误返回给调用方。
+// 可安全多次调用；第一次调用的监听器错误返回给调用方。
 func (c *Callback) Close() error {
 	c.closeOnce.Do(func() {
 		c.closeErr = c.listener.Close()
@@ -407,15 +407,15 @@ func (c *Callback) Close() error {
 	return c.closeErr
 }
 
-// WaitCallback binds addr, waits for the redirect and returns the code. It does
-// not check the state parameter; use WaitCallbackState when the expected state
-// is known (the usual case).
+// WaitCallback 绑定 addr、等待重定向并返回 code。它不检查 state 参数；当预期 state 已知时使用 WaitCallbackState（通常情况）。
+// 它不检查 state 参数；当预期 state 已知时使用
+// WaitCallbackState（通常情况）。
 func WaitCallback(ctx context.Context, addr string) (string, error) {
 	return WaitCallbackState(ctx, addr, "")
 }
 
-// WaitCallbackState binds addr and returns the code only when the redirect
-// carries the expected state.
+// WaitCallbackState 绑定 addr，仅在重定向携带预期 state 时返回 code。
+// 携带预期 state。
 func WaitCallbackState(ctx context.Context, addr, state string) (string, error) {
 	callback, err := Listen(addr)
 	if err != nil {

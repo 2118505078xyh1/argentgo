@@ -19,28 +19,26 @@ import (
 )
 
 const (
-	// verifyOutputCap bounds the captured stdout+stderr tail. Only the last
-	// cap bytes survive, cut on a rune boundary so UTF-8 is never split.
+	// verifyOutputCap 限制捕获的 stdout+stderr 尾部大小。只保留最后 cap 字节，
+	// 并在 rune 边界处切断，使 UTF-8 永不被拆分。
 	verifyOutputCap   = 32 * 1024
 	verifyTruncMarker = "...[output truncated]..."
 	verifyLabelMax    = 120
 
-	// verifyShellMeta lists separators, redirections, substitutions and control
-	// characters. No shell is used here; rejecting them is defence in depth so
-	// a future refactor cannot accidentally make them live.
+	// verifyShellMeta 列出分隔符、重定向、替换和控制字符。这里并不使用 shell；
+	// 拒绝它们属于纵深防御，以免未来的重构意外地让它们生效。
 	verifyShellMeta = ";|&<>()$`'\";\n\r\x00^"
 
 	defaultVerifyTimeoutMS = 30000
 	maxVerifyTimeoutMS     = 120000
 
-	// verifyAllLanguagesKey mirrors commands.VerifyAllLanguages: the map key for
-	// a command that applies to every edited file without a language-specific
-	// command. Kept local so app need not import commands for one literal.
+	// verifyAllLanguagesKey 对应 commands.VerifyAllLanguages：针对没有特定语言命令时，
+	// 适用于所有已编辑文件的命令的映射键。保持为本地字面量，使 app 无需为一个字面量而导入 commands。
 	verifyAllLanguagesKey = "*"
 )
 
-// Sentinel errors classify a rejected argv. They mirror the sentinels in
-// internal/eval/execcheck.go so the two allowlists stay behaviourally aligned.
+// 哨兵错误用于分类被拒绝的 argv。它们对应 internal/eval/execcheck.go 中的哨兵，
+// 使两份白名单在行为上保持一致。
 var (
 	errVerifyEmptyCommand    = errors.New("app: verify: empty command")
 	errVerifyCommandDenied   = errors.New("app: verify: command is not allowlisted")
@@ -50,37 +48,31 @@ var (
 	errVerifyDangerousGoFlag = errors.New("app: verify: go flag can run arbitrary binaries")
 )
 
-// Local, opt-in, security-bounded verification runner.
+// 本地的、选择启用的、安全有界的验证运行器。
 //
-// This is NOT a sandbox: there is no OS isolation, no network restriction and
-// no user switching. The operator explicitly opts in with a config key or
-// --verify-cmd, and safety comes from boundedness rather than isolation:
+// 这不是沙箱：没有操作系统隔离、没有网络限制、也没有用户切换。操作人员通过配置键或
+// --verify-cmd 显式选择启用，安全性来自有界性而非隔离：
 //
-//  1. The argv allowlist accepts only `go test|build ...` or a workspace-relative
-//     .exe. Shells, curl, absolute paths, ".." traversal, shell metacharacters
-//     and -exec/-toolexec are rejected (validateVerifyArgv).
-//  2. argv is passed straight to os/exec; no shell is ever involved.
-//  3. Dir is the workspace root, and the child env is sanitized: GOFLAGS is
-//     stripped so a smuggled -toolexec cannot reappear through the environment,
-//     and host-private session variables are removed so a nested agent launched
-//     by the verify command cannot inherit the host's session identity.
-//  4. A short, capped context deadline kills a runaway process.
-//  5. Captured output is a 32KB rune-safe tail, redacted before it is returned.
+//  1. argv 白名单只接受 `go test|build ...` 或工作区相对的 .exe。shell、curl、绝对路径、
+//     ".." 遍历、shell 元字符以及 -exec/-toolexec 都会被拒绝（validateVerifyArgv）。
+//  2. argv 直接传给 os/exec；绝不涉及 shell。
+//  3. Dir 是工作区根目录，子进程环境经过清理：剥离 GOFLAGS，使夹带的 -toolexec 不会通过环境重现，
+//     并移除主机私有的会话变量，使验证命令派生的嵌套 agent 不会继承主机的会话身份。
+//  4. 一个较短且有上限的 context 截止时间会杀掉失控进程。
+//  5. 捕获的输出是 32KB 的 rune 安全尾部，返回前会脱敏。
 //
-// Treat a configured command as trusted code, exactly like the Go tests a
-// repository already runs. Nothing calls it unless Verify is set on the runner.
+// 把配置的命令当作可信代码，就像仓库已经运行的 Go 测试一样。除非在运行器上设置了 Verify，
+// 否则没有任何东西会调用它。
 
-// validateVerifyArgv mirrors internal/eval/execcheck.go's ExecCheck.Validate.
-// It is a local copy because that file belongs to another workstream; keep the
-// two policies in sync when either changes.
+// validateVerifyArgv 对应 internal/eval/execcheck.go 的 ExecCheck.Validate。
+// 它是本地副本，因为那个文件属于另一条工作流；任一方改动时都要让两份策略保持同步。
 //
-// Allowed:
-//   - "go" with argv[1] == "test" or "build"
-//   - a relative path ending in .exe, with no ".." component
+// 允许：
+//   - "go" 且 argv[1] == "test" 或 "build"
+//   - 以 .exe 结尾、且不含 ".." 组件的相对路径
 //
-// Rejected: absolute paths (including Windows drive prefixes), bare commands
-// such as sh/bash/curl, path traversal, shell metacharacters in any argument,
-// and -exec/-toolexec variants that let go test/build launch arbitrary binaries.
+// 拒绝：绝对路径（包括 Windows 盘符前缀）、sh/bash/curl 之类的裸命令、路径遍历、
+// 任何参数中的 shell 元字符，以及让 go test/build 启动任意二进制的 -exec/-toolexec 变体。
 func validateVerifyArgv(argv []string) error {
 	if len(argv) == 0 {
 		return errVerifyEmptyCommand
@@ -136,21 +128,18 @@ func validateVerifyArgs(args []string) error {
 	return nil
 }
 
-// verifyEnvironment returns the environment for the verify child process.
+// verifyEnvironment 返回验证子进程的环境。
 //
-// Two independent sanitizers are applied to the inherited environment:
+// 对继承的环境应用两个独立的清理器：
 //
-//  1. proc.SanitizeEnv drops host-private session plumbing (ARGENT_SESSION_ID,
-//     ARGENT_RUN_ID, ARGENT_PARENT_*, SUBAGENT_PARENT_*). A verify command is
-//     trusted code that may itself launch a nested agent; without this filter
-//     the nested agent could mistake the host's session state for its own and
-//     cross sessions. SanitizeEnv is applied FIRST because it reads os.Environ()
-//     itself (its `extra` argument is appended verbatim and never filtered).
-//  2. GOFLAGS is dropped so a configured `go test|build` cannot be handed
-//     -toolexec (or another arbitrary-binary flag) through the environment.
+//  1. proc.SanitizeEnv 丢弃主机私有的会话管道变量（ARGENT_SESSION_ID、ARGENT_RUN_ID、
+//     ARGENT_PARENT_*、SUBAGENT_PARENT_*）。验证命令是可信代码，可能自身派生嵌套 agent；
+//     没有这个过滤，嵌套 agent 可能把主机的会话状态误认为自己的并跨会话。
+//     SanitizeEnv 最先应用，因为它自己读取 os.Environ()（其 `extra` 参数被原样追加且从不过滤）。
+//  2. 丢弃 GOFLAGS，使配置的 `go test|build` 无法通过环境被传入
+//     -toolexec（或其他任意二进制标志）。
 //
-// Everything else — PATH, HOME, system and operator variables — passes through
-// unchanged, so verify command behaviour does not regress.
+// 其他一切——PATH、HOME、系统和操作人员变量——原样透传，使验证命令的行为不会退化。
 func verifyEnvironment() []string {
 	env := proc.SanitizeEnv(nil)
 	out := make([]string, 0, len(env))
@@ -164,23 +153,18 @@ func verifyEnvironment() []string {
 	return out
 }
 
-// NewVerifyFunc builds the bounded verification callback consumed by the agent
-// loop. cmd is the operator-configured argv; it is validated once here and the
-// callback reuses the accepted copy. A misconfigured (empty or disallowed) cmd
-// yields a callback that always reports ok=false, so no feedback is injected.
+// NewVerifyFunc 构建供 agent 循环使用的有界验证回调。cmd 是操作人员配置的 argv；
+// 它在这里校验一次，回调复用被接受的副本。配置错误（空或被拒绝）的 cmd 会产生一个
+// 始终报告 ok=false 的回调，因此不会注入任何反馈。
 //
-// changedPaths is never interpolated verbatim. For allowlisted `go test|build`
-// commands carrying a full-repo `./...` target, the callback narrows that target
-// to the changed Go packages using verifySafeTarget (clean + workspace check +
-// character allowlist). Every surviving token is whitelist-generated and the
-// final argv is re-validated before exec, so a model-chosen path cannot inject
-// arguments. Paths that cannot be made safe are skipped; if none survive, the
-// configured full command runs unchanged. Non-go /.exe commands are never
-// narrowed — their argument contract is unknown.
+// changedPaths 绝不会被原样插值。对于携带全仓库 `./...` 目标的、在白名单中的 `go test|build` 命令，
+// 回调使用 verifySafeTarget（清理 + 工作区检查 + 字符白名单）把该目标收窄为改动过的 Go 包。
+// 每个保留下来的标记都由白名单生成，最终 argv 在执行前会再次校验，
+// 因此模型选择的路径无法注入参数。无法变安全的路径会被跳过；若没有一个保留下来，
+// 则配置的完整命令原样运行。非 go / .exe 命令永远不会被收窄——它们的参数约定未知。
 //
-// On a completed process the callback returns (label, exit==0, redacted output,
-// true). On spawn failure or timeout it returns (label, false, redacted error,
-// true) so the loop can feed the failure back to the model.
+// 进程正常结束时，回调返回 (label, exit==0, 脱敏后的输出, true)。派生失败或超时时返回
+// (label, false, 脱敏后的错误, true)，使循环能把失败回灌给模型。
 func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Context, []string) (string, bool, string, bool) {
 	argv := append([]string(nil), cmd...)
 	label := verifyLabel(argv)
@@ -205,9 +189,8 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 
 	return func(ctx context.Context, changedPaths []string) (string, bool, string, bool) {
 		runArgv, _, _ := narrowVerifyArgv(argv, changedPaths, root)
-		// The narrowed argv is rebuilt only from whitelist-generated tokens;
-		// re-validate it anyway so a future narrowing change cannot smuggle an
-		// illegal argument past the construction-time allowlist check.
+		// 收窄后的 argv 只由白名单生成的标记重建；但仍要再次校验，
+		// 以免未来对收窄逻辑的改动把非法参数偷带过构造时的白名单检查。
 		if err := validateVerifyArgv(runArgv); err != nil {
 			reason := llm.RedactText("verify command rejected: " + err.Error())
 			return label, false, reason, false
@@ -215,16 +198,14 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 
 		name := runArgv[0]
 		if name == "go" {
-			// Resolve "go" before Dir is applied so a go.exe planted in the
-			// workspace cannot be picked up through a relative PATH entry.
+			// 在应用 Dir 之前解析 "go"，使工作区中放置的 go.exe 不会通过相对的 PATH 条目被选中。
 			if found, err := exec.LookPath("go"); err == nil {
 				if abs, err := filepath.Abs(found); err == nil {
 					name = abs
 				}
 			}
 		} else {
-			// Validation guaranteed a relative, traversal-free .exe; anchoring
-			// it to root keeps it inside the workspace even if Dir changes.
+			// 校验保证它是相对且无遍历的 .exe；把它锚定到 root，即使 Dir 改变也能留在工作区内。
 			name = filepath.Join(root, filepath.FromSlash(name))
 		}
 
@@ -245,21 +226,19 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 			return label, true, output, true
 		}
 
-		// CommandContext kills a timed-out process, which surfaces as an
-		// *exec.ExitError. Check the context first so a kill is reported as a
-		// timeout rather than an ordinary non-zero exit.
+		// CommandContext 会杀掉超时进程，表现为 *exec.ExitError。先检查 context，
+		// 使被杀掉被报告为超时，而不是普通的非零退出。
 		timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
 		ctxErr := ctx.Err()
 		if !timedOut && ctxErr == nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				// A normal non-zero exit is a failed check, still a valid verdict.
+				// 普通的非零退出是检查失败，仍是有效的结论。
 				return label, false, output, true
 			}
 		}
 
-		// Spawn failure, deadline or cancellation: report a redacted error with
-		// any partial output attached. ok stays true so the loop can react.
+		// 派生失败、超时或取消：报告脱敏后的错误，并附上任何部分输出。ok 保持 true，使循环能作反应。
 		detail := err.Error()
 		if timedOut {
 			detail = fmt.Sprintf("verify command timed out after %s", deadline)
@@ -273,7 +252,7 @@ func NewVerifyFunc(cmd []string, timeoutMS int, root string) func(context.Contex
 	}
 }
 
-// verifyLabel is a bounded, redacted name for the configured check.
+// verifyLabel 是配置检查的有界、脱敏名称。
 func verifyLabel(argv []string) string {
 	label := strings.Join(argv, " ")
 	if runes := []rune(label); len(runes) > verifyLabelMax {
@@ -282,34 +261,30 @@ func verifyLabel(argv []string) string {
 	return llm.RedactText(label)
 }
 
-// verifySafeTarget validates one checkpoint path and maps it to a single,
-// conservative Go package pattern ("./dir"). It never returns model-controlled
-// bytes verbatim. The path arrives from the MutationPaths seam, which is fed by
-// model-chosen tool arguments, so every one of these checks is defence in depth:
+// verifySafeTarget 校验一条检查点路径，并把它映射为一个保守的 Go 包模式（"./dir"）。
+// 它绝不原样返回模型控制的字节。该路径来自 MutationPaths 接缝，而后者由模型选择的工具参数提供，
+// 因此这里的每一项检查都是纵深防御：
 //
-//   - no shell metacharacters, control bytes, NUL or whitespace;
-//   - no absolute path, drive prefix ("C:"), UNC root or leading separator;
-//   - an allowlist of runes: Unicode letters/digits (so CJK paths work) plus
-//     / \ _ - . — anything else rejects the path;
-//   - lexical Clean plus a filepath.Rel confinement check against root;
-//   - only .go files and extension-less directories become targets. A .go file
-//     narrows to its containing package; other file types cannot narrow a Go
-//     package set and are skipped.
+//   - 不含 shell 元字符、控制字节、NUL 或空白；
+//   - 不含绝对路径、盘符前缀（"C:"）、UNC 根目录或前导分隔符；
+//   - rune 白名单：Unicode 字母/数字（使 CJK 路径可用）加上 / \ _ - . ——其他一律拒绝；
+//   - 词法 Clean 加上针对 root 的 filepath.Rel 限定检查；
+//   - 只有 .go 文件和无扩展名的目录才成为目标。.go 文件收窄到其所属包；
+//     其他文件类型无法收窄 Go 包集合，会被跳过。
 //
-// ok=false means "do not trust this path" — the caller skips it.
+// ok=false 表示"不信任该路径"——调用方会跳过它。
 func verifySafeTarget(rootAbs, changed string) (string, bool) {
 	p := strings.TrimSpace(changed)
 	if p == "" || strings.ContainsAny(p, verifyShellMeta) {
 		return "", false
 	}
-	// Normalise Windows separators before cleaning so the allowlist and the
-	// confinement check behave identically on every platform.
+	// 在清理之前规范化 Windows 分隔符，使白名单和限定检查在每个平台上行为一致。
 	p = strings.ReplaceAll(p, `\`, "/")
 	if strings.HasPrefix(p, "/") || strings.Contains(p, ":") {
 		return "", false
 	}
-	// Reject traversal components before Clean can fold them into an
-	// innocuous-looking in-root path (e.g. "a/../secret.go").
+	// 在 Clean 把遍历组件折叠为看似无害的根内路径之前，先拒绝它们
+	// （例如 "a/../secret.go"）。
 	for _, part := range strings.Split(p, "/") {
 		if part == ".." {
 			return "", false
@@ -318,7 +293,7 @@ func verifySafeTarget(rootAbs, changed string) (string, bool) {
 	for _, r := range p {
 		switch {
 		case unicode.IsLetter(r), unicode.IsDigit(r), r == '/', r == '_', r == '-', r == '.':
-			// allowed
+			// 允许
 		default:
 			return "", false
 		}
@@ -345,7 +320,7 @@ func verifySafeTarget(rootAbs, changed string) (string, bool) {
 	case strings.HasSuffix(strings.ToLower(relSlash), ".go"):
 		dir = filepath.ToSlash(filepath.Dir(filepath.FromSlash(relSlash)))
 	case filepath.Ext(relSlash) != "":
-		return "", false // non-Go file: cannot narrow a Go build
+		return "", false // 非 Go 文件：无法收窄 Go 构建
 	}
 	if dir == "." {
 		dir = ""
@@ -353,10 +328,8 @@ func verifySafeTarget(rootAbs, changed string) (string, bool) {
 	return "./" + dir, true
 }
 
-// verifyNarrowTargets maps checkpoint paths to a deterministic (deduplicated,
-// sorted) list of safe Go package patterns. Unsafe or irrelevant paths are
-// counted in skipped and omitted — never interpolated. An empty target list
-// tells the caller to keep the full command.
+// verifyNarrowTargets 把检查点路径映射为一个确定的（去重、排序的）安全 Go 包模式列表。
+// 不安全或无关的路径会计入 skipped 并被省略——绝不会被插值。空的目标列表告诉调用方保留完整命令。
 func verifyNarrowTargets(root string, changedPaths []string) (targets []string, skipped int) {
 	if strings.TrimSpace(root) == "" {
 		root = "."
@@ -382,18 +355,15 @@ func verifyNarrowTargets(root string, changedPaths []string) (targets []string, 
 	return targets, skipped
 }
 
-// narrowVerifyArgv narrows an allowlisted `go test|build` command to the changed
-// Go packages. Two modes:
+// narrowVerifyArgv 把白名单中的 `go test|build` 命令收窄到改动的 Go 包。两种模式：
 //
-//  1. a full-repo `./...` (or `...`) target is replaced with the safe targets —
-//     this is the actual O(full repo) -> O(changed files) win;
-//  2. with no target declared, the safe targets are appended (a bare
-//     `go test` / `go build` otherwise means "the current package only").
+//  1. 全仓库的 `./...`（或 `...`）目标被替换为安全目标——这是真正的
+//     O(整个仓库) -> O(改动文件) 的收益；
+//  2. 没有声明目标时，追加安全目标（否则裸的 `go test` / `go build` 表示"仅当前包"）。
 //
-// It is a no-op for non-go commands, for .exe verification commands (whose argv
-// contract is unknown), when no path can be made safe, and when the operator
-// already named an explicit package target. In every no-op case the configured
-// argv is returned as a copy, byte-for-byte, so behaviour is unchanged.
+// 对非 go 命令、.exe 验证命令（其 argv 约定未知）、没有路径能变安全，以及操作人员已经指定
+// 显式包目标的情况，它都是空操作。在每种空操作情况下，配置的 argv 都按字节原样复制返回，
+// 因此行为不变。
 func narrowVerifyArgv(argv []string, changedPaths []string, root string) ([]string, bool, int) {
 	out := append([]string(nil), argv...)
 	if len(out) < 2 || out[0] != "go" || (out[1] != "test" && out[1] != "build") {
@@ -414,19 +384,16 @@ func narrowVerifyArgv(argv []string, changedPaths []string, root string) ([]stri
 	}
 	for _, arg := range out[2:] {
 		if !strings.HasPrefix(arg, "-") {
-			// A non-flag token is an explicit target chosen by the operator;
-			// overriding it would silently change the configured check.
+			// 非标志标记是操作人员选择的显式目标；覆盖它会静默改变配置的检查。
 			return out, false, skipped
 		}
 	}
 	return append(out, targets...), true, skipped
 }
 
-// verifyLangForms expands one language/extension key into the equivalent
-// spellings used to match a changed file's extension. The same expansion is
-// applied to config keys and to path extensions, so "go", ".go", "py",
-// ".py" and "python" all meet in the middle. The first two forms are always
-// the bare key and its dotted variant; the remainder are small, fixed aliases.
+// verifyLangForms 把一个语言/扩展名键展开为用于匹配改动文件扩展名的等价写法。
+// 同样的展开会应用于配置键和路径扩展名，使 "go"、".go"、"py"、".py" 和 "python"
+// 能在中间汇合。前两种形式总是裸键及其带点的变体；其余是少量固定的别名。
 func verifyLangForms(key string) []string {
 	base := strings.ToLower(strings.TrimSpace(key))
 	base = strings.TrimPrefix(base, ".")
@@ -449,11 +416,9 @@ func verifyLangForms(key string) []string {
 	return forms
 }
 
-// verifyAllLanguagesCmd returns the catch-all command configured under the "*"
-// key (commands.VerifyAllLanguages). The lookup trims both key and value so a
-// hand-written " * " or a blank value behaves sanely. ok is false when no
-// non-empty catch-all is configured, which lets the single VerifyCommand field
-// remain the fallback.
+// verifyAllLanguagesCmd 返回配置在 "*" 键下的兜底命令（commands.VerifyAllLanguages）。
+// 查找会修剪键和值，使手写的 " * " 或空值行为合理。没有配置非空的兜底命令时 ok 为 false，
+// 使单一的 VerifyCommand 字段仍作为回退。
 func verifyAllLanguagesCmd(commands map[string]string) (string, bool) {
 	for key, cmd := range commands {
 		if strings.TrimSpace(key) == verifyAllLanguagesKey && strings.TrimSpace(cmd) != "" {
@@ -463,14 +428,12 @@ func verifyAllLanguagesCmd(commands map[string]string) (string, bool) {
 	return "", false
 }
 
-// canonicalVerifyCmd collapses a configured command string to its argv key so
-// selection and execution use the same spelling for the same command.
+// canonicalVerifyCmd 把配置的命令字符串折叠为其 argv 键，使选择和执行对同一命令使用同一写法。
 func canonicalVerifyCmd(cmd string) string {
 	return strings.Join(strings.Fields(cmd), " ")
 }
 
-// verifyCommandIndex normalizes the configured language map once: every
-// spelling of a key points at the same command string.
+// verifyCommandIndex 一次性规范化配置的语言映射：键的每种写法都指向同一个命令字符串。
 func verifyCommandIndex(commands map[string]string) map[string]string {
 	index := make(map[string]string, len(commands)*2)
 	for key, cmd := range commands {
@@ -481,20 +444,16 @@ func verifyCommandIndex(commands map[string]string) map[string]string {
 	return index
 }
 
-// selectVerifyArgvs resolves the ordered, de-duplicated argv list to run for
-// changedPaths. It is deliberately pure (no process spawn) so per-language
-// dispatch can be unit-tested without executing commands. Selection priority,
-// highest first:
+// selectVerifyArgvs 为 changedPaths 解析出有序、去重的待运行 argv 列表。
+// 它刻意是纯的（不派生进程），使按语言分派无需执行命令即可单元测试。选择优先级从高到低：
 //
-//  1. a language-specific command matching the path's extension;
-//  2. the "*" catch-all command (commands.VerifyAllLanguages), which aider
-//     applies to every language without a specific entry;
-//  3. the single VerifyCommand field, the legacy fallback.
+//  1. 与路径扩展名匹配的语言专用命令；
+//  2. "*" 兜底命令（commands.VerifyAllLanguages），aider 把它应用于没有专用条目的所有语言；
+//  3. 单一的 VerifyCommand 字段，旧版回退。
 //
-// Only one catch-all runs: "*" wins over VerifyCommand when both are set. When
-// nothing can be selected, the catch-all runs once so a missing checkpoint
-// still verifies something. The allowlist is applied later by NewVerifyFunc,
-// not here.
+// 只运行一个兜底命令：两者都设置时 "*" 优先于 VerifyCommand。无法选择任何内容时，
+// 兜底命令运行一次，使缺失的检查点仍能验证某些东西。白名单稍后由 NewVerifyFunc 应用，
+// 而不是这里。
 func selectVerifyArgvs(commands map[string]string, fallback []string, changedPaths []string) [][]string {
 	index := verifyCommandIndex(commands)
 	allCmd, hasAll := verifyAllLanguagesCmd(commands)
@@ -512,8 +471,7 @@ func selectVerifyArgvs(commands map[string]string, fallback []string, changedPat
 		out = append(out, argv)
 	}
 
-	// catchAll is the single fallback for a path with no specific command:
-	// the "*" command takes precedence over the single VerifyCommand field.
+	// catchAll 是没有专用命令的路径的唯一回退："*" 命令优先于单一的 VerifyCommand 字段。
 	catchAll := func() {
 		if hasAll {
 			add(strings.Fields(allCmd))
@@ -537,18 +495,15 @@ func selectVerifyArgvs(commands map[string]string, fallback []string, changedPat
 		}
 	}
 	if len(out) == 0 {
-		// No checkpoint paths (or none selected anything): still verify once
-		// with the catch-all.
+		// 没有检查点路径（或没有选中任何内容）：仍用兜底命令验证一次。
 		catchAll()
 	}
 	return out
 }
 
-// newVerifyDispatchFunc wraps NewVerifyFunc with per-language dispatch. Every
-// distinct configured command is validated once up front; on each call the
-// changed paths pick which of those pre-validated runners to execute. Results
-// are aggregated: a run passes only when every selected command passes, and
-// ok is false only when a selected command could not run.
+// newVerifyDispatchFunc 用按语言分派包装 NewVerifyFunc。每条不同的配置命令都会预先校验一次；
+// 每次调用时，改动的路径决定执行哪些已预校验的运行器。结果会被聚合：
+// 只有所有选中的命令都通过时，本次运行才算通过；只有某条选中的命令无法运行时 ok 才为 false。
 func newVerifyDispatchFunc(commands map[string]string, fallback []string, timeoutMS int, root string) func(context.Context, []string) (string, bool, string, bool) {
 	runners := map[string]func(context.Context, []string) (string, bool, string, bool){}
 	for _, cmd := range commands {
@@ -573,8 +528,8 @@ func newVerifyDispatchFunc(commands map[string]string, fallback []string, timeou
 			key := strings.Join(argv, " ")
 			run := runners[key]
 			if run == nil {
-				// Selection only draws from pre-registered commands; building a
-				// fallback here keeps a future key-format change from panicking.
+				// 选择只会从已预注册的命令中抽取；在这里构建一个回退，
+				// 可防止未来键格式的改动引发 panic。
 				run = NewVerifyFunc(argv, timeoutMS, root)
 			}
 			label, passed, output, ok := run(ctx, changedPaths)
@@ -593,17 +548,15 @@ func newVerifyDispatchFunc(commands map[string]string, fallback []string, timeou
 	}
 }
 
-// verifyConfigured reports whether either verification form is enabled.
+// verifyConfigured 报告两种验证形式中是否有一种被启用。
 func verifyConfigured(res Resolved) bool {
 	return len(res.Cfg.VerifyCommand) > 0 || len(res.Cfg.VerifyCommands) > 0
 }
 
-// verifyFuncFor returns nil unless the operator explicitly configured a
-// verification command, so an unconfigured run's Options stay byte-identical
-// (agent.Options.Verify == nil disables the whole loop). With only the legacy
-// VerifyCommand set the original fixed callback is returned unchanged; the
-// per-language map adds a dispatcher that consults the changed paths supplied
-// by the agent loop's checkpoint.
+// 除非操作人员显式配置了验证命令，否则 verifyFuncFor 返回 nil，
+// 使未配置运行的 Options 逐字节不变（agent.Options.Verify == nil 会禁用整个循环）。
+// 只有旧版 VerifyCommand 被设置时，原样返回原有的固定回调；按语言映射则会增加
+// 一个分派器，参考 agent 循环检查点提供的改动路径。
 func verifyFuncFor(res Resolved) func(context.Context, []string) (string, bool, string, bool) {
 	if len(res.Cfg.VerifyCommands) > 0 {
 		return newVerifyDispatchFunc(res.Cfg.VerifyCommands, res.Cfg.VerifyCommand, res.Cfg.VerifyTimeoutMS, res.Root)
@@ -614,8 +567,7 @@ func verifyFuncFor(res Resolved) func(context.Context, []string) (string, bool, 
 	return NewVerifyFunc(res.Cfg.VerifyCommand, res.Cfg.VerifyTimeoutMS, res.Root)
 }
 
-// verifyReflectionsFor resolves the per-run cap. Zero is returned when the
-// feature is off, so even this field matches the previous Options exactly.
+// verifyReflectionsFor 解析每次运行的上限。功能关闭时返回零，使这个字段也与之前的 Options 完全一致。
 func verifyReflectionsFor(res Resolved) int {
 	if !verifyConfigured(res) {
 		return 0
@@ -626,8 +578,8 @@ func verifyReflectionsFor(res Resolved) int {
 	return agent.DefaultMaxVerifyReflections
 }
 
-// verifyTailBuffer keeps only the last verifyOutputCap bytes written to it,
-// advancing to a rune boundary so a tail never starts mid-UTF-8-rune.
+// verifyTailBuffer 只保留写入它的最后 verifyOutputCap 字节，并前进到 rune 边界，
+// 使尾部绝不会从一个 UTF-8 rune 的中间开始。
 type verifyTailBuffer struct {
 	buf       bytes.Buffer
 	truncated bool
@@ -642,10 +594,8 @@ func (w *verifyTailBuffer) Write(p []byte) (int, error) {
 			drop++
 		}
 		copy(data, data[drop:])
-		// Truncate to the bytes actually retained, not to verifyOutputCap.
-		// Advancing drop past a split rune shortens the tail by that many
-		// bytes; truncating to the full cap would expose stale bytes from
-		// before the retained window at the end of the output.
+		// 截断到实际保留的字节数，而不是 verifyOutputCap。把 drop 推进越过被拆分的 rune
+		// 会按相应字节数缩短尾部；若截断到完整上限，会在输出末尾暴露保留窗口之前的过期字节。
 		w.buf.Truncate(len(data) - drop)
 		w.truncated = true
 	}

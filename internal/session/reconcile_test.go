@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// reconcilerCall builds an assistant Entry whose Data carries the full
-// llm.Message "tool_calls" payload shape persisted by the agent loop.
+// reconcilerCall 构建 assistant Entry，其 Data 携带 agent 循环持久化的
+// 完整 llm.Message "tool_calls" 载荷形态。
 func reconcilerCall(ids ...string) Entry {
 	calls := make([]any, 0, len(ids))
 	for _, id := range ids {
@@ -23,14 +23,14 @@ func reconcilerCall(ids ...string) Entry {
 	return Entry{Role: "assistant", Content: "calling tools", Data: data}
 }
 
-// reconcilerResult builds a tool Entry whose result id is recorded under the
-// key messageEntry maps to ToolCallID ("id").
+// reconcilerResult 构建工具 Entry，其结果 id 记录在
+// messageEntry 映射为 ToolCallID 的键（"id"）下。
 func reconcilerResult(id, output string) Entry {
 	data, _ := json.Marshal(map[string]any{"id": id, "name": "read", "output": output})
 	return Entry{Role: "tool", Content: output, ToolCallID: id, Data: data}
 }
 
-// abortedEntry is the expected synthetic result for a dangling call id.
+// abortedEntry 是悬空调用 id 所期望的合成结果。
 func abortedEntry(callID string) Entry {
 	return Entry{
 		ID:         abortedResultID(callID),
@@ -55,7 +55,7 @@ func TestReconcileDropsOrphanToolResult(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("orphan result not dropped:\n got %+v\nwant %+v", got, want)
 	}
-	// Input must be untouched.
+	// 输入必须不被修改。
 	if len(in) != 3 || in[1].ID != orphan.ID {
 		t.Fatalf("input slice was mutated: %+v", in)
 	}
@@ -110,7 +110,7 @@ func TestReconcileMatchedPairsByteIdentical(t *testing.T) {
 		t.Fatalf("clean matched pairs changed:\n got %+v\nwant %+v", got, clean)
 	}
 
-	// A tool entry with no call metadata must pass through verbatim.
+	// 没有调用元数据的工具条目必须原样通过。
 	noMeta := []Entry{
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "thinking"},
@@ -121,7 +121,7 @@ func TestReconcileMatchedPairsByteIdentical(t *testing.T) {
 		t.Fatalf("no-metadata entries changed:\n got %+v\nwant %+v", got, noMeta)
 	}
 
-	// Nil and empty inputs are unchanged.
+	// nil 和空输入保持不变。
 	if got := ReconcileToolPairs(nil); got != nil {
 		t.Errorf("nil input returned %+v, want nil", got)
 	}

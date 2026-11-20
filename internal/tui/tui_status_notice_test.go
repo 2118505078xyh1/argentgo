@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// TestNoticeSeverityGrading checks that the eight levels mirror Crush's eight
-// InfoType categories and carry a stable, distinct display priority.
+// TestNoticeSeverityGrading 检查八个级别是否仿照 Crush 的八个
+// InfoType 类别并带有稳定、互异的显示优先级。
 func TestNoticeSeverityGrading(t *testing.T) {
 	levels := []Severity{
 		SeverityInfo, SeveritySuccess, SeverityUpdate, SeverityPlan,
@@ -31,8 +31,8 @@ func TestNoticeSeverityGrading(t *testing.T) {
 	}
 }
 
-// TestNoticeStackSeverityPriority checks Peek picks the highest severity,
-// regardless of push order, and breaks equal-severity ties by the newest seq.
+// TestNoticeStackSeverityPriority 检查 Peek 选出最高严重度，
+// 与推送顺序无关，且同等严重度时按最新 seq 打破平局。
 func TestNoticeStackSeverityPriority(t *testing.T) {
 	base := time.Unix(1_000, 0)
 	var s NoticeStack
@@ -53,15 +53,15 @@ func TestNoticeStackSeverityPriority(t *testing.T) {
 		t.Fatalf("higher severity must win: got %+v", got)
 	}
 
-	// A later low-severity notice must not displace an earlier high-severity
-	// one: severity, not recency, decides when severities differ.
+	// 较晚的低严重度通知不得取代较早的高严重度
+	// 通知：严重度不同时，由严重度而非新旧决定。
 	s.ReportInfo("just info", time.Minute, base)
 	got, _ = s.Peek()
 	if got.Seq != errNotice.Seq {
 		t.Fatalf("new low-severity notice covered an older error: got seq %d", got.Seq)
 	}
 
-	// Among equal severities the newest wins.
+	// 同等严重度时，较新的胜出。
 	first := s.ReportWarn("older warn", time.Minute, base)
 	second := s.ReportWarn("newer warn", time.Minute, base)
 	s.Clear(errNotice.Seq)
@@ -71,8 +71,8 @@ func TestNoticeStackSeverityPriority(t *testing.T) {
 	}
 }
 
-// TestNoticeStackTTLExpiry checks per-notice TTL, boundary behaviour and the
-// default TTL applied when none is supplied.
+// TestNoticeStackTTLExpiry 检查每条通知的 TTL、边界行为以及
+// 未提供时施加的默认 TTL。
 func TestNoticeStackTTLExpiry(t *testing.T) {
 	base := time.Unix(2_000, 0)
 	var s NoticeStack
@@ -86,8 +86,8 @@ func TestNoticeStackTTLExpiry(t *testing.T) {
 	if got, ok := s.Current(base.Add(3 * time.Second)); !ok || got.Seq != long.Seq {
 		t.Fatalf("at +3s only the long notice should remain: %+v, %v", got, ok)
 	}
-	// Current(+3s) above already pruned the short notice; only the long one
-	// is left to expire here.
+	// 上面的 Current(+3s) 已清理了短 TTL 通知；这里只剩
+	// 长 TTL 的那条到期。
 	if removed := s.Prune(base.Add(11 * time.Second)); removed != 1 {
 		t.Fatalf("the long notice should expire at +11s, removed %d", removed)
 	}
@@ -95,7 +95,7 @@ func TestNoticeStackTTLExpiry(t *testing.T) {
 		t.Fatal("stack must be empty after full expiry")
 	}
 
-	// Expiry is inclusive at the exact TTL boundary.
+	// 在恰好 TTL 边界处过期是含端点的。
 	var d NoticeStack
 	exact := d.Push(SeverityWarn, "boundary", time.Second, base)
 	if exact.Expired(base.Add(time.Second - time.Nanosecond)) {
@@ -105,7 +105,7 @@ func TestNoticeStackTTLExpiry(t *testing.T) {
 		t.Fatal("notice must be expired exactly at its TTL")
 	}
 
-	// A zero TTL falls back to DefaultNoticeTTL.
+	// 零 TTL 回退到 DefaultNoticeTTL。
 	var def NoticeStack
 	n := def.ReportInfo("default ttl", 0, base)
 	if n.TTL != DefaultNoticeTTL {
@@ -116,8 +116,8 @@ func TestNoticeStackTTLExpiry(t *testing.T) {
 	}
 }
 
-// TestNoticeStackClearRetirement checks that retirement by sequence never
-// lets a stale clear retire a newer notice, and that seqs stay monotonic.
+// TestNoticeStackClearRetirement 检查按序号退休永不
+// 让陈旧的清除退休较新的通知，且 seq 保持单调。
 func TestNoticeStackClearRetirement(t *testing.T) {
 	base := time.Unix(3_000, 0)
 	var s NoticeStack
@@ -125,7 +125,7 @@ func TestNoticeStackClearRetirement(t *testing.T) {
 	old := s.ReportError("old error", time.Hour, base)
 	newer := s.ReportInfo("new info", time.Hour, base)
 
-	// The error currently wins on severity; retiring it exposes the newer one.
+	// 当前错误通知因严重度胜出；退休它后露出较新的那条。
 	if got, _ := s.Peek(); got.Seq != old.Seq {
 		t.Fatal("old error should be displayed before retirement")
 	}
@@ -136,8 +136,8 @@ func TestNoticeStackClearRetirement(t *testing.T) {
 		t.Fatalf("retiring the old notice must reveal the newer one: %+v, %v", got, ok)
 	}
 
-	// A repeated / stale clear for the old seq is a no-op and cannot take out
-	// the newer notice.
+	// 对旧 seq 的重复/陈旧清除是空操作，不能移除
+	// 较新的通知。
 	if s.Clear(old.Seq) {
 		t.Fatal("clearing an already-retired seq must be a no-op")
 	}
@@ -148,7 +148,7 @@ func TestNoticeStackClearRetirement(t *testing.T) {
 		t.Fatal("clearing an unknown seq must be a no-op")
 	}
 
-	// Sequence numbers are monotonic across clears.
+	// 序号在多次清除后仍单调。
 	third := s.ReportWarn("third", time.Hour, base)
 	if third.Seq != newer.Seq+1 || s.Seq() != third.Seq {
 		t.Fatalf("seq not monotonic: third=%d stack=%d", third.Seq, s.Seq())
@@ -161,8 +161,8 @@ func TestNoticeStackClearRetirement(t *testing.T) {
 	}
 }
 
-// TestNoticeStackConcurrentAccess exercises Push/Peek/Clear/Prune/Current from
-// many goroutines; with a mutex all operations stay safe and seqs are unique.
+// TestNoticeStackConcurrentAccess 从多个 goroutine 测试
+// Push/Peek/Clear/Prune/Current；有互斥锁时所有操作安全且 seq 唯一。
 func TestNoticeStackConcurrentAccess(t *testing.T) {
 	const writers = 64
 	base := time.Unix(4_000, 0)
@@ -180,7 +180,7 @@ func TestNoticeStackConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent readers/retirers using a zero time so Prune removes nothing.
+	// 并发读取者/退休者使用零时间，使 Prune 不移除任何内容。
 	for i := 0; i < writers; i++ {
 		wg.Add(1)
 		go func() {
@@ -205,8 +205,8 @@ func TestNoticeStackConcurrentAccess(t *testing.T) {
 		t.Fatalf("expected %d notices, got seq=%d len=%d", writers, s.Seq(), s.Len())
 	}
 
-	// Concurrent Clear calls must retire each notice exactly once without
-	// corrupting the slice.
+	// 并发的 Clear 调用必须每条通知恰好退休一次，且不
+	// 破坏切片。
 	var clearWG sync.WaitGroup
 	for seq := range seen {
 		clearWG.Add(1)
@@ -222,8 +222,8 @@ func TestNoticeStackConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestNoticeStackCJKText verifies multilingual text is stored and selected
-// verbatim; clipping is a renderer concern, not the manager's.
+// TestNoticeStackCJKText 验证多语言文本被逐字存储和选中
+// ；裁剪是渲染器的事，而非管理器的事。
 func TestNoticeStackCJKText(t *testing.T) {
 	base := time.Unix(5_000, 0)
 	var s NoticeStack

@@ -1,21 +1,21 @@
 package tui
 
-// Scored fuzzy subsequence matcher for the side-rail locators (sessions,
-// workspace, tasks). stdlib only; UTF-8/CJK safe because every index the
-// caller sees is a rune index into the original text.
+// 用于侧边栏定位器（会话、
+// 工作区、任务）的带评分的模糊子序列匹配器。仅用标准库；UTF-8/CJK 安全，因为
+// 调用方看到的每个索引都是原始文本中的 rune 索引。
 //
-// The implementation is a small dynamic program: it finds the subsequence
-// assignment of pattern runes to text runes that maximises a score built from
-// match bonuses, word-boundary bonuses, consecutive-run bonuses and gap
-// penalties. It deliberately avoids fzf's Slab/charClass micro-optimisations;
-// panels hold at most a few hundred short strings, so clarity wins here.
+// 该实现是一个小型动态规划：它找到把 pattern 的 rune
+// 分配给 text 的 rune 的子序列，使由
+// 匹配奖励、词边界奖励、连续段奖励和间隔
+// 惩罚构成的得分最大化。它有意避开 fzf 的 Slab/charClass 微优化；
+// 面板最多容纳几百个短字符串，因此这里清晰性优先。
 
 import (
 	"sort"
 	"unicode"
 )
 
-// Scoring weights. They are relative; tests compare outcomes, not absolutes.
+// 评分权重。它们是相对值；测试比较的是结果，而非绝对值。
 const (
 	fuzzyScoreMatch       = 16 // a pattern rune matched a text rune
 	fuzzyScoreFirst       = 16 // the match landed on the very first text rune
@@ -28,9 +28,9 @@ const (
 
 const fuzzyNegInf = -1 << 30
 
-// FuzzyResult is one scored candidate. Callers build it from a FuzzyMatch call
-// and keep Index pointing at their own item so sorting does not lose the
-// association. SortFuzzyResults only looks at these four fields.
+// FuzzyResult 是一个带评分的候选。调用方从 FuzzyMatch 调用构建它，
+// 并让 Index 指向自己的条目，使排序不会丢失
+// 关联。SortFuzzyResults 只看这四个字段。
 type FuzzyResult struct {
 	Score     int
 	Positions []int // rune indices of the matched characters, ascending
@@ -38,17 +38,17 @@ type FuzzyResult struct {
 	Index     int   // caller-supplied source index; final deterministic tiebreak
 }
 
-// FuzzyMatch reports whether every rune of pattern appears in text in order,
-// and if so the best score and the matched rune indices.
+// FuzzyMatch 报告 pattern 的每个 rune 是否按顺序出现在 text 中，
+// 若是则给出最佳得分和匹配到的 rune 索引。
 //
-// Case handling is smart-case: when pattern contains no uppercase rune the
-// comparison is case-insensitive (both sides folded with unicode.ToLower); the
-// presence of any uppercase rune makes the comparison case-sensitive. An empty
-// pattern matches everything with score 0 and no positions.
+// 大小写处理是 smart-case：当 pattern 不含大写 rune 时，
+// 比较不区分大小写（双方都用 unicode.ToLower 折叠）；出现
+// 任何大写 rune 则比较区分大小写。空的
+// pattern 匹配所有内容，得分为 0 且无位置。
 //
-// pathMode treats '/', '\\', ':' and ',' as word separators (in addition to the
-// always-separators '.', '_' and '-') and gives those separators an extra
-// boundary bonus, which favours matches that start at path components.
+// pathMode 把 '/', '\\', ':' 和 ',' 当作词分隔符（除了
+// 始终作为分隔符的 '.'、'_' 和 '-'），并给这些分隔符额外的
+// 边界奖励，从而偏好从路径组件开始的匹配。
 func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int, ok bool) {
 	patOrig := []rune(pattern)
 	txtOrig := []rune(text)
@@ -60,8 +60,8 @@ func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int
 		return 0, nil, false
 	}
 
-	// Smart-case: fold both sides once when the pattern is all lowercase.
-	// unicode.ToLower is 1:1 on runes, so folded indices stay valid for txtOrig.
+	// 智能大小写：当 pattern 全为小写时把双方折叠一次。
+	// unicode.ToLower 对 rune 是 1:1 的，因此折叠后的索引对 txtOrig 仍有效。
 	fold := !containsUpper(patOrig)
 	pat, txt := patOrig, txtOrig
 	if fold {
@@ -69,11 +69,11 @@ func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int
 		txt = lowerRunes(txtOrig)
 	}
 
-	// back[i][j] is the text index of the rune matched just before txt[j] when
-	// pat[i] is matched at txt[j]; -1 means "no previous rune" (i == 0).
+	// back[i][j] 是当 pat[i] 匹配到 txt[j] 时，紧接 txt[j] 之前匹配的
+	// rune 的文本索引；-1 表示"没有前一个 rune"（i == 0）。
 	back := make([][]int, P)
 
-	// prev* holds the best score for pat[i-1] matched at each text position.
+	// prev* 保存 pat[i-1] 匹配在每个文本位置时的最佳得分。
 	prevScore := make([]int, T)
 	prevValid := make([]bool, T)
 	for j := 0; j < T; j++ {
@@ -86,8 +86,8 @@ func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int
 	curScore := make([]int, T)
 	curValid := make([]bool, T)
 	for i := 1; i < P; i++ {
-		// Running max of prevScore[k] - k*gapExtend for k <= j. This turns the
-		// "best earlier match plus a gap" search into O(1) per text position.
+		// prevScore[k] - k*gapExtend（k <= j）的运行最大值。这把
+		// "最佳较早匹配加上间隔"的搜索变成每个文本位置 O(1)。
 		bestVal := make([]int, T)
 		bestK := make([]int, T)
 		runVal, runK := fuzzyNegInf, -1
@@ -110,12 +110,12 @@ func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int
 			base := charBonus(txtOrig, j, pathMode)
 			best, bk := fuzzyNegInf, -1
 
-			// Consecutive match: previous rune was at j-1, no gap penalty.
+			// 连续匹配：前一个 rune 在 j-1，无间隔惩罚。
 			if j >= 1 && prevValid[j-1] {
 				best = prevScore[j-1] + base + fuzzyScoreConsecutive
 				bk = j - 1
 			}
-			// Gapped match: previous rune at k <= j-2.
+			// 有间隔的匹配：前一个 rune 在 k <= j-2。
 			if j >= 2 && bestVal[j-2] > fuzzyNegInf/2 {
 				cand := bestVal[j-2] + base + fuzzyGapStart + (j-2)*fuzzyGapExtend
 				if cand > best {
@@ -151,10 +151,10 @@ func FuzzyMatch(pattern, text string, pathMode bool) (score int, positions []int
 	return bestEndScore, positions, true
 }
 
-// SortFuzzyResults orders results by descending score, then shorter text, then
-// an earlier first matched position, then caller Index. sort.SliceStable keeps
-// fully identical entries in their original order, so the result is
-// deterministic for any input.
+// SortFuzzyResults 按得分降序、然后较短文本、然后
+// 较早的首次匹配位置、然后调用方 Index 排序。sort.SliceStable 让
+// 完全相同的条目保持原有顺序，因此结果对
+// 任何输入都是确定的。
 func SortFuzzyResults(results []FuzzyResult) {
 	sort.SliceStable(results, func(i, j int) bool {
 		a, b := results[i], results[j]
@@ -172,8 +172,8 @@ func SortFuzzyResults(results []FuzzyResult) {
 	})
 }
 
-// startOf returns the first matched rune index, or a large sentinel for an
-// empty position list so such results sort last on the "earlier start" rule.
+// startOf 返回第一个匹配的 rune 索引，或对一个空
+// 位置列表返回一个很大的哨兵值，使这类结果在"较早起始"规则下排最后。
 func startOf(positions []int) int {
 	if len(positions) == 0 {
 		return 1 << 30
@@ -181,8 +181,8 @@ func startOf(positions []int) int {
 	return positions[0]
 }
 
-// charBonus is the non-position-dependent part of matching txt[j]: a flat
-// match point plus a first-rune bonus and/or a word-boundary bonus.
+// charBonus 是匹配 txt[j] 的与位置无关的部分：一个固定
+// 匹配分加上首 rune 奖励和/或词边界奖励。
 func charBonus(txtOrig []rune, j int, pathMode bool) int {
 	bonus := fuzzyScoreMatch
 	if j == 0 {
@@ -197,8 +197,8 @@ func charBonus(txtOrig []rune, j int, pathMode bool) int {
 	return bonus
 }
 
-// gapCost is the penalty for skipping n runes between two matched runes (or
-// before the first match). Longer gaps cost progressively more.
+// gapCost 是在两个匹配 rune 之间（或在首次匹配之前）跳过 n 个 rune 的
+// 惩罚。间隔越长，代价渐进增加。
 func gapCost(n int) int {
 	if n <= 0 {
 		return 0
@@ -206,9 +206,9 @@ func gapCost(n int) int {
 	return fuzzyGapStart + (n-1)*fuzzyGapExtend
 }
 
-// isBoundary reports whether the rune at j starts a new word: after whitespace,
-// after a separator, at a camelCase uppercase, or at a digit/non-digit switch.
-// The second return value is true only for a path separator in pathMode.
+// isBoundary 报告 j 处的 rune 是否开启新词：在空白之后、
+// 在分隔符之后、在 camelCase 大写处，或在数字/非数字切换处。
+// 第二个返回值仅在 pathMode 下对路径分隔符为 true。
 func isBoundary(txt []rune, j int, pathMode bool) (boundary, pathSep bool) {
 	if j <= 0 || j >= len(txt) {
 		return false, false

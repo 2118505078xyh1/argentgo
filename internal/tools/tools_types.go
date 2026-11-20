@@ -13,7 +13,7 @@ const (
 	maxMatches    = 200
 )
 
-// Tool is one callable capability.
+// Tool 是一项可调用的能力。
 type Tool interface {
 	Name() string
 	Description() string
@@ -22,28 +22,28 @@ type Tool interface {
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
 }
 
-// ToolMeta is the in-process reclamation hint a tool attaches to its result.
-// It never crosses the wire: the agent loop uses it to stub superseded reads
-// and empty searches while the run is alive.
+// ToolMeta 是工具附加到其结果上的进程内回收提示。
+// 它从不跨越传输层：agent 循环在运行时活着时用它把已被取代的读取
+// 和空搜索替换为存根。
 type ToolMeta struct {
 	SupersedeKey string
 	Useless      bool
 }
 
-// metaTool is implemented by tools that can describe their own result for
-// context reclamation. Output and error are passed in so a failed call never
-// claims a supersede key or an "empty result" marker.
+// metaTool 由能够描述自身结果以供上下文回收的工具实现。
+// 传入输出和错误，使失败调用永远不会
+// 宣称取代键或"空结果"标记。
 type metaTool interface {
 	Meta(args json.RawMessage, output string, err error) ToolMeta
 }
 
-// Guard is consulted before every tool call. A non-nil error is returned to the
-// model as a tool error; the tool never runs.
+// Guard 在每次工具调用前被咨询。非 nil 错误会作为工具错误返回给
+// 模型；工具绝不运行。
 type Guard interface {
 	Check(ctx context.Context, name string, args json.RawMessage) error
 }
 
-// Registry owns the tool set and enforces the workspace boundary.
+// Registry 拥有工具集并强制工作区边界。
 type Registry struct {
 	root       string
 	yolo       bool

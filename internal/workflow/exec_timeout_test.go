@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// TestStepTimeoutFailsSeamThatIgnoresContext checks that a step-local timeout
-// is enforced by the executor itself. The parent run context is still healthy
-// after a per-attempt deadline, so runStep cannot detect this case; attempt
-// must notice that the bound context expired even when the injected seam
-// ignored it and returned a successful value.
+// 调用方的定义必须保持不变。
+// TestStepTimeoutFailsSeamThatIgnoresContext 检查步骤局部超时由 executor 自身强制执行。在每次尝试的截止时间之后，父运行 context 仍然健康，
+// 在每次尝试的截止时间之后，runStep 无法检测这种情况；attempt
+// 因此 runStep 无法检测这种情况；attempt 必须注意到绑定 context 已过期，即使注入的 seam
+// 忽略了它并返回了成功的值。
 func TestStepTimeoutFailsSeamThatIgnoresContext(t *testing.T) {
 	t.Run("prompter", func(t *testing.T) {
 		exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) {
@@ -63,8 +63,8 @@ func TestStepTimeoutFailsSeamThatIgnoresContext(t *testing.T) {
 	})
 }
 
-// TestStepTimeoutKeepsFastSeamOK guards the other side of the deadline check:
-// a seam that finishes inside its budget must not be marked as timed out.
+// TestStepTimeoutKeepsFastSeamOK 守护截止时间检查的另一面：
+// 在其预算内完成的 seam 不得被标记为超时。
 func TestStepTimeoutKeepsFastSeamOK(t *testing.T) {
 	exec := &Executor{Prompter: prompterFunc(func(context.Context, string) (string, error) {
 		return "quick", nil

@@ -122,8 +122,8 @@ func TestValidateAndRepairTornLastLineWithRepair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateAndRepair: %v", err)
 	}
-	// KeptLines counts physical transcript lines; the read-time schema header
-	// added by Records() is not one of them.
+	// KeptLines 统计物理转录行数；由 Records() 添加的
+	// 读取时 schema 头不在其中。
 	physicalBefore := len(withoutSchemaHeader(before))
 	if !report.TornTail || !report.Repaired || report.KeptLines != physicalBefore {
 		t.Fatalf("report = %+v, want repaired torn tail with %d kept lines", report, physicalBefore)
@@ -230,7 +230,7 @@ func TestValidateAndRepairAppendsMissingTrailingNewline(t *testing.T) {
 	}
 	assertRepairFileBytes(t, path, content+"\n")
 
-	// Listing-style validation never writes, even for a missing newline.
+	// 列表式校验从不写入，即使缺少换行符也是如此。
 	writeRepairFile(t, path, content)
 	report, err = ValidateAndRepair(path, false)
 	if err != nil {
@@ -242,10 +242,10 @@ func TestValidateAndRepairAppendsMissingTrailingNewline(t *testing.T) {
 	assertRepairFileBytes(t, path, content)
 }
 
-// TestValidateAndRepairIsIdempotentWithoutValidPrefix covers a torn first line
-// (or an empty/blank file): repairing must not publish a bare "\n", which
-// decodeLine classifies as yet another torn tail. A repaired transcript must be
-// clean on the next validation, otherwise every resume rewrites the file again.
+// TestValidateAndRepairIsIdempotentWithoutValidPrefix 覆盖首行残缺
+// （或空/空白文件）的情形：修复不得发布一个裸 "\n"，因为
+// decodeLine 会把它归类为又一处残缺尾部。修复后的转录必须
+// 在下次校验时是干净的，否则每次恢复都会再次重写文件。
 func TestValidateAndRepairIsIdempotentWithoutValidPrefix(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -282,9 +282,9 @@ func TestValidateAndRepairIsIdempotentWithoutValidPrefix(t *testing.T) {
 	}
 }
 
-// TestValidateAndRepairKeepsValidPrefixBeforeTornTail makes sure the fix for a
-// torn first line does not strip the terminating newline when a real prefix
-// survives: the kept records must stay byte-identical and terminate cleanly.
+// TestValidateAndRepairKeepsValidPrefixBeforeTornTail 确保对首行残缺的修复
+// 在确有有效前缀存活时不会剥离结束换行符：
+// 保留的记录必须保持逐字节一致并干净地结束。
 func TestValidateAndRepairKeepsValidPrefixBeforeTornTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tail.jsonl")
@@ -319,7 +319,7 @@ func TestAtomicPublishJSONLWindows(t *testing.T) {
 	writeRepairFile(t, path, "stale\n")
 	data := []byte(validRepairLine(t, "n000001", "", KindHeader) + "\n")
 
-	// Directory Sync returns EINVAL on Windows; it must not fail publication.
+	// 目录 Sync 在 Windows 上返回 EINVAL；它不能让发布失败。
 	if err := atomicPublishJSONL(path, data); err != nil {
 		t.Fatalf("atomicPublishJSONL: %v (directory Sync EINVAL must be ignored)", err)
 	}

@@ -5,9 +5,9 @@ import (
 	"unicode/utf8"
 )
 
-// Editor is the prompt buffer: the text, the cursor and the history ring.
-// Every mutation keeps the cursor on a rune boundary, so CJK input is never
-// split in half.
+// Editor 是提示缓冲区：文本、光标和历史环。
+// 每次变更都让光标停留在 rune 边界，因此 CJK 输入绝不会
+// 被切成两半。
 type Editor struct {
 	runes   []rune
 	cursor  int
@@ -16,31 +16,31 @@ type Editor struct {
 	draft   string // text before history browsing started
 }
 
-// NewEditor returns an empty editor.
+// NewEditor 返回一个空的编辑器。
 func NewEditor() Editor { return Editor{index: -1} }
 
-// Text is the current content.
+// Text 是当前内容。
 func (e *Editor) Text() string { return string(e.runes) }
 
-// Runes is a copy of the current content as runes.
+// Runes 是当前内容的 rune 副本。
 func (e *Editor) Runes() []rune { return append([]rune{}, e.runes...) }
 
-// Cursor is the caret position as a rune index.
+// Cursor 是以 rune 索引表示的光标位置。
 func (e *Editor) Cursor() int { return e.cursor }
 
-// SetText replaces the content and puts the caret at the end.
+// SetText 替换内容并把光标放到末尾。
 func (e *Editor) SetText(text string) {
 	e.runes = []rune(text)
 	e.cursor = len(e.runes)
 	e.index = -1
 }
 
-// markEdited leaves history browsing: once the user changes a recalled line it
-// is a fresh draft, so HistoryNext must not snap back to the stale pre-recall
-// text. load() is the only path that deliberately sets index after a SetText.
+// markEdited 退出历史浏览：一旦用户修改了召回的行，它就
+// 是一个新的草稿，因此 HistoryNext 绝不能跳回失效的召回前
+// 文本。load() 是唯一在 SetText 后有意设置 index 的路径。
 func (e *Editor) markEdited() { e.index = -1 }
 
-// Insert writes text at the caret.
+// Insert 在光标处写入文本。
 func (e *Editor) Insert(text string) {
 	if text == "" {
 		return
@@ -55,7 +55,7 @@ func (e *Editor) Insert(text string) {
 	e.markEdited()
 }
 
-// Backspace removes the rune before the caret.
+// Backspace 删除光标前的 rune。
 func (e *Editor) Backspace() bool {
 	if e.cursor == 0 {
 		return false
@@ -66,7 +66,7 @@ func (e *Editor) Backspace() bool {
 	return true
 }
 
-// Delete removes the rune at the caret.
+// Delete 删除光标处的 rune。
 func (e *Editor) Delete() bool {
 	if e.cursor >= len(e.runes) {
 		return false
@@ -76,27 +76,27 @@ func (e *Editor) Delete() bool {
 	return true
 }
 
-// Left moves the caret one rune back.
+// Left 把光标向后移动一个 rune。
 func (e *Editor) Left() {
 	if e.cursor > 0 {
 		e.cursor--
 	}
 }
 
-// Right moves the caret one rune forward.
+// Right 把光标向前移动一个 rune。
 func (e *Editor) Right() {
 	if e.cursor < len(e.runes) {
 		e.cursor++
 	}
 }
 
-// Home puts the caret at the start of the buffer.
+// Home 把光标放到缓冲区开头。
 func (e *Editor) Home() { e.cursor = 0 }
 
-// End puts the caret at the end of the buffer.
+// End 把光标放到缓冲区末尾。
 func (e *Editor) End() { e.cursor = len(e.runes) }
 
-// KillToEnd deletes from the caret to the end of the buffer.
+// KillToEnd 从光标删除到缓冲区末尾。
 func (e *Editor) KillToEnd() bool {
 	if e.cursor >= len(e.runes) {
 		return false
@@ -106,7 +106,7 @@ func (e *Editor) KillToEnd() bool {
 	return true
 }
 
-// KillToStart deletes from the start of the buffer to the caret.
+// KillToStart 从缓冲区开头删除到光标。
 func (e *Editor) KillToStart() bool {
 	if e.cursor == 0 {
 		return false
@@ -117,7 +117,7 @@ func (e *Editor) KillToStart() bool {
 	return true
 }
 
-// KillWord deletes the word before the caret, skipping trailing spaces first.
+// KillWord 删除光标前的词，先跳过尾随空格。
 func (e *Editor) KillWord() bool {
 	if e.cursor == 0 {
 		return false
@@ -138,7 +138,7 @@ func (e *Editor) KillWord() bool {
 	return true
 }
 
-// Clear empties the buffer and leaves history browsing.
+// Clear 清空缓冲区并退出历史浏览。
 func (e *Editor) Clear() {
 	e.runes = nil
 	e.cursor = 0
@@ -146,7 +146,7 @@ func (e *Editor) Clear() {
 	e.draft = ""
 }
 
-// Record adds a submitted line to the history, ignoring consecutive repeats.
+// Record 把提交的行加入历史，忽略连续的重复。
 func (e *Editor) Record(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
@@ -160,7 +160,7 @@ func (e *Editor) Record(text string) {
 	}
 }
 
-// HistoryPrev walks one step back in the history.
+// HistoryPrev 在历史中后退一步。
 func (e *Editor) HistoryPrev() bool {
 	if len(e.history) == 0 {
 		return false
@@ -179,7 +179,7 @@ func (e *Editor) HistoryPrev() bool {
 	return true
 }
 
-// HistoryNext walks one step forward, back to the draft at the end.
+// HistoryNext 在历史中前进一步，回到末尾的草稿。
 func (e *Editor) HistoryNext() bool {
 	if e.index == -1 {
 		return false
@@ -193,15 +193,15 @@ func (e *Editor) HistoryNext() bool {
 	return true
 }
 
-// load replaces the buffer without leaving history browsing.
+// load 替换缓冲区但不退出历史浏览。
 func (e *Editor) load(text string, index int) {
 	e.SetText(text)
 	e.index = index
 }
 
-// MoveLine moves the caret one logical line up or down. It reports false when
-// the buffer has a single line or the caret already sits on the edge, which is
-// when the caller should fall back to history.
+// MoveLine 把光标上下移动一个逻辑行。当缓冲区只有一行
+// 或光标已在边缘时返回 false，此时
+// 调用方应回退到历史。
 func (e *Editor) MoveLine(delta int) bool {
 	hasNewline := false
 	for _, r := range e.runes {
@@ -252,17 +252,17 @@ func (e *Editor) MoveLine(delta int) bool {
 	return true
 }
 
-// inputRow is one displayed row of the input box.
+// inputRow 是输入框中一个显示行。
 type inputRow struct {
 	text  string
 	start int // rune index in the buffer where the row begins
 }
 
-// wrapInput folds the buffer into rows no wider than width cells. Breaks land
-// on grapheme boundaries (the same rule as Wrap): a ZWJ emoji, a flag pair or a
-// combining sequence is one visible glyph and must never be split across two
-// rows. A row's start is the rune index of the first cluster it contains, which
-// keeps rowCaretColumn in sync with what is actually painted.
+// wrapInput 把缓冲区折叠为宽度不超过 width 个单元格的行。断点落在
+// 字素边界上（与 Wrap 相同的规则）：ZWJ emoji、旗帜对或
+// 组合序列是一个可见字形，绝不能被拆到两
+// 行。一行的起点是它包含的第一个簇的 rune 索引，这使
+// rowCaretColumn 与实际绘制的内容保持同步。
 func wrapInput(runes []rune, width int) []inputRow {
 	if width < 1 {
 		width = 1
@@ -292,7 +292,7 @@ func wrapInput(runes []rune, width int) []inputRow {
 	return rows
 }
 
-// inputWindow keeps the caret row visible, showing at most maxRows rows.
+// inputWindow 让光标所在行保持可见，最多显示 maxRows 行。
 func inputWindow(rows []inputRow, cursor, maxRows int) ([]inputRow, int) {
 	if maxRows < 1 {
 		maxRows = 1
@@ -320,7 +320,7 @@ func inputWindow(rows []inputRow, cursor, maxRows int) ([]inputRow, int) {
 	return rows[offset:end], cursorRow - offset
 }
 
-// rowCaretColumn is the cell offset of the caret inside its row.
+// rowCaretColumn 是光标在其行内的单元格偏移。
 func rowCaretColumn(row inputRow, runes []rune, cursor int) int {
 	if cursor > len(runes) {
 		cursor = len(runes)

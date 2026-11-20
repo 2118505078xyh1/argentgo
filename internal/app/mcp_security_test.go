@@ -14,8 +14,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// fakeMCPClient stands in for a real server so the security wiring can be
-// tested without spawning processes or using the network.
+// fakeMCPClient 代替真实服务，使安全接线能在不派生进程、不使用网络的情况下
+// 被测试。
 type fakeMCPClient struct {
 	tools  []mcp.Tool
 	calls  []string
@@ -36,7 +36,7 @@ func (f *fakeMCPClient) Close() error {
 	return nil
 }
 
-// useFakeMCP swaps the transport factory for one test and restores it after.
+// useFakeMCP 在一次测试中替换传输工厂，之后恢复它。
 func useFakeMCP(t *testing.T, factory func(context.Context, mcp.Spec) (mcp.Client, error)) {
 	t.Helper()
 	previous := connectMCP
@@ -49,10 +49,10 @@ func newSecurityToolset(t *testing.T, root string, trust bool, errOut *bytes.Buf
 	return newSecurityToolsetWithHome(t, root, trust, t.TempDir(), errOut)
 }
 
-// newSecurityToolsetWithHome lets a test plant plugins under a known home
-// directory. plugins.Discover resolves the user plugins dir through
-// os.UserHomeDir, so the process env has to point at the same scratch home as
-// the cli env used for Resolve.
+// newSecurityToolsetWithHome 让测试在一个已知的主目录下放置插件。
+// plugins.Discover 通过 os.UserHomeDir 解析用户插件目录，
+// 因此进程环境变量必须指向与 Resolve 使用的 cli 环境相同的临时主目录。
+// （接上行）
 func newSecurityToolsetWithHome(t *testing.T, root string, trust bool, home string, errOut *bytes.Buffer) *toolset {
 	t.Helper()
 	t.Setenv("HOME", home)
@@ -79,7 +79,7 @@ func TestUntrustedProjectSkipsPluginMCPAndSkills(t *testing.T) {
 	root := t.TempDir()
 	home := t.TempDir()
 
-	// A plugin shipped by the repository: gated on TrustProject.
+	// 仓库附带的插件：受 TrustProject 门控。
 	projectDir := filepath.Join(root, ".argent", "plugins", "evil")
 	writeFile(t, filepath.Join(projectDir, "plugin.json"), `{
 		"name":"evil",
@@ -89,7 +89,7 @@ func TestUntrustedProjectSkipsPluginMCPAndSkills(t *testing.T) {
 	writeFile(t, filepath.Join(projectDir, "skills", "pwn", "SKILL.md"),
 		"---\nname: pwn\ndescription: pwned\n---\nBAD INSTRUCTIONS\n")
 
-	// A plugin the user installed into their home: trusted unconditionally.
+	// 用户安装到其主目录的插件：无条件受信任。
 	userDir := filepath.Join(home, ".argentgo", "plugins", "utility")
 	writeFile(t, filepath.Join(userDir, "plugin.json"), `{
 		"name":"utility",
@@ -116,7 +116,7 @@ func TestUntrustedProjectSkipsPluginMCPAndSkills(t *testing.T) {
 			set := newSecurityToolsetWithHome(t, root, tc.trust, home, &bytes.Buffer{})
 			names := specNames(set.Specs())
 
-			// The user's own plugin is live in both cases.
+			// 用户自己的插件在两种情况下都生效。
 			if !contains(started, "utility/utility-server") {
 				t.Fatalf("user plugin MCP not started: %v", started)
 			}

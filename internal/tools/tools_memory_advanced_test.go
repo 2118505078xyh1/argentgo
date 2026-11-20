@@ -104,8 +104,8 @@ func TestBankLearnWithoutPromoteWritesNoSkill(t *testing.T) {
 
 func TestBankLearnSkillFailureStillRetainsLesson(t *testing.T) {
 	dir := t.TempDir()
-	// Force the managed skills directory creation to fail: a regular file sits
-	// where the directory should be.
+	// 强制受管技能目录创建失败：本应是目录的位置
+	// 放了一个普通文件。
 	if err := os.WriteFile(filepath.Join(dir, "skills"), []byte("not a dir"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestBankInvalidateExcludesFromRecallAndReflect(t *testing.T) {
 	if got := bank.Reflect("", 10); strings.Contains(got, "stale fact") || !strings.Contains(got, "keep this fact") {
 		t.Fatalf("reflect = %q, want only the kept memory", got)
 	}
-	// A tombstone stays on disk and in All, carrying its reason.
+	// 墓碑仍留在磁盘和 All 中，并带有其原因。
 	if all := bank.All(); len(all) != 2 {
 		t.Fatalf("all = %#v, want both records (one tombstone)", all)
 	}

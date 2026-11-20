@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestUnavailableApproverAsk pins the null object's raw answer and its
-// classification. The sentinel is a non-context error, so ClassifyApproval must
-// keep its existing rule and map it to ApprovalUnavailable (never Rejected).
+// TestUnavailableApproverAsk 固定空对象的原始回答及其分类。
+// 该哨兵是非 context 错误，因此 ClassifyApproval 必须保持其现有规则，
+// 把它映射到 ApprovalUnavailable（绝不能是 Rejected）。
 func TestUnavailableApproverAsk(t *testing.T) {
 	got, err := UnavailableApprover{}.Ask(context.Background(), "bash", `{}`)
 	if got {
@@ -26,7 +26,7 @@ func TestUnavailableApproverAsk(t *testing.T) {
 		t.Fatal("an unavailable channel must never be treated as consent")
 	}
 
-	// A cancelled context still wins, exactly as with the other approvers.
+	// 已取消的 context 仍然优先，与其他审批器完全一致。
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	got, err = UnavailableApprover{}.Ask(ctx, "bash", `{}`)
@@ -35,9 +35,9 @@ func TestUnavailableApproverAsk(t *testing.T) {
 	}
 }
 
-// TestChainExplicitRefusalStaysRefused guards the unchanged branch: a real
-// operator "no" is still a final StopError audited as "refused". Both the plain
-// bool-only refusal and the explicit NeverApprover null object must keep it.
+// TestChainExplicitRefusalStaysRefused 守护未改变的分支：真正的操作员"否"仍然是
+// 终结性 StopError，并被审计为 "refused"。纯 bool 否决和显式的
+// NeverApprover 空对象都必须保持这一点。
 func TestChainExplicitRefusalStaysRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -75,9 +75,9 @@ func TestChainExplicitRefusalStaysRefused(t *testing.T) {
 	}
 }
 
-// TestChainDegradedChannelErrorRecordsUnavailable covers an approver whose
-// channel broke: the error is a plain non-context error, so the chain audits an
-// unavailable channel (not a refusal) and returns an error without finality.
+// TestChainDegradedChannelErrorRecordsUnavailable 覆盖通道损坏的审批器：
+// 该错误是普通的非 context 错误，因此链审计为不可用通道（而非否决），
+// 并返回不带终结语句的错误。
 func TestChainDegradedChannelErrorRecordsUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	audit := NewAuditLog(dir)
@@ -86,9 +86,9 @@ func TestChainDegradedChannelErrorRecordsUnavailable(t *testing.T) {
 	if err == nil {
 		t.Fatal("a broken approval channel must not allow the call")
 	}
-	// The chain wraps the original channel error rather than replacing it with
-	// the sentinel, so match on its text. ClassifyApproval maps any non-context
-	// error to ApprovalUnavailable; that is the classification the audit logs.
+	// 链包装原始通道错误，而不是用哨兵替换它，因此按文本匹配。
+	// ClassifyApproval 把任何非 context 错误映射为 ApprovalUnavailable；
+	// 这就是审计日志记录的分类。
 	if !strings.Contains(err.Error(), "stdin broken") {
 		t.Fatalf("got %v, want it to wrap the original channel error", err)
 	}
@@ -114,9 +114,8 @@ func TestChainDegradedChannelErrorRecordsUnavailable(t *testing.T) {
 	}
 }
 
-// TestChainCancelledApprovalIsNotUnavailable locks the boundary between the two
-// fail-closed outcomes: a cancellation keeps its context error and is not
-// mislabeled as an unavailable channel in the audit log.
+// TestChainCancelledApprovalIsNotUnavailable 锁定两种失败即拒绝结果之间的边界：
+// 取消保留其 context 错误，不会在审计日志中被错误标记为不可用通道。
 func TestChainCancelledApprovalIsNotUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	audit := NewAuditLog(dir)
@@ -136,8 +135,8 @@ func TestChainCancelledApprovalIsNotUnavailable(t *testing.T) {
 	}
 }
 
-// TestNilApproverChainViaConstructor matches NewChain's null-object behaviour
-// to a directly wired UnavailableApprover, so the two paths cannot drift.
+// TestNilApproverChainViaConstructor 让 NewChain 的空对象行为与直接接线的
+// UnavailableApprover 一致，使两条路径不会产生偏差。
 func TestNilApproverChainMatchesUnavailableApprover(t *testing.T) {
 	toolErr := func(approver Approver) string {
 		t.Helper()

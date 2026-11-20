@@ -57,11 +57,11 @@ func TestSearchOrdersBySessionThenLineAndHonoursLimit(t *testing.T) {
 	}
 }
 
-// A JSON object is decoded into a Go map, whose iteration order is randomized.
-// When several string values in one record contain the needle, the chosen
-// snippet must still be stable across calls: revisiting the same transcript
-// must not yield a different window into the same text. This pins the fix in
-// collectStrings (keys visited in sorted order).
+// JSON 对象解码为 Go map，其迭代顺序是随机的。
+// 当一条记录中有多个字符串值包含 needle 时，所选择的
+// 片段在多次调用间仍必须稳定：重新访问同一转录
+// 不得产生关于同一文本的不同窗口。这固化了 collectStrings 中的修复
+// （按排序后的顺序访问键）。
 func TestSnippetForPicksDeterministicValueAcrossCalls(t *testing.T) {
 	data, err := json.Marshal(map[string]any{
 		"alpha": strings.Repeat("A", 80) + "NEEDLE" + strings.Repeat("B", 80),
@@ -76,8 +76,8 @@ func TestSnippetForPicksDeterministicValueAcrossCalls(t *testing.T) {
 	if !ok {
 		t.Fatal("snippetFor found no hit")
 	}
-	// With sorted keys, "alpha" is always visited first, so the window must
-	// always come from its value (the leading run of A's).
+	// 键已排序，"alpha" 总是最先被访问，因此窗口必须
+	// 始终来自它的值（开头连续的 A）。
 	if !strings.Contains(want, strings.Repeat("A", 40)) {
 		t.Fatalf("snippet = %q, want the window from the alphabetically-first key", want)
 	}
@@ -92,9 +92,9 @@ func TestSnippetForPicksDeterministicValueAcrossCalls(t *testing.T) {
 	}
 }
 
-// stringValues feeds a payload's strings to snippetFor. Its order must be a
-// function of the payload alone, never of the Go map's random seed; otherwise
-// the "first" matching string is not well defined.
+// stringValues 把载荷的字符串提供给 snippetFor。其顺序必须只
+// 取决于载荷本身，绝不取决于 Go map 的随机种子；否则
+// "第一个"匹配的字符串就没有明确定义。
 func TestStringValuesUsesSortedKeyOrder(t *testing.T) {
 	data := json.RawMessage(`{"b":"bee","a":"aye","c":"see"}`)
 	want := []string{"aye", "bee", "see"}
@@ -145,8 +145,8 @@ func TestSearchRedactsSecretInSnippet(t *testing.T) {
 	}
 }
 
-// searchByFullScan is the pre-index Search, used as the semantic baseline: no
-// sidecar is consulted and every transcript is parsed from scratch.
+// searchByFullScan 是索引出现前的 Search，用作语义基线：
+// 不查询旁车文件，每份转录都从头解析。
 func searchByFullScan(t *testing.T, dir, query string, limit int) []Hit {
 	t.Helper()
 	needle := strings.TrimSpace(query)
@@ -260,7 +260,7 @@ func TestSearchSidecarMatchesFullScan(t *testing.T) {
 		assertHitsEqual(t, got, want)
 	}
 
-	// A second pass must use the sidecars and return identical hits.
+	// 第二遍必须使用旁车文件并返回相同的命中。
 	past := pinSidecars(t, dir)
 	want := searchByFullScan(t, dir, "needle", 0)
 	got, err := Search(dir, "needle", 0)
@@ -270,7 +270,7 @@ func TestSearchSidecarMatchesFullScan(t *testing.T) {
 	assertHitsEqual(t, got, want)
 	assertSidecarsUntouched(t, dir, past)
 
-	// A corrupt sidecar is ignored: the body is still searched in full.
+	// 损坏的旁车文件会被忽略：正文仍被完整搜索。
 	if err := os.WriteFile(alpha.path()+idxExt, []byte("broken json"), 0o644); err != nil {
 		t.Fatal(err)
 	}

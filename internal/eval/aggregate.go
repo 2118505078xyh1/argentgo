@@ -6,46 +6,46 @@ import (
 	"unicode"
 )
 
-// Summary is the order-independent aggregate of a set of graded Results.
-// It is a value produced by AggregateScores; callers should treat it as
-// read-only (in particular the FailureCounts map is owned by the Summary).
+// Summary 是一组已评分 Result 的与顺序无关的聚合。
+// 它是 AggregateScores 产生的值；调用方应将其视为
+// 只读（特别是 FailureCounts map 归 Summary 所有）。
 type Summary struct {
-	// Total is the number of results handed to AggregateScores.
+	// Total 是交给 AggregateScores 的结果数。
 	Total int `json:"total"`
-	// Valid is the number of structurally sane results that were aggregated.
+	// Valid 是被聚合的结构健全的结果数。
 	Valid int `json:"valid"`
-	// Skipped is the number of invalid results ignored (Total - Valid).
+	// Skipped 是被忽略的无效结果数（Total - Valid）。
 	Skipped int `json:"skipped"`
-	// Passed and Failed are counted over valid results only.
+	// Passed 和 Failed 只统计有效结果。
 	Passed int `json:"passed"`
 	Failed int `json:"failed"`
-	// PassRate is Passed*100/Valid, in [0,100]. It is 0 when Valid == 0,
-	// never NaN or +Inf.
+	// PassRate 是 Passed*100/Valid，范围为 [0,100]。Valid == 0 时为 0，
+	// 绝不是 NaN 或 +Inf。
 	PassRate float64 `json:"pass_rate"`
-	// AverageDuration is the mean Duration over valid results. It is 0 when
-	// Valid == 0. A valid result without timing data (Duration == 0) counts
-	// as zero, so the mean is taken over the same set as the pass rate.
+	// AverageDuration 是有效结果的平均 Duration。Valid == 0 时为
+	// 0。没有计时数据的有效结果（Duration == 0）计
+	// 作零，因此均值与通过率基于同一集合。
 	AverageDuration time.Duration `json:"average_duration"`
-	// FailureCounts groups failed valid results by their normalized reason.
-	// Keys are rune-safe (CJK and emoji are preserved), whitespace-stripped
-	// reasons truncated to failureReasonKeyRunes runes; the map is never nil.
+	// FailureCounts 按规范化原因对失败的有效结果分组。
+	// 键是 rune 安全的（保留 CJK 和 emoji）、去除空白的
+	// 原因，截断到 failureReasonKeyRunes 个 rune；map 从不为 nil。
 	FailureCounts map[string]int `json:"failure_counts"`
 }
 
-// failureReasonKeyRunes bounds the length of a FailureCounts key without
-// ever cutting a UTF-8 rune in half (see clip for the UTF-8 rationale).
+// failureReasonKeyRunes 限制 FailureCounts 键的长度而不
+// 曾切开 UTF-8 rune（UTF-8 原理见 clip）。
 const failureReasonKeyRunes = 80
 
-// valid reports whether a Result is structurally sane enough to aggregate.
-// Results from Run carry a 1-based Index, a non-negative turn count and a
-// non-negative duration; anything else is a malformed record and is ignored.
+// valid 报告 Result 是否结构健全到足以聚合。
+// 来自 Run 的结果带有 1 基 Index、非负的轮数和非负的时长；其他任何情况都是畸形记录并被忽略。
+// 非负时长；其他任何情况都是畸形记录并被忽略。
 func (r Result) valid() bool {
 	return r.Index > 0 && r.Turns >= 0 && r.Duration >= 0
 }
 
-// AggregateScores folds results into a Summary. It is pure: it never mutates
-// results, and it depends only on the multiset of valid results, not on their
-// order. Results gathered concurrently may therefore be passed in any order.
+// AggregateScores 将结果折叠为 Summary。它是纯函数：从不修改
+// 结果，且只依赖有效结果的多重集，而非其
+// 结果，且只依赖有效结果的多重集，而非其顺序。因此并发收集的结果可以按任意顺序传入。
 func AggregateScores(results []Result) Summary {
 	s := Summary{
 		Total:         len(results),
@@ -73,11 +73,11 @@ func AggregateScores(results []Result) Summary {
 	return s
 }
 
-// failureReasonKey normalizes a failure reason into a stable, rune-safe map
-// key. All Unicode whitespace is removed first so that reasons differing only
-// in spacing (common with CJK text) fall into the same bucket; clip then
-// truncates by runes, so CJK and emoji are never split mid-rune and the key
-// stays valid UTF-8.
+// failureReasonKey 将失败原因规范化为稳定、rune 安全的 map
+// 键。先移除所有 Unicode 空白，使仅在间距上不同的原因
+// 键。先移除所有 Unicode 空白，使仅在间距上不同的原因（CJK 文本常见）落入同一桶；然后 clip
+// 按 rune 截断，因此 CJK 和 emoji 从不在 rune 中间被切开，键保持有效 UTF-8。
+// 保持有效 UTF-8。
 func failureReasonKey(reason string) string {
 	stripped := strings.Map(func(r rune) rune {
 		if unicode.IsSpace(r) {

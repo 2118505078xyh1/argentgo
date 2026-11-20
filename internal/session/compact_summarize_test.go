@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// pathEntry builds a tool entry whose payload carries a file path, matching
-// the "path" key that pathsFromData collects.
+// pathEntry 构建工具条目，其载荷携带文件路径，匹配
+// pathsFromData 收集的 "path" 键。
 func pathEntry(path string) Entry {
 	data, _ := json.Marshal(map[string]any{"path": path})
 	return Entry{Role: "tool", Name: "edit", Data: data}
@@ -54,9 +54,9 @@ func TestSummarizeKeepsFailureOnNonFirstLine(t *testing.T) {
 }
 
 func TestSummarizeKeepsMostRecentFilesByAppearanceOrder(t *testing.T) {
-	// Appearance order: the three lexically largest paths are oldest, the
-	// three lexically smallest are newest. Sorting before tailItems (the old
-	// behaviour) would keep the wrong twelve.
+	// 出现顺序：字典序最大的三个路径最早，
+	// 字典序最小的三个最新。在 tailItems 之前排序（旧
+	// 行为）会保留错误的十二条。
 	paths := []string{
 		"z_old1.go", "z_old2.go", "z_old3.go",
 		"m04.go", "m05.go", "m06.go", "m07.go", "m08.go",
@@ -85,24 +85,24 @@ func TestSummarizeKeepsMostRecentFilesByAppearanceOrder(t *testing.T) {
 			t.Errorf("oldest file %q should have been dropped, got Files: %q", stale, got.Files)
 		}
 	}
-	// Display order is still sorted for a stable summary.
+	// 显示顺序仍然排序，以保持摘要稳定。
 	if got.Files[0] != "a_new1.go" || got.Files[11] != "m12.go" {
 		t.Errorf("Files not sorted for display: %q", got.Files)
 	}
 }
 
-// Summarize keeps only the most recent twelve file paths before sorting. When
-// the twelve-path cutoff falls inside a single payload that carries several
-// paths, the chosen subset must not depend on Go's randomized map iteration:
-// the same transcript must always produce the same "Files changed" section.
-// This mirrors the deterministic-key rule collectStrings uses in search.go.
+// Summarize 在排序前只保留最近十二条文件路径。当
+// 十二条路径的截断点恰好落在携带多条路径的单个载荷内部时，
+// 所选择的子集不得依赖 Go 随机化的 map 迭代：
+// 同一份转录必须始终产生相同的 "Files changed" 章节。
+// 这镜像了 search.go 中 collectStrings 使用的确定性键规则。
 func TestSummarizeFilesAreDeterministicAcrossRuns(t *testing.T) {
 	var dropped []Entry
 	for i := 0; i < 5; i++ {
 		dropped = append(dropped, pathEntry(fmt.Sprintf("a%d.go", i)))
 	}
-	// One payload carrying ten paths in random map order; combined with the
-	// entries below, tailItems(files, 12) cuts through this very block.
+	// 一个以随机 map 顺序携带十条路径的载荷；与下面的条目组合后，
+	// tailItems(files, 12) 恰好切过这个块。
 	multi, err := json.Marshal(map[string]any{
 		"path":      "p1.go",
 		"file":      "p2.go",
@@ -130,8 +130,8 @@ func TestSummarizeFilesAreDeterministicAcrossRuns(t *testing.T) {
 			t.Fatalf("Summarize.Files changed across runs:\n got %s\nwant %s", got, want)
 		}
 	}
-	// Whatever the internal appearance order, the five oldest paths must be
-	// the ones dropped and the eight newest ones the ones kept.
+	// 无论内部出现顺序如何，最早的五条路径必须
+	// 被丢弃，最新的八条必须被保留。
 	files := Summarize(dropped, 0).Files
 	if len(files) != 12 {
 		t.Fatalf("Files = %q, want 12 entries", files)
@@ -152,13 +152,13 @@ func TestSummarizeFilesAreDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
-// TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps covers repeated
-// compaction: a compaction record is stamped RetainAlways, so a later
-// compaction sees the previous summary as a system Entry (its Data is the old
-// Compaction payload) and re-runs the next-step heuristics on its markdown
-// text. The old summary's own "## Next steps" header matches the "next step"
-// marker, which used to surface as a literal "- ## Next steps" bullet in the
-// new summary. Markdown headings are structure, never a plan.
+// TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps 覆盖重复压缩：
+// 压缩记录被标记为 RetainAlways，因此后续
+// 压缩会把先前的摘要视为 system Entry（其 Data 是旧的
+// Compaction 载荷），并对其 markdown 文本重新运行下一步启发式。
+// 旧摘要自身的 "## Next steps" 标题匹配 "next step"
+// 标记，过去常在新摘要中变成字面量 "- ## Next steps" 的项目符号。
+// markdown 标题是结构，绝不是计划。
 func TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps(t *testing.T) {
 	oldSummary := "## Compaction\n- dropped 2 message(s), kept the last 1\n\n" +
 		"## Goal\n- build lexer\n\n" +
@@ -177,8 +177,8 @@ func TestSummarizeDoesNotPromoteSummaryHeadersToNextSteps(t *testing.T) {
 	}
 }
 
-// TestSummarizeStillKeepsGenuineNextStepAfterHeader guards the fix above from
-// dropping real next steps that follow a heading in the same content.
+// TestSummarizeStillKeepsGenuineNextStepAfterHeader 防止上面的修复
+// 丢弃同一内容中跟在标题之后的真实下一步。
 func TestSummarizeStillKeepsGenuineNextStepAfterHeader(t *testing.T) {
 	content := "## Plan\nNext steps: 加 lexer 并补测试"
 	data, _ := json.Marshal(map[string]any{"summary": content})
@@ -203,7 +203,7 @@ func TestSummarizeKeepsFirstLineMarkers(t *testing.T) {
 }
 
 func TestSummarizeUTF8ChineseAndClipping(t *testing.T) {
-	longStep := "下一步: " + strings.Repeat("补中文注释并跑测试", 60) // >200 runes
+	longStep := "下一步: " + strings.Repeat("补中文注释并跑测试", 60) // >200 符文
 	dropped := []Entry{
 		{Role: "user", Content: "目标：实现词法分析器"},
 		{Role: "assistant", Content: "已完成解析器。\n" + longStep},

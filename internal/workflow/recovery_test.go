@@ -140,8 +140,8 @@ func TestRecoveryStep(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// RecoveryStep is pure: keep a copy so a mutation of the journal is
-			// caught even when the returned decision is correct.
+			// RecoveryStep 是纯函数：保留一份副本，使日志的修改能被发现，即使返回的决策正确。
+			// 能被发现，即使返回的决策正确。
 			var before []StepRecord
 			if tc.journal != nil {
 				before = append([]StepRecord{}, tc.journal...)

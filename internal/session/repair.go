@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// DecodeKind says whether one physical JSONL line can be trusted.
+// DecodeKind 表示一条物理 JSONL 行是否可信。
 type DecodeKind int
 
 const (
@@ -19,15 +19,14 @@ const (
 	DecodeSchema
 )
 
-// ErrHardCorruption marks a transcript that cannot be safely repaired: a
-// schema error anywhere, or a syntax error on a non-final line.
+// ErrHardCorruption 标记无法安全修复的转录：任意位置出现 schema 错误，
+// 或非最后一行出现语法错误。
 var ErrHardCorruption = errors.New("session: hard corruption")
 
-// A session transcript is bounded so a damaged or hostile file cannot force an
-// unbounded read during validation.
+// 会话转录有大小上限，因此损坏或恶意文件无法在校验期间强制无界读取。
 const maxRepairBytes = 64 << 20
 
-// RepairReport summarizes one validation pass over a session transcript.
+// RepairReport 汇总对会话转录的一次校验。
 type RepairReport struct {
 	Path          string
 	PhysicalLines int
@@ -36,13 +35,10 @@ type RepairReport struct {
 	Repaired      bool
 }
 
-// ValidateAndRepair checks a JSONL transcript before a lenient readRecords
-// rebuilds the session tree on truncated history. Only a syntax error on the
-// LAST physical line is a recoverable torn tail; with repair set it is dropped
-// by publishing the valid prefix atomically. A schema error anywhere, or a
-// syntax error on a non-final line, is hard corruption and leaves the file
-// untouched. A valid file that merely lacks its final newline gets one appended
-// in a separate small repair.
+// ValidateAndRepair 在宽松的 readRecords 于历史被截断时重建会话树之前，检查 JSONL 转录。
+// 只有最后一条物理行上的语法错误才是可恢复的残缺尾部；设置 repair 时，
+// 会通过原子发布有效前缀来丢弃它。任意位置的 schema 错误，或非最后一条物理行上的语法错误，
+// 都属于严重损坏，文件保持不动。仅仅缺少末尾换行符的有效文件，会通过一次单独的小修复补上。
 func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 	report := RepairReport{Path: path}
 	info, err := os.Stat(path)
@@ -64,8 +60,8 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 	}
 
 	lines := strings.Split(string(data), "\n")
-	// Drop exactly one trailing empty string so the final physical line is the
-	// last real line, while an extra blank line remains visible as a torn tail.
+	// 恰好丢弃一个末尾空字符串，使最后一条物理行就是最后一条真实行，
+	// 而额外的空行仍作为残缺尾部可见。
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -90,10 +86,9 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 			if !repair {
 				return report, nil
 			}
-			// Terminate the kept prefix only when it actually holds a record.
-			// A torn first line leaves no prefix; writing a bare "\n" here would
-			// publish a blank line that decodeLine classifies as another torn
-			// tail, so every later resume would "repair" the file again forever.
+			// 仅当保留的前缀确实包含记录时才为其添加结束换行。
+			// 第一行残缺时不会留下任何前缀；在这里写入一个裸 "\n" 会发布一个空行，
+			// decodeLine 会把它归类为又一处残缺尾部，于是以后每次恢复都会永远"修复"该文件。
 			validPrefix := strings.Join(lines[:idx], "\n")
 			if idx > 0 {
 				validPrefix += "\n"
@@ -107,9 +102,8 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 	}
 
 	if repair && len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
-		// An empty file has no unterminated record to fix. Leaving it empty
-		// keeps a repaired transcript clean instead of introducing the blank
-		// line that would be reported as a torn tail on the next validation.
+		// 空文件没有未结束的记录需要修复。保持它为空可使修复后的转录保持干净，
+		// 而不是引入一条会在下次校验时被报告为残缺尾部的空行。
 		if err := appendRepairNewline(path); err != nil {
 			return report, fmt.Errorf("session: repair tail in %s: %w", path, err)
 		}
@@ -118,9 +112,8 @@ func ValidateAndRepair(path string, repair bool) (RepairReport, error) {
 	return report, nil
 }
 
-// decodeLine classifies one physical line and explains any rejection. Absent
-// id, parent and ts fields are legal because readRecords synthesizes an id and
-// leaves the other zero values untouched.
+// decodeLine 对一条物理行进行分类，并解释拒绝原因。缺少 id、parent 和 ts 字段是合法的，
+// 因为 readRecords 会合成 id，并让其他零值保持原样。
 func decodeLine(line string) (DecodeKind, string) {
 	trimmed := strings.TrimSpace(line)
 	if !json.Valid([]byte(line)) {
@@ -159,8 +152,7 @@ func decodeLine(line string) (DecodeKind, string) {
 	return DecodeOK, ""
 }
 
-// jsonString rejects null and non-string scalars, which encoding/json would
-// otherwise silently accept into a Go string.
+// jsonString 拒绝 null 和非字符串标量，否则 encoding/json 会静默把它们接受为 Go 字符串。
 func jsonString(raw json.RawMessage) (string, bool) {
 	if len(raw) == 0 {
 		return "", false
@@ -173,9 +165,9 @@ func jsonString(raw json.RawMessage) (string, bool) {
 	return text, ok
 }
 
-// atomicPublishJSONL stages a complete transcript next to its target, syncs it
-// before the rename, and cleans up the staged file on any failure. On Windows
-// os.Rename replaces the existing target (MOVEFILE_REPLACE_EXISTING).
+// atomicPublishJSONL 在目标文件旁边暂存一份完整的转录，在重命名前同步它，
+// 并在任何失败时清理暂存文件。在 Windows 上，os.Rename 会替换已有目标
+// （MOVEFILE_REPLACE_EXISTING）。
 func atomicPublishJSONL(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".jsonl-*.tmp")
@@ -210,8 +202,8 @@ func atomicPublishJSONL(path string, data []byte) error {
 	return nil
 }
 
-// syncRepairDir is best-effort: Windows reports EINVAL for directory handles
-// and some filesystems reject Sync outright, neither of which undoes a rename.
+// syncRepairDir 是尽力而为的：Windows 对目录句柄返回 EINVAL，某些文件系统直接拒绝 Sync，
+// 这两种情况都不会撤销重命名。
 func syncRepairDir(dir string) {
 	handle, err := os.Open(dir)
 	if err != nil {
@@ -221,20 +213,17 @@ func syncRepairDir(dir string) {
 	_ = handle.Close()
 }
 
-// RecoverProgress returns the latest durable assistant-progress checkpoint for
-// crash recovery, after rejecting checkpoints that are behind the session's
-// last committed assistant message.
+// RecoverProgress 返回用于崩溃恢复的最新持久 assistant 进度检查点，
+// 但会先拒绝落后于会话最后一条已提交 assistant 消息的检查点。
 //
-// Two guards keep recovery from rewinding the conversation:
-//   - Position: an assistant message recorded at or after the checkpoint means
-//     that turn already completed, so its mid-turn progress is obsolete.
-//   - Turn: a checkpoint whose Turn is not greater than the number of committed
-//     assistant messages on the active branch belongs to a turn that is already
-//     durable. Progress from the current, in-flight turn passes.
+// 两道防线防止恢复把对话倒退：
+//   - 位置：在检查点处或之后记录的 assistant 消息意味着该轮次已经完成，
+//     其中途进度已过时。
+//   - 轮次：Turn 不大于活动分支上已提交 assistant 消息数量的检查点，
+//     属于已经持久化的轮次。来自当前进行中轮次的进度可以通过。
 //
-// The boolean reports whether a valid checkpoint was found. This is advisory:
-// the agent decides whether to resume, replay or discard the returned text and
-// tool calls. ValidateAndRepair itself is unchanged.
+// 布尔值报告是否找到有效检查点。这是建议性的：
+// 由 agent 决定是恢复、重放还是丢弃返回的文本和工具调用。ValidateAndRepair 本身不变。
 func RecoverProgress(s *Session) (Progress, bool) {
 	records, err := s.Records()
 	if err != nil {
@@ -251,8 +240,8 @@ func RecoverProgress(s *Session) (Progress, bool) {
 			continue
 		}
 		if i >= progressIdx {
-			// A committed assistant message follows this checkpoint: the turn
-			// it belonged to is complete, so do not resume from mid-turn state.
+			// 一条已提交的 assistant 消息位于此检查点之后：它所属的轮次已完成，
+			// 因此不要从中途状态恢复。
 			return Progress{}, false
 		}
 		committed++
@@ -263,9 +252,8 @@ func RecoverProgress(s *Session) (Progress, bool) {
 	return progress, true
 }
 
-// appendRepairNewline fixes an unterminated final record without rewriting the
-// rest of the transcript. It is kept separate from torn-tail repair so a schema
-// error can never be masked by a cosmetic rewrite.
+// appendRepairNewline 修复未结束的最后一条记录，而不重写转录的其余部分。
+// 它与残缺尾部修复分开，因此 schema 错误永远不会被一次表面性的重写所掩盖。
 func appendRepairNewline(path string) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
