@@ -4,9 +4,35 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// blockingRunner parks a prompt until its ctx is cancelled or it is released,
+// so cancellation tests can observe the in-flight prompt's completion.
+type blockingRunner struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingRunner() *blockingRunner {
+	return &blockingRunner{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (b *blockingRunner) Prompt(ctx context.Context, text string, onText func(string)) (string, error) {
+	b.once.Do(func() { close(b.started) })
+	select {
+	case <-ctx.Done():
+		return "partial", ctx.Err()
+	case <-b.release:
+		return "done", nil
+	}
+}
+
+func (b *blockingRunner) Abort() {}
 
 func readJSON(t *testing.T, dec *json.Decoder) map[string]any {
 	t.Helper()
@@ -180,4 +206,83 @@ func TestRPCPromptWithEmptyTextIsRejected(t *testing.T) {
 	}
 	_ = inW.Close()
 	waitFor(t, done)
+}
+
+func TestRPCReturnsWhenContextCancelledWhileWaitingOnStdin(t *testing.T) {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	defer inW.Close()
+	defer outW.Close()
+	defer outR.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunRPC(ctx, inR, outW, Config{Runner: &fakeRunner{}})
+	}()
+
+	// inR has no data, so scanLines is blocked in Read. Cancelling must still
+	// unblock the consumer without needing EOF or a kill.
+	cancel()
+	waitFor(t, done)
+}
+
+func TestRPCInFlightPromptFinishesOnCancel(t *testing.T) {
+	runner := newBlockingRunner()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	defer inW.Close()
+	defer outW.Close()
+	defer outR.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunRPC(ctx, inR, outW, Config{Runner: runner})
+	}()
+
+	enc := json.NewEncoder(inW)
+	dec := json.NewDecoder(outR)
+	_ = enc.Encode(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "prompt",
+		"params": map[string]any{"text": "hi"},
+	})
+	<-runner.started // the prompt is now in flight
+
+	cancel()
+	resp := readJSON(t, dec)
+	body, _ := resp["result"].(map[string]any)
+	if body["stopReason"] != "cancelled" {
+		t.Fatalf("response = %v, want stopReason cancelled", resp)
+	}
+	waitFor(t, done)
+}
+
+func TestScanLinesTrimsAndSkipsBlankLines(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := scanLines(ctx, strings.NewReader("  first  \n\n\t\nsecond\n"))
+	var got []string
+	for res := range results {
+		if res.err != nil {
+			t.Fatalf("scan error: %v", res.err)
+		}
+		got = append(got, string(res.line))
+	}
+	if joined := strings.Join(got, ","); joined != "first,second" {
+		t.Fatalf("lines = %q, want %q", joined, "first,second")
+	}
+}
+
+func TestScanLinesPropagatesScannerError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := scanLines(ctx, strings.NewReader(strings.Repeat("x", 4*1024*1024+1)+"\n"))
+	for res := range results {
+		if res.err != nil {
+			if !strings.Contains(res.err.Error(), "token too long") {
+				t.Fatalf("scanner error = %v", res.err)
+			}
+			return
+		}
+	}
+	t.Fatal("scanner error was not reported")
 }

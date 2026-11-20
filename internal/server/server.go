@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // DefaultAddr is the loopback address used when Config.Addr is empty.
@@ -205,8 +207,13 @@ func (h *handler) abort(w http.ResponseWriter, r *http.Request) {
 //	data: {"type":"text","text":"..."}
 //	data: {"type":"done"}
 //
-// A user abort is a normal stop and ends with {"type":"cancelled"} instead of
-// an error event: the HTTP 200 header is already on the wire by then.
+// The HTTP 200 header is withheld until the first text event (or a terminal
+// cancelled event). If the runner fails before producing any text, the client
+// gets a non-2xx JSON error instead of a 200 carrying an error event, so a
+// status-code-only client cannot mistake a total failure for success. Once the
+// stream has started the status is committed, so a later failure is reported
+// with a terminal SSE error event. A user abort remains a normal 200 stop with
+// {"type":"cancelled"}.
 func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, http.MethodPost)
@@ -229,17 +236,29 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 
 	flusher, _ := w.(http.Flusher)
 	header := w.Header()
-	header.Set("Content-Type", "text/event-stream")
-	header.Set("Cache-Control", "no-cache")
-	header.Set("Connection", "keep-alive")
-	header.Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
+
+	// started tracks whether the SSE response header is already on the wire.
+	// Holding it back until the first event lets a pre-stream failure still
+	// choose an honest non-2xx status and a JSON body.
+	started := false
+	ensureStarted := func() {
+		if started {
+			return
+		}
+		header.Set("Content-Type", "text/event-stream")
+		header.Set("Cache-Control", "no-cache")
+		header.Set("Connection", "keep-alive")
+		header.Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		started = true
+	}
 
 	emit := func(payload any) bool {
 		line, err := json.Marshal(payload)
 		if err != nil {
 			return false
 		}
+		ensureStarted()
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", line); err != nil {
 			return false
 		}
@@ -263,15 +282,40 @@ func (h *handler) prompt(w http.ResponseWriter, r *http.Request) {
 	}
 	if runErr != nil {
 		if isCancelled(r.Context(), runErr) {
-			// Abort is not a failure. WriteHeader(200) already happened, so the
-			// only honest signal is a terminal SSE event of its own.
+			// Abort is not a failure; emitting the terminal cancelled event
+			// also commits the 200 header when no text preceded the abort.
 			emit(map[string]any{"type": "cancelled"})
 			return
 		}
-		emit(map[string]any{"type": "error", "error": runErr.Error()})
+		if started {
+			// The stream is already committed to 200, so the status can no
+			// longer be changed; terminate with a terminal SSE error event.
+			emit(map[string]any{"type": "error", "error": runErr.Error()})
+			return
+		}
+		writeError(w, promptFailureStatus(runErr), runErr.Error())
 		return
 	}
 	emit(map[string]any{"type": "done"})
+}
+
+// promptFailureStatus maps a genuine pre-stream runner failure to an HTTP
+// status. Auth (401) and rate-limit (429) failures are actionable client errors;
+// everything else is a 500 so clients cannot read an early failure as success.
+// The family classifier keeps this aligned with the CLI's error presentation.
+func promptFailureStatus(err error) int {
+	actionable := llm.ClassifyAPIError(err)
+	if actionable == nil {
+		return http.StatusInternalServerError
+	}
+	switch actionable.Family {
+	case llm.FamilyAuth:
+		return http.StatusUnauthorized
+	case llm.FamilyRateLimit:
+		return http.StatusTooManyRequests
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // requestText is the HTTP side of prompt extraction. The parsing and trim

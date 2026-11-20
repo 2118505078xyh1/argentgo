@@ -28,7 +28,15 @@ const (
 	maxTTLReadableRunes = 200
 	// ttlGrantsFile is the persistence file created inside dir.
 	ttlGrantsFile = "grants.json"
+	// ttlGrantsLockFile is a sidecar used for a cross-process lock. The OS owns
+	// the lock and drops it on process exit, so it never goes stale.
+	ttlGrantsLockFile = "grants.json.lock"
 )
+
+// errTTLUntrusted is returned by Allow when the persisted grant set could not
+// be read or decoded. The cache refuses to grant or to overwrite a file it
+// cannot trust; an explicit successful Load is required to recover.
+var errTTLUntrusted = errors.New("security: ttl grants untrusted")
 
 // ttlEntry is one persisted grant. ExpiresAt is absolute wall-clock time so a
 // grant written by a previous process keeps the same remaining lifetime after
@@ -45,9 +53,16 @@ type ttlEntry struct {
 // survive a restart when a directory is supplied. Denials are never recorded.
 //
 // Grants are stored as a JSON array in <dir>/grants.json, written atomically
-// (temp file + rename, mode 0600). Expired grants are dropped on read and on
-// write, and the set is capped at maxTTLGrantEntries. An empty dir makes the
-// cache memory-only.
+// (temp file + sync + rename, mode 0600). Expired grants are dropped on read
+// and on write, and the set is capped at maxTTLGrantEntries. An empty dir makes
+// the cache memory-only.
+//
+// When persisted, every write takes a cross-process lock on the sidecar
+// <dir>/grants.json.lock,
+// re-reads the latest grant set from disk and only then applies the change, so
+// two processes cannot clobber each other's grants. A file that cannot be read
+// or decoded fails closed: IsAllowed returns false and Allow returns an error
+// instead of silently starting from an empty (or fresh) grant set.
 type TTLCache struct {
 	mu      sync.Mutex
 	dir     string
@@ -56,11 +71,16 @@ type TTLCache struct {
 	// now is the expiry clock. Tests replace it with a fixed clock; it is set
 	// once at construction and never mutated afterwards.
 	now func() time.Time
+	// failed is set when the persisted grant file cannot be trusted. While set,
+	// no grant is honoured and no write is attempted. It is cleared by a
+	// successful Load (or a write whose re-read from disk succeeded).
+	failed bool
 }
 
 // NewTTLCache creates a cache with ttl (default 30 minutes when non-positive).
-// Persisted grants are loaded best-effort: a missing, unreadable or corrupt
-// file leaves an empty cache rather than failing construction.
+// Persisted grants are loaded from disk; a missing file is fine, but a read or
+// decode failure marks the cache untrusted so it fails closed rather than
+// treating the corrupt file as an empty grant set.
 func NewTTLCache(dir string, ttl time.Duration) *TTLCache {
 	if ttl <= 0 {
 		ttl = defaultTTLGrantLifetime
@@ -72,7 +92,9 @@ func NewTTLCache(dir string, ttl time.Duration) *TTLCache {
 		now:     time.Now,
 	}
 	if dir != "" {
-		_ = c.Load()
+		if err := c.Load(); err != nil {
+			c.failed = true
+		}
 	}
 	return c
 }
@@ -117,28 +139,49 @@ func canonicalTTLArgs(raw json.RawMessage) string {
 }
 
 // Allow records a grant for key that lives until now+ttl. readable is
-// sanitized, redacted and capped before it is stored or written to disk. A
-// persistence failure is returned, but the in-memory grant still applies for
-// the current process.
+// sanitized, redacted and capped before it is stored or written to disk. For a
+// persisted cache the on-disk set is re-read under the cross-process lock
+// before the grant is added, so a concurrent writer's grants are preserved. A
+// persistence write failure is returned but the in-memory grant still applies
+// for the current process; an untrusted grant file fails closed instead.
 func (c *TTLCache) Allow(key, readable string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	now := c.now()
-	c.purgeExpiredLocked(now)
-	c.entries[key] = ttlEntry{
-		Key:       key,
-		Readable:  ttlSafeContext(readable),
-		ExpiresAt: now.Add(c.ttl),
+	if c.failed {
+		return errTTLUntrusted
 	}
-	c.enforceCapLocked()
-	return c.saveLocked()
+	now := c.now()
+	if c.dir == "" {
+		purgeGrantEntries(c.entries, now)
+		c.entries[key] = newTTLGrant(key, readable, now.Add(c.ttl))
+		capGrantEntries(c.entries)
+		return nil
+	}
+	return c.withGrantLock(func() error {
+		entries, _, err := c.readGrantsLocked()
+		if err != nil {
+			c.failed = true
+			return err
+		}
+		purgeGrantEntries(entries, now)
+		entries[key] = newTTLGrant(key, readable, now.Add(c.ttl))
+		capGrantEntries(entries)
+		// Refresh the in-memory view before writing: the grant is live in this
+		// process even if the write itself fails.
+		c.entries = entries
+		return c.writeGrantsLocked(entries)
+	})
 }
 
 // IsAllowed reports whether key has an unexpired grant. An expired grant is
-// removed and, when persisted, rewritten to disk before returning false.
+// removed and, when persisted, rewritten to disk before returning false. When
+// the cache is untrusted it always reports false.
 func (c *TTLCache) IsAllowed(key string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.failed {
+		return false
+	}
 	entry, ok := c.entries[key]
 	if !ok {
 		return false
@@ -146,7 +189,16 @@ func (c *TTLCache) IsAllowed(key string) bool {
 	if !c.now().Before(entry.ExpiresAt) {
 		delete(c.entries, key)
 		if c.dir != "" {
-			_ = c.saveLocked()
+			_ = c.withGrantLock(func() error {
+				entries, _, err := c.readGrantsLocked()
+				if err != nil {
+					c.failed = true
+					return err
+				}
+				delete(entries, key)
+				c.entries = entries
+				return c.writeGrantsLocked(entries)
+			})
 		}
 		return false
 	}
@@ -158,106 +210,121 @@ func (c *TTLCache) IsAllowed(key string) bool {
 func (c *TTLCache) Deny(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.entries[key]; !ok {
+	if c.dir == "" {
+		delete(c.entries, key)
 		return
 	}
-	delete(c.entries, key)
-	if c.dir != "" {
-		_ = c.saveLocked()
+	if c.failed {
+		return
 	}
+	_ = c.withGrantLock(func() error {
+		entries, _, err := c.readGrantsLocked()
+		if err != nil {
+			c.failed = true
+			return err
+		}
+		if _, ok := entries[key]; !ok {
+			c.entries = entries
+			return nil
+		}
+		delete(entries, key)
+		c.entries = entries
+		return c.writeGrantsLocked(entries)
+	})
 }
 
 // Load reads <dir>/grants.json and keeps only unexpired grants; expired ones
 // are purged from both memory and the file. It is a no-op for a memory-only
-// cache and treats a missing file as success.
+// cache and treats a missing file as success. A read/decode failure returns an
+// error and marks the cache untrusted (fail-closed); a later successful Load
+// clears that state.
 func (c *TTLCache) Load() error {
 	if c.dir == "" {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.withGrantLock(func() error {
+		entries, dirty, err := c.readGrantsLocked()
+		if err != nil {
+			c.failed = true
+			return err
+		}
+		c.entries = entries
+		c.failed = false
+		if dirty {
+			return c.writeGrantsLocked(entries)
+		}
+		return nil
+	})
+}
+
+// withGrantLock runs fn while holding the cross-process lock on the sidecar
+// file. The caller must hold c.mu. It is a no-op for a memory-only cache.
+func (c *TTLCache) withGrantLock(fn func() error) error {
+	if c.dir == "" {
+		return fn()
+	}
+	if err := os.MkdirAll(c.dir, 0o700); err != nil {
+		return fmt.Errorf("security: create ttl grants dir: %w", err)
+	}
+	lk, err := ttlAcquireLock(filepath.Join(c.dir, ttlGrantsLockFile))
+	if err != nil {
+		return err
+	}
+	defer lk.Release()
+	return fn()
+}
+
+// readGrantsLocked reads the persisted grant set and returns a fresh map with
+// expired entries dropped and readable context re-sanitized. dirty reports
+// whether the file representation differs from the returned map and therefore
+// ought to be rewritten. A missing file is an empty, clean set; a read or
+// decode error is returned so callers can fail closed. The caller holds the
+// cross-process lock and c.mu.
+func (c *TTLCache) readGrantsLocked() (map[string]ttlEntry, bool, error) {
 	data, err := os.ReadFile(filepath.Join(c.dir, ttlGrantsFile))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return make(map[string]ttlEntry), false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("security: read ttl grants: %w", err)
+		return nil, false, fmt.Errorf("security: read ttl grants: %w", err)
 	}
 	var loaded []ttlEntry
 	if err := json.Unmarshal(data, &loaded); err != nil {
-		return fmt.Errorf("security: decode ttl grants: %w", err)
+		return nil, false, fmt.Errorf("security: decode ttl grants: %w", err)
 	}
 	now := c.now()
-	// Purge entries loaded earlier too: a second Load with a later clock must
-	// not write a stale in-memory grant back to the file.
-	purged := c.purgeExpiredLocked(now)
+	entries := make(map[string]ttlEntry, len(loaded))
+	dirty := false
 	for _, e := range loaded {
 		if e.Key == "" || !now.Before(e.ExpiresAt) {
-			purged = true
+			dirty = true
 			continue
 		}
 		// Re-sanitize on load so a hand-edited file cannot smuggle a secret in.
-		e.Readable = ttlSafeContext(e.Readable)
-		c.entries[e.Key] = e
-	}
-	if purged || c.enforceCapLocked() {
-		return c.saveLocked()
-	}
-	return nil
-}
-
-// purgeExpiredLocked drops grants whose expiry is not in the future. The
-// caller holds mu.
-func (c *TTLCache) purgeExpiredLocked(now time.Time) bool {
-	removed := false
-	for key, e := range c.entries {
-		if !now.Before(e.ExpiresAt) {
-			delete(c.entries, key)
-			removed = true
+		clean := ttlSafeContext(e.Readable)
+		if clean != e.Readable {
+			dirty = true
 		}
+		e.Readable = clean
+		entries[e.Key] = e
 	}
-	return removed
+	if capGrantEntries(entries) {
+		dirty = true
+	}
+	return entries, dirty, nil
 }
 
-// enforceCapLocked evicts the soonest-to-expire grants when the set grows past
-// maxTTLGrantEntries. Ordering by expiry keeps eviction deterministic and
-// drops the least-trusted grants first. The caller holds mu.
-func (c *TTLCache) enforceCapLocked() bool {
-	if len(c.entries) <= maxTTLGrantEntries {
-		return false
+// writeGrantsLocked atomically writes the whole grant set as a sorted JSON
+// array. The caller holds the cross-process lock and c.mu.
+func (c *TTLCache) writeGrantsLocked(entries map[string]ttlEntry) error {
+	list := make([]ttlEntry, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, e)
 	}
-	type expiring struct {
-		key string
-		at  time.Time
-	}
-	all := make([]expiring, 0, len(c.entries))
-	for key, e := range c.entries {
-		all = append(all, expiring{key: key, at: e.ExpiresAt})
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].at.Equal(all[j].at) {
-			return all[i].key < all[j].key
-		}
-		return all[i].at.Before(all[j].at)
-	})
-	for _, e := range all[:len(all)-maxTTLGrantEntries] {
-		delete(c.entries, e.key)
-	}
-	return true
-}
-
-// saveLocked atomically writes the whole grant set as a sorted JSON array.
-// The caller holds mu.
-func (c *TTLCache) saveLocked() error {
-	if c.dir == "" {
-		return nil
-	}
-	entries := make([]ttlEntry, 0, len(c.entries))
-	for _, e := range c.entries {
-		entries = append(entries, e)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
-	data, err := json.Marshal(entries)
+	sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
+	data, err := json.Marshal(list)
 	if err != nil {
 		return fmt.Errorf("security: encode ttl grants: %w", err)
 	}
@@ -278,6 +345,10 @@ func (c *TTLCache) saveLocked() error {
 		tmp.Close()
 		return fmt.Errorf("security: write ttl grants temp: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("security: sync ttl grants temp: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("security: close ttl grants temp: %w", err)
 	}
@@ -285,6 +356,50 @@ func (c *TTLCache) saveLocked() error {
 		return fmt.Errorf("security: rename ttl grants: %w", err)
 	}
 	return nil
+}
+
+// newTTLGrant builds a grant entry with sanitized, bounded readable context.
+func newTTLGrant(key, readable string, expires time.Time) ttlEntry {
+	return ttlEntry{Key: key, Readable: ttlSafeContext(readable), ExpiresAt: expires}
+}
+
+// purgeGrantEntries drops grants whose expiry is not in the future.
+func purgeGrantEntries(entries map[string]ttlEntry, now time.Time) bool {
+	removed := false
+	for key, e := range entries {
+		if !now.Before(e.ExpiresAt) {
+			delete(entries, key)
+			removed = true
+		}
+	}
+	return removed
+}
+
+// capGrantEntries evicts the soonest-to-expire grants when the set grows past
+// maxTTLGrantEntries. Ordering by expiry keeps eviction deterministic and
+// drops the least-trusted grants first.
+func capGrantEntries(entries map[string]ttlEntry) bool {
+	if len(entries) <= maxTTLGrantEntries {
+		return false
+	}
+	type expiring struct {
+		key string
+		at  time.Time
+	}
+	all := make([]expiring, 0, len(entries))
+	for key, e := range entries {
+		all = append(all, expiring{key: key, at: e.ExpiresAt})
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].at.Equal(all[j].at) {
+			return all[i].key < all[j].key
+		}
+		return all[i].at.Before(all[j].at)
+	})
+	for _, e := range all[:len(all)-maxTTLGrantEntries] {
+		delete(entries, e.key)
+	}
+	return true
 }
 
 // ttlSafeContext strips control bytes, redacts credential-shaped spans and

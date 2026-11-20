@@ -19,16 +19,18 @@ import (
 
 // scriptedChatter returns one scripted answer per request, without a network.
 type scriptedChatter struct {
-	mu      sync.Mutex
-	replies []string
-	calls   int
-	systems []string
+	mu         sync.Mutex
+	replies    []string
+	calls      int
+	systems    []string
+	specCounts []int
 }
 
-func (f *scriptedChatter) Chat(_ context.Context, _ string, messages []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
+func (f *scriptedChatter) Chat(_ context.Context, _ string, messages []llm.Message, toolSpecs []llm.ToolSpec, onText func(string)) (llm.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.specCounts = append(f.specCounts, len(toolSpecs))
 	for _, message := range messages {
 		if message.Role == "system" {
 			f.systems = append(f.systems, message.Content)
@@ -317,6 +319,106 @@ func TestExecuteAcceptsValidSchemaOnFirstTry(t *testing.T) {
 	}
 	if chatter.callCount() != 1 {
 		t.Fatalf("model calls = %d, want 1", chatter.callCount())
+	}
+}
+
+// TestExecuteSchemaRetryReplacesFirstAnswerOnClient pins the duplicate-text
+// bug: the corrective turn must replace, not append to, the text already
+// streamed to onText, and it must not advertise tools to the model.
+func TestExecuteSchemaRetryReplacesFirstAnswerOnClient(t *testing.T) {
+	env, _ := testEnv(t)
+	schema := `{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}}}`
+	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: t.TempDir(), OutputSchema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatter := &scriptedChatter{replies: []string{"not json", `{"ok":true}`}}
+	res.Chatter = chatter
+	store := testStore(t, res)
+	sess, err := store.NewSession("schema-replace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var streamed strings.Builder
+	result, err := Execute(context.Background(), cli.IO{Env: env}, res, sess, "prompt", func(chunk string) {
+		streamed.WriteString(chunk)
+	})
+	if err != nil {
+		t.Fatalf("Execute after successful retry: %v", err)
+	}
+	if got := streamed.String(); got != `{"ok":true}` {
+		t.Fatalf("client text = %q, want only the corrected JSON", got)
+	}
+	if result.Text != `{"ok":true}` {
+		t.Fatalf("result text = %q", result.Text)
+	}
+	if chatter.callCount() != 2 {
+		t.Fatalf("model calls = %d, want 2", chatter.callCount())
+	}
+	if len(chatter.specCounts) != 2 || chatter.specCounts[1] != 0 {
+		t.Fatalf("corrective call advertised %v tool specs, want none", chatter.specCounts)
+	}
+}
+
+// mutatingThenInvalidChatter asks for one write, then answers with text that
+// fails schema validation. A third call would mean a forbidden retry.
+type mutatingThenInvalidChatter struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *mutatingThenInvalidChatter) Chat(_ context.Context, _ string, _ []llm.Message, _ []llm.ToolSpec, onText func(string)) (llm.Message, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	switch c.calls {
+	case 1:
+		return llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "c1", Type: "function",
+			Function: llm.ToolCallFunction{Name: "write", Arguments: `{"path":"side-effect.txt","content":"x"}`},
+		}}}, nil
+	case 2:
+		if onText != nil {
+			onText("not json")
+		}
+		return llm.Message{Role: "assistant", Content: "not json"}, nil
+	default:
+		if onText != nil {
+			onText(`{"ok":true}`)
+		}
+		return llm.Message{Role: "assistant", Content: `{"ok":true}`}, nil
+	}
+}
+
+// TestExecuteSchemaRetrySkippedAfterMutatingTool pins the side-effect bug:
+// once a mutating tool has run, a schema failure must not re-run the prompt,
+// because that would execute the same tool a second time.
+func TestExecuteSchemaRetrySkippedAfterMutatingTool(t *testing.T) {
+	env, _ := testEnv(t)
+	root := t.TempDir()
+	schema := `{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean"}}}`
+	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root, OutputSchema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Approve = autoApprover{}
+	chatter := &mutatingThenInvalidChatter{}
+	res.Chatter = chatter
+	store := testStore(t, res)
+	sess, err := store.NewSession("schema-mutating")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Execute(context.Background(), cli.IO{Env: env}, res, sess, "prompt", nil)
+	if err == nil || !strings.Contains(err.Error(), "mutating tool already ran") {
+		t.Fatalf("err = %v, want the skip-retry validation error", err)
+	}
+	if chatter.calls != 2 {
+		t.Fatalf("model calls = %d, want 2 (no corrective retry)", chatter.calls)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "side-effect.txt"))
+	if err != nil || string(data) != "x" {
+		t.Fatalf("mutating tool ran with data %q, err %v", data, err)
 	}
 }
 

@@ -7,10 +7,72 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
+
+// rpcAbsPath matches an absolute filesystem path embedded in a session-layer
+// error. Both Windows drive roots (C:\...) and POSIX roots (/...) are covered;
+// a leading delimiter is kept so the surrounding wording stays readable. The
+// trailing class stops at whitespace and the usual quoting/colon delimiters so
+// the error reason that follows a path is preserved.
+var rpcAbsPath = regexp.MustCompile(`(^|[\s"'=(:;])((?:[A-Za-z]:[\\/])|/)[^\s"'<>|:]*`)
+
+// scrubSessionLoadError prepares a session.load failure for the JSON-RPC reply.
+// Session-layer errors interpolate the absolute storage directory (e.g.
+// C:\Users\<user>\.argentgo\sessions\<id>.jsonl), which must not cross the RPC
+// boundary. Credential-shaped spans are redacted and absolute paths are folded
+// to a placeholder; the canonical reason (and the caller-supplied session id)
+// survive so the client still learns why the load failed. The unredacted detail
+// stays on the server side for logging.
+func scrubSessionLoadError(id string, err error) string {
+	msg := security.Redact(err.Error())
+	msg = rpcAbsPath.ReplaceAllString(msg, "${1}<storage>/...")
+	return fmt.Sprintf("load session %q: %s", id, msg)
+}
+
+// scanResult is one item from scanLines: either a trimmed, non-empty input
+// line, or the terminal Scanner error. An error item, when present, is the last
+// one before the channel closes.
+type scanResult struct {
+	line []byte
+	err  error
+}
+
+// scanLines reads newline-delimited input on a background goroutine so a
+// transport can react to ctx cancellation even while stdin has no data ready —
+// a bare scanner.Scan() would block the transport's own goroutine in Read and
+// swallow Ctrl-C. Lines are copied because Scanner reuses its buffer between
+// Scan calls.
+func scanLines(ctx context.Context, in io.Reader) <-chan scanResult {
+	results := make(chan scanResult)
+	go func() {
+		defer close(results)
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			line := bytes.TrimSpace(scanner.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			buf := append([]byte(nil), line...)
+			select {
+			case results <- scanResult{line: buf}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			select {
+			case results <- scanResult{err: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return results
+}
 
 // RunRPC serves newline-delimited JSON-RPC 2.0 over in/out until in reaches
 // EOF or ctx is cancelled.
@@ -32,25 +94,36 @@ func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 		wg.Wait()
 	}()
 
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+	results := scanLines(ctx, in)
+	for {
+		// Prioritise cancellation so a queued line cannot delay the exit.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
 		}
-		var req request
-		if err := json.Unmarshal(line, &req); err != nil {
-			p.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error())
-			continue
+		select {
+		case <-ctx.Done():
+			return nil
+		case res, ok := <-results:
+			if !ok { // EOF
+				return nil
+			}
+			if res.err != nil {
+				return res.err
+			}
+			var req request
+			if err := json.Unmarshal(res.line, &req); err != nil {
+				p.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error())
+				continue
+			}
+			if req.Method == "" {
+				p.fail(req.ID, codeInvalidRequest, "missing method")
+				continue
+			}
+			handleRPCRequest(ctx, p, cfg, req, &wg, hub)
 		}
-		if req.Method == "" {
-			p.fail(req.ID, codeInvalidRequest, "missing method")
-			continue
-		}
-		handleRPCRequest(ctx, p, cfg, req, &wg, hub)
 	}
-	return scanner.Err()
 }
 
 func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg *sync.WaitGroup, hub *EventHub) {
@@ -134,7 +207,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		}
 		events, err := cfg.Sessions.Load(id)
 		if err != nil {
-			p.fail(req.ID, codeServerError, fmt.Sprintf("load session %q: %v", id, err))
+			p.fail(req.ID, codeServerError, scrubSessionLoadError(id, err))
 			return
 		}
 		if events == nil {

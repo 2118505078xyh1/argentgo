@@ -214,16 +214,20 @@ func approvalCacheKey(name, args string) approvalKey {
 }
 
 // ScopedApprover is a portable building block that layers in-memory approval
-// grants on top of any Approver: a tool name can be permanently allowed
-// (GrantAlways) or allowed for a bounded number of calls (GrantN). Grants live
-// only for the lifetime of this wrapper. It is deliberately additive and is
-// not wired into the default security chain, so callers opt in explicitly and
-// existing approval behaviour is unchanged.
+// decisions on top of any Approver. It mirrors goose's three permission levels:
+// never (Deny), always (GrantAlways) and ask (delegate to inner), with a bounded
+// middle ground (GrantN). Deny is absolute: a refused tool name is turned down
+// on every Ask before any grant or the inner approver is consulted, even if it
+// was always-granted earlier. Grants and refusals live only for the lifetime of
+// this wrapper. It is deliberately additive and is not wired into the default
+// security chain, so callers opt in explicitly and existing approval behaviour
+// is unchanged.
 type ScopedApprover struct {
 	inner   Approver
 	mu      sync.Mutex
 	always  map[string]bool
 	limited map[string]int
+	deny    map[string]bool
 }
 
 // NewScopedApprover wraps inner. Without an inner approver delegated calls are
@@ -236,6 +240,7 @@ func NewScopedApprover(inner Approver) *ScopedApprover {
 		inner:   inner,
 		always:  make(map[string]bool),
 		limited: make(map[string]int),
+		deny:    make(map[string]bool),
 	}
 }
 
@@ -257,11 +262,56 @@ func (s *ScopedApprover) GrantN(name string, n int) {
 	s.limited[name] += n
 }
 
-// Ask consumes a grant for name when one exists and approves without asking
-// inner; otherwise it delegates to inner. An always grant wins over an N grant
-// and leaves the N budget untouched.
+// Deny records an explicit refusal for name (goose's "never" level). A denied
+// name is turned down on every Ask before any grant or the inner approver is
+// consulted. Deny is sticky and absolute: a later GrantAlways or GrantN does
+// not re-enable it. Use RevokePrefix to clear a refusal.
+func (s *ScopedApprover) Deny(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deny[name] = true
+}
+
+// RevokePrefix removes every grant and refusal whose tool name starts with
+// prefix. MCP tools are named "server__tool", so uninstalling a server calls
+// RevokePrefix("server__") to drop all approvals and denials for that server.
+// An empty prefix clears the whole wrapper. It returns the number of map
+// entries removed (a name may be counted once per bucket it appeared in).
+func (s *ScopedApprover) RevokePrefix(prefix string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	for name := range s.always {
+		if strings.HasPrefix(name, prefix) {
+			delete(s.always, name)
+			removed++
+		}
+	}
+	for name := range s.limited {
+		if strings.HasPrefix(name, prefix) {
+			delete(s.limited, name)
+			removed++
+		}
+	}
+	for name := range s.deny {
+		if strings.HasPrefix(name, prefix) {
+			delete(s.deny, name)
+			removed++
+		}
+	}
+	return removed
+}
+
+// Ask applies the permission levels in deny-first order: a denied name is
+// refused immediately, then an always grant, then an N grant (which is
+// consumed), and otherwise the call delegates to inner ("ask"). An always
+// grant wins over an N grant and leaves the N budget untouched.
 func (s *ScopedApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
 	s.mu.Lock()
+	if s.deny[name] {
+		s.mu.Unlock()
+		return false, nil
+	}
 	if s.always[name] {
 		s.mu.Unlock()
 		return true, nil

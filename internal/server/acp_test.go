@@ -127,3 +127,52 @@ func TestACPPromptForUnknownSession(t *testing.T) {
 	_ = inW.Close()
 	waitFor(t, done)
 }
+
+func TestACPReturnsWhenContextCancelledWhileWaitingOnStdin(t *testing.T) {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	defer inW.Close()
+	defer outW.Close()
+	defer outR.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunACP(ctx, inR, outW, Config{Runner: &fakeRunner{}})
+	}()
+
+	// No data on inR: scanLines is blocked in Read, so only ctx can wake us.
+	cancel()
+	waitFor(t, done)
+}
+
+func TestACPInFlightPromptFinishesOnCancel(t *testing.T) {
+	runner := newBlockingRunner()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	defer inW.Close()
+	defer outW.Close()
+	defer outR.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- RunACP(ctx, inR, outW, Config{Runner: runner})
+	}()
+
+	enc := json.NewEncoder(inW)
+	dec := json.NewDecoder(outR)
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "session/new"})
+	readJSON(t, dec) // session/new result
+	_ = enc.Encode(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+		"params": map[string]any{"prompt": []map[string]any{{"type": "text", "text": "hi"}}},
+	})
+	<-runner.started // the prompt is now in flight
+
+	cancel()
+	resp := readJSON(t, dec)
+	body, _ := resp["result"].(map[string]any)
+	if body["stopReason"] != "cancelled" {
+		t.Fatalf("response = %v, want stopReason cancelled", resp)
+	}
+	waitFor(t, done)
+}

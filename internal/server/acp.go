@@ -1,8 +1,6 @@
 package server
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -35,25 +33,36 @@ func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error 
 		wg.Wait()
 	}()
 
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+	results := scanLines(ctx, in)
+	for {
+		// Prioritise cancellation so a queued line cannot delay the exit.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
 		}
-		var req request
-		if err := json.Unmarshal(line, &req); err != nil {
-			state.peer.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error())
-			continue
+		select {
+		case <-ctx.Done():
+			return nil
+		case res, ok := <-results:
+			if !ok { // EOF
+				return nil
+			}
+			if res.err != nil {
+				return res.err
+			}
+			var req request
+			if err := json.Unmarshal(res.line, &req); err != nil {
+				state.peer.fail(json.RawMessage("null"), codeParseError, "parse error: "+err.Error())
+				continue
+			}
+			if req.Method == "" {
+				state.peer.fail(req.ID, codeInvalidRequest, "missing method")
+				continue
+			}
+			state.handle(ctx, req, &wg)
 		}
-		if req.Method == "" {
-			state.peer.fail(req.ID, codeInvalidRequest, "missing method")
-			continue
-		}
-		state.handle(ctx, req, &wg)
 	}
-	return scanner.Err()
 }
 
 type acpState struct {

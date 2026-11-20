@@ -257,6 +257,40 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// multiple sessions) cannot clear each other's barrier or sync a stale
 	// session bound to an earlier run.
 	flush := func() error { return sess.Sync() }
+
+	// Schema-constrained runs buffer the root answer (text deltas + stop) until
+	// it passes validation. A corrective turn can then replace that answer on
+	// the client instead of appending a second copy. Runs without --output-schema
+	// keep the original live-streaming path byte-for-byte.
+	schemaMode := strings.TrimSpace(res.OutputSchema) != ""
+	var pendingTexts []agent.Event
+	var pendingStop *agent.Event
+	mutatingRan := false
+
+	forwardEvent := func(event agent.Event) {
+		// Publish to the per-run event hub so --serve / --rpc subscribers
+		// (SSE /v1/event, event/subscribe) see real agent events. The sink is
+		// injected into ctx by runner.Prompt; a no-op when absent.
+		EmitEvent(ctx, event)
+		// Feed the live usage tool so it reports real token totals.
+		if event.Kind == agent.EventUsage {
+			toolset.UpdateUsage(event.Turn, event.Usage, event.TotalUsage)
+		}
+		if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
+			onText(event.Text)
+		}
+	}
+	flushAnswer := func() {
+		for _, event := range pendingTexts {
+			forwardEvent(event)
+		}
+		pendingTexts = nil
+		if pendingStop != nil {
+			forwardEvent(*pendingStop)
+			pendingStop = nil
+		}
+	}
+
 	loop := &agent.Runner{Opts: agent.Options{
 		BeforeRequest: flush,
 		BeforeTool:    flush,
@@ -321,24 +355,28 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			evidence = e
 		},
 		Emit: func(event agent.Event) {
-			// Publish to the per-run event hub so --serve / --rpc subscribers
-			// (SSE /v1/event, event/subscribe) see real agent events. The sink is
-			// injected into ctx by runner.Prompt; a no-op when absent.
-			EmitEvent(ctx, event)
-			// Feed the live usage tool so it reports real token totals.
-			if event.Kind == agent.EventUsage {
-				toolset.UpdateUsage(event.Turn, event.Usage, event.TotalUsage)
+			if schemaMode {
+				switch {
+				case event.Kind == agent.EventTextDelta && event.Depth == 0:
+					pendingTexts = append(pendingTexts, event)
+					return
+				case event.Kind == agent.EventStop:
+					stop := event
+					pendingStop = &stop
+					return
+				case event.Kind == agent.EventCheckpointReady:
+					// The agent emits this immediately before a batch that
+					// contains a mutating tool, so it is a reliable signal that
+					// side effects already happened and must never be repeated.
+					mutatingRan = true
+				}
 			}
-			if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
-				onText(event.Text)
-			}
+			forwardEvent(event)
 		},
 	}}
 	// One fresh queue per root run. Finished background children are delivered
 	// only to the run (and, for a resumed Runner, the later prompts on that same
 	// Runner) that owns this queue; never to an unrelated concurrent session.
-	// The schema-retry Run below reuses loop.Opts, so it shares this queue and
-	// its owner identity with the first attempt.
 	bg := agent.NewBackgroundResults(0, 0)
 	configureSubagents(&loop.Opts, res, bg)
 	// Per-model edit-format guidance is opt-in so byte-exact system-prompt
@@ -351,21 +389,37 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)
-	if err == nil && strings.TrimSpace(res.OutputSchema) != "" {
+	if schemaMode && err == nil {
 		if invalid := validateOutputText(res.OutputSchema, result.Text); invalid != nil {
-			// One corrective turn gives the model the exact failure instead of
-			// failing the whole run on a formatting slip.
-			loop.Opts.System = system + correctiveInstruction(res.OutputSchema, invalid)
-			if retried, retryErr := loop.Run(ctx, prompt); retryErr == nil {
-				result = retried
-				if invalid = validateOutputText(res.OutputSchema, result.Text); invalid != nil {
-					err = fmt.Errorf("output schema validation failed after one retry: %w", invalid)
+			switch {
+			case mutatingRan:
+				// A mutating tool already ran. Re-running the prompt would repeat
+				// its side effects, so surface the failure instead of retrying.
+				err = fmt.Errorf("output schema validation failed (auto-retry skipped: a mutating tool already ran): %w", invalid)
+			default:
+				// No tool side effects to repeat: append one corrective user turn
+				// to the SAME conversation and ask the model once more. This
+				// bypasses the agent loop entirely - no tools are advertised and
+				// no tool events are emitted - so neither text nor tool work is
+				// duplicated on the client.
+				corrected, cerr := correctSchemaAnswer(ctx, loop.Opts.Chatter, loop.Opts.Model, system, result.Messages, res.OutputSchema, invalid)
+				if cerr != nil {
+					err = fmt.Errorf("output schema retry failed: %w", cerr)
+				} else if again := validateOutputText(res.OutputSchema, corrected); again != nil {
+					err = fmt.Errorf("output schema validation failed after one retry: %w", again)
+				} else {
+					// Replace (rather than append to) the buffered first answer.
+					result.Text = corrected
+					result.Turns++
+					pendingTexts = []agent.Event{{Kind: agent.EventTextDelta, Turn: result.Turns, Depth: 0, Text: corrected}}
+					pendingStop = &agent.Event{Kind: agent.EventStop, Reason: agent.StopComplete}
+					_ = sess.Append("user", schemaCorrectionUserTurn)
+					_ = sess.Append("assistant", corrected)
 				}
-			} else {
-				err = retryErr
 			}
 		}
 	}
+	flushAnswer()
 	bridge.stop(ctx, prompt, result.Text)
 	tracker.finish(err != nil || ctx.Err() != nil)
 	recordAttempt(sess, ctx, err)
@@ -376,6 +430,49 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		"usage":   result.Usage,
 	})
 	return result, err
+}
+
+// schemaCorrectionUserTurn is the one user turn appended to an existing
+// conversation when --output-schema validation fails. The schema and the exact
+// failure go into the system message (correctiveInstruction); this turn only
+// tells the model that a single corrected answer is expected.
+const schemaCorrectionUserTurn = "Your previous reply did not satisfy the required output schema. Reply once more with a single JSON document that conforms exactly to the schema and nothing else."
+
+// correctSchemaAnswer asks the model for one corrected answer on the existing
+// conversation. It deliberately bypasses the agent loop: the chatter is called
+// directly with no tool specs, so the retry cannot call a tool, emit a tool
+// event, or re-run the original prompt. The caller owns publishing the returned
+// text as the single replacement answer.
+func correctSchemaAnswer(ctx context.Context, chatter llm.Chatter, model, system string, messages []llm.Message, schema string, invalid error) (string, error) {
+	if chatter == nil {
+		return "", fmt.Errorf("no chatter configured: %w", invalid)
+	}
+	instruction := correctiveInstruction(schema, invalid)
+	request := make([]llm.Message, 0, len(messages)+2)
+	systemFound := false
+	for _, message := range messages {
+		if message.Role == "system" && !systemFound {
+			message.Content = system + instruction
+			systemFound = true
+		}
+		request = append(request, message)
+	}
+	if !systemFound {
+		request = append([]llm.Message{{Role: "system", Content: system + instruction}}, request...)
+	}
+	request = append(request, llm.Message{Role: "user", Content: schemaCorrectionUserTurn})
+
+	var streamed strings.Builder
+	reply, err := chatter.Chat(ctx, model, request, nil, func(chunk string) {
+		streamed.WriteString(chunk)
+	})
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(reply.Content) != "" {
+		return reply.Content, nil
+	}
+	return streamed.String(), nil
 }
 
 func firstLine(text string, limit int) string {

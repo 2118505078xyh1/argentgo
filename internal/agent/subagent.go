@@ -505,8 +505,21 @@ func (t *taskTools) childOptions(label, persona string) Options {
 	if model == "" {
 		model = t.parent.Model
 	}
+	// Carry the parent's fallback chain into the child. FallbackModels[0] is
+	// the primary, so an explicit child model (a --secondary-model or a
+	// persona choice) replaces only that first entry; the parent's backups
+	// stay in the same order. Copy the slice so siblings never share mutable
+	// state with the parent's config.
+	fallback := t.parent.FallbackModels
+	if model != "" && len(fallback) > 0 {
+		fb := make([]string, len(fallback))
+		copy(fb, fallback)
+		fb[0] = model
+		fallback = fb
+	}
 	return Options{
 		Model:            model,
+		FallbackModels:   fallback,
 		MaxTurns:         budget.MaxTurns,
 		MaxParallel:      t.parent.MaxParallel,
 		System:           system,

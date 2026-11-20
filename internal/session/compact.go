@@ -353,6 +353,11 @@ func Summarize(dropped []Entry, keep int) Compaction {
 	writeSection(&summary, "Files changed", files)
 	writeSection(&summary, "Failures", failures)
 	writeSection(&summary, "Next steps", next)
+	// Deterministic, zero-LLM account of the reads/edits/commands that were
+	// dropped, so a resumed turn does not repeat them or forget a change.
+	if activity := summarizeToolActivity(dropped); activity != "" {
+		summary.WriteString(activity)
+	}
 
 	return Compaction{
 		Summary:   summary.String(),
