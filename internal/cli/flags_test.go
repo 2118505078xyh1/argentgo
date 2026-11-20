@@ -247,8 +247,8 @@ func TestParseArgsFlags(t *testing.T) {
 				if len(pos) != 1 || pos[0] != "-m" {
 					t.Fatalf("positional = %v", pos)
 				}
-				if o.Model != "gpt-4o-mini" {
-					t.Fatalf("model = %q", o.Model)
+				if o.Model != "" {
+					t.Fatalf("model = %q, want unset (default applied by app.Resolve)", o.Model)
 				}
 			},
 		},
@@ -289,6 +289,40 @@ func TestParseArgsFlags(t *testing.T) {
 			want: func(t *testing.T, o *Options, _ []string) {
 				if o.MaxTurns != 9 {
 					t.Fatalf("maxTurns = %d", o.MaxTurns)
+				}
+			},
+		},
+		{
+			name: "no flags leave defaults unset for the config layer",
+			args: []string{"hello"},
+			want: func(t *testing.T, o *Options, _ []string) {
+				if o.Model != "" || o.BaseURL != "" || o.Protocol != "" ||
+					o.SandboxMode != "" || o.Approval != "" || o.Mode != "" ||
+					o.Provider != "" || o.Locale != "" {
+					t.Fatalf("compiled defaults leaked into Options: %+v", o)
+				}
+			},
+		},
+		{
+			name: "explicit flags keep highest priority",
+			args: []string{"-m", "m1", "--protocol", "anthropic", "--base-url", "http://x.test/v1",
+				"--sandbox-mode", "read-only", "--approval", "never", "--mode", "json",
+				"--provider", "custom", "--locale", "fr-FR"},
+			want: func(t *testing.T, o *Options, _ []string) {
+				if o.Model != "m1" || o.Protocol != ProtocolAnthropic ||
+					o.BaseURL != "http://x.test/v1" || o.SandboxMode != SandboxReadOnly ||
+					o.Approval != ApprovalNever || o.Mode != ModeJSON ||
+					o.Provider != "custom" || o.Locale != "fr-FR" {
+					t.Fatalf("flags not preserved: %+v", o)
+				}
+			},
+		},
+		{
+			name: "wire protocol name is accepted",
+			args: []string{"--protocol", "openai-chat-completions"},
+			want: func(t *testing.T, o *Options, _ []string) {
+				if o.Protocol != "openai-chat-completions" {
+					t.Fatalf("protocol = %q", o.Protocol)
 				}
 			},
 		},

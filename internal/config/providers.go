@@ -4,12 +4,15 @@ import "strings"
 
 // Provider is one provider template: where to send requests, which wire
 // protocol to speak, which environment variable holds the key, and the model
-// used when none is configured.
+// used when none is configured. APIKey is the credential written by
+// `argent login` under providers.<name>.apiKey; callers prefer it over the
+// provider's environment variable but still allow an explicit flag to win.
 type Provider struct {
 	Name         string
 	BaseURL      string
 	Protocol     string
 	APIKeyEnv    string
+	APIKey       string
 	DefaultModel string
 }
 
@@ -77,6 +80,9 @@ func (c Config) Provider(name string) (Provider, bool) {
 		if overlay.APIKeyEnv != "" {
 			provider.APIKeyEnv = overlay.APIKeyEnv
 		}
+		if overlay.APIKey != "" {
+			provider.APIKey = overlay.APIKey
+		}
 		if overlay.DefaultModel != "" {
 			provider.DefaultModel = overlay.DefaultModel
 		}
@@ -116,6 +122,7 @@ func providersFrom(tree map[string]any) map[string]Provider {
 			BaseURL:      stringField(entry, "baseURL", "baseUrl", "base_url"),
 			Protocol:     stringField(entry, "protocol"),
 			APIKeyEnv:    stringField(entry, "apiKeyEnv", "api_key_env"),
+			APIKey:       stringField(entry, "apiKey", "api_key", "api-key"),
 			DefaultModel: stringField(entry, "defaultModel", "default_model", "model"),
 		}
 	}

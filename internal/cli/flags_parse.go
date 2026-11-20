@@ -112,16 +112,18 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	opts.PriceOutput = floatSetting(set, "price-output", *values.priceOutput, env, "ARGENT_PRICE_OUTPUT",
 		overrideFloat(&overrides, "priceOutput", "price-output"))
 
-	// Config-file overrides sit below env and flags.
-	opts.Model = firstNonEmpty(opts.Model, overrideValue(&overrides, "model"), "gpt-4o-mini")
-	opts.BaseURL = firstNonEmpty(opts.BaseURL, overrideValue(&overrides, "baseUrl", "base-url", "base_url"), "https://api.openai.com/v1")
+	// -c overrides sit below env and flags. Leave compiled defaults out of
+	// Options: an empty field means "unset" and lets app.Resolve prefer the
+	// config file / profile layer over the compiled default.
+	opts.Model = firstNonEmpty(opts.Model, overrideValue(&overrides, "model"))
+	opts.BaseURL = firstNonEmpty(opts.BaseURL, overrideValue(&overrides, "baseUrl", "base-url", "base_url"))
 	opts.APIKey = firstNonEmpty(opts.APIKey, overrideValue(&overrides, "apiKey", "api-key", "api_key"))
-	opts.Protocol = firstNonEmpty(opts.Protocol, overrideValue(&overrides, "protocol"), ProtocolOpenAI)
+	opts.Protocol = firstNonEmpty(opts.Protocol, overrideValue(&overrides, "protocol"))
 	opts.Provider = firstNonEmpty(opts.Provider, overrideValue(&overrides, "provider"))
 	opts.Locale = firstNonEmpty(opts.Locale, overrideValue(&overrides, "locale"))
-	opts.SandboxMode = firstNonEmpty(opts.SandboxMode, overrideValue(&overrides, "sandboxMode", "sandbox-mode"), SandboxWorkspaceWrite)
-	opts.Approval = firstNonEmpty(opts.Approval, overrideValue(&overrides, "approval"), ApprovalAsk)
-	opts.Mode = firstNonEmpty(opts.Mode, overrideValue(&overrides, "mode"), ModeText)
+	opts.SandboxMode = firstNonEmpty(opts.SandboxMode, overrideValue(&overrides, "sandboxMode", "sandbox-mode"))
+	opts.Approval = firstNonEmpty(opts.Approval, overrideValue(&overrides, "approval"))
+	opts.Mode = firstNonEmpty(opts.Mode, overrideValue(&overrides, "mode"))
 
 	if !set["max-turns"] {
 		if value := env("ARGENT_MAX_TURNS"); value != "" {
@@ -199,23 +201,28 @@ func overrideFloat(o *Overrides, keys ...string) float64 {
 }
 
 func (o *Options) validate() error {
+	// Empty means "unset": the compiled default is applied by app.Resolve,
+	// after the config file and profile layers have had their say.
 	switch o.Mode {
-	case ModeText, ModeJSON:
+	case "", ModeText, ModeJSON:
 	default:
 		return fmt.Errorf("--mode must be text or json, got %q", o.Mode)
 	}
-	switch o.Protocol {
-	case ProtocolAnthropic, ProtocolOpenAI, ProtocolResponses:
+	// Both the short CLI spellings and the config wire names are accepted;
+	// app.Resolve canonicalizes them before choosing the chat client.
+	switch strings.ToLower(strings.TrimSpace(o.Protocol)) {
+	case "", ProtocolAnthropic, ProtocolOpenAI, ProtocolResponses,
+		"anthropic-messages", "openai-chat-completions", "openai-responses", "messages":
 	default:
 		return fmt.Errorf("--protocol must be anthropic, openai or responses, got %q", o.Protocol)
 	}
 	switch o.SandboxMode {
-	case SandboxReadOnly, SandboxWorkspaceWrite, SandboxDangerFullAccess:
+	case "", SandboxReadOnly, SandboxWorkspaceWrite, SandboxDangerFullAccess:
 	default:
 		return fmt.Errorf("--sandbox-mode must be read-only, workspace-write or danger-full-access, got %q", o.SandboxMode)
 	}
 	switch o.Approval {
-	case ApprovalAsk, ApprovalNever, ApprovalAuto:
+	case "", ApprovalAsk, ApprovalNever, ApprovalAuto:
 	default:
 		return fmt.Errorf("--approval must be ask, never or auto, got %q", o.Approval)
 	}

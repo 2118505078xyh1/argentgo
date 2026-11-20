@@ -91,7 +91,9 @@ func runAuth(app App, _ context.Context, args []string) int {
 }
 
 // configProviderKeys lists providers with a non-empty apiKey in the config
-// file. It returns names only, never the secrets.
+// file. It mirrors the apiKey aliases read by config.Provider (the source
+// app.Resolve now uses), so "configured" means the key is actually usable.
+// It returns names only, never the secrets.
 func configProviderKeys(path string) (map[string]bool, error) {
 	cfg, err := loadConfigFile(path)
 	if err != nil {
@@ -101,8 +103,11 @@ func configProviderKeys(path string) (map[string]bool, error) {
 	providers, _ := cfg["providers"].(map[string]any)
 	for name, raw := range providers {
 		entry, _ := raw.(map[string]any)
-		if text, _ := entry["apiKey"].(string); strings.TrimSpace(text) != "" {
-			out[name] = true
+		for _, key := range []string{"apiKey", "api_key", "api-key"} {
+			if text, _ := entry[key].(string); strings.TrimSpace(text) != "" {
+				out[name] = true
+				break
+			}
 		}
 	}
 	return out, nil

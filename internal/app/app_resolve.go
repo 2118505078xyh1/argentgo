@@ -101,15 +101,20 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		return Resolved{}, err
 	}
 
-	// Flags beat config; a named provider template beats the compiled OpenAI
-	// defaults, but never an explicit non-default config value.
-	protocol := opts.Protocol
+	// An empty option means "unset": the CLI leaves compiled defaults out of
+	// Options so that config files and profiles can win. config.Load applies
+	// the compiled defaults at the lowest layer, so unset() can still tell an
+	// untouched value from a real choice. Flags beat config; a named provider
+	// template beats the compiled OpenAI defaults, but never an explicit
+	// non-default config value.
+	protocol := strings.TrimSpace(opts.Protocol)
 	if protocol == "" {
 		protocol = cfg.Protocol
 		if haveTemplate && unset(protocol, openAIProtocol) {
 			protocol = template.Protocol
 		}
 	}
+	protocol = canonicalProtocol(protocol)
 	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = cfg.BaseURL
@@ -124,17 +129,26 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 			model = template.DefaultModel
 		}
 	}
-	protocol = firstNonEmpty(protocol, "openai")
+	protocol = firstNonEmpty(protocol, openAIProtocol)
 	baseURL = firstNonEmpty(baseURL, openAIBaseURL)
 	model = firstNonEmpty(model, openAIModel)
-	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, env(template.APIKeyEnv))
+
+	// Credential priority: explicit flag / ARGENT_* env > top-level config >
+	// the key `argent login` stored under providers.<name>.apiKey > the
+	// provider's own API-key environment variable.
+	providerName := template.Name
+	if providerName == "" {
+		providerName = cfg.ProviderName
+	}
+	configuredProvider, _ := cfg.Provider(providerName)
+	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, configuredProvider.APIKey, env(template.APIKeyEnv))
 
 	sandboxMode := firstNonEmpty(opts.SandboxMode, cfg.SandboxMode, "workspace-write")
 	sandbox, err := security.FromString(sandboxMode)
 	if err != nil {
 		return Resolved{}, fmt.Errorf("sandbox mode %q: %w", sandboxMode, err)
 	}
-	approval := strings.ToLower(firstNonEmpty(opts.Approval, "ask"))
+	approval := strings.ToLower(firstNonEmpty(opts.Approval, cfgString(cfg.Raw, "approval"), "ask"))
 	if opts.Yolo || cfg.Yolo {
 		approval = "auto"
 	}
@@ -272,6 +286,32 @@ func resolveAddDirs(root string, dirs []string) ([]string, error) {
 		out = append(out, abs)
 	}
 	return out, nil
+}
+
+// cfgString reads the first string key from a merged config tree.
+func cfgString(tree map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if text, ok := tree[key].(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+// canonicalProtocol maps the short CLI spellings and the config wire names
+// onto a single vocabulary, so unset() and the chatter factory agree on what
+// "openai" means. Unknown values pass through unchanged.
+func canonicalProtocol(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "openai", "openai-chat-completions":
+		return openAIProtocol
+	case "anthropic", "anthropic-messages", "messages":
+		return string(provider.ProtocolAnthropic)
+	case "responses", "openai-responses":
+		return string(provider.ProtocolResponses)
+	default:
+		return strings.TrimSpace(value)
+	}
 }
 
 // intField reads the first numeric key from a merged config tree.

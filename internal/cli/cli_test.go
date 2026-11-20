@@ -119,7 +119,10 @@ func TestRunPromptTextMode(t *testing.T) {
 	if out.String() != "answer\n" {
 		t.Fatalf("out = %q", out.String())
 	}
-	if captured.Model != "gpt-4o-mini" || captured.Mode != ModeText || captured.MaxTurns != 12 {
+	// Compiled defaults live in app.Resolve, not in Options: empty means the
+	// config file / profile layer decides the model, and text is the mode
+	// fallback when Mode is unset.
+	if captured.Model != "" || captured.Mode != "" || captured.MaxTurns != 12 {
 		t.Fatalf("options = %+v", captured)
 	}
 	if captured.Cwd == "" {

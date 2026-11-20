@@ -17,7 +17,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
 	v.maxTurns = fs.Int("max-turns", 12, "maximum model turns")
 	v.maxParallel = fs.Int("max-parallel", 0, "read-only tool workers per batch (0 uses the default, 1 disables)")
-	v.mode = fs.String("mode", ModeText, "output mode: text or json")
+	v.mode = fs.String("mode", "", "output mode: text or json (default: text)")
 	v.cwd = fs.String("cwd", "", "workspace root (default: current directory)")
 	v.sandboxMode = fs.String("sandbox-mode", "", "read-only, workspace-write or danger-full-access")
 	v.approval = fs.String("approval", "", "approval mode: ask, never or auto")
