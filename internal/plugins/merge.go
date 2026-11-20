@@ -1,5 +1,7 @@
 package plugins
 
+import "fmt"
+
 // ServerSpec is one MCP server contributed by an enabled bundle. It is
 // deliberately local: the caller adapts it to its own MCP client type.
 type ServerSpec struct {
@@ -22,6 +24,11 @@ type Wiring struct {
 	Skills     []string
 	Commands   []string
 	HooksPaths []string
+
+	// problems records contributions that were refused because their manifest
+	// paths escape the bundle root. It is package-internal: callers that need
+	// to report findings use Discover / Manifest.Validate instead.
+	problems []Problem
 }
 
 // Merge flattens enabled bundles into one wiring document. Bundles that are
@@ -30,12 +37,25 @@ type Wiring struct {
 //
 // Merge is pure: it resolves paths against each bundle root without touching
 // the filesystem. Missing files are reported by Manifest.Validate instead.
+// A bundle whose manifest path escapes its root contributes nothing at all —
+// an absolute or ../ path must never become an instruction or command source.
 func Merge(bundles []Bundle) Wiring {
 	var wiring Wiring
 	serverNames := make(map[string]bool)
 
 	for _, bundle := range bundles {
 		if !bundle.Enabled {
+			continue
+		}
+		// Treat a path escape as fatal for the whole bundle, not just for the
+		// offending path: a manifest that reaches outside its directory is not
+		// one we should trust for MCP execution either.
+		if bundle.Manifest.hasPathEscape() {
+			wiring.problems = append(wiring.problems, Problem{
+				Plugin:  bundle.Name,
+				Path:    bundle.Manifest.Path,
+				Message: "manifest path escapes the bundle; all contributions skipped",
+			})
 			continue
 		}
 		for _, name := range sortedServerNames(bundle.Manifest.MCPServers) {
@@ -56,16 +76,29 @@ func Merge(bundles []Bundle) Wiring {
 				Dir:     bundle.Dir,
 			})
 		}
-		wiring.Skills = appendResolved(wiring.Skills, bundle, bundle.Manifest.Skills)
-		wiring.Commands = appendResolved(wiring.Commands, bundle, bundle.Manifest.Commands)
-		wiring.HooksPaths = appendResolved(wiring.HooksPaths, bundle, bundle.Manifest.Hooks.Paths)
+		wiring.Skills = wiring.appendResolved(wiring.Skills, bundle, bundle.Manifest.Skills)
+		wiring.Commands = wiring.appendResolved(wiring.Commands, bundle, bundle.Manifest.Commands)
+		wiring.HooksPaths = wiring.appendResolved(wiring.HooksPaths, bundle, bundle.Manifest.Hooks.Paths)
 	}
 	return wiring
 }
 
-func appendResolved(dest []string, bundle Bundle, paths []string) []string {
+// appendResolved resolves manifest paths against the bundle root, refusing
+// any that escape it. The check is duplicated from hasPathEscape so that a
+// direct Merge caller is protected even if a bundle slips past the whole-bundle
+// guard above.
+func (w *Wiring) appendResolved(dest []string, bundle Bundle, paths []string) []string {
 	for _, relative := range paths {
-		dest = append(dest, bundle.Manifest.ResolvePath(relative))
+		resolved := bundle.Manifest.ResolvePath(relative)
+		if !within(bundle.Manifest.Root, resolved) {
+			w.problems = append(w.problems, Problem{
+				Plugin:  bundle.Name,
+				Path:    bundle.Manifest.Path,
+				Message: fmt.Sprintf("path %q escapes the bundle", relative),
+			})
+			continue
+		}
+		dest = append(dest, resolved)
 	}
 	return dest
 }

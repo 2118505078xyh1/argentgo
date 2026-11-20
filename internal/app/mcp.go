@@ -24,6 +24,10 @@ import (
 // stall a run.
 const mcpConnectTimeout = 5 * time.Second
 
+// connectMCP is the MCP transport factory. Production uses the package
+// default; tests replace it so no real MCP process is launched.
+var connectMCP = mcp.Connect
+
 // mcpBinding is one discovered MCP tool and the client that serves it.
 type mcpBinding struct {
 	client mcp.Client
@@ -195,6 +199,13 @@ func withPath(args, path string) (string, error) {
 // newToolset wires the built-in registry, plugin/skill discovery and MCP.
 // Every external piece is fail-soft: a broken plugin, skill or server is
 // reported once and skipped.
+//
+// Connection order defines namespace priority when two servers expose the same
+// namespaced tool name: user config first, then the trusted project, then
+// plugins. connect() dedupes so a later server can never silently shadow an
+// earlier one. Everything sourced from the workspace is gated on TrustProject:
+// an untrusted repository must not be able to start processes or inject
+// instructions just by being opened.
 func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
 	set := &toolset{
 		base:   newMultiRootTools(res, sess, guard),
@@ -202,7 +213,23 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		skills: skills.Discover(skills.DefaultRoots(res.Root, res.Home)),
 	}
 
-	// Enabled plugins contribute skills, commands and MCP servers.
+	// User config is under the user's control, so it is always available.
+	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
+		set.connect(ctx, stdio, spec)
+	}
+
+	if !res.TrustProject {
+		return set
+	}
+
+	// Project-local MCP servers, like project plugins, only load for a trusted
+	// workspace.
+	for _, spec := range projectMCPServers(res.Root) {
+		set.connect(ctx, stdio, spec)
+	}
+
+	// Enabled plugins contribute skills, commands and MCP servers. Merge also
+	// refuses bundles whose manifest paths escape their root.
 	if bundles, err := plugins.Resolve(res.Root); err != nil {
 		note(stdio, "plugins", err)
 	} else {
@@ -225,24 +252,18 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 			})
 		}
 	}
-
-	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
-		set.connect(ctx, stdio, spec)
-	}
-	if res.TrustProject {
-		for _, spec := range projectMCPServers(res.Root) {
-			set.connect(ctx, stdio, spec)
-		}
-	}
 	return set
 }
 
-// connect opens one server and records the tools it advertises.
+// connect opens one server and records the tools it advertises. Tools are
+// deduplicated by their final namespaced name: bindings registered earlier win,
+// so a server connected later (a plugin) cannot silently shadow — and intercept
+// calls to — a server connected earlier (user config or the trusted project).
 func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 	attemptCtx, cancel := context.WithTimeout(ctx, mcpConnectTimeout)
 	defer cancel()
 
-	client, err := mcp.Connect(attemptCtx, server)
+	client, err := connectMCP(attemptCtx, server)
 	if err == nil {
 		_, err = client.Initialize(attemptCtx)
 	}
@@ -257,13 +278,26 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 		note(stdio, "mcp "+server.Name, err)
 		return
 	}
-	t.clients = append(t.clients, client)
+
+	existing := make(map[string]bool, len(t.mcp))
+	for _, binding := range t.mcp {
+		existing[binding.spec.Function.Name] = true
+	}
+	added := 0
+	var shadowed []string
 	for _, tool := range advertised {
+		full := mcp.Namespaced(server.Name, tool.Name)
+		if existing[full] {
+			// Another binding already owns this exact model-facing name; keep
+			// the first one and report the collision instead of hijacking it.
+			shadowed = append(shadowed, full)
+			continue
+		}
+		existing[full] = true
 		schema := tool.Schema
 		if len(strings.TrimSpace(string(schema))) == 0 || !json.Valid(schema) {
 			schema = json.RawMessage(`{}`)
 		}
-		full := mcp.Namespaced(server.Name, tool.Name)
 		toolSpec := llm.ToolSpec{Type: "function"}
 		toolSpec.Function.Name = full
 		toolSpec.Function.Description = tool.Description
@@ -272,7 +306,19 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 		}
 		toolSpec.Function.Parameters = schema
 		t.mcp = append(t.mcp, mcpBinding{client: client, remote: tool.Name, spec: toolSpec})
+		added++
 	}
+	if len(shadowed) > 0 && stdio.Err != nil {
+		fmt.Fprintf(stdio.Err, "mcp %s: tools shadowed by existing bindings: %s (skipped)\n",
+			server.Name, strings.Join(shadowed, ", "))
+	}
+	if added == 0 {
+		// A fully shadowed (or empty) server exposes no callable tool, so do
+		// not keep its process alive.
+		_ = client.Close()
+		return
+	}
+	t.clients = append(t.clients, client)
 }
 
 // Specs advertises the built-in tools, MCP tools and use_skill.

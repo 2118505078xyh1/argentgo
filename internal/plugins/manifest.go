@@ -420,6 +420,22 @@ func (m Manifest) Validate() []Problem {
 	return problems
 }
 
+// hasPathEscape reports whether any manifest-declared path resolves outside
+// the bundle root. A manifest with such a path is fatal for wiring: Merge
+// refuses every contribution from the bundle so a broken or hostile manifest
+// cannot inject skills, commands or hooks from outside its directory. Validate
+// still reports the finding as a non-fatal problem so discovery can surface it.
+func (m Manifest) hasPathEscape() bool {
+	for _, paths := range [][]string{m.Skills, m.Commands, m.Hooks.Paths} {
+		for _, relative := range paths {
+			if !within(m.Root, m.ResolvePath(relative)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // within reports whether target stays inside root.
 func within(root, target string) bool {
 	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
