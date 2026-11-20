@@ -120,13 +120,13 @@ func (m *Model) Paint(buf *Buffer) {
 	m.paintLine(buf, 1, ruleLine(width, m.palette.border()))
 
 	body := m.bodyLinesLocked(l.bodyW)
-	maxScroll := len(body) - l.bodyH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
+	// Cache the geometry the input path uses to clamp scroll at the moment a
+	// wheel/page key arrives, instead of letting overscroll accumulate between
+	// paints and making a large transcript feel stuck at the top.
+	m.bodyW = l.bodyW
+	m.bodyLines = len(body)
+	m.bodyVersion = m.version
+	m.scroll = clampTranscriptScroll(m.scroll, len(body), l.bodyH)
 	end := len(body) - m.scroll
 	if end > len(body) {
 		end = len(body)
@@ -311,7 +311,19 @@ func (m *Model) headerLocked(width int) Line {
 func (m *Model) statusLineLocked(width int) Line {
 	left := NewLine()
 	message := ""
-	if m.status != "" && m.now().Sub(m.statusAt) < 6*time.Second {
+	style := m.palette.muted()
+	now := m.now()
+	if notice, ok := m.notices.Current(now); ok && notice.Text != "" {
+		message = notice.Text
+		switch notice.Severity {
+		case SeverityError:
+			style = m.palette.failure()
+		case SeverityWarn, SeveritySysadmin:
+			style = m.palette.warning()
+		}
+	} else if m.status != "" && now.Sub(m.statusAt) < 6*time.Second {
+		// Legacy direct writers still render, but new notices always use the
+		// stack above and take precedence when both are present.
 		message = m.status
 	} else if m.working {
 		message = spinnerFrame(m.tickLocked()) + " " + text(m.locale, "working")
@@ -319,7 +331,7 @@ func (m *Model) statusLineLocked(width int) Line {
 		message = text(m.locale, "ready")
 	}
 	if message != "" {
-		left.Push(Clip(message, width), m.palette.muted())
+		left.Push(Clip(message, width), style)
 	}
 	right := NewLine()
 	var parts []string

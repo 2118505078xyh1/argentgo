@@ -119,6 +119,7 @@ func propAppendRoundtrip(t *testing.T, seed int64, n int) {
 	if err != nil {
 		t.Fatalf("Records before reopen: %v", err)
 	}
+	expected = withoutSchemaHeader(expected)
 	if len(expected) != n+1 { // header + n appended records
 		t.Fatalf("record count = %d, want %d", len(expected), n+1)
 	}
@@ -133,6 +134,7 @@ func propAppendRoundtrip(t *testing.T, seed int64, n int) {
 	if err != nil {
 		t.Fatalf("Records after reopen: %v", err)
 	}
+	got = withoutSchemaHeader(got)
 	if len(got) != len(expected) {
 		t.Fatalf("record count after reopen = %d, want %d", len(got), len(expected))
 	}
@@ -166,6 +168,7 @@ func propAppendRoundtrip(t *testing.T, seed int64, n int) {
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
+	branches = withoutSchemaBranches(branches)
 	if len(branches) != len(got) {
 		t.Fatalf("branches = %d, want %d", len(branches), len(got))
 	}

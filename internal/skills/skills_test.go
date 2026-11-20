@@ -221,6 +221,54 @@ func TestEmptyRegistryIndexIsEmpty(t *testing.T) {
 	}
 }
 
+func TestIndexTextKeepsOneLinePerSkill(t *testing.T) {
+	cases := []struct {
+		name        string
+		frontmatter string
+		wantLine    string
+	}{
+		{
+			name:        "literal block description",
+			frontmatter: "---\nname: docs\ndescription: |\n  first line\n  second line\n---\nbody",
+			wantLine:    "- docs: first line second line",
+		},
+		{
+			name:        "quoted newline escape",
+			frontmatter: "---\nname: docs\ndescription: \"line\\nbreak\"\n---\nbody",
+			wantLine:    "- docs: line break",
+		},
+		{
+			name:        "literal block when_to_use",
+			frontmatter: "---\nname: docs\nwhen_to_use: |\n  load me\n  right now\n---\nbody",
+			wantLine:    "- docs (when: load me right now)",
+		},
+		{
+			name:        "both fields multi-line",
+			frontmatter: "---\nname: docs\ndescription: |\n  one\n  two\nwhen_to_use: |\n  three\n  four\n---\nbody",
+			wantLine:    "- docs: one two (when: three four)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			skill, err := Parse(tc.frontmatter, filepath.Join("tmp", "docs", "SKILL.md"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			r := New()
+			r.Add(skill)
+			index := r.IndexText()
+			if !strings.Contains(index, tc.wantLine) {
+				t.Errorf("IndexText = %q, want it to contain %q", index, tc.wantLine)
+			}
+			// Header plus exactly one line for the skill.
+			lines := strings.Split(strings.TrimSuffix(index, "\n"), "\n")
+			if len(lines) != 2 {
+				t.Errorf("IndexText has %d lines, want 2: %q", len(lines), index)
+			}
+		})
+	}
+}
+
 func TestMatchRanksByKeywordOverlap(t *testing.T) {
 	registry := New()
 	registry.Add(Skill{Name: "deploy", Description: "ship the service", WhenToUse: "release deploy"})
@@ -281,5 +329,20 @@ func TestHandleUseSkill(t *testing.T) {
 	}
 	if _, err := registry.HandleUseSkill(json.RawMessage(`{`)); err == nil {
 		t.Fatal("expected an error for invalid JSON")
+	}
+}
+
+func TestHandleUseSkillListKeepsOneLinePerSkill(t *testing.T) {
+	r := New()
+	r.Add(Skill{Name: "docs", Description: "first\nsecond", Path: "/tmp/docs/SKILL.md"})
+	list, err := r.HandleUseSkill(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if want := "- docs — first second\n  /tmp/docs/SKILL.md\n"; !strings.Contains(list, want) {
+		t.Errorf("list = %q, want it to contain %q", list, want)
+	}
+	if strings.Contains(list, "\nsecond") {
+		t.Errorf("multi-line description leaked: %q", list)
 	}
 }

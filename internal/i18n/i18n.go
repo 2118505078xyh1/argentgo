@@ -308,6 +308,94 @@ func T(locale, key string, args ...any) string {
 	return template
 }
 
+// placeholderNameStart reports whether c may begin a placeholder name.
+// Names are deliberately ASCII-only so expansion is deterministic and cannot
+// depend on Unicode case folding; CJK bytes (>= 0x80) never match and are
+// therefore copied through untouched.
+func placeholderNameStart(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func placeholderNameByte(c byte) bool {
+	return placeholderNameStart(c) || (c >= '0' && c <= '9')
+}
+
+// placeholderAt reports the name and the index just past a {name} placeholder
+// beginning at text[start], if one is present. Only a complete identifier
+// followed by '}' counts, so adjacent text such as {names} or {a-b} is not
+// mistaken for a different placeholder.
+func placeholderAt(text string, start int) (name string, end int, ok bool) {
+	i := start + 1
+	if i >= len(text) || !placeholderNameStart(text[i]) {
+		return "", 0, false
+	}
+	nameStart := i
+	for i < len(text) && placeholderNameByte(text[i]) {
+		i++
+	}
+	if i >= len(text) || text[i] != '}' {
+		return "", 0, false
+	}
+	return text[nameStart:i], i + 1, true
+}
+
+// Format expands named {name} placeholders in text. The text is normally a
+// string obtained from the embedded catalog via T (which resolves the locale);
+// Format itself is pure and locale-agnostic. It complements T's positional
+// fmt.Sprintf formatting with reorderable, self-describing placeholders.
+//
+// Expansion rules:
+//   - A placeholder is {name} where name matches [A-Za-z_][A-Za-z0-9_]*.
+//     It is replaced with vars[name].
+//   - A placeholder whose name is absent from vars is left verbatim, so a
+//     missing translation variable is visible rather than silently blank.
+//   - {{ and }} emit a literal brace; {{name}} thus renders as {name} and is
+//     not expanded (escaping).
+//   - Only a complete {identifier} is expanded, so {names} is never confused
+//     with {name} and text adjacent to a placeholder is preserved.
+//   - Multi-byte text (CJK and others) is copied through byte-for-byte.
+//   - A brace that does not begin a valid placeholder (e.g. {a-b}, {9x}, an
+//     unclosed '{') is copied verbatim; nested braces are scanned so an inner
+//     valid placeholder still expands.
+//   - Values from vars are written directly and never re-scanned, so a value
+//     containing braces cannot inject further placeholders.
+//
+// A nil vars map is valid: every placeholder is then left intact.
+func Format(text string, vars map[string]string) string {
+	if !strings.Contains(text, "{") {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	for i := 0; i < len(text); {
+		c := text[i]
+		if c == '{' {
+			if i+1 < len(text) && text[i+1] == '{' {
+				b.WriteByte('{')
+				i += 2
+				continue
+			}
+			if name, end, ok := placeholderAt(text, i); ok {
+				if value, found := vars[name]; found {
+					b.WriteString(value)
+				} else {
+					b.WriteString(text[i:end])
+				}
+				i = end
+				continue
+			}
+		}
+		if c == '}' && i+1 < len(text) && text[i+1] == '}' {
+			b.WriteByte('}')
+			i += 2
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
+}
+
 // Missing returns the keys (or key@locale pairs) requested but not found since
 // the last ResetMissing, sorted and de-duplicated.
 func Missing() []string {

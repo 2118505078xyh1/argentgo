@@ -64,6 +64,7 @@ func TestAppendAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
+	records = withoutSchemaHeader(records)
 	if len(records) != 4 {
 		t.Fatalf("records = %d, want 4 (header + 3)", len(records))
 	}
@@ -423,6 +424,7 @@ func TestAppendRecordReusesIDIndexWithoutFullReread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
+	records = withoutSchemaHeader(records)
 	if len(records) != n+1 {
 		t.Fatalf("records = %d, want %d", len(records), n+1)
 	}
@@ -532,6 +534,7 @@ func TestAppendRecordDetectsReplacedFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
+	records = withoutSchemaHeader(records)
 	if len(records) != 4 || records[2].ID != "n000009" || records[3].Parent != "n000009" {
 		t.Fatalf("records after replacement = %+v", records)
 	}
@@ -574,6 +577,7 @@ func TestAppendRecordDetectsInPlaceRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
+	records = withoutSchemaHeader(records)
 	if len(records) != 3 || records[2].ID != "n000002" {
 		t.Fatalf("records after in-place rewrite = %+v", records)
 	}
@@ -624,6 +628,7 @@ func TestForkAppendContinuesIDChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("original Records: %v", err)
 	}
+	original = withoutSchemaHeader(original)
 	if len(original) != 3 {
 		t.Fatalf("original grew to %d records", len(original))
 	}

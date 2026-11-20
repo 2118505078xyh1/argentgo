@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -34,10 +35,18 @@ func (m *Model) appendAttemptLocked(kind AttemptKind, detail string) {
 	m.markDirtyLocked()
 }
 
-// SetStatus shows a transient message on the status line.
+// SetStatus shows a transient informational message on the status line.
 func (m *Model) SetStatus(text string) {
 	m.mu.Lock()
 	m.setStatusLocked(text)
+	m.mu.Unlock()
+}
+
+// SetStatusSeverity shows a transient message with an explicit severity.
+// Higher-severity notices outrank informational ones while they are live.
+func (m *Model) SetStatusSeverity(sev Severity, text string) {
+	m.mu.Lock()
+	m.setStatusSeverityLocked(sev, text)
 	m.mu.Unlock()
 }
 
@@ -48,12 +57,32 @@ func (m *Model) Scroll(delta int) {
 	m.mu.Unlock()
 }
 
+// transcriptMetricsLocked returns the inputs the pure scroll arithmetic needs.
+// Paint caches the rendered line count and viewport height each frame; before
+// the first paint (or right after entries are appended) we derive a fresh count
+// so key input still scrolls instead of being clamped to a stale zero.
+func (m *Model) transcriptMetricsLocked() (total, viewport int) {
+	total, viewport = m.bodyLines, m.bodyH
+	if viewport <= 0 {
+		viewport = 10
+	}
+	if total <= 0 || m.version != m.bodyVersion {
+		total = 0
+		if len(m.entries) > 0 {
+			width := m.bodyW
+			if width <= 0 {
+				width = 80
+			}
+			total = len(m.renderBodyLocked(width))
+		}
+	}
+	return total, viewport
+}
+
 func (m *Model) scrollByLocked(delta int) {
 	m.markDirtyLocked()
-	m.scroll += delta
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
+	total, viewport := m.transcriptMetricsLocked()
+	m.scroll = scrollTranscript(m.scroll, delta, total, viewport)
 	if m.showTasks {
 		m.tasksScroll = clampScroll(m.tasksScroll+delta, len(m.tasks))
 	}
@@ -84,9 +113,49 @@ func (m *Model) clampSessionScrollLocked() {
 }
 
 func (m *Model) setStatusLocked(text string) {
-	m.status = text
-	m.statusAt = m.now()
+	m.setStatusSeverityLocked(SeverityInfo, text)
+}
+
+// setStatusSeverityLocked publishes a status notice. Empty text retires every
+// live notice, preserving the old setStatusLocked("") "clear the status line"
+// behaviour used on submit and after a successful action.
+func (m *Model) setStatusSeverityLocked(sev Severity, text string) {
+	if text == "" {
+		clearNoticeStack(&m.notices)
+		m.status, m.statusAt = "", time.Time{}
+		m.markDirtyLocked()
+		return
+	}
+	now := m.now()
+	switch sev {
+	case SeverityInfo:
+		m.notices.ReportInfo(text, DefaultNoticeTTL, now)
+	case SeverityWarn:
+		m.notices.ReportWarn(text, DefaultNoticeTTL, now)
+	case SeverityError:
+		m.notices.ReportError(text, DefaultNoticeTTL, now)
+	default:
+		m.notices.Push(sev, text, DefaultNoticeTTL, now)
+	}
 	m.markDirtyLocked()
+}
+
+// clearNoticeStack retires all live notices without rebuilding the stack, so
+// the mutex inside it is never copied and sequence numbers stay unique.
+func clearNoticeStack(s *NoticeStack) {
+	s.mu.Lock()
+	s.notices = nil
+	s.mu.Unlock()
+}
+
+// PruneNotices retires notices whose TTL has elapsed. The run loop calls it on
+// every tick so expiry does not depend on a repaint of the status row.
+func (m *Model) PruneNotices(now time.Time) {
+	m.mu.Lock()
+	if m.notices.Prune(now) > 0 {
+		m.markDirtyLocked()
+	}
+	m.mu.Unlock()
 }
 
 // AppendUser adds a user block.

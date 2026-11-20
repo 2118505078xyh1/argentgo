@@ -394,6 +394,7 @@ func Run(ctx context.Context, opts Options) error {
 				quit = handleKeys(keys)
 			}
 			model.Tick()
+			model.PruneNotices(time.Now())
 			// The header clock and the working spinner are derived from the
 			// current time, so every tick is a potential visual change.
 			model.MarkDirty()

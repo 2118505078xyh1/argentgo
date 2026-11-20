@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultMaxOutput is the default cap, per stream, on captured output.
@@ -346,9 +347,45 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 
 func (b *cappedBuffer) String() string {
 	if !b.dropped {
+		// head and tail are contiguous here; runes spanning their boundary are
+		// still whole, so returning the raw bytes preserves the stream exactly.
 		return string(b.head) + string(b.tail)
 	}
-	return string(b.head) + truncatedMarker + string(b.tail)
+	// The marker is inserted between head and tail, so a rune that happened to
+	// straddle the byte cap would be cut in two and decode as U+FFFD. Drop the
+	// incomplete fragments at each boundary instead: one rune at most is
+	// sacrificed, but every remaining rune stays well-formed.
+	return string(trimIncompleteRuneTail(b.head)) + truncatedMarker +
+		string(trimIncompleteRuneHead(b.tail))
+}
+
+// trimIncompleteRuneTail drops trailing bytes that are not part of a complete
+// UTF-8 rune. utf8.DecodeLastRune reports (RuneError, 1) both for a lone
+// invalid byte and for a sequence truncated at the end of the slice, so
+// trimming one byte at a time converges on the last whole rune boundary.
+func trimIncompleteRuneTail(b []byte) []byte {
+	for len(b) > 0 {
+		r, size := utf8.DecodeLastRune(b)
+		if r != utf8.RuneError || size > 1 {
+			return b
+		}
+		b = b[:len(b)-1]
+	}
+	return b
+}
+
+// trimIncompleteRuneHead is the mirror of trimIncompleteRuneTail: it skips
+// leading bytes that cannot begin a complete rune, which is what a tail slice
+// cut at an arbitrary byte offset looks like.
+func trimIncompleteRuneHead(b []byte) []byte {
+	for len(b) > 0 {
+		r, size := utf8.DecodeRune(b)
+		if r != utf8.RuneError || size > 1 {
+			return b
+		}
+		b = b[1:]
+	}
+	return b
 }
 
 // Which resolves a program name against PATH.

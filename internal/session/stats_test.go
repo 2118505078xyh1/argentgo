@@ -55,6 +55,7 @@ func TestAppendStatsLatestRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	records = withoutSchemaHeader(records)
 	if len(records) != 2 || records[1].Kind != kindStats {
 		t.Fatalf("records = %+v, want header + stats", records)
 	}

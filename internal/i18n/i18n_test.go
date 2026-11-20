@@ -52,6 +52,56 @@ func TestFormattingArgs(t *testing.T) {
 	}
 }
 
+func TestFormatNamedPlaceholders(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		vars map[string]string
+		want string
+	}{
+		{"simple substitution", "Hello, {name}!", map[string]string{"name": "Argent"}, "Hello, Argent!"},
+		{"adjacent text preserved", "x{name}y", map[string]string{"name": "V"}, "xVy"},
+		{"repeated placeholder", "{name}/{name}", map[string]string{"name": "V"}, "V/V"},
+		{"CJK preserved and placeholder replaced", "你好，{name}！", map[string]string{"name": "世界"}, "你好，世界！"},
+		{"CJK text without placeholders is untouched", "已加载 %d 个技能", nil, "已加载 %d 个技能"},
+		{"missing var keeps its placeholder", "{name} and {missing}", map[string]string{"name": "X"}, "X and {missing}"},
+		{"nil vars keeps every placeholder", "{a}/{b}", nil, "{a}/{b}"},
+		{"longer name is not confused with shorter", "{names} {name}", map[string]string{"name": "X"}, "{names} X"},
+		{"empty value removes the placeholder", "a{name}b", map[string]string{"name": ""}, "ab"},
+		{"underscore and digits in name", "{user_2}", map[string]string{"user_2": "u"}, "u"},
+		{"escaped braces render literally", "{{name}}", map[string]string{"name": "X"}, "{name}"},
+		{"escape around a live placeholder", "{{{name}}}", map[string]string{"name": "X"}, "{X}"},
+		{"nested braces expand only the inner valid name", "{a{b}}", map[string]string{"b": "B"}, "{aB}"},
+		{"invalid placeholder shapes are kept", "{a-b} {9x} {unclosed", map[string]string{"a": "A", "b": "B"}, "{a-b} {9x} {unclosed"},
+		{"inserted values are not rescanned", "{name}", map[string]string{"name": "{evil}"}, "{evil}"},
+		{"no braces returns text unchanged", "plain text", map[string]string{"x": "y"}, "plain text"},
+		{"empty text", "", map[string]string{"a": "b"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Format(tc.text, tc.vars); got != tc.want {
+				t.Errorf("Format(%q, %v) = %q, want %q", tc.text, tc.vars, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatIsPureAndDoesNotRecordMissing(t *testing.T) {
+	ResetMissing()
+	vars := map[string]string{"name": "X"}
+	first := Format("{name}/{absent}", vars)
+	second := Format("{name}/{absent}", vars)
+	if first != second || first != "X/{absent}" {
+		t.Errorf("not deterministic: %q then %q", first, second)
+	}
+	if len(vars) != 1 || vars["name"] != "X" {
+		t.Errorf("vars map was mutated: %#v", vars)
+	}
+	if got := Missing(); len(got) != 0 {
+		t.Errorf("Format recorded missing keys: %#v", got)
+	}
+}
+
 func TestCatalogIsComplete(t *testing.T) {
 	keys := Keys()
 	if len(keys) < 60 {

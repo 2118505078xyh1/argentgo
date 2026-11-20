@@ -95,5 +95,13 @@ func readRecords(path string) ([]Record, error) {
 	if err := scanner.Err(); err != nil {
 		return records, fmt.Errorf("session: read %s: %w", path, err)
 	}
-	return records, nil
+	// Bring legacy (v0) transcripts up to the current schema on the read path
+	// so every entry point (Records/Messages/Branches/...) sees a consistent
+	// view. Migration is metadata-only: it may prepend a schema header but never
+	// changes the conversation. That header deliberately keeps an empty id: it
+	// is metadata with no parent, so the id/parent tree walk never visits it
+	// (both loops stop at parent == ""), and an empty id cannot collide with the
+	// n%06d ids minted by the append path. Minting one here would consume a real
+	// id slot and leave a permanent gap in appended records.
+	return MigrateRecords(records)
 }

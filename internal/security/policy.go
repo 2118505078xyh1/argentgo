@@ -58,7 +58,9 @@ func ParseDecision(text string) (Decision, bool) {
 }
 
 // Rule is one row of the ordered allow/ask/deny table. Empty fields are
-// wildcards; the first matching row wins.
+// wildcards. When several rows match the same call the strictest decision wins
+// (deny > ask > allow), so an earlier allow can never soften a later deny or
+// ask. Row order only matters for which reason is reported among equals.
 type Rule struct {
 	Decision Decision
 	Tool     string
@@ -81,7 +83,8 @@ type PolicyConfig struct {
 	// AllowTools, when non-empty, is the only set of tool names allowed at
 	// all.
 	AllowTools []string
-	// Rules is the ordered allow/ask/deny table.
+	// Rules is the allow/ask/deny table. Every matching row is considered and
+	// the strictest decision wins (deny > ask > allow).
 	Rules []Rule
 	// ReadOnlyTools extend the built-in safe-tool list.
 	ReadOnlyTools []string
@@ -393,14 +396,21 @@ func (p *Policy) checkCommand(command string) Result {
 	return Result{Allow, ""}
 }
 
-// ruleDecision walks the ordered table. The first matching row wins.
+// ruleDecision walks the table and returns the strictest decision among every
+// matching row: deny > ask > allow. An allow row never downgrades an ask or
+// deny a later row already produced, so reordering rules cannot silently widen
+// access. A matching deny is absolute and stops the walk immediately (it is
+// already the strictest outcome). When no row matches the caller's default
+// behaviour applies.
 func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool) {
+	var best Decision
+	matched := false
 	for _, rule := range p.rules {
 		if rule.Tool != "" && rule.Tool != "*" && rule.Tool != name {
 			continue
 		}
 		if rule.Path != "" {
-			matched := false
+			matchedPath := false
 			for _, key := range pathArgKeys {
 				value, ok := fields[key].(string)
 				if !ok {
@@ -408,20 +418,20 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 				}
 				resolved, escape := p.resolve(value)
 				if escape {
-					matched = true
+					matchedPath = true
 					break
 				}
 				lexical := normalize(resolved)
 				if GlobMatch(rule.Path, lexical) {
-					matched = true
+					matchedPath = true
 					break
 				}
 				if canonical, err := ResolveRealPath(resolved); err == nil && GlobMatch(rule.Path, normalize(canonical)) {
-					matched = true
+					matchedPath = true
 					break
 				}
 			}
-			if !matched {
+			if !matchedPath {
 				continue
 			}
 		}
@@ -431,16 +441,24 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 				continue
 			}
 		}
-		reason := ""
-		switch rule.Decision {
-		case Deny:
-			reason = fmt.Sprintf("the %s call is denied by the permissions table", name)
-		case Ask:
-			reason = fmt.Sprintf("the %s call requires approval per the permissions table", name)
+		// Deny is the strictest decision and a hard stop: no later row can
+		// override it, so there is no reason to keep scanning.
+		if rule.Decision == Deny {
+			return Result{Deny, fmt.Sprintf("the %s call is denied by the permissions table", name)}, true
 		}
-		return Result{rule.Decision, reason}, true
+		if !matched || rule.Decision > best {
+			best = rule.Decision
+		}
+		matched = true
 	}
-	return Result{}, false
+	if !matched {
+		return Result{}, false
+	}
+	reason := ""
+	if best == Ask {
+		reason = fmt.Sprintf("the %s call requires approval per the permissions table", name)
+	}
+	return Result{best, reason}, true
 }
 
 // resolve turns a tool path argument into an absolute path. The bool reports

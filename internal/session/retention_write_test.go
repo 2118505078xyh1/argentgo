@@ -210,6 +210,7 @@ func TestRetentionSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	records = withoutSchemaHeader(records)
 	if got := GetRetention(records[1].Data); got != RetainInThread {
 		t.Errorf("reopened message retention = %v, want RetainInThread", got)
 	}

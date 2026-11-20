@@ -71,7 +71,7 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 		var b strings.Builder
 		b.WriteString("Installed skills:\n")
 		for _, skill := range r.All() {
-			fmt.Fprintf(&b, "- %s — %s\n  %s\n", skill.Name, skill.Description, skill.Path)
+			fmt.Fprintf(&b, "- %s — %s\n  %s\n", skill.Name, oneLine(skill.Description), skill.Path)
 		}
 		return b.String(), nil
 	}

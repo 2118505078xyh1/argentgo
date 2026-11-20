@@ -21,6 +21,18 @@ const cancelledCallReason = "tool did not run: the run was cancelled"
 // needs a fresh output budget in which to say it in smaller pieces.
 const continueAfterOutputLimit = "Continue the work, but break the remaining steps into smaller pieces."
 
+// emptyReplyCorrection is the synthetic user turn appended when the model
+// returns a reply with no visible answer (an empty or reasoning-only reply).
+// It fixes the opposite failure from continueAfterOutputLimit: there the model
+// said too much and was cut off, here it said nothing at all yet the run would
+// otherwise be reported as successfully complete.
+const emptyReplyCorrection = "Your last reply contained no answer. Please respond with a visible answer or the next step."
+
+// maxConsecutiveEmptyReplies bounds how often the loop nudges an empty or
+// reasoning-only reply back into producing an answer. Without a bound, a model
+// that keeps replying with nothing would spin until the turn budget expired.
+const maxConsecutiveEmptyReplies = 2
+
 // maxConsecutiveLengthFinishes bounds how often the loop asks the model to
 // continue after output-limit truncations. Without a bound, a model that always
 // hits the same limit would keep the run alive until the turn budget expired.
@@ -122,6 +134,12 @@ type runState struct {
 	// an intervening non-length reply. It drives the continuation budget for
 	// tool-free answers and is reset by every reply that was not truncated.
 	consecutiveLengthFinishes int
+
+	// consecutiveEmptyReplies counts tool-free replies with no visible answer
+	// that were nudged back into producing one. A visible answer or a tool
+	// batch clears the streak; reaching maxConsecutiveEmptyReplies stops the
+	// run so a model that never answers cannot spin until the turn budget ends.
+	consecutiveEmptyReplies int
 
 	// verifyState bounds post-edit verification feedback for this run. It is
 	// only consulted when Options.Verify is set, so unconfigured runs never
@@ -404,6 +422,14 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.consecutiveLengthFinishes = 0
 		}
 
+		// A visible answer or a tool batch proves the model is making progress,
+		// so it clears the empty-reply streak. Reasoning-only and truly empty
+		// replies do not; the correction path below is exactly for those.
+		kind := ClassifyReply(reply)
+		if strings.TrimSpace(reply.Content) != "" || len(reply.ToolCalls) > 0 {
+			s.consecutiveEmptyReplies = 0
+		}
+
 		if len(reply.ToolCalls) == 0 {
 			// A correction that arrived while the answer was streaming still
 			// deserves an answer: another turn instead of finishing.
@@ -421,6 +447,18 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				s.messages = append(s.messages, llm.Message{Role: "user", Content: continueAfterOutputLimit})
 				s.record("user", continueAfterOutputLimit)
 				s.emit(Event{Kind: EventNotice, Text: "output limit reached; asking the model to continue in smaller steps"})
+				continue
+			}
+			// An empty or reasoning-only reply is not an answer: give the model
+			// one bounded chance to produce visible content instead of ending
+			// the run as complete. A tool-calls finish that delivered no parts
+			// is the downgrade case — it deliberately falls through to stop so
+			// an unchanged transcript is not re-sent in an endless nudge loop.
+			if kind.NeedsCorrection() && !kind.IsDowngraded() &&
+				s.consecutiveEmptyReplies < maxConsecutiveEmptyReplies {
+				s.consecutiveEmptyReplies++
+				s.injectSteering(emptyReplyCorrection)
+				s.emit(Event{Kind: EventNotice, Text: "empty reply; asking the model for a visible answer"})
 				continue
 			}
 			s.emit(Event{Kind: EventStop, Reason: StopComplete})

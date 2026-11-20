@@ -53,7 +53,7 @@ func TestSyntheticIDAvoidsExplicitCollision(t *testing.T) {
 			if err != nil {
 				t.Fatalf("readRecords: %v", err)
 			}
-			if got := pageTestIDs(full); !reflect.DeepEqual(got, tc.wantIDs) {
+			if got := pageTestIDs(withoutSchemaHeader(full)); !reflect.DeepEqual(got, tc.wantIDs) {
 				t.Fatalf("readRecords ids = %v, want %v", got, tc.wantIDs)
 			}
 
@@ -77,7 +77,7 @@ func TestSyntheticIDAvoidsExplicitCollision(t *testing.T) {
 				t.Fatalf("readNumberedRecords ids = %v, want %v", got, tc.wantIDs)
 			}
 
-			if index := indexByID(full); len(index) != len(tc.wantIDs) {
+			if index := indexByID(withoutSchemaHeader(full)); len(index) != len(tc.wantIDs) {
 				t.Fatalf("indexByID has %d entries, want %d (ids collided): %v", len(index), len(tc.wantIDs), tc.wantIDs)
 			}
 		})

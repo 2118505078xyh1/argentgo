@@ -69,6 +69,87 @@ func TestDiagnosticsConflictAndUnsupported(t *testing.T) {
 	}
 }
 
+// Diagnostics must name the alias decode actually used. decode() skips an
+// ill-typed canonical key and falls through to the next alias, so reporting
+// present[0] as the winner would point at a value that never reached Config.
+func TestDiagnosticsConflictNamesValueActuallyUsed(t *testing.T) {
+	cases := []struct {
+		name           string
+		overrides      map[string]any
+		wantModel      string
+		wantConflict   bool
+		wantUsing      string
+		wantInvalidKey string
+	}{
+		{
+			name:      "canonical model ill-typed falls through to modelName",
+			overrides: map[string]any{"model": 42, "modelName": "real-model"},
+			wantModel: "real-model", wantConflict: true, wantUsing: "modelName",
+			wantInvalidKey: "$.model",
+		},
+		{
+			name:      "canonical model valid wins over conflicting alias",
+			overrides: map[string]any{"model": "canonical", "modelName": "alias"},
+			wantModel: "canonical", wantConflict: true, wantUsing: "model",
+		},
+		{
+			name:         "canonical maxTurns ill-typed falls through to max_turns",
+			overrides:    map[string]any{"maxTurns": "oops", "max_turns": 7},
+			wantConflict: true, wantUsing: "max_turns", wantInvalidKey: "$.maxTurns",
+		},
+		{
+			name:         "canonical maxTurns valid numeric string wins",
+			overrides:    map[string]any{"maxTurns": "7", "max_turns": 9},
+			wantConflict: true, wantUsing: "maxTurns",
+		},
+		{
+			name:      "equal aliases report no conflict",
+			overrides: map[string]any{"model": "same", "modelName": "same"},
+			wantModel: "same", wantConflict: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadWithOverrides(t.TempDir(),
+				envFunc(map[string]string{"HOME": t.TempDir()}), tc.overrides)
+			if err != nil {
+				t.Fatalf("LoadWithOverrides: %v", err)
+			}
+			if tc.wantModel != "" && cfg.Model != tc.wantModel {
+				t.Errorf("model = %q, want %q", cfg.Model, tc.wantModel)
+			}
+
+			var conflict *Diagnostic
+			invalidKeys := map[string]bool{}
+			for _, d := range cfg.Diagnostics() {
+				if d.Kind == DiagnosticConflict {
+					copy := d
+					conflict = &copy
+				}
+				if d.Kind == DiagnosticInvalid {
+					invalidKeys[d.Path] = true
+				}
+			}
+			if tc.wantInvalidKey != "" && !invalidKeys[tc.wantInvalidKey] {
+				t.Errorf("missing invalid diagnostic for %q: %+v", tc.wantInvalidKey, cfg.Diagnostics())
+			}
+			if !tc.wantConflict {
+				if conflict != nil {
+					t.Errorf("unexpected conflict diagnostic: %+v", conflict)
+				}
+				return
+			}
+			if conflict == nil {
+				t.Fatalf("no conflict diagnostic: %+v", cfg.Diagnostics())
+			}
+			if !strings.Contains(conflict.Message, "using "+tc.wantUsing) {
+				t.Errorf("conflict message = %q, want it to name the used key %q",
+					conflict.Message, tc.wantUsing)
+			}
+		})
+	}
+}
+
 func TestDiagnosticsEmptyForValidConfig(t *testing.T) {
 	cfg, err := Load(t.TempDir(), envFunc(map[string]string{"HOME": t.TempDir()}))
 	if err != nil {

@@ -122,8 +122,11 @@ func TestValidateAndRepairTornLastLineWithRepair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ValidateAndRepair: %v", err)
 	}
-	if !report.TornTail || !report.Repaired || report.KeptLines != len(before) {
-		t.Fatalf("report = %+v, want repaired torn tail with %d kept lines", report, len(before))
+	// KeptLines counts physical transcript lines; the read-time schema header
+	// added by Records() is not one of them.
+	physicalBefore := len(withoutSchemaHeader(before))
+	if !report.TornTail || !report.Repaired || report.KeptLines != physicalBefore {
+		t.Fatalf("report = %+v, want repaired torn tail with %d kept lines", report, physicalBefore)
 	}
 	assertRepairFileBytes(t, session.path(), string(prefix))
 
@@ -204,6 +207,7 @@ func TestValidateAndRepairLegacyRecordWithoutID(t *testing.T) {
 	}
 	assertRepairFileBytes(t, path, line+"\n")
 	records, err := readRecords(path)
+	records = withoutSchemaHeader(records)
 	if err != nil || len(records) != 1 || records[0].ID != "n000001" {
 		t.Fatalf("readRecords = %+v, err %v; want one synthesized id", records, err)
 	}

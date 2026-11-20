@@ -339,8 +339,10 @@ func TestReadPageGeneratedIDsMatchReadRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadPage: %v", err)
 	}
-	if !reflect.DeepEqual(pageTestIDs(page.Records), pageTestIDs(full)) {
-		t.Fatalf("ids = %v, want %v", pageTestIDs(page.Records), pageTestIDs(full))
+	// readRecords injects a read-time schema header that ReadPage (a lenient
+	// raw-file reader) does not; compare the transcript's own records only.
+	if !reflect.DeepEqual(pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full))) {
+		t.Fatalf("ids = %v, want %v", pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full)))
 	}
 }
 
@@ -356,7 +358,7 @@ func TestSessionReadPageDelegates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
-	if !reflect.DeepEqual(pageTestIDs(page.Records), pageTestIDs(full)) {
-		t.Fatalf("page ids = %v, want %v", pageTestIDs(page.Records), pageTestIDs(full))
+	if !reflect.DeepEqual(pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full))) {
+		t.Fatalf("page ids = %v, want %v", pageTestIDs(page.Records), pageTestIDs(withoutSchemaHeader(full)))
 	}
 }

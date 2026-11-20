@@ -59,6 +59,7 @@ func TestActiveConcurrentAppendAndRead(t *testing.T) {
 					t.Errorf("concurrent Records: %v", err)
 					return
 				}
+				records = withoutSchemaHeader(records)
 				assertChain(records)
 				if len(records) > 0 {
 					leaf := records[len(records)-1].ID
@@ -108,6 +109,7 @@ func TestActiveConcurrentAppendAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("final Records: %v", err)
 	}
+	records = withoutSchemaHeader(records)
 	want := 1 + writers*perWriter // header + appended records
 	if len(records) != want {
 		t.Fatalf("final records = %d, want %d", len(records), want)

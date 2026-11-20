@@ -144,10 +144,19 @@ type Model struct {
 	stream    strings.Builder
 	streamBuf MarkdownStreamBuf // holds back incomplete markdown markers
 
-	scroll     int
-	bodyH      int
-	version    int
-	entryCache []entryCacheSlot
+	scroll      int
+	bodyH       int
+	bodyW       int
+	bodyLines   int // rendered transcript line count cached by the last Paint
+	bodyVersion int // model version at that paint, used to detect stale counts
+	version     int
+	entryCache  []entryCacheSlot
+
+	// notices is the severity-ranked status notification stack. New status
+	// messages go here; the two legacy fields below are kept only so code that
+	// still writes them directly keeps working (statusLineLocked falls back to
+	// them when the stack is empty).
+	notices NoticeStack
 
 	// Text selection in 0-based buffer coordinates. selecting is true from
 	// MouseDown until MouseUp; anchor and active survive MouseUp so the range

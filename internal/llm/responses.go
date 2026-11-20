@@ -323,6 +323,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		partials     = make(map[int]*responsesPartial)
 	)
 	var calls []ToolCall
+	var pending []string
 
 	push := func(index int) {
 		partial, ok := partials[index]
@@ -353,15 +354,22 @@ streamLoop:
 		if err := ctx.Err(); err != nil {
 			return Message{}, err
 		}
-		data, ok, err := reader.next()
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return Message{}, ctxErr
+		var data string
+		if len(pending) > 0 {
+			data, pending = pending[0], pending[1:]
+		} else {
+			next, ok, err := reader.next()
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return Message{}, ctxErr
+				}
+				return Message{}, streamError("read stream: %v", RedactError(err))
 			}
-			return Message{}, streamError("read stream: %v", RedactError(err))
-		}
-		if !ok {
-			break
+			if !ok {
+				break
+			}
+			pending = splitSSEData(next)
+			data, pending = pending[0], pending[1:]
 		}
 		if data == "[DONE]" {
 			integrity.terminated = true

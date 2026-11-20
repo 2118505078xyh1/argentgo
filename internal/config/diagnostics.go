@@ -114,7 +114,17 @@ func treeDiagnostics(raw map[string]any) []Diagnostic {
 			continue
 		}
 
+		// decode() reads aliases in order and returns the first value with the
+		// right type, skipping an ill-typed canonical key. Mirror that rule so
+		// the "using X" message names the value that actually reached Config;
+		// present[0] is only a fallback when every alias is ill-typed.
 		winner := present[0]
+		for _, key := range present {
+			if configValueTypeOK(field, raw[key]) {
+				winner = key
+				break
+			}
+		}
 		winnerValue := raw[winner]
 		for _, key := range present {
 			if !configValueTypeOK(field, raw[key]) {
@@ -126,7 +136,10 @@ func treeDiagnostics(raw map[string]any) []Diagnostic {
 			}
 		}
 		if len(present) > 1 {
-			for _, key := range present[1:] {
+			for _, key := range present {
+				if key == winner {
+					continue
+				}
 				if !reflect.DeepEqual(raw[key], winnerValue) {
 					out = append(out, Diagnostic{
 						Path: "$." + field,

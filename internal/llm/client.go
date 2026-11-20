@@ -488,64 +488,57 @@ streamLoop:
 		var data string
 		if len(pending) > 0 {
 			data, pending = pending[0], pending[1:]
-		} else if idle == nil {
-			next, ok, err := reader.next()
-			if err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return Message{}, ctxErr
-				}
-				return Message{}, streamError("read stream: %v", RedactError(err))
-			}
-			if !ok {
-				break streamLoop
-			}
-			data = next
 		} else {
-			if !readStarted {
-				go func() {
-					next, ok, err := reader.next()
-					reads <- readResult{data: next, ok: ok, err: err}
-				}()
-				readStarted = true
-			}
-			select {
-			case <-ctx.Done():
-				return Message{}, ctx.Err()
-			case <-idleC:
-				return Message{}, streamError("stream idle for %s with no data", c.IdleTimeout)
-			case res := <-reads:
-				readStarted = false
-				if res.err != nil {
+			if idle == nil {
+				next, ok, err := reader.next()
+				if err != nil {
 					if ctxErr := ctx.Err(); ctxErr != nil {
 						return Message{}, ctxErr
 					}
-					return Message{}, streamError("read stream: %v", RedactError(res.err))
+					return Message{}, streamError("read stream: %v", RedactError(err))
 				}
-				if !res.ok {
+				if !ok {
 					break streamLoop
 				}
-				data = res.data
+				data = next
+			} else {
+				if !readStarted {
+					go func() {
+						next, ok, err := reader.next()
+						reads <- readResult{data: next, ok: ok, err: err}
+					}()
+					readStarted = true
+				}
+				select {
+				case <-ctx.Done():
+					return Message{}, ctx.Err()
+				case <-idleC:
+					return Message{}, streamError("stream idle for %s with no data", c.IdleTimeout)
+				case res := <-reads:
+					readStarted = false
+					if res.err != nil {
+						if ctxErr := ctx.Err(); ctxErr != nil {
+							return Message{}, ctxErr
+						}
+						return Message{}, streamError("read stream: %v", RedactError(res.err))
+					}
+					if !res.ok {
+						break streamLoop
+					}
+					data = res.data
+				}
 			}
+			// Any event that arrives pushes the silence deadline out.
+			resetIdle()
+			// One SSE event may carry several payloads: a JSON object split
+			// across data: lines, or independent events with no blank separator.
+			// Decode them one at a time through the same path below.
+			pending = splitSSEData(data)
+			data, pending = pending[0], pending[1:]
 		}
-		// Any event that arrives pushes the silence deadline out.
-		resetIdle()
-
 		if data == "[DONE]" {
 			integrity.terminated = true
 			break streamLoop
-		}
-
-		// The SSE reader joins adjacent data lines with newlines. A gateway
-		// that split the JSON inside a string needs those newlines removed;
-		// one that emits distinct events as adjacent data lines (no blank
-		// separator) needs the old per-line treatment. Accept both shapes.
-		if len(pending) == 0 && strings.Contains(data, "\n") {
-			if compact := strings.ReplaceAll(data, "\n", ""); strings.HasPrefix(compact, "{") && json.Valid([]byte(compact)) {
-				data = compact
-			} else if lines := strings.Split(data, "\n"); allJSONValues(lines) {
-				pending = append(pending, lines...)
-				continue
-			}
 		}
 
 		var event chunk
@@ -638,22 +631,4 @@ streamLoop:
 	}
 
 	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Usage: usage, FinishReason: finishReason}, nil
-}
-
-// allJSONValues reports whether every line is a standalone JSON value (or the
-// [DONE] marker), which means the gateway omitted blank lines between what
-// were meant to be separate events.
-func allJSONValues(lines []string) bool {
-	if len(lines) < 2 {
-		return false
-	}
-	for _, line := range lines {
-		if line == "[DONE]" {
-			continue
-		}
-		if !json.Valid([]byte(line)) {
-			return false
-		}
-	}
-	return true
 }

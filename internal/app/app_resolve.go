@@ -225,11 +225,42 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		),
 		NoAutoCompact: opts.NoAutoCompact,
 	}
-	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, llm.Options{NoPromptCache: opts.NoPromptCache})
+	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, cacheOptionsForConfig(cfg, opts))
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
 	}
 	return res, nil
+}
+
+// cacheOptionsForConfig builds the wire-level cache options consumed by
+// newChatter. The merged config may carry an explicit cache tier; the tier's
+// subscription and endpoint-capability inputs have no source at Resolve today,
+// so the production path wires only the explicit-config branch: conservative
+// facts (non-subscription, long supported) leave an unset tier at the same
+// short/provider-default entry the old literal produced, while an explicit
+// "long"/"none"/"short" choice is honoured. The subscription long default
+// belongs at a later wiring point where the credential kind and the endpoint's
+// long-retention capability are available.
+func cacheOptionsForConfig(cfg config.Config, opts cli.Options) llm.Options {
+	configTier := cfgString(cfg.Raw, "cacheTier", "cache-tier", "promptCacheTier", "prompt-cache-tier")
+	return resolveCacheOptions(configTier, false, true, opts.NoPromptCache)
+}
+
+// resolveCacheOptions maps a resolved tier onto llm.Options' cache knobs. A
+// short tier — including the unset default — keeps the provider-default TTL
+// (an empty CacheRetention), so the historical wire format is unchanged. Long
+// emits a 1h retention hint and none is an explicit opt-out. The CLI's
+// NoPromptCache always wins: llm honours it above every other cache knob.
+func resolveCacheOptions(configTier string, isSubscription, supportsLong, noPromptCache bool) llm.Options {
+	tier := ResolveCacheTier(configTier, isSubscription, supportsLong)
+	out := llm.Options{NoPromptCache: noPromptCache}
+	switch tier {
+	case CacheTierLong:
+		out.CacheRetention = "1h"
+	case CacheTierNone:
+		out.NoPromptCache = true
+	}
+	return out
 }
 
 // resolveTemplate honours --provider, then the config provider, then the

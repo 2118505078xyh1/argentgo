@@ -27,6 +27,7 @@ func TestBranchesDescribeForkedTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
+	branches = withoutSchemaBranches(branches)
 	if len(branches) != 4 {
 		t.Fatalf("branches = %d, want 4", len(branches))
 	}
@@ -85,6 +86,7 @@ func TestBranchesDescribeOutOfOrderTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
+	branches = withoutSchemaBranches(branches)
 	want := map[string]int{"A": 2, "B": 1, "ROOT": 0}
 	if len(branches) != len(want) {
 		t.Fatalf("branches = %d, want %d", len(branches), len(want))

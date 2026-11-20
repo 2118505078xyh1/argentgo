@@ -336,7 +336,7 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	// A timed-out or killed process may leave a grandchild holding the pipe
 	// write ends; bound how long Wait waits for those pipes so the timeout
 	// above really bounds wall-clock time.
-	// process.WaitDelay = waitDelay // TEMP-DISABLED
+	process.WaitDelay = waitDelay
 	if payload.CWD != "" {
 		process.Dir = payload.CWD
 	}

@@ -148,7 +148,7 @@ func sessionRoundtripTarget(t *testing.T, seed int64, payload, tail string) {
 	if err != nil {
 		t.Fatalf("Records after reopen: %v", err)
 	}
-	for _, record := range got {
+	for _, record := range withoutSchemaHeader(got) {
 		if record.ID == "" {
 			t.Fatal("record with an empty id survived reopen")
 		}

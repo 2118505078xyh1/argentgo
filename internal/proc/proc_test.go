@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // testShell returns the platform's plain command interpreter, bypassing the
@@ -199,6 +200,99 @@ func TestCappedBufferKeepsHeadAndTail(t *testing.T) {
 	}
 	if len(head)+len(tail) > MaxOutputBytes {
 		t.Fatalf("kept %d bytes, cap is %d", len(head)+len(tail), MaxOutputBytes)
+	}
+}
+
+// TestCappedBufferTruncationKeepsRuneBoundaries guards the invariant that
+// truncated capture never cuts a multi-byte rune in half. cappedBuffer keeps
+// the head and tail on raw byte offsets; with zh-CN output those offsets can
+// land inside a rune, leaving a dangling lead/continuation on either side of
+// the truncation marker. Decoding such a string yields U+FFFD even though the
+// child emitted well-formed UTF-8.
+func TestCappedBufferTruncationKeepsRuneBoundaries(t *testing.T) {
+	old := MaxOutputBytes
+	MaxOutputBytes = 40
+	defer func() { MaxOutputBytes = old }()
+
+	cb := &cappedBuffer{max: MaxOutputBytes}
+	cw := newUTF8CarryWriter(cb)
+	chunk := []byte("中文测试输出")
+	for i := 0; i < 16; i++ {
+		for j := 0; j < len(chunk); j++ {
+			// One byte at a time so the carry writer must assemble every rune
+			// before the capped buffer sees it.
+			_, _ = cw.Write(chunk[j : j+1])
+		}
+	}
+	cw.Flush()
+
+	if !cb.dropped {
+		t.Fatal("output over the cap must be truncated")
+	}
+	got := cb.String()
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated capture splits a UTF-8 rune: %q", got)
+	}
+	head, tail, found := strings.Cut(got, truncatedMarker)
+	if !found || head == "" || tail == "" {
+		t.Fatalf("head/tail truncation broken: %q", got)
+	}
+	if !utf8.ValidString(head) || !utf8.ValidString(tail) {
+		t.Fatalf("head %q or tail %q is invalid UTF-8", head, tail)
+	}
+	if !strings.Contains(got, "中") {
+		t.Fatalf("CJK rune mangled by truncation: %q", got)
+	}
+}
+
+// TestTrimIncompleteRuneHelpers pins the boundary cases the truncation fix
+// relies on: a whole rune at the cut must survive, while a dangling lead or
+// continuation on either side must be dropped.
+func TestTrimIncompleteRuneHelpers(t *testing.T) {
+	cases := []struct {
+		name       string
+		head, tail []byte
+		wantHead   string
+		wantTail   string
+	}{
+		{
+			name:     "whole runes at both boundaries survive",
+			head:     []byte("abc中"),
+			tail:     []byte("文xyz"),
+			wantHead: "abc中",
+			wantTail: "文xyz",
+		},
+		{
+			name:     "dangling lead at head end is dropped",
+			head:     []byte("abc\xe4\xb8"),
+			tail:     []byte("文xyz"),
+			wantHead: "abc",
+			wantTail: "文xyz",
+		},
+		{
+			name:     "dangling continuation at tail start is dropped",
+			head:     []byte("abc中"),
+			tail:     []byte("\xad文xyz"),
+			wantHead: "abc中",
+			wantTail: "文xyz",
+		},
+		{
+			name:     "encoded replacement rune is not mistaken for invalid",
+			head:     []byte("a\xef\xbf\xbd"),
+			tail:     []byte("\xef\xbf\xbdb"),
+			wantHead: "a\ufffd",
+			wantTail: "\ufffdb",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(trimIncompleteRuneTail(tc.head)); got != tc.wantHead {
+				t.Fatalf("head = %q, want %q", got, tc.wantHead)
+			}
+			if got := string(trimIncompleteRuneHead(tc.tail)); got != tc.wantTail {
+				t.Fatalf("tail = %q, want %q", got, tc.wantTail)
+			}
+		})
 	}
 }
 

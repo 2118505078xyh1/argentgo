@@ -40,31 +40,63 @@ func FindAsset(assets []Asset, goos, goarch string) (Asset, bool) {
 	best := Asset{}
 	bestScore := -1
 	for _, asset := range assets {
-		lower := strings.ToLower(asset.Name)
-		if asset.URL == "" || isNoise(lower) {
+		info := inspectAsset(asset, goos, goarch)
+		if !info.eligible || info.score <= bestScore {
 			continue
 		}
-		name := normalizeName(asset.Name)
-		matchedOS, foreignOS := classify(name, goos, osAliases)
-		if !matchedOS || foreignOS {
-			continue
-		}
-		score := 10 + extensionBonus(lower, goos)
-		matchedArch, foreignArch := classify(name, goarch, archAliases)
-		if foreignArch {
-			continue
-		}
-		if matchedArch {
-			score += 100
-		}
-		if score > bestScore {
-			best, bestScore = asset, score
-		}
+		best, bestScore = asset, info.score
 	}
 	if bestScore < 0 {
 		return Asset{}, false
 	}
 	return best, true
+}
+
+// assetInspection is the shared decision behind FindAsset and
+// DiagnoseAssetMatch. Keeping both on this helper makes the diagnostic unable
+// to drift from the asset that is actually selected.
+type assetInspection struct {
+	osMatched   bool
+	foreignOS   bool
+	archMatched bool
+	foreignArch bool
+	score       int
+	eligible    bool
+	reason      AssetMatchReason
+}
+
+// inspectAsset classifies one asset for an already-normalized target platform.
+func inspectAsset(asset Asset, goos, goarch string) assetInspection {
+	lower := strings.ToLower(asset.Name)
+	if asset.URL == "" {
+		return assetInspection{reason: AssetMatchReasonNoURL}
+	}
+	if isNoise(lower) {
+		return assetInspection{reason: AssetMatchReasonNoise}
+	}
+	name := normalizeName(asset.Name)
+	matchedOS, foreignOS := classify(name, goos, osAliases)
+	if !matchedOS || foreignOS {
+		return assetInspection{
+			osMatched: matchedOS, foreignOS: foreignOS,
+			reason: AssetMatchReasonWrongOS,
+		}
+	}
+	matchedArch, foreignArch := classify(name, goarch, archAliases)
+	if foreignArch {
+		return assetInspection{
+			osMatched: true, archMatched: matchedArch, foreignArch: true,
+			reason: AssetMatchReasonWrongArch,
+		}
+	}
+	score := 10 + extensionBonus(lower, goos)
+	if matchedArch {
+		score += 100
+	}
+	return assetInspection{
+		osMatched: true, archMatched: matchedArch,
+		score: score, eligible: true, reason: AssetMatchReasonEligible,
+	}
 }
 
 // normalizeName lowercases a file name and turns separators into dots so that

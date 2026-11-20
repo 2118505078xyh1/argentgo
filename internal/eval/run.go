@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -65,6 +66,9 @@ type Result struct {
 	Text    string
 	Turns   int
 	Stopped bool
+	// Duration is the wall-clock time spent executing the scenario. It is a
+	// diagnostic signal consumed by AggregateScores; it never affects grading.
+	Duration time.Duration
 }
 
 // Report summarises a suite run.
@@ -141,7 +145,9 @@ func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts
 		Chatter: provider,
 	}
 
+	started := time.Now()
 	trace, runErr := callRun(ctx, run, scenario, workspace)
+	result.Duration = time.Since(started)
 	result.Tools = append([]string(nil), trace.Tools...)
 	result.Text = trace.Text
 	result.Stopped = trace.Stopped

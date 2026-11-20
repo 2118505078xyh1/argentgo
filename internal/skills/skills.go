@@ -237,18 +237,29 @@ func (r *Registry) IndexText() string {
 	b.WriteString("Skills: procedures you can load by name with the use_skill tool. ")
 	b.WriteString("Load one when the task matches its description; do not load all of them.\n")
 	for _, skill := range r.skills {
+		// Declarative metadata is untrusted and may come from a block scalar or
+		// a quoted \n escape. Fold it so each skill still occupies exactly one
+		// index line and cannot inject entries into the system prompt.
+		desc, when := oneLine(skill.Description), oneLine(skill.WhenToUse)
 		switch {
-		case skill.Description == "" && skill.WhenToUse == "":
+		case desc == "" && when == "":
 			fmt.Fprintf(&b, "- %s\n", skill.Name)
-		case skill.WhenToUse == "":
-			fmt.Fprintf(&b, "- %s: %s\n", skill.Name, skill.Description)
-		case skill.Description == "":
-			fmt.Fprintf(&b, "- %s (when: %s)\n", skill.Name, skill.WhenToUse)
+		case when == "":
+			fmt.Fprintf(&b, "- %s: %s\n", skill.Name, desc)
+		case desc == "":
+			fmt.Fprintf(&b, "- %s (when: %s)\n", skill.Name, when)
 		default:
-			fmt.Fprintf(&b, "- %s: %s (when: %s)\n", skill.Name, skill.Description, skill.WhenToUse)
+			fmt.Fprintf(&b, "- %s: %s (when: %s)\n", skill.Name, desc, when)
 		}
 	}
 	return b.String()
+}
+
+// oneLine collapses embedded whitespace so a single skill cannot emit more
+// than one line in a plain-text rendering. Parse intentionally preserves
+// newlines in block scalars, so the folding belongs at the rendering boundary.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // Load returns the full skill, body included.

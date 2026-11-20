@@ -153,10 +153,17 @@ func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 	base := h.seq - uint64(len(h.history)) + 1
 	start := 0
 	if after >= base {
-		start = int(after - base + 1)
-	}
-	if start > len(h.history) {
-		start = len(h.history)
+		// Number of retained events at or before the cursor. Clamp in the
+		// uint64 domain *before* converting to int: after is client-supplied
+		// and may be as large as MaxUint64, and int(after-base+1) would wrap
+		// negative, making the replay loop index history with a negative
+		// offset and panic the caller (the whole process on --rpc).
+		skip := after - base + 1
+		if skip >= uint64(len(h.history)) {
+			start = len(h.history)
+		} else {
+			start = int(skip)
+		}
 	}
 	for i := start; i < len(h.history); i++ {
 		ch <- h.history[i]

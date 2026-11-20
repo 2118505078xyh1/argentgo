@@ -8,8 +8,9 @@
 // Each file is capped, because a real CLAUDE.md can be thousands of lines that
 // would otherwise be re-sent on every turn. Truncation is reported so the model
 // knows it can read the file for the rest. Files are read incrementally (at
-// most one byte past the cap) and the combined text is bounded by totalBudget,
-// so a huge or deep tree cannot inflate the system prompt or memory use.
+// most one byte past the cap, plus a leading BOM that is stripped before the
+// cap is applied) and the combined text is bounded by totalBudget, so a huge or
+// deep tree cannot inflate the system prompt or memory use.
 package memory
 
 import (
@@ -160,11 +161,18 @@ walk:
 	return docs, nil
 }
 
+// bom is the UTF-8 byte order mark. When present at the start of a file it is
+// encoding metadata, not instruction content, so it must not consume any of the
+// per-file byte budget.
+const bom = "\ufeff"
+
 // readInstructionFile reads path and returns its trimmed text. When limit > 0
-// it reads at most limit+1 bytes: the extra byte only tells us whether the file
-// is longer, so the whole file is never loaded. The returned text is already
-// cut on a rune boundary. With limit <= 0 the entire file is read and truncated
-// is always false (the "no cap" contract of LoadLimit).
+// it reads at most limit+1+len(bom) bytes: the extra byte only tells us whether
+// the file is longer, and the BOM bytes are read as well so a leading BOM can be
+// removed before the cap is applied (otherwise it would silently eat three
+// bytes of content). The whole file is never loaded. The returned text is
+// already cut on a rune boundary. With limit <= 0 the entire file is read and
+// truncated is always false (the "no cap" contract of LoadLimit).
 func readInstructionFile(path string, limit int) (text string, truncated bool, err error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -174,21 +182,20 @@ func readInstructionFile(path string, limit int) (text string, truncated bool, e
 
 	var raw []byte
 	if limit > 0 {
-		raw, err = io.ReadAll(io.LimitReader(f, int64(limit)+1))
-		if err != nil {
-			return "", false, err
-		}
-		if len(raw) > limit {
-			truncated = true
-			raw = []byte(clipRunes(string(raw), limit))
-		}
+		raw, err = io.ReadAll(io.LimitReader(f, int64(limit)+1+int64(len(bom))))
 	} else {
 		raw, err = io.ReadAll(f)
-		if err != nil {
-			return "", false, err
-		}
 	}
-	return strings.TrimSpace(strings.TrimPrefix(string(raw), "\ufeff")), truncated, nil
+	if err != nil {
+		return "", false, err
+	}
+
+	body := strings.TrimPrefix(string(raw), bom)
+	if limit > 0 && len(body) > limit {
+		truncated = true
+		body = clipRunes(body, limit)
+	}
+	return strings.TrimSpace(body), truncated, nil
 }
 
 // clipRunes shortens s to at most limit bytes without splitting a UTF-8 rune.

@@ -6,7 +6,6 @@ import (
 	"go/parser"
 	"go/token"
 	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -60,22 +59,12 @@ func repoReceiverName(expr ast.Expr) string {
 // declarations. Syntax errors are tolerated: go/parser returns the partial AST
 // alongside the error, and a partial map is more useful than no map. Non-Go
 // files are ignored for now (no lightweight lexer for other languages yet).
+//
+// Parsing goes through the process-local symbol cache so long-lived processes
+// (RPC/serve) reuse previous parses across repeated repo-map calls. The cache
+// wrapper is byte-for-byte identical to the original read-and-parse logic.
 func extractRepoSymbols(base string, relFiles []string) []repoSymbol {
-	files := append([]string(nil), relFiles...)
-	sort.Strings(files)
-
-	var out []repoSymbol
-	for _, rel := range files {
-		if !strings.HasSuffix(strings.ToLower(rel), ".go") {
-			continue
-		}
-		src, err := os.ReadFile(filepath.Join(base, filepath.FromSlash(rel)))
-		if err != nil {
-			continue
-		}
-		out = append(out, parseGoSource(rel, src)...)
-	}
-	return out
+	return cachedRepoSymbolsForFiles(base, relFiles)
 }
 
 // parseGoSource parses one Go file's source into top-level declarations. It is

@@ -79,6 +79,32 @@ func (c *Client) Do() error { return nil }
 	}
 }
 
+func TestExtractRepoSymbolsUsesProcessCache(t *testing.T) {
+	clearRepoSymbolCache()
+	defer clearRepoSymbolCache()
+	root := t.TempDir()
+	writeSymFile(t, root, "a.go", "package a\n\ntype Alpha struct{}\n")
+	writeSymFile(t, root, "b.go", "package b\n\nfunc Beta() {}\n")
+	files := []string{"a.go", "b.go"}
+
+	first := extractRepoSymbols(root, files)
+	second := extractRepoSymbols(root, files)
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("repeated extractRepoSymbols differ:\n%+v\n%+v", first, second)
+	}
+
+	// First call parses each Go file once (miss); the second call is served
+	// entirely from the cache (hit). This proves extractRepoSymbols is wired
+	// to the process-local cache rather than re-reading every file.
+	stats := repoSymbolCacheStats()
+	if stats.misses != len(files) {
+		t.Fatalf("misses = %d, want %d (one per Go file on first call)", stats.misses, len(files))
+	}
+	if stats.hits != len(files) {
+		t.Fatalf("hits = %d, want %d (one per Go file on second call)", stats.hits, len(files))
+	}
+}
+
 func TestRepoSymbolsRankingDeterministicAndMentionWeighted(t *testing.T) {
 	root := t.TempDir()
 	writeSymFile(t, root, "alpha.go", "package alpha\n\ntype Client struct{}\n\nfunc (c *Client) Do() error { return nil }\n")
