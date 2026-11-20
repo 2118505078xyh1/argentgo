@@ -9,6 +9,11 @@
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
+## 评分表（round19 后，2026-11-20 12:30）
+
+> round19：补上最大诚实差距——stdlib 事件 hub（server/event.go：单调 seq、有界历史、慢订阅者驱逐、SSE `GET /v1/event`、`event/subscribe` RPC、15s 心跳，43 测试+race+archguard 全过），这是 opencode 事件溯源模型此前完全缺失的对应物。另加 sanitize 结构化导出（session/export.go，~40 敏感字段脱敏）、fingerprint 定义缓存（app/definitions.go，热重载基础）、durable 审批 pending（security/pending.go，301+race 全过，重连可恢复）。
+> **诚实标注**：事件 hub 已建好并接到 HTTP/RPC 层，但 app 层尚未把 agent 事件流喂进 hub（wiring 文档已写在 event.go，因 app 文件所有权未接）——这是下一轮第一优先级。审批 pending 同样未接 server/TUI 传输层。
+
 ## 评分表（round18 后，2026-11-20 12:21）
 
 > round18：接线代理把 stats/retention/审批事件/exec-check 全部接入主流程（通过 Recorder seam 零 app 改动；保留 tool-pair 安全；审批事件 emit 在 Ask 前后；exec-check 默认关闭）。新增隐私模式（local-only，285 测试）、session ordinals（204 测试，定位同秒 flake 根因）、context_pack 工具（517 测试）、本地隐私/ordinal building block。全量 3005+ 测试、race、linux 交叉编译全绿。
