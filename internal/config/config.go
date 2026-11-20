@@ -181,7 +181,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	}
 
 	home := homeDir(env)
-	tree := defaults(home, cwd)
+	tree := defaults(cwd)
 	sources := make([]string, 0, 3)
 	warn := func(format string, args ...any) { log.Printf(format, args...) }
 	for _, file := range configFiles(cwd, home) {
@@ -225,7 +225,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 		mergeTree(tree, overrides)
 	}
 
-	cfg := decode(tree, cwd, sources)
+	cfg := decode(tree, cwd, home, sources)
 	// Fail closed at load time on every invariant the fail-closed diagnostics
 	// summary reports. Keep Load, Diagnostics (doctor) and Validate on the same
 	// source of truth so a config that is unsafe to honour is never accepted on
@@ -315,19 +315,20 @@ func (c Config) Reload() (*Config, error) {
 	return &next, nil
 }
 
-func defaults(home, cwd string) map[string]any {
+func defaults(cwd string) map[string]any {
+	// Only keys without an accepted alias belong here. A canonical default
+	// injected at the base layer would shadow an alias spelling from a config
+	// file (e.g. "modelName" or "max_turns"): mergeTree keeps both keys and
+	// stringField/intField read the canonical one first, silently discarding
+	// the file value and even reporting a bogus "conflict" in diagnostics.
+	// Aliased settings apply their default in decode instead, exactly as
+	// decodePrivacyMode already does for privacyMode/privacy_mode.
 	return map[string]any{
-		"model":       defaultModel,
-		"baseURL":     defaultBaseURL,
-		"apiKey":      "",
-		"protocol":    defaultProtocol,
-		"locale":      defaultLocale,
-		"sandboxMode": SandboxWorkspaceWrite,
-		"maxTurns":    float64(defaultMaxTurns),
-		"yolo":        false,
-		"storageDir":  filepath.Join(home, appDir),
-		"provider":    "",
-		"cwd":         cwd,
+		"protocol": defaultProtocol,
+		"locale":   defaultLocale,
+		"yolo":     false,
+		"provider": "",
+		"cwd":      cwd,
 		// Opt-in verification is default-off: an empty argv leaves the runner's
 		// Verify callback nil, so existing runs stay byte-identical. The timeout
 		// still gets a compiled default so callers never see a zero deadline.
@@ -461,18 +462,21 @@ func applyEnv(tree map[string]any, env func(string) string) error {
 	return nil
 }
 
-func decode(tree map[string]any, cwd string, sources []string) Config {
+// decode builds Config from the fully merged tree. home is needed only for
+// storageDir's compiled default, which (like the other aliased settings) is
+// applied here instead of in defaults() so an alias from a file wins.
+func decode(tree map[string]any, cwd, home string, sources []string) Config {
 	return Config{
-		Model:       stringField(tree, "model", "modelName"),
-		BaseURL:     stringField(tree, "baseURL", "baseUrl", "base_url"),
-		APIKey:      stringField(tree, "apiKey", "api_key"),
+		Model:       stringFieldDefault(tree, defaultModel, "model", "modelName"),
+		BaseURL:     stringFieldDefault(tree, defaultBaseURL, "baseURL", "baseUrl", "base_url"),
+		APIKey:      stringFieldDefault(tree, "", "apiKey", "api_key"),
 		Protocol:    stringField(tree, "protocol"),
 		Locale:      stringField(tree, "locale"),
-		SandboxMode: stringField(tree, "sandboxMode", "sandbox_mode"),
+		SandboxMode: stringFieldDefault(tree, SandboxWorkspaceWrite, "sandboxMode", "sandbox_mode"),
 		PrivacyMode: decodePrivacyMode(tree),
-		MaxTurns:    intField(tree, "maxTurns", "max_turns"),
+		MaxTurns:    intFieldDefault(tree, defaultMaxTurns, "maxTurns", "max_turns"),
 		Yolo:        boolField(tree, "yolo"),
-		StorageDir:  stringField(tree, "storageDir", "storage_dir"),
+		StorageDir:  stringFieldDefault(tree, filepath.Join(home, appDir), "storageDir", "storage_dir"),
 
 		VerifyCommand:        stringSliceField(tree, "verifyCommand", "verify_command"),
 		VerifyCommands:       stringMapField(tree, "verifyCommands", "verify_commands"),
@@ -538,6 +542,37 @@ func stringField(tree map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// anyKeyPresent reports whether at least one of keys exists in tree, whatever
+// its value type. Defaults must not be applied over an explicit setting, even
+// an ill-typed one: Validate/diagnostics still need to see that bad value.
+func anyKeyPresent(tree map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := tree[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// stringFieldDefault is stringField with a compiled fallback used only when
+// none of the aliases is present. This is the inverse of injecting canonical
+// keys into defaults(): a file that spells the setting "base_url" now wins
+// over the default "baseURL" instead of being silently shadowed by it.
+func stringFieldDefault(tree map[string]any, def string, keys ...string) string {
+	if !anyKeyPresent(tree, keys...) {
+		return def
+	}
+	return stringField(tree, keys...)
+}
+
+// intFieldDefault is intField with the same presence-based fallback.
+func intFieldDefault(tree map[string]any, def int, keys ...string) int {
+	if !anyKeyPresent(tree, keys...) {
+		return def
+	}
+	return intField(tree, keys...)
 }
 
 // stringSliceField decodes an argv-style JSON array from the merged tree. Both

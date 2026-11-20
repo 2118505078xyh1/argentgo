@@ -119,3 +119,33 @@ func TestMarkdownLinesKeepZWJEmojiIntact(t *testing.T) {
 		}
 	}
 }
+
+// A markdown table must honour the same prefix-adjusted content budget as an
+// ordinary transcript line. markdownLines prepends the "◆ " assistant mark (or
+// its indent) to every rendered row, so handing the full body width to the
+// table renderer used to push the right border past the transcript edge.
+func TestMarkdownLinesTableRespectsPrefixWidth(t *testing.T) {
+	p, _ := paletteFor(ThemeDark)
+	const width = 20
+	md := "| aaaaaaaaaaa | bbbbbbbbbbb |\n| --- | --- |\n| ccccccccccc | ddddddddddd |"
+	lines := markdownLines(md, width, "◆ ", "  ", p)
+	if len(lines) == 0 {
+		t.Fatal("expected table rows, got none")
+	}
+	for i, line := range lines {
+		if w := line.Width(); w > width {
+			t.Errorf("row %d is %d cells wide, want <= %d: %q", i, w, width, line.Text())
+		}
+	}
+	if got := lines[0].Spans[0].Text; got != "◆ " {
+		t.Fatalf("first row prefix = %q, want the assistant mark", got)
+	}
+	// The block is still a rendered table (divider present), not dropped text.
+	var joined strings.Builder
+	for _, line := range lines {
+		joined.WriteString(line.Text())
+	}
+	if !strings.Contains(joined.String(), "---") {
+		t.Fatalf("table divider missing from rendered rows: %q", joined.String())
+	}
+}

@@ -74,6 +74,28 @@ func TestReadExactEndHasNoPagingNotice(t *testing.T) {
 	}
 }
 
+func TestReadHugeLimitReadsToEndWithoutOverflow(t *testing.T) {
+	// start-1+limit used to overflow int for a huge limit and a non-zero
+	// offset, making the slice end negative and panicking. Such a limit must
+	// behave like "read from offset to the end" instead.
+	const content = "a\nb\nc\nd\ne\n"
+	root := pagingRoot(t, "f.txt", content)
+	for _, huge := range []string{
+		"9223372036854775807", // math.MaxInt64
+		"9223372036854775806", // MaxInt64-1
+		"4611686018427387904", // 1<<62, overflows once start-1 is added
+		"999999999999999999",
+	} {
+		t.Run(huge, func(t *testing.T) {
+			args := `{"path":"f.txt","offset":2,"limit":` + huge + `}`
+			want := "b\nc\nd\ne\n"
+			if got := runPagingRead(t, root, args); got != want {
+				t.Fatalf("read with huge limit = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestReadDescriptionHasPagingHintUnderCap(t *testing.T) {
 	desc := (readTool{}).Description()
 	for _, hint := range []string{"prefer", "shell", "offset", "limit"} {

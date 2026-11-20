@@ -40,6 +40,9 @@ func Apply(dest, target string) error {
 	if looksLikeZip(dest) {
 		return fmt.Errorf("update: staged file %s is a zip archive, not an executable", dest)
 	}
+	if looksLikeGzip(dest) {
+		return fmt.Errorf("update: staged file %s is a gzip archive, not an executable", dest)
+	}
 	directory := filepath.Dir(target)
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("update: create %s: %w", directory, err)
@@ -135,6 +138,22 @@ func looksLikeZip(path string) bool {
 		((magic[2] == 3 && magic[3] == 4) || // local header
 			(magic[2] == 5 && magic[3] == 6) || // empty archive
 			(magic[2] == 7 && magic[3] == 8)) // spanned archive
+}
+
+// looksLikeGzip reports whether a file starts with the gzip magic bytes. It
+// catches a raw .tar.gz/.tgz that reached Apply without being unpacked, which
+// looksLikeZip would miss and which would otherwise be installed as the binary.
+func looksLikeGzip(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	var magic [2]byte
+	if _, err := io.ReadFull(file, magic[:]); err != nil {
+		return false
+	}
+	return magic[0] == 0x1f && magic[1] == 0x8b
 }
 
 func retryRename(from, to string) error {

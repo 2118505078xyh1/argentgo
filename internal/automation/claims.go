@@ -93,16 +93,20 @@ func (s *Store) nextSeq(dir, key string) (uint64, error) {
 }
 
 // claimIsStale reports whether a claim file is old enough to be abandoned.
-// An unreadable or malformed marker is treated as stale so it cannot wedge the
-// task permanently.
+// An unreadable, unusable or old marker is treated as stale so it cannot wedge
+// the task permanently.
+//
+// Freshness must come from the file's modification time, not from the stamp
+// written inside it: os.OpenFile(O_EXCL) creates an empty lock file before the
+// owner writes the stamp, and in that window a stamp-based check reads an empty
+// marker, treats it as malformed, and lets a second caller steal an in-flight
+// run. The stamp stays in the file for human inspection only; mtime is recorded
+// by the same create/write step and is already current when the file appears.
 func claimIsStale(path string) bool {
-	data, err := os.ReadFile(path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return false
-	}
-	var stamp int64
-	if _, err := fmt.Sscan(string(data), &stamp); err != nil {
+		// The marker vanished or cannot be inspected: do not wedge the task.
 		return true
 	}
-	return time.Since(time.Unix(0, stamp)) > staleClaimAfter
+	return !info.Mode().IsRegular() || time.Since(info.ModTime()) > staleClaimAfter
 }

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -416,6 +417,20 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	// write ends; bound how long Wait waits for those pipes so the timeout
 	// above really bounds wall-clock time.
 	process.WaitDelay = waitDelay
+	// The context can expire while Wait is still draining the captured pipes
+	// after the process itself has exited — a hook that leaves a background
+	// child holding stdout keeps them open past the deadline. os/exec still
+	// calls Cancel in that case, but Kill returns ErrProcessDone: the hook did
+	// not time out. Track only a Kill of a live process so a completed hook is
+	// not mislabelled as timed out (which would also drop its exit-2 block).
+	var killedByDeadline atomic.Bool
+	process.Cancel = func() error {
+		err := process.Process.Kill()
+		if err == nil && runCtx.Err() == context.DeadlineExceeded {
+			killedByDeadline.Store(true)
+		}
+		return err
+	}
 	if payload.CWD != "" {
 		process.Dir = payload.CWD
 	}
@@ -438,7 +453,8 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	outcome.Stderr = stderr.String()
 
 	switch {
-	case runCtx.Err() == context.DeadlineExceeded:
+	case killedByDeadline.Load():
+		// The hook was still running when its deadline expired.
 		outcome.TimedOut = true
 		outcome.ExitCode = -1
 	case runErr == nil:
@@ -447,6 +463,16 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 		var exitErr *exec.ExitError
 		if errors.As(runErr, &exitErr) {
 			outcome.ExitCode = exitErr.ExitCode()
+		} else if state := process.ProcessState; state != nil {
+			// The process finished on its own; only the post-exit pipe wait
+			// hit the deadline or WaitDelay. Keep the real exit status and
+			// do not surface the expected pipe-drain error as a hook failure.
+			outcome.ExitCode = state.ExitCode()
+			if !errors.Is(runErr, exec.ErrWaitDelay) &&
+				!errors.Is(runErr, context.Canceled) &&
+				!errors.Is(runErr, context.DeadlineExceeded) {
+				outcome.Err = runErr
+			}
 		} else {
 			outcome.Err = runErr
 		}

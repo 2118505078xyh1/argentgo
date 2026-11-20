@@ -57,6 +57,60 @@ func TestSearchOrdersBySessionThenLineAndHonoursLimit(t *testing.T) {
 	}
 }
 
+// A JSON object is decoded into a Go map, whose iteration order is randomized.
+// When several string values in one record contain the needle, the chosen
+// snippet must still be stable across calls: revisiting the same transcript
+// must not yield a different window into the same text. This pins the fix in
+// collectStrings (keys visited in sorted order).
+func TestSnippetForPicksDeterministicValueAcrossCalls(t *testing.T) {
+	data, err := json.Marshal(map[string]any{
+		"alpha": strings.Repeat("A", 80) + "NEEDLE" + strings.Repeat("B", 80),
+		"beta":  strings.Repeat("C", 80) + "NEEDLE" + strings.Repeat("D", 80),
+		"gamma": strings.Repeat("E", 80) + "NEEDLE" + strings.Repeat("F", 80),
+		"delta": strings.Repeat("G", 80) + "NEEDLE" + strings.Repeat("H", 80),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, ok := snippetFor(data, "NEEDLE")
+	if !ok {
+		t.Fatal("snippetFor found no hit")
+	}
+	// With sorted keys, "alpha" is always visited first, so the window must
+	// always come from its value (the leading run of A's).
+	if !strings.Contains(want, strings.Repeat("A", 40)) {
+		t.Fatalf("snippet = %q, want the window from the alphabetically-first key", want)
+	}
+	for i := 0; i < 200; i++ {
+		got, ok := snippetFor(data, "NEEDLE")
+		if !ok {
+			t.Fatal("snippetFor found no hit")
+		}
+		if got != want {
+			t.Fatalf("call %d snippet = %q, want %q (nondeterministic map order)", i, got, want)
+		}
+	}
+}
+
+// stringValues feeds a payload's strings to snippetFor. Its order must be a
+// function of the payload alone, never of the Go map's random seed; otherwise
+// the "first" matching string is not well defined.
+func TestStringValuesUsesSortedKeyOrder(t *testing.T) {
+	data := json.RawMessage(`{"b":"bee","a":"aye","c":"see"}`)
+	want := []string{"aye", "bee", "see"}
+	for i := 0; i < 50; i++ {
+		got := stringValues(data)
+		if len(got) != len(want) {
+			t.Fatalf("stringValues = %v, want %v", got, want)
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("stringValues = %v, want %v", got, want)
+			}
+		}
+	}
+}
+
 func TestSearchNoMatchReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	writeRawSession(t, filepath.Join(dir, "empty.jsonl"), []Record{

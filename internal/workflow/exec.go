@@ -291,13 +291,23 @@ func (e *Executor) attempt(ctx context.Context, step Step, input string, outputs
 		}
 		args := Substitute(step.Args, input, outputs, params)
 		out, err = e.Tools.Run(attemptCtx, step.Tool, args)
-		err = timedOut(step, err, step.Timeout.Std())
 	} else {
 		if e.Prompter == nil {
 			return "", fmt.Errorf("workflow: step %q needs a prompter", step.Name)
 		}
 		out, err = e.Prompter.Prompt(attemptCtx, Substitute(step.Prompt, input, outputs, params))
-		err = timedOut(step, err, step.Timeout.Std())
+	}
+	err = timedOut(step, err, step.Timeout.Std())
+	if err == nil {
+		// A seam may ignore its context and return a value after the attempt's
+		// deadline has passed. A step-local timeout does not cancel the parent
+		// run context, so runStep cannot notice this on ctx.Err(); the executor
+		// must enforce the bound itself or a late result is recorded as a
+		// success. runStep's cancellation check still applies to a parent
+		// cancellation, which attemptCtx inherits.
+		if ctxErr := attemptCtx.Err(); ctxErr != nil {
+			err = timedOut(step, ctxErr, step.Timeout.Std())
+		}
 	}
 	if err != nil {
 		return out, err

@@ -99,7 +99,15 @@ func (c ExecCheck) Validate() error {
 // Absolute paths (including Windows drive-relative ones), ".." traversal and
 // unknown bare commands such as sh/bash/curl are all refused.
 func validateFixtureExe(command string) error {
-	if filepath.IsAbs(command) || strings.Contains(command, ":") {
+	// filepath.IsAbs alone misses a rooted-but-driveless Windows path such as
+	// "\tool.exe". Windows resolves that against the *drive of cmd.Dir*, and
+	// RunExecCheck sets cmd.Dir to the disposable workspace, so the command
+	// would actually run from the drive root (e.g. D:\tool.exe) — outside the
+	// workspace the four bounds promise to stay inside. Reject a leading
+	// separator explicitly; on Unix a leading "/" is already absolute, but
+	// checking both spellings keeps the rule identical on every platform.
+	if filepath.IsAbs(command) || strings.Contains(command, ":") ||
+		strings.HasPrefix(command, "/") || strings.HasPrefix(command, string(os.PathSeparator)) {
 		return fmt.Errorf("%w: %q", ErrExecBadPath, command)
 	}
 	for _, part := range strings.FieldsFunc(command, func(r rune) bool {

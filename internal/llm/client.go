@@ -605,19 +605,28 @@ streamLoop:
 				reasoning.WriteString(delta)
 			}
 			for _, tc := range choice.Delta.ToolCalls {
-				// Resolve by index first, then by id: an id may reappear under a
-				// new index, or a delta may omit its index after a rename.
-				call := byIndex[tc.Index]
-				if call == nil && tc.ID != "" {
+				// Resolve by id first: the provider's id is the call's stable
+				// identity, while index is only a stream position that gateways
+				// renumber mid-stream (or omit on a continuation delta). A known
+				// id under a stale index must still reach its own call; trusting
+				// the index first would append fragments to whichever call used
+				// to own that slot and silently swap two calls' arguments.
+				var call *ToolCall
+				if tc.ID != "" {
 					call = byID[tc.ID]
+				}
+				if call == nil {
+					call = byIndex[tc.Index]
 				}
 				if call == nil {
 					call = &ToolCall{Type: "function"}
 					blocks = append(blocks, call)
 				}
-				// Register every key seen for this block as an alias. Later
-				// fragments that change either key still resolve back to it.
-				if byIndex[tc.Index] == nil {
+				// Register every key seen for this block as an alias. When a
+				// known id reappears under a different index, rebind that index
+				// to the id's call so later id-less deltas at the new position
+				// also land in the right block.
+				if tc.ID != "" || byIndex[tc.Index] == nil {
 					byIndex[tc.Index] = call
 				}
 				if tc.ID != "" {

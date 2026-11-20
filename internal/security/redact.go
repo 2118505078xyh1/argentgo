@@ -415,13 +415,25 @@ func redactValue(value any, secretKind string) any {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
 		for key, inner := range typed {
-			out[key] = redactValue(inner, secretKeyKind(key))
+			// A secret-named key marks its whole subtree as secret. Carry that
+			// context down so a string nested under it cannot slip through just
+			// because its own key looks harmless (e.g. {"secret":{"note":...}}).
+			// A key naming a secret itself wins, keeping the more specific kind.
+			kind := secretKeyKind(key)
+			if kind == "" {
+				kind = secretKind
+			}
+			out[key] = redactValue(inner, kind)
 		}
 		return out
 	case []any:
 		out := make([]any, len(typed))
 		for i, inner := range typed {
-			out[i] = redactValue(inner, "")
+			// Array elements have no key of their own, so they inherit the
+			// enclosing secret context. Without this, {"tokens":["hunter2"]}
+			// would leak every element: Redact only catches credential-shaped
+			// strings, and an arbitrary secret is not credential-shaped.
+			out[i] = redactValue(inner, secretKind)
 		}
 		return out
 	default:

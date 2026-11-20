@@ -122,8 +122,18 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 			return "", nil
 		}
 		end = len(lines)
-		if args.Limit > 0 && start-1+args.Limit < end {
-			end = start - 1 + args.Limit
+		if args.Limit > 0 {
+			// Compute the end without adding the raw limit to start-1: a huge
+			// limit (e.g. 9223372036854775807) would overflow int, making end
+			// negative and panicking on the slice below. A limit at or beyond
+			// the remaining line count means "read to the end", which is the
+			// same result the un-overflowed arithmetic produced.
+			remaining := len(lines) - start + 1 // start <= len(lines) here, so >= 1
+			if args.Limit >= remaining {
+				end = len(lines)
+			} else {
+				end = start - 1 + args.Limit
+			}
 		}
 	}
 	out := clip(ctx, strings.Join(lines[start-1:end], "\n"))

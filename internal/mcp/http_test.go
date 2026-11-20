@@ -444,6 +444,138 @@ func TestHTTPTransportRejectsCrossOriginEndpoint(t *testing.T) {
 	}
 }
 
+// TestHTTPLateEndpointAnnouncementUpdatesPostURL covers a legacy SSE server
+// that announces its POST endpoint only after Connect's handshake window has
+// closed. readStream must still apply the announcement to postURL; otherwise
+// every request is POSTed to the SSE URL and the connection is permanently
+// broken.
+func TestHTTPLateEndpointAnnouncementUpdatesPostURL(t *testing.T) {
+	release := make(chan struct{})
+	endpointSent := make(chan struct{})
+	wrongTarget := make(chan string, 4)
+	outbound := make(chan string, 16)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			select {
+			case wrongTarget <- r.URL.Path:
+			default:
+			}
+			http.Error(w, "POST belongs on the announced endpoint", http.StatusMethodNotAllowed)
+			return
+		}
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		// Delay the announcement until after Connect has given up waiting
+		// for it, proving a late event is still honoured.
+		<-release
+		fmt.Fprint(w, "event: endpoint\ndata: /message?sessionId=abc\n\n")
+		flusher.Flush()
+		close(endpointSent)
+
+		for {
+			select {
+			case payload := <-outbound:
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", payload)
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("sessionId") != "abc" {
+			http.Error(w, "wrong session id", http.StatusBadRequest)
+			return
+		}
+		var message map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		idRaw, hasID := message["id"]
+		if !hasID {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		var method string
+		_ = json.Unmarshal(message["method"], &method)
+		result, callErr := helperReply(method, message["params"])
+		payload := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(idRaw)}
+		if callErr != nil {
+			payload["error"] = map[string]any{"code": -32602, "message": callErr.Error()}
+		} else {
+			payload["result"] = result
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		select {
+		case outbound <- string(encoded):
+		case <-r.Context().Done():
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	const handshake = 80 * time.Millisecond
+	start := time.Now()
+	c, err := Connect(context.Background(), Spec{
+		Name:      "late-endpoint",
+		Transport: "http",
+		URL:       server.URL + "/sse",
+		Timeout:   handshake,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+	if elapsed := time.Since(start); elapsed < handshake {
+		t.Fatalf("Connect returned after %s, before the %s handshake window; the test setup is invalid", elapsed, handshake)
+	}
+
+	close(release)
+	select {
+	case <-endpointSent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never announced the endpoint")
+	}
+
+	// Wait for the client's stream reader to apply the late announcement.
+	tr := c.(*client).tr.(*httpTransport)
+	ready := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tr.mu.Lock()
+		target := tr.postURL
+		tr.mu.Unlock()
+		if strings.HasSuffix(target, "/message?sessionId=abc") {
+			ready = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("client never applied the late endpoint announcement to its POST URL")
+	}
+
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize after late endpoint announcement: %v", err)
+	}
+	select {
+	case path := <-wrongTarget:
+		t.Fatalf("request was POSTed to %q instead of the announced endpoint", path)
+	default:
+	}
+}
+
 // stalledStreamServer accepts the SSE GET but never sends response headers.
 // The handler leaves when the request is cancelled, so the test can assert
 // that the handshake abort also releases the connection (no leak).

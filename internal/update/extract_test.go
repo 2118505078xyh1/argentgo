@@ -1,9 +1,12 @@
 package update
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -284,5 +287,231 @@ func TestSafeArchivePath(t *testing.T) {
 			t.Errorf("safeArchivePath(%q) = (%q, %v), want (%q, %v)",
 				test.name, got, ok, test.want, test.ok)
 		}
+	}
+}
+
+type tarEntry struct {
+	name     string
+	data     []byte
+	typeflag byte
+	linkname string
+}
+
+// tarGzFixture builds an in-memory gzip-compressed tar archive from the given
+// entries. A zero typeflag means a regular file.
+func tarGzFixture(t *testing.T, entries ...tarEntry) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, entry := range entries {
+		flag := entry.typeflag
+		if flag == 0 {
+			flag = tar.TypeReg
+		}
+		header := &tar.Header{
+			Name:     entry.name,
+			Mode:     0o755,
+			Typeflag: flag,
+			Linkname: entry.linkname,
+		}
+		if flag == tar.TypeReg || flag == tar.TypeRegA {
+			header.Size = int64(len(entry.data))
+		}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("WriteHeader(%q): %v", entry.name, err)
+		}
+		if flag == tar.TypeReg || flag == tar.TypeRegA {
+			if _, err := tarWriter.Write(entry.data); err != nil {
+				t.Fatalf("Write(%q): %v", entry.name, err)
+			}
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("tar Close: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("gzip Close: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+// TestTarGzAssetIsExtractedBeforeApply is the regression for the cross-package
+// gap: FindAsset prefers .tar.gz over .zip on Linux, so Download must unpack it
+// rather than stage a raw gzip archive that Apply would install as the binary.
+func TestTarGzAssetIsExtractedBeforeApply(t *testing.T) {
+	binary := []byte("ELF fictitious executable payload")
+	archive := tarGzFixture(t,
+		tarEntry{name: "argent", data: binary},
+		tarEntry{name: "argent-native", data: []byte("native frontend")},
+	)
+	server := serveBytes(t, archive)
+
+	assets := []Asset{
+		{Name: "argent_1.2.3_linux_amd64.zip", URL: "u1", Size: int64(len(archive))},
+		{Name: "argent_1.2.3_linux_amd64.tar.gz", URL: server.URL, Size: int64(len(archive))},
+	}
+	asset, found := FindAsset(assets, "linux", "amd64")
+	if !found || asset.Name != "argent_1.2.3_linux_amd64.tar.gz" {
+		t.Fatalf("FindAsset = %+v, %v; want the .tar.gz asset", asset, found)
+	}
+	if !isTarGzAsset(asset.Name) {
+		t.Fatalf("asset %q was not recognised as a tar.gz", asset.Name)
+	}
+
+	dir := t.TempDir()
+	stage := filepath.Join(dir, asset.Name)
+	if err := Download(context.Background(), asset, stage, checksumOf(archive)); err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	staged, err := os.ReadFile(stage)
+	if err != nil {
+		t.Fatalf("ReadFile(stage): %v", err)
+	}
+	if !bytes.Equal(staged, binary) {
+		t.Fatalf("staged file = %q, want the extracted executable %q", staged, binary)
+	}
+	if looksLikeGzip(stage) {
+		t.Fatal("staged file is still a gzip archive")
+	}
+
+	target := filepath.Join(dir, "argent")
+	if err := os.WriteFile(target, []byte("old build"), 0o755); err != nil {
+		t.Fatalf("WriteFile(target): %v", err)
+	}
+	if err := Apply(stage, target); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	installed, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("ReadFile(target): %v", err)
+	}
+	if !bytes.Equal(installed, binary) {
+		t.Fatalf("installed binary = %q, want %q", installed, binary)
+	}
+}
+
+// TestDownloadRejectsUnsafeTarEntries covers path escapes, links and duplicate
+// executables. Each must fail before anything is staged.
+func TestDownloadRejectsUnsafeTarEntries(t *testing.T) {
+	cases := []struct {
+		name    string
+		entries []tarEntry
+	}{
+		{
+			name: "parent traversal",
+			entries: []tarEntry{
+				{name: "../evil", data: []byte("evil")},
+				{name: "argent", data: []byte("good")},
+			},
+		},
+		{
+			name: "nested traversal",
+			entries: []tarEntry{
+				{name: "dir/../../evil", data: []byte("evil")},
+				{name: "argent", data: []byte("good")},
+			},
+		},
+		{
+			name: "absolute path",
+			entries: []tarEntry{
+				{name: "/evil", data: []byte("evil")},
+				{name: "argent", data: []byte("good")},
+			},
+		},
+		{
+			name: "windows drive letter",
+			entries: []tarEntry{
+				{name: "C:/evil", data: []byte("evil")},
+				{name: "argent", data: []byte("good")},
+			},
+		},
+		{
+			name: "symlink entry",
+			entries: []tarEntry{
+				{name: "argent", typeflag: tar.TypeSymlink, linkname: "../evil"},
+			},
+		},
+		{
+			name: "hardlink entry",
+			entries: []tarEntry{
+				{name: "argent", typeflag: tar.TypeLink, linkname: "elsewhere"},
+			},
+		},
+		{
+			name: "two executables",
+			entries: []tarEntry{
+				{name: "dir1/argent", data: []byte("one")},
+				{name: "dir2/argent", data: []byte("two")},
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			archive := tarGzFixture(t, test.entries...)
+			server := serveBytes(t, archive)
+			stage := filepath.Join(t.TempDir(), "argent.tar.gz")
+			err := Download(context.Background(),
+				Asset{Name: "argent.tar.gz", URL: server.URL, Size: int64(len(archive))},
+				stage, checksumOf(archive))
+			if err == nil {
+				t.Fatal("Download accepted an unsafe tar entry")
+			}
+			if _, statErr := os.Stat(stage); !os.IsNotExist(statErr) {
+				t.Fatalf("stage exists after a failed extraction: %v", statErr)
+			}
+		})
+	}
+}
+
+// TestDownloadRejectsTarGzWithoutAnExecutable also exercises the .tgz suffix.
+func TestDownloadRejectsTarGzWithoutAnExecutable(t *testing.T) {
+	archive := tarGzFixture(t,
+		tarEntry{name: "README.md", data: []byte("docs")},
+		tarEntry{name: "argent-native", data: []byte("native")},
+	)
+	server := serveBytes(t, archive)
+	stage := filepath.Join(t.TempDir(), "argent.tgz")
+	err := Download(context.Background(),
+		Asset{Name: "argent_linux_amd64.tgz", URL: server.URL, Size: int64(len(archive))},
+		stage, checksumOf(archive))
+	if err == nil || !strings.Contains(err.Error(), "no argent") {
+		t.Fatalf("error = %v, want a missing-executable error", err)
+	}
+}
+
+func TestDownloadRejectsTarGzWithTooManyEntries(t *testing.T) {
+	entries := make([]tarEntry, 0, maxArchiveEntries+2)
+	for index := 0; index < maxArchiveEntries+1; index++ {
+		entries = append(entries, tarEntry{name: fmt.Sprintf("extra%d.bin", index), data: []byte("x")})
+	}
+	entries = append(entries, tarEntry{name: "argent", data: []byte("ok")})
+	archive := tarGzFixture(t, entries...)
+	server := serveBytes(t, archive)
+	stage := filepath.Join(t.TempDir(), "argent.tar.gz")
+	err := Download(context.Background(),
+		Asset{Name: "argent.tar.gz", URL: server.URL, Size: int64(len(archive))},
+		stage, checksumOf(archive))
+	if err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("error = %v, want an entry-limit error", err)
+	}
+}
+
+func TestApplyRefusesToInstallARawGzipArchive(t *testing.T) {
+	archive := tarGzFixture(t, tarEntry{name: "argent", data: []byte("MZ")})
+	dir := t.TempDir()
+	stage := filepath.Join(dir, "argent.tar.gz")
+	if err := os.WriteFile(stage, archive, 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	target := filepath.Join(dir, "argent")
+	if err := os.WriteFile(target, []byte("old build"), 0o755); err != nil {
+		t.Fatalf("WriteFile(target): %v", err)
+	}
+	if err := Apply(stage, target); err == nil || !strings.Contains(err.Error(), "gzip archive") {
+		t.Fatalf("error = %v, want a gzip-archive refusal", err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "old build" {
+		t.Fatalf("target = %q, err %v; it must be left untouched", got, err)
 	}
 }

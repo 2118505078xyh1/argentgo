@@ -47,6 +47,14 @@ type LiveChild interface {
 	Wait() int
 }
 
+// gracefulTerminator is the optional OS-side capability of asking a whole tree
+// to stop without killing it, so a cooperative child can flush and clean up.
+// The OS-backed child implements it; test fakes that do not keep the original
+// immediate-kill behaviour and need no changes.
+type gracefulTerminator interface {
+	TerminateTree()
+}
+
 // Starter starts a Command and hands back its live child.
 type Starter func(Command) (*Process, error)
 
@@ -284,11 +292,37 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 		return res, nil, te
 	}
 	if ctxErr != nil {
-		p.Kill()
+		// A user cancellation gets the same two-phase stop Run gives its
+		// children: signal the whole tree and let a cooperative child exit on
+		// its own before escalating. An elapsed deadline still kills at once,
+		// because timeout semantics must not be slowed by the grace wait.
+		if errors.Is(ctxErr, context.Canceled) {
+			cancelChildGracefully(p)
+		} else {
+			p.Kill()
+		}
 		awaitDone(p)
 		return res, nil, fmt.Errorf("proc: %q: %w", c.Path, ctxErr)
 	}
 	return res, nil, nil
+}
+
+// cancelChildGracefully asks the child's tree to terminate, waits up to the
+// shared grace period for a cooperative exit, then escalates to Kill. Fakes
+// that cannot signal a tree are killed straight away.
+func cancelChildGracefully(p *Process) {
+	terminator, ok := p.child.(gracefulTerminator)
+	if !ok {
+		p.Kill()
+		return
+	}
+	terminator.TerminateTree()
+	select {
+	case <-p.Done():
+		return
+	case <-time.After(cancellationGracePeriod):
+	}
+	p.Kill()
 }
 
 // awaitDone gives a killed child a moment to be reaped. A tree that leaks a
@@ -371,6 +405,11 @@ type osLiveChild struct {
 func (c osLiveChild) Pid() int { return c.cmd.Process.Pid }
 
 func (c osLiveChild) Kill() { c.killer.killTree() }
+
+// TerminateTree implements gracefulTerminator: the graceful half of the same
+// two-phase stop Run uses. On Windows the backend's terminateTree is an
+// immediate kill, so the grace wait collapses to a no-op there.
+func (c osLiveChild) TerminateTree() { c.killer.terminateTree() }
 
 func (c osLiveChild) Wait() int {
 	err := c.cmd.Wait()

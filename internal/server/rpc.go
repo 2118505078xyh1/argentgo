@@ -155,8 +155,9 @@ func reportScanError(p *peer, err error) (terminal bool) {
 // Methods: prompt, abort, session.list, session.load, approval.list,
 // approval.answer, event/subscribe. Streamed
 // prompt text is emitted as prompt/delta notifications before the prompt result
-// is returned; event/subscribe answers with the current seq then emits "event"
-// notifications until the transport ends.
+// is returned; event/subscribe answers with the seq captured at subscription
+// (a safe resume cursor) then emits "event" notifications until the transport
+// ends.
 func RunRPC(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -400,9 +401,11 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ch, stop := hub.Subscribe(params.After)
+			ch, stop, seqAt := hub.SubscribeAfter(params.After)
 			defer stop()
-			p.respond(id, map[string]any{"seq": hub.Seq()})
+			// seqAt is captured with the subscription, so an event published in
+			// the gap before this result is written is not skipped on reconnect.
+			p.respond(id, map[string]any{"seq": seqAt})
 			for {
 				select {
 				case <-ctx.Done():

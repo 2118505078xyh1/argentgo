@@ -374,15 +374,46 @@ func (c *conPty) closeConsole() {
 	}
 }
 
+// duplicateProcess returns a private handle for a live child-status query. The
+// read of c.process and the duplication both happen under c.mu, so a concurrent
+// Close cannot close the original handle in between and leave the caller
+// holding a stale numeric value — the same hazard Wait guards against with its
+// own duplicate. ok is false when cached state already answers the query (the
+// child was reaped, Close has begun tearing the terminal down, or the handle is
+// gone), in which case the caller must not use the returned handle.
+func (c *conPty) duplicateProcess() (owned syscall.Handle, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reaped || c.closed || c.process == 0 {
+		return 0, false
+	}
+	self, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return 0, false
+	}
+	if err := syscall.DuplicateHandle(self, c.process, self, &owned, 0, false, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+		return 0, false
+	}
+	return owned, true
+}
+
 func (c *conPty) Exited() bool {
 	c.mu.Lock()
 	reaped := c.reaped
 	process := c.process
+	closed := c.closed
 	c.mu.Unlock()
-	if reaped || process == 0 {
+	if reaped || process == 0 || closed {
 		return true
 	}
-	r, _, _ := procWaitForSingleObject.Call(uintptr(process), 0)
+	owned, ok := c.duplicateProcess()
+	if !ok {
+		// The child was reaped or torn down between the two locks; there is no
+		// live process to wait on any more.
+		return true
+	}
+	defer syscall.CloseHandle(owned)
+	r, _, _ := procWaitForSingleObject.Call(uintptr(owned), 0)
 	return r == waitObject0
 }
 
@@ -391,18 +422,24 @@ func (c *conPty) ExitCode() int {
 	reaped := c.reaped
 	code := c.exitCode
 	process := c.process
+	closed := c.closed
 	c.mu.Unlock()
 	if reaped {
 		return code
 	}
-	if process == 0 {
+	if process == 0 || closed {
 		return -1
 	}
-	if r, _, _ := procWaitForSingleObject.Call(uintptr(process), 0); r != waitObject0 {
+	owned, ok := c.duplicateProcess()
+	if !ok {
+		return -1
+	}
+	defer syscall.CloseHandle(owned)
+	if r, _, _ := procWaitForSingleObject.Call(uintptr(owned), 0); r != waitObject0 {
 		return -1
 	}
 	var value uint32
-	if r, _, _ := procGetExitCodeProcess.Call(uintptr(process), uintptr(unsafe.Pointer(&value))); r == 0 {
+	if r, _, _ := procGetExitCodeProcess.Call(uintptr(owned), uintptr(unsafe.Pointer(&value))); r == 0 {
 		return -1
 	}
 	return int(value)

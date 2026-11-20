@@ -43,6 +43,9 @@ func TestExecCheckValidate(t *testing.T) {
 		{"go run denied", ExecCheck{Command: "go", Args: []string{"run", "main.go"}}, ErrExecGoSubcommand},
 		{"go with no subcommand denied", ExecCheck{Command: "go"}, ErrExecGoSubcommand},
 		{"absolute exe denied", ExecCheck{Command: absTool}, ErrExecBadPath},
+		{"rooted backslash path denied", ExecCheck{Command: `\tool.exe`}, ErrExecBadPath},
+		{"rooted slash path denied", ExecCheck{Command: `/tool.exe`}, ErrExecBadPath},
+		{"rooted nested path denied", ExecCheck{Command: `\tools\run.exe`}, ErrExecBadPath},
 		{"parent traversal denied", ExecCheck{Command: "../tools/run.exe"}, ErrExecBadPath},
 		{"inner parent traversal denied", ExecCheck{Command: "tools/../run.exe"}, ErrExecBadPath},
 		{"sh denied", ExecCheck{Command: "sh", Args: []string{"-c", "echo hi"}}, ErrExecCommandDenied},
@@ -139,6 +142,28 @@ func TestRunExecCheckRejectsDisallowedCommand(t *testing.T) {
 	}
 	if GradeExecCheck(res, c) {
 		t.Fatal("a rejected command must never grade as a pass")
+	}
+}
+
+// TestRunExecCheckRejectsRootedPath proves a rooted-but-driveless command is
+// refused before any process starts. On Windows "\tool.exe" is resolved against
+// the drive of cmd.Dir (the disposable workspace), so without this check the
+// command would run from the drive root — outside the workspace entirely.
+func TestRunExecCheckRejectsRootedPath(t *testing.T) {
+	for _, command := range []string{`\tool.exe`, `/tool.exe`, `\tools\run.exe`} {
+		t.Run(command, func(t *testing.T) {
+			c := ExecCheck{Command: command, Args: []string{"--flag"}, TimeoutMS: 1000}
+			res := RunExecCheck(t.TempDir(), c)
+			if !errors.Is(res.Err, ErrExecBadPath) {
+				t.Fatalf("Err = %v, want ErrExecBadPath", res.Err)
+			}
+			if res.ExitCode != -1 {
+				t.Fatalf("ExitCode = %d, want -1", res.ExitCode)
+			}
+			if GradeExecCheck(res, c) {
+				t.Fatal("a rooted command must never grade as a pass")
+			}
+		})
 	}
 }
 

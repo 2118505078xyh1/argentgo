@@ -428,6 +428,57 @@ func TestCallbackHonoursContextCancellation(t *testing.T) {
 	}
 }
 
+// TestCallbackCloseCancelsAPendingWait guards the contract in Close's doc:
+// closing the callback must unblock a Wait even when its context is never
+// cancelled. Closing only the TCP listener leaves the HTTP server idle and the
+// Wait stuck on its select forever.
+func TestCallbackCloseCancelsAPendingWait(t *testing.T) {
+	callback, err := Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+
+	type outcome struct {
+		code string
+		err  error
+	}
+	results := make(chan outcome, 1)
+	go func() {
+		code, err := callback.Wait(context.Background(), "state")
+		results <- outcome{code, err}
+	}()
+
+	if err := callback.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case got := <-results:
+		if !errors.Is(got.err, ErrCallbackClosed) {
+			t.Fatalf("Wait error = %v, want ErrCallbackClosed", got.err)
+		}
+		if got.code != "" {
+			t.Fatalf("Wait code = %q, want empty", got.code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait did not return after Close")
+	}
+}
+
+func TestCallbackCloseIsIdempotent(t *testing.T) {
+	callback, err := Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	if err := callback.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	// A second Close must not panic (the closed channel may only be closed
+	// once) and must not report a new error.
+	if err := callback.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
 func TestWaitCallbackStateBindsAndReturns(t *testing.T) {
 	addr := "127.0.0.1:0"
 	// WaitCallbackState with a zero port cannot report the chosen address to the

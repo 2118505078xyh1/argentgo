@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -126,6 +127,26 @@ func TestSanitizeRecordRedactsSensitiveFields(t *testing.T) {
 		if strings.Contains(string(got.Data), plantedSecret) {
 			t.Fatalf("secret survived in field %q: %s", key, got.Data)
 		}
+	}
+}
+
+// Sanitizing only rewrites text fields, so numeric payload values must survive
+// byte-for-byte. Decoding into any would round integers above 2^53 through
+// float64 and silently corrupt ids/counters in an otherwise faithful export.
+func TestSanitizeRecordPreservesLargeIntegers(t *testing.T) {
+	const big = "9007199254740993" // 2^53+1, not exactly representable as float64
+	record := Record{ID: "n9", Kind: KindTool, Data: json.RawMessage(`{
+		"name":"fs.read",
+		"big":` + big + `,
+		"nested":{"also_big":` + big + `},
+		"content":"some text"
+	}`)}
+	got := sanitizeRecord(record)
+	if !bytes.Contains(got.Data, []byte(`"big":`+big)) {
+		t.Errorf("large integer was rounded: %s", got.Data)
+	}
+	if !bytes.Contains(got.Data, []byte(`"also_big":`+big)) {
+		t.Errorf("nested large integer was rounded: %s", got.Data)
 	}
 }
 

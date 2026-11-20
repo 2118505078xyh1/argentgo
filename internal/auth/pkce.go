@@ -296,9 +296,19 @@ var ErrStateMismatch = errors.New("auth: oauth state mismatch")
 // complete the login and must never be reported as a success.
 var ErrNoAuthorizationCode = errors.New("auth: oauth callback has no authorization code")
 
+// ErrCallbackClosed is returned by Wait when Callback.Close is called before
+// the redirect arrives. Closing the listener alone cannot unblock Wait, since
+// the HTTP server simply stops serving and never delivers a result.
+var ErrCallbackClosed = errors.New("auth: oauth callback closed")
+
 // Callback is a loopback listener that receives one OAuth redirect.
 type Callback struct {
 	listener net.Listener
+	// closed is signalled by Close so a pending Wait can unblock even when the
+	// caller did not provide a cancellable context.
+	closed    chan struct{}
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Listen binds addr (empty means 127.0.0.1:0) and returns the pending callback.
@@ -310,7 +320,7 @@ func Listen(addr string) (*Callback, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: bind the OAuth callback: %w", err)
 	}
-	return &Callback{listener: listener}, nil
+	return &Callback{listener: listener, closed: make(chan struct{})}, nil
 }
 
 // Addr is the bound loopback address, for example 127.0.0.1:51234.
@@ -376,13 +386,22 @@ func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
+	case <-c.closed:
+		return "", ErrCallbackClosed
 	case value := <-done:
 		return value.code, value.err
 	}
 }
 
-// Close releases the listener, cancelling a pending Wait.
-func (c *Callback) Close() error { return c.listener.Close() }
+// Close releases the listener and cancels a pending Wait. It is safe to call
+// more than once; the first call's listener error is returned to the caller.
+func (c *Callback) Close() error {
+	c.closeOnce.Do(func() {
+		c.closeErr = c.listener.Close()
+		close(c.closed)
+	})
+	return c.closeErr
+}
 
 // WaitCallback binds addr, waits for the redirect and returns the code. It does
 // not check the state parameter; use WaitCallbackState when the expected state

@@ -14,9 +14,6 @@ import (
 // positional prompt words. Flags may appear before or between positional words.
 func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Options, []string, error) {
 	before, after := splitTerminator(args)
-	if hasHelpFlag(before) {
-		return &Options{Help: true}, nil, nil
-	}
 
 	fs := flag.NewFlagSet("argent", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -31,6 +28,12 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	// flags: it must not change flagSurface(), which the locked parity gate
 	// compares against an exact list. It reaches app/config as an override.
 	privacy := registerPrivacyFlags(fs)
+
+	// Run the help pre-scan after the flag surface exists: it must distinguish
+	// a real help switch from a '-h'-looking value handed to another flag.
+	if hasHelpFlag(fs, before) {
+		return &Options{Help: true}, nil, nil
+	}
 
 	positional, err := parseInterleaved(fs, before)
 	if err != nil {
@@ -97,7 +100,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		Serve:       *values.serve,
 		RPC:         *values.rpc,
 		ACP:         *values.acp,
-		Help:        *values.help || hasHelpFlag(before),
+		Help:        *values.help || hasHelpFlag(fs, before),
 		Version:     *values.version,
 		MaxTurns:    *values.maxTurns,
 		MaxParallel: maxParallel,
@@ -331,19 +334,37 @@ func splitTerminator(args []string) (before, after []string) {
 // into values.help but then discarded when Options.Help was recomputed from
 // this narrow check, dropping the user's help request. A false value is not a
 // request for help and an unknown switch is never treated as one.
-func hasHelpFlag(args []string) bool {
-	for _, arg := range args {
-		name, value, hasValue := strings.Cut(arg, "=")
+//
+// The scan walks the raw argv (so help still wins over an otherwise invalid
+// command line) but skips the token consumed as the value of a non-bool flag.
+// Go's flag package takes the next argument as a flag's value regardless of
+// whether it starts with '-', so in "argent --model -h" the "-h" is a model
+// id, not a request for help. Without that skip, any help-looking value turns
+// the whole invocation into a usage print with exit code 0.
+func hasHelpFlag(fs *flag.FlagSet, args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		dashes := 0
-		for dashes < len(name) && name[dashes] == '-' {
+		for dashes < len(arg) && arg[dashes] == '-' {
 			dashes++
 		}
-		if dashes == 0 || dashes > 2 {
+		if dashes == 0 || dashes > 2 || dashes == len(arg) {
 			continue
 		}
-		switch name[dashes:] {
-		case "h", "help":
-		default:
+		name, value, hasValue := strings.Cut(arg[dashes:], "=")
+		def := fs.Lookup(name)
+		if def == nil {
+			continue // unknown switch: never a help request
+		}
+		// A bare non-bool flag swallows the next token as its value. Skip that
+		// token so a help-looking value is not mistaken for a help switch.
+		if !hasValue && !flagIsBool(def) {
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		if name != "h" && name != "help" {
 			continue
 		}
 		if hasValue {
@@ -355,6 +376,13 @@ func hasHelpFlag(args []string) bool {
 		return true
 	}
 	return false
+}
+
+// flagIsBool mirrors the unexported interface the flag package uses to decide
+// whether a switch may be written without a value.
+func flagIsBool(f *flag.Flag) bool {
+	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return ok && bf.IsBoolFlag()
 }
 
 func firstNonEmpty(values ...string) string {

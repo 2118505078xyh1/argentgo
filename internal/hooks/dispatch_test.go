@@ -56,6 +56,8 @@ func hookHelper(mode string) {
 		// Exit immediately but leave a child holding this process's stdout
 		// and stderr — the pipes the dispatcher captures. Without a WaitDelay
 		// the dispatcher's Wait() blocks until the child releases them.
+		// ARGENT_HOOK_EXIT_CODE lets a test check that a real exit status
+		// (notably exit 2) survives the post-exit pipe wait.
 		child := exec.Command(os.Args[0])
 		child.Env = append(os.Environ(), "ARGENT_HOOK_HELPER=lingering-child")
 		child.Stdout = os.Stdout
@@ -64,7 +66,8 @@ func hookHelper(mode string) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		os.Exit(0)
+		code, _ := strconv.Atoi(os.Getenv("ARGENT_HOOK_EXIT_CODE"))
+		os.Exit(code)
 	case "lingering-child":
 		// Hold the inherited pipes until the test signals it is done (with a
 		// fallback bound so a failed test cannot leak a process forever).
@@ -427,6 +430,60 @@ func TestRunCommandWaitDelayBoundsLingeringChildOutput(t *testing.T) {
 	// ~waitDelay.
 	if elapsed > 1500*time.Millisecond {
 		t.Fatalf("lingering child blocked the hook for %s", elapsed)
+	}
+}
+
+// dispatchLingering runs the "lingering" helper with a 2s timeout. The helper
+// exits with exitCode well before the deadline but leaves a child holding the
+// captured pipes, so the deadline fires while Wait is still draining them.
+// The budget is generous because a -race helper process can take a while to
+// start; the child's 5s fallback keeps the pipe-drain window open past 2s.
+// The child is released on cleanup so it cannot outlive the test.
+func dispatchLingering(t *testing.T, event Event, exitCode int) Outcome {
+	t.Helper()
+	t.Setenv("ARGENT_HOOK_HELPER", "lingering")
+	t.Setenv("ARGENT_HOOK_EXIT_CODE", strconv.Itoa(exitCode))
+	exitFile := filepath.Join(t.TempDir(), "child-exit")
+	t.Setenv("ARGENT_HOOK_EXIT_FILE", exitFile)
+	t.Cleanup(func() {
+		_ = os.WriteFile(exitFile, nil, 0o600)
+		time.Sleep(100 * time.Millisecond)
+	})
+	const timeout = 2 * time.Second
+	dispatcher := helperDispatcher(timeout)
+	command := Command{Event: event, Command: "run-hook", Timeout: timeout}
+	return dispatcher.RunCommand(context.Background(), command, Payload{Event: string(event)})
+}
+
+func TestRunCommandLingeringChildIsNotMislabelledAsTimeout(t *testing.T) {
+	// The hook process exited successfully long before its deadline. Only the
+	// post-exit pipe wait ran into it, which is what WaitDelay is for; the
+	// successful exit status must survive.
+	outcome := dispatchLingering(t, PostToolUse, 0)
+	if outcome.TimedOut {
+		t.Fatalf("successful hook mislabelled as timed out: %+v", outcome)
+	}
+	if outcome.Err != nil || outcome.ExitCode != 0 {
+		t.Fatalf("successful hook reported as failed: %+v", outcome)
+	}
+	if result := Summarize([]Outcome{outcome}); result.Blocked || result.Message != "" {
+		t.Fatalf("successful hook produced a spurious warning: %+v", result)
+	}
+}
+
+func TestRunCommandLingeringChildKeepsBlockingExit(t *testing.T) {
+	// The same pipe-drain overrun must not swallow a real exit-2 block: the
+	// block signal is only honoured for a hook that did not time out.
+	outcome := dispatchLingering(t, PreToolUse, 2)
+	if outcome.TimedOut {
+		t.Fatalf("blocking hook mislabelled as timed out: %+v", outcome)
+	}
+	if outcome.ExitCode != 2 || !outcome.Blocked {
+		t.Fatalf("exit-2 block lost: %+v", outcome)
+	}
+	result := Summarize([]Outcome{outcome})
+	if !result.Blocked || !strings.Contains(result.Message, "blocked") {
+		t.Fatalf("aggregate lost the block: %+v", result)
 	}
 }
 

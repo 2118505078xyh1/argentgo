@@ -70,6 +70,7 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 		client:     &http.Client{},
 		waiters:    newWaiters(),
 		endpointCh: make(chan string, 1),
+		postURL:    spec.URL,
 		done:       make(chan struct{}),
 	}
 
@@ -83,16 +84,29 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 	if err := t.openStream(ctx, streamCtx, cancel); err != nil {
 		// No event stream: treat the URL as a streamable single endpoint.
 		cancel()
-		t.postURL = spec.URL
 		return t, nil
 	}
 
-	if endpoint, ok := t.awaitEndpoint(ctx, timeout); ok && endpoint != "" {
-		t.postURL = endpoint
-	} else {
-		t.postURL = spec.URL
-	}
+	// A legacy SSE server announces its POST endpoint on the stream. readStream
+	// applies every valid announcement directly to postURL, including one that
+	// arrives after this window closes. Waiting here only lets a prompt
+	// announcement land before Connect returns so the first request already
+	// uses it; a late one is still honoured by readStream.
+	t.awaitEndpoint(ctx, timeout)
 	return t, nil
+}
+
+// setEndpoint retargets subsequent POSTs to a stream-announced endpoint. An
+// empty value (a cross-origin or malformed announcement rejected by
+// resolveEndpoint) is ignored so configured headers never leave the origin.
+// It is safe to call at any time, including after the handshake window.
+func (t *httpTransport) setEndpoint(resolved string) {
+	if resolved == "" {
+		return
+	}
+	t.mu.Lock()
+	t.postURL = resolved
+	t.mu.Unlock()
 }
 
 // openStream starts the long-lived GET event stream.
@@ -161,8 +175,12 @@ func (t *httpTransport) readStream(ctx context.Context, body io.ReadCloser) {
 	defer body.Close()
 	err := forEachSSE(body, func(event, data string) {
 		if event == "endpoint" {
+			resolved := resolveEndpoint(t.url, strings.TrimSpace(data))
+			t.setEndpoint(resolved)
+			// Keep feeding the handshake window too; a prompt announcement
+			// still lets Connect return as soon as it is seen.
 			select {
-			case t.endpointCh <- resolveEndpoint(t.url, strings.TrimSpace(data)):
+			case t.endpointCh <- resolved:
 			default:
 			}
 			return

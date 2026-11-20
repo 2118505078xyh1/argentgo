@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -121,5 +122,74 @@ func TestReadReturnsEOFAfterWait(t *testing.T) {
 	mu.Unlock()
 	if !strings.Contains(got, "pty-eof-ready") {
 		t.Fatalf("output = %q, want the child's buffered line", got)
+	}
+}
+
+// TestExitedDoesNotUseAClosedProcessHandle models the state a racing Close can
+// leave behind: Close has terminated and reaped the child and closed the
+// process handle, but a reader that loaded c.process just before still holds
+// its numeric value. Exited/ExitCode must never call WaitForSingleObject or
+// GetExitCodeProcess on that stale handle — Wait already duplicates it for the
+// same reason. Querying the stale value returned WAIT_FAILED, which made
+// Exited report a dead child as still running.
+func TestExitedDoesNotUseAClosedProcessHandle(t *testing.T) {
+	self, err := syscall.GetCurrentProcess()
+	if err != nil {
+		t.Skipf("GetCurrentProcess: %v", err)
+	}
+	var handle syscall.Handle
+	if err := syscall.DuplicateHandle(self, self, self, &handle, 0, false, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+		t.Skipf("DuplicateHandle: %v", err)
+	}
+	if err := syscall.CloseHandle(handle); err != nil {
+		t.Fatalf("CloseHandle: %v", err)
+	}
+
+	t.Run("handle closed while terminal still reports open", func(t *testing.T) {
+		c := &conPty{process: handle, exitCode: -1}
+		if !c.Exited() {
+			t.Fatal("Exited() = false after the process handle was closed")
+		}
+		if got := c.ExitCode(); got != -1 {
+			t.Fatalf("ExitCode() = %d, want -1", got)
+		}
+	})
+
+	t.Run("closed flag set but stale handle still held", func(t *testing.T) {
+		c := &conPty{process: handle, closed: true, exitCode: -1}
+		if !c.Exited() {
+			t.Fatal("Exited() = false for a terminal that is being closed")
+		}
+	})
+}
+
+// TestExitedAndExitCodeRaceWithClose exercises the process-handle lifetime
+// under the real ConPTY lifecycle: a waiter, a closer (context cancellation's
+// job) and a status poller racing on the same terminal. It complements the
+// deterministic stale-handle test above with the actual concurrency pattern.
+func TestExitedAndExitCodeRaceWithClose(t *testing.T) {
+	const rounds = 100
+	for i := 0; i < rounds; i++ {
+		p, err := Start(context.Background(), shellCommand("echo racing"), Size{Cols: 80, Rows: 24})
+		if err != nil {
+			t.Fatalf("start (round %d): %v", i, err)
+		}
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() { defer wg.Done(); _, _ = p.Wait() }()
+		go func() { defer wg.Done(); _ = p.Close() }()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = p.Exited()
+				_ = p.ExitCode()
+			}
+		}()
+		wg.Wait()
+		// Once Close returned the child has been terminated and reaped.
+		if !p.Exited() {
+			t.Fatalf("round %d: Exited() = false after Close", i)
+		}
+		_ = p.Close()
 	}
 }

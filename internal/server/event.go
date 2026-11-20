@@ -153,6 +153,24 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 // called concurrently with Publish or with itself. When a subscriber is
 // evicted its channel closes cleanly after the buffered events are drained.
 func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
+	ch, stop, _ := h.SubscribeAfter(after)
+	return ch, stop
+}
+
+// SubscribeAfter registers a subscriber and also returns the hub sequence at
+// the exact instant of registration. That value is the safe resume cursor for
+// the returned stream: every event up to it that is newer than after has already
+// been copied into ch and will be delivered by this subscriber, and no newer
+// event has been written to the client yet.
+//
+// Callers must use this returned seq for a "you are here" handshake (the SSE
+// server.connected frame, the RPC event/subscribe result) rather than reading
+// Seq() after subscribing. A publish can land between Subscribe and a separate
+// Seq() call; that would hand the client a cursor pointing *past* events still
+// queued in ch. A client which reconnects from that cursor skips them entirely.
+// Capturing both under one lock makes the handshake gap-free (at worst a
+// reconnect replays an event it already saw, never loses one).
+func (h *EventHub) SubscribeAfter(after uint64) (<-chan agent.Event, func(), uint64) {
 	ch := make(chan agent.Event, eventSubCap+eventTerminalSlots)
 
 	h.mu.Lock()
@@ -160,6 +178,7 @@ func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 		h.subs = make(map[chan agent.Event]struct{})
 	}
 	h.subs[ch] = struct{}{}
+	seqAt := h.seq
 
 	// The oldest retained event has sequence h.seq - len(history) + 1.
 	// Compute that base and replay only events newer than the cursor. Registration
@@ -197,14 +216,17 @@ func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 			}
 		})
 	}
-	return ch, stop
+	return ch, stop, seqAt
 }
 
 // NewEventHandler exposes the hub as a Server-Sent Events stream.
 //
 // The first frame is always `event: server.connected` with `{"seq":N}` in its
 // data, so a client knows the current cursor and can reconnect with ?after=N.
-// Each subsequent frame is `event: <kind>` with the agent.Event JSON as data.
+// N is captured atomically with the subscription (see SubscribeAfter): it is
+// the last event already queued for this client, never one published in the
+// gap between subscribing and writing the frame. Each subsequent frame is
+// `event: <kind>` with the agent.Event JSON as data.
 // An idle stream emits a `: heartbeat` comment every 15 seconds, and the
 // request context's cancellation unsubscribes the client on disconnect.
 func NewEventHandler(hub *EventHub) http.Handler {
@@ -231,7 +253,7 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 			}
 		}
 
-		ch, stop := hub.Subscribe(after)
+		ch, stop, seqAt := hub.SubscribeAfter(after)
 		defer stop()
 
 		header := w.Header()
@@ -241,7 +263,7 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 		header.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
-		if _, err := fmt.Fprintf(w, "event: server.connected\ndata: {\"seq\":%d}\n\n", hub.Seq()); err != nil {
+		if _, err := fmt.Fprintf(w, "event: server.connected\ndata: {\"seq\":%d}\n\n", seqAt); err != nil {
 			return
 		}
 		flusher.Flush()

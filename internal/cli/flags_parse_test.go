@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +46,43 @@ func TestParseArgsServeAddressWithIPv6(t *testing.T) {
 	}
 	if opts.ServeAddr != "[::1]:9090" {
 		t.Fatalf("ServeAddr = %q", opts.ServeAddr)
+	}
+}
+
+// TestParseArgsHelpLookingFlagValueIsNotHelp guards the raw help pre-scan:
+// Go's flag package consumes the next token as the value of a non-bool flag
+// even when that token starts with '-', so "--model -h" means model="-h", not
+// "print help". The pre-scan must skip such values or a legitimate flag value
+// silently turns into a help request that swallows the whole command.
+func TestParseArgsHelpLookingFlagValueIsNotHelp(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		model   string
+		session string
+		prompt  string
+	}{
+		{"short help as model value", []string{"--model", "-h", "prompt"}, "-h", "", "prompt"},
+		{"long help as session value", []string{"--session", "--help", "prompt"}, "", "--help", "prompt"},
+		{"help with equals as api key value", []string{"--api-key", "-help=1", "prompt"}, "", "", "prompt"},
+		{"short help as base url value", []string{"--base-url", "--h", "prompt"}, "", "", "prompt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, positional, err := parseArgs(tc.args, func(string) string { return "" }, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.Help {
+				t.Fatalf("parseArgs(%q).Help = true, want false", tc.args)
+			}
+			if opts.Model != tc.model || opts.Session != tc.session {
+				t.Fatalf("model=%q session=%q, want %q/%q", opts.Model, opts.Session, tc.model, tc.session)
+			}
+			if got := strings.Join(positional, " "); got != tc.prompt {
+				t.Fatalf("positional=%q, want %q", got, tc.prompt)
+			}
+		})
 	}
 }
 

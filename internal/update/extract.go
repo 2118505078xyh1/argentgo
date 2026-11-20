@@ -1,7 +1,9 @@
 package update
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +35,15 @@ var executableNames = map[string]bool{
 // isZipAsset reports whether the asset name denotes a zip archive.
 func isZipAsset(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".zip")
+}
+
+// isTarGzAsset reports whether the asset name denotes a gzip-compressed tar
+// archive. FindAsset gives .tar.gz/.tgz the highest extension bonus on non-Windows
+// platforms, so Download must unpack them just like zip archives or it would
+// stage a raw archive and brick the binary.
+func isTarGzAsset(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
 // extractExecutable extracts the whitelisted argent executable from a zip
@@ -125,6 +136,114 @@ func extractExecutable(archive, dir string) (string, error) {
 	if closeErr != nil {
 		_ = os.Remove(dest)
 		return "", fmt.Errorf("close %s: %w", dest, closeErr)
+	}
+	return dest, nil
+}
+
+// extractExecutableFromTarGz extracts the whitelisted argent executable from a
+// gzip-compressed tar archive into dir and returns the path of the extracted
+// file. It applies the same restrictions as extractExecutable: path and symlink
+// checks, entry/byte caps, and a single whitelisted executable. The decompressed
+// stream is bounded as a whole so a compression bomb cannot inflate past the
+// per-entry caps regardless of what the tar headers claim.
+func extractExecutableFromTarGz(archive, dir string) (string, error) {
+	file, err := os.Open(archive)
+	if err != nil {
+		return "", fmt.Errorf("open tar.gz: %w", err)
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return "", fmt.Errorf("open gzip: %w", err)
+	}
+	defer gzipReader.Close()
+
+	// tar.Reader is a forward-only stream, so bound the total decompressed bytes
+	// rather than trusting individual header sizes when skipping entries.
+	tarReader := tar.NewReader(io.LimitReader(gzipReader, maxExtractedTotal+1))
+
+	var dest string
+	var total int64
+	entries := 0
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("read tar: %w", err)
+		}
+		entries++
+		if entries > maxArchiveEntries {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("tar archive has more than %d entries", maxArchiveEntries)
+		}
+		name, safe := safeArchivePath(header.Name)
+		if !safe {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("unsafe tar entry %q", header.Name)
+		}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			continue
+		case tar.TypeReg, tar.TypeRegA:
+			// A regular file; checked against the whitelist below.
+		default:
+			// Symlinks, hardlinks, devices, FIFOs, etc. must never be installed.
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("unsupported tar entry %q", header.Name)
+		}
+		base := path.Base(name)
+		if !executableNames[strings.ToLower(base)] {
+			continue
+		}
+		if dest != "" {
+			_ = os.Remove(dest)
+			return "", errors.New("tar archive contains more than one argent executable")
+		}
+		if header.Size < 0 || header.Size > maxExtractedEntry {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("tar entry %q is %d bytes, over the %d byte limit",
+				header.Name, header.Size, maxExtractedEntry)
+		}
+		total += header.Size
+		if total > maxExtractedTotal {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("tar archive exceeds the %d byte extraction limit", maxExtractedTotal)
+		}
+
+		// base is a plain name returned by safeArchivePath, so it cannot escape
+		// the extraction directory.
+		dest = filepath.Join(dir, base)
+		output, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+		if err != nil {
+			dest = ""
+			return "", fmt.Errorf("create %s: %w", filepath.Join(dir, base), err)
+		}
+		written, copyErr := io.Copy(output, io.LimitReader(tarReader, maxExtractedEntry+1))
+		syncErr := output.Sync()
+		closeErr := output.Close()
+		if copyErr != nil {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("extract %q: %w", header.Name, copyErr)
+		}
+		if written > maxExtractedEntry {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("tar entry %q exceeds the %d byte limit", header.Name, maxExtractedEntry)
+		}
+		if syncErr != nil {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("flush %s: %w", dest, syncErr)
+		}
+		if closeErr != nil {
+			_ = os.Remove(dest)
+			return "", fmt.Errorf("close %s: %w", dest, closeErr)
+		}
+	}
+	if dest == "" {
+		return "", errors.New("tar archive has no argent or argent.exe entry")
 	}
 	return dest, nil
 }

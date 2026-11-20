@@ -208,8 +208,20 @@ func collectStrings(value any, out *[]string) {
 	case string:
 		*out = append(*out, typed)
 	case map[string]any:
-		for _, child := range typed {
-			collectStrings(child, out)
+		// A JSON object is decoded into a Go map, whose iteration order is
+		// randomized. Walking it directly would make "the first string value
+		// containing the needle" (see snippetFor) depend on the map's random
+		// seed, so two searches of the same transcript could return different
+		// snippets. Visit keys in sorted order instead: the set of strings is
+		// unchanged, but the order — and therefore the chosen snippet — is
+		// deterministic for a given record.
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			collectStrings(typed[key], out)
 		}
 	case []any:
 		for _, child := range typed {

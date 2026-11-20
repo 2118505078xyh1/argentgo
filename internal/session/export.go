@@ -228,7 +228,13 @@ func sanitizeRecord(record Record) Record {
 		return record
 	}
 	var value any
-	if err := json.Unmarshal(record.Data, &value); err != nil {
+	// Decode with UseNumber so integer payloads survive the round trip exactly.
+	// json.Unmarshal into any would turn every number into float64, silently
+	// rounding values above 2^53 (large ids, timestamps in microseconds, token
+	// counters) and corrupting an otherwise faithful sanitized export.
+	dec := json.NewDecoder(bytes.NewReader(record.Data))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
 		record.Data = redactedJSON("data", record.ID)
 		return record
 	}

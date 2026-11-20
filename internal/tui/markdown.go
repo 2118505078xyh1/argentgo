@@ -12,6 +12,12 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 	var out []Line
 	inCode := false
 	firstLine := true
+	// Every emitted row carries a first/rest prefix (assistant mark "◆ " or
+	// its indent), so the content budget is width minus that prefix — exactly
+	// the rule wrapStyled uses for ordinary lines. Tables must use the same
+	// budget or their right border runs past the transcript edge.
+	prefixWidth := maxInt(TextWidth(first), TextWidth(rest))
+	bodyWidth := maxInt(width-prefixWidth, 1)
 	lines := strings.Split(textValue, "\n")
 	for i := 0; i < len(lines); {
 		raw := lines[i]
@@ -39,7 +45,7 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 				for end < len(lines) && strings.Contains(lines[end], "|") {
 					end++
 				}
-				for _, row := range renderMarkdownTable(lines[i:end], width, TextWidth, Wrap) {
+				for _, row := range renderMarkdownTable(lines[i:end], bodyWidth, TextWidth, Wrap) {
 					prefix := rest
 					if firstLine {
 						prefix = first
