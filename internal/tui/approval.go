@@ -2,7 +2,46 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"path/filepath"
+	"strings"
 )
+
+// approvalGrantKey scopes a session grant to one tool plus its detail. The NUL
+// separator keeps name/detail pairs from colliding with bare name keys.
+func approvalGrantKey(name, args string) string {
+	return name + "\x00" + approvalDetail(args)
+}
+
+// approvalDetail extracts the argument that identifies a call. JSON calls use
+// the first path/command field (cleaned), so granting `bash` with `ls` cannot
+// silently grant `bash` with `sudo`. Plain-string args, used by older callers,
+// fall back to the first token; that keeps "ls" and "ls -la" on one grant,
+// matching the historical coarse behaviour for those inputs.
+func approvalDetail(args string) string {
+	trimmed := strings.TrimSpace(args)
+	if strings.HasPrefix(trimmed, "{") {
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			for _, key := range []string{"command", "cmd", "path", "file", "filepath", "query", "pattern", "url", "uri", "name", "job"} {
+				value, ok := decoded[key].(string)
+				if !ok || strings.TrimSpace(value) == "" {
+					continue
+				}
+				switch key {
+				case "path", "file", "filepath":
+					return filepath.Clean(strings.TrimSpace(value))
+				default:
+					return collapseSpace(value)
+				}
+			}
+		}
+	}
+	if fields := strings.Fields(trimmed); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
+}
 
 // approvalRequest is one tool call waiting for the operator.
 type approvalRequest struct {
@@ -25,7 +64,9 @@ func (m *Model) answerApprovalLocked(key Key) KeyAction {
 		case 'n', 'N':
 			m.finishApprovalLocked(false, text(m.locale, "denied"))
 		case 'a', 'A':
-			m.allowed[request.name] = true
+			// Grant only this exact call: a coarse name key would allow every
+			// later invocation of the same tool with different arguments.
+			m.allowed[approvalGrantKey(request.name, request.args)] = true
 			m.finishApprovalLocked(true, text(m.locale, "approved_session"))
 		}
 	case KindEsc, KindCtrlC:
@@ -84,7 +125,9 @@ func (m *Model) Approve(ctx context.Context, name, args string) (bool, error) {
 		return false, err
 	}
 	m.mu.Lock()
-	if m.allowed[name] {
+	// The bare name key is still honoured so grants created by older callers
+	// (which cached m.allowed directly) keep working. New grants are composite.
+	if m.allowed[name] || m.allowed[approvalGrantKey(name, args)] {
 		m.mu.Unlock()
 		return true, nil
 	}

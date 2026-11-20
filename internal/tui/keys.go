@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -249,4 +250,118 @@ func parseCSI(body string, final byte) Key {
 		return Key{Kind: KindIgnore}
 	}
 	return Key{Kind: KindIgnore}
+}
+
+// KeyBinding is one entry of the footer key bar. Key is the label drawn first
+// (for example "ctrl+c"), Desc is its human-readable meaning, and Enabled
+// lets a caller hide entries that do not apply to the current UI state without
+// rebuilding the whole list.
+type KeyBinding struct {
+	Key     string
+	Desc    string
+	Enabled bool
+}
+
+const (
+	shortHelpSep      = " · "
+	shortHelpEllipsis = "…"
+)
+
+// HintBindings splits a localised hint string such as
+// "enter send · alt+enter newline · /help" into bindings, all enabled. It lets
+// callers keep the existing locale data while gaining per-entry control
+// (Enabled, order, width-aware rendering) through ShortHelp. A key with no
+// description ("/help") is kept as a Key-only binding.
+func HintBindings(hint string) []KeyBinding {
+	if strings.TrimSpace(hint) == "" {
+		return nil
+	}
+	parts := strings.Split(hint, "·")
+	bindings := make([]KeyBinding, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, desc := part, ""
+		if i := strings.IndexFunc(part, unicode.IsSpace); i >= 0 {
+			key, desc = part[:i], strings.TrimSpace(part[i:])
+		}
+		if key == "" {
+			continue
+		}
+		bindings = append(bindings, KeyBinding{Key: key, Desc: desc, Enabled: true})
+	}
+	return bindings
+}
+
+// ShortHelp renders bindings in order as "key desc" entries joined by
+// shortHelpSep. Disabled entries are skipped. When the joined text does not
+// fit in width, whole entries are dropped and a trailing ellipsis is appended
+// instead of cutting a key in half, so a narrow terminal never shows a
+// silently truncated binding.
+//
+// textWidth is injected (normally tui.TextWidth) so this helper measures cells
+// with the caller's width model; a nil callback falls back to TextWidth. The
+// returned string never occupies more than width cells when textWidth is the
+// package's TextWidth.
+func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) string {
+	if width <= 0 {
+		return ""
+	}
+	if textWidth == nil {
+		textWidth = TextWidth
+	}
+
+	segments := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		if !binding.Enabled {
+			continue
+		}
+		var segment string
+		switch {
+		case binding.Key == "" && binding.Desc == "":
+			continue
+		case binding.Key == "":
+			segment = binding.Desc
+		case binding.Desc == "":
+			segment = binding.Key
+		default:
+			segment = binding.Key + " " + binding.Desc
+		}
+		segments = append(segments, segment)
+	}
+	if len(segments) == 0 {
+		return ""
+	}
+
+	full := strings.Join(segments, shortHelpSep)
+	if textWidth(full) <= width {
+		return full
+	}
+
+	// Reserve room for the ellipsis and keep only whole segments that fit.
+	limit := width - textWidth(shortHelpEllipsis)
+	if limit < 0 {
+		limit = 0
+	}
+	sepWidth := textWidth(shortHelpSep)
+	var out strings.Builder
+	used := 0
+	for i, segment := range segments {
+		w := textWidth(segment)
+		if i > 0 {
+			w += sepWidth
+		}
+		if used+w > limit {
+			break
+		}
+		if i > 0 {
+			out.WriteString(shortHelpSep)
+			used += sepWidth
+		}
+		out.WriteString(segment)
+		used += textWidth(segment)
+	}
+	return out.String() + shortHelpEllipsis
 }

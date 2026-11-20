@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // cancelledCallReason is the tool result written for a call that never ran.
@@ -24,6 +26,18 @@ const continueAfterOutputLimit = "Continue the work, but break the remaining ste
 // hits the same limit would keep the run alive until the turn budget expired.
 const maxConsecutiveLengthFinishes = 2
 
+// stopRepeatedMistakes ends a run when consecutive tool failures reach the
+// mistake tracker's limit and no recovery guidance is available. It is an
+// internal stop reason: the public Stop* constants are unchanged.
+const stopRepeatedMistakes = "repeated_mistakes"
+
+// defaultMistakeGuidance keeps a run alive after a streak of tool failures by
+// asking the model to change its approach. The tracker owns only the decision;
+// the instruction is injected as a user turn at the next loop entry.
+func defaultMistakeGuidance(MistakeKind, int) string {
+	return "连续出错，请换一种方法或换模型"
+}
+
 // runState is the mutable state of one run. A subagent gets its own state, so
 // nothing but the configured interfaces is shared with the parent.
 type runState struct {
@@ -37,6 +51,12 @@ type runState struct {
 	rec    Recorder
 	steer  *steering
 	guard  *dedupe
+	// mistakes counts consecutive tool failures across turns. Nil-receiver
+	// methods make a manually built runState (e.g. in tests) safe without one.
+	mistakes *MistakeTracker
+	// stuck watches event patterns for repetition loops. Nil-receiver Observe
+	// keeps manually built run states safe without one.
+	stuck *StuckDetector
 
 	usage        llm.Usage
 	costUSD      float64
@@ -91,6 +111,10 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 		return Result{}, err
 	}
 	state := newRunState(opts, prompt, emit)
+	// Memoise the injected compactor by source prefix hash so an identical
+	// prefix is not summarised twice across prompts on this Runner. The wrapper
+	// is transparent when no compactor is configured.
+	state.compactor = newCachingCompactor(state.compactor, r.compactionCache())
 	res, err := state.loop(ctx)
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
@@ -115,6 +139,8 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		rec:      normaliseRecorder(opts.Record),
 		steer:    &steering{ch: opts.Steer},
 		guard:    newDedupe(repeatsFor(opts)),
+		mistakes: NewMistakeTracker(0, defaultMistakeGuidance),
+		stuck:    &StuckDetector{},
 		depth:    opts.Depth,
 		maxTurns: maxTurnsFor(opts),
 		trim: TrimOptions{
@@ -180,6 +206,17 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			return s.result(StopCancelled), err
 		}
 		s.injectSteering()
+		// Re-evaluate the consecutive-mistake streak at every turn entry. No
+		// guidance available means the run cannot recover and ends here;
+		// otherwise the recovery instruction becomes a fresh user turn. Both
+		// decisions are nil-safe for run states built without a tracker.
+		if stop, action := s.mistakes.Check(); stop {
+			s.emit(Event{Kind: EventStop, Reason: stopRepeatedMistakes})
+			return s.result(stopRepeatedMistakes), nil
+		} else if action.Guidance != "" {
+			s.messages = append(s.messages, llm.Message{Role: "user", Content: action.Guidance})
+			s.record("mistake_guidance", action.Guidance)
+		}
 		if s.turns >= s.maxTurns {
 			s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf("turn limit reached after %d turn(s)", s.turns)})
 			// Ask once for a tool-free answer so an exhausted budget still
@@ -344,6 +381,13 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			return s.result(reason), nil
 		}
 
+		// A batch of tool results is the natural place to look for repetition
+		// loops. The detector is one-shot per episode: a stuck pattern becomes
+		// a corrective user turn, not a hard stop.
+		if guidance, _ := s.stuck.Observe(s.eventsSnapshot()); guidance != "" {
+			s.injectSteering(guidance)
+		}
+
 		// A batch of tool results is the natural place to summarise: the next
 		// request is about to pay for the whole history again.
 		s.maybeCompact()
@@ -381,13 +425,45 @@ func (s *runState) maybeCompact() {
 
 // advertisedSpecs resolves the tool list for the next request. Without a
 // filter the runner's full catalog is used; with one, only the allowed subset
-// is advertised. Authorization still happens in Run, never here.
+// is advertised. Authorization still happens in Run, never here. The final
+// list is projected for the current model's schema quirks before it is sent.
 func (s *runState) advertisedSpecs() []llm.ToolSpec {
 	specs := s.tools.Specs()
-	if s.opts.FilterSpecs == nil {
+	if s.opts.FilterSpecs != nil {
+		specs = s.opts.FilterSpecs(specs)
+	}
+	return projectSpecsForModel(specs, s.model)
+}
+
+// projectSpecsForModel applies the model-family schema projection to every
+// non-empty Parameters document. The returned slice is always a fresh copy, so
+// projecting a request never mutates the toolset's own spec catalog.
+func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
+	compat := tools.CompatNone
+	name := strings.ToLower(model)
+	switch {
+	case strings.Contains(name, "moonshot"), strings.Contains(name, "kimi"):
+		compat = tools.CompatMoonshot
+	case strings.Contains(name, "gemini"):
+		compat = tools.CompatGemini
+	}
+	if compat == tools.CompatNone {
 		return specs
 	}
-	return s.opts.FilterSpecs(specs)
+
+	out := make([]llm.ToolSpec, len(specs))
+	copy(out, specs)
+	for i := range out {
+		raw := out[i].Function.Parameters
+		if len(raw) == 0 {
+			continue
+		}
+		projected := tools.ProjectToolSchema(string(raw), compat)
+		if projected != string(raw) {
+			out[i].Function.Parameters = json.RawMessage(projected)
+		}
+	}
+	return out
 }
 
 // chat issues one model request with the current model and forwards answer
@@ -395,7 +471,12 @@ func (s *runState) advertisedSpecs() []llm.ToolSpec {
 // retried without leaking partial text into the operator's stream.
 func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, error) {
 	var streamed strings.Builder
-	reply, err := s.opts.Chatter.Chat(ctx, s.model, s.messages, s.specs, func(delta string) {
+	// Repair the transcript *view* handed to the provider: after a resume or an
+	// interrupted batch an assistant tool_use may have lost its result, which
+	// strict providers reject. NormalizeToolPairing is a pure view helper, so
+	// s.messages keeps its original bytes and only the outgoing request is fixed.
+	messages := NormalizeToolPairing(s.messages)
+	reply, err := s.opts.Chatter.Chat(ctx, s.model, messages, s.specs, func(delta string) {
 		if delta == "" {
 			return
 		}
@@ -447,9 +528,11 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 	return usage, usage.PromptTokens
 }
 
-// injectSteering moves queued corrections into the conversation.
-func (s *runState) injectSteering() bool {
+// injectSteering moves queued corrections into the conversation. Extra text
+// (e.g. a one-shot stuck nudge) joins the same user-turn path.
+func (s *runState) injectSteering(extra ...string) bool {
 	pending := s.steer.drain()
+	pending = append(pending, extra...)
 	for _, text := range pending {
 		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
 		s.record("steer", text)

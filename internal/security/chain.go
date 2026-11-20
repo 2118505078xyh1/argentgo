@@ -15,6 +15,10 @@ var (
 	ErrDenied = errors.New("security: tool call denied")
 	// ErrRefused means the operator answered no.
 	ErrRefused = errors.New("security: tool call refused by the operator")
+	// ErrRecoverablePlanBlock means the optional plan-mode command guard stopped
+	// a mutating shell command before policy/approval. Unlike StopError this is
+	// recoverable: the agent loop turns it into a tool result the model reads.
+	ErrRecoverablePlanBlock = errors.New("security: mutating shell command blocked in plan mode")
 	// RestoreToolName is the audit name for a checkpoint restore (undo) action.
 	RestoreToolName = "undo"
 )
@@ -68,6 +72,9 @@ type Chain struct {
 	Audit    *AuditLog
 	// Session tags audit entries; typically the session file or id.
 	Session string
+	// PlanCommandGuard, when true, blocks mutating shell commands before the
+	// policy → approval → audit chain. The zero value false preserves behaviour.
+	PlanCommandGuard bool
 }
 
 // NewChain builds a chain. A nil approver denies; a nil audit log records
@@ -96,6 +103,14 @@ func (c *Chain) CheckRestore(ctx context.Context, paths []string) error {
 }
 
 func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json.RawMessage) error {
+	// Optional plan-mode command guard. When enabled it runs first: a mutating
+	// shell command is rejected as a recoverable error, before any policy deny,
+	// approval prompt or audit entry. Disabled by default.
+	if c != nil && c.PlanCommandGuard {
+		if token := guardShellCommand(toolName, args); token != "" {
+			return fmt.Errorf("%w: %q", ErrRecoverablePlanBlock, token)
+		}
+	}
 	name := strings.TrimSpace(toolName)
 	if name == "" {
 		c.record("", "deny", "the tool name is empty", auditArgs)

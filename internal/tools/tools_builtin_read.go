@@ -16,9 +16,13 @@ import (
 
 type readTool struct{}
 
-func (readTool) Name() string        { return "read" }
-func (readTool) Description() string { return "Read a UTF-8 text file, optionally a line range." }
-func (readTool) Mutating() bool      { return false }
+func (readTool) Name() string { return "read" }
+func (readTool) Description() string {
+	return "Read a UTF-8 text file; prefer this over shell/cat for file contents. " +
+		"Long files can be paged with offset (1-based first line) and limit; " +
+		"a partial read reports the true total line count."
+}
+func (readTool) Mutating() bool { return false }
 func (readTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","description":"1-based first line"},"limit":{"type":"integer","description":"number of lines"}},"required":["path"]}`
 }
@@ -55,7 +59,22 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if args.Limit > 0 && start-1+args.Limit < end {
 		end = start - 1 + args.Limit
 	}
-	return clip(ctx, strings.Join(lines[start-1:end], "\n")), nil
+	out := clip(ctx, strings.Join(lines[start-1:end], "\n"))
+
+	// A trailing newline terminates the final line; strings.Split leaves an
+	// empty sentinel after it that is not a line worth paging toward, and the
+	// existing slice above must keep that sentinel to stay byte-identical on a
+	// full read.
+	totalLines := len(lines)
+	if len(data) > 0 && data[len(data)-1] == '\n' {
+		totalLines--
+	}
+	// end is the last displayed 1-based line; a smaller real total means the
+	// caller has not reached the end of the file yet, so steer them to page.
+	if end < totalLines {
+		out += fmt.Sprintf("\n[showing lines %d–%d of %d; re-call with offset/limit to page]", start, end, totalLines)
+	}
+	return out, nil
 }
 
 // Meta reports a supersede key derived from the file path alone. Line/offset

@@ -23,6 +23,9 @@ const (
 	StopCancelled = "cancelled"
 	// StopProviderError means the provider failed; Run also returns an error.
 	StopProviderError = "provider_error"
+	// StopStuck is reserved for runs halted by stuck detection. Detection
+	// nudges by default and does not stop, so no stop logic uses this yet.
+	StopStuck = "stuck"
 )
 
 // Price is what a provider charges for one million tokens of a model.

@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -114,4 +116,78 @@ func SortFailuresByTurn(failures []Failure) []Failure {
 		return out[i].Reason < out[j].Reason
 	})
 	return out
+}
+
+// cachingCompactor memoises a Compactor's output by SourcePrefixHash so an
+// identical run prefix is never summarised twice. It is the agent-side wiring
+// point for SummaryCache: the call site is still the injected Compactor, but a
+// cache hit skips it entirely and replays the already-finished view.
+//
+// The cached value is the JSON of the compacted view (which embeds the summary
+// text). Storing the whole view instead of just the summary string keeps a hit
+// byte-identical to the original summarisation without duplicating the
+// app/session cut logic inside this dependency-free package.
+//
+// The key is the source prefix hash alone. The compaction window is derived
+// from the fixed trigger threshold of one Runner, so it is stable for the
+// lifetime of the cache held by that Runner.
+type cachingCompactor struct {
+	inner Compactor
+	cache *SummaryCache
+
+	// mu serialises the whole cache-aside section. Compaction normally runs on
+	// the single loop goroutine; the lock keeps a concurrent call burst (and the
+	// side-effecting inner hook) single-flight so one prefix is never summarised
+	// from several goroutines at once.
+	mu sync.Mutex
+}
+
+// newCachingCompactor wraps inner with a summary cache. A nil inner stays nil
+// (preserving the "no compactor" behaviour); a nil cache gets a fresh
+// default-capacity one.
+func newCachingCompactor(inner Compactor, cache *SummaryCache) Compactor {
+	if inner == nil {
+		return nil
+	}
+	if cache == nil {
+		cache = NewSummaryCache(0)
+	}
+	return &cachingCompactor{inner: inner, cache: cache}
+}
+
+// MaybeCompact implements Compactor.
+func (c *cachingCompactor) MaybeCompact(messages []llm.Message, window int) ([]llm.Message, bool) {
+	hash := SourcePrefixHash(messages)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if encoded, ok := c.cache.Get(hash); ok {
+		if out, ok := decodeCompactedView(encoded); ok {
+			return out, true
+		}
+		// A corrupt/stale entry must not change compaction semantics: fall
+		// through to the real summariser and overwrite it.
+	}
+
+	out, changed := c.inner.MaybeCompact(messages, window)
+	if changed && len(out) > 0 {
+		c.cache.Put(hash, encodeCompactedView(out))
+	}
+	return out, changed
+}
+
+func encodeCompactedView(view []llm.Message) string {
+	data, err := json.Marshal(view)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func decodeCompactedView(encoded string) ([]llm.Message, bool) {
+	var view []llm.Message
+	if err := json.Unmarshal([]byte(encoded), &view); err != nil || len(view) == 0 {
+		return nil, false
+	}
+	return view, true
 }

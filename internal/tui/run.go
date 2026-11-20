@@ -43,9 +43,13 @@ type Options struct {
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	FS       FileSystem          // injected read-only workspace for the panel
 	Sessions []string
-	IO       *IO
-	Prompt   func(ctx context.Context, text string, onText func(string)) error
-	Approval func(ctx context.Context, name, args string) (bool, error)
+	// ContextWindow and Cost are optional header metadata. Zero / empty keeps
+	// the header byte-for-byte identical to builds that never set them.
+	ContextWindow int
+	Cost          string
+	IO            *IO
+	Prompt        func(ctx context.Context, text string, onText func(string)) error
+	Approval      func(ctx context.Context, name, args string) (bool, error)
 	// Events, when set, feeds tool events into the optional side panels. A
 	// closed channel simply disables further updates.
 	Events <-chan Event
@@ -144,6 +148,7 @@ func Run(ctx context.Context, opts Options) error {
 	})
 	model.SetApproval(opts.Approval)
 	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
+	model.SetContextInfo(opts.ContextWindow, opts.Cost)
 
 	restore := func() {}
 	if real {

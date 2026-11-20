@@ -7,15 +7,18 @@ import (
 )
 
 // markdownLines renders a block with the small subset of markdown the model
-// actually emits: fenced code, inline code, bold and headings.
+// actually emits: fenced code, inline code, bold, headings and tables.
 func markdownLines(textValue string, width int, first, rest string, p Palette) []Line {
 	var out []Line
 	inCode := false
 	firstLine := true
-	for _, raw := range strings.Split(textValue, "\n") {
+	lines := strings.Split(textValue, "\n")
+	for i := 0; i < len(lines); {
+		raw := lines[i]
 		lineText := strings.TrimRight(raw, " \t")
 		if strings.HasPrefix(strings.TrimSpace(lineText), "```") {
 			inCode = !inCode
+			i++
 			continue
 		}
 		if inCode {
@@ -25,7 +28,31 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 				out = append(out, code)
 			}
 			firstLine = false
+			i++
 			continue
+		}
+		// A table block is a line with '|' immediately followed by a delimiter
+		// row. Render it as a whole so columns stay aligned, then skip past it.
+		if i+1 < len(lines) && strings.Contains(lineText, "|") {
+			if _, ok := parseTableDelimiter(lines[i+1]); ok {
+				end := i + 2
+				for end < len(lines) && strings.Contains(lines[end], "|") {
+					end++
+				}
+				for _, row := range renderMarkdownTable(lines[i:end], width, TextWidth, Wrap) {
+					prefix := rest
+					if firstLine {
+						prefix = first
+					}
+					line := NewLine()
+					line.Push(prefix, Style{})
+					line.Push(row, Style{})
+					out = append(out, line)
+					firstLine = false
+				}
+				i = end
+				continue
+			}
 		}
 		prefix := rest
 		if firstLine {
@@ -33,6 +60,7 @@ func markdownLines(textValue string, width int, first, rest string, p Palette) [
 		}
 		out = append(out, wrapStyled(inlineSpans(lineText, p), width, prefix, rest)...)
 		firstLine = false
+		i++
 	}
 	if len(out) == 0 {
 		out = append(out, PlainLine(first))
@@ -215,6 +243,9 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 	if expanded {
 		limit = 20
 	}
+	if oldText, newText, ok := editTexts(entry.Name, entry.Args); ok {
+		return append(out, diffPreviewLines(DiffLines(oldText, newText), limit, width, p)...)
+	}
 	if entry.Output != "" {
 		bodyWidth := maxInt(width-2, 1)
 		rest := strings.TrimRight(entry.Output, "\n")
@@ -243,6 +274,90 @@ func toolLines(entry Entry, width int, expanded bool, p Palette) []Line {
 			line.Push("… "+strconv.Itoa(remaining)+" more lines", p.dim())
 			out = append(out, line)
 		}
+	}
+	return out
+}
+
+// editCall covers both the edit schema and the multi_edit batch schema. Edits
+// recursively holds the per-file calls of a batch.
+type editCall struct {
+	Old     string     `json:"old"`
+	New     string     `json:"new"`
+	OldText string     `json:"old_text"`
+	NewText string     `json:"new_text"`
+	Edits   []editCall `json:"edits"`
+}
+
+// editTexts returns the before/after text of an edit or multi_edit call. A
+// non-edit tool, malformed JSON or a missing side returns ok=false so the
+// caller keeps the original output-preview rendering.
+func editTexts(name, args string) (oldText, newText string, ok bool) {
+	if name != "edit" && name != "multi_edit" {
+		return "", "", false
+	}
+	var call editCall
+	if err := json.Unmarshal([]byte(args), &call); err != nil {
+		return "", "", false
+	}
+	sides := func(e editCall) (string, string) {
+		old, new := e.Old, e.New
+		if old == "" {
+			old = e.OldText
+		}
+		if new == "" {
+			new = e.NewText
+		}
+		return old, new
+	}
+	if name == "multi_edit" {
+		for _, e := range call.Edits {
+			old, new := sides(e)
+			if old == "" || new == "" {
+				continue
+			}
+			if oldText != "" {
+				oldText += "\n"
+			}
+			if newText != "" {
+				newText += "\n"
+			}
+			oldText, newText = oldText+old, newText+new
+		}
+		return oldText, newText, oldText != "" && newText != ""
+	}
+	oldText, newText = sides(call)
+	return oldText, newText, oldText != "" && newText != ""
+}
+
+// diffPreviewLines renders a diff with the same row budget and "N more lines"
+// marker as the ordinary tool-output preview.
+func diffPreviewLines(diffs []DiffLine, limit, width int, p Palette) []Line {
+	var out []Line
+	bodyWidth := maxInt(width-4, 1)
+	shown := 0
+	for shown < limit && shown < len(diffs) {
+		diff := diffs[shown]
+		line := NewLine()
+		line.Push("  ", Style{})
+		switch diff.Kind {
+		case DiffAdd:
+			line.Push("+ ", p.tool())
+			line.Push(Clip(diff.Text, bodyWidth), p.tool())
+		case DiffDel:
+			line.Push("- ", p.failure())
+			line.Push(Clip(diff.Text, bodyWidth), p.failure())
+		default:
+			line.Push("  ", p.muted())
+			line.Push(Clip(diff.Text, bodyWidth), p.muted())
+		}
+		out = append(out, line)
+		shown++
+	}
+	if remaining := len(diffs) - shown; remaining > 0 {
+		line := NewLine()
+		line.Push("  ", Style{})
+		line.Push("… "+strconv.Itoa(remaining)+" more lines", p.dim())
+		out = append(out, line)
 	}
 	return out
 }

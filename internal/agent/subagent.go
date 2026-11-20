@@ -44,6 +44,13 @@ type SubagentConfig struct {
 	// OnEvent receives the child's events. When nil they go to the parent's
 	// Emit, with Event.Depth set.
 	OnEvent func(Event)
+	// ResolvePersona maps a persona/role name requested by a task call to the
+	// child config that persona defines. It is optional and injected by the
+	// wiring layer (internal/app) so this package never imports it. When nil,
+	// or when the name is unknown, delegation falls back to the generic config
+	// above. A resolver returning true starts from the persona's config; the
+	// explicitly-set fields of this config are then layered on top.
+	ResolvePersona func(string) (SubagentConfig, bool)
 }
 
 // TaskToolSpec describes the delegate tool to the model.
@@ -58,7 +65,9 @@ func TaskToolSpec() llm.ToolSpec {
   "properties": {
     "description": {"type": "string", "description": "Short label for the task, shown in the UI"},
     "prompt": {"type": "string", "description": "Complete, self-contained instructions for the subagent"},
-    "task": {"type": "string", "description": "Alias for prompt, accepted for compatibility"}
+    "task": {"type": "string", "description": "Alias for prompt, accepted for compatibility"},
+    "persona": {"type": "string", "description": "Optional persona/role name defined in .argent/agents; the named persona's system prompt and tool allow-list seed the subagent"},
+    "role": {"type": "string", "description": "Alias for persona, accepted for compatibility"}
   },
   "required": ["prompt"]
 }`)
@@ -120,6 +129,9 @@ type taskArgs struct {
 	Description string `json:"description"`
 	Prompt      string `json:"prompt"`
 	Task        string `json:"task"`
+	// Persona optionally selects a named subagent definition. Role is an alias.
+	Persona string `json:"persona"`
+	Role    string `json:"role"`
 }
 
 // runTask runs one child loop and returns its final answer as the tool result.
@@ -145,9 +157,13 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	if label == "" {
 		label = firstLine(task)
 	}
+	persona := strings.TrimSpace(args.Persona)
+	if persona == "" {
+		persona = strings.TrimSpace(args.Role)
+	}
 
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
-	child := &Runner{Opts: t.childOptions(label)}
+	child := &Runner{Opts: t.childOptions(label, persona)}
 	res, err := child.Run(ctx, task)
 	if err != nil {
 		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
@@ -161,24 +177,67 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	return text, nil
 }
 
+// configForPersona seeds the child config from a named persona, then layers the
+// parent's explicitly-set fields on top. A missing resolver, an empty name or
+// an unknown name leaves the generic parent config untouched, which keeps
+// delegation backward compatible.
+func (t *taskTools) configForPersona(name string) SubagentConfig {
+	cfg := *t.cfg
+	name = strings.TrimSpace(name)
+	if name == "" || t.cfg.ResolvePersona == nil {
+		return cfg
+	}
+	persona, ok := t.cfg.ResolvePersona(name)
+	if !ok {
+		return cfg
+	}
+
+	merged := persona
+	if v := strings.TrimSpace(t.cfg.Model); v != "" {
+		merged.Model = v
+	}
+	if len(t.cfg.AllowedTools) > 0 {
+		merged.AllowedTools = t.cfg.AllowedTools
+	}
+	if t.cfg.MaxDepth > 0 {
+		merged.MaxDepth = t.cfg.MaxDepth
+	}
+	if t.cfg.MaxTurns > 0 {
+		merged.MaxTurns = t.cfg.MaxTurns
+	}
+	if t.cfg.Budget != (Budget{}) {
+		merged.Budget = t.cfg.Budget
+	}
+	if strings.TrimSpace(t.cfg.System) != "" {
+		merged.System = t.cfg.System
+	}
+	if t.cfg.OnEvent != nil {
+		merged.OnEvent = t.cfg.OnEvent
+	}
+	// Keep the resolver so nested tasks can choose their own personas too.
+	merged.ResolvePersona = t.cfg.ResolvePersona
+	return merged
+}
+
 // childOptions builds the nested run's configuration: restricted tools, the
 // child system prompt, a budget slice, and the event bridge.
-func (t *taskTools) childOptions(label string) Options {
+func (t *taskTools) childOptions(label, persona string) Options {
+	cfg := t.configForPersona(persona)
 	tools := t.inner
-	if len(t.cfg.AllowedTools) > 0 {
-		allowed := make(map[string]bool, len(t.cfg.AllowedTools))
-		for _, name := range t.cfg.AllowedTools {
+	if len(cfg.AllowedTools) > 0 {
+		allowed := make(map[string]bool, len(cfg.AllowedTools))
+		for _, name := range cfg.AllowedTools {
 			allowed[name] = true
 		}
 		tools = restrictedTools{inner: t.inner, allowed: allowed}
 	}
 
-	system := strings.TrimSpace(t.cfg.System)
+	system := strings.TrimSpace(cfg.System)
 	if system == "" {
 		system = fmt.Sprintf(subagentTemplate, label)
 	}
 
-	budget := t.cfg.Budget
+	budget := cfg.Budget
 	if budget == (Budget{}) {
 		budget = t.parent.Budget.sliceForChild()
 	}
@@ -189,13 +248,13 @@ func (t *taskTools) childOptions(label string) Options {
 		}
 		budget.MaxTurns = turns
 	}
-	if t.cfg.MaxTurns > 0 {
-		budget.MaxTurns = t.cfg.MaxTurns
+	if cfg.MaxTurns > 0 {
+		budget.MaxTurns = cfg.MaxTurns
 	}
 
 	emit := func(event Event) {
-		if t.cfg.OnEvent != nil {
-			t.cfg.OnEvent(event)
+		if cfg.OnEvent != nil {
+			cfg.OnEvent(event)
 			return
 		}
 		if t.parent.Emit != nil {
@@ -203,7 +262,7 @@ func (t *taskTools) childOptions(label string) Options {
 		}
 	}
 
-	model := strings.TrimSpace(t.cfg.Model)
+	model := strings.TrimSpace(cfg.Model)
 	if model == "" {
 		model = t.parent.Model
 	}
@@ -226,7 +285,7 @@ func (t *taskTools) childOptions(label string) Options {
 		MaxRepeats:       t.parent.MaxRepeats,
 		MutatingTools:    t.parent.MutatingTools,
 		Mutating:         t.parent.Mutating,
-		Subagent:         t.cfg,
+		Subagent:         &cfg,
 		Depth:            t.depth + 1,
 	}
 }

@@ -195,6 +195,17 @@ func (m *Model) headerLocked(width int) Line {
 	if m.usageCached > 0 {
 		parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
 	}
+	if m.contextWindow > 0 {
+		used := int64(m.usageIn) + int64(m.usageOut)
+		pct := used * 100 / int64(m.contextWindow)
+		if pct > 100 {
+			pct = 100
+		}
+		parts = append(parts, "ctx "+strconv.FormatInt(pct, 10)+"%")
+	}
+	if m.cost != "" {
+		parts = append(parts, m.cost)
+	}
 	parts = append(parts, clock(int(m.now().Sub(m.started).Seconds())))
 	right := NewLine()
 	right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
@@ -485,6 +496,6 @@ func hintLine(width int, locale string, modal bool, style Style) Line {
 		hint = text(locale, "hint_modal")
 	}
 	line := NewLine()
-	line.Push(Clip(hint, width), style)
+	line.Push(ShortHelp(HintBindings(hint), width, TextWidth), style)
 	return line
 }

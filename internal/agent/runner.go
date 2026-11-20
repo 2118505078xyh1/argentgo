@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -252,6 +253,27 @@ type Runner struct {
 	Client llm.Chatter
 	Tools  ToolRunner
 	Opts   Options
+
+	// summaryCache memoises finished compaction views across every Run on this
+	// Runner (the server drives many prompts through one instance). It is
+	// created lazily on first use because callers build Runners with keyed
+	// struct literals; the zero value needs no constructor change. The cache
+	// itself is safe for concurrent access, and the mutex only guards the lazy
+	// initialisation. Per-Runner scope avoids cross-agent contamination; a
+	// persistent cross-session cache belongs to the app/session layer.
+	summaryCacheMu sync.Mutex
+	summaryCache   *SummaryCache
+}
+
+// compactionCache returns the Runner's summary cache, creating it on first use
+// with the default capacity.
+func (r *Runner) compactionCache() *SummaryCache {
+	r.summaryCacheMu.Lock()
+	defer r.summaryCacheMu.Unlock()
+	if r.summaryCache == nil {
+		r.summaryCache = NewSummaryCache(0)
+	}
+	return r.summaryCache
 }
 
 // Run executes the prompt and returns the full result.

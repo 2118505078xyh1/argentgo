@@ -153,6 +153,11 @@ type Model struct {
 	usageCached int
 	expanded    bool
 
+	// Optional header metadata. Both unset keeps the classic header exactly
+	// as it was before these fields existed.
+	contextWindow int
+	cost          string
+
 	// Action hooks are installed by the integrator. nil means the command is
 	// recognised but answered with a clear "not wired" notice.
 	undoFn    TurnAction
@@ -219,4 +224,18 @@ func New(cfg Config) *Model {
 		m.appendNoticeLocked(text(locale, "color_degraded"))
 	}
 	return m
+}
+
+// SetContextInfo supplies the optional header metadata: the model's context
+// window (for the usage percentage) and a preformatted cost string. Passing 0
+// and "" restores the original header. Safe to call while the run loop paints.
+func (m *Model) SetContextInfo(window int, cost string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if window < 0 {
+		window = 0
+	}
+	m.contextWindow = window
+	m.cost = cost
+	m.markDirtyLocked()
 }

@@ -53,10 +53,11 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		}
 
 		frontendOpts := tui.Options{
-			Root:     res.Root,
-			Model:    res.Model,
-			Locale:   res.Locale,
-			Sessions: sessionTitles(store),
+			Root:          res.Root,
+			Model:         res.Model,
+			Locale:        res.Locale,
+			Sessions:      sessionTitles(store),
+			ContextWindow: res.Cfg.ContextWindow,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
 				sess, err := sessionFor(text)
 				if err != nil {

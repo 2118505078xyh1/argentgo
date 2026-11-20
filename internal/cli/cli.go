@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/server"
 )
 
@@ -352,6 +353,7 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 	}
 	if err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
+		writeActionableError(a.IO.Err, err)
 		return 1
 	}
 	if !jsonMode {
@@ -361,6 +363,23 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 		fmt.Fprintln(a.IO.Out)
 	}
 	return 0
+}
+
+// writeActionableError appends the normalized provider explanation and its
+// next step to the terse "error: ..." line. It is additive on purpose: the
+// original line is unchanged for callers that parse stderr, while the user
+// gets a concrete recovery action. Classification is a no-op for nil errors
+// and never changes the success path.
+func writeActionableError(w io.Writer, err error) {
+	if err == nil {
+		return
+	}
+	actionable := llm.ClassifyAPIError(err)
+	if actionable == nil {
+		return
+	}
+	fmt.Fprintln(w, actionable.Message)
+	fmt.Fprintln(w, actionable.NextStep)
 }
 
 func (a App) emit(event map[string]any) {

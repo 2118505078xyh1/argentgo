@@ -3,6 +3,7 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Color is a foreground/background SGR pair. The zero value is the terminal
@@ -188,32 +189,127 @@ func RuneWidth(r rune) int {
 	return 1
 }
 
-// TextWidth is the number of cells a string occupies.
+const zwj = 0x200D
+
+// isRegionalIndicator reports whether r is one of the paired flag letters.
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF
+}
+
+// isExtend reports whether r attaches to the rune before it in the same
+// grapheme cluster (combining marks, variation selectors, ZWJ, emoji
+// skin-tone modifiers, ...). C0 controls and DEL are deliberately excluded:
+// they are zero-width in RuneWidth but must not glue two clusters together.
+func isExtend(r rune) bool {
+	if r >= 0x1F3FB && r <= 0x1F3FF { // emoji skin-tone modifiers
+		return true
+	}
+	return r >= 0x20 && r != 0x7F && RuneWidth(r) == 0
+}
+
+// nextGrapheme returns the byte range [start, end) and display width of the
+// grapheme cluster beginning at start in s. This is a deliberately small
+// approximation of UAX #29 extended grapheme clusters, covering the cases
+// that matter for terminal cells:
+//
+//   - Base + (Extend | ZWJ Base)* is one cluster whose width is the widest
+//     rune in it. A ZWJ pulls the following pictograph into the same cluster,
+//     so 👨‍👩‍👧 measures two cells instead of six.
+//   - Two adjacent regional indicators form one flag, always two cells.
+//   - ASCII is a single-byte, single-cell cluster (fast path).
+//
+// RuneWidth stays the authority for individual rune widths.
+func nextGrapheme(s string, start int) (end, width int) {
+	if b := s[start]; b < utf8.RuneSelf {
+		if b >= 0x20 && b != 0x7F {
+			return start + 1, 1
+		}
+		return start + 1, 0
+	}
+
+	r, size := utf8.DecodeRuneInString(s[start:])
+	end = start + size
+	width = RuneWidth(r)
+
+	// A pair of adjacent regional indicators is one flag: two cells, even
+	// though each indicator alone is only one cell wide.
+	if isRegionalIndicator(r) && end < len(s) {
+		if r2, size2 := utf8.DecodeRuneInString(s[end:]); isRegionalIndicator(r2) {
+			end += size2
+			width = 2
+			for end < len(s) {
+				r3, size3 := utf8.DecodeRuneInString(s[end:])
+				if !isExtend(r3) {
+					break
+				}
+				end += size3
+			}
+			return end, width
+		}
+	}
+
+	afterZWJ := false
+	for end < len(s) {
+		r2, size2 := utf8.DecodeRuneInString(s[end:])
+		switch {
+		case r2 == zwj:
+			afterZWJ = true
+		case isExtend(r2):
+			// An extender stays in the current cluster.
+		case afterZWJ && r2 >= 0x20 && r2 != 0x7F:
+			// A base joined to the cluster by a preceding ZWJ.
+			afterZWJ = false
+		default:
+			return end, width
+		}
+		if w := RuneWidth(r2); w > width {
+			width = w
+		}
+		end += size2
+	}
+	return end, width
+}
+
+// TextWidth is the number of cells a string occupies, counted in grapheme
+// clusters so a ZWJ emoji or a flag is never double-counted.
 func TextWidth(text string) int {
 	total := 0
-	for _, r := range text {
-		total += RuneWidth(r)
+	for i := 0; i < len(text); {
+		if text[i] < utf8.RuneSelf {
+			// Bulk ASCII path: printable bytes are one cell, controls zero.
+			for i < len(text) && text[i] < utf8.RuneSelf {
+				if text[i] >= 0x20 && text[i] != 0x7F {
+					total++
+				}
+				i++
+			}
+			continue
+		}
+		next, width := nextGrapheme(text, i)
+		total += width
+		i = next
 	}
 	return total
 }
 
-// Clip cuts text so it occupies at most max cells. A wide rune that would
-// straddle the boundary is dropped whole.
+// Clip cuts text so it occupies at most max cells. A cluster that would
+// straddle the boundary is dropped whole, so ZWJ emoji, flags and combining
+// sequences are never split down the middle.
 func Clip(text string, max int) string {
 	if max <= 0 {
 		return ""
 	}
-	var out strings.Builder
-	used := 0
-	for _, r := range text {
-		cell := RuneWidth(r)
-		if used+cell > max {
+	end, used := 0, 0
+	for pos := 0; pos < len(text); {
+		next, width := nextGrapheme(text, pos)
+		if used+width > max {
 			break
 		}
-		out.WriteRune(r)
-		used += cell
+		used += width
+		end = next
+		pos = next
 	}
-	return out.String()
+	return text[:end]
 }
 
 // Truncate clips text and marks the cut with an ellipsis.
@@ -238,42 +334,45 @@ func Pad(text string, width int) string {
 
 // Wrap breaks text into lines of at most width cells, preferring a space in
 // the tail of the line. CJK has no spaces, so the hard break is the normal
-// path for Chinese rather than an edge case.
+// path for Chinese rather than an edge case. Line breaks happen on grapheme
+// boundaries: a ZWJ emoji, a flag or a combining sequence is never folded in
+// the middle.
 func Wrap(text string, width int) []string {
 	if width < 1 {
 		width = 1
 	}
 	var out []string
-	var cur []rune
-	used := 0
+	curStart, curEnd, curWidth := 0, 0, 0
 	lastSpace := -1
-	for _, r := range text {
-		cell := RuneWidth(r)
-		if used+cell > width && len(cur) > 0 {
-			if lastSpace >= 1 {
-				head := strings.TrimRight(string(cur[:lastSpace]), " ")
-				tail := cur[lastSpace:]
-				for len(tail) > 0 && tail[0] == ' ' {
-					tail = tail[1:]
-				}
+	for pos := 0; pos < len(text); {
+		next, cell := nextGrapheme(text, pos)
+		r, _ := utf8.DecodeRuneInString(text[pos:next])
+		if curWidth+cell > width && curEnd > curStart {
+			if lastSpace > curStart {
+				head := strings.TrimRight(text[curStart:lastSpace], " ")
 				out = append(out, head)
-				cur = append([]rune{}, tail...)
-				used = TextWidth(string(cur))
+				tail := lastSpace
+				for tail < curEnd && text[tail] == ' ' {
+					tail++
+				}
+				curStart = tail
+				curWidth = TextWidth(text[curStart:curEnd])
 			} else {
-				out = append(out, string(cur))
-				cur = cur[:0]
-				used = 0
+				out = append(out, text[curStart:curEnd])
+				curStart = pos
+				curWidth = 0
 			}
 			lastSpace = -1
 		}
-		cur = append(cur, r)
-		used += cell
+		curEnd = next
+		curWidth += cell
 		if r == ' ' {
-			lastSpace = len(cur) - 1
+			lastSpace = pos
 		}
+		pos = next
 	}
-	if len(cur) > 0 {
-		out = append(out, string(cur))
+	if curEnd > curStart {
+		out = append(out, text[curStart:curEnd])
 	}
 	if len(out) == 0 {
 		out = []string{""}

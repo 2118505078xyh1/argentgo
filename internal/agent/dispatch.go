@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
@@ -276,7 +278,24 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 			}
 		}
 	}
-	return s.runTool(ctx, call, start)
+	res := s.runTool(ctx, call, start)
+	// A tool that actually ran and failed counts toward the consecutive-mistake
+	// streak; a successful call clears it so the streak means "no progress".
+	// Unrun calls (approval errors, cancelled batches) never reach this line.
+	if res.isError {
+		s.mistakes.Record(MistakeKindToolExecutionFailed)
+	} else {
+		s.mistakes.Reset()
+	}
+	return res
+}
+
+// isRecoverablePlanBlock reports whether err came from the optional plan-mode
+// command guard. These are ordinary, recoverable tool errors: runTool writes
+// them into the transcript and the loop keeps going. A plain denial/StopError
+// is not matched here and keeps its existing handling.
+func isRecoverablePlanBlock(err error) bool {
+	return errors.Is(err, security.ErrRecoverablePlanBlock)
 }
 
 func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Time) callResult {
@@ -302,6 +321,12 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	output, meta, err := s.callTool(ctx, call.Function.Name, string(cleaned))
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
+		if isRecoverablePlanBlock(err) {
+			// A plan-mode command guard block is a recoverable tool error: the
+			// run continues and the model reads the guidance, unlike a hard
+			// StopError denial.
+			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, duration: time.Since(start)}
+		}
 		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, duration: time.Since(start)}
 	}
 	return callResult{intent: intent, output: output, duration: time.Since(start)}

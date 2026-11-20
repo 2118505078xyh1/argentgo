@@ -44,16 +44,8 @@ func loadPersonasForRoot(root string) (map[string]agent.Persona, error) {
 // PersonaSubagentConfig resolves a persona name requested by a delegated task
 // into the child configuration the `task` tool should use. It returns false for
 // an empty or unknown name, leaving the caller's generic defaults untouched.
-//
-// TODO(persona-role): finish wiring this into the delegation path. The task
-// argument struct (taskArgs), its advertised schema (TaskToolSpec) and
-// (*taskTools).childOptions all live in internal/agent/subagent.go, which is
-// outside this file's ownership. To select a persona per task, that file needs
-// an optional `persona` (or `role`) field on taskArgs/TaskToolSpec and must
-// start childOptions from Persona.SubagentConfig() when the name resolves.
-// Until then Execute deliberately preserves existing behaviour: no role is
-// requested through the current tool schema, so no task tool is advertised and
-// no persona overrides the generic child prompt.
+// It is injected into agent.SubagentConfig.ResolvePersona by configureSubagents,
+// keeping internal/agent free of any dependency on internal/app.
 func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 	if strings.TrimSpace(name) == "" {
 		return agent.SubagentConfig{}, false
@@ -66,13 +58,42 @@ func PersonaSubagentConfig(root, name string) (agent.SubagentConfig, bool) {
 	return persona.SubagentConfig(), true
 }
 
+// configureSubagents applies the opt-in delegation setup to a root run's
+// options. The opt-in signal is deliberately minimal: a workspace that defines
+// at least one persona under .argent/agents is asking for delegation. No config
+// key, flag or CLI change is required, and a workspace without personas keeps
+// byte-identical behaviour (no `task` tool and an unchanged system prompt).
+//
+// When opted in, the orchestrator strategy is appended to the caller's system
+// prompt (never replacing it), and Subagent is set with an empty model - which
+// the agent loop interprets as "inherit the parent model" - and the default
+// depth limit of 2. Persona names requested by individual task calls are
+// resolved back here through the injected ResolvePersona callback, so the agent
+// package never needs to import this one.
+func configureSubagents(opts *agent.Options, res Resolved) {
+	if opts == nil {
+		return
+	}
+	personas, err := loadPersonasForRoot(res.Root)
+	if err != nil || len(personas) == 0 {
+		return
+	}
+	opts.System = res.System + "\n\n" + agent.OrchestratorPrompt()
+	opts.Subagent = &agent.SubagentConfig{
+		MaxDepth: agent.DefaultMaxDepth,
+		ResolvePersona: func(name string) (agent.SubagentConfig, bool) {
+			return PersonaSubagentConfig(res.Root, name)
+		},
+	}
+}
+
 // Execute runs one prompt through a freshly wired tool registry, policy and
 // agent loop. The registry is per-run so the security chain can carry the
 // session id without mutable global state.
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
-	// Warm the persona cache once per workspace root. Loading is best-effort:
-	// a malformed agent definition must not fail the run. Per-task persona
-	// selection is resolved by PersonaSubagentConfig (see its TODO above).
+	// Loading personas is best-effort: a malformed agent definition must not
+	// fail the run. configureSubagents reuses the cached result to decide
+	// whether this run opts into delegation and to resolve per-task roles.
 	_, _ = loadPersonasForRoot(res.Root)
 	if injection, ok := reviewPrompt(res.Root, prompt); ok {
 		prompt = injection + "\n\nUser request: " + strings.TrimSpace(prompt)
@@ -157,13 +178,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			}
 		},
 	}}
+	configureSubagents(&loop.Opts, res)
+	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)
 	if err == nil && strings.TrimSpace(res.OutputSchema) != "" {
 		if invalid := validateOutputText(res.OutputSchema, result.Text); invalid != nil {
 			// One corrective turn gives the model the exact failure instead of
 			// failing the whole run on a formatting slip.
-			loop.Opts.System = res.System + correctiveInstruction(res.OutputSchema, invalid)
+			loop.Opts.System = system + correctiveInstruction(res.OutputSchema, invalid)
 			if retried, retryErr := loop.Run(ctx, prompt); retryErr == nil {
 				result = retried
 				if invalid = validateOutputText(res.OutputSchema, result.Text); invalid != nil {
