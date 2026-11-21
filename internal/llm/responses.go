@@ -85,15 +85,69 @@ type responsesTool struct {
 
 type responsesTextItem struct {
 	// 文本消息项必须携带 type:"message"：Responses API 在 content 使用带类型的分段
-	// （input_text / output_text）时依赖这个判别字段识别消息项，缺失会被服务端拒绝。
-	Type    string          `json:"type"`
-	Role    string          `json:"role"`
-	Content []responsesPart `json:"content"`
+	// （input_text / output_text / input_image）时依赖这个判别字段识别消息项，
+	// 缺失会被服务端拒绝。
+	Type    string `json:"type"`
+	Role    string `json:"role"`
+	Content []any  `json:"content"`
 }
 
 type responsesPart struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+// responsesImagePart 是 Responses API 的 input_image 分段。
+// 与 chat completions 不同，image_url 是直接的 data URL 字符串，
+// 而非嵌套的 {"url": ...} 对象。
+type responsesImagePart struct {
+	Type     string `json:"type"`
+	ImageURL string `json:"image_url"`
+}
+
+// responsesContentPart 是解码 Message.ContentParts（由 OpenAIContentParts
+// 生成的 chat completions 风格 part 数组）时使用的最小结构。
+type responsesContentPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	ImageURL *struct {
+		URL string `json:"url"`
+	} `json:"image_url"`
+}
+
+// responsesPartsFromContentParts 把带图消息的 ContentParts 映射为 Responses
+// 的带类型分段：文本 part 变成 input_text，图片 part 变成 input_image。
+// 图片的 base64 data URL 复用 image_parts.go 的编码结果，并经
+// splitImageDataURL 校验（base64 标准库），保证发出的 URL 合法。
+// 返回 nil 表示输入不是可用的 part 数组，调用方据此降级为占位文本。
+func responsesPartsFromContentParts(raw json.RawMessage) []any {
+	var parts []responsesContentPart
+	if err := json.Unmarshal(raw, &parts); err != nil || len(parts) == 0 {
+		return nil
+	}
+	mapped := make([]any, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case "text":
+			mapped = append(mapped, responsesPart{Type: "input_text", Text: part.Text})
+		case "image_url":
+			if part.ImageURL == nil {
+				return nil
+			}
+			mediaType, payload, ok := splitImageDataURL(part.ImageURL.URL)
+			if !ok {
+				return nil
+			}
+			mapped = append(mapped, responsesImagePart{
+				Type:     "input_image",
+				ImageURL: "data:" + mediaType + ";base64," + payload,
+			})
+		}
+	}
+	if len(mapped) == 0 {
+		return nil
+	}
+	return mapped
 }
 
 type responsesCallItem struct {
@@ -299,7 +353,6 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 
 	var instructions []string
 	for _, message := range messages {
-		// 带图消息在本协议上退化为占位文本，避免静默丢弃整条消息。
 		text := messageTextForProtocol(message)
 		switch message.Role {
 		case "system":
@@ -307,20 +360,36 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 				instructions = append(instructions, text)
 			}
 		case "user":
+			// 带图用户消息映射为 Responses 原生分段：input_text + input_image。
+			// 无图时走原有纯文本路径，请求字节保持不变。
+			if len(message.ContentParts) > 0 {
+				parts := responsesPartsFromContentParts(message.ContentParts)
+				if len(parts) == 0 {
+					// 无法解析出可用分段时退化为占位文本，既不静默丢弃整条消息，
+					// 也不把可疑的原始 JSON 当文本发给提供方。
+					parts = []any{responsesPart{Type: "input_text", Text: unsupportedImagePlaceholder}}
+				}
+				req.Input = append(req.Input, responsesTextItem{
+					Type:    "message",
+					Role:    "user",
+					Content: parts,
+				})
+				continue
+			}
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			req.Input = append(req.Input, responsesTextItem{
 				Type:    "message",
 				Role:    "user",
-				Content: []responsesPart{{Type: "input_text", Text: text}},
+				Content: []any{responsesPart{Type: "input_text", Text: text}},
 			})
 		case "assistant":
 			if strings.TrimSpace(text) != "" {
 				req.Input = append(req.Input, responsesTextItem{
 					Type:    "message",
 					Role:    "assistant",
-					Content: []responsesPart{{Type: "output_text", Text: text}},
+					Content: []any{responsesPart{Type: "output_text", Text: text}},
 				})
 			}
 			for _, call := range message.ToolCalls {
@@ -351,7 +420,7 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 		req.Input = append(req.Input, responsesTextItem{
 			Type:    "message",
 			Role:    "user",
-			Content: []responsesPart{{Type: "input_text", Text: "Continue."}},
+			Content: []any{responsesPart{Type: "input_text", Text: "Continue."}},
 		})
 	}
 	if len(instructions) > 0 {

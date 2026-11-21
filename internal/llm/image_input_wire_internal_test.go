@@ -187,14 +187,14 @@ func TestChatRequestImageContentIsArray(t *testing.T) {
 	}
 }
 
-// TestUnsupportedProtocolsDegradeImageMessage 验证 Anthropic 与 Responses
-// 不会把带图消息静默丢弃，也不会把 base64 误当文本发给不支持的端点。
-func TestUnsupportedProtocolsDegradeImageMessage(t *testing.T) {
-	imageMsg := BuildImageMessage("看这张图", []ImageInput{
-		{MimeType: "image/png", Data: []byte("x")},
-	})
+// TestProtocolsDegradeInvalidImageParts 验证 Anthropic 与 Responses 在
+// ContentParts 无法解析为有效图片时都退化为占位文本：既不静默丢弃整条消息，
+// 也不把可疑的 data URL 误当文本发给提供方。
+// 正常的带图消息现由各协议以原生形态承载，另有各自的 wire 测试覆盖。
+func TestProtocolsDegradeInvalidImageParts(t *testing.T) {
+	bad := Message{Role: "user", ContentParts: json.RawMessage(`[{"type":"image_url","image_url":{"url":"not-a-data-url"}}]`)}
 
-	anthropicRaw, err := json.Marshal((&AnthropicClient{}).buildRequest("m", []Message{imageMsg}, nil))
+	anthropicRaw, err := json.Marshal((&AnthropicClient{}).buildRequest("m", []Message{bad}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestUnsupportedProtocolsDegradeImageMessage(t *testing.T) {
 		t.Errorf("Anthropic 请求不应携带图像的 base64: %s", anthropicRaw)
 	}
 
-	responsesRaw, err := json.Marshal((&ResponsesClient{}).buildRequest("m", []Message{imageMsg}, nil))
+	responsesRaw, err := json.Marshal((&ResponsesClient{}).buildRequest("m", []Message{bad}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

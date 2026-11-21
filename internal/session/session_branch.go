@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // Path 返回从会话根到 entryID 的记录，最早的在前。
@@ -96,7 +95,7 @@ func (s *Session) Fork(entryID string) (*Session, error) {
 			path = append(path, Record{
 				ID:     nextID(path),
 				Parent: path[len(path)-1].ID,
-				TS:     time.Now().UTC(),
+				TS:     nextRecordTS(),
 				Kind:   KindTitle,
 				Data:   data,
 			})

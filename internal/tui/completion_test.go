@@ -351,3 +351,108 @@ func TestCompletionTrailingSpaceEndsQuery(t *testing.T) {
 		t.Fatal("trailing-space query should have no current candidate")
 	}
 }
+
+// commandNames 提取 Visible 列表中的命令名，便于逐项断言展示顺序。
+func commandNames(visible []CompletionCandidate) []string {
+	out := make([]string, 0, len(visible))
+	for _, c := range visible {
+		out = append(out, c.Command)
+	}
+	return out
+}
+
+// TestCompletionFuzzyScoreOrdering 验证 "cmt" 下 /commit 排首：字典序中
+// "comment" 在 "commit" 之前，但 FuzzyMatch 分数 commit > comment，
+// 故展示顺序被分数翻转。Current 与 Visible 必须指向同一顺序。
+func TestCompletionFuzzyScoreOrdering(t *testing.T) {
+	s := NewCompletionState([]CompletionCandidate{
+		{Command: "comment", Description: "注释"},
+		{Command: "commit", Description: "提交"},
+	})
+	s.Query("cmt")
+	want := []string{"commit", "comment"}
+	if got := commandNames(s.Visible()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Visible order = %v, want %v", got, want)
+	}
+	if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Current order = %v, want %v", got, want)
+	}
+	if c, ok := s.Current(); !ok || c.Command != "commit" {
+		t.Fatalf("Current = (%+v, %v), want commit", c, ok)
+	}
+}
+
+// TestCompletionPrefixHitBeforeFuzzy 验证前缀命中优先于分数更高的模糊命中：
+// "co" 下 "commit" 是前缀命中，"chrono" 只是子序列命中，即便后者字典序
+// 更靠前也必须排在后面。
+func TestCompletionPrefixHitBeforeFuzzy(t *testing.T) {
+	s := NewCompletionState([]CompletionCandidate{
+		{Command: "chrono", Description: "计时"},
+		{Command: "commit", Description: "提交"},
+	})
+	s.Query("co")
+	want := []string{"commit", "chrono"}
+	if got := commandNames(s.Visible()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Visible order = %v, want %v", got, want)
+	}
+	if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Current order = %v, want %v", got, want)
+	}
+}
+
+// TestCompletionScoreOrderingStable 验证分数排序稳定：同分条目按字典序
+// 下标兜底，重复读取顺序不变，且不修改调用方传入的切片与主表。
+func TestCompletionScoreOrderingStable(t *testing.T) {
+	cands := []CompletionCandidate{
+		{Command: "abYcd", Description: "second"},
+		{Command: "abXcd", Description: "first"},
+		{Command: "zazbzczd", Description: "gapped"},
+	}
+	snapshot := append([]CompletionCandidate(nil), cands...)
+	s := NewCompletionState(cands)
+	s.Query("abcd")
+	// abXcd/abYcd 同分，按主表下标兜底；zazbzczd 间隔大、分数低，排最后。
+	want := []string{"abXcd", "abYcd", "zazbzczd"}
+	for i := 0; i < 5; i++ {
+		if got := commandNames(s.Visible()); !reflect.DeepEqual(got, want) {
+			t.Fatalf("iteration %d: Visible order = %v, want %v", i, got, want)
+		}
+	}
+	if !reflect.DeepEqual(cands, snapshot) {
+		t.Fatalf("input slice was modified: got %v, want %v", cands, snapshot)
+	}
+	if got := commandNames(s.candidates); !reflect.DeepEqual(got, []string{"abXcd", "abYcd", "zazbzczd"}) {
+		t.Fatalf("master table was reordered: %v", got)
+	}
+}
+
+// TestCompletionEmptyQueryKeepsLexicographicBaseline 验证空 query 基线：
+// 即使有多个候选，也不按分数重排，保持 NewCompletionState 的字典序。
+func TestCompletionEmptyQueryKeepsLexicographicBaseline(t *testing.T) {
+	s := NewCompletionState(fuzzyCandidates())
+	s.Query("")
+	want := []string{"commit", "config", "format", "review"}
+	if got := commandNames(s.Visible()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("empty query Visible = %v, want %v", got, want)
+	}
+	if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("empty query Current order = %v, want %v", got, want)
+	}
+}
+
+// TestCompletionCJKOrdering 验证 CJK 命令名的前缀优先与模糊命中排序：
+// "提交" 是前缀命中，"查看提交" 只是含该子序列，前者排首且按 rune 处理。
+func TestCompletionCJKOrdering(t *testing.T) {
+	s := NewCompletionState([]CompletionCandidate{
+		{Command: "查看提交", Description: "查看历史"},
+		{Command: "提交", Description: "提交代码"},
+	})
+	s.Query("提交")
+	want := []string{"提交", "查看提交"}
+	if got := commandNames(s.Visible()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CJK Visible order = %v, want %v", got, want)
+	}
+	if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CJK Current order = %v, want %v", got, want)
+	}
+}

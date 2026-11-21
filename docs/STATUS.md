@@ -88,7 +88,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 | 生态分发 | 6 | go install + CI + scoop/choco/brew 清单 + 中文文档 | **客观天花板**：清单未发布、无真实社区/npm 渠道，本地代码无法达到 10 |
 
 ### 加权总分
-约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 的已落地增量见下方小节与矩阵同名更新记录。分数维持 8.9：本轮能力属"补能力/补证据"而非新增扣分项，未触及客观天花板。
+约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 与 R39–R43 的已落地增量见下方小节与矩阵同名更新记录。分数维持 8.9：本轮能力属"补能力/补证据"而非新增扣分项，未触及客观天花板。
 
 ### R33–R37 已落地增量（已测试证据）
 
@@ -101,6 +101,19 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 - **精确测量（R36+R37）**：token/s 排除 TTFT、按 Σtokens/Σdurations 聚合，经 `llm.Usage`（`json:"-"`）→ agent → app 桥接 → TUI `Event`（引用计数 opt-in）；`eval compare` 配对统计 + n<30 样本不足守卫，评测框架灵敏度自测注入故障断言完成率下降。
 - **安全（R35+R37）**：baseURL 来源追踪 fail-closed（`--trust-project` 放行）、Windows DPAPI 凭据加密（syscall 无 cgo）、read-only MCP 绕过修复、分阶段审批状态机（once/always/reject/esc）。
 - **仍为默认关闭原语（R37 备料 R38）**：`StableSystemPrompt`、`SessionStatusRegistry`、`CriticResult`、`CondensationEvent`、`PruneToolResults`、`FileFreshness`、`TurnTiming` 等已实现并测试，但未接入用户路径，不计入能力清单。
+
+### R39–R43 已落地增量（已测试证据）
+
+以下均已在源码中接线并有表驱动测试；opt-in 项默认关闭、逐字节不变，不计入"功能缺失"扣分。逐轮细节见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的同名更新记录。
+
+- **测量闭环（R39）**：`eval ab`（`internal/eval/variant_ab.go` 的 `RunVariantAB`）按场景指纹配对两臂再跑配对统计，`internal/cli/eval.go` 带外分派；配套可接受基线回归账本（三态判定）与 token 经济配对诊断（完成率增益对照 token 成本）。n<30 仍记"样本不足"，不据少量样本刷分。
+- **agent 质量指标（R39，opt-in）**：恢复成效账本（`ARGENT_RECOVERY_METRICS`）、跨情节重复踩坑签名计数（`ARGENT_REPEAT_PITFALL_TRACKING`）、错误签名归一化、上下文健康评分与观察适配器；子代理取消时成本对账修复统计缺失。规则发现（`ARGENT_RULE_DISCOVERY`）与 checkpoint 守卫（`ARGENT_CHECKPOINT_GUARD`）接入生产。
+- **结构修复与可观测原语（R40）**：成本对账算术下沉 `internal/calcutil` 单一真源，消除 import 环；根除两个长期 flaky 测试而不弱化断言（变异反证确认内容回归仍失败）；新增工具耗时直方图、会话树 ASCII 导出、磁盘用量/上下文快照/配置变更 diff、提示注入扫描与 shell 风险分级等原语（默认字节不变）。
+- **Hook additionalContext（R41）**：hook stdout 的 `additionalContext` 经脱敏 + 8192 字节上限提取，端到端注入下一轮模型上下文（SessionStart/UserPromptSubmit 在 `bridge.start` 前接线，不丢失）；doctor 增加配置注入与会话健康检查（warn 通道，不改退出码）。
+- **MCP 注入扫描（R41，opt-in）**：`ARGENT_MCP_INJECTION_SCAN=1` 对高风险注入前置可读警示，只警示不改写、不过滤原文；已登记进 `IndependentOptIns` 与 `OPT_INS.md`，漂移守卫 4/4 覆盖。
+- **计划审批循环（R42）**：只规划模式（`ARGENT_PLAN_MODE=1`）下 `exit_plan` 工具驱动计划批准闭环，未批准前修改类 bash 被既有计划守卫拦下；仅该模式注册工具，默认工具目录逐字节不变。
+- **流中断回补（R42+R43）**：三协议 `ChatOnce` 非流式补答，仅在部分文本 + `ErrStreamError` + 活 ctx 时触发，每轮最多一次、只发精确后缀、带 `EventRetry stream_recovery`；`ARGENT_STREAM_RECOVERY=1`（R43）完成端到端用户接线，关闭时请求与事件逐字节不变。
+- **可靠性加固（R43）**：server 四处 fire-and-forget goroutine 补 panic 恢复（不崩进程/不挂客户端，race-clean）；agent `callTool` panic 边界激活（panic 转普通工具错误）；JSONL `Close()` 加 fsync，干净退出不丢尾（崩溃恢复语义不变）。
 
 ### 客观天花板（诚实说明）
 - **生态分发 6**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。

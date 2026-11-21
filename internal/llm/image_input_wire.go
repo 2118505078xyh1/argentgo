@@ -1,5 +1,11 @@
 package llm
 
+import (
+	"encoding/base64"
+	"encoding/json"
+	"strings"
+)
+
 // 本文件提供"图像输入"的最小原语：把上层易于构造的 ImageInput 转成
 // llm 包内已有的 ImagePart，并借 OpenAIContentParts 序列化为带图像 part
 // 的原始 JSON，放进 Message.ContentParts 旁路字段，由 chat 线协议的
@@ -62,17 +68,83 @@ func BuildImageMessage(text string, images []ImageInput) Message {
 
 // ImageInputsSupported 报告 protocol 能否承载图像输入。
 //
-// 判定依据来自实际 wire 编码能力：只有 OpenAI chat completions 的
-// chatMessage.MarshalJSON 会把 ContentParts 原始数组直接作为 content 发出，
-// 故 chat completions 返回 true。Responses 使用带类型的 input_text /
-// output_text 分段，Anthropic Messages 使用 media_type/data 的 image source，
-// 两者均未实现原始 part 承载，返回 false 以免把图片误发给不支持的端点；
-// 未知协议同样返回 false。
+// 判定依据来自实际 wire 编码能力：OpenAI chat completions 把 ContentParts
+// 原始数组直接作为 content 发出；Anthropic Messages 把带图 user 消息映射为
+// 原生 image content block；Responses 把图片映射为 input_image 分段。
+// 三者都返回 true。未知协议（含空串）返回 false。
 func ImageInputsSupported(protocol string) bool {
 	switch protocol {
-	case ProtocolChatCompletions:
+	case ProtocolChatCompletions, ProtocolAnthropicMessages, ProtocolResponses:
 		return true
 	default:
 		return false
 	}
+}
+
+// contentPartsImage 是从 OpenAI 风格 ContentParts 解码出的单张图片。
+// Data 是 data URL 中的 base64 负载，可直接作为 Anthropic image source 的 data。
+type contentPartsImage struct {
+	MediaType string
+	Data      string
+}
+
+// decodeContentPartsForImageInput 解析带图消息的 ContentParts，提取文本与
+// 按输入顺序排列的图片。ok 为 false 表示 JSON 结构非法或存在无法解析的图片
+// URL；调用方应据此回退到占位文本，而不是报错或发送无法解析的内容。
+//
+// 这里复用 image_parts.go 的 normalizeImageMIME 与标准库 base64 校验，
+// 不引入任何依赖，也不修改入参。
+func decodeContentPartsForImageInput(parts json.RawMessage) (text string, images []contentPartsImage, ok bool) {
+	if len(parts) == 0 {
+		return "", nil, false
+	}
+	var wire []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL *struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+	}
+	if err := json.Unmarshal(parts, &wire); err != nil {
+		return "", nil, false
+	}
+
+	var texts []string
+	for _, part := range wire {
+		switch part.Type {
+		case "text":
+			texts = append(texts, part.Text)
+		case "image_url":
+			if part.ImageURL == nil {
+				return "", nil, false
+			}
+			mediaType, payload, valid := splitImageDataURL(part.ImageURL.URL)
+			if !valid {
+				return "", nil, false
+			}
+			images = append(images, contentPartsImage{MediaType: mediaType, Data: payload})
+		}
+	}
+	return strings.Join(texts, ""), images, true
+}
+
+// splitImageDataURL 解析 data:<mime>;base64,<payload> 形式的 URL，返回
+// 规范化媒体类型与 base64 负载。负载用标准库校验合法性，避免把损坏的
+// base64 发给提供方；媒体类型走 normalizeImageMIME，与编码侧保持一致。
+func splitImageDataURL(url string) (mediaType, payload string, ok bool) {
+	if !strings.HasPrefix(url, "data:") {
+		return "", "", false
+	}
+	meta, payload, found := strings.Cut(strings.TrimPrefix(url, "data:"), ",")
+	if !found {
+		return "", "", false
+	}
+	mediaType, marker, found := strings.Cut(meta, ";")
+	if !found || !strings.EqualFold(marker, "base64") {
+		return "", "", false
+	}
+	if _, err := base64.StdEncoding.DecodeString(payload); err != nil {
+		return "", "", false
+	}
+	return normalizeImageMIME(mediaType), payload, true
 }

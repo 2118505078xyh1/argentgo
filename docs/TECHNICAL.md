@@ -700,7 +700,7 @@ profile 用 `ARGENT_PROFILE` 或 `profile` / `activeProfile` 键选择，并在�
 
 ## Feature parity
 
-基准：`argent` v0.4.0（已冻结）。清单由源码生成，不是凭记忆：
+基准：`argent` v0.4.0（已冻结）。清单由源码生成，不是凭记忆（最近核对：R43）：
 
 - flag：`crates/cli/src/args.rs` 的 57 个字段
 - 子命令：`crates/cli/src/commands.rs` 的 27 个分支
@@ -738,7 +738,7 @@ done（已落地并生效）：
 config_overrides rpc serve serve_port serve_token acp help version provider profile
 list_profiles list_sessions list_models sandbox max_tokens max_cost max_seconds
 price_input price_output fallback_model tokens trust_project thinking
-no_auto_compact plugins add_dir resume continue_session`
+no_auto_compact plugins add_dir resume continue_session secondary_model`
 
 parse-then-error（解析成功但明确报错退出，exit 1，不静默忽略）：
 
@@ -754,11 +754,10 @@ workflow_resume workflow_journal gui`
 
 in progress（能解析，行为仍待接线）：
 
-`theme no_color output_schema secondary_model`
+`theme no_color output_schema`
 
 - `theme` / `no_color`：TUI 主题切换仍在进行中
 - `output_schema`：schema 已加载进 system prompt，失败重试/校验仍在补齐
-- `secondary_model`：字段已携带，子代理模型选择未接线
 
 （`add_dir`：扩展可写根目录已由 `security.WriteRootsFrom` 落地，见 `internal/app/app_resolve.go:176-208`，有测试；
 `resume`（含 `--continue` / `--continue-session` 别名）：会话恢复由 `internal/app/sessions.go:13-36` 实现，有测试。两者已移入 done。）

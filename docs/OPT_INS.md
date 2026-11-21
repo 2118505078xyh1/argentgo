@@ -350,6 +350,13 @@ argentgo "你的任务"
 - **适用场景**：MCP 服务器会返回图片、希望模型能读取图片文件时。
 - **逐字节不变承诺**：开关关闭、未配目录、数据不可解码或落盘失败任一成立时，逐字节返回旧占位符，默认输出与历史逐字节一致。
 
+### `ARGENT_MCP_INJECTION_SCAN` —— MCP 工具输出注入扫描
+
+- **作用**：对 MCP `tools/call` 返回的最终文本做提示注入检测（读点 `internal/mcp/mcp.go` 的 `mcpInjectionScanEnv` / `warnOnPromptInjection`，复用 `security.ScanPromptInjection`）。命中**高风险**注入时在原文前加一行可读警示 `[注意：工具输出含疑似指令注入]`；中/低风险是软信号、不触发警示，避免过度敏感。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：MCP 服务器会返回不可信的外部文本、希望在进入模型上下文前对高风险注入给出可见提示时。注意这是**警示而非防御**：是否遵从注入内容仍由模型自行判断。
+- **逐字节不变承诺**：只警示、不改写、不过滤原文中的任何字节；开关关闭、未命中高风险注入时 `warnOnPromptInjection` 原样返回文本，工具输出与历史逐字节一致。
+
 ### `ARGENT_RULE_DISCOVERY` —— 规则文件发现元数据提示
 
 - **作用**：开启后扫描用户级（home）与项目级（root）的规则文件，把文件名与作用域渲染成一段「只列名、不加载全文」的 system 提示片段（对 legacy 规则追加一次迁移提示）。读点为 `internal/app/app_prompt.go` 的 `ruleDiscoveryEnabled` / `ruleDiscoveryBlock`。
@@ -392,6 +399,48 @@ argentgo "你的任务"
 - **适用场景**：不稳定网络或流式端点偶发中断，希望自动以非流式方式取回完整答复时。
 - **逐字节不变承诺**：关闭时 `EnableStreamRecovery` 为零值，agent 的恢复分支整体短路，请求体、事件流与会话 JSONL 逐字节不变；开启但未命中流错误、无部分文本或 chatter 不支持非流式时同样走原路径。
 
+### `ARGENT_SKILL_INJECTION_SCAN` —— 技能索引注入扫描
+
+- **作用**：渲染技能索引前对 `desc` / `when` 字段做语义注入检测（读点 `internal/skills/skills.go:313` 的 `skillInjectionScanEnv` / `skillInjectionScanEnabled` / `clipSkillIndexField`，复用 `security.ScanPromptInjection`）。命中时把整个字段替换为中性占位 `[已过滤可疑指令]`，作为「该字段已被过滤」的可见标记。与 MCP 注入扫描只警示不同，这里是**过滤**：命中字段的原文不会进入索引或 `use_skill` 抬头。扫描只作用于索引渲染，不修改原始技能。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：技能来源不完全可信（如第三方 SKILL.md）、担心元数据里的注入指令污染模型时。
+- **逐字节不变承诺**：关闭或字段未命中注入时，渲染走同一条脱敏/折叠/裁剪链，输出与 `clipIndexField` 逐字节相同；命中时才以占位替换原文。
+
+### `ARGENT_TOOL_TIMING_HISTOGRAM` —— 工具耗时直方图
+
+- **作用**：开启后按工具名累积每次调用的精确耗时（`internal/agent/loop.go:247` 的 `toolTimingHistogramEnabled`，在 `newRunState` 每次运行读取一次），轮末落一条 `agent_tool_timing_histogram` 结构化日志，含各工具的最慢/P95 摘要与 `tool_top_slow`。与 `ARGENT_TURN_TIMING` 正交，可单独开启。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：排查哪些工具调用最耗时、定位工具侧延迟分布时。
+- **逐字节不变承诺**：关闭时 `state.toolTimingHistogram` 为 nil，dispatch 侧的 `Record` 与轮末摘要日志全是空操作，不读时钟、不分配，事件序列与会话记录逐字节不变。
+
+### `ARGENT_TOOL_CALL_TRACE` —— 工具调用链追踪
+
+- **作用**：开启后为每次工具调用开启/结算一个跨度（`internal/agent/loop.go:254` 的 `toolCallTraceEnabled`，在 `newRunState` 每次运行读取一次），轮末落一条 `agent_tool_call_trace` 结构化日志，含调用顺序、成败与失败时的模型可读错误文本。与直方图正交：直方图给分布/TopSlow，trace 给调用顺序与错误文本。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：排查一次运行内工具调用的先后顺序、哪一步失败及失败原因时。
+- **逐字节不变承诺**：关闭时 `state.toolCallTrace` 为 nil，`Begin` / `End` 与轮末摘要日志全是空操作，不构造错误对象，事件序列与会话记录逐字节不变。
+
+### `ARGENT_CONFIG_RELOAD_DIFF` —— 配置热重载差异摘要
+
+- **作用**：把配置热重载的单行日志从 `reloaded: <generation/model> -> ...` 改为基于键路径差异的中文摘要（读点 `internal/app/app_config_reload.go:101` 的 `configReloadDiffEnabled`）。摘要只消费 `config.DiffConfigMaps` 产出的键路径，绝不接触配置值；看起来像凭据的键追加 `<redacted>` 占位，提示「值变了但被隐藏」。
+- **开启值**：原值精确等于 `1`（**不修剪空白**，与多数其它门控不同）；在调用时读取，便于测试动态调整。
+- **适用场景**：需要审计每次热重载「改了哪些配置项」而不打印明文密钥时。
+- **逐字节不变承诺**：关闭或配置无差异时返回原有的 `reloaded: ... -> ...` 行，日志逐字节不变；敏感键原文从源头不会进入摘要。
+
+### `ARGENT_COMPACTION_EVENT` —— 压缩事件落盘
+
+- **作用**：压缩时在 `KindCompaction` 摘要记录之后额外追加一条 `KindCondensation` 一等事件记录（读点 `internal/session/compact.go:89` 的 `compactionEventEnv` / `compactionEventEnabled`），载荷为 `CondensationEvent.Marshal()` 的原始字节（保留 CJK 原文与稳定字段顺序），含本轮被遗忘的记录 ID、摘要文本与切分点，使遗忘行为可解释、可复现。该 kind 被 `messageEntries` 忽略，不进入模型可见对话。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。每次调用读取环境，便于测试用 `t.Setenv` 精确控制。
+- **适用场景**：需要审计压缩「丢了哪些记录」、复现上下文丢失问题时。
+- **逐字节不变承诺**：关闭时整段跳过，压缩只写入原有的 `KindCompaction` 与保留记录，转录字节与旧版逐字一致。
+
+### `ARGENT_TOOL_PRUNE` —— 工具结果压力裁剪
+
+- **作用**：在预算投影之前对超长工具结果做压力裁剪（读点 `internal/session/session_message.go:24` 的 `toolPruneEnv` / `toolPruneEnabled`）：保留头部与尾部上下文，中间替换为 `… [middle pruned, N runes] …`（N 为被裁掉的 rune 数）。仅处理 `Role == "tool"` 的结果，按 rune 切片不切坏多字节字符，且对已裁剪结果幂等。固定顺序 prune → project → ReconcileToolPairs；预算复用 `ARGENT_BUDGET_PROJECTION_BUDGET` 或默认 32000。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：工具会产生超长输出、希望在进入预算投影前先缩短结果时。
+- **逐字节不变承诺**：关闭时不执行 `PruneToolResults`，直接走原有的投影/配对路径，消息流逐字节不变。
+
 ---
 
 ## 四、其它独立门控速查
@@ -427,8 +476,15 @@ argentgo "你的任务"
 | `ARGENT_MCP_SPILL_DIR` | MCP 输出溢出目录；配置后 CallTool 的超大输出落盘。 |
 | `ARGENT_MCP_SPILL_THRESHOLD` | MCP 输出溢出字节阈值（正整数），覆盖默认值。 |
 | `ARGENT_MCP_PROTOCOL_VERSION` | MCP 协议版本回退值；协商失败时作为回退使用。 |
+| `ARGENT_MCP_INJECTION_SCAN` | MCP 工具输出注入扫描：命中高风险注入时在原文前加一行可读警示，只警示不改写、不过滤原文；仅 `=1` 开启。 |
 | `ARGENT_EVAL_LIVE` | 评测 live 门禁；仅 `=1` 允许评测走真实 provider，默认断网脚本化。 |
 | `ARGENT_STREAM_RECOVERY` | 流中断后非流式回补：app 层接通 `agent.Options.EnableStreamRecovery`；仅 `=1` 开启。 |
+| `ARGENT_SKILL_INJECTION_SCAN` | 技能索引注入扫描：命中高风险注入时把 desc/when 整字段替换为中性占位；仅 `=1` 开启。 |
+| `ARGENT_TOOL_TIMING_HISTOGRAM` | 工具耗时直方图：按工具名累积耗时并落 TopSlow/P95 摘要日志；仅 `=1` 开启。 |
+| `ARGENT_TOOL_CALL_TRACE` | 工具调用链追踪：记录调用顺序/成败/错误文本并落摘要日志；仅 `=1` 开启。 |
+| `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；原值精确 `=1`（不修剪空白）。 |
+| `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
+| `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
 

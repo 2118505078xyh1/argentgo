@@ -290,7 +290,9 @@ func Run(ctx context.Context, opts Options) error {
 				return
 			}
 			if err := fn(runCtx, arg); err != nil {
-				model.SetStatus(errorText(opts.Locale, err))
+				// 动作失败是真正的错误：用 SeverityError 发布，使状态行
+				// 以红色 failure 样式显示，并在存活期间压过信息类通知。
+				model.SetStatusSeverity(SeverityError, errorText(opts.Locale, err))
 				return
 			}
 			model.SetStatus(text(opts.Locale, done))
