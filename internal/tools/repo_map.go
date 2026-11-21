@@ -241,16 +241,18 @@ func repoMapTopDirs(base string) ([]string, error) {
 	return dirs, nil
 }
 
-// countLines 把尾随换行视为终止最后一行，与
-// 编辑器和 `wc -l` 报告行数的方式一致。
+// countLines 统计文件的行数，把尾随换行视为终止最后一行，与
+// 编辑器和 `wc -l` 报告行数的方式一致。实际计数委托给流式实现，
+// 避免为了数换行符而把整个文件读进内存。打开或读取失败时返回 0。
 func countLines(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
+	f, err := os.Open(path)
+	if err != nil {
 		return 0
 	}
-	lines := strings.Count(string(data), "\n")
-	if data[len(data)-1] != '\n' {
-		lines++
+	defer f.Close()
+	lines, err := countLinesStreaming(f)
+	if err != nil {
+		return 0
 	}
 	return lines
 }

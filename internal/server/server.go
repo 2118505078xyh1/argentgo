@@ -78,6 +78,12 @@ type Config struct {
 	// 超过 60 秒的值被钳制到上限（见 heartbeatInterval）。默认零值保持
 	// 原有固定 15 秒行为不变。
 	HeartbeatInterval time.Duration
+	// AllowedOrigins 是 --serve 允许跨域访问的来源列表（浏览器 CORS）。
+	// 列表含 "*" 表示放行任意来源；否则按大小写不敏感的精确匹配（见
+	// corsAllowed）。为空时不放行任何跨源来源，OPTIONS 预检会被 403 拒绝，
+	// 保持未配置时浏览器端与既有测试的原有行为。该字段由 --serve 的命令行
+	// 选项接线。
+	AllowedOrigins []string
 }
 
 // isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
@@ -195,7 +201,9 @@ func (h *handler) routes() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
-	return mux
+	// 最外层包裹 CORS：预检请求在此直接结束，真实请求经此补齐响应头后
+	// 再交给具体端点。未配置 AllowedOrigins 时不放行任何来源，原有行为不变。
+	return h.corsMiddleware(mux)
 }
 
 type handler struct {

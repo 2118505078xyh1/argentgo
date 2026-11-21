@@ -114,6 +114,20 @@ func detectThreatDepth(command string, depth int) ThreatMatch {
 		best = m
 	}
 
+	// 编码注入：长 base64 串、\x 十六进制转义与 Unicode 转义可以在没有任何
+	// 解码管道的情况下隐藏危险命令。这里检查原始命令，避免 ToLower 破坏 base64
+	// 的大小写；递归会从 trap 与 shell -c 载荷中再次调用到这里。
+	if evidence := findEncodedPayload(command); evidence != "" {
+		m := ThreatMatch{
+			Category:   ThreatEncodedExec,
+			Confidence: ConfidenceHigh,
+			Evidence:   evidence,
+		}
+		if m.Confidence > best.Confidence {
+			best = m
+		}
+	}
+
 	if depth < maxShellLiteralDepth {
 		// trap 载荷已被清洗器置为空白；从原始命令中检查它们。trap 关键字本身是包装器，
 		// 因此在 trap 中发现的中等置信度核心威胁会被提升为 HIGH。

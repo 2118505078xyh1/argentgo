@@ -61,8 +61,12 @@ func toolErrorReflectionEnabled() bool {
 }
 
 // AugmentToolErrorReflection 是供接线点使用的一次性门控：
-// 仅当 opt-in 已开启且 output 确实是一次错误时，才把它包装成可操作的反射反馈；
-// 关闭（默认）、非错误或包装结果为空时，逐字节原样返回 output。
+// 仅当 opt-in 已开启、output 确实是一次错误，且该错误被 reflectionWorthy
+// 判定为可修复时，才把它包装成可操作的反射反馈；关闭（默认）、非错误、
+// 不可修复错误或包装结果为空时，逐字节原样返回 output。
+//
+// 不可修复错误（认证失败、网络不可达、配置错误）因此不会进入有界反思回路，
+// 也就不会占用本就稀缺的反思预算——这正是"反思预算区分可修复/不可修复错误"的落点。
 //
 // 建议接线位置：internal/agent/dispatch.go 中 runTool 的错误分支
 // （"error: " + err.Error() 与 isRecoverablePlanBlock 处理附近），在把结果写回对话之前调用。
@@ -71,6 +75,9 @@ func toolErrorReflectionEnabled() bool {
 // 仍由调用方按现有反射回路的预算决定，本包不擅自改变循环行为。
 func AugmentToolErrorReflection(label, output string, isError bool) string {
 	if !isError || !toolErrorReflectionEnabled() {
+		return output
+	}
+	if !reflectionWorthy(output) {
 		return output
 	}
 	if reflected := toolErrorReflection(label, output); reflected != "" {
