@@ -14,7 +14,7 @@
 - 九轮 3 学习 + 17 优化并行迭代，累计约 300 个 opt-in 原语/接线，全部配表驱动测试与守卫。
 
 **自研 shell（无 Git Bash 时兜底）**
-- 新增顶层 `toolkits/shell/`：纯标准库 shell 解释器（词法/语法/展开/执行/内建 + coreutils），依赖 internal/proc 与 internal/security 路径边界；fail-closed（不支持的语法明确拒绝）。`tools_builtin_bash.go` 以 `ARGENT_BUILTIN_SHELL=1` opt-in 接线，默认走系统 shell 逐字节不变。
+- 新增顶层 `internal/shell/`：纯标准库 shell 解释器（词法/语法/展开/执行/内建 + coreutils），依赖 internal/proc 与 internal/security 路径边界；fail-closed（不支持的语法明确拒绝）。`tools_builtin_bash.go` 以 `ARGENT_BUILTIN_SHELL=1` opt-in 接线，默认走系统 shell 逐字节不变。
 
 全量验证全绿：`gofmt -l .` 空、`go vet ./...`、`go test -p 4 ./... -count=1`、`go test -race ./...`、`GOOS=linux go build ./...`。
 

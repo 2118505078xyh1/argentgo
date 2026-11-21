@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
@@ -794,5 +796,140 @@ func TestLoopTrimLeavesHeadroom(t *testing.T) {
 	if smallest > ceiling {
 		t.Fatalf("smallest trimmed request = %d tokens, want <= %d (%.0f%% of %d)",
 			smallest, ceiling, defaultTrimTargetRatio*100, maxContext)
+	}
+}
+
+// oldPruneToolResultMiddle 内联 pruneToolResultMiddle 在字素吸附之前的公式，
+// 仅用于差分测试：当切点落在字素簇边界时，新实现必须与它逐字节相等。
+func oldPruneToolResultMiddle(content string) string {
+	runes := []rune(content)
+	if len(runes) <= toolResultPruneThreshold {
+		return content
+	}
+	if toolResultPruneHead+toolResultPruneTail >= len(runes) {
+		return content
+	}
+	var b strings.Builder
+	b.Grow(len(content) + len(toolResultPruneMarker))
+	b.WriteString(string(runes[:toolResultPruneHead]))
+	b.WriteString(toolResultPruneMarker)
+	b.WriteString(string(runes[len(runes)-toolResultPruneTail:]))
+	return b.String()
+}
+
+// randMixedRunes 生成恰好 n 个 rune 的随机混合文本，素材覆盖 ASCII/CJK/
+// emoji/组合符/ZWJ/旗帜/畸形字节。畸形字节按 utf8 解码口径每个算一个 rune。
+func randMixedRunes(rng *rand.Rand, n int) string {
+	atoms := []string{
+		"a", "Z", "9",
+		"中", "界",
+		"😀", "🚀",
+		"e\u0301", "a\u0301",
+		"👨‍👩‍👧",
+		"🇨🇳", "🇺🇸",
+		"\xFF", "\xC3",
+	}
+	var b strings.Builder
+	for remaining := n; remaining > 0; {
+		atom := atoms[rng.Intn(len(atoms))]
+		r := utf8.RuneCountInString(atom)
+		if r > remaining {
+			atom = "a"
+			r = 1
+		}
+		b.WriteString(atom)
+		remaining -= r
+	}
+	return b.String()
+}
+
+// TestPruneByteIdenticalAtClusterBoundary 锁定"默认逐字节不变"：固定种子随机
+// 文本在 head/tail 切点都落在字素簇边界（由两侧的安全单 rune 字素保证）时，
+// pruneToolResultMiddle 必须与旧的 rune 公式逐字节相等。
+func TestPruneByteIdenticalAtClusterBoundary(t *testing.T) {
+	const iterations = 200
+	rng := rand.New(rand.NewSource(20261121))
+	for i := 0; i < iterations; i++ {
+		mid := 50 + rng.Intn(200)
+		// head 末尾与 middle 开头、middle 末尾与 tail 开头都是 'a'，
+		// 两侧不粘合，因此 rune 4096 与 len-1024 都是字素簇边界。
+		content := randMixedRunes(rng, toolResultPruneHead-1) + "a" + "a" +
+			randMixedRunes(rng, mid) + "a" + "a" +
+			randMixedRunes(rng, toolResultPruneTail-1)
+
+		runes := []rune(content)
+		encoded := string(runes)
+		headByte := runeByteOffset(encoded, toolResultPruneHead)
+		tailByte := runeByteOffset(encoded, len(runes)-toolResultPruneTail)
+		if textutil.ClusterBoundaryBefore(encoded, headByte) != headByte ||
+			textutil.ClusterBoundaryAfter(encoded, tailByte) != tailByte {
+			t.Fatalf("iteration %d: fixture cut is not at a cluster boundary", i)
+		}
+
+		got := pruneToolResultMiddle(content)
+		want := oldPruneToolResultMiddle(content)
+		if got != want {
+			t.Fatalf("iteration %d: default path changed bytes at a cluster boundary:\n got: %q\nwant: %q", i, got, want)
+		}
+	}
+}
+
+// contentWithClusterAtCuts 把一个多 rune 字素簇精确摆在 head 切点（rune 4096）
+// 和 tail 切点（rune len-1024）上，使两个切点都落在簇中间。
+func contentWithClusterAtCuts(cluster string) string {
+	kc := utf8.RuneCountInString(cluster)
+	// 中间段足够长，使总 rune 数超过 toolResultPruneThreshold，确保真正裁剪。
+	const mid = toolResultPruneThreshold
+	return strings.Repeat("a", toolResultPruneHead-1) + cluster +
+		strings.Repeat("m", mid) + cluster +
+		strings.Repeat("z", toolResultPruneTail+1-kc)
+}
+
+// TestPruneSnapsGraphemeBoundaries 验证多 rune 字素簇横跨切点时，head 回退、
+// tail 前进，使两端都不残留悬空字素；无粘合理由时单 rune 字素不受影响。
+func TestPruneSnapsGraphemeBoundaries(t *testing.T) {
+	cases := []struct {
+		name    string
+		cluster string
+	}{
+		{"ZWJ emoji", "👨‍👩‍👧"},
+		{"regional indicator flag", "🇨🇳"},
+		{"combining mark", "e\u0301"},
+		{"hangul jamo", "각"},
+		{"CRLF", "\r\n"},
+		{"emoji skin tone", "👍🏽"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := contentWithClusterAtCuts(tc.cluster)
+			kc := utf8.RuneCountInString(tc.cluster)
+			pruned := pruneToolResultMiddle(content)
+
+			if !utf8.ValidString(pruned) {
+				t.Fatalf("pruned result is not valid UTF-8: %q", pruned)
+			}
+			if strings.ContainsRune(pruned, utf8.RuneError) {
+				t.Fatalf("pruned result contains a replacement rune: %q", pruned)
+			}
+			if n := strings.Count(pruned, toolResultPruneMarker); n != 1 {
+				t.Fatalf("marker appears %d times, want 1: %q", n, pruned)
+			}
+
+			idx := strings.Index(pruned, toolResultPruneMarker)
+			head, tail := pruned[:idx], pruned[idx+len(toolResultPruneMarker):]
+			wantHead := strings.Repeat("a", toolResultPruneHead-1)
+			wantTail := strings.Repeat("z", toolResultPruneTail+1-kc)
+			if head != wantHead {
+				t.Fatalf("head = %q, want %d safe runes (no dangling grapheme)", head, toolResultPruneHead-1)
+			}
+			if tail != wantTail {
+				t.Fatalf("tail = %q, want %d safe runes (no dangling grapheme)", tail, toolResultPruneTail+1-kc)
+			}
+
+			// 旧公式会把簇切成两半；新实现必须与之不同，证明吸附确实生效。
+			if pruned == oldPruneToolResultMiddle(content) {
+				t.Fatal("grapheme snapping did not change the mid-cluster cut")
+			}
+		})
 	}
 }

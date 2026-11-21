@@ -25,7 +25,7 @@ const (
 	// 没有稳定的 id，记录就无法把每个结果与对应的调用配对，因此其中任何调用都不能安全执行。
 	duplicateIDReason = "duplicate or empty tool call ID"
 
-	// toolProgressKey 是受门控的进度发出器在 context 中的键。该字面量与 internal/tools 中的
+	// toolProgressKey 是受门控的进度发出器在 context 中的键。该字面量与 internal/shell 中的
 	// toolProgressKey 保持一致：按分层规则，tools 不能导入 agent，因此两个包无法共享类型化键。
 	// 双方约定使用普通的 func(string) 值。
 	toolProgressKey = "argent.tool.progress"

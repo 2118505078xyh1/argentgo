@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // 本文件为 tools_clip.go 中无状态的 UTF-8 截断辅助函数
@@ -121,22 +123,22 @@ func splitBudgetClip(text string, limit int, ends []int) (head, tail string, tru
 }
 
 // refClusterEnd 返回从 at 开始的字素簇末端。它从开头逐簇扫描，
-// 使用与生产代码相同的 glues 规则，但实现路径独立于
-// clusterBoundaryBefore/After，用于差分验证。
+// 使用与生产代码相同的 Glues 规则，但实现路径独立于
+// ClusterBoundaryBefore/After，用于差分验证。
 func refClusterEnd(text string, at int) int {
-	prevR, size := decodeRuneAt(text, at)
+	prevR, size := textutil.DecodeRuneAt(text, at)
 	if size <= 0 {
 		return at
 	}
-	prev := clusterRune(prevR, size)
+	prev := textutil.ClusterRune(prevR, size)
 	j := at + size
 	for j < len(text) {
-		currR, currSize := decodeRuneAt(text, j)
+		currR, currSize := textutil.DecodeRuneAt(text, j)
 		if currSize <= 0 {
 			break
 		}
-		curr := clusterRune(currR, currSize)
-		if !glues(prev, curr) {
+		curr := textutil.ClusterRune(currR, currSize)
+		if !textutil.Glues(prev, curr) {
 			break
 		}
 		j += currSize

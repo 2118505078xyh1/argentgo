@@ -272,6 +272,10 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 		MaxTimeout: r.maxTimeout,
 		SessionDir: r.sessionDir,
 		Jobs:       r.jobs,
+		// 把 tools 包的 opt-in 溢出能力以回调形式注入，供已迁移到
+		// internal/shell 的命令类工具使用；闭包捕获同一 ctx，
+		// 因此溢出配置（含 WithOutputSpill 与 env 开关）对它们同样生效。
+		Spill: func(text string) (string, bool) { return spillToolOutput(ctx, text) },
 	})
 	return runTool(tool, ctx, r.root, name, raw)
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // 本文件提供命令类工具执行所需的运行时 helper。它们原先在 internal/tools
@@ -70,9 +71,15 @@ func clampTimeout(tool string, raw, globalMax time.Duration) time.Duration {
 	return raw
 }
 
-// clip 裁剪文本到输出上限。原实现含 opt-in 的 spill 落盘；spill 默认关闭，
-// 且迁移后由 shell 自行管理输出治理，因此这里直接走 clipTo（默认字节一致）。
+// clip 裁剪文本到输出上限。若注册表通过 ExecContext 注入了溢出回调，
+// 且回调报告已处理（opt-in 落盘成功或复用既有产物），则结果原样返回；
+// 默认（回调未注入或未处理）仍走 clipTo，字节与迁移前一致。
 func clip(ctx context.Context, text string) string {
+	if spill := execCtx(ctx).Spill; spill != nil {
+		if out, handled := spill(text); handled {
+			return out
+		}
+	}
 	return clipTo(text, outputLimit(ctx))
 }
 
@@ -86,22 +93,11 @@ func clipTo(text string, limit int) string {
 	}
 	head := limit * 2 / 3
 	tail := limit - head
-	head = clusterBoundaryBefore(text, head)
+	head = textutil.ClusterBoundaryBefore(text, head)
 	tailStart := len(text) - tail
 	for tailStart < len(text) && !utf8.RuneStart(text[tailStart]) {
 		tailStart++
 	}
-	tailStart = clusterBoundaryAfter(text, tailStart)
+	tailStart = textutil.ClusterBoundaryAfter(text, tailStart)
 	return text[:head] + "\n... [truncated] ...\n" + text[tailStart:]
-}
-
-// trimPartialRune 把字节偏移从 UTF-8 序列的中间回退到起始边界。
-func trimPartialRune(text string, offset int) int {
-	if offset <= 0 {
-		return 0
-	}
-	for offset > 0 && offset < len(text) && !utf8.RuneStart(text[offset]) {
-		offset--
-	}
-	return offset
 }

@@ -3,8 +3,10 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
@@ -239,8 +241,10 @@ func protectedIndexes(messages []llm.Message, keepTurns int) []bool {
 // 替换被移除的中间部分。
 //
 // 切片按 rune 而非字节进行，因此跨越预算边界的多字节 UTF-8 字符（CJK、emoji）
-// 会保持完整，而不会被切断。大小在 toolResultPruneThreshold 以下的结果原样返回，
-// 这使该函数可以无条件安全地调用。
+// 会保持完整，而不会被切断。在此基础上，head/tail 的字节切点还会吸附到字素簇
+// 边界：head 只回退、tail 只前进，仅当切点落在 ZWJ/combining/旗帜/jamo 等
+// 多 rune 字素簇中间时才调整，单 rune 字素的默认路径逐字节不变。
+// 大小在 toolResultPruneThreshold 以下的结果原样返回，这使该函数可以无条件安全地调用。
 func pruneToolResultMiddle(content string) string {
 	runes := []rune(content)
 	if len(runes) <= toolResultPruneThreshold {
@@ -251,12 +255,41 @@ func pruneToolResultMiddle(content string) string {
 	if toolResultPruneHead+toolResultPruneTail >= len(runes) {
 		return content
 	}
+
+	// 在 []rune 重编码后的字符串上计算字节切点：该字符串是合法 UTF-8，
+	// 字节↔rune 换算精确，且畸形字节已被归一为 U+FFFD，不会让字素边界
+	// 函数里的 RuneStart 检查落在畸形序列中间。
+	encoded := string(runes)
+	headByte := runeByteOffset(encoded, toolResultPruneHead)
+	tailByte := runeByteOffset(encoded, len(runes)-toolResultPruneTail)
+	// 字素边界吸附：head 只回退、tail 只前进。切点已在簇边界时原样返回。
+	headByte = textutil.ClusterBoundaryBefore(encoded, headByte)
+	tailByte = textutil.ClusterBoundaryAfter(encoded, tailByte)
+	headRune := utf8.RuneCountInString(encoded[:headByte])
+	tailRune := utf8.RuneCountInString(encoded[:tailByte])
+	// 防御：head 回退、tail 前进只会扩大间距，这里仍保留保护以免未来预算
+	// 改动让 head 越过 tail 而产生重叠切片。
+	if headRune > tailRune {
+		headRune = tailRune
+	}
+
 	var b strings.Builder
 	b.Grow(len(content) + len(toolResultPruneMarker))
-	b.WriteString(string(runes[:toolResultPruneHead]))
+	b.WriteString(string(runes[:headRune]))
 	b.WriteString(toolResultPruneMarker)
-	b.WriteString(string(runes[len(runes)-toolResultPruneTail:]))
+	b.WriteString(string(runes[tailRune:]))
 	return b.String()
+}
+
+// runeByteOffset 返回 encoded 中前 n 个 rune 所占的字节数。encoded 是由 []rune
+// 重编码而来的合法 UTF-8，因此每个 rune 的字节数可由解码精确累加得到。
+func runeByteOffset(encoded string, n int) int {
+	offset := 0
+	for k := 0; k < n && offset < len(encoded); k++ {
+		_, size := utf8.DecodeRuneInString(encoded[offset:])
+		offset += size
+	}
+	return offset
 }
 
 // toolStub 为被裁剪的工具结果构建替换文本。trimmedPrefix 头部保持在最前面，
