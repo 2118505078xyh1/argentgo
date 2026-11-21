@@ -343,6 +343,13 @@ argentgo "你的任务"
 - **适用场景**：习惯 vim 键位的交互用户。
 - **逐字节不变承诺**：关闭时保持经典输入，帧字节逐字节不变。
 
+### `ARGENT_TUI_PROMPT_HISTORY` —— TUI 输入历史持久化
+
+- **作用**：把 TUI 提交的输入追加到存储目录下的 `prompts.jsonl`（JSONL，单行一条，含次数与时间戳），重启后第一次 `Up` 就能召回上次会话的输入。原语为 `internal/tui/prompt_store.go` 的 `PromptStore`；本开关只负责把它接进 TUI 的输入环：提交时 `Record` 顺带写盘，启动时 `Load` 容错读取自愈后再 `SeedHistory` 灌入内存（只恢复内存、绝不回写）。
+- **开启值**：首尾空白修剪后等于 `1`（由集成方 `internal/app/tui.go` 通过 `stdio.Env` 注入判定）。
+- **适用场景**：希望「输入历史不再随重启即丢」、经常用 `Up` 复用上一条命令的交互用户。历史写入存储目录而非工作区，不污染仓库；单条上限 4096 rune（兼容 CJK/emoji），磁盘硬上限 1000 行。
+- **逐字节不变承诺**：门控关闭（env 为 nil、未设置或非 `1`）时 `frontendOpts.PromptHistory` 保持 nil，编辑器不打开、不读取、不创建任何文件，首帧、历史导航与 `Up` 行为均与接线之前逐字节一致。开启后写盘失败被刻意吞掉，不向屏幕发布通知，也不泄漏提示内容。
+
 ### `ARGENT_MCP_IMAGE_ARTIFACT` —— MCP image 内容块落盘
 
 - **作用**：把 MCP `tools/call` 返回的 image 内容块 base64 解码后写入产物目录，并把占位符从 `[image: <mime>]` 增强为 `[image: <mime> → <path>]`，让模型知道可用 `read` 工具读取。落盘复用白名单扩展名、大小上限与防逃逸校验，任何失败都回落旧占位符。
@@ -441,6 +448,14 @@ argentgo "你的任务"
 - **适用场景**：工具会产生超长输出、希望在进入预算投影前先缩短结果时。
 - **逐字节不变承诺**：关闭时不执行 `PruneToolResults`，直接走原有的投影/配对路径，消息流逐字节不变。
 
+### `ARGENT_IMAGE_INPUT` —— 图像输入
+
+- **作用**：从用户原文（不是注入的 review/context 前缀）扫描 `@图片路径` 引用，读取工作区内合法的图片文件并构造 `llm.ImageInput` 列表（原语 `internal/llm/image_input_wire.go` 的 `ImageInputsFromPrompt(prompt, root, maxBytes)`），经 `agent.Options.InitialImages` 注入首条用户消息。首条消息由 `llm.BuildImageMessage` 构造为带图像 part 的 content 数组；无图时保持裸文本。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **配套约束**：只接受相对路径且不得逃出工作区根目录，扩展名限 png/jpg/jpeg/gif/webp，单文件上限 20 MiB（`imageInputMaxBytes`）；坏路径、越界、缺图、超限均被静默跳过，不使运行失败。CJK 路径按 UTF-8 原样处理。
+- **适用场景**：需要把本地截图/设计稿直接交给模型辨识时（当前仅 OpenAI chat completions 协议能真正承载图像 part；Anthropic Messages / OpenAI Responses 会退化为 `[image]` 占位）。
+- **逐字节不变承诺**：门控关闭时零调用 `ImageInputsFromPrompt`，`InitialImages` 为零值 nil，首条用户消息走原纯文本路径，请求体、事件流与会话 JSONL 逐字节不变。
+
 ---
 
 ## 四、其它独立门控速查
@@ -485,6 +500,7 @@ argentgo "你的任务"
 | `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；原值精确 `=1`（不修剪空白）。 |
 | `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
 | `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
+| `ARGENT_IMAGE_INPUT` | 图像输入：从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；仅 `=1` 开启，关闭时逐字节不变。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
 

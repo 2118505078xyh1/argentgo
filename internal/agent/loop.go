@@ -442,9 +442,15 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	if len(opts.SystemNodes) > 0 {
 		system = llm.StableSystemPrompt(system, opts.SystemNodes)
 	}
+	// 首条用户消息：仅在 opts.InitialImages 非空时构造带图 part 的消息；
+	// 为 nil 时保持裸 {Role:"user", Content:prompt}，与接线之前逐字节相同。
+	firstUser := llm.Message{Role: "user", Content: prompt}
+	if len(opts.InitialImages) > 0 {
+		firstUser = llm.BuildImageMessage(prompt, opts.InitialImages)
+	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
-		{Role: "user", Content: prompt},
+		firstUser,
 	}
 	s.record("user", prompt)
 	// 只有 ARGENT_TURN_TIMING=1 时才建实例；默认关闭时保持 nil，

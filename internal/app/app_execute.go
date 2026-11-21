@@ -230,6 +230,18 @@ func streamRecoveryEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_STREAM_RECOVERY")) == "1"
 }
 
+// imageInputMaxBytes 是 @图片路径 单张文件读入的上限（20 MiB）。
+// 超限文件被 llm.ImageInputsFromPrompt 静默跳过，避免把超大文件塞进提示。
+const imageInputMaxBytes = int64(20 << 20)
+
+// imageInputEnabled 报告是否启用图像输入：从用户原文中扫描 @图片路径 并作为
+// 图像 part 注入首条用户消息。仅 ARGENT_IMAGE_INPUT=1（允许首尾空白）开启；
+// 默认关闭时不调用 llm.ImageInputsFromPrompt，agent.Options.InitialImages 保持
+// 零值 nil，首条用户消息与接线之前逐字节相同。
+func imageInputEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_IMAGE_INPUT")) == "1"
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -455,6 +467,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 	applyDeclaredTurnBudget(rawPrompt, &budget)
 
+	// 图像输入（opt-in ARGENT_IMAGE_INPUT）：仅开启时从用户原文（绝不是注入的
+	// 前缀）扫描 @图片路径并读取图片。关闭时零调用，initialImages 保持 nil，
+	// 首条用户消息走原纯文本路径，逐字节不变。
+	var initialImages []llm.ImageInput
+	if imageInputEnabled(stdio.Env) {
+		initialImages = llm.ImageInputsFromPrompt(rawPrompt, res.Root, imageInputMaxBytes)
+	}
+
 	loop := &agent.Runner{Opts: agent.Options{
 		BeforeRequest: flush,
 		BeforeTool:    flush,
@@ -465,6 +485,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		System:        trustedSystem,
 		Chatter:       res.Chatter,
 		Tools:         runner,
+		// 图像输入（opt-in ARGENT_IMAGE_INPUT）：nil 时首条用户消息逐字节不变。
+		InitialImages: initialImages,
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {

@@ -3,7 +3,12 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // 本文件提供"图像输入"的最小原语：把上层易于构造的 ImageInput 转成
@@ -147,4 +152,112 @@ func splitImageDataURL(url string) (mediaType, payload string, ok bool) {
 		return "", "", false
 	}
 	return normalizeImageMIME(mediaType), payload, true
+}
+
+// ImageInputsFromPrompt 从 prompt 中扫描 @<路径> 引用，读取对应图片文件并构造
+// ImageInput 列表。它只是一个纯原语：只读 prompt/root、不改动入参、不缓存状态，
+// 也不接入 agent/app 的接线（由上层按需调用）。
+//
+// 解析规则：
+//   - 每个 '@' 后若紧跟连续非空白字符，视为一个候选路径；被引号（"、'、`）
+//     包围时允许路径含空格；
+//   - 扩展名必须是 png/jpg/jpeg/gif/webp 之一（大小写不敏感）；
+//   - 路径必须是相对路径，且经 filepath.Clean/Join 解析后不得逃出 root；
+//   - 文件大小不得超过 maxBytes（负数等价于跳过所有文件）。
+//
+// 任一候选失败（坏扩展名、绝对路径、逃逸、文件缺失、读取失败、超限）都静默
+// 跳过该路径，不返回错误。返回顺序与候选在 prompt 中出现的顺序一致；同一路径
+// 出现多次则按次数分别返回。CJK 路径按 UTF-8 原样处理；相同入参与文件状态
+// 得到完全相同的结果。
+func ImageInputsFromPrompt(prompt, root string, maxBytes int64) []ImageInput {
+	var out []ImageInput
+	base, err := filepath.Abs(root)
+	if err != nil {
+		return out
+	}
+	for _, raw := range imagePathRefs(prompt) {
+		if !isAllowedImageExt(filepath.Ext(raw)) {
+			continue
+		}
+		// 绝对路径（含 Windows 盘符相对路径）一律拒绝。
+		if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" {
+			continue
+		}
+		// Clean + Join 解析后，必须仍落在 root 之内。
+		resolved := filepath.Join(base, filepath.Clean(raw))
+		rel, err := filepath.Rel(base, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		// 先 stat 以便廉价地跳过超限文件；读取后再按实际字节数复核。
+		info, err := os.Stat(resolved)
+		if err != nil || info.IsDir() || info.Size() > maxBytes {
+			continue
+		}
+		data, err := os.ReadFile(resolved)
+		if err != nil || int64(len(data)) > maxBytes {
+			continue
+		}
+		out = append(out, ImageInput{
+			MimeType: http.DetectContentType(data),
+			Data:     data,
+		})
+	}
+	return out
+}
+
+// isAllowedImageExt 判断扩展名（含前导点）是否属于允许的图片类型。
+// 这里先小写化再比较，因此 .PNG/.JpG 等大小写形式均被接受。
+func isAllowedImageExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+// imagePathRefs 按出现顺序提取 prompt 中每个 '@' 后面的路径串。
+// 裸路径是 '@' 后的连续非空白字符；被引号包围时允许路径含空格。扫描时会跳过
+// 已消费的 token，避免把 token 内部的 '@' 误当作新的引用起点。
+func imagePathRefs(prompt string) []string {
+	var refs []string
+	for i := 0; i < len(prompt); {
+		r, size := utf8.DecodeRuneInString(prompt[i:])
+		if r != '@' {
+			i += size
+			continue
+		}
+		token, consumed := imagePathToken(prompt[i+1:])
+		if token != "" {
+			refs = append(refs, token)
+		}
+		i += 1 + consumed
+	}
+	return refs
+}
+
+// imagePathToken 解析 '@' 之后的路径：若首字符是引号且存在闭合引号，返回引号
+// 之间的内容（可含空格）；否则返回连续的非空白字符。consumed 是本次消费的
+// 字节数（含成对引号），0 表示没有可用 token。
+func imagePathToken(rest string) (token string, consumed int) {
+	if rest == "" {
+		return "", 0
+	}
+	first, firstSize := utf8.DecodeRuneInString(rest)
+	if first == '"' || first == '\'' || first == '`' {
+		if end := strings.IndexByte(rest[firstSize:], byte(first)); end >= 0 {
+			return rest[firstSize : firstSize+end], firstSize + end + 1
+		}
+		return "", 0
+	}
+	n := 0
+	for n < len(rest) {
+		r, size := utf8.DecodeRuneInString(rest[n:])
+		if unicode.IsSpace(r) {
+			break
+		}
+		n += size
+	}
+	return rest[:n], n
 }

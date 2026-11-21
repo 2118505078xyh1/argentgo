@@ -22,6 +22,23 @@ const (
 	markerReserve = 64
 )
 
+// SetPromptStore 给输入编辑器装上可选的持久化提示历史。
+// 传 nil（默认）时编辑器不接触文件系统，行为与接线之前逐字节一致。
+// 非 nil 时容错加载磁盘内容，并把最近 200 条按旧→新灌入内存环，
+// 使重启后的第一次 Up 就能召回旧输入。加载/恢复的失败被吞掉：
+// 历史只是便利功能，绝不能因为一个坏文件阻止 TUI 启动。
+// 从任何 goroutine 调用都安全（由 Model.mu 保护）。
+func (m *Model) SetPromptStore(s *PromptStore) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.editor.store = s
+	if s == nil {
+		return
+	}
+	_ = s.Load()
+	m.editor.SeedHistory(s.Recent(200))
+}
+
 // AppendAttempt 向记录添加未提交的尝试徽章。
 func (m *Model) AppendAttempt(kind AttemptKind, detail string) {
 	m.mu.Lock()
