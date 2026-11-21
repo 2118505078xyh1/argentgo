@@ -88,6 +88,7 @@ var expectedCommands = []string{
 	"commands",
 	"completion",
 	"config",
+	"context",
 	"doctor",
 	"eval",
 	"follow",

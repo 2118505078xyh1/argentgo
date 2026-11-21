@@ -9,23 +9,48 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // checkpointTracker 收集 agent 在每个变更型工具批次之前请求的轮次前清单。
 // 清单的 parent 在钩子时刻捕获（批次之前的叶子节点），而轮次后的哈希在运行之后填充，
 // 使重试分叉和撤销都能看到它们所需的状态。
+// batchDiff 保存一个工具批次的独立前态。turn 在一次 Run 内唯一，因此每个
+// value 自带自己的前字节与哈希，批次之间绝不共享——逆序 undo 不会因哈希
+// 不匹配而 ErrCheckpointConflict。
+type batchDiff struct {
+	before   map[string]string  // SnapshotWorkspace 哈希，交给 DiscoverWorkspaceChanges
+	cp       session.Checkpoint // CaptureCheckpoint 的全字节前态
+	declared map[string]bool    // cp.Paths 声明路径，批次后与 changed 取并集
+}
+
 type checkpointTracker struct {
 	root    string
 	sess    *session.Session
 	pending []session.Checkpoint
+
+	// workspaceDiff 为 opt-in（ARGENT_CHECKPOINT_WORKSPACE_DIFF）。关闭时
+	// capture/finish 走原有逐字节路径，pendingByTurn 不被使用。
+	workspaceDiff bool
+	pendingByTurn map[int]*batchDiff
 }
 
 func newCheckpointTracker(root string, sess *session.Session) *checkpointTracker {
-	return &checkpointTracker{root: root, sess: sess}
+	return &checkpointTracker{root: root, sess: sess, pendingByTurn: make(map[int]*batchDiff)}
 }
 
 func (t *checkpointTracker) capture(cp agent.Checkpoint, prompt string) {
-	if t == nil || len(cp.Paths) == 0 {
+	if t == nil {
+		return
+	}
+	// opt-in 分支：绕过空 Paths 早退，即使 cp.Paths 为空也抓全字节，
+	// 否则 shell 间接改动在批次后才可知，没有前态可供撤销。
+	if t.workspaceDiff {
+		t.captureWorkspaceDiff(cp, prompt)
+		return
+	}
+	// 默认分支：以下逻辑逐字节保持原样（含 len(cp.Paths)==0 早退）。
+	if len(cp.Paths) == 0 {
 		return
 	}
 	captured, err := session.CaptureCheckpoint(t.root, cp.Paths)
@@ -41,6 +66,66 @@ func (t *checkpointTracker) capture(cp agent.Checkpoint, prompt string) {
 	t.pending = append(t.pending, captured)
 }
 
+// captureWorkspaceDiff 在 opt-in 下为整个工作区抓前态（全字节 + 哈希）。
+func (t *checkpointTracker) captureWorkspaceDiff(cp agent.Checkpoint, prompt string) {
+	paths := tools.WorkspaceFilePaths(t.root)
+	if len(paths) >= tools.WorkspaceDiffMaxEnumerateFiles {
+		// 超大工作区：拒绝生成只含前 N 个文件的不完整前态，回退声明路径（fail-closed）。
+		paths = cp.Paths
+	}
+	before, err := tools.SnapshotWorkspace(t.root)
+	if err != nil {
+		return
+	}
+	captured, err := session.CaptureCheckpoint(t.root, paths)
+	if err != nil || len(captured.Files) == 0 {
+		return
+	}
+	declared := make(map[string]bool, len(cp.Paths))
+	for _, p := range cp.Paths {
+		declared[p] = true
+	}
+	// Parent/Prompt 必须在批次前取：批次内 finishCall 已把 tool 记录写入会话，
+	// 批次后再取 ActiveLeafID 会落到工具记录上，分叉点就错了。
+	captured.Prompt = prompt
+	if parent, ok := t.sess.ActiveLeafID(); ok {
+		captured.Parent = parent
+	}
+	t.pendingByTurn[cp.Turn] = &batchDiff{before: before, cp: captured, declared: declared}
+}
+
+// afterBatch 由 agent.Options.AfterBatch 在 runTools 出口调用，把该批次实际
+// 改动（含未声明路径）并入检查点。默认（workspaceDiff=false）时永不产生效果。
+func (t *checkpointTracker) afterBatch(turn int) {
+	if t == nil || !t.workspaceDiff {
+		return
+	}
+	e := t.pendingByTurn[turn]
+	if e == nil {
+		return // 无变更/被整体拒绝的批次：capture 未登记，整批拒绝也走这里
+	}
+	changed := tools.DiscoverWorkspaceChanges(t.root, e.before)
+	keep := make(map[string]bool, len(changed)+len(e.declared))
+	for _, p := range changed {
+		keep[p] = true
+	}
+	for p := range e.declared {
+		keep[p] = true
+	}
+	files := e.cp.Files[:0]
+	for _, f := range e.cp.Files {
+		if keep[f.Path] {
+			files = append(files, f)
+		}
+	}
+	e.cp.Files = files
+	delete(t.pendingByTurn, turn)
+	if len(e.cp.Files) == 0 {
+		return // 批次没有任何改动：不写空检查点
+	}
+	t.pending = append(t.pending, e.cp)
+}
+
 func (t *checkpointTracker) finish(partial bool) {
 	if t == nil {
 		return
@@ -54,6 +139,9 @@ func (t *checkpointTracker) finish(partial bool) {
 		_, _ = t.sess.AppendRecord(session.KindCheckpoint, *cp)
 	}
 	t.pending = nil
+	if t.workspaceDiff {
+		t.pendingByTurn = make(map[int]*batchDiff)
+	}
 }
 
 // recordAttempt 把终结性的运行错误映射为历史/重放层所期望的会话尝试原因。

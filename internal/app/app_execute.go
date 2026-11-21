@@ -191,6 +191,13 @@ func planModeEnabled(env func(string) string, res Resolved) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_PLAN_MODE")) == "1"
 }
 
+// checkpointWorkspaceDiffEnabled 报告是否启用"工作区差异检查点"增强：把 shell
+// 等命令造成的间接文件改动也纳入检查点，使 /undo 可还原。默认关闭（fail-closed），
+// 关闭时检查点与会话字节与启用前逐字节相同。
+func checkpointWorkspaceDiffEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_CHECKPOINT_WORKSPACE_DIFF")) == "1"
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -314,6 +321,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 
 	tracker := newCheckpointTracker(res.Root, sess)
+	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactorWithOpts(res, sess, reg)
 	// 持久性屏障：在每个开销较大的步骤之前刷写 JSONL 会话。
@@ -450,6 +458,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			forwardEvent(event)
 		},
 	}}
+	// workspace-diff opt-in：批次后把 shell 间接改动并入检查点。仅在开启时挂接，
+	// 默认 AfterBatch 保持 nil，runTools 的 defer 不注册，逐字节不变。
+	if tracker.workspaceDiff {
+		loop.Opts.AfterBatch = tracker.afterBatch
+	}
 	// 每次根运行使用一个全新的队列。已完成的后台子级只会投递给拥有该队列的运行
 	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
 	bg := agent.NewBackgroundResults(0, 0)

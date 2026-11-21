@@ -144,6 +144,18 @@ func registerReadinessFlags(fs *flag.FlagSet) readinessFlagValues {
 	return readinessFlagValues{serveReadiness: serveReadiness}
 }
 
+// traceFlagValues 保存 --debug-trace 指针。与 verify/privacy/readiness 一样，
+// 它故意注册在 newFlags 之外：flagSurface 及锁定的 parity flag 列表枚举的只是
+// newFlags，这个诊断开关不属于那份文档化集合（也不进 shell 补全）。
+type traceFlagValues struct {
+	debugTrace *bool
+}
+
+func registerTraceFlags(fs *flag.FlagSet) traceFlagValues {
+	debugTrace := fs.Bool("debug-trace", false, "opt-in: write one JSON trace line per model request to stderr")
+	return traceFlagValues{debugTrace: debugTrace}
+}
+
 // flagSurface 报告 CLI 接受的所有长 flag 名称，按序排列。它构建一个临时的
 // flag 集合，使列表绝不会与解析器走样。
 func flagSurface() []string {

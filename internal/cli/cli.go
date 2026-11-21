@@ -93,6 +93,10 @@ type ProfileLister func(opts Options) (names []string, active string, err error)
 // TokenReporter 渲染 --tokens 打印的请求负载明细。
 type TokenReporter func(opts Options) (string, error)
 
+// ContextReporter 渲染 `argent context` 的上下文占用分解报告。
+// 实现位于 internal/app，负责采集四类 token 估算并调用本包的纯函数原语。
+type ContextReporter func(opts Options) (string, error)
+
 // App 汇集了命令层所注入的各项依赖。
 type App struct {
 	IO        IO
@@ -101,12 +105,13 @@ type App struct {
 	Sessions  SessionStore
 	// Eval 接受 EvalRunner 或 EvalSuiteRunner；runEval 在运行时
 	// 可用时会选择功能更丰富的套件接口。
-	Eval        any
-	TUI         TUIFunc
-	Profiles    ProfileLister
-	TokenReport TokenReporter
-	ConfigPath  string
-	StorageDir  string
+	Eval          any
+	TUI           TUIFunc
+	Profiles      ProfileLister
+	TokenReport   TokenReporter
+	ContextReport ContextReporter
+	ConfigPath    string
+	StorageDir    string
 	// UpdateOps 为测试覆盖更新器的接缝；为 nil 时调用 internal/update。
 	UpdateOps *UpdateOps
 }
@@ -134,6 +139,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"sessions":   runSessions,
 	"replay":     runReplay,
 	"usage":      runUsage,
+	"context":    runContext,
 	"doctor":     runDoctor,
 	"login":      runLogin,
 	"logout":     runLogout,
@@ -167,7 +173,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 // 包初始化时引用该映射（那会通过 runCompletion 形成导入循环）；
 // parity_test 断言两者始终相同。
 var subcommandOrder = []string{
-	"sessions", "replay", "usage", "doctor", "login", "logout", "auth",
+	"sessions", "replay", "usage", "context", "doctor", "login", "logout", "auth",
 	"models", "mcp", "skills", "commands", "hooks", "policy", "audit",
 	"update", "completion", "tui", "bug", "eval", "config",
 	"workflow", "telemetry", "attach", "logs", "jobs", "follow", "stop", "board",
@@ -271,6 +277,12 @@ func (a App) runMain(ctx context.Context, args []string) int {
 	if reason := unsupportedFlag(opts); reason != "" {
 		fmt.Fprintln(a.IO.Err, "argent:", reason)
 		return 1
+	}
+	// 仅 opt-in 安装：无 flag 时完全不碰全局 sink，保留集成方可能预装的收集器。
+	// save/restore 精确恢复原值（而非 nil 清除），避免测试间污染。
+	if opts.DebugTrace {
+		prev := llm.SetTraceSink(newStderrTraceSink(a.IO.Err))
+		defer llm.SetTraceSink(prev)
 	}
 	if opts.TUI {
 		return a.runTUI(ctx, opts)

@@ -23,6 +23,11 @@ const (
 	// workspaceDiffHashBytes 是保留的 SHA-256 摘要前若干字节数，
 	// 让快照中的摘要字符串保持紧凑，同时仍足以区分内容变化。
 	workspaceDiffHashBytes = 16
+	// WorkspaceDiffMaxEnumerateFiles 是 WorkspaceFilePaths 一次枚举的文件数上限。
+	// 超过该上限时列表被截断到前 N 项（字典序），调用方（app 层）不应把截断结果
+	// 误当作完整工作区清单，而应回退到用户显式声明的路径列表——枚举只用于
+	// opt-in 的辅助提示，绝不替代用户声明。
+	WorkspaceDiffMaxEnumerateFiles = 10000
 )
 
 // workspaceDiffIgnoredDirs 是扫描时整棵跳过的噪目录名。名字集合与
@@ -149,6 +154,40 @@ func DiscoverWorkspaceChanges(root string, before map[string]string) []string {
 	}
 	if len(paths) == 0 {
 		return nil
+	}
+	return paths
+}
+
+// WorkspaceFilePaths 枚举 root 下所有参与对比的普通文件，返回以 "/"-分隔的
+// 工作区相对路径列表。它复用 walkWorkspaceFiles 的遍历规则，因此与
+// SnapshotWorkspace 使用完全相同的语义：噪目录整棵跳过、符号链接等非普通文件
+// 被忽略、CJK 路径按 UTF-8 原样保留。
+//
+// 返回列表按字典序稳定排序，最多 WorkspaceDiffMaxEnumerateFiles 项（超出时截断
+// 到字典序最小的前 N 项）。root 不存在、不是目录或无法读取时返回 nil；空工作区
+// 同样返回 nil。该函数是纯函数：不读取或修改任何全局状态，每次调用独立扫描
+// 文件系统，不缓存结果，也不改动传入的 root。
+func WorkspaceFilePaths(root string) []string {
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	// Stat 成功不代表能遍历（权限被拒时 WalkDir 会静默跳过条目），
+	// 先尝试读取目录项以确认可读，不可读则按“无法访问”处理。
+	if _, err := os.ReadDir(root); err != nil {
+		return nil
+	}
+
+	var paths []string
+	_ = walkWorkspaceFiles(root, func(rel, abs string) {
+		paths = append(paths, rel)
+	})
+	if len(paths) == 0 {
+		return nil
+	}
+	sort.Strings(paths)
+	if len(paths) > WorkspaceDiffMaxEnumerateFiles {
+		paths = paths[:WorkspaceDiffMaxEnumerateFiles]
 	}
 	return paths
 }

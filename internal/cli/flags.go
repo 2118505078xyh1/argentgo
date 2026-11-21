@@ -101,6 +101,9 @@ type Options struct {
 	// ServeReadiness 为 opt-in：为 true 时在 --serve 的 listening 行之后
 	// 追加打印一次就绪摘要；默认 false 时完全不探测、不输出。
 	ServeReadiness bool
+	// DebugTrace 为 opt-in：为 true 时安装 stderr trace sink，每个模型请求的
+	// 脱敏摘要写一行 JSON 到 IO.Err；默认 false 时完全不安装，请求字节不变。
+	DebugTrace bool
 
 	Help    bool
 	Version bool

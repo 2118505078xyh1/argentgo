@@ -189,6 +189,12 @@ func (s *runState) breaker() *InvalidArgBreaker {
 
 // runTools 执行一个批次，仅当运行提前结束（取消或无效参数熔断器跳闸）时才返回停止原因。
 func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall) string {
+	// AfterBatch 必须是函数第一条语句：下方多个返回点（含整体拒绝的 turn=0
+	// 批次）都会经过它；放在 runParallelCalls 里会漏掉其它路径。只在钩子
+	// 非 nil 时注册 defer，nil 默认路径连 defer 都不产生，逐字节不变。
+	if after := s.opts.AfterBatch; after != nil {
+		defer func() { after(turn) }()
+	}
 	// 可选工具名还原：默认关闭，因此下面的调用名逐字节保持原样。
 	// 启用时，在任何决策之前统一改写调用名，使防护、审批、事件、记录与实际执行
 	// 看到的都是同一个真实名字；关闭或没有可用工具时完全走既有路径。
