@@ -23,13 +23,40 @@ func runEval(app App, ctx context.Context, args []string) int {
 		evalUsage(app.IO.Out)
 		return 0
 	}
+
+	// --live 是 eval 子命令的带外前缀：它不进 flagSurface/parity，只在
+	// 这里手写扫描并分派给 LiveEvalSuiteRunner。默认 eval 路径完全不变。
+	live := false
+	if len(args) > 0 && args[0] == "--live" {
+		live = true
+		args = args[1:]
+	}
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		evalUsage(app.IO.Err)
 		return 2
 	}
+	path := args[0]
 	if app.Eval == nil {
 		fmt.Fprintln(app.IO.Err, "error: eval runner not configured")
 		return 1
+	}
+
+	if live {
+		liveSuite, ok := app.Eval.(LiveEvalSuiteRunner)
+		if !ok {
+			fmt.Fprintln(app.IO.Err, "error: eval runner does not support --live (live model runs)")
+			return 1
+		}
+		passed, failed, err := liveSuite.RunSuiteLive(ctx, path, app.IO.Out)
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", path, err)
+			return 1
+		}
+		if failed > 0 {
+			return 1
+		}
+		_ = passed
+		return 0
 	}
 
 	data, err := os.ReadFile(args[0])
@@ -139,9 +166,11 @@ func parseEvalFile(data []byte) ([]evalScenario, error) {
 }
 
 func evalUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent eval <file.json>
+	fmt.Fprint(w, `usage: argent eval [--live] <file.json>
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.
+With --live, the suite is dispatched to a live-model runner instead of the
+scripted grader; this prefix is out-of-band and not a global flag.
 `)
 }

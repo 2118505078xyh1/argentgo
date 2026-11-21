@@ -79,6 +79,13 @@ type EvalSuiteRunner interface {
 	RunSuite(ctx context.Context, path string, out io.Writer) (passed, failed int, err error)
 }
 
+// LiveEvalSuiteRunner 用真实模型执行整个脚本化的 eval 套件。它是 eval
+// 子命令 `--live` 前缀的带外分派目标：该前缀不进 flagSurface/parity，
+// 默认 eval 路径不依赖此接口，由 runEval 在运行时按需类型断言。
+type LiveEvalSuiteRunner interface {
+	RunSuiteLive(ctx context.Context, path string, out io.Writer) (passed, failed int, err error)
+}
+
 // EvalRunner 执行单个 eval 场景。
 type EvalRunner interface {
 	RunScenario(ctx context.Context, prompt string) (EvalReport, error)
@@ -103,8 +110,8 @@ type App struct {
 	Version   string
 	NewRunner RunnerFactory
 	Sessions  SessionStore
-	// Eval 接受 EvalRunner 或 EvalSuiteRunner；runEval 在运行时
-	// 可用时会选择功能更丰富的套件接口。
+	// Eval 接受 EvalRunner、EvalSuiteRunner 或 LiveEvalSuiteRunner；
+	// runEval 在运行时按 --live 前缀与可用接口选择分派目标。
 	Eval          any
 	TUI           TUIFunc
 	Profiles      ProfileLister

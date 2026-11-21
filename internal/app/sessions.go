@@ -118,3 +118,42 @@ func (s *sessionStore) Delete(id string) error {
 	}
 	return nil
 }
+
+// Branches 实现 server.SessionTreeStore，把会话分支映射为 RPC wire 类型。
+// 显式 schema 头是元数据，不属于对话树，过滤掉以免在 GUI 中多出一层节点。
+// Fork 由"同一 parent 下是否有多个子节点"派生：真分叉点上的每个子节点
+// 都标记为 Fork，使客户端可以高亮所有分叉路径。
+func (s *sessionStore) Branches(id string) ([]server.SessionBranch, error) {
+	path, err := session.ResolvePath(s.dir, id)
+	if err != nil {
+		return nil, err
+	}
+	branches, err := session.Branches(path)
+	if err != nil {
+		return nil, err
+	}
+	// 统计每个 parent 的子节点数，用于派生 Fork 标记。
+	children := make(map[string]int, len(branches))
+	for _, branch := range branches {
+		if branch.Kind == session.KindSchema {
+			continue
+		}
+		children[branch.Parent]++
+	}
+	out := make([]server.SessionBranch, 0, len(branches))
+	for _, branch := range branches {
+		if branch.Kind == session.KindSchema {
+			continue
+		}
+		out = append(out, server.SessionBranch{
+			ID:     branch.ID,
+			Parent: branch.Parent,
+			Kind:   branch.Kind,
+			Depth:  branch.Depth,
+			Active: branch.Active,
+			Label:  branch.Label,
+			Fork:   children[branch.Parent] > 1,
+		})
+	}
+	return out, nil
+}

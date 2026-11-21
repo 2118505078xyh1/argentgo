@@ -52,6 +52,10 @@ type RunFunc func(ctx context.Context, scenario Scenario, workspace Workspace) (
 type Options struct {
 	// Verbose 为每个场景添加一行 TAP 诊断。
 	Verbose bool
+	// Live 在报告末尾追加完成率、token 与轮次汇总行，供真模型跑批使用。
+	// 默认 false 时 TAP 输出逐字节不变；开启后仅在结尾新增指标行，
+	// 不改任何场景行（结果里不含 provider 凭据，因此指标行也不会泄漏 API key）。
+	Live bool
 	// Out 接收类似 TAP 的报告。默认为 os.Stdout。
 	Out io.Writer
 	// Keep 保留临时目录，用于调试失败。
@@ -72,6 +76,9 @@ type Result struct {
 	Text    string
 	Turns   int
 	Stopped bool
+	// Usage 是该场景累计的计费 token；由 Trace.Usage 逐项拷贝而来，
+	// 供 Live 报告的 token 汇总使用（JSON 标签便于外部持久化）。
+	Usage llm.Usage `json:"usage,omitempty"`
 	// Duration 是执行场景所花的挂钟时间。它是
 	// Duration 是执行场景所花的挂钟时间。它是 AggregateScores 消费的诊断信号；从不影响评分。
 	Duration time.Duration
@@ -115,10 +122,36 @@ func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (
 		}
 	}
 	fmt.Fprintf(out, "# %d passed, %d failed\n", report.Passed, report.Failed)
+	if opts.Live {
+		// 指标行只在报告末尾追加；默认路径到此为止，输出逐字节不变。
+		fmt.Fprint(out, liveMetricsReport(report.Results))
+	}
 	if report.Failed > 0 {
 		return report, fmt.Errorf("eval: %d of %d scenarios failed", report.Failed, len(scenarios))
 	}
 	return report, nil
+}
+
+// liveMetricsReport 渲染真模型跑批的指标行：完成率、token 汇总与轮次汇总。
+//
+// 它只读 results，不修改入参；行内容全部由数字与固定标签组成，不含模型输出或
+// provider 凭据。空 results 的完成率由 ScenarioCompletionRate 守卫为 0，不会出现 NaN。
+func liveMetricsReport(results []Result) string {
+	var usage llm.Usage
+	turns := 0
+	for _, result := range results {
+		usage.PromptTokens += result.Usage.PromptTokens
+		usage.CompletionTokens += result.Usage.CompletionTokens
+		usage.CachedTokens += result.Usage.CachedTokens
+		usage.CacheWriteTokens += result.Usage.CacheWriteTokens
+		turns += result.Turns
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# completion rate: %.3f\n", ScenarioCompletionRate(results))
+	fmt.Fprintf(&b, "# tokens: prompt=%d completion=%d cached=%d cache_write=%d total=%d\n",
+		usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens, usage.CacheWriteTokens, usage.TotalTokens())
+	fmt.Fprintf(&b, "# turns: %d\n", turns)
+	return b.String()
 }
 
 // scoredChatter 是 runOne 评分所需的 provider 能力：除了对话本身，还要能报告
@@ -201,6 +234,7 @@ func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts
 	result.Tools = append([]string(nil), trace.Tools...)
 	result.Text = trace.Text
 	result.Stopped = trace.Stopped
+	result.Usage = trace.Usage
 	result.Turns = provider.Calls()
 
 	observed := observation{calls: provider.Calls(), violations: provider.Violations()}
