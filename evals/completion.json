@@ -1,0 +1,95 @@
+{
+  "description": "R24 真模型跑批用的完成率场景：把 R23 只活在 Go 测试常量里的 F/N 场景搬成数据。F 真修 bug 应当通过，N 只读不改应当失败；两者共用同一份种子工作区与同一份 Check（go test 退出码 + calc.go 逐字节比对），因此评分只取决于文件是否真的被改对，而非模型收尾文本的自评。",
+  "scenarios": [
+    {
+      "name": "fix the subtraction bug (should pass)",
+      "description": "F（fix）：脚本先读 calc.go，再 edit 把减法改成加法，最后输出收尾文本。go test ./... 退出 0 且 calc.go 逐字节等于修复后的内容，场景通过。",
+      "prompt": "read calc.go, fix Add so the test passes, then report what you did",
+      "files": {
+        "go.mod": "module example.com/calcfix\n\ngo 1.21\n",
+        "calc.go": "package calc\n\nfunc Add(a, b int) int { return a - b }\n",
+        "calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add(1, 2) = %d, want 3\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              {
+                "name": "edit",
+                "arguments": { "path": "calc.go", "old": "return a - b", "new": "return a + b" }
+              }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "I changed Add to use addition; the test should pass now." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit"],
+        "text_contains": ["changed Add to use addition"],
+        "turns": 3
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "calc.go": "package calc\n\nfunc Add(a, b int) int { return a + b }\n"
+        }
+      }
+    },
+    {
+      "name": "read only, no fix (should fail)",
+      "description": "N（noop）：脚本只读 calc.go 然后收尾，不做任何修改。Check 与 F 完全相同，因此 go test ./... 仍退出 1 且 calc.go 字节不匹配，场景失败。",
+      "prompt": "read calc.go and report what it contains",
+      "files": {
+        "go.mod": "module example.com/calcfix\n\ngo 1.21\n",
+        "calc.go": "package calc\n\nfunc Add(a, b int) int { return a - b }\n",
+        "calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add(1, 2) = %d, want 3\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": { "text": "The file currently subtracts b from a." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read"],
+        "text_contains": ["subtracts b from a"],
+        "turns": 2
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "calc.go": "package calc\n\nfunc Add(a, b int) int { return a + b }\n"
+        }
+      }
+    }
+  ]
+}

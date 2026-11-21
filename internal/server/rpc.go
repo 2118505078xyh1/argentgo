@@ -152,8 +152,8 @@ func reportScanError(p *peer, err error) (terminal bool) {
 // RunRPC 在 in/out 上提供换行分隔的 JSON-RPC 2.0 服务，直到 in 到达
 // EOF 或 ctx 被取消。
 //
-// 方法：prompt、abort、session.list、session.load、approval.list、
-// approval.answer、event/subscribe。流式
+// 方法：prompt、abort、session.list、session.load、session.tree、
+// approval.list、approval.answer、event/subscribe。流式
 // 提示文本在提示结果返回前作为 prompt/delta 通知发出；
 // event/subscribe 用订阅时捕获的 seq 回复（安全续传游标），
 // 然后发出 "event" 通知，直到传输
@@ -293,6 +293,42 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			events = []SessionEvent{}
 		}
 		p.respond(req.ID, map[string]any{"id": id, "events": events})
+	case "session.tree":
+		// session.tree {id} 返回会话的 id/parent 分支树。存储通过可选
+		// 接口发现：没有实现它的假实现和独立调用方会得到干净的
+		// "not configured" 错误，而不是 panic。错误复用 session.load
+		// 的脱敏路径，避免绝对存储目录跨越 RPC 边界。
+		if cfg.Sessions == nil {
+			p.fail(req.ID, codeServerError, "session store not configured")
+			return
+		}
+		typed, ok := cfg.Sessions.(SessionTreeStore)
+		if !ok {
+			p.fail(req.ID, codeServerError, "session tree not configured")
+			return
+		}
+		var params struct {
+			ID string `json:"id"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		if params.ID == "" {
+			p.fail(req.ID, codeInvalidParams, "session id is required")
+			return
+		}
+		branches, err := typed.Branches(params.ID)
+		if err != nil {
+			p.fail(req.ID, codeServerError, scrubSessionLoadError(params.ID, err))
+			return
+		}
+		if branches == nil {
+			branches = []SessionBranch{}
+		}
+		p.respond(req.ID, map[string]any{"branches": branches})
 	case "approval.list":
 		// approval.list {session?} 返回 runner 的持久待审批
 		// 镜像，使重连的客户端可以恢复它离开期间被问到的问题。

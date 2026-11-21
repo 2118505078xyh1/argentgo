@@ -29,3 +29,24 @@ type SessionStore interface {
 	List() ([]SessionInfo, error)
 	Load(id string) ([]SessionEvent, error)
 }
+
+// SessionBranch 描述会话 id/parent 树中的一条记录，供 session.tree RPC
+// 使用。它刻意使用显式的 wire 形态，使服务器不必 import internal/session：
+// 集成方（如 app 适配器）负责把内部记录映射到这里。
+// 字段顺序同时决定 JSON 对象中的键顺序。
+type SessionBranch struct {
+	ID     string `json:"id"`
+	Parent string `json:"parent,omitempty"`
+	Kind   string `json:"kind"`
+	Depth  int    `json:"depth"`
+	Active bool   `json:"active,omitempty"`
+	Label  string `json:"label,omitempty"`
+	Fork   bool   `json:"fork,omitempty"`
+}
+
+// SessionTreeStore 是注入的 SessionStore 可以提供的可选分支读取端。
+// 没有实现该接口的存储仍可正常支撑 session.list/session.load，
+// session.tree 会返回干净的 "not configured" 错误。
+type SessionTreeStore interface {
+	Branches(id string) ([]SessionBranch, error)
+}
