@@ -9,7 +9,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// wirePart 是测试侧用来解构 Message.Content 中 content part 数组的镜像结构。
+// wirePart 是测试侧用来解构 Message.ContentParts 中 content part 数组的镜像结构。
 // 它不依赖被测包内部类型，只按 OpenAI chat completions 的字段读取。
 type wirePart struct {
 	Type     string `json:"type"`
@@ -20,15 +20,15 @@ type wirePart struct {
 	} `json:"image_url"`
 }
 
-// decodeWireParts 把带图消息的 Content 解析为 part 数组，格式非法时直接失败测试。
-func decodeWireParts(t *testing.T, content string) []wirePart {
+// decodeWireParts 把带图消息的 ContentParts 原始 JSON 解析为 part 数组，格式非法时直接失败测试。
+func decodeWireParts(t *testing.T, raw json.RawMessage) []wirePart {
 	t.Helper()
-	if !json.Valid([]byte(content)) {
-		t.Fatalf("Content 不是合法 JSON: %s", content)
+	if !json.Valid(raw) {
+		t.Fatalf("ContentParts 不是合法 JSON: %s", raw)
 	}
 	var parts []wirePart
-	if err := json.Unmarshal([]byte(content), &parts); err != nil {
-		t.Fatalf("解析 content part 数组失败: %v; content=%s", err, content)
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		t.Fatalf("解析 content part 数组失败: %v; raw=%s", err, raw)
 	}
 	return parts
 }
@@ -60,6 +60,9 @@ func TestBuildImageMessageEmptyIsByteIdenticalText(t *testing.T) {
 				if msg.Content != tc.text {
 					t.Fatalf("Content = %q, want %q（逐字节不变）", msg.Content, tc.text)
 				}
+				if msg.ContentParts != nil {
+					t.Fatalf("无图消息的 ContentParts 必须为空，got %s", msg.ContentParts)
+				}
 				if msg.Role != "user" {
 					t.Errorf("Role = %q, want user", msg.Role)
 				}
@@ -77,9 +80,12 @@ func TestBuildImageMessageSingleImage(t *testing.T) {
 	if msg.Role != "user" {
 		t.Errorf("Role = %q, want user", msg.Role)
 	}
-	parts := decodeWireParts(t, msg.Content)
+	if msg.Content != "" {
+		t.Fatalf("带图消息的 Content 必须留空，got %q", msg.Content)
+	}
+	parts := decodeWireParts(t, msg.ContentParts)
 	if len(parts) != 2 {
-		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.Content)
+		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.ContentParts)
 	}
 	if parts[0].Type != "text" || parts[0].Text != "看这张图" || parts[0].ImageURL != nil {
 		t.Errorf("第一个 part = %+v, want text part", parts[0])
@@ -102,9 +108,9 @@ func TestBuildImageMessageMultipleImages(t *testing.T) {
 		{MimeType: "image/jpeg", Data: []byte{0x01, 0x02}, Detail: "low"},
 		{MimeType: "image/webp", Data: []byte{0x03}},
 	})
-	parts := decodeWireParts(t, msg.Content)
+	parts := decodeWireParts(t, msg.ContentParts)
 	if len(parts) != 3 {
-		t.Fatalf("part 数 = %d, want 3; content=%s", len(parts), msg.Content)
+		t.Fatalf("part 数 = %d, want 3; content=%s", len(parts), msg.ContentParts)
 	}
 	if parts[0].Type != "text" || parts[0].Text != "A" {
 		t.Errorf("第一个 part = %+v, want text \"A\"", parts[0])
@@ -125,7 +131,7 @@ func TestBuildImageMessageMultipleImages(t *testing.T) {
 	}
 	// detail 为空时不应出现在该图自己的 image_url 对象中。
 	var rawParts []map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(msg.Content), &rawParts); err != nil {
+	if err := json.Unmarshal([]byte(msg.ContentParts), &rawParts); err != nil {
 		t.Fatal(err)
 	}
 	var imageURL map[string]json.RawMessage
@@ -144,9 +150,9 @@ func TestBuildImageMessageCJKText(t *testing.T) {
 	msg := llm.BuildImageMessage(text, []llm.ImageInput{
 		{MimeType: "image/png", Data: []byte("x")},
 	})
-	parts := decodeWireParts(t, msg.Content)
+	parts := decodeWireParts(t, msg.ContentParts)
 	if len(parts) != 2 {
-		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.Content)
+		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.ContentParts)
 	}
 	if parts[0].Text != text {
 		t.Errorf("文本 = %q, want %q", parts[0].Text, text)
@@ -172,9 +178,9 @@ func TestBuildImageMessageMimeTypeValidation(t *testing.T) {
 			msg := llm.BuildImageMessage("t", []llm.ImageInput{
 				{MimeType: tc.mime, Data: []byte("x")},
 			})
-			parts := decodeWireParts(t, msg.Content)
+			parts := decodeWireParts(t, msg.ContentParts)
 			if len(parts) != 2 {
-				t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.Content)
+				t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.ContentParts)
 			}
 			if got := parts[1].ImageURL.URL; got != tc.wantURL {
 				t.Errorf("data URL = %q, want %q", got, tc.wantURL)
@@ -188,9 +194,9 @@ func TestBuildImageMessageEmptyTextWithImage(t *testing.T) {
 	msg := llm.BuildImageMessage("", []llm.ImageInput{
 		{MimeType: "image/png", Data: []byte("x")},
 	})
-	parts := decodeWireParts(t, msg.Content)
+	parts := decodeWireParts(t, msg.ContentParts)
 	if len(parts) != 1 {
-		t.Fatalf("part 数 = %d, want 1; content=%s", len(parts), msg.Content)
+		t.Fatalf("part 数 = %d, want 1; content=%s", len(parts), msg.ContentParts)
 	}
 	if parts[0].Type != "image_url" {
 		t.Errorf("part 类型 = %q, want image_url", parts[0].Type)
@@ -198,7 +204,7 @@ func TestBuildImageMessageEmptyTextWithImage(t *testing.T) {
 }
 
 // TestBuildImageMessageDoesNotMutateInput 确认调用前后入参（含 MimeType、
-// Detail 与 Data 字节）完全不变。
+// Detail 与 Data 字节）完全不变，且结果不持有入参切片的活引用。
 func TestBuildImageMessageDoesNotMutateInput(t *testing.T) {
 	images := []llm.ImageInput{
 		{MimeType: "image/jpeg", Data: []byte{0x01, 0x02, 0x03}, Detail: "low"},
@@ -212,12 +218,18 @@ func TestBuildImageMessageDoesNotMutateInput(t *testing.T) {
 			Detail:   im.Detail,
 		}
 	}
-	_ = llm.BuildImageMessage("t", images)
+	msg := llm.BuildImageMessage("t", images)
 	for i := range images {
 		if images[i].MimeType != before[i].MimeType || images[i].Detail != before[i].Detail ||
 			!bytes.Equal(images[i].Data, before[i].Data) {
 			t.Errorf("images[%d] 被修改: got %+v, want %+v", i, images[i], before[i])
 		}
+	}
+	// 改入参后，已构造的 ContentParts 必须保持原样。
+	snapshot := append(json.RawMessage(nil), msg.ContentParts...)
+	images[0].Data[0], images[0].MimeType = 0xFF, "image/gif"
+	if !bytes.Equal(msg.ContentParts, snapshot) {
+		t.Errorf("ContentParts 持有入参引用，改动 Data 后变了: got %s, want %s", msg.ContentParts, snapshot)
 	}
 }
 
@@ -234,15 +246,16 @@ func TestBuildImageMessageDeterministic(t *testing.T) {
 	}
 }
 
-// TestImageInputsSupported 确认三种线协议的能力判定：chat 与 responses
-// 支持，anthropic 不支持；未知与空协议同样返回 false。
+// TestImageInputsSupported 确认能力判定：只有 chat completions 的 wire
+// 能承载原始 part 数组；responses 因分段编码形态不同、anthropic 因使用
+// 独立 image source，均不支持；未知与空协议同样返回 false。
 func TestImageInputsSupported(t *testing.T) {
 	cases := []struct {
 		protocol string
 		want     bool
 	}{
 		{llm.ProtocolChatCompletions, true},
-		{llm.ProtocolResponses, true},
+		{llm.ProtocolResponses, false},
 		{llm.ProtocolAnthropicMessages, false},
 		{"", false},
 		{"unknown-protocol", false},
@@ -253,5 +266,23 @@ func TestImageInputsSupported(t *testing.T) {
 				t.Errorf("ImageInputsSupported(%q) = %v, want %v", tc.protocol, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestBuildImageMessageRawPartsNotString 锁定 R17 双重编码 bug 的修复：
+// ContentParts 必须是原生 JSON 数组，而不是被转成 JSON 字符串。
+func TestBuildImageMessageRawPartsNotString(t *testing.T) {
+	msg := llm.BuildImageMessage("看这张图", []llm.ImageInput{
+		{MimeType: "image/png", Data: []byte("x")},
+	})
+	if len(msg.ContentParts) == 0 || msg.ContentParts[0] != '[' {
+		t.Fatalf("ContentParts 应以 [ 开头的数组，got %s", msg.ContentParts)
+	}
+	var asString string
+	if err := json.Unmarshal(msg.ContentParts, &asString); err == nil {
+		t.Fatalf("ContentParts 被编码为 JSON 字符串（双重编码回归）: %s", msg.ContentParts)
+	}
+	if msg.Content != "" {
+		t.Fatalf("带图消息 Content 必须留空，got %q", msg.Content)
 	}
 }

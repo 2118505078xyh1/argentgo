@@ -22,12 +22,14 @@ import (
 // 套件运行器使用 internal/eval 的脚本化提供方，配合生产环境的 agent 循环、工具注册表和安全链。
 // RunScenario 保留为只拥有提示的调用方所使用的窄接缝。
 func NewEvaler(stdio cli.IO) cli.EvalRunner {
-	return &evaler{stdio: stdio}
+	liveCfg, _ := eval.ReadLiveConfig(stdio.Env) // 错误在 RunSuite 中按门禁重新处理
+	return &evaler{stdio: stdio, live: liveCfg.Enabled}
 }
 
 type evaler struct {
 	stdio cli.IO
 	cwd   string
+	live  bool // ARGENT_EVAL_LIVE=1 时走真实 provider；默认 false 走脚本化，断网逐字节不变
 }
 
 // WithCwd 把评估器指向另一个工作区（测试使用）。
@@ -43,7 +45,27 @@ func (e *evaler) RunSuite(ctx context.Context, path string, out io.Writer) (int,
 	if err != nil {
 		return 0, 0, err
 	}
-	report, err := eval.Run(ctx, scenarios, e.runScenario, eval.Options{Out: out})
+	opts := eval.Options{Out: out}
+	if e.live {
+		// 真实评测（opt-in）：无 key 时明确报错，绝不静默降级到脚本化（否则
+		// 看起来像真实评测其实不是）。错误文本固定，不拼接 key。
+		cfg, err := eval.ReadLiveConfig(e.stdio.Env)
+		if err != nil {
+			return 0, 0, err
+		}
+		if err := cfg.Validate(); err != nil {
+			return 0, 0, err
+		}
+		resolved, err := Resolve(e.stdio, cli.Options{Cwd: e.cwd})
+		if err != nil {
+			return 0, 0, errors.New("eval live mode: resolve failed")
+		}
+		if strings.TrimSpace(resolved.APIKey) == "" {
+			return 0, 0, errors.New("ARGENT_EVAL_LIVE=1 requires an API key (flag/config/login/provider env)")
+		}
+		opts.ChatterFactory = eval.LiveChatterAdapter(resolved.Chatter)
+	}
+	report, err := eval.Run(ctx, scenarios, e.runScenario, opts)
 	return report.Passed, report.Failed, err
 }
 
@@ -93,7 +115,10 @@ func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, worksp
 		chatter = &cancelAfterChatter{inner: chatter, after: scenario.CancelAfter, cancel: cancel}
 	}
 
-	loop := &agent.Runner{Opts: agent.Options{
+	// 真实评测（opt-in）时从每轮 EventUsage 采集 token 细分。仅在 live 时安装 Emit，
+	// 默认（脚本化）时 opts 不含 Emit，usage 采集路径完全不触发，行为逐字节不变。
+	var traceUsage llm.Usage
+	var loopOpts = agent.Options{
 		Model:    workspace.Model,
 		MaxTurns: maxTurns,
 		Root:     root,
@@ -104,13 +129,26 @@ func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, worksp
 		// eval 场景会断言精确的请求次数（例如轮次限制的情形）。
 		// 一次性最终答案改由 internal/agent 的测试覆盖。
 		NoFinalAnswer: true,
-	}}
+	}
+	if e.live {
+		loopOpts.Emit = func(ev agent.Event) {
+			if ev.Kind == agent.EventUsage {
+				u := ev.Usage
+				traceUsage.PromptTokens += u.PromptTokens
+				traceUsage.CompletionTokens += u.CompletionTokens
+				traceUsage.CachedTokens += u.CachedTokens
+				traceUsage.CacheWriteTokens += u.CacheWriteTokens
+			}
+		}
+	}
+	loop := &agent.Runner{Opts: loopOpts}
 	result, err := loop.Run(runCtx, workspace.Prompt)
 
 	trace := eval.Trace{
 		Text:    result.Text,
 		Tools:   append([]string(nil), toolNamesAll(result)...),
 		Stopped: result.Stopped != "" && result.Stopped != agent.StopComplete,
+		Usage:   traceUsage,
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

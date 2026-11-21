@@ -28,6 +28,19 @@ func (e *Editor) Runes() []rune { return append([]rune{}, e.runes...) }
 // Cursor 是以 rune 索引表示的光标位置。
 func (e *Editor) Cursor() int { return e.cursor }
 
+// SetCursor 把光标设置到指定的 rune 索引，并钳制到 [0, len(e.runes)]。
+// 它只改光标，不触碰文本、历史或浏览状态。vim motion 返回的是字节索引，
+// 调用方先换算成 rune 索引再经由此方法定位光标，从而保证 CJK/emoji
+// 不会被切成两半。零值与空缓冲区也安全：len(nil)==0，光标归零。
+func (e *Editor) SetCursor(runeIdx int) {
+	if runeIdx < 0 {
+		runeIdx = 0
+	} else if runeIdx > len(e.runes) {
+		runeIdx = len(e.runes)
+	}
+	e.cursor = runeIdx
+}
+
 // SetText 替换内容并把光标放到末尾。
 func (e *Editor) SetText(text string) {
 	e.runes = []rune(text)

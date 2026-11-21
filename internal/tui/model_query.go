@@ -135,6 +135,15 @@ func (m *Model) Sessions() []SessionInfo {
 // 镜像 SetSessions：持锁、拷贝入参、提升版本并标脏。空切片产生一个合法
 // 但无候选的补全状态，Tab 因此回退为插入两个空格。
 // 它不打开面板——showCommands 只能由 Ctrl+O 切换。
+// SetVimMode 启用或关闭输入行的 vim 键位。默认（未调用或传 false）时保持经典
+// 编辑行为，逐字节不变；开启后 normal 态的字母键走 VimMotion，i/a/I/A 进入插入态。
+func (m *Model) SetVimMode(on bool) {
+	m.mu.Lock()
+	m.vimMode = on
+	m.vimInsert = false
+	m.mu.Unlock()
+}
+
 func (m *Model) SetCommandInfo(rows []CommandInfo) {
 	m.mu.Lock()
 	m.commandInfo = append([]CommandInfo{}, rows...)

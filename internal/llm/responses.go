@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // DefaultResponsesMaxOutputTokens 在 ResponsesClient.MaxOutputTokens
@@ -103,11 +104,15 @@ func (c *ResponsesClient) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
+	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
 	if strings.TrimSpace(model) == "" {
-		return Message{}, errors.New("responses: model is required")
+		err := errors.New("responses: model is required")
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		return Message{}, err
 	}
 	payload, err := json.Marshal(c.buildRequest(model, messages, tools))
 	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
 
@@ -142,21 +147,25 @@ func (c *ResponsesClient) Chat(
 		return c.httpClient().Do(req)
 	})
 	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		err := providerError(resp)
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolResponses, model, err))
 		return Message{}, err
 	}
 
 	reply, err := c.readStream(ctx, resp.Body, onText)
 	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
 		return Message{}, err
 	}
+	recordTrace(ProtocolResponses, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolResponses, Model: model})
 	return reply, nil
 }
@@ -199,26 +208,28 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 
 	var instructions []string
 	for _, message := range messages {
+		// 带图消息在本协议上退化为占位文本，避免静默丢弃整条消息。
+		text := messageTextForProtocol(message)
 		switch message.Role {
 		case "system":
-			if strings.TrimSpace(message.Content) != "" {
-				instructions = append(instructions, message.Content)
+			if strings.TrimSpace(text) != "" {
+				instructions = append(instructions, text)
 			}
 		case "user":
-			if strings.TrimSpace(message.Content) == "" {
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			req.Input = append(req.Input, responsesTextItem{
 				Type:    "message",
 				Role:    "user",
-				Content: []responsesPart{{Type: "input_text", Text: message.Content}},
+				Content: []responsesPart{{Type: "input_text", Text: text}},
 			})
 		case "assistant":
-			if strings.TrimSpace(message.Content) != "" {
+			if strings.TrimSpace(text) != "" {
 				req.Input = append(req.Input, responsesTextItem{
 					Type:    "message",
 					Role:    "assistant",
-					Content: []responsesPart{{Type: "output_text", Text: message.Content}},
+					Content: []responsesPart{{Type: "output_text", Text: text}},
 				})
 			}
 			for _, call := range message.ToolCalls {
