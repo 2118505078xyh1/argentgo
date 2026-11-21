@@ -20,8 +20,12 @@ func fakeLookPath(found bool) func(string) (string, error) {
 }
 
 // TestShellInvocationWindowsCmdSwitchesCodePage 验证 cmd 回退路径把
-// 代码页切到 65001，并且原命令逐字节保留在 /c 参数里。
+// 代码页切到 65001，用单个 &（而非 &&）串联，并且原命令逐字节保留在 /c 参数里。
 func TestShellInvocationWindowsCmdSwitchesCodePage(t *testing.T) {
+	// 前缀本身必须是单个 &：防止常量被改回 && 而静默跳过原命令。
+	if cmdChcpPrefix != "chcp 65001>nul&" {
+		t.Fatalf("cmdChcpPrefix = %q, want %q", cmdChcpPrefix, "chcp 65001>nul&")
+	}
 	command := `echo hello`
 	path, argv := shellInvocationFor("windows", fakeLookPath(false), command)
 	if path != "cmd" {
@@ -33,8 +37,11 @@ func TestShellInvocationWindowsCmdSwitchesCodePage(t *testing.T) {
 	if argv[0] != "/s" || argv[1] != "/c" {
 		t.Fatalf("flags = %q, want /s /c", argv[:2])
 	}
-	if !strings.HasPrefix(argv[2], "chcp 65001") {
-		t.Fatalf("/c argument = %q, want the chcp 65001 prefix", argv[2])
+	if !strings.HasPrefix(argv[2], "chcp 65001>nul&") {
+		t.Fatalf("/c argument = %q, want single-& chcp 65001>nul& prefix", argv[2])
+	}
+	if strings.Contains(argv[2], "nul&&") {
+		t.Fatalf("/c argument = %q, want a single & after nul (not &&)", argv[2])
 	}
 	if !strings.Contains(argv[2], "65001>nul") {
 		t.Fatalf("/c argument = %q, want chcp echo redirected to nul", argv[2])
@@ -46,21 +53,24 @@ func TestShellInvocationWindowsCmdSwitchesCodePage(t *testing.T) {
 
 // TestShellInvocationCmdPreservesCommandBytes 验证 /c 参数只在最前面
 // 追加 chcp 前缀，不包裹括号或额外引号：以引号开头、含引号、含 ')'、
-// 含 cmd 操作符的命令都逐字节保留，因此 /c 的引号剥离语义不因前缀改变。
+// 含 cmd 操作符、含 CJK 非 ASCII 的命令，从 argv 里剥掉前缀后都逐字节
+// 还原为原命令，因此 /c 的引号剥离语义与字节内容都不因前缀改变。
 func TestShellInvocationCmdPreservesCommandBytes(t *testing.T) {
 	for _, command := range []string{
 		`"C:\Program Files\app.exe" --flag`, // 以引号开头
 		`echo "quoted text"`,                // 内嵌引号
 		`echo foo)`,                         // 右括号：若用 (...) 包裹会被破坏
 		`echo a & echo b`,                   // 命令操作符
-		`echo 中文`,                           // 非 ASCII
+		`echo 中文`,                           // CJK 非 ASCII
 	} {
 		_, argv := shellInvocationFor("windows", fakeLookPath(false), command)
 		if len(argv) != 3 {
 			t.Fatalf("command %q: argv = %q", command, argv)
 		}
-		if got := strings.TrimPrefix(argv[2], cmdChcpPrefix); got != command {
-			t.Errorf("command %q: /c argument after prefix = %q", command, got)
+		got := strings.TrimPrefix(argv[2], cmdChcpPrefix)
+		if !bytes.Equal([]byte(got), []byte(command)) {
+			t.Errorf("command %q: round-trip bytes = %v, want %v",
+				command, []byte(got), []byte(command))
 		}
 		if strings.Count(argv[2], "chcp") != 1 {
 			t.Errorf("command %q: chcp appears more than once in %q", command, argv[2])

@@ -6,9 +6,15 @@ import (
 )
 
 // 占位符审计来源表的稳定标识，写入 PlaceholderIssue.Table 供调用方区分。
+// 后四张是独立于 catalog 的消息表：此前注释称它们不参与审计，现纳入统一门禁，
+// 使键与占位符漂移能被 FullAudit/AuditDetails 一并发现，且不改动任何文案字节。
 const (
-	placeholderTableCatalog       = "catalog"
-	placeholderTableErrorMessages = "error messages"
+	placeholderTableCatalog             = "catalog"
+	placeholderTableErrorMessages       = "error messages"
+	placeholderTableCommandMessages     = "command messages"
+	placeholderTableReliabilityMessages = "reliability messages"
+	placeholderTableOptInMessages       = "opt-in messages"
+	placeholderTableErrorHintMessages   = "error hint messages"
 )
 
 // PlaceholderIssue 描述同一条文案在 en-US 与 zh-CN 之间占位符标记的不一致。
@@ -217,14 +223,16 @@ func auditPlaceholderTables(tables ...placeholderTable) []PlaceholderIssue {
 	return issues
 }
 
-// AuditPlaceholders 扫描主文案表（catalog）与错误码表（errorMessageTable），
-// 比较每条 en/zh 文案的占位符标记是否一致，并以稳定顺序报告不一致的条目。
+// AuditPlaceholders 扫描主文案表（catalog）、错误码表（errorMessageTable）以及
+// 四张独立消息表（command/reliability/opt-in/error-hint），比较每条 en/zh 文案的
+// 占位符标记是否一致，并以稳定顺序报告不一致的条目。
 //
-// 它是纯函数：只读取嵌入的文案表，不修改 T / errorMessage 的查找行为，
-// 不改任何文案字节，也不向 Missing 记录任何内容。
+// 它是纯函数：只读取嵌入的文案表，不修改各查找函数的行为，不改任何文案字节，
+// 也不向 Missing 记录任何内容。
 func AuditPlaceholders() []PlaceholderIssue {
-	return auditPlaceholderTables(
-		placeholderTable{name: placeholderTableCatalog, entries: catalogView()},
-		placeholderTable{name: placeholderTableErrorMessages, entries: errorMessagesView()},
-	)
+	tables := append([]placeholderTable{
+		{name: placeholderTableCatalog, entries: catalogView()},
+		{name: placeholderTableErrorMessages, entries: errorMessagesView()},
+	}, messageTableViews()...)
+	return auditPlaceholderTables(tables...)
 }

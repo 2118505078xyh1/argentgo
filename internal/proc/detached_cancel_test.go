@@ -19,6 +19,7 @@ type signallingChild struct {
 	mu         sync.Mutex
 	terminated bool
 	killed     bool
+	ops        []string // 按发生顺序记录 terminate/kill，验证优雅终止先于补刀
 }
 
 func (f *signallingChild) Pid() int { return f.pid }
@@ -31,6 +32,7 @@ func (f *signallingChild) Wait() int {
 func (f *signallingChild) Kill() {
 	f.mu.Lock()
 	f.killed = true
+	f.ops = append(f.ops, "kill")
 	f.mu.Unlock()
 	f.finish()
 }
@@ -38,6 +40,7 @@ func (f *signallingChild) Kill() {
 func (f *signallingChild) TerminateTree() {
 	f.mu.Lock()
 	f.terminated = true
+	f.ops = append(f.ops, "terminate")
 	f.mu.Unlock()
 	if f.cooperate {
 		f.finish()
@@ -52,6 +55,13 @@ func (f *signallingChild) requests() (terminated, killed bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.terminated, f.killed
+}
+
+// opsSnapshot 返回已记录操作的副本，供断言操作顺序。
+func (f *signallingChild) opsSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ops...)
 }
 
 func installSignallingStarter(t *testing.T, child *signallingChild) {
@@ -103,8 +113,12 @@ func TestRunWithTimeoutUserCancelTerminatesTreeBeforeEscalating(t *testing.T) {
 }
 
 // TestRunWithTimeoutUserCancelStopsAtGracefulExit 验证宽限期的意义：
-// 协作式子进程根本不应收到 Kill。旧行为会在 context 取消时
-// 立即杀死它，从而未通过此测试。
+// 协作式子进程收到 SIGTERM 后自行退出，RunWithTimeout 应在宽限期内
+// 立即返回，而不是等满整个宽限期。
+//
+// 直接子进程退出后仍会按判据补杀整棵树（用于清理忽略 SIGTERM 的孙进程），
+// 因此对已退出的直接子进程仍会调用 Kill。这里守护的是"优雅终止必须先于
+// 任何补刀"：context 取消不得绕过 SIGTERM 直接杀进程。
 func TestRunWithTimeoutUserCancelStopsAtGracefulExit(t *testing.T) {
 	old := cancellationGracePeriod
 	cancellationGracePeriod = 3 * time.Second
@@ -123,12 +137,13 @@ func TestRunWithTimeoutUserCancelStopsAtGracefulExit(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want Canceled", err)
 	}
-	terminated, killed := child.requests()
+	terminated, _ := child.requests()
 	if !terminated {
 		t.Fatal("child was never asked to terminate gracefully")
 	}
-	if killed {
-		t.Fatal("a cooperative child must not be killed after it exited on SIGTERM")
+	ops := child.opsSnapshot()
+	if len(ops) == 0 || ops[0] != "terminate" {
+		t.Fatalf("graceful terminate must precede any kill; ops = %v", ops)
 	}
 	if elapsed >= time.Second {
 		t.Fatalf("RunWithTimeout took %s; it must return as soon as the child exits gracefully", elapsed)

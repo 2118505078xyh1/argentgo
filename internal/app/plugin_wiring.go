@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/2118505078xyh1/argentgo/internal/commands"
 	"github.com/2118505078xyh1/argentgo/internal/plugins"
 )
@@ -29,7 +32,14 @@ func pluginCommandSources(res Resolved) []commands.Source {
 	for _, bundle := range trustedPluginBundles(res) {
 		wiring := plugins.Merge([]plugins.Bundle{bundle})
 		for _, path := range wiring.Commands {
-			sources = append(sources, commands.Source{Root: path, Prefix: bundle.Name})
+			// 清单允许把命令声明为一个命令文件；而 commands.Source.Root
+			// 只接受目录（Discover 会对其调用 os.ReadDir）。把单文件
+			// 归一到所在目录，避免合法的声明被静默跳过。
+			root := path
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				root = filepath.Dir(path)
+			}
+			sources = append(sources, commands.Source{Root: root, Prefix: bundle.Name})
 		}
 	}
 	return sources

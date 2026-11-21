@@ -1,123 +1,162 @@
 package hooks
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestNeedsTrustGate(t *testing.T) {
+func TestNeedsTrustGateAllPathsRequireDigestTrust(t *testing.T) {
 	base := t.TempDir()
-	root := filepath.Join(base, "proj")
 	global := t.TempDir()
 
-	tests := []struct {
+	cases := []struct {
 		name string
-		doc  string
-		root string
-		want bool
+		path string
 	}{
-		{"文档直接位于项目根", filepath.Join(root, "hooks.json"), root, true},
-		{"文档位于项目子目录", filepath.Join(root, ".claude", "hooks.json"), root, true},
-		{"文档位于深层子目录", filepath.Join(root, "a", "b", "c", "hooks.json"), root, true},
-		{"文档等于项目根", root, root, true},
-		{"通过点路径穿越仍在根内", filepath.Join(root, "sub", "..", "hooks.json"), root, true},
-		{"通过点路径逃出根外", filepath.Join(root, "..", "..", "outside", "hooks.json"), root, false},
-		{"同级前缀更长的目录不算在内", filepath.Join(base, "project", "hooks.json"), root, false},
-		{"数字结尾的同级目录不算在内", filepath.Join(base, "proj2", "hooks.json"), root, false},
-		{"父目录不算在内", base, root, false},
-		{"用户全局路径不门控", filepath.Join(global, "hooks.json"), root, false},
-		{"用户全局路径下的同名目录也不门控", filepath.Join(global, "proj", "hooks.json"), root, false},
+		{"项目根", filepath.Join(base, "hooks.json")},
+		{"项目子目录", filepath.Join(base, ".claude", "hooks.json")},
+		{"用户全局路径", filepath.Join(global, "hooks.json")},
+		{"用户全局子目录", filepath.Join(global, "子目录", "钩子.json")},
+		{"项目外路径", filepath.Join(base, "..", "outside", "hooks.json")},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := needsTrustGate(tt.doc, tt.root); got != tt.want {
-				t.Fatalf("needsTrustGate(%q, %q) = %v, want %v", tt.doc, tt.root, got, tt.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.MkdirAll(filepath.Dir(tc.path), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(tc.path, []byte(trustedDocument), 0o644); err != nil {
+				t.Fatalf("write document: %v", err)
+			}
+			digest, err := DigestFile(tc.path)
+			if err != nil {
+				t.Fatalf("digest: %v", err)
+			}
+
+			store := NewTrustStore()
+			if needsTrustGate(tc.path, digest, store) {
+				t.Fatal("未授信的文档不应通过门控")
+			}
+			if _, err := LoadDocument(tc.path, store); !errors.Is(err, ErrUntrusted) {
+				t.Fatalf("未授信文档应被拒绝: %v", err)
+			}
+
+			store.Trust(tc.path, digest)
+			if !needsTrustGate(tc.path, digest, store) {
+				t.Fatal("已授信的文档应通过门控")
+			}
+			if _, err := LoadDocument(tc.path, store); err != nil {
+				t.Fatalf("已授信文档应加载成功: %v", err)
 			}
 		})
 	}
 }
 
-func TestNeedsTrustGateNormalizesPaths(t *testing.T) {
-	base := t.TempDir()
-	root := filepath.Join(base, "proj")
-
-	// "./"、重复的 ".." 与结尾分隔符都规范化为同一条路径。
-	messyRoot := filepath.Join(base, "tmp", "..", "proj") + string(filepath.Separator)
-	messyDoc := filepath.Join(root, "sub", "..", "sub", ".", "hooks.json")
-	if !needsTrustGate(messyDoc, messyRoot) {
-		t.Fatalf("规范化路径应识别为在根内: doc=%q root=%q", messyDoc, messyRoot)
+func TestGlobalHookRequiresTrustAndTamperingRevokesIt(t *testing.T) {
+	// 用独立的临时目录模拟用户全局配置路径；它不享有任何摘要门豁免。
+	global := filepath.Join(t.TempDir(), "user", "config", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(global), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(global, []byte(trustedDocument), 0o644); err != nil {
+		t.Fatalf("write document: %v", err)
 	}
 
-	// 混合 "/" 与平台原生分隔符必须等价。
-	mixedRoot := filepath.FromSlash(root + "/")
-	mixedDoc := filepath.FromSlash(root + "/sub/hooks.json")
-	if !needsTrustGate(mixedDoc, mixedRoot) {
-		t.Fatalf("混合分隔符应识别为在根内: doc=%q root=%q", mixedDoc, mixedRoot)
+	store := NewTrustStore()
+	if _, err := LoadDocument(global, store); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("全局钩子未授信时应被拒绝: %v", err)
+	}
+	if _, err := store.TrustFile(global); err != nil {
+		t.Fatalf("trust file: %v", err)
+	}
+	if _, err := LoadDocument(global, store); err != nil {
+		t.Fatalf("全局钩子授信后应加载成功: %v", err)
 	}
 
-	// 相对路径相对当前目录解析后再比较。
-	if !needsTrustGate(filepath.Join("sub", "hooks.json"), ".") {
-		t.Fatal("当前目录下的相对文档应在根内")
+	// 篡改内容会改变摘要，全局路径同样失效。
+	if err := os.WriteFile(global, []byte(trustedDocument+" "), 0o644); err != nil {
+		t.Fatalf("tamper: %v", err)
 	}
-	if needsTrustGate(filepath.Join("..", "outside", "hooks.json"), ".") {
-		t.Fatal("逃出当前目录的相对文档不应在根内")
+	if _, err := LoadDocument(global, store); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("篡改后的全局钩子应被拒绝: %v", err)
 	}
 }
 
-func TestNeedsTrustGateCJKPaths(t *testing.T) {
-	base := t.TempDir()
-	global := t.TempDir()
-	root := filepath.Join(base, "项目", "工作区")
-
-	if !needsTrustGate(filepath.Join(root, "子目录", "钩子.json"), root) {
-		t.Fatal("CJK 子目录下的文档应需要门控")
+func TestNeedsTrustGateNilStoreTrustsNothing(t *testing.T) {
+	path := writeHookDocument(t, trustedDocument)
+	digest, err := DigestFile(path)
+	if err != nil {
+		t.Fatalf("digest: %v", err)
 	}
-	if needsTrustGate(filepath.Join(global, "用户", "配置", "钩子.json"), root) {
-		t.Fatal("CJK 用户全局路径不应需要门控")
-	}
-	// "工作区二" 与 "工作区" 仅多一个汉字，却应是完全不同的目录，
-	// 证明比较基于完整路径分量与分隔符边界，而非裸字符串前缀。
-	if needsTrustGate(filepath.Join(base, "项目", "工作区二", "钩子.json"), root) {
-		t.Fatal("CJK 同级前缀目录不应被误判为在根内")
-	}
-	if needsTrustGate(filepath.Join(base, "项目", "钩子.json"), root) {
-		t.Fatal("CJK 父目录不应被误判为在根内")
+	if needsTrustGate(path, digest, nil) {
+		t.Fatal("nil 信任存储不应授信任何文档")
 	}
 }
 
-func TestNeedsTrustGateCaseFoldingFollowsFilesystem(t *testing.T) {
-	base := t.TempDir()
-	root := filepath.Join(base, "Project")
-	doc := filepath.Join(base, "project", "hooks.json")
+func TestTrustStoreCaseVariantsGrantOnce(t *testing.T) {
+	if filepath.Separator != '\\' {
+		t.Skip("仅 Windows 文件系统不区分大小写")
+	}
 
-	// Windows 文件系统不区分大小写，其他平台区分。
-	want := filepath.Separator == '\\'
-	if got := needsTrustGate(doc, root); got != want {
-		t.Fatalf("needsTrustGate(%q, %q) = %v, want %v", doc, root, got, want)
+	store := NewTrustStore()
+	trustedPath := filepath.Join(t.TempDir(), "MyHooks", "HOOKS.json")
+	const digest = "ABC123"
+
+	store.Trust(trustedPath, digest)
+	variants := []string{
+		strings.ToLower(trustedPath),
+		strings.ToUpper(trustedPath),
+		strings.ReplaceAll(strings.ToUpper(trustedPath), `\`, "/"),
+	}
+	for _, variant := range variants {
+		if !store.IsTrusted(variant, digest) {
+			t.Errorf("同一文件的大小写/分隔符变体应命中同一授权: %q", variant)
+		}
+		if store.IsTrusted(variant, "other") {
+			t.Errorf("不同摘要不应命中授权: %q", variant)
+		}
+	}
+	if got := len(store.Entries()); got != 1 {
+		t.Fatalf("不同大小写路径应只占一个信任键, got %d entries: %+v", got, store.Entries())
 	}
 }
 
-func TestNeedsTrustGateEmptyInputs(t *testing.T) {
-	base := t.TempDir()
-	root := filepath.Join(base, "proj")
-	doc := filepath.Join(root, "hooks.json")
-
-	tests := []struct {
-		name string
-		doc  string
-		root string
-	}{
-		{"空文档路径", "", root},
-		{"仅空白的文档路径", "  \t ", root},
-		{"空项目根", doc, ""},
-		{"仅空白的项目根", doc, "  "},
-		{"两者都为空", "", ""},
+func TestLoadDocumentCaseVariantNeedsSingleTrust(t *testing.T) {
+	if filepath.Separator != '\\' {
+		t.Skip("仅 Windows 文件系统不区分大小写")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if needsTrustGate(tt.doc, tt.root) {
-				t.Fatalf("空输入不应需要门控: doc=%q root=%q", tt.doc, tt.root)
-			}
-		})
+
+	path := filepath.Join(t.TempDir(), "MyHooks", "HOOKS.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(trustedDocument), 0o644); err != nil {
+		t.Fatalf("write document: %v", err)
+	}
+
+	store := NewTrustStore()
+	// 用一种大小写授信，再用另一种大小写加载：应命中同一条授权。
+	store.Trust(strings.ToUpper(path), Digest([]byte(trustedDocument)))
+	if _, err := LoadDocument(strings.ToLower(path), store); err != nil {
+		t.Fatalf("大小写变体应复用已有授信: %v", err)
+	}
+}
+
+func TestNormalizePathFoldsCaseOnlyOnWindows(t *testing.T) {
+	const mixed = `C:\Work\HOOKS.json`
+	want := "C:/Work/HOOKS.json"
+	if filepath.Separator == '\\' {
+		want = "c:/work/hooks.json"
+	}
+	if got := normalizePath(mixed); got != want {
+		t.Fatalf("normalizePath(%q) = %q, want %q", mixed, got, want)
+	}
+
+	// 非 ASCII 路径不受大小写折叠影响。
+	const cjk = `配置\钩子.json`
+	if got, want := normalizePath(cjk), "配置/钩子.json"; got != want {
+		t.Fatalf("normalizePath(%q) = %q, want %q", cjk, got, want)
 	}
 }

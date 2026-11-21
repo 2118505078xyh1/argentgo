@@ -5,7 +5,9 @@ package proc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -15,9 +17,10 @@ import (
 )
 
 const (
-	graceHelperOnEnv   = "ARGENT_PROC_GRACE_HELPER"
-	graceHelperModeEnv = "ARGENT_PROC_GRACE_MODE"
-	graceHelperFileEnv = "ARGENT_PROC_GRACE_FILE"
+	graceHelperOnEnv        = "ARGENT_PROC_GRACE_HELPER"
+	graceHelperModeEnv      = "ARGENT_PROC_GRACE_MODE"
+	graceHelperFileEnv      = "ARGENT_PROC_GRACE_FILE"
+	graceHelperGrandFileEnv = "ARGENT_PROC_GRACE_GRAND_FILE"
 )
 
 // TestProcGraceHelper 是一个重新执行的测试二进制，扮演被测的子进程。
@@ -47,6 +50,33 @@ func TestProcGraceHelper(t *testing.T) {
 	case "ignore":
 		signal.Ignore(syscall.SIGTERM)
 		_, _ = f.WriteString("READY\n")
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	case "spawn-ignore-grandchild":
+		// 直接子进程派生一个忽略 SIGTERM 的孙进程，二者共用进程组。
+		// 直接子进程自己在 SIGTERM 下优雅退出，触发"宽限内退出即返回"
+		// 的旧分支；孙进程若无人补刀就会成为孤儿。
+		gc := exec.Command(os.Args[0], "-test.run=^TestProcGraceHelper$")
+		gc.Env = append(os.Environ(),
+			graceHelperOnEnv+"=1",
+			graceHelperModeEnv+"=orphan-grandchild",
+			graceHelperFileEnv+"="+os.Getenv(graceHelperGrandFileEnv),
+		)
+		if err := gc.Start(); err != nil {
+			os.Exit(2)
+		}
+		// 不等待孙进程：直接子进程很快退出，孙进程会被 init 接管。
+		_ = gc.Process.Release()
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGTERM)
+		_, _ = f.WriteString("READY\n")
+		<-ch
+		_, _ = f.WriteString("GRACEFUL\n")
+		os.Exit(0)
+	case "orphan-grandchild":
+		// 孙进程忽略 SIGTERM，报告 PID 后长睡。只有 SIGKILL 能终止它。
+		signal.Ignore(syscall.SIGTERM)
+		_, _ = fmt.Fprintf(f, "READY %d\n", os.Getpid())
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	default:
@@ -187,4 +217,115 @@ func TestTimeoutKillsImmediatelyWithoutGraceWait(t *testing.T) {
 	if got.elapsed >= time.Second {
 		t.Fatalf("Run took %s; the timeout path must not wait for the grace period", got.elapsed)
 	}
+}
+
+// TestCancelKillsOrphanGrandchildThatIgnoresSIGTERM 守护审计发现的孤儿缺口：
+// 用户取消先向整棵树发 SIGTERM，直接子进程在宽限期内优雅退出，但孙进程
+// 忽略 SIGTERM。若看到直接子进程退出就返回而不补刀，孙进程会残留为孤儿。
+// 修复后应按判据升级为 killTree 清理整棵树。
+func TestCancelKillsOrphanGrandchildThatIgnoresSIGTERM(t *testing.T) {
+	setCancellationGrace(t, 400*time.Millisecond)
+
+	dir := t.TempDir()
+	childLog := filepath.Join(dir, "child.log")
+	grandLog := filepath.Join(dir, "grandchild.log")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := Command{
+		Path: os.Args[0],
+		Args: []string{"-test.run=^TestProcGraceHelper$"},
+		Env: []string{
+			graceHelperOnEnv + "=1",
+			graceHelperModeEnv + "=spawn-ignore-grandchild",
+			graceHelperFileEnv + "=" + childLog,
+			graceHelperGrandFileEnv + "=" + grandLog,
+		},
+		KillTree: true,
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(ctx, cmd)
+		done <- err
+	}()
+
+	// 等直接子进程与孙进程都就绪再取消，确保 SIGTERM 到达时孙进程
+	// 已经装好忽略处理器，且 PID 已被报告。
+	deadline := time.Now().Add(5 * time.Second)
+	var grandPID int
+	for {
+		cb, _ := os.ReadFile(childLog)
+		gb, _ := os.ReadFile(grandLog)
+		var ready string
+		n, scanErr := fmt.Sscanf(string(gb), "%s %d", &ready, &grandPID)
+		if strings.Contains(string(cb), "READY") && scanErr == nil && n == 2 && ready == "READY" && grandPID > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("helpers never became ready (child=%q grand=%q)", cb, gb)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// 兜底清理：即便断言失败也不把孙进程留在系统里。
+	t.Cleanup(func() {
+		if grandPID > 0 {
+			_ = syscall.Kill(grandPID, syscall.SIGKILL)
+		}
+	})
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
+
+	cb, _ := os.ReadFile(childLog)
+	if !strings.Contains(string(cb), "GRACEFUL") {
+		t.Fatalf("direct child did not exit gracefully on SIGTERM: %q", cb)
+	}
+	if !grandchildGone(grandPID) {
+		t.Fatalf("orphan grandchild pid %d survived cancellation; killTree was not applied after the direct child exited", grandPID)
+	}
+}
+
+// grandchildGone 判断孙进程是否已消失。Linux 上被 SIGKILL 的孤立进程会
+// 成为 init 的僵尸，kill(pid, 0) 仍返回成功，因此优先读 /proc/<pid>/stat
+// 的进程状态：Z/X 视为已终止；无 /proc 的平台回退到信号 0 探测。
+func grandchildGone(pid int) bool {
+	if pid <= 0 {
+		return true
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if !grandchildAlive(pid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func grandchildAlive(pid int) bool {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err == nil {
+		// stat 形如 "123 (comm) S ..."；comm 可能含空格，从最后一个 ')' 之后取状态。
+		if i := strings.LastIndex(string(stat), ")"); i >= 0 && i+2 < len(stat) {
+			switch string(stat)[i+2] {
+			case 'Z', 'X', 'x':
+				return false
+			}
+		}
+		return true
+	}
+	err = syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

@@ -37,6 +37,12 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsShow(app, store, args[1])
+	case "checkout":
+		if len(args) < 3 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsCheckout(app, args[1], args[2])
 	case "fidelity":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -134,6 +140,29 @@ func sessionsList(app App, store SessionStore) int {
 	for _, info := range infos {
 		fmt.Fprintf(app.IO.Out, "%s\t%s\t%s\n", info.ID, formatTime(info.Updated), info.Title)
 	}
+	return 0
+}
+
+// sessionsCheckout 打开会话并把活动叶节点切换到指定记录。活动指针仅存在于
+// 内存中，因此命令本身只报告切换结果；后续使用该句柄（例如 --at 恢复流程中的
+// OpenSessionAt）追加的消息会挂到这条分支，而不复制既有历史。
+func sessionsCheckout(app App, id, entryID string) int {
+	store, err := session.Open(app.sessionDir())
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	sess, err := store.OpenSessionAt(id, entryID)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	leaf, ok := sess.ActiveLeafID()
+	if !ok {
+		fmt.Fprintln(app.IO.Err, "error: session has no active record")
+		return 1
+	}
+	fmt.Fprintf(app.IO.Out, "checked out %s at %s\n", sess.ID(), leaf)
 	return 0
 }
 
@@ -468,6 +497,7 @@ func formatTime(ts time.Time) string {
 func sessionsUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argentgo sessions list
        argentgo sessions show <id>
+       argentgo sessions checkout <id> <entry>
        argentgo sessions fidelity <id>
        argentgo sessions rm <id>
        argentgo sessions find <keyword>

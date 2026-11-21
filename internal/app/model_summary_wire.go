@@ -7,11 +7,36 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 // modelSummaryTimeout 是模型摘要调用的硬上限。压缩发生在上下文压力最高时，
 // 超时立即回落抽取式，绝不阻塞主循环。
 const modelSummaryTimeout = 3 * time.Second
+
+// applyModelSummaryWireWithLocalTrim 是模型摘要接线的「本地裁剪优先」包装。
+// 它在 applyModelSummaryWire 之前插入一次纯估算：当 localTrimFirst opt-in 开启且
+// 被丢弃条目的 head+tail 裁剪已省够时，直接返回抽取式摘要，跳过模型调用（省一次成本）。
+//
+// dropped 是压缩切点之前的被丢弃条目；raw 是合并配置，用于读取 opt-in 与裁剪预算。
+// 默认（opt-in 关闭、model_summary 关闭、省不够）一律委托 applyModelSummaryWire，
+// 因此默认帧 / 事件 / 摘要逐字节不变。估算只读 dropped，不修改入参，可并发调用。
+func applyModelSummaryWireWithLocalTrim(
+	extractive string,
+	dropped []session.Entry,
+	raw map[string]any,
+	reg *OptInRegistry,
+	ctx context.Context,
+	chatter llm.Chatter,
+	summaryModel string,
+	failures, nextSteps, files []string,
+	emit func(agent.Event),
+) string {
+	if shouldSkipModelSummaryForLocalTrim(dropped, raw, reg) {
+		return extractive
+	}
+	return applyModelSummaryWire(extractive, reg, ctx, chatter, summaryModel, failures, nextSteps, files, emit)
+}
 
 // applyModelSummaryWire 是模型摘要（opt-in model_summary）在压缩点的统一接线点。
 //

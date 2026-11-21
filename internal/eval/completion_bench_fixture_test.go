@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -178,5 +180,185 @@ func TestCompletionBenchNegativeSharesSeedAndCheck(t *testing.T) {
 	}
 	if reflect.DeepEqual(b2.Provider, b5.Provider) {
 		t.Error("B5 script must differ from B2 (it renames only the definition)")
+	}
+}
+
+// TestCompletionBenchScriptNeedles 锁定 B3/B4/B6 的关键脚本期望 needle：
+// B3 必须回吐 outline 摘要（"outline:"），B4 必须回吐歧义错误文本
+// （"appears 2 times"），B6 必须回吐过期锚点错误（"stale anchor"）。
+//
+// 这些 needle 是完成率 harness 判别力的来源。一旦它们从脚本期望里消失，
+// 相应场景的 expect_request_contains 就不再校验 harness 是否真的产出了这些信息，
+// 完成率也就失去对这些故障的敏感性。此测试是纯静态断言，零 API 成本。
+func TestCompletionBenchScriptNeedles(t *testing.T) {
+	scenarios, err := Load(benchFixturePath(t))
+	if err != nil {
+		t.Fatalf("Load(completion_bench.json): %v", err)
+	}
+	if len(scenarios) != 6 {
+		t.Fatalf("scenario count = %d, want 6", len(scenarios))
+	}
+
+	// 索引与 B1-B6 一一对应：B3=2、B4=3、B6=5。
+	want := map[int][]string{
+		2: {"outline:"},
+		3: {"appears 2 times"},
+		5: {"stale anchor"},
+	}
+	for idx, needles := range want {
+		var all []string
+		for _, turn := range scenarios[idx].Provider {
+			all = append(all, turn.ExpectRequestContains...)
+		}
+		for _, needle := range needles {
+			found := false
+			for _, got := range all {
+				if strings.Contains(got, needle) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s: expect_request_contains must include %q, got %v",
+					scenarios[idx].Name, needle, all)
+			}
+		}
+	}
+}
+
+// compareResultsFromPass 把通过/失败序列构造为 Result 向量，供 compare 测试使用。
+func compareResultsFromPass(passed []bool) []Result {
+	out := make([]Result, len(passed))
+	for i, p := range passed {
+		out[i] = Result{Index: i + 1, Name: fmt.Sprintf("s%d", i+1), Passed: p}
+	}
+	return out
+}
+
+// TestCompareResultsVerdictSnapshot 用固定的 30 对向量锁定 verdict 文本格式：
+// 前 10 个场景从失败翻转为通过（差值 +1），其余不变，配对均值差为正且 95%CI 不跨零，
+// 应给出"显著提升"结论。期望值由 FormatDeltaReport 与固定 verdict 行拼成，
+// 从而把 CompareResults 的"原语复用 + 结论选择"整体锁进快照。
+func TestCompareResultsVerdictSnapshot(t *testing.T) {
+	basePass := make([]bool, 30)
+	candPass := make([]bool, 30)
+	for i := range basePass {
+		basePass[i] = i >= 10 // 前 10 个失败，后 20 个通过
+		candPass[i] = true    // 候选全部通过
+	}
+	baseline := compareResultsFromPass(basePass)
+	candidate := compareResultsFromPass(candPass)
+
+	got, err := CompareResults(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareResults: %v", err)
+	}
+
+	baseMetrics := make([]float64, len(basePass))
+	candMetrics := make([]float64, len(candPass))
+	for i := range basePass {
+		baseMetrics[i] = passedMetric(Result{Passed: basePass[i]})
+		candMetrics[i] = passedMetric(Result{Passed: candPass[i]})
+	}
+	delta, err := PairedDelta(baseMetrics, candMetrics)
+	if err != nil {
+		t.Fatalf("PairedDelta: %v", err)
+	}
+	want := FormatDeltaReport(compareReportName, Delta{N: delta.N}, delta) +
+		"verdict: 显著提升：候选完成率更高\n"
+	if got != want {
+		t.Fatalf("CompareResults() mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	for _, field := range []string{"配对诊断报告", "95%CI", "判定: 显著=true, 方向=正向", "verdict: 显著提升"} {
+		if !strings.Contains(got, field) {
+			t.Errorf("verdict missing %q:\n%s", field, got)
+		}
+	}
+}
+
+// TestCompareResultsSingleFlipNotSignificant 锁定背景约束：6 场景单翻转在统计上
+// 几乎永不显著，必须输出"样本不足 / 不显著"，且绝不给出提升结论。
+func TestCompareResultsSingleFlipNotSignificant(t *testing.T) {
+	baseline := compareResultsFromPass([]bool{false, true, true, true, true, true})
+	candidate := compareResultsFromPass([]bool{true, true, true, true, true, true}) // 仅翻转第 1 个
+
+	// 先直接验证原始 Delta 确实不显著。
+	d, err := PairedDelta([]float64{0, 1, 1, 1, 1, 1}, []float64{1, 1, 1, 1, 1, 1})
+	if err != nil {
+		t.Fatalf("PairedDelta: %v", err)
+	}
+	if ClassifyDelta(d, 0).Significant {
+		t.Fatalf("single flip is unexpectedly significant: %+v", d)
+	}
+
+	got, err := CompareResults(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareResults: %v", err)
+	}
+	for _, want := range []string{"样本不足", "n=6 < 30", "不显著"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("verdict missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"显著提升", "显著正向", "候选完成率更高"} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("single flip must not claim improvement, but verdict contains %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+// TestCompareResultsInsufficientOverridesSignificant 证明样本不足的硬约束会覆盖
+// 统计显著性：6 场景全部翻转时原始 CI 显著为正，但 verdict 仍必须是"样本不足"。
+func TestCompareResultsInsufficientOverridesSignificant(t *testing.T) {
+	baseline := compareResultsFromPass([]bool{false, false, false, false, false, false})
+	candidate := compareResultsFromPass([]bool{true, true, true, true, true, true})
+
+	got, err := CompareResults(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareResults: %v", err)
+	}
+	verdictLine := ""
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if strings.HasPrefix(line, "verdict:") {
+			verdictLine = line
+		}
+	}
+	if verdictLine == "" {
+		t.Fatalf("no verdict line in:\n%s", got)
+	}
+	if !strings.Contains(verdictLine, "样本不足") || !strings.Contains(verdictLine, "不能判定候选更优") {
+		t.Fatalf("verdict line must mark insufficient: %q", verdictLine)
+	}
+	if strings.Contains(verdictLine, "提升") || strings.Contains(verdictLine, "显著正向") {
+		t.Fatalf("insufficient verdict must not claim improvement: %q", verdictLine)
+	}
+}
+
+// TestCompareResultsErrorsAndPurity 覆盖非法向量、纯函数性与 n<2 的边界。
+func TestCompareResultsErrorsAndPurity(t *testing.T) {
+	if _, err := CompareResults(nil, nil); !errors.Is(err, ErrCompareVectors) {
+		t.Fatalf("empty vectors error = %v, want ErrCompareVectors", err)
+	}
+	if _, err := CompareResults(compareResultsFromPass([]bool{true}),
+		compareResultsFromPass([]bool{true, false})); !errors.Is(err, ErrCompareVectors) {
+		t.Fatalf("unequal vectors error = %v, want ErrCompareVectors", err)
+	}
+
+	// n=1 无法估计方差，但应给出"样本不足"而非报错。
+	one, err := CompareResults(compareResultsFromPass([]bool{false}),
+		compareResultsFromPass([]bool{true}))
+	if err != nil || !strings.Contains(one, "样本不足") {
+		t.Fatalf("n=1 verdict = %q, err = %v", one, err)
+	}
+
+	base := compareResultsFromPass([]bool{true, false, true, false})
+	cand := compareResultsFromPass([]bool{true, true, true, false})
+	baseCopy := append([]Result(nil), base...)
+	candCopy := append([]Result(nil), cand...)
+	if _, err := CompareResults(base, cand); err != nil {
+		t.Fatalf("CompareResults: %v", err)
+	}
+	if !reflect.DeepEqual(base, baseCopy) || !reflect.DeepEqual(cand, candCopy) {
+		t.Fatal("CompareResults mutated its inputs")
 	}
 }

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	systemTemplate = `You are argent, a concise coding assistant working on the user's machine.
+	systemTemplate = `You are argentgo, a concise coding assistant working on the user's machine.
 Working directory: %s
 Use the available tools to inspect and change files. Read before writing, batch independent calls, and stop once the request is satisfied.`
 

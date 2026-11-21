@@ -12,7 +12,7 @@ func writeUsage(w io.Writer) {
        argentgo <command> [args]
 
 commands:
-  sessions list|show|fidelity|rm|find|discard-attempt  inspect stored sessions
+  sessions list|show|fidelity|checkout|rm|find|discard-attempt  inspect stored sessions
   replay <id>                   print a stored session transcript
   usage                         summarise turns and tokens per session
   context                       approximate token breakdown of the model context
@@ -74,6 +74,7 @@ flags:
       --trust-project           trust project-local resources for this run
       --session <id>            resume the session with this id
       --session-id <id>         alias for --session
+      --at <entry>              resume --session at this entry id
       --resume                  resume the most recent session
       --undo                    restore files from the latest checkpoint and exit
       --retry                   fork the session at its latest checkpoint

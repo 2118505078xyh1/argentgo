@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,7 +18,49 @@ const (
 	storeVersion  = 1
 	storeFileMode = 0o600
 	storeDirMode  = 0o700
+
+	// tokenSealPrefix 标记该令牌值已被平台加密层封装，便于识别与迁移。
+	// 无此前缀的值视为旧明文，读取时照常使用，写回时自动升级为加密格式。
+	tokenSealPrefix = "dpapi:v1:"
 )
+
+// tokenEncrypt/tokenDecrypt 由平台特定的 token_crypt_*.go 提供：Windows 下用 DPAPI
+// 封装，其他平台为明文直通。用变量间接调用便于测试注入降级（加密失败）场景。
+var (
+	tokenEncrypt = encryptToken
+	tokenDecrypt = decryptToken
+
+	// warnf 输出加密降级等警告；默认写标准错误日志，测试中可替换。
+	warnf = func(format string, args ...any) { log.Printf(format, args...) }
+)
+
+// sealToken 在写盘前加密令牌；加密失败（如 DPAPI 在非交互会话不可用）时回退明文
+// 并告警，避免让整个登录流程因为加密问题而失败。
+func sealToken(plain string, encrypt func(string) (string, error), warn func(string, ...any)) string {
+	if plain == "" {
+		return ""
+	}
+	sealed, err := encrypt(plain)
+	if err != nil {
+		warn("auth: 令牌加密失败，已回退明文存储: %v", err)
+		return plain
+	}
+	return sealed
+}
+
+// unsealToken 在读盘后解密令牌；解密失败时空出该秘密，避免把密文误当作 bearer 发给 provider。
+// 无 tokenSealPrefix 前缀的历史明文由 decryptToken 原样返回，实现向后兼容。
+func unsealToken(stored string, decrypt func(string) (string, error), warn func(string, ...any)) string {
+	if stored == "" {
+		return ""
+	}
+	plain, err := decrypt(stored)
+	if err != nil {
+		warn("auth: 令牌解密失败，已忽略该秘密: %v", err)
+		return ""
+	}
+	return plain
+}
 
 // fileToken 是磁盘形态：Unix 时间戳使零值不出现在文件中，而非序列化第 1 年。
 // 而非序列化第 1 年。
@@ -188,8 +231,8 @@ func (s *Store) load() ([]Token, error) {
 		token := Token{
 			Provider: entry.Provider,
 			Kind:     entry.Kind,
-			Access:   entry.Access,
-			Refresh:  entry.Refresh,
+			Access:   unsealToken(entry.Access, tokenDecrypt, warnf),
+			Refresh:  unsealToken(entry.Refresh, tokenDecrypt, warnf),
 			Account:  entry.Account,
 		}
 		if entry.ExpiresAt > 0 {
@@ -209,8 +252,8 @@ func (s *Store) save(tokens []Token) error {
 		entry := fileToken{
 			Provider: token.Provider,
 			Kind:     token.Kind,
-			Access:   token.Access,
-			Refresh:  token.Refresh,
+			Access:   sealToken(token.Access, tokenEncrypt, warnf),
+			Refresh:  sealToken(token.Refresh, tokenEncrypt, warnf),
 			Account:  token.Account,
 		}
 		if !token.ExpiresAt.IsZero() {

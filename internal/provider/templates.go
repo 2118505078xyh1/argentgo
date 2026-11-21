@@ -1,10 +1,7 @@
 // Package provider 保存内置 provider 模板：每个供应商在哪里、它讲哪种线上协议，以及默认使用哪个模型。
-// 每个供应商在哪里、它讲哪种线上协议，以及默认使用哪个模型。
 //
-// 模板是数据，镜像 Rust 实现中的 crates/provider/providers.json，但硬编码使 Go 二进制无需 asset 文件。该表只描述端点；凭据由调用方通过 Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数从环境读取。
-// 实现，但硬编码使 Go 二进制无需 asset 文件。该表只描述端点；凭据由
-// 环境读取，由调用方通过
-// Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数。
+// 模板是数据，镜像 Rust 实现中的 crates/provider/providers.json，但硬编码使 Go 二进制无需 asset 文件。
+// 该表只描述端点；凭据由调用方通过 Template.APIKeyEnv / Template.APIKeyEnvs 和 Auth 辅助函数从环境读取。
 package provider
 
 import "strings"
@@ -31,21 +28,15 @@ type Template struct {
 	// BaseURL 是 API 根；llm 客户端会追加自己的路径。
 	BaseURL string
 	// APIKeyEnv 命名保存 key 的旧版单一环境变量。空表示该端点通常无需认证（本地服务器）。
-	// 空表示该端点通常无需认证（本地服务器）。
 	APIKeyEnv string
-	// APIKeyEnvs 按优先级命名额外的凭据来源：
 	// APIKeyEnvs 按优先级命名额外的凭据来源：第一个非空值胜出。Auth 为兼容性先尝试 APIKeyEnv，再尝试这些名称。
-	// 再尝试这些名称。
 	APIKeyEnvs []string
-	// NoAuth 完全跳过凭据查找且不发送认证请求头。
 	// NoAuth 完全跳过凭据查找且不发送认证请求头。它建模上游 provider 选项中的 apiKey:false。
 	NoAuth bool
 	// DefaultModel 在用户未指定模型时使用。
 	DefaultModel string
-	// CacheSupport 报告该 provider 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在具有显式稳定前缀表示的协议上发出它们，且本地/兼容端点默认无缓存。
-	// 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在
-	// 具有显式稳定前缀表示的协议上发出它们，且
-	// 本地/兼容端点默认无缓存。
+	// CacheSupport 报告该 provider 至少在一个协议上支持提示缓存。它不强制线上标记：llm 仍只在
+	// 具有显式稳定前缀表示的协议上发出它们，且本地/兼容端点默认无缓存。
 	CacheSupport bool
 }
 
@@ -230,13 +221,11 @@ func newDefaultTemplates() *templateRegistry {
 }
 
 // List 按展示顺序返回内置模板。切片是副本，修改它不影响该表。
-// 副本，修改它不影响该表。
 func List() []Template {
 	return defaultTemplates.Templates()
 }
 
 // Resolve 按规范名称或别名不区分大小写查找模板。第二个结果报告该名称是否已知。
-// 第二个结果报告该名称是否已知。
 func Resolve(name string) (Template, bool) {
 	key := strings.ToLower(strings.TrimSpace(name))
 	if canonical, ok := aliases[key]; ok {
@@ -250,10 +239,8 @@ var modelSeparators = strings.NewReplacer(
 	"\u2014", "-", "\u2212", "-", "_", "-", " ", "-",
 )
 
-// NormalizeModel 跨模板规范化模型 id：去掉首尾空白，unicode 破折号/下划线变为 '-'，重复分隔符折叠，内置默认值的大小写变体解析回该默认值的规范拼写。未知 id 保持自己的大小写，
-// 去掉首尾空白，unicode 破折号/下划线变为 '-'，重复
-// 分隔符折叠，内置默认值的大小写变体解析回
-// 该默认值的规范拼写。未知 id 保持自己的大小写，
+// NormalizeModel 跨模板规范化模型 id：去掉首尾空白，unicode 破折号/下划线变为 '-'，重复分隔符折叠，
+// 内置默认值的大小写变体解析回该默认值的规范拼写。未知 id 保持自己的大小写，
 // 包括 "anthropic/claude-sonnet-4.5" 这样的供应商前缀。
 func NormalizeModel(id string) string {
 	value := modelSeparators.Replace(strings.TrimSpace(id))
@@ -273,8 +260,7 @@ func NormalizeModel(id string) string {
 }
 
 // Model 返回规范化后的覆盖值，或 override 为空时返回模板的规范默认值。
-// app/cli 中的调用方可以使用这个钩子而无需
-// Model 返回规范化后的覆盖值，或 override 为空时返回模板的规范默认值。app/cli 中的调用方可以使用这个钩子而无需 provider 包了解 config 或 profiles。
+// app/cli 中的调用方可以使用这个钩子而无需 provider 包了解 config 或 profiles。
 func (t Template) Model(override string) string {
 	if strings.TrimSpace(override) == "" {
 		return NormalizeModel(t.DefaultModel)

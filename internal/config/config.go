@@ -123,6 +123,13 @@ type Config struct {
 	Providers map[string]Provider
 	// Sources 列出被合并的配置文件，优先级从低到高。
 	Sources []string
+	// BaseURLSource / APIKeySource 记录顶层生效值来自哪一层。
+	// app.Resolve 用它们判断端点是否被未受信任的项目文件改写。
+	BaseURLSource ValueSource
+	APIKeySource  ValueSource
+	// ProviderSources 以小写提供方名为键，记录 providers.<name> 下
+	// baseURL / apiKey 覆盖值的来源层。
+	ProviderSources map[string]SettingSources
 	// Raw 是合并后的 JSON 树，包含未知键。
 	Raw map[string]any
 	// CWD 是解析此配置时所在的工作区。
@@ -194,9 +201,14 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 
 	home := homeDir(env)
 	tree := defaults(cwd)
+	// sourceState 与文件树并行追踪每个安全敏感设置的来源层，使调用方
+	// 能区分"用户的全局配置/环境变量"与"项目文件写下的端点覆盖"。
+	source := newSourceState()
+	prev := snapshotValues(tree)
 	sources := make([]string, 0, 3)
 	warn := func(format string, args ...any) { log.Printf(format, args...) }
-	for _, file := range configFiles(cwd, home) {
+	files := configFiles(cwd, home)
+	for i, file := range files {
 		overlay, err := readConfig(file, env, warn)
 		if err != nil {
 			return Config{}, err
@@ -205,6 +217,14 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 			continue
 		}
 		mergeTree(tree, overlay)
+		// configFiles 的第 0 项是用户全局配置，其余是项目级配置。
+		layer := ValueSourceProject
+		if i == 0 {
+			layer = ValueSourceGlobal
+		}
+		cur := snapshotValues(tree)
+		source.observe(prev, cur, layer)
+		prev = cur
 		sources = append(sources, file)
 	}
 
@@ -224,7 +244,12 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	if profile != "" {
 		profiles := profilesFrom(tree)
 		if overlay, ok := lookupFold(profiles, profile); ok {
+			// profile 的定义可能来自项目文件；把它的出处传递下去，
+			// 防止项目通过 profile 改写端点来绕过信任检查。
 			mergeTree(tree, overlay)
+			cur := snapshotValues(tree)
+			source.observe(prev, cur, source.profileLayer(profile))
+			prev = cur
 		} else if len(profiles) > 0 {
 			return Config{}, fmt.Errorf("config: unknown profile %q", profile)
 		}
@@ -233,11 +258,20 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	if err := applyEnv(tree, env); err != nil {
 		return Config{}, err
 	}
+	cur := snapshotValues(tree)
+	source.observe(prev, cur, ValueSourceEnv)
+	prev = cur
 	if len(overrides) > 0 {
 		mergeTree(tree, overrides)
+		cur = snapshotValues(tree)
+		source.observe(prev, cur, ValueSourceOverride)
+		prev = cur
 	}
 
 	cfg := decode(tree, cwd, home, sources)
+	cfg.BaseURLSource = source.baseURL
+	cfg.APIKeySource = source.apiKey
+	cfg.ProviderSources = source.providers
 	// 对 fail-closed 诊断摘要报告的每一项不变量，都在加载时 fail closed。
 	// 让 Load、Diagnostics（doctor）和 Validate 共享同一事实来源，
 	// 这样不安全的配置不会在一条路径上被接受，

@@ -379,7 +379,7 @@ func (c *Callback) Wait(ctx context.Context, state string) (string, error) {
 			return
 		}
 		writePage(writer, http.StatusOK, "Authorization complete",
-			"You can close this window and return to argent.")
+			"You can close this window and return to argentgo.")
 		deliver(result{code: code})
 	})
 
@@ -428,7 +428,7 @@ func WaitCallbackState(ctx context.Context, addr, state string) (string, error) 
 func writePage(writer http.ResponseWriter, status int, title, message string) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(status)
-	fmt.Fprintf(writer, `<!doctype html><meta charset="utf-8"><title>argent</title>`+
+	fmt.Fprintf(writer, `<!doctype html><meta charset="utf-8"><title>argentgo</title>`+
 		`<body style="font-family:system-ui;padding:3rem"><h1>%s</h1><p>%s</p>`,
 		html.EscapeString(title), html.EscapeString(message))
 }

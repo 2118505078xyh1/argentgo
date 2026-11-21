@@ -282,8 +282,10 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// 归档禁用时为空操作。
 	// 模型摘要（opt-in）在归档之后、视图镜像之前应用，确保归档 notice 始终位于
 	// 权威内容里；默认关闭时 applyModelSummaryWire 原样返回，逐字节不变。
-	compaction.Summary = applyModelSummaryWire(compaction.Summary, c.reg, c.ctx, c.chatter,
-		c.summaryModel, compaction.Failures, compaction.NextSteps, compaction.Files, c.emit)
+	// 本地裁剪优先（opt-in 默认关）在模型调用前估算 dropped 条目的裁剪收益，
+	// 已省够时直接跳过模型摘要，省一次模型成本。
+	compaction.Summary = applyModelSummaryWireWithLocalTrim(compaction.Summary, entries[:start], c.res.Cfg.Raw, c.reg,
+		c.ctx, c.chatter, c.summaryModel, compaction.Failures, compaction.NextSteps, compaction.Files, c.emit)
 	out[0].Content = compaction.Summary
 	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
 		return messages, false
@@ -407,6 +409,27 @@ func enrichCompaction(compaction *session.Compaction, evidence agent.CompactionE
 	compaction.Summary = rebuildCompactionSummary(*compaction, dropped, orig, reg)
 }
 
+// noEvidenceFidelityEnabled 报告「无证据也走统一压缩管线」是否开启。启用后，
+// maybeAutoCompact 在没有运行时失败/后续步骤时也会以空证据调用 compactWithEvidence，
+// 从而享受保真告警、Goal/Tool activity 恢复等压缩 wire；默认关闭时保持原来的
+// sess.Compact 直接路径逐字节不变。可接受的配置形式（其他任何形式视为关闭）：
+//
+//	{"compaction":{"fidelityWithoutEvidence":true}}
+//	{"fidelityWithoutEvidence":true} / {"fidelity-without-evidence":true}
+func noEvidenceFidelityEnabled(raw map[string]any) bool {
+	if nested, ok := raw["compaction"].(map[string]any); ok {
+		if value, ok := nested["fidelityWithoutEvidence"].(bool); ok {
+			return value
+		}
+	}
+	for _, key := range []string{"fidelityWithoutEvidence", "fidelity-without-evidence"} {
+		if value, ok := raw[key].(bool); ok {
+			return value
+		}
+	}
+	return false
+}
+
 // maybeAutoCompact 是 --no-auto-compact 背后的运行后步骤。当该标志被设置，
 // 或对话仍在阈值以内时，它是空操作。运行时失败和后续步骤行会被带入摘要，
 // 使恢复的运行不会丢失它最需要的上下文。
@@ -437,6 +460,12 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0
 	if hasEvidence {
 		compactWithEvidence(sess, evidence, reg, summaryDep)
+		return
+	}
+	// opt-in：无证据时也传空证据走统一入口，享受保真告警 / Goal 恢复 / 无损归档。
+	// 默认关闭时仍走原直接 Compact 路径，逐字节不变。
+	if noEvidenceFidelityEnabled(res.Cfg.Raw) {
+		compactWithEvidence(sess, agent.CompactionEvidence{}, reg, summaryDep)
 		return
 	}
 	_ = sess.Compact(defaultCompactKeep)

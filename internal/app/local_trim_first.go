@@ -21,6 +21,9 @@ const (
 	// defaultLocalTrimMinSavingRatio 是 ShouldSkipModelSummary 的默认阈值：
 	// 本地裁剪省下 30% 以上上下文就足以跳过模型摘要。
 	defaultLocalTrimMinSavingRatio = 0.3
+	// defaultLocalTrimMaxOutput 是本地裁剪的默认 head+tail 预算；只在 opt-in
+	// 开启后才参与估算，默认关闭路径完全不读取它。
+	defaultLocalTrimMaxOutput = 4096
 )
 
 // LocalTrimResult 汇总本地裁剪的估算结果。
@@ -105,4 +108,50 @@ func ShouldSkipModelSummary(r LocalTrimResult, minSavingRatio float64) bool {
 		minSavingRatio = defaultLocalTrimMinSavingRatio
 	}
 	return float64(r.Saved)/float64(r.BeforeTokens) >= minSavingRatio
+}
+
+// localTrimFirstEnabled 报告「压缩前先本地裁剪、省够则跳过模型摘要」是否开启。
+// 它默认关闭：未显式配置时任何压缩路径都不会因为本文件而少调用一次模型。
+// 可接受的配置形式（其他任何形式，包括缺少该键，都视为关闭）：
+//
+//	{"compaction":{"localTrimFirst":true}}
+//	{"localTrimFirst":true} / {"local-trim-first":true}
+func localTrimFirstEnabled(raw map[string]any) bool {
+	if nested, ok := raw["compaction"].(map[string]any); ok {
+		if value, ok := nested["localTrimFirst"].(bool); ok {
+			return value
+		}
+	}
+	for _, key := range []string{"localTrimFirst", "local-trim-first"} {
+		if value, ok := raw[key].(bool); ok {
+			return value
+		}
+	}
+	return false
+}
+
+// localTrimMaxOutputFrom 读取本地裁剪的 head+tail 预算。缺省、非正或类型不符时
+// 回落到 defaultLocalTrimMaxOutput，使门控开启后无需额外配置即可工作。
+func localTrimMaxOutputFrom(raw map[string]any) int {
+	if nested, ok := raw["compaction"].(map[string]any); ok {
+		if value := intField(nested, "localTrimMaxOutput", "maxOutput"); value > 0 {
+			return value
+		}
+	}
+	if value := intField(raw, "localTrimMaxOutput"); value > 0 {
+		return value
+	}
+	return defaultLocalTrimMaxOutput
+}
+
+// shouldSkipModelSummaryForLocalTrim 是模型摘要调用前的接线判定：仅在
+// model_summary 开关与 localTrimFirst opt-in 同时开启时，才用 LocalTrimEstimate
+// 估算被丢弃条目的裁剪收益，并由 ShouldSkipModelSummary 判定是否跳过模型调用。
+// 默认（任一开关关闭、dropped 为空、省不够）恒返回 false，调用方维持原有
+// applyModelSummaryWire 行为，帧与事件逐字节不变。
+func shouldSkipModelSummaryForLocalTrim(dropped []session.Entry, raw map[string]any, reg *OptInRegistry) bool {
+	if !localTrimFirstEnabled(raw) || !modelSummaryEnabled(reg) {
+		return false
+	}
+	return ShouldSkipModelSummary(LocalTrimEstimate(dropped, localTrimMaxOutputFrom(raw)), 0)
 }

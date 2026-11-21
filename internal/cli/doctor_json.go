@@ -31,6 +31,7 @@ type doctorJSONReport struct {
 	Checks      []doctorJSONCheck `json:"checks"`
 	Failures    int               `json:"failures"`
 	Environment []doctorJSONProbe `json:"environment"`
+	Issues      []doctorIssue     `json:"issues"`
 }
 
 // runDoctorJSON 输出机器可读的 doctor 报告。
@@ -53,6 +54,18 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 		})
 	}
 
+	// baseURL 告警与文本分支共享同一份检测逻辑；它是 warn 级别，
+	// 只作为独立字段输出，不计入 failures、也不改变退出码。
+	issues := doctorBaseURLIssues(app)
+	jsonIssues := make([]doctorIssue, 0, len(issues))
+	for _, issue := range issues {
+		jsonIssues = append(jsonIssues, doctorIssue{
+			Name:    issue.Name,
+			Level:   issue.Level,
+			Message: redactDoctorDetail(issue.Message),
+		})
+	}
+
 	// 环境探测仅提供诊断上下文，和文本分支一样从不改变退出码。
 	probes := probeEnvironment(app.env, exec.LookPath)
 	jsonProbes := make([]doctorJSONProbe, 0, len(probes))
@@ -68,6 +81,7 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 		Checks:      jsonChecks,
 		Failures:    failures,
 		Environment: jsonProbes,
+		Issues:      jsonIssues,
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

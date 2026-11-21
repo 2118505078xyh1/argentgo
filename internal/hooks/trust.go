@@ -162,7 +162,7 @@ func LoadDocument(path string, trust *TrustStore) (*Document, error) {
 		return nil, fmt.Errorf("hooks: read %s: %w", path, err)
 	}
 	digest := Digest(data)
-	if trust == nil || !trust.IsTrusted(path, digest) {
+	if !needsTrustGate(path, digest, trust) {
 		return nil, fmt.Errorf("%s: %w", path, ErrUntrusted)
 	}
 	config, err := ParseConfig(data)
@@ -173,12 +173,17 @@ func LoadDocument(path string, trust *TrustStore) (*Document, error) {
 }
 
 // normalizePath 使信任键与分隔符无关：用 "/" 写的清单必须匹配用 "\" 拼出的路径。
-// 用 "/" 写的清单必须匹配用 "\" 拼出的路径。
+// Windows 文件系统不区分大小写，因此同时折叠大小写：同一文件的不同大小写路径
+// 必须落到同一个信任键，否则会被当作两份文档而要求重复授信。其他平台保留原样。
 func normalizePath(path string) string {
 	if path == "" {
 		return ""
 	}
-	return strings.ReplaceAll(filepath.Clean(path), "\\", "/")
+	normalized := strings.ReplaceAll(filepath.Clean(path), "\\", "/")
+	if filepath.Separator == '\\' {
+		return strings.ToLower(normalized)
+	}
+	return normalized
 }
 
 func normalizeDigest(digest string) string {

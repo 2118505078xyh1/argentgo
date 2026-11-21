@@ -84,6 +84,10 @@ func (s *Session) CompactBudget(budget int) error {
 // 当没有任何记录被标记时，此行为与旧版逐字节一致：只写入一条压缩记录，别无其他。
 func (s *Session) appendCompaction(entries []Entry, start int) error {
 	restored := retainedForCompaction(entries, start)
+	// Messages() 只把最新压缩记录投影为 system Entry，更早的 KindCompaction 记录会被
+	// messageEntries 跳过。它们带有 RetainAlways 却永远进不了 Messages() 派生的 entries，
+	// 主视图因此丢失其摘要文本。补发这些记录，并按载荷去重避免重复重发。
+	restored = append(restored, s.retainedCompactionRecords(entries, start, restored)...)
 	compaction := Summarize(entries[:start], len(entries)-start)
 	if err := s.Append(KindCompaction, compaction); err != nil {
 		return err
@@ -94,6 +98,56 @@ func (s *Session) appendCompaction(entries []Entry, start int) error {
 		}
 	}
 	return nil
+}
+
+// retainedCompactionRecords 从原始转录中找出切分点之前、带保留标记且被 Messages() 投影隐藏的
+// KindCompaction 记录，以 KindSummary 的形式补发。Messages() 只对最新压缩记录生成 system Entry，
+// 更早的压缩记录既不在 entries 里，也无法被 retainedForCompaction 看到；本函数弥补这个缺口。
+//
+// boundary 取第一条保留条目在原始路径中的位置；早于它的记录都属于丢弃区。restored 是
+// retainedForCompaction 已选出的记录，按载荷字节去重以免把同一条压缩发出两次。
+func (s *Session) retainedCompactionRecords(entries []Entry, start int, restored []Record) []Record {
+	records, err := s.Records()
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	path := s.activePath(records)
+
+	keptIDs := make(map[string]bool, len(entries)-start)
+	for _, entry := range entries[start:] {
+		keptIDs[entry.ID] = true
+	}
+	boundary := len(path)
+	for i, record := range path {
+		if keptIDs[record.ID] {
+			boundary = i
+			break
+		}
+	}
+
+	seen := make(map[string]bool, len(restored)+len(path))
+	for _, record := range restored {
+		seen[string(record.Data)] = true
+	}
+	// 之前压缩已重新发出过的压缩记录也不再重复发出。
+	for _, record := range path {
+		if record.Kind == KindSummary {
+			seen[string(record.Data)] = true
+		}
+	}
+
+	var out []Record
+	for i := 0; i < boundary; i++ {
+		record := path[i]
+		if record.Kind != KindCompaction || !GetRetention(record.Data).SurvivesCompaction() {
+			continue
+		}
+		if seen[string(record.Data)] {
+			continue
+		}
+		out = append(out, Record{Kind: KindSummary, Data: record.Data})
+	}
+	return out
 }
 
 // retainedForCompaction 按原始顺序返回被丢弃前缀中带标记的记录，并扩展为完整的工具对。
@@ -329,26 +383,64 @@ func estimateRunes(text string) int {
 func Summarize(dropped []Entry, keep int) Compaction {
 	var goals, files, failures, next []string
 	seenFiles := make(map[string]bool)
+	seenGoals := make(map[string]bool)
+	seenFailures := make(map[string]bool)
+	seenNext := make(map[string]bool)
+
+	// 所有来源（当前窗口的启发式 + 旧压缩记录的权威字段）都经过这些回调归一并去重。
+	// 去重是必要的：rebuildCompactionSummary/enrichCompaction 会把 Files/Failures/NextSteps
+	// 原样写成项目符号，若旧压缩的同一条目既来自权威字段又来自摘要文本，重建后就会出现重复符号。
+	// stripBulletPrefix 进一步把"从旧摘要文本重新提取的项目符号"与"权威字段原文"对齐，
+	// 例如 "- Next steps: X" 与 "Next steps: X" 应视为同一条而非两条。
+	addGoal := func(text string) {
+		if text = strings.TrimSpace(stripBulletPrefix(text)); text != "" && !seenGoals[text] {
+			seenGoals[text] = true
+			goals = append(goals, text)
+		}
+	}
+	addFailure := func(text string) {
+		if text = strings.TrimSpace(stripBulletPrefix(text)); text != "" && !seenFailures[text] {
+			seenFailures[text] = true
+			failures = append(failures, text)
+		}
+	}
+	addNext := func(text string) {
+		if text = strings.TrimSpace(stripBulletPrefix(text)); text != "" && !seenNext[text] {
+			seenNext[text] = true
+			next = append(next, text)
+		}
+	}
+	addFile := func(path string) {
+		if path = strings.TrimSpace(path); path != "" && !seenFiles[path] {
+			seenFiles[path] = true
+			files = append(files, path)
+		}
+	}
 
 	for _, entry := range dropped {
 		switch entry.Role {
 		case "user":
 			if goal := firstLine(entry.Content, 200); goal != "" {
-				goals = append(goals, goal)
+				addGoal(goal)
 			}
 		case "tool":
 			if reason, ok := failureReason(entry.Content); ok {
-				failures = append(failures, failureBullet(entry.Name, reason))
+				addFailure(failureBullet(entry.Name, reason))
 			}
 		}
 		if entry.Role == "assistant" || entry.Role == "system" {
-			next = append(next, nextStepLines(entry.Content, 200)...)
+			for _, step := range nextStepLines(entry.Content, 200) {
+				addNext(step)
+			}
 		}
 		for _, path := range pathsFromData(entry.Data) {
-			if !seenFiles[path] {
-				seenFiles[path] = true
-				files = append(files, path)
-			}
+			addFile(path)
+		}
+		// 多次压缩链中，旧压缩记录以 system Entry 形式重新进入 Messages() 投影：
+		// 它的权威 Files/Failures/NextSteps 在 Data 里，原始目标在 Summary 的 ## Goal 段。
+		// 若只靠上面的启发式，第二次压缩会丢失 Goal/Failures/NextSteps，只剩 Files。
+		if entry.Role == "system" {
+			mergePriorCompaction(entry, addGoal, addFailure, addNext, addFile)
 		}
 	}
 	// files 按时间顺序收集；在排序前保留最近十二个，否则"最近"就会变成字典序最后的那些。
@@ -383,6 +475,48 @@ func Summarize(dropped []Entry, keep int) Compaction {
 	}
 }
 
+// mergePriorCompaction 从 system Entry 的 Data 解出旧 Compaction，把其权威字段合并进
+// 当前压缩载荷。它只读取 entry.Data，不修改任何入参；Data 无法解为 Compaction 时静默跳过，
+// 因为系统消息并不一定都是压缩记录。
+//
+// 目标只从 Summary 的 ## Goal 段提取：Compaction.Structured().Progress 混合了目标、文件与
+// 工具活动，不适合作为目标来源；ParseSummarySections 接受中英文别名并精确定位章节边界。
+// Failures/NextSteps 同时合并权威字段与结构化投影，二者经 add* 回调按值去重后不会重复。
+func mergePriorCompaction(entry Entry, addGoal, addFailure, addNext, addFile func(string)) {
+	if len(entry.Data) == 0 {
+		return
+	}
+	var prior Compaction
+	if err := json.Unmarshal(entry.Data, &prior); err != nil {
+		return
+	}
+	if sections := ParseSummarySections(prior.Summary); sections.HasGoal {
+		for _, line := range strings.Split(sections.Goal, "\n") {
+			if item, ok := summaryBullet(strings.TrimSpace(line)); ok {
+				addGoal(truncateRunes(item, 200))
+			}
+		}
+	}
+	for _, f := range prior.Failures {
+		addFailure(f)
+	}
+	for _, n := range prior.NextSteps {
+		addNext(n)
+	}
+	for _, f := range prior.Files {
+		addFile(f)
+	}
+	// 结构化投影覆盖"文本里有但字段里没有"的旧记录；与权威字段来源重叠时由 add* 去重。
+	if structured, ok := prior.Structured(); ok {
+		for _, f := range structured.Uncertainties {
+			addFailure(f)
+		}
+		for _, n := range structured.UserActions {
+			addNext(n)
+		}
+	}
+}
+
 func writeSection(builder *strings.Builder, title string, items []string) {
 	fmt.Fprintf(builder, "\n## %s\n", title)
 	if len(items) == 0 {
@@ -392,6 +526,18 @@ func writeSection(builder *strings.Builder, title string, items []string) {
 	for _, item := range items {
 		fmt.Fprintf(builder, "- %s\n", item)
 	}
+}
+
+// stripBulletPrefix 去掉 markdown 项目符号前缀，使"从旧摘要文本重新提取的条目"与
+// "压缩载荷里的权威字段原文"归一为同一文本，供 Summarize 的 seen* 集合去重。
+// writeSection 会在写回时重新添加统一的 "- " 前缀，因此这里去掉前缀不会丢失结构。
+func stripBulletPrefix(text string) string {
+	for _, prefix := range []string{"- ", "* ", "• "} {
+		if strings.HasPrefix(text, prefix) {
+			return text[len(prefix):]
+		}
+	}
+	return text
 }
 
 // nextStepMarkers 是模型用来记录未完成工作的简短显式提示。匹配故意宽松（子串、忽略大小写）：

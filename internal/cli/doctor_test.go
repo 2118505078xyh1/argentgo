@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,6 +226,155 @@ func TestCheckMCPConfigStatus(t *testing.T) {
 				t.Fatalf("detail %q missing %q", check.detail, tt.wantInDetail)
 			}
 		})
+	}
+}
+
+func TestInsecureBaseURLReason(t *testing.T) {
+	tests := []struct {
+		name     string
+		baseURL  string
+		wantWarn bool
+		wantHas  string
+	}{
+		{"https is safe", "https://api.openai.com/v1", false, ""},
+		{"https with port is safe", "https://example.test:8443/v1", false, ""},
+		{"http non-loopback warns", "http://example.test/v1", true, "明文 http"},
+		{"http public IP warns", "http://8.8.8.8/v1", true, "明文 http"},
+		{"localhost http is safe", "http://localhost:8080/v1", false, ""},
+		{"IPv4 loopback http is safe", "http://127.0.0.1:8080/v1", false, ""},
+		{"IPv6 loopback http is safe", "http://[::1]:8080/v1", false, ""},
+		{"unsupported scheme warns", "ftp://example.test/v1", true, "不受支持的协议"},
+		{"metadata host warns", "https://169.254.169.254/v1", true, "可疑主机"},
+		{"unspecified host warns", "http://0.0.0.0/v1", true, "可疑主机"},
+		{"invalid URL warns", "://not-a-url", true, ""},
+		{"empty value is ignored", "", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason := insecureBaseURLReason(tt.baseURL)
+			if tt.wantWarn && reason == "" {
+				t.Fatalf("insecureBaseURLReason(%q) = empty, want a warning", tt.baseURL)
+			}
+			if !tt.wantWarn && reason != "" {
+				t.Fatalf("insecureBaseURLReason(%q) = %q, want no warning", tt.baseURL, reason)
+			}
+			if tt.wantHas != "" && !strings.Contains(reason, tt.wantHas) {
+				t.Fatalf("reason %q missing %q", reason, tt.wantHas)
+			}
+		})
+	}
+}
+
+func TestDoctorBaseURLIssues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	config := `{
+		"baseURL": "http://evil.example.test/v1",
+		"providers": {
+			"zeta": {"base_url": "ftp://z.example.test"},
+			"alpha": {"baseURL": "https://safe.example.test/v1"}
+		}
+	}`
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	issues := doctorBaseURLIssues(App{ConfigPath: path})
+	if len(issues) != 2 {
+		t.Fatalf("issues = %d, want 2: %+v", len(issues), issues)
+	}
+	if issues[0].Level != statusWarn || issues[0].Name != "baseURL" {
+		t.Fatalf("top-level issue = %+v, want warn/baseURL", issues[0])
+	}
+	if !strings.Contains(issues[0].Message, "$.baseURL") ||
+		!strings.Contains(issues[0].Message, doctorBaseURLIssueMessage) {
+		t.Fatalf("top-level issue message = %q", issues[0].Message)
+	}
+	// provider 按名字排序：alpha 是 https 不报告，zeta 的别名 base_url 被报告。
+	if !strings.Contains(issues[1].Message, "$.providers.zeta.baseURL") {
+		t.Fatalf("provider issue = %+v, want zeta path", issues[1])
+	}
+}
+
+func TestDoctorReportsInsecureConfigBaseURL(t *testing.T) {
+	// provider 检查非本地，指向立即拒绝连接的回环端口；它只会变成 warn，
+	// 不改变退出码。这里只断言新增的 baseURL 告警。
+	const refusedURL = "http://127.0.0.1:1"
+
+	tests := []struct {
+		name       string
+		configJSON string
+		wantWarn   bool
+	}{
+		{"https baseURL is clean", `{"baseURL":"https://api.example.test/v1"}`, false},
+		{"http non-loopback baseURL warns", `{"baseURL":"http://evil.example.test/v1"}`, true},
+		{"loopback http baseURL is clean", `{"baseURL":"http://127.0.0.1:8080/v1"}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.json")
+			if err := os.WriteFile(path, []byte(tt.configJSON), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ioState, out, _ := newTestIO("", nil)
+			app := App{IO: ioState, StorageDir: dir, ConfigPath: path}
+			code := RunWith(app, []string{"doctor", "--base-url", refusedURL})
+			if code != 0 {
+				t.Fatalf("exit = %d, want 0; output:\n%s", code, out.String())
+			}
+			hasWarn := strings.Contains(out.String(), doctorBaseURLIssueMessage)
+			if hasWarn != tt.wantWarn {
+				t.Fatalf("hasWarn = %v, want %v; output:\n%s", hasWarn, tt.wantWarn, out.String())
+			}
+			if tt.wantWarn {
+				foundLine := false
+				for _, line := range strings.Split(out.String(), "\n") {
+					if strings.Contains(line, "warn") && strings.Contains(line, "baseURL") &&
+						strings.Contains(line, doctorBaseURLIssueMessage) {
+						foundLine = true
+					}
+				}
+				if !foundLine {
+					t.Fatalf("missing warn baseURL line:\n%s", out.String())
+				}
+			}
+		})
+	}
+}
+
+func TestDoctorJSONReportsInsecureConfigBaseURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path,
+		[]byte(`{"baseURL":"http://evil.example.test/v1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ioState, out, _ := newTestIO("", nil)
+	app := App{IO: ioState, StorageDir: dir, ConfigPath: path}
+	code := RunWith(app, []string{"doctor", "--json", "--base-url", "ftp://doctor.invalid"})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out = %s", code, out.String())
+	}
+	var report struct {
+		Failures int           `json:"failures"`
+		Issues   []doctorIssue `json:"issues"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("不是合法 JSON: %v\n%s", err, out.String())
+	}
+	// 告警是 warn 级别：不影响失败计数与退出码。
+	if report.Failures != 0 {
+		t.Fatalf("failures = %d, want 0", report.Failures)
+	}
+	if len(report.Issues) != 1 {
+		t.Fatalf("issues = %d, want 1: %s", len(report.Issues), out.String())
+	}
+	issue := report.Issues[0]
+	if issue.Level != statusWarn || issue.Name != "baseURL" {
+		t.Fatalf("issue = %+v, want warn/baseURL", issue)
+	}
+	if !strings.Contains(issue.Message, doctorBaseURLIssueMessage) {
+		t.Fatalf("issue message = %q, want the configured hint", issue.Message)
 	}
 }
 

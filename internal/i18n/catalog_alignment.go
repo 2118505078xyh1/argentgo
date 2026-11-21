@@ -89,6 +89,70 @@ func AuditErrorMessagesKeyAlignment() KeyAlignment {
 	return checkKeyAlignment(errorMessagesView())
 }
 
+// namedKeyAlignment 把一份键对齐结果与其来源表名绑定，供聚合审计在明细中
+// 标注来源；Table 复用占位符审计的稳定标识，使两类明细可按表统一过滤。
+type namedKeyAlignment struct {
+	name  string
+	align KeyAlignment
+}
+
+// messageTableViews 返回四张独立消息表的 en/zh 视图，顺序固定。
+// 它们与 catalog 结构不同（各自的 entry 类型），但都持有 en/zh 文本，
+// 统一转成 localeTexts 即可复用键对齐与占位符检查，无需改动任何文案字节。
+func messageTableViews() []placeholderTable {
+	return []placeholderTable{
+		{name: placeholderTableCommandMessages, entries: commandMessagesView()},
+		{name: placeholderTableReliabilityMessages, entries: reliabilityMessagesView()},
+		{name: placeholderTableOptInMessages, entries: optInMessagesView()},
+		{name: placeholderTableErrorHintMessages, entries: errorHintMessagesView()},
+	}
+}
+
+// AuditMessageTablesKeyAlignment 检查四张独立消息表的键对齐，按固定顺序
+// 返回带表名的结果。它是纯函数：只读嵌入的表，不改变任何查找行为或文案字节。
+func AuditMessageTablesKeyAlignment() []namedKeyAlignment {
+	tables := messageTableViews()
+	out := make([]namedKeyAlignment, 0, len(tables))
+	for _, table := range tables {
+		out = append(out, namedKeyAlignment{name: table.name, align: checkKeyAlignment(table.entries)})
+	}
+	return out
+}
+
+// 以下四个 view 把各自的 entry 类型投影为统一的 localeTexts，
+// 使四张消息表能复用 catalog/errorMessage 的键对齐与占位符审计逻辑。
+func commandMessagesView() map[string]localeTexts {
+	view := make(map[string]localeTexts, len(commandMessageTable))
+	for key, entry := range commandMessageTable {
+		view[key] = localeTexts{en: entry.en, zh: entry.zh}
+	}
+	return view
+}
+
+func reliabilityMessagesView() map[string]localeTexts {
+	view := make(map[string]localeTexts, len(reliabilityMessageTable))
+	for key, entry := range reliabilityMessageTable {
+		view[key] = localeTexts{en: entry.en, zh: entry.zh}
+	}
+	return view
+}
+
+func optInMessagesView() map[string]localeTexts {
+	view := make(map[string]localeTexts, len(optInMessageTable))
+	for key, entry := range optInMessageTable {
+		view[key] = localeTexts{en: entry.en, zh: entry.zh}
+	}
+	return view
+}
+
+func errorHintMessagesView() map[string]localeTexts {
+	view := make(map[string]localeTexts, len(errorHintMessageTable))
+	for key, entry := range errorHintMessageTable {
+		view[key] = localeTexts{en: entry.en, zh: entry.zh}
+	}
+	return view
+}
+
 func catalogView() map[string]localeTexts {
 	view := make(map[string]localeTexts, len(catalog))
 	for key, entry := range catalog {

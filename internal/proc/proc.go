@@ -249,8 +249,17 @@ func Run(ctx context.Context, c Command) (Result, error) {
 			handle.terminateTree()
 			select {
 			case got = <-done:
+				// 直接子进程在宽限期内退出了，但忽略 SIGTERM 的孙进程可能
+				// 仍存活：它随直接子进程退出而成为孤儿。按判据补杀整棵树，
+				// 对已退出的直接子进程发 SIGKILL 只是空操作，却能清理孙进程。
+				if shouldKillTreeAfterExit(true, false, true) {
+					handle.killTree()
+				}
 			case <-time.After(cancellationGracePeriod):
-				handle.killTree()
+				// 宽限耗尽而直接子进程仍未退出：按判据升级为 SIGKILL。
+				if shouldKillTreeAfterExit(true, true, false) {
+					handle.killTree()
+				}
 				got = awaitOutcome(done)
 			}
 		} else {

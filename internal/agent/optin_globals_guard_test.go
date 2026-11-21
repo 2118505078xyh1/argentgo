@@ -12,7 +12,7 @@ import (
 // SetToolErrorReflection 具备并发安全测试，其余开关靠人工 defer 兜底，缺乏
 // 统一的竞争守卫。这里对 agent 包内可访问的每一个开关：启动 writer goroutine
 // 反复 Set(true/false)，同时启动 reader goroutine 反复调用对应 getter 与读取
-// 全局的消费纯函数（classifyRefusal、AugmentToolErrorReflection、canRunParallel）。
+// 全局的消费纯函数（classifyRefusal、AugmentToolErrorReflection、canRunParallel、nudgePayload）。
 //
 // 所有开关底层都是 atomic.Bool / atomic.Value，因此在 -race 下应当无数据竞争；
 // 若有人把开关退回普通 bool 或就地修改已发布的 map，这里会立刻捕获。
@@ -20,7 +20,7 @@ import (
 // 刻意不调用 t.Parallel()：这些是进程级全局状态，必须与同包其它测试串行，
 // 否则会与依赖默认关闭状态的测试相互污染。
 func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
-	// 用 Cleanup 恢复默认：9 个 bool 开关默认 false，并发安全白名默认是
+	// 用 Cleanup 恢复默认：10 个 bool 开关默认 false，并发安全白名单默认是
 	// init 中发布的一个空 map（用 SetParallelSafeTools(nil) 还原）。
 	t.Cleanup(func() {
 		SetRefusalReason(false)
@@ -32,6 +32,7 @@ func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 		SetParallelDeclaredOnly(false)
 		SetPartialRecordPersistence(false)
 		SetGuidanceDedupe(false)
+		SetRetainGuidance(false)
 		SetParallelSafeTools(nil)
 	})
 
@@ -97,6 +98,16 @@ func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 			name: "guidance_dedupe",
 			set:  SetGuidanceDedupe,
 			get:  guidanceDedupeEnabled,
+		},
+		{
+			name: "retain_guidance",
+			set:  SetRetainGuidance,
+			get:  retainGuidanceEnabled,
+			// nudgePayload 读取 retainGuidance 全局：关闭时返回原始字符串，
+			// 开启时返回带 _retention 的 retainedGuidance 对象。这里只调用以驱动
+			// "读全局后分支"的路径；开关开/关的返回值差异由
+			// guidance_retention_test.go 的基线/保留测试逐字节守护。
+			consume: func() { _ = nudgePayload("guard 提示") },
 		},
 		{
 			// SetParallelSafeTools 不是 bool 开关，而是整体替换只读 map 的

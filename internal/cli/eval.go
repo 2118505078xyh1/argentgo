@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/eval"
 )
 
 // evalScenario 是一个脚本化的 eval 用例。
@@ -22,6 +24,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		evalUsage(app.IO.Out)
 		return 0
+	}
+
+	// compare 是 eval 子命令的带外前缀：读取两份 Result 向量文件（基线、候选），
+	// 复用 eval 的配对统计原语输出中文 verdict。与 --live 一样不进 flagSurface/parity，
+	// 手写扫描并分派；默认 eval 路径与 compare 路径互不影响。
+	if len(args) > 0 && args[0] == "compare" {
+		return runEvalCompare(app, args[1:])
 	}
 
 	// --live 是 eval 子命令的带外前缀：它不进 flagSurface/parity，只在
@@ -167,10 +176,75 @@ func parseEvalFile(data []byte) ([]evalScenario, error) {
 
 func evalUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argentgo eval [--live] <file.json>
+       argentgo eval compare <baseline-results.json> <candidate-results.json>
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.
 With --live, the suite is dispatched to a live-model runner instead of the
 scripted grader; this prefix is out-of-band and not a global flag.
+With compare, two Result vectors are compared with paired statistics; small
+samples (n < 30) are reported as insufficient instead of claiming improvement.
+`)
+}
+
+// runEvalCompare 实现 `eval compare <a> <b>`：读取两份 Result 向量并调用纯函数
+// eval.CompareResults 输出中文 verdict。它是带外前缀，不依赖 app.Eval。
+func runEvalCompare(app App, args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		evalCompareUsage(app.IO.Out)
+		return 0
+	}
+	if len(args) != 2 {
+		evalCompareUsage(app.IO.Err)
+		return 2
+	}
+	baseline, err := loadResultVector(args[0])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+		return 1
+	}
+	candidate, err := loadResultVector(args[1])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[1], err)
+		return 1
+	}
+	verdict, err := eval.CompareResults(baseline, candidate)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	fmt.Fprint(app.IO.Out, verdict)
+	return 0
+}
+
+// loadResultVector 从 JSON 文件读取一份 Result 向量，接受裸数组或 {"results": [...]}。
+// Result 无 json 标签的字段按 Go 字段名大小写不敏感匹配，因此只需 "passed" 等关键字段。
+func loadResultVector(path string) ([]eval.Result, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var results []eval.Result
+	if err := json.Unmarshal(data, &results); err == nil && results != nil {
+		return results, nil
+	}
+	var document struct {
+		Results []eval.Result `json:"results"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return nil, err
+	}
+	if document.Results == nil {
+		return nil, fmt.Errorf("expected a JSON array of results or {\"results\": [...]}")
+	}
+	return document.Results, nil
+}
+
+func evalCompareUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval compare <baseline-results.json> <candidate-results.json>
+
+Compares two Result vectors (same scenarios, baseline vs candidate) with paired
+statistics. Small samples (n < 30) are reported as 样本不足/不显著 instead of a
+promotion conclusion. Each file is a JSON array of results or {"results": [...]}.
 `)
 }

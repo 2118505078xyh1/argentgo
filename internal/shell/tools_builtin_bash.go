@@ -129,7 +129,10 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 
 // cmdChcpPrefix 在 cmd 执行命令前把控制台代码页固定为 65001（UTF-8）。
 // chcp 的回显被重定向到 nul，因此不会在命令输出里多出一行。
-const cmdChcpPrefix = "chcp 65001>nul&&"
+// 用单个 &（而非 &&）串联：&& 会在 chcp 失败（无控制台、权限不足、
+// 异常代码页等）时静默跳过原命令；& 则无论 chcp 成功与否都执行原命令，
+// 从而解耦代码页切换与命令执行，同时保持原命令字节逐字不变。
+const cmdChcpPrefix = "chcp 65001>nul&"
 
 // shellInvocation 返回执行某条命令行所用的程序和前置参数。
 // 它由硬超时和可提升路径共用，使同一命令在两处的

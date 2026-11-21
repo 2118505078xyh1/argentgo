@@ -321,3 +321,164 @@ func TestSummarizeGoalRetentionStableAndInputUnchanged(t *testing.T) {
 		t.Fatalf("Summarize mutated dropped input:\nbefore %s\nafter  %s", before, after)
 	}
 }
+
+// containsItem 报告 items 是否包含 want（与 app 包的 containsLine 语义相同，但限定在本测试文件）。
+func containsItem(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+// assertCompactionChainFields 检查一次压缩载荷是否带齐四类结构，且指定条目不重复。
+func assertCompactionChainFields(t *testing.T, c Compaction, goal, failure, next, file string) {
+	t.Helper()
+	if !strings.Contains(c.Summary, "## Goal\n") || !strings.Contains(c.Summary, goal) {
+		t.Errorf("Goal 丢失（want %q）：\n%s", goal, c.Summary)
+	}
+	if !strings.Contains(c.Summary, failure) || !containsItem(c.Failures, failure) {
+		t.Errorf("Failures 丢失（want %q）：Failures=%q\n%s", failure, c.Failures, c.Summary)
+	}
+	if !strings.Contains(c.Summary, next) || !containsItem(c.NextSteps, next) {
+		t.Errorf("NextSteps 丢失（want %q）：NextSteps=%q\n%s", next, c.NextSteps, c.Summary)
+	}
+	if !containsItem(c.Files, file) {
+		t.Errorf("Files 丢失（want %q）：%q", file, c.Files)
+	}
+	for _, bucket := range []struct {
+		name  string
+		items []string
+	}{
+		{"Files", c.Files}, {"Failures", c.Failures}, {"NextSteps", c.NextSteps},
+	} {
+		seen := make(map[string]bool, len(bucket.items))
+		for _, item := range bucket.items {
+			if seen[item] {
+				t.Errorf("%s 出现重复条目 %q：%q", bucket.name, item, bucket.items)
+			}
+			seen[item] = true
+		}
+	}
+}
+
+// TestSummarizeAcrossCompactionChain 覆盖多次压缩链丢 Goal/Failures/NextSteps 的问题：
+// Messages() 把旧压缩记录投影为 system Entry，第二次压缩的丢弃前缀里只有它的权威载荷。
+// 新实现必须把 Goal（来自 Summary 的 ## Goal 段）与 Files/Failures/NextSteps（来自权威字段）
+// 合并进新载荷，且两路来源重叠时不得产生重复项目符号。
+func TestSummarizeAcrossCompactionChain(t *testing.T) {
+	const (
+		goal    = "原始目标：实现词法分析器"
+		failure = "shell — error: undefined: token"
+		next    = "Next steps: 补测试并跑 gofmt"
+		file    = "lexer.go"
+	)
+	firstDropped := []Entry{
+		{Role: "user", Content: goal},
+		{Role: "assistant", Content: "已实现解析器"},
+		{Role: "tool", Name: "shell", Content: "error: undefined: token"},
+		pathEntry(file),
+		{Role: "assistant", Content: next},
+	}
+	before, _ := json.Marshal(firstDropped)
+	first := Summarize(firstDropped, 0)
+	assertCompactionChainFields(t, first, goal, failure, next, file)
+
+	// 旧压缩以 system Entry 重新进入 Messages() 投影；Data 就是其 Compaction 载荷。
+	data, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDropped := []Entry{
+		{Role: "system", Content: first.Summary, Data: data},
+		{Role: "user", Content: "继续"},
+		pathEntry(file), // 与旧压缩中的 File 重叠，验证去重
+	}
+	second := Summarize(secondDropped, 0)
+	assertCompactionChainFields(t, second, goal, failure, next, file)
+
+	// 原输入必须逐字节不变（含 system Entry 的 Data）。
+	after, _ := json.Marshal(firstDropped)
+	if string(before) != string(after) {
+		t.Fatalf("Summarize 修改了 firstDropped 入参：\nbefore %s\nafter  %s", before, after)
+	}
+	if got, want := string(secondDropped[0].Data), string(data); got != want {
+		t.Fatalf("Summarize 修改了 system Entry 的 Data：\n got %s\nwant %s", got, want)
+	}
+
+	// 同一份输入重复运行必须逐字节稳定。
+	want := second.Summary
+	for n := 0; n < 50; n++ {
+		if got := Summarize(secondDropped, 0).Summary; got != want {
+			t.Fatalf("重复压缩链摘要不稳定：\n got %q\nwant %q", got, want)
+		}
+	}
+}
+
+// TestAppendCompactionReemitsHiddenRetainedCompaction 覆盖主视图失效场景：旧压缩记录
+// 带 RetainAlways，但被 Messages() 的 head=messageEntries(path[:latest]) 跳过，从不进入
+// 派生的 entries。appendCompaction 必须从原始记录补发它，使其摘要文本重新出现在主视图。
+func TestAppendCompactionReemitsHiddenRetainedCompaction(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.NewSession("hidden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := s.Append(KindUser, fmt.Sprintf("m%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 直接追加压缩记录，模拟不经过 appendCompaction 的压缩路径。
+	firstSummary := "## Compaction\n\n## Goal\n- 原始目标\n"
+	if err := s.Append(KindCompaction, Compaction{Summary: firstSummary, Dropped: 4, Keep: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 5; i < 9; i++ {
+		if err := s.Append(KindUser, fmt.Sprintf("m%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secondSummary := "## Compaction\n\n## Goal\n- 第二轮目标\n"
+	if err := s.Append(KindCompaction, Compaction{Summary: secondSummary, Dropped: 4, Keep: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 9; i < 11; i++ {
+		if err := s.Append(KindUser, fmt.Sprintf("m%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 压缩前：只有最新的 c2 可见，c1 被 Messages() 跳过。
+	for _, entry := range s.Messages() {
+		if entry.Role == "system" && entry.Content == firstSummary {
+			t.Fatal("旧压缩记录在压缩前就已出现在主视图，测试前提不成立")
+		}
+	}
+
+	if err := s.Compact(1); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	var sawFirst, sawSecond bool
+	for _, entry := range s.Messages() {
+		if entry.Role != "system" {
+			continue
+		}
+		if entry.Content == firstSummary {
+			sawFirst = true
+		}
+		if entry.Content == secondSummary {
+			sawSecond = true
+		}
+	}
+	if !sawFirst {
+		t.Fatal("带 RetainAlways 的旧压缩记录未从原始记录补发到主视图")
+	}
+	if !sawSecond {
+		t.Fatal("最新压缩记录未保留在主视图")
+	}
+}

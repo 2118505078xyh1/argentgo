@@ -34,9 +34,18 @@ func countPlaceholderIssues(issues []PlaceholderIssue) int {
 
 // newAuditReport 由各部分审计结果构造聚合报告。它是纯函数，也是 FullAudit
 // 与测试共用的核心：测试借此用模拟结果验证统计口径与 OK 判定，无需改动
-// 真实文案表。
+// 真实文案表。保留原签名使既有测试调用不变。
 func newAuditReport(catalog, errorMessages KeyAlignment, placeholders []PlaceholderIssue) AuditReport {
+	return newAuditReportWithTables(catalog, errorMessages, nil, placeholders)
+}
+
+// newAuditReportWithTables 在原有两张表之外再统计一批带表名的键对齐结果。
+// extra 为 nil 时与 newAuditReport 完全等价。
+func newAuditReportWithTables(catalog, errorMessages KeyAlignment, extra []namedKeyAlignment, placeholders []PlaceholderIssue) AuditReport {
 	keyIssues := countKeyAlignmentIssues(catalog) + countKeyAlignmentIssues(errorMessages)
+	for _, alignment := range extra {
+		keyIssues += countKeyAlignmentIssues(alignment.align)
+	}
 	placeholderIssues := countPlaceholderIssues(placeholders)
 	return AuditReport{
 		KeyIssues:         keyIssues,
@@ -45,15 +54,17 @@ func newAuditReport(catalog, errorMessages KeyAlignment, placeholders []Placehol
 	}
 }
 
-// FullAudit 聚合键对齐审计与占位符审计的完整结果。
+// FullAudit 聚合键对齐审计与占位符审计的完整结果，覆盖 catalog、错误码表以及
+// 四张独立消息表（command/reliability/opt-in/error-hint）。
 //
-// 它是纯函数：只读嵌入的文案表，不改变 T / errorMessage 的查找行为，不改
-// 任何文案字节，也不向 Missing 记录任何内容。各部分审计本身稳定有序，故
-// 同一份文案表上的重复调用返回完全相同的报告。
+// 它是纯函数：只读嵌入的文案表，不改变任何查找行为，不改任何文案字节，也不向
+// Missing 记录任何内容。各部分审计本身稳定有序，故同一份文案表上的重复调用
+// 返回完全相同的报告。
 func FullAudit() AuditReport {
-	return newAuditReport(
+	return newAuditReportWithTables(
 		AuditCatalogKeyAlignment(),
 		AuditErrorMessagesKeyAlignment(),
+		AuditMessageTablesKeyAlignment(),
 		AuditPlaceholders(),
 	)
 }

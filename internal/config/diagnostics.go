@@ -124,6 +124,36 @@ func (c Config) validateDiagnostics() []Diagnostic {
 		})
 	}
 
+	// 端点地址必须是 https（或本机回环的 http），否则密钥会明文出网。
+	// 放在 validateDiagnostics 而非 failClosedDiagnostics：项目文件里
+	// 写了一个 http 端点不应让整个配置加载失败（有历史配置依赖它），
+	// 但 Validate 与 doctor 必须把风险明确报告出来。
+	if issue := validateBaseURLScheme(c.BaseURL); issue != "" {
+		out = append(out, Diagnostic{
+			Path:    "$.baseURL",
+			Kind:    DiagnosticInvalid,
+			Message: issue,
+		})
+	}
+	providerNames := make([]string, 0, len(c.Providers))
+	for name := range c.Providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+	for _, name := range providerNames {
+		provider := c.Providers[name]
+		if strings.TrimSpace(provider.BaseURL) == "" {
+			continue
+		}
+		if issue := validateBaseURLScheme(provider.BaseURL); issue != "" {
+			out = append(out, Diagnostic{
+				Path:    "$.providers." + name + ".baseURL",
+				Kind:    DiagnosticInvalid,
+				Message: issue,
+			})
+		}
+	}
+
 	return out
 }
 
