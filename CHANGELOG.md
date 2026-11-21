@@ -2,7 +2,7 @@
 
 ## v0.8.1 — 2026-11-21
 
-内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。
+内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（当前 HEAD a30b0e4 实测 355,578 行，同一口径。）
 
 **内核化（编译期静态注册）**
 - 新增 `internal/pluginapi` 泛型静态注册表；tools / commands / hooks / provider / lsp 五处改为编译期静态注册构造器（每次运行独立实例化，保持"每运行一份"的安全语义）。
@@ -15,6 +15,16 @@
 
 **自研 shell（无 Git Bash 时兜底）**
 - 新增顶层 `internal/shell/`：纯标准库 shell 解释器（词法/语法/展开/执行/内建 + coreutils），依赖 internal/proc 与 internal/security 路径边界；fail-closed（不支持的语法明确拒绝）。`tools_builtin_bash.go` 以 `ARGENT_BUILTIN_SHELL=1` opt-in 接线，默认走系统 shell 逐字节不变。
+
+**内核化迭代 R13-R26 补充**（本版期内陆续落地的增量，按主题分组）
+
+- **P1 静态注册**：`internal/pluginapi` 泛型静态注册表让 tools / commands / hooks / provider / lsp 编译期静态注册；`internal/agentpolicy` 抽出纯策略叶子包（回复分类、压缩重试决策、上下文 Epoch、StablePrefix 视图）；`loop.go` 拆出 `loop_helpers.go`，核心循环独立可见（字节级验证逐行一致）。
+- **可恢复**：新增会话续接摘要（`ARGENT_CONTINUATION_BRIEF`，`continuation_brief.go` 生成四段有界摘要注入 system）；GUI 分支树视图；checkpoint 工作区差异检查点（`checkpointWorkspaceDiffEnabled`，把改动文件纳入差异比对）。
+- **上下文**：`model_summary` 完成接线（补全叙事摘要、EventUsage 成本可见，刻意绕过 agent 循环）；grapheme 切点统一（session 主路径与工具裁剪吸附到字簇边界）；token 可见性增强（`account()` 在 R23 累加 `CachedTokens`/`CacheWriteTokens`，`--tokens` 报告缓存提示）。
+- **工具**：`apply_patch` 结构化补丁、`grep_ex` 增强搜索、`web_search` 可发现性（doctor 提示 + Brave/Tavily/SearXNG 预设元信息）、opt-in `auto_verify`（编辑后自动验证回环，仅 `ARGENT_OPT_INS=auto_verify`）。
+- **交互**：slash 面板与模糊补全、TUI `Ctrl+G` 调用 `$EDITOR` 编辑长提示、`doctor --json` 结构化输出、`config.info` RPC（原生壳一次性获取配置快照）。
+- **可靠性评测**：完成率 grader（`Check.FileEquals` + `ScenarioCompletionRate`，按退出码与文件字节客观判定）、`eval --live` 真模型跑批、LSP 辅助验证（编辑后诊断回灌）。
+- **provider**：provider 模板补全到 6 个可配置模板，并支持通用请求头（`headers`）透传。
 
 全量验证全绿：`gofmt -l .` 空、`go vet ./...`、`go test -p 4 ./... -count=1`、`go test -race ./...`、`GOOS=linux go build ./...`。
 

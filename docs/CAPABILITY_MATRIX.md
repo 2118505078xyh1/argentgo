@@ -2,7 +2,7 @@
 
 这份文档回答一个问题：**在用户真正能感知到的能力上，argentgo 与 Claude Code / OpenCode / Crush / Codex 相比，哪里已经追平、哪里还差、哪里是有意不做。**
 
-它是后续迭代的方向盘，不是又一份评分表。取证基线为 `HEAD=42fe404`，所有落点均为源码中的真实行号；行号或开关名与源码不一致时，以源码为准。
+它是后续迭代的方向盘，不是又一份评分表。取证基线为 `HEAD=a30b0e4`（当前 HEAD），所有落点均为源码中的真实行号；行号或开关名与源码不一致时，以源码为准。
 
 ## 0. 口径与读法
 
@@ -92,6 +92,7 @@
 | 离线导出 | `internal/session/export.go:91`（`ExportProject`）、`:94`，格式 `html`/`json`/`markdown` | 可选择脱敏，2 MiB 上限（`internal/session/export.go:25`）。 |
 | CLI 恢复入口 | `sessions undo / retry / tree / export / find --grep`（TECHNICAL.md:423） | 命令级完整。 |
 | `--rpc` 会话读取 | `session.list` / `session.load`（TECHNICAL.md:519-520） | 原生桌面窗口的会话栏依赖它。 |
+| `--rpc` 分支树（R24） | `session.tree`（`internal/server/rpc.go:348-383`，复用 `internal/session/tree.go:68` 的 `Branches`） | 返回 `{branches:[...]}`；经 `SessionTreeStore` 可选接口发现，未实现时返回干净的 "not configured" 错误。原生桌面侧据此渲染分支（R26）。 |
 
 ### 2.2 对标
 
@@ -99,7 +100,7 @@
 |---|---|---|---|---|
 | 会话续跑 | `--continue` / `--resume` | 均有 resume | `--resume` / `--session` / `--continue`（TECHNICAL.md:470） | ✅ |
 | Checkpoint 回退 | Esc Esc 回退 + fork | 部分产品有类似 rewind | 文件级 checkpoint + undo/retry，且带 sha256 防串改 | ✅ 领先 |
-| 分支树导航 | 有 | 部分有 | 有 `sessions tree` 与 fork；CLI 侧成熟，GUI 侧仅列表 | ⚠️-1 |
+| 分支树导航 | 有 | 部分有 | 有 `sessions tree` 与 fork；CLI 侧成熟，GUI 侧也已可点击导航（R24 `session.tree` RPC + R26 分支渲染） | ✅ |
 | 会话内容搜索 | 有 | 视产品而定 | `sessions --grep` + `find`，片段脱敏 | ✅ |
 | 离线分享 | 视产品/企业策略 | 不统一 | HTML/JSON/Markdown 离线导出，无网络引用 | ✅ |
 | ACP 会话恢复 | Zed/ACP 生态通常支持 session/load | ACP 客户端多自带会话状态 | **明确不支持** `session/load`（见 ⚠️-2） | ⊘/⚠️ |
@@ -108,7 +109,7 @@
 
 | # | 差距 | 确切落点 | 建议 |
 |---|---|---|---|
-| 1 | **GUI 侧缺少分支树的可视导航。** 会话树、fork 都在 CLI 和 JSONL 层完备，但原生窗口的会话栏只做 `session.list` / `session.load` 的线性列表。 | `native/nav_panel.go`、`native/bridge.go:39-47`（`rpcMessage`）；CLI 对照 `internal/session/tree.go:31`（`Branches`） | 在 `--rpc` 暴露一个只读 `session.tree` 方法（复用 `Branches`），桌面侧渲染分支；不引入新依赖。 |
+| 1 | ~~**GUI 侧缺少分支树的可视导航。**~~ **R24+R26 已完成**：会话树、fork 在 CLI/JSONL 层完备，R24 在 `--rpc` 暴露只读 `session.tree`（`internal/server/rpc.go:348`，复用 `internal/session/tree.go:68` 的 `Branches`），R26 原生窗口解析并在会话行下渲染可点击分支节点（`native/main.go:407-491`：`branchNodes` / `hasForkBranches` / `fetchSessionTree`）；单线或无分叉树逐字节不变。 | `internal/server/rpc.go:348-383`；`native/main.go:407-491` | 已闭环。仅 ACP `session/load` 仍不做（见 ⚠️-2），能力经 `--rpc session.load` 保留。 |
 | 2 | **ACP 不支持 `session/load`。** 直接返回 method-not-found，因此 ACP 客户端无法续跑历史会话。 | `internal/server/acp.go:131-132`（`case "session/load"`） | 视目标 ACP 客户端需求决定是否接入；若不做，保留 ⊘ 理由：ACP 客户端通常自带会话状态，续跑走 CLI `--resume` / `--rpc session.load`。 |
 
 ### 2.4 ⊘ 合理取舍
@@ -123,7 +124,7 @@
 
 | 能力 | 实现落点 | 说明 |
 |---|---|---|
-| 默认工具集 | `internal/tools/builtin_register.go:30-71`（30 个静态注册）+ `internal/tools/tools_registry.go:120-127`（`context_pack`、`memory_reflect`/`memory_learn`、`tool_search`） | 默认共 34 个；比 STATUS.md:84 的"~31"更新更多。 |
+| 默认工具集 | `internal/tools/builtin_register.go:30-71`（30 个静态注册）+ `internal/tools/tools_registry.go:120-127`（`context_pack`、`memory_reflect`/`memory_learn`、`tool_search`） | 默认共 34 个，与 STATUS.md「工具广度」一致。 |
 | 可选工具按开关挂载 | `internal/app/mcp.go:69-78`（`wireOptInTools`：apply_patch / grep_ex）、`internal/app/checkpoint_source.go:52`（`checkpoint_diff`） | 不污染默认 spec 顺序。 |
 | 工作区边界 | `internal/security/path_real.go:32`（`CheckPathInRoots`）、`internal/tools/tools_registry.go:357`（`resolve` 拒绝 `..`/绝对路径逃逸） | 每个 FS 工具都解析到工作区。 |
 | 安全链 | `internal/security/chain.go:139`（`NewChain`）、`:148`（`Check`）、`:163`（`check`） | 策略 → 审批 → 审计，顺序固定。 |
@@ -174,6 +175,9 @@
 | 审批可视化 | TUI 审批弹窗 + 危险命令高亮（`internal/tui/approval*.go`） | 与 `security.Chain` 同源。 |
 | 国际化 | `zh-CN` / `en-US`（`internal/i18n/i18n.go:19-20`），目录为二进制内 Go 表；含翻译完整性审计（`:363`） | 缺键返回键并记录。 |
 | 流式事件 | `text_delta` / `reasoning_delta` / `tool_start` / `tool_end`（`internal/agent/events.go:19` 起） | 传输层转发同一份流。 |
+| 命令面板模糊补全（R25） | `internal/tui/completion.go:178-195`（`matchCommand`：保留大小写不敏感前缀语义，非前缀走 `FuzzyMatch` 子序列，如 "rv" 命中 "review"） | 前缀路径逐字节不变；命中不重排，仍按主表字典序。 |
+| 编辑后自动验证（R25） | `internal/app/verify_wire.go:591-595`（`verifyFuncFor`，`verifyFuncForAuto`）；opt-in 键 `auto_verify`（`internal/app/optin_registry.go:55`） | 未开启或传 false 时逐字节不变；开启且工作区含 `go.mod`、无显式配置时合成 `go test ./...` 回环，诊断回灌给模型。 |
+| 状态栏配置查询（R24） | `config.info` RPC（`internal/server/rpc.go:509-526`） | 返回当前会话真实 model/provider/workspace；路径经与 `session.load` 相同的脱敏边界。 |
 
 ### 4.2 对标
 
@@ -184,8 +188,8 @@
 | 流式与审批 | 成熟 | 成熟 | 端到端一致，原生窗口可 Y/N | ✅ |
 | 语言覆盖 | 多语言 | 多为英文 | 仅 zh-CN / en-US | ⚠️-1 |
 | 桌面多平台 | 跨平台 | 多平台 | **仅 Windows/amd64 发布**（STATUS.md:48-51） | ⚠️-2 |
-| 真实模型质量评测 | 有内部评测体系 | 视产品而定 | `evals/core.json` 20 个脚本场景，但无真实模型质量评测（STATUS.md:82） | ⚠️-3 |
-| IDE 级 LSP 效果 | 有 | OpenCode 内建 LSP 强 | 6 基础 + 3 进阶方法已实现；semantic/inlay/codeLens 未用真实 server 验证效果（TECHNICAL.md:392） | ⚠️-4 |
+| 真实模型质量评测 | 有内部评测体系 | 视产品而定 | `evals/core.json` 10 个脚本场景；已有 opt-in 真实模型评测批处理（`ARGENT_EVAL_LIVE` / `eval --live` + `completion.json`/`completion_expanded.json`），默认离线不联网 | ✅（opt-in） |
+| IDE 级 LSP 效果 | 有 | OpenCode 内建 LSP 强 | 6 基础 + 3 进阶方法已实现；R24 已补真实 gopls 结构化验证（`gopls_advanced_test.go`，best-effort，未做硬门禁） | ✅（best-effort） |
 
 ### 4.3 ⚠️ 真实差距（backlog）
 
@@ -193,8 +197,8 @@
 |---|---|---|---|
 | 1 | **只有两种语言环境。** UI 字符串与提示语言仅 zh-CN / en-US。 | `internal/i18n/i18n.go:19-20`（`EnUS` / `ZhCN`）、`:24`（`DefaultLocale`） | 若目标用户含日语等，先扩目录 + 用现有 `AuditTranslations`（`:363`）保证完整性；否则保留为取舍。 |
 | 2 | **桌面 GUI 只有 Windows 构建。** 发行脚本与 CI 收口 Windows/amd64。 | `scripts/build-release.ps1`、`STATUS.md:48-51` | 需要 Linux GUI 时先解决 MyGo 多平台打包与本地验证，不改核心。 |
-| 3 | **无真实模型质量评测。** eval 场景脚本化、provider 可替换，但不衡量回答质量。 | `evals/core.json`、`internal/eval/`、`STATUS.md:82` | 增加可选的真实 provider 评测集（默认离线不跑），与脚本 eval 分层。 |
-| 4 | **进阶 LSP 效果未经真实 server 验证。** 方法已实现，但 semantic tokens / inlay hints / code lens 的实际返回值取决于服务器。 | `internal/lsp/features_advanced.go:11/31/52/75`（`SemanticTokens` / `InlayHints` / `CodeLens` / `ResolveCodeLens`）、`internal/lsp/gopls_integration_test.go` | 参照现有 gopls 集成测试的"硬断言/尽力而为"分层，为进阶方法补可选验证。 |
+| 3 | ~~**无真实模型质量评测。**~~ **R23+R24+R25 已落地 opt-in 真实模型评测批处理，默认离线不联网。** R23：`internal/eval/completion.go` 的 `ScenarioCompletionRate` + `internal/eval/run.go:410-422` 的 `Check.FileEquals` 逐字节判据（`internal/eval/file_equals_test.go`），由 `go test` 退出码 + 文件 diff 客观判完成率，天然 model-agnostic；R24：`ARGENT_EVAL_LIVE` 精确等于 "1" 才开启（`internal/eval/live_gate.go:15/39/51`，需 API key，默认零配置断网）+ `eval --live` 带外分派（`internal/cli/eval.go:27-50`）+ `evals/completion.json`（F/N 2 场景，完成率 0.5）；R25：`evals/completion_expanded.json`（5 场景 4 正 1 负，完成率细化到 0.8，`liveSafeScenarios` 在 live 模式归零脚本字段只留客观 Check）。 | `internal/eval/completion.go`、`internal/eval/run.go:410-422`、`internal/eval/live_gate.go`、`internal/cli/eval.go:27-50`、`evals/completion.json`、`evals/completion_expanded.json` | 已闭环。诚实边界：opt-in 需要用户自己的 key / 协议配置，默认 `eval` 路径仍完全离线；判据只验"文件是否真的改对 + 测试是否转绿"，不打分回答文风。 |
+| 4 | ~~**进阶 LSP 效果未经真实 server 验证。**~~ **R24 已补真实 server 结构化验证（best-effort，未做硬门禁）。** `internal/lsp/gopls_advanced_test.go:14-164` 复用真实 gopls 的 workspace/fixture/就绪门，对 `SemanticTokens` / `InlayHints` / `CodeLens` / `ResolveCodeLens` 四方法逐一调用；数量类结果与 RPC 错误只记日志（gopls 默认关闭 semantic tokens / inlay hints、codeLens/resolve 可能因不透明 data 报错，均为合法结果），仅对"已成功返回的结构"做不变量断言（token 数为 5 的倍数、Position.Line ≥ 0、resolve 须标记 resolved）。 | `internal/lsp/gopls_advanced_test.go:14-164`、`internal/lsp/features_advanced.go:11/31/52/75` | 硬门禁（数量下限/具体值断言）与更多语言 server（如 rust-analyzer/pyright）验证仍未做；当前为"实现存在 → 结构已验证"，效果强断言留待后续。 |
 
 ### 4.4 ⊘ 合理取舍
 
@@ -246,7 +250,7 @@
 | 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argent commands` 列出。 |
 | Hooks | `internal/hooks/` + SHA-256 信任（`internal/hooks/trust.go`） | 已配置规则进入安全链。 |
 | LSP | `internal/lsp/`（6 基础 + 3 进阶方法）、gopls 集成测试 | 惰性启动、按 root+server 缓存。 |
-| Eval | `internal/eval/`、`evals/core.json`（20 场景）、`argent eval` | 脚本化、不联网。 |
+| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argent eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。 |
 | Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job。 |
 | 诊断 CLI | `doctor` / `bug` / `audit` / `usage` / `policy` / `config`（TECHNICAL.md:421-452） | 机器可读 `--json`。 |
 
@@ -259,7 +263,7 @@
 | 插件生态 | marketplace | 部分有插件系统 | 清单发现 + opt-in，`--plugins`；无 marketplace | ⚠️-1 / ⊘-1 |
 | 调试协议 | 有 IDE 集成 | OpenCode LSP 强 | LSP 完善，DAP 不做 | ⊘-2 |
 | 可观测性 | 日志/审计 | 视产品 | 审计、脱敏、doctor、bug 包、jobs 面板，工程证据强 | ✅ |
-| 脚本化评测 | 有内部体系 | 不统一 | `eval` + 20 场景，可复现 | ✅ |
+| 脚本化评测 | 有内部体系 | 不统一 | `eval` + core.json 10 场景，可复现；另有 opt-in `--live` 真实模型批处理（默认离线） | ✅ |
 
 ### 6.3 ⚠️ 真实差距（backlog）
 
@@ -296,21 +300,21 @@
 
 | 维度 | 总标注 | 一句话 |
 |---|---|---|
-| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；R20 已修 grapheme 切点（升至 ✅），剩余差距仅摘要生成式（opt-in 原语已交付，接线待续）。 |
-| 可恢复性 | ✅ 领先 | JSONL 树 + sha256 checkpoint + undo/retry + 离线导出；GUI 分支树与 ACP load 待补。 |
+| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；R20 已修 grapheme 切点，摘要生成式 R22 已接线（opt-in `model_summary` + `secondary-model`，3s 超时失败回落，开销在事件流可见但不计预算/stats），默认仍走抽取式。 |
+| 可恢复性 | ✅ 领先 | JSONL 树 + sha256 checkpoint + undo/retry + 离线导出；GUI 分支树已补（R24 `session.tree` RPC + R26 原生可点击渲染），仅 ACP load 明确不做（能力经 `--rpc session.load` 保留）。 |
 | 工具执行 | ✅ 领先 | 34 默认工具 + 硬边界 + 细粒度审批 + MCP/Hooks；`web_search` 无内置后端是短板。 |
-| 交互体验 | ✅ + ⚠️ | TUI/原生 GUI/三传输齐全且内存占优；语言、桌面平台、真实模型评测是差距。 |
+| 交互体验 | ✅ + ⚠️ | TUI/原生 GUI/三传输齐全且内存占优；语言与桌面平台仍是差距，真实模型评测已 opt-in 落地（默认离线），进阶 LSP 已补真实 server 结构化验证（best-effort）。 |
 | provider 协议 | ✅ + ⊘ | 三协议 20 模板 + 重试/缓存/推理；云厂商长尾有意不做。 |
-| 开发者体验 | ✅ 领先 | 七层配置 + skills/commands/hooks/LSP/eval；无 marketplace 是定位取舍。 |
+| 开发者体验 | ✅ 领先 | 七层配置 + skills/commands/hooks/LSP/eval + `doctor --json` / `config.info` RPC / `auto_verify` opt-in；无 marketplace 是定位取舍。 |
 
 ---
 
 ## 9. 迭代建议（按投入产出排序）
 
 1. ~~先修正确性：§1 ⚠️-2 的 grapheme 切点~~ **R20 已完成**：session 主路径统一字簇吸附，STATUS 核心引擎升至 10 分。
-2. **再补开箱即用**：§3 ⚠️-1 的 `web_search`（R20 已加 doctor 提示 + 预设，仍需用户 key）、§1 ⚠️-3 的缓存可见性。
-3. **然后补可信度**：§4 ⚠️-3/⚠️-4 的真实模型评测与进阶 LSP 验证，把"实现存在"升级为"效果已验证"。
-4. **最后考虑体验增量**：§2 ⚠️-1 GUI 分支树、§1 ⚠️-1 模型生成式压缩摘要——收益高但改动面大，需单独排期。
+2. **再补开箱即用**：§3 ⚠️-1 的 `web_search`（R20 已加 doctor 提示 + 预设，仍需用户 key）；§1 ⚠️-3 指**提示缓存对 OpenAI 兼容端点默认关闭**（而非"缓存可见性"——累计统计 cached 恒 0 的口径问题已在 R23 由 `loop_helpers.go:account()` 修复），仍需按 `baseURL` 探测/显式声明。开发者体验侧的 `doctor --json`、`config.info`、`auto_verify` 已于 R24/R25 补齐。
+3. ~~然后补可信度：§4 ⚠️-3/⚠️-4~~ **R23+R24+R25 已完成**：真实模型评测为 opt-in 批处理（`ARGENT_EVAL_LIVE` / `eval --live`，默认离线），进阶 LSP 已补真实 gopls 结构化验证（R24 best-effort，未做硬门禁）。剩余增量是把 best-effort 升级为硬断言、扩更多语言 server。
+4. ~~最后考虑体验增量：§2 ⚠️-1 GUI 分支树~~ **R24+R26 已完成**（`session.tree` RPC + 原生可点击分支渲染）；§1 ⚠️-1 模型生成式压缩摘要 **R22 已接线**（opt-in，默认关逐字节不变），剩余是把旁路开销计入预算/stats（改 agent 接口，暂不做）。
 
 所有 ⚠️ 项均保留源码落点；每完成一项，应同步更新本矩阵的标注与其 ⚠️ 表行。
 
@@ -320,3 +324,23 @@
 - **完成率验收闭环**（§4 ⚠️-3 部分推进）：`internal/eval` 新增 `Check.FileEquals`（精确字节判据）与 `ScenarioCompletionRate`；`internal/app/eval_completion_test.go` 用 F/N 双场景证明 grader 依据真实 `go test` 退出码 + 文件字节区分完成/未完成（`Passed==1 && Failed==1`、完成率 0.5）。**诚实边界**：脚本化 provider 仅证明框架能客观判完成率，真能力验收需 `ARGENT_EVAL_LIVE` + 真模型跑同一批场景；objective 判据（退出码/文件 diff）天然 model-agnostic。
 - **缓存统计根因修复**：`internal/agent/loop_helpers.go` 的 `account()` 补累加 `CachedTokens`/`CacheWriteTokens`，修正累计统计/TotalUsage/`--tokens` 总额/usage 工具里 cached 恒 0 的口径不一致（逐模型行本就正确）。wire 变化为已有 `omitempty` 字段填值，字节 golden 全绿。
 - **仍维持 ⊘**：ACP session/load、进阶 LSP 硬验证、i18n 扩语言、Linux GUI、图像输入贯通（原语在但仅 ~1/3 provider 支持，R22/R23 均评估推迟）、marketplace/tree-sitter/DAP/Bedrock-Vertex。
+
+### R24 更新记录
+
+- **可恢复性 RPC 闭环（§2 ⚠️-1 部分完成）**：新增只读 `session.tree`（`internal/server/rpc.go:348-383`），{id} 入参、`{branches:[...]}` 出参，复用 `internal/session/tree.go:68` 的 `Branches`；通过 `SessionTreeStore` 可选接口发现，未实现的假存储得到干净 "not configured" 错误而非 panic，错误走 `scrubSessionLoadError` 脱敏路径，既有 wire 逐字节不变。同批新增 `config.info`（`internal/server/rpc.go:509-526`），返回真实 model/provider/workspace 供原生状态栏显示，workspace 折叠为 `<storage>/...` 占位符。
+- **真实模型评测批处理落地（§4 ⚠️-3 部分完成）**：`internal/eval/live_gate.go:15/39/51` 仅当 `ARGENT_EVAL_LIVE` 精确等于 "1" 才开启，并要求 `ARGENT_API_KEY` / `OPENAI_API_KEY` 之一非空（`ErrLiveRequiresKey`），协议名走白名单（`isLiveProtocol`），Redacted 保证 key 不出报告；默认零配置断网。`internal/cli/eval.go:27-50` 把 `--live` 作为不进 flagSurface/parity 的带外前缀分派给 `LiveEvalSuiteRunner`，不支持时明确报错。`evals/completion.json` 把 R23 只活在测试常量里的 F/N 场景搬成数据（2 场景，完成率 0.5）。判据仍是 `go test` 退出码 + `file_equals` 逐字节（`internal/eval/run.go:410-422`、`internal/eval/scenario.go:125-127`），与模型自评无关。
+- **进阶 LSP 真实 server 验证（§4 ⚠️-4 部分完成）**：新增 `internal/lsp/gopls_advanced_test.go:14-164`，复用 gopls 集成测试的 workspace/就绪门，对 `SemanticTokens` / `InlayHints` / `CodeLens` / `ResolveCodeLens` 做 best-effort 结构验证：数量与 RPC 错误只记日志，仅对成功返回的结构做不变量断言（token 数 5 的倍数、Position.Line ≥ 0、resolve 须标记 resolved）。**未做硬门禁**：gopls 默认关闭 semantic tokens / inlay hints，codeLens/resolve 可能因不透明 data 报错，都是合法结果。
+- **开发者体验**：`doctor --json`（`internal/cli/doctor.go:66/101/344`）——检查计算与文本分支完全共享，输出稳定 JSON 报告（checks/failures/environment）。
+- **仍维持 ⊘**：ACP `session/load`（`internal/server/acp.go:131-132` 直接 method-not-found，能力经 `--rpc session.load` 保留）、进阶 LSP 硬断言、i18n 扩语言、Linux GUI、marketplace/tree-sitter/DAP/Bedrock-Vertex。
+
+### R25 更新记录
+
+- **完成率粒度扩充（§4 ⚠️-3 继续推进）**：新增 `evals/completion_expanded.json`，5 场景（4 正 1 负：S1 多文件重构、S2 双 bug 调试转绿、S3 needle 检索、S4 read→grep→edit→write 编排、S5 部分修复负对照），完成率从 0.5 细化到 0.8。每个 Go 场景用 `allow_exec` + `exec(go test ./... want_exit_code 0)` + `file_equals`，逐字节锁死 `*_test.go` 种子内容防改测试作弊；`liveSafeScenarios` 在 live 跑批时归零脚本字段，只保留客观 Check。配套 fixture 测试 `internal/eval/completion_expanded_fixture_test.go` 校验种子与判据一致。
+- **编辑后自动验证 opt-in**：`internal/app/verify_wire.go:591-595` 的 `verifyFuncFor` 接受可选 `auto` 参数（`internal/app/optin_registry.go:55` 的 `auto_verify`）；开启且工作区含 `go.mod`、无显式 `VerifyCommand(s)` 时合成 `go test ./...` 回环（`autoVerifyArgv`），诊断经 `internal/app/hooks.go:293` 的 `autoDiagnostics` 回灌给模型；未开启/传 false 时逐字节不变。doctor 的检查与 CLI 可见性同步补齐（`internal/cli/doctor.go:235-286`）。
+- **命令面板模糊补全**：`internal/tui/completion.go:178-195` 的 `matchCommand` 保留原大小写不敏感前缀语义（`prefixMatch`），非前缀走 `FuzzyMatch` 子序列（如 "rv" 命中 "review"）；query 先按 rune 折叠，rune 索引与字节位置无关故 CJK/emoji 不被截断；只看命中不读分数，前缀路径逐字节一致、不按分数重排。
+- **仍维持 ⊘**：ACP session/load、进阶 LSP 硬门禁、i18n 扩语言、Linux GUI、marketplace/tree-sitter/DAP/Bedrock-Vertex。
+
+### R26 更新记录
+
+- **原生桌面分支树渲染（§2 ⚠️-1 闭环）**：`native/main.go:407-491` 新增 `branchNodes` / `hasForkBranches` / `branchNodeLabel` / `parseSessionTree` / `fetchSessionTree`。会话行下按需渲染分支节点：仅当 `session.tree` 的 branches 中出现 `Fork=true`（父节点有多个孩子）时才构建元素，单线树或空树下一帧与旧版逐字节一致；节点按深度缩进，分叉/活动叶子分别带 `⑂` / `●` 字形，点击调用 `openSessionBranch` 以 `{"id":stem,"branch":recordID}` 重新加载该分支转录。`fetchSessionTree` 在 RPC 失败或解析失败时保留旧 branches/branchSession，不清空会话栏。
+- **回填结论**：可恢复性维度已无 ⚠️（§2 ⚠️-1 完成，ACP load 维持 ⊘）；真实模型评测与进阶 LSP 验证已从"差距"改为"已 opt-in / best-effort 落地"。剩余差距收敛到 §1 ⚠️-1/⚠️-3、§3 ⚠️-1、§4 ⚠️-1/⚠️-2 与 §6 ⚠️-1，以及"硬门禁/更多语言 server/计入预算"等增量。
