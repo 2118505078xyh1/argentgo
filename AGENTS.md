@@ -27,7 +27,11 @@ gofmt -l .                               # must print nothing
 
 基准测试也是测试：其断言在 `go test` 下运行，所以即使 CI 从不计时，过时的断言也会让构建失败。只要改动 session/agent/tools 的热路径，就跑一遍 smoke 测试。
 
-**race 验证加速**（机器 24 核，勿用低并行度浪费 CPU）：日常验证用 `go test -race -p 4 -count=1 $(go list ./... | grep -v '/native$')`——`-p 4` 是标准并行度，比 `-p 2` 快近一倍；排除 native（MyGo GPU，race 下偶发挂起且不进核心链路）。全量 race 只在发版门禁跑，日常迭代只 race 改动包 + 热路径包（agent/session/hooks/app）。慢包 top3 是 session/hooks/app（插桩后 20-45s），属正常，勿误判为卡死；仅在确认假失败时才临时降低 `-p`。
+**验证频率分层**（机器 24 核，避免每轮都跑慢门禁）：
+- **每轮必跑（快）**：`gofmt -l .`（必须空）、`go vet ./...`、`go test -p 4 ./... -count=1`。`-p 4` 是标准并行度；这三步能抓绝大多数回归。
+- **每 3 轮跑一次 + 发版门禁必跑（慢）**：`go test -race -p 4 -count=1 $(go list ./... | grep -v '/native$')`、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`、native 包测试。race 慢（插桩后 3-5 分钟，慢包 session/hooks/app 各 20-45s 属正常），native 在 race/无 GPU 下偶发挂起；二者排除出日常快验证。若刚跑过全套，则接下来两轮只跑快验证，第三轮再跑全套。
+- **接线改动（改 tracked 接线点）时**：除快验证外，额外单独 race 受影响包 + 热路径（agent/session/hooks/app），不必等第三轮。
+- **假失败判定**：全量 test 偶发红（同秒时间戳排序、hook shell 超时、native GPU 挂起）先单独重跑 3 次；全绿即假失败，稳定红才是真回归。仅在确认假失败时临时降低 `-p`。
 
 桌面前端（`native/`，MyGo 原生 UI）：
 
