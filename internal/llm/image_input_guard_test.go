@@ -25,15 +25,15 @@ type guardWirePart struct {
 	} `json:"image_url"`
 }
 
-// guardDecodeParts 把带图消息的 Content 解析为 part 数组。
-func guardDecodeParts(t *testing.T, content string) []guardWirePart {
+// guardDecodeParts 把带图消息的 ContentParts 原始 JSON 解析为 part 数组。
+func guardDecodeParts(t *testing.T, raw json.RawMessage) []guardWirePart {
 	t.Helper()
-	if !json.Valid([]byte(content)) {
-		t.Fatalf("Content 不是合法 JSON: %s", content)
+	if !json.Valid(raw) {
+		t.Fatalf("ContentParts 不是合法 JSON: %s", raw)
 	}
 	var parts []guardWirePart
-	if err := json.Unmarshal([]byte(content), &parts); err != nil {
-		t.Fatalf("解析 content part 失败: %v; content=%s", err, content)
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		t.Fatalf("解析 content part 失败: %v; raw=%s", err, raw)
 	}
 	return parts
 }
@@ -88,9 +88,9 @@ func TestGuardBuildImageMessageSingleAndMultiple(t *testing.T) {
 		if msg.Role != "user" {
 			t.Errorf("Role = %q, want user", msg.Role)
 		}
-		parts := guardDecodeParts(t, msg.Content)
+		parts := guardDecodeParts(t, msg.ContentParts)
 		if len(parts) != 2 {
-			t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.Content)
+			t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.ContentParts)
 		}
 		if parts[0].Type != "text" || parts[0].Text != "看这张图" || parts[0].ImageURL != nil {
 			t.Errorf("parts[0] = %+v, want text part", parts[0])
@@ -113,9 +113,9 @@ func TestGuardBuildImageMessageSingleAndMultiple(t *testing.T) {
 			{MimeType: "image/jpeg", Data: d0, Detail: "low"},
 			{MimeType: "image/webp", Data: d1},
 		})
-		parts := guardDecodeParts(t, msg.Content)
+		parts := guardDecodeParts(t, msg.ContentParts)
 		if len(parts) != 3 {
-			t.Fatalf("part 数 = %d, want 3; content=%s", len(parts), msg.Content)
+			t.Fatalf("part 数 = %d, want 3; content=%s", len(parts), msg.ContentParts)
 		}
 		if parts[0].Type != "text" || parts[0].Text != "A" {
 			t.Errorf("parts[0] = %+v, want text A", parts[0])
@@ -138,9 +138,9 @@ func TestGuardBuildImageMessageCJKPreserved(t *testing.T) {
 	msg := llm.BuildImageMessage(text, []llm.ImageInput{
 		{MimeType: "image/png", Data: []byte("x")},
 	})
-	parts := guardDecodeParts(t, msg.Content)
+	parts := guardDecodeParts(t, msg.ContentParts)
 	if len(parts) != 2 {
-		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.Content)
+		t.Fatalf("part 数 = %d, want 2; content=%s", len(parts), msg.ContentParts)
 	}
 	if parts[0].Text != text {
 		t.Errorf("文本 = %q, want %q", parts[0].Text, text)
@@ -149,21 +149,22 @@ func TestGuardBuildImageMessageCJKPreserved(t *testing.T) {
 	empty := llm.BuildImageMessage("", []llm.ImageInput{
 		{MimeType: "image/png", Data: []byte("x")},
 	})
-	onlyImage := guardDecodeParts(t, empty.Content)
+	onlyImage := guardDecodeParts(t, empty.ContentParts)
 	if len(onlyImage) != 1 || onlyImage[0].Type != "image_url" {
 		t.Errorf("空文本带图应只有 1 个 image_url part, got %+v", onlyImage)
 	}
 }
 
-// TestGuardImageInputsSupported 三协议能力判定：OpenAI chat 与 responses
-// 支持，Anthropic Messages 不支持；未知与空协议同样返回 false。
+// TestGuardImageInputsSupported 三协议能力判定：只有 OpenAI chat
+// completions 的 wire 能承载原始 part 数组；responses 与 Anthropic Messages
+// 均不支持；未知与空协议同样返回 false。
 func TestGuardImageInputsSupported(t *testing.T) {
 	cases := []struct {
 		protocol string
 		want     bool
 	}{
 		{llm.ProtocolChatCompletions, true},
-		{llm.ProtocolResponses, true},
+		{llm.ProtocolResponses, false},
 		{llm.ProtocolAnthropicMessages, false},
 		{"", false},
 		{"unknown-protocol", false},
@@ -202,15 +203,15 @@ func TestGuardBuildImageMessageDoesNotTouchInput(t *testing.T) {
 	}
 
 	// 改动入参后，已构造的消息内容必须保持原样。
-	snapshot := msg.Content
+	snapshot := append(json.RawMessage(nil), msg.ContentParts...)
 	d0[0], d0[1], d0[2] = 0xFF, 0xFE, 0xFD
 	d1[0], d1[1] = 0xAA, 0xBB
 	images[0].MimeType, images[0].Detail = "image/gif", "high"
-	if msg.Content != snapshot {
-		t.Errorf("Content 持有入参引用，改动 Data 后变了: got %q, want %q", msg.Content, snapshot)
+	if !bytes.Equal(msg.ContentParts, snapshot) {
+		t.Errorf("ContentParts 持有入参引用，改动 Data 后变了: got %s, want %s", msg.ContentParts, snapshot)
 	}
-	if want := guardDataURL("image/jpeg", before[0]); !bytes.Contains([]byte(msg.Content), []byte(want)) {
-		t.Errorf("Content 未保留构造时的 base64 快照: content=%s want url=%s", msg.Content, want)
+	if want := guardDataURL("image/jpeg", before[0]); !bytes.Contains(msg.ContentParts, []byte(want)) {
+		t.Errorf("ContentParts 未保留构造时的 base64 快照: content=%s want url=%s", msg.ContentParts, want)
 	}
 }
 

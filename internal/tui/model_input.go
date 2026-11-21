@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"unicode/utf8"
 )
 
 // externalEditorRun 在临时提示文件上启动解析出的编辑器。
@@ -43,6 +44,11 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	m.markDirtyLocked()
 	if m.sessionFiltering {
 		return m.filterKeyLocked(key)
+	}
+	// vim 键位（可选）：默认关闭时 m.vimMode 为零值 false，守卫短路，主 switch
+	// 逐字节不变。开启后由 handleVimKeyLocked 决定是否消费该键。
+	if m.vimMode && m.handleVimKeyLocked(key) {
+		return ActionNone
 	}
 	switch key.Kind {
 	case KindIgnore:
@@ -470,4 +476,79 @@ func (m *Model) requestActionLocked(action KeyAction, arg string) KeyAction {
 	m.actionArg = arg
 	m.setStatusLocked("")
 	return action
+}
+
+// handleVimKeyLocked 处理 vim 键位。返回 true 表示键已被消费（调用方直接
+// 返回 ActionNone），false 表示交还给主 switch 按经典行为处理。
+//
+// 文本与光标的单位不同：Editor.Cursor() 是 rune 索引，VimMotion 用字节索引。
+// 这里在两者间以完整 UTF-8 字符边界换算，保证 CJK/emoji 不被从中间切开。
+func (m *Model) handleVimKeyLocked(key Key) bool {
+	text := m.editor.Text()
+	if m.vimInsert {
+		if key.Kind == KindEsc {
+			// vim 惯例：退出插入态时光标左移一格（钳制到合法边界）。
+			m.vimInsert = false
+			c := m.editor.Cursor()
+			if c > 0 {
+				m.editor.SetCursor(c - 1)
+			}
+			return true
+		}
+		// 插入态其余键交还主 switch，逐字节保持经典输入行为。
+		return false
+	}
+
+	// normal 态：仅处理可打印字符作为 vim 命令；其它 Kind（Tab/Esc/方向键/
+	// Ctrl 组合）交还主 switch，保持补全、面板与审批的经典语义。
+	if key.Kind != KindRune {
+		return false
+	}
+	k := string(key.Rune)
+	// i/a/I/A 进入插入态；其中 a/A 按 vim 惯例光标后移一格，I 定位行首非空白。
+	enterInsert := false
+	switch k {
+	case "i":
+		enterInsert = true
+	case "a":
+		enterInsert = true
+		k = "l" // 先右移一格再进入插入态
+	case "I":
+		enterInsert = true
+		k = "^" // 行首首个非空白
+	case "A":
+		enterInsert = true
+		k = "$" // 行尾
+	}
+
+	// rune 索引 → 字节索引：统计前 c 个 rune 的字节长度。
+	runes := []rune(text)
+	c := m.editor.Cursor()
+	if c < 0 {
+		c = 0
+	}
+	if c > len(runes) {
+		c = len(runes)
+	}
+	byteIdx := len(string(runes[:c]))
+
+	_, newByte, handled := VimMotion(text, byteIdx, k)
+	if enterInsert {
+		// i/I 定位后直接进入插入态；a/A 的右移已含在 k 中。
+		m.vimInsert = true
+	}
+	if !handled && !enterInsert {
+		// 未识别的 motion 键：normal 态消费但不插入字符（vim 的"无效命令"语义），
+		// 光标保持原合法边界。
+		return true
+	}
+	// 字节索引 → rune 索引（VimMotion 保证落点在合法 UTF-8 边界）。
+	if newByte < 0 {
+		newByte = 0
+	}
+	if newByte > len(text) {
+		newByte = len(text)
+	}
+	m.editor.SetCursor(utf8.RuneCountInString(text[:newByte]))
+	return true
 }

@@ -141,6 +141,11 @@ type Model struct {
 	root     string
 	locale   string
 	sessions []SessionInfo
+	// vimMode/vimInsert 是可选的 vim 键位状态，零值 false 时输入行保持经典行为，
+	// 逐字节不变。vimInsert 表示处于插入态（字母键正常输入），normal 态字母键
+	// 走 VimMotion 而不插入字符。
+	vimMode   bool
+	vimInsert bool
 
 	theme    string
 	palette  Palette

@@ -32,6 +32,11 @@ type Message struct {
 	// CacheControl 为缓存网关标记稳定的系统消息。它
 	// 从不会持久化到转录中。
 	CacheControl *CacheControl `json:"-"`
+	// ContentParts 承载多模态 content part 数组的原始 JSON，是绕过
+	// Content string 的旁路字段：json:"-" 使其既不参与 Message 自身的
+	// JSON 序列化，也不写入会话转录，仅由 wireMessages 消费。
+	// nil 表示纯文本消息，走既有 text-only 路径。
+	ContentParts json.RawMessage `json:"-"`
 }
 
 // Usage 报告提供方对一次回复计费的 token 数。
@@ -286,6 +291,36 @@ type chatMessage struct {
 	// 在助手轮次上重放的推理内容。默认保持为空，
 	// 以使所有现有调用方发出的线协议字节保持不变。
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// Parts 是已编码好的 content part 数组原始 JSON。非 nil 时作为
+	// content 原样输出；json:"-" 让默认编码路径（别名 plain）不会发出它。
+	Parts json.RawMessage `json:"-"`
+}
+
+// MarshalJSON 为带图消息把原始 part 数组直接放到 content 上，避免把
+// 已编码的 JSON 再当成字符串二次编码（那会让提供方收到字面文本）。
+// Parts 为 nil 时委托给去掉方法的别名类型，text-only 字节保持逐字节不变。
+func (m chatMessage) MarshalJSON() ([]byte, error) {
+	type plain chatMessage
+	if m.Parts == nil {
+		return json.Marshal(plain(m))
+	}
+	// 独立的输出结构：Content 用 json.RawMessage 承载原始数组，
+	// 其余字段沿用原有的标签与顺序。
+	return json.Marshal(struct {
+		Role             string          `json:"role"`
+		Content          json.RawMessage `json:"content,omitempty"`
+		ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`
+		ToolCallID       string          `json:"tool_call_id,omitempty"`
+		CacheControl     *CacheControl   `json:"cache_control,omitempty"`
+		ReasoningContent string          `json:"reasoning_content,omitempty"`
+	}{
+		Role:             m.Role,
+		Content:          m.Parts,
+		ToolCalls:        m.ToolCalls,
+		ToolCallID:       m.ToolCallID,
+		CacheControl:     m.CacheControl,
+		ReasoningContent: m.ReasoningContent,
+	})
 }
 
 // wireMessages 复制消息时不带仅用于转录的字段。在
@@ -303,6 +338,7 @@ func wireMessages(messages []Message, cacheEnabled bool, control *CacheControl, 
 			Content:    m.Content,
 			ToolCalls:  m.ToolCalls,
 			ToolCallID: m.ToolCallID,
+			Parts:      m.ContentParts,
 		}
 		if keepReasoning && m.Role == "assistant" && m.Reasoning != "" {
 			out[i].ReasoningContent = m.Reasoning
@@ -374,6 +410,7 @@ func (c *Client) chat(
 	onText func(string),
 	stopIDs []int64,
 ) (Message, error) {
+	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
 		Model:        model,
@@ -390,6 +427,7 @@ func (c *Client) chat(
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
 
@@ -426,6 +464,7 @@ func (c *Client) chat(
 		return c.httpClient().Do(req)
 	})
 	if err != nil {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
@@ -433,15 +472,18 @@ func (c *Client) chat(
 
 	if resp.StatusCode >= 300 {
 		err := providerError(resp)
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolChatCompletions, model, err))
 		return Message{}, err
 	}
 
 	reply, err := c.readStream(ctx, model, resp.Body, onText)
 	if err != nil {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
 		return Message{}, err
 	}
+	recordTrace(ProtocolChatCompletions, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
 	return reply, nil
 }

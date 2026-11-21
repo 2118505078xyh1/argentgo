@@ -154,7 +154,13 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				_, err = Execute(turnCtx, stdio, res, sess, text, onText)
 				return err
 			},
-			OnReady:     func(model *tui.Model) { approver.attach(model) },
+			OnReady: func(model *tui.Model) {
+				approver.attach(model)
+				// vim 键位（可选）：ARGENT_VIM_MODE=1 时启用，默认经典输入逐字节不变。
+				if env := stdio.Env; env != nil && strings.TrimSpace(env("ARGENT_VIM_MODE")) == "1" {
+					model.SetVimMode(true)
+				}
+			},
 			CommandInfo: buildTUICommandInfo(stdio, res),
 		}
 		// 测试（或管道）不得让终端进入 raw 模式。

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // DefaultAnthropicMaxTokens 在 AnthropicClient.MaxTokens 未设置时使用。
@@ -100,11 +101,15 @@ func (c *AnthropicClient) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
+	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
 	if strings.TrimSpace(model) == "" {
-		return Message{}, errors.New("anthropic: model is required")
+		err := errors.New("anthropic: model is required")
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		return Message{}, err
 	}
 	payload, err := json.Marshal(c.buildRequest(model, messages, tools))
 	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
 
@@ -140,21 +145,25 @@ func (c *AnthropicClient) Chat(
 		return c.httpClient().Do(req)
 	})
 	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
 		return Message{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		err := providerError(resp)
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolAnthropicMessages, model, err))
 		return Message{}, err
 	}
 
 	reply, err := c.readStream(ctx, resp.Body, onText)
 	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
 		return Message{}, err
 	}
+	recordTrace(ProtocolAnthropicMessages, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolAnthropicMessages, Model: model})
 	return reply, nil
 }
@@ -208,11 +217,13 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 	for _, message := range messages {
 		switch message.Role {
 		case "system":
-			if text := strings.TrimSpace(message.Content); text != "" {
-				system = append(system, message.Content)
+			// 带图消息在本协议上退化为占位文本，避免静默丢弃整条消息。
+			text := messageTextForProtocol(message)
+			if strings.TrimSpace(text) != "" {
+				system = append(system, text)
 			}
 		case "user":
-			blocks := textBlocks(message.Content)
+			blocks := textBlocks(messageTextForProtocol(message))
 			if len(blocks) == 0 {
 				continue
 			}
@@ -226,7 +237,7 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 				// 必须在网关层提供它。
 				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: message.Reasoning})
 			}
-			blocks = append(blocks, textBlocks(message.Content)...)
+			blocks = append(blocks, textBlocks(messageTextForProtocol(message))...)
 			for _, call := range message.ToolCalls {
 				blocks = append(blocks, toolUseBlock(call))
 			}
