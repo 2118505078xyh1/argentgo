@@ -98,6 +98,12 @@ type Session struct {
 	fdMTime  time.Time           // 上次同步时的修改时间
 	lastInfo os.FileInfo         // 上次同步时的路径标识（Windows 上为 inode/卷）
 
+	// bufferedWrite 是显式开启的批量写模式，默认关闭以保持逐行写路径的字节与 IO 行为不变。
+	// 开启后 Append 只把编码后的 JSONL 行暂存到 pending，直到 Flush/Close 才一次性落盘，
+	// 把大量小记录的多次系统调用合并为一次写入。
+	bufferedWrite bool
+	pending       []byte // 尚未落盘的 JSONL 行；仅在 bufferedWrite 开启时非空
+
 	// readRecordsFn 由测试设置时，会覆盖用于构建或重建索引的全量读取。
 	// Records() 刻意始终使用 readRecords。
 	readRecordsFn func(string) ([]Record, error)

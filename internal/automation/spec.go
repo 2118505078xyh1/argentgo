@@ -30,6 +30,9 @@ const (
 	MissedRunOnce = "run_once"
 	// MissedSkip 丢弃错过的时隙并等待下一个。
 	MissedSkip = "skip"
+	// MissedRunLatest 是 opt-in 的补偿策略：多个时隙被错过时，
+	// 按最近的一个已过期时隙触发一次，而非最早的那个。默认策略保持为 run_once。
+	MissedRunLatest = "run_latest"
 )
 
 // Duration 是 JSON 友好的 time.Duration。它编码为时长字符串（"30m"），解码时接受时长字符串或秒数，使手写配置文件保持可读。
@@ -158,6 +161,51 @@ func (s Schedule) Next(t time.Time) time.Time {
 	return time.Time{}
 }
 
+// NextTrigger 根据错过补偿策略计算在观测时刻 now 的触发时隙与下一次到期时间。
+// slot 是进程认领的（可能已错过的）时隙，now 是当前观测时间。返回的 trigger 为本次
+// 应当运行的时隙（零时间表示本次不运行），next 为运行后 NextDue 应推进到的时间。
+//
+//   - MissedSkip：丢弃已过期的时隙，本次不运行，next 为严格晚于 now 的时隙。
+//   - MissedRunOnce（默认）：运行认领的 slot；next 取 Next(slot)，若仍不晚于 now 则
+//     回退到 Next(now)，避免长时间停机后每个 tick 都重复触发同一时隙。保持原有行为不变。
+//   - MissedRunLatest：补偿到不晚于 now 的最近一个时隙并运行一次，next 为 Next(该时隙)。
+func (s Schedule) NextTrigger(slot, now time.Time, policy string) (trigger, next time.Time) {
+	switch normalizeMissed(policy) {
+	case MissedSkip:
+		return time.Time{}, s.Next(now)
+	case MissedRunLatest:
+		latest := s.latestSlotAtOrBefore(slot, now)
+		if latest.IsZero() {
+			// slot 晚于 now：没有错过的时隙，退化为跳到 now 之后的下一个时隙。
+			return time.Time{}, s.Next(now)
+		}
+		return latest, s.Next(latest)
+	default: // MissedRunOnce，原有行为不变。
+		next = s.Next(slot)
+		if !next.IsZero() && !next.After(now) {
+			next = s.Next(now)
+		}
+		return slot, next
+	}
+}
+
+// latestSlotAtOrBefore 返回从 slot 出发、不晚于 now 的最后一个时隙。
+// slot 为空或晚于 now 时返回零时间。它只沿 Next 前进，因而复用 Next 已处理的
+// DST 与边界逻辑；若 Next 停滞或不再前进则停在 latest，避免无限循环。
+func (s Schedule) latestSlotAtOrBefore(slot, now time.Time) time.Time {
+	if slot.IsZero() || slot.After(now) {
+		return time.Time{}
+	}
+	latest := slot
+	for {
+		next := s.Next(latest)
+		if next.IsZero() || !next.After(latest) || next.After(now) {
+			return latest
+		}
+		latest = next
+	}
+}
+
 // String 为日志和只读任务列表渲染调度。规范的
 // String 为日志和只读任务列表渲染调度。规范的 "kind expr" 始终保留为前缀；有效的 cron 表达式额外在括号中给出易读摘要，使 CLI/TUI 列表
 // 额外在括号中给出易读摘要，使 CLI/TUI 列表
@@ -243,13 +291,22 @@ func (s *Spec) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MissedPolicy 规范化 missed 字段；未知值表现为 run_once，使拼写错误永不静默丢弃工作。
-// 为 run_once，使拼写错误永不静默丢弃工作。
-func (s Spec) MissedPolicy() string {
-	if strings.EqualFold(strings.TrimSpace(s.Missed), MissedSkip) {
+// normalizeMissed 规范化 missed 策略字符串；未知值一律视为 run_once，
+// 使拼写错误永不静默丢弃工作。
+func normalizeMissed(policy string) string {
+	switch strings.ToLower(strings.TrimSpace(policy)) {
+	case MissedSkip:
 		return MissedSkip
+	case MissedRunLatest:
+		return MissedRunLatest
+	default:
+		return MissedRunOnce
 	}
-	return MissedRunOnce
+}
+
+// MissedPolicy 规范化 missed 字段；未知值表现为 run_once，使拼写错误永不静默丢弃工作。
+func (s Spec) MissedPolicy() string {
+	return normalizeMissed(s.Missed)
 }
 
 // Validate 检查 daemon 依赖的字段。
@@ -267,7 +324,7 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("automation: task %q: %w", s.ID, err)
 	}
 	switch strings.ToLower(strings.TrimSpace(s.Missed)) {
-	case "", MissedRunOnce, MissedSkip:
+	case "", MissedRunOnce, MissedSkip, MissedRunLatest:
 	default:
 		return fmt.Errorf("automation: task %q has an unknown missed policy %q", s.ID, s.Missed)
 	}

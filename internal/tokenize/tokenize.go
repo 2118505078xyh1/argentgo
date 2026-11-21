@@ -21,6 +21,21 @@ func Estimate(text string) int {
 	if text == "" {
 		return 0
 	}
+	// 借鉴 llm 包稳定前缀的思路：以内容哈希作为缓存键，
+	// 相同内容再次估算时直接返回结果，省去重复的字节扫描与 rune 解码。
+	key := hashContent(text)
+	if value, ok := sharedCache.get(key, text); ok {
+		return value
+	}
+	value := estimateUncached(text)
+	sharedCache.put(key, text, value)
+	return value
+}
+
+// estimateUncached 保存原本的估算逻辑，不含缓存层。
+// 把它与 Estimate 分开，确保命中与未命中走完全相同的计算路径，
+// 缓存只影响是否复用结果，不改变任何输入对应的输出。
+func estimateUncached(text string) int {
 	// 快速路径：纯 ASCII 文本既不需要 rune 解码也不需要宽 rune
 	// 表，且该估算对完整 transcript 每轮运行数次。
 	for i := 0; i < len(text); i++ {

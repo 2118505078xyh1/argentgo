@@ -49,106 +49,114 @@ type Template struct {
 	CacheSupport bool
 }
 
-// templates 是内置表，按应向用户展示的顺序排列。
-var templates = []Template{
-	{
+// builtInTemplate 是内置表的一项。order 显式给出，按展示顺序递增（步长 10），
+// 便于将来在中间插入模板；它与 name 一起决定稳定排序的结果。
+type builtInTemplate struct {
+	order    int
+	template Template
+}
+
+// builtInTemplates 是内置表，字段取值与原切片逐字节一致；order 按原展示顺序分配，
+// 保证经 templateRegistry 稳定排序后 List() 的顺序与内容都不变。
+var builtInTemplates = []builtInTemplate{
+	{10, Template{
 		Name:         "anthropic",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://api.anthropic.com/v1",
 		APIKeyEnv:    "ANTHROPIC_API_KEY",
 		DefaultModel: "claude-sonnet-5-5",
 		CacheSupport: true,
-	},
-	{
+	}},
+	{20, Template{
 		Name:         "openai",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "https://api.openai.com/v1",
 		APIKeyEnv:    "OPENAI_API_KEY",
 		DefaultModel: "gpt-5.6",
 		CacheSupport: true,
-	},
-	{
+	}},
+	{30, Template{
 		Name:         "deepseek",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://api.deepseek.com/anthropic",
 		APIKeyEnv:    "DEEPSEEK_API_KEY",
 		DefaultModel: "deepseek-v4-pro",
-	},
-	{
+	}},
+	{40, Template{
 		Name:         "moonshot",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://api.moonshot.cn/anthropic",
 		APIKeyEnv:    "MOONSHOT_API_KEY",
 		DefaultModel: "kimi-k3.1-pro",
-	},
-	{
+	}},
+	{50, Template{
 		Name:         "zhipu",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://open.bigmodel.cn/api/anthropic",
 		APIKeyEnv:    "ZHIPU_API_KEY",
 		DefaultModel: "GLM-5.3",
-	},
-	{
+	}},
+	{60, Template{
 		Name:         "qwen",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 		APIKeyEnv:    "DASHSCOPE_API_KEY",
 		DefaultModel: "qwen3.8-max",
-	},
-	{
+	}},
+	{70, Template{
 		Name:         "openrouter",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "https://openrouter.ai/api/v1",
 		APIKeyEnv:    "OPENROUTER_API_KEY",
 		DefaultModel: "anthropic/claude-sonnet-4.5",
-	},
-	{
+	}},
+	{80, Template{
 		Name:         "ollama",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "http://127.0.0.1:11434/v1",
 		DefaultModel: "llama3.2",
-	},
-	{
+	}},
+	{90, Template{
 		Name:         "lmstudio",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "http://127.0.0.1:1234/v1",
 		DefaultModel: "local-model",
-	},
-	{
+	}},
+	{100, Template{
 		Name:         "xai",
 		Protocol:     ProtocolResponses,
 		BaseURL:      "https://api.x.ai/v1",
 		APIKeyEnv:    "XAI_API_KEY",
 		DefaultModel: "grok-4.7",
 		CacheSupport: true,
-	},
-	{
+	}},
+	{110, Template{
 		Name:         "zai",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://api.z.ai/api/anthropic",
 		APIKeyEnv:    "ZAI_API_KEY",
 		DefaultModel: "GLM-5.3",
-	},
-	{
+	}},
+	{120, Template{
 		Name:         "bigmodel",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://open.bigmodel.cn/api/anthropic",
 		APIKeyEnv:    "BIGMODEL_API_KEY",
 		DefaultModel: "GLM-5.3",
-	},
-	{
+	}},
+	{130, Template{
 		Name:         "minimax",
 		Protocol:     ProtocolAnthropic,
 		BaseURL:      "https://api.minimaxi.com/anthropic",
 		APIKeyEnv:    "MINIMAX_API_KEY",
 		DefaultModel: "MiniMax-M3",
-	},
-	{
+	}},
+	{140, Template{
 		Name:         "local",
 		Protocol:     ProtocolOpenAI,
 		BaseURL:      "http://127.0.0.1:3425/v1",
 		DefaultModel: "auto/deepseek-v4.1-flash",
-	},
+	}},
 }
 
 // aliases 把替代拼写映射到规范名称。
@@ -166,12 +174,22 @@ var aliases = map[string]string{
 	"grok":        "xai",
 }
 
+// defaultTemplates 是包级静态注册表，由 newDefaultTemplates 用内置表填充。
+// 注册只发生在包初始化阶段；完成后注册表只读，因此并发查表安全。
+var defaultTemplates = newDefaultTemplates()
+
+func newDefaultTemplates() *templateRegistry {
+	r := &templateRegistry{}
+	for _, entry := range builtInTemplates {
+		r.MustRegister(entry.template.Name, entry.order, entry.template)
+	}
+	return r
+}
+
 // List 按展示顺序返回内置模板。切片是副本，修改它不影响该表。
 // 副本，修改它不影响该表。
 func List() []Template {
-	out := make([]Template, len(templates))
-	copy(out, templates)
-	return out
+	return defaultTemplates.Templates()
 }
 
 // Resolve 按规范名称或别名不区分大小写查找模板。第二个结果报告该名称是否已知。
@@ -181,12 +199,7 @@ func Resolve(name string) (Template, bool) {
 	if canonical, ok := aliases[key]; ok {
 		key = canonical
 	}
-	for _, template := range templates {
-		if template.Name == key {
-			return template, true
-		}
-	}
-	return Template{}, false
+	return defaultTemplates.Lookup(key)
 }
 
 var modelSeparators = strings.NewReplacer(
@@ -208,7 +221,7 @@ func NormalizeModel(id string) string {
 	if value == "" {
 		return ""
 	}
-	for _, template := range templates {
+	for _, template := range defaultTemplates.Templates() {
 		if strings.EqualFold(value, modelSeparators.Replace(template.DefaultModel)) {
 			return template.DefaultModel
 		}
