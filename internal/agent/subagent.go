@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/2118505078xyh1/argentgo/internal/calcutil"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
@@ -626,46 +625,10 @@ func (t *taskTools) parentEmit(event Event) {
 // ---------------------------------------------------------------------------
 // 被取消子级的成本回灌（R39）
 // ---------------------------------------------------------------------------
-
-// childCostContribution 描述一个子级对父级统计的成本贡献。
-// 字段与 session.CostContribution 对齐；agent 无法 import session（session -> eval -> agent
-// 会形成 import 环），因此在本地复刻这个纯数据类型，算术语义与 session 中的原语保持一致。
-type childCostContribution struct {
-	ChildID string
-	CostUSD float64
-	Tokens  int
-}
-
-// reconcileChildCost 是 session.ReconcileChildCost 的本地等价实现：过滤非法成本、
-// 按 ChildID 稳定排序、按排序后的顺序确定性求和。它只做算术，不触碰任何记录或提示字节。
-// 入参不会被修改。
-func reconcileChildCost(parentCost float64, children []childCostContribution) (float64, []childCostContribution) {
-	if !validChildCostUSD(parentCost) {
-		parentCost = 0
-	}
-	breakdown := make([]childCostContribution, 0, len(children))
-	for _, child := range children {
-		if !validChildCostUSD(child.CostUSD) {
-			continue
-		}
-		breakdown = append(breakdown, child)
-	}
-	// 稳定排序：同名 ChildID 的贡献保留输入次序，避免重复子级的明细顺序抖动。
-	sort.SliceStable(breakdown, func(i, j int) bool {
-		return breakdown[i].ChildID < breakdown[j].ChildID
-	})
-	total := parentCost
-	for _, child := range breakdown {
-		total += child.CostUSD
-	}
-	return total, breakdown
-}
-
-// validChildCostUSD 判定成本值是否可用于记账：必须是有限的非负数。
-// 负数没有记账意义，NaN/±Inf 会污染累加结果，故一并拒绝。
-func validChildCostUSD(v float64) bool {
-	return v >= 0 && !math.IsNaN(v) && !math.IsInf(v, 0)
-}
+//
+// 成本回灌的纯算术原语（过滤非法成本、按 ChildID 稳定排序、确定性求和）已下沉到
+// 零依赖的 calcutil 包，作为与 session 共享的单一真源。agent 无法 import session
+// （session -> eval -> agent 会形成 import 环），但可以直接依赖最底层的 calcutil。
 
 // childModel 复算某个子级实际使用的模型，用于按与子级相同的价格表折算成本。
 // 它与 childOptions 中的取值顺序一致：角色显式模型优先，否则继承父级模型。
@@ -694,12 +657,12 @@ func (t *taskTools) reconcileCancelledChildCost(childID, model string, res Resul
 	if !ok {
 		return
 	}
-	contribution := childCostContribution{
+	contribution := calcutil.CostContribution{
 		ChildID: childID,
 		CostUSD: price.Cost(res.Usage),
 		Tokens:  res.Usage.PromptTokens + res.Usage.CompletionTokens,
 	}
-	total, breakdown := reconcileChildCost(0, []childCostContribution{contribution})
+	total, breakdown := calcutil.ReconcileChildCost(0, []calcutil.CostContribution{contribution})
 	if total <= 0 || len(breakdown) == 0 {
 		return
 	}

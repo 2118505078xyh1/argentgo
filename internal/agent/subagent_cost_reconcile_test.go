@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/2118505078xyh1/argentgo/internal/calcutil"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
@@ -224,12 +225,12 @@ func TestReconcileCancelledChildCostBackground(t *testing.T) {
 
 // TestReconcileChildCostCJKChildID 验证 CJK ChildID 按字节序稳定排序（接线使用的原语语义）。
 func TestReconcileChildCostCJKChildID(t *testing.T) {
-	children := []childCostContribution{
+	children := []calcutil.CostContribution{
 		{ChildID: "中文乙", CostUSD: 0.2, Tokens: 2},
 		{ChildID: "中文甲", CostUSD: 0.1, Tokens: 1},
 		{ChildID: "中文乙", CostUSD: 0.3, Tokens: 3},
 	}
-	total, breakdown := reconcileChildCost(0, children)
+	total, breakdown := calcutil.ReconcileChildCost(0, children)
 	if total != 0.6 {
 		t.Fatalf("total = %v, want 0.6", total)
 	}
@@ -245,7 +246,7 @@ func TestReconcileChildCostCJKChildID(t *testing.T) {
 
 // TestReconcileChildCostFiltersInvalid 验证负数/NaN/±Inf 被过滤、零值保留（接线使用的原语语义）。
 func TestReconcileChildCostFiltersInvalid(t *testing.T) {
-	children := []childCostContribution{
+	children := []calcutil.CostContribution{
 		{ChildID: "neg", CostUSD: -1.5},
 		{ChildID: "nan", CostUSD: math.NaN()},
 		{ChildID: "posinf", CostUSD: math.Inf(1)},
@@ -253,7 +254,7 @@ func TestReconcileChildCostFiltersInvalid(t *testing.T) {
 		{ChildID: "zero", CostUSD: 0, Tokens: 7},
 		{ChildID: "ok", CostUSD: 0.75, Tokens: 8},
 	}
-	total, breakdown := reconcileChildCost(1, children)
+	total, breakdown := calcutil.ReconcileChildCost(1, children)
 	if total != 1.75 {
 		t.Fatalf("total = %v, want 1.75", total)
 	}

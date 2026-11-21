@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -243,8 +244,44 @@ func TestRPCSessionLoadUnknownBranch(t *testing.T) {
 	}
 }
 
+// rpcFrameID 解出 JSON-RPC 帧的顶层数字 id。现有方法的请求 id 都是数字。
+func rpcFrameID(frame string) (int, error) {
+	var v struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(frame), &v); err != nil {
+		return 0, err
+	}
+	return v.ID, nil
+}
+
+// sortRPCFramesByID 按顶层 id 对帧做稳定排序。
+// prompt 方法在独立 goroutine 中应答，它与后续同步方法之间的跨帧顺序没有保证；
+// 排序只忽略这一维度，每帧自身的字节（键序、omitempty、错误信封）仍被逐字节锁定。
+func sortRPCFramesByID(frames []string) error {
+	type decorated struct {
+		id    int
+		frame string
+	}
+	items := make([]decorated, len(frames))
+	for i, frame := range frames {
+		id, err := rpcFrameID(frame)
+		if err != nil {
+			return err
+		}
+		items[i] = decorated{id: id, frame: frame}
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].id < items[j].id })
+	for i := range frames {
+		frames[i] = items[i].frame
+	}
+	return nil
+}
+
 // TestRPCExistingMethodsWireUnchanged 锚定现有方法的逐字节响应，确保加入
 // session.tree 分支没有改变既有 RPC 方法或错误信封的形态。
+// 跨帧顺序因 prompt 异步应答而不确定，按 id 稳定排序后逐帧比对；
+// 每帧的键序、omitempty 与错误信封仍然逐字节锁定。
 func TestRPCExistingMethodsWireUnchanged(t *testing.T) {
 	sessions := fakeSessions{
 		infos:  []SessionInfo{{ID: "s1", Title: "first"}},
@@ -271,9 +308,38 @@ func TestRPCExistingMethodsWireUnchanged(t *testing.T) {
 	if len(lines) != len(want) {
 		t.Fatalf("got %d frames, want %d:\n%s", len(lines), len(want), strings.Join(lines, "\n"))
 	}
+	// prompt 走异步应答，跨帧顺序无保证；只按 id 稳定排序，之后仍逐帧逐字节比对。
+	if err := sortRPCFramesByID(lines); err != nil {
+		t.Fatalf("decode frame id from lines: %v", err)
+	}
+	if err := sortRPCFramesByID(want); err != nil {
+		t.Fatalf("decode frame id from want: %v", err)
+	}
 	for i := range want {
 		if lines[i] != want[i] {
 			t.Errorf("frame %d:\n got  %s\n want %s", i, lines[i], want[i])
 		}
+	}
+}
+
+// TestSortRPCFramesByIDPreservesFrameBytes 证明排序只改变跨帧顺序：
+// 乱序输入排序后逐字节一致；任意一帧内容真不同时，逐字节比较仍然失败。
+func TestSortRPCFramesByIDPreservesFrameBytes(t *testing.T) {
+	frame1 := `{"id":1,"jsonrpc":"2.0","result":{"ok":true}}`
+	frame2 := `{"id":2,"jsonrpc":"2.0","result":{"ok":true}}`
+	shuffled := []string{frame2, frame1}
+	if err := sortRPCFramesByID(shuffled); err != nil {
+		t.Fatal(err)
+	}
+	if shuffled[0] != frame1 || shuffled[1] != frame2 {
+		t.Fatalf("sorted = %q, want [%s %s]", shuffled, frame1, frame2)
+	}
+	// mutant：只把一帧的内容从 ok:true 改为 ok:false，排序后仍必须与期望不同。
+	mutant := []string{frame2, `{"id":1,"jsonrpc":"2.0","result":{"ok":false}}`}
+	if err := sortRPCFramesByID(mutant); err != nil {
+		t.Fatal(err)
+	}
+	if mutant[0] == frame1 {
+		t.Fatal("sort masked a real per-frame content difference")
 	}
 }

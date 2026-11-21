@@ -256,14 +256,16 @@ func (r *Registry) IndexText() string {
 	}
 	const header = "Skills: procedures you can load by name with the use_skill tool. " +
 		"Load one when the task matches its description; do not load all of them.\n"
+	scan := skillInjectionScanEnabled()
 	lines := make([]string, 0, len(r.skills))
 	for _, skill := range r.skills {
 		// 声明性元数据不可信：可能来自块标量或带引号的 \n 转义，
 		// 也可能携带 Unicode tag / bidi 不可见字符或超长内容。clipIndexField
 		// 统一做脱敏、折叠与裁剪，使每个技能恰好占据一行索引且无法向系统提示注入条目。
+		// opt-in 开启时 desc/when 额外经过语义注入检测，命中字段被替换为中性占位。
 		name := clipIndexField(skill.Name)
-		desc := clipIndexField(skill.Description)
-		when := clipIndexField(skill.WhenToUse)
+		desc := clipSkillIndexField(skill.Description, scan)
+		when := clipSkillIndexField(skill.WhenToUse, scan)
 		switch {
 		case desc == "" && when == "":
 			lines = append(lines, fmt.Sprintf("- %s\n", name))
@@ -304,6 +306,30 @@ func oneLine(s string) string {
 // 保证“索引里看到的名称”与“加载后抬头里的名称”逐字节一致。
 func clipIndexField(s string) string {
 	return textutil.ClipRunes(oneLine(security.RedactArtifactContent(s)), skillIndexFieldRunes)
+}
+
+// skillInjectionScanEnv 是技能索引语义注入扫描的 opt-in 开关。默认关闭；只有
+// 值为 "1"（允许首尾空白）时才在渲染索引前扫描 desc/when。关闭时渲染逐字节不变。
+const skillInjectionScanEnv = "ARGENT_SKILL_INJECTION_SCAN"
+
+// skillInjectionPlaceholder 是语义注入命中时替换整个字段的中性占位。它既过滤了
+// 原文，也作为“该技能此字段已被过滤”的可见标记；很短且为单行，天然满足索引边界。
+const skillInjectionPlaceholder = "[已过滤可疑指令]"
+
+// skillInjectionScanEnabled 报告是否开启技能索引的语义注入扫描。读取环境在每次
+// 渲染时进行，便于精确控制开关；扫描仅作用于 IndexText，且不改变任何原始技能。
+func skillInjectionScanEnabled() bool {
+	return strings.TrimSpace(os.Getenv(skillInjectionScanEnv)) == "1"
+}
+
+// clipSkillIndexField 是 desc/when 的渲染边界处理。scan 为真时先用安全原语检测
+// 语义注入：命中则整字段替换为中性占位（同时充当可见标记），未命中则与关闭时
+// 走同一条脱敏/折叠/裁剪链，输出逐字节相同。
+func clipSkillIndexField(s string, scan bool) string {
+	if scan && len(security.ScanPromptInjection(s)) > 0 {
+		return skillInjectionPlaceholder
+	}
+	return clipIndexField(s)
 }
 
 // Load 返回完整技能，含正文。

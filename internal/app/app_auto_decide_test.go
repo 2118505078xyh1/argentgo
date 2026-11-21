@@ -81,7 +81,8 @@ type autoDecideRun struct {
 	root    string
 }
 
-// autoDecideCapture 是一次探测运行的可比较产物。所有时间戳都被归一化，
+// autoDecideCapture 是一次探测运行的可比较产物。会话 JSONL 中每次运行必然不同的
+// 三种时间戳字段（ts、created、updated）的值被归一化，其余字节原样保留，
 // 使不同会话之间的字节可以逐项比对。
 type autoDecideCapture struct {
 	root      string
@@ -166,12 +167,16 @@ func runAutoDecideProbe(t *testing.T, o autoDecideRun) *autoDecideSessionProbe {
 var (
 	autoDecideTSRe      = regexp.MustCompile(`"ts":"[^"]*"`)
 	autoDecideCreatedRe = regexp.MustCompile(`"created":"[^"]*"`)
+	autoDecideUpdatedRe = regexp.MustCompile(`"updated":"[^"]*"`)
 )
 
-// normalizeAutoDecideJSONL 抹掉每次运行必然不同的时间戳，其余字节原样保留。
+// normalizeAutoDecideJSONL 抹掉每次运行必然不同的时间戳（ts、created、updated），
+// 其余字节原样保留。只归一化时间戳字段的值这一维度；字段内容、键序、
+// omitempty 与错误信封仍然逐字节锁定。
 func normalizeAutoDecideJSONL(raw string) string {
 	s := autoDecideTSRe.ReplaceAllString(raw, `"ts":"TS"`)
-	return autoDecideCreatedRe.ReplaceAllString(s, `"created":"TS"`)
+	s = autoDecideCreatedRe.ReplaceAllString(s, `"created":"TS"`)
+	return autoDecideUpdatedRe.ReplaceAllString(s, `"updated":"TS"`)
 }
 
 // TestAutoDecideEnabled 表驱动守护 env 门：只有 "1"（允许首尾空白）开启，
@@ -422,5 +427,23 @@ func TestAutoDecideSignalsAreComplexityOnly(t *testing.T) {
 	}
 	if !promptMutatingSignal("请修改 foo") {
 		t.Fatal("mutation marker in user text must be detected")
+	}
+}
+
+// TestNormalizeAutoDecideJSONLTimestampScope 证明归一化只触及时间戳字段的值：
+// 同一时间戳组、不同字段内容的两行归一化后仍然不同，断言强度没有被削弱。
+func TestNormalizeAutoDecideJSONLTimestampScope(t *testing.T) {
+	const stamp = "2026-11-22T01:02:03Z"
+	line := func(text string) string {
+		return `{"id":"x","ts":"` + stamp + `","created":"` + stamp +
+			`","updated":"` + stamp + `","text":"` + text + `"}`
+	}
+	want := `{"id":"x","ts":"TS","created":"TS","updated":"TS","text":"done"}`
+	if got := normalizeAutoDecideJSONL(line("done")); got != want {
+		t.Fatalf("normalize = %s\nwant     %s", got, want)
+	}
+	// mutant：非时间戳字段内容真不同时，归一化后仍必须不同。
+	if got := normalizeAutoDecideJSONL(line("DONE")); got == want {
+		t.Fatalf("normalizer masked a real content difference: %s", got)
 	}
 }
