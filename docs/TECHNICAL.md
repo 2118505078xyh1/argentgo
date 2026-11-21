@@ -611,6 +611,59 @@ agent 循环发出 `agent.Event` 值，带一个 `Kind` 以及适合该 kind 的
 
 `argent mcp [--json] [-C <dir>]` 会从合并配置中列出已配置的服务器（名称、传输、目标）。它不会联系任何服务器。
 
+#### 实用配置示例
+
+以下是三个经过核对的 stdio 配方，复制到任一配置层的 `mcpServers` 即可；**默认零 server**，改完需重启进程。完整话术、前置依赖与风险分析见 [MCP_RECIPES.md](MCP_RECIPES.md)。字段名以 `internal/mcp/config.go` 的解码器为准：`command`/`args`/`env`/`url`/`headers`/`transport`/`timeout`/`enabled`/`readOnly`/`allowedTools`/`deniedTools`（权限字段亦接受 snake_case）；**没有 `type` 字段**（VS Code 的 `"type": "stdio"` 会被忽略），用 `transport`。
+
+**① 文档解析（PDF/Office → Markdown，最高价值）** —— `markitdown-mcp` 只暴露 `convert_to_markdown(uri)`，输出 Markdown 文本，直接补"模型看不见非文本"的断层。触发："把 `file:///D:/docs/季度报告.pdf` 转成 Markdown，只保留标题和表格。"前置：安装 `uv`（提供 `uvx`，Python ≥3.10）。安全：`readOnly` 不误伤（工具名无写动词）；`uri` 可指向 http(s)，建议只喂本地 `file://`；扫描版 PDF 无文本层会返回空；大文件整篇返回需限幅。
+
+```json
+{
+  "mcpServers": {
+    "markitdown": {
+      "command": "uvx",
+      "args": ["markitdown-mcp"],
+      "readOnly": true,
+      "allowedTools": ["convert_to_markdown"]
+    }
+  }
+}
+```
+
+**② 浏览器 snapshot（可访问性树文本）** —— Playwright MCP 用 accessibility tree 而非截图，返回纯文本，绕开图片占位符缺陷。**stdio 是默认传输，官方 CLI 没有 `--stdio` 参数**（加了会以未知参数报错；切 HTTP 用 `--port`）。只白名单三个观察工具，拒绝优先于允许。触发："打开 example.com，用 `browser_snapshot` 读出可访问性树，列出主导航。"前置：Node.js ≥20。安全：页面文本是未信输入，prompt injection 是头号风险——禁用 `browser_evaluate`（任意 JS）与 `browser_run_code_unsafe`（等价 RCE）；`readOnly` 只是工具名动词启发式，`browser_navigate` 不在写动词表内，真正约束靠白名单。
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--headless", "--isolated", "--image-responses=omit"],
+      "readOnly": true,
+      "allowedTools": ["browser_navigate", "browser_snapshot", "browser_console_messages"],
+      "deniedTools": ["browser_evaluate", "browser_run_code_unsafe", "browser_take_screenshot"]
+    }
+  }
+}
+```
+
+**③ 只读数据库** —— SQLite 用官方参考 server 指向副本；`read_query`/`list_tables`/`describe-table` 放行，`write_query`/`create_table`/`append_insight` 被 `readOnly` 与黑名单双重拦截。触发："列出表，再统计 `orders` 每月订单数。"前置：`uvx` + 数据库副本（再在 OS 层设只读）。Postgres 用 `dbhub --readonly`，DSN 写 `{env:DB_DSN}`（加载时替换，凭据不进配置/git）。安全：该 server 自身无只读模式，靠副本 + 文件权限 + DB 只读角色兜底；查询结果会进入会话日志。
+
+```json
+{
+  "mcpServers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "D:/data/analytics-copy.db"],
+      "readOnly": true,
+      "allowedTools": ["read_query", "list_tables", "describe-table"],
+      "deniedTools": ["write_query", "create_table", "append_insight"]
+    }
+  }
+}
+```
+
+局限：`CallTool` 把 `image` 内容块降级为 `[image: <mime>]` 占位符（`mcp.go:463-469`），模型看不到真实图像，故选文本化输出的 server；`readOnly` 非沙箱；HTTP/SSE 的 endpoint 宣告仅接受同源（`http.go` 的 `resolveEndpoint`），避免配 `headers` 时跨源泄漏；Windows 上 `.ps1` 命令会自动用 PowerShell 包装（`stdio.go` 的 `execSpecForOS`）。
+
 ### 5. 配置（`internal/config`）
 
 #### 5.1 优先级与位置

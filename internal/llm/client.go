@@ -509,42 +509,11 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 
 	// 复用共享的 SSE 读取器：单个事件的 JSON 载荷可能横跨多个 data: 行，
 	// 这是 SSE 规范允许且网关会使用的做法。
-	reader := newSSEReader(body)
+	// idleReader 统一承担连接静默检测；三个协议共享同一实现，
+	// IdleTimeout == 0 时它直接同步读取，不增加定时器或 goroutine。
+	idleReader := newSSEIdleReader(newSSEReader(body), c.IdleTimeout)
+	defer idleReader.stop()
 	var pending []string
-
-	// 已打开的连接可能停止传送数据却从不报错。
-	// 设置 IdleTimeout 后，把通常阻塞的 SSE 读取放到 goroutine 中，
-	// 并用定时器监视它，使静默表现为可重试的
-	// 流错误，而不是一直挂起直到调用方的 context 过期。
-	// IdleTimeout == 0 保持原有的同步读取，不增加定时器
-	// 或 goroutine，因此现有调用方不受影响。
-	type readResult struct {
-		data string
-		ok   bool
-		err  error
-	}
-	reads := make(chan readResult, 1) // 带缓冲：迟到的读取也总能退出
-	readStarted := false
-
-	var idle *time.Timer
-	var idleC <-chan time.Time
-	var resetIdle func()
-	if c.IdleTimeout > 0 {
-		idle = time.NewTimer(c.IdleTimeout)
-		idleC = idle.C
-		defer idle.Stop()
-		resetIdle = func() {
-			if !idle.Stop() {
-				select {
-				case <-idle.C:
-				default:
-				}
-			}
-			idle.Reset(c.IdleTimeout)
-		}
-	} else {
-		resetIdle = func() {}
-	}
 
 streamLoop:
 	for {
@@ -555,51 +524,17 @@ streamLoop:
 		if len(pending) > 0 {
 			data, pending = pending[0], pending[1:]
 		} else {
-			if idle == nil {
-				next, ok, err := reader.next()
-				if err != nil {
-					if ctxErr := ctx.Err(); ctxErr != nil {
-						return Message{}, ctxErr
-					}
-					return Message{}, streamError("read stream: %v", RedactError(err))
-				}
-				if !ok {
-					break streamLoop
-				}
-				data = next
-			} else {
-				if !readStarted {
-					go func() {
-						next, ok, err := reader.next()
-						reads <- readResult{data: next, ok: ok, err: err}
-					}()
-					readStarted = true
-				}
-				select {
-				case <-ctx.Done():
-					return Message{}, ctx.Err()
-				case <-idleC:
-					return Message{}, streamError("stream idle for %s with no data", c.IdleTimeout)
-				case res := <-reads:
-					readStarted = false
-					if res.err != nil {
-						if ctxErr := ctx.Err(); ctxErr != nil {
-							return Message{}, ctxErr
-						}
-						return Message{}, streamError("read stream: %v", RedactError(res.err))
-					}
-					if !res.ok {
-						break streamLoop
-					}
-					data = res.data
-				}
+			next, ok, err := idleReader.next(ctx)
+			if err != nil {
+				return Message{}, err
 			}
-			// 任何到达的事件都会把静默截止时间往后推。
-			resetIdle()
+			if !ok {
+				break streamLoop
+			}
 			// 一个 SSE 事件可能携带多个载荷：跨 data: 行拆开的 JSON 对象，
 			// 或没有空行分隔的独立事件。
 			// 通过下面相同的路径逐个解码。
-			pending = splitSSEData(data)
+			pending = splitSSEData(next)
 			data, pending = pending[0], pending[1:]
 		}
 		// 空的 data: 行是合法的 SSE 保活信号，不是 JSON 事件。

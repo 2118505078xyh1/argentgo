@@ -1,8 +1,27 @@
 package app
 
 import (
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
+
+// streamIdleTimeout 读取流空闲超时（秒）。默认 0 禁用，保持所有请求的逐字节与
+// 行为不变；显式设置正整数后，假死连接会在该空闲时长后作为可重试的流错误返回。
+// 它是性能敏感接线（流读取），属"可写进核心"的例外；只读取进程环境，不改状态。
+func streamIdleTimeout() time.Duration {
+	s := os.Getenv("ARGENT_STREAM_IDLE_TIMEOUT_SECONDS")
+	if s == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
 
 // chatterFactory 根据 baseURL 与 apiKey 构造某个协议的客户端，并把线协议级选项写入客户端。
 type chatterFactory func(base, key string, opts llm.Options) llm.Chatter
@@ -24,6 +43,7 @@ func newAnthropicChatter(base, key string, opts llm.Options) llm.Chatter {
 	client := llm.NewAnthropic(base, key)
 	client.MaxTokens = llm.DefaultAnthropicMaxTokens
 	client.Options = opts
+	client.IdleTimeout = streamIdleTimeout()
 	return client
 }
 
@@ -31,6 +51,7 @@ func newAnthropicChatter(base, key string, opts llm.Options) llm.Chatter {
 func newResponsesChatter(base, key string, opts llm.Options) llm.Chatter {
 	client := llm.NewResponses(base, key)
 	client.Options = opts
+	client.IdleTimeout = streamIdleTimeout()
 	return client
 }
 
@@ -38,6 +59,7 @@ func newResponsesChatter(base, key string, opts llm.Options) llm.Chatter {
 func newDefaultChatter(base, key string, opts llm.Options) llm.Chatter {
 	client := llm.New(base, key)
 	client.Options = opts
+	client.IdleTimeout = streamIdleTimeout()
 	return client
 }
 
