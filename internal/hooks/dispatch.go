@@ -69,6 +69,10 @@ type Result struct {
 	// Continuation 是 Stop 钩子要求注入下一轮的续跑提示。
 	// 仅在 StopBlocks 开启且 Stop 钩子以退出码 2 阻断时非空。
 	Continuation string
+	// AdditionalContexts 是本次分发中所有钩子声明的附加上下文，按 outcome 顺序聚合。
+	// 由 Summarize 收集各 Outcome.AdditionalContext 的非空值并去重；零值为 nil，
+	// 因此未使用附加上下文的现有路径逐字节不变。上层（app）据此入队，供 agent 在轮次边界注入。
+	AdditionalContexts []string
 }
 
 // Outcome 表示某个钩子命令做了什么。
@@ -82,8 +86,12 @@ type Outcome struct {
 	Blocked  bool
 	// Continuation 保存 Stop 钩子的续跑提示，供 Summarize 聚合进 Result。
 	Continuation string
-	Elapsed      time.Duration
-	Err          error
+	// AdditionalContext 保存钩子 stdout 中声明的附加上下文。它由
+	// AdditionalContextFromOutcome 在 Outcome 产出时提取，已脱敏、去空白并按字节上限截断；
+	// 供上层注入下一轮模型上下文。零值表示钩子未提供，现有行为逐字节不变。
+	AdditionalContext string
+	Elapsed           time.Duration
+	Err               error
 }
 
 // detail 提取钩子输出中最有信息量的一段：优先 stdout，为空时回退 stderr，
@@ -447,6 +455,9 @@ func (d *Dispatcher) guardedRunCommand(ctx context.Context, command Command, pay
 			Slow:     d.SlowThreshold > 0 && elapsed >= d.SlowThreshold,
 		})
 	}
+	// 在 Outcome 产出的统一收口处提取附加上下文：无论来自真实进程还是注入的 Runner，
+	// 都走同一个纯函数，保证脱敏与字节上限一致。零值时字段保持空串，对现有路径无影响。
+	outcome.AdditionalContext = AdditionalContextFromOutcome(outcome)
 	return outcome
 }
 
@@ -523,6 +534,9 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	outcome.Stderr = stderr.String()
 
 	outcome.ExitCode, outcome.TimedOut, outcome.Err = classifyRunResult(runErr, process.ProcessState, killedByDeadline.Load())
+	// 直接调用 RunCommand 的调用方不经过 guardedRunCommand，也应在产出 Outcome 时填充该字段。
+	// AdditionalContextFromOutcome 只读 Stdout 与 TimedOut，重复填充是幂等的。
+	outcome.AdditionalContext = AdditionalContextFromOutcome(outcome)
 
 	// 退出状态 2 是钩子协议的"拦截"信号，且只有 PreToolUse
 	// 可以拦截动作。
@@ -567,9 +581,21 @@ func classifyRunResult(runErr error, state *os.ProcessState, killedByDeadline bo
 func Summarize(outcomes []Outcome) Result {
 	var result Result
 	var messages []string
+	// 附加上下文按 outcome 顺序聚合、去重；仅在实际遇到非空值时惰性分配 map，
+	// 使绝大多数不带附加上下文的分发走零分配路径，行为逐字节不变。
+	var seenContext map[string]bool
 	for _, outcome := range outcomes {
 		if outcome.Continuation != "" {
 			result.Continuation = outcome.Continuation
+		}
+		if outcome.AdditionalContext != "" {
+			if seenContext == nil {
+				seenContext = make(map[string]bool, len(outcomes))
+			}
+			if !seenContext[outcome.AdditionalContext] {
+				seenContext[outcome.AdditionalContext] = true
+				result.AdditionalContexts = append(result.AdditionalContexts, outcome.AdditionalContext)
+			}
 		}
 		if outcome.Blocked {
 			result.Blocked = true

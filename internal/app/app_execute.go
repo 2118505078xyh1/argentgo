@@ -294,6 +294,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 
 	bridge := newHookBridge(res, sess.ID(), stdio.Err)
+	// hook 附加上下文队列：每次根运行一个。它既通过 ctx 交给 agent 在轮次边界抽取，
+	// 也交给 hookBridge，使本次运行中所有生命周期/工具钩子声明的 additionalContext
+	// 汇入同一队列。接线早于 bridge.start，连 SessionStart/UserPromptSubmit 的上下文也不丢失。
+	// 没有钩子声明上下文时队列恒为空，注入为空操作，默认运行逐字节不变。
+	hookCtxQ := &agent.HookContextQueue{}
+	ctx = agent.WithHookContextQueue(ctx, hookCtxQ)
+	if bridge != nil {
+		bridge.hookCtxQ = hookCtxQ
+	}
 	bridge.start(ctx, prompt)
 	defer bridge.end()
 

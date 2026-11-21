@@ -542,6 +542,11 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 	// 与 emitToolStart 对每次调用（正常、被阻断、已取消和并行）成对出现。
 	// 未知 id 是安全的空操作，相关字段保持缺省。
 	timing := s.finishTool(call.ID, timeSource())
+	// 可选的耗时直方图（默认关闭）：关闭时字段为 nil，Record 完全不执行，
+	// 不改变任何事件或会话记录。开启时按工具名累积本次调用的精确耗时。
+	if s.toolTimingHistogram != nil {
+		s.toolTimingHistogram.Record(call.Function.Name, res.duration)
+	}
 	s.emit(Event{
 		Kind:         EventToolEnd,
 		Turn:         turn,

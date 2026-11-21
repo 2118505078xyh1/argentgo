@@ -2,6 +2,9 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/config"
@@ -56,7 +59,7 @@ func (r *configReloader) poll() bool {
 	}
 	r.current = next
 	if r.logf != nil {
-		r.logf(fmt.Sprintf("reloaded: %s -> %s", configLabel(cur), configLabel(next)))
+		r.logf(reloadLogLine(cur, next))
 	}
 	return true
 }
@@ -76,4 +79,116 @@ func configLabel(cfg *config.Config) string {
 		return "no config"
 	}
 	return fmt.Sprintf("generation %d, model %q", cfg.Generation(), cfg.Model)
+}
+
+// reloadLogLine 生成采纳新快照后的单行日志。默认路径返回原有的
+// "reloaded: ... -> ..." 行，行为逐字保持不变；仅当 ARGENT_CONFIG_RELOAD_DIFF=1
+// 时改用基于键路径差异的中文摘要。
+func reloadLogLine(cur, next *config.Config) string {
+	baseline := fmt.Sprintf("reloaded: %s -> %s", configLabel(cur), configLabel(next))
+	if !configReloadDiffEnabled() {
+		return baseline
+	}
+	if summary := formatConfigReloadDiff(cur, next); summary != "" {
+		return summary
+	}
+	return baseline
+}
+
+// configReloadDiffEnabled 报告是否开启热重载的变更摘要。默认关闭，
+// 仅当 ARGENT_CONFIG_RELOAD_DIFF=1 时开启；在调用时读取，便于测试动态调整。
+func configReloadDiffEnabled() bool {
+	return os.Getenv("ARGENT_CONFIG_RELOAD_DIFF") == "1"
+}
+
+// reloadDiffRedacted 是敏感键在摘要中的固定占位值，与 internal/config 的脱敏占位一致。
+const reloadDiffRedacted = "<redacted>"
+
+// formatConfigReloadDiff 基于两份配置映射的键差异生成单行摘要，例如
+// "config reloaded: model, providers.x.apiKey=<redacted>"。
+//
+// 安全要点：它只消费 config.DiffConfigMaps 产出的键路径，绝不接触配置值——
+// 因此 apiKey/token 等原文从源头就不会进入摘要。对看起来像凭据的键追加
+// <redacted> 占位符，让操作人员知道"该键的值变了但被隐藏"。敏感判定规则与
+// internal/config 的敏感键判定保持一致（归一化后精确匹配或敏感后缀匹配）；
+// 该判定只决定是否显示占位符，不影响"从不打印值"的安全性质。
+func formatConfigReloadDiff(cur, next *config.Config) string {
+	if cur == nil || next == nil {
+		return ""
+	}
+	diff := config.DiffConfigMaps(cur.Raw, next.Raw)
+	if !diff.Changed {
+		return ""
+	}
+
+	seen := make(map[string]bool, len(diff.AddedKeys)+len(diff.RemovedKeys)+len(diff.ModifiedKeys))
+	keys := make([]string, 0, len(seen))
+	addKeys := func(list []string) {
+		for _, key := range list {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	addKeys(diff.AddedKeys)
+	addKeys(diff.RemovedKeys)
+	addKeys(diff.ModifiedKeys)
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if reloadDiffSensitive(key) {
+			parts = append(parts, key+"="+reloadDiffRedacted)
+		} else {
+			parts = append(parts, key)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "config reloaded: " + strings.Join(parts, ", ")
+}
+
+// reloadDiffSecretNames / reloadDiffSecretSuffixes 与 internal/config 的敏感键
+// 词汇表保持一致：只收录明确表示凭据的段名，不含过于宽泛的裸 "key"。
+var (
+	reloadDiffSecretNames = map[string]bool{
+		"apikey":        true,
+		"token":         true,
+		"secret":        true,
+		"password":      true,
+		"passwd":        true,
+		"authorization": true,
+		"credential":    true,
+		"credentials":   true,
+		"accesskey":     true,
+		"privatekey":    true,
+	}
+	reloadDiffSecretSuffixes = []string{
+		"apikey", "token", "secret", "password", "passwd", "credential", "credentials",
+	}
+)
+
+// reloadDiffSensitive 判断点分隔路径中是否有任一段看起来是凭据键。
+// 每段先归一化（转小写、去掉 '_' 和 '-'），再做精确名匹配或敏感后缀匹配；
+// 按段匹配使 "providers.openai.apiKey" 能被识别。CJK 段名归一化是空操作，
+// 自然不会命中英文敏感词。
+func reloadDiffSensitive(path string) bool {
+	for _, segment := range strings.Split(path, ".") {
+		normalized := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(segment), "_", ""), "-", "")
+		if normalized == "" {
+			continue
+		}
+		if reloadDiffSecretNames[normalized] {
+			return true
+		}
+		for _, suffix := range reloadDiffSecretSuffixes {
+			if strings.HasSuffix(normalized, suffix) {
+				return true
+			}
+		}
+	}
+	return false
 }

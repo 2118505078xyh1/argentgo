@@ -3,6 +3,8 @@ package hooks
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // Verdict 表示单个钩子（或一组钩子）表达的权限裁决。
@@ -19,6 +21,15 @@ const (
 	VerdictAllow
 	// VerdictDeny 表示钩子明确否决/阻断了被拦截的操作。它优先于其它一切裁决。
 	VerdictDeny
+)
+
+const (
+	// maxAdditionalContextBytes 限制 additionalContext 注入文本的最终字节上限，
+	// 防止不可信钩子输出占用过多模型上下文（默认 8192 字节）。
+	maxAdditionalContextBytes = 8192
+	// additionalContextClipLimit 为省略号（3 字节）预留空间：传给 clipRunes 后，
+	// 可保证结果的字节数不超过 maxAdditionalContextBytes。
+	additionalContextClipLimit = maxAdditionalContextBytes - len("…") + 1
 )
 
 // VerdictFromOutcome 把一次钩子执行结果解析为权限裁决。
@@ -141,4 +152,79 @@ func AggregateVerdict(vs []Verdict) Verdict {
 		}
 	}
 	return v
+}
+
+// AdditionalContextFromOutcome 从钩子输出中提取要注入下一轮模型的附加上下文。
+//
+// 这是纯函数：不读写全局状态、不产生 I/O、不改动传入的 Outcome；给定相同输入
+// 总是返回相同结果。它扫描 stdout 中每个可能的 JSON 对象，识别两种等价写法：
+// 顶层的 additionalContext，以及 Claude 风格的
+// hookSpecificOutput.additionalContext；同一对象内顶层优先，多个对象中取第一个
+// 非空且合法的结果（扫描顺序与 stdout 中出现顺序一致）。
+//
+// 安全约束（防注入 / 防超长）：
+//   - 值必须是字符串，缺失、类型不符或非法 JSON 一律返回空串；
+//   - 先经 security.Redact 脱敏（剥离凭据形态与不可见 Unicode Tag），再去空白，
+//     最后按字节上限在 rune 边界截断，故 CJK 文本不会被切成半个 rune；
+//   - 超时（TimedOut）的结果直接返回空串：超时是执行故障，其 stdout 不可信。
+//
+// 明确不解析 systemMessage / suppressOutput 等其它字段。
+func AdditionalContextFromOutcome(o Outcome) string {
+	if o.TimedOut {
+		return ""
+	}
+	return additionalContextFromStdout(o.Stdout)
+}
+
+// additionalContextFromStdout 在 stdout 中逐 '{' 扫描 JSON 对象，返回第一个
+// 非空且合法的 additionalContext 文本。逐 '{' 解码既能跳过钩子常见的
+// "先打日志后打 JSON" 前缀，也能覆盖嵌套对象。
+func additionalContextFromStdout(stdout string) string {
+	for i := 0; i < len(stdout); i++ {
+		// '{' 是 ASCII 字节，不可能出现在 UTF-8 多字节序列内部，
+		// 因此该定界符扫描不会切开 CJK rune。
+		if stdout[i] != '{' {
+			continue
+		}
+		dec := json.NewDecoder(strings.NewReader(stdout[i:]))
+		var obj map[string]any
+		if err := dec.Decode(&obj); err != nil {
+			// 该 '{' 并非合法 JSON 的起点（例如日志里的花括号），继续扫描。
+			continue
+		}
+		if text, ok := additionalContextFromObject(obj); ok && text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+// additionalContextFromObject 从单个已解码的 JSON 对象中提取附加上下文，
+// 先查顶层 additionalContext，再查 hookSpecificOutput.additionalContext。
+// 顶层值非法（缺失或类型不符）时才回退到嵌套形态。
+func additionalContextFromObject(obj map[string]any) (string, bool) {
+	if text, ok := sanitizeAdditionalContext(obj["additionalContext"]); ok {
+		return text, true
+	}
+	if nested, ok := obj["hookSpecificOutput"].(map[string]any); ok {
+		if text, ok := sanitizeAdditionalContext(nested["additionalContext"]); ok {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+// sanitizeAdditionalContext 把 additionalContext 的原始 JSON 值规约为可安全
+// 注入的文本：仅接受非空字符串，先脱敏再去空白，最后按字节上限在 rune 边界
+// 截断。非字符串值、空值或全空白值视为无信号。
+func sanitizeAdditionalContext(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(security.Redact(text))
+	if text == "" {
+		return "", false
+	}
+	return clipRunes(text, additionalContextClipLimit), true
 }

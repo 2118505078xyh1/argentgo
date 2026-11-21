@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
 	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
 // `doctor` 打印的状态值。
@@ -82,7 +85,11 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	// baseURL 告警独立于常规检查：它只读取配置文件（项目级配置可能来自
 	// 未信任来源），不访问网络，也不改变既有检查集合与输出前缀。
+	// 配置注入与会话健康告警走同一条 issues 旁路：只报告风险，不新增
+	// check、不计数、不改变退出码，因此无风险时输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
+	issues = append(issues, doctorConfigInjectionIssues(app)...)
+	issues = append(issues, doctorSessionHealthIssues(app)...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
 	if opts.asJSON {
@@ -202,6 +209,154 @@ func doctorBaseURLIssues(app App) []doctorIssue {
 		if value, ok := firstStringValue(entry, "baseURL", "baseUrl", "base_url"); ok {
 			add("$.providers."+name+".baseURL", value)
 		}
+	}
+	return out
+}
+
+// doctorConfigInjectionIssueMessage 是配置文件命中提示注入模式时的统一提示文案。
+const doctorConfigInjectionIssueMessage = "配置文件中发现高风险提示注入模式"
+
+// doctorConfigInjectionMaxFindings 限制单个配置文件最多报告多少条命中，
+// 避免恶意配置用大量命中淹没 doctor 输出。
+const doctorConfigInjectionMaxFindings = 8
+
+// doctorConfigInjectionIssues 用 security.ScanPromptInjection 扫描配置文件原文，
+// 对高风险命中给出 warn 级 issue。
+//
+// 威胁模型：项目级配置可能来自未信任来源，其注释或字符串里藏着的"忽略上述指令"
+// 会在模型读到配置时被当成指令执行。只报告 high 级命中；medium 级措辞在正常
+// 讨论中也会出现，逐条报告只会让 doctor 输出充斥误报。
+//
+// 隐私：message 只含稳定的 pattern 标识、severity 与字节偏移，绝不包含命中原文
+// 或文件路径；构造时仍经 redactDoctorDetail 清洗。配置文件不存在时静默跳过，
+// 与 loadConfigFile 的缺失语义保持一致。
+func doctorConfigInjectionIssues(app App) []doctorIssue {
+	raw, err := os.ReadFile(app.configPath())
+	if err != nil {
+		return nil
+	}
+	var out []doctorIssue
+	for _, finding := range security.ScanPromptInjection(string(raw)) {
+		if finding.Severity != security.InjectionSeverityHigh {
+			continue
+		}
+		message := fmt.Sprintf("%s: pattern=%s severity=%s offset=%d",
+			doctorConfigInjectionIssueMessage, finding.Pattern, finding.Severity, finding.Offset)
+		out = append(out, doctorIssue{
+			Name:    "configInjection",
+			Level:   statusWarn,
+			Message: redactDoctorDetail(message),
+		})
+		if len(out) >= doctorConfigInjectionMaxFindings {
+			break
+		}
+	}
+	return out
+}
+
+// doctorSessionHealthLimits 控制会话健康检查的扫描规模，使 doctor 不被大目录
+// 或超大转录卡住。生产走默认值；测试用 doctorSessionHealthIssuesWithLimits
+// 注入小阈值，从而在普通临时目录里覆盖损坏与超阈值分支。
+type doctorSessionHealthLimits struct {
+	maxFiles    int   // 最多读取内容校验的 .jsonl 文件数
+	maxFileSize int64 // 单文件超过此字节数则跳过内容校验
+	diskWarn    int64 // .jsonl 总字节数超过此值报磁盘告警
+}
+
+func doctorSessionDefaultLimits() doctorSessionHealthLimits {
+	return doctorSessionHealthLimits{
+		maxFiles:    64,
+		maxFileSize: 8 << 20,
+		diskWarn:    1 << 30,
+	}
+}
+
+// doctorSessionHealthIssues 检查 storage/sessions 下转录的结构完整性与磁盘占用。
+// 目录不存在或不可读时静默跳过，不产生任何 issue。
+func doctorSessionHealthIssues(app App) []doctorIssue {
+	return doctorSessionHealthIssuesWithLimits(app, doctorSessionDefaultLimits())
+}
+
+// doctorSessionHealthIssuesWithLimits 是会话健康检查的实现。
+//
+// 隐私：issue 只报问题数量与 kind，绝不带记录 id、原始 Detail 或任何转录文本，
+// 防止会话内容经 doctor 输出泄漏到公开 issue。文件按路径排序、问题按行号排序，
+// 输出稳定可比。内容校验限制文件数与单文件大小；磁盘统计只读取元数据。
+func doctorSessionHealthIssuesWithLimits(app App, limits doctorSessionHealthLimits) []doctorIssue {
+	dir := app.sessionDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// 目录不存在是常态（尚未创建任何会话）；不可读也不应让诊断中断。
+		return nil
+	}
+
+	// os.ReadDir 已按文件名排序；再排序一次保证跨平台稳定。
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
+			continue
+		}
+		files = append(files, entry.Name())
+	}
+	sort.Strings(files)
+	if limits.maxFiles > 0 && len(files) > limits.maxFiles {
+		files = files[:limits.maxFiles]
+	}
+
+	var out []doctorIssue
+	for _, name := range files {
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if limits.maxFileSize > 0 && info.Size() > limits.maxFileSize {
+			continue // 超大文件不读进内存；其字节仍计入下面的磁盘统计。
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		issues := session.ValidateJSONL(data)
+		if len(issues) == 0 {
+			continue
+		}
+		counts := make(map[string]int, len(issues))
+		firstLine := issues[0].Line
+		for _, issue := range issues {
+			counts[issue.Kind]++
+			if issue.Line < firstLine {
+				firstLine = issue.Line
+			}
+		}
+		kinds := make([]string, 0, len(counts))
+		for kind := range counts {
+			kinds = append(kinds, kind)
+		}
+		sort.Strings(kinds)
+		parts := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			parts = append(parts, fmt.Sprintf("%s=%d", kind, counts[kind]))
+		}
+		message := fmt.Sprintf("会话转录损坏: %s (首处 line %d) 共 %d 处: %s",
+			name, firstLine, len(issues), strings.Join(parts, ", "))
+		out = append(out, doctorIssue{
+			Name:    "sessionHealth",
+			Level:   statusWarn,
+			Message: redactDoctorDetail(message),
+		})
+	}
+
+	// MeasureDiskUsage 只读取元数据并全局排序累加，结果确定；只用 .jsonl
+	// （ByKind["session"]）的字节数判断阈值，避免把归档/其它文件算进来。
+	if usage, err := session.MeasureDiskUsage(dir); err == nil && usage.ByKind["session"] > limits.diskWarn {
+		message := fmt.Sprintf("会话磁盘占用超阈值: %d bytes (阈值 %d bytes)",
+			usage.ByKind["session"], limits.diskWarn)
+		out = append(out, doctorIssue{
+			Name:    "sessionDisk",
+			Level:   statusWarn,
+			Message: redactDoctorDetail(message),
+		})
 	}
 	return out
 }

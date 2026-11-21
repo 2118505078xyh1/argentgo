@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
@@ -148,6 +149,11 @@ type runState struct {
 	// 后者服务于前端 StartedAtMS/FinishedAtMS 字段，本字段服务于进程内结构化诊断日志。
 	turnTiming *TurnTiming
 
+	// toolTimingHistogram 是 ARGENT_TOOL_TIMING_HISTOGRAM opt-in 开启时创建的工具耗时直方图。
+	// nil（默认，未开启）时 dispatch 侧的 Record 与轮末摘要日志全是空操作，
+	// 事件序列与会话记录逐字节不变。它与 turnTiming 正交：可单独开启其中任意一个。
+	toolTimingHistogram *ToolTimingHistogram
+
 	// compactor 和 compactThreshold 驱动轮次中压缩的边界。
 	compactor        Compactor
 	compactThreshold int
@@ -190,6 +196,9 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// opt-in 开启时把本轮各阶段计时固化为快照并落结构化日志。关闭时 state.turnTiming
 	// 为 nil，整段是空操作：事件、会话记录与返回值逐字节不变。
 	state.finishTurnTiming(res.Stopped)
+	// 工具耗时直方图的轮末摘要日志，与逐阶段计时日志并列、共用同一 logger。
+	// 关闭时 state.toolTimingHistogram 为 nil，整段是空操作。
+	state.finishToolTimingHistogram()
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
@@ -216,6 +225,13 @@ func turnTimingEnabled() bool {
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func recoveryMetricsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_RECOVERY_METRICS")) == "1"
+}
+
+// toolTimingHistogramEnabled 报告本进程是否开启工具耗时直方图日志。
+// 仅当 ARGENT_TOOL_TIMING_HISTOGRAM 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func toolTimingHistogramEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_TIMING_HISTOGRAM")) == "1"
 }
 
 // turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
@@ -274,6 +290,34 @@ func (s *runState) finishTurnTiming(stopped string) {
 		s.turnTiming.MarkIncomplete(stopped)
 	}
 	emitTurnTimingLog(s.turnTiming, stopped)
+}
+
+// toolTopSlowLimit 是轮末摘要日志展示的最慢工具数量。
+const toolTopSlowLimit = 5
+
+// emitToolTimingHistogramLog 把工具耗时直方图的最慢若干工具写成一条结构化日志，
+// 与逐阶段计时日志共用同一个 logger（turnTimingLogger），便于统一捕获与路由。
+// 直方图为 nil（opt-in 关闭）或本轮没有任何样本时整段是空操作。
+func emitToolTimingHistogramLog(h *ToolTimingHistogram) {
+	if h == nil {
+		return
+	}
+	top := h.TopSlow(toolTopSlowLimit)
+	if len(top) == 0 {
+		return
+	}
+	// 每项用 P95 表达（与 TopSlow 的排序键一致），形如 "read:12ms,bash:8ms"。
+	parts := make([]string, 0, len(top))
+	for _, item := range top {
+		parts = append(parts, item.Tool+":"+item.Stats.P95.String())
+	}
+	turnTimingLogger().Info("agent_tool_timing_histogram", slog.String("tool_top_slow", strings.Join(parts, ",")))
+}
+
+// finishToolTimingHistogram 在一轮运行结束时落一次最慢工具摘要日志。
+// 关闭（直方图为 nil）时是空操作，与 turnTiming 是否开启无关。
+func (s *runState) finishToolTimingHistogram() {
+	emitToolTimingHistogramLog(s.toolTimingHistogram)
 }
 
 func newRunState(opts Options, prompt string, emit func(Event)) *runState {
@@ -344,6 +388,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	// 使下方各记录点与快照读取全是空操作。
 	if recoveryMetricsEnabled() {
 		s.recovery = &RecoveryMetrics{}
+	}
+	// 只有 ARGENT_TOOL_TIMING_HISTOGRAM=1 时才建直方图；默认关闭时保持 nil，
+	// 使 dispatch 的 Record 与轮末摘要日志全是空操作。
+	if toolTimingHistogramEnabled() {
+		s.toolTimingHistogram = &ToolTimingHistogram{}
 	}
 	return s
 }
@@ -476,6 +525,107 @@ func (s *runState) recoverySnapshot() map[string]RecoveryStats {
 	return s.recovery.Snapshot()
 }
 
+// hookContextNoticePrefix 标记一条由 hook 附加上下文变成的用户轮次，
+// 与 steeringNoticePrefix 区分，使前端与测试无需解析正文即可识别它。
+const hookContextNoticePrefix = "hook context: "
+
+const (
+	// hookContextMaxItems 限制一次运行注入的 hook 附加上下文条数，防止多条钩子堆积淹没上下文。
+	hookContextMaxItems = 16
+	// hookContextMaxBytes 限制一次运行注入的 hook 附加上下文总字节数。
+	// 单条已由 hooks 侧限制到 8192 字节，这里留出约两条的空间以容纳多 hook 合并。
+	hookContextMaxBytes = 2 * 8192
+)
+
+// HookContextQueue 承载 hook 返回的 additionalContext，在轮次边界被 agent 抽取为模型可见的用户轮次。
+//
+// 它由 app 层通过 WithHookContextQueue 附着到 ctx：队列在整次运行中存活且线程安全，
+// 因此工具批次期间派发的 hook 也能把上下文交到下一个轮次边界。入队时按文本去重并限制条数与
+// 总字节数，超出部分被静默丢弃；抽取按入队顺序进行，保证多 hook 合并稳定。
+// 没有队列或队列为空时注入是空操作，默认运行逐字节不变。
+type HookContextQueue struct {
+	mu     sync.Mutex
+	items  []string
+	seen   map[string]bool
+	nBytes int
+}
+
+// AddHookOutcomes 把一组 hook Outcome 的附加上下文按事件顺序入队。
+// 它直接读取 Outcome.AdditionalContext 字段，使 hooks 与 agent 之间的契约保持显式。
+func (q *HookContextQueue) AddHookOutcomes(outcomes []hooks.Outcome) {
+	for _, o := range outcomes {
+		if o.AdditionalContext != "" {
+			q.Add(o.AdditionalContext)
+		}
+	}
+}
+
+// Add 把一条附加上下文入队：丢弃空白与重复文本，并受条数/总字节上限约束。
+// 返回该条是否实际入队。超限只整条丢弃，绝不在 rune 中间切割，故 CJK 文本安全。
+func (q *HookContextQueue) Add(text string) bool {
+	if q == nil {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.seen == nil {
+		q.seen = make(map[string]bool, hookContextMaxItems)
+	}
+	if q.seen[text] {
+		return false
+	}
+	if len(q.items) >= hookContextMaxItems || q.nBytes+len(text) > hookContextMaxBytes {
+		return false
+	}
+	q.seen[text] = true
+	q.items = append(q.items, text)
+	q.nBytes += len(text)
+	return true
+}
+
+// drain 按入队顺序取出并清空待注入项。seen 不清空，
+// 使同一文本在整次运行中只注入一次。
+func (q *HookContextQueue) drain() []string {
+	if q == nil {
+		return nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	items := q.items
+	q.items = nil
+	q.nBytes = 0
+	return items
+}
+
+type hookContextKey struct{}
+
+// WithHookContextQueue 把附加上下文队列附着到 ctx，供本轮 agent 在轮次边界抽取。
+func WithHookContextQueue(ctx context.Context, q *HookContextQueue) context.Context {
+	return context.WithValue(ctx, hookContextKey{}, q)
+}
+
+// HookContextQueueFrom 返回附着在 ctx 上的队列；没有时返回 nil。
+func HookContextQueueFrom(ctx context.Context) *HookContextQueue {
+	q, _ := ctx.Value(hookContextKey{}).(*HookContextQueue)
+	return q
+}
+
+// injectHookContexts 把 hook 附加上下文作为用户轮次注入对话。
+// 与 injectSteering 一样只在轮次边界运行，不会插进工具批次；没有队列或队列为空时是空操作。
+func (s *runState) injectHookContexts(ctx context.Context) bool {
+	texts := HookContextQueueFrom(ctx).drain()
+	for _, text := range texts {
+		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
+		s.record("hook_context", text)
+		s.emit(Event{Kind: EventNotice, Text: hookContextNoticePrefix + text})
+	}
+	return len(texts) > 0
+}
+
 // loop 持续运行各个轮次，直到模型不使用工具就作答、某个限制被触发，或上下文被取消。
 func (s *runState) loop(ctx context.Context) (Result, error) {
 	for {
@@ -486,6 +636,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		}
 		s.turnTimingBegin(phaseUserWait)
 		s.injectSteering()
+		// hook 的 additionalContext 与 steering 一样在轮次边界注入，不会插进工具批次。
+		// 没有队列时为逐字节空操作，默认运行不受影响。
+		s.injectHookContexts(ctx)
 		s.turnTimingEnd(phaseUserWait)
 		// 在每次进入轮次时重新评估连续错误序列。没有可用指引意味着运行无法恢复，到此结束；
 		// 否则恢复指令会成为一条新的用户轮次。对于没有追踪器构建的 runState，
@@ -671,7 +824,8 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 
 		if len(reply.ToolCalls) == 0 {
 			// 在答案流式输出期间到达的纠正消息仍值得一个答复：再开一轮，而不是结束。
-			if s.injectSteering() {
+			// hook 附加上下文同理：若在本轮期间到达，也让模型再看一轮而非直接结束。
+			if s.injectSteering() || s.injectHookContexts(ctx) {
 				continue
 			}
 			if truncated {
