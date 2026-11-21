@@ -249,6 +249,24 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 派生的 ctx 会通过 agent 循环的 callTool(ctx, ...) 到达每个工具。
 	ctx = configureOutputSpill(ctx, stdio.Env, res.Storage)
 
+	// 统一 opt-in 激活面：Execute 是 runner/eval/tui 三条生产路径的唯一汇聚点，
+	// 因此在这里单点解析 ARGENT_OPT_INS。默认全关时：三个 setter 写入 false（与零值
+	// 一致）、reg 全 false、观察器为 nil，系统提示/事件序列/会话 JSONL 逐字节不变。
+	optIns := ParseOptInEnv(stdio.Env)
+	agent.SetRefusalReason(optIns[OptInRefusalReason])
+	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
+	SetContextPressure(optIns[OptInContextPressure])
+	// 观察器必须在 SetContextPressure 之后构造，并用 replace 无条件覆盖 runner.Prompt
+	// 基于进程级旧开关挂接的观察器：关闭时 newContextPressureObserver 返回 typed nil，
+	// contextPressureOf 将其解读为 nil，轮末采集与上报都是空操作（比 with 多一次覆盖，
+	// 但修复了"上次开、本次关"时过期观察器残留的错误通知）。
+	ctx = replaceContextPressure(ctx, newContextPressureObserver())
+	// 供 attempt_isolation 与三个压缩 wire 使用的注册表；关闭的键未 Set，Enabled 为 false。
+	reg := &OptInRegistry{}
+	for key, on := range optIns {
+		reg.Set(key, on)
+	}
+
 	// 启动拓扑校验（选择性启用，默认关闭）：ARGENT_BOOT_TOPO=1 时用依赖图推导
 	// 构造顺序并与历史顺序逐项比对，漂移则 fail-closed；默认不调用 TopoSort。
 	// 下方 boot 八步仍按历史字面顺序执行，因此零行为漂移。
@@ -417,6 +435,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
 	bg := agent.NewBackgroundResults(0, 0)
 	configureSubagents(&loop.Opts, res, bg)
+	// attempt_isolation opt-in：验证失败回调把失败尝试分叉为旁支会话。关闭时
+	// wireVerifyFail 返回 nil，OnVerifyFail 保持未装配，验证失败只走既有 notice 路径，
+	// 会话树与事件序列逐字节不变。真实 rootID 注入（BeginAttempt 链）在后续轮次承接。
+	if loop.Opts.Subagent != nil {
+		loop.Opts.Subagent.OnVerifyFail = wireVerifyFail(sess, reg)
+	}
 	// 仅性能旋钮：判定建议使用次级模型时切换根运行的主模型；FallbackModels 的
 	// 顺序语义由 applyAutoDecideModel 保持（次级模型成为新的第 0 项，原回退项后移），
 	// app 层基于 fallbackChatter 的单回退链同样保持"先主后回退"。

@@ -261,6 +261,8 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 
 	// 上下文压力观察是进程级 opt-in：开启时挂接观察器，关闭时返回 nil，
 	// ctx 保持不变，事件序列（含 seq）与接线之前逐字节一致。
+	// Execute 会在解析本次 opt-in 后按本次值覆盖它（见 replaceContextPressure），
+	// 因此这里基于全局开关的装配只是兼容既有装配点测试的兜底，不会造成跨运行残留。
 	ctx = withContextPressure(ctx, newContextPressureObserver())
 
 	// 在同一个临界区中占用 single-flight 槽位并注册 cancel 函数。Abort 使用同一个 mu，

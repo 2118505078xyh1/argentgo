@@ -171,11 +171,13 @@ func (it *Interp) execCall(st *Stmt, stdin string) (string, string, error) {
 	}
 
 	// 输入重定向 '<' 覆盖管道传入的 stdin。
+	// 目标先经 resolvePath 解析到工作区内（含符号链接/junction 校验），
+	// 阻断借 ../ 或工作区内链接读取工作区外的文件。
 	for _, r := range redirs {
 		if r.op == RedirIn && r.arg != "" {
-			path := r.arg
-			if !isAbs(path) && it.Cwd != "" {
-				path = joinPath(it.Cwd, path)
+			path, err := it.resolvePath(r.arg)
+			if err != nil {
+				return "", "", fmt.Errorf("shell: redirect from %q: %w", r.arg, err)
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -264,9 +266,11 @@ func (it *Interp) applyRedirects(stdout, stderr string, rs []expandedRedir) (str
 		combined += stderr
 	}
 	if outFile != "" {
-		path := outFile
-		if !isAbs(path) && it.Cwd != "" {
-			path = joinPath(it.Cwd, path)
+		// 输出目标同样先经 resolvePath 校验，拒绝 ../ 逃逸或经链接
+		// 落到工作区外的写入；随后用解析出的 abs 路径打开文件。
+		path, err := it.resolvePath(outFile)
+		if err != nil {
+			return "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
 		}
 		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 		if appendFile {
@@ -332,9 +336,3 @@ func envSlice(vars map[string]string) []string {
 }
 
 func isAbs(p string) bool { return strings.HasPrefix(p, "/") || (len(p) >= 3 && p[1] == ':') }
-func joinPath(dir, p string) string {
-	if strings.HasSuffix(dir, "/") || strings.HasSuffix(dir, "\\") {
-		return dir + p
-	}
-	return dir + string(os.PathSeparator) + p
-}
