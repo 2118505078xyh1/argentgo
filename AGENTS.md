@@ -27,6 +27,8 @@ gofmt -l .                               # must print nothing
 
 基准测试也是测试：其断言在 `go test` 下运行，所以即使 CI 从不计时，过时的断言也会让构建失败。只要改动 session/agent/tools 的热路径，就跑一遍 smoke 测试。
 
+**race 验证加速**（机器 24 核，勿用低并行度浪费 CPU）：日常验证用 `go test -race -p 4 -count=1 $(go list ./... | grep -v '/native$')`——`-p 4` 是标准并行度，比 `-p 2` 快近一倍；排除 native（MyGo GPU，race 下偶发挂起且不进核心链路）。全量 race 只在发版门禁跑，日常迭代只 race 改动包 + 热路径包（agent/session/hooks/app）。慢包 top3 是 session/hooks/app（插桩后 20-45s），属正常，勿误判为卡死；仅在确认假失败时才临时降低 `-p`。
+
 桌面前端（`native/`，MyGo 原生 UI）：
 
 ```powershell
@@ -76,6 +78,7 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 - Go 工具：`internal/app` 是唯一允许 import 全部包的包。库包可以 import `internal/llm` 和标准库；其余依赖一律通过参数注入接口（`ToolRunner`、`Approver`、`Recorder`、`Chatter`）。
 - provider 的协议细节只放在 `internal/llm`，不要把协议怪癖带进 agent 循环。
 - `internal/tools` 永不 import `internal/agent`。
+- **依赖解环：类型归属与依赖注入分离。** 当两个包需要互相引用（如 `tools` 要 import `shell` 注册工具、`shell` 又需要工具契约与 helper）时：①把纯类型契约（如 `Tool` 接口，仅依赖 context/json）下沉到零依赖低层包（`internal/pluginapi`），上层用类型别名（`type Tool = pluginapi.Tool`）复用，实现文件零改动；②helper（超时钳制、输出上限、作业注册表等）与其 context key 必须与使用方同包，或下沉到单一低层包，由另一方**显式参数/构造子注入**——切勿让两个包各自复制 context key（`context.WithValue` 靠类型身份匹配，跨包复制读不到值），也不要让低层包反向 import 上层包形成 import 环（archguard 只查分层规则，不查 import 环，必须由 `go build` 把关）。
 
 ## 组织方式与范式
 
