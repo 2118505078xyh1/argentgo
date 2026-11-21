@@ -360,6 +360,14 @@ type responsesPartial struct {
 }
 
 func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
+	// 流式时间点打点为 opt-in：默认关闭时不包装 onText、不调用 time.Now，
+	// 也不改写 Usage，因此既有行为的字节与内存表现完全一致。
+	timingOn := streamTimingOn()
+	var timing streamTiming
+	if timingOn {
+		timing.requestMS = time.Now().UnixMilli()
+		onText = timing.wrapOnText(onText)
+	}
 	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
 	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
 	hook := HookFromContext(ctx)
@@ -619,6 +627,9 @@ streamLoop:
 		return Message{}, err
 	}
 
+	if timingOn {
+		timing.stamp(&usage)
+	}
 	return Message{
 		Role:         "assistant",
 		Content:      text.String(),

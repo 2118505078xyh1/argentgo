@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/server"
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
@@ -100,12 +102,22 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 		// TotalUsage.Cached 恒为零，TUI 每帧只展示本轮的缓存用量。
 		// 事件始终转发（统计行需要 token）；是否显示在头部由渲染层的
 		// SetUsageVisible 门控，桥接层不再过滤。
-		return tui.Event{
+		tevt := tui.Event{
 			Kind:             tui.TuiEventUsage,
 			PromptTokens:     e.Usage.PromptTokens,
 			CompletionTokens: e.Usage.CompletionTokens,
 			CachedTokens:     e.Usage.CachedTokens,
-		}, true
+		}
+		// 可选时间点：只有 llm 打点同时给出首 token 与流完成时刻时才填写。
+		// 任一缺失就保持零值，TUI 回退到相邻 Usage 的 Δtokens/Δt 速率
+		// （R33 行为），显示字节不变。CompletedAt 以流完成时刻作近似——
+		// 纯流式速率只取 StreamedAt-FirstTokenAt，CompletedAt 不参与计算。
+		if e.Usage.StreamFirstMS > 0 && e.Usage.StreamDoneMS > 0 {
+			tevt.FirstTokenAt = time.UnixMilli(e.Usage.StreamFirstMS)
+			tevt.StreamedAt = time.UnixMilli(e.Usage.StreamDoneMS)
+			tevt.CompletedAt = tevt.StreamedAt
+		}
+		return tevt, true
 	case agent.EventNotice:
 		// 审批请求/解决通知为原生和 SSE 传输走普通事件流。它们没有 TUI EventKind，
 		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
@@ -168,7 +180,8 @@ type TUIEventPipeline struct {
 	Events <-chan tui.Event
 	Emit   func(agent.Event)
 
-	cancel context.CancelFunc
+	cancel        context.CancelFunc
+	disableTiming func()
 }
 
 // NewTUIEventPipeline 创建一个私有事件 hub，把发出器接入其中，并启动转换桥接器。
@@ -179,12 +192,23 @@ func NewTUIEventPipeline(ctx context.Context) *TUIEventPipeline {
 	bridgeCtx, cancel := context.WithCancel(ctx)
 	hub := NewEventHub()
 	emit, _ := WireRunEvents(hub, bridgeCtx)
+	// TUI 头部需要速率显示，因此开启 llm 的 opt-in 时间点打点；
+	// 打点只会给 Usage 附带 json:"-" 的内存字段，不改变任何 wire 字节。
+	// Stop 时对称关闭；引用计数使多个 pipeline 并存时互不干扰。
+	disableTiming := llm.EnableStreamTiming()
 	return &TUIEventPipeline{
-		Events: StartTUIEventBridge(bridgeCtx, hub),
-		Emit:   emit,
-		cancel: cancel,
+		Events:        StartTUIEventBridge(bridgeCtx, hub),
+		Emit:          emit,
+		cancel:        cancel,
+		disableTiming: disableTiming,
 	}
 }
 
-// Stop 取消桥接器；由此 Events 通道会关闭。
-func (p *TUIEventPipeline) Stop() { p.cancel() }
+// Stop 取消桥接器；由此 Events 通道会关闭，并对称关闭本 pipeline 开启的打点。
+func (p *TUIEventPipeline) Stop() {
+	p.cancel()
+	if p.disableTiming != nil {
+		p.disableTiming()
+		p.disableTiming = nil
+	}
+}

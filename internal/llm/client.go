@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -52,6 +53,71 @@ type Usage struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
 	// CacheWriteTokens 是 PromptTokens 中写入提示缓存的部分。
 	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+
+	// 以下三个字段是一次流式输出的墙钟时间点（Unix 毫秒），只由三个协议的
+	// readStream 在打点开关开启时填写。它们随 Usage 的值拷贝流到
+	// agent.Event.Usage，最终由 app 桥接写入 TUI 的 FirstTokenAt /
+	// StreamedAt / CompletedAt。
+	//
+	// json:"-" 是关键：这三个字段既不进入会话转录（Message.Usage 会被
+	// 序列化到 JSONL），也不进入任何 SSE/RPC 帧。因此无论是否打点，
+	// 既有字节都与接线前逐字节一致；它们只在进程内内存中传递。
+	StreamRequestMS int64 `json:"-"`
+	StreamFirstMS   int64 `json:"-"`
+	StreamDoneMS    int64 `json:"-"`
+}
+
+// 以下原语为流式时间点打点提供 opt-in 开关。默认关闭时 readStream 既不调用
+// time.Now，也不包装 onText，更不改写 Usage，因此所有既有请求的字节与内存
+// 行为都与接入前完全一致；只有 TUI pipeline 这类需要速率显示的消费者才会
+// 通过 EnableStreamTiming 开启。
+//
+// streamTimingEnabled 用引用计数控制开关（>0 表示开启），使多个 TUI pipeline
+// 并存时各自的 disable 互不干扰。
+var streamTimingEnabled atomic.Int64
+
+// EnableStreamTiming 开启流式时间点打点，返回一个幂等的关闭函数。
+// 每次调用都增加引用计数，返回的 disable 只减少一次，因此可以嵌套/并存。
+func EnableStreamTiming() func() {
+	streamTimingEnabled.Add(1)
+	var once sync.Once
+	return func() { once.Do(func() { streamTimingEnabled.Add(-1) }) }
+}
+
+// streamTimingOn 报告当前是否开启流式时间点打点。
+func streamTimingOn() bool { return streamTimingEnabled.Load() > 0 }
+
+// streamTiming 在单次 readStream 调用内收集三个时间点（Unix 毫秒）。
+type streamTiming struct {
+	requestMS int64
+	firstMS   int64
+	doneMS    int64
+}
+
+// wrapOnText 在第一次文本增量到达时打点，随后原样转发给下游回调。
+// 推理增量不经过 onText，因此 firstMS 只反映首个输出文本 token。
+func (t *streamTiming) wrapOnText(onText func(string)) func(string) {
+	if onText == nil {
+		return nil
+	}
+	return func(delta string) {
+		if t.firstMS == 0 {
+			t.firstMS = time.Now().UnixMilli()
+		}
+		onText(delta)
+	}
+}
+
+// stamp 在流正常结束、组装最终 Usage 时写入时间点。usage 为 nil 时创建
+// 一个仅承载时间点的空 Usage——token 字段仍为零，agent 的用量估算逻辑不变。
+func (t *streamTiming) stamp(usage **Usage) {
+	t.doneMS = time.Now().UnixMilli()
+	if *usage == nil {
+		*usage = &Usage{}
+	}
+	(*usage).StreamRequestMS = t.requestMS
+	(*usage).StreamFirstMS = t.firstMS
+	(*usage).StreamDoneMS = t.doneMS
 }
 
 // TotalTokens 返回一次回复的可计费 token 数，其中缓存的提示 token
@@ -507,6 +573,14 @@ func (c *Client) chat(
 }
 
 func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
+	// 流式时间点打点为 opt-in：默认关闭时不包装 onText、不调用 time.Now，
+	// 也不改写 Usage，因此既有行为的字节与内存表现完全一致。
+	timingOn := streamTimingOn()
+	var timing streamTiming
+	if timingOn {
+		timing.requestMS = time.Now().UnixMilli()
+		onText = timing.wrapOnText(onText)
+	}
 	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
 	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
 	hook := HookFromContext(ctx)
@@ -694,5 +768,8 @@ streamLoop:
 		return Message{}, err
 	}
 
+	if timingOn {
+		timing.stamp(&usage)
+	}
 	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Reasoning: reasoning.String(), Usage: usage, FinishReason: finishReason}, nil
 }

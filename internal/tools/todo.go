@@ -26,6 +26,11 @@ const (
 	// 无需重启。缺失、格式错误或非正的值会回退到
 	// 默认值，因此拼写错误绝不会悄悄禁用这个安全阀。
 	todoMaxCharsEnv = "ARGENT_TODO_MAX_CHARS"
+
+	// todoStrictEnv 是写入前严格状态校验的 opt-in 开关，默认关闭。
+	// 设为真值（1、true、yes、on 等）时 Run 会用 ValidateTodoState
+	// 校验即将写入的状态集；空值或假值保持写路径逐字节不变。
+	todoStrictEnv = "ARGENT_TODO_STRICT"
 )
 
 // 当一次 todo 写入会超出字符预算时返回 ErrTodoTooLarge。
@@ -38,6 +43,36 @@ func todoMaxChars() int {
 		return n
 	}
 	return defaultTodoMaxChars
+}
+
+// todoStrictEnabled 报告是否启用写入前的严格状态校验（opt-in，默认关闭）。
+// 与 intentSchemaDisabled 一致，环境变量在每次调用时读取而非缓存，
+// 使测试与长寿命运行时无需重启即可切换；空值及常见假值保持关闭。
+func todoStrictEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(todoStrictEnv))) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+// checkStrictTodoState 在 opt-in 开启时校验即将写入的状态集。
+// opt-in 关闭或无问题时返回 nil；有问题时返回列出全部问题的可读错误。
+func checkStrictTodoState(items []todoItem) error {
+	if !todoStrictEnabled() {
+		return nil
+	}
+	issues := ValidateTodoState(items)
+	if len(issues) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		parts = append(parts, issue.String())
+	}
+	return fmt.Errorf("todo: strict validation rejected the write (%d issue(s)): %s",
+		len(issues), strings.Join(parts, "; "))
 }
 
 // marshalTodos 按持久化的原样序列化列表。预算
@@ -56,8 +91,8 @@ type todoItem struct {
 	Status string `json:"status"`
 	// Verification 记录完成任务所依据的验证（命令、测试或证据摘要）。
 	// 使用 omitempty：未填写时序列化字节与旧版完全一致，因此该字段纯属
-	// 附加，不改变 todo 工具的默认持久化格式；它只服务于 opt-in 的
-	// ValidateTodoState 校验，尚未接入 Run 写路径。
+	// 附加，不改变 todo 工具的默认持久化格式；它服务于 opt-in 的
+	// ValidateTodoState 校验，该校验由 Run 在 ARGENT_TODO_STRICT 开启时调用。
 	Verification string `json:"verification,omitempty"`
 }
 
@@ -121,6 +156,10 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 			id = strconv.Itoa(i + 1)
 		}
 		items = append(items, todoItem{ID: id, Text: text, Status: status})
+	}
+	// opt-in 开启时先校验新状态集；有问题则拒绝写入且不创建状态目录。
+	if err := checkStrictTodoState(items); err != nil {
+		return "", err
 	}
 	data, err := marshalTodos(items)
 	if err != nil {

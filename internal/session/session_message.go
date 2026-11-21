@@ -3,10 +3,63 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
+
+// 预算投影接线（opt-in，默认关闭）。Messages() 经由 messageEntries 获得条目，
+// 因此接线点放在 messageEntries 里：关闭时只多一次环境变量读取，返回值逐字节不变；
+// 开启时在工具配对协调之前做投影，使"活尾工具调用"仍是未配对状态，从而能真正触发保护。
+const (
+	// budgetProjectionEnv 为总开关；仅值为 "1"（允许首尾空白）时启用投影。
+	budgetProjectionEnv = "ARGENT_BUDGET_PROJECTION"
+	// budgetProjectionBudgetEnv 直接给出投影预算（run E 数）；非正或不可解析时回退到保守默认。
+	budgetProjectionBudgetEnv = "ARGENT_BUDGET_PROJECTION_BUDGET"
+	// defaultBudgetProjectionBudget 是拿不到 contextWindow/配置时的保守默认预算。
+	defaultBudgetProjectionBudget = 32000
+)
+
+// budgetProjectionEnabled 报告预算投影是否被显式启用。默认关闭，逐字节保持旧行为。
+func budgetProjectionEnabled() bool {
+	return strings.TrimSpace(os.Getenv(budgetProjectionEnv)) == "1"
+}
+
+// budgetProjectionBudget 返回本次投影使用的 rune 预算及其来源。
+//
+// 来源说明：Session/Messages 的签名不携带 Options/config，投影路径拿不到模型的
+// contextWindow，因此预算只能来自两处——固定的环境变量 ARGENT_BUDGET_PROJECTION_BUDGET
+// （来源字符串 "env:ARGENT_BUDGET_PROJECTION_BUDGET"），或拿不到时的保守默认 32000
+// （来源字符串 "default:32000"）。这里显式回报来源，便于审计与测试断言。
+func budgetProjectionBudget() (int, string) {
+	if raw := strings.TrimSpace(os.Getenv(budgetProjectionBudgetEnv)); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n, "env:" + budgetProjectionBudgetEnv
+		}
+	}
+	return defaultBudgetProjectionBudget,
+		fmt.Sprintf("default:%d", defaultBudgetProjectionBudget)
+}
+
+// defaultBudgetProjectionPolicy 是 Messages() 投影使用的默认保留策略：
+// 保护最新用户输入、保护未配对的活尾工具调用、清除保留消息的思考文本。
+func defaultBudgetProjectionPolicy() ProjectionPolicy {
+	return ProjectionPolicy{
+		KeepRecentUser:   true,
+		KeepLiveToolTail: true,
+		DropThinking:     true,
+	}
+}
+
+// projectBudgetMessages 用默认预算与策略对消息做投影，返回完整结果（含动作与告警）。
+// 它是 Messages() 接线与测试共用的入口：Messages() 只消费 Messages 字段，
+// 而告警（如"预算不可达"）由 Project 原样返回，测试据此断言。
+func projectBudgetMessages(entries []Entry) (ProjectionResult, []ProjectionAction, []ProjectionWarning) {
+	budget, _ := budgetProjectionBudget()
+	return Project(entries, budget, defaultBudgetProjectionPolicy())
+}
 
 func encodePayload(payload any) (json.RawMessage, error) {
 	if payload == nil {
@@ -90,6 +143,13 @@ func messageEntries(records []Record) []Entry {
 		if entry, ok := messageEntry(record); ok {
 			out = append(out, entry)
 		}
+	}
+	// 可选预算投影（默认关闭）：必须在 ReconcileToolPairs 之前投影，
+	// 否则孤儿调用已被补上合成结果，KeepLiveToolTail 便无法识别未配对的活尾。
+	// 关闭时直接走原有的 ReconcileToolPairs，返回值逐字节不变。
+	if budgetProjectionEnabled() {
+		result, _, _ := projectBudgetMessages(out)
+		out = result.Messages
 	}
 	return ReconcileToolPairs(out)
 }
