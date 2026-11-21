@@ -25,6 +25,12 @@ func TestListCoversBuiltInProviders(t *testing.T) {
 		"openrouter": {provider.ProtocolOpenAI, "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4.5"},
 		"ollama":     {provider.ProtocolOpenAI, "http://127.0.0.1:11434/v1", "", "llama3.2"},
 		"lmstudio":   {provider.ProtocolOpenAI, "http://127.0.0.1:1234/v1", "", "local-model"},
+		"gemini":     {provider.ProtocolOpenAI, "https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY", "gemini-2.5-flash"},
+		"groq":       {provider.ProtocolOpenAI, "https://api.groq.com/openai/v1", "GROQ_API_KEY", "llama-3.3-70b-versatile"},
+		"mistral":    {provider.ProtocolOpenAI, "https://api.mistral.ai/v1", "MISTRAL_API_KEY", "mistral-large-latest"},
+		"together":   {provider.ProtocolOpenAI, "https://api.together.xyz/v1", "TOGETHER_API_KEY", "meta-llama/Llama-3.3-70B"},
+		"fireworks":  {provider.ProtocolOpenAI, "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY", "accounts/fireworks/models/llama-v3p3-70b"},
+		"cerebras":   {provider.ProtocolOpenAI, "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "llama-3.3-70b"},
 	}
 
 	seen := make(map[string]bool)
@@ -91,6 +97,10 @@ func TestResolve(t *testing.T) {
 		{"ollama", "ollama", true},
 		{"lmstudio", "lmstudio", true},
 		{"openrouter", "openrouter", true},
+		{"gemini", "gemini", true},
+		{"google", "gemini", true},
+		{"groq", "groq", true},
+		{"mistral", "mistral", true},
 		{"nope", "", false},
 		{"", "", false},
 	}

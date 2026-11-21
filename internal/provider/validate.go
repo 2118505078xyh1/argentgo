@@ -197,7 +197,9 @@ func validateProtocolURL(t Template, add func(Severity, string, string, ...any))
 	var expected []string
 	switch t.Protocol {
 	case ProtocolOpenAI, ProtocolResponses:
-		expected = []string{"v1"}
+		// 兼容端点也可能把路径收尾在 /openai（如 Gemini 的 OpenAI 兼容根），
+		// 它同样是合法的 OpenAI chat completions 基址，不应判为协议不匹配。
+		expected = []string{"v1", "openai"}
 	case ProtocolAnthropic:
 		expected = []string{"v1", "anthropic"}
 	default:

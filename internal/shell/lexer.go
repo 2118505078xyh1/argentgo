@@ -129,6 +129,16 @@ func (l *lexer) lex() ([]Token, error) {
 		case ')':
 			l.advance()
 			tokens = append(tokens, Token{TokRParen, ")", pos})
+		case '#':
+			// 词首的 '#' 开启 shell 注释：吞掉从 '#' 到行尾（或 EOF）的所有字符。
+			// 产出 TokUnsupported 使 Supported() 返回 false，调用方据此回退系统 shell，
+			// 由真实 shell 给出正确的注释语义（避免内建解析差分被反向利用来注入）。
+			// 注意：只在词首触发——单词中间的 '#' 不是 word break，仍由 lexWord
+			// 按字面处理（与 bash 一致）；换行本身留给 lexer 当作空白，下一行照常解析。
+			for !l.atEnd() && l.cur() != '\n' {
+				l.advance()
+			}
+			tokens = append(tokens, Token{TokUnsupported, "#", pos})
 		default:
 			// 识别 "2>&1"（及其它数字 fd 的 &dup）：数字紧跟 ">&" 时整体成 token。
 			if isDigit(r) && l.peek(1) == '>' && l.peek(2) == '&' {
