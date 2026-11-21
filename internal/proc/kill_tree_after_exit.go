@@ -30,7 +30,8 @@ package proc
 //
 // 这是纯函数：只消费三个布尔值，不读取全局状态、不做任何 I/O、不解码任何
 // 文本，因而与 CJK / 多字节编码无关；相同输入永远得到相同输出，可被并发
-// 调用而无需同步。当前尚未接线到取消路径（见接线点报告），不改变现有行为。
+// 调用而无需同步。已在 Run / cancelChildGracefully 的取消路径接线：直接子进程
+// 在宽限期内退出时仍补刀杀树，清理忽略 SIGTERM 的孤儿童进程。
 func shouldKillTreeAfterExit(sigTermSent, graceExpired, directExited bool) bool {
 	return sigTermSent && (graceExpired || directExited)
 }

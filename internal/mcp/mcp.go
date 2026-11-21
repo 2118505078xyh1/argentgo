@@ -421,8 +421,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 		return "", c.wrap(err, "tools/call "+name)
 	}
 	var result struct {
-		Content []ContentBlock `json:"content"`
-		IsError bool           `json:"isError"`
+		// 用 callToolBlock 解码，额外保留 image 内容块的 base64 `data`
+		// 字段；嵌入的 ContentBlock 字段解码行为与旧代码完全一致。
+		Content []callToolBlock `json:"content"`
+		IsError bool            `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return "", fmt.Errorf("mcp %q: decode tools/call result: %w", c.spec.Name, err)
@@ -433,7 +435,7 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	// 输出与历史逐字节一致。
 	blocks := result.Content
 	if minPriority := contentFilterMinPriority(); minPriority > 0 {
-		blocks = filterContentBlocks(blocks, minPriority)
+		blocks = filterCallToolBlocks(blocks, minPriority)
 	}
 
 	parts := make([]string, 0, len(blocks))
@@ -461,11 +463,7 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 				}
 			}
 		case "image":
-			mime := block.MIMEType
-			if mime == "" {
-				mime = "unknown"
-			}
-			parts = append(parts, "[image: "+mime+"]")
+			parts = append(parts, imageBlockPlaceholder(block))
 		}
 	}
 	out := strings.Join(parts, "\n")

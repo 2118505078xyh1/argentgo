@@ -114,10 +114,20 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	}
 	protocol = canonicalProtocol(protocol)
 	baseURL := opts.BaseURL
+	// 同时追踪端点出处：项目级配置（包括项目文件里定义的 profile 和
+	// providers.<name>.baseURL 覆盖）不应能在用户不知情时改写收件主机。
+	baseURLFromProject := false
 	if baseURL == "" {
 		baseURL = cfg.BaseURL
+		baseURLFromProject = cfg.BaseURLFromProject()
 		if haveTemplate && unset(baseURL, openAIBaseURL) {
 			baseURL = template.BaseURL
+			// 模板覆盖生效时，端点来自提供方覆盖层；内置模板地址视为非项目来源。
+			if source := cfg.ProviderBaseURLSource(template.Name); source != config.ValueSourceUnset {
+				baseURLFromProject = source == config.ValueSourceProject
+			} else {
+				baseURLFromProject = false
+			}
 		}
 	}
 	model := opts.Model
@@ -130,6 +140,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	protocol = firstNonEmpty(protocol, openAIProtocol)
 	baseURL = firstNonEmpty(baseURL, openAIBaseURL)
 	model = firstNonEmpty(model, openAIModel)
+	model = provider.NormalizeModel(model)
 
 	// 凭据优先级：显式标志 / ARGENT_* 环境变量 > 顶层配置 > `argentgo login` 存储在
 	// providers.<name>.apiKey 下的密钥 > 提供方自身的 API key 环境变量。
@@ -143,7 +154,35 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	// 因此 template.APIKeyEnv 为空，提供方环境变量的回退会静默失败。configuredProvider
 	// 在上面已通过 cfg.Provider(providerName) 解析，它会回退到协议对应的天然提供方（openai），
 	// 并带有正确的 APIKeyEnv。
-	apiKey := firstNonEmpty(opts.APIKey, cfg.APIKey, configuredProvider.APIKey, env(configuredProvider.APIKeyEnv))
+	//
+	// 同时记录密钥来源：只有"项目配置自己提供的密钥"才算可随项目端点一起
+	// 使用；flag、环境变量或全局配置里的密钥是用户凭据，不能被项目端点截走。
+	apiKey := ""
+	apiKeyFromProject := false
+	switch {
+	case strings.TrimSpace(opts.APIKey) != "":
+		apiKey = strings.TrimSpace(opts.APIKey)
+	case strings.TrimSpace(cfg.APIKey) != "":
+		apiKey = strings.TrimSpace(cfg.APIKey)
+		apiKeyFromProject = cfg.APIKeySource == config.ValueSourceProject
+	case strings.TrimSpace(configuredProvider.APIKey) != "":
+		apiKey = strings.TrimSpace(configuredProvider.APIKey)
+		apiKeyFromProject = cfg.ProviderAPIKeySource(providerName) == config.ValueSourceProject
+	default:
+		if configuredProvider.APIKeyEnv != "" {
+			apiKey = strings.TrimSpace(env(configuredProvider.APIKeyEnv))
+		}
+	}
+
+	// P0 外泄守卫：未受信任的项目不得把端点改写到别处再把用户密钥发过去。
+	// 只拦"项目改写 baseURL + 密钥并非项目自带"这一组合；项目配置只改
+	// model/超时等设置，或密钥由项目配置自行提供时，行为完全不变。
+	trustProject := opts.TrustProject || (env("ARGENT_TRUST_PROJECT") != "" && parseTrustEnv(env("ARGENT_TRUST_PROJECT")))
+	if !trustProject && baseURLFromProject && apiKey != "" && !apiKeyFromProject {
+		return Resolved{}, fmt.Errorf(
+			"refusing to send credential to baseURL %q set by an untrusted project config; pass --trust-project to allow it",
+			baseURL)
+	}
 
 	sandboxMode := firstNonEmpty(opts.SandboxMode, cfg.SandboxMode, "workspace-write")
 	sandbox, err := security.FromString(sandboxMode)
@@ -215,7 +254,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		WriteRoots:   security.WriteRootsFrom(root, addDirs),
 		OutputSchema: schema,
 		Thinking:     opts.Thinking,
-		TrustProject: opts.TrustProject || (env("ARGENT_TRUST_PROJECT") != "" && parseTrustEnv(env("ARGENT_TRUST_PROJECT"))),
+		TrustProject: trustProject,
 		Plugins:      append([]string(nil), opts.Plugins...),
 		System:       system,
 		Prices:       pricesFor(model, opts, cfg),

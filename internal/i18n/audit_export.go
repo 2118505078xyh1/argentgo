@@ -53,12 +53,21 @@ func placeholderDetails(issue PlaceholderIssue) []AuditDetail {
 
 // newAuditDetails 由各部分审计结果构造统一的明细列表。它是纯函数，也是
 // AuditDetails 与测试共用的核心：测试借此用模拟结果验证展开完整性与排序，
-// 无需改动真实文案表。结果按 (Table, Key, Issue) 稳定排序；无问题时返回
-// nil，与 FullAudit 的 OK 口径一致。
+// 无需改动真实文案表。保留原签名使既有测试调用不变。
 func newAuditDetails(catalog, errorMessages KeyAlignment, placeholders []PlaceholderIssue) []AuditDetail {
+	return newAuditDetailsWithTables(catalog, errorMessages, nil, placeholders)
+}
+
+// newAuditDetailsWithTables 在原有两张表之外再展开一批带表名的键对齐结果。
+// extra 为 nil 时与 newAuditDetails 完全等价。结果按 (Table, Key, Issue) 稳定
+// 排序；无问题时返回 nil，与 FullAudit 的 OK 口径一致。
+func newAuditDetailsWithTables(catalog, errorMessages KeyAlignment, extra []namedKeyAlignment, placeholders []PlaceholderIssue) []AuditDetail {
 	out := make([]AuditDetail, 0)
 	out = append(out, keyAlignmentDetails(catalog, placeholderTableCatalog)...)
 	out = append(out, keyAlignmentDetails(errorMessages, placeholderTableErrorMessages)...)
+	for _, alignment := range extra {
+		out = append(out, keyAlignmentDetails(alignment.align, alignment.name)...)
+	}
 	for _, issue := range placeholders {
 		out = append(out, placeholderDetails(issue)...)
 	}
@@ -79,13 +88,14 @@ func newAuditDetails(catalog, errorMessages KeyAlignment, placeholders []Placeho
 }
 
 // AuditDetails 把键对齐审计与占位符审计展开为按 (Table, Key, Issue) 稳定
-// 排序的结构化明细。它是纯函数：只读嵌入的文案表，不改变 T / errorMessage
-// 的查找行为，不改任何文案字节，也不向 Missing 记录任何内容。无问题时返回
-// nil。
+// 排序的结构化明细，覆盖 catalog、错误码表以及四张独立消息表。它是纯函数：
+// 只读嵌入的文案表，不改变任何查找行为，不改任何文案字节，也不向 Missing
+// 记录任何内容。无问题时返回 nil。
 func AuditDetails() []AuditDetail {
-	return newAuditDetails(
+	return newAuditDetailsWithTables(
 		AuditCatalogKeyAlignment(),
 		AuditErrorMessagesKeyAlignment(),
+		AuditMessageTablesKeyAlignment(),
 		AuditPlaceholders(),
 	)
 }

@@ -103,7 +103,7 @@ func TestExecuteDynamicSplitKeepsAllInfo(t *testing.T) {
 
 	system, user := executeDynamic(t, env, root, "medium", schema)
 	for _, want := range []string{
-		"You are argent",
+		"You are argentgo",
 		"Use the available tools",
 		"TRUSTED_DYNAMIC_MARKER_4c1a",
 		"deploy",

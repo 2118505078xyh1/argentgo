@@ -16,8 +16,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // DefaultProjectSubdir 是仓库存放自有技能的位置。
@@ -238,32 +240,53 @@ func (r *Registry) Index() []Entry {
 	return entries
 }
 
+// skillIndexFieldRunes 限制索引/抬头中单个字段（名称、描述、触发提示、来源路径）
+// 的 rune 上限。声明性元数据不可信，超长字段会在系统提示的单个技能行里撑爆预算，
+// 因此按字素簇边界裁剪到固定长度。
+const skillIndexFieldRunes = 200
+
+// skillIndexTotalRunes 限制整段索引（含头部与换行）的 rune 上限，作为字段上限之外的
+// 第二道防线。按整行追加，保证被保留的技能仍然是一行一条，且头部永远完整。
+const skillIndexTotalRunes = 4096
+
 // IndexText 把索引渲染为追加到系统提示的块。未安装技能时为空。
-// 未安装技能时为空。
 func (r *Registry) IndexText() string {
 	if len(r.skills) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("Skills: procedures you can load by name with the use_skill tool. ")
-	b.WriteString("Load one when the task matches its description; do not load all of them.\n")
+	const header = "Skills: procedures you can load by name with the use_skill tool. " +
+		"Load one when the task matches its description; do not load all of them.\n"
+	lines := make([]string, 0, len(r.skills))
 	for _, skill := range r.skills {
 		// 声明性元数据不可信：可能来自块标量或带引号的 \n 转义，
-		// 也可能携带 Unicode tag / bidi 不可见字符。先脱敏再折叠空白，
-		// 使每个技能恰好占据一行索引且无法向系统提示注入条目。
-		name := oneLine(security.RedactArtifactContent(skill.Name))
-		desc := oneLine(security.RedactArtifactContent(skill.Description))
-		when := oneLine(security.RedactArtifactContent(skill.WhenToUse))
+		// 也可能携带 Unicode tag / bidi 不可见字符或超长内容。clipIndexField
+		// 统一做脱敏、折叠与裁剪，使每个技能恰好占据一行索引且无法向系统提示注入条目。
+		name := clipIndexField(skill.Name)
+		desc := clipIndexField(skill.Description)
+		when := clipIndexField(skill.WhenToUse)
 		switch {
 		case desc == "" && when == "":
-			fmt.Fprintf(&b, "- %s\n", name)
+			lines = append(lines, fmt.Sprintf("- %s\n", name))
 		case when == "":
-			fmt.Fprintf(&b, "- %s: %s\n", name, desc)
+			lines = append(lines, fmt.Sprintf("- %s: %s\n", name, desc))
 		case desc == "":
-			fmt.Fprintf(&b, "- %s (when: %s)\n", name, when)
+			lines = append(lines, fmt.Sprintf("- %s (when: %s)\n", name, when))
 		default:
-			fmt.Fprintf(&b, "- %s: %s (when: %s)\n", name, desc, when)
+			lines = append(lines, fmt.Sprintf("- %s: %s (when: %s)\n", name, desc, when))
 		}
+	}
+	var b strings.Builder
+	b.WriteString(header)
+	used := utf8.RuneCountInString(header)
+	for _, line := range lines {
+		n := utf8.RuneCountInString(line)
+		// 整行追加：一旦超过总预算就停止，宁可少列几个技能，
+		// 也绝不截断某个技能的行或丢弃头部。
+		if used+n > skillIndexTotalRunes {
+			break
+		}
+		b.WriteString(line)
+		used += n
 	}
 	return b.String()
 }
@@ -273,6 +296,14 @@ func (r *Registry) IndexText() string {
 // 超过一行。Parse 刻意保留块标量中的换行，因此折叠属于渲染边界的职责。
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// clipIndexField 对声明性元数据字段做统一的渲染边界处理：先脱敏不可见字符
+// （Unicode tag / bidi 控制符），再折叠为单行，最后按 skillIndexFieldRunes 在
+// 字素簇边界裁剪，绝不切坏 CJK、emoji 或组合符。索引与 use_skill 抬头共用本函数，
+// 保证“索引里看到的名称”与“加载后抬头里的名称”逐字节一致。
+func clipIndexField(s string) string {
+	return textutil.ClipRunes(oneLine(security.RedactArtifactContent(s)), skillIndexFieldRunes)
 }
 
 // Load 返回完整技能，含正文。

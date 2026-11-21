@@ -44,7 +44,7 @@ func trustFromEnv(env func(string) string) bool {
 // buildSystemWithTrust 为旧版调用方组合两者。
 func buildStaticSystem(root string, env func(string) string, trust bool, verify ...config.Config) string {
 	var b strings.Builder
-	b.WriteString("You are argent, a concise coding assistant working on the user's machine.\n")
+	b.WriteString("You are argentgo, a concise coding assistant working on the user's machine.\n")
 	b.WriteString("Use the available tools to inspect and change files. Read before writing, ")
 	b.WriteString("batch independent calls, and stop once the request is satisfied.\n")
 

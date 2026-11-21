@@ -61,6 +61,20 @@ func (s *Store) OpenSession(id string) (*Session, error) {
 	return s.Container().OpenSession(id)
 }
 
+// OpenSessionAt 打开会话并把活动叶节点切换到 entryID 指向的记录。
+// 它等价于 OpenSession 之后紧接着调用 Checkout：先按 id 定位并校验转录，
+// 再在校验通过时切换活动指针；任一步失败都不返回可用的会话句柄。
+func (s *Store) OpenSessionAt(id, entryID string) (*Session, error) {
+	sess, err := s.OpenSession(id)
+	if err != nil {
+		return nil, err
+	}
+	if err := sess.Checkout(entryID); err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
+
 // List 报告所有会话，最新的在前。
 func (s *Store) List() ([]Meta, error) { return s.Container().List() }
 

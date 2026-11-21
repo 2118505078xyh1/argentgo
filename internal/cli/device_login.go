@@ -74,7 +74,7 @@ func deviceLoginUsage(w io.Writer) {
 
 Runs the RFC 8628 device-code flow for a provider that supports it (for
 example github-copilot). The user code and verification URL are printed, then
-argent polls until the authorization completes. The resulting token is stored
+argentgo polls until the authorization completes. The resulting token is stored
 in <storage>/auth; secrets are never echoed.
 `)
 }

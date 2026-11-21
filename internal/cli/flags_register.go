@@ -26,6 +26,10 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.sandboxMode = fs.String("sandbox-mode", "", "read-only, workspace-write or danger-full-access")
 	v.approval = fs.String("approval", "", "approval mode: ask, never or auto")
 	v.session = fs.String("session", "", "resume the session with this id")
+	// --at 让 --session 的恢复从会话树中指定的记录开始（就地分支切换）。
+	// 这里只注册 flag 表面；具体恢复接线由调用方在拿到会话 id 后使用
+	// session.Store.OpenSessionAt 完成。
+	_ = fs.String("at", "", "resume --session at this entry id")
 	v.resume = fs.Bool("resume", false, "resume the most recent session")
 	v.undo = fs.Bool("undo", false, "restore the latest checkpoint of --session and exit")
 	v.retry = fs.Bool("retry", false, "fork --session at its latest checkpoint before the prompt")

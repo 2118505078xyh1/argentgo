@@ -310,6 +310,10 @@ func verifyChecksum(path, checksum string) error {
 
 // fetchReleaseChecksum 从发布版本的校验和资产中读取 SHA-256 摘要。
 // 没有校验和资产的版本会报错：--apply 绝不猜测或跳过验证。
+//
+// 校验和清单按资产名精确匹配，而不是取清单里的第一个 64 位十六进制串：
+// 多资产发布中，取错哈希会让下载校验失败，更糟的是让被污染的清单
+// 悄悄通过。清单出现冲突或孤儿条目时 fail closed，绝不回退到猜测。
 func fetchReleaseChecksum(ctx context.Context, release update.Release, asset update.Asset, client *http.Client) (string, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -340,13 +344,76 @@ func fetchReleaseChecksum(ctx context.Context, release update.Release, asset upd
 		if response.StatusCode/100 != 2 {
 			continue
 		}
-		if sum := firstChecksum(string(body)); sum != "" {
+		sum, err := checksumForAsset(string(body), release, asset)
+		if err != nil {
+			return "", err
+		}
+		if sum != "" {
 			return sum, nil
 		}
 	}
 	return "", fmt.Errorf("update: no SHA-256 checksum for %s; pass --sha256", asset.Name)
 }
 
+// checksumForAsset 把一份校验和清单与本次发布匹配，返回目标资产的摘要。
+// 返回值 "" 表示该清单没有覆盖目标资产，调用方可以继续尝试下一份清单；
+// 冲突和孤儿条目属于安全问题，直接返回错误让整个更新失败。
+func checksumForAsset(body string, release update.Release, asset update.Asset) (string, error) {
+	entries, err := update.ParseChecksums(body)
+	if err != nil {
+		// 兼容旧式裸摘要清单：整份文件只有一个十六进制摘要、没有文件名。
+		// 仅当全文确实只有一个摘要时才回退，避免多资产场景取错哈希。
+		if sum, ok := soleChecksum(body); ok {
+			return sum, nil
+		}
+		return "", nil
+	}
+	if len(entries) == 0 {
+		return "", nil
+	}
+
+	diagnosis := update.DiagnoseChecksums(entries, release.Assets)
+	if len(diagnosis.Conflicts) > 0 {
+		return "", fmt.Errorf("update: conflicting checksums for %s in release manifest; pass --sha256",
+			strings.Join(diagnosis.Conflicts, ", "))
+	}
+	if len(diagnosis.Orphans) > 0 {
+		return "", fmt.Errorf("update: orphan checksum entries in release manifest: %s; pass --sha256",
+			strings.Join(diagnosis.Orphans, ", "))
+	}
+	for _, match := range diagnosis.Matched {
+		if strings.EqualFold(match.Name, asset.Name) {
+			return match.Hash, nil
+		}
+	}
+	return "", nil
+}
+
+// soleChecksum 在清单里恰好只有一个 64 位十六进制摘要时返回它。
+// 多哈希（即使哈希相同）不视为单哈希清单，以免为多资产发布打开
+// "取第一个哈希" 的旧漏洞。
+func soleChecksum(text string) (string, bool) {
+	found := ""
+	count := 0
+	for _, field := range strings.Fields(strings.ReplaceAll(text, ":", " ")) {
+		field = strings.Trim(field, "*\r\n\t")
+		if len(field) != sha256.Size*2 {
+			continue
+		}
+		if _, err := hex.DecodeString(field); err != nil {
+			continue
+		}
+		count++
+		if count > 1 {
+			return "", false
+		}
+		found = strings.ToLower(field)
+	}
+	return found, found != ""
+}
+
+// firstChecksum 返回文本中第一个合法的 64 位十六进制摘要。
+// 仅保留作兼容辅助函数；多资产清单的实际取值走 checksumForAsset。
 func firstChecksum(text string) string {
 	for _, field := range strings.Fields(strings.ReplaceAll(text, ":", " ")) {
 		field = strings.Trim(field, "*\r\n\t")

@@ -374,6 +374,18 @@ func (m Manifest) ResolvePath(relative string) string {
 	return filepath.Clean(filepath.Join(m.Root, filepath.FromSlash(relative)))
 }
 
+// pathRequirement 描述清单声明的路径在文件系统中应满足的类型。
+type pathRequirement int
+
+const (
+	// pathEither 接受普通文件或目录；其余类型视为问题。
+	pathEither pathRequirement = iota
+	// pathFile 只接受普通文件。
+	pathFile
+	// pathDir 只接受目录。
+	pathDir
+)
+
 // Validate 报告解析后清单的非致命问题：版本格式、
 // 引用的文件不存在，以及无法运行的 MCP 声明。
 func (m Manifest) Validate() []Problem {
@@ -389,7 +401,7 @@ func (m Manifest) Validate() []Problem {
 		add("version %q: %v", m.Version, err)
 	}
 
-	reportPaths := func(kind string, paths []string, wantDir bool) {
+	reportPaths := func(kind string, paths []string, requirement pathRequirement) {
 		for _, relative := range paths {
 			resolved := m.ResolvePath(relative)
 			if !within(m.Root, resolved) {
@@ -397,19 +409,32 @@ func (m Manifest) Validate() []Problem {
 				continue
 			}
 			info, err := os.Stat(resolved)
-			switch {
-			case err != nil:
+			if err != nil {
 				add("%s path %q does not exist", kind, relative)
-			case wantDir && !info.IsDir():
-				add("%s path %q is not a directory", kind, relative)
-			case !wantDir && !info.Mode().IsRegular():
-				add("%s path %q is not a file", kind, relative)
+				continue
+			}
+			switch requirement {
+			case pathDir:
+				if !info.IsDir() {
+					add("%s path %q is not a directory", kind, relative)
+				}
+			case pathFile:
+				if !info.Mode().IsRegular() {
+					add("%s path %q is not a file", kind, relative)
+				}
+			case pathEither:
+				if !info.IsDir() && !info.Mode().IsRegular() {
+					add("%s path %q is neither a file nor a directory", kind, relative)
+				}
 			}
 		}
 	}
-	reportPaths("skills", m.Skills, true)
-	reportPaths("commands", m.Commands, false)
-	reportPaths("hooks", m.Hooks.Paths, false)
+	reportPaths("skills", m.Skills, pathDir)
+	// 命令贡献既可以是装满 .md 命令的目录，也可以是单个命令文件。
+	// 接线层会把单文件归一到其所在目录以交给命令发现器，
+	// 因此两种声明在这里都不应产生类型诊断。
+	reportPaths("commands", m.Commands, pathEither)
+	reportPaths("hooks", m.Hooks.Paths, pathFile)
 
 	for _, name := range sortedServerNames(m.MCPServers) {
 		spec := m.MCPServers[name]

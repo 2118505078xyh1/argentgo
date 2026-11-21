@@ -99,5 +99,9 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	if call.Arguments != "" {
 		body = commands.ExpandArguments(body, call.Arguments)
 	}
-	return fmt.Sprintf("# skill: %s\n(source: %s)\n\n%s", skill.Name, skill.Path, body), nil
+	// 抬头与系统提示索引共用同一套脱敏/折叠/裁剪，消除“索引净化名 vs 加载原始名”
+	// 的不一致；正文按需加载，保持逐字节不变。
+	shownName := clipIndexField(skill.Name)
+	source := clipIndexField(skill.Path)
+	return fmt.Sprintf("# skill: %s\n(source: %s)\n\n%s", shownName, source, body), nil
 }

@@ -330,8 +330,9 @@ func RunWithTimeout(ctx context.Context, c Command) (Result, *Process, error) {
 }
 
 // cancelChildGracefully 请求子进程树终止，等待最多共享的
-// 宽限期以等待协作式退出，然后升级为 Kill。无法
-// 向进程树发信号的假进程会被立即终止。
+// 宽限期以等待协作式退出。宽限耗尽仍未退出，或直接子进程虽在宽限内
+// 退出但可能残留忽略 SIGTERM 的孙进程时，都会按判据升级为 Kill
+// 补杀整棵树。无法向进程树发信号的假进程会被立即终止。
 func cancelChildGracefully(p *Process) {
 	terminator, ok := p.child.(gracefulTerminator)
 	if !ok {
@@ -341,6 +342,11 @@ func cancelChildGracefully(p *Process) {
 	terminator.TerminateTree()
 	select {
 	case <-p.Done():
+		// 直接子进程在宽限期内退出，但忽略 SIGTERM 的孙进程可能仍存活。
+		// 按判据补杀整棵树，避免孙进程随直接子进程退出而成为孤儿。
+		if shouldKillTreeAfterExit(true, false, true) {
+			p.Kill()
+		}
 		return
 	case <-time.After(cancellationGracePeriod):
 	}

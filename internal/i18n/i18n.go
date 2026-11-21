@@ -338,33 +338,48 @@ type Issue struct {
 	Detail string    // short human-readable explanation
 }
 
-// AuditTranslations 检查跨语言环境的翻译完整性并返回
-// 发现的问题。它是纯函数：只读取嵌入的
-// 目录，不修改任何状态（包括 Missing 日志），并返回
-// AuditTranslations 检查跨语言环境的翻译完整性并返回发现的问题。它是纯函数：只读取嵌入的目录，不修改任何状态（包括 Missing 日志），并返回按 Key、Locale、Kind 和 Detail 排序的发现。健康的目录返回空但非 nil 的切片。无参数时审计所有支持的语言环境（Known）。参数通过 Canonical 规范化、去重并排序；不支持的语言环境被忽略，因为目录只携带支持代码的文本。
-// 非 nil 切片。
+// AuditTranslations 检查跨语言环境的翻译完整性并返回发现的问题。它是纯函数：
+// 只读取嵌入的目录，不修改任何状态（包括 Missing 日志），并返回按 Key、Locale、
+// Kind 和 Detail 排序的发现。健康的目录返回空但非 nil 的切片。无参数时审计所有
+// 支持的语言环境（Known）。参数通过 Canonical 规范化、去重并排序；不支持的
+// 语言环境被忽略，因为目录只携带支持代码的文本。
 //
-// 无参数时审计所有支持的语言环境（Known）。参数通过
-// Canonical 规范化、去重并排序；不支持的语言环境
-// 被忽略，因为目录只携带支持代码的文本。
+// 除主目录（catalog）外，还审计四张独立消息表
+// （command/reliability/opt-in/error-hint）：它们结构不同但同样持有 en/zh 文本，
+// 统一转成 localeTexts 后复用同一套缺失文本/fmt 动词/命名占位符检查。
 //
-// 对每个键，第一个请求的语言环境中为 EnUS 的是参照（
-// 源字符串）。其他每个请求的语言环境与它比较：
+// 对每个键，第一个请求的语言环境中为 EnUS 的是参照（源字符串）。其他每个
+// 请求的语言环境与它比较：
 //
 //   - 参照有文本但为空（IssueMissingText）；
+//   - fmt 动词多重集不同（IssueFormatVerbMismatch）；
+//   - 命名 {name} 占位符多重集不同（IssuePlaceholderMismatch）。
 //
-//   - 命名 {name} 占位符多重集不同
-//     (IssuePlaceholderMismatch).
-//
-// 空参照本身作为该语言环境的 IssueMissingText 报告。
-// 此目录中所有语言环境共享键集，因此一个键不可能
-// 在某个语言环境中"多余"；有意义的遗漏是空文本和丢失的
-// 占位符，这正是本审计检测的。
+// 空参照本身作为该语言环境的 IssueMissingText 报告。各表内所有语言环境共享
+// 键集，因此一个键不可能在某个语言环境中"多余"；有意义的遗漏是空文本和
+// 丢失的动词/占位符，这正是本审计检测的。
 func AuditTranslations(locales ...string) []Issue {
-	return auditCatalog(catalog, locales)
+	issues := auditCatalog(catalog, locales)
+	for _, table := range messageTableViews() {
+		issues = append(issues, auditLocaleTexts(table.entries, locales)...)
+	}
+	sortIssues(issues)
+	return issues
 }
 
+// auditCatalog 是 AuditTranslations 在主目录上的入口，保留原签名供测试直接使用。
 func auditCatalog(cat map[string]translation, locales []string) []Issue {
+	view := make(map[string]localeTexts, len(cat))
+	for key, entry := range cat {
+		view[key] = localeTexts{en: entry.en, zh: entry.zh}
+	}
+	return auditLocaleTexts(view, locales)
+}
+
+// auditLocaleTexts 对任意 en/zh 文案表做跨语言完整性检查：缺失文本、fmt 动词
+// 不一致与命名占位符不一致。逻辑与原先的 auditCatalog 逐字等价，仅把 entry
+// 类型从 translation 换成统一的 localeTexts，使四张独立消息表也能复用。
+func auditLocaleTexts(cat map[string]localeTexts, locales []string) []Issue {
 	requested := normalizeAuditLocales(locales)
 	if len(requested) == 0 {
 		return []Issue{}
@@ -372,10 +387,15 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 	reference := referenceLocale(requested)
 
 	issues := make([]Issue, 0)
-	for _, key := range sortedKeys(cat) {
+	keys := make([]string, 0, len(cat))
+	for key := range cat {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
 		entry := cat[key]
 		for _, loc := range requested {
-			if textFor(loc, entry) == "" {
+			if textForLocale(loc, entry) == "" {
 				issues = append(issues, Issue{
 					Key: key, Locale: loc, Kind: IssueMissingText,
 					Detail: "empty translation",
@@ -383,7 +403,7 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 			}
 		}
 
-		ref := textFor(reference, entry)
+		ref := textForLocale(reference, entry)
 		if ref == "" {
 			continue // nothing to compare against; emptiness already reported
 		}
@@ -392,7 +412,7 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 			if loc == reference {
 				continue
 			}
-			text := textFor(loc, entry)
+			text := textForLocale(loc, entry)
 			if text == "" {
 				continue // already reported as IssueMissingText
 			}
@@ -411,6 +431,12 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 		}
 	}
 
+	sortIssues(issues)
+	return issues
+}
+
+// sortIssues 按 (Key, Locale, Kind, Detail) 稳定排序一份 Issue 列表。
+func sortIssues(issues []Issue) {
 	sort.Slice(issues, func(i, j int) bool {
 		a, b := issues[i], issues[j]
 		if a.Key != b.Key {
@@ -424,7 +450,6 @@ func auditCatalog(cat map[string]translation, locales []string) []Issue {
 		}
 		return a.Detail < b.Detail
 	})
-	return issues
 }
 
 // normalizeAuditLocales 规范化调用方输入。空请求表示"所有支持的语言环境"。未知语言环境被丢弃。
@@ -458,9 +483,9 @@ func referenceLocale(locales []string) string {
 	return locales[0]
 }
 
-// textFor 从条目中选择某语言环境的字符串。未知代码回退到
-// referenceLocale 挑选其文本作为比较来源的语言环境。优先英语；否则使用第一个（排序后的）语言环境。textFor 从条目中选择某语言环境的字符串。未知代码回退到英语，匹配 T 的默认语言环境行为。
-func textFor(locale string, e translation) string {
+// textForLocale 从统一的 en/zh 条目中选择某语言环境的字符串。未知代码回退到
+// 英语，匹配 T 的默认语言环境行为；对独立消息表与 catalog 一视同仁。
+func textForLocale(locale string, e localeTexts) string {
 	if locale == ZhCN {
 		return e.zh
 	}

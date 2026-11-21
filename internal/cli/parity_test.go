@@ -15,6 +15,7 @@ var expectedFlags = []string{
 	"acp",
 	"api-key",
 	"approval",
+	"at",
 	"background",
 	"base-url",
 	"config",
