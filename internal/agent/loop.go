@@ -300,7 +300,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			return s.result(stopRepeatedMistakes), nil
 		} else if action.Guidance != "" {
 			s.messages = append(s.messages, llm.Message{Role: "user", Content: action.Guidance})
-			s.record("mistake_guidance", action.Guidance)
+			s.record("mistake_guidance", nudgePayload(action.Guidance))
 		}
 		if s.turns >= s.maxTurns {
 			// 取消可能是在循环的顶部轮次检查之后才到达的（例如在抽取控制消息时）。
@@ -527,7 +527,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// 一批工具结果是查找重复循环的天然位置。检测器每个情节只触发一次：
 		// 卡住模式会变成一条纠正性的用户轮次，而不是硬性停止。
 		if guidance, _ := s.stuck.Observe(s.eventsSnapshot()); guidance != "" {
-			s.injectSteering(guidance)
+			s.injectSteeringWithNudge(guidance)
 		}
 
 		// 针对纯粹无进展循环的选择性提前停止：同一个调用持续返回同一个结果。

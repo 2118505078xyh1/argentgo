@@ -464,6 +464,22 @@ func (m *Model) approvalLines(width int) []Line {
 		}
 		out = append(out, row(text(m.locale, "default_deny"), m.palette.warning()))
 	}
+	// opt-in：审批卡的真实 diff 行。开关关闭或没有 diff 数据时完全跳过，
+	// 使普通弹窗与 danger 弹窗的帧字节保持历史原样。开关开启时先显示
+	// 一行中文摘要，再逐行显示有界预览；Wrap 在字素边界断行，CJK 安全。
+	if approvalDiffVisible() && !m.pending.diff.empty() {
+		for _, segment := range Wrap(RenderApprovalDiff(m.pending.diff), maxInt(inner, 1)) {
+			out = append(out, row(segment, m.palette.accent()))
+		}
+		for _, preview := range strings.Split(m.pending.diff.Preview, "\n") {
+			if preview == "" {
+				continue
+			}
+			for _, segment := range Wrap(preview, maxInt(inner, 1)) {
+				out = append(out, row(segment, m.palette.dim()))
+			}
+		}
+	}
 	out = append(out, row("", Style{}))
 	out = append(out, row("[y] "+text(m.locale, "allow")+"   [n] "+text(m.locale, "deny"), Style{}))
 	out = append(out, row("[a] "+text(m.locale, "allow_session"), m.palette.muted()))

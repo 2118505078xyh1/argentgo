@@ -271,6 +271,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
+	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
+	// nudge 记录形状逐字节不变。
+	agent.SetRetainGuidance(os.Getenv("ARGENT_RETAIN_GUIDANCE") == "1")
 	SetContextPressure(optIns[OptInContextPressure])
 	// 观察器必须在 SetContextPressure 之后构造，并用 replace 无条件覆盖 runner.Prompt
 	// 基于进程级旧开关挂接的观察器：关闭时 newContextPressureObserver 返回 typed nil，
