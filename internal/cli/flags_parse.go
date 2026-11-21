@@ -27,6 +27,9 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 	// flagSurface()，锁定的 parity 门禁会把它与精确列表比较。它作为覆盖值
 	// 到达 app/config。
 	privacy := registerPrivacyFlags(fs)
+	// --serve-readiness 同样带外注册：它绝不改变 flagSurface()，因此锁定的
+	// parity flag 列表保持不变。值直接落到 Options.ServeReadiness。
+	readiness := registerReadinessFlags(fs)
 
 	// 在 flag 集合建立之后再运行 help 预扫描：它必须区分真正的 help 开关
 	// 和传给另一个 flag 的、看起来像 '-h' 的值。
@@ -115,6 +118,8 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		BaseURL:     firstNonEmpty(*values.baseURL, env("ARGENT_BASE_URL"), env("OPENAI_BASE_URL")),
 		APIKey:      firstNonEmpty(*values.apiKey, env("ARGENT_API_KEY"), env("OPENAI_API_KEY")),
 	}
+	// 单独赋值而不是放进上面的对齐字面量，避免新字段名触发整块重新对齐。
+	opts.ServeReadiness = *readiness.serveReadiness
 
 	opts.JSONLines = *values.jsonLines
 	opts.ListProfiles = *values.listProfiles

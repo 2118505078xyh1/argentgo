@@ -114,10 +114,48 @@ func (m MapVirtualSource) Open(uri VirtualURI) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrNotFound, uri)
 }
 
+// verifyVirtualManifests 用 source 作为解析器校验可选的资产清单。
+// 多份清单先经 MergeManifests 按 URI 去重合并；解析函数复用 ParseVirtualURI + VirtualSource.Open，
+// 保证校验读到的字节与真正加载虚拟文档时完全一致。未传清单时直接返回 nil，
+// 加载路径与无校验时逐字节相同。
+func verifyVirtualManifests(source VirtualSource, manifests []AssetManifest) error {
+	if len(manifests) == 0 {
+		return nil
+	}
+	merged := AssetManifest{}
+	for _, m := range manifests {
+		merged = MergeManifests(merged, m)
+	}
+	_, err := VerifyManifest(merged, func(uri string) ([]byte, error) {
+		parsed, err := ParseVirtualURI(uri)
+		if err != nil {
+			return nil, err
+		}
+		if source == nil {
+			return nil, fmt.Errorf("%w: nil source for %s", ErrNotFound, parsed)
+		}
+		text, err := source.Open(parsed)
+		if err != nil {
+			return nil, err
+		}
+		return []byte(text), nil
+	})
+	return err
+}
+
 // LoadVirtual 从 source 读取一个虚拟文档并送进与磁盘发现完全相同的 Parse 管线。
 // 这里把虚拟 URI 当作 Parse 的 path 参数：诊断信息记录 URI，回退名称由 URI 中的 name 推导，
 // 与磁盘路径 ".../name/SKILL.md" 得到相同的结果。
-func LoadVirtual(source VirtualSource, raw string) (Skill, error) {
+// 可选的 manifests 一旦给出，任何条目校验失败都会拒绝加载（不会调用 Parse）。
+func LoadVirtual(source VirtualSource, raw string, manifests ...AssetManifest) (Skill, error) {
+	if err := verifyVirtualManifests(source, manifests); err != nil {
+		return Skill{}, err
+	}
+	return loadVirtualUnchecked(source, raw)
+}
+
+// loadVirtualUnchecked 是无清单校验时的原始加载逻辑，供 LoadVirtual 与 DiscoverVirtual 共用。
+func loadVirtualUnchecked(source VirtualSource, raw string) (Skill, error) {
 	uri, err := ParseVirtualURI(raw)
 	if err != nil {
 		return Skill{}, err
@@ -136,10 +174,14 @@ func LoadVirtual(source VirtualSource, raw string) (Skill, error) {
 // DiscoverVirtual 从给定的虚拟 URI 列表加载技能，构建与 Discover 同构的 Registry：
 // 相同的 Parse、相同的 addIfAbsent（先到先得）以及相同的按名称排序。
 // 与静默跳过坏文件的磁盘发现不同，显式列出的虚拟来源一旦出错即返回错误。
-func DiscoverVirtual(source VirtualSource, uris []string) (*Registry, error) {
+// 可选的 manifests 在注册前统一校验一次，任何条目不符即整体失败，不做部分注册。
+func DiscoverVirtual(source VirtualSource, uris []string, manifests ...AssetManifest) (*Registry, error) {
+	if err := verifyVirtualManifests(source, manifests); err != nil {
+		return nil, err
+	}
 	r := New()
 	for _, raw := range uris {
-		skill, err := LoadVirtual(source, raw)
+		skill, err := loadVirtualUnchecked(source, raw)
 		if err != nil {
 			return nil, err
 		}

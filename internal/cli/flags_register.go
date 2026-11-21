@@ -127,6 +127,20 @@ func registerPrivacyFlags(fs *flag.FlagSet) privacyFlagValues {
 	return privacyFlagValues{mode: mode}
 }
 
+// readinessFlagValues 保存 --serve-readiness 指针。和 verifyFlagValues、
+// privacyFlagValues 一样，它故意注册在 newFlags 之外：flagSurface（以及锁定的
+// TestFlagSurfaceMatchesParityList 门禁）枚举的是 newFlags，而就绪摘要是一个
+// 附加的、选择加入的启动诊断，不属于那份文档化的 flag 集合。parseArgs 直接
+// 调用 registerReadinessFlags。
+type readinessFlagValues struct {
+	serveReadiness *bool
+}
+
+func registerReadinessFlags(fs *flag.FlagSet) readinessFlagValues {
+	serveReadiness := fs.Bool("serve-readiness", false, "opt-in: print a one-line startup readiness summary after the listening line")
+	return readinessFlagValues{serveReadiness: serveReadiness}
+}
+
 // flagSurface 报告 CLI 接受的所有长 flag 名称，按序排列。它构建一个临时的
 // flag 集合，使列表绝不会与解析器走样。
 func flagSurface() []string {

@@ -166,3 +166,203 @@ func TestAddVirtualMergesIntoDiskRegistry(t *testing.T) {
 		t.Error("embedded skill missing from registry")
 	}
 }
+
+// LoadVirtual 的可选清单：不传时走原加载路径；一旦传入，任何条目校验失败都拒绝加载。
+func TestLoadVirtualWithManifest(t *testing.T) {
+	const (
+		uri    = "embed://deploy/SKILL.md"
+		second = "embed://review/SKILL.md"
+		// ParseVirtualURI 的 name/path 段只接受 ASCII，CJK URI 会在解析这一步失败。
+		cjkURI = "embed://部署/指南.md"
+	)
+	data := []byte(sample)
+	other := []byte("---\nname: review\ndescription: review doc\n---\nbody of review")
+	source := MapVirtualSource{uri: sample, second: string(other)}
+
+	shaBad := entryFor(uri, data)
+	shaBad.SHA256 = strings.Repeat("0", 64) // 等长但摘要不符，只触发 SHA 不符
+
+	sizeBad := entryFor(uri, data)
+	sizeBad.Size++ // 摘要不变，仅长度不符
+
+	resolveBad := entryFor("embed://ghost/SKILL.md", []byte("x")) // source 中没有该 URI
+	cjkBad := AssetEntry{URI: cjkURI, SHA256: digest(other), Size: int64(len(other))}
+
+	cases := []struct {
+		name      string
+		source    VirtualSource
+		raw       string
+		manifests []AssetManifest
+		wantName  string // 非空表示期望加载成功并得到该技能名
+		wantErr   error
+	}{
+		{
+			name:     "no manifest keeps original behavior",
+			source:   source,
+			raw:      uri,
+			wantName: "deploy",
+		},
+		{
+			name:      "single matching manifest passes",
+			source:    source,
+			raw:       uri,
+			manifests: []AssetManifest{{Entries: []AssetEntry{entryFor(uri, data)}}},
+			wantName:  "deploy",
+		},
+		{
+			name:   "multiple manifests merged and pass",
+			source: source,
+			raw:    uri,
+			manifests: []AssetManifest{
+				{Entries: []AssetEntry{entryFor(uri, data)}},
+				{Entries: []AssetEntry{entryFor(second, other)}},
+			},
+			wantName: "deploy",
+		},
+		{
+			name:      "sha mismatch rejects",
+			source:    source,
+			raw:       uri,
+			manifests: []AssetManifest{{Entries: []AssetEntry{shaBad}}},
+			wantErr:   ErrAssetHashMismatch,
+		},
+		{
+			name:      "size mismatch rejects",
+			source:    source,
+			raw:       uri,
+			manifests: []AssetManifest{{Entries: []AssetEntry{sizeBad}}},
+			wantErr:   ErrAssetSizeMismatch,
+		},
+		{
+			name:      "resolve failure rejects",
+			source:    source,
+			raw:       uri,
+			manifests: []AssetManifest{{Entries: []AssetEntry{resolveBad}}},
+			wantErr:   ErrAssetResolve,
+		},
+		{
+			// CJK URI 不能通过 ParseVirtualURI，校验按解析失败拒绝，不得静默放行。
+			name:      "cjk uri rejected at parse step",
+			source:    source,
+			raw:       uri,
+			manifests: []AssetManifest{{Entries: []AssetEntry{cjkBad}}},
+			wantErr:   ErrAssetResolve,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			skill, err := LoadVirtual(tc.source, tc.raw, tc.manifests...)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want errors.Is(_, %v)", err, tc.wantErr)
+				}
+				if skill.Name != "" {
+					t.Errorf("skill = %#v, want zero Skill on rejection", skill)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadVirtual: %v", err)
+			}
+			if skill.Name != tc.wantName {
+				t.Errorf("skill.Name = %q, want %q", skill.Name, tc.wantName)
+			}
+		})
+	}
+}
+
+// DiscoverVirtual 的可选清单：校验发生在注册之前，任何条目不符即整体失败，不做部分注册。
+func TestDiscoverVirtualWithManifest(t *testing.T) {
+	const (
+		a      = "embed://a/SKILL.md"
+		b      = "embed://b/SKILL.md"
+		cjkURI = "embed://部署/指南.md"
+	)
+	docA := "---\nname: a\ndescription: skill a\n---\nbody a"
+	docB := "---\nname: b\ndescription: skill b\n---\nbody b"
+	source := MapVirtualSource{a: docA, b: docB}
+	dataA := []byte(docA)
+	dataB := []byte(docB)
+
+	sizeBad := entryFor(a, dataA)
+	sizeBad.Size++
+
+	// 与 a 的合法记录使用不同 URI，避免被 MergeManifests 的去重丢弃。
+	sizeBadB := entryFor(b, dataB)
+	sizeBadB.Size++
+
+	resolveBad := entryFor("embed://ghost/SKILL.md", []byte("x"))
+	cjkBad := AssetEntry{URI: cjkURI, SHA256: digest(dataB), Size: int64(len(dataB))}
+
+	cases := []struct {
+		name      string
+		uris      []string
+		manifests []AssetManifest
+		wantNames []string
+		wantErr   error
+	}{
+		{
+			name:      "no manifest keeps original behavior",
+			uris:      []string{b, a},
+			wantNames: []string{"a", "b"}, // 与 Discover 一致按名称排序
+		},
+		{
+			name:      "all entries pass",
+			uris:      []string{a, b},
+			manifests: []AssetManifest{{Entries: []AssetEntry{entryFor(a, dataA), entryFor(b, dataB)}}},
+			wantNames: []string{"a", "b"},
+		},
+		{
+			name:      "single mismatch rejects whole registry",
+			uris:      []string{a, b},
+			manifests: []AssetManifest{{Entries: []AssetEntry{entryFor(a, dataA), sizeBadB}}},
+			wantErr:   ErrAssetSizeMismatch,
+		},
+		{
+			name:      "resolve failure rejects",
+			uris:      []string{a},
+			manifests: []AssetManifest{{Entries: []AssetEntry{resolveBad}}},
+			wantErr:   ErrAssetResolve,
+		},
+		{
+			// CJK URI 不能通过 ParseVirtualURI，校验按解析失败拒绝。
+			name:      "cjk uri rejected at parse step",
+			uris:      []string{a},
+			manifests: []AssetManifest{{Entries: []AssetEntry{cjkBad}}},
+			wantErr:   ErrAssetResolve,
+		},
+		{
+			// 校验与 URI 列表无关：即便没有要加载的技能，坏清单也必须让调用失败。
+			name:      "empty uri list still verifies manifest",
+			uris:      nil,
+			manifests: []AssetManifest{{Entries: []AssetEntry{sizeBad}}},
+			wantErr:   ErrAssetSizeMismatch,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg, err := DiscoverVirtual(source, tc.uris, tc.manifests...)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want errors.Is(_, %v)", err, tc.wantErr)
+				}
+				if reg != nil {
+					t.Errorf("registry = %#v, want nil on rejection", reg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DiscoverVirtual: %v", err)
+			}
+			var got []string
+			for _, s := range reg.skills {
+				got = append(got, s.Name)
+			}
+			if !reflect.DeepEqual(got, tc.wantNames) {
+				t.Errorf("names = %v, want %v", got, tc.wantNames)
+			}
+		})
+	}
+}

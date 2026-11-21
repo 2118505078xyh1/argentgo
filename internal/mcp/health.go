@@ -72,3 +72,23 @@ func (h *HealthTracker) Snapshot() HealthSnapshot {
 func (h *HealthTracker) ChangedSince(gen uint64) bool {
 	return h.gen.Load() > gen
 }
+
+// HealthReporter 是可选的只读健康视图。它刻意不进入 Client 接口：
+// 大量调用方与测试用 fake 实现 Client，往接口加方法会破坏它们。
+// 需要健康信息的调用方按如下方式选择性读取（与包内 Stderr 的接线先例一致）：
+//
+//	if r, ok := client.(mcp.HealthReporter); ok {
+//	    snap := r.HealthSnapshot()
+//	}
+type HealthReporter interface {
+	HealthSnapshot() HealthSnapshot
+}
+
+// HealthSnapshot 返回客户端的健康快照。未启用健康跟踪（health 为 nil）时
+// 返回零值快照，不分配 tracker、不产生任何 I/O；默认关闭路径逐字节不变。
+func (c *client) HealthSnapshot() HealthSnapshot {
+	if c.health == nil {
+		return HealthSnapshot{}
+	}
+	return c.health.Snapshot()
+}

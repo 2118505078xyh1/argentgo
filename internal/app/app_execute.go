@@ -219,9 +219,22 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// ARGENT_TRUST_PROJECT=0 环境变量的显式标志覆盖。
 	trustedSystem := res.System
 	dynamicContext := ""
+	// 按提示自动决策是选择性启用的性能旋钮。默认关闭时 decision 保持零值、
+	// thinking 直接取 res.Thinking，下面不会切换模型，主路径逐字节不变。
+	var decision PromptDecision
+	autoDecide := autoDecideEnabled(stdio.Env)
+	thinking := res.Thinking
+	if autoDecide {
+		// 在构建 dynamicContext 之前完成判定；只分析调用方原文，
+		// review/context 等注入前缀不参与（它们也不是用户本人的请求）。
+		decision = DecidePrompt(rawPrompt, promptHasCode(rawPrompt), promptMutatingSignal(rawPrompt))
+		// 只提供"缺失时的默认"思考档位：用户已显式指定的档位始终优先。
+		// MaxTurns 建议刻意不接入预算，避免覆盖用户/配置显式声明的上限。
+		thinking = autoDecideThinking(res.Thinking, decision.Thinking)
+	}
 	if res.TrustProject {
 		trustedSystem = buildStaticSystem(res.Root, stdio.Env, true, res.Cfg)
-		dynamicContext = buildDynamicContext(res.Root, res.Thinking, res.OutputSchema)
+		dynamicContext = buildDynamicContext(res.Root, thinking, res.OutputSchema)
 	}
 	if dynamicContext != "" {
 		prompt = dynamicContext + "\n\nUser request: " + strings.TrimSpace(prompt)
@@ -393,6 +406,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
 	bg := agent.NewBackgroundResults(0, 0)
 	configureSubagents(&loop.Opts, res, bg)
+	// 仅性能旋钮：判定建议使用次级模型时切换根运行的主模型；FallbackModels 的
+	// 顺序语义由 applyAutoDecideModel 保持（次级模型成为新的第 0 项，原回退项后移），
+	// app 层基于 fallbackChatter 的单回退链同样保持"先主后回退"。
+	// 默认关闭时 autoDecide 为 false，模型字段保持 res.Model，逐字节不变。
+	if autoDecide && decision.UseSecondary {
+		applyAutoDecideModel(&loop.Opts, res.Options.SecondaryModel)
+	}
 	// 按模型的编辑格式指引是选择性启用的，因此字节精确的系统提示断言，
 	// 以及锁定自己提示的调用方，默认都保持字节不变。设置 ARGENT_EDIT_GUIDE=1 即可追加。
 	// 在这里（configureSubagents 之后）追加，可保持编排器追加顺序不变。

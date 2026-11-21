@@ -356,6 +356,10 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 		return 1
 	}
 	fmt.Fprintf(a.IO.Err, "argentgo listening on http://%s (bearer token required)\n", ln.Addr())
+	// opt-in 就绪摘要：默认关闭时既不探测也不输出，stderr 仅保留上面一行。
+	writeServeReadiness(a.IO.Err, ctx, opts.ServeReadiness, func(ctx context.Context) []readinessCheck {
+		return a.appReadinessProbes(opts).checks(ctx)
+	})
 	if err := server.ServeListener(ctx, srv, ln); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1

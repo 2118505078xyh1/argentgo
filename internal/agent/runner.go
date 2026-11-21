@@ -218,6 +218,10 @@ type Options struct {
 	KeepTurns int
 	// KeepToolTokens 是从不被裁剪的最近工具输出量（默认 2000 估算 token）。
 	KeepToolTokens int
+	// NoTrimToolCallIDs 是不允许被裁剪或回收的 ToolCallID 集合，由调用方注入以保护携带
+	// output-spill 恢复标记的工具结果。nil（默认）使裁剪行为与未引入该字段时逐字节一致。
+	// agent 包不依赖 session/tools，因此保护集合必须从这里注入。
+	NoTrimToolCallIDs map[string]bool
 	// MaxRepeats 是在重复防护以错误回应之前，允许真正运行的相同调用次数
 	// （默认 2；0 表示使用默认值）。
 	MaxRepeats int

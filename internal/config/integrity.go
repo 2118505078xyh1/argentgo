@@ -2,8 +2,18 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"sort"
 	"strings"
 )
+
+// integrityOK 是完整性审计无缺失时返回的固定摘要字面量。
+const integrityOK = "integrity: ok"
+
+// integrityNewlineReplacer 把 Reason 中内嵌的换行压成单个空格，
+// 保证"一项一行"的契约。它按完整 UTF-8 字节序列匹配换行符，
+// 不会切坏文本里的 CJK 字符。
+var integrityNewlineReplacer = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
 // MissingEntry 是配置完整性审计发现的一个缺失项。
 //
@@ -81,4 +91,52 @@ func (c Config) CheckIntegrity(env func(string) string) []MissingEntry {
 	}
 
 	return out
+}
+
+// MissingEntryLess 按 Entry 字段对两个缺失项做字典序比较，供调用方配合
+// sort.SliceStable 对 MissingEntry 切片做稳定排序。只比较 Entry：Entry 相等
+// 时返回 false，使比较满足严格弱序，相同条目的相对顺序交由稳定排序保留。
+func MissingEntryLess(a, b MissingEntry) bool {
+	return a.Entry < b.Entry
+}
+
+// IntegritySummary 对当前配置做一次完整性审计，并把缺失项渲染为稳定摘要，
+// 供 doctor 等启动前审计工具直接展示。它等价于对 CheckIntegrity(c, os.Getenv)
+// 的结果调用 formatIntegritySummary：不修改接收者、不写磁盘；环境变量仅通过
+// os.Getenv 只读读取，不改动任何全局状态。
+func (c Config) IntegritySummary() string {
+	return formatIntegritySummary(c.CheckIntegrity(os.Getenv))
+}
+
+// formatIntegritySummary 把缺失项渲染为稳定文本摘要。输出遵循以下约定：
+//   - 无缺失（nil 或空切片）返回固定字面量 integrityOK；
+//   - 有缺失先输出一行计数 "integrity: N missing"，再逐项输出，
+//     每项一行，格式为 "  [级别] Entry: Reason"；
+//   - 条目先按 Entry 字典序稳定排序，故相同输入集合无论初始顺序如何
+//     都得到逐字节一致的文本；Entry 相同时保留原始相对顺序；
+//   - 致命项级别为 "fatal"，非致命项为 "non-fatal"，据此携带 Fatal 标记；
+//   - Reason 中的 CR/LF 被压成空格，保证一项恰好一行，CJK 文本保持完整；
+//   - 排序只读取切片，不修改调用方持有的元素顺序。
+func formatIntegritySummary(missing []MissingEntry) string {
+	if len(missing) == 0 {
+		return integrityOK
+	}
+
+	// 复制后排序，避免改变调用方持有的切片元素顺序。
+	ordered := append([]MissingEntry(nil), missing...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return MissingEntryLess(ordered[i], ordered[j])
+	})
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "integrity: %d missing\n", len(ordered))
+	for _, m := range ordered {
+		level := "non-fatal"
+		if m.Fatal {
+			level = "fatal"
+		}
+		fmt.Fprintf(&b, "  [%s] %s: %s\n", level, m.Entry,
+			integrityNewlineReplacer.Replace(m.Reason))
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
