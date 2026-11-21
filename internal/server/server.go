@@ -84,6 +84,11 @@ type Config struct {
 	// 保持未配置时浏览器端与既有测试的原有行为。该字段由 --serve 的命令行
 	// 选项接线。
 	AllowedOrigins []string
+	// StatusProvider 非 nil 时，routes() 额外注册受 bearer token 保护的
+	// GET /v1/status，把提供者生成的字节原样返回。默认为 nil：该路由根本不注册，
+	// /v1/status 仍由 catch-all 返回原有 404，行为与启用前逐字节一致。
+	// 状态含内部信息，因此走 h.auth，区别于无需 token 的 health/version。
+	StatusProvider StatusProvider
 }
 
 // isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
@@ -195,6 +200,13 @@ func (h *handler) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", h.health)
 	mux.HandleFunc("/v1/version", h.version)
+	// 可选接线：仅当调用方显式配置 StatusProvider 时才注册 /v1/status。
+	// 默认 nil 时该路由不存在，请求落到下方的 catch-all，返回原有的 404 字节。
+	if h.cfg.StatusProvider != nil {
+		statusMux := NewStatusMux()
+		statusMux.RegisterStatus(h.cfg.StatusProvider)
+		mux.HandleFunc("/v1/status", h.auth(h.status(statusMux)))
+	}
 	mux.HandleFunc("/v1/prompt", h.auth(h.prompt))
 	mux.HandleFunc("/v1/abort", h.auth(h.abort))
 	mux.HandleFunc("/v1/event", h.auth(newEventHandlerInterval(hub, heartbeatInterval(h.cfg.HeartbeatInterval)).ServeHTTP))

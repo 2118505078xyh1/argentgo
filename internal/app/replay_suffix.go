@@ -1,0 +1,55 @@
+package app
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/session"
+)
+
+// replay_suffix.go 提供会话重放恢复公告的纯函数层。
+//
+// 这里只把 session.Replay 得到的状态投影成一段可拼到恢复公告末尾的中文诊断
+// 后缀，外加一个默认关闭的 env 开关。stdlib-only、零 I/O、不调用模型、不改
+// NeedsConfirmation，也绝不把合成的中止结果当作真实应答。两个函数目前都没有
+// 调用方（零接线），存在意义是给上层提供可单独验证、可 opt-in 的稳定接缝；
+// 真正的接线（例如在 announceRecovery 中调用）留待后续轮次。
+
+// replaySuffixIDRunes 是后缀中活跃叶子 id 的展示上限（按 rune 计）。
+// 用 rune 而非字节截断，保证 CJK id 不会被切在 UTF-8 字符中间。
+const replaySuffixIDRunes = 16
+
+// replayRecoveryEnabled 报告重放恢复公告是否开启。默认关闭：只有
+// ARGENT_RECOVERY_REPLAY=1（允许首尾空白）才启用；其他任何值都保持历史的
+// 恢复行为不变。零调用方，接线留待后续轮次。
+func replayRecoveryEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_REPLAY")) == "1"
+}
+
+// boundedReplayID 返回用于展示的 id：不超过 replaySuffixIDRunes 时原样返回，
+// 否则按 rune 截断并追加省略号。这样后缀长度有上界，且 CJK id 始终是合法 UTF-8。
+func boundedReplayID(id string) string {
+	runes := []rune(id)
+	if len(runes) <= replaySuffixIDRunes {
+		return id
+	}
+	return string(runes[:replaySuffixIDRunes]) + "…"
+}
+
+// replayNoticeSuffix 根据记录流返回一段确定性的中文诊断后缀。
+//
+// 它对 records 调用 session.Replay：完整流或空流返回空串，使现有公告字节保持
+// 不变；否则返回形如 " (重放审计：N 个未完成的工具调用，完整=false，叶子=…)" 的
+// 后缀——N 是未配对工具调用的个数，完整位原样镜像 ReplayState.Complete，叶子是
+// 有界截断的活跃叶子 id。函数是纯函数：只读入参、不改 records 及其 Data，
+// 同一入参逐字节稳定；它既不改变 NeedsConfirmation，也不把合成的中止结果
+// 当作真实应答，仅描述重放审计发现的结构状态。
+func replayNoticeSuffix(records []session.Record) string {
+	st := session.Replay(records)
+	if st.Complete || len(records) == 0 {
+		return ""
+	}
+	return " (重放审计：" + strconv.Itoa(len(st.UnpairedToolCalls)) +
+		" 个未完成的工具调用，完整=" + strconv.FormatBool(st.Complete) +
+		"，叶子=" + boundedReplayID(st.ActiveLeaf) + ")"
+}

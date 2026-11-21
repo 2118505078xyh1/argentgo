@@ -331,6 +331,9 @@ type responsesPartial struct {
 }
 
 func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
+	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
+	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
+	hook := HookFromContext(ctx)
 	reader := newSSEReader(body)
 
 	var (
@@ -429,6 +432,15 @@ streamLoop:
 				name: event.Item.Name,
 			}
 			partial.arguments.WriteString(event.Item.Arguments)
+			if hook != nil {
+				// 上报新增项携带的元数据与可能的初始参数片。
+				hook(ToolCallDelta{
+					Index:     event.OutputIndex,
+					ID:        partial.id,
+					Name:      partial.name,
+					Arguments: event.Item.Arguments,
+				})
+			}
 			if _, exists := partials[event.OutputIndex]; !exists {
 				order = append(order, event.OutputIndex)
 			}
@@ -436,6 +448,15 @@ streamLoop:
 		case "response.function_call_arguments.delta":
 			if partial := partials[event.OutputIndex]; partial != nil {
 				partial.arguments.WriteString(event.Delta)
+				if hook != nil {
+					// 上报本片的原始参数增量，并附上已解析的元数据。
+					hook(ToolCallDelta{
+						Index:     event.OutputIndex,
+						ID:        partial.id,
+						Name:      partial.name,
+						Arguments: event.Delta,
+					})
+				}
 			}
 		case "response.function_call_arguments.done":
 			// 参数完成事件携带最终、完整的参数字符串。忽略它会让"只发该事件、

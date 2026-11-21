@@ -398,6 +398,9 @@ type anthropicPartial struct {
 }
 
 func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
+	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
+	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
+	hook := HookFromContext(ctx)
 	reader := newSSEReader(body)
 
 	var (
@@ -522,6 +525,10 @@ streamLoop:
 					order = append(order, event.Index)
 				}
 				partials[event.Index] = partial
+				if hook != nil {
+					// 元数据出现点：先发一枚空参数片，携带 id/name。
+					hook(ToolCallDelta{Index: event.Index, ID: block.ID, Name: block.Name})
+				}
 			}
 		case "content_block_delta":
 			delta := event.Delta
@@ -544,6 +551,15 @@ streamLoop:
 			case "input_json_delta":
 				if partial := partials[event.Index]; partial != nil {
 					partial.arguments.WriteString(delta.PartialJSON)
+					if hook != nil {
+						// 上报本片的原始 JSON 分片，并附上已解析的元数据。
+						hook(ToolCallDelta{
+							Index:     event.Index,
+							ID:        partial.id,
+							Name:      partial.name,
+							Arguments: delta.PartialJSON,
+						})
+					}
 				}
 			}
 		case "content_block_stop":
