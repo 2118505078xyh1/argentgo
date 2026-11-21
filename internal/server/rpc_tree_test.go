@@ -160,6 +160,89 @@ func TestRPCSessionTreeErrorIsScrubbed(t *testing.T) {
 	}
 }
 
+// forkEvents 构造一棵带旁支的会话转录，供 session.load 的分支过滤测试使用：
+// root→n1→n2→n3 是目标链，x1 从 n1 分叉出去，属于应被排除的旁支。
+func forkEvents() []SessionEvent {
+	return []SessionEvent{
+		{ID: "root", Kind: "header"},
+		{ID: "n1", Parent: "root", Kind: "user"},
+		{ID: "n2", Parent: "n1", Kind: "assistant"},
+		{ID: "n3", Parent: "n2", Kind: "user"},
+		{ID: "x1", Parent: "n1", Kind: "user"},
+	}
+}
+
+// TestRPCSessionLoadBranchFiltersChain 验证 load{id,branch} 只回传根→branchID
+// 的祖先链，排除旁支，且保持原始事件顺序。
+func TestRPCSessionLoadBranchFiltersChain(t *testing.T) {
+	cfg := Config{Runner: &fakeRunner{}, Sessions: fakeSessions{events: forkEvents()}}
+	lines := runRPCBuffer(t, cfg,
+		`{"jsonrpc":"2.0","id":1,"method":"session.load","params":{"id":"s","branch":"n3"}}`)
+	if len(lines) != 1 {
+		t.Fatalf("got %d frames (%q), want 1", len(lines), lines)
+	}
+	var resp struct {
+		Result struct {
+			ID     string         `json:"id"`
+			Events []SessionEvent `json:"events"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Result.ID != "s" {
+		t.Fatalf("id = %q, want s", resp.Result.ID)
+	}
+	gotIDs := make([]string, 0, len(resp.Result.Events))
+	for _, ev := range resp.Result.Events {
+		gotIDs = append(gotIDs, ev.ID)
+	}
+	want := []string{"root", "n1", "n2", "n3"}
+	if len(gotIDs) != len(want) {
+		t.Fatalf("event ids = %v, want %v", gotIDs, want)
+	}
+	for i := range want {
+		if gotIDs[i] != want[i] {
+			t.Fatalf("event ids = %v, want %v", gotIDs, want)
+		}
+	}
+}
+
+// TestRPCSessionLoadUnknownBranch 验证未知 branch 返回干净的 -32000 错误，
+// 且分支名里夹带的绝对路径与凭据形态片段都被脱敏，不跨越 RPC 边界。
+func TestRPCSessionLoadUnknownBranch(t *testing.T) {
+	storage := filepath.Join(os.TempDir(), "argentgo", "sessions", "sk-secret123456789")
+	cfg := Config{Runner: &fakeRunner{}, Sessions: fakeSessions{events: forkEvents()}}
+	req := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"session.load","params":{"id":"s","branch":%q}}`, storage)
+	lines := runRPCBuffer(t, cfg, req)
+	if len(lines) != 1 {
+		t.Fatalf("got %d frames (%q), want 1", len(lines), lines)
+	}
+	var resp struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != -32000 {
+		t.Fatalf("response = %s, want -32000", lines[0])
+	}
+	if !strings.Contains(resp.Error.Message, "unknown branch") {
+		t.Fatalf("message = %q, want unknown branch", resp.Error.Message)
+	}
+	for _, leak := range []string{storage, "sk-secret123456789", filepath.ToSlash(storage)} {
+		if strings.Contains(resp.Error.Message, leak) {
+			t.Fatalf("message leaked %q: %s", leak, resp.Error.Message)
+		}
+	}
+	if !strings.Contains(resp.Error.Message, "<storage>/...") {
+		t.Fatalf("message lost path placeholder: %s", resp.Error.Message)
+	}
+}
+
 // TestRPCExistingMethodsWireUnchanged 锚定现有方法的逐字节响应，确保加入
 // session.tree 分支没有改变既有 RPC 方法或错误信封的形态。
 func TestRPCExistingMethodsWireUnchanged(t *testing.T) {
@@ -174,6 +257,8 @@ func TestRPCExistingMethodsWireUnchanged(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"abort"}`,
 		`{"jsonrpc":"2.0","id":4,"method":"prompt","params":{"text":"hi"}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"nope"}`,
+		// 显式带空 branch 应与不分支的 session.load 逐字节一致。
+		`{"jsonrpc":"2.0","id":6,"method":"session.load","params":{"id":"x","branch":""}}`,
 	)
 	want := []string{
 		`{"id":1,"jsonrpc":"2.0","result":{"sessions":[{"id":"s1","title":"first","updated":"0001-01-01T00:00:00Z"}]}}`,
@@ -181,6 +266,7 @@ func TestRPCExistingMethodsWireUnchanged(t *testing.T) {
 		`{"id":3,"jsonrpc":"2.0","result":{"ok":true}}`,
 		`{"id":4,"jsonrpc":"2.0","result":{"text":"hello"}}`,
 		`{"error":{"code":-32601,"message":"unknown method \"nope\""},"id":5,"jsonrpc":"2.0"}`,
+		`{"id":6,"jsonrpc":"2.0","result":{"events":[{"id":"e1","kind":"user","ts":"0001-01-01T00:00:00Z"}],"id":"x"}}`,
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("got %d frames, want %d:\n%s", len(lines), len(want), strings.Join(lines, "\n"))

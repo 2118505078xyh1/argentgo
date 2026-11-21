@@ -29,10 +29,17 @@ type doctorCheck struct {
 	detail string
 }
 
+// doctorOptions 是 doctorFlags 解析出的选项集合。baseURL 供 provider 检查
+// 使用；asJSON 决定输出走机器可读分支还是原有的文本分支。
+type doctorOptions struct {
+	baseURL string
+	asJSON  bool
+}
+
 // runDoctor 报告配置、MCP 配置、存储、提供方、git 和 Go 的健康状况，
 // 随后是一个提供信息的结构化环境探测小节。
 func runDoctor(app App, ctx context.Context, args []string) int {
-	baseURL, help, err := doctorFlags(args)
+	opts, help, err := doctorFlags(args)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argent:", err)
 		doctorUsage(app.IO.Err)
@@ -42,19 +49,24 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 		doctorUsage(app.IO.Out)
 		return 0
 	}
-	if baseURL == "" {
-		baseURL = firstNonEmpty(app.env("ARGENT_BASE_URL"), app.env("OPENAI_BASE_URL"), "https://api.openai.com/v1")
+	if opts.baseURL == "" {
+		opts.baseURL = firstNonEmpty(app.env("ARGENT_BASE_URL"), app.env("OPENAI_BASE_URL"), "https://api.openai.com/v1")
 	}
 
 	checks := []doctorCheck{
 		checkConfigFile(app),
 		checkMCPConfig(app),
 		checkStorage(app),
-		checkProvider(ctx, baseURL),
+		checkProvider(ctx, opts.baseURL),
 		checkWebSearch(app),
 		checkVerify(app),
 		checkGit(),
 		{name: "go", status: statusOK, detail: runtime.Version()},
+	}
+	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
+	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
+	if opts.asJSON {
+		return runDoctorJSON(app, ctx, opts, checks...)
 	}
 	failures := 0
 	for _, check := range checks {
@@ -80,27 +92,29 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	return 0
 }
 
-func doctorFlags(args []string) (baseURL string, help bool, err error) {
+func doctorFlags(args []string) (opts doctorOptions, help bool, err error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help":
-			return "", true, nil
+			return opts, true, nil
+		case arg == "--json":
+			opts.asJSON = true
 		case arg == "--base-url":
 			if i+1 >= len(args) {
-				return "", false, errors.New("--base-url needs a value")
+				return opts, false, errors.New("--base-url needs a value")
 			}
 			i++
-			baseURL = args[i]
+			opts.baseURL = args[i]
 		case strings.HasPrefix(arg, "--base-url="):
-			baseURL = strings.TrimPrefix(arg, "--base-url=")
+			opts.baseURL = strings.TrimPrefix(arg, "--base-url=")
 		case strings.HasPrefix(arg, "-"):
-			return "", false, fmt.Errorf("unknown flag %q", arg)
+			return opts, false, fmt.Errorf("unknown flag %q", arg)
 		default:
-			return "", false, fmt.Errorf("unexpected argument %q", arg)
+			return opts, false, fmt.Errorf("unexpected argument %q", arg)
 		}
 	}
-	return baseURL, false, nil
+	return opts, false, nil
 }
 
 func checkConfigFile(app App) doctorCheck {
@@ -327,10 +341,12 @@ func checkGit() doctorCheck {
 }
 
 func doctorUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent doctor [--base-url <url>]
+	fmt.Fprint(w, `usage: argent doctor [--base-url <url>] [--json]
 
 Checks config loading, local mcpServers config integrity, storage writability,
 provider reachability (3s timeout), git availability and the Go runtime version.
 The mcpServers check is fully local: it never contacts any server.
+With --json, print a stable JSON report (checks, failures, environment) instead;
+every detail string is redacted and the exit code still reflects failed checks.
 `)
 }
