@@ -302,3 +302,49 @@ func TestCommandsPanelShowsEmptyHintWithoutInfo(t *testing.T) {
 		t.Fatalf("the empty commands hint is missing:\n%s", panelText(m, 100, 24))
 	}
 }
+
+// TestCommandFuzzyQueryShowsSubsequenceCandidates 从输入行这一层验证
+// 非前缀缩写能激活补全并出现在命令面板中。查询由 refreshCompletionLocked
+// 去掉前导 "/" 得到，因此 "/rv" 的查询词是 "rv"。
+func TestCommandFuzzyQueryShowsSubsequenceCandidates(t *testing.T) {
+	infos := []CommandInfo{
+		{Command: "format", Description: "格式化"},
+		{Command: "review", Description: "审查"},
+	}
+	for _, tc := range []struct {
+		typed string
+		want  string
+	}{
+		{"/rv", "review"},
+		{"/fmt", "format"},
+		{"/RV", "review"}, // 大小写不敏感
+	} {
+		m := New(Config{})
+		m.SetCommandInfo(infos)
+		typeCommandText(m, tc.typed)
+		if !m.completionActiveLocked() {
+			t.Fatalf("%s: completion should be active for a fuzzy query", tc.typed)
+		}
+		if c, ok := m.completion.Current(); !ok || c.Command != tc.want {
+			t.Fatalf("%s: current = (%+v, %v), want %s", tc.typed, c, ok, tc.want)
+		}
+		m.HandleKey(Key{Kind: KindCtrlO})
+		if shown := panelText(m, 100, 24); !strings.Contains(shown, "/"+tc.want) {
+			t.Fatalf("%s: panel is missing /%s:\n%s", tc.typed, tc.want, shown)
+		}
+	}
+}
+
+// TestCommandFuzzyQueryTrailingSpaceEndsQuery 验证模糊匹配没有改变
+// "尾随空格终止查询" 的既有交互：输入空格后候选数归零。
+func TestCommandFuzzyQueryTrailingSpaceEndsQuery(t *testing.T) {
+	m := New(Config{})
+	m.SetCommandInfo([]CommandInfo{{Command: "review", Description: "审查"}})
+	typeCommandText(m, "/review ")
+	if m.completionActiveLocked() {
+		t.Fatal("completion should be inactive after a trailing space")
+	}
+	if got := m.completion.Count(); got != 0 {
+		t.Fatalf("Count after trailing space = %d, want 0", got)
+	}
+}

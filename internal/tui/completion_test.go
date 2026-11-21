@@ -265,3 +265,89 @@ func TestCompletionZeroValue(t *testing.T) {
 	p.Query("x")
 	p.Reset()
 }
+
+// fuzzyCandidates 含小写命令，字典序为 commit / config / format / review。
+// 纯前缀对照测试会避开同时是其它命令子序列的查询（如 "r"、"f"）。
+func fuzzyCandidates() []CompletionCandidate {
+	return []CompletionCandidate{
+		{Command: "review", Description: "审查"},
+		{Command: "format", Description: "格式化"},
+		{Command: "config", Description: "配置"},
+		{Command: "commit", Description: "提交"},
+	}
+}
+
+// TestCompletionFuzzySubsequence 验证非前缀缩写（子序列）现在能命中
+// 原本查不到的命令。"/rv" 去掉前导 "/" 后查询为 "rv"。
+func TestCompletionFuzzySubsequence(t *testing.T) {
+	s := NewCompletionState(fuzzyCandidates())
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"rv", []string{"review"}},
+		{"fmt", []string{"format"}},
+		{"rvw", []string{"review"}},
+	} {
+		s.Query(tc.query)
+		if got := commandsOf(s); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("Query(%q) visible = %v, want %v", tc.query, got, tc.want)
+		}
+		if vis := s.Visible(); len(vis) != len(tc.want) {
+			t.Fatalf("Query(%q) Visible len = %d, want %d", tc.query, len(vis), len(tc.want))
+		}
+	}
+}
+
+// TestCompletionFuzzyCaseInsensitive 验证大小写不敏感在模糊路径上仍然保持：
+// 全大写查询先被折叠，FuzzyMatch 的 smart-case 因此走不区分大小写分支。
+func TestCompletionFuzzyCaseInsensitive(t *testing.T) {
+	s := NewCompletionState(fuzzyCandidates())
+	for _, q := range []string{"REV", "Rv", "FMT"} {
+		s.Query(q)
+		want := []string{"review"}
+		if q == "FMT" {
+			want = []string{"format"}
+		}
+		if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+			t.Fatalf("Query(%q) visible = %v, want %v", q, got, want)
+		}
+	}
+}
+
+// TestCompletionPrefixQueryKeepsLegacyOrder 验证纯前缀查询下 Visible()
+// 与旧 prefixMatch 的结果逐项相等：前缀必是子序列，且过滤不按分数重排，
+// 主表字典序即最终顺序。
+func TestCompletionPrefixQueryKeepsLegacyOrder(t *testing.T) {
+	s := NewCompletionState(fuzzyCandidates())
+	// 这里的查询都不会意外成为其它命令的子序列（例如 "r" 会子序列命中
+	// "format"、"f" 会子序列命中 "config"，故不列入"纯前缀"对照）。
+	for _, q := range []string{"", "c", "co", "com", "conf", "fo", "rev", "REV", "COMMIT"} {
+		s.Query(q)
+		var want []string
+		for _, c := range s.candidates {
+			if prefixMatch(q, c.Command) {
+				want = append(want, c.Command)
+			}
+		}
+		if got := commandsOf(s); !reflect.DeepEqual(got, want) {
+			t.Fatalf("Query(%q) visible = %v, want legacy %v", q, got, want)
+		}
+		if vis := s.Visible(); len(vis) != len(want) {
+			t.Fatalf("Query(%q) Visible len = %d, want %d", q, len(vis), len(want))
+		}
+	}
+}
+
+// TestCompletionTrailingSpaceEndsQuery 验证尾随空格不会残留可见候选，
+// 从而保留"接受补全后按 Enter 提交、Tab 回退为缩进"的既有状态机。
+func TestCompletionTrailingSpaceEndsQuery(t *testing.T) {
+	s := NewCompletionState(fuzzyCandidates())
+	s.Query("review ")
+	if s.Count() != 0 {
+		t.Fatalf("trailing-space query Count = %d, want 0", s.Count())
+	}
+	if _, ok := s.Current(); ok {
+		t.Fatal("trailing-space query should have no current candidate")
+	}
+}

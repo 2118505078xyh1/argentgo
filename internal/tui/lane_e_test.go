@@ -133,6 +133,19 @@ func TestHelpMentionsUndoRetryAndCommandArguments(t *testing.T) {
 	}
 }
 
+// TestHelpMentionsExternalEditor 确保两种 locale 的帮助串都提示
+// Ctrl+G 外部编辑器快捷键，同时守住原有 /undo、/retry、$ARGUMENTS 文案。
+func TestHelpMentionsExternalEditor(t *testing.T) {
+	for _, locale := range []string{"en", "zh"} {
+		help := text(locale, "help")
+		for _, want := range []string{"ctrl+g", "/undo", "/retry", "/name", "$ARGUMENTS"} {
+			if !strings.Contains(help, want) {
+				t.Errorf("locale %s help missing %q: %s", locale, want, help)
+			}
+		}
+	}
+}
+
 func TestAltUndoAndRetryKeysDecode(t *testing.T) {
 	decoder := &Decoder{}
 	keys := decoder.Feed([]byte{0x1b, 'u', 0x1b, 'r'})

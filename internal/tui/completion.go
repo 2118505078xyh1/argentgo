@@ -12,7 +12,8 @@ import (
 // 设计要点：
 //   - 纯内存、零外部依赖；只依赖标准库的 sort 与 unicode。
 //   - 候选按 Command 字典序稳定排序，结果对同一输入永远确定。
-//   - 大小写不敏感的前缀过滤按 rune 进行，因此 CJK/emoji 安全。
+//   - 大小写不敏感的模糊（子序列）过滤按 rune 进行，因此 CJK/emoji 安全；
+//     原前缀查询是其子集，行为与顺序保持不变。
 //   - 绝不修改调用方传入的切片：构造时先拷贝再排序。
 //
 // candidates 保存完整的已排序主表；query 是当前过滤词；index 是候选在
@@ -47,7 +48,8 @@ func NewCompletionState(cands []CompletionCandidate) *CompletionState {
 }
 
 // Query 设置过滤词并把选中位置重置到第一个可见候选。过滤按 Command 的
-// rune 前缀进行、大小写不敏感；空 q 匹配全部候选。
+// rune 子序列进行、大小写不敏感；空 q 匹配全部候选。可见顺序始终由主表
+// 字典序决定，不按匹配分数重排。
 func (s *CompletionState) Query(q string) {
 	if s == nil {
 		return
@@ -63,7 +65,7 @@ func (s *CompletionState) Count() int {
 	}
 	n := 0
 	for _, c := range s.candidates {
-		if prefixMatch(s.query, c.Command) {
+		if matchCommand(s.query, c.Command) {
 			n++
 		}
 	}
@@ -78,7 +80,7 @@ func (s *CompletionState) Current() (CompletionCandidate, bool) {
 	}
 	i := 0
 	for _, c := range s.candidates {
-		if !prefixMatch(s.query, c.Command) {
+		if !matchCommand(s.query, c.Command) {
 			continue
 		}
 		if i == s.index {
@@ -97,7 +99,7 @@ func (s *CompletionState) At(i int) (CompletionCandidate, bool) {
 	}
 	n := 0
 	for _, c := range s.candidates {
-		if !prefixMatch(s.query, c.Command) {
+		if !matchCommand(s.query, c.Command) {
 			continue
 		}
 		if n == i {
@@ -116,7 +118,7 @@ func (s *CompletionState) Visible() []CompletionCandidate {
 	}
 	out := make([]CompletionCandidate, 0, s.Count())
 	for _, c := range s.candidates {
-		if prefixMatch(s.query, c.Command) {
+		if matchCommand(s.query, c.Command) {
 			out = append(out, c)
 		}
 	}
@@ -171,4 +173,23 @@ func prefixMatch(query, command string) bool {
 		}
 	}
 	return true
+}
+
+// matchCommand 报告 command 是否命中查询。它保留旧的大小写不敏感前缀语义，
+// 并把它扩展为模糊子序列匹配：原本查不到的非前缀缩写（如 "rv" 对 "review"）
+// 现在也能命中。
+//
+// 实现要点：
+//   - query 先逐 rune 用 unicode.ToLower 折叠，使 FuzzyMatch 的 smart-case
+//     走"无大写"分支、对双方都折叠，从而维持旧的大小写不敏感行为。
+//   - 前缀命中直接返回 true（前缀必是子序列），前缀路径的结果与旧版逐字节一致；
+//     非前缀才交给 FuzzyMatch。只看命中与否，不读取分数，故调用方仍按主表
+//     字典序决定 Visible 顺序，不按分数重排。
+func matchCommand(query, command string) bool {
+	q := string(lowerRunes([]rune(query)))
+	if prefixMatch(q, command) {
+		return true
+	}
+	_, _, ok := FuzzyMatch(q, command, false)
+	return ok
 }

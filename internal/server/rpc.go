@@ -53,6 +53,43 @@ func scrubSessionLoadError(id string, err error) string {
 	return fmt.Sprintf("load session %q: %s", id, scrubAbsolutePaths(err.Error()))
 }
 
+// filterEventsByBranch 把 session.load 返回的全部事件裁剪为根→branchID 的
+// 祖先链。branchID 必须对应某条事件的 ID；未知分支返回 ok=false，由调用方
+// 转成干净的 RPC 错误（与 session/tree.go 拒绝未知分支的语义一致）。遍历
+// 沿 parent 回溯，用 seen 防环，过滤后保持 events 原有顺序。
+func filterEventsByBranch(events []SessionEvent, branchID string) ([]SessionEvent, bool) {
+	byID := make(map[string]SessionEvent, len(events))
+	for _, ev := range events {
+		if ev.ID != "" {
+			byID[ev.ID] = ev
+		}
+	}
+	if _, ok := byID[branchID]; !ok {
+		return nil, false
+	}
+	keep := make(map[string]bool, len(events))
+	seen := make(map[string]bool, len(events))
+	for current := branchID; current != ""; {
+		if seen[current] {
+			break
+		}
+		ev, ok := byID[current]
+		if !ok {
+			break
+		}
+		seen[current] = true
+		keep[current] = true
+		current = ev.Parent
+	}
+	filtered := make([]SessionEvent, 0, len(keep))
+	for _, ev := range events {
+		if keep[ev.ID] {
+			filtered = append(filtered, ev)
+		}
+	}
+	return filtered, true
+}
+
 // scanResult 是 scanLines 产出的一项：裁剪后的非空输入行，或
 // 一个错误。errFrameTooLong 表示一个超大帧被丢弃，
 // 读取继续；任何其他错误都是终态的（in 上真正的 I/O 失败）。
@@ -275,6 +312,7 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		var params struct {
 			ID        string `json:"id"`
 			SessionID string `json:"sessionId"`
+			Branch    string `json:"branch"`
 		}
 		if len(req.Params) > 0 {
 			if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -294,6 +332,14 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		if err != nil {
 			p.fail(req.ID, codeServerError, scrubSessionLoadError(id, err))
 			return
+		}
+		if params.Branch != "" {
+			filtered, ok := filterEventsByBranch(events, params.Branch)
+			if !ok {
+				p.fail(req.ID, codeServerError, scrubSessionLoadError(id, fmt.Errorf("unknown branch %q", params.Branch)))
+				return
+			}
+			events = filtered
 		}
 		if events == nil {
 			events = []SessionEvent{}

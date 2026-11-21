@@ -103,6 +103,39 @@ type session struct {
 	group string
 }
 
+// SessionBranch 是 session.tree 返回的单条分支节点。它与 server.SessionBranch
+// 的 wire 形态一致，但 native 只发 JSON-RPC，不 import internal/。
+type SessionBranch struct {
+	ID     string `json:"id"`
+	Parent string `json:"parent,omitempty"`
+	Kind   string `json:"kind"`
+	Depth  int    `json:"depth"`
+	Active bool   `json:"active,omitempty"`
+	Label  string `json:"label,omitempty"`
+	Fork   bool   `json:"fork,omitempty"`
+}
+
+// sessionEvent 是 session.load 返回的单条记录，对应 internal/session 的
+// id/parent/kind/ts/data 约定。data 的具体形态由 decodeSessionEventData 解析。
+type sessionEvent struct {
+	ID     string          `json:"id"`
+	Parent string          `json:"parent"`
+	Kind   string          `json:"kind"`
+	TS     time.Time       `json:"ts"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// sessionEventData 覆盖会话记录 data 的两种线上形态：纯字符串（旧格式）
+// 或带 content/text/output 等字段的对象。
+type sessionEventData struct {
+	Content string `json:"content"`
+	Text    string `json:"text"`
+	Output  string `json:"output"`
+	Name    string `json:"name"`
+	Role    string `json:"role"`
+	IsError bool   `json:"is_error"`
+}
+
 var navItems = []string{
 	"聊天", "定时任务", "文档", "记忆", "扩展", "用量",
 	"Git", "任务", "工作流", "终端", "文件", "计划",
@@ -158,6 +191,16 @@ type chat struct {
 	// openSession 直接调用 engine.call；测试注入记录器以
 	// 验证 session.load RPC 而无需活 engine 进程。
 	sessionLoadRPC func(method string, params any) (json.RawMessage, error)
+
+	// sessionTreeRPC 是获取会话分支树的测试接缝。为 nil 时，
+	// fetchSessionTree 直接调用 engine.call；测试注入记录器以
+	// 验证 session.tree RPC 而无需活 engine 进程。
+	sessionTreeRPC func(method string, params any) (json.RawMessage, error)
+
+	// branches 是当前选中会话的分支树镜像，branchSession 标记它属于哪个会话。
+	// 两者只在 session.tree 成功后一起更新，失败时保留旧树。
+	branches      []SessionBranch
+	branchSession string
 
 	// approvalAnswerRPC 是回答审批的测试接缝。为 nil 时，
 	// answerApproval 直接调用 engine.call；测试注入记录器以
@@ -336,6 +379,10 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 		if row.Clicked() {
 			app.openSession(s)
 		}
+		// 分支节点是行的兄弟元素而非子元素：点击节点时命中按钮，
+		// 不会同时触发行本身的 openSession。没有分叉时不构建任何元素，
+		// 单线/无 branch 的帧与旧版逐字节一致。
+		app.branchNodes(c, p, s)
 	}).Grow(1)
 }
 
@@ -347,6 +394,100 @@ func (app *chat) isSessionSelected(s session) bool {
 		return app.selectedSession == s.id
 	}
 	return app.selectedSession == s.title
+}
+
+// sessionRowID 返回会话栏行在 RPC 中使用的 stem。demo 行没有 id，回退到 title。
+func sessionRowID(s session) string {
+	if s.id != "" {
+		return s.id
+	}
+	return s.title
+}
+
+// branchNodes 在会话行下渲染分支节点。只有树里出现真正分叉（任一节点
+// Fork=true）时才构建元素；单线或空树下一帧与旧版逐字节一致。
+// 节点可点击：点击后用 {"id":stem,"branch":recordID} 重新加载该分支转录。
+func (app *chat) branchNodes(c *ui.Context, p palette, s session) {
+	if app.branchSession == "" || app.branchSession != sessionRowID(s) || !hasForkBranches(app.branches) {
+		return
+	}
+	ui.Column(c).Gap(2).Padding(6, 10, 2, 26).Children(func() {
+		for _, b := range app.branches {
+			if !b.Fork && !b.Active {
+				continue
+			}
+			label := branchNodeLabel(b)
+			if ui.Button(c, label).Padding(4, 6).Radius(6).
+				FontSize(11).Background(ui.Transparent).TextColor(p.dim).Clicked() {
+				app.openSessionBranch(s, b.ID)
+			}
+		}
+	})
+}
+
+// hasForkBranches 报告会话树是否存在真正的分叉点。
+// session.tree 把父节点有多个孩子的所有孩子都标为 Fork，因此单线树
+// （每个父节点至多一个孩子）没有任何 Fork 节点。
+func hasForkBranches(branches []SessionBranch) bool {
+	for _, b := range branches {
+		if b.Fork {
+			return true
+		}
+	}
+	return false
+}
+
+// branchNodeLabel 生成分支节点的显示文字：按深度缩进，分叉和活动叶子
+// 分别带 ⑂ / ● 字形，空标签回退到 Kind。
+func branchNodeLabel(b SessionBranch) string {
+	var out strings.Builder
+	out.WriteString(strings.Repeat("  ", max(b.Depth, 0)))
+	if b.Fork {
+		out.WriteString("⑂ ")
+	}
+	if b.Active {
+		out.WriteString("● ")
+	}
+	label := b.Label
+	if label == "" {
+		label = b.Kind
+	}
+	out.WriteString(label)
+	return out.String()
+}
+
+// parseSessionTree 解码 session.tree 的 {"branches":[...]} payload。
+func parseSessionTree(raw json.RawMessage) ([]SessionBranch, error) {
+	var payload struct {
+		Branches []SessionBranch `json:"branches"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Branches, nil
+}
+
+// fetchSessionTree 请求当前会话的分支树并更新侧边栏。engine 为 nil（demo）
+// 时不发 RPC；失败或无法解析时保留旧 branches/branchSession，让旧节点存活，
+// 而不是把会话栏清空。
+func (app *chat) fetchSessionTree(sessionID string) {
+	if app.engine == nil {
+		return
+	}
+	call := app.sessionTreeRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	raw, err := call("session.tree", map[string]any{"id": sessionID})
+	if err != nil {
+		return
+	}
+	branches, err := parseSessionTree(raw)
+	if err != nil {
+		return
+	}
+	app.branches = branches
+	app.branchSession = sessionID
 }
 
 // ensureSessions 在附加真实 engine 时启动一次性 session.list 获取。
@@ -553,11 +694,18 @@ func sessionMeta(updated time.Time) string {
 	}
 }
 
-// openSession 选中某会话行并通过现有 session.load RPC 请求
-// sessionGroup 按会话更新的日期分组，匹配会话栏的分组。sessionMeta 为会话行渲染简短相对时间。openSession 选中某会话行并通过现有 session.load RPC 请求真实 engine 加载它。id 在可用时来自 session.list；demo/降级行没有 id 并回退到 title（它们在该模式下的身份）。没有附加 bridge 时它保持原有的纯本地切换。
-// demo/降级行没有 id 并回退到 title（它们在该模式下的身份）。
-// 没有附加 bridge 时它保持原有的纯本地切换。
+// openSession 选中某会话行并通过现有 session.load RPC 请求真实 engine
+// 加载它。id 在可用时来自 session.list；demo/降级行没有 id 并回退到
+// title（它们在该模式下的身份）。没有附加 bridge 时它保持原有的纯本地切换。
 func (app *chat) openSession(s session) {
+	app.openSessionBranch(s, "")
+}
+
+// openSessionBranch 加载会话（可选地裁剪到某条分支）。branch 非空时，
+// session.load 收到 {"id":stem,"branch":recordID}；返回的事件被映射为
+// 现有 transcript 行，复用 ui.List + app.message，不新建视图。
+// 范围仅限“查看分支转录”：不提供在分支上续跑的入口。
+func (app *chat) openSessionBranch(s session, branch string) {
 	id := s.id
 	if id == "" {
 		id = s.title
@@ -571,9 +719,112 @@ func (app *chat) openSession(s session) {
 	if call == nil {
 		call = app.engine.call
 	}
-	if _, err := call("session.load", map[string]any{"id": id}); err != nil {
-		app.status = "打开会话失败：" + engineErrorNotice(err)
+	params := map[string]any{"id": id}
+	if branch != "" {
+		params["branch"] = branch
 	}
+	raw, err := call("session.load", params)
+	if err != nil {
+		app.status = "打开会话失败：" + engineErrorNotice(err)
+		return
+	}
+	events, ok := parseSessionEvents(raw)
+	if !ok {
+		app.status = "打开会话失败：无法解析会话记录"
+		return
+	}
+	// 清空陈旧流式/工具/审批状态（仿 newSession），再填入映射消息。
+	app.loadTranscript(events)
+	// 分支树跟随 transcript：仅在切换到新会话且确实加载出记录时获取，
+	// 避免点击分支节点造成重复 RPC，也让空会话/降级加载不触发额外请求。
+	// 失败时 fetchSessionTree 保留旧树。
+	if len(events) > 0 && app.branchSession != id {
+		app.fetchSessionTree(id)
+	}
+}
+
+// parseSessionEvents 解码 session.load 的 {"id":...,"events":[...]} payload。
+// 第二个返回值为 false 表示 payload 无法解析，此时调用方保留旧 transcript。
+func parseSessionEvents(raw json.RawMessage) ([]sessionEvent, bool) {
+	var payload struct {
+		Events []sessionEvent `json:"events"`
+	}
+	if json.Unmarshal(raw, &payload) != nil {
+		return nil, false
+	}
+	return payload.Events, true
+}
+
+// loadTranscript 用 session.load 的事件替换 transcript。它先退役可能仍在
+// 进行的流式轮次并清空 reply/tools/approval，使迟到结果不会被误混入；然后
+// 把每条可识别事件映射为 app.message，继续由既有 ui.List 渲染。
+func (app *chat) loadTranscript(events []sessionEvent) {
+	app.retireStream()
+	app.messages = nil
+	app.tools = nil
+	app.approval = nil
+	app.streaming = false
+	app.reply, app.tool = nil, nil
+	app.lastPrompt = ""
+	for _, ev := range events {
+		m, ok := messageFromSessionEvent(ev)
+		if !ok {
+			continue
+		}
+		app.next++
+		m.id = app.next
+		app.messages = append(app.messages, m)
+	}
+}
+
+// messageFromSessionEvent 按 Kind 判定角色，并从 data 的 content/text/output
+// 提取正文。未知 Kind 被忽略，避免把 header/attempt 等元数据塞进消息列表。
+func messageFromSessionEvent(ev sessionEvent) (*message, bool) {
+	d, ok := decodeSessionEventData(ev.Data)
+	if !ok {
+		return nil, false
+	}
+	role := ev.Kind
+	if role == "message" {
+		role = d.Role // 旧格式把角色放在 data.role 里
+	}
+	switch role {
+	case "user":
+		return &message{kind: msgUser, text: d.Content, done: true}, true
+	case "assistant":
+		return &message{kind: msgAssistant, text: d.Content, done: true}, true
+	case "tool":
+		status := "done"
+		if d.IsError {
+			status = "failed"
+		}
+		return &message{kind: msgTool, name: d.Name, text: d.Content, status: status, done: true}, true
+	default:
+		return nil, false
+	}
+}
+
+// decodeSessionEventData 同时接受 data 为 JSON 字符串（早期格式）和对象。
+// 对象按 content → text → output 的优先级取正文，工具名单独取自 name。
+func decodeSessionEventData(raw json.RawMessage) (sessionEventData, bool) {
+	if len(raw) == 0 {
+		return sessionEventData{}, false
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return sessionEventData{Content: s}, true
+	}
+	var d sessionEventData
+	if json.Unmarshal(raw, &d) != nil {
+		return sessionEventData{}, false
+	}
+	if d.Content == "" {
+		d.Content = d.Text
+	}
+	if d.Content == "" {
+		d.Content = d.Output
+	}
+	return d, true
 }
 
 func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
