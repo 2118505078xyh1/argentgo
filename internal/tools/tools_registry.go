@@ -176,6 +176,13 @@ func (r *Registry) SetJobs(j *jobs.Registry) {
 	r.jobs = j
 }
 
+// SetPlanUnlock 安装 exit_plan 提交计划后调用的解锁回调。调用方在计划审批
+// 闭环就绪时注入它；nil 让工具保持"未接线"状态，此时调用 exit_plan 会报错
+// 而非静默成功。回调经 Registry.Run 写入 ctx，因此 tools 包不必 import agent/app。
+func (r *Registry) SetPlanUnlock(fn func()) {
+	r.planUnlock = fn
+}
+
 // SetLspIde 安装六个 lsp_* 工具背后的适配器。app 在
 // 语言服务器可用后调用它；nil 让工具继续报告
 // 集成不可用。遵循 SetMemoryBank 的模式，工具在
@@ -263,6 +270,9 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	}
 	if r.jobs != nil {
 		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
+	}
+	if r.planUnlock != nil {
+		ctx = context.WithValue(ctx, planUnlockKey{}, r.planUnlock)
 	}
 	// 同步写入 pluginapi.ExecContext，供已迁移到 internal/shell 的命令类工具
 	// 读取（它们无法访问 tools 包内未导出的 context key）。原有 key 保留不动，
@@ -387,6 +397,10 @@ type sessionDirKey struct{}
 // jobsKey 携带 bash 工具使用的后台作业注册表。
 type jobsKey struct{}
 
+// planUnlockKey 携带 exit_plan 用来完成审批闭环的解锁回调。
+// 使用私有类型身份意味着其他包即使定义同名同结构的 key 也读不到此值。
+type planUnlockKey struct{}
+
 func outputLimit(ctx context.Context) int {
 	if limit, ok := ctx.Value(outputLimitKey{}).(int); ok && limit > 0 {
 		return limit
@@ -404,6 +418,14 @@ func sessionDir(ctx context.Context, root string) string {
 func jobRegistry(ctx context.Context) *jobs.Registry {
 	if registry, ok := ctx.Value(jobsKey{}).(*jobs.Registry); ok {
 		return registry
+	}
+	return nil
+}
+
+// PlanUnlockFrom 取出由 Registry.Run 注入的 plan 解锁回调；未接线时返回 nil。
+func PlanUnlockFrom(ctx context.Context) func() {
+	if fn, ok := ctx.Value(planUnlockKey{}).(func()); ok {
+		return fn
 	}
 	return nil
 }

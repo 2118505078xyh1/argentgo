@@ -154,6 +154,16 @@ type runState struct {
 	// 事件序列与会话记录逐字节不变。它与 turnTiming 正交：可单独开启其中任意一个。
 	toolTimingHistogram *ToolTimingHistogram
 
+	// toolCallTrace 是 ARGENT_TOOL_CALL_TRACE opt-in 开启时创建的工具调用链追踪器。
+	// nil（默认，未开启）时 dispatch 侧的 Begin/End 与轮末摘要日志全是空操作，
+	// 事件序列与会话记录逐字节不变。它与 turnTiming/toolTimingHistogram 正交：
+	// 直方图给分布/TopSlow，trace 给调用顺序、成败与错误文本。
+	toolCallTrace *ToolCallTrace
+	// toolCallSpans 以调用 id 为键记录 ToolCallTrace.Begin 返回的 spanID，
+	// 使 finishCall 能配对结算同一跨度。与 toolTimes 共用 timingMu 保护；
+	// 并行批次写入不同 id，结算后立即删除。
+	toolCallSpans map[string]int
+
 	// compactor 和 compactThreshold 驱动轮次中压缩的边界。
 	compactor        Compactor
 	compactThreshold int
@@ -199,6 +209,9 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// 工具耗时直方图的轮末摘要日志，与逐阶段计时日志并列、共用同一 logger。
 	// 关闭时 state.toolTimingHistogram 为 nil，整段是空操作。
 	state.finishToolTimingHistogram()
+	// 工具调用链的轮末摘要日志，与上面两条日志并列、共用同一 logger。
+	// 关闭时 state.toolCallTrace 为 nil，整段是空操作。
+	state.finishTrace()
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
@@ -232,6 +245,13 @@ func recoveryMetricsEnabled() bool {
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func toolTimingHistogramEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_TIMING_HISTOGRAM")) == "1"
+}
+
+// toolCallTraceEnabled 报告本进程是否开启工具调用链日志。
+// 仅当 ARGENT_TOOL_CALL_TRACE 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func toolCallTraceEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_CALL_TRACE")) == "1"
 }
 
 // turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
@@ -320,6 +340,54 @@ func (s *runState) finishToolTimingHistogram() {
 	emitToolTimingHistogramLog(s.toolTimingHistogram)
 }
 
+// emitToolCallTraceLog 把工具调用链摘要写成一条结构化日志，与逐阶段计时共用 logger。
+// trace 为 nil（opt-in 关闭）时整段是空操作。
+func emitToolCallTraceLog(tr *ToolCallTrace) {
+	if tr == nil {
+		return
+	}
+	turnTimingLogger().Info("agent_tool_call_trace", slog.String("summary", tr.Summary()))
+}
+
+// finishTrace 在一轮运行结束时落一次工具调用链摘要日志。
+// 关闭（trace 为 nil）时是空操作，与 turnTiming/histogram 是否开启无关。
+func (s *runState) finishTrace() {
+	emitToolCallTraceLog(s.toolCallTrace)
+}
+
+// traceToolBegin 在 opt-in 开启时为一次调用开启跨度，并按调用 id 记下 spanID，
+// 供随后 finishCall 配对结算（见 traceToolEnd）。关闭时是纯粹的空操作。
+// 与 startTool 一样由 timingMu 保护映射，使并行批次写入不同 id 互不干扰。
+func (s *runState) traceToolBegin(callID, tool string) {
+	if s.toolCallTrace == nil {
+		return
+	}
+	spanID := s.toolCallTrace.Begin(tool)
+	s.timingMu.Lock()
+	if s.toolCallSpans == nil {
+		s.toolCallSpans = make(map[string]int)
+	}
+	s.toolCallSpans[callID] = spanID
+	s.timingMu.Unlock()
+}
+
+// traceToolEnd 结算调用 id 对应的跨度；未知 id（重复结算/手工状态）是空操作。
+// 关闭时是纯粹的空操作。spanID 取出后立即删除，避免跨轮次 id 复用时串账。
+func (s *runState) traceToolEnd(callID string, ok bool, err error) {
+	if s.toolCallTrace == nil {
+		return
+	}
+	s.timingMu.Lock()
+	spanID, found := s.toolCallSpans[callID]
+	if found {
+		delete(s.toolCallSpans, callID)
+	}
+	s.timingMu.Unlock()
+	if found {
+		s.toolCallTrace.End(spanID, ok, err)
+	}
+}
+
 func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	system := strings.TrimSpace(opts.System)
 	if system == "" {
@@ -393,6 +461,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	// 使 dispatch 的 Record 与轮末摘要日志全是空操作。
 	if toolTimingHistogramEnabled() {
 		s.toolTimingHistogram = &ToolTimingHistogram{}
+	}
+	// 只有 ARGENT_TOOL_CALL_TRACE=1 时才建调用链追踪器；默认关闭时保持 nil，
+	// 使 dispatch 的 Begin/End 与轮末摘要日志全是空操作。
+	if toolCallTraceEnabled() {
+		s.toolCallTrace = &ToolCallTrace{}
 	}
 	return s
 }

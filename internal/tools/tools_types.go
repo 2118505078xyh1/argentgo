@@ -47,6 +47,7 @@ type Registry struct {
 	maxTimeout time.Duration
 	sessionDir string
 	jobs       *jobs.Registry
+	planUnlock func()
 	guard      Guard
 	tools      map[string]Tool
 	order      []string

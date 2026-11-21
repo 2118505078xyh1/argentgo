@@ -12,6 +12,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
+// streamOnceChatter 是 Chatter 的可选扩展：能以非流式方式再取一次完整答复。
+// 恢复调用刻意不接收 onText，因此不会把失败尝试已经推送过的前缀重复发给 UI。
+type streamOnceChatter interface {
+	ChatOnce(ctx context.Context, model string, messages []llm.Message, tools []llm.ToolSpec) (llm.Message, error)
+}
+
+// streamRecoveryReason 是流中断回补成功后发布的 EventRetry 原因标记。
+// RetryInfo.Reason 是封闭的标量字符串，不携带任何提供方文本。
+const streamRecoveryReason = "stream_recovery"
+
+// capturedText 只读一次尝试已捕获的流式文本；Snapshot 的停止原因在这里无关紧要。
+func capturedText(c *partialCapture) string {
+	return c.Snapshot("").Text
+}
+
 // modelAttempts 解析单轮次的有序模型列表。FallbackModels 的第一项是主模型；
 // 字段为空时保留旧版 Options.Model 行为，这样在 wave 4 之前编写的调用方无需改动。
 func modelAttempts(opts Options) []string {
@@ -42,6 +57,9 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 	var (
 		lastErr error
 		tried   []string
+		// recoveryTried 把非流式回补限制为每轮最多一次：即使回退链上有多个模型
+		// 都以流错误失败，也绝不会为同一轮重复发起第二个非流式请求。
+		recoveryTried bool
 	)
 	for i, model := range models {
 		if i >= maxAttempts {
@@ -74,6 +92,32 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			return reply, nil
 		}
 		lastErr = err
+		// 流中断回补（默认关闭）：只在 opt-in、错误确实是流中断、context 仍有效、
+		// 失败尝试已经流式输出过文本、且 Chatter 具备非流式能力时触发。
+		// 默认关闭时整段短路为一次 bool 读取，请求体与事件逐字节不变。
+		if !recoveryTried && s.opts.EnableStreamRecovery && errors.Is(err, llm.ErrStreamError) &&
+			ctx.Err() == nil && capturedText(capture) != "" {
+			if once, ok := s.opts.Chatter.(streamOnceChatter); ok {
+				recoveryTried = true
+				recovered, onceErr := once.ChatOnce(ctx, model, NormalizeToolPairing(s.messages), s.specs)
+				if onceErr == nil {
+					// 失败尝试的缓冲增量整段丢弃：完整答复以 ChatOnce 的结果为准。
+					buffered = nil
+					s.emitRecoveredReply(turn, recovered, capture, live)
+					s.emit(Event{
+						Kind: EventRetry,
+						Turn: turn,
+						Retry: &RetryInfo{
+							Attempt:     i + 2,
+							MaxAttempts: maxAttempts + 1,
+							Reason:      streamRecoveryReason,
+							Model:       model,
+						},
+					})
+					return recovered, nil
+				}
+			}
+		}
 		cancelled := ctx.Err() != nil
 		if cancelled || !isRetryableProviderError(err) || i == len(models)-1 {
 			// 这一次就是运行要报告的尝试。把提供方在失败前流式输出的内容呈现出来，
@@ -106,6 +150,24 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 		return llm.Message{}, lastErr
 	}
 	return llm.Message{}, fmt.Errorf("agent: all %d model(s) failed (%s): %w", len(tried), strings.Join(tried, ", "), lastErr)
+}
+
+// emitRecoveredReply 发布非流式回补得到的完整答复。
+// 实时模式下失败流的前缀已经推送给 UI，所以只发布精确后缀；前缀不匹配时宁可一个增量也不发，
+// 避免同一段文本出现两次。缓冲模式下失败尝试的增量已被丢弃，因此发布整个答复。
+func (s *runState) emitRecoveredReply(turn int, reply llm.Message, capture *partialCapture, live bool) {
+	if live {
+		prefix := capturedText(capture)
+		if strings.HasPrefix(reply.Content, prefix) {
+			if suffix := strings.TrimPrefix(reply.Content, prefix); suffix != "" {
+				s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: suffix})
+			}
+		}
+		return
+	}
+	if reply.Content != "" {
+		s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: reply.Content})
+	}
 }
 
 // httpStatusRE 从提供方错误字符串中查找 HTTP 状态码，例如

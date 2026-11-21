@@ -479,21 +479,18 @@ func (c *Client) reasoningEffort() string {
 	return c.Options.Thinking.Effort
 }
 
-// chat 是共享的请求/重试/流式处理管线。stopIDs 非空时，
-// 会作为可选的 stop_token_ids 字段转发；Chat 传入 nil，
-// 因此其线协议格式不变。FillMiddle 用它来附加 FIM 停止 token。
-// reasoningEffort 为本次请求要转发的 reasoning_effort：Chat 从
-// Options.Thinking 派生，FillMiddle 始终传空串，使 FIM 永不携带推理参数。
-func (c *Client) chat(
-	ctx context.Context,
+// buildChatRequest 按默认（流式）语义构造 chat completions 请求体。
+// 它集中处理缓存控制、tools、stop_token_ids 与推理级别的线协议字段，
+// 供 Chat/FillMiddle 的流式路径与 ChatOnce 的非流式路径复用。
+// 返回值的字段及其顺序与提取前 chat() 内联构造的代码完全一致；
+// ChatOnce 在调用后显式关闭 Stream 并移除 StreamOptions。
+func (c *Client) buildChatRequest(
 	model string,
 	messages []Message,
 	tools []ToolSpec,
-	onText func(string),
 	stopIDs []int64,
 	reasoningEffort string,
-) (Message, error) {
-	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
+) chatRequest {
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
 		Model:           model,
@@ -509,6 +506,25 @@ func (c *Client) chat(
 	if cacheEnabled {
 		request.PromptCacheRetention = c.Options.CacheRetention
 	}
+	return request
+}
+
+// chat 是共享的请求/重试/流式处理管线。stopIDs 非空时，
+// 会作为可选的 stop_token_ids 字段转发；Chat 传入 nil，
+// 因此其线协议格式不变。FillMiddle 用它来附加 FIM 停止 token。
+// reasoningEffort 为本次请求要转发的 reasoning_effort：Chat 从
+// Options.Thinking 派生，FillMiddle 始终传空串，使 FIM 永不携带推理参数。
+func (c *Client) chat(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	tools []ToolSpec,
+	onText func(string),
+	stopIDs []int64,
+	reasoningEffort string,
+) (Message, error) {
+	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
+	request := c.buildChatRequest(model, messages, tools, stopIDs, reasoningEffort)
 	payload, err := json.Marshal(request)
 	if err != nil {
 		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
@@ -566,6 +582,188 @@ func (c *Client) chat(
 		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
 		return Message{}, err
+	}
+	recordTrace(ProtocolChatCompletions, model, reply.Usage, start, nil, "ok")
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
+	return reply, nil
+}
+
+// chatOnceResponse 是非流式 chat completions 的响应载荷。
+// 与流式 chunk 不同，助手内容位于 choices[].message 中，且工具参数
+// 是一次性给出的完整 JSON 字符串，而非跨增量拼接的片段。
+type chatOnceResponse struct {
+	Choices []struct {
+		Message struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			Reasoning        string `json:"reasoning"`
+			ToolCalls        []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens        int `json:"prompt_tokens"`
+		CompletionTokens    int `json:"completion_tokens"`
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// ChatOnce 以非流式方式获取一次补全并返回助手消息。
+// 它服务于流中断回退：服务端返回单个 JSON 而不是 SSE，因此不消费流，
+// 直接把响应用作一次完整的 Message。请求/重试/鉴权/trace/attempt 路径
+// 沿用 chat()，仅 Accept 改为 application/json，并去掉与 Stream=false
+// 互斥的 stream_options（二者同时出现会被引擎拒绝）。
+func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message, tools []ToolSpec) (Message, error) {
+	start := time.Now()
+	request := c.buildChatRequest(model, messages, tools, nil, c.reasoningEffort())
+	// stream_options 只在流式请求中用于请求 usage；非流式下必须清除。
+	request.Stream = false
+	request.StreamOptions = nil
+	payload, err := json.Marshal(request)
+	if err != nil {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		return Message{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	policy := c.Retry
+	if policy.IsZero() {
+		policy = DefaultRetryPolicy()
+	}
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolChatCompletions,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
+	}
+	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
+		// 每次尝试都重新创建请求（及 body reader），与流式路径保持一致。
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		if c.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
+		ApplyExtraHeaders(req)
+		return c.httpClient().Do(req)
+	})
+	if err != nil {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
+		return Message{}, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		err := providerError(resp)
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolChatCompletions, model, err))
+		return Message{}, err
+	}
+
+	var response chatOnceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		err = fmt.Errorf("decode response: %w", err)
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolChatCompletions, model, err))
+		return Message{}, err
+	}
+	if response.Error != nil && response.Error.Message != "" {
+		err := fmt.Errorf("provider error: %s", RedactText(response.Error.Message))
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolChatCompletions, model, err))
+		return Message{}, err
+	}
+	fail := func(err error) (Message, error) {
+		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolChatCompletions, model, err))
+		return Message{}, err
+	}
+	if len(response.Choices) == 0 {
+		return fail(fmt.Errorf("provider returned no choices"))
+	}
+
+	choice := response.Choices[0]
+	// 推理字段优先使用 OpenAI 兼容的 reasoning_content，
+	// 缺失时回退到部分网关使用的备用拼写 reasoning。
+	reasoning := choice.Message.ReasoningContent
+	if reasoning == "" {
+		reasoning = choice.Message.Reasoning
+	}
+	if choice.Message.Content == "" && reasoning == "" && len(choice.Message.ToolCalls) == 0 {
+		return fail(fmt.Errorf("provider returned an empty message"))
+	}
+
+	var usage *Usage
+	if response.Usage != nil {
+		usage = &Usage{
+			PromptTokens:     response.Usage.PromptTokens,
+			CompletionTokens: response.Usage.CompletionTokens,
+		}
+		if details := response.Usage.PromptTokensDetails; details != nil {
+			usage.CachedTokens = details.CachedTokens
+		}
+	}
+
+	// 生成的调用 id 不得与提供方提供的 id 冲突；重复的调用 id
+	// 会让 agent 拒绝整个工具批次。
+	used := make(map[string]struct{}, len(choice.Message.ToolCalls))
+	for _, tc := range choice.Message.ToolCalls {
+		if tc.ID != "" {
+			used[tc.ID] = struct{}{}
+		}
+	}
+	// integrity 标记为已终止：非流式响应本身就是完整答复，
+	// 参数补全只用于把空/非法参数安全回退为 "{}"，不触发截断判定。
+	integrity := &streamIntegrity{terminated: true}
+	calls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
+	for i, tc := range choice.Message.ToolCalls {
+		callType := tc.Type
+		if callType == "" {
+			callType = "function"
+		}
+		call := ToolCall{
+			ID:   tc.ID,
+			Type: callType,
+			Function: ToolCallFunction{
+				Name:      tc.Function.Name,
+				Arguments: integrity.toolArguments(tc.Function.Arguments),
+			},
+		}
+		if call.ID == "" {
+			call.ID = uniqueToolCallID(used, "call_", i+1)
+		}
+		calls = append(calls, call)
+	}
+
+	reply := Message{
+		Role:         "assistant",
+		Content:      choice.Message.Content,
+		ToolCalls:    calls,
+		Reasoning:    reasoning,
+		Usage:        usage,
+		FinishReason: choice.FinishReason,
 	}
 	recordTrace(ProtocolChatCompletions, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
