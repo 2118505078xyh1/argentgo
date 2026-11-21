@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,19 @@ import (
 // readWindowCap 限制以某行为中心的窗口的每一侧，使单次调用
 // 绝不会倾泻无界数量的上下文。
 const readWindowCap = 200
+
+// utf8BOM 是 UTF-8 字节序标记。它是合法 UTF-8，却会作为 \ufeff
+// 留在首行，污染模型上下文与分页行内容，读取时应剥掉。
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// stripUTF8BOM 剥掉开头的 UTF-8 BOM（至多一个）。它只返回一个子切片，
+// 不修改入参的底层数组；没有 BOM 时原样返回同一切片。
+func stripUTF8BOM(data []byte) []byte {
+	if len(data) >= len(utf8BOM) && bytes.Equal(data[:len(utf8BOM)], utf8BOM) {
+		return data[len(utf8BOM):]
+	}
+	return data
+}
 
 type readTool struct{}
 
@@ -62,6 +76,9 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if looksLikeBinary(data) {
 		return "", fmt.Errorf("read %s: %w", args.Path, errBinaryFile)
 	}
+	// BOM 是合法 UTF-8，但会作为 \ufeff 留在首行；在编码校验前剥掉，
+	// 且不改动入参。GBK 等非 UTF-8 数据没有这个前缀，仍照旧报错。
+	data = stripUTF8BOM(data)
 	if !utf8.Valid(data) {
 		return "", fmt.Errorf("%s is not UTF-8 text", args.Path)
 	}

@@ -65,6 +65,6 @@ func skillsUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argent skills [--json] [-C <dir>]
 
 Lists the SKILL.md documents discovered under .argent/skills and
-~/.argentgo/skills. The same registry backs the use_skill tool.
+~/.argentgo/skills, ~/.agents/skills, ~/.claude/skills. The same registry backs the use_skill tool.
 `)
 }
