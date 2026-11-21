@@ -520,6 +520,10 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 }
 
 func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
+	// 可选的工具调用链追踪（默认关闭）：在此开启跨度，finishCall 配对结算。
+	// 审批阻断/重复防护/已取消的调用同样会走到 finishCall，因此 Begin/End 总是成对，
+	// ran=false 的调用也不会留下悬空跨度。
+	s.traceToolBegin(call.ID, call.Function.Name)
 	// 开始事件在工具运行之前发出，此时还没有 callResult；
 	// 因此直接从调用参数中读取意图。
 	intent, _ := ExtractIntent(json.RawMessage(call.Function.Arguments))
@@ -547,6 +551,14 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 	if s.toolTimingHistogram != nil {
 		s.toolTimingHistogram.Record(call.Function.Name, res.duration)
 	}
+	// 可选的工具调用链追踪（默认关闭）：结算 emitToolStart 开启的跨度。
+	// ok 取反 isError；失败时把模型可读的错误文本作为 err 落进跨度，供 Snapshot 观测。
+	// 关闭时不构造 error，traceToolEnd 自身也是空操作。
+	var traceErr error
+	if s.toolCallTrace != nil && res.isError {
+		traceErr = errors.New(res.output)
+	}
+	s.traceToolEnd(call.ID, !res.isError, traceErr)
 	s.emit(Event{
 		Kind:         EventToolEnd,
 		Turn:         turn,

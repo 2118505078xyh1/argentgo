@@ -183,6 +183,85 @@ func (c *AnthropicClient) Chat(
 	return reply, nil
 }
 
+// ChatOnce 以非流式模式获取一个助手轮次，供流中断后的回退路径使用。
+// 它复用 buildRequest 生成与 Chat 完全一致的请求，只把 stream 置为 false，
+// 并把单个 JSON 响应文档映射为 Message。鉴权、重试、trace 与尝试上报
+// 路径均与 Chat 相同；默认流式 Chat 的线协议字节不受影响。
+func (c *AnthropicClient) ChatOnce(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	tools []ToolSpec,
+) (Message, error) {
+	start := time.Now()
+	if strings.TrimSpace(model) == "" {
+		err := errors.New("anthropic: model is required")
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		return Message{}, err
+	}
+	req := c.buildRequest(model, messages, tools)
+	req.Stream = false
+	payload, err := json.Marshal(req)
+	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		return Message{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	policy := c.Retry
+	if policy.IsZero() {
+		policy = DefaultRetryPolicy()
+	}
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolAnthropicMessages,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
+	}
+	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("anthropic-version", c.version())
+		if c.APIKey != "" {
+			req.Header.Set("x-api-key", c.APIKey)
+		}
+		ApplyExtraHeaders(req)
+		return c.httpClient().Do(req)
+	})
+	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
+		return Message{}, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		err := providerError(resp)
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolAnthropicMessages, model, err))
+		return Message{}, err
+	}
+
+	reply, err := decodeAnthropicOnce(resp.Body)
+	if err != nil {
+		recordTrace(ProtocolAnthropicMessages, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolAnthropicMessages, model, err))
+		return Message{}, err
+	}
+	recordTrace(ProtocolAnthropicMessages, model, reply.Usage, start, nil, "ok")
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolAnthropicMessages, Model: model})
+	return reply, nil
+}
+
 func (c *AnthropicClient) endpoint() string {
 	base := strings.TrimRight(c.BaseURL, "/")
 	switch {
@@ -728,6 +807,98 @@ streamLoop:
 		Usage:              usage,
 		FinishReason:       finishReason,
 	}, nil
+}
+
+// anthropicOnceResponse 是 Messages API 非流式单次响应的最小解码结构。
+type anthropicOnceResponse struct {
+	Content    []anthropicBlock `json:"content"`
+	StopReason string           `json:"stop_reason"`
+	Usage      *anthropicUsage  `json:"usage"`
+	Error      *struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// decodeAnthropicOnce 把单个 JSON 响应映射为助手轮次。它刻意不依赖
+// readStream 的 SSE 状态机：工具参数在单次响应中已是完整 JSON，
+// 因此不需要增量拼接或截断修复。
+func decodeAnthropicOnce(body io.Reader) (Message, error) {
+	var response anthropicOnceResponse
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return Message{}, fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return Message{}, fmt.Errorf("decode response: %s", RedactError(err))
+	}
+	if response.Error != nil {
+		message := firstNonEmpty(response.Error.Message, "unknown provider error")
+		return Message{}, fmt.Errorf("provider error: %s", RedactText(message))
+	}
+
+	var (
+		text      strings.Builder
+		reasoning strings.Builder
+		signature strings.Builder
+		calls     []ToolCall
+		used      = make(map[string]struct{})
+	)
+	for _, block := range response.Content {
+		switch block.Type {
+		case "text":
+			text.WriteString(block.Text)
+		case "thinking":
+			reasoning.WriteString(block.Thinking)
+			signature.WriteString(block.Signature)
+		case "tool_use":
+			call := ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      block.Name,
+					Arguments: onceToolArguments(block.Input),
+				},
+			}
+			if call.ID != "" {
+				used[call.ID] = struct{}{}
+			}
+			calls = append(calls, call)
+		}
+	}
+	// 先收集所有提供方 id，再为缺失者分配回退 id，
+	// 使生成的 "toolu_N" 绝不与真实 id 重复。
+	for i := range calls {
+		if calls[i].ID == "" {
+			calls[i].ID = uniqueToolCallID(used, "toolu_", i)
+		}
+	}
+	if text.Len() == 0 && reasoning.Len() == 0 && len(calls) == 0 {
+		return Message{}, errors.New("anthropic: empty content in non-stream response")
+	}
+
+	var usage *Usage
+	if response.Usage != nil {
+		usage = anthropicPromptUsage(response.Usage)
+	}
+	return Message{
+		Role:               "assistant",
+		Content:            text.String(),
+		ToolCalls:          calls,
+		Reasoning:          reasoning.String(),
+		ReasoningSignature: signature.String(),
+		Usage:              usage,
+		FinishReason:       response.StopReason,
+	}, nil
+}
+
+// onceToolArguments 把非流式工具输入规范化为 JSON 参数串。
+func onceToolArguments(raw json.RawMessage) string {
+	arguments := strings.TrimSpace(string(raw))
+	if arguments == "" || !json.Valid([]byte(arguments)) {
+		return "{}"
+	}
+	return arguments
 }
 
 func anthropicPromptUsage(usage *anthropicUsage) *Usage {

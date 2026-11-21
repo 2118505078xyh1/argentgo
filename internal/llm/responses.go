@@ -183,6 +183,84 @@ func (c *ResponsesClient) Chat(
 	return reply, nil
 }
 
+// ChatOnce 以非流式模式获取一个助手轮次，供流中断后的回退路径使用。
+// 它复用 buildRequest 生成与 Chat 完全一致的请求，只把 stream 置为 false，
+// 并把单个 JSON 响应文档映射为 Message。鉴权、重试、trace 与尝试上报
+// 路径均与 Chat 相同；默认流式 Chat 的线协议字节不受影响。
+func (c *ResponsesClient) ChatOnce(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	tools []ToolSpec,
+) (Message, error) {
+	start := time.Now()
+	if strings.TrimSpace(model) == "" {
+		err := errors.New("responses: model is required")
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		return Message{}, err
+	}
+	req := c.buildRequest(model, messages, tools)
+	req.Stream = false
+	payload, err := json.Marshal(req)
+	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		return Message{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	policy := c.Retry
+	if policy.IsZero() {
+		policy = DefaultRetryPolicy()
+	}
+	if policy.OnRetry == nil && c.Options.AttemptHook != nil {
+		hook := c.Options.AttemptHook
+		policy.OnRetry = func(attempt RetryAttempt) {
+			emitAttempt(hook, AttemptRecord{
+				Kind:       AttemptRetry,
+				Protocol:   ProtocolResponses,
+				Model:      model,
+				Attempt:    attempt.Attempt,
+				StatusCode: attempt.StatusCode,
+				ErrorClass: attempt.Cause,
+			})
+		}
+	}
+	resp, err := policy.Do(ctx, func(ctx context.Context) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		if c.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
+		ApplyExtraHeaders(req)
+		return c.httpClient().Do(req)
+	})
+	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
+		return Message{}, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		err := providerError(resp)
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(AttemptFailed, ProtocolResponses, model, err))
+		return Message{}, err
+	}
+
+	reply, err := decodeResponsesOnce(resp.Body)
+	if err != nil {
+		recordTrace(ProtocolResponses, model, nil, start, err, "")
+		emitAttempt(c.Options.AttemptHook, NewAttemptRecord(ClassifyError(err), ProtocolResponses, model, err))
+		return Message{}, err
+	}
+	recordTrace(ProtocolResponses, model, reply.Usage, start, nil, "ok")
+	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolResponses, Model: model})
+	return reply, nil
+}
+
 func (c *ResponsesClient) endpoint() string {
 	base := strings.TrimRight(c.BaseURL, "/")
 	switch {
@@ -331,22 +409,46 @@ type responsesEvent struct {
 		IncompleteDetails *struct {
 			Reason string `json:"reason"`
 		} `json:"incomplete_details"`
-		Usage *struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-			// CacheWriteTokens 在部分网关上直接放在 usage 顶层；它们的
-			// 写入量会被下游成本核算读取，遗漏会悄悄低估开销。
-			CacheWriteTokens   int `json:"cache_write_tokens"`
-			InputTokensDetails *struct {
-				CachedTokens int `json:"cached_tokens"`
-				// CacheWriteTokens 是网关在细分里报告的缓存写入量，
-				// 与顶层的同名字段二选一（细分优先）。
-				CacheWriteTokens int `json:"cache_write_tokens"`
-			} `json:"input_tokens_details"`
-		} `json:"usage"`
+		Usage *responsesUsage `json:"usage"`
 		Error *responsesError `json:"error"`
 	} `json:"response"`
 	Error *responsesError `json:"error"`
+}
+
+// responsesUsage 是 Responses 协议报告的一次回复用量。
+type responsesUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	// CacheWriteTokens 在部分网关上直接放在 usage 顶层；它们的
+	// 写入量会被下游成本核算读取，遗漏会悄悄低估开销。
+	CacheWriteTokens   int `json:"cache_write_tokens"`
+	InputTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+		// CacheWriteTokens 是网关在细分里报告的缓存写入量，
+		// 与顶层的同名字段二选一（细分优先）。
+		CacheWriteTokens int `json:"cache_write_tokens"`
+	} `json:"input_tokens_details"`
+}
+
+// responsesPromptUsage 把 Responses 的线协议用量映射为中立 Usage。
+// 细分字段优先：同一份用量里两处都出现时，input_tokens_details
+// 是更精确的来源。nil 用量保持 nil，与流式路径的既有行为一致。
+func responsesPromptUsage(usage *responsesUsage) *Usage {
+	if usage == nil {
+		return nil
+	}
+	mapped := &Usage{
+		PromptTokens:     usage.InputTokens,
+		CompletionTokens: usage.OutputTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
+	}
+	if details := usage.InputTokensDetails; details != nil {
+		mapped.CachedTokens = details.CachedTokens
+		if details.CacheWriteTokens > 0 {
+			mapped.CacheWriteTokens = details.CacheWriteTokens
+		}
+	}
+	return mapped
 }
 
 type responsesError struct {
@@ -562,19 +664,7 @@ streamLoop:
 				}
 			}
 			if event.Response != nil && event.Response.Usage != nil {
-				usage = &Usage{
-					PromptTokens:     event.Response.Usage.InputTokens,
-					CompletionTokens: event.Response.Usage.OutputTokens,
-					CacheWriteTokens: event.Response.Usage.CacheWriteTokens,
-				}
-				if details := event.Response.Usage.InputTokensDetails; details != nil {
-					usage.CachedTokens = details.CachedTokens
-					// 细分字段优先：同一份用量里若两处都出现，
-					// input_tokens_details 是更精确的来源。
-					if details.CacheWriteTokens > 0 {
-						usage.CacheWriteTokens = details.CacheWriteTokens
-					}
-				}
+				usage = responsesPromptUsage(event.Response.Usage)
 			}
 			integrity.terminated = true
 			break streamLoop
@@ -636,6 +726,109 @@ streamLoop:
 		ToolCalls:    calls,
 		Reasoning:    reasoning.String(),
 		Usage:        usage,
+		FinishReason: finishReason,
+	}, nil
+}
+
+// responsesOnceResponse 是 Responses API 非流式单次响应的最小解码结构。
+type responsesOnceResponse struct {
+	ID                string                    `json:"id"`
+	Status            string                    `json:"status"`
+	Output            []responsesOnceOutputItem `json:"output"`
+	Usage             *responsesUsage           `json:"usage"`
+	IncompleteDetails *struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details"`
+	Error *responsesError `json:"error"`
+}
+
+// responsesOnceOutputItem 覆盖非流式响应中常见的三种输出项：
+// message（文本）、reasoning（推理摘要）与 function_call（工具调用）。
+type responsesOnceOutputItem struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	CallID    string          `json:"call_id"`
+	Name      string          `json:"name"`
+	Arguments string          `json:"arguments"`
+	Content   []responsesPart `json:"content"`
+	Summary   []responsesPart `json:"summary"`
+}
+
+// decodeResponsesOnce 把单个 JSON 响应映射为助手轮次。工具参数在单次
+// 响应中已是完整字符串，因此不需要流式路径的增量拼接。
+func decodeResponsesOnce(body io.Reader) (Message, error) {
+	var response responsesOnceResponse
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return Message{}, fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return Message{}, fmt.Errorf("decode response: %s", RedactError(err))
+	}
+	if response.Error != nil {
+		message := firstNonEmpty(response.Error.Message, "unknown provider error")
+		return Message{}, fmt.Errorf("provider error: %s", RedactText(message))
+	}
+	if response.Status == "failed" {
+		return Message{}, errors.New("responses: provider reported failed status")
+	}
+
+	var (
+		text      strings.Builder
+		reasoning strings.Builder
+		calls     []ToolCall
+		used      = make(map[string]struct{})
+	)
+	for _, item := range response.Output {
+		switch item.Type {
+		case "message":
+			for _, part := range item.Content {
+				text.WriteString(part.Text)
+			}
+		case "reasoning":
+			for _, part := range item.Summary {
+				reasoning.WriteString(part.Text)
+			}
+		case "function_call":
+			arguments := strings.TrimSpace(item.Arguments)
+			if arguments == "" || !json.Valid([]byte(arguments)) {
+				arguments = "{}"
+			}
+			call := ToolCall{
+				ID:   firstNonEmpty(item.CallID, item.ID),
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      item.Name,
+					Arguments: arguments,
+				},
+			}
+			if call.ID != "" {
+				used[call.ID] = struct{}{}
+			}
+			calls = append(calls, call)
+		}
+	}
+	// 先收集所有真实 id，再为缺失者分配回退 id，
+	// 使生成的 "call_N" 绝不与真实 id 重复。
+	for i := range calls {
+		if calls[i].ID == "" {
+			calls[i].ID = uniqueToolCallID(used, "call_", i+1)
+		}
+	}
+	if text.Len() == 0 && reasoning.Len() == 0 && len(calls) == 0 {
+		return Message{}, errors.New("responses: empty output in non-stream response")
+	}
+
+	finishReason := response.Status
+	if response.IncompleteDetails != nil && response.IncompleteDetails.Reason != "" {
+		finishReason = response.IncompleteDetails.Reason
+	}
+	return Message{
+		Role:         "assistant",
+		Content:      text.String(),
+		ToolCalls:    calls,
+		Reasoning:    reasoning.String(),
+		Usage:        responsesPromptUsage(response.Usage),
 		FinishReason: finishReason,
 	}, nil
 }

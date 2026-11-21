@@ -212,6 +212,13 @@ type Options struct {
 	// 避免同一份超长请求在同一轮次里反复空转。
 	EnableCompactRetry bool
 
+	// EnableStreamRecovery 启用选择性的"流中断后非流式回补"恢复路径。
+	// 默认 false：未设置的运行与引入该路径之前逐字节一致。
+	// 开启后仍须同时满足提供方流错误、已捕获部分文本、context 未取消，且 Chatter
+	// 实现了 streamOnceChatter，才会用同一 model/messages/tools 再发一次非流式补全；
+	// 每轮最多一次，补不到就沿用原有失败路径。
+	EnableStreamRecovery bool
+
 	// Steer 在轮次之间被抽取；每个值都会成为一条用户消息。
 	Steer <-chan string
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。

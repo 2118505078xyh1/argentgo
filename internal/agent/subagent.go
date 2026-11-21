@@ -571,7 +571,7 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		fb[0] = model
 		fallback = fb
 	}
-	return Options{
+	opts := Options{
 		Model:            model,
 		FallbackModels:   fallback,
 		MaxTurns:         budget.MaxTurns,
@@ -599,6 +599,10 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		// （通过 newToolset），因此即使同级子级共享深度，该子级也只抽取自己的结果。
 		bgOwner: t.nextOwner(),
 	}
+	// 流中断回补按值继承父级开关：子 agent 的 Chatter 与父级相同，
+	// 因此父级 opt-in 时子级也具备同样的恢复能力，默认关时保持原样。
+	opts.EnableStreamRecovery = t.parent.EnableStreamRecovery
+	return opts
 }
 
 // nextOwner 从本树的队列中分配一个新的投递身份。未配置队列时返回零值，

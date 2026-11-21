@@ -191,6 +191,31 @@ func planModeEnabled(env func(string) string, res Resolved) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_PLAN_MODE")) == "1"
 }
 
+// wireExitPlan 在 plan 模式开启时，为本次运行的每个工具注册表安装解锁回调，
+// 并注册 exit_plan 工具。回调是一个共享闭包，持有本次运行的 chain 并调用
+// EnablePlanMode(false) 解除只规划守卫；因此任意一个注册表触发 exit_plan
+// 都会解锁整次运行。
+//
+// 默认（plan 模式关闭）时它直接返回，不触碰任何注册表、不注册工具，
+// Specs()/公布的工具目录逐字节不变。
+//
+// 并发语义：chain 的 planMode 是原子标志，切换与守卫检查均并发安全；
+// 解锁按"下一步生效"——同批并行工具可能在解锁之前就通过了守卫检查，
+// 只有后续的工具调用才不再被 plan 守卫拦截。
+func wireExitPlan(enabled bool, chain *security.Chain, regs []*tools.Registry) {
+	if !enabled {
+		return
+	}
+	unlock := func() { chain.EnablePlanMode(false) }
+	for _, r := range regs {
+		if r == nil {
+			continue
+		}
+		r.SetPlanUnlock(unlock)
+		tools.RegisterExitPlan(r)
+	}
+}
+
 // checkpointWorkspaceDiffEnabled 报告是否启用"工作区差异检查点"增强：把 shell
 // 等命令造成的间接文件改动也纳入检查点，使 /undo 可还原。默认关闭（fail-closed），
 // 关闭时检查点与会话字节与启用前逐字节相同。
@@ -318,7 +343,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	chain := security.NewChain(policy, approver, audit, sess.ID())
 	// plan 模式（可选）：启用后修改类命令在审批前被拒并给模型可读的恢复提示。
 	// 默认关闭时 EnablePlanMode(false) 与零值等价，chain 决策逐字节不变。
-	chain.EnablePlanMode(planModeEnabled(stdio.Env, res))
+	planMode := planModeEnabled(stdio.Env, res)
+	chain.EnablePlanMode(planMode)
 
 	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
 	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。Guardian 由
@@ -327,6 +353,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
+
+	// plan 模式开启时把解锁回调接到每个工具注册表并注册 exit_plan。
+	// 关闭时 wireExitPlan 直接返回，不触碰注册表，逐字节不变。
+	wireExitPlan(planMode, chain, toolset.base.regs)
 
 	// 后台作业注册表（opt-in ARGENT_JOBS / ARGENT_OPT_INS=jobs）：默认关闭时
 	// wireJobs 无副作用，jobRegistry 仍为 nil，background_after_ms 被静默忽略。
