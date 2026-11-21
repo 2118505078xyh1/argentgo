@@ -73,6 +73,9 @@ type runState struct {
 	// stuck 监视事件模式中的重复循环。接收者可为 nil 的 Observe
 	// 使手工构建的 runState 在没有它的情况下也安全。
 	stuck *StuckDetector
+	// guidance 记录失败指引的去重状态；零值即可使用。只有在 guidanceDedupe
+	// opt-in 开启时才被查询，默认运行完全不触碰它。
+	guidance GuidanceState
 
 	usage        llm.Usage
 	costUSD      float64
@@ -299,8 +302,18 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.emit(Event{Kind: EventStop, Reason: stopRepeatedMistakes})
 			return s.result(stopRepeatedMistakes), nil
 		} else if action.Guidance != "" {
-			s.messages = append(s.messages, llm.Message{Role: "user", Content: action.Guidance})
-			s.record("mistake_guidance", nudgePayload(action.Guidance))
+			// 失败指引逐轮原样注入会淹没上下文：Trim 只裁剪工具消息，用户轮次会一直堆积到压缩。
+			// opt-in 开启时以错误种类作为签名去重，同一次连续失败期间同一种类只注入一次；
+			// 这里刻意不用 count——它每轮递增，会破坏去重。关闭（默认）时走原路径，每轮照常注入，行为逐字节不变。
+			if !guidanceDedupeEnabled() || s.guidance.ShouldInject(string(action.Kind)) {
+				s.messages = append(s.messages, llm.Message{Role: "user", Content: action.Guidance})
+				s.record("mistake_guidance", nudgePayload(action.Guidance))
+			}
+		} else if guidanceDedupeEnabled() {
+			// 没有指引动作意味着连续失败序列已被某次工具成功清零（或尚未开始）。
+			// 这是 loop 侧可见的成功轨迹：借此清空去重状态，使下一段失败能重新注入同一种子指引。
+			// dispatch.go 的成功 Reset 无法在此层直接调用，故用该信号等效替代；关闭 opt-in 时不触碰状态。
+			s.guidance.Reset()
 		}
 		if s.turns >= s.maxTurns {
 			// 取消可能是在循环的顶部轮次检查之后才到达的（例如在抽取控制消息时）。

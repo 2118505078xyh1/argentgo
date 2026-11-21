@@ -31,6 +31,11 @@ const (
 	// token 计数。追加在枚举末尾以保持既有种类数值稳定；没有该事件时
 	// 模型不调用 SetUsage/SetCachedTokens，用量恒为零、帧字节不变。
 	TuiEventUsage EventKind = "usage"
+	// TuiEventTurnStart / TuiEventTurnEnd 标记一个 agent 回合的边界。
+	// app 侧发送同名字符串事件；两者都不直接产生记录，只有随后到达的
+	// Usage 才结算统计行（agent 的顺序是 TurnEnd → Usage）。
+	TuiEventTurnStart EventKind = "turn_start"
+	TuiEventTurnEnd   EventKind = "turn_end"
 )
 
 // Event 是 agent 事件流面向前端的子集。tui 保留自己的
@@ -103,6 +108,38 @@ func (m *Model) HandleEvent(event Event) {
 		// 不可重入的 sync.Mutex 再次加锁而死锁。
 		m.setUsageLocked(event.PromptTokens, event.CompletionTokens)
 		m.setCachedTokensLocked(event.CachedTokens)
+		// 增量速度：相邻两次 Usage 的补全 token 差除以墙钟差。
+		// 首次事件没有基线、Δt<=0 或 Δtokens<=0 都不产生速率，
+		// 因此绝不会出现 NaN/Inf，也保持无用量时的帧字节不变。
+		now := m.now()
+		if !m.usageLastAt.IsZero() && now.After(m.usageLastAt) {
+			delta := event.CompletionTokens - m.usageLastTokens
+			if delta > 0 {
+				rate := float64(delta) / now.Sub(m.usageLastAt).Seconds()
+				if rate > maxTokenRate {
+					rate = maxTokenRate
+				}
+				m.usageRate = formatTokenRate(rate)
+			}
+		}
+		m.usageLastTokens, m.usageLastAt = event.CompletionTokens, now
+		// 统计行在 TurnStart 打点后累计输出 token；只有收到 Usage
+		// 才结算（agent 先发 TurnEnd 再发 Usage）。
+		m.turnOutTokens += event.CompletionTokens
+		if m.turnStatsPending {
+			m.finalizeTurnStatsLocked()
+		}
+	case TuiEventTurnStart:
+		// 打点并清零上一轮的残留。仅打点不改变任何渲染字节。
+		m.turnStartAt = m.now()
+		m.turnOutTokens = 0
+		m.turnStatsPending = false
+	case TuiEventTurnEnd:
+		// 只标记待结算，绝不在此处 append 记录：Usage 尚未到达，
+		// 此刻的输出 token 数还不知道。
+		if !m.turnStartAt.IsZero() {
+			m.turnStatsPending = true
+		}
 	}
 }
 

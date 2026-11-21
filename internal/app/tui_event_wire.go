@@ -10,8 +10,11 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// tuiUsageVisible 控制是否把 EventUsage 映射成 TUI 用量事件。默认 0（关闭），
+// tuiUsageVisible 控制 TUI 头部用量/成本行是否可见。默认 0（关闭），
 // 因此 TUI 帧字节与接线前逐字节相同；仅在 ARGENT_TUI_USAGE=1 时由 TUI 入口开启。
+//
+// 门控下沉到渲染层：事件桥接器始终转发 usage 事件（统计行需要 token 数），
+// 由 OnReady 里的 Model.SetUsageVisible 决定是否把用量显示在头部。
 var tuiUsageVisible atomic.Bool
 
 // configureTUIUsage 按注入的 env 设置用量显示门控。env 为 nil 或值不为 "1" 时关闭。
@@ -19,13 +22,30 @@ func configureTUIUsage(env func(string) string) {
 	tuiUsageVisible.Store(env != nil && strings.TrimSpace(env("ARGENT_TUI_USAGE")) == "1")
 }
 
+// tuiUsageVisibilitySetter 是 tui.Model 的按需能力接口，约定方法名为 SetUsageVisible。
+// 这里用可选接口而非直接调用，使 app 包在 tui 代理并行补齐该 API 之前仍能编译；
+// 一旦 setter 落地，类型断言即成功，门控自动下沉到渲染层。
+// 若 tui 最终采用别的名字（如 ConfigureUsage），只需改这一处接口定义。
+type tuiUsageVisibilitySetter interface {
+	SetUsageVisible(visible bool)
+}
+
+// setTUIUsageVisible 把 opt-in 门控交给渲染层。tui 尚未提供 setter 时为空操作，
+// 此时由主会话在 tui API 就绪后确认接线即可；app 侧逻辑保持不变。
+// 参数用 any 而非 *tui.Model，便于用假实现守护"门控确实下沉"这条契约。
+func setTUIUsageVisible(model any, visible bool) {
+	if setter, ok := model.(tuiUsageVisibilitySetter); ok {
+		setter.SetUsageVisible(visible)
+	}
+}
+
 // tuiEventBridgeCap 是 TUI 事件循环前面的缓冲区。run.go 每帧都会抽取它；缓冲区满意味着
 // UI 确实落后了，因此丢弃单个事件，而不是拖住共享 hub（那会淘汰这个订阅者并丢失后续流）。
 const tuiEventBridgeCap = 256
 
 // AgentToTUIEvent 把一个 agent 事件转换为全屏 UI 消费的、面向前端的子集。
-// internal/tui.EventKind 对应两种工具事件、错误、重试和用量（见 internal/tui/events.go）；
-// 没有文本、通知或审批种类，因此这些事件没有 TUI 映射，返回 false。
+// internal/tui.EventKind 对应轮次边界、两种工具事件、工具阶段进度、错误、重试和用量
+// （见 internal/tui/events.go）；没有文本、审批和普通通知种类，这些事件返回 false。
 //
 // 文本增量通过 Execute 的 onText 回调到达 TUI，而不是这个通道。审批卡片由 Model.Approve 创建
 // （由 app 的 Approver 调用），并在匹配的 tool_start 到达时就地提升；
@@ -35,6 +55,12 @@ const tuiEventBridgeCap = 256
 // 返回 false 可以安全忽略：HandleEvent 本来就会忽略未知种类。
 func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	switch e.Kind {
+	case agent.EventTurnStart:
+		// 轮次边界用于统计行的"当前轮次"。字符串种类与 tui 侧
+		// TuiEventTurnStart/TuiEventTurnEnd 一致，避免 app 反向依赖新增常量。
+		return tui.Event{Kind: "turn_start"}, true
+	case agent.EventTurnEnd:
+		return tui.Event{Kind: "turn_end"}, true
 	case agent.EventToolStart:
 		return tui.Event{
 			Kind:       tui.EventToolStart,
@@ -72,7 +98,8 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	case agent.EventUsage:
 		// 取当轮增量 Usage 而非 TotalUsage：account() 不累加 CachedTokens，
 		// TotalUsage.Cached 恒为零，TUI 每帧只展示本轮的缓存用量。
-		// 是否转发到 TUI 由 StartTUIEventBridge 的 opt-in 门控决定。
+		// 事件始终转发（统计行需要 token）；是否显示在头部由渲染层的
+		// SetUsageVisible 门控，桥接层不再过滤。
 		return tui.Event{
 			Kind:             tui.TuiEventUsage,
 			PromptTokens:     e.Usage.PromptTokens,
@@ -84,6 +111,11 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
 		if kind, _, _, _, ok := agent.ParseApprovalEvent(e); ok && kind != "" {
 			return tui.Event{}, false
+		}
+		// 工具阶段进度通知转成 TUI 的 tool_progress 事件，供侧边栏显示阶段标签。
+		// 其余普通通知仍无 TUI 映射，返回 false 由 HandleEvent 忽略。
+		if label, ok := tui.ParseToolProgress(e.Text); ok {
+			return tui.Event{Kind: tui.EventToolProgress, Detail: label}, true
 		}
 		return tui.Event{}, false
 	default:
@@ -115,10 +147,8 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 				if !ok {
 					continue
 				}
-				// 用量事件 opt-in：默认关闭时不转发，TUI 帧字节与接线前逐字节相同。
-				if tevt.Kind == tui.TuiEventUsage && !tuiUsageVisible.Load() {
-					continue
-				}
+				// usage / turn / tool_progress 一律转发：统计行与阶段行依赖这些事件，
+				// opt-in 语义由渲染层的 SetUsageVisible 控制，桥接层不再过滤。
 				select {
 				case out <- tevt:
 				case <-ctx.Done():

@@ -17,6 +17,9 @@ const (
 	EntryReasoning
 	EntryTool
 	EntryNotice
+	// EntryStats 是一轮结束后的单行统计（模型 · 时长 · tok/s）。
+	// 追加在末尾以保持既有种类的数值稳定。
+	EntryStats
 )
 
 // AttemptKind 是附着在记录块上的未提交结果。
@@ -77,6 +80,20 @@ type BufferPos struct {
 	Col int
 }
 
+// bodyHit 把一个记录条目的渲染行范围映射到屏幕坐标。top 含、
+// bottom 不含；reasoningBodyHits 相对于记录顶部，reasoningHits 已由
+// Paint 转成 0 基屏幕行，供 MouseDown 做命中测试。
+type bodyHit struct {
+	index       int // entries 下标（entries 只追加，下标稳定）
+	top, bottom int
+}
+
+// completionHit 是补全面板中一条候选的可点击区域（屏幕行与列区间）。
+type completionHit struct {
+	index               int // visibleCommands 下标
+	row, colFrom, colTo int
+}
+
 // TurnAction 是 undo / retry / rename 的窄接缝。TUI 从不
 // 导入 session 或 app 包；由集成方提供行为。
 type TurnAction func(ctx context.Context, arg string) error
@@ -111,19 +128,22 @@ const (
 // 按条目保留它（而非整个正文一个键），
 // 使流式增量或工具状态变化只重绘单个块。
 type entryCacheKey struct {
-	kind       EntryKind
-	text       string
-	name       string
-	args       string
-	output     string
-	running    bool
-	failed     bool
-	attempt    AttemptKind
-	width      int
-	expanded   bool
-	noColor    bool
-	themeEpoch int
-	locale     string
+	kind     EntryKind
+	text     string
+	name     string
+	args     string
+	output   string
+	running  bool
+	failed   bool
+	attempt  AttemptKind
+	width    int
+	expanded bool
+	// reasoningExpanded 是单条思考块的展开态，加入缓存键确保点击
+	// 展开/折叠后缓存行立即失效。
+	reasoningExpanded bool
+	noColor           bool
+	themeEpoch        int
+	locale            string
 }
 
 // entryCacheSlot 是与 Model.entries 按下标对齐的一个已渲染条目。
@@ -157,6 +177,15 @@ type Model struct {
 	editor    Editor
 	stream    strings.Builder
 	streamBuf MarkdownStreamBuf // holds back incomplete markdown markers
+
+	// reasoningExpanded 逐条记录思考块的展开状态，key 是 entries 下标。
+	// entries 只在尾部追加（/clear 会整体清空），因此下标不会漂移。
+	// 默认 nil 表示全部折叠，使经典单行摘要路径逐字节不变。
+	reasoningExpanded map[int]bool
+	// reasoningBodyHits / reasoningHits 是上一次 Paint 记录的思考块
+	// 行范围，分别为记录相对坐标与屏幕坐标。它们不参与脏标记。
+	reasoningBodyHits []bodyHit
+	reasoningHits     []bodyHit
 
 	scroll      int
 	bodyH       int
@@ -196,7 +225,23 @@ type Model struct {
 	usageIn     int
 	usageOut    int
 	usageCached int
-	expanded    bool
+	// usageVisible 是头部/状态栏用量与成本行的渲染门控。默认 false，
+	// 使未显式开启时 TUI 帧字节与接线前逐字节一致；只有 opt-in
+	// （ARGENT_TUI_USAGE=1，由 app 入口的 SetUsageVisible 下沉）才显示。
+	usageVisible bool
+	// usageRate 是相邻两次 Usage 事件之间的输出速度，形如 "45 tok/s"。
+	// 空字符串表示没有可计算的速率，因此用量行保持经典字节。
+	// usageLastTokens/usageLastAt 是上一帧 Usage 的基线；两者在首个
+	// 事件之前为零值，使首帧不会产生 ∞ 或 NaN。
+	usageRate       string
+	usageLastTokens int
+	usageLastAt     time.Time
+	// 回合统计的打点与结算状态。TurnStart 打点，TurnEnd 只置 pending，
+	// 真正 append EntryStats 由随后的 Usage 事件触发。
+	turnStartAt      time.Time
+	turnOutTokens    int
+	turnStatsPending bool
+	expanded         bool
 
 	// 可选的头部元数据。两者都未设置时，头部保持这些字段
 	// 出现之前的经典样式。
@@ -242,6 +287,11 @@ type Model struct {
 	commandsCursor int
 	commandsScroll int
 	completion     *CompletionState
+	// completionOverlay 是输入 `/` 后自动弹出的浮层开关，与 showCommands
+	// 的侧栏语义完全分离：Ctrl+O 仍只切换侧栏，旧帧字节不变。
+	completionOverlay bool
+	// completionHits 是上一次 Paint 记录的浮层候选可点击区域。
+	completionHits []completionHit
 
 	pending       *approvalRequest
 	approvalQueue []approvalRequest
@@ -284,6 +334,16 @@ func New(cfg Config) *Model {
 	return m
 }
 
+// SetUsageVisible 控制头部与状态栏是否显示用量/成本行。默认关闭，
+// 使帧字节与 opt-in 门控接入前逐字节一致；开启后用量行才会渲染。
+// 从任何 goroutine 调用都是安全的（由 Model.mu 保护）。
+func (m *Model) SetUsageVisible(visible bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.usageVisible = visible
+	m.markDirtyLocked()
+}
+
 // SetContextInfo 提供可选的头部元数据：模型的 context
 // 窗口（用于用量百分比）和预格式化的成本字符串。传入 0
 // 和 "" 恢复原始头部。在 run 循环绘制时调用是安全的。
@@ -299,14 +359,62 @@ func (m *Model) SetContextInfo(window int, cost string) {
 }
 
 // MouseDown 在基于 0 的缓冲区位置开始选择。它替换任何
-// 先前的选择。
+// 先前的选择。命中的思考行会被点击展开/折叠，命中的补全候选会被
+// 接受；只有两者都未命中时才进入经典文本选择路径。
 func (m *Model) MouseDown(col, row int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if hit, ok := m.completionHitLocked(col, row); ok {
+		m.completion.Select(hit.index)
+		m.commandsCursor = hit.index
+		m.markDirtyLocked()
+		m.acceptCompletionLocked()
+		return
+	}
+	if idx, ok := m.reasoningHitLocked(col, row); ok {
+		if m.reasoningExpanded == nil {
+			m.reasoningExpanded = map[int]bool{}
+		}
+		m.reasoningExpanded[idx] = !m.reasoningExpanded[idx]
+		m.version++
+		m.markDirtyLocked()
+		return
+	}
 	m.selAnchor = BufferPos{Row: row, Col: col}
 	m.selActive = m.selAnchor
 	m.selecting = true
 	m.markDirtyLocked()
+}
+
+// reasoningHitLocked 报告屏幕位置落在哪个思考块的行范围内。
+// 行范围来自上一次 Paint；条目已被清空或不再是思考块时视为未命中。
+func (m *Model) reasoningHitLocked(col, row int) (int, bool) {
+	if col < 0 || row < 0 {
+		return 0, false
+	}
+	for _, hit := range m.reasoningHits {
+		if row < hit.top || row >= hit.bottom {
+			continue
+		}
+		if hit.index < 0 || hit.index >= len(m.entries) || m.entries[hit.index].Kind != EntryReasoning {
+			continue
+		}
+		return hit.index, true
+	}
+	return 0, false
+}
+
+// completionHitLocked 报告屏幕位置是否落在补全浮层的某条候选上。
+func (m *Model) completionHitLocked(col, row int) (completionHit, bool) {
+	if !m.completionOverlay || row < 0 {
+		return completionHit{}, false
+	}
+	for _, hit := range m.completionHits {
+		if row == hit.row && col >= hit.colFrom && col <= hit.colTo {
+			return hit, true
+		}
+	}
+	return completionHit{}, false
 }
 
 // MouseDrag 扩展当前选择。没有活动 MouseDown 的拖拽被

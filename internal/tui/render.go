@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -142,6 +143,23 @@ func (m *Model) Paint(buf *Buffer) {
 		}
 		m.paintLineAt(buf, l.bodyTop+i, l.bodyX, body[index])
 	}
+	// 把记录相对的行范围换算成屏幕行，供点击展开/折叠使用。
+	// 视口外的思考块只保留可见片段，完全不可见的不记录。
+	m.reasoningHits = m.reasoningHits[:0]
+	for _, hit := range m.reasoningBodyHits {
+		top := l.bodyTop + hit.top - start
+		bottom := l.bodyTop + hit.bottom - start
+		if bottom <= l.bodyTop || top >= l.bodyTop+l.bodyH {
+			continue
+		}
+		if top < l.bodyTop {
+			top = l.bodyTop
+		}
+		if bottom > l.bodyTop+l.bodyH {
+			bottom = l.bodyTop + l.bodyH
+		}
+		m.reasoningHits = append(m.reasoningHits, bodyHit{index: hit.index, top: top, bottom: bottom})
+	}
 
 	if l.panelW > 0 {
 		m.paintPanels(buf, l)
@@ -151,6 +169,8 @@ func (m *Model) Paint(buf *Buffer) {
 		m.paintApproval(buf, l)
 	}
 
+	// 浮层覆盖在记录区之上、输入框之上，不占据 hintY/statusY。
+	m.paintCompletionOverlay(buf, l)
 	m.paintInput(buf, l)
 	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil, m.palette.dim()))
 	m.paintLine(buf, l.statusY, m.statusLineLocked(width))
@@ -272,22 +292,45 @@ func (m *Model) headerLocked(width int) Line {
 		first = false
 		right.Push(text, style)
 	}
-	if m.usageIn+m.usageOut > 0 {
-		push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
-	}
-	if m.usageCached > 0 {
-		push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
-	}
-	if m.contextWindow > 0 {
-		used := int64(m.usageIn) + int64(m.usageOut)
-		pct := used * 100 / int64(m.contextWindow)
-		if pct > 100 {
-			pct = 100
+	// 用量/成本行整体受 usageVisible opt-in 门控：门关时不渲染这些行，
+	// 使默认帧字节与门控接入前逐字节一致。clock/主题等非用量信息照常显示。
+	if m.usageVisible {
+		if m.usageIn+m.usageOut > 0 {
+			push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
+			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100，
+			// 因此 cached>prompt 也只会显示 100%，绝不会产生 NaN。
+			if m.usageIn > 0 {
+				pct := int(float64(m.usageCached) / float64(m.usageIn) * 100)
+				if pct < 0 {
+					pct = 0
+				}
+				if pct > 100 {
+					pct = 100
+				}
+				push("CH "+strconv.Itoa(pct)+"%", m.palette.muted())
+			}
+			// 生成速度来自相邻 Usage 事件的增量；无第二个事件时
+			// usageRate 为空，整个头部与经典实现逐字节一致。
+			if m.usageRate != "" {
+				push("⚡ "+m.usageRate, m.palette.muted())
+			}
 		}
-		push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
-	}
-	if m.cost != "" {
-		push(m.cost, m.palette.muted())
+		if m.usageCached > 0 {
+			push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
+		}
+		// contextWindow > 0 仍只是数据门控；渲染层再叠加 usageVisible，
+		// 因此 SetContextInfo 只存数据，不决定是否显示。
+		if m.contextWindow > 0 {
+			used := int64(m.usageIn) + int64(m.usageOut)
+			pct := used * 100 / int64(m.contextWindow)
+			if pct > 100 {
+				pct = 100
+			}
+			push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
+		}
+		if m.cost != "" {
+			push(m.cost, m.palette.muted())
+		}
 	}
 	push(clock(int(m.now().Sub(m.started).Seconds())), m.palette.muted())
 	right.Push(" ", dot)
@@ -312,6 +355,20 @@ func (m *Model) headerLocked(width int) Line {
 		left.Push(smartShortenPath(m.root, budget), m.palette.muted())
 	}
 	return joinLine(clipLine(left, room), right, width)
+}
+
+// folderLabel 只取当前工作目录的 basename（不显示全路径），在状态栏
+// 占用极小的空间。root 为空或仅表示根目录时返回空串，使没有 Root 的
+// 模型与历史帧逐字节一致。Clip 按字素簇裁剪，CJK 文件夹名不会被切开。
+func folderLabel(root string, width int) string {
+	if root == "" {
+		return ""
+	}
+	base := filepath.Base(filepath.Clean(root))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return Clip(base, maxInt(width/4, 8))
 }
 
 func (m *Model) statusLineLocked(width int) Line {
@@ -349,11 +406,18 @@ func (m *Model) statusLineLocked(width int) Line {
 	if m.scroll > 0 {
 		parts = append(parts, "↑"+strconv.Itoa(m.scroll))
 	}
-	if m.usageIn+m.usageOut > 0 {
-		parts = append(parts, compactCount(m.usageIn)+"/"+compactCount(m.usageOut))
+	// 与头部一致：用量行受 usageVisible 门控，门关时状态栏保持经典字节。
+	// 主题/scroll 等非用量信息不受影响。
+	if m.usageVisible {
+		if m.usageIn+m.usageOut > 0 {
+			parts = append(parts, compactCount(m.usageIn)+"/"+compactCount(m.usageOut))
+		}
+		if m.usageCached > 0 {
+			parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
+		}
 	}
-	if m.usageCached > 0 {
-		parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
+	if folder := folderLabel(m.root, width); folder != "" {
+		parts = append(parts, folder)
 	}
 	if len(parts) > 0 {
 		right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
@@ -492,21 +556,22 @@ func (m *Model) approvalLines(width int) []Line {
 // entryCacheKey 捕获所有可能改变某个条目渲染方式的输入。
 // 把它集中在这里，可在向 Entry 添加新字段时保持缓存诚实：
 // 忘记把它加入键只需在一处改一行。
-func (m *Model) entryCacheKeyLocked(entry Entry, width int) entryCacheKey {
+func (m *Model) entryCacheKeyLocked(entry Entry, index, width int) entryCacheKey {
 	return entryCacheKey{
-		kind:       entry.Kind,
-		text:       entry.Text,
-		name:       entry.Name,
-		args:       entry.Args,
-		output:     entry.Output,
-		running:    entry.Running,
-		failed:     entry.Failed,
-		attempt:    entry.Attempt,
-		width:      width,
-		expanded:   m.expanded,
-		noColor:    m.noColor,
-		themeEpoch: m.themeEpoch,
-		locale:     m.locale,
+		kind:              entry.Kind,
+		text:              entry.Text,
+		name:              entry.Name,
+		args:              entry.Args,
+		output:            entry.Output,
+		running:           entry.Running,
+		failed:            entry.Failed,
+		attempt:           entry.Attempt,
+		width:             width,
+		expanded:          m.expanded,
+		reasoningExpanded: m.reasoningExpanded[index],
+		noColor:           m.noColor,
+		themeEpoch:        m.themeEpoch,
+		locale:            m.locale,
 	}
 }
 
@@ -519,6 +584,8 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 		m.entryCache = m.entryCache[:len(m.entries)]
 	}
 	out := make([]Line, 0, len(m.entries)*2)
+	// 每次重绘都重新记录思考块的行范围：展开态或滚动变化后旧命中无效。
+	m.reasoningBodyHits = m.reasoningBodyHits[:0]
 	for i, entry := range m.entries {
 		var lines []Line
 		if entry.Kind == EntryReasoning || isLiveToolEntry(entry) {
@@ -527,14 +594,19 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 			// 但仍在索引 i 处存储一个槽，以保持缓存对齐。
 			lines = m.renderEntryLocked(entry, width)
 		} else {
-			key := m.entryCacheKeyLocked(entry, width)
+			key := m.entryCacheKeyLocked(entry, i, width)
 			if i < len(m.entryCache) && m.entryCache[i].key == key {
 				out = append(out, m.entryCache[i].lines...)
 				continue
 			}
 			lines = m.renderEntryLocked(entry, width)
 		}
-		slot := entryCacheSlot{key: m.entryCacheKeyLocked(entry, width), lines: lines}
+		if entry.Kind == EntryReasoning {
+			m.reasoningBodyHits = append(m.reasoningBodyHits, bodyHit{
+				index: i, top: len(out), bottom: len(out) + len(lines),
+			})
+		}
+		slot := entryCacheSlot{key: m.entryCacheKeyLocked(entry, i, width), lines: lines}
 		if i < len(m.entryCache) {
 			m.entryCache[i] = slot
 		} else {
@@ -575,8 +647,19 @@ func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 		}
 	case EntryNotice:
 		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
+	case EntryStats:
+		out = append(out, statLine(entry.Text, width, m.palette.dim()))
 	}
 	return out
+}
+
+// statLine 把一轮统计渲染为恰好一行 dim 文本。与 reasoningSummaryLine
+// 一样，它先 Clip 再按字素边界裁剪，CJK/emoji 不会被切开；空文本
+// 返回空行而不产生任何 span，因此无统计时帧字节不变。
+func statLine(text string, width int, style Style) Line {
+	line := NewLine()
+	line.Push(Clip(text, maxInt(width, 1)), style)
+	return clipLine(line, maxInt(width, 1))
 }
 
 // attemptLinesLocked 在所属行的上方绘制未提交结果徽章。
@@ -694,6 +777,9 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 			}
 			elapsed = slot.thinkingEnd.Sub(slot.thinkingAt)
 		}
+	}
+	if idx >= 0 && m.reasoningExpanded[idx] {
+		return m.reasoningExpandedLines(entry, width, elapsed, !live)
 	}
 	if ReasoningTailWindow {
 		return m.reasoningWindowedLines(entry, width, elapsed, !live)
@@ -1096,13 +1182,10 @@ func clipLine(line Line, width int) Line {
 	return out
 }
 
-// hintLine 是底部按键栏。
+// hintLine 是底部按键栏的预留位置。按用户要求不再显示提示文本，
+// 因此始终返回空行；hintY 仍由 layoutLocked 保留，使输入框、状态行
+// 与其他行号逐字节不变。ShortHelp / HintBindings / locale 的 hint
+// 字符串全部保留，供帮助与测试继续使用。
 func hintLine(width int, locale string, modal bool, style Style) Line {
-	hint := text(locale, "hint")
-	if modal {
-		hint = text(locale, "hint_modal")
-	}
-	line := NewLine()
-	line.Push(ShortHelp(HintBindings(hint), width, TextWidth), style)
-	return line
+	return Line{}
 }

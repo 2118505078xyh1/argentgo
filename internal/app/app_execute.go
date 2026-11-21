@@ -403,6 +403,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
+			// 只读沙箱下用统一判定先剔除修改类工具，防止带命名空间的
+			// MCP 修改类工具（如 mcp__server__write_file）被公布给模型。
+			specs = dropMutatingSpecs(res.Sandbox, specs)
 			if len(toolset.base.regs) == 0 {
 				return specs
 			}
@@ -666,6 +669,23 @@ func correctSchemaAnswer(ctx context.Context, chatter llm.Chatter, model, system
 		return reply.Content, nil
 	}
 	return streamed.String(), nil
+}
+
+// dropMutatingSpecs 在只读沙箱下用统一的 mutating 判定再过滤一次待公布的 spec。
+// 这是目录过滤之外的纵深防御：即使注册表未识别某个带命名空间的 MCP 工具名
+// （如 mcp__server__write_file），它也不会被公布给模型。其他沙箱模式原样返回。
+func dropMutatingSpecs(mode security.SandboxMode, specs []llm.ToolSpec) []llm.ToolSpec {
+	if mode != security.SandboxReadOnly {
+		return specs
+	}
+	kept := make([]llm.ToolSpec, 0, len(specs))
+	for _, spec := range specs {
+		if security.MutatingTool(spec.Function.Name) {
+			continue
+		}
+		kept = append(kept, spec)
+	}
+	return kept
 }
 
 func firstLine(text string, limit int) string {

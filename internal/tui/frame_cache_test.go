@@ -67,6 +67,7 @@ func TestFrameCacheKeyHitAndMiss(t *testing.T) {
 			func(m *Model) { m.SetContextInfo(1000, "$1") },
 			false, false,
 		},
+		{"usage_visible", func(m *Model) { m.SetUsageVisible(true) }, false, false},
 		{"status_is_time_sensitive", func(m *Model) { m.SetStatus("hi") }, false, false},
 		{"selection", func(m *Model) { m.MouseDown(3, 4) }, false, false},
 		{"theme", func(m *Model) { _ = m.SetTheme(ThemeLight) }, false, false},

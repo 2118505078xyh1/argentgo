@@ -4,7 +4,8 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"unicode"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // 在请求到达传输之前返回的哨兵错误。调用方可以用 errors.Is
@@ -179,7 +180,8 @@ func MarkMutating(name string) {
 }
 
 // IsMutating 报告 name 看起来是否是会改变状态的工具。它
-// 结合保守的内置启发式与 MarkMutating 添加的名称；
+// 结合保守的内置启发式（已下沉到零依赖的 security 包，与目录过滤和
+// 执行门控共用）与 MarkMutating 添加的名称；
 // 未知名称被视为只读，使新工具不会被悄悄
 // 允许写入。
 func IsMutating(name string) bool {
@@ -190,70 +192,10 @@ func IsMutating(name string) bool {
 	mutatingMu.RLock()
 	extra := mutatingExtra[strings.ToLower(key)]
 	mutatingMu.RUnlock()
-	return extra || builtinMutating(key)
+	return extra || security.MutatingTool(name)
 }
 
 func shortName(name string) string {
 	_, tool := splitQualified(strings.TrimSpace(name))
 	return tool
-}
-
-// mutatingVerbs 覆盖常见的写动词及其缩写。token 按
-// 精确比较，因此 "read_file" 不会被标记，而 "writeFile" 会。
-var mutatingVerbs = map[string]bool{
-	"add": true, "append": true, "apply": true, "bash": true, "bootstrap": true,
-	"checkout": true, "chmod": true, "chown": true, "clean": true, "clear": true,
-	"commit": true, "configure": true, "copy": true, "cp": true, "create": true,
-	"del": true, "delete": true, "deploy": true, "disable": true, "drop": true,
-	"edit": true, "enable": true, "exec": true, "execute": true, "fix": true,
-	"fmt": true, "format": true, "grant": true, "init": true, "insert": true,
-	"install": true, "kill": true, "migrate": true, "mkdir": true, "modify": true,
-	"move": true, "mv": true, "new": true, "overwrite": true, "patch": true,
-	"post": true, "publish": true, "put": true, "remove": true, "rename": true,
-	"replace": true, "reset": true, "restart": true, "revoke": true, "rm": true,
-	"run": true, "save": true, "seed": true, "send": true, "set": true,
-	"shell": true, "spawn": true, "start": true, "stop": true, "toggle": true,
-	"touch": true, "truncate": true, "uninstall": true, "unlink": true,
-	"update": true, "upload": true, "upsert": true, "write": true,
-}
-
-func builtinMutating(name string) bool {
-	if mutatingVerbs[strings.ToLower(strings.TrimSpace(name))] {
-		return true
-	}
-	for _, token := range toolTokens(name) {
-		if mutatingVerbs[token] {
-			return true
-		}
-	}
-	return false
-}
-
-// toolTokens 把 snake_case、kebab-case、camelCase 以及字母/数字变化
-// 拆分成小写单词，而不引入 regexp 依赖。
-func toolTokens(name string) []string {
-	runes := []rune(name)
-	var tokens []string
-	var word strings.Builder
-	flush := func() {
-		if word.Len() > 0 {
-			tokens = append(tokens, strings.ToLower(word.String()))
-			word.Reset()
-		}
-	}
-	for i, r := range runes {
-		separator := !unicode.IsLetter(r) && !unicode.IsDigit(r)
-		boundary := word.Len() > 0 && i > 0 && unicode.IsUpper(r) && unicode.IsLower(runes[i-1])
-		digitEdge := word.Len() > 0 && i > 0 &&
-			((unicode.IsDigit(r) && unicode.IsLetter(runes[i-1])) ||
-				(unicode.IsLetter(r) && unicode.IsDigit(runes[i-1])))
-		if separator || boundary || digitEdge {
-			flush()
-		}
-		if !separator {
-			word.WriteRune(r)
-		}
-	}
-	flush()
-	return tokens
 }

@@ -1,6 +1,26 @@
 package agent
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
+
+// guidanceDedupe 控制是否在连续失败期间对恢复指引做签名去重。默认关闭：
+// 每轮照常注入指引，与既有运行的会话记录逐字节一致。这是进程级 opt-in，
+// 由装配层在启动时统一开启；与 retainGuidance（控制指引在压缩后是否存活）
+// 正交——后者决定指引记录的载荷形状，本开关决定要不要写入这条记录。
+var guidanceDedupe atomic.Bool
+
+// SetGuidanceDedupe 打开或关闭失败指引的签名去重。
+// 关闭（默认）时每一轮达到错误上限都会注入指引，行为与历史运行一致。
+func SetGuidanceDedupe(enabled bool) {
+	guidanceDedupe.Store(enabled)
+}
+
+// guidanceDedupeEnabled 报告当前是否启用了失败指引的签名去重。
+func guidanceDedupeEnabled() bool {
+	return guidanceDedupe.Load()
+}
 
 // GuidanceState 记录失败指引的去重状态：它只记住最近一次注入所用的签名，
 // 使同一个签名在连续失败期间不会被逐轮重复注入，避免长对话里堆积上百条雷同指引。

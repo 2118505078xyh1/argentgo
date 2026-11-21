@@ -184,7 +184,10 @@ func unrestrictedWriteRoots(root string) []string {
 	return []string{filepath.VolumeName(root) + string(filepath.Separator)}
 }
 
-var builtinMutatingToolNames = []string{"write", "edit", "multi_edit", "bash"}
+// builtinMutatingToolNames 来自 security 的内置修改类表，避免与目录过滤和执行
+// 门控所用的分类漂移。写动词 MCP 工具无法枚举进拒绝名单，由公布层过滤与
+// MCP 执行兜底负责拦截。
+var builtinMutatingToolNames = security.DefaultMutatingToolNames()
 
 // appendMutatingDenies 让只读模式在策略中显式体现，如同在工具注册表中一样，
 // 使 MCP 和插件工具也无法做修改。

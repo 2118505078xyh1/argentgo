@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -369,6 +370,38 @@ func (m *Model) flushStreamLocked() {
 	}
 	m.version++
 	m.markDirtyLocked()
+}
+
+// maxTokenRate 限制显示的速度上界，防止极短 elapsed 产生天文数字。
+const maxTokenRate = 1e6
+
+// formatTokenRate 把每秒 token 数格式化为一行文本。非有限值返回空
+// 字符串，使异常输入永远不能把 "NaN"/"+Inf" 泄漏到统计行或用量行。
+func formatTokenRate(rate float64) string {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.0f tok/s", rate)
+}
+
+// finalizeTurnStatsLocked 结算一轮的统计行。调用方已持有 m.mu。
+// 守卫覆盖三种缺失信息：没有 TurnStart 打点、时钟没有前进、没有输出
+// token 或模型名为空；任一成立都不产生记录，因此异常回合不会留下
+// 一行 NaN 或半截信息。结算后清掉打点，重复 Usage 不会重复追加。
+func (m *Model) finalizeTurnStatsLocked() {
+	elapsed := m.now().Sub(m.turnStartAt)
+	if elapsed <= 0 || m.turnOutTokens <= 0 || m.model == "" {
+		return
+	}
+	rate := math.Min(float64(m.turnOutTokens)/elapsed.Seconds(), maxTokenRate)
+	line := m.model + " · " + formatDuration(elapsed) + " · " + formatTokenRate(rate)
+	m.flushStreamLocked()
+	m.entries = append(m.entries, Entry{Kind: EntryStats, Text: line})
+	m.version++
+	m.markDirtyLocked()
+	m.turnStartAt = time.Time{}
+	m.turnStatsPending = false
+	m.turnOutTokens = 0
 }
 
 // EndTurn 结束正在进行的回合。非 nil 错误变成一条通知。

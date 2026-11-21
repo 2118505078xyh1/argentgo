@@ -525,11 +525,6 @@ func parseRules(raw json.RawMessage) ([]Rule, error) {
 	return rules, err
 }
 
-// MutatingTool 报告内置表是否认为某工具是修改类的。
-func MutatingTool(name string) bool {
-	return defaultMutatingTools[name]
-}
-
 func commandMatches(pattern, command string) bool {
 	lowered := strings.ToLower(command)
 	needle := strings.ToLower(pattern)

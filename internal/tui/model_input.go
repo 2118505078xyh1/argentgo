@@ -127,6 +127,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		}
 		// 关闭当前补全与面板；下一次输入会按新文本重算 query 重新打开。
 		m.completion = nil
+		m.completionOverlay = false
 		m.commandsCursor = 0
 		m.commandsScroll = 0
 		m.showCommands = false
@@ -259,6 +260,7 @@ func (m *Model) completionActiveLocked() bool {
 func (m *Model) refreshCompletionLocked() {
 	raw := m.editor.Text()
 	if !strings.HasPrefix(raw, "/") {
+		m.completionOverlay = false
 		return
 	}
 	if m.completion == nil {
@@ -274,6 +276,9 @@ func (m *Model) refreshCompletionLocked() {
 	m.completion.Query(strings.TrimPrefix(raw, "/"))
 	m.commandsCursor = 0
 	m.commandsScroll = 0
+	// 输入 `/` 且仍有候选时自动弹出浮层，不必再按 Ctrl+O。
+	// 侧栏的 showCommands 语义保持不变。
+	m.completionOverlay = m.completion.Count() > 0
 }
 
 // acceptCompletionLocked 把当前选中的候选写入输入行。补上一个尾随空格，
@@ -389,6 +394,7 @@ func (m *Model) submitLocked() KeyAction {
 	}
 	m.editor.Record(body)
 	m.editor.Clear()
+	m.completionOverlay = false // 提交后输入已清空，浮层必须立即消失
 	if strings.HasPrefix(body, "/") {
 		return m.commandLocked(body)
 	}

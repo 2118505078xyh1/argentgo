@@ -2,9 +2,6 @@ package tui
 
 import (
 	"bytes"
-	"fmt"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -543,23 +540,8 @@ func ShortHelp(bindings []KeyBinding, width int, textWidth func(string) int) str
 var clipboardWrite = writeClipboard
 
 // CopyToClipboard 尽力把文本复制到系统剪贴板。
-// 在 Windows 上它通过 os/exec 把文本管道给 clip.exe（仅标准库，无 cgo 且
-// 无新模块）。在其他平台，或 clip.exe 不可用时，它是
-// 空操作，因此复制支持绝不会破坏 run 循环。存在的
-// clip.exe 返回的错误交给调用方记录或忽略。
+// 在 Windows 上它通过 user32 的 CF_UNICODETEXT 直接写入 Unicode 文本
+// （不再走 clip.exe，避免 OEM 代码页把 UTF-8 中文解码成乱码）；其他平台
+// 是空操作。后端可替换，以便测试在不触碰真实剪贴板的情况下验证。
+// 复制失败绝不会破坏 run 循环，错误交给调用方记录或忽略。
 func CopyToClipboard(text string) error { return clipboardWrite(text) }
-
-func writeClipboard(text string) error {
-	if runtime.GOOS != "windows" {
-		return nil
-	}
-	if _, err := exec.LookPath("clip.exe"); err != nil {
-		return nil
-	}
-	cmd := exec.Command("clip.exe")
-	cmd.Stdin = strings.NewReader(text)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("tui: copy to clipboard: %w", err)
-	}
-	return nil
-}

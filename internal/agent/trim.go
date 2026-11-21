@@ -181,6 +181,12 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 			suffix += cost
 			continue
 		}
+		// 错误结果必须保留原文：压缩不得抹掉失败记录，模型可能仍需要这些细节。
+		// reclaimByMeta 同样跳过错误结果，这里保持一致，避免失败被 stub 成占位条目。
+		if isErrorResult(msg.Content) {
+			suffix += cost
+			continue
+		}
 		if msg.Content == "" || strings.HasPrefix(msg.Content, trimmedPrefix) {
 			suffix += cost
 			continue
