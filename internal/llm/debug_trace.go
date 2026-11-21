@@ -51,10 +51,16 @@ var traceSink TraceSink
 // 该能力是 opt-in 的：不调用本函数时不产生任何追踪记录，默认逐字节不变。
 // 传入 nil 等价于清除（回到默认关闭状态）；再次调用会整体替换先前安装的
 // 收集器。本函数并发安全。
-func SetTraceSink(s TraceSink) {
+//
+// 返回值是调用前已安装的收集器（可能为 nil），便于调用方保存并在稍后恢复：
+// prev := SetTraceSink(mine); defer SetTraceSink(prev)。所有既有的语句式调用
+// 仍可照常书写，Go 允许丢弃函数返回值。
+func SetTraceSink(s TraceSink) TraceSink {
 	traceSinkMu.Lock()
 	defer traceSinkMu.Unlock()
+	prev := traceSink
 	traceSink = s
+	return prev
 }
 
 // currentTraceSink 返回当前安装的追踪收集器；未安装时返回 nil。

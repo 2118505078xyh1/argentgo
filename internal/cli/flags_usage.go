@@ -15,6 +15,7 @@ commands:
   sessions list|show|fidelity|rm|find|discard-attempt  inspect stored sessions
   replay <id>                   print a stored session transcript
   usage                         summarise turns and tokens per session
+  context                       approximate token breakdown of the model context
   doctor                        check config, storage, provider, git and Go
   login <provider>              store an API key in the config file
   auth                          show stored credential status
