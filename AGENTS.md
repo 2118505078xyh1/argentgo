@@ -119,7 +119,7 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 
 ## 发布规则（版本号锚定代码行数）
 
-版本号与代码规模对齐，只有**代码行数达到阈值且全量验证全绿**时才发版。统计口径为 git tracked 的源码总行数（含测试，统一口径见 `docs/STATUS.md`）：
+版本号与代码规模对齐，只有**代码行数达到阈值且全量验证全绿**时才发版。统计口径为 git tracked 的 `.go` 源码行数（`wc -l`，含测试），统计命令 `git ls-files -z '*.go' | xargs -0 cat | wc -l`（HEAD a30b0e4 = 355,578 行）。`docs/STATUS.md` 未定义该细节，以本口径为准：
 
 | 代码行数 | 版本号 |
 |---:|---|
@@ -131,6 +131,8 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 | 80w | v0.8.6 |
 | 90w | v0.9.0 |
 | 100w | v1.0.0 |
+
+> **决策注记**：用户 2026-11-21 明确 50w 行发 v0.8.2，覆盖原表格 50w→v0.8.3 锚点；发版时须同步调整表格。本轮只加注记、不改表格主体数字，以免混淆。
 
 发布前必须同时满足：
 1. 代码行数达到对应阈值。

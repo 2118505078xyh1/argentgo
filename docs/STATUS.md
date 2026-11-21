@@ -55,7 +55,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 ### 分发与 IDE
 
 - `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` 是受支持的源码分发路径（Go 1.27.3+）；预编译的 Windows 发布 zip 仍是主要途径。见 [User guide](USER_GUIDE.md)。
-- IDE 级 LSP：把当前的 `definition`/`hover` 客户端扩展到 `documentSymbol`、`references`、`codeAction` 和 `rename`——只用标准库，不新增 Go 模块。
+- IDE 级 LSP：`documentSymbol` / `references` / `codeAction` / `rename` 等进阶方法已实现；下一步是补进阶方法硬断言与更多语言 server 验证（R24 已补真实 gopls 的 best-effort 结构化验证）——只用标准库，不新增 Go 模块。
 - 超出范围：C-ABI 插件加载器、tree-sitter AST 和 DAP 适配器。
 
 ## Honest score
@@ -80,15 +80,15 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 | 工程规范/CI | 9 | matrix.yml（5 平台）+ release.yml 强化 + flake-guard；5 平台本地交叉编译全过 | release workflow 未端到端验证（gh 不可用） |
 | 测试稳定性 | 9 | flake-guard 机制；tui ctrl+c flake 已根因修复（-count=10 race 通过） | 无长期 CI 运行数据 |
 | 文档 | 9 | TECHNICAL（API 参考 + 5 张 mermaid 图 + 架构 + LSP + 功能对齐）+ USER_GUIDE（安装/分发/快速上手）+ CONTRIBUTING（安全/CI）+ 中文 README | 非多语言（仅中英） |
-| IDE 集成 | 9 | 真实 gopls v0.24.0 端到端测试 PASS（Definition/DocumentSymbol/References 验证）；6 基础+3 进阶 LSP 方法 | semantic/inlay/codeLens 未用真实 server 验证效果 |
-| 编辑格式 | 9 | 真实路径 benchmark 21/21（tools.Registry.Run，exact/repair/hashline 各 100%） | 无真实模型质量评测 |
+| IDE 集成 | 9 | 真实 gopls v0.24.0 端到端测试 PASS（Definition/DocumentSymbol/References 验证）；6 基础+3 进阶 LSP 方法；R24 新增 `gopls_advanced_test.go` 对 semantic/inlay/codeLens/resolve 的真实 server best-effort 结构化验证 | R24 已补真实 server best-effort 验证，但未做硬门禁（数量/RPC 错误只记日志），且仅验证 gopls 单一 server |
+| 编辑格式 | 9 | 真实路径 benchmark 21/21（tools.Registry.Run，exact/repair/hashline 各 100%） | 真实评测为 opt-in（`ARGENT_EVAL_LIVE` / `eval --live`），默认离线；需用真实模型跑批验证质量 |
 | 内存/记忆 | 9 | 端到端 4 场景（recall/reflect/learn/redaction/override）+ 抽取式综合 + grapheme clip | reflect 无模型综合 |
-| 工具广度 | 9 | ~31 工具；checkpoint_diff/usage/history 集成测试；diff 工具 | 缺 omp 的 browser/DAP/TTS（skip-list） |
-| 编排 | 9 | 6 个端到端 eval 场景（真实 agent loop 驱动：委派/verify/background/board） | 无真实复杂生产任务验证 |
+| 工具广度 | 9 | 34 工具；checkpoint_diff/usage/history 集成测试；diff 工具 | 缺 omp 的 browser/DAP/TTS（skip-list） |
+| 编排 | 9 | 10 个端到端 eval 场景（`evals/orchestration.json`，真实 agent loop 驱动：委派/verify/background/board 等）；core.json 10 场景 + R24/R25 opt-in 真实模型完成率批处理 | 无真实复杂生产任务验证 |
 | 生态分发 | 6 | go install + CI + scoop/choco/brew 清单 + 中文文档 | **客观天花板**：清单未发布、无真实社区/npm 渠道，本地代码无法达到 10 |
 
 ### 加权总分
-约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）
+约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）。
 
 ### 客观天花板（诚实说明）
 - **生态分发 6**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。

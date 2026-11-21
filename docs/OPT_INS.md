@@ -7,7 +7,7 @@ argentgo 默认行为对所有可选特性**一律关闭（fail-closed）**。�
 ## 目录
 
 - [一、两条激活入口](#一两条激活入口)
-- [二、13 个 opt-in 键（ARGENT_OPT_INS / optins 块）](#二13-个-opt-in-键argent_opt_ins--optins-块)
+- [二、14 个 opt-in 键（ARGENT_OPT_INS / optins 块）](#二14-个-opt-in-键argent_opt_ins--optins-块)
 - [三、独立门控环境变量](#三独立门控环境变量)
 - [四、其他独立门控变量速查](#四其他独立门控变量速查)
 - [五、逐字节不变承诺](#五逐字节不变承诺)
@@ -67,9 +67,9 @@ argent "你的任务"
 
 **当前状态**：`Execute` 的运行时装配面（`internal/app/app_execute.go`）读取 `ARGENT_OPT_INS` 与配置 `optins` 块的**并集**（`mergeOptIns(ParseOptInEnv(...), configOptIns(...))`）。两个入口都能真正在运行中打开开关：
 
-- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开全部 13 个键。
-- 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 8 个键。
-- `optins` → app 运行时的映射交集只包含标注「配置可用」的 8 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity` 这 4 个键**只能**通过 `ARGENT_OPT_INS` 打开。
+- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开全部 14 个键。
+- 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 9 个键。
+- `optins` → app 运行时的映射交集（`configOptInKeyMap`，`app_config_optins.go:17-27`）只包含标注「配置可用」的 9 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity`、`auto_verify` 这 5 个键**只能**通过 `ARGENT_OPT_INS` 打开。
 
 ### 两入口同时存在时
 
@@ -77,7 +77,7 @@ argent "你的任务"
 
 ---
 
-## 二、13 个 opt-in 键（ARGENT_OPT_INS / optins 块）
+## 二、14 个 opt-in 键（ARGENT_OPT_INS / optins 块）
 
 下表给出全集。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
 
@@ -96,6 +96,7 @@ argent "你的任务"
 | 11 | `cli_hints` | CLI 提示 | 关闭 | 是 | 交互 |
 | 12 | `tool_error_reflection` | 工具错误反射 | 关闭 | 是 | 交互 |
 | 13 | `model_summary` | 模型摘要 | 关闭 | 是 | 上下文 |
+| 14 | `auto_verify` | 自动验证 | 关闭 | 否 | 交互 |
 
 ### 1. `refusal_reason`（拒绝理由）
 
@@ -202,11 +203,19 @@ argent "你的任务"
 - **适用场景**：长会话压缩后希望上下文更连贯时。成本提示：压缩时额外发起一次模型调用（3 秒超时，失败回落抽取式）。该开销通过 EventUsage 在事件流/usage 工具/TUI 可见，但**不计入 agent 预算与 session stats**（绕过 agent 循环，不经过 account()）。
 - **逐字节不变承诺**：未显式开启或 secondary-model 为空时不发起任何模型调用，压缩摘要逐字节不变；失败一律回落抽取式。
 
+### 14. `auto_verify`（自动验证）
+
+- **作用**：编辑类工具成功后自动派生已有的验证诊断回环（Go 项目在无显式验证命令且工作区含 `go.mod` 时合成 `go test ./...`），把验证结论作为结构化诊断回灌给模型，帮助其自我修正。装配点为 `app_execute.go` 注入的 `hookedTools.autoDiagnostics` 与 `verifyFuncFor(..., auto)`（实现见 `internal/app/verify_wire.go`、`hooks.go`）。
+- **默认状态**：关闭。
+- **如何开启**：`export ARGENT_OPT_INS="auto_verify"`。该键**不在** `configOptInKeyMap`（`app_config_optins.go:17-27`）交集内，配置文件无法打开，**只能**通过 `ARGENT_OPT_INS` 开启。另注：doctor 中的 `ARGENT_EDIT_DIAGNOSTICS=1` 是另一条独立的编辑后诊断路径，与本 opt-in 做或运算，但它不属于本 14 键注册表。
+- **适用场景**：希望编辑后自动跑一遍验证、把失败信息即时回灌给模型做修正时。
+- **逐字节不变承诺**：未显式开启时 `autoDiagnostics` 为零值、`verifyFuncFor` 走原有分支，验证与诊断路径逐字节不变；即便开启，若无 `go.mod` 或未命中合成条件也回落到原有分支。
+
 ---
 
 ## 三、独立门控环境变量
 
-以下开关**不属于** 13 键注册表，而是通过各自独立的环境变量控制（因此不能写进 `ARGENT_OPT_INS`）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。
+以下开关**不属于** 14 键注册表，而是通过各自独立的环境变量控制（因此不能写进 `ARGENT_OPT_INS`）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 
@@ -241,7 +250,7 @@ argent "你的任务"
 - **作用**：TUI 头部/状态行显示本轮 token 用量与缓存命中数（激活既有的 `SetUsage` / `SetCachedTokens` 显示路径）。
 - **开启值**：首尾空白修剪后等于 `1`。
 - **适用场景**：交互式观察 token 消耗与缓存命中时。
-- **逐字节不变承诺**：门控关闭时事件桥不转发用量事件，TUI 帧字节与接线之前逐字节相同。注意显示的 cached 取当轮用量；框架目前不把缓存 token 计入累计统计（`account()` 未累加），属已知边界。
+- **逐字节不变承诺**：门控关闭时事件桥不转发用量事件，TUI 帧字节与接线之前逐字节相同。注意显示的 cached 取当轮用量；R23 起 `account()` 已累加 cached（`loop_helpers.go:178-179` 累加 `CachedTokens`/`CacheWriteTokens`），但 `model_summary` 的补全调用刻意绕过 agent 循环、不经 `account()`，其用量只以 EventUsage 可见、不计入 agent 预算与 session stats——这是仍需注意的边界。
 
 ### `ARGENT_OUTPUT_SPILL` —— 超大工具输出落盘
 
@@ -279,7 +288,7 @@ argent "你的任务"
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |
 | `ARGENT_REPO_MAP_HINT` | 系统提示中追加「文件出现在 repo map 不等于获得编辑授权」提示。 |
 | `ARGENT_VERIFY_AUTORUN_HINT` | 系统提示中追加验证自动运行提示。 |
-| `ARGENT_POST_EDIT_VERIFY` | 编辑后验证相关（默认关闭）。 |
+| `ARGENT_POST_EDIT_VERIFY` | 历史遗留/未接线（仅在 `hooks.go:409` 注释中出现，无实际读取）；编辑后验证的真实开关是 opt-in `auto_verify`（`ARGENT_OPT_INS=auto_verify`）与 `ARGENT_EDIT_DIAGNOSTICS=1`。 |
 | `ARGENT_APPROVAL_TTL` | 带 TTL 的审批门控；`0` 或空值关闭。 |
 | `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
 | `ARGENT_SESSIONS_HEAD_TAIL` | 会话列表首尾预览。 |
