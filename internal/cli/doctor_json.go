@@ -54,9 +54,11 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 		})
 	}
 
-	// baseURL 告警与文本分支共享同一份检测逻辑；它是 warn 级别，
-	// 只作为独立字段输出，不计入 failures、也不改变退出码。
+	// baseURL、配置注入与会话健康告警与文本分支共享同一份检测逻辑；它们
+	// 都是 warn 级别，只作为独立字段输出，不计入 failures、也不改变退出码。
 	issues := doctorBaseURLIssues(app)
+	issues = append(issues, doctorConfigInjectionIssues(app)...)
+	issues = append(issues, doctorSessionHealthIssues(app)...)
 	jsonIssues := make([]doctorIssue, 0, len(issues))
 	for _, issue := range issues {
 		jsonIssues = append(jsonIssues, doctorIssue{

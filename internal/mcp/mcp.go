@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 const (
@@ -394,6 +397,43 @@ func (c *client) discoverTools(ctx context.Context) ([]Tool, error) {
 	return tools, nil
 }
 
+// mcpInjectionScanEnv 是 MCP 工具输出注入扫描的 opt-in 开关。工具输出是不可信
+// 的外部文本，进入模型上下文前有注入风险；但扫描默认关闭，只有值为 "1"
+// （允许首尾空白）时才在 CallTool 的最终文本进入返回值前做检测。关闭时输出
+// 与历史逐字节一致。
+const mcpInjectionScanEnv = "ARGENT_MCP_INJECTION_SCAN"
+
+// mcpInjectionWarning 是命中高风险注入时加在原文前的可读警示。只警示、不改写，
+// 也不过滤原文中的任何字节——是否遵从注入内容由模型自行判断。
+const mcpInjectionWarning = "[注意：工具输出含疑似指令注入]"
+
+// mcpInjectionScanEnabled 报告是否开启 MCP 工具输出的注入扫描。每次调用都读取
+// 环境，便于精确控制开关；这与本包其他 opt-in 能力的读取方式一致。
+func mcpInjectionScanEnabled() bool {
+	return strings.TrimSpace(os.Getenv(mcpInjectionScanEnv)) == "1"
+}
+
+// hasHighSeverityInjection 报告注入命中中是否包含高风险项。中/低风险是软信号，
+// 可能出现在正常讨论里，因此只有高风险才触发警示，避免提示词过度敏感。
+func hasHighSeverityInjection(findings []security.InjectionFinding) bool {
+	for _, f := range findings {
+		if f.Severity == security.InjectionSeverityHigh {
+			return true
+		}
+	}
+	return false
+}
+
+// warnOnPromptInjection 在 enabled 为真且 text 命中高风险注入时，于原文前加一行
+// 可读警示；原文字节原样保留，不改写、不过滤。关闭或未命中高风险时原样返回
+// text，保证 opt-in 关闭路径逐字节不变。
+func warnOnPromptInjection(text string, enabled bool) string {
+	if !enabled || !hasHighSeverityInjection(security.ScanPromptInjection(text)) {
+		return text
+	}
+	return mcpInjectionWarning + "\n" + text
+}
+
 // CallTool 调用一个工具并返回其文本内容，用换行符连接。
 // isError 结果作为文本加错误返回，这样想要展示服务器解释的
 // 调用方仍能拿到它。
@@ -474,6 +514,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	// 模型上下文。未设置 ARGENT_MCP_SPILL_DIR 时这是空操作，因此
 	// 旧输出（以及所有现有测试）保持逐字节一致。
 	out, _, _ = spillMCPOutput(out, mcpSpillThreshold())
+	// 选择加入：工具输出是不可信的外部文本。这里位于 text/resource/blob/raw
+	// 各分支与正常/错误两条返回路径的统一出口，扫描最终进入返回值的文本：
+	// 命中高风险注入时仅加一行警示，不改写原文，让模型自行判断。关闭时是空操作。
+	out = warnOnPromptInjection(out, mcpInjectionScanEnabled())
 	if result.IsError {
 		return out, fmt.Errorf("mcp %q: tool %q reported an error: %s", c.spec.Name, name, out)
 	}

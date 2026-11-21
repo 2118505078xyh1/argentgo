@@ -36,6 +36,10 @@ type hookBridge struct {
 	sessionID  string
 	cwd        string
 	warn       io.Writer
+	// hookCtxQ 非 nil 时，fire() 把 result.AdditionalContexts 入队，
+	// 供 agent 在轮次边界抽取并注入下一轮模型上下文。nil（默认）时整条路径为空操作，
+	// 默认运行逐字节不变。队列由 app 侧在每次根运行时创建并通过 WithHookContextQueue 附着到 ctx。
+	hookCtxQ *agent.HookContextQueue
 }
 
 // 不存在受信任的钩子文档时，newHookBridge 返回 nil。损坏的信任文件、不受信任的文档和
@@ -245,7 +249,16 @@ func (b *hookBridge) fire(ctx context.Context, event hooks.Event, payload hooks.
 			err = fmt.Errorf("hooks: %s dispatch panicked: %v", payload.Event, recovered)
 		}
 	}()
-	return b.dispatcher.Dispatch(ctx, b.config, payload)
+	result, err = b.dispatcher.Dispatch(ctx, b.config, payload)
+	// 把钩子声明的附加上下文交给 agent 队列。b.hookCtxQ 为 nil（未接线）时
+	// 整段为空操作；result 无附加上下文时 range 不执行，默认路径逐字节不变。
+	// 队列的 Add 已做空白/去重/上限约束，这里逐条投递即可。
+	if err == nil && b.hookCtxQ != nil {
+		for _, text := range result.AdditionalContexts {
+			b.hookCtxQ.Add(text)
+		}
+	}
+	return result, err
 }
 
 func (b *hookBridge) start(ctx context.Context, prompt string) {
