@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -370,6 +371,28 @@ func checkWorkspace(check Check, dir string) string {
 		}
 		if !strings.Contains(string(data), needle) {
 			return fmt.Sprintf("file %q does not contain %q (got %q)", path, needle, clip(string(data), 200))
+		}
+	}
+	// FileEquals 在 FileContains 之后检查：按字节精确比对，长度或结尾差一个字节都算失败。
+	// 路径排序保证多文件同时失败时总报告同一个（稳定的）失败路径。
+	equalPaths := make([]string, 0, len(check.FileEquals))
+	for path := range check.FileEquals {
+		equalPaths = append(equalPaths, path)
+	}
+	sort.Strings(equalPaths)
+	for _, path := range equalPaths {
+		target, err := workspacePath(dir, path)
+		if err != nil {
+			return err.Error()
+		}
+		want := check.FileEquals[path]
+		data, err := os.ReadFile(target)
+		if err != nil {
+			return fmt.Sprintf("cannot read %q after the run: %v", path, err)
+		}
+		if !bytes.Equal(data, []byte(want)) {
+			return fmt.Sprintf("file %q does not equal the expected bytes (got %q, want %q)",
+				path, clip(string(data), 200), clip(want, 200))
 		}
 	}
 	return ""

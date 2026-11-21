@@ -171,6 +171,12 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 	}
 	s.usage.PromptTokens += usage.PromptTokens
 	s.usage.CompletionTokens += usage.CompletionTokens
+	// 缓存细分也要累加，否则累计统计里的 cached 恒为 0，
+	// 与逐轮用量和运行总计的口径不一致（R23 真 bug 修复）。
+	// 它不影响预算与成本：两者都只按 prompt+completion 计费，缓存 token 不重复计入。
+	// 这是纯 additive 的 wire 兼容：Usage 本就有 omitempty 的缓存字段，这里只是把值填上。
+	s.usage.CachedTokens += usage.CachedTokens
+	s.usage.CacheWriteTokens += usage.CacheWriteTokens
 	if price, ok := PriceFor(s.opts.Prices, s.model); ok {
 		s.costUSD += price.Cost(usage)
 		s.costKnown = true
