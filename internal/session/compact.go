@@ -83,10 +83,28 @@ func (s *Session) CompactBudget(budget int) error {
 	return s.appendCompaction(entries, start)
 }
 
+// compactionEventEnv 是"压缩事件"落盘的 opt-in 环境变量。仅当值恰为 "1"（允许首尾空白）时，
+// appendCompaction 才在 KindCompaction 记录之后追加一条 KindCondensation 记录；
+// 默认关闭，使压缩写入的字节与旧版逐字一致。
+const compactionEventEnv = "ARGENT_COMPACTION_EVENT"
+
+// KindCondensation 是压缩事件的记录 kind。它随 ARGENT_COMPACTION_EVENT=1 由 appendCompaction
+// 追加，载荷为 CondensationEvent.Marshal() 的字节；messageEntries 会忽略它，
+// 因此不会进入模型可见的对话。
+const KindCondensation = "condensation"
+
+// compactionEventEnabled 报告是否开启压缩事件落盘。每次调用都读取环境变量，
+// 便于测试用 t.Setenv 精确控制，且不引入可变全局状态。
+func compactionEventEnabled() bool {
+	return strings.TrimSpace(os.Getenv(compactionEventEnv)) == "1"
+}
+
 // appendCompaction 写入摘要记录，然后重新发出被丢弃前缀中任何带有保留标记的记录，
 // 使其得以保留（SelectForCompaction）。带标记的工具调用/结果会与其配对项一起重新发出，
 // 因此压缩绝不会重新引入孤立的结果，也不会留下没有结果的调用。
 // 当没有任何记录被标记时，此行为与旧版逐字节一致：只写入一条压缩记录，别无其他。
+// 开启 ARGENT_COMPACTION_EVENT=1 时，在压缩记录之后额外追加一条 KindCondensation 记录；
+// 关闭时整段被跳过，上面写入的字节与旧版完全一致。
 func (s *Session) appendCompaction(entries []Entry, start int) error {
 	restored := retainedForCompaction(entries, start)
 	// Messages() 只把最新压缩记录投影为 system Entry，更早的 KindCompaction 记录会被
@@ -97,12 +115,35 @@ func (s *Session) appendCompaction(entries []Entry, start int) error {
 	if err := s.Append(KindCompaction, compaction); err != nil {
 		return err
 	}
+	// opt-in：把本轮压缩记录为一等事件，使遗忘行为可解释、可复现。
+	// 载荷用 CondensationEvent.Marshal() 的原始字节（json.RawMessage 不再编码），
+	// 从而保留 CJK 原文与稳定的字段顺序；默认关闭时这里完全不执行。
+	if compactionEventEnabled() {
+		event := NewCondensationEvent(forgottenIDsForCompaction(entries, start), compaction.Summary, start)
+		if err := s.Append(KindCondensation, json.RawMessage(event.Marshal())); err != nil {
+			return err
+		}
+	}
 	for _, record := range restored {
 		if _, err := s.AppendRecord(record.Kind, record.Data); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// forgottenIDsForCompaction 返回本轮压缩从活动上下文中移除的记录 ID，即被丢弃前缀的全部 ID。
+// 即便某条内容因保留标记被重新发出，它也会获得新的记录 ID，原 ID 不再存在于活动路径中，
+// 因此仍视为被遗忘。空 ID 被跳过；去重与字典序排序交给 NewCondensationEvent 完成，
+// 保证事件逐字节稳定。
+func forgottenIDsForCompaction(entries []Entry, start int) []string {
+	ids := make([]string, 0, start)
+	for _, entry := range entries[:start] {
+		if entry.ID != "" {
+			ids = append(ids, entry.ID)
+		}
+	}
+	return ids
 }
 
 // retainedCompactionRecords 从原始转录中找出切分点之前、带保留标记且被 Messages() 投影隐藏的

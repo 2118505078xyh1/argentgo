@@ -101,6 +101,7 @@ var expectedCommands = []string{
 	"logs",
 	"mcp",
 	"models",
+	"opt-ins",
 	"policy",
 	"replay",
 	"sessions",

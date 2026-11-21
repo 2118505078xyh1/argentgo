@@ -136,6 +136,9 @@ type Options struct {
 	MaxParallel int // <=1（默认）表示串行运行工具批次
 	System      string
 	Root        string
+	// SystemNodes 是要追加到系统提示尾部的节点。非空时经 llm.StableSystemPrompt
+	// 以 base 为前缀追加，保住 prompt cache 前缀；为空时系统提示逐字节不变。
+	SystemNodes []string
 
 	Chatter llm.Chatter
 	Tools   ToolRunner

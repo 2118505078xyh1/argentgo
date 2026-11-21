@@ -37,18 +37,22 @@ func passedMetric(r Result) float64 {
 	return 0
 }
 
-// CompareResults 比较基线与候选两份 Result 向量，返回稳定的中文 verdict 文本。
+// CompareResults 比较基线与候选两份 Result 向量，返回稳定的中文报告文本。
 //
 // 入参按场景一一对应（baseline[i] 与 candidate[i] 是同一场景在两个版本上的结果）。
 // 处理流程：
 //  1. 校验两份向量等长且非空，否则返回包装了 ErrCompareVectors 的错误；
-//  2. 把每个 Result.Passed 映射为 0/1，调用 PairedDelta 得到差值均值与 95%CI；
-//  3. 调用 ClassifyDelta 判定方向；
-//  4. 用 FormatDeltaReport 渲染 before（无变化基线，恒为零）/ after（观测差值）报告；
-//  5. 追加一行显式 verdict：
+//  2. 构造结构化诊断段（翻转明细、翻转数、样本量 n、样本不足守卫），见 compare_report.go；
+//  3. 把每个 Result.Passed 映射为 0/1，调用 PairedDelta 得到差值均值与 95%CI；
+//  4. 调用 ClassifyDelta 判定方向；
+//  5. 用 FormatDeltaReport 渲染 before（无变化基线，恒为零）/ after（观测差值）报告；
+//  6. 追加一行显式 verdict：
 //     - n < minComparePairs：输出"样本不足 / 不显著"，禁止给出候选更优的结论；
 //     - 样本充足但区间跨零：输出"不显著"，同样不下结论；
-//     - 显著正向 / 显著负向：分别输出"显著提升 / 显著退化"。
+//     - 显著正向 / 显著负向：分别输出"显著提升 / 显著退化"；
+//  7. 用 FormatCompareDiagnostic 追加诊断段，把监控盲区（样本不足守卫是否触发、
+//     incomplete-reason）与逐场景 0/1 翻转明细显式化。诊断段放在 verdict 之后，
+//     不改变任何 verdict 行文本。
 //
 // 该函数是纯函数：不修改入参、不读时钟/网络/文件/任何全局可变状态。
 // 样本不足时即便原始 Delta 被 ClassifyDelta 判为显著，verdict 也一律降级，
@@ -59,10 +63,17 @@ func CompareResults(baseline, candidate []Result) (string, error) {
 		return "", fmt.Errorf("%w: got %d and %d results", ErrCompareVectors, len(baseline), len(candidate))
 	}
 
+	// 诊断段对任意 n>=1 都适用（包括下面无法计算 CI 的 n<2），先构造结构化数据。
+	diag := BuildCompareDiagnostic(baseline, candidate)
+
+	var b strings.Builder
+
 	// 配对统计至少需要两个样本才能估计差值方差。n<2 时无法计算 CI，
-	// 直接给出"样本不足"结论，不伪造统计数字。
+	// 直接给出"样本不足"结论，不伪造统计数字，并照常追加诊断段。
 	if n < 2 {
-		return insufficientCompareVerdict(n), nil
+		b.WriteString(insufficientCompareVerdict(n))
+		b.WriteString(FormatCompareDiagnostic(diag.Finalize(false)))
+		return b.String(), nil
 	}
 
 	baseMetrics := make([]float64, n)
@@ -81,7 +92,6 @@ func CompareResults(baseline, candidate []Result) (string, error) {
 	// before 是"无变化"基线（配对差值恒为零），after 是观测到的候选差值。
 	// 把两者交给 FormatDeltaReport，复用其稳定的中文报告格式。
 	before := Delta{N: delta.N}
-	var b strings.Builder
 	b.WriteString(FormatDeltaReport(compareReportName, before, delta))
 
 	switch {
@@ -95,6 +105,10 @@ func CompareResults(baseline, candidate []Result) (string, error) {
 	default:
 		fmt.Fprintf(&b, "verdict: 显著退化：候选完成率更低\n")
 	}
+
+	// 诊断段追加在 verdict 之后：incomplete-reason 依据显著性分类，
+	// 但样本不足时 compareIncompleteReason 优先判为"样本不足"，不掩盖盲区。
+	b.WriteString(FormatCompareDiagnostic(diag.Finalize(verdict.Significant)))
 	return b.String(), nil
 }
 

@@ -50,6 +50,9 @@
 | 保留策略 | `internal/session/retention.go:49`（`SurvivesCompaction`）、`:147`（`SelectForCompaction`） | 标记哪些记录必须跨压缩存活。 |
 | 提示缓存 | `internal/llm/options.go:95`（`CacheSupport`）、`internal/llm/options.go:109-120`（`cacheEnabled`） | Anthropic Messages / Responses 默认开；OpenAI chat 兼容端点需 opt-in。 |
 | 推理 / 思考 | `internal/llm/options.go:33-79`（`ThinkingConfig`、`PreserveReasoning`）、`internal/llm/anthropic.go:226`、`internal/agent/events.go:19`（`reasoning_delta`） | 协议无关的推理控制 + 事件透出。 |
+| 原生推理参数（R36） | `internal/provider/thinking.go`（`ResolveThinking` / `DefaultThinkingBudget` / `normalizeEffort`）、`internal/llm/client.go:343-504`（`ReasoningEffort`）、`internal/app/app_resolve.go:295` | `--thinking low\|medium\|high\|xhigh`（含中文别名）经 `ResolveThinking` 映射为线上原生参数：OpenAI chat → `reasoning_effort`，Responses → `reasoning.effort`，Anthropic → `budget_tokens`（钳制下限 1024，上限取 `maxTokens-1`）。FIM 请求永不携带推理参数；默认不传时请求字节不变。 |
+| Anthropic 思考签名闭环（R36） | `internal/llm/anthropic.go`、`internal/session/session_message.go`、`internal/session/reasoning_signature_test.go` | 捕获 `signature_delta` 并随 `Message`/`Entry`（`omitempty`）保存；多轮仅在带签名时回放 thinking 块，无签名则降级为纯文本，避免 400。 |
+| 压缩跨链保留（R35） | `internal/session/compact.go`、`internal/session/compact_summarize_test.go` | 多轮压缩链持续保留 Goal / Failures / NextSteps，配合 R20 的 files/failures/nextSteps 结构化保留项。 |
 
 ### 1.2 对标
 
@@ -87,6 +90,8 @@
 | Checkpoint（改动前快照） | `internal/session/checkpoint.go:122`（`CaptureCheckpoint`）、`:215`（`RecordCheckpoint`） | 记录改动前字节与 sha256。 |
 | Undo（按 checkpoint 还原） | `internal/session/checkpoint.go:271`（`UndoCheckpoint`）、`:288`（`undoCheckpoint`） | 文件被改动后拒绝还原，还原也走安全链。 |
 | Retry（从 checkpoint 重试） | `internal/session/checkpoint.go:480`（`RetryFromCheckpoint`）、`:518`（`Retry`） | 从 checkpoint 父节点长出新叶。 |
+| 会话回退 / rewind（R35+R36） | `internal/session/branch_checkout.go:12`（`Checkout`）、`internal/session/store.go:67`（`OpenSessionAt`）、`internal/app/sessions.go:21`、`internal/cli/sessions.go:161`（`sessions checkout`） | 从会话树中任意记录就地切换活动叶并续写，不复制既有历史。CLI 两条入口：`sessions checkout <id> <entry>`，或 `--session X --at Y` 恢复（不带 `--at` 时走原 `OpenSession`，逐字节不变）。 |
+| ForkBefore 提示恢复（R37） | `internal/session/fork_before.go`、`internal/cli/sessions.go`（`fork-at` / `list-messages`） | 在分叉点恢复当时的提示上下文，接线到 CLI 的 fork-at / 列消息路径（opt-in，默认字节不变）。 |
 | 遗弃分支摘要 | `internal/session/branch_summary.go:47`（`SummarizeAbandonedBranch`） | fork 后的旁支不丢失上下文。 |
 | 压缩归档 | `internal/session/compact.go:635/655/771` | 被丢弃消息写入归档，可回读。 |
 | 离线导出 | `internal/session/export.go:91`（`ExportProject`）、`:94`，格式 `html`/`json`/`markdown` | 可选择脱敏，2 MiB 上限（`internal/session/export.go:25`）。 |
@@ -130,9 +135,12 @@
 | 安全链 | `internal/security/chain.go:139`（`NewChain`）、`:148`（`Check`）、`:163`（`check`） | 策略 → 审批 → 审计，顺序固定。 |
 | 三种沙箱模式 | `internal/security/sandbox.go:14-18`（`read-only` / `workspace-write` / `danger-full-access`）；过滤见 `internal/tools/catalog.go:84` | read-only 移除全部 `Mutating()` 工具。 |
 | 审批模式 | `--approval ask\|never\|auto`、`--yolo`（`internal/cli/flags_register.go:17/27`）；实现见 `internal/security/approver.go:49/104/154/258` | 含作用域授予、TTL、缓存。 |
+| 分阶段审批（R37） | `internal/security/chain.go:148-241`（`StagedApprover` / `checkStaged`）、`internal/security/approval_stage.go` | 可选的 `once` / `always` / `reject` / `esc` 状态机审批；仅当审批器实现 `StagedApprover` 且显式 opt-in 时接管决策，失败即关闭。默认关闭、字节不变。 |
 | 脱敏与审计 | `internal/security/redact.go:14`（`Redact`）、`internal/security/audit.go` | 写审计前脱敏。 |
+| 后台 jobs 注册表（R36） | `internal/app/app_jobs_wire.go`（`ARGENT_JOBS` / `ARGENT_OPT_INS=jobs`）、`internal/jobs/` | 后台作业注册表接入生产路径（创建、持久化、`StopAll`），opt-in 开启；默认不启用，路径逐字节不变。 |
 | 长命令转后台 job | `internal/shell/tools_builtin_bash.go:74/81`（`background_after_ms`）、`internal/jobs/` | 超时后不杀进程，返回 job id。 |
-| MCP | `internal/mcp/`；per-server `enabled` / `readOnly` / `allowedTools` / `deniedTools`（`internal/mcp/permissions.go`） | stdio + HTTP/SSE，项目级 `mcp.json` 受 `--trust-project` 门控（`internal/app/mcp.go:272/575`）。 |
+| 工具输出头尾折叠 / todo 校验 / 文件新鲜度（R37） | `internal/tools/output_collapse.go`、`internal/tools/todo_validate.go`、`internal/tools/file_freshness.go` | `CollapseOutput` 接入 bash 裁剪、`ValidateTodoState` 接入 todo 写入、`FileFreshness` 原语；均为 opt-in、默认字节不变。 |
+| MCP | `internal/mcp/`；per-server `enabled` / `readOnly` / `allowedTools` / `deniedTools`（`internal/mcp/permissions.go`） | stdio + HTTP/SSE，项目级 `mcp.json` 受 `--trust-project` 门控（`internal/app/mcp.go:272/575`）。R35 修复 `read-only` 模式下修改类工具可被绕过的问题（`internal/security/mutating.go`、`internal/app/mcp_readonly_test.go`）。 |
 | Hooks | 11 事件（`internal/hooks/event_handlers.go:91-103`）、SHA-256 信任、exit-2 阻断 | 工具调用前后可拦截。 |
 | LSP 工具 | 六个 `lsp_*`，惰性启动（`internal/app/lsp_adapter.go`、`internal/agent` 不 import `lsp`） | 预览类工具只读，不落盘。 |
 
@@ -178,6 +186,12 @@
 | 命令面板模糊补全（R25） | `internal/tui/completion.go:178-195`（`matchCommand`：保留大小写不敏感前缀语义，非前缀走 `FuzzyMatch` 子序列，如 "rv" 命中 "review"） | 前缀路径逐字节不变；命中不重排，仍按主表字典序。 |
 | 编辑后自动验证（R25） | `internal/app/verify_wire.go:591-595`（`verifyFuncFor`，`verifyFuncForAuto`）；opt-in 键 `auto_verify`（`internal/app/optin_registry.go:55`） | 未开启或传 false 时逐字节不变；开启且工作区含 `go.mod`、无显式配置时合成 `go test ./...` 回环，诊断回灌给模型。 |
 | 状态栏配置查询（R24） | `config.info` RPC（`internal/server/rpc.go:509-526`） | 返回当前会话真实 model/provider/workspace；路径经与 `session.load` 相同的脱敏边界。 |
+| 每轮统计行（R33） | `internal/tui/model_mutate.go:391`（`finalizeTurnStatsLocked`）、`internal/tui/events.go`、`internal/tui/turn_stats_test.go` | 轮末追加一行 `模型 · 时长 · 平均 tok/s`；仅有 TurnStart 打点、时钟前进、输出 token>0、模型名非空时才生成，缺数据不显示。默认开启。 |
+| 用量行增强（R33） | `internal/tui/render.go:295-326` | 用量/成本行增加速度（⚡）、缓存命中率、上下文目录名；整体受 `usageVisible` 门控（`ARGENT_TUI_USAGE=1`，`internal/app/tui_event_wire.go`），默认关闭、帧字节不变。 |
+| 推理块展开/折叠（R33+R37） | `internal/tui/model.go:389/428/430`（`toggleReasoningAt` / `toggleReasoningAllLocked`）、`internal/tui/keys.go:69`（`KindCtrlX`）、`internal/tui/reasoning_toggle_test.go` | 鼠标点击推理块按渲染行命中测试切换单块展开态（CJK 安全、逐块覆盖）；`Ctrl+X` 全局切换全部思考块，可配暗色占位符。 |
+| `/` 补全浮层（R33） | `internal/tui/commands_overlay.go`（`paintCompletionOverlay`）、`internal/tui/model.go:303`（`completionOverlay`）、`internal/tui/completion_overlay_test.go` | 输入 `/` 自动弹出候选浮层，`>` 高亮，`(N/M)` 计数，上下键 + 鼠标点击选择；保留键盘 ShortHelp。 |
+| 路径 / `@mention` 补全（R37） | `internal/tui/completion.go:247/299`（`activeInlineWord` / `quoteIfNeeded`）、`internal/tui/model_input.go:315-385`、`internal/tui/path_completion_test.go` | 行内路径与 `@` 提及补全：引号感知、fuzzy 匹配、仅标准库；含空白/引号/括号的路径写入时自动加引号。 |
+| 终端标题 / 剪贴板（R33） | `internal/tui/terminal_title_test.go`、`internal/tui/clipboard_windows.go` | 终端标题设为 argentgo；移除底部快捷键提示条；修复 Windows 剪贴板 GBK 乱码（Win32 `CF_UNICODETEXT`，syscall、无 cgo，可交叉编译 linux）。 |
 
 ### 4.2 对标
 
@@ -218,6 +232,9 @@
 | Fallback 模型 | `internal/app/app_chatter.go`、`internal/cli/flags_register.go`（`fallback_model`） | Chatter 层注入。 |
 | 提示缓存 | `internal/llm/options.go:95/109` | 见 §1。 |
 | 推理协议映射 | `internal/llm/anthropic.go:226`、`internal/llm/options.go:71-79` | `reasoning_content` / `thinking` 块与保留策略。 |
+| 原生推理参数（R36） | 见 §1.1；`internal/llm/thinking_wire_test.go`、`internal/llm/reasoning_signature_test.go` | 把 `--thinking` 下沉为线上原生字段；签名闭环见 §1.1。 |
+| baseURL 来源追踪与 fail-closed（R35） | `internal/config/source.go`、`internal/app/app_resolve.go:119-183`、`internal/cli/flags_register.go:45`（`--trust-project`） | 不可信项目配置改写 baseURL 且请求携带 env/flag 凭据时拒绝发送（除非 `--trust-project`）；doctor 对不安全 baseURL 告警；校验和按资产名核对。 |
+| 凭据加密（R35） | `internal/auth/token_crypt_windows.go`、`internal/auth/store.go`、`internal/auth/store_crypt_test.go` | Windows 用 DPAPI（`crypt32.dll` syscall，零依赖无 cgo）按当前用户加密令牌；旧明文读入后自动升级，失败优雅降级。 |
 | 认证 | `internal/auth/`（PKCE / 设备码）、`argentgo login/logout/auth` | 密钥不回显。 |
 
 ### 5.2 对标
@@ -250,8 +267,8 @@
 | 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argentgo commands` 列出。 |
 | Hooks | `internal/hooks/` + SHA-256 信任（`internal/hooks/trust.go`） | 已配置规则进入安全链。 |
 | LSP | `internal/lsp/`（6 基础 + 3 进阶方法）、gopls 集成测试 | 惰性启动、按 root+server 缓存。 |
-| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。 |
-| Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job。 |
+| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。R35 新增 `eval compare`（配对统计，n<30 记"样本不足"防刷分，`internal/eval/compare.go`）与评测框架灵敏度自测（注入故障断言完成率下降，`internal/app/eval_completion_bench_sensitivity_test.go`）。 |
+| Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job；R36 起 jobs 注册表可 opt-in 接入生产路径。 |
 | 诊断 CLI | `doctor` / `bug` / `audit` / `usage` / `policy` / `config`（TECHNICAL.md:421-452） | 机器可读 `--json`。 |
 
 ### 6.2 对标
@@ -300,12 +317,12 @@
 
 | 维度 | 总标注 | 一句话 |
 |---|---|---|
-| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；R20 已修 grapheme 切点，摘要生成式 R22 已接线（opt-in `model_summary` + `secondary-model`，3s 超时失败回落，开销在事件流可见但不计预算/stats），默认仍走抽取式。 |
-| 可恢复性 | ✅ 领先 | JSONL 树 + sha256 checkpoint + undo/retry + 离线导出；GUI 分支树已补（R24 `session.tree` RPC + R26 原生可点击渲染），仅 ACP load 明确不做（能力经 `--rpc session.load` 保留）。 |
-| 工具执行 | ✅ 领先 | 34 默认工具 + 硬边界 + 细粒度审批 + MCP/Hooks；`web_search` 无内置后端是短板。 |
-| 交互体验 | ✅ + ⚠️ | TUI/原生 GUI/三传输齐全且内存占优；语言与桌面平台仍是差距，真实模型评测已 opt-in 落地（默认离线），进阶 LSP 已补真实 server 结构化验证（best-effort）。 |
-| provider 协议 | ✅ + ⊘ | 三协议 20 模板 + 重试/缓存/推理；云厂商长尾有意不做。 |
-| 开发者体验 | ✅ 领先 | 七层配置 + skills/commands/hooks/LSP/eval + `doctor --json` / `config.info` RPC / `auto_verify` opt-in；无 marketplace 是定位取舍。 |
+| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；R20 已修 grapheme 切点，摘要生成式 R22 已接线（opt-in `model_summary` + `secondary-model`，3s 超时失败回落，开销在事件流可见但不计预算/stats），默认仍走抽取式。R35 压缩跨链保留 Goal/Failures/NextSteps，R36 原生推理参数 + Anthropic 签名闭环已落地。 |
+| 可恢复性 | ✅ 领先 | JSONL 树 + sha256 checkpoint + undo/retry + 离线导出；R35/R36 新增会话 rewind（`sessions checkout` / `--session --at`，就地切换活动叶续写），R37 ForkBefore 提示恢复；GUI 分支树已补（R24 `session.tree` RPC + R26 原生可点击渲染），仅 ACP load 明确不做（能力经 `--rpc session.load` 保留）。 |
+| 工具执行 | ✅ 领先 | 34 默认工具 + 硬边界 + 细粒度审批 + MCP/Hooks；R35 修 read-only MCP 绕过、R37 加分阶段审批与输出折叠/todo 校验（均 opt-in）；`web_search` 无内置后端是短板。 |
+| 交互体验 | ✅ + ⚠️ | TUI/原生 GUI/三传输齐全且内存占优；R33 每轮统计行 + 推理块点击展开 + `/` 补全浮层，R37 `Ctrl+X` 全局思考切换 + 路径/`@mention` 补全，token/s 精确算法（排除 TTFT、Σtokens/Σdurations）已落地；语言与桌面平台仍是差距，真实模型评测已 opt-in 落地（默认离线）。 |
+| provider 协议 | ✅ + ⊘ | 三协议 20 模板 + 重试/缓存/推理；R35 baseURL 来源追踪 fail-closed + Windows DPAPI 凭据加密；云厂商长尾有意不做。 |
+| 开发者体验 | ✅ 领先 | 七层配置 + skills/commands/hooks/LSP/eval + `doctor --json` / `config.info` RPC / `auto_verify` opt-in；R35 加 `eval compare`（n<30 样本不足守卫）与评测灵敏度自测；无 marketplace 是定位取舍。 |
 
 ---
 
@@ -344,3 +361,32 @@
 
 - **原生桌面分支树渲染（§2 ⚠️-1 闭环）**：`native/main.go:407-491` 新增 `branchNodes` / `hasForkBranches` / `branchNodeLabel` / `parseSessionTree` / `fetchSessionTree`。会话行下按需渲染分支节点：仅当 `session.tree` 的 branches 中出现 `Fork=true`（父节点有多个孩子）时才构建元素，单线树或空树下一帧与旧版逐字节一致；节点按深度缩进，分叉/活动叶子分别带 `⑂` / `●` 字形，点击调用 `openSessionBranch` 以 `{"id":stem,"branch":recordID}` 重新加载该分支转录。`fetchSessionTree` 在 RPC 失败或解析失败时保留旧 branches/branchSession，不清空会话栏。
 - **回填结论**：可恢复性维度已无 ⚠️（§2 ⚠️-1 完成，ACP load 维持 ⊘）；真实模型评测与进阶 LSP 验证已从"差距"改为"已 opt-in / best-effort 落地"。剩余差距收敛到 §1 ⚠️-1/⚠️-3、§3 ⚠️-1、§4 ⚠️-1/⚠️-2 与 §6 ⚠️-1，以及"硬门禁/更多语言 server/计入预算"等增量。
+
+### R33 更新记录（TUI 透明化与交互）
+
+- **每轮统计行**（§4）：轮末追加 `模型 · 时长 · 平均 tok/s`（`internal/tui/model_mutate.go:391`）。`finalizeTurnStatsLocked` 对缺失 TurnStart 打点、时钟未前进、输出 token≤0、模型名为空四类情况均不产生记录，故无 NaN/半截行；默认开启。测试 `internal/tui/turn_stats_test.go` 覆盖三字段、多轮多行、缺数据不显示、CJK 模型名按 rune 安全裁剪。
+- **推理块点击展开/折叠**：按渲染行命中测试翻转单个思考块（CJK 安全、逐块覆盖，`internal/tui/model.go:428/430`）。
+- **Pi 风格 `/` 补全浮层**：输入 `/` 自动弹出，`>` 高亮、`(N/M)` 计数、上下键 + 鼠标选择（`internal/tui/commands_overlay.go`、`internal/tui/completion_overlay_test.go`）；移除底部快捷键提示条，终端标题设为 argentgo。
+- **用量行增强（opt-in）**：速度/缓存命中率/上下文目录名，整体受 `ARGENT_TUI_USAGE=1` 门控（`internal/tui/render.go:295-326`），默认帧字节不变。
+- **桥接与修复**：`TurnStart`/`TurnEnd` 事件；usage 门控下沉到渲染层；工具进度通知改走 `EventToolProgress`；Windows 剪贴板 GBK 乱码修复（Win32 `CF_UNICODETEXT`，syscall 无 cgo，可交叉编译 linux，`internal/tui/clipboard_windows.go`）。
+
+### R35 更新记录（安全加固、可靠性、测量）
+
+- **会话 rewind**（§2）：`Checkout` / `OpenSessionAt` + `sessions checkout <id> <entry>` CLI；`--session X --at Y` 恢复（R36 完整接线）。
+- **安全**：baseURL 来源追踪 + fail-closed（不可信项目改写端点且带 env/flag 凭据时拒绝，`--trust-project` 放行）；Windows DPAPI 凭据加密（旧明文自动升级）；read-only MCP 修改类工具绕过修复；hook 信任路径规范化、skill 索引长度预算 + 头脱敏、provider 模板校验补全。
+- **可靠性**：优雅取消后回收孤儿孙进程（`shouldKillTreeAfterExit`）；压缩跨多轮链保留 Goal/Failures/NextSteps；本地裁剪优先 opt-in 接线；`shell` 的 `chcp &&` 改 `&` 避免 chcp 失败跳过命令。
+- **测量（omp 风格）**：评测框架灵敏度自测（注入故障断言完成率下降）；`eval compare` 配对统计 + `minComparePairs=30` "样本不足"守卫防刷分。
+- **工程**：修复 `context_windows.go` 被 Go 误判为 Windows-only 导致 linux 交叉编译失败的问题（更名 `context_window.go`）。
+
+### R36 更新记录（原生推理、结算、学习原语）
+
+- **原生推理参数**（§1.1/§5）——本轮最大的协议差距闭合：`--thinking` 经 `ResolveThinking` 映射为线上原生字段（OpenAI `reasoning_effort`、Responses `reasoning.effort`、Anthropic `budget_tokens`，钳制下限 1024、`xhigh` 档）；FIM 永不携带推理参数；默认 nil 保持请求字节不变。Anthropic 签名闭环：捕获 `signature_delta` 随 `Message`/`Entry`（`omitempty`）保存，多轮仅在带签名时回放 thinking，否则降级纯文本（避免 400）。
+- **结算与可靠性**：孤儿 `tool_call` 结算（sha256 短 ID，对会导致 400 的坏数据默认开启，干净会话字节不变）；session rewind 完整接线；后台 jobs 注册表生产接线（opt-in `ARGENT_JOBS`）；轮末压缩（无损归档 + 本地裁剪优先，与轮中路径对齐）。
+- **token/s 精确算法**（§4）：排除首 token 等待（TTFT），按 Σtokens/Σdurations 聚合；字段缺失时回退 R33 的相邻增量，无样本不显示（`internal/tui/events.go:150-180`）。
+- **仍为默认关闭原语**：budget 投影、审批阶段状态机、todo 状态不变量、确定性循环检测、摘要 schema 填充等，均有测试但默认字节不变。
+
+### R37 更新记录（激活原语、可观测、习得 UX）
+
+- **TUI**：`Ctrl+X` 全局思考块切换 + 逐块覆盖 + 可选暗色占位符（`internal/tui/reasoning_toggle_test.go`）；路径与 `@mention` 行内补全（引号感知、fuzzy、仅标准库，`internal/tui/path_completion_test.go`）。
+- **原语激活（opt-in，默认字节不变）**：`DetectLoop` 接入 agent 循环（软提醒 + 签名去重，不硬停）；`CollapseOutput` 接入 bash 裁剪、`ValidateTodoState` 接入 todo 写入、`EnsureSummarySections` 接入压缩、`Project` 接入 `Messages()`、`ForkBefore` 接入 CLI fork-at/list-messages；`StagedApprover` 接入安全链（once/always/reject/esc，失败即关闭）；token/s 打点经 `llm.Usage`（`json:"-"`）→ agent 值拷贝 → app 桥接 → TUI `Event`（引用计数 opt-in，不触碰推理/签名）。
+- **备料 R38（未计入能力）**：`StableSystemPrompt`、`SessionStatusRegistry`、`CriticResult`、`CondensationEvent`、`PruneToolResults`、`FileFreshness`、`TurnTiming` 等原语已实现并测试，但默认关闭、未接入用户路径，按"只写已落地"口径不计入本矩阵能力清单。
