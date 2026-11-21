@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
 )
 
 const (
@@ -13,14 +14,9 @@ const (
 	maxMatches    = 200
 )
 
-// Tool 是一项可调用的能力。
-type Tool interface {
-	Name() string
-	Description() string
-	Schema() string
-	Mutating() bool
-	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
-}
+// Tool 是一项可调用的能力。契约定义在零依赖的 pluginapi，此处用别名复用，
+// 使所有工具实现文件无需改动即可共享同一类型身份。
+type Tool = pluginapi.Tool
 
 // ToolMeta 是工具附加到其结果上的进程内回收提示。
 // 它从不跨越传输层：agent 循环在运行时活着时用它把已被取代的读取

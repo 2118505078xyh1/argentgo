@@ -3,6 +3,7 @@ package tools
 import (
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"github.com/2118505078xyh1/argentgo/internal/shell"
 )
 
 // builtinFactory 构造一个内置工具实例。bank 是该次运行的初始记忆库，
@@ -32,11 +33,11 @@ func init() {
 	registerBuiltin("read", 10, func(*memory.Bank) Tool { return readTool{} })
 	registerBuiltin("write", 20, func(*memory.Bank) Tool { return writeTool{} })
 	registerBuiltin("edit", 30, func(*memory.Bank) Tool { return editTool{} })
-	registerBuiltin("bash", 40, func(*memory.Bank) Tool { return bashTool{} })
+	registerBuiltin("bash", 40, func(*memory.Bank) Tool { return shell.NewBashTool() })
 	registerBuiltin("ls", 50, func(*memory.Bank) Tool { return lsTool{} })
 	registerBuiltin("grep", 60, func(*memory.Bank) Tool { return grepTool{} })
 	registerBuiltin("find", 70, func(*memory.Bank) Tool { return findTool{} })
-	registerBuiltin("powershell", 80, func(*memory.Bank) Tool { return powershellTool{} })
+	registerBuiltin("powershell", 80, func(*memory.Bank) Tool { return shell.NewPowerShellTool() })
 	registerBuiltin("glob", 90, func(*memory.Bank) Tool { return globTool{} })
 	registerBuiltin("todo", 100, func(*memory.Bank) Tool { return todoTool{} })
 	registerBuiltin("multi_edit", 110, func(*memory.Bank) Tool { return multiEditTool{} })

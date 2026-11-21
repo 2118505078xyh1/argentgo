@@ -1,4 +1,4 @@
-package tools
+package shell
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
-	builtinshell "github.com/2118505078xyh1/argentgo/toolkits/shell"
 )
 
 // ---- bash ----
@@ -95,7 +94,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 
 	// 自研内建 shell：仅当显式 opt-in 且命令在受支持子集内时接管。
 	// 默认（开关关闭 / 命令含不支持语法）走原有系统 shell 路径，逐字节不变。
-	if builtinShellEnabled() && builtinshell.Supported(args.Command) {
+	if builtinShellEnabled() && Supported(args.Command) {
 		return runBuiltinShell(ctx, root, args.Command, timeout)
 	}
 
@@ -150,13 +149,13 @@ func builtinShellEnabled() bool {
 // runBuiltinShell 用自研解释器执行命令。输出仍走既有的清洗/裁剪管线
 // （clipBashOutput），非零退出转为含退出码的 error，保持与系统 shell 路径一致的可观察语义。
 func runBuiltinShell(ctx context.Context, root, command string, timeout time.Duration) (string, error) {
-	opts := builtinshell.Options{
+	opts := Options{
 		Cwd:     root,
 		Vars:    builtinShellEnv(),
 		Timeout: timeout,
 		Ctx:     ctx,
 	}
-	result, err := builtinshell.Run(command, opts)
+	result, err := Run(command, opts)
 	if err != nil {
 		// 不支持的语法等结构错误：交给模型可读的错误，便于自我修正。
 		return "", fmt.Errorf("bash: %w", err)

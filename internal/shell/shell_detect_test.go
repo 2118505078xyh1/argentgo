@@ -1,4 +1,4 @@
-package tools
+package shell
 
 import (
 	"reflect"

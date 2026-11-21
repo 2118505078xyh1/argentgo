@@ -1,4 +1,4 @@
-package tools
+package shell
 
 // ShellFeature 记录一条命令中出现的 shell 元字符特性。
 // 它是纯词法扫描的产物，供调用方判断命令是否需要交给 shell 解释执行。
