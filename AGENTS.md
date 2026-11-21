@@ -29,9 +29,9 @@ gofmt -l .                               # must print nothing
 
 **验证频率分层**（机器 24 核，避免每轮都跑慢门禁）：
 - **每轮必跑（快）**：`gofmt -l .`（必须空）、`go vet ./...`、`go test -p 4 ./... -count=1`。`-p 4` 是标准并行度；这三步能抓绝大多数回归。
-- **每 3 轮跑一次 + 发版门禁必跑（慢）**：`go test -race -p 4 -count=1 $(go list ./... | grep -v '/native$')`、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`、native 包测试。race 慢（插桩后 3-5 分钟，慢包 session/hooks/app 各 20-45s 属正常），native 在 race/无 GPU 下偶发挂起；二者排除出日常快验证。若刚跑过全套，则接下来两轮只跑快验证，第三轮再跑全套。
-- **接线改动（改 tracked 接线点）时**：除快验证外，额外单独 race 受影响包 + 热路径（agent/session/hooks/app），不必等第三轮。
-- **假失败判定**：全量 test 偶发红（同秒时间戳排序、hook shell 超时、native GPU 挂起）先单独重跑 3 次；全绿即假失败，稳定红才是真回归。仅在确认假失败时临时降低 `-p`。
+- **只在发版门禁跑（慢）**：`go test -race ./...`、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`、native 包测试。日常迭代一律不跑慢验证——race 插桩后 3-5 分钟、native 偶发 GPU 挂起，收益不抵耗时；它们只作为发版前的全量把关。
+- **接线改动（改 tracked 接线点）时**：若怀疑并发回归，可临时单独 race 受影响包（如 `go test -race ./internal/agent`），但非必须。
+- **假失败判定**：全量 test 偶发红（同秒时间戳排序、hook shell 超时）先单独重跑 3 次；全绿即假失败，稳定红才是真回归。仅在确认假失败时临时降低 `-p`。
 
 桌面前端（`native/`，MyGo 原生 UI）：
 
