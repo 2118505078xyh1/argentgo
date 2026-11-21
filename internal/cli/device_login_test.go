@@ -240,7 +240,7 @@ func TestDeviceLoginHelpUsesDeviceUsage(t *testing.T) {
 func TestLoginHelpUnchangedByDeviceFlag(t *testing.T) {
 	ioState, out, _ := newTestIO("", nil)
 	RunWith(App{IO: ioState, StorageDir: t.TempDir()}, []string{"login", "--help"})
-	const want = `usage: argent login <provider> [--api-key <key>] [--base-url <url>]
+	const want = `usage: argentgo login <provider> [--api-key <key>] [--base-url <url>]
 
 The key is read from --api-key, <PROVIDER>_API_KEY, ARGENT_API_KEY or stdin and
 written to the config file. It is never echoed.

@@ -141,7 +141,7 @@ func TestRunEvalRejectsOtherDashArgs(t *testing.T) {
 			if out.Len() != 0 {
 				t.Fatalf("stdout = %q", out.String())
 			}
-			if !strings.Contains(errOut.String(), "usage: argent eval") {
+			if !strings.Contains(errOut.String(), "usage: argentgo eval") {
 				t.Fatalf("stderr = %q", errOut.String())
 			}
 		})
@@ -157,7 +157,7 @@ func TestRunEvalLiveRequiresPath(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q", out.String())
 	}
-	if !strings.Contains(errOut.String(), "usage: argent eval") {
+	if !strings.Contains(errOut.String(), "usage: argentgo eval") {
 		t.Fatalf("stderr = %q", errOut.String())
 	}
 }

@@ -20,9 +20,9 @@ Fixes #___   （或 "No issue — small cleanup"）
 - [ ] `go vet ./...`
 - [ ] `gofmt -l .` 无输出
 - [ ] `go test ./... -count=1`
-- [ ] `go build -o argent-native.exe ./native`（如果改动了桌面客户端）
+- [ ] `go build -o argentgo-native.exe ./native`（如果改动了桌面客户端）
 
-描述任何手动验证（例如运行了 `argent --version`、在原生窗口里点过一遍、检查了 checkpoint 的往返恢复）。
+描述任何手动验证（例如运行了 `argentgo --version`、在原生窗口里点过一遍、检查了 checkpoint 的往返恢复）。
 
 ## 约束检查清单
 

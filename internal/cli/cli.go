@@ -100,7 +100,7 @@ type ProfileLister func(opts Options) (names []string, active string, err error)
 // TokenReporter 渲染 --tokens 打印的请求负载明细。
 type TokenReporter func(opts Options) (string, error)
 
-// ContextReporter 渲染 `argent context` 的上下文占用分解报告。
+// ContextReporter 渲染 `argentgo context` 的上下文占用分解报告。
 // 实现位于 internal/app，负责采集四类 token 估算并调用本包的纯函数原语。
 type ContextReporter func(opts Options) (string, error)
 
@@ -141,6 +141,10 @@ func RunWith(app App, args []string) int {
 		if handler, ok := subcommands[args[0]]; ok {
 			return handler(app, ctx, args[1:])
 		}
+	} else if app.hasTerminal() && app.env("ARGENT_NO_TUI") != "1" {
+		// 无参数且连接交互终端时默认进入 TUI；非 TTY（CI/重定向）落到
+		// runMain 保持 usage/stdin 行为逐字节不变，也不会挂起。
+		return runTUI(app, ctx, nil)
 	}
 	return app.runMain(ctx, args)
 }
@@ -213,7 +217,7 @@ func runVersion(app App, _ context.Context, args []string) int {
 		case arg == "-v" || arg == "--verbose" || arg == "--long":
 			verbose = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: version: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: version: unexpected argument %q\n", arg)
 			versionUsage(app.IO.Err)
 			return 2
 		}
@@ -242,7 +246,7 @@ func writeVersionInfo(w io.Writer, version string) {
 }
 
 func versionUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent version [-v|--verbose]
+	fmt.Fprint(w, `usage: argentgo version [-v|--verbose]
 
 Print the version, or with --verbose the Go runtime, target OS/architecture
 and supported wire protocols. The -V/--version flag keeps the one-line form.
@@ -259,7 +263,7 @@ func (a App) runMain(ctx context.Context, args []string) int {
 	if err != nil {
 		var ue *usageError
 		if errors.As(err, &ue) {
-			fmt.Fprintln(a.IO.Err, "argent:", ue.msg)
+			fmt.Fprintln(a.IO.Err, "argentgo:", ue.msg)
 			writeUsage(a.IO.Err)
 		}
 		return 2
@@ -285,7 +289,7 @@ func (a App) runMain(ctx context.Context, args []string) int {
 		return a.printTokens(*opts)
 	}
 	if reason := unsupportedFlag(opts); reason != "" {
-		fmt.Fprintln(a.IO.Err, "argent:", reason)
+		fmt.Fprintln(a.IO.Err, "argentgo:", reason)
 		return 1
 	}
 	// 仅 opt-in 安装：无 flag 时完全不碰全局 sink，保留集成方可能预装的收集器。

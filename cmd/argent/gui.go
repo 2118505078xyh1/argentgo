@@ -17,8 +17,8 @@ import (
 
 // isGUIRequest 报告参数是否命名原生 GUI 子命令。
 // 只有前导 `gui` 算数。扫描每个参数会劫持普通
-// 提示如 `argent fix gui bug`，也会在某个标志把 `gui` 作为其值
-// 消费时（`argent --model gui hello`）启动 GUI。`--gui`
+// 提示如 `argentgo fix gui bug`，也会在某个标志把 `gui` 作为其值
+// 消费时（`argentgo --model gui hello`）启动 GUI。`--gui`
 // 标志由 CLI 自身解析，它报告为未迁移。
 func isGUIRequest(args []string) bool {
 	return len(args) > 0 && args[0] == "gui"
@@ -32,7 +32,7 @@ func runGUI(stdio cli.IO, args []string) int {
 		args = args[1:]
 	}
 
-	flags := flag.NewFlagSet("argent gui", flag.ContinueOnError)
+	flags := flag.NewFlagSet("argentgo gui", flag.ContinueOnError)
 	flags.SetOutput(stdio.Err)
 	var model, baseURL, apiKey, provider, protocol, locale, cwd string
 	flags.StringVar(&model, "m", "", "model id")
@@ -48,7 +48,7 @@ func runGUI(stdio cli.IO, args []string) int {
 		return 2
 	}
 	if flags.NArg() > 0 {
-		fmt.Fprintln(stdio.Err, "argent gui: unexpected argument:", flags.Arg(0))
+		fmt.Fprintln(stdio.Err, "argentgo gui: unexpected argument:", flags.Arg(0))
 		return 2
 	}
 
@@ -72,22 +72,22 @@ func runGUI(stdio cli.IO, args []string) int {
 	}
 
 	if runtime.GOOS != "windows" {
-		fmt.Fprintln(stdio.Err, "argent gui: the native client is Windows-only")
+		fmt.Fprintln(stdio.Err, "argentgo gui: the native client is Windows-only")
 		return 1
 	}
 	return launchNativeFrontend(ctx, stdio, resolved)
 }
 
-// launchNativeFrontend 启动 MyGo 原生客户端（argent-native.exe），
+// launchNativeFrontend 启动 MyGo 原生客户端（argentgo-native.exe），
 // 它通过 --rpc 连接回此 engine。在 Windows 上原生二进制
-// 与 argent.exe 在同一发布 zip 中。
+// 与 argentgo.exe 在同一发布 zip 中。
 func launchNativeFrontend(ctx context.Context, stdio cli.IO, resolved app.Resolved) int {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(stdio.Err, "error:", err)
 		return 1
 	}
-	native := filepath.Join(filepath.Dir(exe), "argent-native.exe")
+	native := filepath.Join(filepath.Dir(exe), "argentgo-native.exe")
 	if _, err := os.Stat(native); err != nil {
 		fmt.Fprintln(stdio.Err, "error: native frontend not found:", native)
 		return 1

@@ -182,7 +182,7 @@ func TestConfigShowHelpAndErrors(t *testing.T) {
 	fx := newConfigShowFixture(t)
 
 	code, out, errOut := fx.run("--help")
-	if code != 0 || !strings.Contains(out, "usage: argent config show") || errOut != "" {
+	if code != 0 || !strings.Contains(out, "usage: argentgo config show") || errOut != "" {
 		t.Fatalf("help: exit=%d out=%q err=%q", code, out, errOut)
 	}
 

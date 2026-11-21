@@ -22,7 +22,7 @@ func shouldPage(pager, content string, isTTY bool) bool {
 }
 
 // writePaged 是 `sessions show` 和 `logs` 等长输出子命令的输出网关。它把
-// content 写入 w，并把下游读取方提前关闭（例如 `argent sessions show X | head`）
+// content 写入 w，并把下游读取方提前关闭（例如 `argentgo sessions show X | head`）
 // 视为正常停止，而非命令失败：broken-pipe 错误会被吞掉并返回 nil。
 //
 // pager 和 isTTY 参数描述可选的分页路径（见 shouldPage）：后续实现可以在

@@ -47,7 +47,7 @@ var cliErrorHintRules = []cliErrorHintRule{
 		keywords: []string{
 			"token", "credential", "api key", "apikey", "api_key", "unauthorized", "authentication", "401", "not configured", "凭证", "令牌", "密钥", "未配置", "认证失败",
 		},
-		hint: "缺少或无效的凭证：请运行 argent login 重新登录，或配置正确的 API Key 后重试",
+		hint: "缺少或无效的凭证：请运行 argentgo login 重新登录，或配置正确的 API Key 后重试",
 	},
 }
 

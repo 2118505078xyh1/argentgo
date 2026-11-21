@@ -30,7 +30,7 @@ func TestHelpFlagSpellingsPrintUsageAndExitZero(t *testing.T) {
 			if code := RunWith(App{IO: ioState}, tc.args); code != 0 {
 				t.Fatalf("exit = %d, want 0 (stderr %q)", code, errOut.String())
 			}
-			if !strings.Contains(out.String(), "usage: argent [flags] <prompt>") {
+			if !strings.Contains(out.String(), "usage: argentgo [flags] <prompt>") {
 				t.Fatalf("stdout = %q, want usage", out.String())
 			}
 			if errOut.Len() != 0 {
@@ -50,7 +50,7 @@ func TestHelpFalseDoesNotPrintHelp(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
-	if !strings.Contains(errOut.String(), "usage: argent [flags] <prompt>") {
+	if !strings.Contains(errOut.String(), "usage: argentgo [flags] <prompt>") {
 		t.Fatalf("stderr = %q, want usage", errOut.String())
 	}
 }

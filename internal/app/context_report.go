@@ -17,7 +17,7 @@ import (
 // 无法把工作区文件映射到本次请求实际携带的内容，因此明确说明而不臆测计数。
 const contextFilesNote = "说明：CLI 无活动提示，文件内容占用未计入（恒为 0）。"
 
-// ContextReport 渲染 `argent context` 的上下文占用明细。
+// ContextReport 渲染 `argentgo context` 的上下文占用明细。
 //
 // 它是只读的：系统与工具 schema 沿用 TokenReport 的同一口径；历史消息只从
 // 已持久化的会话估算（无 --session 时取最新会话），打开失败或没有会话时返回

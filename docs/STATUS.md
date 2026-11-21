@@ -40,8 +40,8 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 ### 发布门禁
 
 1. `go vet ./...`、`go test ./...`、`gofmt -l .` 在 Windows 和 Linux 交叉编译上都干净。
-2. `argent eval evals/core.json` 能通过脚本化 provider 和真实 agent 循环（不联网）。
-3. `argent gui` 端到端：stream → 审批 → 工具 → `turn_done`。
+2. `argentgo eval evals/core.json` 能通过脚本化 provider 和真实 agent 循环（不联网）。
+3. `argentgo gui` 端到端：stream → 审批 → 工具 → `turn_done`。
 4. 隐私扫描：已跟踪文件和 git 历史中没有密钥、token、真实邮箱或个人路径。推送前本地路径替换为 `<local-checkout>`。
 5. 用 writer workspace 中的笔名作为提交作者推送；不包含其他个人信息。
 

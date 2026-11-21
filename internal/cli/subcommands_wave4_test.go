@@ -28,8 +28,8 @@ func TestWave4SubcommandsDispatched(t *testing.T) {
 			if code := RunWith(App{IO: ioState}, []string{name, "--help"}); code != 0 {
 				t.Fatalf("exit = %d, want 0 (err %q)", code, errOut.String())
 			}
-			if !strings.Contains(strings.ToLower(out.String()), "usage: argent "+name) &&
-				!strings.Contains(strings.ToLower(out.String()), "usage: argent attach") {
+			if !strings.Contains(strings.ToLower(out.String()), "usage: argentgo "+name) &&
+				!strings.Contains(strings.ToLower(out.String()), "usage: argentgo attach") {
 				t.Fatalf("stdout = %q", out.String())
 			}
 		})

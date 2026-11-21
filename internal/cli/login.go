@@ -22,7 +22,7 @@ type loginArgs struct {
 func runLogin(app App, ctx context.Context, args []string) int {
 	parsed, err := parseLoginArgs(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		loginUsage(app.IO.Err)
 		return 2
 	}
@@ -138,7 +138,7 @@ func providerEnvKey(provider string) string {
 }
 
 func loginUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent login <provider> [--api-key <key>] [--base-url <url>]
+	fmt.Fprint(w, `usage: argentgo login <provider> [--api-key <key>] [--base-url <url>]
 
 The key is read from --api-key, <PROVIDER>_API_KEY, ARGENT_API_KEY or stdin and
 written to the config file. It is never echoed.

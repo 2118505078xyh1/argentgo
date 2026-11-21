@@ -5,12 +5,12 @@
   "license": "Apache-2.0",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/2118505078xyh1/argentgo/releases/download/v{{VERSION}}/argent_{{VERSION}}_windows_amd64.zip",
+      "url": "https://github.com/2118505078xyh1/argentgo/releases/download/v{{VERSION}}/argentgo_{{VERSION}}_windows_amd64.zip",
       "hash": "{{SHA256}}",
       "extractor": "zip",
       "bin": [
-        "argent.exe",
-        "argent-native.exe"
+        "argentgo.exe",
+        "argentgo-native.exe"
       ]
     }
   },
@@ -20,10 +20,10 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/2118505078xyh1/argentgo/releases/download/v$version/argent_$version_windows_amd64.zip",
+        "url": "https://github.com/2118505078xyh1/argentgo/releases/download/v$version/argentgo_$version_windows_amd64.zip",
         "hash": {
           "url": "https://github.com/2118505078xyh1/argentgo/releases/download/v$version/checksums.txt",
-          "regex": "(?i)([a-f0-9]{64})\\s+argent_[0-9.]*_windows_amd64\\.zip",
+          "regex": "(?i)([a-f0-9]{64})\\s+argentgo_[0-9.]*_windows_amd64\\.zip",
           "capture": 1
         }
       }

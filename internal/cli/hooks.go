@@ -17,7 +17,7 @@ import (
 func runHooks(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	for _, arg := range rest {
@@ -26,7 +26,7 @@ func runHooks(app App, _ context.Context, args []string) int {
 			hooksUsage(app.IO.Out)
 			return 0
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			hooksUsage(app.IO.Err)
 			return 2
 		}
@@ -95,7 +95,7 @@ func hookDocuments(root, home string) []string {
 }
 
 func hooksUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent hooks [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo hooks [-C <dir>]
 
 Lists hook documents and their trust state. A document runs only when the
 SHA-256 of its current bytes is granted in <storage>/hooks-trust.json.

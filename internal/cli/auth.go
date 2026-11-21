@@ -29,7 +29,7 @@ func runAuth(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			authUsage(app.IO.Err)
 			return 2
 		}
@@ -114,7 +114,7 @@ func configProviderKeys(path string) (map[string]bool, error) {
 }
 
 func authUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent auth [--json]
+	fmt.Fprint(w, `usage: argentgo auth [--json]
 
 Shows credential status: OAuth/device tokens from <storage>/auth and which
 providers hold an API key in the config file. Secrets are never printed.

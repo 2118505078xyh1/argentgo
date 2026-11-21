@@ -871,7 +871,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 					ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
 					ui.Text(c, "有什么可以帮你？").FontSize(28).Bold().TextColor(p.strong)
 					ui.Text(c, "问点什么，或者输入 / 看命令。").FontSize(14).TextColor(p.dim)
-					ui.Text(c, "首次使用请在终端运行 argent login 配置模型凭据。").
+					ui.Text(c, "首次使用请在终端运行 argentgo login 配置模型凭据。").
 						FontSize(12).TextColor(p.dim)
 					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
 						for _, action := range quickActions {

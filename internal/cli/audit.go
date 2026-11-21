@@ -60,25 +60,25 @@ func runAudit(app App, _ context.Context, args []string) int {
 			asJSON = true
 		case args[i] == "--tail":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --tail needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --tail needs a value")
 				return 2
 			}
 			i++
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 0 {
-				fmt.Fprintf(app.IO.Err, "argent: --tail needs a non-negative integer, got %q\n", args[i])
+				fmt.Fprintf(app.IO.Err, "argentgo: --tail needs a non-negative integer, got %q\n", args[i])
 				return 2
 			}
 			tail = n
 		case strings.HasPrefix(args[i], "--tail="):
 			n, err := strconv.Atoi(strings.TrimPrefix(args[i], "--tail="))
 			if err != nil || n < 0 {
-				fmt.Fprintf(app.IO.Err, "argent: --tail needs a non-negative integer, got %q\n", args[i])
+				fmt.Fprintf(app.IO.Err, "argentgo: --tail needs a non-negative integer, got %q\n", args[i])
 				return 2
 			}
 			tail = n
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", args[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", args[i])
 			auditUsage(app.IO.Err)
 			return 2
 		}
@@ -114,7 +114,7 @@ func takeAuditStringValue(args []string, i int, name string) (value string, next
 	}
 	if arg == name {
 		if i+1 >= len(args) {
-			return "", i, "argent: " + name + " needs a value"
+			return "", i, "argentgo: " + name + " needs a value"
 		}
 		return args[i+1], i + 1, ""
 	}
@@ -211,7 +211,7 @@ func latestAuditFile(dir string) string {
 }
 
 func auditUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent audit [--tail <n>] [--json] [--decision <d>] [--session <id>] [--tool <name>] [--since <time>]
+	fmt.Fprint(w, `usage: argentgo audit [--tail <n>] [--json] [--decision <d>] [--session <id>] [--tool <name>] [--since <time>]
 
 Prints audit entries from <storage>/audit (default: last 20 from the newest daily file).
 With any filter flag, searches every daily file and prints matches oldest first.

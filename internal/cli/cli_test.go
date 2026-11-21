@@ -61,7 +61,7 @@ func TestRunHelpGoesToStdout(t *testing.T) {
 	if code := RunWith(App{IO: ioState}, []string{"--help"}); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if !strings.Contains(out.String(), "usage: argent [flags]") {
+	if !strings.Contains(out.String(), "usage: argentgo [flags]") {
 		t.Fatalf("out = %q", out.String())
 	}
 	if errOut.Len() != 0 {
@@ -77,7 +77,7 @@ func TestRunUnknownFlagExitsTwo(t *testing.T) {
 	if !strings.Contains(errOut.String(), "flag provided but not defined") {
 		t.Fatalf("err = %q", errOut.String())
 	}
-	if !strings.Contains(errOut.String(), "usage: argent") {
+	if !strings.Contains(errOut.String(), "usage: argentgo") {
 		t.Fatalf("usage missing from stderr: %q", errOut.String())
 	}
 	if out.Len() != 0 {
@@ -97,10 +97,11 @@ func TestRunInvalidFlagValueExitsTwo(t *testing.T) {
 
 func TestRunMissingPromptExitsTwo(t *testing.T) {
 	ioState, _, errOut := newTestIO("", nil)
+	ioState.HasTerminal = func() bool { return false }
 	if code := RunWith(App{IO: ioState}, nil); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
-	if !strings.Contains(errOut.String(), "usage: argent") {
+	if !strings.Contains(errOut.String(), "usage: argentgo") {
 		t.Fatalf("err = %q", errOut.String())
 	}
 }
@@ -189,6 +190,7 @@ func TestRunPromptFromStdin(t *testing.T) {
 		return &stubRunner{reply: "ok"}, nil
 	}
 	ioState, out, _ := newTestIO("from stdin\n", nil)
+	ioState.HasTerminal = func() bool { return false }
 	if code := RunWith(App{IO: ioState, NewRunner: factory}, nil); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}

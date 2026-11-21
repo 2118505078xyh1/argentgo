@@ -15,7 +15,7 @@ func (a App) applySessionFlags(opts *Options) (int, bool) {
 		return 0, false
 	}
 	fail := func(format string, args ...any) (int, bool) {
-		fmt.Fprintf(a.IO.Err, "argent: "+format+"\n", args...)
+		fmt.Fprintf(a.IO.Err, "argentgo: "+format+"\n", args...)
 		return 2, true
 	}
 	if opts.Undo && opts.Retry {

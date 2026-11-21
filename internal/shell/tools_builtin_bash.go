@@ -252,7 +252,7 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 			live.Kill()
 			return "", fmt.Errorf("bash: promote job: %w", jobErr)
 		}
-		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argent jobs` (output: `argent jobs tail %s`).",
+		out := fmt.Sprintf("started background job %s (pid %d): %s\nstill running; check with `argentgo jobs` (output: `argentgo jobs tail %s`).",
 			job.ID, job.PID, command, job.ID)
 		if partial := strings.TrimSpace(res.Combined()); partial != "" {
 			out += "\nOutput so far:\n" + clipBashOutput(ctx, partial)

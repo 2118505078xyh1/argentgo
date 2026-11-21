@@ -206,12 +206,12 @@ try {
 
         # Same shape as build-release.ps1 output: one windows/amd64 zip holding
         # both binaries plus a sha256sum-style checksums.txt entry.
-        $zipName = "argent_${version}_windows_amd64.zip"
-        foreach ($bin in @('argent.exe', 'argent-native.exe')) {
+        $zipName = "argentgo_${version}_windows_amd64.zip"
+        foreach ($bin in @('argentgo.exe', 'argentgo-native.exe')) {
             [IO.File]::WriteAllBytes((Join-Path $stage $bin), [Text.Encoding]::ASCII.GetBytes("fake $bin for local release validation`n"))
         }
         $zip = Join-Path $artifactDir $zipName
-        Compress-Archive -LiteralPath @((Join-Path $stage 'argent.exe'), (Join-Path $stage 'argent-native.exe')) -DestinationPath $zip -CompressionLevel Optimal
+        Compress-Archive -LiteralPath @((Join-Path $stage 'argentgo.exe'), (Join-Path $stage 'argentgo-native.exe')) -DestinationPath $zip -CompressionLevel Optimal
         $sum = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
         [IO.File]::WriteAllText((Join-Path $artifactDir 'checksums.txt'), "$sum  $zipName`n", (New-Object Text.UTF8Encoding $false))
         Assert-Condition 'fabricated build-release-shaped artifacts in temp dir' ((Test-Path -LiteralPath $zip -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $artifactDir 'checksums.txt') -PathType Leaf))

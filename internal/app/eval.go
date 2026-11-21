@@ -17,7 +17,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
-// NewEvaler 返回供 `argent eval` 使用的 cli.EvalRunner。
+// NewEvaler 返回供 `argentgo eval` 使用的 cli.EvalRunner。
 //
 // 套件运行器使用 internal/eval 的脚本化提供方，配合生产环境的 agent 循环、工具注册表和安全链。
 // RunScenario 保留为只拥有提示的调用方所使用的窄接缝。

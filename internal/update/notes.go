@@ -12,7 +12,7 @@ const maxSummaryChanges = 10
 
 // changelogLabels 会被识别为发布正文中的变更日志章节标题
 // （不区分大小写，作为子串匹配）。包含中文标签，
-// 因为 argent 的发布说明是双语的。
+// 因为 argentgo 的发布说明是双语的。
 var changelogLabels = []string{
 	"changelog", "change log", "what's changed", "whats changed",
 	"release notes", "changes",

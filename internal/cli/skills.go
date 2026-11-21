@@ -14,7 +14,7 @@ import (
 func runSkills(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	asJSON := false
@@ -26,7 +26,7 @@ func runSkills(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			skillsUsage(app.IO.Err)
 			return 2
 		}
@@ -62,7 +62,7 @@ func runSkills(app App, _ context.Context, args []string) int {
 }
 
 func skillsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent skills [--json] [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo skills [--json] [-C <dir>]
 
 Lists the SKILL.md documents discovered under .argent/skills and
 ~/.argentgo/skills, ~/.agents/skills, ~/.claude/skills. The same registry backs the use_skill tool.

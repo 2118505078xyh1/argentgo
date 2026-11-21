@@ -30,14 +30,14 @@ PowerShell：
 
 ```powershell
 $env:ARGENT_OPT_INS = "keep_implicit_context,preserve_summary_sections,context_pressure"
-argent "你的任务"
+argentgo "你的任务"
 ```
 
 bash / Git Bash：
 
 ```bash
 export ARGENT_OPT_INS="keep_implicit_context,preserve_summary_sections,context_pressure"
-argent "你的任务"
+argentgo "你的任务"
 ```
 
 ### 入口 B：配置文件的 `optins` 块（辅助入口，见状态说明）
@@ -240,7 +240,7 @@ argent "你的任务"
 
 ### `ARGENT_CACHE_VISIBLE` —— 缓存能力提示
 
-- **作用**：`argent --tokens` 报告追加一行 `cache hint: ...`，说明当前端点的提示缓存能力（静态判定，不发起请求）。
+- **作用**：`argentgo --tokens` 报告追加一行 `cache hint: ...`，说明当前端点的提示缓存能力（静态判定，不发起请求）。
 - **开启值**：首尾空白修剪后等于 `1`。
 - **适用场景**：排查 OpenAI 兼容端点的提示缓存是否可用时。
 - **逐字节不变承诺**：门控关闭时报告与接线之前逐字节相同。
@@ -360,7 +360,7 @@ $env:ARGENT_BUILTIN_SHELL = "1"     # 仅在需要内建 shell 时
 ```bash
 ARGENT_OPT_INS="keep_implicit_context,preserve_summary_sections,context_pressure" \
 ARGENT_OUTPUT_SPILL=1 \
-  argent "你的长任务"
+  argentgo "你的长任务"
 ```
 
 ---

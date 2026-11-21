@@ -109,7 +109,7 @@ func TestResolveProfileModelAndProviderBeatCompiledDefaults(t *testing.T) {
 	}
 }
 
-// `argent login` 写入 providers.<name>.apiKey；当没有标志、环境变量或顶层配置键时，
+// `argentgo login` 写入 providers.<name>.apiKey；当没有标志、环境变量或顶层配置键时，
 // Resolve 必须实际使用它。
 func TestResolveUsesLoginProviderAPIKey(t *testing.T) {
 	for _, tc := range []struct {
@@ -117,7 +117,7 @@ func TestResolveUsesLoginProviderAPIKey(t *testing.T) {
 		config string
 	}{
 		{"apiKey", `{"provider":"openai","providers":{"openai":{"apiKey":"sk-login"}}}`},
-		// `argent login openai` 只写入 providers.openai.apiKey；它
+		// `argentgo login openai` 只写入 providers.openai.apiKey；它
 		// 不会添加顶层的 "provider" 设置。
 		{"no top-level provider", `{"providers":{"openai":{"apiKey":"sk-login"}}}`},
 		{"api_key alias", `{"provider":"openai","providers":{"openai":{"api_key":"sk-login"}}}`},

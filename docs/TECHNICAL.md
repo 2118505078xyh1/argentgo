@@ -54,14 +54,14 @@ CLI / --serve / --rpc / acp ─┐
 
 - **TUI**（`internal/tui`）：自绘 ANSI 全屏，含 streaming transcript、markdown-lite、
   输入编辑器、审批弹窗、主题与 locale；Ctrl+T/B/P 分别打开任务、工作区、计划面板；
-  不经 WebView，可在 SSH 上运行。入口 `argent tui`。
+  不经 WebView，可在 SSH 上运行。入口 `argentgo tui`。
 - **GUI**（`native/`）：MyGo 原生聊天窗口，是唯一的桌面前端。它用 `ARGENT_EXE`
-  拉起 `argent.exe --rpc`，通过 stdio JSON-RPC 驱动引擎：`prompt` + `prompt/delta`
+  拉起 `argentgo.exe --rpc`，通过 stdio JSON-RPC 驱动引擎：`prompt` + `prompt/delta`
   流式通知、`abort`、`session.list`、`session.load`。窗口由 Go 的 `ui` 包自绘，
   无 WebView、无浏览器、无 HTTP 服务。侧栏、消息列表、工具卡片、审批、
   Markdown 流式渲染都在原生控件里完成。
-- **入口**（`cmd/argent/gui.go`）：`argent gui` 解析标志、`app.Resolve` 装配引擎，
-  然后启动同目录的 `argent-native.exe`（GUI 子系统，无黑色控制台）。桌面只走原生窗口。
+- **入口**（`cmd/argent/gui.go`）：`argentgo gui` 解析标志、`app.Resolve` 装配引擎，
+  然后启动同目录的 `argentgo-native.exe`（GUI 子系统，无黑色控制台）。桌面只走原生窗口。
 
 ### 配置与依赖规则
 
@@ -147,7 +147,7 @@ flowchart TB
   CORE_LINK --> SEC
   CORE_LINK --> BASE
   CORE_LINK --> UTIL
-  NAT -. "spawns argent --rpc<br/>no engine import" .-> SRV
+  NAT -. "spawns argentgo --rpc<br/>no engine import" .-> SRV
 
   X1["FORBIDDEN: tools to agent"]:::bad
   X2["FORBIDDEN: agent to app"]:::bad
@@ -253,8 +253,8 @@ flowchart TB
   SRC["source tree<br/>cmd/argent, native/<br/>stdlib core + mygo in native only"]
   VER["internal/cli/cli.go<br/>Version is the single source of truth"]
   BUILD["scripts/build-release.ps1<br/>CGO_ENABLED=0, GOOS=windows,<br/>GOARCH=amd64, -trimpath"]
-  BIN["argent.exe + argent-native.exe<br/>GUI subsystem build"]
-  ZIP["argent_VERSION_windows_amd64.zip"]
+  BIN["argentgo.exe + argentgo-native.exe<br/>GUI subsystem build"]
+  ZIP["argentgo_VERSION_windows_amd64.zip"]
   SUMS["checksums.txt + per-zip .sha256<br/>SHA-256"]
   PUB["scripts/publish-win.ps1<br/>clean main, consistency check, push tag"]
   CI[".github/workflows/release.yml<br/>ubuntu-latest + pwsh"]
@@ -270,7 +270,7 @@ flowchart TB
   INST --> BIN
 ```
 
-Windows/amd64 是唯一发布的二进制目标。只有 tag 不算发布：发布脚本会等待一个同时带有 zip 和校验和清单的已发布 Release。`go install` 只产出 CLI/引擎；桌面客户端从 `./native` 构建，并与 `argent.exe` 打进同一个 zip。
+Windows/amd64 是唯一发布的二进制目标。只有 tag 不算发布：发布脚本会等待一个同时带有 zip 和校验和清单的已发布 Release。`go install` 只产出 CLI/引擎；桌面客户端从 `./native` 构建，并与 `argentgo.exe` 打进同一个 zip。
 
 ## Frontend decision
 
@@ -281,7 +281,7 @@ Windows/amd64 是唯一发布的二进制目标。只有 tag 不算发布：发�
 | 端 | 方案 | 状态 |
 |---|---|---|
 | 终端 | CLI 一次性运行 + `internal/tui` 自绘 ANSI 全屏；无 WebView，可跑 SSH | 已落地 |
-| 图形 | **MyGo 原生 UI**（`native/`），通过 `--rpc` 驱动 `argent.exe` 引擎 | 唯一桌面前端 |
+| 图形 | **MyGo 原生 UI**（`native/`），通过 `--rpc` 驱动 `argentgo.exe` 引擎 | 唯一桌面前端 |
 
 没有 WebView、没有浏览器、没有 HTTP+SSE 桌面桥、没有 SolidJS 前端。`ui/`、`internal/gui/`、
 `internal/launcher/` 均已移除。
@@ -290,14 +290,14 @@ Windows/amd64 是唯一发布的二进制目标。只有 tag 不算发布：发�
 
 桌面体验由两个程序组成，随 Release 一起发布：
 
-- **`argent.exe`** — CLI、TUI 和 agent 引擎。`--rpc` 在 stdio 上提供换行分隔的
+- **`argentgo.exe`** — CLI、TUI 和 agent 引擎。`--rpc` 在 stdio 上提供换行分隔的
   JSON-RPC（`prompt` + `prompt/delta` 流式通知、`abort`、`session.list`、`session.load`）。
   核心包仍**只用标准库**。
-- **`argent-native.exe`** — MyGo 原生聊天窗口（`native/`）。启动时用 `ARGENT_EXE`
+- **`argentgo-native.exe`** — MyGo 原生聊天窗口（`native/`）。启动时用 `ARGENT_EXE`
   指向的引擎二进制拉起 `--rpc` 子进程，把用户输入作为 prompt 发出，把 delta
   通过 `Window.Update` 流式渲染。它只在桌面壳这一层依赖 `github.com/egoist/mygo`。
 
-`argent gui` 在 Windows 上启动同目录的 `argent-native.exe`；`ARGENT_CWD` 指定工作区。
+`argentgo gui` 在 Windows 上启动同目录的 `argentgo-native.exe`；`ARGENT_CWD` 指定工作区。
 
 ### 为什么是原生
 
@@ -407,9 +407,9 @@ go test ./internal/lsp -run TestIntegrationGopls -count=1 -v
 `internal/cli/cli.go` 构造一个分发映射（`subcommands`），并回退到单次提示。可接受的调用形式是：
 
 ```text
-argent [flags] <prompt>
-argent [flags] -              # prompt read from stdin
-argent <command> [args]
+argentgo [flags] <prompt>
+argentgo [flags] -              # prompt read from stdin
+argentgo <command> [args]
 ```
 
 标志注册在 `internal/cli/flags_register.go`；权威的帮助文本是 `internal/cli/flags_usage.go` 中的 `writeUsage`。`-h/--help` 和 `-V/--version` 打印帮助和版本。版本常量是 `cli.Version = "0.7.0"`。
@@ -458,7 +458,7 @@ argent <command> [args]
 | 标志 | 含义 |
 |---|---|
 | `-m`, `--model <id>` | 模型 id（默认 `gpt-4o-mini`）。 |
-| `--provider <id>` | provider 模板 id（见 `argent models`）。 |
+| `--provider <id>` | provider 模板 id（见 `argentgo models`）。 |
 | `--profile <name>`, `--list-profiles` | 选择 / 列出配置 profile。 |
 | `--base-url <url>`, `--api-key <key>`, `--protocol <name>` | provider 端点、密钥和线协议（`anthropic`、`openai`、`responses`）。 |
 | `-C`, `--cwd <dir>` | 工作区根（默认当前目录）。 |
@@ -510,7 +510,7 @@ prompt 请求体可以是纯文本、`{"text":"..."}`、`{"prompt":"..."}` 或 `
 
 #### 2.2 `--rpc` —— 换行分隔的 JSON-RPC 2.0（stdio）
 
-`RunRPC` 从 stdin 每行读一个 JSON 对象，向 stdout 每行写一个；诊断信息走 stderr。`native/` 只通过这个传输驱动引擎（`native/bridge.go` 拉起 `argent --rpc`）。
+`RunRPC` 从 stdin 每行读一个 JSON 对象，向 stdout 每行写一个；诊断信息走 stderr。`native/` 只通过这个传输驱动引擎（`native/bridge.go` 拉起 `argentgo --rpc`）。
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
@@ -609,7 +609,7 @@ agent 循环发出 `agent.Event` 值，带一个 `Kind` 以及适合该 kind 的
 
 运行时还会合并额外来源（`internal/app/mcp.go`）：来自已启用插件包的 MCP 服务器，以及 `<workspace>/.argent/mcp.json`——后者**只有**在设置 `--trust-project` 时才会读取。握手限制在 5 秒内，失败采用失败即软处理：坏掉的服务器只报告一次并跳过。
 
-`argent mcp [--json] [-C <dir>]` 会从合并配置中列出已配置的服务器（名称、传输、目标）。它不会联系任何服务器。
+`argentgo mcp [--json] [-C <dir>]` 会从合并配置中列出已配置的服务器（名称、传输、目标）。它不会联系任何服务器。
 
 #### 实用配置示例
 
@@ -750,7 +750,7 @@ workflow_resume workflow_journal gui`
 - `--enable-browser` / `--enable-desktop` / `--enable-service`：对应工具未移植
 - `--workflow-mode` / `--workflow-resume` / `--workflow-journal`：journal 未移植；
   可自行调用 `internal/workflow`
-- `gui`：作为 flag 会报 not migrated 并以 exit 1 退出；GUI 经 `argent gui` 子命令启动，现已可用
+- `gui`：作为 flag 会报 not migrated 并以 exit 1 退出；GUI 经 `argentgo gui` 子命令启动，现已可用
 
 in progress（能解析，行为仍待接线）：
 

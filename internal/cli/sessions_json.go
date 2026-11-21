@@ -80,7 +80,7 @@ func sessionsListWithJSON(app App, store SessionStore, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected sessions list argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected sessions list argument %q\n", arg)
 			sessionsUsage(app.IO.Err)
 			return 2
 		}

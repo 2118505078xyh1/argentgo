@@ -33,7 +33,7 @@ func runContext(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if len(positional) > 0 {
-		fmt.Fprintf(app.IO.Err, "argent: context: unexpected argument %q\n", positional[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: context: unexpected argument %q\n", positional[0])
 		contextUsage(app.IO.Err)
 		return 2
 	}
@@ -52,7 +52,7 @@ func runContext(app App, _ context.Context, args []string) int {
 
 // contextUsage 打印 context 子命令的说明。
 func contextUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent context [flags]
+	fmt.Fprint(w, `usage: argentgo context [flags]
 
 Print a read-only report of what is currently in the model context: injected
 memory documents, skills, commands, tools and the active sandbox/approval

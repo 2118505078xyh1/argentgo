@@ -218,7 +218,7 @@
 | Fallback 模型 | `internal/app/app_chatter.go`、`internal/cli/flags_register.go`（`fallback_model`） | Chatter 层注入。 |
 | 提示缓存 | `internal/llm/options.go:95/109` | 见 §1。 |
 | 推理协议映射 | `internal/llm/anthropic.go:226`、`internal/llm/options.go:71-79` | `reasoning_content` / `thinking` 块与保留策略。 |
-| 认证 | `internal/auth/`（PKCE / 设备码）、`argent login/logout/auth` | 密钥不回显。 |
+| 认证 | `internal/auth/`（PKCE / 设备码）、`argentgo login/logout/auth` | 密钥不回显。 |
 
 ### 5.2 对标
 
@@ -247,10 +247,10 @@
 | Profile / env 覆盖 | `internal/config/`、`TECHNICAL.md:630-632` | `ARGENT_PROFILE` + `ARGENT_MODEL` 等。 |
 | 插件（清单发现） | `internal/plugins/`、`--plugins <name>`（TECHNICAL.md:454） | 贡献 skills / commands / MCP；marketplace 不迁。 |
 | Skills | `internal/skills/`（`SKILL.md` 发现 + 渐进披露）、`use_skill` | 含自写能力（`internal/skills/author.go`）。 |
-| 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argent commands` 列出。 |
+| 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argentgo commands` 列出。 |
 | Hooks | `internal/hooks/` + SHA-256 信任（`internal/hooks/trust.go`） | 已配置规则进入安全链。 |
 | LSP | `internal/lsp/`（6 基础 + 3 进阶方法）、gopls 集成测试 | 惰性启动、按 root+server 缓存。 |
-| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argent eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。 |
+| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。 |
 | Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job。 |
 | 诊断 CLI | `doctor` / `bug` / `audit` / `usage` / `policy` / `config`（TECHNICAL.md:421-452） | 机器可读 `--json`。 |
 

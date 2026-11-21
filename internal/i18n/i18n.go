@@ -32,7 +32,7 @@ type translation struct {
 // 外观分组（prompt、status、label、approval、error、command、misc、info）。
 var catalog = map[string]translation{
 	// Prompt 区域。
-	"prompt.placeholder": {"Message argent…", "给 argent 发消息…"},
+	"prompt.placeholder": {"Message argentgo…", "给 argentgo 发消息…"},
 	"prompt.send":        {"send", "发送"},
 	"prompt.abort":       {"abort the running turn", "中止当前回合"},
 	"prompt.newline":     {"insert a line break", "插入换行"},

@@ -4,7 +4,7 @@ import "strings"
 
 // Provider 是一个提供方模板：请求发往何处、使用哪种线
 // 协议、哪个环境变量存放密钥，以及未配置任何模型时
-// 使用的模型。APIKey 是 `argent login` 写入的凭据，
+// 使用的模型。APIKey 是 `argentgo login` 写入的凭据，
 // 位于 providers.<name>.apiKey 下；调用方优先于
 // 提供方的环境变量使用它，但仍允许显式 flag 胜出。
 type Provider struct {

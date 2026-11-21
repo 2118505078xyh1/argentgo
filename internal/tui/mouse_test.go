@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +105,96 @@ func TestDecoderMouseDoesNotChangeKeyboardDecoding(t *testing.T) {
 	}
 	if keys[2].Mouse == nil || keys[2].Mouse.Col != 5 || keys[2].Mouse.Row != 9 {
 		t.Fatalf("mouse key = %#v", keys[2])
+	}
+}
+
+func TestDecoderSwallowsX10MouseWithoutRunes(t *testing.T) {
+	// 用户实测的乱码来源：X10 的三个坐标字节（0x20 偏移的可打印
+	// ASCII）曾被逐个当作 rune 插入输入框，例如 ";G;#G;"。
+	decoder := &Decoder{}
+	for _, key := range decoder.Feed([]byte("\x1b[M\"'&")) {
+		if key.Kind == KindRune {
+			t.Fatalf("X10 coordinate bytes leaked as a rune: %#v", key)
+		}
+	}
+	if decoder.Pending() {
+		t.Fatal("a complete X10 report left bytes pending")
+	}
+}
+
+func TestDecoderSwallowsX10MouseSplitAcrossChunks(t *testing.T) {
+	decoder := &Decoder{}
+	for _, chunk := range []string{"\x1b[M", "\x22", "\x27\x26"} {
+		for _, key := range decoder.Feed([]byte(chunk)) {
+			if key.Kind == KindRune {
+				t.Fatalf("a split X10 report leaked a rune: %#v", key)
+			}
+		}
+	}
+	if decoder.Pending() {
+		t.Fatal("a split X10 report left bytes pending")
+	}
+}
+
+func TestDecoderX10MapsMouse(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want *MouseEvent
+		kind Kind // 保留的历史 Kind 值
+	}{
+		{"left press", "\x1b[M\x20\x27\x2c", &MouseEvent{Kind: MousePress, Button: 0, Col: 7, Row: 12}, KindIgnore},
+		{"middle press", "\x1b[M\x21\x27\x2c", &MouseEvent{Kind: MousePress, Button: 1, Col: 7, Row: 12}, KindMousePress},
+		{"right press", "\x1b[M\x22\x27\x2c", &MouseEvent{Kind: MousePress, Button: 2, Col: 7, Row: 12}, KindMousePress},
+		{"alt-modified right press", "\x1b[M\x2a\x27\x2c", &MouseEvent{Kind: MousePress, Button: 10, Col: 7, Row: 12}, KindMousePress},
+		{"drag", "\x1b[M\x40\x27\x2c", &MouseEvent{Kind: MouseDrag, Button: 32, Col: 7, Row: 12}, KindMouseDrag},
+		{"release", "\x1b[M\x23\x27\x2c", &MouseEvent{Kind: MouseRelease, Button: 3, Col: 7, Row: 12}, KindMouseRelease},
+		{"wheel up", "\x1b[M\x60\x27\x2c", &MouseEvent{Kind: MouseWheelUp, Button: 64, Col: 7, Row: 12}, KindScrollUp},
+		{"wheel down", "\x1b[M\x61\x27\x2c", &MouseEvent{Kind: MouseWheelDown, Button: 65, Col: 7, Row: 12}, KindScrollDown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := decodeOne(t, tc.in)
+			if !reflect.DeepEqual(key.Mouse, tc.want) {
+				t.Fatalf("%q mouse = %#v, want %#v", tc.in, key.Mouse, tc.want)
+			}
+			if key.Kind != tc.kind {
+				t.Fatalf("%q Kind = %v, want %v", tc.in, key.Kind, tc.kind)
+			}
+		})
+	}
+}
+
+func TestMalformedSGRNoRunes(t *testing.T) {
+	// 正文里的 'b' 落在 CSI 终结符范围内，通用循环会提前 cut 在它
+	// 那里；必须由结尾的 M 定界，整包当作 Ignore 吞掉。
+	decoder := &Decoder{}
+	for _, key := range decoder.Feed([]byte("\x1b[<bad;xM")) {
+		if key.Kind == KindRune || key.Mouse != nil {
+			t.Fatalf("malformed SGR report = %#v, want a plain Ignore", key)
+		}
+	}
+	if decoder.Pending() {
+		t.Fatal("a terminated malformed SGR report left bytes pending")
+	}
+}
+
+func TestRunEnablesSGR1006Not1016(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run(context.Background(), Options{
+		IO: &IO{In: strings.NewReader(""), Out: &out},
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	written := out.String()
+	if !strings.Contains(written, "?1006h") || !strings.Contains(written, "?1006l") {
+		t.Fatalf("SGR 1006 mode was not enabled and restored: %q", written)
+	}
+	if strings.Contains(written, "?1016h") || strings.Contains(written, "?1016l") {
+		t.Fatalf("pixel-coordinate mode 1016 must not be used: %q", written)
+	}
+	if !strings.Contains(written, "?1002h") || !strings.Contains(written, "?2004h") {
+		t.Fatalf("drag tracking or bracketed paste was lost: %q", written)
 	}
 }
 

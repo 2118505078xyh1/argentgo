@@ -249,7 +249,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	// 不要把提供方的 env 键折叠进 cfg.APIKey。app.Resolve 已经
 	// 把 env(provider.APIKeyEnv) 列为凭据链的最后手段；
 	// 在这里复制会让它凌驾于 providers.<name>.apiKey 下
-	// `argent login` 保存的键之上，破坏文档记录的优先级。
+	// `argentgo login` 保存的键之上，破坏文档记录的优先级。
 	//
 	// 附加重载元数据，让长生命周期的调用方可以轮询 Changed 并调用
 	// Reload。首次成功加载为第 1 代；每次 Reload 都会递增它。

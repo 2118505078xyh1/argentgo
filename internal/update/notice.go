@@ -32,7 +32,7 @@ func FormatUpdateNotice(current, latest, notes string) string {
 	if CompareVersions(latest, current) <= 0 {
 		return "已是最新版本"
 	}
-	notice := "有新版本 " + safeCurrent + "→" + safeLatest + "，运行 argent update 升级"
+	notice := "有新版本 " + safeCurrent + "→" + safeLatest + "，运行 argentgo update 升级"
 	if summary := noticeSummary(notes); summary != "" {
 		notice += "：" + summary
 	}

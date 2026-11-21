@@ -32,7 +32,7 @@ func runWorkflow(app App, ctx context.Context, args []string) int {
 	case "run":
 		return workflowRun(app, ctx, args[1:])
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: unknown workflow action %q\n", args[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: unknown workflow action %q\n", args[0])
 		workflowUsage(app.IO.Err)
 		return 2
 	}
@@ -88,7 +88,7 @@ func workflowEntries(app App, cwd string) ([]workflowEntry, error) {
 func workflowList(app App, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	asJSON := false
@@ -97,7 +97,7 @@ func workflowList(app App, args []string) int {
 		case "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			workflowUsage(app.IO.Err)
 			return 2
 		}
@@ -138,7 +138,7 @@ func workflowList(app App, args []string) int {
 func workflowShow(app App, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	if len(rest) != 1 {
@@ -194,7 +194,7 @@ func (p runnerPrompter) Prompt(ctx context.Context, text string) (string, error)
 func workflowRun(app App, ctx context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	path := ""
@@ -204,7 +204,7 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 		switch {
 		case rest[i] == "--input":
 			if i+1 >= len(rest) {
-				fmt.Fprintln(app.IO.Err, "argent: --input needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --input needs a value")
 				return 2
 			}
 			i++
@@ -213,7 +213,7 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 			input = strings.TrimPrefix(rest[i], "--input=")
 		case rest[i] == "--param":
 			if i+1 >= len(rest) {
-				fmt.Fprintln(app.IO.Err, "argent: --param needs a key=value value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --param needs a key=value value")
 				return 2
 			}
 			i++
@@ -229,7 +229,7 @@ func workflowRun(app App, ctx context.Context, args []string) int {
 			}
 			values[key] = value
 		case strings.HasPrefix(rest[i], "-"):
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", rest[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", rest[i])
 			workflowUsage(app.IO.Err)
 			return 2
 		default:
@@ -299,14 +299,14 @@ func parseWorkflowParam(app App, token string) (key, value string, ok bool) {
 	key, value, found := strings.Cut(token, "=")
 	key = strings.TrimSpace(key)
 	if !found || key == "" {
-		fmt.Fprintf(app.IO.Err, "argent: --param needs key=value (got %q)\n", token)
+		fmt.Fprintf(app.IO.Err, "argentgo: --param needs key=value (got %q)\n", token)
 		return "", "", false
 	}
 	return key, value, true
 }
 
 func workflowUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent workflow list|show|run ...
+	fmt.Fprint(w, `usage: argentgo workflow list|show|run ...
 
   workflow list [-C dir] [--json]        list workflow JSON definitions
   workflow show <name|path> [-C dir]     print the steps of one definition

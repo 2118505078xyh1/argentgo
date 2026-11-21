@@ -32,19 +32,19 @@ func authExpiryAdvice(provider string, status auth.TokenState) string {
 	switch status {
 	case auth.TokenExpired:
 		if name == "" {
-			return "凭证已过期，请运行 argent login 重新登录后重试"
+			return "凭证已过期，请运行 argentgo login 重新登录后重试"
 		}
-		return fmt.Sprintf("提供方 %s 的凭证已过期，请运行 argent login --provider %s 重新登录", name, name)
+		return fmt.Sprintf("提供方 %s 的凭证已过期，请运行 argentgo login --provider %s 重新登录", name, name)
 	case auth.TokenExpiring:
 		if name == "" {
-			return "凭证即将过期，建议运行 argent login 提前刷新"
+			return "凭证即将过期，建议运行 argentgo login 提前刷新"
 		}
-		return fmt.Sprintf("提供方 %s 的凭证即将过期，建议运行 argent login --provider %s 提前刷新", name, name)
+		return fmt.Sprintf("提供方 %s 的凭证即将过期，建议运行 argentgo login --provider %s 提前刷新", name, name)
 	case auth.TokenUnknown:
 		if name == "" {
-			return "凭证状态未知（如 API Key 无截止时间），请运行 argent auth 查看状态，必要时用 argent login 重新登录"
+			return "凭证状态未知（如 API Key 无截止时间），请运行 argentgo auth 查看状态，必要时用 argentgo login 重新登录"
 		}
-		return fmt.Sprintf("提供方 %s 的凭证状态未知（如 API Key 无截止时间），请运行 argent auth 查看状态，必要时用 argent login --provider %s 重新登录", name, name)
+		return fmt.Sprintf("提供方 %s 的凭证状态未知（如 API Key 无截止时间），请运行 argentgo auth 查看状态，必要时用 argentgo login --provider %s 重新登录", name, name)
 	default:
 		// TokenValid 以及未来新增或无法识别的状态都不需要额外提示。
 		return ""

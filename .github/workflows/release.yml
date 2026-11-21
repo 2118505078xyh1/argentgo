@@ -126,7 +126,7 @@ jobs:
           pwsh -NoProfile -File scripts/check-release-consistency.ps1 -Tag $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { throw "release metadata check failed ($LASTEXITCODE)" }
 
-      # 将 argent.exe + argent-native.exe 构建到 dist/release，并写入 checksums.txt。
+      # 将 argentgo.exe + argentgo-native.exe 构建到 dist/release，并写入 checksums.txt。
       # `verify` 和 `race` 已经运行了所有质量门禁，因此这里跳过脚本中重复的
       # vet/test/gofmt 检查。
       - name: Build release artifacts
@@ -167,7 +167,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           $version = $env:RELEASE_TAG -replace '^v', ''
-          $zip = "dist/release/argent_${version}_windows_amd64.zip"
+          $zip = "dist/release/argentgo_${version}_windows_amd64.zip"
           gh release create $env:RELEASE_TAG $zip dist/release/checksums.txt `
             --title $env:RELEASE_TAG --notes-file release-notes.md --verify-tag
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
@@ -183,6 +183,6 @@ jobs:
           $assets = @(gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name')
           if ($LASTEXITCODE -ne 0) { throw "gh release view failed ($LASTEXITCODE)" }
           if ($assets -notcontains 'checksums.txt') { throw 'checksums.txt missing from Release' }
-          $zip = "argent_${version}_windows_amd64.zip"
+          $zip = "argentgo_${version}_windows_amd64.zip"
           if ($assets -notcontains $zip) { throw "$zip missing from Release" }
           Write-Host "Release $($env:RELEASE_TAG) published with $zip and checksums.txt"

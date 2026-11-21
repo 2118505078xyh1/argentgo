@@ -41,7 +41,7 @@ type doctorOptions struct {
 func runDoctor(app App, ctx context.Context, args []string) int {
 	opts, help, err := doctorFlags(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		doctorUsage(app.IO.Err)
 		return 2
 	}
@@ -341,7 +341,7 @@ func checkGit() doctorCheck {
 }
 
 func doctorUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent doctor [--base-url <url>] [--json]
+	fmt.Fprint(w, `usage: argentgo doctor [--base-url <url>] [--json]
 
 Checks config loading, local mcpServers config integrity, storage writability,
 provider reachability (3s timeout), git availability and the Go runtime version.

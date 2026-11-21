@@ -32,7 +32,7 @@ function Assert-ReleaseArtifacts([string]$Dir, [string]$Ver) {
     if (-not $Dir) { $Dir = Join-Path $repo 'dist/release' }
     $Dir = [IO.Path]::GetFullPath($Dir)
     $Ver = Get-ReleaseVersion $Ver
-    $zipName = "argent_${Ver}_windows_amd64.zip"
+    $zipName = "argentgo_${Ver}_windows_amd64.zip"
     $zip = Join-Path $Dir $zipName
     $sums = Join-Path $Dir 'checksums.txt'
 
@@ -56,12 +56,12 @@ function Assert-ReleaseArtifacts([string]$Dir, [string]$Ver) {
         New-Item -ItemType Directory -Force -Path $unpack | Out-Null
         Expand-Archive -LiteralPath $zip -DestinationPath $unpack -Force
         $names = @(Get-ChildItem -LiteralPath $unpack -Recurse -File | ForEach-Object { $_.Name })
-        foreach ($required in @('argent.exe', 'argent-native.exe')) {
+        foreach ($required in @('argentgo.exe', 'argentgo-native.exe')) {
             if ($names -notcontains $required) {
                 throw "release zip $zipName does not contain $required"
             }
         }
-        Write-Host '  zip contains argent.exe and argent-native.exe'
+        Write-Host '  zip contains argentgo.exe and argentgo-native.exe'
     }
     finally {
         # Never leave extracted binaries behind, even on a failed assertion.

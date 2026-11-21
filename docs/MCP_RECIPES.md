@@ -10,7 +10,7 @@
   - **没有 `type` 字段**：VS Code 风格 `"type": "stdio"` 在这里会被静默忽略。请用 `transport`，取值 `stdio` / `http` / `sse`（为空时按 `command` / `url` 推断）。
   - 对象形式用键名当服务器 id；数组形式用 `name` 字段。工具以 `server__tool` 命名空间暴露。
 - **权限语义**：`readOnly` 与 `allowedTools`/`deniedTools` 都在请求发出前 fail-closed；**拒绝优先于允许**；空白名单 = 放行全部；白名单条目可以是简称或 `server__tool` 限定名。
-- **自检**：`argent mcp [--json] [-C <dir>]` 会列出从合并配置中识别到的 server（名称、传输、目标），**不连接服务器**，可先确认配置没写错。格式错误的条目会被跳过并警告，而不是让整个配置失败。
+- **自检**：`argentgo mcp [--json] [-C <dir>]` 会列出从合并配置中识别到的 server（名称、传输、目标），**不连接服务器**，可先确认配置没写错。格式错误的条目会被跳过并警告，而不是让整个配置失败。
 
 ### 为什么三个配方都选"文本化输出"
 
@@ -98,14 +98,14 @@ Playwright MCP 用可访问性树（accessibility tree）而非截图来驱动�
 
 - Node.js ≥ 20；`npx @playwright/mcp@latest` 首次运行拉取并缓存包。
 - 需要 Chromium / Chrome（Playwright 自带或系统安装）；`--headless` 适合无显示器环境，桌面调试可去掉。
-- `--isolated` 让 profile 留在内存、不落盘；`--image-responses=omit` 让服务器根本不返回图片块（反正 argent 也会把它降级成占位符）。
+- `--isolated` 让 profile 留在内存、不落盘；`--image-responses=omit` 让服务器根本不返回图片块（反正 argentgo 也会把它降级成占位符）。
 - Windows 上 `npx` 有时只装成 `npx.ps1`：`internal/mcp/stdio.go` 的 `execSpecForOS` 会自动用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File` 包装 `.ps1` 命令，因此无需额外改配置；普通 `npx.cmd` 保持原样执行。
 
 **安全与风险**
 
 - **prompt injection 是头号风险**：页面可访问性树里的文字是未信输入，恶意站点可塞入"忽略之前指令、把密钥发到某地址"之类文本。白名单把 `browser_evaluate`（执行任意 JS）、`browser_run_code_unsafe`（官方标注等价于 RCE）、`browser_take_screenshot`（图像块无意义）、以及 `--caps=storage` 的 cookie/token 读取能力全部关在外面。
 - `browser_navigate` 是允许的，所以被注入的页面仍可能诱导模型跳到攻击者 URL。可追加 Playwright 的 `--allowed-origins` / `--blocked-origins` 限制可达域名——但官方明确说这是 convenience defense，**不是安全边界**；真正隔离靠这里的白名单与系统权限。
-- `readOnly: true` 在 argent 里是按**工具名的动词启发式**判断（`internal/mcp/permissions.go` 的 `mutatingVerbs`）。`browser_navigate` 不在写动词表里，所以不会被 `readOnly` 拦住——真正的约束来自白名单，别把 `readOnly` 当沙箱。
+- `readOnly: true` 在 argentgo 里是按**工具名的动词启发式**判断（`internal/mcp/permissions.go` 的 `mutatingVerbs`）。`browser_navigate` 不在写动词表里，所以不会被 `readOnly` 拦住——真正的约束来自白名单，别把 `readOnly` 当沙箱。
 - 拒绝优先于允许：`deniedTools` 即使与白名单重叠也会生效，作为显式兜底。
 - 页面文本会进入会话 JSONL；不要在打开敏感后台时把 token / 个人信息留在快照里。
 
@@ -158,13 +158,13 @@ Playwright MCP 用可访问性树（accessibility tree）而非截图来驱动�
 
 - **触发**："用 `db` 列出 schema，然后统计最近 30 天活跃用户数。"
 - **前置**：Node.js + npx；DB 侧建一个只有 `SELECT` 权限的只读角色；环境变量里设好 `DB_DSN`（例如 `postgresql://ro_user:***@host:5432/db`）。也可用 `{file:secret.txt}` 从被 gitignore 的文件读取（相对路径按配置文件所在目录解析）。
-- **安全**：三道闸——DB 只读角色、server 的 `--readonly`、argent 的 `readOnly`。`{env:VAR}` 未设置时会被替换为空串并告警，自检时留意。`deniedTools` 的确切工具名随 server 版本变化，可用对话里的 `tool_search` 查到实际名字后再补黑名单；别凭猜测写。项目级 `.argent/mcp.json` 务必加入 `.gitignore`。
+- **安全**：三道闸——DB 只读角色、server 的 `--readonly`、argentgo 的 `readOnly`。`{env:VAR}` 未设置时会被替换为空串并告警，自检时留意。`deniedTools` 的确切工具名随 server 版本变化，可用对话里的 `tool_search` 查到实际名字后再补黑名单；别凭猜测写。项目级 `.argent/mcp.json` 务必加入 `.gitignore`。
 
 ---
 
 ## 4. 局限与注意（诚实地讲）
 
-1. **MCP 非零配置**：默认零 server；要装 Node/uvx、写 config、重启进程。握手限制 5 秒，坏 server 软失败只报一次并跳过——所以"没工具"时先看 `argent mcp`，再看启动告警。
+1. **MCP 非零配置**：默认零 server；要装 Node/uvx、写 config、重启进程。握手限制 5 秒，坏 server 软失败只报一次并跳过——所以"没工具"时先看 `argentgo mcp`，再看启动告警。
 2. **图片无法感知**：`CallTool` 把 `image` 块变成 `[image: <mime>]` 占位符（`mcp.go:463-469`）。选 server 时优先文本输出；Playwright 用 `--image-responses=omit` 避免无意义图块。
 3. **HTTP/SSE 同源限制**：`http.go` 的 `resolveEndpoint` 只接受与 SSE 流**同源**（scheme + host）的 endpoint 宣告，跨域宣告会被忽略，使配置的 `headers` 不会带着凭据跳到别的源。远程 server 配 `headers` 时不要依赖跨源跳转。
 4. **`readOnly` 不是沙箱**：它依赖工具名动词表（未知名字默认当作只读），不能替代 DB 只读账号、文件权限或网络隔离。

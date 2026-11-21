@@ -27,7 +27,7 @@ func sessionsImport(app App, path string, args []string) int {
 		switch {
 		case args[i] == "--format":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --format needs a value (claude|codex|auto)")
+				fmt.Fprintln(app.IO.Err, "argentgo: --format needs a value (claude|codex|auto)")
 				sessionsUsage(app.IO.Err)
 				return 2
 			}
@@ -36,7 +36,7 @@ func sessionsImport(app App, path string, args []string) int {
 		case strings.HasPrefix(args[i], "--format="):
 			format = strings.TrimPrefix(args[i], "--format=")
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected import argument %q\n", args[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected import argument %q\n", args[i])
 			sessionsUsage(app.IO.Err)
 			return 2
 		}
@@ -45,7 +45,7 @@ func sessionsImport(app App, path string, args []string) int {
 	switch format {
 	case importFormatAuto, importFormatClaude, importFormatCodex:
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: invalid import format %q (want claude|codex|auto)\n", format)
+		fmt.Fprintf(app.IO.Err, "argentgo: invalid import format %q (want claude|codex|auto)\n", format)
 		sessionsUsage(app.IO.Err)
 		return 2
 	}

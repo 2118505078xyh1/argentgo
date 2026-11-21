@@ -16,7 +16,7 @@ func TestJobsHelpAfterOtherArgsGoesToStdout(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("exit = %d, want 0 (err %q)", code, errOut.String())
 			}
-			if !strings.Contains(out.String(), "usage: argent attach") {
+			if !strings.Contains(out.String(), "usage: argentgo attach") {
 				t.Fatalf("stdout = %q", out.String())
 			}
 			if errOut.Len() != 0 {
@@ -39,7 +39,7 @@ func TestJobsHelpLongSpellingAndMiddlePosition(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%v: exit = %d, want 0 (err %q)", args, code, errOut.String())
 		}
-		if !strings.Contains(out.String(), "usage: argent attach") {
+		if !strings.Contains(out.String(), "usage: argentgo attach") {
 			t.Fatalf("%v: stdout = %q", args, out.String())
 		}
 		if errOut.Len() != 0 {

@@ -6,7 +6,7 @@ package commands
 // 这样的内置描述符没有对应文件，调用方必须显式注册它们。
 // NewSetWithBuiltins 将该步骤集中在一处：app 通过
 // 该辅助函数构建命令集，并将匹配的斜杠输入路由到内置钩子。
-// internal/cli 中 `argent commands` 的列举路径保持不变，仍然只
+// internal/cli 中 `argentgo commands` 的列举路径保持不变，仍然只
 // 列举磁盘上的命令，因此用户可见的输出没有任何变化。
 
 // NewSetWithBuiltins 从各来源发现命令，并实例化注册表中的所有内置描述符

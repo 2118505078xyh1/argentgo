@@ -135,7 +135,7 @@ try {
                 -Headers @{ 'User-Agent' = 'argent-publish' } `
                 -TimeoutSec 15
             $assets = @($candidate.assets)
-            $hasZip = @($assets | Where-Object { $_.name -like 'argent_*_windows_amd64.zip' }).Count -gt 0
+            $hasZip = @($assets | Where-Object { $_.name -like 'argentgo_*_windows_amd64.zip' }).Count -gt 0
             $hasSums = @($assets | Where-Object { $_.name -eq 'checksums.txt' }).Count -gt 0
             if ($candidate.html_url -and $hasZip -and $hasSums) {
                 $release = $candidate

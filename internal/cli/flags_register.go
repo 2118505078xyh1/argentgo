@@ -12,7 +12,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.baseURL = fs.String("base-url", "", "provider base URL")
 	v.apiKey = fs.String("api-key", "", "provider API key")
 	v.protocol = fs.String("protocol", "", "protocol: anthropic, openai or responses")
-	v.provider = fs.String("provider", "", "provider template id (see `argent models`)")
+	v.provider = fs.String("provider", "", "provider template id (see `argentgo models`)")
 	v.profile = fs.String("profile", "", "named config profile")
 	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
 	v.yes = fs.Bool("yes", false, "auto-confirm prompts in non-interactive environments")
@@ -159,7 +159,7 @@ func registerTraceFlags(fs *flag.FlagSet) traceFlagValues {
 // flagSurface 报告 CLI 接受的所有长 flag 名称，按序排列。它构建一个临时的
 // flag 集合，使列表绝不会与解析器走样。
 func flagSurface() []string {
-	fs := flag.NewFlagSet("argent", flag.ContinueOnError)
+	fs := flag.NewFlagSet("argentgo", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	newFlags(fs, &flagValues{})
 	var names []string
