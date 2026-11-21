@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
@@ -30,6 +33,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		}
 
 		approver := NewApprover()
+		approver.SetEnv(stdio.Env)
 		res.Approve = approver
 
 		// 把真实 agent 事件喂给 TUI 的工具卡片。TUI 宿主直接调用 Execute（没有 cli.Runner），
@@ -137,11 +141,26 @@ type Approver struct {
 	model *tui.Model
 	ready chan struct{}
 	once  sync.Once
+	env   func(string) string // opt-in 危险原因展示所需的环境读取；nil 时门控关闭
 }
 
 // NewApprover 返回一个尚未附着模态框的 Approver。
 func NewApprover() *Approver {
 	return &Approver{ready: make(chan struct{})}
+}
+
+// SetEnv 注入本次运行的环境读取函数。仅 TUI 入口在 opt-in 危险原因展示时调用；
+// 不调用时 env 为 nil，Approver.Ask 走原有的 model.Approve 路径，逐字节不变。
+func (a *Approver) SetEnv(env func(string) string) {
+	a.mu.Lock()
+	a.env = env
+	a.mu.Unlock()
+}
+
+// approveDangerEnabled 报告是否开启危险命令原因展示。仅当环境值精确为 "1" 时开启，
+// env 为 nil 时 fail-closed，默认行为不变。
+func approveDangerEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_APPROVE_DANGER")) == "1"
 }
 
 // attach 记录实时模型；第一次调用会打开 ready 闩锁。
@@ -161,9 +180,20 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	}
 	a.mu.Lock()
 	model := a.model
+	env := a.env
 	a.mu.Unlock()
 	if model == nil {
 		return false, nil
+	}
+	// opt-in 危险原因展示：门控开启且命令为变更型时，把 security 计算的稳定中文原因
+	// 传给 ApproveDanger（danger 非空时弹窗多一行并预选拒绝）。门控关闭时 env 为 nil
+	// 或命令无危险，继续走原 model.Approve——与接线之前逐字节相同。name/args 始终原样传递。
+	if approveDangerEnabled(env) {
+		if token := shellCommandOf(name, json.RawMessage(args)); token != "" {
+			if reason := security.DangerReason(token); reason != "" {
+				return model.ApproveDanger(ctx, name, args, reason)
+			}
+		}
 	}
 	return model.Approve(ctx, name, args)
 }

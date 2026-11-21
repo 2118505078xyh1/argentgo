@@ -105,6 +105,9 @@ var defaultReadOnlyTools = map[string]bool{
 var defaultMutatingTools = map[string]bool{
 	"write": true, "edit": true, "multi_edit": true, "bash": true,
 	"undo": true, "restore": true,
+	// apply_patch 会改写工作区文件，必须纳入修改类工具，让其文件路径
+	// 同样受 writeRoots 边界约束（与 write/edit/multi_edit 同级）。
+	"apply_patch": true,
 }
 
 // Policy 是在审批之前评估的硬关卡。

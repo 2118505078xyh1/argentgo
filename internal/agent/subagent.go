@@ -81,6 +81,15 @@ type SubagentConfig struct {
 	// 它为 nil 时完全关闭，事件与记录保持逐字节不变；回调返回的错误只会转成一条父级通知，
 	// 不会改变验证结果、返回文本或重试决策。
 	OnVerifyFail func(ctx context.Context, info VerifyFailInfo) error
+	// BeginAttempt 在启用验证的任务开始前调用，返回本次验证尝试的前置根记录 id。
+	// 返回的 rootID 会成为 VerifyFailInfo.AttemptID，使接线层能把后续分叉归属于同一尝试。
+	// 它为 nil 时整段跳过，AttemptID 保持原有的合成串，事件与记录逐字节不变；
+	// 回调返回错误（或返回空 id）时同样回落到合成串，错误被吞掉。
+	BeginAttempt func(reason string) (string, error)
+	// EndAttempt 在验证得出结论后调用，rootID 来自 BeginAttempt，verdict 为 succeeded 或 failed。
+	// 它为 nil、或 BeginAttempt 未给出有效 rootID 时整段跳过，默认路径逐字节不变；
+	// 回调返回的错误被吞掉，不影响验证结果、返回文本或重试决策。
+	EndAttempt func(rootID, verdict string) error
 	// ResolvePersona 把 task 调用请求的角色/身份名映射到该角色定义的子配置。
 	// 它是可选的，由接线层（internal/app）注入，因此本包从不导入它。
 	// 为 nil 或名称未知时，委派回退到上面的通用配置。
@@ -288,6 +297,14 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 	}
 	// 仅为旁路信息分配一个稳定 id；nil 回调路径不读取它，因此默认行为逐字节不变。
 	runID := verifyFailSeq.Add(1)
+	// 前置尝试根：在第一次子运行之前写入一次，rootID 由分叉信息与结束记录共享。
+	// 默认回调为 nil、返回错误或空 id 时 rootID 为空，回落到此前的合成串，逐字节不变。
+	rootID := ""
+	if cfg := t.cfg; cfg.BeginAttempt != nil {
+		if id, err := cfg.BeginAttempt("task_verify"); err == nil {
+			rootID = id
+		}
+	}
 
 	for attempt := 0; ; attempt++ {
 		text, err := t.runTaskOnce(ctx, raw, args)
@@ -301,27 +318,35 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 		if err != nil {
 			// 没有结论时，我们无法把结果当作已验证而接受。
 			t.verifyNotice(fmt.Sprintf("subagent verification error for %q: %v", label, err))
+			t.endAttempt(rootID, "failed")
 			return "", fmt.Errorf("subagent verification failed for %q: %w", label, err)
 		}
 		if !verificationFailed(verdict) {
 			t.verifyNotice(fmt.Sprintf("subagent verification PASS: %s", label))
+			t.endAttempt(rootID, "succeeded")
 			return text, nil
 		}
 		t.verifyNotice(fmt.Sprintf("subagent verification FAIL (attempt %d/%d): %s - %s", attempt+1, retries+1, label, firstLine(verdict)))
 		if attempt >= retries {
 			// 重试已耗尽：返回最后的结果而不是丢失工作，FAIL 结果已在上方记录。
 			// 提前返回使耗尽时的最后一次 FAIL 不触发旁路回调。
+			t.endAttempt(rootID, "failed")
 			return text, nil
 		}
 		// 旁路分叉副作用：仅在仍有重试余量时触发，且不改变下面的循环走向。
 		// 回调为 nil 时整段跳过，默认路径与旧实现逐字节一致。
 		if cfg := t.cfg; cfg.OnVerifyFail != nil {
+			// rootID 有效时以真实前置根作为稳定标识，否则保留旧的合成串。
+			attemptID := fmt.Sprintf("verifyfail-%d-%d", runID, attempt+1)
+			if rootID != "" {
+				attemptID = rootID
+			}
 			info := VerifyFailInfo{
 				Label:     label,
 				Attempt:   attempt + 1,
 				Retries:   retries,
 				Verdict:   firstLine(verdict),
-				AttemptID: fmt.Sprintf("verifyfail-%d-%d", runID, attempt+1),
+				AttemptID: attemptID,
 			}
 			if err := cfg.OnVerifyFail(ctx, info); err != nil {
 				// 回调失败只转成一条父级通知，绝不影响验证结论或重试决策。
@@ -335,6 +360,15 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 // 复用现有的事件词汇。
 func (t *taskTools) verifyNotice(text string) {
 	t.parentEmit(Event{Kind: EventNotice, Text: text, ToolName: TaskToolName})
+}
+
+// endAttempt 在验证得出结论后记录本次尝试的结论。rootID 为空（BeginAttempt 未配置或失败）
+// 或 EndAttempt 为 nil 时整段跳过，默认路径逐字节不变；回调错误一律吞掉。
+func (t *taskTools) endAttempt(rootID, verdict string) {
+	if rootID == "" || t.cfg == nil || t.cfg.EndAttempt == nil {
+		return
+	}
+	_ = t.cfg.EndAttempt(rootID, verdict)
 }
 
 // verifyArgsJSON 构建用于评判结果的后续 task 调用。验证指令和结果都嵌入在提示中；
@@ -409,6 +443,14 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	// 角色自身的配置不会覆盖父级注入的钩子。
 	if t.cfg.OnVerifyFail != nil {
 		merged.OnVerifyFail = t.cfg.OnVerifyFail
+	}
+	// 与 OnVerifyFail 一样显式透传尝试根钩子：按角色选定的子级同样需要在验证时
+	// 写入前置根并记录结论；仅当父级显式注入时才覆盖角色自带的实现。
+	if t.cfg.BeginAttempt != nil {
+		merged.BeginAttempt = t.cfg.BeginAttempt
+	}
+	if t.cfg.EndAttempt != nil {
+		merged.EndAttempt = t.cfg.EndAttempt
 	}
 	// 把共享的后台状态和子运行器接缝一并带过角色叠加过程，
 	// 使按角色选定的子级保留父级的队列、信号量和可注入的运行器。

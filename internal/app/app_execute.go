@@ -291,7 +291,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// inspectionGuardFor 在总开关开启时按需追加，两开关为"与"关系。
 	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, defaultGuardianReview)
 
-	toolset := newToolset(ctx, stdio, res, sess, guard)
+	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
@@ -300,7 +300,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	tracker := newCheckpointTracker(res.Root, sess)
 	var evidence agent.CompactionEvidence
-	compactor := newSessionCompactor(res, sess)
+	compactor := newSessionCompactorWithOpts(res, sess, reg)
 	// 持久性屏障：在每个开销较大的步骤之前刷写 JSONL 会话。
 	// 这些是按 Runner 划分的字段，因此并发的 Execute 调用（TUI + RPC，或多个会话）
 	// 不会清除彼此的屏障，也不会同步绑定到更早运行的过期会话。
@@ -435,11 +435,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
 	bg := agent.NewBackgroundResults(0, 0)
 	configureSubagents(&loop.Opts, res, bg)
-	// attempt_isolation opt-in：验证失败回调把失败尝试分叉为旁支会话。关闭时
-	// wireVerifyFail 返回 nil，OnVerifyFail 保持未装配，验证失败只走既有 notice 路径，
-	// 会话树与事件序列逐字节不变。真实 rootID 注入（BeginAttempt 链）在后续轮次承接。
+	// attempt_isolation opt-in：验证失败回调把失败尝试分叉为旁支会话，并通过
+	// wireAttemptRoot 在任务运行前写前置尝试根、把真实 rootID 带进失败信息。
+	// 关闭时两者都返回 nil：OnVerifyFail/BeginAttempt/EndAttempt 保持未装配，
+	// runTaskVerified 的新分支全部跳过，AttemptID 仍为合成串，逐字节不变。
 	if loop.Opts.Subagent != nil {
 		loop.Opts.Subagent.OnVerifyFail = wireVerifyFail(sess, reg)
+		loop.Opts.Subagent.BeginAttempt, loop.Opts.Subagent.EndAttempt = wireAttemptRoot(sess, reg)
 	}
 	// 仅性能旋钮：判定建议使用次级模型时切换根运行的主模型；FallbackModels 的
 	// 顺序语义由 applyAutoDecideModel 保持（次级模型成为新的第 0 项，原回退项后移），
@@ -505,7 +507,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	bridge.stop(ctx, prompt, result.Text)
 	tracker.finish(err != nil || ctx.Err() != nil)
 	recordAttempt(sess, ctx, err)
-	maybeAutoCompact(res, sess, evidence)
+	maybeAutoCompact(res, sess, evidence, reg)
 	_ = sess.Append("turn", map[string]any{
 		"turns":   result.Turns,
 		"stopped": result.Stopped,

@@ -87,7 +87,7 @@ func TestToolsetWiresUsageIntoEveryRegistryAndUpdateUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, nil)
+	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, nil, nil)
 	defer set.Close()
 
 	if set.usage == nil {

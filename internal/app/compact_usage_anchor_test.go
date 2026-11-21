@@ -182,7 +182,7 @@ func TestMaybeAutoCompactUsesNativeUsageAnchor(t *testing.T) {
 		t.Fatal("test setup: the plain estimate should be below the threshold")
 	}
 
-	maybeAutoCompact(res, sess, agent.CompactionEvidence{})
+	maybeAutoCompact(res, sess, agent.CompactionEvidence{}, nil)
 	if !hasCompaction(sess) {
 		t.Fatal("native usage anchor should trip the compaction trigger")
 	}

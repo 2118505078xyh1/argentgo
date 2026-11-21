@@ -170,7 +170,7 @@ func TestToolsetAdvertisesSkillsAndRoutesUseSkill(t *testing.T) {
 	}
 
 	stdout := &bytes.Buffer{}
-	set := newToolset(context.Background(), cli.IO{Env: env, Out: stdout}, res, sess, nil)
+	set := newToolset(context.Background(), cli.IO{Env: env, Out: stdout}, res, sess, nil, nil)
 	defer set.Close()
 
 	names := specNames(set.Specs())
@@ -204,7 +204,7 @@ func TestToolsetSkipsBrokenMCPServerOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	errOut := &bytes.Buffer{}
-	set := newToolset(context.Background(), cli.IO{Env: env, Err: errOut}, res, sess, nil)
+	set := newToolset(context.Background(), cli.IO{Env: env, Err: errOut}, res, sess, nil, nil)
 	defer set.Close()
 
 	if !strings.Contains(errOut.String(), "skipped") {

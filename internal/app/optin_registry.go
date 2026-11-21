@@ -34,6 +34,15 @@ const (
 	// OptInPreserveSummarySections 控制是否在重建压缩摘要时保留原摘要中的关键章节
 	// （如目标、工具活动）。它默认关闭：未显式开启时重建摘要逐字节不变。
 	OptInPreserveSummarySections OptInKey = "preserve_summary_sections"
+	// OptInApplyPatch 控制是否启用 apply_patch 类补丁工具行为。
+	// 它默认关闭：未显式开启时工具行为逐字节不变。
+	OptInApplyPatch OptInKey = "apply_patch"
+	// OptInGrepEx 控制是否启用扩展 grep 搜索行为。
+	// 它默认关闭：未显式开启时搜索结果逐字节不变。
+	OptInGrepEx OptInKey = "grep_ex"
+	// OptInCliHints 控制是否在输出中附带 CLI 提示。
+	// 它默认关闭：未显式开启时输出逐字节不变。
+	OptInCliHints OptInKey = "cli_hints"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -46,6 +55,9 @@ var allOptInKeys = []OptInKey{
 	OptInCompactionFidelity,
 	OptInKeepImplicitContext,
 	OptInPreserveSummarySections,
+	OptInApplyPatch,
+	OptInGrepEx,
+	OptInCliHints,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。

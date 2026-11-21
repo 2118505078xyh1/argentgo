@@ -33,10 +33,17 @@ func compactThresholdFrom(raw map[string]any) int {
 type sessionCompactor struct {
 	res  Resolved
 	sess *session.Session
+	reg  *OptInRegistry
 }
 
 func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor {
 	return &sessionCompactor{res: res, sess: sess}
+}
+
+// newSessionCompactorWithOpts 是带 opt-in 注册表的构造，仅供 Execute 使用。
+// 原两参构造保留给测试，reg 留 nil 时三个压缩 wire 全部关闭，重建路径逐字节不变。
+func newSessionCompactorWithOpts(res Resolved, sess *session.Session, reg *OptInRegistry) *sessionCompactor {
+	return &sessionCompactor{res: res, sess: sess, reg: reg}
 }
 
 // compactionInputs 解析驱动压缩触发的三元组 (contextWindow, configuredTokens, percent)。
@@ -234,7 +241,8 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	compaction := session.Summarize(entries[:start], len(messages)-start)
 	// 轮次中，运行的 OnCompactionEvidence 回调尚未触发，因此从可见消息中收集后续步骤行，
 	// 并让 Summarize 从被丢弃的条目中提取工具失败记录。
-	enrichCompaction(&compaction, agent.CollectCompactionEvidence(nil, messages))
+	// dropped 与 reg 供 opt-in 压缩 wire 使用；reg 为 nil（测试/默认）时三 wire 关闭，逐字节不变。
+	enrichCompaction(&compaction, agent.CollectCompactionEvidence(nil, messages), entries[:start], c.reg)
 
 	out := make([]llm.Message, 0, len(messages)-start+2)
 	out = append(out, llm.Message{Role: "system", Content: compaction.Summary})
@@ -360,7 +368,7 @@ func addArgumentPath(out *[]string, seen map[string]bool, path string) {
 
 // enrichCompaction 把运行时失败和后续步骤行带入摘要。
 // 它对应 compactWithEvidence，使轮次中和运行后的压缩在恢复时保留相同的上下文。
-func enrichCompaction(compaction *session.Compaction, evidence agent.CompactionEvidence) {
+func enrichCompaction(compaction *session.Compaction, evidence agent.CompactionEvidence, dropped []session.Entry, reg *OptInRegistry) {
 	for _, failure := range agent.SortFailuresByTurn(evidence.Failures) {
 		item := failure.Reason
 		if failure.Tool != "" {
@@ -375,13 +383,15 @@ func enrichCompaction(compaction *session.Compaction, evidence agent.CompactionE
 			compaction.NextSteps = append(compaction.NextSteps, step)
 		}
 	}
-	compaction.Summary = buildCompactionSummary(*compaction)
+	// 重建前取原始 Summarize 摘要，供 opt-in wire 恢复 Goal/Tool activity 段。
+	orig := compaction.Summary
+	compaction.Summary = rebuildCompactionSummary(*compaction, dropped, orig, reg)
 }
 
 // maybeAutoCompact 是 --no-auto-compact 背后的运行后步骤。当该标志被设置，
 // 或对话仍在阈值以内时，它是空操作。运行时失败和后续步骤行会被带入摘要，
 // 使恢复的运行不会丢失它最需要的上下文。
-func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.CompactionEvidence) {
+func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry) {
 	if res.NoAutoCompact || sess == nil {
 		return
 	}
@@ -407,7 +417,7 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	}
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0
 	if hasEvidence {
-		compactWithEvidence(sess, evidence)
+		compactWithEvidence(sess, evidence, reg)
 		return
 	}
 	_ = sess.Compact(defaultCompactKeep)

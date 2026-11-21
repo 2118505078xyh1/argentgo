@@ -420,7 +420,7 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 			return 0
 		}
 		fmt.Fprintln(a.IO.Err, "error:", err)
-		writeActionableError(a.IO.Err, err)
+		writeActionableErrorEnv(a.IO.Err, err, a.IO.Env, opts.Locale)
 		return 1
 	}
 	if !jsonMode {

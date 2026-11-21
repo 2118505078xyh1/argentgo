@@ -38,7 +38,16 @@ func TestOptInRegistrySetEnabled(t *testing.T) {
 			{OptInUntrustedResult, true},
 			{OptInContextPressure, true},
 			{OptInUntrustedBoundary, true},
-		}, optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary)},
+			{OptInAttemptIsolation, true},
+			{OptInCompactionFidelity, true},
+			{OptInKeepImplicitContext, true},
+			{OptInPreserveSummarySections, true},
+			{OptInApplyPatch, true},
+			{OptInGrepEx, true},
+			{OptInCliHints, true},
+		}, optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary,
+			OptInAttemptIsolation, OptInCompactionFidelity, OptInKeepImplicitContext, OptInPreserveSummarySections,
+			OptInApplyPatch, OptInGrepEx, OptInCliHints)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,8 +170,12 @@ func TestParseOptInEnv(t *testing.T) {
 		{"empty segments ignored", false, "refusal_reason,,untrusted_result,", optInWant(OptInRefusalReason, OptInUntrustedResult)},
 		{"CJK token ignored", false, "拒绝理由,refusal_reason", optInWant(OptInRefusalReason)},
 		{"case sensitive", false, "REFUSAL_REASON", optInWant()},
-		{"all keys", false, "refusal_reason,untrusted_result,context_pressure,untrusted_boundary",
-			optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary)},
+		{"all keys", false, "refusal_reason,untrusted_result,context_pressure,untrusted_boundary," +
+			"attempt_isolation,compaction_fidelity,keep_implicit_context,preserve_summary_sections," +
+			"apply_patch,grep_ex,cli_hints",
+			optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary,
+				OptInAttemptIsolation, OptInCompactionFidelity, OptInKeepImplicitContext, OptInPreserveSummarySections,
+				OptInApplyPatch, OptInGrepEx, OptInCliHints)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -22,9 +22,14 @@ func TestMutatingPathToolsRespectWriteRoots(t *testing.T) {
 		{"write inside add dir", "write", filepath.Join(extra, "b.txt"), Ask},
 		{"edit inside add dir", "edit", filepath.Join(extra, "b.txt"), Ask},
 		{"multi_edit inside add dir", "multi_edit", filepath.Join(extra, "b.txt"), Ask},
+		// apply_patch 纳入修改类工具后，其文件路径同样受 writeRoots 约束。
+		{"apply_patch inside workspace", "apply_patch", filepath.Join(root, "a.txt"), Ask},
+		{"apply_patch inside add dir", "apply_patch", filepath.Join(extra, "b.txt"), Ask},
 		{"write outside all roots", "write", filepath.Join(outside, "c.txt"), Deny},
 		{"edit outside all roots", "edit", filepath.Join(outside, "c.txt"), Deny},
+		{"apply_patch outside all roots", "apply_patch", filepath.Join(outside, "c.txt"), Deny},
 		{"relative escape", "write", "../escape.txt", Deny},
+		{"apply_patch relative escape", "apply_patch", "../escape.txt", Deny},
 		{"read outside roots stays readable", "read", filepath.Join(outside, "c.txt"), Allow},
 		{"read inside add dir", "read", filepath.Join(extra, "b.txt"), Allow},
 	}

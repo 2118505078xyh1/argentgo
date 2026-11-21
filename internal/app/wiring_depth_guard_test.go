@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -233,4 +234,50 @@ func TestGuardThreeWiresPassThroughWhenOff(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGuardRebuildSummaryByteExactWhenOff 为 R15 压缩 wire threading 补真实函数字节金标准：
+// 三条压缩路径共用的 rebuildCompactionSummary 在默认（全关）注册表下，必须与接线之前的
+// buildCompactionSummary 逐字节相同。这守护了"threading 默认关闭字节不变"的核心契约，
+// 弥补此前只有 session 侧模拟串、无 app 真实函数 golden 的缺口。
+func TestGuardRebuildSummaryByteExactWhenOff(t *testing.T) {
+	c := session.Compaction{
+		Dropped:   7,
+		Keep:      6,
+		Files:     []string{"internal/auth.go"},
+		Failures:  []string{"auth: permission denied"},
+		NextSteps: []string{"补单元测试"},
+	}
+	// 原始 Summarize 摘要：含 Goal 与 Tool activity 段，重建时会被 buildCompactionSummary 抹掉。
+	orig := "## Compaction\n\n## Goal\n- 修复登录鉴权\n\n## Tool activity\n- read foo.go\n\n## Next steps\n- 补单元测试\n"
+
+	for _, tc := range []struct {
+		name string
+		reg  *OptInRegistry
+	}{
+		{"nil registry", nil},
+		{"zero registry", new(OptInRegistry)},
+		{"app default-off registry", guardDefaultOffRegistry()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rebuildCompactionSummary(c, nil, orig, tc.reg)
+			want := buildCompactionSummary(c)
+			if got != want {
+				t.Fatalf("默认关闭重建摘要字节变化:\n got  %q\n want %q", got, want)
+			}
+		})
+	}
+
+	// 开启各 wire 时确实产生预期变化，证明上面的相等不是"接线未生效"的假绿。
+	t.Run("wires_on_change_summary", func(t *testing.T) {
+		reg := new(OptInRegistry)
+		reg.Set(OptInPreserveSummarySections, true)
+		got := rebuildCompactionSummary(c, nil, orig, reg)
+		if !strings.Contains(got, "修复登录鉴权") {
+			t.Fatalf("preserve wire 开启后未恢复 Goal: %q", got)
+		}
+		if !strings.Contains(got, "Tool activity") {
+			t.Fatalf("preserve wire 开启后未恢复 Tool activity: %q", got)
+		}
+	})
 }
