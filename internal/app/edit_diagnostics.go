@@ -53,11 +53,11 @@ var editDiagnosticsForPath = func(ctx context.Context, root, path string) string
 	return FormatDiagnostics(path, diags, 0)
 }
 
-// appendEditDiagnostics 在写类工具成功返回后按需附加诊断。它在开关关闭、
-// 没有 mutationPaths 接缝、非写类工具三种情况下立即返回，零副作用。
-// 诊断以注释形式追加，绝不替换工具本身的输出。
+// appendEditDiagnostics 在写类工具成功返回后按需附加诊断。它在全局开关与
+// 可注入开关都关闭、没有 mutationPaths 接缝、非写类工具三种情况下立即返回，零副作用。
+// autoDiagnostics 为零值时行为与旧版逐字节一致；诊断以注释形式追加，绝不替换工具本身的输出。
 func (h *hookedTools) appendEditDiagnostics(ctx context.Context, name, args string, out *string) {
-	if !EnableEditDiagnostics || h.mutationPaths == nil || !isEditDiagnosticsTool(name) {
+	if (!EnableEditDiagnostics && !h.autoDiagnostics) || h.mutationPaths == nil || !isEditDiagnosticsTool(name) {
 		return
 	}
 	root := ""

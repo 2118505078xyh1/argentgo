@@ -50,6 +50,9 @@ const (
 	// OptInModelSummary 控制压缩时是否用模型生成增量叙事摘要。它默认关闭：
 	// 未显式开启时不发起任何模型调用，压缩摘要逐字节不变。
 	OptInModelSummary OptInKey = "model_summary"
+	// OptInAutoVerify 控制编辑后是否自动派生已有的验证诊断回环（Go 项目为 go test ./...）。
+	// 它默认关闭：未显式开启时验证接线返回 nil，默认运行逐字节不变。
+	OptInAutoVerify OptInKey = "auto_verify"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -67,6 +70,7 @@ var allOptInKeys = []OptInKey{
 	OptInCliHints,
 	OptInToolErrorReflection,
 	OptInModelSummary,
+	OptInAutoVerify,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。

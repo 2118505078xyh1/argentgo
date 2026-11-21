@@ -204,6 +204,47 @@ func TestEditDiagnosticsEnabledKeepsCJKTextIntact(t *testing.T) {
 	}
 }
 
+// TestEditDiagnosticsAutoInjectionOverridesGlobalOff 验证 R25 可注入开关：
+// 全局 EnableEditDiagnostics 关闭时，仅把 hookedTools.autoDiagnostics 置 true
+// 就应让诊断路径生效；零值仍退化为旧的全局开关行为。
+func TestEditDiagnosticsAutoInjectionOverridesGlobalOff(t *testing.T) {
+	previous := EnableEditDiagnostics
+	EnableEditDiagnostics = false
+	t.Cleanup(func() { EnableEditDiagnostics = previous })
+
+	called := false
+	previousSeam := editDiagnosticsForPath
+	editDiagnosticsForPath = func(context.Context, string, string) string {
+		called = true
+		return "main.go:1:1: boom"
+	}
+	t.Cleanup(func() { editDiagnosticsForPath = previousSeam })
+
+	// 零值：全局关且未注入时接缝绝不被调用，输出逐字节不变。
+	inner := &stubToolRunner{out: "original output"}
+	h := editHookedTools(t.TempDir(), inner, "main.go")
+	out, err := h.Run(context.Background(), "write", `{"path":"main.go"}`)
+	if err != nil || out != "original output" || called {
+		t.Fatalf("零值注入时诊断不应生效: out=%q err=%v called=%v", out, err, called)
+	}
+
+	// 注入 true：全局仍关闭，但诊断路径生效并附加格式化诊断。
+	h.autoDiagnostics = true
+	out, err = h.Run(context.Background(), "write", `{"path":"main.go"}`)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !called {
+		t.Fatal("注入 autoDiagnostics=true 后诊断接缝应被调用")
+	}
+	if !strings.Contains(out, editDiagnosticsLabel+" main.go:1:1: boom") {
+		t.Fatalf("未附加诊断: %q", out)
+	}
+	if !strings.HasPrefix(out, "original output") {
+		t.Fatalf("工具原始输出未保留: %q", out)
+	}
+}
+
 func TestAppendDiagnosticNoteNoopOnEmptyMessage(t *testing.T) {
 	if got := appendDiagnosticNote("done", "  "); got != "done" {
 		t.Fatalf("空诊断消息应保持原输出, 得到 %q", got)

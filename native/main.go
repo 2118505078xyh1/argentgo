@@ -162,6 +162,16 @@ type chat struct {
 	// approvalAnswerRPC 是回答审批的测试接缝。为 nil 时，
 	// answerApproval 直接调用 engine.call；测试注入记录器以
 	approvalAnswerRPC func(method string, params any) (json.RawMessage, error)
+
+	// configInfo 保存通过 config.info RPC 获取的配置快照。
+	// 零值表示未获取或获取失败，状态栏随后回退到 demo 占位串。
+	configInfo       configInfoSnapshot
+	configInfoLoaded bool // config.info is fetched at most once per chat
+
+	// configInfoRPC 是获取配置的测试接缝。为 nil 时，
+	// fetchConfigInfo 直接调用 engine.call；测试注入记录器以
+	// 验证 config.info RPC 而无需活 engine 进程。
+	configInfoRPC func(method string, params any) (json.RawMessage, error)
 }
 
 func (app *chat) palette() palette {
@@ -419,6 +429,88 @@ func (app *chat) applySessions(sessions []session, err error) {
 	app.sessions = sessions
 }
 
+// configInfoSnapshot 是状态栏所需的配置快照，只保留三个字段。
+// 它对应 server 的 config.info RPC 返回，但 native 不 import internal/：
+// 这里只发 JSON-RPC 请求，不编译期依赖 server 的实现（由另一变更落盘）。
+type configInfoSnapshot struct {
+	model     string
+	provider  string
+	workspace string
+}
+
+// ensureConfigInfo 在附加真实 engine 时启动一次性 config.info 获取。
+// 它在启动路径（window 尚未创建）被调用，内联应用结果，使首帧
+// 就能显示真实状态栏；若已有窗口则在后台线程获取并在 UI 线程应用。
+// engine 为 nil（demo）时不发送任何 RPC。
+func (app *chat) ensureConfigInfo() {
+	if app.engine == nil || app.configInfoLoaded {
+		return
+	}
+	app.configInfoLoaded = true
+	if app.win == nil {
+		info, err := app.fetchConfigInfo()
+		app.applyConfigInfo(info, err)
+		return
+	}
+	win := app.win
+	go func() {
+		info, err := app.fetchConfigInfo()
+		win.Update(func() { app.applyConfigInfo(info, err) })
+	}()
+}
+
+// fetchConfigInfo 调用 config.info RPC 并解码其
+// {"model":...,"provider":...,"workspace":...} payload。RPC 由 server 侧
+// 提供（另一变更落盘），native 只发 JSON-RPC 请求，没有编译期依赖。
+// RPC 错误或无法解析的 payload 返回给调用方，后者回退到 demo 占位串。
+func (app *chat) fetchConfigInfo() (configInfoSnapshot, error) {
+	call := app.configInfoRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	raw, err := call("config.info", map[string]any{})
+	if err != nil {
+		return configInfoSnapshot{}, err
+	}
+	var payload struct {
+		Model     string `json:"model"`
+		Provider  string `json:"provider"`
+		Workspace string `json:"workspace"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return configInfoSnapshot{}, err
+	}
+	return configInfoSnapshot{
+		model:     payload.Model,
+		provider:  payload.Provider,
+		workspace: payload.Workspace,
+	}, nil
+}
+
+// applyConfigInfo 安装成功的获取。失败让 configInfo 保持零值
+// （状态栏随后回退到 demo 占位串）；它从不使视图崩溃。
+func (app *chat) applyConfigInfo(info configInfoSnapshot, err error) {
+	if err != nil {
+		return
+	}
+	app.configInfo = info
+}
+
+// demoStatusInfo 是 config.info 未加载或失败时状态栏的占位串，
+// 逐字节保持与原硬编码一致。
+const demoStatusInfo = "gpt-4o-mini · ~/my-project"
+
+// configInfoLabel 返回状态栏右侧显示的模型/工作区文字。
+// 未获取或获取失败（model/workspace 为空）时回退到 demo 占位串；
+// workspace 可能已由 server 脱敏，这里原样显示。
+func (app *chat) configInfoLabel() string {
+	info := app.configInfo
+	if info.model == "" || info.workspace == "" {
+		return demoStatusInfo
+	}
+	return info.model + " · " + info.workspace
+}
+
 // sessionGroup 按会话更新的日期分组，匹配
 // 今天/昨天/更早 groups of the demo rail.
 func sessionGroup(updated time.Time) string {
@@ -556,7 +648,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			ui.Box(c).Size(6, 6).Radius(3).Background(dot)
 			ui.Text(c, app.status).FontSize(12).TextColor(p.dim)
 			ui.Spacer(c)
-			ui.Text(c, "gpt-4o-mini · ~/my-project").FontSize(11).TextColor(p.dim)
+			ui.Text(c, app.configInfoLabel()).FontSize(11).TextColor(p.dim)
 		})
 
 		// Composer.
@@ -1145,6 +1237,9 @@ func main() {
 		} else {
 			app.engine = b
 			app.status = "已连接引擎"
+			// 启动时一次性获取真实配置，供状态栏显示。失败时
+			// configInfo 保持零值，状态栏回退到 demo 占位串。
+			app.ensureConfigInfo()
 			defer b.close()
 			// 消费真实 agent 事件使工具卡片和审批反映
 			// engine 而非预设 demo 数据。若 engine 没有事件

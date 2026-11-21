@@ -317,7 +317,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	defer toolset.Close()
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
-		runner = &hookedTools{inner: toolset, bridge: bridge, mutationPaths: toolset.base.mutationPaths}
+		// auto_verify opt-in：开启时让编辑类工具成功后附带 LSP 诊断回灌，帮助模型
+		// 自我修正。默认关闭时 autoDiagnostics 为零值，诊断路径逐字节不变。
+		runner = &hookedTools{
+			inner: toolset, bridge: bridge, mutationPaths: toolset.base.mutationPaths,
+			autoDiagnostics: optIns[OptInAutoVerify],
+		}
 	}
 
 	tracker := newCheckpointTracker(res.Root, sess)
@@ -432,7 +437,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		MutationPaths: toolset.base.mutationPaths,
 		// 选择性启用的有界验证。没有配置验证命令时，两个辅助函数都返回零值，
 		// 使默认运行逐字节不变。
-		Verify:               verifyFuncFor(res),
+		Verify:               verifyFuncFor(res, optIns[OptInAutoVerify]),
 		MaxVerifyReflections: verifyReflectionsFor(res),
 		// 轮次中压缩由 app 层注入，使 agent 永不导入 session。
 		// 禁用/负的阈值会得到 0，从而成为空操作。

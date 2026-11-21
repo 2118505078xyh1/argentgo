@@ -52,6 +52,7 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 		checkStorage(app),
 		checkProvider(ctx, baseURL),
 		checkWebSearch(app),
+		checkVerify(app),
 		checkGit(),
 		{name: "go", status: statusOK, detail: runtime.Version()},
 	}
@@ -208,6 +209,67 @@ func checkWebSearch(app App) doctorCheck {
 	}
 	return doctorCheck{name: "web_search", status: statusWarn,
 		detail: "not configured (optional): set ARGENT_WEB_SEARCH_URL or BRAVE_API_KEY/TAVILY_API_KEY to enable web_search"}
+}
+
+// verifyConfigKeys 是 config 解码 verifyCommand/verifyCommands 时接受的全部键名，
+// 与 internal/config 的 decode 保持一致。cli 不 import config 的解码细节，
+// 因此这里只列字符串键名；新增别名时两处需同步。
+var verifyConfigKeys = []string{"verifyCommand", "verify_command", "verifyCommands", "verify_commands"}
+
+// checkVerify 只提供可发现性提示，不运行任何验证命令：编辑后验证需要用户
+// 在配置中设置 verifyCommand/verifyCommands（或别名），或通过 opt-in 开启
+// auto_verify / ARGENT_EDIT_DIAGNOSTICS。它只检查键是否存在且非空，绝不读取
+// 或打印配置值与 env 值，避免把命令内容或凭证泄漏进 doctor 输出（输出会被
+// 逐字粘贴到 issue）。状态只可能是 ok/warn，永不返回 fail，因此不会改变退出码。
+func checkVerify(app App) doctorCheck {
+	cfg, err := loadConfigFile(app.configPath())
+	if (err == nil && verifyConfigured(cfg)) || verifyOptedIn(app) {
+		return doctorCheck{name: "verify", status: statusOK,
+			detail: "verification configured or opted in"}
+	}
+	return doctorCheck{name: "verify", status: statusWarn,
+		detail: "not configured (optional): set verifyCommand/verifyCommands in config, or enable auto_verify via ARGENT_OPT_INS or set ARGENT_EDIT_DIAGNOSTICS for post-edit verification"}
+}
+
+// verifyConfigured 只检查原始配置 map 中验证相关键是否存在且非空，不读取具体值。
+// 接受列表、映射和非空字符串三种形态，覆盖 config 解码器与手工配置的写法。
+func verifyConfigured(raw map[string]any) bool {
+	for _, key := range verifyConfigKeys {
+		value, exists := raw[key]
+		if !exists || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return true
+			}
+		case []any:
+			if len(v) > 0 {
+				return true
+			}
+		case []string:
+			if len(v) > 0 {
+				return true
+			}
+		case map[string]any:
+			if len(v) > 0 {
+				return true
+			}
+		case map[string]string:
+			if len(v) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// verifyOptedIn 报告是否通过 opt-in 开关或编辑诊断 env 开启了验证提示。
+// auto_verify 键由 app 侧注册表提供，经 OptInFromEnv 解析；cli 不 import app。
+// 它与 ARGENT_EDIT_DIAGNOSTICS=1 做或运算，任一开启即视为已启用。
+func verifyOptedIn(app App) bool {
+	return OptInFromEnv(app.env)["auto_verify"] || app.env("ARGENT_EDIT_DIAGNOSTICS") == "1"
 }
 
 func formatMCPProblems(report mcpConfigReport) string {

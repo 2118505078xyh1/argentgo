@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -553,13 +554,56 @@ func verifyConfigured(res Resolved) bool {
 	return len(res.Cfg.VerifyCommand) > 0 || len(res.Cfg.VerifyCommands) > 0
 }
 
+// autoVerifyGoModExists 报告 root 下是否存在 go.mod 文件。它是自动验证激活的文件系统
+// 接缝：测试可注入假的检查函数，生产路径使用这里的文件检查。目录不算有效的 go.mod。
+func autoVerifyGoModExists(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "go.mod"))
+	return err == nil && !info.IsDir()
+}
+
+// autoVerifyArgv 合成自动验证的 argv。仅当 auto 开启、两种显式验证配置都为空、
+// 且工作区含 go.mod 时返回 `go test ./...`；其余情况返回 nil。
+// 合成结果会再经过 validateVerifyArgv 白名单校验，失败时返回 nil（fail-closed）。
+// goModExists 为 nil 时使用真实的文件系统检查。
+func autoVerifyArgv(res Resolved, auto bool, goModExists func(string) bool) []string {
+	if !auto || len(res.Cfg.VerifyCommands) > 0 || len(res.Cfg.VerifyCommand) > 0 {
+		return nil
+	}
+	root := res.Root
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	if goModExists == nil {
+		goModExists = autoVerifyGoModExists
+	}
+	if !goModExists(root) {
+		return nil
+	}
+	argv := []string{"go", "test", "./..."}
+	if err := validateVerifyArgv(argv); err != nil {
+		return nil
+	}
+	return argv
+}
+
 // 除非操作人员显式配置了验证命令，否则 verifyFuncFor 返回 nil，
 // 使未配置运行的 Options 逐字节不变（agent.Options.Verify == nil 会禁用整个循环）。
+// auto 是可选开关（R25 opt-in auto_verify）：不传或传 false 时走原有分支，逐字节不变；
+// 为 true 时在无显式配置且工作区含 go.mod 的情况下合成 `go test ./...` 回环。
 // 只有旧版 VerifyCommand 被设置时，原样返回原有的固定回调；按语言映射则会增加
 // 一个分派器，参考 agent 循环检查点提供的改动路径。
-func verifyFuncFor(res Resolved) func(context.Context, []string) (string, bool, string, bool) {
+func verifyFuncFor(res Resolved, auto ...bool) func(context.Context, []string) (string, bool, string, bool) {
+	return verifyFuncForAuto(res, len(auto) > 0 && auto[0])
+}
+
+// verifyFuncForAuto 是带显式 auto 开关的实现，供按 opt-in 注入的调用方使用。
+// 显式配置（VerifyCommands / VerifyCommand）永远优先于自动合成。
+func verifyFuncForAuto(res Resolved, auto bool) func(context.Context, []string) (string, bool, string, bool) {
 	if len(res.Cfg.VerifyCommands) > 0 {
 		return newVerifyDispatchFunc(res.Cfg.VerifyCommands, res.Cfg.VerifyCommand, res.Cfg.VerifyTimeoutMS, res.Root)
+	}
+	if argv := autoVerifyArgv(res, auto, nil); argv != nil {
+		return NewVerifyFunc(argv, res.Cfg.VerifyTimeoutMS, res.Root)
 	}
 	if len(res.Cfg.VerifyCommand) == 0 {
 		return nil

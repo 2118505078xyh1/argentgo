@@ -290,6 +290,10 @@ type hookedTools struct {
 	// 绝不改写工具输出，默认运行逐字节不变；注入 annotateSourceURL 后仅在
 	// web_fetch / web_search 成功结果前加一行来源标注。总开关由接入方掌握。
 	sourceAnnotator func(toolName, args, output string) string
+	// autoDiagnostics 是编辑后诊断的可注入开关（R25 opt-in auto_verify）。
+	// 零值 false 时完全退化为旧的 EnableEditDiagnostics 全局开关行为；
+	// 置 true 时即使全局开关关闭也走诊断路径。公共 SetXxx 不变。
+	autoDiagnostics bool
 }
 
 func (h *hookedTools) Specs() []llm.ToolSpec { return h.inner.Specs() }
