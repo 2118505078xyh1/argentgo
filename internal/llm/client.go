@@ -19,12 +19,13 @@ import (
 // 助手回复或稳定前缀请求上。它们
 // 并非普通的上游字段（参见 Chat）。
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Reasoning  string     `json:"reasoning,omitempty"`
-	Usage      *Usage     `json:"usage,omitempty"`
+	Role               string     `json:"role"`
+	Content            string     `json:"content,omitempty"`
+	ToolCalls          []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID         string     `json:"tool_call_id,omitempty"`
+	Reasoning          string     `json:"reasoning,omitempty"`
+	ReasoningSignature string     `json:"reasoning_signature,omitempty"`
+	Usage              *Usage     `json:"usage,omitempty"`
 	// FinishReason 是提供方对本次回复的停止原因（例如 "stop"、
 	// "tool_calls"、"length"）。它是线协议元数据，供 agent 循环用于
 	// 拒绝被截断的工具调用批次，并非普通的转录内容。
@@ -273,6 +274,9 @@ type chatRequest struct {
 	Stream               bool           `json:"stream"`
 	StreamOptions        *streamOptions `json:"stream_options,omitempty"`
 	PromptCacheRetention string         `json:"prompt_cache_retention,omitempty"`
+	// ReasoningEffort 是 OpenAI 风格推理级别，映射到 reasoning_effort。
+	// 零值（空串）由 omitempty 省略，使默认请求字节与接线前完全一致。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type streamOptions struct {
@@ -396,12 +400,24 @@ func (c *Client) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
-	return c.chat(ctx, model, messages, tools, onText, nil)
+	return c.chat(ctx, model, messages, tools, onText, nil, c.reasoningEffort())
+}
+
+// reasoningEffort 返回 OpenAI chat completions 的 reasoning_effort 值。
+// 仅当显式设置 Options.Thinking 时才取其 Effort；默认为空串，
+// 使请求线协议字节与接线前完全一致。FIM 专用路径不调用它。
+func (c *Client) reasoningEffort() string {
+	if c.Options.Thinking == nil {
+		return ""
+	}
+	return c.Options.Thinking.Effort
 }
 
 // chat 是共享的请求/重试/流式处理管线。stopIDs 非空时，
 // 会作为可选的 stop_token_ids 字段转发；Chat 传入 nil，
 // 因此其线协议格式不变。FillMiddle 用它来附加 FIM 停止 token。
+// reasoningEffort 为本次请求要转发的 reasoning_effort：Chat 从
+// Options.Thinking 派生，FillMiddle 始终传空串，使 FIM 永不携带推理参数。
 func (c *Client) chat(
 	ctx context.Context,
 	model string,
@@ -409,15 +425,17 @@ func (c *Client) chat(
 	tools []ToolSpec,
 	onText func(string),
 	stopIDs []int64,
+	reasoningEffort string,
 ) (Message, error) {
 	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
-		Model:        model,
-		Messages:     wireMessages(messages, cacheEnabled, c.Options.cacheControl(), c.Options.PreserveReasoning),
-		Tools:        tools,
-		StopTokenIDs: stopIDs,
-		Stream:       true,
+		Model:           model,
+		Messages:        wireMessages(messages, cacheEnabled, c.Options.cacheControl(), c.Options.PreserveReasoning),
+		Tools:           tools,
+		StopTokenIDs:    stopIDs,
+		Stream:          true,
+		ReasoningEffort: reasoningEffort,
 	}
 	if cacheEnabled || c.Options.IncludeUsage {
 		request.StreamOptions = &streamOptions{IncludeUsage: true}

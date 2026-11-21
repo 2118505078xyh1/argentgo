@@ -57,10 +57,14 @@ func (s *Session) Messages() []Entry {
 			}
 			out = append(out, head...)
 			out = append(out, messageEntries(path[latest+1:])...)
-			return out
+			// 默认开启的工具调用结算：只为孤儿调用补齐带原因的合成结果。
+			// 干净会话没有孤儿也没有合成结果，结算是空操作，投影逐字节不变。
+			return SettleOrphanToolCalls(out, SettleInterrupted)
 		}
 	}
-	return messageEntries(path)
+	// 同上：ReconcileToolPairs 已在 messageEntries 中插入中止结果，
+	// 这里再补上原因元数据与稳定短 id；正常会话原样返回。
+	return SettleOrphanToolCalls(messageEntries(path), SettleInterrupted)
 }
 
 // readRecords 解析转录。空行和格式错误的行会被跳过，

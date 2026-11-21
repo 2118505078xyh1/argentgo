@@ -157,5 +157,7 @@ func (c *Client) FillMiddle(ctx context.Context, model, prefix, suffix string, o
 		return Message{Role: "user", Content: prompt}, nil
 	}
 	messages := []Message{{Role: "user", Content: prompt}}
-	return c.chat(ctx, model, messages, nil, opts.OnText, stopIDs)
+	// FIM 永不发送推理参数：末位传空串，即使客户端设置了 Options.Thinking
+	// 也不派生 reasoning_effort，保持 FIM 请求字节与接线前一致。
+	return c.chat(ctx, model, messages, nil, opts.OnText, stopIDs, "")
 }

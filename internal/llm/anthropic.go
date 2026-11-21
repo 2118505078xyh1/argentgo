@@ -69,6 +69,15 @@ type anthropicRequest struct {
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
 	Stream    bool               `json:"stream"`
+	// Thinking 在扩展思考预算可用时携带启用配置。
+	// 默认省略，使请求字节与早期构建保持一致。
+	Thinking *anthropicThinking `json:"thinking,omitempty"`
+}
+
+// anthropicThinking 是 Anthropic 扩展思考的启用配置。
+type anthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int64  `json:"budget_tokens"`
 }
 
 type anthropicMessage struct {
@@ -83,6 +92,7 @@ type anthropicBlock struct {
 	// 重放的推理内容。否则省略，使请求
 	// 字节与早期构建完全一致。
 	Thinking     string          `json:"thinking,omitempty"`
+	Signature    string          `json:"signature,omitempty"`
 	ID           string          `json:"id,omitempty"`
 	Name         string          `json:"name,omitempty"`
 	Input        json.RawMessage `json:"input,omitempty"`
@@ -201,6 +211,28 @@ func (c *AnthropicClient) maxTokens() int {
 	return c.MaxTokens
 }
 
+// thinkingBudget 把 Options.Thinking.BudgetTokens 钳制到 [1024, maxTokens-1]。
+// 未提供预算、预算非正，或 maxTokens 太小（maxTokens-1 < 1024）时返回 0，
+// 表示本次请求不发送思考配置。Anthropic 要求 budget_tokens 小于 max_tokens，
+// 且扩展思考的最小预算为 1024。
+func (c *AnthropicClient) thinkingBudget() int64 {
+	if c.Options.Thinking == nil || c.Options.Thinking.BudgetTokens <= 0 {
+		return 0
+	}
+	maxTokens := c.maxTokens()
+	if maxTokens-1 < 1024 {
+		return 0
+	}
+	budget := c.Options.Thinking.BudgetTokens
+	if budget < 1024 {
+		budget = 1024
+	}
+	if limit := int64(maxTokens - 1); budget > limit {
+		budget = limit
+	}
+	return budget
+}
+
 func (c *AnthropicClient) httpClient() *http.Client {
 	if c.HTTP == nil {
 		return http.DefaultClient
@@ -235,12 +267,11 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 			req.Messages = pushBlocks(req.Messages, "user", blocks)
 		case "assistant":
 			var blocks []anthropicBlock
-			if c.Options.PreserveReasoning && message.Reasoning != "" {
+			if c.Options.PreserveReasoning && message.Reasoning != "" && message.ReasoningSignature != "" {
 				// 在助手轮次上，Thinking 块位于文本块之前。
-				// 签名不属于中立 Message 契约，因此
-				// 重放只携带文本；要求签名的提供方
-				// 必须在网关层提供它。
-				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: message.Reasoning})
+				// 要求签名的提供方必须同时携带文本与签名；缺签名时
+				// 降级为不发送思考块，避免被提供方以 400 拒绝。
+				blocks = append(blocks, anthropicBlock{Type: "thinking", Thinking: message.Reasoning, Signature: message.ReasoningSignature})
 			}
 			blocks = append(blocks, textBlocks(messageTextForProtocol(message))...)
 			for _, call := range message.ToolCalls {
@@ -305,6 +336,10 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 		if block := lastToolResultBlock(req.Messages); block != nil {
 			block.CacheControl = c.Options.normalizedCacheControl()
 		}
+	}
+	// 只有钳制后的预算大于零才启用扩展思考。
+	if budget := c.thinkingBudget(); budget > 0 {
+		req.Thinking = &anthropicThinking{Type: "enabled", BudgetTokens: budget}
 	}
 	return req
 }
@@ -424,6 +459,9 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 	var (
 		text      strings.Builder
 		reasoning strings.Builder
+		// signature 累积思考块的签名：content_block_start 上的初始签名
+		// 加上后续 signature_delta 分片，供下游在后续轮次中重放思考块。
+		signature strings.Builder
 		usage     *Usage
 		// baseInput 是 message_start 的原始 input_tokens（不含缓存）。
 		// message_delta 携带权威的缓存计数，因此 PromptTokens
@@ -531,6 +569,10 @@ streamLoop:
 				}
 			case "thinking":
 				reasoning.WriteString(block.Thinking)
+				// 部分网关在块开始时即附带完整签名。
+				if block.Signature != "" {
+					signature.WriteString(block.Signature)
+				}
 			case "tool_use":
 				partial := &anthropicPartial{id: block.ID, name: block.Name}
 				if raw := strings.TrimSpace(string(block.Input)); raw != "" && raw != "{}" {
@@ -561,8 +603,8 @@ streamLoop:
 			case "thinking_delta":
 				reasoning.WriteString(delta.Thinking)
 			case "signature_delta":
-				// 签名不属于中立 Message 契约；
-				// 思考文本在这里仅用于转录。
+				// 签名的分片在流末尾拼接，用于重放时校验思考块。
+				signature.WriteString(delta.Signature)
 			case "input_json_delta":
 				if partial := partials[event.Index]; partial != nil {
 					partial.arguments.WriteString(delta.PartialJSON)
@@ -667,12 +709,13 @@ streamLoop:
 	}
 
 	return Message{
-		Role:         "assistant",
-		Content:      text.String(),
-		ToolCalls:    calls,
-		Reasoning:    reasoning.String(),
-		Usage:        usage,
-		FinishReason: finishReason,
+		Role:               "assistant",
+		Content:            text.String(),
+		ToolCalls:          calls,
+		Reasoning:          reasoning.String(),
+		ReasoningSignature: signature.String(),
+		Usage:              usage,
+		FinishReason:       finishReason,
 	}, nil
 }
 

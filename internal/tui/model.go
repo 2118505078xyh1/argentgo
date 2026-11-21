@@ -236,6 +236,15 @@ type Model struct {
 	usageRate       string
 	usageLastTokens int
 	usageLastAt     time.Time
+	// 可选流式计时（R36）：Usage 事件带首 token/流结束/完成时间点时，
+	// 按轮记录三者，并用 (usageStreamedAt-usageFirstTokenAt) 作为纯流式
+	// 时长跨步累加；速率取 Σtokens/Σdurations。字段缺失时以下全为零值，
+	// usageRate 走上面的相邻 Usage 增量降级路径，显示字节与 R33 一致。
+	usageFirstTokenAt   time.Time
+	usageStreamedAt     time.Time
+	usageCompletedAt    time.Time
+	usageStreamTokens   int
+	usageStreamDuration time.Duration
 	// 回合统计的打点与结算状态。TurnStart 打点，TurnEnd 只置 pending，
 	// 真正 append EntryStats 由随后的 Usage 事件触发。
 	turnStartAt      time.Time

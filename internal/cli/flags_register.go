@@ -27,9 +27,9 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.approval = fs.String("approval", "", "approval mode: ask, never or auto")
 	v.session = fs.String("session", "", "resume the session with this id")
 	// --at 让 --session 的恢复从会话树中指定的记录开始（就地分支切换）。
-	// 这里只注册 flag 表面；具体恢复接线由调用方在拿到会话 id 后使用
-	// session.Store.OpenSessionAt 完成。
-	_ = fs.String("at", "", "resume --session at this entry id")
+	// 值随 flag 存入 v.at，由 parseArgs 传到 Options.At，最终由
+	// app 恢复流程使用 session.Store.OpenSessionAt 完成就地 checkout。
+	v.at = fs.String("at", "", "resume --session at this entry id")
 	v.resume = fs.Bool("resume", false, "resume the most recent session")
 	v.undo = fs.Bool("undo", false, "restore the latest checkpoint of --session and exit")
 	v.retry = fs.Bool("retry", false, "fork --session at its latest checkpoint before the prompt")

@@ -63,6 +63,16 @@ type Event struct {
 	PromptTokens     int
 	CompletionTokens int
 	CachedTokens     int
+
+	// 仅 TuiEventUsage（可选）：本轮流式输出的三个时间点。由 session 层
+	// 在能拿到首 token 时刻时填入；任意为零值时 TUI 回退到相邻 Usage 的
+	// Δtokens/Δt 速率（R33 行为），显示字节保持不变。
+	// FirstTokenAt 是首个输出 token 到达时刻，StreamedAt 是流式输出结束
+	// 时刻，CompletedAt 是本轮结算完成时刻。纯流式时长只取
+	// StreamedAt-FirstTokenAt，刻意不计首 token 等待与工具执行时间。
+	FirstTokenAt time.Time
+	StreamedAt   time.Time
+	CompletedAt  time.Time
 }
 
 // HandleEvent 把一个 agent 事件折叠进 UI。未知类别被忽略，
@@ -108,20 +118,10 @@ func (m *Model) HandleEvent(event Event) {
 		// 不可重入的 sync.Mutex 再次加锁而死锁。
 		m.setUsageLocked(event.PromptTokens, event.CompletionTokens)
 		m.setCachedTokensLocked(event.CachedTokens)
-		// 增量速度：相邻两次 Usage 的补全 token 差除以墙钟差。
-		// 首次事件没有基线、Δt<=0 或 Δtokens<=0 都不产生速率，
-		// 因此绝不会出现 NaN/Inf，也保持无用量时的帧字节不变。
+		// 速度优先取可选的首 token/流结束时间点做纯流式聚合；
+		// 字段缺失时回退到 R33 的相邻 Usage 增量，显示字节不变。
 		now := m.now()
-		if !m.usageLastAt.IsZero() && now.After(m.usageLastAt) {
-			delta := event.CompletionTokens - m.usageLastTokens
-			if delta > 0 {
-				rate := float64(delta) / now.Sub(m.usageLastAt).Seconds()
-				if rate > maxTokenRate {
-					rate = maxTokenRate
-				}
-				m.usageRate = formatTokenRate(rate)
-			}
-		}
+		m.updateUsageRateLocked(event, now)
 		m.usageLastTokens, m.usageLastAt = event.CompletionTokens, now
 		// 统计行在 TurnStart 打点后累计输出 token；只有收到 Usage
 		// 才结算（agent 先发 TurnEnd 再发 Usage）。
@@ -141,6 +141,68 @@ func (m *Model) HandleEvent(event Event) {
 			m.turnStatsPending = true
 		}
 	}
+}
+
+// pureStreamDuration 返回一次流式输出的"纯流式时长"：从首个输出 token
+// 到流结束。首 token 之前的等待（首 token 延迟）与流结束后的工具执行
+// 都不计入。任一端点为零值或顺序颠倒时返回 0，调用方据此跳过该样本，
+// 因此不会产生 NaN/Inf。
+func pureStreamDuration(firstTokenAt, streamedAt time.Time) time.Duration {
+	if firstTokenAt.IsZero() || streamedAt.IsZero() {
+		return 0
+	}
+	if d := streamedAt.Sub(firstTokenAt); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// aggregateTokenRate 按"先聚合再相除"计算加权速率：Σtokens/Σdurations，
+// 等价于各步速率以时长为权的加权平均，而不是对每步速率取算术平均。
+// token 非正或时长非正时返回空字符串，使 Δt=0 永远不会泄漏 NaN/Inf。
+func aggregateTokenRate(tokens int, duration time.Duration) string {
+	if tokens <= 0 || duration <= 0 {
+		return ""
+	}
+	rate := float64(tokens) / duration.Seconds()
+	if rate > maxTokenRate {
+		rate = maxTokenRate
+	}
+	return formatTokenRate(rate)
+}
+
+// updateUsageRateLocked 更新头部用量行的速度文本。调用方已持有 m.mu。
+// 当 Usage 事件带有首 token/流结束时间点时，用纯流式时长跨步累计
+// （Σtokens/Σdurations，不计首 token 等待）；否则回退到 R33 的相邻
+// Usage 增量算法，使没有新字段时既有显示逐字节不变。
+func (m *Model) updateUsageRateLocked(event Event, now time.Time) {
+	if d := pureStreamDuration(event.FirstTokenAt, event.StreamedAt); d > 0 && event.CompletionTokens > 0 {
+		// 按轮记录三个时间点；tokens/durations 跨步累加形成聚合窗口。
+		m.usageFirstTokenAt = event.FirstTokenAt
+		m.usageStreamedAt = event.StreamedAt
+		m.usageCompletedAt = event.CompletedAt
+		m.usageStreamTokens += event.CompletionTokens
+		m.usageStreamDuration += d
+		if rate := aggregateTokenRate(m.usageStreamTokens, m.usageStreamDuration); rate != "" {
+			m.usageRate = rate
+		}
+		return
+	}
+	// 降级：相邻两次 Usage 的补全 token 差除以墙钟差。首次事件没有
+	// 基线、Δt<=0 或 Δtokens<=0 都不产生速率，因此绝不会出现 NaN/Inf，
+	// 也保持无用量时的帧字节不变。
+	if m.usageLastAt.IsZero() || !now.After(m.usageLastAt) {
+		return
+	}
+	delta := event.CompletionTokens - m.usageLastTokens
+	if delta <= 0 {
+		return
+	}
+	rate := float64(delta) / now.Sub(m.usageLastAt).Seconds()
+	if rate > maxTokenRate {
+		rate = maxTokenRate
+	}
+	m.usageRate = formatTokenRate(rate)
 }
 
 // appendNoticeEntryLocked 追加一条完整构建的通知条目 —— 若有的话已

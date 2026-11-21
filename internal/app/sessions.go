@@ -12,9 +12,19 @@ import (
 
 // openOrCreateSession 实现 --session/--resume：显式的 id 或会话文件会被重新打开，
 // --resume 选择最新的已存储会话，只有普通运行才会创建新会话。返回的句柄会被原地追加。
+// 显式 --session 同时带 --at 时，通过 OpenSessionAt 就地 checkout 到指定记录，
+// 使后续消息从该分叉点续写；不带 --at 时走原来的 OpenSession，行为逐字节不变。
 func openOrCreateSession(store *session.Store, opts cli.Options, firstPrompt string) (*session.Session, error) {
 	if id := strings.TrimSpace(opts.Session); id != "" {
-		sess, err := store.OpenSession(sessionIDFromArg(store, id))
+		resolvedID := sessionIDFromArg(store, id)
+		if at := strings.TrimSpace(opts.At); at != "" {
+			sess, err := store.OpenSessionAt(resolvedID, at)
+			if err != nil {
+				return nil, fmt.Errorf("resume session %q at %q: %w", id, at, err)
+			}
+			return sess, nil
+		}
+		sess, err := store.OpenSession(resolvedID)
 		if err != nil {
 			return nil, fmt.Errorf("resume session %q: %w", id, err)
 		}

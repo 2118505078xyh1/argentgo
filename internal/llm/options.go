@@ -31,8 +31,9 @@ func EphemeralCacheControl() *CacheControl {
 }
 
 // ThinkingConfig 是 Options 携带的、与协议无关的推理控制。
-// 它是纯数据载体：目前没有线客户端读取它，因此让
-// Options.Thinking 为 nil 可使每个请求字节与早期构建完全一致。
+// 字段保存规范化后的取值，由各协议客户端按线上协议读取适用项：
+// chat completions 读取 Effort 作为 reasoning_effort。让 Options.Thinking
+// 为 nil 时客户端不发出推理参数，使每个请求字节与早期构建完全一致。
 // 三个字段覆盖厂商提供的三类旋钮：
 //   - Effort 是命名级别（"low"/"medium"/"high" 或对应的中文），
 //     由 OpenAI 风格协议映射到 reasoning_effort / reasoning.effort。
@@ -73,9 +74,9 @@ type Options struct {
 	// 默认关闭，使发送到上游的字节——以及所有现有的线协议格式测试——
 	// 保持与之前完全一致。
 	PreserveReasoning bool
-	// Thinking 携带规范化后的推理控制，供未来线客户端接线使用。
-	// 它默认为 nil，且目前没有线客户端序列化它，
-	// 因此添加此字段不会改变任何现有请求字节。
+	// Thinking 携带规范化后的推理控制，供线客户端按协议读取。
+	// 它默认为 nil，此时客户端不序列化任何推理参数，
+	// 因此默认请求字节与接线前完全一致。
 	Thinking *ThinkingConfig `json:"thinking,omitempty"`
 	// AttemptHook 为会话层接收脱敏后的尝试记录。
 	AttemptHook func(AttemptRecord)

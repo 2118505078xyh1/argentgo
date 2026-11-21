@@ -501,6 +501,9 @@ func (s *Session) RetryFromCheckpoint(id string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 分叉血缘在此落地：Attempt 的 SourceSession/SourceRecord 标明这次重试
+	// 来自哪个会话的哪条检查点记录，供树视图与审计使用。它是 forkLineagePayload
+	// 之外既有且唯一的血缘记录方式，后者刻意未与 Fork 接线（见 fork_lineage.go）。
 	_, err = fork.AppendAttempt(Attempt{
 		Reason:        AttemptRetried,
 		Message:       "forked from checkpoint " + record.ID,

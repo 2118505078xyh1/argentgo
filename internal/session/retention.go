@@ -167,6 +167,12 @@ func SelectForCompaction(records []Record, budget int) []Record {
 // SelectForChildren 返回必须植入子会话的记录：标记为 RetainAlways 或 RetainInChildren 的记录，
 // 按原始记录顺序排列。RetainInThread 被刻意排除——它在父线程中能熬过压缩，
 // 但绝不能泄漏到子代理的上下文中。
+//
+// 它是可选 API：只做选择、不修改任何记录字节。真正的消费者是 app 接线层，
+// 它把结果格式化进 agent.Options.SeedContext；该接缝默认关闭，以保持子级
+// 系统提示与之前逐字节一致。session 包内部已在写入时通过 StampIfImportant /
+// RetentionFromKind 为 checkpoint、summary、compaction、title 自动打标，
+// 与本选择器互补（见 retention_write.go 与 TestSelectorsSeeStampedRecords）。
 func SelectForChildren(records []Record) []Record {
 	var out []Record
 	for _, record := range records {

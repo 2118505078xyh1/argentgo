@@ -57,11 +57,14 @@ type Entry struct {
 	Content string
 	// Reasoning 是 assistant 轮次中模型的思考文本。它是仅存在于转录中的元数据：
 	// 在旧记录和非 assistant 轮次上为空，未设置时从归档中省略，以便旧字节保持一致。
-	Reasoning  string `json:"Reasoning,omitempty"`
-	Name       string // 记录携带时的工具名称
-	ToolCallID string
-	TS         time.Time
-	Data       json.RawMessage
+	Reasoning string `json:"Reasoning,omitempty"`
+	// ReasoningSignature 是 assistant 轮次中模型思考文本的签名。与 Reasoning 一样，
+	// 它仅存在于转录中，未设置时从归档中省略，以便旧字节保持一致。
+	ReasoningSignature string `json:"ReasoningSignature,omitempty"`
+	Name               string // 记录携带时的工具名称
+	ToolCallID         string
+	TS                 time.Time
+	Data               json.RawMessage
 }
 
 // Header 是每个会话的第一条记录。

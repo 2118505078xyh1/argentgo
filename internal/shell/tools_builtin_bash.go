@@ -109,6 +109,13 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		}
 	}
 
+	// 默认 bash 路径的进程硬化是 opt-in 的：开启后走 proc.Run，
+	// 获得有界捕获、进程组杀树、环境净化与跨分块 UTF-8 重组；
+	// 关闭时保持下方的 CombinedOutput 路径逐字节不变。
+	if bashUseProcEnabled() {
+		return runBashViaProc(ctx, root, path, argv, timeout)
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, path, argv...)
@@ -169,6 +176,13 @@ func builtinShellEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_BUILTIN_SHELL")) == "1"
 }
 
+// bashUseProcEnabled 报告是否让默认 bash 主路径改走 proc.Run。
+// 默认关闭：只有 ARGENT_BASH_USE_PROC=1 才启用，确保关闭时仍走
+// 原有的 exec.Cmd.CombinedOutput 路径、输出逐字节不变。
+func bashUseProcEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_BASH_USE_PROC")) == "1"
+}
+
 // runBuiltinShell 用自研解释器执行命令。输出仍走既有的清洗/裁剪管线
 // （clipBashOutput），非零退出转为含退出码的 error，保持与系统 shell 路径一致的可观察语义。
 func runBuiltinShell(ctx context.Context, root, command string, timeout time.Duration) (string, error) {
@@ -207,6 +221,51 @@ func builtinShellEnv() map[string]string {
 	vars["PAGER"] = "cat"
 	vars["GIT_PAGER"] = "cat"
 	return vars
+}
+
+// bashProcCommand 构建硬化路径执行的 proc.Command。它与 Run 分开保留，
+// 使进程组杀树与隐藏窗口的接线可以在单元测试中直接验证。
+func bashProcCommand(path string, argv []string, root string) proc.Command {
+	return proc.Command{
+		Path:     path,
+		Args:     argv,
+		Dir:      root,
+		KillTree: true,
+		NoWindow: runtime.GOOS == "windows",
+	}
+}
+
+// runBashViaProc 是默认 bash 路径的 opt-in 硬化实现：用 proc.Run 取代
+// exec.Cmd.CombinedOutput，获得每流 64KB 有界捕获、整棵进程树终止、
+// 宿主私有环境变量净化，以及跨读取分块的 UTF-8 重组。
+//
+// 已知差异：exec.Cmd.CombinedOutput 把 stdout/stderr 实时交错写入同一个
+// 缓冲区，而 proc.Result.Combined() 是 stdout 段后接 stderr 段的拼接。
+// 启用该开关即接受此顺序差异，并由测试固定这一契约。
+// 退出/超时语义与下方原路径保持一致：超时优先返回专用错误，
+// 非零退出还原 exec.ExitError 提供的 "bash: exit status N"。
+func runBashViaProc(ctx context.Context, root, path string, argv []string, timeout time.Duration) (string, error) {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	res, err := proc.Run(runCtx, bashProcCommand(path, argv, root))
+
+	text := clipBashOutput(ctx, res.Combined())
+	if runCtx.Err() == context.DeadlineExceeded {
+		return text, fmt.Errorf("bash: timed out after %s", timeout)
+	}
+	if err != nil {
+		return text, fmt.Errorf("bash: %w", err)
+	}
+	if res.ExitCode != 0 {
+		// proc.Run 把非零退出记在 Result.ExitCode 而非 error 中，
+		// 这里显式还原原 CombinedOutput 路径的退出码错误语义。
+		return text, fmt.Errorf("bash: exit status %d", res.ExitCode)
+	}
+	if strings.TrimSpace(text) == "" {
+		return bashNoOutput(res.Combined(), text), nil
+	}
+	return text, nil
 }
 
 // runPromotableBash 最多等待 backgroundAfter 时间。到该

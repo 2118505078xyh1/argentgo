@@ -201,11 +201,21 @@ func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidenc
 	// 重建前取原始 Summarize 摘要，供 opt-in wire 恢复 Goal/Tool activity 段。
 	orig := compaction.Summary
 	compaction.Summary = rebuildCompactionSummary(compaction, entries[:start], orig, reg)
-	// 模型摘要（opt-in）：轮后路径与轮中对称。默认（summaryDep nil 或缺省）时原样返回。
+	// 无损归档（opt-in）：轮后路径与轮中对齐，把被丢弃条目写入归档并附加引用。
+	// summaryDep 携带解析后的配置（含 Raw）；仅在其非 nil 时读取门控，
+	// 默认（summaryDep nil 或归档未开启）时精确保持原字节。
+	// 启用归档却写失败时整条压缩记录都不写，绝不静默压缩。
 	if summaryDep != nil {
-		compaction.Summary = applyModelSummaryWire(compaction.Summary, summaryDep.reg, summaryDep.ctx,
-			summaryDep.chatter, summaryDep.summaryModel, compaction.Failures, compaction.NextSteps,
-			compaction.Files, summaryDep.emit)
+		if _, err := attachCompactionArchive(sess, &compaction, entries[:start], summaryDep.res); err != nil {
+			return
+		}
+	}
+	// 模型摘要（opt-in）：轮后路径与轮中对称，接本地裁剪优先包装。
+	// 默认（本地裁剪/模型摘要关闭、省不够、chatter 缺省）时原样返回，逐字节不变。
+	if summaryDep != nil {
+		compaction.Summary = applyModelSummaryWireWithLocalTrim(compaction.Summary, entries[:start],
+			summaryDep.res.Cfg.Raw, summaryDep.reg, summaryDep.ctx, summaryDep.chatter,
+			summaryDep.summaryModel, compaction.Failures, compaction.NextSteps, compaction.Files, summaryDep.emit)
 	}
 	_ = sess.Append(session.KindCompaction, compaction)
 }
