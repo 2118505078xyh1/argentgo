@@ -249,6 +249,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 派生的 ctx 会通过 agent 循环的 callTool(ctx, ...) 到达每个工具。
 	ctx = configureOutputSpill(ctx, stdio.Env, res.Storage)
 
+	// 启动拓扑校验（选择性启用，默认关闭）：ARGENT_BOOT_TOPO=1 时用依赖图推导
+	// 构造顺序并与历史顺序逐项比对，漂移则 fail-closed；默认不调用 TopoSort。
+	// 下方 boot 八步仍按历史字面顺序执行，因此零行为漂移。
+	if err := bootOrder(stdio.Env); err != nil {
+		return agent.Result{}, err
+	}
+
 	bridge := newHookBridge(res, sess.ID(), stdio.Err)
 	bridge.start(ctx, prompt)
 	defer bridge.end()
