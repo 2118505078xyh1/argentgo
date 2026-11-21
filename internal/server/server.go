@@ -51,6 +51,10 @@ type Config struct {
 	Runner Runner
 	// Sessions 支撑 session.list / session.load RPC 方法。可选。
 	Sessions SessionStore
+	// ConfigInfoProvider 非 nil 时，config.info RPC 返回其提供的真实
+	// model/provider/workspace 摘要。默认为 nil：config.info 返回干净的
+	// -32000 "not configured" 错误，不影响其他任何 RPC 方法。
+	ConfigInfoProvider ConfigInfoProvider
 	// Events 是 /v1/event 和 event/subscribe 共享的事件 hub。当为
 	// nil 时，使用暴露 EventHub() *EventHub 的 runner（app.Factory 的 runner 就是这样），
 	// 使所有无界面传输无需额外接线即可共享一个 hub。

@@ -1,0 +1,280 @@
+{
+  "description": "R25 完成率粒度扩充场景集：在 R24 的 F/N 二值粒度之上扩到 5 场景（4 正 1 负），把完成率从 0.5 细化为 0.8。S1 多文件重构、S2 调试转绿、S3 needle 检索、S4 工具链编排四个正例各有可客观判定的 Check；S5 负对照与 S2 共用同一份种子工作区与同一份 Check，但脚本只修一个 bug，断言 go test 仍退出 1。每个 Go 场景的 Check 都用 allow_exec + exec(go test ./... want_exit_code 0) + file_equals，且 file_equals 逐字节锁死 *_test.go 种子内容，防止模型改测试作弊。S3 不使用 Exec，仅用 files_exist + file_equals。Provider/Expect 写满脚本模式；live 跑批时由 liveSafeScenarios 归零脚本字段，只保留客观 Check。",
+  "scenarios": [
+    {
+      "name": "S1 refactor across two files (should pass)",
+      "description": "正例（多文件重构）：Add 与 Mul 的 bug 分处两个源文件，脚本依次读并修 add.go、mul.go。Check 要求 go test ./... 退出 0，并用 file_equals 逐字节锁死两个修复后的源文件与未改动的 refactor_test.go 种子内容（防改测试作弊）。",
+      "prompt": "read add.go and mul.go, fix both so the tests pass, then report what you did",
+      "files": {
+        "go.mod": "module example.com/refactor\n\ngo 1.21\n",
+        "add.go": "package refactor\n\nfunc Add(a, b int) int { return a - b }\n",
+        "mul.go": "package refactor\n\nfunc Mul(a, b int) int { return a + b }\n",
+        "refactor_test.go": "package refactor\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(2, 3); got != 5 {\n\t\tt.Fatalf(\"Add = %d, want 5\", got)\n\t}\n}\n\nfunc TestMul(t *testing.T) {\n\tif got := Mul(2, 3); got != 6 {\n\t\tt.Fatalf(\"Mul = %d, want 6\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "add.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "add.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "mul.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a + b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "mul.go", "old": "return a + b", "new": "return a * b" } }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "Refactored Add and Mul across two files; the tests should pass now." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit", "read", "edit"],
+        "text_contains": ["Refactored Add and Mul"],
+        "turns": 5
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "add.go": "package refactor\n\nfunc Add(a, b int) int { return a + b }\n",
+          "mul.go": "package refactor\n\nfunc Mul(a, b int) int { return a * b }\n",
+          "refactor_test.go": "package refactor\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(2, 3); got != 5 {\n\t\tt.Fatalf(\"Add = %d, want 5\", got)\n\t}\n}\n\nfunc TestMul(t *testing.T) {\n\tif got := Mul(2, 3); got != 6 {\n\t\tt.Fatalf(\"Mul = %d, want 6\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "S2 debug two bugs to green (should pass)",
+      "description": "正例（调试转绿）：calc.go 同时有 Add 与 Negate 两个 bug，脚本读文件后分别 edit 修掉两处。Check 要求 go test ./... 退出 0，calc.go 逐字节等于两处都修好的内容，并锁死 calc_test.go 种子内容。S5 负对照复用本场景的种子与 Check，只修 Add 一个 bug，因此必然失败。",
+      "prompt": "read calc.go, fix both Add and Negate so the tests pass, then report what you did",
+      "files": {
+        "go.mod": "module example.com/debug\n\ngo 1.21\n",
+        "calc.go": "package debug\n\nfunc Add(a, b int) int { return a - b }\n\nfunc Negate(x int) int { return x + 1 }\n",
+        "calc_test.go": "package debug\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n\nfunc TestNegate(t *testing.T) {\n\tif got := Negate(5); got != -5 {\n\t\tt.Fatalf(\"Negate = %d, want -5\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return x + 1"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "old": "return x + 1", "new": "return -x" } }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "Fixed both Add and Negate; the tests should pass now." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit", "edit"],
+        "text_contains": ["Fixed both Add and Negate"],
+        "turns": 4
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "calc.go": "package debug\n\nfunc Add(a, b int) int { return a + b }\n\nfunc Negate(x int) int { return -x }\n",
+          "calc_test.go": "package debug\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n\nfunc TestNegate(t *testing.T) {\n\tif got := Negate(5); got != -5 {\n\t\tt.Fatalf(\"Negate = %d, want -5\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "S3 needle search and record (should pass)",
+      "description": "正例（needle 检索）：脚本用 grep 找到 haystack.txt 中的 NEEDLE 行，把后面的值写入 answer.txt。本场景刻意不使用 Exec：Check 只用 files_exist 确认产出文件存在，并用 file_equals 逐字节校验 answer.txt 内容与被检索的 haystack.txt 种子内容（防篡改来源）。",
+      "prompt": "find the NEEDLE in the workspace and write its value to answer.txt",
+      "files": {
+        "haystack.txt": "first line\nNEEDLE: alpha-42\nlast line\n",
+        "noise.txt": "nothing relevant here\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "grep", "arguments": { "pattern": "NEEDLE" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["haystack.txt:2"],
+          "respond": {
+            "tool_calls": [
+              { "name": "write", "arguments": { "path": "answer.txt", "content": "alpha-42\n" } }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "Found the needle alpha-42 in haystack.txt and wrote it to answer.txt" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["grep", "write"],
+        "text_contains": ["alpha-42"],
+        "turns": 3
+      },
+      "check": {
+        "files_exist": ["answer.txt", "haystack.txt"],
+        "file_equals": {
+          "answer.txt": "alpha-42\n",
+          "haystack.txt": "first line\nNEEDLE: alpha-42\nlast line\n"
+        }
+      }
+    },
+    {
+      "name": "S4 orchestrate read grep edit write (should pass)",
+      "description": "正例（工具链编排）：脚本按 read → grep → edit → write 顺序编排四种工具修好 compute() 并留下 REPORT.txt。Check 要求 go test ./... 退出 0，main.go 与 REPORT.txt 逐字节正确，并锁死 compute_test.go 种子内容。expect_request_contains 逐环验证上游工具结果确实回注到上下文。",
+      "prompt": "read main.go, locate the broken line with grep, fix compute, then write a short report to REPORT.txt",
+      "files": {
+        "go.mod": "module example.com/orchestrate\n\ngo 1.21\n",
+        "main.go": "package main\n\nfunc compute(a, b int) int { return a - b }\n\nfunc main() {}\n",
+        "compute_test.go": "package main\n\nimport \"testing\"\n\nfunc TestCompute(t *testing.T) {\n\tif got := compute(2, 3); got != 5 {\n\t\tt.Fatalf(\"compute = %d, want 5\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "main.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "grep", "arguments": { "pattern": "return a - b", "path": "main.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["main.go:"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "main.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited main.go"],
+          "respond": {
+            "tool_calls": [
+              { "name": "write", "arguments": { "path": "REPORT.txt", "content": "compute fixed via read-grep-edit-write\n" } }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "Orchestrated read, grep, edit and write; compute is fixed." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "grep", "edit", "write"],
+        "text_contains": ["Orchestrated"],
+        "turns": 5
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "main.go": "package main\n\nfunc compute(a, b int) int { return a + b }\n\nfunc main() {}\n",
+          "compute_test.go": "package main\n\nimport \"testing\"\n\nfunc TestCompute(t *testing.T) {\n\tif got := compute(2, 3); got != 5 {\n\t\tt.Fatalf(\"compute = %d, want 5\", got)\n\t}\n}\n",
+          "REPORT.txt": "compute fixed via read-grep-edit-write\n"
+        }
+      }
+    },
+    {
+      "name": "S5 negative control fix one bug only (should fail)",
+      "description": "负对照（应与 S2 同种子、同 Check）：脚本只读 calc.go 并修 Add 一个 bug，Negate 仍错。Check 与 S2 完全一致（go test ./... want_exit_code 0 + calc.go 全修复 + calc_test.go 锁死），因此 go test 仍退出 1、场景失败，证明完成率对部分修复不误判为完成。",
+      "prompt": "read calc.go, fix the Add bug so the test passes, then report what you did",
+      "files": {
+        "go.mod": "module example.com/debug\n\ngo 1.21\n",
+        "calc.go": "package debug\n\nfunc Add(a, b int) int { return a - b }\n\nfunc Negate(x int) int { return x + 1 }\n",
+        "calc_test.go": "package debug\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n\nfunc TestNegate(t *testing.T) {\n\tif got := Negate(5); got != -5 {\n\t\tt.Fatalf(\"Negate = %d, want -5\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "respond": { "text": "Fixed the Add bug; left Negate unchanged." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit"],
+        "text_contains": ["Fixed the Add bug"],
+        "turns": 3
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": {
+          "command": "go",
+          "args": ["test", "./..."],
+          "timeout_ms": 30000,
+          "want_exit_code": 0
+        },
+        "file_equals": {
+          "calc.go": "package debug\n\nfunc Add(a, b int) int { return a + b }\n\nfunc Negate(x int) int { return -x }\n",
+          "calc_test.go": "package debug\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n\nfunc TestNegate(t *testing.T) {\n\tif got := Negate(5); got != -5 {\n\t\tt.Fatalf(\"Negate = %d, want -5\", got)\n\t}\n}\n"
+        }
+      }
+    }
+  ]
+}

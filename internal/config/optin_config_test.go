@@ -12,6 +12,7 @@ import (
 var optInExpectedOrder = []string{
 	"apply_patch",
 	"attempt_isolation",
+	"auto_verify",
 	"cli_hints",
 	"compaction_fidelity",
 	"context_pressure",
@@ -40,10 +41,11 @@ var optInExpectedDefs = map[string][2]string{
 	"compaction_fidelity":       {"压缩保真", "上下文"},
 	"tool_error_reflection":     {"工具错误反射", "交互"},
 	"model_summary":             {"模型摘要", "上下文"},
+	"auto_verify":               {"自动验证", "交互"},
 }
 
 // TestParseOptInDisplayAllKeys 覆盖全部白名单键：显式 true 时应全部 Enabled，
-// 输出恰好十二个条目且按 Key 升序，标签与归类与期望一致。
+// 输出恰好十四个条目且按 Key 升序，标签与归类与期望一致。
 func TestParseOptInDisplayAllKeys(t *testing.T) {
 	raw := map[string]any{
 		"optins": map[string]any{
@@ -60,6 +62,7 @@ func TestParseOptInDisplayAllKeys(t *testing.T) {
 			"compaction_fidelity":       true,
 			"tool_error_reflection":     true,
 			"model_summary":             true,
+			"auto_verify":               true,
 		},
 	}
 	items := ParseOptInDisplay(raw)
@@ -378,8 +381,8 @@ func TestOptInDisplaySummaryStableAndPure(t *testing.T) {
 	want := OptInDisplaySummary(items)
 
 	// 打乱顺序并加入重复项与一个禁用项，摘要应保持一致。
-	// items 按 Key 升序（共 11 项）：2/4/5 为 cli_hints/context_pressure/grep_ex（均已开启）。
-	shuffled := []OptInDisplay{items[4], items[2], items[5], items[2], {Key: "apply_patch", Label: "补丁应用", Enabled: false}}
+	// items 按 Key 升序（共 14 项）：3/5/6 为 cli_hints/context_pressure/grep_ex（均已开启）。
+	shuffled := []OptInDisplay{items[5], items[3], items[6], items[3], {Key: "apply_patch", Label: "补丁应用", Enabled: false}}
 	before := append([]OptInDisplay(nil), shuffled...)
 	if got := OptInDisplaySummary(shuffled); got != want {
 		t.Errorf("顺序变化后摘要改变: %q vs %q", got, want)

@@ -34,6 +34,14 @@ var errFrameTooLong = fmt.Errorf("json-rpc frame too long (max %d bytes)", maxRP
 // 从而保留路径后面的错误原因。
 var rpcAbsPath = regexp.MustCompile(`(^|[\s"'=(:;])((?:[A-Za-z]:[\\/])|/)[^\s"'<>|:]*`)
 
+// scrubAbsolutePaths 折叠字符串中的绝对文件系统路径，使其不跨越 RPC 边界。
+// 凭据形态的片段先经 security.Redact 脱敏，绝对路径（Windows 盘符根与 POSIX
+// 根）再统一替换为 <storage>/... 占位符。session.load / session.tree 的错误
+// 与 config.info 的 workspace 共用这一条边界，避免两处规则漂移。
+func scrubAbsolutePaths(s string) string {
+	return rpcAbsPath.ReplaceAllString(security.Redact(s), "${1}<storage>/...")
+}
+
 // scrubSessionLoadError 为 JSON-RPC 回复准备 session.load 失败信息。
 // 会话层错误会插入绝对存储目录（例如
 // C:\Users\<user>\.argentgo\sessions\<id>.jsonl），它不得跨越 RPC
@@ -42,9 +50,7 @@ var rpcAbsPath = regexp.MustCompile(`(^|[\s"'=(:;])((?:[A-Za-z]:[\\/])|/)[^\s"'<
 // 保留下来，使客户端仍能知道加载失败的原因。未脱敏的细节
 // 留在服务器端用于日志。
 func scrubSessionLoadError(id string, err error) string {
-	msg := security.Redact(err.Error())
-	msg = rpcAbsPath.ReplaceAllString(msg, "${1}<storage>/...")
-	return fmt.Sprintf("load session %q: %s", id, msg)
+	return fmt.Sprintf("load session %q: %s", id, scrubAbsolutePaths(err.Error()))
 }
 
 // scanResult 是 scanLines 产出的一项：裁剪后的非空输入行，或
@@ -153,7 +159,7 @@ func reportScanError(p *peer, err error) (terminal bool) {
 // EOF 或 ctx 被取消。
 //
 // 方法：prompt、abort、session.list、session.load、session.tree、
-// approval.list、approval.answer、event/subscribe。流式
+// config.info、approval.list、approval.answer、event/subscribe。流式
 // 提示文本在提示结果返回前作为 prompt/delta 通知发出；
 // event/subscribe 用订阅时捕获的 seq 回复（安全续传游标），
 // 然后发出 "event" 通知，直到传输
@@ -454,6 +460,24 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 				}
 			}
 		}()
+	case "config.info":
+		// config.info 无参数，返回当前会话真实使用的 model/provider/workspace，
+		// 供原生窗口状态栏显示。来源通过可选接口注入：未注入时返回干净的
+		// "not configured" 错误（与 session.tree 相同的零值语义），既有方法
+		// 的 wire 形态逐字节不变。
+		//
+		// workspace 走与 session.load 相同的脱敏边界：绝对路径被折叠为
+		// <storage>/... 占位符，凭据形态的片段先脱敏，避免用户主目录或
+		// 存储位置跨越 RPC 边界。model/provider 同样过一遍，防御性处理。
+		if cfg.ConfigInfoProvider == nil {
+			p.fail(req.ID, codeServerError, "config info not configured")
+			return
+		}
+		info := cfg.ConfigInfoProvider.ConfigInfo()
+		info.Model = scrubAbsolutePaths(info.Model)
+		info.Provider = scrubAbsolutePaths(info.Provider)
+		info.Workspace = scrubAbsolutePaths(info.Workspace)
+		p.respond(req.ID, info)
 	default:
 		p.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method))
 	}

@@ -117,8 +117,11 @@ type App struct {
 	Profiles      ProfileLister
 	TokenReport   TokenReporter
 	ContextReport ContextReporter
-	ConfigPath    string
-	StorageDir    string
+	// ConfigInfoProvider 为 --serve/--rpc/--acp 的 config.info 方法提供真实配置；
+	// 由 internal/app 注入。nil 时该方法返回干净错误，既有 RPC 行为不变。
+	ConfigInfoProvider server.ConfigInfoProvider
+	ConfigPath         string
+	StorageDir         string
 	// UpdateOps 为测试覆盖更新器的接缝；为 nil 时调用 internal/update。
 	UpdateOps *UpdateOps
 }
@@ -363,11 +366,12 @@ func (a App) runMain(ctx context.Context, args []string) int {
 
 func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 	cfg := server.Config{
-		Addr:     opts.ServeAddr,
-		Token:    opts.ServeToken,
-		Version:  a.Version,
-		Runner:   runner,
-		Sessions: a.Sessions,
+		Addr:               opts.ServeAddr,
+		Token:              opts.ServeToken,
+		Version:            a.Version,
+		Runner:             runner,
+		Sessions:           a.Sessions,
+		ConfigInfoProvider: a.ConfigInfoProvider,
 	}
 	srv, ln, err := server.Listen(cfg)
 	if err != nil {
@@ -387,7 +391,7 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 }
 
 func (a App) rpc(ctx context.Context, opts *Options, runner Runner) int {
-	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions}
+	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions, ConfigInfoProvider: a.ConfigInfoProvider}
 	if err := server.RunRPC(ctx, a.IO.In, a.IO.Out, cfg); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1
@@ -396,7 +400,7 @@ func (a App) rpc(ctx context.Context, opts *Options, runner Runner) int {
 }
 
 func (a App) acp(ctx context.Context, opts *Options, runner Runner) int {
-	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions}
+	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions, ConfigInfoProvider: a.ConfigInfoProvider}
 	if err := server.RunACP(ctx, a.IO.In, a.IO.Out, cfg); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1

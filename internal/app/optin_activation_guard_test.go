@@ -9,15 +9,15 @@ import (
 )
 
 // 本文件守护 R16「收口激活面」的两条总契约：
-//  1. app / cli / config 三处 opt-in 词汇表统一——app 的 12 键清单与 config
+//  1. app / cli / config 三处 opt-in 词汇表统一——app 的 14 键清单与 config
 //     白名单（补键后）逐键一致；cli 因分层约束不能被 app import，其词汇表由 cli
 //     包内的测试守护，三方一致由「app≡config + cli≡app」两段传递保证。
 //  2. 配置文件能真正激活 opt-in——configOptIns 读取配置开关，mergeOptIns 与环境
 //     激活面按逻辑或合并；无配置无环境时所有键保持默认关闭（fail-closed）。
 //
-// 依赖说明：本文件依赖其它代理的改动——config 白名单补键至 12 个、以及
+// 依赖说明：本文件依赖其它代理的改动——config 白名单补键至 14 个、以及
 // app_config_optins.go 提供的 configOptIns/mergeOptIns 原语；编写时二者均已落盘。
-// 所有用例不联网、不读进程环境、不用真实模型，且只改本新增测试文件、不动生产代码。
+// 所有用例不联网、不读进程环境、不用真实模型；本文件仅守护契约，不直接改动生产代码。
 
 // guardKeySet 把开关键切片收敛为键集合（值恒为 struct{}），便于用 reflect 比较，
 // 与切片顺序无关。
@@ -29,7 +29,7 @@ func guardKeySet(keys []OptInKey) map[OptInKey]struct{} {
 	return out
 }
 
-// TestOptInVocabulariesAgree 验证 app 的 allOptInKeys（12 键）与
+// TestOptInVocabulariesAgree 验证 app 的 allOptInKeys（14 键）与
 // config.ParseOptInDisplay(nil) 产出的键集合逐键一致。ParseOptInDisplay 是纯函数，
 // 不读进程环境，其每一项恰好对应白名单里的一个键。
 func TestOptInVocabulariesAgree(t *testing.T) {
@@ -44,8 +44,8 @@ func TestOptInVocabulariesAgree(t *testing.T) {
 	if !reflect.DeepEqual(appKeys, configKeys) {
 		t.Fatalf("opt-in 词汇表不一致: app=%v, config=%v", appKeys, configKeys)
 	}
-	if len(appKeys) != 13 {
-		t.Fatalf("app opt-in 键数 = %d, want 13: %v", len(appKeys), appKeys)
+	if len(appKeys) != 14 {
+		t.Fatalf("app opt-in 键数 = %d, want 14: %v", len(appKeys), appKeys)
 	}
 	// 集合比较只能证明无缺失；这里再守护白名单无重复键导致的计数异常。
 	if len(items) != len(configKeys) {
