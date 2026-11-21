@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -54,6 +55,10 @@ type Options struct {
 	Out io.Writer
 	// Keep 保留临时目录，用于调试失败。
 	Keep bool
+	// ChatterFactory 为每个场景构造真实 provider。nil 时 runOne 沿用脚本化 provider
+	// （默认路径逐字节不变）。非 nil 时每个场景调用一次，返回的 Chatter 被注入
+	// Workspace.Chatter，并由计数包装器统计轮数，使 Expect.Turns 对真实 provider 同样有效。
+	ChatterFactory func(Scenario) llm.Chatter
 }
 
 // Result 是一个场景的评分结果。
@@ -115,6 +120,47 @@ func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (
 	return report, nil
 }
 
+// scoredChatter 是 runOne 评分所需的 provider 能力：除了对话本身，还要能报告
+// 调用次数与请求期望违例。Scripted 原生满足；注入的真实 provider 由 countingChatter 补齐。
+type scoredChatter interface {
+	llm.Chatter
+	Calls() int
+	Violations() []string
+}
+
+// countingChatter 包装任意 llm.Chatter，仅统计 Chat 的调用次数（仿 Scripted.Calls），
+// 与 Violations 的空实现一起满足 scoredChatter。真实 provider 没有脚本化的
+// expect_request_contains 概念，因此其违规列表恒为空。
+type countingChatter struct {
+	llm.Chatter
+	mu    sync.Mutex
+	calls int
+}
+
+var _ scoredChatter = (*countingChatter)(nil)
+
+func (c *countingChatter) Chat(ctx context.Context, model string, messages []llm.Message, tools []llm.ToolSpec, onText func(string)) (llm.Message, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return c.Chatter.Chat(ctx, model, messages, tools, onText)
+}
+
+func (c *countingChatter) Calls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+func (c *countingChatter) Violations() []string { return nil }
+
+// LiveChatterAdapter 把一个已构造好的 llm.Chatter 适配为 ChatterFactory：每个场景都复用同一实例。
+// 若调用方需要为每个场景创建独立会话状态的 provider，可直接传入自定义的
+// func(Scenario) llm.Chatter，无需经过此辅助。
+func LiveChatterAdapter(ch llm.Chatter) func(Scenario) llm.Chatter {
+	return func(Scenario) llm.Chatter { return ch }
+}
+
 // runOne 种入临时工作区，在其中运行场景并评分。
 func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts Options) Result {
 	result := Result{Index: index, Name: scenario.Name}
@@ -132,7 +178,10 @@ func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts
 		return result
 	}
 
-	provider := NewScripted(scenario.Provider, scenario.Repeat)
+	var provider scoredChatter = NewScripted(scenario.Provider, scenario.Repeat)
+	if opts.ChatterFactory != nil {
+		provider = &countingChatter{Chatter: opts.ChatterFactory(scenario)}
+	}
 	model := scenario.Model
 	if model == "" {
 		model = DefaultModel

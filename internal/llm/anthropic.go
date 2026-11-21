@@ -136,6 +136,7 @@ func (c *AnthropicClient) Chat(
 		if c.APIKey != "" {
 			req.Header.Set("x-api-key", c.APIKey)
 		}
+		ApplyExtraHeaders(req) // 可选覆盖/追加请求头；默认无注入时 no-op
 		return c.httpClient().Do(req)
 	})
 	if err != nil {

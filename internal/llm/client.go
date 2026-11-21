@@ -422,6 +422,7 @@ func (c *Client) chat(
 		if c.APIKey != "" {
 			req.Header.Set("Authorization", "Bearer "+c.APIKey)
 		}
+		ApplyExtraHeaders(req) // 可选覆盖/追加请求头（如 Azure 的 api-key）；默认无注入时 no-op
 		return c.httpClient().Do(req)
 	})
 	if err != nil {

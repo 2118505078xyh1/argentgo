@@ -2,6 +2,8 @@
 
 argentgo 要往哪里去（Roadmap），以及一份基于证据的自我评估（Honest score）。行为清单在 [Technical reference](TECHNICAL.md#feature-parity) 中。
 
+用户可感知能力与 Claude Code / OpenCode / Crush / Codex 的逐维对标见 [Capability matrix](CAPABILITY_MATRIX.md)；本文档 8.9 分评估的是架构/安全/测试证据，两者口径不同。
+
 ## Roadmap
 
 Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已删除。`argentgo` 是唯一本地的事实来源。这份路线图记录接下来要做什么以及为什么；`docs/TECHNICAL.md` 的 Feature parity 一节仍是行为清单。
