@@ -91,14 +91,25 @@ type anthropicBlock struct {
 	// 启用 Options.PreserveReasoning 时，Thinking 在 "thinking" 块上携带
 	// 重放的推理内容。否则省略，使请求
 	// 字节与早期构建完全一致。
-	Thinking     string          `json:"thinking,omitempty"`
-	Signature    string          `json:"signature,omitempty"`
-	ID           string          `json:"id,omitempty"`
-	Name         string          `json:"name,omitempty"`
-	Input        json.RawMessage `json:"input,omitempty"`
-	ToolUseID    string          `json:"tool_use_id,omitempty"`
-	Content      string          `json:"content,omitempty"`
-	CacheControl *CacheControl   `json:"cache_control,omitempty"`
+	Thinking  string          `json:"thinking,omitempty"`
+	Signature string          `json:"signature,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	// Source 只在 image 块上设置，承载 base64 图片负载。
+	// 对纯文本与工具块保持 nil，配合 omitempty 使现有请求字节逐字节不变。
+	Source       *anthropicImageSource `json:"source,omitempty"`
+	CacheControl *CacheControl         `json:"cache_control,omitempty"`
+}
+
+// anthropicImageSource 是 Anthropic Messages 原生 image 块的 source 负载，
+// 对应 {"type":"base64","media_type":"...","data":"..."}。
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type anthropicTool struct {
@@ -339,7 +350,30 @@ func (c *AnthropicClient) buildRequest(model string, messages []Message, tools [
 				system = append(system, text)
 			}
 		case "user":
-			blocks := textBlocks(messageTextForProtocol(message))
+			// 带图 user 消息映射为 Anthropic 原生 content block：
+			// 文本 part 变成 text 块，每个 image_url part 变成 image 块。
+			// 解析失败或不含有效图片时回退到占位文本，绝不报错、也不
+			// 把无法解析的数据发给提供方。
+			var blocks []anthropicBlock
+			if len(message.ContentParts) > 0 {
+				text, images, ok := decodeContentPartsForImageInput(message.ContentParts)
+				if ok && len(images) > 0 {
+					blocks = append(blocks, textBlocks(text)...)
+					for _, img := range images {
+						blocks = append(blocks, anthropicBlock{
+							Type: "image",
+							Source: &anthropicImageSource{
+								Type:      "base64",
+								MediaType: img.MediaType,
+								Data:      img.Data,
+							},
+						})
+					}
+				}
+			}
+			if len(blocks) == 0 {
+				blocks = textBlocks(messageTextForProtocol(message))
+			}
 			if len(blocks) == 0 {
 				continue
 			}

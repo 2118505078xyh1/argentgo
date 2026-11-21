@@ -246,17 +246,17 @@ func TestBuildImageMessageDeterministic(t *testing.T) {
 	}
 }
 
-// TestImageInputsSupported 确认能力判定：只有 chat completions 的 wire
-// 能承载原始 part 数组；responses 因分段编码形态不同、anthropic 因使用
-// 独立 image source，均不支持；未知与空协议同样返回 false。
+// TestImageInputsSupported 确认能力判定：三个已接线协议都能承载图像输入
+// （chat 原始 part 数组、Responses input_image 分段、Anthropic image source）；
+// 未知与空协议同样返回 false。
 func TestImageInputsSupported(t *testing.T) {
 	cases := []struct {
 		protocol string
 		want     bool
 	}{
 		{llm.ProtocolChatCompletions, true},
-		{llm.ProtocolResponses, false},
-		{llm.ProtocolAnthropicMessages, false},
+		{llm.ProtocolResponses, true},
+		{llm.ProtocolAnthropicMessages, true},
 		{"", false},
 		{"unknown-protocol", false},
 	}

@@ -155,17 +155,17 @@ func TestGuardBuildImageMessageCJKPreserved(t *testing.T) {
 	}
 }
 
-// TestGuardImageInputsSupported 三协议能力判定：只有 OpenAI chat
-// completions 的 wire 能承载原始 part 数组；responses 与 Anthropic Messages
-// 均不支持；未知与空协议同样返回 false。
+// TestGuardImageInputsSupported 三协议能力判定：OpenAI chat completions
+// 与 Anthropic Messages 的 wire 都能承载图像输入；Responses 使用带类型的
+// 分段编码，同样已承载图像 part；未知与空协议返回 false。
 func TestGuardImageInputsSupported(t *testing.T) {
 	cases := []struct {
 		protocol string
 		want     bool
 	}{
 		{llm.ProtocolChatCompletions, true},
-		{llm.ProtocolResponses, false},
-		{llm.ProtocolAnthropicMessages, false},
+		{llm.ProtocolResponses, true},
+		{llm.ProtocolAnthropicMessages, true},
 		{"", false},
 		{"unknown-protocol", false},
 	}

@@ -98,6 +98,7 @@
 | CLI 恢复入口 | `sessions undo / retry / tree / export / find --grep`（TECHNICAL.md:423） | 命令级完整。 |
 | `--rpc` 会话读取 | `session.list` / `session.load`（TECHNICAL.md:519-520） | 原生桌面窗口的会话栏依赖它。 |
 | `--rpc` 分支树（R24） | `session.tree`（`internal/server/rpc.go:348-383`，复用 `internal/session/tree.go:68` 的 `Branches`） | 返回 `{branches:[...]}`；经 `SessionTreeStore` 可选接口发现，未实现时返回干净的 "not configured" 错误。原生桌面侧据此渲染分支（R26）。 |
+| 流中断非流式回补（R42+R43） | `internal/llm/` 三协议 `ChatOnce`（`stream:false`、不带 `stream_options`）、`internal/agent/fallback.go:18/98`（`ChatOnce` 接口与恢复分支）、`internal/app/app_execute.go` 的 `streamRecoveryEnabled` | 提供方流中途报 `llm.ErrStreamError` 且已输出部分文本时，用同一 model/messages/tools 非流式补一次，只发布精确后缀（不重复前缀）、每轮最多一次，发 `EventRetry stream_recovery`；opt-in `ARGENT_STREAM_RECOVERY=1`（R43 完成端到端接线），默认零值逐字节不变。 |
 
 ### 2.2 对标
 
@@ -142,6 +143,8 @@
 | 工具输出头尾折叠 / todo 校验 / 文件新鲜度（R37） | `internal/tools/output_collapse.go`、`internal/tools/todo_validate.go`、`internal/tools/file_freshness.go` | `CollapseOutput` 接入 bash 裁剪、`ValidateTodoState` 接入 todo 写入、`FileFreshness` 原语；均为 opt-in、默认字节不变。 |
 | MCP | `internal/mcp/`；per-server `enabled` / `readOnly` / `allowedTools` / `deniedTools`（`internal/mcp/permissions.go`） | stdio + HTTP/SSE，项目级 `mcp.json` 受 `--trust-project` 门控（`internal/app/mcp.go:272/575`）。R35 修复 `read-only` 模式下修改类工具可被绕过的问题（`internal/security/mutating.go`、`internal/app/mcp_readonly_test.go`）。 |
 | Hooks | 11 事件（`internal/hooks/event_handlers.go:91-103`）、SHA-256 信任、exit-2 阻断 | 工具调用前后可拦截。 |
+| Hook additionalContext 注入（R41） | `internal/hooks/verdict.go:161`（`AdditionalContextFromOutcome`）、`internal/hooks/dispatch.go:581`（`Summarize`）、`internal/app/hooks.go:257`、`internal/agent/loop.go:613`（`HookContextQueue`）、`internal/app/app_execute.go:333` | hook stdout 的顶层/`hookSpecificOutput.additionalContext` 经脱敏 + 8192 字节上限提取，聚合进 `Result.AdditionalContexts`，在下一轮注入模型上下文；在 `bridge.start` 之前接线，使 SessionStart/UserPromptSubmit 的上下文不丢失。 |
+| MCP 工具输出注入扫描（R41） | `internal/mcp/mcp.go:404`（`mcpInjectionScanEnv` / `warnOnPromptInjection`）、`internal/security` 的 `ScanPromptInjection` | 对 `CallTool` 最终文本做注入检测，命中高风险时前置一行可读警示；只警示、不改写、不过滤原文任何字节，opt-in `ARGENT_MCP_INJECTION_SCAN=1`，默认逐字节不变。 |
 | LSP 工具 | 六个 `lsp_*`，惰性启动（`internal/app/lsp_adapter.go`、`internal/agent` 不 import `lsp`） | 预览类工具只读，不落盘。 |
 
 ### 3.2 对标
@@ -192,6 +195,7 @@
 | `/` 补全浮层（R33） | `internal/tui/commands_overlay.go`（`paintCompletionOverlay`）、`internal/tui/model.go:303`（`completionOverlay`）、`internal/tui/completion_overlay_test.go` | 输入 `/` 自动弹出候选浮层，`>` 高亮，`(N/M)` 计数，上下键 + 鼠标点击选择；保留键盘 ShortHelp。 |
 | 路径 / `@mention` 补全（R37） | `internal/tui/completion.go:247/299`（`activeInlineWord` / `quoteIfNeeded`）、`internal/tui/model_input.go:315-385`、`internal/tui/path_completion_test.go` | 行内路径与 `@` 提及补全：引号感知、fuzzy 匹配、仅标准库；含空白/引号/括号的路径写入时自动加引号。 |
 | 终端标题 / 剪贴板（R33） | `internal/tui/terminal_title_test.go`、`internal/tui/clipboard_windows.go` | 终端标题设为 argentgo；移除底部快捷键提示条；修复 Windows 剪贴板 GBK 乱码（Win32 `CF_UNICODETEXT`，syscall、无 cgo，可交叉编译 linux）。 |
+| 计划审批循环 / `exit_plan`（R42） | `internal/app/app_execute.go:195-214`（`SetPlanUnlock` / `wireExitPlan`）、`internal/security/chain.go` | 只规划模式（`ARGENT_PLAN_MODE=1`）下模型通过 `exit_plan` 工具请求批准计划；审批经既有 Chain，未批准前修改类 bash 被计划守卫拦下。仅在计划模式注册该工具，默认工具目录逐字节不变。 |
 
 ### 4.2 对标
 
@@ -267,7 +271,7 @@
 | 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argentgo commands` 列出。 |
 | Hooks | `internal/hooks/` + SHA-256 信任（`internal/hooks/trust.go`） | 已配置规则进入安全链。 |
 | LSP | `internal/lsp/`（6 基础 + 3 进阶方法）、gopls 集成测试 | 惰性启动、按 root+server 缓存。 |
-| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。R35 新增 `eval compare`（配对统计，n<30 记"样本不足"防刷分，`internal/eval/compare.go`）与评测框架灵敏度自测（注入故障断言完成率下降，`internal/app/eval_completion_bench_sensitivity_test.go`）。 |
+| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。R35 新增 `eval compare`（配对统计，n<30 记"样本不足"防刷分，`internal/eval/compare.go`）与评测框架灵敏度自测（注入故障断言完成率下降，`internal/app/eval_completion_bench_sensitivity_test.go`）。R39 新增 `eval ab`（`internal/eval/variant_ab.go` 的 `RunVariantAB` + `internal/cli/eval.go:39` 带外分派）：按场景指纹配对两臂再跑配对统计，token 经济诊断对照完成率增益与 token 成本。 |
 | Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job；R36 起 jobs 注册表可 opt-in 接入生产路径。 |
 | 诊断 CLI | `doctor` / `bug` / `audit` / `usage` / `policy` / `config`（TECHNICAL.md:421-452） | 机器可读 `--json`。 |
 
@@ -390,3 +394,36 @@
 - **TUI**：`Ctrl+X` 全局思考块切换 + 逐块覆盖 + 可选暗色占位符（`internal/tui/reasoning_toggle_test.go`）；路径与 `@mention` 行内补全（引号感知、fuzzy、仅标准库，`internal/tui/path_completion_test.go`）。
 - **原语激活（opt-in，默认字节不变）**：`DetectLoop` 接入 agent 循环（软提醒 + 签名去重，不硬停）；`CollapseOutput` 接入 bash 裁剪、`ValidateTodoState` 接入 todo 写入、`EnsureSummarySections` 接入压缩、`Project` 接入 `Messages()`、`ForkBefore` 接入 CLI fork-at/list-messages；`StagedApprover` 接入安全链（once/always/reject/esc，失败即关闭）；token/s 打点经 `llm.Usage`（`json:"-"`）→ agent 值拷贝 → app 桥接 → TUI `Event`（引用计数 opt-in，不触碰推理/签名）。
 - **备料 R38（未计入能力）**：`StableSystemPrompt`、`SessionStatusRegistry`、`CriticResult`、`CondensationEvent`、`PruneToolResults`、`FileFreshness`、`TurnTiming` 等原语已实现并测试，但默认关闭、未接入用户路径，按"只写已落地"口径不计入本矩阵能力清单。
+
+### R38 更新记录（opt-in 治理与分解）
+
+- `argent opt-ins [--json]` 列出 14 个集中键 + 独立门控（单一真源 `optin_metadata.go`），`OPT_INS.md` 双向漂移守卫；`CollapseOutput` 下沉 `internal/textutil` 消除 R37 import 环镜像；`TurnTiming` / `StableSystemPrompt` / `PruneToolResults` / `CondensationEvent` 接入生产（均 opt-in、默认字节不变）。
+
+### R39 更新记录（测量闭环、agent 质量指标）
+
+- **`eval ab` 变体对比（§6）**：`internal/eval/variant_ab.go` 的 `RunVariantAB` 按场景指纹把两臂结果配对，复用 `CompareResults` 出中文 verdict；`internal/cli/eval.go:39` 把 `ab` 作为带外前缀分派（与 `compare` / `--live` 同风格，不进 flagSurface/parity）。配套可接受基线回归账本（fingerprint/score/hash 三态判定）与 token 经济配对诊断（完成率增益对照 token 成本，可在 CI 运行）；n<30 继续记"样本不足"，不给出晋级结论。
+- **agent 质量指标（opt-in、默认字节不变）**：恢复成效账本（`ARGENT_RECOVERY_METRICS`，attempt→success 且受 pending 门控）、跨情节重复踩坑签名计数（`ARGENT_REPEAT_PITFALL_TRACKING`，`Reset` 后仍存活、有上限）、错误签名归一化、上下文健康评分与观察适配器、回退成功统计；子代理取消时的成本对账修复了被取消子任务统计缺失的问题。
+- **原语激活**：规则发现接入 system 提示（`ARGENT_RULE_DISCOVERY`，只列名不加载全文）、checkpoint 守卫接入 checkout（`ARGENT_CHECKPOINT_GUARD`，路径级只读校验），子代理成本对账默认开启（仅统计、不改行为）。
+
+### R40 更新记录（结构修复、flake 根除、可观测原语）
+
+- **结构**：成本对账算术下沉 `internal/calcutil` 单一真源（session 薄转发、agent 去本地副本）；archguard + linux 交叉编译绿。根除两个长期 flaky 测试而不弱化断言（更新时间戳归一 + RPC 帧按 id 排序），变异反证确认内容回归仍会失败。
+- **可观测 / 安全原语（均纯标准库、默认字节不变）**：工具耗时直方图（nearest-rank p50/p95）、会话树 ASCII 导出、磁盘用量统计、上下文快照 diff、配置变更 diff（脱敏）、评测覆盖诊断；token 预算预测（饱和算术）；提示注入扫描、shell 命令风险分级、JSONL 校验器、skill 描述注入过滤；LLM 错误分类（`ClassifyErrorClass`）与工具结果 diff 摘要。
+
+### R41 更新记录（hook additionalContext、安全能力激活）
+
+- **Hook additionalContext 端到端（§3）**：hook stdout 的 `additionalContext` → `Outcome` → `Summarize` → `Result.AdditionalContexts` → `hookBridge` → `HookContextQueue` → 下一轮上下文；在 `bridge.start` 之前接线，SessionStart/UserPromptSubmit 声明的上下文不会丢失。解析带脱敏与 8192 字节上限。
+- **MCP 注入扫描（§3）**：`ARGENT_MCP_INJECTION_SCAN` 只对高风险注入前置可读警示，只警示不改写、不过滤原文。
+- **doctor 扩展**：配置注入与会话健康检查（走 warn issues 通道，不改 golden / 退出码）；工具耗时直方图接入 dispatch 与轮末 `TopSlow` 日志（opt-in）。
+
+### R42 更新记录（流中断回补、计划审批循环，CC 范式）
+
+- **流中断非流式回补（§2）**：三协议全部获得 `ChatOnce`（非流式单 JSON 解析，`stream:false` 且不带 `stream_options`）；仅在"已有部分文本 + `ErrStreamError` + 活 ctx"时触发，每轮最多一次，只发布精确后缀（不重复已输出前缀），发 `EventRetry stream_recovery`。此时仍为默认关闭原语。
+- **`exit_plan` 计划审批循环（§4）**：模型驱动的计划批准闭环；通过 tools ctx 回调解锁（`SetPlanUnlock`），仅计划模式注册 `exit_plan`；未批准前修改类 bash 走既有 Chain 被守卫拦下。
+- 工具调用轨迹（Begin/End 成对，含 `ran=false`）接入轮末日志，与耗时直方图互补。
+
+### R43 更新记录（可靠性加固、流回补接线）
+
+- **可靠性加固**：server 四处 fire-and-forget goroutine（RPC prompt/subscribe、ACP prompt、WireAgentEvents）补 panic 恢复——出错回包 + 清理 + 保证 channel 关闭，不崩进程、不挂客户端，race-clean；agent `callTool` panic 边界激活（`safeToolPanic`：panic 转普通工具错误，与 Registry recover 双保险，正常字节不变）；JSONL `Close()` 加 fsync，干净退出不丢尾（不做逐 append fsync、不改 `flushLocked`，崩溃恢复语义不变）。
+- **能力接线（§2）**：`ARGENT_STREAM_RECOVERY=1` 把 R42 的流回补端到端交到用户手里（流错误时确实调用 `ChatOnce` 并发 `stream_recovery` 事件）；关闭时 `EnableStreamRecovery` 为零值、请求与事件逐字节不变。
+- 新原语：provider 能力画像、transcript 统计、prompt store（JSONL 历史 + frecency + 原子写），均为标准库、默认惰性。

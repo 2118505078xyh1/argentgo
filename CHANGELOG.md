@@ -1,6 +1,21 @@
 # 更新日志
 
-- 未发布：CLI 命令名与发布产物统一改为 argentgo（保留 argent 兼容）。
+## 未发布（当前 HEAD 7dee8a1，尚未发版）
+
+> 版本锚定代码行数：按用户约定 50w 行才发 v0.8.2，当前尚未达到该阈值，因此不新增 `## vX.Y.Z` 段落（发版一致性脚本要求 `cli.Version` / CHANGELOG 段落 / git tag 三者一致）。以下按主题汇总 R32–R43 已落地、尚未进入正式版本的内容。
+
+**品牌与入口（R32）**
+- CLI 命令名与发布产物统一改为 argentgo（保留 argent 兼容）；无参数启动不再自动打开 TUI，并修复鼠标输入。
+
+**opt-in 治理与内核化（R38）**
+- `argent opt-ins [--json]` 统一列出集中键与独立门控（单一真源 `optin_metadata.go`），`OPT_INS.md` 双向漂移守卫；`CollapseOutput` 下沉 `internal/textutil`、成本对账算术下沉 `internal/calcutil`，消除 import 环。
+
+**测量闭环与 agent 质量（R39–R40）**
+- `eval ab` 按场景指纹配对两臂做变体对比；可接受基线回归账本、token 经济配对诊断；恢复成效账本（`ARGENT_RECOVERY_METRICS`）、重复踩坑签名计数（`ARGENT_REPEAT_PITFALL_TRACKING`）等 opt-in 质量指标；根除两个长期 flaky 测试而不弱化断言。
+
+**用户可感知能力（R41–R43）**
+- hook `additionalContext` 端到端注入下一轮上下文；MCP 工具输出注入扫描（`ARGENT_MCP_INJECTION_SCAN`）；`exit_plan` 计划审批循环（`ARGENT_PLAN_MODE`）；三协议流中断非流式回补（`ARGENT_STREAM_RECOVERY`）。
+- 可靠性加固：server 四处 fire-and-forget goroutine 补 panic 恢复、agent `callTool` panic 边界、JSONL `Close()` fsync 不丢尾（干净退出不丢尾、崩溃恢复语义不变）。
 
 ## v0.8.1 — 2026-11-21
 

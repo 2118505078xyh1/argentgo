@@ -46,6 +46,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},
 	{Key: "recovery_replay", Env: "ARGENT_RECOVERY_REPLAY", Name: "恢复重放后缀", Enable: "=1", Desc: "恢复路径上追加重放后缀。"},
 	{Key: "checkpoint_guard", Env: "ARGENT_CHECKPOINT_GUARD", Name: "checkout 还原目标守卫", Enable: "=1", Desc: "sessions checkout 时对转录目标做只读校验，拒绝逃逸或已消失的目标；关闭时 checkout 逐字节不变。"},
+	{Key: "compaction_event", Env: "ARGENT_COMPACTION_EVENT", Name: "压缩事件落盘", Enable: "=1", Desc: "压缩时在 KindCompaction 记录后额外追加一条 KindCondensation 记录（含被遗忘 ID、摘要、切分点），该记录不进入模型可见对话；关闭时压缩写入逐字节不变。"},
+	{Key: "tool_prune", Env: "ARGENT_TOOL_PRUNE", Name: "工具结果压力裁剪", Enable: "=1", Desc: "在预算投影前对超长工具结果保留头尾、中间替换为裁剪标记（按 rune，幂等），预算复用 ARGENT_BUDGET_PROJECTION_BUDGET；关闭时消息流逐字节不变。"},
 
 	// ---- 安全 / 审批 ----
 	{Key: "inspection", Env: "ARGENT_INSPECTION", Name: "安全失败检查层总开关", Enable: "=1", Desc: "启用检查链总开关；关闭时安全链裸链运行，Guardian 绝不生效。"},
@@ -59,6 +61,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "plan_mode", Env: "ARGENT_PLAN_MODE", Name: "只规划模式", Enable: "=1", Desc: "本次运行只做规划，不改任何文件。"},
 	{Key: "checkpoint_workspace_diff", Env: "ARGENT_CHECKPOINT_WORKSPACE_DIFF", Name: "工作区差异检查点", Enable: "=1", Desc: "把 shell 等间接文件改动也纳入检查点，使 /undo 可还原。"},
 	{Key: "trust_project", Env: "ARGENT_TRUST_PROJECT", Name: "项目级端点改写信任", Enable: "true/yes/on", Desc: "显式放行项目级端点改写；默认不信任。"},
+	{Key: "skill_injection_scan", Env: "ARGENT_SKILL_INJECTION_SCAN", Name: "技能索引注入扫描", Enable: "=1", Desc: "渲染技能索引前扫描 desc/when 字段的语义注入，命中高风险时把整字段替换为中性占位；关闭时渲染逐字节不变。"},
 
 	// ---- 系统提示 / 编辑后诊断 ----
 	{Key: "edit_guide", Env: "ARGENT_EDIT_GUIDE", Name: "系统提示编辑指南", Enable: "=1", Desc: "在系统提示中追加编辑指南。"},
@@ -89,12 +92,16 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "mcp_spill_dir", Env: "ARGENT_MCP_SPILL_DIR", Name: "MCP 输出溢出目录", Enable: "非空路径", Desc: "配置后 CallTool 的超大输出落盘，未配置时不溢出。"},
 	{Key: "mcp_spill_threshold", Env: "ARGENT_MCP_SPILL_THRESHOLD", Name: "MCP 溢出阈值", Enable: "正整数", Desc: "覆盖 MCP 输出溢出的字节阈值。"},
 	{Key: "mcp_protocol_version", Env: "ARGENT_MCP_PROTOCOL_VERSION", Name: "MCP 协议版本回退", Enable: "非空字符串", Desc: "协商失败时回退使用的 MCP 协议版本。"},
+	{Key: "mcp_injection_scan", Env: "ARGENT_MCP_INJECTION_SCAN", Name: "MCP 工具输出注入扫描", Enable: "=1", Desc: "对 MCP CallTool 最终文本做提示注入检测，命中高风险时在原文前加一行可读警示；只警示不改写、不过滤原文任何字节；关闭时输出逐字节不变。"},
 
 	// ---- 诊断 / 恢复 / 计时 ----
 	{Key: "repeat_pitfall_tracking", Env: "ARGENT_REPEAT_PITFALL_TRACKING", Name: "跨情节重复踩坑计数", Enable: "=1", Desc: "启用跨情节的重复错误签名计数；关闭时 RecordSignature 立即返回，不分配不触锁，既有记录路径逐字节不变。"},
 	{Key: "recovery_metrics", Env: "ARGENT_RECOVERY_METRICS", Name: "恢复成效账本", Enable: "=1", Desc: "在指引注入与工具成功处采集恢复成功率；关闭时不分配计数器，消息流逐字节不变。"},
 	{Key: "turn_timing", Env: "ARGENT_TURN_TIMING", Name: "逐阶段计时日志", Enable: "=1", Desc: "agent 循环开启逐阶段结构化计时日志；关闭时计时器为 nil，日志与事件流逐字节不变。"},
 	{Key: "stream_recovery", Env: "ARGENT_STREAM_RECOVERY", Name: "流中断非流式回补", Enable: "=1", Desc: "app 层接通 agent.Options.EnableStreamRecovery：提供方流中断且已输出部分文本时用同一请求非流式回补；关闭时该字段为零值，请求与事件逐字节不变。"},
+	{Key: "tool_timing_histogram", Env: "ARGENT_TOOL_TIMING_HISTOGRAM", Name: "工具耗时直方图", Enable: "=1", Desc: "按工具名累积每次调用的精确耗时，轮末落 agent_tool_timing_histogram 摘要日志（TopSlow/P95）；关闭时字段为 nil，整段空操作。"},
+	{Key: "tool_call_trace", Env: "ARGENT_TOOL_CALL_TRACE", Name: "工具调用链追踪", Enable: "=1", Desc: "为每次工具调用开/结算跨度，轮末落 agent_tool_call_trace 摘要日志（调用顺序、成败与错误文本）；关闭时字段为 nil，整段空操作。"},
+	{Key: "config_reload_diff", Env: "ARGENT_CONFIG_RELOAD_DIFF", Name: "配置热重载差异摘要", Enable: "=1（精确匹配，不修剪空白）", Desc: "把热重载日志行从 reloaded: ... 改为基于键路径的中文差异摘要，敏感键显示 redacted 占位；关闭时日志逐字节不变。"},
 
 	// ---- 评测 / 其它 ----
 	{Key: "eval_live", Env: "ARGENT_EVAL_LIVE", Name: "评测 live 门禁", Enable: "=1", Desc: "允许评测走真实 provider；默认断网走脚本化。"},

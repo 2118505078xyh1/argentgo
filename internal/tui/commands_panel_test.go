@@ -348,3 +348,35 @@ func TestCommandFuzzyQueryTrailingSpaceEndsQuery(t *testing.T) {
 		t.Fatalf("Count after trailing space = %d, want 0", got)
 	}
 }
+
+// TestCommandFuzzyScoreRanksCommitFirst 从输入行与面板两层验证分数排序：
+// "cmt" 同时子序列命中 comment 与 commit，字典序中 comment 在前，但
+// FuzzyMatch 分数 commit 更高，故面板与接受动作都指向 /commit。
+func TestCommandFuzzyScoreRanksCommitFirst(t *testing.T) {
+	m := New(Config{})
+	m.SetCommandInfo([]CommandInfo{
+		{Command: "comment", Description: "注释"},
+		{Command: "commit", Description: "提交"},
+	})
+	typeCommandText(m, "/cmt")
+	if c, ok := m.completion.Current(); !ok || c.Command != "commit" {
+		t.Fatalf("current = (%+v, %v), want commit", c, ok)
+	}
+
+	m.HandleKey(Key{Kind: KindCtrlO})
+	shown := panelText(m, 100, 24)
+	iCommit, iComment := strings.Index(shown, "/commit"), strings.Index(shown, "/comment")
+	if iCommit < 0 || iComment < 0 {
+		t.Fatalf("panel is missing both candidates:\n%s", shown)
+	}
+	if iCommit > iComment {
+		t.Fatalf("panel put /comment before /commit:\n%s", shown)
+	}
+
+	if action := m.HandleKey(Key{Kind: KindTab}); action != ActionNone {
+		t.Fatalf("accepting a candidate returned %v, want ActionNone", action)
+	}
+	if got := m.Input(); got != "/commit " {
+		t.Fatalf("input after Tab = %q, want \"/commit \"", got)
+	}
+}

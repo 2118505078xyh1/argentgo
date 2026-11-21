@@ -83,54 +83,91 @@ func (s *CompletionState) Count() int {
 }
 
 // Current 返回当前选中的候选。没有可见候选（或 index 越界）时返回零值与
-// false。
+// false。选中下标指向 orderedVisible 的可见顺序，与面板渲染保持一致。
 func (s *CompletionState) Current() (CompletionCandidate, bool) {
 	if s == nil {
 		return CompletionCandidate{}, false
 	}
-	i := 0
-	for _, c := range s.candidates {
-		if !matchCommand(s.query, c.Command) {
-			continue
-		}
-		if i == s.index {
-			return c, true
-		}
-		i++
+	visible := s.orderedVisible()
+	if s.index < 0 || s.index >= len(visible) {
+		return CompletionCandidate{}, false
 	}
-	return CompletionCandidate{}, false
+	return visible[s.index], true
 }
 
 // At 返回当前 query 下第 i 个可见候选（0 基），不修改选中位置。
-// i 越界或没有候选时返回零值与 false。
+// i 越界或没有候选时返回零值与 false；顺序同 orderedVisible。
 func (s *CompletionState) At(i int) (CompletionCandidate, bool) {
 	if s == nil || i < 0 {
 		return CompletionCandidate{}, false
 	}
-	n := 0
+	visible := s.orderedVisible()
+	if i >= len(visible) {
+		return CompletionCandidate{}, false
+	}
+	return visible[i], true
+}
+
+// Visible 返回当前 query 下全部可见候选的副本，顺序与 Current/At 一致。
+// 它不修改 query 或选中位置，供面板逐行渲染使用。
+func (s *CompletionState) Visible() []CompletionCandidate {
+	return s.orderedVisible()
+}
+
+// orderedVisible 返回当前 query 下的可见候选并按展示顺序排列：前缀命中
+// 优先（保持主表字典序），其余非前缀命中按 FuzzyMatch 分数降序。它只决定
+// 顺序，过滤语义仍由 matchCommand 保证，且不修改主表 s.candidates。
+//
+// 默认帧不变：空 query、候选不足两条、或全部命中都是前缀时，直接按主表
+// 字典序返回，与既有行为逐字节一致。只有 query 非空且存在非前缀命中时，
+// 才对这部分候选按分数排序——这正是"模糊查询且多候选"需要区分优劣的场景。
+func (s *CompletionState) orderedVisible() []CompletionCandidate {
+	if s == nil {
+		return nil
+	}
+	q := string(lowerRunes([]rune(s.query)))
+	rank := s.query != "" && len(s.candidates) >= 2
+
+	var prefix, fuzzy []CompletionCandidate
 	for _, c := range s.candidates {
 		if !matchCommand(s.query, c.Command) {
 			continue
 		}
-		if n == i {
-			return c, true
+		if rank && !prefixMatch(q, c.Command) {
+			fuzzy = append(fuzzy, c)
+		} else {
+			prefix = append(prefix, c)
 		}
-		n++
 	}
-	return CompletionCandidate{}, false
-}
+	if len(fuzzy) == 0 {
+		out := make([]CompletionCandidate, 0, len(prefix))
+		out = append(out, prefix...)
+		return out
+	}
 
-// Visible 返回当前 query 下全部可见候选的副本，顺序与 Count/Current 一致
-// （按 Command 字典序）。它不修改 query 或选中位置，供面板逐行渲染使用。
-func (s *CompletionState) Visible() []CompletionCandidate {
-	if s == nil {
-		return nil
-	}
-	out := make([]CompletionCandidate, 0, s.Count())
-	for _, c := range s.candidates {
-		if matchCommand(s.query, c.Command) {
-			out = append(out, c)
+	// 复用 fuzzy.go 的 SortFuzzyResults：Score 降序、短文本优先、早匹配
+	// 优先、原始下标兜底，且完全相同的条目保持稳定。fuzzy 是按主表顺序
+	// 收集的，故其下标即字典序 tiebreak，排序后可据此映射回候选。
+	results := make([]FuzzyResult, 0, len(fuzzy))
+	for i, c := range fuzzy {
+		score, positions, ok := FuzzyMatch(q, c.Command, false)
+		if !ok {
+			// matchCommand 已确认命中，这里仅做保守兜底。
+			score, positions = 0, nil
 		}
+		results = append(results, FuzzyResult{
+			Score:     score,
+			Positions: positions,
+			TextLen:   len([]rune(c.Command)),
+			Index:     i,
+		})
+	}
+	SortFuzzyResults(results)
+
+	out := make([]CompletionCandidate, 0, len(prefix)+len(fuzzy))
+	out = append(out, prefix...)
+	for _, r := range results {
+		out = append(out, fuzzy[r.Index])
 	}
 	return out
 }

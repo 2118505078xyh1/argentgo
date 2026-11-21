@@ -243,7 +243,24 @@ argentgo --session <session-id> --at <entry-id> "从这里继续"  # 恢复时�
 argentgo eval compare <baseline-results.json> <candidate-results.json>
 ```
 
+还可做两臂变体对比：按场景指纹把两组结果配对，再跑配对统计，并给出完成率增益对照 token 成本的诊断；样本少于 30 对时标记"样本不足"，不给出晋级结论。可选的两个指纹文件是「场景名 → 指纹」的 JSON 映射；省略时按场景名配对。
+
+```powershell
+argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
+```
+
 后台作业注册表默认关闭；需要跨工具调用管理长任务时设 `ARGENT_JOBS=1`（或在 `ARGENT_OPT_INS` 中加入 `jobs`）启用。分阶段审批（一次/始终/拒绝/esc）同样是 opt-in 安全能力，默认不接管审批。
+
+### 10. 计划模式（只规划 + `exit_plan` 审批）
+
+想让模型先给出计划、经你批准后再动手改代码时，开启只规划模式：
+
+```powershell
+$env:ARGENT_PLAN_MODE = "1"
+argentgo "重构这个模块"
+```
+
+该模式下模型只做规划、不修改任何文件；工具目录会额外公布一个 `exit_plan` 工具，模型用它提交计划并请求批准。**未批准前修改类命令会被既有审批/安全链拦下**，批准后才解锁后续写操作。`exit_plan` 仅在该模式注册——不设置 `ARGENT_PLAN_MODE` 时，工具目录与默认逐字节一致。完整开关说明见 [Opt-in 开关使用指南](OPT_INS.md)。
 
 ## Distribution
 

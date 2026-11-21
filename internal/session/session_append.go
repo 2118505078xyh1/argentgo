@@ -56,7 +56,7 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	record := Record{
 		ID:     id,
 		Parent: parent,
-		TS:     time.Now().UTC(),
+		TS:     nextRecordTS(),
 		Kind:   kind,
 		Data:   data,
 	}
