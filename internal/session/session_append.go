@@ -217,6 +217,14 @@ func (s *Session) openAppendFile() (*os.File, error) {
 // 在 Windows 上每次追加都打开短生命周期的 fd（见 keepAppendFD）。
 // 任何异常都会丢弃缓存状态，使下一次追加走安全的全量读取路径。
 func (s *Session) writeAppend(id string, buf []byte) error {
+	if s.bufferedWrite {
+		// 批量写模式下只暂存字节，并立刻推进内存索引，使后续追加能链接到本记录。
+		// 磁盘文件保持不变，直到 Flush/Close 把 pending 一次性写出。
+		s.pending = append(s.pending, buf...)
+		s.ids[id] = struct{}{}
+		s.lastID = id
+		return nil
+	}
 	fd := s.fd
 	temporary := fd == nil
 	if temporary {

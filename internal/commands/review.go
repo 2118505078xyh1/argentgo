@@ -96,8 +96,14 @@ func Review(runner CommandRunner) (ReviewReport, error) {
 	return ReviewReport{Files: files, Findings: diffFindings(string(diff))}, nil
 }
 
-// ReviewCommand 是内置斜杠命令描述符。注册位于
-// internal/app 中；在 Discover 之后调用 Set.Add(ReviewCommand())，并将
+// init 把 /review 的构造器静态注册到内置命令注册表。
+// 使用显式 order，确保输出顺序不依赖 init() 的执行先后。
+func init() {
+	builtinRegistry.MustRegister("review", builtinOrderReview, ReviewCommand)
+}
+
+// ReviewCommand 是内置斜杠命令描述符。它随包初始化注册到内置命令表，
+// 调用方在 Discover 之后调用 NewSetWithBuiltins，并将
 // `/review` 路由到 ReviewHook.Run。
 func ReviewCommand() Command {
 	return Command{

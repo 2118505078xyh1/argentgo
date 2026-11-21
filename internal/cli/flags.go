@@ -98,6 +98,9 @@ type Options struct {
 	ACP        bool
 	ServeAddr  string
 	ServeToken string
+	// ServeReadiness 为 opt-in：为 true 时在 --serve 的 listening 行之后
+	// 追加打印一次就绪摘要；默认 false 时完全不探测、不输出。
+	ServeReadiness bool
 
 	Help    bool
 	Version bool

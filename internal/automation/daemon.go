@@ -155,13 +155,21 @@ func (d *daemon) scan(ctx context.Context) {
 			}
 			continue
 		}
+		// 补偿策略只决定本次认领的触发时隙。默认（run_once）与 skip 路径保持原行为：
+		// 前者使用 spec.NextDue（最早错过的时隙），后者在上面的分支中已处理。
+		slot := spec.NextDue
+		if spec.MissedPolicy() == MissedRunLatest {
+			if latest := spec.Schedule.latestSlotAtOrBefore(slot, now); !latest.IsZero() {
+				slot = latest
+			}
+		}
 		seq, err := d.store.claim(spec.ID)
 		if err != nil {
 			// 此处或另一个进程中已在运行（例如 RunNow）。
 			continue
 		}
 		d.wg.Add(1)
-		go d.execute(ctx, spec, seq)
+		go d.execute(ctx, spec, seq, slot)
 	}
 }
 
@@ -176,14 +184,13 @@ func runTime(slot, current time.Time) time.Time {
 }
 
 // execute 运行一个任务、写入其日志并记录结果。
-func (d *daemon) execute(ctx context.Context, spec Spec, seq uint64) {
+// slot 是扫描认领并传入的触发时隙（补偿策略可能将其推进到最近一个错过的时隙）。
+func (d *daemon) execute(ctx context.Context, spec Spec, seq uint64, slot time.Time) {
 	defer d.wg.Done()
 	defer d.store.release(spec.ID)
 
-	// 捕获扫描认领的时隙。下一次触发由此刻的时隙派生，
-	// 捕获扫描认领的时隙。下一次触发由此刻的时隙派生，而非完成时间，使慢任务不能把整个
+	// 下一次触发由此刻的时隙派生，而非完成时间，使慢任务不能把整个
 	// 调度表向前推（12:00 + 10m 仍是 12:10，即使运行在 12:02 结束）。
-	slot := spec.NextDue
 	started := d.now()
 	runCtx := ctx
 	if timeout := spec.Timeout.Std(); timeout > 0 {

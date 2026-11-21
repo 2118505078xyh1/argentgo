@@ -194,8 +194,14 @@ func clipContextText(s string, max int) string {
 	return s[:cut] + "…"
 }
 
+// init 把 /context 的构造器静态注册到内置命令注册表。
+// 使用显式 order，确保输出顺序不依赖 init() 的执行先后。
+func init() {
+	builtinRegistry.MustRegister("context", builtinOrderContext, ContextCommand)
+}
+
 // ContextCommand 是内置斜杠命令描述符。注册是
-// 调用方（internal/app）的职责：在 Discover 之后调用 set.Add(ContextCommand())，
+// 调用方（internal/app）的职责：在 Discover 之后调用 NewSetWithBuiltins，
 // 并将 `/context` 路由到 ContextHook.Run，与 /review 一致。本包
 // 从不构建 app，也不为报告读取文件系统。
 func ContextCommand() Command {

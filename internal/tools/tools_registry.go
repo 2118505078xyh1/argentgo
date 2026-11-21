@@ -106,24 +106,11 @@ func NewWithLimit(root string, yolo bool, maxOutput int) *Registry {
 	// 默认库使记忆工具在 app 接线真实会话目录之前保持可用。
 	// 一旦该目录存在，SetMemoryBank 会覆盖它。
 	bank := memory.NewBank(filepath.Join(root, ".argent"))
-	for _, tool := range []Tool{
-		readTool{}, writeTool{}, editTool{}, bashTool{}, lsTool{}, grepTool{}, findTool{}, powershellTool{},
-		globTool{}, todoTool{}, multiEditTool{}, webFetchTool{}, gitStatusTool{},
-		currentTimeTool{}, webSearchTool{}, repoMapTool{}, submitPlanTool{},
-		// LSP IDE 工具始终被公布。在 app 通过 SetLspIde 接线适配器
-		// 之前，它们报告"不可用"而不使回合失败。
-		// 它们注册在记忆工具之前，使 memory_* 工具保持
-		// 与末尾 tool_search 相邻（见 TestMemoryToolsRegisteredAndOverridable）。
-		newLspSymbolsTool(nil), newLspReferencesTool(nil), newLspCodeActionsTool(nil),
-		newLspRenamePreviewTool(nil), newLspFormatTool(nil), newLspWorkspaceSymbolsTool(nil),
-		securityScanTool{},
-		// 标准库可移植的效率工具。usage/history 以 nil 数据源开始，
-		// 在 app 调用 SetUsageSource /
-		// SetHistorySource 之前报告不可用。注册在记忆工具之前，使 memory_*
-		// 尾部与 tool_search 保持相邻（TestMemoryToolsRegisteredAndOverridable）。
-		&diffTool{}, &usageTool{}, &historyTool{},
-		newMemoryRetainTool(bank), newMemoryRecallTool(bank), newMemoryForgetTool(bank),
-	} {
+	// 基础内置工具来自编译期静态注册表（见 builtin_register.go）。
+	// 注册表按显式 order 排序，顺序与原字面量逐项一致：LSP/效率工具位于
+	// 记忆工具之前，使 memory_* 尾部与末尾 tool_search 保持相邻
+	// （TestMemoryToolsRegisteredAndOverridable 锁定了该顺序）。
+	for _, tool := range builtinTools(bank) {
 		r.tools[tool.Name()] = tool
 		r.order = append(r.order, tool.Name())
 	}

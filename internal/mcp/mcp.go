@@ -74,6 +74,16 @@ type Spec struct {
 	// 大于 0 时，ListTools 会对清理后的 Schema 调用 compactSchema 做
 	// 分级有损压缩；零值表示关闭，工具定义保持原有行为。
 	CompactSchemaMaxBytes int
+	// ToolCacheTTL 是可选的工具发现列表缓存有效期。
+	// 大于 0 时，ListTools 会在有效期内复用上一次成功的 tools/list
+	// 结果，过期后重新发现；零值表示关闭，ListTools 走原路径，
+	// 行为逐字节不变。缓存按服务器隔离，每台服务器各持一份。
+	ToolCacheTTL time.Duration
+	// HealthTracking 开启工具发现的健康观测。默认 false：不挂接任何
+	// tracker，discoverTools 不执行 Observe，行为与历史逐字节一致。
+	// 为 true 时每次实际发现（成功或失败）都会向内部 HealthTracker
+	// 记录一次快照，调用方可通过 HealthReporter 选择性读取。
+	HealthTracking bool
 }
 
 // ServerInfo 是 initialize 返回的元数据。
@@ -191,7 +201,13 @@ func Connect(ctx context.Context, spec Spec) (Client, error) {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &client{spec: spec, tr: tr, timeout: timeout}, nil
+	c := &client{spec: spec, tr: tr, timeout: timeout}
+	// 按 Spec 字段决定是否挂接健康追踪器；默认关闭时 health 保持 nil，
+	// 后续发现路径不会执行任何观测，也没有额外 I/O。
+	if spec.HealthTracking {
+		c.health = &HealthTracker{}
+	}
+	return c, nil
 }
 
 // client 在传输之上实现 Client。
@@ -199,6 +215,14 @@ type client struct {
 	spec    Spec
 	tr      transport
 	timeout time.Duration
+
+	// toolCache 在 Spec.ToolCacheTTL > 0 时缓存工具发现结果；
+	// 关闭时 ListTools 完全不触碰它。
+	toolCache toolCache
+
+	// health 仅在 Spec.HealthTracking 为 true 时挂接；为 nil 时
+	// discoverTools 不执行任何观测，零 I/O、行为逐字节不变。
+	health *HealthTracker
 
 	// mu 保护 Tools 暴露的最后一次成功列出的工具视图，以及
 	// 从 initialize 响应解析出的能力。
@@ -267,7 +291,34 @@ func (c *client) capabilitySkipped(cap string) bool {
 	return caps.Enumerated() && !caps.Supports(cap)
 }
 
+// ListTools 返回服务器宣告的工具。
+//
+// 当 Spec.ToolCacheTTL > 0 时启用带 TTL 的发现缓存：有效期内直接复用
+// 上一次成功的结果，过期后重新发现；并发调用由 toolCache 收敛为单次
+// 发现（single-flight）。TTL 为 0（默认）时不做任何缓存，逐字节走
+// discoverTools 的原路径。
 func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
+	ttl := c.spec.ToolCacheTTL
+	if ttl <= 0 {
+		return c.discoverTools(ctx)
+	}
+	if tools, ok := c.toolCache.get(); ok {
+		return tools, nil
+	}
+	// get 返回 false 表示本调用者已成为刷新者：必须实际发现一次，
+	// 并在结束时发布结果或唤醒等待者。
+	tools, err := c.discoverTools(ctx)
+	if err != nil {
+		c.toolCache.fail()
+		return nil, err
+	}
+	c.toolCache.set(tools, ttl)
+	return tools, nil
+}
+
+// discoverTools 执行一次真正的工具发现（原 ListTools 的完整实现）。
+// 保持独立是为了让默认路径与缓存开启时共用同一段代码，避免行为漂移。
+func (c *client) discoverTools(ctx context.Context) ([]Tool, error) {
 	if c.capabilitySkipped("tools") {
 		return nil, nil
 	}
@@ -325,11 +376,18 @@ func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
 		return nextCursor(result.Next), nil
 	})
 	if err != nil {
+		if c.health != nil {
+			c.health.Observe(false, 0, err)
+		}
 		return nil, err
 	}
 	// 在这里应用每服务器权限，使调用方永远看不到服务器配置
 	// 不允许的工具。保持宣告顺序以获得稳定输出。
 	tools = FilterTools(c.spec, tools)
+	if c.health != nil {
+		// 记录过滤后的工具数：调用方看到的工具数与快照一致。
+		c.health.Observe(true, len(tools), nil)
+	}
 	c.mu.Lock()
 	c.tools = append([]Tool(nil), tools...)
 	c.mu.Unlock()

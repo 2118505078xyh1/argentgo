@@ -132,7 +132,13 @@ type Registry struct {
 	sessionNext int // session-scoped "job%d@session" sequence (guarded by mu)
 	// maxJobs 是作业数量上限（由 mu 保护）；0 表示不限制，这是默认值。
 	// 开启后 Start 会淘汰多余作业，详见 jobs_eviction.go。
-	maxJobs   int
+	maxJobs int
+	// retention 是 opt-in 的有界保留策略（由 mu 保护）；零值表示全部关闭，
+	// 此时所有读写与淘汰行为与引入本特性前逐字节一致，详见 jobs_retention.go。
+	retention RetentionConfig
+	// lastUsed 记录每个作业的最近使用时间以实现真正的 LRU（由 mu 保护）。
+	// 仅在 retention.MaxEntries>0 时维护；不持久化，访问题不 bump 版本号。
+	lastUsed  map[string]time.Time
 	version   uint64 // guarded by mu; bumped on every in-memory state change
 	dirty     bool   // guarded by mu; a state change has not reached the disk yet
 	persisted uint64 // last version written to disk (read/written under ioMu+mu)
@@ -279,6 +285,9 @@ func (r *Registry) start(session string, cmd Command) (Job, error) {
 	// 开启数量上限时淘汰多余作业。默认上限为 0（关闭），
 	// 因此既有行为完全不变。
 	r.EnforceMaxJobs()
+	// opt-in 的有界保留：TTL 过期与 LRU 容量淘汰。默认策略为零值，
+	// 本调用是空操作，既有行为完全不变。
+	r.EnforceRetention()
 
 	if saveErr != nil {
 		return job, saveErr
@@ -322,6 +331,9 @@ func (r *Registry) List() ([]Job, error) {
 	for r.inflight > 0 {
 		r.idleCond.Wait()
 	}
+	// LRU：列出作业意味着访问了它们。仅在启用 MaxEntries 时更新账本，
+	// 且账本更新不 bump 版本号，因此默认路径的持久化字节完全不变。
+	r.noteAccessAllLocked()
 	out := make([]Job, 0, len(r.jobs))
 	for _, job := range r.jobs {
 		out = append(out, *job)
@@ -371,6 +383,10 @@ func (r *Registry) Get(id string) (Job, error) {
 	// 可能已更新或移除此作业。现在重新读取 map 并复制，使
 	// 返回值匹配已确定的持久化状态。
 	job, ok = r.jobs[id]
+	// LRU：仅在启用 MaxEntries 时记录本次访问（见 List）。
+	if ok {
+		r.noteAccessLocked(id)
+	}
 	var out Job
 	if ok {
 		out = *job
@@ -527,6 +543,7 @@ func (r *Registry) Remove(id string) error {
 		return fmt.Errorf("%w (job %s, pid %d); nothing was killed, job kept", errProcessIdentity, id, pid)
 	}
 	delete(r.jobs, id)
+	r.forgetAccessLocked(id)
 	snap, version := r.changedLocked()
 	r.mu.Unlock()
 	_ = r.persist(snap, version)
@@ -562,6 +579,7 @@ func (r *Registry) Prune(age time.Duration) (int, error) {
 			continue
 		}
 		delete(r.jobs, id)
+		r.forgetAccessLocked(id)
 		removed++
 	}
 	var snap index

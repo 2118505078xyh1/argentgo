@@ -155,20 +155,40 @@ type Dispatcher struct {
 	// 作为续跑提示经 Result.Continuation 暴露给调用方。
 	StopBlocks bool
 
+	// Middlewares 是可选的中间件链，默认 nil。为空时 Dispatch 直接走
+	// dispatchBase，与引入中间件之前逐字节相同；非空时它们按声明顺序
+	// 包成洋葱模型，位于实际钩子执行之前。中间件可以改写 Payload、
+	// 短路分发，或改写返回的 Result。
+	Middlewares []Middleware
+
 	// asyncWG 跟踪 Run 启动的后台钩子。Run 从不在其上等待：
 	// 异步钩子不得延迟触发它的决策。WaitAsync
 	// 让调用方排空它们（测试、优雅关闭）。
 	asyncWG sync.WaitGroup
 }
 
-// Dispatch 为 payload.Event 运行所有匹配的钩子并返回
-// 聚合决策。
-func (d *Dispatcher) Dispatch(ctx context.Context, config *Config, payload Payload) (Result, error) {
+// dispatchBase 执行既有的 Run + Summarize 聚合路径。Middlewares 为空时
+// Dispatch 直接调用它，代码路径与引入中间件之前逐字节一致。
+func (d *Dispatcher) dispatchBase(ctx context.Context, config *Config, payload Payload) (Result, error) {
 	outcomes, err := d.Run(ctx, config, payload)
 	if err != nil {
 		return Result{}, err
 	}
 	return Summarize(outcomes), nil
+}
+
+// Dispatch 为 payload.Event 运行所有匹配的钩子并返回
+// 聚合决策。Middlewares 为空时直接走 dispatchBase；非空时先把本次调用的
+// payload 复制一份，使 middleware 对 args 的改写只作用于本次分发，且并发
+// 分发之间互不干扰，再把中间件链包在 base 外层执行。
+func (d *Dispatcher) Dispatch(ctx context.Context, config *Config, payload Payload) (Result, error) {
+	if len(d.Middlewares) == 0 {
+		return d.dispatchBase(ctx, config, payload)
+	}
+	args := payload
+	base := func() (Result, error) { return d.dispatchBase(ctx, config, args) }
+	chain := composeMiddlewares(ctx, Event(payload.Event), &args, d.Middlewares, base)
+	return chain()
 }
 
 // DispatchDocument 运行受信任文档中的钩子。

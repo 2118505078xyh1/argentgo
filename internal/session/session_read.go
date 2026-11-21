@@ -10,6 +10,11 @@ import (
 
 // Records 按文件顺序返回所有记录。
 func (s *Session) Records() ([]Record, error) {
+	// 批量写模式下先落盘暂存记录，让读取看到完整、连贯的转录。
+	// 默认模式下 pending 恒为空，Flush 是空操作，字节与 IO 行为不变。
+	if err := s.Flush(); err != nil {
+		return nil, err
+	}
 	return readRecords(s.path())
 }
 

@@ -257,10 +257,11 @@ func ValidateCatalog(templates []Template) []Diagnostic {
 // ValidateAll 连同别名映射一起验证内置模板表：每个模板、唯一名称，以及解析到真实规范名称而不遮蔽它的别名。别名发现使用 Field "aliases" 和稳定的（排序）顺序，使输出可复现。
 // 稳定的（排序）顺序，使输出可复现。
 func ValidateAll() []Diagnostic {
-	diagnostics := ValidateCatalog(List())
+	all := List()
+	diagnostics := ValidateCatalog(all)
 
-	names := make(map[string]struct{}, len(templates))
-	for _, template := range templates {
+	names := make(map[string]struct{}, len(all))
+	for _, template := range all {
 		names[template.Name] = struct{}{}
 	}
 

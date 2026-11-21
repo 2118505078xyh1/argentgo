@@ -134,6 +134,9 @@ type Step struct {
 	// 失败诊断中，其退出码从不改变决策。它是
 	// 失败诊断中，其退出码从不改变决策。它是独立字段，因为 OnFailure 已经命名了失败策略。
 	CleanupCommand string `json:"cleanup,omitempty"`
+	// Guard 是可选的执行守卫（前置条件与失败回退）。它只在 RunGuarded
+	// 路径生效；默认的 Run/RunWithParams 完全忽略它。
+	Guard *StepGuard `json:"guard,omitempty"`
 }
 
 // WorkflowParam 声明一个模板参数。其值在运行时提供

@@ -68,15 +68,22 @@ type Memory struct {
 	// 永不携带该字段，因此在未使用作废功能时，现有日志和调用方
 	// 保持逐字节不变。
 	Invalidated string `json:"invalidated,omitempty"`
+	// SpillURI 非空时表示 Text 只是预览，全文存放于该 URI 指向的
+	// 落盘文件，可用 Recover 取回。omitempty 保证未启用落盘时记录
+	// 保持逐字节不变。
+	SpillURI string `json:"spill_uri,omitempty"`
+	// SpillBytes 是落盘全文的字节数，0 表示未落盘。
+	SpillBytes int `json:"spill_bytes,omitempty"`
 }
 
 // Bank 是由单个 JSONL 文件支撑的并发安全持久化事实存储。
 // 用 NewBank 构造；零值不可用。
 type Bank struct {
-	dir  string
-	path string
-	mu   sync.Mutex
-	cap  int
+	dir   string
+	path  string
+	mu    sync.Mutex
+	cap   int
+	spill *SpillOptions // nil 表示关闭大条目落盘（默认）
 }
 
 // NewBank 返回一个以 dir 为根的 bank，尽可能创建该目录。
@@ -128,6 +135,10 @@ func (b *Bank) Retain(text string, tags []string, source string) (string, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// 大条目落盘是可选功能。默认关闭时 maybeSpill 是空操作，
+	// mem 与日志字节和本功能加入之前完全一致。
+	b.maybeSpill(&mem, text)
+
 	if err := b.appendLocked(mem); err != nil {
 		return "", err
 	}
@@ -138,9 +149,12 @@ func (b *Bank) Retain(text string, tags []string, source string) (string, error)
 	if b.cap > 0 && len(loaded) > b.cap {
 		// 保留尾部：日志按插入顺序排列，因此最后 cap 条
 		// 无论时钟分辨率如何都是最新的。
+		evicted := loaded[:len(loaded)-b.cap]
 		if err := b.writeAllLocked(loaded[len(loaded)-b.cap:]); err != nil {
 			return "", err
 		}
+		// 被淘汰记录若曾落盘，其全文文件一并清理（尽力而为）。
+		b.removeSpillFiles(evicted)
 	}
 	return id, nil
 }
@@ -239,10 +253,12 @@ func (b *Bank) Forget(id string) error {
 		return err
 	}
 	kept := all[:0]
+	var removedMems []Memory
 	removed := false
 	for _, mem := range all {
 		if mem.ID == id {
 			removed = true
+			removedMems = append(removedMems, mem)
 			continue
 		}
 		kept = append(kept, mem)
@@ -250,7 +266,12 @@ func (b *Bank) Forget(id string) error {
 	if !removed {
 		return nil
 	}
-	return b.writeAllLocked(kept)
+	if err := b.writeAllLocked(kept); err != nil {
+		return err
+	}
+	// 删除记录后同步清理其落盘全文（尽力而为）。
+	b.removeSpillFiles(removedMems)
+	return nil
 }
 
 // All 按插入顺序返回每条有效 memory，跳过格式错误的行。

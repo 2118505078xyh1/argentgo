@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"strconv"
-	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
 )
 
 // defaultRepeatWindow 是重复防护在其滑动窗口中保留的最近工具调用数量。
@@ -72,20 +72,9 @@ func newDedupeWindow(maxRepeats, window int) *dedupe {
 
 // NormalizeArgs 规范化原始 JSON 参数对象，使同一调用的两种写法可比较相等：
 // 递归排序对象的键并去除空白。非 JSON 参数则折叠空白。
+// 纯实现已下沉到 internal/agentpolicy，这里保留转发使调用点不变。
 func NormalizeArgs(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "{}"
-	}
-	var value any
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
-		return strings.Join(strings.Fields(raw), " ")
-	}
-	normalized, err := json.Marshal(value)
-	if err != nil {
-		return raw
-	}
-	return string(normalized)
+	return agentpolicy.NormalizeArgs(raw)
 }
 
 // normalizedKey 构建防护器中缓存键路径和原始参数路径共用的映射键。

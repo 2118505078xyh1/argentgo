@@ -109,55 +109,13 @@ type TriggerReport struct {
 // 报告只是数据：分发事件是调用方的职责。app 层在一次 Execute 前后
 // 报告只是数据：分发事件是调用方的职责。app 层在一次 Execute 前后触发
 // 会话/提示/工具事件；修改文件的调用方应触发带受影响 Payload.Path 的 FileChanged。
+//
+// 每行的元数据来自事件处理器注册表：新增事件只需注册一个处理器构造器，
+// 无需再改动这里原先按事件枚举的 switch。
 func ReportTriggers() []TriggerReport {
 	rows := make([]TriggerReport, 0, len(AllEvents))
 	for _, event := range AllEvents {
-		row := TriggerReport{Event: event}
-		switch event {
-		case SessionStart:
-			row.Trigger = "once when a session begins, before the first prompt"
-		case UserPromptSubmit:
-			row.Trigger = "when the user submits a prompt"
-			row.Payload = "Prompt"
-		case PreToolUse:
-			row.Trigger = "before each tool call; exit 2 blocks the call"
-			row.Payload = "Tool, Args, CallID"
-		case PermissionRequest:
-			row.Trigger = "when a tool call needs an approval decision"
-			row.Payload = "Tool, Args, CallID"
-		case PostToolUse:
-			row.Trigger = "after a tool call succeeds"
-			row.Payload = "Tool, Args, Output, CallID"
-		case PostToolUseFailure:
-			row.Trigger = "after a tool call fails"
-			row.Payload = "Tool, Args, Error, CallID"
-		case Notification:
-			row.Trigger = "when an informational notice is shown to the user"
-			row.Payload = "Prompt"
-		case PreCompact:
-			row.Trigger = "just before the conversation is compacted"
-		case SessionEnd:
-			row.Trigger = "when a session ends, including on cancellation"
-		case SubagentStop:
-			row.Trigger = "when a subagent finishes its run"
-			row.Payload = "Output"
-		case Stop:
-			row.Trigger = "when the assistant finishes a turn"
-			row.Payload = "Prompt, Output"
-		case EventInterrupt:
-			row.Trigger = "when the assistant turn is interrupted by the user or transport"
-			row.Payload = "Prompt, Output, HookPayload (reason=interrupt)"
-		case EventStopFailure:
-			row.Trigger = "when the assistant turn ends in a non-cancellation error"
-			row.Payload = "Prompt, Output, HookPayload (reason=stop_failure, error text)"
-		case EventTurnEnd:
-			row.Trigger = "when the assistant turn completes cleanly"
-			row.Payload = "Prompt, Output, HookPayload (reason=turn_end)"
-		case FileChanged:
-			row.Trigger = "when a tool creates, modifies or deletes a file"
-			row.Payload = "Path (the affected file)"
-		}
-		rows = append(rows, row)
+		rows = append(rows, triggerReportFor(event, defaultEventHandlers))
 	}
 	return rows
 }

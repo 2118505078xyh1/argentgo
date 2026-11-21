@@ -78,6 +78,10 @@ type TrimOptions struct {
 	KeepToolTokens int
 	// ToolMeta 把 ToolCallID 映射到工具运行器产生的元数据。非空时，会优先回收被取代的读取和无用的结果。
 	ToolMeta map[string]ToolMeta
+	// NoTrimToolCallIDs 是不允许被裁剪或回收的 ToolCallID 集合。调用方（例如负责 output-spill
+	// 恢复的层）通过它保护携带恢复标记的工具结果，使预算裁剪与元数据回收都不会抹掉标记。
+	// nil 表示不保护任何结果，行为与旧版逐字节一致。该集合由调用方注入，agent 包不依赖 session/tools。
+	NoTrimToolCallIDs map[string]bool
 	// CacheProtectSuffixTokens 覆盖提示缓存保护阈值。零表示使用保守的默认值。
 	CacheProtectSuffixTokens int
 	// TargetRatio 是预算循环所瞄准的 MaxTokens 比例。(0, 1) 内的值会使 Trim 向下超额到该比例，
@@ -158,7 +162,7 @@ func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	suffix := 0
 	for i := len(out) - 1; i >= 0; i-- {
 		msg := out[i]
-		if msg.Role != "tool" || protected[i] {
+		if msg.Role != "tool" || protected[i] || opts.NoTrimToolCallIDs[msg.ToolCallID] {
 			suffix += EstimateMessage(msg)
 			continue
 		}
@@ -309,7 +313,7 @@ func reclaimByMeta(messages []llm.Message, opts TrimOptions, res *TrimResult) {
 	}
 
 	for i, msg := range messages {
-		if msg.Role != "tool" || isErrorResult(msg.Content) {
+		if msg.Role != "tool" || isErrorResult(msg.Content) || opts.NoTrimToolCallIDs[msg.ToolCallID] {
 			continue
 		}
 		if msg.Content == supersededStub || msg.Content == uselessStub || strings.HasPrefix(msg.Content, trimmedPrefix) {
