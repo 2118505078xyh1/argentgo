@@ -446,6 +446,9 @@ func (c *Client) chat(
 }
 
 func (c *Client) readStream(ctx context.Context, model string, body io.Reader, onText func(string)) (Message, error) {
+	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
+	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
+	hook := HookFromContext(ctx)
 	var text strings.Builder
 	// 推理增量按完整字符串原样追加，因此跨分块拆开的 CJK 字符
 	// 会被精确保留：不进行任何字节/字符切片。
@@ -658,6 +661,15 @@ streamLoop:
 				}
 				call.Function.Name += tc.Function.Name
 				call.Function.Arguments += tc.Function.Arguments
+				if hook != nil {
+					// 上报本片的原始增量（不混入累积值），调用方按 Index 自行归并。
+					hook(ToolCallDelta{
+						Index:     tc.Index,
+						ID:        tc.ID,
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					})
+				}
 			}
 		}
 	}

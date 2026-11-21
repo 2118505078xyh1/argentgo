@@ -247,6 +247,14 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if tool.Mutating() && !r.yolo {
 		return "", fmt.Errorf("tool %q changes the workspace; rerun with --yolo", name)
 	}
+	// 推测查询旁路：位于守卫与变更性检查之后、真正执行工具之前。
+	// 命中时直接返回预跑输出并跳过 runTool；默认 ctx 不含 lookup，
+	// SpecLookupFrom 只做一次失败的类型断言，行为逐字节不变。
+	if lookup := SpecLookupFrom(ctx); lookup != nil {
+		if out, ok := lookup(name, args); ok {
+			return out, nil
+		}
+	}
 	ctx = context.WithValue(ctx, outputLimitKey{}, r.maxOutput)
 	ctx = context.WithValue(ctx, maxTimeoutKey{}, r.maxTimeout)
 	if r.sessionDir != "" {

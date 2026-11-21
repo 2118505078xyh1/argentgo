@@ -269,11 +269,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	chain := security.NewChain(policy, approver, audit, sess.ID())
 
 	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
-	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。
-	var guard tools.Guard = chain
-	if inspectionEnabled(stdio.Env) {
-		guard = newInspectionGuard(chain, approver, stdio)
-	}
+	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。Guardian 由
+	// inspectionGuardFor 在总开关开启时按需追加，两开关为"与"关系。
+	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, defaultGuardianReview)
 
 	toolset := newToolset(ctx, stdio, res, sess, guard)
 	defer toolset.Close()
@@ -750,9 +748,15 @@ func (a fixedApprover) Ask(ctx context.Context, _, _ string) (bool, error) {
 // newInspectionGuard 用内置检查器构建选择性启用层。InspectionManager 的零值即可使用
 // （该构建块不暴露构造函数），其错误处理器是安全失败的：损坏的检查器会被跳过，
 // 只记录它的名字，绝不记录原始错误文本。
-func newInspectionGuard(chain *security.Chain, approver security.Approver, stdio cli.IO) *inspectionGuard {
+func newInspectionGuard(chain *security.Chain, approver security.Approver, stdio cli.IO, secondaryModel string, review guardianReviewFunc) *inspectionGuard {
 	manager := &security.InspectionManager{}
 	manager.Add(destructiveCommandInspector{})
+	// Guardian 只在此处注册：它复用 stdio.Env 读取环境门，secondaryModel 与 review
+	// 由调用方注入（生产走 defaultGuardianReview 的 fail-closed 默认实现）。
+	// 任一接线条件不满足时 guardianInspectorFor 返回 nil，链保持不变。
+	if ins := guardianInspectorFor(stdio.Env, secondaryModel, review); ins != nil {
+		manager.Add(ins)
+	}
 	if stdio.Err != nil {
 		manager.SetErrorHandler(func(name string, _ error) {
 			fmt.Fprintf(stdio.Err, "inspection: inspector %q failed and was skipped\n", name)
