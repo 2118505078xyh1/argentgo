@@ -7,7 +7,7 @@ argentgo 默认行为对所有可选特性**一律关闭（fail-closed）**。�
 ## 目录
 
 - [一、两条激活入口](#一两条激活入口)
-- [二、12 个 opt-in 键（ARGENT_OPT_INS / optins 块）](#二12-个-opt-in-键argent_opt_ins--optins-块)
+- [二、13 个 opt-in 键（ARGENT_OPT_INS / optins 块）](#二13-个-opt-in-键argent_opt_ins--optins-块)
 - [三、独立门控环境变量](#三独立门控环境变量)
 - [四、其他独立门控变量速查](#四其他独立门控变量速查)
 - [五、逐字节不变承诺](#五逐字节不变承诺)
@@ -67,7 +67,7 @@ argent "你的任务"
 
 **当前状态**：`Execute` 的运行时装配面（`internal/app/app_execute.go`）读取 `ARGENT_OPT_INS` 与配置 `optins` 块的**并集**（`mergeOptIns(ParseOptInEnv(...), configOptIns(...))`）。两个入口都能真正在运行中打开开关：
 
-- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开全部 12 个键。
+- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开全部 13 个键。
 - 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 8 个键。
 - `optins` → app 运行时的映射交集只包含标注「配置可用」的 8 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity` 这 4 个键**只能**通过 `ARGENT_OPT_INS` 打开。
 
@@ -77,7 +77,7 @@ argent "你的任务"
 
 ---
 
-## 二、12 个 opt-in 键（ARGENT_OPT_INS / optins 块）
+## 二、13 个 opt-in 键（ARGENT_OPT_INS / optins 块）
 
 下表给出全集。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
 
@@ -95,6 +95,7 @@ argent "你的任务"
 | 10 | `grep_ex` | 增强搜索 | 关闭 | 是 | 交互 |
 | 11 | `cli_hints` | CLI 提示 | 关闭 | 是 | 交互 |
 | 12 | `tool_error_reflection` | 工具错误反射 | 关闭 | 是 | 交互 |
+| 13 | `model_summary` | 模型摘要 | 关闭 | 是 | 上下文 |
 
 ### 1. `refusal_reason`（拒绝理由）
 
@@ -193,11 +194,19 @@ argent "你的任务"
 - **适用场景**：模型反复因可修复错误（路径、参数、命令拼写）失败时，提供足够信息让其自行纠正，而非只看到一行 `error: ...`。
 - **逐字节不变承诺**：未显式开启时回灌给模型的错误串逐字节不变；事件与会话记录始终保存原始错误字节。
 
+### 13. `model_summary`（模型摘要）
+
+- **作用**：压缩时用模型生成一段增量叙事摘要，补抽取式摘要在"多行目标 / 散文计划 / 连贯性"上的不足。原语位于 `internal/app/model_summary.go`；模型只补叙事、绝不覆盖 `files`/`failures` 等权威结构化字段，失败一律回落到抽取式。
+- **默认状态**：关闭。
+- **如何开启**：`export ARGENT_OPT_INS="model_summary"`，或 `optins` 块中 `"model_summary": true`。注意：原语已交付，但压缩点调用接线待后续；开启前请确认该路径已接线。
+- **适用场景**：长会话压缩后希望上下文更连贯时。成本提示：会在压缩时额外发起一次模型调用，建议配合 `secondary-model` 使用。
+- **逐字节不变承诺**：未显式开启时不发起任何模型调用，压缩摘要逐字节不变。
+
 ---
 
 ## 三、独立门控环境变量
 
-以下开关**不属于** 12 键注册表，而是通过各自独立的环境变量控制（因此不能写进 `ARGENT_OPT_INS`）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。
+以下开关**不属于** 13 键注册表，而是通过各自独立的环境变量控制（因此不能写进 `ARGENT_OPT_INS`）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 
