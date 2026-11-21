@@ -33,6 +33,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "approve_danger", Env: "ARGENT_APPROVE_DANGER", Name: "TUI 危险命令原因展示", Enable: "=1", Desc: "TUI 审批弹窗展示稳定中文危险原因并预选拒绝。"},
 	{Key: "approval_diff", Env: "ARGENT_APPROVAL_DIFF", Name: "审批卡 diff 展示", Enable: "=1", Desc: "TUI 审批卡渲染有界的增删行摘要（diff 行）。"},
 	{Key: "tui_usage", Env: "ARGENT_TUI_USAGE", Name: "TUI 用量显示", Enable: "=1", Desc: "TUI 头部显示本轮 token 用量与缓存命中。"},
+	{Key: "tui_prompt_history", Env: "ARGENT_TUI_PROMPT_HISTORY", Name: "TUI 输入历史持久化", Enable: "=1", Desc: "TUI 提交的输入写入存储目录 prompts.jsonl，重启后 Up 可召回；关闭时无文件读写、帧字节不变。"},
 	{Key: "vim_mode", Env: "ARGENT_VIM_MODE", Name: "vim 键位", Enable: "=1", Desc: "TUI 输入行切换到 vim 键位，默认经典输入逐字节不变。"},
 	{Key: "path_completion", Env: "ARGENT_PATH_COMPLETION", Name: "内联路径补全", Enable: "=1", Desc: "TUI 输入行启用内联路径补全，默认 slash 补全逐字节不变。"},
 	{Key: "cache_visible", Env: "ARGENT_CACHE_VISIBLE", Name: "缓存能力提示", Enable: "=1", Desc: "--tokens 报告追加一行静态缓存能力提示。"},
@@ -48,6 +49,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "checkpoint_guard", Env: "ARGENT_CHECKPOINT_GUARD", Name: "checkout 还原目标守卫", Enable: "=1", Desc: "sessions checkout 时对转录目标做只读校验，拒绝逃逸或已消失的目标；关闭时 checkout 逐字节不变。"},
 	{Key: "compaction_event", Env: "ARGENT_COMPACTION_EVENT", Name: "压缩事件落盘", Enable: "=1", Desc: "压缩时在 KindCompaction 记录后额外追加一条 KindCondensation 记录（含被遗忘 ID、摘要、切分点），该记录不进入模型可见对话；关闭时压缩写入逐字节不变。"},
 	{Key: "tool_prune", Env: "ARGENT_TOOL_PRUNE", Name: "工具结果压力裁剪", Enable: "=1", Desc: "在预算投影前对超长工具结果保留头尾、中间替换为裁剪标记（按 rune，幂等），预算复用 ARGENT_BUDGET_PROJECTION_BUDGET；关闭时消息流逐字节不变。"},
+	{Key: "image_input", Env: "ARGENT_IMAGE_INPUT", Name: "图像输入", Enable: "=1", Desc: "从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；关闭时 InitialImages 为 nil，首条消息逐字节不变。"},
 
 	// ---- 安全 / 审批 ----
 	{Key: "inspection", Env: "ARGENT_INSPECTION", Name: "安全失败检查层总开关", Enable: "=1", Desc: "启用检查链总开关；关闭时安全链裸链运行，Guardian 绝不生效。"},

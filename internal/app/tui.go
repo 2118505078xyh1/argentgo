@@ -193,6 +193,12 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			},
 			CommandInfo: buildTUICommandInfo(stdio, res),
 		}
+		// 输入历史持久化（opt-in ARGENT_TUI_PROMPT_HISTORY）：默认关闭，
+		// 不传 store，编辑器不读写任何文件、帧字节不变。仅当环境精确为 "1" 时
+		// 才把存储目录下的 prompts.jsonl 交给 TUI，使重启后 Up 能召回旧输入。
+		if promptHistoryEnabled(stdio.Env) {
+			frontendOpts.PromptHistory = tui.NewPromptStore(filepath.Join(res.Storage, "prompts.jsonl"))
+		}
 		// 测试（或管道）不得让终端进入 raw 模式。
 		if !realStreams(stdio) {
 			frontendOpts.IO = &tui.IO{In: stdio.In, Out: stdio.Out}
@@ -280,6 +286,13 @@ func sessionTitles(store *session.Store) []string {
 		titles = append(titles, fmt.Sprintf("%s — %s", title, meta.ID))
 	}
 	return titles
+}
+
+// promptHistoryEnabled 报告是否开启 TUI 输入历史持久化。仅当注入的 env 非 nil
+// 且值修剪空白后精确为 "1" 时开启；env 为 nil、未设置或其它值一律 fail-closed，
+// 使默认行为与接线之前逐字节一致。
+func promptHistoryEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_TUI_PROMPT_HISTORY")) == "1"
 }
 
 // realStreams 报告 stdio 是否为进程终端，这是 TUI 应当接管 raw 模式的唯一情形。

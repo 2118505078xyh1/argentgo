@@ -153,6 +153,11 @@ type Options struct {
 	// 以 base 为前缀追加，保住 prompt cache 前缀；为空时系统提示逐字节不变。
 	SystemNodes []string
 
+	// InitialImages 是随首条用户消息一起发送的图片输入（纯数据，不含读取逻辑）。
+	// 非空时 newRunState 用 llm.BuildImageMessage 把首条用户消息构造成带图 part 的消息；
+	// 为零值 nil 时首条用户消息与接线前逐字节相同（纯文本 Content）。
+	InitialImages []llm.ImageInput
+
 	Chatter llm.Chatter
 	Tools   ToolRunner
 	Approve Approver

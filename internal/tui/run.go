@@ -63,6 +63,10 @@ type Options struct {
 	// CommandInfo 是宿主提供的斜杠命令元数据，供输入行补全与第 5 面板
 	// 使用。nil/空值保持经典行为：没有候选、Tab 仍插入两个空格。
 	CommandInfo []CommandInfo
+	// PromptHistory 是可选的持久化输入历史（opt-in）。nil 表示关闭：
+	// 编辑器不读写任何文件，首帧与历史导航逐字节不变。非 nil 时
+	// Run 在 New 之后把它装到编辑器上，启动时恢复最近的输入。
+	PromptHistory *PromptStore
 	// Events 在设置时把工具事件喂给可选的侧边栏。
 	// 已关闭的通道只是禁用后续更新。
 	Events <-chan Event
@@ -159,6 +163,7 @@ func Run(ctx context.Context, opts Options) error {
 		FS:       opts.FS,
 		Sessions: opts.Sessions,
 	})
+	model.SetPromptStore(opts.PromptHistory)
 	model.SetApproval(opts.Approval)
 	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
 	model.SetContextInfo(opts.ContextWindow, opts.Cost)

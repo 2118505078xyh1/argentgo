@@ -18,7 +18,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// runSessions 实现 `sessions list|show|checkout|fork-at|list-messages|fidelity|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。
+// runSessions 实现 `sessions list|show|checkout|fork-at|list-messages|health|fidelity|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。
 func runSessions(app App, _ context.Context, args []string) int {
 	if len(args) == 0 {
 		sessionsUsage(app.IO.Err)
@@ -49,6 +49,8 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsForkAt(app, args[1], args[2])
+	case "health":
+		return sessionsHealth(app, args[1:])
 	case "list-messages":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -213,6 +215,96 @@ func sessionsForkAt(app App, id, messageID string) int {
 	}
 	fmt.Fprintf(app.IO.Out, "forked session %s\n", newID)
 	fmt.Fprintf(app.IO.Out, "restored prompt: %s\n", restoredPrompt)
+	return 0
+}
+
+// sessionsHealth 对指定会话（或全部会话）做只读健康检查。它复用 session 包的
+// ValidateJSONL 与 MeasureDiskUsage 原语，输出两部分：转录问题的 kind/count 汇总
+// 与会话目录的磁盘占用。
+//
+// 脱敏：ValidateJSONL 的每条问题 Detail 会内嵌原始记录 id / prompt 文本，因此这里
+// 只累计 issue.Kind 的数量并排序输出，绝不打印 Detail、原始 id 或文本内容。
+// 目录不存在时给出可读的中文错误；全程不做按字节截断，CJK id / 文本保持完整。
+// 无参数时检查全部会话；带一个参数时检查该 id（支持精确 id 与唯一前缀）。
+func sessionsHealth(app App, args []string) int {
+	if len(args) > 1 {
+		sessionsUsage(app.IO.Err)
+		return 2
+	}
+
+	dir := app.sessionDir()
+	// 先显式检查目录，避免把底层的英文 stat 错误直接暴露给用户。
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		fmt.Fprintf(app.IO.Err, "错误: 会话目录不存在或不可访问: %s\n", dir)
+		return 1
+	}
+
+	var files []string
+	if len(args) == 0 {
+		// 全部会话：只收集 .jsonl 转录，按文件名排序保证结果确定。
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "错误: 读取会话目录失败: %v\n", err)
+			return 1
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
+				continue
+			}
+			files = append(files, filepath.Join(dir, entry.Name()))
+		}
+		sort.Strings(files)
+	} else {
+		// 指定会话：ResolvePath 会拒绝逃逸路径并解析精确 id / 唯一前缀。
+		path, err := session.ResolvePath(dir, args[0])
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "错误: %v\n", err)
+			return 1
+		}
+		files = []string{path}
+	}
+
+	// 只保留 issue.Kind -> count 的汇总，刻意丢弃 Detail（内嵌原始 id / 文本）。
+	counts := make(map[string]int)
+	total := 0
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "错误: 读取会话转录失败: %v\n", err)
+			return 1
+		}
+		for _, issue := range session.ValidateJSONL(data) {
+			counts[issue.Kind]++
+			total++
+		}
+	}
+
+	if len(args) == 0 {
+		fmt.Fprintln(app.IO.Out, "会话健康检查: 全部会话")
+	} else {
+		fmt.Fprintln(app.IO.Out, "会话健康检查: 指定会话")
+	}
+	fmt.Fprintf(app.IO.Out, "转录问题: 共 %d 处\n", total)
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		fmt.Fprintf(app.IO.Out, "  %s: %d\n", kind, counts[kind])
+	}
+
+	// 磁盘占用按整目录统计（与 doctor 一致）；kind 顺序固定为 session/archive/other。
+	usage, err := session.MeasureDiskUsage(dir)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "错误: 统计磁盘占用失败: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(app.IO.Out, "磁盘占用: %d 个文件, %d 字节\n", usage.Files, usage.Bytes)
+	for _, kind := range []string{"session", "archive", "other"} {
+		fmt.Fprintf(app.IO.Out, "  %s: %d 字节\n", kind, usage.ByKind[kind])
+	}
 	return 0
 }
 
@@ -568,6 +660,7 @@ func sessionsUsage(w io.Writer) {
        argentgo sessions show <id>
        argentgo sessions checkout <id> <entry>
        argentgo sessions fork-at <id> <message-id>
+       argentgo sessions health [id]
        argentgo sessions list-messages <id>
        argentgo sessions fidelity <id>
        argentgo sessions rm <id>

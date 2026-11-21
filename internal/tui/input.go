@@ -14,6 +14,9 @@ type Editor struct {
 	history []string
 	index   int    // -1 while editing a fresh line
 	draft   string // text before history browsing started
+	// store 是可选的持久化提示历史。默认 nil：Record 只更新内存环，
+	// 不触碰任何文件；仅在 opt-in 由宿主注入后才在提交时写盘。
+	store *PromptStore
 }
 
 // NewEditor 返回一个空的编辑器。
@@ -160,6 +163,8 @@ func (e *Editor) Clear() {
 }
 
 // Record 把提交的行加入历史，忽略连续的重复。
+// 装有 store（opt-in）时把该行持久化；写盘失败被刻意吞掉，
+// 因为内存历史已经更新，且提示内容不应以通知形式泄漏到屏幕上。
 func (e *Editor) Record(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
@@ -171,6 +176,26 @@ func (e *Editor) Record(text string) {
 	if len(e.history) > 200 {
 		e.history = e.history[len(e.history)-200:]
 	}
+	if e.store != nil {
+		_ = e.store.Append(text)
+	}
+}
+
+// SeedHistory 用持久化历史灌入内存环，保持调用方给出的旧→新顺序，
+// 且刻意不调用 Append——加载只是恢复内存状态，绝不能回写磁盘。
+// 空白行被跳过，超过 200 条时只保留最新的一部分，与 Record 的封顶一致。
+func (e *Editor) SeedHistory(texts []string) {
+	seeded := make([]string, 0, len(texts))
+	for _, text := range texts {
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		seeded = append(seeded, text)
+	}
+	if len(seeded) > 200 {
+		seeded = seeded[len(seeded)-200:]
+	}
+	e.history = seeded
 }
 
 // HistoryPrev 在历史中后退一步。
