@@ -12,7 +12,7 @@ func writeUsage(w io.Writer) {
        argent <command> [args]
 
 commands:
-  sessions list|show|rm|find|discard-attempt  inspect stored sessions
+  sessions list|show|fidelity|rm|find|discard-attempt  inspect stored sessions
   replay <id>                   print a stored session transcript
   usage                         summarise turns and tokens per session
   doctor                        check config, storage, provider, git and Go

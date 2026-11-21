@@ -25,6 +25,9 @@ const (
 	// OptInAttemptIsolation 控制是否在验证失败时把失败尝试分叉为旁支会话。
 	// 它默认关闭：未显式开启时验证失败不触碰会话树，事件流逐字节不变。
 	OptInAttemptIsolation OptInKey = "attempt_isolation"
+	// OptInCompactionFidelity 控制是否在压缩摘要要素缺失时发出质量告警。
+	// 它默认关闭：未显式开启时压缩完成点不会被挂接任何观察者，行为逐字节不变。
+	OptInCompactionFidelity OptInKey = "compaction_fidelity"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -34,6 +37,7 @@ var allOptInKeys = []OptInKey{
 	OptInContextPressure,
 	OptInUntrustedBoundary,
 	OptInAttemptIsolation,
+	OptInCompactionFidelity,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。
