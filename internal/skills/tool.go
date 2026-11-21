@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // ToolSpec 描述调用方可用自己的 registry 注册的工具。
@@ -74,12 +75,15 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 	name := strings.TrimSpace(call.Name)
 	if name == "" {
 		if r == nil || r.Len() == 0 {
-			return "No skills are installed. Add SKILL.md directories under .argent/skills or ~/.argentgo/skills.", nil
+			return "No skills are installed. Add SKILL.md directories under .argent/skills or ~/.argentgo/skills, ~/.agents/skills, ~/.claude/skills.", nil
 		}
 		var b strings.Builder
 		b.WriteString("Installed skills:\n")
 		for _, skill := range r.All() {
-			fmt.Fprintf(&b, "- %s — %s\n  %s\n", skill.Name, oneLine(skill.Description), skill.Path)
+			// 与系统提示索引一致：列举输出同样先脱敏不可见字符再折叠为单行。
+			name := oneLine(security.RedactArtifactContent(skill.Name))
+			desc := oneLine(security.RedactArtifactContent(skill.Description))
+			fmt.Fprintf(&b, "- %s — %s\n  %s\n", name, desc, skill.Path)
 		}
 		return b.String(), nil
 	}

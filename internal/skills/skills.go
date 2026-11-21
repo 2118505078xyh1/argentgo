@@ -23,8 +23,13 @@ import (
 // DefaultProjectSubdir 是仓库存放自有技能的位置。
 const DefaultProjectSubdir = ".argent/skills"
 
-// DefaultHomeSubdir 是用户存放跨项目共享技能的位置。
+// DefaultHomeSubdir 是写入新技能时用户主目录下的目标位置。
+// 它只供 author.go 使用；发现路径由 DefaultUserSubdirs 决定，二者刻意解耦。
 const DefaultHomeSubdir = ".argentgo/skills"
+
+// DefaultUserSubdirs 是发现技能时按顺序搜索的用户主目录子路径。
+// 越靠前优先级越高；同名技能由先出现的目录胜出。
+var DefaultUserSubdirs = []string{".argentgo/skills", ".agents/skills", ".claude/skills"}
 
 // Load 在没有技能携带请求的名称时返回 ErrNotFound。
 var ErrNotFound = errors.New("skill not found")
@@ -120,7 +125,9 @@ func DefaultRoots(cwd, home string) []string {
 		roots = append(roots, filepath.Join(cwd, filepath.FromSlash(DefaultProjectSubdir)))
 	}
 	if home != "" {
-		roots = append(roots, filepath.Join(home, filepath.FromSlash(DefaultHomeSubdir)))
+		for _, subdir := range DefaultUserSubdirs {
+			roots = append(roots, filepath.Join(home, filepath.FromSlash(subdir)))
+		}
 	}
 	return roots
 }
@@ -241,19 +248,21 @@ func (r *Registry) IndexText() string {
 	b.WriteString("Skills: procedures you can load by name with the use_skill tool. ")
 	b.WriteString("Load one when the task matches its description; do not load all of them.\n")
 	for _, skill := range r.skills {
-		// 声明性元数据是不可信的，可能来自块标量或
-		// 声明性元数据是不可信的，可能来自块标量或带引号的 \n 转义。折叠它使每个技能仍恰好占据一行索引且无法向系统提示注入条目。
-		// 索引行且无法向系统提示注入条目。
-		desc, when := oneLine(skill.Description), oneLine(skill.WhenToUse)
+		// 声明性元数据不可信：可能来自块标量或带引号的 \n 转义，
+		// 也可能携带 Unicode tag / bidi 不可见字符。先脱敏再折叠空白，
+		// 使每个技能恰好占据一行索引且无法向系统提示注入条目。
+		name := oneLine(security.RedactArtifactContent(skill.Name))
+		desc := oneLine(security.RedactArtifactContent(skill.Description))
+		when := oneLine(security.RedactArtifactContent(skill.WhenToUse))
 		switch {
 		case desc == "" && when == "":
-			fmt.Fprintf(&b, "- %s\n", skill.Name)
+			fmt.Fprintf(&b, "- %s\n", name)
 		case when == "":
-			fmt.Fprintf(&b, "- %s: %s\n", skill.Name, desc)
+			fmt.Fprintf(&b, "- %s: %s\n", name, desc)
 		case desc == "":
-			fmt.Fprintf(&b, "- %s (when: %s)\n", skill.Name, when)
+			fmt.Fprintf(&b, "- %s (when: %s)\n", name, when)
 		default:
-			fmt.Fprintf(&b, "- %s: %s (when: %s)\n", skill.Name, desc, when)
+			fmt.Fprintf(&b, "- %s: %s (when: %s)\n", name, desc, when)
 		}
 	}
 	return b.String()

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -373,5 +374,213 @@ func TestHandleUseSkillListKeepsOneLinePerSkill(t *testing.T) {
 	}
 	if strings.Contains(list, "\nsecond") {
 		t.Errorf("multi-line description leaked: %q", list)
+	}
+}
+
+// Part 1：渲染边界必须先把声明性元数据脱敏再折叠为单行。
+
+func TestIndexTextNameNewlineCannotInjectEntry(t *testing.T) {
+	// 带引号的 YAML 标量在 Parse 时会把 \n 解码为真实换行，name 在 Parse 中不受校验。
+	skill, err := Parse("---\nname: \"foo\\n- fake skill\"\ndescription: real\n---\nbody", filepath.Join("tmp", "x", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	originalName := skill.Name
+	r := New()
+	r.Add(skill)
+	index := r.IndexText()
+
+	lines := strings.Split(strings.TrimSuffix(index, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("index has %d lines, want header + 1: %q", len(lines), index)
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "- fake") {
+			t.Errorf("injected entry leaked: %q", line)
+		}
+	}
+	if !strings.Contains(index, "- foo - fake skill: real") {
+		t.Errorf("name was not folded into one line: %q", index)
+	}
+	if skill.Name != originalName {
+		t.Errorf("IndexText mutated input: %q", skill.Name)
+	}
+	if again := r.IndexText(); again != index {
+		t.Errorf("IndexText is unstable: %q vs %q", index, again)
+	}
+}
+
+func TestIndexTextRedactsInvisibleCharacters(t *testing.T) {
+	const tag = "\U000E0001"
+	const bidi = "\u200e"
+	skill := Skill{
+		Name:        "docs" + tag,
+		Description: "中文" + bidi + "说明",
+		WhenToUse:   "load " + tag + " me",
+	}
+	before := skill
+	r := New()
+	r.Add(skill)
+	index := r.IndexText()
+
+	if strings.Contains(index, tag) {
+		t.Errorf("invisible tag leaked: %q", index)
+	}
+	if strings.Contains(index, bidi) {
+		t.Errorf("raw bidi character leaked: %q", index)
+	}
+	if !strings.Contains(index, `中文\u200e说明`) {
+		t.Errorf("bidi should be visible as an escape: %q", index)
+	}
+	if !strings.Contains(index, "- docs: ") || !strings.Contains(index, "(when: load me)") {
+		t.Errorf("tag characters were not redacted: %q", index)
+	}
+	if !reflect.DeepEqual(skill, before) {
+		t.Errorf("IndexText mutated input: %#v", skill)
+	}
+	if again := r.IndexText(); again != index {
+		t.Errorf("IndexText is unstable: %q vs %q", index, again)
+	}
+}
+
+func TestHandleUseSkillListSanitizesName(t *testing.T) {
+	r := New()
+	r.Add(Skill{Name: "docs\n- fake", Description: "first\nsecond", Path: "/tmp/docs/SKILL.md"})
+	list, err := r.HandleUseSkill(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if strings.Contains(list, "\n- fake") {
+		t.Errorf("injected entry leaked: %q", list)
+	}
+	if !strings.Contains(list, "- docs - fake — first second\n") {
+		t.Errorf("name was not folded into one line: %q", list)
+	}
+}
+
+// Part 2：多路径发现，写入目标与发现路径解耦。
+
+func TestDefaultRootsOrder(t *testing.T) {
+	cwd, home := filepath.Join("work", "proj"), filepath.Join("home", "user")
+	want := []string{
+		filepath.Join(cwd, ".argent", "skills"),
+		filepath.Join(home, ".argentgo", "skills"),
+		filepath.Join(home, ".agents", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+	}
+	if got := DefaultRoots(cwd, home); !reflect.DeepEqual(got, want) {
+		t.Errorf("DefaultRoots = %q, want %q", got, want)
+	}
+	onlyProject := []string{filepath.Join(cwd, ".argent", "skills")}
+	if got := DefaultRoots(cwd, ""); !reflect.DeepEqual(got, onlyProject) {
+		t.Errorf("DefaultRoots with empty home = %q, want %q", got, onlyProject)
+	}
+}
+
+func TestDiscoverSameNameAcrossFourRoots(t *testing.T) {
+	project, home := t.TempDir(), t.TempDir()
+	roots := DefaultRoots(project, home)
+	writeSkill(t, roots[0], "review", "project review")
+	writeSkill(t, roots[1], "review", "argentgo review")
+	writeSkill(t, roots[2], "review", "agents review")
+	writeSkill(t, roots[3], "review", "claude review")
+
+	reg := Discover(roots)
+	if reg.Len() != 1 {
+		t.Fatalf("len = %d, want 1 (same name must not overwrite)", reg.Len())
+	}
+	got, ok := reg.Get("review")
+	if !ok {
+		t.Fatal("review missing")
+	}
+	if got.Description != "project review" {
+		t.Errorf("description = %q, project version should win", got.Description)
+	}
+
+	// 用户目录之间同样按 DefaultUserSubdirs 的顺序决胜。
+	for _, tc := range []struct {
+		roots []string
+		want  string
+	}{
+		{roots[1:], "argentgo review"},
+		{roots[2:], "agents review"},
+		{roots[3:], "claude review"},
+	} {
+		got, ok := Discover(tc.roots).Get("review")
+		if !ok || got.Description != tc.want {
+			t.Errorf("discovery from %q: description = %q, want %q", tc.roots, got.Description, tc.want)
+		}
+	}
+}
+
+func TestDiscoverKeepsValidSkillsBesideBrokenOnes(t *testing.T) {
+	project, home := t.TempDir(), t.TempDir()
+	roots := DefaultRoots(project, home)
+	writeSkill(t, roots[2], "longform-memory", "memory from agents")
+	brokenDir := filepath.Join(roots[3], "broken")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "SKILL.md"), []byte("not a skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := Discover(roots)
+	if reg.Len() != 1 {
+		t.Fatalf("len = %d, want 1", reg.Len())
+	}
+	if _, ok := reg.Get("longform-memory"); !ok {
+		t.Fatal("valid skill in user directory was not discovered")
+	}
+}
+
+func TestIndexTextOneLinePerExternalSkill(t *testing.T) {
+	project, home := t.TempDir(), t.TempDir()
+	roots := DefaultRoots(project, home)
+	names := []string{"alpha", "beta", "gamma", "delta"}
+	for i, name := range names {
+		writeSkill(t, roots[i], name, "desc of "+name)
+	}
+	index := Discover(roots).IndexText()
+	lines := strings.Split(strings.TrimSuffix(index, "\n"), "\n")
+	if len(lines) != len(names)+1 {
+		t.Fatalf("index has %d lines, want header + %d: %q", len(lines), len(names), index)
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, "- ") {
+			t.Errorf("unexpected index line: %q", line)
+		}
+	}
+}
+
+func TestIndexTextByteStableWithoutExternalDirs(t *testing.T) {
+	project := t.TempDir()
+	roots := DefaultRoots(project, "")
+	writeSkill(t, roots[0], "deploy", "ship the service")
+	const want = "Skills: procedures you can load by name with the use_skill tool. Load one when the task matches its description; do not load all of them.\n" +
+		"- deploy: ship the service (when: when the user needs deploy)\n"
+	if got := Discover(roots).IndexText(); got != want {
+		t.Errorf("IndexText = %q, want %q", got, want)
+	}
+}
+
+func TestAuthorWritesOnlyToLegacyHomeSubdir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+
+	path, err := Author("", "home-skill", "home", "body")
+	if err != nil {
+		t.Fatalf("Author with empty root: %v", err)
+	}
+	want := filepath.Join(home, filepath.FromSlash(DefaultHomeSubdir), "home-skill", "SKILL.md")
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	for _, subdir := range DefaultUserSubdirs[1:] {
+		other := filepath.Join(home, filepath.FromSlash(subdir), "home-skill", "SKILL.md")
+		if _, err := os.Stat(other); !os.IsNotExist(err) {
+			t.Errorf("unexpected file under %s: %v", other, err)
+		}
 	}
 }

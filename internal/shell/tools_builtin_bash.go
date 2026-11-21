@@ -122,20 +122,40 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return text, fmt.Errorf("bash: %w", err)
 	}
 	if strings.TrimSpace(text) == "" {
-		return "(no output)", nil
+		return bashNoOutput(string(output), text), nil
 	}
 	return text, nil
 }
+
+// cmdChcpPrefix 在 cmd 执行命令前把控制台代码页固定为 65001（UTF-8）。
+// chcp 的回显被重定向到 nul，因此不会在命令输出里多出一行。
+const cmdChcpPrefix = "chcp 65001>nul&&"
 
 // shellInvocation 返回执行某条命令行所用的程序和前置参数。
 // 它由硬超时和可提升路径共用，使同一命令在两处的
 // 拼写方式一致。
 func shellInvocation(command string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("bash"); err == nil {
+	return shellInvocationFor(runtime.GOOS, exec.LookPath, command)
+}
+
+// shellInvocationFor 是 shellInvocation 的可注入版本：把平台与程序探测
+// 作为参数，测试可用假的 lookPath 覆盖 Windows 下的 bash/cmd 分支，
+// 无需真实 Windows 主机即可捕获各分支的 argv。生产路径与直接调用
+// shellInvocation 完全等价。
+func shellInvocationFor(goos string, lookPath func(string) (string, error), command string) (string, []string) {
+	if goos == "windows" {
+		if _, err := lookPath("bash"); err == nil {
 			return "bash", []string{"-lc", command}
 		}
-		return "cmd", []string{"/c", command}
+		// cmd 默认使用 OEM 代码页（简体中文 936/GBK），外部程序按它写出的
+		// 中文会在模型侧变成乱码。先切到 65001 再执行原命令：UTF-8 与
+		// ASCII 逐字节兼容，所以 ASCII 输出保持不变。
+		//
+		// 用 /s /c 强制 cmd 走确定性的"去掉首尾引号"剥离规则；且不在
+		// 命令外添加任何包裹字符（如括号或额外引号），原命令——包括
+		// 以引号开头、含引号、含 ')' 的情形——逐字节原样保留，从而
+		// 不会因为前缀而改变 /c 对引号开头命令的剥离语义。
+		return "cmd", []string{"/s", "/c", cmdChcpPrefix + command}
 	}
 	return "sh", []string{"-lc", command}
 }
@@ -165,7 +185,7 @@ func runBuiltinShell(ctx context.Context, root, command string, timeout time.Dur
 		return text, fmt.Errorf("bash: exit status %d", result.ExitStatus)
 	}
 	if strings.TrimSpace(text) == "" {
-		return "(no output)", nil
+		return bashNoOutput(result.Output, text), nil
 	}
 	return text, nil
 }
@@ -245,7 +265,7 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 	}
 	text := clipBashOutput(ctx, res.Combined())
 	if strings.TrimSpace(text) == "" {
-		return "(no output)", nil
+		return bashNoOutput(res.Combined(), text), nil
 	}
 	return text, nil
 }
