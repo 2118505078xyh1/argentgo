@@ -20,7 +20,7 @@ import (
 // 刻意不调用 t.Parallel()：这些是进程级全局状态，必须与同包其它测试串行，
 // 否则会与依赖默认关闭状态的测试相互污染。
 func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
-	// 用 Cleanup 恢复默认：8 个 bool 开关默认 false，并发安全白名默认是
+	// 用 Cleanup 恢复默认：9 个 bool 开关默认 false，并发安全白名默认是
 	// init 中发布的一个空 map（用 SetParallelSafeTools(nil) 还原）。
 	t.Cleanup(func() {
 		SetRefusalReason(false)
@@ -31,6 +31,7 @@ func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 		SetToolOutputConfirmation(false)
 		SetParallelDeclaredOnly(false)
 		SetPartialRecordPersistence(false)
+		SetGuidanceDedupe(false)
 		SetParallelSafeTools(nil)
 	})
 
@@ -91,6 +92,11 @@ func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 			name: "partial_record_persistence",
 			set:  SetPartialRecordPersistence,
 			get:  partialRecordPersistenceEnabled,
+		},
+		{
+			name: "guidance_dedupe",
+			set:  SetGuidanceDedupe,
+			get:  guidanceDedupeEnabled,
 		},
 		{
 			// SetParallelSafeTools 不是 bool 开关，而是整体替换只读 map 的

@@ -187,6 +187,48 @@ func TestTrimDoesNotSupersedeOnFailedLaterRead(t *testing.T) {
 	}
 }
 
+// TestTrimPreservesErrorResultsUnderBudgetPressure 锁定预算循环对错误结果的保护：
+// 当老结果超出 KeepToolTokens 窗口、且缓存后缀在保护阈值内时，它本应被 stub 回收；
+// 但错误结果必须保留原文，否则就违反了压缩"必须保留失败记录"的契约。
+func TestTrimPreservesErrorResultsUnderBudgetPressure(t *testing.T) {
+	errorBody := "error: permission denied\n" + strings.Repeat("E", 4000)
+	recentBody := strings.Repeat("y", 100)
+	messages := []llm.Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "q"},
+		{Role: "assistant", Content: "a", ToolCalls: []llm.ToolCall{toolCall("c1", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "c1", Content: errorBody}, // 老的错误结果：预算下的回收候选
+		{Role: "assistant", Content: "b", ToolCalls: []llm.ToolCall{toolCall("c2", "read", `{}`)}},
+		{Role: "tool", ToolCallID: "c2", Content: recentBody}, // 最新结果，占用 KeepToolTokens 窗口
+		{Role: "assistant", Content: "done"},
+	}
+	opts := TrimOptions{MaxTokens: 100, KeepTurns: 1, KeepToolTokens: 1}
+
+	// 先证明预算压力真实存在：同尺寸的非错误结果会被 stub，且 Freed > 0。
+	// 这样下面对错误结果的断言才不是"根本没有触发裁剪"的假阳性。
+	normal := append([]llm.Message(nil), messages...)
+	normal[3].Content = strings.Repeat("E", len(errorBody))
+	baseline := Trim(normal, opts)
+	if baseline.Pruned == 0 || baseline.Freed <= 0 {
+		t.Fatalf("precondition: non-error result should be trimmed (pruned/freed = %d/%d)", baseline.Pruned, baseline.Freed)
+	}
+	if got := baseline.Messages[3].Content; !strings.HasPrefix(got, trimmedPrefix) {
+		t.Fatalf("precondition: non-error result = %q, want a stub", got)
+	}
+
+	result := Trim(messages, opts)
+	if got := result.Messages[3].Content; got != errorBody {
+		t.Fatalf("error result was rewritten: %q", got)
+	}
+	if strings.HasPrefix(result.Messages[3].Content, trimmedPrefix) {
+		t.Fatal("error result must not be stubbed into a trimmed placeholder")
+	}
+	// 错误结果被跳过后没有任何可回收对象，Freed 相应降为 0。
+	if result.Pruned != 0 || result.Freed != 0 {
+		t.Fatalf("error result should not be pruned: pruned/freed = %d/%d", result.Pruned, result.Freed)
+	}
+}
+
 func TestTrimElidesUselessResultAfterAssistant(t *testing.T) {
 	messages := []llm.Message{
 		{Role: "system", Content: "rules"},

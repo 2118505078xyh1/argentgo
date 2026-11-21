@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,10 @@ func TestRunSuiteLiveFixPassesNoopFails(t *testing.T) {
 		"not ok 2 - live noop (chat)",
 		"# 1 passed, 1 failed",
 		"# completion rate: 0.500",
+		"#   tools=", // Verbose 逐场景诊断，定位工具/轮次/停止状态
+		"# scenario 1: ",
+		"# scenario 2: ",
+		"# total duration: ",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report misses %q:\n%s", want, report)
@@ -199,5 +204,87 @@ func TestRunSuiteLiveIgnoresGateAndLeavesDefaultUntouched(t *testing.T) {
 	}
 	if after := len(rec.snapshot()); after != before {
 		t.Errorf("default RunSuite after --live made %d extra HTTP requests", after-before)
+	}
+}
+
+// TestRunSuiteLiveSendsResolvedModel 证明 live 跑批把 Resolve 得到的模型名写回每个场景，
+// 而不是把 eval.Load 归一化的 DefaultModel("scripted") 发给真实 API。
+// 既有测试的场景 model 恰好等于 ARGENT_MODEL("test-model")，掩盖了这一缺陷；
+// 这里场景不写 model（归一化后为 scripted），断言假服务端收到的是解析后的模型名。
+func TestRunSuiteLiveSendsResolvedModel(t *testing.T) {
+	p := liveLocalProtocols()[0]
+	srv, rec := newLiveLocalServer(t, p.finalScript)
+	const resolvedModel = "resolved-live-model-xyz"
+	base := liveScenarioEnv(srv.URL, "live-model-key", "")
+	env := func(name string) string {
+		if name == "ARGENT_MODEL" {
+			return resolvedModel
+		}
+		return base(name)
+	}
+	// 场景不设 model：eval.Load 归一化后变成 "scripted"。
+	sc := eval.Scenario{Name: "no model in fixture", Prompt: "say hi"}
+	path := writeLiveSuiteFile(t, sc)
+	e := NewEvaler(cli.IO{Out: io.Discard, Err: io.Discard, Env: env})
+	var out bytes.Buffer
+	passed, failed, err := e.(*evaler).RunSuiteLive(context.Background(), path, &out)
+	if err != nil || passed != 1 || failed != 0 {
+		t.Fatalf("RunSuiteLive = %d/%d/%v, want 1/0/nil:\n%s", passed, failed, err, out.String())
+	}
+	reqs := rec.snapshot()
+	if len(reqs) == 0 {
+		t.Fatal("no HTTP requests reached the fake server")
+	}
+	for i, req := range reqs {
+		if !strings.Contains(req.body, `"model":"`+resolvedModel+`"`) {
+			t.Errorf("request %d body has no resolved model %q: %s", i, resolvedModel, req.body)
+		}
+		if strings.Contains(req.body, `"model":"scripted"`) {
+			t.Errorf("request %d body leaked the scripted default model: %s", i, req.body)
+		}
+	}
+}
+
+// TestLiveSafeScenariosZeroesEveryExpectField 证明 liveSafeScenarios 把全部脚本化
+// Expect 字段归零（含此前遗漏的 TextNotContains 与 CachedTokens），Provider 清空，
+// 而 Check 逐字保留、入参不被改动。
+func TestLiveSafeScenariosZeroesEveryExpectField(t *testing.T) {
+	cached, turns := 7, 2
+	stopped := false
+	original := eval.Scenario{
+		Name:     "all expect fields",
+		Provider: []eval.ScriptTurn{{Respond: eval.Respond{Text: "x"}}},
+		Expect: eval.Expect{
+			ToolCalls:       []string{"read"},
+			TextContains:    []string{"keep"},
+			TextNotContains: []string{"panic"},
+			Turns:           &turns,
+			Stopped:         &stopped,
+			CachedTokens:    &cached,
+		},
+		Check: eval.Check{
+			FilesExist:   []string{"a.txt"},
+			FileContains: map[string]string{"a.txt": "x"},
+			FileEquals:   map[string]string{"b.txt": "y"},
+		},
+	}
+	safe := liveSafeScenarios([]eval.Scenario{original})
+	if len(safe) != 1 {
+		t.Fatalf("len = %d, want 1", len(safe))
+	}
+	got := safe[0].Expect
+	if got.ToolCalls != nil || got.TextContains != nil || got.TextNotContains != nil ||
+		got.Turns != nil || got.Stopped != nil || got.CachedTokens != nil {
+		t.Fatalf("live expect has non-zero script fields: %+v", got)
+	}
+	if safe[0].Provider != nil {
+		t.Fatalf("live provider = %v, want nil", safe[0].Provider)
+	}
+	if !reflect.DeepEqual(safe[0].Check, original.Check) {
+		t.Fatalf("live check changed: got %+v, want %+v", safe[0].Check, original.Check)
+	}
+	// 入参不可被改动。
+	if original.Expect.TextNotContains == nil || original.Expect.CachedTokens == nil || original.Provider == nil {
+		t.Fatal("liveSafeScenarios mutated its input")
 	}
 }

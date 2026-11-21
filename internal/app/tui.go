@@ -79,6 +79,20 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			mu      sync.Mutex
 			current *session.Session
 		)
+		// OnReady 捕获的实时模型，供每轮结束后把会话累计成本写进头部。
+		// 与会话指针分开加锁，避免和 sessionFor 的临界区互相嵌套。
+		var (
+			modelMu sync.Mutex
+			uiModel *tui.Model
+		)
+		updateHeaderCost := func(costUSD float64) {
+			modelMu.Lock()
+			model := uiModel
+			modelMu.Unlock()
+			if model != nil {
+				model.SetContextInfo(res.Cfg.ContextWindow, fmt.Sprintf("$%.4f", costUSD))
+			}
+		}
 		sessionFor := func(text string) (*session.Session, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -156,10 +170,22 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 					return err
 				}
 				_, err = Execute(turnCtx, stdio, res, sess, text, onText)
+				// 成本由 agent 的定价表推导并持久化到会话 stats 记录；agent.Result
+				// 没有成本字段，因此这里读取会话累计值。默认（用量未 opt-in）不写头部，
+				// 保证帧字节与接线前一致；开启 ARGENT_TUI_USAGE 后才显示成本行。
+				if err == nil && tuiUsageVisible.Load() {
+					updateHeaderCost(sess.AggregateStats().CostUSD)
+				}
 				return err
 			},
 			OnReady: func(model *tui.Model) {
 				approver.attach(model)
+				modelMu.Lock()
+				uiModel = model
+				modelMu.Unlock()
+				// opt-in 门控下沉到渲染层：usage 事件始终桥接（统计行需要 token），
+				// 头部用量/成本行是否可见由此决定；默认关闭时帧字节不变。
+				setTUIUsageVisible(model, tuiUsageVisible.Load())
 				// vim 键位（可选）：ARGENT_VIM_MODE=1 时启用，默认经典输入逐字节不变。
 				if env := stdio.Env; env != nil && strings.TrimSpace(env("ARGENT_VIM_MODE")) == "1" {
 					model.SetVimMode(true)

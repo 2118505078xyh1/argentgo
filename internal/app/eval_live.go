@@ -73,11 +73,21 @@ func (e *evaler) RunSuiteLive(ctx context.Context, path string, out io.Writer) (
 		return 0, 0, err
 	}
 	scenarios = liveSafeScenarios(scenarios)
+	// eval.Load 的 normalize 会把未写 model 的场景填成 DefaultModel("scripted")；
+	// 若原样透传，runOne 会把 "scripted" 放进 Workspace.Model，最终被 llm 客户端
+	// 当作真实模型名发到 API（model:scripted），导致真 API 全部失败。这里统一用
+	// Resolve 得到的模型名覆盖每个场景，确保线上请求收到的是调用方配置的模型。
+	for i := range scenarios {
+		scenarios[i].Model = resolved.Model
+	}
 
 	opts := eval.Options{
 		ChatterFactory: eval.LiveChatterAdapter(resolved.Chatter),
 		Out:            out,
 		Live:           true,
+		// Verbose 打开逐场景 TAP 诊断（tools/turns/stopped/text），真模型跑批时
+		// 可据此定位到具体是哪一轮停了下来、调用了哪些工具。
+		Verbose: true,
 	}
 	// runScenario 只在 e.live 为真时安装 EventUsage 采集器。这里用一份 live 副本
 	// 作为 RunFunc：既不改动 e/runScenario，也不会污染 e.live（默认 RunSuite 路径
@@ -92,8 +102,9 @@ func (e *evaler) RunSuiteLive(ctx context.Context, path string, out io.Writer) (
 
 // liveSafeScenarios 把脚本序列相关的期望清零，只留下能客观判定的 Check。
 //
-//   - Expect.ToolCalls / Turns / Stopped / TextContains 是脚本化回放的精确断言：
-//     真模型的工具序列、轮数、是否提前停止、收尾措辞都不可预测，保留会造成假阴性。
+//   - Expect.ToolCalls / Turns / Stopped / TextContains / TextNotContains / CachedTokens
+//     都是脚本化回放的精确断言：真模型的工具序列、轮数、是否提前停止、收尾措辞、
+//     缓存命中 token 都不可预测，保留会造成假阴性。
 //   - ScriptTurn.ExpectRequestContains 属于 Provider 脚本；Provider 整体清空后，
 //     这些请求子串期望自然失效（ChatterFactory 注入的真实 provider 不会读取脚本）。
 //   - Check（Exec / FileEquals / FileContains / FilesExist）逐字保留：它检查的是
@@ -107,6 +118,8 @@ func liveSafeScenarios(scenarios []eval.Scenario) []eval.Scenario {
 		scenario.Expect.Turns = nil
 		scenario.Expect.Stopped = nil
 		scenario.Expect.TextContains = nil
+		scenario.Expect.TextNotContains = nil
+		scenario.Expect.CachedTokens = nil
 		scenario.Provider = nil
 		safe[i] = scenario
 	}

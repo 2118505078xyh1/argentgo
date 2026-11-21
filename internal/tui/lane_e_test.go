@@ -114,6 +114,7 @@ func TestSessionRailShowsGeneratedTitles(t *testing.T) {
 
 func TestCachedTokensAppearInHeaderAndStatusLine(t *testing.T) {
 	m := New(Config{})
+	m.SetUsageVisible(true)
 	m.SetUsage(1200, 300)
 	m.SetCachedTokens(900)
 	text := frameText(m, 110, 24)

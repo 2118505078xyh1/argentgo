@@ -255,6 +255,33 @@ func TestSelectedTextExtractsSingleAndMultiLineRanges(t *testing.T) {
 	}
 }
 
+func TestUTF16LEBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []byte
+	}{
+		{"ascii", "A", []byte{0x41, 0x00, 0x00, 0x00}},
+		{"chinese", "中文", []byte{0x2D, 0x4E, 0x87, 0x65, 0x00, 0x00}},
+		{"emoji surrogate pair", "😀", []byte{0x3D, 0xD8, 0x00, 0xDE, 0x00, 0x00}},
+		{"empty", "", []byte{0x00, 0x00}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := utf16LEBytes(tc.in)
+			if !bytes.Equal(got, tc.want) {
+				t.Fatalf("utf16LEBytes(%q) = % x, want % x", tc.in, got, tc.want)
+			}
+			if len(got) >= 2 && got[0] == 0xFF && got[1] == 0xFE {
+				t.Fatalf("utf16LEBytes(%q) starts with a BOM: % x", tc.in, got)
+			}
+			if len(got) < 2 || got[len(got)-2] != 0 || got[len(got)-1] != 0 {
+				t.Fatalf("utf16LEBytes(%q) is not NUL-terminated: % x", tc.in, got)
+			}
+		})
+	}
+}
+
 func TestCopyToClipboardIsBestEffort(t *testing.T) {
 	saved := clipboardWrite
 	defer func() { clipboardWrite = saved }()

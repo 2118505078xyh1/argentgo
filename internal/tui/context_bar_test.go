@@ -87,6 +87,7 @@ func TestHeaderContextBarUsesThresholdStyle(t *testing.T) {
 	for _, tc := range tests {
 		m := New(Config{})
 		m.now = func() time.Time { return m.started }
+		m.SetUsageVisible(true)
 		m.SetUsage(tc.pct*10, 0)
 		m.SetContextInfo(1000, "")
 		span, ok := contextSpan(m.headerLocked(120))
@@ -124,6 +125,7 @@ func TestHeaderContextBarIsPlainWhenColourSuppressed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := New(tc.cfg)
 			m.now = func() time.Time { return m.started }
+			m.SetUsageVisible(true)
 			m.SetUsage(950, 0)
 			m.SetContextInfo(1000, "")
 			span, ok := contextSpan(m.headerLocked(120))

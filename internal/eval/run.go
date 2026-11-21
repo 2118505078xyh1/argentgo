@@ -132,25 +132,36 @@ func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (
 	return report, nil
 }
 
-// liveMetricsReport 渲染真模型跑批的指标行：完成率、token 汇总与轮次汇总。
+// liveMetricsReport 渲染真模型跑批的指标行：完成率、token 汇总与轮次汇总，
+// 后接逐场景的 token/耗时诊断行与总耗时。
 //
-// 它只读 results，不修改入参；行内容全部由数字与固定标签组成，不含模型输出或
-// provider 凭据。空 results 的完成率由 ScenarioCompletionRate 守卫为 0，不会出现 NaN。
+// 它只读 results，不修改入参；行内容全部由数字、时长与固定标签组成，不含模型输出或
+// provider 凭据。逐场景行用序号而非场景名，避免把可能含 key 的用户文本带进指标行。
+// 空 results 的完成率由 ScenarioCompletionRate 守卫为 0，不会出现 NaN。
 func liveMetricsReport(results []Result) string {
 	var usage llm.Usage
 	turns := 0
+	var totalDuration time.Duration
 	for _, result := range results {
 		usage.PromptTokens += result.Usage.PromptTokens
 		usage.CompletionTokens += result.Usage.CompletionTokens
 		usage.CachedTokens += result.Usage.CachedTokens
 		usage.CacheWriteTokens += result.Usage.CacheWriteTokens
 		turns += result.Turns
+		totalDuration += result.Duration
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# completion rate: %.3f\n", ScenarioCompletionRate(results))
 	fmt.Fprintf(&b, "# tokens: prompt=%d completion=%d cached=%d cache_write=%d total=%d\n",
 		usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens, usage.CacheWriteTokens, usage.TotalTokens())
 	fmt.Fprintf(&b, "# turns: %d\n", turns)
+	// 以下为追加行：既有三行保持逐字节不变，默认（非 Live）路径完全不受影响。
+	for i, result := range results {
+		u := result.Usage
+		fmt.Fprintf(&b, "# scenario %d: tokens prompt=%d completion=%d cached=%d cache_write=%d total=%d duration=%s\n",
+			i+1, u.PromptTokens, u.CompletionTokens, u.CachedTokens, u.CacheWriteTokens, u.TotalTokens(), result.Duration)
+	}
+	fmt.Fprintf(&b, "# total duration: %s\n", totalDuration)
 	return b.String()
 }
 

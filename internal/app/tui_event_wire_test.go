@@ -92,8 +92,6 @@ func TestAgentToTUIEventError(t *testing.T) {
 // （接上行）
 func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 	kinds := []agent.EventKind{
-		agent.EventTurnStart,
-		agent.EventTurnEnd,
 		agent.EventCheckpointReady,
 		agent.EventTextDelta,
 		agent.EventReasoningDelta,

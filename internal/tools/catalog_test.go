@@ -174,6 +174,25 @@ func TestFilterSpecsHandlesCallerSuppliedTools(t *testing.T) {
 	}
 }
 
+// TestFilterSpecsDropsMutatingMCPToolsInReadOnly 锁定缺口：只测只读动词 search 的
+// TestFilterSpecsHandlesCallerSuppliedTools 曾漏掉写动词 MCP 工具。这里确保
+// mcp__server__write_file / delete_file / deploy 在只读模式下不会公布给模型。
+func TestFilterSpecsDropsMutatingMCPToolsInReadOnly(t *testing.T) {
+	registry := tools.New(t.TempDir(), true)
+	specs := []llm.ToolSpec{
+		toolSpecFor("read"),
+		toolSpecFor("mcp__server__search"),
+		toolSpecFor("mcp__server__write_file"),
+		toolSpecFor("mcp__server__delete_file"),
+		toolSpecFor("mcp__server__deploy"),
+	}
+	got := specNames(registry.FilterSpecs(nil, security.SandboxReadOnly, specs))
+	want := []string{"read", "mcp__server__search"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered specs = %v, want %v", got, want)
+	}
+}
+
 func toolSpecFor(name string) llm.ToolSpec {
 	var spec llm.ToolSpec
 	spec.Type = "function"

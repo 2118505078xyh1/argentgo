@@ -60,3 +60,18 @@ func (m *Model) reasoningWindowedLines(entry Entry, width int, elapsed time.Dura
 	}
 	return out
 }
+
+// reasoningExpandedLines 在思考块被点击展开后渲染：首行仍是原有的
+// 单行摘要（含 spinner / 时长），其下逐行显示完整思考。每行按字素簇
+// Clip 到宽度并缩进两格，因此 CJK / emoji 不会被切开，也不会撑破布局。
+// 折叠态完全不走这条路径，默认帧保持逐字节不变。
+func (m *Model) reasoningExpandedLines(entry Entry, width int, elapsed time.Duration, done bool) []Line {
+	out := []Line{reasoningSummaryLine(entry.Text, elapsed, width, done, m.locale, m.palette)}
+	for _, raw := range splitResultLines(entry.Text) {
+		line := NewLine()
+		line.Push("  ", Style{})
+		line.Push(Clip(raw, maxInt(width-2, 0)), m.palette.dim())
+		out = append(out, clipLine(line, maxInt(width, 1)))
+	}
+	return out
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/config"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
@@ -159,6 +160,71 @@ func TestMCPReadOnlyDoesNotOverrideDeny(t *testing.T) {
 	if approver.calls != 0 {
 		t.Fatalf("denied tool reached the operator (%d asks)", approver.calls)
 	}
+}
+
+// TestMCPReadOnlySandboxBlocksMutatingTool 锁定缺口 1：未声明 readOnlyHint 的 MCP
+// 修改类工具在 --sandbox-mode read-only 下必须被拦截，fake client 的 CallTool 计数为 0。
+func TestMCPReadOnlySandboxBlocksMutatingTool(t *testing.T) {
+	root := t.TempDir()
+	res := readOnlyMCPResolved(root, nil)
+	res.Sandbox = security.SandboxReadOnly
+	var client *fakeMCPClient
+	useFakeMCP(t, func(context.Context, mcp.Spec) (mcp.Client, error) {
+		client = &fakeMCPClient{tools: []mcp.Tool{
+			{Name: "write_file", ReadOnly: false},
+			{Name: "search", ReadOnly: true},
+		}}
+		return client, nil
+	})
+	chain := security.NewChain(policyFor(res), &countingApprover{grant: true}, nil, "s1")
+	set := newReadOnlyMCPToolset(t, res, chain)
+	if client == nil {
+		t.Fatal("fake MCP client was not created")
+	}
+
+	if _, err := set.Run(context.Background(), "svc__write_file", `{}`); err == nil {
+		t.Fatal("read-only sandbox must block a mutating MCP tool")
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("mutating MCP tool reached the transport (%d calls)", len(client.calls))
+	}
+
+	// 只读工具仍可正常调用，证明兜底只针对修改类工具。
+	if _, err := set.Run(context.Background(), "svc__search", `{}`); err != nil {
+		t.Fatalf("read-only MCP tool should still run: %v", err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("read-only tool calls = %d, want 1", len(client.calls))
+	}
+}
+
+// TestDropMutatingSpecsReadOnly 锁定公布层兜底：只读沙箱下带命名空间的 MCP
+// 修改类工具不会进入模型看到的 spec 列表，而只读工具保留。
+func TestDropMutatingSpecsReadOnly(t *testing.T) {
+	specs := []llm.ToolSpec{
+		toolSpecFor("read"),
+		toolSpecFor("svc__search"),
+		toolSpecFor("svc__write_file"),
+		toolSpecFor("svc__deploy"),
+	}
+	got := specNames(dropMutatingSpecs(security.SandboxReadOnly, specs))
+	want := []string{"read", "svc__search"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dropMutatingSpecs = %v, want %v", got, want)
+	}
+	// 非只读模式原样返回。
+	untouched := dropMutatingSpecs(security.SandboxWorkspaceWrite, specs)
+	if !reflect.DeepEqual(specNames(untouched), []string{"read", "svc__search", "svc__write_file", "svc__deploy"}) {
+		t.Fatalf("workspace-write specs were unexpectedly filtered: %v", specNames(untouched))
+	}
+}
+
+// toolSpecFor 在 app 包内构造最小 spec；与 tools 包的同名 helper 互不干扰。
+func toolSpecFor(name string) llm.ToolSpec {
+	var spec llm.ToolSpec
+	spec.Type = "function"
+	spec.Function.Name = name
+	return spec
 }
 
 func TestMergeReadOnlyToolsDedupesAndTrims(t *testing.T) {

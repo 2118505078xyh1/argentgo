@@ -29,6 +29,9 @@ type frameCacheKey struct {
 	usageIn, usageOut, usageCached int
 	contextWindow                  int
 	cost                           string
+	// usageVisible 决定是否渲染用量行；切换它会改变帧字节，
+	// 因此必须进入缓存键，避免复用门控切换前的帧。
+	usageVisible bool
 
 	selAnchor, selActive BufferPos
 	pending              bool
@@ -69,6 +72,7 @@ func newFrameCacheKey(m *Model, width, height int) frameCacheKey {
 		usageCached:      m.usageCached,
 		contextWindow:    m.contextWindow,
 		cost:             m.cost,
+		usageVisible:     m.usageVisible,
 		selAnchor:        m.selAnchor,
 		selActive:        m.selActive,
 		showTasks:        m.showTasks,

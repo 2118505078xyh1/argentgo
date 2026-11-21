@@ -9,6 +9,7 @@ import (
 func TestHeaderShowsContextPercentAndCostOnlyWhenConfigured(t *testing.T) {
 	m := New(Config{Model: "test-model"})
 	m.now = func() time.Time { return m.started }
+	m.SetUsageVisible(true)
 	m.SetUsage(230, 0)
 
 	before := m.Frame(80, 24).RowText(0)
@@ -34,6 +35,7 @@ func TestHeaderShowsContextPercentAndCostOnlyWhenConfigured(t *testing.T) {
 func TestHeaderContextPercentIsClamped(t *testing.T) {
 	m := New(Config{})
 	m.now = func() time.Time { return m.started }
+	m.SetUsageVisible(true)
 	m.SetUsage(900, 200)
 	m.SetContextInfo(1000, "")
 	want := "ctx " + contextBar(100, contextBarCells) + " 100%"

@@ -25,6 +25,11 @@ const (
 	// 而不是被解码为 Enter / Ctrl 键并提前提交。
 	enablePaste  = "\x1b[?2004h"
 	disablePaste = "\x1b[?2004l"
+	// terminalTitle 是 OSC 0（同时改窗口与图标标题）的 BEL 终止序列。
+	// Windows Terminal 直接接受它；不需要先查询原标题——查询需要读取
+	// 终端响应，在管道驱动的测试中会阻塞。进入和退出都设为同一个
+	// ASCII 品牌名，保持行为确定且帧缓冲区完全不受影响。
+	terminalTitle = "\x1b]0;argentgo\x07"
 )
 
 const frameInterval = 50 * time.Millisecond
@@ -169,13 +174,13 @@ func Run(ctx context.Context, opts Options) error {
 	// 使终端发送按下、拖拽和滚轮事件（在 keys.go 中解码）用于文本选择。括号粘贴
 	// 防止多行输入被当作按键读取（以及
 	// 在第一个回车时提交）。
-	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
+	fmt.Fprint(out, terminalTitle+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			restore()
-			fmt.Fprint(out, "\x1b[?1002l\x1b[?1006l"+disablePaste+showCursor+leaveAltScreen)
+			fmt.Fprint(out, "\x1b[?1002l\x1b[?1006l"+disablePaste+showCursor+leaveAltScreen+terminalTitle)
 			if body := model.Plain(); body != "" {
 				fmt.Fprint(out, body)
 			}
@@ -273,7 +278,7 @@ func Run(ctx context.Context, opts Options) error {
 				restore = again
 			}
 		}
-		fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
+		fmt.Fprint(out, terminalTitle+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 		buffer.Invalidate()
 		forceRedraw = true
 	}

@@ -149,6 +149,25 @@ func (s *CompletionState) Prev() {
 	s.index = (s.index - 1 + n) % n
 }
 
+// Select 把选中位置设为第 i 个可见候选（0 基），越界时钳制到
+// [0, Count()-1]。没有可见候选时无操作；供鼠标点击选择使用。
+func (s *CompletionState) Select(i int) {
+	if s == nil {
+		return
+	}
+	n := s.Count()
+	if n <= 0 {
+		return
+	}
+	if i < 0 {
+		i = 0
+	}
+	if i >= n {
+		i = n - 1
+	}
+	s.index = i
+}
+
 // Reset 清空过滤词并把选中位置归零，使全部候选重新可见。
 func (s *CompletionState) Reset() {
 	if s == nil {

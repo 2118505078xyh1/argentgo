@@ -15,6 +15,8 @@ func deterministicUsageModel(locale string) *Model {
 	m := New(Config{Locale: locale})
 	m.started = usageFrameClock
 	m.now = func() time.Time { return usageFrameClock }
+	// 这些用例专门验证用量行的渲染，显式打开 opt-in 门控。
+	m.SetUsageVisible(true)
 	return m
 }
 

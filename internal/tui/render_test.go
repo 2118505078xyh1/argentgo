@@ -161,13 +161,14 @@ func TestApprovalModalIsCentredOverTheBody(t *testing.T) {
 	waitFor(t, "the modal", func() bool { _, _, ok := m.PendingApproval(); return ok })
 
 	body := strings.Join(rowTexts(m.Frame(80, 24)), "\n")
-	for _, want := range []string{"approval", "bash", "go test", "[y] allow", "[a] allow for session"} {
+	for _, want := range []string{"approval", "bash", "go test", "[y] allow", "[n] deny", "[a] allow for session"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the modal is missing %q:\n%s", want, body)
 		}
 	}
-	if !strings.Contains(body, "y allow") {
-		t.Fatalf("the footer hint should switch to the modal keys:\n%s", body)
+	// 底部快捷提示行已按用户要求移除；弹窗自身仍显示 y/n/a 按键。
+	if !strings.Contains(body, "[y] allow") || !strings.Contains(body, "[n] deny") {
+		t.Fatalf("the modal keys must be visible in the dialog:\n%s", body)
 	}
 	m.HandleKey(Key{Kind: KindRune, Rune: 'n'})
 	<-done

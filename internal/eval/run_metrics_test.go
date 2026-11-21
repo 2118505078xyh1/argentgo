@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -73,15 +74,44 @@ func TestRunLiveAppendsCompletionRateAndTokenAndTurnSummaries(t *testing.T) {
 		t.Fatalf("report = %d passed, %d failed", report.Passed, report.Failed)
 	}
 	// 完成率 1/2=0.5；token 累加 10+5=15、2+3=5、缓存 0+1=1、写入 0，总计 20；轮次 1+1=2。
-	const want = "1..2\n" +
-		"ok 1 - pass\n" +
-		"not ok 2 - fail: the answer does not contain \"never\" (got \"ok\")\n" +
-		"# 1 passed, 1 failed\n" +
-		"# completion rate: 0.500\n" +
-		"# tokens: prompt=15 completion=5 cached=1 cache_write=0 total=20\n" +
-		"# turns: 2\n"
-	if got := out.String(); got != want {
-		t.Fatalf("live output drifted:\n got: %q\nwant: %q", got, want)
+	// 既有六行逐字节不变；追加的逐场景行与总耗时在下面单独断言（duration 是实测值，不固定）。
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	wantPrefix := []string{
+		"1..2",
+		"ok 1 - pass",
+		`not ok 2 - fail: the answer does not contain "never" (got "ok")`,
+		"# 1 passed, 1 failed",
+		"# completion rate: 0.500",
+		"# tokens: prompt=15 completion=5 cached=1 cache_write=0 total=20",
+		"# turns: 2",
+	}
+	if len(lines) < len(wantPrefix)+3 {
+		t.Fatalf("live output has too few lines:\n%s", out.String())
+	}
+	for i, want := range wantPrefix {
+		if lines[i] != want {
+			t.Errorf("line %d = %q, want %q", i+1, lines[i], want)
+		}
+	}
+	wantScenarioPrefixes := []string{
+		"# scenario 1: tokens prompt=10 completion=2 cached=0 cache_write=0 total=12 duration=",
+		"# scenario 2: tokens prompt=5 completion=3 cached=1 cache_write=0 total=8 duration=",
+	}
+	for i, prefix := range wantScenarioPrefixes {
+		line := lines[len(wantPrefix)+i]
+		if !strings.HasPrefix(line, prefix) {
+			t.Errorf("scenario line %d = %q, want prefix %q", i+1, line, prefix)
+			continue
+		}
+		if _, err := time.ParseDuration(strings.TrimPrefix(line, prefix)); err != nil {
+			t.Errorf("scenario line %d has invalid duration: %q", i+1, line)
+		}
+	}
+	totalLine := lines[len(lines)-1]
+	if !strings.HasPrefix(totalLine, "# total duration: ") {
+		t.Errorf("last line = %q, want total duration line", totalLine)
+	} else if _, err := time.ParseDuration(strings.TrimPrefix(totalLine, "# total duration: ")); err != nil {
+		t.Errorf("total duration line has invalid duration: %q", totalLine)
 	}
 }
 
@@ -126,6 +156,33 @@ func TestLiveMetricsReportIsPureAndDeterministic(t *testing.T) {
 		!strings.Contains(first, "# tokens: prompt=7 completion=3 cached=1 cache_write=2 total=10\n") ||
 		!strings.Contains(first, "# turns: 3\n") {
 		t.Fatalf("unexpected metrics:\n%s", first)
+	}
+	// 追加的逐场景行只用序号，不含场景名里的 key-like 文本；未设置 Duration 时为 0s。
+	if !strings.Contains(first, "# scenario 1: tokens prompt=7 completion=3 cached=1 cache_write=2 total=10 duration=0s\n") ||
+		!strings.Contains(first, "# scenario 2: tokens prompt=0 completion=0 cached=0 cache_write=0 total=0 duration=0s\n") ||
+		!strings.Contains(first, "# total duration: 0s\n") {
+		t.Fatalf("unexpected appended metric lines:\n%s", first)
+	}
+}
+
+// TestLiveMetricsReportAppendsPerScenarioAndTotalDuration 用显式 Duration 锁定追加行的
+// 精确格式：逐场景 token 细分 + 耗时，以及末行总耗时；既有三行保持原样。
+func TestLiveMetricsReportAppendsPerScenarioAndTotalDuration(t *testing.T) {
+	results := []Result{
+		{Name: "s1", Passed: true, Turns: 1,
+			Usage: llm.Usage{PromptTokens: 3, CompletionTokens: 1}, Duration: 1500 * time.Millisecond},
+		{Name: "s2", Passed: false, Turns: 2,
+			Usage: llm.Usage{PromptTokens: 2, CompletionTokens: 4, CachedTokens: 1}, Duration: 500 * time.Millisecond},
+	}
+	got := liveMetricsReport(results)
+	want := "# completion rate: 0.500\n" +
+		"# tokens: prompt=5 completion=5 cached=1 cache_write=0 total=10\n" +
+		"# turns: 3\n" +
+		"# scenario 1: tokens prompt=3 completion=1 cached=0 cache_write=0 total=4 duration=1.5s\n" +
+		"# scenario 2: tokens prompt=2 completion=4 cached=1 cache_write=0 total=6 duration=500ms\n" +
+		"# total duration: 2s\n"
+	if got != want {
+		t.Fatalf("liveMetricsReport drifted:\n got: %q\nwant: %q", got, want)
 	}
 }
 

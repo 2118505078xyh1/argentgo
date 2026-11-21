@@ -44,6 +44,9 @@ type toolset struct {
 	skills  *skills.Registry
 	mcp     []mcpBinding
 	clients []mcp.Client
+	// sandbox 是已解析的沙箱模式，用于在 MCP 执行分支做只读兜底：
+	// MCP 工具不经过内置注册表的路径边界与变更性兜底，必须在此单独门控。
+	sandbox security.SandboxMode
 	// usage 是 `usage` 工具背后线程安全的持有者。base 中的每个注册表共享同一个持有者，
 	// 因此无论调用路由到哪个写入根目录，单次 UpdateUsage 调用都会更新该工具。
 	usage *usageSource
@@ -248,6 +251,7 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		guard:        guard,
 		skills:       skillRegistry,
 		usage:        usage,
+		sandbox:      res.Sandbox,
 		skillShellOn: skillShellEnabled(res.Cfg.Raw, os.Getenv),
 	}
 	// 策略在工具发现之前构建，因此声明了 readOnlyHint 的 MCP 工具还不在其只读集合中。
@@ -457,6 +461,12 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 		}
 		if strings.TrimSpace(args) == "" {
 			args = "{}"
+		}
+		// 只读沙箱 fail-closed：修改类 MCP 工具绝不能触达传输层。
+		// 它没有声明 readOnlyHint，也不经过内置注册表的 resolve 边界，
+		// 因此必须在此单独拦截（对齐 mcp.client.CallTool 的失败前置风格）。
+		if t.sandbox == security.SandboxReadOnly && security.MutatingTool(binding.spec.Function.Name) {
+			return "", fmt.Errorf("%w: tool %q looks mutating and sandbox is read-only; call blocked before contacting the MCP server, no request was sent", mcp.ErrReadOnly, binding.spec.Function.Name)
 		}
 		if t.guard != nil {
 			if err := t.guard.Check(ctx, name, json.RawMessage(args)); err != nil {
