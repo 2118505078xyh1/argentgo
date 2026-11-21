@@ -212,10 +212,16 @@ func treeDiagnostics(raw map[string]any) []Diagnostic {
 
 	for _, key := range unsupportedKeys {
 		if _, ok := raw[key]; ok {
+			// 对已知废弃键给出可操作的迁移建议（改成什么/删除什么），
+			// 而不是只说 "ignored"；表中未登记时保留旧的兜底文案。
+			message := "unsupported legacy setting; ignored"
+			if hint := deprecatedHint(key); hint != "" {
+				message = hint
+			}
 			out = append(out, Diagnostic{
 				Path:    "$." + key,
 				Kind:    DiagnosticUnsupported,
-				Message: "unsupported legacy setting; ignored",
+				Message: message,
 			})
 		}
 	}

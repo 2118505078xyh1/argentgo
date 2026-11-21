@@ -73,6 +73,11 @@ type Config struct {
 	// 时使用的毫秒超时，仅在 EnableRequestTimeout 为 true 时生效。
 	// 非正数回退到内置默认值，超过上限的值会被钳制。
 	DefaultRequestTimeoutMS int
+	// HeartbeatInterval 是 /v1/event 的 SSE 心跳间隔：空闲流按此间隔发送
+	// `: heartbeat` 注释以穿过代理的空闲超时。零值与负值使用默认 15 秒，
+	// 超过 60 秒的值被钳制到上限（见 heartbeatInterval）。默认零值保持
+	// 原有固定 15 秒行为不变。
+	HeartbeatInterval time.Duration
 }
 
 // isCancelled 报告 Runner.Prompt 的错误是否意味着用户（或
@@ -186,7 +191,7 @@ func (h *handler) routes() http.Handler {
 	mux.HandleFunc("/v1/version", h.version)
 	mux.HandleFunc("/v1/prompt", h.auth(h.prompt))
 	mux.HandleFunc("/v1/abort", h.auth(h.abort))
-	mux.HandleFunc("/v1/event", h.auth(NewEventHandler(hub).ServeHTTP))
+	mux.HandleFunc("/v1/event", h.auth(newEventHandlerInterval(hub, heartbeatInterval(h.cfg.HeartbeatInterval)).ServeHTTP))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})

@@ -131,16 +131,19 @@ func sessionsFind(app App, store SessionStore, keyword string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	needle := strings.ToLower(keyword)
 	sortSessions(infos)
-	found := 0
-	for _, info := range infos {
-		if strings.Contains(strings.ToLower(info.ID), needle) || strings.Contains(strings.ToLower(info.Title), needle) {
-			fmt.Fprintf(app.IO.Out, "%s\t%s\t%s\n", info.ID, formatTime(info.Updated), info.Title)
-			found++
-		}
+	// 把 ID 和标题拼成一个可搜索文本，既保留按 ID 查找的能力，又让模糊
+	// 匹配和相关性排序作用于同一个字段。
+	searchables := make([]string, len(infos))
+	for i, info := range infos {
+		searchables[i] = info.ID + " " + info.Title
 	}
-	if found == 0 {
+	indices := fuzzyFindSessions(keyword, searchables)
+	for _, index := range indices {
+		info := infos[index]
+		fmt.Fprintf(app.IO.Out, "%s\t%s\t%s\n", info.ID, formatTime(info.Updated), info.Title)
+	}
+	if len(indices) == 0 {
 		fmt.Fprintf(app.IO.Out, "no sessions matching %q\n", keyword)
 	}
 	return 0
