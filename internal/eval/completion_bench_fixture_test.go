@@ -265,7 +265,8 @@ func TestCompareResultsVerdictSnapshot(t *testing.T) {
 		t.Fatalf("PairedDelta: %v", err)
 	}
 	want := FormatDeltaReport(compareReportName, Delta{N: delta.N}, delta) +
-		"verdict: 显著提升：候选完成率更高\n"
+		"verdict: 显著提升：候选完成率更高\n" +
+		FormatCompareDiagnostic(BuildCompareDiagnostic(baseline, candidate).Finalize(true))
 	if got != want {
 		t.Fatalf("CompareResults() mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}

@@ -22,6 +22,7 @@ commands:
   logout [provider]             remove stored credentials
   models                        list provider templates
   mcp                           list configured MCP servers
+  opt-ins                       list all opt-in switches and their current values
   skills                        list discovered skills
   commands                      list discovered slash commands
   hooks                         list hook documents and trust state

@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -133,6 +135,12 @@ type runState struct {
 	toolTimes      map[string]time.Time
 	reasoningStart time.Time
 
+	// turnTiming 是 ARGENT_TURN_TIMING opt-in 开启时创建的逐阶段计时器。
+	// nil（默认，未开启）时所有 Begin/End、快照与日志全是空操作，
+	// 事件序列与会话记录逐字节不变。它与上面的 eventTiming 正交：
+	// 后者服务于前端 StartedAtMS/FinishedAtMS 字段，本字段服务于进程内结构化诊断日志。
+	turnTiming *TurnTiming
+
 	// compactor 和 compactThreshold 驱动轮次中压缩的边界。
 	compactor        Compactor
 	compactThreshold int
@@ -172,6 +180,9 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// 未配置压缩器时，该包装器是透明的。
 	state.compactor = newCachingCompactor(state.compactor, r.compactionCache())
 	res, err := state.loop(ctx)
+	// opt-in 开启时把本轮各阶段计时固化为快照并落结构化日志。关闭时 state.turnTiming
+	// 为 nil，整段是空操作：事件、会话记录与返回值逐字节不变。
+	state.finishTurnTiming(res.Stopped)
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
@@ -183,6 +194,72 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 		state.recordRunStats()
 	}
 	return res, err
+}
+
+// turnTimingEnabled 报告本进程是否开启逐阶段计时日志。
+// 与 app 层的一次性 env 开关（ARGENT_JOBS、ARGENT_RETAIN_GUIDANCE）一致：
+// 仅当 ARGENT_TURN_TIMING 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 每次运行读取一次（见 newRunState），不引入需要装配层设置的进程级全局状态。
+func turnTimingEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_TURN_TIMING")) == "1"
+}
+
+// turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
+// 它是函数而非固定的 *slog.Logger：每次落日志时解析当前 slog 默认 logger，
+// 避免包初始化时把默认 logger 固化；测试可整体替换以捕获日志而不碰全局默认。
+var turnTimingLogger = func() *slog.Logger { return slog.Default() }
+
+// turnTimingPhases 是落日志时固定输出的阶段顺序，保证字段稳定、便于断言。
+var turnTimingPhases = [...]TurnPhase{
+	phaseInference, phaseTools, phaseCompaction, phaseUserWait, phaseOverhead,
+}
+
+// emitTurnTimingLog 把一个轮次的计时快照写成一条结构化日志。
+// 用微秒整数表达各阶段耗时，避免浮点；未被计时的阶段值为 0 但仍输出键，
+// 便于下游看到"这个阶段本轮发生了但耗时在时钟分辨率内"或"根本没发生"。
+func emitTurnTimingLog(t *TurnTiming, stopped string) {
+	snap := t.Snapshot()
+	attrs := []any{
+		slog.String("stopped", stopped),
+		slog.Bool("complete", snap.complete),
+		slog.Int64("total_us", snap.Total().Microseconds()),
+	}
+	for _, p := range turnTimingPhases {
+		attrs = append(attrs, slog.Int64(string(p)+"_us", snap.phases[p].Microseconds()))
+	}
+	if len(snap.incompleteReasons) > 0 {
+		attrs = append(attrs, slog.Any("incomplete_reasons", snap.incompleteReasons))
+	}
+	turnTimingLogger().Info("agent_turn_timing", attrs...)
+}
+
+// turnTimingBegin/turnTimingEnd 是各阶段计时的薄包装。opt-in 关闭（turnTiming 为 nil）
+// 时是纯粹的空操作：不读时钟、不分配、不触碰任何状态。
+func (s *runState) turnTimingBegin(p TurnPhase) {
+	if s.turnTiming != nil {
+		s.turnTiming.BeginPhase(p)
+	}
+}
+
+func (s *runState) turnTimingEnd(p TurnPhase) {
+	if s.turnTiming != nil {
+		s.turnTiming.EndPhase(p)
+	}
+}
+
+// finishTurnTiming 在一轮运行结束时标记完整性并落一次结构化日志。
+// 关闭时整段是空操作；开启时无论何种停止原因都会落一条日志，
+// 其中 complete/incomplete_reasons 与 Result.Stopped 保持一致。
+func (s *runState) finishTurnTiming(stopped string) {
+	if s.turnTiming == nil {
+		return
+	}
+	if stopped == StopComplete {
+		s.turnTiming.MarkComplete()
+	} else {
+		s.turnTiming.MarkIncomplete(stopped)
+	}
+	emitTurnTimingLog(s.turnTiming, stopped)
 }
 
 func newRunState(opts Options, prompt string, emit func(Event)) *runState {
@@ -234,11 +311,21 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	if window, ok := s.budgetReminderWindow(); ok {
 		s.reminderWindow = window
 	}
+	// 稳定系统提示：SystemNodes 非空时以 base 为前缀追加节点，保住 prompt cache 前缀；
+	// 为空时不触碰 system，使默认路径逐字节不变。
+	if len(opts.SystemNodes) > 0 {
+		system = llm.StableSystemPrompt(system, opts.SystemNodes)
+	}
 	s.messages = []llm.Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: prompt},
 	}
 	s.record("user", prompt)
+	// 只有 ARGENT_TURN_TIMING=1 时才建实例；默认关闭时保持 nil，
+	// 使下方各阶段的 Begin/End 与轮末日志全是空操作。
+	if turnTimingEnabled() {
+		s.turnTiming = &TurnTiming{}
+	}
 	return s
 }
 
@@ -349,7 +436,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			s.emit(Event{Kind: EventStop, Reason: StopCancelled})
 			return s.result(StopCancelled), err
 		}
+		s.turnTimingBegin(phaseUserWait)
 		s.injectSteering()
+		s.turnTimingEnd(phaseUserWait)
 		// 在每次进入轮次时重新评估连续错误序列。没有可用指引意味着运行无法恢复，到此结束；
 		// 否则恢复指令会成为一条新的用户轮次。对于没有追踪器构建的 runState，
 		// 这两个判断都是 nil 安全的。
@@ -447,7 +536,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// 为请求加上时间边界，使推理块能携带真实的墙上时钟区间。
 		// 只有在回复确实包含推理时才会消费起点；否则下一轮次会直接覆盖它。
 		s.startReasoning(timeSource())
+		s.turnTimingBegin(phaseInference)
 		reply, err := s.chatWithFallback(ctx, turn)
+		s.turnTimingEnd(phaseInference)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				s.appendAbortedAssistant()
@@ -573,17 +664,24 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			reason := fmt.Sprintf("tool dispatch aborted: %v", err)
 			s.fillUnrun(reply.ToolCalls, reason)
 			s.emit(Event{Kind: EventNotice, Text: reason})
-		} else if stopped := s.runTools(ctx, turn, reply.ToolCalls); stopped != "" {
-			if stopped == StopCancelled {
-				// 批次已经追加了其（未运行的）工具结果；用一条终结助手消息收尾记录，
-				// 使最后一条消息是中止，而非待处理的工具使用。
-				s.appendAbortedAssistant()
+		} else {
+			// 工具批次是独立计时阶段。只包住真正的 runTools 调用：
+			// 上方的截断/fillUnrun 与 BeforeTool 屏障不派发工具，不应计入 tools 阶段。
+			s.turnTimingBegin(phaseTools)
+			stopped := s.runTools(ctx, turn, reply.ToolCalls)
+			s.turnTimingEnd(phaseTools)
+			if stopped != "" {
+				if stopped == StopCancelled {
+					// 批次已经追加了其（未运行的）工具结果；用一条终结助手消息收尾记录，
+					// 使最后一条消息是中止，而非待处理的工具使用。
+					s.appendAbortedAssistant()
+				}
+				s.emit(Event{Kind: EventStop, Reason: stopped})
+				if stopped == StopCancelled {
+					return s.result(stopped), ctx.Err()
+				}
+				return s.result(stopped), nil
 			}
-			s.emit(Event{Kind: EventStop, Reason: stopped})
-			if stopped == StopCancelled {
-				return s.result(stopped), ctx.Err()
-			}
-			return s.result(stopped), nil
 		}
 
 		// ……之后再检查一次，因为工具可能耗时很久，而下一次请求才是开销较大的部分。
@@ -617,7 +715,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		}
 
 		// 一批工具结果也是进行摘要的天然位置：下一次请求即将再次为整段历史付费。
+		s.turnTimingBegin(phaseCompaction)
 		s.maybeCompact()
+		s.turnTimingEnd(phaseCompaction)
 
 		// 有界的编辑后验证（默认关闭）。在压缩之后运行，使新注入的反馈轮次
 		// 保持在下一次请求的末尾。

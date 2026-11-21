@@ -167,9 +167,13 @@ argentgo tui
 | `Alt+Enter` / `Ctrl+J` | 换行 |
 | `PgUp` / `PgDn`, `Shift+Up` / `Shift+Down` | 滚动 |
 | `Ctrl+C` | 取消当前轮次；再按一次退出 |
+| `Ctrl+X` | 全局展开/折叠所有推理（思考）块；再按一次还原 |
+| 鼠标点击推理块 | 单独展开/折叠该块（中文安全） |
 | `/quit` 或 `/exit` | 退出 |
 
 在输入框里输入 `/help` 可以显示应用内按键列表。
+
+TUI 还有以下交互（默认开启）：输入 `/` 会弹出斜杠命令补全浮层，用上下键或鼠标选择，`>` 为高亮行、`(N/M)` 为候选计数；输入文件路径或 `@` 提及会触发行内补全，含空格/引号的路径会自动加引号。每轮结束后会追加一行统计信息 `模型 · 时长 · 平均 tok/s`（缺少打点或输出 token 时不显示）。若要让头部/状态栏额外显示速度与缓存命中率，设 `ARGENT_TUI_USAGE=1`（默认关闭，关闭时界面字节不变）。
 
 ### 4. 原生桌面窗口
 
@@ -188,6 +192,10 @@ argentgo -m gpt-4o "explain this diff"             # -m / --model overrides the 
 ```
 
 其他有用的开关：`--protocol anthropic|openai|responses`、`--base-url <url>`、`--profile <name>`，以及用于点分配置覆盖的 `-c/--config key=value`。设置的解析顺序是：标志 → `ARGENT_*` 环境变量 → 配置文件 → 默认值。
+
+**原生推理档位**：`--thinking low|medium|high|xhigh`（也接受中文如 `低/中/高/超高`，或用 `ARGENT_THINKING`）会让请求携带各协议原生的推理控制字段——OpenAI chat 用 `reasoning_effort`、Responses 用 `reasoning.effort`、Anthropic 用 `budget_tokens`（下限 1024 并按模型上限钳制）。FIM 补全请求不会携带这些字段；不设置 `--thinking` 时请求保持原样。Anthropic 多轮扩展思考的思考签名会随会话保存，缺签名时自动降级为纯文本以避免 400。
+
+> 安全提示：项目级的 `mcp.json` 或 `baseURL` 改写属于不可信内容。若不可信项目配置试图改写 baseURL 且请求同时带有环境变量/命令行传入的 API key，argentgo 会拒绝发送；确认可信后加 `--trust-project` 放行。Windows 上存储的令牌会用 DPAPI 按当前用户加密。
 
 ### 6. 审批与沙箱模式
 
@@ -217,6 +225,25 @@ argentgo bug                             # write a diagnostics dump
 ```
 
 `doctor` 会按检查项打印 `ok` / `warn` / `fail`。安装问题请重读 [Install](#install)；确切的标志和返回值见 [API reference](TECHNICAL.md#api-reference)。
+
+### 9. 会话回退（rewind）与结果对比
+
+不必删除整段会话就能从历史中的某条消息重新开始。两种入口都会把会话的活动叶**就地切换**到指定记录，后续新消息从该分叉点续写，不复制既有历史：
+
+```powershell
+argentgo sessions checkout <session-id> <entry-id>   # 切到指定记录
+argentgo --session <session-id> --at <entry-id> "从这里继续"  # 恢复时直接定位
+```
+
+不带 `--at` 的 `--session` 恢复沿用原有行为。`/undo` 与 `/retry`（见 §7）作用于文件改动 checkpoint；`sessions checkout` 作用于会话树记录本身，两者互补。`sessions fork-at <id> <message-id>` 可在分叉时恢复当时的提示上下文。
+
+评测结果可作统计对比（配对统计；样本少于 30 对时标记"样本不足"，避免据少量样本刷分）：
+
+```powershell
+argentgo eval compare <baseline-results.json> <candidate-results.json>
+```
+
+后台作业注册表默认关闭；需要跨工具调用管理长任务时设 `ARGENT_JOBS=1`（或在 `ARGENT_OPT_INS` 中加入 `jobs`）启用。分阶段审批（一次/始终/拒绝/esc）同样是 opt-in 安全能力，默认不接管审批。
 
 ## Distribution
 

@@ -73,22 +73,34 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 | 维度 | 分数 | 证据 | 未满原因 |
 |---|---|---|---|
-| 可移植性/部署 | 10 | 5 平台 CGO_ENABLED=0 交叉编译矩阵（matrix.yml）；linux build 绿 | — |
+| 可移植性/部署 | 10 | 5 平台 CGO_ENABLED=0 交叉编译矩阵（matrix.yml）；linux build 绿；R35/R37 的 DPAPI / CF_UNICODETEXT 均走 syscall 而非 cgo，交叉编译仍绿 | — |
 | 架构分层 | 10 | archguard arch_test.go 零违规；CI job 化 | — |
-| 安全性(架构) | 10 | 策略→审批→审计链；7 fuzz 目标真实跑；security-audit.ps1 PASSED 7 项；脱敏集成测试 | — |
-| 核心引擎 | 10 | session 属性测试 + recovery fuzz（race 绿）；checkpoint 冲突检测；R20 起 session 5 处截断统一走 textutil 字簇边界吸附（保持 rune 预算、默认路径逐字节不变） | 无（字簇边界为 UAX#29 务实子集，非完整 Unicode 合规） |
+| 安全性(架构) | 10 | 策略→审批→审计链；7 fuzz 目标真实跑；security-audit.ps1 PASSED 7 项；脱敏集成测试；R35 baseURL 来源追踪 fail-closed + Windows DPAPI 凭据加密 + read-only MCP 绕过修复，R37 分阶段审批状态机（失败即关闭） | — |
+| 核心引擎 | 10 | session 属性测试 + recovery fuzz（race 绿）；checkpoint 冲突检测；R20 起 session 5 处截断统一走 textutil 字簇边界吸附（保持 rune 预算、默认路径逐字节不变）；R35/R36 会话 rewind + 孤儿 tool_call 结算 + Anthropic 签名闭环 + 确定性循环检测，均有表驱动测试 | 无（字簇边界为 UAX#29 务实子集，非完整 Unicode 合规） |
 | 工程规范/CI | 9 | matrix.yml（5 平台）+ release.yml 强化 + flake-guard；5 平台本地交叉编译全过 | release workflow 未端到端验证（gh 不可用） |
-| 测试稳定性 | 9 | flake-guard 机制；tui ctrl+c flake 已根因修复（-count=10 race 通过） | 无长期 CI 运行数据 |
-| 文档 | 9 | TECHNICAL（API 参考 + 5 张 mermaid 图 + 架构 + LSP + 功能对齐）+ USER_GUIDE（安装/分发/快速上手）+ CONTRIBUTING（安全/CI）+ 中文 README | 非多语言（仅中英） |
+| 测试稳定性 | 9 | flake-guard 机制；tui ctrl+c flake 已根因修复（-count=10 race 通过）；R35 评测灵敏度自测（注入故障断言完成率下降）+ `eval compare` n<30 样本不足守卫防刷分 | 无长期 CI 运行数据 |
+| 文档 | 9 | TECHNICAL（API 参考 + 5 张 mermaid 图 + 架构 + LSP + 功能对齐）+ USER_GUIDE（安装/分发/快速上手）+ CONTRIBUTING（安全/CI）+ 中文 README；CAPABILITY_MATRIX 已回填 R33/R35/R36/R37 能力清单 | 非多语言（仅中英） |
 | IDE 集成 | 9 | 真实 gopls v0.24.0 端到端测试 PASS（Definition/DocumentSymbol/References 验证）；6 基础+3 进阶 LSP 方法；R24 新增 `gopls_advanced_test.go` 对 semantic/inlay/codeLens/resolve 的真实 server best-effort 结构化验证 | R24 已补真实 server best-effort 验证，但未做硬门禁（数量/RPC 错误只记日志），且仅验证 gopls 单一 server |
 | 编辑格式 | 9 | 真实路径 benchmark 21/21（tools.Registry.Run，exact/repair/hashline 各 100%） | 真实评测为 opt-in（`ARGENT_EVAL_LIVE` / `eval --live`），默认离线；需用真实模型跑批验证质量 |
 | 内存/记忆 | 9 | 端到端 4 场景（recall/reflect/learn/redaction/override）+ 抽取式综合 + grapheme clip | reflect 无模型综合 |
-| 工具广度 | 9 | 34 工具；checkpoint_diff/usage/history 集成测试；diff 工具 | 缺 omp 的 browser/DAP/TTS（skip-list） |
-| 编排 | 9 | 10 个端到端 eval 场景（`evals/orchestration.json`，真实 agent loop 驱动：委派/verify/background/board 等）；core.json 10 场景 + R24/R25 opt-in 真实模型完成率批处理 | 无真实复杂生产任务验证 |
+| 工具广度 | 9 | 34 工具；checkpoint_diff/usage/history 集成测试；diff 工具；R37 工具输出头尾折叠 / todo 状态校验 / 文件新鲜度原语（opt-in、有测试） | 缺 omp 的 browser/DAP/TTS（skip-list） |
+| 编排 | 9 | 10 个端到端 eval 场景（`evals/orchestration.json`，真实 agent loop 驱动：委派/verify/background/board 等）；core.json 10 场景 + R24/R25 opt-in 真实模型完成率批处理；R36 后台 jobs 注册表接入生产路径（opt-in `ARGENT_JOBS`） | 无真实复杂生产任务验证 |
 | 生态分发 | 6 | go install + CI + scoop/choco/brew 清单 + 中文文档 | **客观天花板**：清单未发布、无真实社区/npm 渠道，本地代码无法达到 10 |
 
 ### 加权总分
-约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）。
+约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 的已落地增量见下方小节与矩阵同名更新记录。分数维持 8.9：本轮能力属"补能力/补证据"而非新增扣分项，未触及客观天花板。
+
+### R33–R37 已落地增量（已测试证据）
+
+以下均已在源码中接线并有表驱动测试；opt-in 项默认关闭、逐字节不变，不计入"功能缺失"扣分。
+
+- **原生推理（R36）**：`--thinking low|medium|high|xhigh`（含中文别名）经 `internal/provider/thinking.go` 的 `ResolveThinking` 映射为线上原生字段——OpenAI chat `reasoning_effort`、Responses `reasoning.effort`、Anthropic `budget_tokens`（钳制下限 1024）；FIM 不携带推理参数，默认不传时请求字节不变。Anthropic `signature_delta` 闭环随 `Message`/`Entry`（`omitempty`）保存，多轮仅带签名回放 thinking 否则降级文本（`internal/llm/reasoning_signature_test.go`、`internal/session/reasoning_signature_test.go`）。
+- **会话 rewind（R35+R36）**：`Checkout` / `OpenSessionAt` + `sessions checkout <id> <entry>`，以及 `--session X --at Y` 就地切换活动叶续写（`internal/session/branch_checkout.go`、`internal/app/sessions.go`、`internal/cli/sessions_checkout_test.go`）；R37 `ForkBefore` 提示恢复接入 fork-at/list-messages。
+- **后台 jobs（R36）**：作业注册表生产接线（创建/持久化/`StopAll`），opt-in `ARGENT_JOBS=1` 或 `ARGENT_OPT_INS=jobs`（`internal/app/app_jobs_wire.go` + 测试）。
+- **TUI 交互（R33+R37）**：每轮统计行 `模型 · 时长 · 平均 tok/s`（默认、缺数据不显示）；推理块鼠标点击展开/折叠（CJK 安全）+ `Ctrl+X` 全局思考切换（逐块覆盖）；`/` 补全浮层与路径/`@mention` 补全（引号感知、fuzzy、仅标准库）。用量行增强（速度/缓存命中/目录）受 `ARGENT_TUI_USAGE=1` 门控。
+- **精确测量（R36+R37）**：token/s 排除 TTFT、按 Σtokens/Σdurations 聚合，经 `llm.Usage`（`json:"-"`）→ agent → app 桥接 → TUI `Event`（引用计数 opt-in）；`eval compare` 配对统计 + n<30 样本不足守卫，评测框架灵敏度自测注入故障断言完成率下降。
+- **安全（R35+R37）**：baseURL 来源追踪 fail-closed（`--trust-project` 放行）、Windows DPAPI 凭据加密（syscall 无 cgo）、read-only MCP 绕过修复、分阶段审批状态机（once/always/reject/esc）。
+- **仍为默认关闭原语（R37 备料 R38）**：`StableSystemPrompt`、`SessionStatusRegistry`、`CriticResult`、`CondensationEvent`、`PruneToolResults`、`FileFreshness`、`TurnTiming` 等已实现并测试，但未接入用户路径，不计入能力清单。
 
 ### 客观天花板（诚实说明）
 - **生态分发 6**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。

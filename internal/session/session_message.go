@@ -20,11 +20,18 @@ const (
 	budgetProjectionBudgetEnv = "ARGENT_BUDGET_PROJECTION_BUDGET"
 	// defaultBudgetProjectionBudget 是拿不到 contextWindow/配置时的保守默认预算。
 	defaultBudgetProjectionBudget = 32000
+	// toolPruneEnv 为工具结果压力裁剪的总开关；仅值为 "1"（允许首尾空白）时启用。
+	toolPruneEnv = "ARGENT_TOOL_PRUNE"
 )
 
 // budgetProjectionEnabled 报告预算投影是否被显式启用。默认关闭，逐字节保持旧行为。
 func budgetProjectionEnabled() bool {
 	return strings.TrimSpace(os.Getenv(budgetProjectionEnv)) == "1"
+}
+
+// toolPruneEnabled 报告工具结果压力裁剪是否被显式启用。默认关闭，逐字节保持旧行为。
+func toolPruneEnabled() bool {
+	return strings.TrimSpace(os.Getenv(toolPruneEnv)) == "1"
 }
 
 // budgetProjectionBudget 返回本次投影使用的 rune 预算及其来源。
@@ -128,6 +135,10 @@ func messageEntry(record Record) (Entry, bool) {
 		// 否则它会变成一条空的系统消息，先前的摘要就会从对话视图中丢失。
 		entry.Content = firstNonEmpty(fieldString(record.Data, "text"),
 			fieldString(record.Data, "summary"), textOf(record.Data))
+	case KindCondensation:
+		// 压缩事件是审计元数据，不是对话消息：即使 opt-in 开启了事件落盘，
+		// 也绝不让它进入模型可见的消息流。
+		return Entry{}, false
 	default:
 		return Entry{}, false
 	}
@@ -143,6 +154,15 @@ func messageEntries(records []Record) []Entry {
 		if entry, ok := messageEntry(record); ok {
 			out = append(out, entry)
 		}
+	}
+	// 可选工具结果压力裁剪（默认关闭）：必须在预算投影之前执行，顺序固定为
+	// prune → project → ReconcileToolPairs。原因：Project 按 rune 计算预算，
+	// 先缩短超长的工具结果才能让它按裁剪后的 rune 参与预算；且 prune 幂等，
+	// 叠加投影时先裁剪可避免投影在裁剪标记中间再次截断。预算复用投影的来源
+	// （ARGENT_BUDGET_PROJECTION_BUDGET / 默认 32000）。关闭时不产生任何差异。
+	if toolPruneEnabled() {
+		budget, _ := budgetProjectionBudget()
+		out, _ = PruneToolResults(out, budget)
 	}
 	// 可选预算投影（默认关闭）：必须在 ReconcileToolPairs 之前投影，
 	// 否则孤儿调用已被补上合成结果，KeepLiveToolTail 便无法识别未配对的活尾。

@@ -2,14 +2,16 @@
 
 argentgo 默认行为对所有可选特性**一律关闭（fail-closed）**。本文档列出全部受支持的 opt-in 开关，以及独立于注册表之外的门控环境变量。所有开关名、环境变量名均与源码逐字对应（事实来源：`internal/app/optin_registry.go`、`internal/config/optin_config.go`、`internal/cli/optin_display.go` 及各 `*_wire.go`）。
 
+独立门控的单一真源是 `internal/cli/optin_metadata.go` 的 `IndependentOptIns` 表；`internal/cli/optin_docs_guard_test.go` 会持续核对本文档、该表与源码读点三者一致——代码新增门控却漏写文档、或文档出现无源码依据的幽灵条目，测试都会失败。新增独立门控时只需改那张表并同步本文档。
+
 > 背景：在 R16 之前，这些开关没有任何文档记载，用户只能「裸写」`export ARGENT_OPT_INS=...`，发现性为零。本文档就是为补齐这一缺口而写。
 
 ## 目录
 
 - [一、两条激活入口](#一两条激活入口)
-- [二、14 个 opt-in 键（ARGENT_OPT_INS / optins 块）](#二14-个-opt-in-键argent_opt_ins--optins-块)
+- [二、集中注册表 opt-in 键（ARGENT_OPT_INS / optins 块）](#二集中注册表-opt-in-键argent_opt_ins--optins-块)
 - [三、独立门控环境变量](#三独立门控环境变量)
-- [四、其他独立门控变量速查](#四其他独立门控变量速查)
+- [四、其它独立门控速查](#四其它独立门控速查)
 - [五、逐字节不变承诺](#五逐字节不变承诺)
 - [六、推荐配置组合](#六推荐配置组合)
 
@@ -67,7 +69,7 @@ argentgo "你的任务"
 
 **当前状态**：`Execute` 的运行时装配面（`internal/app/app_execute.go`）读取 `ARGENT_OPT_INS` 与配置 `optins` 块的**并集**（`mergeOptIns(ParseOptInEnv(...), configOptIns(...))`）。两个入口都能真正在运行中打开开关：
 
-- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开全部 14 个键。
+- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开集中注册表的全部 14 个键；此外它还能携带**双激活面**独立门的等价键（当前为 `jobs`，见第三节），所以「14 键」只是注册表自身的数量，并非该变量能接受的全部键。
 - 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 9 个键。
 - `optins` → app 运行时的映射交集（`configOptInKeyMap`，`app_config_optins.go:17-27`）只包含标注「配置可用」的 9 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity`、`auto_verify` 这 5 个键**只能**通过 `ARGENT_OPT_INS` 打开。
 
@@ -77,9 +79,11 @@ argentgo "你的任务"
 
 ---
 
-## 二、14 个 opt-in 键（ARGENT_OPT_INS / optins 块）
+## 二、集中注册表 opt-in 键（ARGENT_OPT_INS / optins 块）
 
-下表给出全集。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
+下表给出集中注册表（`internal/app/optin_registry.go`）的 14 个键。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
+
+> 注意：这张表是**注册表**的全集，不是 `ARGENT_OPT_INS` 能接受的全部字符串。独立门 `jobs` 也接受 `ARGENT_OPT_INS=jobs`（双激活面），但它不在 14 键注册表内，故列在第三节。总开关数因此不能用「14」概括。
 
 | # | 键名 | 中文标签 | 默认 | 配置可用 | 归类 |
 |---:|---|---|---|---|---|
@@ -215,7 +219,7 @@ argentgo "你的任务"
 
 ## 三、独立门控环境变量
 
-以下开关**不属于** 14 键注册表，而是通过各自独立的环境变量控制（因此不能写进 `ARGENT_OPT_INS`）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。
+以下开关**不属于**集中注册表的 14 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 
@@ -269,11 +273,88 @@ argentgo "你的任务"
 - **适用场景**：需要在缺少系统 shell 的环境下运行命令，或希望使用项目自带的确定性 shell 行为时。
 - **逐字节不变承诺**：默认关闭，命令走系统 shell 路径，逐字节不变；只有 `ARGENT_BUILTIN_SHELL=1` 才切换到内建解释器。
 
+### `ARGENT_APPROVAL_DIFF` —— 审批卡 diff 展示
+
+- **作用**：TUI 审批卡渲染有界的增删行摘要（`+N/-M in path`），并限制行数与路径宽度，避免长路径撑破弹窗；预览按字素边界截断，CJK 文件名不会被切坏。
+- **开启值**：首尾空白修剪后等于 `1`（由 `ConfigureApprovalDiff` 注入的 env 判定）。
+- **适用场景**：批准文件编辑前希望一眼看到改了哪些文件、增删大致行数时。
+- **逐字节不变承诺**：门控关闭时无论审批请求是否带 diff 数据，弹窗帧字节都与接线前逐字节相同；`name` / `args` 始终原样传递。
+
+### `ARGENT_RETAIN_GUIDANCE` —— 纠正提示压缩存活
+
+- **作用**：控制是否在压缩时保留纠正 nudge 记录的「压缩存活」标记（`agent.SetRetainGuidance`）。
+- **开启值**：`os.Getenv` 原值等于 `1`。
+- **适用场景**：长期运行、关心模型自我纠正提示在压缩后是否仍然存在时。
+- **逐字节不变承诺**：未显式开启时写入 `false`（与零值一致），nudge 记录形状逐字节不变。
+
+### `ARGENT_OUTPUT_COLLAPSE` —— bash 输出行折叠
+
+- **作用**：让 `clipBashOutput` 走有界的行折叠输出帧（`internal/textutil` 原语），替代原有的整段裁剪。
+- **开启值**：首尾空白修剪后等于 `1`。
+- **适用场景**：bash 输出行数多、希望折叠重复/超长行以便模型阅读时。
+- **逐字节不变承诺**：默认关闭时仍走原有 `clipTo` 路径，输出逐字节不变；只有 `ARGENT_OUTPUT_COLLAPSE=1` 才切换。
+
+### `ARGENT_TODO_STRICT` —— todo 严格状态校验
+
+- **作用**：在每次 todo 写入前调用 `ValidateTodoState` 校验即将写入的状态集，挡住非法状态。
+- **开启值**：真值之一——`1`、`true`、`yes`、`on`（大小写不敏感，首尾空白修剪）。空值或假值关闭。
+- **适用场景**：希望模型维护的 todo 列表结构始终合法时。
+- **逐字节不变承诺**：关闭时写路径逐字节不变；该开关与字符预算安全阀 `ARGENT_TODO_MAX_CHARS` 相互独立。
+
+### `ARGENT_SUMMARY_SCHEMA` —— 压缩摘要固定 schema
+
+- **作用**：在压缩产出摘要后，按固定顺序补齐缺失的 `Goal` / `State` / `Next` / `Files` 小节；`Files` 从已记录的改动文件事件机械生成，并回报摘要是否无实质内容供上层决定是否重试模型摘要。
+- **开启值**：首尾空白修剪后等于 `1`。
+- **适用场景**：依赖抽取式压缩、希望摘要结构稳定不缺章节时。
+- **逐字节不变承诺**：默认关闭时 `Summarize` 不触碰摘要，既有压缩记录逐字节不变；开启时也只补缺失章节，绝不覆盖 `files` / `failures` 等权威结构化字段。
+
+### `ARGENT_BUDGET_PROJECTION` —— 消息预算投影
+
+- **作用**：在 `Messages()` 组装前按 rune 预算做投影：保护最新用户输入、保护未配对的活尾工具调用、清除保留消息的思考文本，使「活尾工具调用」真正触发保护。
+- **开启值**：首尾空白修剪后等于 `1`。配套 `ARGENT_BUDGET_PROJECTION_BUDGET` 指定投影预算（run E 数，正整数）；非正或不可解析时回退保守默认 `32000`。
+- **适用场景**：长会话上下文逼近上限、希望在进入模型前主动压缩消息体时。
+- **逐字节不变承诺**：关闭时只多一次环境变量读取，返回值逐字节不变；开启时的预算来源（env 或 default）可被审计与测试断言。
+
+### `ARGENT_JOBS` —— 后台作业注册表
+
+- **作用**：把 bash 工具的 `background_after_ms` 真正接上 `jobs.Registry`，使长命令被提升为可查询的后台作业，退出时回收仍存活的进程。
+- **开启值**：首尾空白修剪后等于 `1`，或 `ARGENT_OPT_INS` 列表含 `jobs`（双激活面，任一成立即开启）。
+- **适用场景**：需要启动长任务并在后续轮次查询其状态时。
+- **逐字节不变承诺**：默认关闭时不创建目录、不调用 `SetJobs`、不安装关闭钩子，注册表仍为 nil，`background_after_ms` 被静默忽略，系统提示/事件流/JSONL 逐字节不变。
+
+### `ARGENT_BASH_USE_PROC` —— 默认 bash 主路径进程硬化
+
+- **作用**：在默认 bash 主路径上启用进程硬化（proc 相关强化）。
+- **开启值**：首尾空白修剪后等于 `1`。
+- **适用场景**：希望默认执行路径获得更强的进程行为保证时。
+- **逐字节不变承诺**：默认关闭时仍走原路径，逐字节不变；只有显式 `=1` 才切换。
+
+### `ARGENT_PATH_COMPLETION` —— 内联路径补全
+
+- **作用**：TUI 输入行启用内联路径补全；env 由集成方注入，TUI 渲染路径本身不直接读环境变量。
+- **开启值**：等于 `1`（无 TrimSpace，`m.env("ARGENT_PATH_COMPLETION") == "1"`）。
+- **适用场景**：交互式输入文件路径、希望边打边补全时。
+- **逐字节不变承诺**：关闭时 `m.env` 为 nil 或未设置，整段新逻辑不进入，既有 slash 补全与默认帧逐字节不变。
+
+### `ARGENT_VIM_MODE` —— TUI vim 键位
+
+- **作用**：TUI 输入行切换到 vim 键位（由集成方注入的 env 判定）。
+- **开启值**：首尾空白修剪后等于 `1`。
+- **适用场景**：习惯 vim 键位的交互用户。
+- **逐字节不变承诺**：关闭时保持经典输入，帧字节逐字节不变。
+
+### `ARGENT_MCP_IMAGE_ARTIFACT` —— MCP image 内容块落盘
+
+- **作用**：把 MCP `tools/call` 返回的 image 内容块 base64 解码后写入产物目录，并把占位符从 `[image: <mime>]` 增强为 `[image: <mime> → <path>]`，让模型知道可用 `read` 工具读取。落盘复用白名单扩展名、大小上限与防逃逸校验，任何失败都回落旧占位符。
+- **开启值**：真值（如 `1`/`true`，大小写不敏感、首尾空白修剪），且需配置产物目录 `ARGENT_MCP_BLOB_ARTIFACT_DIR`。
+- **适用场景**：MCP 服务器会返回图片、希望模型能读取图片文件时。
+- **逐字节不变承诺**：开关关闭、未配目录、数据不可解码或落盘失败任一成立时，逐字节返回旧占位符，默认输出与历史逐字节一致。
+
 ---
 
-## 四、其他独立门控变量速查
+## 四、其它独立门控速查
 
-下列开关同样为独立环境变量、默认关闭，列出以增强发现性（开启值除特别说明外均为首尾空白修剪后等于 `1`）：
+下列开关同样为独立环境变量、默认关闭，列出以增强发现性（开启值除特别说明外均为首尾空白修剪后等于 `1`）。完整登记以 `internal/cli/optin_metadata.go` 的 `IndependentOptIns` 表为准：
 
 | 环境变量 | 作用摘要 |
 |---|---|
@@ -293,8 +374,20 @@ argentgo "你的任务"
 | `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
 | `ARGENT_SESSIONS_HEAD_TAIL` | 会话列表首尾预览。 |
 | `ARGENT_NO_INTENT_SCHEMA` | 意图 schema 相关（工具注册表门控）。 |
+| `ARGENT_PLAN_MODE` | 只规划模式；`=1` 时本次运行只做规划、不改文件。 |
+| `ARGENT_CHECKPOINT_WORKSPACE_DIFF` | 工作区差异检查点：把 shell 等间接文件改动纳入检查点，使 `/undo` 可还原。 |
+| `ARGENT_TRUST_PROJECT` | 项目级端点改写信任；`true`/`yes`/`on` 放行，默认不信任。 |
+| `ARGENT_VERIFY_OUTCOME` | 验证结果分类标记；仅 `=1` 开启。 |
+| `ARGENT_MCP_MEDIA_BLOB_EXT` | MCP 扩展媒体类型映射：用更广的白名单 MIME→扩展名映射替代既有映射，需真值开启。 |
+| `ARGENT_MCP_BLOB_TEXT` | MCP blob 当文本：把解码后的 blob 按文本渲染，需真值开启。 |
+| `ARGENT_MCP_BLOB_ARTIFACT_DIR` | MCP blob/image 产物目录；为空时落盘路径为空操作。 |
+| `ARGENT_MCP_CONTENT_FILTER_MIN_PRIORITY` | MCP 内容优先级过滤阈值（正整数）；未设置时不过滤。 |
+| `ARGENT_MCP_SPILL_DIR` | MCP 输出溢出目录；配置后 CallTool 的超大输出落盘。 |
+| `ARGENT_MCP_SPILL_THRESHOLD` | MCP 输出溢出字节阈值（正整数），覆盖默认值。 |
+| `ARGENT_MCP_PROTOCOL_VERSION` | MCP 协议版本回退值；协商失败时作为回退使用。 |
+| `ARGENT_EVAL_LIVE` | 评测 live 门禁；仅 `=1` 允许评测走真实 provider，默认断网脚本化。 |
 
-> 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。
+> 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
 
 ---
 
