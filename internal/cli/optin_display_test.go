@@ -78,10 +78,11 @@ func TestFormatOptInsAllKnownKeys(t *testing.T) {
 		"grep_ex":                   true,
 		"cli_hints":                 true,
 		"tool_error_reflection":     true,
+		"model_summary":             true,
 	}
 	want := []string{
 		"apply_patch", "attempt_isolation", "cli_hints", "compaction_fidelity",
-		"context_pressure", "grep_ex", "keep_implicit_context",
+		"context_pressure", "grep_ex", "keep_implicit_context", "model_summary",
 		"preserve_summary_sections", "refusal_reason", "tool_error_reflection",
 		"untrusted_boundary", "untrusted_result",
 	}
@@ -90,13 +91,13 @@ func TestFormatOptInsAllKnownKeys(t *testing.T) {
 	}
 }
 
-// TestKnownOptInKeysStable 锁定 cli 侧词汇表与 app 权威 12 键一致，防止新增键时
+// TestKnownOptInKeysStable 锁定 cli 侧词汇表与 app 权威 13 键一致，防止新增键时
 // 只改一处造成三处分叉。
 func TestKnownOptInKeysStable(t *testing.T) {
 	want := []string{
 		"refusal_reason", "untrusted_result", "context_pressure", "untrusted_boundary",
 		"attempt_isolation", "compaction_fidelity", "keep_implicit_context",
-		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints", "tool_error_reflection",
+		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints", "tool_error_reflection", "model_summary",
 	}
 	if len(knownOptInKeys) != len(want) {
 		t.Fatalf("knownOptInKeys 键数 = %d, want %d: %v", len(knownOptInKeys), len(want), knownOptInKeys)
@@ -177,12 +178,12 @@ func TestOptInFromEnv(t *testing.T) {
 			map[string]bool{"refusal_reason": true}},
 		{"case sensitive", false, "REFUSAL_REASON", map[string]bool{}},
 		{"all known keys", false,
-			"refusal_reason,untrusted_result,context_pressure,untrusted_boundary,attempt_isolation,compaction_fidelity,keep_implicit_context,preserve_summary_sections,apply_patch,grep_ex,cli_hints,tool_error_reflection",
+			"refusal_reason,untrusted_result,context_pressure,untrusted_boundary,attempt_isolation,compaction_fidelity,keep_implicit_context,preserve_summary_sections,apply_patch,grep_ex,cli_hints,tool_error_reflection,model_summary",
 			map[string]bool{
 				"refusal_reason": true, "untrusted_result": true, "context_pressure": true,
 				"untrusted_boundary": true, "attempt_isolation": true, "compaction_fidelity": true,
 				"keep_implicit_context": true, "preserve_summary_sections": true,
-				"apply_patch": true, "grep_ex": true, "cli_hints": true, "tool_error_reflection": true,
+				"apply_patch": true, "grep_ex": true, "cli_hints": true, "tool_error_reflection": true, "model_summary": true,
 			}},
 		{"new keys cli_hints/apply_patch/grep_ex", false,
 			"cli_hints,  apply_patch , grep_ex",

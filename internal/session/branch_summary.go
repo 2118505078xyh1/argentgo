@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // ErrNoAbandonedBranch 表示转录中没有可供摘要的非活动分支。
@@ -137,10 +138,9 @@ func SummarizeAbandonedBranch(path string, opts ...AbandonedBranchOption) (Recor
 	}
 	summary := Summarize(entries, 0).Summary
 	if cfg.limit > 0 {
-		runes := []rune(summary)
-		if len(runes) > cfg.limit {
-			summary = string(runes[:cfg.limit])
-		}
+		// 先脱敏再裁剪；切点由 textutil.ClipRunes 吸附到字素簇边界，
+		// 摘要进入上下文时不会留下悬空的组合标记或半个 emoji。
+		summary = textutil.ClipRunes(summary, cfg.limit)
 	}
 	payload, err := json.Marshal(map[string]string{"text": summary})
 	if err != nil {

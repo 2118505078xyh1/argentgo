@@ -51,6 +51,7 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 		checkMCPConfig(app),
 		checkStorage(app),
 		checkProvider(ctx, baseURL),
+		checkWebSearch(app),
 		checkGit(),
 		{name: "go", status: statusOK, detail: runtime.Version()},
 	}
@@ -193,6 +194,20 @@ func checkMCPConfig(app App) doctorCheck {
 		return doctorCheck{name: "mcp", status: statusOK, detail: fmt.Sprintf("%d server(s) valid", report.servers)}
 	}
 	return doctorCheck{name: "mcp", status: statusWarn, detail: formatMCPProblems(report)}
+}
+
+// checkWebSearch 只提供可发现性提示，不发起任何请求：web_search 工具需要一个
+// 用户自备的兼容端点（ARGENT_WEB_SEARCH_URL）或搜索服务 key（BRAVE_API_KEY /
+// TAVILY_API_KEY）。未配置时给出 warn 引导，绝不建议用 HTML 抓取冒充内置搜索。
+// detail 只含固定文案，不打印任何 env 值，避免凭证泄漏进 issue。
+func checkWebSearch(app App) doctorCheck {
+	if strings.TrimSpace(app.env("ARGENT_WEB_SEARCH_URL")) != "" ||
+		strings.TrimSpace(app.env("BRAVE_API_KEY")) != "" ||
+		strings.TrimSpace(app.env("TAVILY_API_KEY")) != "" {
+		return doctorCheck{name: "web_search", status: statusOK, detail: "search endpoint configured"}
+	}
+	return doctorCheck{name: "web_search", status: statusWarn,
+		detail: "not configured (optional): set ARGENT_WEB_SEARCH_URL or BRAVE_API_KEY/TAVILY_API_KEY to enable web_search"}
 }
 
 func formatMCPProblems(report mcpConfigReport) string {

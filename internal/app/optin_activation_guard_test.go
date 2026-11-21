@@ -44,8 +44,8 @@ func TestOptInVocabulariesAgree(t *testing.T) {
 	if !reflect.DeepEqual(appKeys, configKeys) {
 		t.Fatalf("opt-in 词汇表不一致: app=%v, config=%v", appKeys, configKeys)
 	}
-	if len(appKeys) != 12 {
-		t.Fatalf("app opt-in 键数 = %d, want 12: %v", len(appKeys), appKeys)
+	if len(appKeys) != 13 {
+		t.Fatalf("app opt-in 键数 = %d, want 13: %v", len(appKeys), appKeys)
 	}
 	// 集合比较只能证明无缺失；这里再守护白名单无重复键导致的计数异常。
 	if len(items) != len(configKeys) {

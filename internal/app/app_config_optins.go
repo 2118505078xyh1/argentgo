@@ -23,6 +23,7 @@ var configOptInKeyMap = map[string]OptInKey{
 	"keep_implicit_context":     OptInKeepImplicitContext,
 	"preserve_summary_sections": OptInPreserveSummarySections,
 	"tool_error_reflection":     OptInToolErrorReflection,
+	"model_summary":             OptInModelSummary,
 }
 
 // configOptIns 从配置原始映射读取 opt-in 开关，产出只含「交集」键的开关映射。

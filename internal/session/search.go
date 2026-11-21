@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // Hit 是转录中一条匹配的记录。
@@ -226,6 +227,8 @@ func collectStrings(value any, out *[]string) {
 
 // contextWindow 在符文索引周围切出片段而不破坏 UTF-8，然后在折叠空白之前对凭据脱敏。
 // 脱敏发生在截断之前，因此 token 占位符永远不会被切成两半。
+// 两端交给 textutil.ClipWindow 吸附到字素簇边界：起点向后、终点向前，
+// 因此组合序列、ZWJ emoji 与旗帜不会被从中间劈开。
 func contextWindow(value string, runeIndex, needleRunes int) string {
 	runes := []rune(value)
 	index := runeIndex
@@ -237,7 +240,7 @@ func contextWindow(value string, runeIndex, needleRunes int) string {
 	if end > len(runes) {
 		end = len(runes)
 	}
-	window := string(runes[start:end])
+	window := textutil.ClipWindow(value, start, end-start)
 	if start > 0 {
 		window = "…" + window
 	}
