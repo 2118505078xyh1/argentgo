@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // 这些是针对持久会话引擎的确定性属性/往返测试。
@@ -657,8 +659,24 @@ func TestPropertyRuneClippingNeverSplitsRune(t *testing.T) {
 						t.Fatalf("truncateRunes(%q, %d) = %q, want %q", src, limit, got, cleaned)
 					}
 				default:
-					if got, want := capProgressRunes(src, limit), string(runes[:limit]); got != want {
-						t.Fatalf("capProgressRunes(%q, %d) = %q, want %q", src, limit, got, want)
+					// 默认切点是第 limit 个 rune 之后的字节偏移。
+					cut := len(string(runes[:limit]))
+					if !textutil.GluedAt(src, cut) {
+						// 切点本就是字簇边界：吸附不会改变它，
+						// 新裁剪器必须与旧的 []rune 截断逐字节一致。
+						if got, want := capProgressRunes(src, limit), string(runes[:limit]); got != want {
+							t.Fatalf("capProgressRunes(%q, %d) = %q, want %q", src, limit, got, want)
+						}
+					} else {
+						// 切点落在字簇内部（如 e\u0301 / क\u0301）：
+						// 结果只会向前吸附到簇边界，因此仍是原串前缀且结尾不在簇内。
+						got := capProgressRunes(src, limit)
+						if !strings.HasPrefix(src, got) {
+							t.Fatalf("capProgressRunes(%q, %d) = %q, not a prefix of src", src, limit, got)
+						}
+						if textutil.GluedAt(src, len(got)) {
+							t.Fatalf("capProgressRunes(%q, %d) = %q ends mid-cluster", src, limit, got)
+						}
 					}
 				}
 			}

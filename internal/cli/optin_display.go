@@ -31,6 +31,7 @@ var knownOptInKeys = map[string]struct{}{
 	"grep_ex":                   {},
 	"cli_hints":                 {},
 	"tool_error_reflection":     {},
+	"model_summary":             {},
 }
 
 // FormatOptIns 把已启用的 opt-in 开关映射格式化为稳定的中文展示。

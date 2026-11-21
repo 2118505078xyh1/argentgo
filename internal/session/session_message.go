@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 func encodePayload(payload any) (json.RawMessage, error) {
@@ -161,6 +163,8 @@ func firstNonEmpty(values ...string) string {
 }
 
 // truncateRunes 将文本裁剪到 limit 个符文，先将其折叠为一行。
+// 切点交给 textutil.ClipRunes 吸附到字素簇边界，因此组合序列、
+// ZWJ emoji 与旗帜不会被从中间劈开；符文预算与 TrimSpace 语义不变。
 func truncateRunes(text string, limit int) string {
 	cleaned := strings.Join(strings.Fields(strings.ReplaceAll(text, "\n", " ")), " ")
 	if limit <= 0 {
@@ -170,7 +174,7 @@ func truncateRunes(text string, limit int) string {
 	if len(runes) <= limit {
 		return cleaned
 	}
-	return strings.TrimSpace(string(runes[:limit]))
+	return strings.TrimSpace(textutil.ClipRunes(cleaned, limit))
 }
 
 func firstLine(text string, limit int) string {

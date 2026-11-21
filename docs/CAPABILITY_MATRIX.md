@@ -66,8 +66,8 @@
 
 | # | 差距 | 确切落点 | 建议 |
 |---|---|---|---|
-| 1 | **压缩摘要是抽取式，不是模型生成式。** `Summarize` 用 `firstLine` / `nextStepLines` 逐行拼接，信息密度和连贯性弱于 Claude Code 的自动压缩摘要。 | `internal/session/compact.go:329`（`Summarize`），标题写入 `internal/session/compact.go:365-366` | 在保持 `Structured()`（`internal/session/compact_structured.go:201`）契约不变的前提下，增加一个可选的模型摘要 provider；失败回退到现有抽取式。 |
-| 2 | **会话侧截断仍按 rune，不是 grapheme。** 表情、组合字符、部分 CJK 组合序列可能被从中间切开；`memory/` 已有字簇裁剪实现但 `session/` 未采用。 | `internal/memory/sclip.go:44`（`ClipGraphemes`）对照 `internal/session/attempt.go:128`、`internal/session/branch_summary.go:140`、`internal/session/implicit_context.go:106`、`internal/session/session_message.go:169`、`internal/session/search.go:230`（均为 `[]rune`） | 把 `ClipGraphemes` 下沉到零依赖包，`session/` 与 `agent/trim.go:249` 统一调用；这也正是 STATUS.md:77 标注的未满原因。 |
+| 1 | **压缩摘要是抽取式，不是模型生成式。** `Summarize` 用 `firstLine` / `nextStepLines` 逐行拼接，信息密度和连贯性弱于 Claude Code 的自动压缩摘要。**R20 已交付 opt-in 模型摘要原语**（`internal/app/model_summary.go`，`ARGENT_OPT_INS=model_summary`）：模型只补增量叙事、绝不覆盖 files/failures 权威字段、失败回落抽取式；但压缩点调用接线待后续（属体验增量非正确性）。 | `internal/session/compact.go:329`（`Summarize`）；原语 `internal/app/model_summary.go`（`BuildSummaryPrompt`/`ParseModelSummary`/`ApplyModelSummary`/`GenerateModelSummary`） | 接线模型摘要到压缩点（app 层持 ctx/chatter，加超时与回落）；保持 `Structured()` 契约不变。 |
+| 2 | ~~会话侧截断仍按 rune，不是 grapheme。~~ **R20 已解决**：`session/` 的 4 处主路径截断（`session_message.go` 的 `truncateRunes`、`attempt.go` 的 `capProgressRunes`、`branch_summary.go`、`search.go` 的 `contextWindow`）统一改走 `internal/textutil/clip.go` 的 `ClipRunes`/`ClipWindow`——保持 rune 预算语义、只向字簇边界吸附，默认路径（ASCII/纯汉字/单独 emoji）逐字节不变；`implicit_context.go` 早已采用 `ClusterBoundaryAfter`。字簇边界为 UAX#29 务实子集（组合符/ZWJ/旗帜/肤色/jamo/CRLF），非完整 Unicode 合规。 | `internal/textutil/clip.go`（`ClipRunes`/`ClipRunesTail`/`ClipWindow`）；调用点 `internal/session/session_message.go`、`attempt.go`、`branch_summary.go`、`search.go`。STATUS.md「核心引擎」已升至 10 分。 | 残留：`internal/memory/sclip.go` 是第二套近似实现（RI 成对分组、非法字节丢弃语义不同），留待后续统一；不影响 session 主路径正确性。 |
 | 3 | **提示缓存对 OpenAI 兼容端点默认关闭。** `cacheEnabled` 对 `openai-chat-completions` 返回 false，需显式 `--force-prompt-cache` 类开关，用户不知情时拿不到缓存收益。 | `internal/llm/options.go:109-120`（`cacheEnabled` 的 `default` 分支） | 增加按 `baseURL` 的探测/配置显式声明，不改默认安全语义；补充用户可见提示。 |
 
 ### 1.4 ⊘ 合理取舍
@@ -152,7 +152,7 @@
 
 | # | 差距 | 确切落点 | 建议 |
 |---|---|---|---|
-| 1 | **`web_search` 没有内置后端。** 未配置 `ARGENT_WEB_SEARCH_URL` 时直接报错并建议 `web_fetch`，用户开箱即用的能力弱于竞品内建搜索。 | `internal/tools/web_search.go:17`（`webSearchURLEnv`）、`:26`（描述）、`:53`（未配置错误） | 接一个无需密钥的公共搜索端点做默认兜底，或在 `doctor` 中显式提示配置；保持不联网测试可用。 |
+| 1 | **`web_search` 没有内置后端。** 未配置端点时报错并建议 `web_fetch`。**R20 已补可发现性**：`doctor` 增加 web_search 配置检查（warn 提示 `ARGENT_WEB_SEARCH_URL`/`BRAVE_API_KEY`/`TAVILY_API_KEY`）；`internal/tools/web_search_presets.go` 提供 Brave/Tavily/SearXNG 预设元信息。诚实边界：**无用户 key / 自托管服务就没有联网搜索**，不用 HTML 抓取冒充内置搜索。 | `internal/tools/web_search.go:17/26/53`；`internal/cli/doctor.go`（`checkWebSearch`）；`internal/tools/web_search_presets.go` | 可选：把预设接入 `Run` 的请求头注入（需 key）；保持不联网测试可用。 |
 
 ### 3.4 ⊘ 合理取舍
 
@@ -296,7 +296,7 @@
 
 | 维度 | 总标注 | 一句话 |
 |---|---|---|
-| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；摘要生成式与 grapheme 切点是主要差距。 |
+| 上下文管理 | ✅ + ⚠️ | 预算/裁剪/去重/steering/结构化压缩证据齐全；R20 已修 grapheme 切点（升至 ✅），剩余差距仅摘要生成式（opt-in 原语已交付，接线待续）。 |
 | 可恢复性 | ✅ 领先 | JSONL 树 + sha256 checkpoint + undo/retry + 离线导出；GUI 分支树与 ACP load 待补。 |
 | 工具执行 | ✅ 领先 | 34 默认工具 + 硬边界 + 细粒度审批 + MCP/Hooks；`web_search` 无内置后端是短板。 |
 | 交互体验 | ✅ + ⚠️ | TUI/原生 GUI/三传输齐全且内存占优；语言、桌面平台、真实模型评测是差距。 |
@@ -307,8 +307,8 @@
 
 ## 9. 迭代建议（按投入产出排序）
 
-1. **先修正确性**：§1 ⚠️-2 的 grapheme 切点，影响 CJK/表情用户，落点清晰、风险低。
-2. **再补开箱即用**：§3 ⚠️-1 的 `web_search` 默认后端、§1 ⚠️-3 的缓存可见性。
+1. ~~先修正确性：§1 ⚠️-2 的 grapheme 切点~~ **R20 已完成**：session 主路径统一字簇吸附，STATUS 核心引擎升至 10 分。
+2. **再补开箱即用**：§3 ⚠️-1 的 `web_search`（R20 已加 doctor 提示 + 预设，仍需用户 key）、§1 ⚠️-3 的缓存可见性。
 3. **然后补可信度**：§4 ⚠️-3/⚠️-4 的真实模型评测与进阶 LSP 验证，把"实现存在"升级为"效果已验证"。
 4. **最后考虑体验增量**：§2 ⚠️-1 GUI 分支树、§1 ⚠️-1 模型生成式压缩摘要——收益高但改动面大，需单独排期。
 

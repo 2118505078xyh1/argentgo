@@ -17,6 +17,7 @@ var optInExpectedOrder = []string{
 	"context_pressure",
 	"grep_ex",
 	"keep_implicit_context",
+	"model_summary",
 	"preserve_summary_sections",
 	"refusal_reason",
 	"tool_error_reflection",
@@ -38,6 +39,7 @@ var optInExpectedDefs = map[string][2]string{
 	"untrusted_boundary":        {"不可信边界", "上下文"},
 	"compaction_fidelity":       {"压缩保真", "上下文"},
 	"tool_error_reflection":     {"工具错误反射", "交互"},
+	"model_summary":             {"模型摘要", "上下文"},
 }
 
 // TestParseOptInDisplayAllKeys 覆盖全部白名单键：显式 true 时应全部 Enabled，
@@ -57,6 +59,7 @@ func TestParseOptInDisplayAllKeys(t *testing.T) {
 			"untrusted_boundary":        true,
 			"compaction_fidelity":       true,
 			"tool_error_reflection":     true,
+			"model_summary":             true,
 		},
 	}
 	items := ParseOptInDisplay(raw)

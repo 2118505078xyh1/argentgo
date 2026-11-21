@@ -46,9 +46,10 @@ func TestOptInRegistrySetEnabled(t *testing.T) {
 			{OptInGrepEx, true},
 			{OptInCliHints, true},
 			{OptInToolErrorReflection, true},
+			{OptInModelSummary, true},
 		}, optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary,
 			OptInAttemptIsolation, OptInCompactionFidelity, OptInKeepImplicitContext, OptInPreserveSummarySections,
-			OptInApplyPatch, OptInGrepEx, OptInCliHints, OptInToolErrorReflection)},
+			OptInApplyPatch, OptInGrepEx, OptInCliHints, OptInToolErrorReflection, OptInModelSummary)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,10 +174,10 @@ func TestParseOptInEnv(t *testing.T) {
 		{"case sensitive", false, "REFUSAL_REASON", optInWant()},
 		{"all keys", false, "refusal_reason,untrusted_result,context_pressure,untrusted_boundary," +
 			"attempt_isolation,compaction_fidelity,keep_implicit_context,preserve_summary_sections," +
-			"apply_patch,grep_ex,cli_hints,tool_error_reflection",
+			"apply_patch,grep_ex,cli_hints,tool_error_reflection,model_summary",
 			optInWant(OptInRefusalReason, OptInUntrustedResult, OptInContextPressure, OptInUntrustedBoundary,
 				OptInAttemptIsolation, OptInCompactionFidelity, OptInKeepImplicitContext, OptInPreserveSummarySections,
-				OptInApplyPatch, OptInGrepEx, OptInCliHints, OptInToolErrorReflection)},
+				OptInApplyPatch, OptInGrepEx, OptInCliHints, OptInToolErrorReflection, OptInModelSummary)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

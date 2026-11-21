@@ -76,7 +76,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 | 可移植性/部署 | 10 | 5 平台 CGO_ENABLED=0 交叉编译矩阵（matrix.yml）；linux build 绿 | — |
 | 架构分层 | 10 | archguard arch_test.go 零违规；CI job 化 | — |
 | 安全性(架构) | 10 | 策略→审批→审计链；7 fuzz 目标真实跑；security-audit.ps1 PASSED 7 项；脱敏集成测试 | — |
-| 核心引擎 | 9 | session 5 属性测试 + recovery fuzz（143 测试 race 绿）；checkpoint 冲突检测 | rune≠grapheme（grapheme clipper 已在 memory/ 但 session/ 未采用） |
+| 核心引擎 | 10 | session 属性测试 + recovery fuzz（race 绿）；checkpoint 冲突检测；R20 起 session 5 处截断统一走 textutil 字簇边界吸附（保持 rune 预算、默认路径逐字节不变） | 无（字簇边界为 UAX#29 务实子集，非完整 Unicode 合规） |
 | 工程规范/CI | 9 | matrix.yml（5 平台）+ release.yml 强化 + flake-guard；5 平台本地交叉编译全过 | release workflow 未端到端验证（gh 不可用） |
 | 测试稳定性 | 9 | flake-guard 机制；tui ctrl+c flake 已根因修复（-count=10 race 通过） | 无长期 CI 运行数据 |
 | 文档 | 9 | TECHNICAL（API 参考 + 5 张 mermaid 图 + 架构 + LSP + 功能对齐）+ USER_GUIDE（安装/分发/快速上手）+ CONTRIBUTING（安全/CI）+ 中文 README | 非多语言（仅中英） |

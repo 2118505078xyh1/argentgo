@@ -47,6 +47,9 @@ const (
 	// （修复指令 + 脱敏错误正文），帮助模型自我修正。它默认关闭：未显式开启时
 	// 回灌给模型的错误串逐字节不变。
 	OptInToolErrorReflection OptInKey = "tool_error_reflection"
+	// OptInModelSummary 控制压缩时是否用模型生成增量叙事摘要。它默认关闭：
+	// 未显式开启时不发起任何模型调用，压缩摘要逐字节不变。
+	OptInModelSummary OptInKey = "model_summary"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -63,6 +66,7 @@ var allOptInKeys = []OptInKey{
 	OptInGrepEx,
 	OptInCliHints,
 	OptInToolErrorReflection,
+	OptInModelSummary,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // Attempt 原因记录为仅追加的审计记录。它们永远不会进入模型可见的消息历史。
@@ -120,7 +121,9 @@ type Progress struct {
 	TS            time.Time `json:"ts"`
 }
 
-// capProgressRunes 将文本裁剪到 limit 个符文，其他方面不做改动。
+// capProgressRunes 将文本裁剪到 limit 个符文，其他方面不做改动（不 TrimSpace）。
+// 切点交给 textutil.ClipRunes 吸附到字素簇边界，因此组合序列、
+// ZWJ emoji 与旗帜不会被从中间劈开；符文预算语义不变。
 func capProgressRunes(text string, limit int) string {
 	if limit <= 0 {
 		return ""
@@ -129,7 +132,7 @@ func capProgressRunes(text string, limit int) string {
 	if len(runes) <= limit {
 		return text
 	}
-	return string(runes[:limit])
+	return textutil.ClipRunes(text, limit)
 }
 
 // sanitizeProgress 在进度载荷写入转录之前限制大小并脱敏。脱敏在截断之前进行，
