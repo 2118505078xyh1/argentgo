@@ -296,6 +296,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	var pendingStop *agent.Event
 	mutatingRan := false
 
+	// 上下文压力观察器由 runner.Prompt 按开关附着。关闭时为 nil，下面的采集与
+	// 轮末上报都是空操作，不构造 MessageLike、不发事件，既有事件字节完全不变。
+	observer := contextPressureOf(ctx)
+
 	forwardEvent := func(event agent.Event) {
 		// 发布到按运行划分的事件 hub，使 --serve / --rpc 的订阅者
 		// （SSE /v1/event、event/subscribe）看到真实的 agent 事件。
@@ -308,6 +312,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		if event.Kind == agent.EventTextDelta && event.Depth == 0 && onText != nil {
 			onText(event.Text)
 		}
+		// 选择性启用：关闭时 observer 为 nil，collectEvent 立即返回，不构造 MessageLike。
+		observer.collectEvent(event)
 	}
 	flushAnswer := func() {
 		for _, event := range pendingTexts {
@@ -469,6 +475,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		}
 	}
 	flushAnswer()
+	// 轮末（全部既有事件含被缓冲的 stop 已转发完毕）再观察压力：仅在 opt-in 且
+	// 告警非空时追加一条 EventNotice；关闭时 observeStop 是空操作，事件流不变。
+	observer.observeStop(func(ev agent.Event) { EmitEvent(ctx, ev) })
 	bridge.stop(ctx, prompt, result.Text)
 	tracker.finish(err != nil || ctx.Err() != nil)
 	recordAttempt(sess, ctx, err)
