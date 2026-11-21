@@ -11,7 +11,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/config"
 )
 
-// mcpServerView 是一个已配置的 MCP 服务器，即 `argent mcp` 所打印的内容。
+// mcpServerView 是一个已配置的 MCP 服务器，即 `argentgo mcp` 所打印的内容。
 type mcpServerView struct {
 	Name      string   `json:"name"`
 	Transport string   `json:"transport"`
@@ -25,7 +25,7 @@ type mcpServerView struct {
 func runMCP(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	asJSON := false
@@ -37,7 +37,7 @@ func runMCP(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			mcpUsage(app.IO.Err)
 			return 2
 		}
@@ -150,7 +150,7 @@ func listOfStrings(raw any) []string {
 }
 
 func mcpUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent mcp [--json] [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo mcp [--json] [-C <dir>]
 
 Lists the MCP servers declared under `+"`mcpServers`"+` in the merged config. No
 server is contacted; use the agent itself to connect.

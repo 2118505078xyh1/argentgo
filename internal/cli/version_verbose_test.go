@@ -78,7 +78,7 @@ func TestVersionVerboseHelpGoesToStdout(t *testing.T) {
 	if code := RunWith(App{IO: ioState}, []string{"version", "--help"}); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if !strings.Contains(out.String(), "usage: argent version") {
+	if !strings.Contains(out.String(), "usage: argentgo version") {
 		t.Fatalf("out = %q", out.String())
 	}
 	if errOut.Len() != 0 {
@@ -94,7 +94,7 @@ func TestVersionVerboseRejectsUnknownArg(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q", out.String())
 	}
-	if !strings.Contains(errOut.String(), "unexpected argument") || !strings.Contains(errOut.String(), "usage: argent version") {
+	if !strings.Contains(errOut.String(), "unexpected argument") || !strings.Contains(errOut.String(), "usage: argentgo version") {
 		t.Fatalf("err = %q", errOut.String())
 	}
 }

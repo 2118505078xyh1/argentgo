@@ -54,7 +54,7 @@ func runAttach(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		jobsUsage(app.IO.Err)
 		return 2
 	}
@@ -84,7 +84,7 @@ func runLogs(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		jobsUsage(app.IO.Err)
 		return 2
 	}
@@ -143,7 +143,7 @@ func runStop(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		jobsUsage(app.IO.Err)
 		return 2
 	}
@@ -181,7 +181,7 @@ func runFollow(app App, ctx context.Context, args []string) int {
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		jobsUsage(app.IO.Err)
 		return 2
 	}
@@ -289,10 +289,10 @@ func parseTailArgs(args []string) (id string, lines int, err error) {
 var errHelp = fmt.Errorf("help requested")
 
 func jobsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent attach <id> [-n N]
-       argent logs [<id>]  (jobs is an alias)
-       argent follow <id> [-n N]
-       argent stop <id>
+	fmt.Fprint(w, `usage: argentgo attach <id> [-n N]
+       argentgo logs [<id>]  (jobs is an alias)
+       argentgo follow <id> [-n N]
+       argentgo stop <id>
 
 attach prints the tail of a job log, follow streams it until interrupted,
 logs lists jobs and their log files, and stop kills a running job.

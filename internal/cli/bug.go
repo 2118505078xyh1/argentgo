@@ -24,7 +24,7 @@ func runBug(app App, _ context.Context, args []string) int {
 			return 0
 		case args[i] == "--out":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --out needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --out needs a value")
 				return 2
 			}
 			i++
@@ -32,7 +32,7 @@ func runBug(app App, _ context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--out="):
 			outPath = strings.TrimPrefix(args[i], "--out=")
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", args[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", args[i])
 			bugUsage(app.IO.Err)
 			return 2
 		}
@@ -105,7 +105,7 @@ func builtinToolNames() []string {
 }
 
 func bugUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent bug [--out <path>]
+	fmt.Fprint(w, `usage: argentgo bug [--out <path>]
 
 Writes a diagnostics dump (version, platform, config, storage, session count,
 credential provider names, tool list) for an issue report. Secrets are never

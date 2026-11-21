@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'argentgo/bin' }
 $InstallDir = [IO.Path]::GetFullPath($InstallDir)
-$exe = Join-Path $InstallDir 'argent.exe'
+$exe = Join-Path $InstallDir 'argentgo.exe'
 
 if (Test-Path -LiteralPath $exe) {
     Remove-Item -LiteralPath $exe -Force

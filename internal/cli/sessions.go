@@ -63,7 +63,7 @@ func runSessions(app App, _ context.Context, args []string) int {
 	case "--grep":
 		query, limit, filter, err := parseGrepArgs(args[1:])
 		if err != nil {
-			fmt.Fprintf(app.IO.Err, "argent: %v\n", err)
+			fmt.Fprintf(app.IO.Err, "argentgo: %v\n", err)
 			sessionsUsage(app.IO.Err)
 			return 2
 		}
@@ -111,7 +111,7 @@ func runSessions(app App, _ context.Context, args []string) int {
 		}
 		return sessionsImport(app, args[1], args[2:])
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: unknown sessions command %q\n", args[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: unknown sessions command %q\n", args[0])
 		sessionsUsage(app.IO.Err)
 		return 2
 	}
@@ -385,7 +385,7 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 			}
 			i = next
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected export argument %q\n", args[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected export argument %q\n", args[i])
 			return 2
 		}
 	}
@@ -430,7 +430,7 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 	// 并向用户报告这一限制。
 	if filter.active() {
 		if !isFilterableExport(format) {
-			fmt.Fprintf(app.IO.Err, "argent: --since/--until/--type only apply to json/yaml exports; %s export is unchanged\n", format)
+			fmt.Fprintf(app.IO.Err, "argentgo: --since/--until/--type only apply to json/yaml exports; %s export is unchanged\n", format)
 		} else {
 			data, err = filterExportArtifact(data, format, filter)
 			if err != nil {
@@ -466,19 +466,19 @@ func formatTime(ts time.Time) string {
 }
 
 func sessionsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent sessions list
-       argent sessions show <id>
-       argent sessions fidelity <id>
-       argent sessions rm <id>
-       argent sessions find <keyword>
-        argent sessions --grep <text> [--limit N] [--title substr] [--since time] [--until time] [--in dir] [--text substr]
-        argent sessions tree <id>
-        argent sessions undo <id> [-C <workspace>]
-        argent sessions retry <id> [checkpoint-id]
-        argent sessions discard-attempt <id> [attempt-id]
-        argent sessions name <id> <title>
-        argent sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
-        argent sessions import <file> [--format claude|codex|auto]
+	fmt.Fprint(w, `usage: argentgo sessions list
+       argentgo sessions show <id>
+       argentgo sessions fidelity <id>
+       argentgo sessions rm <id>
+       argentgo sessions find <keyword>
+        argentgo sessions --grep <text> [--limit N] [--title substr] [--since time] [--until time] [--in dir] [--text substr]
+        argentgo sessions tree <id>
+        argentgo sessions undo <id> [-C <workspace>]
+        argentgo sessions retry <id> [checkpoint-id]
+        argentgo sessions discard-attempt <id> [attempt-id]
+        argentgo sessions name <id> <title>
+        argentgo sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
+        argentgo sessions import <file> [--format claude|codex|auto]
 `)
 }
 

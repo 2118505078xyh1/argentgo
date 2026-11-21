@@ -77,7 +77,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			asJSON = true
 		case args[i] == "--repo":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --repo needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --repo needs a value")
 				return 2
 			}
 			i++
@@ -86,7 +86,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			repo = strings.TrimPrefix(args[i], "--repo=")
 		case args[i] == "--current":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --current needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --current needs a value")
 				return 2
 			}
 			i++
@@ -95,7 +95,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			current = strings.TrimPrefix(args[i], "--current=")
 		case args[i] == "--sha256":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --sha256 needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --sha256 needs a value")
 				return 2
 			}
 			i++
@@ -104,7 +104,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			checksum = strings.TrimPrefix(args[i], "--sha256=")
 		case args[i] == "--target":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --target needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --target needs a value")
 				return 2
 			}
 			i++
@@ -113,7 +113,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 			target = strings.TrimPrefix(args[i], "--target=")
 		case args[i] == "--asset":
 			if i+1 >= len(args) {
-				fmt.Fprintln(app.IO.Err, "argent: --asset needs a value")
+				fmt.Fprintln(app.IO.Err, "argentgo: --asset needs a value")
 				return 2
 			}
 			i++
@@ -121,7 +121,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--asset="):
 			assetName = strings.TrimPrefix(args[i], "--asset=")
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", args[i])
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", args[i])
 			updateUsage(app.IO.Err)
 			return 2
 		}
@@ -168,7 +168,7 @@ func runUpdate(app App, ctx context.Context, args []string) int {
 		for _, asset := range release.Assets {
 			fmt.Fprintf(app.IO.Out, "  asset: %s (%d bytes)\n", asset.Name, asset.Size)
 		}
-		fmt.Fprintln(app.IO.Out, "  run `argent update --apply` to install it")
+		fmt.Fprintln(app.IO.Out, "  run `argentgo update --apply` to install it")
 		return 0
 	}
 	if !newer {
@@ -361,7 +361,7 @@ func firstChecksum(text string) string {
 }
 
 func updateUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent update [--check] [--apply] [--repo <owner/name>] [--current <version>]
+	fmt.Fprint(w, `usage: argentgo update [--check] [--apply] [--repo <owner/name>] [--current <version>]
                      [--asset <name>] [--sha256 <hex>] [--target <path>]
 
 Checks the latest GitHub release (30s timeout). --apply picks the asset for this

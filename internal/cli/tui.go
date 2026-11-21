@@ -7,13 +7,13 @@ import (
 	"io"
 )
 
-// runTUI 实现 `argent tui [flags]`。
+// runTUI 实现 `argentgo tui [flags]`。
 func runTUI(app App, ctx context.Context, args []string) int {
 	opts, positional, err := parseArgs(args, app.env, app.IO.Err)
 	if err != nil {
 		var ue *usageError
 		if errors.As(err, &ue) {
-			fmt.Fprintln(app.IO.Err, "argent:", ue.msg)
+			fmt.Fprintln(app.IO.Err, "argentgo:", ue.msg)
 			tuiUsage(app.IO.Err)
 		}
 		return 2
@@ -23,7 +23,7 @@ func runTUI(app App, ctx context.Context, args []string) int {
 		return 0
 	}
 	if len(positional) > 0 {
-		fmt.Fprintln(app.IO.Err, "argent: tui takes flags only; the prompt is typed in the UI")
+		fmt.Fprintln(app.IO.Err, "argentgo: tui takes flags only; the prompt is typed in the UI")
 		tuiUsage(app.IO.Err)
 		return 2
 	}
@@ -35,9 +35,9 @@ func runTUI(app App, ctx context.Context, args []string) int {
 func (a App) runTUI(ctx context.Context, opts *Options) int {
 	// 当没有可绘制的终端时，在前端加载配置或绘制任何内容之前就退出，
 	// 例如包管理器校验器或用重定向流、无控制台运行二进制的 CI 作业。
-	// 这是 `argent tui` 和 `argent --tui` 两者的唯一汇合点。
+	// 这是 `argentgo tui` 和 `argentgo --tui` 两者的唯一汇合点。
 	if !a.hasTerminal() {
-		fmt.Fprintln(a.IO.Err, "argent needs an interactive terminal for the TUI; pass a prompt argument or pipe stdin for non-interactive use.")
+		fmt.Fprintln(a.IO.Err, "argentgo needs an interactive terminal for the TUI; pass a prompt argument or pipe stdin for non-interactive use.")
 		return 0
 	}
 	if a.TUI == nil {
@@ -52,7 +52,7 @@ func (a App) runTUI(ctx context.Context, opts *Options) int {
 }
 
 func tuiUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent tui [flags]
+	fmt.Fprint(w, `usage: argentgo tui [flags]
 
 Runs the full-screen terminal UI. Flags are the same as one-shot mode
 (--model, --provider, --profile, --sandbox-mode, --approval, --yolo, ...).

@@ -184,7 +184,7 @@ func TestDoctorHelpMentionsJSON(t *testing.T) {
 	if !strings.Contains(usage, "--json") {
 		t.Fatalf("usage 未包含 --json: %s", usage)
 	}
-	if !strings.Contains(usage, "usage: argent doctor") {
+	if !strings.Contains(usage, "usage: argentgo doctor") {
 		t.Fatalf("usage 被破坏: %s", usage)
 	}
 }

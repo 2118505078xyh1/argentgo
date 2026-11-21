@@ -69,7 +69,7 @@ func runConfig(app App, ctx context.Context, args []string) int {
 		fmt.Fprintf(app.IO.Out, "set %s in %s\n", args[1], path)
 		return 0
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: unknown config command %q\n", args[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: unknown config command %q\n", args[0])
 		configUsage(app.IO.Err)
 		return 2
 	}
@@ -188,10 +188,10 @@ func getDotted(root map[string]any, key string) (any, bool) {
 }
 
 func configUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent config get <dotted.key>
-       argent config set <dotted.key> <value>
-       argent config path
-       argent config show [--json] [-C <dir>] [-c <key=value>]
+	fmt.Fprint(w, `usage: argentgo config get <dotted.key>
+       argentgo config set <dotted.key> <value>
+       argentgo config path
+       argentgo config show [--json] [-C <dir>] [-c <key=value>]
 
 Values are parsed as JSON when possible, so `+"`set model gpt-4o`"+` stores a string
 and `+"`set maxTurns 20`"+` stores a number. Config files may contain comments and

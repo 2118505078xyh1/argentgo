@@ -70,7 +70,7 @@ func runDeviceLogin(app App, parent context.Context, provider string) int {
 }
 
 func deviceLoginUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent login <provider> --device
+	fmt.Fprint(w, `usage: argentgo login <provider> --device
 
 Runs the RFC 8628 device-code flow for a provider that supports it (for
 example github-copilot). The user code and verification URL are printed, then

@@ -13,7 +13,7 @@ import (
 func runCommands(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	asJSON := false
@@ -25,7 +25,7 @@ func runCommands(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			commandsUsage(app.IO.Err)
 			return 2
 		}
@@ -61,7 +61,7 @@ func runCommands(app App, _ context.Context, args []string) int {
 }
 
 func commandsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent commands [--json] [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo commands [--json] [-C <dir>]
 
 Lists the markdown slash commands discovered under .argent/commands and
 ~/.argentgo/commands. Plugin-provided commands are namespaced plugin:name.

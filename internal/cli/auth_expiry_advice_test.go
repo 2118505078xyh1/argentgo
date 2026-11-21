@@ -45,7 +45,7 @@ func TestAuthExpiryAdviceIncludesProvider(t *testing.T) {
 		if !strings.Contains(got, "anthropic") {
 			t.Fatalf("status %q: provider name missing from advice: %q", status, got)
 		}
-		if !strings.Contains(got, "argent login --provider anthropic") {
+		if !strings.Contains(got, "argentgo login --provider anthropic") {
 			t.Fatalf("status %q: re-login command missing from advice: %q", status, got)
 		}
 	}
@@ -73,9 +73,9 @@ func TestAuthExpiryAdviceEmptyProvider(t *testing.T) {
 		status auth.TokenState
 		want   string
 	}{
-		{auth.TokenExpired, "凭证已过期，请运行 argent login 重新登录"},
-		{auth.TokenExpiring, "凭证即将过期，建议运行 argent login 提前刷新"},
-		{auth.TokenUnknown, "请运行 argent auth 查看状态"},
+		{auth.TokenExpired, "凭证已过期，请运行 argentgo login 重新登录"},
+		{auth.TokenExpiring, "凭证即将过期，建议运行 argentgo login 提前刷新"},
+		{auth.TokenUnknown, "请运行 argentgo auth 查看状态"},
 	}
 	for _, tc := range cases {
 		got := authExpiryAdvice("   ", tc.status)

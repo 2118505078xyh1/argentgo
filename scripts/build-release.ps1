@@ -127,7 +127,7 @@ try {
             if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
             New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-            $binName = if ($os -eq 'windows') { 'argent.exe' } else { 'argent' }
+            $binName = if ($os -eq 'windows') { 'argentgo.exe' } else { 'argentgo' }
             $bin = Join-Path $stage $binName
             # windowsgui makes the exe a GUI-subsystem binary: no black console
             # window when launched from a desktop shortcut. CLI output still
@@ -137,13 +137,13 @@ try {
             if (-not (Test-Path -LiteralPath $bin)) { throw "missing binary for $os/$arch" }
 
             # The MyGo native frontend is the default desktop client. Build it
-            # beside argent.exe; it drives the engine over --rpc.
-            $nativeBin = Join-Path $stage 'argent-native.exe'
+            # beside argentgo.exe; it drives the engine over --rpc.
+            $nativeBin = Join-Path $stage 'argentgo-native.exe'
             & $go build -trimpath -ldflags '-s -w -H=windowsgui' -o $nativeBin ./native
             if ($LASTEXITCODE -ne 0) { throw "native frontend build failed for $os/$arch" }
             if (-not (Test-Path -LiteralPath $nativeBin)) { throw "missing native binary for $os/$arch" }
 
-            $zipName = "argent_${Version}_${os}_${arch}.zip"
+            $zipName = "argentgo_${Version}_${os}_${arch}.zip"
             $zip = Join-Path $OutDir $zipName
             if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
             Compress-Archive -LiteralPath @($bin, $nativeBin) -DestinationPath $zip -CompressionLevel Optimal

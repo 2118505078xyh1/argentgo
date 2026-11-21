@@ -24,12 +24,16 @@ const (
 	maxExtractedTotal = 1 << 30
 )
 
-// executableNames 是唯一有资格安装的两个 zip 条目。
-// 发布压缩包还附带 argent-native.exe，它绝不能替换
+// executableNames 是唯一有资格安装的 zip 条目。
+// 发布压缩包还附带 argentgo-native.exe，它绝不能替换
 // 正在运行的 CLI 二进制文件。
+// 旧键 argent/argent.exe 必须保留：历史 Release zip 仍用这些名字，
+// 去掉它们会让旧版本无法通过自更新升级到新版本。
 var executableNames = map[string]bool{
-	"argent":     true,
-	"argent.exe": true,
+	"argentgo":     true,
+	"argentgo.exe": true,
+	"argent":       true,
+	"argent.exe":   true,
 }
 
 // isZipAsset 报告资源名是否表示 zip 压缩包。
@@ -46,12 +50,12 @@ func isTarGzAsset(name string) bool {
 	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
 }
 
-// extractExecutable 从 zip 压缩包中将白名单中的 argent 可执行文件解包
+// extractExecutable 从 zip 压缩包中将白名单中的 argentgo 可执行文件解包
 // 到 dir，并返回解包文件的路径。
 //
 // 解包刻意受到限制：绝对路径、".." 遍历、
 // 符号链接及其他非普通条目都会被拒绝；条目数和字节
-// 总量有上限；且只写入 argent/argent.exe。
+// 总量有上限；且只写入 argentgo/argentgo.exe（旧包为 argent/argent.exe）。
 func extractExecutable(archive, dir string) (string, error) {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
@@ -98,12 +102,12 @@ func extractExecutable(archive, dir string) (string, error) {
 			return "", fmt.Errorf("zip archive exceeds the %d byte extraction limit", maxExtractedTotal)
 		}
 		if chosen != nil {
-			return "", errors.New("zip archive contains more than one argent executable")
+			return "", errors.New("zip archive contains more than one argentgo executable")
 		}
 		chosen, chosenName = entry, base
 	}
 	if chosen == nil {
-		return "", errors.New("zip archive has no argent or argent.exe entry")
+		return "", errors.New("zip archive has no argentgo or argentgo.exe entry")
 	}
 
 	// chosenName 是来自 safeArchivePath 的普通基础名，因此无法逃逸
@@ -141,7 +145,7 @@ func extractExecutable(archive, dir string) (string, error) {
 }
 
 // extractExecutableFromTarGz 从 gzip 压缩的 tar 压缩包中
-// 将白名单中的 argent 可执行文件解包到 dir，并返回解包文件的
+// 将白名单中的 argentgo 可执行文件解包到 dir，并返回解包文件的
 // 路径。它应用与 extractExecutable 相同的限制：路径和符号链接
 // 检查、条目/字节上限，以及单个白名单可执行文件。解压后的
 // 流整体受限，因此无论 tar 头声称什么，压缩炸弹都无法膨胀超过
@@ -201,7 +205,7 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 		}
 		if dest != "" {
 			_ = os.Remove(dest)
-			return "", errors.New("tar archive contains more than one argent executable")
+			return "", errors.New("tar archive contains more than one argentgo executable")
 		}
 		if header.Size < 0 || header.Size > maxExtractedEntry {
 			_ = os.Remove(dest)
@@ -243,7 +247,7 @@ func extractExecutableFromTarGz(archive, dir string) (string, error) {
 		}
 	}
 	if dest == "" {
-		return "", errors.New("tar archive has no argent or argent.exe entry")
+		return "", errors.New("tar archive has no argentgo or argentgo.exe entry")
 	}
 	return dest, nil
 }

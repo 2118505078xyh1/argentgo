@@ -15,7 +15,7 @@ import (
 func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Options, []string, error) {
 	before, after := splitTerminator(args)
 
-	fs := flag.NewFlagSet("argent", flag.ContinueOnError)
+	fs := flag.NewFlagSet("argentgo", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { writeUsage(stderr) }
 	values := &flagValues{}
@@ -45,7 +45,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		return nil, nil, err
 	}
 	// flag 区域中单独一个 "-" 是约定的从 stdin 读取 prompt 的写法
-	// （"argent [flags] -"），而不是字面的 prompt 词。把它去掉，
+	// （"argentgo [flags] -"），而不是字面的 prompt 词。把它去掉，
 	// 使 runMain 的空 prompt 分支改为消费 IO.In，而不是把 "-" 交给 runner。
 	// "--" 之后的词保持字面含义，因此那里末尾的 "-" 仍是真正的 prompt。
 	if len(positional) == 1 && positional[0] == "-" && len(after) == 0 {
@@ -343,7 +343,7 @@ func splitTerminator(args []string) (before, after []string) {
 //
 // 扫描遍历原始 argv（因此 help 仍然优先于其他无效的命令行），但会跳过
 // 被当作非 bool flag 值消费的 token。Go 的 flag 包无论下一个参数是否以 '-'
-// 开头都会把它当作 flag 的值，因此在 "argent --model -h" 中，"-h" 是模型
+// 开头都会把它当作 flag 的值，因此在 "argentgo --model -h" 中，"-h" 是模型
 // id，而非 help 请求。没有这个跳过逻辑，任何看起来像 help 的值都会把
 // 整个调用变成打印 usage 并以退出码 0 结束。
 func hasHelpFlag(fs *flag.FlagSet, args []string) bool {

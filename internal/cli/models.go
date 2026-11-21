@@ -21,11 +21,11 @@ func runModels(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		case strings.HasPrefix(arg, "-"):
-			fmt.Fprintf(app.IO.Err, "argent: unknown flag %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unknown flag %q\n", arg)
 			modelsUsage(app.IO.Err)
 			return 2
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			modelsUsage(app.IO.Err)
 			return 2
 		}
@@ -50,7 +50,7 @@ func runModels(app App, _ context.Context, args []string) int {
 }
 
 func modelsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent models [--json]
+	fmt.Fprint(w, `usage: argentgo models [--json]
 
 Lists the built-in provider templates: the id to pass to --provider, the wire
 protocol, the API root and the default model. Credentials are read from each

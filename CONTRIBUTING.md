@@ -16,7 +16,7 @@
 
 用 **Bug report** 模板开一个 Issue。包含：
 
-- argentgo 版本（`argent --version`）以及 OS/Go 版本。
+- argentgo 版本（`argentgo --version`）以及 OS/Go 版本。
 - 最小复现（CLI 命令，或在原生窗口中的操作步骤）。
 - 期望行为与实际行为，以及相关日志行（把密钥脱敏）。
 - 对于崩溃：说明你当时在做什么，以及是否有会话文件处于打开状态。
@@ -34,10 +34,10 @@ $env:GOOS='linux'; go build ./...; Remove-Item Env:GOOS     # cross-build
 go vet ./...
 gofmt -l .                            # must print nothing
 go test ./... -count=1
-go build -o argent-native.exe ./native
+go build -o argentgo-native.exe ./native
 ```
 
-用 `argent --help` 运行 CLI。原生客户端从 `native/` 构建，并通过已有的 stdio `--rpc` 传输与引擎通信。
+用 `argentgo --help` 运行 CLI。原生客户端从 `native/` 构建，并通过已有的 stdio `--rpc` 传输与引擎通信。
 
 ## 提交 Pull request
 
@@ -319,7 +319,7 @@ gofmt -l internal/archguard             # must print nothing
 
 - 引擎核心（`internal/{agent,session,llm,tools,security,...}`）保持只用标准库。`internal/app` 负责装配所有东西；库包接受接口（`ToolRunner`、`Approver`、`Recorder`、`Chatter`），而不是反向 import。
 - `github.com/egoist/mygo` 是唯一显式例外，`native/` 用它实现 GPU 渲染的桌面壳。它通过标准库的 `--rpc` 传输与引擎通信。它的传递需求（`purego`、`golang.org/x/*`）是这一个模块的间接依赖，不是新的核心依赖。
-- 唯一的桌面前端是 `native/`（MyGo）。浏览器前端及其 HTTP+SSE 桥已移除；`argent gui` 启动 `argent-native.exe`。`cmd/argent/gui.go` 只负责解析引擎并启动该二进制。
+- 唯一的桌面前端是 `native/`（MyGo）。浏览器前端及其 HTTP+SSE 桥已移除；`argentgo gui` 启动 `argentgo-native.exe`。`cmd/argent/gui.go` 只负责解析引擎并启动该二进制。
 - 不使用 cgo。所有代码都必须能用 `GOOS=linux go build ./...` 交叉编译。
 - 不要为了省几行代码而引入依赖。
 
@@ -359,8 +359,8 @@ go test -run=^$ -bench=. -benchmem ./internal/...
 
 1. **升级版本**：在 `internal/cli/cli.go`（`const Version`）、`internal/mcp/mcp.go`（`clientVersion`）和 `internal/lsp/client.go`（`initialize` 中的 `clientInfo.version`）里改。`scripts/build-release.ps1` 只读 `cli.go`，所以另外两处要手工同步。
 2. **更新 `CHANGELOG.md`**，加一个 `## v<version>` 章节；一致性检查会拒绝缺少它的发布。
-3. **在干净的树上做完整验证**：`gofmt -l .`、`go vet ./...`、`go test ./...`、`go test -race ./...`（Windows 宿主上需要 gcc/MinGW），以及无 cgo 交叉编译 `GOOS=linux GOARCH=amd64 go build ./...`。还要跑 `argent eval evals/core.json`、`argent gui` 端到端 smoke 测试，以及 `scripts/privacy-scan.ps1`（不得有密钥、token、真实邮箱或本地路径）。
-4. **构建产物**：运行 `powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1`——写出 `dist/release/argent_<version>_windows_amd64.zip`（两个二进制）、它的 `.sha256` 附带文件和 `checksums.txt`。`scripts/publish-win.ps1 -DryRun` 会重复所有门禁但不推送。
+3. **在干净的树上做完整验证**：`gofmt -l .`、`go vet ./...`、`go test ./...`、`go test -race ./...`（Windows 宿主上需要 gcc/MinGW），以及无 cgo 交叉编译 `GOOS=linux GOARCH=amd64 go build ./...`。还要跑 `argentgo eval evals/core.json`、`argentgo gui` 端到端 smoke 测试，以及 `scripts/privacy-scan.ps1`（不得有密钥、token、真实邮箱或本地路径）。
+4. **构建产物**：运行 `powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1`——写出 `dist/release/argentgo_<version>_windows_amd64.zip`（两个二进制）、它的 `.sha256` 附带文件和 `checksums.txt`。`scripts/publish-win.ps1 -DryRun` 会重复所有门禁但不推送。
 5. **提交、打标签、推送**：聚焦的提交，`git tag -a v<version>`，然后推送提交和标签。通过常规的 git 凭据助手认证（`git credential fill`）；这些文档和脚本里不存储任何凭据或 token。`scripts/publish-win.ps1` 可以自己完成打标签和推送。
 6. **发布 Release**——要么手动创建 GitHub Release 并上传 zip 加 `checksums.txt`，要么让 `scripts/publish-win.ps1` 触发工作流并等待它。只有 tag 不算发布：如果发布的 Release 缺少任一资产，发布脚本会失败。
 7. **更新本地桌面**：重新下载最新的 zip（或重跑 `scripts/install-win.ps1`），校验，并**同时**替换两个二进制，让桌面客户端保持最新版本。
@@ -409,7 +409,7 @@ powershell -ExecutionPolicy Bypass -File scripts/test-release-workflow.ps1 -Full
 
 工作流的 "Verify release artifacts" 步骤会在一个临时目录上复现：
 
-- **默认：** 伪造一个 `argent_<version>_windows_amd64.zip`，包含 `argent.exe` 和 `argent-native.exe`，外加一个匹配的 sha256sum 风格 `checksums.txt`——正是 `build-release.ps1` 产出的形状。
+- **默认：** 伪造一个 `argentgo_<version>_windows_amd64.zip`，包含 `argentgo.exe` 和 `argentgo-native.exe`，外加一个匹配的 sha256sum 风格 `checksums.txt`——正是 `build-release.ps1` 产出的形状。
 - **`-FullBuild`：** 先把真正的 `scripts/build-release.ps1 -SkipChecks -Tag v<version>` 跑进临时目录。
 
 然后 `scripts/verify-release.ps1 -ArtifactDir <temp> -Version <version>` 在一个独立的 PowerShell 进程中运行（与工作流调用方式完全一致），必须退出 `0`。它会校验 zip 存在、其中两个二进制齐全，以及 `checksums.txt` 中的 SHA-256 与实际字节一致。

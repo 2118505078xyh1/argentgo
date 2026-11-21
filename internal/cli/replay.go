@@ -23,12 +23,12 @@ func runReplay(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		case strings.HasPrefix(arg, "-"):
-			fmt.Fprintf(app.IO.Err, "argent: unknown flag %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unknown flag %q\n", arg)
 			replayUsage(app.IO.Err)
 			return 2
 		default:
 			if id != "" {
-				fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+				fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 				replayUsage(app.IO.Err)
 				return 2
 			}
@@ -129,7 +129,7 @@ func clipTranscript(text string) string {
 }
 
 func replayUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent replay [<id>] [--json]
+	fmt.Fprint(w, `usage: argentgo replay [<id>] [--json]
 
 Prints a stored session transcript. Without an id the most recently updated
 session is replayed. --json prints the raw record lines instead.

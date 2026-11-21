@@ -1,6 +1,7 @@
 argent.exe
 argent-native.exe
 argentgo.exe
+argentgo-native.exe
 /argent
 dist/
 *.log

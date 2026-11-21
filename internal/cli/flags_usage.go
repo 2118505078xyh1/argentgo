@@ -7,9 +7,9 @@ import (
 
 // writeUsage 把命令 Usage 打印到 w。
 func writeUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent [flags] <prompt>
-       argent [flags] -            (prompt from stdin)
-       argent <command> [args]
+	fmt.Fprint(w, `usage: argentgo [flags] <prompt>
+       argentgo [flags] -            (prompt from stdin)
+       argentgo <command> [args]
 
 commands:
   sessions list|show|fidelity|rm|find|discard-attempt  inspect stored sessions
@@ -45,7 +45,7 @@ commands:
 
 flags:
   -m, --model <id>              model id (default gpt-4o-mini)
-      --provider <name>         provider template id (see `+"`argent models`"+`)
+      --provider <name>         provider template id (see `+"`argentgo models`"+`)
       --profile <name>          named config profile
       --list-profiles           list config profiles and exit
       --base-url <url>          provider base URL

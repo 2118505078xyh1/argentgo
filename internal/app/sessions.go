@@ -69,7 +69,7 @@ func sessionIDFromArg(store *session.Store, value string) string {
 	return strings.TrimSuffix(filepath.Base(absolute), filepath.Ext(absolute))
 }
 
-// Sessions 返回供 `argent sessions` 和 RPC/ACP 传输使用的会话存储适配器。
+// Sessions 返回供 `argentgo sessions` 和 RPC/ACP 传输使用的会话存储适配器。
 func Sessions(storage string) cli.SessionStore {
 	return &sessionStore{dir: filepath.Join(storage, "sessions")}
 }

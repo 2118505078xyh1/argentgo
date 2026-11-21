@@ -1,4 +1,4 @@
-// Command argent 是终端入口点。
+// Command argentgo 是终端入口点。
 package main
 
 import (

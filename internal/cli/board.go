@@ -24,7 +24,7 @@ func runBoard(app App, _ context.Context, args []string) int {
 		return 0
 	}
 	if len(args) != 0 {
-		fmt.Fprintln(app.IO.Err, "argent: unexpected argument", args[0])
+		fmt.Fprintln(app.IO.Err, "argentgo: unexpected argument", args[0])
 		boardUsage(app.IO.Err)
 		return 2
 	}
@@ -79,7 +79,7 @@ func runBoard(app App, _ context.Context, args []string) int {
 }
 
 func boardUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent board
+	fmt.Fprint(w, `usage: argentgo board
 
 Prints a read-only board of background jobs and scheduled automations.
 `)

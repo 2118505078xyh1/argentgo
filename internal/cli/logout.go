@@ -17,12 +17,12 @@ func runLogout(app App, _ context.Context, args []string) int {
 			logoutUsage(app.IO.Out)
 			return 0
 		case strings.HasPrefix(arg, "-"):
-			fmt.Fprintf(app.IO.Err, "argent: unknown flag %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unknown flag %q\n", arg)
 			logoutUsage(app.IO.Err)
 			return 2
 		default:
 			if provider != "" {
-				fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+				fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 				logoutUsage(app.IO.Err)
 				return 2
 			}
@@ -110,7 +110,7 @@ func dedupeStrings(values []string) []string {
 }
 
 func logoutUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent logout [provider]
+	fmt.Fprint(w, `usage: argentgo logout [provider]
 
 Removes the provider's stored token and config-file API key. Without a
 provider every credential is removed.

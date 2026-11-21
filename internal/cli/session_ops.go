@@ -15,7 +15,7 @@ import (
 func sessionsUndo(app App, id string, args []string) int {
 	workspace, err := undoWorkspace(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	sess, err := session.OpenSession(app.sessionDir(), id)
@@ -66,7 +66,7 @@ func sessionsRetry(app App, id string, args []string) int {
 		checkpointID = args[0]
 	}
 	if len(args) > 1 {
-		fmt.Fprintf(app.IO.Err, "argent: unexpected retry argument %q\n", args[1])
+		fmt.Fprintf(app.IO.Err, "argentgo: unexpected retry argument %q\n", args[1])
 		return 2
 	}
 	fork, err := session.Retry(app.sessionDir(), id, checkpointID)
@@ -86,7 +86,7 @@ func sessionsDiscardAttempt(app App, id string, args []string) int {
 		attemptID = args[0]
 	}
 	if len(args) > 1 {
-		fmt.Fprintf(app.IO.Err, "argent: unexpected discard-attempt argument %q\n", args[1])
+		fmt.Fprintf(app.IO.Err, "argentgo: unexpected discard-attempt argument %q\n", args[1])
 		return 2
 	}
 
@@ -108,14 +108,14 @@ func sessionsDiscardAttempt(app App, id string, args []string) int {
 	if attemptID == "" {
 		attemptID, err = defaultDiscardAttemptID(sess)
 		if err != nil {
-			fmt.Fprintf(app.IO.Err, "argent: %v\n", err)
+			fmt.Fprintf(app.IO.Err, "argentgo: %v\n", err)
 			return 1
 		}
 	}
 	fork, err := sess.DiscardFailedAttempt(attemptID)
 	if err != nil {
 		if hint := discardAttemptHint(err); hint != "" {
-			fmt.Fprintf(app.IO.Err, "argent: %s\n", hint)
+			fmt.Fprintf(app.IO.Err, "argentgo: %s\n", hint)
 			return 1
 		}
 		fmt.Fprintln(app.IO.Err, "error:", err)

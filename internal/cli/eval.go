@@ -166,7 +166,7 @@ func parseEvalFile(data []byte) ([]evalScenario, error) {
 }
 
 func evalUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent eval [--live] <file.json>
+	fmt.Fprint(w, `usage: argentgo eval [--live] <file.json>
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.

@@ -97,7 +97,7 @@ func TestBashPromotesLongCommandInsteadOfBlocking(t *testing.T) {
 	if !strings.Contains(out, "job1") {
 		t.Fatalf("tool result has no job id: %q", out)
 	}
-	if !strings.Contains(out, "still running; check with `argent jobs`") {
+	if !strings.Contains(out, "still running; check with `argentgo jobs`") {
 		t.Fatalf("tool result has no job hint: %q", out)
 	}
 	if !strings.Contains(out, "partial-before-timeout") {

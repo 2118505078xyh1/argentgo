@@ -28,7 +28,7 @@ func runUsage(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			usageUsage(app.IO.Err)
 			return 2
 		}
@@ -115,7 +115,7 @@ func clipSessionID(id string) string {
 }
 
 func usageUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent usage [--json]
+	fmt.Fprint(w, `usage: argentgo usage [--json]
 
 Summarises stored sessions: model turns, prompt and completion tokens, and tool
 calls, read from the "turn" records each run appends.

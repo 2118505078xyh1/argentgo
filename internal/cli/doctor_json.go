@@ -73,7 +73,7 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 	if err != nil {
 		// 所有字段都是标量，正常不会走到这里；防御性地向 stderr 报错，
 		// 保持 stdout 为干净的可解析流。
-		fmt.Fprintln(app.IO.Err, "argent: doctor: encode JSON:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo: doctor: encode JSON:", err)
 		return 1
 	}
 	fmt.Fprintln(app.IO.Out, string(data))

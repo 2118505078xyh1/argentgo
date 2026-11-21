@@ -28,7 +28,7 @@ func runCompletion(app App, _ context.Context, args []string) int {
 	case "powershell", "pwsh":
 		fmt.Fprintf(app.IO.Out, powershellCompletion, flags, commands)
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: unknown shell %q (want bash, zsh or powershell)\n", args[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: unknown shell %q (want bash, zsh or powershell)\n", args[0])
 		completionUsage(app.IO.Err)
 		return 2
 	}
@@ -43,7 +43,7 @@ func withPrefix(values []string, prefix string) []string {
 	return out
 }
 
-const bashCompletion = `_argent_complete() {
+const bashCompletion = `_argentgo_complete() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local flags="%s"
   local commands="%s"
@@ -53,11 +53,11 @@ const bashCompletion = `_argent_complete() {
   fi
   COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
 }
-complete -F _argent_complete argent
+complete -F _argentgo_complete argentgo
 `
 
-const zshCompletion = `#compdef argent
-_argent() {
+const zshCompletion = `#compdef argentgo
+_argentgo() {
   local -a flags commands
   flags=(%s)
   commands=(%s)
@@ -67,10 +67,10 @@ _argent() {
     compadd -- $commands
   fi
 }
-_argent "$@"
+_argentgo "$@"
 `
 
-const powershellCompletion = `Register-ArgumentCompleter -Native -CommandName argent -ScriptBlock {
+const powershellCompletion = `Register-ArgumentCompleter -Native -CommandName argentgo -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $flags = '%s'.Split(' ')
   $commands = '%s'.Split(' ')
@@ -81,9 +81,9 @@ const powershellCompletion = `Register-ArgumentCompleter -Native -CommandName ar
 `
 
 func completionUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent completion bash|zsh|powershell
+	fmt.Fprint(w, `usage: argentgo completion bash|zsh|powershell
 
 Prints a completion script for the full flag surface and every subcommand.
-Example: argent completion bash > ~/.local/share/bash-completion/completions/argent
+Example: argentgo completion bash > ~/.local/share/bash-completion/completions/argentgo
 `)
 }

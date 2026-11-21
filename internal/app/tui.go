@@ -45,7 +45,7 @@ func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
 	return infos
 }
 
-// TUI 返回命令层为 `argent tui` / --tui 运行的前端。
+// TUI 返回命令层为 `argentgo tui` / --tui 运行的前端。
 //
 // 它复用 Execute 的 agent 接线：提示经由同一注册表、策略和会话存储流式输出，
 // 审批由 TUI 模态框回答。实时模型从 tui.Options.OnReady 捕获，

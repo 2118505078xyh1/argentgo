@@ -17,7 +17,7 @@ $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
 ```
 
 ```powershell
-go build -o argent.exe ./cmd/argent     # binary
+go build -o argentgo.exe ./cmd/argent     # binary
 go test ./...                            # all packages
 go test ./internal/agent -run TestName   # one test
 go test -bench . -benchtime=10x ./...    # benchmark smoke: assertions must pass
@@ -36,7 +36,7 @@ gofmt -l .                               # must print nothing
 桌面前端（`native/`，MyGo 原生 UI）：
 
 ```powershell
-go build -o argent-native.exe ./native   # the native chat window
+go build -o argentgo-native.exe ./native   # the native chat window
 ```
 
 浏览器前端已移除。`native/` 通过 `--rpc` 驱动引擎。
@@ -145,6 +145,6 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 
 ## 禁止
 
-- 绝不提交构建出来的二进制（`argent.exe`、`argent-native.exe`）或 `node_modules`。原生前端在发布时从 `native/` 源码构建。
+- 绝不提交构建出来的二进制（`argentgo.exe`、`argentgo-native.exe`）或 `node_modules`。原生前端在发布时从 `native/` 源码构建。
 - 未运行对应测试前，不要改动 `docs/TECHNICAL.md` 中的 Feature parity 状态。
 - 不要为了省 30 行代码而引入依赖。

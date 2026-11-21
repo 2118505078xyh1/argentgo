@@ -1,5 +1,7 @@
 # 更新日志
 
+- 未发布：CLI 命令名与发布产物统一改为 argentgo（保留 argent 兼容）。
+
 ## v0.8.1 — 2026-11-21
 
 内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（当前 HEAD a30b0e4 实测 355,578 行，同一口径。）
@@ -152,7 +154,7 @@
 
 ## v0.4.0 — 2026-11-19
 
-- **移除了浏览器前端；native MyGo 现在是唯一的桌面前端。** 删除了 `ui/`（SolidJS + Vite）、`internal/gui/`（HTTP+SSE 桥）、`internal/launcher/`（Edge/Chrome `--app`）、`scripts/build-ui.ps1` 以及 web 运行器/审批适配器。`argent gui` 现在始终启动 `argent-native.exe`。
+- **移除了浏览器前端；native MyGo 现在是唯一的桌面前端。** 删除了 `ui/`（SolidJS + Vite）、`internal/gui/`（HTTP+SSE 桥）、`internal/launcher/`（Edge/Chrome `--app`）、`scripts/build-ui.ps1` 以及 web 运行器/审批适配器。`argentgo gui` 现在始终启动 `argentgo-native.exe`。
 - 简化了 `cmd/argent/gui.go`，只做引擎解析 + 原生前端启动；移除了 `--web`。发布 zip 与构建脚本不再构建/嵌入 web UI。
 - 文档（README、AGENTS 和合并后的 docs）更新为原生-only 架构。核心包仍然只用标准库；MyGo 是唯一的第三方依赖，且仅限于 `native/`。
 
@@ -167,21 +169,21 @@
 
 ## v0.3.0 — 2026-11-19
 
-- **前端全面迁移到 MyGo 原生客户端。** `argent gui` 现在默认启动 `argent-native.exe`：纯 Go 原生 UI（单进程，约 76 MB 工作集，空闲 CPU 0%），没有 WebView2。它通过已有的 stdio `--rpc` 传输驱动引擎，因此核心包保持只用标准库。
+- **前端全面迁移到 MyGo 原生客户端。** `argentgo gui` 现在默认启动 `argentgo-native.exe`：纯 Go 原生 UI（单进程，约 76 MB 工作集，空闲 CPU 0%），没有 WebView2。它通过已有的 stdio `--rpc` 传输驱动引擎，因此核心包保持只用标准库。
 - 原生客户端用 MyGo 的 `ui` 渲染侧栏、消息列表、工具卡片、流式 Markdown 回复、审批、按键帽以及深色/浅色主题。
 - 移除了 Wails 和实验性的 Win32 syscall 窗口；唯一的第三方 Go 依赖是 MyGo，且仅限于 `native/` 桌面壳。
-- 发布 zip 现在同时包含 `argent.exe`（引擎/CLI）和 `argent-native.exe`。`argent gui --web` 保留浏览器 UI 作为后备。
+- 发布 zip 现在同时包含 `argentgo.exe`（引擎/CLI）和 `argentgo-native.exe`。`argentgo gui --web` 保留浏览器 UI 作为后备。
 
 ## v0.2.1 — 2026-11-19
 
-- 桌面壳从实验性的自绘 Win32 窗口切换到 **Wails v3 + WebView2**（`argent gui` 默认）。它加载已有的本地 HTTP+SSE 桥，因此前端与所有 IPC 保持不变；WebView2 提供成熟文本选择、Markdown 渲染和输入处理。
+- 桌面壳从实验性的自绘 Win32 窗口切换到 **Wails v3 + WebView2**（`argentgo gui` 默认）。它加载已有的本地 HTTP+SSE 桥，因此前端与所有 IPC 保持不变；WebView2 提供成熟文本选择、Markdown 渲染和输入处理。
 - `--native` 保留旧的 syscall 窗口供参考；`--web` 保留 Edge/Chrome `--app` 路径。Wails 入口仅 Windows 可用，其他平台有桩实现。
 - 消除了间歇性启动挂起和窗口离屏/最小化问题：WebView2 窗口位置由 Wails 处理，exe 仍是 GUI 子系统二进制，所以不会出现黑色控制台。
 - 核心包仍然只用标准库；桌面壳有意引入 Wails 作为唯一的第三方依赖（`go.mod` 记录了该例外）。
 
 ## v0.2.0 — 2026-11-19
 
-- **原生 GUI** 在 Windows 上取代浏览器壳：纯 Win32 syscall GDI 绘制，无 WebView、无本地 HTTP 服务、无 token。`argent gui --web` 保留可选的 SolidJS 界面。
+- **原生 GUI** 在 Windows 上取代浏览器壳：纯 Win32 syscall GDI 绘制，无 WebView、无本地 HTTP 服务、无 token。`argentgo gui --web` 保留可选的 SolidJS 界面。
 - 移植了可移植的 OpenCode 模式：沙箱/拒绝过滤的工具目录、轮次上限处的无工具最终回答、类型化密钥脱敏、多环境凭据链、重试分类、配置诊断 / `{env:}` / `{file:}` 替换 / JSONC、权限通配符规则，以及有界的 context/session/TUI 内存占用。
 - GUI 视觉打磨：语义化配色、居中的 720px 阅读列、工具行状态、闪烁的流式光标、审批按键帽、双缓冲绘制。
 - 修复了 80ms 动画计时器导致的绘制循环挂起，并去掉了黑色控制台窗口：发布二进制构建为 GUI 子系统可执行文件，同时从已有终端运行时的 CLI 输出仍然可用。

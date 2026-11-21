@@ -198,7 +198,7 @@ func TestHookBridgeAcceptsConfigPathAndTildePath(t *testing.T) {
 		Cfg:            config.Config{Raw: map[string]any{"hooks": "~/.argent/my-hooks.json"}},
 		HookDispatcher: fake,
 	}
-	// 信任键是解析后的路径，与 `argent hooks` 一致。
+	// 信任键是解析后的路径，与 `argentgo hooks` 一致。
 	trustHookFile(t, path, storage)
 	if bridge := newHookBridge(res, "s", nil); bridge == nil {
 		t.Fatal("config path document was not loaded")

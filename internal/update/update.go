@@ -1,4 +1,4 @@
-// Package update 检查 GitHub 发布以获取更新的 argent 构建，下载
+// Package update 检查 GitHub 发布以获取更新的 argentgo 构建，下载
 // 带校验和的合适资源，并原子地替换正在运行的二进制文件。
 //
 // 仅使用标准库：发布元数据来自
@@ -34,7 +34,7 @@ type Asset struct {
 	Size int64  `json:"size"`
 }
 
-// Release 是 argent 使用的 GitHub 发布负载的一个子集。
+// Release 是 argentgo 使用的 GitHub 发布负载的一个子集。
 type Release struct {
 	Repo        string    `json:"-"`
 	Tag         string    `json:"tag_name"`

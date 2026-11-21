@@ -16,7 +16,7 @@ import (
 func runPolicy(app App, _ context.Context, args []string) int {
 	cwd, rest, err := splitRoot(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
 	}
 	asJSON := false
@@ -28,7 +28,7 @@ func runPolicy(app App, _ context.Context, args []string) int {
 		case arg == "--json":
 			asJSON = true
 		default:
-			fmt.Fprintf(app.IO.Err, "argent: unexpected argument %q\n", arg)
+			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			policyUsage(app.IO.Err)
 			return 2
 		}
@@ -106,7 +106,7 @@ func enabledWord(on bool) string {
 }
 
 func policyUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent policy [--json] [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo policy [--json] [-C <dir>]
 
 Prints the effective sandbox mode, approval mode, provider selection and the
 policy document from the merged config. No tool is run.

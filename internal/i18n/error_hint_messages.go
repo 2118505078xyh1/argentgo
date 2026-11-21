@@ -47,8 +47,8 @@ var errorHintMessageTable = map[string]errorHintMessageEntry{
 		"当前为非交互环境：请改用 --yes 等显式标志或命令行参数提供输入，避免在无法读取终端时阻塞",
 	},
 	ErrorHintCredentials: {
-		"missing or invalid credentials: run argent login to sign in again, or configure a correct API key and retry",
-		"缺少或无效的凭证：请运行 argent login 重新登录，或配置正确的 API Key 后重试",
+		"missing or invalid credentials: run argentgo login to sign in again, or configure a correct API key and retry",
+		"缺少或无效的凭证：请运行 argentgo login 重新登录，或配置正确的 API Key 后重试",
 	},
 }
 

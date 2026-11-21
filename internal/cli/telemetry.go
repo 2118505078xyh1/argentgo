@@ -41,7 +41,7 @@ func runTelemetry(app App, _ context.Context, args []string) int {
 	case "off":
 		return telemetryOff(app)
 	default:
-		fmt.Fprintf(app.IO.Err, "argent: unknown telemetry action %q\n", action)
+		fmt.Fprintf(app.IO.Err, "argentgo: unknown telemetry action %q\n", action)
 		telemetryUsage(app.IO.Err)
 		return 2
 	}
@@ -73,7 +73,7 @@ func telemetryOff(app App) int {
 }
 
 func telemetryUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent telemetry status|off
+	fmt.Fprint(w, `usage: argentgo telemetry status|off
 
 Reports the personal-build telemetry state, or saves a no-op "off" preference
 under the storage directory. Nothing is ever transmitted.

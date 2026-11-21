@@ -30,7 +30,7 @@ type configShowField struct {
 func runConfigShow(app App, _ context.Context, args []string) int {
 	cwd, overrides, asJSON, help, err := configShowFlags(args)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "argent:", err)
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		configShowUsage(app.IO.Err)
 		return 2
 	}
@@ -307,7 +307,7 @@ func writeConfigShowText(w io.Writer, cfg config.Config, fields []configShowFiel
 }
 
 func configShowUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argent config show [--json] [-C <dir>] [-c <key=value>]
+	fmt.Fprint(w, `usage: argentgo config show [--json] [-C <dir>] [-c <key=value>]
 
 Prints the effective configuration after all layers are merged, with secrets
 replaced by `+"`"+`<redacted>`+"`"+`. Each value is labelled with its source:

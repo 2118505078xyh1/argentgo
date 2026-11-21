@@ -27,7 +27,7 @@ assignees: ''
 
 **复现步骤**
 复现该行为的步骤：
-1. 运行 `argent ...` / 打开原生窗口，然后 ...
+1. 运行 `argentgo ...` / 打开原生窗口，然后 ...
 2. ...
 3. 看到错误
 
@@ -70,7 +70,7 @@ argentgo 是一个本地、离线优先、只用标准库的 Go 框架，以单�
 
 ## 环境（bug 和文档问题）
 
-- argentgo 版本（`argent --version`）：
+- argentgo 版本（`argentgo --version`）：
 - 操作系统 / Windows 版本：
 - Go 版本（如果从源码构建）：
 - 前端：原生 MyGo 窗口 / CLI / TUI / `--rpc`：

@@ -22,15 +22,15 @@
 
 完整安装指南见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md#install)。最快路径（Windows 预编译包）：从
 [最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载
-`argent_<version>_windows_amd64.zip` 与 `checksums.txt`，校验后解压运行：
+`argentgo_<version>_windows_amd64.zip` 与 `checksums.txt`，校验后解压运行：
 
 ```powershell
 sha256sum -c checksums.txt                              # Git Bash；PowerShell 用 Get-FileHash
-Expand-Archive .\argent_<version>_windows_amd64.zip -DestinationPath .
-.\argent.exe --version
+Expand-Archive .\argentgo_<version>_windows_amd64.zip -DestinationPath .
+.\argentgo.exe --version
 ```
 
-解压后让 `argent-native.exe` 与 `argent.exe` 保持在同一目录（`argent gui` 需要它）。
+解压后让 `argentgo-native.exe` 与 `argentgo.exe` 保持在同一目录（`argentgo gui` 需要它）。
 桌面客户端**始终跟随最新 Release**：请从同一个 zip 中取出两个二进制，保证版本一致。
 
 从源码安装（`go install`，需 Go 1.27.3+）：
@@ -58,38 +58,38 @@ go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 # 配好 key（也支持 ARGENT_API_KEY 环境变量或配置文件）
 $env:ARGENT_API_KEY = "<your-key>"
 
-argent "把 src 里的 unwrap 都找出来"     # 一次性提示，打印回答
-argent --mode json "列出目录"            # 严格 JSONL：事件 + 结果
-argent tui                                # 全屏终端 UI（SSH 也能跑）
-argent gui                                # Windows 原生聊天窗口（MyGo，无浏览器）
+argentgo "把 src 里的 unwrap 都找出来"     # 一次性提示，打印回答
+argentgo --mode json "列出目录"            # 严格 JSONL：事件 + 结果
+argentgo tui                                # 全屏终端 UI（SSH 也能跑）
+argentgo gui                                # Windows 原生聊天窗口（MyGo，无浏览器）
 ```
 
 `<your-key>` 是占位符，请替换成你自己的 API key，不要提交到版本库。也可以用
-`argent login <provider> --api-key <your-key>` 把 key 存进配置文件（不会回显）；详见
+`argentgo login <provider> --api-key <your-key>` 把 key 存进配置文件（不会回显）；详见
 [docs/USER_GUIDE.md](docs/USER_GUIDE.md#quickstart)。
 
 想换成国产模型？内置模板直接切：
 
 ```powershell
-argent --provider deepseek  "帮我写个函数"
-argent --provider qwen      "解释这段代码"
-argent --provider anthropic "review 一下这个改动"
+argentgo --provider deepseek  "帮我写个函数"
+argentgo --provider qwen      "解释这段代码"
+argentgo --provider anthropic "review 一下这个改动"
 ```
 
-`argent gui` 在 Windows 上默认启动 **MyGo 原生聊天窗口**（`argent-native.exe`）：
+`argentgo gui` 在 Windows 上默认启动 **MyGo 原生聊天窗口**（`argentgo-native.exe`）：
 纯 Go 绘制、无 WebView、单进程约 76 MB、空闲 0% CPU，视觉按 Claude / Codex 风格
-（暖灰底、珊瑚色强调）。它通过已有的 `--rpc` 传输驱动 `argent.exe` 引擎，核心包保持
+（暖灰底、珊瑚色强调）。它通过已有的 `--rpc` 传输驱动 `argentgo.exe` 引擎，核心包保持
 stdlib-only；只有桌面壳这一层依赖 MyGo。
 
-发布包同时包含 `argent.exe`（引擎/CLI）和 `argent-native.exe`（原生前端）。
+发布包同时包含 `argentgo.exe`（引擎/CLI）和 `argentgo-native.exe`（原生前端）。
 浏览器前端已移除，桌面只走原生窗口。详见 [docs/TECHNICAL.md](docs/TECHNICAL.md#frontend-decision)。
 
 其他入口：
 
 ```powershell
-argent --serve --serve-token <token>      # HTTP + SSE
-argent --rpc                              # stdio 上的换行分隔 JSON-RPC
-argent acp                                # Agent Client Protocol 服务端
+argentgo --serve --serve-token <token>      # HTTP + SSE
+argentgo --rpc                              # stdio 上的换行分隔 JSON-RPC
+argentgo acp                                # Agent Client Protocol 服务端
 ```
 
 ## 它会做什么
@@ -97,7 +97,7 @@ argent acp                                # Agent Client Protocol 服务端
 ```
 你：把 login 的 token 校验抽成函数，并补测试
 
-argent：
+argentgo：
   ✓ 读取 internal/auth/login.go
   ✓ 编辑：抽出 validateToken(...)
   ✓ 写入 internal/auth/login_test.go
@@ -120,9 +120,9 @@ argent：
 | `sessions --grep <词>` | 在所有会话里搜索（含脱敏后的尝试片段） |
 | `sessions tree` | 查看 fork / retry 关系树 |
 | `sessions export` | 导出为离线 HTML |
-| `argent --undo --session <id>` | 从最近检查点恢复文件（冲突编辑会拒绝覆盖） |
-| `argent --retry --session <id>` | 从检查点分叉重跑 |
-| `argent --title "名字"` | 覆盖自动生成的会话标题 |
+| `argentgo --undo --session <id>` | 从最近检查点恢复文件（冲突编辑会拒绝覆盖） |
+| `argentgo --retry --session <id>` | 从检查点分叉重跑 |
+| `argentgo --title "名字"` | 覆盖自动生成的会话标题 |
 
 ## 配置
 
@@ -149,7 +149,7 @@ argent：
 
 ## 工作区安全模型
 
-这不是操作系统级隔离；要强隔离请把 argent 放进容器。
+这不是操作系统级隔离；要强隔离请把 argentgo 放进容器。
 
 - 每个文件工具都把路径解析到工作区内，`..` 和绝对路径逃逸一律拒绝；符号链接不能绕过白名单。
 - 修改类工具走同一条链：**策略（硬门禁）→ 审批 → 脱敏审计日志**。策略拒绝直接结束运行；
@@ -174,12 +174,12 @@ argent：
 
 ```powershell
 $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"   # Go 不在 PATH 时
-go build -o argent.exe ./cmd/argent
+go build -o argentgo.exe ./cmd/argent
 go test ./...
 go vet ./...
 gofmt -l .                        # 必须无输出
 
-go build -o argent-native.exe ./native   # 原生桌面前端
+go build -o argentgo-native.exe ./native   # 原生桌面前端
 ```
 
 一键发布 Windows（需要带 `repo` 权限的 GitHub token）：

@@ -13,7 +13,7 @@ func unsupportedFlag(opts *Options) string {
 	case opts.Worktree != "":
 		return "--worktree is not migrated yet: create the worktree yourself, then pass it with -C"
 	case opts.Background:
-		return "--background is not migrated yet: run argent under your process supervisor"
+		return "--background is not migrated yet: run argentgo under your process supervisor"
 	case opts.EnableBrowser:
 		return "--enable-browser is not migrated yet: the browser tool is not ported"
 	case opts.EnableDesktop:
@@ -27,7 +27,7 @@ func unsupportedFlag(opts *Options) string {
 	case opts.WorkflowJournal != "":
 		return "--workflow-journal is not migrated yet: workflow journals are not ported"
 	case opts.GUI:
-		return "--gui is not migrated yet: the desktop shell is a later wave; use `argent tui`"
+		return "--gui is not migrated yet: the desktop shell is a later wave; use `argentgo tui`"
 	}
 	return ""
 }

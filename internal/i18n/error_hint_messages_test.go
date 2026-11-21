@@ -40,8 +40,8 @@ func TestErrorHintMessageKnownKeys(t *testing.T) {
 			"non-interactive environment: provide input through explicit flags such as --yes or command-line arguments, to avoid blocking when the terminal cannot be read",
 			"当前为非交互环境：请改用 --yes 等显式标志或命令行参数提供输入，避免在无法读取终端时阻塞"},
 		{ErrorHintCredentials,
-			"missing or invalid credentials: run argent login to sign in again, or configure a correct API key and retry",
-			"缺少或无效的凭证：请运行 argent login 重新登录，或配置正确的 API Key 后重试"},
+			"missing or invalid credentials: run argentgo login to sign in again, or configure a correct API key and retry",
+			"缺少或无效的凭证：请运行 argentgo login 重新登录，或配置正确的 API Key 后重试"},
 	}
 	for _, c := range cases {
 		if got := ErrorHintMessage(EnUS, c.key); got != c.en {
@@ -77,8 +77,8 @@ func TestErrorHintMessageFormatting(t *testing.T) {
 		args []any
 		want string
 	}{
-		{"formatted en", EnUS, []any{"argent login", 3}, "run argent login with 3 retries"},
-		{"formatted zh", ZhCN, []any{3, "argent login"}, "用 3 次重试运行 argent login"},
+		{"formatted en", EnUS, []any{"argentgo login", 3}, "run argentgo login with 3 retries"},
+		{"formatted zh", ZhCN, []any{3, "argentgo login"}, "用 3 次重试运行 argentgo login"},
 		{"no args en", EnUS, nil, "run %s with %d retries"},
 		{"no args zh", ZhCN, nil, "用 %d 次重试运行 %s"},
 	}
@@ -186,7 +186,7 @@ func TestErrorHintMessageCJK(t *testing.T) {
 
 // TestErrorHintMessageDoesNotMutateArgs 验证调用不修改传入的参数切片或其指向的数据。
 func TestErrorHintMessageDoesNotMutateArgs(t *testing.T) {
-	args := []any{"argent login", 7}
+	args := []any{"argentgo login", 7}
 	original := append([]any(nil), args...)
 	_ = ErrorHintMessage(ZhCN, ErrorHintCredentials, args...)
 	if !reflect.DeepEqual(args, original) {

@@ -315,7 +315,7 @@ func TestProviderResolution(t *testing.T) {
 		t.Errorf("custom provider did not inherit built-in fields: %+v", custom)
 	}
 	// Load 不得把提供方的 env 键折叠进顶层 apiKey：
-	// 那样会凌驾于 app.Resolve 中 `argent login` 的键之上。
+	// 那样会凌驾于 app.Resolve 中 `argentgo login` 的键之上。
 	// env 回退现在位于应用凭据链的末尾。
 	if cfg.APIKey != "" {
 		t.Errorf("apiKey = %q, want empty (provider env must not pollute the top level)", cfg.APIKey)
@@ -388,7 +388,7 @@ func TestLoadBOMOnlyFileIsIgnored(t *testing.T) {
 
 // 提供方的 API key 环境变量必须停留在凭据链
 // （app.Resolve）的最底部，而不是被复制进顶层 apiKey，
-// 否则会凌驾于 providers.<name>.apiKey 下 `argent login` 的键之上。
+// 否则会凌驾于 providers.<name>.apiKey 下 `argentgo login` 的键之上。
 func TestLoadDoesNotPolluteAPIKeyFromProviderEnv(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeJSONFile(t, filepath.Join(cwd, "argent.json"), map[string]any{

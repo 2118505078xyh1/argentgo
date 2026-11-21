@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// `argent auth` reports "configured" for the same provider keys that
+// `argentgo auth` reports "configured" for the same provider keys that
 // app.Resolve now consumes; the aliases must stay in sync with config.Provider.
 func TestConfigProviderKeysMirrorsResolvedKeySources(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")

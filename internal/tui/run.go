@@ -165,17 +165,17 @@ func Run(ctx context.Context, opts Options) error {
 			restore = fn
 		}
 	}
-	// 启用 SGR 鼠标报告 + 拖拽跟踪，使终端发送按下、
-	// 拖拽和滚轮事件（在 keys.go 中解码）用于文本选择。括号粘贴
+	// 启用 SGR 鼠标报告（1006 字符坐标，而非 1016 像素坐标）+ 拖拽跟踪，
+	// 使终端发送按下、拖拽和滚轮事件（在 keys.go 中解码）用于文本选择。括号粘贴
 	// 防止多行输入被当作按键读取（以及
 	// 在第一个回车时提交）。
-	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h"+enablePaste)
+	fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			restore()
-			fmt.Fprint(out, "\x1b[?1002l\x1b[?1016l"+disablePaste+showCursor+leaveAltScreen)
+			fmt.Fprint(out, "\x1b[?1002l\x1b[?1006l"+disablePaste+showCursor+leaveAltScreen)
 			if body := model.Plain(); body != "" {
 				fmt.Fprint(out, body)
 			}
@@ -263,7 +263,7 @@ func Run(ctx context.Context, opts Options) error {
 	forceRedraw := false
 	prevEditorScreen := externalEditorScreen
 	externalEditorScreen = func(fn func()) {
-		fmt.Fprint(out, disablePaste+"\x1b[?1002l\x1b[?1016l"+showCursor+leaveAltScreen)
+		fmt.Fprint(out, disablePaste+"\x1b[?1002l\x1b[?1006l"+showCursor+leaveAltScreen)
 		if real {
 			restore()
 		}
@@ -273,7 +273,7 @@ func Run(ctx context.Context, opts Options) error {
 				restore = again
 			}
 		}
-		fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1016h"+enablePaste)
+		fmt.Fprint(out, enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 		buffer.Invalidate()
 		forceRedraw = true
 	}

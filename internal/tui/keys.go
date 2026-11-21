@@ -242,6 +242,29 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		}
 		return Key{Kind: KindPaste, Text: string(rest[:end])}, 6 + end + 6, true
 	}
+	// 旧式 X10 鼠标报告：ESC [ M Cb Cx Cy，共 6 字节。
+	// CSI M（DL 删行）是输出序列，终端不会把它当输入发回应用，
+	// 因此 ESC [ M 作为鼠标引导没有歧义。必须先于通用 CSI 循环处理：
+	// 否则 Cb/Cx/Cy 这三个带 0x20 偏移的可打印字节会被当作普通
+	// rune 解码并插入输入框（表现为乱码）。
+	if b[1] == '[' && len(b) >= 3 && b[2] == 'M' {
+		return decodeX10Mouse(b)
+	}
+	// SGR 鼠标报告：ESC [ < Cb ; Cx ; Cy M/m。正文是十进制数字，
+	// 必须由结尾的 M/m 定界；若交给通用 CSI 循环，正文里的第一个
+	// 0x40..0x7e 字节会被误当终结符，余下字节变成 rune。
+	// 合法报告仍走 parseCSI，行为与原先完全一致。
+	if b[1] == '[' && len(b) >= 3 && b[2] == '<' {
+		for i := 3; i < len(b); i++ {
+			if b[i] == 'M' || b[i] == 'm' {
+				return parseCSI(string(b[2:i]), b[i]), i + 1, true
+			}
+		}
+		if len(b) > 32 {
+			return Key{Kind: KindIgnore}, 1, true
+		}
+		return Key{}, 0, false
+	}
 	for i := 2; i < len(b); i++ {
 		if b[i] >= 0x40 && b[i] <= 0x7e {
 			return parseCSI(string(b[2:i]), b[i]), i + 1, true
@@ -323,9 +346,8 @@ func parseCSI(body string, final byte) Key {
 // 结果对任何非格式良好的 SGR 报告为 false，使
 // 调用方回退到普通的"忽略"路径。
 //
-// 旧式 X10 报告（ESC [ M 后跟三个原始字节）有意
-// 不解码：SGR 模式（DECSET 1016）下的现代终端只发出
-// 这里处理的形式，额外的模式会让字节流解码器复杂化。
+// 旧式 X10 报告（ESC [ M 后跟三个原始字节）由 decodeX10Mouse
+// 处理。SGR 模式（DECSET 1006）下的现代终端发出这里处理的形式。
 func decodeSGRMouse(body string, release bool) (Key, bool) {
 	if !strings.HasPrefix(body, "<") {
 		return Key{}, false
@@ -357,6 +379,49 @@ func decodeSGRMouse(body string, release bool) (Key, bool) {
 		ev.Kind, key.Kind = MousePress, KindMousePress
 	}
 	return key, true
+}
+
+// decodeX10Mouse 解码旧式 X10 鼠标报告 ESC [ M Cb Cx Cy（共 6 字节）。
+// 三个参数字节都带 0x20 偏移，col/row 基于 1。按钮状态位与 SGR 一致：
+// 低两位 0/1/2 为左/中/右键、3 为释放；0x20 为拖动；0x40 为滚轮
+// （低位 0 上、1 下）；0x04/0x08/0x10 是 Shift/Alt/Ctrl 修饰键。
+// 无法识别的字节同样必须吞掉整包，绝不让坐标字节变成 rune。
+func decodeX10Mouse(b []byte) (Key, int, bool) {
+	if len(b) < 6 {
+		return Key{}, 0, false // 等齐整包，Decoder 支持跨 chunk 增量
+	}
+	cb, cx, cy := b[3], b[4], b[5]
+	state := 0
+	if cb >= 0x20 {
+		state = int(cb) - 0x20
+	}
+	col, row := 1, 1
+	if cx > 0x20 {
+		col = int(cx) - 0x20
+	}
+	if cy > 0x20 {
+		row = int(cy) - 0x20
+	}
+	ev := &MouseEvent{Button: state, Col: col, Row: row}
+	key := Key{Mouse: ev}
+	switch {
+	case state&0x40 != 0: // 滚轮：低位 0 上、1 下
+		if state&0x01 != 0 {
+			ev.Kind, key.Kind = MouseWheelDown, KindScrollDown
+		} else {
+			ev.Kind, key.Kind = MouseWheelUp, KindScrollUp
+		}
+	case state&0x03 == 0x03: // X10 以按钮位 3 表示释放
+		ev.Kind, key.Kind = MouseRelease, KindMouseRelease
+	case state&0x20 != 0: // 按住按钮拖动
+		ev.Kind, key.Kind = MouseDrag, KindMouseDrag
+	case state&0x03 == 0x00:
+		// 未修改的左键保留历史 Kind 值（与 SGR 解码一致）。
+		ev.Kind, key.Kind = MousePress, KindIgnore
+	default: // 中键或右键
+		ev.Kind, key.Kind = MousePress, KindMousePress
+	}
+	return key, 6, true
 }
 
 // KeyBinding 是底部按键栏的一项。Key 是首先绘制的标签

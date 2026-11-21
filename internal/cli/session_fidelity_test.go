@@ -157,7 +157,7 @@ func TestSessionsFidelityUsageAndArgValidation(t *testing.T) {
 	if code := RunWith(App{IO: stdio}, []string{"sessions", "-h"}); code != 0 {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "argent sessions fidelity <id>") {
+	if !strings.Contains(out.String(), "argentgo sessions fidelity <id>") {
 		t.Fatalf("sessions usage 缺少 fidelity: %q", out.String())
 	}
 	stdio, out, _ = newTestIO("", nil)

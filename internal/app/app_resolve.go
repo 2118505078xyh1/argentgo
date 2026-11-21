@@ -131,7 +131,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	baseURL = firstNonEmpty(baseURL, openAIBaseURL)
 	model = firstNonEmpty(model, openAIModel)
 
-	// 凭据优先级：显式标志 / ARGENT_* 环境变量 > 顶层配置 > `argent login` 存储在
+	// 凭据优先级：显式标志 / ARGENT_* 环境变量 > 顶层配置 > `argentgo login` 存储在
 	// providers.<name>.apiKey 下的密钥 > 提供方自身的 API key 环境变量。
 	providerName := template.Name
 	if providerName == "" {
@@ -264,7 +264,7 @@ func resolveTemplate(cfg config.Config, opts cli.Options) (providerChoice, bool,
 		if choice, ok := lookupProvider(cfg, name); ok {
 			return choice, true, nil
 		}
-		return providerChoice{}, false, fmt.Errorf("unknown provider %q (see `argent models`)", name)
+		return providerChoice{}, false, fmt.Errorf("unknown provider %q (see `argentgo models`)", name)
 	}
 	for _, name := range []string{cfg.ProviderName, opts.Protocol, cfg.Protocol} {
 		if strings.TrimSpace(name) == "" {

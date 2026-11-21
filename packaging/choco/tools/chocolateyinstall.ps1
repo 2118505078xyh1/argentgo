@@ -1,5 +1,5 @@
 # Chocolatey install script for argentgo (Windows amd64 only).
-# The checksum is the SHA-256 line for argent_<version>_windows_amd64.zip in
+# The checksum is the SHA-256 line for argentgo_<version>_windows_amd64.zip in
 # the release's checksums.txt; release automation replaces {{SHA256}}.
 # No credentials, tokens or private paths are used: the download is a public
 # GitHub Releases asset.
@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $packageName = 'argentgo'
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-$url = 'https://github.com/2118505078xyh1/argentgo/releases/download/v{{VERSION}}/argent_{{VERSION}}_windows_amd64.zip'
+$url = 'https://github.com/2118505078xyh1/argentgo/releases/download/v{{VERSION}}/argentgo_{{VERSION}}_windows_amd64.zip'
 $checksum = '{{SHA256}}'
 $checksumType = 'sha256'
 

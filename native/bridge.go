@@ -11,7 +11,7 @@ import (
 )
 
 // bridge 通过其 stdio JSON-RPC 传输驱动真实的 argentgo engine。
-// 原生 UI 保持对 engine 无依赖：它启动 `argent --rpc`
+// 原生 UI 保持对 engine 无依赖：它启动 `argentgo --rpc`
 // 并讲 --rpc 已暴露的同样的换行分隔 JSON-RPC。
 // 这使 argentgo 核心保持只用标准库（没有内嵌 MyGo 依赖）。
 type bridge struct {
@@ -47,7 +47,7 @@ type rpcMessage struct {
 	} `json:"error,omitempty"`
 }
 
-// startBridge 启动 `argent --rpc`。exePath 是 argent.exe 的路径；workspace 是 engine 的工作目录。onDelta 接收流式提示分块；一旦 SubscribeEvents 注册了订阅，onEvent 接收真实 agent 事件通知（kind + 原始 agent.Event JSON）。stderr 被继承，使开发期间 engine 错误可见。
+// startBridge 启动 `argentgo --rpc`。exePath 是 argentgo.exe 的路径；workspace 是 engine 的工作目录。onDelta 接收流式提示分块；一旦 SubscribeEvents 注册了订阅，onEvent 接收真实 agent 事件通知（kind + 原始 agent.Event JSON）。stderr 被继承，使开发期间 engine 错误可见。
 // workspace 是 engine 的工作目录。onDelta 接收流式提示
 // 分块；一旦 SubscribeEvents 注册了订阅，onEvent 接收真实 agent 事件
 // 通知（kind + 原始 agent.Event JSON）。

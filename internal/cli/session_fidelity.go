@@ -18,7 +18,7 @@ import (
 // 因此源会话文件永远不会被修补或改写。
 func sessionsFidelity(app App, id string, args []string) int {
 	if len(args) > 0 {
-		fmt.Fprintf(app.IO.Err, "argent: unexpected fidelity argument %q\n", args[0])
+		fmt.Fprintf(app.IO.Err, "argentgo: unexpected fidelity argument %q\n", args[0])
 		sessionsUsage(app.IO.Err)
 		return 2
 	}
