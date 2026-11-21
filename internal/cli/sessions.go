@@ -18,7 +18,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// runSessions 实现 `sessions list|show|rm|find|--grep|tree|export`。
+// runSessions 实现 `sessions list|show|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。
 func runSessions(app App, _ context.Context, args []string) int {
 	if len(args) == 0 {
 		sessionsUsage(app.IO.Err)
@@ -80,6 +80,12 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsRetry(app, args[1], args[2:])
+	case "discard-attempt":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsDiscardAttempt(app, args[1], args[2:])
 	case "name":
 		if len(args) < 3 {
 			sessionsUsage(app.IO.Err)
@@ -462,6 +468,7 @@ func sessionsUsage(w io.Writer) {
         argent sessions tree <id>
         argent sessions undo <id> [-C <workspace>]
         argent sessions retry <id> [checkpoint-id]
+        argent sessions discard-attempt <id> [attempt-id]
         argent sessions name <id> <title>
         argent sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
         argent sessions import <file> [--format claude|codex|auto]

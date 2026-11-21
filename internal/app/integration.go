@@ -33,9 +33,10 @@ func (t *checkpointTracker) capture(cp agent.Checkpoint, prompt string) {
 		return
 	}
 	captured.Prompt = prompt
-	records, err := t.sess.Records()
-	if err == nil && len(records) > 0 {
-		captured.Parent = records[len(records)-1].ID
+	// parent 必须取活动路径的叶节点，与 RecordCheckpoint 的语义一致：
+	// 分叉/恢复后文件顺序最后一条可能落在废弃分支上，不能用它作为重试分叉点。
+	if parent, ok := t.sess.ActiveLeafID(); ok {
+		captured.Parent = parent
 	}
 	t.pending = append(t.pending, captured)
 }

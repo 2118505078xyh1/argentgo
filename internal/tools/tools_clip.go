@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 func clip(ctx context.Context, text string) string {
@@ -25,11 +27,11 @@ func clipTo(text string, limit int) string {
 	head := limit * 2 / 3
 	tail := limit - head
 	// 头部只回退到最近的字素簇边界，避免切断组合序列/ZWJ emoji/
-	// 旗帜等；clusterBoundaryBefore 内部复用 trimPartialRune，
+	// 旗帜等；textutil.ClusterBoundaryBefore 内部复用 TrimPartialRune，
 	// 因此仍保证 rune 对齐。
-	head = clusterBoundaryBefore(text, head)
+	head = textutil.ClusterBoundaryBefore(text, head)
 	// 尾部切片从 len(text)-tail 开始，而不是从 tail 开始。用
-	// trimPartialRune 回退这个起点会检查错误的字节，并可能让
+	// TrimPartialRune 回退这个起点会检查错误的字节，并可能让
 	// 后缀从 rune 中间开始；应把它向前移到下一个
 	// rune 边界，使保留的后缀始终是有效 UTF-8。
 	tailStart := len(text) - tail
@@ -38,17 +40,12 @@ func clipTo(text string, limit int) string {
 	}
 	// 尾部只前进到最近的字素簇边界，确保后缀不会以悬空的
 	// 组合标记/ZWJ 开头；与头部一样，保留字节只减不增。
-	tailStart = clusterBoundaryAfter(text, tailStart)
+	tailStart = textutil.ClusterBoundaryAfter(text, tailStart)
 	return text[:head] + "\n... [truncated] ...\n" + text[tailStart:]
 }
 
-// trimPartialRune 把字节偏移从 UTF-8 序列的中间回退。
+// trimPartialRune 是包内别名，保留给 web_fetch/web_search/output_spill
+// 等既有调用方；真正的实现已下沉到 textutil.TrimPartialRune，消除重复。
 func trimPartialRune(text string, offset int) int {
-	if offset <= 0 {
-		return 0
-	}
-	for offset > 0 && offset < len(text) && !utf8.RuneStart(text[offset]) {
-		offset--
-	}
-	return offset
+	return textutil.TrimPartialRune(text, offset)
 }

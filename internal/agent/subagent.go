@@ -38,6 +38,21 @@ const (
 const subagentTemplate = `You are a subagent working for another agent. Task: %s
 Do only the work the task asks for, using the tools you have. Do not ask questions: make the most reasonable assumption and report the result. Finish with a concise final answer; the parent agent receives only that text.`
 
+// VerifyFailInfo 携带一次验证 FAIL 的可序列化旁路信息，交给 OnVerifyFail 回调做分叉副作用。
+// 字段刻意保持为基础类型，使 agent 不需要导入 session 等任何内部包。
+type VerifyFailInfo struct {
+	// Label 是被验证任务的标签（description 或提示首行）。
+	Label string
+	// Attempt 是本次尝试的序号，从 1 开始，与 FAIL 通知中的 attempt 一致。
+	Attempt int
+	// Retries 是收紧到 [0, MaxVerifyRetries] 后的最大重试次数。
+	Retries int
+	// Verdict 是验证子级返回的 FAIL 结论首行。
+	Verdict string
+	// AttemptID 是本次验证尝试的稳定标识，接线层可用它作为分叉记录的 id 前缀。
+	AttemptID string
+}
+
 // SubagentConfig 启用内置的 `task` 工具。
 type SubagentConfig struct {
 	// Model 若设置，是子循环使用的模型（例如 --secondary-model）。
@@ -62,6 +77,10 @@ type SubagentConfig struct {
 	toolsInherited  bool
 	// OnEvent 接收子级的事件。为 nil 时，事件会送往父级的 Emit，并设置 Event.Depth。
 	OnEvent func(Event)
+	// OnVerifyFail 在验证结论为 FAIL 且仍有重试余量时被调用，供接线层做旁路分叉等副作用。
+	// 它为 nil 时完全关闭，事件与记录保持逐字节不变；回调返回的错误只会转成一条父级通知，
+	// 不会改变验证结果、返回文本或重试决策。
+	OnVerifyFail func(ctx context.Context, info VerifyFailInfo) error
 	// ResolvePersona 把 task 调用请求的角色/身份名映射到该角色定义的子配置。
 	// 它是可选的，由接线层（internal/app）注入，因此本包从不导入它。
 	// 为 nil 或名称未知时，委派回退到上面的通用配置。
@@ -247,6 +266,10 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	return text, nil
 }
 
+// verifyFailSeq 为每次启用验证的运行分配进程内唯一序号，使 VerifyFailInfo.AttemptID
+// 可作为接线层分叉记录的稳定前缀；它只影响旁路信息，不改变任何事件或记录。
+var verifyFailSeq atomic.Uint64
+
 // runTaskVerified 运行原任务，然后询问一个简短的验证子级，根据验证指令评判结果。
 // PASS 返回结果；FAIL 会按 verify_max_retries（收紧到 [0, MaxVerifyRetries]）重试原任务。
 // 尝试次数和验证递归（每次尝试一个非验证的后续调用）都是有界的，
@@ -263,6 +286,8 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 	if retries > MaxVerifyRetries {
 		retries = MaxVerifyRetries
 	}
+	// 仅为旁路信息分配一个稳定 id；nil 回调路径不读取它，因此默认行为逐字节不变。
+	runID := verifyFailSeq.Add(1)
 
 	for attempt := 0; ; attempt++ {
 		text, err := t.runTaskOnce(ctx, raw, args)
@@ -285,7 +310,23 @@ func (t *taskTools) runTaskVerified(ctx context.Context, raw string, args taskAr
 		t.verifyNotice(fmt.Sprintf("subagent verification FAIL (attempt %d/%d): %s - %s", attempt+1, retries+1, label, firstLine(verdict)))
 		if attempt >= retries {
 			// 重试已耗尽：返回最后的结果而不是丢失工作，FAIL 结果已在上方记录。
+			// 提前返回使耗尽时的最后一次 FAIL 不触发旁路回调。
 			return text, nil
+		}
+		// 旁路分叉副作用：仅在仍有重试余量时触发，且不改变下面的循环走向。
+		// 回调为 nil 时整段跳过，默认路径与旧实现逐字节一致。
+		if cfg := t.cfg; cfg.OnVerifyFail != nil {
+			info := VerifyFailInfo{
+				Label:     label,
+				Attempt:   attempt + 1,
+				Retries:   retries,
+				Verdict:   firstLine(verdict),
+				AttemptID: fmt.Sprintf("verifyfail-%d-%d", runID, attempt+1),
+			}
+			if err := cfg.OnVerifyFail(ctx, info); err != nil {
+				// 回调失败只转成一条父级通知，绝不影响验证结论或重试决策。
+				t.verifyNotice(fmt.Sprintf("on verify fail hook error for %q: %v", label, err))
+			}
 		}
 	}
 }
@@ -363,6 +404,11 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	}
 	if t.cfg.OnEvent != nil {
 		merged.OnEvent = t.cfg.OnEvent
+	}
+	// 与 OnEvent 一样显式透传验证失败回调：按角色选定的子级同样需要触发旁路分叉，
+	// 角色自身的配置不会覆盖父级注入的钩子。
+	if t.cfg.OnVerifyFail != nil {
+		merged.OnVerifyFail = t.cfg.OnVerifyFail
 	}
 	// 把共享的后台状态和子运行器接缝一并带过角色叠加过程，
 	// 使按角色选定的子级保留父级的队列、信号量和可注入的运行器。

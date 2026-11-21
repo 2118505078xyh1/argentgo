@@ -18,6 +18,12 @@ type ExecContext struct {
 	MaxTimeout time.Duration
 	SessionDir string
 	Jobs       any
+	// Spill 是注册表注入的输出产物落盘回调：当超大输出需要 opt-in
+	// 落盘时，工具实现方（如 internal/shell 的命令类工具）调用它；
+	// handled 为 true 时 out 必须原样返回，否则回退普通裁剪路径。
+	// 签名只用 stdlib 类型，使 pluginapi 保持零 internal 依赖；
+	// 未注入时（默认）行为与迁移前逐字节一致。
+	Spill func(text string) (out string, handled bool)
 }
 
 // WithExecContext 把执行参数写入 ctx。
