@@ -11,10 +11,39 @@ import (
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"github.com/2118505078xyh1/argentgo/internal/commands"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
+
+// buildTUICommandInfo 按 contextPrompt 相同的 sources 构造命令集，
+// 并把发现结果映射成 TUI 补全面板所需的富文本摘要。
+//
+// 插件命令与 MCP/技能共享同一信任门槛（pluginCommandSources），
+// 因此不受信任的检出无法把命令泄漏进补全列表。这里只读取命令的
+// 声明性字段，不修改传入的 stdio / res，也不触碰 set.List() 的结果。
+//
+// 依赖：tui.CommandInfo 与 tui.Options.CommandInfo 由 tui 包提供
+// （R16 slash 面板），app 侧只负责构造与注入。
+func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
+	home := homeDir(stdio.Env)
+	sources := commands.DefaultSources(res.Root, home)
+	// 安全红线：与 app_execute.go 的 /context 路径一样，必须带插件来源，
+	// 并保留其用户/项目信任门槛，否则不受信任检出的插件命令会泄漏进补全列表。
+	sources = append(sources, pluginCommandSources(res)...)
+	set := commands.NewSetWithBuiltins(sources)
+	listed := set.List()
+	infos := make([]tui.CommandInfo, 0, len(listed))
+	for _, c := range listed {
+		infos = append(infos, tui.CommandInfo{
+			Command:      c.Name,
+			Description:  c.Description,
+			ArgumentHint: c.ArgumentHint,
+		})
+	}
+	return infos
+}
 
 // TUI 返回命令层为 `argent tui` / --tui 运行的前端。
 //
@@ -125,7 +154,8 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				_, err = Execute(turnCtx, stdio, res, sess, text, onText)
 				return err
 			},
-			OnReady: func(model *tui.Model) { approver.attach(model) },
+			OnReady:     func(model *tui.Model) { approver.attach(model) },
+			CommandInfo: buildTUICommandInfo(stdio, res),
 		}
 		// 测试（或管道）不得让终端进入 raw 模式。
 		if !realStreams(stdio) {

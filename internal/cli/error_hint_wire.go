@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
 )
@@ -35,13 +36,18 @@ func buildCliHintToI18nKey() map[string]string {
 	return m
 }
 
-// cliHintsEnabled 报告是否开启了 CLI 错误建议输出：仅当 env 返回 "1"
-// 时开启。env 为 nil 时按关闭处理，调用方无需自行判空。
+// cliHintsEnabled 报告是否开启了 CLI 错误建议输出。两个独立开关任一开启即可：
+// ARGENT_CLI_HINTS 精确为 "1"（允许首尾空白），或 ARGENT_OPT_INS 中启用了
+// cli_hints 键。两条门控都未命中时保持关闭，因此两个 env 都未设的既有命令
+// 输出逐字节不变。env 为 nil 时按全部关闭处理，调用方无需自行判空。
 func cliHintsEnabled(env func(string) string) bool {
 	if env == nil {
 		return false
 	}
-	return env(cliHintsEnvVar) == "1"
+	if strings.TrimSpace(env(cliHintsEnvVar)) == "1" {
+		return true
+	}
+	return OptInFromEnv(env)["cli_hints"]
 }
 
 // writeActionableErrorEnv 在 writeActionableError 的既有两行输出之后，

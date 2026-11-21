@@ -55,6 +55,9 @@ type Options struct {
 	IO            *IO
 	Prompt        func(ctx context.Context, text string, onText func(string)) error
 	Approval      func(ctx context.Context, name, args string) (bool, error)
+	// CommandInfo 是宿主提供的斜杠命令元数据，供输入行补全与第 5 面板
+	// 使用。nil/空值保持经典行为：没有候选、Tab 仍插入两个空格。
+	CommandInfo []CommandInfo
 	// Events 在设置时把工具事件喂给可选的侧边栏。
 	// 已关闭的通道只是禁用后续更新。
 	Events <-chan Event
@@ -154,6 +157,7 @@ func Run(ctx context.Context, opts Options) error {
 	model.SetApproval(opts.Approval)
 	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
 	model.SetContextInfo(opts.ContextWindow, opts.Cost)
+	model.SetCommandInfo(opts.CommandInfo)
 
 	restore := func() {}
 	if real {

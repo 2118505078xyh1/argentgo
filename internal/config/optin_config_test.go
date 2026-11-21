@@ -13,10 +13,15 @@ var optInExpectedOrder = []string{
 	"apply_patch",
 	"attempt_isolation",
 	"cli_hints",
+	"compaction_fidelity",
 	"context_pressure",
 	"grep_ex",
 	"keep_implicit_context",
 	"preserve_summary_sections",
+	"refusal_reason",
+	"tool_error_reflection",
+	"untrusted_boundary",
+	"untrusted_result",
 }
 
 // optInExpectedDefs 是键 -> (标签, 归类) 的期望表，与实现中的白名单表对应。
@@ -28,10 +33,15 @@ var optInExpectedDefs = map[string][2]string{
 	"attempt_isolation":         {"失败尝试隔离", "上下文"},
 	"keep_implicit_context":     {"保留隐式上下文", "上下文"},
 	"preserve_summary_sections": {"保留摘要章节", "上下文"},
+	"refusal_reason":            {"拒绝理由", "交互"},
+	"untrusted_result":          {"不可信结果", "上下文"},
+	"untrusted_boundary":        {"不可信边界", "上下文"},
+	"compaction_fidelity":       {"压缩保真", "上下文"},
+	"tool_error_reflection":     {"工具错误反射", "交互"},
 }
 
 // TestParseOptInDisplayAllKeys 覆盖全部白名单键：显式 true 时应全部 Enabled，
-// 输出恰好七个条目且按 Key 升序，标签与归类与期望一致。
+// 输出恰好十二个条目且按 Key 升序，标签与归类与期望一致。
 func TestParseOptInDisplayAllKeys(t *testing.T) {
 	raw := map[string]any{
 		"optins": map[string]any{
@@ -42,6 +52,11 @@ func TestParseOptInDisplayAllKeys(t *testing.T) {
 			"attempt_isolation":         true,
 			"keep_implicit_context":     true,
 			"preserve_summary_sections": true,
+			"refusal_reason":            true,
+			"untrusted_result":          true,
+			"untrusted_boundary":        true,
+			"compaction_fidelity":       true,
+			"tool_error_reflection":     true,
 		},
 	}
 	items := ParseOptInDisplay(raw)
@@ -59,6 +74,42 @@ func TestParseOptInDisplayAllKeys(t *testing.T) {
 		def := optInExpectedDefs[wantKey]
 		if got.Label != def[0] || got.Category != def[1] {
 			t.Errorf("键 %q 元数据 = (%q, %q), want (%q, %q)", wantKey, got.Label, got.Category, def[0], def[1])
+		}
+	}
+}
+
+// TestParseOptInDisplayNewKeys 锁定本次补齐的 4 个权威键：显式开启时应被识别，
+// 且携带合理的中文标签与归类；缺省时仍保持关闭。
+func TestParseOptInDisplayNewKeys(t *testing.T) {
+	newKeys := []string{"refusal_reason", "untrusted_result", "untrusted_boundary", "compaction_fidelity"}
+	on := make(map[string]any, len(newKeys))
+	for _, key := range newKeys {
+		on[key] = true
+	}
+	items := ParseOptInDisplay(map[string]any{"optins": on})
+	byKey := make(map[string]OptInDisplay, len(items))
+	for _, item := range items {
+		byKey[item.Key] = item
+	}
+	for _, key := range newKeys {
+		got, ok := byKey[key]
+		if !ok {
+			t.Errorf("新键 %q 未出现在白名单输出中", key)
+			continue
+		}
+		if !got.Enabled {
+			t.Errorf("新键 %q 显式开启后 Enabled 应为 true", key)
+		}
+		def := optInExpectedDefs[key]
+		if got.Label != def[0] || got.Category != def[1] {
+			t.Errorf("新键 %q 元数据 = (%q, %q), want (%q, %q)", key, got.Label, got.Category, def[0], def[1])
+		}
+	}
+
+	closed := ParseOptInDisplay(nil)
+	for _, item := range closed {
+		if item.Enabled {
+			t.Errorf("新键 %q 缺省场景不应开启", item.Key)
 		}
 	}
 }
@@ -324,9 +375,8 @@ func TestOptInDisplaySummaryStableAndPure(t *testing.T) {
 	want := OptInDisplaySummary(items)
 
 	// 打乱顺序并加入重复项与一个禁用项，摘要应保持一致。
-	// items 按 Key 升序：0..6 对应 apply_patch..preserve_summary_sections，
-	// 其中 2/3/4 为 cli_hints/context_pressure/grep_ex（均已开启）。
-	shuffled := []OptInDisplay{items[4], items[2], items[3], items[2], {Key: "apply_patch", Label: "补丁应用", Enabled: false}}
+	// items 按 Key 升序（共 11 项）：2/4/5 为 cli_hints/context_pressure/grep_ex（均已开启）。
+	shuffled := []OptInDisplay{items[4], items[2], items[5], items[2], {Key: "apply_patch", Label: "补丁应用", Enabled: false}}
 	before := append([]OptInDisplay(nil), shuffled...)
 	if got := OptInDisplaySummary(shuffled); got != want {
 		t.Errorf("顺序变化后摘要改变: %q vs %q", got, want)

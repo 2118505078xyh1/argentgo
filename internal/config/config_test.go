@@ -101,6 +101,7 @@ func TestDefaultsWithoutFiles(t *testing.T) {
 	if cfg.SandboxMode != SandboxWorkspaceWrite {
 		t.Errorf("sandboxMode = %q, want %q", cfg.SandboxMode, SandboxWorkspaceWrite)
 	}
+	// 默认值已抬高到 100（与引擎对齐），此处仍引用常量以免测试与默认值脱节。
 	if cfg.MaxTurns != defaultMaxTurns {
 		t.Errorf("maxTurns = %d, want %d", cfg.MaxTurns, defaultMaxTurns)
 	}

@@ -122,7 +122,7 @@ func TestRunPromptTextMode(t *testing.T) {
 	// Compiled defaults live in app.Resolve, not in Options: empty means the
 	// config file / profile layer decides the model, and text is the mode
 	// fallback when Mode is unset.
-	if captured.Model != "" || captured.Mode != "" || captured.MaxTurns != 12 {
+	if captured.Model != "" || captured.Mode != "" || captured.MaxTurns != 100 {
 		t.Fatalf("options = %+v", captured)
 	}
 	if captured.Cwd == "" {

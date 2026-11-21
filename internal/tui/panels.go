@@ -28,7 +28,7 @@ func plainPanelRule(width int) Line {
 }
 
 func (m *Model) panelsVisible() bool {
-	return m.showTasks || m.showWorkspace || m.showPlan || m.showSessions
+	return m.showTasks || m.showWorkspace || m.showPlan || m.showSessions || m.showCommands
 }
 
 // panelSections 在当前开启的面板之间划分侧边栏。
@@ -46,6 +46,9 @@ func (m *Model) panelSections(l layout) []panelSection {
 	}
 	if m.showSessions {
 		kinds = append(kinds, 3)
+	}
+	if m.showCommands {
+		kinds = append(kinds, 4)
 	}
 	if len(kinds) == 0 {
 		return nil
@@ -76,6 +79,8 @@ func (m *Model) panelSections(l layout) []panelSection {
 			lines = m.planLines(l.panelW, height)
 		case 3:
 			lines = m.sessionsLines(l.panelW, height)
+		case 4:
+			lines = m.commandsLines(l.panelW, height)
 		}
 		out = append(out, panelSection{top: top, height: height, lines: lines})
 		top += height

@@ -89,6 +89,14 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "sessions_off"))
 		}
+	case KindCtrlO:
+		m.showCommands = !m.showCommands
+		m.version++
+		if m.showCommands {
+			m.setStatusLocked(text(m.locale, "commands_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "commands_off"))
+		}
 	case KindCtrlG:
 		return m.openExternalEditorLocked()
 	case KindAltU:
@@ -111,15 +119,25 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 			m.setStatusLocked(text(m.locale, "cancelling"))
 			return ActionAbort
 		}
+		// 关闭当前补全与面板；下一次输入会按新文本重算 query 重新打开。
+		m.completion = nil
+		m.commandsCursor = 0
+		m.commandsScroll = 0
+		m.showCommands = false
 		m.scroll = 0
 		return ActionNone
 	case KindEnter:
+		// 候选可见时 Enter 接受候选项，而不是提交整行。
+		if m.completionActiveLocked() {
+			return m.acceptCompletionLocked()
+		}
 		return m.submitLocked()
 	case KindAltEnter, KindNewline:
 		m.editor.Insert("\n")
 		return ActionNone
 	case KindBackspace:
 		m.editor.Backspace()
+		m.refreshCompletionLocked()
 	case KindDelete:
 		m.editor.Delete()
 	case KindLeft:
@@ -153,6 +171,12 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindCtrlW:
 		m.editor.KillWord()
 	case KindUp:
+		if m.completionActiveLocked() {
+			m.completion.Prev()
+			m.commandsCursor = clampScroll(m.completion.index, maxInt(m.completion.Count()-1, 0))
+			m.clampCommandsScrollLocked()
+			return ActionNone
+		}
 		if showSessions := m.showSessions && len(m.sessions) > 0; showSessions {
 			if m.sessionsCursor > 0 {
 				m.sessionsCursor--
@@ -168,6 +192,12 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 			m.editor.HistoryPrev()
 		}
 	case KindDown:
+		if m.completionActiveLocked() {
+			m.completion.Next()
+			m.commandsCursor = clampScroll(m.completion.index, maxInt(m.completion.Count()-1, 0))
+			m.clampCommandsScrollLocked()
+			return ActionNone
+		}
 		if showSessions := m.showSessions && len(m.sessions) > 0; showSessions {
 			if m.sessionsCursor < len(m.sessions)-1 {
 				m.sessionsCursor++
@@ -191,12 +221,65 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindScrollDown:
 		m.scrollByLocked(-3)
 	case KindTab:
+		// 仅当三条件同时成立时接管补全：斜杠开头、已注入补全状态、
+		// 且过滤后仍有候选。否则严格保留旧行为——插入两个空格。
+		if m.completionActiveLocked() {
+			return m.acceptCompletionLocked()
+		}
 		m.editor.Insert("  ")
 	case KindRune:
 		m.editor.Insert(string(key.Rune))
+		m.refreshCompletionLocked()
 	case KindPaste:
 		m.editor.Insert(key.Text)
+		m.refreshCompletionLocked()
 	}
+	return ActionNone
+}
+
+// completionActiveLocked 报告输入行是否应由斜杠补全接管。
+// 三条件缺一不可：文本以 '/' 开头、宿主注入过补全状态、过滤后仍有候选。
+func (m *Model) completionActiveLocked() bool {
+	if m.completion == nil || !strings.HasPrefix(m.editor.Text(), "/") {
+		return false
+	}
+	return m.completion.Count() > 0
+}
+
+// refreshCompletionLocked 在文本变化后重算查询。Esc 关闭补全时把状态置空，
+// 这里按需从 commandInfo 重建，使再次输入可以重新打开补全。
+// 查询取 '/' 后的整段文本：一旦输入空格（命令已被接受或开始填参数），
+// 前缀匹配自然失败，Tab 回退为缩进、Enter 恢复提交。
+func (m *Model) refreshCompletionLocked() {
+	raw := m.editor.Text()
+	if !strings.HasPrefix(raw, "/") {
+		return
+	}
+	if m.completion == nil {
+		cands := make([]CompletionCandidate, 0, len(m.commandInfo))
+		for _, info := range m.commandInfo {
+			cands = append(cands, CompletionCandidate{
+				Command:     info.Command,
+				Description: info.Description,
+			})
+		}
+		m.completion = NewCompletionState(cands)
+	}
+	m.completion.Query(strings.TrimPrefix(raw, "/"))
+	m.commandsCursor = 0
+	m.commandsScroll = 0
+}
+
+// acceptCompletionLocked 把当前选中的候选写入输入行。补上一个尾随空格，
+// 使下一次按键重算 query 后候选数归零——于是 Enter 提交、Tab 回退为缩进，
+// 不会卡在"反复接受同一候选"的循环里。接受动作永不提交回合。
+func (m *Model) acceptCompletionLocked() KeyAction {
+	c, ok := m.completion.Current()
+	if !ok {
+		return ActionNone
+	}
+	m.editor.SetText("/" + c.Command + " ")
+	m.refreshCompletionLocked()
 	return ActionNone
 }
 

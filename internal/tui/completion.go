@@ -89,6 +89,40 @@ func (s *CompletionState) Current() (CompletionCandidate, bool) {
 	return CompletionCandidate{}, false
 }
 
+// At 返回当前 query 下第 i 个可见候选（0 基），不修改选中位置。
+// i 越界或没有候选时返回零值与 false。
+func (s *CompletionState) At(i int) (CompletionCandidate, bool) {
+	if s == nil || i < 0 {
+		return CompletionCandidate{}, false
+	}
+	n := 0
+	for _, c := range s.candidates {
+		if !prefixMatch(s.query, c.Command) {
+			continue
+		}
+		if n == i {
+			return c, true
+		}
+		n++
+	}
+	return CompletionCandidate{}, false
+}
+
+// Visible 返回当前 query 下全部可见候选的副本，顺序与 Count/Current 一致
+// （按 Command 字典序）。它不修改 query 或选中位置，供面板逐行渲染使用。
+func (s *CompletionState) Visible() []CompletionCandidate {
+	if s == nil {
+		return nil
+	}
+	out := make([]CompletionCandidate, 0, s.Count())
+	for _, c := range s.candidates {
+		if prefixMatch(s.query, c.Command) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Next 把选中位置前移一位，到末尾后回绕到开头。没有可见候选时无操作。
 func (s *CompletionState) Next() {
 	if s == nil {

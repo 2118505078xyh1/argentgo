@@ -100,6 +100,25 @@ func (m *Model) scrollByLocked(delta int) {
 	if m.showSessions {
 		m.sessionsScroll = clampScroll(m.sessionsScroll+delta, maxInt(len(m.sessions)-1, 0))
 	}
+	if m.showCommands {
+		count := 0
+		if m.completion != nil {
+			count = m.completion.Count()
+		}
+		m.commandsScroll = clampScroll(m.commandsScroll+delta, maxInt(count-1, 0))
+	}
+}
+
+// clampCommandsScrollLocked 让命令光标始终落在滚动视口内，
+// 与会话栏的 clampSessionScrollLocked 行为一致。
+func (m *Model) clampCommandsScrollLocked() {
+	visible := maxInt(m.bodyH/4-1, 1)
+	if m.commandsCursor < m.commandsScroll {
+		m.commandsScroll = m.commandsCursor
+	}
+	if m.commandsCursor >= m.commandsScroll+visible {
+		m.commandsScroll = m.commandsCursor - visible + 1
+	}
 }
 
 func (m *Model) clampSessionScrollLocked() {

@@ -160,7 +160,13 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		maxTurns = cfg.MaxTurns
 	}
 	if maxTurns <= 0 {
-		maxTurns = 12
+		// 抬高默认天花板而非剥夺控制：与引擎 agent.DefaultMaxTurns 对齐，
+		// 避免旧默认 12 轮过早截断长任务、把未完成的工作包装成正常结束。
+		// 覆盖渠道依旧优先且顺序不变：ARGENT_MAX_TURNS / --max-turns
+		// （opts.MaxTurns）> -c maxTurns / 配置 / profile（cfg.MaxTurns）>
+		// 此处兜底。提示词中的 `+500k` 声明仍在 app_execute.go 中作为额外的
+		// 累计预算叠加，不受此默认值影响。
+		maxTurns = agent.DefaultMaxTurns
 	}
 
 	// 标志优先于配置；零表示"未设置"，选用保守的默认值。显式的 1（或任何负值）使批次串行执行。
