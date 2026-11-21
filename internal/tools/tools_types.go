@@ -54,4 +54,5 @@ type Registry struct {
 	guard      Guard
 	tools      map[string]Tool
 	order      []string
+	modes      map[string]ExecutionMode
 }
