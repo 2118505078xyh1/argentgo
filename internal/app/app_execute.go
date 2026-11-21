@@ -356,6 +356,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 选择性启用：关闭时 observer 为 nil，collectEvent 立即返回，不构造 MessageLike。
 		observer.collectEvent(event)
 	}
+	// 模型摘要（opt-in model_summary）依赖注入：用 secondary-model 发起、复用本次 ctx
+	// 与事件通道。wire 内部按 reg 门控 + summaryModel 非空判断，默认全关时零调用、零事件。
+	compactor.ctx = ctx
+	compactor.chatter = res.Chatter
+	compactor.summaryModel = res.Options.SecondaryModel
+	compactor.emit = forwardEvent
 	flushAnswer := func() {
 		for _, event := range pendingTexts {
 			forwardEvent(event)
@@ -539,7 +545,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	bridge.stop(ctx, prompt, result.Text)
 	tracker.finish(err != nil || ctx.Err() != nil)
 	recordAttempt(sess, ctx, err)
-	maybeAutoCompact(res, sess, evidence, reg)
+	maybeAutoCompact(res, sess, evidence, reg, compactor)
 	_ = sess.Append("turn", map[string]any{
 		"turns":   result.Turns,
 		"stopped": result.Stopped,

@@ -232,20 +232,32 @@ func (m *Model) TakeSubmitted() string {
 	return text
 }
 
+// setUsageLocked 是 SetUsage 的持锁实现，供已持有 m.mu 的调用方
+// （如 HandleEvent）复用，避免对不可重入的 sync.Mutex 再次加锁。
+func (m *Model) setUsageLocked(prompt, completion int) {
+	m.usageIn, m.usageOut = prompt, completion
+	m.markDirtyLocked()
+}
+
+// setCachedTokensLocked 是 SetCachedTokens 的持锁实现，与
+// setUsageLocked 同理，供 HandleEvent 在已持锁时调用。
+func (m *Model) setCachedTokensLocked(cached int) {
+	m.usageCached = cached
+	m.markDirtyLocked()
+}
+
 // SetUsage 记录用于头部的 token 总数。
 func (m *Model) SetUsage(prompt, completion int) {
 	m.mu.Lock()
-	m.usageIn, m.usageOut = prompt, completion
-	m.markDirtyLocked()
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	m.setUsageLocked(prompt, completion)
 }
 
 // SetCachedTokens 记录提示 token 中的缓存前缀部分。
 func (m *Model) SetCachedTokens(cached int) {
 	m.mu.Lock()
-	m.usageCached = cached
-	m.markDirtyLocked()
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	m.setCachedTokensLocked(cached)
 }
 
 // Plain 把记录渲染为无样式文本，用于离开备用屏幕后

@@ -171,7 +171,7 @@ func (m *multiRootTools) mutationPaths(name, args string) []string {
 
 // compactWithEvidence 写入一条压缩记录，除会话摘要器从被丢弃消息中提取的内容之外，
 // 还保留 agent 收集到的运行时失败和后续步骤行。
-func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry) {
+func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry, summaryDep *sessionCompactor) {
 	if sess == nil {
 		return
 	}
@@ -201,6 +201,12 @@ func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidenc
 	// 重建前取原始 Summarize 摘要，供 opt-in wire 恢复 Goal/Tool activity 段。
 	orig := compaction.Summary
 	compaction.Summary = rebuildCompactionSummary(compaction, entries[:start], orig, reg)
+	// 模型摘要（opt-in）：轮后路径与轮中对称。默认（summaryDep nil 或缺省）时原样返回。
+	if summaryDep != nil {
+		compaction.Summary = applyModelSummaryWire(compaction.Summary, summaryDep.reg, summaryDep.ctx,
+			summaryDep.chatter, summaryDep.summaryModel, compaction.Failures, compaction.NextSteps,
+			compaction.Files, summaryDep.emit)
+	}
 	_ = sess.Append(session.KindCompaction, compaction)
 }
 

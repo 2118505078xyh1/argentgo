@@ -447,14 +447,14 @@ func TestNoAutoCompactSkipsPostRunStep(t *testing.T) {
 		return sess
 	}
 	withCompaction := build()
-	maybeAutoCompact(res, withCompaction, agent.CompactionEvidence{}, nil)
+	maybeAutoCompact(res, withCompaction, agent.CompactionEvidence{}, nil, nil)
 	if !hasCompaction(withCompaction) {
 		t.Fatal("default run must compact above the threshold")
 	}
 	noCompact := res
 	noCompact.NoAutoCompact = true
 	skipped := build()
-	maybeAutoCompact(noCompact, skipped, agent.CompactionEvidence{}, nil)
+	maybeAutoCompact(noCompact, skipped, agent.CompactionEvidence{}, nil, nil)
 	if hasCompaction(skipped) {
 		t.Fatal("--no-auto-compact must skip the post-run step")
 	}
