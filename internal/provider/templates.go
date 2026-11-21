@@ -157,6 +157,48 @@ var builtInTemplates = []builtInTemplate{
 		BaseURL:      "http://127.0.0.1:3425/v1",
 		DefaultModel: "auto/deepseek-v4.1-flash",
 	}},
+	{150, Template{
+		Name:         "gemini",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://generativelanguage.googleapis.com/v1beta/openai",
+		APIKeyEnv:    "GEMINI_API_KEY",
+		DefaultModel: "gemini-2.5-flash",
+	}},
+	{160, Template{
+		Name:         "groq",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://api.groq.com/openai/v1",
+		APIKeyEnv:    "GROQ_API_KEY",
+		DefaultModel: "llama-3.3-70b-versatile",
+	}},
+	{170, Template{
+		Name:         "mistral",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://api.mistral.ai/v1",
+		APIKeyEnv:    "MISTRAL_API_KEY",
+		DefaultModel: "mistral-large-latest",
+	}},
+	{180, Template{
+		Name:         "together",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://api.together.xyz/v1",
+		APIKeyEnv:    "TOGETHER_API_KEY",
+		DefaultModel: "meta-llama/Llama-3.3-70B",
+	}},
+	{190, Template{
+		Name:         "fireworks",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://api.fireworks.ai/inference/v1",
+		APIKeyEnv:    "FIREWORKS_API_KEY",
+		DefaultModel: "accounts/fireworks/models/llama-v3p3-70b",
+	}},
+	{200, Template{
+		Name:         "cerebras",
+		Protocol:     ProtocolOpenAI,
+		BaseURL:      "https://api.cerebras.ai/v1",
+		APIKeyEnv:    "CEREBRAS_API_KEY",
+		DefaultModel: "llama-3.3-70b",
+	}},
 }
 
 // aliases 把替代拼写映射到规范名称。
@@ -172,6 +214,7 @@ var aliases = map[string]string{
 	"lm_studio":   "lmstudio",
 	"open-router": "openrouter",
 	"grok":        "xai",
+	"google":      "gemini",
 }
 
 // defaultTemplates 是包级静态注册表，由 newDefaultTemplates 用内置表填充。
