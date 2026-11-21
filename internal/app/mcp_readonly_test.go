@@ -52,7 +52,7 @@ func newReadOnlyMCPToolset(t *testing.T, res Resolved, chain *security.Chain) *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	set := newToolset(context.Background(), cli.IO{Env: envFrom(nil), Err: &bytes.Buffer{}}, res, sess, chain)
+	set := newToolset(context.Background(), cli.IO{Env: envFrom(nil), Err: &bytes.Buffer{}}, res, sess, chain, nil)
 	t.Cleanup(func() { _ = set.Close() })
 	return set
 }

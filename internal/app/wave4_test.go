@@ -76,7 +76,7 @@ func TestAddDirAllowsWritesInsideAndRejectsOutside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, nil)
+	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, nil, nil)
 	defer set.Close()
 	ctx := context.Background()
 
@@ -123,7 +123,7 @@ func TestAddDirGuardAllowsInsideAndDeniesOutside(t *testing.T) {
 	}
 	policy := security.NewPolicy(root, security.PolicyConfig{WriteRoots: res.WriteRoots})
 	chain := security.NewChain(policy, autoApprover{}, nil, sess.ID())
-	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, chain)
+	set := newToolset(context.Background(), cli.IO{Env: env}, res, sess, chain, nil)
 	defer set.Close()
 	ctx := context.Background()
 
@@ -447,14 +447,14 @@ func TestNoAutoCompactSkipsPostRunStep(t *testing.T) {
 		return sess
 	}
 	withCompaction := build()
-	maybeAutoCompact(res, withCompaction, agent.CompactionEvidence{})
+	maybeAutoCompact(res, withCompaction, agent.CompactionEvidence{}, nil)
 	if !hasCompaction(withCompaction) {
 		t.Fatal("default run must compact above the threshold")
 	}
 	noCompact := res
 	noCompact.NoAutoCompact = true
 	skipped := build()
-	maybeAutoCompact(noCompact, skipped, agent.CompactionEvidence{})
+	maybeAutoCompact(noCompact, skipped, agent.CompactionEvidence{}, nil)
 	if hasCompaction(skipped) {
 		t.Fatal("--no-auto-compact must skip the post-run step")
 	}

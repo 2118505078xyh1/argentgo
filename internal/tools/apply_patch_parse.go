@@ -231,25 +231,56 @@ func (a PatchAction) NewText() string {
 }
 
 func (a PatchAction) hunkText(wantNew bool) string {
-	parts := make([]string, 0)
+	// 逐 hunk 推导再以 "\n" 拼接，结果与把所有行摊平后拼接完全一致
+	// （hunk 之间的边界只是同一个 "\n" 分隔符）。
+	parts := make([]string, 0, len(a.Hunks))
 	for _, h := range a.Hunks {
-		for _, ln := range h.Lines {
-			if len(ln) == 0 {
-				parts = append(parts, "")
-				continue
-			}
-			switch ln[0] {
-			case ' ':
-				// 上下文同时属于旧文本与新文本。
+		parts = append(parts, patchLinesText(h.Lines, wantNew))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// oldText 返回该 hunk 中属于旧文本的行（上下文与删除行，
+// 去掉前缀）按顺序以 "\n" 连接的结果；新增行被忽略。
+// 与 PatchAction.OldText 不同，它只作用于单个 hunk，供逐 hunk 应用。
+func (h PatchHunk) oldText() string {
+	return patchLinesText(h.Lines, false)
+}
+
+// newText 返回该 hunk 中属于新文本的行（上下文与新增行，
+// 去掉前缀）按顺序以 "\n" 连接的结果；删除行被忽略。
+// 与 PatchAction.NewText 不同，它只作用于单个 hunk，供逐 hunk 应用。
+func (h PatchHunk) newText() string {
+	return patchLinesText(h.Lines, true)
+}
+
+// OldText 是 oldText 的导出别名，便于需要逐 hunk 取旧文本的调用方使用。
+func (h PatchHunk) OldText() string { return h.oldText() }
+
+// NewText 是 newText 的导出别名，便于需要逐 hunk 取新文本的调用方使用。
+func (h PatchHunk) NewText() string { return h.newText() }
+
+// patchLinesText 是 PatchAction.hunkText 与 PatchHunk.oldText/newText
+// 共用的前缀剥离逻辑：' ' 同时属于新旧文本，'+' 只属于新文本，
+// '-' 只属于旧文本；完全为空的行按空上下文处理。
+func patchLinesText(lines []string, wantNew bool) string {
+	parts := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		if len(ln) == 0 {
+			parts = append(parts, "")
+			continue
+		}
+		switch ln[0] {
+		case ' ':
+			// 上下文同时属于旧文本与新文本。
+			parts = append(parts, ln[1:])
+		case '+':
+			if wantNew {
 				parts = append(parts, ln[1:])
-			case '+':
-				if wantNew {
-					parts = append(parts, ln[1:])
-				}
-			case '-':
-				if !wantNew {
-					parts = append(parts, ln[1:])
-				}
+			}
+		case '-':
+			if !wantNew {
+				parts = append(parts, ln[1:])
 			}
 		}
 	}

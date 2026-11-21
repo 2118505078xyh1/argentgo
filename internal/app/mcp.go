@@ -63,7 +63,22 @@ type multiRootTools struct {
 	regs  []*tools.Registry
 }
 
-func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, usage *usageSource) *multiRootTools {
+// wireOptInTools 按 opt-in 注册表把新工具尾部追加到 registry。默认（reg 为 nil 或
+// 对应开关关闭）时不注册任何工具，因此 Specs()/Names() 与 golden 逐字节不变。
+// 工具注册函数自身是幂等的：重复注册或同名已存在时不再插入。
+func wireOptInTools(registry *tools.Registry, reg *OptInRegistry) {
+	if registry == nil || reg == nil {
+		return
+	}
+	if reg.Enabled(OptInApplyPatch) {
+		tools.RegisterApplyPatch(registry)
+	}
+	if reg.Enabled(OptInGrepEx) {
+		tools.RegisterGrepEx(registry)
+	}
+}
+
+func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, usage *usageSource, reg *OptInRegistry) *multiRootTools {
 	roots := res.WriteRoots
 	if len(roots) == 0 {
 		roots = security.WriteRootsFrom(res.Root, res.AddDirs)
@@ -81,6 +96,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, u
 		wireCheckpointDiff(registry, sess, absolute)
 		wireHistory(registry, sess)
 		wireUsage(registry, usage)
+		wireOptInTools(registry, reg)
 		m.roots = append(m.roots, filepath.Clean(absolute))
 		m.regs = append(m.regs, registry)
 	}
@@ -92,6 +108,7 @@ func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, u
 		wireCheckpointDiff(registry, sess, res.Root)
 		wireHistory(registry, sess)
 		wireUsage(registry, usage)
+		wireOptInTools(registry, reg)
 		m.roots = []string{res.Root}
 		m.regs = []*tools.Registry{registry}
 	}
@@ -213,7 +230,7 @@ func withPath(args, path string) (string, error) {
 // 插件按安装位置区分。位于用户主目录插件目录下的包是用户有意安装的，总是会被加载。
 // 位于工作区插件目录下的包来自仓库内容，与 <root>/.argent/mcp.json 一样受 TrustProject 门控：
 // 打开不受信任的仓库绝不能启动其进程或注入其指令。
-func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard) *toolset {
+func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, guard tools.Guard, reg *OptInRegistry) *toolset {
 	// 基础技能注册表来自共享缓存（这里只使用技能那一半）。wirePlugins/addSkillPath
 	// 通过修改注册表来添加插件技能，因此交给工具集一份副本：否则某次运行的插件
 	// 会污染被之后每次运行复用的缓存快照。
@@ -227,7 +244,7 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	// 而不是注册表的默认"不可用"占位符。
 	usage := newUsageSource()
 	set := &toolset{
-		base:         newMultiRootTools(res, sess, guard, usage),
+		base:         newMultiRootTools(res, sess, guard, usage, reg),
 		guard:        guard,
 		skills:       skillRegistry,
 		usage:        usage,

@@ -83,7 +83,7 @@ func (m *multiRootTools) mutationPaths(name, args string) []string {
 
 // compactWithEvidence 写入一条压缩记录，除会话摘要器从被丢弃消息中提取的内容之外，
 // 还保留 agent 收集到的运行时失败和后续步骤行。
-func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidence) {
+func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry) {
 	if sess == nil {
 		return
 	}
@@ -110,7 +110,9 @@ func compactWithEvidence(sess *session.Session, evidence agent.CompactionEvidenc
 			compaction.NextSteps = append(compaction.NextSteps, step)
 		}
 	}
-	compaction.Summary = buildCompactionSummary(compaction)
+	// 重建前取原始 Summarize 摘要，供 opt-in wire 恢复 Goal/Tool activity 段。
+	orig := compaction.Summary
+	compaction.Summary = rebuildCompactionSummary(compaction, entries[:start], orig, reg)
 	_ = sess.Append(session.KindCompaction, compaction)
 }
 
@@ -131,6 +133,23 @@ func buildCompactionSummary(c session.Compaction) string {
 	writeSummarySection(&b, "Failures", c.Failures)
 	writeSummarySection(&b, "Next steps", c.NextSteps)
 	return b.String()
+}
+
+// rebuildCompactionSummary 是轮中/轮后两条压缩路径共用的摘要重建入口。
+// 它在 buildCompactionSummary 的结构化重建之上，按 opt-in 叠加三个压缩 wire：
+// 恢复原始 Goal/Tool activity 段、注入隐式上下文、追加保真告警。
+//
+// reg 为 nil 或三个开关全关时，三个闭包的行为都是透传（fidelity 为 nil 直接跳过），
+// 结果与直接调用 buildCompactionSummary 逐字节相同——默认路径不受影响。
+// orig 必须是重建前的 Summarize 原始摘要（由调用方在覆盖前取），dropped 为被丢弃条目。
+func rebuildCompactionSummary(c session.Compaction, dropped []session.Entry, orig string, reg *OptInRegistry) string {
+	rebuilt := buildCompactionSummary(c)
+	preserve := func(r, original string) string { return preserveSummarySections(r, original, reg) }
+	enrich := func(r string, d []session.Entry) string { return enrichWithImplicit(r, d, reg) }
+	fidelity := newCompactionFidelityObserver(reg)
+	return session.RebuildSummaryWithWires(rebuilt, session.RebuildInput{
+		Compaction: c, OriginalSummary: orig, Dropped: dropped,
+	}, preserve, enrich, fidelity)
 }
 
 func writeSummarySection(b *strings.Builder, title string, items []string) {

@@ -35,6 +35,22 @@ func attemptIsolationOn(reg *OptInRegistry) bool {
 // 关键约定：任何错误（包括空的 AttemptID）都只转成一条 notice，闭包始终返回 nil。
 // 这样隔离机制是纯观察/旁支性质的，绝不会改变验证重试或任何其他循环决策。
 // 没有事件桥接器附着在 ctx 上时 EmitEvent 是空操作，与 app 其他通知保持一致。
+// wireAttemptRoot 构造可注入 SubagentConfig.BeginAttempt/EndAttempt 的两个闭包，
+// 由它们把真实会话记录 id 带进验证失败信息。与 wireVerifyFail 共用 attempt_isolation
+// 门控：关闭（reg 为 nil 或开关未开，或 sess 为 nil）时返回两个 nil，调用方不装配，
+// runTaskVerified 中的新分支全部跳过，AttemptID 仍为原合成串，逐字节不变。
+func wireAttemptRoot(sess *session.Session, reg *OptInRegistry) (func(string) (string, error), func(string, string) error) {
+	if sess == nil || !attemptIsolationOn(reg) {
+		return nil, nil
+	}
+	return func(reason string) (string, error) {
+			return session.BeginAttempt(sess, reason)
+		},
+		func(rootID, verdict string) error {
+			return session.EndAttempt(sess, rootID, verdict)
+		}
+}
+
 func wireVerifyFail(sess *session.Session, reg *OptInRegistry) func(ctx context.Context, info agent.VerifyFailInfo) error {
 	if sess == nil || !attemptIsolationOn(reg) {
 		return nil

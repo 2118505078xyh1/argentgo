@@ -70,7 +70,7 @@ func newSecurityToolsetWithHome(t *testing.T, root string, trust bool, home stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	set := newToolset(context.Background(), cli.IO{Env: env, Err: errOut}, res, sess, nil)
+	set := newToolset(context.Background(), cli.IO{Env: env, Err: errOut}, res, sess, nil, nil)
 	t.Cleanup(func() { _ = set.Close() })
 	return set
 }
