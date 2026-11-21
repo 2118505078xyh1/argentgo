@@ -55,73 +55,140 @@ func sseDelta(content string) string {
 
 const sseDone = "data: [DONE]\n\n"
 
+// streamReadFunc 统一三个协议 readStream 的不同签名，
+// 使 idle 测试可以表驱动地覆盖 chat/anthropic/responses。
+type streamReadFunc func(ctx context.Context, body io.Reader) (Message, error)
+
+// idleClientCase 描述一个协议客户端的读取入口及其文本事件脚本。
+type idleClientCase struct {
+	name    string
+	newRead func(timeout time.Duration) streamReadFunc
+	delta   func(string) string
+	done    string
+}
+
+// idleClientCases 覆盖三个共享 sseIdleReader 的协议客户端。
+func idleClientCases() []idleClientCase {
+	return []idleClientCase{
+		{
+			name: "chat completions",
+			newRead: func(timeout time.Duration) streamReadFunc {
+				c := &Client{IdleTimeout: timeout}
+				return func(ctx context.Context, body io.Reader) (Message, error) {
+					return c.readStream(ctx, "m", body, nil)
+				}
+			},
+			delta: sseDelta,
+			done:  sseDone,
+		},
+		{
+			name: "anthropic messages",
+			newRead: func(timeout time.Duration) streamReadFunc {
+				c := &AnthropicClient{IdleTimeout: timeout}
+				return func(ctx context.Context, body io.Reader) (Message, error) {
+					return c.readStream(ctx, body, nil)
+				}
+			},
+			delta: func(content string) string {
+				return `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"` + content + `"}}` + "\n\n"
+			},
+			done: `data: {"type":"message_stop"}` + "\n\n",
+		},
+		{
+			name: "responses",
+			newRead: func(timeout time.Duration) streamReadFunc {
+				c := &ResponsesClient{IdleTimeout: timeout}
+				return func(ctx context.Context, body io.Reader) (Message, error) {
+					return c.readStream(ctx, body, nil)
+				}
+			},
+			delta: func(content string) string {
+				return `data: {"type":"response.output_text.delta","delta":"` + content + `"}` + "\n\n"
+			},
+			done: `data: {"type":"response.completed","response":{"status":"completed"}}` + "\n\n",
+		},
+	}
+}
+
 func TestReadStreamIdleTimeoutFailsSilentConnection(t *testing.T) {
-	r := newStagedReader(true, 0, sseDelta("hi"))
-	defer r.unblock()
+	for _, tc := range idleClientCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newStagedReader(true, 0, tc.delta("hi"))
+			defer r.unblock()
 
-	client := &Client{IdleTimeout: 40 * time.Millisecond}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+			read := tc.newRead(40 * time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
 
-	start := time.Now()
-	msg, err := client.readStream(ctx, "m", r, nil)
-	elapsed := time.Since(start)
-	if !errors.Is(err, ErrStreamError) {
-		t.Fatalf("err = %v, want ErrStreamError", err)
-	}
-	if !strings.Contains(err.Error(), "idle") {
-		t.Fatalf("err = %q, want an idle-timeout message", err)
-	}
-	if msg.Content != "" {
-		t.Fatalf("partial reply leaked on idle timeout: %+v", msg)
-	}
-	if elapsed > time.Second {
-		t.Fatalf("idle timeout took %v, want it well under the 2s context deadline", elapsed)
+			start := time.Now()
+			msg, err := read(ctx, r)
+			elapsed := time.Since(start)
+			if !errors.Is(err, ErrStreamError) {
+				t.Fatalf("err = %v, want ErrStreamError", err)
+			}
+			if !strings.Contains(err.Error(), "idle") {
+				t.Fatalf("err = %q, want an idle-timeout message", err)
+			}
+			if msg.Content != "" {
+				t.Fatalf("partial reply leaked on idle timeout: %+v", msg)
+			}
+			if elapsed > time.Second {
+				t.Fatalf("idle timeout took %v, want it well under the 2s context deadline", elapsed)
+			}
+		})
 	}
 }
 
 func TestReadStreamIdleTimeoutResetsOnActivity(t *testing.T) {
-	// 十个 20ms 间隔共 200ms，超过 150ms 空闲窗口：读取
-	// 必须持续成功，因为每个事件都会把截止时间往后推。
-	chunks := make([]string, 0, 11)
-	for i := 0; i < 10; i++ {
-		chunks = append(chunks, sseDelta("x"))
-	}
-	chunks = append(chunks, sseDone)
-	r := newStagedReader(false, 20*time.Millisecond, chunks...)
+	for _, tc := range idleClientCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			// 十个 20ms 间隔共 200ms，超过 150ms 空闲窗口：读取
+			// 必须持续成功，因为每个事件都会把截止时间往后推。
+			chunks := make([]string, 0, 11)
+			for i := 0; i < 10; i++ {
+				chunks = append(chunks, tc.delta("x"))
+			}
+			chunks = append(chunks, tc.done)
+			r := newStagedReader(false, 20*time.Millisecond, chunks...)
 
-	client := &Client{IdleTimeout: 150 * time.Millisecond}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+			read := tc.newRead(150 * time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
 
-	msg, err := client.readStream(ctx, "m", r, nil)
-	if err != nil {
-		t.Fatalf("Chat readStream: %v", err)
-	}
-	if msg.Content != "xxxxxxxxxx" {
-		t.Fatalf("content = %q, want ten deltas", msg.Content)
+			msg, err := read(ctx, r)
+			if err != nil {
+				t.Fatalf("readStream: %v", err)
+			}
+			if msg.Content != "xxxxxxxxxx" {
+				t.Fatalf("content = %q, want ten deltas", msg.Content)
+			}
+		})
 	}
 }
 
 func TestReadStreamZeroIdleTimeoutWaitsThroughSilence(t *testing.T) {
-	// IdleTimeout == 0 必须保持旧行为：等待
-	// 250ms 的间隔直到 [DONE]，而不是提前失败。
-	r := newStagedReader(false, 250*time.Millisecond, sseDelta("a"), sseDone)
+	for _, tc := range idleClientCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			// IdleTimeout == 0 必须保持旧行为：等待
+			// 250ms 的间隔直到终止事件，而不是提前失败。
+			r := newStagedReader(false, 250*time.Millisecond, tc.delta("a"), tc.done)
 
-	client := &Client{}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+			read := tc.newRead(0)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
 
-	start := time.Now()
-	msg, err := client.readStream(ctx, "m", r, nil)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("readStream: %v", err)
-	}
-	if msg.Content != "a" {
-		t.Fatalf("content = %q, want a", msg.Content)
-	}
-	if elapsed < 200*time.Millisecond {
-		t.Fatalf("returned after %v, want to wait through the 250ms gap", elapsed)
+			start := time.Now()
+			msg, err := read(ctx, r)
+			elapsed := time.Since(start)
+			if err != nil {
+				t.Fatalf("readStream: %v", err)
+			}
+			if msg.Content != "a" {
+				t.Fatalf("content = %q, want a", msg.Content)
+			}
+			if elapsed < 200*time.Millisecond {
+				t.Fatalf("returned after %v, want to wait through the 250ms gap", elapsed)
+			}
+		})
 	}
 }

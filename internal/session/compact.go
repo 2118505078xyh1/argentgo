@@ -354,7 +354,9 @@ func Summarize(dropped []Entry, keep int) Compaction {
 	// files 按时间顺序收集；在排序前保留最近十二个，否则"最近"就会变成字典序最后的那些。
 	files = tailItems(files, 12)
 	sort.Strings(files)
-	goals = tailItems(goals, 5)
+	// 原始目标必须始终留在 Goal 段：steering、预算提醒、纠错引导都以 Role:"user"
+	// 追加，若只保留末五条，窗口内最早的目标会被这些合成轮挤出。
+	goals = keepFirstAndTail(goals, 5)
 	failures = tailItems(failures, 8)
 	next = tailItems(next, 5)
 
@@ -438,6 +440,28 @@ func tailItems(items []string, limit int) []string {
 		return items
 	}
 	return items[len(items)-limit:]
+}
+
+// keepFirstAndTail 保留首项与末 limit-1 项。首项通常是压缩窗口内最早的原始目标，
+// 而 steering、预算提醒、纠错引导等合成消息同样以 Role:"user" 追加；
+// 若只保留末 limit 项，原始目标会被这些合成轮挤出 Goal 段。
+// 首项若与尾部某项文本相同则去重，避免产生重复的项目符号。
+// 仅对字符串切片做取舍，不切分字符串本身，因此不会破坏 UTF-8 字素边界。
+func keepFirstAndTail(items []string, limit int) []string {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	first := items[0]
+	tail := items[len(items)-(limit-1):]
+	out := make([]string, 0, limit)
+	out = append(out, first)
+	for _, item := range tail {
+		if item == first {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // lowerByteOffset 将 strings.ToLower(s) 中的字节偏移映射回 s 中对应的字节偏移。

@@ -28,6 +28,11 @@ type ResponsesClient struct {
 	HTTP            *http.Client
 	Retry           RetryPolicy
 	Options         Options
+	// IdleTimeout 限制流事件之间的静默时长。一个已打开的连接可能
+	// 停止传送数据却从不报错；设置正的 IdleTimeout 后，读取会作为可重试的
+	// 流错误失败，而不是一直挂起直到调用方的 context 过期。
+	// 零值（默认）保持同步读取，不增加定时器或 goroutine。
+	IdleTimeout time.Duration
 }
 
 // NewResponses 返回面向 baseURL（通常为 ".../v1"）的 Responses 客户端。
@@ -346,7 +351,8 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 	// 工具增量 hook 为可选接缝：未安装时只是一次廉价的 context 查询，
 	// 后续每处上报都以 if hook != nil 守卫，不分配、不改变任何 wire 行为。
 	hook := HookFromContext(ctx)
-	reader := newSSEReader(body)
+	idleReader := newSSEIdleReader(newSSEReader(body), c.IdleTimeout)
+	defer idleReader.stop()
 
 	var (
 		text         strings.Builder
@@ -397,12 +403,9 @@ streamLoop:
 		if len(pending) > 0 {
 			data, pending = pending[0], pending[1:]
 		} else {
-			next, ok, err := reader.next()
+			next, ok, err := idleReader.next(ctx)
 			if err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return Message{}, ctxErr
-				}
-				return Message{}, streamError("read stream: %v", RedactError(err))
+				return Message{}, err
 			}
 			if !ok {
 				break

@@ -232,3 +232,92 @@ func TestSummarizeUTF8ChineseAndClipping(t *testing.T) {
 		t.Fatalf("UTF-8 goal lost in summary:\n%s", got.Summary)
 	}
 }
+
+// TestSummarizeKeepsOriginalGoalAfterSyntheticUserFlood 是 R28 长会话审计的守卫：
+// steering、预算提醒、纠错引导都以 Role:"user" 追加。当这些合成轮超过五条时，
+// 旧实现 goals=tailItems(goals,5) 会把窗口内最早的原始目标挤出 Goal 段。
+func TestSummarizeKeepsOriginalGoalAfterSyntheticUserFlood(t *testing.T) {
+	originalGoal := "实现并发布词法分析器（原始目标）"
+	dropped := []Entry{{Role: "user", Content: originalGoal}}
+	synthetic := []string{
+		"[steering] 请改用表驱动测试",
+		"[budget reminder] 上下文预算即将用尽",
+		"[mistake guidance] 上一次提交遗漏了 gofmt",
+		"[steering] 优先修复解析错误",
+		"[budget reminder] 请尽快收尾",
+		"[mistake guidance] 不要修改 vendor 目录",
+	}
+	for _, text := range synthetic {
+		dropped = append(dropped, Entry{Role: "user", Content: text})
+	}
+
+	got := Summarize(dropped, 0)
+	goalStart := strings.Index(got.Summary, "## Goal\n")
+	filesStart := strings.Index(got.Summary, "## Files changed\n")
+	goalPos := strings.Index(got.Summary, originalGoal)
+	if goalStart < 0 || filesStart < 0 {
+		t.Fatalf("summary is missing Goal/Files sections:\n%s", got.Summary)
+	}
+	if goalPos < goalStart || goalPos > filesStart {
+		t.Fatalf("原始目标未出现在 Goal 段（goalPos=%d, Goal=[%d,%d)）:\n%s",
+			goalPos, goalStart, filesStart, got.Summary)
+	}
+}
+
+func TestKeepFirstAndTail(t *testing.T) {
+	tests := []struct {
+		name  string
+		items []string
+		limit int
+		want  []string
+	}{
+		{name: "empty", items: nil, limit: 5, want: nil},
+		{name: "within limit unchanged", items: []string{"a", "b", "c"}, limit: 5, want: []string{"a", "b", "c"}},
+		{name: "exactly limit unchanged", items: []string{"a", "b", "c", "d", "e"}, limit: 5, want: []string{"a", "b", "c", "d", "e"}},
+		{name: "over limit keeps first and last four", items: []string{"a", "b", "c", "d", "e", "f"}, limit: 5, want: []string{"a", "c", "d", "e", "f"}},
+		{name: "deduplicates first against tail", items: []string{"a", "b", "c", "d", "e", "a"}, limit: 5, want: []string{"a", "c", "d", "e"}},
+		{name: "limit one keeps first", items: []string{"a", "b", "c"}, limit: 1, want: []string{"a"}},
+		{name: "zero limit unchanged", items: []string{"a", "b", "c"}, limit: 0, want: []string{"a", "b", "c"}},
+		{
+			name:  "CJK graphemes intact",
+			items: []string{"目标：词法分析器", "a", "b", "c", "d", "e", "末目标：发布"},
+			limit: 5,
+			want:  []string{"目标：词法分析器", "c", "d", "e", "末目标：发布"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := strings.Join(tt.items, "|")
+			got := keepFirstAndTail(tt.items, tt.limit)
+			if strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Fatalf("keepFirstAndTail(%q, %d) = %q, want %q", tt.items, tt.limit, got, tt.want)
+			}
+			if after := strings.Join(tt.items, "|"); after != before {
+				t.Fatalf("input mutated: before %q, after %q", before, after)
+			}
+			for _, s := range got {
+				if !utf8.ValidString(s) {
+					t.Errorf("invalid UTF-8 item %q", s)
+				}
+			}
+		})
+	}
+}
+
+func TestSummarizeGoalRetentionStableAndInputUnchanged(t *testing.T) {
+	dropped := []Entry{{Role: "user", Content: "原始目标"}}
+	for i := 0; i < 7; i++ {
+		dropped = append(dropped, Entry{Role: "user", Content: fmt.Sprintf("合成轮 %d", i)})
+	}
+	before, _ := json.Marshal(dropped)
+	want := Summarize(dropped, 0).Summary
+	for n := 0; n < 50; n++ {
+		if got := Summarize(dropped, 0).Summary; got != want {
+			t.Fatalf("Summarize.Summary changed across runs:\n got %q\nwant %q", got, want)
+		}
+	}
+	after, _ := json.Marshal(dropped)
+	if string(before) != string(after) {
+		t.Fatalf("Summarize mutated dropped input:\nbefore %s\nafter  %s", before, after)
+	}
+}
