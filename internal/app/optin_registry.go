@@ -28,6 +28,12 @@ const (
 	// OptInCompactionFidelity 控制是否在压缩摘要要素缺失时发出质量告警。
 	// 它默认关闭：未显式开启时压缩完成点不会被挂接任何观察者，行为逐字节不变。
 	OptInCompactionFidelity OptInKey = "compaction_fidelity"
+	// OptInKeepImplicitContext 控制是否把压缩丢弃的隐式上下文（尾部消息与失败尝试）
+	// 重新并入摘要。它默认关闭：未显式开启时摘要逐字节不变。
+	OptInKeepImplicitContext OptInKey = "keep_implicit_context"
+	// OptInPreserveSummarySections 控制是否在重建压缩摘要时保留原摘要中的关键章节
+	// （如目标、工具活动）。它默认关闭：未显式开启时重建摘要逐字节不变。
+	OptInPreserveSummarySections OptInKey = "preserve_summary_sections"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -38,6 +44,8 @@ var allOptInKeys = []OptInKey{
 	OptInUntrustedBoundary,
 	OptInAttemptIsolation,
 	OptInCompactionFidelity,
+	OptInKeepImplicitContext,
+	OptInPreserveSummarySections,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。

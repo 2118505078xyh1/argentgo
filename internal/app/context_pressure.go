@@ -94,6 +94,14 @@ func withContextPressure(ctx context.Context, o *contextPressureObserver) contex
 	return context.WithValue(ctx, contextPressureKey{}, o)
 }
 
+// replaceContextPressure 无条件写入本次运行解析出的观察器（含 typed nil），
+// 用于覆盖 runner.Prompt 基于进程级旧开关挂接的过期观察器。contextPressureOf
+// 对 typed nil 的类型断言返回 nil，collectEvent/observeStop 都是空操作，因此
+// 关闭时写入 typed nil 与"从未接线"在运行行为上完全一致。
+func replaceContextPressure(ctx context.Context, o *contextPressureObserver) context.Context {
+	return context.WithValue(ctx, contextPressureKey{}, o)
+}
+
 // contextPressureOf 返回附着在 ctx 上的观察器；没有时返回 nil。
 func contextPressureOf(ctx context.Context) *contextPressureObserver {
 	o, _ := ctx.Value(contextPressureKey{}).(*contextPressureObserver)
