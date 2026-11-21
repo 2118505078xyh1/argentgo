@@ -131,6 +131,28 @@ func (m *Model) Sessions() []SessionInfo {
 	return append([]SessionInfo{}, m.sessions...)
 }
 
+// SetCommandInfo 替换斜杠命令元数据，并重建补全面板使用的候选状态。
+// 镜像 SetSessions：持锁、拷贝入参、提升版本并标脏。空切片产生一个合法
+// 但无候选的补全状态，Tab 因此回退为插入两个空格。
+// 它不打开面板——showCommands 只能由 Ctrl+O 切换。
+func (m *Model) SetCommandInfo(rows []CommandInfo) {
+	m.mu.Lock()
+	m.commandInfo = append([]CommandInfo{}, rows...)
+	cands := make([]CompletionCandidate, 0, len(rows))
+	for _, row := range rows {
+		cands = append(cands, CompletionCandidate{
+			Command:     row.Command,
+			Description: row.Description,
+		})
+	}
+	m.completion = NewCompletionState(cands)
+	m.commandsCursor = clampScroll(m.commandsCursor, maxInt(len(rows)-1, 0))
+	m.commandsScroll = 0
+	m.version++
+	m.markDirtyLocked()
+	m.mu.Unlock()
+}
+
 // SetTurnActions 安装 undo / retry / rename 接缝。传入 nil 清除
 // 某个动作，使其斜杠命令以通知作答。
 func (m *Model) SetTurnActions(undo, retry, rename TurnAction) {

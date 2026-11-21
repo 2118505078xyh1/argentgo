@@ -250,11 +250,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	ctx = configureOutputSpill(ctx, stdio.Env, res.Storage)
 
 	// 统一 opt-in 激活面：Execute 是 runner/eval/tui 三条生产路径的唯一汇聚点，
-	// 因此在这里单点解析 ARGENT_OPT_INS。默认全关时：三个 setter 写入 false（与零值
-	// 一致）、reg 全 false、观察器为 nil，系统提示/事件序列/会话 JSONL 逐字节不变。
-	optIns := ParseOptInEnv(stdio.Env)
+	// 因此在这里单点解析 ARGENT_OPT_INS，并与配置的 optins 块取并集（env OR config）。
+	// 默认全关时：所有 setter 写入 false（与零值一致）、reg 全 false、观察器为 nil，
+	// 系统提示/事件序列/会话 JSONL 逐字节不变。
+	optIns := mergeOptIns(ParseOptInEnv(stdio.Env), configOptIns(res.Cfg.Raw))
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
+	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
 	SetContextPressure(optIns[OptInContextPressure])
 	// 观察器必须在 SetContextPressure 之后构造，并用 replace 无条件覆盖 runner.Prompt
 	// 基于进程级旧开关挂接的观察器：关闭时 newContextPressureObserver 返回 typed nil，
@@ -409,6 +411,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 禁用/负的阈值会得到 0，从而成为空操作。
 		Compactor:        compactor,
 		CompactThreshold: compactor.CompactThreshold(),
+		// 上下文溢出时允许一次有界的"压缩后重放"：仅在提供方明确报告 context
+		// overflow、配置了 compactor 且压缩确实缩短时才重试；其它情况走原失败路径
+		// 逐字节不变。这是上下文管理要素的优雅降级，不增加正常路径的开销。
+		EnableCompactRetry: true,
 		OnCompactionEvidence: func(e agent.CompactionEvidence) {
 			evidence = e
 		},

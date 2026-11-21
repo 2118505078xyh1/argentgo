@@ -500,7 +500,11 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 			// 与硬性的 StopError 拒绝不同。
 			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 		}
-		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
+		// 可选的工具错误反射（默认关闭）：门控关闭时 ReflectionForDispatch 逐字节返回
+		// "error: "+err，模型看到的消息、事件与会话记录都不变；开启时对可修复错误追加
+		// 修复指令与脱敏错误正文，帮助模型自我修正。错误分类/熔断/拒绝原因不受影响。
+		errText := ReflectionForDispatch(call.Function.Name, "error: "+err.Error())
+		return callResult{intent: intent, output: errText, isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 	}
 	if isNoopEditTool(call.Function.Name) && hasNoopEditMarker(output) {
 		// 无操作编辑是模型即将重复自身的强烈信号。该提示会成为模型下一步看到的工具结果的一部分。

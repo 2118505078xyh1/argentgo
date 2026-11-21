@@ -44,6 +44,11 @@ var optInDefinitions = []optInDefinition{
 	{key: "attempt_isolation", label: "失败尝试隔离", category: "上下文"},
 	{key: "keep_implicit_context", label: "保留隐式上下文", category: "上下文"},
 	{key: "preserve_summary_sections", label: "保留摘要章节", category: "上下文"},
+	{key: "refusal_reason", label: "拒绝理由", category: "交互"},
+	{key: "untrusted_result", label: "不可信结果", category: "上下文"},
+	{key: "untrusted_boundary", label: "不可信边界", category: "上下文"},
+	{key: "compaction_fidelity", label: "压缩保真", category: "上下文"},
+	{key: "tool_error_reflection", label: "工具错误反射", category: "交互"},
 }
 
 // optInBool 把任意配置值收敛为布尔：只有类型为 bool 且值为 true 才视为开启，

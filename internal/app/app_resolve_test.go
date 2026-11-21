@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/security"
@@ -59,6 +60,37 @@ func TestResolveConfigModelAndProviderBeatCompiledDefaults(t *testing.T) {
 	if !strings.Contains(report, "model: claude-test (anthropic-messages)") {
 		t.Errorf("token report does not reflect config:\n%s", report)
 	}
+}
+
+// 默认轮次预算必须与引擎对齐：旧默认 12 会过早截断长任务，把未完成的
+// 工作包装成正常结束。这里同时覆盖配置层默认值和 app 层兜底（配置为 0）。
+func TestResolveDefaultMaxTurnsAlignsWithEngine(t *testing.T) {
+	if agent.DefaultMaxTurns != 100 {
+		t.Fatalf("engine DefaultMaxTurns = %d, want 100", agent.DefaultMaxTurns)
+	}
+
+	t.Run("no config uses config default", func(t *testing.T) {
+		root := t.TempDir()
+		res, err := Resolve(cli.IO{Env: isolatedEnv(t.TempDir(), nil)}, cli.Options{Cwd: root})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if res.MaxTurns != agent.DefaultMaxTurns {
+			t.Fatalf("MaxTurns = %d, want %d", res.MaxTurns, agent.DefaultMaxTurns)
+		}
+	})
+
+	t.Run("zero config falls back to engine default", func(t *testing.T) {
+		root := t.TempDir()
+		writeArgentConfig(t, root, `{"maxTurns":0}`)
+		res, err := Resolve(cli.IO{Env: isolatedEnv(t.TempDir(), nil)}, cli.Options{Cwd: root})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if res.MaxTurns != agent.DefaultMaxTurns {
+			t.Fatalf("MaxTurns = %d, want fallback %d", res.MaxTurns, agent.DefaultMaxTurns)
+		}
+	})
 }
 
 func TestResolveProfileModelAndProviderBeatCompiledDefaults(t *testing.T) {

@@ -16,7 +16,10 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.profile = fs.String("profile", "", "named config profile")
 	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
 	v.yes = fs.Bool("yes", false, "auto-confirm prompts in non-interactive environments")
-	v.maxTurns = fs.Int("max-turns", 12, "maximum model turns")
+	// 默认值从 12 抬高到 100，与引擎 DefaultMaxTurns 对齐：这是抬高默认
+	// 天花板而非剥夺控制，用户仍可用本 flag、ARGENT_MAX_TURNS、-c maxTurns、
+	// 配置或提示词声明覆盖（后者在 app_execute.go 中叠加）。
+	v.maxTurns = fs.Int("max-turns", 100, "maximum model turns")
 	v.maxParallel = fs.Int("max-parallel", 0, "read-only tool workers per batch (0 uses the default, 1 disables)")
 	v.mode = fs.String("mode", "", "output mode: text or json (default: text)")
 	v.cwd = fs.String("cwd", "", "workspace root (default: current directory)")

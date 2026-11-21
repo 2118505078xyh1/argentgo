@@ -1,6 +1,6 @@
 # 用户指南
 
-argentgo 的安装、快速上手、分发和包管理器配方。命令标志、传输和工具见 [Technical reference](TECHNICAL.md)；维护者与发布门禁笔记见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+argentgo 的安装、快速上手、分发和包管理器配方。命令标志、传输和工具见 [Technical reference](TECHNICAL.md)；维护者与发布门禁笔记见 [CONTRIBUTING.md](../CONTRIBUTING.md)。全部 opt-in 开关（默认关闭的可选特性）及独立门控环境变量见 [Opt-in 开关使用指南](OPT_INS.md)。
 
 ## Install
 

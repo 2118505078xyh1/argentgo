@@ -85,3 +85,12 @@ func AugmentToolErrorReflection(label, output string, isError bool) string {
 	}
 	return output
 }
+
+// ReflectionForDispatch 是 dispatch.go 工具错误分支的一次性接线包装。
+// 调用点已经确认结果是一条工具错误，因此这里固定以 isError=true 转交
+// AugmentToolErrorReflection，接线方无需再传布尔标志。
+// 与后者一致：门控关闭（默认）、错误不可修复或正文为空时，逐字节原样返回 errText。
+// 是否把反馈真正注入下一轮次仍由调用方按现有反思预算决定，本函数不改变循环行为。
+func ReflectionForDispatch(tool, errText string) string {
+	return AugmentToolErrorReflection(tool, errText, true)
+}

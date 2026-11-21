@@ -66,19 +66,45 @@ func TestFormatOptInsListsEnabledSorted(t *testing.T) {
 
 func TestFormatOptInsAllKnownKeys(t *testing.T) {
 	enabled := map[string]bool{
-		"refusal_reason":      true,
-		"untrusted_result":    true,
-		"context_pressure":    true,
-		"untrusted_boundary":  true,
-		"attempt_isolation":   true,
-		"compaction_fidelity": true,
+		"refusal_reason":            true,
+		"untrusted_result":          true,
+		"context_pressure":          true,
+		"untrusted_boundary":        true,
+		"attempt_isolation":         true,
+		"compaction_fidelity":       true,
+		"keep_implicit_context":     true,
+		"preserve_summary_sections": true,
+		"apply_patch":               true,
+		"grep_ex":                   true,
+		"cli_hints":                 true,
+		"tool_error_reflection":     true,
 	}
 	want := []string{
-		"attempt_isolation", "compaction_fidelity", "context_pressure",
-		"refusal_reason", "untrusted_boundary", "untrusted_result",
+		"apply_patch", "attempt_isolation", "cli_hints", "compaction_fidelity",
+		"context_pressure", "grep_ex", "keep_implicit_context",
+		"preserve_summary_sections", "refusal_reason", "tool_error_reflection",
+		"untrusted_boundary", "untrusted_result",
 	}
 	if got := listedOptInKeys(FormatOptIns(enabled)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("listed keys = %v, want %v", got, want)
+	}
+}
+
+// TestKnownOptInKeysStable 锁定 cli 侧词汇表与 app 权威 12 键一致，防止新增键时
+// 只改一处造成三处分叉。
+func TestKnownOptInKeysStable(t *testing.T) {
+	want := []string{
+		"refusal_reason", "untrusted_result", "context_pressure", "untrusted_boundary",
+		"attempt_isolation", "compaction_fidelity", "keep_implicit_context",
+		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints", "tool_error_reflection",
+	}
+	if len(knownOptInKeys) != len(want) {
+		t.Fatalf("knownOptInKeys 键数 = %d, want %d: %v", len(knownOptInKeys), len(want), knownOptInKeys)
+	}
+	for _, key := range want {
+		if _, ok := knownOptInKeys[key]; !ok {
+			t.Errorf("knownOptInKeys 缺少权威键 %q", key)
+		}
 	}
 }
 
@@ -151,11 +177,16 @@ func TestOptInFromEnv(t *testing.T) {
 			map[string]bool{"refusal_reason": true}},
 		{"case sensitive", false, "REFUSAL_REASON", map[string]bool{}},
 		{"all known keys", false,
-			"refusal_reason,untrusted_result,context_pressure,untrusted_boundary,attempt_isolation,compaction_fidelity",
+			"refusal_reason,untrusted_result,context_pressure,untrusted_boundary,attempt_isolation,compaction_fidelity,keep_implicit_context,preserve_summary_sections,apply_patch,grep_ex,cli_hints,tool_error_reflection",
 			map[string]bool{
 				"refusal_reason": true, "untrusted_result": true, "context_pressure": true,
 				"untrusted_boundary": true, "attempt_isolation": true, "compaction_fidelity": true,
+				"keep_implicit_context": true, "preserve_summary_sections": true,
+				"apply_patch": true, "grep_ex": true, "cli_hints": true, "tool_error_reflection": true,
 			}},
+		{"new keys cli_hints/apply_patch/grep_ex", false,
+			"cli_hints,  apply_patch , grep_ex",
+			map[string]bool{"cli_hints": true, "apply_patch": true, "grep_ex": true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

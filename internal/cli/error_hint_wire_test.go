@@ -19,7 +19,22 @@ func constEnv(hints string) func(string) string {
 	}
 }
 
-// TestCliHintsEnabled 覆盖门控的全部取值：nil 与任何非 "1" 的值都关闭。
+// envWith 返回一个同时回应两个门控变量的注入式 env 桩，用于覆盖两个开关的
+// 组合场景：hints 对应 ARGENT_CLI_HINTS，optIns 对应 ARGENT_OPT_INS。
+func envWith(hints, optIns string) func(string) string {
+	return func(key string) string {
+		switch key {
+		case cliHintsEnvVar:
+			return hints
+		case optInEnvVar:
+			return optIns
+		}
+		return ""
+	}
+}
+
+// TestCliHintsEnabled 覆盖两个门控的全部取值与组合：nil 与任何非 "1" 的值、
+// 以及未启用 cli_hints 的 opt-in 列表都关闭；任一开关命中即开启。
 func TestCliHintsEnabled(t *testing.T) {
 	cases := []struct {
 		name string
@@ -31,6 +46,15 @@ func TestCliHintsEnabled(t *testing.T) {
 		{name: "zero", env: constEnv("0"), want: false},
 		{name: "blank", env: constEnv("   "), want: false},
 		{name: "one", env: constEnv("1"), want: true},
+		{name: "one with surrounding spaces", env: constEnv("  1  "), want: true},
+		{name: "both unset", env: envWith("", ""), want: false},
+		{name: "cli hints only", env: envWith("1", ""), want: true},
+		{name: "opt-in cli_hints only", env: envWith("", "cli_hints"), want: true},
+		{name: "opt-in cli_hints among others", env: envWith("", "  apply_patch , cli_hints  "), want: true},
+		{name: "opt-in unrelated key only", env: envWith("", "refusal_reason"), want: false},
+		{name: "cli hints zero plus unrelated opt-in", env: envWith("0", "refusal_reason"), want: false},
+		{name: "cli hints zero plus cli_hints opt-in", env: envWith("0", "cli_hints"), want: true},
+		{name: "both set", env: envWith("1", "cli_hints"), want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -59,6 +83,7 @@ func TestWriteActionableErrorEnvGateOffMatchesBaseline(t *testing.T) {
 		{name: "empty", env: constEnv("")},
 		{name: "zero", env: constEnv("0")},
 		{name: "blank", env: constEnv(" ")},
+		{name: "both env vars unset", env: envWith("", "")},
 	}
 	for _, e := range envs {
 		for _, msg := range messages {
@@ -111,6 +136,29 @@ func TestWriteActionableErrorEnvAppendsLocalizedHint(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestWriteActionableErrorEnvOptInAppendsHint 验证仅设置 ARGENT_OPT_INS=cli_hints
+// 时同样会追加建议，且既有两行保持不变、按 locale 本地化。
+func TestWriteActionableErrorEnvOptInAppendsHint(t *testing.T) {
+	const msg = "provider returned 401 Unauthorized: invalid api key"
+	const key = i18n.ErrorHintCredentials
+	for _, locale := range []string{"zh-CN", "en-US", ""} {
+		t.Run(locale, func(t *testing.T) {
+			baseline := &bytes.Buffer{}
+			writeActionableError(baseline, errors.New(msg))
+			got := &bytes.Buffer{}
+			writeActionableErrorEnv(got, errors.New(msg), envWith("", "cli_hints"), locale)
+
+			want := baseline.String() + i18n.ErrorHintMessage(locale, key) + "\n"
+			if got.String() != want {
+				t.Fatalf("stderr =\n%q\nwant   =\n%q", got.String(), want)
+			}
+			if !strings.HasPrefix(got.String(), baseline.String()) {
+				t.Fatalf("existing lines changed: baseline %q, got %q", baseline.String(), got.String())
+			}
+		})
 	}
 }
 
@@ -190,6 +238,37 @@ func TestRunPromptHintWiring(t *testing.T) {
 		}
 		if errOut.Len() != 0 {
 			t.Fatalf("stderr = %q, want empty", errOut.String())
+		}
+	})
+}
+
+// TestRunPromptHintWiringOptIn 验证只设置 ARGENT_OPT_INS=cli_hints 时，
+// cli.go 的错误分支同样接到建议输出；未启用该键时保持关闭。
+func TestRunPromptHintWiringOptIn(t *testing.T) {
+	const msg = "provider returned 401 Unauthorized: invalid api key"
+	factory := func(Options) (Runner, error) {
+		return &stubRunner{fail: errors.New(msg)}, nil
+	}
+	t.Run("cli_hints enabled", func(t *testing.T) {
+		stdio, _, errOut := newTestIO("", map[string]string{optInEnvVar: "cli_hints"})
+		code := RunWith(App{IO: stdio, NewRunner: factory}, []string{"--locale", "zh-CN", "hi"})
+		if code != 1 {
+			t.Fatalf("exit = %d, want 1; stderr = %q", code, errOut.String())
+		}
+		if want := i18n.ErrorHintMessage("zh-CN", i18n.ErrorHintCredentials); !strings.Contains(errOut.String(), want) {
+			t.Fatalf("localized hint %q missing from stderr %q", want, errOut.String())
+		}
+	})
+	t.Run("cli_hints disabled", func(t *testing.T) {
+		stdio, _, errOut := newTestIO("", map[string]string{optInEnvVar: "refusal_reason"})
+		code := RunWith(App{IO: stdio, NewRunner: factory}, []string{"--locale", "zh-CN", "hi"})
+		if code != 1 {
+			t.Fatalf("exit = %d, want 1; stderr = %q", code, errOut.String())
+		}
+		for _, key := range cliHintI18nKeys {
+			if strings.Contains(errOut.String(), i18n.ErrorHintMessage("zh-CN", key)) {
+				t.Fatalf("hint %q present with cli_hints disabled: %q", key, errOut.String())
+			}
 		}
 	})
 }

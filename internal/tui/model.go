@@ -60,6 +60,15 @@ type SessionInfo struct {
 	Title string
 }
 
+// CommandInfo 是宿主注入的一条斜杠命令元数据。tui 不依赖
+// internal/commands（依赖规则禁止反向引用上层包），由集成方把命令的
+// 名称、描述与参数提示转换成这个窄类型。
+type CommandInfo struct {
+	Command      string
+	Description  string
+	ArgumentHint string
+}
+
 // BufferPos 是已渲染缓冲区中基于 0 的 (row, col) 位置。鼠标
 // 报告基于 1；run 循环在调用
 // 选择方法前减一。
@@ -220,6 +229,14 @@ type Model struct {
 	plan             *Plan
 	planScroll       int
 	fs               FileSystem
+
+	// 斜杠命令补全面板。三者（showCommands/completion 指针/候选数）默认
+	// 全为零值，使经典记录视图、Tab 插两空格与默认帧逐字节不变。
+	showCommands   bool
+	commandInfo    []CommandInfo
+	commandsCursor int
+	commandsScroll int
+	completion     *CompletionState
 
 	pending       *approvalRequest
 	approvalQueue []approvalRequest

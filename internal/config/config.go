@@ -47,7 +47,10 @@ const (
 	defaultBaseURL  = "https://api.openai.com/v1"
 	defaultProtocol = "openai-chat-completions"
 	defaultLocale   = "en-US"
-	defaultMaxTurns = 12
+	// 默认轮次预算抬高到 100，与引擎 agent.DefaultMaxTurns 对齐（config 包
+	// 保持零依赖，故用字面量而非跨包引用）。这是抬高默认天花板而非剥夺
+	// 控制：ARGENT_* 环境变量、-c 覆盖、profile 仍可任意收窄该预算。
+	defaultMaxTurns = 100
 	// defaultVerifyTimeoutMS 在 decode 中应用（而非 defaults()），因为该
 	// 设置存在别名；在基础层注入规范键会遮蔽文件中的
 	// "verify_timeout_ms" 拼写。
