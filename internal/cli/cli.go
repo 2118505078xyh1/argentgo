@@ -24,7 +24,7 @@ import (
 )
 
 // Version 是 --version、/v1/health 和 ACP initialize 所报告的版本号。
-const Version = "0.8.0"
+const Version = "0.8.1"
 
 // IO 承载进程的各种流，使命令可以在不依赖 os.Stdin 的情况下进行测试。
 type IO struct {

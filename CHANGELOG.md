@@ -1,5 +1,23 @@
 # 更新日志
 
+## v0.8.1 — 2026-11-21
+
+内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。
+
+**内核化（编译期静态注册）**
+- 新增 `internal/pluginapi` 泛型静态注册表；tools / commands / hooks / provider / lsp 五处改为编译期静态注册构造器（每次运行独立实例化，保持"每运行一份"的安全语义）。
+- 抽出 `internal/agentpolicy` 纯策略叶子包（回复分类、压缩重试决策、上下文 Epoch、StablePrefix 视图）；`loop.go` 拆分出 `loop_helpers.go`，核心循环独立可见（字节级验证逐行一致）。
+- hooks 增加 middleware（waterfall 洋葱链）接缝；agent 支持 boot 拓扑 opt-in 校验（TopoSort 相等断言，漂移即 fail-closed）。
+
+**可靠性（上下文管理 / 可恢复性 / 工具执行安全）**
+- 新增不可信工具结果来源标记、结构化拒绝原因（带类型错误而非文本匹配）、统一事件 DTO 投影、失败尝试隔离、上下文压力诊断等原语（均默认 opt-in 关闭，逐字节不变）。
+- 九轮 3 学习 + 17 优化并行迭代，累计约 300 个 opt-in 原语/接线，全部配表驱动测试与守卫。
+
+**自研 shell（无 Git Bash 时兜底）**
+- 新增顶层 `toolkits/shell/`：纯标准库 shell 解释器（词法/语法/展开/执行/内建 + coreutils），依赖 internal/proc 与 internal/security 路径边界；fail-closed（不支持的语法明确拒绝）。`tools_builtin_bash.go` 以 `ARGENT_BUILTIN_SHELL=1` opt-in 接线，默认走系统 shell 逐字节不变。
+
+全量验证全绿：`gofmt -l .` 空、`go vet ./...`、`go test -p 4 ./... -count=1`、`go test -race ./...`、`GOOS=linux go build ./...`。
+
 ## v0.8.0 — 2026-11-20
 
 针对 goose、aider、gptme、Crush、pi、opencode、dsh 和 Codex 做了多轮学习与加固。Go 代码达到 20 万行（wc -l，含测试），仍然只依赖标准库，MyGo 是唯一的原生壳依赖。亮点：
