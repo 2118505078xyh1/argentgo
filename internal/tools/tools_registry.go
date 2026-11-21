@@ -12,6 +12,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
@@ -263,6 +264,15 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if r.jobs != nil {
 		ctx = context.WithValue(ctx, jobsKey{}, r.jobs)
 	}
+	// 同步写入 pluginapi.ExecContext，供已迁移到 internal/shell 的命令类工具
+	// 读取（它们无法访问 tools 包内未导出的 context key）。原有 key 保留不动，
+	// 既有工具行为逐字节不变。
+	ctx = pluginapi.WithExecContext(ctx, pluginapi.ExecContext{
+		MaxOutput:  r.maxOutput,
+		MaxTimeout: r.maxTimeout,
+		SessionDir: r.sessionDir,
+		Jobs:       r.jobs,
+	})
 	return runTool(tool, ctx, r.root, name, raw)
 }
 

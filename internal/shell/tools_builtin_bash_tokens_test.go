@@ -1,4 +1,4 @@
-package tools
+package shell
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
 )
 
 const bashHintPrefix = "[output: ~"
@@ -14,7 +16,7 @@ const bashHintPrefix = "[output: ~"
 // 输出会在头部获得简短的体量提示，且不干扰被裁剪的
 // 正文或截断标记。
 func TestClipBashOutputAddsHintWhenClipped(t *testing.T) {
-	ctx := context.WithValue(context.Background(), outputLimitKey{}, 512)
+	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 512})
 	raw := strings.Repeat("abcdefgh", 512) // 4096 bytes, well over the 512-byte cap
 	got := clipBashOutput(ctx, raw)
 
@@ -43,7 +45,7 @@ func TestClipBashOutputUsesDefaultLimitHint(t *testing.T) {
 // TestClipBashOutputNoHintWhenSmall 验证小输出被
 // 逐字节原样返回，且没有体量提示。
 func TestClipBashOutputNoHintWhenSmall(t *testing.T) {
-	ctx := context.WithValue(context.Background(), outputLimitKey{}, 512)
+	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 512})
 	const raw = "short output\n"
 	got := clipBashOutput(ctx, raw)
 	if got != raw {
@@ -81,7 +83,7 @@ func TestBashOutputTokensCoversWideAndNarrowRunes(t *testing.T) {
 // TestClipBashOutputHintUsesCJKEstimate 验证提示反映的是 CJK 感知的
 // 估算，而非朴素的 byte/4 或 rune/4 计数。
 func TestClipBashOutputHintUsesCJKEstimate(t *testing.T) {
-	ctx := context.WithValue(context.Background(), outputLimitKey{}, 256)
+	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 256})
 	raw := strings.Repeat("中", 2000) // 2000 wide runes => ~2.0k tokens
 	got := clipBashOutput(ctx, raw)
 	firstLine, _, _ := strings.Cut(got, "\n")

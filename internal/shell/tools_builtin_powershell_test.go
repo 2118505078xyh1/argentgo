@@ -1,4 +1,4 @@
-package tools
+package shell
 
 import (
 	"context"
@@ -170,17 +170,12 @@ func TestPowerShellToolMetadata(t *testing.T) {
 	}
 }
 
-func TestPowerShellToolIsRegistered(t *testing.T) {
-	registry := New(t.TempDir(), true)
-	found := false
-	for _, name := range registry.Names() {
-		if name == "powershell" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("powershell is not in the built-in registry: %v", registry.Names())
+func TestPowerShellToolConstructor(t *testing.T) {
+	// 构造器供注册方（internal/tools）以固定 order 注册；此处验证契约本身。
+	// 注册顺序由 tools 包的 builtin_register_test.go golden 锁定。
+	tool := NewPowerShellTool()
+	if got := tool.Name(); got != "powershell" {
+		t.Fatalf("NewPowerShellTool().Name() = %q, want powershell", got)
 	}
 }
 
