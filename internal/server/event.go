@@ -371,6 +371,15 @@ func WireAgentEvents(hub *EventHub, emit <-chan agent.Event, ctx context.Context
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// 兜底恢复：Publish 或事件消费中的 panic 不得终结整个进程。
+		// close(done) 先注册、后执行（后进先出），因此即便 panic 也一定
+		// 关闭 done，等待桥接停止的调用方不会挂起。此处只需记录日志：
+		// hub 的订阅生命周期由调用方的 stop() 负责，与桥接无关。
+		defer func() {
+			if r := recover(); r != nil {
+				logRecoveredPanic("wire agent events", r)
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():

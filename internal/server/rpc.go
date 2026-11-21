@@ -8,13 +8,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
+
+// panicLogf 是各传输的 fire-and-forget goroutine 捕获 panic 时的日志出口。
+// 声明为变量以便测试注入捕获；默认走标准库 log，与 internal/config、
+// internal/auth 的告警日志风格一致。只有 panic 路径才会调用它。
+var panicLogf = log.Printf
+
+// logRecoveredPanic 记录一次被恢复的 panic：包含 panic 值与调用栈，
+// 便于事后定位是哪条 goroutine、哪段代码触发。栈信息只写服务端日志，
+// 不跨越传输边界，客户端只收到统一的内部错误回包。
+func logRecoveredPanic(where string, r any) {
+	panicLogf("server: recovered panic in %s: %v\n%s", where, r, debug.Stack())
+}
 
 // maxRPCFrame 是换行分隔的 --rpc / acp 传输上接受的最大帧。
 // 它把旧 bufio.Scanner 的 4 MiB 上限作为显式的、
@@ -264,6 +278,16 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// 兜底恢复：Runner 或流式回调中的 panic 不得终结整个 --rpc 进程。
+			// 本 defer 在 wg.Done 之后注册，故先于 wg.Done 执行（后进先出），
+			// 保证错误回包在 wg 归零、RunRPC 返回之前写出，客户端不会挂起。
+			defer func() {
+				if r := recover(); r != nil {
+					logRecoveredPanic("rpc prompt", r)
+					// 复用真实失败同款 -32603 回包，保持 wire 形态一致。
+					p.fail(id, codeInternalError, "internal error: prompt panicked")
+				}
+			}()
 			result, err := cfg.Runner.Prompt(ctx, text, func(chunk string) {
 				if chunk == "" {
 					return
@@ -489,6 +513,15 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// 兜底恢复：订阅流中的 panic 不得终结整个 --rpc 进程。
+			// 下方 defer stop() 在本 defer 之后注册，故按 stop → recover →
+			// wg.Done 的顺序执行：退订关闭通道、wg.Done 释放等待者都不被跳过，
+			// 客户端在 panic 后仍能正常结束传输而不会挂起。
+			defer func() {
+				if r := recover(); r != nil {
+					logRecoveredPanic("rpc event/subscribe", r)
+				}
+			}()
 			ch, stop, seqAt := hub.SubscribeAfter(params.After)
 			defer stop()
 			// seqAt 与订阅一起捕获，因此在该结果写出之前

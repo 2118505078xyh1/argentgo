@@ -385,6 +385,13 @@ argentgo "你的任务"
 - **适用场景**：排查单轮延迟、定位耗时集中在哪个阶段时。
 - **逐字节不变承诺**：关闭时逐阶段计时器保持 nil、不输出任何计时日志，日志与事件流逐字节不变。
 
+### `ARGENT_STREAM_RECOVERY` —— 流中断后非流式回补
+
+- **作用**：在 app 层接通 `agent.Options.EnableStreamRecovery`（读点 `internal/app/app_execute.go` 的 `streamRecoveryEnabled`，注入 `loop.Opts`）。提供方在流式答复中途报错（`llm.ErrStreamError`）且已输出部分文本时，用同一 model/messages/tools 再发一次非流式补全；补不到就沿用原失败路径，每轮最多一次。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：不稳定网络或流式端点偶发中断，希望自动以非流式方式取回完整答复时。
+- **逐字节不变承诺**：关闭时 `EnableStreamRecovery` 为零值，agent 的恢复分支整体短路，请求体、事件流与会话 JSONL 逐字节不变；开启但未命中流错误、无部分文本或 chatter 不支持非流式时同样走原路径。
+
 ---
 
 ## 四、其它独立门控速查
@@ -421,6 +428,7 @@ argentgo "你的任务"
 | `ARGENT_MCP_SPILL_THRESHOLD` | MCP 输出溢出字节阈值（正整数），覆盖默认值。 |
 | `ARGENT_MCP_PROTOCOL_VERSION` | MCP 协议版本回退值；协商失败时作为回退使用。 |
 | `ARGENT_EVAL_LIVE` | 评测 live 门禁；仅 `=1` 允许评测走真实 provider，默认断网脚本化。 |
+| `ARGENT_STREAM_RECOVERY` | 流中断后非流式回补：app 层接通 `agent.Options.EnableStreamRecovery`；仅 `=1` 开启。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
 

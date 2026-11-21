@@ -223,6 +223,13 @@ func checkpointWorkspaceDiffEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_CHECKPOINT_WORKSPACE_DIFF")) == "1"
 }
 
+// streamRecoveryEnabled 报告是否启用"流中断后非流式回补"恢复路径：提供方在流式
+// 答复中途报错且已输出部分文本时，用同一 model/messages/tools 再发一次非流式补全。
+// 默认关闭，关闭时 agent.Options.EnableStreamRecovery 为零值，请求与事件逐字节不变。
+func streamRecoveryEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_STREAM_RECOVERY")) == "1"
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -507,6 +514,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 禁用/负的阈值会得到 0，从而成为空操作。
 		Compactor:        compactor,
 		CompactThreshold: compactor.CompactThreshold(),
+		// 流中断回补（opt-in ARGENT_STREAM_RECOVERY）：默认关闭时为零值，
+		// agent 的恢复分支整体短路，请求体与事件逐字节不变。
+		EnableStreamRecovery: streamRecoveryEnabled(stdio.Env),
 		// 上下文溢出时允许一次有界的"压缩后重放"：仅在提供方明确报告 context
 		// overflow、配置了 compactor 且压缩确实缩短时才重试；其它情况走原失败路径
 		// 逐字节不变。这是上下文管理要素的优雅降级，不增加正常路径的开销。

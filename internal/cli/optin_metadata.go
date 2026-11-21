@@ -94,6 +94,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "repeat_pitfall_tracking", Env: "ARGENT_REPEAT_PITFALL_TRACKING", Name: "跨情节重复踩坑计数", Enable: "=1", Desc: "启用跨情节的重复错误签名计数；关闭时 RecordSignature 立即返回，不分配不触锁，既有记录路径逐字节不变。"},
 	{Key: "recovery_metrics", Env: "ARGENT_RECOVERY_METRICS", Name: "恢复成效账本", Enable: "=1", Desc: "在指引注入与工具成功处采集恢复成功率；关闭时不分配计数器，消息流逐字节不变。"},
 	{Key: "turn_timing", Env: "ARGENT_TURN_TIMING", Name: "逐阶段计时日志", Enable: "=1", Desc: "agent 循环开启逐阶段结构化计时日志；关闭时计时器为 nil，日志与事件流逐字节不变。"},
+	{Key: "stream_recovery", Env: "ARGENT_STREAM_RECOVERY", Name: "流中断非流式回补", Enable: "=1", Desc: "app 层接通 agent.Options.EnableStreamRecovery：提供方流中断且已输出部分文本时用同一请求非流式回补；关闭时该字段为零值，请求与事件逐字节不变。"},
 
 	// ---- 评测 / 其它 ----
 	{Key: "eval_live", Env: "ARGENT_EVAL_LIVE", Name: "评测 live 门禁", Enable: "=1", Desc: "允许评测走真实 provider；默认断网走脚本化。"},
