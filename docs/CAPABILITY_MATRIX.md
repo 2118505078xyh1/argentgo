@@ -313,3 +313,10 @@
 4. **最后考虑体验增量**：§2 ⚠️-1 GUI 分支树、§1 ⚠️-1 模型生成式压缩摘要——收益高但改动面大，需单独排期。
 
 所有 ⚠️ 项均保留源码落点；每完成一项，应同步更新本矩阵的标注与其 ⚠️ 表行。
+
+### R23 更新记录
+
+- **会话续接摘要**（新增能力）：每轮 `Execute` 是独立 Runner、JSONL 从不回灌模型，跨轮 resume/追问会"失忆"（单次运行内历史完整，这不是长任务跑偏根因）。R23 新增 opt-in `ARGENT_CONTINUATION_BRIEF`：`internal/app/continuation_brief.go` 复用 `Compaction.Structured()` 生成有界续接摘要注入 system。明确拒绝"注入全部历史"（会破坏提示缓存前缀 `buildStaticSystem`、放大上下文污染）。
+- **完成率验收闭环**（§4 ⚠️-3 部分推进）：`internal/eval` 新增 `Check.FileEquals`（精确字节判据）与 `ScenarioCompletionRate`；`internal/app/eval_completion_test.go` 用 F/N 双场景证明 grader 依据真实 `go test` 退出码 + 文件字节区分完成/未完成（`Passed==1 && Failed==1`、完成率 0.5）。**诚实边界**：脚本化 provider 仅证明框架能客观判完成率，真能力验收需 `ARGENT_EVAL_LIVE` + 真模型跑同一批场景；objective 判据（退出码/文件 diff）天然 model-agnostic。
+- **缓存统计根因修复**：`internal/agent/loop_helpers.go` 的 `account()` 补累加 `CachedTokens`/`CacheWriteTokens`，修正累计统计/TotalUsage/`--tokens` 总额/usage 工具里 cached 恒 0 的口径不一致（逐模型行本就正确）。wire 变化为已有 `omitempty` 字段填值，字节 golden 全绿。
+- **仍维持 ⊘**：ACP session/load、进阶 LSP 硬验证、i18n 扩语言、Linux GUI、图像输入贯通（原语在但仅 ~1/3 provider 支持，R22/R23 均评估推迟）、marketplace/tree-sitter/DAP/Bedrock-Vertex。

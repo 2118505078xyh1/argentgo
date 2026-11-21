@@ -507,6 +507,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			loop.Opts.System += "\n" + hint
 		}
 	}
+	// 会话续接摘要（opt-in ARGENT_CONTINUATION_BRIEF）：resume/追问时把上一段的
+	// 目标/改动文件/失败/下一步作为有界的 system 段注入，补齐跨 Execute 的历史断裂。
+	// 默认关闭时不追加，system 字节与接线前一致。无历史时原语返回空串，同样不追加。
+	if continuationBriefEnabled(stdio.Env) && sess != nil {
+		if brief := BuildContinuationBrief(sess.Messages(), 2000); brief != "" {
+			loop.Opts.System += "\n" + brief
+		}
+	}
 	system := loop.Opts.System
 
 	result, err := loop.Run(ctx, prompt)

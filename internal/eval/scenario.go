@@ -122,6 +122,9 @@ type Check struct {
 	FilesExist []string `json:"files_exist,omitempty"`
 	// FileContains 将路径映射到其内容必须包含的 needle。
 	FileContains map[string]string `json:"file_contains,omitempty"`
+	// FileEquals 将路径映射到其运行后内容必须逐字节精确相等的值。
+	// 与 FileContains 的子串判定不同，这里连长度和结尾换行都要求一致。
+	FileEquals map[string]string `json:"file_equals,omitempty"`
 
 	// Exec 设置且 AllowExec 为 true 时，在其他检查之后运行于种入的临时工作区（见 RunExecCheck / GradeExecCheck）。
 	// 种入的临时工作区在其他检查之后运行（见 RunExecCheck / GradeExecCheck）。
