@@ -14,6 +14,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	builtinshell "github.com/2118505078xyh1/argentgo/toolkits/shell"
 )
 
 // ---- bash ----
@@ -91,6 +92,13 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		requested = time.Duration(args.TimeoutSeconds) * time.Second
 	}
 	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
+
+	// 自研内建 shell：仅当显式 opt-in 且命令在受支持子集内时接管。
+	// 默认（开关关闭 / 命令含不支持语法）走原有系统 shell 路径，逐字节不变。
+	if builtinShellEnabled() && builtinshell.Supported(args.Command) {
+		return runBuiltinShell(ctx, root, args.Command, timeout)
+	}
+
 	path, argv := shellInvocation(args.Command)
 
 	// 提升是 opt-in 的，且需要有地方记录作业。没有
@@ -131,6 +139,52 @@ func shellInvocation(command string) (string, []string) {
 		return "cmd", []string{"/c", command}
 	}
 	return "sh", []string{"-lc", command}
+}
+
+// builtinShellEnabled 报告是否启用自研内建 shell 兜底。
+// 默认关闭：只有 ARGENT_BUILTIN_SHELL=1 才启用，确保现有系统 shell 路径逐字节不变。
+func builtinShellEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_BUILTIN_SHELL")) == "1"
+}
+
+// runBuiltinShell 用自研解释器执行命令。输出仍走既有的清洗/裁剪管线
+// （clipBashOutput），非零退出转为含退出码的 error，保持与系统 shell 路径一致的可观察语义。
+func runBuiltinShell(ctx context.Context, root, command string, timeout time.Duration) (string, error) {
+	opts := builtinshell.Options{
+		Cwd:     root,
+		Vars:    builtinShellEnv(),
+		Timeout: timeout,
+		Ctx:     ctx,
+	}
+	result, err := builtinshell.Run(command, opts)
+	if err != nil {
+		// 不支持的语法等结构错误：交给模型可读的错误，便于自我修正。
+		return "", fmt.Errorf("bash: %w", err)
+	}
+	text := clipBashOutput(ctx, result.Output)
+	if result.ExitStatus != 0 {
+		return text, fmt.Errorf("bash: exit status %d", result.ExitStatus)
+	}
+	if strings.TrimSpace(text) == "" {
+		return "(no output)", nil
+	}
+	return text, nil
+}
+
+// builtinShellEnv 为内建 shell 构造变量表（当前进程环境 + 面向模型的稳定输出覆盖）。
+func builtinShellEnv() map[string]string {
+	vars := map[string]string{}
+	for _, entry := range os.Environ() {
+		if i := strings.IndexByte(entry, '='); i > 0 {
+			vars[entry[:i]] = entry[i+1:]
+		}
+	}
+	// 面向模型的纯文本输出（抑制彩色/分页），与现有工具约定一致。
+	vars["NO_COLOR"] = "1"
+	vars["TERM"] = "dumb"
+	vars["PAGER"] = "cat"
+	vars["GIT_PAGER"] = "cat"
+	return vars
 }
 
 // runPromotableBash 最多等待 backgroundAfter 时间。到该
