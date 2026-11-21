@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -35,6 +36,13 @@ type sessionCompactor struct {
 	res  Resolved
 	sess *session.Session
 	reg  *OptInRegistry
+
+	// 模型摘要（opt-in model_summary）所需的运行时依赖。ctx/chatter/summaryModel/
+	// emit 都由 Execute 在构造后注入；零值时 wire 完全跳过，逐字节不变。
+	ctx          context.Context
+	chatter      llm.Chatter
+	summaryModel string
+	emit         func(agent.Event)
 }
 
 func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor {
@@ -272,6 +280,10 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	}
 	// 该通知是摘要的一部分，因此把它镜像到下一次请求看到的折叠视图中。
 	// 归档禁用时为空操作。
+	// 模型摘要（opt-in）在归档之后、视图镜像之前应用，确保归档 notice 始终位于
+	// 权威内容里；默认关闭时 applyModelSummaryWire 原样返回，逐字节不变。
+	compaction.Summary = applyModelSummaryWire(compaction.Summary, c.reg, c.ctx, c.chatter,
+		c.summaryModel, compaction.Failures, compaction.NextSteps, compaction.Files, c.emit)
 	out[0].Content = compaction.Summary
 	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
 		return messages, false
@@ -398,7 +410,7 @@ func enrichCompaction(compaction *session.Compaction, evidence agent.CompactionE
 // maybeAutoCompact 是 --no-auto-compact 背后的运行后步骤。当该标志被设置，
 // 或对话仍在阈值以内时，它是空操作。运行时失败和后续步骤行会被带入摘要，
 // 使恢复的运行不会丢失它最需要的上下文。
-func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry) {
+func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.CompactionEvidence, reg *OptInRegistry, summaryDep *sessionCompactor) {
 	if res.NoAutoCompact || sess == nil {
 		return
 	}
@@ -424,7 +436,7 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	}
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0
 	if hasEvidence {
-		compactWithEvidence(sess, evidence, reg)
+		compactWithEvidence(sess, evidence, reg, summaryDep)
 		return
 	}
 	_ = sess.Compact(defaultCompactKeep)

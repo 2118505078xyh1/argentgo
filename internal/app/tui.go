@@ -51,6 +51,8 @@ func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
 // 审批由 TUI 模态框回答。实时模型从 tui.Options.OnReady 捕获，
 // 每次 security.Approver 调用都会阻塞在 Model.Approve 上，直到操作人员回答或该轮次的 context 结束。
 func TUI(stdio cli.IO) cli.TUIFunc {
+	// 用量显示（opt-in ARGENT_TUI_USAGE）：默认关闭，TUI 帧字节不变。
+	configureTUIUsage(stdio.Env)
 	return func(ctx context.Context, opts cli.Options) error {
 		res, err := Resolve(stdio, opts)
 		if err != nil {

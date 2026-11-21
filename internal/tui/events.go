@@ -27,6 +27,10 @@ const (
 	// 显示为通知。它对应 agent 的 tool_progress 通知，但刻意使用独立
 	// 种类，避免影响普通 EventNotice 的处理。
 	EventToolProgress EventKind = "tool_progress"
+	// TuiEventUsage 对应 agent 的 usage 事件，携带本轮提示/补全/缓存
+	// token 计数。追加在枚举末尾以保持既有种类数值稳定；没有该事件时
+	// 模型不调用 SetUsage/SetCachedTokens，用量恒为零、帧字节不变。
+	TuiEventUsage EventKind = "usage"
 )
 
 // Event 是 agent 事件流面向前端的子集。tui 保留自己的
@@ -48,6 +52,12 @@ type Event struct {
 	RetryAttempt int
 	RetryMax     int
 	RetryWaitMS  int64
+
+	// 仅 TuiEventUsage：token 用量计数。旧事件保持零值，
+	// 因此渲染门（usageIn+usageOut>0、usageCached>0）不会误触发。
+	PromptTokens     int
+	CompletionTokens int
+	CachedTokens     int
 }
 
 // HandleEvent 把一个 agent 事件折叠进 UI。未知类别被忽略，
@@ -86,6 +96,13 @@ func (m *Model) HandleEvent(event Event) {
 		if label, ok := parseToolProgress(event.Detail); ok {
 			m.appendNoticeEntryLocked(Entry{Kind: EntryNotice, Text: label})
 		}
+	case TuiEventUsage:
+		// 用量事件只更新头部/状态行的计数（复用现有 SetUsage 与
+		// SetCachedTokens 的持锁实现），不追加记录、不新增绘制分支。
+		// HandleEvent 已持有 m.mu，必须调用 *Locked 变体，否则会对
+		// 不可重入的 sync.Mutex 再次加锁而死锁。
+		m.setUsageLocked(event.PromptTokens, event.CompletionTokens)
+		m.setCachedTokensLocked(event.CachedTokens)
 	}
 }
 

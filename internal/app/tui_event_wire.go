@@ -2,19 +2,30 @@ package app
 
 import (
 	"context"
+	"strings"
+	"sync/atomic"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/server"
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
+// tuiUsageVisible 控制是否把 EventUsage 映射成 TUI 用量事件。默认 0（关闭），
+// 因此 TUI 帧字节与接线前逐字节相同；仅在 ARGENT_TUI_USAGE=1 时由 TUI 入口开启。
+var tuiUsageVisible atomic.Bool
+
+// configureTUIUsage 按注入的 env 设置用量显示门控。env 为 nil 或值不为 "1" 时关闭。
+func configureTUIUsage(env func(string) string) {
+	tuiUsageVisible.Store(env != nil && strings.TrimSpace(env("ARGENT_TUI_USAGE")) == "1")
+}
+
 // tuiEventBridgeCap 是 TUI 事件循环前面的缓冲区。run.go 每帧都会抽取它；缓冲区满意味着
 // UI 确实落后了，因此丢弃单个事件，而不是拖住共享 hub（那会淘汰这个订阅者并丢失后续流）。
 const tuiEventBridgeCap = 256
 
 // AgentToTUIEvent 把一个 agent 事件转换为全屏 UI 消费的、面向前端的子集。
-// internal/tui.EventKind 对应两种工具事件、错误和重试（见 internal/tui/events.go）；
-// 没有文本、通知、用量或审批种类，因此这些事件没有 TUI 映射，返回 false。
+// internal/tui.EventKind 对应两种工具事件、错误、重试和用量（见 internal/tui/events.go）；
+// 没有文本、通知或审批种类，因此这些事件没有 TUI 映射，返回 false。
 //
 // 文本增量通过 Execute 的 onText 回调到达 TUI，而不是这个通道。审批卡片由 Model.Approve 创建
 // （由 app 的 Approver 调用），并在匹配的 tool_start 到达时就地提升；
@@ -58,6 +69,16 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 			RetryMax:     e.Retry.MaxAttempts,
 			RetryWaitMS:  e.Retry.DelayMS,
 		}, true
+	case agent.EventUsage:
+		// 取当轮增量 Usage 而非 TotalUsage：account() 不累加 CachedTokens，
+		// TotalUsage.Cached 恒为零，TUI 每帧只展示本轮的缓存用量。
+		// 是否转发到 TUI 由 StartTUIEventBridge 的 opt-in 门控决定。
+		return tui.Event{
+			Kind:             tui.TuiEventUsage,
+			PromptTokens:     e.Usage.PromptTokens,
+			CompletionTokens: e.Usage.CompletionTokens,
+			CachedTokens:     e.Usage.CachedTokens,
+		}, true
 	case agent.EventNotice:
 		// 审批请求/解决通知为原生和 SSE 传输走普通事件流。它们没有 TUI EventKind，
 		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
@@ -92,6 +113,10 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 				}
 				tevt, ok := AgentToTUIEvent(ev)
 				if !ok {
+					continue
+				}
+				// 用量事件 opt-in：默认关闭时不转发，TUI 帧字节与接线前逐字节相同。
+				if tevt.Kind == tui.TuiEventUsage && !tuiUsageVisible.Load() {
 					continue
 				}
 				select {

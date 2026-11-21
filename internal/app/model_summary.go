@@ -250,14 +250,20 @@ func ApplyModelSummary(extractive string, narrative string, nextSteps []string) 
 	return extractive + segment
 }
 
-// GenerateModelSummary 是一次性的模型补全调用，刻意绕过 agent 循环：chatter 被直接
-// 调用且不传工具规格，因此模型无法调用工具或重跑原始提示。它组装 system/user 提示，
+// GenerateModelSummaryWithUsage 是一次性的模型补全调用，刻意绕过 agent 循环：chatter 被
+// 直接调用且不传工具规格，因此模型无法调用工具或重跑原始提示。它组装 system/user 提示，
 // 缓冲流式输出，再交给 ParseModelSummary 校验。ctx 的超时/取消由调用方控制。
 //
-// chatter==nil 时返回 error（调用方据此回落）；任何错误都原样上抛，调用方保留抽取式摘要。
-func GenerateModelSummary(ctx context.Context, chatter llm.Chatter, model string, in ModelSummaryInput) (narrative string, steps []string, err error) {
+// 与 GenerateModelSummary 的唯一区别是：本函数额外把回复中的 token 用量（reply.Usage）
+// 解构成 llm.Usage 值返回，供调用方发 EventUsage 实现成本可见。reply.Usage 为 nil 时返回
+// 零值；chatter==nil 或任何错误路径都返回零 usage 与 error，调用方据此保留抽取式摘要。
+//
+// 注意 llm.Usage 没有独立的 TotalTokens 字段：TotalTokens() 是方法，返回
+// PromptTokens + CompletionTokens（缓存 token 只通过 PromptTokens 计一次）。
+func GenerateModelSummaryWithUsage(ctx context.Context, chatter llm.Chatter, model string, in ModelSummaryInput) (narrative string, steps []string, u llm.Usage, err error) {
+	var zero llm.Usage
 	if chatter == nil {
-		return "", nil, fmt.Errorf("no chatter configured for model summary")
+		return "", nil, zero, fmt.Errorf("no chatter configured for model summary")
 	}
 	system, user := BuildSummaryPrompt(in)
 	messages := []llm.Message{
@@ -270,7 +276,7 @@ func GenerateModelSummary(ctx context.Context, chatter llm.Chatter, model string
 		streamed.WriteString(chunk)
 	})
 	if err != nil {
-		return "", nil, err
+		return "", nil, zero, err
 	}
 
 	text := reply.Content
@@ -279,7 +285,30 @@ func GenerateModelSummary(ctx context.Context, chatter llm.Chatter, model string
 	}
 	narrative, steps, ok := ParseModelSummary(text)
 	if !ok {
-		return "", nil, fmt.Errorf("model summary: invalid or empty JSON reply")
+		return "", nil, zero, fmt.Errorf("model summary: invalid or empty JSON reply")
 	}
-	return narrative, steps, nil
+
+	// 只解构计费相关字段；reply.Usage 为 nil 时保持零值，绝不伪造用量。
+	if reply.Usage != nil {
+		u = llm.Usage{
+			PromptTokens:     reply.Usage.PromptTokens,
+			CompletionTokens: reply.Usage.CompletionTokens,
+			CachedTokens:     reply.Usage.CachedTokens,
+			CacheWriteTokens: reply.Usage.CacheWriteTokens,
+		}
+	}
+	return narrative, steps, u, nil
+}
+
+// GenerateModelSummary 是一次性的模型补全调用，刻意绕过 agent 循环：chatter 被直接
+// 调用且不传工具规格，因此模型无法调用工具或重跑原始提示。它组装 system/user 提示，
+// 缓冲流式输出，再交给 ParseModelSummary 校验。ctx 的超时/取消由调用方控制。
+//
+// chatter==nil 时返回 error（调用方据此回落）；任何错误都原样上抛，调用方保留抽取式摘要。
+//
+// 本函数保留旧签名以向后兼容；它内部调用 GenerateModelSummaryWithUsage 并丢弃用量。
+// 需要成本可见（EventUsage）的调用方应直接使用 GenerateModelSummaryWithUsage。
+func GenerateModelSummary(ctx context.Context, chatter llm.Chatter, model string, in ModelSummaryInput) (narrative string, steps []string, err error) {
+	narrative, steps, _, err = GenerateModelSummaryWithUsage(ctx, chatter, model, in)
+	return narrative, steps, err
 }

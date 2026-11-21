@@ -471,3 +471,189 @@ func TestGenerateModelSummaryFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateModelSummaryWithUsageReturnsUsage 确认 reply.Usage 被逐字段解构返回；
+// 同时锁定 TotalTokens() 的计算口径（缓存 token 只通过 PromptTokens 计一次）。
+func TestGenerateModelSummaryWithUsageReturnsUsage(t *testing.T) {
+	want := llm.Usage{
+		PromptTokens:     120,
+		CompletionTokens: 34,
+		CachedTokens:     40,
+		CacheWriteTokens: 15,
+	}
+	fake := &modelSummaryFakeChatter{
+		reply: llm.Message{
+			Role:    "assistant",
+			Content: `{"goal":"g","narrative":"模型叙事","next_steps":["模型步骤"]}`,
+			Usage:   &want,
+		},
+	}
+	narrative, steps, u, err := GenerateModelSummaryWithUsage(context.Background(), fake, "m", ModelSummaryInput{
+		Extractive: "权威摘要", Failures: []string{"失败"}, MaxChars: 5000,
+	})
+	if err != nil {
+		t.Fatalf("GenerateModelSummaryWithUsage 返回错误: %v", err)
+	}
+	if narrative != "模型叙事" || len(steps) != 1 || steps[0] != "模型步骤" {
+		t.Fatalf("生成结果不符: narrative=%q steps=%q", narrative, steps)
+	}
+	if u != want {
+		t.Fatalf("usage 解构不符: got %+v, want %+v", u, want)
+	}
+	if u.TotalTokens() != want.PromptTokens+want.CompletionTokens {
+		t.Fatalf("TotalTokens() = %d, want %d", u.TotalTokens(), want.PromptTokens+want.CompletionTokens)
+	}
+}
+
+// TestGenerateModelSummaryWithUsageFromStream 确认流式路径同样保留 reply.Usage：
+// 即使正文来自流式块，用量仍取自回复元数据。
+func TestGenerateModelSummaryWithUsageFromStream(t *testing.T) {
+	want := llm.Usage{PromptTokens: 9, CompletionTokens: 3}
+	fake := &modelSummaryFakeChatter{
+		reply:  llm.Message{Usage: &want},
+		stream: []string{`{"narrative":"流式叙事","next_steps":["流式步骤"]}`},
+	}
+	_, _, u, err := GenerateModelSummaryWithUsage(context.Background(), fake, "m", ModelSummaryInput{})
+	if err != nil {
+		t.Fatalf("GenerateModelSummaryWithUsage 返回错误: %v", err)
+	}
+	if u != want {
+		t.Fatalf("流式路径 usage 不符: got %+v, want %+v", u, want)
+	}
+}
+
+// TestGenerateModelSummaryWithUsageNilUsage 确认 reply.Usage 为 nil 时返回零 usage，
+// 绝不伪造用量，同时叙事与步骤仍正常产出。
+func TestGenerateModelSummaryWithUsageNilUsage(t *testing.T) {
+	fake := &modelSummaryFakeChatter{
+		reply: llm.Message{Content: `{"narrative":"只有叙事","next_steps":[]}`},
+	}
+	narrative, steps, u, err := GenerateModelSummaryWithUsage(context.Background(), fake, "m", ModelSummaryInput{})
+	if err != nil {
+		t.Fatalf("GenerateModelSummaryWithUsage 返回错误: %v", err)
+	}
+	if narrative != "只有叙事" || len(steps) != 0 {
+		t.Fatalf("生成结果不符: narrative=%q steps=%q", narrative, steps)
+	}
+	if u != (llm.Usage{}) {
+		t.Fatalf("nil Usage 应返回零值，得到 %+v", u)
+	}
+}
+
+// TestGenerateModelSummaryWithUsageFailures 覆盖失败路径：nil chatter、chatter 报错、
+// 空/非法回复、context 取消。每个分支都必须返回零 usage 与 error，且不产出内容。
+func TestGenerateModelSummaryWithUsageFailures(t *testing.T) {
+	sentinel := errors.New("提供方不可用")
+	tests := []struct {
+		name    string
+		chatter llm.Chatter
+		ctx     func() (context.Context, context.CancelFunc)
+	}{
+		{"nil chatter", nil, nil},
+		{"chatter 报错", &modelSummaryFakeChatter{err: sentinel}, nil},
+		{"空回复", &modelSummaryFakeChatter{reply: llm.Message{Content: "   ", Usage: &llm.Usage{PromptTokens: 5}}}, nil},
+		{"非法 JSON", &modelSummaryFakeChatter{reply: llm.Message{Content: "not json", Usage: &llm.Usage{PromptTokens: 5}}}, nil},
+		{"context 已取消", &modelSummaryFakeChatter{fn: func(ctx context.Context, _ string, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
+			return llm.Message{}, ctx.Err()
+		}}, func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx, func() {}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.ctx != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = tc.ctx()
+				defer cancel()
+			}
+			narrative, steps, u, err := GenerateModelSummaryWithUsage(ctx, tc.chatter, "m", ModelSummaryInput{})
+			if err == nil {
+				t.Fatal("失败路径应返回 error")
+			}
+			if narrative != "" || steps != nil {
+				t.Fatalf("失败路径不应产出内容: %q, %q", narrative, steps)
+			}
+			if u != (llm.Usage{}) {
+				t.Fatalf("失败路径 usage 应为零值，得到 %+v", u)
+			}
+			if tc.name == "chatter 报错" && !errors.Is(err, sentinel) {
+				t.Fatalf("错误应被透传: %v", err)
+			}
+		})
+	}
+}
+
+// TestGenerateModelSummaryLegacySignature 确认旧签名仍可工作且行为与 WithUsage 一致：
+// 生成的叙事与步骤相同，错误路径一致，调用方无需感知新增的 usage 返回值。
+func TestGenerateModelSummaryLegacySignature(t *testing.T) {
+	content := `{"goal":"g","narrative":"旧签名叙事","next_steps":["旧签名步骤"]}`
+	legacy := &modelSummaryFakeChatter{reply: llm.Message{Content: content, Usage: &llm.Usage{PromptTokens: 7, CompletionTokens: 2}}}
+	withUsage := &modelSummaryFakeChatter{reply: llm.Message{Content: content, Usage: &llm.Usage{PromptTokens: 7, CompletionTokens: 2}}}
+	in := ModelSummaryInput{Extractive: "权威摘要", MaxChars: 5000}
+
+	n1, s1, err1 := GenerateModelSummary(context.Background(), legacy, "m", in)
+	n2, s2, _, err2 := GenerateModelSummaryWithUsage(context.Background(), withUsage, "m", in)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("两个入口都应成功: err1=%v err2=%v", err1, err2)
+	}
+	if n1 != n2 || len(s1) != len(s2) || (len(s1) > 0 && s1[0] != s2[0]) {
+		t.Fatalf("旧签名与 WithUsage 结果不一致: (%q,%q) vs (%q,%q)", n1, s1, n2, s2)
+	}
+	if n1 != "旧签名叙事" || len(s1) != 1 || s1[0] != "旧签名步骤" {
+		t.Fatalf("旧签名结果不符: %q, %q", n1, s1)
+	}
+}
+
+// TestGenerateModelSummaryWithUsageCJKAndPure 确认新入口不修改入参、CJK 安全且确定性：
+// 相同输入重复调用得到相同结果与用量，中文叙事逐 rune 保留，入参切片不被改写。
+func TestGenerateModelSummaryWithUsageCJKAndPure(t *testing.T) {
+	in := ModelSummaryInput{
+		Extractive: strings.Repeat("修复中文编码问题。", 40),
+		Failures:   []string{"失败原因：磁盘写入异常"},
+		NextSteps:  []string{"补测试"},
+		Files:      []string{"internal/auth.go"},
+		MaxChars:   8000,
+	}
+	failuresBefore := append([]string(nil), in.Failures...)
+	stepsBefore := append([]string(nil), in.NextSteps...)
+	filesBefore := append([]string(nil), in.Files...)
+
+	reply := llm.Message{
+		Content: `{"goal":"g","narrative":"定位到中文编码问题并修复。","next_steps":["继续验证"]}`,
+		Usage:   &llm.Usage{PromptTokens: 88, CompletionTokens: 12, CachedTokens: 30},
+	}
+	run := func() (string, []string, llm.Usage) {
+		fake := &modelSummaryFakeChatter{reply: reply}
+		n, s, u, err := GenerateModelSummaryWithUsage(context.Background(), fake, "m", in)
+		if err != nil {
+			t.Fatalf("GenerateModelSummaryWithUsage 返回错误: %v", err)
+		}
+		return n, s, u
+	}
+	n1, s1, u1 := run()
+	n2, s2, u2 := run()
+	if n1 != n2 || len(s1) != len(s2) || (len(s1) > 0 && s1[0] != s2[0]) || u1 != u2 {
+		t.Fatalf("重复调用结果不稳定: (%q,%q,%+v) vs (%q,%q,%+v)", n1, s1, u1, n2, s2, u2)
+	}
+	if n1 != "定位到中文编码问题并修复。" || !utf8.ValidString(n1) {
+		t.Fatalf("CJK 叙事不符或不是合法 UTF-8: %q", n1)
+	}
+	for i := range in.Failures {
+		if in.Failures[i] != failuresBefore[i] {
+			t.Fatal("GenerateModelSummaryWithUsage 修改了 Failures 入参")
+		}
+	}
+	for i := range in.NextSteps {
+		if in.NextSteps[i] != stepsBefore[i] {
+			t.Fatal("GenerateModelSummaryWithUsage 修改了 NextSteps 入参")
+		}
+	}
+	for i := range in.Files {
+		if in.Files[i] != filesBefore[i] {
+			t.Fatal("GenerateModelSummaryWithUsage 修改了 Files 入参")
+		}
+	}
+}

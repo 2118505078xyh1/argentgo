@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
@@ -87,7 +88,7 @@ func TestAgentToTUIEventError(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventUnmappedKinds 守护诚实契约：tui.Event 没有文本、通知、用量或停止种类，因此不得伪造这些事件。
+// TestAgentToTUIEventUnmappedKinds 守护诚实契约：tui.Event 没有文本、通知或停止种类，因此不得伪造这些事件。
 // （接上行）
 func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 	kinds := []agent.EventKind{
@@ -96,7 +97,6 @@ func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
 		agent.EventCheckpointReady,
 		agent.EventTextDelta,
 		agent.EventReasoningDelta,
-		agent.EventUsage,
 		agent.EventStop,
 		agent.EventSubagentStart,
 		agent.EventSubagentEnd,
@@ -143,6 +143,8 @@ func TestAgentToTUIEventApprovalNotice(t *testing.T) {
 // TestStartTUIEventBridgeDeliversInOrder 证明桥接器只按发布顺序转发映射后的事件，并过滤其余事件。
 // （接上行）
 func TestStartTUIEventBridgeDeliversInOrder(t *testing.T) {
+	prev := tuiUsageVisible.Swap(true)
+	defer tuiUsageVisible.Store(prev)
 	hub := NewEventHub()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -152,13 +154,14 @@ func TestStartTUIEventBridgeDeliversInOrder(t *testing.T) {
 	hub.Publish(agent.Event{Kind: agent.EventTextDelta, Text: "thinking"})
 	hub.Publish(agent.Event{Kind: agent.EventToolStart, ToolCallID: "b", ToolName: "read", Args: "a.go"})
 	hub.Publish(agent.Event{Kind: agent.EventToolEnd, ToolCallID: "a", ToolName: "bash", IsError: true, DurationMS: 5})
-	hub.Publish(agent.Event{Kind: agent.EventUsage})
+	hub.Publish(agent.Event{Kind: agent.EventUsage, Usage: llm.Usage{PromptTokens: 10, CompletionTokens: 20, CachedTokens: 5}})
 	hub.Publish(agent.Event{Kind: agent.EventToolEnd, ToolCallID: "b", ToolName: "read", DurationMS: 2})
 
 	want := []tui.Event{
 		{Kind: tui.EventToolStart, ToolCallID: "a", ToolName: "bash", Args: "ls"},
 		{Kind: tui.EventToolStart, ToolCallID: "b", ToolName: "read", Args: "a.go"},
 		{Kind: tui.EventToolEnd, ToolCallID: "a", ToolName: "bash", IsError: true, DurationMS: 5},
+		{Kind: tui.TuiEventUsage, PromptTokens: 10, CompletionTokens: 20, CachedTokens: 5},
 		{Kind: tui.EventToolEnd, ToolCallID: "b", ToolName: "read", DurationMS: 2},
 	}
 	for i, expected := range want {
