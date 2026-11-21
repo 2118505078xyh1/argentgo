@@ -372,6 +372,9 @@ type callResult struct {
 	// ran 报告该调用是否真正执行了工具。审批失败和拒绝会在派发前返回，
 	// 对错误追踪器和无效参数熔断器必须保持中性。
 	ran bool
+	// refusal 是工具错误对应的结构化拒绝原因，仅在 opt-in 开启时填充。
+	// 它只供循环内部决策使用：既不改写 output，也不进入事件或会话记录。
+	refusal security.RefusalReason
 }
 
 // approvalDigest 返回对被请求审批的确切参数的稳定且有界的哈希。
@@ -489,12 +492,15 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 		// 工具错误以文本形式跨过运行器边界，因此在原始错误仍可用的这里进行分类。
 		// 熔断器据此把反复出现的参数校验失败与无关失败区分开。
 		invalid := isInvalidArgError(err.Error())
+		// 可选的拒绝原因分类（默认关闭）：关闭时 classifyRefusal 连 ReasonFromError 都不会调用，
+		// 且下面的 output 字符串与既有实现逐字节相同，事件/会话记录因此完全不受影响。
+		refusal := classifyRefusal(err)
 		if isRecoverablePlanBlock(err) {
 			// 计划模式命令防护的阻断是可恢复的工具错误：运行会继续且模型能读到指引，
 			// 与硬性的 StopError 拒绝不同。
-			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, invalidArgs: invalid, duration: time.Since(start)}
+			return callResult{intent: intent, output: "error: " + err.Error() + " Continue with a read-only command or a different approach.", isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 		}
-		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, invalidArgs: invalid, duration: time.Since(start)}
+		return callResult{intent: intent, output: "error: " + err.Error(), isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 	}
 	if isNoopEditTool(call.Function.Name) && hasNoopEditMarker(output) {
 		// 无操作编辑是模型即将重复自身的强烈信号。该提示会成为模型下一步看到的工具结果的一部分。
@@ -549,6 +555,12 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 }
 
 func (s *runState) appendTool(call llm.ToolCall, output string) {
+	// 可选的不可信结果封装（默认关闭）：只改写回灌给模型的消息内容。
+	// 所有调用点都在 finishCall 之后才到这里，因此 EventToolEnd 与 tool 记录里
+	// 保存的仍是原始输出字节；Role 与 ToolCallID 始终不变。
+	if toolResultWrappingEnabled() {
+		output = WrapToolResult(call.Function.Name, output).Render()
+	}
 	s.messages = append(s.messages, llm.Message{
 		Role:       "tool",
 		ToolCallID: call.ID,

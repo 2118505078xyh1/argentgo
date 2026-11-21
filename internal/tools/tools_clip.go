@@ -24,7 +24,10 @@ func clipTo(text string, limit int) string {
 	}
 	head := limit * 2 / 3
 	tail := limit - head
-	head = trimPartialRune(text, head)
+	// 头部只回退到最近的字素簇边界，避免切断组合序列/ZWJ emoji/
+	// 旗帜等；clusterBoundaryBefore 内部复用 trimPartialRune，
+	// 因此仍保证 rune 对齐。
+	head = clusterBoundaryBefore(text, head)
 	// 尾部切片从 len(text)-tail 开始，而不是从 tail 开始。用
 	// trimPartialRune 回退这个起点会检查错误的字节，并可能让
 	// 后缀从 rune 中间开始；应把它向前移到下一个
@@ -33,6 +36,9 @@ func clipTo(text string, limit int) string {
 	for tailStart < len(text) && !utf8.RuneStart(text[tailStart]) {
 		tailStart++
 	}
+	// 尾部只前进到最近的字素簇边界，确保后缀不会以悬空的
+	// 组合标记/ZWJ 开头；与头部一样，保留字节只减不增。
+	tailStart = clusterBoundaryAfter(text, tailStart)
 	return text[:head] + "\n... [truncated] ...\n" + text[tailStart:]
 }
 

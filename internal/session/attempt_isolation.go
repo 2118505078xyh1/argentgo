@@ -60,10 +60,55 @@ func idInAttempt(id, attemptID string) bool {
 	return strings.ContainsRune(attemptIDDelimiters, rune(rest[0]))
 }
 
+// attemptMembersByParentEdge 返回"沿 parent 边向下从 KindAttempt 记录可达"的全部记录 id。
+//
+// 生产转录的 id 一律由 AppendRecord 生成成 n%06d，不带尝试前缀，单靠 idInAttempt
+// 无法把工具记录归入它所属的那次尝试。但每条记录的 parent 都精确指向它的前驱，
+// 因此从 id 归属 attemptID 的 KindAttempt 记录出发做向下遍历，就能覆盖生产数据。
+// 结果与 idInAttempt 的判定取并集，两种 id 规则都得到支持。
+//
+// 纯函数：只读入参、零 I/O，返回全新的 map，不修改 records。
+func attemptMembersByParentEdge(records []Record, attemptID string) map[string]bool {
+	roots := make(map[string]bool, 1)
+	for _, record := range records {
+		if record.Kind == KindAttempt && idInAttempt(record.ID, attemptID) {
+			roots[record.ID] = true
+		}
+	}
+	if len(roots) == 0 {
+		return nil
+	}
+	children := make(map[string][]string, len(records))
+	for _, record := range records {
+		if record.Parent != "" && record.ID != "" {
+			children[record.Parent] = append(children[record.Parent], record.ID)
+		}
+	}
+	members := make(map[string]bool, len(records))
+	queue := make([]string, 0, len(roots))
+	for id := range roots {
+		members[id] = true
+		queue = append(queue, id)
+	}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, child := range children[current] {
+			if members[child] {
+				continue
+			}
+			members[child] = true
+			queue = append(queue, child)
+		}
+	}
+	return members
+}
+
 // belongsToAttempt 判断一条记录是否属于某次尝试：
-// 自身 id 归属，或沿 parent 链上溯能找到归属的祖先。
-func belongsToAttempt(record Record, attemptID string, byID map[string]Record) bool {
-	if idInAttempt(record.ID, attemptID) {
+// 自身 id 归属，或基于 parent 边从 KindAttempt 根向下可达，或沿 parent 链上溯
+// 能找到归属的祖先。三者取并集，保留原有 idInAttempt 逻辑不动。
+func belongsToAttempt(record Record, attemptID string, byID map[string]Record, byParent map[string]bool) bool {
+	if idInAttempt(record.ID, attemptID) || byParent[record.ID] {
 		return true
 	}
 	seen := map[string]bool{record.ID: true}
@@ -109,6 +154,20 @@ func rawIsTrue(raw json.RawMessage) bool {
 	return false
 }
 
+// rawIsFalse 与 rawIsTrue 对称：只把显式的 false（布尔或字符串）当作成功信号。
+// 没有 is_error 字段的记录不会被误判为成功，从而保留"无证据即拒绝"的语义。
+func rawIsFalse(raw json.RawMessage) bool {
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return !b
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.EqualFold(strings.TrimSpace(s), "false")
+	}
+	return false
+}
+
 // toolRecordFailed 判断一条 KindTool 载荷是否携带失败信号：
 // is_error 为真，或输出类字段的文本命中失败提示（复用 compact.go 的 failureLine）。
 func toolRecordFailed(raw json.RawMessage) bool {
@@ -137,13 +196,24 @@ func toolRecordFailed(raw json.RawMessage) bool {
 	return false
 }
 
-// recordFailureOutcome 返回记录的失败结果；非失败记录返回 ("", false)。
+// recordFailureOutcome 返回记录的结果：失败信号优先，其次把显式 is_error:false
+// 的工具记录当作成功结果。成功标记让 CanDiscardAttempt 能对"混有成功结果"的
+// 尝试 fail-closed；既无失败也无成功信号时返回 ("", false)。
 func recordFailureOutcome(record Record) (string, bool) {
 	if hasStopErrorSignal(record.Data) {
 		return AttemptFailed, true
 	}
-	if record.Kind == KindTool && toolRecordFailed(record.Data) {
+	if record.Kind != KindTool {
+		return "", false
+	}
+	if toolRecordFailed(record.Data) {
 		return AttemptFailed, true
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(record.Data, &fields) == nil {
+		if flag, ok := fields["is_error"]; ok && rawIsFalse(flag) {
+			return attemptOutcomeSucceeded, true
+		}
 	}
 	return "", false
 }
@@ -155,9 +225,10 @@ func MarkFailure(records []Record, attemptID string) []AttemptMarker {
 		return nil
 	}
 	byID := indexByID(records)
+	byParent := attemptMembersByParentEdge(records, attemptID)
 	out := make([]AttemptMarker, 0)
 	for _, record := range records {
-		if !belongsToAttempt(record, attemptID, byID) {
+		if !belongsToAttempt(record, attemptID, byID, byParent) {
 			continue
 		}
 		outcome, ok := recordFailureOutcome(record)
@@ -200,9 +271,10 @@ func BranchPointFor(records []Record, attemptID string) (string, bool) {
 		return "", false
 	}
 	byID := indexByID(records)
+	byParent := attemptMembersByParentEdge(records, attemptID)
 	members := make([]Record, 0)
 	for _, record := range records {
-		if belongsToAttempt(record, attemptID, byID) {
+		if belongsToAttempt(record, attemptID, byID, byParent) {
 			members = append(members, record)
 		}
 	}

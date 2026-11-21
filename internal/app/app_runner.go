@@ -259,6 +259,10 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 		ctx = withEventEmit(ctx, emit)
 	}
 
+	// 上下文压力观察是进程级 opt-in：开启时挂接观察器，关闭时返回 nil，
+	// ctx 保持不变，事件序列（含 seq）与接线之前逐字节一致。
+	ctx = withContextPressure(ctx, newContextPressureObserver())
+
 	// 在同一个临界区中占用 single-flight 槽位并注册 cancel 函数。Abort 使用同一个 mu，
 	// 因此它要么完全看不到提示（空操作），要么看到一个完整注册的 cancel 函数并可以取消它。
 	r.mu.Lock()

@@ -70,14 +70,27 @@ func TestClipToDeterministicAcrossInputChunking(t *testing.T) {
 	}
 }
 
-// naiveClip 是 clipTo 的一个独立的、按 rune 粒度的参考
-// 实现。它不用字节索引算术（head = limit*2/3，然后回退
-// 到 rune 起点），而是累积完整 rune，直到 2/3 头部和 1/3 尾部
-// 的字节预算用尽，然后用固定标记连接。正确的
-// clipTo 必须与它完全一致；rune 中间或差一边界的错误都会
-// 表现为不匹配。它分别返回保留的头/尾，以便
-// 调用方忽略固定标记的开销，与 splitClipped 一致。
-func naiveClip(text string, limit int) (head, tail string, truncated bool) {
+// runeEnds 返回 text 中所有 rune 边界（含 0 与 len）。它按原始
+// 字节解码，非法字节每个占 1 字节，因此参考实现不会像 WriteRune
+// 那样把坏字节替换成 U+FFFD。
+func runeEnds(text string) []int {
+	ends := make([]int, 0, len(text)+1)
+	ends = append(ends, 0)
+	for i := 0; i < len(text); {
+		_, size := utf8.DecodeRuneInString(text[i:])
+		if size <= 0 {
+			size = 1
+		}
+		i += size
+		ends = append(ends, i)
+	}
+	return ends
+}
+
+// splitBudgetClip 按给定的边界列表选取头尾：头部是能装入
+// headBudget 字节的最大前缀，尾部是能装入 tailBudget 字节的最大
+// 后缀。naiveClip 与 graphemeClip 共用它，只替换边界的来源。
+func splitBudgetClip(text string, limit int, ends []int) (head, tail string, truncated bool) {
 	budget := limit
 	if budget <= 0 {
 		budget = maxToolOutput // clipTo treats non-positive limits as the default.
@@ -85,37 +98,80 @@ func naiveClip(text string, limit int) (head, tail string, truncated bool) {
 	if len(text) <= budget {
 		return text, "", false
 	}
-	headBudget := budget * 2 / 3
-	tailBudget := budget - headBudget
+	headBudget, tailBudget := budget*2/3, budget-budget*2/3
 
-	// 头部：能装入 headBudget 字节的最大 rune 对齐前缀。
-	var hb strings.Builder
+	hEnd := 0
+	for i := 1; i < len(ends); i++ {
+		if ends[i] > headBudget {
+			break
+		}
+		hEnd = ends[i]
+	}
 	used := 0
-	for _, r := range text {
-		n := utf8.RuneLen(r)
-		if used+n > headBudget {
+	tStart := len(text)
+	for i := len(ends) - 1; i > 0; i-- {
+		size := ends[i] - ends[i-1]
+		if used+size > tailBudget {
 			break
 		}
-		hb.WriteRune(r)
-		used += n
+		used += size
+		tStart = ends[i-1]
 	}
+	return text[:hEnd], text[tStart:], true
+}
 
-	// 尾部：能装入 tailBudget 字节的最大 rune 对齐后缀。
-	runes := []rune(text)
-	var tailRunes []rune
-	used = 0
-	for i := len(runes) - 1; i >= 0; i-- {
-		n := utf8.RuneLen(runes[i])
-		if used+n > tailBudget {
+// refClusterEnd 返回从 at 开始的字素簇末端。它从开头逐簇扫描，
+// 使用与生产代码相同的 glues 规则，但实现路径独立于
+// clusterBoundaryBefore/After，用于差分验证。
+func refClusterEnd(text string, at int) int {
+	prevR, size := decodeRuneAt(text, at)
+	if size <= 0 {
+		return at
+	}
+	prev := clusterRune(prevR, size)
+	j := at + size
+	for j < len(text) {
+		currR, currSize := decodeRuneAt(text, j)
+		if currSize <= 0 {
 			break
 		}
-		tailRunes = append(tailRunes, runes[i])
-		used += n
+		curr := clusterRune(currR, currSize)
+		if !glues(prev, curr) {
+			break
+		}
+		j += currSize
+		prev = curr
 	}
-	for i, j := 0, len(tailRunes)-1; i < j; i, j = i+1, j-1 {
-		tailRunes[i], tailRunes[j] = tailRunes[j], tailRunes[i]
+	return j
+}
+
+// graphemeEnds 返回 text 中所有字素簇边界（含 0 与 len）。
+func graphemeEnds(text string) []int {
+	ends := make([]int, 0, len(text)+1)
+	ends = append(ends, 0)
+	for i := 0; i < len(text); {
+		next := refClusterEnd(text, i)
+		if next <= i {
+			next = i + 1
+		}
+		ends = append(ends, next)
+		i = next
 	}
-	return hb.String(), string(tailRunes), true
+	return ends
+}
+
+// graphemeClip 是 clipTo 的字素粒度参考实现：头尾都落在字素簇
+// 边界上，而不仅是 rune 边界。它与 naiveClip 共用预算选择逻辑，
+// 只把边界来源换成 graphemeEnds。
+func graphemeClip(text string, limit int) (head, tail string, truncated bool) {
+	return splitBudgetClip(text, limit, graphemeEnds(text))
+}
+
+// naiveClip 是按 rune 粒度的旧参考实现，仅在单 rune 字素样本上
+// 与 clipTo 逐字节一致；对组合序列/ZWJ/旗帜等多 rune 字簇，
+// 必须使用 graphemeClip。保留它用于回归对比。
+func naiveClip(text string, limit int) (head, tail string, truncated bool) {
+	return splitBudgetClip(text, limit, runeEnds(text))
 }
 
 // clipAtoms 是用于构造随机 UTF-8 文本的音节：ASCII、中文、
@@ -155,10 +211,11 @@ func randomClipLimit(rng *rand.Rand, textLen int) int {
 }
 
 // TestClipToMatchesRuneReferenceOnRandomText 是固定种子的差分测试：
-// 在随机的混合文字 UTF-8 文本上把 clipTo 与 naiveClip 比较
+// 在随机的混合文字 UTF-8 文本上把 clipTo 与 graphemeClip 比较
 // 以及限制值。除了共享的不变量（有效 UTF-8、rune/字节预算、
 // 恒定的标记开销），保留的头尾内容还必须与
-// 按 rune 粒度的参考逐字节一致。
+// 按字素簇粒度的参考逐字节一致。历史上这里用按 rune 粒度的
+// naiveClip，会把 e\u0301 等字簇切在中间，现已同步升级。
 func TestClipToMatchesRuneReferenceOnRandomText(t *testing.T) {
 	const seed = 20261120
 	const iterations = 5000
@@ -171,7 +228,7 @@ func TestClipToMatchesRuneReferenceOnRandomText(t *testing.T) {
 
 		assertClipInvariants(t, text, limit, got)
 
-		refHead, refTail, refTrunc := naiveClip(text, limit)
+		refHead, refTail, refTrunc := graphemeClip(text, limit)
 		head, tail, trunc := splitClipped(t, got)
 		if trunc != refTrunc {
 			t.Fatalf("iteration %d: truncation mismatch: got %v, reference %v (limit=%d, text=%q, got=%q)",
@@ -185,7 +242,7 @@ func TestClipToMatchesRuneReferenceOnRandomText(t *testing.T) {
 			continue
 		}
 		if head != refHead || tail != refTail {
-			t.Fatalf("iteration %d: retained content differs from rune reference (limit=%d):\n head got:  %q\n head want: %q\n tail got:  %q\n tail want: %q\n text: %q",
+			t.Fatalf("iteration %d: retained content differs from grapheme reference (limit=%d):\n head got:  %q\n head want: %q\n tail got:  %q\n tail want: %q\n text: %q",
 				i, limit, head, refHead, tail, refTail, text)
 		}
 	}
@@ -193,7 +250,8 @@ func TestClipToMatchesRuneReferenceOnRandomText(t *testing.T) {
 
 // TestClipToDefaultLimitMatchesRuneReference 覆盖非正限制
 // 分支，使用足够大、确实超过 maxToolOutput 的文本，而
-// 短的随机文本无法达到该大小。
+// 短的随机文本无法达到该大小。参考同样是字素粒度的
+// graphemeClip（文本包含 b\u0301 这样的多 rune 字簇）。
 func TestClipToDefaultLimitMatchesRuneReference(t *testing.T) {
 	text := strings.Repeat("😀中ab\u0301", 6000) // well over maxToolOutput bytes
 	for _, limit := range []int{0, -1} {
@@ -201,13 +259,13 @@ func TestClipToDefaultLimitMatchesRuneReference(t *testing.T) {
 			got := clipTo(text, limit)
 			assertClipInvariants(t, text, limit, got)
 
-			refHead, refTail, refTrunc := naiveClip(text, limit)
+			refHead, refTail, refTrunc := graphemeClip(text, limit)
 			head, tail, trunc := splitClipped(t, got)
 			if !trunc || !refTrunc {
 				t.Fatalf("clipTo(..., %d) on a %d-byte text should truncate", limit, len(text))
 			}
 			if head != refHead || tail != refTail {
-				t.Fatalf("clipTo(..., %d) content differs from rune reference:\n head got:  %q\n head want: %q\n tail got:  %q\n tail want: %q",
+				t.Fatalf("clipTo(..., %d) content differs from grapheme reference:\n head got:  %q\n head want: %q\n tail got:  %q\n tail want: %q",
 					limit, head, refHead, tail, refTail)
 			}
 		})
