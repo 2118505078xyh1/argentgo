@@ -45,6 +45,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "budget_projection", Env: "ARGENT_BUDGET_PROJECTION", Name: "消息预算投影", Enable: "=1", Desc: "Messages 前按 rune 预算投影，保护最新用户输入与未配对的活尾工具调用。"},
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},
 	{Key: "recovery_replay", Env: "ARGENT_RECOVERY_REPLAY", Name: "恢复重放后缀", Enable: "=1", Desc: "恢复路径上追加重放后缀。"},
+	{Key: "checkpoint_guard", Env: "ARGENT_CHECKPOINT_GUARD", Name: "checkout 还原目标守卫", Enable: "=1", Desc: "sessions checkout 时对转录目标做只读校验，拒绝逃逸或已消失的目标；关闭时 checkout 逐字节不变。"},
 
 	// ---- 安全 / 审批 ----
 	{Key: "inspection", Env: "ARGENT_INSPECTION", Name: "安全失败检查层总开关", Enable: "=1", Desc: "启用检查链总开关；关闭时安全链裸链运行，Guardian 绝不生效。"},
@@ -65,6 +66,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "repo_map_hint", Env: "ARGENT_REPO_MAP_HINT", Name: "repo map 授权提示", Enable: "=1", Desc: "系统提示追加「文件出现在 repo map 不等于获得编辑授权」。"},
 	{Key: "verify_autorun_hint", Env: "ARGENT_VERIFY_AUTORUN_HINT", Name: "验证自动运行提示", Enable: "=1", Desc: "系统提示追加验证自动运行提示。"},
 	{Key: "verify_outcome", Env: "ARGENT_VERIFY_OUTCOME", Name: "验证结果分类标记", Enable: "=1", Desc: "验证输出打上结果分类标记。"},
+	{Key: "rule_discovery", Env: "ARGENT_RULE_DISCOVERY", Name: "规则文件发现元数据提示", Enable: "true/yes/on", Desc: "扫描用户级与项目级规则文件，把文件名与作用域渲染为只列名、不加载全文的 system 提示片段；关闭时提示逐字节不变。"},
 	{Key: "post_edit_verify", Env: "ARGENT_POST_EDIT_VERIFY", Name: "编辑后验证（历史占位）", Enable: "无（未接线）", Desc: "仅历史注释提及，无真实读点；真实开关是 opt-in auto_verify 与 ARGENT_EDIT_DIAGNOSTICS。", Historical: true},
 
 	// ---- shell / 工具 ----
@@ -87,6 +89,11 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "mcp_spill_dir", Env: "ARGENT_MCP_SPILL_DIR", Name: "MCP 输出溢出目录", Enable: "非空路径", Desc: "配置后 CallTool 的超大输出落盘，未配置时不溢出。"},
 	{Key: "mcp_spill_threshold", Env: "ARGENT_MCP_SPILL_THRESHOLD", Name: "MCP 溢出阈值", Enable: "正整数", Desc: "覆盖 MCP 输出溢出的字节阈值。"},
 	{Key: "mcp_protocol_version", Env: "ARGENT_MCP_PROTOCOL_VERSION", Name: "MCP 协议版本回退", Enable: "非空字符串", Desc: "协商失败时回退使用的 MCP 协议版本。"},
+
+	// ---- 诊断 / 恢复 / 计时 ----
+	{Key: "repeat_pitfall_tracking", Env: "ARGENT_REPEAT_PITFALL_TRACKING", Name: "跨情节重复踩坑计数", Enable: "=1", Desc: "启用跨情节的重复错误签名计数；关闭时 RecordSignature 立即返回，不分配不触锁，既有记录路径逐字节不变。"},
+	{Key: "recovery_metrics", Env: "ARGENT_RECOVERY_METRICS", Name: "恢复成效账本", Enable: "=1", Desc: "在指引注入与工具成功处采集恢复成功率；关闭时不分配计数器，消息流逐字节不变。"},
+	{Key: "turn_timing", Env: "ARGENT_TURN_TIMING", Name: "逐阶段计时日志", Enable: "=1", Desc: "agent 循环开启逐阶段结构化计时日志；关闭时计时器为 nil，日志与事件流逐字节不变。"},
 
 	// ---- 评测 / 其它 ----
 	{Key: "eval_live", Env: "ARGENT_EVAL_LIVE", Name: "评测 live 门禁", Enable: "=1", Desc: "允许评测走真实 provider；默认断网走脚本化。"},

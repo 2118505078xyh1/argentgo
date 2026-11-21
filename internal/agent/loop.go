@@ -87,6 +87,13 @@ type runState struct {
 	// 只提示一次（按情节）。只有在 SetLoopDetection opt-in 开启时才被查询。
 	loopGuidance GuidanceState
 
+	// recovery 是 ARGENT_RECOVERY_METRICS opt-in 开启时创建的恢复成效账本。
+	// 默认 nil：所有记录/读取路径都是空操作，事件、消息与会话记录逐字节不变。
+	recovery *RecoveryMetrics
+	// recoveryPendingKind 记录最近一次注入指引时的错误种类，使随后 loop 侧可见的
+	// "成功"信号（无指引动作）能归到同一种类。仅在 recovery 非 nil 时有意义。
+	recoveryPendingKind string
+
 	usage        llm.Usage
 	costUSD      float64
 	costKnown    bool
@@ -202,6 +209,13 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 // 每次运行读取一次（见 newRunState），不引入需要装配层设置的进程级全局状态。
 func turnTimingEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_TURN_TIMING")) == "1"
+}
+
+// recoveryMetricsEnabled 报告本进程是否开启恢复成效账本。
+// 仅当 ARGENT_RECOVERY_METRICS 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func recoveryMetricsEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_RECOVERY_METRICS")) == "1"
 }
 
 // turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
@@ -326,6 +340,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	if turnTimingEnabled() {
 		s.turnTiming = &TurnTiming{}
 	}
+	// 只有 ARGENT_RECOVERY_METRICS=1 时才建账本；默认关闭时保持 nil，
+	// 使下方各记录点与快照读取全是空操作。
+	if recoveryMetricsEnabled() {
+		s.recovery = &RecoveryMetrics{}
+	}
 	return s
 }
 
@@ -428,6 +447,35 @@ func (s *runState) checkLoopDetection() {
 	s.injectSteeringWithNudge(loopDetectionGuidance)
 }
 
+// recordRecoveryAttempt 在失败指引实际注入时调用：账本登记一次尝试，并把 kind 记为
+// 待恢复种类，使随后的成功信号有归属。opt-in 关闭（s.recovery == nil）时为空操作，
+// 不触碰任何状态，因此消息与会话记录逐字节不变。
+func (s *runState) recordRecoveryAttempt(kind string) {
+	if s.recovery == nil {
+		return
+	}
+	s.recovery.RecordAttempt(kind)
+	s.recoveryPendingKind = kind
+}
+
+// recordRecoverySuccess 在 loop 侧观察到"无指引动作"（连续失败序列被工具成功清零）时调用：
+// 若存在待恢复种类，把它标记为已恢复并清空待恢复状态。dispatch.go 的成功 Reset 无法在此层
+// 直接调用，故用该信号等效替代。只有先前的尝试登记过 kind 才会记账，避免把序列尚未达到
+// 上限的中间态误判为恢复。opt-in 关闭时为空操作。
+func (s *runState) recordRecoverySuccess() {
+	if s.recovery == nil || s.recoveryPendingKind == "" {
+		return
+	}
+	s.recovery.RecordSuccess(s.recoveryPendingKind)
+	s.recoveryPendingKind = ""
+}
+
+// recoverySnapshot 返回恢复成效账本的只读快照，供诊断观测。
+// nil 接收方安全：opt-in 关闭时 s.recovery 为 nil，Snapshot 返回非 nil 空 map。
+func (s *runState) recoverySnapshot() map[string]RecoveryStats {
+	return s.recovery.Snapshot()
+}
+
 // loop 持续运行各个轮次，直到模型不使用工具就作答、某个限制被触发，或上下文被取消。
 func (s *runState) loop(ctx context.Context) (Result, error) {
 	for {
@@ -452,12 +500,18 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 			if !guidanceDedupeEnabled() || s.guidance.ShouldInject(string(action.Kind)) {
 				s.messages = append(s.messages, llm.Message{Role: "user", Content: action.Guidance})
 				s.record("mistake_guidance", nudgePayload(action.Guidance))
+				// 仅统计：opt-in 关闭时为空操作，不改变指引注入或停止逻辑。
+				s.recordRecoveryAttempt(string(action.Kind))
 			}
-		} else if guidanceDedupeEnabled() {
+		} else {
 			// 没有指引动作意味着连续失败序列已被某次工具成功清零（或尚未开始）。
-			// 这是 loop 侧可见的成功轨迹：借此清空去重状态，使下一段失败能重新注入同一种子指引。
-			// dispatch.go 的成功 Reset 无法在此层直接调用，故用该信号等效替代；关闭 opt-in 时不触碰状态。
-			s.guidance.Reset()
+			// 这是 loop 侧可见的成功轨迹：dispatch.go 的成功 Reset 无法在此层直接调用，
+			// 故用该信号等效替代，仅登记恢复成效，不改任何指引/停止行为。
+			if guidanceDedupeEnabled() {
+				// 清空去重状态，使下一段失败能重新注入同一种子指引；关闭 opt-in 时不触碰状态。
+				s.guidance.Reset()
+			}
+			s.recordRecoverySuccess()
 		}
 		if s.turns >= s.maxTurns {
 			// 取消可能是在循环的顶部轮次检查之后才到达的（例如在抽取控制消息时）。

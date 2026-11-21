@@ -239,6 +239,7 @@ func compareResultsFromPass(passed []bool) []Result {
 // 前 10 个场景从失败翻转为通过（差值 +1），其余不变，配对均值差为正且 95%CI 不跨零，
 // 应给出"显著提升"结论。期望值由 FormatDeltaReport 与固定 verdict 行拼成，
 // 从而把 CompareResults 的"原语复用 + 结论选择"整体锁进快照。
+// 这些 Result 未上报 usage，故末尾锁定的 token 诊断行是"无可比数据"保守说明。
 func TestCompareResultsVerdictSnapshot(t *testing.T) {
 	basePass := make([]bool, 30)
 	candPass := make([]bool, 30)
@@ -266,7 +267,8 @@ func TestCompareResultsVerdictSnapshot(t *testing.T) {
 	}
 	want := FormatDeltaReport(compareReportName, Delta{N: delta.N}, delta) +
 		"verdict: 显著提升：候选完成率更高\n" +
-		FormatCompareDiagnostic(BuildCompareDiagnostic(baseline, candidate).Finalize(true))
+		FormatCompareDiagnostic(BuildCompareDiagnostic(baseline, candidate).Finalize(true)) +
+		"token: 两臂 token 用量均为 0，无可比数据，跳过 token 经济学诊断\n"
 	if got != want {
 		t.Fatalf("CompareResults() mismatch\ngot:\n%s\nwant:\n%s", got, want)
 	}

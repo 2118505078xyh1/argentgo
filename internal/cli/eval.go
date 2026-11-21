@@ -33,6 +33,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 		return runEvalCompare(app, args[1:])
 	}
 
+	// ab 是 eval 子命令的另一个带外前缀：读取两臂 Result 向量与可选的指纹映射，
+	// 调用纯函数 eval.RunVariantAB 按场景指纹配对并输出中文 verdict。与 compare
+	// 一样不进 flagSurface/parity，手写扫描并分派，不依赖 app.Eval。
+	if len(args) > 0 && args[0] == "ab" {
+		return runEvalAB(app, args[1:])
+	}
+
 	// --live 是 eval 子命令的带外前缀：它不进 flagSurface/parity，只在
 	// 这里手写扫描并分派给 LiveEvalSuiteRunner。默认 eval 路径完全不变。
 	live := false
@@ -177,6 +184,7 @@ func parseEvalFile(data []byte) ([]evalScenario, error) {
 func evalUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argentgo eval [--live] <file.json>
        argentgo eval compare <baseline-results.json> <candidate-results.json>
+       argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.
@@ -184,6 +192,10 @@ With --live, the suite is dispatched to a live-model runner instead of the
 scripted grader; this prefix is out-of-band and not a global flag.
 With compare, two Result vectors are compared with paired statistics; small
 samples (n < 30) are reported as insufficient instead of claiming improvement.
+With ab, two arms are paired by scenario fingerprint (name -> fingerprint maps,
+usually produced by eval.ScenarioFingerprint) before the same paired statistics
+run; omit both fingerprint files to pair by scenario name. Both prefixes are
+out-of-band and not global flags.
 `)
 }
 
@@ -246,5 +258,80 @@ func evalCompareUsage(w io.Writer) {
 Compares two Result vectors (same scenarios, baseline vs candidate) with paired
 statistics. Small samples (n < 30) are reported as 样本不足/不显著 instead of a
 promotion conclusion. Each file is a JSON array of results or {"results": [...]}.
+`)
+}
+
+// runEvalAB 实现 `eval ab <a> <b> [fpA fpB]`：读取两臂 Result 向量与可选的
+// 「场景名 → 指纹」映射，调用纯函数 eval.RunVariantAB 按指纹配对后出中文 verdict。
+// 它是带外前缀，不依赖 app.Eval。指纹文件缺省时两臂退化为按场景名配对。
+func runEvalAB(app App, args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		evalABUsage(app.IO.Out)
+		return 0
+	}
+	if len(args) != 2 && len(args) != 4 {
+		evalABUsage(app.IO.Err)
+		return 2
+	}
+	baseline, err := loadResultVector(args[0])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+		return 1
+	}
+	candidate, err := loadResultVector(args[1])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[1], err)
+		return 1
+	}
+	var fingerprintsA, fingerprintsB map[string]string
+	if len(args) == 4 {
+		fingerprintsA, err = loadFingerprintMap(args[2])
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[2], err)
+			return 1
+		}
+		fingerprintsB, err = loadFingerprintMap(args[3])
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[3], err)
+			return 1
+		}
+	}
+	report := eval.RunVariantAB(baseline, candidate, fingerprintsA, fingerprintsB)
+	fmt.Fprint(app.IO.Out, report.Text)
+	return 0
+}
+
+// loadFingerprintMap 从 JSON 对象读取「场景名 → 指纹」映射，
+// 也接受 {"fingerprints": {...}} 包装形式。
+func loadFingerprintMap(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err == nil && m != nil {
+		return m, nil
+	}
+	var document struct {
+		Fingerprints map[string]string `json:"fingerprints"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return nil, err
+	}
+	if document.Fingerprints == nil {
+		return nil, fmt.Errorf("expected a JSON object of name-to-fingerprint or {\"fingerprints\": {...}}")
+	}
+	return document.Fingerprints, nil
+}
+
+func evalABUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
+
+Pairs two arms by scenario fingerprint, then runs paired statistics (same as
+eval compare) on the aligned results. Each fingerprint file is a JSON object
+mapping scenario name to fingerprint, e.g. {"读取笔记": "<sha256 hex>"}; omit
+both files to pair by scenario name. Small samples (n < 30) are reported as
+样本不足/不显著 instead of a promotion conclusion. This prefix is out-of-band
+and not a global flag.
 `)
 }

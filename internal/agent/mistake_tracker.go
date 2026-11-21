@@ -1,12 +1,41 @@
 package agent
 
 import (
+	"os"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // DefaultMistakeLimit 是未指定显式限制时构建 MistakeTracker 所使用的连续错误阈值。
 const DefaultMistakeLimit = 3
+
+// repeatPitfallCap 是跨情节签名计数的容量上限，防止错误签名种类繁多时无界增长。
+// 超过上限时淘汰最早登记（首次出现）的签名，为新签名腾出位置。
+const repeatPitfallCap = 256
+
+// repeatPitfallTracking 控制是否启用跨情节的重复踩坑计数。默认关闭：
+// RecordSignature 在关闭时立即返回，不分配、不触锁；既有 Record/Reset/Check
+// 路径逐字节不变。这是进程级 opt-in：包初始化读取 ARGENT_REPEAT_PITFALL_TRACKING=1，
+// 装配层也可用 SetRepeatPitfallTracking 显式设置。
+var repeatPitfallTracking atomic.Bool
+
+func init() {
+	if os.Getenv("ARGENT_REPEAT_PITFALL_TRACKING") == "1" {
+		repeatPitfallTracking.Store(true)
+	}
+}
+
+// SetRepeatPitfallTracking 打开或关闭跨情节重复踩坑计数（供装配层与测试使用）。
+func SetRepeatPitfallTracking(enabled bool) {
+	repeatPitfallTracking.Store(enabled)
+}
+
+// repeatPitfallTrackingEnabled 报告当前是否启用跨情节重复踩坑计数。
+func repeatPitfallTrackingEnabled() bool {
+	return repeatPitfallTracking.Load()
+}
 
 // MistakeKind 对单次失败分类，使恢复指引能针对实际出错的原因量身定制。
 // 三个标准值对应 agent 循环能观察到的失败：提供方/API 错误、模型产生的畸形工具调用，
@@ -54,6 +83,12 @@ type MistakeTracker struct {
 	lastKind MistakeKind
 	byKind   map[MistakeKind]int
 	guidance MistakeGuidance
+
+	// 以下字段仅在 repeatPitfallTracking opt-in 开启时由 RecordSignature 写入；
+	// 关闭时保持 nil，不参与任何既有路径。Reset 刻意不清空它们——跨情节累计
+	// 正是"重复踩坑"检测的核心。
+	pitfallCounts map[string]int // 签名 -> 跨情节累计次数
+	pitfallOrder  []string       // 签名的首次登记顺序，用于淘汰最旧与稳定排序
 }
 
 // NewMistakeTracker 用给定的连续限制构建追踪器（<= 0 的值选用 DefaultMistakeLimit）。
@@ -145,6 +180,7 @@ func (t *MistakeTracker) Check() (shouldStop bool, action MistakeAction) {
 
 // Reset 清除连续序列及其按种类的细分。注入的指引和配置限制会保留；
 // 调用方通常在一轮成功后调用 Reset，使下一次失败开启新的序列。
+// 注意：跨情节的重复踩坑计数（pitfallCounts/pitfallOrder）刻意不被清除。
 func (t *MistakeTracker) Reset() {
 	if t == nil {
 		return
@@ -156,6 +192,81 @@ func (t *MistakeTracker) Reset() {
 	for k := range t.byKind {
 		delete(t.byKind, k)
 	}
+}
+
+// RecordSignature 把一条错误（以原始文本传入）登记进跨情节的重复踩坑计数。
+// 仅在 repeatPitfallTracking opt-in 开启时生效：关闭时立即返回，零分配、零加锁，
+// 也不会改动连续序列（由 Record 独立维护）。只保存 NormalizeErrorSignature
+// 产生的稳定签名，绝不保存原始错误文本。nil 接收方安全，可并发调用。
+func (t *MistakeTracker) RecordSignature(errText string) {
+	if t == nil || !repeatPitfallTrackingEnabled() {
+		return
+	}
+	sig := NormalizeErrorSignature(errText)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.pitfallCounts == nil {
+		t.pitfallCounts = make(map[string]int, repeatPitfallCap)
+	}
+	if _, ok := t.pitfallCounts[sig]; !ok {
+		// 新签名：登记首次出现顺序；超过容量则淘汰最旧（最早登记）的签名。
+		t.pitfallOrder = append(t.pitfallOrder, sig)
+		if len(t.pitfallOrder) > repeatPitfallCap {
+			oldest := t.pitfallOrder[0]
+			t.pitfallOrder[0] = "" // 释放对已淘汰签名的引用
+			t.pitfallOrder = t.pitfallOrder[1:]
+			delete(t.pitfallCounts, oldest)
+		}
+	}
+	t.pitfallCounts[sig]++
+}
+
+// Snapshot 返回按累计次数降序排列的跨情节高频签名，最多 topN 条；
+// topN<=0 时使用 defaultPatternTopLimit。并列时先登记者优先、其次按签名文本升序，
+// 因此排序确定、重复调用结果稳定。返回的是新切片，调用方修改它不影响内部状态。
+// nil 接收方或尚未记录任何签名时返回 nil。该方法是只读的，不改变追踪器状态。
+func (t *MistakeTracker) Snapshot(topN int) []ErrorPattern {
+	if t == nil {
+		return nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.pitfallCounts) == 0 {
+		return nil
+	}
+
+	rank := make(map[string]int, len(t.pitfallOrder))
+	for i, sig := range t.pitfallOrder {
+		rank[sig] = i
+	}
+
+	out := make([]ErrorPattern, 0, len(t.pitfallCounts))
+	for sig, count := range t.pitfallCounts {
+		out = append(out, ErrorPattern{Signature: sig, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		ri, rj := rank[out[i].Signature], rank[out[j].Signature]
+		if ri != rj {
+			return ri < rj
+		}
+		return out[i].Signature < out[j].Signature
+	})
+
+	limit := topN
+	if limit <= 0 {
+		limit = defaultPatternTopLimit
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 // 无效参数熔断器。
