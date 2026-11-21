@@ -1,0 +1,340 @@
+package shell
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/proc"
+)
+
+// 执行期哨兵错误。
+var (
+	ErrUnsupported     = errors.New("shell: unsupported construct")
+	ErrCommandNotFound = errors.New("shell: command not found")
+	ErrBadRedirect     = errors.New("shell: bad redirect")
+)
+
+// UnsupportedError 携带具体不支持的构造名。
+type UnsupportedError struct{ Kind string }
+
+func (e *UnsupportedError) Error() string {
+	return fmt.Sprintf("shell: unsupported construct: %s", e.Kind)
+}
+func (e *UnsupportedError) Unwrap() error { return ErrUnsupported }
+
+// Interp 是一次 shell 解释执行的运行时状态。
+// 依赖（安全咨询、命令替换执行）通过字段注入，保持零外部耦合。
+type Interp struct {
+	Vars       map[string]string         // 变量表（导出的与内部的一致处理）
+	Cwd        string                    // 当前工作目录
+	LastStatus int                       // $?
+	Safety     func(command string) bool // 可选安全咨询谓词；返回 false 表示拒绝
+	Timeout    time.Duration             // 外部命令超时；零值用 proc 默认
+	Ctx        context.Context           // 取消上下文；nil 用 context.Background()
+}
+
+func (it *Interp) ctx() context.Context {
+	if it.Ctx == nil {
+		return context.Background()
+	}
+	return it.Ctx
+}
+
+// Run 执行解析后的命令，返回合并后的输出与错误。
+// 非零退出是正常结果（输出 + nil error），与上层 bash 工具语义一致。
+func (it *Interp) Run(f *File) (string, error) {
+	if f == nil || f.Stmt == nil {
+		return "", nil
+	}
+	out, _, err := it.execStmt(f.Stmt, "")
+	return out, err
+}
+
+// execStmt 执行一条语句。stdin 是馈给该语句的输入（管道接力用）。
+// 第二个返回值是该语句的 stdout。
+func (it *Interp) execStmt(st *Stmt, stdin string) (string, string, error) {
+	if st == nil {
+		return "", "", nil
+	}
+	if u, ok := st.Cmd.(*UnsupportedCmd); ok {
+		return "", "", &UnsupportedError{Kind: u.Kind}
+	}
+	if bin, ok := st.Cmd.(*BinaryCmd); ok {
+		return it.execBinary(bin, stdin)
+	}
+	// 简单命令（可能带该语句级重定向）。
+	return it.execCall(st, stdin)
+}
+
+// execBinary 处理 ; && || | 四种二元命令。
+func (it *Interp) execBinary(bin *BinaryCmd, stdin string) (string, string, error) {
+	switch bin.Op {
+	case OpSeq:
+		// ';'：无论左边成败都执行右边，最终状态取右边。
+		leftOut, _, err := it.execStmt(bin.X, stdin)
+		if err != nil {
+			return leftOut, "", err
+		}
+		rightOut, rightStdout, err := it.execStmt(bin.Y, "")
+		return leftOut + rightOut, rightStdout, err
+
+	case OpAnd:
+		leftOut, _, err := it.execStmt(bin.X, stdin)
+		if err != nil {
+			return leftOut, "", err
+		}
+		if it.LastStatus != 0 {
+			return leftOut, "", nil // 左侧失败，短路
+		}
+		rightOut, rightStdout, err := it.execStmt(bin.Y, "")
+		return leftOut + rightOut, rightStdout, err
+
+	case OpOr:
+		leftOut, _, err := it.execStmt(bin.X, stdin)
+		if err != nil {
+			return leftOut, "", err
+		}
+		if it.LastStatus == 0 {
+			return leftOut, "", nil // 左侧成功，短路
+		}
+		rightOut, rightStdout, err := it.execStmt(bin.Y, "")
+		return leftOut + rightOut, rightStdout, err
+
+	case OpPipe:
+		// 字符串接力：左段的输出成为右段的 stdin（非流式，诚实取舍）。
+		leftCombined, leftStdout, err := it.execStmt(bin.X, stdin)
+		if err != nil {
+			return leftCombined, "", err
+		}
+		// 管道传递的是左段的 stdout。
+		pipeIn := leftStdout
+		if pipeIn == "" {
+			pipeIn = leftCombined // 兜底：某些命令输出合并到 combined
+		}
+		rightOut, rightStdout, err := it.execStmt(bin.Y, pipeIn)
+		// 管道整体输出是右段的 stdout；左段输出不直接可见。
+		return rightOut, rightStdout, err
+	}
+	return "", "", &UnsupportedError{Kind: "binary-op:" + bin.Op.String()}
+}
+
+// execCall 执行一个简单命令（含重定向）。
+func (it *Interp) execCall(st *Stmt, stdin string) (string, string, error) {
+	call, ok := st.Cmd.(*CallExpr)
+	if !ok {
+		return "", "", &UnsupportedError{Kind: "command"}
+	}
+	ctx := ExpandCtx{
+		Vars: func(name string) (string, bool) {
+			v, ok := it.Vars[name]
+			return v, ok
+		},
+		LastStatus: it.LastStatus,
+		Cwd:        it.Cwd,
+		RunSubst: func(f *File) (string, error) {
+			out, err := it.Run(f)
+			return out, err
+		},
+	}
+
+	var argv []string
+	for _, w := range call.Args {
+		fields, err := expandWord(w, ctx)
+		if err != nil {
+			return "", "", err
+		}
+		argv = append(argv, fields...)
+	}
+	if len(argv) == 0 {
+		// 只有重定向的情况：视作空操作成功。
+		if len(st.Redirs) > 0 {
+			return "", "", nil
+		}
+		it.LastStatus = 0
+		return "", "", nil
+	}
+
+	// 安全咨询谓词（可选）：拒绝则 fail-closed。
+	if it.Safety != nil && !it.Safety(strings.Join(argv, " ")) {
+		return "", "", fmt.Errorf("shell: command rejected by safety policy: %s", argv[0])
+	}
+
+	// 展开重定向目标（不分词、不 glob）。
+	redirs, err := it.expandRedirects(st.Redirs, ctx)
+	if err != nil {
+		return "", "", err
+	}
+
+	// 输入重定向 '<' 覆盖管道传入的 stdin。
+	for _, r := range redirs {
+		if r.op == RedirIn && r.arg != "" {
+			path := r.arg
+			if !isAbs(path) && it.Cwd != "" {
+				path = joinPath(it.Cwd, path)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return "", "", fmt.Errorf("shell: redirect from %q: %w", r.arg, err)
+			}
+			stdin = string(data)
+		}
+	}
+
+	program := argv[0]
+	// shell 保留字（控制结构/函数等）在本子集不支持：fail-closed，明确拒绝，
+	// 绝不把它们当外部命令尝试（那会产生误导性的 "command not found"）。
+	if isReservedWord(program) {
+		return "", "", &UnsupportedError{Kind: program}
+	}
+	args := argv[1:]
+	var stdout, stderr string
+
+	if isBuiltin(program) {
+		stdout, stderr, err = it.runBuiltin(program, args, stdin)
+	} else {
+		stdout, stderr, err = it.runExternal(program, args, stdin)
+	}
+	if err != nil {
+		return "", "", err
+	}
+
+	// 应用重定向，得到最终可见输出。
+	final, err := it.applyRedirects(stdout, stderr, redirs)
+	if err != nil {
+		return "", "", err
+	}
+	return final, final, nil
+}
+
+// expandedRedir 是展开后的重定向。
+type expandedRedir struct {
+	op  RedirOp
+	n   int
+	arg string
+}
+
+func (it *Interp) expandRedirects(rs []*Redirect, ctx ExpandCtx) ([]expandedRedir, error) {
+	var out []expandedRedir
+	for _, r := range rs {
+		er := expandedRedir{op: r.Op, n: r.N}
+		if r.Op == RedirDupOut {
+			out = append(out, er)
+			continue
+		}
+		if r.Target == nil {
+			return nil, ErrBadRedirect
+		}
+		fields, err := expandWord(r.Target, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(fields) != 1 {
+			return nil, fmt.Errorf("%w: ambiguous redirect", ErrBadRedirect)
+		}
+		er.arg = fields[0]
+		out = append(out, er)
+	}
+	return out, nil
+}
+
+// applyRedirects 应用重定向并返回最终可见输出。
+func (it *Interp) applyRedirects(stdout, stderr string, rs []expandedRedir) (string, error) {
+	mergeErr := false
+	var outFile string
+	var appendFile bool
+	for _, r := range rs {
+		switch r.op {
+		case RedirDupOut:
+			mergeErr = true
+		case RedirOut:
+			outFile, appendFile = r.arg, false
+		case RedirAppend:
+			outFile, appendFile = r.arg, true
+		}
+		// RedirIn 在 runBuiltin/runExternal 阶段处理（这里 stdin 暂未接线到外部命令，
+		// 见 runExternal 的注释）；仅输出重定向在此生效。
+	}
+	combined := stdout
+	if mergeErr && stderr != "" {
+		combined += stderr
+	}
+	if outFile != "" {
+		path := outFile
+		if !isAbs(path) && it.Cwd != "" {
+			path = joinPath(it.Cwd, path)
+		}
+		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		if appendFile {
+			flag = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+		}
+		f, err := os.OpenFile(path, flag, 0o644)
+		if err != nil {
+			return "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(combined); err != nil {
+			return "", err
+		}
+		return "", nil // 输出已写入文件
+	}
+	return combined, nil
+}
+
+// runExternal 用 internal/proc 执行外部程序（进程组管理、UTF-8、输出上限）。
+func (it *Interp) runExternal(program string, args []string, stdin string) (string, string, error) {
+	path, err := exec.LookPath(program)
+	if err != nil {
+		it.LastStatus = 127
+		return "", fmt.Sprintf("shell: %s: command not found\n", program), nil
+	}
+	c := proc.Command{
+		Path:     path,
+		Args:     args,
+		Dir:      it.Cwd,
+		Env:      envSlice(it.Vars),
+		Timeout:  it.Timeout,
+		KillTree: true,
+		NoWindow: true,
+	}
+	if stdin != "" {
+		c.Stdin = strings.NewReader(stdin)
+	}
+	res, err := proc.Run(it.ctx(), c)
+	if err != nil {
+		return "", "", err
+	}
+	it.LastStatus = res.ExitCode
+	return res.Stdout, res.Stderr, nil
+}
+
+// isReservedWord 报告 name 是否为 shell 控制结构/函数保留字（本子集一律不支持）。
+func isReservedWord(name string) bool {
+	switch name {
+	case "for", "while", "until", "if", "then", "else", "elif", "fi",
+		"case", "esac", "do", "done", "in", "function", "select", "time",
+		"{", "}", "!":
+		return true
+	}
+	return false
+}
+
+func envSlice(vars map[string]string) []string {
+	out := make([]string, 0, len(vars))
+	for k, v := range vars {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+func isAbs(p string) bool { return strings.HasPrefix(p, "/") || (len(p) >= 3 && p[1] == ':') }
+func joinPath(dir, p string) string {
+	if strings.HasSuffix(dir, "/") || strings.HasSuffix(dir, "\\") {
+		return dir + p
+	}
+	return dir + string(os.PathSeparator) + p
+}
