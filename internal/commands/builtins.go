@@ -9,11 +9,17 @@ package commands
 // internal/cli 中 `argent commands` 的列举路径保持不变，仍然只
 // 列举磁盘上的命令，因此用户可见的输出没有任何变化。
 
-// NewSetWithBuiltins 从各来源发现命令，并注册内置描述符
-// （当前为 /context 和 /review）。显式声明的 markdown 命令按名称优先，
-// 因为 Add 从不覆盖已有条目。
+// NewSetWithBuiltins 从各来源发现命令，并实例化注册表中的所有内置描述符
+// （当前为 /context 和 /review）。实例化顺序由注册时显式给出的 order 决定，
+// 与旧的 set.Add(ContextCommand(), ReviewCommand()) 完全一致；显式声明的
+// markdown 命令仍按名称优先，因为 Add 从不覆盖已有条目。
 func NewSetWithBuiltins(sources []Source) *Set {
 	set := Discover(sources)
-	set.Add(ContextCommand(), ReviewCommand())
+	factories := builtinRegistry.Factories()
+	cmds := make([]Command, 0, len(factories))
+	for _, factory := range factories {
+		cmds = append(cmds, factory())
+	}
+	set.Add(cmds...)
 	return set
 }

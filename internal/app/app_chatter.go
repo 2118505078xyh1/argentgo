@@ -11,22 +11,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
+// newChatter 按协议名查工厂表构造客户端：协议名先做小写与首尾空白归一化，
+// 未注册的协议回退到默认工厂（OpenAI 兼容的 chat completions）。
 func newChatter(protocol, baseURL, apiKey string, opts llm.Options) llm.Chatter {
-	switch strings.ToLower(strings.TrimSpace(protocol)) {
-	case "anthropic", "anthropic-messages", "messages":
-		client := llm.NewAnthropic(baseURL, apiKey)
-		client.MaxTokens = llm.DefaultAnthropicMaxTokens
-		client.Options = opts
-		return client
-	case "responses", "openai-responses":
-		client := llm.NewResponses(baseURL, apiKey)
-		client.Options = opts
-		return client
-	default:
-		client := llm.New(baseURL, apiKey)
-		client.Options = opts
-		return client
+	key := strings.ToLower(strings.TrimSpace(protocol))
+	factory, ok := chatterFactories[key]
+	if !ok {
+		factory = chatterFactories[defaultChatterProtocol]
 	}
+	return factory(baseURL, apiKey, opts)
 }
 
 // fallbackChatter 在主模型以可重试的方式失败时，用 --fallback-model 重试一次。
