@@ -198,8 +198,20 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 }
 
 // injectSteering 把排队的纠正消息移入对话。额外的文本（例如一次性的卡住提示）
-// 也走同一条用户轮次路径。
+// 也走同一条用户轮次路径，载荷保持原始字符串。
 func (s *runState) injectSteering(extra ...string) bool {
+	return s.injectSteeringAs(nil, extra...)
+}
+
+// injectSteeringWithNudge 与 injectSteering 相同，但 one-off 的 extra 文本
+// 在 opt-in 开启时携带压缩存活标记。排队的 steering 消息不受影响。
+func (s *runState) injectSteeringWithNudge(extra ...string) bool {
+	return s.injectSteeringAs(nudgePayload, extra...)
+}
+
+// injectSteeringAs 是两条路径的共用实现。payloadFor 为 nil 时所有消息使用
+// 原始字符串载荷；非 nil 时它只应用于 extra（一次性提示），排队消息仍为原字符串。
+func (s *runState) injectSteeringAs(payloadFor func(string) any, extra ...string) bool {
 	pending := s.steer.drain()
 	// 把已完成的后台子 agent 结果作为合成用户轮次抽取到本次运行中。
 	// 投递以本次运行的唯一 owner 为键，而非深度：同级子 agent 共享相同深度，
@@ -208,13 +220,21 @@ func (s *runState) injectSteering(extra ...string) bool {
 	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
 		pending = append(pending, s.opts.Subagent.Background.DrainFor(s.bgOwner)...)
 	}
-	pending = append(pending, extra...)
 	for _, text := range pending {
 		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
 		s.record("steer", text)
-		s.emit(Event{Kind: EventNotice, Text: "steering: " + text})
+		s.emit(Event{Kind: EventNotice, Text: steeringNoticePrefix + text})
 	}
-	return len(pending) > 0
+	for _, text := range extra {
+		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
+		payload := any(text)
+		if payloadFor != nil {
+			payload = payloadFor(text)
+		}
+		s.record("steer", payload)
+		s.emit(Event{Kind: EventNotice, Text: steeringNoticePrefix + text})
+	}
+	return len(pending)+len(extra) > 0
 }
 
 // budgetReminderPrefix 在记录中标记一条模型可见的预算提醒，

@@ -70,8 +70,7 @@ func BlockSafe(docs []Doc) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<project-memory>\n")
-	b.WriteString("Instruction files, most specific first: when two files disagree, the earlier (nearer) one wins.\n")
+	b.WriteString(blockHeader)
 	for _, doc := range docs {
 		open, close := safeFence(doc.Text)
 		b.WriteString(wrapWithFence(doc.Path, doc.Text, open, close))

@@ -1,0 +1,322 @@
+{
+  "description": "R30 完成率 harness 失效模式基准场景集：对齐 omp benchmaxxed 关注的编辑格式、读摘要与重试循环，新增 6 个 model-agnostic 客观场景（5 正 1 负），与 completion.json（F/N）及 completion_expanded.json（S1-S5）名字与内容均不重复。B1 用 hashline 锚点编辑修 bug；B2 跨文件一致性重命名（定义与调用点必须同改）；B3 先读大文件大纲再按行开窗精确定位并编辑，验证读摘要质量；B4 歧义 edit 必须被拒绝并回吐可读错误，模型据此改用唯一锚点重试而非盲改；B6 过期 hashline 锚点先报 stale 错误，重新读文件后用正确哈希重试；B5 负对照与 B2 同种子同 Check，但只改定义不改调用点，go test 编译失败退出 1。每个 Go 场景 Check 均 allow_exec + go test ./...(want_exit_code 0) + file_equals，逐字节锁死 *_test.go 种子内容防改测试作弊；Provider/Expect 写满脚本模式，live 跑批时由 liveSafeScenarios 归零脚本字段只留客观 Check。",
+  "scenarios": [
+    {
+      "name": "B1 hashline anchored edit (should pass)",
+      "description": "正例（hashline 锚点编辑）：脚本先读 calc.go，再用 hashline=true 携带 anchor 与 anchor_hash 精确锚定 buggy 行并替换。Check 要求 go test ./... 退出 0，calc.go 逐字节等于修复后内容，并锁死 calc_test.go 种子。anchor_hash 是 sha256(anchor 字节) 的前 12 位十六进制，锚点正确时编辑落点唯一。",
+      "prompt": "read calc.go, fix Add using a hashline-anchored edit so the test passes, then report what you did",
+      "files": {
+        "go.mod": "module example.com/hashline\n\ngo 1.21\n",
+        "calc.go": "package calc\n\nfunc Add(a, b int) int { return a - b }\n",
+        "calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "hashline": true, "anchor": "return a - b", "anchor_hash": "9d043aa39284", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited calc.go"],
+          "respond": { "text": "Fixed Add with a hashline-anchored edit; the test should pass now." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit"],
+        "text_contains": ["hashline-anchored edit"],
+        "turns": 3
+      },
+      "check": {
+        "files_exist": ["calc.go", "calc_test.go"],
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "calc.go": "package calc\n\nfunc Add(a, b int) int { return a + b }\n",
+          "calc_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif got := Add(1, 2); got != 3 {\n\t\tt.Fatalf(\"Add = %d, want 3\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "B2 rename symbol across two files (should pass)",
+      "description": "正例（多文件一致性改动）：定义处 Calulate 是拼写错误，测试与调用点都要求正确的 Calculate。脚本依次读并修 calc.go（定义）与 use.go（调用点）。Check 要求 go test ./... 退出 0，两个源文件逐字节等于修复后内容，并锁死 calc_test.go 种子。只改一处会留下未定义符号而编译失败。",
+      "prompt": "read calc.go and use.go, rename Calulate to Calculate in both the definition and the call site, then report what you did",
+      "files": {
+        "go.mod": "module example.com/rename\n\ngo 1.21\n",
+        "calc.go": "package rename\n\nfunc Calulate(a, b int) int { return a + b }\n",
+        "use.go": "package rename\n\nfunc Total(a, b int) int { return Calulate(a, b) }\n",
+        "calc_test.go": "package rename\n\nimport \"testing\"\n\nfunc TestCalculate(t *testing.T) {\n\tif got := Calculate(2, 3); got != 5 {\n\t\tt.Fatalf(\"Calculate = %d, want 5\", got)\n\t}\n\tif got := Total(2, 3); got != 5 {\n\t\tt.Fatalf(\"Total = %d, want 5\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["func Calulate"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "old": "func Calulate", "new": "func Calculate" } }
+            ]
+          }
+        },
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "use.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["Calulate(a, b)"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "use.go", "old": "return Calulate(a, b)", "new": "return Calculate(a, b)" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited use.go"],
+          "respond": { "text": "Renamed Calulate to Calculate in both the definition and the call site." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit", "read", "edit"],
+        "text_contains": ["definition and the call site"],
+        "turns": 5
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "calc.go": "package rename\n\nfunc Calculate(a, b int) int { return a + b }\n",
+          "use.go": "package rename\n\nfunc Total(a, b int) int { return Calculate(a, b) }\n",
+          "calc_test.go": "package rename\n\nimport \"testing\"\n\nfunc TestCalculate(t *testing.T) {\n\tif got := Calculate(2, 3); got != 5 {\n\t\tt.Fatalf(\"Calculate = %d, want 5\", got)\n\t}\n\tif got := Total(2, 3); got != 5 {\n\t\tt.Fatalf(\"Total = %d, want 5\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "B3 outline large file then precise edit (should pass)",
+      "description": "正例（大文件定位后精确编辑，验证读摘要质量）：脚本先用 outline=true 读取 big.go 的紧凑符号目录，再以 line=12 开窗读取 buggy 函数周边，最后对唯一 buggy 行做精确编辑。Check 要求 go test ./... 退出 0，整份 big.go 逐字节等于修复后内容（证明编辑落在正确位置且未波及其它行），并锁死 big_test.go 种子。expect_request_contains 逐环验证大纲摘要与开窗结果确实回注上下文。",
+      "prompt": "outline big.go to locate the buggy function, read around it, fix Target so the test passes, then report what you did",
+      "files": {
+        "go.mod": "module example.com/bigfile\n\ngo 1.21\n",
+        "big.go": "package big\n\nfunc F0() int { return 0 }\nfunc F1() int { return 1 }\nfunc F2() int { return 2 }\nfunc F3() int { return 3 }\nfunc F4() int { return 4 }\nfunc F5() int { return 5 }\nfunc F6() int { return 6 }\nfunc F7() int { return 7 }\nfunc F8() int { return 8 }\nfunc Target(a, b int) int { return a - b }\n",
+        "big_test.go": "package big\n\nimport \"testing\"\n\nfunc TestTarget(t *testing.T) {\n\tif got := Target(9, 4); got != 13 {\n\t\tt.Fatalf(\"Target = %d, want 13\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "big.go", "outline": true } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["outline: big.go"],
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "big.go", "line": 12, "before": 2, "after": 2 } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "big.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited big.go"],
+          "respond": { "text": "Located Target via the outline and fixed the buggy line; the test should pass." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "read", "edit"],
+        "text_contains": ["Located Target via the outline"],
+        "turns": 4
+      },
+      "check": {
+        "files_exist": ["big.go", "big_test.go"],
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "big.go": "package big\n\nfunc F0() int { return 0 }\nfunc F1() int { return 1 }\nfunc F2() int { return 2 }\nfunc F3() int { return 3 }\nfunc F4() int { return 4 }\nfunc F5() int { return 5 }\nfunc F6() int { return 6 }\nfunc F7() int { return 7 }\nfunc F8() int { return 8 }\nfunc Target(a, b int) int { return a + b }\n",
+          "big_test.go": "package big\n\nimport \"testing\"\n\nfunc TestTarget(t *testing.T) {\n\tif got := Target(9, 4); got != 13 {\n\t\tt.Fatalf(\"Target = %d, want 13\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "B4 ambiguous edit rejected then recovered (should pass)",
+      "description": "正例（歧义 edit 被拒绝后按可读错误重试）：脚本先读 dup.go，再用出现两次的 old 尝试编辑；工具必须拒绝并回吐含 'appears 2 times' 的可读错误，文件保持不变。模型据此改用各自函数的唯一整行锚点分别修 First 与 Second。Check 要求 go test ./... 退出 0，dup.go 逐字节等于两处都修好的内容，并锁死 dup_test.go 种子。若歧义 edit 被盲改，只会命中一处，另一处仍错导致 go test 失败。",
+      "prompt": "read dup.go, fix both First and Second, using a unique anchor when an edit is ambiguous, then report what you did",
+      "files": {
+        "go.mod": "module example.com/ambiguous\n\ngo 1.21\n",
+        "dup.go": "package dup\n\nfunc First(a, b int) int { return a - b }\n\nfunc Second(a, b int) int { return a - b }\n",
+        "dup_test.go": "package dup\n\nimport \"testing\"\n\nfunc TestBoth(t *testing.T) {\n\tif got := First(1, 2); got != 3 {\n\t\tt.Fatalf(\"First = %d, want 3\", got)\n\t}\n\tif got := Second(1, 2); got != 3 {\n\t\tt.Fatalf(\"Second = %d, want 3\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "dup.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return a - b"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "dup.go", "old": "return a - b", "new": "return a + b" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["appears 2 times"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "dup.go", "old": "func First(a, b int) int { return a - b }", "new": "func First(a, b int) int { return a + b }" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited dup.go"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "dup.go", "old": "func Second(a, b int) int { return a - b }", "new": "func Second(a, b int) int { return a + b }" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited dup.go"],
+          "respond": { "text": "The ambiguous edit was rejected with a readable error; I retried with unique anchors and fixed both functions." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit", "edit", "edit"],
+        "text_contains": ["ambiguous edit was rejected"],
+        "turns": 5
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "dup.go": "package dup\n\nfunc First(a, b int) int { return a + b }\n\nfunc Second(a, b int) int { return a + b }\n",
+          "dup_test.go": "package dup\n\nimport \"testing\"\n\nfunc TestBoth(t *testing.T) {\n\tif got := First(1, 2); got != 3 {\n\t\tt.Fatalf(\"First = %d, want 3\", got)\n\t}\n\tif got := Second(1, 2); got != 3 {\n\t\tt.Fatalf(\"Second = %d, want 3\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "B5 negative control partial rename (should fail)",
+      "description": "负对照（应与 B2 同种子、同 Check）：脚本只读 calc.go 并改掉定义处的 Calulate，却不改 use.go 的调用点。Check 与 B2 完全一致（go test ./... want_exit_code 0 + 两个源文件全修复 + calc_test.go 锁死），因此 use.go 仍引用未定义的 Calulate，go test 编译失败退出 1，场景失败，证明完成率对跨文件部分修复不误判为完成。",
+      "prompt": "read calc.go, rename Calulate to Calculate in the definition only, then report what you did",
+      "files": {
+        "go.mod": "module example.com/rename\n\ngo 1.21\n",
+        "calc.go": "package rename\n\nfunc Calulate(a, b int) int { return a + b }\n",
+        "use.go": "package rename\n\nfunc Total(a, b int) int { return Calulate(a, b) }\n",
+        "calc_test.go": "package rename\n\nimport \"testing\"\n\nfunc TestCalculate(t *testing.T) {\n\tif got := Calculate(2, 3); got != 5 {\n\t\tt.Fatalf(\"Calculate = %d, want 5\", got)\n\t}\n\tif got := Total(2, 3); got != 5 {\n\t\tt.Fatalf(\"Total = %d, want 5\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "calc.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["func Calulate"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "calc.go", "old": "func Calulate", "new": "func Calculate" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited calc.go"],
+          "respond": { "text": "Renamed the definition; left the call site unchanged." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["read", "edit"],
+        "text_contains": ["left the call site unchanged"],
+        "turns": 3
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "calc.go": "package rename\n\nfunc Calculate(a, b int) int { return a + b }\n",
+          "use.go": "package rename\n\nfunc Total(a, b int) int { return Calculate(a, b) }\n",
+          "calc_test.go": "package rename\n\nimport \"testing\"\n\nfunc TestCalculate(t *testing.T) {\n\tif got := Calculate(2, 3); got != 5 {\n\t\tt.Fatalf(\"Calculate = %d, want 5\", got)\n\t}\n\tif got := Total(2, 3); got != 5 {\n\t\tt.Fatalf(\"Total = %d, want 5\", got)\n\t}\n}\n"
+        }
+      }
+    },
+    {
+      "name": "B6 stale hashline anchor re-read then retry (should pass)",
+      "description": "正例（重试循环：过期 hashline 锚点恢复）：脚本先用一个错误的 anchor_hash 发起 hashline 编辑，工具必须报含 'stale anchor' 的可读错误且文件不变；模型据此重新读文件，再用正确哈希（sha256(anchor) 前 12 位）重试。Check 要求 go test ./... 退出 0，stale.go 逐字节等于修复后内容，并锁死 stale_test.go 种子。",
+      "prompt": "read stale.go and fix Scale using a hashline anchor with the correct hash so the test passes, then report what you did",
+      "files": {
+        "go.mod": "module example.com/stale\n\ngo 1.21\n",
+        "stale.go": "package stale\n\nfunc Scale(x int) int { return x + 2 }\n",
+        "stale_test.go": "package stale\n\nimport \"testing\"\n\nfunc TestScale(t *testing.T) {\n\tif got := Scale(3); got != 6 {\n\t\tt.Fatalf(\"Scale = %d, want 6\", got)\n\t}\n}\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "stale.go", "hashline": true, "anchor": "return x + 2", "anchor_hash": "000000000000", "new": "return x * 2" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["stale anchor"],
+          "respond": {
+            "tool_calls": [
+              { "name": "read", "arguments": { "path": "stale.go" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["return x + 2"],
+          "respond": {
+            "tool_calls": [
+              { "name": "edit", "arguments": { "path": "stale.go", "hashline": true, "anchor": "return x + 2", "anchor_hash": "70537496ad78", "new": "return x * 2" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["edited stale.go"],
+          "respond": { "text": "The stale anchor was rejected; I re-read the file and retried with the correct hash to fix Scale." }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["edit", "read", "edit"],
+        "text_contains": ["re-read the file"],
+        "turns": 4
+      },
+      "check": {
+        "allow_exec": true,
+        "exec": { "command": "go", "args": ["test", "./..."], "timeout_ms": 30000, "want_exit_code": 0 },
+        "file_equals": {
+          "stale.go": "package stale\n\nfunc Scale(x int) int { return x * 2 }\n",
+          "stale_test.go": "package stale\n\nimport \"testing\"\n\nfunc TestScale(t *testing.T) {\n\tif got := Scale(3); got != 6 {\n\t\tt.Fatalf(\"Scale = %d, want 6\", got)\n\t}\n}\n"
+        }
+      }
+    }
+  ]
+}

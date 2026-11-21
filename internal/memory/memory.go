@@ -25,11 +25,14 @@ import (
 // FileNames 是每个目录中要读取的指令文件，按顺序。
 var FileNames = []string{"AGENTS.md", "CLAUDE.md"}
 
-// DefaultLimit 是每个文件保留的字节数。
+// DefaultLimit 是每个文件保留的字节数。字节预算是 token 预算的保守代理：
+// 任何 token 都不会比其 UTF-8 字节更多，因此按字节裁剪天然不会超出等价的 token 上限。
 const DefaultLimit = 8000
 
 // totalBudget 限制从所有文件保留的文本的总大小，因此
-// 深层目录树不会在系统提示词中累积数十份受限副本。
+// 深层目录树不会在系统提示词中累积数十份受限副本。它同样是 token 预算的
+// 保守代理。注意 blockHeader 是固定头部开销，不计入这些逐文档/总量预算；
+// 它随注入恒定，不随目录树规模增长。
 const totalBudget = 32 * 1024
 
 // maxDepth 用于终止永远到不了主目录的遍历。
@@ -37,6 +40,16 @@ const maxDepth = 32
 
 // TruncationMarker 附加在被缩短的文档末尾。
 const TruncationMarker = "\n… [truncated; read the file for the rest]"
+
+// Disclaimer 是注入块中的启发式声明，标识项目指令只是上下文提示，
+// 而非当前代码状态的权威；冲突时以仓库现状与用户指令为准。
+const Disclaimer = "以下为启发式上下文，非当前代码状态的权威；与仓库现状或用户指令冲突时以后者为准"
+
+// blockHeader 是项目指令块的固定头部：排序说明 + 启发式声明。
+// Block 与 BlockSafe 共用，确保两条注入路径的声明一致。
+const blockHeader = "<project-memory>\n" +
+	"Instruction files, most specific first: when two files disagree, the earlier (nearer) one wins.\n" +
+	Disclaimer + "\n"
 
 // Doc 是向上遍历过程中发现的一个指令文件。
 type Doc struct {
@@ -213,14 +226,13 @@ func clipRunes(s string, limit int) string {
 //
 // 头部说明了排序规则：条目从最具体
 // （最近）的文件到最不具体的文件，因此冲突时以
-// 第一个为准。空输入不渲染任何内容。
+// 第一个为准，并声明注入内容只是启发式上下文、并非权威。空输入不渲染任何内容。
 func Block(docs []Doc) string {
 	if len(docs) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<project-memory>\n")
-	b.WriteString("Instruction files, most specific first: when two files disagree, the earlier (nearer) one wins.\n")
+	b.WriteString(blockHeader)
 	for _, doc := range docs {
 		fmt.Fprintf(&b, "<file path=%q>\n%s\n</file>\n", doc.Path, doc.Text)
 	}

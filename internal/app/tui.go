@@ -53,6 +53,8 @@ func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
 func TUI(stdio cli.IO) cli.TUIFunc {
 	// 用量显示（opt-in ARGENT_TUI_USAGE）：默认关闭，TUI 帧字节不变。
 	configureTUIUsage(stdio.Env)
+	// 审批卡 diff 显示（opt-in ARGENT_APPROVAL_DIFF）：默认关闭，帧字节不变。
+	tui.ConfigureApprovalDiff(stdio.Env)
 	return func(ctx context.Context, opts cli.Options) error {
 		res, err := Resolve(stdio, opts)
 		if err != nil {
