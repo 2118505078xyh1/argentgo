@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
@@ -184,6 +187,9 @@ type taskTools struct {
 	// emitMu 串行化父级层面的子 agent 事件。后台子级从各自的 goroutine 发出事件，
 	// 因此用锁来保持开始/结束/通知的顺序合理。
 	emitMu sync.Mutex
+	// costMu 串行化被取消子级的成本补记。后台子级可能同时被取消，
+	// 多个 goroutine 会同时向父级 Recorder 追加 stats 记录。
+	costMu sync.Mutex
 }
 
 func (t *taskTools) Specs() []llm.ToolSpec { return t.specs }
@@ -263,6 +269,9 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
 	child := t.newChild(label, persona)
 	res, err := child.Run(ctx, task)
+	// 结果回灌：被取消的子级会跳过自身的 stats 记录（见 loop.go 的 execute），
+	// 这里把它已经产生的部分成本补记到父级统计，避免漏账。
+	t.reconcileCancelledChildCost(label, t.childModel(persona), res)
 	if err != nil {
 		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
 		return "", fmt.Errorf("subagent failed: %w", err)
@@ -614,6 +623,96 @@ func (t *taskTools) parentEmit(event Event) {
 	t.parent.Emit(event)
 }
 
+// ---------------------------------------------------------------------------
+// 被取消子级的成本回灌（R39）
+// ---------------------------------------------------------------------------
+
+// childCostContribution 描述一个子级对父级统计的成本贡献。
+// 字段与 session.CostContribution 对齐；agent 无法 import session（session -> eval -> agent
+// 会形成 import 环），因此在本地复刻这个纯数据类型，算术语义与 session 中的原语保持一致。
+type childCostContribution struct {
+	ChildID string
+	CostUSD float64
+	Tokens  int
+}
+
+// reconcileChildCost 是 session.ReconcileChildCost 的本地等价实现：过滤非法成本、
+// 按 ChildID 稳定排序、按排序后的顺序确定性求和。它只做算术，不触碰任何记录或提示字节。
+// 入参不会被修改。
+func reconcileChildCost(parentCost float64, children []childCostContribution) (float64, []childCostContribution) {
+	if !validChildCostUSD(parentCost) {
+		parentCost = 0
+	}
+	breakdown := make([]childCostContribution, 0, len(children))
+	for _, child := range children {
+		if !validChildCostUSD(child.CostUSD) {
+			continue
+		}
+		breakdown = append(breakdown, child)
+	}
+	// 稳定排序：同名 ChildID 的贡献保留输入次序，避免重复子级的明细顺序抖动。
+	sort.SliceStable(breakdown, func(i, j int) bool {
+		return breakdown[i].ChildID < breakdown[j].ChildID
+	})
+	total := parentCost
+	for _, child := range breakdown {
+		total += child.CostUSD
+	}
+	return total, breakdown
+}
+
+// validChildCostUSD 判定成本值是否可用于记账：必须是有限的非负数。
+// 负数没有记账意义，NaN/±Inf 会污染累加结果，故一并拒绝。
+func validChildCostUSD(v float64) bool {
+	return v >= 0 && !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+// childModel 复算某个子级实际使用的模型，用于按与子级相同的价格表折算成本。
+// 它与 childOptions 中的取值顺序一致：角色显式模型优先，否则继承父级模型。
+func (t *taskTools) childModel(persona string) string {
+	cfg := t.configForPersona(persona)
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = t.parent.Model
+	}
+	return model
+}
+
+// reconcileCancelledChildCost 在子级结果回灌点补记被取消运行的成本。
+//
+// 被取消的运行在 loop.go 的 execute 中会跳过 recordRunStats，因此它已经产生的成本
+// 不会进入会话的 stats 记录；而 Result 只携带 Usage，不携带 CostUSD，这里用与子级
+// account() 相同的价格折算得到部分成本。只有在 StopCancelled 且成本为正时才追加一条
+// stats 记录：无子代理、非取消子级（其自身已写 stats）或成本为 0 时完全不触碰 Recorder，
+// 会话记录与提示字节保持逐字节不变。
+func (t *taskTools) reconcileCancelledChildCost(childID, model string, res Result) {
+	rec := normaliseRecorder(t.parent.Record)
+	if rec == nil || res.Stopped != StopCancelled {
+		return
+	}
+	price, ok := PriceFor(t.parent.Prices, model)
+	if !ok {
+		return
+	}
+	contribution := childCostContribution{
+		ChildID: childID,
+		CostUSD: price.Cost(res.Usage),
+		Tokens:  res.Usage.PromptTokens + res.Usage.CompletionTokens,
+	}
+	total, breakdown := reconcileChildCost(0, []childCostContribution{contribution})
+	if total <= 0 || len(breakdown) == 0 {
+		return
+	}
+	t.costMu.Lock()
+	defer t.costMu.Unlock()
+	// 成本来源于注入的价格表推导，因此始终是估算值；与 recordRunStats 的口径一致。
+	_ = rec.Append("stats", sessionStatsPayload{
+		CostUSD:    total,
+		CostSource: "estimated",
+		Updated:    time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 // restrictedTools 是子级对父级工具的过滤视图。
 type restrictedTools struct {
 	inner   ToolRunner
@@ -870,6 +969,8 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 		defer bg.release()
 		child := t.newChild(label, persona)
 		res, err := child.Run(ctx, task)
+		// 与同步路径相同：后台子级被取消时补记其部分成本。
+		t.reconcileCancelledChildCost(label, t.childModel(persona), res)
 		if err != nil {
 			t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
 			bg.PushFor(owner, depth, fmt.Sprintf("%s[task %d] %s failed: %v", BackgroundResultPrefix, id, label, err))

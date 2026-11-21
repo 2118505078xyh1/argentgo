@@ -131,10 +131,81 @@ func buildDynamicContext(root, thinking, schema string) string {
 func buildSystemWithTrust(root string, env func(string) string, trust bool, thinking, schema string, verify ...config.Config) string {
 	static := buildStaticSystem(root, env, trust, verify...)
 	dynamic := buildDynamicContext(root, thinking, schema)
-	if dynamic == "" {
-		return static
+	var b strings.Builder
+	b.WriteString(static)
+	if dynamic != "" {
+		b.WriteString("\n")
+		b.WriteString(dynamic)
+		b.WriteString("\n")
 	}
-	return static + "\n" + dynamic + "\n"
+	// 规则发现是显式选择启用的：关闭时这段为空，组合提示逐字节保持旧版输出。
+	if block := ruleDiscoveryBlock(root, env, ""); block != "" {
+		b.WriteString("\n")
+		b.WriteString(block)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// ruleDiscoveryBlock 在 ARGENT_RULE_DISCOVERY 显式开启时，扫描用户级（home）与项目级（root）
+// 的规则文件，并渲染成一段"只列名、不加载全文"的系统提示文本。
+//
+// home/root 与 Resolved.Home/Resolved.Root 同源（homeDir(env) 与 buildSystem 的 root），
+// 但这里刻意不经由 Resolved 传递，使提示构建器保持纯函数签名。
+// mode 为空表示通用规则；当前提示路径没有明确模式，因此调用方传空串。
+func ruleDiscoveryBlock(root string, env func(string) string, mode string) string {
+	if !ruleDiscoveryEnabled(env) {
+		return ""
+	}
+	return renderRuleDiscoveryBlock(memory.DiscoverRules(homeDir(env), root, mode))
+}
+
+// ruleDiscoveryEnabled 解释 ARGENT_RULE_DISCOVERY。与项目信任不同，这里默认关闭：
+// 只有 1/true/yes/on（忽略大小写与空白）才启用，未设置、空值或任何其他值都不启用，
+// 从而保证默认提示逐字节不变。
+func ruleDiscoveryEnabled(env func(string) string) bool {
+	if env == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(env("ARGENT_RULE_DISCOVERY"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// renderRuleDiscoveryBlock 把发现的规则元数据渲染为简短文本：列出 basename 与作用域，
+// 并为 legacy 规则追加一次迁移提示。它不读取任何规则文件全文，保持提示词克制。
+// 入参按 basename 再做一次防御性去重（DiscoverRules 本身已按 basename 去重）。
+func renderRuleDiscoveryBlock(rules []memory.RuleFile) string {
+	if len(rules) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Discovered rule files (names only, contents not loaded):\n")
+	seen := make(map[string]bool, len(rules))
+	var legacyHint string
+	for _, r := range rules {
+		name := strings.TrimSpace(r.Basename)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		label := string(r.Scope)
+		if r.Mode != "" {
+			label += "/" + r.Mode
+		}
+		fmt.Fprintf(&b, "- %s (%s)\n", name, label)
+		if hint := memory.RuleMigrationHint(r); hint != "" && legacyHint == "" {
+			legacyHint = hint
+		}
+	}
+	if legacyHint != "" {
+		b.WriteString(legacyHint)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // firstVerify 取出通过可变参数提示构建器传入的可选验证配置。没有参数表示"没有配置检查"。

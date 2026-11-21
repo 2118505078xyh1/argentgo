@@ -93,3 +93,78 @@ func TestParseAtFlag(t *testing.T) {
 		t.Fatal("flagSurface does not contain --at")
 	}
 }
+
+// TestCheckoutGuardEnabled 验证 ARGENT_CHECKPOINT_GUARD 仅认 "1"（忽略首尾空白），
+// 未设置或显式关闭时都返回 false，保持 opt-in 默认关闭。
+func TestCheckoutGuardEnabled(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"unset", "", false},
+		{"explicit-off", "0", false},
+		{"one", "1", true},
+		{"padded-one", "  1\t", true},
+		{"loose-truthy", "yes", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdio, _, _ := newTestIO("", map[string]string{checkpointGuardEnv: tc.raw})
+			if got := checkoutGuardEnabled(App{IO: stdio}); got != tc.want {
+				t.Fatalf("checkoutGuardEnabled(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSessionsCheckoutGuardOptIn 验证 opt-in 开关对 checkout 命令的影响：
+// 默认关闭与显式关闭都走原路径；开启时合法目标仍通过且输出不变。
+// 拒绝分支（逃逸/非 restored）由 session 包的守卫测试覆盖，因为 CLI 的
+// 合法会话目标必然位于会话根内，无法在 CLI 层构造逃逸输入。
+func TestSessionsCheckoutGuardOptIn(t *testing.T) {
+	storage := t.TempDir()
+	store, err := session.Open(filepath.Join(storage, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := store.NewSession("checkout-guard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(session.KindUser, "first"); err != nil {
+		t.Fatal(err)
+	}
+	middle, err := sess.AppendRecord(session.KindAssistant, "middle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(session.KindUser, "last"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		wantOut bool
+	}{
+		{"default-off", "", true},
+		{"explicit-off", "0", true},
+		{"opt-in-on", "1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdio, out, errOut := newTestIO("", map[string]string{checkpointGuardEnv: tc.raw})
+			code := RunWith(App{IO: stdio, StorageDir: storage}, []string{
+				"sessions", "checkout", sess.ID(), middle.ID,
+			})
+			if code != 0 {
+				t.Fatalf("checkout exit = %d, err %q", code, errOut.String())
+			}
+			if tc.wantOut && (!strings.Contains(out.String(), "checked out") ||
+				!strings.Contains(out.String(), sess.ID()) ||
+				!strings.Contains(out.String(), middle.ID)) {
+				t.Fatalf("checkout output = %q", out.String())
+			}
+		})
+	}
+}

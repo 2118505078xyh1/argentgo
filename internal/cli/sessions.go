@@ -155,14 +155,28 @@ func sessionsList(app App, store SessionStore) int {
 	return 0
 }
 
+// checkpointGuardEnv 是 checkout 还原目标守卫的 opt-in 开关。只有值为 "1"
+// （忽略首尾空白）时才开启，默认关闭且 checkout 行为逐字节不变。
+const checkpointGuardEnv = "ARGENT_CHECKPOINT_GUARD"
+
+// checkoutGuardEnabled 读取可选的 checkout 守卫开关。刻意只认 "1"，
+// 与会话包内其它 opt-in 读点保持一致；显式关闭（如 "0"）走原路径。
+func checkoutGuardEnabled(app App) bool {
+	return strings.TrimSpace(app.env(checkpointGuardEnv)) == "1"
+}
+
 // sessionsCheckout 打开会话并把活动叶节点切换到指定记录。活动指针仅存在于
 // 内存中，因此命令本身只报告切换结果；后续使用该句柄（例如 --at 恢复流程中的
 // OpenSessionAt）追加的消息会挂到这条分支，而不复制既有历史。
+// opt-in 开启时，先让 store 对转录目标做只读校验，拒绝逃逸或已消失的目标。
 func sessionsCheckout(app App, id, entryID string) int {
 	store, err := session.Open(app.sessionDir())
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
+	}
+	if checkoutGuardEnabled(app) {
+		store = store.WithCheckpointGuard(session.NewCheckoutGuard())
 	}
 	sess, err := store.OpenSessionAt(id, entryID)
 	if err != nil {

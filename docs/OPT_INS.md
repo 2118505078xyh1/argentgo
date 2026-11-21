@@ -350,6 +350,41 @@ argentgo "你的任务"
 - **适用场景**：MCP 服务器会返回图片、希望模型能读取图片文件时。
 - **逐字节不变承诺**：开关关闭、未配目录、数据不可解码或落盘失败任一成立时，逐字节返回旧占位符，默认输出与历史逐字节一致。
 
+### `ARGENT_RULE_DISCOVERY` —— 规则文件发现元数据提示
+
+- **作用**：开启后扫描用户级（home）与项目级（root）的规则文件，把文件名与作用域渲染成一段「只列名、不加载全文」的 system 提示片段（对 legacy 规则追加一次迁移提示）。读点为 `internal/app/app_prompt.go` 的 `ruleDiscoveryEnabled` / `ruleDiscoveryBlock`。
+- **开启值**：`1`、`true`、`yes`、`on` 之一（大小写不敏感、首尾空白修剪）；未设置、空值或其它值关闭。
+- **适用场景**：项目里有 AGENTS.md / CLAUDE.md 等规则文件、希望模型知道其存在但不加载全文时。
+- **逐字节不变承诺**：关闭或不传 env 时 `ruleDiscoveryBlock` 返回空串，不读取任何规则文件、不注入任何文本，system 提示与消息序列逐字节不变。
+
+### `ARGENT_CHECKPOINT_GUARD` —— checkout 还原目标守卫
+
+- **作用**：`sessions checkout` 打开会话时，先让 store 对转录目标做只读校验，拒绝逃逸或已消失的目标（装配点 `internal/cli/sessions.go` 的 `checkoutGuardEnabled` / `sessionsCheckout`，注入 `session.NewCheckoutGuard()`）。
+- **开启值**：首尾空白修剪后等于 `1`；`0`、空值或其它值走原路径。
+- **适用场景**：需要防止 checkout 指向工作区外或已失效的转录目标时。
+- **逐字节不变承诺**：关闭时不安装 `WithCheckoutGuard`，checkout 流程、输出与会话树逐字节不变。
+
+### `ARGENT_REPEAT_PITFALL_TRACKING` —— 跨情节重复踩坑计数
+
+- **作用**：启用跨情节的重复错误签名计数（`internal/agent/mistake_tracker.go` 的 `RecordSignature`），供恢复指引统计「同一签名反复出现」。这是进程级 opt-in：包初始化读取 env，装配层也可用 `agent.SetRepeatPitfallTracking` 显式设置。
+- **开启值**：原值精确等于 `1`（不修剪空白、不接受 `true`/`yes` 等其它真值）。
+- **适用场景**：关心模型是否反复踩同一类错误、希望据此强化恢复指引时。
+- **逐字节不变承诺**：关闭时 `RecordSignature` 立即返回，不分配内存、不触锁，既有 `Record` / `Reset` / `Check` 路径逐字节不变。
+
+### `ARGENT_RECOVERY_METRICS` —— 恢复成效账本
+
+- **作用**：在恢复指引注入处与工具成功处采集「恢复动作之后运行是否真的恢复」的分子/分母（`internal/agent/recovery_metrics.go` + `loop.go` 的 `recordRecoveryAttempt` / `recordRecoverySuccess`），按失败种类统计成功率。每次运行读取一次 env。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：关心失败恢复机制的实际成效、想量化「注入指引后是否真的成功」时。
+- **逐字节不变承诺**：关闭时不分配计数器、记录路径为空操作，消息流与事件流逐字节不变。
+
+### `ARGENT_TURN_TIMING` —— agent 轮次逐阶段计时
+
+- **作用**：agent 循环开启逐阶段结构化计时日志（`internal/agent/loop.go` 的 `turnTimingEnabled` / `turnTimingLogger`），输出各阶段耗时。每次运行读取一次 env，不引入需装配层设置的进程级全局状态。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：排查单轮延迟、定位耗时集中在哪个阶段时。
+- **逐字节不变承诺**：关闭时逐阶段计时器保持 nil、不输出任何计时日志，日志与事件流逐字节不变。
+
 ---
 
 ## 四、其它独立门控速查

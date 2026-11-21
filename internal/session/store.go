@@ -32,6 +32,9 @@ type Container struct {
 // Store 是单个会话目录的入口。
 type Store struct {
 	dir string
+	// guard 非空时，OpenSessionAt 会在切换活动叶之前用它对转录目标做只读校验。
+	// 零值（nil）表示 opt-in 关闭，checkout 路径与旧版逐字节一致。
+	guard *CheckpointGuard
 }
 
 // Open 在 dir 不存在时创建它，并返回基于它的 store。
@@ -61,13 +64,52 @@ func (s *Store) OpenSession(id string) (*Session, error) {
 	return s.Container().OpenSession(id)
 }
 
+// NewCheckoutGuard 返回 checkout 还原路径使用的守卫配置：只要求转录目标真实存在
+// 且位于会话根目录之内。刻意不要求 git 仓库与基线目录，否则正常的会话回退会被
+// 无谓拒绝；这些更严格的维度仍可由调用方自行构造 CheckpointGuard 时启用。
+func NewCheckoutGuard() *CheckpointGuard {
+	return &CheckpointGuard{SnapshotsEnabled: true}
+}
+
+// WithCheckpointGuard 返回启用了还原目标守卫的 store 副本，不修改原 store。
+// guard 为 nil 等价于关闭守卫；它只影响 OpenSessionAt，不改变 OpenSession/List
+// 等只读路径。调用方在 opt-in 开启时把它接进 checkout 流程。
+func (s *Store) WithCheckpointGuard(guard *CheckpointGuard) *Store {
+	clone := *s
+	clone.guard = guard
+	return &clone
+}
+
+// validateCheckoutTarget 用 guard 对 checkout 的转录目标做只读前置校验。
+// 仅当状态恰为 RestoreOK（"restored"）时放行；其余枚举状态（validation_failed、
+// snapshots_disabled、unavailable、not_a_git_repo）一律拒绝，并把 guard 给出的
+// 问题描述拼进错误，调用方可以直接把它打印给用户。
+func validateCheckoutTarget(guard *CheckpointGuard, baseDir, target string) error {
+	status, problems := guard.Validate(baseDir, target)
+	if status == RestoreOK {
+		return nil
+	}
+	detail := strings.Join(problems, "; ")
+	if detail == "" {
+		return fmt.Errorf("session: checkout guard rejected target (%s)", status)
+	}
+	return fmt.Errorf("session: checkout guard rejected target (%s): %s", status, detail)
+}
+
 // OpenSessionAt 打开会话并把活动叶节点切换到 entryID 指向的记录。
 // 它等价于 OpenSession 之后紧接着调用 Checkout：先按 id 定位并校验转录，
 // 再在校验通过时切换活动指针；任一步失败都不返回可用的会话句柄。
+// 守卫开启时，在切换活动指针之前先对转录目标做一次只读校验，杜绝"校验未通过
+// 却继续还原"造成的半恢复状态；关闭时该分支被完全跳过，行为与旧版一致。
 func (s *Store) OpenSessionAt(id, entryID string) (*Session, error) {
 	sess, err := s.OpenSession(id)
 	if err != nil {
 		return nil, err
+	}
+	if s.guard != nil {
+		if err := validateCheckoutTarget(s.guard, s.dir, sess.file); err != nil {
+			return nil, err
+		}
 	}
 	if err := sess.Checkout(entryID); err != nil {
 		return nil, err

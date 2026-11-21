@@ -52,7 +52,10 @@ func passedMetric(r Result) float64 {
 //     - 显著正向 / 显著负向：分别输出"显著提升 / 显著退化"；
 //  7. 用 FormatCompareDiagnostic 追加诊断段，把监控盲区（样本不足守卫是否触发、
 //     incomplete-reason）与逐场景 0/1 翻转明细显式化。诊断段放在 verdict 之后，
-//     不改变任何 verdict 行文本。
+//     不改变任何 verdict 行文本；
+//  8. 若诊断段已存在（R38），在其后并入一行 token 经济学诊断（R39）：
+//     TokenEconomyDiagnosis 对两臂 Usage.TotalTokens 出配对差与 95%CI 的 aside 行。
+//     它只补监控盲区，不改任何 verdict 文本，也不把 token 差并入通过门或 BestScore。
 //
 // 该函数是纯函数：不修改入参、不读时钟/网络/文件/任何全局可变状态。
 // 样本不足时即便原始 Delta 被 ClassifyDelta 判为显著，verdict 也一律降级，
@@ -73,6 +76,7 @@ func CompareResults(baseline, candidate []Result) (string, error) {
 	if n < 2 {
 		b.WriteString(insufficientCompareVerdict(n))
 		b.WriteString(FormatCompareDiagnostic(diag.Finalize(false)))
+		b.WriteString(TokenEconomyDiagnosis(baseline, candidate) + "\n")
 		return b.String(), nil
 	}
 
@@ -109,6 +113,8 @@ func CompareResults(baseline, candidate []Result) (string, error) {
 	// 诊断段追加在 verdict 之后：incomplete-reason 依据显著性分类，
 	// 但样本不足时 compareIncompleteReason 优先判为"样本不足"，不掩盖盲区。
 	b.WriteString(FormatCompareDiagnostic(diag.Finalize(verdict.Significant)))
+	// token 经济学诊断并入诊断段之后，作为独立 aside 行；不触碰任何 verdict 文本。
+	b.WriteString(TokenEconomyDiagnosis(baseline, candidate) + "\n")
 	return b.String(), nil
 }
 
