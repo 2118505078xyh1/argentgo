@@ -185,6 +185,23 @@ func (s *acpState) prompt(parent context.Context, req request, wg *sync.WaitGrou
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// 兜底恢复：Runner 或 session/update 回调中的 panic 不得终结
+		// 整个 --serve 进程。panic 路径必须复制正常路径的清理动作
+		// （清空 cancelPrompt、cancel、释放 busy），否则 busy 永久为 true、
+		// 后续提示被拒，且本轮客户端永远收不到终态回包而挂起。
+		// 本 defer 在 wg.Done 之后注册，故先于 wg.Done 执行，确保回包在
+		// RunACP 返回前写出。正常路径不经过这里，wire 字节保持不变。
+		defer func() {
+			if r := recover(); r != nil {
+				logRecoveredPanic("acp session/prompt", r)
+				s.mu.Lock()
+				s.cancelPrompt = nil
+				s.mu.Unlock()
+				cancel()
+				s.busy.Store(false)
+				s.fail(id, codeInternalError, "internal error: prompt panicked", nil)
+			}
+		}()
 
 		result, err := s.cfg.Runner.Prompt(ctx, text, func(chunk string) {
 			if chunk == "" {

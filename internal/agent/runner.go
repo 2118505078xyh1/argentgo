@@ -87,11 +87,24 @@ type MetaToolRunner interface {
 
 // callTool 优先使用感知元数据的路径，并透明地回退到原始 ToolRunner。
 // 它放在这里是为了让 ToolRunner 本身保持不变。
-func (s *runState) callTool(ctx context.Context, name, args string) (string, ToolMeta, error) {
-	if meta, ok := s.tools.(MetaToolRunner); ok {
-		return meta.RunWithMeta(ctx, name, args)
+//
+// 本函数是每个工具调用的 panic 围栏：注入的非 Registry ToolRunner（如 eval/fake）
+// 若发生 panic，会被 safeToolPanic 规范成普通的工具错误结果，循环继续运行，
+// 而不会击穿 Run。tools.Registry 自身已有内部 recover，这里是独立的第二道保险。
+// 正常路径不触碰任何返回值，事件与会话记录逐字节不变；只有真正发生 panic 时
+// 才会产生一条 is_error 结果。
+func (s *runState) callTool(ctx context.Context, name, args string) (out string, meta ToolMeta, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			out = ""
+			meta = ToolMeta{}
+			err = safeToolPanic(p)
+		}
+	}()
+	if metaRunner, ok := s.tools.(MetaToolRunner); ok {
+		return metaRunner.RunWithMeta(ctx, name, args)
 	}
-	out, err := s.tools.Run(ctx, name, args)
+	out, err = s.tools.Run(ctx, name, args)
 	return out, ToolMeta{}, err
 }
 
