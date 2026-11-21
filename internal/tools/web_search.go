@@ -14,9 +14,10 @@ import (
 // ---- web_search ----
 
 const (
-	webSearchURLEnv     = "ARGENT_WEB_SEARCH_URL"
-	webSearchMaxResults = 20
-	webSearchMaxSnippet = 500
+	webSearchURLEnv      = "ARGENT_WEB_SEARCH_URL"
+	webSearchProviderEnv = "ARGENT_WEB_SEARCH_PROVIDER"
+	webSearchMaxResults  = 20
+	webSearchMaxSnippet  = 500
 )
 
 type webSearchTool struct{}
@@ -48,7 +49,16 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	if query == "" {
 		return "", fmt.Errorf("web_search: query must not be empty")
 	}
+
+	// 解析预设：显式 provider 优先，其次按已配置的 key 自动推断。
+	// 没有任何信号时返回 false，下面的请求形态与接入前逐字节一致。
+	preset, hasPreset := PresetForEnv(os.Getenv)
+
+	// 用户显式设置的端点始终优先；只有未设置时才回落预设 URL。
 	endpoint := strings.TrimSpace(os.Getenv(webSearchURLEnv))
+	if endpoint == "" && hasPreset {
+		endpoint = preset.URL
+	}
 	if endpoint == "" {
 		return "", fmt.Errorf("web_search: %s is not configured; use web_fetch with a direct URL instead", webSearchURLEnv)
 	}
@@ -57,7 +67,18 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	if limit <= 0 || limit > webSearchMaxResults {
 		limit = webSearchMaxResults
 	}
-	payload, err := json.Marshal(map[string]any{"query": query, "limit": limit})
+
+	// 只有需要 key 的预设才读取 key，且仅在确认预设后加入请求体/请求头。
+	// 默认路径的字段集合与 json.Marshal 的键排序保持不变。
+	var apiKey string
+	if hasPreset && preset.HeaderValueEnv != "" {
+		apiKey = strings.TrimSpace(os.Getenv(preset.HeaderValueEnv))
+	}
+	fields := map[string]any{"query": query, "limit": limit}
+	if hasPreset && preset.Name == "tavily" && apiKey != "" {
+		fields["api_key"] = apiKey
+	}
+	payload, err := json.Marshal(fields)
 	if err != nil {
 		return "", fmt.Errorf("web_search: %w", err)
 	}
@@ -66,6 +87,9 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 		return "", fmt.Errorf("web_search: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if hasPreset && preset.HeaderName != "" && apiKey != "" {
+		req.Header.Set(preset.HeaderName, apiKey)
+	}
 	client := &http.Client{Timeout: clampTimeout("web_search", 0, maxTimeout(ctx))}
 	resp, err := client.Do(req)
 	if err != nil {

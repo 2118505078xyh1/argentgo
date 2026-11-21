@@ -66,6 +66,35 @@ func ResolveSearchPreset(name string) (SearchPreset, bool) {
 	return SearchPreset{}, false
 }
 
+// PresetForEnv 依据注入的环境变量推断当前应使用的搜索后端预设。
+// 它只读 env，不修改任何全局状态；识别失败时返回零值与 false（fail-closed），
+// 调用方据此保持默认请求形态。判断顺序：
+//  1. ARGENT_WEB_SEARCH_PROVIDER 显式指定且能解析为已知预设时直接采用；
+//  2. 未显式指定时，按 SearchPresets 的稳定顺序查找已配置的 key，
+//     命中第一个带 key 的预设（Brave 优先于 Tavily）；
+//  3. 都没有则返回 false。
+//
+// 名称与 key 均用 TrimSpace/ToLower 做 Unicode 安全的清洗，避免字节切片
+// 在多字节字符（如 CJK）中间截断；空白 key 视为未配置。
+func PresetForEnv(env func(string) string) (SearchPreset, bool) {
+	if provider := strings.TrimSpace(env(webSearchProviderEnv)); provider != "" {
+		preset, ok := ResolveSearchPreset(provider)
+		if !ok {
+			return SearchPreset{}, false
+		}
+		return preset, true
+	}
+	for _, preset := range SearchPresets {
+		if preset.HeaderValueEnv == "" {
+			continue
+		}
+		if strings.TrimSpace(env(preset.HeaderValueEnv)) != "" {
+			return preset, true
+		}
+	}
+	return SearchPreset{}, false
+}
+
 // searchPresetNames 返回规范预设名的稳定展示串。
 // 这里写死顺序而不遍历 SearchPresets，避免调用方改动该切片后提示顺序漂移。
 func searchPresetNames() string {
