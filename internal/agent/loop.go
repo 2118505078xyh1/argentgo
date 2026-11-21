@@ -46,6 +46,11 @@ func defaultMistakeGuidance(MistakeKind, int) string {
 	return "连续出错，请换一种方法或换模型"
 }
 
+// loopDetectionGuidance 是工具调用循环检测触发时注入的模型可读提示。
+// 与 stuck/mistake 指引一致，它是一条新的用户轮次，要求模型换一种方法，
+// 而不是硬性停止——保留模型自行恢复的能力。仅在 SetLoopDetection 开启时使用。
+const loopDetectionGuidance = "检测到重复调用同一工具且返回相同结果，并未取得进展；请换一种工具、参数或方法继续。"
+
 // runState 是一次运行的可变状态。子 agent 拥有自己的状态，
 // 因此除了配置的接口之外，不会与父级共享任何东西。
 type runState struct {
@@ -76,6 +81,9 @@ type runState struct {
 	// guidance 记录失败指引的去重状态；零值即可使用。只有在 guidanceDedupe
 	// opt-in 开启时才被查询，默认运行完全不触碰它。
 	guidance GuidanceState
+	// loopGuidance 对循环检测触发的提示按签名去重，使同一个循环在一次运行里
+	// 只提示一次（按情节）。只有在 SetLoopDetection opt-in 开启时才被查询。
+	loopGuidance GuidanceState
 
 	usage        llm.Usage
 	costUSD      float64
@@ -284,6 +292,53 @@ func (s *runState) toolMetaSnapshot() map[string]ToolMeta {
 		out[id] = meta
 	}
 	return out
+}
+
+// toolStepsFromEvents 把一次运行中已记录的 tool_end 事件投影为循环检测所需的步序列。
+// 每个 tool_end 都带有工具名、参数与输出，无需与 tool_start 配对；未匹配的开始事件
+// 被自然忽略。参数经规范化，使仅 JSON 键顺序不同的重复调用仍被视为同一步。
+// 本函数只在循环检测 opt-in 开启时被调用。
+func toolStepsFromEvents(events []Event) []ToolStep {
+	out := make([]ToolStep, 0, len(events))
+	for _, e := range events {
+		if e.Kind != EventToolEnd {
+			continue
+		}
+		out = append(out, ToolStep{
+			Name:   e.ToolName,
+			Input:  NormalizeArgs(e.Args),
+			Output: e.Output,
+		})
+	}
+	return out
+}
+
+// checkLoopDetection 在每个工具批次之后检查最近的工具调用是否构成循环。
+// 默认关闭：SetLoopDetection 未开启时立即返回，不收集事件、不调用 DetectLoop，
+// 也不触碰任何状态，因此消息、事件与会话记录逐字节不变。
+//
+// 触发时不硬停：复用 stuck/mistake 的 nudge 注入路径（injectSteeringWithNudge），
+// 追加一条模型可读的用户轮次，让模型自行换一种方法恢复。提示按检测签名去重，
+// 同一个循环只提示一次；一旦某步不再检出循环就清空去重状态，使后续新的循环
+// 情节可以再次提示。
+func (s *runState) checkLoopDetection() {
+	if !loopDetectionEnabled() {
+		return
+	}
+	steps := toolStepsFromEvents(s.eventsSnapshot())
+	if len(steps) == 0 {
+		return
+	}
+	sig, _, detected := DetectLoop(steps, 0, 0)
+	if !detected {
+		// 没有循环意味着上一段循环情节已结束；清空去重状态，使下一段能重新提示。
+		s.loopGuidance.Reset()
+		return
+	}
+	if !s.loopGuidance.ShouldInject(sig) {
+		return
+	}
+	s.injectSteeringWithNudge(loopDetectionGuidance)
 }
 
 // loop 持续运行各个轮次，直到模型不使用工具就作答、某个限制被触发，或上下文被取消。
@@ -543,6 +598,11 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		if guidance, _ := s.stuck.Observe(s.eventsSnapshot()); guidance != "" {
 			s.injectSteeringWithNudge(guidance)
 		}
+
+		// 工具调用循环检测（opt-in，默认关闭）：收集最近的工具调用步，若 DetectLoop
+		// 判定为循环则注入一条模型可读的纠正提示（软提示，不硬停）。关闭时立即返回，
+		// 不收集事件、不调用检测器，既有行为逐字节不变。
+		s.checkLoopDetection()
 
 		// 针对纯粹无进展循环的选择性提前停止：同一个调用持续返回同一个结果。
 		// 默认关闭（Options.NoProgress == nil），因此未配置的运行行为逐字节不变。

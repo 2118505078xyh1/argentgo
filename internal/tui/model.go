@@ -178,9 +178,13 @@ type Model struct {
 	stream    strings.Builder
 	streamBuf MarkdownStreamBuf // holds back incomplete markdown markers
 
+	// reasoningAllExpanded 是"展开全部思考块"的全局开关，默认 false，
+	// 使经典折叠摘要帧与 R33 逐字节一致。打开后所有未单独覆盖的
+	// 思考块都走展开路径；逐块点击写入 reasoningExpanded 覆盖它。
+	reasoningAllExpanded bool
 	// reasoningExpanded 逐条记录思考块的展开状态，key 是 entries 下标。
 	// entries 只在尾部追加（/clear 会整体清空），因此下标不会漂移。
-	// 默认 nil 表示全部折叠，使经典单行摘要路径逐字节不变。
+	// 默认 nil 表示没有逐块覆盖，全部回落到 reasoningAllExpanded。
 	reasoningExpanded map[int]bool
 	// reasoningBodyHits / reasoningHits 是上一次 Paint 记录的思考块
 	// 行范围，分别为记录相对坐标与屏幕坐标。它们不参与脏标记。
@@ -381,10 +385,8 @@ func (m *Model) MouseDown(col, row int) {
 		return
 	}
 	if idx, ok := m.reasoningHitLocked(col, row); ok {
-		if m.reasoningExpanded == nil {
-			m.reasoningExpanded = map[int]bool{}
-		}
-		m.reasoningExpanded[idx] = !m.reasoningExpanded[idx]
+		// 逐块点击写入覆盖表，优先于全局开关。
+		m.toggleReasoningAt(idx)
 		m.version++
 		m.markDirtyLocked()
 		return
@@ -411,6 +413,40 @@ func (m *Model) reasoningHitLocked(col, row int) (int, bool) {
 		return hit.index, true
 	}
 	return 0, false
+}
+
+// reasoningExpandedAt 返回下标 idx 的思考块是否应展开。逐块覆盖优先；
+// 没有覆盖时回落到全局开关。默认（全局关、无覆盖）恒为 false，
+// 因此折叠帧与 R33 逐字节一致。nil map 读取是安全的。
+func (m *Model) reasoningExpandedAt(idx int) bool {
+	if expanded, ok := m.reasoningExpanded[idx]; ok {
+		return expanded
+	}
+	return m.reasoningAllExpanded
+}
+
+// toggleReasoningAt 翻转单个思考块，并把结果写成逐块覆盖，
+// 使其优先于全局开关。调用方持有 mu（或处于单线程测试）。
+func (m *Model) toggleReasoningAt(idx int) {
+	if m.reasoningExpanded == nil {
+		m.reasoningExpanded = make(map[int]bool)
+	}
+	m.reasoningExpanded[idx] = !m.reasoningExpandedAt(idx)
+}
+
+// toggleReasoningAllLocked 翻转全局开关并清空逐块覆盖，使"切换全部"
+// 真正作用于每一个思考块。清空后逐块点击可再次建立覆盖。
+// 调用方持有 mu。
+func (m *Model) toggleReasoningAllLocked() {
+	m.reasoningAllExpanded = !m.reasoningAllExpanded
+	m.reasoningExpanded = nil
+	m.version++
+	m.markDirtyLocked()
+	if m.reasoningAllExpanded {
+		m.setStatusLocked(text(m.locale, "thinking_all_on"))
+	} else {
+		m.setStatusLocked(text(m.locale, "thinking_all_off"))
+	}
 }
 
 // completionHitLocked 报告屏幕位置是否落在补全浮层的某条候选上。

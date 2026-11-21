@@ -18,7 +18,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// runSessions 实现 `sessions list|show|fidelity|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。
+// runSessions 实现 `sessions list|show|checkout|fork-at|list-messages|fidelity|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。
 func runSessions(app App, _ context.Context, args []string) int {
 	if len(args) == 0 {
 		sessionsUsage(app.IO.Err)
@@ -43,6 +43,18 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsCheckout(app, args[1], args[2])
+	case "fork-at":
+		if len(args) < 3 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsForkAt(app, args[1], args[2])
+	case "list-messages":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsListMessages(app, args[1])
 	case "fidelity":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -163,6 +175,49 @@ func sessionsCheckout(app App, id, entryID string) int {
 		return 1
 	}
 	fmt.Fprintf(app.IO.Out, "checked out %s at %s\n", sess.ID(), leaf)
+	return 0
+}
+
+// sessionsForkAt 在指定用户消息处分叉出新会话。ForkBefore 会复制从根到该消息的
+// 路径并保留原始记录 id，不改动原会话；同时返回该消息当时的 prompt 文本，CLI
+// 把它打印出来供用户复制到 composer。
+func sessionsForkAt(app App, id, messageID string) int {
+	store, err := session.Open(app.sessionDir())
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	sess, err := store.OpenSession(id)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	newID, restoredPrompt, err := sess.ForkBefore(messageID)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	fmt.Fprintf(app.IO.Out, "forked session %s\n", newID)
+	fmt.Fprintf(app.IO.Out, "restored prompt: %s\n", restoredPrompt)
+	return 0
+}
+
+// sessionsListMessages 按文件顺序列出会话树中的用户消息（id 与 prompt 文本），
+// 供用户挑选 fork-at 的分叉点。它只读，不修改活动指针也不追加记录。
+func sessionsListMessages(app App, id string) int {
+	store, err := session.Open(app.sessionDir())
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	sess, err := store.OpenSession(id)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	for _, msg := range sess.UserMessages() {
+		fmt.Fprintf(app.IO.Out, "%s\t%s\n", msg.ID, msg.Text)
+	}
 	return 0
 }
 
@@ -498,6 +553,8 @@ func sessionsUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: argentgo sessions list
        argentgo sessions show <id>
        argentgo sessions checkout <id> <entry>
+       argentgo sessions fork-at <id> <message-id>
+       argentgo sessions list-messages <id>
        argentgo sessions fidelity <id>
        argentgo sessions rm <id>
        argentgo sessions find <keyword>

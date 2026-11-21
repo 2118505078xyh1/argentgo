@@ -103,6 +103,10 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "commands_off"))
 		}
+	case KindCtrlX:
+		// 全局切换所有思考块的展开/折叠，并在状态栏提示当前状态。
+		// 逐块点击仍可随后覆盖单个块。
+		m.toggleReasoningAllLocked()
 	case KindCtrlG:
 		return m.openExternalEditorLocked()
 	case KindAltU:
@@ -244,13 +248,25 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	return ActionNone
 }
 
-// completionActiveLocked 报告输入行是否应由斜杠补全接管。
-// 三条件缺一不可：文本以 '/' 开头、宿主注入过补全状态、过滤后仍有候选。
+// pathCompletionEnabled 报告 ARGENT_PATH_COMPLETION=1 是否开启了内联路径补全。
+// 默认关闭：m.env 为 nil 或未设置该变量时返回 false，整段新逻辑都不会进入，
+// 既有 slash 补全与默认帧逐字节不变。env 由集成方注入（run.go 用 os.Getenv），
+// TUI 自身的渲染路径绝不直接读环境变量。
+func (m *Model) pathCompletionEnabled() bool {
+	return m.env != nil && m.env("ARGENT_PATH_COMPLETION") == "1"
+}
+
+// completionActiveLocked 报告输入行是否应由补全接管。
+// slash 补全要求文本以 '/' 开头；内联补全由 CompletionState.inline 标识，
+// 只要过滤后仍有候选即接管。关闭 opt-in 时 inline 恒为 false，行为不变。
 func (m *Model) completionActiveLocked() bool {
-	if m.completion == nil || !strings.HasPrefix(m.editor.Text(), "/") {
+	if m.completion == nil || m.completion.Count() == 0 {
 		return false
 	}
-	return m.completion.Count() > 0
+	if m.completion.inline {
+		return true
+	}
+	return strings.HasPrefix(m.editor.Text(), "/")
 }
 
 // refreshCompletionLocked 在文本变化后重算查询。Esc 关闭补全时把状态置空，
@@ -259,6 +275,17 @@ func (m *Model) completionActiveLocked() bool {
 // 前缀匹配自然失败，Tab 回退为缩进、Enter 恢复提交。
 func (m *Model) refreshCompletionLocked() {
 	raw := m.editor.Text()
+	// opt-in：先尝试内联（路径 / @文件）补全；门禁关闭时 tryInline 整段跳过，
+	// 下面的 slash 逻辑与接入前逐字节一致。
+	if m.pathCompletionEnabled() && m.tryInlineCompletionLocked(raw) {
+		return
+	}
+	// 未被内联补全接管（含门禁关闭）：清掉上一次留下的内联状态，避免
+	// 无候选的路径文本仍保留"幽灵"激活态。门禁关闭时 inline 恒为 false，
+	// 这是无操作，故既有 slash 行为逐字节不变。
+	if m.completion != nil && m.completion.inline {
+		m.completion = nil
+	}
 	if !strings.HasPrefix(raw, "/") {
 		m.completionOverlay = false
 		return
@@ -281,6 +308,45 @@ func (m *Model) refreshCompletionLocked() {
 	m.completionOverlay = m.completion.Count() > 0
 }
 
+// tryInlineCompletionLocked 在 opt-in 开启时尝试为光标前的词构建内联补全。
+// 返回 true 表示本次文本变化已被内联补全接管且确有候选，调用方不应再走
+// slash 分支。非内联上下文（含行首 slash 命令）或无候选时返回 false。
+func (m *Model) tryInlineCompletionLocked(raw string) bool {
+	word, start, quoted := activeInlineWord(raw, m.editor.Cursor())
+	kind := classifyInlineWord(word, start)
+	if kind == inlineNone {
+		return false
+	}
+
+	var cands []CompletionCandidate
+	var query string
+	switch kind {
+	case inlineAt:
+		cands = atCompletionCandidates(m.fs, m.root)
+		query = strings.TrimPrefix(word, "@")
+		// 保留 '@' 作为前缀：只替换它后面的提及词，接受后得到 "@README.md"。
+		start++
+	case inlinePath:
+		cands = pathCompletionCandidates(m.fs, m.root, word)
+		query = word
+	}
+	if len(cands) == 0 {
+		// 有内联意图但无候选：保持关闭，交回 slash 兜底由调用方处理。
+		return false
+	}
+
+	m.completion = NewCompletionState(cands)
+	m.completion.inline = true
+	m.completion.tokenStart = start
+	m.completion.cursor = m.editor.Cursor()
+	m.completion.quoted = quoted
+	m.completion.Query(query)
+	m.commandsCursor = 0
+	m.commandsScroll = 0
+	m.completionOverlay = m.completion.Count() > 0
+	return true
+}
+
 // acceptCompletionLocked 把当前选中的候选写入输入行。补上一个尾随空格，
 // 使下一次按键重算 query 后候选数归零——于是 Enter 提交、Tab 回退为缩进，
 // 不会卡在"反复接受同一候选"的循环里。接受动作永不提交回合。
@@ -289,7 +355,39 @@ func (m *Model) acceptCompletionLocked() KeyAction {
 	if !ok {
 		return ActionNone
 	}
+	if m.completion.inline {
+		return m.acceptInlineCompletionLocked(c)
+	}
 	m.editor.SetText("/" + c.Command + " ")
+	m.refreshCompletionLocked()
+	return ActionNone
+}
+
+// acceptInlineCompletionLocked 只替换光标前正在补全的那个词，保留输入行
+// 其余部分（含光标后文本）。候选保存的是原始相对路径：若词不在引号内且
+// 路径含空格，写入时由 quoteIfNeeded 包裹；已在引号内则沿用原有引号。
+// 补一个尾随空格使下一次 refresh 的词为空——补全自然关闭，不会反复接受
+// 同一候选。
+func (m *Model) acceptInlineCompletionLocked(c CompletionCandidate) KeyAction {
+	runes := []rune(m.editor.Text())
+	start, cursor := m.completion.tokenStart, m.completion.cursor
+	if start < 0 {
+		start = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	if start > cursor {
+		start = cursor
+	}
+	path := c.Command
+	if !m.completion.quoted {
+		path = quoteIfNeeded(path)
+	}
+	insert := path + " "
+	next := string(runes[:start]) + insert + string(runes[cursor:])
+	m.editor.SetText(next)
+	m.editor.SetCursor(start + utf8.RuneCountInString(insert))
 	m.refreshCompletionLocked()
 	return ActionNone
 }

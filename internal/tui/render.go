@@ -570,7 +570,7 @@ func (m *Model) entryCacheKeyLocked(entry Entry, index, width int) entryCacheKey
 		attempt:           entry.Attempt,
 		width:             width,
 		expanded:          m.expanded,
-		reasoningExpanded: m.reasoningExpanded[index],
+		reasoningExpanded: m.reasoningExpandedAt(index),
 		noColor:           m.noColor,
 		themeEpoch:        m.themeEpoch,
 		locale:            m.locale,
@@ -709,6 +709,22 @@ func reasoningPhrase(raw string, max int) string {
 	return Truncate(flat, max)
 }
 
+// ReasoningPlaceholder 是折叠思考占位渲染的 opt-in 开关，默认关闭，
+// 使 R33 的单行摘要帧（"◇ 思考:短语·时长"）逐字节保持不变。打开后
+// 折叠的思考块显示一行暗色的 "◇ 思考…" 占位，摘要短语不再泄漏。
+// 保留为包变量，方便后续接到 CLI 标志或配置而无需改动渲染器。
+var ReasoningPlaceholder = false
+
+// reasoningPlaceholderLine 渲染折叠思考块的占位行：仅由 reasonMark、
+// 本地化标签和省略号组成，整行使用 dim 暗色样式。Style 没有 italic 位，
+// 因此以 dim（SGR 2）作为"斜体暗色"在当前样式模型下的视觉近似，
+// 既不改 screen.go 也不影响默认帧字节。
+func reasoningPlaceholderLine(locale string, width int, p Palette) Line {
+	line := NewLine()
+	line.Push(reasonMark+thinkingLabel(locale)+"…", p.dim())
+	return clipLine(line, width)
+}
+
 // reasoningSummaryLine 把任意量的思考文本渲染为恰好一行：
 // 活动行显示 spinner 和省略号，已完成行显示经过的
 // 时长。先测量固定装饰，使短语得到剩余的
@@ -780,8 +796,11 @@ func (m *Model) reasoningLines(entry Entry, width int) []Line {
 			elapsed = slot.thinkingEnd.Sub(slot.thinkingAt)
 		}
 	}
-	if idx >= 0 && m.reasoningExpanded[idx] {
+	if idx >= 0 && m.reasoningExpandedAt(idx) {
 		return m.reasoningExpandedLines(entry, width, elapsed, !live)
+	}
+	if ReasoningPlaceholder {
+		return []Line{reasoningPlaceholderLine(m.locale, width, m.palette)}
 	}
 	if ReasoningTailWindow {
 		return m.reasoningWindowedLines(entry, width, elapsed, !live)

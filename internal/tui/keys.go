@@ -66,6 +66,7 @@ const (
 
 	// 追加在末尾，使上面每个 Kind 的数值保持稳定。
 	KindCtrlO // ctrl+o: toggle the slash commands panel
+	KindCtrlX // ctrl+x: toggle expansion of all thinking blocks
 )
 
 // MouseKind 对一条解码后的 SGR 鼠标报告分类。
@@ -187,6 +188,8 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlG}, 1, true
 	case c == 0x0f:
 		return Key{Kind: KindCtrlO}, 1, true
+	case c == 0x18:
+		return Key{Kind: KindCtrlX}, 1, true
 	case c < 0x20:
 		return Key{Kind: KindIgnore}, 1, true
 	}

@@ -131,6 +131,11 @@ type Chain struct {
 	// 按"或"关系参与守卫判断：旧的直接赋值仍然有效，新 API 额外提供并发安全的
 	// 运行时开关。零值 0 保持原有行为。
 	planMode uint32
+	// stagedApproval 是 EnableStagedApproval 管理的原子启用标志（0=关闭，1=开启）。
+	// 与 planMode 同理只用 sync/atomic 读写，因此并发切换安全、按值复制不触发
+	// copylocks 警告。开启后由 AdvanceStage 状态机接管审批决策；零值 0 保持原有
+	// (bool, error) 审批路径逐字节不变。
+	stagedApproval uint32
 }
 
 // NewChain 构建一个链。nil 审批器表示没有审批通道（无头运行、子 agent），
@@ -138,6 +143,39 @@ type Chain struct {
 // 记录任何东西。
 func NewChain(policy *Policy, approver Approver, audit *AuditLog, session string) *Chain {
 	return &Chain{Policy: policy, Approver: approver, Audit: audit, Session: session}
+}
+
+// StagedApprover 是可选的分阶段审批通道。它在一次工具调用的审批内与操作员
+// 多次交互，每次返回一条 ApprovalDecision 交给 AdvanceStage 推进阶段；always
+// 二次确认通过后，RememberScope 收到确认过的作用域，由审批器负责真正"记住"。
+//
+// 它是纯附加接口：不改动 Approver 签名，普通审批器不实现它。即使 opt-in 打开，
+// 缺少该实现时 check 仍走原来的 (bool, error) 路径，逐字节不变。
+type StagedApprover interface {
+	Approver
+	AskStage(ctx context.Context, name string, args string, stage ApprovalStage, scopeSummary string) (ApprovalDecision, error)
+	RememberScope(scopes []string)
+}
+
+// EnableStagedApproval 打开或关闭 Chain 的分阶段审批状态机。nil 接收者是无操作。
+//
+// 默认关闭；只有审批器同时实现 StagedApprover 时才会真正接管审批决策。与
+// EnablePlanMode 一样使用原子标志，可在运行期被并发切换而不触发数据竞争。
+func (c *Chain) EnableStagedApproval(enabled bool) {
+	if c == nil {
+		return
+	}
+	var value uint32
+	if enabled {
+		value = 1
+	}
+	atomic.StoreUint32(&c.stagedApproval, value)
+}
+
+// StagedApprovalEnabled 报告 c 当前是否启用了分阶段审批。只读、并发安全，供
+// 诊断使用；nil 接收者返回 false。
+func StagedApprovalEnabled(c *Chain) bool {
+	return c != nil && atomic.LoadUint32(&c.stagedApproval) != 0
 }
 
 // Check 按顺序评估一次工具调用：先是策略，然后审批，最后审计。
@@ -197,6 +235,13 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		// 让审计日志记录不可用的通道，而不是错误地声称操作员否决了调用。
 		approver = UnavailableApprover{}
 	}
+	// 分阶段审批 opt-in：仅在显式开启、且审批器实现 StagedApprover 时接管审批。
+	// 默认关闭（或普通审批器）时，下面整段原有 (bool, error) 审批逻辑逐字节不变。
+	if StagedApprovalEnabled(c) {
+		if staged, ok := approver.(StagedApprover); ok {
+			return c.checkStaged(ctx, name, args, auditArgs, staged)
+		}
+	}
 	// 在提示中显示真实目标：工作区内的 junction 不能让提示说
 	// "home/note.txt"，而工具却写到别处。工具和审计日志仍使用原始参数。
 	ok, err := approver.Ask(ctx, name, string(approvalArgs(args, c.policy().Root())))
@@ -239,6 +284,91 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	}
 	c.record(name, "allow", "approved by the operator", auditArgs)
 	return nil
+}
+
+// maxStagedApprovalRounds 限制一次分阶段审批的交互轮数，防止异常审批器让状态机
+// 无限循环（例如一直回退或一直不确认）。超出上限按硬性拒绝处理，绝不放行。
+const maxStagedApprovalRounds = 32
+
+// checkStaged 用 AdvanceStage 状态机驱动一次分阶段审批。它只负责推进阶段与
+// 解释完成结果：反馈文本复用现有 RefusalError / clipApprovalFeedback 通道，
+// 作用域仅在 always 二次确认通过后才交给 RememberScope 记忆。
+//
+// 迁移完全交给纯函数 AdvanceStage：stageOnce 选 always 进入二次确认、选 reject
+// 进入反馈收集；Esc 由状态机回退到上一阶段（永不视为完成）；只有 Confirmed 才
+// 提交。完成时的阶段决定结果：once 仅放行一次；always 确认后记住作用域并放行；
+// reject 把收集到的反馈填进 RefusalError，成为模型可读、可据此调整的可恢复错误。
+func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs json.RawMessage, staged StagedApprover) error {
+	stage := stageOnce
+	var scope []string
+	var feedback string
+	prompt := string(approvalArgs(args, c.policy().Root()))
+
+	for round := 0; round < maxStagedApprovalRounds; round++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// 二次确认阶段把待记住的作用域摘要交给审批器展示；其余阶段传空串。
+		summary := ""
+		if stage == stageConfirmScope {
+			summary = ScopeSummary(scope)
+		}
+		decision, err := staged.AskStage(ctx, name, prompt, stage, summary)
+		if err != nil {
+			// 与原始审批失败一致：不可用通道记审计，取消不记；两者都返回不带
+			// 终结语句的包装错误，因为没有人给出最终回答。
+			if ClassifyApproval(false, err) == ApprovalUnavailable {
+				c.record(name, "unavailable", "the approval channel is unavailable", auditArgs)
+			}
+			return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
+		}
+
+		// 暂存进入子阶段时携带的数据。AdvanceStage 是纯函数，不会改 decision。
+		switch stage {
+		case stageOnce:
+			scope = append([]string(nil), decision.Scope...)
+			feedback = decision.Feedback
+		case stageConfirmScope:
+			// 允许二次确认时携带更精确的作用域覆盖初次选择。
+			if len(decision.Scope) > 0 {
+				scope = append([]string(nil), decision.Scope...)
+			}
+		case stageFeedback:
+			// 反馈可能分多轮收集，取最新的非空文本。
+			if strings.TrimSpace(decision.Feedback) != "" {
+				feedback = decision.Feedback
+			}
+		}
+
+		nextStage, completed := AdvanceStage(stage, decision)
+		if !completed {
+			stage = nextStage
+			continue
+		}
+
+		switch stage {
+		case stageConfirmScope:
+			// always 只有在二次确认通过后才真正记住作用域。
+			staged.RememberScope(append([]string(nil), scope...))
+			c.record(name, "allow", "approved by the operator (always)", auditArgs)
+			return nil
+		case stageFeedback:
+			if text := strings.TrimSpace(feedback); text != "" {
+				c.record(name, "refused", "the operator rejected the tool call with feedback", auditArgs)
+				return &RefusalError{Tool: name, Feedback: clipApprovalFeedback(text)}
+			}
+			c.record(name, "refused", "the operator refused the tool call", auditArgs)
+			return &StopError{Tool: name, Reason: "the operator refused the tool call", Refused: true}
+		default:
+			// stageOnce 上只有 ChoiceOnce 会完成：仅此一次放行，不记忆作用域。
+			c.record(name, "allow", "approved by the operator", auditArgs)
+			return nil
+		}
+	}
+
+	// 超过交互上限：失败即拒绝，绝不因异常通道而放行。
+	c.record(name, "deny", "staged approval did not complete", auditArgs)
+	return &StopError{Tool: name, Reason: "staged approval did not complete"}
 }
 
 func (c *Chain) policy() *Policy {

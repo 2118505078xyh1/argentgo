@@ -44,6 +44,11 @@ type Compaction struct {
 	Failures  []string    `json:"failures,omitempty"`
 	NextSteps []string    `json:"nextSteps,omitempty"`
 	Archive   *ArchiveRef `json:"archive,omitempty"`
+
+	// SummaryEmpty 标记摘要是否无实质内容（仅标题或占位符），供上层据此决定是否
+	// 重试模型摘要。它只在 opt-in 开启时由 Summarize 计算；json:"-" 保证它从不
+	// 写入 JSONL，因此 opt-in 关闭（乃至开启）时压缩记录的字节都不受影响。
+	SummaryEmpty bool `json:"-"`
 }
 
 // Compact 用一条摘要记录替换对话中较旧的部分，并保留最后 keep 条消息。
@@ -379,6 +384,36 @@ func estimateRunes(text string) int {
 	return wide + (narrow+3)/4
 }
 
+// summarySchemaEnv 是压缩摘要固定 schema 补全的 opt-in 环境变量。只有值恰为 "1"
+// 时 Summarize 才在产出摘要后应用 schema；默认关闭，保证既有压缩记录的字节逐字不变。
+const summarySchemaEnv = "ARGENT_SUMMARY_SCHEMA"
+
+// summarySchemaEnabled 报告当前进程是否开启了压缩摘要 schema 补全。
+// 它在每次调用时读取环境变量，便于测试用 t.Setenv 精确控制，且不引入可变全局状态。
+func summarySchemaEnabled() bool {
+	return strings.TrimSpace(os.Getenv(summarySchemaEnv)) == "1"
+}
+
+// ApplySummarySchema 把 R36 交付的两个原语接到一起，作用于一段已生成的摘要：
+//   - 先调用 SummaryIsEmpty 检测摘要是否无实质内容，结果作为第二个返回值返回，
+//     供上层据此决定是否重试模型摘要；
+//   - 再调用 EnsureSummarySections 按固定顺序补齐缺失的 Goal/State/Next/Files 小节，
+//     Files 段内容从 files（已记录的改动文件事件）机械生成。
+//
+// 本函数不读取全局状态，也不修改 files 入参；opt-in 的判定由 Summarize 负责。
+func ApplySummarySchema(summary string, files []string) (string, bool) {
+	empty := SummaryIsEmpty(summary)
+	// files 来自 Summarize 的 pathsFromData：它们是工具事件载荷中已记录的改动文件。
+	// 这些文件都视为编辑操作；没有可用行号/命令文本，故 Lines 留空。
+	ops := make([]FileOp, 0, len(files))
+	for _, path := range files {
+		if path = strings.TrimSpace(path); path != "" {
+			ops = append(ops, FileOp{Path: path, Edited: true})
+		}
+	}
+	return EnsureSummarySections(summary, ops), empty
+}
+
 // Summarize 将被丢弃的条目转换为压缩载荷，保留后续轮次所需的结构：目标、涉及的文件、失败和下一步。
 func Summarize(dropped []Entry, keep int) Compaction {
 	var goals, files, failures, next []string
@@ -465,7 +500,7 @@ func Summarize(dropped []Entry, keep int) Compaction {
 		summary.WriteString(activity)
 	}
 
-	return Compaction{
+	compaction := Compaction{
 		Summary:   summary.String(),
 		Dropped:   len(dropped),
 		Keep:      keep,
@@ -473,6 +508,12 @@ func Summarize(dropped []Entry, keep int) Compaction {
 		Failures:  failures,
 		NextSteps: next,
 	}
+	// R36 opt-in：仅在 ARGENT_SUMMARY_SCHEMA=1 时触碰摘要；默认关闭时上面的字节
+	// 原样返回，与旧版逐字一致。补缺的小节与空摘要标记都由 ApplySummarySchema 完成。
+	if summarySchemaEnabled() {
+		compaction.Summary, compaction.SummaryEmpty = ApplySummarySchema(compaction.Summary, files)
+	}
+	return compaction
 }
 
 // mergePriorCompaction 从 system Entry 的 Data 解出旧 Compaction，把其权威字段合并进

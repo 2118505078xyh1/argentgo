@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
@@ -57,12 +59,215 @@ func clipBashOutput(ctx context.Context, raw string) string {
 	if limit <= 0 {
 		limit = maxToolOutput
 	}
-	clipped := clip(ctx, sanitizeShellOutput(raw))
+	clean := sanitizeShellOutput(raw)
+	var clipped string
+	if outputCollapseEnabled() {
+		// opt-in 分支：用行折叠原语替代 clip。字符预算取当前输出上限，
+		// 行预算交给原语默认值（见 collapseOutput）。这里有意跳过 clip
+		// （含 spill 回调），因为折叠帧本身就是输出的处理结果。
+		clipped = collapseOutput(clean, 0, limit).Text
+	} else {
+		clipped = clip(ctx, clean)
+	}
 	if len(raw) <= limit {
 		return clipped
 	}
 	return fmt.Sprintf("[output: ~%.1fk tokens, clipped]\n%s",
 		float64(bashOutputTokens(raw))/1000, clipped)
+}
+
+// outputCollapseEnabled 报告是否启用新的行折叠输出帧。
+// 默认关闭：只有 ARGENT_OUTPUT_COLLAPSE=1 才启用，确保关闭时
+// clipBashOutput 仍走原有的 clip 路径，输出逐字节不变。
+func outputCollapseEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_OUTPUT_COLLAPSE")) == "1"
+}
+
+// ---- 行折叠原语（internal/tools.CollapseOutput 的 shell 侧镜像）----
+//
+// 为什么在本文件复制而不是直接 import：internal/tools 通过 builtin_register.go
+// import 了 internal/shell，shell 反向 import tools 会形成 import 环（go build 会失败）。
+// 因此这里放一份逐字对齐 internal/tools/output_collapse.go 的实现：当工具输出同时
+// 超过行数与字符预算时，保留尾部行（错误常在最后几行）与头部少量上下文，中间用
+// [N earlier lines] 标记被省略的行数。修改本段时必须同步该源文件。
+//
+// 纯函数、纯标准库：不读写文件、不读取进程级配置、不改动入参、结果确定，可并发调用。
+
+const (
+	// collapseDefaultLines 是 maxLines<=0 时使用的默认行数预算。
+	collapseDefaultLines = 200
+	// collapseDefaultChars 是 maxChars<=0 时使用的默认字符（rune）预算。
+	collapseDefaultChars = maxToolOutput
+
+	// 标记文本为 "[" + N + " earlier lines]"，全部为 ASCII。
+	collapseMarkerHead = "["
+	collapseMarkerTail = " earlier lines]"
+)
+
+// collapseResult 是 collapseOutput 的结果。FullPath 预留给全文落盘接线点，
+// 本实现恒返回空字符串。
+type collapseResult struct {
+	Text       string
+	EarlyLines int
+	FullPath   string
+}
+
+// collapseOutput 按行数与字符数双重预算折叠 s（与 tools.CollapseOutput 语义一致）。
+//
+//   - maxLines<=0 / maxChars<=0 分别用 collapseDefaultLines / collapseDefaultChars；
+//   - "chars" 按 rune 计，所有切点落在 rune 边界，绝不切坏 UTF-8；
+//   - 未超限时原样返回（Text==s, EarlyLines==0）；
+//   - 超限时优先保留尾部行，其次保留头部少量上下文，中间插入 [N earlier lines]；
+//   - 不改动入参、不产生 I/O、结果确定，可并发调用。
+func collapseOutput(s string, maxLines, maxChars int) collapseResult {
+	if maxLines <= 0 {
+		maxLines = collapseDefaultLines
+	}
+	if maxChars <= 0 {
+		maxChars = collapseDefaultChars
+	}
+	if s == "" {
+		return collapseResult{Text: s}
+	}
+
+	lines, trailingNL := collapseSplitLines(s)
+	totalLines := len(lines)
+	if totalLines == 0 {
+		return collapseResult{Text: s}
+	}
+	if totalLines <= maxLines && utf8.RuneCountInString(s) <= maxChars {
+		return collapseResult{Text: s}
+	}
+
+	// 标记独占一行：行预算减 1；字符预算为标记宽度与尾随换行做保守预留。
+	lineBudget := maxLines - 1
+	if lineBudget < 0 {
+		lineBudget = 0
+	}
+	markerReserve := len(collapseMarkerHead) + collapseDigits(totalLines) + len(collapseMarkerTail)
+	charBudget := maxChars - markerReserve
+	if trailingNL {
+		charBudget--
+	}
+	if charBudget < 0 {
+		charBudget = 0
+	}
+
+	// 尾部约占行预算的 3/4，头部约占 1/4；字符预算由尾部优先使用。
+	tailTarget := (lineBudget*3 + 3) / 4
+	headTarget := lineBudget - tailTarget
+
+	// 先挑尾部：每个被选行贡献"自身 rune 数 + 1 个行分隔符"。
+	tailStart := totalLines
+	tailCost := 0
+	for totalLines-tailStart < tailTarget && tailStart > 0 {
+		c := utf8.RuneCountInString(lines[tailStart-1]) + 1
+		if tailCost+c > charBudget {
+			break
+		}
+		tailCost += c
+		tailStart--
+	}
+	tailCount := totalLines - tailStart
+
+	// 极端情况：单行就超过字符预算时，仍保留最后一行末尾（错误常在行尾），
+	// 做 rune 安全截断，避免输出只剩标记而丢失错误信息。
+	if tailCount == 0 && lineBudget > 0 && charBudget > 1 {
+		last := collapseKeepTailRunes(lines[totalLines-1], charBudget-1)
+		lines[totalLines-1] = last
+		tailStart = totalLines - 1
+		tailCost = utf8.RuneCountInString(last) + 1
+		tailCount = 1
+	}
+
+	// 再挑头部少量上下文：不与尾部重叠，只能用剩余字符预算。
+	headEnd := 0
+	headCost := 0
+	for headEnd < headTarget && headEnd < tailStart {
+		c := utf8.RuneCountInString(lines[headEnd]) + 1
+		if headCost+tailCost+c > charBudget {
+			break
+		}
+		headCost += c
+		headEnd++
+	}
+
+	// 顶部补足：头部未占满的行槽位让给尾部，但 head+tail 不得超过行预算，
+	// 且总字符数不得超过字符预算。
+	for tailStart > headEnd &&
+		headEnd+(totalLines-tailStart) < lineBudget &&
+		headCost+tailCost+utf8.RuneCountInString(lines[tailStart-1])+1 <= charBudget {
+		tailCost += utf8.RuneCountInString(lines[tailStart-1]) + 1
+		tailStart--
+	}
+	tailCount = totalLines - tailStart
+
+	earlier := totalLines - headEnd - tailCount
+	if earlier < 0 {
+		earlier = 0
+	}
+
+	var b strings.Builder
+	for i := 0; i < headEnd; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(lines[i])
+	}
+	if headEnd > 0 {
+		b.WriteByte('\n')
+	}
+	b.WriteString(collapseMarkerHead)
+	b.WriteString(strconv.Itoa(earlier))
+	b.WriteString(collapseMarkerTail)
+	for i := tailStart; i < totalLines; i++ {
+		b.WriteByte('\n')
+		b.WriteString(lines[i])
+	}
+	if trailingNL {
+		b.WriteByte('\n')
+	}
+
+	return collapseResult{Text: b.String(), EarlyLines: earlier}
+}
+
+// collapseSplitLines 按 '\n' 切分（'\n' 不会出现在多字节 rune 内部，故 rune 安全）。
+// 末尾换行被视为终止符，而非一个空行。
+func collapseSplitLines(s string) (lines []string, trailingNL bool) {
+	if s == "" {
+		return nil, false
+	}
+	lines = strings.Split(s, "\n")
+	if strings.HasSuffix(s, "\n") {
+		trailingNL = true
+		lines = lines[:len(lines)-1]
+	}
+	return lines, trailingNL
+}
+
+// collapseDigits 返回 n 的十进制位数；n<=0 记为 1 位。
+func collapseDigits(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	d := 0
+	for n > 0 {
+		d++
+		n /= 10
+	}
+	return d
+}
+
+// collapseKeepTailRunes 取 s 末尾至多 n 个 rune（rune 安全，不切坏 UTF-8）。
+func collapseKeepTailRunes(s string, n int) string {
+	r := []rune(s)
+	if n <= 0 {
+		return ""
+	}
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
 }
 
 type bashTool struct{}

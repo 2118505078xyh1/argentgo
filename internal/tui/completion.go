@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
 	"unicode"
 )
 
@@ -30,6 +32,14 @@ type CompletionState struct {
 	query      string
 	candidates []CompletionCandidate
 	index      int
+
+	// 以下四个字段仅由 opt-in 的内联补全（路径 / @文件）写入。
+	// slash 补全从不设置它们（保持零值 inline=false），因此在
+	// ARGENT_PATH_COMPLETION 未开启时所有既有行为逐字节不变。
+	inline     bool // 当前状态是否为内联补全（接受逻辑据此替换词而非整行）
+	tokenStart int  // 被补全词在输入文本中的 rune 起始位置
+	cursor     int  // 构建状态时光标的 rune 位置（用于接受时保留后缀）
+	quoted     bool // 被补全词是否位于已打开的引号内（接受时避免重复加引号）
 }
 
 // NewCompletionState 用 cands 的拷贝构造补全状态，并按 Command 字典序
@@ -211,4 +221,168 @@ func matchCommand(query, command string) bool {
 	}
 	_, _, ok := FuzzyMatch(q, command, false)
 	return ok
+}
+
+// ============================================================================
+// 以下为 opt-in 的内联补全（文件路径 / @文件）基建。仅使用标准库，
+// 候选源是注入的 FileSystem（与工作区面板共用），绝不自行读环境变量或
+// 触碰真实文件系统；由调用方（Model）在 ARGENT_PATH_COMPLETION=1 时启用。
+// ============================================================================
+
+// inlineCompletionKind 区分内联补全的候选源。
+type inlineCompletionKind int
+
+const (
+	inlineNone inlineCompletionKind = iota // 不是内联补全上下文
+	inlineAt                               // 含 @ 前缀的文件提及
+	inlinePath                             // 含路径分隔符的文件路径片段
+)
+
+// activeInlineWord 返回光标前正在补全的词、其 rune 起始位置，以及词是否
+// 位于已打开的引号内。
+//
+// "引号感知"：向左扫描时忽略空白、找最近的引号；一旦找到，词从引号后开始，
+// 因而可包含空格（带空格的路径只有在引号内才能作为一个整体被补全）。
+// 找不到引号时退回到最近空白之后，保持普通单词语义。
+func activeInlineWord(text string, cursor int) (word string, start int, quoted bool) {
+	runes := []rune(text)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	// 向左找最近的单/双/反引号（跨过空白）。找到即视为引号内的词。
+	for i := cursor - 1; i >= 0; i-- {
+		r := runes[i]
+		if r == '"' || r == '\'' || r == '`' {
+			start = i + 1
+			// 去掉可能的前导空白，使紧随闭合引号的普通词也能正常分类。
+			for start < cursor && unicode.IsSpace(runes[start]) {
+				start++
+			}
+			return string(runes[start:cursor]), start, true
+		}
+	}
+	// 无引号：退回到最近空白之后。
+	start = cursor
+	for start > 0 && !unicode.IsSpace(runes[start-1]) {
+		start--
+	}
+	return string(runes[start:cursor]), start, false
+}
+
+// classifyInlineWord 判断词 word 是否构成内联补全上下文。
+//
+//   - "@..." 触发 @文件补全；
+//   - 含 '/' 或 '\\' 的词触发路径补全，但行首单独的 "/xxx"（slash 命令）
+//     除外——它必须交回既有 slash 补全，以免开启门禁后抢占命令补全。
+func classifyInlineWord(word string, start int) inlineCompletionKind {
+	if word == "" {
+		return inlineNone
+	}
+	if strings.HasPrefix(word, "@") {
+		return inlineAt
+	}
+	if strings.ContainsAny(word, `/\`) {
+		if start == 0 && strings.HasPrefix(word, "/") {
+			rest := strings.TrimPrefix(word, "/")
+			if !strings.ContainsAny(rest, `/\`) {
+				return inlineNone
+			}
+		}
+		return inlinePath
+	}
+	return inlineNone
+}
+
+// quoteIfNeeded 返回适合写入输入行的路径文本。路径含空白、引号或括号等
+// 需要保护的字符时用双引号包裹（内部双引号转义），否则原样返回。
+// 已经成对双引号包裹的字符串不再重复包裹。
+func quoteIfNeeded(s string) string {
+	if !strings.ContainsAny(s, " \t\r\n\"'`()[]{}") {
+		return s
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+}
+
+// pathCompletionCandidates 根据路径片段 frag 在 fs 中生成补全候选。
+//
+// frag 被拆成目录部分与文件名基部分：目录经 filepath.Join 定位到工作区，
+// 基部分以 filepath.Match 的 "*" 通配做前缀过滤（等价于 filepath.Glob，
+// 但走注入的 fs 以便测试且不依赖真实磁盘）。结果是相对 root、用 '/' 分隔
+// 的原始路径；目录项以 '/' 结尾。引号包裹推迟到接受时按上下文决定。
+func pathCompletionCandidates(fs FileSystem, root, frag string) []CompletionCandidate {
+	if fs == nil || root == "" || frag == "" {
+		return nil
+	}
+	dirPart, base := "", frag
+	if i := strings.LastIndexAny(frag, `/\`); i >= 0 {
+		dirPart, base = frag[:i], frag[i+1:]
+	}
+	dir := root
+	if dirPart != "" {
+		dir = filepath.Join(root, filepath.FromSlash(dirPart))
+	}
+	entries, err := fs.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	pattern := base + "*"
+	var out []CompletionCandidate
+	for _, e := range entries {
+		if matched, err := filepath.Match(pattern, e.Name); err != nil || !matched {
+			continue
+		}
+		rel := e.Name
+		if dirPart != "" {
+			rel = filepath.ToSlash(filepath.Join(filepath.FromSlash(dirPart), e.Name))
+		}
+		if e.IsDir {
+			rel += "/"
+		}
+		out = append(out, CompletionCandidate{Command: rel})
+	}
+	return out
+}
+
+// atCompletionCandidates 递归列出工作区全部文件，作为 @提及 的补全候选。
+// 复用工作区面板的忽略目录与深度/数量上限，避免把 .git 等噪声塞进候选。
+func atCompletionCandidates(fs FileSystem, root string) []CompletionCandidate {
+	if fs == nil || root == "" {
+		return nil
+	}
+	var out []CompletionCandidate
+	var walk func(dir, rel string, depth int)
+	walk = func(dir, rel string, depth int) {
+		if depth > maxWorkspaceDepth || len(out) >= maxWorkspaceEntries {
+			return
+		}
+		entries, err := fs.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir && workspaceIgnoredDirs[e.Name] {
+				continue
+			}
+			childRel := e.Name
+			if rel != "" {
+				childRel = rel + "/" + e.Name
+			}
+			if e.IsDir {
+				walk(filepath.Join(dir, e.Name), childRel, depth+1)
+				continue
+			}
+			out = append(out, CompletionCandidate{Command: childRel})
+			if len(out) >= maxWorkspaceEntries {
+				return
+			}
+		}
+	}
+	walk(root, "", 0)
+	return out
 }
