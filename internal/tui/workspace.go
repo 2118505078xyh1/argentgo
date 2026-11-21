@@ -179,7 +179,7 @@ func (m *Model) workspaceLines(width, height int) []Line {
 	title := NewLine()
 	title.Push(text(m.locale, "workspace_title"), m.palette.accent())
 	if m.root != "" {
-		title.Push(" "+Clip(shortPath(m.root), maxInt(width-12, 1)), m.palette.muted())
+		title.Push(" "+smartShortenPath(m.root, maxInt(width-12, 1)), m.palette.muted())
 	}
 	out := []Line{title}
 	if height <= 1 {

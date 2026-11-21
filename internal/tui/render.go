@@ -258,17 +258,8 @@ func (m *Model) contextStyle(pct int) Style {
 
 func (m *Model) headerLocked(width int) Line {
 	dot := m.palette.muted()
-	left := NewLine()
-	left.Push("argent", m.palette.accent())
-	if m.model != "" {
-		left.Push(" · ", dot)
-		left.Push(m.model, Style{})
-	}
-	if m.root != "" {
-		left.Push(" · ", dot)
-		left.Push(shortPath(m.root), m.palette.muted())
-	}
 
+	// 先构建右侧信息，得出左侧可用宽度，再把工作目录压缩进预算。
 	right := NewLine()
 	first := true
 	push := func(text string, style Style) {
@@ -304,6 +295,21 @@ func (m *Model) headerLocked(width int) Line {
 	room := width - right.Width() - 1
 	if room < 4 {
 		room = 4
+	}
+
+	left := NewLine()
+	left.Push("argent", m.palette.accent())
+	if m.model != "" {
+		left.Push(" · ", dot)
+		left.Push(m.model, Style{})
+	}
+	if m.root != "" {
+		left.Push(" · ", dot)
+		budget := room - left.Width()
+		if budget < 1 {
+			budget = 1
+		}
+		left.Push(smartShortenPath(m.root, budget), m.palette.muted())
 	}
 	return joinLine(clipLine(left, room), right, width)
 }
@@ -1042,13 +1048,6 @@ func toolPendingLine(name, args string, elapsed, turn time.Duration, width int, 
 	line.Push(Clip(label, budget), Style{Bold: true})
 	line.Push(tail, p.muted())
 	return clipLine(line, width)
-}
-
-func shortPath(path string) string {
-	if home, err := homeDir(); err == nil && home != "" && strings.HasPrefix(path, home) {
-		return "~" + strings.TrimPrefix(path, home)
-	}
-	return path
 }
 
 func joinLine(left, right Line, width int) Line {
