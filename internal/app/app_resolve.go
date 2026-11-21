@@ -265,7 +265,9 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		),
 		NoAutoCompact: opts.NoAutoCompact,
 	}
-	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, cacheOptionsForConfig(cfg, opts))
+	wireOpts := cacheOptionsForConfig(cfg, opts)
+	wireOpts.Thinking = thinkingOptionsForProtocol(res.Protocol, res.Thinking)
+	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, wireOpts)
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
 	}
@@ -280,6 +282,21 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 func cacheOptionsForConfig(cfg config.Config, opts cli.Options) llm.Options {
 	configTier := cfgString(cfg.Raw, "cacheTier", "cache-tier", "promptCacheTier", "prompt-cache-tier")
 	return resolveCacheOptions(configTier, false, true, opts.NoPromptCache)
+}
+
+// thinkingOptionsForProtocol 把用户的思考档位解析成协议对应的原生推理控制。
+// 这是纯函数：thinking 为空表示未启用，返回 nil 使线上字节不变；解析结果全零
+// （未知档位或不支持的协议）同样返回 nil。Prompt 侧的思考语义由 buildSystem 负责，
+// 这里只决定 llm.Options 中的原生参数，二者互不替代。
+func thinkingOptionsForProtocol(protocol, thinking string) *llm.ThinkingConfig {
+	if strings.TrimSpace(thinking) == "" {
+		return nil
+	}
+	cfg := provider.ResolveThinking(protocol, thinking, provider.DefaultThinkingBudget(thinking))
+	if cfg.Effort == "" && cfg.BudgetTokens == 0 && cfg.Enabled == nil {
+		return nil
+	}
+	return &cfg
 }
 
 // resolveCacheOptions 把已解析的层级映射到 llm.Options 的缓存开关。短层级（包括未设置的默认值）

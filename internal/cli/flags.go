@@ -45,6 +45,7 @@ type Options struct {
 	SandboxMode   string
 	Approval      string
 	Session       string
+	At            string
 	Resume        bool
 	Undo          bool
 	Retry         bool

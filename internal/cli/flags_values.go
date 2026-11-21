@@ -170,6 +170,7 @@ type flagValues struct {
 	sandboxMode *string
 	approval    *string
 	session     *string
+	at          *string
 	resume      *bool
 	undo        *bool
 	retry       *bool

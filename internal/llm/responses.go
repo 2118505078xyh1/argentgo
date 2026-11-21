@@ -66,6 +66,14 @@ type responsesRequest struct {
 	Store                bool            `json:"store"`
 	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
 	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
+	// Reasoning 在 Options.Thinking.Effort 非空时携带命名推理级别。
+	// 默认省略，使请求字节与早期构建保持一致。
+	Reasoning *responsesReasoning `json:"reasoning,omitempty"`
+}
+
+// responsesReasoning 是 Responses 协议的推理控制对象。
+type responsesReasoning struct {
+	Effort string `json:"effort,omitempty"`
 }
 
 type responsesTool struct {
@@ -290,6 +298,10 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 			req.PromptCacheKey = deriveCacheKey(req.Instructions, string(toolJSON))
 		}
 		req.PromptCacheRetention = c.Options.CacheRetention
+	}
+	// Effort 非空才发送推理控制；nil 保持默认请求的字节不变。
+	if c.Options.Thinking != nil && c.Options.Thinking.Effort != "" {
+		req.Reasoning = &responsesReasoning{Effort: c.Options.Thinking.Effort}
 	}
 	return req
 }

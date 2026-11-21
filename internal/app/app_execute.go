@@ -318,6 +318,25 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
+
+	// 后台作业注册表（opt-in ARGENT_JOBS / ARGENT_OPT_INS=jobs）：默认关闭时
+	// wireJobs 无副作用，jobRegistry 仍为 nil，background_after_ms 被静默忽略。
+	// 开启时把注册表接到本次运行的工具注册表，退出钩子在 toolset.Close 之前
+	// （defer LIFO）回收仍存活的后台进程。
+	_, closeJobs, jobsErr := wireJobs(
+		stdio.Env,
+		filepath.Join(res.Storage, "sessions", sess.ID()),
+		toolset.base.regs,
+	)
+	if jobsErr != nil {
+		return agent.Result{}, jobsErr
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = closeJobs(shutdownCtx)
+	}()
+
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
 		// auto_verify opt-in：开启时让编辑类工具成功后附带 LSP 诊断回灌，帮助模型

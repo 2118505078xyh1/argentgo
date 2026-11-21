@@ -97,6 +97,7 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		Mode:        *values.mode,
 		Cwd:         *values.cwd,
 		Session:     *values.session,
+		At:          *values.at,
 		Resume:      *values.resume,
 		Undo:        *values.undo,
 		Retry:       *values.retry,

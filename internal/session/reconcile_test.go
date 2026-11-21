@@ -207,8 +207,12 @@ func TestMessagesReconcilesDanglingCallAtReplay(t *testing.T) {
 	if last.Role != "tool" || last.ToolCallID != "replay-call" || last.Content != abortedResultText {
 		t.Fatalf("replay did not synthesize an aborted result: %+v", last)
 	}
-	if last.ID != abortedResultID("replay-call") {
-		t.Errorf("synthetic id = %q, want %q", last.ID, abortedResultID("replay-call"))
+	// 结算层把 ReconcileToolPairs 的中止结果换成确定性的短 id（sha256[:12]）。
+	if last.ID != settleResultID("replay-call") {
+		t.Errorf("synthetic id = %q, want %q", last.ID, settleResultID("replay-call"))
+	}
+	if len(last.ID) != 12 {
+		t.Errorf("synthetic id length = %d, want 12", len(last.ID))
 	}
 }
 

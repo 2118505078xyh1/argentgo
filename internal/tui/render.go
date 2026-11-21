@@ -309,8 +309,10 @@ func (m *Model) headerLocked(width int) Line {
 				}
 				push("CH "+strconv.Itoa(pct)+"%", m.palette.muted())
 			}
-			// 生成速度来自相邻 Usage 事件的增量；无第二个事件时
-			// usageRate 为空，整个头部与经典实现逐字节一致。
+			// 生成速度优先来自 Usage 事件携带的首 token/流结束时间点：
+			// 扣除首 token 等待后按 Σtokens/Σdurations 跨步聚合；字段
+			// 缺失时降级为相邻 Usage 事件的增量。无可用样本时 usageRate
+			// 为空，整个头部与经典实现逐字节一致。
 			if m.usageRate != "" {
 				push("⚡ "+m.usageRate, m.palette.muted())
 			}

@@ -56,9 +56,10 @@ func (s *runState) finalAnswer(ctx context.Context) error {
 	// 这里只应放入正文；预算耗尽后无法回应误发的工具调用，
 	// 因此刻意把它从记录中丢弃。
 	s.messages = append(s.messages, llm.Message{
-		Role:      "assistant",
-		Content:   reply.Content,
-		Reasoning: reply.Reasoning,
+		Role:               "assistant",
+		Content:            reply.Content,
+		Reasoning:          reply.Reasoning,
+		ReasoningSignature: reply.ReasoningSignature,
 	})
 	s.lastText = reply.Content
 	s.record("user", finalAnswerPrompt)

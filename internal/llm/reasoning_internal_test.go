@@ -74,6 +74,9 @@ func TestWireMessagesPreserveReasoningOptIn(t *testing.T) {
 // 字节完全相同。
 func TestAnthropicBuildRequestReasoningOptIn(t *testing.T) {
 	messages := reasoningMessages()
+	// 重放思考块现在要求同时具备推理文本与签名；为参与断言的助手轮次补上签名。
+	messages[2].ReasoningSignature = "sig-1"
+	messages[4].ReasoningSignature = "sig-2"
 	client := &AnthropicClient{}
 
 	defaultReq := client.buildRequest("m", messages, nil)

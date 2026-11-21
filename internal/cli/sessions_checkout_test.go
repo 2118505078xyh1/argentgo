@@ -73,6 +73,10 @@ func TestParseAtFlag(t *testing.T) {
 	if opts.Session != "abc" {
 		t.Fatalf("session = %q, want abc", opts.Session)
 	}
+	// --at 的值必须真正存入 Options，供 app 恢复流程使用，而不是只注册了 flag 表面。
+	if opts.At != "n000003" {
+		t.Fatalf("at = %q, want n000003", opts.At)
+	}
 	if len(prompt) != 1 || prompt[0] != "hello world" {
 		t.Fatalf("prompt = %q", prompt)
 	}

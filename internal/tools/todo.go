@@ -54,6 +54,11 @@ type todoItem struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
 	Status string `json:"status"`
+	// Verification 记录完成任务所依据的验证（命令、测试或证据摘要）。
+	// 使用 omitempty：未填写时序列化字节与旧版完全一致，因此该字段纯属
+	// 附加，不改变 todo 工具的默认持久化格式；它只服务于 opt-in 的
+	// ValidateTodoState 校验，尚未接入 Run 写路径。
+	Verification string `json:"verification,omitempty"`
 }
 
 const todoFileName = "todos.json"

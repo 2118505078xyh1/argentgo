@@ -438,10 +438,11 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		s.promptTokens = promptTokens
 		s.turns++
 		s.messages = append(s.messages, llm.Message{
-			Role:      "assistant",
-			Content:   reply.Content,
-			ToolCalls: reply.ToolCalls,
-			Reasoning: reply.Reasoning,
+			Role:               "assistant",
+			Content:            reply.Content,
+			ToolCalls:          reply.ToolCalls,
+			Reasoning:          reply.Reasoning,
+			ReasoningSignature: reply.ReasoningSignature,
 		})
 		if reply.Content != "" {
 			s.lastText = reply.Content

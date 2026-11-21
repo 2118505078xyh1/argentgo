@@ -43,6 +43,7 @@ func messageEntry(record Record) (Entry, bool) {
 		entry.Content = textOf(record.Data)
 		entry.ToolCallID = fieldString(record.Data, "toolCallId", "tool_call_id")
 		entry.Reasoning = reasoningOf(record.Data)
+		entry.ReasoningSignature = signatureOf(record.Data)
 	case KindTool, "tool_result", "tool-result", "toolresult":
 		entry.Role = "tool"
 		entry.Content = firstNonEmpty(
@@ -64,6 +65,7 @@ func messageEntry(record Record) (Entry, bool) {
 		entry.ToolCallID = fieldString(record.Data, "toolCallId", "tool_call_id")
 		if entry.Role == "assistant" {
 			entry.Reasoning = reasoningOf(record.Data)
+			entry.ReasoningSignature = signatureOf(record.Data)
 		}
 	case KindSummary:
 		entry.Role = "system"
@@ -99,6 +101,13 @@ func reasoningOf(raw json.RawMessage) string {
 	return fieldString(raw, "reasoning", "reasoning_content")
 }
 
+// signatureOf 从 assistant 记录中读取思考文本的签名。它既接受 llm.Message
+// 写入的中性 "reasoning_signature" 键，也接受归档使用的 "ReasoningSignature"
+// 键，使旧记录与显式写入的记录都能被正确投影；两键都不存在时返回空字符串。
+func signatureOf(raw json.RawMessage) string {
+	return fieldString(raw, "reasoning_signature", "ReasoningSignature")
+}
+
 // AssistantRecord 为携带推理文本的 assistant 消息构建持久化载荷。空字段会被省略，
 // 使较早版本写入的记录保持逐字节一致。当调用方有推理内容需要保留时，
 // 可将其与 Session.Append(KindAssistant, ...) 一起使用；agent 循环的 llm.Message
@@ -110,6 +119,16 @@ func AssistantRecord(content, reasoning string) map[string]any {
 	}
 	if reasoning != "" {
 		payload["reasoning"] = reasoning
+	}
+	return payload
+}
+
+// AssistantRecordWithSignature 在 AssistantRecord 的基础上携带推理签名。
+// 空字段同样会被省略，使不带签名的写入保持旧字节不变。
+func AssistantRecordWithSignature(content, reasoning, signature string) map[string]any {
+	payload := AssistantRecord(content, reasoning)
+	if signature != "" {
+		payload["reasoning_signature"] = signature
 	}
 	return payload
 }

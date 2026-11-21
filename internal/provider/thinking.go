@@ -58,8 +58,28 @@ func normalizeEffort(effort string) string {
 		return "medium"
 	case "high", "较高", "高", "高级":
 		return "high"
+	case "xhigh", "超高", "极高", "极强":
+		return "xhigh"
 	default:
 		return ""
+	}
+}
+
+// DefaultThinkingBudget 返回各思考档位对应的默认推理 token 预算。
+// 层级复用 normalizeEffort，因此中文别名（如"高""超高"）与英文写法得到相同预算；
+// 未知或空档位返回 0，表示"不设置预算"，让调用方完全不发出预算字段。
+func DefaultThinkingBudget(effort string) int64 {
+	switch normalizeEffort(effort) {
+	case "low":
+		return 1024
+	case "medium":
+		return 2048
+	case "high":
+		return 4096
+	case "xhigh":
+		return 6144
+	default:
+		return 0
 	}
 }
 
