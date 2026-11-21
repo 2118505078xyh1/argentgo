@@ -184,6 +184,13 @@ func ignoreStatus(root string) commands.IgnoreStatus {
 	return commands.IgnoreStatus{Files: files}
 }
 
+// planModeEnabled 报告本次运行是否启用只规划模式。ARGENT_PLAN_MODE="1"（允许首尾
+// 空白）时开启，默认与未知值关闭（fail-closed）。它只读取注入的 env，不改全局状态。
+func planModeEnabled(env func(string) string, res Resolved) bool {
+	_ = res // 预留配置接入点；当前仅由环境变量门控
+	return env != nil && strings.TrimSpace(env("ARGENT_PLAN_MODE")) == "1"
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -283,10 +290,16 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	approver := res.Approve
 	if approver == nil {
 		approver = approverFor(stdio, res)
+		// accept-edits 模式：会话级批准一次后同类工具不再重复询问。默认（ask/
+		// 未知值）解析为 ModeAsk，WrapForMode 原样返回 base，行为逐字节不变。
+		approver = security.WrapForMode(approver, security.ParseApprovalMode(res.Approval))
 	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+	// plan 模式（可选）：启用后修改类命令在审批前被拒并给模型可读的恢复提示。
+	// 默认关闭时 EnablePlanMode(false) 与零值等价，chain 决策逐字节不变。
+	chain.EnablePlanMode(planModeEnabled(stdio.Env, res))
 
 	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
 	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。Guardian 由

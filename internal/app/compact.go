@@ -7,6 +7,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/provider"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
@@ -51,6 +52,12 @@ func newSessionCompactorWithOpts(res Resolved, sess *session.Session, reg *OptIn
 // 而不是坍缩为 1。
 func compactionInputs(res Resolved) (window, configured, percent int) {
 	window = res.Cfg.ContextWindow
+	// 未显式配置窗口时按模型元数据推导（claude 200k / gpt 128k+ / gemini 1M 等）。
+	// 推导只影响"配置了 condensePercent"的百分比阈值；percent 为 0 时 window 不参与
+	// 决策，因此这个回落对未配置百分比的运行逐字节不变。未知模型返回 0，维持原回落。
+	if window <= 0 {
+		window = provider.ContextWindowFor(res.Provider, res.Model, 0)
+	}
 	configured = res.AutoCompactTokens
 	percent = res.Cfg.CondensePercent(res.Profile)
 	if window <= 0 {

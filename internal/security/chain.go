@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -121,8 +122,15 @@ type Chain struct {
 	// Session 标记审计条目；通常是会话文件或 id。
 	Session string
 	// PlanCommandGuard 为 true 时，会在策略 → 审批 → 审计链之前拦截修改类
-	// shell 命令。零值 false 保持原有行为。
+	// shell 命令。零值 false 保持原有行为。它是遗留的直接赋值开关，保留以兼容
+	// 现有调用方；运行期切换请用 EnablePlanMode。
 	PlanCommandGuard bool
+	// planMode 是 EnablePlanMode 管理的原子启用标志（0=关闭，1=开启）。它只通过
+	// sync/atomic 包函数读写，因此既是原子的、又不会像 atomic.Bool 那样因嵌入
+	// noCopy 而让按值复制 Chain 触发 go vet 的 copylocks 警告。它与 PlanCommandGuard
+	// 按"或"关系参与守卫判断：旧的直接赋值仍然有效，新 API 额外提供并发安全的
+	// 运行时开关。零值 0 保持原有行为。
+	planMode uint32
 }
 
 // NewChain 构建一个链。nil 审批器表示没有审批通道（无头运行、子 agent），
@@ -155,7 +163,7 @@ func (c *Chain) CheckRestore(ctx context.Context, paths []string) error {
 func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json.RawMessage) error {
 	// 可选的计划模式命令守卫。启用时它最先运行：修改类 shell 命令会作为可恢复
 	// 错误被拒绝，早于任何策略拒绝、审批提示或审计条目。默认禁用。
-	if c != nil && c.PlanCommandGuard {
+	if c != nil && (c.PlanCommandGuard || atomic.LoadUint32(&c.planMode) != 0) {
 		if token := guardShellCommand(toolName, args); token != "" {
 			return fmt.Errorf("%w: %q", ErrRecoverablePlanBlock, token)
 		}
