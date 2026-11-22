@@ -6,7 +6,7 @@ name: matrix
 #                                     test、build 以及竞态门禁。
 #   release.yml tag (v*)            ：强化的发布打包，由其自身的验证与竞态作业
 #                                     把关。
-#   matrix.yml  pull_request / manual：客观验证 no-cgo 承诺、
+#   matrix.yml  push main/master / PR / manual：客观验证 no-cgo 承诺、
 #                                     无 cgo 的单元测试、Linux 上的竞态门禁，
 #                                     以及架构守卫。
 #
@@ -17,8 +17,16 @@ name: matrix
 
 # 加引号是为了防止 YAML 1.1 工具（如 PyYAML）将 `on` 强制转换为布尔值 true。
 'on':
+  # 与 ci.yml 对齐：推送到主分支也跑矩阵；仍特意不按 tag 触发（tag 由 release.yml 负责）。
+  push:
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      flake_guard:
+        description: '手动触发 flake-guard 重复稳定性检查（非 PR 阻塞）'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -110,3 +118,21 @@ jobs:
           cache: true
       - name: architecture guard
         run: go test ./internal/archguard -count=1
+
+  # 手动诊断作业：仅在 workflow_dispatch 且显式勾选 flake_guard 时运行。
+  # 不按 PR 触发，也不作为必需检查，因此不会阻塞任何 PR；
+  # continue-on-error 保证即使检测到抖动也不会让手动运行整体失败。
+  flake-guard:
+    name: flake-guard (manual, non-blocking)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.flake_guard }}
+    continue-on-error: true
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: flake-guard (3x repetition)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/flake-guard.ps1 -Count 3

@@ -44,6 +44,11 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      # 基准测试也是测试：即使 CI 不计时，其中的断言也必须在 go test 下通过。
+      # -benchtime=1x 只跑一次迭代以触发断言，避免 CI 上的计时噪声；
+      # -run '^$' 跳过普通测试，只执行 benchmark。
+      - name: benchmark smoke
+        run: go test -run '^$' -bench . -benchtime=1x ./internal/agent ./internal/session ./internal/tools ./internal/tui
       # Windows amd64 是唯一发布的目标；这里直接用无 cgo 方式构建它，
       # 而不是为不发布的平台生成二进制文件。
       - name: build (no cgo)
@@ -77,5 +82,5 @@ jobs:
         # internal/pty 的测试需要真正的控制终端（ConPTY 语义），
         # 无法在 CI runner 上运行；Windows 作业已经覆盖了它们。
         # 只排除该包，这样竞态门禁仍能检查所有
-        # 跨平台包。
-        run: go test -race $(go list ./... | grep -v '/internal/pty$')
+        # 跨平台包。设置宽松但有上限的超时，避免挂起的测试无限阻塞作业。
+        run: go test -race -timeout 20m $(go list ./... | grep -v '/internal/pty$')

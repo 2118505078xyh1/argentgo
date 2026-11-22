@@ -122,6 +122,8 @@ Assert-Condition 'verify job runs go vet' ($verifyBlock -match 'go\s+vet')
 Assert-Condition 'verify job runs go test' ($verifyBlock -match 'go\s+test\b')
 Assert-Condition "verify builds with CGO_ENABLED='0'" ($verifyBlock -match "CGO_ENABLED:\s*'0'")
 Assert-Condition 'race job runs go test -race' ($raceBlock -match 'go\s+test\s+-race')
+# 竞态门禁必须有上限超时（与 ci.yml / matrix.yml 对齐），否则挂起的测试会一直阻塞作业。
+Assert-Condition 'race job sets -timeout on go test -race' ($raceBlock -match 'go\s+test\s+-race[^\r\n]*-timeout\s+\d+m')
 Assert-Condition "race enables CGO_ENABLED='1' for the detector" ($raceBlock -match "CGO_ENABLED:\s*'1'")
 
 # All remaining assertions are scoped to the release job block.
