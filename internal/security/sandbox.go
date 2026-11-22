@@ -81,6 +81,11 @@ func InWriteRoots(path string, roots []string) error {
 	if candidate == "" {
 		candidate = "."
 	}
+	// 与 policy.resolve 同口径：编码形式的 .. 先按词法拒绝，
+	// 再由下面的 CheckPathInRoots 做真实路径校验。
+	if looksLikePathEscape(candidate) {
+		return fmt.Errorf("security: path %q uses an encoded path escape", path)
+	}
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(cleaned[0], candidate)
 	}

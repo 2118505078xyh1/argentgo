@@ -452,6 +452,12 @@ func (p *Policy) resolve(path string) (string, bool, bool) {
 		candidate = "."
 	}
 	absolute := filepath.IsAbs(candidate)
+	// 词法逃逸先拒：百分号/过宽 UTF-8/NUL 编码的 .. 在下游解码后可能逃出
+	// 工作区，但 filepath.Clean 不会解码它们。先做无解码的词法判定，
+	// 与真实路径校验形成两段式防御（与 sandbox.InWriteRoots 同口径）。
+	if looksLikePathEscape(candidate) {
+		return candidate, absolute, true
+	}
 	if !absolute {
 		candidate = filepath.Join(p.root, candidate)
 	}
