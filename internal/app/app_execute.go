@@ -491,10 +491,6 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 任何失败都 fail-closed 到 RequireApproval。未开启 ARGENT_GUARDIAN 时
 	// guardianInspectorFor 返回 nil，这段审阅函数根本不会被调用。
 	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, guardianModelReview(res.Chatter, res.Options.SecondaryModel))
-	{
-		probe, _ := json.Marshal(map[string]string{"command": "rm -f plan_exit_before.txt"})
-		fmt.Fprintf(os.Stderr, "ZZPROBE planMode=%v guardErr=%v guardType=%T\n", planMode, chain.Check(context.Background(), "bash", probe), guard)
-	}
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
@@ -690,6 +686,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 流中断回补（opt-in ARGENT_STREAM_RECOVERY）：默认关闭时为零值，
 		// agent 的恢复分支整体短路，请求体与事件逐字节不变。
 		EnableStreamRecovery: streamRecoveryEnabled(stdio.Env),
+		// TTSR 流式规则注入（opt-in ARGENT_TTSR_RULES=<json>）：默认无配置为 nil，
+		// agent 侧观察器为 nil，流式路径逐字节不变。配置存在时命中 Retry 会中止流、
+		// 注入提醒并从同点重发一次。加载失败静默降级为 nil 并经事件发一条 warn。
+		TTSRRules: ttsrRulesForRun(stdio.Env, res.Root, func(msg string) {
+			EmitEvent(ctx, agent.Event{Kind: agent.EventNotice, Text: msg})
+		}),
 		// 上下文溢出时允许一次有界的"压缩后重放"：仅在提供方明确报告 context
 		// overflow、配置了 compactor 且压缩确实缩短时才重试；其它情况走原失败路径
 		// 逐字节不变。这是上下文管理要素的优雅降级，不增加正常路径的开销。
@@ -751,6 +753,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if env := stdio.Env; env != nil && env("ARGENT_EDIT_GUIDE") == "1" {
 		loop.Opts.System = agent.AppendEditFormat(loop.Opts.System, res.Model)
 	}
+	// magic keywords（opt-in ARGENT_MAGIC_KEYWORDS=1）：用户原话里出现的
+	// ultrathink/chillax 等词只在 prose 中生效（代码块/路径不触发），注入隐藏指令。
+	// 关闭或未命中时系统提示逐字节不变。
+	loop.Opts.System = applyMagicKeywords(loop.Opts.System, rawPrompt, stdio.Env)
 	// repo map 只读声明同样是选择性启用的：默认不追加，以免改变字节精确的系统提示断言。
 	// 设置 ARGENT_REPO_MAP_HINT=1 时，明确告诉模型"文件出现在 repo map 中不等于获得编辑授权"。
 	if repoMapHintEnabled(stdio.Env) {
@@ -798,6 +804,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 默认关闭时不追加，system 字节与接线前一致。无历史时原语返回空串，同样不追加。
 	if continuationBriefEnabled(stdio.Env) && sess != nil {
 		if brief := BuildContinuationBrief(sess.Messages(), 2000); brief != "" {
+			loop.Opts.System += "\n" + brief
+		}
+	}
+	// 压缩摘要的扩展字段续接段（opt-in ARGENT_SUMMARY_FIELDS_V2=1）：用 V2 只读投影
+	// 把 Objective/Requirements/Decisions/Work State/Relevant Files/Important Context
+	// 作为独立段注入，与默认四段互补。默认关闭时零调用、system 逐字节不变。
+	if summaryFieldsV2Enabled(stdio.Env) && sess != nil {
+		if brief := BuildContinuationBriefV2(sess.Messages(), 2000); brief != "" {
 			loop.Opts.System += "\n" + brief
 		}
 	}

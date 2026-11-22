@@ -68,6 +68,12 @@ type runState struct {
 	steer  *steering
 	guard  *dedupe
 
+	// ttsr 是流式规则观察器。nil（默认）时 chatWithTTSR 直接走 s.chat，逐字节不变；
+	// 非 nil 时按规则在流中判定 Retry/Inject/Warn，见 chatWithTTSR。
+	// ttsrRetries 记录本轮已用掉的"命中后重发"次数（每轮最多一次）。
+	ttsr        *TTSRWatcher
+	ttsrRetries int
+
 	// beforeRequest 和 beforeTool 是本次运行注入的持久性接缝，复制自 Options。
 	// nil 钩子是空操作，因此手工构建的 runState（例如测试中）保持原有行为。
 	beforeRequest func() error
@@ -594,6 +600,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		emitFn:        emit,
 		rec:           normaliseRecorder(opts.Record),
 		steer:         &steering{ch: opts.Steer},
+		ttsr:          newTTSRWatcherForRun(opts.TTSRRules),
 		beforeRequest: opts.BeforeRequest,
 		beforeTool:    opts.BeforeTool,
 		progress:      newProgressCapture(opts.ProgressSink, 1),

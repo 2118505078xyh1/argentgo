@@ -39,6 +39,10 @@ type primitiveAllowEntry struct {
 //		},
 //	}
 var primitiveAllowlist = []primitiveAllowEntry{
+	// 压缩摘要 V2 投影的渲染器：生产只读路径用 ParseStructuredSummaryV2/Compaction.StructuredV2，
+	// RenderStructuredSummaryV2 仅用于 Render→Parse 往返测试校验格式稳定；
+	// 下一阶段若要把扩展字段结构化落盘（生成式摘要模板）时由压缩写入路径调用。
+	{Symbol: "internal/session/compact_fields.go:RenderStructuredSummaryV2", Reason: "结构化摘要模板渲染器；供生成式摘要扩展字段落盘阶段调用，当前只读消费端用 Parse 投影"},
 	// DAP 高层结构化 API：当前 debug_* 工具用裸 Call 转发以保留原始 DAP body 给
 	// 模型；这些类型化方法供下一阶段"结构化调试工具"直接消费（并返回整理后的
 	// Go 结构），握手方法（Initialize/Launch/ConfigurationDone）已生产接线。

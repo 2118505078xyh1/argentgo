@@ -241,6 +241,12 @@ type Options struct {
 	// 每轮最多一次，补不到就沿用原有失败路径。
 	EnableStreamRecovery bool
 
+	// TTSRRules 是流式规则注入（TTSR）已编译的规则集。nil/空时 TTSR 完全关闭，
+	// 流式循环走原有 s.chat 路径逐字节不变。非空时每次模型请求把正文增量喂给
+	// 规则观察器：命中 Retry 动作会中止当前流、注入一条提醒用户消息并从同点重发
+	// 一次（每轮最多一次）；Warn/Inject 只发可观察事件，不改变流。
+	TTSRRules []CompiledTTSRRule
+
 	// Steer 在轮次之间被抽取；每个值都会成为一条用户消息。
 	Steer <-chan string
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。

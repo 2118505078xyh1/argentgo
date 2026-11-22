@@ -87,7 +87,10 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			}
 			buffered = append(buffered, delta)
 		}
-		reply, err := s.chat(ctx, onDelta)
+		// TTSR：watch 为 nil 时直接 s.chat，逐字节不变；命中 Retry 时在中途取消流、
+		// 注入提醒并从同点重发一次。每轮重置重发预算，避免跨轮累积。
+		s.ttsrRetries = 0
+		reply, err := s.chatWithTTSR(ctx, onDelta)
 		if err == nil {
 			for _, delta := range buffered {
 				s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
