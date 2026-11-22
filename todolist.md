@@ -66,12 +66,6 @@
 - **建议**：在 `internal/tools` 增加只读 `pty_run` 工具（或 bash 工具加 `tty:true`），经 pluginapi 注入构造子、由 app 负责 `pty.Start`；读循环必须串接 `queryFilter.Write/Flush` 后再进 UTF-8 carry 与 clip，复用 `proc.SanitizeEnv`；`Pty.Close/Wait` 与取消 ctx 绑定。
 - **验收**：`internal/app/pty_wire_test.go` 假 Pty 注入，喂 `ESC[6n` 后输出不含该序列，ctx 取消触发 Close；加守护测试 `TestPtyPackageHasProductionImporter`。
 
-### 33. LSP 客户端启动绕过 proc 环境净化与整树终止 `[P1/S/M]`
-- **现状**：`internal/lsp/client.go:146-168` 用 `exec.Command` + `append(os.Environ(), server.Env...)`，`kill` 为 `Process.Kill`，`Close`:483-507 同样；`proc.go:174 SanitizeEnv`、:177 `configure(cmd,KillTree,...)` 已具备。
-- **问题**：语言服务器继承宿主私有会话管道变量，违背「嵌套 agent 不得继承宿主会话变量」；gopls/rust-analyzer 派生 helper 只杀直接进程留孤儿；`readFrame`（framing.go:87）对声称 64MB 的帧直接 `make`+`io.ReadFull` 且无读截止时间，卡死服务器可长期占内存与 goroutine。
-- **建议**：`lsp.Start` 改走 `proc.StartDetached`（`detached.go:243`）或至少 `proc.SanitizeEnv(server.Env)` + `configureDetached`；`client.kill` 改为 `*proc.Process.Kill()`（底层 killTree）；reader 加可取消 deadline 通道使 Close 不依赖强杀解阻塞。
-- **验收**：`internal/lsp/client_hardening_test.go`：假 server 回写环境断言会话变量未泄露；派生孙进程后 Close 断言孙进程 pid 不存在。
-
 ### 37. `internal/commands` 补全/诊断纯函数未接线 `[P2/S]`
 - **现状**：`internal/commands/complete.go:33` 的 `CompleteCommands`、`complete_argument.go:33`、`complete_coordinator.go`、`diagnostics.go:52` 的 `DiagnoseCommands` 均为纯函数且有测试，但 app 侧无调用证据；CLI 的补全走自成一套的逻辑。
 - **问题**：slash 命令的参数补全与诊断能力写好不用，用户在 TUI 输入 `/commit ` 时得不到候选或错误提示。
