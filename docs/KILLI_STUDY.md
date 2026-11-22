@@ -53,6 +53,14 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 - `io.LimitReader` 限制 fetch 体积、参数强转 `tool_argument_coercion.go` 已接线
 - skill 名字-only 索引 + 按需加载（`internal/skills`）
 
+## 验证结果（2026-11-23 02:24）
+
+- 全量快验证（`gofmt -l .` / `go vet ./...` / `go test -p 4 ./... -count=1`）：**全绿**，11364 测试通过。
+- 针对性 race（`./internal/llm ./internal/agent ./internal/hooks ./internal/proc ./internal/session`）：**全绿**，5805 测试通过。
+- Linux 交叉编译（`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`）：**通过**。
+- 全量 `go test -race ./...`：2 处竞争均在 `internal/server/event_persist_test.go`（测试 goroutine 并发读 `httptest.ResponseRecorder` 的 buffer，SSE handler 在 `event.go:456` 并发写），是测试侧竞争，非本轮改动引入；普通全量测试全绿。
+- `internal/computer` 的 `TestCapture` 曾在 headless 环境下 BitBlt 失败，后续全量验证已通过（环境相关，非回归）。
+
 ## 复现方式
 
 - `eval history <repo> --scripted`：离线跑一遍 git→worktree→评分流程（任务预期失败，因为脚本不修 bug）
