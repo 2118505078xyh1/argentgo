@@ -19,11 +19,11 @@ type ExecContext struct {
 	SessionDir string
 	Jobs       any
 	// ShellSessions 是注册表注入的持久化 shell 会话管理器。用 any 承载以
-	// 避免 pluginapi 依赖具体会话实现包；消费方（internal/shell）通过类型
+	// 避免 pluginapi 依赖具体会话实现包；消费方（internal/bash）通过类型
 	// 断言还原为自定义的小接口。未注入时（默认）命令执行路径逐字节不变。
 	ShellSessions any
 	// Spill 是注册表注入的输出产物落盘回调：当超大输出需要 opt-in
-	// 落盘时，工具实现方（如 internal/shell 的命令类工具）调用它；
+	// 落盘时，工具实现方（如 internal/bash 的命令类工具）调用它；
 	// handled 为 true 时 out 必须原样返回，否则回退普通裁剪路径。
 	// 签名只用 stdlib 类型，使 pluginapi 保持零 internal 依赖；
 	// 未注入时（默认）行为与迁移前逐字节一致。

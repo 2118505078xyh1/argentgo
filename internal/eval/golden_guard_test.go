@@ -26,7 +26,7 @@ const (
 // goldenExpectedTools 锁定每个 golden 文件中 tools 行的成员及顺序。
 // 这里记录的是快照里实际出现的工具（read/write 等）；bash/powershell 的注册顺序
 // 由 internal/tools 的注册测试守护，并不出现在这批 golden 快照中。
-// 合并 internal/shell 后，脚本化事件的字节序列必须保持不变，故顺序被显式钉死。
+// 合并 internal/bash 后，脚本化事件的字节序列必须保持不变，故顺序被显式钉死。
 var goldenExpectedTools = map[string][]string{
 	"answers_a_simple_question.golden":            {},
 	"reads_a_file_before_answering.golden":        {"read"},

@@ -10,7 +10,7 @@ import (
 )
 
 // TestRegistryRunBashSpillViaExecContext 验证注册表把 tools 的 opt-in 溢出
-// 能力通过 ExecContext 注入到已迁移到 internal/shell 的 bash 工具：
+// 能力通过 ExecContext 注入到已迁移到 internal/bash 的 bash 工具：
 // 打开开关时结果带恢复标记且产物落盘；关闭时无标记且与旧 clipTo 路径逐字节一致。
 func TestRegistryRunBashSpillViaExecContext(t *testing.T) {
 	// 显式清空 env 开关，避免外部环境影响"关闭"分支。

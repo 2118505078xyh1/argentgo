@@ -83,7 +83,7 @@ func TestShellOracleWire(t *testing.T) {
 // 分支必须经 CurrentSafety 判定，且不能再退回"仅检查 it.Safety != nil"的旧式
 // 直接调用（那会让包级 oracle 永远不被咨询）。
 func TestInterpFailClosedCallsCurrentSafety(t *testing.T) {
-	data, err := os.ReadFile("../shell/interp.go")
+	data, err := os.ReadFile("../bash/interp.go")
 	if err != nil {
 		t.Fatal(err)
 	}

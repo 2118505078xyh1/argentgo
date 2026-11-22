@@ -139,7 +139,7 @@
 | 分阶段审批（R37） | `internal/security/chain.go:148-241`（`StagedApprover` / `checkStaged`）、`internal/security/approval_stage.go` | 可选的 `once` / `always` / `reject` / `esc` 状态机审批；仅当审批器实现 `StagedApprover` 且显式 opt-in 时接管决策，失败即关闭。默认关闭、字节不变。 |
 | 脱敏与审计 | `internal/security/redact.go:14`（`Redact`）、`internal/security/audit.go` | 写审计前脱敏。 |
 | 后台 jobs 注册表（R36） | `internal/app/app_jobs_wire.go`（`ARGENT_JOBS` / `ARGENT_OPT_INS=jobs`）、`internal/jobs/` | 后台作业注册表接入生产路径（创建、持久化、`StopAll`），opt-in 开启；默认不启用，路径逐字节不变。 |
-| 长命令转后台 job | `internal/shell/tools_builtin_bash.go:74/81`（`background_after_ms`）、`internal/jobs/` | 超时后不杀进程，返回 job id。 |
+| 长命令转后台 job | `internal/bash/tools_builtin_bash.go:74/81`（`background_after_ms`）、`internal/jobs/` | 超时后不杀进程，返回 job id。 |
 | 工具输出头尾折叠 / todo 校验 / 文件新鲜度（R37） | `internal/tools/output_collapse.go`、`internal/tools/todo_validate.go`、`internal/tools/file_freshness.go` | `CollapseOutput` 接入 bash 裁剪、`ValidateTodoState` 接入 todo 写入、`FileFreshness` 原语；均为 opt-in、默认字节不变。 |
 | MCP | `internal/mcp/`；per-server `enabled` / `readOnly` / `allowedTools` / `deniedTools`（`internal/mcp/permissions.go`） | stdio + HTTP/SSE，项目级 `mcp.json` 受 `--trust-project` 门控（`internal/app/mcp.go:272/575`）。R35 修复 `read-only` 模式下修改类工具可被绕过的问题（`internal/security/mutating.go`、`internal/app/mcp_readonly_test.go`）。 |
 | Hooks | 11 事件（`internal/hooks/event_handlers.go:91-103`）、SHA-256 信任、exit-2 阻断 | 工具调用前后可拦截。 |

@@ -2,7 +2,7 @@
 // 保留尾部若干行（错误与堆栈常出现在最后几行）与头部少量上下文，中间用
 // [N earlier lines] 标记被省略的行数。
 //
-// 它从 internal/tools/output_collapse.go 与 internal/shell 的镜像实现下沉而来：
+// 它从 internal/tools/output_collapse.go 与 internal/bash 的镜像实现下沉而来：
 // 两个包都要用它，若把它留在任一包都会因 tools import shell 形成 import 环。
 // 放到零依赖的低层包后，tools 与 shell 都能安全 import，算法也只剩一个定义。
 //
