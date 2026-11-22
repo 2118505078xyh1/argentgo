@@ -487,7 +487,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
 	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。Guardian 由
 	// inspectionGuardFor 在总开关开启时按需追加，两开关为"与"关系。
-	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, defaultGuardianReview)
+	// Guardian 审阅从占位切到真实次要模型：非流式短答、3s 超时、严格 JSON，
+	// 任何失败都 fail-closed 到 RequireApproval。未开启 ARGENT_GUARDIAN 时
+	// guardianInspectorFor 返回 nil，这段审阅函数根本不会被调用。
+	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, guardianModelReview(res.Chatter, res.Options.SecondaryModel))
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
@@ -638,33 +641,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
-			// 只读沙箱下用统一判定先剔除修改类工具，防止带命名空间的
-			// MCP 修改类工具（如 mcp__server__write_file）被公布给模型。
-			specs = dropMutatingSpecs(res.Sandbox, specs)
-			if len(toolset.base.regs) == 0 {
-				return specs
-			}
-			filtered := toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
-			// 隐私策略：local-only 会完全保留 Web 工具。local-only 下的远程 base URL
-			// 属于硬错误，会在运行之前浮现。
-			blocked, perr := ApplyPrivacyPosture(res.Cfg.PrivacyMode, res.BaseURL, []string{"web_search", "web_fetch"})
-			if perr != nil {
-				return nil
-			}
-			if len(blocked) > 0 {
-				drop := make(map[string]bool, len(blocked))
-				for _, name := range blocked {
-					drop[name] = true
-				}
-				kept := filtered[:0]
-				for _, spec := range filtered {
-					if !drop[spec.Function.Name] {
-						kept = append(kept, spec)
-					}
-				}
-				return kept
-			}
-			return filtered
+			visible := filterVisibleSpecs(specs, res, toolset, policy)
+			// 精简目录（opt-in ARGENT_LAZY_TOOLS）：只公布核心工具 + tool_search，
+			// 其余工具由模型经 tool_search 按需发现。默认关闭时原样返回。
+			return tools.LazyFilterSpecs(visible)
 		},
 		Approve: approver,
 		Record:  agent.RecorderFunc(sess.Append),
@@ -953,6 +933,36 @@ func dropMutatingSpecs(mode security.SandboxMode, specs []llm.ToolSpec) []llm.To
 			continue
 		}
 		kept = append(kept, spec)
+	}
+	return kept
+}
+
+// filterVisibleSpecs 收窄向模型公布的工具目录：先按沙箱剔除修改类工具，
+// 再按策略与注册表可见性过滤，最后按隐私姿态移除被阻止的 Web 工具。
+// 这是 Execute 中 FilterSpecs 闭包的核心逻辑，拆成函数以便在末尾统一叠加
+// opt-in 的精简目录过滤（LazyFilterSpecs）。
+func filterVisibleSpecs(specs []llm.ToolSpec, res Resolved, toolset *toolset, policy *security.Policy) []llm.ToolSpec {
+	specs = dropMutatingSpecs(res.Sandbox, specs)
+	if len(toolset.base.regs) == 0 {
+		return specs
+	}
+	filtered := toolset.base.regs[0].FilterSpecs(policy, res.Sandbox, specs)
+	blocked, perr := ApplyPrivacyPosture(res.Cfg.PrivacyMode, res.BaseURL, []string{"web_search", "web_fetch"})
+	if perr != nil {
+		return nil
+	}
+	if len(blocked) == 0 {
+		return filtered
+	}
+	drop := make(map[string]bool, len(blocked))
+	for _, name := range blocked {
+		drop[name] = true
+	}
+	kept := filtered[:0]
+	for _, spec := range filtered {
+		if !drop[spec.Function.Name] {
+			kept = append(kept, spec)
+		}
 	}
 	return kept
 }
