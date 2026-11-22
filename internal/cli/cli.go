@@ -281,6 +281,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"skills":     runSkills,
 	"commands":   runCommands,
 	"hooks":      runHooks,
+	"plugin":     runPlugin,
 	"policy":     runPolicy,
 	"audit":      runAudit,
 	"update":     runUpdate,
@@ -306,7 +307,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 // parity_test 断言两者始终相同。
 var subcommandOrder = []string{
 	"sessions", "replay", "usage", "context", "doctor", "login", "logout", "auth",
-	"models", "mcp", "opt-ins", "skills", "commands", "hooks", "policy", "audit",
+	"models", "mcp", "opt-ins", "skills", "commands", "hooks", "plugin", "policy", "audit",
 	"update", "completion", "tui", "bug", "eval", "config",
 	"workflow", "telemetry", "attach", "logs", "jobs", "follow", "stop", "board",
 	"help", "version",
