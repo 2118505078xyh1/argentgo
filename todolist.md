@@ -60,12 +60,6 @@
 - **建议**：在 `internal/tools` 增加只读 `pty_run` 工具（或 bash 工具加 `tty:true`），经 pluginapi 注入构造子、由 app 负责 `pty.Start`；读循环必须串接 `queryFilter.Write/Flush` 后再进 UTF-8 carry 与 clip，复用 `proc.SanitizeEnv`；`Pty.Close/Wait` 与取消 ctx 绑定。
 - **验收**：`internal/app/pty_wire_test.go` 假 Pty 注入，喂 `ESC[6n` 后输出不含该序列，ctx 取消触发 Close；加守护测试 `TestPtyPackageHasProductionImporter`。
 
-### 37. `internal/commands` 补全/诊断纯函数未接线 `[P2/S]`
-- **现状**：`internal/commands/complete.go:33` 的 `CompleteCommands`、`complete_argument.go:33`、`complete_coordinator.go`、`diagnostics.go:52` 的 `DiagnoseCommands` 均为纯函数且有测试，但 app 侧无调用证据；CLI 的补全走自成一套的逻辑。
-- **问题**：slash 命令的参数补全与诊断能力写好不用，用户在 TUI 输入 `/commit ` 时得不到候选或错误提示。
-- **建议**：在 `internal/app/commands_wire.go`（或现有命令装配处）把 `CompleteCommands`/`DiagnoseCommands` 接到 TUI 输入完成回调与 CLI 的 `commands doctor`；保持默认无配置时行为不变。
-- **验收**：`go test ./internal/commands ./internal/app -run 'Complete|Diagnose' -count=1`；手工在 TUI 输入 `/` 后 Tab 出现候选。
-
 ---
 
 ## 四、模型/协议与召回（39–50）
