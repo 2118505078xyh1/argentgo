@@ -627,6 +627,24 @@ func (m *Model) renderBodyLocked(width int) []Line {
 	return out
 }
 
+// legibleBadgeStyle 在调色板配置了十六进制徽章配色、且颜色未被抑制时，
+// 用 LegibleInk 从原墨色与备选墨色中选出可读的墨色，并只替换 base 的
+// 前景；其余 SGR 属性原样保留。内置主题的 hex 字段为空，直接返回 base，
+// 因此随附主题的默认帧逐字节不变。颜色被抑制（--no-color / 降级终端）
+// 时同样返回 base，绝不泄漏新的 RGB 转义。
+func (m *Model) legibleBadgeStyle(base Style) Style {
+	if m.noColor || m.degraded || m.palette.BadgeBGHex == "" || m.palette.BadgeInkHex == "" {
+		return base
+	}
+	ink := LegibleInk(m.palette.BadgeBGHex, m.palette.BadgeInkHex, m.palette.BadgeAltInkHex)
+	r, g, b, ok := parseHexColor(ink)
+	if !ok {
+		return base
+	}
+	base.Fg = RGB(r, g, b)
+	return base
+}
+
 // renderEntryLocked 精确绘制一个记录块，包括其上的
 // 尝试徽章。
 func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
@@ -648,7 +666,7 @@ func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 			out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
 		}
 	case EntryNotice:
-		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.palette.warning())...)
+		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.legibleBadgeStyle(m.palette.warning()))...)
 	case EntryStats:
 		out = append(out, statLine(entry.Text, width, m.palette.dim()))
 	}
@@ -671,9 +689,10 @@ func (m *Model) attemptLinesLocked(entry Entry, width int) []Line {
 	if label == "attempt_"+string(entry.Attempt) {
 		label = string(entry.Attempt)
 	}
+	badgeStyle := m.legibleBadgeStyle(m.palette.warning())
 	line := NewLine()
-	line.Push("⟳ ", m.palette.warning())
-	line.Push(label, m.palette.warning())
+	line.Push("⟳ ", badgeStyle)
+	line.Push(label, badgeStyle)
 	if detail := collapseSpace(entry.Text); detail != "" {
 		line.Push(" · "+Clip(detail, maxInt(width-TextWidth(label)-8, 1)), m.palette.muted())
 	}

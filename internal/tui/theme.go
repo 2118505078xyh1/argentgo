@@ -35,6 +35,14 @@ type Palette struct {
 	Warning Color
 	Code    Color
 
+	// BadgeBGHex、BadgeInkHex、BadgeAltInkHex 是可选的徽章配色，
+	// 仅供非内置主题填充。三个字段任一为空即视为未配置：内置主题
+	// 全部留空，沿用上面的 SGR 角色走原路径，因此帧字节逐字不变。
+	// 配置后由 LegibleInk 在原墨色与备选墨色间选出可读的徽章墨色。
+	BadgeBGHex     string
+	BadgeInkHex    string
+	BadgeAltInkHex string
+
 	noColor bool // suppress even bold/dim; paired with Buffer.SetNoColor
 }
 
