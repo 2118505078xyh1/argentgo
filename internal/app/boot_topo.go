@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
@@ -61,12 +60,18 @@ func bootOrder(env func(string) string) error {
 	if !bootTopoEnabled(env) {
 		return nil
 	}
-	order, err := pluginapi.TopoSort(bootFeatures())
-	if err != nil {
+	features := bootFeatures()
+	// 三个原语都接到同一校验点：先校验依赖声明合法（重名/缺失/环），
+	// 再核对推导顺序与历史顺序逐项一致；漂移错误附 StableKey 稳定诊断。
+	if err := pluginapi.ValidateFeatureDeps(features); err != nil {
 		return fmt.Errorf("boot topology: %w", err)
 	}
-	if !slices.Equal(order, bootFeatureNames) {
-		return fmt.Errorf("%w: got %v, want %v", ErrBootTopoDrift, order, bootFeatureNames)
+	if err := pluginapi.ExpectedOrder(features, bootFeatureNames); err != nil {
+		keys := make([]string, 0, len(features))
+		for _, f := range features {
+			keys = append(keys, pluginapi.StableKey(f))
+		}
+		return fmt.Errorf("%w: %v (features: %v)", ErrBootTopoDrift, err, keys)
 	}
 	return nil
 }
