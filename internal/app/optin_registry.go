@@ -62,6 +62,10 @@ const (
 	// ARGENT_OPT_INS，无需改动 allOptInKeys 与 config 白名单的既有词汇表；
 	// 只由环境显式激活，默认关闭。
 	OptInCommandRisk OptInKey = "command_risk"
+	// OptInCodeGraph 控制是否启用自研 codegraph 索引与查询工具。
+	// 它默认关闭：未显式开启时不构建索引、不注册 codegraph_query、不注入系统提示，
+	// 系统提示与工具列表逐字节不变。索引与查询工具作为一个整体一起启用或关闭。
+	OptInCodeGraph OptInKey = "codegraph"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
@@ -81,6 +85,7 @@ var allOptInKeys = []OptInKey{
 	OptInToolErrorReflection,
 	OptInModelSummary,
 	OptInAutoVerify,
+	OptInCodeGraph,
 }
 
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名。

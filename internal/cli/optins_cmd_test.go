@@ -86,7 +86,7 @@ func TestOptInsTextOutput(t *testing.T) {
 }
 
 // TestOptInsJSONOutput 覆盖结构化输出：合法 JSON 数组、字段齐全，
-// 且 14 个集中式键与任务点名的独立门控全部在列。
+// 且 15 个集中式键与任务点名的独立门控全部在列。
 func TestOptInsJSONOutput(t *testing.T) {
 	env := map[string]string{
 		"ARGENT_OPT_INS":            "refusal_reason",
@@ -106,7 +106,7 @@ func TestOptInsJSONOutput(t *testing.T) {
 		"refusal_reason", "untrusted_result", "context_pressure", "untrusted_boundary",
 		"attempt_isolation", "compaction_fidelity", "keep_implicit_context",
 		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints",
-		"tool_error_reflection", "model_summary", "auto_verify",
+		"tool_error_reflection", "model_summary", "auto_verify", "codegraph",
 	}
 	for _, key := range centralized {
 		entry := findOptInByEnv(t, entries, key, optInEnvVar)

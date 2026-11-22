@@ -104,6 +104,9 @@ func wireOptInTools(registry *tools.Registry, reg *OptInRegistry) {
 	if reg.Enabled(OptInGrepEx) {
 		tools.RegisterGrepEx(registry)
 	}
+	if reg.Enabled(OptInCodeGraph) {
+		tools.RegisterCodeGraph(registry)
+	}
 }
 
 func newMultiRootTools(res Resolved, sess *session.Session, guard tools.Guard, usage *usageSource, reg *OptInRegistry) *multiRootTools {

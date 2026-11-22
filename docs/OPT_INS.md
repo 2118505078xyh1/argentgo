@@ -69,9 +69,9 @@ argentgo "你的任务"
 
 **当前状态**：`Execute` 的运行时装配面（`internal/app/app_execute.go`）读取 `ARGENT_OPT_INS` 与配置 `optins` 块的**并集**（`mergeOptIns(ParseOptInEnv(...), configOptIns(...))`）。两个入口都能真正在运行中打开开关：
 
-- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开集中注册表的全部 14 个键；此外它还能携带**双激活面**独立门的等价键（当前为 `jobs`，见第三节），所以「14 键」只是注册表自身的数量，并非该变量能接受的全部键。
-- 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 9 个键。
-- `optins` → app 运行时的映射交集（`configOptInKeyMap`，`app_config_optins.go:17-27`）只包含标注「配置可用」的 9 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity`、`auto_verify` 这 5 个键**只能**通过 `ARGENT_OPT_INS` 打开。
+- 入口 A：`ARGENT_OPT_INS` 环境变量，可打开集中注册表的全部 15 个键；此外它还能携带**双激活面**独立门的等价键（当前为 `jobs`，见第三节），所以「15 键」只是注册表自身的数量，并非该变量能接受的全部键。
+- 入口 B：配置文件 `optins` 块，可打开下面标注「配置可用」的 10 个键。
+- `optins` → app 运行时的映射交集（`configOptInKeyMap`，`app_config_optins.go:17-27`）只包含标注「配置可用」的 10 个键；`refusal_reason`、`untrusted_result`、`untrusted_boundary`、`compaction_fidelity`、`auto_verify` 这 5 个键**只能**通过 `ARGENT_OPT_INS` 打开。
 
 ### 两入口同时存在时
 
@@ -81,9 +81,9 @@ argentgo "你的任务"
 
 ## 二、集中注册表 opt-in 键（ARGENT_OPT_INS / optins 块）
 
-下表给出集中注册表（`internal/app/optin_registry.go`）的 14 个键。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
+下表给出集中注册表（`internal/app/optin_registry.go`）的 15 个键。默认状态全部为**关闭**；「配置可用」指该键是否落在 `configOptInKeyMap` 的交集内（不在交集的键只能用环境变量打开）。
 
-> 注意：这张表是**注册表**的全集，不是 `ARGENT_OPT_INS` 能接受的全部字符串。独立门 `jobs` 也接受 `ARGENT_OPT_INS=jobs`（双激活面），但它不在 14 键注册表内，故列在第三节。总开关数因此不能用「14」概括。
+> 注意：这张表是**注册表**的全集，不是 `ARGENT_OPT_INS` 能接受的全部字符串。独立门 `jobs` 也接受 `ARGENT_OPT_INS=jobs`（双激活面），但它不在 15 键注册表内，故列在第三节。总开关数因此不能用「15」概括。
 
 | # | 键名 | 中文标签 | 默认 | 配置可用 | 归类 |
 |---:|---|---|---|---|---|
@@ -101,6 +101,7 @@ argentgo "你的任务"
 | 12 | `tool_error_reflection` | 工具错误反射 | 关闭 | 是 | 交互 |
 | 13 | `model_summary` | 模型摘要 | 关闭 | 是 | 上下文 |
 | 14 | `auto_verify` | 自动验证 | 关闭 | 否 | 交互 |
+| 15 | `codegraph` | 代码图谱 | 关闭 | 是 | 交互 |
 
 ### 1. `refusal_reason`（拒绝理由）
 
@@ -212,15 +213,23 @@ argentgo "你的任务"
 
 - **作用**：编辑类工具成功后自动派生已有的验证诊断回环（Go 项目在无显式验证命令且工作区含 `go.mod` 时合成 `go test ./...`），把验证结论作为结构化诊断回灌给模型，帮助其自我修正。装配点为 `app_execute.go` 注入的 `hookedTools.autoDiagnostics` 与 `verifyFuncFor(..., auto)`（实现见 `internal/app/verify_wire.go`、`hooks.go`）。
 - **默认状态**：关闭。
-- **如何开启**：`export ARGENT_OPT_INS="auto_verify"`。该键**不在** `configOptInKeyMap`（`app_config_optins.go:17-27`）交集内，配置文件无法打开，**只能**通过 `ARGENT_OPT_INS` 开启。另注：doctor 中的 `ARGENT_EDIT_DIAGNOSTICS=1` 是另一条独立的编辑后诊断路径，与本 opt-in 做或运算，但它不属于本 14 键注册表。
+- **如何开启**：`export ARGENT_OPT_INS="auto_verify"`。该键**不在** `configOptInKeyMap`（`app_config_optins.go:17-27`）交集内，配置文件无法打开，**只能**通过 `ARGENT_OPT_INS` 开启。另注：doctor 中的 `ARGENT_EDIT_DIAGNOSTICS=1` 是另一条独立的编辑后诊断路径，与本 opt-in 做或运算，但它不属于本 15 键注册表。
 - **适用场景**：希望编辑后自动跑一遍验证、把失败信息即时回灌给模型做修正时。
 - **逐字节不变承诺**：未显式开启时 `autoDiagnostics` 为零值、`verifyFuncFor` 走原有分支，验证与诊断路径逐字节不变；即便开启，若无 `go.mod` 或未命中合成条件也回落到原有分支。
+
+### 15. `codegraph`（代码图谱）
+
+- **作用**：索引 + 查询工具作为一个整体一起启用——构建本地 Go 代码图谱，并向工具注册表注入只读的 `codegraph_query(name)`，可查询符号定义与引用位置（结果附源码位置与提取规则，便于核对证据链）。装配点为 `internal/app/app_codegraph_adapter.go` 的 `wireCodeGraph` / `toolset.SetCodeGraph`，工具注册在 `wireOptInTools`，系统提示追加在 `app_execute.go`。
+- **默认状态**：**关闭**。默认关时不构建索引、不注册 `codegraph_query`、不注入提示，系统提示/工具列表/事件流/JSONL **逐字节不变**。
+- **如何开启**：`export ARGENT_OPT_INS="codegraph"`，或在 `optins` 块中设 `"codegraph": true`。这是集中键而非独立环境变量。
+- **适用场景**：需要在大型 Go 仓库里定位符号定义与引用、且希望每条关系都带可解释来源（规则、置信度、源码行）时。索引为本地静态分析、只读，不联网。
+- **逐字节不变承诺**：未显式开启时零开销——不遍历工作区、不调用 `SetCodeGraph`、不改 `Specs()`。即便开启，若索引构建失败也只在 stderr 写一行 warn 并把工具降级为不可用，绝不崩溃或改变既有运行路径。
 
 ---
 
 ## 三、独立门控环境变量
 
-以下开关**不属于**集中注册表的 14 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。
+以下开关**不属于**集中注册表的 15 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 

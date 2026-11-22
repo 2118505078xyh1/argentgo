@@ -24,13 +24,14 @@ var configOptInKeyMap = map[string]OptInKey{
 	"preserve_summary_sections": OptInPreserveSummarySections,
 	"tool_error_reflection":     OptInToolErrorReflection,
 	"model_summary":             OptInModelSummary,
+	"codegraph":                 OptInCodeGraph,
 }
 
 // configOptIns 从配置原始映射读取 opt-in 开关，产出只含「交集」键的开关映射。
 // 它委托 config.ParseOptInDisplay 完成白名单过滤与 fail-closed 解析，因此：
 //   - raw 为 nil、缺 optins 块、块类型不符、键非布尔值时，对应开关均为 false；
 //   - 未知键（含 config 未来新增但 app 不认识的键）被忽略；
-//   - 返回的映射为每个交集键显式给值，无配置时是 8 键全 false 的映射。
+//   - 返回的映射为每个交集键显式给值，无配置时是 10 键全 false 的映射。
 //
 // 它是纯函数：不修改 raw 及其嵌套值，不读取全局状态，结果只由入参决定。
 func configOptIns(raw map[string]any) map[OptInKey]bool {

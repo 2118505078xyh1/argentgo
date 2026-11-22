@@ -33,7 +33,7 @@ type optInEntry struct {
 	Category    string `json:"category,omitempty"`
 }
 
-// centralizedOptInPurpose 给出 14 个集中式键的简短用途，补齐标签之外的说明。
+// centralizedOptInPurpose 给出 15 个集中式键的简短用途，补齐标签之外的说明。
 // 键集合以 config.ParseOptInDisplay 为准；这里只提供文案，不参与白名单判定。
 var centralizedOptInPurpose = map[string]string{
 	"apply_patch":               "启用结构化补丁工具行为",
@@ -50,6 +50,7 @@ var centralizedOptInPurpose = map[string]string{
 	"attempt_isolation":         "验证失败时把失败尝试分叉为旁支会话",
 	"untrusted_boundary":        "启用不可信内容边界标记",
 	"untrusted_result":          "把工具结果标记为不可信数据，降低提示注入风险",
+	"codegraph":                 "构建本地代码索引并提供符号定义与引用查询工具",
 }
 
 // runOptIns 实现 `argent opt-ins [--json]`。退出码约定与 doctor 一致：

@@ -51,6 +51,7 @@ var optInDefinitions = []optInDefinition{
 	{key: "tool_error_reflection", label: "工具错误反射", category: "交互"},
 	{key: "model_summary", label: "模型摘要", category: "上下文"},
 	{key: "auto_verify", label: "自动验证", category: "交互"},
+	{key: "codegraph", label: "代码图谱", category: "交互"},
 }
 
 // optInBool 把任意配置值收敛为布尔：只有类型为 bool 且值为 true 才视为开启，

@@ -694,6 +694,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if repoMapHintEnabled(stdio.Env) {
 		loop.Opts.System += "\n" + repoMapReadOnlyHint()
 	}
+	// codegraph opt-in（ARGENT_OPT_INS=codegraph）：默认关闭时不建索引、不注入工具，
+	// 系统提示/tool 列表逐字节不变。开启时提示模型可用 codegraph_query，并把本地
+	// 索引注入工具注册表；索引构建失败只写 warn 并降级为不可用，不影响本次运行。
+	if codeGraphHintEnabled(stdio.Env) {
+		loop.Opts.System += "\n" + codeGraphCapabilityHint()
+	}
+	wireCodeGraph(stdio, res.Root, toolset)
 	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
 	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
 	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。

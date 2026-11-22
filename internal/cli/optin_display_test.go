@@ -92,13 +92,13 @@ func TestFormatOptInsAllKnownKeys(t *testing.T) {
 	}
 }
 
-// TestKnownOptInKeysStable 锁定 cli 侧词汇表与 app 权威 14 键一致，防止新增键时
+// TestKnownOptInKeysStable 锁定 cli 侧词汇表与 app 权威 15 键一致，防止新增键时
 // 只改一处造成三处分叉。
 func TestKnownOptInKeysStable(t *testing.T) {
 	want := []string{
 		"refusal_reason", "untrusted_result", "context_pressure", "untrusted_boundary",
 		"attempt_isolation", "compaction_fidelity", "keep_implicit_context",
-		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints", "tool_error_reflection", "model_summary", "auto_verify",
+		"preserve_summary_sections", "apply_patch", "grep_ex", "cli_hints", "tool_error_reflection", "model_summary", "auto_verify", "codegraph",
 	}
 	if len(knownOptInKeys) != len(want) {
 		t.Fatalf("knownOptInKeys 键数 = %d, want %d: %v", len(knownOptInKeys), len(want), knownOptInKeys)

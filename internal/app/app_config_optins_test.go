@@ -21,9 +21,10 @@ var configOptInKeys = []OptInKey{
 	OptInPreserveSummarySections,
 	OptInToolErrorReflection,
 	OptInModelSummary,
+	OptInCodeGraph,
 }
 
-// configOptInWant 以「9 键全 false」为基线，仅把 on 中的键设为 true，
+// configOptInWant 以「10 键全 false」为基线，仅把 on 中的键设为 true，
 // 让表驱动用例只需声明「哪些配置开关应开启」。
 func configOptInWant(on ...OptInKey) map[OptInKey]bool {
 	m := make(map[OptInKey]bool, len(configOptInKeys))
@@ -36,8 +37,8 @@ func configOptInWant(on ...OptInKey) map[OptInKey]bool {
 	return m
 }
 
-// TestConfigOptInsAllKeysEnabled 覆盖交集内全部 9 键：嵌套 optins 块中显式 true
-// 时应全部开启，且结果恰好只含这 8 个键。
+// TestConfigOptInsAllKeysEnabled 覆盖交集内全部 10 键：嵌套 optins 块中显式 true
+// 时应全部开启，且结果恰好只含这 10 个键。
 func TestConfigOptInsAllKeysEnabled(t *testing.T) {
 	raw := map[string]any{"optins": map[string]any{
 		"cli_hints":                 true,
@@ -49,6 +50,7 @@ func TestConfigOptInsAllKeysEnabled(t *testing.T) {
 		"preserve_summary_sections": true,
 		"tool_error_reflection":     true,
 		"model_summary":             true,
+		"codegraph":                 true,
 	}}
 	got := configOptIns(raw)
 	want := configOptInWant(configOptInKeys...)
@@ -72,7 +74,7 @@ func TestConfigOptInsDirectForm(t *testing.T) {
 }
 
 // TestConfigOptInsDefaultClosed 覆盖默认关闭：nil、空映射、空块、块类型不符、
-// 非布尔值都不得开启任何开关，结果恒为 9 键全 false。
+// 非布尔值都不得开启任何开关，结果恒为 10 键全 false。
 func TestConfigOptInsDefaultClosed(t *testing.T) {
 	tests := []struct {
 		name string
