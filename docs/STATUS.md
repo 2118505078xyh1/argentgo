@@ -69,26 +69,33 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 原则：分数必须附证据；失败如实上报；客观天花板（真实社区/托管发布）如实标注，不靠本地代码凑分。
 
-### 最终评分表
+### 最终评分表（源码证据口径）
 
-| 维度 | 分数 | 证据 | 未满原因 |
-|---|---|---|---|
-| 可移植性/部署 | 10 | 5 平台 CGO_ENABLED=0 交叉编译矩阵（matrix.yml）；linux build 绿；R35/R37 的 DPAPI / CF_UNICODETEXT 均走 syscall 而非 cgo，交叉编译仍绿 | — |
-| 架构分层 | 10 | archguard arch_test.go 零违规；CI job 化 | — |
-| 安全性(架构) | 10 | 策略→审批→审计链；7 fuzz 目标真实跑；security-audit.ps1 PASSED 7 项；脱敏集成测试；R35 baseURL 来源追踪 fail-closed + Windows DPAPI 凭据加密 + read-only MCP 绕过修复，R37 分阶段审批状态机（失败即关闭） | — |
-| 核心引擎 | 10 | session 属性测试 + recovery fuzz（race 绿）；checkpoint 冲突检测；R20 起 session 5 处截断统一走 textutil 字簇边界吸附（保持 rune 预算、默认路径逐字节不变）；R35/R36 会话 rewind + 孤儿 tool_call 结算 + Anthropic 签名闭环 + 确定性循环检测，均有表驱动测试 | 无（字簇边界为 UAX#29 务实子集，非完整 Unicode 合规） |
-| 工程规范/CI | 9 | matrix.yml（5 平台）+ release.yml 强化 + flake-guard；5 平台本地交叉编译全过 | release workflow 未端到端验证（gh 不可用） |
-| 测试稳定性 | 9 | flake-guard 机制；tui ctrl+c flake 已根因修复（-count=10 race 通过）；R35 评测灵敏度自测（注入故障断言完成率下降）+ `eval compare` n<30 样本不足守卫防刷分 | 无长期 CI 运行数据 |
-| 文档 | 9 | TECHNICAL（API 参考 + 5 张 mermaid 图 + 架构 + LSP + 功能对齐）+ USER_GUIDE（安装/分发/快速上手）+ CONTRIBUTING（安全/CI）+ 中文 README；CAPABILITY_MATRIX 已回填 R33/R35/R36/R37 能力清单 | 非多语言（仅中英） |
-| IDE 集成 | 9 | 真实 gopls v0.24.0 端到端测试 PASS（Definition/DocumentSymbol/References 验证）；6 基础+3 进阶 LSP 方法；R24 新增 `gopls_advanced_test.go` 对 semantic/inlay/codeLens/resolve 的真实 server best-effort 结构化验证 | R24 已补真实 server best-effort 验证，但未做硬门禁（数量/RPC 错误只记日志），且仅验证 gopls 单一 server |
-| 编辑格式 | 9 | 真实路径 benchmark 21/21（tools.Registry.Run，exact/repair/hashline 各 100%） | 真实评测为 opt-in（`ARGENT_EVAL_LIVE` / `eval --live`），默认离线；需用真实模型跑批验证质量 |
-| 内存/记忆 | 9 | 端到端 4 场景（recall/reflect/learn/redaction/override）+ 抽取式综合 + grapheme clip | reflect 无模型综合 |
-| 工具广度 | 9 | 34 工具；checkpoint_diff/usage/history 集成测试；diff 工具；R37 工具输出头尾折叠 / todo 状态校验 / 文件新鲜度原语（opt-in、有测试） | 缺 omp 的 browser/DAP/TTS（skip-list） |
-| 编排 | 9 | 10 个端到端 eval 场景（`evals/orchestration.json`，真实 agent loop 驱动：委派/verify/background/board 等）；core.json 10 场景 + R24/R25 opt-in 真实模型完成率批处理；R36 后台 jobs 注册表接入生产路径（opt-in `ARGENT_JOBS`） | 无真实复杂生产任务验证 |
-| 生态分发 | 6 | go install + CI + scoop/choco/brew 清单 + 中文文档 | **客观天花板**：清单未发布、无真实社区/npm 渠道，本地代码无法达到 10 |
+本表由三个项目（argentgo / pi / omp）各自独立的源码取证得出：**只读 git tracked 代码，不采信 README 的自我声明**，逐维度区分"已实现 / 仅桩 / 无"。硬数据（行数、测试数）统一用 `git ls-files -z | xargs -0 wc -l` 复核——早期子代理给出的 pi 测试 95,596 行、omp 测试 90,294 行为漏统计，正确值分别为 360,816 与 1,119,502 行。
+
+| 维度 | argentgo | pi (rpi) | omp | 源码证据要点 |
+|---|:---:|:---:|:---:|---|
+| 上下文管理/可恢复性 | **9** | 8 | **9** | arg：`checkpoint.go` SHA-256 清单 + 冲突检测、`compact.go` 1097 行 + 归档、recovery fuzz；pi：`session-manager.ts` 2036 行 + `agent-session.ts` 4578 行有 branch/navigateTree/fork，但 CLI 不依赖 durable 栈；omp：compaction 2561 行 + TTSR + advisor + memory curation + git-based checkpoint。omp 附加能力最全，arg 回滚最精细 |
+| 工具/执行深度 | 8 | 6 | **10** | arg：35 工具 + 自研 shell（lexer/parser/interp）+ LSP 6 工具（注入前报不可用）；pi：**核心仅 8 工具**，无 LSP，subagent/plan 只在 `examples/extensions`（默认关闭）；omp：30+3 工具 + 12 个 Rust crate（shell 152rs/builtins 187rs/natives 105rs）+ LSP 22 文件 + DAP + 常驻 kernel + browser 50+ 文件 + ast_edit/hashline |
+| 安全边界 | **9** | 3 | 8 | arg：`chain.go` 策略→审批→审计 + 3 sandbox + 路径逃逸 4 轮解码 + 7 fuzz 目标 + 脱敏先于审计；pi：**文档明写无内置审批/沙箱**，permission-gate 仅 34 行示例；omp：`approval.ts` 960 行完整策略链 + security 20 文件 + redaction，但**无 OS 级沙箱** |
+| 模型/协议广度 | 8 | 9 | **10** | arg：3 协议真实实现 + 20 模板 + 12 别名；pi：10 种 KnownApi + 43~51 provider + 模型目录生成链 + OAuth；omp：99 provider + 261 个 KDL 规则 + 完整编译器 |
+| 交互界面 | 8 | 8 | **10** | arg：TUI 13,524 行 + MyGo 原生 GUI（无 WebView）；pi：TUI 20,269 行差速渲染 + 组件体系 + theme；omp：TUI 816 个 .ts + collab-web SolidJS + browser-relay Chrome 扩展 + kitty 图形协议 |
+| 部署/零依赖 | **10** | 6 | 4 | arg：核心 stdlib-only，mygo 仅 native/，无 cgo，5 平台交叉编译；pi：默认 Node 22 + ~20 外部依赖，但可 `bun build --compile` 单文件；omp：强依赖 Bun + Rust nightly + Bazel，musl 动态链接 libstdc++/libgcc |
+| 工程/测试纪律 | 9 | 9 | **9.5** | arg：1,265 测试文件/257,428 行（占 Go 63%）+ archguard 6 条分层规则 + 版本一致性门禁；pi：1,302 文件/360,816 行 + check 链 9 项 + 16 workflow + npm-audit（供应链最严）；omp：3,564 文件/1,119,502 行 + 7,442 个 Rust 测试注解 + ci.yml 63.7KB |
+| 生态/扩展 | 6 | **9.5** | **9.5** | arg：MCP/skills/hooks/commands 有实现，但**插件仅声明式 bundle，无代码执行/SDK/包管理**；pi：ExtensionAPI 完整（registerTool/provider + 30 种事件钩子）+ 18 skills + SDK + RPC + chord 70k 行独立栈；omp：marketplace + 5 子模块 + Go/Python/Rust 三套 RPC SDK + 8 种外部配置导入 |
+| 社区/治理/发布* | 4 | 8 | 8 | *部分无法从源码判定：arg 单人维护、release 未端到端验证；pi RFC + pr-gate/issue-gate + HF 数据集；omp Stencil Labs 商业背书 + Marketplace |
+| 性能/资源 | 9 | 8 | **9.5** | arg：25 bench + 大输出落盘/环形缓冲/哈希缓存，**无 pprof/GC 调优**；pi：bench 广泛 + profile-coding-agent-node.mjs 672 行 + 差速渲染；omp：68 bench + Rust in-process grep/glob/fd（绕过 fork/exec）+ 推测执行/预热 + profiling |
 
 ### 加权总分
-约 **8.9 / 10**（15 项：3 项满分 10，9 项 9 分，1 项 6 分）。R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 与 R39–R43 的已落地增量见下方小节与矩阵同名更新记录。分数维持 8.9：本轮能力属"补能力/补证据"而非新增扣分项，未触及客观天花板。
+
+| 口径 | argentgo | pi | omp |
+|---|:---:|:---:|:---:|
+| **等权平均** | **8.0** | 7.45 | **8.7** |
+| **按本项目优先级加权**（上下文20%/安全15%/工具15%/工程15%，其余各7%） | **8.85** | 7.74 | **8.96** |
+
+**与旧自评的差异（诚实说明）**：旧表给 argentgo 8.9、omp 8.5（基于文档声明）。源码取证后 omp 反超（8.7 / 8.96），原因是 omp 的工具深度、provider 广度、生态在代码里的实现规模比文档估计更实；而 argentgo 的三个折扣点被源码证实：`internal/agent/context_pressure.go` 纯原语未接线、LSP 工具在 app 注入前报告不可用、`internal/plugins/` 仅声明式 bundle（无代码执行/SDK/包管理）。按本项目优先级三者几乎打平（8.85 vs 8.96）——差距不在上下文/安全/工程，而在工具宽度与生态。
+
+R22–R26 新能力证据见 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 与 R39–R43 的已落地增量见下方小节与矩阵同名更新记录。
 
 ### R33–R37 已落地增量（已测试证据）
 
@@ -116,17 +123,20 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 - **可靠性加固（R43）**：server 四处 fire-and-forget goroutine 补 panic 恢复（不崩进程/不挂客户端，race-clean）；agent `callTool` panic 边界激活（panic 转普通工具错误）；JSONL `Close()` 加 fsync，干净退出不丢尾（崩溃恢复语义不变）。
 
 ### 客观天花板（诚实说明）
-- **生态分发 6**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。
-- 其余 9 分维度：差距在"真实环境验证"（真实模型、真实生产任务、长期 CI 数据），可继续用工程手段部分缩小，但完全消除需要真实运行环境。
+- **生态/扩展 6、社区/治理 4**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。
+- 其余 8 分维度：差距在"真实环境验证"（真实模型、真实生产任务、长期 CI 数据），可继续用工程手段部分缩小，但完全消除需要真实运行环境。
+- **无法从源码判定的项**：真实模型通过率、社区活跃度、长期 CI 稳定性、真实生产任务表现——不为这些凑分。
 
 ### Linux 已知降级（诚实说明）
 
-可移植性 10 分只反映**编译期**证据：`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` 与 5 平台 matrix 全绿；项目在本机 Windows 开发与实测，**未在真实 Linux 环境跑过运行时验收**（TUI、原生 GUI、凭据存取未做 Linux 实机端到端验证）。已知降级点：
+部署/零依赖 10 分只反映**编译期**证据：`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` 与 5 平台 matrix 全绿；项目在本机 Windows 开发与实测，**未在真实 Linux 环境跑过运行时验收**（TUI、原生 GUI、凭据存取未做 Linux 实机端到端验证）。已知降级点：
 
 - **凭据加密**：Windows 用 DPAPI（`crypt32.dll` syscall，零依赖无 cgo）按当前用户加密令牌；非 Windows 无 DPAPI 可用，`internal/auth/token_crypt_other.go` 原样返回明文，仅靠 token 文件 `0600` 权限隔离。
 - **TUI 剪贴板**：`CF_UNICODETEXT`（Win32 syscall）复制后端只在 Windows 实现（`internal/tui/clipboard_windows.go`）；非 Windows 的 `writeClipboard` 是空操作（`clipboard_other.go`），复制键无副作用。
 - **原生桌面 GUI**：Windows-only，`argentgo gui` 在非 Windows 上有显式守卫直接报错返回（`cmd/argent/gui.go` 的 `runtime.GOOS != "windows"` 分支）；发布包也只收 Windows/amd64。
 
-### 对比（严格口径）
-- rpi 约 8.2 / omp 约 8.5 / opencode 约 8.4（基于同类证据的诚实估计）
-- argentgo 8.9：在可移植性/安全/架构/测试证据上领先；在生态分发/真实模型评测上落后
+### 对比（源码证据口径）
+- **等权平均**：omp 8.7 > argentgo 8.0 > pi 7.45
+- **按本项目优先级加权**：omp 8.96 ≈ argentgo 8.85 > pi 7.74
+- argentgo 领先项：部署/零依赖（10 vs 6/4）、安全边界（9 vs 3/8）；持平项：上下文管理（9）、工程纪律（9）；落后项：工具深度、provider 广度、交互界面、生态/扩展、社区治理
+- pi 的"极简"是主动取舍：核心仅 8 工具、无 LSP/审批/沙箱，但 subagent/plan 在 `examples/extensions` 有完整实现（默认关闭）；其会话树与压缩实现强于"极简 harness"的印象，真正硬伤是安全（3 分）与 provider 数
