@@ -8,3 +8,5 @@ dist/
 argent-native.exe~
 *.out
 coverage.out
+# 运行时生成的会话记录（JSONL + append.lock），不是源码
+internal/app/sessions/
