@@ -295,6 +295,10 @@ func progressHintText(p session.Progress) string {
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
+	// 循环检测开关（opt-in ARGENT_LOOP_DETECTION）：每次运行都按本次 env 显式设置，
+	// 使进程级原子开关不受上次运行残留影响；默认关闭时零副作用。
+	configureLoopDetection(stdio.Env)
+
 	// 在下方追加 review/context/动态上下文前缀之前，先保留调用方自己的原文。
 	// 预算声明必须只来自用户：出现在注入前缀中的 "+500k" 不算声明。
 	rawPrompt := prompt

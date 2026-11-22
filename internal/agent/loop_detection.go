@@ -7,8 +7,8 @@ import (
 )
 
 // 循环检测的进程级 opt-in 开关。默认关闭：不改动既有运行循环的任何行为，
-// 与历史会话记录逐字节一致。本原语只提供纯函数与开关，刻意不接入 loop.go——
-// 接线由装配层/主会话统一完成，避免多处改动产生冲突。
+// 与历史会话记录逐字节一致。检测在 loop.go 的每个工具批次后调用；开关由
+// 装配层 internal/app 通过 ARGENT_LOOP_DETECTION 接线（见 loop_detection_wire.go）。
 var loopDetection atomic.Bool
 
 // SetLoopDetection 打开或关闭工具调用循环检测。
@@ -20,6 +20,12 @@ func SetLoopDetection(enabled bool) {
 // loopDetectionEnabled 报告当前是否启用了工具调用循环检测。
 func loopDetectionEnabled() bool {
 	return loopDetection.Load()
+}
+
+// LoopDetectionEnabled 是 loopDetectionEnabled 的导出只读版本，
+// 供装配层验证本次运行的 opt-in 开关是否按 env 生效。
+func LoopDetectionEnabled() bool {
+	return loopDetectionEnabled()
 }
 
 // 参数钳制默认值：仅当调用方传入非正数时生效。

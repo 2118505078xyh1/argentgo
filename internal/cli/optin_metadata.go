@@ -101,6 +101,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "output_spill_threshold", Env: "ARGENT_OUTPUT_SPILL_THRESHOLD", Name: "超大输出字节阈值", Enable: "正整数", Desc: "覆盖超大输出的落盘阈值。"},
 	{Key: "todo_strict", Env: "ARGENT_TODO_STRICT", Name: "todo 严格状态校验", Enable: "真值", Desc: "写入前用 ValidateTodoState 校验状态集，关闭时写路径逐字节不变。"},
 	{Key: "cache_warm", Env: "ARGENT_CACHE_WARM", Name: "提示缓存保活", Enable: "=1", Desc: "开启提示缓存保活（cache warmer）。"},
+	{Key: "loop_detection", Env: "ARGENT_LOOP_DETECTION", Name: "工具调用循环检测", Enable: "真值（1/true/yes/on）", Desc: "按调用签名检测重复循环，命中时注入纠正提示而非硬停（迁移自 killi repeat breaker）。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

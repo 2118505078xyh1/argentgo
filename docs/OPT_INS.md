@@ -551,6 +551,7 @@ argentgo "你的任务"
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
+| `ARGENT_LOOP_DETECTION` | 真值时按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；默认关闭时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
 | `ARGENT_CONFIG_SHADOW_CHECK` | 配置遮蔽来源告警输出。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |
