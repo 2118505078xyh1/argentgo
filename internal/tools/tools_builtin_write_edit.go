@@ -74,6 +74,9 @@ func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
 	}
+	if warning := verifyWriteDrift(path, final); warning != "" {
+		result += "\n" + warning
+	}
 	if f := FileFreshnessFrom(ctx); f != nil {
 		f.MarkWrite(path)
 	}
@@ -215,6 +218,9 @@ func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 	}
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
+	}
+	if warning := verifyWriteDrift(path, final); warning != "" {
+		result += "\n" + warning
 	}
 	if f := FileFreshnessFrom(ctx); f != nil {
 		f.MarkWrite(path)

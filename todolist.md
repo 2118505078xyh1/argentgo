@@ -140,18 +140,6 @@
 - **建议**：把不依赖 `mygo.App.Run` 的纯逻辑测试（error_notice/nav_panel/event_bridge 解码/approval_answer）提升为日常快验证子集，在 `AGENTS.md:30-34` 加快验证命令；仅 bridge_race 与需窗口用例留在发版门禁。
 - **验收**：`go test -p 4 ./native -run 'TestEngineError|TestNavPanel|TestDecode|TestApprovalAnswer' -count=1` 在无 GPU CI 上 10 次全绿且 <10s；AGENTS.md 出现该命令。
 
-### 55. 键位别名层已实现但不可配置 `[P2/M]`
-- **现状**：`internal/tui/keymap.go:8-12` 自述「未来可选接入的键位映射层」，`resolveBinding`:27/`addAlias`:53/`mergeAliases`:70 支持大小写折叠、CJK 别名、歧义字典序，但仅测试引用；实际分派硬编码在 `model_input.go handleKeyLocked`，无配置入口；`keys.go:16-70` Kind 枚举与 `locale.go:37/96` help 文本需手工同步。
-- **问题**：vim/IDE 习惯（j/k 滚动、Ctrl+/ 折叠）无法适配；中文别名等能力空转；改一键要改多处。
-- **建议**：新增 `binding_resolver.go`：默认 aliases 表由 resolveBinding/addAlias 合并配置层（沿用 internal/config 的 env/flag 注入）；`handleKeyLocked` 入口加「原始键串→别名→动作名」旁路，仅对未覆盖组合生效，保持逐帧字节不变；help 文本改由 `ShortHelp(bindings,...)` 生成消除手工同步。
-- **验收**：`resolveBinding("k",aliases)=="scroll_up"` 且经 handleKeyLocked 触发滚动；配置 `{"scroll_up":["K"]}` 后大写 K 生效；无配置时 Frame 逐字节一致。
-
-### 56. `ShortHelp`/`HintBindings` 未接线，底部按键栏恒空且 `/help` 单条长串 `[P2/S]`
-- **现状**：`render.go:1206-1212 hintLine` 按用户决定恒返回空行，`:127 hintY` 仍保留行位；`keys.go:431 KeyBinding`/`:447 HintBindings`/`:480 ShortHelp` 实现逐项 Enabled、宽度感知、整条丢弃+省略号、CJK 安全，但仅测试引用；`model_input.go:548` 的 `/help` 把 `locale.go:37/96` 一整条 ~50 项长串塞进一行 notice。
-- **问题**：首次用 TUI 无任何按键线索；`/help` 输出不可换行/不可按状态裁剪的超长行，窄终端只读开头；结构化帮助渲染器闲置。
-- **建议**：保留默认帧无提示的决定，但把 `/help` 改结构化：`HintBindings(help text)`→按当前 UI 状态设 Enabled→`ShortHelp(bindings,width,TextWidth)` 分多行 notice（每行 ≤ 终端宽，复用 `screen.go:354 Wrap`）；补充生产路径测试消除「仅测试使用」。
-- **验收**：`help_test.go` 断言 `/help` notice 行数 ≥2、每行 `TextWidth≤100`、窄宽无半个按键被切断；默认帧仍不含 `"enter send"`（hint_removed_test.go 必须通过）。
-
 ### 57. WCAG 对比度原语未接入徽章渲染 `[P2/M]`
 - **现状**：`internal/tui/contrast.go:87-138` 的 `contrast`/`ContrastRatio`/`LegibleInk` 完整实现（#rgb/#rrggbb 解析、sRGB 线性化、3:1 阈值、无效输入保守返回 0），注释明确「尚未接入徽章渲染器」并给出方案；仅测试引用；`theme.go:23-39 Palette` 全为 SGR 字符串，无 hex 角色。
 - **问题**：新增非内置主题时徽章前景/背景对比度无人校验，低对比组合在深色/高亮终端不可读；成熟辅助函数白写。

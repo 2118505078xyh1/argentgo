@@ -555,6 +555,7 @@ argentgo "你的任务"
 | `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
 | `ARGENT_APPROVAL_PREVIEW` | =1 时写类工具的审批提示附带 `+N/-M` 行数摘要；不改变审批判定，默认关闭时提示逐字节不变。 |
 | `ARGENT_MCP_OUTPUT_LIMIT_BYTES` | 正整数字节时单次 MCP 输出超限保留头尾并附恢复标记；缺省 0 时保持旧行为，逐字节不变。 |
+| `ARGENT_VERIFY_WRITE` | =1 时写入后重读文件比对实际字节，漂移时附按落盘字节重算的 hashline 锚点警告；默认关闭时零额外读取，结果逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

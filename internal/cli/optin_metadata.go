@@ -78,6 +78,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "parse_regression_guard", Env: "ARGENT_PARSE_REGRESSION_GUARD", Name: "编辑语法劣化检查", Enable: "=1", Desc: "edit/write/apply_patch 在写入前用 go/parser 检查：原本合法的 .go 文件若改后语法错误则拒绝；默认关闭时不检查，写入逐字节不变。"},
 	{Key: "approval_preview", Env: "ARGENT_APPROVAL_PREVIEW", Name: "审批差异预览", Enable: "=1", Desc: "写类工具的审批提示附带 +N/-M 行数摘要，帮助判断改动内容；不改变审批判定，默认关闭时提示逐字节不变。"},
 	{Key: "mcp_output_limit", Env: "ARGENT_MCP_OUTPUT_LIMIT_BYTES", Name: "MCP 输出硬上限", Enable: "正整数字节（缺省 0 禁用）", Desc: "单次 MCP 调用输出超过上限时保留头尾并附恢复标记，防止话痨服务器淹没上下文；默认 0 时行为不变。"},
+	{Key: "verify_write", Env: "ARGENT_VERIFY_WRITE", Name: "写后漂移校验", Enable: "=1", Desc: "写入后重读文件比对实际字节，漂移时附按落盘字节重算的 hashline 锚点警告；默认关闭时零额外读取，结果逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

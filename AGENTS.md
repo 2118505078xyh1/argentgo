@@ -28,8 +28,8 @@ gofmt -l .                               # must print nothing
 基准测试也是测试：其断言在 `go test` 下运行，所以即使 CI 从不计时，过时的断言也会让构建失败。只要改动 session/agent/tools 的热路径，就跑一遍 smoke 测试。
 
 **验证频率分层**（机器 24 核，避免每轮都跑慢门禁）：
-- **每轮必跑（快）**：`gofmt -l .`（必须空）、`go vet ./...`、`go test -p 4 ./... -count=1`。`-p 4` 是标准并行度；这三步能抓绝大多数回归。
-- **只在发版门禁跑（慢）**：`go test -race ./...`、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`、native 包测试。日常迭代一律不跑慢验证——race 插桩后 3-5 分钟、native 偶发 GPU 挂起，收益不抵耗时；它们只作为发版前的全量把关。
+- **每轮必跑（快）**：`gofmt -l .`（必须空）、`go vet ./...`、`go test -p 4 ./... -count=1`，外加 native 纯逻辑子集 `go test -p 4 ./native -run 'TestEngineError|TestNavPanel|TestDecode|TestApprovalAnswer' -count=1`（无需 GPU 窗口，数秒内完成）。`-p 4` 是标准并行度；这几步能抓绝大多数回归。
+- **只在发版门禁跑（慢）**：`go test -race ./...`、`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`、native 全量测试（含需真实窗口的用例）。日常迭代一律不跑慢验证——race 插桩后 3-5 分钟、native 偶发 GPU 挂起，收益不抵耗时；它们只作为发版前的全量把关。
 - **接线改动（改 tracked 接线点）时**：若怀疑并发回归，可临时单独 race 受影响包（如 `go test -race ./internal/agent`），但非必须。
 - **假失败判定**：全量 test 偶发红（同秒时间戳排序、hook shell 超时）先单独重跑 3 次；全绿即假失败，稳定红才是真回归。仅在确认假失败时临时降低 `-p`。
 
