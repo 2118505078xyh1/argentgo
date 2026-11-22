@@ -75,7 +75,11 @@ func (t *fakeTools) run(name, arguments string) string {
 		// 修改类工具总是先通过审批门。
 		t.asked = append(t.asked, name+":"+args.Path)
 		if !t.approve {
-			return fmt.Sprintf("error: the user denied the %s to %q", name, args.Path)
+			// 与真实安全链的 StopError{Refused} 对齐：拒绝文本必须携带同样的终结语句，
+			// 使 core.json 的审批否决场景在假循环与真实 evaler 下都拿到相同的回注文本。
+			return fmt.Sprintf("error: security: the %s tool call was refused by the operator: "+
+				"the operator refused the tool call. This block is intentional and final, "+
+				"not a transient error. Do not retry it or reach the same outcome another way.", name)
 		}
 		if name == "write" {
 			target := t.path(args.Path)
@@ -228,8 +232,8 @@ func loadCore(t *testing.T) []Scenario {
 
 func TestCoreSuitePassesThroughTheFakeLoop(t *testing.T) {
 	scenarios := loadCore(t)
-	if len(scenarios) != 10 {
-		t.Fatalf("core.json holds %d scenarios, want 10", len(scenarios))
+	if len(scenarios) != 11 {
+		t.Fatalf("core.json holds %d scenarios, want 11", len(scenarios))
 	}
 
 	var out bytes.Buffer
@@ -237,12 +241,12 @@ func TestCoreSuitePassesThroughTheFakeLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	if report.Passed != 10 || report.Failed != 0 {
+	if report.Passed != 11 || report.Failed != 0 {
 		t.Fatalf("report = %d passed, %d failed\n%s", report.Passed, report.Failed, out.String())
 	}
 
 	text := out.String()
-	for _, want := range []string{"1..10", "ok 1 - answers a simple question", "ok 8 - the turn limit ends a run that never stops"} {
+	for _, want := range []string{"1..11", "ok 1 - answers a simple question", "ok 8 - the turn limit ends a run that never stops", "ok 11 - approval denial returns a readable final error"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report misses %q:\n%s", want, text)
 		}

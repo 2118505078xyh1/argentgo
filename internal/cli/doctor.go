@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/2118505078xyh1/argentgo/internal/i18n"
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 	"github.com/2118505078xyh1/argentgo/internal/security"
@@ -85,11 +86,12 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	// baseURL 告警独立于常规检查：它只读取配置文件（项目级配置可能来自
 	// 未信任来源），不访问网络，也不改变既有检查集合与输出前缀。
-	// 配置注入与会话健康告警走同一条 issues 旁路：只报告风险，不新增
-	// check、不计数、不改变退出码，因此无风险时输出逐字节不变。
+	// 配置注入、会话健康与 i18n 翻译完整性告警走同一条 issues 旁路：
+	// 只报告风险，不新增 check、不计数、不改变退出码，因此无风险时输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
 	issues = append(issues, doctorConfigInjectionIssues(app)...)
 	issues = append(issues, doctorSessionHealthIssues(app)...)
+	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
 	if opts.asJSON {
@@ -431,6 +433,24 @@ func writeDoctorIssues(w io.Writer, issues []doctorIssue) {
 	for _, issue := range issues {
 		fmt.Fprintf(w, "  %-4s %-9s %s\n", issue.Level, issue.Name, redactDoctorDetail(issue.Message))
 	}
+}
+
+// doctorI18nIssues 把 i18n 翻译完整性审计结果映射为 warn 级 issue。
+//
+// 选择 issues 旁路而非新增 doctorCheck：文本与 JSON 的 golden 都锁定"恰好
+// 9 个 check"，加 check 会破坏它们并改变退出码语义。审计通过时返回 nil，
+// 健康仓库上的 doctor 输出逐字节不变；审计不通过时只追加一条告警，仍不
+// 计入 failures、也不改变退出码。参数化审计结果使两态都能表驱动覆盖，
+// 真实路径传入纯函数 i18n.FullAudit()。
+func doctorI18nIssues(report i18n.AuditReport) []doctorIssue {
+	if report.OK {
+		return nil
+	}
+	return []doctorIssue{{
+		Name:    "i18n",
+		Level:   statusWarn,
+		Message: redactDoctorDetail(report.Summary()),
+	}}
 }
 
 // mcpConfigReport 汇总已配置 mcpServers 小节的完整性。servers 统计运行时

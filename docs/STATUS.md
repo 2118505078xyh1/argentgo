@@ -119,6 +119,14 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 - **生态分发 6**：达到 10 需要真实发布运营（npm 包、官网、Discord 社区、包管理器仓库收录），这些不是本地代码能实现的，需要用户实际发布和运营。
 - 其余 9 分维度：差距在"真实环境验证"（真实模型、真实生产任务、长期 CI 数据），可继续用工程手段部分缩小，但完全消除需要真实运行环境。
 
+### Linux 已知降级（诚实说明）
+
+可移植性 10 分只反映**编译期**证据：`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` 与 5 平台 matrix 全绿；项目在本机 Windows 开发与实测，**未在真实 Linux 环境跑过运行时验收**（TUI、原生 GUI、凭据存取未做 Linux 实机端到端验证）。已知降级点：
+
+- **凭据加密**：Windows 用 DPAPI（`crypt32.dll` syscall，零依赖无 cgo）按当前用户加密令牌；非 Windows 无 DPAPI 可用，`internal/auth/token_crypt_other.go` 原样返回明文，仅靠 token 文件 `0600` 权限隔离。
+- **TUI 剪贴板**：`CF_UNICODETEXT`（Win32 syscall）复制后端只在 Windows 实现（`internal/tui/clipboard_windows.go`）；非 Windows 的 `writeClipboard` 是空操作（`clipboard_other.go`），复制键无副作用。
+- **原生桌面 GUI**：Windows-only，`argentgo gui` 在非 Windows 上有显式守卫直接报错返回（`cmd/argent/gui.go` 的 `runtime.GOOS != "windows"` 分支）；发布包也只收 Windows/amd64。
+
 ### 对比（严格口径）
 - rpi 约 8.2 / omp 约 8.5 / opencode 约 8.4（基于同类证据的诚实估计）
 - argentgo 8.9：在可移植性/安全/架构/测试证据上领先；在生态分发/真实模型评测上落后
