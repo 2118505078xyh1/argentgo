@@ -176,12 +176,6 @@
 
 ## 八、性能 / 资源 / 可观测（94–99）
 
-### 97. 输出落盘默认关闭，清理只按时间、无磁盘容量上限 `[P1/M]`
-- **现状**：`internal/app/output_spill_wire.go:70-72` 在 ARGENT_OUTPUT_SPILL 未设置时直接返回原 ctx（默认禁用），:85 只在启用时做一次 CleanSpillArtifacts；`tools/output_spill_retention.go:13 DefaultSpillRetention=7*24h`、:29-53 仅按 mtime 删除无总字节阈值；`output_spill.go:257-294 writeSpillArtifact` 每次 O_EXCL 新建无容量反馈；`output_spill.go:14-16` 注释仍写「尚未接入工具执行循环」与 tools_clip.go:13 的实际接线矛盾。
-- **问题**：默认路径下超 40KB 的工具输出直接 clip 且丢失字节不可恢复；启用后短时间大量大输出在 7 天内持续占用 artifacts，无容量闸门，批量任务可打满磁盘；陈旧注释误导维护者。
-- **建议**：① 更新 output_spill.go:14-16 注释。② 给 CleanSpillArtifacts 加可选 maxBytes（或新增 TrimSpillArtifacts(dir,maxBytes)），按 mtime 升序累计超限即删，返回 removed/freed；configureOutputSpill 读新 env ARGENT_OUTPUT_SPILL_MAX_BYTES（默认 512MiB）并调用。③ writeSpillArtifact 写前用目录累计大小快检，超限退化为不带链接的截断（formatSpillMarker(omitted,"")，:245 已支持）。
-- **验收**：`TestTrimSpillArtifactsByTotalBytes`（造 10 小工件 + 上限断言 oldest 被删）；`TestDefaultSpillDisabledAndEnabled`（env 两路径产物有无符合预期）。
-
 ---
 
 ## 九、竞品源码深读新增（101–135）
@@ -220,13 +214,6 @@
 - **问题**：格式化钩子或编辑器保存改变了最终字节时，模型看到的 diff 与实际落盘不一致，后续 anchor/hashline 基于错误快照。
 - **建议**：opt-in `ARGENT_VERIFY_WRITE=1`：写后 `os.ReadFile` 比较预期字节，漂移则返回结构化警告 + 用 `hashlineHash`（`tools_builtin_write_edit.go:207-214`）重算的新 anchor；同时把 `FileFreshness` 接进 read/write 路径（见 #124）。默认零额外 syscall。
 - **验收**：`internal/tools/write_drift_test.go`：注入会改写字节的 FormatHook，断言结果含新 anchor 与警告；无 hook 时不产生额外读取；`go test ./internal/tools -count=1`。
-
-### 119. MCP 输出限制非默认、阈值过高（200KiB vs 20KiB）`[P1/S-M]`（学自 pi-mono）
-- **竞品证据**：`pi-mono/packages/mcp/src/output-limit.ts:9,28-60`：`MCP_OUTPUT_MAX_BYTES = 20*1024`，超限时 head/tail 保留、UTF-8 字符边界、附原始 token/行数与 `[Full output: <path>]`；`extensions/mcp/tools.ts:217-233` 与 `resources.ts:184,326` 在结果转换处无条件调用。
-- **argentgo 现状**：`internal/mcp/spill.go:34-100` 需 `ARGENT_MCP_SPILL_DIR` + 可选 `ARGENT_MCP_SPILL_THRESHOLD`，默认阈值 `200<<10`（200KiB）且未配置目录时**完全不溢出**（`mcp.go:610-612`），一个话痨 MCP server 可直接淹没上下文。
-- **问题**：单次 MCP 调用 30–100KiB 很常见，当前默认路径毫无保护。
-- **建议**：项目默认路径逐字节不变是承诺，所以不直接改默认值；新增 opt-in `ARGENT_MCP_OUTPUT_LIMIT_BYTES`（默认 0 = 旧行为）提供与 pi 同形的 20KiB 风格 head/tail 截断与恢复路径，注册进 `optin_metadata.go`。
-- **验收**：`internal/mcp/output_limit_test.go`：设置后 30KiB 输出被截到 20KiB 以内且含恢复标记；默认零配置时与旧 golden 逐字节一致；`go test ./internal/mcp -count=1`。
 
 ### 120. 统一 exec 会话：`session_id`/`write_stdin`/`yield_time_ms`/TTY `[P1/L]`（学自 codex）
 - **竞品证据**：codex `core/src/tools/handlers/unified_exec.rs:67-91` 定义 `ExecCommandArgs`（`tty`、默认 `yield_time_ms=10s`（`:113`）、`max_output_tokens`、per-call `sandbox_permissions`、`prefix_rule`）；`:30-55` 暴露 `session_id`，`:117` `write_stdin` 默认 250ms；`core/src/unified_exec/mod.rs:75-76` 输出封顶 1MiB/256K token；`process_manager.rs:105` 限制 stdin 写入 8000 字节。
@@ -276,13 +263,6 @@
 - **问题**：MCP/插件工具无法声明「此调用只读某目录」之类细粒度权限。
 - **建议**：不碰 OS 沙箱，在工具层把 `sandbox_execution.go` 现有描述升级为可传入 per-call profile：`internal/security/policy.go` 加 `CheckWith(ctx, name, args, profile)`，MCP/插件经 hook 注入可选 profile；保持 `Check` 原路径不变。
 - **验收**：`internal/security/per_call_profile_test.go`：per-call deny 优先于全局 write、只读 profile 拒绝修改类工具；默认 `Check` 行为不变；`go test ./internal/security -count=1`。
-
-### 131. 写操作审批携带 diff 预览与资源级授权 `[P1/M]`（学自 opencode）
-- **竞品证据**：opencode `core/src/tool/plugin/edit.ts:328-344` 在 authorize 前生成 `fileDiff` 并传给 `FileWrite.authorize`；`core/src/file-write.ts:62-80` 分域检查 `external_directory` 与 `assert({action:"edit", resources, metadata:{files:[preview]}})`；找不到 oldString 时读文件内容还要先 `allows({action:"read"})`。
-- **argentgo 现状**：`internal/security/chain.go:357-373` 只把改写后的参数 JSON 交给 `PromptApprover.Ask`（`approver.go:49-66` 打印 `Allow <name> <args>?`），没有 diff；策略只有 tool/path/command 三维（`policy.go:58-92`），无 action/resource 分域；分阶段审批能展示 scope 摘要（`chain.go:421-497`）但不展示内容差异。
-- **问题**：文件编辑审批近乎「盲批」——native 审批卡 diff 已落地（`native/approval_diff.go`），但 CLI/文本审批器仍无 diff。
-- **建议**：opt-in 让 Chain 接受 `Preview(ctx,tool,args) (diff,error)` 回调，审批提示附加脱敏 diff 摘要（复用 `clipApprovalFeedback` 限长）；不改变审批判定逻辑。
-- **验收**：`internal/security/approval_preview_test.go`：write 工具审批文本包含 `+N/-M` 摘要；无 Preview 时文本逐字节不变；`go test ./internal/security ./internal/app -count=1`。
 
 ### 132. pluginapi 工具可选 OutputSchema 校验 `[P2/M]`（学自 opencode）
 - **竞品证据**：opencode `core/src/tool/runtime.ts:27-38` 从 input/output schema 生成 ToolDefinition，`:40-74` 执行后校验输出 schema，`:44-57` 把插件异常统一成 `Tool.Error`；`codemode/src/language/runtime/limits.ts:6-21` 给脚本编排加字符串/数组/深度上限。
