@@ -14,6 +14,7 @@ var toolTimeouts = map[string]struct{ Def, Min, Max time.Duration }{
 	"fetch":      {20 * time.Second, time.Second, 45 * time.Second},
 	"web_search": {20 * time.Second, time.Second, 45 * time.Second},
 	"git_status": {20 * time.Second, time.Second, 60 * time.Second},
+	"worktree":   {30 * time.Second, time.Second, 120 * time.Second},
 }
 
 // maxTimeoutKey 把注册表级别的超时上限带入工具调用。
