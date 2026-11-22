@@ -112,12 +112,6 @@
 
 ## 四、模型/协议与召回（39–50）
 
-### 43. 模板字段 `CacheSupport` 是死数据，缓存决策与模板声明脱节 `[P1/M]`
-- **现状**：`internal/provider/templates.go:38-40` 定义字段，仅 57/67/122（anthropic/openai/xai）置 true；全仓唯一读取在 `capability_test.go:27,32`；生产缓存判定在 `llm/options.go:119-134`，只看协议与本地端点，不看模板。
-- **问题**：声明「不支持缓存」的 provider（deepseek/qwen/openrouter 等）只要用 Responses/Anthropic 协议且非回环地址，仍被打缓存标记并发送 `prompt_cache_key`/`cache_control`；兼容性差的网关可能报错。
-- **建议**：在 `app_resolve.go:268-270` 构造 `wireOpts` 时传 `template.CacheSupport`：为 false 且未 ForcePromptCache 且用户未选 cacheTier 时设 `NoPromptCache=true`；`ForcePromptCache` 最高优先级；扩展 `resolveCacheOptions` 签名接收 `supportsCache bool`。
-- **验收**：`internal/app/cache_template_wire_test.go`：解析 deepseek/qwen 时请求不含 cache_control/prompt_cache_key，openai/xai 仍含；`--force-prompt-cache` 可覆盖。
-
 ### 49. 模型策略规则化：窗口/限制/怪癖下沉为数据 `[P2/M]`（学自 oh-my-pi catalog）
 - **竞品证据**：`oh-my-pi/packages/catalog/src/compat/resolve.ts` 的 `resolveModelPolicy`:1371、`context-window.ts`、`prompt-cache-lookback.ts`；261 条 KDL 规则编译为 rules.json。
 - **现状/缺口**：`internal/provider/templates.go`、`context_window.go`、`capability_profile.go`、`thinking.go` 把窗口/能力/推理预算写成 Go 常量；新增长尾模型要改代码重编译，没有「精确 id > 族 > 默认」优先级与冲突检测。
@@ -174,12 +168,6 @@
 - **建议**：复用 `internal/server` 已有的 stdlib JSON-RPC/stdio 新增 `hookServer` 配置：一个常驻外部进程声明订阅事件列表，事件到达发 `event` 通知，可返回 `additionalContext`/`verdict`（沿用 exit-2 fail-closed 或 warn-only）；不引入 Go plugin（避免 cgo），单二进制与零依赖不变。
 - **验收**：常驻进程一次会话只启动一次、收到 ≥3 类事件；verdict 能阻断工具且 stdout 不污染协议；进程崩溃后自动降级为无扩展主循环继续；默认无配置时字节不变。
 
-### 73. `Spec.ToolCacheTTL`/`Spec.HealthTracking` 两字段 app 侧从未设置 `[P2/S]`
-- **现状**：`internal/mcp/mcp.go:38-90 Spec` 定义 `ToolCacheTTL` 与 `HealthTracking`，前者仅 `ListTools`:303 在 >0 时启用 TTL 缓存，后者仅 :210 挂接 HealthTracker；`app/mcp.go:344-357 wirePlugins` 与 :363 connect 均不设置这两个字段（零值）。
-- **问题**：TTL 缓存与健康追踪这两项已实现能力因配置未注入而全局禁用，与 #62/#65 的通知/输出缺口叠加后，MCP 运行时可观测性与效率双双为零。
-- **建议**：在 app 的 MCP 配置解析/合并层为这两个字段提供显式来源（配置文件字段 + env 覆盖 + 合理默认），或至少经 opt-in 注册表暴露开关；注册进 `OPT_INS.md` 与漂移守卫，避免「有字段无来源」再次发生。
-- **验收**：`grep -rn 'ToolCacheTTL\|HealthTracking' internal/app` 至少各 1 条生产赋值；`go test ./internal/mcp -run 'TestToolCache|TestHealthTracking' -count=1`。
-
 ---
 
 ## 七、工程纪律 / 测试 / CI / 发布（74–93）
@@ -225,13 +213,6 @@
 - **问题**：用户订阅不到轮次边界/中断/子 agent 结束等生命周期事件，hooks 声明不完整。
 - **建议**：opt-in `ARGENT_HOOK_LIFECYCLE=1`，在 Emit 闭包把 `EventTurnStart/EventTurnEnd/EventStop/EventSubagentEnd` 映射到已有 hook 事件，`EventStop` 按 `result.Stopped` 分类，审批事件接 `bridge.fire`；默认无映射。
 - **验收**：`internal/app/hook_lifecycle_test.go`：一轮完整执行后 hook 收到 TurnStart→TurnEnd→Stop 序列；取消时收到 Interrupt；默认无额外 hook 调用；`go test ./internal/app -count=1`。
-
-### 114. 普通文本编辑缺 parse-regression 门禁（写入前语法劣化检查）`[P1/M]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:454-458` 计算 `parse_regressed = op != Delete/Noop && existed && source_parses(before) && !source_parses(after)`（字段 `:113`、结果 `:485`），`source_parses` 在 `:578-587` 经语法 oracle 检查，宿主据此自动修复。
-- **argentgo 现状**：只有 AST 改写路径有等价的「写入前拒绝」——`internal/astedit/astedit.go:102-106` 在 splice 后 `newErrs > baseErrs` 直接 `ErrInvalidReplacement`；普通 `edit`（`tools_builtin_write_edit.go:98-189`）和 `apply_patch`（`tools_apply_patch.go:145-235`）都没有，坏语法静默落盘。
-- **问题**：模型编辑 Go 文件写坏语法后要等 `go test` 才发现，浪费一轮验证反馈。
-- **建议**：opt-in `ARGENT_PARSE_REGRESSION_GUARD=1`：stage 完成、commit 前用 `go/parser` 对 `.go` 目标比较 `baseErrs→newErrs`，其他语言 abstain；结果可作为结构化字段交给现有验证 hook 决定是否回滚/重试；默认文案与字节不变。
-- **验收**：`internal/tools/parse_regression_test.go`：原合法 Go 文件被编辑成语法错误时拒绝且零写入；原本就有错误的文件不做劣化判断；非 Go 文件不受影响；`go test ./internal/tools -count=1`。
 
 ### 115. 写后漂移检测：format-on-write 后按落盘字节重算 `[P1/S-M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:399-424` 把 `response.written` 与 `file.after` 比较，不一致则重算 diff、刷新 tag 并写 `write_drift_warning`（`:591-597`）。
@@ -288,13 +269,6 @@
 - **问题**：诊断日志之间无法用统一的 run/span ID 关联；新增观测点只能复制 slog 模式。
 - **建议**：新增 stdlib-only 的 `internal/telemetry` 接口包（Context/Span/Counter/Histogram + NOOP 单例），先让现有 opt-in 日志点作为第一个 adapter；默认 NOOP 不分配，事件/记录字节不变。无需新模块。
 - **验收**：`internal/telemetry/telemetry_test.go`：noop 实现零分配（benchmark）、span 父子关系与属性 schema 验证；现有观测点开启后输出含统一 run ID；`go test ./internal/telemetry ./internal/agent -count=1`。
-
-### 129. apply_patch 支持 `*** Move to:` 重命名 `[P2/S]`（学自 codex）
-- **竞品证据**：codex `apply-patch/src/parser.rs:18,42,76,99` 定义 `MOVE_TO_MARKER`/`move_path` 并在解析时填充；`lib.rs:473` 附近按 add/delete/update/move 分类落盘。
-- **argentgo 现状**：`internal/tools/apply_patch_parse.go:167-173` 的 `parsePatchFileDirective` 只识别 Add/Delete/Update；`tools_apply_patch.go:154-230` 的阶段三 switch 只有 `update`/`add`/`delete`，没有 move 语义；`lsp_will_rename`/`worktree` 工具不覆盖补丁内改名。
-- **问题**：与上游 apply_patch 格式不兼容，模型习惯性写 `*** Move to:` 时工具直接拒绝。
-- **建议**：`PatchAction` 加 `MoveTo`，解析 `*** Move to:` 行；落盘阶段按「读原文件 → 写新路径 → 删旧路径」原子化（复用现有重复动作冲突检查与锁顺序）。
-- **验收**：`internal/tools/apply_patch_move_test.go`：update + move 的补丁断言新路径内容正确、旧路径不存在；重复目标拒绝；`go test ./internal/tools -run TestApplyPatch -count=1`。
 
 ### 130. per-call 文件系统/网络权限 profile（不引入 OS 沙箱）`[P2/M]`（学自 codex）
 - **竞品证据**：codex `protocol/src/models.rs:99,254,267` 定义 `FileSystemPermissions`/`NetworkPermissions`/`AdditionalPermissionProfile`；`permissions.rs:131-139,152-156,257-275` 定义 Read/Write/Deny 与 special path，deny 优先于 write；unified_exec 可带 per-call `sandbox_permissions`（`handlers/unified_exec.rs:82-83`）。
