@@ -10,7 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // primitiveBaseline 是引入本门禁时的「存量快照」commit（当前 HEAD）。
@@ -27,6 +29,11 @@ const primitiveBaseline = "a8f63f5aa93def1f80c98c6e433fa80f7a3067b9"
 var incrementalDirs = []string{
 	"internal/archguard",
 }
+
+// baselineQueryConcurrency 限制并发执行 git show 的 worker 数。
+// Windows 上进程启动开销大，8 路并发足以把串行 20s 压到几秒，
+// 又不会一次拉起上百个 git 进程拖垮机器。
+const baselineQueryConcurrency = 8
 
 // primitiveSymbol 是一个「新增导出函数」的定位信息。
 type primitiveSymbol struct {
@@ -214,6 +221,12 @@ func baselineExportedNamesAt(root, path, rel string) map[string]bool {
 func newPrimitivesFromIncrement(t *testing.T, root string) ([]primitiveSymbol, string) {
 	t.Helper()
 	files, usingGit := incrementFiles(t, root)
+
+	type fileSites struct {
+		rel   string
+		sites []primitiveSymbol
+	}
+	var pending []fileSites
 	var out []primitiveSymbol
 	for _, rel := range files {
 		if strings.HasSuffix(rel, "_test.go") {
@@ -228,18 +241,40 @@ func newPrimitivesFromIncrement(t *testing.T, root string) ([]primitiveSymbol, s
 			continue
 		}
 		sites := exportedFuncSites(src, rel)
-		if usingGit {
-			base := baselineExportedNames(root, rel)
-			kept := sites[:0]
-			for _, s := range sites {
+		if !usingGit || len(sites) == 0 {
+			out = append(out, sites...)
+			continue
+		}
+		// 基线查询是一次 git show 子进程；串行执行时文件数 × 进程启动开销
+		// 会成为门禁耗时大头。先收集起来，下面用有界 worker 池并发查。
+		pending = append(pending, fileSites{rel: rel, sites: sites})
+	}
+
+	if len(pending) > 0 {
+		baselineNames := make([]map[string]bool, len(pending))
+		semaphore := make(chan struct{}, baselineQueryConcurrency)
+		var wg sync.WaitGroup
+		for i := range pending {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+				baselineNames[i] = baselineExportedNames(root, pending[i].rel)
+			}(i)
+		}
+		wg.Wait()
+
+		for i, item := range pending {
+			base := baselineNames[i]
+			for _, s := range item.sites {
 				if !base[s.Name] {
-					kept = append(kept, s)
+					out = append(out, s)
 				}
 			}
-			sites = kept
 		}
-		out = append(out, sites...)
 	}
+
 	mode := "git 基线增量"
 	if !usingGit {
 		mode = "目录清单退化（git 历史/基线不可用）"
@@ -281,57 +316,15 @@ func stringLitValue(lit *ast.BasicLit) (string, bool) {
 	return v, true
 }
 
-// hasProductionCaller 扫描全部非测试 .go 文件，判断 sym 是否有生产调用方。
-// 带构建标签的文件仍参与调用方扫描（多认调用方 = 少误报）。
-// 两处保守处理：
-//   - 声明自身的递归调用不算调用方；
-//   - 名字出现在字符串字面量中视为已接线（覆盖 RPC/反射按名注册）。
+// hasProductionCaller 判断 sym 是否有生产调用方。
+// 它是单符号便捷入口；批量判定请直接用 buildCallIndex + hasCaller，
+// 避免每个符号都重建一次全仓索引。判定语义见 call_index_test.go。
 func hasProductionCaller(root string, sym primitiveSymbol) bool {
-	files, err := collectGoFiles(root)
+	idx, err := buildCallIndex(root)
 	if err != nil {
 		return false
 	}
-	for _, abs := range files {
-		rel := relPath(root, abs)
-		if strings.HasSuffix(rel, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(abs)
-		if err != nil {
-			continue
-		}
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, rel, src, 0)
-		if err != nil {
-			continue
-		}
-		found := false
-		ast.Inspect(file, func(n ast.Node) bool {
-			if found {
-				return false
-			}
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				if callExprName(x.Fun) != sym.Name {
-					return true
-				}
-				pos := fset.Position(x.Pos())
-				if rel == sym.RelPath && pos.Line >= sym.StartLine && pos.Line <= sym.EndLine {
-					return true // 自身递归，不算外部调用方
-				}
-				found = true
-			case *ast.BasicLit:
-				if v, ok := stringLitValue(x); ok && v == sym.Name {
-					found = true // RPC/反射按名字注册
-				}
-			}
-			return !found
-		})
-		if found {
-			return true
-		}
-	}
-	return false
+	return idx.hasCaller(sym)
 }
 
 // isPrimitiveAllowed 判断 sym 是否已在清单登记。理由为空的条目不生效，
@@ -351,12 +344,34 @@ func isPrimitiveAllowed(sym primitiveSymbol, allow []primitiveAllowEntry) bool {
 // checkNewPrimitives 是门禁的纯逻辑核心：每个新增导出函数要么有生产调用方，
 // 要么在原语清单登记「保留未启用 + 理由」，否则产生违规。
 func checkNewPrimitives(root string, syms []primitiveSymbol, allow []primitiveAllowEntry) []primitiveViolation {
-	var out []primitiveViolation
+	idx, err := buildCallIndex(root)
+	if err != nil {
+		// 索引建不起来时保守报出全部待查符号，由调用方看到明确失败，
+		// 而不是静默放行——门禁失效比误报更危险。空索引让所有未登记符号
+		// 都走到违规分支，同时复用下面的排序逻辑。
+		return checkNewPrimitivesWithIndex(syms, allow, &callIndex{
+			calls:   map[string][]callSite{},
+			strings: map[string]bool{},
+		})
+	}
+	return checkNewPrimitivesWithIndex(syms, allow, idx)
+}
+
+// checkNewPrimitivesWithIndex 使用预建的调用索引判定，供已建索引的调用方复用。
+func checkNewPrimitivesWithIndex(syms []primitiveSymbol, allow []primitiveAllowEntry, idx *callIndex) []primitiveViolation {
+	// 先剔除已登记的符号；若没有待查符号，连查询都不必做。
+	pending := make([]primitiveSymbol, 0, len(syms))
 	for _, sym := range syms {
-		if isPrimitiveAllowed(sym, allow) {
-			continue
+		if !isPrimitiveAllowed(sym, allow) {
+			pending = append(pending, sym)
 		}
-		if hasProductionCaller(root, sym) {
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	var out []primitiveViolation
+	for _, sym := range pending {
+		if idx.hasCaller(sym) {
 			continue
 		}
 		out = append(out, primitiveViolation{Symbol: sym.Name, RelPath: sym.RelPath, Line: sym.StartLine})
@@ -376,9 +391,17 @@ func checkNewPrimitives(root string, syms []primitiveSymbol, allow []primitiveAl
 // TestNewPrimitivesAreWired 是实际门禁：只在增量上生效，不回溯存量。
 func TestNewPrimitivesAreWired(t *testing.T) {
 	root := findRepoRoot(t)
+	started := time.Now()
 	syms, mode := newPrimitivesFromIncrement(t, root)
-	t.Logf("原语门禁增量判定模式：%s；本次新增导出函数 %d 个", mode, len(syms))
-	for _, v := range checkNewPrimitives(root, syms, primitiveAllowlist) {
+	scanElapsed := time.Since(started)
+	started = time.Now()
+	idx, err := buildCallIndex(root)
+	if err != nil {
+		t.Fatalf("构建生产调用索引失败：%v", err)
+	}
+	indexElapsed := time.Since(started)
+	t.Logf("原语门禁增量判定模式：%s；本次新增导出函数 %d 个；增量扫描 %v；调用索引 %v", mode, len(syms), scanElapsed, indexElapsed)
+	for _, v := range checkNewPrimitivesWithIndex(syms, primitiveAllowlist, idx) {
 		t.Errorf("%s:%d: 新增导出原语 %q 未接线：既无生产调用方，也未在原语清单登记。"+
 			"修复建议：① 在非测试文件为它添加生产调用；② 若确属「保留未启用」，"+
 			"在 internal/archguard/primitive_allowlist.go 登记 {Symbol: %q, Reason: \"保留原因与接线计划\"}。",
