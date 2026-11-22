@@ -60,6 +60,14 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	if env == nil {
 		env = os.Getenv
 	}
+
+	// 流空闲超时的非法值不再静默归零：把诊断函数返回的警告文本经本包
+	// 既有的 warn 通道（stderr，沿用 "config: " 前缀）输出。未设置或合法值
+	// 不产生任何输出，逐字节行为不变；stderr 为 nil 时同样静默。
+	if _, warning := streamIdleTimeoutFromEnv(env); warning != "" && stdio.Err != nil {
+		fmt.Fprintln(stdio.Err, "config: "+warning)
+	}
+
 	// config 通过 ARGENT_PROFILE 选择 profile，因此 --profile 标志在那里注入，
 	// 而不是在本包中重复处理。
 	profileEnv := env

@@ -97,7 +97,8 @@ jobs:
       - name: go test -race
         env:
           CGO_ENABLED: '1'
-        run: go test -race $(go list ./... | grep -v '/internal/pty$')
+        # 与 matrix.yml / ci.yml 的竞态门禁对齐：设置上限超时，避免挂起阻塞作业。
+        run: go test -race -timeout 20m $(go list ./... | grep -v '/internal/pty$')
 
   # 仅在完整验证门禁全部通过后才发布。
   release:
