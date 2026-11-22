@@ -152,7 +152,8 @@ func TestStoreUpgradesLegacyTokenOnWrite(t *testing.T) {
 	}
 }
 
-// TestSealTokenFallsBackOnEncryptError 断言 DPAPI 加密失败时回退明文并发出告警。
+// TestSealTokenFallsBackOnEncryptError 断言 DPAPI 加密失败时，未加密的新令牌
+// 仍可回退明文并发出告警（历史行为）。
 func TestSealTokenFallsBackOnEncryptError(t *testing.T) {
 	var warns []string
 	warn := func(format string, args ...any) {
@@ -160,19 +161,83 @@ func TestSealTokenFallsBackOnEncryptError(t *testing.T) {
 	}
 	fail := func(string) (string, error) { return "", errors.New("dpapi unavailable") }
 
-	if got := sealToken("secret", fail, warn); got != "secret" {
-		t.Fatalf("sealToken = %q, want plaintext fallback", got)
+	got, err := sealToken("secret", false, fail, warn)
+	if err != nil || got != "secret" {
+		t.Fatalf("sealToken = %q, %v; want plaintext fallback", got, err)
 	}
 	if len(warns) != 1 || !strings.Contains(warns[0], "回退明文") {
 		t.Fatalf("warnings = %v, want one fallback warning", warns)
 	}
 	// 空秘密不应触发加密或告警。
 	warns = nil
-	if got := sealToken("", fail, warn); got != "" {
-		t.Fatalf("sealToken(empty) = %q, want empty", got)
+	got, err = sealToken("", false, fail, warn)
+	if err != nil || got != "" {
+		t.Fatalf("sealToken(empty) = %q, %v, want empty", got, err)
 	}
 	if len(warns) != 0 {
 		t.Fatalf("empty secret produced warnings: %v", warns)
+	}
+}
+
+// TestSealTokenRefusesPlaintextDowngrade 锁定 fail-closed：此前已加密的令牌
+// 在加密失败时必须拒绝写回，绝不降级为明文（#22）。
+func TestSealTokenRefusesPlaintextDowngrade(t *testing.T) {
+	var warns []string
+	warn := func(format string, args ...any) {
+		warns = append(warns, fmt.Sprintf(format, args...))
+	}
+	fail := func(string) (string, error) { return "", errors.New("dpapi unavailable") }
+
+	got, err := sealToken("secret", true, fail, warn)
+	if !errors.Is(err, ErrTokenEncryptDowngrade) || got != "" {
+		t.Fatalf("sealToken(wasSealed) = %q, %v; want downgrade refusal", got, err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "拒绝明文降级") {
+		t.Fatalf("warnings = %v, want downgrade warning", warns)
+	}
+
+	// 显式允许降级时恢复历史行为。
+	old := allowPlaintextTokenFallback
+	allowPlaintextTokenFallback = true
+	defer func() { allowPlaintextTokenFallback = old }()
+	got, err = sealToken("secret", true, fail, warn)
+	if err != nil || got != "secret" {
+		t.Fatalf("explicit fallback = %q, %v; want plaintext", got, err)
+	}
+}
+
+// TestStoreRefusesToDowngradeOnWrite 端到端锁定 fail-closed：磁盘上已有加密条目时，
+// 后续 Put 遇到加密失败必须整笔拒绝，文件字节不变（#22）。
+func TestStoreRefusesToDowngradeOnWrite(t *testing.T) {
+	store := scratchStore(t)
+	// 先写入一条"已加密"的条目（用可注入的加密器打上 dpapi:v1: 前缀）。
+	origEncrypt := tokenEncrypt
+	tokenEncrypt = func(s string) (string, error) { return tokenSealPrefix + "cipher", nil }
+	if err := store.Put(Token{Provider: "openai", Kind: KindAPIKey, Access: "first"}); err != nil {
+		tokenEncrypt = origEncrypt
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(store.Path())
+	if err != nil {
+		tokenEncrypt = origEncrypt
+		t.Fatal(err)
+	}
+	doc := readFileDoc(t, store)
+	if entry, _ := findStored(doc.Tokens, "openai"); !strings.HasPrefix(entry.Access, tokenSealPrefix) {
+		tokenEncrypt = origEncrypt
+		t.Fatalf("setup: entry not sealed: %q", entry.Access)
+	}
+
+	// 加密器失效后再次写同一 provider：必须拒绝，且磁盘不变。
+	tokenEncrypt = func(string) (string, error) { return "", errors.New("dpapi unavailable") }
+	defer func() { tokenEncrypt = origEncrypt }()
+	err = store.Put(Token{Provider: "openai", Kind: KindAPIKey, Access: "second"})
+	if !errors.Is(err, ErrTokenEncryptDowngrade) {
+		t.Fatalf("Put = %v, want ErrTokenEncryptDowngrade", err)
+	}
+	after, _ := os.ReadFile(store.Path())
+	if string(after) != string(before) {
+		t.Fatal("auth.json changed despite refused downgrade")
 	}
 }
 

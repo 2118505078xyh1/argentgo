@@ -71,6 +71,9 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "read_before_write", Env: "ARGENT_READ_BEFORE_WRITE", Name: "读后写新鲜度校验", Enable: "=1", Desc: "read 成功后登记文件快照，edit/write 在外部改动导致快照过期时拒绝写入并提示重读；默认关闭时无账本、无检查，工具行为逐字节不变。"},
 	{Key: "mcp_annotation_approval", Env: "ARGENT_MCP_ANNOTATION_APPROVAL", Name: "MCP 破坏性工具审批", Enable: "=1", Desc: "按 MCP annotations 把声明 destructiveHint 且非 readOnly 的工具纳入强制审批（即便策略允许也询问）；默认关闭时仅按工具名白名单决定审批，逐字节不变。"},
 	{Key: "event_log", Env: "ARGENT_EVENT_LOG", Name: "事件日志续传", Enable: "=1", Desc: "把 hub 事件以 JSONL 落盘，SSE 支持 Last-Event-ID 在超出内存窗口后续放；默认关闭时纯内存、SSE 帧无 id:，逐字节不变。"},
+	{Key: "failure_signals", Env: "ARGENT_FAILURE_SIGNALS", Name: "失败信号压缩证据", Enable: "=1", Desc: "从工具结果与消息文本提取 is_error/非零 exit/timed out/失败词信号并入压缩 Failures；默认关闭时不提取，压缩逐字节不变。"},
+	{Key: "summary_empty_retry", Env: "ARGENT_SUMMARY_EMPTY_RETRY", Name: "空摘要重试", Enable: "=1", Desc: "压缩摘要为空时少丢一条消息重算一次摘要；默认关闭时使用原摘要，压缩逐字节不变。"},
+	{Key: "mcp_injection_medium", Env: "ARGENT_MCP_INJECTION_MEDIUM", Name: "MCP 中风险注入警示", Enable: "=1", Desc: "MCP 工具输出的中风险注入命中也加可见警示；默认关闭时仅高风险警示，输出逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},
@@ -102,6 +105,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "todo_strict", Env: "ARGENT_TODO_STRICT", Name: "todo 严格状态校验", Enable: "真值", Desc: "写入前用 ValidateTodoState 校验状态集，关闭时写路径逐字节不变。"},
 	{Key: "cache_warm", Env: "ARGENT_CACHE_WARM", Name: "提示缓存保活", Enable: "=1", Desc: "开启提示缓存保活（cache warmer）。"},
 	{Key: "loop_detection", Env: "ARGENT_LOOP_DETECTION", Name: "工具调用循环检测", Enable: "真值（1/true/yes/on）", Desc: "按调用签名检测重复循环，命中时注入纠正提示而非硬停（迁移自 killi repeat breaker）。"},
+	{Key: "request_snapshot", Env: "ARGENT_REQUEST_SNAPSHOT", Name: "请求字节快照", Enable: "真值（1/true/yes/on）", Desc: "把实际发送的线协议字节追加到会话记录，用于复现审计；不参与对话视图，含完整提示需自行控制文件权限。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

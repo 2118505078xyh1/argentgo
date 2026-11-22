@@ -497,6 +497,16 @@ const mcpInjectionScanEnv = "ARGENT_MCP_INJECTION_SCAN"
 // 也不过滤原文中的任何字节——是否遵从注入内容由模型自行判断。
 const mcpInjectionWarning = "[注意：工具输出含疑似指令注入]"
 
+// mcpInjectionMediumWarning 是中风险注入的可读警示，仅在 opt-in
+// ARGENT_MCP_INJECTION_MEDIUM=1 时加在原文前；默认不发，保持字节不变。
+const mcpInjectionMediumWarning = "[注意：工具输出含疑似角色扮演类指令注入]"
+
+// mcpInjectionMediumEnabled 报告是否对中风险命中也发出可见警示。默认关闭：
+// 中风险可能是正常讨论里的软信号，默认只有高风险触发警示。
+func mcpInjectionMediumEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_MCP_INJECTION_MEDIUM")) == "1"
+}
+
 // mcpInjectionScanEnabled 报告是否开启 MCP 工具输出的注入扫描。每次调用都读取
 // 环境，便于精确控制开关；这与本包其他 opt-in 能力的读取方式一致。
 func mcpInjectionScanEnabled() bool {
@@ -524,7 +534,16 @@ func warnOnPromptInjection(text string, enabled bool) string {
 	// 先剥 Unicode Tag 再检测：不可见 Tag（如 U+E0000）会打断 "ignore
 	// previous instructions" 的字节，直接扫描会漏检。检测用剥后的副本，
 	// 返回的仍是原文（只加警示、不改写任何字节）。
-	if !hasHighSeverityInjection(security.ScanPromptInjection(security.StripUnicodeTags(text))) {
+	findings := security.ScanPromptInjection(security.StripUnicodeTags(text))
+	if !hasHighSeverityInjection(findings) {
+		// 中风险 opt-in：仅在显式开启且确实命中中风险时加可见警示。
+		if mcpInjectionMediumEnabled() {
+			for _, f := range findings {
+				if f.Severity == security.InjectionSeverityMedium {
+					return mcpInjectionMediumWarning + "\n" + text
+				}
+			}
+		}
 		return text
 	}
 	return mcpInjectionWarning + "\n" + text

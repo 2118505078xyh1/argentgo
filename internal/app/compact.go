@@ -331,7 +331,22 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// 轮次中，运行的 OnCompactionEvidence 回调尚未触发，因此从可见消息中收集后续步骤行，
 	// 并让 Summarize 从被丢弃的条目中提取工具失败记录。
 	// dropped 与 reg 供 opt-in 压缩 wire 使用；reg 为 nil（测试/默认）时三 wire 关闭，逐字节不变。
-	enrichCompaction(&compaction, agent.CollectCompactionEvidence(nil, messages), entries[:start], c.reg)
+	evidence := agent.CollectCompactionEvidence(nil, messages)
+	// 失败信号压缩证据（opt-in ARGENT_FAILURE_SIGNALS，默认关闭）：
+	// 从工具结果与消息文本中提取 is_error / 非零 exit / timed out / 失败词信号，
+	// 与事件来源的失败合并。关闭时 FailureSignalsForCompaction 返回零值证据。
+	if failureSignalsEnabled(c.env) {
+		inputs := make([]agent.SignalInput, 0, len(messages))
+		for _, m := range messages {
+			inputs = append(inputs, agent.SignalInput{
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
+		extra := agent.FailureSignalsForCompaction(inputs, true)
+		evidence.Failures = append(evidence.Failures, extra.Failures...)
+	}
+	enrichCompaction(&compaction, evidence, entries[:start], c.reg)
 	// todo 状态快照（opt-in ARGENT_COMPACTION_TODO，默认关闭）：把会话任务列表
 	// 以 [x]/[>]/[ ] 行写入压缩记录并镜像进摘要，使恢复后的模型知道任务进度。
 	if compactionTodoEnabled(c.env) {

@@ -548,10 +548,14 @@ argentgo "你的任务"
 | `ARGENT_READ_BEFORE_WRITE` | =1 时 read 成功后登记文件快照，edit/write 在检测到外部改动（size/modtime 变化或文件消失）时拒绝写入并提示重读；默认关闭时无账本、无检查，工具行为逐字节不变。 |
 | `ARGENT_MCP_ANNOTATION_APPROVAL` | =1 时按 MCP annotations 把声明 destructiveHint 且非 readOnly 的工具纳入强制审批（即便策略 Allow 也询问）；默认关闭时仅按工具名白名单决定审批，逐字节不变。 |
 | `ARGENT_EVENT_LOG` | =1 时把 hub 事件以 JSONL 落盘到存储目录，SSE 支持 `Last-Event-ID` 在超出内存回放窗口后从磁盘续放；默认关闭时纯内存、SSE 帧无 `id:`，逐字节不变。 |
+| `ARGENT_FAILURE_SIGNALS` | =1 时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；默认关闭时不提取，压缩逐字节不变。 |
+| `ARGENT_SUMMARY_EMPTY_RETRY` | =1 时压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；默认关闭时使用原摘要，压缩逐字节不变。 |
+| `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
 | `ARGENT_LOOP_DETECTION` | 真值时按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；默认关闭时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
+| `ARGENT_REQUEST_SNAPSHOT` | 真值时把实际发送给提供方的线协议请求字节追加一条 `request_snapshot` 会话记录（含 SHA-256 校验），用于复现与审计；该 kind 不进入对话视图，默认关闭时请求字节与记录逐字节不变。注意快照含完整 system prompt 与工具结果，可能含敏感文本，需自行控制会话文件权限。迁移自 killi 决策 21。 |
 | `ARGENT_CONFIG_SHADOW_CHECK` | 配置遮蔽来源告警输出。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |

@@ -34,18 +34,32 @@ var (
 	warnf = func(format string, args ...any) { log.Printf(format, args...) }
 )
 
-// sealToken 在写盘前加密令牌；加密失败（如 DPAPI 在非交互会话不可用）时回退明文
-// 并告警，避免让整个登录流程因为加密问题而失败。
-func sealToken(plain string, encrypt func(string) (string, error), warn func(string, ...any)) string {
+// allowPlaintextTokenFallback 允许在加密失败时把令牌以明文写入。默认 false：
+// 一旦磁盘上已有加密条目（dpapi:v1:），加密失败必须 fail-closed，绝不降级明文。
+// 仅首次写入的全新条目可通过设置此变量显式允许降级；生产代码不得打开它，
+// 它只服务于无法使用 DPAPI 的非 Windows 测试/环境。
+var allowPlaintextTokenFallback = false
+
+// ErrTokenEncryptDowngrade 表示原本加密存储的令牌因加密失败而无法安全写回。
+var ErrTokenEncryptDowngrade = errors.New("auth: refusing to downgrade an encrypted token to plaintext")
+
+// sealToken 在写盘前加密令牌。wasSealed 表示该 provider 的旧值已用加密格式存储。
+// 加密失败时：若 wasSealed 为真且未显式允许降级，返回错误（fail-closed），
+// 避免把 OAuth access/refresh token 明文写回磁盘；否则按历史行为回退明文并告警。
+func sealToken(plain string, wasSealed bool, encrypt func(string) (string, error), warn func(string, ...any)) (string, error) {
 	if plain == "" {
-		return ""
+		return "", nil
 	}
 	sealed, err := encrypt(plain)
-	if err != nil {
-		warn("auth: 令牌加密失败，已回退明文存储: %v", err)
-		return plain
+	if err == nil {
+		return sealed, nil
 	}
-	return sealed
+	if wasSealed && !allowPlaintextTokenFallback {
+		warn("auth: 令牌加密失败，且该令牌此前已加密存储；拒绝明文降级: %v", err)
+		return "", fmt.Errorf("%w: %v", ErrTokenEncryptDowngrade, err)
+	}
+	warn("auth: 令牌加密失败，已回退明文存储: %v", err)
+	return plain, nil
 }
 
 // unsealToken 在读盘后解密令牌；解密失败时空出该秘密，避免把密文误当作 bearer 发给 provider。
@@ -247,13 +261,37 @@ func (s *Store) load() ([]Token, error) {
 // save 通过临时文件写入整个文档，使崩溃绝不会留下半写的凭据文件。
 // 留下半写的凭据文件。
 func (s *Store) save(tokens []Token) error {
+	// 读取磁盘现状，标记哪些 provider 的令牌此前已加密存储——这些值在本次
+	// 加密失败时必须 fail-closed，不得降级为明文。读取失败按「未加密」处理，
+	// 不会让原本的写入流程因为一次探测失败而卡死。
+	wasSealed := map[string]bool{}
+	if raw, err := os.ReadFile(s.path); err == nil {
+		var existing fileDoc
+		if json.Unmarshal(raw, &existing) == nil {
+			for _, entry := range existing.Tokens {
+				if strings.HasPrefix(entry.Access, tokenSealPrefix) || strings.HasPrefix(entry.Refresh, tokenSealPrefix) {
+					wasSealed[entry.Provider] = true
+				}
+			}
+		}
+	}
+
 	doc := fileDoc{Version: storeVersion, Tokens: make([]fileToken, 0, len(tokens))}
 	for _, token := range tokens {
+		sealed := wasSealed[token.Provider]
+		access, err := sealToken(token.Access, sealed, tokenEncrypt, warnf)
+		if err != nil {
+			return err
+		}
+		refresh, err := sealToken(token.Refresh, sealed, tokenEncrypt, warnf)
+		if err != nil {
+			return err
+		}
 		entry := fileToken{
 			Provider: token.Provider,
 			Kind:     token.Kind,
-			Access:   sealToken(token.Access, tokenEncrypt, warnf),
-			Refresh:  sealToken(token.Refresh, tokenEncrypt, warnf),
+			Access:   access,
+			Refresh:  refresh,
 			Account:  token.Account,
 		}
 		if !token.ExpiresAt.IsZero() {

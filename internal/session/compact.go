@@ -115,6 +115,19 @@ func (s *Session) appendCompaction(entries []Entry, start int) error {
 	// 主视图因此丢失其摘要文本。补发这些记录，并按载荷去重避免重复重发。
 	restored = append(restored, s.retainedCompactionRecords(entries, start, restored)...)
 	compaction := Summarize(entries[:start], len(entries)-start)
+	// 空摘要重试（opt-in ARGENT_SUMMARY_EMPTY_RETRY，默认关闭）：摘要无实质内容
+	// 时把切点前移一个条目（少丢一条、多保留一条）重算，最多一次。默认关闭时
+	// 这里完全不执行，压缩记录字节与旧版一致。
+	if summaryEmptyRetryEnabled() && SummaryIsEmpty(compaction.Summary) && start > 1 {
+		retryStart := start - 1
+		retry := Summarize(entries[:retryStart], len(entries)-retryStart)
+		if !SummaryIsEmpty(retry.Summary) {
+			// 只替换摘要正文与来源标记；start / restored / 遗忘 ID 仍按原切点计算，
+			// 保证记录投影与事件列表彼此一致。
+			compaction.Summary = retry.Summary
+			compaction.Dropped = retry.Dropped
+		}
+	}
 	if err := s.Append(KindCompaction, compaction); err != nil {
 		return err
 	}
