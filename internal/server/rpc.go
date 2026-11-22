@@ -550,6 +550,39 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 				}
 			}
 		}()
+	case "spelling.autocomplete":
+		// 预测补全：可选 learn 文本先喂给引擎，再按 prefix 返回最多 limit 条建议。
+		// 未注入 provider 时返回干净的 "not configured" 错误（与 config.info 同语义）。
+		if cfg.CompletionProvider == nil {
+			p.fail(req.ID, codeServerError, "completion not configured")
+			return
+		}
+		var params struct {
+			Prefix string `json:"prefix"`
+			Limit  int    `json:"limit"`
+			Learn  string `json:"learn"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid autocomplete params")
+				return
+			}
+		}
+		if params.Limit <= 0 {
+			params.Limit = 5
+		}
+		if params.Limit > 32 {
+			params.Limit = 32
+		}
+		if params.Learn != "" {
+			cfg.CompletionProvider.Learn(params.Learn)
+		}
+		suggestions := cfg.CompletionProvider.Autocomplete(params.Prefix, params.Limit)
+		if suggestions == nil {
+			suggestions = []CompletionSuggestion{}
+		}
+		p.respond(req.ID, map[string]any{"suggestions": suggestions})
+
 	case "config.info":
 		// config.info 无参数，返回当前会话真实使用的 model/provider/workspace，
 		// 供原生窗口状态栏显示。来源通过可选接口注入：未注入时返回干净的

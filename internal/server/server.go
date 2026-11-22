@@ -55,6 +55,9 @@ type Config struct {
 	// model/provider/workspace 摘要。默认为 nil：config.info 返回干净的
 	// -32000 "not configured" 错误，不影响其他任何 RPC 方法。
 	ConfigInfoProvider ConfigInfoProvider
+	// CompletionProvider 非 nil 时，spelling.autocomplete RPC 提供预测补全；
+	// 默认为 nil：该方法返回干净的 "not configured" 错误，不影响其他 RPC。
+	CompletionProvider CompletionProvider
 	// Events 是 /v1/event 和 event/subscribe 共享的事件 hub。当为
 	// nil 时，使用暴露 EventHub() *EventHub 的 runner（app.Factory 的 runner 就是这样），
 	// 使所有无界面传输无需额外接线即可共享一个 hub。

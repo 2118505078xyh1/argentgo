@@ -29,6 +29,7 @@ func main() {
 		TokenReport:        func(opts cli.Options) (string, error) { return app.TokenReport(stdio, opts) },
 		ContextReport:      func(opts cli.Options) (string, error) { return app.ContextReport(stdio, opts) },
 		ConfigInfoProvider: app.NewConfigInfoProvider(stdio),
+		CompletionProvider: app.NewCompletionProvider(4),
 		ConfigPath:         filepath.Join(storage, "config.json"),
 		StorageDir:         storage,
 	}, os.Args[1:])

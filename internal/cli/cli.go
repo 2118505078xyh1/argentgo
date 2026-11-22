@@ -232,8 +232,11 @@ type App struct {
 	// 实现 server.StatusProvider 的实例（app 的默认适配器即是），二者皆 nil
 	// 时不注入，/v1/status 仍 404、RPC status 返回干净错误，wire 完全不变。
 	StatusProvider server.StatusProvider
-	ConfigPath     string
-	StorageDir     string
+	// CompletionProvider 为 --serve/--rpc 的 spelling.autocomplete 方法提供
+	// 预测补全；由 internal/app 注入。nil 时该方法返回干净错误。
+	CompletionProvider server.CompletionProvider
+	ConfigPath         string
+	StorageDir         string
 	// UpdateOps 为测试覆盖更新器的接缝；为 nil 时调用 internal/update。
 	UpdateOps *UpdateOps
 }
@@ -509,6 +512,7 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 		Sessions:           a.Sessions,
 		ConfigInfoProvider: a.ConfigInfoProvider,
 		StatusProvider:     a.statusProvider(),
+		CompletionProvider: a.CompletionProvider,
 	}
 	srv, ln, err := server.Listen(cfg)
 	if err != nil {
@@ -534,6 +538,7 @@ func (a App) rpc(ctx context.Context, opts *Options, runner Runner) int {
 		Sessions:           a.Sessions,
 		ConfigInfoProvider: a.ConfigInfoProvider,
 		StatusProvider:     a.statusProvider(),
+		CompletionProvider: a.CompletionProvider,
 	}
 	if err := server.RunRPC(ctx, a.IO.In, a.IO.Out, cfg); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
@@ -543,7 +548,7 @@ func (a App) rpc(ctx context.Context, opts *Options, runner Runner) int {
 }
 
 func (a App) acp(ctx context.Context, opts *Options, runner Runner) int {
-	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions, ConfigInfoProvider: a.ConfigInfoProvider}
+	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions, ConfigInfoProvider: a.ConfigInfoProvider, CompletionProvider: a.CompletionProvider}
 	if err := server.RunACP(ctx, a.IO.In, a.IO.Out, cfg); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1
