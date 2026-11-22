@@ -776,6 +776,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// worktree 三件套默认安装（ARGENT_WORKTREE_TOOLS=0 关闭）：让模型能创建
 	// 隔离工作区做改动，不碰当前工作树。显式注册，默认工具清单逐字节不变。
 	wireWorktrees(stdio, toolset)
+	// models 工具默认安装（ARGENT_MODELS_TOOL=0 关闭）：把 provider 模板表
+	// 暴露给模型，方便其选择正确的 provider id。显式注册，默认清单逐字节不变。
+	wireModels(stdio, toolset)
 	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
 	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
 	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。
