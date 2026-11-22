@@ -164,14 +164,120 @@ type lspIdeAdapter struct {
 
 var _ tools.LspIde = (*lspIdeAdapter)(nil)
 
-// installLspAdapter 一次性安装标准 LSP 工具集与 writethrough 工具，并把同一个
-// 适配器注入两者（写操作共享同一 client 路由）。
+// SemanticTokens 返回 path 的语义高亮 token（增量 5 元组解码为绝对 0 基坐标）。
+func (a *lspIdeAdapter) SemanticTokens(path string) ([]tools.LspSemanticToken, error) {
+	client, err := a.clientForPath(path)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.requestCtx()
+	defer cancel()
+	tokens, err := client.SemanticTokensAt(ctx, a.resolvePath(path))
+	if err != nil || tokens == nil {
+		return nil, err
+	}
+	return decodeSemanticTokenData(tokens.Data), nil
+}
+
+// decodeSemanticTokenData 把 LSP 增量 5 元组解码为绝对 0 基坐标。
+// 规范：每 5 个 uint32 为 (deltaLine, deltaStart, length, tokenType, tokenModifiers)；
+// deltaLine 相对上一 token 的行；deltaStart 仅在同一行时相对上一 token 的 char，
+// 否则是绝对列。不完整的尾组被跳过。
+func decodeSemanticTokenData(data []uint32) []tools.LspSemanticToken {
+	out := make([]tools.LspSemanticToken, 0, len(data)/5)
+	var line, char int
+	for i := 0; i+4 < len(data); i += 5 {
+		dl, ds := int(data[i]), int(data[i+1])
+		if dl > 0 {
+			line += dl
+			char = ds
+		} else {
+			char += ds
+		}
+		out = append(out, tools.LspSemanticToken{
+			Line: line, Char: char,
+			Length: int(data[i+2]), TokenType: int(data[i+3]), Modifiers: int(data[i+4]),
+		})
+	}
+	return out
+}
+
+// InlayHints 返回 path 在 (line,char) 起一段范围内的内联提示（范围不指定则用整个文档的大区间）。
+func (a *lspIdeAdapter) InlayHints(path string, line, char int) ([]tools.LspInlayHint, error) {
+	client, err := a.clientForPath(path)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.requestCtx()
+	defer cancel()
+	// 用请求点作为范围起点，覆盖到很大的行号以包含后续提示；服务器会裁剪到文档实际范围。
+	rng := lsp.Range{
+		Start: lsp.Position{Line: line, Character: char},
+		End:   lsp.Position{Line: line + 10000, Character: 0},
+	}
+	hints, err := client.InlayHintsAt(ctx, a.resolvePath(path), rng)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.LspInlayHint, 0, len(hints))
+	for _, h := range hints {
+		out = append(out, tools.LspInlayHint{
+			Line: h.Position.Line, Char: h.Position.Character,
+			Label: h.Label, Kind: inlayKindName(h.Kind),
+		})
+	}
+	return out, nil
+}
+
+// CodeLens 返回 path 的 code lens 列表。
+func (a *lspIdeAdapter) CodeLens(path string) ([]tools.LspCodeLens, error) {
+	client, err := a.clientForPath(path)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.requestCtx()
+	defer cancel()
+	lenses, err := client.CodeLensAt(ctx, a.resolvePath(path))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.LspCodeLens, 0, len(lenses))
+	for _, lens := range lenses {
+		item := tools.LspCodeLens{
+			StartLine: lens.Range.Start.Line, StartChar: lens.Range.Start.Character,
+			EndLine: lens.Range.End.Line, EndChar: lens.Range.End.Character,
+		}
+		if lens.Command != nil {
+			item.Title = lens.Command.Title
+			item.Command = lens.Command.Command
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+// inlayKindName 把数字 LSP InlayHintKind 映射为可读名称。
+func inlayKindName(kind int) string {
+	switch kind {
+	case 1:
+		return "type"
+	case 2:
+		return "parameter"
+	default:
+		return ""
+	}
+}
+
+// installLspAdapter 一次性安装标准 LSP 工具集、writethrough 工具与三个高级特性工具，
+// 并把同一个适配器注入所有工具（共享同一 client 路由）。
 func installLspAdapter(registry *tools.Registry, root string) {
 	adapter := NewLspIdeAdapter(root)
 	registry.SetLspIde(adapter)
 	if adapter != nil {
 		tools.RegisterLspWillRename(registry)
 		registry.SetLspWillRename(adapter)
+		tools.RegisterLspAdvanced(registry)
+		registry.SetLspAdvanced(adapter)
 	}
 }
 
