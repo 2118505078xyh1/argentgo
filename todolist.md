@@ -66,47 +66,17 @@
 - **建议**：在 `internal/tools` 增加只读 `pty_run` 工具（或 bash 工具加 `tty:true`），经 pluginapi 注入构造子、由 app 负责 `pty.Start`；读循环必须串接 `queryFilter.Write/Flush` 后再进 UTF-8 carry 与 clip，复用 `proc.SanitizeEnv`；`Pty.Close/Wait` 与取消 ctx 绑定。
 - **验收**：`internal/app/pty_wire_test.go` 假 Pty 注入，喂 `ESC[6n` 后输出不含该序列，ctx 取消触发 Close；加守护测试 `TestPtyPackageHasProductionImporter`。
 
-### 31. proc idle watchdog 孤立 + SubstBudget 未接线 `[P1/M]`
-- **现状**：`internal/proc/idle_watchdog.go:22` 的 `idleWatchdogExpired`（含单调时钟语义）全仓唯一调用方是测试；`proc.go:225-271` 的 select 只有 done/总超时/ctx，无 lastActivity 更新。展开侧 `internal/llm/subst_budget.go:5-8` 自述「没有内置调用方」，`Enter`:51/`Exit`:68 仅 guard 测试；对照 `llm/sse_idle.go:17` 已正确接线。
-- **问题**：先输出几行后彻底卡死（等网络/死锁）的命令，只要总超时长（上限 3600s）就一直挂到总超时或人工取消；深层命令替换 `$()` 无深度上限，防御-in-depth 失效。
-- **建议**：① `Command` 增 `IdleTimeout`，输出 writer 包 `atomic.Int64 lastActivity`，select 加 `time.Ticker` 周期调 `idleWatchdogExpired`，命中走 killTree 路径并返回新哨兵 `ErrIdleTimeout`；`shell.Interp.Timeout` 旁加 `IdleTimeout` 透传。② shell 展开路径构造 `SubstBudget`，递归前 `Enter()`、失败返回受限错误、`defer Exit()`。
-- **验收**：`internal/proc/idle_watchdog_run_test.go`：假子进程先写一行后永不退出，`IdleTimeout=50ms`/`Timeout=10s`，断言 200ms 内返回 `ErrIdleTimeout`；持续输出的进程 200ms 后仍存活。`go test -race ./internal/proc -run Idle -count=1`。
-
 ### 33. LSP 客户端启动绕过 proc 环境净化与整树终止 `[P1/S/M]`
 - **现状**：`internal/lsp/client.go:146-168` 用 `exec.Command` + `append(os.Environ(), server.Env...)`，`kill` 为 `Process.Kill`，`Close`:483-507 同样；`proc.go:174 SanitizeEnv`、:177 `configure(cmd,KillTree,...)` 已具备。
 - **问题**：语言服务器继承宿主私有会话管道变量，违背「嵌套 agent 不得继承宿主会话变量」；gopls/rust-analyzer 派生 helper 只杀直接进程留孤儿；`readFrame`（framing.go:87）对声称 64MB 的帧直接 `make`+`io.ReadFull` 且无读截止时间，卡死服务器可长期占内存与 goroutine。
 - **建议**：`lsp.Start` 改走 `proc.StartDetached`（`detached.go:243`）或至少 `proc.SanitizeEnv(server.Env)` + `configureDetached`；`client.kill` 改为 `*proc.Process.Kill()`（底层 killTree）；reader 加可取消 deadline 通道使 Close 不依赖强杀解阻塞。
 - **验收**：`internal/lsp/client_hardening_test.go`：假 server 回写环境断言会话变量未泄露；派生孙进程后 Close 断言孙进程 pid 不存在。
 
-### 34. LSP 高级特性已实现并向服务器宣告能力，却无消费者 `[P2/M]`
-- **现状**：`internal/lsp/features_advanced.go:11 SemanticTokens/:31 InlayHints/:52 CodeLens/:75 ResolveCodeLens` 及解析器完整；`client.go:234-252` initialize 明确宣告 `codeLens/inlayHint/semanticTokens` 能力（注释说「使服务器确实发送结果」）；但调用方只在测试；`tools_lsp_ide.go:155-162 LspIde` 接口只有 6 方法。
-- **问题**：实现成本与握手开销已付出，模型拿不到语义高亮/内联类型提示/code lens；虚报 capability 让服务器额外计算并回传无人消费的数据（尤其 semanticTokens full+delta）。
-- **建议**：二选一——A 扩大 `LspIde` 接口加 3 方法，新增 `lsp_semantic_tokens`/`lsp_inlay_hints`/`lsp_code_lens` 只读工具（复用通用 `lspIdeTool`），在 `app/lsp_adapter.go` 补映射；B 从 capabilities 移除这三项宣告并删死代码，加守护测试防漂移。
-- **验收**：`go test ./internal/lsp ./internal/tools -run 'Semantic|Inlay|CodeLens|LspIde' -count=1`；新增测试断言工具名集合与 LspIde 方法集合一一对应（或 capabilities 不含未消费项）。
-
-### 35. `ResolveCodeLens` 是自承的半实现：丢弃 `data` `[P2/S]`
-- **现状**：`internal/lsp/features_advanced.go:71-77` 注释明确写「服务器的不透明 data 不被 CodeLens 保留，因此需要它来解析 lens 的服务器无法通过此辅助函数服务」；params 只有 `range`/`command`，`parseCodeLens`:204-228 的 `rawCodeLens` 也只解析这两个；返回 `resolved[0].IsResolved=true`（:88）是虚假标记。
-- **问题**：多数真实服务器（含 gopls 部分 lens）在 resolve 时需要原始 `data` 定位 target；当前静默返回残缺 lens 而非可见失败。
-- **建议**：`lsp.CodeLens` 加 `Data json.RawMessage`；`rawCodeLens` 加 Data 并在 `parseCodeLens` 赋值；`ResolveCodeLens` 把整个 `lens` 作为 params 发送（LSP 规范要求 resolve 参数是原 CodeLens 对象）；去掉虚假 `IsResolved=true`，改为依据响应是否含 command 判定。
-- **验收**：扩展 `features_advanced_test.go` fake server 断言 resolve params 中 data 原样回传；`go test ./internal/lsp -run ResolveCodeLens -count=1`。
-
-### 36. LSP 扩展名映射与已注册服务器不匹配 `[P2/S]`
-- **现状**：`internal/lsp/servers.go:206-232` 的 `extensionLanguages` 覆盖 22 种（含 c/cpp/json/md/yaml/lua/zig）；但 `DefaultServers()`:13-29 只注册 go/rust/typescript/javascript/python 五种；`Registry.Lookup`:170-175 对 C/C++/JSON/Markdown/YAML/Lua/Zig 一律 false，`app/lsp_adapter.go:178` 转成 `"no LSP server configured"`；无测试锁定两表对应。
-- **问题**：`LanguageForPath` 给出「支持」信号与真实能力不一致，模型对 `.json`/`.md`/`.cpp` 调用任一 lsp_* 工具得到固定失败，浪费轮次。
-- **建议**：二选一——A 收敛 `extensionLanguages` 只保留有服务器的扩展名；B 在 DefaultServers 增加 clangd/json/yaml/marksman 等，并把 `extension → language → server` 统一为一张表生成；新增「映射表每个语言 id 都有服务器」单测。
-- **验收**：`internal/lsp/server_coverage_test.go` 遍历映射值断言 `NewRegistry().Lookup(lang)` 为真（或值集合 ⊆ 已注册语言）。
-
 ### 37. `internal/commands` 补全/诊断纯函数未接线 `[P2/S]`
 - **现状**：`internal/commands/complete.go:33` 的 `CompleteCommands`、`complete_argument.go:33`、`complete_coordinator.go`、`diagnostics.go:52` 的 `DiagnoseCommands` 均为纯函数且有测试，但 app 侧无调用证据；CLI 的补全走自成一套的逻辑。
 - **问题**：slash 命令的参数补全与诊断能力写好不用，用户在 TUI 输入 `/commit ` 时得不到候选或错误提示。
 - **建议**：在 `internal/app/commands_wire.go`（或现有命令装配处）把 `CompleteCommands`/`DiagnoseCommands` 接到 TUI 输入完成回调与 CLI 的 `commands doctor`；保持默认无配置时行为不变。
 - **验收**：`go test ./internal/commands ./internal/app -run 'Complete|Diagnose' -count=1`；手工在 TUI 输入 `/` 后 Tab 出现候选。
-
-### 38. `pluginapi/dependency_guard` 三原语未接线，`boot_topo` 仅 opt-in `[P2/S]`
-- **现状**：`internal/pluginapi/dependency_guard.go:20` 的 `ValidateFeatureDeps`、`:34 ExpectedOrder`、`:53 StableKey` 仅 `dependency_guard_test.go` 使用；`registry.go:52 TopoSort` 在 `app/boot_topo.go:64` 仅 `ARGENT_BOOT_TOPO=1` 启用，`workflow/dag_validate.go:45` 使用。
-- **问题**：特性依赖校验无从执行，特性注册顺序错误时无稳定诊断；拓扑排序的好处只在 opt-in 下生效。
-- **建议**：在 app 启动装配末尾（所有 Register 完成后）调用 `ValidateFeatureDeps`，对 `ExpectedOrder` 做一次校验并把 `StableKey` 用于诊断日志；把 `ARGENT_BOOT_TOPO` 的 opt-in 范围在 `OPT_INS.md` 写清，或评估默认启用（需 golden 验证）。
-- **验收**：`go test ./internal/pluginapi ./internal/app -run 'Dependency|Topo' -count=1`；反向注入一个乱序注册断言产生明确错误。
 
 ---
 
@@ -133,12 +103,6 @@
 - **问题**：`argentgo gui --locale en-US` 对原生窗口无任何效果（叠加 #60）；英文用户无法用桌面端；守卫无论新增多少中文硬编码都不失败。
 - **建议**：① 扩展 `hardcodedScanRoots` 加 native/与 internal/tui/，新增 `isHardcodedChinese` 并建 158 处存量 baseline 做增量守卫；② native 建 locale.go 复用 i18n 的 catalog/effectiveLanguage（增加导出包装），迁移 navItems/status/审批卡/空态；③ `cmd/argent/gui.go:97` 把 ARGENT_LOCALE 传入。
 - **验收**：`go test ./internal/i18n -run 'TestCLIHardcodedEnglishDoesNotGrow|TestHardcoded' -count=1`；设 `ARGENT_LOCALE=en-US` 启动 GUI 截图主界面无中文。
-
-### 53. Native 包测试被排除在日常验证分层 `[P1/S]`
-- **现状**：`AGENTS.md:32` 明确「native 包测试只在发版门禁跑」；但 `native/` 有 13 个测试文件覆盖审批竞态、会话分支、取消、错误脱敏；`native/main.go:1509-1518` 需真实 GPU 窗口，测试用 `newTestChat` 无窗口路径。
-- **问题**：改 sidebar/approvalView/sendReal 等交互热路径后，日常 `go test -p 4 ./...` 很可能跳过 native，占位导航、断连无提示正是长期无人把关的结果。
-- **建议**：把不依赖 `mygo.App.Run` 的纯逻辑测试（error_notice/nav_panel/event_bridge 解码/approval_answer）提升为日常快验证子集，在 `AGENTS.md:30-34` 加快验证命令；仅 bridge_race 与需窗口用例留在发版门禁。
-- **验收**：`go test -p 4 ./native -run 'TestEngineError|TestNavPanel|TestDecode|TestApprovalAnswer' -count=1` 在无 GPU CI 上 10 次全绿且 <10s；AGENTS.md 出现该命令。
 
 ### 57. WCAG 对比度原语未接入徽章渲染 `[P2/M]`
 - **现状**：`internal/tui/contrast.go:87-138` 的 `contrast`/`ContrastRatio`/`LegibleInk` 完整实现（#rgb/#rrggbb 解析、sRGB 线性化、3:1 阈值、无效输入保守返回 0），注释明确「尚未接入徽章渲染器」并给出方案；仅测试引用；`theme.go:23-39 Palette` 全为 SGR 字符串，无 hex 角色。
@@ -195,13 +159,6 @@
 - **问题**：用户订阅不到轮次边界/中断/子 agent 结束等生命周期事件，hooks 声明不完整。
 - **建议**：opt-in `ARGENT_HOOK_LIFECYCLE=1`，在 Emit 闭包把 `EventTurnStart/EventTurnEnd/EventStop/EventSubagentEnd` 映射到已有 hook 事件，`EventStop` 按 `result.Stopped` 分类，审批事件接 `bridge.fire`；默认无映射。
 - **验收**：`internal/app/hook_lifecycle_test.go`：一轮完整执行后 hook 收到 TurnStart→TurnEnd→Stop 序列；取消时收到 Interrupt；默认无额外 hook 调用；`go test ./internal/app -count=1`。
-
-### 115. 写后漂移检测：format-on-write 后按落盘字节重算 `[P1/S-M]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:399-424` 把 `response.written` 与 `file.after` 比较，不一致则重算 diff、刷新 tag 并写 `write_drift_warning`（`:591-597`）。
-- **argentgo 现状**：`internal/tools/tools_format_aware_diff.go:12` 的 `FormatHook` 已接线到 registry（`:211-218`），但 `formatOutput`（`tools_builtin_write_edit.go:69-79,194-205`）只在**写入前**算 diff，落盘后不再校验；`internal/tools/file_freshness.go:108-119` 的 `FileFreshness.MarkWrite` 全仓除自身测试外零生产调用。
-- **问题**：格式化钩子或编辑器保存改变了最终字节时，模型看到的 diff 与实际落盘不一致，后续 anchor/hashline 基于错误快照。
-- **建议**：opt-in `ARGENT_VERIFY_WRITE=1`：写后 `os.ReadFile` 比较预期字节，漂移则返回结构化警告 + 用 `hashlineHash`（`tools_builtin_write_edit.go:207-214`）重算的新 anchor；同时把 `FileFreshness` 接进 read/write 路径（见 #124）。默认零额外 syscall。
-- **验收**：`internal/tools/write_drift_test.go`：注入会改写字节的 FormatHook，断言结果含新 anchor 与警告；无 hook 时不产生额外读取；`go test ./internal/tools -count=1`。
 
 ### 120. 统一 exec 会话：`session_id`/`write_stdin`/`yield_time_ms`/TTY `[P1/L]`（学自 codex）
 - **竞品证据**：codex `core/src/tools/handlers/unified_exec.rs:67-91` 定义 `ExecCommandArgs`（`tty`、默认 `yield_time_ms=10s`（`:113`）、`max_output_tokens`、per-call `sandbox_permissions`、`prefix_rule`）；`:30-55` 暴露 `session_id`，`:117` `write_stdin` 默认 250ms；`core/src/unified_exec/mod.rs:75-76` 输出封顶 1MiB/256K token；`process_manager.rs:105` 限制 stdin 写入 8000 字节。
