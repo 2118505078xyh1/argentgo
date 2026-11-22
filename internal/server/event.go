@@ -54,6 +54,19 @@ type EventHub struct {
 	subs    map[chan agent.Event]*subscriber
 	history []agent.Event
 	evicted uint64
+	// eventLog 为 opt-in 挂载的磁盘事件日志。nil 时发布与 SSE 回放逐字节不变。
+	eventLog *EventLog
+}
+
+// AttachEventLog 给 hub 挂载磁盘事件日志，使 SSE 客户端能用 Last-Event-ID
+// 在超出内存 256 条窗口后继续重放。未调用时 hub 完全保持在内存模式。
+func (h *EventHub) AttachEventLog(log *EventLog) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.eventLog = log
+	if log != nil {
+		log.initEntries()
+	}
 }
 
 // subscriber 描述一个订阅者的投递偏好。types 为 nil 或空时不过滤，接收全部事件；
@@ -105,7 +118,10 @@ func (h *EventHub) Evicted() uint64 {
 // 它们仍会送达。这绝不会延迟其他订阅者。
 func (h *EventHub) Publish(e agent.Event) uint64 {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	var log *EventLog
+	if h.eventLog != nil {
+		log = h.eventLog
+	}
 
 	h.seq++
 	if len(h.history) == eventHistoryCap {
@@ -165,7 +181,15 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 		}
 		ch <- e // cap > eventSubCap，因此低于配额的订阅者不会阻塞。
 	}
-	return h.seq
+	seq := h.seq
+	h.mu.Unlock()
+
+	// 磁盘日志写入在释放 hub 锁之后进行，避免慢磁盘阻塞发布与订阅者。
+	// 未挂载日志时 log 为 nil，整段跳过，默认发布路径逐字节不变。
+	if log != nil {
+		_ = log.append(seq, e)
+	}
+	return seq
 }
 
 // Subscribe 登记一个新订阅者。序列号大于 after 的历史事件
@@ -179,6 +203,52 @@ func (h *EventHub) Publish(e agent.Event) uint64 {
 func (h *EventHub) Subscribe(after uint64) (<-chan agent.Event, func()) {
 	ch, stop, _ := h.SubscribeAfter(after)
 	return ch, stop
+}
+
+// seqEvent 携带事件及其分配的序列号，仅供 SSE 的 id: 帧使用。
+type seqEvent struct {
+	seq uint64
+	ev  agent.Event
+}
+
+// memoryBase 返回当前内存回放窗口中最旧事件的序列号（无事件时为 seq+1）。
+// 客户端游标早于该值时，窗口外的事件需要从磁盘日志回放。
+func (h *EventHub) memoryBase() uint64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if len(h.history) == 0 {
+		return h.seq + 1
+	}
+	return h.seq - uint64(len(h.history)) + 1
+}
+
+// SubscribeAfterSeq 与 SubscribeAfter 语义相同，但额外在每条事件上附带其
+// 真实序列号，供 SSE 写出 id: 帧。调用方应先确认 after 不早于 memoryBase()，
+// 这样回放从 after+1 连续编号才与真实 seq 一致。
+func (h *EventHub) SubscribeAfterSeq(after uint64) (<-chan seqEvent, func(), uint64) {
+	raw, stop, seqAt := h.SubscribeAfter(after)
+	out := make(chan seqEvent, cap(raw))
+	done := make(chan struct{})
+	var once sync.Once
+	wrappedStop := func() {
+		once.Do(func() {
+			stop()
+			close(done)
+		})
+	}
+	go func() {
+		defer close(out)
+		cursor := after
+		for ev := range raw {
+			cursor++
+			select {
+			case out <- seqEvent{seq: cursor, ev: ev}:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, wrappedStop, seqAt
 }
 
 // registerSubscriber 在调用方已持有 h.mu 的前提下登记一个订阅者。
@@ -308,14 +378,25 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 		}
 
 		var after uint64
-		if raw := r.URL.Query().Get("after"); raw != "" {
+		// Last-Event-ID 是 SSE 标准的续传头；?after 查询参数保留兼容。
+		// 头优先，未带或非法时回退到查询参数。
+		if raw := r.Header.Get("Last-Event-ID"); raw != "" {
 			if n, err := strconv.ParseUint(raw, 10, 64); err == nil {
 				after = n
 			}
 		}
+		if after == 0 {
+			if raw := r.URL.Query().Get("after"); raw != "" {
+				if n, err := strconv.ParseUint(raw, 10, 64); err == nil {
+					after = n
+				}
+			}
+		}
 
-		ch, stop, seqAt := hub.SubscribeAfter(after)
-		defer stop()
+		// 磁盘日志为 opt-in：未挂载时走完全原样的内存回放路径，逐字节不变。
+		hub.mu.RLock()
+		log := hub.eventLog
+		hub.mu.RUnlock()
 
 		header := w.Header()
 		header.Set("Content-Type", "text/event-stream")
@@ -324,11 +405,68 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 		header.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
+		if log == nil {
+			// 默认路径：不带 id: 帧，与历史行为逐字节一致。
+			ch, stop, seqAt := hub.SubscribeAfter(after)
+			defer stop()
+			if _, err := fmt.Fprintf(w, "event: server.connected\ndata: {\"seq\":%d}\n\n", seqAt); err != nil {
+				return
+			}
+			flusher.Flush()
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+						return
+					}
+					flusher.Flush()
+				case ev, ok := <-ch:
+					if !ok {
+						return
+					}
+					data, err := json.Marshal(ev)
+					if err != nil {
+						continue
+					}
+					if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Kind, data); err != nil {
+						return
+					}
+					flusher.Flush()
+				}
+			}
+		}
+
+		// opt-in 日志路径：先补放内存中已淘汰、但磁盘仍留存的事件，带真实 id:。
+		base := hub.memoryBase()
+		replayFrom := after
+		var lastReplayed uint64 = after
+		if base > 0 && replayFrom+1 < base {
+			for _, entry := range log.after(replayFrom) {
+				if entry.Seq >= base {
+					break // 其余由内存回放覆盖，避免重复
+				}
+				data, err := json.Marshal(entry.Event)
+				if err != nil {
+					continue
+				}
+				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", entry.Seq, entry.Event.Kind, data); err != nil {
+					return
+				}
+				lastReplayed = entry.Seq
+			}
+			flusher.Flush()
+		}
+
+		ch, stop, seqAt := hub.SubscribeAfterSeq(lastReplayed)
+		defer stop()
 		if _, err := fmt.Fprintf(w, "event: server.connected\ndata: {\"seq\":%d}\n\n", seqAt); err != nil {
 			return
 		}
 		flusher.Flush()
-
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -340,15 +478,15 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 					return
 				}
 				flusher.Flush()
-			case ev, ok := <-ch:
+			case se, ok := <-ch:
 				if !ok {
-					return // 被淘汰：通道已排空并关闭
+					return
 				}
-				data, err := json.Marshal(ev)
+				data, err := json.Marshal(se.ev)
 				if err != nil {
 					continue
 				}
-				if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Kind, data); err != nil {
+				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", se.seq, se.ev.Kind, data); err != nil {
 					return
 				}
 				flusher.Flush()

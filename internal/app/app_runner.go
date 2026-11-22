@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -30,6 +31,22 @@ type eventEmitKey struct{}
 // NewEventHub 返回无界面传输发布事件所用的 hub。它被导出，使集成者在 app.Factory 之外
 // 构建传输时，可以显式设置 server.Config.Events。
 func NewEventHub() *server.EventHub { return server.NewEventHub() }
+
+// eventLogEnv 是「事件日志持久化 + SSE Last-Event-ID 续传」的独立门控变量。
+const eventLogEnv = "ARGENT_EVENT_LOG"
+
+func eventLogEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(eventLogEnv)) == "1"
+}
+
+// configureEventLog 在 opt-in 开启时给 hub 挂载磁盘事件日志，使 SSE 客户端
+// 能用 Last-Event-ID 重放超出内存窗口的事件。关闭时不触碰 hub。
+func configureEventLog(hub *server.EventHub, env func(string) string, storage string) {
+	if !eventLogEnabled(env) || hub == nil || strings.TrimSpace(storage) == "" {
+		return
+	}
+	hub.AttachEventLog(server.NewEventLog(filepath.Join(storage, "events.jsonl")))
+}
 
 // WireRunEvents 启动把 agent 事件转发到 hub 的桥接器。对每一个事件，都要从 agent 循环的
 // Emit/OnEvent 回调中调用返回的 emit 函数。ctx 被取消或 emit 关闭时桥接器停止；
@@ -189,12 +206,14 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 		}
 		// 每个 serve/运行器实例拥有一个 hub 和一个待处理存储。传输通过 Runner.EventHub
 		// 发现 hub，每次运行都会包装其审批器，使待处理请求在重连后仍然持久。
+		hub := NewEventHub()
+		configureEventLog(hub, stdio.Env, resolved.Storage)
 		r := &runner{
 			stdio:   stdio,
 			res:     resolved,
 			store:   store,
 			execute: Execute,
-			hub:     NewEventHub(),
+			hub:     hub,
 			pending: security.NewPendingStore(filepath.Join(resolved.Storage, "pending")),
 		}
 		// 运行器是 --serve/--rpc 在多个提示间复用的长生命周期引擎，因此它拥有配置热重载钩子。

@@ -562,13 +562,6 @@
 - **建议**：opt-in `ARGENT_HOOK_LIFECYCLE=1`，在 Emit 闭包把 `EventTurnStart/EventTurnEnd/EventStop/EventSubagentEnd` 映射到已有 hook 事件，`EventStop` 按 `result.Stopped` 分类，审批事件接 `bridge.fire`；默认无映射。
 - **验收**：`internal/app/hook_lifecycle_test.go`：一轮完整执行后 hook 收到 TurnStart→TurnEnd→Stop 序列；取消时收到 Interrupt；默认无额外 hook 调用；`go test ./internal/app -count=1`。
 
-### 112. 事件日志缺少持久化与 SSE `Last-Event-ID` 续传 `[P1/M-L]`（学自 opencode）
-- **竞品证据**：opencode `core/src/bus.ts:22-49` 按 aggregate 预留单调 seq；`:150-180` 暴露 `log({aggregateID, after, follow})`，replay 后发 `Synced` 标记；`:290-448` 事务内写 EventSequenceTable/EventTable、跑 projector、再发通知；`server/src/event-feed.ts:8-84` 按类型过滤 + dropping queue，`:48-70` 溢出整批失败，`server/src/handlers/event.ts:11-35` 发 `server.connected` + 15s heartbeat。
-- **argentgo 现状**：`internal/server/event.go:15-57,99-169` 的 `EventHub` 只有**内存** 256 条回放 + 512 订阅缓冲，慢订阅者直接淘汰（`:157-165`），终态事件有预留槽必达（`:125-155`）；SSE 有 connected + heartbeat（`:285-340`），但**全仓无 `Last-Event-ID`**；`internal/session/replay_state.go:8-54` 的确定性重放是纯诊断原语，无生产调用方。
-- **问题**：客户端断线重连后失去事件窗口之外的进度；无审计级事件日志。
-- **建议**：opt-in 把 agent.Event 以 JSONL 追加到会话目录（stdlib，复用 session 目录与脱敏），SSE 支持 `Last-Event-ID` 从磁盘续放；默认仍走内存 hub，字节不变。
-- **验收**：`internal/server/event_persist_test.go`：发布 300 事件后用 `Last-Event-ID: 10` 重连收到 11+ 且终态必达；关闭时旧 SSE 行为不变；`go test ./internal/server -count=1`。
-
 ### 114. 普通文本编辑缺 parse-regression 门禁（写入前语法劣化检查）`[P1/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:454-458` 计算 `parse_regressed = op != Delete/Noop && existed && source_parses(before) && !source_parses(after)`（字段 `:113`、结果 `:485`），`source_parses` 在 `:578-587` 经语法 oracle 检查，宿主据此自动修复。
 - **argentgo 现状**：只有 AST 改写路径有等价的「写入前拒绝」——`internal/astedit/astedit.go:102-106` 在 splice 后 `newErrs > baseErrs` 直接 `ErrInvalidReplacement`；普通 `edit`（`tools_builtin_write_edit.go:98-189`）和 `apply_patch`（`tools_apply_patch.go:145-235`）都没有，坏语法静默落盘。
@@ -687,8 +680,8 @@
 > 2026-11-23 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74~#77/#81/#82/#84~#87/#90/#92/#94/#101~#103/#107~#110/#113/#116~#118/#123~#125）已从本文档删除。P0、hook、小项与发版门禁批次均已落地并全绿。
 
 1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
-2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#123 已落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、todo 入摘要）；剩余 #112（事件日志/SSE 续传）。
+2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#112/#123 已全部落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、事件日志/SSE 续传、todo 入摘要）。
 3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#118/#124/#125 已全部落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、MCP annotations 审批、read-before-write、分支摘要）。
-4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#112（事件日志/SSE 续传）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
+4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审（#112 已落地）。
 5. **发版门禁**：#74~#93 已全部落地（版本/文档/CI/脚本一致性、行数锚点机器校验、fuzz workflow、产物自报版本校验、离线 model-quality 评测）；剩余 #135（体积/启动门禁）属于 CI 指标增强。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。

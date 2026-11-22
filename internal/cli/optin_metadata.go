@@ -70,6 +70,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "branch_summary", Env: "ARGENT_BRANCH_SUMMARY", Name: "分支切换摘要", Enable: "=1", Desc: "Checkout 时为被弃分支生成确定性摘要并追加到新活动分支，使模型知道放弃路径上做过什么；默认关闭时 checkout 与消息投影逐字节不变。"},
 	{Key: "read_before_write", Env: "ARGENT_READ_BEFORE_WRITE", Name: "读后写新鲜度校验", Enable: "=1", Desc: "read 成功后登记文件快照，edit/write 在外部改动导致快照过期时拒绝写入并提示重读；默认关闭时无账本、无检查，工具行为逐字节不变。"},
 	{Key: "mcp_annotation_approval", Env: "ARGENT_MCP_ANNOTATION_APPROVAL", Name: "MCP 破坏性工具审批", Enable: "=1", Desc: "按 MCP annotations 把声明 destructiveHint 且非 readOnly 的工具纳入强制审批（即便策略允许也询问）；默认关闭时仅按工具名白名单决定审批，逐字节不变。"},
+	{Key: "event_log", Env: "ARGENT_EVENT_LOG", Name: "事件日志续传", Enable: "=1", Desc: "把 hub 事件以 JSONL 落盘，SSE 支持 Last-Event-ID 在超出内存窗口后续放；默认关闭时纯内存、SSE 帧无 id:，逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

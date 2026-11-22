@@ -120,13 +120,14 @@ func (p *platformProcess) killTree() {
 	}
 	p.mu.Unlock()
 
-	if p.proc != nil {
-		_ = p.proc.Kill()
-	}
-	// 无法创建（或分配）的作业对象会让 shell 的后代
-	// 继续存活；taskkill /T 与 Rust 代码使用的最后手段相同。
+	// 无法创建（或分配）的作业对象会让 shell 的后代继续存活；
+	// taskkill /T 依赖父进程枚举后代，必须在直接子进程退出之前调用，
+	// 否则孙进程成为孤儿而漏杀。taskkill /T 与 Rust 代码用的最后手段相同。
 	if job == 0 && p.killAll && p.proc != nil {
 		killViaTaskkill(p.proc.Pid)
+	}
+	if p.proc != nil {
+		_ = p.proc.Kill()
 	}
 }
 

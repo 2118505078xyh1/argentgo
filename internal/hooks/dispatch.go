@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/proc"
 )
 
 const (
@@ -578,6 +580,9 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	process := exec.CommandContext(runCtx, name, args...)
+	// 迁移自 killi 决策 35：把钩子放进独立进程组，使超时能终止整棵子树，
+	// 而不只是直接子进程。钩子脚本启动的后台进程不再泄漏到会话结束。
+	proc.ConfigureGroup(process)
 	// 覆盖范围内。
 	// 超时或被杀死的进程可能留下持有管道写端的孙进程；限制 Wait 等待这些管道的时间，使
 	// 上面的超时真正限制挂钟时间。
@@ -590,11 +595,18 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	// 不被误标为超时（那也会丢弃其 exit-2 拦截）。
 	var killedByDeadline atomic.Bool
 	process.Cancel = func() error {
-		err := process.Process.Kill()
-		if err == nil && runCtx.Err() == context.DeadlineExceeded {
+		// 先判断直接子进程是否仍存活：这等价于旧版 Process.Kill() 的
+		// 返回值语义（已退出的钩子只是管道排空超时，不算钩子超时）。
+		if !proc.ProcessAlive(process.Process) {
+			return nil
+		}
+		// 父进程尚存活时先杀整棵树——Windows 的 taskkill /T 依赖父进程
+		// 枚举后代，若先杀父进程，孙进程会成为孤儿而漏杀（killi 决策 35）。
+		proc.KillGroup(process.Process)
+		if runCtx.Err() == context.DeadlineExceeded {
 			killedByDeadline.Store(true)
 		}
-		return err
+		return nil
 	}
 	if payload.CWD != "" {
 		process.Dir = payload.CWD
