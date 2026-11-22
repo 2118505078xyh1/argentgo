@@ -203,30 +203,19 @@ func LanguageForPath(path string) string {
 	return extension
 }
 
+// extensionLanguages 只包含有内置服务器的语言：映射表的每个值都必须能被
+// NewRegistry().Lookup 命中（由 server_coverage_test.go 守护）。无服务器的
+// 扩展名不列入——否则 LanguageForPath 会给出"支持"的假信号，模型对 .json/.md
+// 调用 lsp_* 工具只会得到固定失败。新语言须先在 DefaultServers 注册服务器。
 var extensionLanguages = map[string]string{
-	"go":    "go",
-	"rs":    "rust",
-	"ts":    "typescript",
-	"tsx":   "typescriptreact",
-	"js":    "javascript",
-	"mjs":   "javascript",
-	"cjs":   "javascript",
-	"jsx":   "javascriptreact",
-	"py":    "python",
-	"pyi":   "python",
-	"c":     "c",
-	"h":     "c",
-	"cc":    "cpp",
-	"cpp":   "cpp",
-	"cxx":   "cpp",
-	"hpp":   "cpp",
-	"hh":    "cpp",
-	"json":  "json",
-	"jsonc": "json",
-	"md":    "markdown",
-	"toml":  "toml",
-	"yaml":  "yaml",
-	"yml":   "yaml",
-	"lua":   "lua",
-	"zig":   "zig",
+	"go":  "go",
+	"rs":  "rust",
+	"ts":  "typescript",
+	"tsx": "typescriptreact",
+	"js":  "javascript",
+	"mjs": "javascript",
+	"cjs": "javascript",
+	"jsx": "javascriptreact",
+	"py":  "python",
+	"pyi": "python",
 }
