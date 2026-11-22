@@ -43,6 +43,10 @@ var primitiveAllowlist = []primitiveAllowEntry{
 	// 模型；这些类型化方法供下一阶段"结构化调试工具"直接消费（并返回整理后的
 	// Go 结构），握手方法（Initialize/Launch/ConfigurationDone）已生产接线。
 	{Symbol: "internal/dap/client.go:Alive", Reason: "会话存活探测辅助方法；下一阶段 debug_start 复用会话时用于失效检测"},
+	{Symbol: "internal/dap/session.go:Client", Reason: "会话底层 client 访问器；工具层当前用裸 Call 保留原始 DAP body，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:SupportsConfigurationDone", Reason: "握手能力查询；工具层用原始命令序列，结构化握手阶段调用"},
+	{Symbol: "internal/dap/session.go:Launch", Reason: "类型化 launch；工具层当前用裸 launch 命令，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:ConfigurationDone", Reason: "类型化 configurationDone；同上，结构化阶段调用"},
 	{Symbol: "internal/dap/session.go:Attach", Reason: "attach 握手分支；当前仅 launch 场景接线，下一阶段暴露 attach 调试工具时调用"},
 	{Symbol: "internal/dap/session.go:SetBreakpoints", Reason: "类型化断点 API；工具层暂用裸 setBreakpoints 保留原始 body，下一阶段结构化工具调用"},
 	{Symbol: "internal/dap/session.go:SetExceptionBreakpoints", Reason: "异常断点 API；下一阶段暴露异常断点工具时调用"},

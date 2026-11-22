@@ -36,6 +36,12 @@ var lazyCoreTools = map[string]bool{
 	"todo":        true,
 	"multi_edit":  true,
 	"tool_search": true,
+	// exit_plan/task 是条件启用的关键能力：它们只在 plan 模式 / 配置了子角色时
+	// 才注册到注册表，且必须被模型一上来就看到——否则 plan 模式下模型看不到
+	// 解锁工具会永远卡住，编排模式下看不到委派工具无法派活。平时它们不在
+	// 注册表里，因此加入核心集不影响默认目录的精简。
+	"exit_plan": true,
+	"task":      true,
 }
 
 // fullToolsForced 报告是否强制公布全部工具（仅调试逃生舱）。每次调用读取环境。

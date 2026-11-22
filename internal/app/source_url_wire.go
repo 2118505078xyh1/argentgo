@@ -18,6 +18,16 @@ type sourceAnnotatingTools struct {
 
 func (s *sourceAnnotatingTools) Specs() []llm.ToolSpec { return s.inner.Specs() }
 
+// Guarded 转发内层工具集的守卫标记。agent 循环据此判断安全链是否已在工具层
+// 运行（避免双重审批）；包装器若丢失该接口，会让 agent 在 plan/策略守卫之前
+// 再问一次审批器，破坏 plan 模式等"守卫先于审批"的语义。
+func (s *sourceAnnotatingTools) Guarded() bool {
+	if g, ok := s.inner.(interface{ Guarded() bool }); ok {
+		return g.Guarded()
+	}
+	return false
+}
+
 func (s *sourceAnnotatingTools) Run(ctx context.Context, name, args string) (string, error) {
 	out, err := s.inner.Run(ctx, name, args)
 	if err != nil {
