@@ -258,9 +258,38 @@ var (
 	hexBlobRE     = regexp.MustCompile(`\b[A-Fa-f0-9]{32,}\b`)
 )
 
+// mayContainCredential 是 RedactText 的廉价守卫。五条正则中，前三条分别需要
+// ':'/'='（字段赋值）、'-'/'_'（密钥前缀分隔符）、'@'（邮箱）；只有 hexBlobRE
+// 不需要任何分隔符，因此单独线性扫描 32 位连续 hex。普通源码行一次扫描即可
+// 跳过全部正则，避免每行都跑五遍 ReplaceAllString。
+func mayContainCredential(text string) bool {
+	if strings.ContainsAny(text, ":=@-_") {
+		return true
+	}
+	if len(text) < 32 {
+		return false
+	}
+	run := 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			run++
+			if run >= 32 {
+				return true
+			}
+		} else {
+			run = 0
+		}
+	}
+	return false
+}
+
 // RedactText 在提供方文本被记录或附加到尝试记录之前，移除其中
 // 凭据形态的值。普通的错误措辞会保留。
 func RedactText(text string) string {
+	if !mayContainCredential(text) {
+		return text
+	}
 	text = authorizationRE.ReplaceAllString(text, "${1}[redacted]")
 	text = credentialFieldRE.ReplaceAllString(text, "${1}${2}[redacted]")
 	text = knownSecretRE.ReplaceAllString(text, "[redacted]")

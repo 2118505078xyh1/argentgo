@@ -226,6 +226,16 @@ func TestRedactTextMasksMainstreamAPIKeyFormats(t *testing.T) {
 			in:       "provider returned 400: model not found",
 			mustKeep: []string{"provider returned 400: model not found"},
 		},
+		{
+			name:     "pure hex blob without separators is still masked",
+			in:       "deadbeefdeadbeefdeadbeefdeadbeef",
+			mustHide: []string{"deadbeefdeadbeefdeadbeefdeadbeef"},
+		},
+		{
+			name:     "plain prose skips all regexes unchanged",
+			in:       "provider returned an ordinary error about model availability",
+			mustKeep: []string{"provider returned an ordinary error about model availability"},
+		},
 	}
 
 	for _, tc := range cases {

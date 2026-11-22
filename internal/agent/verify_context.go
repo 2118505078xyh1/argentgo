@@ -29,6 +29,10 @@ const (
 	sourceAnchorPattern = `([A-Za-z]:[\\/])?([^\s:]+):([0-9]{1,6})(?::([0-9]{1,6}))?`
 )
 
+// sourceAnchorRE 提升为包级变量：AnchorSourceLines 处于失败反馈热路径，
+// 每次调用重新编译正则会带来无谓分配。
+var sourceAnchorRE = regexp.MustCompile(sourceAnchorPattern)
+
 type sourceAnchor struct {
 	name string // 工具输出中出现的原样路径
 	path string // 解析后、限定在 root 内的绝对路径
@@ -62,31 +66,36 @@ func AnchorSourceLines(output, root string, pad int) string {
 		pad = 0
 	}
 
-	re := regexp.MustCompile(sourceAnchorPattern)
 	seen := make(map[string]bool)
 	anchors := make([]sourceAnchor, 0, maxSourceAnchors)
-	for _, m := range re.FindAllStringSubmatch(output, -1) {
-		name := m[1] + m[2]
-		if !looksLikeSourcePath(name) {
-			continue
-		}
-		line, err := strconv.Atoi(m[3])
-		if err != nil || line < 1 {
-			continue
-		}
-		path, ok := resolveSourcePath(name, rootAbs)
-		if !ok {
-			continue
-		}
-		key := path + "\x00" + strconv.Itoa(line)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		anchors = append(anchors, sourceAnchor{name: name, path: path, line: line})
-		if len(anchors) == maxSourceAnchors {
+	// 手动逐个匹配，收满 maxSourceAnchors 个有效锚点即停；避免
+	// FindAllStringSubmatch(-1) 为整段输出预先分配全部匹配结果。
+	rest := output
+	for len(rest) > 0 && len(anchors) < maxSourceAnchors {
+		loc := sourceAnchorRE.FindStringSubmatchIndex(rest)
+		if loc == nil {
 			break
 		}
+		name := ""
+		if loc[2] >= 0 { // 可选盘符前缀（第 1 组）
+			name += rest[loc[2]:loc[3]]
+		}
+		name += rest[loc[4]:loc[5]] // 路径（第 2 组，必填）
+		if !looksLikeSourcePath(name) {
+			rest = rest[loc[1]:]
+			continue
+		}
+		line, err := strconv.Atoi(rest[loc[6]:loc[7]]) // 行号（第 3 组，必填）
+		if err == nil && line >= 1 {
+			if path, ok := resolveSourcePath(name, rootAbs); ok {
+				key := path + "\x00" + strconv.Itoa(line)
+				if !seen[key] {
+					seen[key] = true
+					anchors = append(anchors, sourceAnchor{name: name, path: path, line: line})
+				}
+			}
+		}
+		rest = rest[loc[1]:]
 	}
 	if len(anchors) == 0 {
 		return ""
