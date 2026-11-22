@@ -1,6 +1,9 @@
 package lsp
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Position 是 LSP 定义的文档中从零开始的位置。
 type Position struct {
@@ -157,9 +160,13 @@ type InlayHint struct {
 // CodeLens 是附加到某区间的可点击标签。IsResolved 由
 // CodeLens 是附加到某区间的可点击标签。IsResolved 由客户端推导：没有 command 的 lens 仍需要 codeLens/resolve。
 type CodeLens struct {
-	Range      Range    `json:"range"`
-	Command    *Command `json:"command,omitempty"`
-	IsResolved bool     `json:"-"`
+	Range   Range    `json:"range"`
+	Command *Command `json:"command,omitempty"`
+	// Data 是服务器附加的不透明数据。LSP 规范要求 codeLens/resolve 的
+	// 参数是原始 CodeLens 对象（含 data），否则依赖 data 定位目标的服务器
+	// 无法解析该 lens。
+	Data       json.RawMessage `json:"data,omitempty"`
+	IsResolved bool            `json:"-"`
 }
 
 // severityName 把数字 LSP 严重性映射为词。

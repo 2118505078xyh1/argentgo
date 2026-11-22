@@ -68,16 +68,13 @@ func (c *Client) CodeLensAt(ctx context.Context, path string) ([]CodeLens, error
 	return c.CodeLens(ctx, uri)
 }
 
-// ResolveCodeLens 填补缺少 command 的 lens 的命令。协议把 lens 本身作为参数；返回的副本总被标记为已解析。
-// 协议把 lens 本身作为参数；返回的副本总被标记为已解析。
-// 服务器的不透明 "data" 不被 CodeLens 保留，因此需要它来解析 lens 的服务器无法通过此辅助函数服务。
-// 解析 lens 的服务器无法通过此辅助函数服务。
+// ResolveCodeLens 填补缺少 command 的 lens 的命令。LSP 规范要求把原始
+// CodeLens（含 range/command/data）整个作为 resolve 参数——依赖 data 定位
+// 目标的服务器只有拿到它才能解析。IsResolved 不再虚假标记为 true，而是由
+// parseCodeLens 依据响应是否携带 command 推导；解析结果若省略 data，
+// 从请求 lens 继承，避免丢失服务器的不透明标识。
 func (c *Client) ResolveCodeLens(ctx context.Context, lens CodeLens) (*CodeLens, error) {
-	params := map[string]any{"range": lens.Range}
-	if lens.Command != nil {
-		params["command"] = lens.Command
-	}
-	raw, err := c.call(ctx, "codeLens/resolve", params)
+	raw, err := c.call(ctx, "codeLens/resolve", lens)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +82,9 @@ func (c *Client) ResolveCodeLens(ctx context.Context, lens CodeLens) (*CodeLens,
 	if len(resolved) == 0 {
 		return nil, nil
 	}
-	resolved[0].IsResolved = true
+	if len(resolved[0].Data) == 0 {
+		resolved[0].Data = lens.Data
+	}
 	return &resolved[0], nil
 }
 
@@ -194,8 +193,9 @@ func parseInlayHints(raw json.RawMessage) []InlayHint {
 
 // rawCodeLens 镜像线上形态。IsResolved 不被传输。
 type rawCodeLens struct {
-	Range   *Range   `json:"range"`
-	Command *Command `json:"command"`
+	Range   *Range          `json:"range"`
+	Command *Command        `json:"command"`
+	Data    json.RawMessage `json:"data"`
 }
 
 // parseCodeLens 解码 lens 数组、单个 lens 或 null。带 command 的 lens 已解析；不带 command 的
@@ -219,7 +219,7 @@ func parseCodeLens(raw json.RawMessage) []CodeLens {
 		if lens.Range == nil && lens.Command == nil {
 			continue
 		}
-		item := CodeLens{Command: lens.Command, IsResolved: lens.Command != nil}
+		item := CodeLens{Command: lens.Command, Data: lens.Data, IsResolved: lens.Command != nil}
 		if lens.Range != nil {
 			item.Range = *lens.Range
 		}
