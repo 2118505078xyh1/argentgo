@@ -78,7 +78,7 @@ func TestRequestSnapshotsExtractsValidOnly(t *testing.T) {
 	}
 	// 一条 hash 不匹配的记录，应被 valid() 拒绝并跳过。
 	broken := RequestSnapshotPayload{Version: 1, Protocol: "p", Model: "m", Body: []byte("tampered")}
-	if _, err := sess.Append(KindRequestSnapshot, broken); err != nil {
+	if err := sess.Append(KindRequestSnapshot, broken); err != nil {
 		t.Fatal(err)
 	}
 	records, err := sess.Records()
