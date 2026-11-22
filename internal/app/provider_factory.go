@@ -85,6 +85,7 @@ func newAnthropicChatter(base, key string, opts llm.Options) llm.Chatter {
 	client.MaxTokens = llm.DefaultAnthropicMaxTokens
 	client.Options = opts
 	client.IdleTimeout = streamIdleTimeout()
+	client.Retry = retryPolicyFromEnv()
 	return client
 }
 
@@ -93,6 +94,7 @@ func newResponsesChatter(base, key string, opts llm.Options) llm.Chatter {
 	client := llm.NewResponses(base, key)
 	client.Options = opts
 	client.IdleTimeout = streamIdleTimeout()
+	client.Retry = retryPolicyFromEnv()
 	return client
 }
 
@@ -101,6 +103,7 @@ func newDefaultChatter(base, key string, opts llm.Options) llm.Chatter {
 	client := llm.New(base, key)
 	client.Options = opts
 	client.IdleTimeout = streamIdleTimeout()
+	client.Retry = retryPolicyFromEnv()
 	return client
 }
 
