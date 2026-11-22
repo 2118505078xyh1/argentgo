@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image/png"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,11 @@ func TestCapture(t *testing.T) {
 		return
 	}
 	if err != nil {
+		// BitBlt 需要交互式 Windows 桌面会话；在无显示器/无桌面的 CI 或
+		// 服务会话里捕获会失败。此时跳过而非失败，保留有桌面环境的真实断言。
+		if strings.Contains(strings.ToLower(err.Error()), "bitblt") {
+			t.Skipf("no interactive desktop available for screen capture: %v", err)
+		}
 		t.Fatalf("Capture: %v", err)
 	}
 	if img == nil {

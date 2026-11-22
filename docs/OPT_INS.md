@@ -551,6 +551,8 @@ argentgo "你的任务"
 | `ARGENT_FAILURE_SIGNALS` | =1 时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；默认关闭时不提取，压缩逐字节不变。 |
 | `ARGENT_SUMMARY_EMPTY_RETRY` | =1 时压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；默认关闭时使用原摘要，压缩逐字节不变。 |
 | `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
+| `ARGENT_MCP_TOOL_CACHE_TTL` | 正整数秒时为 MCP 工具发现结果启用带 TTL 的缓存；默认 0 禁用时每次重新发现，行为不变。 |
+| `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

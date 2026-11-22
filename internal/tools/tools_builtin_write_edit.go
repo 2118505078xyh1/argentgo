@@ -67,6 +67,10 @@ func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	}
 	result := fmt.Sprintf("wrote %d bytes to %s", len(after), args.Path)
 	final, result := t.formatOutput(path, before, after, result)
+	// 写入前 Go 语法劣化检查（opt-in ARGENT_PARSE_REGRESSION_GUARD，默认关闭）。
+	if err := checkParseRegression(path, before, final); err != nil {
+		return "", err
+	}
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
 	}
@@ -205,6 +209,10 @@ func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 	}
 
 	final, result := t.formatOutput(path, args.Path, data, []byte(out))
+	// 写入前 Go 语法劣化检查（opt-in ARGENT_PARSE_REGRESSION_GUARD，默认关闭）。
+	if err := checkParseRegression(path, data, final); err != nil {
+		return "", err
+	}
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
 	}

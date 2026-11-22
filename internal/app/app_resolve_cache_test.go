@@ -128,8 +128,28 @@ func TestCacheOptionsForConfigWiresExplicitTier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Config{Raw: tt.raw}
-			got := cacheOptionsForConfig(cfg, cli.Options{NoPromptCache: tt.noPromptCache})
+			got := cacheOptionsForConfig(cfg, cli.Options{NoPromptCache: tt.noPromptCache}, true)
 			assertCacheOptions(t, got, tt.want)
 		})
+	}
+}
+
+// TestCacheOptionsTemplateUnsupported 断言模板声明不支持缓存时，未显式选择层级会
+// 关闭线上缓存标记；显式层级仍被遵守（#43）。
+func TestCacheOptionsTemplateUnsupported(t *testing.T) {
+	cfg := config.Config{Raw: map[string]any{}}
+	got := cacheOptionsForConfig(cfg, cli.Options{}, false)
+	if !got.NoPromptCache {
+		t.Fatal("unsupported template with no tier should disable prompt cache")
+	}
+	// 显式层级被解析；不支持缓存的模板会把 long 收敛到空 CacheRetention（能力上限），
+	// 但用户显式选择不会被强制 NoPromptCache。
+	got = cacheOptionsForConfig(config.Config{Raw: map[string]any{"cacheTier": "long"}}, cli.Options{}, false)
+	if got.NoPromptCache {
+		t.Fatalf("explicit tier should not force NoPromptCache: %+v", got)
+	}
+	got = cacheOptionsForConfig(cfg, cli.Options{}, true)
+	if got.NoPromptCache {
+		t.Fatal("supported template should not force NoPromptCache")
 	}
 }

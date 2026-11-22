@@ -16,9 +16,11 @@ var ErrMalformedPatch = errors.New("tools: malformed apply patch")
 // PatchAction 表示 apply_patch 中的一个文件级动作。
 // Kind 取值为 "add" / "delete" / "update"。
 type PatchAction struct {
-	Kind  string
-	Path  string
-	Hunks []PatchHunk
+	Kind string
+	Path string
+	// MoveTo 非空时表示该动作结束后把 Path 改名为 MoveTo（对应 *** Move to:）。
+	MoveTo string
+	Hunks  []PatchHunk
 }
 
 // PatchHunk 表示一个 @@ 段。
@@ -115,6 +117,16 @@ func ParseApplyPatch(text string) ([]PatchAction, error) {
 		case trimmed == "*** End Patch":
 			endSeen = true
 			current = -1
+
+		case strings.HasPrefix(trimmed, "*** Move to:"):
+			if current < 0 {
+				return nil, malformedPatch(lineNo, "*** Move to outside of a file directive")
+			}
+			dest := strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Move to:"))
+			if dest == "" || actions[current].MoveTo != "" {
+				return nil, malformedPatch(lineNo, "invalid *** Move to: %q", raw)
+			}
+			actions[current].MoveTo = dest
 
 		case strings.HasPrefix(trimmed, "*** "):
 			kind, path, ok := parsePatchFileDirective(trimmed)

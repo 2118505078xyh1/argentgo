@@ -277,7 +277,7 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		),
 		NoAutoCompact: opts.NoAutoCompact,
 	}
-	wireOpts := cacheOptionsForConfig(cfg, opts)
+	wireOpts := cacheOptionsForConfig(cfg, opts, template.CacheSupport)
 	// 续接时 opts.Session 非空，把它接入线上选项以派生跨 turn/fork
 	// 稳定的 Responses 缓存键；新会话为空时应保持旧字节不变。
 	wireOpts.SessionID = opts.Session
@@ -297,9 +297,15 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 // 因此生产路径只接入显式配置分支：保守的事实（非订阅、支持长效）使未设置的层级停留在旧字面量
 // 所产生的短缓存/提供方默认值条目上，而显式的 "long"/"none"/"short" 选择会被遵守。
 // 订阅用户的长效默认值属于更晚的接线点，那里能拿到凭据类型和端点的长期保留能力。
-func cacheOptionsForConfig(cfg config.Config, opts cli.Options) llm.Options {
+func cacheOptionsForConfig(cfg config.Config, opts cli.Options, supportsCache bool) llm.Options {
 	configTier := cfgString(cfg.Raw, "cacheTier", "cache-tier", "promptCacheTier", "prompt-cache-tier")
-	return resolveCacheOptions(configTier, false, true, opts.NoPromptCache)
+	out := resolveCacheOptions(configTier, false, supportsCache, opts.NoPromptCache)
+	// 模板声明不支持缓存且用户未显式选择层级时，关闭线上缓存标记，
+	// 避免兼容性差的网关收到 prompt_cache_key / cache_control。
+	if !supportsCache && strings.TrimSpace(configTier) == "" {
+		out.NoPromptCache = true
+	}
+	return out
 }
 
 // thinkingOptionsForProtocol 把用户的思考档位解析成协议对应的原生推理控制。
@@ -356,12 +362,18 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 	// 因此必须首先查询它。否则 provider.Resolve 会返回硬编码的模板，
 	// 而配置中的 providers.<name>.baseURL 等覆盖项会被静默丢弃。
 	if entry, ok := cfg.Provider(name); ok {
+		// 配置覆盖不携带 CacheSupport：从同名内置模板查回该能力位。
+		supportsCache := false
+		if builtin, ok := provider.Resolve(entry.Name); ok {
+			supportsCache = builtin.CacheSupport
+		}
 		return providerChoice{
 			Name:         entry.Name,
 			Protocol:     entry.Protocol,
 			BaseURL:      entry.BaseURL,
 			DefaultModel: entry.DefaultModel,
 			APIKeyEnv:    entry.APIKeyEnv,
+			CacheSupport: supportsCache,
 		}, true
 	}
 	// provider.Resolve 仍然是别名（claude、kimi 等）以及配置层不认识的内置提供方
@@ -373,6 +385,7 @@ func lookupProvider(cfg config.Config, name string) (providerChoice, bool) {
 			BaseURL:      template.BaseURL,
 			DefaultModel: template.DefaultModel,
 			APIKeyEnv:    template.APIKeyEnv,
+			CacheSupport: template.CacheSupport,
 		}, true
 	}
 	return providerChoice{}, false

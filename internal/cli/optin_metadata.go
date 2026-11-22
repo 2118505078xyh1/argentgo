@@ -74,6 +74,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "failure_signals", Env: "ARGENT_FAILURE_SIGNALS", Name: "失败信号压缩证据", Enable: "=1", Desc: "从工具结果与消息文本提取 is_error/非零 exit/timed out/失败词信号并入压缩 Failures；默认关闭时不提取，压缩逐字节不变。"},
 	{Key: "summary_empty_retry", Env: "ARGENT_SUMMARY_EMPTY_RETRY", Name: "空摘要重试", Enable: "=1", Desc: "压缩摘要为空时少丢一条消息重算一次摘要；默认关闭时使用原摘要，压缩逐字节不变。"},
 	{Key: "mcp_injection_medium", Env: "ARGENT_MCP_INJECTION_MEDIUM", Name: "MCP 中风险注入警示", Enable: "=1", Desc: "MCP 工具输出的中风险注入命中也加可见警示；默认关闭时仅高风险警示，输出逐字节不变。"},
+	{Key: "mcp_tool_cache_ttl", Env: "ARGENT_MCP_TOOL_CACHE_TTL", Name: "MCP 工具列表缓存", Enable: "正整数秒（缺省 0 禁用）", Desc: "为 MCP 工具发现结果启用带 TTL 的缓存，有效期内复用列表；默认 0 禁用时每次重新发现，行为不变。"},
+	{Key: "parse_regression_guard", Env: "ARGENT_PARSE_REGRESSION_GUARD", Name: "编辑语法劣化检查", Enable: "=1", Desc: "edit/write/apply_patch 在写入前用 go/parser 检查：原本合法的 .go 文件若改后语法错误则拒绝；默认关闭时不检查，写入逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

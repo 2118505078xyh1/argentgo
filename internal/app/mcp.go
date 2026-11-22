@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -898,7 +899,29 @@ func mcpSpecsFromConfig(raw any) []mcp.Spec {
 		object = map[string]any{"mcpServers": object}
 	}
 	specs, _ := mcp.DecodeConfig(object)
+	// 工具发现列表缓存 TTL（opt-in ARGENT_MCP_TOOL_CACHE_TTL，秒；默认 0 禁用）。
+	// 让「有字段无来源」的 Spec.ToolCacheTTL 获得显式配置入口，逐字节兼容默认路径。
+	if ttl := mcpToolCacheTTLSeconds(os.Getenv); ttl > 0 {
+		for i := range specs {
+			specs[i].ToolCacheTTL = time.Duration(ttl) * time.Second
+		}
+	}
 	return specs
+}
+
+// mcpToolCacheTTLEnv 是工具发现列表缓存时长的独立门控（单位秒）。
+const mcpToolCacheTTLEnv = "ARGENT_MCP_TOOL_CACHE_TTL"
+
+// mcpToolCacheTTLSeconds 解析 TTL 秒数；非法/非正值返回 0（禁用）。
+func mcpToolCacheTTLSeconds(env func(string) string) int {
+	if env == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(env(mcpToolCacheTTLEnv)))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // projectMCPServers 读取 <root>/.argent/mcp.json，它只在项目受信任时加载。

@@ -56,6 +56,7 @@ type patchWork struct {
 	abs     string // 已通过 resolve 校验的绝对路径
 	display string // 模型传入的路径，用于诊断文案
 	content []byte // 演进中的文件内容（add 的目标不存在时起始为空）
+	before  []byte // 磁盘上的原始字节，供写入前语法劣化检查
 	exists  bool   // 磁盘上原本是否存在
 	delete  bool
 	added   bool
@@ -91,20 +92,33 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 	type resAction struct {
 		action PatchAction
 		abs    string
+		move   string // *** Move to: 解析后的绝对路径，空表示无改名
 	}
 	resActions := make([]resAction, 0, len(actions))
 	absList := make([]string, 0, len(actions))
 	seenAbs := make(map[string]bool)
+	addAbs := func(abs string) {
+		if abs != "" && !seenAbs[abs] {
+			seenAbs[abs] = true
+			absList = append(absList, abs)
+		}
+	}
 	for _, action := range actions {
 		abs, err := resolve(root, action.Path)
 		if err != nil {
 			return "", fmt.Errorf("%w: resolve %q: %v", ErrApplyPatch, action.Path, err)
 		}
-		resActions = append(resActions, resAction{action: action, abs: abs})
-		if !seenAbs[abs] {
-			seenAbs[abs] = true
-			absList = append(absList, abs)
+		ra := resAction{action: action, abs: abs}
+		if action.MoveTo != "" {
+			moveAbs, err := resolve(root, action.MoveTo)
+			if err != nil {
+				return "", fmt.Errorf("%w: resolve move target %q: %v", ErrApplyPatch, action.MoveTo, err)
+			}
+			ra.move = moveAbs
 		}
+		resActions = append(resActions, ra)
+		addAbs(abs)
+		addAbs(ra.move)
 	}
 
 	// ---- 阶段一：按 abs 排序获取每文件锁并持有到提交结束。
@@ -132,7 +146,7 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 		data, err := os.ReadFile(ra.abs)
 		switch {
 		case err == nil:
-			w.content, w.exists = data, true
+			w.content, w.before, w.exists = data, data, true
 		case os.IsNotExist(err):
 			w.content, w.exists = nil, false
 		default:
@@ -231,6 +245,9 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 	// ---- 阶段四：全部逻辑成功才按排序后的锁顺序提交落盘。
 	for _, abs := range absList {
 		w := working[abs]
+		if w == nil {
+			continue // 仅作为改名目标被加锁的路径，没有对应的工作项。
+		}
 		if w.delete {
 			if err := os.Remove(w.abs); err != nil && !os.IsNotExist(err) {
 				return "", fmt.Errorf("%w: delete %s: %v", ErrApplyPatch, w.display, err)
@@ -240,8 +257,30 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 		if err := os.MkdirAll(filepath.Dir(w.abs), 0o755); err != nil {
 			return "", fmt.Errorf("%w: mkdir for %s: %v", ErrApplyPatch, w.display, err)
 		}
+		// 写入前 Go 语法劣化检查（opt-in ARGENT_PARSE_REGRESSION_GUARD）。
+		// 整批在阶段三已全部计算完成，任一目标劣化即整批拒绝，零写入。
+		if err := checkParseRegression(w.abs, w.before, w.content); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrApplyPatch, err)
+		}
 		if err := os.WriteFile(w.abs, w.content, 0o644); err != nil {
 			return "", fmt.Errorf("%w: write %s: %v", ErrApplyPatch, w.display, err)
+		}
+	}
+
+	// 阶段五：按动作顺序执行改名（读原→写新→删旧）。只有对应动作成功落盘后
+	// 才改名；目标目录先创建。改名失败整批已完成的部分不回滚（与现有落盘语义一致）。
+	for _, ra := range resActions {
+		if ra.move == "" {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(ra.move), 0o755); err != nil {
+			return "", fmt.Errorf("%w: mkdir for move target %s: %v", ErrApplyPatch, ra.action.Path, err)
+		}
+		if _, err := os.Stat(ra.move); err == nil {
+			return "", fmt.Errorf("%w: move target %s already exists", ErrApplyPatch, ra.action.MoveTo)
+		}
+		if err := os.Rename(ra.abs, ra.move); err != nil {
+			return "", fmt.Errorf("%w: move %s -> %s: %v", ErrApplyPatch, ra.action.Path, ra.action.MoveTo, err)
 		}
 	}
 

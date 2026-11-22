@@ -67,4 +67,6 @@ type providerChoice struct {
 	BaseURL      string
 	DefaultModel string
 	APIKeyEnv    string
+	// CacheSupport 来自提供方模板，报告其至少在一个协议上支持提示缓存。
+	CacheSupport bool
 }
