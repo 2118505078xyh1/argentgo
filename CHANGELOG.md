@@ -17,6 +17,12 @@
 - hook `additionalContext` 端到端注入下一轮上下文；MCP 工具输出注入扫描（`ARGENT_MCP_INJECTION_SCAN`）；`exit_plan` 计划审批循环（`ARGENT_PLAN_MODE`）；三协议流中断非流式回补（`ARGENT_STREAM_RECOVERY`）。
 - 可靠性加固：server 四处 fire-and-forget goroutine 补 panic 恢复、agent `callTool` panic 边界、JSONL `Close()` fsync 不丢尾（干净退出不丢尾、崩溃恢复语义不变）。
 
+**killi 研究迁移（2026-11-23，来源与逐项提交号见 `docs/KILLI_STUDY.md`）**
+- 资源边界：`read` 超大文件拒绝、`web_fetch` 二进制响应零下载、钩子超时终止整棵子进程树（含 Windows 作业对象顺序修复）。
+- 缓存纪律：prompt 预算 CI 护栏、`ARGENT_LOOP_DETECTION` 接线、`ARGENT_SUBAGENT_SHARED_PROMPT`（子代理复用父级 system 前缀）。
+- 可复现性：`ARGENT_REQUEST_SNAPSHOT` 记录实际发送的线协议字节（context sink，零开销默认关闭）+ `sessions snapshots` 只读查询；`eval history` 系列支持从 git 历史抽任务、worktree 隔离、离线自检（`verify`）与脚本化（`--scripted`）。
+- 安全：审计日志补齐 `--password value` 形式 CLI flag 凭据的脱敏。
+
 ## v0.8.1 — 2026-11-21
 
 内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（取证 commit a30b0e4（可用 git log 复核）实测 355,578 行，同一口径。）
