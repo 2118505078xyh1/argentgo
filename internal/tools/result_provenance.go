@@ -8,7 +8,8 @@ import (
 
 // Provenance 描述一次工具结果在返回给模型之前的来源与处理痕迹。
 //
-// 它是一个纯数据原语：不参与任何现有输出管线，也没有生产调用方。
+// 它是纯数据原语：通用工具输出走 agent 的 WrapToolResult；本标注当前由
+// codegraph 工具在公布结果时调用（Codegraph 输出需标记 sanitized/clipped/bytes）。
 // 四个字段各自回答一个可观测性问题——结果来自哪个工具、是否被脱敏、
 // 是否被裁剪、最终字节数是多少。
 type Provenance struct {
