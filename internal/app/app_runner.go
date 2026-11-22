@@ -245,6 +245,12 @@ type runner struct {
 	busy    bool
 	cancel  context.CancelFunc
 	current *session.Session
+
+	// 后台结果队列归属 (runner, session)：同一会话跨提示共享，使"后台任务比提示
+	// 活得久"时结果仍能在后续提示被抽取；换会话时重建，杜绝跨会话串味。
+	// 它们只在 Prompt 串行路径上读写（single-flight 保证），无需 mu。
+	bg        *agent.BackgroundResults
+	bgSession string
 }
 
 // Prompt 满足 cli.Runner。一个运行器上最多只有一个提示在途。
@@ -303,6 +309,13 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	if err != nil {
 		return "", err
 	}
+	// 后台结果队列按会话归属：同会话跨提示复用，换会话重建。队列归属 runner
+	// 而非进程，天然隔离并发的 TUI/--rpc 实例（原进程级共享会串味）。
+	if r.bg == nil || r.bgSession != sess.ID() {
+		r.bg = agent.NewBackgroundResults(0, 0)
+		r.bgSession = sess.ID()
+	}
+	ctx = agent.WithBackgroundResults(ctx, r.bg)
 	// 把审批镜像到本次会话的持久化存储。按运行复制 Resolved 可使包装器不进入 r.res；
 	// 手工构建的测试运行器（pending == nil）看到的是原始 Resolved 和未改变的行为。
 	execRes := r.res

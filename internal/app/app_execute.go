@@ -675,9 +675,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if tracker.workspaceDiff {
 		loop.Opts.AfterBatch = tracker.afterBatch
 	}
-	// 每次根运行使用一个全新的队列。已完成的后台子级只会投递给拥有该队列的运行
-	// （对于已恢复的 Runner，则是该 Runner 上之后的提示），绝不会投给无关的并发会话。
-	bg := agent.NewBackgroundResults(0, 0)
+	// 后台结果队列优先由 runner 注入（per-session 持久）：后台子任务可能比触发它的
+	// 提示活得久，持久队列让它的结果能在后续提示里被抽取，而不是投递到一个已被
+	// 丢弃的旧队列。直接调用 Execute（eval/测试）时 ctx 无队列，回退到一次性队列，
+	// 行为与接线前一致。换会话时 runner 会注入新队列，杜绝跨会话串味。
+	bg := agent.BackgroundResultsFrom(ctx)
+	if bg == nil {
+		bg = agent.NewBackgroundResults(0, 0)
+	}
 	configureSubagents(&loop.Opts, res, bg)
 	// attempt_isolation opt-in：验证失败回调把失败尝试分叉为旁支会话，并通过
 	// wireAttemptRoot 在任务运行前写前置尝试根、把真实 rootID 带进失败信息。
