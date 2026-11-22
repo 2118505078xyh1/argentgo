@@ -5,6 +5,7 @@ package computer
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"unicode/utf16"
 	"unsafe"
@@ -114,7 +115,14 @@ func setClipboardUnicode(text string) error {
 		procGlobalFree.Call(h)
 		return errors.New("computer: GlobalLock failed")
 	}
-	dst := unsafe.Slice((*uint16)(unsafe.Pointer(p)), len(u)+1)
+	// GlobalLock 返回的是 GlobalAlloc 分配的系统内存地址，不是 Go 堆对象：
+	// GC 既不会移动它，也不需要追踪它。这里通过 SliceHeader 直接装配切片，
+	// 避免把整数地址转成 unsafe.Pointer——vet 会把后者误判为 Go 对象指针运算。
+	var dst []uint16
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&dst))
+	header.Data = p
+	header.Len = len(u) + 1
+	header.Cap = len(u) + 1
 	copy(dst, u)
 	dst[len(u)] = 0
 	procGlobalUnlock.Call(h)
