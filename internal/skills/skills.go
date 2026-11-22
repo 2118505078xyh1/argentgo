@@ -382,14 +382,15 @@ const skillInjectionPlaceholder = "[已过滤可疑指令]"
 // skillInjectionScanEnabled 报告是否开启技能索引的语义注入扫描。读取环境在每次
 // 渲染时进行，便于精确控制开关；扫描仅作用于 IndexText，且不改变任何原始技能。
 func skillInjectionScanEnabled() bool {
-	return strings.TrimSpace(os.Getenv(skillInjectionScanEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(skillInjectionScanEnv)) != "0"
 }
 
 // clipSkillIndexField 是 desc/when 的渲染边界处理。scan 为真时先用安全原语检测
 // 语义注入：命中则整字段替换为中性占位（同时充当可见标记），未命中则与关闭时
 // 走同一条脱敏/折叠/裁剪链，输出逐字节相同。
 func clipSkillIndexField(s string, scan bool) string {
-	if scan && len(security.ScanPromptInjection(s)) > 0 {
+	// 先剥 Unicode Tag 再检测，避免不可见 Tag 打断注入指令的字节而漏检。
+	if scan && len(security.ScanPromptInjection(security.StripUnicodeTags(s))) > 0 {
 		return skillInjectionPlaceholder
 	}
 	return clipIndexField(s)

@@ -488,10 +488,9 @@ func (c *client) discoverTools(ctx context.Context) ([]Tool, error) {
 	return tools, nil
 }
 
-// mcpInjectionScanEnv 是 MCP 工具输出注入扫描的 opt-in 开关。工具输出是不可信
-// 的外部文本，进入模型上下文前有注入风险；但扫描默认关闭，只有值为 "1"
-// （允许首尾空白）时才在 CallTool 的最终文本进入返回值前做检测。关闭时输出
-// 与历史逐字节一致。
+// mcpInjectionScanEnv 是 MCP 工具输出注入扫描的开关。工具输出是不可信
+// 的外部文本，进入模型上下文前有注入风险；默认开启（对用户是纯增益），
+// 只有显式设为 "0"（允许首尾空白）时才关闭。关闭时输出与历史逐字节一致。
 const mcpInjectionScanEnv = "ARGENT_MCP_INJECTION_SCAN"
 
 // mcpInjectionWarning 是命中高风险注入时加在原文前的可读警示。只警示、不改写，
@@ -501,7 +500,7 @@ const mcpInjectionWarning = "[注意：工具输出含疑似指令注入]"
 // mcpInjectionScanEnabled 报告是否开启 MCP 工具输出的注入扫描。每次调用都读取
 // 环境，便于精确控制开关；这与本包其他 opt-in 能力的读取方式一致。
 func mcpInjectionScanEnabled() bool {
-	return strings.TrimSpace(os.Getenv(mcpInjectionScanEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(mcpInjectionScanEnv)) != "0"
 }
 
 // hasHighSeverityInjection 报告注入命中中是否包含高风险项。中/低风险是软信号，
@@ -519,7 +518,13 @@ func hasHighSeverityInjection(findings []security.InjectionFinding) bool {
 // 可读警示；原文字节原样保留，不改写、不过滤。关闭或未命中高风险时原样返回
 // text，保证 opt-in 关闭路径逐字节不变。
 func warnOnPromptInjection(text string, enabled bool) string {
-	if !enabled || !hasHighSeverityInjection(security.ScanPromptInjection(text)) {
+	if !enabled {
+		return text
+	}
+	// 先剥 Unicode Tag 再检测：不可见 Tag（如 U+E0000）会打断 "ignore
+	// previous instructions" 的字节，直接扫描会漏检。检测用剥后的副本，
+	// 返回的仍是原文（只加警示、不改写任何字节）。
+	if !hasHighSeverityInjection(security.ScanPromptInjection(security.StripUnicodeTags(text))) {
 		return text
 	}
 	return mcpInjectionWarning + "\n" + text
