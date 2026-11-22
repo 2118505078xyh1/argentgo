@@ -39,6 +39,22 @@ const hardcodedUsagePrefix = "usage: argentgo"
 // hardcodedBaseline 是引入守卫时已存在的英文硬编码字面量（去重后 201 条）。
 // 只按字面量登记、不绑定文件，避免目录重构造成无意义的失败。
 var hardcodedBaseline = []string{
+	// R57+ 新增的命令行诊断/状态消息（新增文件时尚未纳入初始基线）。
+	"argentgo: --format needs json or text",
+	"argentgo: --hide and --text are mutually exclusive",
+	"argentgo: --profile needs a provider name",
+	"argentgo: --text needs a value",
+	"argentgo: edit-context needs --hide or a non-empty --text",
+	"argentgo: invalid archive format %q (want json or text)\n",
+	"argentgo: unexpected archive argument %q\n",
+	"argentgo: unexpected edit-context argument %q\n",
+	"argentgo: unknown plugin command %q\n",
+	"hid record %s in session %s\n",
+	"installed plugin %s\n",
+	"no command diagnostics",
+	"plugin %q not installed\n",
+	"replace-edit recorded for %s in session %s\n",
+	"uninstalled plugin %s\n",
 	"\n%d check(s) failed\n",
 	"  (none: compiled defaults only)",
 	"  asset: %s (%d bytes)\n",
