@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -834,5 +835,34 @@ func TestCaptureCheckpointHashCacheIsolatedPerWorkspace(t *testing.T) {
 	}
 	if got := string(second.Files[0].Before); got != "content two" {
 		t.Fatalf("second workspace Before = %q", got)
+	}
+}
+
+// TestCheckpointHashCacheIsBounded 守护内存上界：长会话中文件版本不断增加时，
+// 缓存必须淘汰最旧条目，不能无限存下完整文件字节。
+func TestCheckpointHashCacheIsBounded(t *testing.T) {
+	ClearCheckpointHashCache()
+	defer ClearCheckpointHashCache()
+	keyAt := func(i int) hashCacheKey {
+		return hashCacheKey{target: fmt.Sprintf("/w/f%d", i), size: int64(i)}
+	}
+	for i := 0; i < maxCheckpointHashCacheEntries+10; i++ {
+		rememberCheckpointHash(keyAt(i), "sha", []byte("payload"))
+	}
+	if got := len(checkpointHashCache.entries); got != maxCheckpointHashCacheEntries {
+		t.Fatalf("缓存条目数 = %d, want %d", got, maxCheckpointHashCacheEntries)
+	}
+	// 最旧的 10 个应被淘汰。
+	for i := 0; i < 10; i++ {
+		if _, ok := lookupCheckpointHash(keyAt(i)); ok {
+			t.Fatalf("最旧条目 %d 应被淘汰", i)
+		}
+	}
+	// 最新的仍在，且顺序表与映射一致。
+	if _, ok := lookupCheckpointHash(keyAt(maxCheckpointHashCacheEntries + 9)); !ok {
+		t.Fatal("最新条目应保留在缓存中")
+	}
+	if len(checkpointHashCache.order) != len(checkpointHashCache.entries) {
+		t.Fatalf("LRU 顺序表长度 %d != 映射长度 %d", len(checkpointHashCache.order), len(checkpointHashCache.entries))
 	}
 }

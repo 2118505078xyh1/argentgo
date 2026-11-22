@@ -61,29 +61,63 @@ type hashCacheEntry struct {
 	before []byte
 }
 
-var checkpointHashCache = struct {
+// maxCheckpointHashCacheEntries 限制进程级检查点哈希缓存的容量。key 包含 stat
+// 元数据，文件每次改动都会产生新 key；若不淘汰，长会话中缓存条目与完整文件字节
+// 会线性增长。缓存纯粹是优化，淘汰最旧条目只会让下次捕获重读该文件。
+const maxCheckpointHashCacheEntries = 256
+
+// checkpointHashCacheState 用 LRU 顺序表（最旧在前）约束缓存容量。
+type checkpointHashCacheState struct {
 	sync.Mutex
 	entries map[hashCacheKey]hashCacheEntry
-}{entries: make(map[hashCacheKey]hashCacheEntry)}
+	order   []hashCacheKey
+}
+
+var checkpointHashCache = checkpointHashCacheState{
+	entries: make(map[hashCacheKey]hashCacheEntry),
+}
+
+// touchLocked 把 key 刷新到 LRU 队尾；调用方必须持有锁。
+func (c *checkpointHashCacheState) touchLocked(key hashCacheKey) {
+	for i, k := range c.order {
+		if k == key {
+			copy(c.order[i:], c.order[i+1:])
+			c.order[len(c.order)-1] = hashCacheKey{}
+			c.order = c.order[:len(c.order)-1]
+			break
+		}
+	}
+	c.order = append(c.order, key)
+}
 
 // lookupCheckpointHash 返回 key 对应缓存条目的副本。复制字节可防止调用方修改
-// CheckpointFile.Before 时破坏缓存。
+// CheckpointFile.Before 时破坏缓存。命中同时刷新 LRU 顺序。
 func lookupCheckpointHash(key hashCacheKey) (hashCacheEntry, bool) {
 	checkpointHashCache.Lock()
 	defer checkpointHashCache.Unlock()
 	entry, ok := checkpointHashCache.entries[key]
 	if ok {
 		entry.before = append([]byte(nil), entry.before...)
+		checkpointHashCache.touchLocked(key)
 	}
 	return entry, ok
 }
 
-// rememberCheckpointHash 缓存新读取文件的哈希和字节。
+// rememberCheckpointHash 缓存新读取文件的哈希和字节，并在超出容量时淘汰最旧条目。
 func rememberCheckpointHash(key hashCacheKey, sha256 string, before []byte) {
 	entry := hashCacheEntry{sha256: sha256, before: append([]byte(nil), before...)}
 	checkpointHashCache.Lock()
+	defer checkpointHashCache.Unlock()
+	if _, exists := checkpointHashCache.entries[key]; !exists {
+		checkpointHashCache.order = append(checkpointHashCache.order, key)
+	}
 	checkpointHashCache.entries[key] = entry
-	checkpointHashCache.Unlock()
+	for len(checkpointHashCache.order) > maxCheckpointHashCacheEntries {
+		oldest := checkpointHashCache.order[0]
+		checkpointHashCache.order[0] = hashCacheKey{}
+		checkpointHashCache.order = checkpointHashCache.order[1:]
+		delete(checkpointHashCache.entries, oldest)
+	}
 }
 
 // ClearCheckpointHashCache 丢弃所有缓存的检查点哈希和字节切片。
@@ -92,6 +126,7 @@ func rememberCheckpointHash(key hashCacheKey, sha256 string, before []byte) {
 func ClearCheckpointHashCache() {
 	checkpointHashCache.Lock()
 	checkpointHashCache.entries = make(map[hashCacheKey]hashCacheEntry)
+	checkpointHashCache.order = nil
 	checkpointHashCache.Unlock()
 }
 
@@ -104,11 +139,15 @@ func InvalidateCheckpointHashCache(workspace, rel string) {
 		return
 	}
 	checkpointHashCache.Lock()
-	for key := range checkpointHashCache.entries {
+	kept := make([]hashCacheKey, 0, len(checkpointHashCache.order))
+	for _, key := range checkpointHashCache.order {
 		if key.target == target {
 			delete(checkpointHashCache.entries, key)
+			continue
 		}
+		kept = append(kept, key)
 	}
+	checkpointHashCache.order = kept
 	checkpointHashCache.Unlock()
 }
 
