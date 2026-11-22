@@ -115,6 +115,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "loop_detection", Env: "ARGENT_LOOP_DETECTION", Name: "工具调用循环检测", Enable: "真值（1/true/yes/on）", Desc: "按调用签名检测重复循环，命中时注入纠正提示而非硬停（迁移自 killi repeat breaker）。"},
 	{Key: "request_snapshot", Env: "ARGENT_REQUEST_SNAPSHOT", Name: "请求字节快照", Enable: "真值（1/true/yes/on）", Desc: "把实际发送的线协议字节追加到会话记录，用于复现审计；不参与对话视图，含完整提示需自行控制文件权限。"},
 	{Key: "subagent_shared_prompt", Env: "ARGENT_SUBAGENT_SHARED_PROMPT", Name: "子代理共享父提示", Enable: "真值（1/true/yes/on）", Desc: "子代理以父级 system prompt 为前缀、角色约束追加在末尾，使首请求复用缓存；默认关闭时行为逐字节不变。"},
+	{Key: "compact_drain", Env: "ARGENT_COMPACT_DRAIN", Name: "压缩后逐条淘汰", Enable: "真值（1/true/yes/on）", Desc: "上下文溢出压缩后仍超预算时，按缓存前缀逐条淘汰最旧非系统消息再重放；默认关闭时恢复路径逐字节不变。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

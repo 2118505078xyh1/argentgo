@@ -75,6 +75,16 @@ func (s *runState) compactAndReplay(ctx context.Context, turn int, failure llm.F
 	// 使重放之后的预算检查看到真实的历史大小，而不是旧的超长记录。
 	s.resetBudgetReminder()
 	s.promptTokens = EstimateMessages(s.messages)
+	// opt-in：压缩后仍超预算时按缓存前缀逐条淘汰最旧消息，保留 system 与末尾提示。
+	if compactDrainEnabled() && s.promptTokens > window {
+		if drained, n := drainOldestForBudget(s.messages, window, maxCompactDrain); n > 0 {
+			s.messages = drained
+			s.promptTokens = EstimateMessages(s.messages)
+			s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
+				"压缩后仍超限，已淘汰 %d 条最旧消息，剩余 ~%d tokens", n, s.promptTokens,
+			)})
+		}
+	}
 	s.compactRetries++
 	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
 		"上下文溢出：已将记录从 ~%d 压缩到 ~%d tokens，重放第 %d 轮", before, s.promptTokens, turn,
