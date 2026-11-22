@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -238,6 +239,15 @@ func VerifyHistoryTasks(ctx context.Context, repo string, opts HistoryOptions) (
 	set, err := DiscoverHistoryTasks(ctx, repo, opts)
 	if err != nil {
 		return nil, err
+	}
+	return VerifyHistoryTaskSet(repo, set)
+}
+
+// VerifyHistoryTaskSet 是 VerifyHistoryTasks 的"已抽取结果"版本，
+// 避免调用方已经 Discover 过一遍时重复调用 git。
+func VerifyHistoryTaskSet(repo string, set *HistoryTaskSet) ([]HistoryVerifyResult, error) {
+	if set == nil {
+		return nil, errors.New("nil history task set")
 	}
 	results := make([]HistoryVerifyResult, 0, len(set.Scenarios))
 	for _, sc := range set.Scenarios {

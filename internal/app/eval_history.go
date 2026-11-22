@@ -75,10 +75,8 @@ func (e *evaler) RunHistory(ctx context.Context, spec cli.HistoryEvalSpec, out i
 	// --verify：先离线自检每个任务（父提交应失败、参考提交应通过），
 	// 只保留有判别力的任务，避免在无效任务上浪费真实模型的 token。
 	if spec.Verify {
-		verifications, err := eval.VerifyHistoryTasks(ctx, spec.Repo, eval.HistoryOptions{
-			MaxTasks: spec.MaxTasks,
-			Since:    spec.Since,
-		})
+		// 复用已抽取的任务集，避免再跑一遍 git log/diff/show。
+		verifications, err := eval.VerifyHistoryTaskSet(spec.Repo, set)
 		if err != nil {
 			return 0, 0, err
 		}
