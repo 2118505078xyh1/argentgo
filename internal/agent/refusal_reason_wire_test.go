@@ -154,11 +154,15 @@ func TestRefusalReasonClassifyAndOutput(t *testing.T) {
 			if on.refusal != tc.want {
 				t.Fatalf("开启时 refusal = %+v, want %+v", on.refusal, tc.want)
 			}
-			if on.output != off.output {
-				t.Fatalf("开启后 output 字节改变:\ngot : %q\nwant: %q", on.output, off.output)
+			// 开启后：命中已知拒绝类别且走普通错误分支（dispatch.go:512-513）时，
+			// 错误文本末尾追加模型可读提示；可恢复计划拦截走 507 的独立分支，
+			// 仍只有原有固定后缀；未命中任何类别（零值）时文本逐字节不变。
+			wantOn := wantOutput
+			if tc.want != (security.RefusalReason{}) && !tc.recoverable {
+				wantOn = wantOutput + "\n" + tc.want.ModelHint()
 			}
-			if on.output != wantOutput {
-				t.Fatalf("开启时 output 改变:\ngot : %q\nwant: %q", on.output, wantOutput)
+			if on.output != wantOn {
+				t.Fatalf("开启时 output 改变:\ngot : %q\nwant: %q", on.output, wantOn)
 			}
 			if on.intent != off.intent || on.isError != off.isError || on.invalidArgs != off.invalidArgs {
 				t.Fatalf("开启后非拒绝对字段改变: off=%+v on=%+v", off, on)

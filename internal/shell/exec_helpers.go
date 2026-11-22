@@ -49,6 +49,20 @@ func jobRegistry(ctx context.Context) *jobs.Registry {
 	return reg
 }
 
+// shellSessionExec 是命令类工具对持久化 shell 会话管理器的最小契约。
+// 签名与 internal/pshell.Manager.Exec 一致；接口定义在消费方（shell），
+// 使 shell 无需 import 具体会话包，避免依赖方向反转。
+type shellSessionExec interface {
+	Exec(ctx context.Context, workspace, shellKind, command string) (stdout string, code int, err error)
+}
+
+// persistentSessions 返回注册表经 pluginapi 注入的持久化会话管理器；
+// 未注入或类型不匹配时为 nil，保持默认关语义。
+func persistentSessions(ctx context.Context) shellSessionExec {
+	sessions, _ := execCtx(ctx).ShellSessions.(shellSessionExec)
+	return sessions
+}
+
 // clampTimeout 解析工具的运行时预算。非正值回退默认值，全局上限随后钳制，
 // 最后应用每个工具的下限与上限——顺序与原实现一致。
 func clampTimeout(tool string, raw, globalMax time.Duration) time.Duration {

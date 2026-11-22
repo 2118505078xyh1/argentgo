@@ -568,6 +568,19 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		info.Provider = scrubAbsolutePaths(info.Provider)
 		info.Workspace = scrubAbsolutePaths(info.Workspace)
 		p.respond(req.ID, info)
+	case "status":
+		// status 无参数，返回当前状态快照 JSON。来源通过可选接口注入：
+		// 未注入时返回干净的 "not configured" 错误（与 config.info 的零值
+		// 语义一致），既有方法的 wire 形态逐字节不变。
+		//
+		// 以 json.RawMessage 承载提供者字节，使其作为 result 的 JSON 对象
+		// 直接嵌入而非变成字符串；CJK 保持 UTF-8 原样（json.Marshal 只转义
+		// <、>、& 与 U+2028/U+2029，不转义汉字）。
+		if cfg.StatusProvider == nil {
+			p.fail(req.ID, codeServerError, "status not configured")
+			return
+		}
+		p.respond(req.ID, json.RawMessage(cfg.StatusProvider.StatusJSON()))
 	default:
 		p.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method))
 	}

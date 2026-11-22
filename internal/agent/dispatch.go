@@ -509,7 +509,11 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 		// 可选的工具错误反射（默认关闭）：门控关闭时 ReflectionForDispatch 逐字节返回
 		// "error: "+err，模型看到的消息、事件与会话记录都不变；开启时对可修复错误追加
 		// 修复指令与脱敏错误正文，帮助模型自我修正。错误分类/熔断/拒绝原因不受影响。
+		// 可选的拒绝提示（默认关闭）：与拒绝原因共用 refusal_reason opt-in，开启时把
+		// refusal 的模型可读提示追加到错误文本末尾，让模型能据拒绝类别自我修正；
+		// 关闭或未命中已知拒绝类别时 AppendRefusalModelHint 逐字节原样返回，既有运行不变。
 		errText := ReflectionForDispatch(call.Function.Name, "error: "+err.Error())
+		errText = AppendRefusalModelHint(errText, refusal)
 		return callResult{intent: intent, output: errText, isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 	}
 	if isNoopEditTool(call.Function.Name) && hasNoopEditMarker(output) {

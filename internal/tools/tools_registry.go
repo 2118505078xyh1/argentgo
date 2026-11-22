@@ -176,6 +176,14 @@ func (r *Registry) SetJobs(j *jobs.Registry) {
 	r.jobs = j
 }
 
+// SetShellSessions 安装 bash 工具在 ARGENT_PERSISTENT_SHELL=1 时使用的
+// 持久化 shell 会话管理器。参数用 any 承载，使 tools 包不依赖具体会话包；
+// 消费方（internal/shell）通过类型断言还原为自定义的小接口。未安装时
+// （默认）命令仍走原有系统 shell 路径。
+func (r *Registry) SetShellSessions(sessions any) {
+	r.shellSessions = sessions
+}
+
 // SetPlanUnlock 安装 exit_plan 提交计划后调用的解锁回调。调用方在计划审批
 // 闭环就绪时注入它；nil 让工具保持"未接线"状态，此时调用 exit_plan 会报错
 // 而非静默成功。回调经 Registry.Run 写入 ctx，因此 tools 包不必 import agent/app。
@@ -278,10 +286,11 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	// 读取（它们无法访问 tools 包内未导出的 context key）。原有 key 保留不动，
 	// 既有工具行为逐字节不变。
 	ctx = pluginapi.WithExecContext(ctx, pluginapi.ExecContext{
-		MaxOutput:  r.maxOutput,
-		MaxTimeout: r.maxTimeout,
-		SessionDir: r.sessionDir,
-		Jobs:       r.jobs,
+		MaxOutput:     r.maxOutput,
+		MaxTimeout:    r.maxTimeout,
+		SessionDir:    r.sessionDir,
+		Jobs:          r.jobs,
+		ShellSessions: r.shellSessions,
 		// 把 tools 包的 opt-in 溢出能力以回调形式注入，供已迁移到
 		// internal/shell 的命令类工具使用；闭包捕获同一 ctx，
 		// 因此溢出配置（含 WithOutputSpill 与 env 开关）对它们同样生效。

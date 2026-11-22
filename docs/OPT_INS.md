@@ -337,6 +337,20 @@ argentgo "你的任务"
 - **适用场景**：需要启动长任务并在后续轮次查询其状态时。
 - **逐字节不变承诺**：默认关闭时不创建目录、不调用 `SetJobs`、不安装关闭钩子，注册表仍为 nil，`background_after_ms` 被静默忽略，系统提示/事件流/JSONL 逐字节不变。
 
+### `ARGENT_PERSISTENT_SHELL` —— 持久化 shell 会话
+
+- **作用**：开启后 bash 工具的命令在一条长驻 shell 会话中执行（原语 `internal/pshell`），从而跨调用复用 `cd`、`export`、虚拟环境激活等 shell 状态。装配点为 `internal/app/app_shell_wire.go` 的 `wireShellSessions`：读环境变量 → 建立 `pshell.Manager` → 经 `SetShellSessions` 注入本次运行的全部工具注册表；退出时 `Close()`（幂等）回收会话，并且按 LIFO 先于后台作业与工具集关闭。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **shell 种类**：POSIX 平台用 `bash`；Windows 优先 `bash`，找不到时退到 `powershell`（持久化内核阶段1不支持 `cmd`）。
+- **阶段1限制**（务必知悉）：
+  1. **不支持 stdin 消费型命令**：如无参数的 `cat` 会因没有 stdin 输入流而无法正常工作；需要管道输入请改用 `printf ... | cmd` 或写入临时文件。
+  2. **只杀直接 shell，不清理后代**：超时或关闭时只终止直接 shell 进程，不杀其派生的子进程；后代进程可能短暂残留并写入已关闭的管道。
+  3. **stderr 被丢弃**：持久化会话只把 stdout 作为命令输出返回，stderr 不进入工具结果（避免混入哨兵切分）。
+  4. **末行无换行残行随哨兵丢弃**：命令输出若最后一行没有换行符，该残行会与探针哨兵一起被切掉，不会出现在结果中。
+  5. 单命令超时（30 秒）或空闲超时（5 分钟）会销毁会话，下条命令自动重建。
+- **适用场景**：需要 shell 状态在多次 bash 调用间存活（连续 `cd`、激活 venv、设置环境变量）时。
+- **逐字节不变承诺**：默认关闭时不创建 Manager、不调用 `SetShellSessions`、不安装关闭钩子，命令仍走原有系统 shell 路径，系统提示/事件流/JSONL 与工具输出逐字节不变。
+
 ### `ARGENT_BASH_USE_PROC` —— 默认 bash 主路径进程硬化
 
 - **作用**：在默认 bash 主路径上启用进程硬化（proc 相关强化）。

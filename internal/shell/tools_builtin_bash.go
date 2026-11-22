@@ -132,6 +132,16 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return runBuiltinShell(ctx, root, args.Command, timeout)
 	}
 
+	// 持久化 shell 会话（opt-in ARGENT_PERSISTENT_SHELL=1）：当注册表注入了
+	// 会话管理器时，命令在长驻 shell 中执行以复用 cd / export / venv 等状态。
+	// 默认（开关关闭或未注入）走下方原路径逐字节不变；workspace 用工具的
+	// root 参数（即工作区根目录）。
+	if persistentShellEnabled() {
+		if sessions := persistentSessions(ctx); sessions != nil {
+			return runBashViaPersistent(ctx, root, sessions, args.Command, timeout)
+		}
+	}
+
 	path, argv := shellInvocation(args.Command)
 
 	// 提升是 opt-in 的，且需要有地方记录作业。没有
@@ -208,6 +218,51 @@ func shellInvocationFor(goos string, lookPath func(string) (string, error), comm
 // 默认关闭：只有 ARGENT_BUILTIN_SHELL=1 才启用，确保现有系统 shell 路径逐字节不变。
 func builtinShellEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_BUILTIN_SHELL")) == "1"
+}
+
+// persistentShellEnabled 报告是否启用持久化 shell 会话。
+// 默认关闭：只有 ARGENT_PERSISTENT_SHELL=1 才接管，确保关闭时命令走
+// 原有系统 shell 路径逐字节不变。
+func persistentShellEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_PERSISTENT_SHELL")) == "1"
+}
+
+// persistentShellKind 返回持久化会话使用的 shell 种类，与 shellInvocation
+// 的平台选择保持一致：POSIX 用 bash；Windows 优先 bash，找不到时退到
+// powershell（持久化内核阶段1不支持 cmd）。goos 与 lookPath 可注入以便测试。
+func persistentShellKind(goos string, lookPath func(string) (string, error)) string {
+	if goos == "windows" {
+		if _, err := lookPath("bash"); err == nil {
+			return "bash"
+		}
+		return "powershell"
+	}
+	return "bash"
+}
+
+// runBashViaPersistent 在长驻 shell 会话中执行命令。语义对齐默认路径：
+// 输出走既有清洗/裁剪管线，超时优先返回专用错误，非零退出转成含退出码的
+// error，空输出回落 bashNoOutput。err 仅表示传输/协议错误，与退出码分开。
+func runBashViaPersistent(ctx context.Context, root string, sessions shellSessionExec,
+	command string, timeout time.Duration) (string, error) {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	kind := persistentShellKind(runtime.GOOS, exec.LookPath)
+	stdout, code, err := sessions.Exec(runCtx, root, kind, command)
+	text := clipBashOutput(ctx, stdout)
+	if runCtx.Err() == context.DeadlineExceeded {
+		return text, fmt.Errorf("bash: timed out after %s", timeout)
+	}
+	if err != nil {
+		return text, fmt.Errorf("bash: %w", err)
+	}
+	if code != 0 {
+		return text, fmt.Errorf("bash: exit status %d", code)
+	}
+	if strings.TrimSpace(text) == "" {
+		return bashNoOutput(stdout, text), nil
+	}
+	return text, nil
 }
 
 // bashUseProcEnabled 报告是否让默认 bash 主路径改走 proc.Run。

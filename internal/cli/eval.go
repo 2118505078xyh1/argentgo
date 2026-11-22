@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/eval"
@@ -46,6 +48,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 	// 默认 eval 路径完全不变。
 	if len(args) > 0 && args[0] == "orchestration" {
 		return runEvalOrchestration(app, ctx, args[1:])
+	}
+
+	// baseline 是 eval 子命令的带外前缀：把已接受的评分结果固化为一份可落盘的
+	// 基线 JSON，并用候选结果做三态回归门。与 compare/ab/orchestration 一样
+	// 不进 flagSurface/parity，手写扫描并分派；默认 eval 路径完全不变。
+	if len(args) > 0 && args[0] == "baseline" {
+		return runEvalBaseline(app, args[1:])
 	}
 
 	// --live 与 --json 都是 eval 子命令的带外前缀：不进 flagSurface/parity，
@@ -240,6 +249,8 @@ func evalUsage(w io.Writer) {
        argentgo eval compare <baseline-results.json> <candidate-results.json>
        argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
        argentgo eval orchestration <orchestration.json>
+       argentgo eval baseline accept <result.json> [--note <text>]
+       argentgo eval baseline check <result.json>
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.
@@ -259,6 +270,11 @@ With orchestration, a scripted multi-turn suite runs through the real agent loop
 and the real task tool (routed fake model, no network/API key); Total/Passed/Failed
 and one FAIL line per failed scenario are printed, and any failure exits non-zero.
 This prefix is also out-of-band and not a global flag.
+With baseline accept, the Result vector is frozen as an accepted baseline JSON at
+<storage>/eval/baseline.json (--note attaches an optional free-text remark).
+With baseline check, a candidate vector is graded against that baseline and the
+tri-state result (stable / improved / regression) is printed; only regression
+exits non-zero, so it can be used as a CI gate. Both are out-of-band prefixes.
 `)
 }
 
@@ -470,5 +486,248 @@ mapping scenario name to fingerprint, e.g. {"读取笔记": "<sha256 hex>"}; omi
 both files to pair by scenario name. Small samples (n < 30) are reported as
 样本不足/不显著 instead of a promotion conclusion. This prefix is out-of-band
 and not a global flag.
+`)
+}
+
+// ---- eval baseline 子命令：复用 internal/eval 的已接受基线纯函数 ----
+//
+// 与 compare/ab/orchestration 一样，baseline 是 eval 的带外前缀：不进
+// flagSurface/parity，也不进 subcommandOrder/completion，手写扫描并分派，
+// 默认 eval 路径零变化。基线落盘路径由 storageDir 派生，accept/check 共用，
+// 因此 check 只需候选结果文件一个参数即可定位基线。
+
+// baselineStateEpsilon 是区分「稳定」与「提升」的浮点容差，避免序列化/舍入噪声
+// 把持平误报为提升。注意真正的回归阈值由 eval.CheckRegression 掌管，这里只做
+// 已接受状态下的数据展示细分，不参与回归判定。
+const baselineStateEpsilon = 1e-9
+
+// baselinePath 返回已接受基线的唯一落盘路径：<storage>/eval/baseline.json。
+func baselinePath(app App) string {
+	return filepath.Join(app.storageDir(), "eval", "baseline.json")
+}
+
+// runEvalBaseline 分派 `eval baseline accept|check`。
+func runEvalBaseline(app App, args []string) int {
+	if len(args) == 0 {
+		evalBaselineUsage(app.IO.Err)
+		return 2
+	}
+	switch args[0] {
+	case "accept":
+		return runEvalBaselineAccept(app, args[1:])
+	case "check":
+		return runEvalBaselineCheck(app, args[1:])
+	case "-h", "--help", "help":
+		evalBaselineUsage(app.IO.Out)
+		return 0
+	default:
+		fmt.Fprintf(app.IO.Err, "error: 未知的 baseline 子命令 %q（accept 或 check）\n", args[0])
+		evalBaselineUsage(app.IO.Err)
+		return 2
+	}
+}
+
+// runEvalBaselineAccept 实现 `eval baseline accept <result.json> [--note X]`：
+// 读取结果向量，调用 eval.BaselineFromResults + BaselineToJSON 固化为基线，
+// 写入 <storage>/eval/baseline.json（父目录不存在则创建）。
+func runEvalBaselineAccept(app App, args []string) int {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			evalBaselineAcceptUsage(app.IO.Out)
+			return 0
+		}
+	}
+	path, note, err := parseBaselineAcceptArgs(args)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %v\n", err)
+		evalBaselineAcceptUsage(app.IO.Err)
+		return 2
+	}
+	results, err := loadResultVector(path)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", path, err)
+		return 1
+	}
+	// 固化与序列化直接复用 accepted_baseline.go 的纯函数，不改其逻辑。
+	baseline := eval.BaselineFromResults(results, note)
+	data, err := eval.BaselineToJSON(baseline)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: 编码基线失败: %v\n", err)
+		return 1
+	}
+	dst := baselinePath(app)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		fmt.Fprintf(app.IO.Err, "error: 创建基线目录失败: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", dst, err)
+		return 1
+	}
+	fmt.Fprintf(app.IO.Out, "已接受基线写入: %s\n", dst)
+	fmt.Fprintf(app.IO.Out, "场景数: %d  完成率: %.4f  指纹: %s\n", len(results), baseline.Score, shortBaselineFingerprint(baseline.Fingerprint))
+	if note == "" {
+		fmt.Fprintln(app.IO.Out, "备注: （无）")
+	} else {
+		fmt.Fprintf(app.IO.Out, "备注: %s\n", note)
+	}
+	return 0
+}
+
+// parseBaselineAcceptArgs 解析 accept 参数：恰好一个结果向量路径，可选
+// --note <text> 或 --note=<text>。备注原样返回（允许中文，不裁剪）。
+func parseBaselineAcceptArgs(args []string) (string, string, error) {
+	var paths []string
+	note := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--note":
+			if i+1 >= len(args) {
+				return "", "", errors.New("--note 缺少备注文本")
+			}
+			note = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--note="):
+			note = strings.TrimPrefix(arg, "--note=")
+		case strings.HasPrefix(arg, "-"):
+			return "", "", fmt.Errorf("未知选项 %q", arg)
+		default:
+			paths = append(paths, arg)
+		}
+	}
+	if len(paths) != 1 {
+		return "", "", fmt.Errorf("需要恰好一个结果向量路径，得到 %d 个", len(paths))
+	}
+	return paths[0], note, nil
+}
+
+// runEvalBaselineCheck 实现 `eval baseline check <result.json>`：读取候选结果
+// 向量与 <storage>/eval/baseline.json，调用 eval.CheckRegression 做三态判定并
+// 输出到 stdout；仅回归时退出码非 0，供 CI 作门禁。
+func runEvalBaselineCheck(app App, args []string) int {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			evalBaselineCheckUsage(app.IO.Out)
+			return 0
+		}
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		evalBaselineCheckUsage(app.IO.Err)
+		return 2
+	}
+	candidate, err := loadResultVector(args[0])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+		return 1
+	}
+	path := baselinePath(app)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(app.IO.Err, "error: 基线文件不存在: %s；请先运行 `argentgo eval baseline accept <result.json>`\n", path)
+		} else {
+			fmt.Fprintf(app.IO.Err, "error: 读取基线失败: %s: %v\n", path, err)
+		}
+		return 1
+	}
+	baseline, err := eval.BaselineFromJSON(data)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: 基线文件无效: %s: %v\n", path, err)
+		return 1
+	}
+	verdict := eval.CheckRegression(baseline, candidate)
+	rate := baselineCompletionRate(candidate)
+	state := baselineState(verdict, rate, baseline.Score)
+	fmt.Fprintf(app.IO.Out, "基线文件: %s\n", path)
+	fmt.Fprintf(app.IO.Out, "基线分数: %.4f  候选完成率: %.4f  样本数: %d\n", baseline.Score, rate, len(candidate))
+	fmt.Fprintf(app.IO.Out, "状态: %s\n", state)
+	fmt.Fprintf(app.IO.Out, "判定: %s\n", baselineVerdictText(verdict))
+	if verdict == eval.RegressionRegressed {
+		return 1
+	}
+	return 0
+}
+
+// baselineCompletionRate 计算候选结果向量的完成率，空向量按 0 处理。
+// 它只用于 check 的展示细分；真正的回归阈值由 eval.CheckRegression 掌管。
+func baselineCompletionRate(results []eval.Result) float64 {
+	if len(results) == 0 {
+		return 0
+	}
+	passed := 0
+	for _, r := range results {
+		if r.Passed {
+			passed++
+		}
+	}
+	return float64(passed) / float64(len(results))
+}
+
+// baselineState 把 CheckRegression 的三态判定与完成率映射为面向用户的
+// stable/improved/regression 三态。样本不足作为额外守卫状态单列，不算回归。
+func baselineState(verdict eval.RegressionVerdict, rate, score float64) string {
+	switch verdict {
+	case eval.RegressionRegressed:
+		return "regression"
+	case eval.RegressionInsufficient:
+		return "insufficient"
+	default:
+		if rate > score+baselineStateEpsilon {
+			return "improved"
+		}
+		return "stable"
+	}
+}
+
+// baselineVerdictText 把 CheckRegression 的枚举翻译成中文判定说明。
+func baselineVerdictText(verdict eval.RegressionVerdict) string {
+	switch verdict {
+	case eval.RegressionRegressed:
+		return "regressed（候选完成率低于基线，发生退化）"
+	case eval.RegressionInsufficient:
+		return "insufficient（样本不足，无法给出可靠回归结论）"
+	default:
+		return "accepted（候选完成率不低于基线，无退化）"
+	}
+}
+
+// shortBaselineFingerprint 把 64 位指纹截短为可读前缀。
+func shortBaselineFingerprint(fp string) string {
+	if len(fp) > 16 {
+		return fp[:16] + "…"
+	}
+	return fp
+}
+
+func evalBaselineUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval baseline accept <result.json> [--note <text>]
+       argentgo eval baseline check <result.json>
+
+Freezes a scored Result vector as an accepted baseline at
+<storage>/eval/baseline.json, then grades a candidate vector against it with a
+tri-state regression gate (stable / improved / regression). Only regression
+exits non-zero, so check can be used as a CI gate. Both are out-of-band
+prefixes and not global flags.
+`)
+}
+
+func evalBaselineAcceptUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval baseline accept <result.json> [--note <text>]
+
+Reads a Result vector (array or {"results": [...]}), freezes it as an accepted
+baseline and writes it to <storage>/eval/baseline.json. --note attaches an
+optional free-text remark (UTF-8, Chinese allowed); --note=<text> also works.
+`)
+}
+
+func evalBaselineCheckUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval baseline check <result.json>
+
+Reads a candidate Result vector and the accepted baseline at
+<storage>/eval/baseline.json, then prints the tri-state verdict to stdout:
+stable / improved / regression (insufficient when the sample is too small).
+Exit code is non-zero only for regression. Run eval baseline accept first if
+the baseline file is missing.
 `)
 }

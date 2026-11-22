@@ -41,15 +41,16 @@ type Guard interface {
 
 // Registry 拥有工具集并强制工作区边界。
 type Registry struct {
-	root       string
-	yolo       bool
-	maxOutput  int
-	maxTimeout time.Duration
-	sessionDir string
-	jobs       *jobs.Registry
-	planUnlock func()
-	guard      Guard
-	tools      map[string]Tool
-	order      []string
-	modes      map[string]ExecutionMode
+	root          string
+	yolo          bool
+	maxOutput     int
+	maxTimeout    time.Duration
+	sessionDir    string
+	jobs          *jobs.Registry
+	shellSessions any
+	planUnlock    func()
+	guard         Guard
+	tools         map[string]Tool
+	order         []string
+	modes         map[string]ExecutionMode
 }

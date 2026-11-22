@@ -227,8 +227,13 @@ type App struct {
 	// ConfigInfoProvider 为 --serve/--rpc/--acp 的 config.info 方法提供真实配置；
 	// 由 internal/app 注入。nil 时该方法返回干净错误，既有 RPC 行为不变。
 	ConfigInfoProvider server.ConfigInfoProvider
-	ConfigPath         string
-	StorageDir         string
+	// StatusProvider 为 --serve 的 GET /v1/status 与 --rpc 的 status 方法提供
+	// 状态字节。由 internal/app 注入；nil 时回退到 ConfigInfoProvider 上同时
+	// 实现 server.StatusProvider 的实例（app 的默认适配器即是），二者皆 nil
+	// 时不注入，/v1/status 仍 404、RPC status 返回干净错误，wire 完全不变。
+	StatusProvider server.StatusProvider
+	ConfigPath     string
+	StorageDir     string
 	// UpdateOps 为测试覆盖更新器的接缝；为 nil 时调用 internal/update。
 	UpdateOps *UpdateOps
 }
@@ -481,6 +486,19 @@ func (a App) runMain(ctx context.Context, args []string) int {
 	return a.runPrompt(ctx, opts, runner, prompt)
 }
 
+// statusProvider 解析本轮应注入的状态提供者：显式设置的 StatusProvider 优先，
+// 否则复用同时实现两个接口的 ConfigInfoProvider（app 的默认适配器）。
+// 两者都为 nil 时返回 nil，保持 --serve/--rpc 的默认 wire 不变。
+func (a App) statusProvider() server.StatusProvider {
+	if a.StatusProvider != nil {
+		return a.StatusProvider
+	}
+	if p, ok := a.ConfigInfoProvider.(server.StatusProvider); ok {
+		return p
+	}
+	return nil
+}
+
 func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 	cfg := server.Config{
 		Addr:               opts.ServeAddr,
@@ -489,6 +507,7 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 		Runner:             runner,
 		Sessions:           a.Sessions,
 		ConfigInfoProvider: a.ConfigInfoProvider,
+		StatusProvider:     a.statusProvider(),
 	}
 	srv, ln, err := server.Listen(cfg)
 	if err != nil {
@@ -508,7 +527,13 @@ func (a App) serve(ctx context.Context, opts *Options, runner Runner) int {
 }
 
 func (a App) rpc(ctx context.Context, opts *Options, runner Runner) int {
-	cfg := server.Config{Version: a.Version, Runner: runner, Sessions: a.Sessions, ConfigInfoProvider: a.ConfigInfoProvider}
+	cfg := server.Config{
+		Version:            a.Version,
+		Runner:             runner,
+		Sessions:           a.Sessions,
+		ConfigInfoProvider: a.ConfigInfoProvider,
+		StatusProvider:     a.statusProvider(),
+	}
 	if err := server.RunRPC(ctx, a.IO.In, a.IO.Out, cfg); err != nil {
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		return 1

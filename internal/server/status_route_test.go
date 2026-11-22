@@ -124,6 +124,37 @@ func TestStatusRouteOptInServesProviderBytes(t *testing.T) {
 	}
 }
 
+// TestStatusRouteServesCapabilityBoardJSON 把 capability_status.go 的
+// CapabilityBoard.JSON() 直接作为 /v1/status 的提供者字节，验证路由逐字节
+// 透传能力目录（含 CJK 分类、无尾换行）：这是该原语"未来由 /v1/status 接入"
+// 在 HTTP 侧的直接落点。
+func TestStatusRouteServesCapabilityBoardJSON(t *testing.T) {
+	var board CapabilityBoard
+	board.Register("apply_patch", "工具", true)
+	board.Register("grep_ex", "search", false)
+	body := board.JSON()
+
+	h := NewHandler(Config{
+		Token:          "s3cret",
+		Runner:         &fakeRunner{},
+		StatusProvider: staticStatusProvider(body),
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	req.Header.Set("Authorization", "Bearer s3cret")
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), body) {
+		t.Fatalf("body = %q, want %q (verbatim)", rec.Body.Bytes(), body)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"工具"`)) {
+		t.Fatalf("CJK 分类未原样透传: %q", rec.Body.Bytes())
+	}
+}
+
 // TestStatusRouteAcceptsQueryToken 验证 /v1/status 与其它受保护端点一样，
 // 可以通过 ?token= 提供凭据（沿用 h.auth / authorized 的既有逻辑）。
 func TestStatusRouteAcceptsQueryToken(t *testing.T) {

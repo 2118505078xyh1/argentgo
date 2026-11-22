@@ -482,6 +482,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		_ = closeJobs(shutdownCtx)
 	}()
 
+	// 持久化 shell 会话（opt-in ARGENT_PERSISTENT_SHELL=1）：默认关闭时
+	// wireShellSessions 无副作用，bash 仍走原有系统 shell 路径。开启时把
+	// 会话管理器接到本次运行的全部注册表。defer 按 LIFO 先于 closeJobs 与
+	// toolset.Close 关闭会话：先关长驻 shell，再停后台作业，最后释放工具集。
+	defer wireShellSessions(stdio.Env, toolset)()
+
 	var runner agent.ToolRunner = toolset
 	if bridge != nil {
 		// auto_verify opt-in：开启时让编辑类工具成功后附带 LSP 诊断回灌，帮助模型

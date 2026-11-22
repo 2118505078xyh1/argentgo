@@ -11,6 +11,10 @@ import (
 // 仅限读取配置与构造 chatter，不产生任何网络流量。
 type configInfoProvider struct {
 	info server.ConfigInfo
+	// 嵌入状态适配器，使同一实例同时实现 server.StatusProvider。
+	// 这样 --serve/--rpc 无需额外注入点即可复用 Resolve 的结果作为
+	// /v1/status 与 RPC status 的数据源；cli 侧通过接口断言取用。
+	statusProvider
 }
 
 // NewConfigInfoProvider 构造可注入 server.Config.ConfigInfoProvider 的适配器，
@@ -29,11 +33,15 @@ func newConfigInfoProvider(stdio cli.IO, resolve func(cli.IO, cli.Options) (Reso
 	if err != nil {
 		return &configInfoProvider{}
 	}
-	return &configInfoProvider{info: server.ConfigInfo{
+	info := server.ConfigInfo{
 		Model:     resolved.Model,
 		Provider:  resolved.Provider,
 		Workspace: resolved.Root,
-	}}
+	}
+	return &configInfoProvider{
+		info:           info,
+		statusProvider: newStatusProviderFromConfig(info),
+	}
 }
 
 func (p *configInfoProvider) ConfigInfo() server.ConfigInfo {
