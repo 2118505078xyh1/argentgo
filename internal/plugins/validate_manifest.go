@@ -21,6 +21,9 @@ const (
 	// IssueDuplicateSource 报告命名同一来源的两条声明。
 	IssueDuplicateSource IssueKind = "duplicate_source"
 	IssueIncompleteMCP   IssueKind = "incomplete_mcp"
+	// IssueUnsupportedField 报告清单里被解析但当前不支持的字段：
+	// 声明会被静默忽略，必须给出结构化告警而非沉默。
+	IssueUnsupportedField IssueKind = "unsupported_field"
 )
 
 // PluginIssue 是 ValidateManifest 的一条结构发现。它与
@@ -114,6 +117,13 @@ func ValidateManifest(m Manifest) []PluginIssue {
 			continue
 		}
 		bySource[source] = name
+	}
+
+	// tools 字段目前被解析但没有任何消费者（不进 Wiring/Merge）。
+	// 明确告警，避免清单作者以为它已经生效。
+	if len(m.Tools) > 0 {
+		add("tools", IssueUnsupportedField,
+			"the 'tools' field is parsed but not supported yet and will be ignored (%d entry/entries)", len(m.Tools))
 	}
 	return issues
 }
