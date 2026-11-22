@@ -25,6 +25,10 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 | `faefe3b`/`3e66c71` | 决策 21 | 请求字节快照：llm 三协议流式 marshal 点把实际发送的字节交给 context sink，opt-in 追加到会话；端到端测试验证 sink 字节与服务端实际收到的请求体逐字节相同 |
 | `aff2cd2` | 决策 15 | `eval history --scripted`：离线脚本模式跑通 git→worktree→评分全流程，无需 API key |
 | `00feb74` | 决策 15 | `eval history verify`：每个任务在父提交下应失败、参考提交下应通过，离线过滤无判别力任务 |
+| `95d0e48` | 决策 21 | 快照钩子 benchmark（默认 3.4ns、开启 9.7ns，均零分配），确认不成为热路径瓶颈 |
+| `33ef69f` | 决策 15 | 历史任务检查改为只跑新增测试所在的包而非 `go test ./...`，超时提到 120s，避免全新 worktree 首次编译超时误判 |
+| `c359f9e` | 决策 15 | `eval history --verify`：跑模型前离线自检，跳过无判别力任务，避免浪费 token |
+| `650dd88` | — | 本研究总结文档 |
 
 ## 未迁移及原因
 
@@ -48,4 +52,5 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 
 - `eval history <repo> --scripted`：离线跑一遍 git→worktree→评分流程（任务预期失败，因为脚本不修 bug）
 - `eval history verify <repo>`：离线自检任务判别力（无需模型）
+- `eval history <repo> --scripted --verify`：先自检过滤，再离线跑有效任务
 - `ARGENT_LOOP_DETECTION=1`、`ARGENT_REQUEST_SNAPSHOT=1`：开启对应 opt-in
