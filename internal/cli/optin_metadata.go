@@ -47,6 +47,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "budget_projection", Env: "ARGENT_BUDGET_PROJECTION", Name: "消息预算投影", Enable: "=1", Desc: "Messages 前按 rune 预算投影，保护最新用户输入与未配对的活尾工具调用。"},
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},
 	{Key: "recovery_replay", Env: "ARGENT_RECOVERY_REPLAY", Name: "恢复重放后缀", Enable: "=1", Desc: "恢复路径上追加重放后缀。"},
+	{Key: "recovery_detail", Env: "ARGENT_RECOVERY_DETAIL", Name: "恢复细节后缀", Enable: "=1", Desc: "恢复路径上把一次性分类得到的 RecoveryPlan 细节（类别/断链/孤儿调用/孤儿结果）作为文本后缀追加到公告；关闭时公告逐字节不变。"},
 	{Key: "checkpoint_guard", Env: "ARGENT_CHECKPOINT_GUARD", Name: "checkout 还原目标守卫", Enable: "=1", Desc: "sessions checkout 时对转录目标做只读校验，拒绝逃逸或已消失的目标；关闭时 checkout 逐字节不变。"},
 	{Key: "compaction_event", Env: "ARGENT_COMPACTION_EVENT", Name: "压缩事件落盘", Enable: "=1", Desc: "压缩时在 KindCompaction 记录后额外追加一条 KindCondensation 记录（含被遗忘 ID、摘要、切分点），该记录不进入模型可见对话；关闭时压缩写入逐字节不变。"},
 	{Key: "tool_prune", Env: "ARGENT_TOOL_PRUNE", Name: "工具结果压力裁剪", Enable: "=1", Desc: "在预算投影前对超长工具结果保留头尾、中间替换为裁剪标记（按 rune，幂等），预算复用 ARGENT_BUDGET_PROJECTION_BUDGET；关闭时消息流逐字节不变。"},

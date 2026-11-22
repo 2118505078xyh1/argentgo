@@ -1,6 +1,9 @@
 package app
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
@@ -33,12 +36,22 @@ func applyDeclaredTurnBudget(prompt string, b *agent.Budget) {
 // recoveryDecision 是 app 层对 session.ClassifyRecovery 的视图：
 // 要宣告的用户可见通知，以及继续运行是否需要操作人员显式决定。
 // 从同一个计划计算出两者，可防止未来的接线点对同一记录做两次分类。
+//
+// 细节字段（Category / OrphanToolCalls / OrphanToolResults / BrokenLinks）是同一份
+// RecoveryPlan 的只读投影：它们在 recoveryDecisionFor 里一次性填充，供 opt-in 的
+// 细节后缀与测试消费，绝不再对同一记录做第二次分类。字段本身不改写 Notice；
+// 是否把细节作为文本追加到公告完全由 Execute 的 ARGENT_RECOVERY_DETAIL 门控决定。
 type recoveryDecision struct {
 	Notice            string
 	NeedsConfirmation bool
+
+	Category          string
+	OrphanToolCalls   []string
+	OrphanToolResults []string
+	BrokenLinks       int
 }
 
-// recoveryDecisionFor 对消息分类一次，同时返回通知和确认要求。
+// recoveryDecisionFor 对消息分类一次，同时返回通知、确认要求和计划细节。
 // 它对应 session.ClassifyRecovery 的保守规则：只有降级的历史才使 NeedsConfirmation 为 true，
 // 而被中断的提示/轮次可自动继续，但仍会被宣告。
 func recoveryDecisionFor(messages []session.Entry) recoveryDecision {
@@ -46,7 +59,50 @@ func recoveryDecisionFor(messages []session.Entry) recoveryDecision {
 	return recoveryDecision{
 		Notice:            plan.Announcement,
 		NeedsConfirmation: !plan.CanAutoContinue || plan.RequiresUserConfirmation,
+		Category:          string(plan.Category),
+		OrphanToolCalls:   plan.OrphanToolCalls,
+		OrphanToolResults: plan.OrphanToolResults,
+		BrokenLinks:       plan.BrokenLinks,
 	}
+}
+
+// boundedDetailIDs 把一组 id 拼接为有界、确定性的展示串。
+// 复用 replay_suffix.go 的 boundedReplayID（按 rune 截断，CJK 不会被切坏），
+// 使诊断后缀的长度有上界且任意 UTF-8 输入都保持合法。
+func boundedDetailIDs(ids []string) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, boundedReplayID(id))
+	}
+	return strings.Join(parts, ",")
+}
+
+// recoveryDetailSuffix 把 recoveryDecision 中一次性分类得到的细节投影成一段
+// 确定性的中文诊断后缀，供 Execute 的恢复路径 opt-in 追加到公告末尾。
+//
+// 它是纯函数：只读入参、不改 decision 及其切片，同一入参逐字节稳定。
+// 它只做加法——绝不修改 NeedsConfirmation，也不把合成的中止结果当作真实应答。
+// 干净的记录由调用方以 Notice 为空短路，不会走到这里，因此不会产生凭空公告。
+func recoveryDetailSuffix(decision recoveryDecision) string {
+	var b strings.Builder
+	b.WriteString(" (恢复细节：类别=")
+	b.WriteString(decision.Category)
+	b.WriteString("，断链=")
+	b.WriteString(strconv.Itoa(decision.BrokenLinks))
+	b.WriteString("，孤儿调用=")
+	b.WriteString(strconv.Itoa(len(decision.OrphanToolCalls)))
+	b.WriteString("，孤儿结果=")
+	b.WriteString(strconv.Itoa(len(decision.OrphanToolResults)))
+	if len(decision.OrphanToolCalls) > 0 {
+		b.WriteString("，孤儿调用ID=")
+		b.WriteString(boundedDetailIDs(decision.OrphanToolCalls))
+	}
+	if len(decision.OrphanToolResults) > 0 {
+		b.WriteString("，孤儿结果ID=")
+		b.WriteString(boundedDetailIDs(decision.OrphanToolResults))
+	}
+	b.WriteString(")")
+	return b.String()
 }
 
 // recoveryNotice 返回恢复消息时用户可见的宣告。干净的记录返回空字符串。

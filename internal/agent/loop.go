@@ -102,6 +102,14 @@ type runState struct {
 	promptTokens int
 	turns        int
 	depth        int
+	// tokenForecast 是 ARGENT_TOKEN_FORECAST opt-in 的置位。默认 false 时用量历史不追加、
+	// 请求前不预测、不发事件，消息与事件流逐字节不变。
+	tokenForecast bool
+	// usageHistory 记录最近 usageHistoryLimit 轮的每轮（prompt+completion）用量，供
+	// ForecastNextTokens 外推；仅 opt-in 开启时预分配。forecastCompacted 使提前压缩
+	// 每次运行最多触发一次，避免同一段超预算趋势每轮都重复告警。
+	usageHistory      []int
+	forecastCompacted bool
 	// 预算提醒按上下文窗口划分：delivered 记录哪些占用层级已播报过，
 	// reminderWindow 是计算这些层级时所依据的窗口大小。压缩会重置两者，
 	// 使新窗口能再次播报其层级。
@@ -170,6 +178,12 @@ type runState struct {
 	// 刻意不走 SetContextHealthLogger 这个全局钩子，避免跨运行并发设置的数据竞争。
 	contextHealthLog bool
 
+	// pressureLog 是 ARGENT_PRESSURE_LEVEL opt-in 开启时置位的诊断开关。
+	// 默认 false：轮末的压力分级与日志全是空操作，消息、事件与会话记录逐字节不变。
+	// 它是纯观测：只读取当前用量与预算、调用纯函数 ClassifyPressure 落一条 slog，
+	// 不改任何模型输入、裁剪或决策；不产生 EventNotice，不改提醒文案与模型可见字节。
+	pressureLog bool
+
 	// compactionPolicy 是 ARGENT_COMPACTION_POLICY opt-in 开启时置位的诊断开关。
 	// 默认 false：压缩触发点的策略观测整段是空操作，消息、事件与会话记录逐字节不变。
 	// 它纯观测：只读取当前信号、调用纯函数 SelectCompactionAction 并输出一条日志，
@@ -228,6 +242,10 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// 关闭时 state.contextHealthLog 为 false，整段不采样、不输出。
 	// 纯观测：只读消息样本落一条 slog，不改模型输入、裁剪或运行决策。
 	state.finishContextHealth()
+	// 上下文压力等级的轮末观测日志，与上面四条日志并列、共用同一 logger。
+	// 关闭时 state.pressureLog 为 false，整段不分级、不输出。
+	// 纯观测：只读用量与预算落一条 slog，不改模型输入、事件或运行决策。
+	state.finishPressure()
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
@@ -277,12 +295,30 @@ func contextHealthLogEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_CONTEXT_HEALTH_LOG")) == "1"
 }
 
+// pressureLevelLogEnabled 报告本进程是否开启上下文压力等级诊断日志。
+// 仅当 ARGENT_PRESSURE_LEVEL 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func pressureLevelLogEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_PRESSURE_LEVEL")) == "1"
+}
+
 // compactionPolicyEnabled 报告本进程是否开启压缩策略 opt-in。
 // 仅当 ARGENT_COMPACTION_POLICY 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
 // 与 turnTiming 一样在 newRunState 中读取一次；默认关闭时压缩触发点完全走原有阈值路径，
 // 不构造输入、不调用 SelectCompactionAction、不输出日志，既有行为逐字节不变。
 func compactionPolicyEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_COMPACTION_POLICY")) == "1"
+}
+
+// usageHistoryLimit 是预测所用的有界用量历史长度：长时间运行只保留最近若干轮，
+// 使 ForecastNextTokens 的小窗口外推始终贴近最新趋势，且内存占用有上界。
+const usageHistoryLimit = 20
+
+// tokenForecastEnabled 报告本进程是否开启请求前的 token 用量预测。
+// 仅当 ARGENT_TOKEN_FORECAST 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与其余 opt-in 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func tokenForecastEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_TOKEN_FORECAST")) == "1"
 }
 
 // compactionPolicyLogger 返回输出压缩策略决策日志的 logger。
@@ -400,6 +436,30 @@ func emitContextHealthLog(h ContextHealth) {
 		slog.Float64("guidance_repeat", h.GuidanceRepeatRatio),
 		slog.Float64("error_stub", h.ErrorStubRatio),
 	)
+}
+
+// emitPressureLog 把一次上下文压力分级写成一条结构化日志，与逐阶段计时/健康度日志
+// 共用同一个 logger（turnTimingLogger），便于统一捕获与路由。level 为 PressureLabel
+// 给出的中英双语标签，used/budget 为分级所用的累计用量与预算（均为 token 数）。
+// 纯观测：不产生事件、不改消息、不改任何模型可见字节；字段固定输出，便于断言与比对。
+func emitPressureLog(used, budget int) {
+	level := ClassifyPressure(used, budget)
+	turnTimingLogger().Info("agent_pressure",
+		slog.String("level", PressureLabel(level)),
+		slog.Int("used", used),
+		slog.Int("budget", budget),
+	)
+}
+
+// finishPressure 在一轮运行结束时落一条压力等级日志，与其它轮末日志并列。
+// 关闭（pressureLog 为 false）时是空操作：不读取状态、不分级、不输出，与 turnTiming 是否开启无关。
+// used 取累计用量 TotalTokens()，budget 取本运行的总 token 预算 MaxTotalTokens；
+// 未配置预算（<=0）时 ClassifyPressure 归为 levelLow，语义为"不设限"。
+func (s *runState) finishPressure() {
+	if !s.pressureLog {
+		return
+	}
+	emitPressureLog(s.usage.TotalTokens(), s.opts.Budget.MaxTotalTokens)
 }
 
 // contextHealthMessages 把当前消息样本投影为 ScoreContextHealth 所需的文本切片。
@@ -597,10 +657,21 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	if contextHealthLogEnabled() {
 		s.contextHealthLog = true
 	}
+	// 只有 ARGENT_PRESSURE_LEVEL=1 时才置位；默认关闭时保持 false，
+	// 使轮末的压力分级与日志全是空操作。
+	if pressureLevelLogEnabled() {
+		s.pressureLog = true
+	}
 	// 只有 ARGENT_COMPACTION_POLICY=1 时才置位；默认关闭时保持 false，
 	// 使压缩触发点的策略观测整段是空操作，既有阈值路径逐字节不变。
 	if compactionPolicyEnabled() {
 		s.compactionPolicy = true
+	}
+	// 只有 ARGENT_TOKEN_FORECAST=1 时才置位并预分配用量历史；默认关闭时 usageHistory
+	// 保持 nil，使 account() 的追加与请求前的预测分支都是零分配的空操作。
+	if tokenForecastEnabled() {
+		s.tokenForecast = true
+		s.usageHistory = make([]int, 0, usageHistoryLimit)
 	}
 	return s
 }
@@ -925,6 +996,13 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// 因此这里的一条独立用户消息不会拆散 tool_use/tool_result 对。
 		// 未配置的运行为空操作，消息保持逐字节相同。
 		s.maybeBudgetReminder()
+
+		// token_budget_forecast（ARGENT_TOKEN_FORECAST=1，默认关闭）：在请求前用最近若干轮的
+		// 用量外推下一轮，若累计用量加上下一轮预测将触及总预算，就提前发提示并压缩一次。
+		// 该点位于轮末视图（上一批次的 tool_use/tool_result 已配对）且在任何请求之前，
+		// 绝不会把压缩插进工具调用与其结果之间。关闭时整段是零分配的空操作。
+		// promptEstimate 在其后计算，因此会看到提前压缩后的历史。
+		s.maybeForecastCompact()
 
 		// 一次估算同时用于预算停止检查和 TurnStart 事件；两次使用之间没有任何东西修改消息。
 		promptEstimate := EstimateMessages(s.messages) + EstimateTools(s.specs)

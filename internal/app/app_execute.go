@@ -230,6 +230,15 @@ func streamRecoveryEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_STREAM_RECOVERY")) == "1"
 }
 
+// recoveryDetailEnabled 报告是否在恢复公告末尾追加 RecoveryPlan 细节后缀。
+// 与 replayRecoveryEnabled 同构：默认关闭（fail-closed），只有 ARGENT_RECOVERY_DETAIL=1
+// （允许首尾空白）才启用；其他任何值都保持历史公告逐字节不变。该开关已在
+// cli/optin_metadata.go 登记（键 recovery_detail）。它只控制公告文本，
+// 绝不触碰 NeedsConfirmation 或其它安全语义。
+func recoveryDetailEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_DETAIL")) == "1"
+}
+
 // guidanceDedupeEnabled 报告是否启用失败指引的签名去重：仅 ARGENT_GUIDANCE_DEDUPE=1
 // （允许首尾空白）开启，默认关闭时 Execute 写回 false（与零值一致），每轮仍按历史
 // 注入指引，消息流逐字节不变。与 retainGuidance 正交：后者决定指引记录的载荷形状，
@@ -269,6 +278,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			if records, recErr := sess.Records(); recErr == nil {
 				decision.Notice += replayDiagnosticsSuffix(records)
 			}
+		}
+		// 恢复细节（opt-in ARGENT_RECOVERY_DETAIL）：与重放诊断同构的纯增量后缀。
+		// 开启时把 recoveryDecisionFor 一次分类得到的 RecoveryPlan 细节作为文本
+		// 追加到公告末尾；关闭时零调用、公告逐字节不变。与重放诊断一样，
+		// 它只加信息，绝不触碰 NeedsConfirmation（安全语义由分类唯一决定）。
+		if recoveryDetailEnabled(stdio.Env) && decision.Notice != "" {
+			decision.Notice += recoveryDetailSuffix(decision)
 		}
 		if err := announceRecovery(ctx, stdio, onText, decision); err != nil {
 			return agent.Result{}, err

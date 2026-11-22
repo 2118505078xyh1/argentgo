@@ -41,6 +41,47 @@ func (s *runState) maybeCompact() {
 	)})
 }
 
+// appendUsageHistory 把一轮的（prompt+completion）用量计入有界历史。
+// opt-in 关闭时立即返回：不追加、不分配，消息与事件流逐字节不变。
+func (s *runState) appendUsageHistory(tokens int) {
+	if !s.tokenForecast {
+		return
+	}
+	if len(s.usageHistory) < usageHistoryLimit {
+		s.usageHistory = append(s.usageHistory, tokens)
+		return
+	}
+	// 窗口已满：丢弃最旧样本。历史在开启时以 usageHistoryLimit 为容量预分配，
+	// 因此这里的搬移与覆写不会再次分配，长时间运行的内存占用有上界。
+	copy(s.usageHistory, s.usageHistory[1:])
+	s.usageHistory[len(s.usageHistory)-1] = tokens
+}
+
+// maybeForecastCompact 在请求前用最近若干轮用量外推下一轮，必要时提前触发一次压缩。
+// 默认关闭、样本不足或不会超预算时都是空操作；每次运行最多触发一次，
+// 避免同一段超预算趋势在每个轮次都重复告警。压缩复用上面的阈值边界，
+// 因此调用点必须处于 tool_use/tool_result 已配对的轮末视图（见 loop.go 的请求前分支）。
+func (s *runState) maybeForecastCompact() {
+	if !s.tokenForecast || s.forecastCompacted || len(s.usageHistory) < 2 {
+		return
+	}
+	forecast := ForecastNextTokens(s.usageHistory)
+	used := s.usage.PromptTokens + s.usage.CompletionTokens
+	budget := s.opts.Budget.MaxTotalTokens
+	if !WillExceedBudget(forecast, used, budget) {
+		return
+	}
+	s.forecastCompacted = true
+	// SuggestTrimTokens 只用于提示文本：Compactor.MaybeCompact 接口（见 runner.go）
+	// 没有 trim 参数，真正的压缩窗口由当前上下文大小决定，绝不把建议值硬传进去。
+	trim := SuggestTrimTokens(used, forecast, budget)
+	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
+		"token budget forecast: ~%d used + ~%d forecast reaches %d; compacting early (suggest trim ~%d)",
+		used, forecast, budget, trim,
+	)})
+	s.maybeCompact()
+}
+
 // advertisedSpecs 确定下一次请求的工具列表。没有过滤器时使用运行器的完整目录；
 // 有过滤器时只公布允许的子集。授权仍然发生在 Run 中，绝不在这里。
 // 最终列表在发送之前会针对当前模型的 schema 特性做投影。
@@ -194,6 +235,9 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 		Cached: usage.CachedTokens,
 		TS:     time.Now().UTC().Format(time.RFC3339),
 	})
+	// opt-in 开启时记录这一轮的用量供请求前预测使用；关闭时 appendUsageHistory 是空操作。
+	// 这里用本轮的用量（而非累计总量）作为样本，使 ForecastNextTokens 的小窗口外推贴近"下一步"。
+	s.appendUsageHistory(usage.PromptTokens + usage.CompletionTokens)
 	return usage, usage.PromptTokens
 }
 

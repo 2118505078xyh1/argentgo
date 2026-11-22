@@ -37,17 +37,102 @@ type IO struct {
 	// 无 TTY 的环境。nil 值表示"无终端"，因此仅限终端的
 	// 命令会在做任何工作之前就退出。
 	HasTerminal func() bool
+	// StdinIsCharDevice 报告进程 stdin 是否为字符设备（终端/控制台）。
+	// OSIO 用 os.Stdin.Stat() 的 ModeCharDevice 实现（零依赖）；测试注入桩，
+	// 无需真实控制台即可检验首次运行引导。nil 表示"非字符设备"，因此
+	// 用 newTestIO 构建的既有测试不会意外触发引导。
+	StdinIsCharDevice func() bool
 }
 
 // OSIO 返回真实的进程流。
 func OSIO() IO {
 	return IO{
-		In:          os.Stdin,
-		Out:         os.Stdout,
-		Err:         os.Stderr,
-		Env:         os.Getenv,
-		HasTerminal: defaultHasTerminal,
+		In:                os.Stdin,
+		Out:               os.Stdout,
+		Err:               os.Stderr,
+		Env:               os.Getenv,
+		HasTerminal:       defaultHasTerminal,
+		StdinIsCharDevice: defaultStdinIsCharDevice,
 	}
+}
+
+// firstRunMarkerName 是存储目录中的首次引导标记文件名。文件存在即视为已引导，
+// 不再重复打印；删除它可以让引导重新出现。
+const firstRunMarkerName = ".onboarded"
+
+// 首次运行的三行引导文案。每行都以独特中文前缀开头，便于与 usage 中的
+// login/doctor/tui 子命令名区分；整串写入，UTF-8 字节不会被切开。
+const (
+	firstRunLoginLine  = "argentgo: 首次运行请先登录：argentgo login openai（也可在配置中设置 apiKey）"
+	firstRunTUILine    = "argentgo: 交互界面请用 argentgo tui 或 argentgo --tui；桌面 GUI 为 argentgo-native"
+	firstRunDoctorLine = "argentgo: 运行 argentgo doctor 可自检配置、存储与提供方"
+)
+
+// defaultStdinIsCharDevice 用 os.Stdin.Stat() 判定 stdin 是否为字符设备
+// （终端/控制台），仅依赖标准库。stat 失败时按"非字符设备"处理，因此
+// 重定向或管道输入不会触发首次引导。
+func defaultStdinIsCharDevice() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// maybeFirstRunGuide 在"无参数 + cli_hints opt-in + stdin 为字符设备 +
+// 无配置/凭据 + 无 onboarded 标记"时向 IO.Err 打印一次三行引导，并在
+// storage 目录写入标记。任一项不满足都立即返回：开关默认关闭时连 stat
+// 和读文件都不做，因此未 opt-in 的既有行为逐字节不变。
+func (a App) maybeFirstRunGuide() {
+	if !cliHintsEnabled(a.IO.Env) {
+		return
+	}
+	if a.IO.StdinIsCharDevice == nil || !a.IO.StdinIsCharDevice() {
+		return
+	}
+	if a.firstRunConfigured() {
+		return
+	}
+	marker := filepath.Join(a.storageDir(), firstRunMarkerName)
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	for _, line := range [...]string{firstRunLoginLine, firstRunTUILine, firstRunDoctorLine} {
+		fmt.Fprintln(a.IO.Err, line)
+	}
+	// 标记只写一次；写失败时静默忽略——引导本身已输出，且不应阻塞主流程。
+	_ = os.MkdirAll(a.storageDir(), 0o700)
+	_ = os.WriteFile(marker, []byte("argentgo first-run guide shown\n"), 0o600)
+}
+
+// firstRunConfigured 报告是否已有可用配置或凭据，用于避免向老用户重复引导。
+// 顶层或 provider 级 apiKey、全局 ARGENT_API_KEY、auth store 中的任意 token
+// 都算"已配置"。配置与 token 只读，解析失败按"未配置"处理；打开 auth store
+// 可能创建空目录，但这只发生在 opt-in 已开启的引导探测路径上。
+func (a App) firstRunConfigured() bool {
+	if text := strings.TrimSpace(a.env("ARGENT_API_KEY")); text != "" {
+		return true
+	}
+	cfg, err := loadConfigFile(a.configPath())
+	if err == nil {
+		for _, key := range []string{"apiKey", "api_key", "api-key"} {
+			if text, _ := cfg[key].(string); strings.TrimSpace(text) != "" {
+				return true
+			}
+		}
+		providers, _ := cfg["providers"].(map[string]any)
+		for _, raw := range providers {
+			entry, _ := raw.(map[string]any)
+			for _, key := range []string{"apiKey", "api_key", "api-key"} {
+				if text, _ := entry[key].(string); strings.TrimSpace(text) != "" {
+					return true
+				}
+			}
+		}
+	}
+	if store, err := authStore(a); err == nil {
+		if tokens, err := store.List(); err == nil && len(tokens) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Runner 是每种传输方式都驱动的 agent 切片。
@@ -141,10 +226,15 @@ func RunWith(app App, args []string) int {
 		if handler, ok := subcommands[args[0]]; ok {
 			return handler(app, ctx, args[1:])
 		}
-	} else if app.hasTerminal() && app.env("ARGENT_NO_TUI") != "1" {
-		// 无参数且连接交互终端时默认进入 TUI；非 TTY（CI/重定向）落到
-		// runMain 保持 usage/stdin 行为逐字节不变，也不会挂起。
-		return runTUI(app, ctx, nil)
+	} else {
+		// 首次运行引导：仅在 cli_hints opt-in 且各项条件齐备时写 stderr，
+		// 默认关闭时零副作用，保持原有 usage/stdin 行为逐字节不变。
+		app.maybeFirstRunGuide()
+		if app.hasTerminal() && app.env("ARGENT_NO_TUI") != "1" {
+			// 无参数且连接交互终端时默认进入 TUI；非 TTY（CI/重定向）落到
+			// runMain 保持 usage/stdin 行为逐字节不变，也不会挂起。
+			return runTUI(app, ctx, nil)
+		}
 	}
 	return app.runMain(ctx, args)
 }

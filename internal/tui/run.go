@@ -34,6 +34,10 @@ const (
 
 const frameInterval = 50 * time.Millisecond
 
+// ARGENT_FRAME_CACHE=1 时启用可选的帧缓存。默认关闭，
+// 使未显式 opt-in 的构建与引入缓存前逐字节一致。
+const envFrameCache = "ARGENT_FRAME_CACHE"
+
 var errNotConsole = errors.New("tui: not a terminal")
 
 // IO 替换终端流。默认是 os.Stdin / os.Stdout；当
@@ -106,13 +110,45 @@ type size struct {
 type frameWriter struct {
 	lastRow, lastCol int
 	haveCursor       bool
+
+	// 以下三个字段是可选的帧缓存状态。cacheEnabled 为 false 时
+	// draw 走与引入缓存前完全相同的路径，连键都不计算。
+	cacheEnabled bool
+	lastKey      frameCacheKey
+	haveKey      bool
+}
+
+// frameCacheEnabledFromEnv 解释帧缓存的 opt-in 开关。
+// 只有精确匹配 "1" 才开启；未设置或其值一律关闭，
+// 保证默认构建逐字节保持原行为。
+func frameCacheEnabledFromEnv(env func(string) string) bool {
+	if env == nil {
+		return false
+	}
+	return env(envFrameCache) == "1"
 }
 
 // draw 绘制模型、刷新行差异，并仅在确实发生变化时发出光标。
 // 尺寸变化传入 force，使完整的重绘（以及
 // clearScreen 之后的光标序列）仍然发生。
+//
+// 开启帧缓存时，draw 先用 newFrameCacheKey 快照模型（该方法自带
+// 锁，必须在 m.Paint 的锁外调用）；键命中且非 force 就跳过
+// m.Paint，仅保留 Flush 与光标差异，force 则一律强制重绘。
 func (fw *frameWriter) draw(m *Model, buffer *Buffer, out io.Writer, force bool) error {
-	if force || m.Dirty() {
+	paint := false
+	if fw.cacheEnabled {
+		key := newFrameCacheKey(m, buffer.Width(), buffer.Height())
+		if force || !fw.haveKey || !frameCacheHit(fw.lastKey, key) {
+			paint = true
+			fw.lastKey, fw.haveKey = key, true
+		}
+		// 键命中且非 force：paint 保持 false，跳过 Paint；
+		// 缓冲区与上一帧一致，Flush 自然写出 0 行。
+	} else {
+		paint = force || m.Dirty()
+	}
+	if paint {
 		m.Paint(buffer)
 	}
 	written, err := buffer.Flush(out)
@@ -347,7 +383,7 @@ func Run(ctx context.Context, opts Options) error {
 	ticker := time.NewTicker(frameInterval)
 	defer ticker.Stop()
 
-	var frames frameWriter
+	frames := frameWriter{cacheEnabled: frameCacheEnabledFromEnv(env)}
 	draw := func(force bool) {
 		buffer.SetNoColor(model.NoColor())
 		_ = frames.draw(model, buffer, out, force)

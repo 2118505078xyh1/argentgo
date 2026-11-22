@@ -190,6 +190,7 @@ argentgo "你的任务"
 - **适用场景**：希望输出里附带下一步 CLI 操作提示时。
 - **逐字节不变承诺**：未显式开启时输出逐字节不变。
 - **注意**：此键与下一节的独立变量 `ARGENT_CLI_HINTS` 现在都能开启 CLI 错误修复建议——`ARGENT_CLI_HINTS=1` 或 `ARGENT_OPT_INS=cli_hints` 任一成立即开启。
+- **首次启动引导**：无参数运行 `argentgo`、stdin 为字符设备（终端/控制台）且既无配置/apiKey 也无存储凭据时，追加三行一次性引导（login 示例、tui/GUI 入口、doctor 自检）并在 storage 目录写 `.onboarded` 标记；标记存在即不再引导。关闭时零文件读写、stderr 逐字节不变。
 
 ### 12. `tool_error_reflection`（工具错误反射）
 
@@ -399,6 +400,13 @@ argentgo "你的任务"
 - **适用场景**：关心失败恢复机制的实际成效、想量化「注入指引后是否真的成功」时。
 - **逐字节不变承诺**：关闭时不分配计数器、记录路径为空操作，消息流与事件流逐字节不变。
 
+### `ARGENT_RECOVERY_DETAIL` —— 恢复细节后缀
+
+- **作用**：恢复路径上把 `session.ClassifyRecovery` 一次性分类得到的 `RecoveryPlan` 细节（类别、断链数、孤儿工具调用数、孤儿工具结果数及其实例 ID）作为一段中文文本后缀追加到恢复公告末尾。读点为 `internal/app/app_execute.go` 的 `recoveryDetailEnabled` 与 `internal/app/app_execute_budget.go` 的 `recoveryDetailSuffix`；细节字段由 `recoveryDecisionFor` 从同一份计划一次填充，不做二次分类。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：排查恢复时历史为何被判为降级（断链/孤儿结果）、或确认一次中断的具体类别时，需要在用户可见公告里看到结构化细节。
+- **逐字节不变承诺**：关闭时零调用、不追加任何后缀，公告与 `NeedsConfirmation` 逐字节不变；仅在已有恢复公告（Notice 非空）时追加，干净会话不会产生凭空公告。该开关只增信息，绝不改变确认门（安全语义仍由分类唯一决定）。
+
 ### `ARGENT_TURN_TIMING` —— agent 轮次逐阶段计时
 
 - **作用**：agent 循环开启逐阶段结构化计时日志（`internal/agent/loop.go` 的 `turnTimingEnabled` / `turnTimingLogger`），输出各阶段耗时。每次运行读取一次 env，不引入需装配层设置的进程级全局状态。
@@ -485,6 +493,7 @@ argentgo "你的任务"
 | `ARGENT_POST_EDIT_VERIFY` | 历史遗留/未接线（仅在 `hooks.go:409` 注释中出现，无实际读取）；编辑后验证的真实开关是 opt-in `auto_verify`（`ARGENT_OPT_INS=auto_verify`）与 `ARGENT_EDIT_DIAGNOSTICS=1`。 |
 | `ARGENT_APPROVAL_TTL` | 带 TTL 的审批门控；`0` 或空值关闭。 |
 | `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
+| `ARGENT_RECOVERY_DETAIL` | 恢复细节后缀：把 RecoveryPlan 的类别/断链/孤儿调用/孤儿结果作为文本追加到恢复公告；仅 `=1` 启用，关闭时公告逐字节不变。 |
 | `ARGENT_SESSIONS_HEAD_TAIL` | 会话列表首尾预览。 |
 | `ARGENT_NO_INTENT_SCHEMA` | 意图 schema 相关（工具注册表门控）。 |
 | `ARGENT_PLAN_MODE` | 只规划模式；`=1` 时本次运行只做规划、不改文件。 |

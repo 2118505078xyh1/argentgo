@@ -190,7 +190,7 @@ func statusCodeInError(text string) (int, bool) {
 }
 
 // isRetryableProviderError 判断另一个模型是否可能服务同一轮次。
-// 传输失败由 llm.ClassifyRetryError 负责，HTTP 状态码由 llm.IsRetryableStatus 负责；
+// 传输失败由 llm.ClassifyRetry 负责，HTTP 状态码由 llm.IsRetryableStatus 负责；
 // 这里的判断是它们与旧版文本词汇的并集，因此即使提供方在没有类型化错误或数字状态码时
 // 报告可重试状况，也仍然能正常工作。取消和校验失败保持为最终结果，因为重复相同的消息无法修复它们。
 func isRetryableProviderError(err error) bool {
@@ -225,7 +225,7 @@ func isRetryableProviderError(err error) bool {
 	// 没有状态码时，由 llm 对传输失败分类。超时和不可达主机是值得换模型的类别；
 	// 单纯的 ReasonNotSent（普通应用错误）刻意不包括在内，
 	// 因为重复相同请求不太可能改变其结果。
-	switch llm.ClassifyRetryError(err) {
+	switch llm.ClassifyRetry(err, 0, nil) {
 	case llm.ReasonTimeout, llm.ReasonUnreachable:
 		return true
 	}
@@ -250,7 +250,7 @@ func retryReason(err error) string {
 	if code, ok := statusCodeInError(strings.ToLower(err.Error())); ok && llm.IsRetryableStatus(code) {
 		return string(llm.ReasonStatus)
 	}
-	if reason := llm.ClassifyRetryError(err); reason != llm.ReasonNone {
+	if reason := llm.ClassifyRetry(err, 0, nil); reason != llm.ReasonNone {
 		return string(reason)
 	}
 	return string(llm.ReasonNotSent)

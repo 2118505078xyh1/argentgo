@@ -87,7 +87,7 @@ func statusCodeInFallbackError(text string) (int, bool) {
 }
 
 // isRetryableFallbackError 判断另一个模型是否可能服务同一轮次。它对应 agent.isRetryableProviderError：
-// 传输失败由 llm 负责（ClassifyRetryError），HTTP 状态码由 llm 负责（IsRetryableStatus），
+// 传输失败由 llm 负责（ClassifyRetry），HTTP 状态码由 llm 负责（IsRetryableStatus），
 // 并并入旧版文本词汇，以照顾那些在没有类型化错误或数字状态码时报告可重试状况的提供方。
 // 取消、校验失败以及硬性配额/计费限制保持为最终结论，因为换一个模型重发相同的消息无法修复它们。
 func isRetryableFallbackError(err error) bool {
@@ -118,7 +118,7 @@ func isRetryableFallbackError(err error) bool {
 		}
 		return llm.IsRetryableStatus(code) || legacyRetryable
 	}
-	switch llm.ClassifyRetryError(err) {
+	switch llm.ClassifyRetry(err, 0, nil) {
 	case llm.ReasonTimeout, llm.ReasonUnreachable:
 		return true
 	}
