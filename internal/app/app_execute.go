@@ -252,7 +252,17 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 恢复分类：当历史被中断或降级时，在进入 agent 循环之前宣告这一情况；
 	// 需要人工决定时则停止。干净的会话（常见情况）不产生通知，直接原样继续。
 	if sess != nil {
-		if err := announceRecovery(ctx, stdio, onText, recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))); err != nil {
+		decision := recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))
+		// 重放诊断是 opt-in 的纯增量信息：只在已有恢复公告且开关开启时，
+		// 才读取记录流并追加诊断后缀。开关关闭时连 Records() 都不调用，
+		// 决策与公告逐字节不变；诊断也绝不触碰 NeedsConfirmation（安全语义）。
+		// 读取失败时保持原公告不变，诊断永不阻断运行。
+		if replayRecoveryEnabled(stdio.Env) && decision.Notice != "" {
+			if records, recErr := sess.Records(); recErr == nil {
+				decision.Notice += replayDiagnosticsSuffix(records)
+			}
+		}
+		if err := announceRecovery(ctx, stdio, onText, decision); err != nil {
 			return agent.Result{}, err
 		}
 	}

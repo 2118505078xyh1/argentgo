@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -9,11 +10,10 @@ import (
 
 // replay_suffix.go 提供会话重放恢复公告的纯函数层。
 //
-// 这里只把 session.Replay 得到的状态投影成一段可拼到恢复公告末尾的中文诊断
+// 这里把 session.Replay 得到的状态投影成一段可拼到恢复公告末尾的中文诊断
 // 后缀，外加一个默认关闭的 env 开关。stdlib-only、零 I/O、不调用模型、不改
-// NeedsConfirmation，也绝不把合成的中止结果当作真实应答。两个函数目前都没有
-// 调用方（零接线），存在意义是给上层提供可单独验证、可 opt-in 的稳定接缝；
-// 真正的接线（例如在 announceRecovery 中调用）留待后续轮次。
+// NeedsConfirmation，也绝不把合成的中止结果当作真实应答。纯函数层由 Execute
+// 的恢复路径 opt-in 接线（见 app_execute.go），关闭时零调用、逐字节不变。
 
 // replaySuffixIDRunes 是后缀中活跃叶子 id 的展示上限（按 rune 计）。
 // 用 rune 而非字节截断，保证 CJK id 不会被切在 UTF-8 字符中间。
@@ -21,7 +21,7 @@ const replaySuffixIDRunes = 16
 
 // replayRecoveryEnabled 报告重放恢复公告是否开启。默认关闭：只有
 // ARGENT_RECOVERY_REPLAY=1（允许首尾空白）才启用；其他任何值都保持历史的
-// 恢复行为不变。零调用方，接线留待后续轮次。
+// 恢复行为不变。该开关已在 cli/optin_metadata.go 注册（键 recovery_replay）。
 func replayRecoveryEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_REPLAY")) == "1"
 }
@@ -52,4 +52,24 @@ func replayNoticeSuffix(records []session.Record) string {
 	return " (重放审计：" + strconv.Itoa(len(st.UnpairedToolCalls)) +
 		" 个未完成的工具调用，完整=" + strconv.FormatBool(st.Complete) +
 		"，叶子=" + boundedReplayID(st.ActiveLeaf) + ")"
+}
+
+// replayDiagnosticsSuffix 在 replayNoticeSuffix 的基础上，用 VerifyReplay
+// 为 parent 环补一段显式提示，供 Execute 的恢复公告接线使用。
+//
+// 环探测采用自校验方式：expected 就是同一段 records 的 Replay 结果，因此除
+// parent 环（replay 会先于逐字段比对返回 ErrCycle）外 VerifyReplay 恒为 nil；
+// 这使 VerifyReplay 在这里充当一个纯粹的环探测器，而不引入任何"预期偏差"。
+// 记录完整或为空时 replayNoticeSuffix 返回空串，本函数也随之返回空串，
+// 历史公告逐字节不变。整个函数只做加法：既不改 NeedsConfirmation，也不把
+// 合成的中止结果当作真实应答，仅描述重放审计发现的结构状态。
+func replayDiagnosticsSuffix(records []session.Record) string {
+	suffix := replayNoticeSuffix(records)
+	if suffix == "" {
+		return ""
+	}
+	if err := session.VerifyReplay(records, session.Replay(records)); errors.Is(err, session.ErrCycle) {
+		suffix += "（检测到 parent 环）"
+	}
+	return suffix
 }

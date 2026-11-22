@@ -170,6 +170,12 @@ type runState struct {
 	// 刻意不走 SetContextHealthLogger 这个全局钩子，避免跨运行并发设置的数据竞争。
 	contextHealthLog bool
 
+	// compactionPolicy 是 ARGENT_COMPACTION_POLICY opt-in 开启时置位的诊断开关。
+	// 默认 false：压缩触发点的策略观测整段是空操作，消息、事件与会话记录逐字节不变。
+	// 它纯观测：只读取当前信号、调用纯函数 SelectCompactionAction 并输出一条日志，
+	// 不改压缩阈值、裁剪、压缩器调用或任何模型输入；既有阈值路径保持原样。
+	compactionPolicy bool
+
 	// compactor 和 compactThreshold 驱动轮次中压缩的边界。
 	compactor        Compactor
 	compactThreshold int
@@ -270,6 +276,19 @@ func toolCallTraceEnabled() bool {
 func contextHealthLogEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_CONTEXT_HEALTH_LOG")) == "1"
 }
+
+// compactionPolicyEnabled 报告本进程是否开启压缩策略 opt-in。
+// 仅当 ARGENT_COMPACTION_POLICY 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次；默认关闭时压缩触发点完全走原有阈值路径，
+// 不构造输入、不调用 SelectCompactionAction、不输出日志，既有行为逐字节不变。
+func compactionPolicyEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_COMPACTION_POLICY")) == "1"
+}
+
+// compactionPolicyLogger 返回输出压缩策略决策日志的 logger。
+// 它是函数而非固定实例：每次落日志时解析当前 slog 默认 logger，测试可整体替换以捕获日志，
+// 与 turnTimingLogger 的模式一致，不引入需要装配层设置的进程级全局状态。
+var compactionPolicyLogger = func() *slog.Logger { return slog.Default() }
 
 // turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
 // 它是函数而非固定的 *slog.Logger：每次落日志时解析当前 slog 默认 logger，
@@ -405,6 +424,56 @@ func (s *runState) finishContextHealth() {
 	emitContextHealthLog(ScoreContextHealth(s.contextHealthMessages()))
 }
 
+// compactionPolicyInput 从轮次中的现有信号构造压缩策略输入。它是纯函数，供 opt-in
+// 观测与测试共用：UsageRatio 由上下文估算值与压缩阈值相除得到（阈值非正时无可用预算信号，
+// 记为 0），ErrorCount 取连续错误计数，ToolResults 取消息中的工具结果条数。
+// BudgetExceeded 由调用方按当前预算是否已被突破传入。
+func compactionPolicyInput(before, threshold, errors, toolResults int, budgetExceeded bool) CompactionInput {
+	in := CompactionInput{
+		ErrorCount:     errors,
+		ToolResults:    toolResults,
+		BudgetExceeded: budgetExceeded,
+	}
+	if threshold > 0 {
+		in.UsageRatio = float64(before) / float64(threshold)
+	}
+	return in
+}
+
+// countToolResults 统计消息中的工具结果条数。角色按大小写与首尾空白不敏感归一化，
+// 与 MeasureFocus 的工具结果判定一致；只读取消息，不修改内容，对 CJK 与任意多字节序列安全。
+func countToolResults(messages []llm.Message) int {
+	n := 0
+	for _, m := range messages {
+		switch strings.ToLower(strings.TrimSpace(m.Role)) {
+		case "tool", "tool_result", "toolresult", "function":
+			n++
+		}
+	}
+	return n
+}
+
+// observeCompactionPolicy 在 opt-in 开启时把压缩策略决策作为辅助信号落一条日志。
+// 它纯观测：只用纯函数 SelectCompactionAction 读取当前信号，不改消息、裁剪、压缩阈值、
+// 压缩器调用或任何运行决策；关闭（compactionPolicy 为 false）时整段是空操作。
+func (s *runState) observeCompactionPolicy() {
+	if !s.compactionPolicy {
+		return
+	}
+	before := EstimateMessages(s.messages)
+	_, _, breached := s.budgetBreach()
+	in := compactionPolicyInput(before, s.compactThreshold, s.mistakes.Count(), countToolResults(s.messages), breached)
+	action := SelectCompactionAction(in)
+	compactionPolicyLogger().Info("compaction policy decision",
+		"action", string(action),
+		"usage_ratio", in.UsageRatio,
+		"error_count", in.ErrorCount,
+		"tool_results", in.ToolResults,
+		"budget_exceeded", in.BudgetExceeded,
+		"turn", s.turns,
+	)
+}
+
 // traceToolBegin 在 opt-in 开启时为一次调用开启跨度，并按调用 id 记下 spanID，
 // 供随后 finishCall 配对结算（见 traceToolEnd）。关闭时是纯粹的空操作。
 // 与 startTool 一样由 timingMu 保护映射，使并行批次写入不同 id 互不干扰。
@@ -527,6 +596,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	// 使轮末的消息投影与健康度日志全是空操作。
 	if contextHealthLogEnabled() {
 		s.contextHealthLog = true
+	}
+	// 只有 ARGENT_COMPACTION_POLICY=1 时才置位；默认关闭时保持 false，
+	// 使压缩触发点的策略观测整段是空操作，既有阈值路径逐字节不变。
+	if compactionPolicyEnabled() {
+		s.compactionPolicy = true
 	}
 	return s
 }
@@ -1058,6 +1132,9 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 
 		// 一批工具结果也是进行摘要的天然位置：下一次请求即将再次为整段历史付费。
 		s.turnTimingBegin(phaseCompaction)
+		// opt-in 压缩策略观测：仅在 ARGENT_COMPACTION_POLICY=1 时落一条决策日志。
+		// 它不替换既有阈值路径——maybeCompact 仍按原逻辑决定是否压缩，两者共存。
+		s.observeCompactionPolicy()
 		s.maybeCompact()
 		s.turnTimingEnd(phaseCompaction)
 
