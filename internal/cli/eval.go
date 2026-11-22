@@ -271,7 +271,7 @@ func evalUsage(w io.Writer) {
        argentgo eval quality <model-quality.json>
        argentgo eval baseline accept <result.json> [--note <text>]
        argentgo eval baseline check <result.json>
-       argentgo eval history <repo> [--max-tasks <n>] [--since <ref>] [--scripted]
+       argentgo eval history <repo> [--max-tasks <n>] [--since <ref>] [--scripted] [--verify]
        argentgo eval history verify <repo> [--max-tasks <n>] [--since <ref>]
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
