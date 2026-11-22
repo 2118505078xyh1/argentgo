@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -430,6 +432,61 @@ func noEvidenceFidelityEnabled(raw map[string]any) bool {
 	return false
 }
 
+// compactionPolicyEnabled 报告是否开启压缩策略 opt-in。
+// 仅当 ARGENT_COMPACTION_POLICY 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 默认关闭时 maybeAutoCompact 完全走原有阈值路径，不构造策略输入、不调用
+// SelectCompactionAction、不输出日志，逐字节不变。
+func compactionPolicyEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_COMPACTION_POLICY")) == "1"
+}
+
+// compactionPolicyLogger 返回输出压缩策略决策日志的 logger。
+// 它是函数而非固定实例：每次落日志时解析当前 slog 默认 logger，测试可整体替换以捕获日志。
+var compactionPolicyLogger = func() *slog.Logger { return slog.Default() }
+
+// autoCompactPolicyInput 从运行后压缩的现有信号构造策略输入。它是纯函数，供观测与测试共用：
+// UsageRatio 由估算 token 与触发阈值相除得到（阈值非正时无可用预算信号，记为 0），
+// ErrorCount 取压缩证据中的失败条数，ToolResults 取消息中的工具结果条数。
+func autoCompactPolicyInput(estimate, threshold, failures, toolResults int) agent.CompactionInput {
+	in := agent.CompactionInput{ErrorCount: failures, ToolResults: toolResults}
+	if threshold > 0 {
+		in.UsageRatio = float64(estimate) / float64(threshold)
+	}
+	return in
+}
+
+// countToolResultMessages 统计消息中的工具结果条数。角色按大小写与首尾空白不敏感归一化，
+// 只读取消息、不修改内容，对 CJK 与任意多字节序列安全。
+func countToolResultMessages(messages []llm.Message) int {
+	n := 0
+	for _, m := range messages {
+		switch strings.ToLower(strings.TrimSpace(m.Role)) {
+		case "tool", "tool_result", "toolresult", "function":
+			n++
+		}
+	}
+	return n
+}
+
+// observeAutoCompactPolicy 在 opt-in 开启时把压缩策略决策作为辅助信号落一条日志。
+// 它纯观测：只用纯函数 SelectCompactionAction 读取当前信号，不改会话、压缩决策或任何模型
+// 输入；关闭时整段是空操作。返回值仅用于让测试/调用方读取决策，不参与任何分支。
+func observeAutoCompactPolicy(estimate, threshold, failures, toolResults int) agent.CompactionAction {
+	if !compactionPolicyEnabled() {
+		return ""
+	}
+	in := autoCompactPolicyInput(estimate, threshold, failures, toolResults)
+	action := agent.SelectCompactionAction(in)
+	compactionPolicyLogger().Info("compaction policy decision",
+		"action", string(action),
+		"usage_ratio", in.UsageRatio,
+		"error_count", in.ErrorCount,
+		"tool_results", in.ToolResults,
+		"budget_exceeded", in.BudgetExceeded,
+	)
+	return action
+}
+
 // maybeAutoCompact 是 --no-auto-compact 背后的运行后步骤。当该标志被设置，
 // 或对话仍在阈值以内时，它是空操作。运行时失败和后续步骤行会被带入摘要，
 // 使恢复的运行不会丢失它最需要的上下文。
@@ -454,7 +511,15 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 		messages = append(messages, message)
 	}
 	window, configured, percent := compactionInputs(res)
-	if _, compact := compactionDecision(estimateContextTokens(messages, anchor), window, configured, percent); !compact {
+	estimate := estimateContextTokens(messages, anchor)
+	threshold, compact := compactionDecision(estimate, window, configured, percent)
+	// opt-in 压缩策略观测：仅在 ARGENT_COMPACTION_POLICY=1 时计算决策并落一条日志。
+	// 它不替换既有阈值路径——compact 仍由 compactionDecision 决定，两者共存；
+	// 默认关闭时整段被 compactionPolicyEnabled 短路，逐字节不变。
+	if compactionPolicyEnabled() {
+		observeAutoCompactPolicy(estimate, threshold, len(evidence.Failures), countToolResultMessages(messages))
+	}
+	if !compact {
 		return
 	}
 	hasEvidence := len(evidence.Failures) > 0 || len(evidence.NextSteps) > 0

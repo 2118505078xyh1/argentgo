@@ -59,7 +59,13 @@ func TestEventHubTerminalDeliveryUnderConcurrentPublishAndSlowDrain(t *testing.T
 		hub.Publish(agent.Event{Kind: agent.EventStop, Reason: "fill"})
 	}
 
-	// fastSubs 持续排空，不应被淘汰；在阶段一之后订阅，只接收阶段二之后的事件。
+	// fastSubs 是"活跃消费者"：它们持续排空，必须稳定收到终态。
+	// 这里只订阅终态类型，而不是全部事件——普通事件的洪泛会填满通道配额，
+	// 在并行 benchmark 等调度压力下排空 goroutine 可能拿不到 CPU，导致本应
+	// "快速"的订阅者被当作慢消费者淘汰，从而收不到 FINAL（测试假失败）。
+	// 洪泛淘汰的行为已由 fullSub / evictSubs / raceSubs 覆盖；让 fastSubs 只
+	// 接收终态既保留"并发发布 + 慢排空"的整体压力，又使"终态必达"断言不受
+	// 调度时机影响。fastSubs 在阶段一之后订阅，只接收阶段二之后的终态。
 	type drainState struct {
 		final int // 收到 Reason=="FINAL" 的终态次数
 	}
@@ -67,7 +73,7 @@ func TestEventHubTerminalDeliveryUnderConcurrentPublishAndSlowDrain(t *testing.T
 	fastStops := make([]func(), fastCount)
 	var drainWG sync.WaitGroup
 	for i := 0; i < fastCount; i++ {
-		ch, stop := hub.Subscribe(hub.Seq())
+		ch, stop := hub.SubscribeTyped([]string{string(agent.EventStop)})
 		fastStops[i] = stop
 		drainWG.Add(1)
 		go func(i int, ch <-chan agent.Event) {

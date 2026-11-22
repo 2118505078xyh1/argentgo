@@ -94,6 +94,12 @@ var keyValueNames = []struct {
 	{"secret", "secret"},
 	{"password", "password"},
 	{"passwd", "password"},
+	// 与 secretKeyKind 保持一致：credential / passphrase / pwd 的 KEY=value 写法
+	// 也必须命中，否则工具输出里的 `pwd=...`、`credential=...` 会原样进入审计。
+	// 这里的 needle 仍需紧跟 = 或 :（见 findSecret），所以 `pwdfile=x` 不会误命中。
+	{"credential", "credential"},
+	{"passphrase", "passphrase"},
+	{"pwd", "password"},
 	{"token", "token"},
 	{"access_key", "access key"},
 	{"private_key", "private key"},
@@ -321,8 +327,10 @@ func placeholder(kind string) string {
 
 // 键名闸门必须覆盖 secretKeyKind 分支里出现的每一种写法。此前这里漏了 passwd，
 // 而下面的 switch 又显式处理了它，结果 {"passwd":"..."} 这类参数以明文写入审计
-// 日志：RedactJSON 只在键名被识别后才把整个子树标记为机密。
-var secretKeyPattern = regexp.MustCompile(`(?i)(key|token|secret|password|passwd|authorization)`)
+// 日志：RedactJSON 只在键名被识别后才把整个子树标记为机密。同理补齐 credential、
+// passphrase 与 pwd。pwd 尾部加 \b 是为了不把 pwdfile 之类的普通字段误判为口令；
+// 它仍匹配 db_pwd、dbPwd 等复合写法（\b 只约束尾部，不约束前面的字符）。
+var secretKeyPattern = regexp.MustCompile(`(?i)(key|token|secret|password|passwd|authorization|credential|passphrase|pwd\b)`)
 
 // secretKeyKind 报告对象键是否命名了凭据。
 func secretKeyKind(key string) string {
@@ -333,8 +341,12 @@ func secretKeyKind(key string) string {
 	switch {
 	case strings.Contains(normalized, "authorization"):
 		return "auth header"
-	case strings.Contains(normalized, "password") || strings.Contains(normalized, "passwd"):
+	case strings.Contains(normalized, "password") || strings.Contains(normalized, "passwd") || strings.Contains(normalized, "pwd"):
 		return "password"
+	case strings.Contains(normalized, "passphrase"):
+		return "passphrase"
+	case strings.Contains(normalized, "credential"):
+		return "credential"
 	case strings.Contains(normalized, "token"):
 		return "token"
 	case strings.Contains(normalized, "secret"):
