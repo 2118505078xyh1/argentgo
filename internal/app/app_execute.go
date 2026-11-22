@@ -770,6 +770,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		loop.Opts.System += "\n" + codeGraphCapabilityHint()
 	}
 	wireCodeGraph(stdio, res.Root, toolset, reg)
+	// ask_user 仅在交互式终端安装：让模型遇到歧义时能向用户提问而非靠猜。
+	// 非 TTY（--rpc/headless）不注册工具、不读 stdin，工具列表与接线前逐字节不变。
+	wireAskUser(stdio, toolset)
 	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
 	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
 	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。
