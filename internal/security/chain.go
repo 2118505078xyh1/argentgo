@@ -136,6 +136,10 @@ type Chain struct {
 	// 落到正常审批路径（不是硬性拒绝）。它由 app 层按 MCP 工具的 destructiveHint
 	// opt-in 注入；nil 时该分支逐字节不变。它只作用于已知工具名，不改变策略判定。
 	ForceAsk func(name string) bool
+	// Preview 为可选的审批差异预览回调：返回一段简短的改动摘要（如 +N/-M），
+	// 追加到审批提示的参数文本中，让文本审批器也能看到修改内容。
+	// 它不改变审批判定；nil 时提示文本逐字节不变。由 app 层按 opt-in 注入。
+	Preview func(name string, args json.RawMessage) string
 	// ApprovalTimeout 是单次审批等待（含分阶段审批的整个交互过程）允许的最长
 	// 时间。零值（含 NewChain 构造与 &Chain{} 零值）表示套用默认 5 分钟；超过
 	// 30 分钟会被钳制，负数同样按未配置处理。超时会让审批器收到 DeadlineExceeded，
@@ -374,7 +378,14 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	}
 	askCtx, cancel := withApprovalTimeout(ctx, approvalWait)
 	defer cancel()
-	ok, err := approver.Ask(askCtx, name, string(approvalArgs(args, c.policy().Root())))
+	askText := string(approvalArgs(args, c.policy().Root()))
+	// 审批差异预览（opt-in）：在提示参数后附加一段有界摘要，不改变判定逻辑。
+	if c != nil && c.Preview != nil {
+		if summary := strings.TrimSpace(c.Preview(name, args)); summary != "" {
+			askText += " (" + clipApprovalFeedback(summary) + ")"
+		}
+	}
+	ok, err := approver.Ask(askCtx, name, askText)
 	if err != nil {
 		// 带反馈的拒绝不是审批基础设施故障：它是操作员的更正意见，必须作为
 		// 可读、可恢复的工具错误到达模型。不要原始文本写入审计日志；

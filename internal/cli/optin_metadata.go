@@ -76,6 +76,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "mcp_injection_medium", Env: "ARGENT_MCP_INJECTION_MEDIUM", Name: "MCP 中风险注入警示", Enable: "=1", Desc: "MCP 工具输出的中风险注入命中也加可见警示；默认关闭时仅高风险警示，输出逐字节不变。"},
 	{Key: "mcp_tool_cache_ttl", Env: "ARGENT_MCP_TOOL_CACHE_TTL", Name: "MCP 工具列表缓存", Enable: "正整数秒（缺省 0 禁用）", Desc: "为 MCP 工具发现结果启用带 TTL 的缓存，有效期内复用列表；默认 0 禁用时每次重新发现，行为不变。"},
 	{Key: "parse_regression_guard", Env: "ARGENT_PARSE_REGRESSION_GUARD", Name: "编辑语法劣化检查", Enable: "=1", Desc: "edit/write/apply_patch 在写入前用 go/parser 检查：原本合法的 .go 文件若改后语法错误则拒绝；默认关闭时不检查，写入逐字节不变。"},
+	{Key: "approval_preview", Env: "ARGENT_APPROVAL_PREVIEW", Name: "审批差异预览", Enable: "=1", Desc: "写类工具的审批提示附带 +N/-M 行数摘要，帮助判断改动内容；不改变审批判定，默认关闭时提示逐字节不变。"},
+	{Key: "mcp_output_limit", Env: "ARGENT_MCP_OUTPUT_LIMIT_BYTES", Name: "MCP 输出硬上限", Enable: "正整数字节（缺省 0 禁用）", Desc: "单次 MCP 调用输出超过上限时保留头尾并附恢复标记，防止话痨服务器淹没上下文；默认 0 时行为不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},
@@ -108,6 +110,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "cache_warm", Env: "ARGENT_CACHE_WARM", Name: "提示缓存保活", Enable: "=1", Desc: "开启提示缓存保活（cache warmer）。"},
 	{Key: "loop_detection", Env: "ARGENT_LOOP_DETECTION", Name: "工具调用循环检测", Enable: "真值（1/true/yes/on）", Desc: "按调用签名检测重复循环，命中时注入纠正提示而非硬停（迁移自 killi repeat breaker）。"},
 	{Key: "request_snapshot", Env: "ARGENT_REQUEST_SNAPSHOT", Name: "请求字节快照", Enable: "真值（1/true/yes/on）", Desc: "把实际发送的线协议字节追加到会话记录，用于复现审计；不参与对话视图，含完整提示需自行控制文件权限。"},
+	{Key: "subagent_shared_prompt", Env: "ARGENT_SUBAGENT_SHARED_PROMPT", Name: "子代理共享父提示", Enable: "真值（1/true/yes/on）", Desc: "子代理以父级 system prompt 为前缀、角色约束追加在末尾，使首请求复用缓存；默认关闭时行为逐字节不变。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

@@ -629,6 +629,10 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 	// 模型上下文。未设置 ARGENT_MCP_SPILL_DIR 时这是空操作，因此
 	// 旧输出（以及所有现有测试）保持逐字节一致。
 	out, _, _ = spillMCPOutput(out, mcpSpillThreshold())
+	// 输出硬上限（opt-in ARGENT_MCP_OUTPUT_LIMIT_BYTES，默认 0 = 旧行为）：
+	// 20KiB 风格的 head/tail 截断 + 恢复标记，无需配置 spill 目录也能防止
+	// 话痨服务器淹没上下文。缺省时原样返回，逐字节不变。
+	out = limitMCPOutput(out, mcpOutputLimit())
 	// 选择加入：工具输出是不可信的外部文本。这里位于 text/resource/blob/raw
 	// 各分支与正常/错误两条返回路径的统一出口，扫描最终进入返回值的文本：
 	// 命中高风险注入时仅加一行警示，不改写原文，让模型自行判断。关闭时是空操作。

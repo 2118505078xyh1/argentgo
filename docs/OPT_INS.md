@@ -553,11 +553,14 @@ argentgo "你的任务"
 | `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
 | `ARGENT_MCP_TOOL_CACHE_TTL` | 正整数秒时为 MCP 工具发现结果启用带 TTL 的缓存；默认 0 禁用时每次重新发现，行为不变。 |
 | `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
+| `ARGENT_APPROVAL_PREVIEW` | =1 时写类工具的审批提示附带 `+N/-M` 行数摘要；不改变审批判定，默认关闭时提示逐字节不变。 |
+| `ARGENT_MCP_OUTPUT_LIMIT_BYTES` | 正整数字节时单次 MCP 输出超限保留头尾并附恢复标记；缺省 0 时保持旧行为，逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
 | `ARGENT_LOOP_DETECTION` | 真值时按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；默认关闭时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
 | `ARGENT_REQUEST_SNAPSHOT` | 真值时把实际发送给提供方的线协议请求字节追加一条 `request_snapshot` 会话记录（含 SHA-256 校验），用于复现与审计；该 kind 不进入对话视图，默认关闭时请求字节与记录逐字节不变。注意快照含完整 system prompt 与工具结果，可能含敏感文本，需自行控制会话文件权限。迁移自 killi 决策 21。 |
+| `ARGENT_SUBAGENT_SHARED_PROMPT` | 真值时子代理以父级 system prompt 为前缀（首请求复用已缓存字节），角色约束与任务标签追加在末尾，不破坏缓存前缀；默认关闭时子代理沿用原有 subagentTemplate，行为逐字节不变。迁移自 killi 决策 20。 |
 | `ARGENT_CONFIG_SHADOW_CHECK` | 配置遮蔽来源告警输出。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |

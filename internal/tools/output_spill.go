@@ -12,8 +12,10 @@ import (
 )
 
 // 针对大型工具结果的集中式产出溢出，移植自 omp 审计
-// （output-meta.ts）。它是一个独立工具：尚未接入工具的
-// 执行循环尚未接入。接线说明位于本文件末尾。
+// （output-meta.ts）。本包提供溢出写入与恢复标记的原语；
+// 实际接线在 app/output_spill_wire.go（ARGENT_OUTPUT_SPILL），
+// 由工具执行循环的 clip 钩子调用 spillToolOutput。ARGENT_OUTPUT_SPILL_MAX_BYTES
+// 提供总容量闸门，超限工件由 TrimSpillArtifacts 按 mtime 淘汰。
 
 const (
 	// spillMarkerOpen 标记本包插入的中段省略标记。该标记
@@ -260,6 +262,13 @@ func writeSpillArtifact(dir string, data []byte) (string, error) {
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
+	}
+	// 写前容量快检：目录总字节已达上限时不再新增工件，调用方退化为不带
+	// 恢复链接的截断。ARGENT_OUTPUT_SPILL_MAX_BYTES 缺省或非法时跳过检查。
+	if max := spillMaxBytes(); max > 0 {
+		if used, err := directoryBytes(dir); err == nil && used+int64(len(data)) > max {
+			return "", ErrSpillCapacity
+		}
 	}
 
 	const attempts = 8

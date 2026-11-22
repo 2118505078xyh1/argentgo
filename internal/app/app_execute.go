@@ -298,6 +298,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 循环检测开关（opt-in ARGENT_LOOP_DETECTION）：每次运行都按本次 env 显式设置，
 	// 使进程级原子开关不受上次运行残留影响；默认关闭时零副作用。
 	configureLoopDetection(stdio.Env)
+	configureSubagentSharedPrompt(stdio.Env)
 
 	// 请求字节快照（opt-in ARGENT_REQUEST_SNAPSHOT）：开启时把实际发送的线协议
 	// 字节追加到会话；关闭时 ctx 不变，llm 侧钩子零副作用。
@@ -467,6 +468,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+	// 审批 diff 预览（opt-in ARGENT_APPROVAL_PREVIEW，默认关闭）：写类工具的
+	// 审批提示附带脱敏的 +N/-M 行数摘要；不改变判定，关闭时提示逐字节不变。
+	if approvalPreviewEnabled(stdio.Env) {
+		chain.Preview = approvalDiffPreview
+	}
 
 	// 把内建 shell 的安全咨询接到本次运行的"策略 -> 审批 -> 审计"链上。
 	// shell 包受分层规则约束不能 import security，因此通过进程级注入点把
