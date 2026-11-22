@@ -280,11 +280,24 @@ func findSecret(text string) *secretMatch {
 				valueTrimmed := strings.TrimLeft(value, " \t\"'")
 				valueStart += len(value) - len(valueTrimmed)
 				consider(valueStart, tokenEnd(text, valueStart), entry.kind)
+			} else if gap > 0 && len(trimmed) > 0 && isCLIFlagStart(text, start) {
+				// CLI 常见写法 `--password hunter2`：值与关键字以空格分隔。
+				// 仅在关键字确实是命令行 flag（前面是 -/--）时才脱敏，避免
+				// 把 "password is wrong" 这类普通句子里的下一个词误当机密。
+				valueTrimmed := strings.TrimLeft(trimmed, " \t\"'")
+				valueStart := start + len(entry.needle) + gap + (len(trimmed) - len(valueTrimmed))
+				consider(valueStart, tokenEnd(text, valueStart), entry.kind)
 			}
 			from = start + len(entry.needle)
 		}
 	}
 	return best
+}
+
+// isCLIFlagStart 报告 pos 处的关键字是否紧邻命令行 flag 前缀（- 或 --）。
+// 只紧邻检查，避免把普通句子里出现在连字符后的词误判为 flag。
+func isCLIFlagStart(text string, pos int) bool {
+	return pos >= 1 && text[pos-1] == '-'
 }
 
 // tokenEnd 找到具有凭据形状的连续串的结束位置。Base64 凭据带有 `+`、`/` 和
