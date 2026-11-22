@@ -16,12 +16,6 @@
 
 ## 一、上下文管理与可恢复性（1–14）
 
-### 1. `checkpoint_diff` 空串/`latest` 必然报错 `[P0/S]`
-- **现状**：`internal/app/checkpoint_source.go:20-31` 注释声明「空 id 表示 latest」，但 `steps` 默认 0，随后 `c.sess.CheckpointBack(steps)`（:31）进入 `internal/session/checkpoint.go:236-238`，因 `steps<1` 直接返回 `checkpoint steps must be >= 1`。而 `internal/tools/tools_checkpoint_diff.go:69` schema 明确允许 `checkpoint_id:""`，集成测试也用空串调用（但注入 fake source，真实适配器无人测）。
-- **问题**：模型获取「最近检查点差异」这一最常见用法恒定失败，而 `LatestCheckpoint()`（checkpoint.go:229）明明可用。已有原语 + 边界 bug + 缺测试三合一。
-- **建议**：`Diff` 中把 `id=="" || id=="latest"` 显式映射到 `LatestCheckpoint()` 分支，仅显式数字串走 `CheckpointBack(steps)`；`steps==0` 给稳定错误文案。
-- **验收**：新增 `internal/app/checkpoint_source_test.go` 的 `TestCheckpointSourceDiffLatestAndEmpty`，断言 `Diff("")==Diff("latest")==Diff("1")` 且 `len(changes)>0`；`go test ./internal/app -run TestCheckpointSourceDiff -count=1`。
-
 ### 3. `Compaction.SummaryEmpty` 算了没人读且不落盘 `[P1/M]`
 - **现状**：`internal/session/compact.go:48-51` 注释说明该字段用于「决定是否重试模型摘要」，唯一赋值在 `:555`（仅 `ARGENT_SUMMARY_SCHEMA=1`），标记 `json:"-"` 不写入 JSONL；全仓除两个测试外零读者。
 - **问题**：空摘要是压缩丢失上下文的典型信号，本可触发重试或降级保留更多消息，但上层无从得知；不持久化导致重开会话也无法补救。
@@ -85,12 +79,6 @@
 ---
 
 ## 二、安全边界（15–28）
-
-### 15. 绝对路径逃逸在策略层不拦截 `[P0/S]`（真实边界 bug）
-- **现状**：`internal/security/policy.go` 的 `resolve`:437-454 仅对 `relative==true` 做 `..` 检查；`checkPath`:268-298 对绝对路径返回 `escape=false`，隐藏逃逸检查 :281 还要求 `within(resolved,p.writeRoots)` 才触发；`Evaluate`:220-224 直接 Allow。内置工具靠 `tools_registry.go:372-388` 二次拦截，但 MCP/第三方工具无此层。
-- **问题**：只读工具或任意 MCP 工具传 `{"path":"C:\\Users\\...\\.ssh\\id_rsa"}` 被判 Allow，与 AGENTS.md:99「绝对路径逃逸一律拒绝」冲突，防御纵深只依赖工具实现。
-- **建议**：`checkPath` L269 后加 `if filepath.IsAbs(candidate) && !within(filepath.Clean(candidate), p.writeRoots) { return Result{Deny,...} }`，保留对 `p.realRoots()` 的链接解析复核避免误拒。
-- **验收**：`internal/security/policy_test.go` 新增表驱动 `TestPolicyRejectsAbsoluteEscape`：`DefaultPolicy(root).Evaluate("read", {"path":"<abs-outside>"})` 必须 Deny；`go test ./internal/security -run TestPolicyRejectsAbsoluteEscape -count=1`。
 
 ### 16. 4 轮解码逃逸检测器完全未接线 `[P1/S]`
 - **现状**：`internal/security/path_escape.go` 的 `looksLikePathEscape`:20-35、`maxEscapeDecodeRounds=4`:54、`normalizeEscapeCandidate`:58-68、`overlongASCII`:137-169 已实现百分号/过宽 UTF-8/NUL 检测，grep 仅命中 `path_escape_test.go`；`policy.go:437` 的 `resolve` 只做 `Clean`+`Rel`。
@@ -219,18 +207,6 @@
 ---
 
 ## 四、模型/协议与召回（39–50）
-
-### 39. 两层模型切换判定分叉：硬性配额在 agent 层仍触发换模型 `[P0/S]`
-- **现状**：`internal/app/app_chatter.go:114-119` 回退前调 `llm.IsNonRetryableQuotaResponse(code,body)` 拒绝硬配额；`internal/agent/fallback.go:221-223` 的同源函数 `isRetryableProviderError` 只有 `llm.IsRetryableStatus(code)||legacyRetryable`，缺该检查；权威判定在 `llm/retry.go:445-453`。两份文本正则与状态码提取（`statusCodeInError` vs `statusCodeInFallbackError`）也已漂移。
-- **问题**：同时配 `--fallback-model`（app 层）与 `FallbackModels`（agent 层）时，同一条 `429 ... quota exhausted` 在 app 层判终态、agent 层判可重试，会再发一次注定失败的请求——重复计费、重复事件、UI 二次 `model failed`。
-- **建议**：`fallback.go` 的 `isRetryableProviderError` StatusCode 分支插入同一终态短路；删除本地副本改用 `llm.ClassifyRetry(err,code,body)` 统一 Reason；保持 `retryReason` 封闭字符串不变。
-- **验收**：`internal/agent/fallback_retryable_parity_test.go` 对 `HTTP 429: insufficient_quota`/`HTTP 503`/`context window exceeded`/`invalid request` 断言两层一致；`go test ./internal/agent ./internal/app -run 'Fallback|Retryable' -count=1`。
-
-### 40. `failure_contract.go` 六个「单一入口」导出原语零生产调用 `[P1/M]`
-- **现状**：`internal/llm/failure_contract.go:9-16` 自述是「agent 与 app 的单一入口」，但 `IsContextOverflow`:25、`IsByteSizeOverflow`:39、`IsRecoverableStreamError`:46、`IsRetryableError`:53、`RetryReasonForResponse`:63、`ClassifyRetry`:89 全部只在测试调用；生产仍直调 `fallback.go:228,253` 与 `app_chatter.go:121` 的 `llm.ClassifyRetryError`。
-- **问题**：权威逻辑与消费方「事实来源分裂」——以后修 `ClassifyRetryError` 两层回退不会自动受益，也直接导致 #39 的分叉。
-- **建议**：把上述三处调用换成 `llm.ClassifyRetry(err,code,body)`；`loop.go` 长度/溢出分支用 `llm.IsContextOverflow(err)` 替代重复的 `ClassifyFailure(...).Kind` 比较；加内部测试断言门面与直接分类结果一致。
-- **验收**：`internal/llm/failure_contract_parity_test.go` 覆盖 nil/取消/溢出/429 硬配额/超时；`grep -rn 'ClassifyRetryError' internal/agent internal/app --include='*.go'` 生产代码不再直调。
 
 ### 41. Responses 跨会话稳定缓存键 `sessionCacheKey` 是死代码 `[P1/S]`
 - **现状**：`internal/llm/options.go:199-215` 实现三态 `sessionCacheKey`（override > `session:<id>`，按 rune 截断 128）并有内部测试；但 `responses.go:446-452` 生产只用 `deriveCacheKey(req.Instructions, string(toolJSON))`（options.go:184-193），`Options.PromptCacheKey` 在 app/cli 零赋值。
@@ -418,87 +394,9 @@
 
 ## 七、工程纪律 / 测试 / CI / 发布（74–93）
 
-### 74. 版本三处字面量已漂移，一致性脚本只校验 cli.go `[P0/S]`
-- **现状**：`internal/cli/cli.go:27 const Version = "0.8.1"`；`internal/mcp/mcp.go:27 clientVersion = "0.7.0"`（用于 :248 clientInfo.version）；`internal/lsp/client.go:223` 硬编码 `"version":"0.7.0"`。`docs/USER_GUIDE.md:329-339` 要求三处同步，但 `scripts/check-release-consistency.ps1:13-30` 与 `build-release.ps1:41-58` 都只正则读 cli.go；全仓无版本一致性测试。
-- **问题**：MCP/LSP 服务端看到的客户端版本落后两个版本，诊断与兼容矩阵失真；下次 bump 会继续漂移。
-- **建议**：两处 0.7.0 改为当前版本；check-release-consistency.ps1 增加对 mcp.go/lsp/client.go 的同款正则扫描，任一不等即非零退出；新增 `internal/cli/version_consistency_test.go` 从相对路径读三个文件断言相等（仿 optin_docs_guard_test.go）。
-- **验收**：`go test ./internal/cli -run TestVersionLiteralsConsistent` 绿，改任一文件成错值时失败；`powershell -File scripts/check-release-consistency.ps1 -Tag v0.8.1` 在三处不一致时非零退出。
-
-### 75. 版本锚点 40w/50w 双口径冲突 `[P0/S]`
-- **现状**：`AGENTS.md:128-129` 表格仍为 `40w→v0.8.2`、`50w→v0.8.3`；`:136` 注记说「用户 2026-11-21 明确 50w 行发 v0.8.2，覆盖原表格……发版时须同步调整表格」，但表格数字未改；`CHANGELOG.md:3-5` 已按 50w→v0.8.2 写；cli.Version=0.8.1。
-- **问题**：到达 40w 时按表格应发 v0.8.2、按注记应等到 50w——发版决策双口径，可能提前或无限延后；consistency 脚本不校验行数阈值无法机器拦截。
-- **建议**：统一到 50w→v0.8.2：改 AGENTS.md 表格（删 40w 行，50w 改 v0.8.2，后续 60w/70w 顺延 v0.8.3/v0.8.4）并删临时注记；CONTRIBUTING.md release checklist 增加行数核对步骤；check-release-consistency.ps1 加行数 warn（不硬失败）。
-- **验收**：`grep -nE '40w|50w|0\.8\.2|0\.8\.3' AGENTS.md CHANGELOG.md CONTRIBUTING.md` 只呈现单一映射。
-
-### 76. 源码证据评分文档失真：8.9 口径与 HEAD 引用同时过期 `[P0/M]`
-- **现状**：`docs/STATUS.md:5` 仍称「8.9 分评估」，但 :93-94 最终表是等权 8.0/加权 8.85，:96 明写旧 8.9 已作废；`docs/CAPABILITY_MATRIX.md:9-11` 仍以「STATUS 的 8.9/10」开篇；HEAD 真值 `8881ed9`，但 CAPABILITY_MATRIX.md:5 称「取证基线 a30b0e4（当前 HEAD）」、STATUS.md:74 称「a30b0e4=355,578 行」、CHANGELOG.md:22 同为 a30b0e4 而 :3 又写「当前 HEAD 7dee8a1」；行号引用错位（CAPABILITY_MATRIX.md:78 引用 STATUS.md:57 论证 tree-sitter，实际该行是 go install 分发）。
-- **问题**：两篇核心文档对外评分口径自相矛盾；所有「源码证据行号」以旧 commit 为基线却标称当前 HEAD，读者无法复核。
-- **建议**：① STATUS.md:5 改「加权 8.85/等权 8.0」，CAPABILITY_MATRIX.md:9-11 同步，保留 :96 的「旧 8.9 作废」历史注记；② 三处 HEAD 表述改「取证 commit a30b0e4（可用 `git log -1 --format=%h -- docs/STATUS.md` 复核）」而非「当前 HEAD」，并抽样核对矩阵中的 STATUS 行号引用（重点 :57/:78/:84/:308）；③ 新增轻量文档守卫测试断言取证 commit 存在且抽样行号命中预期文本。
-- **验收**：`grep -rn '8\.9\|a30b0e4\|7dee8a1' docs CHANGELOG.md` 中 8.9 仅剩一条作废注记、HEAD 仅一种口径；`go test ./internal/eval -run TestDocEvidenceAnchors` 绿。
-
-### 77. `security-audit.ps1` 隐私白名单腐烂且脚本从未接入 CI `[P0/M]`
-- **现状**：`scripts/security-audit.ps1:173-176` 白名单仅 2 项（`secret_test.go:sk-abc...`、`tools_security_scan_test.go:AKIA...`）；但 tracked 源码还有 `app/verify_wire_test.go:110 sk-abcdefghijklmnop1234`、`server/error_redact_test.go:20,22`、`server/config_info_test.go:63`、`server/rpc_redact_test.go:57`、`security/pending_test.go:205 ghp_...ABCD`、`session/export_test.go:13 AKIAFAKESECRETKEY1234`、`native/approval_answer_test.go:144` 等命中 :165-170 的正则。`.github/workflows` 无任何脚本调用该文件；`privacy-scan.ps1:32-40` 另有一套 7 项白名单，双实现漂移。
-- **问题**：脚本按设计「任何失败非零退出」，按当前树必然报 `privacy scan found N potential secret(s)`；正因从未运行腐烂无人发现，安全审计实际零覆盖，一旦有人好心接入 CI 会立刻全红。
-- **建议**：把 security-audit 的 $allow 改造为复用 privacy-scan 的公开示例值集合，更好的是抽 `scripts/lib/secret-fixtures.ps1` 由两脚本 dot-source 消除双实现；在 matrix.yml 新增 security job 运行该脚本，并显式装 govulncheck 使软失败变硬。
-- **验收**：`pwsh -File scripts/security-audit.ps1` 退出 0 且打印 `SECURITY AUDIT PASSED`；`grep -n security-audit .github/workflows/*.yml` 至少一条；新增未登记合成 token 后脚本非零退出。
-
-### 78. `matrix.yml` 只在 PR 触发，直推 main 与 tag 发布绕过架构守卫和 5 平台交叉编译 `[P1/S]`
-- **现状**：`matrix.yml:19-21 on: pull_request/workflow_dispatch`（注释明确「特意不按 tag 触发」）；`ci.yml:6-9` 只有 push main/master + PR；`release.yml:15-17` 只 tag；`CONTRIBUTING.md:188` 自称三个触发条件互不重叠。archguard 唯一运行点在 matrix.yml:102-112，5 目标 crossbuild 在 :32-60。
-- **问题**：维护者直接 push main/master 时 archguard、darwin/arm64 等 5 目标 no-cgo 构建、no-cgo 单测全部跳过；带分层违规或 darwin 专属 cgo 依赖的提交可在「全绿」状态下进入主分支并被 tag 发布。
-- **建议**：给 matrix.yml 的 on 增加 `push: branches:[main,master]`（与 ci.yml 一致），保留不按 tag 触发的注释但改说明；在 release.yml 的 verify job 加一步 `go test ./internal/archguard -count=1`，让发布 tag 自带架构门禁。
-- **验收**：push 后 `gh run list --workflow=matrix.yml` 出现对应 run；release verify 日志含 `go test ./internal/archguard`；test-release-workflow.ps1 扩展静态断言 `release calls archguard`。
-
-### 79. archguard 漏扫 `cmd/`，且分层规则对子目录用精确匹配可绕过 `[P1/M]`
-- **现状**：`internal/archguard/arch_test.go:64` 只 `goFiles(t, filepath.Join(root,"internal"))`、:99 只 native/，`cmd/argent/main.go`/`gui.go` 从未解析；`:89` 判定用 `pkgDir == r.pkgRel` 精确相等；AGENTS.md:86 明示不查 import 环，matrix.yml:112 的 job 只跑该测试不编译任何包。
-- **问题**：cmd/argent 若 import 第三方或 "C" archguard 全绿；新增 `internal/tools/foo/bar.go` import internal/agent 时 pkgDir="internal/tools/foo"≠"internal/tools"，6 条规则全失效；import 环只能靠其他 job 兜底，archguard job 单独跑给虚假安全感。
-- **建议**：goFiles 改为覆盖仓库根下全部 .go（跳过 .git/dist/临时目录），cmd/ 应用同款 stdlib-only+禁 cgo；:89 改 `pkgDir == r.pkgRel || strings.HasPrefix(pkgDir, r.pkgRel+"/")`；测试末尾增加基于 importPaths 的模块内 import 图 DFS 环检测（遇环 t.Errorf）。
-- **验收**：临时新增 `internal/tools/x/y.go` import internal/agent 后 `go test ./internal/archguard` 必须失败；临时给 cmd/argent/gui.go 加 `import "C"` 后同命令必须失败（仅静态验证勿提交）。
-
-### 80. 25 个 Benchmark 的断言在 CI 中从不执行 `[P1/S]`
-- **现状**：`.github/workflows/ci.yml:45-46` 只跑 `go test ./...` 无 `-bench`（grep bench 无命中），Go 默认不执行 Benchmark；正确性断言位于 `internal/session/session_bench_test.go:115,136,162` 的 b.Fatalf、`internal/tui/tui_bench_test.go:25`、`tools_bench_test.go:164,167,186`；三个 workflow 与全部 .ps1 中 `grep -bench` 命中 0；`AGENTS.md:28` 声称「断言在 go test 下运行」与 Go 语义不符。
-- **问题**：记录数契约、夹具完整性、热路径行为回归（尤其 #94 的分配回归）无人把关；文档承诺的「过时断言会让构建失败」不成立。
-- **建议**：ci.yml go job 加 `go test -bench . -benchtime=1x ./internal/agent ./internal/session ./internal/tools ./internal/tui`（1x 足够触发断言不计时）；AGENTS.md:28 表述改为准确描述；长期把正确性断言抽成普通 TestXxx，bench 只测性能。
-- **验收**：`grep -n -- '-bench' .github/workflows/*.yml` 非空；把 session_bench_test.go:114 的 `n+1` 改为 `n` 后该命令必须失败。
-
-### 83. 三处 race 门禁中两处无 `-timeout`，挂起会耗尽 6 小时 job 上限 `[P1/S]`
-- **现状**：`ci.yml:81`、`release.yml:100` 的 `go test -race ...` 无 timeout，只有 matrix.yml:97 带 `-timeout 20m`；ci.yml 的 race job 在 ubuntu-latest 上还包含 native 包（`go list ./...` 未过滤），与 AGENTS.md「native 偶发 GPU 挂起」风险叠加。
-- **问题**：一旦死锁/长时间阻塞，release tag 流水线的 race 门禁最长挂到 GitHub 默认 6 小时才失败，阻塞发布且浪费 runner；三处命令形式漂移增加维护成本。
-- **建议**：给两处补 `-timeout 20m`，把三处命令抽成 `.github/workflows/_race.sh` 或 reusable workflow 杜绝漂移；复核是否需要再排除 ./native（若在 Linux 确需排除，三处同步并注明 Windows 的 ci.yml go job 已覆盖 native 测试）。
-- **验收**：`grep -n -- 'go test -race' .github/workflows/*.yml` 三处均含 -timeout；test-release-workflow.ps1 新增静态断言 `race job pins -timeout`；用临时 `select{}` + 短超时验证门禁会失败。
-
-### 88. `eval compare`/`eval ab` 的输入 Result 向量没有生成器，测量闭环断档 `[P1/M]`
-- **现状**：`internal/cli/eval.go:29-41,202-302` 实现 compare/ab 分派，`loadResultVector`:234-253 只读 `<baseline-results.json>`；默认路径（:111-129）只打印 `ok N/...` 文本；`internal/eval/run.go:69-91` 已定义带 json tag 的 `Result`/`Report` 却无任何 CLI 落盘；`quality_report.go:7` 明写「不接线到 CLI」；USER_GUIDE.md:240-250 只说「读取两份结果文件」未交代来源。
-- **问题**：STATUS.md:116 与 CAPABILITY_MATRIX.md:329 宣称「测量闭环」，但用户无法从 eval 自身得到 compare/ab 输入，必须手写 JSON 或临时改代码——工具存在但最后一公里未接通。
-- **建议**：给 eval 增加带外前缀 `--json <path>`（或 `eval export --out`），复用 run.go 的 Report 把 Results 序列化为与 loadResultVector 对齐的 `{"results":[...]}`；--live 路径同样支持落盘；evalUsage 补用法，USER_GUIDE §9 加「导出→compare→ab」完整示例。
-- **验收**：`argentgo eval --json out.json evals/core.json && argentgo eval compare out.json out.json` 退出 0；新增 `internal/cli/eval_json_test.go` 断言导出文件可被 loadResultVector 解析且 len(results)==11。
-
-### 89. 编排评测 `RunOrchestration` 只在 Go 测试里跑，CLI 无入口 `[P1/M]`
-- **现状**：`internal/eval/orchestration.go:146-186` 提供 Load/Parse，:398-426 提供 `RunOrchestration`；`evals/orchestration.json` 含 10 场景（persona 委派、verify 重试上限、后台结果注入、TaskBoard、深度限制，断言种类见 :584-635）；调用点仅 orchestration_test.go:12/24 与 orchestration_extra_test.go:45/108/141；`cli/eval.go:23-50` 分派只有 compare/ab/--live/默认。
-- **问题**：覆盖 agent 委派正确性最强的 eval 无法作为发版门禁命令运行，也无法产出可对比结果；与 core.json 走 CLI 的待遇不一致。
-- **建议**：cli/eval.go 按 compare/ab 同风格加带外前缀 orchestration，定义窄接口 `OrchestrationRunner` 由 app 注入；输出 Total/Passed/Failed 与每条 `OrchestrationFailure{ID,Name,Reason}`（结构已在 :130-144）；任一失败退出非 0；STATUS.md:43 门禁改为同时跑 core 与 orchestration。
-- **验收**：`argentgo eval orchestration evals/orchestration.json` 输出 10/10 退出 0；注入失败场景副本时退出非 0 并打印 Reason；`--help` 含新用法。
-
-### 91. `core.json` 场景数文档写 10、代码断言 11 `[P1/S]`
-- **现状**：`internal/eval/eval_test.go:233-249` 断言 want 11、report.Passed!=11、输出含 `"1..11"`；`evals/core.json` 实际 11 场景（第 11 个是 286-316 行 approval denial）；但 `docs/CAPABILITY_MATRIX.md:209`、`:274`、`:287` 三处均写「10 个脚本场景」/「core.json（10 场景）」/「core.json 10 场景」。
-- **问题**：用户按文档找「第 10 个场景」会错位；发版门禁实际跑 11 个，对外评测规模口径失真。
-- **建议**：三处 10 改 11；参照 OPT_INS.md:5 的双向守卫范式新增 `internal/eval/core_docs_guard_test.go`——从 core.json 读场景数，正则核对 CAPABILITY_MATRIX.md 中的数字，防再次漂移。
-- **验收**：`grep -n '10 场景\|10 个脚本场景\|core.json 10' docs` 无命中；`go test ./internal/eval -run TestCoreDocsGuard` 绿，临时加一场景时守卫失败。
-
-### 93. 首次启动引导缺失，`cli_hints` 原语空挂 `[P2/M]`
-- **现状**：`USER_GUIDE.md:159-160` 注明「不带 prompt 的 argentgo 会读 stdin 然后退出，不会自动打开 TUI」；README.md:68-78 快速开始直接假设已配 key；login/doctor 命令已存在，错误提示会引导 login，但无首次运行检测标记；`cli_hints` opt-in 键仅在 `config/optin_config.go:40` 注册、OPT_INS.md:100 列出，无任何行为消费点。
-- **问题**：新用户按 README 装完，无参数运行读到空 stdin 立即退出，屏幕一闪而过且无「先 login / 用 tui / 跑 doctor」指引；#92 修好安装验证后下一步仍卡首次启动。
-- **建议**：在 `cli/cli.go` 无参数分支加一次性引导：stdin 为字符设备（os.Stdin.Stat() 检查 ModeCharDevice，零依赖）且无配置/无凭据时，向 IO.Err 打印三行（login 示例、tui/gui 入口、doctor 自检），并在 storage 目录写 onboarded 标记；复用 cli_hints 键作开关（默认关保持逐字节不变）；USER_GUIDE §3 与 OPT_INS.md 同步。
-- **验收**：`internal/cli/first_run_guide_test.go`：临时 StorageDir + 空 stdin 两例——无配置输出含 login/tui/doctor，预置带 key 配置时逐字节一致；不设 ARGENT_OPT_INS=cli_hints 时按原行为退出。
-
 ---
 
 ## 八、性能 / 资源 / 可观测（94–99）
-
-### 94. `tokenize.Estimate` 在 ASCII 热路径引入全量 SHA-256 与切片分配 `[P0/S]`
-- **现状**：`internal/tokenize/tokenize.go:20-32 Estimate` 先 `key := hashContent(text)` 再查 LRU，`cache.go:47-49 hashContent` 为 `sha256.Sum256([]byte(text))`；而 `estimateUncached`:38-46 的 ASCII 快速路径只需逐字节扫描；`agent/trim.go:39-58 EstimateTokens/EstimateMessages` 每次请求调用多次。
-- **问题**：原本 O(n) 的 ASCII 估算现在对整段 40KB 工具输出做 `[]byte(text)` 全量拷贝 + SHA-256，分配和 CPU 反高于省下的扫描——被 `BenchmarkEstimateTokens` 直接覆盖的最热路径，属「优化引入的回归」。
-- **建议**：`Estimate` 先做无分配 ASCII 探测，纯 ASCII 直接返回 `(len(text)+3)/4`，完全跳过 hashContent/sharedCache；仅非 ASCII 走缓存。或改基于长度+首尾采样的无分配键（碰撞时回退全文比对，现有 get:61 已比对）。
-- **验收**：`TestEstimateASCIIHasZeroAllocs`（testing.AllocsPerRun 对 strings.Repeat("abc",10000) 断言 0）；`go test -bench=BenchmarkEstimateTokens -benchtime=200x ./internal/agent -count=1` 对比 ascii-1KB 子基准 ns/op 与 B/op 必须下降。
 
 ### 95. checkpoint 哈希缓存无界增长，保存完整文件字节 `[P1/M]`
 - **现状**：`internal/session/checkpoint.go:64-67` 包级 `checkpointHashCache.entries map[hashCacheKey]hashCacheEntry`，`:59-62 hashCacheEntry.before []byte` 存完整文件字节，`:82-87 rememberCheckpointHash` 每次 miss 都写，无容量/TTL/淘汰；key 含 mtime（:155）同一文件每次编辑产生新条目；仅有全清 :92 与按路径 :101，无自动调用点。对照 `tokenize/cache.go:11` 明确设 cacheCapacity=512。
@@ -667,12 +565,6 @@
 - **建议**：分两步：第一步只做纯文本版（两端高保真 + 中段稀疏化 + 显式 gap 标记），复用现有 `session.Project`/`PruneToolResults`，零 wire 变化；第二步才用 `image/png` + 内嵌位图字体生成 frame 并按需回放（L 级，可长期排期）。
 - **验收**：`internal/session/foveated_archive_test.go`：1000 条消息的归档视图两端逐字保留、中段按预算稀疏、gap 标记可解析；关闭 opt-in 时 `Messages()` 逐字节不变；`go test ./internal/session -count=1`。
 
-### 135. CI 缺体积/启动耗时门禁`[P2/S]`
-- **现状**：#100 的 pprof/GC 三开关已落地（`cmd/argent/main.go:15`、`internal/app/diag_env.go`），但 CI 仍无产物体积断言与启动耗时 smoke；日常 `go build` 未加 `-trimpath -ldflags '-s -w'`（release 脚本已加）。
-- **问题**：回归（如 #94/#95）无法被体积/启动时间指标发现。
-- **建议**：CI 构建后检查二进制字节数（例如超过当前基线 +10% 失败），`--version` 计时仅报警不精确基准；AGENTS.md 日常构建命令加裁剪标志。
-- **验收**：CI workflow 新增一步并本地跑通；产物体积在阈值内；`go test -p 4 ./... -count=1` 全绿。
-
 ---
 
 ## 附：优先处理建议
@@ -683,5 +575,5 @@
 2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#112/#123 已全部落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、事件日志/SSE 续传、todo 入摘要）。
 3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#118/#124/#125 已全部落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、MCP annotations 审批、read-before-write、分支摘要）。
 4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审（#112 已落地）。
-5. **发版门禁**：#74~#93 已全部落地（版本/文档/CI/脚本一致性、行数锚点机器校验、fuzz workflow、产物自报版本校验、离线 model-quality 评测）；剩余 #135（体积/启动门禁）属于 CI 指标增强。
+5. **发版门禁**：#74~#93 与 #135 均已落地（版本/文档/CI/脚本一致性、行数锚点机器校验、fuzz workflow、产物自报版本校验、离线 model-quality 评测、体积/启动门禁）。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。
