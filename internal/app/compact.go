@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -51,6 +52,9 @@ type sessionCompactor struct {
 	// 或 compactionHook 为 false 时整段跳过，压缩路径逐字节不变。
 	fireHook       func(context.Context, hooks.Event, hooks.Payload) (hooks.Result, error)
 	compactionHook bool
+
+	// env 由 Execute 注入，供压缩期读取 opt-in 开关；nil 时所有 opt-in 关闭。
+	env func(string) string
 }
 
 func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor {
@@ -61,6 +65,51 @@ func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor 
 // 原两参构造保留给测试，reg 留 nil 时三个压缩 wire 全部关闭，重建路径逐字节不变。
 func newSessionCompactorWithOpts(res Resolved, sess *session.Session, reg *OptInRegistry) *sessionCompactor {
 	return &sessionCompactor{res: res, sess: sess, reg: reg}
+}
+
+// compactionTodoEnabled 报告压缩快照是否包含 todo。默认关闭：
+// 只有 ARGENT_COMPACTION_TODO=1 才启用，其他值压缩记录逐字节不变。
+func compactionTodoEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_COMPACTION_TODO")) == "1"
+}
+
+// readSessionTodos 读取会话的 todos.json 并渲染为有界的 [x]/[>]/[ ] 行。
+// 文件不存在、损坏或状态未知时返回 nil（不写入任何字段）。
+func readSessionTodos(sess *session.Session) []string {
+	if sess == nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(sess.Dir(), "todos.json"))
+	if err != nil {
+		return nil
+	}
+	var state struct {
+		Todos []struct {
+			Text   string `json:"text"`
+			Status string `json:"status"`
+		} `json:"todos"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil || len(state.Todos) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(state.Todos))
+	for _, item := range state.Todos {
+		if strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		marker := "[ ]"
+		switch item.Status {
+		case "completed":
+			marker = "[x]"
+		case "in_progress":
+			marker = "[>]"
+		}
+		lines = append(lines, marker+" "+item.Text)
+		if len(lines) >= 64 { // 有界，避免失控的任务列表占满摘要
+			break
+		}
+	}
+	return lines
 }
 
 // compactionInputs 解析驱动压缩触发的三元组 (contextWindow, configuredTokens, percent)。
@@ -283,6 +332,14 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// 并让 Summarize 从被丢弃的条目中提取工具失败记录。
 	// dropped 与 reg 供 opt-in 压缩 wire 使用；reg 为 nil（测试/默认）时三 wire 关闭，逐字节不变。
 	enrichCompaction(&compaction, agent.CollectCompactionEvidence(nil, messages), entries[:start], c.reg)
+	// todo 状态快照（opt-in ARGENT_COMPACTION_TODO，默认关闭）：把会话任务列表
+	// 以 [x]/[>]/[ ] 行写入压缩记录并镜像进摘要，使恢复后的模型知道任务进度。
+	if compactionTodoEnabled(c.env) {
+		compaction.Todo = readSessionTodos(c.sess)
+		if len(compaction.Todo) > 0 && !strings.Contains(compaction.Summary, "## Tasks") {
+			compaction.Summary += "\n## Tasks\n" + strings.Join(compaction.Todo, "\n") + "\n"
+		}
+	}
 
 	out := make([]llm.Message, 0, len(messages)-start+2)
 	out = append(out, llm.Message{Role: "system", Content: compaction.Summary})

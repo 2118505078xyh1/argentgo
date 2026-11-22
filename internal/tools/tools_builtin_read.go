@@ -50,7 +50,7 @@ func (readTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","description":"1-based first line"},"limit":{"type":"integer","description":"number of lines"},"line":{"type":"integer","description":"1-based target line; when > 0, wins over offset/limit"},"before":{"type":"integer","description":"lines above target (0-200, capped)"},"after":{"type":"integer","description":"lines below target (0-200, capped)"},"outline":{"type":"boolean","description":"for Go files, return a compact symbol list (kind, name, line) instead of full source; other files fall back to normal read"}},"required":["path"]}`
 }
 
-func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
+func (t readTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
 		Offset  int    `json:"offset"`
@@ -165,6 +165,10 @@ func (readTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	// 调用方尚未到达文件末尾，因此引导它继续分页。
 	if end < totalLines {
 		out += fmt.Sprintf("\n[showing lines %d–%d of %d; re-call with offset/limit to page]", start, end, totalLines)
+	}
+	// 新鲜度账本（opt-in，由 app 注入）：读取成功后登记当前磁盘快照。
+	if f := FileFreshnessFrom(ctx); f != nil {
+		f.MarkRead(path)
 	}
 	return out, nil
 }

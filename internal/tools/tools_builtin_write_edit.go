@@ -30,7 +30,7 @@ func (writeTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`
 }
 
-func (t writeTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -44,6 +44,12 @@ func (t writeTool) Run(_ context.Context, root string, raw json.RawMessage) (str
 	}
 	unlock := lockFileMutation(path)
 	defer unlock()
+	// 读前写新鲜度（opt-in，由 app 注入账本）：外部改动后拒绝基于陈旧快照的写入。
+	if f := FileFreshnessFrom(ctx); f != nil {
+		if warning := f.StaleWarning(path); warning != "" {
+			return "", fmt.Errorf("write: %s", warning)
+		}
+	}
 	before, readErr := os.ReadFile(path)
 	// 生成文件保护（opt-in ARGENT_BLOCK_GENERATED_EDITS，默认关闭）。
 	if err := checkGeneratedFile(path, before); err != nil {
@@ -63,6 +69,9 @@ func (t writeTool) Run(_ context.Context, root string, raw json.RawMessage) (str
 	final, result := t.formatOutput(path, before, after, result)
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
+	}
+	if f := FileFreshnessFrom(ctx); f != nil {
+		f.MarkWrite(path)
 	}
 	return result, nil
 }
@@ -99,7 +108,7 @@ func (editTool) Schema() string {
 	return `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"repair":{"type":"boolean","description":"opt-in graded repair ladder for missing or non-literal matches"},"anchor":{"type":"string","description":"exact original text the model saw"},"anchor_hash":{"type":"string","description":"first 12 hex chars of sha256(anchor bytes)"},"hashline":{"type":"boolean","description":"opt-in hashline anchoring with stale-anchor recovery"}},"required":["path"]}`
 }
 
-func (t editTool) Run(_ context.Context, root string, raw json.RawMessage) (string, error) {
+func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
 	var args struct {
 		Path       string `json:"path"`
 		Old        string `json:"old"`
@@ -135,6 +144,12 @@ func (t editTool) Run(_ context.Context, root string, raw json.RawMessage) (stri
 	}
 	unlock := lockFileMutation(path)
 	defer unlock()
+	// 读前写新鲜度（opt-in，由 app 注入账本）：外部改动后拒绝基于陈旧快照的编辑。
+	if f := FileFreshnessFrom(ctx); f != nil {
+		if warning := f.StaleWarning(path); warning != "" {
+			return "", fmt.Errorf("edit: %s", warning)
+		}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -192,6 +207,9 @@ func (t editTool) Run(_ context.Context, root string, raw json.RawMessage) (stri
 	final, result := t.formatOutput(path, args.Path, data, []byte(out))
 	if err := os.WriteFile(path, final, 0o644); err != nil {
 		return "", err
+	}
+	if f := FileFreshnessFrom(ctx); f != nil {
+		f.MarkWrite(path)
 	}
 	return result, nil
 }

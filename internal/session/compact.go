@@ -37,13 +37,16 @@ type ArchiveRef struct {
 // Archive 是附加且可选的字段（omitempty）：较旧的记录没有 archive 字段，读取方式与以前完全相同。
 // 现有的压缩行为从不设置它；写入方通过调用 WriteCompactionArchive / WriteCompactionArchiveRef 来选择启用。
 type Compaction struct {
-	Summary   string      `json:"summary"`
-	Dropped   int         `json:"dropped"`
-	Keep      int         `json:"keep"`
-	Files     []string    `json:"files,omitempty"`
-	Failures  []string    `json:"failures,omitempty"`
-	NextSteps []string    `json:"nextSteps,omitempty"`
-	Archive   *ArchiveRef `json:"archive,omitempty"`
+	Summary   string   `json:"summary"`
+	Dropped   int      `json:"dropped"`
+	Keep      int      `json:"keep"`
+	Files     []string `json:"files,omitempty"`
+	Failures  []string `json:"failures,omitempty"`
+	NextSteps []string `json:"nextSteps,omitempty"`
+	// Todo 保存压缩时的任务列表快照（[x]/[>]/[ ] 行）。omitempty 保证未启用
+	// 或不存在的会话没有该字段，逐字节兼容旧记录。
+	Todo    []string    `json:"todo,omitempty"`
+	Archive *ArchiveRef `json:"archive,omitempty"`
 
 	// SummaryEmpty 标记摘要是否无实质内容（仅标题或占位符），供上层据此决定是否
 	// 重试模型摘要。它只在 opt-in 开启时由 Summarize 计算；json:"-" 保证它从不

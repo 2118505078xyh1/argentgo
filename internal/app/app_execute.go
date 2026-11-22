@@ -577,10 +577,18 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 独立于 hooks bridge，因此无 hook 文档时也生效；其它工具逐字节不变。
 	runner = &sourceAnnotatingTools{inner: runner}
 
+	// 读后写新鲜度校验（opt-in ARGENT_READ_BEFORE_WRITE，默认关闭）：
+	// 用会话级账本包装 runner，把 read 快照注入工具 ctx；账本未注入时所有工具
+	// 直接跳过检查，默认路径逐字节不变。
+	if readBeforeWriteEnabled(stdio.Env) {
+		runner = &freshnessTools{inner: runner, ledger: tools.NewFileFreshness()}
+	}
+
 	tracker := newCheckpointTracker(res.Root, sess)
 	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactorWithOpts(res, sess, reg)
+	compactor.env = stdio.Env
 	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。
 	if bridge != nil && compactionHookEnabled(stdio.Env) {
 		compactor.fireHook = bridge.fire

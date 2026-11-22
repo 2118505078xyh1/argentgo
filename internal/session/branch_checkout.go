@@ -17,10 +17,14 @@ func (s *Session) Checkout(entryID string) error {
 	if len(path) == 0 {
 		return fmt.Errorf("session: entry %q is not on a path", entryID)
 	}
+	// 分支摘要（opt-in ARGENT_BRANCH_SUMMARY）：切换前为即将被弃的路径生成摘要，
+	// 切换后追加到新活动分支，使恢复后的模型知道被放弃路径上做过什么。
+	summary := branchSummaryForCheckout(s, entryID)
 	// Path 内部会经 Records -> Flush 获取 mu，因此不能在持锁状态下调用；
 	// 这里只把最终的指针写入放在 mu 下，保证与并发的 Append/读取互不竞争。
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.active = entryID
+	s.mu.Unlock()
+	appendBranchSummary(s, summary)
 	return nil
 }

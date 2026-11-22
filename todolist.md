@@ -666,27 +666,6 @@
 - **建议**：opt-in `Options.FollowUp <-chan string` + `FollowUpMode`；在 `loop()` 无工具结束分支抽取 follow-up，命中则再跑一轮；不接通道时零分配空操作。
 - **验收**：`internal/agent/follow_up_test.go`：无工具回复时通道已有 follow-up → 多跑一轮并包含该文本；通道空 → 原样 StopComplete；`go test ./internal/agent -count=1`。
 
-### 123. 压缩摘要不含 todo 状态，长任务恢复丢失任务进度 `[P1/S-M]`（学自 crush）
-- **竞品证据**：crush `internal/agent/agent.go:1590` 把 `currentSession.Todos` 传给摘要 prompt；`:2607-2619` 明确要求摘要列出任务状态并指示恢复的 assistant 用 `todos` 工具继续。
-- **argentgo 现状**：`internal/session/compact.go:39-52` 的 `Compaction` 只有 Summary/Dropped/Keep/Files/Failures/NextSteps/Archive；证据 `internal/agent/compaction.go:24-27`、模型摘要输入 `internal/app/model_summary.go:40-46`、续接 brief `internal/app/continuation_brief.go:38-47` 均无 todo；todo 只落在 `<sessionDir>/todos.json`（`internal/tools/todo.go:99`）。
-- **问题**：长任务压缩后模型不知道哪些 todo 已完成/进行中，恢复时重复工作或漏掉未完成项。
-- **建议**：opt-in `ARGENT_COMPACTION_TODO=1`：在 app 压缩路径读 `<sessionDir>/todos.json`（tools 暴露只读 helper 或由 app 注入路径），渲染有界的 `[x]/[>]/[ ]` 行写入新增的 `Compaction.Todo`（`json:"todo,omitempty"` 兼容），并镜像到摘要/continuation brief，提示模型调用 `todo` 工具恢复。
-- **验收**：`internal/app/compaction_todo_test.go`：写 3 条 todo 后压缩，摘要含 `[x]/[>]/[ ]`；无 todo 时记录无 `todo` 字段；`go test ./internal/app ./internal/session -count=1`。
-
-### 124. read-before-write 新鲜度跟踪：原语已有但零生产调用 `[P1/M]`（学自 crush）
-- **竞品证据**：crush `internal/filetracker/service.go:14-64` 按 session 记录最后读时间；`agent/tools/edit.go:282-292` 未读或改过则拒绝，`:174,260` 与 `view.go:258` 记录读；`write.go:73-80` 同样校验 mtime。
-- **argentgo 现状**：`internal/tools/file_freshness.go:19,88-143` 已有 `MarkRead`/`MarkWrite`/`IsStale`/`StaleWarning` 完整原语，但 `NewFileFreshness`（`:43-45`）**全仓除测试外零调用**；`readTool.Run`（`tools_builtin_read.go:53`）不记账；edit/write 不校验，并发/人工改动会被静默覆盖。
-- **问题**：用户或另一个 agent 在模型 read 后修改文件，模型基于陈旧快照的 edit 会覆盖新内容。
-- **建议**：opt-in `ARGENT_READ_BEFORE_WRITE=1`：在 toolset 侧对 ctx 注入 per-session read ledger（可落 session 目录 JSON），read 成功后写 `(path, mtime)`；write/edit 在现有 `lockFileMutation(path)` 内校验 mtime，过期给模型可读错误（含「请重新 read」提示）；默认无 ledger、无检查。
-- **验收**：`internal/tools/read_before_write_test.go`：read → 外部修改 → edit 被拒；read → edit 成功并更新 ledger；关闭时行为不变；`go test ./internal/tools -count=1`。
-
-### 125. 分支切换时自动生成被弃路径摘要 `[P2/S]`（学自 pi-mono）
-- **竞品证据**：pi `session-manager.ts:1598-1630` 的 `branchWithSummary` 在切分支时 append `BranchSummaryEntry`；`:439-463,520-535` 投影为 `branchSummary` 消息；`core/messages.ts:102-118,170-175` 转为带前缀的 user 消息。
-- **argentgo 现状**：`internal/session/branch_summary.go:42-48` 已有 `SummarizeAbandonedBranch`，但全仓除测试零调用；`branch_checkout.go:12` 与 `cli/sessions.go:184` 只移动 leaf，不带摘要；`session_read.go:30-65` 投影无 branchSummary 角色。
-- **问题**：切分支后模型不知道被放弃路径上做过什么，易重复踩坑。
-- **建议**：opt-in `ARGENT_BRANCH_SUMMARY=1`：Checkout 前生成 `SummarizeAbandonedBranch` 并 append 一条 additive `KindBranchSummary` 记录，`Messages()` 中投影为 system/user 文本；关闭时 checkout 字节与投影不变。
-- **验收**：`internal/session/branch_summary_wire_test.go`：开启后切换分支产生摘要记录且 `Messages()` 含摘要文本；关闭时零记录；`go test ./internal/session -count=1`。
-
 ### 126. 压缩请求溢出时按缓存前缀逐条淘汰 `[P1/S-M]`（学自 codex）
 - **竞品证据**：codex `core/src/compact.rs:355-367`：压缩模型请求遇 `ContextWindowExceeded` 时 `history.remove_first_item()` 并重置重试计数，注释明确「从头部裁剪以保留缓存前缀」。
 - **argentgo 现状**：`internal/agent/compact_retry.go:59-90` 只在 provider 溢出后调用一次 `MaybeCompact` 且最多重放一次；`internal/app/compact.go:249-285` 的 `compactionWorthwhile` 判定不划算时返回 `(messages,false)`，`compactAndReplay` 的 `!changed` 分支直接放弃重放——首次请求即严重溢出时可能没有有效恢复路径。
@@ -763,8 +742,8 @@
 > 2026-11-22 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74/#75/#76/#77/#94/#101/#102/#103/#107/#108/#109/#110/#113/#116/#117）已从本文档删除。第一优先 P0、第二优先 hook 三项与第三优先的小项均已落地并全绿。
 
 1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
-2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110 已落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件）；剩余 #112（事件日志/SSE 续传）、#123（todo 入摘要）紧随其后。
-3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117 已落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file）；剩余 #118（MCP annotations 审批）、#124（read-before-write）、#125（分支摘要）单条多为 S 级，收益/成本比高。
+2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#123 已落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、todo 入摘要）；剩余 #112（事件日志/SSE 续传）。
+3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#124/#125 已落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、read-before-write、分支摘要）；剩余 #118（MCP annotations 审批）。
 4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
 5. **发版门禁**：#74–#93 的版本/文档/CI 一致性问题仍会阻塞 v0.8.2 发版；#135（体积/启动门禁）并入这一档。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。
