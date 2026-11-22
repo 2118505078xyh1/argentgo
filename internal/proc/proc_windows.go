@@ -111,21 +111,22 @@ func newPlatformProcess(p *os.Process, killTree bool) *platformProcess {
 }
 
 func (p *platformProcess) killTree() {
+	// 先按进程树杀：taskkill /T 依赖直接子进程仍存活才能枚举其后代。
+	// 在作业对象关联之后启动的孙进程可能没继承进作业（父进程用
+	// CREATE_BREAKAWAY_FROM_JOB 或 shell 的后台任务语义都会漏），
+	// 必须抢在它退出前用父子关系遍历补上。进程已退出时 taskkill 报错但无害。
+	if p.killAll && p.proc != nil {
+		killViaTaskkill(p.proc.Pid)
+	}
+
 	// 在作业对象调用期间持有锁，使 close() 不会在
-	// 读取句柄与使用句柄之间将其关闭。
+	// 读取句柄与使用句柄之间将其关闭。作业负责清理漏网的独立进程。
 	p.mu.Lock()
-	job := p.job
-	if job != 0 {
-		_, _, _ = procTerminateJobObject.Call(uintptr(job), 1)
+	if p.job != 0 {
+		_, _, _ = procTerminateJobObject.Call(uintptr(p.job), 1)
 	}
 	p.mu.Unlock()
 
-	// 无法创建（或分配）的作业对象会让 shell 的后代继续存活；
-	// taskkill /T 依赖父进程枚举后代，必须在直接子进程退出之前调用，
-	// 否则孙进程成为孤儿而漏杀。taskkill /T 与 Rust 代码用的最后手段相同。
-	if job == 0 && p.killAll && p.proc != nil {
-		killViaTaskkill(p.proc.Pid)
-	}
 	if p.proc != nil {
 		_ = p.proc.Kill()
 	}
