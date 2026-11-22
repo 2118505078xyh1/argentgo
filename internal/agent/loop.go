@@ -128,6 +128,10 @@ type runState struct {
 	// 出于同样的原因，recordMu 串行化对 recorder 的写入。
 	recordMu sync.Mutex
 
+	// progress 是轮次内进度捕获器（写侧）。nil 表示未注入 sink（默认），
+	// 整段进度写入路径是空操作。
+	progress *progressCapture
+
 	// 向外部世界的投递（emitFn 和旧版 Out 写入器）发生在 eventsMu 之外，
 	// 这样缓慢的消费者不会阻塞事件记录或轮次边界。emitSeq 是下一个追加顺序票号，由 eventsMu 保护；
 	// emitDelivered 是下一个允许投递的票号，由 emitSendMu 保护。条件门控使 emitFn 观察到的顺序
@@ -592,6 +596,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		steer:         &steering{ch: opts.Steer},
 		beforeRequest: opts.BeforeRequest,
 		beforeTool:    opts.BeforeTool,
+		progress:      newProgressCapture(opts.ProgressSink, 1),
 		guard:         newDedupe(repeatsFor(opts)),
 		mistakes:      NewMistakeTracker(0, defaultMistakeGuidance),
 		stuck:         &StuckDetector{},

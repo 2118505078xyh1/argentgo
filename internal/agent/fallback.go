@@ -78,6 +78,9 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 		capture := newPartialCapture(model, turn, defaultPartialByteLimit)
 		onDelta := func(delta string) {
 			capture.Add(delta)
+			// 进度写侧（opt-in）：默认 sink 为 nil 时 Add/SetTurn 是空操作。
+			s.progress.SetTurn(turn)
+			s.progress.Add(delta)
 			if live {
 				s.emit(Event{Kind: EventTextDelta, Turn: turn, Text: delta})
 				return

@@ -533,6 +533,9 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 }
 
 func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
+	// 进度写侧（opt-in）：记录工具调用名，使崩溃恢复公告能列出进行中的工具。
+	s.progress.SetTurn(turn)
+	s.progress.AddToolCall(call.Function.Name)
 	// 可选的工具调用链追踪（默认关闭）：在此开启跨度，finishCall 配对结算。
 	// 审批阻断/重复防护/已取消的调用同样会走到 finishCall，因此 Begin/End 总是成对，
 	// ran=false 的调用也不会留下悬空跨度。

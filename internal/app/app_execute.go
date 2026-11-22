@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/bash"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/commands"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/shell"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
@@ -266,6 +266,32 @@ func toolArgCoercionEnabled(env func(string) string) bool {
 	return env == nil || strings.TrimSpace(env("ARGENT_TOOL_ARG_COERCION")) != "0"
 }
 
+// progressRecoveryEnabled 判定"轮次内进度检查点"是否启用：默认开启（让崩溃后
+// 有可恢复的中间输出，对用户是纯增益），仅 ARGENT_PROGRESS_RECOVERY=0 紧急关闭。
+// 与 toolArgCoercionEnabled 同构，不进"默认关"的集中键体系。
+func progressRecoveryEnabled(env func(string) string) bool {
+	return env == nil || strings.TrimSpace(env("ARGENT_PROGRESS_RECOVERY")) != "0"
+}
+
+// progressHintText 把恢复出的进度渲染为一段有界的中文公告文本，供 EventNotice
+// 使用。它只用于用户可见的恢复公告，绝不注入模型历史（见 session.Progress 注释）。
+func progressHintText(p session.Progress) string {
+	var b strings.Builder
+	b.WriteString("（崩溃恢复：上次中断于第 ")
+	b.WriteString(strconv.Itoa(p.Turn))
+	b.WriteString(" 轮")
+	if text := strings.TrimSpace(p.AssistantText); text != "" {
+		b.WriteString("，未完成输出：")
+		b.WriteString(text)
+	}
+	if len(p.ToolCalls) > 0 {
+		b.WriteString("，进行中的工具：")
+		b.WriteString(strings.Join(p.ToolCalls, "、"))
+	}
+	b.WriteString("）")
+	return b.String()
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -292,6 +318,23 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 它只加信息，绝不触碰 NeedsConfirmation（安全语义由分类唯一决定）。
 		if recoveryDetailEnabled(stdio.Env) && decision.Notice != "" {
 			decision.Notice += recoveryDetailSuffix(decision)
+		}
+		// 进度恢复（默认开）：RecoverProgress 带两道过期检查，只在确有"未提交的中途
+		// 进度"时返回有效值。把有界的进度文本作为用户可见的 EventNotice 公告追加，
+		// 绝不注入模型历史、绝不触碰 NeedsConfirmation（安全语义仍由分类唯一决定）。
+		// 纯进度崩溃可能被分类为干净会话（Notice 为空），此时单独发一条 progress 公告。
+		if progressRecoveryEnabled(stdio.Env) {
+			if p, ok := session.RecoverProgress(sess); ok {
+				suffix := progressHintText(p)
+				if decision.Notice != "" {
+					decision.Notice += " " + suffix
+				} else {
+					EmitEvent(ctx, agent.Event{Kind: agent.EventNotice, Text: suffix})
+					if onText != nil {
+						onText(suffix)
+					}
+				}
+			}
 		}
 		if err := announceRecovery(ctx, stdio, onText, decision); err != nil {
 			return agent.Result{}, err
@@ -421,7 +464,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	//
 	// 并发安全：闭包只捕获不可变的 chain 指针与 ctx，每次调用用 json.Marshal
 	// 生成全新的参数（无共享可变暂存区）；chain.Check 自身可并发调用。
-	shell.SetSafetyOracle(func(cmd string) bool {
+	bash.SetSafetyOracle(func(cmd string) bool {
 		args, err := json.Marshal(map[string]string{"command": cmd})
 		if err != nil {
 			// map[string]string 不可能序列化失败；一旦发生则 fail-closed。
@@ -623,8 +666,18 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			}
 			return filtered
 		},
-		Approve:     approver,
-		Record:      agent.RecorderFunc(sess.Append),
+		Approve: approver,
+		Record:  agent.RecorderFunc(sess.Append),
+		// 进度写侧（默认开）：agent 侧按字节节流后调用，这里把累积的文本/工具调用
+		// 持久化为 progress 记录。进度是纯优化，SyncProgress 失败被忽略，绝不影响运行。
+		ProgressSink: func() agent.ProgressSink {
+			if !progressRecoveryEnabled(stdio.Env) || sess == nil {
+				return nil
+			}
+			return agent.ProgressSinkFunc(func(turn int, text string, toolCalls []string) {
+				_ = sess.SyncProgress(session.Progress{Turn: turn, AssistantText: text, ToolCalls: toolCalls})
+			})
+		}(),
 		Budget:      budget,
 		Prices:      res.Prices,
 		SkillAuthor: skillWriter{},

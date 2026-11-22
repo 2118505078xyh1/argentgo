@@ -193,6 +193,10 @@ type Options struct {
 	// 且在该批次中任何工具运行之前。会话层在这里记录轮次前的字节和摘要。
 	// nil 钩子不改变循环行为；EventCheckpointReady 仍会被发出。
 	Checkpoint func(Checkpoint)
+
+	// ProgressSink 在流式输出累积到阈值时接收轮次内进度检查点，由 app 持久化为
+	// progress 记录。nil 时整段是空操作，逐字节不变。它不进入模型可见历史。
+	ProgressSink ProgressSink
 	// AfterBatch 在每个工具批次派发并返回后调用一次，turn 是该批次的轮次号。
 	// 它由 agent 在 runTools 出口用 defer 触发，因此 id 非法、取消、熔断等提前
 	// 返回路径也会触发；捕获时没有检查点的批次会因 tracker 查表落空而成为空操作。
