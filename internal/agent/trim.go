@@ -252,38 +252,50 @@ func protectedIndexes(messages []llm.Message, keepTurns int) []bool {
 // 多 rune 字素簇中间时才调整，单 rune 字素的默认路径逐字节不变。
 // 大小在 toolResultPruneThreshold 以下的结果原样返回，这使该函数可以无条件安全地调用。
 func pruneToolResultMiddle(content string) string {
-	runes := []rune(content)
-	if len(runes) <= toolResultPruneThreshold {
+	// 字节早退：每个 rune 至少占 1 字节，字节数不超阈值时 rune 数必然也不超，
+	// 避免为绝大多数短结果做全文 []rune 转换。
+	if len(content) <= toolResultPruneThreshold {
+		return content
+	}
+
+	// 合法 UTF-8（绝大多数情况）直接在原串上按 rune 计数与切片，省掉
+	// []rune→string 的往返分配。畸形字节才回退到原来的归一化路径：
+	// 归一后的合法串使字素边界函数里的 RuneStart 检查不会落在畸形序列中间。
+	encoded := content
+	runeCount := utf8.RuneCountInString(content)
+	if !utf8.ValidString(content) {
+		runes := []rune(content)
+		runeCount = len(runes)
+		encoded = string(runes)
+	}
+	if runeCount <= toolResultPruneThreshold {
 		return content
 	}
 	// 让替换结果严格小于原文。固定的阈值/预算关系已经保证了这一点，
 	// 但仍加上保护，以免未来的预算改动把"裁剪"变成增长。
-	if toolResultPruneHead+toolResultPruneTail >= len(runes) {
+	if toolResultPruneHead+toolResultPruneTail >= runeCount {
 		return content
 	}
 
-	// 在 []rune 重编码后的字符串上计算字节切点：该字符串是合法 UTF-8，
-	// 字节↔rune 换算精确，且畸形字节已被归一为 U+FFFD，不会让字素边界
-	// 函数里的 RuneStart 检查落在畸形序列中间。
-	encoded := string(runes)
 	headByte := runeByteOffset(encoded, toolResultPruneHead)
-	tailByte := runeByteOffset(encoded, len(runes)-toolResultPruneTail)
+	tailByte := runeByteOffset(encoded, runeCount-toolResultPruneTail)
 	// 字素边界吸附：head 只回退、tail 只前进。切点已在簇边界时原样返回。
 	headByte = textutil.ClusterBoundaryBefore(encoded, headByte)
 	tailByte = textutil.ClusterBoundaryAfter(encoded, tailByte)
 	headRune := utf8.RuneCountInString(encoded[:headByte])
 	tailRune := utf8.RuneCountInString(encoded[:tailByte])
 	// 防御：head 回退、tail 前进只会扩大间距，这里仍保留保护以免未来预算
-	// 改动让 head 越过 tail 而产生重叠切片。
+	// 改动让 head 越过 tail 而产生重叠切片。字节与 rune 切点同步回退，
+	// 以便直接用 encoded 切片，不再把 rune 切片重新编码成字符串。
 	if headRune > tailRune {
-		headRune = tailRune
+		headRune, headByte = tailRune, tailByte
 	}
 
 	var b strings.Builder
 	b.Grow(len(content) + len(toolResultPruneMarker))
-	b.WriteString(string(runes[:headRune]))
+	b.WriteString(encoded[:headByte])
 	b.WriteString(toolResultPruneMarker)
-	b.WriteString(string(runes[tailRune:]))
+	b.WriteString(encoded[tailByte:])
 	return b.String()
 }
 
@@ -303,7 +315,7 @@ func runeByteOffset(encoded string, n int) int {
 // 让模型保有一些细节；较小的主体则回退到紧凑的一行占位条目，使预算循环仍能回收空间。
 func toolStub(content string) string {
 	pruned := pruneToolResultMiddle(content)
-	removed := len([]rune(content)) - len([]rune(pruned))
+	removed := utf8.RuneCountInString(content) - utf8.RuneCountInString(pruned)
 	header := fmt.Sprintf("%s %d chars of this tool result were removed to save context; run the tool again if the details matter]", trimmedPrefix, removed)
 	if pruned == content {
 		return header
