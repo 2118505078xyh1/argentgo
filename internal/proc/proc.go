@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -52,6 +53,9 @@ type Command struct {
 	Stdin io.Reader
 	// Timeout 到期后会终止整棵进程树。零值表示永久等待。
 	Timeout time.Duration
+	// IdleTimeout 是两次输出之间的最大静默时长；超过即终止整棵进程树。
+	// 零值（默认）关闭看门狗，行为不变。持续输出的进程不会被误判。
+	IdleTimeout time.Duration
 	// KillTree 会在终止子进程的同时终止其后代。
 	KillTree bool
 	// KeepOnTimeout 让超时的子进程留在自己的会话中继续运行，
@@ -161,19 +165,27 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	out := &cappedBuffer{max: MaxOutputBytes}
 	errOut := &cappedBuffer{max: MaxOutputBytes}
+	// 空闲看门狗的活动时钟：任何输出（stdout/stderr）都会刷新它。
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
 	// 在字节进入有界缓冲区之前，重新组装跨子进程任意读取分块边界
 	// 拆开的字符，使捕获内容按字符解码时
 	// 绝不会在分块边界出现 U+FFFD。
 	outDec := newUTF8CarryWriter(out)
 	errDec := newUTF8CarryWriter(errOut)
+	var stdoutWriter, stderrWriter io.Writer = outDec, errDec
+	if c.IdleTimeout > 0 {
+		stdoutWriter = &activityWriter{inner: outDec, last: &lastActivity}
+		stderrWriter = &activityWriter{inner: errDec, last: &lastActivity}
+	}
 
 	cmd := exec.Command(c.Path, c.Args...)
 	cmd.Dir = c.Dir
 	// 总是做净化：即使没有每次调用的 env，子进程也不得继承
 	// 宿主私有的会话管道变量（嵌套 agent 依赖这一点）。
 	cmd.Env = SanitizeEnv(c.Env)
-	cmd.Stdout = outDec
-	cmd.Stderr = errDec
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
 	configure(cmd, c.KillTree, c.NoWindow)
 
 	// 从我们自己拥有的管道馈送 stdin：exec 自身的 stdin 拷贝
@@ -229,15 +241,53 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		timeout = timer.C
 	}
 
+	// 空闲看门狗：定期用单调时钟判定“距上次输出是否过久”，命中则经一条
+	// 一次性 channel 通知主 select。进程结束后由 done 分支停止 ticker。
+	var idleCh <-chan struct{}
+	var idleStop chan struct{}
+	if c.IdleTimeout > 0 {
+		idleStop = make(chan struct{})
+		ch := make(chan struct{}, 1)
+		idleCh = ch
+		go func() {
+			ticker := time.NewTicker(c.IdleTimeout / 2)
+			if ticker.C == nil { // 极短超时下周期可能被钳为 0
+				ticker.Stop()
+				return
+			}
+			defer ticker.Stop()
+			for {
+				select {
+				case <-idleStop:
+					return
+				case <-ticker.C:
+					if idleWatchdogExpired(lastActivityTime(lastActivity.Load()), time.Now(), c.IdleTimeout) {
+						select {
+						case ch <- struct{}{}:
+						default:
+						}
+						return
+					}
+				}
+			}
+		}()
+		defer close(idleStop)
+	}
+
 	var (
-		got      waitOutcome
-		timedOut bool
-		ctxErr   error
+		got          waitOutcome
+		timedOut     bool
+		idleTimedOut bool
+		ctxErr       error
 	)
 	select {
 	case got = <-done:
 	case <-timeout:
 		timedOut = true
+		handle.killTree()
+		got = awaitOutcome(done)
+	case <-idleCh:
+		idleTimedOut = true
 		handle.killTree()
 		got = awaitOutcome(done)
 	case <-ctx.Done():
@@ -291,6 +341,8 @@ func Run(ctx context.Context, c Command) (Result, error) {
 	switch {
 	case timedOut:
 		return res, fmt.Errorf("proc: %q exceeded %s: %w", c.Path, c.Timeout, context.DeadlineExceeded)
+	case idleTimedOut:
+		return res, fmt.Errorf("proc: %q idle for %s: %w", c.Path, c.IdleTimeout, ErrIdleTimeout)
 	case ctxErr != nil:
 		return res, fmt.Errorf("proc: %q: %w", c.Path, ctxErr)
 	case got.err != nil && !isExitError(got.err):
