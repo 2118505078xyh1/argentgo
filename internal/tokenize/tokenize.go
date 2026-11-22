@@ -21,8 +21,22 @@ func Estimate(text string) int {
 	if text == "" {
 		return 0
 	}
-	// 借鉴 llm 包稳定前缀的思路：以内容哈希作为缓存键，
-	// 相同内容再次估算时直接返回结果，省去重复的字节扫描与 rune 解码。
+	// 无分配 ASCII 探测：逐字节扫描，全 < 0x80 即为纯 ASCII。
+	// 纯 ASCII 直接按 chars/4 向上取整，与 estimateUncached 的快速路径
+	// 公式逐值一致；完全跳过 hashContent 与 sharedCache。
+	// 原因：对大段 ASCII 输出做 []byte 全量拷贝加 SHA256 的分配开销，
+	// 高于省下的逐字节扫描，正是 P0 性能回归的根源。
+	ascii := true
+	for i := 0; i < len(text); i++ {
+		if text[i] >= 0x80 {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return (len(text) + CharsPerToken - 1) / CharsPerToken
+	}
+	// 非 ASCII 走原缓存路径不变。
 	key := hashContent(text)
 	if value, ok := sharedCache.get(key, text); ok {
 		return value

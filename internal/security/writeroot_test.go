@@ -30,7 +30,9 @@ func TestMutatingPathToolsRespectWriteRoots(t *testing.T) {
 		{"apply_patch outside all roots", "apply_patch", filepath.Join(outside, "c.txt"), Deny},
 		{"relative escape", "write", "../escape.txt", Deny},
 		{"apply_patch relative escape", "apply_patch", "../escape.txt", Deny},
-		{"read outside roots stays readable", "read", filepath.Join(outside, "c.txt"), Allow},
+		// 绝对路径逃逸对所有工具生效，包括只读工具：过去这里期望 Allow，
+		// 但只读 MCP/第三方工具因此能读到工作区外文件，现已收紧为 Deny。
+		{"read outside roots is denied", "read", filepath.Join(outside, "c.txt"), Deny},
 		{"read inside add dir", "read", filepath.Join(extra, "b.txt"), Allow},
 	}
 	for _, tc := range cases {

@@ -114,7 +114,16 @@ func (s *PendingStore) RegisterWaiter(session, id string) (<-chan bool, func()) 
 // deliverWaiterLocked 把 granted 交给 (session, id) 的等待者（如果存在）。
 // 调用时必须已经持有 s.mu。投递是非阻塞的，并会消耗等待者，
 // 因此重复的 Resolve 永远不会回答两次。
-func (s *PendingStore) deliverWaiterLocked(session, id string, granted bool) {
+//
+// confirmed 是纵深防御守卫：它必须是调用方查表确认 id 确实存在于待处理列表中的
+// 结果（即 Resolve 中的 found）。为 false 时本函数直接返回——即便将来的调用方
+// 漏掉外层的 found 判断，可预测 id 也无法翻转一个已注册等待者的答案。之所以把
+// 查表结果作为参数传入，而不是在此处重新查表，是因为投递发生时命中记录已被
+// Resolve 从磁盘移除，重新查表会把合法命中误判为未知 id。
+func (s *PendingStore) deliverWaiterLocked(session, id string, granted, confirmed bool) {
+	if !confirmed {
+		return
+	}
 	if len(s.waiters) == 0 {
 		return
 	}
@@ -220,23 +229,34 @@ func (s *PendingStore) List(session string) ([]PendingApproval, error) {
 
 // Resolve 移除给定 id 的请求，并追加一条有界的一行式决定记录。未知 id 在
 // 磁盘上是空操作：重新连接的竞态可能在另一个客户端已经解决后重放某个决定，
-// 若对此报错会向操作员暴露虚假错误。与磁盘结果无关，Resolve 还会用该决定
-// 唤醒已注册的进程内等待者（如果有）。这正是让 approval.answer 在 --rpc 上
-// 解除 pendingApprover.Ask 阻塞的机制。投递被延迟执行，因此临时的文件系统
-// 错误、未知 id 或重放的决定都绝不会让被阻塞的调用方搁浅；等待者最多被消耗
-// 一次，这使得重复的 Resolve 调用是安全的（幂等的）。
+// 若对此报错会向操作员暴露虚假错误。
+//
+// 安全约束：只有当 id 确实命中待处理列表时，Resolve 才会用该决定唤醒已注册的
+// 进程内等待者（这正是让 approval.answer 在 --rpc 上解除 pendingApprover.Ask
+// 阻塞的机制）。未知 id 绝不投递任何等待者——id 可预测，无条件投递会让伪造的
+// id 翻转合法等待者的答案。投递仍通过条件 defer 执行：一旦命中，即便写盘或
+// 追加决定遇到临时文件系统错误，等待者也不会被搁浅；等待者最多被消耗一次，
+// 因此重复的 Resolve 调用是安全的（幂等的）。
 func (s *PendingStore) Resolve(session, id string, granted bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	defer s.deliverWaiterLocked(session, id, granted)
 	if err := s.ensureDir(); err != nil {
 		return err
 	}
-	path := s.sessionPath(session)
-	items, err := s.readPending(path)
+	items, err := s.readPending(s.sessionPath(session))
 	if err != nil {
 		return err
 	}
+	return s.resolveLocked(session, id, granted, items)
+}
+
+// resolveLocked 在已持有 s.mu 且已读入 items 的前提下完成解析。它是 Resolve
+// 与 ResolveWithDigest 的公共落点，保证两者共享同一套"命中才投递"的安全语义。
+func (s *PendingStore) resolveLocked(session, id string, granted bool, items []PendingApproval) error {
+	deliver := false
+	defer func() {
+		s.deliverWaiterLocked(session, id, granted, deliver)
+	}()
 	cleanID := truncatePendingRunes(Redact(id), maxPendingIDLen)
 	kept := make([]PendingApproval, 0, len(items))
 	found := false
@@ -250,10 +270,45 @@ func (s *PendingStore) Resolve(session, id string, granted bool) error {
 	if !found {
 		return nil
 	}
+	// 命中才允许投递；未知 id 在 defer 中以 confirmed=false 直接返回。
+	deliver = true
+	path := s.sessionPath(session)
 	if err := s.writePending(path, kept); err != nil {
 		return err
 	}
 	return s.appendDecision(session, cleanID, granted)
+}
+
+// ResolveWithDigest 在 digest 与命中记录的 ArgsDigest 一致时才执行解析并投递
+// 等待者。digest 应为 PendingArgsDigest(rawArgs) 的结果；它与持久化记录不符、
+// id 未知或读写失败时返回 false，且绝不投递任何等待者。返回 true 表示 id 命中
+// 且 digest 匹配、解析已成功完成。原 Resolve 签名保持不变，以免破坏现有调用方。
+func (s *PendingStore) ResolveWithDigest(session, id string, granted bool, digest string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureDir(); err != nil {
+		return false
+	}
+	items, err := s.readPending(s.sessionPath(session))
+	if err != nil {
+		return false
+	}
+	cleanID := truncatePendingRunes(Redact(id), maxPendingIDLen)
+	var matched *PendingApproval
+	for i := range items {
+		if items[i].ID == cleanID {
+			matched = &items[i]
+			break
+		}
+	}
+	if matched == nil {
+		return false
+	}
+	// 纵深绑定：仅当调用方给出的参数摘要与待处理记录一致才允许解析。
+	if digest != matched.ArgsDigest {
+		return false
+	}
+	return s.resolveLocked(session, id, granted, items) == nil
 }
 
 // Clear 移除 session 的所有待处理请求。决定历史会被保留；它是审计痕迹，

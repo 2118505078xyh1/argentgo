@@ -48,22 +48,36 @@ func TestPendingStoreResolveWakesRegisteredWaiter(t *testing.T) {
 	}
 }
 
-func TestPendingStoreResolveWakesWaiterWithoutPendingRecord(t *testing.T) {
-	// 活性：等待者可能在记录持久化之前就已注册，或者记录可能已被重新连接的客户端
-	// 移除。两种情况下 Resolve 仍必须投递，否则 Ask 会永远挂起。
+func TestResolveUnknownIDDoesNotDeliver(t *testing.T) {
+	// 安全回归（R50 P0）：id 可预测，伪造的未知 id 不得翻转已注册等待者的答案。
+	// 投递发生在 defer 中、发生在 Resolve 返回之前，因此 Resolve 一返回就能用
+	// 非阻塞 select 判定是否发生了投递。
 	store := newPendingTestStore(t)
-	ch, cancel := store.RegisterWaiter("sess-1", "call_1")
+	// 会话中确实存在待处理请求，但伪造 id 与它们都不相同。
+	if err := store.Add(pendingAt("call_real", "2026-01-01T00:00:01Z")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	const forgedID = "call_forged"
+	ch, cancel := store.RegisterWaiter("sess-1", forgedID)
 	defer cancel()
-	if err := store.Resolve("sess-1", "call_1", true); err != nil {
-		t.Fatalf("Resolve: %v", err)
+	if err := store.Resolve("sess-1", forgedID, true); err != nil {
+		t.Fatalf("Resolve unknown id: %v", err)
 	}
 	select {
 	case got := <-ch:
-		if !got {
-			t.Fatal("waiter got deny, want allow")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Resolve of an unrecorded id did not wake the waiter")
+		t.Fatalf("unknown id delivered answer %v to waiter", got)
+	default:
+	}
+	// 未知 id 既不消耗等待者，也不改动磁盘记录。
+	if got := len(store.waiters); got != 1 {
+		t.Fatalf("waiters after unknown-id Resolve = %d, want 1", got)
+	}
+	got, err := store.List("sess-1")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "call_real" {
+		t.Fatalf("unknown-id Resolve changed the store: %+v", got)
 	}
 }
 
@@ -108,6 +122,10 @@ func TestPendingStoreCancelledWaiterIsNotDelivered(t *testing.T) {
 func TestPendingStoreReregisterReplacesWaiter(t *testing.T) {
 	store := newPendingTestStore(t)
 	const session, id = "sess-1", "call_1"
+	// 命中记录是投递的前提；先持久化再注册，模拟真实的 Ask 流程。
+	if err := store.Add(pendingAt(id, "2026-01-01T00:00:01Z")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 	first, cancelFirst := store.RegisterWaiter(session, id)
 	second, cancelSecond := store.RegisterWaiter(session, id)
 	defer cancelFirst()
@@ -189,6 +207,10 @@ func TestPendingStoreWaitersCleanedUpAfterResolveAndCancel(t *testing.T) {
 	cancelA()
 	if got := len(store.waiters); got != 1 {
 		t.Fatalf("waiters after cancel = %d, want 1", got)
+	}
+	// b 必须存在于待处理列表中，命中才会投递并消耗其等待者。
+	if err := store.Add(PendingApproval{ID: "b", Session: "s", Created: "2026-01-01T00:00:01Z"}); err != nil {
+		t.Fatalf("Add: %v", err)
 	}
 	if err := store.Resolve("s", "b", true); err != nil {
 		t.Fatalf("Resolve: %v", err)

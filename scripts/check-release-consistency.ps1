@@ -1,4 +1,4 @@
-# Check that cli.Version, an optional tag and CHANGELOG.md agree.
+# Check that cli.Version, MCP/LSP reported versions, an optional tag and CHANGELOG.md agree.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/check-release-consistency.ps1 [-Tag v0.1.1]
 #
@@ -16,6 +16,23 @@ try {
         throw 'cannot read Version from internal/cli/cli.go'
     }
     $version = $match.Groups[1].Value
+
+    # Guard the version literals reported by the MCP/LSP clients, so bumping only cli.Version cannot slip through.
+    $versionSources = @(
+        @{ Path = 'internal/mcp/mcp.go';    Pattern = 'clientVersion\s*=\s*"([^"]+)"' },
+        @{ Path = 'internal/lsp/client.go'; Pattern = '"version"\s*:\s*"([^"]+)"' }
+    )
+    foreach ($src in $versionSources) {
+        $content = Get-Content -LiteralPath (Join-Path $repo $src.Path) -Raw
+        $reportedMatch = [regex]::Match($content, $src.Pattern)
+        if (-not $reportedMatch.Success) {
+            throw "cannot read version literal from $($src.Path)"
+        }
+        $reported = $reportedMatch.Groups[1].Value
+        if ($reported -ne $version) {
+            throw "$($src.Path) reports version $reported != cli.Version $version; keep all version literals in sync"
+        }
+    }
 
     if ($Tag) {
         $tagVersion = $Tag -replace '^v', ''

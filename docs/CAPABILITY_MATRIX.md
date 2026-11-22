@@ -2,13 +2,13 @@
 
 这份文档回答一个问题：**在用户真正能感知到的能力上，argentgo 与 Claude Code / OpenCode / Crush / Codex 相比，哪里已经追平、哪里还差、哪里是有意不做。**
 
-它是后续迭代的方向盘，不是又一份评分表。取证基线为 `HEAD=a30b0e4`（当前 HEAD），所有落点均为源码中的真实行号；行号或开关名与源码不一致时，以源码为准。
+它是后续迭代的方向盘，不是又一份评分表。取证基线为 a30b0e4（取证 commit，可用 git log 复核），所有落点均为源码中的真实行号；行号或开关名与源码不一致时，以源码为准。
 
 ## 0. 口径与读法
 
-### 0.1 与 STATUS 8.9 分的关系（重要）
+### 0.1 与 STATUS 加权 8.85 / 等权 8.0 分的关系（重要）
 
-[STATUS.md](STATUS.md) 的 **8.9 / 10** 评估的是**架构、安全与测试证据**：分层零违规、策略→审批→审计链、fuzz 目标、交叉编译矩阵、gopls 端到端测试等。这些分数高，说明"工程底座扎实"。
+[STATUS.md](STATUS.md) 的 **加权 8.85 / 10（等权 8.0 / 10）** 评估的是**架构、安全与测试证据**：分层零违规、策略→审批→审计链、fuzz 目标、交叉编译矩阵、gopls 端到端测试等。这些分数高，说明"工程底座扎实"。
 
 本文档刻意换一个镜头，只看**用户可感知能力**：一个真实用户坐到终端或桌面窗口前，能不能完成"读代码 → 改代码 → 回退 → 换模型 → 续会话 → 调工具"这条链路，以及做这些事时和主流竞品的体感差距。
 
@@ -75,7 +75,7 @@
 
 ### 1.4 ⊘ 合理取舍
 
-- **⊘-1 不做内嵌 tree-sitter AST。** 会引入 cgo，破坏 `GOOS=linux go build ./...` 的静态交叉编译（见 STATUS.md:57、TECHNICAL.md:753）。替代：`repo_map` + 六个 `lsp_*` 工具，靠外部语言服务器提供符号，不捆绑解析器。
+- **⊘-1 不做内嵌 tree-sitter AST。** 会引入 cgo，破坏 `GOOS=linux go build ./...` 的静态交叉编译（见 STATUS.md:59、TECHNICAL.md:753）。替代：`repo_map` + 六个 `lsp_*` 工具，靠外部语言服务器提供符号，不捆绑解析器。
 
 ---
 
@@ -206,7 +206,7 @@
 | 流式与审批 | 成熟 | 成熟 | 端到端一致，原生窗口可 Y/N | ✅ |
 | 语言覆盖 | 多语言 | 多为英文 | 仅 zh-CN / en-US | ⚠️-1 |
 | 桌面多平台 | 跨平台 | 多平台 | **仅 Windows/amd64 发布**（STATUS.md:48-51） | ⚠️-2 |
-| 真实模型质量评测 | 有内部评测体系 | 视产品而定 | `evals/core.json` 10 个脚本场景；已有 opt-in 真实模型评测批处理（`ARGENT_EVAL_LIVE` / `eval --live` + `completion.json`/`completion_expanded.json`），默认离线不联网 | ✅（opt-in） |
+| 真实模型质量评测 | 有内部评测体系 | 视产品而定 | `evals/core.json` 11 个脚本场景；已有 opt-in 真实模型评测批处理（`ARGENT_EVAL_LIVE` / `eval --live` + `completion.json`/`completion_expanded.json`），默认离线不联网 | ✅（opt-in） |
 | IDE 级 LSP 效果 | 有 | OpenCode 内建 LSP 强 | 6 基础 + 3 进阶方法已实现；R24 已补真实 gopls 结构化验证（`gopls_advanced_test.go`，best-effort，未做硬门禁） | ✅（best-effort） |
 
 ### 4.3 ⚠️ 真实差距（backlog）
@@ -271,7 +271,7 @@
 | 斜杠命令 | `internal/commands/`、markdown 文件发现 | `argentgo commands` 列出。 |
 | Hooks | `internal/hooks/` + SHA-256 信任（`internal/hooks/trust.go`） | 已配置规则进入安全链。 |
 | LSP | `internal/lsp/`（6 基础 + 3 进阶方法）、gopls 集成测试 | 惰性启动、按 root+server 缓存。 |
-| Eval | `internal/eval/`、`evals/core.json`（10 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。R35 新增 `eval compare`（配对统计，n<30 记"样本不足"防刷分，`internal/eval/compare.go`）与评测框架灵敏度自测（注入故障断言完成率下降，`internal/app/eval_completion_bench_sensitivity_test.go`）。R39 新增 `eval ab`（`internal/eval/variant_ab.go` 的 `RunVariantAB` + `internal/cli/eval.go:39` 带外分派）：按场景指纹配对两臂再跑配对统计，token 经济诊断对照完成率增益与 token 成本。 |
+| Eval | `internal/eval/`、`evals/core.json`（11 场景）、`argentgo eval` | 脚本化、不联网；R24/R25 另加 opt-in 真实模型批处理（`--live`），默认不联网。R35 新增 `eval compare`（配对统计，n<30 记"样本不足"防刷分，`internal/eval/compare.go`）与评测框架灵敏度自测（注入故障断言完成率下降，`internal/app/eval_completion_bench_sensitivity_test.go`）。R39 新增 `eval ab`（`internal/eval/variant_ab.go` 的 `RunVariantAB` + `internal/cli/eval.go:39` 带外分派）：按场景指纹配对两臂再跑配对统计，token 经济诊断对照完成率增益与 token 成本。 |
 | Workflow / 自动化 / jobs | `internal/workflow/`、`internal/automation/`、`internal/jobs/` | DAG、cron、后台 job；R36 起 jobs 注册表可 opt-in 接入生产路径。 |
 | 诊断 CLI | `doctor` / `bug` / `audit` / `usage` / `policy` / `config`（TECHNICAL.md:421-452） | 机器可读 `--json`。 |
 
@@ -284,7 +284,7 @@
 | 插件生态 | marketplace | 部分有插件系统 | 清单发现 + opt-in，`--plugins`；无 marketplace | ⚠️-1 / ⊘-1 |
 | 调试协议 | 有 IDE 集成 | OpenCode LSP 强 | LSP 完善，DAP 不做 | ⊘-2 |
 | 可观测性 | 日志/审计 | 视产品 | 审计、脱敏、doctor、bug 包、jobs 面板，工程证据强 | ✅ |
-| 脚本化评测 | 有内部体系 | 不统一 | `eval` + core.json 10 场景，可复现；另有 opt-in `--live` 真实模型批处理（默认离线） | ✅ |
+| 脚本化评测 | 有内部体系 | 不统一 | `eval` + core.json 11 场景，可复现；另有 opt-in `--live` 真实模型批处理（默认离线） | ✅ |
 
 ### 6.3 ⚠️ 真实差距（backlog）
 
@@ -305,9 +305,9 @@
 
 | 不做项 | 理由 | 替代方案 | 证据 |
 |---|---|---|---|
-| tree-sitter AST / 语法裁剪 | cgo 破坏 `CGO_ENABLED=0` 静态交叉编译 | LSP 符号 + `repo_map` | STATUS.md:57、TECHNICAL.md:753 |
+| tree-sitter AST / 语法裁剪 | cgo 破坏 `CGO_ENABLED=0` 静态交叉编译 | LSP 符号 + `repo_map` | STATUS.md:59、TECHNICAL.md:753 |
 | 浏览器前端 / WebView / SolidJS | ~400MB 常驻、需新工具链与桥接 | MyGo 原生窗口（~76MB）+ `--rpc` | TECHNICAL.md:275-287、:302-308 |
-| DAP 适配器 | 成本高、与文本交互模型不同、收益低 | 把 IDE 级 LSP 方法补齐 | TECHNICAL.md:393、STATUS.md:57 |
+| DAP 适配器 | 成本高、与文本交互模型不同、收益低 | 把 IDE 级 LSP 方法补齐 | TECHNICAL.md:393、STATUS.md:59 |
 | Bedrock / Vertex 长尾 | 云厂商签名/认证复杂、个人自用收益低 | 兼容网关模板 + `--base-url` / `--protocol` | 源码零命中；`internal/provider/templates.go:61-202` |
 | C-ABI 插件 / Rhai 脚本 / Node 插件图 | Go 无生态、破坏零依赖 | 清单发现 + opt-in 工具 | TECHNICAL.md:752/754、STATUS.md:36 |
 | SQLite/FTS5、Honcho 建模、聊天机器人 | 重量级依赖/服务、定位取舍 | 现有 JSONL 搜索 + 记忆库 | STATUS.md:36 |

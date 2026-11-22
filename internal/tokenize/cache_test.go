@@ -17,11 +17,12 @@ func withFreshCache(t *testing.T, capacity int) {
 }
 
 func TestEstimateCacheHitAndMiss(t *testing.T) {
+	// 这里只覆盖走缓存的非 ASCII 文本；纯 ASCII 已改为绕过缓存，
+	// 由 TestEstimateASCIIBypassesCache 单独验证。
 	cases := []struct {
 		name string
 		text string
 	}{
-		{"ascii", "hello world"},
 		{"wide", "中文测试"},
 		{"mixed", "abc中文def"},
 	}
@@ -58,11 +59,12 @@ func TestEstimateCacheHitAndMiss(t *testing.T) {
 
 func TestEstimateCacheDifferentContentDoesNotCollide(t *testing.T) {
 	withFreshCache(t, 8)
+	// 全部使用非 ASCII 文本，确保它们确实进入缓存后再验证不误命中。
 	texts := []string{
-		"hello world",
 		"中文测试",
 		"abc中文def",
-		strings.Repeat("z", 100),
+		"アイウ한글",
+		strings.Repeat("中", 100),
 	}
 	// 预填充缓存。
 	for _, text := range texts {

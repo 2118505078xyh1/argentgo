@@ -475,24 +475,35 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 		store := typed.PendingStore()
 		granted := *params.Granted
 		session := approvalSession(params.Session, cfg.Runner)
-		// Resolve 会删除该项，因此先读取其工具名：resolved
-		// 通知需要非空的 (tool,id) 对，消费者才能把它与
-		// 未完成的审批请求配对（原生端拒绝空工具）。
+		// Resolve 会删除该项，因此先读取待批镜像：一方面取工具名供
+		// resolved 通知与未完成审批请求配对，另一方面用它做存在性校验。
+		// 这一步是 P0 修复：若只检查 id 非空就直接 Resolve，本地 RPC
+		// 只要猜中可预测的 id（如 bash-1）就能翻转一个待批决定，
+		// 并借 resolved 通知让原生端撤下审批卡片。
+		items, err := store.List(session)
+		if err != nil {
+			// 拿不到待批列表时无法确认 id 归属，失败关闭而不是放行。
+			// PendingStore.List 的返回值就是该会话的待处理审批集合，
+			// 因此这里无需 Approver.Exists(id)：精确匹配已足够。
+			p.fail(req.ID, codeInternalError, err.Error())
+			return
+		}
+		found := false
 		tool := ""
-		if items, err := store.List(session); err == nil {
-			for _, item := range items {
-				if item.ID == params.ID {
-					tool = item.Tool
-					break
-				}
+		for _, item := range items {
+			if item.ID == params.ID {
+				found = true
+				tool = item.Tool
+				break
 			}
+		}
+		if !found {
+			p.fail(req.ID, codeInvalidParams, fmt.Sprintf("approval id %q is not pending", params.ID))
+			return
 		}
 		if err := store.Resolve(session, params.ID, granted); err != nil {
 			p.fail(req.ID, codeInternalError, err.Error())
 			return
-		}
-		if tool == "" {
-			tool = params.ID // 防御性：保持通知可解码
 		}
 		hub.Publish(agent.ApprovalResolvedEvent(tool, params.ID, granted))
 		p.respond(req.ID, map[string]any{"ok": true})

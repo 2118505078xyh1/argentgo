@@ -263,10 +263,11 @@ var pathArgKeys = []string{
 var pathArrayKeys = []string{"paths", "files"}
 
 // checkPath 对一个参数应用 deny/allow 路径规则，并对每个工具（包括只读工具）
-// 强制工作区边界。词法上爬出工作区根目录的路径总会被拒绝；看起来在内部、
-// 但通过符号链接或 Windows junction 解析到外部的路径同样被拒绝。
+// 强制工作区边界。词法上爬出工作区根目录的路径总会被拒绝；工作区及 --add-dir
+// 之外的绝对路径同样被拒绝；看起来在内部、但通过符号链接或 Windows junction
+// 解析到外部的路径也会被拒绝。
 func (p *Policy) checkPath(path string) Result {
-	resolved, escape := p.resolve(path)
+	resolved, absolute, escape := p.resolve(path)
 	if escape {
 		return Result{Deny, fmt.Sprintf("the path %q escapes the workspace root %q", path, p.root)}
 	}
@@ -275,6 +276,17 @@ func (p *Policy) checkPath(path string) Result {
 		return Result{Deny, fmt.Sprintf(
 			"the path %q could not be canonicalized for policy checking (%v); denying to avoid an unresolved symlink target",
 			path, err)}
+	}
+	// 绝对路径同样受写入根目录边界约束：过去只有相对路径做 Rel 逃逸检查，
+	// 于是只读工具或没有内置二次拦截的 MCP/第三方工具传一个工作区外的绝对
+	// 路径就能读到外部文件。这里按 writeRoots 判定，天然兼容三种沙箱模式：
+	// danger-full-access 的 writeRoots 被放宽到整卷，因此同卷绝对路径放行；
+	// workspace-write / read-only 则保留工作区加 --add-dir 的边界。
+	// realRoots 复核避免误拒：--add-dir 可能是一个符号链接，工具传入该链接
+	// 的真实目标路径时词法上不在 writeRoots 内，但真实位置确实在允许的根中。
+	if absolute && !within(resolved, p.writeRoots) && !within(real, p.realRoots()) {
+		return Result{Deny, fmt.Sprintf(
+			"the absolute path %q is outside the write roots %v (not writable)", path, p.writeRoots)}
 	}
 	// 隐藏逃逸检查。即使没有配置 deny/allow 路径也会运行：仅仅因为策略没有
 	// 显式路径规则，对 <root>/link/id_rsa 的读取就不能变成对外部文件的读取。
@@ -387,7 +399,7 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 		if rule.Path != "" {
 			matchedPath := false
 			for _, value := range paths {
-				resolved, escape := p.resolve(value)
+				resolved, _, escape := p.resolve(value)
 				if escape {
 					matchedPath = true
 					break
@@ -432,25 +444,25 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 	return Result{best, reason}, true
 }
 
-// resolve 把工具的路径参数转成绝对路径。返回的 bool 报告是否词法上
-// 逃逸出工作区根目录（相对路径向外爬升）。
-func (p *Policy) resolve(path string) (string, bool) {
+// resolve 把工具的路径参数转成绝对路径。第二个返回值报告原始参数（展开 ~ 后）
+// 是否为绝对路径，第三个返回值报告是否词法上逃逸出工作区根目录（相对路径向外爬升）。
+func (p *Policy) resolve(path string) (string, bool, bool) {
 	candidate := expandHome(strings.TrimSpace(path))
 	if candidate == "" {
 		candidate = "."
 	}
-	relative := !filepath.IsAbs(candidate)
-	if relative {
+	absolute := filepath.IsAbs(candidate)
+	if !absolute {
 		candidate = filepath.Join(p.root, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if relative {
+	if !absolute {
 		if rel, err := filepath.Rel(p.root, candidate); err != nil || rel == ".." ||
 			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return candidate, true
+			return candidate, false, true
 		}
 	}
-	return candidate, false
+	return candidate, absolute, false
 }
 
 func isMissing(err error) bool {

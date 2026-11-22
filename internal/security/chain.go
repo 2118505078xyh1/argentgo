@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 )
 
@@ -125,6 +126,12 @@ type Chain struct {
 	// shell 命令。零值 false 保持原有行为。它是遗留的直接赋值开关，保留以兼容
 	// 现有调用方；运行期切换请用 EnablePlanMode。
 	PlanCommandGuard bool
+	// ApprovalTimeout 是单次审批等待（含分阶段审批的整个交互过程）允许的最长
+	// 时间。零值（含 NewChain 构造与 &Chain{} 零值）表示套用默认 5 分钟；超过
+	// 30 分钟会被钳制，负数同样按未配置处理。超时会让审批器收到 DeadlineExceeded，
+	// 由 ClassifyApproval 归为 ApprovalCancelled，绝不会误判为批准。
+	// 该字段只影响等待审批的那段时间，不修改调用方传入的父 context。
+	ApprovalTimeout time.Duration
 	// planMode 是 EnablePlanMode 管理的原子启用标志（0=关闭，1=开启）。它只通过
 	// sync/atomic 包函数读写，因此既是原子的、又不会像 atomic.Bool 那样因嵌入
 	// noCopy 而让按值复制 Chain 触发 go vet 的 copylocks 警告。它与 PlanCommandGuard
@@ -227,8 +234,10 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	// 上面的计划命令守卫分支也显式检查了 c。对于 Ask 决定，直接通过 c 读取
 	// 字段会在这里 panic，因此维持与其他辅助函数相同的 nil 安全承诺。
 	var approver Approver
+	var approvalWait time.Duration
 	if c != nil {
 		approver = c.Approver
+		approvalWait = c.ApprovalTimeout
 	}
 	if approver == nil {
 		// 没有审批器与审批器回答"否"不是一回事。使用不可用空对象，
@@ -244,7 +253,12 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	}
 	// 在提示中显示真实目标：工作区内的 junction 不能让提示说
 	// "home/note.txt"，而工具却写到别处。工具和审计日志仍使用原始参数。
-	ok, err := approver.Ask(ctx, name, string(approvalArgs(args, c.policy().Root())))
+	// 审批等待必须有上限：无头运行下没有人应答时，直接把 ctx 交给 Ask 会无限期
+	// 挂起。这里派生一个只用于本次 Ask 的子 context；cancel 释放计时器，且不会
+	// 取消父 context，后续步骤仍可继续使用同一个 ctx。
+	askCtx, cancel := withApprovalTimeout(ctx, approvalWait)
+	defer cancel()
+	ok, err := approver.Ask(askCtx, name, string(approvalArgs(args, c.policy().Root())))
 	if err != nil {
 		// 带反馈的拒绝不是审批基础设施故障：它是操作员的更正意见，必须作为
 		// 可读、可恢复的工具错误到达模型。不要原始文本写入审计日志；
@@ -304,8 +318,19 @@ func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs js
 	var feedback string
 	prompt := string(approvalArgs(args, c.policy().Root()))
 
+	// 与普通审批一样给整个分阶段交互设上限，避免某一轮 AskStage 无人应答时
+	// 永久挂起。子 context 只在本次审批内使用，不改动父 ctx。
+	var approvalWait time.Duration
+	if c != nil {
+		approvalWait = c.ApprovalTimeout
+	}
+	askCtx, cancel := withApprovalTimeout(ctx, approvalWait)
+	defer cancel()
+
 	for round := 0; round < maxStagedApprovalRounds; round++ {
-		if err := ctx.Err(); err != nil {
+		// 检查 askCtx 而不是父 ctx：父取消会传播到 askCtx，而审批自身的超时
+		// 也能在轮次之间被及时发现。
+		if err := askCtx.Err(); err != nil {
 			return err
 		}
 		// 二次确认阶段把待记住的作用域摘要交给审批器展示；其余阶段传空串。
@@ -313,7 +338,7 @@ func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs js
 		if stage == stageConfirmScope {
 			summary = ScopeSummary(scope)
 		}
-		decision, err := staged.AskStage(ctx, name, prompt, stage, summary)
+		decision, err := staged.AskStage(askCtx, name, prompt, stage, summary)
 		if err != nil {
 			// 与原始审批失败一致：不可用通道记审计，取消不记；两者都返回不带
 			// 终结语句的包装错误，因为没有人给出最终回答。

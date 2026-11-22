@@ -112,6 +112,94 @@ func TestRPCApprovalAnswerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRPCApprovalAnswerRejectsUnknownID(t *testing.T) {
+	// 待批镜像里只有 call_42；攻击者猜测 bash-1 不得翻转决定，
+	// 也不得发布 approval:resolved 事件（原生端据此撤下审批卡片）。
+	store := security.NewPendingStore(t.TempDir())
+	if err := store.Add(security.PendingApproval{
+		ID: "call_42", Session: "sess-1", Tool: "bash",
+		ArgsDigest: "abcd", Created: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+
+	hub := NewEventHub()
+	sub, stop := hub.Subscribe(0)
+	defer stop()
+	runner := &approvalAnswerRunner{pending: store, hub: hub}
+
+	resp := rpcApprovalAnswer(t, Config{Runner: runner, Events: hub}, map[string]any{
+		"session": "sess-1", "id": "bash-1", "granted": true,
+	})
+	assertRPCError(t, resp, codeInvalidParams)
+
+	// 猜测的决定没有进入待批镜像：原待批项仍在。
+	items, err := store.List("sess-1")
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "call_42" {
+		t.Fatalf("pending mirror changed by unknown id answer: %+v", items)
+	}
+
+	// 没有发布任何事件：seq 仍为 0，且订阅通道为空。
+	if seq := hub.Seq(); seq != 0 {
+		t.Fatalf("event hub seq = %d, want 0 (no event should be published)", seq)
+	}
+	select {
+	case ev := <-sub:
+		t.Fatalf("unexpected event published for unknown id: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestRPCApprovalAnswerCJKID(t *testing.T) {
+	// CJK 的 id/session 必须按精确匹配通过校验、正常 Resolve，
+	// 并在 resolved 事件中保留原样的 tool/id 供原生端配对。
+	const cjkID = "审批-四十二"
+	const cjkSession = "会话-1"
+	store := security.NewPendingStore(t.TempDir())
+	if err := store.Add(security.PendingApproval{
+		ID: cjkID, Session: cjkSession, Tool: "bash",
+		ArgsDigest: "digest", Created: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+
+	hub := NewEventHub()
+	sub, stop := hub.Subscribe(0)
+	defer stop()
+	runner := &approvalAnswerRunner{pending: store, hub: hub}
+
+	resp := rpcApprovalAnswer(t, Config{Runner: runner, Events: hub}, map[string]any{
+		"session": cjkSession, "id": cjkID, "granted": false,
+	})
+	body, _ := resp["result"].(map[string]any)
+	if body["ok"] != true {
+		t.Fatalf("approval.answer result = %v, want ok:true", resp)
+	}
+
+	items, err := store.List(cjkSession)
+	if err != nil {
+		t.Fatalf("list pending after answer: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("pending item survived approval.answer: %+v", items)
+	}
+
+	select {
+	case ev := <-sub:
+		kind, tool, id, granted, ok := agent.ParseApprovalEvent(ev)
+		if ev.Kind != agent.EventNotice || !ok || kind != "resolved" ||
+			tool != "bash" || id != cjkID || granted != false {
+			t.Fatalf("resolved notice = %+v (kind=%q tool=%q id=%q granted=%v ok=%v)",
+				ev, kind, tool, id, granted, ok)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no approval:resolved notice published")
+	}
+}
+
 func TestRPCApprovalAnswerWithoutStore(t *testing.T) {
 	// 普通的 fakeRunner 不暴露 PendingStore()：该方法必须报告
 	// 结构化的错误，而不是 panic。

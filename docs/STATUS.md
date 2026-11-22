@@ -2,7 +2,7 @@
 
 argentgo 要往哪里去（Roadmap），以及一份基于证据的自我评估（Honest score）。行为清单在 [Technical reference](TECHNICAL.md#feature-parity) 中。
 
-用户可感知能力与 Claude Code / OpenCode / Crush / Codex 的逐维对标见 [Capability matrix](CAPABILITY_MATRIX.md)；本文档 8.9 分评估的是架构/安全/测试证据，两者口径不同。
+用户可感知能力与 Claude Code / OpenCode / Crush / Codex 的逐维对标见 [Capability matrix](CAPABILITY_MATRIX.md)；本文档 加权 8.85 / 等权 8.0 分评估的是架构/安全/测试证据，两者口径不同。
 
 ## Roadmap
 
