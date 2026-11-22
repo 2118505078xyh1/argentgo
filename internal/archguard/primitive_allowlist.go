@@ -75,4 +75,19 @@ var primitiveAllowlist = []primitiveAllowEntry{
 	// watched files 需文件系统监听集成、workspace diagnostics 需诊断面板消费。
 	{Symbol: "internal/lsp/writethrough.go:DidChangeWatchedFiles", Reason: "文件变更通知；下一阶段接入 FS 监听（fsnotify 风格）或编辑后主动通知时调用"},
 	{Symbol: "internal/lsp/writethrough.go:WorkspaceDiagnostics", Reason: "工作区诊断；下一阶段接入 doctor/TUI 诊断面板时调用"},
+	// 对标 pi-mono 引入的可重放执行/目录/扩展基建：均为可独立单测的纯原语。
+	// 接线需要改 eval 编排、provider 刷新路径与会话生命周期等热路径，
+	// 按"外置优先/热路径谨慎"原则留到专门阶段，按下列理由接入。
+	{Symbol: "internal/pluginapi/txn.go:NewTxRegistry", Reason: "事务注册入口；下一阶段动态扩展加载时由 internal/app 用它包装现有 Registry"},
+	{Symbol: "internal/pluginapi/txn.go:Commit", Reason: "原子提交；随动态扩展加载接线，批量生效失败时整批回滚"},
+	{Symbol: "internal/pluginapi/txn.go:Discard", Reason: "失败丢弃；加载失败时由调用方丢弃待注册项"},
+	{Symbol: "internal/provider/catalog_source.go:WriteCatalogAtomic", Reason: "目录原子落盘；下一阶段生成式模型目录编译时替换静态表文件"},
+	{Symbol: "internal/provider/catalog_source.go:LoadCatalogStrict", Reason: "严格加载；同上，从磁盘读取权威目录时拒绝可疑数据"},
+	{Symbol: "internal/provider/catalog_source.go:SourceFingerprint", Reason: "目录指纹；同上，供 catalog 缓存失效判断使用"},
+	{Symbol: "internal/session/replay_env.go:EnvFingerprintText", Reason: "环境指纹文本；下一阶段 eval 报告输出环境标识时调用"},
+	{Symbol: "internal/session/replay_env.go:NewVirtualClock", Reason: "虚拟时钟；下一阶段可重放 eval 注入时间源时调用"},
+	{Symbol: "internal/session/replay_env.go:Advance", Reason: "虚拟时钟推进；同上，由重放脚本驱动时间前进"},
+	{Symbol: "internal/session/replay_env.go:NewSeededRandom", Reason: "确定性随机源；同上，注入可重放种子"},
+	{Symbol: "internal/session/replay_env.go:NewSeqCollector", Reason: "序号重排器；同上，让乱序到达的流结果按序号严格投递"},
+	{Symbol: "internal/session/replay_env.go:Drain", Reason: "序号重排输出；同上，消费连续序号区间"},
 }
