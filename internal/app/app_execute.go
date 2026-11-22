@@ -260,6 +260,12 @@ func imageInputEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_IMAGE_INPUT")) == "1"
 }
 
+// toolArgCoercionEnabled 判定工具参数保守强转是否启用：默认开启（让 AI 更强），
+// 仅 ARGENT_TOOL_ARG_COERCION=0 时紧急关闭。env 为 nil 时按默认处理。
+func toolArgCoercionEnabled(env func(string) string) bool {
+	return env == nil || strings.TrimSpace(env("ARGENT_TOOL_ARG_COERCION")) != "0"
+}
+
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
@@ -351,6 +357,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
 	agent.SetOutputRedaction(optIns[OptInOutputRedaction])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
+	// 工具参数保守强转默认开启：模型常把 schema 声明的数字/布尔写成字符串
+	// （如 {"limit":"5"}），开启后仅在无损且 schema 明确时改写，减少工具调用失败，
+	// 让 AI 能力更强。强转后的字节同时用于审批与执行（见 agent.effectiveToolArgs），
+	// 无"批准 A 执行 B"语义差。ARGENT_TOOL_ARG_COERCION=0 可紧急关闭。
+	agent.SetToolArgumentCoercion(toolArgCoercionEnabled(stdio.Env))
 	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
 	// nudge 记录形状逐字节不变。
 	agent.SetRetainGuidance(os.Getenv("ARGENT_RETAIN_GUIDANCE") == "1")

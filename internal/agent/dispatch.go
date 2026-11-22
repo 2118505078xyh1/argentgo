@@ -399,6 +399,19 @@ func (s *runState) invoke(ctx context.Context, call llm.ToolCall) callResult {
 	return res
 }
 
+// effectiveToolArgs 返回工具实际收到的参数字节和剥离出的简洁意图：先剥离 `i`
+// 字段，再按 schema 做保守强转。审批与工具执行必须基于同一份参数字节，否则会
+// 出现"批准 A、执行 B"——审批器看到模型原始参数，工具看到的却是变换后的参数。
+// 它是纯函数：审批路径与执行路径各调用一次，结果必然一致。
+func (s *runState) effectiveToolArgs(call llm.ToolCall) (args string, intent string) {
+	extracted, cleaned := ExtractIntent(json.RawMessage(call.Function.Arguments))
+	args = string(cleaned)
+	if toolArgumentCoercionEnabled() {
+		args = coerceToolArgumentsJSON(args, s.toolSchemaFor(call.Function.Name))
+	}
+	return args, extracted
+}
+
 // executeCall 对一次调用做门控并执行，但不触碰错误追踪器或无效参数熔断器。
 // 两者都是连续计数器，其最终状态取决于观察顺序：如果并行 worker 各自记录结果，
 // 那么最后完成的工具将决定某个连续序列是否保留。调用方必须在循环 goroutine 上，
@@ -412,9 +425,10 @@ func (s *runState) executeCall(ctx context.Context, call llm.ToolCall) callResul
 			// 发出成对的通知事件，使每一种传输方式（Emit、--rpc、native）都能审计审批，
 			// 而无需改动协议。这些只是事件：对于不消费它们的调用方，
 			// 决定和由此产生的调用结果均不变。
-			digest := approvalDigest(call.Function.Arguments)
+			effectiveArgs, _ := s.effectiveToolArgs(call)
+			digest := approvalDigest(effectiveArgs)
 			s.emit(ApprovalRequestedEvent(call.Function.Name, digest, call.ID))
-			allowed, err := s.opts.Approve.Ask(ctx, call.Function.Name, call.Function.Arguments)
+			allowed, err := s.opts.Approve.Ask(ctx, call.Function.Name, effectiveArgs)
 			s.emit(ApprovalResolvedEvent(call.Function.Name, call.ID, err == nil && allowed))
 			switch {
 			case err != nil:
@@ -484,14 +498,9 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	})
 	defer gate.close()
 
-	// 在工具看到参数之前剥离模型的简洁意图。没有 `i` 时清理后的字节与原值相同，
-	// 因此对所有现有工具调用的行为都不变。
-	intent, cleaned := ExtractIntent(json.RawMessage(call.Function.Arguments))
-	toolArgs := string(cleaned)
-	if toolArgumentCoercionEnabled() {
-		// 强转只影响工具实际收到的参数：审批摘要、事件与会话记录仍使用模型原始字节。
-		toolArgs = coerceToolArgumentsJSON(toolArgs, s.toolSchemaFor(call.Function.Name))
-	}
+	// 工具实际收到的参数与审批基于同一份字节（意图剥离 + 保守强转），
+	// 由 effectiveToolArgs 的纯函数语义保证一致。
+	toolArgs, intent := s.effectiveToolArgs(call)
 	output, meta, err := s.callTool(ctx, call.Function.Name, toolArgs)
 	s.setToolMeta(call.ID, meta)
 	if err != nil {
