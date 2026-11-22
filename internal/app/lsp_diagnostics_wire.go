@@ -6,14 +6,56 @@ package app
 // gopls 进程、绝不会联网；生产捕获调用由外部按需接入，本文件不挂接任何流程。
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/lsp"
 )
+
+// lspDiagnosticsCaptureEnv 开启编辑后工作区诊断快照捕获。
+// 默认关闭：工作区诊断会向已运行的语言服务器发一次额外请求，只有需要
+// doctor 诊断面板的用户才开启。doctor 读取侧用同名开关（ARGENT_LSP_DIAGNOSTICS）。
+const lspDiagnosticsCaptureEnv = "ARGENT_LSP_DIAGNOSTICS"
+
+// CaptureLSPWorkspaceDiagnostics 在工作区 root 有已启动的 LSP 客户端时，
+// 拉取一次工作区诊断并写快照供 doctor 进程读取。opt-in 关闭、无客户端、
+// 请求失败或无诊断时都零副作用；绝不懒启动语言服务器。
+// env 为捕获开关的读取函数；storageDir 为空时跳过。
+func CaptureLSPWorkspaceDiagnostics(env func(string) string, storageDir, root string) {
+	if env == nil || strings.TrimSpace(env(lspDiagnosticsCaptureEnv)) != "1" || storageDir == "" {
+		return
+	}
+	mgr := getSharedManager()
+	if mgr == nil {
+		return
+	}
+	mgr.mu.Lock()
+	mux := mgr.mux
+	mgr.mu.Unlock()
+	if mux == nil || mux.Len() == 0 {
+		return
+	}
+	// 直接用 mux 里第一个已启动的 client（按 root 下任一文件路由），不触发派生。
+	probe := filepath.Join(root, "argentgo-lsp-probe.go")
+	client, ok := mux.ClientForFile(probe)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	reports, err := client.WorkspaceDiagnostics(ctx)
+	if err != nil {
+		return
+	}
+	// 写快照失败只忽略（诊断是纯旁路），不影响运行。
+	_ = WriteLSPDiagnosticsSnapshot(storageDir, reports)
+}
 
 // lspDiagnosticsReportFile 是 LSP 工作区诊断快照在存储目录下的文件名。
 // 读取端（internal/cli 的 doctor）使用同名常量；因为 cli 不能反向 import app

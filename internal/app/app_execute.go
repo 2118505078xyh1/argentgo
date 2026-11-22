@@ -498,6 +498,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
+	// LSP 工作区诊断快照（opt-in ARGENT_LSP_DIAGNOSTICS=1）：运行结束时用已启动
+	// 的 client 拉一次诊断写快照，供下一次 doctor 进程读取；不懒启动、不联网。
+	defer CaptureLSPWorkspaceDiagnostics(stdio.Env, res.Storage, res.Root)
 
 	// 技能触发器 opt-in（ARGENT_SKILL_TRIGGERS / 配置 skillTriggers）：默认关闭时
 	// 不调用 SetTriggerContext，注册表不收紧、队列不新增条目，逐字节不变。
