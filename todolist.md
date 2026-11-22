@@ -32,12 +32,6 @@
 - **建议**：二选一并落地——推荐在 `internal/tools/tools_registry.go:Run` 返回处用 `AnnotateResult(name,out,sanitized,clipped).Header()` + `PrependHeader` 加头，复用 agent 的 opt-in 总开关以免默认字节变化；或删掉该文件统一到 `UntrustedResult` 并补 sanitized/clipped/bytes 字段。
 - **验收**：`grep -R "AnnotateResult(" --include=*.go internal/ | grep -v _test.go` 至少 1 条；新测试断言开启后结果首行为 `[tool:read sanitized clipped bytes=N]`、关闭时逐字节一致。
 
-### 20. aider 式显式确认守卫已写但无法被调用 `[P1/M]`
-- **现状**：`internal/security/shell_confirmation.go:9-12` 自述调用方自行决定如何强制 yes，`shellConfirmationRequired`:51-77 为**未导出**函数，覆盖下载执行/反弹 shell/提权（:101-146），grep 只命中测试。
-- **问题**：yolo/auto 审批器静默批准 `rm -rf`、`sudo`、`powershell -Verb RunAs`；已实现的理由生成/证据截断（:164-183）永不展示。
-- **建议**：导出为 `ShellConfirmationRequired`；在 `chain.go:check` 的 `approver.Ask`（L247）之前对 shell 工具调用，required 时把理由加入提示，并在审批器为 auto/yolo 时升级为拒绝或强制 Ask；给 `Approver` 增加可选 `RequiresExplicitYes() bool` 接口避免破坏签名。
-- **验收**：auto 审批器 + `rm -rf 项目目录` → ErrDenied 且审计含「需要显式确认 yes」；`git status` 不受影响。
-
 ### 21. 分阶段审批状态机无生产启用点、无实现者 `[P2/M]`
 - **现状**：`chain.go:148-158` 的 `StagedApprover`、`:164-173` 的 `EnableStagedApproval`、`:301-372` 的 `checkStaged`、`approval_stage.go:76-159` 的 `AdvanceStage/ScopeSummary` 生产调用为零，生产代码无类型实现 `AskStage/RememberScope`；对照 `EnablePlanMode` 在 `app_execute.go:376` 有真实接线。
 - **问题**：once/always/reject/esc、「始终允许」作用域记忆完全不可用，用户只能逐次批准；32 轮上限（:291）的防御从未在生产路径验证。
@@ -202,13 +196,6 @@
 - **问题**：MCP/插件工具无法声明「此调用只读某目录」之类细粒度权限。
 - **建议**：不碰 OS 沙箱，在工具层把 `sandbox_execution.go` 现有描述升级为可传入 per-call profile：`internal/security/policy.go` 加 `CheckWith(ctx, name, args, profile)`，MCP/插件经 hook 注入可选 profile；保持 `Check` 原路径不变。
 - **验收**：`internal/security/per_call_profile_test.go`：per-call deny 优先于全局 write、只读 profile 拒绝修改类工具；默认 `Check` 行为不变；`go test ./internal/security -count=1`。
-
-### 132. pluginapi 工具可选 OutputSchema 校验 `[P2/M]`（学自 opencode）
-- **竞品证据**：opencode `core/src/tool/runtime.ts:27-38` 从 input/output schema 生成 ToolDefinition，`:40-74` 执行后校验输出 schema，`:44-57` 把插件异常统一成 `Tool.Error`；`codemode/src/language/runtime/limits.ts:6-21` 给脚本编排加字符串/数组/深度上限。
-- **argentgo 现状**：`internal/pluginapi/tool.go:13-19` 的 `Tool` 契约只有 `Name/Description/Schema/Mutating/Run(...) (string,error)`，无输出 schema 或边界错误归一；`internal/tools/catalog.go:60-79` + `lazy_catalog.go:56-70` 已解决发现/公布那一半。
-- **问题**：插件工具输出不可信且无结构校验，异常可能穿透边界。
-- **建议**：只给 pluginapi 工具加可选 `OutputSchema()` 接口，app 边界按接口断言做 opt-in 校验；不改内置 Tool 签名。
-- **验收**：`internal/app/plugin_output_schema_test.go`：插件声明 output schema 后，非法输出被转成模型可读错误；未声明的工具行为不变；`go test ./internal/app -count=1`。
 
 ### 133. 每个外部程序独立的 UTF-8→ACP 增量解码 `[P2/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/shell/src/output_decode.rs:89-109` 的 `push` 快路径，`:122-172` 的 `drain_utf8` 线性游标，`:195-220` 的 `external_output_decoding`，`:236-257` 的 `CaptureDecoder` 按行判定（`MAX_HELD_LINE=64*1024`）；遇完整非法序列后该程序剩余输出永久锁 ACP，不再切回。
