@@ -73,9 +73,11 @@ try {
     }
 
     # 4. Fuzz seed corpora only (bounded; no fuzzing engine needed).
-    Write-Step 'go test ./internal/security -run Fuzz -count=1 (seeds only)'
+    #    Cover both security redaction primitives and the session JSONL
+    #    recovery roundtrip, which is the most error-tolerant parser in the tree.
+    Write-Step 'go test ./internal/security ./internal/session -run Fuzz -count=1 (seeds only)'
     try {
-        Invoke-Go @('test', './internal/security', '-run', 'Fuzz', '-count=1') 'fuzz seed test'
+        Invoke-Go @('test', './internal/security', './internal/session', '-run', 'Fuzz', '-count=1') 'fuzz seed test'
     } catch { Fail $_.Exception.Message }
 
     # 5. Dependency allowlist. The core must stay stdlib-only: the only direct
@@ -133,6 +135,24 @@ try {
         } else {
             Write-Host "ok: $($names.Count) third-party module(s), all allowlisted"
         }
+    } catch { Fail $_.Exception.Message }
+
+    # 5a. Lock integrity: verify downloaded module hashes match go.sum, and
+    #     that go.mod/go.sum are tidy. A tampered go.sum or a stale/placeholder
+    #     version slips past the name-only allowlist above, so both are hard
+    #     failures. `go mod tidy -diff` (Go 1.27) reports drift without writing.
+    Write-Step 'go mod verify (module hash integrity)'
+    try {
+        Invoke-Go @('mod', 'verify') 'go mod verify'
+    } catch { Fail $_.Exception.Message }
+    Write-Step 'go mod tidy -diff (go.mod/go.sum tidy)'
+    try {
+        $tidyOut = @(& go mod tidy -diff 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "go mod tidy -diff failed: $($tidyOut -join [Environment]::NewLine)" }
+        if ($tidyOut.Count -gt 0) {
+            throw "go.mod/go.sum are not tidy; run 'go mod tidy': $($tidyOut -join [Environment]::NewLine)"
+        }
+        Write-Host 'ok: go.mod and go.sum are tidy'
     } catch { Fail $_.Exception.Message }
 
     # 5b. Enforce the invariant directly: no internal/ package may import a

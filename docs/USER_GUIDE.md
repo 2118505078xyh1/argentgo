@@ -81,7 +81,14 @@ powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 -ZipPath '.\arg
 go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 ```
 
-这会拉取公开模块并**从源码构建**；它需要 Go 工具链（1.27.3+），不是预编译二进制。生成的 `argentgo.exe` 会放在 `$GOBIN`（如果设置了），否则放在 `$(go env GOPATH)/bin`（用 `go env GOPATH` 查看）。用 `argentgo.exe --version` 验证。
+这会拉取公开模块并**从源码构建**；它需要 Go 工具链（1.27.3+），不是预编译二进制。注意 `go install` 产出的可执行文件名由**导入路径末段**决定，这里是 `cmd/argent`，因此生成的命令是 `argent`（在 `$GOBIN`，未设置时为 `$(go env GOPATH)/bin`）。用 `argent --version` 验证。
+
+如果你想要与发布产物一致的品牌命令名 `argentgo`，请在仓库检出中使用显式输出名构建：
+
+```powershell
+go build -o argentgo.exe ./cmd/argent   # Windows
+# GOOS=linux 等平台去掉 .exe 后缀即可
+```
 
 `go install` 只安装 CLI/引擎，不构建桌面前端。它也能在非 Windows 宿主上用于 CLI/TUI，但 `argentgo gui` 需要 Windows 以及单独构建的 `argentgo-native.exe`。
 
@@ -249,6 +256,12 @@ argentgo eval compare <baseline-results.json> <candidate-results.json>
 argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
 ```
 
+还可以对脚本化长任务做离线质量评估（不联网、不需要模型）：`evals/model-quality.json` 提供每个任务的期望步骤与一次运行的工具调用 transcript，`quality` 前缀按顺序核对步骤、输出完成率与测量质量（样本量、显著性、监控盲区告警）：
+
+```powershell
+argentgo eval quality evals/model-quality.json
+```
+
 后台作业注册表默认关闭；需要跨工具调用管理长任务时设 `ARGENT_JOBS=1`（或在 `ARGENT_OPT_INS` 中加入 `jobs`）启用。分阶段审批（一次/始终/拒绝/esc）同样是 opt-in 安全能力，默认不接管审批。
 
 ### 10. 计划模式（只规划 + `exit_plan` 审批）
@@ -376,7 +389,7 @@ sha256sum -c checksums.txt
 1. 运行 `powershell -File scripts/build-release.ps1`（或直接使用已发布的发布资产）。记下 Windows amd64 zip 的版本和 `checksums.txt` 中的哈希。
 2. **Scoop** —— 在 `packaging/scoop/argentgo.json` 中替换 `{{VERSION}}` 和 `{{SHA256}}`。`hash` 字段来自 `checksums.txt`，这样 Scoop 会校验下载。清单还带 `checkver` / `autoupdate` 块：Scoop 自己的 `checkver` 会读取 GitHub releases（无需项目托管的目录），`autoupdate` 会重写 URL 并通过正则从 `checksums.txt` 拉取新哈希。JSON 不能包含注释，所以这段说明放在本指南里。
 3. **Chocolatey** —— 在 `packaging/choco/argentgo.nuspec` 中替换 `{{VERSION}}`，在 `packaging/choco/tools/chocolateyinstall.ps1` 中替换 `{{VERSION}}` / `{{SHA256}}`，然后运行 `choco pack`。安装脚本把 `checksums.txt` 中的哈希作为 `checksum64` / `checksumType64` 传给 `Install-ChocolateyZipPackage`，这样被篡改的下载会失败。该包没有依赖。
-4. **Homebrew** —— 在 `packaging/homebrew/argentgo.rb` 中替换 `{{VERSION}}` 并发布到 tap。`go install github.com/2118505078xyh1/argentgo/cmd/argent@{{VERSION}}` 要求一个 Go 工具链接受的版本；发布 tag 带 `v` 前缀，如果你的 tag 是 `v0.1.1`，就把那一处填成 tag 形式（例如 `v0.1.1`）。`url` 字段已经指向该 tag 的源码归档。
+4. **Homebrew** —— 在 `packaging/homebrew/argentgo.rb` 中替换 `{{VERSION}}`（纯版本号，例如 `0.1.1`）并发布到 tap。配方里的 `go install ...@v{{VERSION}}` 自带 `v` 前缀，因此会自动匹配带 `v` 的发布 tag（例如 `v0.1.1`），无需手工改写；`url` 字段同样指向该 tag。`go install` 产出 `argent`，配方随后把它改名为品牌命令 `argentgo`。
 
 ### 隐私说明
 

@@ -50,6 +50,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 		return runEvalOrchestration(app, ctx, args[1:])
 	}
 
+	// quality 是 eval 子命令的带外前缀：读取一份 model-quality.json（脚本化长任务
+	// 夹具），用纯函数核对步骤顺序、汇总完成率与测量质量，全程不联网、不需要模型。
+	// 与 compare/ab/orchestration 一样手写分派，默认 eval 路径完全不变。
+	if len(args) > 0 && args[0] == "quality" {
+		return runEvalQuality(app, args[1:])
+	}
+
 	// baseline 是 eval 子命令的带外前缀：把已接受的评分结果固化为一份可落盘的
 	// 基线 JSON，并用候选结果做三态回归门。与 compare/ab/orchestration 一样
 	// 不进 flagSurface/parity，手写扫描并分派；默认 eval 路径完全不变。
@@ -249,6 +256,7 @@ func evalUsage(w io.Writer) {
        argentgo eval compare <baseline-results.json> <candidate-results.json>
        argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
        argentgo eval orchestration <orchestration.json>
+       argentgo eval quality <model-quality.json>
        argentgo eval baseline accept <result.json> [--note <text>]
        argentgo eval baseline check <result.json>
 
@@ -270,6 +278,10 @@ With orchestration, a scripted multi-turn suite runs through the real agent loop
 and the real task tool (routed fake model, no network/API key); Total/Passed/Failed
 and one FAIL line per failed scenario are printed, and any failure exits non-zero.
 This prefix is also out-of-band and not a global flag.
+With quality, a model-quality.json of scripted long tasks is graded offline
+(no network/API key): step order is checked, task completion rate and measurement
+quality (sample count / significance / blind-spot warnings) are printed.
+This prefix is out-of-band and not a global flag.
 With baseline accept, the Result vector is frozen as an accepted baseline JSON at
 <storage>/eval/baseline.json (--note attaches an optional free-text remark).
 With baseline check, a candidate vector is graded against that baseline and the
@@ -319,6 +331,46 @@ Runs a scripted multi-turn orchestration suite through the real agent loop and
 the real task tool, using a routed fake model (no network, no API key). Prints
 Total/Passed/Failed and one FAIL line per failed scenario; exit code is non-zero
 when any scenario fails. This prefix is out-of-band and not a global flag.
+`)
+}
+
+// runEvalQuality 实现 `eval quality <model-quality.json>`：加载脚本化长任务夹具，
+// 用纯函数核对步骤顺序并汇总完成率与测量质量。全程不联网、不需要模型 runner，
+// 因此即使没有任何 provider 配置也能运行，输出稳定可比对。
+func runEvalQuality(app App, args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		evalQualityUsage(app.IO.Out)
+		return 0
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		evalQualityUsage(app.IO.Err)
+		return 2
+	}
+	doc, err := eval.LoadModelQualityFile(args[0])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+		return 1
+	}
+	report := eval.RunModelQuality(doc)
+	fmt.Fprintf(app.IO.Out, "%s: %d/%d tasks completed (completion_rate=%.3f)\n",
+		report.Name, report.Completed, report.Tasks, report.CompletionRate)
+	q := report.Quality
+	fmt.Fprintf(app.IO.Out, "samples: %d  reason: %s  significant: %t\n",
+		q.SampleCount, q.IncompleteReason, q.Significant)
+	for _, warning := range q.Warnings {
+		fmt.Fprintf(app.IO.Out, "warning: %s\n", warning)
+	}
+	// 离线夹具不要求真实模型通过率达标；质量报告本身是输出，不因样本不足失败。
+	return 0
+}
+
+func evalQualityUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval quality <model-quality.json>
+
+Grades a model-quality.json of scripted long tasks offline: each task's expected
+steps must appear in order in its transcript. Prints task completion rate and
+measurement quality (sample count / significance / blind-spot warnings). No
+network or API key is needed. This prefix is out-of-band and not a global flag.
 `)
 }
 

@@ -14,11 +14,16 @@ param(
     [string]$Version = '',
     [string]$Tag = '',
     [string]$OutDir = '',
+    [switch]$FullGate,
     [switch]$SkipChecks
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+# Saved before any -FullGate step temporarily overrides GOOS/GOARCH/CGO_ENABLED.
+$oldGoos = $env:GOOS
+$oldGoarch = $env:GOARCH
+$oldCgo = $env:CGO_ENABLED
 Push-Location $repo
 try {
     # --- toolchain -------------------------------------------------------
@@ -71,8 +76,25 @@ try {
         & $go vet ./...
         if ($LASTEXITCODE -ne 0) { throw 'go vet failed' }
         Write-Host '== test ==' -ForegroundColor Cyan
-        & $go test ./...
+        & $go test -p 4 ./... -count=1
         if ($LASTEXITCODE -ne 0) { throw 'go test failed' }
+        # -FullGate adds the slow release-only gates from AGENTS.md: race
+        # detector and a no-cgo Linux cross-compile. The one-click dry run
+        # stays fast; publish-win.ps1 passes -FullGate by default.
+        if ($FullGate) {
+            Write-Host '== race ==' -ForegroundColor Cyan
+            & $go test -race -timeout 20m ./...
+            if ($LASTEXITCODE -ne 0) { throw 'go test -race failed' }
+            Write-Host '== cross-compile (linux/amd64, no cgo) ==' -ForegroundColor Cyan
+            $env:GOOS = 'linux'; $env:GOARCH = 'amd64'; $env:CGO_ENABLED = '0'
+            try {
+                & $go build ./...
+                if ($LASTEXITCODE -ne 0) { throw 'GOOS=linux cross-build failed' }
+            }
+            finally {
+                $env:GOOS = $oldGoos; $env:GOARCH = $oldGoarch; $env:CGO_ENABLED = $oldCgo
+            }
+        }
         # gofmt compares line endings, and a Windows clone with the default
         # core.autocrlf=true checks out CRLF. Check a LF-normalized copy so
         # this gate measures formatting, not git checkout policy, and never
@@ -110,9 +132,6 @@ try {
         @{ os = 'windows'; arch = 'amd64' }
     )
 
-    $oldGoos = $env:GOOS
-    $oldGoarch = $env:GOARCH
-    $oldCgo = $env:CGO_ENABLED
     $checksumLines = [System.Collections.Generic.List[string]]::new()
     try {
         foreach ($t in $targets) {

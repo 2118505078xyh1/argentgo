@@ -7,11 +7,9 @@
 param(
     [string]$Tag = '',
 
-    # Optional strict lower bound on the tracked .go line count. 0 means the
-    # count is informational only. Deliberately NOT derived from cli.Version:
-    # the version-anchor decision is still pending, so binding the two would
-    # block releases unexpectedly. Pass this explicitly at release time once
-    # the anchor policy is settled.
+    # Optional strict lower bound on the tracked .go line count. The script
+    # also derives a minimum from the declared version->anchor map (single
+    # source of truth in AGENTS.md); -MinLines can raise that bar further.
     [long]$MinLines = 0
 )
 
@@ -55,10 +53,26 @@ try {
         throw "CHANGELOG.md has no section for v$version"
     }
 
-    # Code-size anchor, informational by default. Count newlines of tracked
-    # .go files in PowerShell, mirroring the `git ls-files ... | wc -l` metric
-    # in AGENTS.md without depending on bash/xargs. -MinLines turns it into a
-    # strict, opt-in release gate.
+    # Code-size anchor. Count newlines of tracked .go files in PowerShell,
+    # mirroring the `git ls-files ... | wc -l` metric in AGENTS.md without
+    # depending on bash/xargs. The version->threshold map below is the single
+    # source of truth (kept in sync with AGENTS.md); -MinLines can still raise
+    # the bar explicitly. When a version has no declared anchor, the gate is
+    # informational only.
+    $anchors = @{
+        '0.8.1' = 300000
+        '0.8.2' = 500000
+        '0.8.3' = 650000
+        '0.8.4' = 800000
+        '0.9.0' = 900000
+        '0.9.1' = 950000
+        '1.0.0' = 1000000
+        '1.1.0' = 1100000
+    }
+    $required = [long]0
+    if ($anchors.ContainsKey($version)) { $required = [long]$anchors[$version] }
+    if ($MinLines -gt $required) { $required = $MinLines }
+
     $goFiles = @(& git ls-files '*.go')
     if ($LASTEXITCODE -ne 0) { throw 'git ls-files *.go failed' }
     $totalLines = [long]0
@@ -68,9 +82,13 @@ try {
         $text = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($full))
         $totalLines += [regex]::Matches($text, "`n").Count
     }
-    Write-Host "tracked .go line count: $totalLines (informational; -MinLines enables strict gate)"
-    if ($MinLines -gt 0 -and $totalLines -lt $MinLines) {
-        throw "tracked .go line count $totalLines < required minimum $MinLines; code-size gate not met"
+    if ($required -gt 0) {
+        Write-Host "tracked .go line count: $totalLines (required for v${version}: $required)"
+        if ($totalLines -lt $required) {
+            throw "tracked .go line count $totalLines < required minimum $required for v$version; code-size gate not met"
+        }
+    } else {
+        Write-Host "tracked .go line count: $totalLines (informational; no anchor for v$version)"
     }
 
     $shownTag = if ($Tag) { $Tag } else { '(any)' }

@@ -27,6 +27,9 @@ type patchPolicyGuard struct {
 	chain *security.Chain
 }
 
+// unwrapChain 暴露底层安全链，供 MCP annotations 等链配置注入使用。
+func (g patchPolicyGuard) unwrapChain() *security.Chain { return g.chain }
+
 func (g patchPolicyGuard) Check(ctx context.Context, name string, args json.RawMessage) error {
 	if g.chain == nil || !strings.EqualFold(strings.TrimSpace(name), "apply_patch") {
 		return g.inner.Check(ctx, name, args)

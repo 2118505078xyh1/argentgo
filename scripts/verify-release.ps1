@@ -62,6 +62,25 @@ function Assert-ReleaseArtifacts([string]$Dir, [string]$Ver) {
             }
         }
         Write-Host '  zip contains argentgo.exe and argentgo-native.exe'
+
+        # The source constants being consistent is not enough: a stale build
+        # cache or wrong GOFLAGS can ship an exe that reports an old version.
+        # Execute the unpacked binary and require it to self-report the tag
+        # version exactly. On non-Windows runners skip with a clear notice.
+        $exe = Join-Path $unpack 'argentgo.exe'
+        if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+                throw "unpacked argentgo.exe not found at $exe"
+            }
+            $versionOut = (& $exe '-V' 2>&1 | Out-String).Trim()
+            $expectedVersion = "argentgo $Ver"
+            if ($versionOut -ne $expectedVersion) {
+                throw "binary reports version '$versionOut', expected '$expectedVersion'"
+            }
+            Write-Host "  binary self-reported version OK: $versionOut"
+        } else {
+            Write-Host '  SKIP binary --version check (non-Windows runner)' -ForegroundColor Yellow
+        }
     }
     finally {
         # Never leave extracted binaries behind, even on a failed assertion.

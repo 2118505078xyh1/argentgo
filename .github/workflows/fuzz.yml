@@ -1,0 +1,43 @@
+name: fuzz
+
+# 定时 + 手动触发的模糊测试门禁：对安全脱敏原语与会话 JSONL 容错路径
+# 做有界的 fuzzing。失败时上传落盘的崩坏语料（testdata/fuzz/）作为 artifact，
+# 便于复现与回归。默认不随 PR 触发，避免每个 PR 都承担分钟级 fuzz 开销。
+'on':
+  schedule:
+    # 每周日 03:17 UTC
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.target.pkg }} / ${{ matrix.target.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: internal/security, name: FuzzEscapeDecode }
+          - { pkg: internal/security, name: FuzzRedactJSON }
+          - { pkg: internal/security, name: FuzzClassifyCommand }
+          - { pkg: internal/security, name: FuzzScanPromptInjection }
+          - { pkg: internal/security, name: FuzzRedact }
+          - { pkg: internal/session, name: FuzzSessionRecordRoundtrip }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: fuzz ${{ matrix.target.name }}
+        run: go test -run=^$ -fuzz=^${{ matrix.target.name }}$ -fuzztime=60s ./${{ matrix.target.pkg }}
+      - name: upload crash corpus on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target.name }}
+          path: ${{ matrix.target.pkg }}/testdata/fuzz/${{ matrix.target.name }}
+          if-no-files-found: ignore

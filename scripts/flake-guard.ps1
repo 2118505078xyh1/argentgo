@@ -20,7 +20,11 @@ param(
         'internal/tui',
         'internal/hooks',
         'internal/jobs',
-        'internal/agent'
+        'internal/agent',
+        'internal/server',
+        'internal/session',
+        'internal/mcp',
+        'native'
     ),
     [switch]$Race
 )

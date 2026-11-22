@@ -61,6 +61,8 @@ var hardcodedBaseline = []string{
 	"Total: %d  Passed: %d  Failed: %d\n",
 	"  run `argentgo update --apply` to install it",
 	"%d/%d orchestration scenarios passed\n",
+	"%s: %d/%d tasks completed (completion_rate=%.3f)\n",
+	"samples: %d  reason: %s  significant: %t\n",
 	"%d/%d scenarios passed\n",
 	"%s\t%s\tevents=%s\tdigest=%s\n",
 	"%s needs a directory",

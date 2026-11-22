@@ -460,47 +460,11 @@
 - **建议**：ci.yml go job 加 `go test -bench . -benchtime=1x ./internal/agent ./internal/session ./internal/tools ./internal/tui`（1x 足够触发断言不计时）；AGENTS.md:28 表述改为准确描述；长期把正确性断言抽成普通 TestXxx，bench 只测性能。
 - **验收**：`grep -n -- '-bench' .github/workflows/*.yml` 非空；把 session_bench_test.go:114 的 `n+1` 改为 `n` 后该命令必须失败。
 
-### 81. 「行数阈值才发版」没有机器校验，HEAD/行数文档已过期 `[P1/M]`
-- **现状**：`AGENTS.md:121-141` 定义锚点表与「达到阈值且全绿才发版」，:123 写死 `HEAD a30b0e4=355,578 行`；`CHANGELOG.md:3` 写 `HEAD 7dee8a1`；`check-release-consistency.ps1:13-33` 只正则比对 Version/tag/CHANGELOG 段落不统计行数。实测 HEAD 8881ed9a、tracked Go 约 409k 行（两处文档 HEAD 与行数均过期）。
-- **问题**：发布规则第 1 条完全没有强制者——50w 未达到时打 v0.8.2 tag，三脚本全绿 Release 正常产出；审计者按文档复盘得到错误基线。
-- **建议**：check-release-consistency.ps1 增加 `git ls-files -z '*.go'`+逐行累加的 PowerShell 统计，把 AGENTS.md 锚点表抽成单一真源文件（如 `docs/release-anchors.json`），按 $version 查阈值，小于则 throw；CHANGELOG.md:3 与 AGENTS.md:123 改为不写死哈希/行数。
-- **验收**：当前树 `-Tag v0.8.1` 退出 0；`-Tag v0.8.2` 在 409k 行下必须非零退出并打印行数不足；`grep -n 'a30b0e4\|7dee8a1' AGENTS.md CHANGELOG.md` 为空。
-
-### 82. Fuzz 只跑种子且只覆盖 security；会话恢复属性与真正 fuzz 引擎从未接线 `[P1/M]`
-- **现状**：`scripts/security-audit.ps1:76-79` 仅 `go test ./internal/security -run Fuzz -count=1 (seeds only)`；CONTRIBUTING.md:175-176 只是手工文档；全仓 `grep -fuzz` 仅命中文档与 fuzz_test.go:12,315 注释；9 个 Fuzz 目标中 `internal/session/recovery_fuzz_test.go:46 FuzzSessionRecordRoundtrip`（属性见 :13-18）从未被 CI/脚本执行；`git ls-files` 无 `testdata/fuzz/` 落盘语料。
-- **问题**：最脆弱的 JSONL 容错修复路径与脱敏/通配符只被固定种子覆盖，变异输入触发的 panic、错误恢复语义无门禁；崩坏语料无法积累。
-- **建议**：新增 `.github/workflows/fuzz.yml`（schedule 每周 + workflow_dispatch），对 9 个目标逐一 `go test -run=^$ -fuzz=^FuzzXxx$ -fuzztime=60s`，fail-fast:false，失败时把 `testdata/fuzz/<Target>/` 上传 artifact；security-audit.ps1 的 fuzz 步骤扩为 security+session 两包。
-- **验收**：`go test ./internal/session -run=^$ -fuzz=^FuzzSessionRecordRoundtrip$ -fuzztime=30s` 退出 0；`git ls-files | grep 'testdata/fuzz/'` 至少一条。
-
 ### 83. 三处 race 门禁中两处无 `-timeout`，挂起会耗尽 6 小时 job 上限 `[P1/S]`
 - **现状**：`ci.yml:81`、`release.yml:100` 的 `go test -race ...` 无 timeout，只有 matrix.yml:97 带 `-timeout 20m`；ci.yml 的 race job 在 ubuntu-latest 上还包含 native 包（`go list ./...` 未过滤），与 AGENTS.md「native 偶发 GPU 挂起」风险叠加。
 - **问题**：一旦死锁/长时间阻塞，release tag 流水线的 race 门禁最长挂到 GitHub 默认 6 小时才失败，阻塞发布且浪费 runner；三处命令形式漂移增加维护成本。
 - **建议**：给两处补 `-timeout 20m`，把三处命令抽成 `.github/workflows/_race.sh` 或 reusable workflow 杜绝漂移；复核是否需要再排除 ./native（若在 Linux 确需排除，三处同步并注明 Windows 的 ci.yml go job 已覆盖 native 测试）。
 - **验收**：`grep -n -- 'go test -race' .github/workflows/*.yml` 三处均含 -timeout；test-release-workflow.ps1 新增静态断言 `race job pins -timeout`；用临时 `select{}` + 短超时验证门禁会失败。
-
-### 84. `verify-release.ps1` 不校验产物二进制自报版本，native 版本无断言 `[P1/M]`
-- **现状**：`scripts/verify-release.ps1:31-93 Assert-ReleaseArtifacts` 只验 zip 存在、含两 exe、checksums.txt 单条且 SHA-256 相等（:42/:59-64/:75-92）；native 源码 grep Version 命中 0（不自报版本）；check-release-consistency.ps1 只校验源码常量。
-- **问题**：源码版本一致 ≠ 产物版本一致；若构建用陈旧缓存/错误 GOFLAGS，zip 与 checksum 全绿，`gh release create` 照常发布一个自报旧版本的 exe——反向风险（发错版本）没有门禁。
-- **建议**：verify-release 在 Expand-Archive 后（:57 同 try 块）执行解包出的 `argentgo.exe -V` 并断言输出等于 `argentgo $Ver`，不匹配 throw；native 要么通过 `--version`/RPC config.info 暴露同一 cli.Version（ldflags -X 注入），要么断言 PE 文件版本资源与 $Ver 一致；release.yml:143-150 后加 "Smoke test binaries" 步骤。
-- **验收**：用 test-release-workflow.ps1:209-217 伪造含错误版本输出的 zip，verify-release 必须非零退出；正常 FullBuild 下 `argentgo.exe -V` 输出 `argentgo 0.8.1`。
-
-### 85. `flake-guard` 默认包列表遗漏近期并发热区且脚本未接线 `[P2/S]`
-- **现状**：`scripts/flake-guard.ps1:19-24` 默认 `$Packages = @('internal/tui','internal/hooks','internal/jobs','internal/agent')`，:61-85 实现健康（-count=N，Race 默认关）；`.github/workflows` 无调用；CHANGELOG.md:18 记录 R43 在 internal/server 补「四处 fire-and-forget goroutine panic 恢复」、session JSONL Close fsync，这两包都不在默认列表。
-- **问题**：最容易出 timing flake 的新增并发点（server goroutine、session fsync）恰恰没有重复执行门禁；脚本再好也因未接线零收益。
-- **建议**：默认列表扩为 tui/hooks/jobs/agent/server/session/mcp/native；matrix.yml 增 flakeguard job（workflow_dispatch + schedule 每周，避免每个 PR 都慢）运行 `-Count 5`；如需 Race 单列一个 job 并保留「慢门禁只在发版/定时跑」约定。
-- **验收**：`pwsh -File scripts/flake-guard.ps1 -Count 3` 退出 0 且打印 PASS internal/server / PASS internal/session；`grep -n flake-guard .github/workflows/*.yml` 非空。
-
-### 86. 依赖锁定无一致性校验：白名单只查名字不查版本与哈希 `[P2/S]`
-- **现状**：`go.mod:5-11` 直接依赖 mygo v0.10.0 + 5 indirect，go.sum 仅 14 行；`security-audit.ps1:84-135` allowlist 只对 `go list -m all` 的模块名字白名单，不核对版本；`:141-154` 只查 import 路径；全仓 `grep 'go mod tidy\|go mod verify'` 命中 0，三个 workflow 也无相关步骤。
-- **问题**：把 mygo 改成恶意 v0.10.1 并更新 go.sum，白名单照样绿灯；go.sum 缺项或残留也不会发现。供应链审计只覆盖「有没有新模块」不覆盖「锁有没有被篡改」。
-- **建议**：security-audit.ps1:136 后插两个硬失败检查 `go mod verify` 与 `go mod tidy -diff`（Go 1.27 支持 -diff 不改写文件）；allowlist 从名字数组升级为 `"module@version"` 映射，mygo 直接依赖固定 v0.10.0 精确校验；matrix.yml unit job 加同一步。
-- **验收**：当前树 `go mod verify` 输出 all modules verified、`go mod tidy -diff` 输出为空；改 go.sum 一位哈希后脚本必须失败；改 mygo 为 v0.10.1 后脚本因版本不符失败。
-
-### 87. 本地一键发布的门禁弱于 AGENTS.md 规范 `[P1/M]`
-- **现状**：`scripts/build-release.ps1:69-105` 的 quality gates 只有 `go vet ./...`、`go test ./...`（无 -p 4、无 -count=1）、LF 归一化 gofmt；无 `go test -race ./...`、无 `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...`；AGENTS.md:113-121 要求「全量验证全绿」明确含 -race 与 GOOS=linux；`publish-win.ps1:96-105` 直接调 build-release 后 push tag（:113-119）。
-- **问题**：本地一键发布可在未跑 race 与交叉编译情况下 push tag 触发 Release；-count=1 缺失还允许 Go 测试缓存掩盖回归。
-- **建议**：build-release.ps1 把 `go test ./...` 改 `go test -p 4 ./... -count=1`，新增 `-race` 与 `GOOS=linux ... go build` 两步；为免日常 -DryRun 过慢加 `-FullGate` 开关并让 publish-win.ps1 默认开启（`-SkipChecks` 才绕过）；test-release-workflow.ps1 加对应断言。
-- **验收**：`powershell -File scripts/build-release.ps1 -FullGate` 日志依次出现 -count=1/-race/GOOS=linux 三步且退出 0；publish-win.ps1 -DryRun 日志显示 FullGate 已启用。
 
 ### 88. `eval compare`/`eval ab` 的输入 Result 向量没有生成器，测量闭环断档 `[P1/M]`
 - **现状**：`internal/cli/eval.go:29-41,202-302` 实现 compare/ab 分派，`loadResultVector`:234-253 只读 `<baseline-results.json>`；默认路径（:111-129）只打印 `ok N/...` 文本；`internal/eval/run.go:69-91` 已定义带 json tag 的 `Result`/`Report` 却无任何 CLI 落盘；`quality_report.go:7` 明写「不接线到 CLI」；USER_GUIDE.md:240-250 只说「读取两份结果文件」未交代来源。
@@ -514,23 +478,11 @@
 - **建议**：cli/eval.go 按 compare/ab 同风格加带外前缀 orchestration，定义窄接口 `OrchestrationRunner` 由 app 注入；输出 Total/Passed/Failed 与每条 `OrchestrationFailure{ID,Name,Reason}`（结构已在 :130-144）；任一失败退出非 0；STATUS.md:43 门禁改为同时跑 core 与 orchestration。
 - **验收**：`argentgo eval orchestration evals/orchestration.json` 输出 10/10 退出 0；注入失败场景副本时退出非 0 并打印 Reason；`--help` 含新用法。
 
-### 90. `model-quality.json` 缺失，长任务/测量质量原语未接线 `[P1/M]`
-- **现状**：`internal/eval/long_task.go:9` 自述「真正的脚本化 provider 场景数据由后续填充」，`EvaluateTask`:74/`TaskCompletionRate`:132 只有纯函数测试；`quality_report.go:7` 明写「不接线到 CLI」，`AssessMeasurementQuality`:32 同样孤立；evals/ 目录 7 个 JSON 中无 model-quality.json，全仓 grep `model-quality|model_quality` 零命中；STATUS.md:128 承认「真实模型通过率无法从源码判定」。
-- **问题**：真实模型评测目前只覆盖 completion 完成率（file_equals + go test 退出码），长任务 transcript 顺序核对与「样本量/显著性/监控盲区」汇总对用户不可见；产品名 model-quality 在文档中承诺却无实体。
-- **建议**：新增 `evals/model-quality.json`（长任务 steps + 场景元数据 + 期望完成率），eval 加 `LoadModelQuality`/`RunModelQuality` 串起三个原语；经 CLI 新前缀 quality（或并入 --live）输出含 SampleCount/IncompleteReason/Warnings；配 fixture 锁数据判据一致。若暂不做则在 CAPABILITY_MATRIX §4 ⚠️-3 登记「long_task/quality_report 为未接线原语」并加文档守卫。
-- **验收**：`go test ./internal/eval -run 'TestModelQualityData|TestAssessMeasurementQuality'` 绿；`argentgo eval --live evals/model-quality.json`（配 key）输出 completion_rate 与 Warnings。
-
 ### 91. `core.json` 场景数文档写 10、代码断言 11 `[P1/S]`
 - **现状**：`internal/eval/eval_test.go:233-249` 断言 want 11、report.Passed!=11、输出含 `"1..11"`；`evals/core.json` 实际 11 场景（第 11 个是 286-316 行 approval denial）；但 `docs/CAPABILITY_MATRIX.md:209`、`:274`、`:287` 三处均写「10 个脚本场景」/「core.json（10 场景）」/「core.json 10 场景」。
 - **问题**：用户按文档找「第 10 个场景」会错位；发版门禁实际跑 11 个，对外评测规模口径失真。
 - **建议**：三处 10 改 11；参照 OPT_INS.md:5 的双向守卫范式新增 `internal/eval/core_docs_guard_test.go`——从 core.json 读场景数，正则核对 CAPABILITY_MATRIX.md 中的数字，防再次漂移。
 - **验收**：`grep -n '10 场景\|10 个脚本场景\|core.json 10' docs` 无命中；`go test ./internal/eval -run TestCoreDocsGuard` 绿，临时加一场景时守卫失败。
-
-### 92. go install/Homebrew 二进制名不一致，占位符版本格式自相矛盾 `[P1/M]`
-- **现状**：go.mod 模块末段 argentgo 但导入路径末段 `argent`（`cmd/argent/main.go:2`），`go install .../cmd/argent@latest` 产出 `argent`（Homebrew 配方 :22-23 断言 `bin/"argent"` 为证）；但 `USER_GUIDE.md:84` 称「生成的 argentgo.exe 放 $GOBIN」并用 `argentgo.exe --version` 验证，README.md:33-37 同；`USER_GUIDE.md:362` 定义 `{{VERSION}}` 为纯数字，`homebrew/argentgo.rb:19` 写 `@{{VERSION}}` 而 :379 又自承 tag 带 v 前缀要填 v0.1.1，同文件两处冲突。
-- **问题**：用户按 USER_GUIDE 装完运行 `argentgo --version` 会「命令未找到」，首次体验卡在验证步；Homebrew 装出的命令是全项目品牌不一致的 `argent`。
-- **建议**：保留 cmd/argent 路径，① USER_GUIDE:76-86 明确「go install 产出名由导入路径末段决定」并给品牌命令 `go build -o argentgo.exe ./cmd/argent`；② Homebrew 用 `bin.install "argent" => "argentgo"` 并把 `@{{VERSION}}` 改 `@v{{VERSION}}` 同步 :379；③ verify-release.ps1 或新增 check-packaging.ps1 加 `grep -R '{{VERSION}}\|{{SHA256}}' packaging/` 应为空的残留检查。
-- **验收**：临时 GOBIN 下 go install 后名字与文档一致；`ruby -c packaging/homebrew/argentgo.rb` 通过；干净 PATH 下执行 USER_GUIDE 验证命令成功。
 
 ### 93. 首次启动引导缺失，`cli_hints` 原语空挂 `[P2/M]`
 - **现状**：`USER_GUIDE.md:159-160` 注明「不带 prompt 的 argentgo 会读 stdin 然后退出，不会自动打开 TUI」；README.md:68-78 快速开始直接假设已配 key；login/doctor 命令已存在，错误提示会引导 login，但无首次运行检测标记；`cli_hints` opt-in 键仅在 `config/optin_config.go:40` 注册、OPT_INS.md:100 列出，无任何行为消费点。
@@ -630,13 +582,6 @@
 - **问题**：格式化钩子或编辑器保存改变了最终字节时，模型看到的 diff 与实际落盘不一致，后续 anchor/hashline 基于错误快照。
 - **建议**：opt-in `ARGENT_VERIFY_WRITE=1`：写后 `os.ReadFile` 比较预期字节，漂移则返回结构化警告 + 用 `hashlineHash`（`tools_builtin_write_edit.go:207-214`）重算的新 anchor；同时把 `FileFreshness` 接进 read/write 路径（见 #124）。默认零额外 syscall。
 - **验收**：`internal/tools/write_drift_test.go`：注入会改写字节的 FormatHook，断言结果含新 anchor 与警告；无 hook 时不产生额外读取；`go test ./internal/tools -count=1`。
-
-### 118. MCP annotations 解析完整但零消费者 `[P1/S]`（学自 cline）
-- **竞品证据**：cline `sdk/packages/core/src/extensions/mcp/annotations.ts:15-31` 保留 title + 四个 hint；`apps.ts:49-62` 用 `_meta.ui.visibility` 决定模型可见性。
-- **argentgo 现状**：`internal/mcp/annotations.go:12-33` 已完整解析 `destructiveHint/openWorldHint`（缺省 true）、`readOnlyHint`、`idempotentHint`、`title`，`internal/mcp/mcp.go:440-467` 填入 `Tool.Annotations`；但全仓除解析/存储点外零消费者，审批链（`internal/agent/dispatch.go:424-431`）只看工具名白名单。
-- **问题**：MCP server 明确标注 destructive 的工具不会触发额外审批，注解形同虚设。
-- **建议**：opt-in 把 `Destructive && !ReadOnly` 的 MCP 工具纳入 `needsApproval`（映射 `Tool.Annotations` 到 agent 的审批判定），默认不改现有工具名白名单行为。
-- **验收**：`internal/app/mcp_annotation_approval_test.go`：注册 destructive MCP 工具并开启 opt-in 后调用触发审批；readOnly 工具不触发；关闭时与旧行为逐字节相同；`go test ./internal/app -count=1`。
 
 ### 119. MCP 输出限制非默认、阈值过高（200KiB vs 20KiB）`[P1/S-M]`（学自 pi-mono）
 - **竞品证据**：`pi-mono/packages/mcp/src/output-limit.ts:9,28-60`：`MCP_OUTPUT_MAX_BYTES = 20*1024`，超限时 head/tail 保留、UTF-8 字符边界、附原始 token/行数与 `[Full output: <path>]`；`extensions/mcp/tools.ts:217-233` 与 `resources.ts:184,326` 在结果转换处无条件调用。
@@ -739,11 +684,11 @@
 
 ## 附：优先处理建议
 
-> 2026-11-22 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74/#75/#76/#77/#94/#101/#102/#103/#107/#108/#109/#110/#113/#116/#117）已从本文档删除。第一优先 P0、第二优先 hook 三项与第三优先的小项均已落地并全绿。
+> 2026-11-23 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74~#77/#81/#82/#84~#87/#90/#92/#94/#101~#103/#107~#110/#113/#116~#118/#123~#125）已从本文档删除。P0、hook、小项与发版门禁批次均已落地并全绿。
 
 1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
 2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#123 已落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、todo 入摘要）；剩余 #112（事件日志/SSE 续传）。
-3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#124/#125 已落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、read-before-write、分支摘要）；剩余 #118（MCP annotations 审批）。
-4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
-5. **发版门禁**：#74–#93 的版本/文档/CI 一致性问题仍会阻塞 v0.8.2 发版；#135（体积/启动门禁）并入这一档。
+3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#118/#124/#125 已全部落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、MCP annotations 审批、read-before-write、分支摘要）。
+4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#112（事件日志/SSE 续传）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
+5. **发版门禁**：#74~#93 已全部落地（版本/文档/CI/脚本一致性、行数锚点机器校验、fuzz workflow、产物自报版本校验、离线 model-quality 评测）；剩余 #135（体积/启动门禁）属于 CI 指标增强。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。

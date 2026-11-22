@@ -120,7 +120,7 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 
 ## 发布规则（版本号锚定代码行数）
 
-版本号与代码规模对齐，只有**代码行数达到阈值且全量验证全绿**时才发版。统计口径为 git tracked 的 `.go` 源码行数（`wc -l`，含测试），统计命令 `git ls-files -z '*.go' | xargs -0 cat | wc -l`（HEAD a30b0e4 = 355,578 行）。`docs/STATUS.md` 未定义该细节，以本口径为准：
+版本号与代码规模对齐，只有**代码行数达到阈值且全量验证全绿**时才发版。统计口径为 git tracked 的 `.go` 源码行数（`wc -l`，含测试），统计命令 `git ls-files -z '*.go' | xargs -0 cat | wc -l`。行数随开发增长，具体数值以当前 HEAD 实测为准，不在文档中写死 HEAD 哈希或行数。`docs/STATUS.md` 未定义该细节，以本口径为准：
 
 | 代码行数 | 版本号 |
 |---:|---|

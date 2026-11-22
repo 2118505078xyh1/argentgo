@@ -1,0 +1,41 @@
+{
+  "name": "model-quality-offline-fixture",
+  "significant": false,
+  "_comment": "脚本化长任务夹具：transcript 模拟工具调用序列，不联网、不依赖模型。significant=false 且样本量小，测量质量报告应给出明确的监控盲区告警。",
+  "tasks": [
+    {
+      "name": "read then edit then verify",
+      "max_turns": 20,
+      "steps": ["read", "edit", "bash"],
+      "paths": ["config.yaml", "config.yaml", "go test"],
+      "transcript": [
+        "read config.yaml",
+        "bash git status",
+        "edit config.yaml",
+        "bash go test ./..."
+      ]
+    },
+    {
+      "name": "grep before write",
+      "max_turns": 20,
+      "steps": ["grep", "write"],
+      "paths": ["TODO", "notes.md"],
+      "transcript": [
+        "grep TODO",
+        "write notes.md"
+      ]
+    },
+    {
+      "name": "incomplete run stops at max turns",
+      "max_turns": 2,
+      "steps": ["read", "edit", "bash"],
+      "paths": ["a.go", "a.go", "go test"],
+      "transcript": [
+        "read a.go",
+        "bash unrelated",
+        "edit a.go",
+        "bash go test ./..."
+      ]
+    }
+  ]
+}

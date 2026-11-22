@@ -45,6 +45,9 @@ type mcpBinding struct {
 	// readOnly 对应工具的 readOnlyHint 注解。它使防护器能把该工具视为安全（无需操作人员提示），
 	// 而不会削弱拒绝规则。
 	readOnly bool
+	// destructive 对应 annotations.destructiveHint && !readOnlyHint。opt-in 开启时
+	// 该工具即便策略允许也必须经审批（见 applyMCPDestructiveApproval）。
+	destructive bool
 	// server 是提供该工具的服务名；RefreshTools 重新发现时需要它重建带命名空间的名称。
 	server string
 }
@@ -293,7 +296,10 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 	// 策略在工具发现之前构建，因此声明了 readOnlyHint 的 MCP 工具还不在其只读集合中。
 	// 发现完成后（在每条返回路径上）把它们的名字折进去，
 	// 使这些工具跳过操作人员提示，同时显式的拒绝规则仍然优先。
-	defer func() { applyMCPReadOnlyPolicy(guard, res, set.readOnlyMCPNames()) }()
+	defer func() {
+		applyMCPReadOnlyPolicy(guard, res, set.readOnlyMCPNames())
+		applyMCPDestructiveApproval(guard, stdio.Env, set.destructiveMCPNames())
+	}()
 
 	// 用户配置受用户掌控，因此始终可用。
 	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
@@ -359,6 +365,58 @@ func applyMCPReadOnlyPolicy(guard tools.Guard, res Resolved, names []string) {
 // 发现过程恰好扫描两个根目录——项目插件目录和用户插件目录——因此 LoadManifest 记录的包 Dir
 // 足以区分它们。用户根目录会被显式检查，任何不明确位于其下的项都会落到受门控的一侧，
 // 因此歧义路径绝不会放松信任边界。
+// mcpAnnotationApprovalEnv 是「按 MCP annotations 强制审批 destructive 工具」的独立门控。
+const mcpAnnotationApprovalEnv = "ARGENT_MCP_ANNOTATION_APPROVAL"
+
+func mcpAnnotationApprovalEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(mcpAnnotationApprovalEnv)) == "1"
+}
+
+// destructiveMCPNames 返回声明了 destructiveHint 且非 readOnly 的 MCP 工具名。
+// 与 readOnlyMCPNames 对称：被遮蔽的工具不进入绑定列表，其名字绝不会代表胜出的绑定。
+func (t *toolset) destructiveMCPNames() []string {
+	t.mcpMu.RLock()
+	defer t.mcpMu.RUnlock()
+	var names []string
+	for _, binding := range t.mcp {
+		if binding.destructive {
+			names = append(names, binding.spec.Function.Name)
+		}
+	}
+	return names
+}
+
+// applyMCPDestructiveApproval 在 opt-in 开启时给安全链注入 ForceAsk 谓词：
+// destructive 的 MCP 工具即便被策略 Allow 也必须落到审批路径；readOnly 工具不触发。
+// opt-in 关闭时不触碰链，原有工具名白名单行为逐字节不变。
+func applyMCPDestructiveApproval(guard tools.Guard, env func(string) string, names []string) {
+	if len(names) == 0 || guard == nil || !mcpAnnotationApprovalEnabled(env) {
+		return
+	}
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		wanted[name] = true
+	}
+	chain := chainFromGuard(guard)
+	if chain != nil {
+		chain.ForceAsk = func(name string) bool { return wanted[name] }
+	}
+}
+
+// chainFromGuard 从各类 guard 包装中取出底层安全链；取不到时返回 nil。
+// 各包装器实现 unwrapChain 以参与这里和 applyMCPReadOnlyPolicy 的链配置。
+func chainFromGuard(guard tools.Guard) *security.Chain {
+	switch g := guard.(type) {
+	case *security.Chain:
+		return g
+	case *inspectionGuard:
+		return g.chain
+	case interface{ unwrapChain() *security.Chain }:
+		return g.unwrapChain()
+	}
+	return nil
+}
+
 func splitPluginsBySource(root string, bundles []plugins.Bundle) (user, project []plugins.Bundle) {
 	projectRoot := plugins.ProjectPluginsDir(root)
 	userRoot, userErr := plugins.UserPluginsDir()
@@ -420,9 +478,10 @@ func appendAdvertisedTools(dst *[]mcpBinding, existing map[string]bool, serverNa
 			toolSpec.Function.Description = fmt.Sprintf("MCP tool %q from server %q", tool.Name, serverName)
 		}
 		toolSpec.Function.Parameters = schema
+		destructive := tool.Annotations.Destructive && !tool.Annotations.ReadOnly
 		*dst = append(*dst, mcpBinding{
 			client: client, remote: tool.Name, spec: toolSpec, readOnly: tool.ReadOnly,
-			server: serverName,
+			destructive: destructive, server: serverName,
 		})
 		added++
 	}

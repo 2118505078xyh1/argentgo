@@ -132,6 +132,10 @@ type Chain struct {
 	// Approver.Ask 之前，对需要显式确认的命令施加可选审批器接口的拒绝。
 	// 零值 false 保持原有行为逐字节不变。它由 app 层的 command_risk opt-in 装配。
 	EnableCommandRisk bool
+	// ForceAsk 是可选的「即便策略允许也必须询问」判定：返回 true 时 Allow 分支
+	// 落到正常审批路径（不是硬性拒绝）。它由 app 层按 MCP 工具的 destructiveHint
+	// opt-in 注入；nil 时该分支逐字节不变。它只作用于已知工具名，不改变策略判定。
+	ForceAsk func(name string) bool
 	// ApprovalTimeout 是单次审批等待（含分阶段审批的整个交互过程）允许的最长
 	// 时间。零值（含 NewChain 构造与 &Chain{} 零值）表示套用默认 5 分钟；超过
 	// 30 分钟会被钳制，负数同样按未配置处理。超时会让审批器收到 DeadlineExceeded，
@@ -314,7 +318,9 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		if c != nil && c.EnableCommandRisk {
 			blockReason = explicitYesBlockReason(c.Approver, command)
 		}
-		if commandRisk == CommandRiskDestructive || blockReason != "" {
+		// MCP annotations opt-in：destructive 工具即便策略允许也必须询问。
+		forceAsk := c != nil && c.ForceAsk != nil && c.ForceAsk(name)
+		if commandRisk == CommandRiskDestructive || blockReason != "" || forceAsk {
 			// 落到下面的审批路径（显式确认的拒绝会在 Ask 之前发生）。
 		} else {
 			c.record(name, "allow", result.Reason, auditArgs)
