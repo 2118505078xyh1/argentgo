@@ -37,18 +37,25 @@ func hasName(specs []llm.ToolSpec, name string) bool {
 // 保留，其余工具隐藏。用户无需做任何选择。
 func TestLazyFilterSpecsDefault(t *testing.T) {
 	t.Setenv(fullToolsEnv, "")
-	in := spec("read", "write", "edit", "bash", "ls", "grep", "find", "glob",
-		"todo", "multi_edit", "tool_search", "web_search", "memory_recall",
-		"lsp_symbols", "current_time", "repo_map")
+	// 输入 = 全部核心工具 + 若干应隐藏的工具。核心集因条件启用工具会变化，
+	// 从 lazyCoreTools 动态构造，避免测试与核心集定义漂移。
+	var inNames []string
+	for name := range lazyCoreTools {
+		inNames = append(inNames, name)
+	}
+	hidden := []string{"web_search", "memory_recall", "lsp_symbols", "current_time", "repo_map"}
+	inNames = append(inNames, hidden...)
+	in := spec(inNames...)
+
 	got := LazyFilterSpecs(in)
-	for _, core := range []string{"read", "write", "edit", "bash", "tool_search"} {
-		if !hasName(got, core) {
-			t.Errorf("核心工具 %q 应保留，得到 %v", core, specNamesOf(got))
+	for name := range lazyCoreTools {
+		if !hasName(got, name) {
+			t.Errorf("核心工具 %q 应保留，得到 %v", name, specNamesOf(got))
 		}
 	}
-	for _, hidden := range []string{"web_search", "memory_recall", "lsp_symbols", "current_time", "repo_map"} {
-		if hasName(got, hidden) {
-			t.Errorf("工具 %q 应默认隐藏（模型可经 tool_search 发现），got %v", hidden, specNamesOf(got))
+	for _, name := range hidden {
+		if hasName(got, name) {
+			t.Errorf("工具 %q 应默认隐藏（模型可经 tool_search 发现），got %v", name, specNamesOf(got))
 		}
 	}
 	if len(got) != len(lazyCoreTools) {
