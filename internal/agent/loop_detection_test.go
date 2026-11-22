@@ -182,7 +182,7 @@ func TestDetectLoopConcurrentStable(t *testing.T) {
 func TestSetLoopDetectionDefaultFalse(t *testing.T) {
 	// 本文件所有会切换开关的测试都在 Cleanup 中还原 false，
 	// 因此其他测试运行前后该开关都保持包初始化时的默认关闭状态。
-	if loopDetectionEnabled() {
+	if LoopDetectionEnabled() {
 		t.Fatal("loop detection must be disabled by default")
 	}
 }
@@ -191,11 +191,11 @@ func TestSetLoopDetectionToggle(t *testing.T) {
 	t.Cleanup(func() { SetLoopDetection(false) })
 
 	SetLoopDetection(true)
-	if !loopDetectionEnabled() {
+	if !LoopDetectionEnabled() {
 		t.Fatal("SetLoopDetection(true) should enable the switch")
 	}
 	SetLoopDetection(false)
-	if loopDetectionEnabled() {
+	if LoopDetectionEnabled() {
 		t.Fatal("SetLoopDetection(false) should disable the switch")
 	}
 }
@@ -212,7 +212,7 @@ func TestSetLoopDetectionConcurrentSafe(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < rounds; i++ {
 				SetLoopDetection((i+w)%2 == 0)
-				_ = loopDetectionEnabled()
+				_ = LoopDetectionEnabled()
 			}
 		}(w)
 	}
