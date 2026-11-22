@@ -124,6 +124,12 @@ func SnapshotWorkspace(root string) (map[string]string, error) {
 // 按“当前没有可观察文件”处理，因此失效的 root 只会把 before 中的路径
 // 报告为删除，而不会 panic 或泄漏越界路径。
 func DiscoverWorkspaceChanges(root string, before map[string]string) []string {
+	return discoverWorkspaceChanges(root, before, workspaceDiffMaxChanges)
+}
+
+// discoverWorkspaceChanges 是 DiscoverWorkspaceChanges 的可注入上限版本，
+// 用途同 workspaceFilePaths：让上界测试用小上限而不必真实创建上千文件。
+func discoverWorkspaceChanges(root string, before map[string]string, limit int) []string {
 	after := make(map[string]string)
 	// 扫描错误对差异发现非致命：after 保持为空，before 中的路径记为删除。
 	_ = walkWorkspaceFiles(root, func(rel, abs string) {
@@ -149,8 +155,8 @@ func DiscoverWorkspaceChanges(root string, before map[string]string) []string {
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
-	if len(paths) > workspaceDiffMaxChanges {
-		paths = paths[:workspaceDiffMaxChanges]
+	if len(paths) > limit {
+		paths = paths[:limit]
 	}
 	if len(paths) == 0 {
 		return nil
@@ -168,6 +174,13 @@ func DiscoverWorkspaceChanges(root string, before map[string]string) []string {
 // 同样返回 nil。该函数是纯函数：不读取或修改任何全局状态，每次调用独立扫描
 // 文件系统，不缓存结果，也不改动传入的 root。
 func WorkspaceFilePaths(root string) []string {
+	return workspaceFilePaths(root, WorkspaceDiffMaxEnumerateFiles)
+}
+
+// workspaceFilePaths 是 WorkspaceFilePaths 的可注入上限版本。截断逻辑与上限
+// 数值无关，测试用小上限即可验证，避免为上界测试真实创建上万个文件——在
+// Windows 上那会让单个测试耗时十几秒。生产路径始终走上面的默认上限。
+func workspaceFilePaths(root string, limit int) []string {
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
 		return nil
@@ -186,8 +199,8 @@ func WorkspaceFilePaths(root string) []string {
 		return nil
 	}
 	sort.Strings(paths)
-	if len(paths) > WorkspaceDiffMaxEnumerateFiles {
-		paths = paths[:WorkspaceDiffMaxEnumerateFiles]
+	if len(paths) > limit {
+		paths = paths[:limit]
 	}
 	return paths
 }

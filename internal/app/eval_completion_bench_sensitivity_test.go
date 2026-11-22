@@ -53,6 +53,24 @@ func benchSensitivityReport(t *testing.T, scenarios []eval.Scenario) eval.Report
 	return report
 }
 
+// benchSensitivityReportFor 只跑 indices 指定的场景，并把结果的 Index 修正回
+// 原场景下标。故障注入只影响目标场景，其余场景在基线里已经验证过，不必在每个
+// 故障用例里重跑全部 6 个真实循环（那会让单个子测试耗时 ~7.6s）。
+func benchSensitivityReportFor(t *testing.T, scenarios []eval.Scenario, indices ...int) eval.Report {
+	t.Helper()
+	subset := make([]eval.Scenario, 0, len(indices))
+	for _, i := range indices {
+		subset = append(subset, scenarios[i])
+	}
+	report := benchSensitivityReport(t, subset)
+	for k, idx := range indices {
+		if k < len(report.Results) {
+			report.Results[k].Index = idx
+		}
+	}
+	return report
+}
+
 // breakBenchNeedle 把指定场景某个 expect_request_contains needle 改坏，
 // 模拟 harness 不再产出该文本。返回是否找到并替换。
 func breakBenchNeedle(scenarios []eval.Scenario, idx int, needle string) bool {
@@ -107,6 +125,9 @@ func TestCompletionBenchSensitiveToHarnessFaults(t *testing.T) {
 	}
 	for _, f := range faults {
 		t.Run(f.name, func(t *testing.T) {
+			// 各故障用例只改自己的场景副本，彼此无共享可变状态；
+			// 每轮都要跑 6 个真实循环，并行可把这段从 ~30s 压到 ~8s。
+			t.Parallel()
 			scenarios, err := eval.Load(benchFixturePath(t))
 			if err != nil {
 				t.Fatalf("Load(completion_bench.json): %v", err)
@@ -115,7 +136,12 @@ func TestCompletionBenchSensitiveToHarnessFaults(t *testing.T) {
 				t.Fatalf("needle %q not found in scenario %d (%s)", f.needle, f.idx, scenarios[f.idx].Name)
 			}
 
-			report := benchSensitivityReport(t, scenarios)
+			// 只重跑目标场景和对照 B2；其余场景在基线中已验证，直接复用其
+			// 结果合成完整报告，下面的完成率与逐项断言保持原样不变。
+			partial := benchSensitivityReportFor(t, scenarios, f.idx, 1)
+			report := eval.Report{Results: append([]eval.Result(nil), baseReport.Results...)}
+			report.Results[f.idx] = partial.Results[0]
+			report.Results[1] = partial.Results[1]
 			rate := eval.ScenarioCompletionRate(report.Results)
 			if rate >= baseRate {
 				t.Fatalf("completion rate did not drop after fault: got %v, baseline %v; reasons: %s",

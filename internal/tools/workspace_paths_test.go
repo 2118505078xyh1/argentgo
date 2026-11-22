@@ -117,22 +117,24 @@ func TestWorkspaceFilePathsSlashAndSorted(t *testing.T) {
 	}
 }
 
-// 超过上限时截断到 WorkspaceDiffMaxEnumerateFiles 项并保持排序。
+// 超过上限时截断到 limit 项并保持排序。用可注入的小上限验证截断逻辑本身，
+// 与默认上限的具体数值无关；真实创建上万文件在 Windows 上耗时十几秒。
 func TestWorkspaceFilePathsBounded(t *testing.T) {
 	root := t.TempDir()
-	count := WorkspaceDiffMaxEnumerateFiles + 20
+	const limit = 20
+	count := limit + 20
 	for i := 0; i < count; i++ {
 		wfpWrite(t, root, fmt.Sprintf("f%05d.txt", i), "x")
 	}
 
-	got := WorkspaceFilePaths(root)
-	if len(got) != WorkspaceDiffMaxEnumerateFiles {
-		t.Fatalf("枚举数 = %d, want %d", len(got), WorkspaceDiffMaxEnumerateFiles)
+	got := workspaceFilePaths(root, limit)
+	if len(got) != limit {
+		t.Fatalf("枚举数 = %d, want %d", len(got), limit)
 	}
 	if !sort.StringsAreSorted(got) {
 		t.Fatal("截断结果未按字典序排序")
 	}
-	if got[0] != "f00000.txt" || got[len(got)-1] != fmt.Sprintf("f%05d.txt", WorkspaceDiffMaxEnumerateFiles-1) {
+	if got[0] != "f00000.txt" || got[len(got)-1] != fmt.Sprintf("f%05d.txt", limit-1) {
 		t.Fatalf("截断端点异常: %q ... %q", got[0], got[len(got)-1])
 	}
 }

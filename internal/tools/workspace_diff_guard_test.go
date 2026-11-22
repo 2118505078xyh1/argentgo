@@ -292,15 +292,17 @@ func TestWorkspaceDiffGuardDiscoverIgnoresNoiseChanges(t *testing.T) {
 }
 
 // TestWorkspaceDiffGuardDiscoverBounded 验证返回路径数有上限。
+// 用可注入的小上限验证截断逻辑本身，不必真实创建上千文件。
 func TestWorkspaceDiffGuardDiscoverBounded(t *testing.T) {
 	root := t.TempDir()
-	count := workspaceDiffMaxChanges + 37
+	const limit = 20
+	count := limit + 37
 	for i := 0; i < count; i++ {
 		wdGuardWrite(t, root, filepath.Join("many", fmt.Sprintf("f%04d.txt", i)), "x")
 	}
-	got := DiscoverWorkspaceChanges(root, map[string]string{})
-	if len(got) != workspaceDiffMaxChanges {
-		t.Errorf("变更数 = %d, want 上限 %d", len(got), workspaceDiffMaxChanges)
+	got := discoverWorkspaceChanges(root, map[string]string{}, limit)
+	if len(got) != limit {
+		t.Errorf("变更数 = %d, want 上限 %d", len(got), limit)
 	}
 }
 
