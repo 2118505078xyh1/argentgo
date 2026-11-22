@@ -64,6 +64,13 @@ func runEval(app App, ctx context.Context, args []string) int {
 		return runEvalBaseline(app, args[1:])
 	}
 
+	// history 是 eval 子命令的带外前缀：从 git 历史抽取任务，在隔离 worktree
+	// 中用真实模型执行并评分。与 compare/ab/orchestration 一样手写分派，
+	// 默认 eval 路径完全不变。
+	if len(args) > 0 && args[0] == "history" {
+		return runEvalHistory(app, ctx, args[1:])
+	}
+
 	// --live 与 --json 都是 eval 子命令的带外前缀：不进 flagSurface/parity，
 	// 只在这里手写扫描。默认 eval 路径、compare 与 ab 路径互不影响。
 	//   --live       决定把套件分派给 LiveEvalSuiteRunner 而非脚本化 runner；
@@ -259,6 +266,7 @@ func evalUsage(w io.Writer) {
        argentgo eval quality <model-quality.json>
        argentgo eval baseline accept <result.json> [--note <text>]
        argentgo eval baseline check <result.json>
+       argentgo eval history <repo> [--max-tasks <n>] [--since <ref>]
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.

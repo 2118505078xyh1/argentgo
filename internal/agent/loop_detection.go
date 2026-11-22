@@ -17,15 +17,10 @@ func SetLoopDetection(enabled bool) {
 	loopDetection.Store(enabled)
 }
 
-// loopDetectionEnabled 报告当前是否启用了工具调用循环检测。
-func loopDetectionEnabled() bool {
-	return loopDetection.Load()
-}
-
-// LoopDetectionEnabled 是 loopDetectionEnabled 的导出只读版本，
-// 供装配层验证本次运行的 opt-in 开关是否按 env 生效。
+// LoopDetectionEnabled 报告当前是否启用了工具调用循环检测。
+// 它是热路径（loop.go 的批次后检查）与装配层诊断共用的只读入口。
 func LoopDetectionEnabled() bool {
-	return loopDetectionEnabled()
+	return loopDetection.Load()
 }
 
 // 参数钳制默认值：仅当调用方传入非正数时生效。

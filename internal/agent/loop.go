@@ -768,7 +768,7 @@ func toolStepsFromEvents(events []Event) []ToolStep {
 // 同一个循环只提示一次；一旦某步不再检出循环就清空去重状态，使后续新的循环
 // 情节可以再次提示。
 func (s *runState) checkLoopDetection() {
-	if !loopDetectionEnabled() {
+	if !LoopDetectionEnabled() {
 		return
 	}
 	steps := toolStepsFromEvents(s.eventsSnapshot())

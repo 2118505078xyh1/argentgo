@@ -198,6 +198,19 @@ type OrchestrationRunner interface {
 	RunOrchestration(ctx context.Context, path string) (OrchestrationReport, error)
 }
 
+// HistoryEvalSpec 描述一次 git 历史评测的输入：仓库路径、任务上限与起始 revision。
+type HistoryEvalSpec struct {
+	Repo     string
+	MaxTasks int
+	Since    string
+}
+
+// HistoryEvalSuiteRunner 用真实模型执行从 git 历史抽取的任务套件。
+// 它是 eval 子命令 `history` 前缀的带外分派目标，默认 eval 路径不依赖此接口。
+type HistoryEvalSuiteRunner interface {
+	RunHistory(ctx context.Context, spec HistoryEvalSpec, out io.Writer) (passed, failed int, err error)
+}
+
 // TUIFunc 针对一组解析后的选项运行全屏终端 UI。
 type TUIFunc func(ctx context.Context, opts Options) error
 

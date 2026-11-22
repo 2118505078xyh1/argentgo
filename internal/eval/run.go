@@ -64,6 +64,10 @@ type Options struct {
 	// （默认路径逐字节不变）。非 nil 时每个场景调用一次，返回的 Chatter 被注入
 	// Workspace.Chatter，并由计数包装器统计轮数，使 Expect.Turns 对真实 provider 同样有效。
 	ChatterFactory func(Scenario) llm.Chatter
+	// WorkspaceFactory 为场景创建隔离工作区。nil 时 runOne 沿用 os.MkdirTemp，
+	// 默认路径逐字节不变。非 nil 时返回工作目录与清理函数；Keep 为真时不调用
+	// 清理函数（保留现场供调试）。git 历史任务用它把工作区放进临时 worktree。
+	WorkspaceFactory func(Scenario) (dir string, cleanup func(), err error)
 }
 
 // Result 是一个场景的评分结果。
@@ -254,13 +258,25 @@ func LiveChatterAdapter(ch llm.Chatter) func(Scenario) llm.Chatter {
 func runOne(ctx context.Context, index int, scenario Scenario, run RunFunc, opts Options) Result {
 	result := Result{Index: index, Name: scenario.Name}
 
-	dir, err := os.MkdirTemp("", fmt.Sprintf("argent-eval-%02d-", index))
+	var dir string
+	var cleanup func()
+	var err error
+	if opts.WorkspaceFactory != nil {
+		dir, cleanup, err = opts.WorkspaceFactory(scenario)
+		// 工厂未提供清理函数时退回删除目录，避免遗留临时文件。
+		if cleanup == nil && dir != "" {
+			cleanup = func() { _ = os.RemoveAll(dir) }
+		}
+	} else {
+		dir, err = os.MkdirTemp("", fmt.Sprintf("argent-eval-%02d-", index))
+		cleanup = func() { _ = os.RemoveAll(dir) }
+	}
 	if err != nil {
 		result.Reason = "cannot create the scratch directory: " + err.Error()
 		return result
 	}
-	if !opts.Keep {
-		defer os.RemoveAll(dir)
+	if !opts.Keep && cleanup != nil {
+		defer cleanup()
 	}
 	if err := seed(dir, scenario.Files); err != nil {
 		result.Reason = err.Error()
