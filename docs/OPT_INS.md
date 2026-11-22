@@ -348,7 +348,7 @@ argentgo "你的任务"
 
 ### `ARGENT_PERSISTENT_SHELL` —— 持久化 shell 会话
 
-- **作用**：开启后 bash 工具的命令在一条长驻 shell 会话中执行（原语 `internal/pshell`），从而跨调用复用 `cd`、`export`、虚拟环境激活等 shell 状态。装配点为 `internal/app/app_shell_wire.go` 的 `wireShellSessions`：读环境变量 → 建立 `pshell.Manager` → 经 `SetShellSessions` 注入本次运行的全部工具注册表；退出时 `Close()`（幂等）回收会话，并且按 LIFO 先于后台作业与工具集关闭。
+- **作用**：开启后 bash 工具的命令在一条长驻 shell 会话中执行（原语 `internal/bash`），从而跨调用复用 `cd`、`export`、虚拟环境激活等 shell 状态。装配点为 `internal/app/app_shell_wire.go` 的 `wireShellSessions`：读环境变量 → 建立 `bash.Manager` → 经 `SetShellSessions` 注入本次运行的全部工具注册表；退出时 `Close()`（幂等）回收会话，并且按 LIFO 先于后台作业与工具集关闭。
 - **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
 - **shell 种类**：POSIX 平台用 `bash`；Windows 优先 `bash`，找不到时退到 `powershell`（持久化内核阶段1不支持 `cmd`）。
 - **阶段1限制**（务必知悉）：

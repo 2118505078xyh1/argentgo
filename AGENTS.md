@@ -64,7 +64,7 @@ internal/commands   markdown slash commands
 internal/memory     AGENTS.md/CLAUDE.md injection
 internal/i18n       zh-CN/en-US strings (go:embed)
 internal/proc       process spawn/kill trees, timeouts
-internal/shell      command execution subsystem: bash/powershell tools + shell engine + coreutils
+internal/bash       command execution subsystem: built-in bash (shell engine + coreutils + persistent sessions) + powershell tools
 internal/pty        ConPTY / unix pty
 internal/jobs       background job registry
 internal/automation cron scheduler + daemon

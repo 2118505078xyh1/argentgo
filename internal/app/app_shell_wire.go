@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/pshell"
+	"github.com/2118505078xyh1/argentgo/internal/bash"
 )
 
 // 本文件提供持久化 shell 会话的最小可用接线。它把 internal/pshell 的管理器
@@ -25,16 +25,16 @@ func shellSessionsOptInEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env(shellSessionsOptInEnv)) == "1"
 }
 
-// shellManager 是 app 对持久化会话管理器的最小契约。它是 pshell.Manager 的
+// shellManager 是 app 对持久化会话管理器的最小契约。它是 bash.Manager 的
 // 子集，额外暴露 close 供退出钩子回收；测试用伪实现替换构造子即可覆盖接线。
 type shellManager interface {
 	Exec(ctx context.Context, workspace, shellKind, command string) (stdout string, code int, err error)
 	Close() error
 }
 
-// newShellManager 是可替换的构造子；生产路径始终返回真实的 pshell.Manager。
+// newShellManager 是可替换的构造子；生产路径始终返回真实的 bash.Manager。
 // 它是 app 中唯一 import pshell 的点，其余包保持零依赖。
-var newShellManager = func() shellManager { return pshell.NewManager(nil) }
+var newShellManager = func() shellManager { return bash.NewManager(nil) }
 
 // SetShellSessions 把持久化会话管理器安装到该工具集的全部注册表上。
 // 参数是 any，使 tools / shell 不依赖具体会话实现包。

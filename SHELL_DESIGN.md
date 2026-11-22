@@ -13,7 +13,7 @@
 ## 2. 包结构与依赖方向
 
 ```
-internal/shell/           新建，纯 stdlib，与 internal/proc 同级
+internal/bash/           新建，纯 stdlib，与 internal/proc 同级
   lexer.go       rune 级词法；三态 normal/sgl/dbl + 嵌套栈(param/cmdsubst)
   ast.go         File/Stmt/CallExpr/Word/WordPart/Redirect/BinaryCmd + Pos
   parser.go      递归下降；只产结构不做替换
@@ -25,8 +25,8 @@ internal/shell/           新建，纯 stdlib，与 internal/proc 同级
   doc.go         能力边界文档：支持/不支持语法清单
 ```
 
-- **允许**：`internal/shell` → stdlib；`internal/shell` → `internal/proc`（进程执行）。
-- **禁止**：`internal/shell` → `internal/tools`/`internal/security`/`internal/agent`（会成环/违反分层）。
+- **允许**：`internal/bash` → stdlib；`internal/bash` → `internal/proc`（进程执行）。
+- **禁止**：`internal/bash` → `internal/tools`/`internal/security`/`internal/agent`（会成环/违反分层）。
 - 安全咨询用函数值注入：`type SafetyOracle func(command string) bool`，app 装配时传 `security.FindFileEditingCommand != ""`（消费方定义类型、依赖在调用点注入，符合 AGENTS.md）；nil 时不咨询。
 
 ## 3. 语法子集（严格限定）

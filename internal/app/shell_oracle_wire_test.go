@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/2118505078xyh1/argentgo/internal/bash"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/shell"
 )
 
 // R51研究#26：安全咨询谓词在生产接线中从未被设置，内建 shell 的
@@ -34,9 +34,9 @@ import (
 //
 // 这同时证明 oracle 咨询的是"展开后的真实 argv"，更难被分词差分绕过。
 func TestShellOracleWire(t *testing.T) {
-	// 内建 shell 由进程环境变量控制（shell.builtinShellEnabled 用 os.Getenv）。
+	// 内建 shell 由进程环境变量控制（bash.builtinShellEnabled 用 os.Getenv）。
 	t.Setenv("ARGENT_BUILTIN_SHELL", "1")
-	t.Cleanup(func() { shell.SetSafetyOracle(nil) })
+	t.Cleanup(func() { bash.SetSafetyOracle(nil) })
 
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "argent.json"),
@@ -100,19 +100,19 @@ func TestInterpFailClosedCallsCurrentSafety(t *testing.T) {
 // CurrentSafety(nil, ...) 必须返回 true（系统 shell 路径逐字节不变），
 // 注入谓词后 CJK 命令的字节必须原样送达。
 func TestCurrentSafetyBaselineAndCJK(t *testing.T) {
-	t.Cleanup(func() { shell.SetSafetyOracle(nil) })
-	shell.SetSafetyOracle(nil)
+	t.Cleanup(func() { bash.SetSafetyOracle(nil) })
+	bash.SetSafetyOracle(nil)
 
 	const cjk = "回显 你好 世界"
-	if !shell.CurrentSafety(nil, cjk) {
+	if !bash.CurrentSafety(nil, cjk) {
 		t.Fatalf("未注入时 CurrentSafety(nil, %q) = false，期望 true（放行）", cjk)
 	}
 
-	shell.SetSafetyOracle(func(got string) bool { return got == cjk })
-	if !shell.CurrentSafety(nil, cjk) {
+	bash.SetSafetyOracle(func(got string) bool { return got == cjk })
+	if !bash.CurrentSafety(nil, cjk) {
 		t.Fatalf("CJK 命令未被原样交给谓词：%q", cjk)
 	}
-	if shell.CurrentSafety(nil, "回显 你好") {
+	if bash.CurrentSafety(nil, "回显 你好") {
 		t.Fatal("不同 CJK 命令不应被误判为放行")
 	}
 }
