@@ -507,6 +507,10 @@ type hookedTools struct {
 	// 零值 false 时完全退化为旧的 EnableEditDiagnostics 全局开关行为；
 	// 置 true 时即使全局开关关闭也走诊断路径。公共 SetXxx 不变。
 	autoDiagnostics bool
+	// lspFileNotifier 是编辑后主动通知语言服务器文件变更的可选接线点。默认 nil
+	// 时 Run 不产生任何通知，成功路径逐字节不变；注入后仅在变更型工具成功返回、
+	// 且 mutationPaths 报告了路径时调用。通知失败绝不影响工具结果。
+	lspFileNotifier func(root string, paths []string)
 }
 
 func (h *hookedTools) Specs() []llm.ToolSpec { return h.inner.Specs() }
@@ -565,6 +569,9 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (out string, r
 	// 路径来自注册表的 MutationPaths 接缝，因此只读工具和边界外写入永远不会产生事件。
 	// 默认运行不变。
 	h.fireFileChanged(ctx, name, args, &out)
+	// 可选的编辑后 LSP 文件变更通知：仅在成功分支触发，只通知已运行的客户端，
+	// 没有注入 notifier 或没有变更路径时零调用，且结果绝不影响工具输出。
+	h.notifyLSPFileChanged(name, args)
 	// 可选的来源 URL 标注：默认 sourceAnnotator 为 nil，直接返回，成功工具的
 	// 输出逐字节不变；接入方按需注入 annotateSourceURL，只改 web_fetch /
 	// web_search 的结果，绝不替换内容本身。

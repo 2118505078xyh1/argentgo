@@ -491,6 +491,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 任何失败都 fail-closed 到 RequireApproval。未开启 ARGENT_GUARDIAN 时
 	// guardianInspectorFor 返回 nil，这段审阅函数根本不会被调用。
 	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, guardianModelReview(res.Chatter, res.Options.SecondaryModel))
+	{
+		probe, _ := json.Marshal(map[string]string{"command": "rm -f plan_exit_before.txt"})
+		fmt.Fprintf(os.Stderr, "ZZPROBE planMode=%v guardErr=%v guardType=%T\n", planMode, chain.Check(context.Background(), "bash", probe), guard)
+	}
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
@@ -553,6 +557,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		runner = &hookedTools{
 			inner: toolset, bridge: bridge, mutationPaths: toolset.base.mutationPaths,
 			autoDiagnostics: optIns[OptInAutoVerify],
+			lspFileNotifier: lspWatchNotifier(stdio.Env), // ARGENT_LSP_WATCH=0 时注入 nil，完全关闭。
 		}
 	}
 	// 来源 URL 标注（默认启用）：web_fetch/web_search 成功结果前加一行已脱敏
@@ -766,6 +771,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	wireModels(stdio, toolset)
 	// DAP 调试工具默认注册（只公布工具、不启动进程）；ARGENT_DAP=0 时紧急关闭。
 	wireDap(stdio, toolset)
+	// 浏览器工具默认注册（只公布工具、不启动 Chrome）；ARGENT_BROWSER=0 时关闭。
+	// 与 web_fetch/web_search 分层：静态页用 web_fetch/web_fastfetch，需 JS/交互才用 browser。
+	wireBrowser(stdio, toolset)
 	// memory_consolidate 默认关（会改写记忆日志）：ARGENT_MEMORY_CONSOLIDATE=1
 	// 才注册。显式注册，默认工具清单逐字节不变。
 	wireMemoryConsolidate(stdio, toolset)
