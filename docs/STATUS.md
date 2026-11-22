@@ -37,6 +37,10 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 从这些项目中明确拒绝的有：Node/Cordis 插件图、SQLite/FTS5、Honcho 用户建模、聊天平台机器人、Go 标准库之外的操作系统沙箱原语、远程沙箱、JS code-mode 虚拟机和托管目录。它们要么是重量级依赖、服务，要么是定位上的取舍，而不是可移植的行为。
 
+### killi 研究迁移（2026-11-23）
+
+从 Rust agent `killi`（github.com/timwuhaotian/killi）移植了资源有界、缓存纪律与可复现性三方面的多项改进：`read` 尺寸预检、prompt 预算护栏、钩子进程组终止、`ARGENT_LOOP_DETECTION` 接线、`eval history` 系列（git 历史任务 + worktree 隔离 + 离线自检 + `--scripted`/`--verify`）、`ARGENT_REQUEST_SNAPSHOT` 请求字节快照。逐项提交号、未迁移项与原因见 `docs/KILLI_STUDY.md`。
+
 ### 发布门禁
 
 1. `go vet ./...`、`go test ./...`、`gofmt -l .` 在 Windows 和 Linux 交叉编译上都干净。
