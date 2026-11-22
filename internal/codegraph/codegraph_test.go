@@ -239,8 +239,9 @@ func TestLimitTruncation(t *testing.T) {
 	}
 	all := ix.Query(Query{Direction: "all"})
 	capped := ix.Query(Query{Direction: "all", Limit: 3})
-	if totalEdges(capped) != 3 || capped.Truncated != 1 {
-		t.Fatalf("Limit 应为 3 且截断: total=%d truncated=%d", totalEdges(capped), capped.Truncated)
+	wantOmitted := totalEdges(all) - 3
+	if totalEdges(capped) != 3 || capped.Truncated != wantOmitted {
+		t.Fatalf("Limit 应为 3 且丢弃 %d 条: total=%d truncated=%d", wantOmitted, totalEdges(capped), capped.Truncated)
 	}
 	if len(capped.Definitions) != 3 {
 		t.Fatalf("Limit 应先分配给定定义: %+v", capped)
@@ -389,6 +390,26 @@ func GitOnly() {}
 	for _, name := range []string{"VendorOnly", "GitOnly"} {
 		if r := ix.Query(Query{Name: name, Direction: "all"}); totalEdges(r) != 0 {
 			t.Fatalf("%s 不应被索引: %+v", name, r)
+		}
+	}
+}
+
+// TestPackageNameFromImportPath 守护 import 版本后缀修复：major version 后缀不属于
+// 包名，必须剥掉，否则 Ref.Pkg 与定义对不上，exact 边会错误降级为 candidate。
+func TestPackageNameFromImportPath(t *testing.T) {
+	tests := map[string]string{
+		"fmt":                    "fmt",
+		"math/rand/v2":           "rand",
+		"gopkg.in/yaml.v3":       "yaml",
+		"gopkg.in/check.v1":      "check",
+		"github.com/foo/bar/v2":  "bar",
+		"golang.org/x/text":      "text",
+		"example.com/foo.v2beta": "foo.v2beta", // 非纯数字后缀不剥
+		"example.com/v2":         "v2",         // 单段路径无上一段可取时保持原样
+	}
+	for in, want := range tests {
+		if got := packageNameFromImportPath(in); got != want {
+			t.Errorf("packageNameFromImportPath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

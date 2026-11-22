@@ -9,7 +9,7 @@ import "sort"
 //   - all：三者并集，边按源码位置去重
 //
 // Limit 作用于 Definitions+Edges+Candidates 的总条数（按此顺序分配额度），
-// 发生丢弃时 Truncated=1；Limit<=0 表示不截断。
+// 发生丢弃时 Truncated 为实际丢弃的条数；Limit<=0 表示不截断。
 func (ix *Index) Query(q Query) Result {
 	var res Result
 	if ix == nil {
@@ -87,13 +87,13 @@ func (ix *Index) Query(q Query) Result {
 		}
 	}
 
-	defs, exact, cands, truncated := applyLimit(defs, exact, cands, q.Limit)
+	defs, exact, cands, omitted := applyLimit(defs, exact, cands, q.Limit)
 	res.Definitions = defs
 	res.Edges = exact
 	res.Candidates = cands
-	if truncated {
-		res.Truncated = 1
-	}
+	// Truncated 记录被 Limit 丢弃的边数（0 表示未截断），供工具层打印真实的
+	// "[N more omitted by codegraph]"；旧的布尔标志会把 90 条误报成 1 条。
+	res.Truncated = omitted
 
 	rules := make(map[string]bool)
 	for _, list := range [][]Edge{res.Definitions, res.Edges, res.Candidates} {
@@ -123,19 +123,18 @@ func definitionEdge(sym Symbol, lines []string) Edge {
 }
 
 // applyLimit 按 Definitions -> Edges -> Candidates 的顺序分配额度。
-// limit<=0 表示不截断。
-func applyLimit(defs, exact, cands []Edge, limit int) ([]Edge, []Edge, []Edge, bool) {
+// limit<=0 表示不截断；返回值第四项是实际被丢弃的边数（0 表示未截断）。
+func applyLimit(defs, exact, cands []Edge, limit int) ([]Edge, []Edge, []Edge, int) {
 	if limit <= 0 {
-		return defs, exact, cands, false
+		return defs, exact, cands, 0
 	}
+	before := len(defs) + len(exact) + len(cands)
 	left := limit
-	truncated := false
 	cut := func(xs []Edge) []Edge {
 		if len(xs) <= left {
 			left -= len(xs)
 			return xs
 		}
-		truncated = true
 		out := xs[:left]
 		left = 0
 		return out
@@ -143,5 +142,5 @@ func applyLimit(defs, exact, cands []Edge, limit int) ([]Edge, []Edge, []Edge, b
 	defs = cut(defs)
 	exact = cut(exact)
 	cands = cut(cands)
-	return defs, exact, cands, truncated
+	return defs, exact, cands, before - (len(defs) + len(exact) + len(cands))
 }

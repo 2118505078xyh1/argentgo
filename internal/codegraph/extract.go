@@ -108,7 +108,7 @@ func importSpec(ctx *fileCtx, spec *ast.ImportSpec) {
 	if err != nil {
 		return
 	}
-	base := path.Base(p)
+	base := packageNameFromImportPath(p)
 	alias := base
 	if spec.Name != nil {
 		if spec.Name.Name == "_" || spec.Name.Name == "." {
@@ -117,6 +117,53 @@ func importSpec(ctx *fileCtx, spec *ast.ImportSpec) {
 		alias = spec.Name.Name
 	}
 	ctx.imports[alias] = base
+}
+
+// packageNameFromImportPath 从 import 路径推断真实包名。Go 模块的 major version
+// 后缀 /vN 与 gopkg.in 的 .vN 都不是包名的一部分：math/rand/v2 的包名是 rand
+// 而非 v2。若把 v2 当包名，Ref.Pkg 与定义符号的 Pkg 对不上，本该 exact 的引用边
+// 会降级成 candidate，直接损害图谱精度。
+func packageNameFromImportPath(p string) string {
+	base := path.Base(p)
+	if isMajorVersionSegment(base) {
+		// 从尾部向前找第一个不含点号的段：域名段（如 example.com）不是合法包名，
+		// 不能拿来推断。找不到时保持 vN 原样，交由 fail-closed 处理。
+		dir := path.Dir(p)
+		for dir != "." && dir != "/" {
+			cand := path.Base(dir)
+			if !strings.Contains(cand, ".") {
+				base = cand
+				break
+			}
+			dir = path.Dir(dir)
+		}
+	}
+	if i := strings.LastIndex(base, ".v"); i > 0 && allDigits(base[i+2:]) {
+		base = base[:i]
+	}
+	return base
+}
+
+// isMajorVersionSegment 报告 s 是否为 vN 形态的 major version 段。
+func isMajorVersionSegment(s string) bool {
+	if len(s) < 2 || s[0] != 'v' {
+		return false
+	}
+	n, err := strconv.Atoi(s[1:])
+	return err == nil && n >= 1
+}
+
+// allDigits 报告 s 是否非空且全部由 ASCII 数字组成（用于 .vN 后缀识别）。
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // receiverName 把 *T、T[P] 及带括号的接收者解包为基础类型标识符。

@@ -17,12 +17,14 @@ var codeGraphBuildHook func(string) (*codegraph.Index, error)
 
 // wireCodeGraph 在 opt-in 开启时为本次运行构建代码索引并注入查询工具。
 //
-// set 为 nil 或 opt-in 关闭时直接返回，零开销。构建失败只写一行 warn 到 stderr，
-// 工具保持在"不可用"状态（codegraph_query 返回可读提示而非错误），绝不中断运行。
-// 索引是不可变内存快照，无需 Close；重复调用是幂等的（Registry.SetCodeGraph
-// 原位置换适配器且自动完成注册，不会产生重复工具或重复 spec）。
-func wireCodeGraph(stdio cli.IO, root string, set *toolset) {
-	if set == nil || !codeGraphHintEnabled(stdio.Env) {
+// set 为 nil、reg 为 nil 或 opt-in 关闭时直接返回，零开销。reg 来自
+// mergeOptIns(env, config) 构造的统一注册表，因此仅通过 config 的 optins 块
+// 开启 codegraph 时同样会建索引并注入——与 mcp.go 的工具注册口径一致。
+// 构建失败只写一行 warn 到 stderr，工具保持在"不可用"状态（codegraph_query
+// 返回可读提示而非错误），绝不中断运行。索引是不可变内存快照，无需 Close；
+// 重复调用是幂等的（Registry.SetCodeGraph 原位置换适配器且自动完成注册）。
+func wireCodeGraph(stdio cli.IO, root string, set *toolset, reg *OptInRegistry) {
+	if set == nil || !codeGraphHintEnabled(reg) {
 		return
 	}
 	var ix *codegraph.Index

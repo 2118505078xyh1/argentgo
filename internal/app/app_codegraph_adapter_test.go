@@ -25,6 +25,15 @@ func codeGraphTestToolset(t *testing.T, root string) *toolset {
 	return &toolset{base: &multiRootTools{roots: []string{root}, regs: []*tools.Registry{reg}}}
 }
 
+// codeGraphReg 构造只控制 codegraph 开关的统一注册表。
+func codeGraphReg(on bool) *OptInRegistry {
+	reg := &OptInRegistry{}
+	if on {
+		reg.Set(OptInCodeGraph, true)
+	}
+	return reg
+}
+
 // codeGraphWriteGoFile 在 root 下写一个最小 Go 包，供真实 Build 建图。
 func codeGraphWriteGoFile(t *testing.T, root, src string) {
 	t.Helper()
@@ -53,14 +62,9 @@ func TestWireCodeGraphDefaultOffNoSideEffects(t *testing.T) {
 	before := append([]string(nil), codeGraphNames(set)...)
 	var stderr bytes.Buffer
 
-	// env 为 nil、未知值、其它键都不触发任何构建或注入。
-	for _, env := range []func(string) string{
-		nil,
-		func(string) string { return "" },
-		func(string) string { return "apply_patch" },
-		func(string) string { return "代码图谱" },
-	} {
-		wireCodeGraph(cli.IO{Env: env, Err: &stderr}, root, set)
+	// 注册表为 nil、空表、其它键开启都不触发任何构建或注入。
+	for _, reg := range []*OptInRegistry{nil, {}, codeGraphReg(false)} {
+		wireCodeGraph(cli.IO{Err: &stderr}, root, set, reg)
 	}
 	if calls != 0 {
 		t.Fatalf("默认关闭时 Build 被调用了 %d 次", calls)
@@ -85,12 +89,11 @@ func TestWireCodeGraphOnInjectsQueryTool(t *testing.T) {
 	env := func(string) string { return "codegraph" }
 
 	// 复刻生产装配：先按 opt-in 注册表登记 spec，再构建并注入索引。
-	reg := &OptInRegistry{}
-	reg.Set(OptInCodeGraph, true)
+	reg := codeGraphReg(true)
 	wireOptInTools(set.base.regs[0], reg)
 	before := append([]string(nil), codeGraphNames(set)...)
 
-	wireCodeGraph(cli.IO{Env: env, Err: &stderr}, root, set)
+	wireCodeGraph(cli.IO{Env: env, Err: &stderr}, root, set, reg)
 	if stderr.Len() != 0 {
 		t.Fatalf("构建成功不应写 warn: %q", stderr.String())
 	}
@@ -130,7 +133,7 @@ func TestWireCodeGraphBuildFailureDegrades(t *testing.T) {
 	var stderr bytes.Buffer
 
 	// 必须不崩溃、不注入工具、只在 stderr 留一行 warn。
-	wireCodeGraph(cli.IO{Env: func(string) string { return "codegraph" }, Err: &stderr}, root, set)
+	wireCodeGraph(cli.IO{Env: func(string) string { return "codegraph" }, Err: &stderr}, root, set, codeGraphReg(true))
 	if got := codeGraphNames(set); !reflect.DeepEqual(got, before) {
 		t.Fatalf("构建失败时不应注入工具: got %v, want %v", got, before)
 	}
@@ -142,7 +145,7 @@ func TestWireCodeGraphBuildFailureDegrades(t *testing.T) {
 		t.Fatalf("warn 应恰好一行: %q", warn)
 	}
 	// nil stderr 也不能 panic。
-	wireCodeGraph(cli.IO{Env: func(string) string { return "codegraph" }}, root, set)
+	wireCodeGraph(cli.IO{Env: func(string) string { return "codegraph" }}, root, set, codeGraphReg(true))
 }
 
 func TestWireCodeGraphIdempotentAndNilSafe(t *testing.T) {
@@ -154,15 +157,15 @@ func TestWireCodeGraphIdempotentAndNilSafe(t *testing.T) {
 	// nil 工具集是空操作：不 panic，也不动真实工具集。
 	before := append([]string(nil), codeGraphNames(set)...)
 	var nilSet *toolset
-	wireCodeGraph(stdio, root, nilSet)
+	wireCodeGraph(stdio, root, nilSet, codeGraphReg(true))
 	if got := codeGraphNames(set); !reflect.DeepEqual(got, before) {
 		t.Fatalf("nil 工具集不应产生副作用: %v -> %v", before, got)
 	}
 
 	// 重复装配不改变工具数量与顺序。
-	wireCodeGraph(stdio, root, set)
+	wireCodeGraph(stdio, root, set, codeGraphReg(true))
 	once := append([]string(nil), codeGraphNames(set)...)
-	wireCodeGraph(stdio, root, set)
+	wireCodeGraph(stdio, root, set, codeGraphReg(true))
 	twice := codeGraphNames(set)
 	if !reflect.DeepEqual(twice, once) {
 		t.Fatalf("重复装配后工具列表变化: %v -> %v", once, twice)
@@ -174,5 +177,38 @@ func TestWireCodeGraphIdempotentAndNilSafe(t *testing.T) {
 		if twice[i] != before[i] {
 			t.Fatalf("既有工具顺序被改变: %v -> %v", before, twice)
 		}
+	}
+}
+
+// TestWireCodeGraphConfigOnly 守护阻断修复：仅通过 config 的 optins 块启用
+// codegraph 时，提示判定、工具注册与索引注入都必须生效（env 路径完全为空）。
+func TestWireCodeGraphConfigOnly(t *testing.T) {
+	root := t.TempDir()
+	codeGraphWriteGoFile(t, root, "package sample\n\nfunc ConfigOnly() {}\n")
+	set := codeGraphTestToolset(t, root)
+	env := func(string) string { return "" } // env 中没有任何 codegraph 开关
+
+	// 复刻 app_execute.go 的统一激活面：env OR config。
+	optIns := mergeOptIns(ParseOptInEnv(env), map[OptInKey]bool{OptInCodeGraph: true})
+	reg := &OptInRegistry{}
+	for k, on := range optIns {
+		reg.Set(k, on)
+	}
+	if !codeGraphHintEnabled(reg) {
+		t.Fatal("config-only 应启用 codegraph 判定")
+	}
+	wireOptInTools(set.base.regs[0], reg)
+
+	var stderr bytes.Buffer
+	wireCodeGraph(cli.IO{Env: env, Err: &stderr}, root, set, reg)
+	if stderr.Len() != 0 {
+		t.Fatalf("构建成功不应写 warn: %q", stderr.String())
+	}
+	out, err := set.base.regs[0].Run(context.Background(), "codegraph_query", `{"name":"ConfigOnly"}`)
+	if err != nil {
+		t.Fatalf("codegraph_query 执行失败: %v", err)
+	}
+	if strings.Contains(out, "not available") || !strings.Contains(out, "DEF") || !strings.Contains(out, "ConfigOnly") {
+		t.Fatalf("config-only 下索引未注入，工具仍不可用: %q", out)
 	}
 }

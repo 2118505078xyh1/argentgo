@@ -46,7 +46,7 @@ type Query struct {
 
 // Result 是一次查询结果。Definitions 是定义记录（以 Rule=definition 的边表示）；
 // Edges 是 Conf=exact 的引用边；Candidates 是 Conf=candidate 的引用边。
-// Ambiguous 统计命中多个定义的 candidate 边；Truncated 表示 Limit 生效。
+// Ambiguous 统计命中多个定义的 candidate 边；Truncated 是 Limit 丢弃的边数（0 表示未截断）。
 // Rules 是本次结果实际用到的 Rule 标识（字典序去重）。
 type Result struct {
 	Definitions, Edges, Candidates                   []Edge

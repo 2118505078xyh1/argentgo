@@ -32,6 +32,10 @@ const (
 	// DefaultMaxBackgroundTasks 限制在一个根运行及其所有后代中，
 	// 同时运行的后台子任务数量。
 	DefaultMaxBackgroundTasks = 8
+	// defaultBackgroundTaskTimeout 是后台子任务的独立有界存活时间。后台任务必须
+	// 存活于触发它的提示之外（提示返回时调用方 context 会被取消），但仍需硬上限
+	// 防止失控任务永久占用并发槽位。
+	defaultBackgroundTaskTimeout = 10 * time.Minute
 	// BackgroundResultPrefix 既标记已完成的后台任务推送的合成结果文本，
 	// 也标记对应的父级 EventNotice。
 	BackgroundResultPrefix = "task result: "
@@ -932,10 +936,16 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 
 	// 结果属于委派此任务的运行（即该 taskTools 的 owner），绝不属于共享当前深度的所有运行。
 	owner, depth := t.owner, t.depth
+	// 后台子级的生命周期必须独立于触发它的提示：app 在每次提示返回时 cancel 调用方
+	// ctx，若直接传入会让后台子级立刻被取消、结果永远进不了队列。沿用 hooks/async.go
+	// 的既有范式——WithoutCancel 剥离父级取消信号，再挂一个有界超时。并发槽位仍由
+	// bg.release() 在 goroutine 结束时归还。
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultBackgroundTaskTimeout)
 	go func() {
 		defer bg.release()
+		defer cancel()
 		child := t.newChild(label, persona)
-		res, err := child.Run(ctx, task)
+		res, err := child.Run(runCtx, task)
 		// 与同步路径相同：后台子级被取消时补记其部分成本。
 		t.reconcileCancelledChildCost(label, t.childModel(persona), res)
 		if err != nil {

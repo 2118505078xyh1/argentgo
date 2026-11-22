@@ -106,6 +106,37 @@ func waitForNotice(t *testing.T, sink *eventSink, substr string) Event {
 	return Event{}
 }
 
+// TestBackgroundTaskSurvivesCallerCancel 守护后台生命周期修复：模型结束当前提示时
+// 调用方 context 被取消，但后台子级必须继续跑完并把结果投递给自己所属的队列。
+func TestBackgroundTaskSurvivesCallerCancel(t *testing.T) {
+	release := make(chan struct{})
+	child := &fakeChildRunner{
+		started: make(chan string, 1),
+		release: release,
+		answer:  "survived caller cancel",
+	}
+	sink := &eventSink{}
+	bg := NewBackgroundResults(0, 4)
+	tt := bgTaskTools(bg, child, sink.emit, 0, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ack, err := tt.Run(ctx, TaskToolName, backgroundTaskArgs("look", "find it"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(ack, "started in background") {
+		t.Fatalf("ack: %q", ack)
+	}
+	<-child.started // 确认后台 goroutine 已进入子级 Run 并持有 context
+	cancel()        // 模拟提示结束：调用方 context 被取消
+	close(release)  // 放行子级；若仍使用旧 ctx，此处会立刻返回 ctx.Err
+
+	got := waitForResult(t, bg)
+	if !strings.Contains(got, "survived caller cancel") {
+		t.Fatalf("后台结果未投递（可能仍继承被取消的 ctx）: %q", got)
+	}
+}
+
 func TestBackgroundTaskAcksImmediatelyAndQueuesResult(t *testing.T) {
 	release := make(chan struct{})
 	child := &fakeChildRunner{

@@ -25,24 +25,46 @@ func TestCodeGraphCapabilityHintText(t *testing.T) {
 func TestCodeGraphHintEnabled(t *testing.T) {
 	tests := []struct {
 		name string
-		env  func(string) string
+		reg  *OptInRegistry
 		want bool
 	}{
-		{"nil env", nil, false},
-		{"empty value", func(string) string { return "" }, false},
-		{"unknown key", func(string) string { return "not_a_key" }, false},
-		{"other known key", func(string) string { return "apply_patch" }, false},
-		{"near miss key", func(string) string { return "codegraph_query" }, false},
-		{"exact key", func(string) string { return "codegraph" }, true},
-		{"trimmed key", func(string) string { return "  codegraph  " }, true},
-		{"in list", func(string) string { return "apply_patch,codegraph,cli_hints" }, true},
-		{"list with blanks", func(string) string { return " , codegraph , " }, true},
-		{"cjk unknown", func(string) string { return "代码图谱" }, false},
+		{"nil reg", nil, false},
+		{"empty reg", &OptInRegistry{}, false},
+		{"other key off", codeGraphReg(false), false},
+		{"codegraph on", codeGraphReg(true), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := codeGraphHintEnabled(tc.env); got != tc.want {
+			if got := codeGraphHintEnabled(tc.reg); got != tc.want {
 				t.Fatalf("codeGraphHintEnabled(%s) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCodeGraphHintEnvAndConfigPaths 守护阻断修复：codegraph 提示由统一注册表驱动，
+// 因此 env 与 config 两条激活路径都必须生效，fail-closed 路径保持关闭。
+func TestCodeGraphHintEnvAndConfigPaths(t *testing.T) {
+	paths := []struct {
+		name   string
+		env    func(string) string
+		cfgOpt map[OptInKey]bool
+		want   bool
+	}{
+		{"both off", func(string) string { return "" }, nil, false},
+		{"env only", func(string) string { return "codegraph" }, nil, true},
+		{"config only", func(string) string { return "" }, map[OptInKey]bool{OptInCodeGraph: true}, true},
+		{"other config key", func(string) string { return "" }, map[OptInKey]bool{OptInApplyPatch: true}, false},
+	}
+	for _, tc := range paths {
+		t.Run(tc.name, func(t *testing.T) {
+			optIns := mergeOptIns(ParseOptInEnv(tc.env), tc.cfgOpt)
+			reg := &OptInRegistry{}
+			for k, on := range optIns {
+				reg.Set(k, on)
+			}
+			if got := codeGraphHintEnabled(reg); got != tc.want {
+				t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
 			}
 		})
 	}
@@ -52,18 +74,18 @@ func TestCodeGraphHintEnabled(t *testing.T) {
 // 逐字节不变；开启时恰好在末尾追加 "\n" + 提示，不多一个空行也不少一个字符。
 func TestCodeGraphHintByteExact(t *testing.T) {
 	base := "# 角色\n请修复 bug。\n\n编辑前先读文件。"
-	appendHint := func(system string, env func(string) string) string {
-		if codeGraphHintEnabled(env) {
+	appendHint := func(system string, on bool) string {
+		if codeGraphHintEnabled(codeGraphReg(on)) {
 			system += "\n" + codeGraphCapabilityHint()
 		}
 		return system
 	}
 
-	off := appendHint(base, nil)
+	off := appendHint(base, false)
 	if off != base {
 		t.Fatalf("默认关闭时系统提示变化:\n got %q\nwant %q", off, base)
 	}
-	on := appendHint(base, func(string) string { return "codegraph" })
+	on := appendHint(base, true)
 	if want := base + "\n" + codeGraphCapabilityHint(); on != want {
 		t.Fatalf("开启时提示字节不符:\n got %q\nwant %q", on, want)
 	}

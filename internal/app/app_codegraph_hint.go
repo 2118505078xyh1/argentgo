@@ -10,10 +10,10 @@ func codeGraphCapabilityHint() string {
 	return "可用 codegraph_query(name) 查询符号定义与引用位置（本地静态分析、只读，结果附源码位置与提取规则）。"
 }
 
-// codeGraphHintEnabled 判定 codegraph opt-in 是否开启。它只认集中键
-// ARGENT_OPT_INS=codegraph（不是独立环境变量），并复用 ParseOptInEnv 的 fail-closed
-// 解析：env 为 nil、空片段、未知键、两侧空白的键都按同一规则处理。
-// 默认关闭，使未显式开启的系统提示与接线前逐字节相同。
-func codeGraphHintEnabled(env func(string) string) bool {
-	return ParseOptInEnv(env)[OptInCodeGraph]
+// codeGraphHintEnabled 判定 codegraph opt-in 是否开启。它从统一的 OptInRegistry
+// 读取状态——该注册表由 mergeOptIns(ParseOptInEnv(env), configOptIns(cfg)) 构造，
+// 因此环境变量与配置文件的激活路径完全一致（逻辑或）。reg 为 nil 或键未设置时
+// Enabled 返回 false（fail-closed），使未显式开启的系统提示与接线前逐字节相同。
+func codeGraphHintEnabled(reg *OptInRegistry) bool {
+	return reg != nil && reg.Enabled(OptInCodeGraph)
 }
