@@ -17,7 +17,7 @@ $env:Path = "$env:USERPROFILE\.tools\go\go\bin;$env:Path"
 ```
 
 ```powershell
-go build -o argentgo.exe ./cmd/argent     # binary
+go build -trimpath -ldflags '-s -w' -o argentgo.exe ./cmd/argent   # binary (trimmed, matches release)
 go test ./...                            # all packages
 go test ./internal/agent -run TestName   # one test
 go test -bench . -benchtime=10x ./...    # benchmark smoke: assertions must pass

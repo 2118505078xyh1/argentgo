@@ -63,6 +63,10 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: '0'
         run: go build ./...
+      # 二进制体积与冷启动冒烟：体积超基线 +~10% 失败，--version 仅告警。
+      - name: binary size / startup smoke
+        shell: bash
+        run: pwsh -NoProfile -File scripts/check-binary-size.ps1
 
   race:
     name: go test -race (ubuntu-latest)
