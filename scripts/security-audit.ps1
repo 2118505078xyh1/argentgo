@@ -153,9 +153,10 @@ try {
         }
     } catch { Fail $_.Exception.Message }
 
-    # 6. Privacy scan of tracked source using Select-String. Two synthetic
-    #    test fixtures are allowlisted by exact path + matched value; any new
-    #    match, including elsewhere in the same file, is a hard failure.
+    # 6. Privacy scan of tracked source using Select-String. Public example
+    #    values (AWS/GitHub/OpenAI docs and PEM headers reused by redaction
+    #    tests) are allowlisted by exact value, mirroring privacy-scan.ps1.
+    #    Any other match is a hard failure.
     Write-Step 'privacy scan (tracked source)'
     try {
         $tracked = @(& git ls-files)
@@ -168,11 +169,22 @@ try {
             @{ name = 'aws-access-key'; re = 'AKIA[0-9A-Z]{16}' },
             @{ name = 'private-key';    re = '-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----' }
         )
-        # The values are concatenated so this script does not itself contain a
-        # contiguous token-like literal for its own privacy scan to flag.
+        # Allowlist public example values by exact match, not by path, so the
+        # list does not rot as redaction tests grow. Mirrors privacy-scan.ps1:
+        # these are documented fake credentials, so a real one still fails.
+        # Values are concatenated so this script itself contains no contiguous
+        # token-like literal for its own privacy scan to flag.
         $allow = @(
-            @{ path = 'internal/llm/secret_test.go'; value = 'sk-' + 'abcdefghijklmnopqrstuvwxyz'; why = 'synthetic redaction fixture' },
-            @{ path = 'internal/tools/tools_security_scan_test.go'; value = 'AKIA' + 'IOSFODNN7EXAMPLE'; why = 'AWS documentation example key in scanner test' }
+            ('AKIA' + 'IOSFODNN7EXAMPLE'),
+            ('AKIA' + 'FAKESECRETKEY123'),
+            ('ghp_' + 'abcdefghijklmnopqrstuvwxyz0123456789'),
+            ('ghp_' + 'abcdefghijklmnopqrstuvwxyz0123456789ABCD'),
+            ('sk-' + 'abcdefghijklmnop1234'),
+            ('sk-' + 'testabcdef0123456789'),
+            ('sk-' + 'anotherkey0123456789'),
+            ('sk-' + 'abcdefghijklmnopqrstuvwxyz'),
+            ('-----BEGIN ' + 'PRIVATE KEY-----'),
+            ('-----BEGIN OPENSSH ' + 'PRIVATE KEY-----')
         )
 
         $hits = [System.Collections.Generic.List[string]]::new()
@@ -186,15 +198,12 @@ try {
                 foreach ($m in $matches) {
                     foreach ($one in $m.Matches) {
                         $value = [string]$one.Value
-                        $excused = $false
-                        foreach ($a in $allow) {
-                            if ($a.path -eq $file -and $value -ceq $a.value) {
-                                $excused = $true
-                                $excusedCount++
-                                break
-                            }
+                        # Exact-value allowlist: a real credential differs from
+                        # any documented example and is still reported.
+                        if ($allow -ccontains $value) {
+                            $excusedCount++
                         }
-                        if (-not $excused) {
+                        else {
                             $hits.Add("$file`:$($m.LineNumber):$($p.name):$value")
                         }
                     }

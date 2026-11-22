@@ -4,9 +4,10 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/test-release-workflow.ps1 -FullBuild
 #
 # Two halves:
-#   1. Static assertions over release.yml as TEXT. They prove the workflow is
-#      wired correctly (gated job graph, tag trigger, least privilege, token
-#      wiring, calls to the local build/verify scripts). They do not run Actions.
+#   1. Static assertions over release.yml (and the security-audit wiring in
+#      matrix.yml) as TEXT. They prove the workflows are wired correctly (gated
+#      job graph, tag trigger, least privilege, token wiring, calls to the local
+#      build/verify scripts). They do not run Actions.
 #   2. A local reproduction of the workflow's "Verify release artifacts" step:
 #      produce a build-release-shaped artifact in a temp dir (fabricated by
 #      default; the real builder with -FullBuild), then run
@@ -138,6 +139,25 @@ Assert-Condition 'release calls scripts/extract-release-notes.ps1' ($releaseBloc
 Assert-Condition 'release runs gh release create' ($releaseBlock -match 'gh\s+release\s+create')
 Assert-Condition 'gh release create pins --verify-tag' ($releaseBlock -match '--verify-tag')
 Assert-Condition 'release verifies published assets with gh release view' ($releaseBlock -match 'gh\s+release\s+view')
+
+# ---------------------------------------------------------------------------
+# 1b. Static assertions for the manual, non-blocking security-audit job in
+#     matrix.yml. The job must be gated by a workflow_dispatch boolean so it
+#     never becomes a pull-request blocker.
+# ---------------------------------------------------------------------------
+Write-Section 'Static security-audit wiring (matrix.yml parsed as text)'
+
+$matrixWorkflow = Join-Path $repo '.github/workflows/matrix.yml'
+$matrixYaml = ''
+if (Test-Path -LiteralPath $matrixWorkflow -PathType Leaf) {
+    $matrixYaml = Get-Content -LiteralPath $matrixWorkflow -Raw
+}
+Assert-Condition 'matrix.yml exists' ([bool]$matrixYaml)
+Assert-Condition 'workflow_dispatch declares a security_audit boolean input' (($matrixYaml -match '(?m)^\s*security_audit:\s*$') -and ($matrixYaml -match '(?m)^\s*type:\s*boolean\s*$'))
+Assert-Condition 'matrix.yml calls scripts/security-audit.ps1' ($matrixYaml -match 'security-audit\.ps1')
+$securityBlock = Get-JobBlock $matrixYaml 'security_audit'
+Assert-Condition 'matrix.yml declares a gated security_audit job' ($securityBlock -match '(?m)^\s*if:\s*\$\{\{\s*inputs\.security_audit\s*\}\}')
+Assert-Condition 'security_audit job stays independent of other jobs' ($securityBlock -notmatch '(?m)^\s*needs:')
 
 # ---------------------------------------------------------------------------
 # 2. Optional YAML parse. Informational only: a missing PyYAML is not a failure.

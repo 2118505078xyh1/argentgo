@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -31,11 +32,22 @@ type HookDispatcher interface {
 // 与其它一次性门控一致：仅值为 "1"（允许首尾空白）时开启，默认关闭。
 const hookVerdictEnv = "ARGENT_HOOK_VERDICT"
 
+// hookReloadEnv 是启用钩子文档热重载轮询的独立环境变量。
+// 与其它一次性门控一致：仅值为 "1"（允许首尾空白）时开启，默认关闭。
+const hookReloadEnv = "ARGENT_HOOK_RELOAD"
+
 // hookVerdictEnabled 报告本次运行是否启用钩子裁决折叠。
 // env 为 nil、缺环境变量或值非 "1" 时返回 false（fail-closed）；不读取进程环境，
 // 不修改入参。它是纯函数，便于测试两条激活状态而不污染进程全局。
 func hookVerdictEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env(hookVerdictEnv)) == "1"
+}
+
+// hookReloadEnabled 报告本次运行是否启用钩子热重载。
+// 与 hookVerdictEnabled 同构：env 为 nil、缺环境变量或值非 "1" 时返回 false
+// （fail-closed）；纯函数，不读进程环境、不改入参，便于两条激活状态的测试。
+func hookReloadEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(hookReloadEnv)) == "1"
 }
 
 // hookVerdictMiddlewares 构造 opt-in 开启时注入的内置中间件链：
@@ -76,6 +88,16 @@ type hookBridge struct {
 	// 供 agent 在轮次边界抽取并注入下一轮模型上下文。nil（默认）时整条路径为空操作，
 	// 默认运行逐字节不变。队列由 app 侧在每次根运行时创建并通过 WithHookContextQueue 附着到 ctx。
 	hookCtxQ *agent.HookContextQueue
+
+	// 以下字段只在 ARGENT_HOOK_RELOAD=1（reloadEnabled）时接线。
+	// store 持有当前生效快照；sources 是重新求指纹的来源集合；trust 是同一份信任门。
+	// reloadEnabled 为 false（默认）时三者为零值，fire() 仍走原来的静态 config 路径。
+	store         *hooks.SnapshotStore
+	sources       []hooks.Source
+	trust         *hooks.TrustStore
+	reloadEnabled bool
+	reloadEvery   time.Duration // 轮询间隔；零值由 startReload 兜底为默认值
+	reloadOnce    sync.Once     // 保证每个 bridge 只启动一个轮询 goroutine
 }
 
 // 不存在受信任的钩子文档时，newHookBridge 返回 nil。损坏的信任文件、不受信任的文档和
@@ -103,13 +125,61 @@ func newHookBridge(res Resolved, sessionID string, warn io.Writer) *hookBridge {
 		}
 		dispatcher = built
 	}
-	return &hookBridge{
-		dispatcher: dispatcher,
-		config:     config,
-		sessionID:  sessionID,
-		cwd:        res.Root,
-		warn:       warn,
+
+	// 热重载是独立 opt-in：开启时用与首次加载完全一致的来源与信任门构造 store，
+	// 并把已受信任的静态 config 作为第 1 代快照先放进 store，使首次 fire 即可用它。
+	// 关闭时下列字段保持零值，fire() 逐字节沿用原来的静态 config 路径。
+	reloadEnabled := hookReloadEnabled(os.Getenv)
+	var store *hooks.SnapshotStore
+	var sources []hooks.Source
+	if reloadEnabled {
+		sources = hookReloadSources(res)
+		store = &hooks.SnapshotStore{}
+		// Fingerprint 留空：首次 poll 会与当前来源字节比对并采纳为第 2 代；
+		// 若来源读取失败，SnapshotFromSources 返回错误，last-good 仍为这里放入的 config。
+		store.Swap(hooks.ConfigSnapshot{Config: config, Generation: 1}, 1)
 	}
+	return &hookBridge{
+		dispatcher:    dispatcher,
+		config:        config,
+		sessionID:     sessionID,
+		cwd:           res.Root,
+		warn:          warn,
+		store:         store,
+		sources:       sources,
+		trust:         trust,
+		reloadEnabled: reloadEnabled,
+	}
+}
+
+// hookReloadSources 按与 loadHookDocuments 相同的枚举顺序构造可重新读取的来源：
+// 配置里的内联/路径条目，再是标准项目与用户文件（含已加入的插件路径）。
+// 信任键与首次加载保持一致：文件路径用解析后的路径，内联仍用 inlineHookPath；
+// 因此同一份信任存储既管首次加载，也管后续每次 poll 的信任门。
+func hookReloadSources(res Resolved) []hooks.Source {
+	var sources []hooks.Source
+	for _, source := range configHookSources(res) {
+		if source.path != "" {
+			path := resolveHookPath(res, source.path)
+			sources = append(sources, hooks.NewKeyedSource(path, hooks.SourceFunc(func() ([]byte, error) {
+				return os.ReadFile(path)
+			})))
+			continue
+		}
+		inline := source.inline
+		sources = append(sources, hooks.NewKeyedSource(inlineHookPath, hooks.SourceFunc(func() ([]byte, error) {
+			return json.Marshal(inline)
+		})))
+	}
+	paths := hookFilePaths(res)
+	paths = append(paths, pluginHookPaths(res)...)
+	for _, path := range paths {
+		key := path
+		sources = append(sources, hooks.NewKeyedSource(key, hooks.SourceFunc(func() ([]byte, error) {
+			return os.ReadFile(key)
+		})))
+	}
+	return sources
 }
 
 // loadHookDocuments 合并每一个受信任的来源：来自 config.Raw["hooks"] 的内联/路径条目，
@@ -275,7 +345,19 @@ func resolveHookPath(res Resolved, value string) string {
 // fire 派发一个事件，并填充运行上下文。钩子实现中的 panic 会被转换为错误，
 // 而不是逃逸到 agent 循环中。
 func (b *hookBridge) fire(ctx context.Context, event hooks.Event, payload hooks.Payload) (result hooks.Result, err error) {
-	if b == nil || b.config == nil || b.dispatcher == nil {
+	if b == nil {
+		return hooks.Result{}, nil
+	}
+	// 热重载开启时每次派发都从 store 取当前生效快照，使长会话里改过的文档
+	// 无需重启即可生效；关闭时 config 就是原来的静态指针，路径逐字节不变。
+	config := b.config
+	if b.reloadEnabled && b.store != nil {
+		config = b.store.Load().Config
+		// 轮询 goroutine 惰性启动：app 侧把每次运行的 ctx 传给 fire，第一次
+		// fire（start 的 SessionStart）即确定其生命周期，ctx 取消时自动退出。
+		b.startReload(ctx)
+	}
+	if config == nil || b.dispatcher == nil {
 		return hooks.Result{}, nil
 	}
 	if payload.Event == "" {
@@ -293,7 +375,7 @@ func (b *hookBridge) fire(ctx context.Context, event hooks.Event, payload hooks.
 			err = fmt.Errorf("hooks: %s dispatch panicked: %v", payload.Event, recovered)
 		}
 	}()
-	result, err = b.dispatcher.Dispatch(ctx, b.config, payload)
+	result, err = b.dispatcher.Dispatch(ctx, config, payload)
 	// 把钩子声明的附加上下文交给 agent 队列。b.hookCtxQ 为 nil（未接线）时
 	// 整段为空操作；result 无附加上下文时 range 不执行，默认路径逐字节不变。
 	// 队列的 Add 已做空白/去重/上限约束，这里逐条投递即可。
@@ -303,6 +385,80 @@ func (b *hookBridge) fire(ctx context.Context, event hooks.Event, payload hooks.
 		}
 	}
 	return result, err
+}
+
+// defaultHookReloadInterval 是轮询的默认周期，只在 opt-in 时用到。
+const defaultHookReloadInterval = time.Second
+
+// poll 执行一次热重载探测：只对来源字节变化（指纹变化）的快照做二次校验，
+// 通过后用单调递增的代数采纳进 store；读取/信任/解析/校验任一步失败都只记账
+// 并写 warn，store 保留上一次成功的快照（last-good），绝不把失败内容投入运行。
+func (b *hookBridge) poll(ctx context.Context) {
+	if b == nil || !b.reloadEnabled || b.store == nil || len(b.sources) == 0 {
+		return
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	last := b.store.Load()
+	snap, changed, err := hooks.SnapshotFromSources(b.sources, b.trust, last.Fingerprint)
+	if err != nil {
+		b.store.NoteFailure(err)
+		noteHook(b.warn, "hooks reload", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	// 采纳前的纵深防御：当前 ConfigSnapshot 不含逐源信息，ValidateBeforeAdopt
+	// 走空凭据分支放行；信任已在 SnapshotFromSources 的 LoadSource 阶段校验。
+	if err := hooks.ValidateBeforeAdopt(snap, b.trust); err != nil {
+		b.store.NoteFailure(err)
+		noteHook(b.warn, "hooks reload validate", err)
+		return
+	}
+	// 用 last-good 的代数 +1 覆盖快照 Generation，再以同一个单调递增代数 Swap，
+	// 使迟到的旧换代无法覆盖已生效的新快照。
+	snap.Generation = last.Generation + 1
+	if !b.store.Swap(snap, uint64(snap.Generation)) {
+		return
+	}
+}
+
+// startReload 惰性启动唯一一个轮询 goroutine。只有 opt-in、且确有来源与 store
+// 时才启动；ctx 取消后 runReloadLoop 自行退出，不泄漏 goroutine。
+func (b *hookBridge) startReload(ctx context.Context) {
+	if b == nil || !b.reloadEnabled || b.store == nil || len(b.sources) == 0 || ctx == nil {
+		return
+	}
+	b.reloadOnce.Do(func() {
+		interval := b.reloadEvery
+		if interval <= 0 {
+			interval = defaultHookReloadInterval
+		}
+		go b.runReloadLoop(ctx, interval, nil)
+	})
+}
+
+// runReloadLoop 按 interval 周期调用 poll，并在 ctx 取消时退出；done 非 nil 时
+// 退出前关闭它，便于测试确定性地断言 goroutine 已停止。
+func (b *hookBridge) runReloadLoop(ctx context.Context, interval time.Duration, done chan<- struct{}) {
+	if interval <= 0 {
+		interval = defaultHookReloadInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	if done != nil {
+		defer close(done)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.poll(ctx)
+		}
+	}
 }
 
 func (b *hookBridge) start(ctx context.Context, prompt string) {
