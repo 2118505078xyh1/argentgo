@@ -2,6 +2,8 @@
 
 argentgo 默认行为对所有可选特性**一律关闭（fail-closed）**。本文档列出全部受支持的 opt-in 开关，以及独立于注册表之外的门控环境变量。所有开关名、环境变量名均与源码逐字对应（事实来源：`internal/app/optin_registry.go`、`internal/config/optin_config.go`、`internal/cli/optin_display.go` 及各 `*_wire.go`）。
 
+> **默认开的例外**：`ARGENT_BUILTIN_SHELL`、`ARGENT_TOOL_ARG_COERCION`、`ARGENT_PROGRESS_RECOVERY` 三个开关默认开启（均可用 `=0` 紧急关闭）。依据是用户 2026-11-22 的判定标准：对用户体验更好 / 能让 AI 更强就开，不为保守而保守。三者都保留 `=0` 逃生阀，关闭时逐字节不变。
+
 独立门控的单一真源是 `internal/cli/optin_metadata.go` 的 `IndependentOptIns` 表；`internal/cli/optin_docs_guard_test.go` 会持续核对本文档、该表与源码读点三者一致——代码新增门控却漏写文档、或文档出现无源码依据的幽灵条目，测试都会失败。新增独立门控时只需改那张表并同步本文档。
 
 > 背景：在 R16 之前，这些开关没有任何文档记载，用户只能「裸写」`export ARGENT_OPT_INS=...`，发现性为零。本文档就是为补齐这一缺口而写。
@@ -229,7 +231,7 @@ argentgo "你的任务"
 
 ## 三、独立门控环境变量
 
-以下开关**不属于**集中注册表的 15 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。
+以下开关**不属于**集中注册表的 15 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。注意 `ARGENT_BUILTIN_SHELL` 与本节最末的 `ARGENT_TOOL_ARG_COERCION`、`ARGENT_PROGRESS_RECOVERY` 是默认开的例外——它们用 `=0` 关闭，而非用 `=1` 开启。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 
@@ -507,6 +509,20 @@ argentgo "你的任务"
 - **配套约束**：只接受相对路径且不得逃出工作区根目录，扩展名限 png/jpg/jpeg/gif/webp，单文件上限 20 MiB（`imageInputMaxBytes`）；坏路径、越界、缺图、超限均被静默跳过，不使运行失败。CJK 路径按 UTF-8 原样处理。
 - **适用场景**：需要把本地截图/设计稿直接交给模型辨识时（当前仅 OpenAI chat completions 协议能真正承载图像 part；Anthropic Messages / OpenAI Responses 会退化为 `[image]` 占位）。
 - **逐字节不变承诺**：门控关闭时零调用 `ImageInputsFromPrompt`，`InitialImages` 为零值 nil，首条用户消息走原纯文本路径，请求体、事件流与会话 JSONL 逐字节不变。
+
+### `ARGENT_TOOL_ARG_COERCION` —— 工具参数强转（默认开）
+
+- **作用**：模型偶尔把数字或布尔写成字符串（如 `{"count":"3"}`）。开启后由 `agent.effectiveToolArgs` 做保守强转，且**审批摘要与工具执行使用同一份强转后的参数字节**，消除"批准 A、执行 B"的不一致。语义合法的参数不受影响。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭（审批与执行都回到模型产出的原始字节）；其它值或未设置都视为开启。
+- **适用场景**：希望工具调用对模型常见的字符串化数字/布尔更鲁棒、同时保证所见即所批时。
+- **逐字节不变承诺**：`=0` 时强转分支整体短路，审批摘要与执行参数均为原始字节，与接线之前逐字节不变；审批/执行一致性回归测试同时守护开启路径。
+
+### `ARGENT_PROGRESS_RECOVERY` —— 轮次内进度恢复（默认开）
+
+- **作用**：①写侧：流式文本每累积 1 KiB、每次工具调用时，由 app 注入的 `ProgressSink` 把轮次内进度（轮次号、未完成输出、进行中工具）持久化为 `progress` 记录（fsync）；②读侧：恢复路径调用 `session.RecoverProgress`（两道过期检查），把有效进度作为用户可见的 `EventNotice` 公告发布。**进度文本绝不进入模型历史，也绝不触碰 `NeedsConfirmation`**（安全语义仍由恢复分类唯一决定）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；其它值或未设置都视为开启。
+- **适用场景**：长轮次运行被强杀（`kill -9`，走不到任何失败边界）后，重启时仍能看到上次中断处的未完成输出与进行中的工具。纯进度崩溃若被分类为干净会话（`Notice==""`），也会单独发一条进度公告。
+- **逐字节不变承诺**：`=0` 时不注入 `ProgressSink`、不调用 `RecoverProgress`，请求体/事件流/JSONL 逐字节不变；开启时进度也只走 `EventNotice`，不注入 `SeedContext`、不改写消息序列与确认门。
 
 ---
 
