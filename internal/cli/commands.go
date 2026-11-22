@@ -17,6 +17,7 @@ func runCommands(app App, _ context.Context, args []string) int {
 		return 2
 	}
 	asJSON := false
+	doctor := false
 	for _, arg := range rest {
 		switch {
 		case arg == "-h" || arg == "--help":
@@ -24,6 +25,8 @@ func runCommands(app App, _ context.Context, args []string) int {
 			return 0
 		case arg == "--json":
 			asJSON = true
+		case arg == "--doctor":
+			doctor = true
 		default:
 			fmt.Fprintf(app.IO.Err, "argentgo: unexpected argument %q\n", arg)
 			commandsUsage(app.IO.Err)
@@ -37,6 +40,18 @@ func runCommands(app App, _ context.Context, args []string) int {
 	}
 	set := commands.Discover(commands.DefaultSources(root, homeFromEnv(app.env)))
 	list := set.List()
+	if doctor {
+		// 把 commands 包的诊断纯函数接到 CLI：报告命令定义问题而不修改任何文件。
+		diagnostics := commands.DiagnoseCommands(list)
+		if len(diagnostics) == 0 {
+			fmt.Fprintln(app.IO.Out, "no command diagnostics")
+			return 0
+		}
+		for _, d := range diagnostics {
+			fmt.Fprintf(app.IO.Out, "%s\t%s\t%s\n", d.Kind, d.Path, d.Message)
+		}
+		return 0
+	}
 	if asJSON {
 		data, err := json.MarshalIndent(list, "", "  ")
 		if err != nil {
@@ -61,9 +76,10 @@ func runCommands(app App, _ context.Context, args []string) int {
 }
 
 func commandsUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argentgo commands [--json] [-C <dir>]
+	fmt.Fprint(w, `usage: argentgo commands [--json|--doctor] [-C <dir>]
 
 Lists the markdown slash commands discovered under .argent/commands and
 ~/.argentgo/commands. Plugin-provided commands are namespaced plugin:name.
+--doctor reports command definition problems (invalid names, empty bodies, etc).
 `)
 }
