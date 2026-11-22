@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -40,6 +41,9 @@ type HistoryOptions struct {
 	Since string
 	// TestPath 是新增测试文件的匹配后缀，默认 "_test.go"。
 	TestPath string
+	// CheckTimeoutMS 是 go test 检查的超时（毫秒）；<=0 取 120000。
+	// 默认 30s 对全新 worktree 的首次编译太短，容易误判为任务失败。
+	CheckTimeoutMS int
 }
 
 // HistoryTaskSet 是一次抽取的结果。Scenarios 交给 eval.Run，parents 记录每个
@@ -70,6 +74,10 @@ func DiscoverHistoryTasks(ctx context.Context, repo string, opts HistoryOptions)
 	testPath := opts.TestPath
 	if testPath == "" {
 		testPath = "_test.go"
+	}
+	checkTimeout := opts.CheckTimeoutMS
+	if checkTimeout <= 0 {
+		checkTimeout = 120000
 	}
 
 	logArgs := []string{"log", "--no-merges", "--format=%H%x1f%s", "-n", fmt.Sprintf("%d", maxTasks)}
@@ -124,6 +132,25 @@ func DiscoverHistoryTasks(ctx context.Context, repo string, opts HistoryOptions)
 			continue // 没有新增测试文件的提交不构成任务
 		}
 
+		// 只跑新增测试文件所在的包，而不是整个仓库：全新 worktree 里
+		// `go test ./...` 首次编译可能超过 120s，而单包通常几秒完成。
+		pkgSet := make(map[string]bool)
+		for name := range files {
+			dir := filepath.Dir(filepath.ToSlash(name))
+			if dir == "." {
+				dir = "./"
+			} else {
+				dir = "./" + dir
+			}
+			pkgSet[dir] = true
+		}
+		pkgs := make([]string, 0, len(pkgSet))
+		for p := range pkgSet {
+			pkgs = append(pkgs, p)
+		}
+		sort.Strings(pkgs)
+		execArgs := append([]string{"test"}, pkgs...)
+
 		if len(message) > historyMaxMessageLen {
 			message = message[:historyMaxMessageLen] + "…"
 		}
@@ -136,7 +163,7 @@ func DiscoverHistoryTasks(ctx context.Context, repo string, opts HistoryOptions)
 			Check: Check{
 				FileEquals: files,
 				AllowExec:  true,
-				Exec:       &ExecCheck{Command: "go", Args: []string{"test", "./..."}},
+				Exec:       &ExecCheck{Command: "go", Args: execArgs, TimeoutMS: checkTimeout},
 			},
 		})
 		set.parents[name] = parent
@@ -212,9 +239,14 @@ func VerifyHistoryTasks(ctx context.Context, repo string, opts HistoryOptions) (
 	if err != nil {
 		return nil, err
 	}
-	check := ExecCheck{Command: "go", Args: []string{"test", "./..."}}
 	results := make([]HistoryVerifyResult, 0, len(set.Scenarios))
 	for _, sc := range set.Scenarios {
+		check := ExecCheck{}
+		if sc.Check.Exec != nil {
+			check = *sc.Check.Exec
+		} else {
+			check = ExecCheck{Command: "go", Args: []string{"test", "./..."}}
+		}
 		result := HistoryVerifyResult{Name: sc.Name}
 		parentDir, parentCleanup, err := worktreeAt(repo, set.parents[sc.Name])
 		if err != nil {
