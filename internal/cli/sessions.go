@@ -63,6 +63,12 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsFidelity(app, args[1], args[2:])
+	case "edit-context":
+		if len(args) < 3 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsEditContext(app, args[1], args[2], args[3:])
 	case "rm":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)

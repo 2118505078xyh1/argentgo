@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
@@ -155,6 +156,11 @@ func messageEntries(records []Record) []Entry {
 			out = append(out, entry)
 		}
 	}
+	// 非破坏性上下文编辑：投影阶段按 target_id 覆盖/隐藏条目（last-wins）。
+	// 没有 context_edit 记录时 edits 为空，applyContextEdits 直接返回，逐字节不变。
+	// 注意这里传 nil session：messageEntries 仅拿到 records 切片，分支过滤由调用
+	// 方在 Records()/Messages() 处已完成的 activePath 保证（见下）。
+	out = applyContextEdits(out, contextEditsIn(nil, records))
 	// 可选工具结果压力裁剪（默认关闭）：必须在预算投影之前执行，顺序固定为
 	// prune → project → ReconcileToolPairs。原因：Project 按 rune 计算预算，
 	// 先缩短超长的工具结果才能让它按裁剪后的 rune 参与预算；且 prune 幂等，
@@ -269,8 +275,8 @@ func truncateRunes(text string, limit int) string {
 	if limit <= 0 {
 		return ""
 	}
-	runes := []rune(cleaned)
-	if len(runes) <= limit {
+	// 纯计数用 RuneCountInString，避免 ClipRunes 之前先做一次无用的 []rune 全量分配。
+	if utf8.RuneCountInString(cleaned) <= limit {
 		return cleaned
 	}
 	return strings.TrimSpace(textutil.ClipRunes(cleaned, limit))
