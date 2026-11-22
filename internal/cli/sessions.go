@@ -63,6 +63,12 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsFidelity(app, args[1], args[2:])
+	case "snapshots":
+		if len(args) < 2 {
+			sessionsUsage(app.IO.Err)
+			return 2
+		}
+		return sessionsSnapshots(app, args[1])
 	case "archive":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)

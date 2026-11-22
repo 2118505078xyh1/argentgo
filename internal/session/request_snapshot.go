@@ -29,6 +29,23 @@ func (p RequestSnapshotPayload) valid() bool {
 	return p.Version == 1 && sha256.Sum256(p.Body) == p.BodySHA256
 }
 
+// RequestSnapshots 从记录中提取所有请求快照，按记录顺序返回。
+// 坏记录（无法解析或 hash 校验失败）被跳过；这是纯只读函数，不修改入参。
+func RequestSnapshots(records []Record) []RequestSnapshotPayload {
+	out := make([]RequestSnapshotPayload, 0)
+	for _, rec := range records {
+		if rec.Kind != KindRequestSnapshot {
+			continue
+		}
+		var p RequestSnapshotPayload
+		if err := json.Unmarshal(rec.Data, &p); err != nil || !p.valid() {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // AppendRequestSnapshot 把一次请求字节追加为快照记录。
 // 调用方负责确保 Body 不被后续复用修改（json.Marshal 会立即拷贝）。
 func AppendRequestSnapshot(s *Session, p RequestSnapshotPayload) (Record, error) {

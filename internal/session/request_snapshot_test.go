@@ -70,6 +70,29 @@ func TestRequestSnapshotDoesNotEnterConversation(t *testing.T) {
 	}
 }
 
+func TestRequestSnapshotsExtractsValidOnly(t *testing.T) {
+	sess := newSnapshotSession(t)
+	good := []byte(`{"ok":true}`)
+	if _, err := AppendRequestSnapshot(sess, RequestSnapshotPayload{Protocol: "p", Model: "m", Body: good}); err != nil {
+		t.Fatal(err)
+	}
+	// 一条坏记录：无法解析，应被跳过。
+	if err := sess.Append(KindRequestSnapshot, json.RawMessage(`not json`)); err != nil {
+		t.Fatal(err)
+	}
+	records, err := sess.Records()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RequestSnapshots(records)
+	if len(got) != 1 {
+		t.Fatalf("snapshots = %d, want 1 (malformed skipped)", len(got))
+	}
+	if !bytes.Equal(got[0].Body, good) {
+		t.Fatalf("body = %q, want %q", got[0].Body, good)
+	}
+}
+
 func TestRequestSnapshotRejectsTamperedBody(t *testing.T) {
 	p := RequestSnapshotPayload{Version: 1, Body: []byte("original"), BodySHA256: [32]byte{1}}
 	if p.valid() {
