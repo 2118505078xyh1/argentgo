@@ -56,15 +56,16 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 		})
 	}
 
-	// baseURL、配置注入、会话健康、i18n 审计与模型能力画像告警与文本分支
-	// 共享同一份检测逻辑；它们都是 warn 级别，只作为独立字段输出，不计入
-	// failures、也不改变退出码。无告警且未配置 provider/model 时无 issue，
-	// golden 输出逐字节不变。
+	// baseURL、配置注入、会话健康、i18n 审计、模型能力画像与 MCP 运行时健康告警
+	// 与文本分支共享同一份检测逻辑；它们都是 warn 级别，只作为独立字段输出，
+	// 不计入 failures、也不改变退出码。无告警且未配置 provider/model、未开启
+	// MCP 健康 opt-in 时无 issue，golden 输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
 	issues = append(issues, doctorConfigInjectionIssues(app)...)
 	issues = append(issues, doctorSessionHealthIssues(app)...)
 	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	issues = append(issues, doctorModelInfoIssues(app)...)
+	issues = append(issues, doctorMCPRuntimeHealthIssues(app)...)
 	jsonIssues := make([]doctorIssue, 0, len(issues))
 	for _, issue := range issues {
 		jsonIssues = append(jsonIssues, doctorIssue{

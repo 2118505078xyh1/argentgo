@@ -243,6 +243,11 @@ var hardcodedBaseline = []string{
 	"warning: config set rewrites as strict JSON; comments and trailing commas are not preserved",
 	"workflow: read %s: %w",
 	"write config: %w",
+
+	// R53 新增：replay --verify 的结构化诊断输出（CLI 英文诊断惯例，登记以保增量守卫）。
+	"Active leaf: %s\n",
+	"Broken links: %d\n",
+	"Verify: ok",
 }
 
 // hardcodedHit 是一次命中的位置与上下文，仅用于失败时给出可操作的诊断。

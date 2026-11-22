@@ -379,6 +379,13 @@ argentgo "你的任务"
 - **适用场景**：MCP 服务器会返回不可信的外部文本、希望在进入模型上下文前对高风险注入给出可见提示时。注意这是**警示而非防御**：是否遵从注入内容仍由模型自行判断。
 - **逐字节不变承诺**：只警示、不改写、不过滤原文中的任何字节；开关关闭、未命中高风险注入时 `warnOnPromptInjection` 原样返回文本，工具输出与历史逐字节一致。
 
+### `ARGENT_MCP_HEALTH` —— MCP 运行时健康诊断
+
+- **作用**：开启后在 `internal/app/mcp.go` 的 connect 路径给每个 MCP 服务的 `Spec.HealthTracking` 赋值，使 `internal/mcp` 的 `HealthTracker` 在工具发现成功/失败时记录快照；工具集用 `HealthAggregator` 在连接成功时 `Track`、关闭时 `Untrack` 并 `PollReporters` 聚合，最后把报告写入存储目录下的 `mcp-health.json`。下一次 `argentgo doctor` 读取该文件，对每个不健康服务在 `warnings:` 旁路追加一条 `mcpHealth` warn（含服务名、连接状态与 LastError），不新增 check、不计数、不改退出码。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **适用场景**：MCP 服务较多、希望在 doctor 自检里直接看到哪台服务发现失败及其错误文本时。快照只落存储目录（默认 `~/.argentgo`），不污染工作区；错误文本经脱敏后才进入诊断输出。
+- **逐字节不变承诺**：关闭时工具集不分配聚合器、不给 Spec 赋值、`mcp` 客户端不挂接 tracker、不写任何文件，doctor 也不读取快照，文本与 JSON golden、退出码均与接线之前逐字节一致。
+
 ### `ARGENT_RULE_DISCOVERY` —— 规则文件发现元数据提示
 
 - **作用**：开启后扫描用户级（home）与项目级（root）的规则文件，把文件名与作用域渲染成一段「只列名、不加载全文」的 system 提示片段（对 legacy 规则追加一次迁移提示）。读点为 `internal/app/app_prompt.go` 的 `ruleDiscoveryEnabled` / `ruleDiscoveryBlock`。
@@ -515,6 +522,7 @@ argentgo "你的任务"
 | `ARGENT_MCP_SPILL_THRESHOLD` | MCP 输出溢出字节阈值（正整数），覆盖默认值。 |
 | `ARGENT_MCP_PROTOCOL_VERSION` | MCP 协议版本回退值；协商失败时作为回退使用。 |
 | `ARGENT_MCP_INJECTION_SCAN` | MCP 工具输出注入扫描：命中高风险注入时在原文前加一行可读警示，只警示不改写、不过滤原文；仅 `=1` 开启。 |
+| `ARGENT_MCP_HEALTH` | MCP 运行时健康诊断：连接时挂接 HealthTracker、关闭时快照落盘；doctor 以 `mcpHealth` warn 报出不健康服务名与 LastError；仅 `=1` 开启，关闭时零输出。 |
 | `ARGENT_EVAL_LIVE` | 评测 live 门禁；仅 `=1` 允许评测走真实 provider，默认断网脚本化。 |
 | `ARGENT_STREAM_RECOVERY` | 流中断后非流式回补：app 层接通 `agent.Options.EnableStreamRecovery`；仅 `=1` 开启。 |
 | `ARGENT_SKILL_INJECTION_SCAN` | 技能索引注入扫描：命中高风险注入时把 desc/when 整字段替换为中性占位；仅 `=1` 开启。 |

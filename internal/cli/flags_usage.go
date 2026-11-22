@@ -13,7 +13,9 @@ func writeUsage(w io.Writer) {
 
 commands:
   sessions list|show|fidelity|checkout|fork-at|list-messages|health|tree|rm|find|discard-attempt  inspect stored sessions (tree: ASCII id/parent tree, marks active leaf)
-  replay <id>                   print a stored session transcript
+    sessions undo <id> [--steps N] [-C <dir>]  revert the last N checkpoints in one atomic undo (default 1)
+    sessions retry <id> [--steps N] [checkpoint-id]  fork at the N-th most recent checkpoint (default 1)
+  replay <id>                   print a stored session transcript (--verify: structural diagnostics)
   usage                         summarise turns and tokens per session
   context                       approximate token breakdown of the model context
   doctor                        check config, storage, provider, git and Go

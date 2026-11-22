@@ -24,6 +24,11 @@ type bridge struct {
 	pending map[int]chan rpcReply
 	onDelta func(string)
 	onEvent func(kind string, raw json.RawMessage)
+	// onClose 在 readLoop 遇到 EOF/读错误（即 engine 连接断开）时调用，恰好一次。
+	// closeGen 在每次注册时增加；onClose 与 closeGen 一起由 mu 保护，
+	// 复用 onDelta 的锁下快照模式，避免注册与断开通知相互竞争。
+	onClose  func(error)
+	closeGen uint64
 	// deltaGen 在每次 onDelta 注册时增加。它标记一个
 	// 流式轮次，使被取代轮次的迟到结果能被丢弃。
 	// 与 onDelta 一起由 mu 保护。
@@ -99,6 +104,17 @@ func (b *bridge) isCurrentDeltaGen(gen uint64) bool {
 	return b.deltaGen == gen
 }
 
+// setCloseHandler 安装 fn 为连接断开回调，返回安装时的 generation。
+// 与 setDeltaHandler 一样，注册在 mu 下完成，readLoop 在锁下快照、
+// 解锁后调用，从而在注册与断开通知之间不产生数据竞争或撕裂。
+func (b *bridge) setCloseHandler(fn func(error)) uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.closeGen++
+	b.onClose = fn
+	return b.closeGen
+}
+
 // readLoop 解复用响应、提示/delta 通知和真实
 // agent "event" 通知。所有回调都在这唯一的 reader
 // goroutine 上运行；消费者必须把 UI 变更编组到自己的线程。
@@ -161,7 +177,13 @@ func (b *bridge) readLoop() {
 				ch <- rpcReply{err: "engine connection closed"}
 				delete(b.pending, id)
 			}
+			fn := b.onClose
 			b.mu.Unlock()
+			// 解锁后调用：处理器可能回调 bridge 或编组 UI 变更。
+			// readLoop 随即返回，因此每个 bridge 恰好通知一次断开。
+			if fn != nil {
+				fn(err)
+			}
 			return
 		}
 	}

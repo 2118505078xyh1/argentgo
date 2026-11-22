@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -86,14 +87,15 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	// baseURL 告警独立于常规检查：它只读取配置文件（项目级配置可能来自
 	// 未信任来源），不访问网络，也不改变既有检查集合与输出前缀。
-	// 配置注入、会话健康、i18n 翻译完整性与模型能力画像告警走同一条 issues
-	// 旁路：只报告信息/风险，不新增 check、不计数、不改变退出码，因此无风险
-	// 且未配置 provider/model 时输出逐字节不变。
+	// 配置注入、会话健康、i18n 翻译完整性、模型能力画像与 MCP 运行时健康告警
+	// 走同一条 issues 旁路：只报告信息/风险，不新增 check、不计数、不改变退出码，
+	// 因此无风险且未配置 provider/model、未开启 MCP 健康 opt-in 时输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
 	issues = append(issues, doctorConfigInjectionIssues(app)...)
 	issues = append(issues, doctorSessionHealthIssues(app)...)
 	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	issues = append(issues, doctorModelInfoIssues(app)...)
+	issues = append(issues, doctorMCPRuntimeHealthIssues(app)...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
 	if opts.asJSON {
@@ -584,6 +586,59 @@ func checkMCPConfig(app App) doctorCheck {
 		return doctorCheck{name: "mcp", status: statusOK, detail: fmt.Sprintf("%d server(s) valid", report.servers)}
 	}
 	return doctorCheck{name: "mcp", status: statusWarn, detail: formatMCPProblems(report)}
+}
+
+// doctorMCPRuntimeHealthIssueName 是 MCP 运行时健康诊断 issue 的稳定名称。
+const doctorMCPRuntimeHealthIssueName = "mcpHealth"
+
+// doctorMCPRuntimeHealthIssues 读取 app 在运行时持久化到存储目录的 MCP 健康快照，
+// 把每个不健康服务映射为一条 warn 级 issue。
+//
+// 与 R46 i18n 审计、R52 能力画像同走 issues 旁路：不新增 check、不计数、不改退出码。
+// opt-in 关闭或快照文件不存在/损坏时返回 nil，因此默认健康运行的 doctor 输出
+// （文本与 JSON 的 golden）逐字节不变。快照由 app 侧在 ARGENT_MCP_HEALTH=1 时写入，
+// 只包含服务名、健康度、连接状态与错误文本，不包含任何工具输出或凭证。
+func doctorMCPRuntimeHealthIssues(app App) []doctorIssue {
+	if strings.TrimSpace(app.env(mcp.MCPHealthEnv)) != "1" {
+		return nil
+	}
+	if app.storageDir() == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(app.storageDir(), mcp.MCPHealthReportFile))
+	if err != nil {
+		return nil
+	}
+	var report mcp.MCPHealthReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil
+	}
+	return doctorMCPRuntimeHealthIssuesFromReport(report)
+}
+
+// doctorMCPRuntimeHealthIssuesFromReport 是把健康报告映射为 issue 的纯函数，便于
+// 测试注入 fake reporter（1 健康 + 1 失败）而不触碰文件系统。Servers 已由 mcp 包按
+// Name 以 UTF-8 字节序排序，因此多服务输出稳定；CJK 名称按原字节保留、不截断。
+// 健康服务被跳过；不健康服务即便 LastError 为空也报告（给出 state 便于定位）。
+func doctorMCPRuntimeHealthIssuesFromReport(report mcp.MCPHealthReport) []doctorIssue {
+	var out []doctorIssue
+	for _, server := range report.Servers {
+		if server.Healthy {
+			continue
+		}
+		lastError := strings.TrimSpace(server.LastError)
+		if lastError == "" {
+			lastError = "尚无成功的工具发现"
+		}
+		message := fmt.Sprintf("MCP 服务不健康: %s state=%s lastError=%s",
+			server.Name, server.State, lastError)
+		out = append(out, doctorIssue{
+			Name:    doctorMCPRuntimeHealthIssueName,
+			Level:   statusWarn,
+			Message: redactDoctorDetail(message),
+		})
+	}
+	return out
 }
 
 // checkWebSearch 只提供可发现性提示，不发起任何请求：web_search 工具需要一个

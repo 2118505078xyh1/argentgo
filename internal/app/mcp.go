@@ -27,6 +27,16 @@ const mcpConnectTimeout = 5 * time.Second
 // connectMCP 是 MCP 传输工厂。生产环境使用包默认值；测试会替换它，使不会启动真实的 MCP 进程。
 var connectMCP = mcp.Connect
 
+// mcpHealthEnabled 报告是否开启 MCP 运行时健康接线。env 为 nil 时退化为 os.Getenv；
+// 仅首尾空白修剪后等于 "1" 才开启。默认（未设置）为 false，整段接线零调用。
+// 通过注入 getenv 使测试能在不读进程环境的情况下精确控制两态。
+func mcpHealthEnabled(getenv func(string) string) bool {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	return strings.TrimSpace(getenv(mcp.MCPHealthEnv)) == "1"
+}
+
 // mcpBinding 是一个被发现的 MCP 工具以及服务它的客户端。
 type mcpBinding struct {
 	client mcp.Client
@@ -62,6 +72,15 @@ type toolset struct {
 	// skillShellRun 在测试中覆盖 shell 执行器。生产环境保持 nil，
 	// 使每条命令经由 base.Run（安全审批链）执行。
 	skillShellRun func(context.Context, string) (string, error)
+
+	// health 聚合各 MCP 客户端的运行时健康快照。仅当 ARGENT_MCP_HEALTH 开启时
+	// 分配；默认 nil 时 connect 不设置 Spec.HealthTracking，也不写任何文件。
+	health *mcp.HealthAggregator
+	// healthFile 是健康快照的落盘路径（来自 Resolved.Storage）。仅在 health 非 nil
+	// 且路径非空时写入，使未配置存储目录的运行不会因无法落盘而改变行为。
+	healthFile string
+	// healthTracked 记录已 Track 的服务名，Close 时逐一 Untrack 后再落盘。
+	healthTracked []string
 }
 
 // multiRootTools 把内置工具调用分发到每个写入根目录对应的注册表。第一个注册表是工作区本身；
@@ -260,6 +279,14 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		sandbox:      res.Sandbox,
 		skillShellOn: skillShellEnabled(res.Cfg.Raw, os.Getenv),
 	}
+	// opt-in 默认关闭：未开启时 health 保持 nil，connect 不设置 Spec.HealthTracking，
+	// mcp 客户端不分配 HealthTracker，discoverTools 的观测路径零执行。
+	if mcpHealthEnabled(stdio.Env) {
+		set.health = &mcp.HealthAggregator{}
+		if strings.TrimSpace(res.Storage) != "" {
+			set.healthFile = filepath.Join(res.Storage, mcp.MCPHealthReportFile)
+		}
+	}
 	// 策略在工具发现之前构建，因此声明了 readOnlyHint 的 MCP 工具还不在其只读集合中。
 	// 发现完成后（在每条返回路径上）把它们的名字折进去，
 	// 使这些工具跳过操作人员提示，同时显式的拒绝规则仍然优先。
@@ -406,6 +433,12 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 	attemptCtx, cancel := context.WithTimeout(ctx, mcpConnectTimeout)
 	defer cancel()
 
+	// opt-in 开启时把健康观测接到这一台客户端：mcp.Connect 只按 Spec.HealthTracking
+	// 决定是否挂接 HealthTracker，默认（app 未设置）时该字段为 false、零观测。
+	if t.health != nil {
+		server.HealthTracking = true
+	}
+
 	client, err := connectMCP(attemptCtx, server)
 	if err == nil {
 		_, err = client.Initialize(attemptCtx)
@@ -418,8 +451,26 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 		if client != nil {
 			_ = client.Close()
 		}
+		// 连接/握手/发现失败也是运行时健康信息：记录一条不健康快照，使 doctor
+		// 能报出失败服务名与 LastError。未开启 opt-in 时 t.health 为 nil，整段空操作。
+		if t.health != nil {
+			t.health.Observe(server.Name, mcp.HealthSnapshot{
+				Healthy:   false,
+				LastError: err.Error(),
+			})
+		}
 		note(stdio, "mcp "+server.Name, err)
 		return
+	}
+	// 发现成功后注册可选健康视图：*client 始终实现 HealthReporter，但 fake 客户端
+	// 可能不实现，此时仍以名字注册（PollReporters 会跳过 nil），保证名字进入报告。
+	if t.health != nil {
+		var reporter mcp.HealthReporter
+		if typed, ok := client.(mcp.HealthReporter); ok {
+			reporter = typed
+		}
+		t.health.Track(server.Name, reporter)
+		t.healthTracked = append(t.healthTracked, server.Name)
 	}
 
 	t.mcpMu.Lock()
@@ -576,10 +627,53 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 	return t.base.Run(ctx, name, args)
 }
 
-// Close 释放每一个 MCP 客户端。
+// MCPHealthReport 返回当前所有 MCP 服务器的只读健康报告。它先从各已 Track 的
+// HealthReporter 拉取最新快照（纯内存同步、不发起任何 I/O），再聚合为独立副本；
+// 调用方修改返回报告不会影响工具集内部状态。
+//
+// opt-in 关闭（t.health 为 nil）时返回空报告（OverallHealthy=true、Servers 为空），
+// 不触碰任何客户端，保证默认路径逐字节不变。
+func (t *toolset) MCPHealthReport() mcp.MCPHealthReport {
+	if t.health == nil {
+		return mcp.MCPHealthReport{OverallHealthy: true}
+	}
+	t.health.PollReporters()
+	return t.health.Report()
+}
+
+// writeMCPHealthReport 把最新健康快照持久化到存储目录，供下一次 `doctor` 进程读取。
+// 它只在 opt-in 开启且已配置落盘路径时生效；写失败被刻意吞掉，绝不改变关闭流程。
+// 空报告（没有任何服务被观测）不写文件，使默认健康运行不留下任何副作用。
+func (t *toolset) writeMCPHealthReport() {
+	if t.health == nil || t.healthFile == "" {
+		return
+	}
+	report := t.MCPHealthReport()
+	if len(report.Servers) == 0 {
+		return
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(t.healthFile), 0o700); err != nil {
+		return
+	}
+	_ = os.WriteFile(t.healthFile, data, 0o600)
+}
+
+// Close 释放每一个 MCP 客户端。opt-in 开启时先聚合并落盘健康快照，再 Untrack
+// 各客户端；顺序保证报告包含最后一次观测，且不会因后续关闭而丢失。
 func (t *toolset) Close() error {
 	t.mcpMu.Lock()
 	defer t.mcpMu.Unlock()
+	if t.health != nil {
+		t.writeMCPHealthReport()
+		for _, name := range t.healthTracked {
+			t.health.Untrack(name)
+		}
+		t.healthTracked = nil
+	}
 	var first error
 	for _, client := range t.clients {
 		if err := client.Close(); err != nil && first == nil {

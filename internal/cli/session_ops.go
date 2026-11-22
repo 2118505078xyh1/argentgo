@@ -6,14 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// sessionsUndo 恢复最新检查点清单中列出的文件。
+// sessionsUndo 恢复最近 steps 个检查点清单中列出的文件。
+// steps<=1（含未指定 --steps）保留原有单检查点路径，行为与输出不变。
 func sessionsUndo(app App, id string, args []string) int {
-	workspace, err := undoWorkspace(args)
+	baseArgs, steps, err := splitUndoSteps(args)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
+		return 2
+	}
+	workspace, err := undoWorkspace(baseArgs)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
@@ -23,18 +30,120 @@ func sessionsUndo(app App, id string, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	checkpoint, record, err := sess.LatestCheckpoint()
+	if steps <= 1 {
+		checkpoint, record, err := sess.LatestCheckpoint()
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		restored, err := session.UndoCheckpoint(workspace, checkpoint)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		fmt.Fprintf(app.IO.Out, "restored %d file(s) from checkpoint %s in %s\n", len(restored), record.ID, sess.ID())
+		return 0
+	}
+	// 多步撤销：先收集窗口内的全部检查点并校验它们都存在，
+	// 再合成一份清单用一次 UndoCheckpoint 原子还原，避免逐次撤销在中途冲突时
+	// 留下半还原状态。
+	checkpoints, record, err := undoCheckpointWindow(sess, steps)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	restored, err := session.UndoCheckpoint(workspace, checkpoint)
+	restored, err := session.UndoCheckpoint(workspace, mergeUndoCheckpoints(checkpoints))
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
 	fmt.Fprintf(app.IO.Out, "restored %d file(s) from checkpoint %s in %s\n", len(restored), record.ID, sess.ID())
 	return 0
+}
+
+// splitUndoSteps 从撤销参数中剥离 --steps（支持 --steps N 与 --steps=N），
+// 返回剩余参数与要回退的检查点数；未指定时步数为 1，剩余参数保持原样。
+func splitUndoSteps(args []string) ([]string, int, error) {
+	steps := 1
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--steps":
+			if i+1 >= len(args) {
+				return nil, 0, errors.New("--steps 需要一个正整数")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 1 {
+				return nil, 0, fmt.Errorf("--steps 值 %q 非法，需要正整数", args[i])
+			}
+			steps = n
+		case strings.HasPrefix(args[i], "--steps="):
+			raw := strings.TrimPrefix(args[i], "--steps=")
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 {
+				return nil, 0, fmt.Errorf("--steps 值 %q 非法，需要正整数", raw)
+			}
+			steps = n
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	return rest, steps, nil
+}
+
+// undoCheckpointWindow 沿活动分支收集最近 steps 个检查点（由近及远），
+// 并返回最远那个检查点的记录，供输出标识还原到的目标。
+func undoCheckpointWindow(sess *session.Session, steps int) ([]session.Checkpoint, session.Record, error) {
+	checkpoints := make([]session.Checkpoint, 0, steps)
+	var farthest session.Record
+	for i := 1; i <= steps; i++ {
+		cp, record, err := sess.CheckpointBack(i)
+		if err != nil {
+			return nil, session.Record{}, err
+		}
+		checkpoints = append(checkpoints, cp)
+		farthest = record
+	}
+	return checkpoints, farthest, nil
+}
+
+// mergeUndoCheckpoints 把多个检查点合成一份撤销清单。
+// 由近及远遍历时，某路径第一次出现来自窗口内最近的检查点，其轮次后状态即当前
+// 工作区状态，用作校验基准；最后一次覆盖来自窗口内最远的检查点，其轮次前状态
+// 即撤销多个轮次后应到达的目标。两者拼接后可由一次 UndoCheckpoint 完成原子还原。
+func mergeUndoCheckpoints(checkpoints []session.Checkpoint) session.Checkpoint {
+	type snapshots struct {
+		before session.CheckpointFile
+		after  session.CheckpointFile
+	}
+	byPath := make(map[string]*snapshots)
+	var order []string
+	for _, cp := range checkpoints {
+		for _, file := range cp.Files {
+			snap, ok := byPath[file.Path]
+			if !ok {
+				snap = &snapshots{after: file}
+				byPath[file.Path] = snap
+				order = append(order, file.Path)
+			}
+			snap.before = file
+		}
+	}
+	merged := session.Checkpoint{Files: make([]session.CheckpointFile, 0, len(order))}
+	for _, path := range order {
+		snap := byPath[path]
+		merged.Files = append(merged.Files, session.CheckpointFile{
+			Path:        path,
+			SHA256:      snap.before.SHA256,
+			Before:      snap.before.Before,
+			Absent:      snap.before.Absent,
+			Mode:        snap.before.Mode,
+			AfterSHA256: snap.after.AfterSHA256,
+			AfterAbsent: snap.after.AfterAbsent,
+		})
+	}
+	return merged
 }
 
 func undoWorkspace(args []string) (string, error) {
@@ -60,14 +169,37 @@ func undoWorkspace(args []string) (string, error) {
 }
 
 // sessionsRetry 在检查点的父节点处分叉会话并打印新的 id。
+// --steps N（N>1）时取活动分支上倒数第 N 个检查点的记录 id 作为分叉点。
 func sessionsRetry(app App, id string, args []string) int {
-	checkpointID := ""
-	if len(args) > 0 {
-		checkpointID = args[0]
-	}
-	if len(args) > 1 {
-		fmt.Fprintf(app.IO.Err, "argentgo: unexpected retry argument %q\n", args[1])
+	positional, steps, err := splitUndoSteps(args)
+	if err != nil {
+		fmt.Fprintln(app.IO.Err, "argentgo:", err)
 		return 2
+	}
+	checkpointID := ""
+	if len(positional) > 0 {
+		checkpointID = positional[0]
+	}
+	if len(positional) > 1 {
+		fmt.Fprintf(app.IO.Err, "argentgo: unexpected retry argument %q\n", positional[1])
+		return 2
+	}
+	if steps > 1 {
+		if checkpointID != "" {
+			fmt.Fprintln(app.IO.Err, "argentgo: --steps 不能与显式检查点 id 同时使用")
+			return 2
+		}
+		sess, err := session.OpenSession(app.sessionDir(), id)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		_, record, err := sess.CheckpointBack(steps)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		checkpointID = record.ID
 	}
 	fork, err := session.Retry(app.sessionDir(), id, checkpointID)
 	if err != nil {

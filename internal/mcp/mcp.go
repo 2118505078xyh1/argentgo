@@ -37,6 +37,17 @@ const (
 // 只有值为 "1"（允许首尾空白）时才在 Connect 时把通知回调接到传输的读取循环上。
 const mcpListChangedRefreshEnv = "ARGENT_MCP_LIST_CHANGED_REFRESH"
 
+// MCPHealthEnv 是 MCP 运行时健康接线的 opt-in 环境变量名。装配层（internal/app）
+// 据此决定是否给 Spec.HealthTracking 赋值并把健康快照持久化，诊断层（doctor）
+// 据此决定是否读取这份快照。默认未设置（或非 "1"）时两段接线都是空操作：
+// 不挂接 HealthTracker、不写文件、不新增诊断输出，行为逐字节不变。
+// 常量放在本包使「开关语义」与 HealthTracking 的提供方同处一处，避免两处分叉。
+const MCPHealthEnv = "ARGENT_MCP_HEALTH"
+
+// MCPHealthReportFile 是运行时健康快照在存储目录下的文件名。写入端（internal/app）
+// 与读取端（doctor）共用这一常量，避免两处文件名漂移导致诊断读不到快照。
+const MCPHealthReportFile = "mcp-health.json"
+
 // ListChangedRefreshEnabled 报告是否开启 notifications/tools/list_changed 跟踪。
 // mcp 包与接线层（internal/app）共用这一判断，避免开关语义在两处分叉。
 // 每次调用都读取环境，与本包其他 opt-in 能力的读取方式保持一致。

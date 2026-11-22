@@ -98,6 +98,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "mcp_spill_threshold", Env: "ARGENT_MCP_SPILL_THRESHOLD", Name: "MCP 溢出阈值", Enable: "正整数", Desc: "覆盖 MCP 输出溢出的字节阈值。"},
 	{Key: "mcp_protocol_version", Env: "ARGENT_MCP_PROTOCOL_VERSION", Name: "MCP 协议版本回退", Enable: "非空字符串", Desc: "协商失败时回退使用的 MCP 协议版本。"},
 	{Key: "mcp_injection_scan", Env: "ARGENT_MCP_INJECTION_SCAN", Name: "MCP 工具输出注入扫描", Enable: "=1", Desc: "对 MCP CallTool 最终文本做提示注入检测，命中高风险时在原文前加一行可读警示；只警示不改写、不过滤原文任何字节；关闭时输出逐字节不变。"},
+	{Key: "mcp_health", Env: "ARGENT_MCP_HEALTH", Name: "MCP 运行时健康诊断", Enable: "=1", Desc: "连接 MCP 服务时挂接 HealthTracker，关闭时把健康快照写入存储目录；doctor 读取后以 warn 级 issue 报出不健康服务的名称与 LastError；关闭时不挂接、不写文件、输出逐字节不变。"},
 
 	// ---- 诊断 / 恢复 / 计时 ----
 	{Key: "repeat_pitfall_tracking", Env: "ARGENT_REPEAT_PITFALL_TRACKING", Name: "跨情节重复踩坑计数", Enable: "=1", Desc: "启用跨情节的重复错误签名计数；关闭时 RecordSignature 立即返回，不分配不触锁，既有记录路径逐字节不变。"},

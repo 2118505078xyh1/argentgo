@@ -156,6 +156,10 @@ type chat struct {
 	engine  *bridge // nil in tests / when the engine binary is unavailable
 	instant bool    // tests set this so replies appear at once, with no timers
 
+	// engineDisconnected 标记 engine 连接已断开。只影响状态点颜色，
+	// 常态（未断开）不参与渲染，因此常态帧字节保持不变。
+	engineDisconnected bool
+
 	light           bool
 	draft           string
 	status          string
@@ -896,6 +900,9 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			if app.streaming {
 				dot = p.accent
 			}
+			if app.engineDisconnected {
+				dot = p.danger
+			}
 			ui.Box(c).Size(6, 6).Radius(3).Background(dot)
 			ui.Text(c, app.status).FontSize(12).TextColor(p.dim)
 			ui.Spacer(c)
@@ -1199,6 +1206,22 @@ func (app *chat) onEngineEvent(kind string, raw json.RawMessage) {
 	app.win.Update(func() { app.applyEngineEvent(kind, raw) })
 }
 
+// onEngineClose 在 engine 连接断开时把状态栏切到断连态：状态文字改为
+// "引擎连接已断开"，状态点转 danger 色。它由 bridge 的 readLoop
+// goroutine 调用，因此状态变更必须经 Window.Update 编组到窗口线程；
+// 窗口尚未就绪（engine 在 WhenReady 之前就断开）时直接应用。
+func (app *chat) onEngineClose(err error) {
+	apply := func() {
+		app.engineDisconnected = true
+		app.status = "引擎连接已断开"
+	}
+	if app.win == nil {
+		apply()
+		return
+	}
+	app.win.Update(apply)
+}
+
 // applyEngineEvent 把一个真实 agent 事件映射到现有 transcript
 // 状态。只渲染工具和审批事件：助手文本已
 // 通过 prompt/delta 到达，其他所有事件种类被忽略。
@@ -1488,6 +1511,9 @@ func main() {
 		} else {
 			app.engine = b
 			app.status = "已连接引擎"
+			// engine 崩溃/EOF 时由 readLoop 通知，状态栏随之切到断连态，
+			// 避免窗口仍显示绿色"已连接"而用户继续输入才收到失败。
+			b.setCloseHandler(app.onEngineClose)
 			// 启动时一次性获取真实配置，供状态栏显示。失败时
 			// configInfo 保持零值，状态栏回退到 demo 占位串。
 			app.ensureConfigInfo()
