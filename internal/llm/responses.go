@@ -591,7 +591,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		if strings.TrimSpace(partial.name) == "" {
 			return
 		}
-		arguments := integrity.toolArguments(partial.arguments.String())
+		arguments, raw := integrity.toolArgumentsWithRaw(partial.arguments.String())
 		// 缺失的提供方 id 在最终组装前保持为空，届时
 		// 可以根据回复中每个提供方 id 选择一个回退值。
 		completed[index] = ToolCall{
@@ -601,6 +601,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 				Name:      partial.name,
 				Arguments: arguments,
 			},
+			InvalidArguments: raw,
 		}
 	}
 
@@ -698,7 +699,7 @@ streamLoop:
 				// 更新已完成的调用。
 				if call, ok := completed[event.OutputIndex]; ok {
 					if event.Arguments != "" {
-						call.Function.Arguments = integrity.toolArguments(event.Arguments)
+						call.Function.Arguments, call.InvalidArguments = integrity.toolArgumentsWithRaw(event.Arguments)
 					}
 					if call.ID == "" && event.ItemID != "" {
 						call.ID = event.ItemID

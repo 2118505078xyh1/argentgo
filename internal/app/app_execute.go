@@ -398,6 +398,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	optIns := mergeOptIns(ParseOptInEnv(stdio.Env), configOptIns(res.Cfg.Raw))
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
+	// 畸形参数纠错回灌（独立门控 ARGENT_TOOL_ARG_FEEDBACK=1，默认关闭）：
+	// 模型发出的参数非空却不是合法 JSON 时不执行工具，把原始片段作为错误结果回灌。
+	agent.SetToolArgFeedback(toolArgFeedbackOptInEnabled(stdio.Env))
+	// 带图消息 token 估算（独立门控 ARGENT_MULTIMODAL_TRIM=1，默认关闭）：
+	// 把 ContentParts 的文本/图像 part 计入上下文估算，避免低估压力。
+	agent.SetMultimodalTrim(multimodalTrimOptInEnabled(stdio.Env))
 	agent.SetOutputRedaction(optIns[OptInOutputRedaction])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
 	// 工具参数保守强转默认开启：模型常把 schema 声明的数字/布尔写成字符串
@@ -491,6 +497,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 任何失败都 fail-closed 到 RequireApproval。未开启 ARGENT_GUARDIAN 时
 	// guardianInspectorFor 返回 nil，这段审阅函数根本不会被调用。
 	var guard tools.Guard = inspectionGuardFor(chain, approver, stdio, res.Options.SecondaryModel, guardianModelReview(res.Chatter, res.Options.SecondaryModel))
+	// apply_patch 目标路径策略校验（opt-in ARGENT_PATCH_POLICY_PATHS，默认关闭）：
+	// 补丁把目标藏在 input 正文里，安全链默认看不到其中的文件，用户配置的
+	// denyPaths/allowPaths 与带 Path 的规则会静默失效。开启时在原有 guard 之前
+	// 解析真实目标并逐条走策略；关闭时 guard 就是原链，逐字节不变。
+	guard = patchPolicyGuardFor(guard, chain, stdio.Env)
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
@@ -1076,6 +1087,18 @@ func approverFor(stdio cli.IO, res Resolved) security.Approver {
 // 才会启用；其他任何值都保留历史的 策略 -> 审批 -> 审计 行为不变。
 func inspectionEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_INSPECTION")) == "1"
+}
+
+// toolArgFeedbackOptInEnabled 报告畸形参数纠错回灌是否开启。默认关闭：
+// 只有 ARGENT_TOOL_ARG_FEEDBACK=1 才启用，其他值保持历史派发行为逐字节不变。
+func toolArgFeedbackOptInEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_TOOL_ARG_FEEDBACK")) == "1"
+}
+
+// multimodalTrimOptInEnabled 报告带图 token 估算是否开启。默认关闭：
+// 只有 ARGENT_MULTIMODAL_TRIM=1 才启用，其他值保持历史估算逐字节不变。
+func multimodalTrimOptInEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_MULTIMODAL_TRIM")) == "1"
 }
 
 // destructiveCommandInspector 是选择性启用层的内置检查器。它复用 security 的

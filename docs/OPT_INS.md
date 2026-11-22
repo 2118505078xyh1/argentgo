@@ -535,6 +535,9 @@ argentgo "你的任务"
 | `ARGENT_INSPECTION` | 安全失败检查层总开关；关闭时安全链裸链运行，Guardian 绝不生效。 |
 | `ARGENT_GUARDIAN` | Guardian 自身开关；须与 `ARGENT_INSPECTION=1` 同时开启且次要模型非空才生效（两开关为「与」关系）。 |
 | `ARGENT_GUARDRAILS` | 护栏运行时模式（如 `enforce` / `shadow`），由 `normalizeGuardrailMode` 归一化。 |
+| `ARGENT_PATCH_POLICY_PATHS` | =1 时从 apply_patch 的 `input` 正文解析真实目标文件，逐条走 denyPaths/allowPaths 等路径策略（拒绝时零写入）；默认关闭时补丁正文不参与路径规则，安全链逐字节不变。 |
+| `ARGENT_TOOL_ARG_FEEDBACK` | =1 时，模型发出的工具参数非空却不是合法 JSON 则不执行工具，把原始片段（脱敏限长）作为错误结果回灌，让模型重发；默认关闭时仍回退为 `{}` 后派发，逐字节不变。 |
+| `ARGENT_MULTIMODAL_TRIM` | =1 时把带图消息的 `ContentParts`（文本 part + 图像 part 按 detail 取保守 token 上限）计入 token 估算，使上下文压力与裁剪决策准确；默认关闭时带图消息仍只算框架开销，逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

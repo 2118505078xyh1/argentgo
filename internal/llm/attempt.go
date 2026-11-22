@@ -106,11 +106,24 @@ type streamIntegrity struct {
 // 未终止的流可以拒绝该答复，而不是用提供方从未发完的
 // 参数分发工具。
 func (s *streamIntegrity) toolArguments(arguments string) string {
-	if strings.TrimSpace(arguments) == "" || !json.Valid([]byte(arguments)) {
+	out, _ := s.toolArgumentsWithRaw(arguments)
+	return out
+}
+
+// toolArgumentsWithRaw 与 toolArguments 行为一致，但额外返回导致回退的原始参数
+// 片段（仅当参数非空且不是合法 JSON 时非空）。agent 层用它做 opt-in 的纠错回灌：
+// 空参数视为合法的无参调用，不产生纠错提示。
+func (s *streamIntegrity) toolArgumentsWithRaw(arguments string) (string, string) {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" {
 		s.incompleteTool = true
-		return "{}"
+		return "{}", ""
 	}
-	return arguments
+	if !json.Valid([]byte(arguments)) {
+		s.incompleteTool = true
+		return "{}", arguments
+	}
+	return arguments, ""
 }
 
 // eofError 报告必须让尝试失败的截断。marker 是

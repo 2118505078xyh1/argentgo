@@ -43,6 +43,9 @@ func EstimateTokens(text string) int {
 // EstimateMessage 估算一条消息，包括其框架开销。
 func EstimateMessage(m llm.Message) int {
 	n := messageOverheadTokens + EstimateTokens(m.Content) + EstimateTokens(m.Reasoning)
+	// 带图消息的 Content 为空、原始 part 数组在 ContentParts 旁路字段里。
+	// opt-in 开启时把这部分计入，否则多模态会话会低估上下文压力并错过压缩时机。
+	n += estimateMessageContentParts(m)
 	for _, call := range m.ToolCalls {
 		n += 2 + EstimateTokens(call.Function.Name) + EstimateTokens(call.Function.Arguments)
 	}

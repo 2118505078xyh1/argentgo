@@ -1,6 +1,8 @@
-# argentgo 优化 TODO（100 条）
+# argentgo 优化 TODO（仅未做项）
 
-> **生成方式**：2026-11-22，10 个只读子代理并行深挖 git tracked 源码（HEAD `8881ed9`，round 48），按 9+ 维度取证，交叉去重后按用户优先级重排。子代理全程只读，未改动任何文件。
+> **生成方式**：原 100 条生成于 2026-11-22，由 10 个只读子代理并行深挖 git tracked 源码（HEAD `8881ed9`，round 48），按 9+ 维度取证、交叉去重后按用户优先级重排。
+>
+> **2026-11-22 增补**：新一轮 6 个只读子代理分别深读 codex / crush / cline / opencode / pi-mono / oh-my-pi 的 `.rs`/`.ts`/`.go` 源码（不看文档做结论），每条发现均双向核对 argentgo 源码后写入新增章节（101–135，已删除落地项）。条目的竞品证据与现状均带 `路径:行号`；所有代理均未改动业务代码。
 >
 > **证据口径**：每条都附 `路径:行号 / 函数名`，区分「已实现但未接线 / 仅桩 / 边界 bug / 缺测试 / 缺验证」。路径相对项目根 `D:\code\mpi\argentgo\`。
 >
@@ -8,7 +10,7 @@
 >
 > **优先级**：P0 = 实锤 bug / 安全绕过 / 数据丢失 / 发布阻塞；P1 = 已有原语未接线 / 明显体验缺口；P2 = 改进与防御纵深。工作量 S/M/L。
 
-**统计**：P0 ×11，P1 ×60，P2 ×29（共 100 条）。
+**统计**：仅列出未做项；原编号保留（已落地条目的编号与正文已删除，因此编号有断档）。
 
 ---
 
@@ -19,12 +21,6 @@
 - **问题**：模型获取「最近检查点差异」这一最常见用法恒定失败，而 `LatestCheckpoint()`（checkpoint.go:229）明明可用。已有原语 + 边界 bug + 缺测试三合一。
 - **建议**：`Diff` 中把 `id=="" || id=="latest"` 显式映射到 `LatestCheckpoint()` 分支，仅显式数字串走 `CheckpointBack(steps)`；`steps==0` 给稳定错误文案。
 - **验收**：新增 `internal/app/checkpoint_source_test.go` 的 `TestCheckpointSourceDiffLatestAndEmpty`，断言 `Diff("")==Diff("latest")==Diff("1")` 且 `len(changes)>0`；`go test ./internal/app -run TestCheckpointSourceDiff -count=1`。
-
-### 2. 轮次内 Progress 检查点「写了不读」`[P0/M]`
-- **现状**：`internal/session/attempt.go:117,157` 的 `Progress`/`AppendProgress`，生产侧唯一写入口 `sync.go:49-55`；`repair.go:254-291` 的 `RecoverProgress`（含两道过期检查）**只在测试中出现**，`internal/agent`、`internal/app` 零引用。
-- **问题**：「中途崩溃从最后进度点恢复」的设计完全没兑现；每轮请求前的持久屏障都在写进度记录，重启后却被当普通记录忽略，纯写放大；长文本轮次崩溃丢失全部已流式输出。
-- **建议**：在 `internal/app/app_execute.go` 恢复路径（已有 `recoveryMessagesForClassification`:676）调用 `sess.RecoverProgress()`，经新 opt-in `ARGENT_PROGRESS_RECOVERY` 把 `Progress.AssistantText/ToolCalls/Turn` 注入 `SeedContext` 或 `EventNotice`；注册进 `internal/cli/optin_metadata.go:42`。
-- **验收**：新增 `internal/app/progress_recovery_wire_test.go`：写 `Progress{Turn:2,AssistantText:"部分输出"}` 未提交即崩溃，重开断言公告含该文本；已提交 assistant 后断言返回 false；`go test ./internal/app -run TestProgressRecovery -count=1`。
 
 ### 3. `Compaction.SummaryEmpty` 算了没人读且不落盘 `[P1/M]`
 - **现状**：`internal/session/compact.go:48-51` 注释说明该字段用于「决定是否重试模型摘要」，唯一赋值在 `:555`（仅 `ARGENT_SUMMARY_SCHEMA=1`），标记 `json:"-"` 不写入 JSONL；全仓除两个测试外零读者。
@@ -74,12 +70,6 @@
 - **建议**：新增 `ForkWithLineage(parent, sourceSession, atRecord, ts)`，仅显式调用时 `AppendRecord(KindMessage, forkLineagePayload(...))`；由 `sessionsForkAt` 与 checkout 经新 env `ARGENT_FORK_LINEAGE` opt-in；`tree.go:55-61` 解析该载荷填充 `Branch.SourceSession/SourceRecord`。
 - **验收**：`fork_lineage_wire_test.go` 新增 `TestForkWithLineageOptIn`，开启后来源非空、关闭时 fork 转录逐字节不变。
 
-### 11. 非破坏性 `context_edit` 记录节点 `[P0/M]`（学自 pi-mono）
-- **竞品证据**：`pi-mono/packages/coding-agent/src/core/session-manager.ts` 的 `ContextEditEntry`（`targetId`+`replacement`，:175）、`appendContextEdit`（:1378）、`projectContextEntry`（:520）。
-- **现状/缺口**：`internal/session` 的只追加 JSONL、`Checkout`、`Compact` 只支持整段丢弃/替换；发现某轮注入错误上下文时只能 fork 重来，没有「从模型上下文隐藏/替换单条内容而不改磁盘历史」的能力。
-- **建议**：新增记录 `kind:"context_edit"`（`targetId`/`replacement`，沿用 id/parent 与脱敏边界）；在 replay 投影入口按 targetId 应用「最后一条生效」覆盖；新增 CLI `sessions edit-context <id> <entry> [--text|--hide]` 与 RPC `session.editContext`；不触碰既有记录字节。
-- **验收**：插入后 replay 中目标被隐藏/替换而 JSONL 原文不变；多次 edit 同一 target 最后一条生效；fork/checkout 后覆盖归属正确；未使用时 golden 逐字节不变。
-
 ### 12. 工具结果「被更新」剪枝 + 提示缓存回看保护 `[P0/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/packages/agent/src/compaction/pruning.ts` 的 `pruneSupersededToolResults`/`readToolSupersedeKey`，`tool-protection.ts` 的 `isProtectedToolResult`。
 - **现状/缺口**：`internal/agent/trim.go` 的 `Trim`/`budgetTarget`/`effectiveCacheProtect` 只保留头尾并保护缓存段；没有「先 read A、再 edit A，旧 read 结果应失效」的语义，也不按 provider 缓存回看窗口限制剪枝，导致被更新内容反复占上下文并触发缓存重写。
@@ -91,12 +81,6 @@
 - **现状/缺口**：`internal/agent/steer.go:17,25` 与 `loop_helpers.go:196` 的 `injectSteering` 只在下一轮边界注入；长输出中用户无法即时改向，abort 则丢整轮。
 - **建议**：在已有 Responses 协议 `internal/llm/responses.go` 暴露可选 `Steer func() []string`，SSE 循环中按 provider 形式投递；不支持协议回退边界路径；复用同一 `SteerQueue` 记 `accepted/deferred` 事件；opt-in `ARGENT_LIVE_STEER=1`，纯 stdlib。
 - **验收**：模拟 Responses 流中注入后后续文本遵循新指令且 transcript 顺序正确；不支持协议请求字节不变；取消时无 goroutine 泄漏。
-
-### 14. TTSR 流中条件规则注入 `[P1/L]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/packages/coding-agent/src/export/ttsr.ts` 的 `TtsrManager.checkDelta`:858/`checkSnapshot`:880、`JUDGED_RULE_THRESHOLD=0.7`，命中即中止流→注入 system reminder→重试。
-- **现状/缺口**：`internal/hooks` 的 11 事件 + exit-2 阻断只在工具边界；`steer.go` 在轮次边界；`prompt_injection_scan.go` 只警示。没有「输出文本命中条件→立即中止流→注入提醒→重试」闭环。
-- **建议**：`internal/agent` 加 `RuleWatcher`（opt-in `ARGENT_TTSR=1`），规则来自 JSON（scope=text/thinking/tool、condition=正则、action=warn/inject/retry）；复用 `compact_retry.go` 的中止+重放骨架与 `tool_result_wrapping.go` 的注入格式；非法正则跳过并告警。
-- **验收**：命中后流被中止且每轮最多重试一次；注入文本进入下一轮 system 但不覆盖 files/failures 权威字段；默认关闭逐字节不变。
 
 ---
 
@@ -162,12 +146,6 @@
 - **建议**：增加 4 个目标及种子：`FuzzEscapeDecode`（幂等、最多 4 轮收敛）、`FuzzRedactJSON`（合法 JSON→合法 JSON 且凭据不残留）、`FuzzClassifyCommand`（确定性、未知命令≥mutating）、`FuzzScanPromptInjection`（按 Offset/Pattern 有序去重）；断言 Header 无 `\n\r`。
 - **验收**：`go test ./internal/security -run SeedCorpus -count=1`；`go test -fuzz=FuzzEscapeDecode -fuzztime=30s ./internal/security` 无 crash。
 
-### 25. Guardian 从 fail-closed 占位接到真实次要模型 `[P1/M]`（学自 codex）
-- **竞品证据**：`codex/codex-rs/core/src/guardian/review.rs` 的 `select_synchronous_reviewer`/`run_before_review_deadline`/`guardian_output_schema`。
-- **现状/缺口**：`internal/app/guardian_wire.go` 的 `defaultGuardianReview` 永远返回 `RequireApproval`，注释明写「真正的廉价模型审阅尚未接入」；`guardianInspectorFor` 已留注入缝，`internal/security` 已有 verdict 类型但缺真实实现。
-- **建议**：实现 `guardianReviewFunc`，用 `secondary-model` + 现有 `Chatter.ChatOnce` 非流式短答（2–3s、小 maxTokens）对「工具名+规范化参数+工作区上下文」做 allow/require/escalate 判定；输出限定 JSON 并严格校验，schema 失败/超时/空模型一律 RequireApproval（fail-closed）；沿用 `ARGENT_GUARDIAN=1` 双开关。
-- **验收**：三种 verdict 各有表驱动测试；超时/畸形 JSON/无次要模型均 RequireApproval；关闭时请求字节 golden 一致。
-
 ### 26. 自研 shell 安全谓词双重断点 `[P1/M]`
 - **现状**：`internal/shell/safety_oracle.go:5-14` 自承「生产接线从不设置它」，`SetSafetyOracle`:40/`CurrentSafety`:70 非测试调用为零；`shell.go:33-40 Run()` 只把 `opts.Safety` 赋给 `it.Safety` 并未调用 `CurrentSafety`；`interp.go:163` 只检查 `it.Safety`；唯一生产调用者 `tools_builtin_bash.go:222-228` 构造 Options 时未设 Safety。
 - **问题**：启用 `ARGENT_BUILTIN_SHELL=1` 后 fail-closed 安全咨询恒为 nil→放行；即便按注释指引调 `SetSafetyOracle`，`shell.Run` 也没读 `CurrentSafety`——注入完全无效。
@@ -196,23 +174,11 @@
 - **建议**：在 `internal/tools` 增加只读 `pty_run` 工具（或 bash 工具加 `tty:true`），经 pluginapi 注入构造子、由 app 负责 `pty.Start`；读循环必须串接 `queryFilter.Write/Flush` 后再进 UTF-8 carry 与 clip，复用 `proc.SanitizeEnv`；`Pty.Close/Wait` 与取消 ctx 绑定。
 - **验收**：`internal/app/pty_wire_test.go` 假 Pty 注入，喂 `ESC[6n` 后输出不含该序列，ctx 取消触发 Close；加守护测试 `TestPtyPackageHasProductionImporter`。
 
-### 30. 持久化 PTY shell 会话：`cd`/`export` 跨调用 `[P1/M/L]`（学自 opencode）
-- **竞品证据**：`opencode/packages/core/src/persistent-pty/index.ts` 的 `PersistentPty`、`daemon.ts` 的常驻传输（`ProtocolVersion=9`）。
-- **现状/缺口**：`internal/pty` 有原语但 `internal/shell/tools_builtin_bash.go:131` 的 `bashTool.Run` 每次 `exec.Command` 新进程，`cd`/`export`/venv activate 不跨调用保留，模型每轮重复环境前置。#29 解决接线，本条解决会话持久化这一增值能力。
-- **建议**：复用 `internal/pty`+`internal/jobs`，在 `internal/shell` 增加按 workspace+shell kind 键控的 `ShellSessionRegistry`（长驻进程+空闲超时+输出环形缓冲，复用 output_spill）；bash 工具加 `session`/`persist` 参数；通过注入 `pwd`/env 探针回读校验状态；opt-in `ARGENT_PERSISTENT_SHELL=1`。
-- **验收**：连续两次调用第二次继承 cwd/env；空闲超时回收无残留进程；取消不泄漏；关闭时输出逐字节不变。
-
 ### 31. proc idle watchdog 孤立 + SubstBudget 未接线 `[P1/M]`
 - **现状**：`internal/proc/idle_watchdog.go:22` 的 `idleWatchdogExpired`（含单调时钟语义）全仓唯一调用方是测试；`proc.go:225-271` 的 select 只有 done/总超时/ctx，无 lastActivity 更新。展开侧 `internal/llm/subst_budget.go:5-8` 自述「没有内置调用方」，`Enter`:51/`Exit`:68 仅 guard 测试；对照 `llm/sse_idle.go:17` 已正确接线。
 - **问题**：先输出几行后彻底卡死（等网络/死锁）的命令，只要总超时长（上限 3600s）就一直挂到总超时或人工取消；深层命令替换 `$()` 无深度上限，防御-in-depth 失效。
 - **建议**：① `Command` 增 `IdleTimeout`，输出 writer 包 `atomic.Int64 lastActivity`，select 加 `time.Ticker` 周期调 `idleWatchdogExpired`，命中走 killTree 路径并返回新哨兵 `ErrIdleTimeout`；`shell.Interp.Timeout` 旁加 `IdleTimeout` 透传。② shell 展开路径构造 `SubstBudget`，递归前 `Enter()`、失败返回受限错误、`defer Exit()`。
 - **验收**：`internal/proc/idle_watchdog_run_test.go`：假子进程先写一行后永不退出，`IdleTimeout=50ms`/`Timeout=10s`，断言 200ms 内返回 `ErrIdleTimeout`；持续输出的进程 200ms 后仍存活。`go test -race ./internal/proc -run Idle -count=1`。
-
-### 32. `tool_argument_coercion` 死代码 + 审批参数错位 `[P1/M]`
-- **现状**：`internal/agent/tool_argument_coercion.go:23` 的 `SetToolArgumentCoercion` 全仓零调用，`dispatch.go:491` 门控恒 false；文件注释称「由 app 层启动时设置」但 `app_execute.go:499-542` 无该调用。另一方面 `dispatch.go:417` 审批用原始 `call.Function.Arguments`，:489-493 的 `ExtractIntent`/`coerceToolArgumentsJSON` 在审批后的 `runTool` 才改写实际参数。
-- **问题**：完整实现并测试的 250 行强转能力是死代码；更关键的是顺序错误——若按注释接线，用户批准 A 参数（`{"timeout_seconds":"5"}`）落到工具的却是 B（`{"timeout_seconds":5}`），`approvalDigest` 与执行不可对应，审计与可追责性被破坏。
-- **建议**：① `app_execute.go` 按 env `ARGENT_TOOL_ARG_COERCION=1`（注册进 optin_metadata）调用 `SetToolArgumentCoercion`。② 把强转上移到 `executeCall` 审批之前，审批与 `approvalDigest` 都用同一份规范化 `toolArgs`，`runTool` 只消费不二次改写。③ 若不启用则删除死代码或明确登记「保留未启用」。
-- **验收**：`internal/agent/approval_args_parity_test.go`：开启 coercion，断言 `Approver.Ask` 收到的 args 与 `ToolRunner.Run` 收到的逐字节相等。
 
 ### 33. LSP 客户端启动绕过 proc 环境净化与整树终止 `[P1/S/M]`
 - **现状**：`internal/lsp/client.go:146-168` 用 `exec.Command` + `append(os.Environ(), server.Env...)`，`kill` 为 `Process.Kill`，`Close`:483-507 同样；`proc.go:174 SanitizeEnv`、:177 `configure(cmd,KillTree,...)` 已具备。
@@ -348,12 +314,6 @@
 - **建议**：把不依赖 `mygo.App.Run` 的纯逻辑测试（error_notice/nav_panel/event_bridge 解码/approval_answer）提升为日常快验证子集，在 `AGENTS.md:30-34` 加快验证命令；仅 bridge_race 与需窗口用例留在发版门禁。
 - **验收**：`go test -p 4 ./native -run 'TestEngineError|TestNavPanel|TestDecode|TestApprovalAnswer' -count=1` 在无 GPU CI 上 10 次全绿且 <10s；AGENTS.md 出现该命令。
 
-### 54. 渲染缓存原语 `frameCacheKey` 已写好但 run 循环未消费 `[P2/M]`
-- **现状**：`internal/tui/frame_cache.go:14,57,121,129` 的 `frameCacheKey`/`newFrameCacheKey`/`frameCacheHit`/`isPureScrollChange` 已实现且有表驱动测试，但注释 :9-13 明确「run 循环中尚无消费者」；`run.go:114-131 frameWriter.draw` 只依 `m.Dirty()` 决定 Paint，每 50ms tick 仍无条件 Flush。
-- **问题**：时间敏感状态（spinner/通知/实时推理行）持续标脏触发完整 Paint，`bodyLinesLocked`/`headerLocked` 计算未省；已有安全缓存键零收益。
-- **建议**：`run.go:106 frameWriter` 增 `lastKey frameCacheKey`/`haveKey bool`；draw 中先算 key，命中则跳过 `m.Paint`（保留 Flush 与光标差异）；force 时强制重绘；注意 `newFrameCacheKey` 自带锁须在 Paint 锁外调用。
-- **验收**：`run_test.go` 注入 spy writer，连续两次相同状态 + tick，断言第二次 Paint 调用为 0、写字节为 0；`go test ./internal/tui -run 'TestFrameCache|TestDraw' -count=1`。
-
 ### 55. 键位别名层已实现但不可配置 `[P2/M]`
 - **现状**：`internal/tui/keymap.go:8-12` 自述「未来可选接入的键位映射层」，`resolveBinding`:27/`addAlias`:53/`mergeAliases`:70 支持大小写折叠、CJK 别名、歧义字典序，但仅测试引用；实际分派硬编码在 `model_input.go handleKeyLocked`，无配置入口；`keys.go:16-70` Kind 枚举与 `locale.go:37/96` help 文本需手工同步。
 - **问题**：vim/IDE 习惯（j/k 滚动、Ctrl+/ 折叠）无法适配；中文别名等能力空转；改一键要改多处。
@@ -372,29 +332,11 @@
 - **建议**：`Palette` 加可选 `BadgeBGHex/BadgeInkHex/BadgeAltInkHex`（内置主题留空走原 SGR，逐字节不变）；`render.go attemptLinesLocked` 的「⟳」徽章与 `renderEntryLocked` 通知墨色在非空时调 `LegibleInk`；`SetTheme` 对非内置主题做一次 ContrastRatio 校验并给出可测试错误/降级路径。
 - **验收**：`theme_contrast_test.go` 构造低对比自定义主题断言墨色被替换为 alt；内置三主题 Frame 逐字节相同。
 
-### 58. Native 审批卡无 diff，文件编辑审批近乎「盲批」`[P2/M]`
-- **现状**：`native/main.go:932-954 approvalView` 仅显示 `ap.name`/`ap.args` 与「Y 允许·N 拒绝」，无变更文件/增删行/前后对照；TUI 侧 `internal/tui/approval_diff.go:41,53,166` 的 `ApprovalDiff`/`BuildApprovalDiff`/`RenderApprovalDiff` 已实现并由 `app/tui.go:57 ConfigureApprovalDiff`+env `ARGENT_APPROVAL_DIFF=1` 门控；native 无对应 env 读取。
-- **问题**：桌面端是主要 GUI，用户审批「改文件」时看不到任何 diff，只能凭工具名和参数放行，与 TUI 体验严重不一致，属高风险可用性缺口。
-- **建议**：在 `native/` 新建 `approval.go` 实现与 `BuildApprovalDiff` 等价的纯函数（native 禁 import internal，按 `bridge.go:13-16` 约束复制最小逻辑）；若 agent 事件不带 diff 则在 `main.go:1156 engineApproval` 加可选字段并确认 server payload；`approvalView` 在 args 下方加一行摘要 + 有界预览，加 `ARGENT_NATIVE_APPROVAL_DIFF=1` 门控保持默认帧不变。
-- **验收**：`native/approval_diff_test.go`：一改一增快照断言摘要含文件数与 +/− 计数、预览行数有上界、CJK 路径不切断、门控关闭时渲染元素数不变。
-
 ### 59. Native bridge 断连无用户可见提示 `[P1/M]`
 - **现状**：`native/bridge.go:157-166 readLoop` 在 EOF/读错误时置 `b.closed=true` 并给 pending 回 "engine connection closed"，但 bridge 结构体（:17-32）无 onClose/状态回调；`main.go:1485-1490` 仅启动时设一次 `app.status="已连接引擎"`；下一次提问经 `sendReal`→`call` 直接返回 "engine bridge closed"，才由 `completeFromPrompt` 显示为一条错误气泡。
 - **问题**：engine 崩溃/被杀后桌面窗口仍显示绿色「已连接引擎」，用户继续输入才收到失败提示，且无一键重连。
 - **建议**：bridge 加 `onClose func(error)` 与 `setCloseHandler`（复用 setDeltaHandler 的 mu+generation 模式），readLoop 解锁后调用；main 注册回调通过 `app.win.Update` 把 status 改为「引擎连接已断开」、状态点变 danger，并在 composer 旁渲染「重新连接」按钮（重走启动逻辑）。
 - **验收**：`native/bridge_close_test.go` 用 pipe 模拟 EOF，断言 onClose 恰好一次且 status 含「断开」；`go test -race ./native -run TestBridge -count=1`。
-
-### 60. `argentgo gui --locale` 被解析却未传给原生窗口，开关静默失效 `[P2/S]`
-- **现状**：`cmd/argent/gui.go:37,44` 声明并注册 --locale，`:58-61` 塞进 `cli.Options.Locale` 交给 app（影响 engine），但 `:84-98 launchNativeFrontend` 的 `cmd.Env`（:97）只设 ARGENT_EXE/ARGENT_CWD；`native/main.go:1480-1485` 只读取这两个变量，chat 无 locale 字段。
-- **问题**：用户传 --locale 期待切换桌面语言，实际只影响后端，无任何警告；TUI 走 opts.Locale 而 native 走 env，两条路径无统一契约。
-- **建议**：`gui.go:97` env 追加 `"ARGENT_LOCALE="+resolved.Locale`；native 初始化 `chat{locale: os.Getenv("ARGENT_LOCALE")}` 并经 #52 的适配层解析；若明确不支持英文至少打印警告避免静默。
-- **验收**：`cmd/argent/gui_test.go` 断言 env 构造含 ARGENT_LOCALE；`native/main_test.go` 设 en-US 后 app.locale 解析为 en；`go test ./cmd/argent ./native -run 'TestGUI|TestLocale' -count=1`。
-
-### 61. TUI 自建 `locale.go` 双表与 `internal/i18n` 并行，两套目录未统一 `[P2/M]`
-- **现状**：`internal/tui/locale.go:10` 的 `localeStrings`（en/zh 双表 ~58 键）与 `:139 text` 是 TUI 唯一文案来源；`internal/i18n/i18n.go:33 catalog` 是另一套 zh-CN/en-US 表；TUI 仅在 `activity_summary_test.go` import 过 i18n；`i18n.go:1-5` 自称覆盖 TUI 但与事实不符。
-- **问题**：新增用户可见字符串要在两处各写一遍，键名/译文易漂移；i18n 的 `hardcoded_scan_test.go` 守卫覆盖不到 TUI 文案，形成治理盲区。
-- **建议**：统一到 `internal/i18n` 单一 catalog：把 TUI 的 58 键迁入并以 `i18n.Tr(locale,key)` 替换 `text()`；保留 `tui/text` 作为薄转发以减小 diff；扩展 `hardcoded_scan_test.go` 扫描 TUI 新增硬编码（与 #52 的 baseline 方案合并）。
-- **验收**：`grep -rn 'localeStrings' internal/tui` 仅剩薄转发定义；两语言 Frame 输出与迁移前逐字节一致；i18n 守卫覆盖 TUI 目录。
 
 ---
 
@@ -598,7 +540,7 @@
 
 ---
 
-## 八、性能 / 资源 / 可观测（94–100）
+## 八、性能 / 资源 / 可观测（94–99）
 
 ### 94. `tokenize.Estimate` 在 ASCII 热路径引入全量 SHA-256 与切片分配 `[P0/S]`
 - **现状**：`internal/tokenize/tokenize.go:20-32 Estimate` 先 `key := hashContent(text)` 再查 LRU，`cache.go:47-49 hashContent` 为 `sha256.Sum256([]byte(text))`；而 `estimateUncached`:38-46 的 ASCII 快速路径只需逐字节扫描；`agent/trim.go:39-58 EstimateTokens/EstimateMessages` 每次请求调用多次。
@@ -636,17 +578,242 @@
 - **建议**：加可复用 `scratch []byte` 字段，`Write` 用 `scratch = append(scratch[:0], carry...); scratch = append(scratch, p...)` 避免 make（仅容量不足时增长）；:87-94 改单次 DecodeRune + size==1&&r==RuneError 边界判断（保持无效字节按宽度 1 通过语义）；保留 mu 串行化与畸形尾部防御上限。
 - **验收**：`go test ./internal/proc -run 'TestUTF8|TestDetachedUTF8' -count=1` 与 `-race` 全绿；新增 BenchmarkUTF8CarryWriterChunked 断言稳态 B/op 下降且输出逐字节一致。
 
-### 100. 无可观测性/体积/启动耗时门禁：无 pprof、无 GC 调优、dev 构建未裁剪 `[P2/M]`
-- **现状**：全仓 `grep -rniE 'net/http/pprof|runtime/pprof|debug.SetGCPercent|GOGC|SetMemoryLimit'` 无命中（仅测试 2 处 runtime.GC）；`cmd/argent/main.go:11-34` 直接 cli.RunWith 无诊断开关；release 用 `-trimpath -ldflags '-s -w -H=windowsgui'`（build-release.ps1:135,142）但 AGENTS.md 日常命令 `go build -o argentgo.exe ./cmd/argent` 与 ci.yml:49-52 均无裁剪标志（观测到的 21.6M 即未裁剪口径）；CI 无体积或启动时间断言；8 个 init() 均轻量，缺口在「无测量手段」而非已有热点。
-- **问题**：出现内存/CPU 回归（如 #94/#95）时无法在线抓 profile；GC 与内存上限无法按部署场景调节；体积/启动时间无基线，回归不可发现。
-- **建议**：① main.go 加 env 门控 ARGENT_PPROF_ADDR（非空时手动注册 net/http/pprof 并起 loopback listener，默认关），同时支持 ARGENT_GOGC（debug.SetGCPercent）与 ARGENT_MEM_LIMIT（debug.SetMemoryLimit）；② AGENTS.md dev 构建命令改 `go build -trimpath -ldflags '-s -w' -o argentgo.exe ./cmd/argent`；③ CI 加体积门禁（构建后字节数超 22M 失败）与启动耗时 smoke（`--version` 计时上限，仅报警不精确基准）。
-- **验收**：`ARGENT_PPROF_ADDR=127.0.0.1:6060` 启动后 curl `/debug/pprof/heap` 返回 200；不设置时 go build 输出字节低于当前 21.6M；`grep -rn 'pprof' cmd internal --include='*.go'` 有生产命中；go vet/gofmt/test 全绿。
+---
+
+## 九、竞品源码深读新增（101–135）
+
+### 104. 上下文计量：provider 实测锚点 + 文本估算 + 预留余量 + 溢出逐级缩减 `[P1/M]`（opencode + cline + pi）
+- **竞品证据**：`opencode/packages/core/src/session/compaction.ts:55-56` 把大小拆成 `measured`（provider 报告的锚点）与 `estimated`（其后新增文本）；`:1120-1144` 用最近同模型、无错的 assistant 的 input+cache+output 作 measured 基线，只估未计量尾部；`:123-136,1151-1159` 的 `RESERVE_SHARE=0.15`/`RESERVE_MIN=16000` 算 ceiling；`:122-124,668-682` 溢出后按 `SHRINK_STEPS=[0.85,0.7,0.5,0.35]` 缩减。`cline/sdk/packages/core/src/extensions/context/compaction.ts:344-368` 用 `underestimateFactor=min(4,max(1,actualPreviousInputTokens/requestInputTokens))` 自适应缩放。`pi-mono/packages/coding-agent/src/core/agent-session.ts:3121-3250` 区分溢出可重试 / 成功但超限 / 阈值三种情形。
+- **argentgo 现状**：`internal/agent/trim.go:13-71` 的 `EstimateMessages/EstimateTools` 是纯字符/4 启发式（含缓存保护阈值 `:22-24`）；`internal/app/compact.go:124-132` 有 `usageAnchor` 做原生 totalTokens 前缀锚点，但阈值比较（`:82-88`）仍用固定 `InflateEstimate` 1.3 倍（`internal/agent/budget.go:152-158`），没有「实测/估算」比率自适应；触发后也没有逐级缩减重发。
+- **问题**：本地模型/大工具输出场景下估算误差大，可能过早压缩（浪费缓存）或过晚触发（撞硬限制）。
+- **建议**：opt-in 地在 `estimateContextTokens` 记录 `requestInputTokens`，用有上限的系数收缩/放宽阈值；把 `RESERVE_SHARE` 风格余量纳入阈值计算；溢出重试复用 `SHRINK_STEPS` 式逐级重发（但受 `MaxCompactRetries` 约束）。默认路径保持 chars/4 × 1.3 不变。
+- **验收**：表驱动测试喂「实测 120k / 估算 60k」断言系数钳到 4、阈值按新公式变化；基线用例断言 opt-in 关闭时阈值逐字节不变；`go test ./internal/agent ./internal/app -count=1`。
+
+### 105. 后台预压缩：提前写摘要、到阈值直接切换 `[P1/L]`（opencode + codex）
+- **竞品证据**：`opencode/packages/core/src/session/compaction.ts:338-402`：`PRECOMPUTE_LEAD=60_000`，在距上限还有 60k token 时 fork 后台摘要，锚定最近 provider 已计量的 assistant（`:360-366`），受 cache TTL（`:369-386`，过期/换模型/连续失败 2 次则取消）约束；摘要**只持有不立即应用**（`:340-343`，避免改写缓存前缀），`:404-428` 在阈值处校验 tail 后 swap。`codex/codex-rs/core/src/session/async_compaction.rs:34-110` 的 `maybe_start` 有类似的 history_version/模型/auth 一致性检查。
+- **argentgo 现状**：`internal/agent/runner.go:111-115` 的 `Compactor` 只有同步 `MaybeCompact`；`internal/agent/loop_helpers.go:15-42` 在阈值处同步调用。`internal/agent/compaction.go:120-168` 的 `SummaryCache` 只缓存相同前缀的摘要结果，避免重复摘要，**不会提前做**。
+- **问题**：写摘要要 30–60s，到阈值才开始会让下一次请求阻塞；大文件读取时上下文暴涨来不及。
+- **建议**：在 app 层包一层 opt-in 后台 Compactor（沿用 `Compactor` 接口，不改 agent 热路径），在压力接近阈值时异步产出摘要，到阈值时按 anchor/tail 校验后交给现有 `MaybeCompact` 消费；失败/换模型/超 TTL 则丢弃。默认同步路径逐字节不变。
+- **验收**：`internal/app/background_compactor_test.go`：注入伪 Chatter 控制延迟，断言后台摘要生成后阈值处零阻塞切换、tail 过长时拒绝切换、失败后回退同步；`go test ./internal/app -count=1`。
+
+### 106. 重试前的持久上下文省略 + 可中止退避 + 摘要调用共享退避 `[P1/M]`（学自 pi-mono）
+- **竞品证据**：`pi-mono/packages/coding-agent/src/core/agent-session.ts:1269-1283` 的 `_omitRecoveryAttempt()`，`:1313-1354`/`:3936-3995` 在重试前对失败助手消息及其工具结果写 `appendContextEdit(targetId, null)` **永久省略**；`pi-mono/packages/ai/src/utils/retry.ts:160-164` 的退避可被 `abortRetry` 中断；`:2073-2080,3883-3918` 让压缩/分支摘要的 LLM 调用复用同一 retry 预算与事件。
+- **argentgo 现状**：`internal/agent/fallback.go:48-160` 在可重试错误时立即切换模型，无退避、失败消息留在 `s.messages`；`internal/agent/compact_retry.go:44-100` 的压缩重放是 opt-in 且最多一次，同样保留失败消息。`internal/session/context_edit.go:57` 的 `AppendContextEdit` 已有 Text 替换/隐藏语义，但只有 CLI 手动调用。
+- **问题**：失败尝试及其工具结果持续占用上下文，重试时重复污染；瞬时限流立即切模型可能不是最优策略。
+- **建议**：opt-in 同模型重试策略（`maxRetries`/base/cap），重试前通过 app 回调把失败助手消息写 `ContextEdit{TargetID, Text:""}` 永久省略；退避可被 ctx 取消；复用 `internal/llm/retry.go:416-440` 的分类。默认仍走当前模型回退，事件/字节不变。
+- **验收**：`internal/app/retry_omit_test.go`：429 → 重试成功，断言失败轮被 context_edit 省略、退避受 ctx 取消、默认路径无 edit 记录；`go test ./internal/app ./internal/agent -count=1`。
+
+### 107. `apply_patch` 的 `@@ context` 锚定被丢弃，重复片段无法消歧 `[P1/S-M]`（学自 codex）
+- **竞品证据**：`codex/codex-rs/apply-patch/src/parser.rs:18-20,44-45` 把 `@@ <text>` 解析为 `change_context`；`file_update.rs:60-85` 用 `seek_sequence(..., line_index)` 先找到 context 再把游标推进到其后匹配 old lines；`seek_sequence.rs:12-70` 依次做精确 / 忽略尾空白 / 忽略首尾空白 / Unicode 标点归一化四轮。
+- **argentgo 现状**：`internal/tools/apply_patch_parse.go:180-194` 的 `parsePatchHunkHeader` 虽接受 `@@ context`，但注释称「仅作定位提示」，非数字分支直接返回空 `PatchHunk{}`，**context 文本被丢弃**；数字形式 `OldStart/OldLines`（`:34-38`）在 `tools_apply_patch.go:159-178` 也未被读取，实际只走整文件 `repairReplace` 唯一匹配——同一片段出现两次即 `ErrApplyPatchAmbiguous`，模型就算写了 context 也无用。
+- **问题**：重复代码块（样板、测试夹具、switch case）是 patch 失败的最高发场景之一。
+- **建议**：`PatchHunk` 加 `Context string`，保留 `@@` 后文本；update 分支在 `repairReplace` 前先在锚点之后的文件切片做唯一匹配；数字行号仅作提示不强约束；无 context 时逐字节不变。
+- **验收**：`internal/tools/apply_patch_context_test.go`：两处相同旧 snippet 分别用不同 `@@ ctx` 锚定，断言各自替换正确；无 context 时仍报歧义；`go test ./internal/tools -run TestApplyPatch -count=1`。
+
+### 108. PreToolUse `decision=allow` 未变成预审批，照样弹窗 `[P1/M]`（crush + cline）
+- **竞品证据**：crush `internal/agent/hooked_tool.go:76-81` 把 `DecisionAllow` 盖章进 ctx（`permission.WithHookApproval`），`internal/permission/permission.go:16-34,313-322` 按 tool call ID 校验并跳过弹窗（仍发 granted 通知）；cline `sdk/packages/agents/src/agent-runtime.ts:2469-2499` 的 `beforeTool` hooks 可在审批前改写 input/policy/skip。
+- **argentgo 现状**：`ARGENT_HOOK_VERDICT=1` 只把 allow 用于清除 `Result.Blocked`（`internal/app/hooks.go:122-125`、`internal/hooks/dispatch.go:246-249`），`Result` 无审批字段（`:66-76`）；`security.Chain.check` 仍无条件 `approver.Ask`（`internal/security/chain.go:275,364`）；未受 guard 的工具还会在 `internal/agent/dispatch.go:419-450` 再问一次；`Payload.CallID` 字段存在但 fire 时未填（`app/hooks.go:532`）。
+- **问题**：用户写了 allow 钩子仍被弹窗打断，自动化流程卡住；with hook 的自动审批无法落地。
+- **建议**：扩展 `ARGENT_HOOK_VERDICT`：dispatch 把 `call.ID` 放进 ctx，`app/hooks.go:532` 填 `Payload.CallID`，VerdictAllow 时用 security 包本地 context key 打章（模仿 crush 按 ID 校验）；`Chain.check` 在 `:364` 前查章，策略/审计照跑；不信任的钩子文档由现有 SHA-256 trust gate 挡住。
+- **验收**：`internal/app/hook_preapproval_test.go`：allow 钩子 + 受保护工具 → 无弹窗但审计有 granted；deny 仍拦截；关闭 opt-in 时行为不变；`go test ./internal/app ./internal/security -count=1`。
+
+### 109. hook `updatedInput`/`updatedOutput` 改写未支持 `[P1/M]`（crush + cline + opencode）
+- **竞品证据**：crush `internal/hooks/input.go:107-154,188-215` 解析 `hookSpecificOutput.updatedInput/updatedOutput`，`internal/agent/hooked_tool.go:70-73,90-93` 应用到实际 args 和结果；cline `agent-runtime.ts:2469-2499` 可在审批前改写 input；opencode `core/src/permission.ts:212-238` 的 permission evaluate hook 可改写 `effect`。
+- **argentgo 现状**：`internal/hooks/verdict.go:56-133,172-220` 只解析 `permissionDecision` 与 `additionalContext`；`Result` 无改写字段（`dispatch.go:66-76`）；`app/hooks.go:518-582` 只能把钩子消息 append 成注释。
+- **问题**：无法做输入脱敏/命令重写/输出脱敏——这是 hook 层最有表达力的能力，符合「优先 hook 而非改核心」的约束。
+- **建议**：opt-in `ARGENT_HOOK_REWRITE=1`：在 `internal/hooks` 加纯解析函数读 `hookSpecificOutput.updatedInput/updatedOutput`（沿用 verdict.go 脱敏/限长）；`hookedTools.Run` 在 PreToolUse 后改 args、PostToolUse 后改 out。**关键约束**：输入改写必须和审批/执行参数一致（见 #108 打章机制），否则只先开放 PostToolUse 输出改写；默认逐字节不变。
+- **验收**：`internal/hooks/rewrite_test.go` + `internal/app/hook_rewrite_test.go`：updatedOutput 改敏感字段后模型看到改写值；updatedInput 开启时审批与执行看到同一份字节；`go test ./internal/hooks ./internal/app -count=1`。
+
+### 110. PreCompact/PostCompact 声明了但零触发 `[P1/S-M]`（crush + codex）
+- **竞品证据**：crush `internal/agent/agent.go:1557-1558` fire `EventPreCompact` 且 blocked → `ErrCompactionBlocked`；`:1686` fire PostCompact；`:1252-1273` 自动阈值；事件含 `Trigger` 字段（hooks/events.go:83）。codex `core/src/compact.rs:200-205` 压缩前 `run_pre_compact_hooks`（Stopped → TurnAborted），`:228-238` 压缩后 `run_post_compact_hooks`。
+- **argentgo 现状**：`internal/hooks/hooks.go:37-38` 只有常量与描述表（`event_handlers.go:98`）；生产 fire 只有 SessionStart/UserPromptSubmit/Stop/SessionEnd 和 Pre/PostToolUse、FileChanged（`internal/app/hooks.go:465-475,532,554,592`）；压缩路径 `internal/app/compact.go:249-295` 与 `maybeAutoCompact`（`:493-537`）完全不经过 hook。
+- **问题**：用户写的 PreCompact 文档永久空转，无法阻止一次破坏性压缩；PostCompact 无法审计；hook 事件表对用户的承诺落空。
+- **建议**：opt-in `ARGENT_COMPACTION_HOOK=1`：给 `sessionCompactor` 现有注入字段（`internal/app/compact.go:44-47`）挂 hook 回调，`MaybeCompact`/`compactWithEvidence`/`sess.Compact` 前 fire PreCompact（blocked 则返回原消息 + EventNotice），`Append` 后 fire PostCompact；`hooks.Payload` 增 `trigger`。**不要**照搬 crush 的续跑队列——argentgo 只在工具批次全部结算后压缩（`loop.go:1180,1228`），无中途截断问题。
+- **验收**：`internal/app/compaction_hook_test.go`：PreCompact 返回 blocked → 消息未变、会话无压缩记录；PostCompact 收到 trigger=auto/manual；关闭时 golden 不变；`go test ./internal/app -count=1`。
+
+### 111. crush 风格生命周期 hook 事件补齐：TurnStart/End/Interrupt/StopFailure/SubagentStop `[P2/S-M]`（学自 crush）
+- **竞品证据**：crush `internal/agent/agent.go:987,1308,1421` 按分类触发 TurnStart/Interrupt/StopFailure/TurnEnd（`turn_hooks.go:25-47`），取消用 `context.WithoutCancel` 保证落盘。
+- **argentgo 现状**：常量已声明（`internal/hooks/hooks.go:43-57,98`），但生产只 fire #110 列出的几个；agent 已有完整事件源（`internal/agent/events.go:15-28`），app 的 `Emit` 闭包在 `internal/app/app_execute.go:702`，审批事件在 `dispatch.go:429-434`。
+- **问题**：用户订阅不到轮次边界/中断/子 agent 结束等生命周期事件，hooks 声明不完整。
+- **建议**：opt-in `ARGENT_HOOK_LIFECYCLE=1`，在 Emit 闭包把 `EventTurnStart/EventTurnEnd/EventStop/EventSubagentEnd` 映射到已有 hook 事件，`EventStop` 按 `result.Stopped` 分类，审批事件接 `bridge.fire`；默认无映射。
+- **验收**：`internal/app/hook_lifecycle_test.go`：一轮完整执行后 hook 收到 TurnStart→TurnEnd→Stop 序列；取消时收到 Interrupt；默认无额外 hook 调用；`go test ./internal/app -count=1`。
+
+### 112. 事件日志缺少持久化与 SSE `Last-Event-ID` 续传 `[P1/M-L]`（学自 opencode）
+- **竞品证据**：opencode `core/src/bus.ts:22-49` 按 aggregate 预留单调 seq；`:150-180` 暴露 `log({aggregateID, after, follow})`，replay 后发 `Synced` 标记；`:290-448` 事务内写 EventSequenceTable/EventTable、跑 projector、再发通知；`server/src/event-feed.ts:8-84` 按类型过滤 + dropping queue，`:48-70` 溢出整批失败，`server/src/handlers/event.ts:11-35` 发 `server.connected` + 15s heartbeat。
+- **argentgo 现状**：`internal/server/event.go:15-57,99-169` 的 `EventHub` 只有**内存** 256 条回放 + 512 订阅缓冲，慢订阅者直接淘汰（`:157-165`），终态事件有预留槽必达（`:125-155`）；SSE 有 connected + heartbeat（`:285-340`），但**全仓无 `Last-Event-ID`**；`internal/session/replay_state.go:8-54` 的确定性重放是纯诊断原语，无生产调用方。
+- **问题**：客户端断线重连后失去事件窗口之外的进度；无审计级事件日志。
+- **建议**：opt-in 把 agent.Event 以 JSONL 追加到会话目录（stdlib，复用 session 目录与脱敏），SSE 支持 `Last-Event-ID` 从磁盘续放；默认仍走内存 hub，字节不变。
+- **验收**：`internal/server/event_persist_test.go`：发布 300 事件后用 `Last-Event-ID: 10` 重连收到 11+ 且终态必达；关闭时旧 SSE 行为不变；`go test ./internal/server -count=1`。
+
+### 113. 生成文件（auto-generated）编辑无拒绝 `[P1/S]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/edit/src/path_policy.rs:234-247` 的 `auto_generated_message` + `:540-568` 的文件名模式（`zz_generated.*`/`*.pb.go`/`*.gen.ts`/`_pb2.py`/`*.swagger.json`）与前 1024 字节标记检测（`@generated`/`Code generated ... DO NOT EDIT`/已知生成器）；强制点在 `crates/edit/src/files.rs:252-258` 与 `modes/apply_patch.rs:340-346`。
+- **argentgo 现状**：`internal/tools` 与 `internal/security` 非测试代码中 `generated` 零命中；`internal/security/protected_paths.go` 只管路径保护，不识别生成标记。
+- **问题**：模型直接编辑 `*.pb.go` 等生成物，下次 regenerate 即丢失改动。
+- **建议**：opt-in `ARGENT_BLOCK_GENERATED_EDITS=1`：在 edit/write/apply_patch 的 stage 阶段检查文件名与头部标记，返回模型可读拒绝文案（含「改源文件再重新生成」指引）；默认关闭。
+- **验收**：`internal/tools/generated_guard_test.go`：`zz_generated.go` 与含 `// Code generated ... DO NOT EDIT.` 的普通文件被拒；手工文件放行；关闭时编辑成功；`go test ./internal/tools -count=1`。
+
+### 114. 普通文本编辑缺 parse-regression 门禁（写入前语法劣化检查）`[P1/M]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:454-458` 计算 `parse_regressed = op != Delete/Noop && existed && source_parses(before) && !source_parses(after)`（字段 `:113`、结果 `:485`），`source_parses` 在 `:578-587` 经语法 oracle 检查，宿主据此自动修复。
+- **argentgo 现状**：只有 AST 改写路径有等价的「写入前拒绝」——`internal/astedit/astedit.go:102-106` 在 splice 后 `newErrs > baseErrs` 直接 `ErrInvalidReplacement`；普通 `edit`（`tools_builtin_write_edit.go:98-189`）和 `apply_patch`（`tools_apply_patch.go:145-235`）都没有，坏语法静默落盘。
+- **问题**：模型编辑 Go 文件写坏语法后要等 `go test` 才发现，浪费一轮验证反馈。
+- **建议**：opt-in `ARGENT_PARSE_REGRESSION_GUARD=1`：stage 完成、commit 前用 `go/parser` 对 `.go` 目标比较 `baseErrs→newErrs`，其他语言 abstain；结果可作为结构化字段交给现有验证 hook 决定是否回滚/重试；默认文案与字节不变。
+- **验收**：`internal/tools/parse_regression_test.go`：原合法 Go 文件被编辑成语法错误时拒绝且零写入；原本就有错误的文件不做劣化判断；非 Go 文件不受影响；`go test ./internal/tools -count=1`。
+
+### 115. 写后漂移检测：format-on-write 后按落盘字节重算 `[P1/S-M]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:399-424` 把 `response.written` 与 `file.after` 比较，不一致则重算 diff、刷新 tag 并写 `write_drift_warning`（`:591-597`）。
+- **argentgo 现状**：`internal/tools/tools_format_aware_diff.go:12` 的 `FormatHook` 已接线到 registry（`:211-218`），但 `formatOutput`（`tools_builtin_write_edit.go:69-79,194-205`）只在**写入前**算 diff，落盘后不再校验；`internal/tools/file_freshness.go:108-119` 的 `FileFreshness.MarkWrite` 全仓除自身测试外零生产调用。
+- **问题**：格式化钩子或编辑器保存改变了最终字节时，模型看到的 diff 与实际落盘不一致，后续 anchor/hashline 基于错误快照。
+- **建议**：opt-in `ARGENT_VERIFY_WRITE=1`：写后 `os.ReadFile` 比较预期字节，漂移则返回结构化警告 + 用 `hashlineHash`（`tools_builtin_write_edit.go:207-214`）重算的新 anchor；同时把 `FileFreshness` 接进 read/write 路径（见 #124）。默认零额外 syscall。
+- **验收**：`internal/tools/write_drift_test.go`：注入会改写字节的 FormatHook，断言结果含新 anchor 与警告；无 hook 时不产生额外读取；`go test ./internal/tools -count=1`。
+
+### 116. 工具结果裁剪会切断 base64 data URL，导致后续请求永久失败 `[P1/S]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/packages/snapcompact/src/snapcompact.ts:890-901` 的 `DATA_URL_ATOM` 正则，`:935-949` 说明「被切碎的 base64 会在每次后续请求被提供方拒绝且因归档而永久复现」，`:950-999` 的 `elideDataUrls` 原子替换整个 data URL（含 Markdown wrapper）并保留 mime/字符数。
+- **argentgo 现状**：`internal/agent/trim.go:254-300` 按 rune/字素簇切 tool result，`internal/session/tool_prune.go:27-58` 按 rune 切 head/tail，都不识别 data URL 边界；`internal/llm/image_input_wire.go:136-139` 只有输入侧合法性校验。
+- **问题**：工具输出里带 `data:image/png;base64,...` 时，裁剪切点落在 base64 中，产生「看起来合法但永远无法解码」的坏图引用，后续每次请求都被提供方拒绝。
+- **建议**：opt-in `ARGENT_ELIDE_DATA_URLS=1`：在任何 head/tail 截断**之前**用纯函数把整个 data URL atom 换成确定性占位（保留 mime 与 base64 长度），并治愈历史遗留碎片；关闭时 `Trim`/`PruneToolResults` 逐字节不变。
+- **验收**：`internal/agent/trim_data_url_test.go`：含 data URL 的超长工具结果裁剪后不含 base64 片段、占位保留 mime；无 data URL 时输出不变；`go test ./internal/agent ./internal/session -count=1`。
+
+### 117. grep 全局上限被单个热文件吃满，文件多样性丢失 `[P1/S]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/natives/src/grep.rs:119-122` 的 `max_count_per_file` 字段及注释「避免单个热文件耗尽全局 max_count 预算」；`crates/xfs/src/grep/run.rs:624-636` 实施；`crates/xfs/src/grep/tests.rs:912-930` 的 `per_file_cap_preserves_file_diversity` 契约测试。
+- **argentgo 现状**：`internal/tools/tools_builtin_search.go:79-98` 只有一个全局 `maxMatches`，第一个命中密集的文件即占满预算并返回 false 停止 walk；`internal/tools/grep_ex.go:89-92,175-177` 同样只有全局 `HeadLimit`。
+- **问题**：用户搜常见标识符时结果全来自一个日志文件/生成文件，错过真正关心的其他文件。
+- **建议**：`GrepExOptions` 加 opt-in `MaxPerFile`（`0` 保持现有语义）；命中达单文件上限后跳过该文件的剩余行但继续遍历其他文件；两个搜索入口都接上。
+- **验收**：`internal/tools/grep_per_file_test.go`：文件 A 有 200 个命中、文件 B 有 3 个，全局上限 50、`MaxPerFile=5` 时结果含 B；`MaxPerFile=0` 时结果与旧版逐字节一致；`go test ./internal/tools -count=1`。
+
+### 118. MCP annotations 解析完整但零消费者 `[P1/S]`（学自 cline）
+- **竞品证据**：cline `sdk/packages/core/src/extensions/mcp/annotations.ts:15-31` 保留 title + 四个 hint；`apps.ts:49-62` 用 `_meta.ui.visibility` 决定模型可见性。
+- **argentgo 现状**：`internal/mcp/annotations.go:12-33` 已完整解析 `destructiveHint/openWorldHint`（缺省 true）、`readOnlyHint`、`idempotentHint`、`title`，`internal/mcp/mcp.go:440-467` 填入 `Tool.Annotations`；但全仓除解析/存储点外零消费者，审批链（`internal/agent/dispatch.go:424-431`）只看工具名白名单。
+- **问题**：MCP server 明确标注 destructive 的工具不会触发额外审批，注解形同虚设。
+- **建议**：opt-in 把 `Destructive && !ReadOnly` 的 MCP 工具纳入 `needsApproval`（映射 `Tool.Annotations` 到 agent 的审批判定），默认不改现有工具名白名单行为。
+- **验收**：`internal/app/mcp_annotation_approval_test.go`：注册 destructive MCP 工具并开启 opt-in 后调用触发审批；readOnly 工具不触发；关闭时与旧行为逐字节相同；`go test ./internal/app -count=1`。
+
+### 119. MCP 输出限制非默认、阈值过高（200KiB vs 20KiB）`[P1/S-M]`（学自 pi-mono）
+- **竞品证据**：`pi-mono/packages/mcp/src/output-limit.ts:9,28-60`：`MCP_OUTPUT_MAX_BYTES = 20*1024`，超限时 head/tail 保留、UTF-8 字符边界、附原始 token/行数与 `[Full output: <path>]`；`extensions/mcp/tools.ts:217-233` 与 `resources.ts:184,326` 在结果转换处无条件调用。
+- **argentgo 现状**：`internal/mcp/spill.go:34-100` 需 `ARGENT_MCP_SPILL_DIR` + 可选 `ARGENT_MCP_SPILL_THRESHOLD`，默认阈值 `200<<10`（200KiB）且未配置目录时**完全不溢出**（`mcp.go:610-612`），一个话痨 MCP server 可直接淹没上下文。
+- **问题**：单次 MCP 调用 30–100KiB 很常见，当前默认路径毫无保护。
+- **建议**：项目默认路径逐字节不变是承诺，所以不直接改默认值；新增 opt-in `ARGENT_MCP_OUTPUT_LIMIT_BYTES`（默认 0 = 旧行为）提供与 pi 同形的 20KiB 风格 head/tail 截断与恢复路径，注册进 `optin_metadata.go`。
+- **验收**：`internal/mcp/output_limit_test.go`：设置后 30KiB 输出被截到 20KiB 以内且含恢复标记；默认零配置时与旧 golden 逐字节一致；`go test ./internal/mcp -count=1`。
+
+### 120. 统一 exec 会话：`session_id`/`write_stdin`/`yield_time_ms`/TTY `[P1/L]`（学自 codex）
+- **竞品证据**：codex `core/src/tools/handlers/unified_exec.rs:67-91` 定义 `ExecCommandArgs`（`tty`、默认 `yield_time_ms=10s`（`:113`）、`max_output_tokens`、per-call `sandbox_permissions`、`prefix_rule`）；`:30-55` 暴露 `session_id`，`:117` `write_stdin` 默认 250ms；`core/src/unified_exec/mod.rs:75-76` 输出封顶 1MiB/256K token；`process_manager.rs:105` 限制 stdin 写入 8000 字节。
+- **argentgo 现状**：`internal/bash/tools_builtin_bash.go:108` 的 bash schema 只有 `command`/`timeout_seconds`/`background_after_ms`；`:129-146` 三条 opt-in 路径；`internal/bash/core.go:96-150` 的持久 shell 用「命令 + nonce 探针」一次性 round trip，明确「管道没有 TTY，超时只能销毁会话」；`internal/jobs/jobs.go:237` 后台作业 `child.Stdin = devNull`；`internal/pty/pty.go` 有 ConPTY/ptmx 零 cgo 实现但**全仓无生产 importer**。
+- **问题**：REPL、dev server、watch 模式、交互式登录等长驻进程无法真正交互（现有持久化 shell 只能复用 cwd/env）。
+- **建议**：`ARGENT_UNIFIED_EXEC=1` 激活，基于 `internal/pty` + `internal/proc` 新增轻量会话注册表；bash 工具加 `session_id`/`yield_time_ms`/`stdin` 字段并新增 `write_stdin` 工具；stdin 写入限长、输出环形缓冲复用 output_spill；关闭时参数忽略、逐字节不变。注意和旧 TODO #30（持久化 shell 会话）互补：#30 解决状态复用，本条解决交互通道。
+- **验收**：`internal/bash/exec_session_test.go`：启动 `python -i` 或简单 REPL，两次 write_stdin 保持进程；TTY 模式下 Ctrl-C 只杀该会话；空闲超时回收无残留进程；`go test ./internal/bash ./internal/pty -count=1`。
+
+### 121. Windows 挂起启动 → Job Object → 恢复，封住孙进程逃逸窗口 `[P1/M]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/shell/src/sys/spawn/windows.rs:1030` 用 `CREATE_SUSPENDED` 创建进程，`:1052` 分配 Job Object 失败即对**未运行**的子进程 `TerminateProcess`，`:1058` 才 `ResumeThread`。
+- **argentgo 现状**：`internal/proc/proc_windows.go:95-110` 在调用方 `cmd.Start()` **之后**才 `createJob()` + `assignJob()`；分配失败只能事后 `taskkill /F /T`（`:126-130`），期间子进程的孙进程可能已经启动并逃逸；`terminate_windows.go:7-9` 优雅终止在 Windows 直接退化为立即 kill。
+- **问题**：超时/取消时可能留下孤儿进程；Windows 上无法发 CTRL_BREAK 做优雅退出。
+- **建议**：opt-in `SuspendedJob`：沿用 `internal/proc/proc_windows.go:26-33` 的 `syscall.NewLazyDLL` 模式调 `CreateProcessW`/`AssignProcessToJobObject`/`ResumeThread`；入 job 失败即杀掉挂起进程；附带短 grace + `CTRL_BREAK_EVENT`。无 cgo、linux 交叉编译路径不受影响。
+- **验收**：`internal/proc/suspended_job_windows_test.go`：启动会 spawn 孙进程的命令，取消后两者均不在；入 job 失败路径子进程从未运行；`GOOS=linux go build ./...` 仍绿。
+
+### 122. 多轮 follow-up 队列：本应停止时再继续 `[P1/S-M]`（学自 pi-mono）
+- **竞品证据**：pi `packages/agent/src/agent.ts:197-198` 双队列 `steeringQueue`/`followUpQueue`（各自 one-at-a-time/all 模式，`:255-256`），`:410-412` 外层循环在 agent 停止后 drain follow-up 再跑一轮；`agent-loop.ts:187,310-317` 明确「Agent would stop here. Check for follow-up messages」；`types.ts:233-248` 的 `finishTurn` 返回 `{action:"end"/"continue"}`。
+- **argentgo 现状**：`internal/agent/steer.go:12-45` 只有单一 `Steer <-chan string`；`loop_helpers.go:246-270` 在轮次边界 drain；`loop.go:921-940,1140-1146` 无工具回复时只在 `injectSteering()` 命中时多开一轮；无 follow-up 概念。
+- **问题**：用户在模型正在回答时追加的消息（TUI/native 场景）只能当 steering 在当前轮插入，无法「答完后作为新轮次继续」。
+- **建议**：opt-in `Options.FollowUp <-chan string` + `FollowUpMode`；在 `loop()` 无工具结束分支抽取 follow-up，命中则再跑一轮；不接通道时零分配空操作。
+- **验收**：`internal/agent/follow_up_test.go`：无工具回复时通道已有 follow-up → 多跑一轮并包含该文本；通道空 → 原样 StopComplete；`go test ./internal/agent -count=1`。
+
+### 123. 压缩摘要不含 todo 状态，长任务恢复丢失任务进度 `[P1/S-M]`（学自 crush）
+- **竞品证据**：crush `internal/agent/agent.go:1590` 把 `currentSession.Todos` 传给摘要 prompt；`:2607-2619` 明确要求摘要列出任务状态并指示恢复的 assistant 用 `todos` 工具继续。
+- **argentgo 现状**：`internal/session/compact.go:39-52` 的 `Compaction` 只有 Summary/Dropped/Keep/Files/Failures/NextSteps/Archive；证据 `internal/agent/compaction.go:24-27`、模型摘要输入 `internal/app/model_summary.go:40-46`、续接 brief `internal/app/continuation_brief.go:38-47` 均无 todo；todo 只落在 `<sessionDir>/todos.json`（`internal/tools/todo.go:99`）。
+- **问题**：长任务压缩后模型不知道哪些 todo 已完成/进行中，恢复时重复工作或漏掉未完成项。
+- **建议**：opt-in `ARGENT_COMPACTION_TODO=1`：在 app 压缩路径读 `<sessionDir>/todos.json`（tools 暴露只读 helper 或由 app 注入路径），渲染有界的 `[x]/[>]/[ ]` 行写入新增的 `Compaction.Todo`（`json:"todo,omitempty"` 兼容），并镜像到摘要/continuation brief，提示模型调用 `todo` 工具恢复。
+- **验收**：`internal/app/compaction_todo_test.go`：写 3 条 todo 后压缩，摘要含 `[x]/[>]/[ ]`；无 todo 时记录无 `todo` 字段；`go test ./internal/app ./internal/session -count=1`。
+
+### 124. read-before-write 新鲜度跟踪：原语已有但零生产调用 `[P1/M]`（学自 crush）
+- **竞品证据**：crush `internal/filetracker/service.go:14-64` 按 session 记录最后读时间；`agent/tools/edit.go:282-292` 未读或改过则拒绝，`:174,260` 与 `view.go:258` 记录读；`write.go:73-80` 同样校验 mtime。
+- **argentgo 现状**：`internal/tools/file_freshness.go:19,88-143` 已有 `MarkRead`/`MarkWrite`/`IsStale`/`StaleWarning` 完整原语，但 `NewFileFreshness`（`:43-45`）**全仓除测试外零调用**；`readTool.Run`（`tools_builtin_read.go:53`）不记账；edit/write 不校验，并发/人工改动会被静默覆盖。
+- **问题**：用户或另一个 agent 在模型 read 后修改文件，模型基于陈旧快照的 edit 会覆盖新内容。
+- **建议**：opt-in `ARGENT_READ_BEFORE_WRITE=1`：在 toolset 侧对 ctx 注入 per-session read ledger（可落 session 目录 JSON），read 成功后写 `(path, mtime)`；write/edit 在现有 `lockFileMutation(path)` 内校验 mtime，过期给模型可读错误（含「请重新 read」提示）；默认无 ledger、无检查。
+- **验收**：`internal/tools/read_before_write_test.go`：read → 外部修改 → edit 被拒；read → edit 成功并更新 ledger；关闭时行为不变；`go test ./internal/tools -count=1`。
+
+### 125. 分支切换时自动生成被弃路径摘要 `[P2/S]`（学自 pi-mono）
+- **竞品证据**：pi `session-manager.ts:1598-1630` 的 `branchWithSummary` 在切分支时 append `BranchSummaryEntry`；`:439-463,520-535` 投影为 `branchSummary` 消息；`core/messages.ts:102-118,170-175` 转为带前缀的 user 消息。
+- **argentgo 现状**：`internal/session/branch_summary.go:42-48` 已有 `SummarizeAbandonedBranch`，但全仓除测试零调用；`branch_checkout.go:12` 与 `cli/sessions.go:184` 只移动 leaf，不带摘要；`session_read.go:30-65` 投影无 branchSummary 角色。
+- **问题**：切分支后模型不知道被放弃路径上做过什么，易重复踩坑。
+- **建议**：opt-in `ARGENT_BRANCH_SUMMARY=1`：Checkout 前生成 `SummarizeAbandonedBranch` 并 append 一条 additive `KindBranchSummary` 记录，`Messages()` 中投影为 system/user 文本；关闭时 checkout 字节与投影不变。
+- **验收**：`internal/session/branch_summary_wire_test.go`：开启后切换分支产生摘要记录且 `Messages()` 含摘要文本；关闭时零记录；`go test ./internal/session -count=1`。
+
+### 126. 压缩请求溢出时按缓存前缀逐条淘汰 `[P1/S-M]`（学自 codex）
+- **竞品证据**：codex `core/src/compact.rs:355-367`：压缩模型请求遇 `ContextWindowExceeded` 时 `history.remove_first_item()` 并重置重试计数，注释明确「从头部裁剪以保留缓存前缀」。
+- **argentgo 现状**：`internal/agent/compact_retry.go:59-90` 只在 provider 溢出后调用一次 `MaybeCompact` 且最多重放一次；`internal/app/compact.go:249-285` 的 `compactionWorthwhile` 判定不划算时返回 `(messages,false)`，`compactAndReplay` 的 `!changed` 分支直接放弃重放——首次请求即严重溢出时可能没有有效恢复路径。
+- **问题**：超大历史或短上下文模型下，压缩后仍超限时直接失败，而不是继续裁最旧项。
+- **建议**：opt-in `ARGENT_COMPACT_DRAIN=1`：摘要后重新估算仍超预算时按前缀逐条移除最旧非系统消息（循环有上限），复用 `resetBudgetReminder()` 与事件通知；仍受 `MaxCompactRetries` 约束。
+- **验收**：`internal/agent/compact_drain_test.go`：伪 Chatter 两次报告 context overflow，断言第二次裁掉最旧消息并成功；无上限空转；关闭时行为不变；`go test ./internal/agent -count=1`。
+
+### 127. 可持久化的审批/作用域规则 `[P2/M-L]`（codex + opencode）
+- **竞品证据**：codex `protocol/src/protocol.rs:4618-4635` 的 `ReviewDecision` 含 `ApprovedForSession`/`ApprovedExecpolicyAmendment`/`ApprovedMcpPolicyAmendment`/`NetworkPolicyAmendment`；`execpolicy/src/amend.rs:62-78` 用文件锁把前缀规则追加到策略文件，跨会话生效。opencode `core/src/permission.ts:334-395` 拒绝时按 session+messageID 撤销整批 pending，`always` 时持久化 saved rule（`permission/saved.ts:69-84`）。
+- **argentgo 现状**：`internal/security/approver.go:232-274` 的 `ScopedApprover` 有 `GrantAlways`/`GrantN`/`Deny`（粘性 deny 更保守，应保留），但只在进程内存且按工具名键控；`chain.go:167-170,415-483` 的 `StagedApprover`/`RememberScope` 无生产实现者；配置侧 `app/policy_config.go:48-70` 无运行时追加。已有 `approver_ttl.go` 的 `TTLCache` 支持持久 grants，但未接到 Chain 主路径。
+- **问题**：跨会话重复审批同一前缀规则；拒绝时整批 pending 的撤销策略未落地。
+- **建议**：opt-in `ARGENT_APPROVAL_PERSIST=1`：`internal/security` 实现 `FileBackedScopedApprover` 写 `<storage>/approvals.jsonl`（复用 `TTLCache` 持久化与 `PolicyIssues` 校验），只记录命令前缀/工具名，不记录自由文本参数；同时给 RPC `approval.answer` 加可选 feedback 字段并接 `ParseApproverResult`（`approval_feedback_adapter.go:11-58`，目前零生产调用）。默认仍走内存语义。
+- **验收**：`internal/security/persistent_approval_test.go`：always 授权重启后仍生效、粘性 deny 优先、文件损坏时 fail-closed；`go test ./internal/security -count=1`。
+
+### 128. 类型化 telemetry 适配层（span/metric schema + NOOP）替代散点 slog `[P2/M-L]`（学自 pi-mono）
+- **竞品证据**：pi `packages/telemetry/src/index.ts:1-90` 定义 Span/Metric/Store/Propagation 契约；`metrics.ts:30-120` 的 counter/upDownCounter/histogram 与 schema 绑定；`noop.ts:1-35` 共享 noop context（零行为）；`agent-session.ts:3895-3918` 把 retry 事件结构化发出。
+- **argentgo 现状**：`internal/agent/loop.go:276-330,352-477`（TURN_TIMING / TOOL_TIMING_HISTOGRAM / TOOL_CALL_TRACE / CONTEXT_HEALTH_LOG / PRESSURE_LEVEL 多为轮末 slog）、`internal/llm/debug_trace.go`、`internal/cli/trace_sink.go` 观测点丰富但无统一 span/metric 契约，无法跨包关联一次运行。
+- **问题**：诊断日志之间无法用统一的 run/span ID 关联；新增观测点只能复制 slog 模式。
+- **建议**：新增 stdlib-only 的 `internal/telemetry` 接口包（Context/Span/Counter/Histogram + NOOP 单例），先让现有 opt-in 日志点作为第一个 adapter；默认 NOOP 不分配，事件/记录字节不变。无需新模块。
+- **验收**：`internal/telemetry/telemetry_test.go`：noop 实现零分配（benchmark）、span 父子关系与属性 schema 验证；现有观测点开启后输出含统一 run ID；`go test ./internal/telemetry ./internal/agent -count=1`。
+
+### 129. apply_patch 支持 `*** Move to:` 重命名 `[P2/S]`（学自 codex）
+- **竞品证据**：codex `apply-patch/src/parser.rs:18,42,76,99` 定义 `MOVE_TO_MARKER`/`move_path` 并在解析时填充；`lib.rs:473` 附近按 add/delete/update/move 分类落盘。
+- **argentgo 现状**：`internal/tools/apply_patch_parse.go:167-173` 的 `parsePatchFileDirective` 只识别 Add/Delete/Update；`tools_apply_patch.go:154-230` 的阶段三 switch 只有 `update`/`add`/`delete`，没有 move 语义；`lsp_will_rename`/`worktree` 工具不覆盖补丁内改名。
+- **问题**：与上游 apply_patch 格式不兼容，模型习惯性写 `*** Move to:` 时工具直接拒绝。
+- **建议**：`PatchAction` 加 `MoveTo`，解析 `*** Move to:` 行；落盘阶段按「读原文件 → 写新路径 → 删旧路径」原子化（复用现有重复动作冲突检查与锁顺序）。
+- **验收**：`internal/tools/apply_patch_move_test.go`：update + move 的补丁断言新路径内容正确、旧路径不存在；重复目标拒绝；`go test ./internal/tools -run TestApplyPatch -count=1`。
+
+### 130. per-call 文件系统/网络权限 profile（不引入 OS 沙箱）`[P2/M]`（学自 codex）
+- **竞品证据**：codex `protocol/src/models.rs:99,254,267` 定义 `FileSystemPermissions`/`NetworkPermissions`/`AdditionalPermissionProfile`；`permissions.rs:131-139,152-156,257-275` 定义 Read/Write/Deny 与 special path，deny 优先于 write；unified_exec 可带 per-call `sandbox_permissions`（`handlers/unified_exec.rs:82-83`）。
+- **argentgo 现状**：`internal/security/sandbox.go:11-19` 只有三档全局 `SandboxMode`；`policy.go:69-91` 是 denyPaths/denyCommands/writeRoots 粗粒度列表；`sandbox_execution.go:106-140` 已有 enforcement/denial/fail-closed 三维描述但文件头明确「纯数据纯函数，不接入 Chain.Check」，无生产接线。bwrap/seatbelt/landlock 属 OS 沙箱，在「无 cgo / 单二进制」约束下不可照搬。
+- **问题**：MCP/插件工具无法声明「此调用只读某目录」之类细粒度权限。
+- **建议**：不碰 OS 沙箱，在工具层把 `sandbox_execution.go` 现有描述升级为可传入 per-call profile：`internal/security/policy.go` 加 `CheckWith(ctx, name, args, profile)`，MCP/插件经 hook 注入可选 profile；保持 `Check` 原路径不变。
+- **验收**：`internal/security/per_call_profile_test.go`：per-call deny 优先于全局 write、只读 profile 拒绝修改类工具；默认 `Check` 行为不变；`go test ./internal/security -count=1`。
+
+### 131. 写操作审批携带 diff 预览与资源级授权 `[P1/M]`（学自 opencode）
+- **竞品证据**：opencode `core/src/tool/plugin/edit.ts:328-344` 在 authorize 前生成 `fileDiff` 并传给 `FileWrite.authorize`；`core/src/file-write.ts:62-80` 分域检查 `external_directory` 与 `assert({action:"edit", resources, metadata:{files:[preview]}})`；找不到 oldString 时读文件内容还要先 `allows({action:"read"})`。
+- **argentgo 现状**：`internal/security/chain.go:357-373` 只把改写后的参数 JSON 交给 `PromptApprover.Ask`（`approver.go:49-66` 打印 `Allow <name> <args>?`），没有 diff；策略只有 tool/path/command 三维（`policy.go:58-92`），无 action/resource 分域；分阶段审批能展示 scope 摘要（`chain.go:421-497`）但不展示内容差异。
+- **问题**：文件编辑审批近乎「盲批」——native 审批卡 diff 已落地（`native/approval_diff.go`），但 CLI/文本审批器仍无 diff。
+- **建议**：opt-in 让 Chain 接受 `Preview(ctx,tool,args) (diff,error)` 回调，审批提示附加脱敏 diff 摘要（复用 `clipApprovalFeedback` 限长）；不改变审批判定逻辑。
+- **验收**：`internal/security/approval_preview_test.go`：write 工具审批文本包含 `+N/-M` 摘要；无 Preview 时文本逐字节不变；`go test ./internal/security ./internal/app -count=1`。
+
+### 132. pluginapi 工具可选 OutputSchema 校验 `[P2/M]`（学自 opencode）
+- **竞品证据**：opencode `core/src/tool/runtime.ts:27-38` 从 input/output schema 生成 ToolDefinition，`:40-74` 执行后校验输出 schema，`:44-57` 把插件异常统一成 `Tool.Error`；`codemode/src/language/runtime/limits.ts:6-21` 给脚本编排加字符串/数组/深度上限。
+- **argentgo 现状**：`internal/pluginapi/tool.go:13-19` 的 `Tool` 契约只有 `Name/Description/Schema/Mutating/Run(...) (string,error)`，无输出 schema 或边界错误归一；`internal/tools/catalog.go:60-79` + `lazy_catalog.go:56-70` 已解决发现/公布那一半。
+- **问题**：插件工具输出不可信且无结构校验，异常可能穿透边界。
+- **建议**：只给 pluginapi 工具加可选 `OutputSchema()` 接口，app 边界按接口断言做 opt-in 校验；不改内置 Tool 签名。
+- **验收**：`internal/app/plugin_output_schema_test.go`：插件声明 output schema 后，非法输出被转成模型可读错误；未声明的工具行为不变；`go test ./internal/app -count=1`。
+
+### 133. 每个外部程序独立的 UTF-8→ACP 增量解码 `[P2/M]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/crates/shell/src/output_decode.rs:89-109` 的 `push` 快路径，`:122-172` 的 `drain_utf8` 线性游标，`:195-220` 的 `external_output_decoding`，`:236-257` 的 `CaptureDecoder` 按行判定（`MAX_HELD_LINE=64*1024`）；遇完整非法序列后该程序剩余输出永久锁 ACP，不再切回。
+- **argentgo 现状**：`internal/proc/utf8_writer.go:14-19,67-121` 只做 chunk 边界的 UTF-8 暂存，非法字节原样透传成 U+FFFD；`internal/bash/tools_builtin_bash.go:217-229` 仅在 cmd.exe 分支前置 `chcp 65001`，bash 分支禁止加（`:229`），中文 Windows 上经 Git Bash 启动的原生程序（写 CP936）仍乱码。
+- **问题**：中文 Windows 下 shell 捕获的程序输出乱码，影响模型理解错误信息。
+- **建议**：opt-in `ByteDecoder` 包住每个 `proc.Run` 的 stdout/stderr：UTF-8 合法直通，遇完整非法序列经 `syscall.NewLazyDLL("kernel32.dll")` 调 `MultiByteToWideChar` 并锁存 ACP 到 EOF；capture 按行判定避免污染相邻行；保留现有 `trimIncompleteRuneTail/Head` 边界语义。
+- **验收**：`internal/proc/acp_decode_windows_test.go`：模拟 CP936 字节流解码成正确中文；合法 UTF-8 路径不产生额外开销；`GOOS=linux go build ./...` 仍绿；`go test ./internal/proc -count=1`。
+
+### 134. foveated 多保真压缩归档（纯文本版起步）`[P2/L]`（学自 oh-my-pi）
+- **竞品证据**：`oh-my-pi/packages/snapcompact/src/snapcompact.ts:2136-2220` 的 `planArchive`：两端高保真（`:2154-2156`）、中段成框（`:2195-2214`）、超预算丢最旧 dense（`:2207-2212`）；按读者能力回放 `:2258-2298`；三层预算 `:519-544`。
+- **argentgo 现状**：已有 opt-in 无损磁盘归档（`internal/session/compact.go:907-988`），但只生成一段「可恢复说明」（`:1085-1097`），不回灌上下文；压缩视图固定为单条 system summary（`session_message.go:131-138`）。
+- **问题**：超长会话被压成一段摘要后丢失大量细节；全量归档模型读不动，用户没有分层回放出口。
+- **建议**：分两步：第一步只做纯文本版（两端高保真 + 中段稀疏化 + 显式 gap 标记），复用现有 `session.Project`/`PruneToolResults`，零 wire 变化；第二步才用 `image/png` + 内嵌位图字体生成 frame 并按需回放（L 级，可长期排期）。
+- **验收**：`internal/session/foveated_archive_test.go`：1000 条消息的归档视图两端逐字保留、中段按预算稀疏、gap 标记可解析；关闭 opt-in 时 `Messages()` 逐字节不变；`go test ./internal/session -count=1`。
+
+### 135. CI 缺体积/启动耗时门禁`[P2/S]`
+- **现状**：#100 的 pprof/GC 三开关已落地（`cmd/argent/main.go:15`、`internal/app/diag_env.go`），但 CI 仍无产物体积断言与启动耗时 smoke；日常 `go build` 未加 `-trimpath -ldflags '-s -w'`（release 脚本已加）。
+- **问题**：回归（如 #94/#95）无法被体积/启动时间指标发现。
+- **建议**：CI 构建后检查二进制字节数（例如超过当前基线 +10% 失败），`--version` 计时仅报警不精确基准；AGENTS.md 日常构建命令加裁剪标志。
+- **验收**：CI workflow 新增一步并本地跑通；产物体积在阈值内；`go test -p 4 ./... -count=1` 全绿。
 
 ---
 
 ## 附：优先处理建议
 
-1. **先清 P0（11 条）**：其中 #1/#2/#15/#39/#74/#75/#76/#77/#94 都是已验证的实锤，单条工作量多为 S，建议集中一个 round 全部修掉。
-2. **「未接线原语」是最大宗**：约 40% 的条目属于「纯函数+单测齐全、只差接线」（#3–#8、#16–#18、#29–#34、#40–#43、#54–#57、#62–#68、#73 等），收益/成本比高于新增功能，且大多可用 opt-in 保持逐字节不变。
-3. **发版前必须处理**：#74–#93 的版本/文档/门禁一致性问题会直接阻塞 v0.8.2 发版（尤其 #75 的 40w/50w 双口径未决、#77 的安全审计脚本一接 CI 就全红）。
-4. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。
+> 2026-11-22 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74/#75/#76/#77/#94/#101/#102/#103）已从本文档删除。第一优先 P0 已全部落地并全绿。
+
+1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
+2. **第二优先（hook 表达力与压缩事件接线）**：#108（allow 预审批）、#109（updatedInput/Output）、#110（PreCompact/PostCompact）都是「原语已有、只差接线」，符合「优先 hook 层」约束；#112（事件日志/SSE 续传）、#123（todo 入摘要）紧随其后。
+3. **第三优先（小而实的体验/正确性）**：#107（patch context 锚定）、#113（生成文件保护）、#116（data URL 裁剪）、#117（grep per-file）、#118（MCP annotations 审批）、#124（read-before-write）、#125（分支摘要）——单条多为 S 级，收益/成本比高。
+4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
+5. **发版门禁**：#74–#93 的版本/文档/CI 一致性问题仍会阻塞 v0.8.2 发版；#135（体积/启动门禁）并入这一档。
+6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。

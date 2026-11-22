@@ -273,6 +273,10 @@ type ToolCall struct {
 	ID       string           `json:"id"`
 	Type     string           `json:"type"`
 	Function ToolCallFunction `json:"function"`
+	// InvalidArguments 是进程内旁路字段：模型发来的 arguments 非空却不是合法
+	// JSON、被工具参数补全回退为 "{}" 时，这里保留原始片段，供 agent 层以
+	// opt-in 方式回灌纠错提示。它不参与任何协议或会话持久化（json:"-"）。
+	InvalidArguments string `json:"-"`
 }
 
 // ToolCallFunction 携带工具名称和原始 JSON 参数。
@@ -747,13 +751,15 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 		if callType == "" {
 			callType = "function"
 		}
+		args, raw := integrity.toolArgumentsWithRaw(tc.Function.Arguments)
 		call := ToolCall{
 			ID:   tc.ID,
 			Type: callType,
 			Function: ToolCallFunction{
 				Name:      tc.Function.Name,
-				Arguments: integrity.toolArguments(tc.Function.Arguments),
+				Arguments: args,
 			},
+			InvalidArguments: raw,
 		}
 		if call.ID == "" {
 			call.ID = uniqueToolCallID(used, "call_", i+1)
@@ -964,7 +970,8 @@ streamLoop:
 		// 工具分发器；应像其他协议客户端一样回退到空对象。
 		// 如果流从未到达 [DONE]，则这种
 		// 回退意味着回复在工具调用中途被截断：此时应直接失败。
-		call.Function.Arguments = integrity.toolArguments(call.Function.Arguments)
+		// 正常终止的流则把原始片段留在旁路字段，让 agent 层可选地回灌纠错。
+		call.Function.Arguments, call.InvalidArguments = integrity.toolArgumentsWithRaw(call.Function.Arguments)
 		calls = append(calls, call)
 	}
 	if err := integrity.eofError("[DONE]"); err != nil {

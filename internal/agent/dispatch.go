@@ -202,6 +202,25 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 		calls = s.recoverCallNames(calls)
 	}
 
+	// 畸形参数纠错回灌（opt-in ARGENT_TOOL_ARG_FEEDBACK，默认关闭）：
+	// 把原始参数不是合法 JSON 的调用从批次中摘出，不执行工具，直接写入
+	// 含原始片段的错误结果，让模型下一轮据此重发。关闭时 invalid 为 nil，
+	// 原批次逐字节不变。
+	if invalid, rest := splitInvalidArgCalls(calls); len(invalid) > 0 {
+		for _, call := range invalid {
+			reason := invalidArgsReason(call)
+			s.emitToolStart(turn, call)
+			s.finishCall(turn, call, callResult{output: reason, isError: true})
+			s.appendTool(call, reason)
+		}
+		calls = rest
+		if len(calls) == 0 {
+			// 没有任何工具实际执行，本批次不具备编辑后验证资格。
+			s.batchVerificationEligible = false
+			return ""
+		}
+	}
+
 	// 熔断器统计一个轮次内的无效参数：新一轮次会开启新的连续序列。
 	// 在任何 worker 观察到计数器之前，先在循环 goroutine 上重置它。
 	s.breaker().Reset()

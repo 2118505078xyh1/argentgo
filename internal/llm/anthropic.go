@@ -622,7 +622,7 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		if strings.TrimSpace(arguments) == "" {
 			arguments = partial.start
 		}
-		arguments = integrity.toolArguments(arguments)
+		arguments, raw := integrity.toolArgumentsWithRaw(arguments)
 		// 这里保持缺失的提供方 id 为空。回退 id 在
 		// 最终组装时分配，届时回复中每个提供方 id 都已知，因此
 		// 生成的 "toolu_N" 绝不会与另一块上的真实 id 重复。
@@ -633,6 +633,7 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 				Name:      partial.name,
 				Arguments: arguments,
 			},
+			InvalidArguments: raw,
 		}
 	}
 
