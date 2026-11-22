@@ -58,6 +58,13 @@ func Branches(path string) ([]Branch, error) {
 				branch.SourceSession = attempt.SourceSession
 				branch.SourceRecord = attempt.SourceRecord
 			}
+		} else if record.Kind == KindForkLineage {
+			// 普通分叉的血缘：从 fork_lineage 记录里读出来源会话与分叉点。
+			var payload map[string]string
+			if jsonUnmarshal(record.Data, &payload) == nil {
+				branch.SourceSession = payload[forkLineageParentKey]
+				branch.SourceRecord = payload[forkLineageAtRecordKey]
+			}
 		}
 		out = append(out, branch)
 	}

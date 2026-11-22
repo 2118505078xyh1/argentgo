@@ -223,6 +223,14 @@ func sessionsForkAt(app App, id, messageID string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
+	// 血缘 opt-in：ARGENT_FORK_LINEAGE=1 时在新会话里追加一条 fork_lineage
+	// 记录，使树视图能回答"这个分支从哪个会话的哪条记录分叉"。默认不写，
+	// 分叉字节与旧版逐字一致。血缘写入失败不影响分叉本身。
+	if app.IO.Env != nil && strings.TrimSpace(app.IO.Env("ARGENT_FORK_LINEAGE")) == "1" {
+		if fork, openErr := store.OpenSession(newID); openErr == nil {
+			_ = fork.AppendForkLineage(id, messageID)
+		}
+	}
 	fmt.Fprintf(app.IO.Out, "forked session %s\n", newID)
 	fmt.Fprintf(app.IO.Out, "restored prompt: %s\n", restoredPrompt)
 	return 0

@@ -1,6 +1,13 @@
 package session
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
+
+// KindForkLineage 是普通分叉血缘记录的 kind。它是审计元数据，不会被
+// messageEntries 投影为模型可见消息，因此不影响对话语义。
+const KindForkLineage = "fork_lineage"
 
 // 分叉血缘载荷使用的稳定键。键名固定为英文下划线形式，保证跨版本、
 // 跨语言的转录读取方都能用同一组字段识别这是一条"从哪个会话的哪条记录分叉"的
@@ -44,4 +51,12 @@ func forkLineagePayload(parentID, atRecord string, ts int64) map[string]string {
 		payload[forkLineageTsKey] = strconv.FormatInt(ts, 10)
 	}
 	return payload
+}
+
+// AppendForkLineage 在分叉出的新会话里追加一条血缘记录，标明它从哪个会话的
+// 哪条记录分叉而来。显式调用时才写入，因此普通 Fork 的字节保持不变。
+// 记录是审计元数据，不进入模型可见消息；写入失败仅返回错误，不修改入参。
+func (s *Session) AppendForkLineage(parentID, atRecord string) error {
+	_, err := s.AppendRecord(KindForkLineage, forkLineagePayload(parentID, atRecord, time.Now().UnixMilli()))
+	return err
 }
