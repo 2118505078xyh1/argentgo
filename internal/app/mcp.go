@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/cli"
@@ -34,14 +35,19 @@ type mcpBinding struct {
 	// readOnly 对应工具的 readOnlyHint 注解。它使防护器能把该工具视为安全（无需操作人员提示），
 	// 而不会削弱拒绝规则。
 	readOnly bool
+	// server 是提供该工具的服务名；RefreshTools 重新发现时需要它重建带命名空间的名称。
+	server string
 }
 
 // toolset 是 agent 的工具视图：内置注册表、`server__tool` 形式命名的 MCP 工具，
 // 以及安装技能后提供的 use_skill。
 type toolset struct {
-	base    *multiRootTools
-	guard   tools.Guard
-	skills  *skills.Registry
+	base   *multiRootTools
+	guard  tools.Guard
+	skills *skills.Registry
+	// mcpMu 保护 mcp 绑定与 clients：Setup 阶段写入，运行期 RefreshTools
+	// 会因 list_changed 重新发现而替换绑定，Specs/Run 与之并发读取。
+	mcpMu   sync.RWMutex
 	mcp     []mcpBinding
 	clients []mcp.Client
 	// sandbox 是已解析的沙箱模式，用于在 MCP 执行分支做只读兜底：
@@ -288,6 +294,8 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 // readOnlyMCPNames 返回声明了 readOnlyHint 的 MCP 工具的带命名空间名称。
 // 被遮蔽的工具永远不会进入绑定列表，因此它的名字绝不会代表胜出的绑定而被授予只读状态。
 func (t *toolset) readOnlyMCPNames() []string {
+	t.mcpMu.RLock()
+	defer t.mcpMu.RUnlock()
 	var names []string
 	for _, binding := range t.mcp {
 		if binding.readOnly {
@@ -351,10 +359,44 @@ func (t *toolset) wirePlugins(ctx context.Context, stdio cli.IO, bundles []plugi
 			Name:    server.Name,
 			Command: server.Command,
 			Args:    server.Args,
+			Dir:     server.Dir,
 			Env:     env,
 			URL:     server.URL,
 		})
 	}
+}
+
+// appendAdvertisedTools 把一次发现得到的工具列表转换成绑定并追加到 dst。existing
+// 在调用前已包含所有被占用的面向模型名称；函数原地补入本次新增的名字，并返回新增数
+// 与被遮蔽的名字。connect 与 RefreshTools 共用它，避免两条路径的绑定语义漂移。
+func appendAdvertisedTools(dst *[]mcpBinding, existing map[string]bool, serverName string, client mcp.Client, advertised []mcp.Tool) (int, []string) {
+	added := 0
+	var shadowed []string
+	for _, tool := range advertised {
+		full := mcp.Namespaced(serverName, tool.Name)
+		if existing[full] {
+			shadowed = append(shadowed, full)
+			continue
+		}
+		existing[full] = true
+		schema := tool.Schema
+		if len(strings.TrimSpace(string(schema))) == 0 || !json.Valid(schema) {
+			schema = json.RawMessage(`{}`)
+		}
+		toolSpec := llm.ToolSpec{Type: "function"}
+		toolSpec.Function.Name = full
+		toolSpec.Function.Description = tool.Description
+		if strings.TrimSpace(tool.Description) == "" {
+			toolSpec.Function.Description = fmt.Sprintf("MCP tool %q from server %q", tool.Name, serverName)
+		}
+		toolSpec.Function.Parameters = schema
+		*dst = append(*dst, mcpBinding{
+			client: client, remote: tool.Name, spec: toolSpec, readOnly: tool.ReadOnly,
+			server: serverName,
+		})
+		added++
+	}
+	return added, shadowed
 }
 
 // connect 打开一个服务并记录它公布的工具。工具按最终的带命名空间名称去重：先注册的绑定优先，
@@ -380,37 +422,14 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 		return
 	}
 
+	t.mcpMu.Lock()
+	defer t.mcpMu.Unlock()
+
 	existing := make(map[string]bool, len(t.mcp))
 	for _, binding := range t.mcp {
 		existing[binding.spec.Function.Name] = true
 	}
-	added := 0
-	var shadowed []string
-	for _, tool := range advertised {
-		full := mcp.Namespaced(server.Name, tool.Name)
-		if existing[full] {
-			// 另一个绑定已经拥有这个面向模型的确切名称；保留第一个，并报告冲突，
-			// 而不是劫持它。
-			shadowed = append(shadowed, full)
-			continue
-		}
-		existing[full] = true
-		schema := tool.Schema
-		if len(strings.TrimSpace(string(schema))) == 0 || !json.Valid(schema) {
-			schema = json.RawMessage(`{}`)
-		}
-		toolSpec := llm.ToolSpec{Type: "function"}
-		toolSpec.Function.Name = full
-		toolSpec.Function.Description = tool.Description
-		if strings.TrimSpace(tool.Description) == "" {
-			toolSpec.Function.Description = fmt.Sprintf("MCP tool %q from server %q", tool.Name, server.Name)
-		}
-		toolSpec.Function.Parameters = schema
-		t.mcp = append(t.mcp, mcpBinding{
-			client: client, remote: tool.Name, spec: toolSpec, readOnly: tool.ReadOnly,
-		})
-		added++
-	}
+	added, shadowed := appendAdvertisedTools(&t.mcp, existing, server.Name, client, advertised)
 	if len(shadowed) > 0 && stdio.Err != nil {
 		fmt.Fprintf(stdio.Err, "mcp %s: tools shadowed by existing bindings: %s (skipped)\n",
 			server.Name, strings.Join(shadowed, ", "))
@@ -421,6 +440,60 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 		return
 	}
 	t.clients = append(t.clients, client)
+}
+
+// RefreshTools 在所有已连接的客户端上重新执行工具发现，并用最新结果重建绑定。
+// 它只在 list_changed 跟踪开启时由 Run 的“工具不存在”分支调用：服务器通过通知
+// 告知目录变化后，下一次指向新工具的调用会先走这里，使新工具无需重启即可用。
+// 单台服务器发现失败时保留它的旧绑定，避免整个工具集因一台故障服务器而清空。
+func (t *toolset) RefreshTools(ctx context.Context) {
+	t.mcpMu.Lock()
+	defer t.mcpMu.Unlock()
+
+	if len(t.mcp) == 0 {
+		return
+	}
+	// 按首次出现顺序收集仍存活的客户端及其服务名（多个绑定可共享一个客户端）。
+	type source struct {
+		client mcp.Client
+		server string
+	}
+	seen := make(map[mcp.Client]bool)
+	var sources []source
+	for _, b := range t.mcp {
+		if !seen[b.client] {
+			seen[b.client] = true
+			sources = append(sources, source{client: b.client, server: b.server})
+		}
+	}
+	rebuilt := make([]mcpBinding, 0, len(t.mcp))
+	existing := make(map[string]bool, len(t.mcp))
+	for _, s := range sources {
+		advertised, err := s.client.ListTools(ctx)
+		if err != nil {
+			for _, b := range t.mcp {
+				if b.client == s.client {
+					rebuilt = append(rebuilt, b)
+					existing[b.spec.Function.Name] = true
+				}
+			}
+			continue
+		}
+		appendAdvertisedTools(&rebuilt, existing, s.server, s.client, advertised)
+	}
+	t.mcp = rebuilt
+}
+
+// findMCP 按面向模型的名字查找一个 MCP 绑定。
+func (t *toolset) findMCP(name string) *mcpBinding {
+	t.mcpMu.RLock()
+	defer t.mcpMu.RUnlock()
+	for i := range t.mcp {
+		if t.mcp[i].spec.Function.Name == name {
+			return &t.mcp[i]
+		}
+	}
+	return nil
 }
 
 // Specs 公布内置工具、MCP 工具和 use_skill。
@@ -438,6 +511,8 @@ func (t *toolset) UpdateUsage(turn int, usage, total llm.Usage) {
 }
 
 func (t *toolset) Specs() []llm.ToolSpec {
+	t.mcpMu.RLock()
+	defer t.mcpMu.RUnlock()
 	specs := t.base.Specs()
 	for _, binding := range t.mcp {
 		specs = append(specs, binding.spec)
@@ -455,10 +530,15 @@ func (t *toolset) Specs() []llm.ToolSpec {
 
 // Run 把调用路由到 MCP、use_skill 或内置注册表。
 func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
-	for _, binding := range t.mcp {
-		if binding.spec.Function.Name != name {
-			continue
-		}
+	binding := t.findMCP(name)
+	// opt-in 默认关闭：未开启 list_changed 跟踪时完全不走刷新路径。开启后，
+	// 指向“当前绑定里不存在”的工具的调用先重新发现一次并重建绑定，再查一遍，
+	// 使服务器刚宣告的工具在下一次调用即可命中；仍找不到才回落到内置注册表。
+	if binding == nil && mcp.ListChangedRefreshEnabled() {
+		t.RefreshTools(ctx)
+		binding = t.findMCP(name)
+	}
+	if binding != nil {
 		if strings.TrimSpace(args) == "" {
 			args = "{}"
 		}
@@ -498,6 +578,8 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 
 // Close 释放每一个 MCP 客户端。
 func (t *toolset) Close() error {
+	t.mcpMu.Lock()
+	defer t.mcpMu.Unlock()
 	var first error
 	for _, client := range t.clients {
 		if err := client.Close(); err != nil && first == nil {
@@ -559,6 +641,89 @@ func addSkillPath(registry *skills.Registry, path string) {
 	if _, exists := registry.Get(skill.Name); !exists {
 		registry.Add(skill)
 	}
+}
+
+// ---- 技能触发器 opt-in ----
+//
+// 用户 SKILL.md 的 `triggers:`（paths/keywords/models）此前只是元数据：注册表解析了它们，
+// 但 use_skill 仍可按任意名称加载任何技能。本开关默认关闭时整段接线为零调用，
+// 系统提示、use_skill 输出与事件流逐字节不变。开启后由 Execute 在轮次开始前把当前
+// 上下文解析为 active 技能集，收紧 use_skill 可见性（见 Registry.SetTriggerContext）。
+
+// skillTriggersOptInEnv 是技能触发器接线专用的环境变量。它与 ARGENT_OPT_INS 并列，
+// 使本实验能力可以单独开启而不触碰共享的 opt-in 清单文件。
+const skillTriggersOptInEnv = "ARGENT_SKILL_TRIGGERS"
+
+// skillTriggersOptInKeys 是 Config.Raw 上等价的配置键，与 skillShell 采用相同的
+// 多写法约定，便于配置与环境变量两条入口共存。
+var skillTriggersOptInKeys = []string{"skillTriggers", "skill-triggers", "skill_triggers"}
+
+// skillTriggersEnabled 报告是否开启技能触发器接线。env 为 "1" 或配置键为真都算开启；
+// env/config 为 nil 时退化为 os.Getenv / 空配置。默认（未设置）为 false。
+func skillTriggersEnabled(raw map[string]any, getenv func(string) string) bool {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if strings.TrimSpace(getenv(skillTriggersOptInEnv)) == "1" {
+		return true
+	}
+	return cfgBool(raw, skillTriggersOptInKeys...)
+}
+
+// skillTriggerModelFamily 把模型名归一化为技能触发器使用的家族名：剥离
+// "anthropic/claude-..." 这类供应商前缀、去分隔符、转小写，再按已知家族前缀匹配。
+// 未知家族原样返回（小写），使其只能匹配显式的同名触发器。
+func skillTriggerModelFamily(model string) string {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	for _, family := range []string{"claude", "gpt", "gemini", "deepseek", "kimi", "moonshot", "grok", "glm", "qwen", "minimax"} {
+		if strings.Contains(name, family) {
+			return family
+		}
+	}
+	return strings.Trim(name, "-_ ")
+}
+
+// skillTriggerPath 从提示文本中抽取第一个像文件路径的片段（含分隔符或带扩展名），
+// 作为路径触发器的当前上下文；找不到时回落到工作区根目录。
+//
+// 扫描按"ASCII 路径字符run"进行：CJK 词、标点与引号都是天然边界，因此
+// "编辑 src/main.go，然后提交" 得到 "src/main.go"，而不是连同尾随中文的整段。
+func skillTriggerPath(prompt, root string) string {
+	var run strings.Builder
+	take := func() string {
+		token := run.String()
+		run.Reset()
+		if token == "" {
+			return ""
+		}
+		if strings.ContainsAny(token, "/\\") || len(filepath.Ext(token)) > 1 {
+			return token
+		}
+		return ""
+	}
+	for _, r := range prompt {
+		if isSkillPathRune(r) {
+			run.WriteRune(r)
+			continue
+		}
+		if got := take(); got != "" {
+			return got
+		}
+	}
+	if got := take(); got != "" {
+		return got
+	}
+	return root
+}
+
+// isSkillPathRune 判定一个字符是否可出现在 ASCII 风格的文件路径中。
+// CJK、标点、引号一律不是，因而自然成为词边界。
+func isSkillPathRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+		r == '.' || r == '/' || r == '\\' || r == '_' || r == '-'
 }
 
 // mcpSpecsFromConfig 读取 `mcpServers` 对象（或列表）形状，包括每个服务的

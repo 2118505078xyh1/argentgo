@@ -27,6 +27,42 @@ type HookDispatcher interface {
 	Dispatch(ctx context.Context, config *hooks.Config, payload hooks.Payload) (hooks.Result, error)
 }
 
+// hookVerdictEnv 是启用钩子权限裁决折叠与内置中间件的独立环境变量。
+// 与其它一次性门控一致：仅值为 "1"（允许首尾空白）时开启，默认关闭。
+const hookVerdictEnv = "ARGENT_HOOK_VERDICT"
+
+// hookVerdictEnabled 报告本次运行是否启用钩子裁决折叠。
+// env 为 nil、缺环境变量或值非 "1" 时返回 false（fail-closed）；不读取进程环境，
+// 不修改入参。它是纯函数，便于测试两条激活状态而不污染进程全局。
+func hookVerdictEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(hookVerdictEnv)) == "1"
+}
+
+// hookVerdictMiddlewares 构造 opt-in 开启时注入的内置中间件链：
+//   - 为绕过 fire() 的直接分发（DispatchDocument/FireFileChanged）补齐 sessionId/cwd，
+//     与 fire():240-245 的填充规则一致；已有值不覆盖；
+//   - 分发完成后向 warn 写一条有界的审计记录（事件、是否拦截、是否失败），
+//     使被折叠后的裁决在 stderr 留痕。warn 为 nil 时审计为空操作。
+//
+// 它只在 opt-in 时构造；默认路径不创建中间件、不写审计，逐字节不变。
+func hookVerdictMiddlewares(sessionID, cwd string, warn io.Writer) []hooks.Middleware {
+	return []hooks.Middleware{
+		func(_ context.Context, event hooks.Event, args *hooks.Payload, next func() (hooks.Result, error)) (hooks.Result, error) {
+			if args.SessionID == "" {
+				args.SessionID = sessionID
+			}
+			if args.CWD == "" {
+				args.CWD = cwd
+			}
+			result, err := next()
+			if warn != nil {
+				fmt.Fprintf(warn, "hook audit: event=%s blocked=%t failed=%t\n", event, result.Blocked, err != nil)
+			}
+			return result, err
+		},
+	}
+}
+
 // hookBridge 加载受信任的文档，并在一次 Execute 的前后触发生命周期事件。
 // nil 的 bridge 表示"没有配置钩子"，其所有方法都是空操作，
 // 因此调用方除了在构造函数处之外不需要做 nil 检查。
@@ -57,7 +93,15 @@ func newHookBridge(res Resolved, sessionID string, warn io.Writer) *hookBridge {
 	}
 	dispatcher := res.HookDispatcher
 	if dispatcher == nil {
-		dispatcher = &hooks.Dispatcher{}
+		// 默认路径仍是零值 Dispatcher；仅在 opt-in 时开启 allow 解除拦截并注入
+		// 内置中间件（审计 + 补 session/cwd）。StopBlocks 本轮刻意不开启：其
+		// Continuation 尚未被 app 消费，提前打开会产生半截行为。
+		built := &hooks.Dispatcher{}
+		if hookVerdictEnabled(os.Getenv) {
+			built.VerdictEnabled = true
+			built.Middlewares = hookVerdictMiddlewares(sessionID, res.Root, warn)
+		}
+		dispatcher = built
 	}
 	return &hookBridge{
 		dispatcher: dispatcher,

@@ -318,7 +318,20 @@ func (t *httpTransport) post(ctx context.Context, frame []byte) (*http.Response,
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		snippet, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		_ = response.Body.Close()
-		return nil, fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(snippet)))
+		// 外层保留 "HTTP %d: " 文本前缀，兼容既有按字符串匹配的断言；
+		// 内层用有类型错误承载状态码与响应体，让 IsRetryable 与
+		// isRetryableConnectionError 无需解析文本即可分类。
+		statusErr := &HTTPStatusError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(snippet)),
+		}
+		err := fmt.Errorf("HTTP %d: %w", response.StatusCode, statusErr)
+		// 认证失败是永久错误：挂上哨兵，调用方可用 errors.Is 稳定识别，
+		// 也确保任何重试策略都不会把它误判为短暂故障。
+		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+			err = fmt.Errorf("%w: %w", err, ErrAuthentication)
+		}
+		return nil, err
 	}
 	return response, nil
 }

@@ -163,6 +163,12 @@ type Dispatcher struct {
 	// 作为续跑提示经 Result.Continuation 暴露给调用方。
 	StopBlocks bool
 
+	// VerdictEnabled 选择性启用 allow 裁决解除拦截的能力。默认 false：
+	// allow 裁决不改变 Result.Blocked，行为与既有版本逐字节一致。显式置 true 后，
+	// 聚合裁决为 allow 且不存在 exit 2 拦截时，清除 Result.Blocked。
+	// deny 裁决（退出码 2 或 stdout 的 permissionDecision:deny）始终拦截，不受此开关影响。
+	VerdictEnabled bool
+
 	// Middlewares 是可选的中间件链，默认 nil。为空时 Dispatch 直接走
 	// dispatchBase，与引入中间件之前逐字节相同；非空时它们按声明顺序
 	// 包成洋葱模型，位于实际钩子执行之前。中间件可以改写 Payload、
@@ -175,14 +181,73 @@ type Dispatcher struct {
 	asyncWG sync.WaitGroup
 }
 
-// dispatchBase 执行既有的 Run + Summarize 聚合路径。Middlewares 为空时
-// Dispatch 直接调用它，代码路径与引入中间件之前逐字节一致。
+// dispatchBase 执行既有的 Run + Summarize 聚合路径，并在 Summarize 之后折入
+// 钩子的权限裁决。Middlewares 为空时 Dispatch 直接调用它，代码路径与引入中间件
+// 之前逐字节一致（无裁决信号时折叠为空操作）。
 func (d *Dispatcher) dispatchBase(ctx context.Context, config *Config, payload Payload) (Result, error) {
 	outcomes, err := d.Run(ctx, config, payload)
 	if err != nil {
 		return Result{}, err
 	}
-	return Summarize(outcomes), nil
+	result := Summarize(outcomes)
+	d.applyVerdict(&result, payload, outcomes)
+	return result, nil
+}
+
+// applyVerdict 把钩子的权限裁决折入聚合结果，仅对 PreToolUse 生效。
+//
+// 只在 PreToolUse 生效：exit 2 的拦截语义本来就只属于该事件，permissionDecision
+// 也是 PreToolUse 的协议字段，因此其它事件保持 Summarize 的原样（逐字节不变）。
+//
+// deny 一律拦截；allow 仅在 d.VerdictEnabled 开启时清除拦截，且绝不清除 exit 2
+// 这一传统拦截信号（保持兼容）。退出码 2 带来的 deny 必须先满足既有拦截条件：
+// RunCommand 已把 onError=allow/ignore 与非 PreToolUse 的 exit 2 编码为
+// Outcome.Blocked=false，这里据此把它从退出码通道剔除，避免新增折叠把"仅警告"
+// 的失败重新解释为拦截。stdout 的 permissionDecision 是独立通道，不受 onError
+// 影响；超时的结果整体视为无信号，与 VerdictFromOutcome 一致。
+func (d *Dispatcher) applyVerdict(result *Result, payload Payload, outcomes []Outcome) {
+	event, ok := ParseEvent(payload.Event)
+	if !ok || event != PreToolUse {
+		return
+	}
+	verdicts := make([]Verdict, 0, len(outcomes))
+	exit2Block := false
+	for _, o := range outcomes {
+		if o.TimedOut {
+			verdicts = append(verdicts, VerdictNone)
+			continue
+		}
+		verdict := VerdictFromOutcome(o)
+		if o.ExitCode == 2 && !o.Blocked {
+			// 退出码 2 未满足既有拦截条件：只保留 stdout 通道的裁决。
+			verdict = permissionDecisionVerdict(o.Stdout)
+		}
+		verdicts = append(verdicts, verdict)
+		if o.Blocked && o.ExitCode == 2 {
+			exit2Block = true
+		}
+	}
+	switch AggregateVerdict(verdicts) {
+	case VerdictDeny:
+		// exit 2 拦截已由 Summarize 写入理由；stdout 的 permissionDecision:deny
+		// 在新折叠下原本没有消息，这里补一条，避免拦截理由被静默丢弃。
+		if !result.Blocked && result.Message == "" {
+			for i, o := range outcomes {
+				if verdicts[i] != VerdictDeny {
+					continue
+				}
+				if detail := clip(o.detail()); detail != "" {
+					result.Message = fmt.Sprintf("PreToolUse hook %q denied the call: %s", clipCommand(o.Command), detail)
+				}
+				break
+			}
+		}
+		result.Blocked = true
+	case VerdictAllow:
+		if d.VerdictEnabled && !exit2Block {
+			result.Blocked = false
+		}
+	}
 }
 
 // Dispatch 为 payload.Event 运行所有匹配的钩子并返回

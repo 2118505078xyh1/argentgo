@@ -410,6 +410,29 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
 
+	// 技能触发器 opt-in（ARGENT_SKILL_TRIGGERS / 配置 skillTriggers）：默认关闭时
+	// 不调用 SetTriggerContext，注册表不收紧、队列不新增条目，逐字节不变。
+	// 开启时把当前上下文（提示中的路径、用户原文、模型家族）解析为 active 技能集：
+	//   ① 收紧 use_skill —— 只有 active 技能可按名称加载（系统提示前缀不动）；
+	//   ② 在首个轮次边界经 hookCtxQ 注入 active 索引，让模型知道哪些技能真正可用。
+	// 该队列是既有的 additional-context 注入机制，无需改动 agent 循环或缓存前缀。
+	if skillTriggersEnabled(res.Cfg.Raw, stdio.Env) && toolset.skills != nil {
+		model := res.Model
+		if strings.TrimSpace(model) == "" {
+			model = res.Options.Model
+		}
+		active := toolset.skills.SetTriggerContext(
+			skillTriggerPath(rawPrompt, res.Root), rawPrompt, skillTriggerModelFamily(model))
+		// 只有确实收窄（有技能被触发器排除）时才注入；无触发器技能全部 active，
+		// 注入会是系统提示索引的重复，故跳过以保持逐字节不变。
+		if len(active) < toolset.skills.Len() {
+			if index := skills.IndexTextFor(active); index != "" {
+				hookCtxQ.Add(strings.TrimSpace(index) +
+					"\n\n以上为当前上下文实际可用的技能；其余技能本次不能通过 use_skill 加载。")
+			}
+		}
+	}
+
 	// plan 模式开启时把解锁回调接到每个工具注册表并注册 exit_plan。
 	// 关闭时 wireExitPlan 直接返回，不触碰注册表，逐字节不变。
 	wireExitPlan(planMode, chain, toolset.base.regs)
