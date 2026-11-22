@@ -164,6 +164,12 @@ type runState struct {
 	// 并行批次写入不同 id，结算后立即删除。
 	toolCallSpans map[string]int
 
+	// contextHealthLog 是 ARGENT_CONTEXT_HEALTH_LOG opt-in 开启时置位的诊断开关。
+	// 默认 false：轮末投影与日志全是空操作，消息、事件与会话记录逐字节不变。
+	// 它是纯观测：只读取当前消息样本并输出一条 slog，不改任何模型输入、裁剪或决策；
+	// 刻意不走 SetContextHealthLogger 这个全局钩子，避免跨运行并发设置的数据竞争。
+	contextHealthLog bool
+
 	// compactor 和 compactThreshold 驱动轮次中压缩的边界。
 	compactor        Compactor
 	compactThreshold int
@@ -212,6 +218,10 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// 工具调用链的轮末摘要日志，与上面两条日志并列、共用同一 logger。
 	// 关闭时 state.toolCallTrace 为 nil，整段是空操作。
 	state.finishTrace()
+	// 上下文健康度的轮末观测日志，与上面三条日志并列、共用同一 logger。
+	// 关闭时 state.contextHealthLog 为 false，整段不采样、不输出。
+	// 纯观测：只读消息样本落一条 slog，不改模型输入、裁剪或运行决策。
+	state.finishContextHealth()
 	if state.opts.OnCompactionEvidence != nil {
 		state.opts.OnCompactionEvidence(CollectCompactionEvidence(state.eventsSnapshot(), res.Messages))
 	}
@@ -252,6 +262,13 @@ func toolTimingHistogramEnabled() bool {
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func toolCallTraceEnabled() bool {
 	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_CALL_TRACE")) == "1"
+}
+
+// contextHealthLogEnabled 报告本进程是否开启上下文健康度诊断日志。
+// 仅当 ARGENT_CONTEXT_HEALTH_LOG 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
+func contextHealthLogEnabled() bool {
+	return strings.TrimSpace(os.Getenv("ARGENT_CONTEXT_HEALTH_LOG")) == "1"
 }
 
 // turnTimingLogger 返回输出逐阶段计时结构化日志的 logger。
@@ -353,6 +370,39 @@ func emitToolCallTraceLog(tr *ToolCallTrace) {
 // 关闭（trace 为 nil）时是空操作，与 turnTiming/histogram 是否开启无关。
 func (s *runState) finishTrace() {
 	emitToolCallTraceLog(s.toolCallTrace)
+}
+
+// emitContextHealthLog 把一次上下文健康度评分写成一条结构化日志，与逐阶段计时共用
+// 同一个 logger（turnTimingLogger），便于统一捕获与路由。字段固定输出，便于断言与比对：
+// score 为综合健康分，guidance_repeat 为重复指引占比，error_stub 为错误占位占比。
+func emitContextHealthLog(h ContextHealth) {
+	turnTimingLogger().Info("agent_context_health",
+		slog.Float64("score", h.Score),
+		slog.Float64("guidance_repeat", h.GuidanceRepeatRatio),
+		slog.Float64("error_stub", h.ErrorStubRatio),
+	)
+}
+
+// contextHealthMessages 把当前消息样本投影为 ScoreContextHealth 所需的文本切片。
+// 只取每条消息的 Content：带图消息的正文仍在 Content，图片走 ContentParts 旁路，
+// 与文本健康度无关。只读取、不修改 s.messages 或其中的字符串。
+func (s *runState) contextHealthMessages() []string {
+	messages := make([]string, 0, len(s.messages))
+	for _, m := range s.messages {
+		messages = append(messages, m.Content)
+	}
+	return messages
+}
+
+// finishContextHealth 在一轮运行结束时投影当前消息样本并落一条健康度日志，
+// 与其它轮末日志（finishTurnTiming/finishToolTimingHistogram/finishTrace）并列。
+// 关闭（contextHealthLog 为 false）时是空操作：不采样、不输出，与 turnTiming 是否开启无关。
+// 它纯观测：只用 ScoreContextHealth 这个纯函数读取消息，不改模型输入、裁剪或任何运行决策。
+func (s *runState) finishContextHealth() {
+	if !s.contextHealthLog {
+		return
+	}
+	emitContextHealthLog(ScoreContextHealth(s.contextHealthMessages()))
 }
 
 // traceToolBegin 在 opt-in 开启时为一次调用开启跨度，并按调用 id 记下 spanID，
@@ -472,6 +522,11 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 	// 使 dispatch 的 Begin/End 与轮末摘要日志全是空操作。
 	if toolCallTraceEnabled() {
 		s.toolCallTrace = &ToolCallTrace{}
+	}
+	// 只有 ARGENT_CONTEXT_HEALTH_LOG=1 时才置位；默认关闭时保持 false，
+	// 使轮末的消息投影与健康度日志全是空操作。
+	if contextHealthLogEnabled() {
+		s.contextHealthLog = true
 	}
 	return s
 }

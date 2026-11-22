@@ -66,14 +66,18 @@ type responsesRequest struct {
 	Store                bool            `json:"store"`
 	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
 	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
-	// Reasoning 在 Options.Thinking.Effort 非空时携带命名推理级别。
-	// 默认省略，使请求字节与早期构建保持一致。
+	// Reasoning 在推理级别或摘要非空时携带推理控制。
+	// 两者皆空时省略，使默认请求字节与早期构建保持一致。
 	Reasoning *responsesReasoning `json:"reasoning,omitempty"`
+	// Verbosity 在 Options.Verbosity 非空时携带输出详细程度。
+	// 默认省略（omitempty），保持请求字节不变。
+	Verbosity string `json:"verbosity,omitempty"`
 }
 
 // responsesReasoning 是 Responses 协议的推理控制对象。
 type responsesReasoning struct {
-	Effort string `json:"effort,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesTool struct {
@@ -348,7 +352,8 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 		Model:           model,
 		MaxOutputTokens: c.maxOutputTokens(),
 		Stream:          true,
-		Store:           false,
+		// 默认零值 false 与接线前逐字节一致；仅显式 opt-in 才发送 true。
+		Store: c.Options.StoreResponses,
 	}
 
 	var instructions []string
@@ -446,9 +451,19 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 		}
 		req.PromptCacheRetention = c.Options.CacheRetention
 	}
-	// Effort 非空才发送推理控制；nil 保持默认请求的字节不变。
-	if c.Options.Thinking != nil && c.Options.Thinking.Effort != "" {
-		req.Reasoning = &responsesReasoning{Effort: c.Options.Thinking.Effort}
+	// 推理级别与摘要任一非空才发送推理控制；
+	// 两者皆空时保持 nil，使默认请求的字节不变。
+	var effort string
+	if c.Options.Thinking != nil {
+		effort = c.Options.Thinking.Effort
+	}
+	summary := c.Options.ReasoningSummary
+	if effort != "" || summary != "" {
+		req.Reasoning = &responsesReasoning{Effort: effort, Summary: summary}
+	}
+	// Verbosity 非空才映射；空值经 omitempty 省略，保持默认字节不变。
+	if c.Options.Verbosity != "" {
+		req.Verbosity = c.Options.Verbosity
 	}
 	return req
 }

@@ -78,6 +78,16 @@ type Options struct {
 	// 它默认为 nil，此时客户端不序列化任何推理参数，
 	// 因此默认请求字节与接线前完全一致。
 	Thinking *ThinkingConfig `json:"thinking,omitempty"`
+	// ReasoningSummary 在 Responses 协议上请求推理摘要
+	// （reasoning.summary，如 "auto"/"concise"/"detailed"）。
+	// 空值时不发送该字段，保持默认请求字节不变。
+	ReasoningSummary string `json:"reasoning_summary,omitempty"`
+	// StoreResponses 选择加入 Responses 协议的 store=true，
+	// 让提供方保存响应以便后续引用。默认 false，请求字节与接线前一致。
+	StoreResponses bool `json:"store_responses,omitempty"`
+	// Verbosity 在 Responses 协议上映射为顶层 verbosity
+	// （low/medium/high）。空值时省略该字段，保持默认字节不变。
+	Verbosity string `json:"verbosity,omitempty"`
 	// AttemptHook 为会话层接收脱敏后的尝试记录。
 	AttemptHook func(AttemptRecord)
 }
