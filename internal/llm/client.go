@@ -538,6 +538,7 @@ func (c *Client) chat(
 		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
+	recordRequestSnapshot(ctx, ProtocolChatCompletions, model, payload)
 
 	policy := c.Retry
 	if policy.IsZero() {

@@ -277,6 +277,7 @@ func TestKnownSessionKindValuesDistinct(t *testing.T) {
 		KindHeader, KindMessage, KindUser, KindAssistant, KindTool,
 		KindSummary, KindCompaction, KindCheckpoint, KindAttempt, KindTitle,
 		KindSchema, KindCondensation, kindStats, kindUsage, kindProgress,
+		KindRequestSnapshot,
 	}
 	seen := make(map[string]string, len(all))
 	for _, kind := range all {
@@ -291,7 +292,7 @@ func TestKnownSessionKindValuesDistinct(t *testing.T) {
 
 	// R33/R38 新增的元数据 kind 不得与任何对话 kind 撞值。
 	conversation := []string{KindMessage, KindUser, KindAssistant, KindTool, KindSummary, KindCompaction}
-	for _, newKind := range []string{KindCondensation, kindStats, kindUsage, kindProgress} {
+	for _, newKind := range []string{KindCondensation, kindStats, kindUsage, kindProgress, KindRequestSnapshot} {
 		for _, oldKind := range conversation {
 			if newKind == oldKind {
 				t.Errorf("新 kind %q 与对话 kind %q 冲突", newKind, oldKind)

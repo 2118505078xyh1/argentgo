@@ -1,0 +1,78 @@
+package session
+
+import (
+	"bytes"
+	"encoding/json"
+	"path/filepath"
+	"testing"
+)
+
+func newSnapshotSession(t *testing.T) *Session {
+	t.Helper()
+	store, err := Open(filepath.Join(t.TempDir(), "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := store.NewSession("snapshot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess
+}
+
+func TestAppendRequestSnapshotRoundTrip(t *testing.T) {
+	sess := newSnapshotSession(t)
+	body := []byte(`{"messages":[{"content":"你好 😀"}]}`)
+	rec, err := AppendRequestSnapshot(sess, RequestSnapshotPayload{
+		Protocol: "anthropic-messages",
+		Model:    "m",
+		Body:     body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Kind != KindRequestSnapshot {
+		t.Fatalf("kind = %q, want %q", rec.Kind, KindRequestSnapshot)
+	}
+
+	var loaded RequestSnapshotPayload
+	if err := json.Unmarshal(rec.Data, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(loaded.Body, body) {
+		t.Fatalf("body mismatch: got %q, want %q", loaded.Body, body)
+	}
+	if !loaded.valid() {
+		t.Fatal("snapshot failed hash validation")
+	}
+}
+
+func TestRequestSnapshotDoesNotEnterConversation(t *testing.T) {
+	sess := newSnapshotSession(t)
+	if err := sess.Append(KindUser, json.RawMessage(`"hello"`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AppendRequestSnapshot(sess, RequestSnapshotPayload{
+		Protocol: "openai-chat-completions", Model: "m", Body: []byte(`{"secret":"x"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	msgs := sess.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1 (snapshot must be ignored)", len(msgs))
+	}
+	encoded, err := json.Marshal(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("secret")) {
+		t.Fatal("snapshot body leaked into conversation view")
+	}
+}
+
+func TestRequestSnapshotRejectsTamperedBody(t *testing.T) {
+	p := RequestSnapshotPayload{Version: 1, Body: []byte("original"), BodySHA256: [32]byte{1}}
+	if p.valid() {
+		t.Fatal("tampered snapshot must fail validation")
+	}
+}

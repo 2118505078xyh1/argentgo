@@ -299,6 +299,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 使进程级原子开关不受上次运行残留影响；默认关闭时零副作用。
 	configureLoopDetection(stdio.Env)
 
+	// 请求字节快照（opt-in ARGENT_REQUEST_SNAPSHOT）：开启时把实际发送的线协议
+	// 字节追加到会话；关闭时 ctx 不变，llm 侧钩子零副作用。
+	ctx = withRequestSnapshot(ctx, stdio.Env, sess)
+
 	// 在下方追加 review/context/动态上下文前缀之前，先保留调用方自己的原文。
 	// 预算声明必须只来自用户：出现在注入前缀中的 "+500k" 不算声明。
 	rawPrompt := prompt
