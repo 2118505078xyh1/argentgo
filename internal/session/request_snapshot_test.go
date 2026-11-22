@@ -76,8 +76,9 @@ func TestRequestSnapshotsExtractsValidOnly(t *testing.T) {
 	if _, err := AppendRequestSnapshot(sess, RequestSnapshotPayload{Protocol: "p", Model: "m", Body: good}); err != nil {
 		t.Fatal(err)
 	}
-	// 一条坏记录：无法解析，应被跳过。
-	if err := sess.Append(KindRequestSnapshot, json.RawMessage(`not json`)); err != nil {
+	// 一条 hash 不匹配的记录，应被 valid() 拒绝并跳过。
+	broken := RequestSnapshotPayload{Version: 1, Protocol: "p", Model: "m", Body: []byte("tampered")}
+	if _, err := sess.Append(KindRequestSnapshot, broken); err != nil {
 		t.Fatal(err)
 	}
 	records, err := sess.Records()
