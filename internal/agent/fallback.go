@@ -222,6 +222,13 @@ func isRetryableProviderError(err error) bool {
 	// 数字状态码意味着提供方已作答，因此它是更具体的信号。哪些状态码可重试由 llm 掌管；
 	// 文本信号也被并入并集，这样与 "quota" 搭配的异常状态码仍保留旧有的判断。
 	if code, ok := statusCodeInError(lower); ok {
+		// 硬性配额（insufficient_quota / quota exhausted 等）即使以 429/402 出现
+		// 也不可重试。app 层的回退判定已有此短路；这里必须同源，否则两层对
+		// 同一条响应判定分叉——app 判终态、agent 判可重试会重复发一次注定失败
+		// 的请求（重复计费 + 二次 model failed 事件）。
+		if llm.IsNonRetryableQuotaResponse(code, []byte(lower)) {
+			return false
+		}
 		return llm.IsRetryableStatus(code) || legacyRetryable
 	}
 
