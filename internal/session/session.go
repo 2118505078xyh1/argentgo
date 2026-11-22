@@ -110,6 +110,10 @@ type Session struct {
 	// readRecordsFn 由测试设置时，会覆盖用于构建或重建索引的全量读取。
 	// Records() 刻意始终使用 readRecords。
 	readRecordsFn func(string) ([]Record, error)
+
+	// appendLockPath 是该会话跨进程锁 sidecar 的惰性缓存路径；由 mu 保护。
+	// 同一句柄的每次追加都复用它，避免重复做字符串清理与拼接。
+	appendLockPath string
 }
 
 // ID 是会话 id，也就是去掉扩展名后的文件名。

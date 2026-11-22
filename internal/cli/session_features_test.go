@@ -88,7 +88,9 @@ func TestSessionsUndoRetryNameAndAttemptGrep(t *testing.T) {
 	if code := RunWith(App{IO: stdio, StorageDir: storage}, []string{"sessions", "tree", forkID}); code != 0 {
 		t.Fatalf("tree exit = %d, err %q", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "link="+sess.ID()+"/") || !strings.Contains(out.String(), "retried") {
+	// tree 现在渲染 ASCII id/parent 树（不再输出 link/retried 文本），
+	// 只需确认标题指向 fork 会话且活动叶被标记。
+	if !strings.Contains(out.String(), "会话树: "+forkID) || !strings.Contains(out.String(), "← active") {
 		t.Fatalf("tree output = %q", out.String())
 	}
 

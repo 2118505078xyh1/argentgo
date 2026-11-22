@@ -42,6 +42,7 @@ var IndependentOptIns = []IndependentOptIn{
 	// ---- 上下文 / 压缩 / 会话 ----
 	{Key: "continuation_brief", Env: "ARGENT_CONTINUATION_BRIEF", Name: "会话续接摘要", Enable: "=1", Desc: "resume/追问时向 system 提示注入上一段会话的有界摘要。"},
 	{Key: "retain_guidance", Env: "ARGENT_RETAIN_GUIDANCE", Name: "纠正提示压缩存活", Enable: "=1", Desc: "保留纠正 nudge 记录的压缩存活标记，关闭时记录形状逐字节不变。"},
+	{Key: "guidance_dedupe", Env: "ARGENT_GUIDANCE_DEDUPE", Name: "失败指引签名去重", Enable: "=1", Desc: "连续失败期间同一种错误签名只注入一次恢复指引，避免长对话堆积雷同指引；关闭时每轮照常注入，消息流逐字节不变。"},
 	{Key: "summary_schema", Env: "ARGENT_SUMMARY_SCHEMA", Name: "压缩摘要固定 schema", Enable: "=1", Desc: "摘要产出后按固定顺序补齐 Goal/State/Next/Files 小节。"},
 	{Key: "budget_projection", Env: "ARGENT_BUDGET_PROJECTION", Name: "消息预算投影", Enable: "=1", Desc: "Messages 前按 rune 预算投影，保护最新用户输入与未配对的活尾工具调用。"},
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},

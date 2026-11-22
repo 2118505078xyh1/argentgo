@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,6 +38,11 @@ type AuditLog struct {
 	dir string
 	now func() time.Time
 	mu  sync.Mutex
+
+	// rotation 是本实例的轮转配置；为 nil 时回落到包级默认（默认关闭）。
+	rotation atomic.Pointer[AuditRotationConfig]
+	// rotate 仅供测试注入轮转实现，用于验证轮转失败时不丢审计。
+	rotate func(path string, cfg AuditRotationConfig) error
 }
 
 // NewAuditLog 打开（或准备）一个写入 `<dir>/<YYYY-MM-DD>.jsonl` 的日志。
@@ -87,7 +93,15 @@ func (l *AuditLog) Record(entry AuditEntry) error {
 	if err := os.MkdirAll(l.dir, 0o700); err != nil {
 		return fmt.Errorf("security: creating audit directory: %w", err)
 	}
-	file, err := os.OpenFile(l.pathFor(stamp), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	path := l.pathFor(stamp)
+	// 轮转是尽力而为：失败时保持原文件不动，下面的 OpenFile 会继续往原文件追加，
+	// 因此任何轮转异常都不会丢失这条（已经脱敏的）审计记录。
+	if cfg := l.rotation.Load(); cfg != nil {
+		_ = l.maybeRotate(path, *cfg)
+	} else if cfg := defaultAuditRotation.Load(); cfg != nil {
+		_ = l.maybeRotate(path, *cfg)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("security: opening audit log: %w", err)
 	}

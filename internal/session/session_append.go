@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+// appendMaxAttempts 是单次 AppendRecord 允许的最大写入尝试次数（首次 + 重试）。
+// 有限重试既能吸收偶发的"背后改写"，又不会在文件被持续改动时无限打转。
+const appendMaxAttempts = 3
+
+// errAppendRetry 表示 prepare 与 write 之间文件在背后被改动，当前 id/parent 已过期，
+// 必须丢弃状态、重新 prepare 后再写。它是内部信号，绝不作为成功返回给调用方；
+// 重试耗尽时 AppendRecord 会把它包装成真实错误返回。
+var errAppendRetry = errors.New("session: append state changed during write")
+
+// appendPrepareHookForTest 由测试注入，在 prepareAppend 之后、writeAppend 之前调用，
+// 用于确定性地模拟"另一个不遵守本锁的写入方在我们背后改动文件"的 TOCTOU 窗口。
+// 生产环境为 nil，零成本；与 readRecordsFn/sessionSync 一样是本包已有的测试接缝。
+var appendPrepareHookForTest func()
+
 // Append 写入一条记录作为活动叶节点的子节点，并使其成为新的活动叶节点。
 // 载荷编码为 JSON；nil 存储为 `null`。
 func (s *Session) Append(kind string, payload any) error {
@@ -35,45 +49,82 @@ func (s *Session) AppendRecord(kind string, payload any) (Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// prepareAppend 在任何内容写入磁盘之前先生成 id 并递增 nextSeq。
-	// 保留追加前的值，使写入失败时可以撤销这一偏移，让索引精确描述文件中的内容。
-	prevNextSeq := s.nextSeq
-
-	parent, id, err := s.prepareAppend()
-	if err != nil {
-		return Record{}, err
-	}
-	// Records() 始终从磁盘重新读取，因此 `active`、`lastID` 以及该记录的 `ids` 条目
-	// 只在写入成功后才推进。失败时留下的唯一内存改动是递增后的 nextSeq；
-	// 也要从索引中删除已生成的 id，以防写入方在报错前把它加了进去。
-	// writeAppend 在写入本身失败时已经丢弃 fd/缓存，因此下一次追加会安全地从磁盘重建。
-	rollback := func() {
-		s.nextSeq = prevNextSeq
-		if s.ids != nil {
-			delete(s.ids, id)
+	// 检测到背后改写时失效状态、重新 prepare 并重试；耗尽后返回真实错误，
+	// 绝不再像旧实现那样把"写入了一行已失效句柄"当成成功交给调用方。
+	var lastErr error
+	for attempt := 0; attempt < appendMaxAttempts; attempt++ {
+		record, err := s.appendOnce(kind, data)
+		if !errors.Is(err, errAppendRetry) {
+			return record, err
 		}
+		lastErr = err
 	}
-	record := Record{
-		ID:     id,
-		Parent: parent,
-		TS:     nextRecordTS(),
-		Kind:   kind,
-		Data:   data,
-	}
-	line, err := json.Marshal(record)
+	return Record{}, fmt.Errorf("session: append %s: state kept changing after %d attempts: %w",
+		s.path(), appendMaxAttempts, lastErr)
+}
+
+// appendOnce 在持有 mu 的前提下，用跨进程锁包住 prepareAppend→writeAppend 的临界区。
+// 同一会话文件的多个句柄/进程因此串行地生成 id 并落盘，消除"同快照写同 id"的碰撞。
+func (s *Session) appendOnce(kind string, data []byte) (Record, error) {
+	var record Record
+	err := withAppendLock(s.appendLockPathLocked(), func() error {
+		// prepareAppend 在任何内容写入磁盘之前先生成 id 并递增 nextSeq。
+		// 保留追加前的值，使写入失败时可以撤销这一偏移，让索引精确描述文件中的内容。
+		prevNextSeq := s.nextSeq
+
+		parent, id, err := s.prepareAppend()
+		if err != nil {
+			return err
+		}
+		// Records() 始终从磁盘重新读取，因此 `active`、`lastID` 以及该记录的 `ids` 条目
+		// 只在写入成功后才推进。失败时留下的唯一内存改动是递增后的 nextSeq；
+		// 也要从索引中删除已生成的 id，以防写入方在报错前把它加了进去。
+		// writeAppend 在写入本身失败时已经丢弃 fd/缓存，因此下一次追加会安全地从磁盘重建。
+		rollback := func() {
+			s.nextSeq = prevNextSeq
+			if s.ids != nil {
+				delete(s.ids, id)
+			}
+		}
+		record = Record{
+			ID:     id,
+			Parent: parent,
+			TS:     nextRecordTS(),
+			Kind:   kind,
+			Data:   data,
+		}
+		line, err := json.Marshal(record)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("session: encode record: %w", err)
+		}
+		buf := make([]byte, 0, len(line)+1)
+		buf = append(buf, line...)
+		buf = append(buf, '\n')
+
+		// 测试接缝：在 prepare 与 write 之间模拟背后改写，触发重尝试路径。
+		if appendPrepareHookForTest != nil {
+			appendPrepareHookForTest()
+		}
+		if err := s.writeAppend(record.ID, buf); err != nil {
+			rollback()
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		rollback()
-		return Record{}, fmt.Errorf("session: encode record: %w", err)
-	}
-	buf := make([]byte, 0, len(line)+1)
-	buf = append(buf, line...)
-	buf = append(buf, '\n')
-	if err := s.writeAppend(record.ID, buf); err != nil {
-		rollback()
 		return Record{}, err
 	}
 	s.active = record.ID
 	return record, nil
+}
+
+// appendLockPathLocked 返回并惰性缓存该会话的跨进程锁路径。调用方必须持有 s.mu。
+func (s *Session) appendLockPathLocked() string {
+	if s.appendLockPath == "" {
+		s.appendLockPath = appendLockFilePath(s.path())
+	}
+	return s.appendLockPath
 }
 
 // prepareAppend 返回下一条记录的 parent 和新的 id。它惰性构建内存索引，
@@ -225,6 +276,13 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 		s.lastID = id
 		return nil
 	}
+	// 写入前再校验一次文件大小：prepareAppend 的校验与这里的写入之间存在
+	// TOCTOU 窗口，不遵守跨进程锁的旧写入方可能在其中追加了字节。
+	// 若已变化，直接丢弃状态并要求重新 prepare，避免写出基于过期快照的行。
+	if info, statErr := os.Stat(s.path()); statErr != nil || info.Size() != s.fdSize {
+		s.invalidateAppendState()
+		return errAppendRetry
+	}
 	fd := s.fd
 	temporary := fd == nil
 	if temporary {
@@ -261,9 +319,10 @@ func (s *Session) writeAppend(id string, buf []byte) error {
 	if err != nil || s.lastInfo == nil ||
 		!os.SameFile(pathInfo, s.lastInfo) || pathInfo.Size() != expected {
 		// 在追加期间，文件在我们背后被替换或写入。这一行写入了一个已不再有效的句柄；
-		// 丢弃缓存，使下一次追加根据磁盘上的真实内容重建。
+		// 丢弃缓存并要求重新 prepare。旧实现在这里 return nil，让 AppendRecord 带着
+		// 过期 id/parent 向调用方报告成功——那正是"重复 id + 静默成功"的根源。
 		s.invalidateAppendState()
-		return nil
+		return errAppendRetry
 	}
 	s.fdSize = expected
 	s.fdMTime = pathInfo.ModTime()

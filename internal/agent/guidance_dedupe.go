@@ -22,6 +22,12 @@ func guidanceDedupeEnabled() bool {
 	return guidanceDedupe.Load()
 }
 
+// GuidanceDedupeEnabled 是 guidanceDedupeEnabled 的导出读端，只供装配层测试
+// 在 Execute 之后观测进程级开关是否被 env 正确回写；生产逻辑仍只用包内读端。
+func GuidanceDedupeEnabled() bool {
+	return guidanceDedupeEnabled()
+}
+
 // GuidanceState 记录失败指引的去重状态：它只记住最近一次注入所用的签名，
 // 使同一个签名在连续失败期间不会被逐轮重复注入，避免长对话里堆积上百条雷同指引。
 //

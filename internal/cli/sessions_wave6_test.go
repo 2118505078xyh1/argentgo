@@ -126,9 +126,15 @@ func TestSessionsTreeAndExportForkedSession(t *testing.T) {
 	if code := RunWith(app, []string{"sessions", "tree", "fork"}); code != 0 {
 		t.Fatalf("tree exit = %d, err %q", code, errOut.String())
 	}
-	for _, want := range []string{"n1", "n2", "n3", "n4", "parent=n2", "depth=2", "*n4"} {
+	for _, want := range []string{"n1", "n2", "n3", "n4", "├── n3", "└── n4", "← active"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tree missing %q: %s", want, out.String())
+		}
+	}
+	// active 标记必须落在最后一条记录 n4，而不是兄弟节点 n3。
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "n3") && strings.Contains(line, "← active") {
+			t.Errorf("n3 should not be marked active: %s", out.String())
 		}
 	}
 

@@ -12,7 +12,7 @@ func writeUsage(w io.Writer) {
        argentgo <command> [args]
 
 commands:
-  sessions list|show|fidelity|checkout|fork-at|list-messages|health|rm|find|discard-attempt  inspect stored sessions
+  sessions list|show|fidelity|checkout|fork-at|list-messages|health|tree|rm|find|discard-attempt  inspect stored sessions (tree: ASCII id/parent tree, marks active leaf)
   replay <id>                   print a stored session transcript
   usage                         summarise turns and tokens per session
   context                       approximate token breakdown of the model context

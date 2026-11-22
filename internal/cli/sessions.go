@@ -89,11 +89,9 @@ func runSessions(app App, _ context.Context, args []string) int {
 		}
 		return sessionsGrep(app, store, query, limit, filter)
 	case "tree":
-		if len(args) < 2 {
-			sessionsUsage(app.IO.Err)
-			return 2
-		}
-		return sessionsTree(app, store, args[1])
+		// tree 支持省略 id（渲染最近会话）以及可选的 --depth 上界，
+		// 因此把剩余参数整体交给 sessionsTree 解析。
+		return sessionsTree(app, args[1:])
 	case "undo":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -477,38 +475,210 @@ func sessionsGrep(app App, store SessionStore, query string, limit int, filter S
 	return 0
 }
 
-func sessionsTree(app App, store SessionStore, id string) int {
-	var branches []session.Branch
-	var err error
-	if trees, ok := store.(sessionTreeStore); ok {
-		branches, err = trees.Branches(id)
-	} else {
-		var path string
-		path, err = session.ResolvePath(app.sessionDir(), id)
-		if err == nil {
-			branches, err = session.Branches(path)
+// 树渲染的可调上界：记录数限制建树规模，深度限制渲染规模。
+// 二者共同保证异常大的会话不会让只读命令的输出或递归爆炸。
+const (
+	sessionsTreeMaxRecords   = 20000
+	sessionsTreeDefaultDepth = 200
+	sessionsTreeMaxDepth     = 1000
+)
+
+// sessionsTree 把指定会话（省略 id 时为最近会话）的 id/parent 记录投影成
+// Unicode ASCII 树并标记活动叶。它全程只读：路径解析走 session.ResolvePath，
+// 不经过可能回写转录的 OpenSession；节点标签按字节原样拼接，CJK 标题不会被截断。
+func sessionsTree(app App, args []string) int {
+	id, maxDepth, err := parseTreeArgs(args)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "错误: %v\n", err)
+		sessionsUsage(app.IO.Err)
+		return 2
+	}
+	dir := app.sessionDir()
+	if id == "" {
+		// 未指定 id 时选最近更新的会话；纯目录扫描，不触发索引旁车回写。
+		id, err = latestSessionID(dir)
+		if err != nil {
+			fmt.Fprintf(app.IO.Err, "错误: %v\n", err)
+			return 1
 		}
 	}
+	path, err := session.ResolvePath(dir, id)
 	if err != nil {
-		fmt.Fprintln(app.IO.Err, "error:", err)
+		fmt.Fprintf(app.IO.Err, "错误: %v\n", err)
 		return 1
 	}
-	for _, branch := range branches {
-		marker := " "
-		if branch.Active {
-			marker = "*"
+	records, err := readTreeRecords(path)
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "错误: 读取会话转录失败: %v\n", err)
+		return 1
+	}
+	if len(records) == 0 {
+		fmt.Fprintln(app.IO.Err, "错误: 会话没有可渲染的记录")
+		return 1
+	}
+
+	// 记录数上界：只取前 N 条建树，省略量在输出末尾说明。
+	skippedRecords := 0
+	if len(records) > sessionsTreeMaxRecords {
+		skippedRecords = len(records) - sessionsTreeMaxRecords
+		records = records[:sessionsTreeMaxRecords]
+	}
+	// 活动叶与 session.OpenSession 的语义一致：取最后一条记录。
+	// 分叉/检出产生的指针只存在于内存，重新打开时必然回落到文件末条。
+	activeID := records[len(records)-1].ID
+	nodes := session.ExportTree(records, activeID)
+
+	// 深度上界：RenderTreeASCII 会跳过不在 nodes 中的子节点，
+	// 因此按 Depth 裁掉深层节点即可，无需改动 session 包。
+	bounded := make([]session.TreeNode, 0, len(nodes))
+	skippedDepth := 0
+	for _, node := range nodes {
+		if node.Depth <= maxDepth {
+			bounded = append(bounded, node)
+		} else {
+			skippedDepth++
 		}
-		link := "-"
-		if branch.SourceSession != "" {
-			link = branch.SourceSession
-			if branch.SourceRecord != "" {
-				link += "/" + branch.SourceRecord
-			}
-		}
-		fmt.Fprintf(app.IO.Out, "%s%s\tparent=%s\tdepth=%d\tlink=%s\t%s\t%s\n",
-			marker, branch.ID, branch.Parent, branch.Depth, link, branch.Kind, branch.Label)
+	}
+
+	displayID := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	fmt.Fprintf(app.IO.Out, "会话树: %s\n", displayID)
+	if rendered := session.RenderTreeASCII(bounded); rendered != "" {
+		fmt.Fprintln(app.IO.Out, rendered)
+	}
+	if skippedRecords > 0 {
+		fmt.Fprintf(app.IO.Out, "（记录数超过 %d，已省略 %d 条）\n", sessionsTreeMaxRecords, skippedRecords)
+	}
+	if skippedDepth > 0 {
+		fmt.Fprintf(app.IO.Out, "（深度超过 %d，已省略 %d 个节点）\n", maxDepth, skippedDepth)
 	}
 	return 0
+}
+
+// parseTreeArgs 解析 `sessions tree [id] [--depth N]`：id 至多一个，
+// --depth 必须为 0 以外的正整数且不超过硬上限，避免调用方传入超大深度。
+func parseTreeArgs(args []string) (string, int, error) {
+	maxDepth := sessionsTreeDefaultDepth
+	var ids []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--depth":
+			if i+1 >= len(args) {
+				return "", 0, errors.New("tree 需要 --depth 的值")
+			}
+			i++
+			depth, err := parseTreeDepth(args[i])
+			if err != nil {
+				return "", 0, err
+			}
+			maxDepth = depth
+		case strings.HasPrefix(arg, "--depth="):
+			depth, err := parseTreeDepth(strings.TrimPrefix(arg, "--depth="))
+			if err != nil {
+				return "", 0, err
+			}
+			maxDepth = depth
+		case strings.HasPrefix(arg, "-"):
+			return "", 0, fmt.Errorf("tree 未知选项 %q", arg)
+		default:
+			ids = append(ids, arg)
+		}
+	}
+	if len(ids) > 1 {
+		return "", 0, errors.New("tree 最多接受一个会话 id")
+	}
+	if len(ids) == 1 {
+		return ids[0], maxDepth, nil
+	}
+	return "", maxDepth, nil
+}
+
+func parseTreeDepth(value string) (int, error) {
+	depth, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || depth <= 0 {
+		return 0, fmt.Errorf("非法 --depth %q", value)
+	}
+	if depth > sessionsTreeMaxDepth {
+		return 0, fmt.Errorf("--depth 不能超过 %d", sessionsTreeMaxDepth)
+	}
+	return depth, nil
+}
+
+// latestSessionID 返回目录中最后更新的会话 id。它只读目录项，
+// 不调用可能回写索引旁车的 session.List，也不创建不存在的目录。
+func latestSessionID(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", errors.New("没有可用的会话，请指定会话 id")
+		}
+		return "", fmt.Errorf("读取会话目录失败: %w", err)
+	}
+	var latestID string
+	var latestTime time.Time
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".jsonl") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().Before(latestTime) {
+			continue
+		}
+		latestID = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		latestTime = info.ModTime()
+	}
+	if latestID == "" {
+		return "", errors.New("没有可用的会话，请指定会话 id")
+	}
+	return latestID, nil
+}
+
+// readTreeRecords 只读地解析转录里 id/parent 两列。它刻意走 os.ReadFile
+// 而非 session.OpenSession，后者会在尾部残缺时回写文件；同时跳过坏行、
+// 并为无 id 的旧记录按 session.nextID 的规则补 id，保持父引用可解析。
+func readTreeRecords(path string) ([]session.Record, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	type rawRecord struct {
+		ID     string `json:"id"`
+		Parent string `json:"parent"`
+	}
+	parsed := make([]rawRecord, 0, 16)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec rawRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+		parsed = append(parsed, rec)
+	}
+	used := make(map[string]bool, len(parsed))
+	for _, rec := range parsed {
+		if rec.ID != "" {
+			used[rec.ID] = true
+		}
+	}
+	records := make([]session.Record, 0, len(parsed))
+	for _, rec := range parsed {
+		id := rec.ID
+		if id == "" {
+			for n := 1; ; n++ {
+				candidate := fmt.Sprintf("n%06d", n)
+				if !used[candidate] {
+					id = candidate
+					used[candidate] = true
+					break
+				}
+			}
+		}
+		records = append(records, session.Record{ID: id, Parent: rec.Parent})
+	}
+	return records, nil
 }
 
 func sessionsExport(app App, store SessionStore, id string, args []string) int {
@@ -666,7 +836,7 @@ func sessionsUsage(w io.Writer) {
        argentgo sessions rm <id>
        argentgo sessions find <keyword>
         argentgo sessions --grep <text> [--limit N] [--title substr] [--since time] [--until time] [--in dir] [--text substr]
-        argentgo sessions tree <id>
+        argentgo sessions tree [id] [--depth N]   render the id/parent tree as ASCII, marking the active leaf
         argentgo sessions undo <id> [-C <workspace>]
         argentgo sessions retry <id> [checkpoint-id]
         argentgo sessions discard-attempt <id> [attempt-id]
