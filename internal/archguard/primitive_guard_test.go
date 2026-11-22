@@ -176,8 +176,26 @@ func incrementFiles(t *testing.T, root string) ([]string, bool) {
 // baselineExportedNames 返回文件在基线 commit 中已有的导出函数名集合。
 // 文件在基线不存在（新文件）时返回空集合，使其全部导出函数都算新增。
 func baselineExportedNames(root, rel string) map[string]bool {
+	// 目录改名（如 internal/shell → internal/bash）后，git 把新路径视为全新
+	// 文件，按新路径查基线会查不到，导致整包导出函数被误判为「新增原语」。
+	// 这里按已知的历史路径别名回退查找，让 moved 文件仍能对上基线的导出名。
+	candidates := []string{rel}
+	if strings.HasPrefix(rel, "internal/bash/") {
+		candidates = append(candidates, "internal/shell/"+strings.TrimPrefix(rel, "internal/bash/"))
+	}
+	for _, candidate := range candidates {
+		if names := baselineExportedNamesAt(root, candidate, rel); len(names) > 0 {
+			return names
+		}
+	}
+	return map[string]bool{}
+}
+
+// baselineExportedNamesAt 读取基线 commit 中 path 的内容并返回其导出函数名集合。
+// rel 仅用于向 exportedFuncSites 说明文件的逻辑位置（决定构建标签等解析）。
+func baselineExportedNamesAt(root, path, rel string) map[string]bool {
 	names := map[string]bool{}
-	out, err := exec.Command("git", "-C", root, "show", primitiveBaseline+":"+rel).Output()
+	out, err := exec.Command("git", "-C", root, "show", primitiveBaseline+":"+path).Output()
 	if err != nil {
 		return names
 	}

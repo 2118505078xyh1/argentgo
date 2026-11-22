@@ -555,6 +555,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			autoDiagnostics: optIns[OptInAutoVerify],
 		}
 	}
+	// 来源 URL 标注（默认启用）：web_fetch/web_search 成功结果前加一行已脱敏
+	// 来源，让模型能在答案里明确引用抓取自哪个页面（aider 审计项）。
+	// 独立于 hooks bridge，因此无 hook 文档时也生效；其它工具逐字节不变。
+	runner = &sourceAnnotatingTools{inner: runner}
 
 	tracker := newCheckpointTracker(res.Root, sess)
 	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
