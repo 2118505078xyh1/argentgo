@@ -28,6 +28,7 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 | `95d0e48` | 决策 21 | 快照钩子 benchmark（默认 3.4ns、开启 9.7ns，均零分配），确认不成为热路径瓶颈 |
 | `33ef69f` | 决策 15 | 历史任务检查改为只跑新增测试所在的包而非 `go test ./...`，超时提到 120s，避免全新 worktree 首次编译超时误判 |
 | `c359f9e` | 决策 15 | `eval history --verify`：跑模型前离线自检，跳过无判别力任务，避免浪费 token |
+| `b47494a` | 决策 20 | `ARGENT_SUBAGENT_SHARED_PROMPT`：子代理以父级 system 为前缀、角色约束追加末尾，首请求复用缓存；system 构造抽成可测纯函数 |
 | `650dd88` | — | 本研究总结文档 |
 
 ## 未迁移及原因
@@ -36,7 +37,7 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 |---|---|---|
 | MCP 单网关工具 | 决策 11 | 需重写 `internal/app/mcp.go`（956 行）的注册、`RefreshTools` 与审批链；改动期间有代理正在改 MCP 审批逻辑，无人监督下风险过高 |
 | resume 字节回放 | 决策 21 | 已记录快照，但回放需新增 `ChatRaw` 接口并改三协议客户端 + agent 首请求分支，热路径风险高；留待有监督阶段 |
-| 子代理复用主 prompt/工具表 | 决策 20 | 需改 `Options`/`taskTool`/`runTaskOnce` 多处，且移除"You are a subagent"约束可能改变行为质量 |
+| 子代理复用主工具表 | 决策 20 | prompt 共享已落地（`b47494a`）；工具表完全复用仍需改 `Options`/`taskTool`/`runTaskOnce` 多处，留待有监督阶段 |
 | undo 用隐藏 git 快照 | 决策 24 | argentgo 已有 checkpoint 机制（文件旧字节存会话），功能等价但机制不同；切换代价大于收益 |
 | bash 输出尾部遍历 | 决策 35 | `internal/proc.cappedBuffer` 已对每个流做 64 KB 头尾上限，同类内存峰值问题已解决 |
 
