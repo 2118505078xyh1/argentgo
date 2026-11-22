@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -18,6 +19,24 @@ import (
 // readWindowCap 限制以某行为中心的窗口的每一侧，使单次调用
 // 绝不会倾泻无界数量的上下文。
 const readWindowCap = 200
+
+// readMaxBytes 是 read 工具允许整文件读入的尺寸上限。超过上限时拒绝，
+// 避免"文件本体 + UTF-8 解码副本 + 全量行切片"三份驻留把峰值内存推到
+// 文件大小的数倍。给出替代命令，让模型用搜索/分页工具完成任务。
+const readMaxBytes = 10 * 1024 * 1024
+
+// errReadTooLarge 在文件超过 read 工具的尺寸上限时返回，供 errors.Is 匹配。
+var errReadTooLarge = errors.New("file too large: use grep_ex to search or bash with sed -n 'START,ENDP' to page")
+
+// readFileLimited 在读入前检查文件大小，超限直接返回 errReadTooLarge。
+// maxBytes 由测试注入小值，避免为验证拒绝行为真的创建 10 MB 文件。
+// Stat 失败（如文件不存在）时不在这里报错，交给 os.ReadFile 走原有错误路径。
+func readFileLimited(path string, maxBytes int64) ([]byte, error) {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxBytes {
+		return nil, fmt.Errorf("read %s: %w (%d bytes > %d limit)", path, errReadTooLarge, info.Size(), maxBytes)
+	}
+	return os.ReadFile(path)
+}
 
 // utf8BOM 是 UTF-8 字节序标记。它是合法 UTF-8，却会作为 \ufeff
 // 留在首行，污染模型上下文与分页行内容，读取时应剥掉。
@@ -67,7 +86,7 @@ func (t readTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readFileLimited(path, readMaxBytes)
 	if err != nil {
 		return "", err
 	}
