@@ -29,7 +29,11 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 | `33ef69f` | 决策 15 | 历史任务检查改为只跑新增测试所在的包而非 `go test ./...`，超时提到 120s，避免全新 worktree 首次编译超时误判 |
 | `c359f9e` | 决策 15 | `eval history --verify`：跑模型前离线自检，跳过无判别力任务，避免浪费 token |
 | `b47494a` | 决策 20 | `ARGENT_SUBAGENT_SHARED_PROMPT`：子代理以父级 system 为前缀、角色约束追加末尾，首请求复用缓存；system 构造抽成可测纯函数 |
+| `c5677c1` | 决策 15 | `--verify` 复用已抽取的任务集，不再重复跑 git log/diff/show |
+| `325f6ad` | 决策 21 | `sessions snapshots <id>` 只读子命令：列出请求快照的协议/模型/字节数/hash 摘要，不打印完整 body |
 | `650dd88` | — | 本研究总结文档 |
+
+另：`9d8945a` 修复项目 TODO #28 的审计脱敏缺口（`--password value` 形式的 CLI flag 值此前明文进入审计），虽非 killi 迁移，但同属本轮工程纪律加固。
 
 ## 未迁移及原因
 
