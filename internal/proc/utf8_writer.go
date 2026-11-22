@@ -29,7 +29,8 @@ type utf8CarryWriter struct {
 	mu       sync.Mutex
 	w        io.Writer
 	carry    []byte
-	maxCarry int // 0 表示 maxCarryBytes；测试会缩小它以演练上限
+	scratch  []byte // 复用的拼接缓冲区，避免携带续字节写入时每次 make
+	maxCarry int    // 0 表示 maxCarryBytes；测试会缩小它以演练上限
 }
 
 func newUTF8CarryWriter(w io.Writer) *utf8CarryWriter {
@@ -73,23 +74,31 @@ func (cw *utf8CarryWriter) Write(p []byte) (int, error) {
 
 	data := p
 	if len(cw.carry) > 0 {
-		// 复制到新缓冲区：数据不得与 cw.carry 的底层数组共享，
-		// 该数组会被下面下一次暂存复用。
-		data = make([]byte, 0, len(cw.carry)+n)
-		data = append(data, cw.carry...)
-		data = append(data, p...)
+		// 复用 scratch 拼接暂存尾部与新分块：仅在容量不足时才增长，
+		// 消除原先每次携带写入都 make 一个新切片的分配。
+		// 副本不得与 cw.carry 共享底层数组，该数组会被下面的暂存逻辑再次复用。
+		cw.scratch = append(cw.scratch[:0], cw.carry...)
+		cw.scratch = append(cw.scratch, p...)
+		data = cw.scratch
 		cw.carry = cw.carry[:0]
 	}
 
 	// 拆分为完全可解码的前缀和不完整的尾部序列。
-	// 仅当首字节有效、但迄今看到的续接字节不足以补全字符时，
-	// utf8.FullRune 才为 false。
+	// 每个位置只解码一次：合法字符（含 ASCII 与 U+FFFD 自身）的 size 足以推进；
+	// 只有 (RuneError, 1) 这一结果同时覆盖"非法字节"和"末尾不完整序列"，
+	// 此时才用 FullRune 做边界判断——不完整序列停下并暂存，
+	// 非法字节按宽度 1 原样通过。相较原先每 rune 先 FullRune 再 DecodeRune，
+	// 常见路径少一次扫描，且语义与优化前逐字节一致。
 	split := 0
 	for split < len(data) {
-		if !utf8.FullRune(data[split:]) {
-			break
+		r, size := utf8.DecodeRune(data[split:])
+		if r == utf8.RuneError && size == 1 {
+			if !utf8.FullRune(data[split:]) {
+				break
+			}
+			split++ // 非法字节：按宽度 1 通过
+			continue
 		}
-		_, size := utf8.DecodeRune(data[split:])
 		split += size
 	}
 
