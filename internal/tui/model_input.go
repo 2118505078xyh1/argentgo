@@ -50,6 +50,12 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	if m.vimMode && m.handleVimKeyLocked(key) {
 		return ActionNone
 	}
+	// 可选别名旁路（opt-in）：仅对主 switch 未覆盖的可打印键生效，
+	// 已有专属 Kind 的绑定优先。无配置时别名表为空、守卫短路，
+	// 以下主 switch 与帧字节保持逐字节不变。
+	if action, ok := m.tryAliasKeyLocked(key); ok {
+		return m.applyAliasActionLocked(action)
+	}
 	switch key.Kind {
 	case KindIgnore:
 		return ActionNone
@@ -545,7 +551,11 @@ func (m *Model) commandLocked(body string) KeyAction {
 		}
 		return m.requestActionLocked(ActionRename, arg)
 	case "/help":
-		m.appendNoticeLocked(text(m.locale, "help"))
+		// 结构化的按键说明：每一行都是一条独立 notice，宽度按当前
+		// 终端正文宽度裁剪，窄终端也能读到全部按键而不是只看开头。
+		for _, line := range m.helpNoticeLocked() {
+			m.appendNoticeLocked(line)
+		}
 	default:
 		m.appendUserLocked(body)
 		m.working = true

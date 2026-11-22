@@ -445,7 +445,10 @@ func (c *ResponsesClient) buildRequest(model string, messages []Message, tools [
 	}
 	if c.Options.cacheEnabled(ProtocolResponses, c.BaseURL) {
 		toolJSON, _ := json.Marshal(req.Tools)
-		req.PromptCacheKey = c.Options.PromptCacheKey
+		// 三态派生：显式覆盖 > 会话 ID > 逐字节稳定的前缀哈希。
+		// sessionCacheKey 在两者都为空时返回 ""，此时回退到原有的
+		// deriveCacheKey，使未启用会话键的请求字节保持不变。
+		req.PromptCacheKey = sessionCacheKey(c.Options.SessionID, c.Options.PromptCacheKey)
 		if req.PromptCacheKey == "" {
 			req.PromptCacheKey = deriveCacheKey(req.Instructions, string(toolJSON))
 		}
@@ -576,6 +579,7 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 		// 因此调用列表始终与该顺序一致。
 		completed = make(map[int]ToolCall)
 	)
+	integrity.strict = c.Options.StrictStreamTerminator
 	var pending []string
 
 	push := func(index int) {
@@ -638,6 +642,7 @@ streamLoop:
 		case "response.output_text.delta":
 			if event.Delta != "" {
 				text.WriteString(event.Delta)
+				integrity.sawAnyText = true
 				if onText != nil {
 					onText(event.Delta)
 				}

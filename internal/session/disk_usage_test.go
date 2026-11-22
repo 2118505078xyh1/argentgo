@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"math"
 	"os"
@@ -292,5 +293,131 @@ func TestMeasureDiskUsageRejectsInvalidRoot(t *testing.T) {
 	}
 	if _, err := MeasureDiskUsage(link); err == nil {
 		t.Error("symlink root: expected error")
+	}
+}
+
+// TestMeasureDiskUsageOrderIndependentWithoutSort 验证去掉路径排序后，同一组文件在不同
+// 遍历次序下仍得到完全相同的快照。filepath.WalkDir 按文件名升序遍历，故用文件名前缀
+// 控制顺序：asc 中小文件先累加，desc 中大文件先累加，但二者的 (kind,size) 多重集合一致。
+func TestMeasureDiskUsageOrderIndependentWithoutSort(t *testing.T) {
+	type fileSpec struct {
+		name string
+		size int
+	}
+	asc := []fileSpec{
+		{"a.jsonl", 100},
+		{"b.jsonl", 200},
+		{"c.jsonl", 300},
+		{"d.zip", 400},
+		{"e.tar.gz", 500},
+		{"f.txt", 600},
+		{"g", 700},
+	}
+	desc := []fileSpec{
+		{"a.txt", 700},
+		{"b", 600},
+		{"c.tar.gz", 500},
+		{"d.zip", 400},
+		{"e.jsonl", 300},
+		{"f.jsonl", 200},
+		{"g.jsonl", 100},
+	}
+
+	dirAsc, dirDesc := t.TempDir(), t.TempDir()
+	for _, f := range asc {
+		writeUsageFile(t, dirAsc, f.name, f.size)
+	}
+	for _, f := range desc {
+		writeUsageFile(t, dirDesc, f.name, f.size)
+	}
+
+	// 前置校验：两目录首个被访问条目的分类不同，确认遍历次序确实存在差异。
+	firstKind := func(dir string) string {
+		t.Helper()
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return diskUsageKind(entries[0].Name())
+	}
+	if ka, kb := firstKind(dirAsc), firstKind(dirDesc); ka == kb {
+		t.Fatalf("预期两个目录遍历次序不同，但首个条目 kind 均为 %s", ka)
+	}
+
+	gotAsc, err := MeasureDiskUsage(dirAsc)
+	if err != nil {
+		t.Fatalf("MeasureDiskUsage(asc): %v", err)
+	}
+	gotDesc, err := MeasureDiskUsage(dirDesc)
+	if err != nil {
+		t.Fatalf("MeasureDiskUsage(desc): %v", err)
+	}
+	if !reflect.DeepEqual(gotAsc, gotDesc) {
+		t.Fatalf("不同遍历次序结果不一致:\n asc: %#v\ndesc: %#v", gotAsc, gotDesc)
+	}
+	want := DiskUsage{
+		Files: 7,
+		Bytes: 2800,
+		ByKind: map[string]int64{
+			diskKindSession: 100 + 200 + 300,
+			diskKindArchive: 400 + 500,
+			diskKindOther:   600 + 700,
+		},
+	}
+	if !reflect.DeepEqual(gotAsc, want) {
+		t.Fatalf("usage mismatch:\n got: %#v\nwant: %#v", gotAsc, want)
+	}
+}
+
+// TestDiskUsageAccumulateAllocIndependentOfFileCount 断言累加路径（去排序、去切片后的
+// 热路径）的 B/op 不随文件数线性增长。旧实现按文件数分配 regularFile 切片并排序
+// （实测约 76~102B/文件，随切片扩容上升）；饱和加法可交换后直接累加，该路径零分配。
+func TestDiskUsageAccumulateAllocIndependentOfFileCount(t *testing.T) {
+	allocPerOp := func(n int) int64 {
+		paths := make([]string, n)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("file%06d.jsonl", i)
+		}
+		r := testing.Benchmark(func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				u := DiskUsage{ByKind: map[string]int64{
+					diskKindSession: 0,
+					diskKindArchive: 0,
+					diskKindOther:   0,
+				}}
+				for _, p := range paths {
+					u.addRegular(p, 1)
+				}
+			}
+		})
+		return r.AllocedBytesPerOp()
+	}
+	small := allocPerOp(100)
+	large := allocPerOp(5000)
+	t.Logf("累加路径 B/op: n=100 -> %d, n=5000 -> %d", small, large)
+	// 线性增长时 large 至少是 small 的数十倍；此处仅允许 map 固定开销的微小波动。
+	if large > small+64 {
+		t.Fatalf("累加路径 B/op 随文件数增长（疑似引入 per-file 分配）: small=%d large=%d", small, large)
+	}
+}
+
+// BenchmarkMeasureDiskUsageNoSort 报告完整遍历的 B/op 供人工对比；注意 os.ReadDir
+// 本身会按目录条目数线性分配，故完整调用的 B/op 线性增长属预期，去掉的切片开销已由
+// TestDiskUsageAccumulateAllocIndependentOfFileCount 单独锁定。
+func BenchmarkMeasureDiskUsageNoSort(b *testing.B) {
+	dir := b.TempDir()
+	for i := 0; i < 1000; i++ {
+		p := filepath.Join(dir, fmt.Sprintf("f%06d.jsonl", i))
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := MeasureDiskUsage(dir); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

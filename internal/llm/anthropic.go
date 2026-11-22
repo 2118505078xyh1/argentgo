@@ -596,6 +596,7 @@ func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText
 		integrity    streamIntegrity
 		partials     = make(map[int]*anthropicPartial)
 	)
+	integrity.strict = c.Options.StrictStreamTerminator
 	// 已完成的 tool_use 块按其内容块索引停放，
 	// 而不是在 content_block_stop 时追加：网关可能
 	// 以与 content_block_start 宣布顺序不同的顺序投递停止通知。
@@ -684,6 +685,7 @@ streamLoop:
 			case "text":
 				if block.Text != "" {
 					text.WriteString(block.Text)
+					integrity.sawAnyText = true
 					if onText != nil {
 						onText(block.Text)
 					}
@@ -717,6 +719,7 @@ streamLoop:
 			case "text_delta":
 				if delta.Text != "" {
 					text.WriteString(delta.Text)
+					integrity.sawAnyText = true
 					if onText != nil {
 						onText(delta.Text)
 					}

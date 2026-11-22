@@ -46,10 +46,11 @@ func TestGuardKnownContextWindowModels(t *testing.T) {
 		{"glm 大写", "GLM-5.3", 128_000},
 		{"qwen", "qwen3.8-max", 128_000},
 		{"minimax 混合大小写", "MiniMax-M3", 200_000},
+		// R52 研究 #46：Llama / Mistral 系已收录，必须命中非零窗口。
+		{"llama", "llama3.2", 131_072},
+		{"mistral", "mistral-large-latest", 128_000},
 		// 未知一律 0，包含空白、空串、前缀悬空与未收录供应商。
-		{"llama", "llama3.2", 0},
 		{"local-model", "local-model", 0},
-		{"mistral 未收录", "mistral-large-latest", 0},
 		{"空串", "", 0},
 		{"纯空白", "   ", 0},
 		{"仅分隔符", "---", 0},
@@ -111,9 +112,10 @@ func TestGuardContextWindowForFallbackChain(t *testing.T) {
 		{"空模型回落 deepseek 默认", "deepseek", "", 0, 64_000},
 		{"空模型回落 gemini 默认", "gemini", "", 0, 1_000_000},
 		{"空模型回落 openrouter 默认", "openrouter", "", 0, 200_000},
-		// ollama/lmstudio 默认模型不在窗口表，回落得到 0。
-		{"模板默认模型未知返回零", "ollama", "", 0, 0},
-		{"全未知返回零", "bogus", "llama3.2", 0, 0},
+		// ollama 默认 llama3.2 已命中窗口表；lmstudio 的 local-model 仍未知返回 0。
+		{"ollama 默认模型命中 llama", "ollama", "", 0, 131_072},
+		{"模板默认模型未知返回零", "lmstudio", "", 0, 0},
+		{"模型未收录且模板未知返回零", "bogus", "local-model", 0, 0},
 		{"未知模板与空模型返回零", "bogus", "", 0, 0},
 		{"空模板与空模型返回零", "", "", 0, 0},
 	}

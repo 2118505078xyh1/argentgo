@@ -13,6 +13,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -61,8 +62,14 @@ func TestInternalDependencyRules(t *testing.T) {
 	mod := readModulePath(t, root)
 	prefix := mod + "/"
 
-	for _, abs := range goFiles(t, filepath.Join(root, "internal")) {
+	// 从仓库根开始扫描，使 cmd/ 也受规则 (a)(b) 约束。
+	// native/ 是唯一允许外部依赖的目录，由下面单独的
+	// 白名单校验；若在这里也按规则 (a) 检查会误杀 mygo。
+	for _, abs := range goFiles(t, root) {
 		rel := relSlash(t, root, abs)
+		if strings.HasPrefix(rel, "native/") {
+			continue
+		}
 		pkgDir := filepath.ToSlash(filepath.Dir(rel))
 
 		fset := token.NewFileSet()
@@ -84,9 +91,10 @@ func TestInternalDependencyRules(t *testing.T) {
 				t.Errorf("%s imports forbidden %q (rule: no cgo anywhere; everything must cross-compile)", rel, imp)
 			}
 
-			// 规则 (c)、(d)、(e)：包分层。
+			// 规则 (c)、(d)、(e)：包分层。用目录边界匹配，
+			// 防止 internal/toolsfoo 之类前缀相近的包被误命中。
 			for _, r := range internalLayerRules {
-				if pkgDir == r.pkgRel && imp == mod+r.forbiddenImport {
+				if (pkgDir == r.pkgRel || strings.HasPrefix(pkgDir, r.pkgRel+"/")) && imp == mod+r.forbiddenImport {
 					t.Errorf("%s imports forbidden %q (rule: %s)", rel, imp, r.rule)
 				}
 			}
@@ -117,14 +125,121 @@ func TestInternalDependencyRules(t *testing.T) {
 	}
 }
 
+// TestNoInternalImportCycles 用静态解析检测自有模块内的包级 import 环。
+// 与 go build 的编译期检查互补：它能在交叉编译目标上工作，且不依赖
+// 构建标签组合。刻意跳过 _test.go——外部测试包（package xxx_test）
+// 会反向 import 被测包，形成大量并非真实依赖环的假阳性。
+func TestNoInternalImportCycles(t *testing.T) {
+	root := findRepoRoot(t)
+	mod := readModulePath(t, root)
+	prefix := mod + "/"
+
+	// graph: 包目录 -> 它 import 的自有模块包集合。
+	graph := map[string]map[string]bool{}
+	for _, abs := range goFiles(t, root) {
+		rel := relSlash(t, root, abs)
+		if strings.HasSuffix(rel, "_test.go") {
+			continue
+		}
+		pkg := filepath.ToSlash(filepath.Dir(rel))
+
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, abs, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Errorf("parse %s: %v", rel, err)
+			continue
+		}
+		for _, imp := range importPaths(file) {
+			// 只关心自有模块内的边；外部模块不是本仓库能解开的环。
+			if !strings.HasPrefix(imp, prefix) {
+				continue
+			}
+			dep := strings.TrimPrefix(imp, prefix)
+			// 自环（包 import 自身）不是跨包依赖环，跳过。
+			if dep == pkg {
+				continue
+			}
+			if graph[pkg] == nil {
+				graph[pkg] = map[string]bool{}
+			}
+			graph[pkg][dep] = true
+		}
+	}
+
+	// 三色 DFS：0=未访问（白），1=在栈中（灰），2=已完成（黑）。
+	// 遇到灰节点即找到一条回边，从它在栈中的位置到栈顶加上回边
+	// 构成完整环路。
+	const (
+		white = 0
+		gray  = 1
+		black = 2
+	)
+	color := map[string]int{}
+	var stack []string
+	var cycles []string
+
+	var visit func(string)
+	visit = func(n string) {
+		color[n] = gray
+		stack = append(stack, n)
+
+		deps := make([]string, 0, len(graph[n]))
+		for d := range graph[n] {
+			deps = append(deps, d)
+		}
+		sort.Strings(deps) // 稳定输出，便于复现和比对
+		for _, d := range deps {
+			switch color[d] {
+			case gray:
+				idx := 0
+				for i, s := range stack {
+					if s == d {
+						idx = i
+						break
+					}
+				}
+				cycle := append(append([]string{}, stack[idx:]...), d)
+				cycles = append(cycles, strings.Join(cycle, " -> "))
+			case white:
+				visit(d)
+			}
+		}
+
+		stack = stack[:len(stack)-1]
+		color[n] = black
+	}
+
+	nodes := make([]string, 0, len(graph))
+	for n := range graph {
+		nodes = append(nodes, n)
+	}
+	sort.Strings(nodes)
+	for _, n := range nodes {
+		if color[n] == white {
+			visit(n)
+		}
+	}
+
+	for _, c := range cycles {
+		t.Errorf("import cycle: %s", c)
+	}
+}
+
 // goFiles 递归返回 dir 下的每个 .go 文件，不按
 // 构建标签或文件名过滤（严格：包括 _test.go 和平台变体）。
+// 版本控制、构建产物与依赖目录整体剪枝，避免扫描无关文件。
 func goFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	var out []string
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.IsDir() {
+			switch info.Name() {
+			case ".git", "dist", "vendor", "node_modules":
+				return filepath.SkipDir
+			}
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".go") {
 			out = append(out, path)

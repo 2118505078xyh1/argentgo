@@ -266,7 +266,13 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		NoAutoCompact: opts.NoAutoCompact,
 	}
 	wireOpts := cacheOptionsForConfig(cfg, opts)
+	// 续接时 opts.Session 非空，把它接入线上选项以派生跨 turn/fork
+	// 稳定的 Responses 缓存键；新会话为空时应保持旧字节不变。
+	wireOpts.SessionID = opts.Session
 	wireOpts.Thinking = thinkingOptionsForProtocol(res.Protocol, res.Thinking)
+	// 严格终止符校验与流恢复共用同一 opt-in 开关：开启回补时需要先把
+	// "纯文本中途截断" 识别为 ErrStreamError，否则回补门永不触发。
+	wireOpts.StrictStreamTerminator = streamRecoveryEnabled(env)
 	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, wireOpts)
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}

@@ -37,6 +37,11 @@ var contextWindowRules = []contextWindowRule{
 	{"qwen", 128_000},
 	// MiniMax 系列 200k。
 	{"minimax", 200_000},
+	// R52 研究 #46：本地/聚合供应商的默认模型多为 Llama / Mistral 系。
+	// 缺省这些规则会让 ContextWindowFor 返回 0，app 回落到编译默认 32000 而过早压缩丢上下文。
+	// Llama 系列 128k；Mistral 系列 128k。置于通用规则之后：前缀不与上述任何规则重叠。
+	{"llama", 131_072},
+	{"mistral", 128_000},
 }
 
 // normalizeWindowModel 把模型名规范化为用于窗口查表的形式：

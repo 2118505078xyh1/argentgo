@@ -36,8 +36,15 @@ func TestKnownContextWindowByModel(t *testing.T) {
 		{"GLM-5.3", 128_000},
 		{"qwen3.8-max", 128_000},
 		{"MiniMax-M3", 200_000},
+		// R52 研究 #46：Llama / Mistral 系必须命中，否则回落 32000 而过早压缩。
+		{"llama3.2", 131_072},
+		{"ollama/llama3.2", 131_072},
+		{"llama-3.3-70b-versatile", 131_072},
+		{"meta-llama/Llama-3.3-70B", 131_072},
+		{"accounts/fireworks/models/llama-v3p3-70b", 131_072},
+		{"mistral-large-latest", 128_000},
+		{"MISTRAL-SMALL-LATEST", 128_000},
 		// 未知模型一律返回 0。
-		{"llama3.2", 0},
 		{"local-model", 0},
 		{"", 0},
 		{"   ", 0},
@@ -81,7 +88,8 @@ func TestContextWindowForFallbackChain(t *testing.T) {
 		{"模板默认 Gemini", "gemini", "", 0, 1_000_000},
 		{"模板默认 DeepSeek", "deepseek", "", 0, 64_000},
 		{"未知模板但模型已知", "bogus", "gemini-2.5-flash", 0, 1_000_000},
-		{"全未知返回零", "ollama", "llama3.2", 0, 0},
+		{"llama 模型命中窗口表", "ollama", "llama3.2", 0, 131_072},
+		{"mistral 模型命中窗口表", "bogus", "mistral-large-latest", 0, 128_000},
 		{"未知模板与空模型返回零", "bogus", "", 0, 0},
 		{"空模板与空模型返回零", "", "", 0, 0},
 	}
@@ -116,5 +124,25 @@ func TestContextWindowForPureStableAndNonMutating(t *testing.T) {
 	}
 	if model != "gpt-5.6" {
 		t.Fatalf("model mutated: %q", model)
+	}
+}
+
+// TestAllTemplateDefaultModelsHaveKnownWindow 是 R52 研究 #46 的守护测试：
+// 遍历全部内置模板（当前 20 个），除 lmstudio 的 local-model（本地模型，窗口无法预知）外，
+// 每个默认模型都必须解析出非零窗口。否则 ContextWindowFor 返回 0，app 会回落到
+// 编译默认 32000 而过早压缩、丢失上下文。
+func TestAllTemplateDefaultModelsHaveKnownWindow(t *testing.T) {
+	templates := provider.List()
+	if len(templates) == 0 {
+		t.Fatal("provider.List() 为空，无法守护默认模型窗口")
+	}
+	for _, tpl := range templates {
+		if tpl.DefaultModel == "local-model" {
+			continue // 本地模型由用户环境决定，无法预知窗口。
+		}
+		if got := provider.ContextWindowFor(tpl.Name, tpl.DefaultModel, 0); got == 0 {
+			t.Errorf("模板 %q 的默认模型 %q 解析窗口为 0（会让 app 回落到 32000 而过早压缩丢上下文）",
+				tpl.Name, tpl.DefaultModel)
+		}
 	}
 }

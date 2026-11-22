@@ -88,11 +88,18 @@ func clipErrorClass(text string) string {
 // 是否有工具调用因流式参数为空或格式错误，
 // 而不得不用空参数对象补全。在此状态下到达 EOF 意味着提供方
 // 在工具调用中途截断了答复：分发它会用捏造的 "{}" 参数
-// 运行真实工具。纯文本截断仍然容忍，
+// 运行真实工具。纯文本截断默认仍然容忍，
 // 使省略终止符的网关能继续工作。
 type streamIntegrity struct {
 	terminated     bool
 	incompleteTool bool
+	// sawAnyText 报告流中已经输出过文本增量。严格模式下，
+	// "有文本但未到达终止符" 即视为截断，使最常见的
+	// "文本中途 TCP 关闭" 场景能触发回补门。
+	sawAnyText bool
+	// strict 是 opt-in 的严格终止符校验开关：默认关闭时
+	// 容忍纯文本截断，逐字节保持历史行为。
+	strict bool
 }
 
 // toolArguments 补全流式参数，标记曾回退到 "{}"，使
@@ -109,10 +116,18 @@ func (s *streamIntegrity) toolArguments(arguments string) string {
 // eofError 报告必须让尝试失败的截断。marker 是
 // 协议自身的终止符，包含在错误中以便诊断。
 func (s *streamIntegrity) eofError(marker string) error {
-	if s.terminated || !s.incompleteTool {
+	if s.terminated {
 		return nil
 	}
-	return streamError("stream ended without %s while a tool call was incomplete", marker)
+	if s.incompleteTool {
+		return streamError("stream ended without %s while a tool call was incomplete", marker)
+	}
+	// 严格模式下，已输出部分文本却未到达终止符也视为截断。
+	// 默认关闭时该分支短路，纯文本截断仍返回半截文本。
+	if s.strict && s.sawAnyText {
+		return streamError("stream ended without %s after partial text", marker)
+	}
+	return nil
 }
 
 // streamError 用会话层会归类为流错误尝试的哨兵错误

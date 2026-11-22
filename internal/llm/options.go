@@ -69,6 +69,12 @@ type Options struct {
 	// PromptCacheKey 覆盖 Responses 协议中从稳定前缀派生的
 	// 缓存键。
 	PromptCacheKey string
+	// SessionID 是续接（--session/--resume）中的会话 ID。非空时
+	// Responses 协议用它派生跨 turn/fork 稳定的 prompt_cache_key
+	// （见 sessionCacheKey）；空值表示不参与派生，仍回退到逐字节
+	// 不变的 deriveCacheKey，使无 ID 请求的线协议字节与接线前一致。
+	// 它是纯路由元数据，不进入请求体。
+	SessionID string `json:"-"`
 	// PreserveReasoning 选择加入在后续请求中重放助手轮次的推理：
 	// chat-completions 上是 reasoning_content，Anthropic Messages 上是 thinking 块。
 	// 默认关闭，使发送到上游的字节——以及所有现有的线协议格式测试——
@@ -88,6 +94,11 @@ type Options struct {
 	// Verbosity 在 Responses 协议上映射为顶层 verbosity
 	// （low/medium/high）。空值时省略该字段，保持默认字节不变。
 	Verbosity string `json:"verbosity,omitempty"`
+	// StrictStreamTerminator 选择加入严格的流终止符校验：流式答复已输出文本
+	// 却未到达协议终止符时返回 ErrStreamError，使 "文本中途 TCP 关闭"
+	// 这类截断能触发 agent 层的回补门。默认 false，容忍截断并返回半截文本，
+	// 逐字节保持历史行为。
+	StrictStreamTerminator bool
 	// AttemptHook 为会话层接收脱敏后的尝试记录。
 	AttemptHook func(AttemptRecord)
 }

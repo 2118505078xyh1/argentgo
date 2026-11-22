@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -216,6 +217,88 @@ func TestHintBindingsRoundTripsExistingLocaleHints(t *testing.T) {
 			if got != hint {
 				t.Errorf("locale %s/%s: round trip = %q, want %q", locale, key, got, hint)
 			}
+		}
+	}
+}
+
+// helpTestAction 是一个空的动作钩子，仅用于让 helpStateEnabled 看到"已接线"。
+func helpTestAction(context.Context, string) error { return nil }
+
+func TestHelpStateEnabled(t *testing.T) {
+	bindings := []KeyBinding{
+		{Key: "enter", Desc: "sends"},
+		{Key: "alt+u", Desc: "undo"},
+		{Key: "alt+r", Desc: "retry"},
+	}
+	m := New(Config{})
+	helpStateEnabled(m, bindings)
+	if !bindings[0].Enabled {
+		t.Fatal("无状态按键应当始终可见")
+	}
+	if bindings[1].Enabled || bindings[2].Enabled {
+		t.Fatalf("钩子未接线时撤销/重试应隐藏，得到 %+v", bindings)
+	}
+	m.SetTurnActions(helpTestAction, helpTestAction, nil)
+	helpStateEnabled(m, bindings)
+	if !bindings[1].Enabled || !bindings[2].Enabled {
+		t.Fatalf("钩子接线后撤销/重试应可见，得到 %+v", bindings)
+	}
+}
+
+func TestHelpNoticeLinesNarrowKeepsWholeBindings(t *testing.T) {
+	bindings := []KeyBinding{
+		{Key: "alt+enter", Desc: "newline", Enabled: true},
+		{Key: "ctrl+c", Desc: "cancel", Enabled: true},
+	}
+	// 单个条目都放不下时只能得到省略号，绝不会是 "alt+ente" 这种半个键。
+	if got := helpNoticeLines(bindings, 6); !reflect.DeepEqual(got, []string{"…", "…"}) {
+		t.Fatalf("narrow help lines = %q, want %q", got, []string{"…", "…"})
+	}
+	// 放得下单个但放不下两个时，每条各占一行且键保持完整。
+	if got := helpNoticeLines(bindings, 18); !reflect.DeepEqual(got, []string{"alt+enter newline", "ctrl+c cancel"}) {
+		t.Fatalf("wrapped help lines = %q, want two whole bindings", got)
+	}
+}
+
+func TestHelpNoticeLinesCJK(t *testing.T) {
+	bindings := []KeyBinding{
+		{Key: "enter", Desc: "发送", Enabled: true},
+		{Key: "alt+enter", Desc: "换行", Enabled: true},
+		{Key: "ctrl+c", Desc: "取消", Enabled: true},
+	}
+	for _, width := range []int{8, 12, 16, 40} {
+		lines := helpNoticeLines(bindings, width)
+		if len(lines) < 2 {
+			t.Fatalf("width %d: got %d lines, want >= 2", width, len(lines))
+		}
+		for _, line := range lines {
+			if w := TextWidth(line); w > width {
+				t.Errorf("width %d: line %q spans %d cells", width, line, w)
+			}
+		}
+	}
+}
+
+func TestHelpCommandEmitsStructuredNotices(t *testing.T) {
+	for _, locale := range []string{"en", "zh"} {
+		m := New(Config{Locale: locale})
+		m.Frame(100, 24) // 确定正文宽度
+		m.mu.Lock()
+		m.commandLocked("/help")
+		m.mu.Unlock()
+
+		var lines []string
+		for _, entry := range m.entries {
+			if entry.Kind != EntryNotice {
+				continue
+			}
+			if w := TextWidth(entry.Text); w > 100 {
+				t.Errorf("locale %s: notice %q spans %d cells, want <= 100", locale, entry.Text, w)
+			}
+			lines = append(lines, entry.Text)
+		}
+		if len(lines) < 2 {
+			t.Fatalf("locale %s: /help produced %d notice lines, want >= 2", locale, len(lines))
 		}
 	}
 }

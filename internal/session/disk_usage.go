@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -33,7 +32,7 @@ const (
 //
 // 安全性与确定性：
 //   - 全程使用 Lstat 语义，不跟随任何符号链接；符号链接本身既不计入也不展开，避免逃出 dir 或形成环。
-//   - 收集到的普通文件按路径全局排序后再累加，相同目录结构恒定得到相同结果，溢出钳制与遍历次序无关。
+//   - 累加使用饱和加法（clampAddInt64），它对非负数可交换、可结合，故结果与遍历次序无关，无需对路径排序。
 //   - 单文件大小与累计字节在接近 int64/int 上限时钳制到最大值，不会发生环绕变负。
 //   - 纯读操作：不创建、修改或删除任何文件。
 //
@@ -59,11 +58,7 @@ func MeasureDiskUsage(dir string) (DiskUsage, error) {
 		return usage, fmt.Errorf("session: measure disk usage: not a directory: %s", dir)
 	}
 
-	type regularFile struct {
-		path string
-		size int64
-	}
-	var files []regularFile
+	// 遍历时直接累加三量：饱和加法可交换，Files 是单调计数，故无需先收集切片再排序。
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -83,29 +78,29 @@ func MeasureDiskUsage(dir string) (DiskUsage, error) {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		size := info.Size()
-		if size < 0 { // 防御性处理：负大小视为 0，避免污染累计值。
-			size = 0
-		}
-		files = append(files, regularFile{path: path, size: size})
+		usage.addRegular(path, info.Size())
 		return nil
 	})
 	if err != nil {
 		return usage, fmt.Errorf("session: measure disk usage: %w", err)
 	}
 
-	// 全局按路径排序后累加，保证结果与目录遍历次序无关。
-	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
-	for _, f := range files {
-		kind := diskUsageKind(f.path)
-		usage.ByKind[kind] = clampAddInt64(usage.ByKind[kind], f.size)
-		usage.Bytes = clampAddInt64(usage.Bytes, f.size)
-		if usage.Files < math.MaxInt {
-			usage.Files++
-		}
-	}
-
 	return usage, nil
+}
+
+// addRegular 把一个普通文件的大小累加进快照。
+// 饱和加法对非负数可交换、可结合，Files 单调计数，故调用顺序不影响结果；
+// 全程不分配内存，B/op 不随文件数增长。
+func (u *DiskUsage) addRegular(path string, size int64) {
+	if size < 0 { // 防御性处理：负大小视为 0，避免污染累计值。
+		size = 0
+	}
+	kind := diskUsageKind(path)
+	u.ByKind[kind] = clampAddInt64(u.ByKind[kind], size)
+	u.Bytes = clampAddInt64(u.Bytes, size)
+	if u.Files < math.MaxInt {
+		u.Files++
+	}
 }
 
 // diskUsageIsSymlink 判断遍历到的条目是否为符号链接。独立成函数是为了在无创建

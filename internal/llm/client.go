@@ -799,7 +799,7 @@ func (c *Client) readStream(ctx context.Context, model string, body io.Reader, o
 	byID := make(map[string]*ToolCall)
 	var usage *Usage
 	var finishReason string
-	var integrity streamIntegrity
+	integrity := streamIntegrity{strict: c.Options.StrictStreamTerminator}
 
 	// 复用共享的 SSE 读取器：单个事件的 JSON 载荷可能横跨多个 data: 行，
 	// 这是 SSE 规范允许且网关会使用的做法。
@@ -884,6 +884,7 @@ streamLoop:
 			}
 			if delta := choice.Delta.Content; delta != "" {
 				text.WriteString(delta)
+				integrity.sawAnyText = true
 				if onText != nil {
 					onText(delta)
 				}
