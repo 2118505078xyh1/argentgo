@@ -46,6 +46,7 @@ type lspManager struct {
 	clients  map[string]*lsp.Client   // 键：root + "|" + server.Name
 	failures map[string]error         // 负缓存：不在每次调用时重试派生
 	starting map[string]chan struct{} // 按键设置的屏障，使每个键最多派生一次
+	mux      *lsp.Mux                 // 按语言路由的客户端表，供 clientForFile 直接查
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -76,6 +77,7 @@ func newLspManager(ctx context.Context) *lspManager {
 		clients:  make(map[string]*lsp.Client),
 		failures: make(map[string]error),
 		starting: make(map[string]chan struct{}),
+		mux:      lsp.NewMux(),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -87,6 +89,8 @@ func (m *lspManager) Close() error {
 	m.mu.Lock()
 	clients := m.clients
 	m.clients = make(map[string]*lsp.Client)
+	// 同步清空 mux，避免它继续路由到已关闭的 client。
+	m.mux = lsp.NewMux()
 	m.mu.Unlock()
 
 	var first error
@@ -129,6 +133,9 @@ func (m *lspManager) clientFor(server lsp.Server, root string) (*lsp.Client, err
 			m.failures[key] = err
 		} else {
 			m.clients[key] = client
+			// 同步注册到按语言路由的 mux，使 clientForPath 可直接按文件语言命中，
+			// 不必每次经 reg.ForPath → clientFor 的两次查表。
+			m.mux.Add(server.Name, server.LanguageIDs, client)
 		}
 		delete(m.starting, key)
 		close(wait)
@@ -157,6 +164,17 @@ type lspIdeAdapter struct {
 
 var _ tools.LspIde = (*lspIdeAdapter)(nil)
 
+// installLspAdapter 一次性安装标准 LSP 工具集与 writethrough 工具，并把同一个
+// 适配器注入两者（写操作共享同一 client 路由）。
+func installLspAdapter(registry *tools.Registry, root string) {
+	adapter := NewLspIdeAdapter(root)
+	registry.SetLspIde(adapter)
+	if adapter != nil {
+		tools.RegisterLspWillRename(registry)
+		registry.SetLspWillRename(adapter)
+	}
+}
+
 // NewLspIdeAdapter 返回 app 通过 SetLspIde 安装的适配器。ARGENT_LSP=0 时返回 nil，
 // 使工具保持在"不可用"状态。这里把根目录变为绝对路径，
 // 因为 lsp 客户端会相对于进程工作目录解析文档路径。
@@ -173,6 +191,11 @@ func NewLspIdeAdapter(root string) tools.LspIde {
 
 // clientForPath 把路径的语言解析为服务，并返回（或懒启动）该适配器根目录对应的客户端。
 func (a *lspIdeAdapter) clientForPath(path string) (*lsp.Client, error) {
+	// 优先走 mux 按语言路由（已启动的 client 直接命中）。
+	if client, ok := a.mgr.mux.ClientForFile(path); ok {
+		return client, nil
+	}
+	// 未命中时回退到注册查询并懒启动（mux 会在 clientFor 成功后被填充）。
 	server, ok := a.mgr.reg.ForPath(path)
 	if !ok {
 		return nil, fmt.Errorf("no LSP server configured for %q (unsupported extension %q)", path, filepath.Ext(path))
@@ -262,6 +285,29 @@ func (a *lspIdeAdapter) Rename(path string, line, char int, newName string) (*to
 	edit, err := client.RenameAt(ctx, a.resolvePath(path), position, newName)
 	if err != nil {
 		return nil, err
+	}
+	return mapWorkspaceEdit(edit), nil
+}
+
+// WillRenameFiles 在文件级重命名前询问语言服务器，返回它建议的跨文件编辑。
+// 这是 writethrough 的接线点：让服务器参与 import 更新、引用重写等，而不是
+// 只改一个文件名。服务器没有建议（null）时返回 nil 编辑，调用方按无操作处理。
+func (a *lspIdeAdapter) WillRenameFiles(oldPath, newPath string) (*tools.LspWorkspaceEdit, error) {
+	client, err := a.clientForPath(oldPath)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.requestCtx()
+	defer cancel()
+	edit, err := client.WillRenameFiles(ctx, []lsp.FileRename{{
+		OldURI: lsp.PathToURI(a.resolvePath(oldPath)),
+		NewURI: lsp.PathToURI(a.resolvePath(newPath)),
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if edit == nil {
+		return nil, nil
 	}
 	return mapWorkspaceEdit(edit), nil
 }

@@ -71,4 +71,8 @@ var primitiveAllowlist = []primitiveAllowEntry{
 	// 下一阶段"查找调用点的结构化搜索"工具消费。
 	{Symbol: "internal/astedit/astedit.go:FindCalls", Reason: "调用点查询；下一阶段结构化搜索工具调用"},
 	{Symbol: "internal/tools/ast_edit.go:SetAstEditWriter", Reason: "写盘助手注入点；下一阶段由 apply_patch 审批链注入真实 writer"},
+	// LSP writethrough 的另外两个原语：WillRenameFiles 已接到 lsp_will_rename 工具；
+	// watched files 需文件系统监听集成、workspace diagnostics 需诊断面板消费。
+	{Symbol: "internal/lsp/writethrough.go:DidChangeWatchedFiles", Reason: "文件变更通知；下一阶段接入 FS 监听（fsnotify 风格）或编辑后主动通知时调用"},
+	{Symbol: "internal/lsp/writethrough.go:WorkspaceDiagnostics", Reason: "工作区诊断；下一阶段接入 doctor/TUI 诊断面板时调用"},
 }
