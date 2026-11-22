@@ -1,6 +1,10 @@
 package provider
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/llm"
+)
 
 // CapabilityProfile 是一份只读的模型能力画像：把散落在各协议代码里的能力
 // （思考、图片输入、工具调用、上下文窗口）汇总成一个可自检的不可变快照。
@@ -20,40 +24,10 @@ type CapabilityProfile struct {
 	ContextWindow int
 }
 
-// imageModelMarkers 是已知支持图像输入的模型名片段（小写）。命中任一子串即认为支持图片。
-//
-// 这里与 internal/llm 的视觉标记表保持一致；llm 侧的对应函数是未导出的内部实现，
-// 无法在 provider 包直接复用，故在此维护一份只读的保守快照。切片只在此处只读遍历，
-// 不修改，以保证函数纯度。匹配对 CJK 安全：strings.ToLower 不会破坏多字节字符。
-var imageModelMarkers = []string{
-	"gpt-4o",       // gpt-4o、gpt-4o-mini 等
-	"gpt-4-vision", // 早期视觉预览版
-	"gpt-4.1",      // gpt-4.1 系列
-	"claude-3",     // Claude 3 系列
-	"claude-4",     // Claude 4 系列
-	"gemini",       // Gemini 全系
-	"qwen-vl",      // 通义千问视觉版
-	"qwen2-vl",     // 通义千问 2 视觉版
-	"qwen2.5-vl",   // 通义千问 2.5 视觉版
-	"qvq",          // 通义千问视觉推理版
-	"llava",        // LLaVA 视觉模型
-	"vision",       // 通用视觉标记
-	"文心一言-多模态",     // 多模态版本（CJK 标记，验证原样保留）
-}
-
-// supportsImage 按模型名保守判断图片输入能力：命中已知视觉标记才返回 true，
-// 未知模型一律 false。纯函数，不修改入参，CJK 安全。
+// supportsImage 转发到 llm.VisionMarkerFor，与线上媒体提示共用同一份判定，
+// 不再维护自己的快照表（消除两表漂移）。纯函数，CJK 安全。
 func supportsImage(model string) bool {
-	name := strings.ToLower(strings.TrimSpace(model))
-	if name == "" {
-		return false
-	}
-	for _, marker := range imageModelMarkers {
-		if strings.Contains(name, marker) {
-			return true
-		}
-	}
-	return false
+	return llm.VisionMarkerFor(model)
 }
 
 // ProfileFor 由 provider 模板名与模型名组合出一份能力画像。

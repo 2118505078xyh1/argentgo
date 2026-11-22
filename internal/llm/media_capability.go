@@ -52,6 +52,22 @@ var textOnlyModelMarkers = []string{
 // 才返回形如"模型 X 不支持图像输入，已用占位符替代"的提示；
 // 其余情况（无图像、模型支持图像、模型为空、能力未知）一律返回空串。
 //
+// VisionMarkerFor 报告模型名是否命中已知视觉模型标记。它是 provider 能力画像
+// 与 llm 媒体提示共用的单一判定入口，避免两处各自维护一份漂移的标记表。
+// 纯函数：只做 TrimSpace + ToLower 后子串匹配，CJK 安全，不改入参。
+func VisionMarkerFor(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if name == "" {
+		return false
+	}
+	for _, marker := range visionModelMarkers {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // 这是一个纯函数：不读取全局可变状态（上面的切片只在此处只读遍历），
 // 不修改任何参数，不发送事件，也不改变任何线协议行为；是否接入请求流程
 // 由调用方依据产品策略决定。模型名仅做 TrimSpace 与 ToLower 后用于匹配，
