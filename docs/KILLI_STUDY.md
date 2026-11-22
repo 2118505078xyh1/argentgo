@@ -33,7 +33,7 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 | `325f6ad` | 决策 21 | `sessions snapshots <id>` 只读子命令：列出请求快照的协议/模型/字节数/hash 摘要，不打印完整 body |
 | `650dd88` | — | 本研究总结文档 |
 
-另：`9d8945a` 修复项目 TODO #28 的审计脱敏缺口（`--password value` 形式的 CLI flag 值此前明文进入审计），虽非 killi 迁移，但同属本轮工程纪律加固。
+另：`9d8945a` 修复项目 TODO #28 的审计脱敏缺口（`--password value` 形式的 CLI flag 值此前明文进入审计）；`dcf9947` 落地项目 TODO #126（学自 codex 的 `ARGENT_COMPACT_DRAIN`）。两者虽非 killi 迁移，但同属本轮工程纪律加固。
 
 ## 未迁移及原因
 
