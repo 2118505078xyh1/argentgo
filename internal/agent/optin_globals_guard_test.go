@@ -20,12 +20,13 @@ import (
 // 刻意不调用 t.Parallel()：这些是进程级全局状态，必须与同包其它测试串行，
 // 否则会与依赖默认关闭状态的测试相互污染。
 func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
-	// 用 Cleanup 恢复默认：10 个 bool 开关默认 false，并发安全白名单默认是
+	// 用 Cleanup 恢复默认：11 个 bool 开关默认 false，并发安全白名单默认是
 	// init 中发布的一个空 map（用 SetParallelSafeTools(nil) 还原）。
 	t.Cleanup(func() {
 		SetRefusalReason(false)
 		SetToolErrorReflection(false)
 		SetToolResultWrapping(false)
+		SetOutputRedaction(false)
 		SetToolArgumentCoercion(false)
 		SetToolNameRecovery(false)
 		SetToolOutputConfirmation(false)
@@ -68,6 +69,17 @@ func TestOptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 			name: "tool_result_wrapping",
 			set:  SetToolResultWrapping,
 			get:  toolResultWrappingEnabled,
+		},
+		{
+			name: "output_redaction",
+			set:  SetOutputRedaction,
+			get:  outputRedactionEnabled,
+			// appendTool 在 outputRedactionEnabled() 为真时读取全局并调用 security 脱敏，
+			// 这里直接以最小 runState 驱动这条消费分支。
+			consume: func() {
+				s := &runState{}
+				s.appendTool(toolCall("c", "read", `{}`), "sk-abcdef1234567890\nDB_PASSWORD=myP@ss!\n")
+			},
 		},
 		{
 			name: "tool_argument_coercion",

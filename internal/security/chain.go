@@ -126,6 +126,12 @@ type Chain struct {
 	// shell 命令。零值 false 保持原有行为。它是遗留的直接赋值开关，保留以兼容
 	// 现有调用方；运行期切换请用 EnablePlanMode。
 	PlanCommandGuard bool
+	// EnableCommandRisk 为 true 时，check 会在策略判定之前对 bash/powershell
+	// 命令做静态风险分级：forbidden 直接 StopError（不可被审批绕过），
+	// destructive 即使策略允许也强制走 Ask 并在否决理由中写风险档；并在调用
+	// Approver.Ask 之前，对需要显式确认的命令施加可选审批器接口的拒绝。
+	// 零值 false 保持原有行为逐字节不变。它由 app 层的 command_risk opt-in 装配。
+	EnableCommandRisk bool
 	// ApprovalTimeout 是单次审批等待（含分阶段审批的整个交互过程）允许的最长
 	// 时间。零值（含 NewChain 构造与 &Chain{} 零值）表示套用默认 5 分钟；超过
 	// 30 分钟会被钳制，负数同样按未配置处理。超时会让审批器收到 DeadlineExceeded，
@@ -162,6 +168,15 @@ type StagedApprover interface {
 	Approver
 	AskStage(ctx context.Context, name string, args string, stage ApprovalStage, scopeSummary string) (ApprovalDecision, error)
 	RememberScope(scopes []string)
+}
+
+// ExplicitYesApprover 是可选接口：实现它的审批器声明自己对高危 shell 命令
+// 必须取得显式 yes，不能被 yolo/auto 静默批准。它不改动 Approver 的签名：
+// 普通审批器不实现它，链在 opt-in 关闭或审批器未实现时逐字节走原有路径。
+// 当命令被 ShellConfirmationRequired 判定为需要确认且该方法返回 true 时，
+// 链会在调用 Ask 之前直接拒绝，避免把 Ask 变成无人工参与的自动批准。
+type ExplicitYesApprover interface {
+	RequiresExplicitYes() bool
 }
 
 // EnableStagedApproval 打开或关闭 Chain 的分阶段审批状态机。nil 接收者是无操作。
@@ -205,6 +220,58 @@ func (c *Chain) CheckRestore(ctx context.Context, paths []string) error {
 	return c.check(ctx, RestoreToolName, raw, RedactManifestPaths(raw))
 }
 
+// chainShellCommand 从 shell 工具的 JSON 参数中提取命令文本。解析规则与
+// command_guard.go 的 guardShellCommand 完全一致：只认 bash/powershell 的
+// command（其次 script）字段；其他工具或畸形负载返回 ""（安全的假阴性）。
+// 这里不调用 guardShellCommand，因为它会应用 ARGENT_GUARDRAILS 三态护栏并
+// 返回 token 而非原始命令；风险分级需要在 opt-in 之外完全跳过那条路径。
+func chainShellCommand(toolName string, args json.RawMessage) string {
+	name := strings.ToLower(strings.TrimSpace(toolName))
+	if name != "bash" && name != "powershell" {
+		return ""
+	}
+	var payload struct {
+		Command string `json:"command"`
+		Script  string `json:"script"`
+	}
+	if err := json.Unmarshal(args, &payload); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(payload.Command) == "" {
+		return payload.Script
+	}
+	return payload.Command
+}
+
+// explicitYesBlockReason 报告审批器是否声明对需要显式确认的 command 拒绝
+// 自动批准，并返回 ShellConfirmationRequired 给出的理由；否则返回 ""。
+// 它是纯判定：不改 Approver 签名，未实现可选接口的审批器恒返回 ""。
+func explicitYesBlockReason(approver Approver, command string) string {
+	if command == "" {
+		return ""
+	}
+	required, reason := ShellConfirmationRequired(command)
+	if !required {
+		return ""
+	}
+	if explicit, ok := approver.(ExplicitYesApprover); ok && explicit.RequiresExplicitYes() {
+		return reason
+	}
+	return ""
+}
+
+// riskTierReason 给理由附上风险档，便于模型与审计日志区分"普通否决"和
+// "按静态风险分级拦截"。命令未被分级（opt-in 关闭或非破坏性）时原样返回，
+// 保证默认运行的每一字节理由都不变。
+func riskTierReason(reason string, risk CommandRisk) string {
+	switch risk {
+	case CommandRiskForbidden, CommandRiskDestructive:
+		return fmt.Sprintf("%s（风险档：%s）", reason, risk)
+	default:
+		return reason
+	}
+}
+
 func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json.RawMessage) error {
 	// 可选的计划模式命令守卫。启用时它最先运行：修改类 shell 命令会作为可恢复
 	// 错误被拒绝，早于任何策略拒绝、审批提示或审计条目。默认禁用。
@@ -214,6 +281,22 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		}
 	}
 	name := strings.TrimSpace(toolName)
+	// 命令风险分级 opt-in：默认关闭时整段跳过，策略 → 审批 → 审计逐字节不变。
+	// 启用后解出 shell 命令并静态分级；forbidden 直接硬性拒绝（任何审批器都
+	// 无法绕过），destructive 记下风险档，使策略的 Allow 也无法跳过审批。
+	var command string
+	var commandRisk CommandRisk
+	if c != nil && c.EnableCommandRisk {
+		command = chainShellCommand(toolName, args)
+		if command != "" {
+			commandRisk = ClassifyCommand(command)
+			if commandRisk == CommandRiskForbidden {
+				reason := riskTierReason("the shell command was blocked by static risk classification", commandRisk)
+				c.record(name, "deny", reason, auditArgs)
+				return &StopError{Tool: name, Reason: reason}
+			}
+		}
+	}
 	if name == "" {
 		c.record("", "deny", "the tool name is empty", auditArgs)
 		return &StopError{Tool: "", Reason: "the tool name is empty"}
@@ -224,8 +307,19 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		c.record(name, "deny", result.Reason, auditArgs)
 		return &StopError{Tool: name, Reason: result.Reason}
 	case Allow:
-		c.record(name, "allow", result.Reason, auditArgs)
-		return nil
+		// destructive 档即便策略允许也必须落到下面的审批路径；声明显式确认的
+		// 审批器在只读但需确认的命令（如 sudo）上同样不能走 Allow 快捷返回。
+		// opt-in 关闭时两个条件都为假，Allow 分支逐字节不变。
+		blockReason := ""
+		if c != nil && c.EnableCommandRisk {
+			blockReason = explicitYesBlockReason(c.Approver, command)
+		}
+		if commandRisk == CommandRiskDestructive || blockReason != "" {
+			// 落到下面的审批路径（显式确认的拒绝会在 Ask 之前发生）。
+		} else {
+			c.record(name, "allow", result.Reason, auditArgs)
+			return nil
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -243,6 +337,15 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		// 没有审批器与审批器回答"否"不是一回事。使用不可用空对象，
 		// 让审计日志记录不可用的通道，而不是错误地声称操作员否决了调用。
 		approver = UnavailableApprover{}
+	}
+	// 显式确认 opt-in：需要操作员显式确认的命令若遇到声明 RequiresExplicitYes
+	// 的审批器（yolo/auto 会把 Ask 变成静默批准），在 Ask 之前直接拒绝并附理由。
+	// 默认关闭、命令不需确认或审批器未实现可选接口时，下面流程逐字节不变。
+	if c != nil && c.EnableCommandRisk {
+		if reason := explicitYesBlockReason(approver, command); reason != "" {
+			c.record(name, "deny", reason, auditArgs)
+			return &StopError{Tool: name, Reason: reason}
+		}
 	}
 	// 分阶段审批 opt-in：仅在显式开启、且审批器实现 StagedApprover 时接管审批。
 	// 默认关闭（或普通审批器）时，下面整段原有 (bool, error) 审批逻辑逐字节不变。
@@ -283,8 +386,11 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		}
 	}
 	if !ok {
-		c.record(name, "refused", "the operator refused the tool call", auditArgs)
-		return &StopError{Tool: name, Reason: "the operator refused the tool call", Refused: true}
+		// destructive 档的否决理由附上风险档，便于模型与审计区分按风险拦截。
+		// opt-in 关闭时 riskTierReason 原样返回，拒绝文案逐字节不变。
+		reason := riskTierReason("the operator refused the tool call", commandRisk)
+		c.record(name, "refused", reason, auditArgs)
+		return &StopError{Tool: name, Reason: reason, Refused: true}
 	}
 	// 对 Approver.Ask 的原始回答做失败即拒绝的规范化。上面每个分支都已经把
 	// 错误（包括已取消或不可用的审批通道）转成返回的失败，因此对于当前的

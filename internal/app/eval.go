@@ -69,6 +69,30 @@ func (e *evaler) RunSuite(ctx context.Context, path string, out io.Writer) (int,
 	return report.Passed, report.Failed, err
 }
 
+// RunOrchestration 实现 cli.OrchestrationRunner：读取编排场景文档，用真实 agent
+// 循环运行，并把 internal/eval 的报告映射为 cli 的窄报告类型。它是 `eval
+// orchestration` 带外前缀的注入目标，默认 eval 路径不依赖它。
+func (e *evaler) RunOrchestration(ctx context.Context, path string) (cli.OrchestrationReport, error) {
+	scenarios, err := eval.LoadOrchestration(path)
+	if err != nil {
+		return cli.OrchestrationReport{}, err
+	}
+	source := eval.RunOrchestration(ctx, scenarios)
+	report := cli.OrchestrationReport{
+		Total:  source.Total,
+		Passed: source.Passed,
+		Failed: source.Failed,
+	}
+	for _, failure := range source.Failures {
+		report.Failures = append(report.Failures, cli.OrchestrationFailure{
+			ID:     failure.ID,
+			Name:   failure.Name,
+			Reason: failure.Reason,
+		})
+	}
+	return report, nil
+}
+
 func (e *evaler) runScenario(ctx context.Context, scenario eval.Scenario, workspace eval.Workspace) (eval.Trace, error) {
 	storage, err := os.MkdirTemp("", "argent-eval-store-")
 	if err != nil {

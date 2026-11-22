@@ -8,13 +8,13 @@ import (
 )
 
 // TestExecuteDefaultsLeaveGlobalOptInsOff 是 R28 并发审计在 app 侧的守卫。
-// Execute 装配时会用默认（全关）opt-ins 回写四个 agent 层进程级开关（拒绝原因、
-// 不可信结果、错误反射、纠正提示存活）与一个 app 层开关（上下文压力）。这里在
+// Execute 装配时会用默认（全关）opt-ins 回写五个 agent 层进程级开关（拒绝原因、
+// 不可信结果、输出脱敏、错误反射、纠正提示存活）与一个 app 层开关（上下文压力）。这里在
 // 默认 env 下模拟这次回写，断言 app 层可观测的开关确实关闭，并锁定默认解析面
 // 逐键为 false。
 //
-// 注意：agent 层的 refusalReason / toolResultWrapping / toolErrorReflection /
-// retainGuidance 是包内私有状态，app 包读不到对应 getter；这些开关由
+// 注意：agent 层的 refusalReason / toolResultWrapping / outputRedaction /
+// toolErrorReflection / retainGuidance 是包内私有状态，app 包读不到对应 getter；这些开关由
 // internal/agent 包的 optin_globals_guard_test.go 与各 wire 测试直接守护。app 侧
 // 只能通过 contextPressureOn / newContextPressureObserver 观测自己拥有的那个开关。
 //
@@ -31,10 +31,11 @@ func TestExecuteDefaultsLeaveGlobalOptInsOff(t *testing.T) {
 			t.Errorf("默认 opt-in 键 %q 却为 true", key)
 		}
 	}
-	// Execute 回写的 optIns 映射四个键必须逐键为 false。
+	// Execute 回写的 optIns 映射五个键必须逐键为 false。
 	for _, key := range []OptInKey{
 		OptInRefusalReason,
 		OptInUntrustedResult,
+		OptInOutputRedaction,
 		OptInToolErrorReflection,
 		OptInContextPressure,
 	} {
@@ -52,6 +53,7 @@ func TestExecuteDefaultsLeaveGlobalOptInsOff(t *testing.T) {
 	t.Cleanup(func() {
 		agent.SetRefusalReason(false)
 		agent.SetToolResultWrapping(false)
+		agent.SetOutputRedaction(false)
 		agent.SetToolErrorReflection(false)
 		agent.SetRetainGuidance(false)
 		SetContextPressure(false)
@@ -61,18 +63,20 @@ func TestExecuteDefaultsLeaveGlobalOptInsOff(t *testing.T) {
 	// 从而断言的是"回写确实生效"，而不是"开关从未被打开"的假绿。
 	agent.SetRefusalReason(true)
 	agent.SetToolResultWrapping(true)
+	agent.SetOutputRedaction(true)
 	agent.SetToolErrorReflection(true)
 	agent.SetRetainGuidance(true)
 	SetContextPressure(true)
 
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
+	agent.SetOutputRedaction(optIns[OptInOutputRedaction])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
 	agent.SetRetainGuidance(retainDefault)
 	SetContextPressure(optIns[OptInContextPressure])
 
 	// app 层可观测的开关：上下文压力必须关闭，且不挂接任何观察器。
-	// agent 层的四个开关在 app 包不可读，由 agent 包测试守护（见文件头注释）。
+	// agent 层的五个开关在 app 包不可读，由 agent 包测试守护（见文件头注释）。
 	if contextPressureOn() {
 		t.Fatal("默认回写后 contextPressure 仍为 on")
 	}

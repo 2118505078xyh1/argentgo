@@ -581,10 +581,33 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 	})
 }
 
+// outputRedaction 控制是否在回灌给模型的消息内容里对工具输出做凭据脱敏，默认关闭。
+// 这是进程级 opt-in：与 toolResultWrapping 一样只作用于 appendTool 写入的消息，
+// 不改变事件与会话记录里保存的原始输出字节；Role 与 ToolCallID 始终不变。
+var outputRedaction atomic.Bool
+
+// SetOutputRedaction 打开或关闭工具输出脱敏接线。
+// 关闭（默认）时，appendTool 写入的消息内容逐字节保持原样。
+func SetOutputRedaction(enabled bool) {
+	outputRedaction.Store(enabled)
+}
+
+// outputRedactionEnabled 报告当前是否启用了工具输出脱敏。
+func outputRedactionEnabled() bool {
+	return outputRedaction.Load()
+}
+
 func (s *runState) appendTool(call llm.ToolCall, output string) {
-	// 可选的不可信结果封装（默认关闭）：只改写回灌给模型的消息内容。
+	// 可选的凭据脱敏（默认关闭）：只改写回灌给模型的消息内容。
+	// 先按通用凭据形态与 Unicode Tag 脱敏，再按 KEY=value 清洗 env/printenv 风格
+	// 的整行值，最后才交给不可信结果封装；因此 UnwrapToolResult 解封后拿到的
+	// 是脱敏后的正文。关闭时这一整段不执行，消息逐字节保持原样。
 	// 所有调用点都在 finishCall 之后才到这里，因此 EventToolEnd 与 tool 记录里
 	// 保存的仍是原始输出字节；Role 与 ToolCallID 始终不变。
+	if outputRedactionEnabled() {
+		output = security.RedactEnvDump(security.RedactToolOutput(output))
+	}
+	// 可选的不可信结果封装（默认关闭）：只改写回灌给模型的消息内容。
 	if toolResultWrappingEnabled() {
 		output = WrapToolResult(call.Function.Name, output).Render()
 	}

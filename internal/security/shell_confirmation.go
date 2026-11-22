@@ -35,6 +35,13 @@ var privilegeCommands = map[string]bool{
 	"runas": true,
 }
 
+// ShellConfirmationRequired 是 shellConfirmationRequired 的导出入口，供安全链在
+// 显式 opt-in 开启时判断一条 shell 命令是否需要操作员显式确认。判定逻辑与包内
+// 调用完全一致：纯函数，返回 (是否需要确认, 中文理由)，CJK 文本按 rune 截断。
+func ShellConfirmationRequired(command string) (bool, string) {
+	return shellConfirmationRequired(command)
+}
+
 // shellConfirmationRequired 判断一条 shell 命令是否需要操作员的显式确认
 // （即不允许被 yolo/auto 模式静默批准）。需要确认时返回 true 并给出一条
 // 简短的中文理由；普通只读命令返回 (false, "")。

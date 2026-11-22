@@ -6,7 +6,7 @@ import "strings"
 // （思考、图片输入、工具调用、上下文窗口）汇总成一个可自检的不可变快照。
 //
 // 它供 provider 自检/doctor 等诊断用途使用；本文件只提供纯函数原语，
-// 不接线到 CLI 或任何请求流程，不改变线上字节。
+// 不改变线上请求字节。CLI 的 doctor 通过只读诊断旁路消费 ProfileFor 的画像。
 type CapabilityProfile struct {
 	// Name 是规范化后的 provider 名：已知模板取规范名，未知取调用方传入的 templateName 原值。
 	Name string

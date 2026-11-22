@@ -159,8 +159,11 @@ func (it *Interp) execCall(st *Stmt, stdin string) (string, string, error) {
 		return "", "", nil
 	}
 
-	// 安全咨询谓词（可选）：拒绝则 fail-closed。
-	if it.Safety != nil && !it.Safety(strings.Join(argv, " ")) {
+	// 安全咨询谓词：拒绝则 fail-closed。
+	// 经 CurrentSafety 统一判定：显式 opts.Safety 优先，未注入时回落到包级 oracle；
+	// 两者皆无则默认放行。这里用展开后的真实 argv（而非原始命令行字符串）做咨询，
+	// 使谓词看到的就是即将执行的程序与参数，更难被分词差异绕过。
+	if !CurrentSafety(it.Safety, strings.Join(argv, " ")) {
 		return "", "", fmt.Errorf("shell: command rejected by safety policy: %s", argv[0])
 	}
 
