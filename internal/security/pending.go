@@ -388,6 +388,11 @@ func atomicWriteFile(path string, data []byte) error {
 		tmp.Close()
 		return fmt.Errorf("security: write pending temp file: %w", err)
 	}
+	// 在 rename 前把数据刷到磁盘，避免掉电后目标文件为空或被截断。
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("security: sync pending temp file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("security: close pending temp file: %w", err)
 	}

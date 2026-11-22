@@ -147,6 +147,11 @@ func saveConfigFile(path string, cfg map[string]any) error {
 		tmp.Close()
 		return fmt.Errorf("write config: %w", err)
 	}
+	// 在 rename 前把数据刷到磁盘，避免掉电后目标文件为空或被截断。
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write config: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}

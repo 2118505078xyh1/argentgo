@@ -343,6 +343,9 @@ type chatRequest struct {
 	// ReasoningEffort 是 OpenAI 风格推理级别，映射到 reasoning_effort。
 	// 零值（空串）由 omitempty 省略，使默认请求字节与接线前完全一致。
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// Verbosity 是 OpenAI 风格输出详细度，映射到 verbosity。
+	// 零值（空串）由 omitempty 省略，使默认请求字节与接线前完全一致。
+	Verbosity string `json:"verbosity,omitempty"`
 }
 
 type streamOptions struct {
@@ -480,7 +483,7 @@ func (c *Client) reasoningEffort() string {
 }
 
 // buildChatRequest 按默认（流式）语义构造 chat completions 请求体。
-// 它集中处理缓存控制、tools、stop_token_ids 与推理级别的线协议字段，
+// 它集中处理缓存控制、tools、stop_token_ids、推理级别与输出详细度的线协议字段，
 // 供 Chat/FillMiddle 的流式路径与 ChatOnce 的非流式路径复用。
 // 返回值的字段及其顺序与提取前 chat() 内联构造的代码完全一致；
 // ChatOnce 在调用后显式关闭 Stream 并移除 StreamOptions。
@@ -499,6 +502,7 @@ func (c *Client) buildChatRequest(
 		StopTokenIDs:    stopIDs,
 		Stream:          true,
 		ReasoningEffort: reasoningEffort,
+		Verbosity:       c.Options.Verbosity,
 	}
 	if cacheEnabled || c.Options.IncludeUsage {
 		request.StreamOptions = &streamOptions{IncludeUsage: true}

@@ -795,6 +795,12 @@ func (r *Registry) persist(stored index, version uint64) error {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("jobs: write %s: %w", tmpName, err)
 	}
+	// 在 rename 前把数据刷到磁盘，避免掉电后目标文件为空或被截断。
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("jobs: sync %s: %w", tmpName, err)
+	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("jobs: close %s: %w", tmpName, err)

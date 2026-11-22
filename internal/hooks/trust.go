@@ -81,6 +81,11 @@ func (s *TrustStore) TrustFile(path string) (string, error) {
 func (s *TrustStore) Entries() []TrustEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.entriesLocked()
+}
+
+// entriesLocked 返回按路径排序的被授予对。调用方必须持有 s.mu。
+func (s *TrustStore) entriesLocked() []TrustEntry {
 	entries := make([]TrustEntry, 0, len(s.entries))
 	for path, digest := range s.entries {
 		entries = append(entries, TrustEntry{Path: path, Digest: digest})
@@ -129,21 +134,60 @@ func (s *TrustStore) LoadFile(path string) error {
 	return nil
 }
 
-// SaveFile 写入信任存储，创建父目录。
+// SaveFile 写入信任存储，创建父目录。写入为原子操作：先在同一目录写入临时文件，
+// 刷盘后再重命名到位，因此读取者只会看到完整的旧文件或完整的新文件，崩溃也不会
+// 把信任库截成半截 JSON（那会让全部 hook 失信任并触发 fail-closed 停摆）。
+// 整个方法持有 s.mu，使并发的 Save/Trust/Revoke/Load 互相串行，不会撕裂数据。
 func (s *TrustStore) SaveFile(path string) error {
-	document := trustDocument{Version: 1, Hooks: s.Entries()}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	document := trustDocument{Version: 1, Hooks: s.entriesLocked()}
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("hooks: encode trust store: %w", err)
 	}
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
+	data = append(data, '\n')
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("hooks: create %s: %w", dir, err)
 		}
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		return fmt.Errorf("hooks: write trust store %s: %w", path, err)
+	temp, err := os.CreateTemp(dir, ".hooks-trust-*.tmp")
+	if err != nil {
+		return fmt.Errorf("hooks: create temporary file in %s: %w", dir, err)
 	}
+	name := temp.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = temp.Close()
+			_ = os.Remove(name)
+		}
+	}()
+
+	// CreateTemp 创建的临时文件固定为 0o600，这里显式再设一次以固定最终权限，
+	// 并覆盖文件系统默认权限较宽松的情况。
+	if err := temp.Chmod(0o600); err != nil {
+		return fmt.Errorf("hooks: restrict %s: %w", name, err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		return fmt.Errorf("hooks: write %s: %w", name, err)
+	}
+	// 在 rename 前把数据刷到磁盘，避免掉电后目标文件为空或被截断。
+	if err := temp.Sync(); err != nil {
+		return fmt.Errorf("hooks: flush %s: %w", name, err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("hooks: close %s: %w", name, err)
+	}
+	if err := os.Rename(name, path); err != nil {
+		return fmt.Errorf("hooks: replace %s: %w", path, err)
+	}
+	committed = true
+	// 某些文件系统在创建时忽略模式，rename 后显式再设置一次最终权限。
+	_ = os.Chmod(path, 0o600)
 	return nil
 }
 
