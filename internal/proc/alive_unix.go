@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
+// processAlive 仅用于测试验证子进程是否已终止（signal 0 不发送实际信号）。
 func processAlive(p *os.Process) bool {
-	// signal 0 不发送实际信号，只做权限/存在性检查。
-	return syscall.Kill(p.Pid, 0) == nil
+	return p != nil && p.Pid > 0 && syscall.Kill(p.Pid, 0) == nil
 }

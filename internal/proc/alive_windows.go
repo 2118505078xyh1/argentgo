@@ -7,7 +7,11 @@ import (
 	"syscall"
 )
 
+// processAlive 仅用于测试验证子进程是否已终止。
 func processAlive(p *os.Process) bool {
+	if p == nil || p.Pid <= 0 {
+		return false
+	}
 	const (
 		processQueryLimitedInformation = 0x1000
 		stillActive                    = 259 // STILL_ACTIVE

@@ -595,18 +595,19 @@ func (d *Dispatcher) RunCommand(ctx context.Context, command Command, payload Pa
 	// 不被误标为超时（那也会丢弃其 exit-2 拦截）。
 	var killedByDeadline atomic.Bool
 	process.Cancel = func() error {
-		// 先判断直接子进程是否仍存活：这等价于旧版 Process.Kill() 的
-		// 返回值语义（已退出的钩子只是管道排空超时，不算钩子超时）。
-		if !proc.ProcessAlive(process.Process) {
-			return nil
+		// 先立即杀直接子进程，保证取消的及时性（旧版语义不变）：
+		// 已退出的钩子只是管道排空超时，Kill 返回 ErrProcessDone。
+		err := process.Process.Kill()
+		if err == nil {
+			// 后代清理放到 goroutine 里 best-effort：Windows 的 taskkill /T
+			// 需要启动外部进程，同步执行会把取消路径拖到秒级，破坏及时性。
+			// Unix 上进程组 kill 不依赖父进程存活，仍能有效回收孙进程。
+			go proc.KillGroup(process.Process)
+			if runCtx.Err() == context.DeadlineExceeded {
+				killedByDeadline.Store(true)
+			}
 		}
-		// 父进程尚存活时先杀整棵树——Windows 的 taskkill /T 依赖父进程
-		// 枚举后代，若先杀父进程，孙进程会成为孤儿而漏杀（killi 决策 35）。
-		proc.KillGroup(process.Process)
-		if runCtx.Err() == context.DeadlineExceeded {
-			killedByDeadline.Store(true)
-		}
-		return nil
+		return err
 	}
 	if payload.CWD != "" {
 		process.Dir = payload.CWD

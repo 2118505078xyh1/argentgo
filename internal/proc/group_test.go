@@ -106,7 +106,7 @@ func TestKillGroupKillsGrandchildren(t *testing.T) {
 	// 给终止传播留一点时间。
 	time.Sleep(200 * time.Millisecond)
 	grandchild, err := os.FindProcess(childPid)
-	if err == nil && ProcessAlive(grandchild) {
+	if err == nil && processAlive(grandchild) {
 		_ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(childPid)).Run() // Windows 兜底清理
 		t.Fatalf("grandchild %d survived KillGroup", childPid)
 	}
