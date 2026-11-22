@@ -96,6 +96,7 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	issues = append(issues, doctorModelInfoIssues(app)...)
 	issues = append(issues, doctorMCPRuntimeHealthIssues(app)...)
+	issues = append(issues, doctorLSPDiagnosticsIssues(app)...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
 	if opts.asJSON {

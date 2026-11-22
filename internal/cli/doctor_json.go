@@ -66,6 +66,7 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	issues = append(issues, doctorModelInfoIssues(app)...)
 	issues = append(issues, doctorMCPRuntimeHealthIssues(app)...)
+	issues = append(issues, doctorLSPDiagnosticsIssues(app)...)
 	jsonIssues := make([]doctorIssue, 0, len(issues))
 	for _, issue := range issues {
 		jsonIssues = append(jsonIssues, doctorIssue{
