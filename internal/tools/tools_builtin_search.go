@@ -77,6 +77,7 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return "", err
 	}
 	var matches []string
+	perFile := grepPerFileLimit()
 	walkFiles(base, func(path string) bool {
 		data, err := os.ReadFile(path)
 		if err != nil || strings.ContainsRune(string(data), 0) {
@@ -86,11 +87,16 @@ func (grepTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		if relErr != nil {
 			rel = path
 		}
+		fileCount := 0
 		for i, line := range strings.Split(string(data), "\n") {
 			if re.MatchString(line) {
 				matches = append(matches, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), i+1, strings.TrimSpace(line)))
+				fileCount++
 				if len(matches) >= maxMatches {
 					return false
+				}
+				if perFile > 0 && fileCount >= perFile {
+					break
 				}
 			}
 		}

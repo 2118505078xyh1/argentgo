@@ -146,6 +146,10 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 	for _, ra := range resActions {
 		action, abs := ra.action, ra.abs
 		w := working[abs]
+		// 生成文件保护（opt-in ARGENT_BLOCK_GENERATED_EDITS，默认关闭）。
+		if err := checkGeneratedFile(abs, w.content); err != nil {
+			return "", err
+		}
 		switch action.Kind {
 		case "update":
 			if w.delete {
@@ -168,6 +172,13 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 						ErrApplyPatchAmbiguous, action.Path, i+1)
 				}
 				out, ok := repairReplace(text, old, newText)
+				if !ok && strings.Count(text, old) > 1 && h.Context != "" {
+					// 同一旧片段出现多次时，用 @@ 后的定位提示消歧：
+					// 只在提示文本之后寻找锚点，若唯一则替换那一份。
+					if anchored, anchoredOK := replaceWithContext(text, old, newText, h.Context); anchoredOK {
+						out, ok = anchored, true
+					}
+				}
 				if !ok {
 					if strings.Count(text, old) > 1 {
 						return "", fmt.Errorf("%w: %s hunk %d: old text appears %d times (not unique)",
@@ -239,6 +250,37 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 		names = append(names, w.display)
 	}
 	return fmt.Sprintf("applied patch to %d file(s): %s", len(order), strings.Join(names, ", ")), nil
+}
+
+// replaceWithContext 用 @@ 后的定位提示消歧重复旧片段：先在正文中找到提示
+// 文本的所有位置，再在每处提示之后寻找旧片段；只有当所有候选落在同一处时
+// 才替换，否则返回 false 交由调用方按原有歧义/未找到路径报错。
+// 无提示或提示不存在时不产生任何替换，保持原有逐字节行为。
+func replaceWithContext(content, old, newText, context string) (string, bool) {
+	if context == "" || old == "" {
+		return "", false
+	}
+	candidates := make(map[int]struct{})
+	start := 0
+	for {
+		idx := strings.Index(content[start:], context)
+		if idx < 0 {
+			break
+		}
+		afterContext := start + idx + len(context)
+		if found := strings.Index(content[afterContext:], old); found >= 0 {
+			candidates[afterContext+found] = struct{}{}
+		}
+		start = afterContext
+	}
+	if len(candidates) != 1 {
+		return "", false
+	}
+	var pos int
+	for p := range candidates {
+		pos = p
+	}
+	return content[:pos] + newText + content[pos+len(old):], true
 }
 
 // RegisterApplyPatch 把 apply_patch 工具显式追加到 r（opt-in）。它是幂等的：

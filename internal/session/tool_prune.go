@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
 // pruneMarkerToken 用于在已有裁剪结果上做幂等判断：凡是已经带该标记的工具结果
@@ -36,6 +38,11 @@ func PruneToolResults(entries []Entry, maxRunes int) (pruned []Entry, count int)
 		// 已裁剪过的结果直接跳过，保证幂等。
 		if strings.Contains(entry.Content, pruneMarkerToken) {
 			continue
+		}
+		// data URL 原子替换（opt-in ARGENT_ELIDE_DATA_URLS，默认关闭）：
+		// 在 rune head/tail 裁剪之前整段换掉 base64 data URL，避免切断图片引用。
+		if textutil.DataURLsElisionEnabled() && strings.Contains(entry.Content, "data:") {
+			entry.Content = textutil.ElideDataURLs(entry.Content)
 		}
 		total := utf8.RuneCountInString(entry.Content)
 		if total <= maxRunes {

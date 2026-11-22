@@ -45,6 +45,10 @@ func (t writeTool) Run(_ context.Context, root string, raw json.RawMessage) (str
 	unlock := lockFileMutation(path)
 	defer unlock()
 	before, readErr := os.ReadFile(path)
+	// 生成文件保护（opt-in ARGENT_BLOCK_GENERATED_EDITS，默认关闭）。
+	if err := checkGeneratedFile(path, before); err != nil {
+		return "", err
+	}
 	after := []byte(args.Content)
 	// 重写相同的字节是空操作：跳过系统调用，使文件的
 	// modTime 保持不变（也避免不必要的监视器抖动）。
@@ -133,6 +137,10 @@ func (t editTool) Run(_ context.Context, root string, raw json.RawMessage) (stri
 	defer unlock()
 	data, err := os.ReadFile(path)
 	if err != nil {
+		return "", err
+	}
+	// 生成文件保护（opt-in ARGENT_BLOCK_GENERATED_EDITS，默认关闭）。
+	if err := checkGeneratedFile(path, data); err != nil {
 		return "", err
 	}
 	text := string(data)

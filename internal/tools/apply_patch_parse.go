@@ -36,7 +36,10 @@ type PatchHunk struct {
 	OldLines int
 	NewStart int
 	NewLines int
-	Lines    []string
+	// Context 保留 "@@ <text>" 中的定位提示文本。当同一文件里出现相同的
+	// 旧片段时，update 阶段用它把匹配锚定到提示之后的那一份，消歧重复代码块。
+	Context string
+	Lines   []string
 }
 
 // patchHunkHeaderRE 匹配 "@@ -a[,b] +c[,d] @@" 形式的 hunk 头。
@@ -190,16 +193,20 @@ func parsePatchHunkHeader(line string, lineNo int) (PatchHunk, error) {
 		if m[4] != "" {
 			newLines, _ = strconv.Atoi(m[4])
 		}
-		return PatchHunk{OldStart: oldStart, OldLines: oldLines, NewStart: newStart, NewLines: newLines}, nil
+		// 数字头之后也可能附带 "@@ <text>" 定位提示，一并保留。
+		context := strings.TrimSpace(strings.TrimPrefix(line, m[0]))
+		context = strings.TrimSpace(strings.TrimSuffix(context, "@@"))
+		return PatchHunk{OldStart: oldStart, OldLines: oldLines, NewStart: newStart, NewLines: newLines, Context: context}, nil
 	}
 
 	// 未匹配数字形式：若剩余部分以 '-'/'+' 开头，说明作者试图写行号
-	// 却写错了，判为畸形；否则当作纯上下文提示，行号留 0。
+	// 却写错了，判为畸形；否则当作纯上下文提示，行号留 0，文本存入 Context。
 	remainder := strings.TrimSpace(strings.TrimPrefix(line, "@@"))
+	remainder = strings.TrimSpace(strings.TrimSuffix(remainder, "@@"))
 	if strings.HasPrefix(remainder, "-") || strings.HasPrefix(remainder, "+") {
 		return PatchHunk{}, malformedPatch(lineNo, "malformed hunk header: %q", line)
 	}
-	return PatchHunk{}, nil
+	return PatchHunk{Context: remainder}, nil
 }
 
 // isPatchContentLine 判断一行是否是 hunk 内容行：以 ' '（上下文）、

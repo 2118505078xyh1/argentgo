@@ -70,6 +70,7 @@ func (t grepExTool) Run(ctx context.Context, root string, raw json.RawMessage) (
 		OutputMode:    args.OutputMode,
 		Include:       args.Include,
 		CaseSensitive: args.CaseSensitive,
+		MaxPerFile:    grepPerFileLimit(),
 	})
 	if err != nil {
 		return "", err

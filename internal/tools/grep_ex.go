@@ -38,6 +38,7 @@ type GrepExOptions struct {
 	CaseSensitive bool   // 是否大小写敏感
 	Literal       bool   // 为真时用 strings.Contains，否则用 regexp
 	HeadLimit     int    // 匹配总数上限；<=0 时取 grepExDefaultHeadLimit
+	MaxPerFile    int    // 单个文件的匹配上限；>0 时某文件达到该数即停止扫描该文件，但继续遍历其它文件
 }
 
 // GrepExMatch 表示一处匹配及其上下文。
@@ -174,6 +175,11 @@ func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, er
 			files[rel]++
 			if len(matches) >= limit {
 				return false
+			}
+			// 单文件上限：达到后停止扫描当前文件（break 出内层循环），
+			// 回调返回 true 让 walkFiles 继续遍历其它文件，保留文件多样性。
+			if opts.MaxPerFile > 0 && files[rel] >= opts.MaxPerFile {
+				break
 			}
 		}
 		return true

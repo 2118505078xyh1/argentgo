@@ -131,6 +131,16 @@ func budgetTarget(maxTokens int, ratio float64) int {
 // 调用及其状态仍然可见，因此模型仍知道做过什么。
 func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	out := append([]llm.Message(nil), messages...)
+	// data URL 原子替换（opt-in ARGENT_ELIDE_DATA_URLS，默认关闭）：
+	// 在任何 head/tail 裁剪之前把工具结果里的 base64 data URL 换成确定性占位，
+	// 避免裁剪切点落在 base64 中间，产生后续请求永久失败的坏图引用。
+	if textutil.DataURLsElisionEnabled() {
+		for i := range out {
+			if out[i].Role == "tool" && strings.Contains(out[i].Content, "data:") {
+				out[i].Content = textutil.ElideDataURLs(out[i].Content)
+			}
+		}
+	}
 	res := TrimResult{Messages: out}
 	// 基于元数据的回收很廉价（不调用模型），且与 token 预算无关，
 	// 因此即使调用方禁用了大小裁剪，它也先运行。

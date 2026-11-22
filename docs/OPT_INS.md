@@ -538,6 +538,9 @@ argentgo "你的任务"
 | `ARGENT_PATCH_POLICY_PATHS` | =1 时从 apply_patch 的 `input` 正文解析真实目标文件，逐条走 denyPaths/allowPaths 等路径策略（拒绝时零写入）；默认关闭时补丁正文不参与路径规则，安全链逐字节不变。 |
 | `ARGENT_TOOL_ARG_FEEDBACK` | =1 时，模型发出的工具参数非空却不是合法 JSON 则不执行工具，把原始片段（脱敏限长）作为错误结果回灌，让模型重发；默认关闭时仍回退为 `{}` 后派发，逐字节不变。 |
 | `ARGENT_MULTIMODAL_TRIM` | =1 时把带图消息的 `ContentParts`（文本 part + 图像 part 按 detail 取保守 token 上限）计入 token 估算，使上下文压力与裁剪决策准确；默认关闭时带图消息仍只算框架开销，逐字节不变。 |
+| `ARGENT_GREP_PER_FILE` | 正整数时限制 grep/grep_ex 单文件匹配数：某文件达上限后跳过其余行但继续遍历其它文件，避免一个热文件吃满全局预算；默认 0 禁用时与旧行为逐字节一致。 |
+| `ARGENT_BLOCK_GENERATED_EDITS` | =1 时 edit/write/apply_patch 在写入前按文件名模式（如 `zz_generated.*`、`*.pb.go`、`*.gen.ts`）与头部标记（`@generated`/`Code generated`/`DO NOT EDIT`）拒绝编辑生成物，并指引改源文件后重新生成；默认关闭时编辑行为逐字节不变。 |
+| `ARGENT_ELIDE_DATA_URLS` | =1 时在工具结果 head/tail 裁剪之前把整段 base64 data URL 原子替换为保留 MIME 与字符数的占位（并治愈遗留前缀碎片），避免切出无法解码的坏图引用；默认关闭时裁剪逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
