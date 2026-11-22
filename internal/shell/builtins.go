@@ -4,21 +4,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
-// 内建命令分派。coreutils（ls/cat/...）用标准库实现，使无系统 shell/无 GNU
-// 工具时命令仍可用（dsh webworker 的命令表思想）。
+// shellBuiltinNames 是改变解释器状态或承载纯 shell 语义的内建命令。
+var shellBuiltinNames = map[string]bool{
+	"cd": true, "pwd": true, "echo": true, "export": true,
+	"unset": true, "true": true, "false": true,
+}
+
+// coreutilNames 是能用标准库精确实现的 coreutils 子集。
+// sed/awk/curl/find/xargs/sort 等刻意不在此列：它们在 interp 中走外部进程，
+// 宁可交给真工具，也不做 glob 冒充正则之类的近似实现。
+var coreutilNames = map[string]bool{
+	"ls": true, "cat": true, "grep": true, "wc": true,
+	"head": true, "tail": true, "mkdir": true, "rm": true,
+	"printf": true, "test": true, "[": true,
+	"touch": true, "cp": true, "mv": true, "tee": true,
+}
+
+// isBuiltin 分两组查询内建：shell 内建 + coreutils 子集。
 func isBuiltin(name string) bool {
-	switch name {
-	case "cd", "pwd", "echo", "export", "unset", "true", "false",
-		"ls", "cat", "grep", "wc", "head", "tail", "mkdir", "rm":
-		return true
-	}
-	return false
+	return shellBuiltinNames[name] || coreutilNames[name]
 }
 
 // runBuiltin 执行内建命令，返回 (stdout, stderr, error)。
@@ -41,22 +50,9 @@ func (it *Interp) runBuiltin(name string, args []string, stdin string) (string, 
 	case "false":
 		it.LastStatus = 1
 		return "", "", nil
-	case "ls":
-		return it.biLs(args)
-	case "cat":
-		return it.biCat(args, stdin)
-	case "grep":
-		return it.biGrep(args, stdin)
-	case "wc":
-		return it.biWc(args, stdin)
-	case "head":
-		return it.biHead(args, stdin)
-	case "tail":
-		return it.biTail(args, stdin)
-	case "mkdir":
-		return it.biMkdir(args)
-	case "rm":
-		return it.biRm(args)
+	}
+	if coreutilNames[name] {
+		return it.runCoreutil(name, args, stdin)
 	}
 	return "", fmt.Sprintf("shell: %s: command not found\n", name), nil
 }
@@ -155,276 +151,4 @@ func (it *Interp) biUnset(args []string) string {
 	}
 	it.LastStatus = 0
 	return ""
-}
-
-func (it *Interp) biLs(args []string) (string, string, error) {
-	dir := "."
-	var names []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue // 忽略标志（简化）
-		}
-		if names == nil {
-			dir = a
-		} else {
-			names = append(names, a)
-		}
-		if names == nil {
-			names = []string{}
-		}
-	}
-	abs, err := it.resolvePath(dir)
-	if err != nil {
-		it.LastStatus = 1
-		return "", fmt.Sprintf("shell: ls: %v\n", err), nil
-	}
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		it.LastStatus = 1
-		return "", fmt.Sprintf("shell: ls: %v\n", err), nil
-	}
-	var lines []string
-	for _, e := range entries {
-		if len(names) > 0 {
-			match := false
-			for _, n := range names {
-				if ok, _ := filepath.Match(n, e.Name()); ok {
-					match = true
-				}
-			}
-			if !match {
-				continue
-			}
-		}
-		lines = append(lines, e.Name())
-	}
-	sort.Strings(lines)
-	it.LastStatus = 0
-	if len(lines) == 0 {
-		return "", "", nil
-	}
-	return strings.Join(lines, "\n") + "\n", "", nil
-}
-
-func (it *Interp) biCat(args []string, stdin string) (string, string, error) {
-	if len(args) == 0 {
-		it.LastStatus = 0
-		return stdin, "", nil
-	}
-	var b strings.Builder
-	for _, a := range args {
-		abs, err := it.resolvePath(a)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: cat: %v\n", err), nil
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: cat: %v\n", err), nil
-		}
-		b.Write(data)
-	}
-	it.LastStatus = 0
-	return b.String(), "", nil
-}
-
-func (it *Interp) biGrep(args []string, stdin string) (string, string, error) {
-	pattern := ""
-	var files []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		if pattern == "" {
-			pattern = a
-		} else {
-			files = append(files, a)
-		}
-	}
-	if pattern == "" {
-		it.LastStatus = 2
-		return "", "shell: grep: missing pattern\n", nil
-	}
-	input := stdin
-	if len(files) > 0 {
-		var b strings.Builder
-		for _, f := range files {
-			abs, err := it.resolvePath(f)
-			if err != nil {
-				it.LastStatus = 1
-				return "", fmt.Sprintf("shell: grep: %v\n", err), nil
-			}
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				it.LastStatus = 1
-				return "", fmt.Sprintf("shell: grep: %v\n", err), nil
-			}
-			b.Write(data)
-		}
-		input = b.String()
-	}
-	var matched []string
-	for _, line := range strings.Split(input, "\n") {
-		if ok, err := simpleGlobMatch(pattern, line); err == nil && ok {
-			matched = append(matched, line)
-		}
-	}
-	it.LastStatus = 0
-	if len(matched) == 0 {
-		it.LastStatus = 1
-		return "", "", nil
-	}
-	return strings.Join(matched, "\n") + "\n", "", nil
-}
-
-// simpleGlobMatch 用 filepath.Match 做 grep 模式匹配（简化的 glob 风格而非正则）。
-func simpleGlobMatch(pattern, s string) (bool, error) {
-	return filepath.Match("*"+pattern+"*", s)
-}
-
-func (it *Interp) biWc(args []string, stdin string) (string, string, error) {
-	input := stdin
-	if len(args) > 0 {
-		abs, err := it.resolvePath(args[0])
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: wc: %v\n", err), nil
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: wc: %v\n", err), nil
-		}
-		input = string(data)
-	}
-	lines := len(strings.Split(strings.TrimRight(input, "\n"), "\n"))
-	if input == "" {
-		lines = 0
-	}
-	words := len(strings.Fields(input))
-	chars := len([]rune(input))
-	it.LastStatus = 0
-	return fmt.Sprintf("%d %d %d\n", lines, words, chars), "", nil
-}
-
-func (it *Interp) biHead(args []string, stdin string) (string, string, error) {
-	n := 10
-	var fileArg string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-n" && i+1 < len(args) {
-			fmt.Sscanf(args[i+1], "%d", &n)
-			i++
-		} else if !strings.HasPrefix(args[i], "-") {
-			fileArg = args[i]
-		}
-	}
-	input := stdin
-	if fileArg != "" {
-		abs, err := it.resolvePath(fileArg)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: head: %v\n", err), nil
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: head: %v\n", err), nil
-		}
-		input = string(data)
-	}
-	lines := strings.Split(input, "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	it.LastStatus = 0
-	return strings.Join(lines, "\n"), "", nil
-}
-
-func (it *Interp) biTail(args []string, stdin string) (string, string, error) {
-	n := 10
-	var fileArg string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-n" && i+1 < len(args) {
-			fmt.Sscanf(args[i+1], "%d", &n)
-			i++
-		} else if !strings.HasPrefix(args[i], "-") {
-			fileArg = args[i]
-		}
-	}
-	input := stdin
-	if fileArg != "" {
-		abs, err := it.resolvePath(fileArg)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: tail: %v\n", err), nil
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: tail: %v\n", err), nil
-		}
-		input = string(data)
-	}
-	lines := strings.Split(strings.TrimRight(input, "\n"), "\n")
-	if input == "" {
-		lines = nil
-	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	it.LastStatus = 0
-	if len(lines) == 0 {
-		return "", "", nil
-	}
-	return strings.Join(lines, "\n") + "\n", "", nil
-}
-
-func (it *Interp) biMkdir(args []string) (string, string, error) {
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		abs, err := it.resolvePath(a)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: mkdir: %v\n", err), nil
-		}
-		if err := os.MkdirAll(abs, 0o755); err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: mkdir: %v\n", err), nil
-		}
-	}
-	it.LastStatus = 0
-	return "", "", nil
-}
-
-func (it *Interp) biRm(args []string) (string, string, error) {
-	recursive := false
-	for _, a := range args {
-		if a == "-r" || a == "-rf" || a == "-fr" {
-			recursive = true
-		}
-	}
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		abs, err := it.resolvePath(a)
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: rm: %v\n", err), nil
-		}
-		if recursive {
-			err = os.RemoveAll(abs)
-		} else {
-			err = os.Remove(abs)
-		}
-		if err != nil {
-			it.LastStatus = 1
-			return "", fmt.Sprintf("shell: rm: %v\n", err), nil
-		}
-	}
-	it.LastStatus = 0
-	return "", "", nil
 }

@@ -1,14 +1,14 @@
 package shell
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
 // R12 shell 审计盲点2：内建 lexer 必须把词首的 '#' 当注释起点，产出
 // TokUnsupported 使 Supported() 返回 false，从而回退系统 shell（由真实 shell
-// 给出正确的注释语义）。本文件锁定这条契约，并确认默认关闭路径不受影响。
+// 给出正确的注释语义）。本文件锁定这条契约，并确认内建 shell 默认开启后
+// 含注释的命令仍整条回退系统 shell。
 
 // TestCommentGuardSupported 覆盖注释识别对 Supported() 判定的影响。
 // 关键点：注释里的注入载荷（';'、'|' 等）必须整体被吞掉，不得泄漏成可执行 token。
@@ -66,16 +66,16 @@ func TestCommentGuardStopsAtNewline(t *testing.T) {
 	}
 }
 
-// TestCommentGuardDefaultOffUsesSystemShell 确认默认关闭时系统 shell 路径不受影响，
-// 内建 lexer 的注释处理只在 opt-in 且 Supported() 为真时才会介入。
-func TestCommentGuardDefaultOffUsesSystemShell(t *testing.T) {
-	// 不设置 ARGENT_BUILTIN_SHELL（确保为默认关闭）。
-	os.Unsetenv("ARGENT_BUILTIN_SHELL")
+// TestCommentGuardFallsBackToSystemShell 确认内建 shell 开启时含注释的命令
+// 仍由系统 shell 执行：注释令 Supported() 为 false，工具在整条命令级回退，
+// 内建 lexer 的注释处理不会介入（正确的注释语义由系统 shell 给出）。
+func TestCommentGuardFallsBackToSystemShell(t *testing.T) {
+	t.Setenv("ARGENT_BUILTIN_SHELL", "1") // 显式开启也必须整条回退
 	got, err := runBashTool(t, "echo hi # trailing comment")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(got, "hi") {
-		t.Fatalf("默认 shell 下带注释的命令输出 = %q，应仍由系统 shell 执行", got)
+		t.Fatalf("系统 shell 下带注释的命令输出 = %q", got)
 	}
 }

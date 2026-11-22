@@ -126,12 +126,6 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	}
 	timeout := clampTimeout("bash", requested, maxTimeout(ctx))
 
-	// 自研内建 shell：仅当显式 opt-in 且命令在受支持子集内时接管。
-	// 默认（开关关闭 / 命令含不支持语法）走原有系统 shell 路径，逐字节不变。
-	if builtinShellEnabled() && Supported(args.Command) {
-		return runBuiltinShell(ctx, root, args.Command, timeout)
-	}
-
 	// 持久化 shell 会话（opt-in ARGENT_PERSISTENT_SHELL=1）：当注册表注入了
 	// 会话管理器时，命令在长驻 shell 中执行以复用 cd / export / venv 等状态。
 	// 默认（开关关闭或未注入）走下方原路径逐字节不变；workspace 用工具的
@@ -158,6 +152,23 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	// 关闭时保持下方的 CombinedOutput 路径逐字节不变。
 	if bashUseProcEnabled() {
 		return runBashViaProc(ctx, root, path, argv, timeout)
+	}
+
+	// 自研内建 shell：默认启用（ARGENT_BUILTIN_SHELL=0 为紧急关闭），且仅在
+	// 命令处于受支持子集时接管。它排在三个显式 opt-in 路径（持久化会话、
+	// 后台提升、proc 硬化）之后，避免默认开启后抢占这些路径的既有语义；
+	// 含不支持语法的命令则继续走下方系统 shell 路径。
+	//
+	// 运行期安全网：若解释器冒出 ErrUnsupported（静态预检无法判定的动态构造，
+	// 例如命令替换展开出保留字当程序名），ShouldFallback 判定为真，此时用
+	// **原始命令行整条回退**下方系统 shell，绝不在部分执行后再回退造成
+	// 重定向/写入等副作用重复。其余错误（非零退出、命令未找到等）保持内建路径语义。
+	if builtinShellEnabled() && Supported(args.Command) {
+		out, err := runBuiltinShell(ctx, root, args.Command, timeout)
+		if err == nil || !ShouldFallback(err) {
+			return out, err
+		}
+		// 整条回退：继续执行下方原系统 shell 路径，args.Command 逐字节不变。
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -214,10 +225,11 @@ func shellInvocationFor(goos string, lookPath func(string) (string, error), comm
 	return "sh", []string{"-lc", command}
 }
 
-// builtinShellEnabled 报告是否启用自研内建 shell 兜底。
-// 默认关闭：只有 ARGENT_BUILTIN_SHELL=1 才启用，确保现有系统 shell 路径逐字节不变。
+// builtinShellEnabled 报告是否启用自研内建 shell。
+// 默认启用：只有 ARGENT_BUILTIN_SHELL=0（首尾空白修剪后）才紧急关闭，
+// 其它值（含未设置、空串、1、true）均视为开启，回到默认内建解释器路径。
 func builtinShellEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_BUILTIN_SHELL")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_BUILTIN_SHELL")) != "0"
 }
 
 // persistentShellEnabled 报告是否启用持久化 shell 会话。
@@ -280,6 +292,16 @@ func runBuiltinShell(ctx context.Context, root, command string, timeout time.Dur
 		Vars:    builtinShellEnv(),
 		Timeout: timeout,
 		Ctx:     ctx,
+		// 外层工具守卫已用原始命令行字符串审过一次。只有当展开后的真实 argv
+		// 与原字符串不同时，才需要再咨询 oracle——这正是旁路咨询的价值
+		// （如 `echo "danger"` 展开为 `echo danger`）。字符串相同则跳过，
+		// 避免默认开启内建 shell 后同一个审批器被重复询问。
+		Safety: func(expanded string) bool {
+			if expanded == command {
+				return true
+			}
+			return CurrentSafety(nil, expanded)
+		},
 	}
 	result, err := Run(command, opts)
 	if err != nil {

@@ -161,8 +161,9 @@ func TestBuiltins(t *testing.T) {
 		t.Fatalf("wc => %q err=%v", got.Output, err)
 	}
 
+	// head 对齐 GNU：保留输入行的尾随换行，不再截成 "hi"。
 	got, err = Run("echo hi | head -n 1", testOptions(dir))
-	if err != nil || got.Output != "hi" {
+	if err != nil || got.Output != "hi\n" {
 		t.Fatalf("head => %q err=%v", got.Output, err)
 	}
 }

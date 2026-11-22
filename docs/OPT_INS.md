@@ -267,12 +267,12 @@ argentgo "你的任务"
 - **适用场景**：长时间运行、工具会产生大量输出（构建日志、扫描结果等）的任务。
 - **逐字节不变承诺**：未启用时 `configureOutputSpill` 原样返回 `ctx`，tools 包走普通 `clipTo` 路径，输出字节完全一致，也**不会创建或扫描任何目录**。启用后会做一次尽力而为的旧产物清理，清理失败被刻意忽略，绝不会中断运行。
 
-### `ARGENT_BUILTIN_SHELL` —— 自研内建 shell 兜底
+### `ARGENT_BUILTIN_SHELL` —— 自研内建 shell（默认开）
 
-- **作用**：启用纯标准库实现的自研内建 shell 解释器来执行命令（输出仍走既有清洗/裁剪管线，非零退出转为含退出码的 error）。
-- **开启值**：首尾空白修剪后等于 `1`。
-- **适用场景**：需要在缺少系统 shell 的环境下运行命令，或希望使用项目自带的确定性 shell 行为时。
-- **逐字节不变承诺**：默认关闭，命令走系统 shell 路径，逐字节不变；只有 `ARGENT_BUILTIN_SHELL=1` 才切换到内建解释器。
+- **作用**：使用纯标准库实现的自研内建 shell 解释器执行命令（输出仍走既有清洗/裁剪管线，非零退出转为含退出码的 error）。不支持的语法由 `Supported()` 在整条命令级回退系统 shell；运行期若冒出 `ErrUnsupported`，`ShouldFallback` 同样用原始命令行整条回退，杜绝重定向/写入等副作用重复。
+- **关闭值**：首尾空白修剪后等于 `0` 时紧急关闭（回到系统 shell 路径）。其它值或未设置都视为开启。
+- **适用场景**：默认即使用内建解释器；仅在需要完全回到系统 shell 语义（例如依赖内建子集之外的复杂语法）时设 `ARGENT_BUILTIN_SHELL=0`。
+- **逐字节不变承诺**：`ARGENT_BUILTIN_SHELL=0` 时命令走系统 shell 路径，与切换前逐字节不变；`0` 之外的默认路径改由内建解释器执行受支持子集内的命令，输出仍走既有的清洗/裁剪管线。
 
 ### `ARGENT_APPROVAL_DIFF` —— 审批卡 diff 展示
 
@@ -601,12 +601,12 @@ $env:ARGENT_APPROVE_DANGER = "1"    # 仅 TUI 有效
 ```powershell
 $env:ARGENT_OPT_INS = "cli_hints,apply_patch,grep_ex"
 $env:ARGENT_CLI_HINTS = "1"
-$env:ARGENT_BUILTIN_SHELL = "1"     # 仅在需要内建 shell 时
+$env:ARGENT_BUILTIN_SHELL = "0"     # 仅在需紧急回退系统 shell 时设为 0
 ```
 
 - `apply_patch` + `grep_ex`：更结构化的编辑与更强的搜索。
 - `cli_hints` 与 `ARGENT_CLI_HINTS`：分别增强输出提示与 CLI 报错修复建议（注意两者是不同开关）。
-- `ARGENT_BUILTIN_SHELL`：仅在环境缺少系统 shell 时开启。
+- `ARGENT_BUILTIN_SHELL`：默认开启；仅在需要完全回到系统 shell 语义时设为 `0`。
 
 ### 一次性命令（bash）
 

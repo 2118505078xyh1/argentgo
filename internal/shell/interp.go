@@ -106,18 +106,18 @@ func (it *Interp) execBinary(bin *BinaryCmd, stdin string) (string, string, erro
 		return leftOut + rightOut, rightStdout, err
 
 	case OpPipe:
-		// 字符串接力：左段的输出成为右段的 stdin（非流式，诚实取舍）。
+		// 字符串接力：左段的 stdout 成为右段的 stdin（非流式，诚实取舍）。
+		// 默认退出码取最后一段：execStmt(Y) 会把 Y 的状态写回 it.LastStatus。
+		// 本子集没有 set -o pipefail，因此不实现"最左非零"分支。
 		leftCombined, leftStdout, err := it.execStmt(bin.X, stdin)
 		if err != nil {
 			return leftCombined, "", err
 		}
-		// 管道传递的是左段的 stdout。
+		// 只把左段的 stdout 送入下一段：stderr 虽然按默认合并进可见输出，
+		// 但它不属于 stdout 流，绝不能借管道污染右段的 stdin。
 		pipeIn := leftStdout
-		if pipeIn == "" {
-			pipeIn = leftCombined // 兜底：某些命令输出合并到 combined
-		}
 		rightOut, rightStdout, err := it.execStmt(bin.Y, pipeIn)
-		// 管道整体输出是右段的 stdout；左段输出不直接可见。
+		// 管道整体可见输出是右段的输出；左段输出不直接可见。
 		return rightOut, rightStdout, err
 	}
 	return "", "", &UnsupportedError{Kind: "binary-op:" + bin.Op.String()}
@@ -137,6 +137,11 @@ func (it *Interp) execCall(st *Stmt, stdin string) (string, string, error) {
 		LastStatus: it.LastStatus,
 		Cwd:        it.Cwd,
 		RunSubst: func(f *File) (string, error) {
+			// 命令替换在逻辑上的子 shell 中执行：其退出状态不应污染外层命令的 $?。
+			// 用局部保存/恢复把 it.LastStatus 的变更限制在替换体内（含出错路径）；
+			// 变量与工作目录仍共享（本子集的既有取舍），仅隔离退出状态。
+			saved := it.LastStatus
+			defer func() { it.LastStatus = saved }()
 			out, err := it.Run(f)
 			return out, err
 		},
@@ -208,12 +213,12 @@ func (it *Interp) execCall(st *Stmt, stdin string) (string, string, error) {
 		return "", "", err
 	}
 
-	// 应用重定向，得到最终可见输出。
-	final, err := it.applyRedirects(stdout, stderr, redirs)
+	// 应用重定向，得到最终可见输出与供管道下一段使用的 stdout。
+	visible, pipeOut, err := it.applyRedirects(stdout, stderr, redirs)
 	if err != nil {
 		return "", "", err
 	}
-	return final, final, nil
+	return visible, pipeOut, nil
 }
 
 // expandedRedir 是展开后的重定向。
@@ -247,33 +252,49 @@ func (it *Interp) expandRedirects(rs []*Redirect, ctx ExpandCtx) ([]expandedRedi
 	return out, nil
 }
 
-// applyRedirects 应用重定向并返回最终可见输出。
-func (it *Interp) applyRedirects(stdout, stderr string, rs []expandedRedir) (string, error) {
-	mergeErr := false
+// applyRedirects 应用重定向，返回 (可见输出, 供管道下一段的 stdout, error)。
+//
+// 默认行为对齐系统 shell 的 exec.Cmd.CombinedOutput（tools_builtin_bash.go 的
+// 默认 bash 路径）：stdout 与 stderr 合并进同一份可见输出，stderr 绝不静默丢弃。
+// 由于 proc.Result 分开捕获两个流，这里采用与 runBashViaProc 的 Combined() 相同的
+// 确定性顺序——stdout 段在前、stderr 段在后——作为实时交错的近似。
+//
+// 显式重定向只影响各自的流：
+//   - 2>&1（RedirDupOut）：stderr 并入 stdout 流，既有可见输出也有管道输出；
+//   - > file / >> file：仅 stdout 写入文件，未被重定向的 stderr 仍可见；
+//     若同时出现 2>&1，则 stderr 也一并进文件；
+//   - < file：在 execCall 中处理，此处忽略。
+func (it *Interp) applyRedirects(stdout, stderr string, rs []expandedRedir) (string, string, error) {
+	dupToStdout := false
 	var outFile string
 	var appendFile bool
 	for _, r := range rs {
 		switch r.op {
 		case RedirDupOut:
-			mergeErr = true
+			dupToStdout = true
 		case RedirOut:
 			outFile, appendFile = r.arg, false
 		case RedirAppend:
 			outFile, appendFile = r.arg, true
 		}
-		// RedirIn 在 runBuiltin/runExternal 阶段处理（这里 stdin 暂未接线到外部命令，
-		// 见 runExternal 的注释）；仅输出重定向在此生效。
+		// RedirIn 在 execCall 阶段处理（stdin 已接线到内建与外部命令）；
+		// 仅输出重定向在此生效。
 	}
-	combined := stdout
-	if mergeErr && stderr != "" {
-		combined += stderr
+
+	// 默认合并：两个流都送往调用方（对齐 CombinedOutput）。
+	visible := stdout + stderr
+	// 管道只传 stdout 流；2>&1 把 stderr 也并进该流。
+	pipeOut := stdout
+	if dupToStdout {
+		pipeOut += stderr
 	}
+
 	if outFile != "" {
 		// 输出目标同样先经 resolvePath 校验，拒绝 ../ 逃逸或经链接
 		// 落到工作区外的写入；随后用解析出的 abs 路径打开文件。
 		path, err := it.resolvePath(outFile)
 		if err != nil {
-			return "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
+			return "", "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
 		}
 		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 		if appendFile {
@@ -281,15 +302,25 @@ func (it *Interp) applyRedirects(stdout, stderr string, rs []expandedRedir) (str
 		}
 		f, err := os.OpenFile(path, flag, 0o644)
 		if err != nil {
-			return "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
+			return "", "", fmt.Errorf("shell: redirect to %q: %w", outFile, err)
 		}
 		defer f.Close()
-		if _, err := f.WriteString(combined); err != nil {
-			return "", err
+		fileData := stdout
+		if dupToStdout {
+			fileData += stderr // 2>&1：stderr 跟随 stdout 进文件
 		}
-		return "", nil // 输出已写入文件
+		if _, err := f.WriteString(fileData); err != nil {
+			return "", "", err
+		}
+		// stdout 已进文件，管道无 stdout 可传；未重定向的 stderr 仍可见。
+		pipeOut = ""
+		visible = ""
+		if !dupToStdout {
+			visible = stderr
+		}
+		return visible, pipeOut, nil
 	}
-	return combined, nil
+	return visible, pipeOut, nil
 }
 
 // runExternal 用 internal/proc 执行外部程序（进程组管理、UTF-8、输出上限）。

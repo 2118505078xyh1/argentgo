@@ -402,10 +402,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	// 把内建 shell 的安全咨询接到本次运行的"策略 -> 审批 -> 审计"链上。
 	// shell 包受分层规则约束不能 import security，因此通过进程级注入点把
-	// "转调 chain" 的谓词交给它。该谓词只会在内建 shell 路径（默认关闭的
-	// ARGENT_BUILTIN_SHELL=1）被真正调用：系统 shell 路径不经过解释器，
-	// 从不读取 oracle，因而逐字节不变；未注入时 CurrentSafety 默认放行，
-	// 语义同样不变。
+	// "转调 chain" 的谓词交给它。内建 shell 现默认开启（只有 ARGENT_BUILTIN_SHELL=0
+	// 才紧急关闭），因此受支持子集内的命令全部经解释器执行；当展开后的真实 argv
+	// 与外层守卫审过的原始命令不同时，还会再经 oracle 复核（相同则跳过，避免同一
+	// 审批器被重复询问）。仅当命令含不支持语法、整条回退系统 shell 时不经过解释器、
+	// 也不读取 oracle。未注入时 CurrentSafety 默认放行。
 	//
 	// 并发安全：闭包只捕获不可变的 chain 指针与 ctx，每次调用用 json.Marshal
 	// 生成全新的参数（无共享可变暂存区）；chain.Check 自身可并发调用。

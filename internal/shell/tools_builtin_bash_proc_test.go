@@ -19,6 +19,9 @@ import (
 // 本文件覆盖默认 bash 主路径的进程硬化 opt-in（ARGENT_BASH_USE_PROC）。
 // 所有用例都不并行：开关通过 t.Setenv 隔离，proc.MaxOutputBytes 是全局量，
 // 都有显式恢复，避免状态泄漏破坏"默认关、逐字节不变"的契约。
+//
+// 注：各用例显式设 ARGENT_BUILTIN_SHELL=0。内建 shell 已默认开启，0 是唯一的
+// 紧急关闭值，用来强制走本文件要测的系统 shell / proc 路径（空值已不再关闭）。
 
 // runBashToolWithTimeout 以给定的 timeout_seconds 调用 bash 工具。
 func runBashToolWithTimeout(t *testing.T, command string, timeoutSeconds int) (string, error) {

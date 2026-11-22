@@ -54,6 +54,11 @@ func Run(command string, opts Options) (Result, error) {
 }
 
 // Supported 只做解析，不执行：用于探测一条命令是否在本子集的语法范围内。
+//
+// 判定固定在解析期且递归覆盖整棵 AST（见 fallback.go 的 containsUnsupported）：
+// 命令替换体、双引号内的嵌套替换、重定向目标、二元命令两侧等任何一处出现不支持
+// 构造，都返回 false。这样调用方能在执行前做"整条命令级回退"，不会出现部分执行
+// 后才失败的情形。运行期若仍遇到 ErrUnsupported，用 ShouldFallback 接住并整条回退。
 func Supported(command string) bool {
 	tokens, err := newLexer(command).lex()
 	if err != nil {
@@ -64,31 +69,6 @@ func Supported(command string) bool {
 		return false
 	}
 	return !containsUnsupported(f.Stmt)
-}
-
-func containsUnsupported(st *Stmt) bool {
-	if st == nil {
-		return false
-	}
-	switch c := st.Cmd.(type) {
-	case *UnsupportedCmd:
-		return true
-	case *BinaryCmd:
-		return containsUnsupported(c.X) || containsUnsupported(c.Y)
-	case *CallExpr:
-		// 第一个单词若是 shell 保留字，属于不支持的控制结构。
-		if len(c.Args) > 0 && len(c.Args[0].Parts) > 0 {
-			if lit, ok := c.Args[0].Parts[0].(*LitPart); ok && isReservedWord(lit.Text) {
-				return true
-			}
-		}
-	}
-	for _, r := range st.Redirs {
-		if r.Op == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func copyVars(m map[string]string) map[string]string {

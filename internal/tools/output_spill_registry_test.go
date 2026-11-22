@@ -16,8 +16,9 @@ func TestRegistryRunBashSpillViaExecContext(t *testing.T) {
 	// 显式清空 env 开关，避免外部环境影响"关闭"分支。
 	t.Setenv(spillDirEnv, "")
 	t.Setenv(spillThresholdEnv, "")
-	// 强制走系统 shell 路径，避免内建 shell 开关改变命令输出格式。
-	t.Setenv("ARGENT_BUILTIN_SHELL", "")
+	// 强制走系统 shell 路径，避免内建 shell 改变命令输出格式。
+	// 内建 shell 已默认开启，只有显式 0 才是紧急关闭（空值=默认开）。
+	t.Setenv("ARGENT_BUILTIN_SHELL", "0")
 
 	const threshold = 1024
 	payload := strings.Repeat("0123456789", 200) // 2000 bytes, one line

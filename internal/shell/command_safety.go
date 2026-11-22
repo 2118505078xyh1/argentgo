@@ -77,7 +77,8 @@ func ClassifyShellCommand(command string) ShellSafety {
 }
 
 // classifyReasons 汇总不支持原因与命中的元字符名称，顺序稳定：
-// 先列"不支持的构造/保留字/语法错误"，再按 FeatureList 的固定顺序列元字符。
+// 先列"不支持的构造/保留字/语法错误"与兼容矩阵给出的回退依据，
+// 再按 FeatureList 的固定顺序列元字符。
 func classifyReasons(command string, supported bool, f ShellFeature) []string {
 	var reasons []string
 	if !supported {
@@ -87,7 +88,9 @@ func classifyReasons(command string, supported bool, f ShellFeature) []string {
 }
 
 // unsupportedReasons 重新走一遍 lexer/parser，收集命令为何不被支持的中文原因。
-// 这里复用现有词法/语法分析器，不修改它们一行代码。
+// 这里复用现有词法/语法分析器，不修改它们一行代码。遍历覆盖整棵 AST（所有
+// 参数单词、命令替换体、双引号内嵌套 part、重定向目标），而非只看顶层第一个
+// 单词——旧版浅层遍历会漏掉嵌套构造的具体原因。
 func unsupportedReasons(command string) []string {
 	tokens, err := newLexer(command).lex()
 	if err != nil {
@@ -98,16 +101,39 @@ func unsupportedReasons(command string) []string {
 		return []string{"语法错误: " + err.Error()}
 	}
 	var out []string
-	collectUnsupportedReasons(f.Stmt, &out)
+	collectUnsupportedReasonsDeep(f.Stmt, &out)
 	if len(out) == 0 {
 		out = append(out, "不受内建解释器支持的构造")
+	}
+	// 兼容矩阵是"哪些构造须整条回退系统 shell、为何"的唯一权威声明。
+	// 诊断文本引用它的 Native=false 条目生成中文回退依据：矩阵修订会自动
+	// 反映到 Reasons，避免诊断与安全声明两处各写一套理由而漂移。
+	if note := matrixFallbackReason(); note != "" {
+		out = append(out, note)
 	}
 	return out
 }
 
-// collectUnsupportedReasons 遍历 AST，把 UnsupportedCmd 的构造名与用作命令的
-// 保留字记入 out（去重）。遍历结构与 shell.go 的 containsUnsupported 一致。
-func collectUnsupportedReasons(st *Stmt, out *[]string) {
+// matrixFallbackReason 依据兼容矩阵生成一条稳定的中文回退说明。
+// 它同时是 CompatibilityMatrix 在生产代码中的调用点：诊断/审计理由取自矩阵，
+// 而不是在调用方复制一份易漂移的构造清单。
+func matrixFallbackReason() string {
+	var kinds []string
+	for _, e := range CompatibilityMatrix() {
+		if !e.Native {
+			kinds = append(kinds, e.Syntax)
+		}
+	}
+	if len(kinds) == 0 {
+		return ""
+	}
+	return "须整条回退系统 shell（矩阵声明的非原生语法：" + strings.Join(kinds, "、") + "）"
+}
+
+// collectUnsupportedReasonsDeep 递归遍历整棵 AST，把 UnsupportedCmd 的构造名、
+// 用作命令的保留字、嵌套在命令替换/重定向目标里的不支持构造记入 out（去重）。
+// 遍历结构与 fallback.go 的 containsUnsupported 对齐，但产出可读原因而非布尔值。
+func collectUnsupportedReasonsDeep(st *Stmt, out *[]string) {
 	if st == nil {
 		return
 	}
@@ -115,13 +141,48 @@ func collectUnsupportedReasons(st *Stmt, out *[]string) {
 	case *UnsupportedCmd:
 		appendReason(out, "不支持的构造: "+c.Kind)
 	case *BinaryCmd:
-		collectUnsupportedReasons(c.X, out)
-		collectUnsupportedReasons(c.Y, out)
+		collectUnsupportedReasonsDeep(c.X, out)
+		collectUnsupportedReasonsDeep(c.Y, out)
 	case *CallExpr:
+		// 每个单词都可能藏有命令替换，逐个下钻（不止第一个单词）。
+		for _, w := range c.Args {
+			collectUnsupportedReasonsFromWord(w, out)
+		}
+		// 保留字当程序名即不支持的控制结构（循环/函数/条件等）。
 		if len(c.Args) > 0 && len(c.Args[0].Parts) > 0 {
 			if lit, ok := c.Args[0].Parts[0].(*LitPart); ok && isReservedWord(lit.Text) {
 				appendReason(out, "不支持的保留字: "+lit.Text)
 			}
+		}
+	}
+	// 重定向目标同样可能含命令替换；畸形重定向（Op==0）也不支持。
+	for _, r := range st.Redirs {
+		if r.Op == 0 {
+			appendReason(out, "不支持的构造: 畸形重定向")
+		}
+		collectUnsupportedReasonsFromWord(r.Target, out)
+	}
+}
+
+// collectUnsupportedReasonsFromWord 下钻一个单词的所有 WordPart。
+func collectUnsupportedReasonsFromWord(w *Word, out *[]string) {
+	if w == nil {
+		return
+	}
+	collectUnsupportedReasonsFromParts(w.Parts, out)
+}
+
+// collectUnsupportedReasonsFromParts 检查一组 WordPart，下钻命令替换体与
+// 双引号内的嵌套 part，使嵌套构造不再被浅层遍历漏掉。
+func collectUnsupportedReasonsFromParts(parts []WordPart, out *[]string) {
+	for _, part := range parts {
+		switch p := part.(type) {
+		case *CmdSubstPart:
+			if p.Body != nil {
+				collectUnsupportedReasonsDeep(p.Body.Stmt, out)
+			}
+		case *DblQuotedPart:
+			collectUnsupportedReasonsFromParts(p.Parts, out)
 		}
 	}
 }
