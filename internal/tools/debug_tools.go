@@ -69,7 +69,10 @@ type dapClientManager struct {
 	mu       sync.Mutex
 	env      func(string) string
 	sessions map[string]*dap.Client
-	next     int
+	// handshakes 记录已完成 initialize/launch 握手的会话，供 debug_start 使用高层
+	// Session API（避免工具层重复拼装握手命令），并保留 client 供其余命令的原始转发。
+	handshakes map[string]*dap.Session
+	next       int
 }
 
 var _ DapSessionManager = (*dapClientManager)(nil)
@@ -77,7 +80,11 @@ var _ DapSessionManager = (*dapClientManager)(nil)
 // NewDapSessionManager 返回一个由 env 提供环境变量的会话管理器。
 // env 为 nil 时按未设置处理（使用默认适配器命令）。
 func NewDapSessionManager(env func(string) string) DapSessionManager {
-	return &dapClientManager{env: env, sessions: make(map[string]*dap.Client)}
+	return &dapClientManager{
+		env:        env,
+		sessions:   make(map[string]*dap.Client),
+		handshakes: make(map[string]*dap.Session),
+	}
 }
 
 func (m *dapClientManager) Start(ctx context.Context, root, command string, args []string, program string) (string, error) {
@@ -97,6 +104,34 @@ func (m *dapClientManager) Start(ctx context.Context, root, command string, args
 	return id, nil
 }
 
+// Handshake 用 dap.Session 高层 API 完成 initialize → launch → configurationDone
+// 握手。它让 session.go 的握手方法进入生产调用链，并让工具层不再重复拼装原始命令。
+// 失败时由调用方回收会话。
+func (m *dapClientManager) Handshake(ctx context.Context, sessionID, program, root string) error {
+	m.mu.Lock()
+	client := m.sessions[sessionID]
+	m.mu.Unlock()
+	if client == nil {
+		return fmt.Errorf("unknown dap session %q", sessionID)
+	}
+	sess := dap.New(client)
+	if err := sess.Initialize(ctx, "go", "argentgo"); err != nil {
+		return fmt.Errorf("initialize: %w", err)
+	}
+	if err := sess.Launch(ctx, program, nil); err != nil {
+		return fmt.Errorf("launch: %w", err)
+	}
+	if sess.SupportsConfigurationDone() {
+		if err := sess.ConfigurationDone(ctx); err != nil {
+			return fmt.Errorf("configurationDone: %w", err)
+		}
+	}
+	m.mu.Lock()
+	m.handshakes[sessionID] = sess
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *dapClientManager) Call(ctx context.Context, sessionID, command string, arguments map[string]any) (json.RawMessage, error) {
 	m.mu.Lock()
 	client := m.sessions[sessionID]
@@ -113,6 +148,7 @@ func (m *dapClientManager) Close(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	client := m.sessions[sessionID]
 	delete(m.sessions, sessionID)
+	delete(m.handshakes, sessionID)
 	m.mu.Unlock()
 	if client == nil {
 		return nil
@@ -256,23 +292,32 @@ func debugStartCall(ctx context.Context, root string, mgr DapSessionManager, raw
 	if err != nil {
 		return "", err
 	}
-	// 握手：initialize → launch → configurationDone。任一步失败都回收会话，
-	// 避免把半初始化的 adapter 留在注册表里。
-	steps := []struct {
-		command string
-		args    map[string]any
-	}{
-		{"initialize", map[string]any{
-			"clientID": "argentgo", "adapterID": "go", "pathFormat": "path",
-			"linesStartAt1": true, "columnsStartAt1": true, "supportsVariableType": true,
-		}},
-		{"launch", map[string]any{"program": args.Program, "cwd": root, "mode": "debug"}},
-		{"configurationDone", map[string]any{}},
-	}
-	for _, step := range steps {
-		if _, err := mgr.Call(ctx, id, step.command, step.args); err != nil {
+	// 握手优先走 dap.Session 高层 API（生产管理器实现 handshakeSessionManager）。
+	// fake/窄管理器没有该接口时回退到原始命令序列，使测试与自定义实现仍可用。
+	if hs, ok := mgr.(interface {
+		Handshake(ctx context.Context, sessionID, program, root string) error
+	}); ok {
+		if err := hs.Handshake(ctx, id, args.Program, root); err != nil {
 			_ = mgr.Close(ctx, id)
-			return "", fmt.Errorf("handshake %s: %w", step.command, err)
+			return "", fmt.Errorf("handshake: %w", err)
+		}
+	} else {
+		steps := []struct {
+			command string
+			args    map[string]any
+		}{
+			{"initialize", map[string]any{
+				"clientID": "argentgo", "adapterID": "go", "pathFormat": "path",
+				"linesStartAt1": true, "columnsStartAt1": true, "supportsVariableType": true,
+			}},
+			{"launch", map[string]any{"program": args.Program, "cwd": root, "mode": "debug"}},
+			{"configurationDone", map[string]any{}},
+		}
+		for _, step := range steps {
+			if _, err := mgr.Call(ctx, id, step.command, step.args); err != nil {
+				_ = mgr.Close(ctx, id)
+				return "", fmt.Errorf("handshake %s: %w", step.command, err)
+			}
 		}
 	}
 	return fmt.Sprintf("dap session %s started (program %s)", id, args.Program), nil

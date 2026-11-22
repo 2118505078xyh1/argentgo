@@ -38,4 +38,33 @@ type primitiveAllowEntry struct {
 //			Reason: "为下一阶段插件 API 预留；将通过 internal/app 的 RPC 注册表按名字反射接入",
 //		},
 //	}
-var primitiveAllowlist = []primitiveAllowEntry{}
+var primitiveAllowlist = []primitiveAllowEntry{
+	// DAP 高层结构化 API：当前 debug_* 工具用裸 Call 转发以保留原始 DAP body 给
+	// 模型；这些类型化方法供下一阶段"结构化调试工具"直接消费（并返回整理后的
+	// Go 结构），握手方法（Initialize/Launch/ConfigurationDone）已生产接线。
+	{Symbol: "internal/dap/client.go:Alive", Reason: "会话存活探测辅助方法；下一阶段 debug_start 复用会话时用于失效检测"},
+	{Symbol: "internal/dap/session.go:Attach", Reason: "attach 握手分支；当前仅 launch 场景接线，下一阶段暴露 attach 调试工具时调用"},
+	{Symbol: "internal/dap/session.go:SetBreakpoints", Reason: "类型化断点 API；工具层暂用裸 setBreakpoints 保留原始 body，下一阶段结构化工具调用"},
+	{Symbol: "internal/dap/session.go:SetExceptionBreakpoints", Reason: "异常断点 API；下一阶段暴露异常断点工具时调用"},
+	{Symbol: "internal/dap/session.go:Continue", Reason: "类型化 continue；工具层用裸命令，结构化工具阶段调用"},
+	{Symbol: "internal/dap/session.go:StepIn", Reason: "类型化 stepIn；工具层用裸命令，结构化工具阶段调用"},
+	{Symbol: "internal/dap/session.go:StepOut", Reason: "类型化 stepOut；工具层用裸命令，结构化工具阶段调用"},
+	{Symbol: "internal/dap/session.go:Pause", Reason: "暂停 API；下一阶段暴露暂停工具时调用"},
+	{Symbol: "internal/dap/session.go:Threads", Reason: "类型化 threads；工具层用裸命令保留原始 body，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:StackTrace", Reason: "类型化 stackTrace；同上，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:Scopes", Reason: "类型化 scopes；同上，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:Variables", Reason: "类型化 variables；同上，结构化阶段调用"},
+	{Symbol: "internal/dap/session.go:Disconnect", Reason: "类型化断开；当前 debug_stop 用裸 disconnect 命令，结构化阶段改用此方法"},
+	{Symbol: "internal/dap/session.go:WaitStopped", Reason: "停止事件等待；下一阶段自动断点续跑流程调用"},
+	{Symbol: "internal/dap/session.go:WaitTerminated", Reason: "终止事件等待；下一阶段调试生命周期编排调用"},
+	// predict n-gram 补全原语：已完成纯模型层，ghost-text 接线需改 TUI 输入环热路径，
+	// 按"外置优先/热路径谨慎"原则留到专门阶段，经补全 provider 注入。
+	{Symbol: "internal/predict/predict.go:Order", Reason: "n-gram 阶数访问器；补全接线阶段用于诊断展示"},
+	{Symbol: "internal/predict/predict.go:Predict", Reason: "补全预测主入口；ghost-text 接线阶段经补全 provider 调用"},
+	{Symbol: "internal/predict/predict.go:SetMaxEntries", Reason: "模型容量旋钮；补全接线阶段由配置注入"},
+	{Symbol: "internal/predict/predict.go:Train", Reason: "Learn 别名；补全接线阶段训练时调用"},
+	// astedit 辅助：FindCalls 是调用点查询，ast_edit 工具当前用 RewriteSymbol；
+	// 下一阶段"查找调用点的结构化搜索"工具消费。
+	{Symbol: "internal/astedit/astedit.go:FindCalls", Reason: "调用点查询；下一阶段结构化搜索工具调用"},
+	{Symbol: "internal/tools/ast_edit.go:SetAstEditWriter", Reason: "写盘助手注入点；下一阶段由 apply_patch 审批链注入真实 writer"},
+}
