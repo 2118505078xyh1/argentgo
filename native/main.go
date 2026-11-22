@@ -949,6 +949,14 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 		})
 		ui.Text(c, ap.args).FontSize(12).TextColor(p.dim).
 			Padding(8, 10).Radius(6).Background(p.surface).Selectable()
+		// diff 摘要默认关闭：只有 opt-in 且能提取到编辑信息时才多渲染两行，
+		// 摘要为空或门控关闭时帧元素与接线前逐字节一致。
+		if approvalDiffVisible() {
+			if summary := buildApprovalSummary(ap.name, ap.args); !summary.empty() {
+				ui.Text(c, renderApprovalSummary(summary)).FontSize(11).TextColor(p.warn)
+				ui.Text(c, summary.Preview).FontSize(11).TextColor(p.dim).Selectable()
+			}
+		}
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			if ui.Button(c, "拒绝").Clicked() {
 				app.answerApproval(false)
@@ -1498,6 +1506,10 @@ var cannedReplies = []string{
 
 func main() {
 	app := &chat{status: "就绪", nav: "聊天"}
+
+	// 审批卡 diff 展示 opt-in：只有 ARGENT_NATIVE_APPROVAL_DIFF=1 才开启，
+	// 让现有的 golden/截图语义在默认情况下保持不变。
+	configureApprovalDiff(os.Getenv)
 
 	// ARGENT_EXE 指向 engine 二进制。设置时，原生窗口
 	if exe := os.Getenv("ARGENT_EXE"); exe != "" {
