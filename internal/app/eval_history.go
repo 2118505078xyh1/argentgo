@@ -71,6 +71,33 @@ func (e *evaler) RunHistory(ctx context.Context, spec cli.HistoryEvalSpec, out i
 	if len(set.Scenarios) == 0 {
 		return 0, 0, errors.New("eval history: no commits with added test files found")
 	}
+
+	// --verify：先离线自检每个任务（父提交应失败、参考提交应通过），
+	// 只保留有判别力的任务，避免在无效任务上浪费真实模型的 token。
+	if spec.Verify {
+		verifications, err := eval.VerifyHistoryTasks(ctx, spec.Repo, eval.HistoryOptions{
+			MaxTasks: spec.MaxTasks,
+			Since:    spec.Since,
+		})
+		if err != nil {
+			return 0, 0, err
+		}
+		validByName := make(map[string]bool, len(verifications))
+		for _, v := range verifications {
+			validByName[v.Name] = v.Valid()
+		}
+		kept := set.Scenarios[:0]
+		for _, sc := range set.Scenarios {
+			if validByName[sc.Name] {
+				kept = append(kept, sc)
+			}
+		}
+		set.Scenarios = kept
+		if len(set.Scenarios) == 0 {
+			return 0, 0, errors.New("eval history: no tasks passed the offline self-check")
+		}
+	}
+
 	// 抽取出的场景没有 model（normalize 会填 "scripted"），统一覆写为本轮模型名。
 	// scripted 模式下还注入一轮脚本化回复，使 eval.Run 的默认 scripted provider
 	// 能驱动完整循环（不联网、不需要 key）。

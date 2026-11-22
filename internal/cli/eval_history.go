@@ -50,6 +50,8 @@ func runEvalHistory(app App, ctx context.Context, args []string) int {
 			spec.Since = strings.TrimSpace(strings.TrimPrefix(arg, "--since="))
 		case arg == "--scripted":
 			spec.Scripted = true
+		case arg == "--verify":
+			spec.Verify = true
 		default:
 			fmt.Fprintf(app.IO.Err, "eval history: unknown argument %q\n", arg)
 			evalHistoryUsage(app.IO.Err)
@@ -64,7 +66,12 @@ func runEvalHistory(app App, ctx context.Context, args []string) int {
 	}
 	passed, failed, err := runner.RunHistory(ctx, spec, app.IO.Out)
 	if err != nil {
-		fmt.Fprintf(app.IO.Err, "eval history: %v\n", err)
+		// app 层的错误已带 "eval history:" 前缀，避免重复拼接。
+		msg := err.Error()
+		if !strings.HasPrefix(msg, "eval history:") {
+			msg = "eval history: " + msg
+		}
+		fmt.Fprintln(app.IO.Err, msg)
 		return 1
 	}
 	if failed > 0 {
@@ -162,5 +169,7 @@ git worktree at the parent commit, so the real working tree is never touched.
 The real model is required (flag/config/login/provider env). Default: 15 tasks.
 With --scripted, a one-turn scripted reply replaces the real model so the
 worktree/grading flow can be checked offline (tasks usually fail by design).
+With --verify, tasks without discriminating power are filtered out first via
+an offline self-check (parent must fail, commit must pass).
 `)
 }

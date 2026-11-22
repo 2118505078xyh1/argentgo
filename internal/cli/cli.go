@@ -206,6 +206,8 @@ type HistoryEvalSpec struct {
 	// Scripted 用一轮脚本化回复代替真实模型，使 git→worktree→评分流程
 	// 无需 API key 即可离线验证（任务通常不通过，正是评分机制的证明）。
 	Scripted bool
+	// Verify 在跑模型前先离线自检，跳过无判别力的任务，避免浪费 token。
+	Verify bool
 }
 
 // HistoryEvalSuiteRunner 用真实模型执行从 git 历史抽取的任务套件。

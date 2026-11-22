@@ -56,6 +56,21 @@ func TestRunEvalHistoryScripted(t *testing.T) {
 	}
 }
 
+// TestRunEvalHistoryVerifyFlag 验证 --verify 被解析并传给 runner。
+func TestRunEvalHistoryVerifyFlag(t *testing.T) {
+	stdio, _, errOut := newTestIO("", nil)
+	runner := &fakeHistoryRunner{passed: 2, failed: 0}
+	code := RunWith(App{IO: stdio, Eval: runner}, []string{
+		"eval", "history", "/repo", "--verify", "--scripted",
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %q", code, errOut.String())
+	}
+	if !runner.called || !runner.spec.Verify || !runner.spec.Scripted {
+		t.Fatalf("spec = %+v, want verify and scripted", runner.spec)
+	}
+}
+
 // TestRunEvalHistoryVerifyDispatch 验证 history verify 子前缀走离线自检路径，
 // 不调用 app.Eval（不需要模型 runner）。
 func TestRunEvalHistoryVerifyDispatch(t *testing.T) {
