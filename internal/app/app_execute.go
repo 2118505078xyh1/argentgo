@@ -764,6 +764,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// models 工具默认安装（ARGENT_MODELS_TOOL=0 关闭）：把 provider 模板表
 	// 暴露给模型，方便其选择正确的 provider id。显式注册，默认清单逐字节不变。
 	wireModels(stdio, toolset)
+	// DAP 调试工具默认注册（只公布工具、不启动进程）；ARGENT_DAP=0 时紧急关闭。
+	wireDap(stdio, toolset)
 	// memory_consolidate 默认关（会改写记忆日志）：ARGENT_MEMORY_CONSOLIDATE=1
 	// 才注册。显式注册，默认工具清单逐字节不变。
 	wireMemoryConsolidate(stdio, toolset)
