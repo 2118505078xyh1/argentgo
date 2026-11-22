@@ -12,6 +12,10 @@ import (
 func main() {
 	stdio := cli.OSIO()
 	args := os.Args[1:]
+	// 可选运行时诊断（pprof/GC/内存上限）：环境变量为空时零副作用。
+	// os.Exit 会跳过 defer，因此在退出前显式调用清理函数。
+	cleanupDiag := app.ApplyRuntimeDiagnostics(stdio.Env)
+	defer cleanupDiag()
 	// 只有前导 `gui` 子命令启动原生客户端。--gui 是
 	// 普通 CLI 标志，由 cli.RunWith 处理（报告为未迁移）。
 	if isGUIRequest(args) {
@@ -33,5 +37,6 @@ func main() {
 		ConfigPath:         filepath.Join(storage, "config.json"),
 		StorageDir:         storage,
 	}, os.Args[1:])
+	cleanupDiag()
 	os.Exit(code)
 }
