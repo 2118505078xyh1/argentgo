@@ -93,12 +93,12 @@ func TestCompletionBenchSensitiveToHarnessFaults(t *testing.T) {
 		t.Skip("go toolchain not on PATH")
 	}
 
-	// 1. 先测基线：五个正例通过、B5 负对照失败，完成率 5/6。
-	baseScenarios, err := eval.Load(benchFixturePath(t))
-	if err != nil {
-		t.Fatalf("Load(completion_bench.json): %v", err)
+	// 1. 基线：与完成率测试共享一次 6 场景运行结果，避免重复跑 ~7s。
+	baseRun := cachedCompletionBenchRun()
+	if baseRun.setupErr != nil {
+		t.Fatalf("run completion bench: %v", baseRun.setupErr)
 	}
-	baseReport := benchSensitivityReport(t, baseScenarios)
+	baseReport := baseRun.report
 	baseRate := eval.ScenarioCompletionRate(baseReport.Results)
 	if math.Abs(baseRate-5.0/6.0) > 1e-9 {
 		t.Fatalf("baseline completion rate = %v, want 5/6", baseRate)

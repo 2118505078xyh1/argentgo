@@ -1,9 +1,6 @@
 package app
 
 import (
-	"bytes"
-	"context"
-	"io"
 	"math"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/eval"
 )
 
@@ -38,38 +34,24 @@ func TestEvalCompletionBenchRate(t *testing.T) {
 		t.Skip("go toolchain not on PATH")
 	}
 
-	scenarios, err := eval.Load(benchFixturePath(t))
-	if err != nil {
-		t.Fatalf("Load(completion_bench.json): %v", err)
+	// 基线与敏感性自检共享同一份运行结果，省去一次 6 场景的真实循环。
+	run := cachedCompletionBenchRun()
+	if run.setupErr != nil {
+		t.Fatalf("run completion bench: %v", run.setupErr)
 	}
-	if len(scenarios) != 6 {
-		t.Fatalf("scenario count = %d, want 6", len(scenarios))
-	}
-
-	runner := NewEvaler(cli.IO{
-		Out: io.Discard,
-		Err: io.Discard,
-		Env: func(string) string { return "" },
-	})
-	var out bytes.Buffer
-	report, runErr := eval.Run(
-		context.Background(),
-		scenarios,
-		runner.(*evaler).runScenario,
-		eval.Options{Out: &out},
-	)
+	report, runErr, tap := run.report, run.runErr, run.tap
 	// B5 应当失败，所以 eval.Run 返回非 nil 错误；报告仍然完整。
 	if runErr == nil {
-		t.Fatalf("eval.Run error = nil, want a failure for B5; report:\n%+v\n%s", report, out.String())
+		t.Fatalf("eval.Run error = nil, want a failure for B5; report:\n%+v\n%s", report, tap)
 	}
 	if report.Passed != 5 || report.Failed != 1 {
 		t.Fatalf("report = %d passed, %d failed; want 5 and 1\n%+v\n%s",
-			report.Passed, report.Failed, report, out.String())
+			report.Passed, report.Failed, report, tap)
 	}
 	// 完成率必须复用长任务语义：5/6 ≈ 0.8333。
 	wantRate := 5.0 / 6.0
 	if got := eval.ScenarioCompletionRate(report.Results); math.Abs(got-wantRate) > 1e-9 {
-		t.Fatalf("ScenarioCompletionRate = %v, want %v; report:\n%+v\n%s", got, wantRate, report, out.String())
+		t.Fatalf("ScenarioCompletionRate = %v, want %v; report:\n%+v\n%s", got, wantRate, report, tap)
 	}
 
 	// 五个正例必须全过。
@@ -82,7 +64,7 @@ func TestEvalCompletionBenchRate(t *testing.T) {
 	// B5（索引 4）负对照必须失败，且失败原因来自 go test 退出码而不是收尾文本。
 	b5 := report.Results[4]
 	if b5.Passed {
-		t.Fatalf("B5 should fail, but passed; report:\n%+v\n%s", report, out.String())
+		t.Fatalf("B5 should fail, but passed; report:\n%+v\n%s", report, tap)
 	}
 	if !strings.Contains(b5.Reason, "exited 1, want 0") {
 		t.Fatalf("B5 reason = %q, want it to contain %q", b5.Reason, "exited 1, want 0")
