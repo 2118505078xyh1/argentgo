@@ -4,7 +4,16 @@
 #
 # Exits non-zero on any mismatch; used by the publisher and by release CI.
 
-param([string]$Tag = '')
+param(
+    [string]$Tag = '',
+
+    # Optional strict lower bound on the tracked .go line count. 0 means the
+    # count is informational only. Deliberately NOT derived from cli.Version:
+    # the version-anchor decision is still pending, so binding the two would
+    # block releases unexpectedly. Pass this explicitly at release time once
+    # the anchor policy is settled.
+    [long]$MinLines = 0
+)
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -44,6 +53,24 @@ try {
     $changelog = Get-Content -LiteralPath (Join-Path $repo 'CHANGELOG.md') -Raw
     if ($changelog -notmatch "(?m)^##\s+v$([regex]::Escape($version))\b") {
         throw "CHANGELOG.md has no section for v$version"
+    }
+
+    # Code-size anchor, informational by default. Count newlines of tracked
+    # .go files in PowerShell, mirroring the `git ls-files ... | wc -l` metric
+    # in AGENTS.md without depending on bash/xargs. -MinLines turns it into a
+    # strict, opt-in release gate.
+    $goFiles = @(& git ls-files '*.go')
+    if ($LASTEXITCODE -ne 0) { throw 'git ls-files *.go failed' }
+    $totalLines = [long]0
+    foreach ($goFile in $goFiles) {
+        $full = Join-Path $repo $goFile
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        $text = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($full))
+        $totalLines += [regex]::Matches($text, "`n").Count
+    }
+    Write-Host "tracked .go line count: $totalLines (informational; -MinLines enables strict gate)"
+    if ($MinLines -gt 0 -and $totalLines -lt $MinLines) {
+        throw "tracked .go line count $totalLines < required minimum $MinLines; code-size gate not met"
     }
 
     $shownTag = if ($Tag) { $Tag } else { '(any)' }

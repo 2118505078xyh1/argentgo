@@ -18,7 +18,13 @@ name: matrix
 # 加引号是为了防止 YAML 1.1 工具（如 PyYAML）将 `on` 强制转换为布尔值 true。
 'on':
   pull_request:
+  # security_audit 仅作为手动触发的观察性作业，不设为 PR 阻塞门禁（观察 2-3 次再议）。
   workflow_dispatch:
+    inputs:
+      security_audit:
+        description: '运行离线安全审计（vet / gofmt / 依赖白名单 / 隐私扫描）'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -110,3 +116,20 @@ jobs:
           cache: true
       - name: architecture guard
         run: go test ./internal/archguard -count=1
+
+  # 离线安全审计：在 CI 中复刻 vet / gofmt，并加上依赖白名单与隐私扫描。
+  # 仅在 workflow_dispatch 且 security_audit 为真时运行；PR 事件中 inputs 为空，
+  # 条件自然为假，因此它不会成为 PR 阻塞门禁。先手动观察 2-3 次再决定是否收紧。
+  security_audit:
+    name: security audit (manual, non-blocking)
+    if: ${{ inputs.security_audit }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: security audit
+        shell: pwsh
+        run: ./scripts/security-audit.ps1
