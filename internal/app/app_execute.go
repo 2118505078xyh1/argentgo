@@ -777,6 +777,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 浏览器工具默认注册（只公布工具、不启动 Chrome）；ARGENT_BROWSER=0 时关闭。
 	// 与 web_fetch/web_search 分层：静态页用 web_fetch/web_fastfetch，需 JS/交互才用 browser。
 	wireBrowser(stdio, toolset)
+	// computer 桌面工具默认注册（截图+坐标操作 Windows 桌面）；ARGENT_COMPUTER=0 关闭。
+	// 与 browser 分层：Web 用 browser 的文本 refs，原生桌面应用才用 computer。
+	wireComputer(stdio, toolset)
 	// memory_consolidate 默认关（会改写记忆日志）：ARGENT_MEMORY_CONSOLIDATE=1
 	// 才注册。显式注册，默认工具清单逐字节不变。
 	wireMemoryConsolidate(stdio, toolset)
