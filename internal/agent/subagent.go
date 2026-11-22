@@ -44,6 +44,30 @@ const (
 const subagentTemplate = `You are a subagent working for another agent. Task: %s
 Do only the work the task asks for, using the tools you have. Do not ask questions: make the most reasonable assumption and report the result. Finish with a concise final answer; the parent agent receives only that text.`
 
+// buildSubagentSystem 组装子代理的 system prompt。抽成纯函数便于直接测试
+// 缓存前缀不变量。parentSystem 是父级已冻结的 system，opt-in 开启时作为前缀。
+func buildSubagentSystem(cfg SubagentConfig, label, parentSystem string) string {
+	system := strings.TrimSpace(cfg.System)
+	if system == "" {
+		if subagentSharedPromptEnabled() && strings.TrimSpace(parentSystem) != "" {
+			// opt-in：父级 system 作为前缀（复用已缓存字节），角色约束与任务
+			// 标签追加在末尾，不破坏缓存前缀。任务本身仍由用户消息承载。
+			system = strings.TrimSpace(parentSystem) + "\n\n" + fmt.Sprintf(subagentTemplate, label)
+		} else {
+			system = fmt.Sprintf(subagentTemplate, label)
+		}
+	}
+	if len(cfg.SeedContext) > 0 {
+		system += "\n\nRetained context from the parent thread:\n- " + strings.Join(cfg.SeedContext, "\n- ")
+	}
+	if cfg.Instruction != nil {
+		// configForPersona 已经生成了继承副本（恰好带一个标记），因此这里渲染时不会再次调用
+		// Inherit。All() 的顺序是 user -> thread -> project，因此各层按解析顺序出现。
+		system += "\n\nInherited instructions from the parent session:\n- " + strings.Join(cfg.Instruction.All(), "\n- ")
+	}
+	return system
+}
+
 // VerifyFailInfo 携带一次验证 FAIL 的可序列化旁路信息，交给 OnVerifyFail 回调做分叉副作用。
 // 字段刻意保持为基础类型，使 agent 不需要导入 session 等任何内部包。
 type VerifyFailInfo struct {
@@ -523,18 +547,7 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		tools = restrictedTools{inner: t.inner, allowed: allowed}
 	}
 
-	system := strings.TrimSpace(cfg.System)
-	if system == "" {
-		system = fmt.Sprintf(subagentTemplate, label)
-	}
-	if len(cfg.SeedContext) > 0 {
-		system += "\n\nRetained context from the parent thread:\n- " + strings.Join(cfg.SeedContext, "\n- ")
-	}
-	if cfg.Instruction != nil {
-		// configForPersona 已经生成了继承副本（恰好带一个标记），因此这里渲染时不会再次调用
-		// Inherit。All() 的顺序是 user -> thread -> project，因此各层按解析顺序出现。
-		system += "\n\nInherited instructions from the parent session:\n- " + strings.Join(cfg.Instruction.All(), "\n- ")
-	}
+	system := buildSubagentSystem(cfg, label, t.parent.System)
 
 	budget := cfg.Budget
 	if budget == (Budget{}) {
