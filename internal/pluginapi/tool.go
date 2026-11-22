@@ -17,3 +17,9 @@ type Tool interface {
 	Mutating() bool
 	Run(ctx context.Context, root string, args json.RawMessage) (string, error)
 }
+
+// OutputSchemaTool 是可选的加法接口：实现它的插件工具声明一个 JSON Schema，
+// 其输出会在工具边界被校验。核心内置工具不实现它，因此默认路径不受影响。
+type OutputSchemaTool interface {
+	OutputSchema() json.RawMessage
+}

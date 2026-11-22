@@ -333,7 +333,18 @@ func runTool(tool Tool, ctx context.Context, root, name string, raw json.RawMess
 			err = fmt.Errorf("tool %q panicked: %s", name, describePanic(recovered))
 		}
 	}()
-	return tool.Run(ctx, root, raw)
+	out, err = tool.Run(ctx, root, raw)
+	// 插件工具可选输出 schema 校验（opt-in ARGENT_PLUGIN_OUTPUT_SCHEMA，默认关闭）：
+	// 声明了 OutputSchema 的工具，其输出必须是合法 JSON（结构校验的保守入口）；
+	// 违规则转成模型可读错误。内置工具不实现该接口，默认路径逐字节不变。
+	if err == nil && pluginOutputSchemaEnabled() {
+		if ost, ok := tool.(interface{ OutputSchema() json.RawMessage }); ok && len(ost.OutputSchema()) > 0 {
+			if !json.Valid([]byte(out)) {
+				return "", fmt.Errorf("tool %q output violates its declared schema: expected valid JSON", name)
+			}
+		}
+	}
+	return out, err
 }
 
 // RunWithMeta 执行单次工具调用，并额外返回工具的

@@ -37,6 +37,11 @@ func NewPromptApprover(in io.Reader, out io.Writer) *PromptApprover {
 	return &PromptApprover{In: in, Out: out}
 }
 
+// RequiresExplicitYes 声明 PromptApprover 只接受显式的 y/yes，
+// 因此当 command_risk opt-in 判定某命令需要显式确认时，链不会让自动
+// 审批器静默批准它（#20）。这是单方法加法接口，不改变 Ask 签名。
+func (p *PromptApprover) RequiresExplicitYes() bool { return true }
+
 // Ask 打印问题并读取一行。只有 y/yes 表示批准；EOF 和空
 type lineResult struct {
 	line string
