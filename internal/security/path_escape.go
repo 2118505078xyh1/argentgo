@@ -34,6 +34,29 @@ func looksLikePathEscape(path string) bool {
 	return hasParentSegment(normalized)
 }
 
+// hasLexicalEscape 只检测真正的词法逃逸写法：NUL 字节与 .. 父目录段
+// （含百分号/过宽 UTF-8 编码后的形式）。与 looksLikePathEscape 不同，它
+// 刻意不把「绝对路径本身」算作逃逸——绝对路径是否越界应由调用方基于
+// writeRoots 的真实路径边界判定，而非在词法阶段一律拒绝。
+//
+// InWriteRoots 与 Policy.resolve 在解码归一后用它提前拦截编码逃逸，
+// 从而既挡住 %2e%2e 这类绕过，又不误杀工作区内的绝对路径。
+func hasLexicalEscape(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	normalized := normalizeEscapeCandidate(trimmed)
+	if strings.IndexByte(normalized, 0) >= 0 {
+		return true
+	}
+	// 解码过程改变了字符串 => 存在百分号/过宽 UTF-8 编码，必须提前拦截，
+	// 否则 filepath.Clean 不解码、下游的真实路径校验也不会解码，编码逃逸会漏过。
+	// 字面写法（含普通 .. 遍历）保持原样，交给下游 CheckPathInRoots 做边界判定，
+	// 从而给出「outside the write roots」等准确文案。
+	if normalized != trimmed {
+		return true
+	}
+	return false
+}
+
 // hasParentSegment 逐段检查是否存在恰好由两个点组成的段。按字节扫描，
 // 因此 CJK 文件名里的多字节序列和名字中夹带的 .. 都不会被误判。
 func hasParentSegment(s string) bool {

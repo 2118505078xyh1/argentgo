@@ -326,6 +326,31 @@ func TestResolveSandboxAndApprovalFromConfig(t *testing.T) {
 	}
 }
 
+// TestResolveYesFlagMapsToAuto 验证 --yes 与 --yolo 一样把审批模式切到 auto。
+// 回归：--yes 曾被 flags 解析却未参与审批判定，导致非交互 --yes 仍走 ask，
+// PromptApprover 向 stdout 打印 "Allow...?" 并因 stdin 关闭误判为拒绝。
+func TestResolveYesFlagMapsToAuto(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	env := cli.IO{Env: isolatedEnv(home, nil)}
+	for _, tc := range []struct {
+		name string
+		opts cli.Options
+	}{
+		{"yes", cli.Options{Cwd: root, Yes: true}},
+		{"yolo", cli.Options{Cwd: root, Yolo: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Resolve(env, tc.opts)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if res.Approval != "auto" {
+				t.Fatalf("approval = %q, want auto", res.Approval)
+			}
+		})
+	}
+}
+
 // Resolved.TrustProject 必须通过提示路径使用的同一个 parseTrustEnv 辅助函数，
 // 来解释 ARGENT_TRUST_PROJECT：true/yes/on 为受信任，
 // false/no/off 为不受信任。修复之前 Resolve 只识别字面量 "1"，

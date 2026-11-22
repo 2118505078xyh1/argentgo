@@ -455,7 +455,11 @@ func (p *Policy) resolve(path string) (string, bool, bool) {
 	// 词法逃逸先拒：百分号/过宽 UTF-8/NUL 编码的 .. 在下游解码后可能逃出
 	// 工作区，但 filepath.Clean 不会解码它们。先做无解码的词法判定，
 	// 与真实路径校验形成两段式防御（与 sandbox.InWriteRoots 同口径）。
-	if looksLikePathEscape(candidate) {
+	//
+	// 只拦「.. / 编码逃逸 / NUL」这类真正的词法逃逸，不因「绝对路径本身」
+	// 拒绝——绝对路径是否越界由 checkPath 中基于 writeRoots 的真实路径边界
+	// 判定，工作区内的绝对路径是合法的。
+	if hasLexicalEscape(candidate) {
 		return candidate, absolute, true
 	}
 	if !absolute {

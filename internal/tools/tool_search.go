@@ -21,7 +21,7 @@ type toolSearchTool struct {
 
 func (toolSearchTool) Name() string { return "tool_search" }
 func (toolSearchTool) Description() string {
-	return "Find up to 20 tools ranked by name and description relevance."
+	return "Discover other available tools by name or description. Use this whenever a task needs a capability not in your current tool list (e.g. git, web, LSP, memory, time, repo map). Returns up to 20 matches; call the discovered tool by its exact name afterwards."
 }
 func (toolSearchTool) Mutating() bool { return false }
 func (toolSearchTool) Schema() string {

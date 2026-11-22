@@ -81,9 +81,11 @@ func InWriteRoots(path string, roots []string) error {
 	if candidate == "" {
 		candidate = "."
 	}
-	// 与 policy.resolve 同口径：编码形式的 .. 先按词法拒绝，
-	// 再由下面的 CheckPathInRoots 做真实路径校验。
-	if looksLikePathEscape(candidate) {
+	// 与 policy.resolve 同口径：编码形式的 .. / NUL 先按词法拒绝，
+	// 再由下面的 CheckPathInRoots 做真实路径边界校验。
+	// 注意只拦真正的词法逃逸，不因「绝对路径」本身拒绝——工作区内的
+	// 绝对路径是合法的，其越界与否由 CheckPathInRoots 判定。
+	if hasLexicalEscape(candidate) {
 		return fmt.Errorf("security: path %q uses an encoded path escape", path)
 	}
 	if !filepath.IsAbs(candidate) {

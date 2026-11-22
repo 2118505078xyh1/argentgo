@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -25,10 +26,12 @@ const maxToolDescLen = 1024
 // 追加省略号。按 rune 切片使结果在 multibyte 字符跨越
 // 限制时仍是有效 UTF-8。
 func clipDescription(s string) string {
-	runes := []rune(s)
-	if len(runes) <= maxToolDescLen {
+	// 绝大多数工具描述远短于上限：先用无分配的 RuneCountInString 计数，
+	// 只有确实超长时才做 []rune 转换与重建（Specs/SpecsFor 每轮对每个工具都调用）。
+	if utf8.RuneCountInString(s) <= maxToolDescLen {
 		return s
 	}
+	runes := []rune(s)
 	return string(runes[:maxToolDescLen-1]) + "…"
 }
 
@@ -178,7 +181,7 @@ func (r *Registry) SetJobs(j *jobs.Registry) {
 
 // SetShellSessions 安装 bash 工具在 ARGENT_PERSISTENT_SHELL=1 时使用的
 // 持久化 shell 会话管理器。参数用 any 承载，使 tools 包不依赖具体会话包；
-// 消费方（internal/shell）通过类型断言还原为自定义的小接口。未安装时
+// 消费方（internal/bash）通过类型断言还原为自定义的小接口。未安装时
 // （默认）命令仍走原有系统 shell 路径。
 func (r *Registry) SetShellSessions(sessions any) {
 	r.shellSessions = sessions
@@ -231,6 +234,8 @@ func (r *Registry) Names() []string {
 }
 
 // Specs 以稳定顺序返回工具 schema。
+// 注意：schema 不能缓存——advertiseIntentSchema 受运行时环境变量
+// (intentSchemaEnv) 控制，同一注册表在进程内可能切换注入开关（见 intent_wire_test）。
 func (r *Registry) Specs() []llm.ToolSpec {
 	specs := make([]llm.ToolSpec, 0, len(r.order))
 	for _, name := range r.order {
@@ -238,9 +243,6 @@ func (r *Registry) Specs() []llm.ToolSpec {
 		spec := llm.ToolSpec{Type: "function"}
 		spec.Function.Name = tool.Name()
 		spec.Function.Description = clipDescription(tool.Description())
-		// advertiseIntentSchema 是对位于本文件之外的 Set* 助手所重建工具的安全网。
-		// InjectIntentSchema 是幂等的，因此已被 wrapSchemas 包装的工具
-		// 不会被二次注入。
 		spec.Function.Parameters = advertiseIntentSchema(json.RawMessage(tool.Schema()))
 		specs = append(specs, spec)
 	}
@@ -282,7 +284,7 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 	if r.planUnlock != nil {
 		ctx = context.WithValue(ctx, planUnlockKey{}, r.planUnlock)
 	}
-	// 同步写入 pluginapi.ExecContext，供已迁移到 internal/shell 的命令类工具
+	// 同步写入 pluginapi.ExecContext，供已迁移到 internal/bash 的命令类工具
 	// 读取（它们无法访问 tools 包内未导出的 context key）。原有 key 保留不动，
 	// 既有工具行为逐字节不变。
 	ctx = pluginapi.WithExecContext(ctx, pluginapi.ExecContext{
@@ -292,7 +294,7 @@ func (r *Registry) Run(ctx context.Context, name, args string) (string, error) {
 		Jobs:          r.jobs,
 		ShellSessions: r.shellSessions,
 		// 把 tools 包的 opt-in 溢出能力以回调形式注入，供已迁移到
-		// internal/shell 的命令类工具使用；闭包捕获同一 ctx，
+		// internal/bash 的命令类工具使用；闭包捕获同一 ctx，
 		// 因此溢出配置（含 WithOutputSpill 与 env 开关）对它们同样生效。
 		Spill: func(text string) (string, bool) { return spillToolOutput(ctx, text) },
 	})

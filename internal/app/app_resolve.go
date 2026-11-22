@@ -198,7 +198,11 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		return Resolved{}, fmt.Errorf("sandbox mode %q: %w", sandboxMode, err)
 	}
 	approval := strings.ToLower(firstNonEmpty(opts.Approval, cfgString(cfg.Raw, "approval"), "ask"))
-	if opts.Yolo || cfg.Yolo {
+	// --yes 是 --yolo 的非交互同义开关：自动确认审批提示。
+	// 此前 opts.Yes 虽被 flags 解析，却从未参与审批模式判定，导致非交互
+	// --yes 仍走默认 ask → PromptApprover 向 stdout 打印 "Allow...?" 并因
+	// stdin 关闭而误判为拒绝。与 --yolo 一致地映射到 auto。
+	if opts.Yolo || cfg.Yolo || opts.Yes {
 		approval = "auto"
 	}
 

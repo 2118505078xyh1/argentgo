@@ -642,8 +642,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
 			visible := filterVisibleSpecs(specs, res, toolset, policy)
-			// 精简目录（opt-in ARGENT_LAZY_TOOLS）：只公布核心工具 + tool_search，
-			// 其余工具由模型经 tool_search 按需发现。默认关闭时原样返回。
+			// 精简目录（默认自动启用，用户零配置）：只公布核心工具 + tool_search，
+			// 其余工具由模型自己经 tool_search 按需发现。仅在显式设置调试逃生舱
+			// ARGENT_FULL_TOOLS 时原样返回全部。
 			return tools.LazyFilterSpecs(visible)
 		},
 		Approve: approver,
@@ -759,6 +760,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// models 工具默认安装（ARGENT_MODELS_TOOL=0 关闭）：把 provider 模板表
 	// 暴露给模型，方便其选择正确的 provider id。显式注册，默认清单逐字节不变。
 	wireModels(stdio, toolset)
+	// memory_consolidate 默认关（会改写记忆日志）：ARGENT_MEMORY_CONSOLIDATE=1
+	// 才注册。显式注册，默认工具清单逐字节不变。
+	wireMemoryConsolidate(stdio, toolset)
 	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
 	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
 	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。

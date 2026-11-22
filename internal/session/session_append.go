@@ -93,13 +93,12 @@ func (s *Session) appendOnce(kind string, data []byte) (Record, error) {
 			Kind:   kind,
 			Data:   data,
 		}
-		line, err := json.Marshal(record)
+		buf, err := json.Marshal(record)
 		if err != nil {
 			rollback()
 			return fmt.Errorf("session: encode record: %w", err)
 		}
-		buf := make([]byte, 0, len(line)+1)
-		buf = append(buf, line...)
+		// 复用 Marshal 已分配的切片，追加换行：省掉一次 make + 全量拷贝。
 		buf = append(buf, '\n')
 
 		// 测试接缝：在 prepare 与 write 之间模拟背后改写，触发重尝试路径。
