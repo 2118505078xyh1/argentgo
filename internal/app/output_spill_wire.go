@@ -83,5 +83,14 @@ func configureOutputSpill(ctx context.Context, env func(string) string, storage 
 	}
 
 	_, _ = tools.CleanSpillArtifacts(dir, tools.DefaultSpillRetention)
+	// 磁盘容量闸门：默认 512MiB，超限按 mtime 淘汰最旧产出。
+	// ARGENT_OUTPUT_SPILL_MAX_BYTES=0 可禁用容量清理（仅保留按时间清理）。
+	maxBytes := int64(512) << 20
+	if raw := get("ARGENT_OUTPUT_SPILL_MAX_BYTES"); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			maxBytes = n // 允许 0 显式禁用；非法值保留默认
+		}
+	}
+	_, _, _ = tools.TrimSpillArtifacts(dir, maxBytes)
 	return tools.WithOutputSpill(ctx, threshold, dir)
 }
