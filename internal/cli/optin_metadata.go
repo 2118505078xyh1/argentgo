@@ -56,6 +56,7 @@ var IndependentOptIns = []IndependentOptIn{
 	// ---- 安全 / 审批 ----
 	{Key: "inspection", Env: "ARGENT_INSPECTION", Name: "安全失败检查层总开关", Enable: "=1", Desc: "启用检查链总开关；关闭时安全链裸链运行，Guardian 绝不生效。"},
 	{Key: "guardian", Env: "ARGENT_GUARDIAN", Name: "Guardian 审阅", Enable: "=1（且 INSPECTION=1、次要模型非空）", Desc: "次要模型审阅安全链结果，两开关为「与」关系。"},
+	{Key: "hook_verdict", Env: "ARGENT_HOOK_VERDICT", Name: "钩子权限裁决折叠", Enable: "=1", Desc: "启用 stdout permissionDecision 裁决：deny 拦截工具调用，allow 仅在无 exit 2 拦截时解除；同时注入审计与补 session/cwd 中间件。默认关闭时 permissionDecision 被忽略。"},
 	{Key: "guardrails", Env: "ARGENT_GUARDRAILS", Name: "护栏运行时模式", Enable: "enforce / shadow", Desc: "选择护栏运行时模式，由 normalizeGuardrailMode 归一化。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},

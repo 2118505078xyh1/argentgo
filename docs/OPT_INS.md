@@ -281,6 +281,13 @@ argentgo "你的任务"
 - **适用场景**：批准文件编辑前希望一眼看到改了哪些文件、增删大致行数时。
 - **逐字节不变承诺**：门控关闭时无论审批请求是否带 diff 数据，弹窗帧字节都与接线前逐字节相同；`name` / `args` 始终原样传递。
 
+### `ARGENT_HOOK_VERDICT` —— 钩子权限裁决折叠
+
+- **作用**：让 hook stdout 的 `permissionDecision` 裁决参与工具审批：`deny`（含 Claude 嵌套形态、exit 0）直接拦截工具调用并给出可读理由；`allow` 仅在无 exit 2 拦截时可解除，绝不解除 exit 2 的硬阻断；同时注入审计中间件与 session/cwd 补齐。
+- **开启值**：修剪后等于 `1`。
+- **适用场景**：使用返回 `{"permissionDecision":"deny"}` 的 Claude 兼容钩子，希望在工具执行前即时拦截时。
+- **逐字节不变承诺**：门控关闭时 `permissionDecision` 被完全忽略，分发路径与裁决结果与接线前逐字节相同。
+
 ### `ARGENT_RETAIN_GUIDANCE` —— 纠正提示压缩存活
 
 - **作用**：控制是否在压缩时保留纠正 nudge 记录的「压缩存活」标记（`agent.SetRetainGuidance`）。
