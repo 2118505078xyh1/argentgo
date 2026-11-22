@@ -55,6 +55,8 @@ type Payload struct {
 	// 原因、最后一条助手消息或错误文本。其他所有事件为空，因此
 	// 现有 payload JSON 不变。
 	HookPayload string `json:"hookPayload,omitempty"`
+	// Trigger 描述事件触发的原因（如压缩的 auto / manual）。非压缩事件为空。
+	Trigger string `json:"trigger,omitempty"`
 }
 
 // Result 是一次分发的聚合决策。
@@ -73,6 +75,13 @@ type Result struct {
 	// 由 Summarize 收集各 Outcome.AdditionalContext 的非空值并去重；零值为 nil，
 	// 因此未使用附加上下文的现有路径逐字节不变。上层（app）据此入队，供 agent 在轮次边界注入。
 	AdditionalContexts []string
+	// Verdict 是本次分发中优先级最高的钩子权限裁决（deny > allow > none）。
+	// 供调用方据此打预审批章；默认 VerdictNone 时无任何行为变化。
+	Verdict Verdict
+	// UpdatedInput / UpdatedOutput 是 PreToolUse / PostToolUse 钩子声明的
+	// 输入/输出改写（JSON 对象或字符串）。调用方在 opt-in 下应用到实际 args/out。
+	UpdatedInput  json.RawMessage
+	UpdatedOutput json.RawMessage
 }
 
 // Outcome 表示某个钩子命令做了什么。
@@ -217,6 +226,15 @@ func (d *Dispatcher) applyVerdict(result *Result, payload Payload, outcomes []Ou
 			verdicts = append(verdicts, VerdictNone)
 			continue
 		}
+		// 钩子声明的输入/输出改写（opt-in 由 app 层应用）。
+		if in, out := rewritesFromStdout(o.Stdout); len(in) > 0 || len(out) > 0 {
+			if len(in) > 0 && result.UpdatedInput == nil {
+				result.UpdatedInput = in
+			}
+			if len(out) > 0 && result.UpdatedOutput == nil {
+				result.UpdatedOutput = out
+			}
+		}
 		verdict := VerdictFromOutcome(o)
 		if o.ExitCode == 2 && !o.Blocked {
 			// 退出码 2 未满足既有拦截条件：只保留 stdout 通道的裁决。
@@ -227,7 +245,8 @@ func (d *Dispatcher) applyVerdict(result *Result, payload Payload, outcomes []Ou
 			exit2Block = true
 		}
 	}
-	switch AggregateVerdict(verdicts) {
+	result.Verdict = AggregateVerdict(verdicts)
+	switch result.Verdict {
 	case VerdictDeny:
 		// exit 2 拦截已由 Summarize 写入理由；stdout 的 permissionDecision:deny
 		// 在新折叠下原本没有消息，这里补一条，避免拦截理由被静默丢弃。

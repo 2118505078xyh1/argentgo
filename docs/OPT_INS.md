@@ -541,6 +541,8 @@ argentgo "你的任务"
 | `ARGENT_GREP_PER_FILE` | 正整数时限制 grep/grep_ex 单文件匹配数：某文件达上限后跳过其余行但继续遍历其它文件，避免一个热文件吃满全局预算；默认 0 禁用时与旧行为逐字节一致。 |
 | `ARGENT_BLOCK_GENERATED_EDITS` | =1 时 edit/write/apply_patch 在写入前按文件名模式（如 `zz_generated.*`、`*.pb.go`、`*.gen.ts`）与头部标记（`@generated`/`Code generated`/`DO NOT EDIT`）拒绝编辑生成物，并指引改源文件后重新生成；默认关闭时编辑行为逐字节不变。 |
 | `ARGENT_ELIDE_DATA_URLS` | =1 时在工具结果 head/tail 裁剪之前把整段 base64 data URL 原子替换为保留 MIME 与字符数的占位（并治愈遗留前缀碎片），避免切出无法解码的坏图引用；默认关闭时裁剪逐字节不变。 |
+| `ARGENT_HOOK_REWRITE` | =1 时应用 PreToolUse 钩子声明的 `updatedInput`/`updatedOutput`：输入改写与审批、执行使用同一份字节，输出改写替换回灌给模型的正文；默认关闭时工具参数与输出逐字节不变。 |
+| `ARGENT_COMPACTION_HOOK` | =1 时压缩前触发 PreCompact（返回 blocked 可阻止压缩并公告原因，零写入）、压缩落盘后触发 PostCompact；默认关闭时压缩路径无任何钩子调用，逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

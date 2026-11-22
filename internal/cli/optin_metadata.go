@@ -64,6 +64,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "grep_per_file", Env: "ARGENT_GREP_PER_FILE", Name: "grep 单文件匹配上限", Enable: "正整数（缺省 0 禁用）", Desc: "限制单个文件的匹配数，某文件达上限后跳过其余行但继续遍历其它文件，保留文件多样性；关闭时仍由全局上限决定，逐字节不变。"},
 	{Key: "block_generated_edits", Env: "ARGENT_BLOCK_GENERATED_EDITS", Name: "禁止编辑生成文件", Enable: "=1", Desc: "edit/write/apply_patch 在写入前按文件名模式与头部标记拒绝编辑生成物，指引改源文件后重新生成；默认关闭时编辑行为逐字节不变。"},
 	{Key: "elide_data_urls", Env: "ARGENT_ELIDE_DATA_URLS", Name: "裁剪前替换 data URL", Enable: "=1", Desc: "在工具结果裁剪前把整段 base64 data URL 原子替换为保留 MIME 与长度的占位，避免切断图片引用；默认关闭时裁剪逐字节不变。"},
+	{Key: "hook_rewrite", Env: "ARGENT_HOOK_REWRITE", Name: "钩子输入/输出改写", Enable: "=1", Desc: "应用 PreToolUse 钩子声明的 updatedInput/updatedOutput：输入改写与审批/执行使用同一份字节，输出改写替换回灌正文；默认关闭时参数与输出逐字节不变。"},
+	{Key: "compaction_hook", Env: "ARGENT_COMPACTION_HOOK", Name: "压缩事件钩子", Enable: "=1", Desc: "压缩前触发 PreCompact（可阻断压缩并公告原因），落盘后触发 PostCompact；默认关闭时压缩路径无任何钩子调用，逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

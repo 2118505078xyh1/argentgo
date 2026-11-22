@@ -36,6 +36,8 @@ const (
 	Notification Event = "Notification"
 	// PreCompact 在对话压缩前触发。
 	PreCompact Event = "PreCompact"
+	// PostCompact 在对话压缩落盘后触发。
+	PostCompact Event = "PostCompact"
 	// SessionEnd 在会话结束时触发，包括取消时。
 	SessionEnd Event = "SessionEnd"
 	// SubagentStop 在子代理完成运行时触发。
@@ -67,6 +69,7 @@ var AllEvents = []Event{
 	PostToolUseFailure,
 	Notification,
 	PreCompact,
+	PostCompact,
 	SessionEnd,
 	SubagentStop,
 	Stop,

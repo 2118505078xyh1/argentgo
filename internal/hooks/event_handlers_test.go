@@ -63,6 +63,7 @@ func TestEventHandlerRegistryEventMapping(t *testing.T) {
 		{PostToolUseFailure, "after a tool call fails", "Tool, Args, Error, CallID"},
 		{Notification, "when an informational notice is shown to the user", "Prompt"},
 		{PreCompact, "just before the conversation is compacted", ""},
+		{PostCompact, "right after the conversation is compacted", ""},
 		{SessionEnd, "when a session ends, including on cancellation", ""},
 		{SubagentStop, "when a subagent finishes its run", "Output"},
 		{Stop, "when the assistant finishes a turn", "Prompt, Output"},

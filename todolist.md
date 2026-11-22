@@ -603,34 +603,6 @@
 - **建议**：opt-in 同模型重试策略（`maxRetries`/base/cap），重试前通过 app 回调把失败助手消息写 `ContextEdit{TargetID, Text:""}` 永久省略；退避可被 ctx 取消；复用 `internal/llm/retry.go:416-440` 的分类。默认仍走当前模型回退，事件/字节不变。
 - **验收**：`internal/app/retry_omit_test.go`：429 → 重试成功，断言失败轮被 context_edit 省略、退避受 ctx 取消、默认路径无 edit 记录；`go test ./internal/app ./internal/agent -count=1`。
 
-### 107. `apply_patch` 的 `@@ context` 锚定被丢弃，重复片段无法消歧 `[P1/S-M]`（学自 codex）
-- **竞品证据**：`codex/codex-rs/apply-patch/src/parser.rs:18-20,44-45` 把 `@@ <text>` 解析为 `change_context`；`file_update.rs:60-85` 用 `seek_sequence(..., line_index)` 先找到 context 再把游标推进到其后匹配 old lines；`seek_sequence.rs:12-70` 依次做精确 / 忽略尾空白 / 忽略首尾空白 / Unicode 标点归一化四轮。
-- **argentgo 现状**：`internal/tools/apply_patch_parse.go:180-194` 的 `parsePatchHunkHeader` 虽接受 `@@ context`，但注释称「仅作定位提示」，非数字分支直接返回空 `PatchHunk{}`，**context 文本被丢弃**；数字形式 `OldStart/OldLines`（`:34-38`）在 `tools_apply_patch.go:159-178` 也未被读取，实际只走整文件 `repairReplace` 唯一匹配——同一片段出现两次即 `ErrApplyPatchAmbiguous`，模型就算写了 context 也无用。
-- **问题**：重复代码块（样板、测试夹具、switch case）是 patch 失败的最高发场景之一。
-- **建议**：`PatchHunk` 加 `Context string`，保留 `@@` 后文本；update 分支在 `repairReplace` 前先在锚点之后的文件切片做唯一匹配；数字行号仅作提示不强约束；无 context 时逐字节不变。
-- **验收**：`internal/tools/apply_patch_context_test.go`：两处相同旧 snippet 分别用不同 `@@ ctx` 锚定，断言各自替换正确；无 context 时仍报歧义；`go test ./internal/tools -run TestApplyPatch -count=1`。
-
-### 108. PreToolUse `decision=allow` 未变成预审批，照样弹窗 `[P1/M]`（crush + cline）
-- **竞品证据**：crush `internal/agent/hooked_tool.go:76-81` 把 `DecisionAllow` 盖章进 ctx（`permission.WithHookApproval`），`internal/permission/permission.go:16-34,313-322` 按 tool call ID 校验并跳过弹窗（仍发 granted 通知）；cline `sdk/packages/agents/src/agent-runtime.ts:2469-2499` 的 `beforeTool` hooks 可在审批前改写 input/policy/skip。
-- **argentgo 现状**：`ARGENT_HOOK_VERDICT=1` 只把 allow 用于清除 `Result.Blocked`（`internal/app/hooks.go:122-125`、`internal/hooks/dispatch.go:246-249`），`Result` 无审批字段（`:66-76`）；`security.Chain.check` 仍无条件 `approver.Ask`（`internal/security/chain.go:275,364`）；未受 guard 的工具还会在 `internal/agent/dispatch.go:419-450` 再问一次；`Payload.CallID` 字段存在但 fire 时未填（`app/hooks.go:532`）。
-- **问题**：用户写了 allow 钩子仍被弹窗打断，自动化流程卡住；with hook 的自动审批无法落地。
-- **建议**：扩展 `ARGENT_HOOK_VERDICT`：dispatch 把 `call.ID` 放进 ctx，`app/hooks.go:532` 填 `Payload.CallID`，VerdictAllow 时用 security 包本地 context key 打章（模仿 crush 按 ID 校验）；`Chain.check` 在 `:364` 前查章，策略/审计照跑；不信任的钩子文档由现有 SHA-256 trust gate 挡住。
-- **验收**：`internal/app/hook_preapproval_test.go`：allow 钩子 + 受保护工具 → 无弹窗但审计有 granted；deny 仍拦截；关闭 opt-in 时行为不变；`go test ./internal/app ./internal/security -count=1`。
-
-### 109. hook `updatedInput`/`updatedOutput` 改写未支持 `[P1/M]`（crush + cline + opencode）
-- **竞品证据**：crush `internal/hooks/input.go:107-154,188-215` 解析 `hookSpecificOutput.updatedInput/updatedOutput`，`internal/agent/hooked_tool.go:70-73,90-93` 应用到实际 args 和结果；cline `agent-runtime.ts:2469-2499` 可在审批前改写 input；opencode `core/src/permission.ts:212-238` 的 permission evaluate hook 可改写 `effect`。
-- **argentgo 现状**：`internal/hooks/verdict.go:56-133,172-220` 只解析 `permissionDecision` 与 `additionalContext`；`Result` 无改写字段（`dispatch.go:66-76`）；`app/hooks.go:518-582` 只能把钩子消息 append 成注释。
-- **问题**：无法做输入脱敏/命令重写/输出脱敏——这是 hook 层最有表达力的能力，符合「优先 hook 而非改核心」的约束。
-- **建议**：opt-in `ARGENT_HOOK_REWRITE=1`：在 `internal/hooks` 加纯解析函数读 `hookSpecificOutput.updatedInput/updatedOutput`（沿用 verdict.go 脱敏/限长）；`hookedTools.Run` 在 PreToolUse 后改 args、PostToolUse 后改 out。**关键约束**：输入改写必须和审批/执行参数一致（见 #108 打章机制），否则只先开放 PostToolUse 输出改写；默认逐字节不变。
-- **验收**：`internal/hooks/rewrite_test.go` + `internal/app/hook_rewrite_test.go`：updatedOutput 改敏感字段后模型看到改写值；updatedInput 开启时审批与执行看到同一份字节；`go test ./internal/hooks ./internal/app -count=1`。
-
-### 110. PreCompact/PostCompact 声明了但零触发 `[P1/S-M]`（crush + codex）
-- **竞品证据**：crush `internal/agent/agent.go:1557-1558` fire `EventPreCompact` 且 blocked → `ErrCompactionBlocked`；`:1686` fire PostCompact；`:1252-1273` 自动阈值；事件含 `Trigger` 字段（hooks/events.go:83）。codex `core/src/compact.rs:200-205` 压缩前 `run_pre_compact_hooks`（Stopped → TurnAborted），`:228-238` 压缩后 `run_post_compact_hooks`。
-- **argentgo 现状**：`internal/hooks/hooks.go:37-38` 只有常量与描述表（`event_handlers.go:98`）；生产 fire 只有 SessionStart/UserPromptSubmit/Stop/SessionEnd 和 Pre/PostToolUse、FileChanged（`internal/app/hooks.go:465-475,532,554,592`）；压缩路径 `internal/app/compact.go:249-295` 与 `maybeAutoCompact`（`:493-537`）完全不经过 hook。
-- **问题**：用户写的 PreCompact 文档永久空转，无法阻止一次破坏性压缩；PostCompact 无法审计；hook 事件表对用户的承诺落空。
-- **建议**：opt-in `ARGENT_COMPACTION_HOOK=1`：给 `sessionCompactor` 现有注入字段（`internal/app/compact.go:44-47`）挂 hook 回调，`MaybeCompact`/`compactWithEvidence`/`sess.Compact` 前 fire PreCompact（blocked 则返回原消息 + EventNotice），`Append` 后 fire PostCompact；`hooks.Payload` 增 `trigger`。**不要**照搬 crush 的续跑队列——argentgo 只在工具批次全部结算后压缩（`loop.go:1180,1228`），无中途截断问题。
-- **验收**：`internal/app/compaction_hook_test.go`：PreCompact 返回 blocked → 消息未变、会话无压缩记录；PostCompact 收到 trigger=auto/manual；关闭时 golden 不变；`go test ./internal/app -count=1`。
-
 ### 111. crush 风格生命周期 hook 事件补齐：TurnStart/End/Interrupt/StopFailure/SubagentStop `[P2/S-M]`（学自 crush）
 - **竞品证据**：crush `internal/agent/agent.go:987,1308,1421` 按分类触发 TurnStart/Interrupt/StopFailure/TurnEnd（`turn_hooks.go:25-47`），取消用 `context.WithoutCancel` 保证落盘。
 - **argentgo 现状**：常量已声明（`internal/hooks/hooks.go:43-57,98`），但生产只 fire #110 列出的几个；agent 已有完整事件源（`internal/agent/events.go:15-28`），app 的 `Emit` 闭包在 `internal/app/app_execute.go:702`，审批事件在 `dispatch.go:429-434`。
@@ -645,13 +617,6 @@
 - **建议**：opt-in 把 agent.Event 以 JSONL 追加到会话目录（stdlib，复用 session 目录与脱敏），SSE 支持 `Last-Event-ID` 从磁盘续放；默认仍走内存 hub，字节不变。
 - **验收**：`internal/server/event_persist_test.go`：发布 300 事件后用 `Last-Event-ID: 10` 重连收到 11+ 且终态必达；关闭时旧 SSE 行为不变；`go test ./internal/server -count=1`。
 
-### 113. 生成文件（auto-generated）编辑无拒绝 `[P1/S]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/crates/edit/src/path_policy.rs:234-247` 的 `auto_generated_message` + `:540-568` 的文件名模式（`zz_generated.*`/`*.pb.go`/`*.gen.ts`/`_pb2.py`/`*.swagger.json`）与前 1024 字节标记检测（`@generated`/`Code generated ... DO NOT EDIT`/已知生成器）；强制点在 `crates/edit/src/files.rs:252-258` 与 `modes/apply_patch.rs:340-346`。
-- **argentgo 现状**：`internal/tools` 与 `internal/security` 非测试代码中 `generated` 零命中；`internal/security/protected_paths.go` 只管路径保护，不识别生成标记。
-- **问题**：模型直接编辑 `*.pb.go` 等生成物，下次 regenerate 即丢失改动。
-- **建议**：opt-in `ARGENT_BLOCK_GENERATED_EDITS=1`：在 edit/write/apply_patch 的 stage 阶段检查文件名与头部标记，返回模型可读拒绝文案（含「改源文件再重新生成」指引）；默认关闭。
-- **验收**：`internal/tools/generated_guard_test.go`：`zz_generated.go` 与含 `// Code generated ... DO NOT EDIT.` 的普通文件被拒；手工文件放行；关闭时编辑成功；`go test ./internal/tools -count=1`。
-
 ### 114. 普通文本编辑缺 parse-regression 门禁（写入前语法劣化检查）`[P1/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/edit/src/session.rs:454-458` 计算 `parse_regressed = op != Delete/Noop && existed && source_parses(before) && !source_parses(after)`（字段 `:113`、结果 `:485`），`source_parses` 在 `:578-587` 经语法 oracle 检查，宿主据此自动修复。
 - **argentgo 现状**：只有 AST 改写路径有等价的「写入前拒绝」——`internal/astedit/astedit.go:102-106` 在 splice 后 `newErrs > baseErrs` 直接 `ErrInvalidReplacement`；普通 `edit`（`tools_builtin_write_edit.go:98-189`）和 `apply_patch`（`tools_apply_patch.go:145-235`）都没有，坏语法静默落盘。
@@ -665,20 +630,6 @@
 - **问题**：格式化钩子或编辑器保存改变了最终字节时，模型看到的 diff 与实际落盘不一致，后续 anchor/hashline 基于错误快照。
 - **建议**：opt-in `ARGENT_VERIFY_WRITE=1`：写后 `os.ReadFile` 比较预期字节，漂移则返回结构化警告 + 用 `hashlineHash`（`tools_builtin_write_edit.go:207-214`）重算的新 anchor；同时把 `FileFreshness` 接进 read/write 路径（见 #124）。默认零额外 syscall。
 - **验收**：`internal/tools/write_drift_test.go`：注入会改写字节的 FormatHook，断言结果含新 anchor 与警告；无 hook 时不产生额外读取；`go test ./internal/tools -count=1`。
-
-### 116. 工具结果裁剪会切断 base64 data URL，导致后续请求永久失败 `[P1/S]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/packages/snapcompact/src/snapcompact.ts:890-901` 的 `DATA_URL_ATOM` 正则，`:935-949` 说明「被切碎的 base64 会在每次后续请求被提供方拒绝且因归档而永久复现」，`:950-999` 的 `elideDataUrls` 原子替换整个 data URL（含 Markdown wrapper）并保留 mime/字符数。
-- **argentgo 现状**：`internal/agent/trim.go:254-300` 按 rune/字素簇切 tool result，`internal/session/tool_prune.go:27-58` 按 rune 切 head/tail，都不识别 data URL 边界；`internal/llm/image_input_wire.go:136-139` 只有输入侧合法性校验。
-- **问题**：工具输出里带 `data:image/png;base64,...` 时，裁剪切点落在 base64 中，产生「看起来合法但永远无法解码」的坏图引用，后续每次请求都被提供方拒绝。
-- **建议**：opt-in `ARGENT_ELIDE_DATA_URLS=1`：在任何 head/tail 截断**之前**用纯函数把整个 data URL atom 换成确定性占位（保留 mime 与 base64 长度），并治愈历史遗留碎片；关闭时 `Trim`/`PruneToolResults` 逐字节不变。
-- **验收**：`internal/agent/trim_data_url_test.go`：含 data URL 的超长工具结果裁剪后不含 base64 片段、占位保留 mime；无 data URL 时输出不变；`go test ./internal/agent ./internal/session -count=1`。
-
-### 117. grep 全局上限被单个热文件吃满，文件多样性丢失 `[P1/S]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/crates/natives/src/grep.rs:119-122` 的 `max_count_per_file` 字段及注释「避免单个热文件耗尽全局 max_count 预算」；`crates/xfs/src/grep/run.rs:624-636` 实施；`crates/xfs/src/grep/tests.rs:912-930` 的 `per_file_cap_preserves_file_diversity` 契约测试。
-- **argentgo 现状**：`internal/tools/tools_builtin_search.go:79-98` 只有一个全局 `maxMatches`，第一个命中密集的文件即占满预算并返回 false 停止 walk；`internal/tools/grep_ex.go:89-92,175-177` 同样只有全局 `HeadLimit`。
-- **问题**：用户搜常见标识符时结果全来自一个日志文件/生成文件，错过真正关心的其他文件。
-- **建议**：`GrepExOptions` 加 opt-in `MaxPerFile`（`0` 保持现有语义）；命中达单文件上限后跳过该文件的剩余行但继续遍历其他文件；两个搜索入口都接上。
-- **验收**：`internal/tools/grep_per_file_test.go`：文件 A 有 200 个命中、文件 B 有 3 个，全局上限 50、`MaxPerFile=5` 时结果含 B；`MaxPerFile=0` 时结果与旧版逐字节一致；`go test ./internal/tools -count=1`。
 
 ### 118. MCP annotations 解析完整但零消费者 `[P1/S]`（学自 cline）
 - **竞品证据**：cline `sdk/packages/core/src/extensions/mcp/annotations.ts:15-31` 保留 title + 四个 hint；`apps.ts:49-62` 用 `_meta.ui.visibility` 决定模型可见性。
@@ -809,11 +760,11 @@
 
 ## 附：优先处理建议
 
-> 2026-11-22 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74/#75/#76/#77/#94/#101/#102/#103）已从本文档删除。第一优先 P0 已全部落地并全绿。
+> 2026-11-22 更新：以下顺序综合了新一轮 6 个竞品源码深读的结论；已落地条目（原 #2/#11/#14/#25/#30/#32/#54/#58/#60/#61/#100/#136，以及 #1/#15/#39/#74/#75/#76/#77/#94/#101/#102/#103/#107/#108/#109/#110/#113/#116/#117）已从本文档删除。第一优先 P0、第二优先 hook 三项与第三优先的小项均已落地并全绿。
 
 1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
-2. **第二优先（hook 表达力与压缩事件接线）**：#108（allow 预审批）、#109（updatedInput/Output）、#110（PreCompact/PostCompact）都是「原语已有、只差接线」，符合「优先 hook 层」约束；#112（事件日志/SSE 续传）、#123（todo 入摘要）紧随其后。
-3. **第三优先（小而实的体验/正确性）**：#107（patch context 锚定）、#113（生成文件保护）、#116（data URL 裁剪）、#117（grep per-file）、#118（MCP annotations 审批）、#124（read-before-write）、#125（分支摘要）——单条多为 S 级，收益/成本比高。
+2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110 已落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件）；剩余 #112（事件日志/SSE 续传）、#123（todo 入摘要）紧随其后。
+3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117 已落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file）；剩余 #118（MCP annotations 审批）、#124（read-before-write）、#125（分支摘要）单条多为 S 级，收益/成本比高。
 4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审。
 5. **发版门禁**：#74–#93 的版本/文档/CI 一致性问题仍会阻塞 v0.8.2 发版；#135（体积/启动门禁）并入这一档。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。

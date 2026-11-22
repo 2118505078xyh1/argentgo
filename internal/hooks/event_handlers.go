@@ -96,6 +96,7 @@ func init() {
 		{PostToolUseFailure, 60, eventDescriptor{triggerText: "after a tool call fails", payloadText: "Tool, Args, Error, CallID"}},
 		{Notification, 70, eventDescriptor{triggerText: "when an informational notice is shown to the user", payloadText: "Prompt"}},
 		{PreCompact, 80, eventDescriptor{triggerText: "just before the conversation is compacted"}},
+		{PostCompact, 81, eventDescriptor{triggerText: "right after the conversation is compacted"}},
 		{SessionEnd, 90, eventDescriptor{triggerText: "when a session ends, including on cancellation"}},
 		{SubagentStop, 100, eventDescriptor{triggerText: "when a subagent finishes its run", payloadText: "Output"}},
 		{Stop, 110, eventDescriptor{triggerText: "when the assistant finishes a turn", payloadText: "Prompt, Output"}},

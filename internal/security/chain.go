@@ -359,6 +359,13 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	// 审批等待必须有上限：无头运行下没有人应答时，直接把 ctx 交给 Ask 会无限期
 	// 挂起。这里派生一个只用于本次 Ask 的子 context；cancel 释放计时器，且不会
 	// 取消父 context，后续步骤仍可继续使用同一个 ctx。
+	// 钩子预审批（opt-in 由 app 层打章控制）：PreToolUse 返回 allow 裁决时，
+	// app 把工具名与参数字节打进 ctx。查章命中则跳过弹窗，但策略与审计照常执行。
+	// 没有章时这一段只是一次类型断言，默认审批路径逐字节不变。
+	if HookApproved(ctx, name, string(args)) {
+		c.record(name, "allow", "pre-approved by a PreToolUse hook", auditArgs)
+		return nil
+	}
 	askCtx, cancel := withApprovalTimeout(ctx, approvalWait)
 	defer cancel()
 	ok, err := approver.Ask(askCtx, name, string(approvalArgs(args, c.policy().Root())))

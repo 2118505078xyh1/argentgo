@@ -16,6 +16,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/hooks"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // inlineHookPath 是直接在配置中提供的文档在信任存储中的键。内联字节与文件一样被哈希，
@@ -41,6 +42,13 @@ const hookReloadEnv = "ARGENT_HOOK_RELOAD"
 // 不修改入参。它是纯函数，便于测试两条激活状态而不污染进程全局。
 func hookVerdictEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env(hookVerdictEnv)) == "1"
+}
+
+// hookRewriteEnv 是启用钩子 updatedInput/updatedOutput 改写的独立门控。
+const hookRewriteEnv = "ARGENT_HOOK_REWRITE"
+
+func hookRewriteEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(hookRewriteEnv)) == "1"
 }
 
 // hookReloadEnabled 报告本次运行是否启用钩子热重载。
@@ -507,6 +515,12 @@ type hookedTools struct {
 	// 零值 false 时完全退化为旧的 EnableEditDiagnostics 全局开关行为；
 	// 置 true 时即使全局开关关闭也走诊断路径。公共 SetXxx 不变。
 	autoDiagnostics bool
+	// preApproval 在 ARGENT_HOOK_VERDICT=1 时，把 PreToolUse 的 allow 裁决打成
+	// 安全链的预审批章，跳过审批弹窗（策略与审计照跑）。默认 false。
+	preApproval bool
+	// rewrite 在 ARGENT_HOOK_REWRITE=1 时应用钩子声明的 updatedInput/updatedOutput。
+	// 默认 false，工具参数与输出逐字节不变。
+	rewrite bool
 	// lspFileNotifier 是编辑后主动通知语言服务器文件变更的可选接线点。默认 nil
 	// 时 Run 不产生任何通知，成功路径逐字节不变；注入后仅在变更型工具成功返回、
 	// 且 mutationPaths 报告了路径时调用。通知失败绝不影响工具结果。
@@ -541,7 +555,27 @@ func (h *hookedTools) Run(ctx context.Context, name, args string) (out string, r
 		return "", fmt.Errorf("the %s tool call was blocked by a PreToolUse hook: %s", name, detail)
 	}
 
-	out, runErr = h.inner.Run(ctx, name, args)
+	// 输入改写（opt-in ARGENT_HOOK_REWRITE）：审批与实际执行必须看到同一份字节，
+	// 因此改写发生在调用 inner.Run（其中运行安全链）之前。
+	runArgs := args
+	if h.rewrite && len(pre.UpdatedInput) > 0 && json.Valid(pre.UpdatedInput) {
+		runArgs = string(pre.UpdatedInput)
+	}
+	// allow 预审批章（opt-in ARGENT_HOOK_VERDICT）：按工具名与改写后的参数绑定，
+	// 安全链在 Ask 之前查章跳过弹窗。没有章时该调用是纯粹的 ctx 原样传递。
+	if h.preApproval && pre.Verdict == hooks.VerdictAllow {
+		ctx = security.WithHookApproval(ctx, name, runArgs)
+	}
+
+	out, runErr = h.inner.Run(ctx, name, runArgs)
+	// 输出改写（opt-in ARGENT_HOOK_REWRITE）：PreToolUse 声明的 updatedOutput
+	// 在工具成功后替换回灌给模型的结果正文（限长脱敏已在 hooks 层完成）。
+	if h.rewrite && runErr == nil && len(pre.UpdatedOutput) > 0 {
+		var text string
+		if json.Unmarshal(pre.UpdatedOutput, &text) == nil {
+			out = text
+		}
+	}
 	// PreToolUse 钩子可能成功，但仍携带给模型的建议。像 PostToolUse 注释一样把它附加到工具结果上，
 	// 使该消息不会被静默丢弃。消息为空时 appendHookNote 是空操作。
 	out = appendHookNote(out, pre.Message)

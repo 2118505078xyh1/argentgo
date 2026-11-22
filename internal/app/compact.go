@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 	"github.com/2118505078xyh1/argentgo/internal/session"
@@ -45,6 +46,11 @@ type sessionCompactor struct {
 	chatter      llm.Chatter
 	summaryModel string
 	emit         func(agent.Event)
+
+	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。fireHook 为 nil
+	// 或 compactionHook 为 false 时整段跳过，压缩路径逐字节不变。
+	fireHook       func(context.Context, hooks.Event, hooks.Payload) (hooks.Result, error)
+	compactionHook bool
 }
 
 func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor {
@@ -255,6 +261,23 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	if start <= 0 {
 		return messages, false
 	}
+	// 压缩前钩子（opt-in ARGENT_COMPACTION_HOOK）：PreCompact 返回 blocked
+	// 时放弃本次压缩并发出可解释的公告，消息与会话都不变（零写入）。
+	if c.compactionHook && c.fireHook != nil {
+		result, err := c.fireHook(context.Background(), hooks.PreCompact, hooks.Payload{
+			SessionID: c.sess.ID(), Trigger: "auto",
+		})
+		if err != nil || result.Blocked {
+			detail := strings.TrimSpace(result.Message)
+			if detail == "" {
+				detail = "a PreCompact hook blocked the compaction"
+			}
+			if c.emit != nil {
+				c.emit(agent.Event{Kind: agent.EventNotice, Text: detail})
+			}
+			return messages, false
+		}
+	}
 	compaction := session.Summarize(entries[:start], len(messages)-start)
 	// 轮次中，运行的 OnCompactionEvidence 回调尚未触发，因此从可见消息中收集后续步骤行，
 	// 并让 Summarize 从被丢弃的条目中提取工具失败记录。
@@ -291,6 +314,14 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	out[0].Content = compaction.Summary
 	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
 		return messages, false
+	}
+	// 压缩后钩子（opt-in）：PostCompact 失败只告警，不影响已经完成的压缩。
+	if c.compactionHook && c.fireHook != nil {
+		if _, err := c.fireHook(context.Background(), hooks.PostCompact, hooks.Payload{
+			SessionID: c.sess.ID(), Trigger: "auto",
+		}); err != nil && c.emit != nil {
+			c.emit(agent.Event{Kind: agent.EventNotice, Text: "PostCompact hook: " + err.Error()})
+		}
 	}
 	return out, true
 }

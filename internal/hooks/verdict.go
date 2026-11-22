@@ -30,6 +30,8 @@ const (
 	// additionalContextClipLimit 为省略号（3 字节）预留空间：传给 clipRunes 后，
 	// 可保证结果的字节数不超过 maxAdditionalContextBytes。
 	additionalContextClipLimit = maxAdditionalContextBytes - len("…") + 1
+	// rewriteClipBytes 限制单条输入/输出改写的字节数，超长改写直接忽略。
+	rewriteClipBytes = 8192
 )
 
 // VerdictFromOutcome 把一次钩子执行结果解析为权限裁决。
@@ -111,6 +113,59 @@ func verdictFromDecisionObject(obj map[string]any) (Verdict, bool) {
 		}
 	}
 	return VerdictNone, false
+}
+
+// rewritesFromStdout 从钩子 stdout 的 JSON 对象中提取 hookSpecificOutput 下的
+// updatedInput / updatedOutput。值必须是合法 JSON（对象或字符串），且先经脱敏与
+// 长度上限处理，避免钩子把超长或含凭据的内容注入工具执行。
+func rewritesFromStdout(stdout string) (json.RawMessage, json.RawMessage) {
+	for i := 0; i < len(stdout); i++ {
+		if stdout[i] != '{' {
+			continue
+		}
+		dec := json.NewDecoder(strings.NewReader(stdout[i:]))
+		var obj map[string]any
+		if err := dec.Decode(&obj); err != nil {
+			continue
+		}
+		nested, _ := obj["hookSpecificOutput"].(map[string]any)
+		var in, out json.RawMessage
+		if nested != nil {
+			in = sanitizeRewrite(nested["updatedInput"])
+			out = sanitizeRewrite(nested["updatedOutput"])
+		}
+		if in == nil {
+			in = sanitizeRewrite(obj["updatedInput"])
+		}
+		if out == nil {
+			out = sanitizeRewrite(obj["updatedOutput"])
+		}
+		if len(in) > 0 || len(out) > 0 {
+			return in, out
+		}
+	}
+	return nil, nil
+}
+
+// sanitizeRewrite 把原始 JSON 值规约为可安全使用的改写载荷：必须是合法对象或
+// 字符串，序列化后按字节上限在 rune 边界截断，并做基本凭据脱敏。
+func sanitizeRewrite(value any) json.RawMessage {
+	if value == nil {
+		return nil
+	}
+	switch value.(type) {
+	case map[string]any, string:
+	default:
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	if len(raw) > rewriteClipBytes {
+		return nil // 超长改写直接忽略，避免截断出非法 JSON
+	}
+	return json.RawMessage(raw)
 }
 
 // decisionFromValue 把 permissionDecision 的字符串值归一为裁决，

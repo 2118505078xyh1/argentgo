@@ -567,7 +567,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		runner = &hookedTools{
 			inner: toolset, bridge: bridge, mutationPaths: toolset.base.mutationPaths,
 			autoDiagnostics: optIns[OptInAutoVerify],
-			lspFileNotifier: lspWatchNotifier(stdio.Env), // ARGENT_LSP_WATCH=0 时注入 nil，完全关闭。
+			preApproval:     hookVerdictEnabled(stdio.Env), // ARGENT_HOOK_VERDICT=1
+			rewrite:         hookRewriteEnabled(stdio.Env), // ARGENT_HOOK_REWRITE=1
+			lspFileNotifier: lspWatchNotifier(stdio.Env),   // ARGENT_LSP_WATCH=0 时注入 nil，完全关闭。
 		}
 	}
 	// 来源 URL 标注（默认启用）：web_fetch/web_search 成功结果前加一行已脱敏
@@ -579,6 +581,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactorWithOpts(res, sess, reg)
+	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。
+	if bridge != nil && compactionHookEnabled(stdio.Env) {
+		compactor.fireHook = bridge.fire
+		compactor.compactionHook = true
+	}
 	// 持久性屏障：在每个开销较大的步骤之前刷写 JSONL 会话。
 	// 这些是按 Runner 划分的字段，因此并发的 Execute 调用（TUI + RPC，或多个会话）
 	// 不会清除彼此的屏障，也不会同步绑定到更早运行的过期会话。
@@ -1099,6 +1106,12 @@ func toolArgFeedbackOptInEnabled(env func(string) string) bool {
 // 只有 ARGENT_MULTIMODAL_TRIM=1 才启用，其他值保持历史估算逐字节不变。
 func multimodalTrimOptInEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_MULTIMODAL_TRIM")) == "1"
+}
+
+// compactionHookEnabled 报告压缩事件钩子是否开启。默认关闭：
+// 只有 ARGENT_COMPACTION_HOOK=1 才启用，其他值压缩路径逐字节不变。
+func compactionHookEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_COMPACTION_HOOK")) == "1"
 }
 
 // destructiveCommandInspector 是选择性启用层的内置检查器。它复用 security 的
