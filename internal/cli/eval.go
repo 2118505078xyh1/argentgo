@@ -68,6 +68,11 @@ func runEval(app App, ctx context.Context, args []string) int {
 	// 中用真实模型执行并评分。与 compare/ab/orchestration 一样手写分派，
 	// 默认 eval 路径完全不变。
 	if len(args) > 0 && args[0] == "history" {
+		// history verify 是 history 的子前缀：离线自检任务判别力（原样失败、
+		// 参考解通过），不调用模型、不需要 API key。
+		if len(args) > 1 && args[1] == "verify" {
+			return runEvalHistoryVerify(app, args[2:])
+		}
 		return runEvalHistory(app, ctx, args[1:])
 	}
 
@@ -266,7 +271,8 @@ func evalUsage(w io.Writer) {
        argentgo eval quality <model-quality.json>
        argentgo eval baseline accept <result.json> [--note <text>]
        argentgo eval baseline check <result.json>
-       argentgo eval history <repo> [--max-tasks <n>] [--since <ref>]
+       argentgo eval history <repo> [--max-tasks <n>] [--since <ref>] [--scripted]
+       argentgo eval history verify <repo> [--max-tasks <n>] [--since <ref>]
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.

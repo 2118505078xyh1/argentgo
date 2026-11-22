@@ -56,6 +56,21 @@ func TestRunEvalHistoryScripted(t *testing.T) {
 	}
 }
 
+// TestRunEvalHistoryVerifyDispatch 验证 history verify 子前缀走离线自检路径，
+// 不调用 app.Eval（不需要模型 runner）。
+func TestRunEvalHistoryVerifyDispatch(t *testing.T) {
+	stdio, _, errOut := newTestIO("", nil)
+	// 无 runner 也应进入 verify 路径（它直接调用 eval 纯函数）；
+	// 用不存在的仓库触发明确错误而非 panic。
+	code := RunWith(App{IO: stdio}, []string{"eval", "history", "verify", "/nonexistent-repo-xyz"})
+	if code == 0 {
+		t.Fatalf("exit = 0, stderr = %q, want non-zero for missing repo", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "eval history verify:") {
+		t.Fatalf("stderr = %q, want a verify diagnostic", errOut.String())
+	}
+}
+
 // TestRunEvalHistoryArgValidation 验证缺仓库路径与非法参数时退出非 0 并给出中文提示。
 func TestRunEvalHistoryArgValidation(t *testing.T) {
 	cases := [][]string{

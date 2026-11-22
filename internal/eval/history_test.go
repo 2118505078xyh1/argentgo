@@ -103,7 +103,12 @@ func initTestRepo(t *testing.T) string {
 	}
 	git("add", ".")
 	git("commit", "-qm", "first: scaffold")
-	if err := os.WriteFile(filepath.Join(repo, "lib_test.go"), []byte("package t\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0o644); err != nil {
+	// 第二次提交同时实现 Add 并新增测试：父提交 + 测试会因 undefined: Add 失败，
+	// 提交本身 + 测试通过，这才构成有判别力的任务。
+	if err := os.WriteFile(filepath.Join(repo, "lib.go"), []byte("package t\n\nfunc Add(a, b int) int { return a + b }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "lib_test.go"), []byte("package t\nimport \"testing\"\nfunc TestAdd(t *testing.T) { if Add(1, 2) != 3 { t.Fatal(\"bad\") } }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git("add", ".")
@@ -177,5 +182,24 @@ func TestHistoryWorktreeFactory(t *testing.T) {
 	}
 	if strings.Contains(string(list), dir) {
 		t.Fatalf("worktree still registered after cleanup: %s", list)
+	}
+}
+
+// TestVerifyHistoryTasks 用真实 git 仓库验证任务自检：新增的测试在父提交下
+// 必须失败（因为源码还没实现），在提交本身下必须通过（参考解成立）。
+func TestVerifyHistoryTasks(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not on PATH")
+	}
+	repo := initTestRepo(t)
+	results, err := VerifyHistoryTasks(context.Background(), repo, HistoryOptions{MaxTasks: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if !results[0].Valid() {
+		t.Fatalf("history task failed self-check: %+v", results[0])
 	}
 }

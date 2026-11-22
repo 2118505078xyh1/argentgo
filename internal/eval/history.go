@@ -47,6 +47,7 @@ type HistoryOptions struct {
 type HistoryTaskSet struct {
 	Scenarios []Scenario
 	parents   map[string]string
+	commits   map[string]string
 }
 
 // safeHistoryPath 拒绝绝对路径与 .. 逃逸，避免恶意提交里的文件名越出工作区。
@@ -80,7 +81,7 @@ func DiscoverHistoryTasks(ctx context.Context, repo string, opts HistoryOptions)
 		return nil, fmt.Errorf("git log: %w", err)
 	}
 
-	set := &HistoryTaskSet{parents: make(map[string]string)}
+	set := &HistoryTaskSet{parents: make(map[string]string), commits: make(map[string]string)}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -139,6 +140,7 @@ func DiscoverHistoryTasks(ctx context.Context, repo string, opts HistoryOptions)
 			},
 		})
 		set.parents[name] = parent
+		set.commits[name] = sha
 		if len(set.Scenarios) >= maxTasks {
 			break
 		}
@@ -153,6 +155,28 @@ func shortHistorySHA(sha string) string {
 	return sha
 }
 
+// worktreeAt 在任意提交的 --detach worktree 中创建隔离目录，返回清理函数。
+func worktreeAt(repo, commit string) (string, func(), error) {
+	tmp, err := os.MkdirTemp("", "argent-hist-")
+	if err != nil {
+		return "", nil, err
+	}
+	dir := filepath.Join(tmp, "tree")
+	if _, err := historyGitCommand(context.Background(), repo,
+		"worktree", "add", "--detach", dir, commit); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", nil, fmt.Errorf("git worktree add: %w", err)
+	}
+	cleanup := func() {
+		// worktree 先移除再删目录，最后 prune 清掉 .git/worktrees 元数据；
+		// 任何一步失败都不影响后续步骤，避免残留污染真实仓库。
+		_, _ = historyGitCommand(context.Background(), repo, "worktree", "remove", "--force", dir)
+		_, _ = historyGitCommand(context.Background(), repo, "worktree", "prune")
+		_ = os.RemoveAll(tmp)
+	}
+	return dir, cleanup, nil
+}
+
 // WorktreeFactory 返回一个供 eval.Options.WorkspaceFactory 使用的工厂：
 // 在父提交的 --detach worktree 中种入新增测试文件，评分后彻底清理 worktree。
 func (s *HistoryTaskSet) WorktreeFactory(repo string) func(Scenario) (string, func(), error) {
@@ -161,23 +185,63 @@ func (s *HistoryTaskSet) WorktreeFactory(repo string) func(Scenario) (string, fu
 		if !ok || parent == "" {
 			return "", nil, fmt.Errorf("no parent commit recorded for %q", sc.Name)
 		}
-		tmp, err := os.MkdirTemp("", "argent-hist-")
-		if err != nil {
-			return "", nil, err
-		}
-		dir := filepath.Join(tmp, "tree")
-		if _, err := historyGitCommand(context.Background(), repo,
-			"worktree", "add", "--detach", dir, parent); err != nil {
-			_ = os.RemoveAll(tmp)
-			return "", nil, fmt.Errorf("git worktree add: %w", err)
-		}
-		cleanup := func() {
-			// worktree 先移除再删目录，最后 prune 清掉 .git/worktrees 元数据；
-			// 任何一步失败都不影响后续步骤，避免残留污染真实仓库。
-			_, _ = historyGitCommand(context.Background(), repo, "worktree", "remove", "--force", dir)
-			_, _ = historyGitCommand(context.Background(), repo, "worktree", "prune")
-			_ = os.RemoveAll(tmp)
-		}
-		return dir, cleanup, nil
+		return worktreeAt(repo, parent)
 	}
+}
+
+// HistoryVerifyResult 是一个历史任务的自检结果。
+// killi 决策 15 要求：每个任务在"原样"下必须失败、在参考解（该提交）下必须通过，
+// 否则任务本身没有判别力，不应进入评测集。
+type HistoryVerifyResult struct {
+	Name         string
+	ParentFailed bool // 父提交 + 新测试 → go test 失败（原样不成立）
+	CommitPassed bool // 提交本身 + 测试 → go test 通过（参考解成立）
+	Err          string
+}
+
+// Valid 报告该任务是否通过自检。
+func (r HistoryVerifyResult) Valid() bool {
+	return r.Err == "" && r.ParentFailed && r.CommitPassed
+}
+
+// VerifyHistoryTasks 离线验证每个历史任务的判别力：
+// 在父提交 worktree 种入新增测试并跑 go test（期望失败），
+// 在该提交 worktree 跑同一测试（期望通过）。全程不联网、不调用模型。
+func VerifyHistoryTasks(ctx context.Context, repo string, opts HistoryOptions) ([]HistoryVerifyResult, error) {
+	set, err := DiscoverHistoryTasks(ctx, repo, opts)
+	if err != nil {
+		return nil, err
+	}
+	check := ExecCheck{Command: "go", Args: []string{"test", "./..."}}
+	results := make([]HistoryVerifyResult, 0, len(set.Scenarios))
+	for _, sc := range set.Scenarios {
+		result := HistoryVerifyResult{Name: sc.Name}
+		parentDir, parentCleanup, err := worktreeAt(repo, set.parents[sc.Name])
+		if err != nil {
+			result.Err = err.Error()
+			results = append(results, result)
+			continue
+		}
+		if err := seed(parentDir, sc.Files); err != nil {
+			result.Err = err.Error()
+			parentCleanup()
+			results = append(results, result)
+			continue
+		}
+		parentRes := RunExecCheck(parentDir, check)
+		parentCleanup()
+		result.ParentFailed = parentRes.ExitCode != 0
+
+		commitDir, commitCleanup, err := worktreeAt(repo, set.commits[sc.Name])
+		if err != nil {
+			result.Err = err.Error()
+			results = append(results, result)
+			continue
+		}
+		commitRes := RunExecCheck(commitDir, check)
+		commitCleanup()
+		result.CommitPassed = commitRes.ExitCode == 0
+		results = append(results, result)
+	}
+	return results, nil
 }
