@@ -46,6 +46,8 @@ func runEvalHistory(app App, ctx context.Context, args []string) int {
 			spec.Since = strings.TrimSpace(args[i])
 		case strings.HasPrefix(arg, "--since="):
 			spec.Since = strings.TrimSpace(strings.TrimPrefix(arg, "--since="))
+		case arg == "--scripted":
+			spec.Scripted = true
 		default:
 			fmt.Fprintf(app.IO.Err, "eval history: unknown argument %q\n", arg)
 			evalHistoryUsage(app.IO.Err)
@@ -71,11 +73,13 @@ func runEvalHistory(app App, ctx context.Context, args []string) int {
 }
 
 func evalHistoryUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argentgo eval history <repo> [--max-tasks <n>] [--since <ref>]
+	fmt.Fprint(w, `usage: argentgo eval history <repo> [--max-tasks <n>] [--since <ref>] [--scripted]
 
 Extracts recent commits that added test files from <repo>. Each commit's
 message becomes the prompt; its added test file is seeded into a temporary
 git worktree at the parent commit, so the real working tree is never touched.
 The real model is required (flag/config/login/provider env). Default: 15 tasks.
+With --scripted, a one-turn scripted reply replaces the real model so the
+worktree/grading flow can be checked offline (tasks usually fail by design).
 `)
 }

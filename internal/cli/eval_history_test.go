@@ -41,6 +41,21 @@ func TestRunEvalHistoryDispatches(t *testing.T) {
 	}
 }
 
+// TestRunEvalHistoryScripted 验证 --scripted 被解析并传给 runner，可离线驱动流程。
+func TestRunEvalHistoryScripted(t *testing.T) {
+	stdio, _, errOut := newTestIO("", nil)
+	runner := &fakeHistoryRunner{passed: 0, failed: 1} // 脚本不修 bug，预期失败
+	code := RunWith(App{IO: stdio, Eval: runner}, []string{
+		"eval", "history", "/repo", "--scripted", "--max-tasks=3",
+	})
+	if code != 1 {
+		t.Fatalf("exit = %d, stderr = %q, want 1 for failed scenario", code, errOut.String())
+	}
+	if !runner.called || !runner.spec.Scripted || runner.spec.MaxTasks != 3 {
+		t.Fatalf("spec = %+v, want scripted with max=3", runner.spec)
+	}
+}
+
 // TestRunEvalHistoryArgValidation 验证缺仓库路径与非法参数时退出非 0 并给出中文提示。
 func TestRunEvalHistoryArgValidation(t *testing.T) {
 	cases := [][]string{
@@ -72,7 +87,7 @@ func TestEvalHistoryUsage(t *testing.T) {
 		t.Fatalf("exit = %d", code)
 	}
 	got := out.String()
-	for _, want := range []string{"eval history <repo>", "--max-tasks", "--since"} {
+	for _, want := range []string{"eval history <repo>", "--max-tasks", "--since", "--scripted"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q:\n%s", want, got)
 		}
