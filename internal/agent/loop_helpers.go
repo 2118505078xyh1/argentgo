@@ -241,6 +241,23 @@ func (s *runState) account(reply llm.Message, promptEstimate int) (llm.Usage, in
 	return usage, usage.PromptTokens
 }
 
+// injectFollowUp 把"本应停止后再继续"的用户消息作为新轮次加入对话。
+// 与 Steer 不同，它只在模型无工具调用、即将结束的分支被检查（见 loop.go），
+// 使中途键入的消息能在回答完成后成为新的一轮，而不是打断当前轮。
+// 通道为 nil 时零分配、返回 false（项目 TODO #122）。
+func (s *runState) injectFollowUp() bool {
+	if s.followUp == nil || s.followUp.ch == nil {
+		return false
+	}
+	pending := s.followUp.drain()
+	for _, text := range pending {
+		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})
+		s.record("followup", text)
+		s.emit(Event{Kind: EventNotice, Text: followUpNoticePrefix + text})
+	}
+	return len(pending) > 0
+}
+
 // injectSteering 把排队的纠正消息移入对话。额外的文本（例如一次性的卡住提示）
 // 也走同一条用户轮次路径，载荷保持原始字符串。
 func (s *runState) injectSteering(extra ...string) bool {

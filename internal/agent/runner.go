@@ -249,6 +249,10 @@ type Options struct {
 
 	// Steer 在轮次之间被抽取；每个值都会成为一条用户消息。
 	Steer <-chan string
+	// FollowUp 是"本应停止后再继续"的消息通道：模型无工具调用、即将结束时，
+	// 排队的用户消息会开启一个新轮次（而不是像 Steer 那样插在当前轮的边界）。
+	// nil 时完全关闭，零分配、原样结束（项目 TODO #122）。
+	FollowUp <-chan string
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。
 	Budget Budget
 	// Prices 把模型 id 映射到其每百万 token 的价格。若存在 "" 条目，

@@ -2,6 +2,9 @@ package agent
 
 import "strings"
 
+// followUpNoticePrefix 是 follow-up 消息注入时的公告前缀。
+const followUpNoticePrefix = "follow-up: "
+
 // steering 在轮次之间抽取调用方的纠正消息通道。
 //
 // 模型工作期间键入的纠正消息会在下一个轮次边界作为用户消息加入对话——绝不会插在工具批次中间，

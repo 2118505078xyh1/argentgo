@@ -63,10 +63,11 @@ type runState struct {
 	specs    []llm.ToolSpec
 	messages []llm.Message
 
-	emitFn func(Event)
-	rec    Recorder
-	steer  *steering
-	guard  *dedupe
+	emitFn   func(Event)
+	rec      Recorder
+	steer    *steering
+	followUp *steering
+	guard    *dedupe
 
 	// ttsr 是流式规则观察器。nil（默认）时 chatWithTTSR 直接走 s.chat，逐字节不变；
 	// 非 nil 时按规则在流中判定 Retry/Inject/Warn，见 chatWithTTSR。
@@ -600,6 +601,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		emitFn:        emit,
 		rec:           normaliseRecorder(opts.Record),
 		steer:         &steering{ch: opts.Steer},
+		followUp:      &steering{ch: opts.FollowUp},
 		ttsr:          newTTSRWatcherForRun(opts.TTSRRules),
 		beforeRequest: opts.BeforeRequest,
 		beforeTool:    opts.BeforeTool,
@@ -1123,7 +1125,7 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		if len(reply.ToolCalls) == 0 {
 			// 在答案流式输出期间到达的纠正消息仍值得一个答复：再开一轮，而不是结束。
 			// hook 附加上下文同理：若在本轮期间到达，也让模型再看一轮而非直接结束。
-			if s.injectSteering() || s.injectHookContexts(ctx) {
+			if s.injectSteering() || s.injectFollowUp() || s.injectHookContexts(ctx) {
 				continue
 			}
 			if truncated {
