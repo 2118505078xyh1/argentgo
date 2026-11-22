@@ -67,28 +67,69 @@ type Options struct {
 }
 
 // Result 是一个场景的评分结果。
+//
+// 所有字段都带 JSON 标签：Result 向量既是内存中的评分产物，也是 `eval --json`
+// 落盘、再被 `eval compare` / `eval ab` 读回的测量载体。显式小写标签让外部
+// 解析不再依赖 Go 字段名大小写不敏感匹配（R51 研究 #88）。
 type Result struct {
-	Index   int
-	Name    string
-	Passed  bool
-	Reason  string
-	Tools   []string
-	Text    string
-	Turns   int
-	Stopped bool
+	Index   int      `json:"index"`
+	Name    string   `json:"name"`
+	Passed  bool     `json:"passed"`
+	Reason  string   `json:"reason"`
+	Tools   []string `json:"tools"`
+	Text    string   `json:"text"`
+	Turns   int      `json:"turns"`
+	Stopped bool     `json:"stopped"`
 	// Usage 是该场景累计的计费 token；由 Trace.Usage 逐项拷贝而来，
 	// 供 Live 报告的 token 汇总使用（JSON 标签便于外部持久化）。
 	Usage llm.Usage `json:"usage,omitempty"`
 	// Duration 是执行场景所花的挂钟时间。它是
 	// Duration 是执行场景所花的挂钟时间。它是 AggregateScores 消费的诊断信号；从不影响评分。
-	Duration time.Duration
+	Duration time.Duration `json:"duration"`
 }
 
-// Report 汇总一次套件运行。
+// Report 汇总一次套件运行。Results 的标签使 Report 也可直接落盘为
+// {"passed": n, "failed": n, "results": [...]}，而 CLI 只导出其中的 results。
 type Report struct {
-	Passed  int
-	Failed  int
-	Results []Result
+	Passed  int      `json:"passed"`
+	Failed  int      `json:"failed"`
+	Results []Result `json:"results"`
+}
+
+// lastReportMu 保护 lastReport。它只服务于带外的测量导出（CLI 的 --json 前缀），
+// 不参与评分与 TAP 输出，因此默认路径逐字节不变。
+var (
+	lastReportMu sync.Mutex
+	lastReport   Report
+)
+
+// ResetLastReport 清空最近一次报告。CLI 在 --json 跑批开始前调用，避免读回
+// 上一次运行（或同进程内其它套件）的残留结果。
+func ResetLastReport() {
+	lastReportMu.Lock()
+	lastReport = Report{}
+	lastReportMu.Unlock()
+}
+
+// LastReport 返回最近一次 Run 生成的 Report 副本。
+//
+// RunSuite / RunSuiteLive 的接口只回传 (passed, failed, err)，CLI 无法从返回值
+// 拿到 Result 向量；这个读取口让 `eval --json` 能在套件跑完后取回 Results 落盘，
+// 从而闭合 compare/ab 的测量回路。返回值是浅拷贝的切片，调用方只读取即可。
+// 若同一进程并发跑多个套件，语义是"最近完成的那个"，CLI 单跑批场景不受影响。
+func LastReport() Report {
+	lastReportMu.Lock()
+	defer lastReportMu.Unlock()
+	cp := lastReport
+	cp.Results = append([]Result(nil), lastReport.Results...)
+	return cp
+}
+
+// rememberReport 在 Run 收尾时记录本次报告，供 LastReport 读取。
+func rememberReport(report Report) {
+	lastReportMu.Lock()
+	lastReport = report
+	lastReportMu.Unlock()
 }
 
 // Run 执行每个场景并打印类似 TAP 的报告。
@@ -126,6 +167,9 @@ func Run(ctx context.Context, scenarios []Scenario, run RunFunc, opts Options) (
 		// 指标行只在报告末尾追加；默认路径到此为止，输出逐字节不变。
 		fmt.Fprint(out, liveMetricsReport(report.Results))
 	}
+	// 无论是否失败都记录完整报告：带外消费者（--json）需要在失败时也能拿到
+	// 逐场景结果做配对诊断。这一步只写包内状态，不改变任何输出。
+	rememberReport(report)
 	if report.Failed > 0 {
 		return report, fmt.Errorf("eval: %d of %d scenarios failed", report.Failed, len(scenarios))
 	}

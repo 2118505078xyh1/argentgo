@@ -40,12 +40,38 @@ func runEval(app App, ctx context.Context, args []string) int {
 		return runEvalAB(app, args[1:])
 	}
 
-	// --live 是 eval 子命令的带外前缀：它不进 flagSurface/parity，只在
-	// 这里手写扫描并分派给 LiveEvalSuiteRunner。默认 eval 路径完全不变。
+	// orchestration 是 eval 子命令的带外前缀：读取一份编排场景文档，交给注入的
+	// OrchestrationRunner 用真实 agent 循环运行，输出 Total/Passed/Failed 与每条
+	// 失败诊断。与 compare/ab 一样不进 flagSurface/parity，手写扫描并分派；
+	// 默认 eval 路径完全不变。
+	if len(args) > 0 && args[0] == "orchestration" {
+		return runEvalOrchestration(app, ctx, args[1:])
+	}
+
+	// --live 与 --json 都是 eval 子命令的带外前缀：不进 flagSurface/parity，
+	// 只在这里手写扫描。默认 eval 路径、compare 与 ab 路径互不影响。
+	//   --live       决定把套件分派给 LiveEvalSuiteRunner 而非脚本化 runner；
+	//   --json <path> 只决定"跑完后额外把 Result 向量落盘到 path"，不改分派目标。
+	// 两者可同时出现且顺序任意；没有 --json 时一行文件都不会写，默认路径零变化。
 	live := false
-	if len(args) > 0 && args[0] == "--live" {
-		live = true
-		args = args[1:]
+	jsonPath := ""
+prefixLoop:
+	for len(args) > 0 {
+		switch args[0] {
+		case "--live":
+			live = true
+			args = args[1:]
+		case "--json":
+			if len(args) < 2 {
+				evalUsage(app.IO.Err)
+				return 2
+			}
+			jsonPath = args[1]
+			args = args[2:]
+		default:
+			// 剩下的第一个非前缀参数就是套件文件路径，交给下面的既有校验。
+			break prefixLoop
+		}
 	}
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		evalUsage(app.IO.Err)
@@ -63,10 +89,16 @@ func runEval(app App, ctx context.Context, args []string) int {
 			fmt.Fprintln(app.IO.Err, "error: eval runner does not support --live (live model runs)")
 			return 1
 		}
+		if jsonPath != "" {
+			eval.ResetLastReport()
+		}
 		passed, failed, err := liveSuite.RunSuiteLive(ctx, path, app.IO.Out)
 		if err != nil {
 			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", path, err)
 			return 1
+		}
+		if code := exportEvalResults(app, jsonPath, eval.LastReport().Results); code != 0 {
+			return code
 		}
 		if failed > 0 {
 			return 1
@@ -81,10 +113,17 @@ func runEval(app App, ctx context.Context, args []string) int {
 		return 1
 	}
 	if suite, ok := app.Eval.(EvalSuiteRunner); ok {
+		if jsonPath != "" {
+			eval.ResetLastReport()
+		}
 		passed, failed, err := suite.RunSuite(ctx, args[0], app.IO.Out)
 		if err != nil {
 			fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
 			return 1
+		}
+		// RunSuite 只回传计数；Result 向量由 eval.Run 记录在包内，这里取回并落盘。
+		if code := exportEvalResults(app, jsonPath, eval.LastReport().Results); code != 0 {
+			return code
 		}
 		if failed > 0 {
 			return 1
@@ -108,21 +147,36 @@ func runEval(app App, ctx context.Context, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error: eval runner does not support single scenarios")
 		return 1
 	}
+	// 同步构造一份 eval.Report：逐场景评分的产物本来就是 Result 向量，
+	// 只是过去它从不离开 CLI。--json 前缀把它落盘，供 compare/ab 直接消费。
+	results := make([]eval.Result, 0, len(scenarios))
 	for i, scenario := range scenarios {
+		result := eval.Result{Index: i + 1, Name: scenario.Prompt}
 		report, err := runner.RunScenario(ctx, scenario.Prompt)
 		if err != nil {
+			result.Reason = fmt.Sprintf("runner error: %v", err)
 			fmt.Fprintf(app.IO.Out, "FAIL %d %q: runner error: %v\n", i+1, scenario.Prompt, err)
 			failures++
+			results = append(results, result)
 			continue
 		}
+		result.Tools = append([]string(nil), report.Tools...)
+		result.Text = report.Text
 		if reason := gradeScenario(scenario, report); reason != "" {
+			result.Reason = reason
 			fmt.Fprintf(app.IO.Out, "FAIL %d %q: %s\n", i+1, scenario.Prompt, reason)
 			failures++
+			results = append(results, result)
 			continue
 		}
+		result.Passed = true
 		fmt.Fprintf(app.IO.Out, "ok   %d %q\n", i+1, scenario.Prompt)
+		results = append(results, result)
 	}
 	fmt.Fprintf(app.IO.Out, "%d/%d scenarios passed\n", len(scenarios)-failures, len(scenarios))
+	if code := exportEvalResults(app, jsonPath, results); code != 0 {
+		return code
+	}
 	if failures > 0 {
 		return 1
 	}
@@ -182,20 +236,73 @@ func parseEvalFile(data []byte) ([]evalScenario, error) {
 }
 
 func evalUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argentgo eval [--live] <file.json>
+	fmt.Fprint(w, `usage: argentgo eval [--live] [--json <path>] <file.json>
        argentgo eval compare <baseline-results.json> <candidate-results.json>
        argentgo eval ab <baseline-results.json> <candidate-results.json> [fingerprints-a.json fingerprints-b.json]
+       argentgo eval orchestration <orchestration.json>
 
 The file holds [{"prompt": "...", "expect_tool": "...", "expect_text": "..."}],
 or {"scenarios": [...]}. Exit code is non-zero when any scenario fails.
 With --live, the suite is dispatched to a live-model runner instead of the
 scripted grader; this prefix is out-of-band and not a global flag.
+With --json <path>, the suite's Result vector is additionally written to <path>
+as {"results": [...]}, ready to feed eval compare / eval ab without hand-writing
+vectors. Without the prefix no file is written and the default output is unchanged.
+It combines with --live in either order and is also out-of-band, not a global flag.
 With compare, two Result vectors are compared with paired statistics; small
 samples (n < 30) are reported as insufficient instead of claiming improvement.
 With ab, two arms are paired by scenario fingerprint (name -> fingerprint maps,
 usually produced by eval.ScenarioFingerprint) before the same paired statistics
 run; omit both fingerprint files to pair by scenario name. Both prefixes are
 out-of-band and not global flags.
+With orchestration, a scripted multi-turn suite runs through the real agent loop
+and the real task tool (routed fake model, no network/API key); Total/Passed/Failed
+and one FAIL line per failed scenario are printed, and any failure exits non-zero.
+This prefix is also out-of-band and not a global flag.
+`)
+}
+
+// runEvalOrchestration 实现 `eval orchestration <file>`：读取编排场景文档，交给
+// 注入的 OrchestrationRunner 用真实 agent 循环运行，输出 Total/Passed/Failed 与
+// 每条失败诊断。任一场景失败或加载出错时退出非 0。它是带外前缀，默认 eval 路径
+// 不依赖此接口。
+func runEvalOrchestration(app App, ctx context.Context, args []string) int {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		evalOrchestrationUsage(app.IO.Out)
+		return 0
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		evalOrchestrationUsage(app.IO.Err)
+		return 2
+	}
+	runner, ok := app.Eval.(OrchestrationRunner)
+	if !ok {
+		fmt.Fprintln(app.IO.Err, "error: eval runner does not support orchestration")
+		return 1
+	}
+	report, err := runner.RunOrchestration(ctx, args[0])
+	if err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", args[0], err)
+		return 1
+	}
+	fmt.Fprintf(app.IO.Out, "Total: %d  Passed: %d  Failed: %d\n", report.Total, report.Passed, report.Failed)
+	for _, failure := range report.Failures {
+		fmt.Fprintf(app.IO.Out, "FAIL [%s] %s: %s\n", failure.ID, failure.Name, failure.Reason)
+	}
+	fmt.Fprintf(app.IO.Out, "%d/%d orchestration scenarios passed\n", report.Passed, report.Total)
+	if report.Failed > 0 {
+		return 1
+	}
+	return 0
+}
+
+func evalOrchestrationUsage(w io.Writer) {
+	fmt.Fprint(w, `usage: argentgo eval orchestration <orchestration.json>
+
+Runs a scripted multi-turn orchestration suite through the real agent loop and
+the real task tool, using a routed fake model (no network, no API key). Prints
+Total/Passed/Failed and one FAIL line per failed scenario; exit code is non-zero
+when any scenario fails. This prefix is out-of-band and not a global flag.
 `)
 }
 
@@ -230,7 +337,7 @@ func runEvalCompare(app App, args []string) int {
 }
 
 // loadResultVector 从 JSON 文件读取一份 Result 向量，接受裸数组或 {"results": [...]}。
-// Result 无 json 标签的字段按 Go 字段名大小写不敏感匹配，因此只需 "passed" 等关键字段。
+// Result 各字段有显式小写 json 标签，手写向量只需 "passed" / "index" 等关键字段。
 func loadResultVector(path string) ([]eval.Result, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -250,6 +357,36 @@ func loadResultVector(path string) ([]eval.Result, error) {
 		return nil, fmt.Errorf("expected a JSON array of results or {\"results\": [...]}")
 	}
 	return document.Results, nil
+}
+
+// writeResultVector 把一份 Results 落盘为 {"results": [...]}，产物可直接被
+// loadResultVector 读回，也能喂给 `eval compare` / `eval ab`。
+func writeResultVector(path string, results []eval.Result) error {
+	if results == nil {
+		results = []eval.Result{}
+	}
+	data, err := json.MarshalIndent(struct {
+		Results []eval.Result `json:"results"`
+	}{Results: results}, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
+}
+
+// exportEvalResults 只在 --json 前缀显式出现时落盘；没有前缀时它是空操作，
+// 因此默认 eval 路径的文件系统与输出都零变化。写盘失败会让命令返回非零，
+// 但不吞掉既有 TAP 输出。
+func exportEvalResults(app App, jsonPath string, results []eval.Result) int {
+	if jsonPath == "" {
+		return 0
+	}
+	if err := writeResultVector(jsonPath, results); err != nil {
+		fmt.Fprintf(app.IO.Err, "error: %s: %v\n", jsonPath, err)
+		return 1
+	}
+	return 0
 }
 
 func evalCompareUsage(w io.Writer) {

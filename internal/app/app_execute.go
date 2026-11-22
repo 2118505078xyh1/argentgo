@@ -18,6 +18,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
+	"github.com/2118505078xyh1/argentgo/internal/shell"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
@@ -348,6 +349,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	optIns := mergeOptIns(ParseOptInEnv(stdio.Env), configOptIns(res.Cfg.Raw))
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
+	agent.SetOutputRedaction(optIns[OptInOutputRedaction])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
 	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
 	// nudge 记录形状逐字节不变。
@@ -397,10 +399,35 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+
+	// 把内建 shell 的安全咨询接到本次运行的"策略 -> 审批 -> 审计"链上。
+	// shell 包受分层规则约束不能 import security，因此通过进程级注入点把
+	// "转调 chain" 的谓词交给它。该谓词只会在内建 shell 路径（默认关闭的
+	// ARGENT_BUILTIN_SHELL=1）被真正调用：系统 shell 路径不经过解释器，
+	// 从不读取 oracle，因而逐字节不变；未注入时 CurrentSafety 默认放行，
+	// 语义同样不变。
+	//
+	// 并发安全：闭包只捕获不可变的 chain 指针与 ctx，每次调用用 json.Marshal
+	// 生成全新的参数（无共享可变暂存区）；chain.Check 自身可并发调用。
+	shell.SetSafetyOracle(func(cmd string) bool {
+		args, err := json.Marshal(map[string]string{"command": cmd})
+		if err != nil {
+			// map[string]string 不可能序列化失败；一旦发生则 fail-closed。
+			return false
+		}
+		return chain.Check(ctx, "bash", args) == nil
+	})
+
 	// plan 模式（可选）：启用后修改类命令在审批前被拒并给模型可读的恢复提示。
 	// 默认关闭时 EnablePlanMode(false) 与零值等价，chain 决策逐字节不变。
 	planMode := planModeEnabled(stdio.Env, res)
 	chain.EnablePlanMode(planMode)
+
+	// 命令风险分级（opt-in ARGENT_OPT_INS=command_risk，默认关闭）：
+	// 开启时安全链同时对 shell 命令做静态风险分级，并把"高危命令需要显式确认"
+	// 施加到声明 RequiresExplicitYes 的审批器上。关闭时该字段为零值，
+	// Chain.check 中的整段风险门控逐字节跳过，原有决策不变。
+	chain.EnableCommandRisk = optIns[OptInCommandRisk] || CommandRiskOptInEnabled(stdio.Env)
 
 	// 检查层是链前面一个选择性启用的额外门控；门控关闭时 guard 就是链本身，
 	// 因此每个现有运行都逐字节不变（策略 -> 审批 -> 审计）。Guardian 由

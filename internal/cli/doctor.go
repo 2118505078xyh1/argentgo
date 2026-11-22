@@ -86,12 +86,14 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	// baseURL 告警独立于常规检查：它只读取配置文件（项目级配置可能来自
 	// 未信任来源），不访问网络，也不改变既有检查集合与输出前缀。
-	// 配置注入、会话健康与 i18n 翻译完整性告警走同一条 issues 旁路：
-	// 只报告风险，不新增 check、不计数、不改变退出码，因此无风险时输出逐字节不变。
+	// 配置注入、会话健康、i18n 翻译完整性与模型能力画像告警走同一条 issues
+	// 旁路：只报告信息/风险，不新增 check、不计数、不改变退出码，因此无风险
+	// 且未配置 provider/model 时输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
 	issues = append(issues, doctorConfigInjectionIssues(app)...)
 	issues = append(issues, doctorSessionHealthIssues(app)...)
 	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
+	issues = append(issues, doctorModelInfoIssues(app)...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
 	if opts.asJSON {
@@ -451,6 +453,55 @@ func doctorI18nIssues(report i18n.AuditReport) []doctorIssue {
 		Level:   statusWarn,
 		Message: redactDoctorDetail(report.Summary()),
 	}}
+}
+
+// doctorModelInfoIssueName 是模型能力画像诊断 issue 的稳定名称。
+const doctorModelInfoIssueName = "modelInfo"
+
+// doctorModelInfoIssues 把当前 provider/model 的能力画像作为一条只读诊断输出到
+// issues 旁路通道。它复用 provider.ProfileFor，报告 thinking/image/tools/
+// contextWindow 四个字段，不访问网络、不新增 check、不改变失败计数与退出码。
+//
+// 与 R46 的 i18n 审计告警同走 issues 旁路：未配置 provider/model 时返回 nil，
+// 因此默认健康配置下 doctor 输出逐字节不变，golden 与退出码语义都不受影响。
+// 画像来自纯函数，消息只含稳定的字段标记与配置值，并经 redactDoctorDetail 清洗。
+func doctorModelInfoIssues(app App) []doctorIssue {
+	providerName, model := doctorCurrentModel(app)
+	if providerName == "" && model == "" {
+		return nil
+	}
+	profile := provider.ProfileFor(providerName, model)
+	message := fmt.Sprintf("provider=%s model=%s thinking=%t image=%t tools=%t contextWindow=%d",
+		profile.Name, model, profile.SupportsThinking, profile.SupportsImage,
+		profile.SupportsTools, profile.ContextWindow)
+	return []doctorIssue{{
+		Name:    doctorModelInfoIssueName,
+		Level:   statusWarn,
+		Message: redactDoctorDetail(message),
+	}}
+}
+
+// doctorCurrentModel 返回 doctor 可见的当前 provider 与 model。环境变量由操作者
+// 显式提供，视为可信且优先；缺失时回落到配置文件（含别名）。两者都为空表示
+// 未配置，调用方据此跳过画像诊断。字符串按原值保留（CJK 安全），不做截断。
+func doctorCurrentModel(app App) (providerName, model string) {
+	providerName = strings.TrimSpace(app.env("ARGENT_PROVIDER"))
+	model = strings.TrimSpace(app.env("ARGENT_MODEL"))
+	raw, err := loadConfigFile(app.configPath())
+	if err != nil {
+		return providerName, model
+	}
+	if providerName == "" {
+		if value, ok := firstStringValue(raw, "provider"); ok {
+			providerName = strings.TrimSpace(value)
+		}
+	}
+	if model == "" {
+		if value, ok := firstStringValue(raw, "model", "modelName"); ok {
+			model = strings.TrimSpace(value)
+		}
+	}
+	return providerName, model
 }
 
 // mcpConfigReport 汇总已配置 mcpServers 小节的完整性。servers 统计运行时

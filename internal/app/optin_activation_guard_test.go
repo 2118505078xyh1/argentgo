@@ -9,9 +9,10 @@ import (
 )
 
 // 本文件守护 R16「收口激活面」的两条总契约：
-//  1. app / cli / config 三处 opt-in 词汇表统一——app 的 14 键清单与 config
-//     白名单（补键后）逐键一致；cli 因分层约束不能被 app import，其词汇表由 cli
-//     包内的测试守护，三方一致由「app≡config + cli≡app」两段传递保证。
+//  1. app / cli / config 三处 opt-in 词汇表统一——config 白名单是 app 键清单的子集；
+//     app 另可拥有仅由 ARGENT_OPT_INS 激活的专属键（output_redaction 安全脱敏，
+//     刻意不放进配置白名单）。cli 因分层约束不能被 app import，其词汇表由 cli
+//     包内的测试守护，三方一致由「config⊆app + cli⊆app」两段传递保证。
 //  2. 配置文件能真正激活 opt-in——configOptIns 读取配置开关，mergeOptIns 与环境
 //     激活面按逻辑或合并；无配置无环境时所有键保持默认关闭（fail-closed）。
 //
@@ -29,9 +30,9 @@ func guardKeySet(keys []OptInKey) map[OptInKey]struct{} {
 	return out
 }
 
-// TestOptInVocabulariesAgree 验证 app 的 allOptInKeys（14 键）与
-// config.ParseOptInDisplay(nil) 产出的键集合逐键一致。ParseOptInDisplay 是纯函数，
-// 不读进程环境，其每一项恰好对应白名单里的一个键。
+// TestOptInVocabulariesAgree 验证 config.ParseOptInDisplay(nil) 产出的键集合是
+// app allOptInKeys 的子集，且多出来的部分恰好是已知的环境专属键。ParseOptInDisplay
+// 是纯函数，不读进程环境，其每一项恰好对应白名单里的一个键。
 func TestOptInVocabulariesAgree(t *testing.T) {
 	appKeys := guardKeySet(allOptInKeys)
 
@@ -41,11 +42,32 @@ func TestOptInVocabulariesAgree(t *testing.T) {
 		configKeys[OptInKey(item.Key)] = struct{}{}
 	}
 
-	if !reflect.DeepEqual(appKeys, configKeys) {
-		t.Fatalf("opt-in 词汇表不一致: app=%v, config=%v", appKeys, configKeys)
+	// config 白名单里的每个键都必须是 app 认识的键（fail-closed）。
+	for key := range configKeys {
+		if _, ok := appKeys[key]; !ok {
+			t.Errorf("config 词汇表含 app 不认识的键 %q", key)
+		}
 	}
-	if len(appKeys) != 14 {
-		t.Fatalf("app opt-in 键数 = %d, want 14: %v", len(appKeys), appKeys)
+	// app 允许的 env-only 键：它们刻意不进 config 白名单，只能由 ARGENT_OPT_INS
+	// 激活；若将来新增同类键，须在此显式登记。
+	appOnly := map[OptInKey]struct{}{
+		OptInOutputRedaction: {},
+	}
+	for key := range appKeys {
+		if _, inConfig := configKeys[key]; inConfig {
+			continue
+		}
+		if _, known := appOnly[key]; !known {
+			t.Errorf("app 清单出现既不在 config 白名单、也未登记的专属键 %q", key)
+		}
+	}
+	for key := range appOnly {
+		if _, ok := appKeys[key]; !ok {
+			t.Errorf("app 清单缺少专属键 %q", key)
+		}
+		if _, ok := configKeys[key]; ok {
+			t.Errorf("app 专属键 %q 不应出现在 config 白名单", key)
+		}
 	}
 	// 集合比较只能证明无缺失；这里再守护白名单无重复键导致的计数异常。
 	if len(items) != len(configKeys) {

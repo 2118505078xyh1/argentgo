@@ -176,6 +176,28 @@ type EvalRunner interface {
 	RunScenario(ctx context.Context, prompt string) (EvalReport, error)
 }
 
+// OrchestrationFailure 是一条编排场景失败诊断，字段对应 internal/eval 的同名类型。
+type OrchestrationFailure struct {
+	ID     string
+	Name   string
+	Reason string
+}
+
+// OrchestrationReport 汇总一次编排套件运行。
+type OrchestrationReport struct {
+	Total    int
+	Passed   int
+	Failed   int
+	Failures []OrchestrationFailure
+}
+
+// OrchestrationRunner 执行一份编排场景文档。它是 eval 子命令 `orchestration`
+// 前缀的带外分派目标：该前缀不进 flagSurface/parity，默认 eval 路径不依赖此
+// 接口，由 runEval 在运行时按需对 app.Eval 做类型断言。实现由 internal/app 注入。
+type OrchestrationRunner interface {
+	RunOrchestration(ctx context.Context, path string) (OrchestrationReport, error)
+}
+
 // TUIFunc 针对一组解析后的选项运行全屏终端 UI。
 type TUIFunc func(ctx context.Context, opts Options) error
 
@@ -195,8 +217,8 @@ type App struct {
 	Version   string
 	NewRunner RunnerFactory
 	Sessions  SessionStore
-	// Eval 接受 EvalRunner、EvalSuiteRunner 或 LiveEvalSuiteRunner；
-	// runEval 在运行时按 --live 前缀与可用接口选择分派目标。
+	// Eval 接受 EvalRunner、EvalSuiteRunner、LiveEvalSuiteRunner 或
+	// OrchestrationRunner；runEval 在运行时按带外前缀与可用接口选择分派目标。
 	Eval          any
 	TUI           TUIFunc
 	Profiles      ProfileLister

@@ -18,6 +18,9 @@ const (
 	OptInRefusalReason OptInKey = "refusal_reason"
 	// OptInUntrustedResult 控制是否把工具结果标记为不可信。
 	OptInUntrustedResult OptInKey = "untrusted_result"
+	// OptInOutputRedaction 控制是否在回灌给模型的工具输出中做凭据脱敏
+	// （RedactToolOutput → RedactEnvDump）。它默认关闭：未显式开启时消息逐字节不变。
+	OptInOutputRedaction OptInKey = "output_redaction"
 	// OptInContextPressure 控制是否暴露上下文压力信号。
 	OptInContextPressure OptInKey = "context_pressure"
 	// OptInUntrustedBoundary 控制是否启用不可信内容边界标记。
@@ -53,12 +56,19 @@ const (
 	// OptInAutoVerify 控制编辑后是否自动派生已有的验证诊断回环（Go 项目为 go test ./...）。
 	// 它默认关闭：未显式开启时验证接线返回 nil，默认运行逐字节不变。
 	OptInAutoVerify OptInKey = "auto_verify"
+	// OptInCommandRisk 控制安全链是否启用命令静态风险分级（forbidden 直接拒绝、
+	// destructive 强制审批，以及高危命令对自动审批器的显式确认约束）。
+	// 它是 app 专属的 env-only 键：由 CommandRiskOptInEnabled 单独解析
+	// ARGENT_OPT_INS，无需改动 allOptInKeys 与 config 白名单的既有词汇表；
+	// 只由环境显式激活，默认关闭。
+	OptInCommandRisk OptInKey = "command_risk"
 )
 
 // allOptInKeys 是全部受支持开关的清单，供 DefaultOptIns 与文档共用同一份事实来源。
 var allOptInKeys = []OptInKey{
 	OptInRefusalReason,
 	OptInUntrustedResult,
+	OptInOutputRedaction,
 	OptInContextPressure,
 	OptInUntrustedBoundary,
 	OptInAttemptIsolation,
@@ -126,6 +136,24 @@ func DefaultOptIns() map[OptInKey]bool {
 		out[key] = false
 	}
 	return out
+}
+
+// CommandRiskOptInEnabled 从 ARGENT_OPT_INS 解析 command_risk 开关。它是 app
+// 专属的 env-only 键，因此独立于 DefaultOptIns / ParseOptInEnv 的通用注册表：
+// 既保持 app↔config 词汇表守护契约不变，又让这个安全开关只由环境显式激活。
+// 若该键将来被登记进 allOptInKeys，Execute 的 OR 逻辑会自动复用通用解析结果。
+// 与 ParseOptInEnv 一致：两侧空白被忽略，未知片段与非 ASCII 文本不会命中；
+// env 为 nil 时返回 false（默认关闭）。
+func CommandRiskOptInEnabled(env func(string) string) bool {
+	if env == nil {
+		return false
+	}
+	for _, field := range strings.Split(env(optInEnvVar), ",") {
+		if OptInKey(strings.TrimSpace(field)) == OptInCommandRisk {
+			return true
+		}
+	}
+	return false
 }
 
 // ParseOptInEnv 从单个环境变量 ARGENT_OPT_INS 解析开关列表：值为逗号分隔的键名，
