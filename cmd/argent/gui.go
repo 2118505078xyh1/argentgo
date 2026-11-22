@@ -78,6 +78,18 @@ func runGUI(stdio cli.IO, args []string) int {
 	return launchNativeFrontend(ctx, stdio, resolved)
 }
 
+// nativeFrontendEnv 构造传给原生客户端的环境变量。
+// 集中到此处便于测试，也确保 --locale 经 Resolve 后不会再被静默丢弃：
+// 即使 locale 为空，也显式写出 ARGENT_LOCALE=，让原生侧能区分"未传"与"空值"。
+// base 通常为 os.Environ()；传 nil 时仍会得到完整的 ARGENT_* 变量。
+func nativeFrontendEnv(base []string, exe, root, locale string) []string {
+	return append(base,
+		"ARGENT_EXE="+exe,
+		"ARGENT_CWD="+root,
+		"ARGENT_LOCALE="+locale,
+	)
+}
+
 // launchNativeFrontend 启动 MyGo 原生客户端（argentgo-native.exe），
 // 它通过 --rpc 连接回此 engine。在 Windows 上原生二进制
 // 与 argentgo.exe 在同一发布 zip 中。
@@ -94,7 +106,7 @@ func launchNativeFrontend(ctx context.Context, stdio cli.IO, resolved app.Resolv
 	}
 	cmd := exec.Command(native)
 	cmd.Dir = resolved.Root
-	cmd.Env = append(os.Environ(), "ARGENT_EXE="+exe, "ARGENT_CWD="+resolved.Root)
+	cmd.Env = nativeFrontendEnv(os.Environ(), exe, resolved.Root, resolved.Locale)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(stdio.Err, "error:", err)

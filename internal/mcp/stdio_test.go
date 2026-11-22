@@ -124,6 +124,15 @@ func helperReply(method string, params json.RawMessage) (any, error) {
 			return map[string]any{"content": []any{
 				map[string]any{"type": "text", "text": "echo: " + text},
 			}}, nil
+		case "cwd":
+			// 报告假服务器子进程的工作目录，供工作目录接线测试断言。
+			dir, err := os.Getwd()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"content": []any{
+				map[string]any{"type": "text", "text": dir},
+			}}, nil
 		case "boom":
 			return map[string]any{
 				"content": []any{map[string]any{"type": "text", "text": "kaboom"}},

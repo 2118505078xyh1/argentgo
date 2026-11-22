@@ -120,6 +120,9 @@ type stdioTransport struct {
 func newStdioTransport(spec Spec) (*stdioTransport, error) {
 	name, args := execSpec(spec)
 	cmd := exec.Command(name, args...)
+	// Dir 为空时 exec.Cmd 默认继承 agent 的当前目录，行为与历史逐字节一致。
+	// 非空时让 stdio 脚本的相对路径按声明的工作目录（如插件 bundle 根）解析。
+	cmd.Dir = spec.Dir
 	if len(spec.Env) > 0 {
 		cmd.Env = append(os.Environ(), spec.Env...)
 	}

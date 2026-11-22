@@ -79,7 +79,9 @@ func (r *Registry) HandleUseSkill(args json.RawMessage) (string, error) {
 		}
 		var b strings.Builder
 		b.WriteString("Installed skills:\n")
-		for _, skill := range r.All() {
+		// 收紧后只列举当前上下文可见的技能：无名列出的名字绝不能暴露被
+		// 触发器排除的技能，否则模型仍会按索引中的名字尝试加载它们。
+		for _, skill := range r.ActiveSkills() {
 			// 与系统提示索引一致：列举输出同样先脱敏不可见字符再折叠为单行。
 			name := oneLine(security.RedactArtifactContent(skill.Name))
 			desc := oneLine(security.RedactArtifactContent(skill.Description))

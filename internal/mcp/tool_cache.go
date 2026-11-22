@@ -67,6 +67,18 @@ func (t *toolCache) fail() {
 	t.mu.Unlock()
 }
 
+// invalidate 丢弃当前缓存，使下一次 get 成为未命中并触发一次真实的
+// tools/list。它刻意不触碰 ready（single-flight 标记）：正在进行的刷新
+// 仍由其调用方通过 set/fail 正常收尾，避免留下永久阻塞的等待者；若该次
+// 刷新携带的是过期数据，下一次通知带来的 invalidate 会再次将其作废。
+func (t *toolCache) invalidate() {
+	t.mu.Lock()
+	t.tools = nil
+	t.expiresAt = time.Time{}
+	t.valid = false
+	t.mu.Unlock()
+}
+
 // releaseWaitersLocked 关闭并清空 ready 以唤醒等待者。调用方须持有 t.mu。
 func (t *toolCache) releaseWaitersLocked() {
 	if t.ready != nil {

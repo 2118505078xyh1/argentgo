@@ -64,10 +64,23 @@ func (s *idSequence) take() uint64 {
 type waiters struct {
 	mu      sync.Mutex
 	pending map[uint64]chan rpcReply
+	// onNotification 在收到服务器发起的通知（含 method 成员的帧）时被调用。
+	// nil 表示未开启通知跟踪，此时分发路径保持历史行为逐字节不变。
+	// 它由 setOnNotification 在读取循环启动之后安装，读写都受 mu 保护。
+	// 回调在读取循环里同步执行，因此契约是「只做快速、无 I/O 的工作」。
+	onNotification func(method string)
 }
 
 func newWaiters() *waiters {
 	return &waiters{pending: make(map[uint64]chan rpcReply)}
+}
+
+// setOnNotification 安装或清除通知回调；nil 表示关闭跟踪。写入受 mu 保护，
+// 使它与可能已经在运行的读取循环之间不存在数据竞争。
+func (w *waiters) setOnNotification(cb func(method string)) {
+	w.mu.Lock()
+	w.onNotification = cb
+	w.mu.Unlock()
 }
 
 func (w *waiters) add(id uint64) chan rpcReply {
@@ -140,7 +153,19 @@ func (w *waiters) handleOne(raw []byte) error {
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return fmt.Errorf("mcp: invalid JSON-RPC message: %w", err)
 	}
-	if _, hasMethod := object["method"]; hasMethod {
+	if methodRaw, hasMethod := object["method"]; hasMethod {
+		// 只在锁内取出回调的副本，随后在锁外调用：回调可能反过来触发发现
+		// 或其他需要 waiters 的操作，持锁调用会形成死锁。nil 时原样返回，
+		// 不解码 method、不执行任何额外工作，行为与历史逐字节一致。
+		w.mu.Lock()
+		cb := w.onNotification
+		w.mu.Unlock()
+		if cb != nil {
+			var method string
+			if json.Unmarshal(methodRaw, &method) == nil {
+				cb(method)
+			}
+		}
 		return nil
 	}
 	idRaw, hasID := object["id"]

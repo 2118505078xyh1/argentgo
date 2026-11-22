@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
@@ -31,6 +32,18 @@ const (
 	maxListPages = 1000
 )
 
+// mcpListChangedRefreshEnv 是工具清单变更跟踪的 opt-in 开关。工具输出与工具目录
+// 都来自不可信的外部服务器，默认不跟踪它的 list_changed 通知，行为逐字节不变；
+// 只有值为 "1"（允许首尾空白）时才在 Connect 时把通知回调接到传输的读取循环上。
+const mcpListChangedRefreshEnv = "ARGENT_MCP_LIST_CHANGED_REFRESH"
+
+// ListChangedRefreshEnabled 报告是否开启 notifications/tools/list_changed 跟踪。
+// mcp 包与接线层（internal/app）共用这一判断，避免开关语义在两处分叉。
+// 每次调用都读取环境，与本包其他 opt-in 能力的读取方式保持一致。
+func ListChangedRefreshEnabled() bool {
+	return strings.TrimSpace(os.Getenv(mcpListChangedRefreshEnv)) == "1"
+}
+
 // ErrUnsupportedTransport 报告本包不支持的传输方式。
 var ErrUnsupportedTransport = errors.New(`mcp: transport must be "stdio" or "http"`)
 
@@ -44,6 +57,10 @@ type Spec struct {
 	Command string
 	// Args 是 stdio 程序的参数。
 	Args []string
+	// Dir 是 stdio 子进程的工作目录（仅 stdio 使用，HTTP 忽略）。
+	// 空值沿用 agent 进程的当前目录，与历史行为逐字节一致；
+	// 非空时插件 bundle 的相对路径脚本按 bundle 目录而非 agent cwd 解析。
+	Dir string
 	// Env 条目（"KEY=VALUE"）会加到子进程继承的环境中。
 	Env []string
 	// URL 是 HTTP 端点。旧的 SSE 端点会宣告请求 POST 到哪里；
@@ -210,7 +227,51 @@ func Connect(ctx context.Context, spec Spec) (Client, error) {
 	if spec.HealthTracking {
 		c.health = &HealthTracker{}
 	}
+	// opt-in 默认关闭：未设置环境变量时不安装任何回调，读取循环里
+	// onNotification 保持 nil，handleOne 的分发路径逐字节不变。
+	if ListChangedRefreshEnabled() {
+		c.trackListChanges = true
+		attachNotificationHandler(tr, c.onNotification)
+	}
 	return c, nil
+}
+
+// attachNotificationHandler 把回调安装到传输背后的 waiters 上。两种传输都在
+// 各自的构造函数里启动了读取循环，因此这里通过带锁的 setOnNotification 安装，
+// 与已经在读取 method 成员的 goroutine 之间不会发生数据竞争。
+func attachNotificationHandler(tr transport, cb func(method string)) {
+	switch t := tr.(type) {
+	case *stdioTransport:
+		t.waiters.setOnNotification(cb)
+	case *httpTransport:
+		t.waiters.setOnNotification(cb)
+	}
+}
+
+// onNotification 处理服务器发起的通知。它运行在传输的读取循环里，因此只做
+// 一次原子递增：真正的 tools/list 留给下一次 ListTools/RefreshTools 触发，
+// 这里绝不执行发现、I/O 或可能阻塞的操作。
+func (c *client) onNotification(method string) {
+	if isToolListChanged(method) {
+		c.revision.Bump()
+	}
+}
+
+// syncCatalogRevision 比较通知推进的版本号与上次同步的版本号；不同则使
+// 工具缓存失效，迫使下一次 ListTools 重新执行 tools/list。用 CAS 更新避免
+// 并发调用把 seenRevision 写回旧值而重复失效。仅在跟踪开启时调用。
+func (c *client) syncCatalogRevision() {
+	for {
+		seen := c.seenRevision.Load()
+		rev := c.revision.Revision()
+		if rev == seen {
+			return
+		}
+		if c.seenRevision.CompareAndSwap(seen, rev) {
+			c.toolCache.invalidate()
+			return
+		}
+	}
 }
 
 // client 在传输之上实现 Client。
@@ -226,6 +287,16 @@ type client struct {
 	// health 仅在 Spec.HealthTracking 为 true 时挂接；为 nil 时
 	// discoverTools 不执行任何观测，零 I/O、行为逐字节不变。
 	health *HealthTracker
+
+	// revision 是工具目录的逻辑版本号：仅当开关开启时接到通知回调上的
+	// onNotification 会在收到 list_changed 时调用 Bump。seenRevision 是
+	// ListTools 上一次同步过的版本号，两者不等就说明目录可能已变化。
+	// 两者都是纯计数器；client 一旦投入使用就不可复制。
+	revision     ToolCatalogRevision
+	seenRevision atomic.Uint64
+	// trackListChanges 决定 Connect 是否安装通知回调、ListTools 是否参与
+	// 版本号比较。默认 false 时下面两条路径都完全不触碰，行为逐字节不变。
+	trackListChanges bool
 
 	// mu 保护 Tools 暴露的最后一次成功列出的工具视图，以及
 	// 从 initialize 响应解析出的能力。
@@ -247,7 +318,9 @@ func (c *client) Initialize(ctx context.Context) (ServerInfo, error) {
 		"capabilities": clientCapabilities(clientCapabilityOptions{}),
 		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
 	}
-	raw, err := c.tr.call(ctx, "initialize", params)
+	// 初始化是幂等的发现调用：选择加入后可对短暂故障重试；
+	// 默认 maxAttempts=1，请求序列与错误文本均不变。
+	raw, err := c.callWithRetry(ctx, "initialize", params)
 	if err != nil {
 		return ServerInfo{}, c.wrap(err, "initialize")
 	}
@@ -300,7 +373,14 @@ func (c *client) capabilitySkipped(cap string) bool {
 // 上一次成功的结果，过期后重新发现；并发调用由 toolCache 收敛为单次
 // 发现（single-flight）。TTL 为 0（默认）时不做任何缓存，逐字节走
 // discoverTools 的原路径。
+//
+// 当 opt-in 的 list_changed 跟踪开启时，读缓存前先比较目录版本号：通知推进过
+// 版本号就先使缓存失效，保证新宣告的工具能在本次重新发现中返回。开关关闭时
+// 不触碰 revision 与 toolCache，行为逐字节不变。
 func (c *client) ListTools(ctx context.Context) ([]Tool, error) {
+	if c.trackListChanges {
+		c.syncCatalogRevision()
+	}
 	ttl := c.spec.ToolCacheTTL
 	if ttl <= 0 {
 		return c.discoverTools(ctx)
@@ -570,7 +650,9 @@ func (c *client) forEachListPage(ctx context.Context, method string, fn func(jso
 			// 强制转换为服务器可能无法识别的字符串。
 			params = map[string]any{"cursor": cursor}
 		}
-		raw, err := c.tr.call(ctx, method, params)
+		// 列表分页按游标重复请求是幂等的；选择加入后短暂故障可退避重试。
+		// 默认仍只发一次，逐字节保持历史行为。
+		raw, err := c.callWithRetry(ctx, method, params)
 		if err != nil {
 			return c.wrap(err, method)
 		}

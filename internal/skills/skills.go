@@ -137,6 +137,10 @@ func DefaultRoots(cwd, home string) []string {
 // Registry 是一个会话可用的技能集合。
 type Registry struct {
 	skills []Skill
+	// active 是按当前触发上下文收紧后的可见名称集合。nil 表示未收紧（默认值），
+	// 此时 Get/Load/列举与收紧前逐字节一致。它只影响 use_skill 的可见性，
+	// 不参与系统提示索引的构建（Index/IndexText 始终遍历 r.skills）。
+	active map[string]bool
 }
 
 // New 返回空 registry。
@@ -221,14 +225,64 @@ func (r *Registry) All() []Skill {
 func (r *Registry) Len() int { return len(r.skills) }
 
 // Get 按精确名称查找一个技能。
+// 若已通过 SetTriggerContext 收紧可见集，则只有 active 中的技能可见；
+// 未收紧（active == nil）时行为与原来完全一致。
 func (r *Registry) Get(name string) (Skill, bool) {
 	name = strings.TrimSpace(name)
 	for _, skill := range r.skills {
+		if r.active != nil && !r.active[skill.Name] {
+			continue
+		}
 		if skill.Name == name {
 			return skill, true
 		}
 	}
 	return Skill{}, false
+}
+
+// SetTriggerContext 按一次 agent 事件的上下文（文件路径、提示文本、模型家族）
+// 解析出 active 技能集并收紧 use_skill 的可见性。三个维度是交集约束，语义与
+// ResolveTriggeredSkills 完全一致；空上下文只会留下无触发器的技能。
+//
+// 返回的切片是本次解析出的 active 子集（registry 顺序），供调用方在轮次边界
+// 经 hookCtxQ 注入模型，使其知道哪些技能真正可用。未含触发器的技能始终在子集中，
+// 因此只安装内置/无触发器技能时行为逐字节不变。
+func (r *Registry) SetTriggerContext(path, keywords, modelFamily string) []Skill {
+	if r == nil {
+		return nil
+	}
+	active := ResolveTriggeredSkills(r, path, keywords, modelFamily)
+	names := make(map[string]bool, len(active))
+	for _, skill := range active {
+		names[skill.Name] = true
+	}
+	r.active = names
+	return active
+}
+
+// ClearTriggerContext 撤销收紧，使所有技能重新可见。
+func (r *Registry) ClearTriggerContext() {
+	if r != nil {
+		r.active = nil
+	}
+}
+
+// ActiveSkills 返回当前可见的技能：收紧后为 active 子集（registry 顺序），
+// 未收紧时等价于 All。它同时用于 use_skill 的无名列举与轮次边界注入。
+func (r *Registry) ActiveSkills() []Skill {
+	if r == nil {
+		return nil
+	}
+	if r.active == nil {
+		return r.All()
+	}
+	out := make([]Skill, 0, len(r.active))
+	for _, skill := range r.skills {
+		if r.active[skill.Name] {
+			out = append(out, skill)
+		}
+	}
+	return out
 }
 
 // Index 返回系统提示的紧凑条目。
@@ -250,15 +304,24 @@ const skillIndexFieldRunes = 200
 const skillIndexTotalRunes = 4096
 
 // IndexText 把索引渲染为追加到系统提示的块。未安装技能时为空。
-func (r *Registry) IndexText() string {
-	if len(r.skills) == 0 {
+// 它只把所有技能交给 IndexTextFor，因此与历史渲染逐字节一致。
+func (r *Registry) IndexText() string { return IndexTextFor(r.skills) }
+
+// IndexTextFor 把给定技能子集渲染为与系统提示同款的紧凑索引块；空子集返回空串。
+//
+// 它刻意与 IndexText 共用同一条脱敏/折叠/裁剪/预算链，因此把 active 子集交给
+// 它得到的文本，与"仅安装这些技能"的 registry 的 IndexText 逐字节相同。
+// 用途：系统提示前缀在缓存里拿不到 per-turn 的 path/prompt/model，于是把当前
+// 上下文激活的技能子集在轮次边界经 hookCtxQ 注入对话，而不触碰缓存前缀。
+func IndexTextFor(skills []Skill) string {
+	if len(skills) == 0 {
 		return ""
 	}
 	const header = "Skills: procedures you can load by name with the use_skill tool. " +
 		"Load one when the task matches its description; do not load all of them.\n"
 	scan := skillInjectionScanEnabled()
-	lines := make([]string, 0, len(r.skills))
-	for _, skill := range r.skills {
+	lines := make([]string, 0, len(skills))
+	for _, skill := range skills {
 		// 声明性元数据不可信：可能来自块标量或带引号的 \n 转义，
 		// 也可能携带 Unicode tag / bidi 不可见字符或超长内容。clipIndexField
 		// 统一做脱敏、折叠与裁剪，使每个技能恰好占据一行索引且无法向系统提示注入条目。
@@ -383,6 +446,9 @@ func (r *Registry) Suggest(name string) []string {
 	}
 	var names []string
 	for _, skill := range r.skills {
+		if r.active != nil && !r.active[skill.Name] {
+			continue
+		}
 		lower := strings.ToLower(skill.Name)
 		haystack := lower + " " + strings.ToLower(skill.Description)
 		if strings.Contains(haystack, needle) || strings.Contains(needle, lower) {
