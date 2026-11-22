@@ -22,9 +22,11 @@ func (c *checkpointSource) Diff(id string) ([]tools.FileChange, error) {
 	if c == nil || c.sess == nil {
 		return nil, fmt.Errorf("no session available")
 	}
-	steps := 0
+	// session.CheckpointBack 的步数从 1 起（1 表示最近）。空 id/"latest" 必须
+	// 默认取 1；传 0 会被 CheckpointBack 当作非法步数恒定报错，使"最近差异"失效。
+	steps := 1
 	if id != "" && id != "latest" {
-		if _, err := fmt.Sscanf(id, "%d", &steps); err != nil || steps < 0 {
+		if _, err := fmt.Sscanf(id, "%d", &steps); err != nil || steps < 1 {
 			return nil, fmt.Errorf("bad checkpoint id %q", id)
 		}
 	}
