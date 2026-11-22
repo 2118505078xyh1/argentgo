@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -69,6 +70,13 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	}
 	defer resp.Body.Close()
 
+	// 迁移自 killi 决策 12/35：在读取响应体之前先看 Content-Type。
+	// 明确的二进制类型（图片/音视频/压缩包等）完全不下载，避免为
+	// 大体积的非文本内容浪费带宽与内存；缺失或模糊的类型仍按原路径处理。
+	if kind := resp.Header.Get("Content-Type"); fetchRejectsContentType(kind) {
+		return "", fmt.Errorf("web_fetch: %s returned binary content (%s); not downloading", parsed.Redacted(), kind)
+	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("web_fetch: %w", err)
@@ -92,6 +100,34 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 		return "(empty response)", nil
 	}
 	return clip(ctx, text), nil
+}
+
+// fetchRejectsContentType 判断 Content-Type 是否明确为二进制、不值得下载为文本。
+// 只拒绝无歧义的类型；缺失、畸形或模糊类型一律放行，交由现有的文本转换处理，
+// 避免误伤把文本资源错误标注为 application/octet-stream 的服务端。
+func fetchRejectsContentType(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil {
+		return false
+	}
+	mediaType = strings.ToLower(mediaType)
+	switch {
+	case strings.HasPrefix(mediaType, "image/"),
+		strings.HasPrefix(mediaType, "audio/"),
+		strings.HasPrefix(mediaType, "video/"),
+		strings.HasPrefix(mediaType, "font/"):
+		return true
+	}
+	switch mediaType {
+	case "application/octet-stream", "application/zip", "application/pdf",
+		"application/gzip", "application/x-tar", "application/x-7z-compressed",
+		"application/x-rar-compressed", "application/wasm":
+		return true
+	}
+	return false
 }
 
 // checkFetchURL 校验 scheme，并且除非设置了 allowLocal，否则拒绝
