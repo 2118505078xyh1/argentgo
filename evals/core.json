@@ -281,6 +281,38 @@
         "turns": 2,
         "stopped": false
       }
+    },
+    {
+      "name": "approval denial returns a readable final error",
+      "description": "操作员否决 write：安全链的可读拒绝文本回注到上下文，模型据此收尾，out.txt 保持原样。",
+      "prompt": "write the answer to out.txt",
+      "approve": false,
+      "files": {
+        "out.txt": "original\n"
+      },
+      "provider": [
+        {
+          "respond": {
+            "tool_calls": [
+              { "name": "write", "arguments": { "path": "out.txt", "content": "tampered\n" } }
+            ]
+          }
+        },
+        {
+          "expect_request_contains": ["refused by the operator", "intentional and final"],
+          "respond": { "text": "the operator refused the write, so I left out.txt unchanged" }
+        }
+      ],
+      "expect": {
+        "tool_calls": ["write"],
+        "text_contains": ["refused the write"],
+        "text_not_contains": ["tampered"],
+        "turns": 2,
+        "stopped": false
+      },
+      "check": {
+        "file_equals": { "out.txt": "original\n" }
+      }
     }
   ]
 }

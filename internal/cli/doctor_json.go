@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+
+	"github.com/2118505078xyh1/argentgo/internal/i18n"
 )
 
 // doctorJSONCheck 是 doctor --json 中单条检查的稳定投影。
@@ -54,11 +56,13 @@ func runDoctorJSON(app App, ctx context.Context, opts doctorOptions, checks ...d
 		})
 	}
 
-	// baseURL、配置注入与会话健康告警与文本分支共享同一份检测逻辑；它们
-	// 都是 warn 级别，只作为独立字段输出，不计入 failures、也不改变退出码。
+	// baseURL、配置注入、会话健康与 i18n 审计告警与文本分支共享同一份检测
+	// 逻辑；它们都是 warn 级别，只作为独立字段输出，不计入 failures、也不
+	// 改变退出码。i18n 审计通过时无 issue，golden 输出逐字节不变。
 	issues := doctorBaseURLIssues(app)
 	issues = append(issues, doctorConfigInjectionIssues(app)...)
 	issues = append(issues, doctorSessionHealthIssues(app)...)
+	issues = append(issues, doctorI18nIssues(i18n.FullAudit())...)
 	jsonIssues := make([]doctorIssue, 0, len(issues))
 	for _, issue := range issues {
 		jsonIssues = append(jsonIssues, doctorIssue{

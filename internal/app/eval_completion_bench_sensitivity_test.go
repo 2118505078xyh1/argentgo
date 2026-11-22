@@ -6,6 +6,8 @@ import (
 	"io"
 	"math"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -148,5 +150,44 @@ func TestCompletionBenchSensitiveToHarnessFaults(t *testing.T) {
 				t.Error("B5 negative control should still fail")
 			}
 		})
+	}
+}
+
+// TestApprovalDenialScenarioSensitiveToRefusalNeedle 证明审批否决场景的判别力：
+// 把"refused by the operator"这根回注 needle 改坏（模拟安全链不再回吐可读拒绝文本），
+// 脚本化 provider 的 expect_request_contains 就会失败，场景不再通过。
+// 与 bench 的敏感性自检同理：完成率必须能感知 harness 故障，而非恒为 1。
+func TestApprovalDenialScenarioSensitiveToRefusalNeedle(t *testing.T) {
+	const name = "approval denial returns a readable final error"
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate the test file")
+	}
+	path := filepath.Join(filepath.Dir(thisFile), "..", "..", "evals", "core.json")
+	scenarios, err := eval.Load(path)
+	if err != nil {
+		t.Fatalf("Load(core.json): %v", err)
+	}
+	idx := -1
+	for i := range scenarios {
+		if scenarios[i].Name == name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("core.json has no scenario %q", name)
+	}
+	if !breakBenchNeedle(scenarios, idx, "refused by the operator") {
+		t.Fatalf("needle %q not found in scenario %q", "refused by the operator", name)
+	}
+
+	report := benchSensitivityReport(t, []eval.Scenario{scenarios[idx]})
+	if report.Results[0].Passed {
+		t.Fatal("scenario still passed after breaking the refusal needle; it has no discriminative power")
+	}
+	reason := report.Results[0].Reason
+	if !strings.Contains(reason, "SENSITIVITY_FAULT_refused by the operator") {
+		t.Fatalf("failure reason = %q, want the broken needle to be reported", reason)
 	}
 }

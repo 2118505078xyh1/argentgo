@@ -427,3 +427,17 @@
 - **可靠性加固**：server 四处 fire-and-forget goroutine（RPC prompt/subscribe、ACP prompt、WireAgentEvents）补 panic 恢复——出错回包 + 清理 + 保证 channel 关闭，不崩进程、不挂客户端，race-clean；agent `callTool` panic 边界激活（`safeToolPanic`：panic 转普通工具错误，与 Registry recover 双保险，正常字节不变）；JSONL `Close()` 加 fsync，干净退出不丢尾（不做逐 append fsync、不改 `flushLocked`，崩溃恢复语义不变）。
 - **能力接线（§2）**：`ARGENT_STREAM_RECOVERY=1` 把 R42 的流回补端到端交到用户手里（流错误时确实调用 `ChatOnce` 并发 `stream_recovery` 事件）；关闭时 `EnableStreamRecovery` 为零值、请求与事件逐字节不变。
 - 新原语：provider 能力画像、transcript 统计、prompt store（JSONL 历史 + frecency + 原子写），均为标准库、默认惰性。
+
+---
+
+## 10. Linux 已知降级（诚实说明）
+
+本矩阵的"可移植性/部署"证据只覆盖**编译期**：`GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./...` 与 5 平台交叉编译矩阵全绿；但项目在本机 Windows 开发与实测，**没有在真实 Linux 环境跑过运行时验收**。若在非 Windows 平台使用，以下能力按设计降级，不算 bug 也不算对标领先：
+
+| 降级点 | Windows 行为 | 非 Windows 行为 | 源码落点 |
+|---|---|---|---|
+| 凭据加密（§5） | DPAPI（`crypt32.dll` syscall）按当前用户加密令牌 | 无 DPAPI，明文存储，仅靠 token 文件 `0600` 权限隔离 | `internal/auth/token_crypt_windows.go`、`internal/auth/token_crypt_other.go` |
+| TUI 剪贴板（§4） | `CF_UNICODETEXT`（Win32 syscall）写剪贴板 | `writeClipboard` 空操作，复制键无副作用 | `internal/tui/clipboard_windows.go`、`internal/tui/clipboard_other.go` |
+| 原生桌面 GUI（§4 ⚠️-2） | `argentgo gui` 启动 MyGo 原生窗口 | 有显式守卫：非 Windows 打印 "native client is Windows-only" 并返回 1 | `cmd/argent/gui.go` 的 `runtime.GOOS != "windows"` 分支；`scripts/build-release.ps1` 只收 Windows/amd64 |
+
+命令行引擎、`--serve` / `--rpc` / `acp`、TUI 主体与全部内置工具走纯标准库，交叉编译后可在 Linux 运行；上述三点是平台相关的已知边界，不计划在核心引入 cgo 或第三方 GUI 依赖来消除。
