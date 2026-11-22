@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -218,7 +219,21 @@ func copyZipEntry(entry *zip.File, target string, written *int64) error {
 	if *written > maxZipBytes {
 		return fmt.Errorf("plugins: archive expands beyond %d bytes", int64(maxZipBytes))
 	}
+	// 保留归档条目的可执行位（MCP 脚本常靠 +x 启动），但去掉组/其他写位
+	// 防恶意 0777。Windows 无 POSIX 权限位，跳过。
+	if err := preserveFileMode(target, entry.Mode()); err != nil {
+		return fmt.Errorf("plugins: chmod %s: %w", target, err)
+	}
 	return nil
+}
+
+// preserveFileMode 把 mode 的权限位应用到 target，并去掉组/其他写位。
+// Windows 无对应的 exec 位语义，跳过（与历史字节一致）。
+func preserveFileMode(target string, mode os.FileMode) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	return os.Chmod(target, mode.Perm()&^0o022)
 }
 
 // safeArchivePath 把一个归档成员映射到目标，拒绝
@@ -303,6 +318,14 @@ func copyFile(source, destination string) error {
 	}
 	if err := out.Close(); err != nil {
 		return fmt.Errorf("plugins: close %s: %w", destination, err)
+	}
+	// 本地目录安装同样保留源文件权限位（去组/其他写位），使 MCP 脚本可执行。
+	info, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("plugins: stat %s: %w", source, err)
+	}
+	if err := preserveFileMode(destination, info.Mode()); err != nil {
+		return fmt.Errorf("plugins: chmod %s: %w", destination, err)
 	}
 	return nil
 }
