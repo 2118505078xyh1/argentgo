@@ -251,7 +251,7 @@ func (c *Client) initialize(ctx context.Context) error {
 					},
 				},
 			},
-			"workspace": map[string]any{"configuration": true, "workspaceFolders": true},
+			"workspace": map[string]any{"configuration": true, "workspaceFolders": true, "willRenameFiles": map[string]any{"fileOperations": map[string]any{"filters": []map[string]any{{"scheme": "file", "pattern": map[string]any{"glob": "**/*"}}}}}, "didChangeWatchedFiles": map[string]any{"dynamicRegistration": false}},
 		},
 		"workspaceFolders": []map[string]any{{
 			"uri":  uri,
