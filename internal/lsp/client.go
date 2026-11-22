@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/2118505078xyh1/argentgo/internal/proc"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,7 +148,13 @@ func Start(ctx context.Context, server Server, root string) (*Client, error) {
 	command := exec.Command(server.Command, server.Args...)
 	command.Dir = absoluteRoot
 	if len(server.Env) > 0 {
-		command.Env = append(os.Environ(), server.Env...)
+		// 语言服务器不得继承宿主私有会话管道变量（嵌套 agent 场景）。
+		// opt-in 开启时用 proc 的净化器剥离这些变量；默认走原拼环境路径。
+		if lspSanitizeEnvEnabled() {
+			command.Env = proc.SanitizeEnv(server.Env)
+		} else {
+			command.Env = append(os.Environ(), server.Env...)
+		}
 	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -160,12 +168,22 @@ func Start(ctx context.Context, server Server, root string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lsp %s: stderr pipe: %w", server.Name, err)
 	}
+	if lspKillTreeEnabled() {
+		proc.ConfigureGroup(command) // 必须在 Start 之前配置进程组
+	}
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("lsp %s: start %q: %w (is it installed and on PATH?)", server.Name, server.Command, err)
 	}
 
 	client := newClient(server, absoluteRoot, stdin, stdout)
-	client.kill = command.Process.Kill
+	// opt-in：用进程组整树终止替代只杀直接进程，避免 gopls/rust-analyzer 的
+	// 孙进程成为孤儿。默认仍用原来的 Process.Kill。
+	if lspKillTreeEnabled() {
+		procProc := command.Process
+		client.kill = func() error { proc.KillGroup(procProc); return nil }
+	} else {
+		client.kill = command.Process.Kill
+	}
 	client.wait = command.Wait
 	go client.drainStderr(stderr)
 
