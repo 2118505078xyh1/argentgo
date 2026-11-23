@@ -297,7 +297,7 @@ func progressHintText(p session.Progress) string {
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
 	// turn 租约（默认开启，ARGENT_TURN_LEASE=0 紧急关闭）：跨进程互斥，避免两个进程
 	// 同时压缩、追加同一会话而交错产出记录。活租约存在时拒绝本次 turn。
-	if sess != nil && strings.TrimSpace(res.Storage) != "" {
+	if sess != nil && strings.TrimSpace(res.Storage) != "" && session.TurnLeaseEnabledFrom(stdio.Env) {
 		lease, err := session.AcquireTurnLease(filepath.Join(res.Storage, "turn-lease"), sess.ID())
 		if err != nil {
 			return agent.Result{}, fmt.Errorf("execute: acquire turn lease: %w", err)
@@ -332,7 +332,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 崩溃重放重复副作用，干净运行安装它是无意义的额外 I/O。
 	claimsEnabled := false
 	if sess != nil {
-		decision := recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))
+		// 用未稀疏化的完整转录判定恢复类别，与压缩估算口径一致：foveated 会整单元
+		// 丢弃中段，若用它分类可能漏掉中段的孤儿调用证据，误判 clean 而关闭 claims。
+		decision := recoveryDecisionFor(recoveryMessagesForClassification(sess.MessagesForCompaction()))
 		claimsEnabled = strings.TrimSpace(decision.Notice) != ""
 		// 字节回放候选：仅在中断提示、快照有效、协议/模型一致时非空。
 		replay = replayFromSession(sess, stdio.Env, decision.Category, res.Model, res.Protocol)
@@ -833,7 +835,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 禁用/负的阈值会得到 0，从而成为空操作。
 		Compactor:          wrappedCompactor,
 		CompactObserver:    compactObserver,
-		ContextCalibration: contextCalibrationEnabled(),
+		ContextCalibration: contextCalibrationEnabledFrom(stdio.Env),
 		CompactThreshold:   compactor.CompactThreshold(),
 		// 流中断回补（ARGENT_STREAM_RECOVERY 默认开启，=0 关闭）：
 		// =0 时为零值，agent 的恢复分支整体短路。

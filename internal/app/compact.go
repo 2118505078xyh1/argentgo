@@ -803,7 +803,11 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	threshold, compact := compactionDecision(estimate, window, configured, percent)
 	// 上下文计量校准（ARGENT_CONTEXT_CALIBRATION 默认开启，=0 关闭）：用最近助手的原生
 	// totalTokens 作为实测锚点，钳制低估系数后重新判定。无锚点时保持原决策。
-	if contextCalibrationEnabled() && anchor.tokens > 0 {
+	var compactEnv func(string) string
+	if summaryDep != nil {
+		compactEnv = summaryDep.env
+	}
+	if contextCalibrationEnabledFrom(compactEnv) && anchor.tokens > 0 {
 		threshold, compact = compactionDecisionCalibrated(estimate, window, configured, percent, anchor.tokens)
 	}
 	// opt-in 压缩策略观测：仅在 ARGENT_COMPACTION_POLICY=1 时计算决策并落一条日志。

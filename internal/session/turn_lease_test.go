@@ -22,6 +22,34 @@ func writeTurnLeaseMarker(t *testing.T, dir, sessionID string, pid int, host str
 	return path
 }
 
+// TestTurnLeaseLocalTTLBoundsStaleMarker 锁定崩溃 + PID 复用场景的安全修复：
+// 本机标记即使 PID 仍判活（模拟 PID 被复用），mtime 超过 TTL 也必须被当陈旧
+// 清理。旧实现的本机 TTL=24h 会让这种场景拒绝新 turn 长达一天。
+func TestTurnLeaseLocalTTLBoundsStaleMarker(t *testing.T) {
+	t.Setenv(turnLeaseEnv, "")
+	dir := t.TempDir()
+	localHost, _ := os.Hostname()
+	// 用当前 PID 写标记（PID 判活必为 true），mtime 设为超过新 TTL。
+	// 这样陈旧判定只能靠 TTL 生效——正是旧实现漏掉的路径。
+	marker := writeTurnLeaseMarker(t, dir, "sess-local-ttl", os.Getpid(), localHost, localTurnLeaseTTL+time.Minute)
+
+	oldTime, _ := os.Stat(marker)
+	lease, err := AcquireTurnLease(dir, "sess-local-ttl")
+	if err != nil {
+		t.Fatalf("stale local marker must be reclaimed even with live PID: %v", err)
+	}
+	defer lease.Release()
+	// 同 PID 下新租约会复用同名路径，因此不能断言文件消失；改为断言标记被
+	// 重建/刷新（mtime 变新）——证明旧陈旧标记已被回收而非阻挡本次获取。
+	newTime, err := os.Stat(marker)
+	if err != nil {
+		t.Fatalf("replacement marker missing: %v", err)
+	}
+	if !newTime.ModTime().After(oldTime.ModTime()) {
+		t.Fatalf("marker not refreshed: old=%v new=%v", oldTime.ModTime(), newTime.ModTime())
+	}
+}
+
 // TestTurnLeaseForeignDetection 验证 TTL + PID 双判定：异机超时标记被清理，
 // 活标记拒绝新 turn；释放后标记消失；=0 时退化为无操作租约。
 func TestTurnLeaseForeignDetection(t *testing.T) {

@@ -18,6 +18,9 @@ import (
 const foveatedArchiveEnv = "ARGENT_FOVEATED_ARCHIVE"
 
 // foveatedArchiveEnabled 报告 foveated 归档视图是否启用。默认开启，=0 关闭。
+// 它读取进程环境，供 Messages() 等无 per-run env 上下文的读路径使用。
+// 注意：这是进程级开关——多表面若要 per-run 关闭，须走 MessagesForCompaction()
+// 拿完整视图（foveated 只影响喂给模型的 Messages() 读路径）。
 func foveatedArchiveEnabled() bool {
 	return strings.TrimSpace(os.Getenv(foveatedArchiveEnv)) != "0"
 }

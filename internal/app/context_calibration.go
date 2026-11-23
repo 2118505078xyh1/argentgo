@@ -15,7 +15,17 @@ import (
 const contextCalibrationEnv = "ARGENT_CONTEXT_CALIBRATION"
 
 func contextCalibrationEnabled() bool {
-	return strings.TrimSpace(os.Getenv(contextCalibrationEnv)) != "0"
+	return contextCalibrationEnabledFrom(nil)
+}
+
+// contextCalibrationEnabledFrom 是 per-run env 变体：env 非 nil 时以它为准，
+// 否则回退到进程环境。Execute 装配循环时传入 stdio.Env，使多表面各自的
+// ARGENT_CONTEXT_CALIBRATION 设置真正生效（此前只读进程 env 会被忽略）。
+func contextCalibrationEnabledFrom(env func(string) string) bool {
+	if env == nil {
+		env = os.Getenv
+	}
+	return strings.TrimSpace(env(contextCalibrationEnv)) != "0"
 }
 
 // compactionDecisionCalibrated 是 compactionDecision 的校准变体：

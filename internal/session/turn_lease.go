@@ -18,8 +18,12 @@ var ErrTurnLeaseHeld = errors.New("session: turn lease held by another process")
 const (
 	turnLeaseEnv = "ARGENT_TURN_LEASE"
 
-	// 本机标记 24h 未刷新、异机标记 60s 未刷新即视为陈旧。
-	localTurnLeaseTTL   = 24 * time.Hour
+	// 标记 60s 未刷新即视为陈旧；活跃租约每 TTL/3≈20s 续期，不受影响。
+	// 本机 TTL 从 24h 降到 60s：标记内容只有主机名、无进程启动时间，Windows
+	// PID 可被快速复用——若崩溃后 PID 被新进程占用，OpenProcess 判活会误把
+	// 陈旧标记当成活跃，24h TTL 会让下次运行被拒一整天。60s 把误判上限收回
+	// 到一分钟，代价仅是挂起超 60s 的进程不再持有租约（本就应让出）。
+	localTurnLeaseTTL   = 60 * time.Second
 	foreignTurnLeaseTTL = 60 * time.Second
 	turnLeaseRefreshDiv = 3
 	maxTurnLeaseHostLen = 256
@@ -38,8 +42,19 @@ type TurnLease struct {
 
 // TurnLeaseEnabled 报告租约是否启用。默认开启；仅显式设置为 "0" 时紧急关闭，
 // 给不希望产生 sidecar 标记的场景留出逃生阀（用户零选择）。
+// 它读取进程环境，供 library 直接调用者使用；Execute 请用 TurnLeaseEnabledFrom
+// 传入本次运行的 per-run env，避免多表面（--serve/rpc/TUI）各自的环境被忽略。
 func TurnLeaseEnabled() bool {
-	return strings.TrimSpace(os.Getenv(turnLeaseEnv)) != "0"
+	return TurnLeaseEnabledFrom(os.Getenv)
+}
+
+// TurnLeaseEnabledFrom 是 TurnLeaseEnabled 的 per-run env 变体。
+// env 为 nil 时按进程环境回退，保持零值兼容。
+func TurnLeaseEnabledFrom(env func(string) string) bool {
+	if env == nil {
+		env = os.Getenv
+	}
+	return strings.TrimSpace(env(turnLeaseEnv)) != "0"
 }
 
 // AcquireTurnLease 尝试为 dir 中的 sessionID 获取 turn 租约。
