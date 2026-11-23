@@ -105,7 +105,11 @@ func (bashTool) Name() string        { return "bash" }
 func (bashTool) Description() string { return "Run a shell command in the workspace root." }
 func (bashTool) Mutating() bool      { return true }
 func (bashTool) Schema() string {
-	return `{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer"},"background_after_ms":{"type":"integer","description":"If the command is still running after this many milliseconds, promote it to a background job instead of killing it on timeout."}},"required":["command"]}`
+	// 统一 exec 会话关闭时返回原始 schema，逐字节保持既有工具契约。
+	if !unifiedExecEnabled() {
+		return `{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer"},"background_after_ms":{"type":"integer","description":"If the command is still running after this many milliseconds, promote it to a background job instead of killing it on timeout."}},"required":["command"]}`
+	}
+	return `{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer"},"background_after_ms":{"type":"integer","description":"If the command is still running after this many milliseconds, promote it to a background job instead of killing it on timeout."},"session_id":{"type":"string","description":"Existing unified exec session to write stdin to; omit to start a new session."},"stdin":{"type":"string","description":"Initial input for a new session, or input for an existing session_id."},"tty":{"type":"boolean","description":"Attach a pseudoterminal so interactive programs see a TTY."},"yield_time_ms":{"type":"integer","description":"Maximum time to wait for output before returning a session_id."}},"required":["command"]}`
 }
 
 func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (string, error) {
@@ -113,13 +117,31 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		Command           string `json:"command"`
 		TimeoutSeconds    int    `json:"timeout_seconds"`
 		BackgroundAfterMS int    `json:"background_after_ms"`
+		// 以下四个字段仅在 ARGENT_EXEC_SESSION=1 时生效；关闭时被忽略，
+		// 原有解析与执行路径逐字节不变。
+		SessionID   string `json:"session_id"`
+		Stdin       string `json:"stdin"`
+		TTY         bool   `json:"tty"`
+		YieldTimeMS int    `json:"yield_time_ms"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("bash: bad arguments: %w", err)
 	}
-	if strings.TrimSpace(args.Command) == "" {
+	// 写入已有会话时允许省略 command；仅在 opt-in 开启时放宽，
+	// 确保默认路径的空命令校验逐字节不变。
+	allowEmptyCommand := unifiedExecEnabled() && args.SessionID != ""
+	if strings.TrimSpace(args.Command) == "" && !allowEmptyCommand {
 		return "", fmt.Errorf("bash: command must not be empty")
 	}
+
+	// 统一 exec 会话（opt-in ARGENT_EXEC_SESSION=1）：只有显式带了
+	// session_id / stdin / tty / yield_time_ms 之一才接管，避免开启开关
+	// 后悄悄改变普通一次性命令的既有语义。
+	if unifiedExecEnabled() && (args.SessionID != "" || args.Stdin != "" || args.TTY || args.YieldTimeMS > 0) {
+		return runBashViaExecSession(ctx, root, unifiedExecRegistry(), args.Command,
+			args.SessionID, args.Stdin, args.TTY, args.YieldTimeMS)
+	}
+
 	var requested time.Duration
 	if args.TimeoutSeconds > 0 {
 		requested = time.Duration(args.TimeoutSeconds) * time.Second
