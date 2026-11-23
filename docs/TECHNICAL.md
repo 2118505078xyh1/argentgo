@@ -253,7 +253,7 @@ flowchart TB
   SRC["source tree<br/>cmd/argent, native/<br/>stdlib core + mygo in native only"]
   VER["internal/cli/cli.go<br/>Version is the single source of truth"]
   BUILD["scripts/build-release.ps1<br/>CGO_ENABLED=0, GOOS=windows,<br/>GOARCH=amd64, -trimpath"]
-  BIN["argentgo.exe + argentgo-native.exe<br/>GUI subsystem build"]
+  BIN["argentgo.exe (CONSOLE) + argentgo-native.exe (GUI)<br/>verify-release.ps1 断言 PE 子系统"]
   ZIP["argentgo_VERSION_windows_amd64.zip"]
   SUMS["checksums.txt + per-zip .sha256<br/>SHA-256"]
   PUB["scripts/publish-win.ps1<br/>clean main, consistency check, push tag"]

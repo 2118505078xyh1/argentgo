@@ -28,6 +28,29 @@ function Get-ReleaseVersion([string]$Explicit) {
     return $match.Groups[1].Value
 }
 
+# PE 可选头（PE32/PE32+ 同偏移）里的 Subsystem：2=WINDOWS_GUI，3=CONSOLE。
+# CLI 若误用 GUI 子系统，PowerShell 不等待它、抓不到 stdout 和退出码，
+# 用户看到的就是 `argentgo tui` 秒退且毫无输出，必须在发布前挡住。
+function Get-PESubsystem([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $buffer = New-Object byte[] 4096
+        $n = $stream.Read($buffer, 0, $buffer.Length)
+        if ($n -lt 0x40) { throw "too small for a PE image: $Path" }
+        if ($buffer[0] -ne 0x4D -or $buffer[1] -ne 0x5A) { throw "missing MZ header: $Path" }
+        $pe = [BitConverter]::ToInt32($buffer, 0x3C)
+        if ($pe -lt 0 -or $pe + 24 + 70 -gt $n) { throw "invalid PE header offset: $Path" }
+        if ($buffer[$pe] -ne 0x50 -or $buffer[$pe + 1] -ne 0x45 -or
+            $buffer[$pe + 2] -ne 0 -or $buffer[$pe + 3] -ne 0) {
+            throw "missing PE signature: $Path"
+        }
+        return [BitConverter]::ToUInt16($buffer, $pe + 24 + 68)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 function Assert-ReleaseArtifacts([string]$Dir, [string]$Ver) {
     if (-not $Dir) { $Dir = Join-Path $repo 'dist/release' }
     $Dir = [IO.Path]::GetFullPath($Dir)
@@ -63,11 +86,23 @@ function Assert-ReleaseArtifacts([string]$Dir, [string]$Ver) {
         }
         Write-Host '  zip contains argentgo.exe and argentgo-native.exe'
 
+        # 子系统断言与平台无关，直接检查 PE 字节，因此非 Windows runner 也执行。
+        $exe = Join-Path $unpack 'argentgo.exe'
+        $cliSubsystem = Get-PESubsystem $exe
+        if ($cliSubsystem -ne 3) {
+            throw "argentgo.exe is PE subsystem $cliSubsystem, expected 3 (CONSOLE)"
+        }
+        $nativeSubsystem = Get-PESubsystem (Join-Path $unpack 'argentgo-native.exe')
+        if ($nativeSubsystem -ne 2) {
+            throw "argentgo-native.exe is PE subsystem $nativeSubsystem, expected 2 (WINDOWS_GUI)"
+        }
+        Write-Host '  PE subsystems OK: CLI=CONSOLE(3), native=WINDOWS_GUI(2)'
+
         # The source constants being consistent is not enough: a stale build
         # cache or wrong GOFLAGS can ship an exe that reports an old version.
         # Execute the unpacked binary and require it to self-report the tag
         # version exactly. On non-Windows runners skip with a clear notice.
-        $exe = Join-Path $unpack 'argentgo.exe'
+        $versionOut = ''
         if ($IsWindows -or $env:OS -eq 'Windows_NT') {
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
                 throw "unpacked argentgo.exe not found at $exe"

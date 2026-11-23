@@ -329,7 +329,7 @@ checksums.txt                          # sha256sum-style manifest for all zips
 ```
 
 - `scripts/build-release.ps1` 是产物的唯一事实来源。它用 `CGO_ENABLED=0`、`GOOS=windows`、`GOARCH=amd64` 和 `-trimpath` 构建 `./cmd/argent` 和 `./native`，然后把两个二进制一起打包。
-- zip 是 GUI 子系统构建（`-H=windowsgui`）：从桌面快捷方式启动不会出现黑色控制台窗口，同时从已有终端运行的 CLI 输出仍然可用。
+- zip 中 `argentgo.exe` 是**控制台子系统**构建（`-trimpath -ldflags '-s -w'`），`argentgo-native.exe` 是 GUI 子系统（额外加 `-H=windowsgui`）。CLI 必须保持控制台子系统：PowerShell **不会等待** GUI 程序，也抓不到它的 stdout 和退出码，会让 `argentgo tui` 表现为秒退且毫无输出。桌面壳用 GUI 子系统，双击时不闪黑框。
 - `checksums.txt` 是无 BOM、LF 换行的 UTF-8，因此 `sha256sum -c` 能接受它。每行是 `<sha256>  <filename>`。合并清单还驱动更新器的自动校验；每个 zip 的 `.sha256` 附带文件供那些期望每个资产一个哈希的工具使用。
 - 发布说明会重述哈希。`scripts/publish-win.ps1` 可以用仓库 CI 工作流及其内置凭据发布，也可以手动创建 Release 并上传同样两个资产。
 

@@ -148,15 +148,15 @@ try {
 
             $binName = if ($os -eq 'windows') { 'argentgo.exe' } else { 'argentgo' }
             $bin = Join-Path $stage $binName
-            # windowsgui makes the exe a GUI-subsystem binary: no black console
-            # window when launched from a desktop shortcut. CLI output still
-            # works when started from an existing terminal.
-            & $go build -trimpath -ldflags '-s -w -H=windowsgui' -o $bin ./cmd/argent
+            # CLI 必须是控制台子系统：PowerShell 不等待 GUI 进程，且抓不到它的
+            # stdout 与退出码，会让 `argentgo tui` 表现为秒退、无任何输出。
+            & $go build -trimpath -ldflags '-s -w' -o $bin ./cmd/argent
             if ($LASTEXITCODE -ne 0) { throw "go build failed for $os/$arch" }
             if (-not (Test-Path -LiteralPath $bin)) { throw "missing binary for $os/$arch" }
 
             # The MyGo native frontend is the default desktop client. Build it
             # beside argentgo.exe; it drives the engine over --rpc.
+            # 原生桌面壳才是 GUI 程序：保留 windowsgui，双击时不闪控制台。
             $nativeBin = Join-Path $stage 'argentgo-native.exe'
             & $go build -trimpath -ldflags '-s -w -H=windowsgui' -o $nativeBin ./native
             if ($LASTEXITCODE -ne 0) { throw "native frontend build failed for $os/$arch" }
