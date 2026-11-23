@@ -19,6 +19,11 @@ func (s *runState) maybeCompact() {
 		return
 	}
 	before := EstimateMessages(s.messages)
+	// 压力观察（opt-in，app 层接线）：在压缩判定之前把当前消息与阈值交给
+	// 观察者，使其能在接近阈值时提前在后台准备摘要。nil 时零调用。
+	if s.compactObserve != nil {
+		s.compactObserve(s.messages, s.compactThreshold)
+	}
 	if before <= s.compactThreshold {
 		return
 	}

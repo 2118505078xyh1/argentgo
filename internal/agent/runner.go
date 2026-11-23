@@ -108,6 +108,16 @@ func (s *runState) callTool(ctx context.Context, name, args string) (out string,
 	return out, ToolMeta{}, err
 }
 
+// CompactWindow 按 agent 的迟滞带与摘要预留量计算压缩目标窗口。
+// app 层后台预压缩（TODO #105）复用它，避免在两个包里重复窗口公式。
+func CompactWindow(threshold int) int {
+	window := int(float64(threshold)*compactionRecoveryBand) - summaryReserveTokens
+	if window < minCompactWindow {
+		window = minCompactWindow
+	}
+	return window
+}
+
 // Compactor 是可选的轮次中压缩钩子。app 层注入一个拥有会话的实现；
 // agent 包保持不依赖任何 session。window 是保留的后缀应当适配的 token 预算。
 type Compactor interface {
@@ -260,6 +270,11 @@ type Options struct {
 	ReplayBody     []byte
 	ReplayModel    string
 	ReplayProtocol string
+
+	// CompactObserver 是可选的压力观察钩子（app 层接线，agent 保持无 session 依赖）。
+	// 它在每次工具批次后、压缩判定之前被调用，携带当前消息与压缩阈值；app 可用它
+	// 在接近阈值时提前在后台准备摘要（ARGENT_BACKGROUND_COMPACT）。nil 时零调用。
+	CompactObserver func(messages []llm.Message, threshold int)
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。
 	Budget Budget
 	// Prices 把模型 id 映射到其每百万 token 的价格。若存在 "" 条目，

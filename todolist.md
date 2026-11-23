@@ -73,13 +73,6 @@
 - **建议**：opt-in 地在 `estimateContextTokens` 记录 `requestInputTokens`，用有上限的系数收缩/放宽阈值；把 `RESERVE_SHARE` 风格余量纳入阈值计算；溢出重试复用 `SHRINK_STEPS` 式逐级重发（但受 `MaxCompactRetries` 约束）。默认路径保持 chars/4 × 1.3 不变。
 - **验收**：表驱动测试喂「实测 120k / 估算 60k」断言系数钳到 4、阈值按新公式变化；基线用例断言 opt-in 关闭时阈值逐字节不变；`go test ./internal/agent ./internal/app -count=1`。
 
-### 105. 后台预压缩：提前写摘要、到阈值直接切换 `[P1/L]`（opencode + codex）
-- **竞品证据**：`opencode/packages/core/src/session/compaction.ts:338-402`：`PRECOMPUTE_LEAD=60_000`，在距上限还有 60k token 时 fork 后台摘要，锚定最近 provider 已计量的 assistant（`:360-366`），受 cache TTL（`:369-386`，过期/换模型/连续失败 2 次则取消）约束；摘要**只持有不立即应用**（`:340-343`，避免改写缓存前缀），`:404-428` 在阈值处校验 tail 后 swap。`codex/codex-rs/core/src/session/async_compaction.rs:34-110` 的 `maybe_start` 有类似的 history_version/模型/auth 一致性检查。
-- **argentgo 现状**：`internal/agent/runner.go:111-115` 的 `Compactor` 只有同步 `MaybeCompact`；`internal/agent/loop_helpers.go:15-42` 在阈值处同步调用。`internal/agent/compaction.go:120-168` 的 `SummaryCache` 只缓存相同前缀的摘要结果，避免重复摘要，**不会提前做**。
-- **问题**：写摘要要 30–60s，到阈值才开始会让下一次请求阻塞；大文件读取时上下文暴涨来不及。
-- **建议**：在 app 层包一层 opt-in 后台 Compactor（沿用 `Compactor` 接口，不改 agent 热路径），在压力接近阈值时异步产出摘要，到阈值时按 anchor/tail 校验后交给现有 `MaybeCompact` 消费；失败/换模型/超 TTL 则丢弃。默认同步路径逐字节不变。
-- **验收**：`internal/app/background_compactor_test.go`：注入伪 Chatter 控制延迟，断言后台摘要生成后阈值处零阻塞切换、tail 过长时拒绝切换、失败后回退同步；`go test ./internal/app -count=1`。
-
 ### 106. 重试前的持久上下文省略 + 可中止退避 + 摘要调用共享退避 `[P1/M]`（学自 pi-mono）
 - **竞品证据**：`pi-mono/packages/coding-agent/src/core/agent-session.ts:1269-1283` 的 `_omitRecoveryAttempt()`，`:1313-1354`/`:3936-3995` 在重试前对失败助手消息及其工具结果写 `appendContextEdit(targetId, null)` **永久省略**；`pi-mono/packages/ai/src/utils/retry.ts:160-164` 的退避可被 `abortRetry` 中断；`:2073-2080,3883-3918` 让压缩/分支摘要的 LLM 调用复用同一 retry 预算与事件。
 - **argentgo 现状**：`internal/agent/fallback.go:48-160` 在可重试错误时立即切换模型，无退避、失败消息留在 `s.messages`；`internal/agent/compact_retry.go:44-100` 的压缩重放是 opt-in 且最多一次，同样保留失败消息。`internal/session/context_edit.go:57` 的 `AppendContextEdit` 已有 Text 替换/隐藏语义，但只有 CLI 手动调用。

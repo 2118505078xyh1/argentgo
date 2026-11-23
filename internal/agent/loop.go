@@ -134,6 +134,7 @@ type runState struct {
 	replayBody     []byte
 	replayUsed     bool
 	replayProtocol string
+	compactObserve func([]llm.Message, int)
 	// eventsMu 串行化事件记录：流式工具的进度回调可能在循环发出轮次边界时
 	// 运行于自己的 goroutine 上。
 	eventsMu sync.Mutex
@@ -615,6 +616,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		followUp:       &steering{ch: opts.FollowUp},
 		replayBody:     opts.ReplayBody,
 		replayProtocol: opts.ReplayProtocol,
+		compactObserve: opts.CompactObserver,
 		ttsr:           newTTSRWatcherForRun(opts.TTSRRules),
 		beforeRequest:  opts.BeforeRequest,
 		beforeTool:     opts.BeforeTool,

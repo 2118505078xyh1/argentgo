@@ -420,6 +420,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 带图消息 token 估算（独立门控 ARGENT_MULTIMODAL_TRIM=1，默认关闭）：
 	// 把 ContentParts 的文本/图像 part 计入上下文估算，避免低估压力。
 	agent.SetMultimodalTrim(multimodalTrimOptInEnabled(stdio.Env))
+	// 重试前持久上下文省略（opt-in ARGENT_RETRY_OMIT，默认关闭）：开启时注入
+	// 按会话的回调，把失败尝试的助手消息及其工具结果以 ContextEdit 省略；
+	// 关闭时恢复 nil 钩子，重试路径不读取，逐字节不变。
+	if retryOmitEnabled(stdio.Env) {
+		agent.SetRetryOmitHook(func(int) error { return omitLastAssistantAttempt(sess) })
+	} else {
+		agent.SetRetryOmitHook(nil)
+	}
 	agent.SetOutputRedaction(optIns[OptInOutputRedaction])
 	agent.SetToolErrorReflection(optIns[OptInToolErrorReflection])
 	// 工具参数保守强转默认开启：模型常把 schema 声明的数字/布尔写成字符串
@@ -621,6 +629,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactorWithOpts(res, sess, reg)
+	// 后台预压缩（opt-in ARGENT_BACKGROUND_COMPACT）：包装 compactor 并把压力
+	// 观察者接到 agent 循环。关闭时返回原 compactor 与 nil observer，同步路径不变。
+	wrappedCompactor, compactObserver := newBackgroundCompactor(compactor, stdio.Env)
 	compactor.env = stdio.Env
 	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。
 	if bridge != nil && compactionHookEnabled(stdio.Env) {
@@ -760,7 +771,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		MaxVerifyReflections: verifyReflectionsFor(res),
 		// 轮次中压缩由 app 层注入，使 agent 永不导入 session。
 		// 禁用/负的阈值会得到 0，从而成为空操作。
-		Compactor:        compactor,
+		Compactor:        wrappedCompactor,
+		CompactObserver:  compactObserver,
 		CompactThreshold: compactor.CompactThreshold(),
 		// 流中断回补（opt-in ARGENT_STREAM_RECOVERY）：默认关闭时为零值，
 		// agent 的恢复分支整体短路，请求体与事件逐字节不变。

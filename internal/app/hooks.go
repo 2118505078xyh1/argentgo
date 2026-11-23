@@ -491,6 +491,9 @@ func (b *hookBridge) stop(ctx context.Context, prompt, text string) {
 }
 
 func (b *hookBridge) end() {
+	if b == nil {
+		return
+	}
 	// 被取消的运行仍会收到其结束事件。
 	b.lifecycle(context.Background(), hooks.SessionEnd, hooks.Payload{})
 	// 会话结束时回收常驻扩展进程；未挂载时 StopDaemon 是 no-op。

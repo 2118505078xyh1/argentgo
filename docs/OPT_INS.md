@@ -516,6 +516,12 @@ argentgo "你的任务"
 - **fail-closed**：规则文件损坏或无法信任时审批器进入失败态——不兑现任何规则、也不再写入，后续审批退回 inner 审批器的正常询问路径。
 - **逐字节不变承诺**：关闭时 app 层不构造该审批器，零文件 I/O，审批链行为逐字节不变。
 
+### `ARGENT_BACKGROUND_COMPACT` —— 后台预压缩
+
+- **作用**：app 层包装 `agent.Compactor`（TODO #105，学自 opencode）：agent 循环在每次工具批次后经可选 `CompactObserver` 把消息与阈值交给 app；当压力达到阈值的 80% 时，后台 goroutine 提前调用内层 compactor 算出压缩视图并缓存。到阈值时若缓存存在且锚点后新增消息不超过 24 条，直接交付缓存（零阻塞）；tail 过长则丢弃并同步回退；连续失败 2 次后暂停预计算。
+- **开启值**：真值（`1`/`true`/`yes`/`on`）；默认关闭时不包装 compactor、不注册 observer，同步压缩路径逐字节不变。
+- **一致性**：窗口由 `agent.CompactWindow(threshold)` 统一计算，避免与同步路径公式漂移；agent 包仍不依赖 session。
+
 ### `ARGENT_FOVEATED_ARCHIVE` —— foveated 多保真归档（纯文本版）
 
 - **作用**：`Messages()` 的读路径改用多保真视图（TODO #134 第一步，学自 oh-my-pi 的 `planArchive`）：两端保留逐字不变的高保真消息，中段按预算从较新往较旧保留少量稀疏消息（角色 + 单行摘要，保留 ID/ToolCallID/Data），最旧的中段被丢弃并在头段与稀疏段之间插入一个可解析的 `system` gap 标记 `[… N messages omitted …]`（N 为消息条数，非 rune）。
@@ -631,6 +637,7 @@ argentgo "你的任务"
 | `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
 | `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
 | `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
+| `ARGENT_BACKGROUND_COMPACT` | 后台预压缩：接近阈值时后台准备摘要，到阈值零阻塞切换，tail 过长/失败回退同步；仅 `=1` 开启，关闭时同步路径逐字节不变。 |
 | `ARGENT_APPROVAL_PERSIST` | 持久化审批规则：always/deny 落 `<storage>/approvals.jsonl`（只记工具名），损坏时 fail-closed；仅 `=1` 开启，关闭时零文件 I/O。 |
 | `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；仅 `=1` 开启，默认逐字节不变。 |
 | `ARGENT_HOOK_DAEMON` | 钩子常驻进程扩展：值为受信任钩子文档路径，常驻进程经 stdio JSON-RPC 折入既有裁决管线，崩溃降级；未设置时零文件 I/O、不派生进程。 |
