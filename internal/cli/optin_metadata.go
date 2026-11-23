@@ -82,6 +82,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "lsp_sanitize_env", Env: "ARGENT_LSP_SANITIZE_ENV", Name: "LSP 环境净化", Enable: "=1", Desc: "启动语言服务器时用 proc 净化环境，避免继承宿主私有会话管道变量；默认关闭时按原方式拼环境。"},
 	{Key: "lsp_kill_tree", Env: "ARGENT_LSP_KILL_TREE", Name: "LSP 整树终止", Enable: "=1", Desc: "关闭语言服务器时终止整棵进程树，避免孙进程变孤儿；默认关闭时只杀直接进程。"},
 	{Key: "plugin_output_schema", Env: "ARGENT_PLUGIN_OUTPUT_SCHEMA", Name: "插件输出 schema 校验", Enable: "=1", Desc: "声明 OutputSchema 的插件工具输出必须是合法 JSON，违反时转成模型可读错误；默认关闭时不校验，内置工具不受影响。"},
+	{Key: "hook_lifecycle", Env: "ARGENT_HOOK_LIFECYCLE", Name: "生命周期 hook 事件", Enable: "=1", Desc: "把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；默认关闭时无额外 hook 调用。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

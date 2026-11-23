@@ -626,7 +626,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 轮末上报都是空操作，不构造 MessageLike、不发事件，既有事件字节完全不变。
 	observer := contextPressureOf(ctx)
 
+	lifecycleHooksOn := hookLifecycleEnabled(stdio.Env)
 	forwardEvent := func(event agent.Event) {
+		// 生命周期 hook 映射（opt-in ARGENT_HOOK_LIFECYCLE，默认关闭）：
+		// 把轮次边界/中断/子 agent 结束事件投递给 hook bridge。
+		fireLifecycleHook(bridge, lifecycleHooksOn, event)
 		// 发布到按运行划分的事件 hub，使 --serve / --rpc 的订阅者
 		// （SSE /v1/event、event/subscribe）看到真实的 agent 事件。
 		// 接收器由 runner.Prompt 注入 ctx；不存在时为空操作。

@@ -67,6 +67,7 @@ func TestEventHandlerRegistryEventMapping(t *testing.T) {
 		{SessionEnd, "when a session ends, including on cancellation", ""},
 		{SubagentStop, "when a subagent finishes its run", "Output"},
 		{Stop, "when the assistant finishes a turn", "Prompt, Output"},
+		{TurnStart, "when the assistant starts a turn", "Prompt, HookPayload (turn)"},
 		{EventInterrupt, "when the assistant turn is interrupted by the user or transport", "Prompt, Output, HookPayload (reason=interrupt)"},
 		{EventStopFailure, "when the assistant turn ends in a non-cancellation error", "Prompt, Output, HookPayload (reason=stop_failure, error text)"},
 		{EventTurnEnd, "when the assistant turn completes cleanly", "Prompt, Output, HookPayload (reason=turn_end)"},

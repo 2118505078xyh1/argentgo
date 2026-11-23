@@ -102,6 +102,7 @@ func init() {
 		{Stop, 110, eventDescriptor{triggerText: "when the assistant finishes a turn", payloadText: "Prompt, Output"}},
 		{EventInterrupt, 120, eventDescriptor{triggerText: "when the assistant turn is interrupted by the user or transport", payloadText: "Prompt, Output, HookPayload (reason=interrupt)"}},
 		{EventStopFailure, 130, eventDescriptor{triggerText: "when the assistant turn ends in a non-cancellation error", payloadText: "Prompt, Output, HookPayload (reason=stop_failure, error text)"}},
+		{TurnStart, 115, eventDescriptor{triggerText: "when the assistant starts a turn", payloadText: "Prompt, HookPayload (turn)"}},
 		{EventTurnEnd, 140, eventDescriptor{triggerText: "when the assistant turn completes cleanly", payloadText: "Prompt, Output, HookPayload (reason=turn_end)"}},
 		{FileChanged, 150, eventDescriptor{triggerText: "when a tool creates, modifies or deletes a file", payloadText: "Path (the affected file)"}},
 	}

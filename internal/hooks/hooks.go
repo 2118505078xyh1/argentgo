@@ -52,6 +52,8 @@ const (
 	// EventStopFailure 在助手回合以非取消错误结束时触发
 	// EventStopFailure 在助手回合以非取消错误结束时触发：provider 失败、工具错误、截止时间等。
 	EventStopFailure Event = "stop_failure"
+	// TurnStart 在助手回合开始时触发（对应 agent.EventTurnStart）。
+	TurnStart Event = "turn_start"
 	// EventTurnEnd 在助手回合干净完成时触发。
 	EventTurnEnd Event = "turn_end"
 	// FileChanged 在工具创建、修改或删除文件时触发。
@@ -73,6 +75,7 @@ var AllEvents = []Event{
 	SessionEnd,
 	SubagentStop,
 	Stop,
+	TurnStart,
 	EventInterrupt,
 	EventStopFailure,
 	EventTurnEnd,

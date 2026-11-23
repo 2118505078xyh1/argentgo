@@ -26,12 +26,6 @@
 
 ## 二、安全边界（15–28）
 
-### 18. `result_provenance.go` 半完成且与已有原语重复 `[P1/M]`
-- **现状**：`internal/tools/result_provenance.go:9-92` 的 `Provenance`/`AnnotateResult`/`Header`/`PrependHeader`，文件头自述「不参与任何输出管线，也没有生产调用方」；`agent/untrusted_result.go:30-64` 提供已接线的同类能力。
-- **问题**：两套来源标注格式（`[tool:...]` vs `<tool_result ...>`）并存，维护漂移；默认路径工具结果无任何来源/脱敏/裁剪标记。
-- **建议**：二选一并落地——推荐在 `internal/tools/tools_registry.go:Run` 返回处用 `AnnotateResult(name,out,sanitized,clipped).Header()` + `PrependHeader` 加头，复用 agent 的 opt-in 总开关以免默认字节变化；或删掉该文件统一到 `UntrustedResult` 并补 sanitized/clipped/bytes 字段。
-- **验收**：`grep -R "AnnotateResult(" --include=*.go internal/ | grep -v _test.go` 至少 1 条；新测试断言开启后结果首行为 `[tool:read sanitized clipped bytes=N]`、关闭时逐字节一致。
-
 ### 21. 分阶段审批状态机无生产启用点、无实现者 `[P2/M]`
 - **现状**：`chain.go:148-158` 的 `StagedApprover`、`:164-173` 的 `EnableStagedApproval`、`:301-372` 的 `checkStaged`、`approval_stage.go:76-159` 的 `AdvanceStage/ScopeSummary` 生产调用为零，生产代码无类型实现 `AskStage/RememberScope`；对照 `EnablePlanMode` 在 `app_execute.go:376` 有真实接线。
 - **问题**：once/always/reject/esc、「始终允许」作用域记忆完全不可用，用户只能逐次批准；32 轮上限（:291）的防御从未在生产路径验证。
@@ -155,20 +149,6 @@
 - **问题**：超时/取消时可能留下孤儿进程；Windows 上无法发 CTRL_BREAK 做优雅退出。
 - **建议**：opt-in `SuspendedJob`：沿用 `internal/proc/proc_windows.go:26-33` 的 `syscall.NewLazyDLL` 模式调 `CreateProcessW`/`AssignProcessToJobObject`/`ResumeThread`；入 job 失败即杀掉挂起进程；附带短 grace + `CTRL_BREAK_EVENT`。无 cgo、linux 交叉编译路径不受影响。
 - **验收**：`internal/proc/suspended_job_windows_test.go`：启动会 spawn 孙进程的命令，取消后两者均不在；入 job 失败路径子进程从未运行；`GOOS=linux go build ./...` 仍绿。
-
-### 122. 多轮 follow-up 队列：本应停止时再继续 `[P1/S-M]`（学自 pi-mono）
-- **竞品证据**：pi `packages/agent/src/agent.ts:197-198` 双队列 `steeringQueue`/`followUpQueue`（各自 one-at-a-time/all 模式，`:255-256`），`:410-412` 外层循环在 agent 停止后 drain follow-up 再跑一轮；`agent-loop.ts:187,310-317` 明确「Agent would stop here. Check for follow-up messages」；`types.ts:233-248` 的 `finishTurn` 返回 `{action:"end"/"continue"}`。
-- **argentgo 现状**：`internal/agent/steer.go:12-45` 只有单一 `Steer <-chan string`；`loop_helpers.go:246-270` 在轮次边界 drain；`loop.go:921-940,1140-1146` 无工具回复时只在 `injectSteering()` 命中时多开一轮；无 follow-up 概念。
-- **问题**：用户在模型正在回答时追加的消息（TUI/native 场景）只能当 steering 在当前轮插入，无法「答完后作为新轮次继续」。
-- **建议**：opt-in `Options.FollowUp <-chan string` + `FollowUpMode`；在 `loop()` 无工具结束分支抽取 follow-up，命中则再跑一轮；不接通道时零分配空操作。
-- **验收**：`internal/agent/follow_up_test.go`：无工具回复时通道已有 follow-up → 多跑一轮并包含该文本；通道空 → 原样 StopComplete；`go test ./internal/agent -count=1`。
-
-### 126. 压缩请求溢出时按缓存前缀逐条淘汰 `[P1/S-M]`（学自 codex）
-- **竞品证据**：codex `core/src/compact.rs:355-367`：压缩模型请求遇 `ContextWindowExceeded` 时 `history.remove_first_item()` 并重置重试计数，注释明确「从头部裁剪以保留缓存前缀」。
-- **argentgo 现状**：`internal/agent/compact_retry.go:59-90` 只在 provider 溢出后调用一次 `MaybeCompact` 且最多重放一次；`internal/app/compact.go:249-285` 的 `compactionWorthwhile` 判定不划算时返回 `(messages,false)`，`compactAndReplay` 的 `!changed` 分支直接放弃重放——首次请求即严重溢出时可能没有有效恢复路径。
-- **问题**：超大历史或短上下文模型下，压缩后仍超限时直接失败，而不是继续裁最旧项。
-- **建议**：opt-in `ARGENT_COMPACT_DRAIN=1`：摘要后重新估算仍超预算时按前缀逐条移除最旧非系统消息（循环有上限），复用 `resetBudgetReminder()` 与事件通知；仍受 `MaxCompactRetries` 约束。
-- **验收**：`internal/agent/compact_drain_test.go`：伪 Chatter 两次报告 context overflow，断言第二次裁掉最旧消息并成功；无上限空转；关闭时行为不变；`go test ./internal/agent -count=1`。
 
 ### 127. 可持久化的审批/作用域规则 `[P2/M-L]`（codex + opencode）
 - **竞品证据**：codex `protocol/src/protocol.rs:4618-4635` 的 `ReviewDecision` 含 `ApprovedForSession`/`ApprovedExecpolicyAmendment`/`ApprovedMcpPolicyAmendment`/`NetworkPolicyAmendment`；`execpolicy/src/amend.rs:62-78` 用文件锁把前缀规则追加到策略文件，跨会话生效。opencode `core/src/permission.ts:334-395` 拒绝时按 session+messageID 撤销整批 pending，`always` 时持久化 saved rule（`permission/saved.ts:69-84`）。
