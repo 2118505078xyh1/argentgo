@@ -37,15 +37,16 @@ func runBashToolWithTimeout(t *testing.T, command string, timeoutSeconds int) (s
 	return bashTool{}.Run(context.Background(), t.TempDir(), raw)
 }
 
-// TestBashUseProcFlagValues 锁定 opt-in 的解析语义：只有 TrimSpace 后
-// 恰为 "1" 才开启，其余值（含 "true"/"yes"）都关闭，与 builtinShell 一致。
+// TestBashUseProcFlagValues 锁定 opt-out 的解析语义（TODO #27）：硬化是
+// 安全默认值，TrimSpace 后只有恰为 "0" 才回退旧的 CombinedOutput 路径；
+// 其余值（含空串、"true"/"yes"/"01"）都启用硬化。
 func TestBashUseProcFlagValues(t *testing.T) {
 	for _, tc := range []struct {
 		val  string
 		want bool
 	}{
-		{"1", true}, {" 1 ", true},
-		{"", false}, {"0", false}, {"true", false}, {"yes", false}, {"01", false},
+		{"0", false}, {" 0 ", false},
+		{"", true}, {"1", true}, {" 1 ", true}, {"true", true}, {"yes", true}, {"01", true},
 	} {
 		t.Run(fmt.Sprintf("%q", tc.val), func(t *testing.T) {
 			t.Setenv("ARGENT_BASH_USE_PROC", tc.val)
@@ -107,7 +108,32 @@ func TestBashUseProcOffByteBaseline(t *testing.T) {
 	}
 }
 
-// TestBashUseProcOnSegmentsStreams 固定 opt-in 下的已知差异：
+// TestBashUseProcDefaultIsHardened 验证 TODO #27：进程硬化是安全默认值，
+// 未设置 ARGENT_BASH_USE_PROC 时与显式 "1" 行为一致（stdout 段 + stderr 段）。
+func TestBashUseProcDefaultIsHardened(t *testing.T) {
+	requireBashShell(t)
+	t.Setenv("ARGENT_BUILTIN_SHELL", "0")
+	t.Setenv("ARGENT_BASH_USE_PROC", "") // 未设置 → 默认硬化
+
+	if !bashUseProcEnabled() {
+		t.Fatal("process hardening must be enabled by default")
+	}
+	c := bashProcCommand("bash", []string{"-lc", "echo hi"}, `C:\work`)
+	if !c.KillTree {
+		t.Fatal("default hardened path must request full process-tree kill")
+	}
+
+	got, err := runBashTool(t, mixedStreamCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "O1\nO2\nE1\n"
+	if got != want {
+		t.Fatalf("default hardened output = %q, want %q", got, want)
+	}
+}
+
+// TestBashUseProcOnSegmentsStreams 固定硬化路径下的已知差异：
 // proc.Result.Combined() 是 stdout 段后接 stderr 段的拼接，而非实时交错。
 func TestBashUseProcOnSegmentsStreams(t *testing.T) {
 	requireBashShell(t)

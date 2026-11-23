@@ -169,16 +169,10 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		}
 	}
 
-	// 默认 bash 路径的进程硬化是 opt-in 的：开启后走 proc.Run，
-	// 获得有界捕获、进程组杀树、环境净化与跨分块 UTF-8 重组；
-	// 关闭时保持下方的 CombinedOutput 路径逐字节不变。
-	if bashUseProcEnabled() {
-		return runBashViaProc(ctx, root, path, argv, timeout)
-	}
-
 	// 自研内建 shell：默认启用（ARGENT_BUILTIN_SHELL=0 为紧急关闭），且仅在
-	// 命令处于受支持子集时接管。它排在三个显式 opt-in 路径（持久化会话、
-	// 后台提升、proc 硬化）之后，避免默认开启后抢占这些路径的既有语义；
+	// 命令处于受支持子集时接管。它排在持久化会话与后台提升之后，但必须先于
+	// proc 硬化路径——否则硬化作为默认值会抢占内建 shell 的安全咨询（oracle）。
+	// 含不支持语法的命令则继续走下方硬化/系统 shell 路径。
 	// 含不支持语法的命令则继续走下方系统 shell 路径。
 	//
 	// 运行期安全网：若解释器冒出 ErrUnsupported（静态预检无法判定的动态构造，
@@ -192,7 +186,14 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 				return out, err
 			}
 		}
-		// 整条回退：继续执行下方原系统 shell 路径，args.Command 逐字节不变。
+		// 整条回退：继续执行下方硬化/系统 shell 路径，args.Command 逐字节不变。
+	}
+
+	// 默认 bash 路径的进程硬化是安全默认值（TODO #27）：走 proc.Run，
+	// 获得有界捕获、进程组杀树、环境净化与跨分块 UTF-8 重组；
+	// 仅显式 ARGENT_BASH_USE_PROC=0 时保持下方的 CombinedOutput 兼容路径。
+	if bashUseProcEnabled() {
+		return runBashViaProc(ctx, root, path, argv, timeout)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -301,11 +302,12 @@ func runBashViaPersistent(ctx context.Context, root string, sessions shellSessio
 	return text, nil
 }
 
-// bashUseProcEnabled 报告是否让默认 bash 主路径改走 proc.Run。
-// 默认关闭：只有 ARGENT_BASH_USE_PROC=1 才启用，确保关闭时仍走
-// 原有的 exec.Cmd.CombinedOutput 路径、输出逐字节不变。
+// bashUseProcEnabled 报告默认 bash 主路径是否走 proc.Run 硬化实现。
+// TODO #27：硬化是安全默认值（有界捕获、进程树终止、环境净化、UTF-8 重组），
+// 因此默认开启；只有显式 ARGENT_BASH_USE_PROC=0 才回退到旧的
+// exec.Cmd.CombinedOutput 路径（用于需要 stdout/stderr 实时交错的兼容场景）。
 func bashUseProcEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_BASH_USE_PROC")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_BASH_USE_PROC")) != "0"
 }
 
 // runBuiltinShell 用自研解释器执行命令。输出仍走既有的清洗/裁剪管线
