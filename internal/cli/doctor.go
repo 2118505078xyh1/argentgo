@@ -58,6 +58,7 @@ type doctorOptions struct {
 	baseURL string
 	asJSON  bool
 	profile bool
+	links   bool
 }
 
 // runDoctor 报告配置、MCP 配置、存储、提供方、git 和 Go 的健康状况，
@@ -75,6 +76,12 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	}
 	if opts.baseURL == "" {
 		opts.baseURL = firstNonEmpty(app.env("ARGENT_BASE_URL"), app.env("OPENAI_BASE_URL"), "https://api.openai.com/v1")
+	}
+
+	// --links：校验仓库内 Markdown 的 argent:// 引用是否格式合法、scheme 已注册。
+	// 只读、不联网、不改既有 check 集合与退出码语义。
+	if opts.links {
+		return runDoctorLinks(app)
 	}
 
 	checks := []doctorCheck{
@@ -148,6 +155,8 @@ func doctorFlags(args []string) (opts doctorOptions, help bool, err error) {
 			opts.asJSON = true
 		case arg == "--profile":
 			opts.profile = true
+		case arg == "--links":
+			opts.links = true
 		case arg == "--base-url":
 			if i+1 >= len(args) {
 				return opts, false, errors.New("--base-url needs a value")
