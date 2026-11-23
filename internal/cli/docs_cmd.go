@@ -40,7 +40,7 @@ func runDocs(app App, _ context.Context, args []string) int {
 			docsUsage(app.IO.Err)
 			return 2
 		}
-		res, err := uri.ResolveDefault("argent://docs/" + args[1])
+		res, err := uri.ResolveWithFallback("argent://docs/"+args[1], docRoot())
 		if err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
 			return 1
