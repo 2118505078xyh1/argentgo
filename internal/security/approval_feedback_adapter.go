@@ -57,3 +57,20 @@ func ParseApproverResult(granted bool, err error) FeedbackAnswer {
 	}
 	return FeedbackAnswer{Granted: granted}
 }
+
+// persistentKindForFeedback 把规范化回答映射成可持久化的决策类别，供
+// FileBackedScopedApprover 消费结构化反馈：
+//   - 放行 → "always"（记住作用域，使授权跨重启生效）；
+//   - 无反馈的拒绝 → "deny"（粘性拒绝，保守优先）；
+//   - 带反馈的拒绝 → ""（自由文本绝不落盘，原样交回链转成模型可读错误）。
+//
+// 基础设施错误由调用方另外判定，本函数只看规范化后的回答本身。
+func persistentKindForFeedback(ans FeedbackAnswer) string {
+	if ans.Granted {
+		return "always"
+	}
+	if ans.Feedback != "" {
+		return ""
+	}
+	return "deny"
+}
