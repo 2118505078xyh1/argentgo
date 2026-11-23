@@ -97,6 +97,19 @@ func TestExecSessionWriteStdinKeepsProcess(t *testing.T) {
 		t.Fatalf("start session: %v", err)
 	}
 	id := sessionIDFromOutput(t, out)
+	// race/慢 CI 上 helper 进程可能还没来得及写出 "ready" 就到了首轮 yield
+	// 截止，观察行只报 still_running=true。续读会话尾部直到 banner 出现
+	// （后续读取不会重放已消费的 ready），避免把环境延迟误判成启动失败。
+	if !strings.Contains(out, "ready") {
+		readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":2000}`, id))
+		for attempt := 0; attempt < 4 && !strings.Contains(out, "ready"); attempt++ {
+			more, e := tool.Run(ctx, "", readRaw)
+			if e != nil {
+				t.Fatalf("read more logs: %v", e)
+			}
+			out += more
+		}
+	}
 	if !strings.Contains(out, "ready") {
 		t.Fatalf("start output = %q, want ready banner", out)
 	}
