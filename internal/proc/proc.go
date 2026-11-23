@@ -194,7 +194,10 @@ func Run(ctx context.Context, c Command) (Result, error) {
 	cmd.Env = SanitizeEnv(c.Env)
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
-	configure(cmd, c.KillTree, c.NoWindow)
+	// IdleTimeout 触发时必须能终止整棵进程树（否则沉默的孙进程会一直持有
+	// 管道，让 cmd.Wait 卡到它自然结束）。因此 IdleTimeout 隐含启用 KillTree。
+	killTree := c.KillTree || c.IdleTimeout > 0
+	configure(cmd, killTree, c.NoWindow)
 
 	// 从我们自己拥有的管道馈送 stdin：exec 自身的 stdin 拷贝
 	// 会被 Wait 等待，因此永不返回的 reader 可能挂起整个调用。
@@ -214,7 +217,7 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	// startTracked 在 opt-in 开启且需要整树终止时改走挂起启动：
 	// 先入作业对象再恢复，封住孙进程逃逸窗口。默认路径与 cmd.Start() 等价。
-	handle, err := startTracked(cmd, c.KillTree)
+	handle, err := startTracked(cmd, killTree)
 	if err != nil {
 		if stdinRead != nil {
 			_ = stdinRead.Close()

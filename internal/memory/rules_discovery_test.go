@@ -215,25 +215,29 @@ func TestDiscoverRulesEmptyInputs(t *testing.T) {
 	}
 }
 
-// 逃逸符号链接不得被跟随：base 规则目录内指向外部文件的链接应被跳过。
+// 逃逸符号链接不得被跟随：候选路径上指向外部文件的链接应被跳过。
+// 注意候选只识别 AGENTS.md/CLAUDE.md 等固定文件名，链接必须使用候选名，
+// 否则 DiscoverRules 根本不会扫描到它，测试将失去意义。
 func TestDiscoverRulesSymlinkEscape(t *testing.T) {
 	project := t.TempDir()
 	outside := t.TempDir()
 	external := writeRule(t, outside, "secret.md", "outside")
-	writeRule(t, project, "kept.md", "inside")
+	// 工作区内的合法候选文件（AGENTS.md 在 projectFileCandidates 中）。
+	writeRule(t, project, "AGENTS.md", "inside")
 
-	link := filepath.Join(project, "escaped.md")
+	// 逃逸链接使用候选名 CLAUDE.md，指向工作区外的文件。
+	link := filepath.Join(project, "CLAUDE.md")
 	if err := os.Symlink(external, link); err != nil {
 		t.Skipf("symlink creation not permitted: %v", err)
 	}
 
 	got := DiscoverRules("", project, "")
 	for _, r := range got {
-		if strings.EqualFold(r.Basename, filepath.Base(external)) {
+		if strings.EqualFold(r.Basename, filepath.Base(link)) {
 			t.Fatalf("escaping symlink was followed: %#v", r)
 		}
 	}
-	if len(got) != 1 || got[0].Basename != "kept.md" {
-		t.Fatalf("got %#v, want only kept.md", got)
+	if len(got) != 1 || got[0].Basename != "AGENTS.md" {
+		t.Fatalf("got %#v, want only AGENTS.md", got)
 	}
 }

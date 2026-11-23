@@ -117,11 +117,19 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 	id := sessionIDFromOutput(t, first)
 	defer closeTestSession(t, id)
 
-	// 空 command 不写 stdin，只续读会话尾部日志。
+	// 空 command 不写 stdin，只续读会话尾部日志。CI 上 done 可能先于进程退出
+	// 信号被看到，导致首次续读仍报 still_running=true；最多再读几次直到进程
+	// 退出状态可见。后续读取不会重放已消费的 ready。
 	readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":2000}`, id))
-	second, err := tool.Run(ctx, "", readRaw)
-	if err != nil {
-		t.Fatalf("read more logs: %v", err)
+	var second string
+	for attempt := 0; attempt < 4; attempt++ {
+		second, err = tool.Run(ctx, "", readRaw)
+		if err != nil {
+			t.Fatalf("read more logs: %v", err)
+		}
+		if strings.Contains(second, "still_running=false") {
+			break
+		}
 	}
 	for _, want := range []string{"done", "still_running=false", "exit_code=0"} {
 		if !strings.Contains(second, want) {
