@@ -220,7 +220,12 @@ func GrepExWithOutcome(opts GrepExOptions) (matches []GrepExMatch, files map[str
 		scanSearchFileLines(file, func(line scanLine) bool {
 			matched := lineMatches(line.text)
 			cb.push(line.no, line.text, matched, toText)
-			if stopped.Load() || (opts.MaxPerFile > 0 && fileCount >= opts.MaxPerFile) || count >= probe {
+			// count/fileCount 由 cb 的 emit 闭包在 mu 下写入；这里必须与
+			// 之同锁读取，否则并行 walk 的多 goroutine 会触发数据竞争。
+			mu.Lock()
+			overLimit := (opts.MaxPerFile > 0 && fileCount >= opts.MaxPerFile) || count >= probe
+			mu.Unlock()
+			if stopped.Load() || overLimit {
 				return false
 			}
 			return true
