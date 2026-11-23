@@ -516,6 +516,12 @@ argentgo "你的任务"
 - **fail-closed**：规则文件损坏或无法信任时审批器进入失败态——不兑现任何规则、也不再写入，后续审批退回 inner 审批器的正常询问路径。
 - **逐字节不变承诺**：关闭时 app 层不构造该审批器，零文件 I/O，审批链行为逐字节不变。
 
+### `ARGENT_EXEC_SESSION` —— 统一 exec 会话
+
+- **作用**：bash 工具新增 `session_id`/`write_stdin`/`yield_time_ms`/TTY 字段（TODO #120，学自 codex），并在 app 层按开关注册 `write_stdin` 工具。`internal/jobs` 的会话注册表持有有界输出环（1 MiB）、stdin 限长（8000 字节）、空闲回收（5 分钟）与按会话精确 kill；TTY 会话走 ConPTY/ptmx。
+- **开启值**：仅值为 `1`（允许首尾空白）时生效。
+- **逐字节不变承诺**：关闭时 bash 的 schema、参数解析、执行路径与默认工具 Specs() 全部逐字节不变。
+
 ### `ARGENT_CONTEXT_CALIBRATION` —— 上下文计量校准
 
 - **作用**：opt-in 地把提供方实测 token 锚点纳入压缩判定（TODO #104，学自 opencode/cline/pi）：`CalibrationFactor(measured, estimated)` 返回低估系数并钳到 `[1,4]`（实测 120k / 估算 60k → 2，严重低估 → 4），`CalibratedEstimate` 放大估算后再做既有 1.3 倍膨胀与阈值比较；`ReservedCeiling` 给出扣余量后的上限（`max(15%, 16000)`），`ShrinkWindow` 提供逐级缩减比例 `[0.85,0.7,0.5,0.35]`。接线取最近助手的原生 `totalTokens` 作实测锚点，无锚点时退回原判定。
@@ -644,6 +650,7 @@ argentgo "你的任务"
 | `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
 | `ARGENT_BACKGROUND_COMPACT` | 后台预压缩：接近阈值时后台准备摘要，到阈值零阻塞切换，tail 过长/失败回退同步；仅 `=1` 开启，关闭时同步路径逐字节不变。 |
 | `ARGENT_CONTEXT_CALIBRATION` | 上下文计量校准：实测/估算比率钳到 1..4 放大估算、预留余量上限、逐级缩减窗口；仅 `=1` 开启，无锚点/关闭时阈值逐字节不变。 |
+| `ARGENT_EXEC_SESSION` | 统一 exec 会话：bash 支持 session_id/write_stdin/yield_time_ms/TTY 并注册 write_stdin 工具；仅 `=1` 开启，关闭时 schema/Specs 逐字节不变。 |
 | `ARGENT_APPROVAL_PERSIST` | 持久化审批规则：always/deny 落 `<storage>/approvals.jsonl`（只记工具名），损坏时 fail-closed；仅 `=1` 开启，关闭时零文件 I/O。 |
 | `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；仅 `=1` 开启，默认逐字节不变。 |
 | `ARGENT_HOOK_DAEMON` | 钩子常驻进程扩展：值为受信任钩子文档路径，常驻进程经 stdio JSON-RPC 折入既有裁决管线，崩溃降级；未设置时零文件 I/O、不派生进程。 |

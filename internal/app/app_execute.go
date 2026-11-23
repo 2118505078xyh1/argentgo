@@ -883,6 +883,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	wireMemoryConsolidate(stdio, toolset)
 	// ast_edit 默认安装（只做结构预览 diff，写盘交给 apply_patch）；ARGENT_AST_EDIT=0 关闭。
 	wireAstEdit(stdio, toolset)
+	// 统一 exec 会话（opt-in ARGENT_EXEC_SESSION）：注册 write_stdin 工具。
+	wireExecSession(stdio, toolset)
 	// verify 自动运行声明是选择性启用的：只有配置了验证命令且显式设置
 	// ARGENT_VERIFY_AUTORUN_HINT=1 时才追加，默认保持字节精确的系统提示不变。
 	// 用 verifyConfigured 判断配置，未配置时提示为空，不会多出多余的空行。
