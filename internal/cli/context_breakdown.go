@@ -110,16 +110,23 @@ func ContextHealth(segs []ContextSegment, window int) string {
 	pct := int(math.Round(float64(used) / float64(window) * 100))
 
 	prefix := "上下文占用 " + strconv.Itoa(pct) + "%"
+	var health string
 	switch {
 	case pct > 100:
-		return prefix + "，已超出窗口上限"
+		health = prefix + "，已超出窗口上限"
 	case pct >= 90:
-		return prefix + "，已接近上限"
+		health = prefix + "，已接近上限"
 	case pct >= 60:
-		return prefix + "，占用偏高"
+		health = prefix + "，占用偏高"
 	default:
-		return prefix + "，窗口充裕"
+		health = prefix + "，窗口充裕"
 	}
+	// 接近或超出上限时附上可执行的缩减建议（此前 contextBudgetAdvice 死代码）。
+	// 低于阈值时 advice 为空，输出与接线前逐字节一致。
+	if advice := contextBudgetAdvice(used, window); advice != "" {
+		health += "；" + advice
+	}
+	return health
 }
 
 // displayWidth 返回 s 在等宽终端上占用的列数：全角（CJK/emoji）字符占两列，

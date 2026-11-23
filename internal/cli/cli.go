@@ -610,6 +610,9 @@ func (a App) runPrompt(ctx context.Context, opts *Options, runner Runner, prompt
 		}
 		fmt.Fprintln(a.IO.Err, "error:", err)
 		writeActionableErrorEnv(a.IO.Err, err, a.IO.Env, opts.Locale)
+		// 接线已实现但从未被调用的友好建议：认证失败附凭证状态、审批/非交互
+		// 失败附 --yes 提示。默认开启，ARGENT_CLI_HINTS=0 可紧急回退。
+		a.appendRuntimeAdvice(a.IO.Err, err, opts.Provider, a.hasTerminal())
 		return 1
 	}
 	if !jsonMode {

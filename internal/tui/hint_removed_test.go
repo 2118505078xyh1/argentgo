@@ -9,7 +9,9 @@ func TestDefaultFrameHasNoBottomHint(t *testing.T) {
 	m := New(Config{})
 	buf := m.Frame(100, 24)
 	text := frameText(m, 100, 24)
-	for _, unwanted := range []string{"enter send", "/help", "alt+enter", "pgup/pgdn"} {
+	// 欢迎卡合法地展示 /help 入口；这里只守护"全局底部 hint bar 不存在"，
+	// 因此检查范围限定在 hintY 那一行，而不是整个首屏。
+	for _, unwanted := range []string{"enter send", "alt+enter", "pgup/pgdn"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("the default frame still contains %q:\n%s", unwanted, text)
 		}
@@ -26,12 +28,27 @@ func TestDefaultFrameHasNoBottomHint(t *testing.T) {
 	}
 }
 
-func TestHintLineIsEmptyForAllModes(t *testing.T) {
-	for _, modal := range []bool{false, true} {
-		for _, locale := range []string{"en", "zh"} {
-			if line := hintLine(100, locale, modal, Style{}); len(line.Spans) != 0 || line.Width() != 0 {
-				t.Fatalf("hintLine(locale=%s, modal=%v) = %q, want empty", locale, modal, line.Text())
-			}
+func TestHintLineIsEmptyWithoutModal(t *testing.T) {
+	// 无审批/对话框时保持空行：用户要求移除全局底部 hint bar。
+	for _, locale := range []string{"en", "zh"} {
+		if line := hintLine(100, locale, false, Style{}); len(line.Spans) != 0 || line.Width() != 0 {
+			t.Fatalf("hintLine(locale=%s, modal=false) = %q, want empty", locale, line.Text())
+		}
+	}
+}
+
+func TestHintLineShowsContextualKeysInModal(t *testing.T) {
+	// 审批态按需显示上下文相关按键，而不是恢复全局提示条。
+	for _, tc := range []struct {
+		locale string
+		want   string
+	}{
+		{"en", "y allow"},
+		{"zh", "y 允许"},
+	} {
+		line := hintLine(100, tc.locale, true, Style{})
+		if !strings.Contains(line.Text(), tc.want) {
+			t.Fatalf("hintLine(locale=%s, modal=true) = %q, want %q", tc.locale, line.Text(), tc.want)
 		}
 	}
 }

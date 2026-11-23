@@ -600,7 +600,13 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 	if len(m.entryCache) > len(m.entries) {
 		m.entryCache = m.entryCache[:len(m.entries)]
 	}
-	out := make([]Line, 0, len(m.entries)*2)
+	out := make([]Line, 0, len(m.entries)*2+8)
+	// 首屏为空时注入欢迎卡：它不进入 entryCache，也不改变任何真实记录的下标。
+	// 一旦用户提交首条消息，entries 非空，欢迎卡自然让位给 transcript。
+	if len(m.entries) == 0 {
+		out = append(out, m.welcomeLinesLocked(width)...)
+		return out
+	}
 	// 每次重绘都重新记录思考块的行范围：展开态或滚动变化后旧命中无效。
 	m.reasoningBodyHits = m.reasoningBodyHits[:0]
 	for i, entry := range m.entries {
@@ -636,6 +642,9 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 
 func (m *Model) renderBodyLocked(width int) []Line {
 	var out []Line
+	if len(m.entries) == 0 {
+		return m.welcomeLinesLocked(width)
+	}
 	for _, entry := range m.entries {
 		out = append(out, m.renderEntryLocked(entry, width)...)
 	}
@@ -1237,10 +1246,14 @@ func clipLine(line Line, width int) Line {
 	return out
 }
 
-// hintLine 是底部按键栏的预留位置。按用户要求不再显示提示文本，
-// 因此始终返回空行；hintY 仍由 layoutLocked 保留，使输入框、状态行
-// 与其他行号逐字节不变。ShortHelp / HintBindings / locale 的 hint
-// 字符串全部保留，供帮助与测试继续使用。
+// hintLine 只在审批/对话框态显示一行与当前状态相关的按键提示（y 允许 · n 拒绝 ·
+// a 本会话允许），平时保持空行——用户已明确要求移除全局底部 hint bar。
+// hintY 仍由 layoutLocked 保留，使输入框、状态行与其他行号逐字节不变。
 func hintLine(width int, locale string, modal bool, style Style) Line {
-	return Line{}
+	if !modal {
+		return Line{}
+	}
+	line := NewLine()
+	line.Push(Clip(text(locale, "hint_modal"), maxInt(width, 1)), style)
+	return clipLine(line, maxInt(width, 1))
 }

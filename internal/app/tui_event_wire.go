@@ -46,8 +46,8 @@ func setTUIUsageVisible(model any, visible bool) {
 const tuiEventBridgeCap = 256
 
 // AgentToTUIEvent 把一个 agent 事件转换为全屏 UI 消费的、面向前端的子集。
-// internal/tui.EventKind 对应轮次边界、两种工具事件、工具阶段进度、错误、重试和用量
-// （见 internal/tui/events.go）；没有文本、审批和普通通知种类，这些事件返回 false。
+// internal/tui.EventKind 对应轮次边界、两种工具事件、工具阶段进度、错误、重试、用量
+// 与关键通知（见 internal/tui/events.go）；文本、审批和普通通知没有对应种类，返回 false。
 //
 // 文本增量通过 Execute 的 onText 回调到达 TUI，而不是这个通道。审批卡片由 Model.Approve 创建
 // （由 app 的 Approver 调用），并在匹配的 tool_start 到达时就地提升；
@@ -118,6 +118,10 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 			tevt.CompletedAt = tevt.StreamedAt
 		}
 		return tevt, true
+	case agent.EventBudgetReminder:
+		// 预算提醒此前完全没有 TUI 映射，用户看不到"上下文将满"。
+		// 正文会作为模型可见的用户轮次注入对话，这里把它同步呈现在 transcript。
+		return tui.Event{Kind: tui.TuiEventNotice, Detail: e.Text}, true
 	case agent.EventNotice:
 		// 审批请求/解决通知为原生和 SSE 传输走普通事件流。它们没有 TUI EventKind，
 		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
@@ -125,9 +129,15 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 			return tui.Event{}, false
 		}
 		// 工具阶段进度通知转成 TUI 的 tool_progress 事件，供侧边栏显示阶段标签。
-		// 其余普通通知仍无 TUI 映射，返回 false 由 HandleEvent 忽略。
 		if label, ok := tui.ParseToolProgress(e.Text); ok {
 			return tui.Event{Kind: tui.EventToolProgress, Detail: label}, true
+		}
+		// 压缩类通知（轮次中压缩、压缩后重试、压缩后淘汰、压缩请求自身超限）
+		// 与预算预测此前都被吞掉，导致"对话悄悄变短"却无任何提示。映射到专用
+		// notice 事件，由 TUI 追加到 transcript。其余普通通知保持忽略，避免
+		// verify / subagent / steering 等 opt-in 特性刷屏。
+		if isVisibleNotice(e.Text) {
+			return tui.Event{Kind: tui.TuiEventNotice, Detail: e.Text}, true
 		}
 		return tui.Event{}, false
 	default:
@@ -135,9 +145,45 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	}
 }
 
+// visibleNoticePrefixes 是必须上线展示的普通通知前缀。只列稳定、由本仓库发出的
+// 前缀，避免把无关通知当作关键事件；新增生产者时在这里登记即可。
+var visibleNoticePrefixes = [...]string{
+	"compacted context:",     // 轮次中压缩（agent/loop_helpers.go）
+	"上下文溢出：",                 // 压缩后重试（agent/compact_retry.go）
+	"压缩后仍超限，",                // 压缩后淘汰最旧消息
+	"压缩请求体积超限：",              // 压缩请求自身超限的恢复链
+	"token budget forecast:", // 预算预测（agent/token_budget_forecast_wire.go）
+}
+
+// isVisibleNotice 报告一条普通通知是否属于压缩/预算类关键通知。
+func isVisibleNotice(text string) bool {
+	for _, prefix := range visibleNoticePrefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCriticalTUIEvent 报告该事件是否走不可丢弃的小队列。错误、重试和关键通知
+// 关系到用户对运行状态的信任，必须在消费者缓慢时仍按序送达；usage / turn /
+// tool 事件保持原有"满即丢弃"语义，因为它们只影响实时统计与阶段展示。
+func isCriticalTUIEvent(e tui.Event) bool {
+	switch e.Kind {
+	case tui.EventError, tui.EventRetry, tui.TuiEventNotice:
+		return true
+	default:
+		return false
+	}
+}
+
 // StartTUIEventBridge 订阅 hub，并把映射后的事件转发到一个适合 tui.Options.Events 的缓冲通道。
 // ctx 结束或 hub 订阅结束时它停止，且恰好关闭返回的通道一次。
-// 向 out 的发送是非阻塞的：缓慢的 TUI 会丢弃事件，而不是拖住 hub 读取循环。
+// out 的普通事件发送是非阻塞的；关键事件另有不可丢弃队列，见下文。
+// 两类事件走不同通道：普通事件（usage / turn / tool）沿用满即丢弃，避免拖住共享
+// hub 导致订阅者被淘汰；关键事件（错误 / 重试 / 压缩 / 预算）进入一个独立的、不可
+// 丢弃的小队列，消费者腾出空间后按序补发。队列用切片而非固定 cap 的 channel，使
+// hub 读取循环永远不阻塞——关键事件成 burst 到达也不会卡死事件源。
 func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.Event {
 	out := make(chan tui.Event, tuiEventBridgeCap)
 	go func() {
@@ -147,16 +193,65 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 		}
 		sub, stop := hub.Subscribe(0)
 		defer stop()
-		for {
+		// critical 是不可丢弃的关键事件队列。它只在单 goroutine 内访问，无需加锁。
+		var critical []tui.Event
+		// wake 在队列非空或 out 腾出空间后提醒主循环回来补发：没有它，队列会在
+		// 没有新 hub 事件时一直挂着，即使消费者早已腾出空间也收不到关键事件。
+		wake := make(chan struct{}, 1)
+		signal := func() {
 			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		}
+		// drainCritical 尽量把队列头部写进 out。block=true 时等待消费者，
+		// 用于订阅结束后的收尾；block=false 时 out 满即保留剩余并再次唤醒。
+		drainCritical := func(block bool) bool {
+			for len(critical) > 0 {
+				if block {
+					select {
+					case out <- critical[0]:
+					case <-ctx.Done():
+						return false
+					}
+				} else {
+					select {
+					case out <- critical[0]:
+					case <-ctx.Done():
+						return false
+					default:
+						signal()
+						return true
+					}
+				}
+				critical = critical[1:]
+			}
+			return true
+		}
+		for {
+			if !drainCritical(false) {
+				return
+			}
+			select {
+			case <-wake:
+				// 回到循环顶部补发剩余关键事件。
 			case <-ctx.Done():
+				// 取消前尽量把已排队的关键事件补发出去（非阻塞）。
+				drainCritical(false)
 				return
 			case ev, open := <-sub:
 				if !open {
+					// hub 订阅结束：阻塞式排空，保证关键事件不丢。
+					drainCritical(true)
 					return
 				}
 				tevt, ok := AgentToTUIEvent(ev)
 				if !ok {
+					continue
+				}
+				if isCriticalTUIEvent(tevt) {
+					critical = append(critical, tevt)
+					signal()
 					continue
 				}
 				// usage / turn / tool_progress 一律转发：统计行与阶段行依赖这些事件，
@@ -166,7 +261,7 @@ func StartTUIEventBridge(ctx context.Context, hub *server.EventHub) <-chan tui.E
 				case <-ctx.Done():
 					return
 				default:
-					// 消费者缓慢：丢弃此事件，继续抽取 hub。
+					// 消费者缓慢：丢弃普通事件，继续抽取 hub。
 				}
 			}
 		}

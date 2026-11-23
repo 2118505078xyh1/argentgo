@@ -254,8 +254,10 @@ func TestContextHealthCJKSafeBounded(t *testing.T) {
 	if !utf8.ValidString(got) || !strings.Contains(got, "上下文占用") {
 		t.Fatalf("ContextHealth = %q, want valid Chinese text", got)
 	}
-	if len(got) > 128 {
-		t.Fatalf("ContextHealth length = %d, want <= 128", len(got))
+	// 接近上限时会追加 contextBudgetAdvice（含两个十进制整数），上限相应放宽，
+	// 但仍是有界文案，不会随输入规模增长。
+	if len(got) > 512 {
+		t.Fatalf("ContextHealth length = %d, want <= 512", len(got))
 	}
 }
 

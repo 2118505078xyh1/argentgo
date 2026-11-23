@@ -36,7 +36,14 @@ const (
 	// Usage 才结算统计行（agent 的顺序是 TurnEnd → Usage）。
 	TuiEventTurnStart EventKind = "turn_start"
 	TuiEventTurnEnd   EventKind = "turn_end"
+	// TuiEventNotice 把不可丢弃的关键通知（压缩、预算提醒等）送进 transcript。
+	// Detail 携带通知正文；app 侧只映射经过挑选的关键类别，普通通知仍被忽略，
+	// 避免 verify/subagent 等 opt-in 特性刷屏。它追加在枚举末尾以保持既有种类稳定。
+	TuiEventNotice EventKind = "notice"
 )
+
+// maxNoticeDetail 限制关键通知事件保留的文本长度，防止异常生产者用单条消息撑宽记录。
+const maxNoticeDetail = 240
 
 // Event 是 agent 事件流面向前端的子集。tui 保留自己的
 // 小值对象，这样就不必导入 internal/agent；调用方
@@ -111,6 +118,15 @@ func (m *Model) HandleEvent(event Event) {
 		if label, ok := parseToolProgress(event.Detail); ok {
 			m.appendNoticeEntryLocked(Entry{Kind: EntryNotice, Text: label})
 		}
+	case TuiEventNotice:
+		// 压缩/预算类通知此前被 app 桥接器吞掉，用户只看到"对话悄悄变短"。
+		// 复用现有的通知条目渲染路径（含 "! " 徽章），不新增绘制分支；
+		// 先脱敏再折叠空格并限长，且把轮次中压缩的英文文本本地化为中文提示。
+		text := collapseSpace(llm.RedactText(event.Detail))
+		m.appendNoticeEntryLocked(Entry{
+			Kind: EntryNotice,
+			Text: Truncate(visibleNoticeText(m.locale, text), maxNoticeDetail),
+		})
 	case TuiEventUsage:
 		// 用量事件只更新头部/状态行的计数（复用现有 SetUsage 与
 		// SetCachedTokens 的持锁实现），不追加记录、不新增绘制分支。
