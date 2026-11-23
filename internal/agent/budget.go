@@ -2,10 +2,12 @@ package agent
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/tokenest"
 )
 
 // 停止原因，记录在 Result.Stopped 和 Event.Reason 中。它们是稳定的
@@ -324,4 +326,55 @@ func parseTokenCount(number, suffix string) int64 {
 		total += add
 	}
 	return total
+}
+
+// estimateBatchMin 是使用并行批量估算的最小消息数。低于它时走原有的
+// EstimateMessages，保证既有小会话的预算判定逐字节不变。
+const estimateBatchMin = 16
+
+// EstimateMessagesBatch 在批量场景（消息数 >= estimateBatchMin）用
+// internal/tokenest 的单缓冲 + 并行计数估算整段对话；小批量委托给
+// EstimateMessages。框架开销（角色、工具调用、多模态 part）与
+// EstimateMessage 保持一致，只是正文扫描走批量路径。
+//
+// 启发式与 tokenize 在 ASCII/宽 rune 上对齐、对数字与标点略微高估；
+// 高估对预算是安全方向（见 tokenize 包注释），不会造成上下文溢出。
+func EstimateMessagesBatch(messages []llm.Message) int {
+	if len(messages) < estimateBatchMin {
+		return EstimateMessages(messages)
+	}
+	items := make([]tokenest.Item, 0, len(messages)*2)
+	for _, m := range messages {
+		items = append(items,
+			tokenest.Item{Kind: m.Role, Text: m.Content},
+			tokenest.Item{Kind: m.Role, Text: m.Reasoning},
+		)
+		for _, call := range m.ToolCalls {
+			items = append(items,
+				tokenest.Item{Kind: "tool_call", Text: call.Function.Name},
+				tokenest.Item{Kind: "tool_call", Text: call.Function.Arguments},
+			)
+		}
+	}
+	total, _ := tokenest.EstimateItems(items)
+	// 加回与 EstimateMessage 相同的框架开销：每条消息 messageOverheadTokens，
+	// 每个工具调用 2，以及多模态 part 的估算。全部走饱和加法避免溢出。
+	for _, m := range messages {
+		total = satAddInt(total, messageOverheadTokens)
+		total = satAddInt(total, estimateMessageContentParts(m))
+		for range m.ToolCalls {
+			total = satAddInt(total, 2)
+		}
+	}
+	return total
+}
+
+func satAddInt(a, b int) int {
+	if b > 0 && a > math.MaxInt-b {
+		return math.MaxInt
+	}
+	if b < 0 && a < math.MinInt-b {
+		return math.MinInt
+	}
+	return a + b
 }

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 )
 
 // DefaultResponsesMaxOutputTokens 在 ResponsesClient.MaxOutputTokens
@@ -561,6 +563,7 @@ type responsesPartial struct {
 }
 
 func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
+	defer prof.Region(prof.RegionLLMStream).End()
 	// 流式时间点打点为 opt-in：默认关闭时不包装 onText、不调用 time.Now，
 	// 也不改写 Usage，因此既有行为的字节与内存表现完全一致。
 	timingOn := streamTimingOn()

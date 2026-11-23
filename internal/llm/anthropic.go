@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 )
 
 // DefaultAnthropicMaxTokens 在 AnthropicClient.MaxTokens 未设置时使用。
@@ -575,6 +577,7 @@ type anthropicPartial struct {
 }
 
 func (c *AnthropicClient) readStream(ctx context.Context, body io.Reader, onText func(string)) (Message, error) {
+	defer prof.Region(prof.RegionLLMStream).End()
 	// 流式时间点打点为 opt-in：默认关闭时不包装 onText、不调用 time.Now，
 	// 也不改写 Usage，因此既有行为的字节与内存表现完全一致。
 	timingOn := streamTimingOn()

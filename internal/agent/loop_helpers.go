@@ -10,15 +10,17 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 )
 
 // maybeCompact 实现轮次中的压缩边界。它只在工具批次之后运行，绝不会在工具调用与其结果之间运行。
 // 目标窗口是 0.8 迟滞带减去摘要预留量，因此一次压缩就能缓解压力，而不是在下一次检查时再次触发。
 func (s *runState) maybeCompact() {
+	defer prof.Region(prof.RegionCompact).End()
 	if s.compactor == nil || s.compactThreshold <= 0 {
 		return
 	}
-	before := EstimateMessages(s.messages)
+	before := EstimateMessagesBatch(s.messages)
 	// 压力观察（opt-in，app 层接线）：在压缩判定之前把当前消息与阈值交给
 	// 观察者，使其能在接近阈值时提前在后台准备摘要。nil 时零调用。
 	if s.compactObserve != nil {
@@ -42,7 +44,7 @@ func (s *runState) maybeCompact() {
 	// 压缩重写了历史，旧的剥离计数不再对应当前记录，归零避免重复对账。
 	s.elidedOutputTokens = 0
 	// 现在重新估算，使下一次迭代顶部的预算检查看到压缩后的历史，而非旧的超长历史。
-	s.promptTokens = EstimateMessages(s.messages)
+	s.promptTokens = EstimateMessagesBatch(s.messages)
 	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
 		"compacted context: ~%d -> ~%d tokens (target %d)", before, s.promptTokens, window,
 	)})
@@ -133,6 +135,7 @@ func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
 // chat 用当前模型发起一次模型请求，并把答案增量转发给 onText。
 // 事件的发出留给调用方，使失败的尝试可以重试，而不会把部分文本泄漏到操作人员的流中。
 func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, error) {
+	defer prof.Region(prof.RegionAgentLoop).End()
 	// 进程级暂停门：每次模型调用前的安全点。暂停时 park 在此，
 	// ctx 取消只解除本运行，不改变全局暂停状态。
 	if err := s.waitPaused(ctx); err != nil {

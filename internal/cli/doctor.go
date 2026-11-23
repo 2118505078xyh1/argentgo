@@ -20,6 +20,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/auth"
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 	"github.com/2118505078xyh1/argentgo/internal/provider"
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/session"
@@ -56,6 +57,7 @@ const doctorBaseURLIssueMessage = "配置中的 baseURL 来自未信任项目或
 type doctorOptions struct {
 	baseURL string
 	asJSON  bool
+	profile bool
 }
 
 // runDoctor 报告配置、MCP 配置、存储、提供方、git 和 Go 的健康状况，
@@ -101,7 +103,8 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	issues = append(issues, doctorLSPDiagnosticsIssues(app)...)
 	// --json 是纯新增分支：检查的计算与文本分支完全共享，下面原有的
 	// 打印循环（含环境小节）逐字保持不变，从而保证无 flag 时输出不变。
-	if opts.asJSON {
+	// --profile 优先于 --json：它输出的是给人读的 markdown 采样快照。
+	if opts.asJSON && !opts.profile {
 		return runDoctorJSON(app, ctx, opts, checks...)
 	}
 	failures := 0
@@ -123,6 +126,12 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 	environment := probeEnvironment(app.env, exec.LookPath)
 	writeDoctorEnvironment(app.IO.Out, environment, doctorAdvice(environment))
 	writeDoctorIssues(app.IO.Out, issues)
+	// --profile 只追加一段采样快照：无此 flag 时原有输出逐字节不变。
+	// 快照反映当前进程的采样环形缓冲；采样默认开启，热区用 defer Region 埋点。
+	if opts.profile {
+		fmt.Fprintln(app.IO.Out)
+		fmt.Fprint(app.IO.Out, prof.Snapshot(0))
+	}
 	if failures > 0 {
 		return 1
 	}
@@ -137,6 +146,8 @@ func doctorFlags(args []string) (opts doctorOptions, help bool, err error) {
 			return opts, true, nil
 		case arg == "--json":
 			opts.asJSON = true
+		case arg == "--profile":
+			opts.profile = true
 		case arg == "--base-url":
 			if i+1 >= len(args) {
 				return opts, false, errors.New("--base-url needs a value")
@@ -859,7 +870,7 @@ func checkGit() doctorCheck {
 }
 
 func doctorUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: argentgo doctor [--base-url <url>] [--json]
+	fmt.Fprint(w, `usage: argentgo doctor [--base-url <url>] [--json] [--profile]
 
 Checks config loading, local mcpServers config integrity, storage writability,
 provider reachability (3s timeout), built-in provider template validation,
@@ -867,5 +878,6 @@ git availability and the Go runtime version.
 The mcpServers and template checks are fully local: they never contact any server.
 With --json, print a stable JSON report (checks, failures, environment) instead;
 every detail string is redacted and the exit code still reflects failed checks.
+With --profile, append the always-on sampler's markdown snapshot (overrides --json).
 `)
 }

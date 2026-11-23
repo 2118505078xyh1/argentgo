@@ -9,6 +9,7 @@ import (
 
 	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
 
@@ -67,6 +68,7 @@ func (s *runState) compactRetryWindow() int {
 // 计数器在重放之前自增，因此无论重放成功还是再次失败，每次运行最多只重放一次，
 // 同一份超长请求不会反复空转。
 func (s *runState) compactAndReplay(ctx context.Context, turn int, failure llm.FailureInfo) (llm.Message, error, bool) {
+	defer prof.Region(prof.RegionCompact).End()
 	if !s.opts.EnableCompactRetry || s.compactor == nil {
 		return llm.Message{}, nil, false
 	}
@@ -74,7 +76,7 @@ func (s *runState) compactAndReplay(ctx context.Context, turn int, failure llm.F
 		return llm.Message{}, nil, false
 	}
 
-	before := EstimateMessages(s.messages)
+	before := EstimateMessagesBatch(s.messages)
 	window := s.compactRetryWindow()
 	compacted, changed := s.compactor.MaybeCompact(s.messages, window)
 	if !changed || len(compacted) == 0 {
@@ -84,12 +86,12 @@ func (s *runState) compactAndReplay(ctx context.Context, turn int, failure llm.F
 	// 摘要后的上下文是一个新窗口：与轮次中压缩一样清除提醒投递状态并刷新提示估算，
 	// 使重放之后的预算检查看到真实的历史大小，而不是旧的超长记录。
 	s.resetBudgetReminder()
-	s.promptTokens = EstimateMessages(s.messages)
+	s.promptTokens = EstimateMessagesBatch(s.messages)
 	// 默认开启（ARGENT_COMPACT_DRAIN=0 关闭）：压缩后仍超预算时按缓存前缀逐条淘汰最旧消息，保留 system 与末尾提示。
 	if compactDrainEnabled() && s.promptTokens > window {
 		if drained, n := drainOldestForBudget(s.messages, window, maxCompactDrain); n > 0 {
 			s.messages = drained
-			s.promptTokens = EstimateMessages(s.messages)
+			s.promptTokens = EstimateMessagesBatch(s.messages)
 			s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
 				"压缩后仍超限，已淘汰 %d 条最旧消息，剩余 ~%d tokens", n, s.promptTokens,
 			)})
@@ -296,7 +298,7 @@ func (s *runState) recoverCompactionPayload(ctx context.Context, rawErr error) (
 			"压缩请求体积超限：已剥离 %d 处媒体/工具输出后重试", count,
 		)})
 	}
-	if EstimateMessages(s.messages) <= compactionPayloadChunkRunes {
+	if EstimateMessagesBatch(s.messages) <= compactionPayloadChunkRunes {
 		return s.messages, true
 	}
 	chunks := SplitMessagesForCompaction(s.messages, compactionPayloadChunkRunes)
@@ -313,7 +315,7 @@ func (s *runState) recoverCompactionPayload(ctx context.Context, rawErr error) (
 	}
 	s.messages = []llm.Message{{Role: "user", Content: summary}}
 	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
-		"压缩请求体积超限：已将 %d 块分块摘要递归归约为 ~%d tokens", len(chunks), EstimateMessages(s.messages),
+		"压缩请求体积超限：已将 %d 块分块摘要递归归约为 ~%d tokens", len(chunks), EstimateMessagesBatch(s.messages),
 	)})
 	return s.messages, true
 }
