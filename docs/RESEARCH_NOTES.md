@@ -1,26 +1,163 @@
-# 本地确定性代码图谱（codegraph）设计草案（只读调研，2026-11-22）
+# 调研素材汇编
+
+> 本文件汇总历次外部项目调研的素材与草案（只读抓取，不代表已落地能力）。按时间顺序排列。
+
+
+---
+
+## 真实使用反馈（用户在 argent 0.3.2 上的实测对话，2026-11-21）
+
+> 只读参考。注意：反馈基于旧版 0.3.2，部分问题在当前主树（1bfa2e0）可能已修复，需逐条核实。
+
+### 对话中的实测现象
+- web_search 默认后端 DuckDuckGo 超时（国内网络），`web_search` 报 "failed from every source"。
+- 用户改用 `curl.exe` 直连：baidu.com/bing.com/api.github.com 均 200，可抓网页。
+- `Get-Content internal/skills/skills.go` 得到乱码 "鍙戠幇纾佺洏涓婄殑 SKILL.md"（UTF-8 被 GBK 误解）。
+- 两次工具输出静默缺失：`Get-ChildItem | Where-Object` 返回 "(no output)"；多语句命令只输出第一行。
+- 用户环境：`~/.agents/skills` 存在（含 longform-memory 跨项目记忆方法论、hindsight-coding-agent），但 `~/.argentgo/skills` 不存在。项目内 `.argent/skills`（code-review/debug-workflow/test-writer）正常。
+
+### agent 给出的四条判断（供核实，非结论）
+1. **P0 中文入站解码**：出站 grapheme 已修（R20），入站未修。修法：Windows 执行前后固定 OutputEncoding/$OutputEncoding/chcp 65001；read 侧加 BOM 探测 + encoding 参数。
+2. **工具输出完整性对账**：静默缺输出是最昂贵失败模式（模型基于缺失证据判断且永不报错）。在 clipBashOutput/token 估算处加 stdout 字节数/行数对账，不一致重试一次并标 output_truncated=true。
+3. **默认零搜索**：诚实的规则（无 key 不联网）导致模型每次要手写 curl 绕过。建议加零 key best-effort 后端（Bing/Sogou/公共 SearXNG），标"尽力而为可能失败"，与确定性工具分开治理。
+4. **技能发现路径没对齐生态**：DefaultHomeSubdir=.argentgo/skills 但现实用 .agents/skills。跨项目记忆方法论读不到。建议多路径只读叠加发现（.argentgo/skills + .agents/skills + .claude/skills），索引保持一行一个，不违反提示词克制。
+
+### agent 独立判断
+差距不在"能不能做"，而在"每次新会话重新付一遍环境税"：编码、发现、连通性、输出完整性。这四项不增行数、不加提示词、不动 22 检查点，却直接决定单对话模型上限。若只做一件，选第 1 条（污染模型看到的世界本身）。
+
+### 当前主树核实状态（主会话已查）
+- 行数口径：主树 356,835（两种统计法一致），旧版 0.3.2 的 327,092 是旧快照，口径无误。
+- 中文入站：tools_builtin_powershell.go:39 已有 powerShellUtf8Prefix（[Console]::OutputEncoding=UTF8; $OutputEncoding=UTF8）——但 bash 走 cmd /c 的路径是否设编码待核实。
+- 技能路径：skills.go:27 DefaultHomeSubdir=.argentgo/skills，确实无 .agents/skills/.claude/skills——当前版本仍缺（真实差距）。
+- 输出对账：全仓无 stdout 字节/行数对账——当前版本仍缺（真实差距）。
+- 零 key 搜索：有 Brave/Tavily/SearXNG presets 但都需 key；DDG 无 key 后端国内超时——部分成立。
+
+---
+
+## omp (oh-my-pi) README — 抓取于 2026-11-21，来源 raw.githubusercontent.com/can1357/oh-my-pi/v17.0.5/README.md
+
+> 这是从 omp 官方仓库抓取的只读研究资料，供学习代理分析对比 argent-go。不属于项目源码。
+
+**定位**：A coding agent with the IDE wired in. Fork of Pi (@mariozechner) by Can Bölük，TypeScript + Rust core，MIT。40+ providers / 32 built-in tools / 14 LSP ops / 28 DAP ops / ~55k 行 Rust core。
+
+### 关键能力（与 argent-go 对比的重点）
+
+1. **Code execution w/ tool-calling**：持久化 Python + Bun worker，两个 kernel 都能通过 loopback bridge 回调 agent 自己的工具（read/search/task）。"在 cell 里用 tool.read 加载 CSV，用 JS 画图，不离开 cell"。
+2. **LSP wired into every write**：rename 走 workspace/willRenameFiles，re-export/barrel/alias import 在文件移动前更新。
+3. **DAP 真实调试器**：attach lldb/dlv/debugpy，断点/步进/栈/变量，不是 print 调试。
+4. **Time-traveling stream rules (TTSR)**：规则平时休眠，模型偏离时 regex 命中 → 流中途 abort → 注入 rule 作为 system reminder → 从同点重试。注入能存活于 compaction。"course-correction without paying context tax on every turn"。
+5. **First-class subagents**：task 分发到隔离 worktree，每个 worker 自己的工具面，结果 schema-validated object，父直接读，无 prose 解析/无 merge 冲突。
+6. **Advisor 第二模型**：reviewer 模型读主 agent 每一轮，注入 inline notes（concern/blocker），独立 context。
+7. **/collab**： live session 上 relay，链接+QR，多人协作（读写配对/只读观看），frames 客户端加密 relay 看不到 key。
+8. **web_search → read 管道**：18 providers，URL 直接交给 read，arxiv PDF/GitHub/SO 转结构化 markdown 保留 anchors。
+9. **原生实现**：ripgrep/glob/find 在进程内，bash 是持久 session（brush），无 fork-exec，跨平台无 WSL。
+10. **/review 优先级**：P0-P3 + confidence score，并行 reviewer subagents。
+11. **hashline edit**：行锚点哈希，模型指 anchor 不重打整行，空白/字符串找不到循环消失，stale-anchor 提前拒绝。Grok4Fast -61% tokens。
+12. **GitHub is filesystem**：PRs are paths，read 统一接口。
+13. **Hindsight memory**：retain/recall/reflect，每会话压缩成 mental model 下一轮首 turn 加载，project-scoped。
+14. **ACP editor-driven**：Zed 等编辑器里读写 buffer 走 editor save path。
+15. **继承已有工具配置**：读 .claude/.cursor/.windsurf/.gemini/.codex/.cline/.github/copilot/.vscode 的 rules/skills/MCP，无迁移。
+16. **omp commit**：git_overview/git_file_diff/git_hunk，把无关改动拆成原子提交按依赖排序，cycle 拒绝，源文件优先，锁文件排除。
+17. **12 internal schemes**：pr:// / issue:// / agent:// / skill:// / rule:// 等，在 FS-shaped 工具里透明解析，"read pr://1428 和 read src/foo.ts 同形"。
+18. **冲突解决**：每个 merge conflict 是 URL，写 @theirs/@ours/@base 到 conflict://N。
+19. **ast_edit preview**：_(proposed)_ card + 替换数，staged，resolve 接受，atomic all-or-nothing。
+20. **browser / Electron app**：Puppeteer + stealth，驱动任意 Electron app（如 Slack）。
+
+### 32 工具（命名空间与 read/bash 同级）
+- 文件搜索：read(文件/目录/归档/SQLite/PDF/notebook/URL/internal :// schemes)、write、edit(hashline)、ast_edit、ast_grep(50+ tree-sitter)、search、find
+- 运行时：bash(PTY/后台)、eval(持久 Python+JS cells 共享 prelude + tool re-entry)、ssh
+- 代码智能：lsp(14 ops)、debug(28 DAP ops)
+- 协调：task(并行 subagents/worktree隔离)、hub(消息/wait/cancel后台job)、todo(phase tracking)、ask(结构化提问)
+- 外部：browser、web_search、github、generate_image、inspect_image、tts
+- 记忆状态：checkpoint、rewind、retain、recall、reflect
+- 杂项：resolve(接受/丢弃 queued preview)
+- setting-gated 默认关：github/inspect_image/tts/checkpoint/rewind/retain/recall/reflect
+
+### 25+ web_search providers
+auto(chain)/perplexity/gemini/anthropic/codex/xai/zai/exa/tinyfish/jina/kagi/tavily/firecrawl/brave/kimi/parallel/synthetic/searxng/duckduckgo(no key)/bing(no key)/yahoo/startpage/google/ecosia/mojeek/public。specialized handlers：code hosts/registries/research(arxiv)/forums/docs。安全数据库 NVD/OSV/CISA KEV。页面转 markdown 保 link structure。
+
+### Provider routing
+40+ providers，roles：default/smol/slow/plan/commit，四个旋钮：custom providers(yaml)/fallback chains/path-scoped models/round-robin credentials。7 种 wire：openai-completions/openai-responses/openai-codex-responses/azure-openai-responses/anthropic-messages/google-generative-ai/google-vertex。
+
+### 4 入口
+interactive TUI / -p one-shot / --mode rpc(NDJSON) / acp。SDK @oh-my-pi/pi-coding-agent 嵌入 Node。
+
+### Prompt controls（magic keywords，lowercase standalone）
+ultrathink / orchestrate / workflowz — 只在 prose 触发，不在 code span/fence/XML/identifier/path 里。
+
+### ~55k 行 Rust core 模块
+shell(3700, brush)、grep(1900)、keys(1490 Kitty protocol)、text(1450)、summary(1040 tree-sitter)、ast(1000 ast-grep)、fs_cache(840)、highlight(470)、pty(455)、glob(410)、workspace(385)、iso(245 workspace isolation APFS/btrfs/zfs/reflink/overlayfs)、prof(240)、ps(195)、clipboard(80)、tokens(65 tiktoken)、sixel(55)、html(50)。
+
+---
+
+## omp (oh-my-pi) Autonomous Memory 文档 — 抓取于 2026-11-21
+
+> 只读研究资料，来源 raw.githubusercontent.com/can1357/oh-my-pi/main/docs/memory.md
+
+### 五种 memory backend（默认 off）
+- off / local（项目级摘要+教训）/ hindsight（远程 bank）/ mnemopi（本地 SQLite）/ sharpshooter（摩擦门控项目决策文件）
+
+### local backend 两阶段模型驱动管道（重点）
+**Phase 1 — per-session extraction**：每个自上次处理后变更的历史 session，模型读 session history 提取 durable signal：技术决策、约束、已解决失败、重复工作流。跳过太近/太老/活跃/超限的 session。产出 raw memory block + synopsis。
+
+**Phase 2 — consolidation**：第二个模型 pass 读所有 per-session 提取，产出三个磁盘产物：
+- `MEMORY.md` — 策展的长期记忆文档
+- `memory_summary.md` — session 启动时注入的紧凑文本
+- `skills/` — 可复用程序化 playbook，每个独立子目录
+- `learned.md` 单独维护不被 consolidation 覆盖
+
+用 lease + heartbeat 防多进程重复运行；陈旧 skill 目录自动清理；写盘前对常见 secret/token 模式脱敏。
+
+### 注入
+session 启动时若有 consolidated summary 或 lesson，作为 **Memory Guidance** block 注入 system prompt（共享 summaryInjectionTokenLimit=5000）。启动 consolidation 若晚于首个 prompt build，活跃 session 的 summary snapshot 刷新，但已捕获 lesson 钉在初始 snapshot（并发 learn 只影响后续 session）。
+- 指导原则：记忆是 heuristic context，不是当前 repo 状态的权威；记忆改变计划要引用 artifact path + 配当前 repo 证据；冲突时 repo state/user instruction 优先。
+
+### learn 工具（autolearn.enabled）
+保存显式 durable lessons 到项目 learned.md，newest-first、去重、secret-redacted、上限 100 条、下一 session 生效，**不改变活跃 session 的 prompt-cache prefix**。每条内容上限 2000 字符 + context 400 字符。
+
+### memory:// URL scheme（agent 用 read 工具读）
+memory://root / memory://root/MEMORY.md / memory://root/learned.md / memory://root/skills/<name>/SKILL.md / memory://<memory-id>
+
+### /memory slash 命令
+view/stats/diagnose/queue/sync/clear/reset/enqueue/rebuild/mm
+
+### 配置
+maxRolloutAgeDays=30 / minRolloutIdleHours=12 / maxRolloutsPerStartup=64 / threadScanLimit=300 / maxRawMemoriesForGlobal=200 / stage1Concurrency=8 / phase1InputTokenLimit=4000 / fallbackTokenLimit=16000 / summaryInjectionTokenLimit=5000
+
+### 模型选择（piggyback role system）
+Phase1 extraction=default role；Phase2 consolidation=smol role（回退 default/current/first）。
+
+### sharpshooter backend（值得单独学）
+三个短决策文件 architecture.md/product.md/style.md 注入 system prompt。每个主 session user prompt 送 extraction model 记录 durable decisions（架构/产品/风格/约束/拒绝方案/纠正）为 delta 队列；scheduler 每分钟检查，intervalMinutes=5 后一次 model pass 应用到三文件。minPromptLength=16（CJK 按显示字符算），injectionTokenLimit=15000。
+
+### 与 argent-go memory 对比要点
+argent-go 有 memory.Bank/Recall/Spill + extractive synthesis（R 早期），但缺：①模型驱动的跨会话两阶段提取/综合；②自动生成 skills playbook；③memory:// URL 统一文件接口；④friction-gated 决策文件（sharpshooter）；⑤注入的 token 上限与 cache-prefix 保护纪律。
+
+---
+
+## 本地确定性代码图谱（codegraph）设计草案（只读调研，2026-11-22）
 
 > 调研对象：当前主树 `27c5aeb`（HEAD，R53，单树）。所有行号均为本次实测引用；本轮**只读**，未改动任何代码文件，未执行 git add/commit/push。
-> 风格参照 `.research/field-feedback.md`：逐项列证据、明确"核实状态"、末尾给独立判断。
+> 风格参照 `本文"真实使用反馈"章节`：逐项列证据、明确"核实状态"、末尾给独立判断。
 > 竞品思想仅作方向参考（本地确定性解析、无向量库、每条边可解释来源），**未访问任何竞品源码，不抄代码**。
 
 ---
 
-## 0. 一句话结论（先说诚实评估）
+### 0. 一句话结论（先说诚实评估）
 
 **技术上完全可做，且比预想的更接近现状——但"模型问 X 在哪被调用只能 grep"这个前提只对了一半，价值被部分高估。**
 
 - 反证：项目**已经有** `lsp_symbols` / `lsp_references` / `lsp_workspace_symbols` 六个只读工具（`internal/tools/builtin_register.go:53-58`、`internal/tools/tools_lsp_ide.go:259-273,331-345`），生产装配点 `internal/app/mcp.go:123,135` 已注入 `NewLspIdeAdapter`（`internal/app/lsp_adapter.go:160-172`），LSP 服务器注册表默认含 `gopls`（`internal/lsp/servers.go:15`）。在装了 gopls 的环境里，"X 在哪被调用"**已经能查**，且比纯 AST 名字匹配更准（能解析跨包、别名、接口、方法接收者）。
 - 但 LSP 有两个真实缺口：① 查询必须给**位置**（path + 0-based line/character），模型往往要两步（先 `lsp_workspace_symbols` 找位置，再 `lsp_references`）；② 依赖**外部 gopls 进程**（`ARGENT_LSP=0` 可关掉，未安装则不可用），冷启动与索引时间不可控。codegraph 的增量价值是**符号名一步到位 + 零外部进程 + 每条边带本地证据**，这是真实但**中等**的价值，不是 P0 级"环境税"。
 - 另一个强证据：`repo_map` 已在**生产路径**用 `go/parser` 做全 AST 符号抽取（`internal/tools/repo_map_symbols.go:77-142`）并带 mtime+size 缓存（`internal/tools/repo_map_cache.go:11-37,48-99`）。所以"用 go/parser 建图"不是从零开始，可复用度约 **60%**；新增部分只是"引用/调用边 + 跨文件索引 + 查询工具"。
-- 与 `.research/field-feedback.md:18-19` 的独立判断对照：那份报告认为最该做的是中文入站解码、输出完整性、零 key 搜索、技能发现路径这四项"每次新会话重付的环境税"。codegraph 改善的是**上下文相关性**，不是**上下文纯净度**；它不该挤占这四项的优先级。
+- 与 `本文"真实使用反馈"章节` 的独立判断对照：那份报告认为最该做的是中文入站解码、输出完整性、零 key 搜索、技能发现路径这四项"每次新会话重付的环境税"。codegraph 改善的是**上下文相关性**，不是**上下文纯净度**；它不该挤占这四项的优先级。
 - **建议结论**：值得作为 R55 主题，但必须先做一个 ≤0.5 天的精度 spike（见 §9 证伪条件）；precision 不达标就降级为"定义查找 + 同包引用候选"，并明确宣传为 LSP 的**补充**而非替代。
 
 ---
 
-## 1. 现状核实（逐项给行号）
+### 1. 现状核实（逐项给行号）
 
-### 1.1 go/parser 用法能复用多少
+#### 1.1 go/parser 用法能复用多少
 
 **证据**
 
@@ -41,7 +178,7 @@
 
 **独立判断**：可复用代码量按"定义抽取 + 缓存 + 遍历 + 错误容忍"计约 **550-650 行**（`repo_map_symbols.go` 306 行 + `repo_map_cache.go` 171 行 + archguard 解析/DFS 约 100 行）中的思想和骨架；真正新写的是**引用侧抽取**（`ast.CallExpr`/`ast.SelectorExpr` → 边）、** resolver **（名字冲突消解）、**索引与查询**。不要重造 `parseGoSource`，应把它从 `internal/tools` 抽到新的零依赖叶子包 `internal/codegraph`，让 `repo_map_symbols.go` 改为调用它（这是一次**重构**，需单独一轮，不能塞进 R55 主改动里悄悄做）。
 
-### 1.2 `internal/session` 的上下文注入点
+#### 1.2 `internal/session` 的上下文注入点
 
 **证据**
 
@@ -53,7 +190,7 @@
 
 **独立判断**：图谱**不应**注入 session 的压缩摘要（`implicit_context.go` 是长对话保真机制，与代码结构无关）。正确注入点是 `app_execute.go:685-689` 那条"系统提示尾部 opt-in 一行提示"的既有模式；图谱内容本身**绝不进提示**，只在模型主动调用工具时作为工具结果回灌。
 
-### 1.3 `internal/tools` 的只读工具注册机制
+#### 1.3 `internal/tools` 的只读工具注册机制
 
 **证据**
 
@@ -64,7 +201,7 @@
 
 **独立判断**：codegraph 工具应**完全照抄 `grep_ex` 的 opt-in 注册形态**（默认不注册）+ **照抄 LSP 的适配器注入形态**（tools 里定义中立接口 `CodeGraph` 与 DTO，app 里 `SetCodeGraph(adapter)`）。这样 `tools` 不 import `codegraph`/`agent`/`lsp`，默认 `Specs()` golden 不动，且接线只改 `mcp.go` 几行。
 
-### 1.4 `internal/app` 的装配点
+#### 1.4 `internal/app` 的装配点
 
 **证据**
 
@@ -73,11 +210,11 @@
 - `internal/app/mcp.go:261-319` `newToolset` 总装；`:564-580` `Specs()`；`:583-628` `Run()` 路由（MCP → use_skill → 内置注册表）。
 - `internal/app/optin_registry.go:12-14` `OptInKey`；`:16-65` 现有 16 个键；`:67-84` `allOptInKeys`；`:86-87` 环境变量 `ARGENT_OPT_INS`；`:89-129` 线程安全注册表；`:163-175` `ParseOptInEnv`。
 - `internal/app/app_config_optins.go:17-27` `configOptInKeyMap`（配置可用的 9 键交集）；`:36-45` `configOptIns`；`:50-59` `mergeOptIns`（环境 OR 配置）。
-- `internal/config/optin_config.go:36-54` `optInDefinitions` 白名单；`internal/cli/optin_metadata.go:3-8,30+` 独立门控单一真源 + `docs/OPT_INS.md` 漂移守卫。
+- `internal/config/optin_config.go:36-54` `optInDefinitions` 白名单；`internal/cli/optin_metadata.go:3-8,30+` 独立门控单一真源 + OPT_INS.md 漂移守卫。
 
-**独立判断**：新增 `OptInCodeGraph` 需同时登记 4 处（app 键表 + allOptInKeys、config 白名单、app↔config 映射、`docs/OPT_INS.md`），这 4 处必须由**同一个代理**独占，避免并行写冲突。若只想走 env-only，可仿 `OptInCommandRisk`（`optin_registry.go:59-64,141-157`）跳过 config 三处，降低改动面。
+**独立判断**：新增 `OptInCodeGraph` 需同时登记 4 处（app 键表 + allOptInKeys、config 白名单、app↔config 映射、OPT_INS.md），这 4 处必须由**同一个代理**独占，避免并行写冲突。若只想走 env-only，可仿 `OptInCommandRisk`（`optin_registry.go:59-64,141-157`）跳过 config 三处，降低改动面。
 
-### 1.5 现有 grep/search 工具的调用接口
+#### 1.5 现有 grep/search 工具的调用接口
 
 **证据**
 
@@ -92,7 +229,7 @@
 
 **独立判断**：`codegraph_query` 的**参数解析、路径收边界、输出行数上限、`clip`/spill、`Meta` 空结果标记**应直接沿用这套接口与惯例，不另造机制。它返回的是**结构化证据文本**（`file:line [rule=...] snippet`），比 grep 多一层"解释"，但走同一条输出治理链。
 
-### 1.6 两个"来源封装"原语的封装基础与一个限制
+#### 1.6 两个"来源封装"原语的封装基础与一个限制
 
 - `internal/tools/result_provenance.go:9-19` `Provenance{Tool,Sanitized,Clipped,Bytes}`；`:27-34` `AnnotateResult`；`:47-61` `Header()` 输出稳定单行 `[tool:read sanitized clipped bytes=123]`；`:84-92` `PrependHeader`。注释明确"纯数据原语、无生产调用方"。→ **codegraph 工具可直接用（同包）**。
 - `internal/agent/untrusted_result.go:27-34` `UntrustedResult{Tool,Content,Trust}`；`:38-40` `WrapToolResult`；`:51-64` `Render()` 用 `<tool_result tool="..." trust="untrusted">` 边界；`:75-115` `UnwrapToolResult`；`:117-140` 边界转义。→ **不能由 `internal/tools` 直接 import**：`internal/tools` 永不 import `internal/agent`（AGENTS.md:85、`archguard/arch_test.go:52`）。
@@ -100,7 +237,7 @@
 
 **独立判断**：codegraph 的"每条边可解释"**不能只靠 `Provenance.Header()`**（它只描述"哪个工具、是否裁剪"），必须在结果里携带**逐边的 source location + 提取规则 ID + 置信度**——这才是 graphify 思想的落地点。`UntrustedResult` 若要用，只能由 app 层在回灌时套；阶段 1 可先不接（尊重 opt-in 逐字节不变），在文档中标为阶段 2 的可选加固。
 
-### 1.7 关键反证：LSP 已覆盖大部分"查引用"场景
+#### 1.7 关键反证：LSP 已覆盖大部分"查引用"场景
 
 - `builtin_register.go:53-58` 六个 `lsp_*` 工具**无条件注册**（与 codegraph 的 opt-in 形成对比），未接线适配器时返回 `lspIdeUnavailable`（`tools_lsp_ide.go:59,180-183`）而非报错。
 - `lsp_references`（`:259-273`）需要 `path,line,character,includeDeclaration`；`lsp_workspace_symbols`（`:331-345`）只需 `query`；`lsp_symbols`（`:243-257`）需要 `path`。
@@ -110,9 +247,9 @@
 
 ---
 
-## 2. 数据结构（建议，尚未创建）
+### 2. 数据结构（建议，尚未创建）
 
-### 2.1 核心类型（`internal/codegraph/types.go`，零依赖叶子包）
+#### 2.1 核心类型（`internal/codegraph/types.go`，零依赖叶子包）
 
 ```go
 type FileKey string            // 工作区相对、斜杠分隔路径，与 repoSymbol.File 同口径
@@ -160,7 +297,7 @@ type Graph struct {
 }
 ```
 
-### 2.2 "每条边可解释"如何落地
+#### 2.2 "每条边可解释"如何落地
 
 1. **必备三元组**：`At`（`file:line:col`）+ `Rule`（稳定 ID）+ `Conf`。三者缺一不可；查询输出逐边渲染，例如：
    `CALL internal/agent/loop.go:214 [rule=call.selector.samepkg.v1 conf=likely] enclosing=runTurn: s.Run(ctx)`
@@ -173,7 +310,7 @@ type Graph struct {
 3. **歧义显式化**：同名多定义时 `ByName` 返回整组，查询输出 `ambiguous=N`，并把无法判定的边标 `conf=candidate`；**宁可少给精确结论，不假装消解成功**。
 4. **不变量**：图构建完成后，所有切片按 `(File, Line, Col, Rule, ID)` 排序（吸收 `archguard/arch_test.go:190` 的 `sort.Strings(deps)` 稳定输出思想），禁止依赖 map 遍历顺序；相同输入 → 相同序列化字节 → 可做 golden 断言与 sha256。
 
-### 2.3 纯 stdlib 序列化方案
+#### 2.3 纯 stdlib 序列化方案
 
 - **格式**：`encoding/json`，单一 `graph.json` 落到 `<Storage>/codegraph/`（**不写工作区**，与 `repo_map_cache.go:28-30` 的"只在内存"相比多一步显式 opt-in 持久化；阶段 1 甚至可完全不落盘）。DTO 用独立导出结构 + snake_case tag，避免把内部 map/uint64 直接暴露。
 - **可解释性优先**：JSON 里保留 `rule` 与 `pos`，人可直接读；不用 `encoding/gob`（虽是 stdlib 但跨版本不稳、不可读）。
@@ -183,16 +320,16 @@ type Graph struct {
 
 ---
 
-## 3. 构建与增量
+### 3. 构建与增量
 
-### 3.1 何时建图
+#### 3.1 何时建图
 
 - **默认：不建**。opt-in 关闭时零文件扫描、零解析、零新工具 spec（完全遵循 `grep_ex` 先例）。
 - **开启后：懒建**。第一次 `codegraph_query` 触发全仓 `.go` 解析；`codegraph_status` 不触发构建（只读状态）。理由：`app_execute.go:679-696` 的所有可选能力都在运行期追加提示，启动期不该付解析税；LSP 也是懒启动（`lsp_adapter.go:180-181`）。
 - **手动触发**：阶段 1 提供 `codegraph_query` 的 `refresh:true` 参数（仅重建内存索引、不写工作区），或 CLI 子命令（阶段 2）。`Mutating()` 仍为 false——它不改工作区文件，不进安全审批链；需在描述里写清楚这一语义，避免争议。
 - **文件范围**：工作区 root 全仓 `.go`，剪枝清单沿用 `archguard/arch_test.go:238-243` 与 `tools/repo_map.go:22-26`（`.git`、`vendor`、`node_modules`、`dist`、`target`、`.argent`）；**必须移除 `repoMapMaxFiles=80` 上限**。
 
-### 3.2 文件改动后如何增量更新
+#### 3.2 文件改动后如何增量更新
 
 **主方案（阶段 1，零侵入）：查询时校验文件戳。**
 - 复用 `repoFileStamp{modTime,size}`（`repo_map_cache.go:11-17`）与 `statRepoFileStamp`（`:39-46`）：每次查询对已索引文件做 `os.Stat`，戳变化的文件重新 `ParseFile` 并替换其符号/边；新文件补入，消失文件删除。
@@ -204,7 +341,7 @@ type Graph struct {
 - 若要把这个列表喂给图谱，需要在 `internal/agent/runner.go:212` 附近的 `Verify` 注入点旁边再加一个 `OnChangedPaths` 回调，或在 app 层监听 checkpoint 事件——这是**核心热路径改动**，AGENTS.md:28 要求改后跑 smoke；收益只是省下 `os.Stat`（毫秒级），**阶段 1 明确不做**。
 - 注意缺口：checkpoint 只覆盖工具发起的改动；shell 间接改动需 `ARGENT_CHECKPOINT_WORKSPACE_DIFF`（`cli/optin_metadata.go:67`）。因此即便接了事件，也**仍需**文件戳校验兜底。
 
-### 3.3 大仓库（2000+ .go）耗时与内存评估
+#### 3.3 大仓库（2000+ .go）耗时与内存评估
 
 > 估算基线：2000 文件 × 平均 500 行 / 15 KB ≈ 30 MB 源码；宿主 24 核（AGENTS.md:30）。**以下为估算，不是实测结论。**
 
@@ -221,9 +358,9 @@ type Graph struct {
 
 ---
 
-## 4. 查询工具 API（模型怎么查）
+### 4. 查询工具 API（模型怎么查）
 
-### 4.1 工具一：`codegraph_query`（主查询）
+#### 4.1 工具一：`codegraph_query`（主查询）
 
 **签名**（遵循 `pluginapi.Tool`，`Mutating()==false`）：
 
@@ -261,14 +398,14 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 - 空结果返回 `"(no matches)"`，`Meta()` 标 `Useless:true`（照 `grepTool.Meta:105-111`）。
 - 图谱未构建/未接线时返回稳定的 `codegraph is not available`（仿 `lspIdeUnavailable`，`tools_lsp_ide.go:59`），**不报错**。
 
-### 4.2 工具二：`codegraph_status`（低成本自省）
+#### 4.2 工具二：`codegraph_status`（低成本自省）
 
 - Schema：`{}`（可选 `verbose:boolean`）。
 - 输出：`[tool:codegraph_status bytes=...] codegraph: enabled | built=false | files=0 | symbols=0 | edges=0 | stale=0 | errors=0 | lastBuild=<time>`。
 - 用途：模型在决定是否调用 `codegraph_query` 前先看能力是否可用；也便于评测/诊断确认 opt-in 生效。
 - 两者都通过 `tools.RegisterCodeGraph(r)` 尾部追加、`registry.SetCodeGraph(adapter)` 注入（照 `SetLspIde` 模式，`tools_registry.go:186-204`）。
 
-### 4.3 结果封装边界
+#### 4.3 结果封装边界
 
 - **直接用** `tools.Provenance`（`result_provenance.go:14-19,27-34,47-61,87-92`）给整条工具结果加 `[tool:... clipped bytes=...]` 头。
 - **逐边证据**是更强的解释层，二者互补，不是二选一。
@@ -276,7 +413,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 
 ---
 
-## 5. 注入策略
+### 5. 注入策略
 
 1. **图谱本身不进提示**：不把符号表/边列表塞进 system prompt，不进压缩摘要（`implicit_context.go` 那条路只服务长对话保真，语义不符）。
 2. **按需查询优先**：模型通过工具主动查；系统提示只加**一行能力声明**，写在 `app_execute.go:685-689` 的 opt-in 追加段：
@@ -287,14 +424,14 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 3. **避免撑爆上下文**：三层限流——① 查询侧 `limit`（默认 20/硬上限 100）；② 构建侧每符号边数上限与 `maxMatches` 风格的全局上限；③ 输出侧 `clip(ctx,...)` / `spillToolOutput`（`tools_grep_ex.go:78-82`）与 `Meta` 空结果标记。
 4. **opt-in 默认关、逐字节不变**（对齐 `grep_ex`、`implicit_context`、`untrusted_result` 的既有纪律）：
    - opt-in 关：无注册、无 spec 变化（golden 快照不动）、无提示追加、无文件扫描、无缓存目录创建；
-   - 开关登记：`optin_registry.go`（`OptInCodeGraph` + `allOptInKeys`）、若走配置则 `app_config_optins.go:17-27` + `config/optin_config.go:36-54` + `docs/OPT_INS.md`（漂移守卫，`cli/optin_metadata.go:3-8`）；
+   - 开关登记：`optin_registry.go`（`OptInCodeGraph` + `allOptInKeys`）、若走配置则 `app_config_optins.go:17-27` + `config/optin_config.go:36-54` + OPT_INS.md（漂移守卫，`cli/optin_metadata.go:3-8`）；
    - 接线只在 `mcp.go:94-107` 的 `wireOptInTools` 加一个 `if`，`SetCodeGraph(adapter)` 可放在 `newMultiRootTools` 内（`:121-127`/`:133-139`），与 `SetLspIde` 并列。
 
 ---
 
-## 6. 分阶段
+### 6. 分阶段
 
-### 阶段 1：最小可行（建议作为 R55 范围）
+#### 阶段 1：最小可行（建议作为 R55 范围）
 
 - **范围**：全仓 `.go` 索引（**不是单包**——"X 在哪被调用"天然跨文件；单包反而要先做包归属判定，省不了事），但只解析定义 + 同包内的直接调用/类型引用；跨包调用保留为 `candidate` 边（带位置，不伪造目标）。
 - **交付**：新包 `internal/codegraph`（types/parse/resolve/build/query/format/serialize/incremental）、2 个 opt-in 工具、1 行系统提示、opt-in 登记与文档。
@@ -302,7 +439,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 - **风险**：最大风险是**同名误报**（`New`、`Run`、`String` 在 2000 文件里几十个定义）。缓解：边标 `conf=candidate` + `ambiguous` 报数 + 输出 `enclosing` + 只把 `exact` 边计入"callers"主列表，候选另列。
 - **不做**：跨包解析、方法接收者类型推断、调用传递闭包、磁盘快照（阶段 1 纯内存 + 戳校验）。
 
-### 阶段 2：完整
+#### 阶段 2：完整
 
 - 跨包解析：`go/types` + `go/importer`（stdlib）的 source importer 作为 opt-in 子开关；或显式调用 `go list` 获取包目录（外部进程，需在文档说清不再是"零进程"）。
 - 方法调用 `x.Foo()` 的接收者解析；`implements` 边（三色 DFS 可复用于环检测）。
@@ -313,7 +450,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 
 ---
 
-## 7. 不做项（硬边界）
+### 7. 不做项（硬边界）
 
 - ❌ 向量库 / embedding / 语义搜索 / "相似代码"召回——本设计只做符号级确定性图。
 - ❌ 跨语言：只解析 `.go`（`repo_map_symbols.go:61-65` 已明确当前无其他语言轻量词法器）。
@@ -326,20 +463,20 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 
 ---
 
-## 8. 落地建议
+### 8. 落地建议
 
-### 8.1 作为 R55 主题是否值得
+#### 8.1 作为 R55 主题是否值得
 
 **有条件值得。** 当前 HEAD 是 R53（`27c5aeb kernel: round 53`），R55 是合理排期。理由：
 
 - ✅ 技术同源、可复用约 60% 现成代码，stdlib-only 可做，符合项目"零新依赖"铁律。
 - ✅ 命中第一优先级"上下文"：把"符号 → 引用位置"从 grep 的**文本猜测**升级为**带证据的结构化查询**，且逐边可解释。
-- ⚠️ 但价值被 LSP 部分覆盖（§1.7），且不属于 `field-feedback.md:18-19` 认定的四项"环境税"。因此它应是**R55 的主题之一**，不该独占整轮，更不该挤掉中文入站解码等 P0。
+- ⚠️ 但价值被 LSP 部分覆盖（§1.7），且不属于 `本文"真实使用反馈"章节` 认定的四项"环境税"。因此它应是**R55 的主题之一**，不该独占整轮，更不该挤掉中文入站解码等 P0。
 - **前置门槛（≤0.5 天 spike）**：在本仓抽 20 个常见符号名（`Run`、`New`、`String`、`execute`、`handle`…），用 `go/parser` 跑一遍同包解析，统计"名字命中但目标不唯一"的比例。若 >30%，阶段 1 必须降级为"只返回候选位置 + 不宣称调用者"；若 >60%，建议**直接放弃**并把 R55 让给其他主题。
 
 **关于"先问 MCP/skill 能否做"（AGENTS.md:95）**：MCP server 确实能零核心改动地提供查询工具（外部进程 + `mcp.json`），适合做 spike；但它拿不到 session checkpoint 的改动文件列表、无法复用 `repo_map_cache.go` 的进程内缓存、还要多一层 IPC 与进程生命周期。属于 AGENTS.md:95 允许的"需要深度集成"例外。**建议：spike 阶段可用 MCP 验证模型是否真会用这个工具；正式落地仍走核心包 + opt-in。**
 
-### 8.2 17 代理拆分建议（文件隔离优先）
+#### 8.2 17 代理拆分建议（文件隔离优先）
 
 > 原则（AGENTS.md:92,95）：模块边界是 `internal/<pkg>`；新包内文件可高度并行，**共享文件必须单一所有者**。依赖顺序：types → parse → resolve → build → query → tool → wiring。建议先由 1 个代理冻结接口 stub（30 分钟），其余代理按冻结接口并行。
 
@@ -356,7 +493,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 | 9 | 证据链格式化 + 规则中文解释表 | `internal/codegraph/format.go`, `_test.go` | 并行 |
 | 10 | 工具壳 `codegraph_query`/`codegraph_status` + Meta | `internal/tools/tool_codegraph.go`, `_test.go` | 依赖 8/9 接口（可用 stub） |
 | 11 | 注册器 `RegisterCodeGraph` + 工具包内中立接口/DTO | `internal/tools/register_codegraph.go`, `_test.go` | 与 10 同包、不同文件 |
-| 12 | opt-in 键登记（env + config + 文档三处） | `internal/app/optin_registry.go`, `internal/app/app_config_optins.go`, `internal/config/optin_config.go`, `docs/OPT_INS.md` | **独占共享文件**，单独一个代理 |
+| 12 | opt-in 键登记（env + config + 文档三处） | `internal/app/optin_registry.go`, `internal/app/app_config_optins.go`, `internal/config/optin_config.go`, OPT_INS.md | **独占共享文件**，单独一个代理 |
 | 13 | app 适配器（包装 `*codegraph.Graph`） | `internal/app/codegraph_adapter.go`, `_test.go` | 与 12 并行 |
 | 14 | 接线：`wireOptInTools` + `SetCodeGraph` | `internal/app/mcp.go` | **独占**，需在 10-13 接口冻结后 |
 | 15 | 系统提示一行 hint（纯函数 + 开关） | `internal/app/app_codegraph_hint.go`, `_test.go` | 与 14 并行 |
@@ -367,7 +504,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 
 ---
 
-## 9. 风险与证伪条件（独立判断汇总）
+### 9. 风险与证伪条件（独立判断汇总）
 
 | 风险 | 证据/推理 | 缓解 / 证伪条件 |
 |---|---|---|
@@ -375,7 +512,7 @@ rules: decl.method.v1=方法定义; call.selector.samepkg.v1=同包选择器调�
 | **同名误报导致误导** | Go 中 `New`/`Run` 大量重名；纯 AST 无类型信息 | `conf` + `ambiguous` 显式标注；spike 中同名率 >30% 降级、>60% 放弃（§8.1） |
 | **跨包解析做不了** | 需要 `go/types` source importer 或 `go list`，非纯语法 | 阶段 1 只保留 candidate 边，不伪造 `To`；阶段 2 才碰且 opt-in |
 | **2000 文件性能/内存失控** | 30 MB 源码，AST 膨胀数倍 | 逐文件丢弃 AST、intern 字符串、边数上限、临时 benchmark 实测；不写带硬断言的提交测试（AGENTS.md:28） |
-| **破坏默认逐字节不变** | golden Specs、系统提示断言、`docs/OPT_INS.md` 漂移守卫 | 完全走 `grep_ex` opt-in 路径（tools_grep_ex.go:11-15）；#12/#16 独占守护文件 |
+| **破坏默认逐字节不变** | golden Specs、系统提示断言、OPT_INS.md 漂移守卫 | 完全走 `grep_ex` opt-in 路径（tools_grep_ex.go:11-15）；#12/#16 独占守护文件 |
 | **分层违规** | tools 不能 import agent（`arch_test.go:52`）；new 包须零依赖 | `internal/codegraph` 只 import stdlib；tools 用中立接口 + app 适配器（LSP 先例） |
 | **接线热路径回归** | AGENTS.md:28 要求改 session/agent/tools 热路径后跑 smoke | 本设计阶段 1 不改 agent/session 热路径；改 tools 注册表后跑 `go test -bench . -benchtime=10x ./internal/tools` smoke |
 
