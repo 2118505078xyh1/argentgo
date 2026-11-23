@@ -312,7 +312,19 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		c.record("", "deny", "the tool name is empty", auditArgs)
 		return &StopError{Tool: "", Reason: "the tool name is empty"}
 	}
-	result := c.policy().Evaluate(name, args)
+	// 每次调用的额外权限 profile（opt-in，由 app/MCP 经 ctx 注入）：只收紧不放宽。
+	// 未注入时 profile 为 zero，下面等价于原来的 Evaluate，默认路径逐字节不变。
+	profile := CallProfileFrom(ctx)
+	var result Result
+	// 导出的 CheckWith 是带 profile 决策的权威入口：非空 profile 时以它的判定为准，
+	// 并用 checkWithResult 补齐可读理由（审计/提示）；zero profile 走原 Evaluate。
+	if profile.IsZero() {
+		result = c.policy().Evaluate(name, args)
+	} else {
+		decision := c.policy().CheckWith(name, args, profile)
+		result = c.policy().checkWithResult(name, args, profile)
+		result.Decision = decision
+	}
 	switch result.Decision {
 	case Deny:
 		c.record(name, "deny", result.Reason, auditArgs)

@@ -722,7 +722,14 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 			return "", fmt.Errorf("%w: tool %q looks mutating and sandbox is read-only; call blocked before contacting the MCP server, no request was sent", mcp.ErrReadOnly, binding.spec.Function.Name)
 		}
 		if t.guard != nil {
-			if err := t.guard.Check(ctx, name, json.RawMessage(args)); err != nil {
+			// 每次调用的权限 profile（opt-in ARGENT_MCP_CALL_PROFILE，默认关闭）：
+			// 声明 readOnlyHint 的 MCP 工具即便策略允许，也不得调用修改类工具，
+			// 实现 per-call 只读约束（#130）。未注入时 profile 为 zero，行为不变。
+			checkCtx := ctx
+			if mcpCallProfileEnabled() && binding.readOnly {
+				checkCtx = security.WithCallProfile(ctx, security.CallProfile{ReadOnly: true})
+			}
+			if err := t.guard.Check(checkCtx, name, json.RawMessage(args)); err != nil {
 				return "", err
 			}
 		}
@@ -966,6 +973,13 @@ func mcpSpecsFromConfig(raw any) []mcp.Spec {
 		}
 	}
 	return specs
+}
+
+// mcpCallProfileEnv 是 MCP 每次调用权限 profile 的独立门控。
+const mcpCallProfileEnv = "ARGENT_MCP_CALL_PROFILE"
+
+func mcpCallProfileEnabled() bool {
+	return strings.TrimSpace(os.Getenv(mcpCallProfileEnv)) == "1"
 }
 
 // mcpToolCacheTTLEnv 是工具发现列表缓存时长的独立门控（单位秒）。

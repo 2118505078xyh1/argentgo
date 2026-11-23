@@ -145,13 +145,6 @@
 - **建议**：新增 stdlib-only 的 `internal/telemetry` 接口包（Context/Span/Counter/Histogram + NOOP 单例），先让现有 opt-in 日志点作为第一个 adapter；默认 NOOP 不分配，事件/记录字节不变。无需新模块。
 - **验收**：`internal/telemetry/telemetry_test.go`：noop 实现零分配（benchmark）、span 父子关系与属性 schema 验证；现有观测点开启后输出含统一 run ID；`go test ./internal/telemetry ./internal/agent -count=1`。
 
-### 130. per-call 文件系统/网络权限 profile（不引入 OS 沙箱）`[P2/M]`（学自 codex）
-- **竞品证据**：codex `protocol/src/models.rs:99,254,267` 定义 `FileSystemPermissions`/`NetworkPermissions`/`AdditionalPermissionProfile`；`permissions.rs:131-139,152-156,257-275` 定义 Read/Write/Deny 与 special path，deny 优先于 write；unified_exec 可带 per-call `sandbox_permissions`（`handlers/unified_exec.rs:82-83`）。
-- **argentgo 现状**：`internal/security/sandbox.go:11-19` 只有三档全局 `SandboxMode`；`policy.go:69-91` 是 denyPaths/denyCommands/writeRoots 粗粒度列表；`sandbox_execution.go:106-140` 已有 enforcement/denial/fail-closed 三维描述但文件头明确「纯数据纯函数，不接入 Chain.Check」，无生产接线。bwrap/seatbelt/landlock 属 OS 沙箱，在「无 cgo / 单二进制」约束下不可照搬。
-- **问题**：MCP/插件工具无法声明「此调用只读某目录」之类细粒度权限。
-- **建议**：不碰 OS 沙箱，在工具层把 `sandbox_execution.go` 现有描述升级为可传入 per-call profile：`internal/security/policy.go` 加 `CheckWith(ctx, name, args, profile)`，MCP/插件经 hook 注入可选 profile；保持 `Check` 原路径不变。
-- **验收**：`internal/security/per_call_profile_test.go`：per-call deny 优先于全局 write、只读 profile 拒绝修改类工具；默认 `Check` 行为不变；`go test ./internal/security -count=1`。
-
 ### 133. 每个外部程序独立的 UTF-8→ACP 增量解码 `[P2/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/shell/src/output_decode.rs:89-109` 的 `push` 快路径，`:122-172` 的 `drain_utf8` 线性游标，`:195-220` 的 `external_output_decoding`，`:236-257` 的 `CaptureDecoder` 按行判定（`MAX_HELD_LINE=64*1024`）；遇完整非法序列后该程序剩余输出永久锁 ACP，不再切回。
 - **argentgo 现状**：`internal/proc/utf8_writer.go:14-19,67-121` 只做 chunk 边界的 UTF-8 暂存，非法字节原样透传成 U+FFFD；`internal/bash/tools_builtin_bash.go:217-229` 仅在 cmd.exe 分支前置 `chcp 65001`，bash 分支禁止加（`:229`），中文 Windows 上经 Git Bash 启动的原生程序（写 CP936）仍乱码。
