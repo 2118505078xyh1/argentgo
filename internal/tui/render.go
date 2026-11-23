@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,15 +41,16 @@ func spinnerFrame(tick int) string {
 // layout 是帧的几何，绘制器与光标查询共享它，使
 // 两者永不一致。
 type layout struct {
-	width, height  int
-	bodyX, bodyW   int
-	bodyTop, bodyH int
-	inputTop       int
-	hintY, statusY int
-	panelX, panelW int // zero when no optional panel is visible
-	rows           []inputRow
-	cursorRow      int
-	cursorCol      int
+	width, height        int
+	bodyX, bodyW         int
+	bodyTop, bodyH       int
+	inputTop             int
+	hintY, statusY       int
+	usageY, rootY, ruleY int
+	panelX, panelW       int // zero when no optional panel is visible
+	rows                 []inputRow
+	cursorRow            int
+	cursorCol            int
 }
 
 func (m *Model) layoutLocked(width, height int) layout {
@@ -85,12 +87,14 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if cursorRow >= 0 && cursorRow < len(visible) {
 		l.cursorCol = rowCaretColumn(visible[cursorRow], runes, m.editor.Cursor())
 	}
-	// 最下面一行留空：Windows 终端在最后一行写满时会触发自动滚动，
-	// 状态行里的时钟每 50ms 变化一次，若贴着最后一行就会把旧状态行
-	// 不断滚进 scrollback（表现为“同一行一直重复”）。
-	l.statusY = maxInt(l.height-2, 0)
-	l.hintY = maxInt(l.height-3, 0)
-	l.inputTop = l.hintY - (len(visible) + 2)
+	// 底部四行照 pi 的排版：工作/状态线、分隔线、项目路径、用量+模型。
+	// 最后一行留空，避免最后一行写满导致终端自动滚动。
+	l.usageY = maxInt(l.height-2, 0)
+	l.rootY = maxInt(l.height-3, 0)
+	l.ruleY = maxInt(l.height-4, 0)
+	l.statusY = maxInt(l.height-5, 0)
+	l.hintY = l.ruleY
+	l.inputTop = l.statusY - (len(visible) + 2) - 1
 	l.bodyTop = 0
 	l.bodyH = l.inputTop - l.bodyTop
 	if l.bodyH < 1 {
@@ -188,8 +192,11 @@ func (m *Model) Paint(buf *Buffer) {
 	// 浮层覆盖在记录区之上、输入框之上，不占据 hintY/statusY。
 	m.paintCompletionOverlay(buf, l)
 	m.paintInput(buf, l)
-	m.paintLine(buf, l.hintY, hintLine(width, m.locale, m.pending != nil, m.palette.dim()))
-	m.paintLine(buf, l.statusY, m.statusLineLocked(width))
+	// 底部块按 pi 的排版绘制：状态线、分隔线、路径、用量+模型。
+	m.paintLine(buf, l.statusY, m.statusRuleLocked(width))
+	m.paintLine(buf, l.ruleY, ruleLine(width, m.palette.dim()))
+	m.paintLine(buf, l.rootY, m.rootLineLocked(width))
+	m.paintLine(buf, l.usageY, m.statusLineLocked(width))
 	m.paintSelectionLocked(buf)
 	m.dirty = false
 }
@@ -254,6 +261,53 @@ func ruleLine(width int, style Style) Line {
 	return line
 }
 
+// rootLineLocked 在状态块中单独占一行，显示完整项目路径（pi 的同款排版）。
+func (m *Model) rootLineLocked(width int) Line {
+	line := NewLine()
+	if root := strings.TrimSpace(m.root); root != "" {
+		line.Push(Clip(root, maxInt(width, 1)), m.palette.dim())
+	}
+	return line
+}
+
+// statusRuleLocked 是状态块最上面的横线：工作时带 spinner，
+// 有通知时显示通知文本，空闲时显示“就绪”。
+func (m *Model) statusRuleLocked(width int) Line {
+	message := ""
+	style := m.palette.muted()
+	now := m.now()
+	if notice, ok := m.notices.Current(now); ok && notice.Text != "" {
+		message = notice.Text
+		switch notice.Severity {
+		case SeverityError:
+			style = m.palette.failure()
+		case SeverityWarn, SeveritySysadmin:
+			style = m.palette.warning()
+		}
+	} else if m.status != "" && now.Sub(m.statusAt) < 6*time.Second {
+		message = m.status
+	} else if m.working {
+		message = spinnerFrame(m.tickLocked()) + " " + text(m.locale, "working")
+	} else {
+		message = text(m.locale, "ready")
+	}
+	line := NewLine()
+	if width <= 0 || message == "" {
+		return line
+	}
+	prefix := "── "
+	room := width - TextWidth(prefix) - TextWidth(message) - 1
+	if room < 0 {
+		line.Push(Clip(prefix+message+" ", width), style)
+		return line
+	}
+	line.Push(prefix, m.palette.dim())
+	line.Push(message, style)
+	line.Push(" ", m.palette.dim())
+	line.Push(strings.Repeat("─", room), m.palette.dim())
+	return line
+}
+
 // contextBar 把 0-100 的百分比渲染为带括号的单元格字形条。
 // 分数四舍五入；█ 和 ░ 都恰好占一个终端单元格宽，
 // 因此无论填充级别如何，结果始终占 cells+2 个单元格。
@@ -292,58 +346,15 @@ func (m *Model) contextStyle(pct int) Style {
 	}
 }
 
-// statusLineLocked 渲染底部状态栏。模型、用量、缓存命中、速度、上下文
-// 与成本全部集中在这一行：顶栏已取消，屏幕高度整块留给对话记录。
-// 「代理名」（argentgo）只出现在终端窗口标题里，模型名也只显示一次。
+// statusLineLocked 照 pi 的排版渲染最后一行：左侧是用量、缓存、成本与
+// 上下文占比，右侧是模型与思考档位。额外补一项 pi 没有的速度（tok/s）。
+// 状态消息与项目路径分别占有上面的状态线和路径行，因此模型名只出现一次。
 func (m *Model) statusLineLocked(width int) Line {
 	left := NewLine()
-	message := ""
-	style := m.palette.muted()
-	now := m.now()
-	if notice, ok := m.notices.Current(now); ok && notice.Text != "" {
-		message = notice.Text
-		switch notice.Severity {
-		case SeverityError:
-			style = m.palette.failure()
-		case SeverityWarn, SeveritySysadmin:
-			style = m.palette.warning()
-		}
-	} else if m.status != "" && now.Sub(m.statusAt) < 6*time.Second {
-		// 旧的直接写入者仍然渲染，但新通知总是使用上面的
-		// 栈，且两者同时存在时优先。
-		message = m.status
-	} else if m.working {
-		message = spinnerFrame(m.tickLocked()) + " " + text(m.locale, "working")
-	} else {
-		message = text(m.locale, "ready")
-	}
-	if message != "" {
-		left.Push(Clip(message, width), style)
-	}
-
-	dot := m.palette.muted()
-	right := NewLine()
-	first := true
-	push := func(text string, style Style) {
-		if text == "" {
-			return
-		}
-		if !first {
-			right.Push(" · ", dot)
-		}
-		first = false
-		right.Push(text, style)
-	}
-	if m.model != "" {
-		push(m.model, m.palette.accent())
-	}
-	// 用量/成本段整体受 usageVisible 门控：门关时不渲染，
-	// 使状态栏与门控接入前逐字节一致。主题/滚动等非用量信息不受影响。
 	if m.usageVisible {
 		if m.usageIn+m.usageOut > 0 {
-			push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
-			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100，
-			// 因此 cached>prompt 也只会显示 100%，绝不会产生 NaN。
+			left.Push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
+			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100。
 			if m.usageIn > 0 {
 				pct := int(float64(m.usageCached) / float64(m.usageIn) * 100)
 				if pct < 0 {
@@ -352,40 +363,42 @@ func (m *Model) statusLineLocked(width int) Line {
 				if pct > 100 {
 					pct = 100
 				}
-				push("CH "+strconv.Itoa(pct)+"%", m.palette.muted())
+				left.Push(" CH"+strconv.Itoa(pct)+"%", m.palette.muted())
 			}
-			// 生成速度优先来自 Usage 事件携带的首 token/流结束时间点；
-			// 字段缺失时 usageRate 为空，该段整体不显示。
+			// 速度：pi 没有这一项，用户要求补上；沿用相邻 Usage 事件的
+			// 首 token/流结束时间点计算，字段缺失时不显示。
 			if m.usageRate != "" {
-				push("⚡ "+m.usageRate, m.palette.muted())
+				left.Push(" ⚡"+m.usageRate, m.palette.muted())
 			}
 		}
-		if m.usageCached > 0 {
-			push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
+		if m.cost != "" {
+			left.Push(" "+m.cost, m.palette.muted())
 		}
-		// contextWindow > 0 只是数据门控；渲染层再叠加 usageVisible。
+		// pi 写作 61.0%/259k (auto)：用量占上下文窗口的百分比与窗口大小。
 		if m.contextWindow > 0 {
 			used := int64(m.usageIn) + int64(m.usageOut)
-			pct := used * 100 / int64(m.contextWindow)
+			pct := float64(used) * 100 / float64(m.contextWindow)
 			if pct > 100 {
 				pct = 100
 			}
-			push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
-		}
-		if m.cost != "" {
-			push(m.cost, m.palette.muted())
+			left.Push(fmt.Sprintf(" %.1f%%/%s", pct, compactCount(m.contextWindow)), m.contextStyle(int(pct)))
+			left.Push(" (auto)", m.palette.dim())
 		}
 	}
-	// 主题只有在与默认不同时才值得永久提醒；深色不需要标签，因为
-	// 它是历史外观。
+	right := NewLine()
+	model := strings.TrimSpace(m.model)
+	if model == "" {
+		model = "auto"
+	}
+	right.Push(model, m.palette.accent())
+	if thinking := strings.TrimSpace(m.thinking); thinking != "" {
+		right.Push(" • "+thinking, m.palette.muted())
+	}
 	if m.theme != ThemeDark {
-		push(text(m.locale, "theme")+" "+m.theme, m.palette.muted())
+		right.Push(" · "+text(m.locale, "theme")+" "+m.theme, m.palette.muted())
 	}
 	if m.scroll > 0 {
-		push("↑"+strconv.Itoa(m.scroll), m.palette.muted())
-	}
-	if folder := folderLabel(m.root, width); folder != "" {
-		push(folder, m.palette.muted())
+		right.Push(" ↑"+strconv.Itoa(m.scroll), m.palette.muted())
 	}
 	if right.Width() > 0 {
 		right = clipLine(right, maxInt(width-left.Width()-1, 1))

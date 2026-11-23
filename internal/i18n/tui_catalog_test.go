@@ -26,6 +26,7 @@ var tuiCatalogKeys = []string{
 	"cmd_compact_desc",
 	"cmd_context_desc",
 	"cmd_expand_desc",
+	"cmd_exit_desc",
 	"cmd_help_desc",
 	"cmd_hotkeys_desc",
 	"cmd_models_desc",

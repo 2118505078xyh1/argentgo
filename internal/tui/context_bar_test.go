@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"strconv"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -90,13 +90,11 @@ func TestStatusContextBarUsesThresholdStyle(t *testing.T) {
 		m.SetUsageVisible(true)
 		m.SetUsage(tc.pct*10, 0)
 		m.SetContextInfo(1000, "")
-		span, ok := contextSpan(m.statusLineLocked(120))
+		line := m.statusLineLocked(120)
+		wantText := fmt.Sprintf("%.1f%%/1.0k", float64(tc.pct))
+		span, ok := spanWithStyle(line, wantText)
 		if !ok {
-			t.Fatalf("no ctx span for %d%%", tc.pct)
-		}
-		wantText := "ctx " + contextBar(tc.pct, contextBarCells) + " " + strconv.Itoa(tc.pct) + "%"
-		if span.Text != wantText {
-			t.Errorf("ctx span text = %q, want %q", span.Text, wantText)
+			t.Fatalf("no ctx span %q for %d%%: %s", wantText, tc.pct, line.Text())
 		}
 		if span.Style != tc.want {
 			t.Errorf("ctx span style at %d%% = %+v, want %+v", tc.pct, span.Style, tc.want)
@@ -128,22 +126,28 @@ func TestStatusContextBarIsPlainWhenColourSuppressed(t *testing.T) {
 			m.SetUsageVisible(true)
 			m.SetUsage(950, 0)
 			m.SetContextInfo(1000, "")
-			span, ok := contextSpan(m.statusLineLocked(120))
+			span, ok := spanWithStyle(m.statusLineLocked(120), "95.0%/1.0k")
 			if !ok {
 				t.Fatal("no ctx span")
 			}
 			if span.Style != (Style{}) {
 				t.Fatalf("ctx span must be unstyled when colour is suppressed, got %+v", span.Style)
 			}
-			wantText := "ctx " + contextBar(95, contextBarCells) + " 95%"
-			if span.Text != wantText {
-				t.Fatalf("ctx span text = %q, want %q", span.Text, wantText)
-			}
+
 		})
 	}
 }
 
-// contextSpan 找到承载上下文用量读数的头部 span。
+// spanWithStyle 找到指定文本的 span，用于校验阈值配色。
+func spanWithStyle(line Line, want string) (Span, bool) {
+	for _, span := range line.Spans {
+		if strings.Contains(span.Text, want) {
+			return span, true
+		}
+	}
+	return Span{}, false
+}
+
 func contextSpan(line Line) (Span, bool) {
 	for _, span := range line.Spans {
 		if strings.HasPrefix(span.Text, "ctx ") {

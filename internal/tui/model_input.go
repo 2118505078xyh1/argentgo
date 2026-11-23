@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -774,25 +773,6 @@ func (m *Model) submitLocked() KeyAction {
 	return ActionSubmit
 }
 
-// modelsInfoLocked 说明当前模型与唯一的切换入口。运行期换模型需要重建
-// provider/系统提示，TUI 不假装能就地切换。
-func (m *Model) modelsInfoLocked() string {
-	model := strings.TrimSpace(m.model)
-	if model == "" {
-		model = "auto"
-	}
-	return fmt.Sprintf(text(m.locale, "models_info"), model)
-}
-
-// thinkingInfoLocked 说明当前思考强度与调整入口。
-func (m *Model) thinkingInfoLocked() string {
-	level := strings.TrimSpace(m.thinking)
-	if level == "" {
-		level = "-"
-	}
-	return fmt.Sprintf(text(m.locale, "thinking_info"), level)
-}
-
 // copyLastAnswerLocked 复制最后一条助手正文到剪贴板（pi 的 ctrl+x）。
 func (m *Model) copyLastAnswerLocked() {
 	for i := len(m.entries) - 1; i >= 0; i-- {
@@ -816,59 +796,16 @@ func (m *Model) commandLocked(body string) KeyAction {
 		name = body[:i]
 		arg = strings.TrimSpace(body[i+1:])
 	}
-	switch name {
-	case "/quit", "/exit":
-		m.quit = true
-		return ActionQuit
-	case "/clear":
-		m.entries = nil
-		m.entryCache = nil
-		m.scroll = 0
-		m.version++
-		m.markDirtyLocked()
-	case "/expand":
-		m.expanded = !m.expanded
-		m.version++
-		m.markDirtyLocked()
-		if m.expanded {
-			m.setStatusLocked(text(m.locale, "expanded"))
-		} else {
-			m.setStatusLocked(text(m.locale, "collapsed"))
-		}
-	case "/undo":
-		return m.requestActionLocked(ActionUndo, arg)
-	case "/retry":
-		return m.requestActionLocked(ActionRetry, arg)
-	case "/name":
-		if arg == "" {
-			m.setStatusLocked(text(m.locale, "name_usage"))
-			return ActionNone
-		}
-		return m.requestActionLocked(ActionRename, arg)
-	case "/help", "/hotkeys":
-		// 结构化的按键说明：每一行都是一条独立 notice，宽度按当前
-		// 终端正文宽度裁剪，窄终端也能读到全部按键而不是只看开头。
-		for _, line := range m.helpNoticeLocked() {
-			m.appendNoticeLocked(line)
-		}
-	case "/sessions", "/resume":
-		m.showSessions = true
-		m.version++
-		m.setStatusLocked(text(m.locale, "sessions_on"))
-	case "/models":
-		m.appendNoticeLocked(m.modelsInfoLocked())
-	case "/thinking":
-		m.appendNoticeLocked(m.thinkingInfoLocked())
-	case "/compact":
-		return m.requestActionLocked(ActionCompact, arg)
-	default:
-		m.appendUserLocked(body)
-		m.working = true
-		m.scroll = 0
-		m.submitted = body
-		return ActionSubmit
+	// 命令执行体集中在 nativeCommands 注册表里；这里只负责分发。
+	if cmd, ok := lookupNativeCommand(strings.TrimPrefix(name, "/")); ok {
+		return cmd.Run(m, arg)
 	}
-	return ActionNone
+	// 未注册的命令交给宿主（例如 /context、/review 或 markdown 命令）。
+	m.appendUserLocked(body)
+	m.working = true
+	m.scroll = 0
+	m.submitted = body
+	return ActionSubmit
 }
 
 // requestActionLocked 向 run 循环报告一个动作。未安装的钩子

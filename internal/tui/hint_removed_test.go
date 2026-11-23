@@ -17,11 +17,11 @@ func TestDefaultFrameHasNoBottomHint(t *testing.T) {
 		}
 	}
 	l := m.layoutLocked(100, 24)
-	if row := buf.RowText(l.hintY); strings.TrimSpace(row) != "" {
-		t.Fatalf("hintY row is not blank: %q", row)
+	if row := buf.RowText(l.usageY); strings.TrimSpace(row) == "" {
+		t.Fatal("the pi-style usage row must not be blank")
 	}
-	if l.statusY != 22 || l.hintY != 21 {
-		t.Fatalf("layout moved: hintY=%d statusY=%d, want 21/22", l.hintY, l.statusY)
+	if l.statusY != 19 || l.ruleY != 20 || l.rootY != 21 || l.usageY != 22 {
+		t.Fatalf("layout moved: hintY=%d statusY=%d, want status/rule/root/usage = 19/20/21/22", l.hintY, l.statusY)
 	}
 	if got := m.Frame(100, 24).RowText(l.statusY); got == "" {
 		t.Fatal("the status line must stay at statusY")

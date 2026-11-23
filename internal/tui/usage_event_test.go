@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestUsageEventSetsCounters(t *testing.T) {
 	}
 	// 用量经现有渲染门显示：顶栏已取消，只在底部状态行出现一次。
 	text := frameText(m, 110, 24)
-	if got := strings.Count(text, "cached 900"); got != 1 {
+	if got := strings.Count(text, "CH75%"); got != 1 {
 		t.Fatalf("cached count should appear exactly once in the status line, got %d: %s", got, text)
 	}
 }
@@ -100,7 +101,7 @@ func TestUsageEventCJKAndBoundary(t *testing.T) {
 				t.Fatalf("counters mismatch, got in=%d out=%d cached=%d",
 					m.usageIn, m.usageOut, m.usageCached)
 			}
-			want := tc.label + " " + compactCount(tc.cached)
+			want := "CH" + strconv.Itoa(tc.cached*100/tc.prompt)
 			text := frameText(m, 110, 24)
 			// 顶栏已取消：缓存用量只在底部状态行出现一次。
 			if got := strings.Count(text, want); got != 1 {

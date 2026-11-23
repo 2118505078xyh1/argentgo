@@ -13,7 +13,7 @@ func TestLayoutPlacesStatusBodyInputAndStatus(t *testing.T) {
 
 	// 顶栏已取消：品牌名只在终端窗口标题里，状态行保留模型名与项目文件夹。
 	status := buffer.RowText(22)
-	for _, want := range []string{"test-model", "project"} {
+	for _, want := range []string{"test-model"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("status %q is missing %q", status, want)
 		}
@@ -36,8 +36,8 @@ func TestLayoutPlacesStatusBodyInputAndStatus(t *testing.T) {
 func TestCursorPositionTracksTheInputBox(t *testing.T) {
 	m := New(Config{})
 	row, col := m.CursorPosition(80, 24)
-	if row != 20 || col != 5 {
-		t.Fatalf("caret = %d,%d, want 20,5 (the first input row)", row, col)
+	if row != 17 || col != 5 {
+		t.Fatalf("caret = %d,%d, want 17,5 (the first input row)", row, col)
 	}
 	m.HandleKey(Key{Kind: KindRune, Rune: 'a'})
 	m.HandleKey(Key{Kind: KindRune, Rune: 'b'})
@@ -45,7 +45,7 @@ func TestCursorPositionTracksTheInputBox(t *testing.T) {
 	if col != 7 {
 		t.Fatalf("caret column = %d, want 7 after two runes", col)
 	}
-	if got := m.Frame(80, 24).RowText(19); !strings.Contains(got, "› ab") {
+	if got := m.Frame(80, 24).RowText(16); !strings.Contains(got, "› ab") {
 		t.Fatalf("input row = %q, want the prompt mark and text", got)
 	}
 }
@@ -56,8 +56,8 @@ func TestMultilineInputGrowsTheBox(t *testing.T) {
 	m.HandleKey(Key{Kind: KindNewline})
 	m.HandleKey(Key{Kind: KindRune, Rune: 'b'})
 	row, _ := m.CursorPosition(80, 24)
-	if row != 20 {
-		t.Fatalf("caret row = %d, want 20 (the box grows upward, the caret stays on the last input line)", row)
+	if row != 17 {
+		t.Fatalf("caret row = %d, want 17 (the box grows upward, the caret stays on the last input line)", row)
 	}
 	buffer := m.Frame(80, 24)
 	body := strings.Join(rowTexts(buffer), "\n")

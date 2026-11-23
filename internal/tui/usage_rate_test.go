@@ -29,7 +29,7 @@ func TestUsageRateFromConsecutiveEvents(t *testing.T) {
 		t.Fatalf("usageRate = %q, want \"45 tok/s\"", m.usageRate)
 	}
 	status := m.Frame(110, 24).RowText(22)
-	for _, want := range []string{"↑200", "↓190", "CH 75%", "⚡ 45 tok/s"} {
+	for _, want := range []string{"↑200", "↓190", "CH75%", "⚡45 tok/s"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("status %q is missing %q", status, want)
 		}
@@ -43,10 +43,10 @@ func TestCacheHitRatioCases(t *testing.T) {
 		want           string
 		wantAbsent     bool
 	}{
-		{"zero cached with prompt", 200, 0, "CH 0%", false},
-		{"partial", 200, 50, "CH 25%", false},
-		{"cached above prompt clamps", 100, 250, "CH 100%", false},
-		{"zero prompt omitted", 0, 50, "CH ", true},
+		{"zero cached with prompt", 200, 0, "CH0%", false},
+		{"partial", 200, 50, "CH25%", false},
+		{"cached above prompt clamps", 100, 250, "CH100%", false},
+		{"zero prompt omitted", 0, 50, "CH", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -159,6 +159,7 @@ var catalog = map[string]translation{
 	"tui.cmd_compact_desc":  {"compact older context into a summary", "把较早的上下文压缩成摘要"},
 	"tui.cmd_context_desc":  {"read-only view of the model context", "只读查看模型上下文"},
 	"tui.cmd_expand_desc":   {"expand or collapse every reasoning block", "展开或收起全部思考块"},
+	"tui.cmd_exit_desc":     {"leave the TUI", "退出 TUI"},
 	"tui.cmd_help_desc":     {"show all key bindings", "查看全部快捷键"},
 	"tui.cmd_hotkeys_desc":  {"show all key bindings", "查看全部快捷键"},
 	"tui.cmd_models_desc":   {"show the current model and how to change it", "查看当前模型及切换方式"},

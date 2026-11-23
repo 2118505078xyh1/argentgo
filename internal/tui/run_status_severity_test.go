@@ -43,9 +43,12 @@ func startRunWithAction(t *testing.T, undo TurnAction) (*Model, *io.PipeWriter, 
 // statusStyleAt 返回状态行（最后一行）首格的绘制样式。
 // 状态消息的左侧 span 从 x=0 开始绘制，因此首格即消息样式。
 func statusStyleAt(m *Model, width, height int) Style {
-	buf := m.Frame(width, height)
-	row := height - 2
-	return buf.cells[row*buf.w].S
+	for _, span := range m.statusRuleLocked(width).Spans {
+		if strings.Contains(span.Text, "undo failed") {
+			return span.Style
+		}
+	}
+	return Style{}
 }
 
 // TestRunActionFailureUsesErrorSeverity 验证 run.go 动作失败路径
@@ -78,7 +81,7 @@ func TestRunActionFailureUsesErrorSeverity(t *testing.T) {
 	if !ok || n.Severity != SeverityError {
 		t.Fatalf("notice = %+v (ok=%v), want SeverityError", n, ok)
 	}
-	if got := model.Frame(100, 24).RowText(22); !strings.Contains(got, "undo failed") {
+	if got := model.Frame(100, 24).RowText(19); !strings.Contains(got, "undo failed") {
 		t.Fatalf("error text missing from status line: %q", got)
 	}
 	// failure() = Style{Fg: ColorRed, Bold: true}（非 --no-color 时）。

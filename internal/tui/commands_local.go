@@ -1,29 +1,157 @@
 package tui
 
-import "github.com/2118505078xyh1/argentgo/internal/i18n"
+import (
+	"fmt"
+	"strings"
 
-// 斜杠命令的名称、描述与参数提示。
-//
-// 描述统一走 internal/i18n 的 `tui.cmd_<name>_desc` 目录：TUI 自己解释的
-// 命令（native）与宿主注入的命令（internal/commands 的 /context、/review）
-// 用同一套中英两栏文案，因此中文界面下补全列表里不会混进英文短句。目录里
-// 没有登记的命令保留宿主原文——不猜测、不改写未知命令。
+	"github.com/2118505078xyh1/argentgo/internal/i18n"
+)
 
-// commandArgHints 只登记带参数的命令。提示本身是 CLI 字面量，不做翻译，
-// 免得用户照着提示敲却敲不出命令。
-var commandArgHints = map[string]string{
-	"undo":  "[--steps N]",
-	"retry": "[--steps N]",
-	"name":  "<title>",
+// 本文件是 TUI 原生斜杠命令的单一注册点：补全列表、参数提示、本地化描述
+// 与执行体都从 nativeCommands 生成。新增一条命令只需在这里加一项，不必
+// 再同步改 commands_local.go / model_input.go / 帮助文案三处。
+
+// nativeCommand 是一条 TUI 自己解释的命令。Run 在 Model 锁内调用，
+// 可以直接访问模型字段；返回 KeyAction 让 run 循环决定后续动作。
+type nativeCommand struct {
+	Name    string
+	ArgHint string
+	Run     func(*Model, string) KeyAction
 }
 
-// tuiNativeCommands 是 TUI 在自己的命令分派里解释的斜杠命令，不经过
-// internal/commands。顺序即补全列表顺序：先放最常用的入口。
-var tuiNativeCommands = []string{
-	"help", "clear", "expand", "undo", "retry", "name", "quit",
-	// 与 pi 对齐的常用入口。面板类命令复用已有面板，不引入新窗口。
-	"sessions", "models", "thinking", "compact", "hotkeys", "resume",
+// nativeCommands 的顺序即补全列表顺序：常用入口在前，pi 对齐入口在后。
+var nativeCommands = []nativeCommand{
+	{Name: "help", Run: runHelpCommand},
+	{Name: "clear", Run: runClearCommand},
+	{Name: "expand", Run: runExpandCommand},
+	{Name: "undo", ArgHint: "[--steps N]", Run: runUndoCommand},
+	{Name: "retry", ArgHint: "[--steps N]", Run: runRetryCommand},
+	{Name: "name", ArgHint: "<title>", Run: runNameCommand},
+	{Name: "quit", Run: runQuitCommand},
+	{Name: "exit", Run: runQuitCommand},
+	{Name: "sessions", Run: runSessionsCommand},
+	{Name: "models", Run: runModelsCommand},
+	{Name: "thinking", Run: runThinkingCommand},
+	{Name: "compact", Run: runCompactCommand},
+	{Name: "hotkeys", Run: runHelpCommand},
+	{Name: "resume", Run: runSessionsCommand},
 }
+
+// tuiNativeCommands 是去别名后的命令名列表，供补全与诊断使用。
+var tuiNativeCommands = func() []string {
+	names := make([]string, 0, len(nativeCommands)+1)
+	for _, cmd := range nativeCommands {
+		if cmd.Name == "exit" {
+			continue // /exit 是 /quit 的别名，不单独占据补全行
+		}
+		names = append(names, cmd.Name)
+	}
+	return names
+}()
+
+// lookupNativeCommand 按命令名查找注册项。名字不含前导斜杠。
+func lookupNativeCommand(name string) (nativeCommand, bool) {
+	for _, cmd := range nativeCommands {
+		if cmd.Name == name {
+			return cmd, true
+		}
+	}
+	return nativeCommand{}, false
+}
+
+// --- 各命令的执行体。保持短小，只做一件事，便于单独测试。---
+
+func runHelpCommand(m *Model, _ string) KeyAction {
+	// 每一行都是一条独立 notice，宽度按当前正文宽度裁剪。
+	for _, line := range m.helpNoticeLocked() {
+		m.appendNoticeLocked(line)
+	}
+	return ActionNone
+}
+
+func runClearCommand(m *Model, _ string) KeyAction {
+	m.entries = nil
+	m.entryCache = nil
+	m.scroll = 0
+	m.version++
+	m.markDirtyLocked()
+	return ActionNone
+}
+
+func runExpandCommand(m *Model, _ string) KeyAction {
+	m.expanded = !m.expanded
+	m.version++
+	m.markDirtyLocked()
+	if m.expanded {
+		m.setStatusLocked(text(m.locale, "expanded"))
+	} else {
+		m.setStatusLocked(text(m.locale, "collapsed"))
+	}
+	return ActionNone
+}
+
+func runUndoCommand(m *Model, arg string) KeyAction {
+	return m.requestActionLocked(ActionUndo, arg)
+}
+
+func runRetryCommand(m *Model, arg string) KeyAction {
+	return m.requestActionLocked(ActionRetry, arg)
+}
+
+func runNameCommand(m *Model, arg string) KeyAction {
+	if arg == "" {
+		m.setStatusLocked(text(m.locale, "name_usage"))
+		return ActionNone
+	}
+	return m.requestActionLocked(ActionRename, arg)
+}
+
+func runQuitCommand(m *Model, _ string) KeyAction {
+	m.quit = true
+	return ActionQuit
+}
+
+func runSessionsCommand(m *Model, _ string) KeyAction {
+	m.showSessions = true
+	m.version++
+	m.setStatusLocked(text(m.locale, "sessions_on"))
+	return ActionNone
+}
+
+// modelsInfoLocked 说明当前模型与唯一的切换入口。运行期换模型需要重建
+// provider/系统提示，TUI 不假装能就地切换。
+func (m *Model) modelsInfoLocked() string {
+	model := strings.TrimSpace(m.model)
+	if model == "" {
+		model = "auto"
+	}
+	return fmt.Sprintf(text(m.locale, "models_info"), model)
+}
+
+func runModelsCommand(m *Model, _ string) KeyAction {
+	m.appendNoticeLocked(m.modelsInfoLocked())
+	return ActionNone
+}
+
+// thinkingInfoLocked 说明当前思考强度与调整入口。
+func (m *Model) thinkingInfoLocked() string {
+	level := strings.TrimSpace(m.thinking)
+	if level == "" {
+		level = "-"
+	}
+	return fmt.Sprintf(text(m.locale, "thinking_info"), level)
+}
+
+func runThinkingCommand(m *Model, _ string) KeyAction {
+	m.appendNoticeLocked(m.thinkingInfoLocked())
+	return ActionNone
+}
+
+func runCompactCommand(m *Model, arg string) KeyAction {
+	return m.requestActionLocked(ActionCompact, arg)
+}
+
+// --- 补全元数据：描述来自 i18n 目录，参数提示来自上面的注册表。---
 
 // commandDescription 返回命令名对应的本地化描述。i18n.T 对未知键原样返回键名，
 // 据此判断目录里是否登记过，避免把 "tui.cmd_x_desc" 漏到界面上。
@@ -37,14 +165,16 @@ func commandDescription(locale, name string) (string, bool) {
 }
 
 // localCommandInfo 把一条命令元数据本地化：描述命中目录则替换，参数提示
-// 宿主优先、缺失时回落到本地表，保证原生命令也有提示。
+// 宿主优先、缺失时回落到注册表，保证原生命令也有提示。
 func localCommandInfo(locale string, info CommandInfo) CommandInfo {
 	out := info
 	if desc, ok := commandDescription(locale, info.Command); ok {
 		out.Description = desc
 	}
 	if out.ArgumentHint == "" {
-		out.ArgumentHint = commandArgHints[info.Command]
+		if cmd, ok := lookupNativeCommand(info.Command); ok {
+			out.ArgumentHint = cmd.ArgHint
+		}
 	}
 	return out
 }

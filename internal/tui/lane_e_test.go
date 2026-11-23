@@ -119,7 +119,7 @@ func TestCachedTokensAppearInStatusLine(t *testing.T) {
 	m.SetCachedTokens(900)
 	text := frameText(m, 110, 24)
 	// 顶栏已取消，缓存用量只在底部状态行出现一次。
-	if matches := strings.Count(text, "cached 900"); matches != 1 {
+	if matches := strings.Count(text, "CH75%"); matches != 1 {
 		t.Fatalf("cached count should appear exactly once in the status line, got %d: %s", matches, text)
 	}
 }

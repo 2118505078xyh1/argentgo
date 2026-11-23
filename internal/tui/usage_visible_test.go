@@ -9,7 +9,7 @@ import (
 
 // usageGateTokens 是只在头部/状态栏用量与成本行出现的文本片段。
 // 门控默认关闭时，它们必须全部缺席，使帧字节与接线前逐字节一致。
-var usageGateTokens = []string{"↑", "cached", "CH ", "tok/s", "$", "ctx"}
+var usageGateTokens = []string{"↑", "CH", "tok/s", "$", "%/"}
 
 // usageGateEvent 给出一组确定的用量数据，足以点亮 ↑/↓、cached、CH 等片段。
 func usageGateEvent() Event {
