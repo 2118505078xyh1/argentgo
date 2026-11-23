@@ -101,6 +101,15 @@ type Options struct {
 	StrictStreamTerminator bool
 	// AttemptHook 为会话层接收脱敏后的尝试记录。
 	AttemptHook func(AttemptRecord)
+	// Steer 是可选的流中纠正源（live steering，opt-in ARGENT_LIVE_STEER=1）。
+	// readStream 在每个 SSE 事件边界调用它，返回自上次调用以来排队的纠正文本
+	// （应当是一次性消费，语义对齐 agent 层 steering.drain）。返回的文本不改写
+	// 任何线协议字节，而是经 SteerHook 以 accepted/deferred 决策上报，由上层在
+	// 下一轮合法边界作为用户消息注入。nil 时该机制整体短路，零开销。
+	Steer func() []string
+	// SteerHook 可选地接收每条 steering 决策（accepted/deferred）。
+	// 仅在 Steer 非 nil 且 opt-in 开启时被调用；nil 时决策只被丢弃。
+	SteerHook func(SteerDecision)
 }
 
 // CacheCapability 描述 Chatter 实际有效的提示缓存支持。

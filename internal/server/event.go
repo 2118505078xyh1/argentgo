@@ -398,17 +398,19 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 		log := hub.eventLog
 		hub.mu.RUnlock()
 
-		header := w.Header()
-		header.Set("Content-Type", "text/event-stream")
-		header.Set("Cache-Control", "no-cache")
-		header.Set("Connection", "keep-alive")
-		header.Set("X-Accel-Buffering", "no")
-		w.WriteHeader(http.StatusOK)
-
 		if log == nil {
 			// 默认路径：不带 id: 帧，与历史行为逐字节一致。
+			// 注意：SubscribeAfter 必须先于任何 w.Header()/WriteHeader 调用——
+			// 某些 ResponseWriter 在 Header() 首次被调用时发布事件（握手竞态测试），
+			// 提前触碰 header 会让游标多算一条事件。
 			ch, stop, seqAt := hub.SubscribeAfter(after)
 			defer stop()
+			header := w.Header()
+			header.Set("Content-Type", "text/event-stream")
+			header.Set("Cache-Control", "no-cache")
+			header.Set("Connection", "keep-alive")
+			header.Set("X-Accel-Buffering", "no")
+			w.WriteHeader(http.StatusOK)
 			if _, err := fmt.Fprintf(w, "event: server.connected\ndata: {\"seq\":%d}\n\n", seqAt); err != nil {
 				return
 			}
@@ -440,7 +442,15 @@ func newEventHandlerInterval(hub *EventHub, interval time.Duration) http.Handler
 			}
 		}
 
-		// opt-in 日志路径：先补放内存中已淘汰、但磁盘仍留存的事件，带真实 id:。
+		// opt-in 日志路径：先确定游标再设置 header（同上的握手竞态语义）。
+		header := w.Header()
+		header.Set("Content-Type", "text/event-stream")
+		header.Set("Cache-Control", "no-cache")
+		header.Set("Connection", "keep-alive")
+		header.Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+
+		// 先补放内存中已淘汰、但磁盘仍留存的事件，带真实 id:。
 		base := hub.memoryBase()
 		replayFrom := after
 		var lastReplayed uint64 = after

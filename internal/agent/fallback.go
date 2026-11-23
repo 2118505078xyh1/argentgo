@@ -133,6 +133,17 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			break
 		}
 		next := models[i+1]
+		// 重试前的持久上下文省略 + 可中止退避（opt-in ARGENT_RETRY_OMIT）：
+		// 默认关闭时整段短路，请求体、事件与延时与接线前逐字节一致。
+		// 开启时先通过 app 注入的回调把失败尝试的助手消息及其工具结果永久省略，
+		// 再按指数退避等待；等待期间若 ctx 被取消则立即停止，不再切换模型。
+		if retryOmitEnabled() {
+			s.omitFailedAttempt(turn, i+1)
+			if backoffErr := abortableBackoff(ctx, retryOmitDelay(i+1)); backoffErr != nil {
+				s.emitPartial(capture.Snapshot(partialStopReason(true)))
+				break
+			}
+		}
 		// 切换提供方是 agent 自己能看到的重试信号：每次尝试的退避位于 llm.RetryPolicy 内部，
 		// 不会到达这一层。把切换作为结构化重试发布，便于前端显示进度，
 		// 同时为旧消费者保留原有通知不变。

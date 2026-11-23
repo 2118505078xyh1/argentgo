@@ -575,6 +575,15 @@ func (c *ResponsesClient) readStream(ctx context.Context, body io.Reader, onText
 	idleReader := newSSEIdleReader(newSSEReader(body), c.IdleTimeout)
 	defer idleReader.stop()
 
+	// live steering 为 opt-in：默认关闭或未提供 Steer 时不分配任何状态，
+	// 也不在任何事件边界调用 Steer，零开销且线协议字节不变。
+	var steerRec *steerRecorder
+	var openToolCalls map[int]bool // 仅在 steering 开启时分配，记录未完成的 function_call
+	if liveSteerOn() && c.Options.Steer != nil {
+		steerRec = &steerRecorder{hook: c.Options.SteerHook}
+		openToolCalls = make(map[int]bool)
+	}
+
 	var (
 		text         strings.Builder
 		reasoning    strings.Builder
@@ -622,6 +631,18 @@ streamLoop:
 		if err := ctx.Err(); err != nil {
 			return Message{}, err
 		}
+		// 安全点：上一完整事件已处理、下一事件尚未读取。此处检查排队的纠正文本，
+		// 避免在工具调用的增量片段之间注入而破坏 transcript 顺序。工具调用进行中
+		// 的纠正标记 deferred，其余标记 accepted，两者都交给上层决定何时注入。
+		if steerRec != nil {
+			for _, text := range drainSteerTexts(c.Options.Steer()) {
+				status, reason := steerAccepted, "event-boundary"
+				if len(openToolCalls) > 0 {
+					status, reason = steerDeferred, "tool-call-in-progress"
+				}
+				steerRec.report(text, status, reason)
+			}
+		}
 		var data string
 		if len(pending) > 0 {
 			data, pending = pending[0], pending[1:]
@@ -665,6 +686,9 @@ streamLoop:
 		case "response.output_item.added":
 			if event.Item == nil || event.Item.Type != "function_call" {
 				continue
+			}
+			if steerRec != nil {
+				openToolCalls[event.OutputIndex] = true
 			}
 			partial := &responsesPartial{
 				id:   firstNonEmpty(event.Item.CallID, event.Item.ID),
@@ -735,6 +759,9 @@ streamLoop:
 		case "response.output_item.done":
 			if event.Item == nil || event.Item.Type != "function_call" {
 				continue
+			}
+			if steerRec != nil {
+				delete(openToolCalls, event.OutputIndex)
 			}
 			partial := partials[event.OutputIndex]
 			if partial == nil {

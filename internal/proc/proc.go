@@ -212,7 +212,10 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		stdinRead, stdinWrite = pr, pw
 	}
 
-	if err := cmd.Start(); err != nil {
+	// startTracked 在 opt-in 开启且需要整树终止时改走挂起启动：
+	// 先入作业对象再恢复，封住孙进程逃逸窗口。默认路径与 cmd.Start() 等价。
+	handle, err := startTracked(cmd, c.KillTree)
+	if err != nil {
 		if stdinRead != nil {
 			_ = stdinRead.Close()
 		}
@@ -233,7 +236,6 @@ func Run(ctx context.Context, c Command) (Result, error) {
 		}()
 	}
 
-	handle := newPlatformProcess(cmd.Process, c.KillTree)
 	defer handle.close()
 
 	done := make(chan waitOutcome, 1)
