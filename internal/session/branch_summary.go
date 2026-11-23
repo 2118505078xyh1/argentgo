@@ -4,10 +4,34 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
 )
+
+// branchSummaryFilesKey 是遗弃分支摘要载荷中携带机械抽取文件清单的稳定键。
+// 它与 text 并列：旧读取方只认 text，不受新增字段影响；新摘要读取同一键
+// 实现跨嵌套累计。字段名固定为英文，保证转录跨语言、跨版本可读。
+const branchSummaryFilesKey = "branch_files"
+
+// branchSummaryPayload 是遗弃分支摘要的载荷。text 保持旧字段名与语义；
+// branch_files 是新增的机械抽取清单（omitempty 让空清单不写入多余键）。
+type branchSummaryPayload struct {
+	Text  string       `json:"text"`
+	Files *branchFiles `json:"branch_files,omitempty"`
+}
+
+// branchFiles 是遗弃分支上被读取与被修改的去重文件路径清单。
+// 路径按字典序输出，因此相同输入总得到逐字节一致的摘要。
+type branchFiles struct {
+	Read     []string `json:"read,omitempty"`
+	Modified []string `json:"modified,omitempty"`
+}
+
+// branchFilesMax 是每类清单的路径上限：保留最近出现的文件，防止超长分支把摘要撑爆。
+const branchFilesMax = 64
 
 // ErrNoAbandonedBranch 表示转录中没有可供摘要的非活动分支。
 var ErrNoAbandonedBranch = errors.New("session: no abandoned branch")
@@ -137,12 +161,22 @@ func SummarizeAbandonedBranch(path string, opts ...AbandonedBranchOption) (Recor
 		}
 	}
 	summary := Summarize(entries, 0).Summary
+	// 机械抽取被读/被改文件（无需 LLM）：先从本分支的全部记录提取，再并入链上
+	// 已有的遗弃分支摘要清单，实现跨嵌套摘要累计。清单去重、排序且有界，
+	// 以稳定的 [read: ...] / [modified: ...] 行附在叙事摘要之后。
+	files := branchFilesIn(chain.records)
+	if filesLine := files.renderLine(); filesLine != "" {
+		if summary != "" && !strings.HasSuffix(summary, "\n") {
+			summary += "\n"
+		}
+		summary += filesLine
+	}
 	if cfg.limit > 0 {
 		// 先脱敏再裁剪；切点由 textutil.ClipRunes 吸附到字素簇边界，
 		// 摘要进入上下文时不会留下悬空的组合标记或半个 emoji。
 		summary = textutil.ClipRunes(summary, cfg.limit)
 	}
-	payload, err := json.Marshal(map[string]string{"text": summary})
+	payload, err := json.Marshal(branchSummaryPayload{Text: summary, Files: &files})
 	if err != nil {
 		return Record{}, fmt.Errorf("session: encode branch summary: %w", err)
 	}
@@ -157,6 +191,97 @@ func SummarizeAbandonedBranch(path string, opts ...AbandonedBranchOption) (Recor
 		Kind:   KindSummary,
 		Data:   data,
 	}, nil
+}
+
+// branchFilesIn 从分支记录中机械抽取被读/被改文件，并并入链上既有摘要携带的清单。
+// 它遍历全部记录（不受摘要文本预算限制），只做 map 查找与 JSON 解码，不调用 LLM、
+// 不触碰文件系统；返回的两类清单各自去重、保留最近出现项并按字典序排序。
+func branchFilesIn(records []Record) branchFiles {
+	readSeen, modifiedSeen := map[string]bool{}, map[string]bool{}
+	var readOrder, modifiedOrder []string
+	add := func(path string, modified bool) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if len([]rune(path)) > activityPathLimit {
+			path = textutil.ClipRunes(path, activityPathLimit)
+		}
+		seen, order := readSeen, &readOrder
+		if modified {
+			seen, order = modifiedSeen, &modifiedOrder
+		}
+		if seen[path] {
+			return
+		}
+		seen[path] = true
+		*order = append(*order, path)
+	}
+	for _, record := range records {
+		// 跨嵌套累计：上一条遗弃分支摘要的清单视为本分支的文件操作事实。
+		if record.Kind == KindSummary {
+			var payload branchSummaryPayload
+			if json.Unmarshal(record.Data, &payload) == nil {
+				for _, path := range payload.Files.Read {
+					add(path, false)
+				}
+				for _, path := range payload.Files.Modified {
+					add(path, true)
+				}
+			}
+		}
+		for _, call := range callsFromData(record.Data) {
+			name := strings.ToLower(strings.TrimSpace(call.name))
+			path := activityPath(call.args)
+			if path == "" {
+				path = topLevelFilePath(record.Data)
+			}
+			switch {
+			case activityReadTools[name]:
+				add(path, false)
+			case activityEditTools[name]:
+				add(path, true)
+			}
+		}
+	}
+	return branchFiles{
+		Read:     sortedRecent(readOrder, readSeen, branchFilesMax),
+		Modified: sortedRecent(modifiedOrder, modifiedSeen, branchFilesMax),
+	}
+}
+
+// topLevelFilePath 兼容工具结果记录把路径直接放在顶层的旧布局
+// （例如 {"name":"edit","path":"x.go"}），而 arguments/args/input 均为空。
+func topLevelFilePath(raw json.RawMessage) string {
+	return fieldString(raw, "path", "file_path", "file")
+}
+
+// sortedRecent 保留最近出现的 limit 项，再按字典序排序，输出确定且无重复。
+func sortedRecent(order []string, seen map[string]bool, limit int) []string {
+	if len(order) > limit {
+		order = order[len(order)-limit:]
+	}
+	out := make([]string, 0, len(order))
+	for _, path := range order {
+		if seen[path] {
+			out = append(out, path)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// renderLine 把非空清单渲染为稳定的单行文本（无清单时返回空串）。
+// 只输出路径，不输出任何工具原文或参数值，因此不会把敏感参数带入摘要。
+func (f branchFiles) renderLine() string {
+	var parts []string
+	if len(f.Read) > 0 {
+		parts = append(parts, "[read: "+strings.Join(f.Read, ", ")+"]")
+	}
+	if len(f.Modified) > 0 {
+		parts = append(parts, "[modified: "+strings.Join(f.Modified, ", ")+"]")
+	}
+	return strings.Join(parts, " ")
 }
 
 // chooseAbandonedChain 按调用方给定的 id 选择分支；未指定时返回文件中最后出现的那条。

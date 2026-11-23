@@ -59,7 +59,7 @@ func (s *Session) Messages() []Entry {
 				archived = append([]Entry{summary}, archived...)
 			}
 		}
-		return SettleOrphanToolCalls(archived, SettleInterrupted)
+		return finalizeMessageView(archived, path)
 	}
 
 	if latest >= 0 {
@@ -81,12 +81,32 @@ func (s *Session) Messages() []Entry {
 			out = append(out, messageEntries(path[latest+1:])...)
 			// 默认开启的工具调用结算：只为孤儿调用补齐带原因的合成结果。
 			// 干净会话没有孤儿也没有合成结果，结算是空操作，投影逐字节不变。
-			return SettleOrphanToolCalls(out, SettleInterrupted)
+			return finalizeMessageView(out, path)
 		}
 	}
 	// 同上：ReconcileToolPairs 已在 messageEntries 中插入中止结果，
 	// 这里再补上原因元数据与稳定短 id；正常会话原样返回。
-	return SettleOrphanToolCalls(messageEntries(path), SettleInterrupted)
+	return finalizeMessageView(messageEntries(path), path)
+}
+
+// finalizeMessageView 收口消息视图的最后两步：结算孤儿调用 → 图像卸载。
+// 图像卸载是记录标记驱动的投影，无标记时逐字节不变；省略告示不属于 Messages()
+// 的稳定会话视图，它由 MessagesWithOmissionNotice 单独提供给下一轮注入点。
+func finalizeMessageView(entries []Entry, path []Record) []Entry {
+	settled := SettleOrphanToolCalls(entries, SettleInterrupted)
+	return applyImageOffload(settled, ImageOffloadsIn(path))
+}
+
+// MessagesWithOmissionNotice 返回下一轮使用的对话视图：在 Messages() 之上，
+// 当本轮确实发生 prune/隐藏/预算投影丢消息时，追加一条「缺失不构成授权」告示。
+// 它是默认开启的下一轮注入入口；干净路径与 Messages() 逐字节相同。
+func (s *Session) MessagesWithOmissionNotice() []Entry {
+	messages := s.Messages()
+	records, err := s.Records()
+	if err != nil {
+		return messages
+	}
+	return withOmissionNotice(messages, projectionOmission(records, s.activePath(records), messages))
 }
 
 // readRecords 解析转录。空行和格式错误的行会被跳过，

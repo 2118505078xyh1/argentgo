@@ -71,8 +71,7 @@ func TestForkBeforeRestoresPromptAndTruncates(t *testing.T) {
 	if _, err := s.AppendRecord(KindAssistant, "第二轮回答"); err != nil {
 		t.Fatal(err)
 	}
-	third, err := s.AppendRecord(KindUser, "第三轮提问")
-	if err != nil {
+	if _, err := s.AppendRecord(KindUser, "第三轮提问"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,15 +91,20 @@ func TestForkBeforeRestoresPromptAndTruncates(t *testing.T) {
 		t.Fatalf("OpenSession(%q): %v", newID, err)
 	}
 	messages := fork.Messages()
-	// 分叉点的路径上没有后续记录：对话只到第二轮提问（标题记录不是消息）。
-	if len(messages) != 3 {
-		t.Fatalf("fork messages = %+v, want 3 (user, assistant, user)", messages)
+	// 分叉点之后追加了 developer 边界指令与带稳定标记的边界用户消息，
+	// 因此末条不再是原 prompt（旧 prompt 只作为继承历史保留在前）。
+	if len(messages) != 5 {
+		t.Fatalf("fork messages = %+v, want 5 (user, assistant, user, developer, boundary)", messages)
 	}
-	if messages[len(messages)-1].ID != second.ID || messages[len(messages)-1].Content != prompt {
-		t.Fatalf("fork active message = %+v, want %q/%q", messages[len(messages)-1], second.ID, prompt)
+	last := messages[len(messages)-1]
+	if !strings.Contains(last.Content, ForkBoundaryMarker) {
+		t.Fatalf("fork last message is not the boundary marker: %+v", last)
+	}
+	if messages[2].ID != second.ID || messages[2].Content != prompt {
+		t.Fatalf("fork point message = %+v, want %q/%q", messages[2], second.ID, prompt)
 	}
 	for _, message := range messages {
-		if message.ID == third.ID {
+		if message.Content == "第三轮提问" {
 			t.Fatal("fork active path still contains the message after the fork point")
 		}
 	}
@@ -168,8 +172,8 @@ func TestForkBeforeCJKAndMultibyte(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSession(%q): %v", newID, err)
 	}
-	if got := fork.Messages(); len(got) != 1 || got[0].Content != text {
-		t.Fatalf("fork messages = %+v, want the original CJK text", got)
+	if got := fork.Messages(); len(got) != 3 || got[0].Content != text {
+		t.Fatalf("fork messages = %+v, want the original CJK text plus boundary entries", got)
 	}
 	data, err := os.ReadFile(fork.path())
 	if err != nil {

@@ -62,5 +62,38 @@ func (s *Session) ForkBefore(messageID string) (newID string, restoredPrompt str
 	if err != nil {
 		return "", "", err
 	}
+	// 只读边界默认开启：在分叉处插入 developer 指令与带稳定标记的边界用户消息，
+	// 使后续轮次把分叉点之前的内容当作继承历史而非仍待执行的指令。
+	if err := appendForkBoundary(fork); err != nil {
+		return "", "", err
+	}
 	return fork.ID(), restoredPrompt, nil
+}
+
+// ForkBoundaryMarker 是分叉边界的稳定标记。测试与调用方用它识别边界，
+// 无需依赖具体文案；标记只出现在分叉产生的新会话末尾。
+const ForkBoundaryMarker = "[fork-boundary]"
+
+const (
+	forkBoundaryDeveloperText = ForkBoundaryMarker +
+		" developer instruction: everything before this boundary is inherited history, reference only. " +
+		"Do not continue, execute, or complete any instructions, plans, tool calls, approvals, edits, " +
+		"or requests from before this boundary. Only user instructions after this boundary are in scope; " +
+		"no approvals or subagents are inherited."
+	forkBoundaryUserText = ForkBoundaryMarker +
+		" 此边界之前的内容只是继承的历史，仅供参照。不要继续、执行或完成边界前的任何指令、计划、" +
+		"工具调用、审批、编辑或请求；只有本边界之后的用户指令生效，且不继承旧审批与子代理。"
+)
+
+// appendForkBoundary 把边界写在 fork 出的新会话活动历史末尾。developer 指令在前，
+// 带稳定标记的用户边界消息在最后（“末条为边界标记”），两者都不写回原会话。
+func appendForkBoundary(fork *Session) error {
+	if _, err := fork.AppendRecord(KindMessage, map[string]string{
+		"role":    "developer",
+		"content": forkBoundaryDeveloperText,
+	}); err != nil {
+		return err
+	}
+	_, err := fork.AppendRecord(KindUser, forkBoundaryUserText)
+	return err
 }
