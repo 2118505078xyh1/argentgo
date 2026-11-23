@@ -87,15 +87,16 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if cursorRow >= 0 && cursorRow < len(visible) {
 		l.cursorCol = rowCaretColumn(visible[cursorRow], runes, m.editor.Cursor())
 	}
-	// 底部四行照 pi 的排版：工作/状态线、分隔线、项目路径、用量+模型。
-	// 最后一行留空，避免最后一行写满导致终端自动滚动。
-	l.usageY = maxInt(l.height-2, 0)
-	l.rootY = maxInt(l.height-3, 0)
-	l.ruleY = maxInt(l.height-4, 0)
-	l.statusY = maxInt(l.height-5, 0)
+	// pi 的排版：状态/工作线与分隔线在屏幕顶部，项目路径和用量+模型在
+	// 底部两行。最后一行留空，避免写满最后一行触发终端自动滚动。
+	l.statusY = 0
+	l.ruleY = 1
+	l.rootY = maxInt(l.height-3, 2)
+	l.usageY = maxInt(l.height-2, 3)
+	m.usageY = l.usageY
 	l.hintY = l.ruleY
-	l.inputTop = l.statusY - (len(visible) + 2) - 1
-	l.bodyTop = 0
+	l.bodyTop = 2
+	l.inputTop = l.rootY - (len(visible) + 2) - 1
 	l.bodyH = l.inputTop - l.bodyTop
 	if l.bodyH < 1 {
 		l.bodyH = 1
@@ -392,7 +393,13 @@ func (m *Model) statusLineLocked(width int) Line {
 	}
 	right.Push(model, m.palette.accent())
 	if thinking := strings.TrimSpace(m.thinking); thinking != "" {
-		right.Push(" • "+thinking, m.palette.muted())
+		label := text(m.locale, "thinking")
+		m.statusReasoningFrom = right.Width() + 2 // 前面的 " • "
+		right.Push(" • "+label+" ", m.palette.muted())
+		m.statusReasoningTo = m.statusReasoningFrom + TextWidth(label)
+		right.Push(thinking, m.palette.muted())
+	} else {
+		m.statusReasoningFrom, m.statusReasoningTo = 0, 0
 	}
 	if m.theme != ThemeDark {
 		right.Push(" · "+text(m.locale, "theme")+" "+m.theme, m.palette.muted())

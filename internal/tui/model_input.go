@@ -144,6 +144,11 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 			m.setStatusLocked(text(m.locale, "named_off"))
 		}
 	case KindCtrlR:
+		if m.showSessions && len(m.sessions) > 0 {
+			m.renamePending = true
+			m.setStatusLocked(text(m.locale, "session_rename_prompt"))
+			return ActionNone
+		}
 		m.setStatusLocked(text(m.locale, "name_usage"))
 	case KindCtrlV:
 		// 终端的括号粘贴走 KindPaste；这里没有独立的剪贴板读取 API，
@@ -186,6 +191,10 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.setStatusLocked(tuiText(m.locale, "quit_armed"))
 		return ActionNone
 	case KindCtrlD:
+		// pi 的会话列表里 Ctrl+D 删除当前会话。
+		if m.showSessions && len(m.sessions) > 0 && !m.sessionFiltering {
+			return m.requestActionLocked(ActionDeleteSession, m.sessions[m.sessionsCursor].Path)
+		}
 		// pi: 输入非空时前删一个字符；输入为空时直接退出。
 		if strings.TrimSpace(m.editor.Text()) == "" {
 			m.quit = true
@@ -206,6 +215,10 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.version++
 		m.setStatusLocked(text(m.locale, "sort_toggled"))
 	case KindEsc:
+		if m.renamePending {
+			m.renamePending = false
+			m.setStatusLocked("")
+		}
 		if m.working {
 			m.setStatusLocked(text(m.locale, "cancelling"))
 			m.disarmQuitLocked()
@@ -219,6 +232,22 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		// 候选可见时 Enter 接受候选项，而不是提交整行。
 		if m.completionActiveLocked() {
 			return m.acceptCompletionLocked()
+		}
+		// 会话栏获得焦点的 Enter 打开选中会话；改名待确认时把输入行
+		// 当作新标题。这样 /sessions 不再只是“看一眼”的面板。
+		if m.showSessions && len(m.sessions) > 0 && !m.sessionFiltering {
+			row := m.sessions[m.sessionsCursor].Path
+			if m.renamePending {
+				title := strings.TrimSpace(m.editor.Text())
+				m.renamePending = false
+				m.editor.Clear()
+				if title == "" {
+					m.setStatusLocked(text(m.locale, "name_usage"))
+					return ActionNone
+				}
+				return m.requestActionLocked(ActionRenameSession, row+"\x00"+title)
+			}
+			return m.requestActionLocked(ActionOpenSession, row)
 		}
 		return m.submitLocked()
 	case KindAltEnter, KindNewline:
@@ -824,6 +853,12 @@ func (m *Model) requestActionLocked(action KeyAction, arg string) KeyAction {
 		hook, key = m.renameFn, "rename_unwired"
 	case ActionCompact:
 		hook, key = m.compactFn, "compact_unwired"
+	case ActionOpenSession:
+		hook, key = m.openSessionFn, "session_open_unwired"
+	case ActionDeleteSession:
+		hook, key = m.deleteSessionFn, "session_delete_unwired"
+	case ActionRenameSession:
+		hook, key = m.renameSessionFn, "session_rename_unwired"
 	case ActionUndo:
 		key = "undo_unwired"
 	}

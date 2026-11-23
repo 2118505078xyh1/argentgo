@@ -176,6 +176,70 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			return sess.Compact(2)
 		}
 
+		// session 栏的行标识形如 "标题 — ID"；取最后的 ID 作为存储键。
+		sessionID := func(row string) string {
+			if i := strings.LastIndex(row, " — "); i >= 0 {
+				return strings.TrimSpace(row[i+len(" — "):])
+			}
+			return strings.TrimSpace(row)
+		}
+		refreshSessionRows := func() {
+			modelMu.Lock()
+			m := uiModel
+			modelMu.Unlock()
+			if m == nil {
+				return
+			}
+			rows := make([]tui.SessionInfo, 0)
+			for _, row := range sessionTitles(store) {
+				title, id := row, row
+				if i := strings.LastIndex(row, " — "); i >= 0 {
+					title, id = strings.TrimSpace(row[:i]), sessionID(row)
+				}
+				rows = append(rows, tui.SessionInfo{Path: id, Title: title})
+			}
+			m.SetSessions(rows)
+		}
+		openSession := func(_ context.Context, row string) error {
+			sess, err := store.OpenSession(sessionID(row))
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			current = sess
+			mu.Unlock()
+			refreshSessionRows()
+			return nil
+		}
+		deleteSession := func(_ context.Context, row string) error {
+			id := sessionID(row)
+			if err := session.Delete(store.Dir(), id); err != nil {
+				return err
+			}
+			mu.Lock()
+			if current != nil && current.ID() == id {
+				current = nil
+			}
+			mu.Unlock()
+			refreshSessionRows()
+			return nil
+		}
+		renameSession := func(_ context.Context, arg string) error {
+			parts := strings.SplitN(arg, "\x00", 2)
+			if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+				return fmt.Errorf("missing session title")
+			}
+			sess, err := store.OpenSession(sessionID(parts[0]))
+			if err != nil {
+				return err
+			}
+			if err := sess.SetTitle(strings.TrimSpace(parts[1])); err != nil {
+				return err
+			}
+			refreshSessionRows()
+			return nil
+		}
+
 		frontendOpts := tui.Options{
 			Root:          res.Root,
 			Model:         res.Model,
@@ -188,6 +252,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			Retry:         retryTurn,
 			Rename:        renameTurn,
 			Compact:       compactTurn,
+			OpenSession:   openSession,
+			DeleteSession: deleteSession,
+			RenameSession: renameSession,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
 				turnCtx = withEventEmit(turnCtx, events.Emit)
 				sess, err := sessionFor(text)

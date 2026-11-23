@@ -131,6 +131,9 @@ const (
 	ActionRetry
 	ActionRename
 	ActionCompact
+	ActionOpenSession
+	ActionDeleteSession
+	ActionRenameSession
 )
 
 // entryCacheKey 捕获改变某个记录条目渲染方式的所有输入。
@@ -205,8 +208,10 @@ type Model struct {
 	reasoningExpanded map[int]bool
 	// reasoningBodyHits / reasoningHits 是上一次 Paint 记录的思考块
 	// 行范围，分别为记录相对坐标与屏幕坐标。它们不参与脏标记。
-	reasoningBodyHits []bodyHit
-	reasoningHits     []bodyHit
+	usageY                                 int // 用量行（倒数第二行）的屏幕行号
+	statusReasoningFrom, statusReasoningTo int // 状态栏中“思考”标签的可点击列区间
+	reasoningBodyHits                      []bodyHit
+	reasoningHits                          []bodyHit
 
 	scroll      int
 	bodyH       int
@@ -285,6 +290,12 @@ type Model struct {
 	renameFn  TurnAction
 	compactFn TurnAction
 	actionArg string
+
+	// 会话栏的打开/删除/改名接缝，与检查点动作共用 TurnAction 签名。
+	openSessionFn   TurnAction
+	deleteSessionFn TurnAction
+	renameSessionFn TurnAction
+	renamePending   bool
 
 	// pi 一致的会话过滤：仅显示有标题的会话。
 	sessionNamedOnly bool
@@ -430,6 +441,12 @@ func (m *Model) MouseDown(col, row int) {
 		m.toggleReasoningAt(idx)
 		m.version++
 		m.markDirtyLocked()
+		return
+	}
+	// 状态栏右侧的“思考”标签是全局展开/收起开关：点一下展开全部，
+	// 再点一下收起。列区间由最近一次 statusLineLocked 记录。
+	if row == m.usageY && col >= m.statusReasoningFrom && col < m.statusReasoningTo {
+		m.toggleReasoningAllLocked()
 		return
 	}
 	m.selAnchor = BufferPos{Row: row, Col: col}

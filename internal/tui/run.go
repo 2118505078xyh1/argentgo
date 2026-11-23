@@ -85,6 +85,11 @@ type Options struct {
 	Retry   TurnAction
 	Rename  TurnAction
 	Compact TurnAction
+	// OpenSession、DeleteSession、RenameSession 接收会话行标识；
+	// nil 时对应按键以“未接线”通知作答。
+	OpenSession   TurnAction
+	DeleteSession TurnAction
+	RenameSession TurnAction
 	// OnReady 在设置时于第一帧显示后接收活动模型。
 	// 它是集成方用来运行 agent 的钩子，并通过 Model.Approve
 	// 从另一个 goroutine 提交审批请求。
@@ -212,6 +217,7 @@ func Run(ctx context.Context, opts Options) error {
 	model.SetApproval(opts.Approval)
 	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
 	model.SetCompactAction(opts.Compact)
+	model.SetSessionActions(opts.OpenSession, opts.DeleteSession, opts.RenameSession)
 	model.SetContextInfo(opts.ContextWindow, opts.Cost)
 	model.SetCommandInfo(opts.CommandInfo)
 
@@ -383,6 +389,12 @@ func Run(ctx context.Context, opts Options) error {
 				runAction(opts.Rename, model.TakeActionArg(), "rename_done")
 			case ActionCompact:
 				runAction(opts.Compact, model.TakeActionArg(), "compact_done")
+			case ActionOpenSession:
+				runAction(opts.OpenSession, model.TakeActionArg(), "session_open_done")
+			case ActionDeleteSession:
+				runAction(opts.DeleteSession, model.TakeActionArg(), "session_delete_done")
+			case ActionRenameSession:
+				runAction(opts.RenameSession, model.TakeActionArg(), "rename_done")
 			case ActionQuit:
 				return true
 			}

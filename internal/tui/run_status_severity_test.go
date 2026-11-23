@@ -81,7 +81,7 @@ func TestRunActionFailureUsesErrorSeverity(t *testing.T) {
 	if !ok || n.Severity != SeverityError {
 		t.Fatalf("notice = %+v (ok=%v), want SeverityError", n, ok)
 	}
-	if got := model.Frame(100, 24).RowText(19); !strings.Contains(got, "undo failed") {
+	if got := model.Frame(100, 24).RowText(0); !strings.Contains(got, "undo failed") {
 		t.Fatalf("error text missing from status line: %q", got)
 	}
 	// failure() = Style{Fg: ColorRed, Bold: true}（非 --no-color 时）。

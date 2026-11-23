@@ -106,12 +106,12 @@ func TestStatusSeverityStackWiring(t *testing.T) {
 	m.now = func() time.Time { return base }
 
 	m.SetStatus("plain info")
-	if got := m.Frame(100, 24).RowText(19); !strings.Contains(got, "plain info") {
+	if got := m.Frame(100, 24).RowText(0); !strings.Contains(got, "plain info") {
 		t.Fatalf("info notice missing from status line: %q", got)
 	}
 
 	m.SetStatusSeverity(SeverityError, "disk full")
-	got := m.Frame(100, 24).RowText(19)
+	got := m.Frame(100, 24).RowText(0)
 	if !strings.Contains(got, "disk full") || strings.Contains(got, "plain info") {
 		t.Fatalf("error notice should outrank the info notice, status = %q", got)
 	}
@@ -120,7 +120,7 @@ func TestStatusSeverityStackWiring(t *testing.T) {
 	}
 
 	m.SetStatus("")
-	if got := m.Frame(100, 24).RowText(19); strings.Contains(got, "plain info") || strings.Contains(got, "disk full") {
+	if got := m.Frame(100, 24).RowText(0); strings.Contains(got, "plain info") || strings.Contains(got, "disk full") {
 		t.Fatalf("SetStatus(\"\") must clear every notice, status = %q", got)
 	}
 	if got := m.notices.Len(); got != 0 {
@@ -138,7 +138,7 @@ func TestStatusNoticeExpiresOnStatusLine(t *testing.T) {
 
 	later := base.Add(DefaultNoticeTTL + time.Second)
 	m.now = func() time.Time { return later }
-	if got := m.Frame(100, 24).RowText(19); strings.Contains(got, "temporary") {
+	if got := m.Frame(100, 24).RowText(0); strings.Contains(got, "temporary") {
 		t.Fatalf("expired notice still on status line: %q", got)
 	}
 }

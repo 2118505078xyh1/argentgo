@@ -12,6 +12,9 @@ func writeUsage(w io.Writer) {
        argentgo <command> [args]
 
 commands:
+  session|sessions [list|show|...]   inspect stored sessions (pi-compatible alias)
+  resume|continue                   reopen the most recent session in the TUI (pi-compatible alias)
+  compact [id] [keep]               compact a stored session (default: most recent, keep 2)
   sessions list|show|fidelity|checkout|fork-at|list-messages|health|tree|rm|find|discard-attempt  inspect stored sessions (tree: ASCII id/parent tree, marks active leaf)
     sessions undo <id> [--steps N] [-C <dir>]  revert the last N checkpoints in one atomic undo (default 1)
     sessions retry <id> [--steps N] [checkpoint-id]  fork at the N-th most recent checkpoint (default 1)

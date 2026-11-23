@@ -27,22 +27,24 @@ var nativeCommands = []nativeCommand{
 	{Name: "undo", ArgHint: "[--steps N]", Run: runUndoCommand},
 	{Name: "retry", ArgHint: "[--steps N]", Run: runRetryCommand},
 	{Name: "name", ArgHint: "<title>", Run: runNameCommand},
+	{Name: "rename", ArgHint: "<title>", Run: runNameCommand},
 	{Name: "quit", Run: runQuitCommand},
 	{Name: "exit", Run: runQuitCommand},
+	{Name: "session", Run: runSessionsCommand},
 	{Name: "sessions", Run: runSessionsCommand},
 	{Name: "models", Run: runModelsCommand},
 	{Name: "thinking", Run: runThinkingCommand},
 	{Name: "compact", Run: runCompactCommand},
 	{Name: "hotkeys", Run: runHelpCommand},
-	{Name: "resume", Run: runSessionsCommand},
+	{Name: "resume", Run: runResumeCommand},
 }
 
 // tuiNativeCommands 是去别名后的命令名列表，供补全与诊断使用。
 var tuiNativeCommands = func() []string {
 	names := make([]string, 0, len(nativeCommands)+1)
 	for _, cmd := range nativeCommands {
-		if cmd.Name == "exit" {
-			continue // /exit 是 /quit 的别名，不单独占据补全行
+		if cmd.Name == "exit" || cmd.Name == "sessions" || cmd.Name == "rename" {
+			continue // 别名：不单独占据补全行
 		}
 		names = append(names, cmd.Name)
 	}
@@ -96,6 +98,14 @@ func runUndoCommand(m *Model, arg string) KeyAction {
 
 func runRetryCommand(m *Model, arg string) KeyAction {
 	return m.requestActionLocked(ActionRetry, arg)
+}
+
+func runResumeCommand(m *Model, _ string) KeyAction {
+	// pi 的 /resume 选择会话；这里把会话栏切到前台，回车即恢复。
+	m.showSessions = true
+	m.sessionFiltering = false
+	m.setStatusLocked(text(m.locale, "session_resume_prompt"))
+	return ActionNone
 }
 
 func runNameCommand(m *Model, arg string) KeyAction {

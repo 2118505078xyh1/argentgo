@@ -134,6 +134,39 @@ func runSessions(app App, _ context.Context, args []string) int {
 			return 2
 		}
 		return sessionsName(app, args[1], strings.Join(args[2:], " "))
+	case "compact":
+		id := ""
+		keep := 2
+		if len(args) > 1 {
+			id = args[1]
+		}
+		if len(args) > 2 {
+			n, err := strconv.Atoi(args[2])
+			if err != nil || n < 0 {
+				fmt.Fprintln(app.IO.Err, "argentgo: compact 的保留轮数必须是非负整数")
+				return 2
+			}
+			keep = n
+		}
+		if id == "" {
+			latest, err := latestSessionID(app.sessionDir())
+			if err != nil {
+				fmt.Fprintln(app.IO.Err, "argentgo:", err)
+				return 1
+			}
+			id = latest
+		}
+		sess, err := session.OpenSession(app.sessionDir(), id)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "argentgo:", err)
+			return 1
+		}
+		if err := sess.Compact(keep); err != nil {
+			fmt.Fprintln(app.IO.Err, "argentgo:", err)
+			return 1
+		}
+		fmt.Fprintf(app.IO.Out, "会话 %s 已压缩（保留最近 %d 条）\n", id, keep)
+		return 0
 	case "export":
 		if len(args) < 2 {
 			sessionsUsage(app.IO.Err)
@@ -876,6 +909,7 @@ func sessionsUsage(w io.Writer) {
         argentgo sessions retry <id> [checkpoint-id]
         argentgo sessions discard-attempt <id> [attempt-id]
         argentgo sessions name <id> <title>
+        argentgo sessions compact [id] [keep]
         argentgo sessions export <id> [-o file] [--format html|html2|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
         argentgo sessions import <file> [--format claude|codex|auto]
 `)

@@ -290,7 +290,17 @@ func RunWith(app App, args []string) int {
 }
 
 var subcommands = map[string]func(App, context.Context, []string) int{
-	"sessions":   runSessions,
+	"sessions": runSessions,
+	"session":  runSessions,
+	"resume": func(app App, ctx context.Context, args []string) int {
+		return runTUI(app, ctx, append([]string{"--resume"}, args...))
+	},
+	"continue": func(app App, ctx context.Context, args []string) int {
+		return runTUI(app, ctx, append([]string{"--resume"}, args...))
+	},
+	"compact": func(app App, ctx context.Context, args []string) int {
+		return runSessions(app, ctx, append([]string{"compact"}, args...))
+	},
 	"replay":     runReplay,
 	"usage":      runUsage,
 	"context":    runContext,
@@ -333,7 +343,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 // 包初始化时引用该映射（那会通过 runCompletion 形成导入循环）；
 // parity_test 断言两者始终相同。
 var subcommandOrder = []string{
-	"sessions", "replay", "usage", "context", "doctor", "init", "login", "logout", "auth",
+	"sessions", "session", "resume", "continue", "compact", "replay", "usage", "context", "doctor", "init", "login", "logout", "auth",
 	"models", "mcp", "opt-ins", "skills", "commands", "hooks", "plugin", "policy", "audit",
 	"update", "completion", "tui", "bug", "eval", "config",
 	"workflow", "telemetry", "attach", "logs", "jobs", "inbox", "timeline", "docs", "follow", "stop", "board",

@@ -197,7 +197,7 @@ argentgo tui         # 等价写法，需要显式选择时用
 
 在输入框里输入 `/help` 可以显示应用内按键列表。
 
-TUI 还有以下交互（默认开启）：输入 `/` 会弹出斜杠命令补全浮层，用上下键或鼠标选择，`>` 为高亮行、`(N/M)` 为候选计数；输入文件路径或 `@` 提及会触发行内补全，含空格/引号的路径会自动加引号。每轮结束后会追加一行统计信息 `模型 · 时长 · 平均 tok/s`（缺少打点或输出 token 时不显示）。顶栏已取消，底部状态块照 pi 的排版分四行：状态/工作线、分隔线、完整项目路径、用量与模型。用量行形如 `↑2.4k ↓385 CH0% ⚡287 tok/s $0.0000 1.0%/259k (auto)`，右侧只出现一次 `模型 • 思考档位`；代理名只在终端窗口标题（`argentgo · <项目文件夹>`）里出现。仅在兼容性场景下设 `ARGENT_TUI_USAGE=0` 可隐藏用量行。输入 `/` 的补全列表同时包含 TUI 原生命令（`/help` `/clear` `/expand` `/undo` `/retry` `/name` `/quit` `/sessions` `/models` `/thinking` `/compact` `/hotkeys` `/resume`）与宿主命令（`/context` `/review`），描述随界面语言本地化。键位与 pi 对齐：Ctrl 字母用于编辑/应用动作，面板移到 Alt 组合。
+TUI 还有以下交互（默认开启）：输入 `/` 会弹出斜杠命令补全浮层，用上下键或鼠标选择，`>` 为高亮行、`(N/M)` 为候选计数；输入文件路径或 `@` 提及会触发行内补全，含空格/引号的路径会自动加引号。每轮结束后会追加一行统计信息 `模型 · 时长 · 平均 tok/s`（缺少打点或输出 token 时不显示）。顶栏已取消，底部状态块照 pi 的排版分四行：状态/工作线、分隔线、完整项目路径、用量与模型。用量行形如 `↑2.4k ↓385 CH0% ⚡287 tok/s $0.0000 1.0%/259k (auto)`，右侧只出现一次 `模型 • 思考档位`；代理名只在终端窗口标题（`argentgo · <项目文件夹>`）里出现。仅在兼容性场景下设 `ARGENT_TUI_USAGE=0` 可隐藏用量行。输入 `/` 的补全列表同时包含 TUI 原生命令（`/help` `/clear` `/expand` `/undo` `/retry` `/name` `/rename` `/quit` `/session` `/models` `/thinking` `/compact` `/hotkeys` `/resume`）与宿主命令（`/context` `/review`），描述随界面语言本地化。键位与 pi 对齐：Ctrl 字母用于编辑/应用动作，面板移到 Alt 组合。
 
 ### 4. 原生桌面窗口
 
@@ -238,7 +238,7 @@ argentgo --sandbox-mode read-only "audit this dir"
 
 Markdown 斜杠命令也会从 `.argent/commands`（项目）和 `~/.argentgo/commands`（用户）中发现；`argentgo commands` 会列出它们。它们的正文会展开 `$ARGUMENTS` / `$@` 以及 `$1`…`$N`。
 
-> **没有**内置的 `/compact` 命令。上下文压缩是自动的；用 `--no-auto-compact` 可以在本次运行中禁用它。
+> `/compact` 可在 TUI 中手动压缩当前会话；命令行可用 `argentgo compact [id] [keep]`。上下文压缩默认也会自动触发；用 `--no-auto-compact` 可以在本次运行中禁用自动压缩。
 
 ### 8. 疑难解答
 
@@ -432,3 +432,13 @@ python -m json.tool packaging/scoop/argentgo.json >/dev/null
 python -c "import xml.etree.ElementTree as ET; ET.parse('packaging/choco/argentgo.nuspec')"
 ruby -c packaging/homebrew/argentgo.rb
 ```
+
+## pi 兼容命令别名
+
+为了和 pi 的习惯一致，CLI 支持以下别名：
+
+- `argentgo session ...` → `argentgo sessions ...`
+- `argentgo resume` / `argentgo continue` → 打开 TUI 并恢复最近会话（等同 `--resume`）
+- `argentgo compact [id] [keep]` → 压缩存储中的会话，默认压缩最近会话并保留最近 2 条记录
+
+TUI 内 `/session` 打开会话栏，`Enter` 打开选中会话，`Ctrl+D` 删除，`Ctrl+R` 改名（输入新标题后回车）。状态栏右侧的「思考」标签可以点击，点一下展开全部思考块，再点一下收起。

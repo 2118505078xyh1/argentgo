@@ -180,6 +180,13 @@ func (m *Model) SetCompactAction(compact TurnAction) {
 	m.mu.Unlock()
 }
 
+// SetSessionActions 安装会话栏的打开/删除/改名接缝。
+func (m *Model) SetSessionActions(open, delete, rename TurnAction) {
+	m.mu.Lock()
+	m.openSessionFn, m.deleteSessionFn, m.renameSessionFn = open, delete, rename
+	m.mu.Unlock()
+}
+
 // TakeActionArg 返回最后一次产生动作的命令的参数。
 func (m *Model) TakeActionArg() string {
 	m.mu.Lock()
