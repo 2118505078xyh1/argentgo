@@ -1,8 +1,14 @@
 # 更新日志
 
+## v0.8.2 — 2026-11-23
+
+代码行数达到 50 万（git tracked `.go` 含测试，`wc -l` 口径实测 **500,037**），按版本锚点约定发布 v0.8.2。核心仍 stdlib-only、零新增 Go 模块、无 cgo、单二进制，MyGo 是唯一原生壳依赖。
+
+本版主题：**架构体检修复**（safetyOracle 并发串味改 ctx 注入、门控读点统一 per-run env、Event 穷举守卫）、**产品打磨 P0/P1/P2**（审批真实 diff + 三态、undo 过安全链、首屏欢迎、网络出口策略、RPG 风格 native GUI、init 向导、会话 CRUD RPC）、**第三轮竞品驱动优化**（grep 流式 + 并行 walk + 目录缓存、AST 解析缓存、动态模型目录、网络沙箱、profiler、token 批量、BM25 工具发现、HTML 导出、持久 inbox、TUI 时间线）。详见 `todolist.md`、`docs/PRODUCT_ROADMAP.md`、`docs/ARCH_AUDIT_2026_11_23.md`。
+
 ## 未发布（当前 HEAD 以 git 为准，尚未发版）
 
-> 版本锚定代码行数：按用户约定 50w 行才发 v0.8.2，当前尚未达到该阈值，因此不新增 `## vX.Y.Z` 段落（发版一致性脚本要求 `cli.Version` / CHANGELOG 段落 / git tag 三者一致）。以下按主题汇总 R32–R43 已落地、尚未进入正式版本的内容。
+> 以下按主题汇总尚未进入正式版本的内容。
 
 **品牌与入口（R32）**
 - CLI 命令名与发布产物统一改为 argentgo（保留 argent 兼容）；无参数启动不再自动打开 TUI，并修复鼠标输入。
