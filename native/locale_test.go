@@ -3,8 +3,6 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
 )
 
 // withLocale 在测试期间切换语言，结束后恢复中文，避免污染其他用例的全局状态。
@@ -28,7 +26,7 @@ func TestNativeLocaleIsOptIn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withLocale(t, tc.env)
-			if got := nativeLocale(); got != i18n.ZhCN {
+			if got := nativeLocale(); got != nativeLocaleZhCN {
 				t.Fatalf("nativeLocale = %q, want zh-CN", got)
 			}
 			if got := tr("就绪"); got != "就绪" {
@@ -38,16 +36,16 @@ func TestNativeLocaleIsOptIn(t *testing.T) {
 	}
 }
 
-func TestNativeLocaleEnUSUsesICatalog(t *testing.T) {
+func TestNativeLocaleEnUSUsesSharedCatalogValues(t *testing.T) {
 	for _, value := range []string{"en-US", "en", "en_us", "English"} {
 		t.Run(value, func(t *testing.T) {
 			withLocale(t, map[string]string{"ARGENT_LOCALE": value})
-			if got := nativeLocale(); got != i18n.EnUS {
+			if got := nativeLocale(); got != nativeLocaleEnUS {
 				t.Fatalf("nativeLocale = %q, want en-US", got)
 			}
-			// 目录已有键的英文文案直接取自 i18n.T。
-			if got, want := tr("就绪"), i18n.T(i18n.EnUS, "status.ready"); got != want {
-				t.Fatalf("tr(就绪) = %q, want i18n %q", got, want)
+			// 共享键的英文值与 internal/i18n 目录保持一致（内联，避免违规依赖）。
+			if got, want := tr("就绪"), "ready"; got != want {
+				t.Fatalf("tr(就绪) = %q, want %q", got, want)
 			}
 			if got := tr("模型"); got != "model" {
 				t.Fatalf("tr(模型) = %q", got)

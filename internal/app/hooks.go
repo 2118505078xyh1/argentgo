@@ -119,7 +119,13 @@ func newHookBridge(res Resolved, sessionID string, warn io.Writer) *hookBridge {
 	}
 	config := loadHookDocuments(res, trust, warn)
 	if config == nil {
-		return nil
+		// 常驻扩展（opt-in ARGENT_HOOK_DAEMON）是"虚拟钩子"：即使没有普通钩子
+		// 文档，也需要一个非空 config 让 fire() 真正派发 daemon 事件。
+		// 未设置该 env 时仍按原逻辑返回 nil，默认路径逐字节不变。
+		if strings.TrimSpace(os.Getenv(hooks.DaemonEnv)) == "" {
+			return nil
+		}
+		config = &hooks.Config{}
 	}
 	dispatcher := res.HookDispatcher
 	if dispatcher == nil {
@@ -132,6 +138,12 @@ func newHookBridge(res Resolved, sessionID string, warn io.Writer) *hookBridge {
 			built.Middlewares = hookVerdictMiddlewares(sessionID, res.Root, warn)
 		}
 		dispatcher = built
+		// 常驻外部进程扩展（opt-in ARGENT_HOOK_DAEMON）：只挂到本函数自己
+		// 构造的 dispatcher 上，避免影响外部注入的 HookDispatcher。未配置时
+		// AttachDaemon 是纯 no-op，不读文件、不派生进程。
+		if err := hooks.AttachDaemon(built, os.Getenv, trust, warn); err != nil {
+			noteHook(warn, "hooks daemon", err)
+		}
 	}
 
 	// 热重载是独立 opt-in：开启时用与首次加载完全一致的来源与信任门构造 store，
@@ -481,6 +493,11 @@ func (b *hookBridge) stop(ctx context.Context, prompt, text string) {
 func (b *hookBridge) end() {
 	// 被取消的运行仍会收到其结束事件。
 	b.lifecycle(context.Background(), hooks.SessionEnd, hooks.Payload{})
+	// 会话结束时回收常驻扩展进程；未挂载时 StopDaemon 是 no-op。
+	// dispatcher 是接口类型，只有本函数构造的 *hooks.Dispatcher 才可能挂了 daemon。
+	if d, ok := b.dispatcher.(*hooks.Dispatcher); ok {
+		hooks.StopDaemon(d)
+	}
 }
 
 func (b *hookBridge) lifecycle(ctx context.Context, event hooks.Event, payload hooks.Payload) {

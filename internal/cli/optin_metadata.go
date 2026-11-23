@@ -38,6 +38,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "path_completion", Env: "ARGENT_PATH_COMPLETION", Name: "内联路径补全", Enable: "=1", Desc: "TUI 输入行启用内联路径补全，默认 slash 补全逐字节不变。"},
 	{Key: "cache_visible", Env: "ARGENT_CACHE_VISIBLE", Name: "缓存能力提示", Enable: "=1", Desc: "--tokens 报告追加一行静态缓存能力提示。"},
 	{Key: "sessions_head_tail", Env: "ARGENT_SESSIONS_HEAD_TAIL", Name: "会话列表首尾预览", Enable: "=1", Desc: "会话列表显示首尾消息预览。"},
+	{Key: "pty_interactive", Env: "ARGENT_PTY_INTERACTIVE", Name: "交互式 PTY 子命令", Enable: "=1", Desc: "注册 argentgo pty 子命令，在真实伪终端中运行程序（剥离终端查询序列、UTF-8 增量解码、ctx 取消回收）；仅开启时注册，默认 usage/help/补全字节不变。"},
+	{Key: "locale", Env: "ARGENT_LOCALE", Name: "Native 界面语言", Enable: "en-US 及其别名（en/en_us/English）", Desc: "原生桌面窗口的硬编码中文文案切到英文（复用 i18n 目录同值，native 自包含无违规依赖）；空值/中文/其它值一律保持原中文，逐字节不变。"},
 
 	// ---- 上下文 / 压缩 / 会话 ----
 	{Key: "continuation_brief", Env: "ARGENT_CONTINUATION_BRIEF", Name: "会话续接摘要", Enable: "=1", Desc: "resume/追问时向 system 提示注入上一段会话的有界摘要。"},
@@ -92,6 +94,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "telemetry", Env: "ARGENT_TELEMETRY", Name: "类型化观测", Enable: "=1", Desc: "用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。"},
 	{Key: "retry_omit", Env: "ARGENT_RETRY_OMIT", Name: "重试前持久上下文省略", Enable: "=1", Desc: "可重试失败后切换模型前，由回调把失败助手消息及工具结果以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；关闭时逐字节不变。"},
 	{Key: "live_steer", Env: "ARGENT_LIVE_STEER", Name: "供应商原生流中重定向", Enable: "=1", Desc: "Responses 协议 SSE 事件边界检查排队纠正文本，按工具调用状态记 accepted/deferred 并经 SteerHook 上报；不改线协议字节；默认关闭时零开销、逐字节不变。"},
+	{Key: "suspended_job", Env: "ARGENT_SUSPENDED_JOB", Name: "Windows 挂起启动作业对象", Enable: "=1", Desc: "Windows 上需要整树终止时改用 CREATE_SUSPENDED 启动：先纳入作业对象再恢复主线程，入作业失败即终止从未运行的进程；默认关闭时启动路径逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},
@@ -127,6 +130,8 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "subagent_shared_prompt", Env: "ARGENT_SUBAGENT_SHARED_PROMPT", Name: "子代理共享父提示", Enable: "真值（1/true/yes/on）", Desc: "子代理以父级 system prompt 为前缀、角色约束追加在末尾，使首请求复用缓存；默认关闭时行为逐字节不变。"},
 	{Key: "compact_drain", Env: "ARGENT_COMPACT_DRAIN", Name: "压缩后逐条淘汰", Enable: "真值（1/true/yes/on）", Desc: "上下文溢出压缩后仍超预算时，按缓存前缀逐条淘汰最旧非系统消息再重放；默认关闭时恢复路径逐字节不变。"},
 	{Key: "resume_byte_replay", Env: "ARGENT_RESUME_BYTE_REPLAY", Name: "resume 字节回放", Enable: "真值（1/true/yes/on），且需同时开启 ARGENT_REQUEST_SNAPSHOT", Desc: "中断提示的 resume 用最后一条请求快照的原始线协议字节重发首请求，保持缓存前缀；协议/模型漂移或快照后有回复/压缩时自动回退。默认关闭。"},
+	{Key: "acp_decode", Env: "ARGENT_ACP_DECODE", Name: "UTF-8→ACP 增量解码", Enable: "=1", Desc: "外部程序输出遇完整非法 UTF-8 序列时按当前代码页（Windows MultiByteToWideChar）解码并锁存到 EOF，按行判定避免污染相邻行；合法 UTF-8 直通零开销，默认关闭时逐字节不变。"},
+	{Key: "hook_daemon", Env: "ARGENT_HOOK_DAEMON", Name: "钩子常驻进程扩展", Enable: "受信任钩子文档路径（非空即启用）", Desc: "通过 stdio JSON-RPC 挂载常驻外部进程，事件以虚拟钩子折入既有裁决/附加上下文管线；文档须过 SHA-256 信任门，崩溃自动降级。未设置时零文件 I/O、不派生进程。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

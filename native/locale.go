@@ -1,68 +1,80 @@
 package main
 
 import (
+	"strings"
 	"sync/atomic"
-
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
 )
 
 // native 本地化是严格 opt-in：只有 ARGENT_LOCALE 显式解析为 en-US 时
 // 原生窗口的文案才切换到英文；空值、中文及其他值一律保留原有硬编码
-// 中文，帧元素与文案逐字节不变。这样 i18n 复用不会改变默认行为，
-// 既满足「英文用户可用桌面端」，也不破坏现有截图/测试语义。
+// 中文，帧元素与文案逐字节不变。
 //
-// 语言环境判定复用 internal/i18n 的 Canonical/EnUS/ZhCN；英文文案凡
-// i18n 目录已有对应键的，直接取 i18n.T(i18n.EnUS, key)，使 native 与
-// CLI/TUI 共用同一份目录；仅 native 独有文案才在本文件写死英文。
-//
-// 对硬编码扫描守卫的说明：本文件的 nativeEnglish 键是翻译目录的源文案，
+// native 是 UI 外壳，架构上禁止 import internal/*（包括 internal/i18n），
+// 因此这里内联一份与 i18n.Canonical 等价的别名判定和一份共享键的英文文案
+// （值取自 i18n 目录，保持一致）。这样既满足「英文用户可用桌面端」，
+// 又不违反分层门禁，也不改变任何默认字节。
+const (
+	nativeLocaleEnUS = "en-US"
+	nativeLocaleZhCN = "zh-CN"
+)
+
+// canonicalNativeLocale 与 internal/i18n.Canonical 的别名集合一致。
+func canonicalNativeLocale(locale string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(locale)) {
+	case "en", "en-us", "en_us", "english":
+		return nativeLocaleEnUS, true
+	case "zh", "zh-cn", "zh_cn", "chinese", "中文":
+		return nativeLocaleZhCN, true
+	}
+	return "", false
+}
+
+// 对硬编码扫描守卫的说明：本文件的 nativeEnglish 键是翻译文案的源文本，
 // 调用点的中文实参一律被 tr(...) 包裹，语义等同于 CLI/TUI 的 text()/Tr()
 // 本地化引用，不应计为新增硬编码。
-var nativeLangCode atomic.Value // 保存 i18n.EnUS 或 i18n.ZhCN
+var nativeLangCode atomic.Value // 保存 nativeLocaleEnUS 或 nativeLocaleZhCN
 
 func init() {
 	// 测试不调用 main()，因此默认恒为中文，所有既有断言字节不变。
-	nativeLangCode.Store(i18n.ZhCN)
+	nativeLangCode.Store(nativeLocaleZhCN)
 }
 
 // configureLocale 按注入的 env 设置原生窗口文案语言。env 由调用方注入
 // 而非直接读 os.Getenv，使判定可精确测试；env 为 nil 或未请求英文时关闭。
 func configureLocale(env func(string) string) {
-	code := i18n.ZhCN
+	code := nativeLocaleZhCN
 	if env != nil {
-		if c, ok := i18n.Canonical(env("ARGENT_LOCALE")); ok && c == i18n.EnUS {
-			code = i18n.EnUS
+		if c, ok := canonicalNativeLocale(env("ARGENT_LOCALE")); ok && c == nativeLocaleEnUS {
+			code = nativeLocaleEnUS
 		}
 	}
 	nativeLangCode.Store(code)
 }
 
-// nativeLocale 返回当前原生窗口使用的 i18n 语言环境代码。包级变量的初始化
+// nativeLocale 返回当前原生窗口使用的语言环境代码。包级变量的初始化
 // 早于 init()，因此 tr() 可能在 Store 之前被调用；此时回退中文保证安全。
 func nativeLocale() string {
 	v := nativeLangCode.Load()
 	if v == nil {
-		return i18n.ZhCN
+		return nativeLocaleZhCN
 	}
 	return v.(string)
 }
 
-// catalogEN 取 i18n 目录中某键的英文文案，使 native 与 CLI/TUI 共享目录。
-func catalogEN(key string) string { return i18n.T(i18n.EnUS, key) }
-
-// nativeEnglish 是 native UI 中文文案到英文的对照表。前段复用 i18n 目录
-// （英文值由 catalogEN 取得），后段是 native 独有、目录中暂无对应键的文案。
+// nativeEnglish 是 native UI 中文文案到英文的对照表。前段的英文值与
+// internal/i18n 目录的同名键一致（内联以避免 native→internal 违规依赖），
+// 后段是 native 独有文案。
 var nativeEnglish = map[string]string{
-	// ---- 复用 internal/i18n 目录 ----
-	"就绪":   catalogEN("status.ready"),
-	"运行中":  catalogEN("status.working"),
-	"会话":   catalogEN("label.session"),
-	"模型":   catalogEN("label.model"),
-	"主题":   catalogEN("tui.theme"),
-	"允许":   catalogEN("tui.allow"),
-	"拒绝":   catalogEN("tui.deny"),
-	"发送":   catalogEN("prompt.send"),
-	"需要批准": catalogEN("approval.title"),
+	// ---- 与 internal/i18n 目录一致的共享键 ----
+	"就绪":   "ready",
+	"运行中":  "working",
+	"会话":   "session",
+	"模型":   "model",
+	"主题":   "theme",
+	"允许":   "allow",
+	"拒绝":   "deny",
+	"发送":   "send",
+	"需要批准": "approval required",
 
 	// ---- native 独有文案 ----
 	"聊天":        "Chat",
@@ -180,7 +192,7 @@ var cannedRepliesEN = []string{
 // localizedReply 按当前语言返回第 index 条 demo 预设回复；越界时回退空串，
 // 调用方始终以 cannedReplies 的长度取模，因此越界不会发生。
 func localizedReply(index int) string {
-	if nativeLocale() == i18n.EnUS && index < len(cannedRepliesEN) {
+	if nativeLocale() == nativeLocaleEnUS && index < len(cannedRepliesEN) {
 		return cannedRepliesEN[index]
 	}
 	if index < len(cannedReplies) {
@@ -193,7 +205,7 @@ func localizedReply(index int) string {
 // 原样返回入参，因此所有既有渲染路径保持逐字节不变。表中缺失的键同样
 // 原样返回，避免新文案在英文环境下变成空白。
 func tr(zh string) string {
-	if nativeLocale() != i18n.EnUS {
+	if nativeLocale() != nativeLocaleEnUS {
 		return zh
 	}
 	if en, ok := nativeEnglish[zh]; ok && en != "" {

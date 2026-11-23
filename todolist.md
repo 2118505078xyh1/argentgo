@@ -42,12 +42,6 @@
 
 ## 三、工具与执行深度（29–38）
 
-### 29. `internal/pty` 包零 importer，交互式能力不可达 `[P1/L]`
-- **现状**：`internal/pty/pty.go:81 Start`、`escape_filter.go:26 stripTerminalQueries`/`:159 queryFilter`、平台实现与测试齐备，但全仓（含 native）grep `argentgo/internal/pty` 返回空。
-- **问题**：需 TTY 的开发服务器/REPL/监视测试永远跑在管道后，失去颜色/提示/刷新；更严重的是针对 DSR/DA/DECRQSS/OSC 查询的反注入防线 `stripTerminalQueries` 从未运行，将来草率接线 PTY 会把终端回答变成注入通道。
-- **建议**：在 `internal/tools` 增加只读 `pty_run` 工具（或 bash 工具加 `tty:true`），经 pluginapi 注入构造子、由 app 负责 `pty.Start`；读循环必须串接 `queryFilter.Write/Flush` 后再进 UTF-8 carry 与 clip，复用 `proc.SanitizeEnv`；`Pty.Close/Wait` 与取消 ctx 绑定。
-- **验收**：`internal/app/pty_wire_test.go` 假 Pty 注入，喂 `ESC[6n` 后输出不含该序列，ctx 取消触发 Close；加守护测试 `TestPtyPackageHasProductionImporter`。
-
 ---
 
 ## 四、模型/协议与召回（39–50）
@@ -56,21 +50,9 @@
 
 ## 五、交互界面与可用性（51–61）
 
-### 52. Native 完全无本地化，硬编码扫描存在「目录+中文」双盲区 `[P1/L]`
-- **现状**：`native/` 零 `internal/i18n` import，非测试文件约 158 处中文 UI 字面量；`internal/i18n/i18n.go:1-5` 自称「CLI 和 TUI 的字符串目录」但 TUI 实际用自建 `tui/locale.go:10` 双表，形成两套并行目录；`hardcoded_scan_test.go:31-34 hardcodedScanRoots` 只含 cli/cmd，`:294-300` 对含非 ASCII 字符串直接判非硬编码。
-- **问题**：`argentgo gui --locale en-US` 对原生窗口无任何效果（叠加 #60）；英文用户无法用桌面端；守卫无论新增多少中文硬编码都不失败。
-- **建议**：① 扩展 `hardcodedScanRoots` 加 native/与 internal/tui/，新增 `isHardcodedChinese` 并建 158 处存量 baseline 做增量守卫；② native 建 locale.go 复用 i18n 的 catalog/effectiveLanguage（增加导出包装），迁移 navItems/status/审批卡/空态；③ `cmd/argent/gui.go:97` 把 ARGENT_LOCALE 传入。
-- **验收**：`go test ./internal/i18n -run 'TestCLIHardcodedEnglishDoesNotGrow|TestHardcoded' -count=1`；设 `ARGENT_LOCALE=en-US` 启动 GUI 截图主界面无中文。
-
 ---
 
 ## 六、生态与扩展（62–73）
-
-### 72. 事件钩子常驻外部进程扩展 `[P2/L]`（学自 pi-mono ExtensionAPI）
-- **竞品证据**：`pi-mono/packages/coding-agent/src/core/extensions/types.ts`（订阅生命周期事件、注册工具/命令/快捷键、UI 原语）、`runner.ts`、`event-bus.ts`。
-- **现状/缺口**：`internal/plugins` 只做清单发现（贡献 skills/commands/MCP）无代码执行；`internal/hooks` 每次事件 fork 一个 shell 取 stdout；`internal/mcp` 只覆盖工具不覆盖生命周期事件决策（压缩前、缓存决策、模型切换）。
-- **建议**：复用 `internal/server` 已有的 stdlib JSON-RPC/stdio 新增 `hookServer` 配置：一个常驻外部进程声明订阅事件列表，事件到达发 `event` 通知，可返回 `additionalContext`/`verdict`（沿用 exit-2 fail-closed 或 warn-only）；不引入 Go plugin（避免 cgo），单二进制与零依赖不变。
-- **验收**：常驻进程一次会话只启动一次、收到 ≥3 类事件；verdict 能阻断工具且 stdout 不污染协议；进程崩溃后自动降级为无扩展主循环继续；默认无配置时字节不变。
 
 ---
 
@@ -118,20 +100,6 @@
 - **问题**：超时/取消时可能留下孤儿进程；Windows 上无法发 CTRL_BREAK 做优雅退出。
 - **建议**：opt-in `SuspendedJob`：沿用 `internal/proc/proc_windows.go:26-33` 的 `syscall.NewLazyDLL` 模式调 `CreateProcessW`/`AssignProcessToJobObject`/`ResumeThread`；入 job 失败即杀掉挂起进程；附带短 grace + `CTRL_BREAK_EVENT`。无 cgo、linux 交叉编译路径不受影响。
 - **验收**：`internal/proc/suspended_job_windows_test.go`：启动会 spawn 孙进程的命令，取消后两者均不在；入 job 失败路径子进程从未运行；`GOOS=linux go build ./...` 仍绿。
-
-### 127. 可持久化的审批/作用域规则 `[P2/M-L]`（codex + opencode）
-- **竞品证据**：codex `protocol/src/protocol.rs:4618-4635` 的 `ReviewDecision` 含 `ApprovedForSession`/`ApprovedExecpolicyAmendment`/`ApprovedMcpPolicyAmendment`/`NetworkPolicyAmendment`；`execpolicy/src/amend.rs:62-78` 用文件锁把前缀规则追加到策略文件，跨会话生效。opencode `core/src/permission.ts:334-395` 拒绝时按 session+messageID 撤销整批 pending，`always` 时持久化 saved rule（`permission/saved.ts:69-84`）。
-- **argentgo 现状**：`internal/security/approver.go:232-274` 的 `ScopedApprover` 有 `GrantAlways`/`GrantN`/`Deny`（粘性 deny 更保守，应保留），但只在进程内存且按工具名键控；`chain.go:167-170,415-483` 的 `StagedApprover`/`RememberScope` 无生产实现者；配置侧 `app/policy_config.go:48-70` 无运行时追加。已有 `approver_ttl.go` 的 `TTLCache` 支持持久 grants，但未接到 Chain 主路径。
-- **问题**：跨会话重复审批同一前缀规则；拒绝时整批 pending 的撤销策略未落地。
-- **建议**：opt-in `ARGENT_APPROVAL_PERSIST=1`：`internal/security` 实现 `FileBackedScopedApprover` 写 `<storage>/approvals.jsonl`（复用 `TTLCache` 持久化与 `PolicyIssues` 校验），只记录命令前缀/工具名，不记录自由文本参数；同时给 RPC `approval.answer` 加可选 feedback 字段并接 `ParseApproverResult`（`approval_feedback_adapter.go:11-58`，目前零生产调用）。默认仍走内存语义。
-- **验收**：`internal/security/persistent_approval_test.go`：always 授权重启后仍生效、粘性 deny 优先、文件损坏时 fail-closed；`go test ./internal/security -count=1`。
-
-### 133. 每个外部程序独立的 UTF-8→ACP 增量解码 `[P2/M]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/crates/shell/src/output_decode.rs:89-109` 的 `push` 快路径，`:122-172` 的 `drain_utf8` 线性游标，`:195-220` 的 `external_output_decoding`，`:236-257` 的 `CaptureDecoder` 按行判定（`MAX_HELD_LINE=64*1024`）；遇完整非法序列后该程序剩余输出永久锁 ACP，不再切回。
-- **argentgo 现状**：`internal/proc/utf8_writer.go:14-19,67-121` 只做 chunk 边界的 UTF-8 暂存，非法字节原样透传成 U+FFFD；`internal/bash/tools_builtin_bash.go:217-229` 仅在 cmd.exe 分支前置 `chcp 65001`，bash 分支禁止加（`:229`），中文 Windows 上经 Git Bash 启动的原生程序（写 CP936）仍乱码。
-- **问题**：中文 Windows 下 shell 捕获的程序输出乱码，影响模型理解错误信息。
-- **建议**：opt-in `ByteDecoder` 包住每个 `proc.Run` 的 stdout/stderr：UTF-8 合法直通，遇完整非法序列经 `syscall.NewLazyDLL("kernel32.dll")` 调 `MultiByteToWideChar` 并锁存 ACP 到 EOF；capture 按行判定避免污染相邻行；保留现有 `trimIncompleteRuneTail/Head` 边界语义。
-- **验收**：`internal/proc/acp_decode_windows_test.go`：模拟 CP936 字节流解码成正确中文；合法 UTF-8 路径不产生额外开销；`GOOS=linux go build ./...` 仍绿；`go test ./internal/proc -count=1`。
 
 ---
 

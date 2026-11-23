@@ -502,6 +502,13 @@ argentgo "你的任务"
 - **适用场景**：工具会产生超长输出、希望在进入预算投影前先缩短结果时。
 - **逐字节不变承诺**：关闭时不执行 `PruneToolResults`，直接走原有的投影/配对路径，消息流逐字节不变。
 
+### 交互 / 进程 / 本地化（TODO #133 / #72 / #29 / #52）
+
+- **`ARGENT_ACP_DECODE=1`**（#133）：`internal/proc` 的 stdout/stderr 包一层增量解码器——UTF-8 合法字节直通零开销；遇到完整非法序列时调用 Windows `MultiByteToWideChar` 按当前 ACP 解码，并锁存到 EOF 不再切回；按行判定避免污染相邻行，跨分块不完整 rune 暂存。非 Windows 平台为空实现。默认关闭时不插入任何包装。
+- **`ARGENT_HOOK_DAEMON=<受信任文档路径>`**（#72）：`internal/hooks` 挂载常驻外部进程，经 stdio 换行分隔 JSON-RPC 2.0 通信；文档须过与 `LoadDocument` 一致的 SHA-256 信任门，未授信/格式错误/启动失败都告警并降级，不派生后台进程。守护进程的 Outcome 折入既有 `Summarize + applyVerdict` 管线，裁决/附加上下文语义完全复用。app 层在 `newHookBridge` 构造 dispatcher 时挂载、`bridge.end()` 时回收。未设置时零文件 I/O。
+- **`ARGENT_PTY_INTERACTIVE=1`**（#29）：注册 `argentgo pty [-C dir] [--cols/--rows/--max-bytes] -- <cmd>` 子命令，在真实 ConPTY/ptmx 中运行程序；读循环串接终端查询序列剥离 → UTF-8 增量解码 → 字节裁剪。子命令在 `init()` 按 env 动态注册，默认不注册，usage/help/completion 逐字节不变。
+- **`ARGENT_LOCALE=en-US`（含 `en`/`en_us`/`English` 别名）**（#52）：原生桌面窗口把硬编码中文文案切到英文；共享键的英文值与 `internal/i18n` 目录一致（native 自包含内联，遵守 native 不得 import internal 的分层门禁）。空值、中文及其它值一律保留原中文，逐字节不变。
+
 ### `ARGENT_APPROVAL_PERSIST` —— 持久化审批规则
 
 - **作用**：开启后在审批链上叠加 `FileBackedScopedApprover`（TODO #127），把 `always` 授权与粘性 `deny` 规则落盘到 `<storage>/approvals.jsonl`，跨会话复用审批决定。作用域取工具名（接线传 `scopeFor=nil`），**只记录工具名/注入的命令前缀，绝不记录自由文本参数或反馈文字**。
@@ -582,6 +589,7 @@ argentgo "你的任务"
 | `ARGENT_TELEMETRY` | =1 时用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。 |
 | `ARGENT_RETRY_OMIT` | =1 时重试前把失败尝试以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；关闭时逐字节不变。 |
 | `ARGENT_LIVE_STEER` | =1 且 Steer 非 nil 时，Responses SSE 事件边界检查排队纠正文本并上报 accepted/deferred；不改线协议字节；关闭时零开销。 |
+| `ARGENT_SUSPENDED_JOB` | =1 时 Windows 上以 CREATE_SUSPENDED 启动、先入作业对象再恢复，入作业失败即终止未运行的进程，封住孙进程逃逸窗口；默认关闭时逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
@@ -624,6 +632,10 @@ argentgo "你的任务"
 | `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
 | `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
 | `ARGENT_APPROVAL_PERSIST` | 持久化审批规则：always/deny 落 `<storage>/approvals.jsonl`（只记工具名），损坏时 fail-closed；仅 `=1` 开启，关闭时零文件 I/O。 |
+| `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；仅 `=1` 开启，默认逐字节不变。 |
+| `ARGENT_HOOK_DAEMON` | 钩子常驻进程扩展：值为受信任钩子文档路径，常驻进程经 stdio JSON-RPC 折入既有裁决管线，崩溃降级；未设置时零文件 I/O、不派生进程。 |
+| `ARGENT_PTY_INTERACTIVE` | 交互式 PTY 子命令：仅开启时注册 `argentgo pty`，在真实伪终端运行程序并剥离查询序列；默认 usage/help/补全字节不变。 |
+| `ARGENT_LOCALE` | Native 界面语言：设为 en-US 及别名时桌面窗口文案切英文（native 自包含、无 internal 依赖）；空值/中文/其它值保持原中文逐字节不变。 |
 | `ARGENT_IMAGE_INPUT` | 图像输入：从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；仅 `=1` 开启，关闭时逐字节不变。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
