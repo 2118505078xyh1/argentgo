@@ -165,20 +165,20 @@ func TestVerifyOutcomeTag(t *testing.T) {
 	}
 }
 
-// TestVerifyOutcomeEnabledIsOptIn 确保分类标记默认关闭，只有 ARGENT_VERIFY_OUTCOME=1 才开启。
-func TestVerifyOutcomeEnabledIsOptIn(t *testing.T) {
-	if verifyOutcomeEnabled(nil) {
-		t.Fatal("env 为 nil 时必须默认关闭")
+// TestVerifyOutcomeEnabledDefaultOn 确保分类标记默认开启，只有 ARGENT_VERIFY_OUTCOME=0 才关闭。
+func TestVerifyOutcomeEnabledDefaultOn(t *testing.T) {
+	if !verifyOutcomeEnabled(nil) {
+		t.Fatal("env 为 nil 时必须默认开启")
 	}
-	if verifyOutcomeEnabled(envFrom(nil)) {
-		t.Fatal("未设置 ARGENT_VERIFY_OUTCOME 时必须默认关闭")
+	if !verifyOutcomeEnabled(envFrom(nil)) {
+		t.Fatal("未设置 ARGENT_VERIFY_OUTCOME 时必须默认开启")
 	}
-	for _, off := range []string{"", "0", "yes", "true", " true "} {
+	for _, off := range []string{"0", " 0 "} {
 		if verifyOutcomeEnabled(envFrom(map[string]string{"ARGENT_VERIFY_OUTCOME": off})) {
-			t.Errorf("ARGENT_VERIFY_OUTCOME=%q 不应开启", off)
+			t.Errorf("ARGENT_VERIFY_OUTCOME=%q 应关闭", off)
 		}
 	}
-	for _, on := range []string{"1", " 1 "} {
+	for _, on := range []string{"", "1", " 1 ", "true", "yes", " true "} {
 		if !verifyOutcomeEnabled(envFrom(map[string]string{"ARGENT_VERIFY_OUTCOME": on})) {
 			t.Errorf("ARGENT_VERIFY_OUTCOME=%q 应开启", on)
 		}

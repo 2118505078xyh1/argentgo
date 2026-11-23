@@ -87,9 +87,12 @@ func verifyOutcomeTag(class string) string {
 	}
 }
 
-// verifyOutcomeEnabled 判断结果分类标记是否选择性启用。默认关闭：env 为 nil、
-// 未设置或值不为 "1" 时都返回 false，保证现有验证输出逐字节不变。
-// 只有设置 ARGENT_VERIFY_OUTCOME=1 时才开启，与本包其它可选层的开关约定一致。
+// verifyOutcomeEnabled 判断结果分类标记是否启用。默认开启：env 为 nil、
+// 未设置或值不为 "0" 时都返回 true，让验证输出自动获得更精确的失败分类；
+// 只有值（首尾修剪后）显式为 "0" 时才关闭，供需要逐字节旧输出的场景使用。
 func verifyOutcomeEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_VERIFY_OUTCOME")) == "1"
+	if env == nil {
+		return true
+	}
+	return strings.TrimSpace(env("ARGENT_VERIFY_OUTCOME")) != "0"
 }

@@ -141,7 +141,7 @@ func buildSystemWithTrust(root string, env func(string) string, trust bool, thin
 		b.WriteString(dynamic)
 		b.WriteString("\n")
 	}
-	// 规则发现是显式选择启用的：关闭时这段为空，组合提示逐字节保持旧版输出。
+	// 规则发现默认开启：只有显式给出假值词时这段为空，组合提示才回退到旧版输出。
 	if block := ruleDiscoveryBlock(root, env, ""); block != "" {
 		b.WriteString("\n")
 		b.WriteString(block)
@@ -150,7 +150,7 @@ func buildSystemWithTrust(root string, env func(string) string, trust bool, thin
 	return b.String()
 }
 
-// ruleDiscoveryBlock 在 ARGENT_RULE_DISCOVERY 显式开启时，扫描用户级（home）与项目级（root）
+// ruleDiscoveryBlock 在 ARGENT_RULE_DISCOVERY 未显式关闭时（默认开启），扫描用户级（home）与项目级（root）
 // 的规则文件，并渲染成一段"只列名、不加载全文"的系统提示文本。
 //
 // home/root 与 Resolved.Home/Resolved.Root 同源（homeDir(env) 与 buildSystem 的 root），
@@ -163,18 +163,18 @@ func ruleDiscoveryBlock(root string, env func(string) string, mode string) strin
 	return renderRuleDiscoveryBlock(memory.DiscoverRules(homeDir(env), root, mode))
 }
 
-// ruleDiscoveryEnabled 解释 ARGENT_RULE_DISCOVERY。与项目信任不同，这里默认关闭：
-// 只有 1/true/yes/on（忽略大小写与空白）才启用，未设置、空值或任何其他值都不启用，
-// 从而保证默认提示逐字节不变。
+// ruleDiscoveryEnabled 解释 ARGENT_RULE_DISCOVERY。与项目信任一致，这里默认开启：
+// env 为 nil、未设置、空值或其它任何非假值都启用；只有假值词 0/false/no/off
+// （忽略大小写与空白）才关闭，从而让默认提示即可列出发现的规则文件。
 func ruleDiscoveryEnabled(env func(string) string) bool {
 	if env == nil {
-		return false
+		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(env("ARGENT_RULE_DISCOVERY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
+	case "0", "false", "no", "off":
 		return false
+	default:
+		return true
 	}
 }
 

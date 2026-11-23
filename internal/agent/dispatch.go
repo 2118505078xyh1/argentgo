@@ -216,7 +216,7 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 		s.aliasMu.Unlock()
 	}
 
-	// 畸形参数纠错回灌（opt-in ARGENT_TOOL_ARG_FEEDBACK，默认关闭）：
+	// 畸形参数纠错回灌（默认开启、ARGENT_TOOL_ARG_FEEDBACK=0 关闭）：
 	// 把原始参数不是合法 JSON 的调用从批次中摘出，不执行工具，直接写入
 	// 含原始片段的错误结果，让模型下一轮据此重发。关闭时 invalid 为 nil，
 	// 原批次逐字节不变。

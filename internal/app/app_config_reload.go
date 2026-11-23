@@ -81,9 +81,9 @@ func configLabel(cfg *config.Config) string {
 	return fmt.Sprintf("generation %d, model %q", cfg.Generation(), cfg.Model)
 }
 
-// reloadLogLine 生成采纳新快照后的单行日志。默认路径返回原有的
-// "reloaded: ... -> ..." 行，行为逐字保持不变；仅当 ARGENT_CONFIG_RELOAD_DIFF=1
-// 时改用基于键路径差异的中文摘要。
+// reloadLogLine 生成采纳新快照后的单行日志。默认改用基于键路径差异的中文摘要；
+// 仅当 ARGENT_CONFIG_RELOAD_DIFF 精确为 "0" 时回退到原有的
+// "reloaded: ... -> ..." 行，保持历史行为不变。
 func reloadLogLine(cur, next *config.Config) string {
 	baseline := fmt.Sprintf("reloaded: %s -> %s", configLabel(cur), configLabel(next))
 	if !configReloadDiffEnabled() {
@@ -95,10 +95,11 @@ func reloadLogLine(cur, next *config.Config) string {
 	return baseline
 }
 
-// configReloadDiffEnabled 报告是否开启热重载的变更摘要。默认关闭，
-// 仅当 ARGENT_CONFIG_RELOAD_DIFF=1 时开启；在调用时读取，便于测试动态调整。
+// configReloadDiffEnabled 报告是否开启热重载的变更摘要。默认开启，
+// 仅当 ARGENT_CONFIG_RELOAD_DIFF 精确为 "0" 时紧急关闭（不修剪空白，" 0 " 仍视为开启）；
+// 在调用时读取，便于测试动态调整。
 func configReloadDiffEnabled() bool {
-	return os.Getenv("ARGENT_CONFIG_RELOAD_DIFF") == "1"
+	return os.Getenv("ARGENT_CONFIG_RELOAD_DIFF") != "0"
 }
 
 // reloadDiffRedacted 是敏感键在摘要中的固定占位值，与 internal/config 的脱敏占位一致。

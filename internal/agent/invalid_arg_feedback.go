@@ -10,8 +10,8 @@ import (
 )
 
 // toolArgFeedback 控制「模型发出的工具参数不是合法 JSON 时，不执行工具并把
-// 原始片段作为错误结果回灌」的 opt-in。默认关闭：畸形参数仍按历史行为回退为
-// "{}" 后派发，消息与事件逐字节不变。
+// 原始片段作为错误结果回灌」。默认开启、ARGENT_TOOL_ARG_FEEDBACK=0 关闭：
+// 关闭时畸形参数仍按历史行为回退为 "{}" 后派发，消息与事件逐字节不变。
 var toolArgFeedback atomic.Bool
 
 // SetToolArgFeedback 由 app 按 ARGENT_TOOL_ARG_FEEDBACK 接线。
@@ -35,7 +35,7 @@ func invalidArgsReason(call llm.ToolCall) string {
 		"resend the call with valid JSON. raw input: %q", raw)
 }
 
-// splitInvalidArgCalls 在 opt-in 开启时把畸形参数的调用从批次中分离出来。
+// splitInvalidArgCalls 在纠错回灌开启时把畸形参数的调用从批次中分离出来。
 // 关闭时原样返回入参，调用方后续的每次比较、事件与消息都逐字节不变。
 func splitInvalidArgCalls(calls []llm.ToolCall) (invalid, valid []llm.ToolCall) {
 	if !toolArgFeedbackEnabled() {

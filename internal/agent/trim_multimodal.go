@@ -10,7 +10,8 @@ import (
 )
 
 // multimodalTrim 控制是否在 token 估算中为带图消息计入 ContentParts 的开销。
-// 默认关闭：消息估算只累加 Content/Reasoning/ToolCalls，历史逐字节不变。
+// 默认开启、ARGENT_MULTIMODAL_TRIM=0 关闭：关闭时消息估算只累加
+// Content/Reasoning/ToolCalls，历史逐字节不变。
 var multimodalTrim atomic.Bool
 
 // SetMultimodalTrim 由 app 按 ARGENT_MULTIMODAL_TRIM 接线。
@@ -78,8 +79,8 @@ func estimateContentParts(raw json.RawMessage) int {
 	return total
 }
 
-// estimateMessageContentParts 是 EstimateMessage 中的 opt-in 扩展点。
-// 关闭时返回 0，默认路径的估算字节逐值不变。
+// estimateMessageContentParts 是 EstimateMessage 中默认开启、
+// ARGENT_MULTIMODAL_TRIM=0 关闭的扩展点。关闭时返回 0，原有估算字节逐值不变。
 func estimateMessageContentParts(m llm.Message) int {
 	if !multimodalTrimEnabled() || len(m.ContentParts) == 0 {
 		return 0

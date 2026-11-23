@@ -40,20 +40,20 @@ func TestRepoMapReadOnlyHintStable(t *testing.T) {
 	}
 }
 
-// TestRepoMapHintEnabledOptIn 保证接线开关默认关闭，只有显式设置 ARGENT_REPO_MAP_HINT=1 才开启。
-func TestRepoMapHintEnabledOptIn(t *testing.T) {
-	if repoMapHintEnabled(nil) {
-		t.Fatal("env 为 nil 时必须默认关闭")
+// TestRepoMapHintEnabledDefaultOn 保证接线开关默认开启，只有 ARGENT_REPO_MAP_HINT=0 才关闭。
+func TestRepoMapHintEnabledDefaultOn(t *testing.T) {
+	if !repoMapHintEnabled(nil) {
+		t.Fatal("env 为 nil 时必须默认开启")
 	}
-	if repoMapHintEnabled(envFrom(nil)) {
-		t.Fatal("未设置 ARGENT_REPO_MAP_HINT 时必须默认关闭")
+	if !repoMapHintEnabled(envFrom(nil)) {
+		t.Fatal("未设置 ARGENT_REPO_MAP_HINT 时必须默认开启")
 	}
-	for _, off := range []string{"", "0", "yes", "true", " 0 "} {
+	for _, off := range []string{"0", " 0 "} {
 		if repoMapHintEnabled(envFrom(map[string]string{"ARGENT_REPO_MAP_HINT": off})) {
-			t.Errorf("ARGENT_REPO_MAP_HINT=%q 不应开启", off)
+			t.Errorf("ARGENT_REPO_MAP_HINT=%q 应关闭", off)
 		}
 	}
-	for _, on := range []string{"1", " 1 "} {
+	for _, on := range []string{"", "1", " 1 ", "true", "yes", " true "} {
 		if !repoMapHintEnabled(envFrom(map[string]string{"ARGENT_REPO_MAP_HINT": on})) {
 			t.Errorf("ARGENT_REPO_MAP_HINT=%q 应开启", on)
 		}

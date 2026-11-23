@@ -33,10 +33,33 @@ func reloadCfgRaw(t *testing.T, raw string) (*config.Config, string) {
 	return &cfg, path
 }
 
-// TestConfigReloadDiffListsChangedKeys 覆盖 opt-in 开启时变更键被逐项列出，
+// TestConfigReloadDiffEnvGate 锁定 =0 精确匹配（不修剪）的解析规则：默认（含空串）
+// 开启，只有精确 "0" 才关闭；因此 " 0 " 不算关闭，仍视为开启。
+func TestConfigReloadDiffEnvGate(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"unset/empty", "", true},
+		{"on", "1", true},
+		{"true word", "true", true},
+		{"zero", "0", false},
+		{"zero with spaces", " 0 ", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", tc.value)
+			if got := configReloadDiffEnabled(); got != tc.want {
+				t.Fatalf("configReloadDiffEnabled = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConfigReloadDiffListsChangedKeys 覆盖默认开启时变更键被逐项列出，
 // 且敏感键以 <redacted> 占位显示而非原文。
 func TestConfigReloadDiffListsChangedKeys(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "1")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
 	cfg, path := reloadCfgRaw(t, `{"model":"old-model","keep":"same"}`)
 	var logs bytes.Buffer
 	r := newConfigReloader(cfg, func(msg string) { logs.WriteString(msg + "\n") })
@@ -57,10 +80,10 @@ func TestConfigReloadDiffListsChangedKeys(t *testing.T) {
 	}
 }
 
-// TestConfigReloadDiffRedactsSecrets 是安全硬约束：opt-in 开启时，
+// TestConfigReloadDiffRedactsSecrets 是安全硬约束：默认开启时，
 // 敏感键（含嵌套、下划线拼写、复合后缀）的原文绝不出现在摘要中。
 func TestConfigReloadDiffRedactsSecrets(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "1")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
 	secrets := []string{
 		"sk-live-abcdef123456",
 		"ghp_token_9371example",
@@ -90,10 +113,10 @@ func TestConfigReloadDiffRedactsSecrets(t *testing.T) {
 	}
 }
 
-// TestConfigReloadDiffNoChangeNoOutput 校验 opt-in 开启时，无磁盘变更的轮询
+// TestConfigReloadDiffNoChangeNoOutput 校验默认开启时，无磁盘变更的轮询
 // 既不采用快照，也不输出任何摘要。
 func TestConfigReloadDiffNoChangeNoOutput(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "1")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
 	cfg, _ := reloadCfgRaw(t, `{"model":"steady"}`)
 	var logs bytes.Buffer
 	r := newConfigReloader(cfg, func(msg string) { logs.WriteString(msg + "\n") })
@@ -109,10 +132,10 @@ func TestConfigReloadDiffNoChangeNoOutput(t *testing.T) {
 	}
 }
 
-// TestConfigReloadDiffDisabledKeepsBaseline 校验 opt-in 关闭（默认）时，
+// TestConfigReloadDiffDisabledKeepsBaseline 校验显式 =0 关闭时，
 // 日志仍为原有的单行基线格式，不出现差异摘要。
 func TestConfigReloadDiffDisabledKeepsBaseline(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "0")
 	cfg, path := reloadCfgRaw(t, `{"model":"before-model","apiKey":"plain-secret-value"}`)
 	var logs bytes.Buffer
 	r := newConfigReloader(cfg, func(msg string) { logs.WriteString(msg + "\n") })
@@ -123,17 +146,17 @@ func TestConfigReloadDiffDisabledKeepsBaseline(t *testing.T) {
 	}
 	got := logs.String()
 	if !strings.Contains(got, "reloaded:") || !strings.Contains(got, "generation 1") || !strings.Contains(got, "generation 2") {
-		t.Errorf("关闭 opt-in 后基线日志被改变: %q", got)
+		t.Errorf("=0 关闭后基线日志被改变: %q", got)
 	}
 	if strings.Contains(got, "config reloaded:") {
-		t.Errorf("关闭 opt-in 后仍输出了差异摘要: %q", got)
+		t.Errorf("=0 关闭后仍输出了差异摘要: %q", got)
 	}
 }
 
 // TestConfigReloadDiffCJKKeys 校验 CJK 键路径在摘要中完整保留、UTF-8 合法，
 // 且不会被误判为敏感键（CJK 段名归一化为空）。
 func TestConfigReloadDiffCJKKeys(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "1")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
 	cfg, path := reloadCfgRaw(t, `{"model":"m","嵌套":{"键":"旧"}}`)
 	var logs bytes.Buffer
 	r := newConfigReloader(cfg, func(msg string) { logs.WriteString(msg + "\n") })
@@ -154,10 +177,10 @@ func TestConfigReloadDiffCJKKeys(t *testing.T) {
 	}
 }
 
-// TestConfigReloadDiffConcurrent 校验 opt-in 开启时并发轮询同一重载器安全：
+// TestConfigReloadDiffConcurrent 校验默认开启时并发轮询同一重载器安全：
 // 多个 goroutine 中至多一个采纳快照，日志写入被重载器互斥锁串行化，无数据竞争。
 func TestConfigReloadDiffConcurrent(t *testing.T) {
-	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "1")
+	t.Setenv("ARGENT_CONFIG_RELOAD_DIFF", "")
 	cfg, path := reloadCfgRaw(t, `{"model":"before"}`)
 	var logs bytes.Buffer
 	r := newConfigReloader(cfg, func(msg string) { logs.WriteString(msg + "\n") })

@@ -15,7 +15,8 @@ func TestTrimDataURLAtomicElision(t *testing.T) {
 	msg := llm.Message{Role: "tool", ToolCallID: "x", Content: content}
 
 	t.Run("off keeps raw data URL", func(t *testing.T) {
-		t.Setenv("ARGENT_ELIDE_DATA_URLS", "")
+		// 新语义：默认开启，仅 =0 关闭，因此这里必须显式设为 "0"。
+		t.Setenv("ARGENT_ELIDE_DATA_URLS", "0")
 		res := Trim([]llm.Message{msg}, TrimOptions{MaxTokens: 10, KeepTurns: 0})
 		if !strings.Contains(res.Messages[0].Content, "base64,"+payload[:20]) {
 			t.Fatalf("off path changed content: %.100s", res.Messages[0].Content)

@@ -240,12 +240,12 @@ func recoveryDetailEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_DETAIL")) == "1"
 }
 
-// guidanceDedupeEnabled 报告是否启用失败指引的签名去重：仅 ARGENT_GUIDANCE_DEDUPE=1
-// （允许首尾空白）开启，默认关闭时 Execute 写回 false（与零值一致），每轮仍按历史
-// 注入指引，消息流逐字节不变。与 retainGuidance 正交：后者决定指引记录的载荷形状，
+// guidanceDedupeEnabled 报告是否启用失败指引的签名去重：默认开启（去掉逐轮重复的
+// 失败指引），仅 ARGENT_GUIDANCE_DEDUPE=0（允许首尾空白）时紧急关闭；env 为 nil 时
+// 按默认处理。与 retainGuidance 正交：后者决定指引记录的载荷形状，
 // 本开关决定要不要写入这条记录。
 func guidanceDedupeEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_GUIDANCE_DEDUPE")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_GUIDANCE_DEDUPE")) != "0"
 }
 
 // imageInputMaxBytes 是 @图片路径 单张文件读入的上限（20 MiB）。
@@ -438,8 +438,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
 	// nudge 记录形状逐字节不变。
 	agent.SetRetainGuidance(os.Getenv("ARGENT_RETAIN_GUIDANCE") == "1")
-	// 失败指引签名去重（opt-in ARGENT_GUIDANCE_DEDUPE）：默认关闭时写回 false
-	// （与零值一致），逐轮注入指引的既有行为与会话记录逐字节不变。
+	// 失败指引签名去重（默认开）：去掉逐轮重复的失败指引；仅 ARGENT_GUIDANCE_DEDUPE=0
+	// 时紧急关闭并写回 false（与零值一致），关闭时逐轮注入指引的既有行为与会话记录逐字节不变。
 	agent.SetGuidanceDedupe(guidanceDedupeEnabled(stdio.Env))
 	SetContextPressure(optIns[OptInContextPressure])
 	// 观察器必须在 SetContextPressure 之后构造，并用 replace 无条件覆盖 runner.Prompt

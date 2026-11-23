@@ -13,9 +13,12 @@ func verifyAutoRunHint(hasVerify bool) string {
 	return "编辑后会自动运行验证命令，不要在回复中建议用户重复运行"
 }
 
-// verifyAutoRunHintEnabled 判断验证自动运行声明是否选择性启用。
-// 默认关闭（env 为 nil、未设置或值不为 "1"），从而保持字节精确的系统提示断言不变；
-// 只有设置 ARGENT_VERIFY_AUTORUN_HINT=1 时才返回 true。
+// verifyAutoRunHintEnabled 判断验证自动运行声明是否启用。
+// 默认开启：env 为 nil、未设置或值不为 "0" 时都返回 true；
+// 只有值（首尾修剪后）显式为 "0" 时才关闭。
 func verifyAutoRunHintEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_VERIFY_AUTORUN_HINT")) == "1"
+	if env == nil {
+		return true
+	}
+	return strings.TrimSpace(env("ARGENT_VERIFY_AUTORUN_HINT")) != "0"
 }

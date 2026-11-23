@@ -8,8 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// ARGENT_ACP_DECODE 是 UTF-8→ACP 增量解码的 opt-in 开关。
-// 仅当取值为 "1"（允许首尾空白）时启用；默认关闭时本包行为逐字节不变。
+// ARGENT_ACP_DECODE 是 UTF-8→ACP 增量解码的开关。
+// 默认开启：取值空或不为 "0"（允许首尾空白）时启用；
+// 只有显式设为 "0" 才关闭，关闭时本包行为逐字节不变。
 const acpDecodeEnv = "ARGENT_ACP_DECODE"
 
 // cpUTF8 是 UTF-8 的代码页编号；ACP 本身已是 UTF-8 时无需回退解码。
@@ -27,9 +28,9 @@ const (
 )
 
 // acpDecodeEnabled 报告是否启用了 ACP 回退解码。
-// 在调用时读取环境，便于测试动态调整；默认关闭。
+// 在调用时读取环境，便于测试动态调整；默认开启，仅 "0" 关闭。
 func acpDecodeEnabled() bool {
-	return strings.TrimSpace(os.Getenv(acpDecodeEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(acpDecodeEnv)) != "0"
 }
 
 // acpByteDecoder 对一个外部程序的一条输出流做增量编码判定：

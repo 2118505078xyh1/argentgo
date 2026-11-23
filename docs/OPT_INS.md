@@ -308,10 +308,10 @@ argentgo "你的任务"
 
 ### `ARGENT_GUIDANCE_DEDUPE` —— 失败指引签名去重
 
-- **作用**：opt-in 开启时，在连续失败期间以错误种类为签名去重恢复指引（`agent.SetGuidanceDedupe`），同一种签名只注入一次；工具成功后清空状态，下一段失败可再次注入。
-- **开启值**：首尾空白修剪后等于 `1`（由 `Execute` 装配层从注入的 env 读取）。
-- **适用场景**：长对话里模型反复失败导致同一句恢复指引堆积、污染上下文时。
-- **逐字节不变承诺**：默认关闭时每一轮达到错误上限仍照常注入指引，与历史运行逐字节一致。此开关与 `ARGENT_RETAIN_GUIDANCE` 正交：后者决定指引记录的载荷形状，本开关决定是否写入这条记录。
+- **作用**：在连续失败期间以错误种类为签名去重恢复指引（`agent.SetGuidanceDedupe`），同一种签名只注入一次；工具成功后清空状态，下一段失败可再次注入。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；未设置或空值时默认开启（由 `Execute` 装配层从注入的 env 读取）。
+- **适用场景**：长对话里模型反复失败导致同一句恢复指引堆积、污染上下文时（默认即去重）。
+- **逐字节不变承诺**：`=0` 关闭时每一轮达到错误上限仍照常注入指引，与历史运行逐字节一致。此开关与 `ARGENT_RETAIN_GUIDANCE` 正交：后者决定指引记录的载荷形状，本开关决定是否写入这条记录。
 
 ### `ARGENT_OUTPUT_COLLAPSE` —— bash 输出行折叠
 
@@ -414,9 +414,9 @@ argentgo "你的任务"
 ### `ARGENT_RULE_DISCOVERY` —— 规则文件发现元数据提示
 
 - **作用**：开启后扫描用户级（home）与项目级（root）的规则文件，把文件名与作用域渲染成一段「只列名、不加载全文」的 system 提示片段（对 legacy 规则追加一次迁移提示）。读点为 `internal/app/app_prompt.go` 的 `ruleDiscoveryEnabled` / `ruleDiscoveryBlock`。
-- **开启值**：`1`、`true`、`yes`、`on` 之一（大小写不敏感、首尾空白修剪）；未设置、空值或其它值关闭。
-- **适用场景**：项目里有 AGENTS.md / CLAUDE.md 等规则文件、希望模型知道其存在但不加载全文时。
-- **逐字节不变承诺**：关闭或不传 env 时 `ruleDiscoveryBlock` 返回空串，不读取任何规则文件、不注入任何文本，system 提示与消息序列逐字节不变。
+- **关闭值**：`0`、`false`、`no`、`off` 之一（大小写不敏感、首尾空白修剪）；未设置、空值或其它值默认开启。
+- **适用场景**：项目里有 AGENTS.md / CLAUDE.md 等规则文件、希望模型知道其存在但不加载全文时（默认即注入）。
+- **逐字节不变承诺**：`=0` 等假值时 `ruleDiscoveryBlock` 返回空串，不读取任何规则文件、不注入任何文本，system 提示与消息序列逐字节不变。
 
 ### `ARGENT_CHECKPOINT_GUARD` —— checkout 还原目标守卫
 
@@ -484,9 +484,9 @@ argentgo "你的任务"
 ### `ARGENT_CONFIG_RELOAD_DIFF` —— 配置热重载差异摘要
 
 - **作用**：把配置热重载的单行日志从 `reloaded: <generation/model> -> ...` 改为基于键路径差异的中文摘要（读点 `internal/app/app_config_reload.go:101` 的 `configReloadDiffEnabled`）。摘要只消费 `config.DiffConfigMaps` 产出的键路径，绝不接触配置值；看起来像凭据的键追加 `<redacted>` 占位，提示「值变了但被隐藏」。
-- **开启值**：原值精确等于 `1`（**不修剪空白**，与多数其它门控不同）；在调用时读取，便于测试动态调整。
-- **适用场景**：需要审计每次热重载「改了哪些配置项」而不打印明文密钥时。
-- **逐字节不变承诺**：关闭或配置无差异时返回原有的 `reloaded: ... -> ...` 行，日志逐字节不变；敏感键原文从源头不会进入摘要。
+- **关闭值**：原值精确等于 `0` 时关闭（**不修剪空白**，与多数其它门控不同）；未设置或空值时默认开启；在调用时读取，便于测试动态调整。
+- **适用场景**：需要审计每次热重载「改了哪些配置项」而不打印明文密钥时（默认即输出差异摘要）。
+- **逐字节不变承诺**：`=0` 关闭或配置无差异时返回原有的 `reloaded: ... -> ...` 行，日志逐字节不变；敏感键原文从源头不会进入摘要。
 
 ### `ARGENT_COMPACTION_EVENT` —— 压缩事件落盘
 
@@ -504,7 +504,7 @@ argentgo "你的任务"
 
 ### 交互 / 进程 / 本地化（TODO #133 / #72 / #29 / #52）
 
-- **`ARGENT_ACP_DECODE=1`**（#133）：`internal/proc` 的 stdout/stderr 包一层增量解码器——UTF-8 合法字节直通零开销；遇到完整非法序列时调用 Windows `MultiByteToWideChar` 按当前 ACP 解码，并锁存到 EOF 不再切回；按行判定避免污染相邻行，跨分块不完整 rune 暂存。非 Windows 平台为空实现。默认关闭时不插入任何包装。
+- **`ARGENT_ACP_DECODE=1`**（#133）：`internal/proc` 的 stdout/stderr 包一层增量解码器——UTF-8 合法字节直通零开销；遇到完整非法序列时调用 Windows `MultiByteToWideChar` 按当前 ACP 解码，并锁存到 EOF 不再切回；按行判定避免污染相邻行，跨分块不完整 rune 暂存。非 Windows 平台为空实现。默认开启，`=0` 时不插入任何包装。
 - **`ARGENT_HOOK_DAEMON=<受信任文档路径>`**（#72）：`internal/hooks` 挂载常驻外部进程，经 stdio 换行分隔 JSON-RPC 2.0 通信；文档须过与 `LoadDocument` 一致的 SHA-256 信任门，未授信/格式错误/启动失败都告警并降级，不派生后台进程。守护进程的 Outcome 折入既有 `Summarize + applyVerdict` 管线，裁决/附加上下文语义完全复用。app 层在 `newHookBridge` 构造 dispatcher 时挂载、`bridge.end()` 时回收。未设置时零文件 I/O。
 - **`ARGENT_PTY_INTERACTIVE=1`**（#29）：注册 `argentgo pty [-C dir] [--cols/--rows/--max-bytes] -- <cmd>` 子命令，在真实 ConPTY/ptmx 中运行程序；读循环串接终端查询序列剥离 → UTF-8 增量解码 → 字节裁剪。子命令在 `init()` 按 env 动态注册，默认不注册，usage/help/completion 逐字节不变。
 - **`ARGENT_LOCALE=en-US`（含 `en`/`en_us`/`English` 别名）**（#52）：原生桌面窗口把硬编码中文文案切到英文；共享键的英文值与 `internal/i18n` 目录一致（native 自包含内联，遵守 native 不得 import internal 的分层门禁）。空值、中文及其它值一律保留原中文，逐字节不变。
@@ -576,11 +576,11 @@ argentgo "你的任务"
 | `ARGENT_GUARDIAN` | Guardian 自身开关；须与 `ARGENT_INSPECTION=1` 同时开启且次要模型非空才生效（两开关为「与」关系）。 |
 | `ARGENT_GUARDRAILS` | 护栏运行时模式（如 `enforce` / `shadow`），由 `normalizeGuardrailMode` 归一化。 |
 | `ARGENT_PATCH_POLICY_PATHS` | =1 时从 apply_patch 的 `input` 正文解析真实目标文件，逐条走 denyPaths/allowPaths 等路径策略（拒绝时零写入）；默认关闭时补丁正文不参与路径规则，安全链逐字节不变。 |
-| `ARGENT_TOOL_ARG_FEEDBACK` | =1 时，模型发出的工具参数非空却不是合法 JSON 则不执行工具，把原始片段（脱敏限长）作为错误结果回灌，让模型重发；默认关闭时仍回退为 `{}` 后派发，逐字节不变。 |
-| `ARGENT_MULTIMODAL_TRIM` | =1 时把带图消息的 `ContentParts`（文本 part + 图像 part 按 detail 取保守 token 上限）计入 token 估算，使上下文压力与裁剪决策准确；默认关闭时带图消息仍只算框架开销，逐字节不变。 |
+| `ARGENT_TOOL_ARG_FEEDBACK` | 默认开启，模型发出的工具参数非空却不是合法 JSON 则不执行工具，把原始片段（脱敏限长）作为错误结果回灌，让模型重发；`=0` 时仍回退为 `{}` 后派发，逐字节不变。 |
+| `ARGENT_MULTIMODAL_TRIM` | 默认开启，把带图消息的 `ContentParts`（文本 part + 图像 part 按 detail 取保守 token 上限）计入 token 估算，使上下文压力与裁剪决策准确；`=0` 时带图消息仍只算框架开销，逐字节不变。 |
 | `ARGENT_GREP_PER_FILE` | 正整数时限制 grep/grep_ex 单文件匹配数：某文件达上限后跳过其余行但继续遍历其它文件，避免一个热文件吃满全局预算；默认 0 禁用时与旧行为逐字节一致。 |
 | `ARGENT_BLOCK_GENERATED_EDITS` | =1 时 edit/write/apply_patch 在写入前按文件名模式（如 `zz_generated.*`、`*.pb.go`、`*.gen.ts`）与头部标记（`@generated`/`Code generated`/`DO NOT EDIT`）拒绝编辑生成物，并指引改源文件后重新生成；默认关闭时编辑行为逐字节不变。 |
-| `ARGENT_ELIDE_DATA_URLS` | =1 时在工具结果 head/tail 裁剪之前把整段 base64 data URL 原子替换为保留 MIME 与字符数的占位（并治愈遗留前缀碎片），避免切出无法解码的坏图引用；默认关闭时裁剪逐字节不变。 |
+| `ARGENT_ELIDE_DATA_URLS` | 默认开启，在工具结果 head/tail 裁剪之前把整段 base64 data URL 原子替换为保留 MIME 与字符数的占位（并治愈遗留前缀碎片），避免切出无法解码的坏图引用；`=0` 时裁剪逐字节不变。 |
 | `ARGENT_HOOK_REWRITE` | =1 时应用 PreToolUse 钩子声明的 `updatedInput`/`updatedOutput`：输入改写与审批、执行使用同一份字节，输出改写替换回灌给模型的正文；默认关闭时工具参数与输出逐字节不变。 |
 | `ARGENT_COMPACTION_HOOK` | =1 时压缩前触发 PreCompact（返回 blocked 可阻止压缩并公告原因，零写入）、压缩落盘后触发 PostCompact；默认关闭时压缩路径无任何钩子调用，逐字节不变。 |
 | `ARGENT_COMPACTION_TODO` | =1 时压缩把会话 `todos.json` 以 `[x]`/`[>]`/`[ ]` 行写入 `Compaction.Todo` 并镜像进摘要，使恢复后的模型知道任务进度；默认关闭时压缩记录逐字节不变。 |
@@ -590,7 +590,7 @@ argentgo "你的任务"
 | `ARGENT_MCP_GATEWAY` | =1 时只公布一个固定的 `mcp` 工具：`mcp(server=X)` 以文本返回该服务工具清单、`mcp(server=X,tool=Y,arguments=...)` 执行；服务首次使用时才连接，工具列表整会话不变，稳定缓存前缀。执行时派生 `mcp__server__tool` 名做只读沙箱拦截、readOnly/destructive 审批（用 per-call 链副本避免竞态），客户端按 RawName 调用。list_changed 不再重建 spec 列表。默认关闭时全部 MCP 接线逐字节不变。迁移自 killi 决策 11。 |
 | `ARGENT_EVENT_LOG` | =1 时把 hub 事件以 JSONL 落盘到存储目录，SSE 支持 `Last-Event-ID` 在超出内存回放窗口后从磁盘续放；默认关闭时纯内存、SSE 帧无 `id:`，逐字节不变。 |
 | `ARGENT_FAILURE_SIGNALS` | =1 时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；默认关闭时不提取，压缩逐字节不变。 |
-| `ARGENT_SUMMARY_EMPTY_RETRY` | =1 时压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；默认关闭时使用原摘要，压缩逐字节不变。 |
+| `ARGENT_SUMMARY_EMPTY_RETRY` | 默认开启，压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；`=0` 时使用原摘要，压缩逐字节不变。 |
 | `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
 | `ARGENT_MCP_TOOL_CACHE_TTL` | 正整数秒时为 MCP 工具发现结果启用带 TTL 的缓存；默认 0 禁用时每次重新发现，行为不变。 |
 | `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
@@ -611,16 +611,16 @@ argentgo "你的任务"
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
-| `ARGENT_LOOP_DETECTION` | 真值时按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；默认关闭时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
+| `ARGENT_LOOP_DETECTION` | 默认开启，按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；`=0` 时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
 | `ARGENT_REQUEST_SNAPSHOT` | 真值时把实际发送给提供方的线协议请求字节追加一条 `request_snapshot` 会话记录（含 SHA-256 校验），用于复现与审计；该 kind 不进入对话视图，默认关闭时请求字节与记录逐字节不变。注意快照含完整 system prompt 与工具结果，可能含敏感文本，需自行控制会话文件权限。迁移自 killi 决策 21。 |
 | `ARGENT_SUBAGENT_SHARED_PROMPT` | 真值时子代理以父级 system prompt 为前缀（首请求复用已缓存字节），角色约束与任务标签追加在末尾，不破坏缓存前缀；默认关闭时子代理沿用原有 subagentTemplate，行为逐字节不变。迁移自 killi 决策 20。 |
 | `ARGENT_COMPACT_DRAIN` | 真值时，上下文溢出压缩后若仍超预算，按缓存前缀逐条淘汰最旧的非系统消息（单次最多 50 条，保留 system 与末尾提示）再重放；默认关闭时溢出恢复路径逐字节不变。项目 TODO #126。 |
 | `ARGENT_RESUME_BYTE_REPLAY` | 真值且 `ARGENT_REQUEST_SNAPSHOT=1` 时，"中断提示"类 resume 用最后一条请求快照的原始线协议字节重发首请求，命中提供方缓存前缀。快照须在活动路径上、其后无 assistant 回复与压缩、协议/模型与本次一致，否则静默回退语义重建。走三协议可选的 RawChatter.ChatRaw，默认关闭时请求字节逐字节不变。迁移自 killi 决策 21。 |
-| `ARGENT_CONFIG_SHADOW_CHECK` | 配置遮蔽来源告警输出。 |
+| `ARGENT_CONFIG_SHADOW_CHECK` | 默认开启，输出配置来源遮蔽告警；`=0` 关闭。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |
-| `ARGENT_REPO_MAP_HINT` | 系统提示中追加「文件出现在 repo map 不等于获得编辑授权」提示。 |
-| `ARGENT_VERIFY_AUTORUN_HINT` | 系统提示中追加验证自动运行提示。 |
+| `ARGENT_REPO_MAP_HINT` | 默认在系统提示中追加「文件出现在 repo map 不等于获得编辑授权」提示；`=0` 关闭。 |
+| `ARGENT_VERIFY_AUTORUN_HINT` | 默认在系统提示中追加验证自动运行提示；`=0` 关闭。 |
 | `ARGENT_POST_EDIT_VERIFY` | 历史遗留/未接线（仅在 `hooks.go:409` 注释中出现，无实际读取）；编辑后验证的真实开关是 opt-in `auto_verify`（`ARGENT_OPT_INS=auto_verify`）与 `ARGENT_EDIT_DIAGNOSTICS=1`。 |
 | `ARGENT_APPROVAL_TTL` | 带 TTL 的审批门控；`0` 或空值关闭。 |
 | `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
@@ -630,8 +630,8 @@ argentgo "你的任务"
 | `ARGENT_PLAN_MODE` | 只规划模式；`=1` 时本次运行只做规划、不改文件。 |
 | `ARGENT_CHECKPOINT_WORKSPACE_DIFF` | 工作区差异检查点：把 shell 等间接文件改动纳入检查点，使 `/undo` 可还原。 |
 | `ARGENT_TRUST_PROJECT` | 项目级端点改写信任；`true`/`yes`/`on` 放行，默认不信任。 |
-| `ARGENT_VERIFY_OUTCOME` | 验证结果分类标记；仅 `=1` 开启。 |
-| `ARGENT_MCP_MEDIA_BLOB_EXT` | MCP 扩展媒体类型映射：用更广的白名单 MIME→扩展名映射替代既有映射，需真值开启。 |
+| `ARGENT_VERIFY_OUTCOME` | 验证结果分类标记；默认开启，`=0` 关闭。 |
+| `ARGENT_MCP_MEDIA_BLOB_EXT` | MCP 扩展媒体类型映射：默认开启用更广的白名单 MIME→扩展名映射替代既有映射，`=0` 时保持既有映射。 |
 | `ARGENT_MCP_BLOB_TEXT` | MCP blob 当文本：把解码后的 blob 按文本渲染，需真值开启。 |
 | `ARGENT_MCP_BLOB_ARTIFACT_DIR` | MCP blob/image 产物目录；为空时落盘路径为空操作。 |
 | `ARGENT_MCP_CONTENT_FILTER_MIN_PRIORITY` | MCP 内容优先级过滤阈值（正整数）；未设置时不过滤。 |
@@ -645,7 +645,7 @@ argentgo "你的任务"
 | `ARGENT_SKILL_INJECTION_SCAN` | 技能索引注入扫描：命中高风险注入时把 desc/when 整字段替换为中性占位；仅 `=1` 开启。 |
 | `ARGENT_TOOL_TIMING_HISTOGRAM` | 工具耗时直方图：按工具名累积耗时并落 TopSlow/P95 摘要日志；仅 `=1` 开启。 |
 | `ARGENT_TOOL_CALL_TRACE` | 工具调用链追踪：记录调用顺序/成败/错误文本并落摘要日志；仅 `=1` 开启。 |
-| `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；原值精确 `=1`（不修剪空白）。 |
+| `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；默认开启，精确 `=0`（不修剪空白）时关闭。 |
 | `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
 | `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
 | `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
@@ -653,7 +653,7 @@ argentgo "你的任务"
 | `ARGENT_CONTEXT_CALIBRATION` | 上下文计量校准：实测/估算比率钳到 1..4 放大估算、预留余量上限、逐级缩减窗口；仅 `=1` 开启，无锚点/关闭时阈值逐字节不变。 |
 | `ARGENT_EXEC_SESSION` | 统一 exec 会话：bash 支持 session_id/write_stdin/yield_time_ms/TTY 并注册 write_stdin 工具；仅 `=1` 开启，关闭时 schema/Specs 逐字节不变。 |
 | `ARGENT_APPROVAL_PERSIST` | 持久化审批规则：always/deny 落 `<storage>/approvals.jsonl`（只记工具名），损坏时 fail-closed；仅 `=1` 开启，关闭时零文件 I/O。 |
-| `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；仅 `=1` 开启，默认逐字节不变。 |
+| `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；默认开启，`=0` 时逐字节不变。 |
 | `ARGENT_HOOK_DAEMON` | 钩子常驻进程扩展：值为受信任钩子文档路径，常驻进程经 stdio JSON-RPC 折入既有裁决管线，崩溃降级；未设置时零文件 I/O、不派生进程。 |
 | `ARGENT_PTY_INTERACTIVE` | 交互式 PTY 子命令：仅开启时注册 `argentgo pty`，在真实伪终端运行程序并剥离查询序列；默认 usage/help/补全字节不变。 |
 | `ARGENT_LOCALE` | Native 界面语言：设为 en-US 及别名时桌面窗口文案切英文（native 自包含、无 internal 依赖）；空值/中文/其它值保持原中文逐字节不变。 |

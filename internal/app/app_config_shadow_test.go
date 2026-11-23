@@ -143,21 +143,24 @@ func TestIsKeyShadowedStableHighestPriority(t *testing.T) {
 	}
 }
 
-// TestConfigShadowWarningOptIn 证明遮蔽警告默认关闭（opt-in），
-// 只有 ARGENT_CONFIG_SHADOW_CHECK=1 时才输出，且 CJK 键原样出现在警告中。
+// TestConfigShadowWarningOptIn 证明遮蔽警告默认开启、=0 关闭，
+// 只有 ARGENT_CONFIG_SHADOW_CHECK=0 时才静默，且 CJK 键原样出现在警告中。
 func TestConfigShadowWarningOptIn(t *testing.T) {
 	key := "模型"
 	sources := []string{"config.json", "env:ARGENT_MODEL"}
-	enabled := func(string) string { return "1" }
-	disabled := func(string) string { return "" }
+	on := func(string) string { return "" }
+	off := func(string) string { return "0" }
 
-	if got := configShadowWarning(key, sources, nil); got != "" {
-		t.Fatalf("nil env must keep warning off, got %q", got)
+	if got := configShadowWarning(key, sources, nil); got == "" {
+		t.Fatal("nil env must keep warning on (default), got empty")
 	}
-	if got := configShadowWarning(key, sources, disabled); got != "" {
-		t.Fatalf("default (disabled) must keep warning off, got %q", got)
+	if got := configShadowWarning(key, sources, on); got == "" {
+		t.Fatal("default (on) must keep warning on, got empty")
 	}
-	got := configShadowWarning(key, sources, enabled)
+	if got := configShadowWarning(key, sources, off); got != "" {
+		t.Fatalf("=0 must keep warning off, got %q", got)
+	}
+	got := configShadowWarning(key, sources, on)
 	if got == "" {
 		t.Fatal("enabled warning must not be empty")
 	}
@@ -169,7 +172,7 @@ func TestConfigShadowWarningOptIn(t *testing.T) {
 	}
 
 	// 启用检查但未遮蔽时不产生警告。
-	if got := configShadowWarning("model", []string{"config.json"}, enabled); got != "" {
+	if got := configShadowWarning("model", []string{"config.json"}, on); got != "" {
 		t.Fatalf("no shadow must produce no warning, got %q", got)
 	}
 }

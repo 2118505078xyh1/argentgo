@@ -8,20 +8,22 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 )
 
-// TestGuidanceDedupeEnvGate 锁定 opt-in 的解析规则：仅 =1（允许首尾空白）开启，
-// 缺省与其它取值一律关闭；与独立门控登记表及 OPT_INS.md 的承诺一致。
+// TestGuidanceDedupeEnvGate 锁定默认开、=0 关的解析规则（值允许首尾空白）：
+// nil 与缺省视为开；修剪后为 "0" 才关闭；其它值（空/"1"/"true" 等）一律开启。
 func TestGuidanceDedupeEnvGate(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{"nil env", nil, false},
-		{"unset", envFrom(nil), false},
+		{"nil env", nil, true},
+		{"unset", envFrom(nil), true},
 		{"on", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": "1"}), true},
 		{"on with spaces", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": " 1 "}), true},
+		{"empty value", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": ""}), true},
+		{"true word", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": "true"}), true},
 		{"zero", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": "0"}), false},
-		{"true word", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": "true"}), false},
+		{"zero with spaces", envFrom(map[string]string{"ARGENT_GUIDANCE_DEDUPE": " 0 "}), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -61,18 +63,18 @@ func runGuidanceDedupeExecute(t *testing.T, dedupe string) bool {
 }
 
 // TestExecuteWiresGuidanceDedupe 证明 Execute 装配点确实把 env 写进 agent 的
-// 进程级开关：缺省写回 false，只有 =1 才打开。刻意不并行，避免与同包其它
-// 依赖默认关闭状态的测试相互污染。
+// 进程级开关：缺省写回 true，只有 =0 才关闭。刻意不并行，避免与同包其它
+// 依赖默认开关状态的测试相互污染。
 func TestExecuteWiresGuidanceDedupe(t *testing.T) {
 	t.Cleanup(func() { agent.SetGuidanceDedupe(false) })
 
-	// 先手工打开，再以缺省 env 运行一次：断言的是"回写确实生效"，
+	// 先手工关闭，再以缺省 env 运行一次：断言的是"回写确实生效"，
 	// 而不是"开关从未被打开"的假绿。
-	agent.SetGuidanceDedupe(true)
-	if got := runGuidanceDedupeExecute(t, ""); got {
-		t.Fatal("Execute with default env left guidance dedupe on")
+	agent.SetGuidanceDedupe(false)
+	if got := runGuidanceDedupeExecute(t, ""); !got {
+		t.Fatal("Execute with default env did not enable guidance dedupe")
 	}
-	if got := runGuidanceDedupeExecute(t, "1"); !got {
-		t.Fatal("Execute with ARGENT_GUIDANCE_DEDUPE=1 did not enable guidance dedupe")
+	if got := runGuidanceDedupeExecute(t, "0"); got {
+		t.Fatal("Execute with ARGENT_GUIDANCE_DEDUPE=0 left guidance dedupe on")
 	}
 }

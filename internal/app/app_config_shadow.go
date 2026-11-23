@@ -91,16 +91,16 @@ func shadowRank(kind string) int {
 	return 1
 }
 
-// configShadowCheckEnabled 报告配置写入前的遮蔽检查是否以 opt-in 方式启用。
-// 默认关闭，以免改变现有 config set 的输出；只有设置
-// ARGENT_CONFIG_SHADOW_CHECK=1 时才返回 true。
+// configShadowCheckEnabled 报告配置写入前的遮蔽检查是否启用：默认开启，
+// 在 config set 写入前提示"set 成功但运行值不变"的风险；仅当
+// ARGENT_CONFIG_SHADOW_CHECK=0（允许首尾空白）时紧急关闭；env 为 nil 时按默认处理。
 func configShadowCheckEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_CONFIG_SHADOW_CHECK")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_CONFIG_SHADOW_CHECK")) != "0"
 }
 
 // configShadowWarning 在检查启用且 key 被遮蔽时返回一条中文警告，否则返回空串。
-// 它是纯函数，供 CLI 的 config set 在写入前可选调用，以提示
-// "set 成功但运行值不变"的风险；默认关闭时始终返回空串，保持既有输出不变。
+// 它是纯函数，供 CLI 的 config set 在写入前调用，以提示
+// "set 成功但运行值不变"的风险；检查被 =0 关闭时始终返回空串。
 func configShadowWarning(key string, sources []string, env func(string) string) string {
 	if !configShadowCheckEnabled(env) {
 		return ""

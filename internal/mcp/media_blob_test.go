@@ -176,17 +176,17 @@ func TestMediaBlobExtAlwaysSafeWhitelist(t *testing.T) {
 }
 
 func TestResolveBlobExtOptIn(t *testing.T) {
-	// 默认关闭：使用既有映射。audio/flac 不在既有映射中，回退 .bin。
+	// 默认开启：使用扩展映射。audio/flac 不在既有映射中，映射为 .flac。
 	t.Setenv(mediaBlobExtEnv, "")
-	if got := resolveBlobExt("audio/flac"); got != ".bin" {
-		t.Fatalf("default resolveBlobExt(audio/flac) = %q, want .bin", got)
+	if got := resolveBlobExt("audio/flac"); got != ".flac" {
+		t.Fatalf("default resolveBlobExt(audio/flac) = %q, want .flac", got)
 	}
-	// 显式假值也保持关闭。
-	t.Setenv(mediaBlobExtEnv, "false")
+	// 只有显式 0 才关闭，回退既有映射的 .bin。
+	t.Setenv(mediaBlobExtEnv, "0")
 	if got := resolveBlobExt("audio/flac"); got != ".bin" {
-		t.Fatalf("false resolveBlobExt(audio/flac) = %q, want .bin", got)
+		t.Fatalf("zero resolveBlobExt(audio/flac) = %q, want .bin", got)
 	}
-	// 选择加入：使用扩展映射，覆盖更多媒体类型。
+	// 其它值（含 1）保持开启。
 	t.Setenv(mediaBlobExtEnv, "1")
 	if got := resolveBlobExt("audio/flac"); got != ".flac" {
 		t.Fatalf("opt-in resolveBlobExt(audio/flac) = %q, want .flac", got)

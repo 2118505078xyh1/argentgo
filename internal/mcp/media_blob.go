@@ -10,13 +10,12 @@ import (
 // 音频/媒体资源：goose 多模态审计指出 MCP 的音频、视频等媒体
 // 资源应安全落盘而非直接丢弃，而既有的 blobExtFromMIME 只覆盖
 // 了部分类型。这里提供一个覆盖面更广、且严格白名单化的 MIME→
-// 扩展名映射，并以"默认关闭"的选择加入方式接线，确保默认输出
-// 与历史逐字节一致。
+// 扩展名映射，并默认开启；只有显式设为 "0" 时才回退到既有映射。
 
 const (
-	// mediaBlobExtEnv 是扩展媒体类型映射的选择加入开关。
-	// 只有显式设为真值（如 "1"/"true"）时才启用 mediaBlobExt；
-	// 未设置或设为假值时使用既有的 blobExtFromMIME，保持旧行为。
+	// mediaBlobExtEnv 是扩展媒体类型映射的开关。
+	// 默认开启：取值空或不为 "0" 时启用 mediaBlobExt；
+	// 只有显式设为 "0" 时才回退到既有的 blobExtFromMIME。
 	mediaBlobExtEnv = "ARGENT_MCP_MEDIA_BLOB_EXT"
 
 	// imageArtifactEnv 是 image 内容块落盘的选择加入开关。
@@ -93,16 +92,14 @@ func mediaBlobExt(mimeType string) string {
 	}
 }
 
-// mediaBlobExtEnabled 报告是否选择加入扩展媒体类型映射。
-// 未设置、空值或无法解析为真值时返回 false（默认关闭），
-// 因此默认行为与既有实现逐字节一致。
+// mediaBlobExtEnabled 报告是否启用扩展媒体类型映射。
+// 取值空或不为 "0" 时返回 true（默认开启），只有显式设为 "0" 才返回 false。
 func mediaBlobExtEnabled() bool {
-	on, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(mediaBlobExtEnv)))
-	return err == nil && on
+	return strings.TrimSpace(os.Getenv(mediaBlobExtEnv)) != "0"
 }
 
-// resolveBlobExt 根据选择加入开关在扩展映射与既有映射之间选择。
-// 开关默认关闭时退化为 blobExtFromMIME，保证历史输出与测试不变。
+// resolveBlobExt 根据开关在扩展映射与既有映射之间选择。
+// 默认使用扩展映射；只有开关显式设为 "0" 时才退化为 blobExtFromMIME。
 func resolveBlobExt(mime string) string {
 	if mediaBlobExtEnabled() {
 		return mediaBlobExt(mime)

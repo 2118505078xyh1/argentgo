@@ -65,7 +65,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
-		"当前启用 11 项",
+		"当前启用 25 项",
 		"ARGENT_OPT_INS 注册表：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
@@ -196,7 +196,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 10 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
+	if !strings.Contains(textOut, "当前启用 24 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 
@@ -209,7 +209,12 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 		"ARGENT_CLI_HINTS": true, "ARGENT_APPROVE_DANGER": true, "ARGENT_APPROVAL_DIFF": true,
 		"ARGENT_TUI_USAGE": true, "ARGENT_TUI_PROMPT_HISTORY": true, "ARGENT_PATH_COMPLETION": true,
 		"ARGENT_CACHE_VISIBLE": true, "ARGENT_SESSIONS_HEAD_TAIL": true, "ARGENT_APPROVAL_PREVIEW": true,
-		"ARGENT_BASH_USE_PROC": true,
+		"ARGENT_BASH_USE_PROC":   true,
+		"ARGENT_GUIDANCE_DEDUPE": true, "ARGENT_SUMMARY_EMPTY_RETRY": true, "ARGENT_ACP_DECODE": true,
+		"ARGENT_ELIDE_DATA_URLS": true, "ARGENT_MULTIMODAL_TRIM": true, "ARGENT_TOOL_ARG_FEEDBACK": true,
+		"ARGENT_CONFIG_SHADOW_CHECK": true, "ARGENT_CONFIG_RELOAD_DIFF": true, "ARGENT_LOOP_DETECTION": true,
+		"ARGENT_MCP_MEDIA_BLOB_EXT": true,
+		"ARGENT_VERIFY_OUTCOME":     true, "ARGENT_REPO_MAP_HINT": true, "ARGENT_VERIFY_AUTORUN_HINT": true, "ARGENT_RULE_DISCOVERY": true,
 	}
 	enabledN := 0
 	for _, entry := range entries {

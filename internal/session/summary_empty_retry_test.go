@@ -15,8 +15,8 @@ func TestSummaryEmptyRetryEnv(t *testing.T) {
 		}
 	}()
 	os.Unsetenv(summaryEmptyRetryEnv)
-	if summaryEmptyRetryEnabled() {
-		t.Fatal("default should be off")
+	if !summaryEmptyRetryEnabled() {
+		t.Fatal("default should be on")
 	}
 	os.Setenv(summaryEmptyRetryEnv, "1")
 	if !summaryEmptyRetryEnabled() {

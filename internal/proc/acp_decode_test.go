@@ -11,11 +11,11 @@ func TestACPDecodeEnabledGate(t *testing.T) {
 		val  string
 		want bool
 	}{
-		{name: "empty", val: "", want: false},
+		{name: "empty", val: "", want: true},
 		{name: "zero", val: "0", want: false},
 		{name: "one", val: "1", want: true},
 		{name: "padded", val: " 1 ", want: true},
-		{name: "word", val: "true", want: false},
+		{name: "word", val: "true", want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

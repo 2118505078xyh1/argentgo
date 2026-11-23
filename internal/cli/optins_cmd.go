@@ -156,8 +156,12 @@ func independentOptInEnabled(item IndependentOptIn, raw string, env func(string)
 	value := strings.TrimSpace(raw)
 	switch {
 	case strings.Contains(item.Enable, "默认开"):
-		// 默认打开的 UX 门控：仅 =0 关闭，未设置或空值都视为开启。
-		return value != "0"
+		// 默认打开的 UX 门控：假值词（0/false/no/off）关闭，未设置或空值都视为开启。
+		switch strings.ToLower(value) {
+		case "0", "false", "no", "off":
+			return false
+		}
+		return true
 	case item.OptInKey != "" && strings.Contains(item.Enable, "ARGENT_OPT_INS="):
 		return value == "1" || optInListHas(env, item.OptInKey)
 	case strings.Contains(item.Enable, "真值"):

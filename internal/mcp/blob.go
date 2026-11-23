@@ -116,8 +116,8 @@ func saveBlobAsArtifact(dir string, resource ResourceContent) string {
 	if err != nil {
 		return ""
 	}
-	// 扩展名映射可通过 ARGENT_MCP_MEDIA_BLOB_EXT 选择加入扩展媒体类型；
-	// 默认仍使用既有映射，输出与历史逐字节一致。
+	// 扩展名映射默认使用扩展媒体类型映射；
+	// 只有 ARGENT_MCP_MEDIA_BLOB_EXT=0 时才回退到既有映射。
 	path, err := SaveBlobArtifact(dir, data, resolveBlobExt(mime))
 	if err != nil {
 		return ""

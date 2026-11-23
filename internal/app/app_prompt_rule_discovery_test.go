@@ -31,7 +31,7 @@ func legacyCompose(root string, env func(string) string, trust bool, thinking, s
 	return static + "\n" + dynamic + "\n"
 }
 
-// TestRuleDiscoveryOffKeepsPromptByteIdentical 证明 opt-in 关闭时（未设置、假值或垃圾值），
+// TestRuleDiscoveryOffKeepsPromptByteIdentical 证明显式假值词关闭时（0/false/no/off），
 // 即使磁盘上存在可被发现的规则，系统提示也与接线前逐字节一致，且不会泄漏规则正文。
 func TestRuleDiscoveryOffKeepsPromptByteIdentical(t *testing.T) {
 	_, root, home := wiringEnv(t)
@@ -42,7 +42,7 @@ func TestRuleDiscoveryOffKeepsPromptByteIdentical(t *testing.T) {
 	wantWithDynamic := legacyCompose(root, baseEnv, true, "low", "")
 	wantNoDynamic := legacyCompose(root, baseEnv, true, "", "")
 
-	for _, value := range []string{"", "0", "false", "garbage"} {
+	for _, value := range []string{"0", "false", "no", "off"} {
 		e := envFrom(map[string]string{
 			"USERPROFILE":           home,
 			"HOME":                  home,
@@ -61,6 +61,48 @@ func TestRuleDiscoveryOffKeepsPromptByteIdentical(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestRuleDiscoveryEnabledDefaultOn 证明规则发现默认开启：env 为 nil、未设置、空值、垃圾值
+// 以及真值词都启用；只有假值词 0/false/no/off（忽略大小写与空白）才关闭。
+func TestRuleDiscoveryEnabledDefaultOn(t *testing.T) {
+	if !ruleDiscoveryEnabled(nil) {
+		t.Fatal("env 为 nil 时必须默认开启")
+	}
+	if !ruleDiscoveryEnabled(envFrom(nil)) {
+		t.Fatal("未设置 ARGENT_RULE_DISCOVERY 时必须默认开启")
+	}
+	for _, on := range []string{"", "1", " true ", "yes", "ON", "garbage"} {
+		if !ruleDiscoveryEnabled(envFrom(map[string]string{"ARGENT_RULE_DISCOVERY": on})) {
+			t.Errorf("ARGENT_RULE_DISCOVERY=%q 应开启", on)
+		}
+	}
+	for _, off := range []string{"0", " 0 ", "false", " FALSE ", "no", "off"} {
+		if ruleDiscoveryEnabled(envFrom(map[string]string{"ARGENT_RULE_DISCOVERY": off})) {
+			t.Errorf("ARGENT_RULE_DISCOVERY=%q 应关闭", off)
+		}
+	}
+}
+
+// TestRuleDiscoveryDefaultOnWiring 证明门控未设置时，规则发现块同样进入系统提示，
+// 且只列文件名、不加载规则正文。
+func TestRuleDiscoveryDefaultOnWiring(t *testing.T) {
+	_, root, home := wiringEnv(t)
+	writeRuleFile(t, filepath.Join(root, ".argent", "rules", "default-on.md"), "DEFAULT_ON_BODY_SENTINEL")
+
+	unsetEnv := envFrom(map[string]string{"USERPROFILE": home, "HOME": home})
+	got := buildSystemWithTrust(root, unsetEnv, false, "", "")
+	for _, want := range []string{
+		"Discovered rule files (names only, contents not loaded):",
+		"default-on.md (project)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("默认开启的提示缺少 %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "DEFAULT_ON_BODY_SENTINEL") {
+		t.Errorf("默认开启的提示加载了规则正文: %q", got)
 	}
 }
 

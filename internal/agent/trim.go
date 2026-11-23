@@ -44,7 +44,7 @@ func EstimateTokens(text string) int {
 func EstimateMessage(m llm.Message) int {
 	n := messageOverheadTokens + EstimateTokens(m.Content) + EstimateTokens(m.Reasoning)
 	// 带图消息的 Content 为空、原始 part 数组在 ContentParts 旁路字段里。
-	// opt-in 开启时把这部分计入，否则多模态会话会低估上下文压力并错过压缩时机。
+	// 默认开启把这部分计入（ARGENT_MULTIMODAL_TRIM=0 关闭），否则多模态会话会低估上下文压力并错过压缩时机。
 	n += estimateMessageContentParts(m)
 	for _, call := range m.ToolCalls {
 		n += 2 + EstimateTokens(call.Function.Name) + EstimateTokens(call.Function.Arguments)
@@ -131,7 +131,7 @@ func budgetTarget(maxTokens int, ratio float64) int {
 // 调用及其状态仍然可见，因此模型仍知道做过什么。
 func Trim(messages []llm.Message, opts TrimOptions) TrimResult {
 	out := append([]llm.Message(nil), messages...)
-	// data URL 原子替换（opt-in ARGENT_ELIDE_DATA_URLS，默认关闭）：
+	// data URL 原子替换（默认开启、ARGENT_ELIDE_DATA_URLS=0 关闭）：
 	// 在任何 head/tail 裁剪之前把工具结果里的 base64 data URL 换成确定性占位，
 	// 避免裁剪切点落在 base64 中间，产生后续请求永久失败的坏图引用。
 	if textutil.DataURLsElisionEnabled() {

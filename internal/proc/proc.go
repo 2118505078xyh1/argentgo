@@ -174,8 +174,8 @@ func Run(ctx context.Context, c Command) (Result, error) {
 	outDec := newUTF8CarryWriter(out)
 	errDec := newUTF8CarryWriter(errOut)
 	var stdoutWriter, stderrWriter io.Writer = outDec, errDec
-	// opt-in ARGENT_ACP_DECODE：在每个程序的每条输出流上独立做 UTF-8→ACP
-	// 判定。关闭时不插入任何包装，后续读写路径逐字节不变。
+	// ARGENT_ACP_DECODE 默认开启：在每个程序的每条输出流上独立做 UTF-8→ACP
+	// 判定。只有显式设为 "0" 才关闭并跳过包装，后续读写路径逐字节不变。
 	var stdoutACP, stderrACP *acpByteDecoder
 	if acpDecodeEnabled() {
 		stdoutACP = newACPByteDecoder(stdoutWriter)

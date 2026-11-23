@@ -9,9 +9,12 @@ func repoMapReadOnlyHint() string {
 	return "repo map 仅供参考：文件仅因出现在 repo map 中，并不构成对它的编辑授权；编辑任何文件前，必须先读取该文件并把内容加入上下文。"
 }
 
-// repoMapHintEnabled 判断 repo map 只读声明是否选择性启用。
-// 默认关闭（未设置或值不为 "1"），从而保持字节精确的系统提示断言不变；
-// 只有设置 ARGENT_REPO_MAP_HINT=1 时才返回 true。
+// repoMapHintEnabled 判断 repo map 只读声明是否启用。
+// 默认开启：env 为 nil、未设置或值不为 "0" 时都返回 true；
+// 只有值（首尾修剪后）显式为 "0" 时才关闭。
 func repoMapHintEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_REPO_MAP_HINT")) == "1"
+	if env == nil {
+		return true
+	}
+	return strings.TrimSpace(env("ARGENT_REPO_MAP_HINT")) != "0"
 }
