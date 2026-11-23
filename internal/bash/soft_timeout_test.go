@@ -71,9 +71,14 @@ func TestSoftTimeoutHelper(t *testing.T) {
 		return
 	}
 	fmt.Println("ready")
-	// CI（尤其 Windows runner）上测试二进制冷启动可能超过 600ms；拉长驻留
-	// 时间，给首个软超时观察留出足够窗口读到 ready，同时保证续读时进程已退出。
-	time.Sleep(4000 * time.Millisecond)
+	// 会话 collect 在收到输出后若静默超过 sessionOutputQuietPeriod（40ms）就
+	// 提前返回，因此长 sleep 会让续读在进程结束前就空手而归。改为周期性心跳
+	// 输出，既保持进程存活（首个观察 still_running=true），又让续读能持续读到
+	// 数据直到 done；心跳间隔需小于静默期。
+	for i := 0; i < 60; i++ {
+		time.Sleep(20 * time.Millisecond)
+		fmt.Print(".")
+	}
 	fmt.Println("done")
 	os.Exit(0)
 }
@@ -113,7 +118,7 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 	defer closeTestSession(t, id)
 
 	// 空 command 不写 stdin，只续读会话尾部日志。
-	readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":1200}`, id))
+	readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":2000}`, id))
 	second, err := tool.Run(ctx, "", readRaw)
 	if err != nil {
 		t.Fatalf("read more logs: %v", err)

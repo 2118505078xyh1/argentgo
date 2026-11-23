@@ -60,9 +60,11 @@ func safeHistoryPath(p string) bool {
 	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
 		return false
 	}
-	clean := path.Clean(filepath.ToSlash(p))
-	return clean != "." && clean != ".." &&
-		!strings.HasPrefix(clean, "../") && !strings.HasPrefix(clean, `../`)
+	// filepath.ToSlash 在 Linux 上不转换反斜杠（其分隔符本身就是 /），
+	// 因此先显式把 \ 归一为 /，再清理，确保跨平台都能识别 ..\ 逃逸段。
+	normalized := strings.ReplaceAll(p, `\`, "/")
+	clean := path.Clean(normalized)
+	return clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 // DiscoverHistoryTasks 从仓库近期提交抽取任务。
