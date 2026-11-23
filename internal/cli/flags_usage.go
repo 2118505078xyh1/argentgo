@@ -60,6 +60,7 @@ flags:
       --max-turns <n>           maximum model turns (default 100)
       --max-parallel <n>        read-only tool workers per batch (0 default, 1 serial)
       --max-tokens <n>          stop after this many billable tokens
+      --max-prompt-tokens <n>   stop before a request whose prompt exceeds this many tokens
       --max-cost <usd>          stop after this estimated dollar spend
       --max-seconds <n>         stop after this many wall-clock seconds
       --price-input <usd>       USD per million prompt tokens
