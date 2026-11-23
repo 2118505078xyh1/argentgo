@@ -63,6 +63,9 @@ type Rule struct {
 	Tool     string
 	Path     string
 	Command  string
+	// RequireHuman 是正交的破窗标志（#7）：命中该规则时，即便判定是
+	// Allow 也必须由真人当场审批，且不得复用任何缓存授予。
+	RequireHuman bool
 }
 
 // PolicyConfig 是声明式规则集。零值表示"无规则"。
@@ -92,9 +95,13 @@ type PolicyConfig struct {
 }
 
 // Result 携带判定结果及其背后人类可读的原因。
+//
+// RequireHuman 是与 Decision 正交的"破窗"标志（#7）：为真时即使 Decision
+// 是 Allow，Chain 也必须强制真人审批，且不得使用任何缓存的自动授予。
 type Result struct {
-	Decision Decision
-	Reason   string
+	Decision     Decision
+	Reason       string
+	RequireHuman bool
 }
 
 var defaultReadOnlyTools = map[string]bool{
@@ -205,17 +212,17 @@ func (p *Policy) Check(name string, args json.RawMessage) Decision {
 func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return Result{Deny, "the tool name is empty"}
+		return Result{Decision: Deny, Reason: "the tool name is empty"}
 	}
 	if p.denyTools[name] {
-		return Result{Deny, fmt.Sprintf("the tool %q is denied by policy", name)}
+		return Result{Decision: Deny, Reason: fmt.Sprintf("the tool %q is denied by policy", name)}
 	}
 	if len(p.allowTools) > 0 && !p.allowTools[name] {
-		return Result{Deny, fmt.Sprintf("the tool %q is not on the allow list", name)}
+		return Result{Decision: Deny, Reason: fmt.Sprintf("the tool %q is not on the allow list", name)}
 	}
 	fields, err := parseArgs(args)
 	if err != nil {
-		return Result{Ask, fmt.Sprintf("the %s arguments are not a JSON object: %v", name, err)}
+		return Result{Decision: Ask, Reason: fmt.Sprintf("the %s arguments are not a JSON object: %v", name, err)}
 	}
 	for _, path := range pathValues(fields) {
 		if res := p.checkPath(path); res.Decision != Allow {
@@ -239,13 +246,13 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 	}
 	if mutating, known := p.toolKinds[name]; known {
 		if mutating {
-			return Result{Ask, fmt.Sprintf("the mutating tool %q needs operator approval", name)}
+			return Result{Decision: Ask, Reason: fmt.Sprintf("the mutating tool %q needs operator approval", name)}
 		}
 		// 默认开启（#22）：宽泛 read 规则命中密钥文件时降级为 Ask；
 		// 显式 DenyPaths 已在 checkPath 阶段先行拒绝，优先级不受影响。
-		return narrowBroadReadSecret(name, fields, Result{Allow, ""})
+		return narrowBroadReadSecret(name, fields, Result{Decision: Allow, Reason: ""})
 	}
-	return Result{Ask, fmt.Sprintf("the unknown tool %q needs operator approval", name)}
+	return Result{Decision: Ask, Reason: fmt.Sprintf("the unknown tool %q needs operator approval", name)}
 }
 
 // pathArgKeys 列出携带文件系统路径的参数名。大多数内置工具使用 "path"，
@@ -271,11 +278,11 @@ var pathArrayKeys = []string{"paths", "files"}
 func (p *Policy) checkPath(path string) Result {
 	resolved, absolute, escape := p.resolve(path)
 	if escape {
-		return Result{Deny, fmt.Sprintf("the path %q escapes the workspace root %q", path, p.root)}
+		return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q escapes the workspace root %q", path, p.root)}
 	}
 	real, err := ResolveRealPath(resolved)
 	if err != nil {
-		return Result{Deny, fmt.Sprintf(
+		return Result{Decision: Deny, Reason: fmt.Sprintf(
 			"the path %q could not be canonicalized for policy checking (%v); denying to avoid an unresolved symlink target",
 			path, err)}
 	}
@@ -287,28 +294,28 @@ func (p *Policy) checkPath(path string) Result {
 	// realRoots 复核避免误拒：--add-dir 可能是一个符号链接，工具传入该链接
 	// 的真实目标路径时词法上不在 writeRoots 内，但真实位置确实在允许的根中。
 	if absolute && !within(resolved, p.writeRoots) && !within(real, p.realRoots()) {
-		return Result{Deny, fmt.Sprintf(
+		return Result{Decision: Deny, Reason: fmt.Sprintf(
 			"the absolute path %q is outside the write roots %v (not writable)", path, p.writeRoots)}
 	}
 	// 隐藏逃逸检查。即使没有配置 deny/allow 路径也会运行：仅仅因为策略没有
 	// 显式路径规则，对 <root>/link/id_rsa 的读取就不能变成对外部文件的读取。
 	if within(resolved, p.writeRoots) && !within(real, p.realRoots()) {
-		return Result{Deny, fmt.Sprintf(
+		return Result{Decision: Deny, Reason: fmt.Sprintf(
 			"the path %q resolves outside the workspace root %q through a symlink or junction", path, p.root)}
 	}
 	lexical := normalize(resolved)
 	canonical := normalize(real)
 	for _, pattern := range p.denyPaths {
 		if GlobMatch(pattern, lexical) || GlobMatch(pattern, canonical) {
-			return Result{Deny, fmt.Sprintf("the path %q is denied by policy (rule %q)", path, pattern)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q is denied by policy (rule %q)", path, pattern)}
 		}
 	}
 	if len(p.allowPaths) > 0 {
 		if !anyMatch(p.allowPaths, lexical) || !anyMatch(p.allowPaths, canonical) {
-			return Result{Deny, fmt.Sprintf("the path %q is outside the allowed set", path)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q is outside the allowed set", path)}
 		}
 	}
-	return Result{Allow, ""}
+	return Result{Decision: Allow, Reason: ""}
 }
 
 // realRoots 解析每个配置的根目录，使通过链接到达的根目录仍算作内部。
@@ -331,13 +338,13 @@ func (p *Policy) realRoots() []string {
 func (p *Policy) checkWriteRoots(fields map[string]any) Result {
 	for _, value := range pathValues(fields) {
 		if err := InWriteRoots(value, p.writeRoots); err != nil {
-			return Result{Deny, fmt.Sprintf("the path %q is not writable: %v", value, err)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q is not writable: %v", value, err)}
 		}
 		if protected, reason := protectedInWriteRoots(value, p.writeRoots); protected {
-			return Result{Deny, fmt.Sprintf("the path %q is not writable: %s", value, reason)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q is not writable: %s", value, reason)}
 		}
 	}
-	return Result{Allow, ""}
+	return Result{Decision: Allow, Reason: ""}
 }
 
 // pathValues 收集每个路径参数，包括 checkpoint 恢复动作和 context_pack
@@ -367,19 +374,19 @@ func (p *Policy) checkCommand(command string) Result {
 	lowered := strings.ToLower(command)
 	for _, pattern := range p.denyCommands {
 		if strings.Contains(lowered, strings.ToLower(pattern)) || GlobMatch(pattern, lowered) {
-			return Result{Deny, fmt.Sprintf("the command is denied by policy (rule %q)", pattern)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the command is denied by policy (rule %q)", pattern)}
 		}
 	}
 	for _, pattern := range p.denyCommandPaths {
 		needle := strings.ToLower(pattern)
 		if strings.Contains(lowered, needle) {
-			return Result{Deny, fmt.Sprintf("the command touches a denied path (rule %q)", pattern)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the command touches a denied path (rule %q)", pattern)}
 		}
 		if expanded := strings.ToLower(expandHome(pattern)); expanded != needle && strings.Contains(lowered, expanded) {
-			return Result{Deny, fmt.Sprintf("the command touches a denied path (rule %q)", pattern)}
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the command touches a denied path (rule %q)", pattern)}
 		}
 	}
-	return Result{Allow, ""}
+	return Result{Decision: Allow, Reason: ""}
 }
 
 // ruleDecision 遍历表，返回所有匹配行中最严格的判定：deny > ask > allow。
@@ -389,6 +396,7 @@ func (p *Policy) checkCommand(command string) Result {
 func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool) {
 	var best Decision
 	matched := false
+	requireHuman := false
 	// 一次性收集每个路径资源。pathValues 包含 checkpoint 恢复和 context_pack
 	// 使用的路径数组；这里只扫描标量键过去会隐藏针对数组条目的路径规则。在
 	// 多资源调用中，这会让标量路径上的 Ask 掩盖数组条目上的 Deny，因为 deny
@@ -429,10 +437,13 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 		// Deny 是最严格的判定，也是硬性停止：后面的行无法覆盖它，
 		// 因此没有理由继续扫描。
 		if rule.Decision == Deny {
-			return Result{Deny, fmt.Sprintf("the %s call is denied by the permissions table", name)}, true
+			return Result{Decision: Deny, Reason: fmt.Sprintf("the %s call is denied by the permissions table", name), RequireHuman: rule.RequireHuman}, true
 		}
 		if !matched || rule.Decision > best {
 			best = rule.Decision
+		}
+		if rule.RequireHuman {
+			requireHuman = true
 		}
 		matched = true
 	}
@@ -443,7 +454,7 @@ func (p *Policy) ruleDecision(name string, fields map[string]any) (Result, bool)
 	if best == Ask {
 		reason = fmt.Sprintf("the %s call requires approval per the permissions table", name)
 	}
-	return Result{best, reason}, true
+	return Result{Decision: best, Reason: reason, RequireHuman: requireHuman}, true
 }
 
 // resolve 把工具的路径参数转成绝对路径。第二个返回值报告原始参数（展开 ~ 后）

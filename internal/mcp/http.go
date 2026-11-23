@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 const (
@@ -33,6 +35,9 @@ type httpTransport struct {
 	url     string
 	headers map[string]string
 	client  *http.Client
+	// networkGuard 在连接建立时从 ctx 捕获，供之后的 SSE GET 与 POST 复用：
+	// 长生命周期的 streamCtx 刻意不带值，不能依赖它传递守卫。
+	networkGuard *security.NetworkGuard
 
 	ids     idSequence
 	waiters *waiters
@@ -64,14 +69,15 @@ func newHTTPTransport(ctx context.Context, spec Spec) (*httpTransport, error) {
 		defer cancel()
 	}
 	t := &httpTransport{
-		name:       spec.Name,
-		url:        spec.URL,
-		headers:    spec.Headers,
-		client:     &http.Client{},
-		waiters:    newWaiters(),
-		endpointCh: make(chan string, 1),
-		postURL:    spec.URL,
-		done:       make(chan struct{}),
+		name:         spec.Name,
+		url:          spec.URL,
+		headers:      spec.Headers,
+		client:       &http.Client{},
+		networkGuard: security.NetworkGuardFrom(ctx),
+		waiters:      newWaiters(),
+		endpointCh:   make(chan string, 1),
+		postURL:      spec.URL,
+		done:         make(chan struct{}),
 	}
 
 	// 事件流必须比 Connect 活得更久，因此它使用自己的、无截止时间的
@@ -121,7 +127,22 @@ func (t *httpTransport) setEndpoint(resolved string) {
 // 如果 ctx 先于响应头结束，streamCancel 会中止在途的 GET。
 // 调用方随后把该 URL 当作流式单端点，因此中止不会丢失任何流。
 // 因此中止不会丢失任何流。
+// checkEgress 在每次真正建连前跑网络出口安全链（#5）。连接时捕获的守卫
+// 在这里重新注入调用 ctx，使后续 POST 也受同一张策略与审批链约束。
+//
+// MCP 端点来自操作员配置（而非模型生成），本地/私网端点是合法用法，
+// 因此这里允许字面私网地址；显式 deny 规则与云元数据仍然拒绝。
+func (t *httpTransport) checkEgress(ctx context.Context, rawURL, method string) error {
+	if t.networkGuard != nil {
+		ctx = security.WithNetworkGuard(ctx, t.networkGuard)
+	}
+	return security.CheckNetworkEgress(ctx, rawURL, method, true)
+}
+
 func (t *httpTransport) openStream(ctx, streamCtx context.Context, streamCancel context.CancelFunc) error {
+	if err := t.checkEgress(ctx, t.url, http.MethodGet); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, t.url, nil)
 	if err != nil {
 		return err
@@ -295,6 +316,9 @@ func (t *httpTransport) post(ctx context.Context, frame []byte) (*http.Response,
 	session := t.sessionID
 	t.mu.Unlock()
 
+	if err := t.checkEgress(ctx, target, http.MethodPost); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(frame))
 	if err != nil {
 		return nil, err

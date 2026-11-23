@@ -186,19 +186,25 @@ func (c *CachedApprover) InteractiveReply() bool {
 // UseNumber 保持整数字面量精确；解码为 float64 可能让
 func (c *CachedApprover) Ask(ctx context.Context, name string, args string) (bool, error) {
 	key := approvalCacheKey(name, args)
-	c.mu.Lock()
-	allowed := c.allowed[key]
-	c.mu.Unlock()
-	if allowed {
-		return true, nil
+	// RequireHuman 破窗调用（#7）不得复用会话内缓存的批准，也不写入缓存。
+	human := RequireHumanFrom(ctx)
+	if !human {
+		c.mu.Lock()
+		allowed := c.allowed[key]
+		c.mu.Unlock()
+		if allowed {
+			return true, nil
+		}
 	}
 	ok, err := c.inner.Ask(ctx, name, args)
 	if err != nil || !ok {
 		return false, err
 	}
-	c.mu.Lock()
-	c.allowed[key] = true
-	c.mu.Unlock()
+	if !human {
+		c.mu.Lock()
+		c.allowed[key] = true
+		c.mu.Unlock()
+	}
 	return true, nil
 }
 
@@ -368,11 +374,13 @@ func (s *ScopedApprover) Ask(ctx context.Context, name string, args string) (boo
 	}
 	// 配置/说明文件等敏感调用即使曾被广泛授予 always，也只认本次真人交互：
 	// 标记由链在命中 #21 守卫时注入，跳过内存 always 缓存强制走 inner。
-	if !singleUseFromContext(ctx) && s.always[name] {
+	// RequireHuman 破窗调用（#7）同样跳过 always 与 N 次授予缓存。
+	human := RequireHumanFrom(ctx)
+	if !singleUseFromContext(ctx) && !human && s.always[name] {
 		s.mu.Unlock()
 		return true, nil
 	}
-	if remaining := s.limited[name]; remaining > 0 {
+	if remaining := s.limited[name]; !human && remaining > 0 {
 		s.limited[name] = remaining - 1
 		s.mu.Unlock()
 		return true, nil

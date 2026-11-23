@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // ---- web_search ----
@@ -61,6 +63,12 @@ func (webSearchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (st
 	}
 	if endpoint == "" {
 		return "", fmt.Errorf("web_search: %s is not configured; use web_fetch with a direct URL instead", webSearchURLEnv)
+	}
+	// 搜索端点也是一次出网：同样走网络策略 → 审批 → 审计（#5）。
+	// 端点来自操作员配置（环境变量或预设），本地/私网端点是合法用法，
+	// 因此允许字面私网地址；显式 deny 与云元数据仍然拒绝。
+	if err := security.CheckNetworkEgress(ctx, endpoint, http.MethodPost, true); err != nil {
+		return "", err
 	}
 
 	limit := args.Limit

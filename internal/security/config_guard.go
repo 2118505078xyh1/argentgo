@@ -77,7 +77,7 @@ func narrowBroadReadSecret(name string, fields map[string]any, res Result) Resul
 	}
 	for _, path := range pathValues(fields) {
 		if isSecretEnvPath(path) {
-			return Result{Ask, "the read call targets a secret environment file; operator approval required"}
+			return Result{Decision: Ask, Reason: "the read call targets a secret environment file; operator approval required"}
 		}
 	}
 	return res

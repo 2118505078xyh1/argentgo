@@ -125,18 +125,25 @@ func (f *FileBackedScopedApprover) Ask(ctx context.Context, name, args string) (
 		f.mu.Unlock()
 		return false, fmt.Errorf("security: %s: %w%s", persistentApproverSymbol, errPersistentUntrusted, detail)
 	}
-	singleUse := singleUseFromContext(ctx)
+	// RequireHuman 破窗调用（#7）绕过持久化的 always 授予，且不写入新授予；
+	// 粘性 deny 仍然生效（它只会收紧，不是"缓存的自动批准"）。
+	human := RequireHumanFrom(ctx)
+	singleUse := singleUseFromContext(ctx) || human
 	for _, scope := range scopes {
-		if f.deny[scope] {
-			f.mu.Unlock()
-			return false, nil
+		for _, candidate := range scopeAncestors(scope) {
+			if f.deny[candidate] {
+				f.mu.Unlock()
+				return false, nil
+			}
 		}
 	}
 	if !singleUse {
 		for _, scope := range scopes {
-			if f.always[scope] {
-				f.mu.Unlock()
-				return true, nil
+			for _, candidate := range scopeAncestors(scope) {
+				if f.always[candidate] {
+					f.mu.Unlock()
+					return true, nil
+				}
 			}
 		}
 	}
@@ -326,9 +333,27 @@ func validPersistentGrant(g persistentGrant) bool {
 	return cleanPersistentScope(g.Scope) == g.Scope
 }
 
-// cleanPersistentScope 返回可作为规则键的安全作用域：工具名或命令前缀。
-// 复用既有的脱敏/不可见字符清洗，任何被改写的输入都直接拒绝（返回空串）。
+// cleanPersistentScope 返回可作为规则键的安全作用域：工具名、命令前缀，
+// 或能力分键授权产生的 "capability\0canonicalPath"（#8）。NUL 只作为
+// 单个分隔符保留，其余控制字符仍按既有规则拒绝，避免把不可见字符写入
+// 规则文件。任何被改写的片段都导致整个作用域被拒绝（返回空串）。
 func cleanPersistentScope(s string) string {
+	parts := strings.Split(s, "\x00")
+	if len(parts) > 2 {
+		return ""
+	}
+	for i, part := range parts {
+		clean := cleanPersistentScopePart(part)
+		if clean == "" || clean != part {
+			return ""
+		}
+		parts[i] = clean
+	}
+	return strings.Join(parts, "\x00")
+}
+
+// cleanPersistentScopePart 是单个片段的既有清洗规则。
+func cleanPersistentScopePart(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || utf8.RuneCountInString(s) > maxTTLReadableRunes {
 		return ""

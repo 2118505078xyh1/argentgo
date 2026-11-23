@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/security"
 )
 
 // ---- web_fetch ----
@@ -47,6 +49,11 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	if target == "" {
 		return "", fmt.Errorf("web_fetch: url must not be empty")
 	}
+	// 网络出口走统一安全链：策略判定 → 审批 → 审计（#5）。
+	// allowLocal 只放开字面私网地址，不能覆盖显式 deny 规则或云元数据。
+	if err := security.CheckNetworkEgress(ctx, target, http.MethodGet, args.AllowLocal); err != nil {
+		return "", err
+	}
 	parsed, err := checkFetchURL(ctx, target, args.AllowLocal)
 	if err != nil {
 		return "", err
@@ -55,6 +62,9 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	client := &http.Client{
 		Timeout: clampTimeout("fetch", 0, maxTimeout(ctx)),
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if err := security.CheckNetworkEgress(ctx, req.URL.String(), req.Method, args.AllowLocal); err != nil {
+				return err
+			}
 			_, redirectErr := checkFetchURL(ctx, req.URL.String(), args.AllowLocal)
 			return redirectErr
 		},

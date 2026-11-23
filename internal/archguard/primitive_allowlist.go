@@ -39,6 +39,10 @@ type primitiveAllowEntry struct {
 //		},
 //	}
 var primitiveAllowlist = []primitiveAllowEntry{
+	// 网络代理沙箱的显式环境注入口：默认路径由 netproxy.DefaultEnv 懒启动并
+	// 直接把 Env 交给 bash 工具；WithEnv 供 app 层注入自定义代理地址/NO_PROXY，
+	// 属于跨包依赖注入 API，由接线层调用，故在清单中登记。
+	{Symbol: "internal/netproxy/env.go:WithEnv", Reason: "跨包 ctx 注入 API；由 app 层把自建代理的 Env 注入 shell 子进程调用链，默认路径走 DefaultEnv"},
 	// 压缩摘要 V2 投影的渲染器：生产只读路径用 ParseStructuredSummaryV2/Compaction.StructuredV2，
 	// RenderStructuredSummaryV2 仅用于 Render→Parse 往返测试校验格式稳定；
 	// 下一阶段若要把扩展字段结构化落盘（生成式摘要模板）时由压缩写入路径调用。

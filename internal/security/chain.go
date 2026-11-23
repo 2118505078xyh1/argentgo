@@ -333,6 +333,15 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		result = c.policy().checkWithResult(name, args, profile)
 		result.Decision = decision
 	}
+	// 破窗规则（#7）：策略规则、敏感调用或配置守卫打上的 RequireHuman 标志
+	// 都汇入 ctx，让下游审批器跳过缓存授予、忽略机器自动批准。它只收紧：
+	// 不带标志的调用完全没有下面这些赋值，原有逐字节路径不变。
+	requireHuman := result.RequireHuman || sensitive || RequireHumanFrom(ctx)
+	if requireHuman {
+		ctx = WithRequireHuman(ctx)
+		ctx = withSingleUseApproval(ctx)
+		sensitive = true
+	}
 	switch result.Decision {
 	case Deny:
 		c.record(name, "deny", result.Reason, auditArgs)
@@ -371,6 +380,15 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 		// 没有审批器与审批器回答"否"不是一回事。使用不可用空对象，
 		// 让审计日志记录不可用的通道，而不是错误地声称操作员否决了调用。
 		approver = UnavailableApprover{}
+	}
+	// 破窗规则（#7）：RequireHuman 调用只认真人交互通道。无头、子代理或
+	// 机器自动批准器都不是真人，直接硬性拒绝：既不等待一个不会到来的回答，
+	// 也不让 hook 预审批等自动路径代答。
+	if requireHuman && !approverAllowsInteractiveReply(approver) {
+		reason := "the tool call requires a human decision but no interactive approval channel is available"
+		c.record(name, "warning", reason, auditArgs)
+		c.record(name, "deny", reason, auditArgs)
+		return &StopError{Tool: name, Reason: reason}
 	}
 	// 显式确认 opt-in：需要操作员显式确认的命令若遇到声明 RequiresExplicitYes
 	// 的审批器（yolo/auto 会把 Ask 变成静默批准），在 Ask 之前直接拒绝并附理由。
@@ -545,8 +563,9 @@ func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs js
 		switch stage {
 		case stageConfirmScope:
 			// always 只有在二次确认通过后才真正记住作用域；敏感调用（#21）
-			// 只记一次性，不把作用域交给审批器持久化。
-			if !singleUseFromContext(ctx) {
+			// 与 RequireHuman 破窗调用（#7）只记一次性，不把作用域交给
+			// 审批器持久化。
+			if !singleUseFromContext(ctx) && !RequireHumanFrom(ctx) {
 				staged.RememberScope(append([]string(nil), scope...))
 			}
 			c.record(name, "allow", "approved by the operator (always)", auditArgs)
@@ -568,6 +587,16 @@ func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs js
 	// 超过交互上限：失败即拒绝，绝不因异常通道而放行。
 	c.record(name, "deny", "staged approval did not complete", auditArgs)
 	return &StopError{Tool: name, Reason: "staged approval did not complete"}
+}
+
+// RecordDecision 把一次已经做出的判定写入审计链。网络出口等不在工具注册
+// 表内的调用点用它复用 Chain 的脱敏与会话标记，保证"策略 → 审批 → 审计"
+// 三段不出现审计断点。nil 接收者或无审计日志时是空操作。
+func (c *Chain) RecordDecision(tool, decision, reason string, args json.RawMessage) {
+	if c == nil {
+		return
+	}
+	c.record(tool, decision, reason, args)
 }
 
 func (c *Chain) policy() *Policy {

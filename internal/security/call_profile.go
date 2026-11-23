@@ -74,28 +74,28 @@ func (p *Policy) checkWithResult(name string, args json.RawMessage, profile Call
 func (p *Policy) evaluateWithProfile(name string, args json.RawMessage, profile CallProfile) Result {
 	clean := strings.TrimSpace(name)
 	if profile.ReadOnly && MutatingTool(clean) {
-		return Result{Deny, fmt.Sprintf("the tool %q is read-only for this call", name)}
+		return Result{Decision: Deny, Reason: fmt.Sprintf("the tool %q is read-only for this call", name)}
 	}
 	if profile.NoNetwork && networkTools[clean] {
-		return Result{Deny, fmt.Sprintf("the tool %q is network-blocked for this call", name)}
+		return Result{Decision: Deny, Reason: fmt.Sprintf("the tool %q is network-blocked for this call", name)}
 	}
 	fields, err := parseArgs(args)
 	if err != nil {
-		return Result{Allow, ""} // 参数畸形交给 Evaluate 处理
+		return Result{Decision: Allow, Reason: ""} // 参数畸形交给 Evaluate 处理
 	}
 	for _, path := range pathValues(fields) {
 		for _, pattern := range profile.DenyPaths {
 			if GlobMatch(pattern, path) {
-				return Result{Deny, fmt.Sprintf("the path %q is denied by the per-call profile (rule %q)", path, pattern)}
+				return Result{Decision: Deny, Reason: fmt.Sprintf("the path %q is denied by the per-call profile (rule %q)", path, pattern)}
 			}
 		}
 	}
 	if command, ok := fields["command"].(string); ok {
 		for _, pattern := range profile.DenyCommands {
 			if strings.Contains(command, pattern) {
-				return Result{Deny, fmt.Sprintf("the command is denied by the per-call profile (rule %q)", pattern)}
+				return Result{Decision: Deny, Reason: fmt.Sprintf("the command is denied by the per-call profile (rule %q)", pattern)}
 			}
 		}
 	}
-	return Result{Allow, ""}
+	return Result{Decision: Allow, Reason: ""}
 }

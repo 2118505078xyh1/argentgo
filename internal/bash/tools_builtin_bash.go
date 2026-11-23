@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"github.com/2118505078xyh1/argentgo/internal/netproxy"
 	"github.com/2118505078xyh1/argentgo/internal/proc"
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
@@ -228,6 +229,7 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, path, argv...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), shellProxyEnv(ctx)...)
 	output, err := cmd.CombinedOutput()
 	text := clipBashOutput(ctx, string(output))
 	if runCtx.Err() == context.DeadlineExceeded {
@@ -350,9 +352,11 @@ func runBuiltinShell(ctx context.Context, root, command string, timeout time.Dur
 
 // runBuiltinParsed 复用已解析的 AST，避免与 Supported 探测重复 lex+parse。
 func runBuiltinParsed(ctx context.Context, root, command string, timeout time.Duration, f *File) (string, error) {
+	vars := builtinShellEnv()
+	applyProxyEnvMap(ctx, vars)
 	opts := Options{
 		Cwd:     root,
-		Vars:    builtinShellEnv(),
+		Vars:    vars,
 		Timeout: timeout,
 		Ctx:     ctx,
 		// 外层工具守卫已用原始命令行字符串审过一次。只有当展开后的真实 argv
@@ -388,6 +392,26 @@ func runBuiltinParsed(ctx context.Context, root, command string, timeout time.Du
 		return bashNoOutput(result.Output, text), nil
 	}
 	return text, nil
+}
+
+// shellProxyEnv 返回要注入子进程的代理环境变量。显式 WithEnv 优先；
+// 否则使用进程级默认代理（ARGENT_NETPROXY=0 时为空）。shell 本体不动，
+// 只把 env 追加到它启动的子进程，从而覆盖 curl/node/python 等出网路径。
+func shellProxyEnv(ctx context.Context) []string {
+	env, ok := netproxy.EnvFrom(ctx)
+	if !ok {
+		env = netproxy.DefaultEnv(ctx)
+	}
+	return env.Entries()
+}
+
+// applyProxyEnvMap 把代理条目写进内建 shell 的变量表。
+func applyProxyEnvMap(ctx context.Context, vars map[string]string) {
+	for _, entry := range shellProxyEnv(ctx) {
+		if i := strings.IndexByte(entry, '='); i > 0 {
+			vars[entry[:i]] = entry[i+1:]
+		}
+	}
 }
 
 // builtinShellEnv 为内建 shell 构造变量表（当前进程环境 + 面向模型的稳定输出覆盖）。
@@ -431,7 +455,9 @@ func runBashViaProc(ctx context.Context, root, path string, argv []string, timeo
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	res, err := proc.Run(runCtx, bashProcCommand(path, argv, root))
+	cmd := bashProcCommand(path, argv, root)
+	cmd.Env = append(cmd.Env, shellProxyEnv(ctx)...)
+	res, err := proc.Run(runCtx, cmd)
 
 	text := clipBashOutput(ctx, res.Combined())
 	if runCtx.Err() == context.DeadlineExceeded {
@@ -465,6 +491,7 @@ func runPromotableBash(ctx context.Context, root string, registry *jobs.Registry
 		Path:          path,
 		Args:          argv,
 		Dir:           root,
+		Env:           shellProxyEnv(ctx),
 		Timeout:       backgroundAfter,
 		KeepOnTimeout: true,
 		NoWindow:      runtime.GOOS == "windows",
