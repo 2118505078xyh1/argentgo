@@ -13,7 +13,80 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
+
+// 写入规范化默认开启；只有显式设为 "0" 时才回退到旧行为（紧急逃生阀）。
+// 它们不是 opt-in：默认值即最优行为，用户零选择。
+const (
+	eolNormalizeEnv = "ARGENT_EOL_NORMALIZE"
+	bomPreserveEnv  = "ARGENT_BOM_PRESERVE"
+)
+
+func writeNormalizationEnabled(name string) bool {
+	return strings.TrimSpace(os.Getenv(name)) != "0"
+}
+
+// utf8BOM 的定义在 tools_builtin_read.go（同包复用，不再重复声明）。
+
+// detectLineEnding 检测 data 使用的行尾：任意位置出现 \r\n 即判为 CRLF，
+// 否则判为 LF。学自 cline 的 detectLineEnding —— 只做检测，不改写字节。
+func detectLineEnding(data []byte) string {
+	if bytes.Contains(data, []byte("\r\n")) {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// normalizeToEOL 把 data 的行尾统一为 eol：先把 \r\n 折成 \n，再展开为目标。
+// 只处理行尾字节，不触碰 BOM 或任何正文。
+func normalizeToEOL(data []byte, eol string) []byte {
+	if eol == "\n" {
+		out := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		return out
+	}
+	out := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	return bytes.ReplaceAll(out, []byte("\n"), []byte(eol))
+}
+
+// normalizeWriteEOL 在最终落盘前按 before 检测到的行尾规范化 after：
+// 既有文件统一到 before 的 EOL，避免编辑 CRLF 文件时插入 LF 文本产生混合行尾。
+//
+// 新文件（before 为 nil 或空）没有可供检测的既有行尾，保持模型原始字节：
+// 这既符合「EOL 按检测」的原则，也保持本仓库 write→read 的逐字节契约
+// （两个既有 golden 测试断言新建文件读回仍是 LF）。cline 的 Windows 纯 LF
+// 新文件强转 CRLF 会破坏该契约，故此处不采用；若以后统一放开，需要同步
+// 更新 internal/tools/tools_test.go 与 tools_format_hook_wiring_test.go。
+//
+// 只对最终写入字节生效，before 本身不被修改。
+func normalizeWriteEOL(before, after []byte) []byte {
+	if !writeNormalizationEnabled(eolNormalizeEnv) || len(before) == 0 || len(after) == 0 {
+		return after
+	}
+	return normalizeToEOL(after, detectLineEnding(before))
+}
+
+// preserveWriteBOM 在 after 缺失 BOM 而 before 带 BOM 时前置一份 UTF-8 BOM。
+// 调用方须在「空操作判等」之前用它处理待写字节，使 BOM 也被纳入判等。
+func preserveWriteBOM(before, after []byte) []byte {
+	if !writeNormalizationEnabled(bomPreserveEnv) {
+		return after
+	}
+	if bytes.HasPrefix(before, utf8BOM) && !bytes.HasPrefix(after, utf8BOM) {
+		out := make([]byte, 0, len(utf8BOM)+len(after))
+		out = append(out, utf8BOM...)
+		out = append(out, after...)
+		return out
+	}
+	return after
+}
+
+// normalizeFinalBytes 汇总 BOM 保留与 EOL 规范化。所有最终落盘点都调用它，
+// 使 write / edit / apply_patch 走同一套字节规范化；返回值就是实际写盘字节。
+func normalizeFinalBytes(before, final []byte) []byte {
+	final = preserveWriteBOM(before, final)
+	return normalizeWriteEOL(before, final)
+}
 
 // ---- write ----
 
@@ -56,10 +129,13 @@ func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 		return "", err
 	}
 	after := []byte(args.Content)
+	// #35：空操作判等要在补 BOM 之后做，否则「带 BOM 的既有文件 + 无 BOM 的同文内容」
+	// 会被误判为已存在而跳过写入，BOM 永远补不回来。
+	afterWithBOM := preserveWriteBOM(before, after)
 	// 重写相同的字节是空操作：跳过系统调用，使文件的
 	// modTime 保持不变（也避免不必要的监视器抖动）。
 	// 缺失或不可读的目标会落到普通的创建/写入流程。
-	if readErr == nil && bytes.Equal(before, after) {
+	if readErr == nil && bytes.Equal(before, afterWithBOM) {
 		return fmt.Sprintf("%s already contains the requested content; no write needed", args.Path), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -67,6 +143,9 @@ func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 	}
 	result := fmt.Sprintf("wrote %d bytes to %s", len(after), args.Path)
 	final, result := t.formatOutput(path, before, after, result)
+	// #34/#35：仅对最终落盘字节做 BOM 保留 + EOL 规范化，
+	// 格式化钩子/差异摘要仍看到模型原始内容，逐字节契约不变。
+	final = normalizeFinalBytes(before, final)
 	// 写入前 Go 语法劣化检查（opt-in ARGENT_PARSE_REGRESSION_GUARD，默认关闭）。
 	if err := checkParseRegression(path, before, final); err != nil {
 		return "", err
@@ -201,7 +280,10 @@ func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 		count := strings.Count(text, args.Old)
 		switch count {
 		case 0:
-			return "", fmt.Errorf("edit: old text not found in %s", args.Path)
+			// #39：只改错误文案，匹配/替换语义不变。当 old 与文件存在
+			// 非空的最长公共前缀时，指出首个分歧行的行号与原文摘录。
+			// 完全无公共前缀时 suffix 为空，保留原有逐字节错误契约。
+			return "", fmt.Errorf("edit: old text not found in %s%s", args.Path, firstDivergentHint(text, args.Old))
 		case 1:
 			out = strings.Replace(text, args.Old, args.New, 1)
 		default:
@@ -212,6 +294,9 @@ func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 	}
 
 	final, result := t.formatOutput(path, args.Path, data, []byte(out))
+	// #34/#35：edit 同样按 before（data）检测到 EOL 规范化最终字节，
+	// 使 CRLF 文件不会因为插入 LF 文本而变成混合行尾。
+	final = normalizeFinalBytes(data, final)
 	// 写入前 Go 语法劣化检查（opt-in ARGENT_PARSE_REGRESSION_GUARD，默认关闭）。
 	if err := checkParseRegression(path, data, final); err != nil {
 		return "", err
@@ -769,10 +854,107 @@ func formatSimilarLines(content, sample string) string {
 	return "most similar lines: " + strings.Join(quoted, " | ")
 }
 
+const maxDivergentExcerptRunes = 160
+
+// firstDivergentHint 在 old 完全未命中时返回一个诊断后缀：
+// "; first divergent line N: <excerpt>"。
+//
+// 定位方式复用 similarLines（formatSimilarLines 的候选窗口）来缩小搜索范围，
+// 再在候选行处按 rune 求 old 与文件的「最长匹配前缀」，分歧点即前缀末端。
+// 只有存在非空公共前缀时才产出后缀——完全无关的 old 沿用原有错误文案，
+// 保持既有逐字节 goldens 不变；这也符合「首个分歧行」只在有共同起点时有意义。
+func firstDivergentHint(content, old string) string {
+	if old == "" || content == "" {
+		return ""
+	}
+	oldRunes := []rune(old)
+	if len(oldRunes) == 0 {
+		return ""
+	}
+
+	const maxCandidateOccurrences = 24
+	bestPrefix, bestOff := 0, -1
+	checked := 0
+	for _, candidate := range similarLines(content, old, 5) {
+		if candidate == "" {
+			continue
+		}
+		from := 0
+		for {
+			rel := strings.Index(content[from:], candidate)
+			if rel < 0 {
+				break
+			}
+			off := from + rel
+			checked++
+			if n := prefixRuneMatch(content, off, oldRunes); n > bestPrefix {
+				bestPrefix, bestOff = n, off
+			}
+			from = off + len(candidate)
+			if checked >= maxCandidateOccurrences {
+				break
+			}
+		}
+		if checked >= maxCandidateOccurrences {
+			break
+		}
+	}
+	if bestOff < 0 || bestPrefix == 0 {
+		return ""
+	}
+
+	// 前缀末端的字节偏移 = 起点前进 bestPrefix 个 rune。
+	divOff := bestOff
+	for k := 0; k < bestPrefix && divOff < len(content); k++ {
+		_, size := utf8.DecodeRuneInString(content[divOff:])
+		divOff += size
+	}
+	lineNo := 1 + strings.Count(content[:divOff], "\n")
+	lineStart := strings.LastIndex(content[:divOff], "\n") + 1
+	rest := content[divOff:]
+	lineEnd := len(content)
+	if idx := strings.IndexByte(rest, '\n'); idx >= 0 {
+		lineEnd = divOff + idx
+	}
+	line := strings.TrimSuffix(content[lineStart:lineEnd], "\r")
+	excerpt := clipHintRunes(line, maxDivergentExcerptRunes)
+	return fmt.Sprintf("; first divergent line %d: %s", lineNo, strconv.Quote(excerpt))
+}
+
+// prefixRuneMatch 返回 content[off:] 与 oldRunes 按 rune 比较的最长公共前缀长度。
+func prefixRuneMatch(content string, off int, oldRunes []rune) int {
+	n := 0
+	for pos := off; n < len(oldRunes) && pos < len(content); n++ {
+		r, size := utf8.DecodeRuneInString(content[pos:])
+		if r != oldRunes[n] {
+			break
+		}
+		pos += size
+	}
+	return n
+}
+
+// clipHintRunes 按 rune 安全截断诊断摘录，超限时以省略号收尾，
+// 保证返回串不超过 max 个 rune（CJK/emoji 不会被切坏）。
+func clipHintRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return string(r[:max-1]) + "…"
+}
+
 func editRepairError(content, old string) error {
 	msg := "edit repair failed: no unique match after 1 edit(s) attempted; file unchanged"
 	if s := formatSimilarLines(content, old); s != "" {
 		msg += "; " + s
+	}
+	// 与字面失配分支一致：能定位到公共前缀时也给出首条分歧行。
+	if s := firstDivergentHint(content, old); s != "" {
+		msg += s
 	}
 	return errors.New(msg)
 }
