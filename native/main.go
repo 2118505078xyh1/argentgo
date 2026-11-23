@@ -370,6 +370,19 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 		}
 		return filtered[i].title
 	}
+	// 真实会话列表为空时给出空状态引导，避免"接上引擎反而一片空白"。
+	// 仅在已取得真实列表（app.sessions != nil）且无匹配项时显示；demo 模式
+	// 的 fakeSessions 永远非空，不会触发，帧字节不变。
+	if app.sessions != nil && len(filtered) == 0 {
+		emptyText := tr("还没有会话，点右上角 ＋ 开始对话")
+		if q != "" {
+			emptyText = tr("没有匹配的会话")
+		}
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Padding(24, 12).Children(func() {
+			ui.Text(c, emptyText).FontSize(12).TextColor(p.dim)
+		})
+		return
+	}
 	ui.List(c, &app.sessionList, len(filtered), func(i int) {
 		s := filtered[i]
 		row := ui.Row(c).Padding(8, 10).Radius(8)
@@ -658,6 +671,23 @@ func (app *chat) configInfoLabel() string {
 	return info.model + " · " + info.workspace
 }
 
+// headerModel / headerWorkspace 返回顶栏显示的真实模型与工作区。
+// 尚未取得 config.info（demo 或未连接引擎）时回退到占位串，避免顶栏
+// 一边说"未连接"一边又展示一个假模型名；拿到真实值后顶栏立即反映。
+func (app *chat) headerModel() string {
+	if app.configInfo.model == "" {
+		return "gpt-4o-mini"
+	}
+	return app.configInfo.model
+}
+
+func (app *chat) headerWorkspace() string {
+	if app.configInfo.workspace == "" {
+		return "~/my-project"
+	}
+	return app.configInfo.workspace
+}
+
 // sessionGroup 按会话更新的日期分组，匹配
 // 今天/昨天/更早 groups of the demo rail.
 func sessionGroup(updated time.Time) string {
@@ -841,12 +871,12 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			BorderWidth(0, 0, 1, 0).BorderColor(p.borderSubtle).Children(func() {
 			ui.Column(c).Gap(2).Children(func() {
 				ui.Text(c, "argentgo").FontSize(15).Bold().TextColor(p.strong)
-				ui.Text(c, "~/my-project").FontSize(12).TextColor(p.dim)
+				ui.Text(c, app.headerWorkspace()).FontSize(12).TextColor(p.dim)
 			})
 			ui.Spacer(c)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, tr("模型")).FontSize(12).TextColor(p.dim)
-				ui.Text(c, "gpt-4o-mini").FontSize(13).TextColor(p.text).
+				ui.Text(c, app.headerModel()).FontSize(13).TextColor(p.text).
 					Padding(6, 10).Radius(999).Background(p.element)
 				if ui.Button(c, tr("撤销")).Clicked() {
 					app.undo()
