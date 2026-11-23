@@ -2,11 +2,25 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
 	"time"
 )
+
+// TestToolTimeoutSentinel 锁定 ErrToolTimeout 可被 errors.Is 匹配：
+// agent dispatch 边界用它包装超时，下游护栏/审计据此按语义路由而非匹配文案。
+func TestToolTimeoutSentinel(t *testing.T) {
+	wrapped := fmt.Errorf("bash: %w", ErrToolTimeout)
+	if !errors.Is(wrapped, ErrToolTimeout) {
+		t.Fatal("wrapped timeout must match ErrToolTimeout via errors.Is")
+	}
+	if errors.Is(errors.New("other"), ErrToolTimeout) {
+		t.Fatal("unrelated error must not match ErrToolTimeout")
+	}
+}
 
 func TestClampTimeout(t *testing.T) {
 	tests := []struct {

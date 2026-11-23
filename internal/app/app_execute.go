@@ -720,6 +720,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	compactor.chatter = res.Chatter
 	compactor.summaryModel = res.Options.SecondaryModel
 	compactor.emit = forwardEvent
+	// 前缀复用的工具表（默认开启）：把本次请求的工具表原样回放到压缩补全调用，
+	// 使辅助请求与上次请求共享 KV 缓存前缀。nil 时前缀复用退化为仅 system + 消息。
+	compactor.summaryTools = toolset.Specs()
 	flushAnswer := func() {
 		for _, event := range pendingTexts {
 			forwardEvent(event)

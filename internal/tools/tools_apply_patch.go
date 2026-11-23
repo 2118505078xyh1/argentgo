@@ -262,7 +262,10 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 		if err := checkParseRegression(w.abs, w.before, w.content); err != nil {
 			return "", fmt.Errorf("%w: %v", ErrApplyPatch, err)
 		}
-		if err := os.WriteFile(w.abs, w.content, 0o644); err != nil {
+		// 最终写入前统一 EOL/BOM 规范化（默认开启）：既有文件跟随检测到的行尾，
+		// 新建文件在 Windows 且不重复 BOM 时保持原字节；=0 时 normalizeFinalBytes
+		// 原样返回，逐字节不变。
+		if err := os.WriteFile(w.abs, normalizeFinalBytes(w.before, w.content), 0o644); err != nil {
 			return "", fmt.Errorf("%w: write %s: %v", ErrApplyPatch, w.display, err)
 		}
 	}
