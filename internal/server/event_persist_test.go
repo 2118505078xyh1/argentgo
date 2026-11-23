@@ -81,16 +81,11 @@ func TestSSELastEventIDReplaysFromDisk(t *testing.T) {
 		close(done)
 	}()
 
-	// 等待首屏出现足够多的 id: 行后取消。
-	waiting := 0
-	for waiting < 100 {
-		body := rec.Body.String()
-		if strings.Count(body, "id: ") >= 3 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-		waiting++
-	}
+	// 不能在 handler 写 rec.Body 的同时调用 rec.Body.String() 轮询——
+	// httptest.ResponseRecorder 内部是 bytes.Buffer，并发读写会被 race 检测器抓到。
+	// 改为等待一小段时间让 handler 回放历史事件，再取消并等待其退出，
+	// 之后才单次读取 Body。
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 	<-done
 
