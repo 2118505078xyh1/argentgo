@@ -79,12 +79,13 @@ const (
 // message 是 transcript 的一行。对工具，name/text/status 描述
 // 紧凑卡片；对助手消息，text 是 Markdown 源。
 type message struct {
-	id     int
-	kind   msgKind
-	text   string
-	name   string
-	status string // "running", "done" or "failed"
-	done   bool   // assistant reply finished streaming
+	id       int
+	kind     msgKind
+	text     string
+	name     string
+	status   string // "running", "done" or "failed"
+	done     bool   // assistant reply finished streaming
+	expanded bool   // tool card: show the full output instead of the summary
 }
 
 type approval struct {
@@ -865,6 +866,10 @@ func decodeSessionEventData(raw json.RawMessage) (sessionEventData, bool) {
 
 func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 	_ = t // theme colors already installed through c.SetTheme
+	// 在构建列表之前读取滚动位置（读到的是上一帧的布局结果）。
+	// 列表未布局时 Visible 返回 last=-1，避免首帧误显示按钮。
+	_, lastVisible := app.list.Visible()
+	showJump := lastVisible >= 0 && !app.list.AtEnd()
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
 		// 顶栏。
 		ui.Row(c).Height(64).Padding(10, 20).Gap(12).AlignItems(ui.Center).
@@ -909,6 +914,18 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 					ui.Text(c, tr("问点什么，或者输入 / 看命令。")).FontSize(14).TextColor(p.dim)
 					ui.Text(c, tr("首次使用请在终端运行 argentgo login 配置模型凭据。")).
 						FontSize(12).TextColor(p.dim)
+					// 示例 prompt：点一下即种入输入框，用户零选择即可上手。
+					ui.Text(c, tr("试试这样问：")).FontSize(12).Bold().TextColor(p.dim)
+					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
+						for _, prompt := range examplePrompts {
+							s := prompt
+							if ui.Button(c, tr(s)).Padding(6, 12).Clicked() {
+								app.draft = s + " "
+							}
+						}
+					})
+					// 命令面板由另一代理负责；这里保留“输入 / 看命令”引导
+					// 文案与快捷动作钩子，点击只种入草稿，不打开面板。
 					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
 						for _, action := range quickActions {
 							a := action
@@ -938,6 +955,13 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			ui.Box(c).Size(6, 6).Radius(3).Background(dot)
 			ui.Text(c, app.status).FontSize(12).TextColor(p.dim)
 			ui.Spacer(c)
+			// 向上滚动离开末尾后给出可见的“跳到最新”操作。
+			if showJump {
+				if ui.Button(c, tr("↓ 跳到最新")).Padding(3, 10).Radius(999).
+					Background(p.accentBG).TextColor(p.accent).FontSize(11).Clicked() {
+					app.list.ScrollToEnd()
+				}
+			}
 			ui.Text(c, app.configInfoLabel()).FontSize(11).TextColor(p.dim)
 		})
 
@@ -1000,7 +1024,26 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 	})
 }
 
-// message 构建一条 transcript 行：右对齐的用户气泡、紧凑
+// messageActions 渲染消息行底部的轻量操作条：复制原文、重发该回合。
+// 操作项是行内兄弟元素，点击它们不会触发外层可点击的工具卡片。
+func (app *chat) messageActions(c *ui.Context, m *message, p palette, end bool) {
+	actions := ui.Row(c).Gap(10)
+	if end {
+		actions.Justify(ui.End)
+	}
+	actions.Children(func() {
+		if ui.Button(c, tr("复制")).Padding(3, 8).Radius(6).FontSize(11).
+			Background(ui.Transparent).TextColor(p.dim).Clicked() {
+			app.copyText(m.text, tr("已复制消息"))
+		}
+		if ui.Button(c, tr("重试")).Padding(3, 8).Radius(6).FontSize(11).
+			Background(ui.Transparent).TextColor(p.dim).Clicked() {
+			app.retryMessage(m)
+		}
+	})
+}
+
+// message 构建一条 transcript 行：右对齐的用户气泡、可展开的
 // 工具卡片带状态字形，或助手 Markdown 视图。
 func (app *chat) message(c *ui.Context, m *message, p palette) {
 	switch m.kind {
@@ -1010,7 +1053,9 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 			ui.Column(c).MaxWidth(520).Radius(14).Background(p.surface).
 				Padding(10, 14).Gap(4).Children(func() {
 				ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.dim)
-				ui.Text(c, m.text).TextColor(p.text).Selectable()
+				// 用户消息也走 Markdown：多行代码/日志在气泡里同样被格式化。
+				markdown.View(c, m.text, &app.md)
+				app.messageActions(c, m, p, true)
 			})
 		})
 	case msgTool:
@@ -1021,17 +1066,44 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 		case "failed":
 			glyph, color = "✗", p.danger
 		}
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(8, 12).Radius(8).
-			Background(p.element).Children(func() {
-			ui.Text(c, glyph).Bold().TextColor(color)
-			ui.Text(c, m.name).FontSize(12).Bold().TextColor(p.text)
-			ui.Text(c, m.text).FontSize(12).TextColor(p.dim).SingleLine()
+		// 卡片整体是一个可变状态：点击标题行切换 m.expanded，下一帧
+		// 依据它重建视图。折叠态只显示有界摘要，展开态显示完整输出。
+		ui.Column(c).Radius(8).Background(p.element).Children(func() {
+			chevron := "▸"
+			if m.expanded {
+				chevron = "▾"
+			}
+			header := ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 12).Children(func() {
+				ui.Text(c, chevron).FontSize(10).TextColor(p.dim)
+				ui.Text(c, glyph).Bold().TextColor(color)
+				ui.Text(c, m.name).FontSize(12).Bold().TextColor(p.text)
+				ui.Text(c, toolCardSummary(m)).FontSize(12).TextColor(p.dim).SingleLine()
+			})
+			if header.Clicked() {
+				m.expanded = !m.expanded
+			}
+			if m.expanded {
+				ui.Column(c).Padding(0, 12, 10, 30).Gap(6).Children(func() {
+					out := m.text
+					if strings.TrimSpace(out) == "" {
+						out = tr("(无输出)")
+					}
+					// 完整输出含 stderr/diff，用等宽字体保留对齐并允许选中复制。
+					ui.Text(c, out).FontSize(11).Font("Consolas").
+						TextColor(p.text).Selectable().Wrap()
+					if ui.Button(c, tr("复制输出")).Padding(3, 8).Radius(6).FontSize(11).
+						Background(ui.Transparent).TextColor(p.dim).Clicked() {
+						app.copyText(m.text, tr("已复制工具输出"))
+					}
+				})
+			}
 		})
 	default:
 		ui.Column(c).MaxWidth(720).Gap(4).Children(func() {
 			ui.Text(c, "argentgo").FontSize(11).Bold().TextColor(p.dim)
 			if m.done {
 				markdown.View(c, m.text, &app.md)
+				app.messageActions(c, m, p, false)
 			} else {
 				markdown.Stream(c, m.text, &app.md)
 			}
@@ -1318,13 +1390,15 @@ func (app *chat) upsertTool(id, name, detail, status string) {
 			m.name = name
 		}
 		if detail != "" {
-			m.text = clipToolText(detail, 80)
+			// 保存完整输出；折叠摘要在渲染时由 toolCardSummary 有界截取，
+			// 展开后仍能看到 stderr/diff 全文。
+			m.text = detail
 		}
 		m.status = status
 		return
 	}
 	app.next++
-	m := &message{id: app.next, kind: msgTool, name: name, text: clipToolText(detail, 80), status: status}
+	m := &message{id: app.next, kind: msgTool, name: name, text: detail, status: status}
 	app.tools[id] = m
 	app.messages = append(app.messages, m)
 }
