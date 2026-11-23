@@ -40,6 +40,28 @@ func (s *Session) Messages() []Entry {
 			latest = i
 		}
 	}
+
+	// foveated 多保真归档视图（opt-in，TODO #134）：必须在压缩分支之前接线。
+	// 压缩分支会把 head 截到 compaction.Keep 条，旧端已经丢失，无法实现"两端高保真"；
+	// 这里直接用全量 path 重建条目再做多保真投影，并保留压缩摘要作为开头的 system 消息。
+	// 关闭时本分支完全不进入，下方压缩/非压缩路径逐字节不变。
+	if foveatedArchiveEnabled() {
+		budget, _ := budgetProjectionBudget()
+		all := messageEntries(path)
+		archived := foveatedArchive(all, budget)
+		if latest >= 0 {
+			var compaction Compaction
+			if err := json.Unmarshal(path[latest].Data, &compaction); err == nil {
+				summary := Entry{
+					ID: path[latest].ID, Parent: path[latest].Parent, Role: "system",
+					Content: compaction.Summary, TS: path[latest].TS, Data: path[latest].Data,
+				}
+				archived = append([]Entry{summary}, archived...)
+			}
+		}
+		return SettleOrphanToolCalls(archived, SettleInterrupted)
+	}
+
 	if latest >= 0 {
 		var compaction Compaction
 		if err := json.Unmarshal(path[latest].Data, &compaction); err == nil {

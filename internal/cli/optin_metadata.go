@@ -46,6 +46,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "summary_schema", Env: "ARGENT_SUMMARY_SCHEMA", Name: "压缩摘要固定 schema", Enable: "=1", Desc: "摘要产出后按固定顺序补齐 Goal/State/Next/Files 小节。"},
 	{Key: "budget_projection", Env: "ARGENT_BUDGET_PROJECTION", Name: "消息预算投影", Enable: "=1", Desc: "Messages 前按 rune 预算投影，保护最新用户输入与未配对的活尾工具调用。"},
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},
+	{Key: "foveated_archive", Env: "ARGENT_FOVEATED_ARCHIVE", Name: "foveated 多保真归档", Enable: "=1", Desc: "Messages 读路径改用两端逐字保真、中段按预算稀疏并插入可解析 gap 标记的纯文本多保真视图（TODO #134 第一步）；切点落在工具配对单元边界、保留压缩摘要，零 wire 变化。关闭时逐字节不变。"},
 	{Key: "recovery_replay", Env: "ARGENT_RECOVERY_REPLAY", Name: "恢复重放后缀", Enable: "=1", Desc: "恢复路径上追加重放后缀。"},
 	{Key: "recovery_detail", Env: "ARGENT_RECOVERY_DETAIL", Name: "恢复细节后缀", Enable: "=1", Desc: "恢复路径上把一次性分类得到的 RecoveryPlan 细节（类别/断链/孤儿调用/孤儿结果）作为文本后缀追加到公告；关闭时公告逐字节不变。"},
 	{Key: "checkpoint_guard", Env: "ARGENT_CHECKPOINT_GUARD", Name: "checkout 还原目标守卫", Enable: "=1", Desc: "sessions checkout 时对转录目标做只读校验，拒绝逃逸或已消失的目标；关闭时 checkout 逐字节不变。"},

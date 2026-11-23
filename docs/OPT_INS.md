@@ -502,6 +502,15 @@ argentgo "你的任务"
 - **适用场景**：工具会产生超长输出、希望在进入预算投影前先缩短结果时。
 - **逐字节不变承诺**：关闭时不执行 `PruneToolResults`，直接走原有的投影/配对路径，消息流逐字节不变。
 
+### `ARGENT_FOVEATED_ARCHIVE` —— foveated 多保真归档（纯文本版）
+
+- **作用**：`Messages()` 的读路径改用多保真视图（TODO #134 第一步，学自 oh-my-pi 的 `planArchive`）：两端保留逐字不变的高保真消息，中段按预算从较新往较旧保留少量稀疏消息（角色 + 单行摘要，保留 ID/ToolCallID/Data），最旧的中段被丢弃并在头段与稀疏段之间插入一个可解析的 `system` gap 标记 `[… N messages omitted …]`（N 为消息条数，非 rune）。
+- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。预算复用 `ARGENT_BUDGET_PROJECTION_BUDGET`（缺省 32000 rune）。
+- **配对安全**：稀疏与 gap 的切点都落在 `buildProjectionPlan` 的"配对单元"边界——assistant 的工具调用与其结果同留同弃，绝不把 gap 插在调用与结果之间造成非法消息序列。
+- **压缩会话**：接线在 `Messages()` 的压缩分支之前，基于活动路径的**全量消息**重建视图（压缩分支会先把 head 截到 `compaction.Keep`，旧端已丢失），并保留最新压缩摘要作为开头的 `system` 消息。
+- **零 wire 变化**：不新增记录种类、不落盘、不改 `llm.Message` 结构；纯文本版不涉及位图帧与读者能力回放（第二步）。
+- **逐字节不变承诺**：关闭时本分支完全不进入，`Messages()` 原有的压缩/非压缩路径逐字节不变。
+
 ### `ARGENT_IMAGE_INPUT` —— 图像输入
 
 - **作用**：从用户原文（不是注入的 review/context 前缀）扫描 `@图片路径` 引用，读取工作区内合法的图片文件并构造 `llm.ImageInput` 列表（原语 `internal/llm/image_input_wire.go` 的 `ImageInputsFromPrompt(prompt, root, maxBytes)`），经 `agent.Options.InitialImages` 注入首条用户消息。首条消息由 `llm.BuildImageMessage` 构造为带图像 part 的 content 数组；无图时保持裸文本。
@@ -604,6 +613,7 @@ argentgo "你的任务"
 | `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；原值精确 `=1`（不修剪空白）。 |
 | `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
 | `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
+| `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
 | `ARGENT_IMAGE_INPUT` | 图像输入：从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；仅 `=1` 开启，关闭时逐字节不变。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。

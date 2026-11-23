@@ -133,13 +133,6 @@
 - **建议**：opt-in `ByteDecoder` 包住每个 `proc.Run` 的 stdout/stderr：UTF-8 合法直通，遇完整非法序列经 `syscall.NewLazyDLL("kernel32.dll")` 调 `MultiByteToWideChar` 并锁存 ACP 到 EOF；capture 按行判定避免污染相邻行；保留现有 `trimIncompleteRuneTail/Head` 边界语义。
 - **验收**：`internal/proc/acp_decode_windows_test.go`：模拟 CP936 字节流解码成正确中文；合法 UTF-8 路径不产生额外开销；`GOOS=linux go build ./...` 仍绿；`go test ./internal/proc -count=1`。
 
-### 134. foveated 多保真压缩归档（纯文本版起步）`[P2/L]`（学自 oh-my-pi）
-- **竞品证据**：`oh-my-pi/packages/snapcompact/src/snapcompact.ts:2136-2220` 的 `planArchive`：两端高保真（`:2154-2156`）、中段成框（`:2195-2214`）、超预算丢最旧 dense（`:2207-2212`）；按读者能力回放 `:2258-2298`；三层预算 `:519-544`。
-- **argentgo 现状**：已有 opt-in 无损磁盘归档（`internal/session/compact.go:907-988`），但只生成一段「可恢复说明」（`:1085-1097`），不回灌上下文；压缩视图固定为单条 system summary（`session_message.go:131-138`）。
-- **问题**：超长会话被压成一段摘要后丢失大量细节；全量归档模型读不动，用户没有分层回放出口。
-- **建议**：分两步：第一步只做纯文本版（两端高保真 + 中段稀疏化 + 显式 gap 标记），复用现有 `session.Project`/`PruneToolResults`，零 wire 变化；第二步才用 `image/png` + 内嵌位图字体生成 frame 并按需回放（L 级，可长期排期）。
-- **验收**：`internal/session/foveated_archive_test.go`：1000 条消息的归档视图两端逐字保留、中段按预算稀疏、gap 标记可解析；关闭 opt-in 时 `Messages()` 逐字节不变；`go test ./internal/session -count=1`。
-
 ---
 
 ## 附：优先处理建议
@@ -149,6 +142,6 @@
 1. **第一优先（真 bug / 安全绕过）**：已全部完成——#101（apply_patch 策略绕过）、#102（畸形参数以 `{}` 执行）、#103（带图消息 token 估算为 0）连同原清单 P0（#1/#15/#39/#74/#75/#76/#77/#94）均已落地，默认路径逐字节不变。
 2. **第二优先（hook 表达力与压缩事件接线）**：#108/#109/#110/#112/#123 已全部落地（allow 预审批章、updatedInput/Output 改写、PreCompact/PostCompact 事件、事件日志/SSE 续传、todo 入摘要）。
 3. **第三优先（小而实的体验/正确性）**：#107/#113/#116/#117/#118/#124/#125 已全部落地（patch context 锚定、生成文件保护、data URL 裁剪、grep per-file、MCP annotations 审批、read-before-write、分支摘要）。
-4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry），以及 #134（foveated 归档）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审（#112 已落地）。
+4. **架构级改造单独排期**：#104（实测锚点计量）、#105（后台预压缩）、#106（重试省略+退避）、#120（统一 exec）、#128（telemetry）属于 L/M-L 级，需要与现有会话/agent 热路径的逐字节基线一起评审（#112 已落地）。#134（foveated 归档纯文本版第一步）已落地：opt-in `ARGENT_FOVEATED_ARCHIVE` 基于配对单元做两端保真 + 中段稀疏 + 可解析 gap，零 wire 变化。
 5. **发版门禁**：#74~#93 与 #135 均已落地（版本/文档/CI/脚本一致性、行数锚点机器校验、fuzz workflow、产物自报版本校验、离线 model-quality 评测、体积/启动门禁）。
 6. **验证方式**：每条的「验收」栏都给了可执行命令；涉及默认路径的改动一律先跑 `gofmt -l .`、`go vet ./...`、`go test -p 4 ./... -count=1` 与逐字节 golden，再跑发版门禁 `-race`/`GOOS=linux go build ./...`。
