@@ -39,6 +39,29 @@ const hardcodedUsagePrefix = "usage: argentgo"
 // hardcodedBaseline 是引入守卫时已存在的英文硬编码字面量（去重后 201 条）。
 // 只按字面量登记、不绑定文件，避免目录重构造成无意义的失败。
 var hardcodedBaseline = []string{
+	// 第三轮竞品优化新增的 CLI 诊断/状态消息。
+	"--max-prompt-tokens must be >= 0, got %d",
+	"all argent:// references valid",
+	"argent:// links: %d refs in %d markdown files\n",
+	"argentgo: discovered %d models from %s\n",
+	"argentgo: docs index round-trip failed",
+	"argentgo: docs show needs a name",
+	"argentgo: inbox add needs text",
+	"argentgo: inbox cancel needs an id",
+	"argentgo: inbox steer needs an id",
+	"argentgo: model catalog not modified",
+	"argentgo: timeline needs a subcommand and a file",
+	"argentgo: unknown docs subcommand %q\n",
+	"argentgo: unknown inbox command %q\n",
+	"argentgo: unknown timeline subcommand %q\n",
+	"cleaned %d expired/overflow items\n",
+	"decode json transcript: %w",
+	"docs index: %d files, %d bytes\n",
+	"found %d invalid and %d unregistered references:\n",
+	"inbox: empty",
+	"registered schemes: %s\n",
+	"resize: %dx%d\n",
+	"version=%d cols=%d rows=%d encoding=%s events=%d\n",
 	// R57+ 新增的命令行诊断/状态消息（新增文件时尚未纳入初始基线）。
 	"argentgo: --format needs json or text",
 	"argentgo: --hide and --text are mutually exclusive",
