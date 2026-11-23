@@ -38,6 +38,19 @@ func mcpHealthEnabled(getenv func(string) string) bool {
 	return strings.TrimSpace(getenv(mcp.MCPHealthEnv)) == "1"
 }
 
+// mcpGatewayEnabled 报告是否开启单网关模式（ARGENT_MCP_GATEWAY=1）。
+// 仅首尾空白修剪后等于真值才开启；默认关闭时所有既有 MCP 接线逐字节不变。
+func mcpGatewayEnabled(getenv func(string) string) bool {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv("ARGENT_MCP_GATEWAY"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 // mcpBinding 是一个被发现的 MCP 工具以及服务它的客户端。
 type mcpBinding struct {
 	client mcp.Client
@@ -85,6 +98,24 @@ type toolset struct {
 	healthFile string
 	// healthTracked 记录已 Track 的服务名，Close 时逐一 Untrack 后再落盘。
 	healthTracked []string
+
+	// 以下字段仅 opt-in 网关模式（ARGENT_MCP_GATEWAY=1）使用：
+	// gateway 为 true 时 Specs() 只公布一个固定的 mcp 网关工具，MCP 服务首次
+	// 调用时才连接，工具发现结果作为文本返回，工具列表全程不变（缓存前缀稳定）。
+	gateway        bool
+	gatewayServers []mcp.Spec
+	// gatewayCatalog 缓存每个已连接服务的工具目录与客户端。受 mcpMu 保护。
+	gatewayCatalog map[string]*gatewayServer
+	// gatewayRes 保存策略重建所需的运行配置（policyFor），仅网关模式使用。
+	gatewayRes Resolved
+	// gatewayAnnotationApproval 是 destructive 工具强制审批开关，在装配时求值一次。
+	gatewayAnnotationApproval bool
+}
+
+// gatewayServer 是一个已连接 MCP 服务的工具目录。
+type gatewayServer struct {
+	client mcp.Client
+	tools  []mcp.Tool
 }
 
 // multiRootTools 把内置工具调用分发到每个写入根目录对应的注册表。第一个注册表是工作区本身；
@@ -285,6 +316,12 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		usage:        usage,
 		sandbox:      res.Sandbox,
 		skillShellOn: skillShellEnabled(res.Cfg.Raw, os.Getenv),
+		gateway:      mcpGatewayEnabled(stdio.Env),
+	}
+	if set.gateway {
+		set.gatewayCatalog = make(map[string]*gatewayServer)
+		set.gatewayRes = res
+		set.gatewayAnnotationApproval = mcpAnnotationApprovalEnabled(stdio.Env)
 	}
 	// opt-in 默认关闭：未开启时 health 保持 nil，connect 不设置 Spec.HealthTracking，
 	// mcp 客户端不分配 HealthTracker，discoverTools 的观测路径零执行。
@@ -304,7 +341,11 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 
 	// 用户配置受用户掌控，因此始终可用。
 	for _, spec := range mcpSpecsFromConfig(res.Cfg.Raw["mcpServers"]) {
-		set.connect(ctx, stdio, spec)
+		if set.gateway {
+			set.gatewayServers = append(set.gatewayServers, spec) // 登记，首次使用时才连接
+		} else {
+			set.connect(ctx, stdio, spec)
+		}
 	}
 
 	var userBundles, projectBundles []plugins.Bundle
@@ -322,7 +363,11 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 
 	// 项目本地的 MCP 服务与项目插件一样，只在受信任的工作区中加载。
 	for _, spec := range projectMCPServers(res.Root) {
-		set.connect(ctx, stdio, spec)
+		if set.gateway {
+			set.gatewayServers = append(set.gatewayServers, spec)
+		} else {
+			set.connect(ctx, stdio, spec)
+		}
 	}
 	set.wirePlugins(ctx, stdio, projectBundles, res.Plugins)
 	return set
@@ -561,6 +606,11 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 // 告知目录变化后，下一次指向新工具的调用会先走这里，使新工具无需重启即可用。
 // 单台服务器发现失败时保留它的旧绑定，避免整个工具集因一台故障服务器而清空。
 func (t *toolset) RefreshTools(ctx context.Context) {
+	// 网关模式：工具列表恒定，list_changed 只影响下次发现的目录缓存，
+	// 绝不重建 spec 列表（killi 的缓存前缀不变量）。
+	if t.gateway {
+		return
+	}
 	t.mcpMu.Lock()
 	defer t.mcpMu.Unlock()
 
@@ -628,6 +678,12 @@ func (t *toolset) Specs() []llm.ToolSpec {
 	t.mcpMu.RLock()
 	defer t.mcpMu.RUnlock()
 	specs := t.base.Specs()
+	if t.gateway {
+		// 网关模式：只公布一个固定的 mcp 工具，其 schema 与已配置服务名列表
+		// 在会话开始时固定（来自登记的 spec），工具发现结果走文本通道，
+		// 因此 Specs() 字节在整个会话中恒定（缓存前缀稳定，killi 决策 11）。
+		return append(specs, mcpGatewaySpec(t.gatewayServers))
+	}
 	for _, binding := range t.mcp {
 		specs = append(specs, binding.spec)
 	}
@@ -644,6 +700,9 @@ func (t *toolset) Specs() []llm.ToolSpec {
 
 // Run 把调用路由到 MCP、use_skill 或内置注册表。
 func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
+	if t.gateway && name == mcpGatewayToolName {
+		return t.runMCPGateway(ctx, args)
+	}
 	binding := t.findMCP(name)
 	// opt-in 默认关闭：未开启 list_changed 跟踪时完全不走刷新路径。开启后，
 	// 指向“当前绑定里不存在”的工具的调用先重新发现一次并重建绑定，再查一遍，

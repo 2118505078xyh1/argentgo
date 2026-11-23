@@ -713,7 +713,19 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			// 精简目录（默认自动启用，用户零配置）：只公布核心工具 + tool_search，
 			// 其余工具由模型自己经 tool_search 按需发现。仅在显式设置调试逃生舱
 			// ARGENT_FULL_TOOLS 时原样返回全部。
-			return tools.LazyFilterSpecs(visible)
+			visible = tools.LazyFilterSpecs(visible)
+			// 网关模式（opt-in）：mcp 不在 lazy 核心集里会被过滤掉，但它是唯一的
+			// MCP 入口，必须始终公布。每个工具 spec 本身从 toolset.Specs() 里
+			// 取出（它与会话开始时的固定 schema 逐字节一致），避免在此重建。
+			if toolset.gateway {
+				for _, spec := range visible {
+					if spec.Function.Name == mcpGatewayToolName {
+						return visible
+					}
+				}
+				visible = append(visible, mcpGatewaySpec(toolset.gatewayServers))
+			}
+			return visible
 		},
 		Approve: approver,
 		Record:  agent.RecorderFunc(sess.Append),
