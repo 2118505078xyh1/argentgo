@@ -15,8 +15,36 @@ import (
 // 共用同一个实例（TODO #28）。零值可用；并发安全由 agent.SessionStatusRegistry 保证。
 var sessionStatusRegistry agent.SessionStatusRegistry
 
-// 编译期断言：会话存储适配器实现 server 的可选状态读取端。
-var _ server.SessionStatusStore = (*sessionStore)(nil)
+// 编译期断言：会话存储适配器实现 server 的可选状态读取端与会话 CRUD 端。
+var (
+	_ server.SessionStatusStore = (*sessionStore)(nil)
+	_ server.SessionCreateStore = (*sessionStore)(nil)
+	_ server.SessionRenameStore = (*sessionStore)(nil)
+	_ server.SessionDeleteStore = (*sessionStore)(nil)
+)
+
+// NewSession 实现 server.SessionCreateStore：立即在存储目录创建只含 header 的
+// 会话并返回 id，使 GUI/TUI 的"新建"能拿到可激活的真实会话而非仅清屏。
+func (s *sessionStore) NewSession(title string) (string, error) {
+	store, err := session.Open(s.dir)
+	if err != nil {
+		return "", err
+	}
+	sess, err := store.NewSession(title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID(), nil
+}
+
+// RenameSession 实现 server.SessionRenameStore：追加一条标题覆盖记录。
+func (s *sessionStore) RenameSession(id, title string) error {
+	sess, err := session.OpenSession(s.dir, id)
+	if err != nil {
+		return err
+	}
+	return sess.SetTitle(title)
+}
 
 // openOrCreateSession 实现 --session/--resume：显式的 id 或会话文件会被重新打开，
 // --resume 选择最新的已存储会话，只有普通运行才会创建新会话。返回的句柄会被原地追加。
