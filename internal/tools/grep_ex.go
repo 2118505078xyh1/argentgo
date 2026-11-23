@@ -1,19 +1,21 @@
 package tools
 
 import (
+	"bytes"
+	"context"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // 本文件提供一个"深度检索"原语 GrepEx 及其摘要格式化函数。
-// 它刻意与具体工具接线解耦：不访问 context、不依赖 workspace 根、
-// 不注册到工具注册表，默认关闭，由调用方按需接入。
-// 所有 API 都是纯函数式的：不修改调用方传入的参数，输出稳定可排序。
+// 检索走共享的流式扫描器与并行目录遍历：小文件单次读、大文件分块、
+// 超长行跳过、二进制前置检测，返回结构化截断信号供工具层生成提示。
 
 const (
 	// grepExDefaultHeadLimit 是 HeadLimit <= 0 时采用的默认上限，
@@ -39,6 +41,16 @@ type GrepExOptions struct {
 	Literal       bool   // 为真时用 strings.Contains，否则用 regexp
 	HeadLimit     int    // 匹配总数上限；<=0 时取 grepExDefaultHeadLimit
 	MaxPerFile    int    // 单个文件的匹配上限；>0 时某文件达到该数即停止扫描该文件，但继续遍历其它文件
+
+	// RelRoot 非空时作为相对路径的基准（grep 工具传工作区根）；
+	// 为空时回退到 Path，保持既有调用方的路径语义不变。
+	RelRoot string
+	// Ctx 非空时用于并行遍历的取消；为空时用 context.Background()。
+	Ctx context.Context
+	// TrimText 为真时对文本做 strings.TrimSpace（普通 grep 的历史行为）。
+	TrimText bool
+	// MaxColumns 为单行输出列（rune）上限；<=0 时用 searchScanMaxColumns。
+	MaxColumns int
 }
 
 // GrepExMatch 表示一处匹配及其上下文。
@@ -51,26 +63,51 @@ type GrepExMatch struct {
 	After  []string
 }
 
-// GrepEx 按 opts 在 Path 下逐行检索文件，返回匹配列表与每个文件的匹配计数。
+// GrepEx 是 GrepExWithOutcome 的兼容包装：丢弃截断信号，返回三元组。
+//
+// 为保持历史调用方的契约，这里仍对明显非法的正则直接报错；工具层
+// （grep / grep_ex）走 GrepExWithOutcome，享受消毒 + 括号转义 + 字面量
+// 兜底的容错编译链。这样既有 golden 与容错能力可以同时成立。
+func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, err error) {
+	if !opts.Literal {
+		src := opts.Pattern
+		if !opts.CaseSensitive {
+			src = "(?i)" + src
+		}
+		if _, compileErr := regexp.Compile(src); compileErr != nil {
+			return nil, nil, fmt.Errorf("grep_ex: 非法模式 %q: %w", opts.Pattern, compileErr)
+		}
+	}
+	matches, files, _, err = GrepExWithOutcome(opts)
+	return matches, files, err
+}
+
+// GrepExWithOutcome 按 opts 在 Path 下逐行检索文件，返回匹配列表、
+// 每个文件的匹配计数，以及结构化截断信号。
 //
 // 语义要点：
-//   - 遍历复用包内的 walkFiles，自动跳过 .git / node_modules 等嘈杂目录；
+//   - 遍历走并行 walkFiles，自动跳过 .git / node_modules 等嘈杂目录；
 //   - Include 非空时用包内 globMatch 对相对路径与文件名做过滤；
-//   - Literal 用 strings.Contains（不敏感时先 ToLower），否则用 regexp
-//     （不敏感时在表达式前加 "(?i)"）；
+//   - Literal 用字节包含（不敏感时先 ToLower），否则用容错正则编译链；
 //   - Context 同时决定前后行数，Before / After 为正数时分别覆盖；负值按 0 处理；
-//   - HeadLimit 钳制匹配总数，<=0 时取默认值 200；
-//   - 跳过含 NUL 的二进制文件；按 rune 处理，CJK 安全；
+//   - HeadLimit 钳制匹配总数，<=0 时取默认值 200；采用 limit+1 探测，
+//     多取的一条仅用于判定 truncated，不进入返回结果；
+//   - 小文件单次读入、大文件流式扫描；行超 64 MiB 跳过；列按 rune 截断；
 //   - 结果先按路径再按行号稳定排序；files 的计数与 matches 保持一致。
-//
-// 返回的 Path 是相对 opts.Path 的、以 '/' 分隔的路径；当 opts.Path 指向
-// 单个文件时，Path 为该文件的名字。
-func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, err error) {
+func GrepExWithOutcome(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, outcome searchOutcome, err error) {
 	files = make(map[string]int)
 
 	base := opts.Path
 	if strings.TrimSpace(base) == "" {
 		base = "."
+	}
+	ctx := opts.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	relRoot := opts.RelRoot
+	if relRoot == "" {
+		relRoot = base
 	}
 
 	before, after := opts.Context, opts.Context
@@ -91,6 +128,11 @@ func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, er
 	if limit <= 0 {
 		limit = grepExDefaultHeadLimit
 	}
+	probe := probeLimit(limit)
+	columns := opts.MaxColumns
+	if columns <= 0 {
+		columns = searchScanMaxColumns
+	}
 
 	// 预编译匹配器；literal 模式预先算好小写 needle，避免在每行重复计算。
 	var re *regexp.Regexp
@@ -102,31 +144,40 @@ func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, er
 		}
 	} else {
 		src := opts.Pattern
-		if !opts.CaseSensitive {
-			src = "(?i)" + src
-		}
-		re, err = regexp.Compile(src)
-		if err != nil {
-			return nil, nil, fmt.Errorf("grep_ex: 非法模式 %q: %w", opts.Pattern, err)
+		// compileSearchPattern 自己处理 (?i) 前缀与各种降级；
+		// 保留原语义：不敏感时在用户模式前加 (?i)。
+		var level regexFallback
+		var hint string
+		re, _, level, hint = compileSearchPattern(src, !opts.CaseSensitive)
+		if level != regexExact {
+			outcome.RegexHint = strings.TrimSuffix(hint, "。")
 		}
 	}
-	lineMatches := func(line string) bool {
+	lineMatches := func(line []byte) bool {
 		if opts.Literal {
 			if opts.CaseSensitive {
-				return strings.Contains(line, opts.Pattern)
+				return bytes.Contains(line, []byte(opts.Pattern))
 			}
-			return strings.Contains(strings.ToLower(line), needle)
+			// 不敏感模式必须同时小写被检索行；只小写 needle 会漏掉
+			// 原文里的大写（如 "Hello world" 对 needle "hello"）。
+			return strings.Contains(strings.ToLower(string(line)), needle)
 		}
-		return re.MatchString(line)
+		return re.Match(line)
+	}
+	toText := func(line []byte) string {
+		text := capLineRunes(string(line), columns)
+		if opts.TrimText {
+			text = strings.TrimSpace(text)
+		}
+		return text
 	}
 
-	walkFiles(base, func(file string) bool {
-		data, readErr := os.ReadFile(file)
-		if readErr != nil || strings.ContainsRune(string(data), 0) {
-			return true
-		}
+	var mu sync.Mutex
+	var stopped atomic.Bool
+	count := 0
 
-		rel, relErr := filepath.Rel(base, file)
+	walkFiles(ctx, base, func(file string) bool {
+		rel, relErr := filepath.Rel(relRoot, file)
 		if relErr != nil || rel == "." {
 			rel = filepath.Base(file)
 		}
@@ -137,53 +188,54 @@ func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, er
 			return true
 		}
 
-		lines := strings.Split(string(data), "\n")
-		if strings.HasSuffix(string(data), "\n") && len(lines) > 0 {
-			lines = lines[:len(lines)-1] // 去掉末尾换行产生的空行
-		}
-		for i := range lines {
-			lines[i] = strings.TrimSuffix(lines[i], "\r") // 归一 CRLF
-		}
+		lastIdx := -1
+		fileCount := 0
+		cb := newContextBuffer(before, after, func(kind byte, no int, text string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if stopped.Load() {
+				return
+			}
+			switch kind {
+			case contextMatch:
+				if count >= probe {
+					stopped.Store(true)
+					return
+				}
+				count++
+				matches = append(matches, GrepExMatch{Path: rel, Line: no, Text: text})
+				lastIdx = len(matches) - 1
+				fileCount++
+			case contextBefore:
+				if lastIdx >= 0 {
+					matches[lastIdx].Before = append(matches[lastIdx].Before, text)
+				}
+			case contextAfter:
+				if lastIdx >= 0 {
+					matches[lastIdx].After = append(matches[lastIdx].After, text)
+				}
+			}
+		})
 
-		for i, line := range lines {
-			if !lineMatches(line) {
-				continue
-			}
-			match := GrepExMatch{
-				Path: rel,
-				Line: i + 1,
-				Text: line,
-			}
-			// 前置上下文：左边界钳制到 0。
-			start := i - before
-			if start < 0 {
-				start = 0
-			}
-			if start < i {
-				match.Before = append([]string(nil), lines[start:i]...)
-			}
-			// 后置上下文：右边界钳制到 len(lines)-1。
-			end := i + after
-			if end >= len(lines) {
-				end = len(lines) - 1
-			}
-			if end > i {
-				match.After = append([]string(nil), lines[i+1:end+1]...)
-			}
-
-			matches = append(matches, match)
-			files[rel]++
-			if len(matches) >= limit {
+		scanSearchFileLines(file, func(line scanLine) bool {
+			matched := lineMatches(line.text)
+			cb.push(line.no, line.text, matched, toText)
+			if stopped.Load() || (opts.MaxPerFile > 0 && fileCount >= opts.MaxPerFile) || count >= probe {
 				return false
 			}
-			// 单文件上限：达到后停止扫描当前文件（break 出内层循环），
-			// 回调返回 true 让 walkFiles 继续遍历其它文件，保留文件多样性。
-			if opts.MaxPerFile > 0 && files[rel] >= opts.MaxPerFile {
-				break
-			}
-		}
-		return true
+			return true
+		})
+		return !stopped.Load()
 	})
+
+	outcome.Limit = limit
+	if ctx.Err() != nil {
+		outcome.TimedOut = true
+	}
+	if count > limit {
+		outcome.Truncated = true
+		matches = matches[:limit]
+	}
 
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].Path != matches[j].Path {
@@ -191,7 +243,11 @@ func GrepEx(opts GrepExOptions) (matches []GrepExMatch, files map[string]int, er
 		}
 		return matches[i].Line < matches[j].Line
 	})
-	return matches, files, nil
+	files = make(map[string]int, len(matches))
+	for _, m := range matches {
+		files[m.Path]++
+	}
+	return matches, files, outcome, nil
 }
 
 // GrepExSummary 把 GrepEx 的结果格式化为稳定的中文摘要。

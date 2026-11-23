@@ -61,9 +61,11 @@ func (t grepExTool) Run(ctx context.Context, root string, raw json.RawMessage) (
 		return "", err
 	}
 
-	matches, files, err := GrepEx(GrepExOptions{
+	matches, files, outcome, err := GrepExWithOutcome(GrepExOptions{
 		Pattern:       args.Pattern,
 		Path:          resolved,
+		RelRoot:       resolved,
+		Ctx:           ctx,
 		Context:       args.Context,
 		Before:        args.Before,
 		After:         args.After,
@@ -77,6 +79,7 @@ func (t grepExTool) Run(ctx context.Context, root string, raw json.RawMessage) (
 	}
 
 	text := formatGrepExOutput(matches, files, args.OutputMode)
+	text = appendSearchNote(text, outcome, ctx)
 	if out, handled := spillToolOutput(ctx, text); handled {
 		return out, nil
 	}

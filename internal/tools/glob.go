@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 // ---- glob ----
@@ -37,26 +39,45 @@ func (globTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err != nil {
 		return "", err
 	}
+
+	probe := probeLimit(maxMatches)
+	var mu sync.Mutex
+	var stopped atomic.Bool
 	var hits []string
-	walkFiles(base, func(file string) bool {
+	walkFiles(ctx, base, func(file string) bool {
+		if stopped.Load() {
+			return false
+		}
 		rel, relErr := filepath.Rel(root, file)
 		if relErr != nil {
 			rel = file
 		}
 		rel = filepath.ToSlash(rel)
 		if globMatch(pattern, rel) || globMatch(pattern, path.Base(rel)) {
-			hits = append(hits, rel)
-			if len(hits) >= maxMatches {
-				return false
+			mu.Lock()
+			if !stopped.Load() {
+				hits = append(hits, rel)
+				if len(hits) >= probe {
+					stopped.Store(true)
+				}
 			}
+			mu.Unlock()
 		}
-		return true
+		return !stopped.Load()
 	})
 	if len(hits) == 0 {
 		return fmt.Sprintf("no files match %q", pattern), nil
 	}
+	outcome := searchOutcome{Limit: maxMatches}.finalize(len(hits), maxMatches)
+	if ctx.Err() != nil {
+		outcome.TimedOut = true
+	}
+	if len(hits) > maxMatches {
+		hits = hits[:maxMatches]
+	}
 	sort.Strings(hits)
-	return clip(ctx, strings.Join(hits, "\n")), nil
+	out := appendSearchNote(strings.Join(hits, "\n"), outcome, ctx)
+	return clip(ctx, out), nil
 }
 
 // globMatch 用模式匹配以斜杠分隔的路径。"**" 段
