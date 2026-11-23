@@ -472,6 +472,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 未知值）解析为 ModeAsk，WrapForMode 原样返回 base，行为逐字节不变。
 		approver = security.WrapForMode(approver, security.ParseApprovalMode(res.Approval))
 	}
+	// 持久化审批规则（opt-in ARGENT_APPROVAL_PERSIST，默认关闭，TODO #127）：
+	// 在作用域审批器之上叠加跨会话的 always/deny 规则，落盘 <storage>/approvals.jsonl。
+	// scopeFor 传 nil → 作用域取工具名（只记工具名，不记自由文本参数）。
+	// 关闭时不构造该审批器，默认路径零文件 I/O、审批行为逐字节不变。
+	if approvalPersistEnabled(stdio.Env) {
+		approver = security.NewFileBackedScopedApprover(approver, res.Storage, nil)
+	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
