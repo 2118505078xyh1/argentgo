@@ -13,6 +13,23 @@ import (
 	"time"
 )
 
+// getCallback 对回调地址发起 GET。Wait 在独立 goroutine 中调用 server.Serve，
+// CI 慢机器上首个请求可能在它开始 Accept 之前到达而得到 EOF；短暂重试以容忍
+// 这一调度竞态。每次尝试都是幂等的 GET，至多重试 20 次（约 200ms）。
+func getCallback(url string) (*http.Response, error) {
+	const attempts = 20
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		resp, err := http.Get(url)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil, lastErr
+}
+
 func TestS256MatchesTheRFC7636Vector(t *testing.T) {
 	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	const challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -349,7 +366,7 @@ func TestCallbackChecksStateAndReturnsTheCode(t *testing.T) {
 		results <- outcome{code, err}
 	}()
 
-	response, err := http.Get(callback.URL() + "?code=abc&state=wrong")
+	response, err := getCallback(callback.URL() + "?code=abc&state=wrong")
 	if err != nil {
 		t.Fatalf("callback request: %v", err)
 	}
@@ -375,7 +392,7 @@ func TestCallbackChecksStateAndReturnsTheCode(t *testing.T) {
 		code, err := callback.Wait(context.Background(), "state-2")
 		results <- outcome{code, err}
 	}()
-	response, err = http.Get(callback.URL() + "?code=xyz&state=state-2")
+	response, err = getCallback(callback.URL() + "?code=xyz&state=state-2")
 	if err != nil {
 		t.Fatalf("callback request: %v", err)
 	}
@@ -422,7 +439,7 @@ func TestCallbackRejectsRedirectWithoutCode(t *testing.T) {
 				results <- outcome{code, err}
 			}()
 
-			response, err := http.Get(callback.URL() + test.query)
+			response, err := getCallback(callback.URL() + test.query)
 			if err != nil {
 				t.Fatalf("callback request: %v", err)
 			}
