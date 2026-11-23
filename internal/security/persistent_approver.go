@@ -48,14 +48,15 @@ type persistentGrant struct {
 // 既不兑现任何规则，也不再写入。它是纯 opt-in 构件，默认不会被任何人构造，
 // 因此默认路径零文件 I/O、行为逐字节不变。
 type FileBackedScopedApprover struct {
-	mu       sync.Mutex
-	inner    Approver
-	path     string
-	scopeFor func(name, args string) string
-	always   map[string]bool
-	deny     map[string]bool
-	failed   bool
-	issues   []PolicyIssue
+	mu        sync.Mutex
+	inner     Approver
+	path      string
+	scopeFor  func(name, args string) string
+	scopesFor func(name, args string) []string
+	always    map[string]bool
+	deny      map[string]bool
+	failed    bool
+	issues    []PolicyIssue
 }
 
 // NewFileBackedScopedApprover 包装 inner，并从 storageDir 加载已持久化的作用域规则。
@@ -78,6 +79,35 @@ func NewFileBackedScopedApprover(inner Approver, storageDir string, scopeFor fun
 	return f
 }
 
+// NewFileBackedScopedApproverHierarchical 与 NewFileBackedScopedApprover 相同，
+// 但用 scopesFor 为每次调用生成一组作用域（如 bash 的分层通配前缀）。命中任意
+// 已授予/已拒绝作用域即生效；放行/拒绝时把整组作用域一并落盘。scopesFor 返回
+// 空时回落到"工具名"单值，与旧构造器一致。
+func NewFileBackedScopedApproverHierarchical(inner Approver, storageDir string, scopesFor func(name, args string) []string) *FileBackedScopedApprover {
+	if inner == nil {
+		inner = NeverApprover{}
+	}
+	f := &FileBackedScopedApprover{
+		inner:     inner,
+		scopesFor: scopesFor,
+		always:    make(map[string]bool),
+		deny:      make(map[string]bool),
+	}
+	if storageDir != "" {
+		f.path = filepath.Join(storageDir, persistentApprovalsFile)
+	}
+	f.load()
+	return f
+}
+
+// InteractiveReply 把可交互性委托给 inner：包装器不改变回答来源（#23）。
+func (f *FileBackedScopedApprover) InteractiveReply() bool {
+	if f == nil {
+		return false
+	}
+	return approverAllowsInteractiveReply(f.inner)
+}
+
 // Ask 按 deny → always → inner 的顺序决策。inner 的回答经 ParseApproverResult
 // 归一化后才落到持久化层：放行记住作用域，无反馈的硬否决记为粘性 deny，
 // 带反馈的拒绝（FeedbackRefusal）不落盘——自由文本绝不写入规则文件，原样交回链处理。
@@ -85,7 +115,7 @@ func (f *FileBackedScopedApprover) Ask(ctx context.Context, name, args string) (
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	scope := f.scopeOf(name, args)
+	scopes := f.scopesOf(name, args)
 	f.mu.Lock()
 	if f.failed {
 		detail := ""
@@ -95,13 +125,20 @@ func (f *FileBackedScopedApprover) Ask(ctx context.Context, name, args string) (
 		f.mu.Unlock()
 		return false, fmt.Errorf("security: %s: %w%s", persistentApproverSymbol, errPersistentUntrusted, detail)
 	}
-	if f.deny[scope] {
-		f.mu.Unlock()
-		return false, nil
+	singleUse := singleUseFromContext(ctx)
+	for _, scope := range scopes {
+		if f.deny[scope] {
+			f.mu.Unlock()
+			return false, nil
+		}
 	}
-	if f.always[scope] {
-		f.mu.Unlock()
-		return true, nil
+	if !singleUse {
+		for _, scope := range scopes {
+			if f.always[scope] {
+				f.mu.Unlock()
+				return true, nil
+			}
+		}
 	}
 	f.mu.Unlock()
 
@@ -110,12 +147,19 @@ func (f *FileBackedScopedApprover) Ask(ctx context.Context, name, args string) (
 	switch persistentKindForFeedback(ans) {
 	case "always":
 		if err == nil {
-			f.GrantAlways(scope)
+			// 敏感调用（配置/说明文件编辑）的 always 只记一次性：不落盘、不进内存。
+			if !singleUse {
+				for _, scope := range scopes {
+					f.GrantAlways(scope)
+				}
+			}
 			return true, nil
 		}
 	case "deny":
 		if err == nil {
-			f.Deny(scope)
+			for _, scope := range scopes {
+				f.Deny(scope)
+			}
 			return false, nil
 		}
 	}
@@ -247,6 +291,27 @@ func (f *FileBackedScopedApprover) scopeOf(name, args string) string {
 		}
 	}
 	return cleanPersistentScope(name)
+}
+
+// scopesOf 计算本次调用的一组作用域。分层作用域优先（#27）；结果经清洗、
+// 去重并保持顺序，全空时回落到单值 scopeOf，与旧构造器行为一致。
+func (f *FileBackedScopedApprover) scopesOf(name, args string) []string {
+	if f.scopesFor != nil {
+		seen := make(map[string]bool)
+		out := make([]string, 0, 4)
+		for _, raw := range f.scopesFor(name, args) {
+			scope := cleanPersistentScope(raw)
+			if scope == "" || seen[scope] {
+				continue
+			}
+			seen[scope] = true
+			out = append(out, scope)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{f.scopeOf(name, args)}
 }
 
 // validPersistentGrant 校验一条记录是否可信：版本、类别、作用域都必须合法。

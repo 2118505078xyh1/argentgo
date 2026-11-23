@@ -235,13 +235,15 @@ func (p *Policy) Evaluate(name string, args json.RawMessage) Result {
 		}
 	}
 	if res, ok := p.ruleDecision(name, fields); ok {
-		return res
+		return narrowBroadReadSecret(name, fields, res)
 	}
 	if mutating, known := p.toolKinds[name]; known {
 		if mutating {
 			return Result{Ask, fmt.Sprintf("the mutating tool %q needs operator approval", name)}
 		}
-		return Result{Allow, ""}
+		// 默认开启（#22）：宽泛 read 规则命中密钥文件时降级为 Ask；
+		// 显式 DenyPaths 已在 checkPath 阶段先行拒绝，优先级不受影响。
+		return narrowBroadReadSecret(name, fields, Result{Allow, ""})
 	}
 	return Result{Ask, fmt.Sprintf("the unknown tool %q needs operator approval", name)}
 }

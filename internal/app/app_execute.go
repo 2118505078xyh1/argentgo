@@ -482,10 +482,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 	// 持久化审批规则（opt-in ARGENT_APPROVAL_PERSIST，默认关闭，TODO #127）：
 	// 在作用域审批器之上叠加跨会话的 always/deny 规则，落盘 <storage>/approvals.jsonl。
-	// scopeFor 传 nil → 作用域取工具名（只记工具名，不记自由文本参数）。
+	// 作用域由 security.BashScopeFor 按空白切词生成分层通配前缀（#27）：
+	// npm install lodash → "npm *" / "npm install *" / "npm install lodash"；
+	// 非 shell 工具仍回落到工具名。只影响持久化的 scope 文本，不记自由文本参数。
 	// 关闭时不构造该审批器，默认路径零文件 I/O、审批行为逐字节不变。
 	if approvalPersistEnabled(stdio.Env) {
-		approver = security.NewFileBackedScopedApprover(approver, res.Storage, nil)
+		approver = security.NewFileBackedScopedApproverHierarchical(approver, res.Storage,
+			func(name, args string) []string { return security.BashScopeFor(name, args) })
 	}
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
@@ -1131,6 +1134,11 @@ func firstLine(text string, limit int) string {
 type autoApprover struct {
 	fallback security.Approver
 }
+
+// InteractiveReply 声明 autoApprover 是机器自动批准，没有真人交互（#23）。
+// 对敏感调用（配置/说明文件编辑、显式 Sensitive 元数据）链会据此拒绝它的
+// 自动批准，而非静默放行。
+func (autoApprover) InteractiveReply() bool { return false }
 
 func (a autoApprover) Ask(ctx context.Context, name, args string) (bool, error) {
 	if err := ctx.Err(); err != nil {

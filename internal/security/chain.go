@@ -315,6 +315,14 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	// 每次调用的额外权限 profile（opt-in，由 app/MCP 经 ctx 注入）：只收紧不放宽。
 	// 未注入时 profile 为 zero，下面等价于原来的 Evaluate，默认路径逐字节不变。
 	profile := CallProfileFrom(ctx)
+	// 默认开启的敏感判定（#21/#23）：配置/说明文件编辑，或调用方经 CallProfile
+	// 注入的 Sensitive 元数据，都要求真人交互审批。前者额外打上"不可持久化
+	// always"标记，使持久化审批器把 always 降级为一次性放行。
+	sensitive := profile.Sensitive
+	if configFileGuard(name, args) {
+		sensitive = true
+		ctx = withSingleUseApproval(ctx)
+	}
 	var result Result
 	// 导出的 CheckWith 是带 profile 决策的权威入口：非空 profile 时以它的判定为准，
 	// 并用 checkWithResult 补齐可读理由（审计/提示）；zero profile 走原 Evaluate。
@@ -338,7 +346,8 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 			blockReason = explicitYesBlockReason(c.Approver, command)
 		}
 		// MCP annotations opt-in：destructive 工具即便策略允许也必须询问。
-		forceAsk := c != nil && c.ForceAsk != nil && c.ForceAsk(name)
+		// sensitive 为默认开启的配置/说明文件守卫或调用方元数据，同样强制询问。
+		forceAsk := sensitive || (c != nil && c.ForceAsk != nil && c.ForceAsk(name))
 		if commandRisk == CommandRiskDestructive || blockReason != "" || forceAsk {
 			// 落到下面的审批路径（显式确认的拒绝会在 Ask 之前发生）。
 		} else {
@@ -376,7 +385,7 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 	// 默认关闭（或普通审批器）时，下面整段原有 (bool, error) 审批逻辑逐字节不变。
 	if StagedApprovalEnabled(c) {
 		if staged, ok := approver.(StagedApprover); ok {
-			return c.checkStaged(ctx, name, args, auditArgs, staged)
+			return c.checkStaged(ctx, name, args, auditArgs, staged, sensitive)
 		}
 	}
 	// 在提示中显示真实目标：工作区内的 junction 不能让提示说
@@ -424,6 +433,14 @@ func (c *Chain) check(ctx context.Context, toolName string, args, auditArgs json
 			return fmt.Errorf("security: approval for the %s tool call failed: %w", name, err)
 		}
 	}
+	// 敏感调用只认真人交互回答（#23）：机器/YOLO 审批器的自动批准不能代答。
+	// 失败即拒绝，并在审计里留下 warning，便于排查自动批准被拦下的原因。
+	if sensitive && ok && err == nil && !approverAllowsInteractiveReply(approver) {
+		reason := "the sensitive tool call requires an interactive operator reply; auto-approval ignored"
+		c.record(name, "warning", reason, auditArgs)
+		c.record(name, "deny", reason, auditArgs)
+		return &StopError{Tool: name, Reason: reason}
+	}
 	if !ok {
 		// destructive 档的否决理由附上风险档，便于模型与审计区分按风险拦截。
 		// opt-in 关闭时 riskTierReason 原样返回，拒绝文案逐字节不变。
@@ -457,11 +474,20 @@ const maxStagedApprovalRounds = 32
 // 进入反馈收集；Esc 由状态机回退到上一阶段（永不视为完成）；只有 Confirmed 才
 // 提交。完成时的阶段决定结果：once 仅放行一次；always 确认后记住作用域并放行；
 // reject 把收集到的反馈填进 RefusalError，成为模型可读、可据此调整的可恢复错误。
-func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs json.RawMessage, staged StagedApprover) error {
+func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs json.RawMessage, staged StagedApprover, sensitive bool) error {
 	stage := stageOnce
 	var scope []string
 	var feedback string
 	prompt := string(approvalArgs(args, c.policy().Root()))
+
+	// 敏感调用只认真人交互回答（#23）：非交互审批器直接失败即拒绝，绝不阻塞
+	// 等待一个永远不会到来的真人回答。
+	if sensitive && !approverAllowsInteractiveReply(staged) {
+		reason := "the sensitive tool call requires an interactive operator reply; auto-approval ignored"
+		c.record(name, "warning", reason, auditArgs)
+		c.record(name, "deny", reason, auditArgs)
+		return &StopError{Tool: name, Reason: reason}
+	}
 
 	// 与普通审批一样给整个分阶段交互设上限，避免某一轮 AskStage 无人应答时
 	// 永久挂起。子 context 只在本次审批内使用，不改动父 ctx。
@@ -518,8 +544,11 @@ func (c *Chain) checkStaged(ctx context.Context, name string, args, auditArgs js
 
 		switch stage {
 		case stageConfirmScope:
-			// always 只有在二次确认通过后才真正记住作用域。
-			staged.RememberScope(append([]string(nil), scope...))
+			// always 只有在二次确认通过后才真正记住作用域；敏感调用（#21）
+			// 只记一次性，不把作用域交给审批器持久化。
+			if !singleUseFromContext(ctx) {
+				staged.RememberScope(append([]string(nil), scope...))
+			}
 			c.record(name, "allow", "approved by the operator (always)", auditArgs)
 			return nil
 		case stageFeedback:

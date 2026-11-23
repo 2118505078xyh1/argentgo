@@ -38,6 +38,10 @@ type CallProfile struct {
 	ReadOnly bool
 	// Network 为 false 时拒绝已知的网络访问工具。
 	NoNetwork bool
+	// Sensitive 标记本次调用需真人交互审批（#23）：即便规则是 allow 也必须询问，
+	// 且只有 InteractiveReply() 为 true 的审批器的批准才被接受。调用方（如标记了
+	// skillShell / sandboxEscalation 的工具）经 WithCallProfile 注入。
+	Sensitive bool
 }
 
 var networkTools = map[string]bool{
@@ -46,7 +50,7 @@ var networkTools = map[string]bool{
 
 // IsZero 报告 profile 是否无额外约束（与未注入等价）。
 func (p CallProfile) IsZero() bool {
-	return !p.ReadOnly && !p.NoNetwork && len(p.DenyPaths) == 0 && len(p.DenyCommands) == 0
+	return !p.ReadOnly && !p.NoNetwork && !p.Sensitive && len(p.DenyPaths) == 0 && len(p.DenyCommands) == 0
 }
 
 // CheckWith 按 profile 评估一次调用：先应用每次调用的额外约束（只收紧），

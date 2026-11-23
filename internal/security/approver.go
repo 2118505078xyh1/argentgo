@@ -42,6 +42,10 @@ func NewPromptApprover(in io.Reader, out io.Writer) *PromptApprover {
 // 审批器静默批准它（#20）。这是单方法加法接口，不改变 Ask 签名。
 func (p *PromptApprover) RequiresExplicitYes() bool { return true }
 
+// InteractiveReply 声明 PromptApprover 的回答来自注入的真人 stdin，
+// 因此它对敏感调用的批准可以被信任（#23）。
+func (p *PromptApprover) InteractiveReply() bool { return p != nil && p.In != nil }
+
 // Ask 打印问题并读取一行。只有 y/yes 表示批准；EOF 和空
 type lineResult struct {
 	line string
@@ -113,6 +117,9 @@ func (NeverApprover) Ask(ctx context.Context, name string, args string) (bool, e
 	return false, nil
 }
 
+// InteractiveReply 声明 NeverApprover 没有真人通道，从不给出交互批准（#23）。
+func (NeverApprover) InteractiveReply() bool { return false }
+
 // 回答"否"有本质区别。ClassifyApproval 把它映射为 ApprovalUnavailable，
 // 绝不会映射为 ApprovalRejected，使调用方能把两种情况分开。
 // UnavailableApprover 模拟审批通道缺失或损坏。与
@@ -134,6 +141,9 @@ func (UnavailableApprover) Ask(ctx context.Context, name string, args string) (b
 	}
 	return false, ErrApprovalUnavailable
 }
+
+// InteractiveReply 声明 UnavailableApprover 没有真人通道（#23）。
+func (UnavailableApprover) InteractiveReply() bool { return false }
 
 // 拒绝永不被缓存，因此操作员可以改变主意；新会话必须使用新的
 // CachedApprover。同一工具使用不同参数需要重新批准。
@@ -161,6 +171,14 @@ func NewCachedApprover(inner Approver) *CachedApprover {
 		inner = NeverApprover{}
 	}
 	return &CachedApprover{inner: inner, allowed: make(map[approvalKey]bool)}
+}
+
+// InteractiveReply 把可交互性委托给 inner：包装器不改变回答来源（#23）。
+func (c *CachedApprover) InteractiveReply() bool {
+	if c == nil {
+		return false
+	}
+	return approverAllowsInteractiveReply(c.inner)
 }
 
 // 有意放在 security 包本地，使本包永远不必依赖
@@ -272,6 +290,14 @@ func NewScopedApprover(inner Approver) *ScopedApprover {
 	}
 }
 
+// InteractiveReply 把可交互性委托给 inner：包装器不改变回答来源（#23）。
+func (s *ScopedApprover) InteractiveReply() bool {
+	if s == nil {
+		return false
+	}
+	return approverAllowsInteractiveReply(s.inner)
+}
+
 // Ask 按 deny 优先的顺序应用权限级别：被拒绝的名称立即被
 func (s *ScopedApprover) GrantAlways(name string) {
 	s.mu.Lock()
@@ -340,7 +366,9 @@ func (s *ScopedApprover) Ask(ctx context.Context, name string, args string) (boo
 		s.mu.Unlock()
 		return false, nil
 	}
-	if s.always[name] {
+	// 配置/说明文件等敏感调用即使曾被广泛授予 always，也只认本次真人交互：
+	// 标记由链在命中 #21 守卫时注入，跳过内存 always 缓存强制走 inner。
+	if !singleUseFromContext(ctx) && s.always[name] {
 		s.mu.Unlock()
 		return true, nil
 	}
