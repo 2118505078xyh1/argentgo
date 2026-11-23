@@ -236,6 +236,16 @@ var nativeEnglish = map[string]string{
 	"未确认工具调用":  "Unconfirmed tool call",
 	"Y 允许一次 · A 始终允许 · N 拒绝":        "Y allow once · A always allow · N deny",
 	"拒绝理由（可选，例如：别删 dist，改删 build/）": "Reason for denial (optional, e.g. keep dist, remove build/)",
+
+	// /goal 循环状态徽章（goal_status 事件）。用带前缀的独立键，避免与
+	// i18n 共享键 "运行中"/"已完成" 的既有英文含义（working/Done）冲突。
+	"目标循环：":     "goal loop: ",
+	"目标运行中":     "running",
+	"目标已完成":     "complete",
+	"目标已达上限":    "capped",
+	"目标已中断":     "interrupted",
+	"目标状态未知":    "unknown state",
+	"第 %d/%d 次": "iteration %d/%d",
 }
 
 // cannedRepliesEN 是 main.go 中 demo 预设回复的英文版，索引一一对应。

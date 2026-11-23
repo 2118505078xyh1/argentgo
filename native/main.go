@@ -94,6 +94,7 @@ type message struct {
 	done       bool   // assistant reply finished streaming
 	expanded   bool   // tool card: show the full output instead of the summary
 	durationMS int64  // tool card: engine-reported elapsed time (0 means unknown)
+	argPreview bool   // tool card: built from live-only tool_arg_delta fragments
 }
 
 type approval struct {
@@ -183,9 +184,12 @@ type chat struct {
 	selectedSession string
 	messages        []*message
 	tools           map[string]*message // real tool cards keyed by tool-call id, upserted from events
-	list            ui.ListState
-	sessionList     ui.ListState
-	md              markdown.Options
+	// argPreviewIDs 记录流式参数预览按并发槽位选用的卡片 id。片段早于 tool_start
+	// 到达且 id 会在流式中从 pending-N 切换为真实调用 id，靠它把预览卡迁移到最终 id。
+	argPreviewIDs map[int]string
+	list          ui.ListState
+	sessionList   ui.ListState
+	md            markdown.Options
 
 	// sessions 保存通过 session.list 获取的真实会话栏。在成功获取前
 	// 它为 nil，此时 sessionPanel 继续显示
@@ -1555,6 +1559,33 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 			cached: ev.TotalUsage.CachedTokens,
 			calls:  calls,
 		}
+	case "goal_status":
+		// /goal 每轮状态此前被 native 静默丢弃。Text 是与 agent.GoalStatus
+		// 同形的紧凑 JSON；这里只取封闭状态与有界计数更新状态徽章。
+		var ev struct {
+			Text string `json:"Text"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		var status engineGoalStatus
+		if json.Unmarshal([]byte(ev.Text), &status) != nil {
+			return
+		}
+		app.status = goalStatusBadge(status.State, status.Iteration, status.MaxIterations)
+	case "tool_arg_delta":
+		// live-only 参数片段：在工具卡片上实时预览。片段早于 tool_start，
+		// 后者会用完整 Args 覆盖同一张卡片，不会留下重复行。
+		var ev struct {
+			ToolCallID   string `json:"ToolCallID"`
+			ToolName     string `json:"ToolName"`
+			ArgDelta     string `json:"ArgDelta"`
+			ToolArgIndex int    `json:"ToolArgIndex"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		app.appendToolArgPreview(ev.ToolCallID, ev.ToolName, ev.ArgDelta, ev.ToolArgIndex)
 	case "notice":
 		var ev struct {
 			Text string `json:"Text"`
@@ -1563,6 +1594,79 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 			return
 		}
 		app.applyApprovalNotice(ev.Text)
+	}
+}
+
+// engineGoalStatus 与 agent.GoalStatus 的线上形态一致，但 native 刻意不 import
+// internal/agent；字段都带 JSON 标签，未知字段自然忽略。
+type engineGoalStatus struct {
+	State         string `json:"state"`
+	Iteration     int    `json:"iteration"`
+	MaxIterations int    `json:"max_iterations"`
+}
+
+// maxArgPreview 限制实时参数预览的可见长度，避免异常长片段撑宽工具行。
+const maxArgPreview = 160
+
+// goalStatusBadge 把封闭状态与有界计数格式化为状态栏徽章。
+// 所有面向用户的文字都经 tr()，未知状态有界透传，满足 en-US 无汉字门禁。
+func goalStatusBadge(state string, iteration, max int) string {
+	zh, ok := map[string]string{
+		"running":     "目标运行中",
+		"complete":    "目标已完成",
+		"capped":      "目标已达上限",
+		"interrupted": "目标已中断",
+	}[state]
+	if !ok {
+		// 未知状态一律用本地化的"未知"短句：绝不把任意负载回显进 en-US 界面。
+		zh = "目标状态未知"
+	}
+	return tr("目标循环：") + tr(zh) + " · " + fmt.Sprintf(tr("第 %d/%d 次"), iteration, max)
+}
+
+// appendToolArgPreview 把一段实时参数追加到对应工具卡片。真实调用 id 在流式
+// 过程中会从 "pending-N" 换成 engine id，argPreviewIDs 负责把卡片迁移到最终 id；
+// tool_start 到达后再由 upsertTool 用完整参数覆盖同一行。
+func (app *chat) appendToolArgPreview(id, name, delta string, index int) {
+	if delta == "" {
+		return
+	}
+	if app.argPreviewIDs == nil {
+		app.argPreviewIDs = make(map[int]string)
+	}
+	key := id
+	if key == "" {
+		key = fmt.Sprintf("pending-%d", index) // 与 agent 侧回退 id 保持一致
+	}
+	if prev := app.argPreviewIDs[index]; prev != "" && prev != key {
+		if m := app.tools[prev]; m != nil {
+			delete(app.tools, prev)
+			app.tools[key] = m
+		}
+	}
+	app.argPreviewIDs[index] = key
+
+	if m := app.tools[key]; m != nil {
+		if name != "" {
+			m.name = name
+		}
+		m.text = clipToolText(m.text+delta, maxArgPreview)
+		m.argPreview = true
+		return
+	}
+	// 若同名预览卡已用别的 id 建立（例如 tool_start 前 id 切换），复用它。
+	for _, m := range app.tools {
+		if m.argPreview && name != "" && m.name == name {
+			if name != "" {
+				m.name = name
+			}
+			m.text = clipToolText(m.text+delta, maxArgPreview)
+			return
+		}
+	}
+	app.upsertTool(key, name, clipToolText(delta, maxArgPreview), "running", 0)
+	if m := app.tools[key]; m != nil {
+		m.argPreview = true
 	}
 }
 
@@ -1576,7 +1680,20 @@ func (app *chat) upsertTool(id, name, detail, status string, durationMS int64) {
 	if app.tools == nil {
 		app.tools = make(map[string]*message)
 	}
-	if m := app.tools[id]; m != nil {
+	m := app.tools[id]
+	if m == nil && name != "" {
+		// tool_arg_delta 可能用 pending-N 或旧 id 建了预览卡；按工具名
+		// 迁移到真实 id，使 tool_start 原地覆盖而不是新增第二行。
+		for key, candidate := range app.tools {
+			if candidate.argPreview && candidate.name == name {
+				delete(app.tools, key)
+				app.tools[id] = candidate
+				m = candidate
+				break
+			}
+		}
+	}
+	if m != nil {
 		if name != "" {
 			m.name = name
 		}
@@ -1586,13 +1703,14 @@ func (app *chat) upsertTool(id, name, detail, status string, durationMS int64) {
 			m.text = detail
 		}
 		m.status = status
+		m.argPreview = false
 		if durationMS > 0 {
 			m.durationMS = durationMS
 		}
 		return
 	}
 	app.next++
-	m := &message{id: app.next, kind: msgTool, name: name, text: detail, status: status, durationMS: durationMS}
+	m = &message{id: app.next, kind: msgTool, name: name, text: detail, status: status, durationMS: durationMS}
 	app.tools[id] = m
 	app.messages = append(app.messages, m)
 }

@@ -40,6 +40,10 @@ const (
 	// Detail 携带通知正文；app 侧只映射经过挑选的关键类别，普通通知仍被忽略，
 	// 避免 verify/subagent 等 opt-in 特性刷屏。它追加在枚举末尾以保持既有种类稳定。
 	TuiEventNotice EventKind = "notice"
+	// TuiEventGoalStatus 把 /goal 有界循环的每轮状态送进 transcript。
+	// 状态来自封闭枚举（running/complete/capped/interrupted），计数为有界整数，
+	// 渲染层按 locale 生成短通知；任何自由格式文本都不经此事件上线。
+	TuiEventGoalStatus EventKind = "goal_status"
 )
 
 // maxNoticeDetail 限制关键通知事件保留的文本长度，防止异常生产者用单条消息撑宽记录。
@@ -70,6 +74,12 @@ type Event struct {
 	PromptTokens     int
 	CompletionTokens int
 	CachedTokens     int
+
+	// 仅 TuiEventGoalStatus：/goal 循环的状态快照。State 来自封闭枚举，
+	// 其余字段为有界计数；其他事件种类的这些字段恒为零值。
+	GoalState         string
+	GoalIteration     int
+	GoalMaxIterations int
 
 	// 仅 TuiEventUsage（可选）：本轮流式输出的三个时间点。由 session 层
 	// 在能拿到首 token 时刻时填入；任意为零值时 TUI 回退到相邻 Usage 的
@@ -126,6 +136,15 @@ func (m *Model) HandleEvent(event Event) {
 		m.appendNoticeEntryLocked(Entry{
 			Kind: EntryNotice,
 			Text: Truncate(visibleNoticeText(m.locale, text), maxNoticeDetail),
+		})
+	case TuiEventGoalStatus:
+		// /goal 每轮状态此前在 TUI 完全不可见。复用通知条目渲染路径，
+		// 文案按 locale 生成为有界短句，不新增绘制分支、不引入自由格式文本。
+		state := localGoalState(m.locale, event.GoalState)
+		text := tuiTextf(m.locale, "goal_status", state, event.GoalIteration, event.GoalMaxIterations)
+		m.appendNoticeEntryLocked(Entry{
+			Kind: EntryNotice,
+			Text: Truncate(collapseSpace(llm.RedactText(text)), maxNoticeDetail),
 		})
 	case TuiEventUsage:
 		// 用量事件只更新头部/状态行的计数（复用现有 SetUsage 与

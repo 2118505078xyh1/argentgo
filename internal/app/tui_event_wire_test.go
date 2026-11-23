@@ -3,6 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -88,29 +95,198 @@ func TestAgentToTUIEventError(t *testing.T) {
 	}
 }
 
-// TestAgentToTUIEventUnmappedKinds 守护诚实契约：tui.Event 没有文本、通知或停止种类，因此不得伪造这些事件。
-// （接上行）
-func TestAgentToTUIEventUnmappedKinds(t *testing.T) {
-	kinds := []agent.EventKind{
-		agent.EventCheckpointReady,
-		agent.EventTextDelta,
-		agent.EventReasoningDelta,
-		agent.EventStop,
-		agent.EventSubagentStart,
-		agent.EventSubagentEnd,
-		agent.EventNotice, // 普通通知，不是审批
+// TestAgentToTUIEventEveryKindRegistered 穷举所有引擎事件种类：每个都必须有
+// TUI 映射期望（含"有意不映射"）。新增 EventKind 但没在 tuiMappingExpectations
+// 登记时，本测试失败，而不是让事件静默穿过桥接器。
+func TestAgentToTUIEventEveryKindRegistered(t *testing.T) {
+	kinds := discoverAppEventKinds(t)
+	if len(kinds) == 0 {
+		t.Fatal("没有扫描到 EventKind 常量，穷举守卫失效")
 	}
+	seen := make(map[string]bool, len(kinds))
 	for _, kind := range kinds {
-		t.Run(string(kind), func(t *testing.T) {
-			got, ok := AgentToTUIEvent(agent.Event{Kind: kind, Text: "payload"})
-			if ok {
-				t.Fatalf("%s has no TUI EventKind, must not map", kind)
-			}
-			if got != (tui.Event{}) {
-				t.Fatalf("unmapped %s returned a non-zero event: %+v", kind, got)
-			}
-		})
+		seen[kind] = true
+		want, ok := tuiMappingExpectations[kind]
+		if !ok {
+			t.Errorf("事件 %q 未登记 TUI 映射期望：请补 tuiMappingExpectations", kind)
+			continue
+		}
+		got, mapped := AgentToTUIEvent(want.in)
+		if mapped != want.mapped || got != want.want {
+			t.Errorf("事件 %q 映射 = (%+v, %v), want (%+v, %v)", kind, got, mapped, want.want, want.mapped)
+		}
 	}
+	for kind := range tuiMappingExpectations {
+		if !seen[kind] {
+			t.Errorf("tuiMappingExpectations 登记了已不存在的事件 %q", kind)
+		}
+	}
+}
+
+// tuiMappingExpectation 描述一种事件在 TUI 桥接器上的预期行为。
+// mapped=false 且 want 为零值表示"有意不映射"，而不是漏映射。
+type tuiMappingExpectation struct {
+	in     agent.Event
+	mapped bool
+	want   tui.Event
+}
+
+// tuiMappingExpectations 是 TUI 消费层的登记清单。新增事件时必须在此补一行，
+// 否则 TestAgentToTUIEventEveryKindRegistered 会失败。
+var tuiMappingExpectations = map[string]tuiMappingExpectation{
+	"turn_start":       {plainTUIEvent("turn_start"), true, tui.Event{Kind: "turn_start"}},
+	"turn_end":         {plainTUIEvent("turn_end"), true, tui.Event{Kind: "turn_end"}},
+	"checkpoint_ready": {plainTUIEvent("checkpoint_ready"), false, tui.Event{}},
+	"text_delta":       {plainTUIEvent("text_delta"), false, tui.Event{}}, // 文本走 onText 回调
+	"reasoning_delta":  {plainTUIEvent("reasoning_delta"), false, tui.Event{}},
+	"tool_start":       {plainTUIEvent("tool_start"), true, tui.Event{Kind: tui.EventToolStart}},
+	"tool_end":         {plainTUIEvent("tool_end"), true, tui.Event{Kind: tui.EventToolEnd}},
+	"usage":            {plainTUIEvent("usage"), true, tui.Event{Kind: tui.TuiEventUsage}},
+	"error":            {plainTUIEvent("error"), true, tui.Event{Kind: tui.EventError}},
+	"notice":           {plainTUIEvent("notice"), false, tui.Event{}}, // 普通通知不刷屏
+	"stop":             {plainTUIEvent("stop"), false, tui.Event{}},
+	"subagent_start":   {plainTUIEvent("subagent_start"), false, tui.Event{}},
+	"subagent_end":     {plainTUIEvent("subagent_end"), false, tui.Event{}},
+	"retry":            {plainTUIEvent("retry"), false, tui.Event{}}, // 无负载的 retry 不伪造倒计时
+	"budget_reminder": {
+		plainTUIEvent("budget_reminder"), true,
+		tui.Event{Kind: tui.TuiEventNotice, Detail: "payload"},
+	},
+	"partial": {plainTUIEvent("partial"), false, tui.Event{}},
+	"tool_arg_delta": {
+		agent.Event{Kind: agent.EventToolArgDelta, ToolCallID: "c1", ArgDelta: `{"a":`},
+		false, tui.Event{},
+	}, // live-only：TUI 的 tool_start/tool_end 已带完整参数
+	"goal_status": {
+		agent.Event{Kind: goalStatusEventKind, Text: `{"state":"running","iteration":3,"max_iterations":10}`},
+		true,
+		tui.Event{Kind: tui.TuiEventGoalStatus, GoalState: "running", GoalIteration: 3, GoalMaxIterations: 10},
+	},
+}
+
+func plainTUIEvent(kind string) agent.Event {
+	return agent.Event{Kind: agent.EventKind(kind), Text: "payload"}
+}
+
+// TestAgentToTUIEventGoalStatusMalformedJSON 证明畸形状态负载被丢弃而不是把
+// 原始 JSON 倒进 transcript；状态事件本身不能成为任意文本的上线通道。
+func TestAgentToTUIEventGoalStatusMalformedJSON(t *testing.T) {
+	for _, text := range []string{"", "not-json", `{"state":`} {
+		got, ok := AgentToTUIEvent(agent.Event{Kind: goalStatusEventKind, Text: text})
+		if ok || got != (tui.Event{}) {
+			t.Fatalf("畸形 goal_status %q = (%+v, %v), want unmapped", text, got, ok)
+		}
+	}
+}
+
+// TestAgentToTUIEventGoalStatusIsCritical 证明目标循环状态走不可丢弃队列：
+// 1000 次循环的每一轮状态都是用户理解进度的关键反馈，慢消费者也不能丢。
+func TestAgentToTUIEventGoalStatusIsCritical(t *testing.T) {
+	got, ok := AgentToTUIEvent(tuiMappingExpectations["goal_status"].in)
+	if !ok {
+		t.Fatal("goal_status must map to a TUI event")
+	}
+	if !isCriticalTUIEvent(got) {
+		t.Fatal("goal_status must be routed through the non-droppable queue")
+	}
+}
+
+// TestTUIEventPipelineDeliversGoalStatus 是端到端证明：/goal 状态事件确实
+// 穿过 pipeline 的 hub → 桥接器 → TUI 通道，而不只是单元测试里的直接映射。
+func TestTUIEventPipelineDeliversGoalStatus(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := NewTUIEventPipeline(ctx)
+	defer p.Stop()
+
+	EmitEvent(withEventEmit(context.Background(), p.Emit), agent.Event{
+		Kind: goalStatusEventKind,
+		Text: `{"state":"complete","iteration":4,"max_iterations":10}`,
+	})
+	select {
+	case got := <-p.Events:
+		want := tui.Event{Kind: tui.TuiEventGoalStatus, GoalState: "complete", GoalIteration: 4, GoalMaxIterations: 10}
+		if got != want {
+			t.Fatalf("pipelined goal_status = %+v, want %+v", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("goal_status did not reach the TUI event channel")
+	}
+}
+
+// discoverAppEventKinds 用 go/parser 扫描 agent 的 EventKind 常量与 app 的
+// goalStatusEventKind，返回全部事件种类。Go 常量无法运行时反射枚举，
+// 因此用源码扫描作为穷举守卫的输入。
+func discoverAppEventKinds(t *testing.T) []string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	var root string
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			root = dir
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("找不到包含 go.mod 的仓库根目录")
+		}
+		dir = parent
+	}
+	var out []string
+	for _, rel := range []string{"internal/agent/events.go", "internal/app/goal_loop_wire.go"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("读取 %s: %v", rel, err)
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), rel, src, 0)
+		if err != nil {
+			t.Fatalf("解析 %s: %v", rel, err)
+		}
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || vs.Type == nil {
+					continue
+				}
+				switch typ := vs.Type.(type) {
+				case *ast.Ident:
+					if typ.Name != "EventKind" {
+						continue
+					}
+				case *ast.SelectorExpr:
+					id, ok := typ.X.(*ast.Ident)
+					if !ok || id.Name != "agent" || typ.Sel.Name != "EventKind" {
+						continue
+					}
+				default:
+					continue
+				}
+				for i := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err == nil {
+						out = append(out, value)
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestAgentToTUIEventApprovalNotice 记录审批通知会被识别（通过 ParseApprovalEvent），但有意没有 TUI 事件：

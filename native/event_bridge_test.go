@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -237,5 +238,85 @@ func TestClipToolTextNeverSplitsRune(t *testing.T) {
 	}
 	if utf8.RuneCountInString(got) != 11 { // 10 runes + ellipsis
 		t.Fatalf("rune count = %d, want 11", utf8.RuneCountInString(got))
+	}
+}
+
+// TestApplyEngineEventGoalStatus 证明 goal_status 不再被静默丢弃：它更新状态
+// 徽章，且 en-US 下徽章不含汉字。
+func TestApplyEngineEventGoalStatus(t *testing.T) {
+	raw := json.RawMessage(`{"Text":"{\"state\":\"running\",\"iteration\":3,\"max_iterations\":10,\"objective\":\"demo\"}"}`)
+
+	app := &chat{}
+	app.applyEngineEvent("goal_status", raw)
+	if !strings.Contains(app.status, "运行中") || !strings.Contains(app.status, "3/10") {
+		t.Fatalf("zh badge = %q, want state and 3/10", app.status)
+	}
+
+	configureLocale(func(k string) string {
+		if k == "ARGENT_LOCALE" {
+			return "en-US"
+		}
+		return ""
+	})
+	defer configureLocale(nil)
+	app = &chat{}
+	app.applyEngineEvent("goal_status", raw)
+	if !strings.Contains(app.status, "goal loop") || !strings.Contains(app.status, "running") {
+		t.Fatalf("en badge = %q, want localized goal loop", app.status)
+	}
+	for _, r := range app.status {
+		if unicode.Is(unicode.Han, r) {
+			t.Fatalf("en-US goal_status badge contains Han: %q", app.status)
+		}
+	}
+}
+
+// TestApplyEngineEventGoalStatusMalformed 证明畸形负载被忽略，不会把原始 JSON
+// 或半截文本写进状态栏。
+func TestApplyEngineEventGoalStatusMalformed(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"Text":""}`),
+		json.RawMessage(`{"Text":"not-json"}`),
+		json.RawMessage(`not-json`),
+	} {
+		app := &chat{}
+		app.applyEngineEvent("goal_status", raw)
+		if app.status != "" {
+			t.Fatalf("malformed goal_status set badge to %q", app.status)
+		}
+	}
+}
+
+// TestApplyEngineEventToolArgDeltaPreview 证明 live-only 参数片段在工具卡片上
+// 实时可见：pending id 迁移到真实调用 id，随后的 tool_start 用完整参数覆盖
+// 同一行，不产生第二张卡片。
+func TestApplyEngineEventToolArgDeltaPreview(t *testing.T) {
+	app := &chat{}
+	app.applyEngineEvent("tool_arg_delta", json.RawMessage(
+		`{"ToolCallID":"pending-0","ToolName":"bash","ArgDelta":"{\"comm","ToolArgIndex":0}`))
+	app.applyEngineEvent("tool_arg_delta", json.RawMessage(
+		`{"ToolCallID":"call-1","ToolName":"bash","ArgDelta":"and\":\"ls\"}","ToolArgIndex":0}`))
+
+	if len(app.messages) != 1 || len(app.tools) != 1 {
+		t.Fatalf("after deltas: %d messages, %d tools", len(app.messages), len(app.tools))
+	}
+	card := app.tools["call-1"]
+	if card == nil {
+		t.Fatalf("preview card was not migrated to the real id: %+v", app.tools)
+	}
+	if !strings.Contains(card.text, "{\"comm") || !strings.Contains(card.text, "ls") {
+		t.Fatalf("preview text = %q, want both delta fragments", card.text)
+	}
+	if !card.argPreview {
+		t.Fatal("preview card must be marked as such")
+	}
+
+	app.applyEngineEvent("tool_start", json.RawMessage(
+		`{"ToolCallID":"call-1","ToolName":"bash","Args":"{\"command\":\"ls\"}"}`))
+	if len(app.messages) != 1 || len(app.tools) != 1 {
+		t.Fatalf("tool_start created a duplicate card: %d messages, %d tools", len(app.messages), len(app.tools))
+	}
+	if card.text != `{"command":"ls"}` || card.argPreview {
+		t.Fatalf("final card = %+v, want full args with preview flag cleared", card)
 	}
 }

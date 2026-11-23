@@ -1,6 +1,14 @@
 package server
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,36 +84,22 @@ func TestSubscribeTypedMultipleKinds(t *testing.T) {
 }
 
 // TestSubscribeTypedAllKinds 验证显式列出全部已知类型时，所有事件都会被投递。
+// 清单来自源码扫描而非硬编码：新增 EventKind 常量会自动进入本测试，
+// 再由 TestEngineEventKindsRegistered 检查它是否已在三个消费层登记。
 func TestSubscribeTypedAllKinds(t *testing.T) {
-	all := []agent.EventKind{
-		agent.EventTurnStart,
-		agent.EventTurnEnd,
-		agent.EventCheckpointReady,
-		agent.EventTextDelta,
-		agent.EventReasoningDelta,
-		agent.EventToolStart,
-		agent.EventToolEnd,
-		agent.EventUsage,
-		agent.EventError,
-		agent.EventNotice,
-		agent.EventStop,
-		agent.EventSubagentStart,
-		agent.EventSubagentEnd,
-		agent.EventRetry,
-		agent.EventBudgetReminder,
-		agent.EventPartial,
-	}
-	types := make([]string, len(all))
-	for i, kind := range all {
-		types[i] = string(kind)
+	defs, _ := discoverEngineEventKinds(t)
+	types := make([]string, len(defs))
+	for i, def := range defs {
+		types[i] = def.Value
 	}
 
 	hub := NewEventHub()
 	ch, stop := hub.SubscribeTyped(types)
 	defer stop()
 
-	for i, kind := range all {
-		hub.Publish(agent.Event{Kind: kind, Text: string(kind)})
+	for i, def := range defs {
+		kind := agent.EventKind(def.Value)
+		hub.Publish(agent.Event{Kind: kind, Text: def.Value})
 		if got := recvTyped(t, ch); got.Kind != kind {
 			t.Fatalf("第 %d 个事件 kind = %q, want %q", i, got.Kind, kind)
 		}
@@ -250,6 +244,231 @@ func TestSubscribeTypedDoesNotAffectNormalSubscribers(t *testing.T) {
 	for _, want := range []string{"keep", "only-normal"} {
 		if ev := recvTyped(t, normal); ev.Text != want {
 			t.Fatalf("普通订阅者事件 text = %q, want %q", ev.Text, want)
+		}
+	}
+}
+
+// ---- 事件种类穷举守卫 ----------------------------------------------------
+//
+// Go 常量无法在运行时反射枚举，因此这里用 go/parser 扫描源码里的
+// EventKind 常量声明：新增一种事件而没在 engineEventRegistry 登记、
+// 或在 TUI / native 消费层漏掉分支时，TestEngineEventKindsRegistered 会失败。
+// 这样"发了但 UI 收不到"的沉默丢失在测试阶段就暴露。
+
+// eventKindDef 是一个从源码发现的事件种类定义。
+type eventKindDef struct {
+	Value string // 线上 kind 字符串
+	Name  string // 常量标识符
+	File  string // 相对仓库根的路径
+}
+
+// eventGuardRepoRoot 从测试工作目录向上找到 go.mod。
+func eventGuardRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("找不到包含 go.mod 的仓库根目录")
+		}
+		dir = parent
+	}
+}
+
+// parseEventGuardFile 解析一个仓库内的 Go 源文件。
+func parseEventGuardFile(t *testing.T, root, rel string) *ast.File {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取 %s 失败：%v", rel, err)
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), rel, src, 0)
+	if err != nil {
+		t.Fatalf("解析 %s 失败：%v", rel, err)
+	}
+	return f
+}
+
+// isEventKindType 报告 VS 的类型是不是 EventKind（本包）或 agent.EventKind。
+func isEventKindType(expr ast.Expr) bool {
+	switch typ := expr.(type) {
+	case *ast.Ident:
+		return typ.Name == "EventKind"
+	case *ast.SelectorExpr:
+		id, ok := typ.X.(*ast.Ident)
+		return ok && id.Name == "agent" && typ.Sel.Name == "EventKind"
+	}
+	return false
+}
+
+// discoverEngineEventKinds 扫描 agent 的事件常量块与 app 的 goalStatusEventKind，
+// 返回全部引擎事件种类及「常量名 → kind 值」映射。新增常量会自动进入结果。
+func discoverEngineEventKinds(t *testing.T) ([]eventKindDef, map[string]string) {
+	t.Helper()
+	root := eventGuardRepoRoot(t)
+	var defs []eventKindDef
+	names := map[string]string{}
+	for _, rel := range []string{"internal/agent/events.go", "internal/app/goal_loop_wire.go"} {
+		f := parseEventGuardFile(t, root, rel)
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || !isEventKindType(vs.Type) {
+					continue
+				}
+				for i, name := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						continue
+					}
+					defs = append(defs, eventKindDef{Value: value, Name: name.Name, File: rel})
+					names[name.Name] = value
+				}
+			}
+		}
+	}
+	sort.Slice(defs, func(i, j int) bool { return defs[i].Value < defs[j].Value })
+	return defs, names
+}
+
+// caseKindsInFile 收集一个源文件 switch case 中出现的引擎事件 kind。
+// 支持字符串字面量（native）、agent.Xxx 选择器与本地常量标识符（app）。
+func caseKindsInFile(t *testing.T, root, rel string, names map[string]string, known map[string]bool) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	add := func(v string) {
+		if known[v] {
+			out[v] = true
+		}
+	}
+	ast.Inspect(parseEventGuardFile(t, root, rel), func(n ast.Node) bool {
+		cc, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		for _, expr := range cc.List {
+			switch x := expr.(type) {
+			case *ast.BasicLit:
+				if x.Kind == token.STRING {
+					if v, err := strconv.Unquote(x.Value); err == nil {
+						add(v)
+					}
+				}
+			case *ast.Ident:
+				if v, ok := names[x.Name]; ok {
+					add(v)
+				}
+			case *ast.SelectorExpr:
+				id, ok := x.X.(*ast.Ident)
+				if ok && id.Name == "agent" {
+					if v, ok := names[x.Sel.Name]; ok {
+						add(v)
+					}
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// engineEventRegistry 是每种事件在三个消费层的登记。
+//   - TUI：`map:`/`conditional:` 表示 app 桥接器有 case，`case-ignore:` 表示
+//     有 case 但有意不映射，`skip:` 表示刻意没有 case；
+//   - RPC：传输层全透传（server/rpc.go），由 SubscribeTyped 行为验证；
+//   - Native：`case:` 表示 applyEngineEvent 有 case，`other:` 表示走别的 RPC
+//     路径（文本/错误/完成），`skip:` 表示有意忽略。
+//
+// 新增 EventKind 必须在此登记，否则 TestEngineEventKindsRegistered 失败。
+var engineEventRegistry = map[string]struct {
+	TUI    string
+	RPC    bool
+	Native string
+	Note   string
+}{
+	"turn_start":       {"map:turn_start", true, "skip:轮次边界只用于 TUI 统计行", ""},
+	"turn_end":         {"map:turn_end", true, "skip:同上", ""},
+	"checkpoint_ready": {"skip:检查点由 session 层持久化，无 UI 展示位", true, "skip:对 UI 无可见变化", ""},
+	"text_delta":       {"skip:通过 Execute 的 onText 回调直达 TUI", true, "other:通过 prompt/delta RPC 直达 assistant 气泡", ""},
+	"reasoning_delta":  {"skip:推理块不进主 transcript", true, "other:同文本流", ""},
+	"tool_start":       {"map:tool_start", true, "case:tool_start", ""},
+	"tool_end":         {"map:tool_end", true, "case:tool_end", ""},
+	"usage":            {"map:usage", true, "case:usage", ""},
+	"error":            {"map:error", true, "other:引擎错误经 engineError RPC 呈现", ""},
+	"notice":           {"conditional:审批/工具进度/压缩预算通知有映射", true, "case:notice", "普通 notice 仍被两层忽略"},
+	"stop":             {"skip:运行终结由完成回调呈现", true, "other:done/停止 RPC", ""},
+	"subagent_start":   {"skip:opt-in 子代理事件刻意不刷屏", true, "skip:opt-in 特性", ""},
+	"subagent_end":     {"skip:同上", true, "skip:opt-in 特性", ""},
+	"retry":            {"map:retry", true, "skip:退避反馈只在 TUI 展示", ""},
+	"budget_reminder":  {"map:notice", true, "skip:提醒已注入模型轮次，native 无独立位", ""},
+	"partial":          {"skip:截断前缀不进 transcript", true, "other:同 text_delta 路径", ""},
+	"tool_arg_delta":   {"case-ignore:live-only，仅 SSE/native 实时预览参数", true, "case:tool_arg_delta", "TUI 的 tool_start/tool_end 已携带完整参数"},
+	"goal_status":      {"map:goal_status", true, "case:goal_status", "此前两层都静默丢弃，本轮补齐"},
+}
+
+// registryWantsCase 报告登记是否声明消费层存在显式 case。
+func registryWantsCase(status string) bool {
+	return strings.HasPrefix(status, "map:") ||
+		strings.HasPrefix(status, "conditional:") ||
+		strings.HasPrefix(status, "case:") ||
+		strings.HasPrefix(status, "case-ignore:")
+}
+
+// TestEngineEventKindsRegistered 是穷举守卫：源码里出现的每个事件种类都必须在
+// engineEventRegistry 登记，且声明了 case 的种类确实存在于对应消费层。
+// 新增事件只改生产者、忘改消费者时，本测试会给出明确失败点。
+func TestEngineEventKindsRegistered(t *testing.T) {
+	root := eventGuardRepoRoot(t)
+	defs, names := discoverEngineEventKinds(t)
+	known := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		known[def.Value] = true
+	}
+	tuiCases := caseKindsInFile(t, root, "internal/app/tui_event_wire.go", names, known)
+	nativeCases := caseKindsInFile(t, root, "native/main.go", names, known)
+
+	if len(defs) == 0 {
+		t.Fatal("没有扫描到任何 EventKind 常量，穷举守卫失效")
+	}
+	for _, def := range defs {
+		reg, ok := engineEventRegistry[def.Value]
+		if !ok {
+			t.Errorf("事件 %q（%s，常量 %s）未登记到 engineEventRegistry：请补 TUI/RPC/native 三列",
+				def.Value, def.File, def.Name)
+			continue
+		}
+		if !reg.RPC {
+			t.Errorf("事件 %q 的 RPC 列必须为 true（传输层全透传）", def.Value)
+		}
+		if want := registryWantsCase(reg.TUI); want != tuiCases[def.Value] {
+			t.Errorf("事件 %q 的 TUI 登记为 %q，case 存在 = %v，want %v", def.Value, reg.TUI, tuiCases[def.Value], want)
+		}
+		wantNativeCase := strings.HasPrefix(reg.Native, "case:")
+		if wantNativeCase != nativeCases[def.Value] {
+			t.Errorf("事件 %q 的 native 登记为 %q，case 存在 = %v，want %v", def.Value, reg.Native, nativeCases[def.Value], wantNativeCase)
+		}
+	}
+	for kind := range engineEventRegistry {
+		if !known[kind] {
+			t.Errorf("engineEventRegistry 登记了已不存在的事件 %q", kind)
 		}
 	}
 }

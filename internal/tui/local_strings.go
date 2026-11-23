@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
 // localizedString 是一条用户可见文案的中英两栏。
@@ -23,6 +24,28 @@ var tuiLocalStrings = map[string]localizedString{
 	"error_expand":     {en: "[+] details", zh: "[+] 详情"},
 	"error_collapse":   {en: "[-] hide", zh: "[-] 收起"},
 	"retry_line":       {en: "⟳ retry %s in %dms (%d/%d)", zh: "⟳ 重试 %s，%dms 后（第%d/%d次）"},
+	"goal_status":      {en: "goal loop: %s (%d/%d)", zh: "目标循环：%s（第 %d/%d 次）"},
+}
+
+// goalStatusStateLocal 是 /goal 状态的封闭枚举短句。未知状态由 localGoalState
+// 有界透传，绝不把整段 JSON 或自由格式文本带进界面。
+var goalStatusStateLocal = map[string]localizedString{
+	"running":     {en: "running", zh: "运行中"},
+	"complete":    {en: "complete", zh: "已完成"},
+	"capped":      {en: "capped", zh: "已达上限"},
+	"interrupted": {en: "interrupted", zh: "已中断"},
+}
+
+// localGoalState 把封闭状态标记本地化；未知标记折叠并限长后原样返回，
+// 既不会漏显示新状态，也不会被异常生产者撑宽 transcript。
+func localGoalState(locale, state string) string {
+	if s, ok := goalStatusStateLocal[state]; ok {
+		if language(locale) == i18n.ZhCN {
+			return s.zh
+		}
+		return s.en
+	}
+	return Truncate(collapseSpace(llm.RedactText(state)), 32)
 }
 
 // retryReasonLocal 把 agent/llm 发出的封闭 reason 标记映射成短句。

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -46,8 +47,9 @@ func setTUIUsageVisible(model any, visible bool) {
 const tuiEventBridgeCap = 256
 
 // AgentToTUIEvent 把一个 agent 事件转换为全屏 UI 消费的、面向前端的子集。
-// internal/tui.EventKind 对应轮次边界、两种工具事件、工具阶段进度、错误、重试、用量
-// 与关键通知（见 internal/tui/events.go）；文本、审批和普通通知没有对应种类，返回 false。
+// internal/tui.EventKind 对应轮次边界、两种工具事件、工具阶段进度、错误、重试、用量、
+// 目标循环状态与关键通知（见 internal/tui/events.go）；文本、审批和普通通知没有对应
+// 种类，tool_arg_delta 是只给实时预览消费者的 live-only 事件，均返回 false。
 //
 // 文本增量通过 Execute 的 onText 回调到达 TUI，而不是这个通道。审批卡片由 Model.Approve 创建
 // （由 app 的 Approver 调用），并在匹配的 tool_start 到达时就地提升；
@@ -122,6 +124,24 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 		// 预算提醒此前完全没有 TUI 映射，用户看不到"上下文将满"。
 		// 正文会作为模型可见的用户轮次注入对话，这里把它同步呈现在 transcript。
 		return tui.Event{Kind: tui.TuiEventNotice, Detail: e.Text}, true
+	case goalStatusEventKind:
+		// /goal 每轮状态以紧凑 JSON 承载在 Text 上（见 goal_loop_wire.go）。
+		// 解析失败时不编造状态：宁可少一条提示，也不把原始 JSON 倒进 transcript。
+		var status agent.GoalStatus
+		if json.Unmarshal([]byte(e.Text), &status) != nil {
+			return tui.Event{}, false
+		}
+		return tui.Event{
+			Kind:              tui.TuiEventGoalStatus,
+			GoalState:         status.State,
+			GoalIteration:     status.Iteration,
+			GoalMaxIterations: status.MaxIterations,
+		}, true
+	case agent.EventToolArgDelta:
+		// live-only 流式片段：只给能实时预览参数的消费者（SSE / native 工具卡片）。
+		// TUI 的工具卡片在 tool_start / tool_end 拿到完整参数，再拼这些片段只会
+		// 重复渲染；这里显式忽略，避免"发了但无人认领"的静默丢弃。
+		return tui.Event{}, false
 	case agent.EventNotice:
 		// 审批请求/解决通知为原生和 SSE 传输走普通事件流。它们没有 TUI EventKind，
 		// 且审批卡片已经由 Model.Approve 渲染，因此在这里跳过。
@@ -170,7 +190,7 @@ func isVisibleNotice(text string) bool {
 // tool 事件保持原有"满即丢弃"语义，因为它们只影响实时统计与阶段展示。
 func isCriticalTUIEvent(e tui.Event) bool {
 	switch e.Kind {
-	case tui.EventError, tui.EventRetry, tui.TuiEventNotice:
+	case tui.EventError, tui.EventRetry, tui.TuiEventNotice, tui.TuiEventGoalStatus:
 		return true
 	default:
 		return false
