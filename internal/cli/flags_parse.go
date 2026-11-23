@@ -169,6 +169,8 @@ func parseArgs(args []string, env func(string) string, stderr io.Writer) (*Optio
 		overrideFloat(&overrides, "maxCost", "max-cost"))
 	opts.MaxSeconds = intSetting(set, "max-seconds", *values.maxSeconds, env, "ARGENT_MAX_SECONDS",
 		overrideInt(&overrides, "maxSeconds", "max-seconds"))
+	opts.MaxPromptTokens = intSetting(set, "max-prompt-tokens", *values.maxPromptTokens, env, "ARGENT_MAX_PROMPT_TOKENS",
+		overrideInt(&overrides, "maxPromptTokens", "max-prompt-tokens"))
 	opts.PriceInput = floatSetting(set, "price-input", *values.priceInput, env, "ARGENT_PRICE_INPUT",
 		overrideFloat(&overrides, "priceInput", "price-input"))
 	opts.PriceOutput = floatSetting(set, "price-output", *values.priceOutput, env, "ARGENT_PRICE_OUTPUT",
@@ -299,6 +301,9 @@ func (o *Options) validate() error {
 	}
 	if o.MaxSeconds < 0 {
 		return fmt.Errorf("--max-seconds must be >= 0, got %d", o.MaxSeconds)
+	}
+	if o.MaxPromptTokens < 0 {
+		return fmt.Errorf("--max-prompt-tokens must be >= 0, got %d", o.MaxPromptTokens)
 	}
 	if o.MaxCost < 0 {
 		return fmt.Errorf("--max-cost must be >= 0, got %v", o.MaxCost)

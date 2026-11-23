@@ -750,9 +750,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 用户声明的单轮上限是一个额外的累计限制；在构建循环之前，
 	// 从原始提示（绝不是注入的前缀）中解析它。
 	budget := agent.Budget{
-		MaxTurns:       res.MaxTurns,
-		MaxTotalTokens: res.MaxTokens,
-		MaxCostUSD:     res.MaxCostUSD,
+		MaxTurns:        res.MaxTurns,
+		MaxTotalTokens:  res.MaxTokens,
+		MaxCostUSD:      res.MaxCostUSD,
+		MaxPromptTokens: res.MaxPromptTokens,
 	}
 	applyDeclaredTurnBudget(rawPrompt, &budget)
 

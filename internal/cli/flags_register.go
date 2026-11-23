@@ -53,6 +53,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.maxTokens = fs.Int("max-tokens", 0, "stop after this many billable tokens")
 	v.maxCost = fs.Float64("max-cost", 0, "stop after this estimated dollar spend")
 	v.maxSeconds = fs.Int("max-seconds", 0, "stop after this many wall-clock seconds")
+	v.maxPromptTokens = fs.Int("max-prompt-tokens", 0, "stop before a request whose prompt exceeds this many tokens")
 	v.priceInput = fs.Float64("price-input", 0, "USD per million prompt tokens")
 	v.priceOutput = fs.Float64("price-output", 0, "USD per million completion tokens")
 	v.fallbackModel = fs.String("fallback-model", "", "model to retry once with when the primary fails")

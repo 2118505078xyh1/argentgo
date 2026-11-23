@@ -34,6 +34,7 @@ var expectedFlags = []string{
 	"list-sessions",
 	"locale",
 	"max-cost",
+	"max-prompt-tokens",
 	"max-parallel",
 	"max-seconds",
 	"max-tokens",

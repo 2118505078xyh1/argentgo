@@ -33,10 +33,11 @@ type Resolved struct {
 	MaxParallel int
 
 	// 预算与定价。
-	MaxTokens  int
-	MaxCostUSD float64
-	MaxSeconds int
-	Prices     map[string]agent.Price
+	MaxTokens       int
+	MaxCostUSD      float64
+	MaxSeconds      int
+	MaxPromptTokens int
+	Prices          map[string]agent.Price
 
 	// 额外的工作区目录、输出 schema 请求以及推理强度提示。
 	AddDirs      []string

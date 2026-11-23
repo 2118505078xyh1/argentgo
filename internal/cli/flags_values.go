@@ -190,15 +190,16 @@ type flagValues struct {
 	theme         *string
 	plugins       *stringList
 
-	maxTokens      *int
-	maxCost        *float64
-	maxSeconds     *int
-	priceInput     *float64
-	priceOutput    *float64
-	fallbackModel  *string
-	secondaryModel *string
-	addDirs        *stringList
-	outputSchema   *string
+	maxTokens       *int
+	maxCost         *float64
+	maxSeconds      *int
+	maxPromptTokens *int
+	priceInput      *float64
+	priceOutput     *float64
+	fallbackModel   *string
+	secondaryModel  *string
+	addDirs         *stringList
+	outputSchema    *string
 
 	background      *bool
 	worktree        *optionalString

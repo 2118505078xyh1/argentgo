@@ -67,15 +67,16 @@ type Options struct {
 	Plugins       []string
 
 	// 预算与价格。
-	MaxTokens      int
-	MaxCost        float64
-	MaxSeconds     int
-	PriceInput     float64
-	PriceOutput    float64
-	FallbackModel  string
-	SecondaryModel string
-	AddDirs        []string
-	OutputSchema   string
+	MaxTokens       int
+	MaxCost         float64
+	MaxSeconds      int
+	MaxPromptTokens int
+	PriceInput      float64
+	PriceOutput     float64
+	FallbackModel   string
+	SecondaryModel  string
+	AddDirs         []string
+	OutputSchema    string
 
 	// 为兼容性而解析的 flag。Background、Worktree、EnableBrowser、
 	// EnableDesktop、EnableService、GUI 以及 workflow 三件套背后的子系统
