@@ -8,11 +8,17 @@ package agent
 // 容器与字符串载荷，接线点在循环的工具派发处与轮次边界（由上层完成）。
 
 import (
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 )
+
+// pathArgKeys 是工具参数里常见的路径键。只识别这些键，使提醒注入保持保守：
+// 未知参数形态的调用不会触及收集器，默认路径逐字节不变。
+var pathArgKeys = []string{"path", "file_path", "filePath", "filepath", "file", "cwd", "dir", "directory", "paths", "files"}
 
 // TouchedPathCollector 在一次运行内收集工具触及的路径，去重且有界。
 // 线程安全：工具可能在子代理/后台路径上并发派发。
@@ -90,4 +96,39 @@ func (c *TouchedPathCollector) Count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.paths)
+}
+
+// touchedPathsForCall 从一次工具调用的参数字节中提取它触及的工作区路径。
+// 递归遍历已知路径键下的字符串与数组；解析失败时返回空，使嵌套提醒保持零副作用。
+func touchedPathsForCall(args string) []string {
+	var obj map[string]any
+	if json.Unmarshal([]byte(args), &obj) != nil {
+		return nil
+	}
+	var out []string
+	var collect func(any)
+	collect = func(v any) {
+		switch x := v.(type) {
+		case string:
+			if s := strings.TrimSpace(x); s != "" {
+				out = append(out, s)
+			}
+		case []any:
+			for _, elem := range x {
+				collect(elem)
+			}
+		case map[string]any:
+			for _, key := range pathArgKeys {
+				if inner, ok := x[key]; ok {
+					collect(inner)
+				}
+			}
+		}
+	}
+	for _, key := range pathArgKeys {
+		if v, ok := obj[key]; ok {
+			collect(v)
+		}
+	}
+	return out
 }
