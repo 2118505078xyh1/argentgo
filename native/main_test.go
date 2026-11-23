@@ -22,6 +22,18 @@ func TestWelcomeVisible(t *testing.T) {
 	}
 }
 
+func TestRPGChromeVisible(t *testing.T) {
+	app := newTestChat()
+	tt := ui.NewTester(app.view, 1180, 720)
+	// 三栏改造新增的 chrome：会话面板标题/当前会话条、顶栏会话标题、
+	// 输入区模型/上下文信息都应出现在欢迎帧。
+	for _, want := range []string{"项目与会话", "当前会话", "新会话", "模型", "上下文"} {
+		if !tt.HasText(want) {
+			t.Errorf("RPG chrome missing %q in %q", want, tt.Texts())
+		}
+	}
+}
+
 func TestSendAddsUserMessageAndReply(t *testing.T) {
 	app := newTestChat()
 	tt := ui.NewTester(app.view, 1180, 720)

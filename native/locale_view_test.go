@@ -36,3 +36,38 @@ func TestEnUSMainViewHasNoChinese(t *testing.T) {
 		}
 	}
 }
+
+// TestEnUSApprovalCardHasNoChinese 验证审批卡的新文案（标题/徽章/提示/理由）
+// 在 en-US 下也已翻译，避免换皮改造把汉字带进英文界面。
+func TestEnUSApprovalCardHasNoChinese(t *testing.T) {
+	configureLocale(func(k string) string {
+		if k == "ARGENT_LOCALE" {
+			return "en-US"
+		}
+		return ""
+	})
+	defer configureLocale(nil)
+
+	app := newTestChat()
+	tt := ui.NewTester(app.view, 1180, 720)
+	tt.Type("write file")
+	if err := tt.Click("send"); err != nil {
+		t.Fatal(err)
+	}
+	if app.approval == nil {
+		t.Fatal("no pending approval after send")
+	}
+	for _, text := range tt.Texts() {
+		for _, r := range text {
+			if unicode.Is(unicode.Han, r) {
+				t.Errorf("en-US 审批卡出现汉字：%q", text)
+				break
+			}
+		}
+	}
+	for _, want := range []string{"Unconfirmed tool call", "approval required"} {
+		if !tt.HasText(want) {
+			t.Errorf("en-US 审批卡缺少 %q，实际文本：%q", want, tt.Texts())
+		}
+	}
+}

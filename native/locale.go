@@ -226,6 +226,16 @@ var nativeEnglish = map[string]string{
 	"演示模式：未连接到引擎，回复与会话为示例数据，不会保存。":                  "Demo mode: not connected to engine; replies and sessions are sample data and will not be saved.",
 	"请从与引擎相同的发布包启动 argentgo-native，或设置 ARGENT_EXE。": "Launch argentgo-native from the same release package as the engine, or set ARGENT_EXE.",
 	"若尚未配置模型凭据，可运行 argentgo login 或在设置中填写。":         "If no model credentials are configured yet, run argentgo login or fill them in Settings.",
+
+	// RPG Desktop 视觉改造新增文案。
+	"项目与会话":    "Projects & sessions",
+	"当前会话":     "Current session",
+	"新会话":      "New session",
+	"输入任务或提问…": "Type a task or question…",
+	"上下文":      "context",
+	"未确认工具调用":  "Unconfirmed tool call",
+	"Y 允许一次 · A 始终允许 · N 拒绝":        "Y allow once · A always allow · N deny",
+	"拒绝理由（可选，例如：别删 dist，改删 build/）": "Reason for denial (optional, e.g. keep dist, remove build/)",
 }
 
 // cannedRepliesEN 是 main.go 中 demo 预设回复的英文版，索引一一对应。

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -35,6 +36,18 @@ func init() {
 	nativeEnglish["审查这段 Go 代码的并发问题"] = "Review this Go code for concurrency issues"
 	nativeEnglish["解释这个报错并给出修复"] = "Explain this error and suggest a fix"
 	nativeEnglish["为当前模块补一组单元测试"] = "Write unit tests for the current module"
+}
+
+// formatDuration 把 engine 上报的耗时格式化为工具行右侧的紧凑文本
+// （如 10ms / 4.0s）。0 或负值表示未知，返回空串让该列不渲染。
+func formatDuration(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
 }
 
 // toolCardSummary 生成工具卡片的折叠摘要：取正文首个非空行，折叠空白后

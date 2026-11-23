@@ -51,6 +51,36 @@ func TestToolCardSummary(t *testing.T) {
 	}
 }
 
+func TestFormatDuration(t *testing.T) {
+	cases := []struct {
+		ms   int64
+		want string
+	}{
+		{ms: 0, want: ""},
+		{ms: -5, want: ""},
+		{ms: 10, want: "10ms"},
+		{ms: 999, want: "999ms"},
+		{ms: 1000, want: "1.0s"},
+		{ms: 4000, want: "4.0s"},
+	}
+	for _, tc := range cases {
+		if got := formatDuration(tc.ms); got != tc.want {
+			t.Errorf("formatDuration(%d) = %q, want %q", tc.ms, got, tc.want)
+		}
+	}
+}
+
+func TestToolRowShowsDuration(t *testing.T) {
+	app := &chat{instant: true, messages: []*message{
+		{id: 1, kind: msgTool, name: "shell", status: "done", done: true,
+			text: "go test ./...", durationMS: 4000},
+	}}
+	tt := ui.NewTester(app.view, 1180, 720)
+	if !tt.HasText("4.0s") {
+		t.Fatalf("tool row missing duration: %q", tt.Texts())
+	}
+}
+
 func TestToolCardExpandCollapse(t *testing.T) {
 	app := &chat{instant: true, messages: []*message{
 		{

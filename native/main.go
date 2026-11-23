@@ -20,51 +20,58 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 )
 
-// 调色板镜像暖炭/珊瑚设计 token，来自
-// 切换整个窗口而无需依赖桌面。
+// 调色板采用 RPG Desktop 紫色系设计 token（浅/深双主题）。
+// 所有颜色集中在这里，换肤只改色值，不动渲染结构与交互。
 type palette struct {
 	bg, surface, element, border, borderSubtle ui.Color
 	text, dim, accent, ok, danger, warn        ui.Color
 	strong, onAccent, sidebar                  ui.Color
 	accentBG, accentLine                       ui.Color
+	warnBG, warnLine, warnText                 ui.Color // 审批/提示卡黄色系
 }
 
 var (
 	darkPalette = palette{
-		bg:           ui.Hex("#171716"),
-		surface:      ui.Hex("#20201e"),
-		element:      ui.Hex("#2b2b28"),
-		border:       ui.Hex("#3b3a35"),
-		borderSubtle: ui.Hex("#2e2e2a"),
-		text:         ui.Hex("#e8e6df"),
-		dim:          ui.Hex("#9b9991"),
-		accent:       ui.Hex("#d97757"),
-		ok:           ui.Hex("#8fae72"),
-		danger:       ui.Hex("#e0737b"),
-		warn:         ui.Hex("#d3a35c"),
-		strong:       ui.Hex("#faf8f3"),
-		onAccent:     ui.Hex("#1b1310"),
-		sidebar:      ui.Hex("#131312"),
-		accentBG:     ui.RGBA(217, 119, 87, 0.13),
-		accentLine:   ui.RGBA(217, 119, 87, 0.34),
+		bg:           ui.Hex("#18181B"),
+		surface:      ui.Hex("#232327"),
+		element:      ui.Hex("#2E2E33"),
+		border:       ui.Hex("#34343A"),
+		borderSubtle: ui.Hex("#2C2C31"),
+		text:         ui.Hex("#F2F2F5"),
+		dim:          ui.Hex("#9A9AA2"),
+		accent:       ui.Hex("#9B8AFF"),
+		ok:           ui.Hex("#5FCE7A"),
+		danger:       ui.Hex("#FF6B6B"),
+		warn:         ui.Hex("#F9AB00"),
+		strong:       ui.Hex("#F2F2F5"),
+		onAccent:     ui.Hex("#17132B"),
+		sidebar:      ui.Hex("#1E1E22"),
+		accentBG:     ui.Hex("#2E2642"),
+		accentLine:   ui.RGBA(155, 138, 255, 0.34),
+		warnBG:       ui.Hex("#3A2F14"),
+		warnLine:     ui.Hex("#F9AB00"),
+		warnText:     ui.Hex("#F9AB00"),
 	}
 	lightPalette = palette{
-		bg:           ui.Hex("#f5f4ef"),
-		surface:      ui.Hex("#ffffff"),
-		element:      ui.Hex("#ebe9e1"),
-		border:       ui.Hex("#dcd9cf"),
-		borderSubtle: ui.Hex("#e7e4db"),
-		text:         ui.Hex("#2f2e29"),
-		dim:          ui.Hex("#7d7b72"),
-		accent:       ui.Hex("#b8522c"),
-		ok:           ui.Hex("#4d7938"),
-		danger:       ui.Hex("#b23b48"),
-		warn:         ui.Hex("#9a6b18"),
-		strong:       ui.Hex("#1b1a17"),
-		onAccent:     ui.Hex("#ffffff"),
-		sidebar:      ui.Hex("#efeee8"),
-		accentBG:     ui.RGBA(184, 82, 44, 0.08),
-		accentLine:   ui.RGBA(184, 82, 44, 0.27),
+		bg:           ui.Hex("#FAFAFA"),
+		surface:      ui.Hex("#FFFFFF"),
+		element:      ui.Hex("#F4F4F6"),
+		border:       ui.Hex("#E5E5EA"),
+		borderSubtle: ui.Hex("#ECECF0"),
+		text:         ui.Hex("#1C1C1E"),
+		dim:          ui.Hex("#8E8E93"),
+		accent:       ui.Hex("#7C5CFC"),
+		ok:           ui.Hex("#34A853"),
+		danger:       ui.Hex("#D93025"),
+		warn:         ui.Hex("#C77700"),
+		strong:       ui.Hex("#1C1C1E"),
+		onAccent:     ui.Hex("#FFFFFF"),
+		sidebar:      ui.Hex("#F4F4F6"),
+		accentBG:     ui.Hex("#F0ECFF"),
+		accentLine:   ui.RGBA(124, 92, 252, 0.27),
+		warnBG:       ui.Hex("#FEF7E0"),
+		warnLine:     ui.Hex("#F9AB00"),
+		warnText:     ui.Hex("#8A5A00"),
 	}
 )
 
@@ -79,13 +86,14 @@ const (
 // message 是 transcript 的一行。对工具，name/text/status 描述
 // 紧凑卡片；对助手消息，text 是 Markdown 源。
 type message struct {
-	id       int
-	kind     msgKind
-	text     string
-	name     string
-	status   string // "running", "done" or "failed"
-	done     bool   // assistant reply finished streaming
-	expanded bool   // tool card: show the full output instead of the summary
+	id         int
+	kind       msgKind
+	text       string
+	name       string
+	status     string // "running", "done" or "failed"
+	done       bool   // assistant reply finished streaming
+	expanded   bool   // tool card: show the full output instead of the summary
+	durationMS int64  // tool card: engine-reported elapsed time (0 means unknown)
 }
 
 type approval struct {
@@ -250,7 +258,7 @@ func (app *chat) applyTheme(c *ui.Context) palette {
 	t.Border, t.Text, t.TextMuted = p.border, p.text, p.dim
 	t.Accent, t.AccentText, t.InactiveAccent = p.accent, p.onAccent, p.accent
 	t.Success, t.Danger, t.Warning = p.ok, p.danger, p.warn
-	t.Focus, t.Font, t.FontSize, t.Radius = p.accent, "Segoe UI", 14, 8
+	t.Focus, t.Font, t.FontSize, t.Radius = p.accent, "Segoe UI", 14, 10
 	c.SetTheme(&t)
 
 	app.md.Theme = &markdown.Theme{
@@ -289,13 +297,14 @@ func (app *chat) view(c *ui.Context) {
 	}
 
 	ui.Row(c).Fill().Children(func() {
+		app.iconRail(c, p)
 		app.sidebar(c, p)
 		app.main(c, p, t)
 	})
 }
 
 func (app *chat) sidebar(c *ui.Context, p palette) {
-	ui.Column(c).Width(240).FillHeight().Background(p.sidebar).
+	ui.Column(c).Width(230).FillHeight().Background(p.sidebar).
 		BorderWidth(0, 0, 0, 1).BorderColor(p.borderSubtle).
 		Padding(16, 12, 12, 12).Gap(10).Children(func() {
 		// Brand.
@@ -361,15 +370,23 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	app.ensureSessions()
 
-	// 会话头部和搜索。
+	// 会话头部：标题 + 新建按钮。
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
-		ui.Text(c, tr("会话")).FontSize(12).Bold().TextColor(p.dim).Grow(1)
+		ui.Text(c, tr("项目与会话")).FontSize(12).Bold().TextColor(p.dim).Grow(1)
 		if ui.Button(c, "＋").Clicked() {
 			app.newSession()
 		}
 	})
+	// 当前会话紫底高亮条：它是状态展示而非按钮，没有选中会话时不做假可点击。
+	current := tr("当前会话")
+	if app.selectedSession != "" {
+		current += " · " + tr(app.selectedSession)
+	}
+	ui.Row(c).Padding(8, 10).Radius(10).Background(p.accentBG).Children(func() {
+		ui.Text(c, current).FontSize(12).Bold().TextColor(p.accent).SingleLine()
+	})
 	ui.TextInput(c, &app.sessionQuery).Placeholder(tr("搜索会话")).
-		Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
+		Padding(8, 10).Radius(10).Background(p.element).FontSize(12)
 
 	// 会话列表。成功获取替换 demo 行；失败（或
 	// sessions 保持 nil 的 demo 模式）保留它们。
@@ -708,6 +725,31 @@ func (app *chat) headerWorkspace() string {
 	return app.configInfo.workspace
 }
 
+// workspaceBreadcrumb 把工作区路径转成顶栏面包屑（如 "D: / CODE / MPI"）。
+// 只做分隔符替换与大写，不发明路径信息；空路径返回空串。
+func workspaceBreadcrumb(ws string) string {
+	if ws == "" {
+		return ""
+	}
+	parts := strings.FieldsFunc(ws, func(r rune) bool { return r == '/' || r == '\\' })
+	for i, p := range parts {
+		parts[i] = strings.ToUpper(p)
+	}
+	return strings.Join(parts, " / ")
+}
+
+// headerSessionTitle 返回顶栏的会话标题：优先真实选中的会话，
+// 否则用已加载列表的第一条，最后回退到“新会话”（不冒充某条 demo 会话）。
+func (app *chat) headerSessionTitle() string {
+	if app.selectedSession != "" {
+		return tr(app.selectedSession)
+	}
+	if len(app.sessions) > 0 {
+		return tr(app.sessions[0].title)
+	}
+	return tr("新会话")
+}
+
 // sessionGroup 按会话更新的日期分组，匹配
 // 今天/昨天/更早 groups of the demo rail.
 func sessionGroup(updated time.Time) string {
@@ -899,25 +941,39 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 	_, lastVisible := app.list.Visible()
 	showJump := lastVisible >= 0 && !app.list.AtEnd()
 	ui.Column(c).Grow(1).FillHeight().Children(func() {
-		// 顶栏。
-		ui.Row(c).Height(64).Padding(10, 20).Gap(12).AlignItems(ui.Center).
+		// 顶栏：面包屑 + 会话标题 + 状态徽章 + 操作按钮。
+		ui.Row(c).Height(56).Padding(8, 20).Gap(12).AlignItems(ui.Center).
 			BorderWidth(0, 0, 1, 0).BorderColor(p.borderSubtle).Children(func() {
-			ui.Column(c).Gap(2).Children(func() {
-				ui.Text(c, "argentgo").FontSize(15).Bold().TextColor(p.strong)
-				ui.Text(c, app.headerWorkspace()).FontSize(12).TextColor(p.dim)
+			ui.Column(c).Gap(1).Children(func() {
+				ui.Text(c, workspaceBreadcrumb(app.headerWorkspace())).
+					FontSize(10).TextColor(p.dim).SingleLine()
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, app.headerSessionTitle()).FontSize(16).Bold().TextColor(p.strong)
+					ui.Text(c, app.headerWorkspace()).FontSize(11).TextColor(p.dim)
+				})
 			})
 			ui.Spacer(c)
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, tr("模型")).FontSize(12).TextColor(p.dim)
-				ui.Text(c, app.headerModel()).FontSize(13).TextColor(p.text).
-					Padding(6, 10).Radius(999).Background(p.element)
-				if ui.Button(c, tr("撤销")).Clicked() {
+			// 状态徽章：运行中黄底，就绪紫底。
+			badgeText, badgeBG, badgeLine, badgeTextColor := tr("就绪"), p.accentBG, p.accentLine, p.accent
+			if app.streaming {
+				count := app.usage.calls
+				if count < 1 {
+					count = 1
+				}
+				badgeText = fmt.Sprintf("%s · %d", tr("运行中"), count)
+				badgeBG, badgeLine, badgeTextColor = p.warnBG, p.warnLine, p.warnText
+			}
+			ui.Text(c, badgeText).FontSize(11).TextColor(badgeTextColor).
+				Padding(4, 10).Radius(999).Background(badgeBG).
+				BorderWidth(1, 1, 1, 1).BorderColor(badgeLine)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, tr("撤销")).Padding(5, 10).Radius(8).Clicked() {
 					app.undo()
 				}
-				if ui.Button(c, tr("重试")).Clicked() {
+				if ui.Button(c, tr("重试")).Padding(5, 10).Radius(8).Clicked() {
 					app.retry()
 				}
-				if ui.Button(c, tr("主题")).Clicked() {
+				if ui.Button(c, tr("主题")).Padding(5, 10).Radius(8).Clicked() {
 					app.toggleTheme()
 				}
 			})
@@ -926,15 +982,18 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 		// 演示模式持久横幅：未连接引擎时始终可见，避免用户对着假数据工作数分钟
 		// 才发现一切不会保存。真实引擎接入后整段不渲染，帧字节不变。
 		if app.engine == nil {
-			ui.Row(c).Padding(6, 20).Background(p.accentBG).Children(func() {
+			ui.Row(c).Padding(8, 20).Background(p.warnBG).
+				BorderWidth(0, 0, 1, 0).BorderColor(p.warnLine).Children(func() {
 				ui.Text(c, tr("演示模式 · 未连接到引擎 · 回复与会话不会保存")).
-					FontSize(12).TextColor(p.warn)
+					FontSize(12).TextColor(p.warnText)
 			})
 		}
 
-		// 审批栏。
+		// 审批栏：醒目黄色卡片，左右留白使其像悬浮卡片。
 		if app.approval != nil {
-			app.approvalView(c, p)
+			ui.Column(c).Padding(0, 16, 8, 16).Children(func() {
+				app.approvalView(c, p)
+			})
 		}
 
 		// Transcript.
@@ -1011,28 +1070,33 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			ui.Text(c, app.configInfoLabel()).FontSize(11).TextColor(p.dim)
 		})
 
-		// Composer.
-		ui.Column(c).Padding(10, 20, 14, 20).Gap(8).Background(p.surface).
-			BorderWidth(1, 0, 0, 0).BorderColor(p.border).Children(func() {
-			in := ui.TextArea(c, &app.draft).Lines(1, 5).AutoFocus().
-				Placeholder(tr("问点什么，或者输入 / 看命令。")).Grow(1)
-			in.OnTextKey(func(k ui.TextKey) bool {
-				if k.Key == ui.KeyEnter && k.Mods == 0 {
-					app.send(k.Text())
-					k.SetText("")
-					return true
-				}
-				return false // Shift+Enter inserts a newline
-			})
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, tr("Enter 发送 · Shift+Enter 换行")).FontSize(11).TextColor(p.dim).Grow(1)
-				if app.streaming {
-					if ui.Button(c, tr("停止")).Clicked() {
-						app.stop()
+		// 输入区：大圆角卡片 + 模型/上下文信息 + 紫色发送按钮。
+		ui.Column(c).Padding(10, 20, 14, 20).Children(func() {
+			ui.Column(c).Padding(12, 14, 10, 14).Gap(8).Background(p.surface).
+				BorderWidth(1, 1, 1, 1).BorderColor(p.border).Radius(12).Children(func() {
+				in := ui.TextArea(c, &app.draft).Lines(1, 5).AutoFocus().
+					Placeholder(tr("输入任务或提问…")).Grow(1)
+				in.OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						app.send(k.Text())
+						k.SetText("")
+						return true
 					}
-				} else if ui.PrimaryButton(c, tr("发送")).Clicked() {
-					app.send(app.draft)
-				}
+					return false // Shift+Enter inserts a newline
+				})
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, tr("模型")).FontSize(11).TextColor(p.dim)
+					ui.Text(c, app.headerModel()+" · "+tr("上下文")).
+						FontSize(11).TextColor(p.dim).Grow(1)
+					ui.Text(c, tr("Enter 发送 · Shift+Enter 换行")).FontSize(11).TextColor(p.dim)
+					if app.streaming {
+						if ui.Button(c, tr("停止")).Clicked() {
+							app.stop()
+						}
+					} else if ui.PrimaryButton(c, tr("发送")).Clicked() {
+						app.send(app.draft)
+					}
+				})
 			})
 		})
 	})
@@ -1041,29 +1105,30 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 func (app *chat) approvalView(c *ui.Context, p palette) {
 	ap := app.approval
 	dangerous := approvalDefaultIsDeny(ap.name, ap.args)
-	ui.Column(c).Padding(10, 20).Gap(8).Background(p.accentBG).
-		BorderWidth(1, 0, 0, 0).BorderColor(p.accentLine).Children(func() {
+	ui.Column(c).Padding(12, 14).Gap(8).Background(p.warnBG).
+		BorderWidth(1, 1, 1, 1).BorderColor(p.warnLine).Radius(12).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(18, 18).Radius(9).Background(p.warn)
-			ui.Text(c, tr("需要批准")).Bold().TextColor(p.strong)
-			ui.Text(c, ap.name).FontSize(12).TextColor(p.accent)
+			ui.Text(c, tr("未确认工具调用")).Bold().TextColor(p.warnText)
+			ui.Text(c, tr("需要批准")).FontSize(11).TextColor(p.onAccent).
+				Padding(2, 8).Radius(999).Background(p.warnLine)
+			ui.Text(c, ap.name).FontSize(12).Bold().TextColor(p.text)
 			ui.Spacer(c)
 			// 上下文相关的按键提示（不恢复全局底部 hint bar）。
-			ui.Text(c, tr("Y 允许一次 · A 始终允许 · N 拒绝")).FontSize(11).TextColor(p.dim)
+			ui.Text(c, tr("Y 允许一次 · A 始终允许 · N 拒绝")).FontSize(11).TextColor(p.warnText)
 		})
-		ui.Text(c, ap.args).FontSize(12).TextColor(p.dim).
-			Padding(8, 10).Radius(6).Background(p.surface).Selectable()
+		ui.Text(c, ap.args).FontSize(12).TextColor(p.text).
+			Padding(8, 10).Radius(8).Background(p.surface).Selectable()
 		// diff 默认开启（=0 回退）：摘要 + 预览两行给出概览，逐行 diff 给出细节，
 		// 让审批从"盲签"变成"看一眼再签"。无数据时整段跳过，帧字节不变。
 		if approvalDiffVisible() {
 			if summary := buildApprovalSummary(ap.name, ap.args); !summary.empty() {
-				ui.Text(c, renderApprovalSummary(summary)).FontSize(11).TextColor(p.warn)
+				ui.Text(c, renderApprovalSummary(summary)).FontSize(11).TextColor(p.warnText)
 				ui.Text(c, summary.Preview).FontSize(11).TextColor(p.dim).Selectable()
 			}
 			// 逐行 diff：编辑类工具展示真正改了什么（+/- 与上下文）。
 			if files := buildApprovalLineDiff(ap.name, ap.args); len(files) > 0 {
 				ui.Text(c, renderApprovalLineDiff(files)).FontSize(11).TextColor(p.text).
-					Padding(8, 10).Radius(6).Background(p.surface).Selectable()
+					Padding(8, 10).Radius(8).Background(p.surface).Selectable()
 			}
 		}
 		// 拒绝理由（可选）：用户可写一句让模型改方案，随 RPC 透传供审计。
@@ -1129,11 +1194,13 @@ func (app *chat) messageActions(c *ui.Context, m *message, p palette, end bool) 
 func (app *chat) message(c *ui.Context, m *message, p palette) {
 	switch m.kind {
 	case msgUser:
+		// 右对齐紫色气泡（浅紫底 + 细紫边 + 12px 圆角）。
 		ui.Row(c).Children(func() {
 			ui.Spacer(c)
-			ui.Column(c).MaxWidth(520).Radius(14).Background(p.surface).
+			ui.Column(c).MaxWidth(520).Radius(12).Background(p.accentBG).
+				BorderWidth(1, 1, 1, 1).BorderColor(p.accentLine).
 				Padding(10, 14).Gap(4).Children(func() {
-				ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.dim)
+				ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.accent)
 				// 用户消息也走 Markdown：多行代码/日志在气泡里同样被格式化。
 				markdown.View(c, m.text, &app.md)
 				app.messageActions(c, m, p, true)
@@ -1147,18 +1214,23 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 		case "failed":
 			glyph, color = "✗", p.danger
 		}
-		// 卡片整体是一个可变状态：点击标题行切换 m.expanded，下一帧
-		// 依据它重建视图。折叠态只显示有界摘要，展开态显示完整输出。
-		ui.Column(c).Radius(8).Background(p.element).Children(func() {
+		// 紧凑单行工具行：状态图标 + 工具名 + 参数摘要 + 右侧耗时。
+		// 整行可点击展开完整输出（已实现能力保留）。
+		ui.Column(c).Radius(10).Background(p.element).
+			BorderWidth(1, 1, 1, 1).BorderColor(p.borderSubtle).Children(func() {
 			chevron := "▸"
 			if m.expanded {
 				chevron = "▾"
 			}
-			header := ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 12).Children(func() {
+			header := ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(7, 12).Children(func() {
 				ui.Text(c, chevron).FontSize(10).TextColor(p.dim)
 				ui.Text(c, glyph).Bold().TextColor(color)
 				ui.Text(c, m.name).FontSize(12).Bold().TextColor(p.text)
-				ui.Text(c, toolCardSummary(m)).FontSize(12).TextColor(p.dim).SingleLine()
+				ui.Text(c, toolCardSummary(m)).FontSize(12).TextColor(p.dim).
+					SingleLine().Grow(1)
+				if d := formatDuration(m.durationMS); d != "" {
+					ui.Text(c, d).FontSize(11).TextColor(p.dim)
+				}
 			})
 			if header.Clicked() {
 				m.expanded = !m.expanded
@@ -1180,8 +1252,11 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 			}
 		})
 	default:
-		ui.Column(c).MaxWidth(720).Gap(4).Children(func() {
-			ui.Text(c, "argentgo").FontSize(11).Bold().TextColor(p.dim)
+		// 助手消息：左对齐卡片 + 细边框 + 10px 圆角。
+		ui.Column(c).MaxWidth(720).Radius(10).Background(p.surface).
+			BorderWidth(1, 1, 1, 1).BorderColor(p.borderSubtle).
+			Padding(12, 14).Gap(6).Children(func() {
+			ui.Text(c, "argentgo").FontSize(11).Bold().TextColor(p.accent)
 			if m.done {
 				markdown.View(c, m.text, &app.md)
 				app.messageActions(c, m, p, false)
@@ -1429,7 +1504,7 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 		if json.Unmarshal(raw, &ev) != nil {
 			return
 		}
-		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Args, "running")
+		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Args, "running", 0)
 	case "tool_end":
 		var ev struct {
 			ToolCallID string `json:"ToolCallID"`
@@ -1437,6 +1512,7 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 			Output     string `json:"Output"`
 			Args       string `json:"Args"`
 			IsError    bool   `json:"IsError"`
+			DurationMS int64  `json:"DurationMS"`
 		}
 		if json.Unmarshal(raw, &ev) != nil {
 			return
@@ -1445,7 +1521,7 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 		if ev.IsError {
 			status = "failed"
 		}
-		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Output, status)
+		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Output, status, ev.DurationMS)
 		// todo 工具的 write 调用携带完整任务列表；用它更新"计划"面板。
 		// read 调用/畸形参数返回 nil，不覆盖已有列表。
 		if ev.ToolName == "todo" {
@@ -1493,7 +1569,7 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 // upsertTool 按其 engine 工具调用 id 创建或更新一个工具卡片。
 // 复用该行使并行调用保持区分，并让 tool_end 更新
 // tool_start 打开的卡片而非新增第二张。
-func (app *chat) upsertTool(id, name, detail, status string) {
+func (app *chat) upsertTool(id, name, detail, status string, durationMS int64) {
 	if id == "" {
 		id = name // defensive: an older engine may omit the correlation id
 	}
@@ -1510,10 +1586,13 @@ func (app *chat) upsertTool(id, name, detail, status string) {
 			m.text = detail
 		}
 		m.status = status
+		if durationMS > 0 {
+			m.durationMS = durationMS
+		}
 		return
 	}
 	app.next++
-	m := &message{id: app.next, kind: msgTool, name: name, text: detail, status: status}
+	m := &message{id: app.next, kind: msgTool, name: name, text: detail, status: status, durationMS: durationMS}
 	app.tools[id] = m
 	app.messages = append(app.messages, m)
 }

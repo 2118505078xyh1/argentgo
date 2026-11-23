@@ -70,6 +70,21 @@ func TestParseEngineApproval(t *testing.T) {
 	}
 }
 
+// TestToolEndCarriesDuration 验证 tool_end 的 DurationMS 落到工具卡片，
+// 供紧凑工具行右侧显示耗时。
+func TestToolEndCarriesDuration(t *testing.T) {
+	app := &chat{}
+	app.applyEngineEvent("tool_start", json.RawMessage(`{"ToolCallID":"c1","ToolName":"bash","Args":"ls"}`))
+	app.applyEngineEvent("tool_end", json.RawMessage(`{"ToolCallID":"c1","ToolName":"bash","Output":"ok","DurationMS":4000}`))
+	m := app.tools["c1"]
+	if m == nil {
+		t.Fatal("tool card not created")
+	}
+	if m.durationMS != 4000 {
+		t.Fatalf("durationMS = %d, want 4000", m.durationMS)
+	}
+}
+
 // TestReadLoopDispatchesEvent 证明 readLoop 把 "event" 通知转发为
 // (kind, 原始事件) 而不导入 engine 的事件类型。
 func TestReadLoopDispatchesEvent(t *testing.T) {
