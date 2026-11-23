@@ -61,3 +61,25 @@ type SessionTreeStore interface {
 type SessionStatusStore interface {
 	Snapshot() map[string]string
 }
+
+// SessionCreateStore 是注入的 SessionStore 可以提供的可选会话创建端。
+// NewSession 在存储目录下立即创建一条只含 header 的会话并返回其 id；
+// title 允许为空，由具体存储决定默认标题。未实现时 session.new 返回干净的
+// "not configured" 错误，与 session.tree 的零值语义一致。
+type SessionCreateStore interface {
+	NewSession(title string) (string, error)
+}
+
+// SessionRenameStore 是注入的 SessionStore 可以提供的可选会话重命名端。
+// RenameSession 给 id 指向的会话追加一条标题覆盖记录。未实现时
+// session.rename 返回干净的 "not configured" 错误。
+type SessionRenameStore interface {
+	RenameSession(id, title string) error
+}
+
+// SessionDeleteStore 是注入的 SessionStore 可以提供的可选会话删除端。
+// 方法签名与 cli.SessionStore.Delete 一致，现有生产适配器无需改动即可支撑
+// session.delete。未实现时返回干净的 "not configured" 错误。
+type SessionDeleteStore interface {
+	Delete(id string) error
+}

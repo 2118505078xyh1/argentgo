@@ -64,7 +64,19 @@ func scrubAbsolutePaths(s string) string {
 // 保留下来，使客户端仍能知道加载失败的原因。未脱敏的细节
 // 留在服务器端用于日志。
 func scrubSessionLoadError(id string, err error) string {
-	return fmt.Sprintf("load session %q: %s", id, scrubAbsolutePaths(err.Error()))
+	return scrubSessionError("load", id, err)
+}
+
+// scrubSessionError 为会话 CRUD 的错误准备统一的 RPC 回复文本。它与
+// scrubSessionLoadError 共用同一条脱敏边界：凭据先脱敏、绝对路径折叠为
+// <storage>/... 占位符，只保留操作名、调用方给出的 id 与规范原因留在 wire 上，
+// 未脱敏的细节仍留在服务端供日志使用。id 为空（如新建时尚无 id）时省略它。
+func scrubSessionError(verb, id string, err error) string {
+	detail := scrubAbsolutePaths(err.Error())
+	if id == "" {
+		return fmt.Sprintf("%s session: %s", verb, detail)
+	}
+	return fmt.Sprintf("%s session %q: %s", verb, id, detail)
 }
 
 // filterEventsByBranch 把 session.load 返回的全部事件裁剪为根→branchID 的
@@ -194,6 +206,19 @@ func approvalSession(explicit string, runner Runner) string {
 	return ""
 }
 
+// isActiveSession 报告 id 是否指向 runner 当前仍在追加的会话。存储的
+// resolvePath 接受唯一前缀，因此前缀关系也按"同一会话"处理：否则删除一个
+// 前缀 id 会让引擎继续向已删除的转录写入。比较前统一大小写，与存储层的
+// 前缀匹配语义对齐。
+func isActiveSession(id, active string) bool {
+	id, active = strings.TrimSpace(id), strings.TrimSpace(active)
+	if id == "" || active == "" {
+		return false
+	}
+	id, active = strings.ToLower(id), strings.ToLower(active)
+	return id == active || strings.HasPrefix(id, active) || strings.HasPrefix(active, id)
+}
+
 // reportScanError 把可恢复的扫描错误转换为结构化的 JSON-RPC
 // 回复。它报告错误是否是终态的、传输是否必须停止。
 // 超大帧没有可解析的 id，因此用 id: null 回复，
@@ -210,7 +235,8 @@ func reportScanError(p *peer, err error) (terminal bool) {
 // EOF 或 ctx 被取消。
 //
 // 方法：prompt、abort、session.list、session.load、session.tree、
-// config.info、approval.list、approval.answer、event/subscribe。流式
+// session.new、session.rename、session.delete、config.info、
+// approval.list、approval.answer、event/subscribe。流式
 // 提示文本在提示结果返回前作为 prompt/delta 通知发出；
 // event/subscribe 用订阅时捕获的 seq 回复（安全续传游标），
 // 然后发出 "event" 通知，直到传输
@@ -405,6 +431,110 @@ func handleRPCRequest(ctx context.Context, p *peer, cfg Config, req request, wg 
 			branches = []SessionBranch{}
 		}
 		p.respond(req.ID, map[string]any{"branches": branches})
+	case "session.new":
+		// session.new {title?} 在存储目录下立即创建一条新会话并返回 id，
+		// 使 UI 的"新建会话"不必等到首条 prompt 才落盘。写入端通过可选接口
+		// 发现：未注入时返回干净的 "not configured" 错误，与 session.tree 同语义。
+		if cfg.Sessions == nil {
+			p.fail(req.ID, codeServerError, "session store not configured")
+			return
+		}
+		typed, ok := cfg.Sessions.(SessionCreateStore)
+		if !ok {
+			p.fail(req.ID, codeServerError, "session creation not configured")
+			return
+		}
+		var params struct {
+			Title string `json:"title"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		if strings.TrimSpace(params.Title) == "" {
+			// 默认化：空标题给一个可读的占位名，与 openOrCreateSession 的
+			// 无 prompt 分支一致；之后 rename 写入的覆盖记录会盖过它。
+			params.Title = "session"
+		}
+		id, err := typed.NewSession(params.Title)
+		if err != nil {
+			p.fail(req.ID, codeServerError, scrubSessionError("create", "", err))
+			return
+		}
+		p.respond(req.ID, map[string]any{"id": id})
+	case "session.rename":
+		// session.rename {id, title} 给指定会话追加一条标题覆盖。title 用指针
+		// 接收，以区分"未提供"（非法）与"显式空串"（清除覆盖，回到派生标题）。
+		if cfg.Sessions == nil {
+			p.fail(req.ID, codeServerError, "session store not configured")
+			return
+		}
+		typed, ok := cfg.Sessions.(SessionRenameStore)
+		if !ok {
+			p.fail(req.ID, codeServerError, "session rename not configured")
+			return
+		}
+		var params struct {
+			ID    string  `json:"id"`
+			Title *string `json:"title"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		if strings.TrimSpace(params.ID) == "" {
+			p.fail(req.ID, codeInvalidParams, "session id is required")
+			return
+		}
+		if params.Title == nil {
+			p.fail(req.ID, codeInvalidParams, "title is required")
+			return
+		}
+		if err := typed.RenameSession(params.ID, *params.Title); err != nil {
+			p.fail(req.ID, codeServerError, scrubSessionError("rename", params.ID, err))
+			return
+		}
+		p.respond(req.ID, map[string]any{"id": params.ID, "title": *params.Title})
+	case "session.delete":
+		// session.delete {id} 删除指定会话。删除前先挡住 runner 当前追加的
+		// 会话（含前缀写法），避免引擎继续向已删除的转录写入而悬空。
+		if cfg.Sessions == nil {
+			p.fail(req.ID, codeServerError, "session store not configured")
+			return
+		}
+		typed, ok := cfg.Sessions.(SessionDeleteStore)
+		if !ok {
+			p.fail(req.ID, codeServerError, "session delete not configured")
+			return
+		}
+		var params struct {
+			ID string `json:"id"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				p.fail(req.ID, codeInvalidParams, "invalid params: "+err.Error())
+				return
+			}
+		}
+		if strings.TrimSpace(params.ID) == "" {
+			p.fail(req.ID, codeInvalidParams, "session id is required")
+			return
+		}
+		// 复用 approvalSession 的 SessionID() 发现机制取活动会话；此处只借
+		// 发现逻辑，不涉及审批语义。
+		if active := approvalSession("", cfg.Runner); isActiveSession(params.ID, active) {
+			p.fail(req.ID, codeServerError, fmt.Sprintf("cannot delete active session %q", params.ID))
+			return
+		}
+		if err := typed.Delete(params.ID); err != nil {
+			p.fail(req.ID, codeServerError, scrubSessionError("delete", params.ID, err))
+			return
+		}
+		p.respond(req.ID, map[string]any{"ok": true})
 	case "approval.list":
 		// approval.list {session?} 返回 runner 的持久待审批
 		// 镜像，使重连的客户端可以恢复它离开期间被问到的问题。
