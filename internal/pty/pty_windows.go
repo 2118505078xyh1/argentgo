@@ -192,8 +192,10 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 
 	flags := uint32(extendedStartupInfoPresent)
 	var envPtr *uint16
-	if len(cmd.Env) > 0 {
-		envPtr, err = environmentBlock(append(os.Environ(), cmd.Env...))
+	// 与 unix 路径一致地复用 proc.SanitizeEnv：去掉宿主私有变量后
+	// 再追加显式条目，避免嵌套 agent 误继承父会话状态。
+	if env := sanitizedEnv(cmd.Env); len(env) > 0 {
+		envPtr, err = environmentBlock(env)
 		if err != nil {
 			procClosePseudoConsole.Call(uintptr(console))
 			syscall.CloseHandle(inWrite)

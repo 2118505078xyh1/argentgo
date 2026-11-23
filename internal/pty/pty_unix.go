@@ -49,9 +49,9 @@ func startPlatform(cmd Command, size Size) (terminal, error) {
 
 	child := exec.Command(cmd.Path, cmd.Args...)
 	child.Dir = cmd.Dir
-	if len(cmd.Env) > 0 {
-		child.Env = append(os.Environ(), cmd.Env...)
-	}
+	// 复用 proc.SanitizeEnv 去掉宿主私有环境变量，避免嵌套 agent 误把
+	// 父会话状态当成自己的；显式条目原样追加、优先级最高。
+	child.Env = sanitizedEnv(cmd.Env)
 	child.Stdin = slave
 	child.Stdout = slave
 	child.Stderr = slave
