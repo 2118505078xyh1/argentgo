@@ -22,7 +22,7 @@ func TestPruneToolResultsOversized(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("count = %d, want 1", count)
 	}
-	want := strings.Repeat("A", 10) + "… [middle pruned, 40 runes] …" + strings.Repeat("Z", 10)
+	want := strings.Repeat("A", 10) + pruneMarkerText(40, content) + strings.Repeat("Z", 10)
 	if pruned[0].Content != want {
 		t.Fatalf("pruned content = %q, want %q", pruned[0].Content, want)
 	}
@@ -69,7 +69,7 @@ func TestPruneToolResultsRuneSafeCJKEmoji(t *testing.T) {
 	runes := []rune(content)
 	total := len(runes)
 	head, tail := max/2, max-max/2
-	want := string(runes[:head]) + pruneMarkerText(total-head-tail) + string(runes[total-tail:])
+	want := string(runes[:head]) + pruneMarkerText(total-head-tail, content) + string(runes[total-tail:])
 	if got != want {
 		t.Fatalf("pruned content = %q, want %q", got, want)
 	}

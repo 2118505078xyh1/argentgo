@@ -25,6 +25,24 @@ const readWindowCap = 200
 // 文件大小的数倍。给出替代命令，让模型用搜索/分页工具完成任务。
 const readMaxBytes = 10 * 1024 * 1024
 
+// readMaxLineRunes 是单行字符（rune）上限。minified JS/JSON/生成文件的
+// 单行可能长达数 MB，吞掉整个读取预算；按 rune 安全截断并加标记，
+// 让模型看到结构并能按行定位。
+const readMaxLineRunes = 2000
+
+// lineTruncatedMarker 附在被截断的单行末尾，告知模型原文更长。
+const lineTruncatedMarker = "[line truncated]"
+
+// capLineRunes 按 rune 安全地把一行截到 max 个字符并附标记。
+// 用 []rune 切片保证 CJK/emoji 不会被切坏；未超限时原样返回。
+func capLineRunes(line string, max int) string {
+	if max <= 0 || utf8.RuneCountInString(line) <= max {
+		return line
+	}
+	runes := []rune(line)
+	return string(runes[:max]) + lineTruncatedMarker
+}
+
 // errReadTooLarge 在文件超过 read 工具的尺寸上限时返回，供 errors.Is 匹配。
 var errReadTooLarge = errors.New("file too large: use grep_ex to search or bash with sed -n 'START,ENDP' to page")
 
@@ -62,6 +80,7 @@ func (readTool) Description() string {
 		"around a target; before/after are capped at 200 each and line wins over offset/limit. " +
 		"Set outline=true to read a Go file as a compact symbol list (kind, name, line) " +
 		"instead of full source; re-call without outline (optionally with offset/limit) to expand a section. " +
+		"Lines longer than 2000 characters are cut with [line truncated]; use grep/search to inspect them. " +
 		"Binary files (NUL or dense control bytes) are rejected with a hint to use a suitable tool."
 }
 func (readTool) Mutating() bool { return false }
@@ -82,26 +101,40 @@ func (t readTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return "", fmt.Errorf("read: bad arguments: %w", err)
 	}
-	path, err := resolve(root, args.Path)
-	if err != nil {
-		return "", err
-	}
-	data, err := readFileLimited(path, readMaxBytes)
-	if err != nil {
-		return "", err
-	}
-	// 先做二进制检测：含 NUL 或高密度控制字节的数据虽然是“合法
-	// UTF-8”，但读进模型只会污染上下文，必须带可读提示拒绝。
-	if looksLikeBinary(data) {
-		return "", fmt.Errorf("read %s: %w", args.Path, errBinaryFile)
-	}
-	// BOM 是合法 UTF-8，但会作为 \ufeff 留在首行；在编码校验前剥掉，
-	// 且不改动入参。GBK 等非 UTF-8 数据没有这个前缀，仍照旧报错。
-	data = stripUTF8BOM(data)
-	if !utf8.Valid(data) {
-		return "", fmt.Errorf("%s is not UTF-8 text", args.Path)
+	var diskPath string
+	var data []byte
+	var err error
+	// #33：argent://cache URI 在 resolve 之前处理。命中返回缓存正文，
+	// 过期返回明确的"勿重放副作用"提示，绝不把 URI 当文件路径解析。
+	if cached, handled := loadCachedToolResult(ctx, args.Path); handled {
+		data = []byte(cached)
+	} else {
+		diskPath, err = resolve(root, args.Path)
+		if err != nil {
+			return "", err
+		}
+		data, err = readFileLimited(diskPath, readMaxBytes)
+		if err != nil {
+			return "", err
+		}
+		// 先做二进制检测：含 NUL 或高密度控制字节的数据虽然是“合法
+		// UTF-8”，但读进模型只会污染上下文，必须带可读提示拒绝。
+		if looksLikeBinary(data) {
+			return "", fmt.Errorf("read %s: %w", args.Path, errBinaryFile)
+		}
+		// BOM 是合法 UTF-8，但会作为 \ufeff 留在首行；在编码校验前剥掉，
+		// 且不改动入参。GBK 等非 UTF-8 数据没有这个前缀，仍照旧报错。
+		data = stripUTF8BOM(data)
+		if !utf8.Valid(data) {
+			return "", fmt.Errorf("%s is not UTF-8 text", args.Path)
+		}
 	}
 	lines := strings.Split(string(data), "\n")
+	// #38：在分页窗口与既有 clip 之前按 rune 安全截断超长单行，
+	// 使 minified 文件不再吞掉整个读取预算。
+	for i := range lines {
+		lines[i] = capLineRunes(lines[i], readMaxLineRunes)
+	}
 
 	// 尾随换行终止最后一行；strings.Split 会在其后留下一个
 	// 空哨兵，它不值得作为分页目标。把这个
@@ -119,8 +152,8 @@ func (t readTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 		// 忽略；调用方通过普通（outline=false）读取展开某个小节。
 		// 非 Go 文件目前没有提取器，因此回退到普通读取，
 		// 而不是返回空大纲或误导性的大纲。
-		if strings.HasSuffix(strings.ToLower(path), ".go") {
-			return clip(ctx, outlineGoFile(args.Path, path)), nil
+		if strings.HasSuffix(strings.ToLower(diskPath), ".go") {
+			return clip(ctx, outlineGoFile(args.Path, diskPath)), nil
 		}
 	}
 
@@ -186,8 +219,8 @@ func (t readTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 		out += fmt.Sprintf("\n[showing lines %d–%d of %d; re-call with offset/limit to page]", start, end, totalLines)
 	}
 	// 新鲜度账本（opt-in，由 app 注入）：读取成功后登记当前磁盘快照。
-	if f := FileFreshnessFrom(ctx); f != nil {
-		f.MarkRead(path)
+	if f := FileFreshnessFrom(ctx); f != nil && diskPath != "" {
+		f.MarkRead(diskPath)
 	}
 	return out, nil
 }

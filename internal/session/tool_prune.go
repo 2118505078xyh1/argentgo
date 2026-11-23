@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
 // pruneMarkerToken 用于在已有裁剪结果上做幂等判断：凡是已经带该标记的工具结果
@@ -13,7 +14,8 @@ import (
 const pruneMarkerToken = "[middle pruned, "
 
 // PruneToolResults 对超长的工具结果做压力裁剪：保留头部与尾部上下文，
-// 把中间部分替换为 "… [middle pruned, N runes] …"（N 为被裁掉的 rune 数）。
+// 把中间部分替换为 "… [middle pruned, N runes] …"（N 为被裁掉的 rune 数），
+// 并附一段有界的原始量损失头（CJK/emoji 感知的 token 估算与总行数）。
 //
 // 行为约定：
 //   - 仅处理 Role == "tool" 的结果；其他角色的 Entry 原样拷贝。
@@ -58,13 +60,23 @@ func PruneToolResults(entries []Entry, maxRunes int) (pruned []Entry, count int)
 
 		runes := []rune(entry.Content)
 		removed := total - head - tail
-		entry.Content = string(runes[:head]) + pruneMarkerText(removed) + string(runes[total-tail:])
+		// 传入原文，使标记带上原始 token 数与行数；旧的单参数调用
+		// 只返回基础标记，保持历史调用方与测试的向后兼容。
+		entry.Content = string(runes[:head]) + pruneMarkerText(removed, entry.Content) + string(runes[total-tail:])
 		count++
 	}
 	return pruned, count
 }
 
-// pruneMarkerText 生成中间裁剪标记；n 为被裁掉的 rune 数。
-func pruneMarkerText(n int) string {
-	return "… [middle pruned, " + strconv.Itoa(n) + " runes] …"
+// pruneMarkerText 生成中间裁剪标记；n 为被裁掉的 rune 数。可选的 raw
+// 是裁剪前的完整正文，提供时附加有界的原始量损失头。
+func pruneMarkerText(n int, raw ...string) string {
+	base := "… [middle pruned, " + strconv.Itoa(n) + " runes] …"
+	if len(raw) == 0 || raw[0] == "" {
+		return base
+	}
+	tokens := tokenize.Estimate(raw[0])
+	lines := strings.Count(raw[0], "\n") + 1
+	return base + " [original ~" + strconv.Itoa(tokens) + " tokens, " +
+		strconv.Itoa(lines) + " lines, kept head+tail]"
 }

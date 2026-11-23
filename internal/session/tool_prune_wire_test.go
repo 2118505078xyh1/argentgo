@@ -91,7 +91,7 @@ func TestToolPruneAloneShortensLongToolResult(t *testing.T) {
 	if toolEntry == nil {
 		t.Fatalf("no real tool result in Messages(): %+v", got)
 	}
-	want := strings.Repeat("A", 10) + pruneMarkerText(60) + strings.Repeat("Z", 10)
+	want := strings.Repeat("A", 10) + pruneMarkerText(60, content) + strings.Repeat("Z", 10)
 	if toolEntry.Content != want {
 		t.Fatalf("pruned tool content = %q, want %q", toolEntry.Content, want)
 	}
@@ -231,7 +231,7 @@ func TestToolPruneRuneSafeCJK(t *testing.T) {
 	runes := []rune(content)
 	const max = 9
 	head, tail := max/2, max-max/2
-	want := string(runes[:head]) + pruneMarkerText(len(runes)-head-tail) + string(runes[len(runes)-tail:])
+	want := string(runes[:head]) + pruneMarkerText(len(runes)-head-tail, content) + string(runes[len(runes)-tail:])
 	if pruned != want {
 		t.Fatalf("pruned content = %q, want %q", pruned, want)
 	}

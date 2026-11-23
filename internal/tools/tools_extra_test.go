@@ -76,13 +76,16 @@ func contains(values []string, want string) bool {
 
 func TestOutputLimitKeepsHeadAndTail(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "big.txt", strings.Repeat("a", 120000))
+	// 用多行内容：单行超长时 #38 的 [line truncated] 会成为尾部，
+	// 该用例要验证的是 clip 的头尾保留，改用短行避免两者混淆。
+	writeFile(t, root, "big.txt", strings.TrimSuffix(strings.Repeat("aaa\n", 30000), "\n"))
 	registry := tools.NewWithLimit(root, true, 1000)
 	out := mustRun(t, registry, "read", `{"path":"big.txt"}`)
 	if !strings.Contains(out, "[truncated]") {
 		t.Fatalf("output was not truncated")
 	}
-	if len(out) < 1000 || len(out) > 1100 {
+	// #37 的 JSON 转义预算会为换行预留膨胀空间，实际正文略小于 limit。
+	if len(out) < 850 || len(out) > 1100 {
 		t.Fatalf("output length = %d, want about 1000", len(out))
 	}
 	if !strings.HasPrefix(out, "aaa") || !strings.HasSuffix(out, "aaa") {
