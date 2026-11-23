@@ -61,9 +61,12 @@ type Options struct {
 	// 头部与从未设置它们的构建逐字节一致。
 	ContextWindow int
 	Cost          string
-	IO            *IO
-	Prompt        func(ctx context.Context, text string, onText func(string)) error
-	Approval      func(ctx context.Context, name, args string) (bool, error)
+	// Thinking 是当前思考强度（如 high/xhigh），与 Model 一起常驻头部状态栏，
+	// 让用户对话时随时看到当前模型与推理档位。空值时不显示该段。
+	Thinking string
+	IO       *IO
+	Prompt   func(ctx context.Context, text string, onText func(string)) error
+	Approval func(ctx context.Context, name, args string) (bool, error)
 	// CommandInfo 是宿主提供的斜杠命令元数据，供输入行补全与第 5 面板
 	// 使用。nil/空值保持经典行为：没有候选、Tab 仍插入两个空格。
 	CommandInfo []CommandInfo
@@ -192,6 +195,7 @@ func Run(ctx context.Context, opts Options) error {
 	model := New(Config{
 		Root:     opts.Root,
 		Model:    opts.Model,
+		Thinking: opts.Thinking,
 		Locale:   opts.Locale,
 		Theme:    opts.Theme,
 		NoColor:  opts.NoColor,

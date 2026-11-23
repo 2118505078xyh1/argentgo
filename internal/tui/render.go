@@ -292,6 +292,15 @@ func (m *Model) headerLocked(width int) Line {
 		first = false
 		right.Push(text, style)
 	}
+	// 当前模型与思考强度常驻状态栏（产品默认）：用户对话时随时能看到
+	// 正在使用哪个模型、哪个推理档位，无需记启动 flag 或翻统计行。
+	// 空值时不显示该段，保持无元数据构建的既有帧字节。
+	if m.model != "" {
+		push(m.model, m.palette.accent())
+	}
+	if m.thinking != "" {
+		push("思考:"+m.thinking, m.palette.accent())
+	}
 	// 用量/成本行整体受 usageVisible opt-in 门控：门关时不渲染这些行，
 	// 使默认帧字节与门控接入前逐字节一致。clock/主题等非用量信息照常显示。
 	if m.usageVisible {

@@ -102,6 +102,7 @@ type TurnAction func(ctx context.Context, arg string) error
 type Config struct {
 	Root     string
 	Model    string
+	Thinking string // 当前思考强度，常驻头部状态栏
 	Locale   string
 	Theme    string
 	NoColor  bool
@@ -158,6 +159,7 @@ type Model struct {
 	mu sync.Mutex
 
 	model    string
+	thinking string // 当前思考强度（如 high/xhigh），头部状态栏常驻显示
 	root     string
 	locale   string
 	sessions []SessionInfo
@@ -326,6 +328,7 @@ func New(cfg Config) *Model {
 	}
 	m := &Model{
 		model:    cfg.Model,
+		thinking: cfg.Thinking,
 		root:     cfg.Root,
 		locale:   locale,
 		sessions: sessionInfos(cfg.Sessions),

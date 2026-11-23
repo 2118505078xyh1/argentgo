@@ -158,6 +158,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		frontendOpts := tui.Options{
 			Root:          res.Root,
 			Model:         res.Model,
+			Thinking:      res.Thinking,
 			Locale:        res.Locale,
 			Sessions:      sessionTitles(store),
 			ContextWindow: res.Cfg.ContextWindow,
