@@ -37,6 +37,12 @@
   - **协议/生态**：有界判官目标循环、agent 自驱模型切换、refresh token 负缓存、动态工具路由、子代理按 id 续跑与 worktree 隔离；输出拟合窗口、fenced/XML 大块剥离、图像按最旧卸载与像素尺寸计价、嵌套规则提醒/去重、指令变更重注入、todo/nudge 提醒、循环检测插话重置、TUI 粘贴路径与 kill-ring。
   - **接线复核（2026-11-23 收尾）**：发现 archguard 门禁无法覆盖的「有定义无调用」盲区——6 个 wire 函数（switch_model / 动态工具路由 / 目标循环 / 子任务扩展 / 密钥请求 / LSP 配置）及输出拟合的窗口注入、拒绝回放投影均未真正接入生产路径。逐项补接后全量 11013 passed；原生压缩因有额外辅助请求代价保留 `ARGENT_NATIVE_COMPACT=1` opt-in。教训：门禁通过不等于功能接线，后续须逐项 grep 调用点验证。
 
+**产品打磨（2026-11-23，5 个用户研究/竞品 UX 审计报告驱动）**
+- 产品形态定调（用户指示）：只选模型 + 思考强度即可对话；状态栏默认可见上下文/缓存/模型/思考强度/速度；其余内部选择题项目自主决定。路线图见 `docs/PRODUCT_ROADMAP.md`。
+- **P0 信任/留存**：审批弹窗接真实 diff（此前 `ApproveDiff` 生产零调用，3 份报告共识）；undo 先过 `chain.CheckRestore` 安全链（此前绕过策略→审批→审计承诺）；错误/重试/压缩/预算事件走不可丢弃通道且压缩在 TUI 可见（此前静默发生）；首屏欢迎卡 + 审批态上下文快捷键（破解「需要 help 的人不知道 /help」死锁）；无凭据 fail-fast + doctor 凭据检查（此前空 key 请求 401 误导成「填错了」）；接线 `authExpiryAdvice`/`confirmAdvice`/`contextBudgetAdvice`（此前死代码）。
+- **原生 GUI 对标 Claude Code / Codex**：工具卡片可展开（完整 stdout/stderr/diff）、消息行复制/重试、用户消息 markdown、跳到最新；审批三态（允许一次/始终允许二次确认/拒绝+理由）+ 危险默认拒绝 + 逐行 diff；主题/语言偏好持久化；导航未实现项置灰诚实化；顶栏用真实 `config.info`、会话空状态引导。
+- 全量验证 10971 passed / 0 failed（28 包）+ archguard 11 + native 子集 5；承诺"门禁通过≠接线完成"，逐项 grep 生产调用点确认。
+
 ## v0.8.1 — 2026-11-21
 
 内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（取证 commit a30b0e4（可用 git log 复核）实测 355,578 行，同一口径。）
