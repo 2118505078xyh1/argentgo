@@ -82,6 +82,16 @@ func (s *Session) Compact(keep int) error {
 // 原有的 Compact(keep) 签名保持不变；这是用于轮中压缩的 token 预算重载，
 // 在工具输出长度可变的场景下，固定的消息数量没有意义。
 func (s *Session) CompactBudget(budget int) error {
+	return s.compactBudgetNative(budget, nil, "")
+}
+
+// CompactBudgetWithNative 是预算压缩的原生窗口变体：把提供方原生压缩返回的替换
+// 窗口（JSON 原文）与模型写入压缩记录。nativeWindow 为空时等价于 CompactBudget。
+func (s *Session) CompactBudgetWithNative(budget int, nativeWindow json.RawMessage, nativeModel string) error {
+	return s.compactBudgetNative(budget, nativeWindow, nativeModel)
+}
+
+func (s *Session) compactBudgetNative(budget int, nativeWindow json.RawMessage, nativeModel string) error {
 	if budget <= 0 {
 		return fmt.Errorf("session: compaction budget must be > 0, got %d", budget)
 	}
@@ -90,7 +100,7 @@ func (s *Session) CompactBudget(budget int) error {
 	if start <= 0 {
 		return nil
 	}
-	return s.appendCompaction(entries, start)
+	return s.appendCompactionWithNative(entries, start, nativeWindow, nativeModel)
 }
 
 // compactionEventEnv 是"压缩事件"落盘的 opt-in 环境变量。仅当值恰为 "1"（允许首尾空白）时，
@@ -116,12 +126,23 @@ func compactionEventEnabled() bool {
 // 开启 ARGENT_COMPACTION_EVENT=1 时，在压缩记录之后额外追加一条 KindCondensation 记录；
 // 关闭时整段被跳过，上面写入的字节与旧版完全一致。
 func (s *Session) appendCompaction(entries []Entry, start int) error {
+	return s.appendCompactionWithNative(entries, start, nil, "")
+}
+
+// appendCompactionWithNative 在 appendCompaction 的基础上，把提供方原生压缩返回的
+// 替换窗口写入 Compaction（omitempty）。nativeWindow 为 nil 时与 appendCompaction
+// 逐字节一致；回放时仅当模型匹配才展开原生窗口，否则回退文本摘要。
+func (s *Session) appendCompactionWithNative(entries []Entry, start int, nativeWindow json.RawMessage, nativeModel string) error {
 	restored := retainedForCompaction(entries, start)
 	// Messages() 只把最新压缩记录投影为 system Entry，更早的 KindCompaction 记录会被
 	// messageEntries 跳过。它们带有 RetainAlways 却永远进不了 Messages() 派生的 entries，
 	// 主视图因此丢失其摘要文本。补发这些记录，并按载荷去重避免重复重发。
 	restored = append(restored, s.retainedCompactionRecords(entries, start, restored)...)
 	compaction := Summarize(entries[:start], len(entries)-start)
+	if len(nativeWindow) > 0 && strings.TrimSpace(nativeModel) != "" {
+		compaction.NativeWindow = nativeWindow
+		compaction.NativeModel = nativeModel
+	}
 	// 空摘要重试（opt-in ARGENT_SUMMARY_EMPTY_RETRY，默认关闭）：摘要无实质内容
 	// 时把切点前移一个条目（少丢一条、多保留一条）重算，最多一次。默认关闭时
 	// 这里完全不执行，压缩记录字节与旧版一致。

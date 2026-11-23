@@ -826,5 +826,25 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 		compactWithEvidence(sess, agent.CompactionEvidence{}, reg, summaryDep)
 		return
 	}
+	// 提供方原生压缩（opt-in ARGENT_NATIVE_COMPACT=1，默认关闭）：
+	// 有额外辅助请求代价且多数 provider 不支持，故保留开关。支持时把原生替换
+	// 窗口写入压缩记录，回放时仅同模型展开；不支持则零开销回退文本压缩。
+	if summaryDep != nil && nativeCompactEnabled(summaryDep.env) && len(messages) > 0 {
+		nativeCtx := summaryDep.ctx
+		if nativeCtx == nil {
+			nativeCtx = context.Background()
+		}
+		nativeWindow, nativeModel := llm.CompactNative(nativeCtx, summaryDep.chatter, res.Model, messages)
+		if len(nativeWindow) > 0 {
+			_ = sess.CompactBudgetWithNative(agent.CompactWindow(threshold), nativeWindow, nativeModel)
+			return
+		}
+	}
 	_ = sess.Compact(defaultCompactKeep)
+}
+
+// nativeCompactEnabled 报告是否尝试提供方原生压缩。默认关闭：它会产生一次
+// 额外辅助请求，且多数 provider 不支持，属"有代价"能力，按默认化原则例外保留 opt-in。
+func nativeCompactEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env("ARGENT_NATIVE_COMPACT")) == "1"
 }

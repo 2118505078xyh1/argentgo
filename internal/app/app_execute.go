@@ -608,6 +608,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 关闭时 wireExitPlan 直接返回，不触碰注册表，逐字节不变。
 	wireExitPlan(planMode, chain, toolset.base.regs)
 
+	// 密钥请求工具（默认开启）：在交互终端注册 request_secret，值永不进入模型上下文。
+	// 非交互传输或无可收集通道时零副作用。
+	wireRequestSecret(stdio, toolset, res.Storage)
+
 	// 后台作业注册表（opt-in ARGENT_JOBS / ARGENT_OPT_INS=jobs）：默认关闭时
 	// wireJobs 无副作用，jobRegistry 仍为 nil，background_after_ms 被静默忽略。
 	// 开启时把注册表接到本次运行的工具注册表，退出钩子在 toolset.Close 之前
@@ -773,6 +777,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
 			visible := filterVisibleSpecs(specs, res, toolset, policy)
+			// 按 provider/model/模式动态路由工具（默认开启）：内置规则对
+			// openai-native/gpt/codex 的 act 模式保留 apply_patch、移除 editor；只收紧不新增。
+			visible = wireModelToolRouting(visible, res, stdio)
 			// 精简目录（默认自动启用，用户零配置）：只公布核心工具 + tool_search，
 			// 其余工具由模型自己经 tool_search 按需发现。仅在显式设置调试逃生舱
 			// ARGENT_FULL_TOOLS 时原样返回全部。
@@ -855,6 +862,15 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			forwardEvent(event)
 		},
 	}}
+
+	// 配置化 LSP server（默认开启）：把配置里的自定义/禁用 server 与
+	// initializationOptions 应用到共享注册表。仅解析配置，不影响无 lsp 配置的运行。
+	wireLSPFromConfig(res)
+
+	// 模型自驱切换（默认开启）：注册 switch_model 工具并用可切换 chatter 包装主 Chatter。
+	// 无 profile 配置时包装是透传，请求字节不变。
+	loop.Opts.Chatter = wireSwitchModel(res, toolset.base.regs, forwardEvent)
+
 	// workspace-diff opt-in：批次后把 shell 间接改动并入检查点。仅在开启时挂接，
 	// 默认 AfterBatch 保持 nil，runTools 的 defer 不注册，逐字节不变。
 	if tracker.workspaceDiff {
@@ -869,6 +885,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		bg = agent.NewBackgroundResults(0, 0)
 	}
 	configureSubagents(&loop.Opts, res, bg)
+	// 子任务续跑与 worktree 隔离（默认开启）：给 task 工具补 resume 按 id 续跑、
+	// isolation 工作树隔离与失败降级。无子代理时用 loop.Opts.Subagent 为 nil 短路。
+	wireTaskExtras(&loop.Opts, res, loop.Opts.Chatter, loop.Opts.Tools, forwardEvent)
 	// attempt_isolation opt-in：验证失败回调把失败尝试分叉为旁支会话，并通过
 	// wireAttemptRoot 在任务运行前写前置尝试根、把真实 rootID 带进失败信息。
 	// 关闭时两者都返回 nil：OnVerifyFail/BeginAttempt/EndAttempt 保持未装配，
@@ -954,6 +973,25 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		}
 	}
 	system := loop.Opts.System
+
+	// 有界判官目标循环（默认开启）：/goal [--max N] <目标> 走多轮判官循环，
+	// 由 secondary-model 判定完成度并把缺失项注入下一轮；ctx 取消即中断循环。
+	// 非 /goal 输入零副作用，仍走下面的普通单轮路径。
+	if _, _, isGoal := ParseGoalPrompt(prompt); isGoal {
+		// 判官复用主 Chatter（已具备 Chat 能力），模型用配置的 secondary-model
+		// （未配置时 GoalJudge 回落到 loop 主模型，行为仍可用）。
+		judgeModel := res.Options.SecondaryModel
+		if strings.TrimSpace(judgeModel) == "" {
+			judgeModel = res.Model
+		}
+		goalCancel := ctx.Done()
+		if goalResult, handled, goalErr := runGoalCommand(
+			ctx, loop, loop.Opts.Chatter, judgeModel,
+			prompt, forwardEvent, goalCancel,
+		); handled {
+			return goalResult, goalErr
+		}
+	}
 
 	result, err := loop.Run(ctx, prompt)
 	if schemaMode && err == nil {

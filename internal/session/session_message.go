@@ -178,7 +178,11 @@ func messageEntries(records []Record) []Entry {
 		result, _, _ := projectBudgetMessages(out)
 		out = result.Messages
 	}
-	return ReconcileToolPairs(out)
+	out = ReconcileToolPairs(out)
+	// 提供方拒答/错误占位不回放（默认开启）：丢弃被内容策略拒绝的 assistant 轮，
+	// 把流错误占位改写为「未执行」。没有相关标记时逐字节不变，避免一次拒答
+	// 被 JSONL 持久化后在 resume 时自我污染后续每一轮。
+	return refusalReplayEntries(out)
 }
 
 // reasoningOf 从 assistant 记录中读取模型的思考文本。中性的 "reasoning" 键和

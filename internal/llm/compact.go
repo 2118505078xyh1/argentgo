@@ -169,6 +169,22 @@ func compactWith(ctx context.Context, chatter Chatter, model string, messages []
 	return reply.NativeWindow, true
 }
 
+// CompactNative 是 compactWith 的跨包入口：尝试提供方原生压缩，成功时返回
+// 替换窗口的 JSON 原文与模型名，供 app 写入 session 压缩记录。任何失败均返回
+// (nil, "")，调用方据此静默回退文本压缩。它只在三协议客户端实现 Compacter
+// 且提供方支持压缩端点时产生非空结果，否则零开销返回。
+func CompactNative(ctx context.Context, chatter Chatter, model string, messages []Message) (json.RawMessage, string) {
+	window, ok := compactWith(ctx, chatter, model, messages)
+	if !ok {
+		return nil, ""
+	}
+	data, err := json.Marshal(window)
+	if err != nil {
+		return nil, ""
+	}
+	return data, model
+}
+
 // replayNativeWindow 在消息列表中找到与原模型匹配的原生替换窗口并展开。
 // 没有窗口或模型不一致时原样返回，由调用方走文本压缩回退路径。
 // 它只认可产生窗口时的同一模型，避免把加密/服务端状态错误的窗口发给别的模型。

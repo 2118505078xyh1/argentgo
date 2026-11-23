@@ -285,6 +285,10 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 	// 严格终止符校验与流恢复共用同一 opt-in 开关：开启回补时需要先把
 	// "纯文本中途截断" 识别为 ErrStreamError，否则回补门永不触发。
 	wireOpts.StrictStreamTerminator = streamRecoveryEnabled(env)
+	// 输出上限拟合（默认开启）：注入当前模型的上下文窗口，使 chat completions
+	// 在提示接近窗口时自动压低 max_tokens，避免 "prompt is too long" 的 400。
+	// Anthropic 协议在窗口边界由宿主停生成，llm 侧自动短路，不受影响。
+	wireOpts.ContextWindow = provider.ContextWindowFor(res.Provider, res.Model, res.Cfg.ContextWindow)
 	res.Chatter = newChatter(res.Protocol, baseURL, apiKey, wireOpts)
 	if fallback := strings.TrimSpace(opts.FallbackModel); fallback != "" {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
