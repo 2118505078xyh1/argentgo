@@ -1,6 +1,12 @@
 package main
 
-import "github.com/egoist/mygo/ui"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // navPanel 是当非聊天导航项活动时侧边栏显示的占位内容。
 // 它刻意数据驱动：接入新导航项只需一个 map 条目，而非
@@ -82,9 +88,50 @@ func navPanelFor(name string) navPanel {
 	return navPanel{title: name, desc: "该面板尚未实现。", rows: []string{"敬请期待"}}
 }
 
+// navDocPreview 为"文档/记忆"面板提供只读预览：读取工作区内的真实文件，
+// 按行截断到有限条数。文件缺失或读取失败时回退到面板声明的静态行，
+// 因此离线/无文件的单元测试仍稳定。路径由调用方注入（工作区根目录）。
+func navDocPreview(name, root string, readFile func(string) ([]byte, error)) []string {
+	var files []string
+	switch name {
+	case "文档":
+		files = []string{"README.md", "README.zh-CN.md", "AGENTS.md"}
+	case "记忆":
+		files = []string{"AGENTS.md", "CLAUDE.md"}
+	default:
+		return nil
+	}
+	if readFile == nil {
+		readFile = os.ReadFile
+	}
+	var rows []string
+	for _, file := range files {
+		data, err := readFile(filepath.Join(root, filepath.FromSlash(file)))
+		if err != nil {
+			continue
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if i >= 6 { // 只读预览最多 6 行，避免撑满侧栏
+				break
+			}
+			if line = strings.TrimSpace(line); line != "" {
+				rows = append(rows, file+": "+line)
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return navPanels[name].rows // 回退静态提示
+	}
+	return rows
+}
+
 // 说明和几行简单内容。
 func (app *chat) renderNavPanel(c *ui.Context, p palette, name string) {
 	panel := navPanelFor(name)
+	// 文档/记忆面板读取工作区真实文件作为只读预览；取不到时回退静态行。
+	if preview := navDocPreview(name, app.configInfo.workspace, nil); len(preview) > 0 {
+		panel.rows = preview
+	}
 	ui.Column(c).Gap(10).Grow(1).Children(func() {
 		ui.Text(c, panel.title).FontSize(16).Bold().TextColor(p.strong)
 		ui.Text(c, panel.desc).FontSize(12).TextColor(p.dim)

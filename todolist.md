@@ -56,12 +56,6 @@
 
 ## 五、交互界面与可用性（51–61）
 
-### 51. Native 侧边栏 11/12 导航项是静态占位桩 `[P1/M]`
-- **现状**：`native/nav_panel.go:17-73` 的 11 个导航项各配 `desc+rows` 纯文本，`:78-83 navPanelFor` 未知项回退「该面板尚未实现。/敬请期待」；`native/main.go:290-314 sidebar` 中 `btn.Clicked()` 仅 `app.nav = name; app.status = "已切换到"+name`；只有「聊天」走真实 `sessionPanel`；测试只验证映射不验证可用性。
-- **问题**：点击 Git/文件/用量/任务/终端/工作流得到不可交互静态文字，占导航项 92%，是桌面端最显眼的半成品。
-- **建议**：给 `navPanel` 增 `onRow func(*chat,string)`；优先接已有 RPC：「用量」→engine token 统计、「任务」→jobs 列表、「Git/文件」→经 `bridge.call` 调 server 方法；无后端能力的项改只读展示真实文件（AGENTS.md/docs）并注明「只读预览」；去掉「敬请期待」文案改为可诊断错误。
-- **验收**：新增 `native/nav_panel_test.go`：每个非聊天项至少有可点击回调或 status 不只是「已切换到」；手工点击 11 项截图无「敬请期待」。
-
 ### 52. Native 完全无本地化，硬编码扫描存在「目录+中文」双盲区 `[P1/L]`
 - **现状**：`native/` 零 `internal/i18n` import，非测试文件约 158 处中文 UI 字面量；`internal/i18n/i18n.go:1-5` 自称「CLI 和 TUI 的字符串目录」但 TUI 实际用自建 `tui/locale.go:10` 双表，形成两套并行目录；`hardcoded_scan_test.go:31-34 hardcodedScanRoots` 只含 cli/cmd，`:294-300` 对含非 ASCII 字符串直接判非硬编码。
 - **问题**：`argentgo gui --locale en-US` 对原生窗口无任何效果（叠加 #60）；英文用户无法用桌面端；守卫无论新增多少中文硬编码都不失败。
