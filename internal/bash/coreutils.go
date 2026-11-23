@@ -2,7 +2,6 @@ package bash
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -107,7 +106,7 @@ func (it *Interp) readFileArg(p, cmd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(abs)
+	data, err := readFileLimited(abs, bashReadMaxBytes)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p, err)
 	}

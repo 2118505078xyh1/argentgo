@@ -143,7 +143,7 @@ func (applyPatchTool) Run(_ context.Context, root string, raw json.RawMessage) (
 			continue
 		}
 		w = &patchWork{abs: ra.abs, display: ra.action.Path}
-		data, err := os.ReadFile(ra.abs)
+		data, err := readFileLimited(ra.abs, readMaxBytes)
 		switch {
 		case err == nil:
 			w.content, w.before, w.exists = data, data, true

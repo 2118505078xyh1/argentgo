@@ -115,7 +115,7 @@ func (submitPlanTool) Run(ctx context.Context, root string, raw json.RawMessage)
 }
 
 func loadPlan(path string) (*planState, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFileLimited(path, readMaxBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

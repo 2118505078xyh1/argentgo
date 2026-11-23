@@ -341,7 +341,9 @@ func contextPackRel(root, abs string) (string, error) {
 }
 
 func contextPackRead(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	// 输出本就受 clip 预算约束，读入超过小文件预算的巨型文本纯属浪费且
+	// 会有「文件 + 字符串副本 + 行切片」三份驻留的 OOM 风险。
+	data, err := readFileLimited(path, smallFileMaxBytes)
 	if err != nil {
 		return "", err
 	}

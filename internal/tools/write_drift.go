@@ -1,8 +1,10 @@
 package tools
 
 import (
-	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -22,9 +24,24 @@ func verifyWriteDrift(path string, expected []byte) string {
 	if !writeDriftEnabled() {
 		return ""
 	}
-	actual, err := os.ReadFile(path)
-	if err != nil || bytes.Equal(actual, expected) {
+	// 流式计算落盘字节的 sha256 与 expected 比较，避免为 opt-in 的漂移
+	// 校验把整个文件再读入内存。hashlineHash 即 sha256 的前 12 个 hex 字符，
+	// 因此可直接由流式摘要得到，无需持有 actual 全文。
+	file, err := os.Open(path)
+	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("warning: the file changed after writing (possible formatter or concurrent edit); refresh your anchor with hashline %s", hashlineHash(string(actual)))
+	hasher := sha256.New()
+	_, copyErr := io.Copy(hasher, file)
+	_ = file.Close()
+	if copyErr != nil {
+		return ""
+	}
+	sum := hasher.Sum(nil)
+	expectedSum := sha256.Sum256(expected)
+	if string(sum) == string(expectedSum[:]) {
+		return ""
+	}
+	anchor := hex.EncodeToString(sum)[:12]
+	return fmt.Sprintf("warning: the file changed after writing (possible formatter or concurrent edit); refresh your anchor with hashline %s", anchor)
 }

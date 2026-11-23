@@ -140,7 +140,7 @@ func (it *Interp) grepInputs(files []string, stdin string, recursive bool) ([]gr
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		if !info.IsDir() {
-			data, err := os.ReadFile(abs)
+			data, err := readFileLimited(abs, bashReadMaxBytes)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
@@ -161,7 +161,7 @@ func (it *Interp) grepInputs(files []string, stdin string, recursive bool) ([]gr
 			if fi.IsDir() {
 				return nil
 			}
-			data, err := os.ReadFile(path)
+			data, err := readFileLimited(path, bashReadMaxBytes)
 			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}

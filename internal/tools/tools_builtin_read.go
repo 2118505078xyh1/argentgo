@@ -25,6 +25,12 @@ const readWindowCap = 200
 // 文件大小的数倍。给出替代命令，让模型用搜索/分页工具完成任务。
 const readMaxBytes = 10 * 1024 * 1024
 
+// smallFileMaxBytes 是「输出本就受 clip 预算约束」的工具（context_pack、diff
+// 等）允许整文件读入的尺寸上限。读入远超输出预算的巨型文本纯属浪费，并会
+// 让「文件 + 字符串副本 + 行切片」三份驻留推高峰值内存。给 4MB（比 read 的
+// 10MB 更紧），超限返回 errReadTooLarge 引导模型改用分页/搜索。
+const smallFileMaxBytes = 4 * 1024 * 1024
+
 // readMaxLineRunes 是单行字符（rune）上限。minified JS/JSON/生成文件的
 // 单行可能长达数 MB，吞掉整个读取预算；按 rune 安全截断并加标记，
 // 让模型看到结构并能按行定位。

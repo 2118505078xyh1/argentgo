@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -53,11 +52,11 @@ func (diffTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err != nil {
 		return "", fmt.Errorf("diff: path_b: %w", err)
 	}
-	before, err := os.ReadFile(absA)
+	before, err := readFileLimited(absA, smallFileMaxBytes)
 	if err != nil {
 		return "", fmt.Errorf("diff: read path_a: %w", err)
 	}
-	after, err := os.ReadFile(absB)
+	after, err := readFileLimited(absB, smallFileMaxBytes)
 	if err != nil {
 		return "", fmt.Errorf("diff: read path_b: %w", err)
 	}

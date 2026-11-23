@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -80,7 +81,7 @@ func SnapshotMutations(root string, paths []string) ([]MutationSnapshot, error) 
 		if err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(absolute)
+		file, err := os.Open(absolute)
 		if err != nil {
 			if os.IsNotExist(err) {
 				snapshots = append(snapshots, MutationSnapshot{Path: filepath.ToSlash(rel), Exists: false})
@@ -88,10 +89,16 @@ func SnapshotMutations(root string, paths []string) ([]MutationSnapshot, error) 
 			}
 			return nil, err
 		}
-		digest := sha256.Sum256(data)
+		// 只需 sha256，无需整文件驻留：流式读入哈希，峰值内存恒定。
+		hasher := sha256.New()
+		if _, err := io.Copy(hasher, file); err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		_ = file.Close()
 		snapshots = append(snapshots, MutationSnapshot{
 			Path:   filepath.ToSlash(rel),
-			SHA256: hex.EncodeToString(digest[:]),
+			SHA256: hex.EncodeToString(hasher.Sum(nil)),
 			Exists: true,
 		})
 	}

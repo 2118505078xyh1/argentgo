@@ -530,6 +530,50 @@ func gunzipBytes(data []byte) ([]byte, error) {
 	return io.ReadAll(zr)
 }
 
+// gzipFileToFile 流式地把 src 压缩/解压写入 dst，全程不把整个文件读入内存。
+// 这是 gzip 处理大文件时的关键路径：压缩管 gzip.NewWriter、解压管 gzip.NewReader，
+// 用 io.Copy 在两者之间搬运，峰值内存恒定。
+func gzipFileToFile(src, dst string, decompress bool) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = out.Close()
+		}
+	}()
+	if decompress {
+		zr, err := gzip.NewReader(in)
+		if err != nil {
+			return err
+		}
+		defer zr.Close()
+		if _, err := io.Copy(out, zr); err != nil {
+			return err
+		}
+	} else {
+		zw := gzip.NewWriter(out)
+		if _, err := io.Copy(zw, in); err != nil {
+			return err
+		}
+		if err := zw.Close(); err != nil {
+			return err
+		}
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 // biGzip 实现 gzip 子集：-c 输出到 stdout、-d 解压、-k 保留原文件。
 // 工作区内默认保留原文件（不做删除），-k 仅为兼容 GNU 而接受。
 func (it *Interp) biGzip(args []string, stdin string) (string, string, error) {
@@ -568,18 +612,6 @@ func (it *Interp) gzipRun(cmd string, args []string, stdin string) (string, stri
 		if err != nil {
 			return it.failCmd(cmd, 1, err)
 		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return it.failCmd(cmd, 1, fmt.Errorf("%s: %w", op, err))
-		}
-		out, err := transform(data)
-		if err != nil {
-			return it.failCmd(cmd, 1, fmt.Errorf("%s: %w", op, err))
-		}
-		if toStdout {
-			result.Write(out)
-			continue
-		}
 		name := op + ".gz"
 		if decompress {
 			if !strings.HasSuffix(op, ".gz") {
@@ -587,11 +619,26 @@ func (it *Interp) gzipRun(cmd string, args []string, stdin string) (string, stri
 			}
 			name = strings.TrimSuffix(op, ".gz")
 		}
+		if toStdout {
+			// stdout 是字符串，输出必然驻留内存，故对输入也用有界读取，
+			// 避免「文件 + 解压副本」双份驻留把峰值内存推到文件数倍。
+			data, err := readFileLimited(abs, bashReadMaxBytes)
+			if err != nil {
+				return it.failCmd(cmd, 1, fmt.Errorf("%s: %w", op, err))
+			}
+			out, err := transform(data)
+			if err != nil {
+				return it.failCmd(cmd, 1, fmt.Errorf("%s: %w", op, err))
+			}
+			result.Write(out)
+			continue
+		}
+		// 文件→文件是 gzip 处理大文件的主路径：流式压缩/解压，不整文件读入。
 		dstAbs, err := it.resolvePath(name)
 		if err != nil {
 			return it.failCmd(cmd, 1, err)
 		}
-		if err := os.WriteFile(dstAbs, out, 0o644); err != nil {
+		if err := gzipFileToFile(abs, dstAbs, decompress); err != nil {
 			return it.failCmd(cmd, 1, fmt.Errorf("%s: %w", name, err))
 		}
 	}

@@ -181,7 +181,7 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 }
 
 func loadTodos(path string) ([]todoItem, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFileLimited(path, readMaxBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

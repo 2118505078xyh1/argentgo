@@ -143,6 +143,10 @@
   3. 测试：创建稀疏大文件（不需真写 1GB，用 `Truncate`）断言拒绝且错误信息给出替代命令；既有 200 行输出上限测试不退化。
 - **验收**：100MB 文件上 `cat`/`edit`/`grep` 峰值堆 <32MB；`go test -p 4 ./internal/tools ./internal/bash -count=1`。
 
+> **落地记录（2026-11-23）**：已按上述建议覆盖高价值读点。tools 侧复用 `readFileLimited`，新增 `smallFileMaxBytes=4MB` 预算，接线 `context_pack`、`diff`（≤4MB）、`multi_edit`/`apply_patch`/`write`/`edit`/`todo`/`plan`（≤10MB）；`write` 对超大既有文件明确拒绝而非盲写覆盖；`mutation`、`write_drift` 改为流式 sha256（峰值内存恒定）。bash 侧新增本地未导出 `readFileLimited`（tools→bash 单向依赖，不引入新包/导出 API），接线 `readFileArg`（cat/wc/head/tail/less/diff/comm 共用）、`grep` 单文件与递归分支（≤10MB）；gzip 的**文件→文件**路径改为 `gzipFileToFile` 流式压缩/解压（stdout 路径因输出本就是字符串，仍用有界读取）。稀疏文件 `Truncate` 测试与 gzip 往返测试已补。`interp.go:480` 输入重定向刻意**未加**上限——`sort < bigfile` 是合法 shell 语义，待有明确 OOM 证据再评估。
+>
+> **清单修正**（代码实证）：`multi_edit.go:142` 已有 4MiB 上限（`multiEditRelocateMaxFile`）、`tools_security_scan.go:135` 已有 512KB 上限（`securityScanMaxFileBytes`），二者本就不在缺口内；`mutation.go:83`（`SnapshotMutations`）、`output_spill_lines.go:100`（`SpillRecovery`）生产零调用，优先级降为顺手改流式。
+
 ---
 
 ## 四、P2 — 已知限制收尾与文档

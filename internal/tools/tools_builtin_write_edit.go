@@ -123,7 +123,12 @@ func (t writeTool) Run(ctx context.Context, root string, raw json.RawMessage) (s
 			return "", fmt.Errorf("write: %s", warning)
 		}
 	}
-	before, readErr := os.ReadFile(path)
+	before, readErr := readFileLimited(path, readMaxBytes)
+	// 超大既有文件不能盲写覆盖：我们没读到它的内容，直接 write 会静默
+	// 摧毁原文件。明确拒绝，引导模型改成流式/分页方式处理。
+	if errors.Is(readErr, errReadTooLarge) {
+		return "", readErr
+	}
 	// 生成文件保护（opt-in ARGENT_BLOCK_GENERATED_EDITS，默认关闭）。
 	if err := checkGeneratedFile(path, before); err != nil {
 		return "", err
@@ -236,7 +241,7 @@ func (t editTool) Run(ctx context.Context, root string, raw json.RawMessage) (st
 			return "", fmt.Errorf("edit: %s", warning)
 		}
 	}
-	data, err := os.ReadFile(path)
+	data, err := readFileLimited(path, readMaxBytes)
 	if err != nil {
 		return "", err
 	}
