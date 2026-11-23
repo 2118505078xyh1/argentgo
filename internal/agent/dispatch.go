@@ -202,6 +202,20 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 		calls = s.recoverCallNames(calls)
 	}
 
+	// 跨 harness 工具名别名（默认开启）：仅当别名未注册且目标已注册时改写。
+	// 在任何决策之前完成，使防护、审批、事件、记录与实际执行看到同一个真实名字。
+	calls, aliased := resolveToolAliases(calls, s.availableToolNames())
+	if len(aliased) > 0 {
+		s.aliasMu.Lock()
+		if s.aliasTargets == nil {
+			s.aliasTargets = make(map[string]string)
+		}
+		for id, alias := range aliased {
+			s.aliasTargets[id] = alias
+		}
+		s.aliasMu.Unlock()
+	}
+
 	// 畸形参数纠错回灌（opt-in ARGENT_TOOL_ARG_FEEDBACK，默认关闭）：
 	// 把原始参数不是合法 JSON 的调用从批次中摘出，不执行工具，直接写入
 	// 含原始片段的错误结果，让模型下一轮据此重发。关闭时 invalid 为 nil，
@@ -294,6 +308,11 @@ func (s *runState) runTools(ctx context.Context, turn int, calls []llm.ToolCall)
 			continue
 		}
 		res := s.invoke(ctx, call)
+		// 任务列表提醒的状态更新（默认开启）：只在循环 goroutine 上执行，
+		// 避免并行 worker 之间竞争调用计数。
+		if !res.isError {
+			s.observeTodoCall(call)
+		}
 		// 可选的二次确认（默认关闭）：仅当输出疑似敏感且规模较大时才可能阻塞询问 operator，
 		// 用于阻止命令输出未经确认就进入模型可见的对话。关闭时该调用是即时的空操作。
 		res.output = s.confirmToolOutputBeforeAppend(ctx, call, res.output)
@@ -360,6 +379,9 @@ func (s *runState) runParallelCalls(ctx context.Context, turn int, calls []llm.T
 			// 结果在循环 goroutine 上按调用顺序记录，因此尽管 worker 顺序不确定，
 			// 防护器的输出窗口仍保持确定性。
 			s.guard.recordOutput(call.Function.Name, normalized[i], res.output)
+			if !res.isError {
+				s.observeTodoCall(call)
+			}
 			// 连续计数器遵循同样的规则：恰好最后完成的成功调用，
 			// 不得抹掉批次中排在它之前的失败。
 			s.observeOutcome(res)
@@ -520,8 +542,22 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	// 工具实际收到的参数与审批基于同一份字节（意图剥离 + 保守强转），
 	// 由 effectiveToolArgs 的纯函数语义保证一致。
 	toolArgs, intent := s.effectiveToolArgs(call)
-	output, meta, err := s.callTool(ctx, call.Function.Name, toolArgs)
+	// 工具启动前的暂停门安全点：park 时新工具不会启动；在途工具会跑完。
+	if err := s.waitPaused(ctx); err != nil {
+		return callResult{intent: intent, output: "error: tool did not run: " + err.Error(), isError: true, duration: time.Since(start)}
+	}
+	// 中心化超时（默认开启）：派生 ctx 只用于真正的工具执行。
+	// 在 PostToolUse/审计之前 cancel 并交回原始 ctx，避免下游看到已取消的派生信号。
+	callCtx, cancel, limit := withToolTimeout(ctx, call.Function.Name)
+	output, meta, err := s.callTool(callCtx, call.Function.Name, toolArgs)
+	// 必须在 cancel 之前判定超时来源：cancel 会把 callCtx.Err() 改成 Canceled。
+	err, _ = normaliseTimeoutError(err, callCtx, ctx, call.Function.Name, limit)
+	cancel()
 	s.setToolMeta(call.ID, meta)
+	if err == nil {
+		// 跨 harness 别名的一次性更正提示，只追加到真实输出末尾。
+		output = s.appendAliasNote(call.ID, output)
+	}
 	if err != nil {
 		// 工具错误以文本形式跨过运行器边界，因此在原始错误仍可用的这里进行分类。
 		// 熔断器据此把反复出现的参数校验失败与无关失败区分开。

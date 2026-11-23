@@ -2,8 +2,14 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrToolTimeout 是工具超时的统一哨兵错误。agent 在 dispatch 边界包裹超时后返回
+// 带 code 的结构化错误；这里保留同语义的哨兵，供 tools 侧测试与调用方用
+// errors.Is 匹配，而不必依赖自由格式的文案。
+var ErrToolTimeout = errors.New("tool timeout")
 
 // toolTimeouts 保存每个有运行时预算的工具的默认值、下限和上限。
 // 默认值是本表引入之前工具所用的值，因此省略 timeout

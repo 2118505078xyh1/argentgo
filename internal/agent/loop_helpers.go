@@ -39,6 +39,8 @@ func (s *runState) maybeCompact() {
 	// 摘要后的上下文是一个新窗口：清除按窗口划分的投递状态，
 	// 使预算提醒能随着该窗口被填满而再次触发。
 	s.resetBudgetReminder()
+	// 压缩重写了历史，旧的剥离计数不再对应当前记录，归零避免重复对账。
+	s.elidedOutputTokens = 0
 	// 现在重新估算，使下一次迭代顶部的预算检查看到压缩后的历史，而非旧的超长历史。
 	s.promptTokens = EstimateMessages(s.messages)
 	s.emit(Event{Kind: EventNotice, Text: fmt.Sprintf(
@@ -131,6 +133,36 @@ func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
 // chat 用当前模型发起一次模型请求，并把答案增量转发给 onText。
 // 事件的发出留给调用方，使失败的尝试可以重试，而不会把部分文本泄漏到操作人员的流中。
 func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, error) {
+	// 进程级暂停门：每次模型调用前的安全点。暂停时 park 在此，
+	// ctx 取消只解除本运行，不改变全局暂停状态。
+	if err := s.waitPaused(ctx); err != nil {
+		return llm.Message{}, err
+	}
+	// 工具参数增量预览（默认开启）：在 ctx 中安装钩子，把每个参数片段作为
+	// live-only 事件发出。事件不写入 JSONL，tool_start/tool_end 形状不变。
+	if s.argDeltaEnabled {
+		ids := make(map[int]string)
+		ctx = llm.WithToolDeltaHook(ctx, func(d llm.ToolCallDelta) {
+			if d.ID != "" {
+				ids[d.Index] = d.ID
+			}
+			if d.Arguments == "" {
+				return
+			}
+			id := ids[d.Index]
+			if id == "" {
+				id = fmt.Sprintf("pending-%d", d.Index)
+			}
+			s.emit(Event{
+				Kind:         EventToolArgDelta,
+				Turn:         s.turns,
+				ToolCallID:   id,
+				ToolName:     d.Name,
+				ArgDelta:     d.Arguments,
+				ToolArgIndex: d.Index,
+			})
+		})
+	}
 	var streamed strings.Builder
 	collect := func(delta string) {
 		if delta == "" {
@@ -311,6 +343,13 @@ func (s *runState) injectSteeringAs(payloadFor func(string) any, extra ...string
 	// 见 SubagentConfig.Background / BackgroundResults。
 	if s.opts.Subagent != nil && s.opts.Subagent.Background != nil {
 		pending = append(pending, s.opts.Subagent.Background.DrainFor(s.bgOwner)...)
+	}
+	if len(pending) > 0 {
+		// 用户插话是一个新的情节边界：清空循环检测的事件水位与去重状态，
+		// 使纠正之前的重复调用不再算进当前窗口（#52）。只在使用真实的
+		// steering 消息时重置；一次性 nudge 不重置，否则同一情节会重复告警。
+		s.loopWatermark = len(s.events)
+		s.loopGuidance.Reset()
 	}
 	for _, text := range pending {
 		s.messages = append(s.messages, llm.Message{Role: "user", Content: text})

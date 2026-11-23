@@ -61,11 +61,13 @@ func estimateContentParts(raw json.RawMessage) int {
 			if part.ImageURL != nil && detail == "" {
 				detail = part.ImageURL.Detail
 			}
-			if strings.EqualFold(detail, "low") {
-				total += imageTokensLow
-			} else {
-				total += imageTokensHigh
+			// 默认按像素尺寸分块计价；尺寸未知时 estimateImageTokens 自行回退到
+			// 原有的 85/1000 固定值，使坏 base64 与非 data URL 行为不变。
+			url := ""
+			if part.ImageURL != nil {
+				url = part.ImageURL.URL
 			}
+			total += estimateImageTokens(detail, url)
 		default:
 			// 未知 part：按其原始 JSON 字节数保守估算，避免漏算。
 			if encoded, err := json.Marshal(part); err == nil {

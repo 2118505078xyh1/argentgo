@@ -94,6 +94,33 @@ type runState struct {
 	// loopGuidance 对循环检测触发的提示按签名去重，使同一个循环在一次运行里
 	// 只提示一次（按情节）。只有在 SetLoopDetection opt-in 开启时才被查询。
 	loopGuidance GuidanceState
+	// loopWatermark 是用户上次插话时的事件条数水位。循环检测只投影水位之后的
+	// tool_end 事件，使纠正之前的重复调用不再误报为仍在循环。
+	loopWatermark int
+
+	// callsSinceTodo 统计自上次成功任务写入以来的工具调用次数。
+	// lastTodoNudgeAt 记录上一次陈旧提醒时的计数，使提醒每 10 次至多一次。
+	callsSinceTodo  int
+	lastTodoNudgeAt int
+	// todoState 是最近一次成功写入的任务列表投影；nil 表示本运行尚未见到列表。
+	todoState []todoItemLite
+	// openTasksNoted 保证轮末的未完成项提醒每次运行只注入一次。
+	openTasksNoted bool
+	// unfinishedNudged 保证"承诺未做"的续做提醒每次运行只注入一次。
+	unfinishedNudged bool
+
+	// elidedOutputTokens 累计被 shake 机械剥离的文本估算 token。本地估算已看到
+	// 缩短后的文本，这里只为可观测性与重放计费的对账保留原始输出口径。
+	elidedOutputTokens int
+
+	// aliasTargets 记录被别名改写的调用（callID → 原始别名），aliasNoted 保证
+	// 一次性更正提示对每个别名只追加一次；aliasMu 保护并行批次的写入。
+	aliasTargets map[string]string
+	aliasNoted   map[string]bool
+	aliasMu      sync.Mutex
+
+	// argDeltaEnabled 决定是否在安装工具参数增量事件。默认开启，仅 ARGENT_TOOL_ARG_DELTA=0 回退。
+	argDeltaEnabled bool
 
 	// recovery 是 ARGENT_RECOVERY_METRICS opt-in 开启时创建的恢复成效账本。
 	// 默认 nil：所有记录/读取路径都是空操作，事件、消息与会话记录逐字节不变。
@@ -637,6 +664,8 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 			NoTrimToolCallIDs: opts.NoTrimToolCallIDs,
 		},
 		toolMeta:         make(map[string]ToolMeta),
+		aliasNoted:       make(map[string]bool),
+		argDeltaEnabled:  !featureDisabled("ARGENT_TOOL_ARG_DELTA"),
 		compactor:        opts.Compactor,
 		compactThreshold: opts.CompactThreshold,
 		costWatch:        NewCostWatcher(opts.Budget.MaxCostUSD),
@@ -776,34 +805,6 @@ func toolStepsFromEvents(events []Event) []ToolStep {
 		})
 	}
 	return out
-}
-
-// checkLoopDetection 在每个工具批次之后检查最近的工具调用是否构成循环。
-// 默认关闭：SetLoopDetection 未开启时立即返回，不收集事件、不调用 DetectLoop，
-// 也不触碰任何状态，因此消息、事件与会话记录逐字节不变。
-//
-// 触发时不硬停：复用 stuck/mistake 的 nudge 注入路径（injectSteeringWithNudge），
-// 追加一条模型可读的用户轮次，让模型自行换一种方法恢复。提示按检测签名去重，
-// 同一个循环只提示一次；一旦某步不再检出循环就清空去重状态，使后续新的循环
-// 情节可以再次提示。
-func (s *runState) checkLoopDetection() {
-	if !LoopDetectionEnabled() {
-		return
-	}
-	steps := toolStepsFromEvents(s.eventsSnapshot())
-	if len(steps) == 0 {
-		return
-	}
-	sig, _, detected := DetectLoop(steps, 0, 0)
-	if !detected {
-		// 没有循环意味着上一段循环情节已结束；清空去重状态，使下一段能重新提示。
-		s.loopGuidance.Reset()
-		return
-	}
-	if !s.loopGuidance.ShouldInject(sig) {
-		return
-	}
-	s.injectSteeringWithNudge(loopDetectionGuidance)
 }
 
 // recordRecoveryAttempt 在失败指引实际注入时调用：账本登记一次尝试，并把 kind 记为
@@ -1022,6 +1023,20 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				Text: fmt.Sprintf("trimmed %d old tool result(s), ~%d tokens freed", trimmed.Pruned, trimmed.Freed),
 			})
 		}
+		// shake（默认开启）：在轮次边界把保护窗口之外的大段 fenced/XML 块机械剥离。
+		// 只改写纯文本、保留工具调用配对与带图 part；短对话因 minRunes 门槛而逐字节不变。
+		if !shakeOff() {
+			if shaken, elided := ShakeBlocks(s.messages, shakeProtectRunes, shakeMinRunes); elided > 0 {
+				s.messages = shaken
+				s.elidedOutputTokens += elided
+				s.emit(Event{
+					Kind: EventNotice,
+					Text: fmt.Sprintf("shook %d token(s) of large text blocks", elided),
+				})
+			}
+		}
+		// 任务列表陈旧提醒（默认开启）：仅在有未完成项且距上次写入超过 10 次工具调用时注入。
+		s.maybeStaleTodoNudge()
 		// 模型可见的预算提醒：当上下文占用率跨越新的里程碑时，注入一条简短的用户轮次，
 		// 使模型能在窗口填满前收尾。此时所有停止检查都已通过、裁剪已运行，且记录是配对的轮末视图，
 		// 因此这里的一条独立用户消息不会拆散 tool_use/tool_result 对。
@@ -1165,6 +1180,11 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 				s.consecutiveEmptyReplies++
 				s.injectSteering(emptyReplyCorrection)
 				s.emit(Event{Kind: EventNotice, Text: "empty reply; asking the model for a visible answer"})
+				continue
+			}
+			// 轮末提醒（均默认开启、每次运行至多一次、仅顶层）：未完成任务与
+			// "承诺了下一步却没做"的冒号/意图句。两者任一注入都再开一轮。
+			if s.maybeOpenTasksNudge() || s.maybeUnfinishedNudge(reply.Content) {
 				continue
 			}
 			s.emit(Event{Kind: EventStop, Reason: StopComplete})

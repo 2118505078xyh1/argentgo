@@ -32,6 +32,10 @@ const (
 	// EventPartial 携带模型在提供方错误或取消使其提前中断之前成功流式输出的前缀。
 	// 它是附加性的：不认识该种类的消费者只需忽略它，运行仍以恰好一个 EventStop 作为终结。
 	EventPartial EventKind = "partial"
+	// EventToolArgDelta 在模型仍在流式生成工具参数时逐片发布，携带调用 id 与片段。
+	// 它是 live-only 事件：只经事件通道投递，绝不写入 JSONL；tool_start/tool_end
+	// 仍承载完整参数，形状不变。
+	EventToolArgDelta EventKind = "tool_arg_delta"
 )
 
 // RetryInfo 是 EventRetry 可安全上线传输的负载。它是一组封闭的小型标量：
@@ -136,6 +140,13 @@ type Event struct {
 	// PartialTruncated 报告捕获的前缀达到了字节上限，
 	// 使 UI 能把显示的文本标记为不完整。
 	PartialTruncated bool `json:"partial_truncated,omitempty"`
+
+	// 以下字段只在 EventToolArgDelta 上填充。它们恒带 omitempty，
+	// 因此既有事件（包括全零值事件）的 JSON 字节保持逐字节不变。
+	// ArgDelta 是本次到达的参数原始片段，按到达顺序拼接即完整参数。
+	ArgDelta string `json:"arg_delta,omitempty"`
+	// ToolArgIndex 是多路并发调用中的槽位编号，与 ToolCallID 一起定位所属调用。
+	ToolArgIndex int `json:"tool_arg_index,omitempty"`
 }
 
 // IsTerminal 报告 e 是否结束一次运行，因而是必须投递的：即使订阅方的缓冲区已满，
