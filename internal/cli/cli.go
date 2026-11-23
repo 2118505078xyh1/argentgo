@@ -60,12 +60,14 @@ func OSIO() IO {
 // 不再重复打印；删除它可以让引导重新出现。
 const firstRunMarkerName = ".onboarded"
 
-// 首次运行的三行引导文案。每行都以独特中文前缀开头，便于与 usage 中的
+// 首次运行的四行引导文案。每行都以独特中文前缀开头，便于与 usage 中的
 // login/doctor/tui 子命令名区分；整串写入，UTF-8 字节不会被切开。
+// 末行只提示可运行 init，不自动进入向导——引导不能拦路。
 const (
 	firstRunLoginLine  = "argentgo: 首次运行请先登录：argentgo login openai（也可在配置中设置 apiKey）"
 	firstRunTUILine    = "argentgo: 交互界面请用 argentgo tui 或 argentgo --tui；桌面 GUI 为 argentgo-native"
 	firstRunDoctorLine = "argentgo: 运行 argentgo doctor 可自检配置、存储与提供方"
+	firstRunInitLine   = "argentgo: 运行 argentgo init 可交互式初始化（选提供方、配凭据、生成配置并自检）"
 )
 
 // defaultStdinIsCharDevice 用 os.Stdin.Stat() 判定 stdin 是否为字符设备
@@ -77,7 +79,7 @@ func defaultStdinIsCharDevice() bool {
 }
 
 // maybeFirstRunGuide 在"无参数 + cli_hints opt-in + stdin 为字符设备 +
-// 无配置/凭据 + 无 onboarded 标记"时向 IO.Err 打印一次三行引导，并在
+// 无配置/凭据 + 无 onboarded 标记"时向 IO.Err 打印一次四行引导，并在
 // storage 目录写入标记。任一项不满足都立即返回：开关默认关闭时连 stat
 // 和读文件都不做，因此未 opt-in 的既有行为逐字节不变。
 func (a App) maybeFirstRunGuide() {
@@ -94,7 +96,7 @@ func (a App) maybeFirstRunGuide() {
 	if _, err := os.Stat(marker); err == nil {
 		return
 	}
-	for _, line := range [...]string{firstRunLoginLine, firstRunTUILine, firstRunDoctorLine} {
+	for _, line := range [...]string{firstRunLoginLine, firstRunTUILine, firstRunDoctorLine, firstRunInitLine} {
 		fmt.Fprintln(a.IO.Err, line)
 	}
 	// 标记只写一次；写失败时静默忽略——引导本身已输出，且不应阻塞主流程。
@@ -293,6 +295,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"usage":      runUsage,
 	"context":    runContext,
 	"doctor":     runDoctor,
+	"init":       runInit,
 	"login":      runLogin,
 	"logout":     runLogout,
 	"auth":       runAuth,
@@ -327,7 +330,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 // 包初始化时引用该映射（那会通过 runCompletion 形成导入循环）；
 // parity_test 断言两者始终相同。
 var subcommandOrder = []string{
-	"sessions", "replay", "usage", "context", "doctor", "login", "logout", "auth",
+	"sessions", "replay", "usage", "context", "doctor", "init", "login", "logout", "auth",
 	"models", "mcp", "opt-ins", "skills", "commands", "hooks", "plugin", "policy", "audit",
 	"update", "completion", "tui", "bug", "eval", "config",
 	"workflow", "telemetry", "attach", "logs", "jobs", "follow", "stop", "board",

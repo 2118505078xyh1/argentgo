@@ -19,6 +19,7 @@ commands:
   usage                         summarise turns and tokens per session
   context                       approximate token breakdown of the model context
   doctor                        check config, storage, provider, git and Go
+  init                          interactive setup wizard (provider, credentials, config, doctor)
   login <provider>              store an API key in the config file
   auth                          show stored credential status
   logout [provider]             remove stored credentials

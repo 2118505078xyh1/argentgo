@@ -14,8 +14,8 @@ import (
 
 // 首次运行引导的测试统一采用：临时 StorageDir + 空 stdin + 非 TTY。
 // 这样 runMain 读取空 stdin 后按原行为打印 usage 并以 2 退出；
-// 引导若有输出，会作为三行中文追加在 usage 之前，便于逐字节对照。
-var firstRunGuideLines = [...]string{firstRunLoginLine, firstRunTUILine, firstRunDoctorLine}
+// 引导若有输出，会作为四行中文追加在 usage 之前，便于逐字节对照。
+var firstRunGuideLines = [...]string{firstRunLoginLine, firstRunTUILine, firstRunDoctorLine, firstRunInitLine}
 
 func firstRunApp(t *testing.T, dir string, env map[string]string, charDevice bool) (App, *bytes.Buffer) {
 	t.Helper()
@@ -204,7 +204,7 @@ func TestFirstRunGuideViaIndependentEnv(t *testing.T) {
 	}
 }
 
-// TestFirstRunGuideCJKIntact 确认三行中文以完整 UTF-8 写入，没有按字节截断
+// TestFirstRunGuideCJKIntact 确认四行中文以完整 UTF-8 写入，没有按字节截断
 // 或宽度填充；CJK 文案逐字节匹配预期。
 func TestFirstRunGuideCJKIntact(t *testing.T) {
 	dir := t.TempDir()

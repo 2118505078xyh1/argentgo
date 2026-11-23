@@ -128,7 +128,17 @@ func saveConfigFile(path string, cfg map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("encode config: %w", err)
 	}
-	data = append(data, '\n')
+	return writeConfigBytes(path, data)
+}
+
+// writeConfigBytes 以仅所有者可见的权限原子地写入配置字节。
+// 调用方负责生成内容（严格 JSON 或带注释的 JSONC）；本函数只负责
+// 建目录、临时文件、0600 权限、落盘同步与原子改名，与 saveConfigFile
+// 共用同一套安全措施，避免 init 生成 JSONC 时复制这些细节。
+func writeConfigBytes(path string, data []byte) error {
+	out := make([]byte, 0, len(data)+1)
+	out = append(out, data...)
+	out = append(out, '\n')
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -143,7 +153,7 @@ func saveConfigFile(path string, cfg map[string]any) error {
 		tmp.Close()
 		return fmt.Errorf("write config: %w", err)
 	}
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := tmp.Write(out); err != nil {
 		tmp.Close()
 		return fmt.Errorf("write config: %w", err)
 	}
