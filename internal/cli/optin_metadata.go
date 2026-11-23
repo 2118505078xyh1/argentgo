@@ -29,15 +29,15 @@ type IndependentOptIn struct {
 // MCP/产物、评测/其它。表本身不依赖分类字段做任何判定。
 var IndependentOptIns = []IndependentOptIn{
 	// ---- 交互 / 展示 ----
-	{Key: "cli_hints", Env: "ARGENT_CLI_HINTS", Name: "CLI 错误修复建议", OptInKey: "cli_hints", Enable: "=1 或 ARGENT_OPT_INS=cli_hints", Desc: "CLI 已知错误后追加本地化修复建议。"},
-	{Key: "approve_danger", Env: "ARGENT_APPROVE_DANGER", Name: "TUI 危险命令原因展示", Enable: "=1", Desc: "TUI 审批弹窗展示稳定中文危险原因并预选拒绝。"},
-	{Key: "approval_diff", Env: "ARGENT_APPROVAL_DIFF", Name: "审批卡 diff 展示", Enable: "=1", Desc: "TUI 审批卡渲染有界的增删行摘要（diff 行）。"},
-	{Key: "tui_usage", Env: "ARGENT_TUI_USAGE", Name: "TUI 用量显示", Enable: "=1", Desc: "TUI 头部显示本轮 token 用量与缓存命中。"},
-	{Key: "tui_prompt_history", Env: "ARGENT_TUI_PROMPT_HISTORY", Name: "TUI 输入历史持久化", Enable: "=1", Desc: "TUI 提交的输入写入存储目录 prompts.jsonl，重启后 Up 可召回；关闭时无文件读写、帧字节不变。"},
+	{Key: "cli_hints", Env: "ARGENT_CLI_HINTS", Name: "CLI 错误修复建议", OptInKey: "cli_hints", Enable: "默认开，=0 关闭", Desc: "CLI 已知错误后追加本地化修复建议；默认开启，=0 关闭。"},
+	{Key: "approve_danger", Env: "ARGENT_APPROVE_DANGER", Name: "TUI 危险命令原因展示", Enable: "默认开，=0 关闭", Desc: "TUI 审批弹窗展示稳定中文危险原因并预选拒绝；默认开启，=0 关闭。"},
+	{Key: "approval_diff", Env: "ARGENT_APPROVAL_DIFF", Name: "审批卡 diff 展示", Enable: "默认开，=0 关闭", Desc: "TUI 审批卡渲染有界的增删行摘要（diff 行）；默认开启，=0 关闭。"},
+	{Key: "tui_usage", Env: "ARGENT_TUI_USAGE", Name: "TUI 用量显示", Enable: "默认开，=0 关闭", Desc: "TUI 头部显示本轮 token 用量与缓存命中；默认开启，=0 关闭。"},
+	{Key: "tui_prompt_history", Env: "ARGENT_TUI_PROMPT_HISTORY", Name: "TUI 输入历史持久化", Enable: "默认开，=0 关闭", Desc: "TUI 提交的输入写入存储目录 prompts.jsonl，重启后 Up 可召回；默认开启，=0 时无文件读写、帧字节不变。"},
 	{Key: "vim_mode", Env: "ARGENT_VIM_MODE", Name: "vim 键位", Enable: "=1", Desc: "TUI 输入行切换到 vim 键位，默认经典输入逐字节不变。"},
-	{Key: "path_completion", Env: "ARGENT_PATH_COMPLETION", Name: "内联路径补全", Enable: "=1", Desc: "TUI 输入行启用内联路径补全，默认 slash 补全逐字节不变。"},
-	{Key: "cache_visible", Env: "ARGENT_CACHE_VISIBLE", Name: "缓存能力提示", Enable: "=1", Desc: "--tokens 报告追加一行静态缓存能力提示。"},
-	{Key: "sessions_head_tail", Env: "ARGENT_SESSIONS_HEAD_TAIL", Name: "会话列表首尾预览", Enable: "=1", Desc: "会话列表显示首尾消息预览。"},
+	{Key: "path_completion", Env: "ARGENT_PATH_COMPLETION", Name: "内联路径补全", Enable: "默认开，=0 关闭", Desc: "TUI 输入行启用内联路径补全；默认开启，=0 时回到 slash 补全逐字节不变。"},
+	{Key: "cache_visible", Env: "ARGENT_CACHE_VISIBLE", Name: "缓存能力提示", Enable: "默认开，=0 关闭", Desc: "--tokens 报告追加一行静态缓存能力提示；默认开启，=0 关闭。"},
+	{Key: "sessions_head_tail", Env: "ARGENT_SESSIONS_HEAD_TAIL", Name: "会话列表首尾预览", Enable: "默认开，=0 关闭", Desc: "会话列表显示首尾消息预览；默认开启，=0 关闭。"},
 	{Key: "pty_interactive", Env: "ARGENT_PTY_INTERACTIVE", Name: "交互式 PTY 子命令", Enable: "=1", Desc: "注册 argentgo pty 子命令，在真实伪终端中运行程序（剥离终端查询序列、UTF-8 增量解码、ctx 取消回收）；仅开启时注册，默认 usage/help/补全字节不变。"},
 	{Key: "locale", Env: "ARGENT_LOCALE", Name: "Native 界面语言", Enable: "en-US 及其别名（en/en_us/English）", Desc: "原生桌面窗口的硬编码中文文案切到英文（复用 i18n 目录同值，native 自包含无违规依赖）；空值/中文/其它值一律保持原中文，逐字节不变。"},
 
@@ -84,7 +84,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "mcp_injection_medium", Env: "ARGENT_MCP_INJECTION_MEDIUM", Name: "MCP 中风险注入警示", Enable: "=1", Desc: "MCP 工具输出的中风险注入命中也加可见警示；默认关闭时仅高风险警示，输出逐字节不变。"},
 	{Key: "mcp_tool_cache_ttl", Env: "ARGENT_MCP_TOOL_CACHE_TTL", Name: "MCP 工具列表缓存", Enable: "正整数秒（缺省 0 禁用）", Desc: "为 MCP 工具发现结果启用带 TTL 的缓存，有效期内复用列表；默认 0 禁用时每次重新发现，行为不变。"},
 	{Key: "parse_regression_guard", Env: "ARGENT_PARSE_REGRESSION_GUARD", Name: "编辑语法劣化检查", Enable: "=1", Desc: "edit/write/apply_patch 在写入前用 go/parser 检查：原本合法的 .go 文件若改后语法错误则拒绝；默认关闭时不检查，写入逐字节不变。"},
-	{Key: "approval_preview", Env: "ARGENT_APPROVAL_PREVIEW", Name: "审批差异预览", Enable: "=1", Desc: "写类工具的审批提示附带 +N/-M 行数摘要，帮助判断改动内容；不改变审批判定，默认关闭时提示逐字节不变。"},
+	{Key: "approval_preview", Env: "ARGENT_APPROVAL_PREVIEW", Name: "审批差异预览", Enable: "默认开，=0 关闭", Desc: "写类工具的审批提示附带 +N/-M 行数摘要，帮助判断改动内容；不改变审批判定，默认开启，=0 时提示逐字节不变。"},
 	{Key: "mcp_output_limit", Env: "ARGENT_MCP_OUTPUT_LIMIT_BYTES", Name: "MCP 输出硬上限", Enable: "正整数字节（缺省 0 禁用）", Desc: "单次 MCP 调用输出超过上限时保留头尾并附恢复标记，防止话痨服务器淹没上下文；默认 0 时行为不变。"},
 	{Key: "verify_write", Env: "ARGENT_VERIFY_WRITE", Name: "写后漂移校验", Enable: "=1", Desc: "写入后重读文件比对实际字节，漂移时附按落盘字节重算的 hashline 锚点警告；默认关闭时零额外读取，结果逐字节不变。"},
 	{Key: "lsp_sanitize_env", Env: "ARGENT_LSP_SANITIZE_ENV", Name: "LSP 环境净化", Enable: "=1", Desc: "启动语言服务器时用 proc 净化环境，避免继承宿主私有会话管道变量；默认关闭时按原方式拼环境。"},

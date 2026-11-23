@@ -14,8 +14,8 @@ const (
 	headTailDefaultTail = 8
 )
 
-// headTailPreviewEnv 是开启 sessions show 头尾预览的环境变量名。未设置或
-// 非真值时预览关闭，输出与旧行为逐字节一致。
+// headTailPreviewEnv 是 sessions show 头尾预览的门控环境变量名。按用户至上的
+// UX 策略，此纯改善功能默认开启，只有显式设为 "0"/"false" 才关闭。
 const headTailPreviewEnv = "ARGENT_SESSIONS_HEAD_TAIL"
 
 // headTailPreview 生成 lines 的头尾预览：保留最前面的 head 行与最后面的
@@ -55,14 +55,14 @@ func headTailPreview(lines []string, head, tail int) string {
 	return strings.Join(parts, "\n")
 }
 
-// sessionsHeadTailEnabled 读取可选的头尾预览开关；只有显式设置为真值
-// （1/true/yes/on，忽略大小写与首尾空白）时才开启，默认关闭。
+// sessionsHeadTailEnabled 读取头尾预览开关；按用户至上的 UX 策略默认开启，
+// 只有显式设置为假值（0/false，忽略大小写与首尾空白）才关闭。
 func sessionsHeadTailEnabled(app App) bool {
 	switch strings.ToLower(strings.TrimSpace(app.env(headTailPreviewEnv))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
+	case "0", "false":
 		return false
+	default:
+		return true
 	}
 }
 

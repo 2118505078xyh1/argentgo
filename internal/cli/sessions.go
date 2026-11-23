@@ -392,8 +392,7 @@ func sessionsShow(app App, store SessionStore, id string) int {
 		content.WriteByte('\n')
 	}
 	output := content.String()
-	// 头尾预览是可选能力，默认关闭；显式开启后才折叠中间的行，
-	// 避免改变默认输出而破坏既有的逐字节行为。
+	// 头尾预览默认开启、=0 关闭；开启时折叠中间的行，=0 时保留完整输出。
 	if sessionsHeadTailEnabled(app) {
 		output = applyHeadTailToOutput(output)
 	}

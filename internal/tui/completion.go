@@ -33,9 +33,9 @@ type CompletionState struct {
 	candidates []CompletionCandidate
 	index      int
 
-	// 以下四个字段仅由 opt-in 的内联补全（路径 / @文件）写入。
+	// 以下四个字段仅由内联补全（路径 / @文件）写入。
 	// slash 补全从不设置它们（保持零值 inline=false），因此在
-	// ARGENT_PATH_COMPLETION 未开启时所有既有行为逐字节不变。
+	// ARGENT_PATH_COMPLETION=0 关闭时所有既有行为逐字节不变。
 	inline     bool // 当前状态是否为内联补全（接受逻辑据此替换词而非整行）
 	tokenStart int  // 被补全词在输入文本中的 rune 起始位置
 	cursor     int  // 构建状态时光标的 rune 位置（用于接受时保留后缀）
@@ -263,7 +263,7 @@ func matchCommand(query, command string) bool {
 // ============================================================================
 // 以下为 opt-in 的内联补全（文件路径 / @文件）基建。仅使用标准库，
 // 候选源是注入的 FileSystem（与工作区面板共用），绝不自行读环境变量或
-// 触碰真实文件系统；由调用方（Model）在 ARGENT_PATH_COMPLETION=1 时启用。
+// 触碰真实文件系统；由调用方（Model）在 ARGENT_PATH_COMPLETION≠0 时启用。
 // ============================================================================
 
 // inlineCompletionKind 区分内联补全的候选源。

@@ -8,8 +8,8 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
 )
 
-// cliHintsEnvVar 是 CLI 错误修复建议的输出门控开关。只有显式设为 "1"
-// 时才追加建议，因此默认关闭，不会改变任何既有命令的 stderr 字节。
+// cliHintsEnvVar 是 CLI 错误修复建议的输出门控开关。按用户至上的 UX 策略，
+// 此纯改善功能默认开启，只有显式设为 "0"（允许首尾空白）才关闭。
 const cliHintsEnvVar = "ARGENT_CLI_HINTS"
 
 // cliHintI18nKeys 是错误建议消息键的完整集合，与 cli_error_hint.go 的
@@ -36,18 +36,14 @@ func buildCliHintToI18nKey() map[string]string {
 	return m
 }
 
-// cliHintsEnabled 报告是否开启了 CLI 错误建议输出。两个独立开关任一开启即可：
-// ARGENT_CLI_HINTS 精确为 "1"（允许首尾空白），或 ARGENT_OPT_INS 中启用了
-// cli_hints 键。两条门控都未命中时保持关闭，因此两个 env 都未设的既有命令
-// 输出逐字节不变。env 为 nil 时按全部关闭处理，调用方无需自行判空。
+// cliHintsEnabled 报告是否开启了 CLI 错误建议输出。策略变更（用户至上）：
+// 纯 UX 改善默认开启，只有把 ARGENT_CLI_HINTS 显式设为 "0"（允许首尾空白）
+// 才关闭。env 为 nil 时按默认开启处理，调用方无需自行判空。
 func cliHintsEnabled(env func(string) string) bool {
 	if env == nil {
-		return false
-	}
-	if strings.TrimSpace(env(cliHintsEnvVar)) == "1" {
 		return true
 	}
-	return OptInFromEnv(env)["cli_hints"]
+	return strings.TrimSpace(env(cliHintsEnvVar)) != "0"
 }
 
 // writeActionableErrorEnv 在 writeActionableError 的既有两行输出之后，

@@ -33,27 +33,29 @@ func envWith(hints, optIns string) func(string) string {
 	}
 }
 
-// TestCliHintsEnabled 覆盖两个门控的全部取值与组合：nil 与任何非 "1" 的值、
-// 以及未启用 cli_hints 的 opt-in 列表都关闭；任一开关命中即开启。
+// TestCliHintsEnabled 覆盖默认开启与 =0 关闭的全部取值与组合：nil、空值、
+// 空白、真值以及任何 opt-in 组合默认都开启；只有 ARGENT_CLI_HINTS 修剪后为
+// "0" 才关闭（即便 opt-in 列表里含 cli_hints 也不例外）。
 func TestCliHintsEnabled(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{name: "nil env", env: nil, want: false},
-		{name: "empty", env: constEnv(""), want: false},
+		{name: "nil env", env: nil, want: true},
+		{name: "empty", env: constEnv(""), want: true},
 		{name: "zero", env: constEnv("0"), want: false},
-		{name: "blank", env: constEnv("   "), want: false},
+		{name: "zero with surrounding spaces", env: constEnv("  0  "), want: false},
+		{name: "blank", env: constEnv("   "), want: true},
 		{name: "one", env: constEnv("1"), want: true},
 		{name: "one with surrounding spaces", env: constEnv("  1  "), want: true},
-		{name: "both unset", env: envWith("", ""), want: false},
+		{name: "both unset", env: envWith("", ""), want: true},
 		{name: "cli hints only", env: envWith("1", ""), want: true},
 		{name: "opt-in cli_hints only", env: envWith("", "cli_hints"), want: true},
 		{name: "opt-in cli_hints among others", env: envWith("", "  apply_patch , cli_hints  "), want: true},
-		{name: "opt-in unrelated key only", env: envWith("", "refusal_reason"), want: false},
+		{name: "opt-in unrelated key only", env: envWith("", "refusal_reason"), want: true},
 		{name: "cli hints zero plus unrelated opt-in", env: envWith("0", "refusal_reason"), want: false},
-		{name: "cli hints zero plus cli_hints opt-in", env: envWith("0", "cli_hints"), want: true},
+		{name: "cli hints zero plus cli_hints opt-in", env: envWith("0", "cli_hints"), want: false},
 		{name: "both set", env: envWith("1", "cli_hints"), want: true},
 	}
 	for _, tc := range cases {
@@ -65,7 +67,7 @@ func TestCliHintsEnabled(t *testing.T) {
 	}
 }
 
-// TestWriteActionableErrorEnvGateOffMatchesBaseline 验证门控关闭时，
+// TestWriteActionableErrorEnvGateOffMatchesBaseline 验证门控关闭（=0）时，
 // writeActionableErrorEnv 的输出与 writeActionableError 逐字节相同。
 func TestWriteActionableErrorEnvGateOffMatchesBaseline(t *testing.T) {
 	messages := []string{
@@ -79,11 +81,10 @@ func TestWriteActionableErrorEnvGateOffMatchesBaseline(t *testing.T) {
 		name string
 		env  func(string) string
 	}{
-		{name: "nil", env: nil},
-		{name: "empty", env: constEnv("")},
 		{name: "zero", env: constEnv("0")},
-		{name: "blank", env: constEnv(" ")},
-		{name: "both env vars unset", env: envWith("", "")},
+		{name: "zero with surrounding spaces", env: constEnv("  0  ")},
+		{name: "zero plus unrelated opt-in", env: envWith("0", "refusal_reason")},
+		{name: "zero plus cli_hints opt-in", env: envWith("0", "cli_hints")},
 	}
 	for _, e := range envs {
 		for _, msg := range messages {
@@ -136,6 +137,38 @@ func TestWriteActionableErrorEnvAppendsLocalizedHint(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestWriteActionableErrorEnvDefaultAppendsHint 验证策略变更后默认即追加建议：
+// 不设任何门控变量（nil/空/任意非 "0" 值）时也会输出本地化建议，且既有两行不变。
+func TestWriteActionableErrorEnvDefaultAppendsHint(t *testing.T) {
+	const msg = "provider returned 401 Unauthorized: invalid api key"
+	const key = i18n.ErrorHintCredentials
+	envs := []struct {
+		name string
+		env  func(string) string
+	}{
+		{name: "nil", env: nil},
+		{name: "empty", env: constEnv("")},
+		{name: "blank", env: constEnv("   ")},
+		{name: "both env vars unset", env: envWith("", "")},
+	}
+	for _, e := range envs {
+		t.Run(e.name, func(t *testing.T) {
+			baseline := &bytes.Buffer{}
+			writeActionableError(baseline, errors.New(msg))
+			got := &bytes.Buffer{}
+			writeActionableErrorEnv(got, errors.New(msg), e.env, "zh-CN")
+
+			want := baseline.String() + i18n.ErrorHintMessage("zh-CN", key) + "\n"
+			if got.String() != want {
+				t.Fatalf("stderr =\n%q\nwant   =\n%q", got.String(), want)
+			}
+			if !strings.HasPrefix(got.String(), baseline.String()) {
+				t.Fatalf("existing lines changed: baseline %q, got %q", baseline.String(), got.String())
+			}
+		})
 	}
 }
 
@@ -242,8 +275,8 @@ func TestRunPromptHintWiring(t *testing.T) {
 	})
 }
 
-// TestRunPromptHintWiringOptIn 验证只设置 ARGENT_OPT_INS=cli_hints 时，
-// cli.go 的错误分支同样接到建议输出；未启用该键时保持关闭。
+// TestRunPromptHintWiringOptIn 验证默认开启以及 opt-in 列表含 cli_hints 时，
+// cli.go 的错误分支接到建议输出；ARGENT_CLI_HINTS=0 时保持关闭。
 func TestRunPromptHintWiringOptIn(t *testing.T) {
 	const msg = "provider returned 401 Unauthorized: invalid api key"
 	factory := func(Options) (Runner, error) {
@@ -259,15 +292,15 @@ func TestRunPromptHintWiringOptIn(t *testing.T) {
 			t.Fatalf("localized hint %q missing from stderr %q", want, errOut.String())
 		}
 	})
-	t.Run("cli_hints disabled", func(t *testing.T) {
-		stdio, _, errOut := newTestIO("", map[string]string{optInEnvVar: "refusal_reason"})
+	t.Run("cli hints disabled via zero", func(t *testing.T) {
+		stdio, _, errOut := newTestIO("", map[string]string{cliHintsEnvVar: "0", optInEnvVar: "cli_hints"})
 		code := RunWith(App{IO: stdio, NewRunner: factory}, []string{"--locale", "zh-CN", "hi"})
 		if code != 1 {
 			t.Fatalf("exit = %d, want 1; stderr = %q", code, errOut.String())
 		}
 		for _, key := range cliHintI18nKeys {
 			if strings.Contains(errOut.String(), i18n.ErrorHintMessage("zh-CN", key)) {
-				t.Fatalf("hint %q present with cli_hints disabled: %q", key, errOut.String())
+				t.Fatalf("hint %q present with cli hints disabled: %q", key, errOut.String())
 			}
 		}
 	})

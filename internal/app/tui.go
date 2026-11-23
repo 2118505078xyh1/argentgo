@@ -51,7 +51,7 @@ func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
 // 审批由 TUI 模态框回答。实时模型从 tui.Options.OnReady 捕获，
 // 每次 security.Approver 调用都会阻塞在 Model.Approve 上，直到操作人员回答或该轮次的 context 结束。
 func TUI(stdio cli.IO) cli.TUIFunc {
-	// 用量显示（opt-in ARGENT_TUI_USAGE）：默认关闭，TUI 帧字节不变。
+	// 用量显示（ARGENT_TUI_USAGE，UX 改善默认打开）：仅 env=0 时关闭。
 	configureTUIUsage(stdio.Env)
 	// 审批卡 diff 显示（opt-in ARGENT_APPROVAL_DIFF）：默认关闭，帧字节不变。
 	tui.ConfigureApprovalDiff(stdio.Env)
@@ -173,8 +173,8 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				}
 				_, err = Execute(turnCtx, stdio, res, sess, text, onText)
 				// 成本由 agent 的定价表推导并持久化到会话 stats 记录；agent.Result
-				// 没有成本字段，因此这里读取会话累计值。默认（用量未 opt-in）不写头部，
-				// 保证帧字节与接线前一致；开启 ARGENT_TUI_USAGE 后才显示成本行。
+				// 没有成本字段，因此这里读取会话累计值。用量显示默认开启，
+				// 仅当 ARGENT_TUI_USAGE 修剪后为 "0" 时不写头部成本行。
 				if err == nil && tuiUsageVisible.Load() {
 					updateHeaderCost(sess.AggregateStats().CostUSD)
 				}
@@ -185,8 +185,8 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				modelMu.Lock()
 				uiModel = model
 				modelMu.Unlock()
-				// opt-in 门控下沉到渲染层：usage 事件始终桥接（统计行需要 token），
-				// 头部用量/成本行是否可见由此决定；默认关闭时帧字节不变。
+				// 门控下沉到渲染层：usage 事件始终桥接（统计行需要 token），
+				// 头部用量/成本行是否可见由此决定；ARGENT_TUI_USAGE=0 时隐藏。
 				setTUIUsageVisible(model, tuiUsageVisible.Load())
 				// vim 键位（可选）：ARGENT_VIM_MODE=1 时启用，默认经典输入逐字节不变。
 				if env := stdio.Env; env != nil && strings.TrimSpace(env("ARGENT_VIM_MODE")) == "1" {
@@ -195,9 +195,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			},
 			CommandInfo: buildTUICommandInfo(stdio, res),
 		}
-		// 输入历史持久化（opt-in ARGENT_TUI_PROMPT_HISTORY）：默认关闭，
-		// 不传 store，编辑器不读写任何文件、帧字节不变。仅当环境精确为 "1" 时
-		// 才把存储目录下的 prompts.jsonl 交给 TUI，使重启后 Up 能召回旧输入。
+		// 输入历史持久化（ARGENT_TUI_PROMPT_HISTORY，UX 改善默认打开）：默认把
+		// 存储目录下的 prompts.jsonl 交给 TUI，使重启后 Up 能召回旧输入；
+		// 仅当环境修剪后精确为 "0" 时才不传 store，编辑器不读写任何文件。
 		if promptHistoryEnabled(stdio.Env) {
 			frontendOpts.PromptHistory = tui.NewPromptStore(filepath.Join(res.Storage, "prompts.jsonl"))
 		}
@@ -223,18 +223,18 @@ func NewApprover() *Approver {
 	return &Approver{ready: make(chan struct{})}
 }
 
-// SetEnv 注入本次运行的环境读取函数。仅 TUI 入口在 opt-in 危险原因展示时调用；
-// 不调用时 env 为 nil，Approver.Ask 走原有的 model.Approve 路径，逐字节不变。
+// SetEnv 注入本次运行的环境读取函数。TUI 入口用它读取危险原因展示门控；
+// 不调用时 env 为 nil，门控默认开启（有危险原因时走 model.ApproveDanger）。
 func (a *Approver) SetEnv(env func(string) string) {
 	a.mu.Lock()
 	a.env = env
 	a.mu.Unlock()
 }
 
-// approveDangerEnabled 报告是否开启危险命令原因展示。仅当环境值精确为 "1" 时开启，
-// env 为 nil 时 fail-closed，默认行为不变。
+// approveDangerEnabled 报告是否开启危险命令原因展示。默认开启（UX 改善默认打开），
+// env 为 nil 或值修剪后不为 "0" 时开启，仅修剪后精确等于 "0" 时关闭。
 func approveDangerEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_APPROVE_DANGER")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_APPROVE_DANGER")) != "0"
 }
 
 // attach 记录实时模型；第一次调用会打开 ready 闩锁。
@@ -259,9 +259,9 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	if model == nil {
 		return false, nil
 	}
-	// opt-in 危险原因展示：门控开启且命令为变更型时，把 security 计算的稳定中文原因
-	// 传给 ApproveDanger（danger 非空时弹窗多一行并预选拒绝）。门控关闭时 env 为 nil
-	// 或命令无危险，继续走原 model.Approve——与接线之前逐字节相同。name/args 始终原样传递。
+	// 危险原因展示：门控默认开启，命令为变更型且存在危险原因时，把 security 计算的
+	// 稳定中文原因传给 ApproveDanger（弹窗多一行并预选拒绝）。仅当门控被显式关闭
+	// （env 值修剪后为 "0"）或命令无危险时，继续走原 model.Approve。name/args 始终原样传递。
 	if approveDangerEnabled(env) {
 		if token := shellCommandOf(name, json.RawMessage(args)); token != "" {
 			if reason := security.DangerReason(token); reason != "" {
@@ -290,11 +290,10 @@ func sessionTitles(store *session.Store) []string {
 	return titles
 }
 
-// promptHistoryEnabled 报告是否开启 TUI 输入历史持久化。仅当注入的 env 非 nil
-// 且值修剪空白后精确为 "1" 时开启；env 为 nil、未设置或其它值一律 fail-closed，
-// 使默认行为与接线之前逐字节一致。
+// promptHistoryEnabled 报告是否开启 TUI 输入历史持久化。默认开启（UX 改善默认打开），
+// env 为 nil 或值修剪后不为 "0" 时开启，仅修剪后精确等于 "0" 时关闭。
 func promptHistoryEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_TUI_PROMPT_HISTORY")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_TUI_PROMPT_HISTORY")) != "0"
 }
 
 // realStreams 报告 stdio 是否为进程终端，这是 TUI 应当接管 raw 模式的唯一情形。

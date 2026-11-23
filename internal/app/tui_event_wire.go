@@ -12,16 +12,16 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/tui"
 )
 
-// tuiUsageVisible 控制 TUI 头部用量/成本行是否可见。默认 0（关闭），
-// 因此 TUI 帧字节与接线前逐字节相同；仅在 ARGENT_TUI_USAGE=1 时由 TUI 入口开启。
+// tuiUsageVisible 控制 TUI 头部用量/成本行是否可见。默认开启（UX 改善默认打开），
+// 仅当 ARGENT_TUI_USAGE 修剪后精确为 "0" 时关闭。
 //
 // 门控下沉到渲染层：事件桥接器始终转发 usage 事件（统计行需要 token 数），
 // 由 OnReady 里的 Model.SetUsageVisible 决定是否把用量显示在头部。
 var tuiUsageVisible atomic.Bool
 
-// configureTUIUsage 按注入的 env 设置用量显示门控。env 为 nil 或值不为 "1" 时关闭。
+// configureTUIUsage 按注入的 env 设置用量显示门控。env 为 nil 或值修剪后不为 "0" 时开启。
 func configureTUIUsage(env func(string) string) {
-	tuiUsageVisible.Store(env != nil && strings.TrimSpace(env("ARGENT_TUI_USAGE")) == "1")
+	tuiUsageVisible.Store(env == nil || strings.TrimSpace(env("ARGENT_TUI_USAGE")) != "0")
 }
 
 // tuiUsageVisibilitySetter 是 tui.Model 的按需能力接口，约定方法名为 SetUsageVisible。

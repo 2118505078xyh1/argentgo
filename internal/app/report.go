@@ -31,9 +31,9 @@ func TokenReport(stdio cli.IO, opts cli.Options) (string, error) {
 	fmt.Fprintf(&b, "system prompt: ~%d tokens\n", systemTokens)
 	fmt.Fprintf(&b, "tools: %d specs, ~%d tokens\n", len(specs), toolTokens)
 	fmt.Fprintf(&b, "fixed request overhead: ~%d tokens\n", systemTokens+toolTokens)
-	// 缓存能力提示（opt-in ARGENT_CACHE_VISIBLE）：默认关闭时报告与接线前逐字节相同。
+	// 缓存能力提示（ARGENT_CACHE_VISIBLE，UX 改善默认打开）：默认展示，修剪后精确为 "0" 时关闭。
 	// 只做静态能力判定（不发请求、不读时钟），res.Chatter 由 Resolve 无条件构造。
-	if stdio.Env != nil && strings.TrimSpace(stdio.Env("ARGENT_CACHE_VISIBLE")) == "1" {
+	if stdio.Env == nil || strings.TrimSpace(stdio.Env("ARGENT_CACHE_VISIBLE")) != "0" {
 		fmt.Fprintf(&b, "cache hint: %s\n", CacheHintCapability(res.Chatter))
 	}
 	fmt.Fprintf(&b, "limits: turns=%d tokens=%d cost=$%.4f seconds=%d\n",

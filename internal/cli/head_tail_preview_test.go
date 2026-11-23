@@ -123,16 +123,20 @@ func TestHeadTailPreviewKeepsWholeCJKLine(t *testing.T) {
 }
 
 func TestSessionsHeadTailEnabled(t *testing.T) {
+	// 策略变更后默认开启：未设置/空值/任意非假值都开启预览；
+	// 只有 "0" 或 "false"（忽略大小写与首尾空白）关闭。
 	cases := map[string]bool{
-		"":       false,
-		"0":      false,
-		"off":    false,
-		"random": false,
-		"1":      true,
-		"true":   true,
-		"TRUE":   true,
-		" yes ":  true,
-		"On":     true,
+		"":        true,
+		"0":       false,
+		"false":   false,
+		" FALSE ": false,
+		"off":     true,
+		"random":  true,
+		"1":       true,
+		"true":    true,
+		"TRUE":    true,
+		" yes ":   true,
+		"On":      true,
 	}
 	for raw, want := range cases {
 		stdio, _, _ := newTestIO("", map[string]string{headTailPreviewEnv: raw})
@@ -142,7 +146,7 @@ func TestSessionsHeadTailEnabled(t *testing.T) {
 	}
 }
 
-func TestSessionsShowHeadTailPreviewOptIn(t *testing.T) {
+func TestSessionsShowHeadTailPreviewGating(t *testing.T) {
 	events := make([]server.SessionEvent, 20)
 	for i := range events {
 		events[i] = server.SessionEvent{
@@ -153,7 +157,7 @@ func TestSessionsShowHeadTailPreviewOptIn(t *testing.T) {
 	}
 	store := &fakeStore{events: map[string][]server.SessionEvent{"s1": events}}
 
-	// 默认关闭：输出保持完整，末尾结果仍在，且没有省略标记。
+	// 默认开启：保留头尾，中间被折叠，末行结果依然可见。
 	stdio, out, _ := newTestIO("", nil)
 	if code := RunWith(App{IO: stdio, Sessions: store}, []string{"sessions", "show", "s1"}); code != 0 {
 		t.Fatalf("默认 exit = %d", code)
@@ -161,20 +165,20 @@ func TestSessionsShowHeadTailPreviewOptIn(t *testing.T) {
 	if !strings.Contains(out.String(), `{"n":19}`) {
 		t.Fatalf("默认输出缺少末行: %q", out.String())
 	}
-	if strings.Contains(out.String(), "lines hidden") {
-		t.Fatalf("默认输出不应被截断: %q", out.String())
+	if !strings.Contains(out.String(), "... (4 lines hidden) ...") {
+		t.Fatalf("默认输出缺少省略标记: %q", out.String())
 	}
 
-	// 显式开启：保留头尾，中间被折叠，末行结果依然可见。
-	stdio, out, _ = newTestIO("", map[string]string{headTailPreviewEnv: "1"})
+	// 显式关闭（=0）：输出保持完整，末尾结果仍在，且没有省略标记。
+	stdio, out, _ = newTestIO("", map[string]string{headTailPreviewEnv: "0"})
 	if code := RunWith(App{IO: stdio, Sessions: store}, []string{"sessions", "show", "s1"}); code != 0 {
-		t.Fatalf("开启预览 exit = %d", code)
+		t.Fatalf("关闭预览 exit = %d", code)
 	}
 	if !strings.Contains(out.String(), `{"n":19}`) {
-		t.Fatalf("预览输出缺少末行: %q", out.String())
+		t.Fatalf("关闭预览输出缺少末行: %q", out.String())
 	}
-	if !strings.Contains(out.String(), "... (4 lines hidden) ...") {
-		t.Fatalf("预览输出缺少省略标记: %q", out.String())
+	if strings.Contains(out.String(), "lines hidden") {
+		t.Fatalf("关闭预览输出不应被截断: %q", out.String())
 	}
 
 	// 开启预览后依然遵守 broken pipe 不报错的约定。

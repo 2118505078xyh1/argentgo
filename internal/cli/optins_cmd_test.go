@@ -65,7 +65,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
-		"当前启用 4 项",
+		"当前启用 11 项",
 		"ARGENT_OPT_INS 注册表：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
@@ -164,8 +164,9 @@ func TestOptInsCurrentValueRules(t *testing.T) {
 		value   string
 	}{
 		{"equals1 padded", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{"ARGENT_TUI_USAGE": " 1 "}, true, " 1 "},
-		{"equals1 rejects true", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{"ARGENT_TUI_USAGE": "true"}, false, "true"},
-		{"equals1 rejects 0", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{"ARGENT_TUI_USAGE": "0"}, false, "0"},
+		{"default-on accepts true", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{"ARGENT_TUI_USAGE": "true"}, true, "true"},
+		{"0 closes", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{"ARGENT_TUI_USAGE": "0"}, false, "0"},
+		{"unset defaults on", "tui_usage", "ARGENT_TUI_USAGE", map[string]string{}, true, ""},
 		{"truthy yes", "todo_strict", "ARGENT_TODO_STRICT", map[string]string{"ARGENT_TODO_STRICT": "YES"}, true, "YES"},
 		{"truthy false", "todo_strict", "ARGENT_TODO_STRICT", map[string]string{"ARGENT_TODO_STRICT": "false"}, false, "false"},
 		{"nonzero", "approval_ttl", "ARGENT_APPROVAL_TTL", map[string]string{"ARGENT_APPROVAL_TTL": "30"}, true, "30"},
@@ -187,14 +188,15 @@ func TestOptInsCurrentValueRules(t *testing.T) {
 	}
 }
 
-// TestOptInsNoEnvDefaults 覆盖无 env 场景：全部条目默认关闭，
-// 集中式键的原始值为空，文本摘要给出固定的全关文案。
+// TestOptInsNoEnvDefaults 覆盖无 env 场景：集中式键仍全部默认关闭，
+// 但 10 个「改善体验」独立门控已改为默认开启（=0 才关闭）。
+// 文本摘要的注册表部分仍给出固定全关文案，独立门控则如实显示开启。
 func TestOptInsNoEnvDefaults(t *testing.T) {
 	code, textOut, errOut := runOptInsWith(t, nil, map[string]string{})
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 0 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
+	if !strings.Contains(textOut, "当前启用 10 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 
@@ -203,10 +205,24 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 		t.Fatalf("json exit = %d, stderr = %q", code, errOut)
 	}
 	entries := optInsEntriesFromJSON(t, jsonOut)
+	defaultOnEnvs := map[string]bool{
+		"ARGENT_CLI_HINTS": true, "ARGENT_APPROVE_DANGER": true, "ARGENT_APPROVAL_DIFF": true,
+		"ARGENT_TUI_USAGE": true, "ARGENT_TUI_PROMPT_HISTORY": true, "ARGENT_PATH_COMPLETION": true,
+		"ARGENT_CACHE_VISIBLE": true, "ARGENT_SESSIONS_HEAD_TAIL": true, "ARGENT_APPROVAL_PREVIEW": true,
+		"ARGENT_BASH_USE_PROC": true,
+	}
+	enabledN := 0
 	for _, entry := range entries {
-		if entry.Enabled {
-			t.Errorf("%s should be off with no env: %+v", entry.Key, entry)
+		want := defaultOnEnvs[entry.Env]
+		if entry.Enabled != want {
+			t.Errorf("%s/%s enabled=%v, want %v: %+v", entry.Key, entry.Env, entry.Enabled, want, entry)
 		}
+		if entry.Enabled {
+			enabledN++
+		}
+	}
+	if enabledN != len(defaultOnEnvs) {
+		t.Errorf("enabled count = %d, want %d", enabledN, len(defaultOnEnvs))
 	}
 	if refusal := findOptIn(t, entries, "refusal_reason"); refusal.Value != "" {
 		t.Errorf("raw value = %q, want empty", refusal.Value)

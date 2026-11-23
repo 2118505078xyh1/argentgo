@@ -185,9 +185,10 @@ func TestRenderApprovalDiff(t *testing.T) {
 	}
 }
 
-func TestApprovalDiffDefaultOffFrameBytesUnchanged(t *testing.T) {
-	prev := tuiApprovalDiff.Swap(false)
+func TestApprovalDiffSwitchOffFrameBytesUnchanged(t *testing.T) {
+	prev := tuiApprovalDiff.Load()
 	defer tuiApprovalDiff.Store(prev)
+	ConfigureApprovalDiff(func(string) string { return "0" })
 
 	before := map[string]string{"foo.go": "a\nb\nc\n"}
 	after := map[string]string{"foo.go": "a\nx\nc\nd\n"}
@@ -238,26 +239,37 @@ func TestConfigureApprovalDiffEnv(t *testing.T) {
 	prev := tuiApprovalDiff.Load()
 	defer tuiApprovalDiff.Store(prev)
 
+	// env 为 nil 时默认开启。
 	ConfigureApprovalDiff(nil)
-	if approvalDiffVisible() {
-		t.Fatal("nil env must leave the switch off")
+	if !approvalDiffVisible() {
+		t.Fatal("nil env must leave the switch on")
 	}
+	// 修剪后精确等于 "0" 才关闭。
 	ConfigureApprovalDiff(func(string) string { return "0" })
 	if approvalDiffVisible() {
-		t.Fatal(`ARGENT_APPROVAL_DIFF=0 must leave the switch off`)
+		t.Fatal(`ARGENT_APPROVAL_DIFF=0 must turn the switch off`)
 	}
-	ConfigureApprovalDiff(func(string) string { return " 1 " })
+	ConfigureApprovalDiff(func(string) string { return " 0 " })
+	if approvalDiffVisible() {
+		t.Fatal(`ARGENT_APPROVAL_DIFF=" 0 " must turn the switch off`)
+	}
+	// 其它值（含 "1"、空串）均开启。
+	ConfigureApprovalDiff(func(string) string { return "1" })
 	if !approvalDiffVisible() {
-		t.Fatal(`ARGENT_APPROVAL_DIFF=" 1 " must opt in`)
+		t.Fatal("ARGENT_APPROVAL_DIFF=1 must leave the switch on")
+	}
+	ConfigureApprovalDiff(func(string) string { return "" })
+	if !approvalDiffVisible() {
+		t.Fatal("unset ARGENT_APPROVAL_DIFF must leave the switch on")
 	}
 	ConfigureApprovalDiff(func(key string) string {
 		if key == "ARGENT_APPROVAL_DIFF" {
 			return "1"
 		}
-		return ""
+		return "0"
 	})
 	if !approvalDiffVisible() {
-		t.Fatal("ARGENT_APPROVAL_DIFF=1 must opt in")
+		t.Fatal("only ARGENT_APPROVAL_DIFF=0 turns the switch off")
 	}
 }
 

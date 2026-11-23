@@ -192,7 +192,7 @@ argentgo "你的任务"
 - **如何开启**：`export ARGENT_OPT_INS="cli_hints"`，或 `optins` 块中 `"cli_hints": true`。
 - **适用场景**：希望输出里附带下一步 CLI 操作提示时。
 - **逐字节不变承诺**：未显式开启时输出逐字节不变。
-- **注意**：此键与下一节的独立变量 `ARGENT_CLI_HINTS` 现在都能开启 CLI 错误修复建议——`ARGENT_CLI_HINTS=1` 或 `ARGENT_OPT_INS=cli_hints` 任一成立即开启。
+- **注意**：此集中键仍默认关闭；但下一节的独立变量 `ARGENT_CLI_HINTS` 已改为默认开启（`=0` 关闭），因此 CLI 错误修复建议默认就会输出。`ARGENT_OPT_INS=cli_hints` 仍可显式开启本集中键。
 - **首次启动引导**：无参数运行 `argentgo`、stdin 为字符设备（终端/控制台）且既无配置/apiKey 也无存储凭据时，追加三行一次性引导（login 示例、tui/GUI 入口、doctor 自检）并在 storage 目录写 `.onboarded` 标记；标记存在即不再引导。关闭时零文件读写、stderr 逐字节不变。
 
 ### 12. `tool_error_reflection`（工具错误反射）
@@ -231,21 +231,21 @@ argentgo "你的任务"
 
 ## 三、独立门控环境变量
 
-以下开关**不属于**集中注册表的 15 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。注意 `ARGENT_BUILTIN_SHELL` 与本节最末的 `ARGENT_TOOL_ARG_COERCION`、`ARGENT_PROGRESS_RECOVERY` 是默认开的例外——它们用 `=0` 关闭，而非用 `=1` 开启。
+以下开关**不属于**集中注册表的 15 个键，而是通过各自独立的环境变量控制。多数只能通过独立 env 打开；`jobs` 是例外——它同时接受 `ARGENT_OPT_INS=jobs`（双激活面）。它们的共同点：默认关闭，且关闭时相关行为逐字节不变。本节先详述常用门控，末尾补齐后续批次加入的门控；其余门控在第四节速查。注意 `ARGENT_BUILTIN_SHELL`、`ARGENT_BASH_USE_PROC` 以及本节详述的 `ARGENT_CLI_HINTS` / `ARGENT_APPROVE_DANGER` / `ARGENT_CACHE_VISIBLE` / `ARGENT_TUI_USAGE` / `ARGENT_APPROVAL_DIFF` / `ARGENT_PATH_COMPLETION` / `ARGENT_TUI_PROMPT_HISTORY`、第四节的 `ARGENT_APPROVAL_PREVIEW` / `ARGENT_SESSIONS_HEAD_TAIL` 是默认开的例外——它们用 `=0` 关闭，而非用 `=1` 开启（用户至上：改善体验的开关默认打开）。
 
 ### `ARGENT_CLI_HINTS` —— CLI 错误修复建议
 
 - **作用**：当 CLI 命令发生已知类型的错误（TLS、文件、交互式、凭证四类）时，在既有两行错误输出之后追加一条本地化修复建议。
-- **开启值**：首尾空白修剪后等于 `1`，或设置 `ARGENT_OPT_INS=cli_hints`（两者任一成立即开启）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；未设置或空值时默认开启（`ARGENT_OPT_INS=cli_hints` 也仍开启）。
 - **适用场景**：终端用户或 CI 排错时，希望错误信息自带可执行的修复建议。
-- **逐字节不变承诺**：门控关闭、`err == nil`、或错误未命中任何已知分支时，输出与 `writeActionableError` 逐字节相同；既有的 `error: ...` 行与分类说明始终不变。
+- **逐字节不变承诺**：`ARGENT_CLI_HINTS=0` 关闭、`err == nil`、或错误未命中任何已知分支时，输出与 `writeActionableError` 逐字节相同；既有的 `error: ...` 行与分类说明始终不变。
 
 ### `ARGENT_APPROVE_DANGER` —— TUI 危险命令原因展示
 
 - **作用**：TUI 审批弹窗中，对变更型命令展示由 `security.DangerReason` 计算的稳定中文原因（走 `ApproveDanger` 弹窗，多一行并**预选拒绝**）。
-- **开启值**：首尾空白修剪后等于 `1`（`TrimSpace(env("ARGENT_APPROVE_DANGER")) == "1"`）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；env 为 nil、未设置或空值时默认开启。
 - **适用场景**：交互式使用、希望在批准危险命令前看到明确原因并默认偏向拒绝时。
-- **逐字节不变承诺**：门控关闭（env 为 nil、命令无危险）时继续走原 `model.Approve`，与接线之前逐字节相同；`name` / `args` 始终原样传递。
+- **逐字节不变承诺**：`ARGENT_APPROVE_DANGER=0`（或命令无危险）时继续走原 `model.Approve`，与接线之前逐字节相同；`name` / `args` 始终原样传递。
 
 ### `ARGENT_CONTINUATION_BRIEF` —— 会话续接摘要
 
@@ -257,16 +257,16 @@ argentgo "你的任务"
 ### `ARGENT_CACHE_VISIBLE` —— 缓存能力提示
 
 - **作用**：`argentgo --tokens` 报告追加一行 `cache hint: ...`，说明当前端点的提示缓存能力（静态判定，不发起请求）。
-- **开启值**：首尾空白修剪后等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；未设置或空值时默认开启。
 - **适用场景**：排查 OpenAI 兼容端点的提示缓存是否可用时。
-- **逐字节不变承诺**：门控关闭时报告与接线之前逐字节相同。
+- **逐字节不变承诺**：`=0` 关闭时报告与接线之前逐字节相同。
 
 ### `ARGENT_TUI_USAGE` —— TUI 用量与缓存命中显示
 
 - **作用**：TUI 头部/状态行显示本轮 token 用量与缓存命中数（激活既有的 `SetUsage` / `SetCachedTokens` 显示路径）。
-- **开启值**：首尾空白修剪后等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；未设置或空值时默认开启。
 - **适用场景**：交互式观察 token 消耗与缓存命中时。
-- **逐字节不变承诺**：门控关闭时事件桥不转发用量事件，TUI 帧字节与接线之前逐字节相同。注意显示的 cached 取当轮用量；R23 起 `account()` 已累加 cached（`loop_helpers.go:178-179` 累加 `CachedTokens`/`CacheWriteTokens`），但 `model_summary` 的补全调用刻意绕过 agent 循环、不经 `account()`，其用量只以 EventUsage 可见、不计入 agent 预算与 session stats——这是仍需注意的边界。
+- **逐字节不变承诺**：`=0` 关闭时事件桥不转发用量事件，TUI 帧字节与接线之前逐字节相同。注意显示的 cached 取当轮用量；R23 起 `account()` 已累加 cached（`loop_helpers.go:178-179` 累加 `CachedTokens`/`CacheWriteTokens`），但 `model_summary` 的补全调用刻意绕过 agent 循环、不经 `account()`，其用量只以 EventUsage 可见、不计入 agent 预算与 session stats——这是仍需注意的边界。
 
 ### `ARGENT_OUTPUT_SPILL` —— 超大工具输出落盘
 
@@ -288,9 +288,9 @@ argentgo "你的任务"
 ### `ARGENT_APPROVAL_DIFF` —— 审批卡 diff 展示
 
 - **作用**：TUI 审批卡渲染有界的增删行摘要（`+N/-M in path`），并限制行数与路径宽度，避免长路径撑破弹窗；预览按字素边界截断，CJK 文件名不会被切坏。
-- **开启值**：首尾空白修剪后等于 `1`（由 `ConfigureApprovalDiff` 注入的 env 判定）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；env 为 nil、未设置或空值时默认开启（由 `ConfigureApprovalDiff` 注入的 env 判定）。
 - **适用场景**：批准文件编辑前希望一眼看到改了哪些文件、增删大致行数时。
-- **逐字节不变承诺**：门控关闭时无论审批请求是否带 diff 数据，弹窗帧字节都与接线前逐字节相同；`name` / `args` 始终原样传递。
+- **逐字节不变承诺**：`=0` 关闭时无论审批请求是否带 diff 数据，弹窗帧字节都与接线前逐字节相同；`name` / `args` 始终原样传递。
 
 ### `ARGENT_HOOK_VERDICT` —— 钩子权限裁决折叠
 
@@ -372,9 +372,9 @@ argentgo "你的任务"
 ### `ARGENT_PATH_COMPLETION` —— 内联路径补全
 
 - **作用**：TUI 输入行启用内联路径补全；env 由集成方注入，TUI 渲染路径本身不直接读环境变量。
-- **开启值**：等于 `1`（无 TrimSpace，`m.env("ARGENT_PATH_COMPLETION") == "1"`）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；`m.env` 为 nil、未设置或空值时默认开启。
 - **适用场景**：交互式输入文件路径、希望边打边补全时。
-- **逐字节不变承诺**：关闭时 `m.env` 为 nil 或未设置，整段新逻辑不进入，既有 slash 补全与默认帧逐字节不变。
+- **逐字节不变承诺**：`=0` 关闭时既有 slash 补全与默认帧逐字节不变。
 
 ### `ARGENT_VIM_MODE` —— TUI vim 键位
 
@@ -386,9 +386,9 @@ argentgo "你的任务"
 ### `ARGENT_TUI_PROMPT_HISTORY` —— TUI 输入历史持久化
 
 - **作用**：把 TUI 提交的输入追加到存储目录下的 `prompts.jsonl`（JSONL，单行一条，含次数与时间戳），重启后第一次 `Up` 就能召回上次会话的输入。原语为 `internal/tui/prompt_store.go` 的 `PromptStore`；本开关只负责把它接进 TUI 的输入环：提交时 `Record` 顺带写盘，启动时 `Load` 容错读取自愈后再 `SeedHistory` 灌入内存（只恢复内存、绝不回写）。
-- **开启值**：首尾空白修剪后等于 `1`（由集成方 `internal/app/tui.go` 通过 `stdio.Env` 注入判定）。
+- **关闭值**：首尾空白修剪后等于 `0` 时关闭；env 为 nil、未设置或空值时默认开启（由集成方 `internal/app/tui.go` 通过 `stdio.Env` 注入判定）。
 - **适用场景**：希望「输入历史不再随重启即丢」、经常用 `Up` 复用上一条命令的交互用户。历史写入存储目录而非工作区，不污染仓库；单条上限 4096 rune（兼容 CJK/emoji），磁盘硬上限 1000 行。
-- **逐字节不变承诺**：门控关闭（env 为 nil、未设置或非 `1`）时 `frontendOpts.PromptHistory` 保持 nil，编辑器不打开、不读取、不创建任何文件，首帧、历史导航与 `Up` 行为均与接线之前逐字节一致。开启后写盘失败被刻意吞掉，不向屏幕发布通知，也不泄漏提示内容。
+- **逐字节不变承诺**：`=0` 关闭时 `frontendOpts.PromptHistory` 保持 nil，编辑器不打开、不读取、不创建任何文件，首帧、历史导航与 `Up` 行为均与接线之前逐字节一致。写盘失败被刻意吞掉，不向屏幕发布通知，也不泄漏提示内容。
 
 ### `ARGENT_MCP_IMAGE_ARTIFACT` —— MCP image 内容块落盘
 
@@ -594,7 +594,7 @@ argentgo "你的任务"
 | `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
 | `ARGENT_MCP_TOOL_CACHE_TTL` | 正整数秒时为 MCP 工具发现结果启用带 TTL 的缓存；默认 0 禁用时每次重新发现，行为不变。 |
 | `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
-| `ARGENT_APPROVAL_PREVIEW` | =1 时写类工具的审批提示附带 `+N/-M` 行数摘要；不改变审批判定，默认关闭时提示逐字节不变。 |
+| `ARGENT_APPROVAL_PREVIEW` | 默认开启，写类工具的审批提示附带 `+N/-M` 行数摘要；不改变审批判定，`=0` 时提示逐字节不变。 |
 | `ARGENT_MCP_OUTPUT_LIMIT_BYTES` | 正整数字节时单次 MCP 输出超限保留头尾并附恢复标记；缺省 0 时保持旧行为，逐字节不变。 |
 | `ARGENT_VERIFY_WRITE` | =1 时写入后重读文件比对实际字节，漂移时附按落盘字节重算的 hashline 锚点警告；默认关闭时零额外读取，结果逐字节不变。 |
 | `ARGENT_LSP_SANITIZE_ENV` / `ARGENT_LSP_KILL_TREE` | 分别启用 LSP 客户端的环境净化与进程树整树终止；默认关闭时按原方式拼环境、只杀直接进程。 |
@@ -625,7 +625,7 @@ argentgo "你的任务"
 | `ARGENT_APPROVAL_TTL` | 带 TTL 的审批门控；`0` 或空值关闭。 |
 | `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
 | `ARGENT_RECOVERY_DETAIL` | 恢复细节后缀：把 RecoveryPlan 的类别/断链/孤儿调用/孤儿结果作为文本追加到恢复公告；仅 `=1` 启用，关闭时公告逐字节不变。 |
-| `ARGENT_SESSIONS_HEAD_TAIL` | 会话列表首尾预览。 |
+| `ARGENT_SESSIONS_HEAD_TAIL` | 默认开启会话列表首尾预览；`=0` 时关闭，输出逐字节不变。 |
 | `ARGENT_NO_INTENT_SCHEMA` | 意图 schema 相关（工具注册表门控）。 |
 | `ARGENT_PLAN_MODE` | 只规划模式；`=1` 时本次运行只做规划、不改文件。 |
 | `ARGENT_CHECKPOINT_WORKSPACE_DIFF` | 工作区差异检查点：把 shell 等间接文件改动纳入检查点，使 `/undo` 可还原。 |

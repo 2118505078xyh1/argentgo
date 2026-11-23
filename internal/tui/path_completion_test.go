@@ -39,14 +39,15 @@ func completionTestFS() (string, fakeFS) {
 
 func pathCompletionModel(on bool) *Model {
 	root, fs := completionTestFS()
-	env := func(string) string { return "" }
+	val := "0"
 	if on {
-		env = func(k string) string {
-			if k == "ARGENT_PATH_COMPLETION" {
-				return "1"
-			}
-			return ""
+		val = "1"
+	}
+	env := func(k string) string {
+		if k == "ARGENT_PATH_COMPLETION" {
+			return val
 		}
+		return ""
 	}
 	return New(Config{Root: root, FS: fs, Env: env})
 }
@@ -246,37 +247,38 @@ func TestPathCompletionNoCandidateFallsBackToTab(t *testing.T) {
 
 func TestPathCompletionOffKeepsSlashBaselineByteExact(t *testing.T) {
 	root, fs := completionTestFS()
-	// 门禁关闭但显式注入 env（返回非 1）应与完全不注入 env 的模型逐字节一致。
-	plain := New(Config{Root: root, FS: fs})
-	off := New(Config{Root: root, FS: fs, Env: func(string) string { return "" }})
-	plain.SetCommandInfo(commandInfos())
+	// 门禁关闭（env=0）与默认开启（env=nil）的模型在 slash 命令输入上
+	// 应逐字节一致：内联路径补全不接管 slash。
+	on := New(Config{Root: root, FS: fs})
+	off := pathCompletionModel(false)
+	on.SetCommandInfo(commandInfos())
 	off.SetCommandInfo(commandInfos())
 
-	typeCommandText(plain, "/co")
+	typeCommandText(on, "/co")
 	typeCommandText(off, "/co")
-	if plain.Input() != off.Input() || plain.completionActiveLocked() != off.completionActiveLocked() {
+	if on.Input() != off.Input() || on.completionActiveLocked() != off.completionActiveLocked() {
 		t.Fatal("off baseline diverged on slash input state")
 	}
-	cp, _ := plain.completion.Current()
+	cp, _ := on.completion.Current()
 	co, _ := off.completion.Current()
 	if cp.Command != co.Command {
 		t.Fatalf("off baseline candidate = %q, want %q", co.Command, cp.Command)
 	}
-	plain.HandleKey(Key{Kind: KindTab})
+	on.HandleKey(Key{Kind: KindTab})
 	off.HandleKey(Key{Kind: KindTab})
-	if got, want := frameBytes(off, 100, 24), frameBytes(plain, 100, 24); got != want {
+	if got, want := frameBytes(off, 100, 24), frameBytes(on, 100, 24); got != want {
 		t.Fatalf("off baseline frame bytes diverged:\ngot:\n%q\nwant:\n%q", got, want)
 	}
 
-	// 纯路径文本：关闭时不激活补全，也不弹浮层。
-	off2 := New(Config{Root: root, FS: fs}) // env 为 nil
+	// 纯路径文本：关闭时不激活补全也不弹浮层；默认（nil env）则激活。
+	off2 := pathCompletionModel(false)
 	typeCommandText(off2, "src/ma")
 	if off2.completionActiveLocked() || off2.completionOverlay {
 		t.Fatal("off baseline must not complete path text")
 	}
-	off3 := pathCompletionModel(false)
-	typeCommandText(off3, "src/ma")
-	if got, want := frameBytes(off3, 100, 24), frameBytes(off2, 100, 24); got != want {
-		t.Fatalf("off env frame bytes diverged on path text:\ngot:\n%q\nwant:\n%q", got, want)
+	on2 := New(Config{Root: root, FS: fs}) // env 为 nil → 默认开启
+	typeCommandText(on2, "src/ma")
+	if !on2.completionActiveLocked() {
+		t.Fatal("default (nil env) must complete path text")
 	}
 }

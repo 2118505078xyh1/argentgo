@@ -135,11 +135,12 @@ func TestFirstRunGuideSkippedWhenCredentialStored(t *testing.T) {
 	}
 }
 
-// TestFirstRunGuideRequiresOptIn 覆盖验收反例：不设置 ARGENT_OPT_INS=cli_hints
-// 时按原行为退出，输出恰好是 usage，且不写标记、不触发任何探测。
-func TestFirstRunGuideRequiresOptIn(t *testing.T) {
+// TestFirstRunGuideDisabledByEnvZero 覆盖验收反例：策略变更后引导默认开启，
+// 只有显式 ARGENT_CLI_HINTS=0 才按原行为退出，输出恰好是 usage，且不写标记、
+// 不触发任何探测。
+func TestFirstRunGuideDisabledByEnvZero(t *testing.T) {
 	dir := t.TempDir()
-	app, errOut := firstRunApp(t, dir, nil, true)
+	app, errOut := firstRunApp(t, dir, map[string]string{cliHintsEnvVar: "0"}, true)
 
 	if code := RunWith(app, nil); code != 2 {
 		t.Fatalf("exit = %d, want 2; stderr = %q", code, errOut.String())
@@ -147,10 +148,10 @@ func TestFirstRunGuideRequiresOptIn(t *testing.T) {
 	var want bytes.Buffer
 	writeUsage(&want)
 	if errOut.String() != want.String() {
-		t.Fatalf("未 opt-in 时输出与 usage 不一致:\n got = %q\nwant = %q", errOut.String(), want.String())
+		t.Fatalf("门控关闭时输出与 usage 不一致:\n got = %q\nwant = %q", errOut.String(), want.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, firstRunMarkerName)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("未 opt-in 时不应写 onboarded 标记, stat = %v", err)
+		t.Fatalf("门控关闭时不应写 onboarded 标记, stat = %v", err)
 	}
 }
 
@@ -166,6 +167,23 @@ func TestFirstRunGuideRequiresCharDevice(t *testing.T) {
 	for _, line := range firstRunGuideLines {
 		if strings.Contains(errOut.String(), line) {
 			t.Fatalf("非字符设备却输出引导 %q: %q", line, errOut.String())
+		}
+	}
+}
+
+// TestFirstRunGuideShowsByDefault 确认策略变更后无需任何 opt-in：无配置 +
+// 字符设备 stdin + 空 stdin 即显示三行引导（与错误建议共用 cliHintsEnabled 单一真源）。
+func TestFirstRunGuideShowsByDefault(t *testing.T) {
+	dir := t.TempDir()
+	app, errOut := firstRunApp(t, dir, nil, true)
+
+	if code := RunWith(app, nil); code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr = %q", code, errOut.String())
+	}
+	got := errOut.String()
+	for _, line := range firstRunGuideLines {
+		if !strings.Contains(got, line) {
+			t.Errorf("stderr 缺少引导行 %q: %q", line, got)
 		}
 	}
 }

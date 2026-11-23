@@ -6,11 +6,17 @@ import (
 )
 
 func TestApprovalPreviewEnabled(t *testing.T) {
-	if approvalPreviewEnabled(func(string) string { return "" }) {
-		t.Fatal("default off")
+	if !approvalPreviewEnabled(func(string) string { return "" }) {
+		t.Fatal("default on")
 	}
 	if !approvalPreviewEnabled(func(string) string { return "1" }) {
 		t.Fatal("env=1 on")
+	}
+	if approvalPreviewEnabled(func(string) string { return "0" }) {
+		t.Fatal("env=0 off")
+	}
+	if !approvalPreviewEnabled(nil) {
+		t.Fatal("nil env defaults on")
 	}
 }
 

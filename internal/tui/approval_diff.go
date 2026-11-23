@@ -8,16 +8,17 @@ import (
 	"sync/atomic"
 )
 
-// tuiApprovalDiff 控制审批卡是否渲染真实 diff 行。默认 false（关闭），
-// 因此无论审批请求里是否带有 diff 数据，弹窗帧字节都与接线前逐字节相同。
-// 只有 ConfigureApprovalDiff 收到 ARGENT_APPROVAL_DIFF=1 时才开启。
+// tuiApprovalDiff 控制审批卡是否渲染真实 diff 行。默认开启，
+// 审批请求带 diff 数据时弹窗渲染摘要与预览行。
+// 只有 ConfigureApprovalDiff 收到 ARGENT_APPROVAL_DIFF=0 时才关闭。
 var tuiApprovalDiff atomic.Bool
 
 // ConfigureApprovalDiff 按注入的 env 设置审批 diff 显示门控。env 为 nil
-// 或 ARGENT_APPROVAL_DIFF 不是 "1" 时关闭。env 由宿主注入而非直接读取
-// os.Getenv，使渲染路径保持无环境副作用，且测试可以精确控制开关。
+// 或 ARGENT_APPROVAL_DIFF 修剪后不等于 "0" 时开启（默认开），只有修剪后
+// 精确等于 "0" 才关闭。env 由宿主注入而非直接读取 os.Getenv，使渲染路径
+// 保持无环境副作用，且测试可以精确控制开关。
 func ConfigureApprovalDiff(env func(string) string) {
-	tuiApprovalDiff.Store(env != nil && strings.TrimSpace(env("ARGENT_APPROVAL_DIFF")) == "1")
+	tuiApprovalDiff.Store(env == nil || strings.TrimSpace(env("ARGENT_APPROVAL_DIFF")) != "0")
 }
 
 // approvalDiffVisible 报告审批卡当前是否允许渲染 diff 行。

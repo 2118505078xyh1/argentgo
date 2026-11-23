@@ -113,19 +113,20 @@ func TestAttemptIsolationOffGateMirrorsExecute(t *testing.T) {
 }
 
 // TestApproveDangerGateValues 锁定 ARGENT_APPROVE_DANGER 门控的精确语义：
-// 仅当 env 非 nil 且取值精确为 "1"（忽略两侧空白）时开启；nil、空、其它值一律 fail-closed。
+// 默认开启；env 为 nil 或取值修剪后不等于 "0" 时开启，仅修剪后精确为 "0" 时关闭。
 func TestApproveDangerGateValues(t *testing.T) {
-	if approveDangerEnabled(nil) {
-		t.Fatal("approveDangerEnabled(nil) = true, want false (fail-closed)")
+	if !approveDangerEnabled(nil) {
+		t.Fatal("approveDangerEnabled(nil) = false, want true (default on)")
 	}
 	for _, tc := range []struct {
 		name  string
 		value string
 		want  bool
 	}{
-		{"unset", "", false},
+		{"unset", "", true},
 		{"zero", "0", false},
-		{"true word", "true", false},
+		{"padded zero", " 0 ", false},
+		{"true word", "true", true},
 		{"one", "1", true},
 		{"padded one", " 1 ", true},
 	} {
@@ -139,18 +140,18 @@ func TestApproveDangerGateValues(t *testing.T) {
 }
 
 // TestApproveDangerGateReachableOnlyThroughTUIApprover 说明门控的可达面：
-// 只有 TUI 入口用 SetEnv 注入 stdio.Env，装配后 approveDangerEnabled(a.env) 为真；
-// 未装配的零值 Approver（以及无界面路径）env 为 nil，门控恒假，不会展示危险原因。
+// TUI 入口用 SetEnv 注入 stdio.Env 后可显式关闭门控；未装配的零值 Approver
+// env 为 nil，门控默认开启。
 // （范围说明：这里锁定的是 env 注入与门控开关本身，不构造 tui.Model，
 // 因为 ApproveDanger 弹窗需要真实前端；弹窗调用见 tui.go 的 Approver.Ask。）
 func TestApproveDangerGateReachableOnlyThroughTUIApprover(t *testing.T) {
 	a := NewApprover()
-	if approveDangerEnabled(a.env) {
-		t.Fatal("fresh Approver has danger gate on, want off before SetEnv")
-	}
-	a.SetEnv(envFrom(map[string]string{"ARGENT_APPROVE_DANGER": "1"}))
 	if !approveDangerEnabled(a.env) {
-		t.Fatal("Approver.SetEnv(ARGENT_APPROVE_DANGER=1) did not turn the gate on")
+		t.Fatal("fresh Approver has danger gate off, want on by default")
+	}
+	a.SetEnv(envFrom(map[string]string{"ARGENT_APPROVE_DANGER": "0"}))
+	if approveDangerEnabled(a.env) {
+		t.Fatal("Approver.SetEnv(ARGENT_APPROVE_DANGER=0) did not turn the gate off")
 	}
 }
 
