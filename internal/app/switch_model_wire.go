@@ -84,10 +84,10 @@ func profileModel(profile map[string]any) string {
 	return ""
 }
 
-// wireSwitchModel 注册 switch_model 并返回包装后的 Chatter。调用方需把返回值装进
-// agent.Options.Chatter（以及 fallback 链的 primary），否则切换不会生效。
+// wireSwitchModel 在所有工具注册表上注册 switch_model，并返回唯一的包装 Chatter。
+// 调用方需把返回值装进 agent.Options.Chatter（以及 fallback 链的 primary），否则切换不会生效。
 // profiles 来自已配置 profile 的名字集合——它就是白名单的全部内容。
-func wireSwitchModel(res Resolved, reg *tools.Registry, emit func(agent.Event)) llm.Chatter {
+func wireSwitchModel(res Resolved, regs []*tools.Registry, emit func(agent.Event)) llm.Chatter {
 	wrapped := newSwitchableChatter(res.Chatter)
 	profiles := make([]string, 0, len(res.Cfg.Profiles))
 	for name := range res.Cfg.Profiles {
@@ -113,6 +113,8 @@ func wireSwitchModel(res Resolved, reg *tools.Registry, emit func(agent.Event)) 
 		}
 		return model, nil
 	}
-	tools.RegisterSwitchModel(reg, profiles, apply)
+	for _, reg := range regs {
+		tools.RegisterSwitchModel(reg, profiles, apply)
+	}
 	return wrapped
 }
