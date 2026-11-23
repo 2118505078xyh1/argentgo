@@ -12,7 +12,12 @@ const maxToolProgressLabelRunes = 48
 // toolProgressStages 列出 tools 包当前会发出的裸阶段行前缀（全部为 ASCII）。
 // 历史工具进度通知不带显式标记，因此把它作为解析兜底；新接线只需给通知
 // 加上 tool_progress 标记即可获得任意 CJK 阶段标签。
+//
+// 前缀本身含冒号时（如 "bash: running"），冒号后的命令摘要属于阶段标签而非
+// 明细，解析保留整行。这样 app 桥接器提取的标签再次经过 TUI 的同一解析函数
+// 时保持幂等，用户能看到"在做什么"而不是只剩工具名。
 var toolProgressStages = []string{
+	"bash: running",
 	"bash job finished",
 }
 
@@ -60,12 +65,17 @@ func stripProgressMarker(s string) (rest string, ok bool) {
 	return strings.TrimSpace(rest[size:]), true
 }
 
-// knownProgressStage 识别 tools 包发出的裸阶段行，返回冒号前的阶段名。
+// knownProgressStage 识别 tools 包发出的裸阶段行，返回阶段标签。
 func knownProgressStage(s string) (stage string, ok bool) {
 	lower := strings.ToLower(s)
 	for _, prefix := range toolProgressStages {
 		if !strings.HasPrefix(lower, prefix) {
 			continue
+		}
+		// 阶段名自带冒号时，冒号后的命令摘要是标签的一部分，保留整行。
+		// 这同时保证解析幂等：app 桥接器与 TUI 各调用一次本函数，两次结果相同。
+		if strings.ContainsAny(prefix, ":：") {
+			return s, true
 		}
 		// 明细可能含 CJK 或完整命令行；只取冒号前的阶段名，不进入标签。
 		if i := strings.IndexAny(s, ":："); i > 0 {

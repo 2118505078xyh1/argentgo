@@ -150,3 +150,30 @@ func TestHandleEventToolProgress(t *testing.T) {
 		t.Fatalf("entries = %d after non-progress, want 1", len(m.entries))
 	}
 }
+
+// TestParseToolProgressRunningBashIsIdempotent 验证 "bash: running <摘要>" 阶段标签
+// 在 app 桥接器与 TUI 的两次解析中保持完整（含命令摘要），不会退化为纯工具名。
+func TestParseToolProgressRunningBashIsIdempotent(t *testing.T) {
+	for _, text := range []string{
+		"bash: running go test ./... -count=1",
+		"bash: running 编译并完成打包",
+		"bash: running session",
+	} {
+		t.Run(text, func(t *testing.T) {
+			first, ok := parseToolProgress(text)
+			if !ok {
+				t.Fatalf("first parse of %q failed", text)
+			}
+			second, ok := parseToolProgress(first)
+			if !ok {
+				t.Fatalf("second parse of %q failed", first)
+			}
+			if first != second {
+				t.Fatalf("parse not idempotent: first = %q, second = %q", first, second)
+			}
+			if !strings.HasPrefix(second, "bash: running ") {
+				t.Fatalf("label = %q, want prefix bash: running", second)
+			}
+		})
+	}
+}

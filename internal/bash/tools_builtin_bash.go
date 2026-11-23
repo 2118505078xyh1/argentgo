@@ -35,6 +35,18 @@ func emitProgress(ctx context.Context, text string) {
 	}
 }
 
+// bashProgressSummary 把命令行折叠为稳定的单行摘要，用于 "bash: running …" 阶段标签。
+// 只取有限长度的前缀，避免 heredoc 或长参数让阶段标签失去可读性；它不参与执行语义。
+func bashProgressSummary(command string) string {
+	summary := strings.Join(strings.Fields(command), " ")
+	runes := []rune(summary)
+	const maxSummaryRunes = 32
+	if len(runes) > maxSummaryRunes {
+		return string(runes[:maxSummaryRunes]) + "…"
+	}
+	return summary
+}
+
 // bashOutputTokens 估算原始命令输出的 token 成本。它是
 // 共享的 internal/tokenize 估算器，因此体量提示使用的单位与
 // agent 的预算循环一致，且无需导入 internal/agent。
@@ -140,6 +152,15 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 	if err := rejectLongForegroundSleep(args.Command); err != nil {
 		return "", err
 	}
+
+	// 长任务反馈（默认开启，无开关）：执行真正派发前先发"开始"阶段标签，
+	// TUI 据此在工具行显示"在做什么"。命令摘要稳定且每次调用只发一次，
+	// 不会随执行细节变化而闪烁；写入已有会话时命令可为空，用 session 兜底。
+	summary := bashProgressSummary(args.Command)
+	if summary == "" {
+		summary = "session"
+	}
+	emitProgress(ctx, "bash: running "+summary)
 
 	// 统一 exec 会话（opt-in ARGENT_EXEC_SESSION=1）：只有显式带了
 	// session_id / stdin / tty / yield_time_ms 之一才接管，避免开启开关
