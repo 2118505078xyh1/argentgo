@@ -96,6 +96,7 @@ var expectedCommands = []string{
 	"follow",
 	"help",
 	"hooks",
+	"inbox",
 	"init",
 	"jobs",
 	"login",
