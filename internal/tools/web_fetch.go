@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	"mime"
 	"net"
@@ -21,9 +20,8 @@ import (
 const maxFetchBytes = 200 * 1024
 
 var (
-	reDropBlocks = regexp.MustCompile(`(?is)<(script|style)\b[^>]*>.*?</(script|style)>`)
-	reBreakTags  = regexp.MustCompile(`(?i)</?(p|div|br|li|tr|h[1-6]|section|article|header|footer|pre|table|ul|ol)\b[^>]*>`)
-	reTags       = regexp.MustCompile(`(?s)<[^>]*>`)
+	reBreakTags = regexp.MustCompile(`(?i)</?(p|div|br|li|tr|h[1-6]|section|article|header|footer|pre|table|ul|ol)\b[^>]*>`)
+	reTags      = regexp.MustCompile(`(?s)<[^>]*>`)
 )
 
 type webFetchTool struct{}
@@ -100,7 +98,8 @@ func (webFetchTool) Run(ctx context.Context, _ string, raw json.RawMessage) (str
 	}
 	text := string(body)
 	if looksHTML(resp.Header.Get("Content-Type"), text) {
-		text = htmlToText(text)
+		// 结构化提取：保留链接/标题/列表/表格，剔除噪声标签（纯 stdlib）。
+		text = htmlToMarkdown(text)
 	}
 	text = strings.TrimSpace(text)
 	if truncated {
@@ -194,22 +193,4 @@ func looksHTML(contentType, body string) bool {
 	}
 	head := strings.ToLower(strings.TrimSpace(body))
 	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
-}
-
-// htmlToText 丢弃 script/style 内容，把块级标签变成换行，并
-// 移除剩余的标记。
-func htmlToText(body string) string {
-	body = reDropBlocks.ReplaceAllString(body, " ")
-	body = reBreakTags.ReplaceAllString(body, "\n")
-	body = reTags.ReplaceAllString(body, "")
-	body = html.UnescapeString(body)
-	lines := strings.Split(body, "\n")
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		line = strings.Join(strings.Fields(line), " ")
-		if line != "" {
-			kept = append(kept, line)
-		}
-	}
-	return strings.Join(kept, "\n")
 }

@@ -274,6 +274,14 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	if approveDangerEnabled(env) {
 		if token := shellCommandOf(name, json.RawMessage(args)); token != "" {
 			danger = security.DangerReason(token)
+			// 细分归因：把"强制删除/递归删除/解释器内联"等具体理由附在危险原因里，
+			// 让用户看到"为什么危险"而不只是通用的「删除文件」。
+			if detail := security.DetailSummary(security.DangerousCommandDetail(token)); detail != "" {
+				if danger != "" {
+					danger += "；"
+				}
+				danger += detail
+			}
 		}
 	}
 	// 真实 diff 默认开启：edit/write/multi_edit/apply_patch 的参数携带编辑前后的
