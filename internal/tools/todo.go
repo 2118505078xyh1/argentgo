@@ -27,9 +27,9 @@ const (
 	// 默认值，因此拼写错误绝不会悄悄禁用这个安全阀。
 	todoMaxCharsEnv = "ARGENT_TODO_MAX_CHARS"
 
-	// todoStrictEnv 是写入前严格状态校验的 opt-in 开关，默认关闭。
-	// 设为真值（1、true、yes、on 等）时 Run 会用 ValidateTodoState
-	// 校验即将写入的状态集；空值或假值保持写路径逐字节不变。
+	// todoStrictEnv 是写入前严格状态校验的门控开关，默认开启。
+	// Run 始终用 ValidateTodoState 校验即将写入的状态集；仅显式设为假值词
+	// （0/false/no/off）时关闭，关闭时保持写路径逐字节不变。
 	todoStrictEnv = "ARGENT_TODO_STRICT"
 )
 
@@ -45,20 +45,20 @@ func todoMaxChars() int {
 	return defaultTodoMaxChars
 }
 
-// todoStrictEnabled 报告是否启用写入前的严格状态校验（opt-in，默认关闭）。
+// todoStrictEnabled 报告是否启用写入前的严格状态校验，默认开启、假值词关闭。
 // 与 intentSchemaDisabled 一致，环境变量在每次调用时读取而非缓存，
-// 使测试与长寿命运行时无需重启即可切换；空值及常见假值保持关闭。
+// 使测试与长寿命运行时无需重启即可切换。
 func todoStrictEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(todoStrictEnv))) {
-	case "", "0", "false", "no", "off":
+	case "0", "false", "no", "off":
 		return false
 	default:
 		return true
 	}
 }
 
-// checkStrictTodoState 在 opt-in 开启时校验即将写入的状态集。
-// opt-in 关闭或无问题时返回 nil；有问题时返回列出全部问题的可读错误。
+// checkStrictTodoState 在默认开启的严格校验未被假值词关闭时校验即将写入的状态集。
+// 关闭或无问题时返回 nil；有问题时返回列出全部问题的可读错误。
 func checkStrictTodoState(items []todoItem) error {
 	if !todoStrictEnabled() {
 		return nil
@@ -91,8 +91,8 @@ type todoItem struct {
 	Status string `json:"status"`
 	// Verification 记录完成任务所依据的验证（命令、测试或证据摘要）。
 	// 使用 omitempty：未填写时序列化字节与旧版完全一致，因此该字段纯属
-	// 附加，不改变 todo 工具的默认持久化格式；它服务于 opt-in 的
-	// ValidateTodoState 校验，该校验由 Run 在 ARGENT_TODO_STRICT 开启时调用。
+	// 附加，不改变 todo 工具的默认持久化格式；它服务于
+	// ValidateTodoState 校验，该校验由 Run 在 ARGENT_TODO_STRICT 非假值词时调用。
 	Verification string `json:"verification,omitempty"`
 }
 
@@ -157,7 +157,7 @@ func (todoTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		}
 		items = append(items, todoItem{ID: id, Text: text, Status: status})
 	}
-	// opt-in 开启时先校验新状态集；有问题则拒绝写入且不创建状态目录。
+	// 严格校验默认开启：先校验新状态集；有问题则拒绝写入且不创建状态目录。
 	if err := checkStrictTodoState(items); err != nil {
 		return "", err
 	}

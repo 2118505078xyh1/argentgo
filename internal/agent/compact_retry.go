@@ -85,7 +85,7 @@ func (s *runState) compactAndReplay(ctx context.Context, turn int, failure llm.F
 	// 使重放之后的预算检查看到真实的历史大小，而不是旧的超长记录。
 	s.resetBudgetReminder()
 	s.promptTokens = EstimateMessages(s.messages)
-	// opt-in：压缩后仍超预算时按缓存前缀逐条淘汰最旧消息，保留 system 与末尾提示。
+	// 默认开启（ARGENT_COMPACT_DRAIN=0 关闭）：压缩后仍超预算时按缓存前缀逐条淘汰最旧消息，保留 system 与末尾提示。
 	if compactDrainEnabled() && s.promptTokens > window {
 		if drained, n := drainOldestForBudget(s.messages, window, maxCompactDrain); n > 0 {
 			s.messages = drained

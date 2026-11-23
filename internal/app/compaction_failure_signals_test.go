@@ -7,10 +7,12 @@ func TestFailureSignalsEnabled(t *testing.T) {
 		env  string
 		want bool
 	}{
-		{"", false},
+		{"", true},
 		{"0", false},
+		{" 0 ", false},
 		{"1", true},
 		{" 1 ", true},
+		{"true", true},
 	}
 	for _, tc := range cases {
 		got := failureSignalsEnabled(func(string) string { return tc.env })
@@ -18,7 +20,7 @@ func TestFailureSignalsEnabled(t *testing.T) {
 			t.Errorf("env %q -> %v, want %v", tc.env, got, tc.want)
 		}
 	}
-	if failureSignalsEnabled(nil) {
-		t.Error("nil env should be false")
+	if !failureSignalsEnabled(nil) {
+		t.Error("nil env should default to on")
 	}
 }

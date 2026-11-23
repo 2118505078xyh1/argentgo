@@ -7,15 +7,15 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// cacheWarmerEnabled 报告提示缓存保活的选择性启用状态。默认关闭：只有 ARGENT_CACHE_WARM=1 才启用它。
-// 目前没有任何生产路径接入保活重放，因此启用它只是为未来的调用方武装时间戳记录；
-// 它从不会改变线上请求。
+// cacheWarmerEnabled 报告提示缓存保活的启用状态：默认开启，ARGENT_CACHE_WARM=0
+// （允许首尾空白）时紧急关闭。目前没有任何生产路径接入保活重放，因此启用它只是为
+// 未来的调用方武装时间戳记录；它从不会改变线上请求。
 func cacheWarmerEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_CACHE_WARM")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_CACHE_WARM")) != "0"
 }
 
-// newCacheWarmer 构建一个缓存预热器。调用方传入显式的选择启用决定；
-// 默认构造路径使用 cacheWarmerEnabled 的默认值（false），使预热器保持禁用且每个请求逐字节不变。
+// newCacheWarmer 构建一个缓存预热器。调用方传入显式的启用决定；
+// 默认构造路径使用 cacheWarmerEnabled 的默认值（true）。
 func newCacheWarmer(enabled bool) *llm.CacheWarmer {
 	return &llm.CacheWarmer{Enabled: enabled}
 }

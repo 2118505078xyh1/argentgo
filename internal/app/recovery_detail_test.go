@@ -55,19 +55,20 @@ func withDetailOptIn(env func(string) string, value string) func(string) string 
 	}
 }
 
-// TestRecoveryDetailEnabledGate 覆盖 env 门控：只有修剪后等于 1 才开启。
+// TestRecoveryDetailEnabledGate 覆盖 env 门控：默认开启，仅修剪后等于 0 才关闭。
 func TestRecoveryDetailEnabledGate(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{"nil env", nil, false},
-		{"未设置", envFrom(map[string]string{}), false},
+		{"nil env 默认开启", nil, true},
+		{"未设置默认开启", envFrom(map[string]string{}), true},
 		{"等于 1", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": "1"}), true},
 		{"带空白的 1", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": " 1 "}), true},
-		{"等于 0", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": "0"}), false},
-		{"真值词不算", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": "true"}), false},
+		{"真值词保持开启", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": "true"}), true},
+		{"等于 0 关闭", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": "0"}), false},
+		{"带空白的 0 关闭", envFrom(map[string]string{"ARGENT_RECOVERY_DETAIL": " \t0\n"}), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,7 +149,7 @@ func TestExecuteRecoveryDetailOptInAddsSuffix(t *testing.T) {
 	}
 }
 
-// TestExecuteRecoveryDetailOptOutBaseline 守护关闭基线：默认关闭时公告逐字节
+// TestExecuteRecoveryDetailOptOutBaseline 守护关闭基线：=0 关闭时公告逐字节
 // 等于原始恢复公告，绝不出现细节字段。
 func TestExecuteRecoveryDetailOptOutBaseline(t *testing.T) {
 	res, sess, env := interruptedWithOrphan(t)

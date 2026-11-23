@@ -88,6 +88,9 @@ type runState struct {
 	// stuck 监视事件模式中的重复循环。接收者可为 nil 的 Observe
 	// 使手工构建的 runState 在没有它的情况下也安全。
 	stuck *StuckDetector
+	// touchedPaths 收集工具触及的工作区路径，轮次边界由 Reminder 投影为嵌套指令提醒。
+	// 它在每次运行中构造一次；无嵌套指令文件时 Reminder 返回空串，注入为空操作。
+	touchedPaths *TouchedPathCollector
 	// guidance 记录失败指引的去重状态；零值即可使用。只有在 guidanceDedupe
 	// opt-in 开启时才被查询，默认运行完全不触碰它。
 	guidance GuidanceState
@@ -122,8 +125,8 @@ type runState struct {
 	// argDeltaEnabled 决定是否在安装工具参数增量事件。默认开启，仅 ARGENT_TOOL_ARG_DELTA=0 回退。
 	argDeltaEnabled bool
 
-	// recovery 是 ARGENT_RECOVERY_METRICS opt-in 开启时创建的恢复成效账本。
-	// 默认 nil：所有记录/读取路径都是空操作，事件、消息与会话记录逐字节不变。
+	// recovery 是默认开启（仅 ARGENT_RECOVERY_METRICS=0 关闭）时创建的恢复成效账本。
+	// =0 关闭时为 nil：所有记录/读取路径都是空操作，事件、消息与会话记录逐字节不变。
 	recovery *RecoveryMetrics
 	// recoveryPendingKind 记录最近一次注入指引时的错误种类，使随后 loop 侧可见的
 	// "成功"信号（无指引动作）能归到同一种类。仅在 recovery 非 nil 时有意义。
@@ -196,19 +199,19 @@ type runState struct {
 	toolTimes      map[string]time.Time
 	reasoningStart time.Time
 
-	// turnTiming 是 ARGENT_TURN_TIMING opt-in 开启时创建的逐阶段计时器。
-	// nil（默认，未开启）时所有 Begin/End、快照与日志全是空操作，
+	// turnTiming 是默认开启（仅 ARGENT_TURN_TIMING=0 关闭）时创建的逐阶段计时器。
+	// =0 关闭时为 nil：所有 Begin/End、快照与日志全是空操作，
 	// 事件序列与会话记录逐字节不变。它与上面的 eventTiming 正交：
 	// 后者服务于前端 StartedAtMS/FinishedAtMS 字段，本字段服务于进程内结构化诊断日志。
 	turnTiming *TurnTiming
 
-	// toolTimingHistogram 是 ARGENT_TOOL_TIMING_HISTOGRAM opt-in 开启时创建的工具耗时直方图。
-	// nil（默认，未开启）时 dispatch 侧的 Record 与轮末摘要日志全是空操作，
-	// 事件序列与会话记录逐字节不变。它与 turnTiming 正交：可单独开启其中任意一个。
+	// toolTimingHistogram 是默认开启（仅 ARGENT_TOOL_TIMING_HISTOGRAM=0 关闭）时创建的工具耗时直方图。
+	// =0 关闭时为 nil：dispatch 侧的 Record 与轮末摘要日志全是空操作，
+	// 事件序列与会话记录逐字节不变。它与 turnTiming 正交：可单独用 =0 关掉其中任意一个。
 	toolTimingHistogram *ToolTimingHistogram
 
-	// toolCallTrace 是 ARGENT_TOOL_CALL_TRACE opt-in 开启时创建的工具调用链追踪器。
-	// nil（默认，未开启）时 dispatch 侧的 Begin/End 与轮末摘要日志全是空操作，
+	// toolCallTrace 是默认开启（仅 ARGENT_TOOL_CALL_TRACE=0 关闭）时创建的工具调用链追踪器。
+	// =0 关闭时为 nil：dispatch 侧的 Begin/End 与轮末摘要日志全是空操作，
 	// 事件序列与会话记录逐字节不变。它与 turnTiming/toolTimingHistogram 正交：
 	// 直方图给分布/TopSlow，trace 给调用顺序、成败与错误文本。
 	toolCallTrace *ToolCallTrace
@@ -280,14 +283,14 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	if telemetryEnabled() {
 		observeTurnTelemetry(turnStarted, res.Stopped, res.Turns)
 	}
-	// opt-in 开启时把本轮各阶段计时固化为快照并落结构化日志。关闭时 state.turnTiming
+	// 默认开启时把本轮各阶段计时固化为快照并落结构化日志。=0 关闭时 state.turnTiming
 	// 为 nil，整段是空操作：事件、会话记录与返回值逐字节不变。
 	state.finishTurnTiming(res.Stopped)
 	// 工具耗时直方图的轮末摘要日志，与逐阶段计时日志并列、共用同一 logger。
-	// 关闭时 state.toolTimingHistogram 为 nil，整段是空操作。
+	// =0 关闭时 state.toolTimingHistogram 为 nil，整段是空操作。
 	state.finishToolTimingHistogram()
 	// 工具调用链的轮末摘要日志，与上面两条日志并列、共用同一 logger。
-	// 关闭时 state.toolCallTrace 为 nil，整段是空操作。
+	// =0 关闭时 state.toolCallTrace 为 nil，整段是空操作。
 	state.finishTrace()
 	// 上下文健康度的轮末观测日志，与上面三条日志并列、共用同一 logger。
 	// 关闭时 state.contextHealthLog 为 false，整段不采样、不输出。
@@ -311,32 +314,31 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 }
 
 // turnTimingEnabled 报告本进程是否开启逐阶段计时日志。
-// 与 app 层的一次性 env 开关（ARGENT_JOBS、ARGENT_RETAIN_GUIDANCE）一致：
-// 仅当 ARGENT_TURN_TIMING 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 默认开启，仅当 ARGENT_TURN_TIMING 去空白后精确为 "0" 时紧急关闭。
 // 每次运行读取一次（见 newRunState），不引入需要装配层设置的进程级全局状态。
 func turnTimingEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_TURN_TIMING")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_TURN_TIMING")) != "0"
 }
 
 // recoveryMetricsEnabled 报告本进程是否开启恢复成效账本。
-// 仅当 ARGENT_RECOVERY_METRICS 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 默认开启，仅当 ARGENT_RECOVERY_METRICS 去空白后精确为 "0" 时紧急关闭。
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func recoveryMetricsEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_RECOVERY_METRICS")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_RECOVERY_METRICS")) != "0"
 }
 
 // toolTimingHistogramEnabled 报告本进程是否开启工具耗时直方图日志。
-// 仅当 ARGENT_TOOL_TIMING_HISTOGRAM 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 默认开启，仅当 ARGENT_TOOL_TIMING_HISTOGRAM 去空白后精确为 "0" 时紧急关闭。
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func toolTimingHistogramEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_TIMING_HISTOGRAM")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_TIMING_HISTOGRAM")) != "0"
 }
 
 // toolCallTraceEnabled 报告本进程是否开启工具调用链日志。
-// 仅当 ARGENT_TOOL_CALL_TRACE 去空白后等于 "1" 时开启，默认（未设置/空/其它值）为关。
+// 默认开启，仅当 ARGENT_TOOL_CALL_TRACE 去空白后精确为 "0" 时紧急关闭。
 // 与 turnTiming 一样在 newRunState 中读取一次，不引入需要装配层设置的进程级全局状态。
 func toolCallTraceEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_CALL_TRACE")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_TOOL_CALL_TRACE")) != "0"
 }
 
 // contextHealthLogEnabled 报告本进程是否开启上下文健康度诊断日志。
@@ -406,7 +408,7 @@ func emitTurnTimingLog(t *TurnTiming, stopped string) {
 	turnTimingLogger().Info("agent_turn_timing", attrs...)
 }
 
-// turnTimingBegin/turnTimingEnd 是各阶段计时的薄包装。opt-in 关闭（turnTiming 为 nil）
+// turnTimingBegin/turnTimingEnd 是各阶段计时的薄包装。=0 关闭（turnTiming 为 nil）
 // 时是纯粹的空操作：不读时钟、不分配、不触碰任何状态。
 func (s *runState) turnTimingBegin(p TurnPhase) {
 	if s.turnTiming != nil {
@@ -421,7 +423,7 @@ func (s *runState) turnTimingEnd(p TurnPhase) {
 }
 
 // finishTurnTiming 在一轮运行结束时标记完整性并落一次结构化日志。
-// 关闭时整段是空操作；开启时无论何种停止原因都会落一条日志，
+// =0 关闭时整段是空操作；默认开启时无论何种停止原因都会落一条日志，
 // 其中 complete/incomplete_reasons 与 Result.Stopped 保持一致。
 func (s *runState) finishTurnTiming(stopped string) {
 	if s.turnTiming == nil {
@@ -440,7 +442,7 @@ const toolTopSlowLimit = 5
 
 // emitToolTimingHistogramLog 把工具耗时直方图的最慢若干工具写成一条结构化日志，
 // 与逐阶段计时日志共用同一个 logger（turnTimingLogger），便于统一捕获与路由。
-// 直方图为 nil（opt-in 关闭）或本轮没有任何样本时整段是空操作。
+// 直方图为 nil（=0 关闭）或本轮没有任何样本时整段是空操作。
 func emitToolTimingHistogramLog(h *ToolTimingHistogram) {
 	if h == nil {
 		return
@@ -464,7 +466,7 @@ func (s *runState) finishToolTimingHistogram() {
 }
 
 // emitToolCallTraceLog 把工具调用链摘要写成一条结构化日志，与逐阶段计时共用 logger。
-// trace 为 nil（opt-in 关闭）时整段是空操作。
+// trace 为 nil（=0 关闭）时整段是空操作。
 func emitToolCallTraceLog(tr *ToolCallTrace) {
 	if tr == nil {
 		return
@@ -585,8 +587,8 @@ func (s *runState) observeCompactionPolicy() {
 	)
 }
 
-// traceToolBegin 在 opt-in 开启时为一次调用开启跨度，并按调用 id 记下 spanID，
-// 供随后 finishCall 配对结算（见 traceToolEnd）。关闭时是纯粹的空操作。
+// traceToolBegin 在默认开启时为一次调用开启跨度，并按调用 id 记下 spanID，
+// 供随后 finishCall 配对结算（见 traceToolEnd）。=0 关闭时是纯粹的空操作。
 // 与 startTool 一样由 timingMu 保护映射，使并行批次写入不同 id 互不干扰。
 func (s *runState) traceToolBegin(callID, tool string) {
 	if s.toolCallTrace == nil {
@@ -653,6 +655,7 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		guard:              newDedupe(repeatsFor(opts)),
 		mistakes:           NewMistakeTracker(0, defaultMistakeGuidance),
 		stuck:              &StuckDetector{},
+		touchedPaths:       NewTouchedPathCollector(opts.Root),
 		depth:              opts.Depth,
 		bgOwner:            opts.bgOwner,
 		maxTurns:           maxTurnsFor(opts),
@@ -692,22 +695,22 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		firstUser,
 	}
 	s.record("user", prompt)
-	// 只有 ARGENT_TURN_TIMING=1 时才建实例；默认关闭时保持 nil，
+	// 默认建实例；仅 ARGENT_TURN_TIMING=0 时保持 nil，
 	// 使下方各阶段的 Begin/End 与轮末日志全是空操作。
 	if turnTimingEnabled() {
 		s.turnTiming = &TurnTiming{}
 	}
-	// 只有 ARGENT_RECOVERY_METRICS=1 时才建账本；默认关闭时保持 nil，
+	// 默认建账本；仅 ARGENT_RECOVERY_METRICS=0 时保持 nil，
 	// 使下方各记录点与快照读取全是空操作。
 	if recoveryMetricsEnabled() {
 		s.recovery = &RecoveryMetrics{}
 	}
-	// 只有 ARGENT_TOOL_TIMING_HISTOGRAM=1 时才建直方图；默认关闭时保持 nil，
+	// 默认建直方图；仅 ARGENT_TOOL_TIMING_HISTOGRAM=0 时保持 nil，
 	// 使 dispatch 的 Record 与轮末摘要日志全是空操作。
 	if toolTimingHistogramEnabled() {
 		s.toolTimingHistogram = &ToolTimingHistogram{}
 	}
-	// 只有 ARGENT_TOOL_CALL_TRACE=1 时才建调用链追踪器；默认关闭时保持 nil，
+	// 默认建调用链追踪器；仅 ARGENT_TOOL_CALL_TRACE=0 时保持 nil，
 	// 使 dispatch 的 Begin/End 与轮末摘要日志全是空操作。
 	if toolCallTraceEnabled() {
 		s.toolCallTrace = &ToolCallTrace{}
@@ -808,7 +811,7 @@ func toolStepsFromEvents(events []Event) []ToolStep {
 }
 
 // recordRecoveryAttempt 在失败指引实际注入时调用：账本登记一次尝试，并把 kind 记为
-// 待恢复种类，使随后的成功信号有归属。opt-in 关闭（s.recovery == nil）时为空操作，
+// 待恢复种类，使随后的成功信号有归属。=0 关闭（s.recovery == nil）时为空操作，
 // 不触碰任何状态，因此消息与会话记录逐字节不变。
 func (s *runState) recordRecoveryAttempt(kind string) {
 	if s.recovery == nil {
@@ -821,7 +824,7 @@ func (s *runState) recordRecoveryAttempt(kind string) {
 // recordRecoverySuccess 在 loop 侧观察到"无指引动作"（连续失败序列被工具成功清零）时调用：
 // 若存在待恢复种类，把它标记为已恢复并清空待恢复状态。dispatch.go 的成功 Reset 无法在此层
 // 直接调用，故用该信号等效替代。只有先前的尝试登记过 kind 才会记账，避免把序列尚未达到
-// 上限的中间态误判为恢复。opt-in 关闭时为空操作。
+// 上限的中间态误判为恢复。=0 关闭时为空操作。
 func (s *runState) recordRecoverySuccess() {
 	if s.recovery == nil || s.recoveryPendingKind == "" {
 		return
@@ -831,7 +834,7 @@ func (s *runState) recordRecoverySuccess() {
 }
 
 // recoverySnapshot 返回恢复成效账本的只读快照，供诊断观测。
-// nil 接收方安全：opt-in 关闭时 s.recovery 为 nil，Snapshot 返回非 nil 空 map。
+// nil 接收方安全：=0 关闭时 s.recovery 为 nil，Snapshot 返回非 nil 空 map。
 func (s *runState) recoverySnapshot() map[string]RecoveryStats {
 	return s.recovery.Snapshot()
 }
@@ -950,6 +953,12 @@ func (s *runState) loop(ctx context.Context) (Result, error) {
 		// hook 的 additionalContext 与 steering 一样在轮次边界注入，不会插进工具批次。
 		// 没有队列时为逐字节空操作，默认运行不受影响。
 		s.injectHookContexts(ctx)
+		// 嵌套规则提醒（默认开）：仅当已触及路径下存在嵌套指令文件时才产出有界文本，
+		// 经 steering 通道作为一次性用户轮次注入；注入后清空，避免同一提醒重复堆积。
+		if hint := s.touchedPaths.Reminder(); hint != "" {
+			s.injectSteeringAs(nil, hint)
+			s.touchedPaths.Reset()
+		}
 		s.turnTimingEnd(phaseUserWait)
 		// 在每次进入轮次时重新评估连续错误序列。没有可用指引意味着运行无法恢复，到此结束；
 		// 否则恢复指令会成为一条新的用户轮次。对于没有追踪器构建的 runState，

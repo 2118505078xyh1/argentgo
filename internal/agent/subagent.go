@@ -45,12 +45,12 @@ const subagentTemplate = `You are a subagent working for another agent. Task: %s
 Do only the work the task asks for, using the tools you have. Do not ask questions: make the most reasonable assumption and report the result. Finish with a concise final answer; the parent agent receives only that text.`
 
 // buildSubagentSystem 组装子代理的 system prompt。抽成纯函数便于直接测试
-// 缓存前缀不变量。parentSystem 是父级已冻结的 system，opt-in 开启时作为前缀。
+// 缓存前缀不变量。parentSystem 是父级已冻结的 system，默认开启时作为前缀（=0 关闭）。
 func buildSubagentSystem(cfg SubagentConfig, label, parentSystem string) string {
 	system := strings.TrimSpace(cfg.System)
 	if system == "" {
 		if subagentSharedPromptEnabled() && strings.TrimSpace(parentSystem) != "" {
-			// opt-in：父级 system 作为前缀（复用已缓存字节），角色约束与任务
+			// 默认开启：父级 system 作为前缀（复用已缓存字节），角色约束与任务
 			// 标签追加在末尾，不破坏缓存前缀。任务本身仍由用户消息承载。
 			system = strings.TrimSpace(parentSystem) + "\n\n" + fmt.Sprintf(subagentTemplate, label)
 		} else {

@@ -11,14 +11,15 @@ import (
 // 本文件实现 TODO #134 的纯文本版 foveated（多保真）归档视图（第一步）。
 // 思路学自 oh-my-pi 的 planArchive：两端高保真、中段稀疏化、超预算丢最旧 dense，
 // 并插入显式 gap 标记。零 wire 变化——不新增记录种类，只在 Messages() 的读路径
-// 投影阶段对 []Entry 做文本变换；opt-in 关闭时完全不进入本文件的逻辑。
+// 投影阶段对 []Entry 做文本变换；设为 "0" 关闭时完全不进入本文件的逻辑。
 
-// foveatedArchiveEnv 是 foveated 归档视图的总开关；仅值为 "1"（允许首尾空白）时启用。
+// foveatedArchiveEnv 是 foveated 归档视图的总开关。默认开启（多保真视图能
+// 在有限预算内保留两端逐字内容）；仅显式设为 "0"（允许首尾空白）时关闭。
 const foveatedArchiveEnv = "ARGENT_FOVEATED_ARCHIVE"
 
-// foveatedArchiveEnabled 报告 foveated 归档视图是否被显式启用。默认关闭。
+// foveatedArchiveEnabled 报告 foveated 归档视图是否启用。默认开启，=0 关闭。
 func foveatedArchiveEnabled() bool {
-	return strings.TrimSpace(os.Getenv(foveatedArchiveEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(foveatedArchiveEnv)) != "0"
 }
 
 // foveatedGapMarkerFmt 是 gap 标记的规范格式。固定句式不含任何用户可控内容，

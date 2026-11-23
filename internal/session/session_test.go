@@ -282,6 +282,8 @@ func TestWriterStillRecords(t *testing.T) {
 }
 
 func TestCompactKeepsTailAndSummaries(t *testing.T) {
+	t.Setenv(summarySchemaEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	dir := t.TempDir()
 	session := newTestSession(t, dir, "compact")
 

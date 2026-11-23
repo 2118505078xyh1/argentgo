@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// summarySchemaWireDropped 构造一组固定的丢弃条目，用于锁定 opt-in 关闭时的逐字节基线。
+// summarySchemaWireDropped 构造一组固定的丢弃条目，用于锁定 =0 关闭时的逐字节基线。
 func summarySchemaWireDropped() []Entry {
 	return []Entry{
 		{Role: "user", Content: "实现词法器"},
@@ -18,7 +18,7 @@ func summarySchemaWireDropped() []Entry {
 }
 
 // summarySchemaWireBaseline 是 summarySchemaWireDropped() 经旧版 Summarize 产出的摘要，
-// 逐字锁定。opt-in 关闭时 Summarize 必须与此完全一致。
+// 逐字锁定。=0 关闭时 Summarize 必须与此完全一致。
 const summarySchemaWireBaseline = "## Compaction\n" +
 	"- dropped 4 message(s), kept the last 0\n\n" +
 	"## Goal\n- 实现词法器\n\n" +
@@ -26,35 +26,35 @@ const summarySchemaWireBaseline = "## Compaction\n" +
 	"## Failures\n- compile — error: build failed\n\n" +
 	"## Next steps\n- Next steps: 补测试\n"
 
-// TestSummarizeSchemaOptInOffIsByteIdentical 锁定 opt-in 关闭时的逐字节基线。
-// 除 "1" 以外的任何值都视为关闭。
-func TestSummarizeSchemaOptInOffIsByteIdentical(t *testing.T) {
-	for _, value := range []string{"", "0", "false", "no", "2", "TRUE"} {
+// TestSummarySchemaOffIsByteIdentical 锁定显式 =0 关闭时的逐字节基线。
+func TestSummarySchemaOffIsByteIdentical(t *testing.T) {
+	for _, value := range []string{"0", " 0 "} {
 		t.Run("value="+value, func(t *testing.T) {
 			t.Setenv(summarySchemaEnv, value)
 			comp := Summarize(summarySchemaWireDropped(), 0)
 			if comp.Summary != summarySchemaWireBaseline {
-				t.Errorf("opt-in 关闭时摘要被改动:\n got %q\nwant %q", comp.Summary, summarySchemaWireBaseline)
+				t.Errorf("=0 关闭时摘要被改动:\n got %q\nwant %q", comp.Summary, summarySchemaWireBaseline)
 			}
 			if comp.SummaryEmpty {
-				t.Error("opt-in 关闭时不应计算 SummaryEmpty")
+				t.Error("=0 关闭时不应计算 SummaryEmpty")
 			}
 			if strings.Contains(comp.Summary, schemaTitleState) {
-				t.Error("opt-in 关闭时不应补出 State 小节")
+				t.Error("=0 关闭时不应补出 State 小节")
 			}
 		})
 	}
 }
 
-// TestSummarizeSchemaOptInOnFillsMissingSections 验证 opt-in 开启时补齐缺失小节：
+// TestSummarySchemaDefaultOnFillsMissingSections 验证默认开启时补齐缺失小节：
 // 基线的 Goal / Next steps / Files changed 均被识别为已存在，只补 State；
 // 已有内容作为前缀逐字保留。
-func TestSummarizeSchemaOptInOnFillsMissingSections(t *testing.T) {
-	t.Setenv(summarySchemaEnv, "1")
+func TestSummarySchemaDefaultOnFillsMissingSections(t *testing.T) {
+	// 默认开启：不设置环境变量也应应用 schema。
+	t.Setenv(summarySchemaEnv, "")
 	comp := Summarize(summarySchemaWireDropped(), 0)
 	want := summarySchemaWireBaseline + "\n" + schemaStateSkeleton
 	if comp.Summary != want {
-		t.Errorf("opt-in 开启时摘要错误:\n got %q\nwant %q", comp.Summary, want)
+		t.Errorf("默认开启时摘要错误:\n got %q\nwant %q", comp.Summary, want)
 	}
 	if !strings.HasPrefix(comp.Summary, summarySchemaWireBaseline) {
 		t.Error("已有摘要内容未作为前缀逐字保留")
@@ -127,9 +127,9 @@ func TestApplySummarySchemaDoesNotMutateFiles(t *testing.T) {
 	}
 }
 
-// TestSummarizeSchemaOptInOnCJKSafety 验证 opt-in 开启时中文摘要与中文路径安全：
+// TestSummarySchemaOnCJKSafety 验证开启时中文摘要与中文路径安全：
 // 结果合法 UTF-8、小节补齐、路径不丢失、中文内容不被误识别为标题。
-func TestSummarizeSchemaOptInOnCJKSafety(t *testing.T) {
+func TestSummarySchemaOnCJKSafety(t *testing.T) {
 	t.Setenv(summarySchemaEnv, "1")
 	dropped := []Entry{
 		{Role: "user", Content: "实现中文词法器"},
@@ -151,8 +151,8 @@ func TestSummarizeSchemaOptInOnCJKSafety(t *testing.T) {
 	}
 }
 
-// TestSummarizeSchemaOptInOnDeterministic 验证 opt-in 开启时输出稳定。
-func TestSummarizeSchemaOptInOnDeterministic(t *testing.T) {
+// TestSummarySchemaOnDeterministic 验证开启时输出稳定。
+func TestSummarySchemaOnDeterministic(t *testing.T) {
 	t.Setenv(summarySchemaEnv, "1")
 	want := Summarize(summarySchemaWireDropped(), 0)
 	for i := 0; i < 50; i++ {

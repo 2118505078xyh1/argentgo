@@ -65,7 +65,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
-		"当前启用 25 项",
+		"当前启用 60 项",
 		"ARGENT_OPT_INS 注册表：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
@@ -196,7 +196,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 24 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
+	if !strings.Contains(textOut, "当前启用 59 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 
@@ -215,6 +215,41 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 		"ARGENT_CONFIG_SHADOW_CHECK": true, "ARGENT_CONFIG_RELOAD_DIFF": true, "ARGENT_LOOP_DETECTION": true,
 		"ARGENT_MCP_MEDIA_BLOB_EXT": true,
 		"ARGENT_VERIFY_OUTCOME":     true, "ARGENT_REPO_MAP_HINT": true, "ARGENT_VERIFY_AUTORUN_HINT": true, "ARGENT_RULE_DISCOVERY": true,
+		"ARGENT_BACKGROUND_COMPACT":      true,
+		"ARGENT_BRANCH_SUMMARY":          true,
+		"ARGENT_CACHE_WARM":              true,
+		"ARGENT_COMPACT_DRAIN":           true,
+		"ARGENT_COMPACTION_HOOK":         true,
+		"ARGENT_COMPACTION_TODO":         true,
+		"ARGENT_CONTEXT_CALIBRATION":     true,
+		"ARGENT_CONTINUATION_BRIEF":      true,
+		"ARGENT_EDIT_DIAGNOSTICS":        true,
+		"ARGENT_EDIT_GUIDE":              true,
+		"ARGENT_FAILURE_SIGNALS":         true,
+		"ARGENT_FOVEATED_ARCHIVE":        true,
+		"ARGENT_HOOK_LIFECYCLE":          true,
+		"ARGENT_IMAGE_INPUT":             true,
+		"ARGENT_MCP_BLOB_TEXT":           true,
+		"ARGENT_MCP_HEALTH":              true,
+		"ARGENT_MCP_INJECTION_MEDIUM":    true,
+		"ARGENT_MCP_INJECTION_SCAN":      true,
+		"ARGENT_OUTPUT_COLLAPSE":         true,
+		"ARGENT_PLUGIN_OUTPUT_SCHEMA":    true,
+		"ARGENT_RECOVERY_DETAIL":         true,
+		"ARGENT_RECOVERY_METRICS":        true,
+		"ARGENT_RECOVERY_REPLAY":         true,
+		"ARGENT_REPEAT_PITFALL_TRACKING": true,
+		"ARGENT_RETAIN_GUIDANCE":         true,
+		"ARGENT_RETRY_OMIT":              true,
+		"ARGENT_SKILL_INJECTION_SCAN":    true,
+		"ARGENT_STREAM_RECOVERY":         true,
+		"ARGENT_SUBAGENT_SHARED_PROMPT":  true,
+		"ARGENT_SUMMARY_SCHEMA":          true,
+		"ARGENT_TODO_STRICT":             true,
+		"ARGENT_TOOL_CALL_TRACE":         true,
+		"ARGENT_TOOL_PRUNE":              true,
+		"ARGENT_TOOL_TIMING_HISTOGRAM":   true,
+		"ARGENT_TURN_TIMING":             true,
 	}
 	enabledN := 0
 	for _, entry := range entries {

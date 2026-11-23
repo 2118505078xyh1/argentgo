@@ -11,8 +11,8 @@ import (
 )
 
 // 本文件提供 R23「会话续接摘要」（continuation brief）的纯函数原语，刻意保持零调用方：
-// 不读取进程环境、不注册回调、不触碰 Execute/压缩写入路径。默认关闭时现有行为逐字节不变；
-// 接线（env 门控 + 把摘要拼入下一轮提示）由主会话在 opt-in 开关开启时显式完成。
+// 不读取进程环境、不注册回调、不触碰 Execute/压缩写入路径。默认开启；
+// 接线（env 门控 + 把摘要拼入下一轮提示）由主会话在门控开启时显式完成。
 //
 // 设计约束（与 R23 学习保持一致）：
 //   - 复用 session.Compaction.Structured() 的只读投影，不重新实现 markdown 解析；
@@ -32,13 +32,13 @@ const (
 	continuationBriefEnvKey = "ARGENT_CONTINUATION_BRIEF"
 )
 
-// continuationBriefEnabled 报告续接摘要是否开启。env 为 nil、变量缺失或值非 "1" 时
-// 一律按默认关闭处理（fail-closed），因此未装配环境的调用方得不到任何行为变化。
+// continuationBriefEnabled 报告续接摘要是否开启。默认开启；仅当 env 提供且
+// ARGENT_CONTINUATION_BRIEF=0（允许首尾空白）时紧急关闭。
 func continuationBriefEnabled(env func(string) string) bool {
 	if env == nil {
-		return false
+		return true
 	}
-	return strings.TrimSpace(env(continuationBriefEnvKey)) == "1"
+	return strings.TrimSpace(env(continuationBriefEnvKey)) != "0"
 }
 
 // continuationBriefParts 是续接摘要的四个有界字段。

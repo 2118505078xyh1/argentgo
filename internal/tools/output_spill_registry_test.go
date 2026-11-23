@@ -19,6 +19,8 @@ func TestRegistryRunBashSpillViaExecContext(t *testing.T) {
 	// 强制走系统 shell 路径，避免内建 shell 改变命令输出格式。
 	// 内建 shell 已默认开启，只有显式 0 才是紧急关闭（空值=默认开）。
 	t.Setenv("ARGENT_BUILTIN_SHELL", "0")
+	// 关闭默认开启的行折叠，隔离溢出标记的断言。
+	t.Setenv("ARGENT_OUTPUT_COLLAPSE", "0")
 
 	const threshold = 1024
 	payload := strings.Repeat("0123456789", 200) // 2000 bytes, one line

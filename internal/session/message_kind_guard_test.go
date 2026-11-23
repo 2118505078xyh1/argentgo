@@ -137,7 +137,7 @@ func assertMarkersAbsent(t *testing.T, entries []Entry, markers []kindMarker) {
 // 所有非对话 kind 的载荷都必须被丢弃，只留下对话记录，且保持 id/parent 顺序与 CJK 原文。
 func TestMessageEntriesIgnoreAllNonConversationKinds(t *testing.T) {
 	t.Setenv(budgetProjectionEnv, "")
-	t.Setenv(toolPruneEnv, "")
+	t.Setenv(toolPruneEnv, "0")
 
 	records, wantIDs := buildGuardRecords("投影-")
 	entries := messageEntries(records)
@@ -176,7 +176,7 @@ func TestMessageEntriesIgnoreAllNonConversationKinds(t *testing.T) {
 // 因此元数据不得从这条完整链路上泄漏。
 func TestMessagesIgnoreNonConversationKinds(t *testing.T) {
 	t.Setenv(budgetProjectionEnv, "")
-	t.Setenv(toolPruneEnv, "")
+	t.Setenv(toolPruneEnv, "0")
 
 	prefix := "集成-"
 	sess := newGuardSession(t, prefix+"标题元数据【不该出现】")
@@ -208,7 +208,9 @@ func TestMessagesIgnoreNonConversationKinds(t *testing.T) {
 // 进入对话，condensation/stats 等元数据仍须完全不可见。
 func TestCompactionAndSummaryKindsProjection(t *testing.T) {
 	t.Setenv(budgetProjectionEnv, "")
-	t.Setenv(toolPruneEnv, "")
+	t.Setenv(toolPruneEnv, "0")
+	t.Setenv(summarySchemaEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 
 	const (
 		summaryText      = "摘要正文【有意投影】"

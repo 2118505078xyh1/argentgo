@@ -32,20 +32,21 @@ func (c *imageCaptureChatter) Chat(_ context.Context, _ string, messages []llm.M
 	return llm.Message{Role: "assistant", Content: "done"}, nil
 }
 
-// TestImageInputEnabledOptIn 覆盖 env 门的所有取值：仅 ARGENT_IMAGE_INPUT=1
-// （允许首尾空白）开启，nil / 缺失 / 其它值一律关闭。
-func TestImageInputEnabledOptIn(t *testing.T) {
+// TestImageInputEnabledDefaultOn 覆盖 env 门的所有取值：默认开启，
+// 仅 ARGENT_IMAGE_INPUT=0（允许首尾空白）时紧急关闭。
+func TestImageInputEnabledDefaultOn(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{name: "nil 读取器关闭", env: nil, want: false},
-		{name: "缺失关闭", env: envFrom(map[string]string{}), want: false},
-		{name: "空值关闭", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": ""}), want: false},
+		{name: "nil 读取器默认开启", env: nil, want: true},
+		{name: "缺失默认开启", env: envFrom(map[string]string{}), want: true},
+		{name: "空值默认开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": ""}), want: true},
 		{name: "0 关闭", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "0"}), want: false},
-		{name: "true 关闭", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "true"}), want: false},
-		{name: "01 关闭", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "01"}), want: false},
+		{name: "带空白的 0 关闭", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "\t 0 \n"}), want: false},
+		{name: "true 保持开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "true"}), want: true},
+		{name: "01 保持开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "01"}), want: true},
 		{name: "1 开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "1"}), want: true},
 		{name: "首尾空格的 1 开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": " 1 "}), want: true},
 		{name: "制表换行的 1 开启", env: envFrom(map[string]string{"ARGENT_IMAGE_INPUT": "\t1\n"}), want: true},
@@ -92,8 +93,8 @@ func runWithImageInput(t *testing.T, baseEnv func(string) string, root, value, p
 }
 
 // TestExecuteImageInputWiring 是端到端接线证明：
-// 开启时 @图片路径 被解析为 ImageInput 并注入首条用户消息的 ContentParts；
-// 关闭时零调用，首条消息走原纯文本路径，逐字节不变。
+// 默认开启时 @图片路径 被解析为 ImageInput 并注入首条用户消息的 ContentParts；
+// =0 关闭时零调用，首条消息走原纯文本路径。
 func TestExecuteImageInputWiring(t *testing.T) {
 	baseEnv, root, _ := wiringEnv(t)
 	if err := os.WriteFile(filepath.Join(root, "photo.png"), pngSignature, 0o644); err != nil {
@@ -110,9 +111,9 @@ func TestExecuteImageInputWiring(t *testing.T) {
 		}
 	})
 
-	t.Run("关闭基线逐字节不变", func(t *testing.T) {
+	t.Run("=0 关闭基线逐字节不变", func(t *testing.T) {
 		const prompt = "看这张图 @photo.png"
-		user := runWithImageInput(t, baseEnv, root, "", prompt)
+		user := runWithImageInput(t, baseEnv, root, "0", prompt)
 		if user.ContentParts != nil {
 			t.Fatalf("关闭时 ContentParts 必须为 nil，got %s", user.ContentParts)
 		}

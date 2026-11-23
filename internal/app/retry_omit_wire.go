@@ -10,7 +10,7 @@ import (
 const retryOmitEnv = "ARGENT_RETRY_OMIT"
 
 func retryOmitEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env(retryOmitEnv)) == "1"
+	return env == nil || strings.TrimSpace(env(retryOmitEnv)) != "0"
 }
 
 // omitLastAssistantAttempt 把活动分支上最近一条 assistant 及其紧随的工具结果

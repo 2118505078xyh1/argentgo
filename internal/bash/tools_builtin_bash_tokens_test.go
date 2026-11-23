@@ -16,6 +16,8 @@ const bashHintPrefix = "[output: ~"
 // 输出会在头部获得简短的体量提示，且不干扰被裁剪的
 // 正文或截断标记。
 func TestClipBashOutputAddsHintWhenClipped(t *testing.T) {
+	// 本测试锁定旧 clip 路径（含 [truncated]）；关闭默认开启的行折叠。
+	t.Setenv("ARGENT_OUTPUT_COLLAPSE", "0")
 	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 512})
 	raw := strings.Repeat("abcdefgh", 512) // 4096 bytes, well over the 512-byte cap
 	got := clipBashOutput(ctx, raw)

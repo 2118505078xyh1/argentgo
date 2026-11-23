@@ -57,7 +57,7 @@ func twoToolRunner(emit func(Event)) *Runner {
 	}}
 }
 
-// TestToolTimingHistogramWireEnvFlagValues 验证 env 解析：仅去空白后的 "1" 开启。
+// TestToolTimingHistogramWireEnvFlagValues 验证 env 解析：默认开启，仅去空白后的 "0" 关闭。
 func TestToolTimingHistogramWireEnvFlagValues(t *testing.T) {
 	cases := []struct {
 		value string
@@ -66,8 +66,9 @@ func TestToolTimingHistogramWireEnvFlagValues(t *testing.T) {
 		{"1", true},
 		{" 1 ", true},
 		{"0", false},
-		{"true", false},
-		{"", false},
+		{" 0 ", false},
+		{"true", true},
+		{"", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.value, func(t *testing.T) {
@@ -103,7 +104,7 @@ func TestToolTimingHistogramWireFinishCallRecords(t *testing.T) {
 		t.Fatalf("TopSlow = %+v, want [读取文件 read]", top)
 	}
 
-	// 关闭基线：nil 直方图时 finishCall 照常发出事件，但不会 panic、不记录耗时。
+	// =0 关闭基线：nil 直方图时 finishCall 照常发出事件，但不会 panic、不记录耗时。
 	var off runState
 	off.finishCall(0, toolCall("c4", "read", `{}`), callResult{output: "ok", duration: time.Second})
 	if off.toolTimingHistogram != nil {
@@ -135,7 +136,7 @@ func TestToolTimingHistogramWireLogFormat(t *testing.T) {
 	}
 }
 
-// TestToolTimingHistogramWireHelpersNoopWhenOff 验证 opt-in 关闭时的空操作：
+// TestToolTimingHistogramWireHelpersNoopWhenOff 验证 =0 关闭时的空操作：
 // nil 直方图既不输出日志，也不产生任何分配副作用。
 func TestToolTimingHistogramWireHelpersNoopWhenOff(t *testing.T) {
 	cap := captureTurnTimingLogs(t)
@@ -151,8 +152,8 @@ func TestToolTimingHistogramWireHelpersNoopWhenOff(t *testing.T) {
 // 的 finishCall 实际 Record，轮末输出 TopSlow 摘要；未开启 turnTiming 时不应有
 // 逐阶段计时日志，且事件与工具仍照常工作。
 func TestToolTimingHistogramWireEnabledThroughRun(t *testing.T) {
-	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "1")
-	t.Setenv("ARGENT_TURN_TIMING", "")
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "")
+	t.Setenv("ARGENT_TURN_TIMING", "0")
 	cap := captureTurnTimingLogs(t)
 
 	sink := &eventSink{}
@@ -168,10 +169,10 @@ func TestToolTimingHistogramWireEnabledThroughRun(t *testing.T) {
 	if !strings.Contains(top, "read:") || !strings.Contains(top, "读取文件:") {
 		t.Fatalf("摘要日志缺少工具名: %q", top)
 	}
-	// turnTiming 未开启时不应出现逐阶段计时日志（两者正交）。
+	// turnTiming 被 =0 关闭时不应出现逐阶段计时日志（两者正交）。
 	for _, r := range cap.snapshot() {
 		if r.Message == "agent_turn_timing" {
-			t.Fatal("turnTiming 未开启却输出了逐阶段计时日志")
+			t.Fatal("turnTiming 被 =0 关闭却输出了逐阶段计时日志")
 		}
 	}
 	if !sink.has(EventToolEnd) {
@@ -179,15 +180,18 @@ func TestToolTimingHistogramWireEnabledThroughRun(t *testing.T) {
 	}
 }
 
-// TestToolTimingHistogramWireOffByDefault 验证默认关闭基线：不建直方图、
+// TestToolTimingHistogramWireOffByEnvZero 验证 =0 关闭基线：不建直方图、
 // 不 Record、不输出；newRunState 与整轮 Run 都不产生任何直方图日志。
-func TestToolTimingHistogramWireOffByDefault(t *testing.T) {
-	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "")
+func TestToolTimingHistogramWireOffByEnvZero(t *testing.T) {
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
+	// 另外两条轮末日志用 =0 关闭，使本用例的"零日志"基线只针对直方图。
+	t.Setenv("ARGENT_TURN_TIMING", "0")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	s := newRunState(Options{}, "x", nil)
 	if s.toolTimingHistogram != nil {
-		t.Fatal("默认关闭时不应创建直方图")
+		t.Fatal("=0 关闭时不应创建直方图")
 	}
 
 	res, err := twoToolRunner(nil).Run(context.Background(), "inspect")
@@ -198,16 +202,18 @@ func TestToolTimingHistogramWireOffByDefault(t *testing.T) {
 		t.Fatalf("stopped = %q, want %q", res.Stopped, StopComplete)
 	}
 	if got := len(cap.snapshot()); got != 0 {
-		t.Fatalf("默认关闭却输出了 %d 条日志", got)
+		t.Fatalf("=0 关闭却输出了 %d 条日志", got)
 	}
 }
 
 // TestToolTimingHistogramWireCoexistWithTurnTiming 验证与 TurnTiming 共存：
-// 两个 opt-in 同时开启时，同一 logger 恰好输出两条日志（计时 + 直方图摘要），
+// 两者同时开启时，同一 logger 恰好输出两条日志（计时 + 直方图摘要），
 // 互不覆盖、互不干扰。
 func TestToolTimingHistogramWireCoexistWithTurnTiming(t *testing.T) {
 	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "1")
 	t.Setenv("ARGENT_TURN_TIMING", "1")
+	// 调用链日志用 =0 关闭，使本用例只数计时与直方图两条。
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	if _, err := twoToolRunner(nil).Run(context.Background(), "inspect"); err != nil {

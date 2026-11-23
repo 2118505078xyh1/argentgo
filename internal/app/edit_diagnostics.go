@@ -1,8 +1,8 @@
 package app
 
 // 编辑后 LSP 诊断的接线层。这里把已有的 Diagnostics / FormatDiagnostics 能力
-// 接到写类工具的成功返回路径上：开关默认关闭，关闭时 hookedTools.Run 不会
-// 多调用任何函数，默认运行与未接线前逐字节一致。
+// 接到写类工具的成功返回路径上：开关默认开启，ARGENT_EDIT_DIAGNOSTICS=0
+// 时紧急关闭；关闭时 hookedTools.Run 不会多调用任何函数。
 //
 // 诊断是建议性的：没有语言服务器、扩展不支持、拉取超时或传输错误都会退化成
 // 空结果且不报错，绝不改变工具本身的输出与成功/失败判定。
@@ -14,11 +14,12 @@ import (
 	"strings"
 )
 
-// EnableEditDiagnostics 是编辑后诊断的总开关。默认关闭：只有显式设置
-// ARGENT_EDIT_DIAGNOSTICS=1 时才为 true，因此所有默认运行保持不变。
-// 开启后 hookedTools.Run 在 write/edit/multi_edit 成功返回时，按 mutationPaths
+// EnableEditDiagnostics 是编辑后诊断的总开关。默认开启，仅当显式设置
+// ARGENT_EDIT_DIAGNOSTICS=0（允许首尾空白）时才为 false，因此所有默认运行都会
+// 拉取诊断；诊断是建议性的，没有语言服务器时退化为不附加任何内容。
+// hookedTools.Run 在 write/edit/multi_edit 成功返回时，按 mutationPaths
 // 报告的路径拉取 LSP 错误诊断并附加到工具输出；它也可以被配置层直接赋值。
-var EnableEditDiagnostics = os.Getenv("ARGENT_EDIT_DIAGNOSTICS") == "1"
+var EnableEditDiagnostics = strings.TrimSpace(os.Getenv("ARGENT_EDIT_DIAGNOSTICS")) != "0"
 
 // editDiagnosticsLabel 是附加在工具输出末尾的诊断块标签，与 [hook] 注释区分，
 // 让模型能分清哪些是语言服务器报告而非钩子建议。

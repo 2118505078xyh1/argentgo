@@ -27,14 +27,15 @@ func TestPluginOutputSchemaValidation(t *testing.T) {
 			os.Unsetenv(pluginOutputSchemaEnv)
 		}
 	}()
-	os.Unsetenv(pluginOutputSchemaEnv)
-	// 关闭时不校验。
+	os.Setenv(pluginOutputSchemaEnv, "0")
+	// 仅 =0 关闭时不校验。
 	if out, err := runTool(schemaTool{out: "not json"}, context.Background(), "", "x", nil); err != nil || out != "not json" {
-		t.Fatalf("off should pass through: %q %v", out, err)
+		t.Fatalf("=0 should pass through: %q %v", out, err)
 	}
-	os.Setenv(pluginOutputSchemaEnv, "1")
+	// 默认开启：未设置时非法 JSON 应被拒绝。
+	os.Unsetenv(pluginOutputSchemaEnv)
 	if _, err := runTool(schemaTool{out: "not json"}, context.Background(), "", "x", nil); err == nil {
-		t.Fatal("invalid JSON should be rejected")
+		t.Fatal("invalid JSON should be rejected by default")
 	}
 	if out, err := runTool(schemaTool{out: `{"ok":true}`}, context.Background(), "", "x", nil); err != nil || out != `{"ok":true}` {
 		t.Fatalf("valid JSON should pass: %q %v", out, err)

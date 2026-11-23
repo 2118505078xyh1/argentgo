@@ -91,10 +91,13 @@ func toolThenTextRunner(emit func(Event)) (*Runner, *fakeCompactor) {
 	return runner, compactor
 }
 
-// TestTurnTimingWireCompleteRun 验证 opt-in 开启且运行干净结束时：
+// TestTurnTimingWireCompleteRun 验证默认开启且运行干净结束时：
 // 四个阶段都被成对 Begin/End 结算进快照，日志字段齐全且 complete=true。
 func TestTurnTimingWireCompleteRun(t *testing.T) {
-	t.Setenv("ARGENT_TURN_TIMING", "1")
+	t.Setenv("ARGENT_TURN_TIMING", "")
+	// 另外两条轮末日志用 =0 关闭，使 timingRecord 只看到逐阶段计时这一条。
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	runner, compactor := toolThenTextRunner(nil)
@@ -138,7 +141,10 @@ func TestTurnTimingWireCompleteRun(t *testing.T) {
 // TestTurnTimingWireIncompleteRun 验证非正常停止时：complete=false，
 // 且 incomplete_reasons 记录停止原因，与 Result.Stopped 一致。
 func TestTurnTimingWireIncompleteRun(t *testing.T) {
-	t.Setenv("ARGENT_TURN_TIMING", "1")
+	t.Setenv("ARGENT_TURN_TIMING", "")
+	// 另外两条轮末日志用 =0 关闭，使 timingRecord 只看到逐阶段计时这一条。
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	// 脚本化的 chatter 永远返回工具调用；MaxTurns=1 且 NoFinalAnswer 时，
@@ -174,15 +180,18 @@ func TestTurnTimingWireIncompleteRun(t *testing.T) {
 	}
 }
 
-// TestTurnTimingWireOffByDefault 验证默认关闭时：不建实例、不输出任何日志，
+// TestTurnTimingWireOffByEnvZero 验证 =0 关闭时：不建实例、不输出任何日志，
 // 事件序列照常产生（与既有行为逐字节一致）。
-func TestTurnTimingWireOffByDefault(t *testing.T) {
-	// 显式清空，防止开发机外部环境变量污染默认断言。
-	t.Setenv("ARGENT_TURN_TIMING", "")
+func TestTurnTimingWireOffByEnvZero(t *testing.T) {
+	// 显式置 0，防止开发机外部环境变量污染关闭断言；另两个轮末日志也用 =0 关闭，
+	// 使本用例的"零日志"基线只针对逐阶段计时。
+	t.Setenv("ARGENT_TURN_TIMING", "0")
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	if turnTimingEnabled() {
-		t.Fatal("空值不应开启逐阶段计时")
+		t.Fatal("=0 却开启了逐阶段计时")
 	}
 
 	sink := &eventSink{}
@@ -195,14 +204,14 @@ func TestTurnTimingWireOffByDefault(t *testing.T) {
 		t.Fatalf("stopped = %q, want %q", res.Stopped, StopComplete)
 	}
 	if got := len(cap.snapshot()); got != 0 {
-		t.Fatalf("默认关闭却记录了 %d 条计时日志", got)
+		t.Fatalf("=0 关闭却记录了 %d 条计时日志", got)
 	}
 	if len(sink.kinds()) == 0 {
-		t.Fatal("默认关闭时事件流不应为空")
+		t.Fatal("=0 关闭时事件流不应为空")
 	}
 }
 
-// TestTurnTimingWireEnabledFlagValues 验证 env 解析：仅去空白后的 "1" 开启。
+// TestTurnTimingWireEnabledFlagValues 验证 env 解析：默认开启，仅去空白后的 "0" 关闭。
 func TestTurnTimingWireEnabledFlagValues(t *testing.T) {
 	cases := []struct {
 		value string
@@ -211,8 +220,9 @@ func TestTurnTimingWireEnabledFlagValues(t *testing.T) {
 		{"1", true},
 		{" 1 ", true},
 		{"0", false},
-		{"true", false},
-		{"", false},
+		{" 0 ", false},
+		{"true", true},
+		{"", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.value, func(t *testing.T) {
@@ -224,7 +234,7 @@ func TestTurnTimingWireEnabledFlagValues(t *testing.T) {
 	}
 }
 
-// TestTurnTimingWireHelpersNoopWhenOff 验证 opt-in 关闭时所有计时薄包装都是空操作：
+// TestTurnTimingWireHelpersNoopWhenOff 验证 =0 关闭时所有计时薄包装都是空操作：
 // 不建实例、孤立的 End 不污染统计、轮末 finish 不触发日志。
 func TestTurnTimingWireHelpersNoopWhenOff(t *testing.T) {
 	cap := captureTurnTimingLogs(t)
@@ -244,7 +254,10 @@ func TestTurnTimingWireHelpersNoopWhenOff(t *testing.T) {
 // TestTurnTimingWireNoConflictWithEventTiming 验证新旧计时互不干扰：
 // 同一轮里既产生新日志，又照常填充 reasoning/tool 事件的 StartedAtMS/FinishedAtMS。
 func TestTurnTimingWireNoConflictWithEventTiming(t *testing.T) {
-	t.Setenv("ARGENT_TURN_TIMING", "1")
+	t.Setenv("ARGENT_TURN_TIMING", "")
+	// 另外两条轮末日志用 =0 关闭，确保这里只数逐阶段计时的一条日志。
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {

@@ -11,19 +11,19 @@ import (
 // replay_suffix.go 提供会话重放恢复公告的纯函数层。
 //
 // 这里把 session.Replay 得到的状态投影成一段可拼到恢复公告末尾的中文诊断
-// 后缀，外加一个默认关闭的 env 开关。stdlib-only、零 I/O、不调用模型、不改
-// NeedsConfirmation，也绝不把合成的中止结果当作真实应答。纯函数层由 Execute
-// 的恢复路径 opt-in 接线（见 app_execute.go），关闭时零调用、逐字节不变。
+// 后缀，外加一个默认开启的 env 开关（=0 紧急关闭）。stdlib-only、零 I/O、不调用
+// 模型、不改 NeedsConfirmation，也绝不把合成的中止结果当作真实应答。纯函数层由
+// Execute 的恢复路径接线（见 app_execute.go），关闭时零调用。
 
 // replaySuffixIDRunes 是后缀中活跃叶子 id 的展示上限（按 rune 计）。
 // 用 rune 而非字节截断，保证 CJK id 不会被切在 UTF-8 字符中间。
 const replaySuffixIDRunes = 16
 
-// replayRecoveryEnabled 报告重放恢复公告是否开启。默认关闭：只有
-// ARGENT_RECOVERY_REPLAY=1（允许首尾空白）才启用；其他任何值都保持历史的
-// 恢复行为不变。该开关已在 cli/optin_metadata.go 注册（键 recovery_replay）。
+// replayRecoveryEnabled 报告重放恢复公告是否开启。默认开启，仅当
+// ARGENT_RECOVERY_REPLAY=0（允许首尾空白）时紧急关闭。该开关已在
+// cli/optin_metadata.go 注册（键 recovery_replay）。
 func replayRecoveryEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_REPLAY")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_RECOVERY_REPLAY")) != "0"
 }
 
 // boundedReplayID 返回用于展示的 id：不超过 replaySuffixIDRunes 时原样返回，

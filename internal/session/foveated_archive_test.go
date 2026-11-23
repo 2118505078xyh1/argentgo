@@ -170,7 +170,8 @@ func TestFoveatedGapRespectsToolPairBoundary(t *testing.T) {
 }
 
 func TestFoveatedArchiveViaMessages(t *testing.T) {
-	t.Setenv(foveatedArchiveEnv, "1")
+	// 默认开启：空值也应走归档视图。
+	t.Setenv(foveatedArchiveEnv, "")
 	t.Setenv(budgetProjectionBudgetEnv, "600")
 	store, err := Open(t.TempDir())
 	if err != nil {
@@ -217,8 +218,8 @@ func TestFoveatedArchiveViaMessages(t *testing.T) {
 }
 
 func TestFoveatedArchiveDisabledKeepsMessagesByteIdentical(t *testing.T) {
-	// 关闭 opt-in 时，Messages() 必须与未接线时逐字节一致。
-	t.Setenv(foveatedArchiveEnv, "")
+	// 仅 =0 关闭时，Messages() 必须与未接线时逐字节一致。
+	t.Setenv(foveatedArchiveEnv, "0")
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -235,18 +236,18 @@ func TestFoveatedArchiveDisabledKeepsMessagesByteIdentical(t *testing.T) {
 	}
 	got := sess.Messages()
 	// 期望 = 未接线的基线路径：messageEntries(path) 后直接 SettleOrphanToolCalls。
-	// 这精确断言 opt-in 关闭时 Messages() 与接线前逐字节一致。
+	// 这精确断言 =0 关闭时 Messages() 与接线前逐字节一致。
 	records, err := sess.Records()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := SettleOrphanToolCalls(messageEntries(sess.activePath(records)), SettleInterrupted)
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Messages() changed with opt-in off:\n got %+v\nwant %+v", got, want)
+		t.Fatalf("Messages() changed with =0 off:\n got %+v\nwant %+v", got, want)
 	}
 	for _, e := range got {
 		if _, ok := foveatedParseGap(e.Content); ok {
-			t.Fatal("gap marker appeared with opt-in off")
+			t.Fatal("gap marker appeared with =0 off")
 		}
 	}
 }

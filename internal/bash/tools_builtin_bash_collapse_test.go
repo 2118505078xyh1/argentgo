@@ -14,8 +14,8 @@ import (
 // collapseMarkerRE 解析 [N earlier lines] 标记。
 var collapseMarkerRE = regexp.MustCompile(`\[(\d+) earlier lines\]`)
 
-// legacyClipBashOutput 复刻接线前的 clipBashOutput，作为 opt-in 关闭时的
-// 逐字节基线。它与生产代码不共享新分支，能独立检出默认路径的意外改动。
+// legacyClipBashOutput 复刻接线前的 clipBashOutput，作为 =0 关闭时的
+// 逐字节基线。它与生产代码不共享新分支，能独立检出关闭路径的意外改动。
 func legacyClipBashOutput(ctx context.Context, raw string) string {
 	limit := outputLimit(ctx)
 	if limit <= 0 {
@@ -29,9 +29,9 @@ func legacyClipBashOutput(ctx context.Context, raw string) string {
 		float64(bashOutputTokens(raw))/1000, clipped)
 }
 
-// TestClipBashOutputCollapseOptInOffByteIdentical 验证 opt-in 关闭（包括未设置、
-// 空串、0、false、乱写值）时 clipBashOutput 与旧实现逐字节一致。
-func TestClipBashOutputCollapseOptInOffByteIdentical(t *testing.T) {
+// TestClipBashOutputCollapseOffByteIdentical 验证显式 =0 关闭时
+// clipBashOutput 与旧实现逐字节一致。
+func TestClipBashOutputCollapseOffByteIdentical(t *testing.T) {
 	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 512})
 	var lines []string
 	for i := 0; i < 200; i++ {
@@ -40,25 +40,26 @@ func TestClipBashOutputCollapseOptInOffByteIdentical(t *testing.T) {
 	lines = append(lines, "ERROR: fatal")
 	raw := strings.Join(lines, "\n") + "\n"
 
-	for _, val := range []string{"", "0", "false", " OFF "} {
+	for _, val := range []string{"0", " 0 "} {
 		t.Run(fmt.Sprintf("env=%q", val), func(t *testing.T) {
 			t.Setenv("ARGENT_OUTPUT_COLLAPSE", val)
 			got := clipBashOutput(ctx, raw)
 			want := legacyClipBashOutput(ctx, raw)
 			if got != want {
-				t.Fatalf("opt-in off changed output: got %q, want %q", got, want)
+				t.Fatalf("=0 off changed output: got %q, want %q", got, want)
 			}
 			if strings.Contains(got, "earlier lines") {
-				t.Fatalf("opt-in off emitted a collapse marker: %q", got)
+				t.Fatalf("=0 off emitted a collapse marker: %q", got)
 			}
 		})
 	}
 }
 
-// TestClipBashOutputCollapseOptInOnKeepsTailErrorsAndMarker 验证 opt-in 开启时
+// TestClipBashOutputCollapseOnKeepsTailErrorsAndMarker 验证默认开启时
 // 行折叠保留尾部错误行与头部上下文，并插入计数正确的 [N earlier lines] 标记。
-func TestClipBashOutputCollapseOptInOnKeepsTailErrorsAndMarker(t *testing.T) {
-	t.Setenv("ARGENT_OUTPUT_COLLAPSE", "1")
+func TestClipBashOutputCollapseOnKeepsTailErrorsAndMarker(t *testing.T) {
+	// 默认开启：不设置环境变量也应走行折叠。
+	t.Setenv("ARGENT_OUTPUT_COLLAPSE", "")
 	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: 4000})
 
 	var lines []string
@@ -120,9 +121,9 @@ func TestCollapseOutputCJKEmojiRunesSafe(t *testing.T) {
 	}
 }
 
-// TestClipBashOutputCollapseOptInOnOverlongTruncatesSafely 验证超长单行（含 CJK/emoji）
-// 在 opt-in 下仍被安全截断：尾部错误信息保留、UTF-8 合法、字符预算不失控。
-func TestClipBashOutputCollapseOptInOnOverlongTruncatesSafely(t *testing.T) {
+// TestClipBashOutputCollapseOnOverlongTruncatesSafely 验证超长单行（含 CJK/emoji）
+// 在开启时仍被安全截断：尾部错误信息保留、UTF-8 合法、字符预算不失控。
+func TestClipBashOutputCollapseOnOverlongTruncatesSafely(t *testing.T) {
 	t.Setenv("ARGENT_OUTPUT_COLLAPSE", "1")
 	const limit = 120
 	ctx := pluginapi.WithExecContext(context.Background(), pluginapi.ExecContext{MaxOutput: limit})

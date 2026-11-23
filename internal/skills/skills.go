@@ -371,8 +371,8 @@ func clipIndexField(s string) string {
 	return textutil.ClipRunes(oneLine(security.RedactArtifactContent(s)), skillIndexFieldRunes)
 }
 
-// skillInjectionScanEnv 是技能索引语义注入扫描的 opt-in 开关。默认关闭；只有
-// 值为 "1"（允许首尾空白）时才在渲染索引前扫描 desc/when。关闭时渲染逐字节不变。
+// skillInjectionScanEnv 是技能索引语义注入扫描的开关。默认开启；值为 "0"
+// （允许首尾空白）时关闭，不再在渲染索引前扫描 desc/when，渲染逐字节不变。
 const skillInjectionScanEnv = "ARGENT_SKILL_INJECTION_SCAN"
 
 // skillInjectionPlaceholder 是语义注入命中时替换整个字段的中性占位。它既过滤了

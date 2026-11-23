@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -43,10 +44,10 @@ func TestExecuteDefaultsLeaveGlobalOptInsOff(t *testing.T) {
 			t.Errorf("默认回写键 %q 却为 true", key)
 		}
 	}
-	// 第 5 个 setter retainGuidance 由独立 env 决定，默认也必须为 false。
-	retainDefault := os.Getenv("ARGENT_RETAIN_GUIDANCE") == "1"
-	if retainDefault {
-		t.Fatal("默认 ARGENT_RETAIN_GUIDANCE 却开启")
+	// 第 5 个 setter retainGuidance 由独立 env 决定，默认开启（仅 =0 关闭）。
+	retainDefault := strings.TrimSpace(os.Getenv("ARGENT_RETAIN_GUIDANCE")) != "0"
+	if !retainDefault {
+		t.Fatal("默认 ARGENT_RETAIN_GUIDANCE 应开启")
 	}
 
 	// 恢复默认，避免污染其它测试。

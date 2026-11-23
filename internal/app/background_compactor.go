@@ -11,7 +11,7 @@ import (
 // 本文件实现 TODO #105「后台预压缩：提前写摘要、到阈值直接切换」。
 // 学自 opencode：在距阈值尚有 lead 时，用后台 goroutine 提前算出压缩视图；
 // 到阈值时若校验通过就直接交付缓存（零阻塞），否则回退到同步 MaybeCompact。
-// 严格 opt-in（ARGENT_BACKGROUND_COMPACT），默认不包装，同步路径逐字节不变。
+// 默认开启（ARGENT_BACKGROUND_COMPACT=0 时紧急关闭），默认即包装 compactor。
 
 const backgroundCompactEnv = "ARGENT_BACKGROUND_COMPACT"
 
@@ -27,13 +27,13 @@ const backgroundCompactMaxFailures = 2
 
 func backgroundCompactEnabled(env func(string) string) bool {
 	if env == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(env(backgroundCompactEnv))) {
-	case "1", "true", "yes", "on":
 		return true
 	}
-	return false
+	switch strings.ToLower(strings.TrimSpace(env(backgroundCompactEnv))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 // backgroundCompactor 包装 agent.Compactor：Observe 在接近阈值时异步准备摘要，
@@ -102,7 +102,7 @@ func (b *backgroundCompactor) MaybeCompact(messages []llm.Message, window int) (
 	return b.inner.MaybeCompact(messages, window)
 }
 
-// newBackgroundCompactor 在 opt-in 时包装 compactor，返回观察者供 agent.Options 使用。
+// newBackgroundCompactor 默认包装 compactor，仅 =0 时不包装；返回观察者供 agent.Options 使用。
 func newBackgroundCompactor(inner agent.Compactor, env func(string) string) (agent.Compactor, func([]llm.Message, int)) {
 	if !backgroundCompactEnabled(env) || inner == nil {
 		return inner, nil

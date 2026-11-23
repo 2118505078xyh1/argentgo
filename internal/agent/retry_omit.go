@@ -9,10 +9,10 @@ import (
 )
 
 // 重试前持久上下文省略 + 可中止退避（TODO #106，学自 pi-mono）的独立门控。
-// 只有把值修剪空白后精确等于 "1" 才开启；默认（未设置/空/其它值）关闭。
+// 默认开启，仅当 ARGENT_RETRY_OMIT 修剪空白后精确为 "0" 时紧急关闭。
 // 这里直接读取字面量，使 internal/cli/optin_docs_guard_test.go 能识别真实源码读点。
 func retryOmitEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_RETRY_OMIT")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_RETRY_OMIT")) != "0"
 }
 
 // 退避参数。指数退避按失败序号增长并被 max 钳制，避免瞬时限流时立刻切换模型。

@@ -238,20 +238,21 @@ func TestReplayNoticeSuffixDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// TestReplayRecoveryEnabled 覆盖 env 门所有取值：仅 ARGENT_RECOVERY_REPLAY=1
-// （允许首尾空白）开启，nil / 缺失 / 其他值一律关闭。
+// TestReplayRecoveryEnabled 覆盖 env 门所有取值：默认开启，
+// 仅 ARGENT_RECOVERY_REPLAY=0（允许首尾空白）时紧急关闭。
 func TestReplayRecoveryEnabled(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{name: "nil 读取器关闭", env: nil, want: false},
-		{name: "缺失关闭", env: envFrom(map[string]string{}), want: false},
-		{name: "空值关闭", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": ""}), want: false},
+		{name: "nil 读取器默认开启", env: nil, want: true},
+		{name: "缺失默认开启", env: envFrom(map[string]string{}), want: true},
+		{name: "空值默认开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": ""}), want: true},
 		{name: "0 关闭", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "0"}), want: false},
-		{name: "true 关闭", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "true"}), want: false},
-		{name: "01 关闭", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "01"}), want: false},
+		{name: "带空白的 0 关闭", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "\t 0 \n"}), want: false},
+		{name: "true 保持开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "true"}), want: true},
+		{name: "01 保持开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "01"}), want: true},
 		{name: "1 开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "1"}), want: true},
 		{name: "首尾空格的 1 开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": " 1 "}), want: true},
 		{name: "制表换行的 1 开启", env: envFrom(map[string]string{"ARGENT_RECOVERY_REPLAY": "\t1\n"}), want: true},

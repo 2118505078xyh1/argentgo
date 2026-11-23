@@ -226,18 +226,18 @@ func checkpointWorkspaceDiffEnabled(env func(string) string) bool {
 
 // streamRecoveryEnabled 报告是否启用"流中断后非流式回补"恢复路径：提供方在流式
 // 答复中途报错且已输出部分文本时，用同一 model/messages/tools 再发一次非流式补全。
-// 默认关闭，关闭时 agent.Options.EnableStreamRecovery 为零值，请求与事件逐字节不变。
+// 默认开启（注入 agent.Options.EnableStreamRecovery），仅 ARGENT_STREAM_RECOVERY=0
+// （允许首尾空白）时紧急关闭。
 func streamRecoveryEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_STREAM_RECOVERY")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_STREAM_RECOVERY")) != "0"
 }
 
 // recoveryDetailEnabled 报告是否在恢复公告末尾追加 RecoveryPlan 细节后缀。
-// 与 replayRecoveryEnabled 同构：默认关闭（fail-closed），只有 ARGENT_RECOVERY_DETAIL=1
-// （允许首尾空白）才启用；其他任何值都保持历史公告逐字节不变。该开关已在
-// cli/optin_metadata.go 登记（键 recovery_detail）。它只控制公告文本，
-// 绝不触碰 NeedsConfirmation 或其它安全语义。
+// 与 replayRecoveryEnabled 同构：默认开启，仅 ARGENT_RECOVERY_DETAIL=0
+// （允许首尾空白）时紧急关闭。该开关已在 cli/optin_metadata.go 登记（键 recovery_detail）。
+// 它只控制公告文本，绝不触碰 NeedsConfirmation 或其它安全语义。
 func recoveryDetailEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_RECOVERY_DETAIL")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_RECOVERY_DETAIL")) != "0"
 }
 
 // guidanceDedupeEnabled 报告是否启用失败指引的签名去重：默认开启（去掉逐轮重复的
@@ -253,11 +253,11 @@ func guidanceDedupeEnabled(env func(string) string) bool {
 const imageInputMaxBytes = int64(20 << 20)
 
 // imageInputEnabled 报告是否启用图像输入：从用户原文中扫描 @图片路径 并作为
-// 图像 part 注入首条用户消息。仅 ARGENT_IMAGE_INPUT=1（允许首尾空白）开启；
-// 默认关闭时不调用 llm.ImageInputsFromPrompt，agent.Options.InitialImages 保持
-// 零值 nil，首条用户消息与接线之前逐字节相同。
+// 图像 part 注入首条用户消息。默认开启，仅 ARGENT_IMAGE_INPUT=0（允许首尾空白）
+// 时紧急关闭；关闭时不调用 llm.ImageInputsFromPrompt，agent.Options.InitialImages
+// 保持零值 nil。
 func imageInputEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_IMAGE_INPUT")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_IMAGE_INPUT")) != "0"
 }
 
 // toolArgCoercionEnabled 判定工具参数保守强转是否启用：默认开启（让 AI 更强），
@@ -295,6 +295,19 @@ func progressHintText(p session.Progress) string {
 // Execute 用全新接线的工具注册表、策略和 agent 循环运行一个提示。
 // 注册表是按运行划分的，因此安全链可以携带会话 id，而无需可变的全局状态。
 func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Session, prompt string, onText func(string)) (agent.Result, error) {
+	// turn 租约（默认开启，ARGENT_TURN_LEASE=0 紧急关闭）：跨进程互斥，避免两个进程
+	// 同时压缩、追加同一会话而交错产出记录。活租约存在时拒绝本次 turn。
+	if sess != nil && strings.TrimSpace(res.Storage) != "" {
+		lease, err := session.AcquireTurnLease(filepath.Join(res.Storage, "turn-lease"), sess.ID())
+		if err != nil {
+			return agent.Result{}, fmt.Errorf("execute: acquire turn lease: %w", err)
+		}
+		defer lease.Release()
+	}
+	// 图像卸载（默认开启）：超出保留上限的最旧图像在轮末写为卸载标记，
+	// 下一轮投影替换为文本占位；图像数在上限内时零写入。
+	defer func() { maybeOffloadImages(sess) }()
+
 	// 循环检测开关（opt-in ARGENT_LOOP_DETECTION）：每次运行都按本次 env 显式设置，
 	// 使进程级原子开关不受上次运行残留影响；默认关闭时零副作用。
 	configureLoopDetection(stdio.Env)
@@ -315,8 +328,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	// 恢复分类：当历史被中断或降级时，在进入 agent 循环之前宣告这一情况；
 	// 需要人工决定时则停止。干净的会话（常见情况）不产生通知，直接原样继续。
+	// claimsEnabled 只在确有恢复公告时置位：非幂等工具领取账本的作用正是防止
+	// 崩溃重放重复副作用，干净运行安装它是无意义的额外 I/O。
+	claimsEnabled := false
 	if sess != nil {
 		decision := recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))
+		claimsEnabled = strings.TrimSpace(decision.Notice) != ""
 		// 字节回放候选：仅在中断提示、快照有效、协议/模型一致时非空。
 		replay = replayFromSession(sess, stdio.Env, decision.Category, res.Model, res.Protocol)
 		// 重放诊断是 opt-in 的纯增量信息：只在已有恢复公告且开关开启时，
@@ -328,7 +345,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 				decision.Notice += replayDiagnosticsSuffix(records)
 			}
 		}
-		// 恢复细节（opt-in ARGENT_RECOVERY_DETAIL）：与重放诊断同构的纯增量后缀。
+		// 恢复细节（ARGENT_RECOVERY_DETAIL 默认开启，=0 关闭）：与重放诊断同构的纯增量后缀。
 		// 开启时把 recoveryDecisionFor 一次分类得到的 RecoveryPlan 细节作为文本
 		// 追加到公告末尾；关闭时零调用、公告逐字节不变。与重放诊断一样，
 		// 它只加信息，绝不触碰 NeedsConfirmation（安全语义由分类唯一决定）。
@@ -437,7 +454,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	agent.SetToolArgumentCoercion(toolArgCoercionEnabled(stdio.Env))
 	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
 	// nudge 记录形状逐字节不变。
-	agent.SetRetainGuidance(os.Getenv("ARGENT_RETAIN_GUIDANCE") == "1")
+	agent.SetRetainGuidance(strings.TrimSpace(os.Getenv("ARGENT_RETAIN_GUIDANCE")) != "0")
 	// 失败指引签名去重（默认开）：去掉逐轮重复的失败指引；仅 ARGENT_GUIDANCE_DEDUPE=0
 	// 时紧急关闭并写回 false（与零值一致），关闭时逐轮注入指引的既有行为与会话记录逐字节不变。
 	agent.SetGuidanceDedupe(guidanceDedupeEnabled(stdio.Env))
@@ -470,6 +487,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if bridge != nil {
 		bridge.hookCtxQ = hookCtxQ
 	}
+	// 缺失授权告示（默认开启）：当本轮确实发生裁剪/压缩/隐藏时，把固定告示作为
+	// 下一轮用户消息注入。干净会话零注入，消息与事件逐字节不变。
+	wireOmissionNotice(hookCtxQ, sess)
 	bridge.start(ctx, prompt)
 	defer bridge.end()
 
@@ -635,16 +655,21 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if readBeforeWriteEnabled(stdio.Env) {
 		runner = &freshnessTools{inner: runner, ledger: tools.NewFileFreshness()}
 	}
+	// 非幂等工具领取账本（默认开启）：每次执行前落盘领取记录；仅在恢复运行上
+	// 强制跳过已领取的调用并回灌原结果。干净运行只写账本，消息与事件逐字节不变。
+	if sess != nil {
+		runner = &claimingTools{inner: runner, sess: sess, enforce: claimsEnabled}
+	}
 
 	tracker := newCheckpointTracker(res.Root, sess)
 	tracker.workspaceDiff = checkpointWorkspaceDiffEnabled(stdio.Env)
 	var evidence agent.CompactionEvidence
 	compactor := newSessionCompactorWithOpts(res, sess, reg)
-	// 后台预压缩（opt-in ARGENT_BACKGROUND_COMPACT）：包装 compactor 并把压力
-	// 观察者接到 agent 循环。关闭时返回原 compactor 与 nil observer，同步路径不变。
+	// 后台预压缩（ARGENT_BACKGROUND_COMPACT 默认开启，=0 关闭）：包装 compactor 并把压力
+	// 观察者接到 agent 循环。=0 时返回原 compactor 与 nil observer。
 	wrappedCompactor, compactObserver := newBackgroundCompactor(compactor, stdio.Env)
 	compactor.env = stdio.Env
-	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。
+	// 压缩事件钩子（ARGENT_COMPACTION_HOOK 默认开启，=0 关闭）。
 	if bridge != nil && compactionHookEnabled(stdio.Env) {
 		compactor.fireHook = bridge.fire
 		compactor.compactionHook = true
@@ -668,7 +693,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	lifecycleHooksOn := hookLifecycleEnabled(stdio.Env)
 	forwardEvent := func(event agent.Event) {
-		// 生命周期 hook 映射（opt-in ARGENT_HOOK_LIFECYCLE，默认关闭）：
+		// 生命周期 hook 映射（ARGENT_HOOK_LIFECYCLE 默认开启，=0 关闭）：
 		// 把轮次边界/中断/子 agent 结束事件投递给 hook bridge。
 		fireLifecycleHook(bridge, lifecycleHooksOn, event)
 		// 发布到按运行划分的事件 hub，使 --serve / --rpc 的订阅者
@@ -711,16 +736,25 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 	applyDeclaredTurnBudget(rawPrompt, &budget)
 
-	// 图像输入（opt-in ARGENT_IMAGE_INPUT）：仅开启时从用户原文（绝不是注入的
-	// 前缀）扫描 @图片路径并读取图片。关闭时零调用，initialImages 保持 nil，
-	// 首条用户消息走原纯文本路径，逐字节不变。
+	// 图像输入（ARGENT_IMAGE_INPUT 默认开启，=0 关闭）：默认从用户原文（绝不是注入的
+	// 前缀）扫描 @图片路径并读取图片。=0 时零调用，initialImages 保持 nil，
+	// 首条用户消息走原纯文本路径。
 	var initialImages []llm.ImageInput
 	if imageInputEnabled(stdio.Env) {
 		initialImages = llm.ImageInputsFromPrompt(rawPrompt, res.Root, imageInputMaxBytes)
 	}
 
+	// 指令变更重注入（默认开启）：在每次模型请求前比对当前加载的 AGENTS.md 等指令文件
+	// 摘要；会话中途被编辑时产出有界消息，经 hookCtxQ 在下一轮作为用户轮次注入。
+	// 首次调用只建立基线；无变化时 ReconcileInto 是零分配空操作。
+	instructionReconciler := NewInstructionReconciler()
+	beforeRequest := func() error {
+		instructionReconciler.ReconcileInto(hookCtxQ, res.Root, stdio.Env, res.TrustProject)
+		return flush()
+	}
+
 	loop := &agent.Runner{Opts: agent.Options{
-		BeforeRequest: flush,
+		BeforeRequest: beforeRequest,
 		BeforeTool:    flush,
 		Model:         res.Model,
 		MaxTurns:      res.MaxTurns,
@@ -733,7 +767,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		ReplayBody:     replayBodyOf(replay),
 		ReplayModel:    replayModelOf(replay),
 		ReplayProtocol: replayProtocolOf(replay),
-		// 图像输入（opt-in ARGENT_IMAGE_INPUT）：nil 时首条用户消息逐字节不变。
+		// 图像输入（ARGENT_IMAGE_INPUT 默认开启，=0 关闭）：=0 时保持 nil。
 		InitialImages: initialImages,
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
 		// 这只是避免模型浪费轮次。
@@ -786,8 +820,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		CompactObserver:    compactObserver,
 		ContextCalibration: contextCalibrationEnabled(),
 		CompactThreshold:   compactor.CompactThreshold(),
-		// 流中断回补（opt-in ARGENT_STREAM_RECOVERY）：默认关闭时为零值，
-		// agent 的恢复分支整体短路，请求体与事件逐字节不变。
+		// 流中断回补（ARGENT_STREAM_RECOVERY 默认开启，=0 关闭）：
+		// =0 时为零值，agent 的恢复分支整体短路。
 		EnableStreamRecovery: streamRecoveryEnabled(stdio.Env),
 		// TTSR 流式规则注入（opt-in ARGENT_TTSR_RULES=<json>）：默认无配置为 nil，
 		// agent 侧观察器为 nil，流式路径逐字节不变。配置存在时命中 Retry 会中止流、
@@ -850,10 +884,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if autoDecide && decision.UseSecondary {
 		applyAutoDecideModel(&loop.Opts, res.Options.SecondaryModel)
 	}
-	// 按模型的编辑格式指引是选择性启用的，因此字节精确的系统提示断言，
-	// 以及锁定自己提示的调用方，默认都保持字节不变。设置 ARGENT_EDIT_GUIDE=1 即可追加。
+	// 按模型的编辑格式指引默认开启，ARGENT_EDIT_GUIDE=0（允许首尾空白）时紧急关闭。
 	// 在这里（configureSubagents 之后）追加，可保持编排器追加顺序不变。
-	if env := stdio.Env; env != nil && env("ARGENT_EDIT_GUIDE") == "1" {
+	if env := stdio.Env; env == nil || strings.TrimSpace(env("ARGENT_EDIT_GUIDE")) != "0" {
 		loop.Opts.System = agent.AppendEditFormat(loop.Opts.System, res.Model)
 	}
 	// magic keywords（opt-in ARGENT_MAGIC_KEYWORDS=1）：用户原话里出现的
@@ -904,9 +937,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			loop.Opts.System += "\n" + hint
 		}
 	}
-	// 会话续接摘要（opt-in ARGENT_CONTINUATION_BRIEF）：resume/追问时把上一段的
+	// 会话续接摘要（ARGENT_CONTINUATION_BRIEF 默认开启，=0 关闭）：resume/追问时把上一段的
 	// 目标/改动文件/失败/下一步作为有界的 system 段注入，补齐跨 Execute 的历史断裂。
-	// 默认关闭时不追加，system 字节与接线前一致。无历史时原语返回空串，同样不追加。
+	// =0 时不追加。无历史时原语返回空串，同样不追加。
 	if continuationBriefEnabled(stdio.Env) && sess != nil {
 		if brief := BuildContinuationBrief(sess.Messages(), 2000); brief != "" {
 			loop.Opts.System += "\n" + brief
@@ -1200,10 +1233,10 @@ func multimodalTrimOptInEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_MULTIMODAL_TRIM")) == "1"
 }
 
-// compactionHookEnabled 报告压缩事件钩子是否开启。默认关闭：
-// 只有 ARGENT_COMPACTION_HOOK=1 才启用，其他值压缩路径逐字节不变。
+// compactionHookEnabled 报告压缩事件钩子是否开启。默认开启，仅当
+// ARGENT_COMPACTION_HOOK=0（允许首尾空白）时紧急关闭。
 func compactionHookEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_COMPACTION_HOOK")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_COMPACTION_HOOK")) != "0"
 }
 
 // destructiveCommandInspector 是选择性启用层的内置检查器。它复用 security 的

@@ -133,8 +133,8 @@ func (s *runState) chatWithFallback(ctx context.Context, turn int) (llm.Message,
 			break
 		}
 		next := models[i+1]
-		// 重试前的持久上下文省略 + 可中止退避（opt-in ARGENT_RETRY_OMIT）：
-		// 默认关闭时整段短路，请求体、事件与延时与接线前逐字节一致。
+		// 重试前的持久上下文省略 + 可中止退避（默认开启、ARGENT_RETRY_OMIT=0 关闭）：
+		// =0 关闭时整段短路，请求体、事件与延时与接线前逐字节一致。
 		// 开启时先通过 app 注入的回调把失败尝试的助手消息及其工具结果永久省略，
 		// 再按指数退避等待；等待期间若 ctx 被取消则立即停止，不再切换模型。
 		if retryOmitEnabled() {

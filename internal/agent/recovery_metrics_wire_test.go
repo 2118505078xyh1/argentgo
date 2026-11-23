@@ -12,14 +12,14 @@ import (
 )
 
 // runRecoveryMetricsScenario 驱动一段"工具失败→（可选）成功→文本收尾"的脚本运行。
-// 返回 runState（读取恢复账本）与最终消息流（比对 opt-in 是否改变发给模型的字节）。
+// 返回 runState（读取恢复账本）与最终消息流（比对开关是否改变发给模型的字节）。
 // 每次只发出一个工具调用，因此调用序号与轮次号一一对应。
 func runRecoveryMetricsScenario(t *testing.T, enabled bool, failRounds map[int]bool, toolRounds int) (*runState, []llm.Message) {
 	t.Helper()
 	if enabled {
-		t.Setenv("ARGENT_RECOVERY_METRICS", "1")
-	} else {
 		t.Setenv("ARGENT_RECOVERY_METRICS", "")
+	} else {
+		t.Setenv("ARGENT_RECOVERY_METRICS", "0")
 	}
 
 	chat := &fakeChatter{fn: func(n int, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
@@ -62,14 +62,14 @@ func runRecoveryMetricsScenario(t *testing.T, enabled bool, failRounds map[int]b
 	return s, res.Messages
 }
 
-// TestRecoveryMetricsWireAttemptSuccessAndRate 验证 opt-in 开启时，
+// TestRecoveryMetricsWireAttemptSuccessAndRate 验证默认开启时，
 // 指引注入登记一次 attempt、随后的工具成功登记一次 success，成功率为 1。
 func TestRecoveryMetricsWireAttemptSuccessAndRate(t *testing.T) {
 	// 第 1 次工具失败触发指引注入（attempt），第 2 次成功清零连续序列（success）。
 	s, _ := runRecoveryMetricsScenario(t, true, map[int]bool{1: true}, 2)
 
 	if s.recovery == nil {
-		t.Fatal("opt-in 开启时 recovery 账本应为非 nil")
+		t.Fatal("默认开启时 recovery 账本应为非 nil")
 	}
 	snap := s.recoverySnapshot()
 	want := RecoveryStats{Attempts: 1, Successes: 1, Rate: 1, Outcome: RecoveryOutcomeRecovered}
@@ -99,24 +99,24 @@ func TestRecoveryMetricsWireNoAttemptNoSuccess(t *testing.T) {
 	}
 }
 
-// TestRecoveryMetricsWireOffBaselineByteIdentical 锁定 opt-in 关闭时的基线：
-// 账本为 nil、快照为空，且与开启时相比发给模型的消息流逐字节不变。
+// TestRecoveryMetricsWireOffBaselineByteIdentical 锁定 =0 关闭时的基线：
+// 账本为 nil、快照为空，且与默认开启时相比发给模型的消息流逐字节不变。
 func TestRecoveryMetricsWireOffBaselineByteIdentical(t *testing.T) {
 	fail := map[int]bool{1: true}
 	sOff, msgsOff := runRecoveryMetricsScenario(t, false, fail, 2)
 	if sOff.recovery != nil {
-		t.Fatal("opt-in 关闭时 recovery 账本应为 nil")
+		t.Fatal("=0 关闭时 recovery 账本应为 nil")
 	}
 	if snap := sOff.recoverySnapshot(); snap == nil || len(snap) != 0 {
-		t.Fatalf("opt-in 关闭时快照应为非 nil 空 map, 得到 %+v", snap)
+		t.Fatalf("=0 关闭时快照应为非 nil 空 map, 得到 %+v", snap)
 	}
 
 	sOn, msgsOn := runRecoveryMetricsScenario(t, true, fail, 2)
 	if len(sOn.recoverySnapshot()) == 0 {
-		t.Fatal("opt-in 开启时应记录到恢复数据")
+		t.Fatal("默认开启时应记录到恢复数据")
 	}
 	if !reflect.DeepEqual(msgsOn, msgsOff) {
-		t.Fatalf("opt-in 改变了消息流:\n on =%+v\n off=%+v", msgsOn, msgsOff)
+		t.Fatalf("开关改变了消息流:\n on =%+v\n off=%+v", msgsOn, msgsOff)
 	}
 }
 
@@ -163,7 +163,7 @@ func TestRecoveryMetricsWireCJK(t *testing.T) {
 }
 
 // TestRecoveryMetricsWireCoexistWithRepeatPitfall 验证恢复账本与跨情节重复坑计数
-// 两套 opt-in 可同时开启、各自独立累计，互不干扰。
+// 两套默认开启的开关可同时开启、各自独立累计，互不干扰。
 func TestRecoveryMetricsWireCoexistWithRepeatPitfall(t *testing.T) {
 	t.Setenv("ARGENT_RECOVERY_METRICS", "1")
 	orig := repeatPitfallTrackingEnabled()

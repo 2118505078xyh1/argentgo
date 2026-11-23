@@ -10,9 +10,9 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// TestNudgePayloadDefaultMatchesBaseline 确认默认关闭时 nudge 载荷仍是原始字符串，
+// TestNudgePayloadOffMatchesBaseline 确认 =0 关闭时 nudge 载荷仍是原始字符串，
 // 编码结果与历史 run 的会话记录逐字节一致。
-func TestNudgePayloadDefaultMatchesBaseline(t *testing.T) {
+func TestNudgePayloadOffMatchesBaseline(t *testing.T) {
 	SetRetainGuidance(false)
 	defer SetRetainGuidance(false)
 
@@ -34,7 +34,7 @@ func TestNudgePayloadDefaultMatchesBaseline(t *testing.T) {
 	}
 }
 
-// TestNudgePayloadRetained 确认 opt-in 开启时载荷携带 RetainInThread，
+// TestNudgePayloadRetained 确认开启时载荷携带 RetainInThread，
 // 且 SurvivesCompaction 为真、不泄漏到子会话。
 func TestNudgePayloadRetained(t *testing.T) {
 	SetRetainGuidance(true)
@@ -103,7 +103,7 @@ func TestNudgePayloadStable(t *testing.T) {
 	SetRetainGuidance(false)
 }
 
-// TestInjectSteeringWithNudgeRecordsRetention 确认 stuck 提示的记录在 opt-in 开启时
+// TestInjectSteeringWithNudgeRecordsRetention 确认 stuck 提示的记录在开启时
 // 带保留标记，关闭时与基线逐字节一致；普通 steering 始终保持原字符串。
 func TestInjectSteeringWithNudgeRecordsRetention(t *testing.T) {
 	type row struct {

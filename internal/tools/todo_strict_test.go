@@ -25,7 +25,7 @@ func todoStatePath(root string) string {
 }
 
 func TestTodoStrictOffPreservesBaselineBytes(t *testing.T) {
-	// opt-in 关闭时，即使状态集违反全部三条严格不变量，也必须原样写入，
+	// =0 关闭时，即使状态集违反全部三条严格不变量，也必须原样写入，
 	// 且落盘字节与旧版逐字节一致。这里用单项 completed（缺验证）作基线。
 	t.Setenv(todoStrictEnv, "0")
 	root := t.TempDir()
@@ -33,7 +33,7 @@ func TestTodoStrictOffPreservesBaselineBytes(t *testing.T) {
 		{"id": "1", "text": "x", "status": "completed"},
 	})
 	if err != nil {
-		t.Fatalf("opt-in 关闭时写入被拒: %v", err)
+		t.Fatalf("=0 关闭时写入被拒: %v", err)
 	}
 	if !strings.Contains(out, "x") {
 		t.Fatalf("out = %q, want rendered todo", out)
@@ -45,7 +45,7 @@ func TestTodoStrictOffPreservesBaselineBytes(t *testing.T) {
 	}
 	const want = "{\n  \"todos\": [\n    {\n      \"id\": \"1\",\n      \"text\": \"x\",\n      \"status\": \"completed\"\n    }\n  ]\n}\n"
 	if string(data) != want {
-		t.Fatalf("opt-in 关闭时落盘字节与基线不符:\n got: %q\nwant: %q", data, want)
+		t.Fatalf("=0 关闭时落盘字节与基线不符:\n got: %q\nwant: %q", data, want)
 	}
 }
 
@@ -68,7 +68,8 @@ func TestTodoStrictRejectsMultipleInProgress(t *testing.T) {
 }
 
 func TestTodoStrictRejectsInvalidStatus(t *testing.T) {
-	t.Setenv(todoStrictEnv, "1")
+	// 默认开启：不设置环境变量也应校验。
+	t.Setenv(todoStrictEnv, "")
 	root := t.TempDir()
 	_, err := runTodoItems(t, root, []map[string]string{
 		{"id": "1", "text": "A", "status": "bogus"},
@@ -120,9 +121,13 @@ func TestTodoStrictAcceptsValidState(t *testing.T) {
 	}
 }
 
-func TestTodoStrictFlagFalsyValuesStayOff(t *testing.T) {
+func TestTodoStrictFalsyValuesStayOff(t *testing.T) {
 	root := t.TempDir()
-	for _, raw := range []string{"", "0", "false", "no", "off"} {
+	// 默认开启：空值不在关闭词表中。
+	if !todoStrictEnabled() {
+		t.Fatal("todoStrictEnabled should default to true")
+	}
+	for _, raw := range []string{"0", "false", "no", "off", " FALSE ", " Off "} {
 		t.Run(raw, func(t *testing.T) {
 			t.Setenv(todoStrictEnv, raw)
 			if todoStrictEnabled() {
@@ -132,7 +137,7 @@ func TestTodoStrictFlagFalsyValuesStayOff(t *testing.T) {
 				{"id": "1", "text": "x", "status": "completed"},
 			})
 			if err != nil {
-				t.Fatalf("opt-in=%q 应保持写路径不变，却被拒: %v", raw, err)
+				t.Fatalf("env=%q 应保持写路径不变，却被拒: %v", raw, err)
 			}
 		})
 	}

@@ -10,10 +10,12 @@ import (
 )
 
 // branchSummaryEnv 是「分支切换时生成被弃路径摘要」的独立门控变量。
+// 默认开启（帮助模型了解被弃路径上做过什么）；仅显式设为 "0"（允许首尾
+// 空白）时关闭，关闭时 checkout 与消息投影逐字节不变。
 const branchSummaryEnv = "ARGENT_BRANCH_SUMMARY"
 
 func branchSummaryEnabled() bool {
-	return strings.TrimSpace(os.Getenv(branchSummaryEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(branchSummaryEnv)) != "0"
 }
 
 const branchSummaryMaxRunes = 2000

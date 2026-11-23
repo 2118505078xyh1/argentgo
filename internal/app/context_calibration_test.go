@@ -78,9 +78,13 @@ func TestCompactionDecisionCalibrated(t *testing.T) {
 }
 
 func TestContextCalibrationEnabledFromEnv(t *testing.T) {
+	t.Setenv(contextCalibrationEnv, "")
+	if !contextCalibrationEnabled() {
+		t.Fatal("unset must default to on")
+	}
 	t.Setenv(contextCalibrationEnv, "1")
 	if !contextCalibrationEnabled() {
-		t.Fatal("=1 must enable")
+		t.Fatal("=1 must stay enabled")
 	}
 	t.Setenv(contextCalibrationEnv, "0")
 	if contextCalibrationEnabled() {

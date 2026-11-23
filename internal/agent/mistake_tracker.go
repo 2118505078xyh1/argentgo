@@ -15,14 +15,14 @@ const DefaultMistakeLimit = 3
 // 超过上限时淘汰最早登记（首次出现）的签名，为新签名腾出位置。
 const repeatPitfallCap = 256
 
-// repeatPitfallTracking 控制是否启用跨情节的重复踩坑计数。默认关闭：
-// RecordSignature 在关闭时立即返回，不分配、不触锁；既有 Record/Reset/Check
-// 路径逐字节不变。这是进程级 opt-in：包初始化读取 ARGENT_REPEAT_PITFALL_TRACKING=1，
-// 装配层也可用 SetRepeatPitfallTracking 显式设置。
+// repeatPitfallTracking 控制是否启用跨情节的重复踩坑计数。默认开启：
+// =0 关闭时 RecordSignature 立即返回，不分配、不触锁；既有 Record/Reset/Check
+// 路径逐字节不变。这是进程级开关：包初始化读取 ARGENT_REPEAT_PITFALL_TRACKING，
+// 仅当裁剪空白后精确为 "0" 时保持关闭；装配层也可用 SetRepeatPitfallTracking 显式设置。
 var repeatPitfallTracking atomic.Bool
 
 func init() {
-	if os.Getenv("ARGENT_REPEAT_PITFALL_TRACKING") == "1" {
+	if strings.TrimSpace(os.Getenv("ARGENT_REPEAT_PITFALL_TRACKING")) != "0" {
 		repeatPitfallTracking.Store(true)
 	}
 }
@@ -84,8 +84,8 @@ type MistakeTracker struct {
 	byKind   map[MistakeKind]int
 	guidance MistakeGuidance
 
-	// 以下字段仅在 repeatPitfallTracking opt-in 开启时由 RecordSignature 写入；
-	// 关闭时保持 nil，不参与任何既有路径。Reset 刻意不清空它们——跨情节累计
+	// 以下字段仅在 repeatPitfallTracking 开启时由 RecordSignature 写入；
+	// =0 关闭时保持 nil，不参与任何既有路径。Reset 刻意不清空它们——跨情节累计
 	// 正是"重复踩坑"检测的核心。
 	pitfallCounts map[string]int // 签名 -> 跨情节累计次数
 	pitfallOrder  []string       // 签名的首次登记顺序，用于淘汰最旧与稳定排序
@@ -195,7 +195,7 @@ func (t *MistakeTracker) Reset() {
 }
 
 // RecordSignature 把一条错误（以原始文本传入）登记进跨情节的重复踩坑计数。
-// 仅在 repeatPitfallTracking opt-in 开启时生效：关闭时立即返回，零分配、零加锁，
+// 仅在 repeatPitfallTracking 开启时生效：=0 关闭时立即返回，零分配、零加锁，
 // 也不会改动连续序列（由 Record 独立维护）。只保存 NormalizeErrorSignature
 // 产生的稳定签名，绝不保存原始错误文本。nil 接收方安全，可并发调用。
 func (t *MistakeTracker) RecordSignature(errText string) {

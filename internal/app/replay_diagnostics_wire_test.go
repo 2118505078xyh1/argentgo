@@ -14,7 +14,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
 
-// withReplayOptIn 在既有 env 上叠加 opt-in 开关，返回供 Execute 使用的读取器。
+// withReplayOptIn 在既有 env 上叠加门控值，返回供 Execute 使用的读取器。
 func withReplayOptIn(env func(string) string, value string) func(string) string {
 	return func(key string) string {
 		if strings.TrimSpace(key) == "ARGENT_RECOVERY_REPLAY" {
@@ -29,7 +29,16 @@ func withReplayOptIn(env func(string) string, value string) func(string) string 
 // 而 Messages() 的结算让投影仍是可自动继续的中断提示，产生恢复公告。
 func interruptedWithOrphan(t *testing.T) (Resolved, *session.Session, func(string) string) {
 	t.Helper()
-	env, root, _ := wiringEnv(t)
+	baseEnv, root, _ := wiringEnv(t)
+	// 两个恢复公告后缀门控现已默认开启；此夹具显式关闭它们，使测试能单独验证
+	// 某一个后缀，调用方再用 withReplayOptIn / withDetailOptIn 逐个打开。
+	env := func(key string) string {
+		switch strings.TrimSpace(key) {
+		case "ARGENT_RECOVERY_REPLAY", "ARGENT_RECOVERY_DETAIL":
+			return "0"
+		}
+		return baseEnv(key)
+	}
 	res, err := Resolve(cli.IO{Env: env}, cli.Options{Cwd: root})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -187,7 +196,7 @@ func TestExecuteRecoveryDiagnosticsOptInAddsSuffix(t *testing.T) {
 }
 
 // TestExecuteRecoveryDiagnosticsOptOutBaseline 守护关闭基线：
-// 默认关闭时公告逐字节等于原始恢复公告，绝不出现诊断字段。
+// =0 关闭时公告逐字节等于原始恢复公告，绝不出现诊断字段。
 func TestExecuteRecoveryDiagnosticsOptOutBaseline(t *testing.T) {
 	res, sess, env := interruptedWithOrphan(t)
 	baseline := recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages())).Notice

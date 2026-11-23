@@ -38,8 +38,8 @@ func applyDeclaredTurnBudget(prompt string, b *agent.Budget) {
 // 从同一个计划计算出两者，可防止未来的接线点对同一记录做两次分类。
 //
 // 细节字段（Category / OrphanToolCalls / OrphanToolResults / BrokenLinks）是同一份
-// RecoveryPlan 的只读投影：它们在 recoveryDecisionFor 里一次性填充，供 opt-in 的
-// 细节后缀与测试消费，绝不再对同一记录做第二次分类。字段本身不改写 Notice；
+// RecoveryPlan 的只读投影：它们在 recoveryDecisionFor 里一次性填充，供细节后缀
+// 与测试消费，绝不再对同一记录做第二次分类。字段本身不改写 Notice；
 // 是否把细节作为文本追加到公告完全由 Execute 的 ARGENT_RECOVERY_DETAIL 门控决定。
 type recoveryDecision struct {
 	Notice            string

@@ -7,8 +7,8 @@ func TestCompactDrainEnabledFromEnv(t *testing.T) {
 		raw  string
 		want bool
 	}{
-		{"", false}, {"1", true}, {"true", true}, {"YES", true},
-		{"  on  ", true}, {"0", false}, {"false", false}, {"maybe", false},
+		{"", true}, {"1", true}, {"true", true}, {"YES", true},
+		{"  on  ", true}, {"maybe", true}, {"0", false}, {"false", false}, {" NO ", false}, {"off", false},
 	}
 	for _, tc := range cases {
 		env := func(string) string { return tc.raw }
@@ -16,7 +16,7 @@ func TestCompactDrainEnabledFromEnv(t *testing.T) {
 			t.Errorf("enabled(%q) = %v, want %v", tc.raw, got, tc.want)
 		}
 	}
-	if compactDrainEnabledFromEnv(nil) {
-		t.Fatal("nil env must leave drain off")
+	if !compactDrainEnabledFromEnv(nil) {
+		t.Fatal("nil env must default to on")
 	}
 }

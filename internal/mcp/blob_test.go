@@ -171,6 +171,8 @@ func TestSaveBlobArtifact(t *testing.T) {
 func TestCallToolBlobWithoutArtifactDirUnchanged(t *testing.T) {
 	// 显式禁用：输出必须与旧解析器逐字节一致。
 	t.Setenv(blobArtifactDirEnv, "")
+	// 关闭默认开启的 blob 文本渲染，隔离旧解析器行为。
+	t.Setenv(blobTextEnv, "0")
 
 	payload := []byte("secret binary")
 	blob := base64.StdEncoding.EncodeToString(payload)
@@ -219,6 +221,8 @@ func TestCallToolBlobWithoutArtifactDirUnchanged(t *testing.T) {
 func TestCallToolBlobWithArtifactDirSaves(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(blobArtifactDirEnv, dir)
+	// 关闭默认开启的 blob 文本渲染，确保二进制 blob 走落盘路径。
+	t.Setenv(blobTextEnv, "0")
 
 	payload := []byte("%PDF-1.4 fake pdf bytes \x00\xff")
 	blob := base64.StdEncoding.EncodeToString(payload)

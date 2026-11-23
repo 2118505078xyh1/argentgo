@@ -72,14 +72,14 @@ func TestCompactionTodoOffLeavesRecordUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	comp := newSessionCompactor(res, sess)
-	comp.env = func(string) string { return "" }
+	comp.env = func(string) string { return "0" }
 	if _, changed := comp.MaybeCompact(messages, 150); !changed {
 		t.Fatal("expected compaction")
 	}
 	records, _ := sess.Records()
 	for i := range records {
 		if records[i].Kind == session.KindCompaction && strings.Contains(string(records[i].Data), `"todo"`) {
-			t.Fatal("todo field should be absent when opt-in is off")
+			t.Fatal("todo field should be absent when gate is off")
 		}
 	}
 }

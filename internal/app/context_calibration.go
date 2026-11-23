@@ -9,12 +9,13 @@ import (
 
 // 本文件实现 TODO #104 的 app 层 opt-in 接线：把提供方实测 token 锚点与
 // 文本估算的比率作为有上限的校准系数，避免本地模型/大工具输出下估算误差
-// 导致过早或过晚压缩。默认关闭时阈值与估算比较逐字节不变。
+// 导致过早或过晚压缩。默认开启，ARGENT_CONTEXT_CALIBRATION=0（允许首尾空白）
+// 时紧急关闭，回落到未校准的阈值与估算比较。
 
 const contextCalibrationEnv = "ARGENT_CONTEXT_CALIBRATION"
 
 func contextCalibrationEnabled() bool {
-	return strings.TrimSpace(os.Getenv(contextCalibrationEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(contextCalibrationEnv)) != "0"
 }
 
 // compactionDecisionCalibrated 是 compactionDecision 的校准变体：

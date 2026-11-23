@@ -497,18 +497,18 @@ const mcpInjectionScanEnv = "ARGENT_MCP_INJECTION_SCAN"
 // 也不过滤原文中的任何字节——是否遵从注入内容由模型自行判断。
 const mcpInjectionWarning = "[注意：工具输出含疑似指令注入]"
 
-// mcpInjectionMediumWarning 是中风险注入的可读警示，仅在 opt-in
-// ARGENT_MCP_INJECTION_MEDIUM=1 时加在原文前；默认不发，保持字节不变。
+// mcpInjectionMediumWarning 是中风险注入的可读警示，默认加在原文前；
+// 仅 ARGENT_MCP_INJECTION_MEDIUM=0 时不发，保持字节不变。
 const mcpInjectionMediumWarning = "[注意：工具输出含疑似角色扮演类指令注入]"
 
-// mcpInjectionMediumEnabled 报告是否对中风险命中也发出可见警示。默认关闭：
-// 中风险可能是正常讨论里的软信号，默认只有高风险触发警示。
+// mcpInjectionMediumEnabled 报告是否对中风险命中也发出可见警示。默认开启
+// （帮模型识别注入，只加警示不改写原文）；仅显式设为 "0" 时关闭。
 func mcpInjectionMediumEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_MCP_INJECTION_MEDIUM")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_MCP_INJECTION_MEDIUM")) != "0"
 }
 
 // mcpInjectionScanEnabled 报告是否开启 MCP 工具输出的注入扫描。每次调用都读取
-// 环境，便于精确控制开关；这与本包其他 opt-in 能力的读取方式一致。
+// 环境，便于精确控制开关；这与本包其他门控的读取方式一致。
 func mcpInjectionScanEnabled() bool {
 	return strings.TrimSpace(os.Getenv(mcpInjectionScanEnv)) != "0"
 }
@@ -525,8 +525,8 @@ func hasHighSeverityInjection(findings []security.InjectionFinding) bool {
 }
 
 // warnOnPromptInjection 在 enabled 为真且 text 命中高风险注入时，于原文前加一行
-// 可读警示；原文字节原样保留，不改写、不过滤。关闭或未命中高风险时原样返回
-// text，保证 opt-in 关闭路径逐字节不变。
+// 可读警示；原文字节原样保留，不改写、不过滤。关闭或未命中时原样返回
+// text，保证 =0 关闭路径逐字节不变。
 func warnOnPromptInjection(text string, enabled bool) string {
 	if !enabled {
 		return text
@@ -536,7 +536,7 @@ func warnOnPromptInjection(text string, enabled bool) string {
 	// 返回的仍是原文（只加警示、不改写任何字节）。
 	findings := security.ScanPromptInjection(security.StripUnicodeTags(text))
 	if !hasHighSeverityInjection(findings) {
-		// 中风险 opt-in：仅在显式开启且确实命中中风险时加可见警示。
+		// 中风险门控默认开启：命中中风险时加可见警示，=0 关闭时不发。
 		if mcpInjectionMediumEnabled() {
 			for _, f := range findings {
 				if f.Severity == security.InjectionSeverityMedium {
@@ -604,9 +604,9 @@ func (c *client) CallTool(ctx context.Context, name string, args json.RawMessage
 			if block.Resource.Text != "" {
 				parts = append(parts, block.Resource.Text)
 			} else if blobTextEnabled() && block.Resource.Blob != "" {
-				// 选择加入（ARGENT_MCP_BLOB_TEXT）：文本型 blob 直接当文本用，
-				// 二进制 blob 输出安全占位符，非法 base64 降级为占位符而非报错。
-				// 开关默认关闭，因此默认输出与旧行为逐字节一致。
+				// 文本型 blob 直接当文本用（ARGENT_MCP_BLOB_TEXT 默认开启，
+				// 仅 =0 关闭），二进制 blob 输出安全占位符，非法 base64
+				// 降级为占位符而非报错。
 				parts = append(parts, blobTextFromResource(block.Resource))
 			} else if dir := blobArtifactDir(); dir != "" && block.Resource.Blob != "" {
 				// 仅选择加入（ARGENT_MCP_BLOB_ARTIFACT_DIR）。没有配置目录时

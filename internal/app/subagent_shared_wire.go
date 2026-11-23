@@ -12,13 +12,13 @@ const subagentSharedPromptEnableEnv = "ARGENT_SUBAGENT_SHARED_PROMPT"
 
 func subagentSharedPromptEnabledFromEnv(env func(string) string) bool {
 	if env == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(env(subagentSharedPromptEnableEnv))) {
-	case "1", "true", "yes", "on":
 		return true
 	}
-	return false
+	switch strings.ToLower(strings.TrimSpace(env(subagentSharedPromptEnableEnv))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 // configureSubagentSharedPrompt 在每次 Execute 入口按本次 env 设置开关，

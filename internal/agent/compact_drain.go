@@ -7,7 +7,7 @@ import (
 )
 
 // 本文件实现项目 TODO #126（学自 codex）：压缩后仍超预算时，按缓存前缀
-// 逐条淘汰最旧的非系统消息，而不是直接放弃重放。严格 opt-in，默认关闭。
+// 逐条淘汰最旧的非系统消息，而不是直接放弃重放。默认开启、ARGENT_COMPACT_DRAIN=0 关闭。
 
 // maxCompactDrain 是单次溢出的最多淘汰条数，防止在病态输入下无限循环。
 const maxCompactDrain = 50
@@ -15,7 +15,7 @@ const maxCompactDrain = 50
 var compactDrain atomic.Bool
 
 // SetCompactDrain 打开或关闭"压缩后逐条淘汰"恢复路径。
-// 由装配层按 ARGENT_COMPACT_DRAIN 统一设置；默认关闭时 compactAndReplay 行为逐字节不变。
+// 由装配层按 ARGENT_COMPACT_DRAIN 统一设置；=0 关闭时 compactAndReplay 行为逐字节不变。
 func SetCompactDrain(enabled bool) {
 	compactDrain.Store(enabled)
 }

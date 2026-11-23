@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// setRepeatPitfallForTest 在测试期间设置跨情节踩坑 opt-in，并在结束/失败时恢复原值。
+// setRepeatPitfallForTest 在测试期间设置跨情节踩坑开关，并在结束/失败时恢复原值。
 // 刻意不调用 t.Parallel()：这是进程级全局状态，必须与同包其它测试串行。
 func setRepeatPitfallForTest(t *testing.T, enabled bool) {
 	t.Helper()
@@ -25,7 +25,7 @@ func alphaToken(i int) string {
 	return fmt.Sprintf("pitfall-%c%c", letters[i/26], letters[i%26])
 }
 
-// TestRepeatPitfallOffBaseline 锁定 opt-in 关闭时的逐字节不变基线：
+// TestRepeatPitfallOffBaseline 锁定 =0 关闭时的逐字节不变基线：
 // RecordSignature 是彻底的 no-op，不建映射、不改连续序列、不影响 Check 与 Reset；
 // Snapshot 恒为 nil。
 func TestRepeatPitfallOffBaseline(t *testing.T) {
@@ -37,10 +37,10 @@ func TestRepeatPitfallOffBaseline(t *testing.T) {
 	tr.RecordSignature("boom")
 
 	if got := tr.Snapshot(10); got != nil {
-		t.Fatalf("opt-in 关闭时 Snapshot() = %+v, want nil", got)
+		t.Fatalf("=0 关闭时 Snapshot() = %+v, want nil", got)
 	}
 	if tr.pitfallCounts != nil || tr.pitfallOrder != nil {
-		t.Fatalf("opt-in 关闭时不应分配跨情节状态: counts=%v order=%v", tr.pitfallCounts, tr.pitfallOrder)
+		t.Fatalf("=0 关闭时不应分配跨情节状态: counts=%v order=%v", tr.pitfallCounts, tr.pitfallOrder)
 	}
 	if got := tr.Count(); got != 0 {
 		t.Fatalf("RecordSignature 不得改动连续序列, Count() = %d, want 0", got)
@@ -271,7 +271,7 @@ func TestRepeatPitfallCJK(t *testing.T) {
 	}
 }
 
-// TestRepeatPitfallDoesNotChangeBehavior 验证 opt-in 开启也不会注入指引或改变
+// TestRepeatPitfallDoesNotChangeBehavior 验证开启也不会注入指引或改变
 // Check/停止行为：连续序列、指引、停止判定与关闭时逐字节一致。
 func TestRepeatPitfallDoesNotChangeBehavior(t *testing.T) {
 	guidance := func(k MistakeKind, n int) string { return fmt.Sprintf("recover %s/%d", k, n) }
@@ -299,7 +299,7 @@ func TestRepeatPitfallDoesNotChangeBehavior(t *testing.T) {
 	offStop, offAction, offCount, offPer := run(false)
 	onStop, onAction, onCount, onPer := run(true)
 	if onStop != offStop || onAction != offAction || onCount != offCount || onPer != offPer {
-		t.Fatalf("opt-in 开启了却改变了行为:\n off=(%v,%+v,%d,%d)\n on =(%v,%+v,%d,%d)",
+		t.Fatalf("开关开启了却改变了行为:\n off=(%v,%+v,%d,%d)\n on =(%v,%+v,%d,%d)",
 			offStop, offAction, offCount, offPer, onStop, onAction, onCount, onPer)
 	}
 	if onStop || onAction.Guidance == "" {
@@ -359,9 +359,9 @@ func TestRepeatPitfallConcurrent(t *testing.T) {
 	}
 }
 
-// TestRepeatPitfallOptInSetterConcurrent 验证 opt-in 开关底层是原子的：
+// TestRepeatPitfallDefaultOnSetterConcurrent 验证开关底层是原子的：
 // 写端反复切换、读端反复读取，在 -race 下无数据竞争。
-func TestRepeatPitfallOptInSetterConcurrent(t *testing.T) {
+func TestRepeatPitfallDefaultOnSetterConcurrent(t *testing.T) {
 	orig := repeatPitfallTrackingEnabled()
 	t.Cleanup(func() { SetRepeatPitfallTracking(orig) })
 

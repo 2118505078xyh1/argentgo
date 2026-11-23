@@ -8,7 +8,8 @@ import (
 )
 
 func TestBranchSummaryOnCheckout(t *testing.T) {
-	t.Setenv(branchSummaryEnv, "1")
+	// 默认开启：不设置环境变量也应生成摘要。
+	t.Setenv(branchSummaryEnv, "")
 	dir := t.TempDir()
 	store, err := Open(dir)
 	if err != nil {
@@ -47,7 +48,8 @@ func TestBranchSummaryOnCheckout(t *testing.T) {
 }
 
 func TestBranchSummaryOffLeavesCheckoutUnchanged(t *testing.T) {
-	t.Setenv(branchSummaryEnv, "")
+	// 仅 =0 关闭。
+	t.Setenv(branchSummaryEnv, "0")
 	dir := t.TempDir()
 	store, _ := Open(dir)
 	sess, _ := store.NewSession("branch-summary-off")
@@ -64,11 +66,11 @@ func TestBranchSummaryOffLeavesCheckoutUnchanged(t *testing.T) {
 	before, _ := os.ReadFile(filepath.Join(dir, sess.ID()+fileExt))
 	for _, e := range sess.Messages() {
 		if strings.Contains(e.Content, "branch summary") || strings.Contains(e.Content, "abandoned") {
-			t.Fatal("no summary should be projected when opt-in is off")
+			t.Fatal("no summary should be projected when =0 off")
 		}
 	}
 	after, _ := os.ReadFile(filepath.Join(dir, sess.ID()+fileExt))
 	if string(before) != string(after) {
-		t.Fatal("checkout should not write when opt-in is off")
+		t.Fatal("checkout should not write when =0 off")
 	}
 }

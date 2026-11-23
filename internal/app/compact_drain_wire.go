@@ -11,13 +11,13 @@ const compactDrainEnableEnv = "ARGENT_COMPACT_DRAIN"
 
 func compactDrainEnabledFromEnv(env func(string) string) bool {
 	if env == nil {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(env(compactDrainEnableEnv))) {
-	case "1", "true", "yes", "on":
 		return true
 	}
-	return false
+	switch strings.ToLower(strings.TrimSpace(env(compactDrainEnableEnv))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 func configureCompactDrain(env func(string) string) {

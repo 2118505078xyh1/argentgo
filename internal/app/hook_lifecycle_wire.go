@@ -11,8 +11,10 @@ import (
 // hookLifecycleEnv 是「生命周期事件映射到 hook」的独立门控变量。
 const hookLifecycleEnv = "ARGENT_HOOK_LIFECYCLE"
 
+// hookLifecycleEnabled 报告是否把 agent 事件映射到 hook。默认开启，仅当
+// ARGENT_HOOK_LIFECYCLE=0（允许首尾空白）时紧急关闭。
 func hookLifecycleEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env(hookLifecycleEnv)) == "1"
+	return env == nil || strings.TrimSpace(env(hookLifecycleEnv)) != "0"
 }
 
 // lifecycleHookEvent 把 agent 事件映射为对应的 hook 事件；无对应时返回 ok=false。
@@ -39,7 +41,7 @@ func lifecycleHookEvent(event agent.Event) (hooks.Event, bool) {
 	return "", false
 }
 
-// fireLifecycleHook 在 opt-in 开启时把事件投递给 hook bridge。
+// fireLifecycleHook 在门控开启时把事件投递给 hook bridge。
 // bridge 为 nil 或事件无对应 hook 时是空操作。
 func fireLifecycleHook(bridge *hookBridge, enabled bool, event agent.Event) {
 	if !enabled || bridge == nil {

@@ -50,6 +50,8 @@ func entryContents(entries []Entry) map[string]bool {
 // 标记为 RetainInThread 的记录能熬过原本会丢弃它的切分，
 // 而未标记的被丢弃记录仍被丢弃。
 func TestCompactRestoresFlaggedRetentionAcrossCut(t *testing.T) {
+	t.Setenv(summarySchemaEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	s := newWireSession(t)
 	appendMarkedUser(t, s, "m0", RetainInThread)
 	for _, name := range []string{"m1", "m2", "m3"} {

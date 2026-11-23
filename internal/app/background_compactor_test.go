@@ -46,22 +46,22 @@ func TestBackgroundCompactEnabledFromEnv(t *testing.T) {
 		raw  string
 		want bool
 	}{
-		{"", false}, {"1", true}, {"true", true}, {" YES ", true},
-		{"0", false}, {"false", false}, {"maybe", false},
+		{"", true}, {"1", true}, {"true", true}, {" YES ", true}, {"maybe", true},
+		{"0", false}, {"false", false}, {" NO ", false}, {"off", false},
 	}
 	for _, tc := range cases {
 		if got := backgroundCompactEnabled(func(string) string { return tc.raw }); got != tc.want {
 			t.Errorf("enabled(%q) = %v, want %v", tc.raw, got, tc.want)
 		}
 	}
-	if backgroundCompactEnabled(nil) {
-		t.Fatal("nil env must leave background compaction off")
+	if !backgroundCompactEnabled(nil) {
+		t.Fatal("nil env must default to on")
 	}
 }
 
 func TestBackgroundCompactDisabledReturnsInner(t *testing.T) {
 	inner := &delayedCompactor{}
-	got, observer := newBackgroundCompactor(inner, func(string) string { return "" })
+	got, observer := newBackgroundCompactor(inner, func(string) string { return "0" })
 	if got != inner || observer != nil {
 		t.Fatal("disabled path must return inner unchanged with nil observer")
 	}

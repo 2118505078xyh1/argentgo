@@ -250,7 +250,7 @@ argentgo "你的任务"
 ### `ARGENT_CONTINUATION_BRIEF` —— 会话续接摘要
 
 - **作用**：resume / 追问时把上一段会话的目标、改动文件、失败、下一步作为有界摘要注入 system 提示，补齐跨轮历史断裂（单次运行内历史本就完整，这项针对的是跨 `Execute` 的续接）。
-- **开启值**：首尾空白修剪后等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：常 resume 旧会话、或频繁追问"再跑一次刚才的测试"时，让模型记得上一段上下文。
 - **逐字节不变承诺**：关闭或无历史时 system 提示、消息序列、事件流、JSONL 逐字节不变。开启时注入的是有界摘要（字簇安全截断），不是全量历史回放——极老细节仍靠 `history` 工具补。
 
@@ -302,9 +302,9 @@ argentgo "你的任务"
 ### `ARGENT_RETAIN_GUIDANCE` —— 纠正提示压缩存活
 
 - **作用**：控制是否在压缩时保留纠正 nudge 记录的「压缩存活」标记（`agent.SetRetainGuidance`）。
-- **开启值**：`os.Getenv` 原值等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：长期运行、关心模型自我纠正提示在压缩后是否仍然存在时。
-- **逐字节不变承诺**：未显式开启时写入 `false`（与零值一致），nudge 记录形状逐字节不变。
+- **逐字节不变承诺**：=0 关闭时写入 `false`（与零值一致），nudge 记录形状逐字节不变。
 
 ### `ARGENT_GUIDANCE_DEDUPE` —— 失败指引签名去重
 
@@ -316,23 +316,23 @@ argentgo "你的任务"
 ### `ARGENT_OUTPUT_COLLAPSE` —— bash 输出行折叠
 
 - **作用**：让 `clipBashOutput` 走有界的行折叠输出帧（`internal/textutil` 原语），替代原有的整段裁剪。
-- **开启值**：首尾空白修剪后等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：bash 输出行数多、希望折叠重复/超长行以便模型阅读时。
-- **逐字节不变承诺**：默认关闭时仍走原有 `clipTo` 路径，输出逐字节不变；只有 `ARGENT_OUTPUT_COLLAPSE=1` 才切换。
+- **逐字节不变承诺**：=0 关闭时仍走原有 `clipTo` 路径，输出逐字节不变；只有 `ARGENT_OUTPUT_COLLAPSE=1` 才切换。
 
 ### `ARGENT_TODO_STRICT` —— todo 严格状态校验
 
 - **作用**：在每次 todo 写入前调用 `ValidateTodoState` 校验即将写入的状态集，挡住非法状态。
-- **开启值**：真值之一——`1`、`true`、`yes`、`on`（大小写不敏感，首尾空白修剪）。空值或假值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：希望模型维护的 todo 列表结构始终合法时。
 - **逐字节不变承诺**：关闭时写路径逐字节不变；该开关与字符预算安全阀 `ARGENT_TODO_MAX_CHARS` 相互独立。
 
 ### `ARGENT_SUMMARY_SCHEMA` —— 压缩摘要固定 schema
 
 - **作用**：在压缩产出摘要后，按固定顺序补齐缺失的 `Goal` / `State` / `Next` / `Files` 小节；`Files` 从已记录的改动文件事件机械生成，并回报摘要是否无实质内容供上层决定是否重试模型摘要。
-- **开启值**：首尾空白修剪后等于 `1`。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：依赖抽取式压缩、希望摘要结构稳定不缺章节时。
-- **逐字节不变承诺**：默认关闭时 `Summarize` 不触碰摘要，既有压缩记录逐字节不变；开启时也只补缺失章节，绝不覆盖 `files` / `failures` 等权威结构化字段。
+- **逐字节不变承诺**：=0 关闭时 `Summarize` 不触碰摘要，既有压缩记录逐字节不变；开启时也只补缺失章节，绝不覆盖 `files` / `failures` 等权威结构化字段。
 
 ### `ARGENT_BUDGET_PROJECTION` —— 消息预算投影
 
@@ -400,14 +400,14 @@ argentgo "你的任务"
 ### `ARGENT_MCP_INJECTION_SCAN` —— MCP 工具输出注入扫描
 
 - **作用**：对 MCP `tools/call` 返回的最终文本做提示注入检测（读点 `internal/mcp/mcp.go` 的 `mcpInjectionScanEnv` / `warnOnPromptInjection`，复用 `security.ScanPromptInjection`）。命中**高风险**注入时在原文前加一行可读警示 `[注意：工具输出含疑似指令注入]`；中/低风险是软信号、不触发警示，避免过度敏感。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：MCP 服务器会返回不可信的外部文本、希望在进入模型上下文前对高风险注入给出可见提示时。注意这是**警示而非防御**：是否遵从注入内容仍由模型自行判断。
 - **逐字节不变承诺**：只警示、不改写、不过滤原文中的任何字节；开关关闭、未命中高风险注入时 `warnOnPromptInjection` 原样返回文本，工具输出与历史逐字节一致。
 
 ### `ARGENT_MCP_HEALTH` —— MCP 运行时健康诊断
 
 - **作用**：开启后在 `internal/app/mcp.go` 的 connect 路径给每个 MCP 服务的 `Spec.HealthTracking` 赋值，使 `internal/mcp` 的 `HealthTracker` 在工具发现成功/失败时记录快照；工具集用 `HealthAggregator` 在连接成功时 `Track`、关闭时 `Untrack` 并 `PollReporters` 聚合，最后把报告写入存储目录下的 `mcp-health.json`。下一次 `argentgo doctor` 读取该文件，对每个不健康服务在 `warnings:` 旁路追加一条 `mcpHealth` warn（含服务名、连接状态与 LastError），不新增 check、不计数、不改退出码。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：MCP 服务较多、希望在 doctor 自检里直接看到哪台服务发现失败及其错误文本时。快照只落存储目录（默认 `~/.argentgo`），不污染工作区；错误文本经脱敏后才进入诊断输出。
 - **逐字节不变承诺**：关闭时工具集不分配聚合器、不给 Spec 赋值、`mcp` 客户端不挂接 tracker、不写任何文件，doctor 也不读取快照，文本与 JSON golden、退出码均与接线之前逐字节一致。
 
@@ -428,56 +428,56 @@ argentgo "你的任务"
 ### `ARGENT_REPEAT_PITFALL_TRACKING` —— 跨情节重复踩坑计数
 
 - **作用**：启用跨情节的重复错误签名计数（`internal/agent/mistake_tracker.go` 的 `RecordSignature`），供恢复指引统计「同一签名反复出现」。这是进程级 opt-in：包初始化读取 env，装配层也可用 `agent.SetRepeatPitfallTracking` 显式设置。
-- **开启值**：原值精确等于 `1`（不修剪空白、不接受 `true`/`yes` 等其它真值）。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：关心模型是否反复踩同一类错误、希望据此强化恢复指引时。
 - **逐字节不变承诺**：关闭时 `RecordSignature` 立即返回，不分配内存、不触锁，既有 `Record` / `Reset` / `Check` 路径逐字节不变。
 
 ### `ARGENT_RECOVERY_METRICS` —— 恢复成效账本
 
 - **作用**：在恢复指引注入处与工具成功处采集「恢复动作之后运行是否真的恢复」的分子/分母（`internal/agent/recovery_metrics.go` + `loop.go` 的 `recordRecoveryAttempt` / `recordRecoverySuccess`），按失败种类统计成功率。每次运行读取一次 env。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：关心失败恢复机制的实际成效、想量化「注入指引后是否真的成功」时。
 - **逐字节不变承诺**：关闭时不分配计数器、记录路径为空操作，消息流与事件流逐字节不变。
 
 ### `ARGENT_RECOVERY_DETAIL` —— 恢复细节后缀
 
 - **作用**：恢复路径上把 `session.ClassifyRecovery` 一次性分类得到的 `RecoveryPlan` 细节（类别、断链数、孤儿工具调用数、孤儿工具结果数及其实例 ID）作为一段中文文本后缀追加到恢复公告末尾。读点为 `internal/app/app_execute.go` 的 `recoveryDetailEnabled` 与 `internal/app/app_execute_budget.go` 的 `recoveryDetailSuffix`；细节字段由 `recoveryDecisionFor` 从同一份计划一次填充，不做二次分类。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：排查恢复时历史为何被判为降级（断链/孤儿结果）、或确认一次中断的具体类别时，需要在用户可见公告里看到结构化细节。
 - **逐字节不变承诺**：关闭时零调用、不追加任何后缀，公告与 `NeedsConfirmation` 逐字节不变；仅在已有恢复公告（Notice 非空）时追加，干净会话不会产生凭空公告。该开关只增信息，绝不改变确认门（安全语义仍由分类唯一决定）。
 
 ### `ARGENT_TURN_TIMING` —— agent 轮次逐阶段计时
 
 - **作用**：agent 循环开启逐阶段结构化计时日志（`internal/agent/loop.go` 的 `turnTimingEnabled` / `turnTimingLogger`），输出各阶段耗时。每次运行读取一次 env，不引入需装配层设置的进程级全局状态。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：排查单轮延迟、定位耗时集中在哪个阶段时。
 - **逐字节不变承诺**：关闭时逐阶段计时器保持 nil、不输出任何计时日志，日志与事件流逐字节不变。
 
 ### `ARGENT_STREAM_RECOVERY` —— 流中断后非流式回补
 
 - **作用**：在 app 层接通 `agent.Options.EnableStreamRecovery`（读点 `internal/app/app_execute.go` 的 `streamRecoveryEnabled`，注入 `loop.Opts`）。提供方在流式答复中途报错（`llm.ErrStreamError`）且已输出部分文本时，用同一 model/messages/tools 再发一次非流式补全；补不到就沿用原失败路径，每轮最多一次。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：不稳定网络或流式端点偶发中断，希望自动以非流式方式取回完整答复时。
 - **逐字节不变承诺**：关闭时 `EnableStreamRecovery` 为零值，agent 的恢复分支整体短路，请求体、事件流与会话 JSONL 逐字节不变；开启但未命中流错误、无部分文本或 chatter 不支持非流式时同样走原路径。
 
 ### `ARGENT_SKILL_INJECTION_SCAN` —— 技能索引注入扫描
 
 - **作用**：渲染技能索引前对 `desc` / `when` 字段做语义注入检测（读点 `internal/skills/skills.go:313` 的 `skillInjectionScanEnv` / `skillInjectionScanEnabled` / `clipSkillIndexField`，复用 `security.ScanPromptInjection`）。命中时把整个字段替换为中性占位 `[已过滤可疑指令]`，作为「该字段已被过滤」的可见标记。与 MCP 注入扫描只警示不同，这里是**过滤**：命中字段的原文不会进入索引或 `use_skill` 抬头。扫描只作用于索引渲染，不修改原始技能。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：技能来源不完全可信（如第三方 SKILL.md）、担心元数据里的注入指令污染模型时。
 - **逐字节不变承诺**：关闭或字段未命中注入时，渲染走同一条脱敏/折叠/裁剪链，输出与 `clipIndexField` 逐字节相同；命中时才以占位替换原文。
 
 ### `ARGENT_TOOL_TIMING_HISTOGRAM` —— 工具耗时直方图
 
 - **作用**：开启后按工具名累积每次调用的精确耗时（`internal/agent/loop.go:247` 的 `toolTimingHistogramEnabled`，在 `newRunState` 每次运行读取一次），轮末落一条 `agent_tool_timing_histogram` 结构化日志，含各工具的最慢/P95 摘要与 `tool_top_slow`。与 `ARGENT_TURN_TIMING` 正交，可单独开启。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：排查哪些工具调用最耗时、定位工具侧延迟分布时。
 - **逐字节不变承诺**：关闭时 `state.toolTimingHistogram` 为 nil，dispatch 侧的 `Record` 与轮末摘要日志全是空操作，不读时钟、不分配，事件序列与会话记录逐字节不变。
 
 ### `ARGENT_TOOL_CALL_TRACE` —— 工具调用链追踪
 
 - **作用**：开启后为每次工具调用开启/结算一个跨度（`internal/agent/loop.go:254` 的 `toolCallTraceEnabled`，在 `newRunState` 每次运行读取一次），轮末落一条 `agent_tool_call_trace` 结构化日志，含调用顺序、成败与失败时的模型可读错误文本。与直方图正交：直方图给分布/TopSlow，trace 给调用顺序与错误文本。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：排查一次运行内工具调用的先后顺序、哪一步失败及失败原因时。
 - **逐字节不变承诺**：关闭时 `state.toolCallTrace` 为 nil，`Begin` / `End` 与轮末摘要日志全是空操作，不构造错误对象，事件序列与会话记录逐字节不变。
 
@@ -498,7 +498,7 @@ argentgo "你的任务"
 ### `ARGENT_TOOL_PRUNE` —— 工具结果压力裁剪
 
 - **作用**：在预算投影之前对超长工具结果做压力裁剪（读点 `internal/session/session_message.go:24` 的 `toolPruneEnv` / `toolPruneEnabled`）：保留头部与尾部上下文，中间替换为 `… [middle pruned, N runes] …`（N 为被裁掉的 rune 数）。仅处理 `Role == "tool"` 的结果，按 rune 切片不切坏多字节字符，且对已裁剪结果幂等。固定顺序 prune → project → ReconcileToolPairs；预算复用 `ARGENT_BUDGET_PROJECTION_BUDGET` 或默认 32000。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **适用场景**：工具会产生超长输出、希望在进入预算投影前先缩短结果时。
 - **逐字节不变承诺**：关闭时不执行 `PruneToolResults`，直接走原有的投影/配对路径，消息流逐字节不变。
 
@@ -525,18 +525,18 @@ argentgo "你的任务"
 ### `ARGENT_CONTEXT_CALIBRATION` —— 上下文计量校准
 
 - **作用**：opt-in 地把提供方实测 token 锚点纳入压缩判定（TODO #104，学自 opencode/cline/pi）：`CalibrationFactor(measured, estimated)` 返回低估系数并钳到 `[1,4]`（实测 120k / 估算 60k → 2，严重低估 → 4），`CalibratedEstimate` 放大估算后再做既有 1.3 倍膨胀与阈值比较；`ReservedCeiling` 给出扣余量后的上限（`max(15%, 16000)`），`ShrinkWindow` 提供逐级缩减比例 `[0.85,0.7,0.5,0.35]`。接线取最近助手的原生 `totalTokens` 作实测锚点，无锚点时退回原判定。
-- **开启值**：仅值为 `1`（允许首尾空白）时启用；默认关闭时估算、阈值与比较逐字节不变。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 
 ### `ARGENT_BACKGROUND_COMPACT` —— 后台预压缩
 
 - **作用**：app 层包装 `agent.Compactor`（TODO #105，学自 opencode）：agent 循环在每次工具批次后经可选 `CompactObserver` 把消息与阈值交给 app；当压力达到阈值的 80% 时，后台 goroutine 提前调用内层 compactor 算出压缩视图并缓存。到阈值时若缓存存在且锚点后新增消息不超过 24 条，直接交付缓存（零阻塞）；tail 过长则丢弃并同步回退；连续失败 2 次后暂停预计算。
-- **开启值**：真值（`1`/`true`/`yes`/`on`）；默认关闭时不包装 compactor、不注册 observer，同步压缩路径逐字节不变。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **一致性**：窗口由 `agent.CompactWindow(threshold)` 统一计算，避免与同步路径公式漂移；agent 包仍不依赖 session。
 
 ### `ARGENT_FOVEATED_ARCHIVE` —— foveated 多保真归档（纯文本版）
 
 - **作用**：`Messages()` 的读路径改用多保真视图（TODO #134 第一步，学自 oh-my-pi 的 `planArchive`）：两端保留逐字不变的高保真消息，中段按预算从较新往较旧保留少量稀疏消息（角色 + 单行摘要，保留 ID/ToolCallID/Data），最旧的中段被丢弃并在头段与稀疏段之间插入一个可解析的 `system` gap 标记 `[… N messages omitted …]`（N 为消息条数，非 rune）。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。预算复用 `ARGENT_BUDGET_PROJECTION_BUDGET`（缺省 32000 rune）。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **配对安全**：稀疏与 gap 的切点都落在 `buildProjectionPlan` 的"配对单元"边界——assistant 的工具调用与其结果同留同弃，绝不把 gap 插在调用与结果之间造成非法消息序列。
 - **压缩会话**：接线在 `Messages()` 的压缩分支之前，基于活动路径的**全量消息**重建视图（压缩分支会先把 head 截到 `compaction.Keep`，旧端已丢失），并保留最新压缩摘要作为开头的 `system` 消息。
 - **零 wire 变化**：不新增记录种类、不落盘、不改 `llm.Message` 结构；纯文本版不涉及位图帧与读者能力回放（第二步）。
@@ -545,7 +545,7 @@ argentgo "你的任务"
 ### `ARGENT_IMAGE_INPUT` —— 图像输入
 
 - **作用**：从用户原文（不是注入的 review/context 前缀）扫描 `@图片路径` 引用，读取工作区内合法的图片文件并构造 `llm.ImageInput` 列表（原语 `internal/llm/image_input_wire.go` 的 `ImageInputsFromPrompt(prompt, root, maxBytes)`），经 `agent.Options.InitialImages` 注入首条用户消息。首条消息由 `llm.BuildImageMessage` 构造为带图像 part 的 content 数组；无图时保持裸文本。
-- **开启值**：首尾空白修剪后等于 `1`；未设置、空或其它值关闭。
+- **关闭值**：首尾空白修剪后等于 `0`（或假值词 false/no/off）时关闭；未设置或空值时默认开启。
 - **配套约束**：只接受相对路径且不得逃出工作区根目录，扩展名限 png/jpg/jpeg/gif/webp，单文件上限 20 MiB（`imageInputMaxBytes`）；坏路径、越界、缺图、超限均被静默跳过，不使运行失败。CJK 路径按 UTF-8 原样处理。
 - **适用场景**：需要把本地截图/设计稿直接交给模型辨识时（当前仅 OpenAI chat completions 协议能真正承载图像 part；Anthropic Messages / OpenAI Responses 会退化为 `[image]` 占位）。
 - **逐字节不变承诺**：门控关闭时零调用 `ImageInputsFromPrompt`，`InitialImages` 为零值 nil，首条用户消息走原纯文本路径，请求体、事件流与会话 JSONL 逐字节不变。
@@ -582,29 +582,29 @@ argentgo "你的任务"
 | `ARGENT_BLOCK_GENERATED_EDITS` | =1 时 edit/write/apply_patch 在写入前按文件名模式（如 `zz_generated.*`、`*.pb.go`、`*.gen.ts`）与头部标记（`@generated`/`Code generated`/`DO NOT EDIT`）拒绝编辑生成物，并指引改源文件后重新生成；默认关闭时编辑行为逐字节不变。 |
 | `ARGENT_ELIDE_DATA_URLS` | 默认开启，在工具结果 head/tail 裁剪之前把整段 base64 data URL 原子替换为保留 MIME 与字符数的占位（并治愈遗留前缀碎片），避免切出无法解码的坏图引用；`=0` 时裁剪逐字节不变。 |
 | `ARGENT_HOOK_REWRITE` | =1 时应用 PreToolUse 钩子声明的 `updatedInput`/`updatedOutput`：输入改写与审批、执行使用同一份字节，输出改写替换回灌给模型的正文；默认关闭时工具参数与输出逐字节不变。 |
-| `ARGENT_COMPACTION_HOOK` | =1 时压缩前触发 PreCompact（返回 blocked 可阻止压缩并公告原因，零写入）、压缩落盘后触发 PostCompact；默认关闭时压缩路径无任何钩子调用，逐字节不变。 |
-| `ARGENT_COMPACTION_TODO` | =1 时压缩把会话 `todos.json` 以 `[x]`/`[>]`/`[ ]` 行写入 `Compaction.Todo` 并镜像进摘要，使恢复后的模型知道任务进度；默认关闭时压缩记录逐字节不变。 |
-| `ARGENT_BRANCH_SUMMARY` | =1 时 Checkout 为被弃分支生成确定性摘要并追加到新活动分支，使模型知道放弃路径上做过什么；默认关闭时 checkout 与消息投影逐字节不变。 |
+| `ARGENT_COMPACTION_HOOK` | 默认开启时压缩前触发 PreCompact（返回 blocked 可阻止压缩并公告原因，零写入）、压缩落盘后触发 PostCompact；=0 关闭时压缩路径无任何钩子调用，逐字节不变。 |
+| `ARGENT_COMPACTION_TODO` | 默认开启时压缩把会话 `todos.json` 以 `[x]`/`[>]`/`[ ]` 行写入 `Compaction.Todo` 并镜像进摘要，使恢复后的模型知道任务进度；=0 关闭时压缩记录逐字节不变。 |
+| `ARGENT_BRANCH_SUMMARY` | 默认开启时 Checkout 为被弃分支生成确定性摘要并追加到新活动分支，使模型知道放弃路径上做过什么；=0 关闭时 checkout 与消息投影逐字节不变。 |
 | `ARGENT_READ_BEFORE_WRITE` | =1 时 read 成功后登记文件快照，edit/write 在检测到外部改动（size/modtime 变化或文件消失）时拒绝写入并提示重读；默认关闭时无账本、无检查，工具行为逐字节不变。 |
 | `ARGENT_MCP_ANNOTATION_APPROVAL` | =1 时按 MCP annotations 把声明 destructiveHint 且非 readOnly 的工具纳入强制审批（即便策略 Allow 也询问）；默认关闭时仅按工具名白名单决定审批，逐字节不变。 |
 | `ARGENT_MCP_GATEWAY` | =1 时只公布一个固定的 `mcp` 工具：`mcp(server=X)` 以文本返回该服务工具清单、`mcp(server=X,tool=Y,arguments=...)` 执行；服务首次使用时才连接，工具列表整会话不变，稳定缓存前缀。执行时派生 `mcp__server__tool` 名做只读沙箱拦截、readOnly/destructive 审批（用 per-call 链副本避免竞态），客户端按 RawName 调用。list_changed 不再重建 spec 列表。默认关闭时全部 MCP 接线逐字节不变。迁移自 killi 决策 11。 |
 | `ARGENT_EVENT_LOG` | =1 时把 hub 事件以 JSONL 落盘到存储目录，SSE 支持 `Last-Event-ID` 在超出内存回放窗口后从磁盘续放；默认关闭时纯内存、SSE 帧无 `id:`，逐字节不变。 |
-| `ARGENT_FAILURE_SIGNALS` | =1 时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；默认关闭时不提取，压缩逐字节不变。 |
+| `ARGENT_FAILURE_SIGNALS` | 默认开启时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；=0 关闭时不提取，压缩逐字节不变。 |
 | `ARGENT_SUMMARY_EMPTY_RETRY` | 默认开启，压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；`=0` 时使用原摘要，压缩逐字节不变。 |
-| `ARGENT_MCP_INJECTION_MEDIUM` | =1 时 MCP 工具输出的中风险注入命中也加可见警示前缀；默认关闭时仅高风险警示，输出逐字节不变。 |
+| `ARGENT_MCP_INJECTION_MEDIUM` | 默认开启时 MCP 工具输出的中风险注入命中也加可见警示前缀；=0 关闭时仅高风险警示，输出逐字节不变。 |
 | `ARGENT_MCP_TOOL_CACHE_TTL` | 正整数秒时为 MCP 工具发现结果启用带 TTL 的缓存；默认 0 禁用时每次重新发现，行为不变。 |
 | `ARGENT_PARSE_REGRESSION_GUARD` | =1 时 edit/write/apply_patch 写入前检查 Go 语法：原本合法的文件若改后不合法则拒绝（整批零写入）；默认关闭时不检查，写入逐字节不变。 |
 | `ARGENT_APPROVAL_PREVIEW` | 默认开启，写类工具的审批提示附带 `+N/-M` 行数摘要；不改变审批判定，`=0` 时提示逐字节不变。 |
 | `ARGENT_MCP_OUTPUT_LIMIT_BYTES` | 正整数字节时单次 MCP 输出超限保留头尾并附恢复标记；缺省 0 时保持旧行为，逐字节不变。 |
 | `ARGENT_VERIFY_WRITE` | =1 时写入后重读文件比对实际字节，漂移时附按落盘字节重算的 hashline 锚点警告；默认关闭时零额外读取，结果逐字节不变。 |
 | `ARGENT_LSP_SANITIZE_ENV` / `ARGENT_LSP_KILL_TREE` | 分别启用 LSP 客户端的环境净化与进程树整树终止；默认关闭时按原方式拼环境、只杀直接进程。 |
-| `ARGENT_PLUGIN_OUTPUT_SCHEMA` | =1 时声明 OutputSchema 的插件工具输出须为合法 JSON，违反则转模型可读错误；默认关闭时不校验，内置工具不受影响。 |
-| `ARGENT_HOOK_LIFECYCLE` | =1 时把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；默认关闭时无额外 hook 调用。 |
+| `ARGENT_PLUGIN_OUTPUT_SCHEMA` | 默认开启时声明 OutputSchema 的插件工具输出须为合法 JSON，违反则转模型可读错误；=0 关闭时不校验，内置工具不受影响。 |
+| `ARGENT_HOOK_LIFECYCLE` | 默认开启时把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；=0 关闭时无额外 hook 调用。 |
 | `ARGENT_AUDIT_SANITIZE` | =1 时审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串；默认关闭时只走既有 RedactJSON。 |
 | `ARGENT_TUI_BADGE_BG` / `_INK` / `_ALT_INK` | 三者同时提供时为徽章渲染提供 hex 配色，由 `LegibleInk` 按对比度选墨色；默认未配置时帧逐字节不变。 |
 | `ARGENT_MCP_CALL_PROFILE` | =1 时声明 readOnlyHint 的 MCP 工具按每次调用注入只读 profile（拒绝修改类工具，只收紧不放宽）；默认关闭时行为不变。 |
 | `ARGENT_TELEMETRY` | =1 时用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。 |
-| `ARGENT_RETRY_OMIT` | =1 时重试前把失败尝试以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；关闭时逐字节不变。 |
+| `ARGENT_RETRY_OMIT` | 默认开启时重试前把失败尝试以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；=0 时逐字节不变。 |
 | `ARGENT_LIVE_STEER` | =1 且 Steer 非 nil 时，Responses SSE 事件边界检查排队纠正文本并上报 accepted/deferred；不改线协议字节；关闭时零开销。 |
 | `ARGENT_SUSPENDED_JOB` | =1 时 Windows 上以 CREATE_SUSPENDED 启动、先入作业对象再恢复，入作业失败即终止未运行的进程，封住孙进程逃逸窗口；默认关闭时逐字节不变。 |
 | `ARGENT_STAGED_APPROVAL` | =1 时用 stdio 交互的 StagedApprover 启用 once/always/reject/esc 状态机与「始终允许」作用域记忆；默认关闭时走原审批路径，逐字节不变。 |
@@ -613,8 +613,8 @@ argentgo "你的任务"
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
 | `ARGENT_LOOP_DETECTION` | 默认开启，按调用签名（name+input+output 的 SHA-256）检测重复工具循环，命中注入一条模型可读的纠正提示（软提示，不硬停）；`=0` 时不收集事件、不调用检测器，消息/事件/会话记录逐字节不变。迁移自 killi repeat breaker。 |
 | `ARGENT_REQUEST_SNAPSHOT` | 真值时把实际发送给提供方的线协议请求字节追加一条 `request_snapshot` 会话记录（含 SHA-256 校验），用于复现与审计；该 kind 不进入对话视图，默认关闭时请求字节与记录逐字节不变。注意快照含完整 system prompt 与工具结果，可能含敏感文本，需自行控制会话文件权限。迁移自 killi 决策 21。 |
-| `ARGENT_SUBAGENT_SHARED_PROMPT` | 真值时子代理以父级 system prompt 为前缀（首请求复用已缓存字节），角色约束与任务标签追加在末尾，不破坏缓存前缀；默认关闭时子代理沿用原有 subagentTemplate，行为逐字节不变。迁移自 killi 决策 20。 |
-| `ARGENT_COMPACT_DRAIN` | 真值时，上下文溢出压缩后若仍超预算，按缓存前缀逐条淘汰最旧的非系统消息（单次最多 50 条，保留 system 与末尾提示）再重放；默认关闭时溢出恢复路径逐字节不变。项目 TODO #126。 |
+| `ARGENT_SUBAGENT_SHARED_PROMPT` | 真值时子代理以父级 system prompt 为前缀（首请求复用已缓存字节），角色约束与任务标签追加在末尾，不破坏缓存前缀；=0 关闭时子代理沿用原有 subagentTemplate，行为逐字节不变。迁移自 killi 决策 20。 |
+| `ARGENT_COMPACT_DRAIN` | 真值时，上下文溢出压缩后若仍超预算，按缓存前缀逐条淘汰最旧的非系统消息（单次最多 50 条，保留 system 与末尾提示）再重放；=0 关闭时溢出恢复路径逐字节不变。项目 TODO #126。 |
 | `ARGENT_RESUME_BYTE_REPLAY` | 真值且 `ARGENT_REQUEST_SNAPSHOT=1` 时，"中断提示"类 resume 用最后一条请求快照的原始线协议字节重发首请求，命中提供方缓存前缀。快照须在活动路径上、其后无 assistant 回复与压缩、协议/模型与本次一致，否则静默回退语义重建。走三协议可选的 RawChatter.ChatRaw，默认关闭时请求字节逐字节不变。迁移自 killi 决策 21。 |
 | `ARGENT_CONFIG_SHADOW_CHECK` | 默认开启，输出配置来源遮蔽告警；`=0` 关闭。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
@@ -623,8 +623,8 @@ argentgo "你的任务"
 | `ARGENT_VERIFY_AUTORUN_HINT` | 默认在系统提示中追加验证自动运行提示；`=0` 关闭。 |
 | `ARGENT_POST_EDIT_VERIFY` | 历史遗留/未接线（仅在 `hooks.go:409` 注释中出现，无实际读取）；编辑后验证的真实开关是 opt-in `auto_verify`（`ARGENT_OPT_INS=auto_verify`）与 `ARGENT_EDIT_DIAGNOSTICS=1`。 |
 | `ARGENT_APPROVAL_TTL` | 带 TTL 的审批门控；`0` 或空值关闭。 |
-| `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；仅 `=1` 启用。 |
-| `ARGENT_RECOVERY_DETAIL` | 恢复细节后缀：把 RecoveryPlan 的类别/断链/孤儿调用/孤儿结果作为文本追加到恢复公告；仅 `=1` 启用，关闭时公告逐字节不变。 |
+| `ARGENT_RECOVERY_REPLAY` | 恢复重放后缀；默认开启，`=0` 关闭。 |
+| `ARGENT_RECOVERY_DETAIL` | 恢复细节后缀：把 RecoveryPlan 的类别/断链/孤儿调用/孤儿结果作为文本追加到恢复公告；默认开启，`=0` 关闭时公告逐字节不变。 |
 | `ARGENT_SESSIONS_HEAD_TAIL` | 默认开启会话列表首尾预览；`=0` 时关闭，输出逐字节不变。 |
 | `ARGENT_NO_INTENT_SCHEMA` | 意图 schema 相关（工具注册表门控）。 |
 | `ARGENT_PLAN_MODE` | 只规划模式；`=1` 时本次运行只做规划、不改文件。 |
@@ -632,32 +632,32 @@ argentgo "你的任务"
 | `ARGENT_TRUST_PROJECT` | 项目级端点改写信任；`true`/`yes`/`on` 放行，默认不信任。 |
 | `ARGENT_VERIFY_OUTCOME` | 验证结果分类标记；默认开启，`=0` 关闭。 |
 | `ARGENT_MCP_MEDIA_BLOB_EXT` | MCP 扩展媒体类型映射：默认开启用更广的白名单 MIME→扩展名映射替代既有映射，`=0` 时保持既有映射。 |
-| `ARGENT_MCP_BLOB_TEXT` | MCP blob 当文本：把解码后的 blob 按文本渲染，需真值开启。 |
+| `ARGENT_MCP_BLOB_TEXT` | MCP blob 当文本：把解码后的 blob 按文本渲染，默认开启，`=0` 关闭。 |
 | `ARGENT_MCP_BLOB_ARTIFACT_DIR` | MCP blob/image 产物目录；为空时落盘路径为空操作。 |
 | `ARGENT_MCP_CONTENT_FILTER_MIN_PRIORITY` | MCP 内容优先级过滤阈值（正整数）；未设置时不过滤。 |
 | `ARGENT_MCP_SPILL_DIR` | MCP 输出溢出目录；配置后 CallTool 的超大输出落盘。 |
 | `ARGENT_MCP_SPILL_THRESHOLD` | MCP 输出溢出字节阈值（正整数），覆盖默认值。 |
 | `ARGENT_MCP_PROTOCOL_VERSION` | MCP 协议版本回退值；协商失败时作为回退使用。 |
-| `ARGENT_MCP_INJECTION_SCAN` | MCP 工具输出注入扫描：命中高风险注入时在原文前加一行可读警示，只警示不改写、不过滤原文；仅 `=1` 开启。 |
-| `ARGENT_MCP_HEALTH` | MCP 运行时健康诊断：连接时挂接 HealthTracker、关闭时快照落盘；doctor 以 `mcpHealth` warn 报出不健康服务名与 LastError；仅 `=1` 开启，关闭时零输出。 |
+| `ARGENT_MCP_INJECTION_SCAN` | MCP 工具输出注入扫描：命中高风险注入时在原文前加一行可读警示，只警示不改写、不过滤原文；默认开启，`=0` 关闭。 |
+| `ARGENT_MCP_HEALTH` | MCP 运行时健康诊断：连接时挂接 HealthTracker、关闭时快照落盘；doctor 以 `mcpHealth` warn 报出不健康服务名与 LastError；默认开启，`=0` 关闭，关闭时零输出。 |
 | `ARGENT_EVAL_LIVE` | 评测 live 门禁；仅 `=1` 允许评测走真实 provider，默认断网脚本化。 |
-| `ARGENT_STREAM_RECOVERY` | 流中断后非流式回补：app 层接通 `agent.Options.EnableStreamRecovery`；仅 `=1` 开启。 |
-| `ARGENT_SKILL_INJECTION_SCAN` | 技能索引注入扫描：命中高风险注入时把 desc/when 整字段替换为中性占位；仅 `=1` 开启。 |
-| `ARGENT_TOOL_TIMING_HISTOGRAM` | 工具耗时直方图：按工具名累积耗时并落 TopSlow/P95 摘要日志；仅 `=1` 开启。 |
-| `ARGENT_TOOL_CALL_TRACE` | 工具调用链追踪：记录调用顺序/成败/错误文本并落摘要日志；仅 `=1` 开启。 |
+| `ARGENT_STREAM_RECOVERY` | 流中断后非流式回补：app 层接通 `agent.Options.EnableStreamRecovery`；默认开启，`=0` 关闭。 |
+| `ARGENT_SKILL_INJECTION_SCAN` | 技能索引注入扫描：命中高风险注入时把 desc/when 整字段替换为中性占位；默认开启，`=0` 关闭。 |
+| `ARGENT_TOOL_TIMING_HISTOGRAM` | 工具耗时直方图：按工具名累积耗时并落 TopSlow/P95 摘要日志；默认开启，`=0` 关闭。 |
+| `ARGENT_TOOL_CALL_TRACE` | 工具调用链追踪：记录调用顺序/成败/错误文本并落摘要日志；默认开启，`=0` 关闭。 |
 | `ARGENT_CONFIG_RELOAD_DIFF` | 配置热重载差异摘要：把 reloaded 日志行改为键路径差异摘要（敏感键 redacted）；默认开启，精确 `=0`（不修剪空白）时关闭。 |
 | `ARGENT_COMPACTION_EVENT` | 压缩事件落盘：压缩后追加一条 KindCondensation 记录（含被遗忘 ID/摘要/切分点）；仅 `=1` 开启。 |
-| `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；仅 `=1` 开启。 |
-| `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；仅 `=1` 开启，关闭时 `Messages()` 逐字节不变。 |
-| `ARGENT_BACKGROUND_COMPACT` | 后台预压缩：接近阈值时后台准备摘要，到阈值零阻塞切换，tail 过长/失败回退同步；仅 `=1` 开启，关闭时同步路径逐字节不变。 |
-| `ARGENT_CONTEXT_CALIBRATION` | 上下文计量校准：实测/估算比率钳到 1..4 放大估算、预留余量上限、逐级缩减窗口；仅 `=1` 开启，无锚点/关闭时阈值逐字节不变。 |
+| `ARGENT_TOOL_PRUNE` | 工具结果压力裁剪：保留头尾、替换中间为裁剪标记，复用投影预算；默认开启，`=0` 关闭。 |
+| `ARGENT_FOVEATED_ARCHIVE` | foveated 多保真归档：两端逐字保真、中段按预算稀疏、插入可解析 gap 标记，切点在工具配对单元边界；默认开启，`=0` 关闭，关闭时 `Messages()` 逐字节不变。 |
+| `ARGENT_BACKGROUND_COMPACT` | 后台预压缩：接近阈值时后台准备摘要，到阈值零阻塞切换，tail 过长/失败回退同步；默认开启，`=0` 关闭，关闭时同步路径逐字节不变。 |
+| `ARGENT_CONTEXT_CALIBRATION` | 上下文计量校准：实测/估算比率钳到 1..4 放大估算、预留余量上限、逐级缩减窗口；默认开启，`=0` 关闭，无锚点/关闭时阈值逐字节不变。 |
 | `ARGENT_EXEC_SESSION` | 统一 exec 会话：bash 支持 session_id/write_stdin/yield_time_ms/TTY 并注册 write_stdin 工具；仅 `=1` 开启，关闭时 schema/Specs 逐字节不变。 |
 | `ARGENT_APPROVAL_PERSIST` | 持久化审批规则：always/deny 落 `<storage>/approvals.jsonl`（只记工具名），损坏时 fail-closed；仅 `=1` 开启，关闭时零文件 I/O。 |
 | `ARGENT_ACP_DECODE` | UTF-8→ACP 增量解码：外部程序输出含完整非法 UTF-8 序列时按当前代码页解码并锁存（Windows），合法 UTF-8 直通；默认开启，`=0` 时逐字节不变。 |
 | `ARGENT_HOOK_DAEMON` | 钩子常驻进程扩展：值为受信任钩子文档路径，常驻进程经 stdio JSON-RPC 折入既有裁决管线，崩溃降级；未设置时零文件 I/O、不派生进程。 |
 | `ARGENT_PTY_INTERACTIVE` | 交互式 PTY 子命令：仅开启时注册 `argentgo pty`，在真实伪终端运行程序并剥离查询序列；默认 usage/help/补全字节不变。 |
 | `ARGENT_LOCALE` | Native 界面语言：设为 en-US 及别名时桌面窗口文案切英文（native 自包含、无 internal 依赖）；空值/中文/其它值保持原中文逐字节不变。 |
-| `ARGENT_IMAGE_INPUT` | 图像输入：从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；仅 `=1` 开启，关闭时逐字节不变。 |
+| `ARGENT_IMAGE_INPUT` | 图像输入：从用户原文扫描 @图片路径并作为图像 part 注入首条用户消息；默认开启，`=0` 关闭，=0 时逐字节不变。 |
 
 > 本表为速查，精确语义以对应源码注释为准；修改任何行为前请核对相关 `*_wire.go` / `*_test.go`。无论新增或删除独立门控，都需同步 `internal/cli/optin_metadata.go` 与本文件，否则 `TestIndependentOptInsDocumented` / `TestDocsOptInsNoGhost` 会失败。
 

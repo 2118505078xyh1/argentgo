@@ -550,6 +550,9 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 	// 在 PostToolUse/审计之前 cancel 并交回原始 ctx，避免下游看到已取消的派生信号。
 	callCtx, cancel, limit := withToolTimeout(ctx, call.Function.Name)
 	output, meta, err := s.callTool(callCtx, call.Function.Name, toolArgs)
+	// 嵌套规则提醒：把本次调用触及的路径交给收集器，轮次边界统一投影为有界提醒。
+	// 解析失败或无路径键时 Add 收到空切片，是完全的空操作。
+	s.touchedPaths.Add(touchedPathsForCall(toolArgs)...)
 	// 必须在 cancel 之前判定超时来源：cancel 会把 callCtx.Err() 改成 Canceled。
 	err, _ = normaliseTimeoutError(err, callCtx, ctx, call.Function.Name, limit)
 	cancel()
@@ -591,7 +594,7 @@ func (s *runState) emitToolStart(turn int, call llm.ToolCall) {
 	// 进度写侧（opt-in）：记录工具调用名，使崩溃恢复公告能列出进行中的工具。
 	s.progress.SetTurn(turn)
 	s.progress.AddToolCall(call.Function.Name)
-	// 可选的工具调用链追踪（默认关闭）：在此开启跨度，finishCall 配对结算。
+	// 工具调用链追踪（默认开启、ARGENT_TOOL_CALL_TRACE=0 关闭）：在此开启跨度，finishCall 配对结算。
 	// 审批阻断/重复防护/已取消的调用同样会走到 finishCall，因此 Begin/End 总是成对，
 	// ran=false 的调用也不会留下悬空跨度。
 	s.traceToolBegin(call.ID, call.Function.Name)
@@ -617,12 +620,12 @@ func (s *runState) finishCall(turn int, call llm.ToolCall, res callResult) {
 	// 与 emitToolStart 对每次调用（正常、被阻断、已取消和并行）成对出现。
 	// 未知 id 是安全的空操作，相关字段保持缺省。
 	timing := s.finishTool(call.ID, timeSource())
-	// 可选的耗时直方图（默认关闭）：关闭时字段为 nil，Record 完全不执行，
+	// 耗时直方图（默认开启、ARGENT_TOOL_TIMING_HISTOGRAM=0 关闭）：=0 关闭时字段为 nil，Record 完全不执行，
 	// 不改变任何事件或会话记录。开启时按工具名累积本次调用的精确耗时。
 	if s.toolTimingHistogram != nil {
 		s.toolTimingHistogram.Record(call.Function.Name, res.duration)
 	}
-	// 可选的工具调用链追踪（默认关闭）：结算 emitToolStart 开启的跨度。
+	// 工具调用链追踪（默认开启、=0 关闭）：结算 emitToolStart 开启的跨度。
 	// ok 取反 isError；失败时把模型可读的错误文本作为 err 落进跨度，供 Snapshot 观测。
 	// 关闭时不构造 error，traceToolEnd 自身也是空操作。
 	var traceErr error

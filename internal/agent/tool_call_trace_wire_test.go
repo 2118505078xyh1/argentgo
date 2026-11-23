@@ -37,7 +37,7 @@ func traceSummary(t *testing.T, cap *turnTimingLogCapture) string {
 	return v.String()
 }
 
-// TestToolCallTraceWireEnvFlagValues 验证 env 解析：仅去空白后的 "1" 开启。
+// TestToolCallTraceWireEnvFlagValues 验证 env 解析：默认开启，仅去空白后的 "0" 关闭。
 func TestToolCallTraceWireEnvFlagValues(t *testing.T) {
 	cases := []struct {
 		value string
@@ -46,8 +46,9 @@ func TestToolCallTraceWireEnvFlagValues(t *testing.T) {
 		{"1", true},
 		{" 1 ", true},
 		{"0", false},
-		{"true", false},
-		{"", false},
+		{" 0 ", false},
+		{"true", true},
+		{"", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.value, func(t *testing.T) {
@@ -165,15 +166,15 @@ func TestToolCallTraceWireFailureStats(t *testing.T) {
 	}
 }
 
-// TestToolCallTraceWireOffByDefault 验证默认关闭基线：不建实例、Begin/End/finish 全空操作、
+// TestToolCallTraceWireOffByEnvZero 验证 =0 关闭基线：不建实例、Begin/End/finish 全空操作、
 // 整轮 Run 不产生任何调用链日志。
-func TestToolCallTraceWireOffByDefault(t *testing.T) {
-	t.Setenv("ARGENT_TOOL_CALL_TRACE", "")
+func TestToolCallTraceWireOffByEnvZero(t *testing.T) {
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "0")
 	cap := captureTurnTimingLogs(t)
 
 	s := newRunState(Options{}, "x", nil)
 	if s.toolCallTrace != nil {
-		t.Fatal("默认关闭时不应创建调用链追踪器")
+		t.Fatal("=0 关闭时不应创建调用链追踪器")
 	}
 	s.traceToolBegin("id", "read")
 	s.traceToolEnd("id", false, errors.New("boom"))
@@ -192,7 +193,7 @@ func TestToolCallTraceWireOffByDefault(t *testing.T) {
 	}
 	for _, r := range cap.snapshot() {
 		if r.Message == "agent_tool_call_trace" {
-			t.Fatal("默认关闭却输出了调用链日志")
+			t.Fatal("=0 关闭却输出了调用链日志")
 		}
 	}
 }
@@ -201,9 +202,9 @@ func TestToolCallTraceWireOffByDefault(t *testing.T) {
 // emitToolStart/finishCall 实际配对，轮末输出摘要；未开启 turnTiming/histogram 时
 // 不应出现它们的日志，且事件流照常工作。
 func TestToolCallTraceWireEnabledThroughRun(t *testing.T) {
-	t.Setenv("ARGENT_TOOL_CALL_TRACE", "1")
-	t.Setenv("ARGENT_TURN_TIMING", "")
-	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "")
+	t.Setenv("ARGENT_TOOL_CALL_TRACE", "")
+	t.Setenv("ARGENT_TURN_TIMING", "0")
+	t.Setenv("ARGENT_TOOL_TIMING_HISTOGRAM", "0")
 	cap := captureTurnTimingLogs(t)
 
 	sink := &eventSink{}
@@ -219,7 +220,7 @@ func TestToolCallTraceWireEnabledThroughRun(t *testing.T) {
 	if got := traceSummary(t, cap); !strings.HasPrefix(got, "2次调用/") {
 		t.Fatalf("summary = %q, want 前缀 \"2次调用/\"", got)
 	}
-	// 另外两个 opt-in 未开：整轮只应有一条调用链日志。
+	// 另外两个用 =0 关闭：整轮只应有一条调用链日志。
 	if got := len(cap.snapshot()); got != 1 {
 		t.Fatalf("日志数 = %d, want 1: %+v", got, cap.snapshot())
 	}
@@ -229,7 +230,7 @@ func TestToolCallTraceWireEnabledThroughRun(t *testing.T) {
 }
 
 // TestToolCallTraceWireCoexistWithTurnTimingAndHistogram 验证三者共存：
-// 三个 opt-in 同时开启时，同一 logger 恰好输出三条日志，互不覆盖、互不干扰。
+// 三者同时开启时，同一 logger 恰好输出三条日志，互不覆盖、互不干扰。
 func TestToolCallTraceWireCoexistWithTurnTimingAndHistogram(t *testing.T) {
 	t.Setenv("ARGENT_TOOL_CALL_TRACE", "1")
 	t.Setenv("ARGENT_TURN_TIMING", "1")

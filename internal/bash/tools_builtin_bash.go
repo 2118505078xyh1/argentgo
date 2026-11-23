@@ -61,7 +61,7 @@ func clipBashOutput(ctx context.Context, raw string) string {
 	clean := sanitizeShellOutput(raw)
 	var clipped string
 	if outputCollapseEnabled() {
-		// opt-in 分支：用行折叠原语替代 clip。字符预算取当前输出上限，
+		// 默认开启的分支：用行折叠原语替代 clip。字符预算取当前输出上限，
 		// 行预算交给原语默认值（见 collapseOutput）。这里有意跳过 clip
 		// （含 spill 回调），因为折叠帧本身就是输出的处理结果。
 		clipped = collapseOutput(clean, 0, limit).Text
@@ -75,11 +75,11 @@ func clipBashOutput(ctx context.Context, raw string) string {
 		float64(bashOutputTokens(raw))/1000, clipped)
 }
 
-// outputCollapseEnabled 报告是否启用新的行折叠输出帧。
-// 默认关闭：只有 ARGENT_OUTPUT_COLLAPSE=1 才启用，确保关闭时
-// clipBashOutput 仍走原有的 clip 路径，输出逐字节不变。
+// outputCollapseEnabled 报告是否启用新的行折叠输出帧。默认开启（改善长输出
+// 的可读性）；仅显式设为 "0"（允许首尾空白）时关闭，关闭时 clipBashOutput
+// 仍走原有的 clip 路径，输出逐字节不变。
 func outputCollapseEnabled() bool {
-	return strings.TrimSpace(os.Getenv("ARGENT_OUTPUT_COLLAPSE")) == "1"
+	return strings.TrimSpace(os.Getenv("ARGENT_OUTPUT_COLLAPSE")) != "0"
 }
 
 // ---- 行折叠原语（薄转发到 internal/textutil）----

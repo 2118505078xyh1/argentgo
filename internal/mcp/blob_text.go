@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -20,11 +19,11 @@ import (
 // 进入占位符前必须经过白名单净化，防止换行、方括号或控制字符
 // 注入模型上下文。
 //
-// 接线默认关闭：只有显式设置 ARGENT_MCP_BLOB_TEXT 为真值时，
-// CallTool 才会把 blob 当文本渲染，默认输出与历史逐字节一致。
+// 接线默认开启：CallTool 把文本型 blob 当文本渲染，仅显式设置
+// ARGENT_MCP_BLOB_TEXT 为假值词（0/false/no/off）时关闭，回到历史行为。
 
 const (
-	// blobTextEnv 是 blob 文本渲染的选择加入开关。
+	// blobTextEnv 是 blob 文本渲染的门控开关，默认开启、假值词关闭。
 	blobTextEnv = "ARGENT_MCP_BLOB_TEXT"
 
 	// maxBlobMimeDisplayLen 限制占位符中 mime 的显示长度，
@@ -87,15 +86,19 @@ func sanitizeBlobMime(mime string) string {
 	return b.String()
 }
 
-// blobTextEnabled 报告是否选择加入 blob 文本渲染。
-// 未设置、空值或无法解析为真值时返回 false（默认关闭），
-// 因此 CallTool 的默认行为与既有实现逐字节一致。
+// blobTextEnabled 报告是否启用 blob 文本渲染。默认开启：仅当环境变量为
+// 假值词（0/false/no/off，忽略大小写与首尾空白）时关闭，以保留用户显式
+// 关掉的意图；未设置、空串及其它值一律启用。
 func blobTextEnabled() bool {
-	on, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(blobTextEnv)))
-	return err == nil && on
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(blobTextEnv))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
-// blobTextFromResource 是 CallTool 侧的选择加入适配器：解码嵌入资源的
+// blobTextFromResource 是 CallTool 侧的适配器：解码嵌入资源的
 // blob 后交给 blobAsText 渲染。非法 base64 不会让调用失败——降级为
 // 安全的二进制占位符（字节数记 0），与既有产物写入的静默失败一致。
 func blobTextFromResource(resource ResourceContent) string {

@@ -8,11 +8,17 @@ import (
 )
 
 func TestHookLifecycleEnabled(t *testing.T) {
-	if hookLifecycleEnabled(func(string) string { return "" }) {
-		t.Fatal("default off")
+	if !hookLifecycleEnabled(nil) {
+		t.Fatal("nil env must default to on")
 	}
-	if !hookLifecycleEnabled(func(string) string { return "1" }) {
+	if !hookLifecycleEnabled(func(string) string { return "" }) {
+		t.Fatal("default on")
+	}
+	if !hookLifecycleEnabled(func(string) string { return " 1 " }) {
 		t.Fatal("env=1 on")
+	}
+	if hookLifecycleEnabled(func(string) string { return " 0 " }) {
+		t.Fatal("env=0 off")
 	}
 }
 

@@ -7,15 +7,15 @@ import (
 	"unicode/utf8"
 )
 
-// TestToolPruneEnvOptInValues 验证只有 "1"（允许首尾空白）开启裁剪，
-// 与其它 opt-in 变量的语义保持一致。
-func TestToolPruneEnvOptInValues(t *testing.T) {
+// TestToolPruneEnvValues 验证默认开启、仅显式 "0"（允许首尾空白）关闭的语义，
+// 与其它默认化门控保持一致。
+func TestToolPruneEnvValues(t *testing.T) {
 	for _, tc := range []struct {
 		value string
 		want  bool
 	}{
-		{"1", true}, {" 1 ", true},
-		{"", false}, {"0", false}, {"true", false}, {"yes", false},
+		{"", true}, {"  ", true}, {"1", true}, {"true", true}, {"yes", true},
+		{"0", false}, {" 0 ", false},
 	} {
 		t.Setenv(toolPruneEnv, tc.value)
 		if got := toolPruneEnabled(); got != tc.want {
@@ -24,15 +24,17 @@ func TestToolPruneEnvOptInValues(t *testing.T) {
 	}
 }
 
-// TestToolPruneOffIsByteForByteBaseline 验证 opt-in 关闭时 Messages() 逐字节保持旧行为：
+// TestToolPruneOffIsByteForByteBaseline 验证 =0 关闭时 Messages() 逐字节保持旧行为：
 // 超长工具结果原样保留（无裁剪标记）、思考文本原样保留、工具配对照旧协调。
 // 同时确认底层 JSONL 不被改写、重复读取完全一致。
 func TestToolPruneOffIsByteForByteBaseline(t *testing.T) {
 	long := strings.Repeat("A", 40) + strings.Repeat("M", 40) + strings.Repeat("Z", 40)
-	for _, value := range []string{"", "0", "false", "yes"} {
+	for _, value := range []string{"0", " 0 "} {
 		t.Run("off_"+value, func(t *testing.T) {
 			t.Setenv(toolPruneEnv, value)
 			t.Setenv(budgetProjectionEnv, "0")
+			// foveated 归档默认开启；这里隔离出裁剪行为，避免小预算触发多保真视图。
+			t.Setenv(foveatedArchiveEnv, "0")
 			t.Setenv(budgetProjectionBudgetEnv, "20") // 若误开裁剪，必然触发
 			sess := newTestSession(t, t.TempDir(), "prune-off")
 			if err := sess.Append(KindUser, "hello"); err != nil {
@@ -49,13 +51,13 @@ func TestToolPruneOffIsByteForByteBaseline(t *testing.T) {
 				t.Fatalf("len(Messages) = %d, want 4: %+v", len(got), got)
 			}
 			if got[3].Role != "tool" || got[3].Content != long {
-				t.Fatalf("opt-in off must keep tool result verbatim: %+v", got[3])
+				t.Fatalf("=0 off must keep tool result verbatim: %+v", got[3])
 			}
 			if strings.Contains(got[3].Content, pruneMarkerToken) {
-				t.Fatal("prune marker present while opt-in off")
+				t.Fatal("prune marker present while =0 off")
 			}
 			if got[1].Reasoning != "secret" || got[1].ReasoningSignature != "sig" {
-				t.Fatalf("opt-in off must keep reasoning verbatim: %+v", got[1])
+				t.Fatalf("=0 off must keep reasoning verbatim: %+v", got[1])
 			}
 			// 重复读取一致，且读取不会改写持久化的工具结果。
 			again := sess.Messages()
@@ -67,11 +69,12 @@ func TestToolPruneOffIsByteForByteBaseline(t *testing.T) {
 	}
 }
 
-// TestToolPruneAloneShortensLongToolResult 验证单独开启裁剪（投影关闭）时，
-// 超长工具结果被缩短并带上幂等标记，而投影特有的思考清理不发生——两个 opt-in 独立。
+// TestToolPruneAloneShortensLongToolResult 验证默认开启裁剪（投影关闭）时，
+// 超长工具结果被缩短并带上幂等标记，而投影特有的思考清理不发生——两个门控独立。
 func TestToolPruneAloneShortensLongToolResult(t *testing.T) {
-	t.Setenv(toolPruneEnv, "1")
+	t.Setenv(toolPruneEnv, "")
 	t.Setenv(budgetProjectionEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	t.Setenv(budgetProjectionBudgetEnv, "20")
 	content := strings.Repeat("A", 20) + strings.Repeat("M", 40) + strings.Repeat("Z", 20)
 	sess := newTestSession(t, t.TempDir(), "prune-alone")
@@ -95,7 +98,7 @@ func TestToolPruneAloneShortensLongToolResult(t *testing.T) {
 	if toolEntry.Content != want {
 		t.Fatalf("pruned tool content = %q, want %q", toolEntry.Content, want)
 	}
-	// 投影关闭：思考文本不应被清理，证明两个 opt-in 互不影响。
+	// 投影关闭：思考文本不应被清理，证明两个门控互不影响。
 	foundReasoning := false
 	for _, entry := range got {
 		if entry.Role == "assistant" && entry.Reasoning == "secret" && entry.ReasoningSignature == "sig" {
@@ -109,7 +112,7 @@ func TestToolPruneAloneShortensLongToolResult(t *testing.T) {
 	assertPersistedToolContent(t, sess, "c1", content)
 }
 
-// TestToolPruneStackedOrderPruneBeforeProject 验证两个 opt-in 叠加时顺序为
+// TestToolPruneStackedOrderPruneBeforeProject 验证两个门控叠加时顺序为
 // prune → project → ReconcileToolPairs，而非 project → prune。
 //
 // 构造：一条超长的工具结果排在其调用者之前，调用者同时声明一个未配对的活尾 id，
@@ -120,6 +123,7 @@ func TestToolPruneAloneShortensLongToolResult(t *testing.T) {
 func TestToolPruneStackedOrderPruneBeforeProject(t *testing.T) {
 	t.Setenv(toolPruneEnv, "1")
 	t.Setenv(budgetProjectionEnv, "1")
+	t.Setenv(foveatedArchiveEnv, "0")
 	const budget = 60
 	t.Setenv(budgetProjectionBudgetEnv, "60")
 
@@ -167,6 +171,7 @@ func TestToolPruneStackedOrderPruneBeforeProject(t *testing.T) {
 func TestToolPruneKeepsLiveToolTail(t *testing.T) {
 	t.Setenv(toolPruneEnv, "1")
 	t.Setenv(budgetProjectionEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	t.Setenv(budgetProjectionBudgetEnv, "20")
 	long := strings.Repeat("A", 15) + strings.Repeat("M", 40) + strings.Repeat("Z", 15)
 	sess := newTestSession(t, t.TempDir(), "prune-tail")
@@ -209,6 +214,7 @@ func TestToolPruneKeepsLiveToolTail(t *testing.T) {
 func TestToolPruneRuneSafeCJK(t *testing.T) {
 	t.Setenv(toolPruneEnv, "1")
 	t.Setenv(budgetProjectionEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	t.Setenv(budgetProjectionBudgetEnv, "9")
 	content := "界世界🙂🚀" + strings.Repeat("中", 20) + "文🙂🚀界" // 29 rune
 	sess := newTestSession(t, t.TempDir(), "prune-cjk")

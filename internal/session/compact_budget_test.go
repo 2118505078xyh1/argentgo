@@ -58,6 +58,9 @@ func TestKeepForBudgetAndCutForBudget(t *testing.T) {
 }
 
 func TestCompactBudgetKeepsTokenDerivedTail(t *testing.T) {
+	// 本测试锁定压缩预算行为；关闭默认开启的 schema 补全与多保真视图以隔离变量。
+	t.Setenv(summarySchemaEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	dir := t.TempDir()
 	sess := newTestSession(t, dir, "compact-budget")
 	for _, text := range []string{

@@ -147,18 +147,18 @@ func TestBinaryContentPlaceholderFormat(t *testing.T) {
 }
 
 func TestBlobTextEnabled(t *testing.T) {
-	// 默认关闭：未设置、空值、假值或无法解析的值都不启用。
-	for _, value := range []string{"", "   ", "false", "0", "off", "garbage"} {
-		t.Setenv(blobTextEnv, value)
-		if blobTextEnabled() {
-			t.Errorf("blobTextEnabled(%q) = true, want false", value)
-		}
-	}
-	// 真值启用。
-	for _, value := range []string{"1", "true", "TRUE", "t", "True"} {
+	// 默认开启：未设置、空串及其它非假值词都启用。
+	for _, value := range []string{"", "   ", "1", "true", "TRUE", "t", "garbage"} {
 		t.Setenv(blobTextEnv, value)
 		if !blobTextEnabled() {
 			t.Errorf("blobTextEnabled(%q) = false, want true", value)
+		}
+	}
+	// 假值词关闭（保留显式关掉的意图）。
+	for _, value := range []string{"0", " 0 ", "false", "FALSE", "off", " OFF ", "no"} {
+		t.Setenv(blobTextEnv, value)
+		if blobTextEnabled() {
+			t.Errorf("blobTextEnabled(%q) = true, want false", value)
 		}
 	}
 }
@@ -189,7 +189,8 @@ func TestBlobTextFromResource(t *testing.T) {
 }
 
 func TestCallToolBlobTextOptIn(t *testing.T) {
-	// 选择加入时，文本型 blob 当文本用，二进制 blob 输出占位符。
+	// 开启时（默认行为，这里显式设 1 锁定开启分支），文本型 blob 当文本用，
+	// 二进制 blob 输出占位符。
 	t.Setenv(blobTextEnv, "1")
 	t.Setenv(blobArtifactDirEnv, "")
 

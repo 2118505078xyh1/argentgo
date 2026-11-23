@@ -12,6 +12,8 @@ import (
 // TestCheckoutAppendsToBranchWithoutCopying 验证 Checkout 到中间记录后，
 // 新的追加挂到该分叉下，而不是复制历史或继续接在原来的叶节点之后。
 func TestCheckoutAppendsToBranchWithoutCopying(t *testing.T) {
+	// 分支摘要默认开启；这里只验证 checkout 拓扑，关闭摘要避免额外记录。
+	t.Setenv(branchSummaryEnv, "0")
 	s := newTestSession(t, t.TempDir(), "checkout-branch")
 
 	first, err := s.AppendRecord(KindUser, "first")
@@ -120,6 +122,7 @@ func TestCheckoutRejectsInvalidEntry(t *testing.T) {
 // TestCheckoutConcurrentWithAppend 验证 Checkout 与并发 Append/读取可以安全共存：
 // 不 panic、记录数准确、每条记录的 parent 都在文件内，且活动叶始终指向有效记录。
 func TestCheckoutConcurrentWithAppend(t *testing.T) {
+	t.Setenv(branchSummaryEnv, "0")
 	s := newTestSession(t, t.TempDir(), "checkout-concurrent")
 
 	const (
@@ -199,6 +202,7 @@ func TestCheckoutConcurrentWithAppend(t *testing.T) {
 // TestOpenSessionAt 验证 Store.OpenSessionAt 打开会话后立即切换到指定记录，
 // 后续追加挂到该记录之下。
 func TestOpenSessionAt(t *testing.T) {
+	t.Setenv(branchSummaryEnv, "0")
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

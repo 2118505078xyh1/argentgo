@@ -23,19 +23,20 @@ func retryOmitNotices(s *eventSink) []string {
 	return out
 }
 
-// TestRetryOmitEnabledGate 锁定独立门控：只有修剪空白后精确等于 "1" 才开启。
+// TestRetryOmitEnabledGate 锁定独立门控：默认开启，仅修剪空白后精确等于 "0" 才关闭。
 func TestRetryOmitEnabledGate(t *testing.T) {
 	tests := []struct {
 		name string
 		val  string
 		want bool
 	}{
-		{name: "空值关闭", val: "", want: false},
+		{name: "空值开启", val: "", want: true},
 		{name: "0 关闭", val: "0", want: false},
-		{name: "true 关闭", val: "true", want: false},
-		{name: "01 关闭", val: "01", want: false},
+		{name: "true 开启", val: "true", want: true},
+		{name: "01 开启", val: "01", want: true},
 		{name: "1 开启", val: "1", want: true},
 		{name: "首尾空白的 1 开启", val: " \t1\n ", want: true},
+		{name: "首尾空白的 0 关闭", val: " \t0\n ", want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,8 +114,8 @@ func TestRetryOmitDelay(t *testing.T) {
 	}
 }
 
-// TestChatWithFallbackRetryOmit 端到端覆盖：默认路径不省略且零延时（即使配置了
-// 极长退避也在 ctx 超时前完成），开启后回调按轮次被调用一次，回调报错也不改变重试结果。
+// TestChatWithFallbackRetryOmit 端到端覆盖：=0 关闭路径不省略且零延时（即使配置了
+// 极长退避也在 ctx 超时前完成），默认开启后回调按轮次被调用一次，回调报错也不改变重试结果。
 func TestChatWithFallbackRetryOmit(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -124,9 +125,9 @@ func TestChatWithFallbackRetryOmit(t *testing.T) {
 		wantHook   int
 		wantNotice bool
 	}{
-		{name: "默认关闭不省略不退避", env: "", baseDelay: 2 * time.Second, wantHook: 0},
-		{name: "开启后省略并退避", env: "1", baseDelay: time.Millisecond, wantHook: 1},
-		{name: "回调报错仍继续重试", env: "1", baseDelay: time.Millisecond, hookErr: errors.New("edit failed"), wantHook: 1, wantNotice: true},
+		{name: "=0 关闭不省略不退避", env: "0", baseDelay: 2 * time.Second, wantHook: 0},
+		{name: "默认开启省略并退避", env: "", baseDelay: time.Millisecond, wantHook: 1},
+		{name: "回调报错仍继续重试", env: "", baseDelay: time.Millisecond, hookErr: errors.New("edit failed"), wantHook: 1, wantNotice: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,7 +192,7 @@ func TestChatWithFallbackRetryOmit(t *testing.T) {
 // TestChatWithFallbackRetryOmitAbortOnCancel 验证退避可被 ctx 取消：在回调里取消
 // ctx 后，退避立即返回且不再发起第二次模型请求。
 func TestChatWithFallbackRetryOmitAbortOnCancel(t *testing.T) {
-	t.Setenv("ARGENT_RETRY_OMIT", "1")
+	t.Setenv("ARGENT_RETRY_OMIT", "")
 	origBase := retryOmitBaseDelay
 	defer func() { retryOmitBaseDelay = origBase }()
 	// 极长退避：若取消未生效，测试会挂到 go test 超时而不是快速失败。

@@ -328,7 +328,7 @@ func (s *runState) injectSteering(extra ...string) bool {
 }
 
 // injectSteeringWithNudge 与 injectSteering 相同，但 one-off 的 extra 文本
-// 在 opt-in 开启时携带压缩存活标记。排队的 steering 消息不受影响。
+// 默认开启时携带压缩存活标记（ARGENT_RETAIN_GUIDANCE=0 关闭）。排队的 steering 消息不受影响。
 func (s *runState) injectSteeringWithNudge(extra ...string) bool {
 	return s.injectSteeringAs(nudgePayload, extra...)
 }

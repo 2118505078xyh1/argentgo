@@ -254,7 +254,7 @@ func TestBuildContinuationBriefDeterministic(t *testing.T) {
 	}
 }
 
-// TestContinuationBriefEnabled 确认 env 门控 nil 安全且仅 "1" 开启（默认关闭）。
+// TestContinuationBriefEnabled 确认 env 门控默认开启，仅 "0" 紧急关闭。
 func TestContinuationBriefEnabled(t *testing.T) {
 	envOf := func(m map[string]string) func(string) string {
 		return func(k string) string { return m[k] }
@@ -264,12 +264,13 @@ func TestContinuationBriefEnabled(t *testing.T) {
 		env  func(string) string
 		want bool
 	}{
-		{"nil env 安全关闭", nil, false},
-		{"变量缺失", envOf(map[string]string{}), false},
+		{"nil env 默认开启", nil, true},
+		{"变量缺失默认开启", envOf(map[string]string{}), true},
 		{"值为 1", envOf(map[string]string{continuationBriefEnvKey: "1"}), true},
 		{"值带空白 1", envOf(map[string]string{continuationBriefEnvKey: " 1 "}), true},
-		{"值为 0", envOf(map[string]string{continuationBriefEnvKey: "0"}), false},
-		{"值为 true 不算开启", envOf(map[string]string{continuationBriefEnvKey: "true"}), false},
+		{"值为 0 关闭", envOf(map[string]string{continuationBriefEnvKey: "0"}), false},
+		{"带空白的 0 关闭", envOf(map[string]string{continuationBriefEnvKey: " \t0\n"}), false},
+		{"其他值保持开启", envOf(map[string]string{continuationBriefEnvKey: "true"}), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

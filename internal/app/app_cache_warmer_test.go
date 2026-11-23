@@ -5,28 +5,31 @@ import (
 	"time"
 )
 
-func TestCacheWarmerEnabledOptIn(t *testing.T) {
-	if cacheWarmerEnabled(nil) {
-		t.Fatal("nil env must default to disabled")
+func TestCacheWarmerEnabledDefaultOn(t *testing.T) {
+	if !cacheWarmerEnabled(nil) {
+		t.Fatal("nil env must default to enabled")
 	}
-	if cacheWarmerEnabled(envFrom(nil)) {
-		t.Fatal("empty env must default to disabled")
+	if !cacheWarmerEnabled(envFrom(nil)) {
+		t.Fatal("empty env must default to enabled")
 	}
 	if !cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": "1"})) {
-		t.Fatal("ARGENT_CACHE_WARM=1 must opt in")
+		t.Fatal("ARGENT_CACHE_WARM=1 keeps the warmer enabled")
 	}
-	if !cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": " 1 "})) {
-		t.Fatal("whitespace around 1 must be tolerated")
+	if !cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": "yes"})) {
+		t.Fatal("any value except 0 keeps the warmer enabled")
 	}
-	if cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": "yes"})) {
-		t.Fatal("only the literal 1 opts in")
+	if cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": "0"})) {
+		t.Fatal("ARGENT_CACHE_WARM=0 must disable")
+	}
+	if cacheWarmerEnabled(envFrom(map[string]string{"ARGENT_CACHE_WARM": " 0 "})) {
+		t.Fatal("whitespace around 0 must be tolerated")
 	}
 }
 
-func TestNewCacheWarmerDefaultsDisabled(t *testing.T) {
+func TestNewCacheWarmerExplicitlyDisabled(t *testing.T) {
 	w := newCacheWarmer(false)
 	if w == nil || w.Enabled {
-		t.Fatalf("default warmer must exist and be disabled: %+v", w)
+		t.Fatalf("explicitly disabled warmer must exist and be disabled: %+v", w)
 	}
 	// 禁用的预热器即使在记录请求很久之后也保持惰性。
 	now := time.Now()

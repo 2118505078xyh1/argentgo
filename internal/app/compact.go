@@ -49,12 +49,12 @@ type sessionCompactor struct {
 	summaryModel string
 	emit         func(agent.Event)
 
-	// 压缩事件钩子（opt-in ARGENT_COMPACTION_HOOK，默认关闭）。fireHook 为 nil
-	// 或 compactionHook 为 false 时整段跳过，压缩路径逐字节不变。
+	// 压缩事件钩子（ARGENT_COMPACTION_HOOK 默认开启，=0 关闭）。fireHook 为 nil
+	// 或 compactionHook 为 false 时整段跳过。
 	fireHook       func(context.Context, hooks.Event, hooks.Payload) (hooks.Result, error)
 	compactionHook bool
 
-	// env 由 Execute 注入，供压缩期读取 opt-in 开关；nil 时所有 opt-in 关闭。
+	// env 由 Execute 注入，供压缩期读取门控开关；nil 时按默认开启处理。
 	env func(string) string
 
 	// summaryTools 是上次请求的工具表，供 #2 前缀复用原样回放以命中 KV 缓存。
@@ -72,10 +72,10 @@ func newSessionCompactorWithOpts(res Resolved, sess *session.Session, reg *OptIn
 	return &sessionCompactor{res: res, sess: sess, reg: reg}
 }
 
-// compactionTodoEnabled 报告压缩快照是否包含 todo。默认关闭：
-// 只有 ARGENT_COMPACTION_TODO=1 才启用，其他值压缩记录逐字节不变。
+// compactionTodoEnabled 报告压缩快照是否包含 todo。默认开启，仅当
+// ARGENT_COMPACTION_TODO=0（允许首尾空白）时紧急关闭。
 func compactionTodoEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_COMPACTION_TODO")) == "1"
+	return env == nil || strings.TrimSpace(env("ARGENT_COMPACTION_TODO")) != "0"
 }
 
 // readSessionTodos 读取会话的 todos.json 并渲染为有界的 [x]/[>]/[ ] 行。
@@ -473,7 +473,7 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	if start <= 0 {
 		return messages, false
 	}
-	// 压缩前钩子（opt-in ARGENT_COMPACTION_HOOK）：PreCompact 返回 blocked
+	// 压缩前钩子（ARGENT_COMPACTION_HOOK 默认开启，=0 关闭）：PreCompact 返回 blocked
 	// 时放弃本次压缩并发出可解释的公告，消息与会话都不变（零写入）。
 	if c.compactionHook && c.fireHook != nil {
 		result, err := c.fireHook(context.Background(), hooks.PreCompact, hooks.Payload{
@@ -495,7 +495,7 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// 并让 Summarize 从被丢弃的条目中提取工具失败记录。
 	// dropped 与 reg 供 opt-in 压缩 wire 使用；reg 为 nil（测试/默认）时三 wire 关闭，逐字节不变。
 	evidence := agent.CollectCompactionEvidence(nil, messages)
-	// 失败信号压缩证据（opt-in ARGENT_FAILURE_SIGNALS，默认关闭）：
+	// 失败信号压缩证据（ARGENT_FAILURE_SIGNALS 默认开启，=0 关闭）：
 	// 从工具结果与消息文本中提取 is_error / 非零 exit / timed out / 失败词信号，
 	// 与事件来源的失败合并。关闭时 FailureSignalsForCompaction 返回零值证据。
 	if failureSignalsEnabled(c.env) {
@@ -510,7 +510,7 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 		evidence.Failures = append(evidence.Failures, extra.Failures...)
 	}
 	enrichCompaction(&compaction, evidence, entries[:start], c.reg)
-	// todo 状态快照（opt-in ARGENT_COMPACTION_TODO，默认关闭）：把会话任务列表
+	// todo 状态快照（ARGENT_COMPACTION_TODO 默认开启，=0 关闭）：把会话任务列表
 	// 以 [x]/[>]/[ ] 行写入压缩记录并镜像进摘要，使恢复后的模型知道任务进度。
 	if compactionTodoEnabled(c.env) {
 		compaction.Todo = readSessionTodos(c.sess)
@@ -798,7 +798,7 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	window, configured, percent := compactionInputs(res)
 	estimate := estimateContextTokens(messages, anchor)
 	threshold, compact := compactionDecision(estimate, window, configured, percent)
-	// 上下文计量校准（opt-in ARGENT_CONTEXT_CALIBRATION）：用最近助手的原生
+	// 上下文计量校准（ARGENT_CONTEXT_CALIBRATION 默认开启，=0 关闭）：用最近助手的原生
 	// totalTokens 作为实测锚点，钳制低估系数后重新判定。无锚点时保持原决策。
 	if contextCalibrationEnabled() && anchor.tokens > 0 {
 		threshold, compact = compactionDecisionCalibrated(estimate, window, configured, percent, anchor.tokens)

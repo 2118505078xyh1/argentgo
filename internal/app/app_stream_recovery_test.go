@@ -11,20 +11,21 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
-// TestStreamRecoveryEnabledOptIn 覆盖 env 门的所有取值：仅 ARGENT_STREAM_RECOVERY=1
-// （允许首尾空白）开启，nil / 缺失 / 其它值一律关闭。
-func TestStreamRecoveryEnabledOptIn(t *testing.T) {
+// TestStreamRecoveryEnabledDefaultOn 覆盖 env 门的所有取值：默认开启，
+// 仅 ARGENT_STREAM_RECOVERY=0（允许首尾空白）时紧急关闭。
+func TestStreamRecoveryEnabledDefaultOn(t *testing.T) {
 	cases := []struct {
 		name string
 		env  func(string) string
 		want bool
 	}{
-		{name: "nil 读取器关闭", env: nil, want: false},
-		{name: "缺失关闭", env: envFrom(map[string]string{}), want: false},
-		{name: "空值关闭", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": ""}), want: false},
+		{name: "nil 读取器默认开启", env: nil, want: true},
+		{name: "缺失默认开启", env: envFrom(map[string]string{}), want: true},
+		{name: "空值默认开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": ""}), want: true},
 		{name: "0 关闭", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "0"}), want: false},
-		{name: "true 关闭", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "true"}), want: false},
-		{name: "01 关闭", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "01"}), want: false},
+		{name: "带空白的 0 关闭", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "\t 0 \n"}), want: false},
+		{name: "true 保持开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "true"}), want: true},
+		{name: "01 保持开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "01"}), want: true},
 		{name: "1 开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "1"}), want: true},
 		{name: "首尾空格的 1 开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": " 1 "}), want: true},
 		{name: "制表换行的 1 开启", env: envFrom(map[string]string{"ARGENT_STREAM_RECOVERY": "\t1\n"}), want: true},
@@ -114,9 +115,9 @@ func runWithStreamRecovery(t *testing.T, value string) (*recoveryChatter, []agen
 	return chat, emitted
 }
 
-// TestExecuteStreamRecoveryWiring 是端到端接线证明：ARGENT_STREAM_RECOVERY=1 时
-// app 把 EnableStreamRecovery 注入 agent.Options，流中断后触发 ChatOnce 并发布
-// stream_recovery 重试事件；未设置时恢复分支短路，ChatOnce 不被调用。
+// TestExecuteStreamRecoveryWiring 是端到端接线证明：默认开启时 app 把
+// EnableStreamRecovery 注入 agent.Options，流中断后触发 ChatOnce 并发布
+// stream_recovery 重试事件；=0 时恢复分支短路，ChatOnce 不被调用。
 func TestExecuteStreamRecoveryWiring(t *testing.T) {
 	t.Run("开启时触发非流式回补", func(t *testing.T) {
 		chat, emitted := runWithStreamRecovery(t, "1")
@@ -132,8 +133,8 @@ func TestExecuteStreamRecoveryWiring(t *testing.T) {
 		}
 	})
 
-	t.Run("关闭基线不触发回补", func(t *testing.T) {
-		chat, emitted := runWithStreamRecovery(t, "")
+	t.Run("=0 关闭基线不触发回补", func(t *testing.T) {
+		chat, emitted := runWithStreamRecovery(t, "0")
 		_, onceCalls := chat.counts()
 		if onceCalls != 0 {
 			t.Fatalf("关闭时 ChatOnce 调用次数 = %d, want 0", onceCalls)

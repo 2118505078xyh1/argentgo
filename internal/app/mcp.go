@@ -28,14 +28,14 @@ const mcpConnectTimeout = 5 * time.Second
 // connectMCP 是 MCP 传输工厂。生产环境使用包默认值；测试会替换它，使不会启动真实的 MCP 进程。
 var connectMCP = mcp.Connect
 
-// mcpHealthEnabled 报告是否开启 MCP 运行时健康接线。env 为 nil 时退化为 os.Getenv；
-// 仅首尾空白修剪后等于 "1" 才开启。默认（未设置）为 false，整段接线零调用。
+// mcpHealthEnabled 报告是否开启 MCP 运行时健康接线。getenv 为 nil 时退化为 os.Getenv；
+// 默认开启，仅当首尾空白修剪后等于 "0" 时紧急关闭。
 // 通过注入 getenv 使测试能在不读进程环境的情况下精确控制两态。
 func mcpHealthEnabled(getenv func(string) string) bool {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	return strings.TrimSpace(getenv(mcp.MCPHealthEnv)) == "1"
+	return strings.TrimSpace(getenv(mcp.MCPHealthEnv)) != "0"
 }
 
 // mcpGatewayEnabled 报告是否开启单网关模式（ARGENT_MCP_GATEWAY=1）。
@@ -90,8 +90,8 @@ type toolset struct {
 	// 使每条命令经由 base.Run（安全审批链）执行。
 	skillShellRun func(context.Context, string) (string, error)
 
-	// health 聚合各 MCP 客户端的运行时健康快照。仅当 ARGENT_MCP_HEALTH 开启时
-	// 分配；默认 nil 时 connect 不设置 Spec.HealthTracking，也不写任何文件。
+	// health 聚合各 MCP 客户端的运行时健康快照。默认开启即分配；
+	// ARGENT_MCP_HEALTH=0 时为 nil，connect 不设置 Spec.HealthTracking，也不写任何文件。
 	health *mcp.HealthAggregator
 	// healthFile 是健康快照的落盘路径（来自 Resolved.Storage）。仅在 health 非 nil
 	// 且路径非空时写入，使未配置存储目录的运行不会因无法落盘而改变行为。
@@ -323,8 +323,9 @@ func newToolset(ctx context.Context, stdio cli.IO, res Resolved, sess *session.S
 		set.gatewayRes = res
 		set.gatewayAnnotationApproval = mcpAnnotationApprovalEnabled(stdio.Env)
 	}
-	// opt-in 默认关闭：未开启时 health 保持 nil，connect 不设置 Spec.HealthTracking，
-	// mcp 客户端不分配 HealthTracker，discoverTools 的观测路径零执行。
+	// 默认开启：health 默认分配，connect 设置 Spec.HealthTracking；
+	// ARGENT_MCP_HEALTH=0 时 health 保持 nil，mcp 客户端不分配 HealthTracker，
+	// discoverTools 的观测路径零执行。
 	if mcpHealthEnabled(stdio.Env) {
 		set.health = &mcp.HealthAggregator{}
 		if strings.TrimSpace(res.Storage) != "" {
@@ -541,8 +542,8 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 	attemptCtx, cancel := context.WithTimeout(ctx, mcpConnectTimeout)
 	defer cancel()
 
-	// opt-in 开启时把健康观测接到这一台客户端：mcp.Connect 只按 Spec.HealthTracking
-	// 决定是否挂接 HealthTracker，默认（app 未设置）时该字段为 false、零观测。
+	// 门控开启时把健康观测接到这一台客户端：mcp.Connect 只按 Spec.HealthTracking
+	// 决定是否挂接 HealthTracker；ARGENT_MCP_HEALTH=0 时该字段为 false、零观测。
 	if t.health != nil {
 		server.HealthTracking = true
 	}
@@ -560,7 +561,7 @@ func (t *toolset) connect(ctx context.Context, stdio cli.IO, server mcp.Spec) {
 			_ = client.Close()
 		}
 		// 连接/握手/发现失败也是运行时健康信息：记录一条不健康快照，使 doctor
-		// 能报出失败服务名与 LastError。未开启 opt-in 时 t.health 为 nil，整段空操作。
+		// 能报出失败服务名与 LastError。=0 关闭时 t.health 为 nil，整段空操作。
 		if t.health != nil {
 			t.health.Observe(server.Name, mcp.HealthSnapshot{
 				Healthy:   false,
@@ -760,8 +761,8 @@ func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 // HealthReporter 拉取最新快照（纯内存同步、不发起任何 I/O），再聚合为独立副本；
 // 调用方修改返回报告不会影响工具集内部状态。
 //
-// opt-in 关闭（t.health 为 nil）时返回空报告（OverallHealthy=true、Servers 为空），
-// 不触碰任何客户端，保证默认路径逐字节不变。
+// =0 关闭（t.health 为 nil）时返回空报告（OverallHealthy=true、Servers 为空），
+// 不触碰任何客户端。
 func (t *toolset) MCPHealthReport() mcp.MCPHealthReport {
 	if t.health == nil {
 		return mcp.MCPHealthReport{OverallHealthy: true}
@@ -771,7 +772,7 @@ func (t *toolset) MCPHealthReport() mcp.MCPHealthReport {
 }
 
 // writeMCPHealthReport 把最新健康快照持久化到存储目录，供下一次 `doctor` 进程读取。
-// 它只在 opt-in 开启且已配置落盘路径时生效；写失败被刻意吞掉，绝不改变关闭流程。
+// 它只在门控开启且已配置落盘路径时生效；写失败被刻意吞掉，绝不改变关闭流程。
 // 空报告（没有任何服务被观测）不写文件，使默认健康运行不留下任何副作用。
 func (t *toolset) writeMCPHealthReport() {
 	if t.health == nil || t.healthFile == "" {
@@ -791,7 +792,7 @@ func (t *toolset) writeMCPHealthReport() {
 	_ = os.WriteFile(t.healthFile, data, 0o600)
 }
 
-// Close 释放每一个 MCP 客户端。opt-in 开启时先聚合并落盘健康快照，再 Untrack
+// Close 释放每一个 MCP 客户端。门控开启时先聚合并落盘健康快照，再 Untrack
 // 各客户端；顺序保证报告包含最后一次观测，且不会因后续关闭而丢失。
 func (t *toolset) Close() error {
 	t.mcpMu.Lock()

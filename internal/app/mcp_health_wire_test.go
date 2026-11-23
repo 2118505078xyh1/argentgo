@@ -26,18 +26,21 @@ type healthFakeClient struct {
 
 func (f *healthFakeClient) HealthSnapshot() mcp.HealthSnapshot { return f.snap }
 
-// TestMCPHealthEnabled 表驱动锁定 opt-in 判定：仅首尾空白修剪后等于 "1" 才开启，
-// env 为 nil 时退化为 os.Getenv（默认未设置即关闭）。
+// TestMCPHealthEnabled 表驱动锁定门控判定：默认开启，仅首尾空白修剪后等于
+// "0" 才关闭；getenv 为 nil 时退化为 os.Getenv。
 func TestMCPHealthEnabled(t *testing.T) {
+	// nil env 分支走 os.Getenv，显式清空以保证判定只依赖"未设置即开启"。
+	t.Setenv(mcp.MCPHealthEnv, "")
 	tests := []struct {
 		name   string
 		getenv func(string) string
 		want   bool
 	}{
-		{name: "nil env", getenv: nil, want: false},
-		{name: "unset", getenv: func(string) string { return "" }, want: false},
-		{name: "zero", getenv: func(string) string { return "0" }, want: false},
-		{name: "true literal", getenv: func(string) string { return "true" }, want: false},
+		{name: "nil env 默认开启", getenv: nil, want: true},
+		{name: "unset 默认开启", getenv: func(string) string { return "" }, want: true},
+		{name: "zero 关闭", getenv: func(string) string { return "0" }, want: false},
+		{name: "padded zero 关闭", getenv: func(string) string { return " \t0\n" }, want: false},
+		{name: "true literal 保持开启", getenv: func(string) string { return "true" }, want: true},
 		{name: "one", getenv: func(string) string { return "1" }, want: true},
 		{name: "padded one", getenv: func(string) string { return " \t1\n" }, want: true},
 	}
@@ -165,8 +168,8 @@ func TestToolsetHealthDefaultOff(t *testing.T) {
 	}
 }
 
-// TestNewToolsetHealthOptIn 验证装配层：env 开启时分配聚合器、healthFile 指向存储目录，
-// 并把 HealthTracking=true 传给每一台客户端；env 关闭时两者都为空。
+// TestNewToolsetHealthOptIn 验证装配层：默认开启时分配聚合器、healthFile 指向存储目录，
+// 并把 HealthTracking=true 传给每一台客户端；=0 时两者都为空。
 func TestNewToolsetHealthOptIn(t *testing.T) {
 	root := t.TempDir()
 	res := Resolved{
@@ -183,8 +186,9 @@ func TestNewToolsetHealthOptIn(t *testing.T) {
 		env        string
 		wantHealth bool
 	}{
-		{name: "opt-in off", env: "0", wantHealth: false},
-		{name: "opt-in on", env: "1", wantHealth: true},
+		{name: "default on", env: "", wantHealth: true},
+		{name: "=0 off", env: "0", wantHealth: false},
+		{name: "=1 on", env: "1", wantHealth: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var gotSpec mcp.Spec

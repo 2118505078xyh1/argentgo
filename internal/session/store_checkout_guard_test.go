@@ -31,6 +31,7 @@ func checkoutGuardFixture(t *testing.T, store *Store) (*Session, string) {
 // TestOpenSessionAtGuardOffBaseline 验证守卫关闭（默认）时 checkout 行为不变：
 // 合法目标照常切换，且 store 上不残留守卫配置。
 func TestOpenSessionAtGuardOffBaseline(t *testing.T) {
+	t.Setenv(branchSummaryEnv, "0")
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestOpenSessionAtGuardOffBaseline(t *testing.T) {
 // TestOpenSessionAtGuardValidTargetPasses 验证守卫开启时合法目标仍然通过，
 // 且 WithCheckpointGuard 返回副本而不改动原 store。
 func TestOpenSessionAtGuardValidTargetPasses(t *testing.T) {
+	t.Setenv(branchSummaryEnv, "0")
 	store, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

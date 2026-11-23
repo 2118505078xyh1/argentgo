@@ -13,6 +13,10 @@ import (
 // TestOmissionAuthorityNotice 验证省略告示：干净会话逐字节不变；
 // 发生压缩丢消息或隐藏编辑时恰好注入一次，且不含被省略的原文。
 func TestOmissionAuthorityNotice(t *testing.T) {
+	// 摘要 schema 补全会从未压缩内容补齐小节，可能重新引入被丢弃文本；
+	// 这里锁定“丢弃内容不泄漏”，故关闭该默认化门控以隔离变量。
+	t.Setenv(summarySchemaEnv, "0")
+	t.Setenv(foveatedArchiveEnv, "0")
 	const secret = "secret-only-in-dropped-history"
 
 	t.Run("clean session unchanged", func(t *testing.T) {

@@ -10,17 +10,17 @@ func TestSubagentSharedPromptPrefix(t *testing.T) {
 	t.Cleanup(func() { SetSubagentSharedPrompt(false) })
 	parentSystem := "You are argentgo, a concise coding assistant.\nWork tree rules here."
 
-	// 默认关闭：子代理用原有模板，不含父级 system。
+	// =0 关闭：子代理用原有模板，不含父级 system。
 	SetSubagentSharedPrompt(false)
 	defaultPrompt := buildSubagentSystem(SubagentConfig{}, "review", parentSystem)
 	if strings.Contains(defaultPrompt, "Work tree rules here") {
-		t.Fatal("default-off prompt must not contain parent system")
+		t.Fatal("off prompt must not contain parent system")
 	}
 	if defaultPrompt != fmt.Sprintf(subagentTemplate, "review") {
-		t.Fatal("default-off prompt changed")
+		t.Fatal("off prompt changed")
 	}
 
-	// 开启：父级 system 必须是前缀，约束/任务标签只在末尾（缓存安全）。
+	// 默认开启：父级 system 必须是前缀，约束/任务标签只在末尾（缓存安全）。
 	SetSubagentSharedPrompt(true)
 	shared := buildSubagentSystem(SubagentConfig{}, "review", parentSystem)
 	if !strings.HasPrefix(shared, parentSystem) {

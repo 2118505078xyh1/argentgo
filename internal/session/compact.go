@@ -448,14 +448,15 @@ func estimateRunes(text string) int {
 	return wide + (narrow+3)/4
 }
 
-// summarySchemaEnv 是压缩摘要固定 schema 补全的 opt-in 环境变量。只有值恰为 "1"
-// 时 Summarize 才在产出摘要后应用 schema；默认关闭，保证既有压缩记录的字节逐字不变。
+// summarySchemaEnv 是压缩摘要固定 schema 补全的门控环境变量。默认开启
+// （固定小节让模型稳定解析摘要）；仅显式设为 "0"（允许首尾空白）时关闭。
 const summarySchemaEnv = "ARGENT_SUMMARY_SCHEMA"
 
 // summarySchemaEnabled 报告当前进程是否开启了压缩摘要 schema 补全。
-// 它在每次调用时读取环境变量，便于测试用 t.Setenv 精确控制，且不引入可变全局状态。
+// 默认开启，=0 关闭。它在每次调用时读取环境变量，便于测试用 t.Setenv
+// 精确控制，且不引入可变全局状态。
 func summarySchemaEnabled() bool {
-	return strings.TrimSpace(os.Getenv(summarySchemaEnv)) == "1"
+	return strings.TrimSpace(os.Getenv(summarySchemaEnv)) != "0"
 }
 
 // ApplySummarySchema 把 R36 交付的两个原语接到一起，作用于一段已生成的摘要：
@@ -572,8 +573,8 @@ func Summarize(dropped []Entry, keep int) Compaction {
 		Failures:  failures,
 		NextSteps: next,
 	}
-	// R36 opt-in：仅在 ARGENT_SUMMARY_SCHEMA=1 时触碰摘要；默认关闭时上面的字节
-	// 原样返回，与旧版逐字一致。补缺的小节与空摘要标记都由 ApplySummarySchema 完成。
+	// R36 门控：默认开启，按固定 schema 补齐摘要；仅 ARGENT_SUMMARY_SCHEMA=0 时
+	// 上面的字节原样返回。补缺的小节与空摘要标记都由 ApplySummarySchema 完成。
 	if summarySchemaEnabled() {
 		compaction.Summary, compaction.SummaryEmpty = ApplySummarySchema(compaction.Summary, files)
 	}
