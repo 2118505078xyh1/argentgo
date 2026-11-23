@@ -121,23 +121,33 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 	// 信号被看到，导致首次续读仍报 still_running=true；最多再读几次直到进程
 	// 退出状态可见。后续读取不会重放已消费的 ready。
 	readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":2000}`, id))
-	var second string
+	var second, allTail strings.Builder
 	for attempt := 0; attempt < 4; attempt++ {
-		second, err = tool.Run(ctx, "", readRaw)
-		if err != nil {
-			t.Fatalf("read more logs: %v", err)
+		out, e := tool.Run(ctx, "", readRaw)
+		if e != nil {
+			t.Fatalf("read more logs: %v", e)
 		}
-		if strings.Contains(second, "still_running=false") {
+		second.Reset()
+		second.WriteString(out)
+		allTail.WriteString(out)
+		if strings.Contains(out, "still_running=false") {
 			break
 		}
 	}
-	for _, want := range []string{"done", "still_running=false", "exit_code=0"} {
-		if !strings.Contains(second, want) {
-			t.Fatalf("second observation missing %q: %q", want, second)
+	// 退出观察行以最后一轮为准；正文（done）可能在更早一轮被消费，
+	// 因此从所有续读轮次的累积输出里检查。
+	last := second.String()
+	for _, want := range []string{"still_running=false", "exit_code=0"} {
+		if !strings.Contains(last, want) {
+			t.Fatalf("second observation missing %q: %q", want, last)
 		}
 	}
-	if strings.Contains(second, "ready") {
-		t.Fatalf("read more should not replay consumed logs: %q", second)
+	tail := allTail.String()
+	if !strings.Contains(tail, "done") {
+		t.Fatalf("read more never surfaced done: %q", tail)
+	}
+	if strings.Contains(tail, "ready") {
+		t.Fatalf("read more should not replay consumed logs: %q", tail)
 	}
 }
 
