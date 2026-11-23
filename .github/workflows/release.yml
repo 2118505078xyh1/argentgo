@@ -61,6 +61,11 @@ jobs:
       - name: go test
         shell: pwsh
         run: |
+          # GitHub Windows runner 的 TEMP 默认是 8.3 短路径（C:\Users\RUNNER~1\...），
+          # 会让 t.TempDir() 产出的短路径与 EvalSymlinks 的长路径在比较时失配。
+          # 统一改为 USERPROFILE 下的长路径，根除这类 CI 专属失败。
+          $env:TEMP = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
+          $env:TMP = $env:TEMP
           go test ./...
           if ($LASTEXITCODE -ne 0) { throw "go test failed ($LASTEXITCODE)" }
 

@@ -43,7 +43,14 @@ jobs:
       - name: go vet
         run: go vet ./...
       - name: go test
-        run: go test ./...
+        shell: pwsh
+        run: |
+          # 与 release.yml 一致：把 TEMP/TMP 改为长路径，避免 8.3 短路径
+          # 让 t.TempDir() 路径比较在 Windows runner 上失配。
+          $env:TEMP = Join-Path $env:USERPROFILE 'AppData\Local\Temp'
+          $env:TMP = $env:TEMP
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw "go test failed ($LASTEXITCODE)" }
       # 基准测试也是测试：即使 CI 不计时，其中的断言也必须在 go test 下通过。
       # -benchtime=1x 只跑一次迭代以触发断言，避免 CI 上的计时噪声；
       # -run '^$' 跳过普通测试，只执行 benchmark。
