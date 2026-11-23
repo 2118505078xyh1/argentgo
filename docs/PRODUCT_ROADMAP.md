@@ -58,5 +58,5 @@
 **P2 进度（2026-11-23 续）**
 P2-5 完成：导航真实数据接入（用量/Git 分支/计划）已落地（`443df48`），174 native tests 全绿。
 P2-1 完成：服务端 RPC（`138e642`）+ app sessionStore 接线（`58e59f8`），session.new/rename/delete 在生产路径可用。
-P2-3 `init` 向导设计规范（`INIT_WIZARD_DESIGN.md`）已完成，实施中（cli 代理）。
+P2-3 `init` 向导完成：`argentgo init` 四步交互（provider 探测/凭据/补写配置/doctor 自检），可延后、非 TTY 明确报错，1791 tests 全绿（`ddb6634`）。
 **RPG 风格渲染改造**：用户提供 RPG Desktop 截图，要求 native 按其风格改造（三栏布局+紫色系+圆角卡片）。规范见 `GUI_STYLE_RPG.md`，实施中（native 代理）。
