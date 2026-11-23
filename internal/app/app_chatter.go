@@ -45,6 +45,28 @@ func (f *fallbackChatter) Chat(
 	return f.chatBuffered(ctx, f.fallback, messages, tools, onText)
 }
 
+// ChatRaw 把字节回放透传给底层客户端（若其实现 RawChatter）。
+// 刻意不做 fallback 重试：快照 body 里的 model 字段是固定的，切换 fallback
+// 模型却发送旧 body 会造成请求模型与声明不一致。回放失败时由 agent 清空
+// replay 状态并回退到普通 Chat，由那里正常走 fallback 链。
+func (f *fallbackChatter) ChatRaw(ctx context.Context, model string, body []byte, onText func(string)) (llm.Message, error) {
+	raw, ok := f.primary.(llm.RawChatter)
+	if !ok {
+		return llm.Message{}, errors.New("fallback chatter: primary does not support raw replay")
+	}
+	var buffered []string
+	reply, err := raw.ChatRaw(ctx, model, body, func(delta string) {
+		buffered = append(buffered, delta)
+	})
+	if err != nil || onText == nil {
+		return reply, err
+	}
+	for _, delta := range buffered {
+		onText(delta)
+	}
+	return reply, nil
+}
+
 // chatBuffered 保存某个模型的增量，直到其请求成功，然后按顺序转发。
 // 调用方切换到另一个模型时，失败尝试的增量会被丢弃；没有这一步，操作人员就会看到
 // 失败模型的文本与成功模型的答案拼接在一起。

@@ -83,6 +83,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "lsp_kill_tree", Env: "ARGENT_LSP_KILL_TREE", Name: "LSP 整树终止", Enable: "=1", Desc: "关闭语言服务器时终止整棵进程树，避免孙进程变孤儿；默认关闭时只杀直接进程。"},
 	{Key: "plugin_output_schema", Env: "ARGENT_PLUGIN_OUTPUT_SCHEMA", Name: "插件输出 schema 校验", Enable: "=1", Desc: "声明 OutputSchema 的插件工具输出必须是合法 JSON，违反时转成模型可读错误；默认关闭时不校验，内置工具不受影响。"},
 	{Key: "hook_lifecycle", Env: "ARGENT_HOOK_LIFECYCLE", Name: "生命周期 hook 事件", Enable: "=1", Desc: "把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；默认关闭时无额外 hook 调用。"},
+	{Key: "audit_sanitize", Env: "ARGENT_AUDIT_SANITIZE", Name: "审计命令脱敏", Enable: "=1", Desc: "审计日志写入前用 bash.SanitizeForLog 脱敏 reason 中的 VAR=值/口令状串；默认关闭时只走既有 RedactJSON。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},
@@ -117,6 +118,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "request_snapshot", Env: "ARGENT_REQUEST_SNAPSHOT", Name: "请求字节快照", Enable: "真值（1/true/yes/on）", Desc: "把实际发送的线协议字节追加到会话记录，用于复现审计；不参与对话视图，含完整提示需自行控制文件权限。"},
 	{Key: "subagent_shared_prompt", Env: "ARGENT_SUBAGENT_SHARED_PROMPT", Name: "子代理共享父提示", Enable: "真值（1/true/yes/on）", Desc: "子代理以父级 system prompt 为前缀、角色约束追加在末尾，使首请求复用缓存；默认关闭时行为逐字节不变。"},
 	{Key: "compact_drain", Env: "ARGENT_COMPACT_DRAIN", Name: "压缩后逐条淘汰", Enable: "真值（1/true/yes/on）", Desc: "上下文溢出压缩后仍超预算时，按缓存前缀逐条淘汰最旧非系统消息再重放；默认关闭时恢复路径逐字节不变。"},
+	{Key: "resume_byte_replay", Env: "ARGENT_RESUME_BYTE_REPLAY", Name: "resume 字节回放", Enable: "真值（1/true/yes/on），且需同时开启 ARGENT_REQUEST_SNAPSHOT", Desc: "中断提示的 resume 用最后一条请求快照的原始线协议字节重发首请求，保持缓存前缀；协议/模型漂移或快照后有回复/压缩时自动回退。默认关闭。"},
 
 	// ---- MCP / 产物 ----
 	{Key: "mcp_image_artifact", Env: "ARGENT_MCP_IMAGE_ARTIFACT", Name: "MCP image 落盘", Enable: "真值", Desc: "把 image 内容块的 base64 写入产物目录，并在占位符附上可读路径。"},

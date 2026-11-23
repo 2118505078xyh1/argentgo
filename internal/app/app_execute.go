@@ -305,6 +305,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 字节追加到会话；关闭时 ctx 不变，llm 侧钩子零副作用。
 	ctx = withRequestSnapshot(ctx, stdio.Env, sess)
 
+	// 字节回放（opt-in ARGENT_RESUME_BYTE_REPLAY）：在恢复分类可用时计算候选，
+	// 供下方 Runner 构造使用；校验失败时为 nil，回退普通 Chat 路径。
+	var replay *replayCandidate
+
 	// 在下方追加 review/context/动态上下文前缀之前，先保留调用方自己的原文。
 	// 预算声明必须只来自用户：出现在注入前缀中的 "+500k" 不算声明。
 	rawPrompt := prompt
@@ -313,6 +317,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 需要人工决定时则停止。干净的会话（常见情况）不产生通知，直接原样继续。
 	if sess != nil {
 		decision := recoveryDecisionFor(recoveryMessagesForClassification(sess.Messages()))
+		// 字节回放候选：仅在中断提示、快照有效、协议/模型一致时非空。
+		replay = replayFromSession(sess, stdio.Env, decision.Category, res.Model, res.Protocol)
 		// 重放诊断是 opt-in 的纯增量信息：只在已有恢复公告且开关开启时，
 		// 才读取记录流并追加诊断后缀。开关关闭时连 Records() 都不调用，
 		// 决策与公告逐字节不变；诊断也绝不触碰 NeedsConfirmation（安全语义）。
@@ -469,6 +475,11 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+	// 审计命令脱敏（opt-in ARGENT_AUDIT_SANITIZE，默认关闭）：用 bash 的
+	// SanitizeForLog 在写入前脱敏审计 reason 中的 VAR=值/口令状串。
+	if auditSanitizeEnabled(stdio.Env) {
+		chain.SanitizeAudit = bash.SanitizeForLog
+	}
 	// 审批 diff 预览（opt-in ARGENT_APPROVAL_PREVIEW，默认关闭）：写类工具的
 	// 审批提示附带脱敏的 +N/-M 行数摘要；不改变判定，关闭时提示逐字节不变。
 	if approvalPreviewEnabled(stdio.Env) {
@@ -689,6 +700,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		System:        trustedSystem,
 		Chatter:       res.Chatter,
 		Tools:         runner,
+		// 字节回放候选：nil 时三个字段为零值，agent 首请求走逐字节不变的普通 Chat。
+		ReplayBody:     replayBodyOf(replay),
+		ReplayModel:    replayModelOf(replay),
+		ReplayProtocol: replayProtocolOf(replay),
 		// 图像输入（opt-in ARGENT_IMAGE_INPUT）：nil 时首条用户消息逐字节不变。
 		InitialImages: initialImages,
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；

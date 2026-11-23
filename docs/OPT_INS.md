@@ -559,6 +559,7 @@ argentgo "你的任务"
 | `ARGENT_LSP_SANITIZE_ENV` / `ARGENT_LSP_KILL_TREE` | 分别启用 LSP 客户端的环境净化与进程树整树终止；默认关闭时按原方式拼环境、只杀直接进程。 |
 | `ARGENT_PLUGIN_OUTPUT_SCHEMA` | =1 时声明 OutputSchema 的插件工具输出须为合法 JSON，违反则转模型可读错误；默认关闭时不校验，内置工具不受影响。 |
 | `ARGENT_HOOK_LIFECYCLE` | =1 时把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；默认关闭时无额外 hook 调用。 |
+| `ARGENT_AUDIT_SANITIZE` | =1 时审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串；默认关闭时只走既有 RedactJSON。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
@@ -566,6 +567,7 @@ argentgo "你的任务"
 | `ARGENT_REQUEST_SNAPSHOT` | 真值时把实际发送给提供方的线协议请求字节追加一条 `request_snapshot` 会话记录（含 SHA-256 校验），用于复现与审计；该 kind 不进入对话视图，默认关闭时请求字节与记录逐字节不变。注意快照含完整 system prompt 与工具结果，可能含敏感文本，需自行控制会话文件权限。迁移自 killi 决策 21。 |
 | `ARGENT_SUBAGENT_SHARED_PROMPT` | 真值时子代理以父级 system prompt 为前缀（首请求复用已缓存字节），角色约束与任务标签追加在末尾，不破坏缓存前缀；默认关闭时子代理沿用原有 subagentTemplate，行为逐字节不变。迁移自 killi 决策 20。 |
 | `ARGENT_COMPACT_DRAIN` | 真值时，上下文溢出压缩后若仍超预算，按缓存前缀逐条淘汰最旧的非系统消息（单次最多 50 条，保留 system 与末尾提示）再重放；默认关闭时溢出恢复路径逐字节不变。项目 TODO #126。 |
+| `ARGENT_RESUME_BYTE_REPLAY` | 真值且 `ARGENT_REQUEST_SNAPSHOT=1` 时，"中断提示"类 resume 用最后一条请求快照的原始线协议字节重发首请求，命中提供方缓存前缀。快照须在活动路径上、其后无 assistant 回复与压缩、协议/模型与本次一致，否则静默回退语义重建。走三协议可选的 RawChatter.ChatRaw，默认关闭时请求字节逐字节不变。迁移自 killi 决策 21。 |
 | `ARGENT_CONFIG_SHADOW_CHECK` | 配置遮蔽来源告警输出。 |
 | `ARGENT_EDIT_GUIDE` | 在系统提示中追加编辑指南。 |
 | `ARGENT_EDIT_DIAGNOSTICS` | 编辑后诊断相关。 |

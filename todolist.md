@@ -38,12 +38,6 @@
 - **建议**：硬化路径设为默认，把 `bashUseProcEnabled()` 语义反转为 opt-out（`ARGENT_BASH_USE_PROC=0` 才回退旧路径）；给 `bashProcCommand` 补 `Env: proc.SanitizedInheritedEnv()`；保留 stdout/stderr 顺序差异测试契约。
 - **验收**：`go test ./internal/shell -run 'Bash.*Proc|KillTree|Sanitize' -count=1`；新增集成测试：写中文并派生孙进程，超时后断言孙进程 pid 消失且输出无 U+FFFD。
 
-### 28. 审计日志未脱敏：`SanitizeForLog` 仅活在测试里 `[P2/S/M]`
-- **现状**：`internal/shell/command_safety.go:55 ClassifyShellCommand`、`:148 RequireSafeCommand`、`:170 SanitizeForLog` 非测试调用为零（:149 仅内部调用）；`app_execute.go:381` 构造审计链时命令原样流向审计。
-- **问题**：`SanitizeForLog` 精心实现 `$VAR`/赋值/口令状串脱敏（:294-411）却从未使用；若审计记录原始 `call.Function.Arguments`，`export TOKEN=abc123`/`--password xxx` 会明文落盘，违背「脱敏发生在写入审计前」不变量。
-- **建议**：在 `app_execute.go:542` 审批前或 security 审计适配器调用 `shell.SanitizeForLog(name+" "+args)` 再写审计；在 `tools_registry.go:252 checkGuard` 前按需 `shell.RequireSafeCommand`，把 `ErrUnsupportedCommand` 转模型可读错误（app 可 import shell，无新依赖）。
-- **验收**：`internal/app/audit_sanitize_test.go`：执行带 `TOKEN=abc123def` 的 bash，读 audit 日志断言不含明文且含 `<redacted>`。
-
 ---
 
 ## 三、工具与执行深度（29–38）

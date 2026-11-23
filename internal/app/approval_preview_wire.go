@@ -13,6 +13,13 @@ func approvalPreviewEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env(approvalPreviewEnv)) == "1"
 }
 
+// auditSanitizeEnv 是审计文本脱敏的独立门控变量。
+const auditSanitizeEnv = "ARGENT_AUDIT_SANITIZE"
+
+func auditSanitizeEnabled(env func(string) string) bool {
+	return env != nil && strings.TrimSpace(env(auditSanitizeEnv)) == "1"
+}
+
 // approvalDiffPreview 从写类工具的参数里提取 old/new 文本，生成稳定的
 // +added/-removed 行数摘要。只处理 edit/multi_edit/write/apply_patch；
 // 其它工具返回空串（不附加预览）。它是纯函数，不读全局状态。

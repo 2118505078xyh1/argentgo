@@ -539,6 +539,13 @@ func (c *Client) chat(
 		return Message{}, fmt.Errorf("encode request: %w", err)
 	}
 	recordRequestSnapshot(ctx, ProtocolChatCompletions, model, payload)
+	return c.sendChatStream(ctx, model, payload, onText)
+}
+
+// sendChatStream 发送已序列化的流式请求体并读取回复。Chat 与 ChatRaw 共用，
+// 保证两者的发包、重试、trace 与流式解析行为逐字节一致。
+func (c *Client) sendChatStream(ctx context.Context, model string, payload []byte, onText func(string)) (Message, error) {
+	start := time.Now()
 
 	policy := c.Retry
 	if policy.IsZero() {
@@ -595,6 +602,11 @@ func (c *Client) chat(
 	recordTrace(ProtocolChatCompletions, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
 	return reply, nil
+}
+
+// ChatRaw 实现 RawChatter：直接发送已序列化的请求体（来自快照），跳过构造与快照写入。
+func (c *Client) ChatRaw(ctx context.Context, model string, body []byte, onText func(string)) (Message, error) {
+	return c.sendChatStream(ctx, model, body, onText)
 }
 
 // chatOnceResponse 是非流式 chat completions 的响应载荷。

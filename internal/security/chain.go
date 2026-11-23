@@ -140,6 +140,9 @@ type Chain struct {
 	// 追加到审批提示的参数文本中，让文本审批器也能看到修改内容。
 	// 它不改变审批判定；nil 时提示文本逐字节不变。由 app 层按 opt-in 注入。
 	Preview func(name string, args json.RawMessage) string
+	// SanitizeAudit 为可选的审计文本脱敏回调：审计条目写入前对 reason 应用。
+	// 由 app 层按 opt-in 注入 bash.SanitizeForLog；nil 时只走既有 RedactJSON。
+	SanitizeAudit func(string) string
 	// ApprovalTimeout 是单次审批等待（含分阶段审批的整个交互过程）允许的最长
 	// 时间。零值（含 NewChain 构造与 &Chain{} 零值）表示套用默认 5 分钟；超过
 	// 30 分钟会被钳制，负数同样按未配置处理。超时会让审批器收到 DeadlineExceeded，
@@ -546,6 +549,9 @@ func (c *Chain) record(tool, decision, reason string, args json.RawMessage) {
 		Decision: decision,
 		Reason:   reason,
 		Session:  c.Session,
+	}
+	if c != nil && c.SanitizeAudit != nil {
+		entry.Reason = c.SanitizeAudit(entry.Reason)
 	}
 	if len(args) > 0 {
 		entry.Args = RedactJSON(args)

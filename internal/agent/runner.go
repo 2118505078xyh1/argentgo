@@ -253,6 +253,13 @@ type Options struct {
 	// 排队的用户消息会开启一个新轮次（而不是像 Steer 那样插在当前轮的边界）。
 	// nil 时完全关闭，零分配、原样结束（项目 TODO #122）。
 	FollowUp <-chan string
+
+	// ReplayBody 是 resume 时首请求要原样发送的线协议字节（来自请求快照）。
+	// 仅当本次运行被判定为"中断待重发"且协议/模型/配置校验全过时由 app 层注入。
+	// 三个 Replay* 字段全为零值时字节回放完全关闭，请求走正常 Chat 路径。
+	ReplayBody     []byte
+	ReplayModel    string
+	ReplayProtocol string
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。
 	Budget Budget
 	// Prices 把模型 id 映射到其每百万 token 的价格。若存在 "" 条目，

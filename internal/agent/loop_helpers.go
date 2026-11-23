@@ -127,11 +127,7 @@ func projectSpecsForModel(specs []llm.ToolSpec, model string) []llm.ToolSpec {
 // 事件的发出留给调用方，使失败的尝试可以重试，而不会把部分文本泄漏到操作人员的流中。
 func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, error) {
 	var streamed strings.Builder
-	// 修复交给提供方的记录*视图*：在恢复或批次中断之后，助手的 tool_use 可能丢失了结果，
-	// 严格的提供方会拒绝这种情况。NormalizeToolPairing 是纯视图辅助函数，
-	// 因此 s.messages 保持原始字节，只有外发的请求被修正。
-	messages := NormalizeToolPairing(s.messages)
-	reply, err := s.opts.Chatter.Chat(ctx, s.model, messages, s.specs, func(delta string) {
+	collect := func(delta string) {
 		if delta == "" {
 			return
 		}
@@ -139,7 +135,28 @@ func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, 
 		if onText != nil {
 			onText(delta)
 		}
-	})
+	}
+
+	var reply llm.Message
+	var err error
+	// 字节回放（opt-in，app 层注入 ReplayBody）：仅在首轮、未使用过、且
+	// Chatter 实现 RawChatter 时，用原始快照字节发起请求。任何失败都会清空
+	// 回放状态，使后续轮次/重试回退到逐字节不变的普通 Chat 路径。
+	if len(s.replayBody) > 0 && !s.replayUsed && s.turns == 0 {
+		if raw, ok := s.opts.Chatter.(llm.RawChatter); ok {
+			body := s.replayBody
+			s.replayUsed = true
+			s.replayBody = nil
+			reply, err = raw.ChatRaw(ctx, s.model, body, collect)
+		} else {
+			// Chatter 不支持 raw（如 fake）：清空回放状态并回退普通路径。
+			s.replayUsed = true
+			s.replayBody = nil
+			reply, err = s.chatNormal(ctx, collect)
+		}
+	} else {
+		reply, err = s.chatNormal(ctx, collect)
+	}
 	if err != nil {
 		return llm.Message{}, err
 	}
@@ -151,6 +168,15 @@ func (s *runState) chat(ctx context.Context, onText func(string)) (llm.Message, 
 		reply.Content = streamed.String()
 	}
 	return reply, nil
+}
+
+// chatNormal 走普通语义重建路径：修复工具配对视图后调用 Chatter.Chat。
+func (s *runState) chatNormal(ctx context.Context, onText func(string)) (llm.Message, error) {
+	// 修复交给提供方的记录*视图*：在恢复或批次中断之后，助手的 tool_use 可能丢失了结果，
+	// 严格的提供方会拒绝这种情况。NormalizeToolPairing 是纯视图辅助函数，
+	// 因此 s.messages 保持原始字节，只有外发的请求被修正。
+	messages := NormalizeToolPairing(s.messages)
+	return s.opts.Chatter.Chat(ctx, s.model, messages, s.specs, onText)
 }
 
 // 下面的两个负载类型镜像了 session.UsageRecord 和 session.SessionStats 的线上结构，
