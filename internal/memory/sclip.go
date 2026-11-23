@@ -32,35 +32,12 @@ import (
 )
 
 const (
-	zwj      = 0x200D  // zero-width joiner: glues the next rune into a cluster
-	riStart  = 0x1F1E6 // regional indicator "A"
-	riEnd    = 0x1F1FF // regional indicator "Z"
-	ellipsis = "…"
+	zwj     = 0x200D  // zero-width joiner: glues the next rune into a cluster
+	riStart = 0x1F1E6 // regional indicator "A"
+	riEnd   = 0x1F1FF // regional indicator "Z"
 )
 
-// ClipGraphemes 返回 s 的前 maxClusters 个字簇。
-// 结果始终是有效的 UTF-8 字符串，且永不长于 s。非正数
-// maxClusters 返回空字符串。
-func ClipGraphemes(s string, maxClusters int) string {
-	if maxClusters <= 0 || s == "" {
-		return ""
-	}
-	end := clusterPrefixEnd(s, maxClusters, -1)
-	return longestValidPrefix(s[:end])
-}
-
-// TruncateGraphemes 行为类似 ClipGraphemes，但当输入确实
-// 需要缩短时附加 "…"。当 s 已经放得进 maxClusters 个字簇时
-// 原样返回（不添加省略号）。
-func TruncateGraphemes(s string, maxClusters int) string {
-	clipped := ClipGraphemes(s, maxClusters)
-	if clipped == s {
-		return s
-	}
-	return clipped + ellipsis
-}
-
-// clipGraphemeBytes 是 ClipGraphemes 的字节预算兄弟函数。它返回
+// clipGraphemeBytes 返回
 // s 的最长前缀，使其放得进 maxBytes 字节而不切开
 // 字簇。Reflect 用它执行字节上限，同时保持
 // 组合序列和 emoji 完整。无效的 UTF-8 输入会被修剪到其
