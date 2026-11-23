@@ -37,6 +37,7 @@ type settingPair struct {
 type valueSnapshot struct {
 	baseURL   string
 	apiKey    string
+	lsp       string                 // lsp 块的规范化快照，用于门控项目级配置
 	providers map[string]settingPair // 小写提供方名 -> 覆盖值
 	profiles  map[string]settingPair // 小写 profile 名 -> 定义值
 }
@@ -46,6 +47,7 @@ func snapshotValues(tree map[string]any) valueSnapshot {
 	snap := valueSnapshot{
 		baseURL:   stringFieldDefault(tree, defaultBaseURL, "baseURL", "baseUrl", "base_url"),
 		apiKey:    stringFieldDefault(tree, "", "apiKey", "api_key"),
+		lsp:       lspSnapshot(tree),
 		providers: make(map[string]settingPair),
 		profiles:  make(map[string]settingPair),
 	}
@@ -81,6 +83,7 @@ func snapshotValues(tree map[string]any) valueSnapshot {
 type sourceState struct {
 	baseURL   ValueSource
 	apiKey    ValueSource
+	lsp       ValueSource
 	providers map[string]SettingSources
 	profiles  map[string]SettingSources
 }
@@ -99,6 +102,9 @@ func (s *sourceState) observe(prev, cur valueSnapshot, layer ValueSource) {
 	}
 	if cur.apiKey != prev.apiKey {
 		s.apiKey = layer
+	}
+	if cur.lsp != prev.lsp {
+		s.lsp = layer
 	}
 	for name, pair := range cur.providers {
 		old := prev.providers[name]
@@ -142,6 +148,12 @@ func (s *sourceState) profileLayer(name string) ValueSource {
 // （或其中定义的 profile）写入。
 func (c Config) BaseURLFromProject() bool {
 	return c.BaseURLSource == ValueSourceProject
+}
+
+// LSPFromProject 报告 lsp 块是否由项目级配置文件（或其中定义的 profile）写入。
+// 装配层据此在 --trust-project 未开启时忽略项目级 LSP 服务器定义。
+func (c Config) LSPFromProject() bool {
+	return c.LSPSource == ValueSourceProject
 }
 
 // ProviderBaseURLSource 返回指定提供方 baseURL 覆盖层的来源。

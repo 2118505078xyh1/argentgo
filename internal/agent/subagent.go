@@ -68,6 +68,24 @@ func buildSubagentSystem(cfg SubagentConfig, label, parentSystem string) string 
 	return system
 }
 
+// SubagentRecord 是父级可持久引用的子代理记录（纯数据，agent 不依赖 session）。
+// 接线层从会话转录中按 id 找回它，再用 ResumeTask 续写。
+type SubagentRecord struct {
+	ID         string
+	Label      string
+	Prompt     string // 原始任务提示
+	Tail       string // 尾部状态/上次的最终答案
+	Transcript string // 有界转录文本（由接线层裁剪）
+}
+
+// ResumeTaskFunc 按记录续跑一个子代理：followUp 是本次新的用户指令，
+// 接线层负责把它与记录里的转录/尾部状态以 OpenSessionAt 方式续写并返回新结果。
+type ResumeTaskFunc func(ctx context.Context, record SubagentRecord, followUp string) (Result, error)
+
+// IsolateTaskFunc 为一次子运行建立隔离工作区。dir 非空表示隔离成功（子级 root 改到该目录）；
+// dir 为空表示降级为共享工作区，note 必须附一句可读说明。err 仅用于诊断，调用方一律按降级处理。
+type IsolateTaskFunc func(ctx context.Context, label string) (dir, note string, err error)
+
 // VerifyFailInfo 携带一次验证 FAIL 的可序列化旁路信息，交给 OnVerifyFail 回调做分叉副作用。
 // 字段刻意保持为基础类型，使 agent 不需要导入 session 等任何内部包。
 type VerifyFailInfo struct {
@@ -143,6 +161,15 @@ type SubagentConfig struct {
 	// 为 nil 时子级系统提示逐字节不变，因此这也保持默认关闭。
 	// 快照由 app 接线层负责构建；本包只负责携带和渲染它。
 	Instruction *InstructionSnapshot
+
+	// LookupTask / ResumeTask 支持 #55 按 id 续跑已完成的子代理。两者都为 nil 时
+	// task 的 resume 参数返回可读错误，不产生任何副作用。
+	LookupTask func(id string) (SubagentRecord, bool)
+	ResumeTask ResumeTaskFunc
+
+	// IsolateTask 支持 #56 的 worktree 隔离。为 nil 或返回空目录时降级为共享工作区
+	// 并附降级说明；默认路径因此永不因隔离失败而中断子任务。
+	IsolateTask IsolateTaskFunc
 }
 
 // TaskToolSpec 向模型描述委派工具。
@@ -163,7 +190,9 @@ func TaskToolSpec() llm.ToolSpec {
     "role": {"type": "string", "description": "Alias for persona, accepted for compatibility"},
     "verify": {"type": "string", "description": "Optional verification instruction. When set, the parent validates the subagent's result against it before accepting: it issues a short verification subagent that replies PASS or FAIL. On FAIL the original task is retried up to verify_max_retries times."},
     "verify_max_retries": {"type": "integer", "description": "How many times to retry the original task when verification fails (default 0, capped at 3). Ignored when verify is absent."},
-    "background": {"type": "boolean", "description": "When true, start the task in the background and return immediately with an ack; the finished result is injected into the conversation when ready. Takes precedence over verify."}
+    "background": {"type": "boolean", "description": "When true, start the task in the background and return immediately with an ack; the finished result is injected into the conversation when ready. Takes precedence over verify."},
+    "resume": {"type": "string", "description": "Task id to resume from: continue an existing subagent from its recorded transcript with the new prompt as a follow-up."},
+    "isolation": {"type": "string", "enum": ["worktree", "shared"], "description": "Workspace isolation for the subagent. Defaults to worktree; falls back to shared with an explanation when no git worktree can be created."}
   },
   "required": ["prompt"]
 }`)
@@ -245,6 +274,10 @@ type taskArgs struct {
 	// Background 为 true 时，会在 goroutine 中启动子级并立即返回确认。
 	// 完成的结果会被排队，等待注入父级。缺省或为 false 时保留旧有的同步行为。
 	Background bool `json:"background,omitempty"`
+	// Resume 是按 id 续跑已有子代理的任务标识。非空时 prompt/task 作为新的追问注入。
+	Resume string `json:"resume,omitempty"`
+	// Isolation 选择工作区隔离方式：worktree（默认）或 shared。未知值按 worktree 处理。
+	Isolation string `json:"isolation,omitempty"`
 }
 
 // runTask 是 task 工具的入口。它解析参数，要么运行子级一次（原始的、向后兼容的路径），
@@ -262,6 +295,10 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
 		return "", fmt.Errorf("task: invalid arguments: %w", err)
 	}
+	// 续跑优先于其它模式：按 id 找回子代理记录并续写（#55）。
+	if strings.TrimSpace(args.Resume) != "" {
+		return t.runTaskResume(ctx, raw, args)
+	}
 	if args.Background {
 		return t.runTaskBackground(ctx, raw, args)
 	}
@@ -269,6 +306,69 @@ func (t *taskTools) runTask(ctx context.Context, raw string) (string, error) {
 		return t.runTaskVerified(ctx, raw, args, verify)
 	}
 	return t.runTaskOnce(ctx, raw, args)
+}
+
+// runTaskResume 按 id 找回已完成的子代理记录，把本次 prompt 作为追问续写（#55）。
+// 接线层未注入 LookupTask/ResumeTask，或 id 不存在时返回可读错误，绝不从头重跑。
+func (t *taskTools) runTaskResume(ctx context.Context, raw string, args taskArgs) (string, error) {
+	id := strings.TrimSpace(args.Resume)
+	if t.cfg == nil || t.cfg.LookupTask == nil || t.cfg.ResumeTask == nil {
+		return "", fmt.Errorf("task: resume requires the host to configure task lookup and resume callbacks")
+	}
+	record, ok := t.cfg.LookupTask(id)
+	if !ok {
+		return "", fmt.Errorf("task: no subagent task with id %q (resume not found)", id)
+	}
+	followUp := strings.TrimSpace(args.Prompt)
+	if followUp == "" {
+		followUp = strings.TrimSpace(args.Task)
+	}
+	if followUp == "" {
+		followUp = strings.TrimSpace(args.Description)
+	}
+	if followUp == "" {
+		return "", fmt.Errorf("task: prompt is required when resuming task %q", id)
+	}
+	label := strings.TrimSpace(record.Label)
+	if label == "" {
+		label = firstLine(followUp)
+	}
+
+	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
+	res, err := t.cfg.ResumeTask(ctx, record, followUp)
+	if err != nil {
+		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Err: err.Error(), IsError: true})
+		return "", fmt.Errorf("subagent resume failed for %q: %w", id, err)
+	}
+	text := strings.TrimSpace(res.Text)
+	if text == "" {
+		text = "(resumed subagent finished without an answer)"
+	}
+	t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Output: text})
+	return text, nil
+}
+
+// isolationRoot 计算一次子运行应使用的 root 与附带的说明（#56）。
+// requested 为 shared 时直接共享；其它值（含默认 worktree）都尝试隔离，
+// 失败一律降级并给出可读说明，绝不因为隔离不可用而中断子任务。
+func (t *taskTools) isolationRoot(ctx context.Context, requested, label string) (root, note string) {
+	if strings.EqualFold(strings.TrimSpace(requested), "shared") {
+		return "", ""
+	}
+	if t.cfg == nil || t.cfg.IsolateTask == nil {
+		// 宿主未提供隔离能力时完全保持旧路径：不追加说明、不改结果字节。
+		// app 装配层默认注入 IsolateTask（含无 git 时的降级说明），因此默认
+		// 路径的隔离语义由那条接线决定，而不是在这里擅自改结果文本。
+		return "", ""
+	}
+	dir, note, err := t.cfg.IsolateTask(ctx, label)
+	if err != nil || strings.TrimSpace(dir) == "" {
+		if strings.TrimSpace(note) == "" {
+			note = "worktree isolation failed; subagent uses the shared workspace"
+		}
+		return "", note
+	}
+	return dir, note
 }
 
 // runTaskOnce 运行一次子循环，并把其最终答案作为工具结果返回。
@@ -294,7 +394,11 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	}
 
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
-	child := t.newChild(label, persona)
+	root, note := t.isolationRoot(ctx, args.Isolation, label)
+	if note != "" {
+		t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName, Text: note})
+	}
+	child := t.newChildWithRoot(label, persona, root)
 	res, err := child.Run(ctx, task)
 	// 结果回灌：被取消的子级会跳过自身的 stats 记录（见 loop.go 的 execute），
 	// 这里把它已经产生的部分成本补记到父级统计，避免漏账。
@@ -306,6 +410,13 @@ func (t *taskTools) runTaskOnce(ctx context.Context, raw string, args taskArgs) 
 	text := strings.TrimSpace(res.Text)
 	if text == "" {
 		text = "(subagent finished without an answer)"
+	}
+	// 把隔离结果回灌给模型：worktree 路径可被后续文件工具直接使用；降级说明
+	// 让模型知道子级与父级共享工作区，避免误以为改动已隔离。
+	if root != "" {
+		text += "\n[isolation: worktree at " + root + "]"
+	} else if note != "" {
+		text += "\n[isolation: " + note + "]"
 	}
 	t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Output: text})
 	return text, nil
@@ -506,6 +617,16 @@ func (t *taskTools) configForPersona(name string) SubagentConfig {
 	}
 	// 保留解析器，使嵌套任务也能选择自己的角色。
 	merged.ResolvePersona = t.cfg.ResolvePersona
+	// 续跑与隔离回调是宿主注入的能力，按角色选定的子级同样需要它们。
+	if t.cfg.LookupTask != nil {
+		merged.LookupTask = t.cfg.LookupTask
+	}
+	if t.cfg.ResumeTask != nil {
+		merged.ResumeTask = t.cfg.ResumeTask
+	}
+	if t.cfg.IsolateTask != nil {
+		merged.IsolateTask = t.cfg.IsolateTask
+	}
 	// 在这里（构建子配置时）继承一次，而不是在 childOptions 中：继承副本存放在子级配置上，
 	// 它会成为该子级的 Options.Subagent，因此它自己的后代也会继承该快照。
 	merged.Instruction = inheritForChild(merged.Instruction)
@@ -530,8 +651,13 @@ func inheritForChild(s *InstructionSnapshot) *InstructionSnapshot {
 	return &inherited
 }
 
-// childOptions 构建嵌套运行的配置：受限工具、子级系统提示、预算切片以及事件桥接。
+// childOptions 构建嵌套运行的配置（共享父工作区）。
 func (t *taskTools) childOptions(label, persona string) Options {
+	return t.childOptionsWithRoot(label, persona, "")
+}
+
+// childOptionsWithRoot 构建嵌套运行的配置；rootOverride 非空时覆盖子级 root。
+func (t *taskTools) childOptionsWithRoot(label, persona, rootOverride string) Options {
 	cfg := t.configForPersona(persona)
 	// 该子级携带的 System/AllowedTools 都来自其父级（某个角色或祖先），而非本层代码。
 	// 把它们标记为继承，使该子级自己的 task(persona=...) 能切换角色，
@@ -588,13 +714,17 @@ func (t *taskTools) childOptions(label, persona string) Options {
 		fb[0] = model
 		fallback = fb
 	}
+	childRoot := t.parent.Root
+	if strings.TrimSpace(rootOverride) != "" {
+		childRoot = rootOverride
+	}
 	opts := Options{
 		Model:            model,
 		FallbackModels:   fallback,
 		MaxTurns:         budget.MaxTurns,
 		MaxParallel:      t.parent.MaxParallel,
 		System:           system,
-		Root:             t.parent.Root,
+		Root:             childRoot,
 		Chatter:          t.parent.Chatter,
 		Tools:            tools,
 		Approve:          t.parent.Approve,
@@ -744,9 +874,14 @@ type ChildRunner interface {
 	Run(ctx context.Context, prompt string) (Result, error)
 }
 
-// newChild 为一次被委派的任务构建子运行器。
+// newChild 为一次被委派的任务构建子运行器（共享父工作区）。
 func (t *taskTools) newChild(label, persona string) ChildRunner {
-	opts := t.childOptions(label, persona)
+	return t.newChildWithRoot(label, persona, "")
+}
+
+// newChildWithRoot 构建子运行器；rootOverride 非空时子级在该隔离目录中工作（#56）。
+func (t *taskTools) newChildWithRoot(label, persona, rootOverride string) ChildRunner {
+	opts := t.childOptionsWithRoot(label, persona, rootOverride)
 	if t.cfg.NewChild != nil {
 		return t.cfg.NewChild(opts)
 	}
@@ -946,6 +1081,10 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 
 	id := bg.nextID()
 	t.parentEmit(Event{Kind: EventSubagentStart, Text: label, ToolName: TaskToolName, Args: raw})
+	root, note := t.isolationRoot(ctx, args.Isolation, label)
+	if note != "" {
+		t.parentEmit(Event{Kind: EventNotice, ToolName: TaskToolName, Text: note})
+	}
 
 	// 结果属于委派此任务的运行（即该 taskTools 的 owner），绝不属于共享当前深度的所有运行。
 	owner, depth := t.owner, t.depth
@@ -957,7 +1096,7 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 	go func() {
 		defer bg.release()
 		defer cancel()
-		child := t.newChild(label, persona)
+		child := t.newChildWithRoot(label, persona, root)
 		res, err := child.Run(runCtx, task)
 		// 与同步路径相同：后台子级被取消时补记其部分成本。
 		t.reconcileCancelledChildCost(label, t.childModel(persona), res)
@@ -970,6 +1109,11 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 		if text == "" {
 			text = "(subagent finished without an answer)"
 		}
+		if root != "" {
+			text += "\n[isolation: worktree at " + root + "]"
+		} else if note != "" {
+			text += "\n[isolation: " + note + "]"
+		}
 		t.parentEmit(Event{Kind: EventSubagentEnd, Text: label, ToolName: TaskToolName, Output: text})
 		result := fmt.Sprintf("%s[task %d] %s: %s", BackgroundResultPrefix, id, label, text)
 		dropped := bg.PushFor(owner, depth, result)
@@ -981,6 +1125,171 @@ func (t *taskTools) runTaskBackground(ctx context.Context, raw string, args task
 	}()
 
 	return fmt.Sprintf("task %d started in background; result will be injected when ready", id), nil
+}
+
+// ---------------------------------------------------------------------------
+// 有界判官目标循环（#46）
+// ---------------------------------------------------------------------------
+//
+// 这是 agent 侧的纯编排原语：它反复运行同一个 runner，每轮结束调用判官给出
+// {complete, missing}，未 complete 且未到上限时把 missing 作为下一轮的 steering
+// 注入。任何用户输入（Cancel 关闭）都会立即中断循环。app 装配层负责用 secondary
+// model 实现 Judge、把每轮的 GoalStatus 翻译成 goal_status 事件。
+
+// DefaultGoalMaxIterations 是 /goal 未指定 --max 时的循环上限。默认开启、值取最优：
+// 足够完成多数长任务，又严格有界，杜绝无界自动续跑。
+const DefaultGoalMaxIterations = 10
+
+// GoalVerdict 是判官对一轮结果的完成判定。
+type GoalVerdict struct {
+	Complete bool     `json:"complete"`
+	Missing  []string `json:"missing,omitempty"`
+	Score    float64  `json:"score,omitempty"`
+}
+
+// 目标循环状态机的四种状态。
+const (
+	GoalStateRunning     = "running"
+	GoalStateComplete    = "complete"
+	GoalStateCapped      = "capped"
+	GoalStateInterrupted = "interrupted"
+)
+
+// GoalStatus 是每轮（含终态）发布的状态，可直接序列化为 goal_status 事件负载。
+type GoalStatus struct {
+	State         string   `json:"state"`
+	Iteration     int      `json:"iteration"`
+	MaxIterations int      `json:"max_iterations"`
+	Objective     string   `json:"objective,omitempty"`
+	Missing       []string `json:"missing,omitempty"`
+}
+
+// GoalRunFunc 运行一轮任务并返回结果。Runner.Run/Runner.Prompt 都满足它。
+type GoalRunFunc func(ctx context.Context, prompt string) (Result, error)
+
+// GoalJudgeFunc 判定一轮是否完成。missing 是上一轮的缺口，供判官做增量判断。
+type GoalJudgeFunc func(ctx context.Context, objective, answer string, missing []string) (GoalVerdict, error)
+
+// GoalRunner 驱动有界判官循环。零值字段会用安全默认值：MaxIterations 取
+// DefaultGoalMaxIterations，Run/Judge 为 nil 时 Execute 返回错误而不panic。
+type GoalRunner struct {
+	MaxIterations int
+	Run           GoalRunFunc
+	Judge         GoalJudgeFunc
+	OnStatus      func(GoalStatus)
+	// Cancel 关闭即表示有新的用户输入，循环立即中断；nil 表示不监听。
+	Cancel <-chan struct{}
+}
+
+// Execute 运行目标循环，返回最后一轮的结果。循环严格有界且可被用户输入取消。
+func (g *GoalRunner) Execute(ctx context.Context, objective string) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxIterations := g.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = DefaultGoalMaxIterations
+	}
+	if g.Run == nil {
+		return Result{}, errors.New("goal loop: no run function configured")
+	}
+	state := func(s string, iteration int, missing []string) {
+		if g.OnStatus != nil {
+			g.OnStatus(GoalStatus{
+				State: s, Iteration: iteration, MaxIterations: maxIterations,
+				Objective: objective, Missing: append([]string(nil), missing...),
+			})
+		}
+	}
+	stopped := func() bool {
+		if g.Cancel == nil {
+			return false
+		}
+		select {
+		case <-g.Cancel:
+			return true
+		default:
+			return false
+		}
+	}
+
+	var (
+		last      Result
+		missing   []string
+		iteration int
+	)
+	for iteration = 1; iteration <= maxIterations; iteration++ {
+		if stopped() || ctx.Err() != nil {
+			state(GoalStateInterrupted, iteration-1, missing)
+			return last, ctx.Err()
+		}
+		prompt := goalPrompt(objective, missing)
+		res, err := g.Run(ctx, prompt)
+		if err != nil {
+			last = res
+			state(GoalStateInterrupted, iteration, missing)
+			return last, err
+		}
+		last = res
+		if g.Judge == nil {
+			state(GoalStateComplete, iteration, missing)
+			return last, nil
+		}
+		verdict, jerr := g.Judge(ctx, objective, res.Text, missing)
+		if jerr != nil {
+			// 判官失败不静默当作完成：记一条缺口并继续，循环仍有界。
+			missing = appendMissing(missing, "judge error: "+firstLine(jerr.Error()))
+			state(GoalStateRunning, iteration, missing)
+			continue
+		}
+		if verdict.Complete {
+			state(GoalStateComplete, iteration, nil)
+			return last, nil
+		}
+		missing = appendMissing(nil, verdict.Missing...)
+		state(GoalStateRunning, iteration, missing)
+	}
+	state(GoalStateCapped, maxIterations, missing)
+	return last, nil
+}
+
+// goalPrompt 组装下一轮提示：首轮只有目标，后续把缺口作为 steering 注入。
+func goalPrompt(objective string, missing []string) string {
+	prompt := strings.TrimSpace(objective)
+	if len(missing) == 0 {
+		return prompt
+	}
+	var b strings.Builder
+	b.WriteString(prompt)
+	b.WriteString("\n\nAn evaluator found these missing items. Continue the work and address them; do not repeat already completed parts:\n")
+	for i, item := range missing {
+		if i >= 20 {
+			break
+		}
+		fmt.Fprintf(&b, "- %s\n", firstLine(item))
+	}
+	return b.String()
+}
+
+// appendMissing 去重并限长，避免缺口列表随轮次无限膨胀。
+func appendMissing(base []string, items ...string) []string {
+	out := append([]string(nil), base...)
+	seen := make(map[string]bool, len(out))
+	for _, s := range out {
+		seen[s] = true
+	}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+		if len(out) >= 20 {
+			break
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

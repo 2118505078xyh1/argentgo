@@ -127,6 +127,9 @@ type Config struct {
 	// app.Resolve 用它们判断端点是否被未受信任的项目文件改写。
 	BaseURLSource ValueSource
 	APIKeySource  ValueSource
+	// LSPSource 记录 lsp 块生效值来自哪一层。项目级 lsp 配置可能指定任意
+	// 可执行程序，因此未开启 --trust-project 时 app 装配层会忽略它。
+	LSPSource ValueSource
 	// ProviderSources 以小写提供方名为键，记录 providers.<name> 下
 	// baseURL / apiKey 覆盖值的来源层。
 	ProviderSources map[string]SettingSources
@@ -271,6 +274,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	cfg := decode(tree, cwd, home, sources)
 	cfg.BaseURLSource = source.baseURL
 	cfg.APIKeySource = source.apiKey
+	cfg.LSPSource = source.lsp
 	cfg.ProviderSources = source.providers
 	// 对 fail-closed 诊断摘要报告的每一项不变量，都在加载时 fail closed。
 	// 让 Load、Diagnostics（doctor）和 Validate 共享同一事实来源，

@@ -50,6 +50,9 @@ type Server struct {
 	LanguageIDs []string
 	// RootURI 覆盖从根路径推导的工作区 URI。
 	RootURI string
+	// InitializationOptions 随 initialize 请求一并发送（很多 server 如 pyright
+	// 依赖它正确索引）。零值时不写入该字段，initialize 请求体逐字节不变。
+	InitializationOptions map[string]any
 }
 
 // Client 是一个运行中的语言服务器及其已知文档。
@@ -275,6 +278,11 @@ func (c *Client) initialize(ctx context.Context) error {
 			"uri":  uri,
 			"name": filepath.Base(c.root),
 		}},
+	}
+	// 配置化初始化参数：非 nil 时写入 initializationOptions；缺省时请求体
+	// 与引入该字段之前逐字节一致（测试锁定这一不变量）。
+	if c.server.InitializationOptions != nil {
+		params["initializationOptions"] = c.server.InitializationOptions
 	}
 	if _, err := c.call(ctx, "initialize", params); err != nil {
 		return err
