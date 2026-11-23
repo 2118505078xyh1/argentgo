@@ -320,6 +320,7 @@ var subcommands = map[string]func(App, context.Context, []string) int{
 	"logs":       runLogs,
 	"jobs":       runJobs,
 	"inbox":      runInbox,
+	"timeline":   runTimeline,
 	"follow":     runFollow,
 	"stop":       runStop,
 	"board":      runBoard,
@@ -334,7 +335,7 @@ var subcommandOrder = []string{
 	"sessions", "replay", "usage", "context", "doctor", "init", "login", "logout", "auth",
 	"models", "mcp", "opt-ins", "skills", "commands", "hooks", "plugin", "policy", "audit",
 	"update", "completion", "tui", "bug", "eval", "config",
-	"workflow", "telemetry", "attach", "logs", "jobs", "inbox", "follow", "stop", "board",
+	"workflow", "telemetry", "attach", "logs", "jobs", "inbox", "timeline", "follow", "stop", "board",
 	"help", "version",
 }
 

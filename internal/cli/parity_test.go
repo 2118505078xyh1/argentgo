@@ -112,6 +112,7 @@ var expectedCommands = []string{
 	"skills",
 	"stop",
 	"telemetry",
+	"timeline",
 	"tui",
 	"update",
 	"usage",
