@@ -8,13 +8,17 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// navPanel 是当非聊天导航项活动时侧边栏显示的占位内容。
+// navPanel 是当非聊天导航项活动时侧边栏显示的内容。
 // 它刻意数据驱动：接入新导航项只需一个 map 条目，而非
 // sidebar() 中的新渲染分支。
 type navPanel struct {
 	title string
 	desc  string
 	rows  []string
+	// implemented 为 true 表示该面板有真实内容（当前仅文档/记忆的只读预览）。
+	// 其余面板只是规划占位，渲染为置灰的纯文本并带"即将推出"角标，
+	// 不套用按钮/卡片样式，避免让用户误以为可以点击使用。
+	implemented bool
 }
 
 // navPanels holds one placeholder panel per nav item. "聊天" is intentionally
@@ -27,14 +31,16 @@ var navPanels = map[string]navPanel{
 		rows:  []string{"暂无已配置的任务", "可用 CLI 添加 cron 任务"},
 	},
 	"文档": {
-		title: "文档",
-		desc:  "浏览工作区内的项目文档与说明。",
-		rows:  []string{"README", "AGENTS.md", "docs/"},
+		title:       "文档",
+		desc:        "浏览工作区内的项目文档与说明。",
+		rows:        []string{"README", "AGENTS.md", "docs/"},
+		implemented: true,
 	},
 	"记忆": {
-		title: "记忆",
-		desc:  "管理跨会话注入的项目记忆。",
-		rows:  []string{"AGENTS.md", "CLAUDE.md"},
+		title:       "记忆",
+		desc:        "管理跨会话注入的项目记忆。",
+		rows:        []string{"AGENTS.md", "CLAUDE.md"},
+		implemented: true,
 	},
 	"扩展": {
 		title: "扩展",
@@ -88,6 +94,20 @@ func navPanelFor(name string) navPanel {
 	return navPanel{title: name, desc: "该面板尚未实现。", rows: []string{"敬请期待"}}
 }
 
+// navItemImplemented 报告导航项是否有真实内容。main.go 的导航网格据此把
+// 未实现项置灰并去掉可点击暗示；聊天由会话栏承载，视为已实现。
+func navItemImplemented(name string) bool {
+	return name == "" || name == "聊天" || navPanelFor(name).implemented
+}
+
+// navItemBadge 返回导航项的诚实角标：未实现项显示"即将推出"，其余为空。
+func navItemBadge(name string) string {
+	if navItemImplemented(name) {
+		return ""
+	}
+	return "即将推出"
+}
+
 // navDocPreview 为"文档/记忆"面板提供只读预览：读取工作区内的真实文件，
 // 按行截断到有限条数。文件缺失或读取失败时回退到面板声明的静态行，
 // 因此离线/无文件的单元测试仍稳定。路径由调用方注入（工作区根目录）。
@@ -133,12 +153,30 @@ func (app *chat) renderNavPanel(c *ui.Context, p palette, name string) {
 		panel.rows = preview
 	}
 	ui.Column(c).Gap(10).Grow(1).Children(func() {
-		ui.Text(c, tr(panel.title)).FontSize(16).Bold().TextColor(p.strong)
+		// 标题行：未实现项带"即将推出"角标，不伪装成可用功能。
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, tr(panel.title)).FontSize(16).Bold().TextColor(p.strong)
+			if badge := navItemBadge(name); badge != "" {
+				ui.Text(c, tr(badge)).FontSize(10).TextColor(p.dim).
+					Padding(2, 6).Radius(999).Background(p.element)
+			}
+		})
 		ui.Text(c, tr(panel.desc)).FontSize(12).TextColor(p.dim)
+		if !panel.implemented {
+			ui.Text(c, tr("规划中的能力，暂不可点击")).FontSize(11).TextColor(p.dim)
+		}
 		for _, row := range panel.rows {
 			label := tr(row)
-			ui.Row(c).Padding(8, 10).Radius(8).Background(p.element).Children(func() {
-				ui.Text(c, label).FontSize(12).TextColor(p.text).SingleLine()
+			if panel.implemented {
+				// 只读预览卡片：有背景但不可点击，内容来自真实文件。
+				ui.Row(c).Padding(8, 10).Radius(8).Background(p.element).Children(func() {
+					ui.Text(c, label).FontSize(12).TextColor(p.text).SingleLine()
+				})
+				continue
+			}
+			// 未实现项：纯置灰文本，无背景/圆角/按钮样式，不制造虚假可点击暗示。
+			ui.Row(c).Padding(6, 10).Children(func() {
+				ui.Text(c, label).FontSize(12).TextColor(p.dim).SingleLine()
 			})
 		}
 	})

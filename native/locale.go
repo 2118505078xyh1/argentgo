@@ -141,8 +141,34 @@ var nativeEnglish = map[string]string{
 	"已连接引擎":                             "Engine connected",
 	"⚠ 引擎错误: ":                          "⚠ engine error: ",
 	"… 还有 ":                             "… and ",
+	"… 已省略更多行":                          "… more lines omitted",
 	" 个文件":                              " more files",
 	"diff：%d 个文件，+%d/-%d 行":             "diff: %d files, +%d/-%d lines",
+
+	// 审批三态与作用域。
+	"允许一次":           "Allow once",
+	"始终允许此命令":        "Always allow this command",
+	"拒绝并说明理由":        "Deny with reason",
+	"仅此调用不再询问":       "This call only, no further prompts for it",
+	"本机持续有效，可在设置中撤销": "Persists on this device until removed in settings",
+	"危险操作，默认拒绝":      "Dangerous operation — denied by default",
+	"拒绝理由":           "Reason for denial",
+	"输入拒绝理由…":        "Enter a reason for denying…",
+	"确认始终允许":         "Confirm always allow",
+	"始终允许的影响范围：":     "Always-allow affects:",
+	"仅此调用":           "This call only",
+	"取消":             "Cancel",
+
+	// 导航诚实化。
+	"即将推出":         "Coming soon",
+	"该功能尚未实现":      "Not implemented yet",
+	"规划中的能力，暂不可点击": "Planned capability, not available yet",
+
+	// 设置与偏好持久化。
+	"设置":           "Settings",
+	"语言":           "Language",
+	"偏好保存失败：":      "Failed to save preferences: ",
+	"偏好加载失败，使用默认值": "Failed to load preferences, using defaults",
 
 	// nav 占位面板（renderNavPanel 在渲染时翻译）。
 	"查看并按计划运行自动化任务。":    "View and run scheduled automation tasks.",

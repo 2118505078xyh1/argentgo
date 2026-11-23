@@ -6,6 +6,47 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// TestNavImplementedFlagsAndBadges 验证只有文档/记忆标记为已实现，
+// 其余导航项都带"即将推出"角标，不再伪装成可用功能。
+func TestNavImplementedFlagsAndBadges(t *testing.T) {
+	for _, name := range navItems {
+		wantImplemented := name == "聊天" || name == "文档" || name == "记忆"
+		if got := navItemImplemented(name); got != wantImplemented {
+			t.Errorf("navItemImplemented(%q) = %v, want %v", name, got, wantImplemented)
+		}
+		wantBadge := ""
+		if !wantImplemented {
+			wantBadge = "即将推出"
+		}
+		if got := navItemBadge(name); got != wantBadge {
+			t.Errorf("navItemBadge(%q) = %q, want %q", name, got, wantBadge)
+		}
+	}
+}
+
+// TestNavPlaceholderPanelIsHonest 验证未实现面板显示角标与说明文字，
+// 已实现面板不显示它们。
+func TestNavPlaceholderPanelIsHonest(t *testing.T) {
+	app := newTestChat()
+	tt := ui.NewTester(app.view, 1180, 720)
+
+	if err := tt.Click("定时任务"); err != nil {
+		t.Fatalf("click 定时任务: %v", err)
+	}
+	for _, want := range []string{"即将推出", "规划中的能力，暂不可点击"} {
+		if !tt.HasText(want) {
+			t.Fatalf("placeholder panel missing %q: %q", want, tt.Texts())
+		}
+	}
+
+	if err := tt.Click("文档"); err != nil {
+		t.Fatalf("click 文档: %v", err)
+	}
+	if tt.HasText("规划中的能力，暂不可点击") {
+		t.Fatalf("implemented panel shows placeholder note: %q", tt.Texts())
+	}
+}
+
 func TestEveryNonChatNavItemHasPlaceholderPanel(t *testing.T) {
 	for _, name := range navItems {
 		if name == "聊天" {

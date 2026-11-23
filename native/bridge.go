@@ -273,6 +273,14 @@ func (b *bridge) prompt(text string) (string, error) {
 	return payload.Text, nil
 }
 
+// approvalAnswer 发送一条审批回答。params 由 approvalAnswerParams 构造，
+// 可附带 native 侧的拒绝理由；engine 的 RPC 处理器只读取 id/granted，
+// 对未知字段静默忽略，因此附加字段不会破坏现有 wire 协议。
+func (b *bridge) approvalAnswer(params map[string]any) error {
+	_, err := b.call("approval.answer", params)
+	return err
+}
+
 func (b *bridge) abort() error {
 	_, err := b.call("abort", nil)
 	return err

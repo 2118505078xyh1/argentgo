@@ -156,31 +156,55 @@ func TestApprovalDiffNonEditToolsEmpty(t *testing.T) {
 	}
 }
 
-// TestApprovalDiffConfigureEnv 验证门控只认 ARGENT_NATIVE_APPROVAL_DIFF=1。
+// TestApprovalDiffConfigureEnv 验证 diff 默认开启，只有 =0 紧急回退关闭。
 func TestApprovalDiffConfigureEnv(t *testing.T) {
 	prev := nativeApprovalDiff.Load()
 	defer nativeApprovalDiff.Store(prev)
 
+	// 默认开启：nil、空值、任意非 "0" 值都保持显示。
 	configureApprovalDiff(nil)
-	if approvalDiffVisible() {
-		t.Fatal("nil env must leave the gate off")
-	}
-	configureApprovalDiff(func(string) string { return "0" })
-	if approvalDiffVisible() {
-		t.Fatal("value 0 must leave the gate off")
-	}
-	configureApprovalDiff(func(string) string { return " 1 " })
 	if !approvalDiffVisible() {
-		t.Fatal(`value " 1 " must opt in`)
+		t.Fatal("nil env must leave the gate on by default")
+	}
+	configureApprovalDiff(func(string) string { return "" })
+	if !approvalDiffVisible() {
+		t.Fatal("empty value must leave the gate on")
+	}
+	configureApprovalDiff(func(string) string { return "1" })
+	if !approvalDiffVisible() {
+		t.Fatal("value 1 must leave the gate on")
+	}
+	configureApprovalDiff(func(string) string { return " 0 " })
+	if approvalDiffVisible() {
+		t.Fatal(`value " 0 " must disable the gate (emergency fallback)`)
 	}
 	configureApprovalDiff(func(key string) string {
 		if key == "ARGENT_NATIVE_APPROVAL_DIFF" {
-			return "1"
+			return "0"
 		}
 		return ""
 	})
+	if approvalDiffVisible() {
+		t.Fatal("ARGENT_NATIVE_APPROVAL_DIFF=0 must disable the gate")
+	}
+}
+
+// TestApprovalDiffDefaultOn 验证未显式配置时审批卡默认渲染 diff。
+func TestApprovalDiffDefaultOn(t *testing.T) {
+	// 模拟 main() 未注入任何 env 时的默认状态。
+	configureApprovalDiff(nil)
 	if !approvalDiffVisible() {
-		t.Fatal("ARGENT_NATIVE_APPROVAL_DIFF=1 must opt in")
+		t.Fatal("diff must be visible by default")
+	}
+	texts := approvalTexts(t, "write", `{"path":"foo.go","content":"a\nb\n"}`)
+	found := false
+	for _, line := range texts {
+		if strings.Contains(line, "diff：") || strings.Contains(line, "+2/-0 in") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("default frame has no diff rows: %q", texts)
 	}
 }
 
@@ -229,7 +253,7 @@ func TestApprovalDiffGateKeepsElements(t *testing.T) {
 	}
 }
 
-// TestApprovalViewDiffRendersWhenOptedIn 验证 opt-in 且摘要非空时展示摘要与预览。
+// TestApprovalViewDiffRendersWhenOptedIn 验证摘要非空时展示摘要与预览。
 func TestApprovalViewDiffRendersWhenOptedIn(t *testing.T) {
 	prev := nativeApprovalDiff.Swap(true)
 	defer nativeApprovalDiff.Store(prev)
@@ -240,6 +264,90 @@ func TestApprovalViewDiffRendersWhenOptedIn(t *testing.T) {
 	for _, want := range []string{"diff：1 个文件，+2/-0 行", "+2/-0 in foo.go"} {
 		if !tt.HasText(want) {
 			t.Fatalf("diff approval frame is missing %q: %q", want, tt.Texts())
+		}
+	}
+}
+
+// TestApprovalLineDiffEdit 验证 edit 能生成带上下文/删除/新增的逐行 diff 数据。
+func TestApprovalLineDiffEdit(t *testing.T) {
+	files := buildApprovalLineDiff("edit", `{"path":"foo.go","old":"a\nb\nc\n","new":"a\nx\nc\nd\n"}`)
+	if len(files) != 1 || files[0].Path != "foo.go" {
+		t.Fatalf("line diff files = %+v", files)
+	}
+	var adds, dels, ctx int
+	for _, line := range files[0].Lines {
+		switch line.Kind {
+		case approvalLineAdd:
+			adds++
+		case approvalLineDel:
+			dels++
+		case approvalLineContext:
+			ctx++
+		}
+	}
+	if adds != 2 || dels != 1 || ctx < 2 {
+		t.Fatalf("line kinds: +%d/-%d/context%d: %+v", adds, dels, ctx, files[0].Lines)
+	}
+	if got := renderApprovalLineDiff(files); !strings.Contains(got, "-b") || !strings.Contains(got, "+x") {
+		t.Fatalf("rendered line diff missing changes: %q", got)
+	}
+}
+
+// TestApprovalLineDiffWriteAndPatch 验证 write 与 apply_patch 的逐行 diff。
+func TestApprovalLineDiffWriteAndPatch(t *testing.T) {
+	write := buildApprovalLineDiff("write", `{"path":"new.go","content":"x\ny\n"}`)
+	if len(write) != 1 || len(write[0].Lines) != 2 ||
+		write[0].Lines[0].Kind != approvalLineAdd || write[0].Lines[0].Text != "x" {
+		t.Fatalf("write line diff = %+v", write)
+	}
+
+	patch := "*** Begin Patch\n*** Update File: f.go\n@@\n a\n-b\n+c\n*** End Patch\n"
+	args := `{"input":` + jsonArg(t, patch) + `}`
+	files := buildApprovalLineDiff("apply_patch", args)
+	if len(files) != 1 || files[0].Path != "f.go" {
+		t.Fatalf("patch line diff files = %+v", files)
+	}
+	var hasDel, hasAdd bool
+	for _, line := range files[0].Lines {
+		if line.Kind == approvalLineDel && line.Text == "b" {
+			hasDel = true
+		}
+		if line.Kind == approvalLineAdd && line.Text == "c" {
+			hasAdd = true
+		}
+	}
+	if !hasDel || !hasAdd {
+		t.Fatalf("patch line diff missing -b/+c: %+v", files[0].Lines)
+	}
+}
+
+// TestApprovalLineDiffBounded 验证逐行 diff 的行数与行长都受上界约束。
+func TestApprovalLineDiffBounded(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < approvalLineDiffMaxLines+10; i++ {
+		b.WriteString("line\n")
+	}
+	args := `{"path":"big.go","content":` + jsonArg(t, b.String()) + `}`
+	files := buildApprovalLineDiff("write", args)
+	if len(files) != 1 || len(files[0].Lines) != approvalLineDiffMaxLines {
+		t.Fatalf("bounded line count = %d, want %d", len(files[0].Lines), approvalLineDiffMaxLines)
+	}
+	if !strings.Contains(files[0].Lines[len(files[0].Lines)-1].Text, "省略") {
+		t.Fatalf("bounded diff missing overflow marker: %+v", files[0].Lines[len(files[0].Lines)-1])
+	}
+
+	long := strings.Repeat("字", approvalLineDiffMaxRunes+10)
+	files = buildApprovalLineDiff("write", `{"path":"long.go","content":`+jsonArg(t, long)+`}`)
+	if got := []rune(files[0].Lines[0].Text); len(got) != approvalLineDiffMaxRunes {
+		t.Fatalf("line has %d runes, want %d", len(got), approvalLineDiffMaxRunes)
+	}
+}
+
+// TestApprovalLineDiffNonEditToolsEmpty 验证非编辑工具不生成逐行 diff 数据。
+func TestApprovalLineDiffNonEditToolsEmpty(t *testing.T) {
+	for _, name := range []string{"bash", "read", "grep", "unknown", ""} {
+		if got := buildApprovalLineDiff(name, `{"path":"foo.go","content":"a\n"}`); len(got) != 0 {
+			t.Errorf("%q returned line diff: %+v", name, got)
 		}
 	}
 }
