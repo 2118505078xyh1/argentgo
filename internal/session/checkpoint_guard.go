@@ -154,6 +154,14 @@ func guardTargetWithin(baseDir, target string, problems *[]string) bool {
 		candidate = filepath.Join(root, clean)
 	}
 
+	// Windows 的临时目录（如 CI runner 的 C:\Users\RUNNER~1\...）可能是 8.3
+	// 短路径，而 root 经 EvalSymlinks 后是长路径；若直接用短路径 candidate 与
+	// 长路径 root 做 filepath.Rel，会被误判为逃逸。先把存在的 candidate 也解析
+	// 为规范长路径，再统一比较。Lstat 不存在的情况留给下面的存在性检查处理。
+	if resolved, err := filepath.EvalSymlinks(candidate); err == nil {
+		candidate = resolved
+	}
+
 	if !guardWithinRoot(root, candidate) {
 		*problems = append(*problems, fmt.Sprintf("target 逃逸 baseDir: %q", raw))
 		return false

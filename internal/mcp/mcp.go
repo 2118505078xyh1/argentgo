@@ -25,7 +25,7 @@ const (
 	// clientName 在 clientInfo 中报告给服务器。
 	clientName = "argentgo"
 	// clientVersion 在 clientInfo 中报告给服务器。
-	clientVersion = "0.8.1"
+	clientVersion = "0.8.2"
 	// maxListPages 限制游标驱动的列表分页。一个故障服务器不断
 	// 生成新游标，不得让发现过程挂起或无界增长内存；
 	// 普通服务器只用几页。
