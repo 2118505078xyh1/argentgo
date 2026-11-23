@@ -49,7 +49,8 @@ func TestRunSetsTerminalTitleOnEnterAndExit(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run never became ready")
 	}
-	if got := out.String(); !strings.Contains(got, terminalTitle) {
+	title := windowTitle(opts.Root)
+	if got := out.String(); !strings.Contains(got, title) {
 		t.Fatalf("the startup sequence must set the terminal title: %q", got)
 	}
 
@@ -64,11 +65,11 @@ func TestRunSetsTerminalTitleOnEnterAndExit(t *testing.T) {
 	}
 
 	written := out.String()
-	if n := strings.Count(written, terminalTitle); n < 2 {
+	if n := strings.Count(written, title); n < 2 {
 		t.Fatalf("terminal title sequence count = %d, want >= 2 (enter + exit): %q", n, written)
 	}
-	if !strings.Contains(terminalTitle, "\x1b]0;argentgo\x07") {
-		t.Fatalf("the title sequence must be OSC 0 with BEL, got %q", terminalTitle)
+	if !strings.Contains(title, "\x1b]0;argentgo\x07") {
+		t.Fatalf("the title sequence must be OSC 0 with BEL, got %q", title)
 	}
 	// OSC 只写给 out 流，不进入 Frame/Buffer。
 	if strings.Contains(frameText(m, 100, 24), "\x1b]") {

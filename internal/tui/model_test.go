@@ -170,8 +170,8 @@ func TestOfflineRenderNeverCallsTheTerminal(t *testing.T) {
 	if buffer.Width() != 80 || buffer.Height() != 24 {
 		t.Fatalf("frame is %dx%d", buffer.Width(), buffer.Height())
 	}
-	if !strings.Contains(buffer.RowText(0), "test-model") {
-		t.Fatalf("header = %q", buffer.RowText(0))
+	if !strings.Contains(buffer.RowText(23), "test-model") {
+		t.Fatalf("status = %q", buffer.RowText(23))
 	}
 }
 

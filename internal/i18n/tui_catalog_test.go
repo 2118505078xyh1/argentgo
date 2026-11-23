@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// tuiCatalogKeys 枚举从原 internal/tui/locale.go 迁入的全部 57 个键。
-// 保持此列表与目录同步，可防止后续新增 TUI 文案时只改一侧。
+// tuiCatalogKeys 枚举从原 internal/tui/locale.go 迁入的全部键，加上
+// 斜杠命令描述（tui.cmd_*_desc）。保持此列表与目录同步，可防止
+// 后续新增 TUI 文案时只改一侧。
 var tuiCatalogKeys = []string{
 	"allow",
 	"allow_session",
@@ -21,6 +22,15 @@ var tuiCatalogKeys = []string{
 	"cached",
 	"cancelled",
 	"cancelling",
+	"cmd_clear_desc",
+	"cmd_context_desc",
+	"cmd_expand_desc",
+	"cmd_help_desc",
+	"cmd_name_desc",
+	"cmd_quit_desc",
+	"cmd_retry_desc",
+	"cmd_review_desc",
+	"cmd_undo_desc",
 	"collapsed",
 	"color_degraded",
 	"commands_off",

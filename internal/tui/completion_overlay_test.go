@@ -1,9 +1,25 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
+
+// overlayCandidates 返回当前补全列表（TUI 原生命令 + 宿主注入命令，按字典序）。
+func overlayCandidates(m *Model) []CompletionCandidate { return m.visibleCommands() }
+
+// candidateName 返回第 i 个候选的命令名，越界时让测试立即失败。
+func candidateName(t *testing.T, m *Model, i int) string {
+	t.Helper()
+	cands := overlayCandidates(m)
+	if i < 0 || i >= len(cands) {
+		t.Fatalf("candidate %d is out of range (%d total)", i, len(cands))
+	}
+	return cands[i].Command
+}
+
+func counterLabel(selected, total int) string { return fmt.Sprintf("(%d/%d)", selected, total) }
 
 func overlayModel() *Model {
 	m := New(Config{})
@@ -36,9 +52,11 @@ func TestCompletionOverlayAppearsOnSlashWithHighlightedFirstItem(t *testing.T) {
 	if !m.completionOverlay || m.showCommands {
 		t.Fatalf("overlay = %v, side panel = %v; want overlay only", m.completionOverlay, m.showCommands)
 	}
-	row, ok := overlayRow(m, 100, 24, "/commit")
+	first := candidateName(t, m, 0)
+	total := len(overlayCandidates(m))
+	row, ok := overlayRow(m, 100, 24, "/"+first)
 	if !ok {
-		t.Fatal("the floating candidate is missing")
+		t.Fatalf("the floating candidate /%s is missing", first)
 	}
 	text := m.Frame(100, 24).RowText(row)
 	if !strings.HasPrefix(text, "│ > ") {
@@ -47,40 +65,43 @@ func TestCompletionOverlayAppearsOnSlashWithHighlightedFirstItem(t *testing.T) {
 	if !overlayCellReverse(m, 100, 24, row, 5) {
 		t.Fatalf("the selected row must be highlighted in reverse: %q", text)
 	}
-	if _, ok := overlayRow(m, 100, 24, "(1/4)"); !ok {
-		t.Fatal("the (1/4) counter line is missing")
+	if _, ok := overlayRow(m, 100, 24, counterLabel(1, total)); !ok {
+		t.Fatalf("the %s counter line is missing", counterLabel(1, total))
 	}
 	// 侧栏仍由 Ctrl+O 控制，且复用同一条候选行与计数行。
 	m.HandleKey(Key{Kind: KindCtrlO})
 	panel := panelText(m, 100, 24)
-	for _, want := range []string{"COMMANDS", "> /commit", "(1/4)"} {
+	for _, want := range []string{"COMMANDS", "> /" + first, counterLabel(1, total)} {
 		if !strings.Contains(panel, want) {
-			t.Fatalf("side panel is missing %q:\n%s", want, panel)
+			t.Fatalf("side panel is missing %q: %s", want, panel)
 		}
 	}
 }
 
 func TestCompletionOverlayDownMovesCounterAndHighlight(t *testing.T) {
 	m := overlayModel()
+	first, second := candidateName(t, m, 0), candidateName(t, m, 1)
+	total := len(overlayCandidates(m))
 	m.HandleKey(Key{Kind: KindDown})
-	if _, ok := overlayRow(m, 100, 24, "(2/4)"); !ok {
-		t.Fatal("Down did not update the counter to (2/4)")
+	if _, ok := overlayRow(m, 100, 24, counterLabel(2, total)); !ok {
+		t.Fatalf("Down did not update the counter to %s", counterLabel(2, total))
 	}
-	second, ok := overlayRow(m, 100, 24, "/compile")
+	secondRow, ok := overlayRow(m, 100, 24, "/"+second)
 	if !ok {
-		t.Fatal("the second candidate is missing")
+		t.Fatalf("the second candidate /%s is missing", second)
 	}
-	first, _ := overlayRow(m, 100, 24, "/commit")
-	if !overlayCellReverse(m, 100, 24, second, 5) {
+	firstRow, _ := overlayRow(m, 100, 24, "/"+first)
+	if !overlayCellReverse(m, 100, 24, secondRow, 5) {
 		t.Fatal("the second row is not highlighted after Down")
 	}
-	if overlayCellReverse(m, 100, 24, first, 5) {
+	if overlayCellReverse(m, 100, 24, firstRow, 5) {
 		t.Fatal("the first row stayed highlighted after Down")
 	}
 }
 
 func TestCompletionOverlayClickAcceptsThirdCandidate(t *testing.T) {
 	m := overlayModel()
+	third := candidateName(t, m, 2)
 	m.Frame(100, 24)
 	var hit *completionHit
 	for i := range m.completionHits {
@@ -93,8 +114,8 @@ func TestCompletionOverlayClickAcceptsThirdCandidate(t *testing.T) {
 		t.Fatalf("no hit box for the third candidate: %+v", m.completionHits)
 	}
 	m.MouseDown(5, hit.row)
-	if got := m.Input(); got != "/config " {
-		t.Fatalf("input after clicking the third candidate = %q, want \"/config \"", got)
+	if want := "/" + third + " "; m.Input() != want {
+		t.Fatalf("input after clicking the third candidate = %q, want %q", m.Input(), want)
 	}
 	if got := m.TakeSubmitted(); got != "" {
 		t.Fatalf("clicking a candidate submitted %q", got)

@@ -36,10 +36,10 @@ func TestUsageEventSetsCounters(t *testing.T) {
 		t.Fatalf("usage event did not set counters, got in=%d out=%d cached=%d",
 			m.usageIn, m.usageOut, m.usageCached)
 	}
-	// 用量经现有渲染门显示：头部与状态行各出现一次。
+	// 用量经现有渲染门显示：顶栏已取消，只在底部状态行出现一次。
 	text := frameText(m, 110, 24)
-	if got := strings.Count(text, "cached 900"); got < 2 {
-		t.Fatalf("cached count should appear in header and status, got %d: %s", got, text)
+	if got := strings.Count(text, "cached 900"); got != 1 {
+		t.Fatalf("cached count should appear exactly once in the status line, got %d: %s", got, text)
 	}
 }
 
@@ -102,8 +102,9 @@ func TestUsageEventCJKAndBoundary(t *testing.T) {
 			}
 			want := tc.label + " " + compactCount(tc.cached)
 			text := frameText(m, 110, 24)
-			if got := strings.Count(text, want); got < 2 {
-				t.Fatalf("want %q in header and status, got %d: %s", want, got, text)
+			// 顶栏已取消：缓存用量只在底部状态行出现一次。
+			if got := strings.Count(text, want); got != 1 {
+				t.Fatalf("want %q once in the status line, got %d: %s", want, got, text)
 			}
 		})
 	}

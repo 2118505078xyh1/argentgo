@@ -30,12 +30,8 @@ func usageGateModel(theme string) (*Model, *time.Time) {
 func assertNoGateUsage(t *testing.T, m *Model) {
 	t.Helper()
 	buf := m.Frame(110, 24)
-	header := buf.RowText(0)
 	status := buf.RowText(buf.Height() - 1)
 	for _, tok := range usageGateTokens {
-		if strings.Contains(header, tok) {
-			t.Errorf("header leaked usage token %q: %q", tok, header)
-		}
 		if strings.Contains(status, tok) {
 			t.Errorf("status leaked usage token %q: %q", tok, status)
 		}
@@ -77,11 +73,10 @@ func TestUsageGateEnabledRendersUsage(t *testing.T) {
 	m.SetContextInfo(1000, "$0.01")
 
 	buf := m.Frame(110, 24)
-	header := buf.RowText(0)
 	status := buf.RowText(buf.Height() - 1)
 	for _, tok := range usageGateTokens {
-		if !strings.Contains(header, tok) && !strings.Contains(status, tok) {
-			t.Errorf("gate on but token %q is missing\nheader=%q\nstatus=%q", tok, header, status)
+		if !strings.Contains(status, tok) {
+			t.Errorf("gate on but token %q is missing: %q", tok, status)
 		}
 	}
 }
@@ -93,10 +88,9 @@ func TestUsageGateOffKeepsNonUsageInfo(t *testing.T) {
 	m.SetContextInfo(1000, "$0.01")
 
 	buf := m.Frame(110, 24)
-	header := buf.RowText(0)
 	status := buf.RowText(buf.Height() - 1)
-	if want := clock(0); !strings.Contains(header, want) {
-		t.Errorf("header clock %q missing: %q", want, header)
+	if want := clock(0); !strings.Contains(status, want) {
+		t.Errorf("status clock %q missing: %q", want, status)
 	}
 	if want := text("en", "theme") + " " + ThemeLight; !strings.Contains(status, want) {
 		t.Errorf("status theme %q missing: %q", want, status)

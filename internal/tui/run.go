@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,10 +28,10 @@ const (
 	enablePaste  = "\x1b[?2004h"
 	disablePaste = "\x1b[?2004l"
 	// terminalTitle 是 OSC 0（同时改窗口与图标标题）的 BEL 终止序列。
-	// Windows Terminal 直接接受它；不需要先查询原标题——查询需要读取
-	// 终端响应，在管道驱动的测试中会阻塞。进入和退出都设为同一个
-	// ASCII 品牌名，保持行为确定且帧缓冲区完全不受影响。
-	terminalTitle = "\x1b]0;argentgo\x07"
+	// 窗口标题由 windowTitle 拼成「argentgo · <项目文件夹>」：品牌名只在
+	// 这里出现一次，避免与状态栏重复；进入和退出用同一串，行为确定。
+	terminalTitlePrefix = "\x1b]0;"
+	terminalTitleSuffix = "\x07"
 )
 
 const frameInterval = 50 * time.Millisecond
@@ -186,6 +188,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	in, out := opts.streams()
 	real := opts.IO == nil
+	// 窗口标题在整个会期内保持不变：品牌名只在标题里出现一次。
+	title := windowTitle(opts.Root)
 
 	env := opts.Env
 	if env == nil {
@@ -219,13 +223,13 @@ func Run(ctx context.Context, opts Options) error {
 	// 使终端发送按下、拖拽和滚轮事件（在 keys.go 中解码）用于文本选择。括号粘贴
 	// 防止多行输入被当作按键读取（以及
 	// 在第一个回车时提交）。
-	fmt.Fprint(out, terminalTitle+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
+	fmt.Fprint(out, title+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			restore()
-			fmt.Fprint(out, "\x1b[?1002l\x1b[?1006l"+disablePaste+showCursor+leaveAltScreen+terminalTitle)
+			fmt.Fprint(out, "\x1b[?1002l\x1b[?1006l"+disablePaste+showCursor+leaveAltScreen+title)
 			if body := model.Plain(); body != "" {
 				fmt.Fprint(out, body)
 			}
@@ -323,7 +327,7 @@ func Run(ctx context.Context, opts Options) error {
 				restore = again
 			}
 		}
-		fmt.Fprint(out, terminalTitle+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
+		fmt.Fprint(out, title+enterAltScreen+clearScreen+hideCursor+"\x1b[?1002h\x1b[?1006h"+enablePaste)
 		buffer.Invalidate()
 		forceRedraw = true
 	}
@@ -500,4 +504,31 @@ func (m *Model) CursorPosition(width, height int) (int, int) {
 		row = height
 	}
 	return row, col
+}
+
+// windowTitle 生成 OSC 0 窗口标题：`argentgo · <项目文件夹>`。
+//
+// 品牌名只出现在这里（状态栏不再重复），文件夹名取工作区根的 basename；
+// 没有根目录时退化为纯品牌名，保持无 Root 构建的既有行为。目录名来自
+// 文件系统，写进转义序列前必须去掉控制字符，否则恶意目录名可以向终端
+// 注入控制序列。
+func windowTitle(root string) string {
+	title := "argentgo"
+	if folder := titleSafeText(filepath.Base(filepath.Clean(root))); root != "" && folder != "" && folder != "." && folder != string(filepath.Separator) {
+		title += " · " + folder
+	}
+	return terminalTitlePrefix + title + terminalTitleSuffix
+}
+
+// titleSafeText 去掉控制字符（含 ESC、BEL、CSI 引入符与换行），只保留
+// 可打印字符；结果按字素簇裁剪，CJK 文件夹名不会被切成半个字。
+func titleSafeText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return Clip(b.String(), 64)
 }

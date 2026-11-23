@@ -88,7 +88,7 @@ func (m *Model) layoutLocked(width, height int) layout {
 	l.statusY = l.height - 1
 	l.hintY = l.height - 2
 	l.inputTop = l.height - 2 - (len(visible) + 2)
-	l.bodyTop = 2
+	l.bodyTop = 0
 	l.bodyH = l.inputTop - l.bodyTop
 	if l.bodyH < 1 {
 		l.bodyH = 1
@@ -116,9 +116,6 @@ func (m *Model) Paint(buf *Buffer) {
 	buf.Clear()
 	l := m.layoutLocked(width, height)
 	m.bodyH = l.bodyH
-
-	m.paintLine(buf, 0, m.headerLocked(width))
-	m.paintLine(buf, 1, ruleLine(width, m.palette.border()))
 
 	body := m.bodyLinesLocked(l.bodyW)
 	// 缓存输入路径在滚轮/翻页按键到达时用于钳制滚动的几何，
@@ -292,112 +289,9 @@ func (m *Model) contextStyle(pct int) Style {
 	}
 }
 
-func (m *Model) headerLocked(width int) Line {
-	dot := m.palette.muted()
-
-	// 先构建右侧信息，得出左侧可用宽度，再把工作目录压缩进预算。
-	right := NewLine()
-	first := true
-	push := func(text string, style Style) {
-		if text == "" {
-			return
-		}
-		if !first {
-			right.Push(" · ", dot)
-		}
-		first = false
-		right.Push(text, style)
-	}
-	// 当前模型与思考强度常驻状态栏（产品默认）：用户对话时随时能看到
-	// 正在使用哪个模型、哪个推理档位，无需记启动 flag 或翻统计行。
-	// 空值时不显示该段，保持无元数据构建的既有帧字节。
-	if m.model != "" {
-		push(m.model, m.palette.accent())
-	}
-	if m.thinking != "" {
-		push("思考:"+m.thinking, m.palette.accent())
-	}
-	// 用量/成本行整体受 usageVisible opt-in 门控：门关时不渲染这些行，
-	// 使默认帧字节与门控接入前逐字节一致。clock/主题等非用量信息照常显示。
-	if m.usageVisible {
-		if m.usageIn+m.usageOut > 0 {
-			push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
-			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100，
-			// 因此 cached>prompt 也只会显示 100%，绝不会产生 NaN。
-			if m.usageIn > 0 {
-				pct := int(float64(m.usageCached) / float64(m.usageIn) * 100)
-				if pct < 0 {
-					pct = 0
-				}
-				if pct > 100 {
-					pct = 100
-				}
-				push("CH "+strconv.Itoa(pct)+"%", m.palette.muted())
-			}
-			// 生成速度优先来自 Usage 事件携带的首 token/流结束时间点：
-			// 扣除首 token 等待后按 Σtokens/Σdurations 跨步聚合；字段
-			// 缺失时降级为相邻 Usage 事件的增量。无可用样本时 usageRate
-			// 为空，整个头部与经典实现逐字节一致。
-			if m.usageRate != "" {
-				push("⚡ "+m.usageRate, m.palette.muted())
-			}
-		}
-		if m.usageCached > 0 {
-			push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
-		}
-		// contextWindow > 0 仍只是数据门控；渲染层再叠加 usageVisible，
-		// 因此 SetContextInfo 只存数据，不决定是否显示。
-		if m.contextWindow > 0 {
-			used := int64(m.usageIn) + int64(m.usageOut)
-			pct := used * 100 / int64(m.contextWindow)
-			if pct > 100 {
-				pct = 100
-			}
-			push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
-		}
-		if m.cost != "" {
-			push(m.cost, m.palette.muted())
-		}
-	}
-	push(clock(int(m.now().Sub(m.started).Seconds())), m.palette.muted())
-	right.Push(" ", dot)
-
-	room := width - right.Width() - 1
-	if room < 4 {
-		room = 4
-	}
-
-	left := NewLine()
-	left.Push("argentgo", m.palette.accent())
-	if m.model != "" {
-		left.Push(" · ", dot)
-		left.Push(m.model, Style{})
-	}
-	if m.root != "" {
-		left.Push(" · ", dot)
-		budget := room - left.Width()
-		if budget < 1 {
-			budget = 1
-		}
-		left.Push(smartShortenPath(m.root, budget), m.palette.muted())
-	}
-	return joinLine(clipLine(left, room), right, width)
-}
-
-// folderLabel 只取当前工作目录的 basename（不显示全路径），在状态栏
-// 占用极小的空间。root 为空或仅表示根目录时返回空串，使没有 Root 的
-// 模型与历史帧逐字节一致。Clip 按字素簇裁剪，CJK 文件夹名不会被切开。
-func folderLabel(root string, width int) string {
-	if root == "" {
-		return ""
-	}
-	base := filepath.Base(filepath.Clean(root))
-	if base == "" || base == "." || base == string(filepath.Separator) {
-		return ""
-	}
-	return Clip(base, maxInt(width/4, 8))
-}
-
+// statusLineLocked 渲染底部状态栏。模型、用量、缓存命中、速度、上下文
+// 与成本全部集中在这一行：顶栏已取消，屏幕高度整块留给对话记录。
+// 「代理名」（argentgo）只出现在终端窗口标题里，模型名也只显示一次。
 func (m *Model) statusLineLocked(width int) Line {
 	left := NewLine()
 	message := ""
@@ -423,33 +317,93 @@ func (m *Model) statusLineLocked(width int) Line {
 	if message != "" {
 		left.Push(Clip(message, width), style)
 	}
+
+	dot := m.palette.muted()
 	right := NewLine()
-	var parts []string
+	first := true
+	push := func(text string, style Style) {
+		if text == "" {
+			return
+		}
+		if !first {
+			right.Push(" · ", dot)
+		}
+		first = false
+		right.Push(text, style)
+	}
+	if m.model != "" {
+		push(m.model, m.palette.accent())
+	}
+	// 用量/成本段整体受 usageVisible 门控：门关时不渲染，
+	// 使状态栏与门控接入前逐字节一致。主题/滚动等非用量信息不受影响。
+	if m.usageVisible {
+		if m.usageIn+m.usageOut > 0 {
+			push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
+			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100，
+			// 因此 cached>prompt 也只会显示 100%，绝不会产生 NaN。
+			if m.usageIn > 0 {
+				pct := int(float64(m.usageCached) / float64(m.usageIn) * 100)
+				if pct < 0 {
+					pct = 0
+				}
+				if pct > 100 {
+					pct = 100
+				}
+				push("CH "+strconv.Itoa(pct)+"%", m.palette.muted())
+			}
+			// 生成速度优先来自 Usage 事件携带的首 token/流结束时间点；
+			// 字段缺失时 usageRate 为空，该段整体不显示。
+			if m.usageRate != "" {
+				push("⚡ "+m.usageRate, m.palette.muted())
+			}
+		}
+		if m.usageCached > 0 {
+			push(text(m.locale, "cached")+" "+compactCount(m.usageCached), m.palette.muted())
+		}
+		// contextWindow > 0 只是数据门控；渲染层再叠加 usageVisible。
+		if m.contextWindow > 0 {
+			used := int64(m.usageIn) + int64(m.usageOut)
+			pct := used * 100 / int64(m.contextWindow)
+			if pct > 100 {
+				pct = 100
+			}
+			push("ctx "+contextBar(int(pct), contextBarCells)+" "+strconv.FormatInt(pct, 10)+"%", m.contextStyle(int(pct)))
+		}
+		if m.cost != "" {
+			push(m.cost, m.palette.muted())
+		}
+	}
 	// 主题只有在与默认不同时才值得永久提醒；深色不需要标签，因为
 	// 它是历史外观。
 	if m.theme != ThemeDark {
-		parts = append(parts, text(m.locale, "theme")+" "+m.theme)
+		push(text(m.locale, "theme")+" "+m.theme, m.palette.muted())
 	}
 	if m.scroll > 0 {
-		parts = append(parts, "↑"+strconv.Itoa(m.scroll))
-	}
-	// 与头部一致：用量行受 usageVisible 门控，门关时状态栏保持经典字节。
-	// 主题/scroll 等非用量信息不受影响。
-	if m.usageVisible {
-		if m.usageIn+m.usageOut > 0 {
-			parts = append(parts, compactCount(m.usageIn)+"/"+compactCount(m.usageOut))
-		}
-		if m.usageCached > 0 {
-			parts = append(parts, text(m.locale, "cached")+" "+compactCount(m.usageCached))
-		}
+		push("↑"+strconv.Itoa(m.scroll), m.palette.muted())
 	}
 	if folder := folderLabel(m.root, width); folder != "" {
-		parts = append(parts, folder)
+		push(folder, m.palette.muted())
 	}
-	if len(parts) > 0 {
-		right.Push(strings.Join(parts, " · ")+" ", m.palette.muted())
+	push(clock(int(now.Sub(m.started).Seconds())), m.palette.muted())
+
+	if right.Width() > 0 {
+		right = clipLine(right, maxInt(width-left.Width()-1, 1))
 	}
 	return joinLine(left, right, width)
+}
+
+// folderLabel 只取当前工作目录的 basename（不显示全路径），在状态栏
+// 占用极小的空间。root 为空或仅表示根目录时返回空串，使没有 Root 的
+// 模型与历史帧逐字节一致。Clip 按字素簇裁剪，CJK 文件夹名不会被切开。
+func folderLabel(root string, width int) string {
+	if root == "" {
+		return ""
+	}
+	base := filepath.Base(filepath.Clean(root))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return Clip(base, maxInt(width/4, 8))
 }
 
 func (m *Model) tickLocked() int {

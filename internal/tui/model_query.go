@@ -146,16 +146,19 @@ func (m *Model) SetVimMode(on bool) {
 
 func (m *Model) SetCommandInfo(rows []CommandInfo) {
 	m.mu.Lock()
-	m.commandInfo = append([]CommandInfo{}, rows...)
-	cands := make([]CompletionCandidate, 0, len(rows))
-	for _, row := range rows {
+	// 补全列表 = TUI 原生命令（/help /clear /undo …）+ 宿主注入的命令。
+	// 没有这一步，输入 `/` 只能看到 internal/commands 的两个内置命令。
+	merged := mergeCommandInfo(m.locale, rows)
+	m.commandInfo = merged
+	cands := make([]CompletionCandidate, 0, len(merged))
+	for _, row := range merged {
 		cands = append(cands, CompletionCandidate{
 			Command:     row.Command,
 			Description: row.Description,
 		})
 	}
 	m.completion = NewCompletionState(cands)
-	m.commandsCursor = clampScroll(m.commandsCursor, maxInt(len(rows)-1, 0))
+	m.commandsCursor = clampScroll(m.commandsCursor, maxInt(len(merged)-1, 0))
 	m.commandsScroll = 0
 	m.version++
 	m.markDirtyLocked()

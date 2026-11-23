@@ -112,14 +112,15 @@ func TestSessionRailShowsGeneratedTitles(t *testing.T) {
 	}
 }
 
-func TestCachedTokensAppearInHeaderAndStatusLine(t *testing.T) {
+func TestCachedTokensAppearInStatusLine(t *testing.T) {
 	m := New(Config{})
 	m.SetUsageVisible(true)
 	m.SetUsage(1200, 300)
 	m.SetCachedTokens(900)
 	text := frameText(m, 110, 24)
-	if matches := strings.Count(text, "cached 900"); matches < 2 {
-		t.Fatalf("cached count should appear in header and status, got %d: %s", matches, text)
+	// 顶栏已取消，缓存用量只在底部状态行出现一次。
+	if matches := strings.Count(text, "cached 900"); matches != 1 {
+		t.Fatalf("cached count should appear exactly once in the status line, got %d: %s", matches, text)
 	}
 }
 

@@ -75,7 +75,7 @@ func TestContextStyleThresholds(t *testing.T) {
 	}
 }
 
-func TestHeaderContextBarUsesThresholdStyle(t *testing.T) {
+func TestStatusContextBarUsesThresholdStyle(t *testing.T) {
 	tests := []struct {
 		pct  int
 		want Style
@@ -90,7 +90,7 @@ func TestHeaderContextBarUsesThresholdStyle(t *testing.T) {
 		m.SetUsageVisible(true)
 		m.SetUsage(tc.pct*10, 0)
 		m.SetContextInfo(1000, "")
-		span, ok := contextSpan(m.headerLocked(120))
+		span, ok := contextSpan(m.statusLineLocked(120))
 		if !ok {
 			t.Fatalf("no ctx span for %d%%", tc.pct)
 		}
@@ -104,7 +104,7 @@ func TestHeaderContextBarUsesThresholdStyle(t *testing.T) {
 	}
 }
 
-func TestHeaderContextBarIsPlainWhenColourSuppressed(t *testing.T) {
+func TestStatusContextBarIsPlainWhenColourSuppressed(t *testing.T) {
 	env := func(key, value string) func(string) string {
 		return func(k string) string {
 			if k == key {
@@ -128,7 +128,7 @@ func TestHeaderContextBarIsPlainWhenColourSuppressed(t *testing.T) {
 			m.SetUsageVisible(true)
 			m.SetUsage(950, 0)
 			m.SetContextInfo(1000, "")
-			span, ok := contextSpan(m.headerLocked(120))
+			span, ok := contextSpan(m.statusLineLocked(120))
 			if !ok {
 				t.Fatal("no ctx span")
 			}

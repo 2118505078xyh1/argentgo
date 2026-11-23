@@ -6,16 +6,20 @@ import (
 	"testing"
 )
 
-func TestLayoutPlacesHeaderBodyInputAndStatus(t *testing.T) {
+func TestLayoutPlacesStatusBodyInputAndStatus(t *testing.T) {
 	m := New(Config{Model: "test-model", Root: "/work/project"})
 	m.AppendUser("hello")
 	buffer := m.Frame(80, 24)
 
-	header := buffer.RowText(0)
-	for _, want := range []string{"argentgo", "test-model"} {
-		if !strings.Contains(header, want) {
-			t.Fatalf("header %q is missing %q", header, want)
+	// 顶栏已取消：品牌名只在终端窗口标题里，状态行保留模型名与项目文件夹。
+	status := buffer.RowText(23)
+	for _, want := range []string{"test-model", "project"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("status %q is missing %q", status, want)
 		}
+	}
+	if strings.Contains(buffer.RowText(0), "argentgo ·") {
+		t.Fatalf("the header row must be gone, row 0 = %q", buffer.RowText(0))
 	}
 	if got := buffer.RowText(23); got == "" {
 		t.Fatalf("the status line is empty")
@@ -84,7 +88,7 @@ func TestToolCallShowsNameArgsAndTruncatedOutput(t *testing.T) {
 	m.AppendTool("read", `{"path":"internal/tui/render.go"}`, "line one\nline two\nline three\nline four\nline five", false)
 	body := strings.Join(rowTexts(m.Frame(60, 24)), "\n")
 	if !strings.Contains(body, "● read(internal/tui/render.go)") {
-		t.Fatalf("tool call header is wrong:\n%s", body)
+		t.Fatalf("tool call status is wrong:\n%s", body)
 	}
 	if !strings.Contains(body, "line one") {
 		t.Fatalf("the first output line is missing:\n%s", body)
@@ -112,7 +116,7 @@ func TestReasoningBlockIsDimAndPrefixed(t *testing.T) {
 	m.AppendReasoning("weighing options")
 	body := strings.Join(rowTexts(m.Frame(60, 24)), "\n")
 	if !strings.Contains(body, "◇ thinking") {
-		t.Fatalf("reasoning header is missing:\n%s", body)
+		t.Fatalf("reasoning status is missing:\n%s", body)
 	}
 	if !strings.Contains(body, "weighing options") {
 		t.Fatalf("reasoning text is missing:\n%s", body)
