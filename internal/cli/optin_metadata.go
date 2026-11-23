@@ -87,6 +87,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "audit_sanitize", Env: "ARGENT_AUDIT_SANITIZE", Name: "审计命令脱敏", Enable: "=1", Desc: "审计日志写入前用 bash.SanitizeForLog 脱敏 reason 中的 VAR=值/口令状串；默认关闭时只走既有 RedactJSON。"},
 	{Key: "tui_badge_contrast", Env: "ARGENT_TUI_BADGE_BG", Name: "TUI 徽章对比度", Enable: "三个 BADGE_* env 同时提供", Desc: "为自定义主题提供徽章 hex 配色（背景/墨色/备选墨色），由 LegibleInk 选可读墨色；默认未配置时帧逐字节不变。"},
 	{Key: "mcp_call_profile", Env: "ARGENT_MCP_CALL_PROFILE", Name: "MCP 每次调用权限 profile", Enable: "=1", Desc: "声明 readOnlyHint 的 MCP 工具按每次调用注入只读 profile，拒绝修改类工具（只收紧不放宽）；默认关闭时行为不变。"},
+	{Key: "telemetry", Env: "ARGENT_TELEMETRY", Name: "类型化观测", Enable: "=1", Desc: "用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

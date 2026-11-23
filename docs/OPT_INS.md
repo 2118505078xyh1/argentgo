@@ -563,6 +563,7 @@ argentgo "你的任务"
 | `ARGENT_AUDIT_SANITIZE` | =1 时审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串；默认关闭时只走既有 RedactJSON。 |
 | `ARGENT_TUI_BADGE_BG` / `_INK` / `_ALT_INK` | 三者同时提供时为徽章渲染提供 hex 配色，由 `LegibleInk` 按对比度选墨色；默认未配置时帧逐字节不变。 |
 | `ARGENT_MCP_CALL_PROFILE` | =1 时声明 readOnlyHint 的 MCP 工具按每次调用注入只读 profile（拒绝修改类工具，只收紧不放宽）；默认关闭时行为不变。 |
+| `ARGENT_TELEMETRY` | =1 时用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

@@ -126,13 +126,6 @@
 - **建议**：opt-in `ARGENT_APPROVAL_PERSIST=1`：`internal/security` 实现 `FileBackedScopedApprover` 写 `<storage>/approvals.jsonl`（复用 `TTLCache` 持久化与 `PolicyIssues` 校验），只记录命令前缀/工具名，不记录自由文本参数；同时给 RPC `approval.answer` 加可选 feedback 字段并接 `ParseApproverResult`（`approval_feedback_adapter.go:11-58`，目前零生产调用）。默认仍走内存语义。
 - **验收**：`internal/security/persistent_approval_test.go`：always 授权重启后仍生效、粘性 deny 优先、文件损坏时 fail-closed；`go test ./internal/security -count=1`。
 
-### 128. 类型化 telemetry 适配层（span/metric schema + NOOP）替代散点 slog `[P2/M-L]`（学自 pi-mono）
-- **竞品证据**：pi `packages/telemetry/src/index.ts:1-90` 定义 Span/Metric/Store/Propagation 契约；`metrics.ts:30-120` 的 counter/upDownCounter/histogram 与 schema 绑定；`noop.ts:1-35` 共享 noop context（零行为）；`agent-session.ts:3895-3918` 把 retry 事件结构化发出。
-- **argentgo 现状**：`internal/agent/loop.go:276-330,352-477`（TURN_TIMING / TOOL_TIMING_HISTOGRAM / TOOL_CALL_TRACE / CONTEXT_HEALTH_LOG / PRESSURE_LEVEL 多为轮末 slog）、`internal/llm/debug_trace.go`、`internal/cli/trace_sink.go` 观测点丰富但无统一 span/metric 契约，无法跨包关联一次运行。
-- **问题**：诊断日志之间无法用统一的 run/span ID 关联；新增观测点只能复制 slog 模式。
-- **建议**：新增 stdlib-only 的 `internal/telemetry` 接口包（Context/Span/Counter/Histogram + NOOP 单例），先让现有 opt-in 日志点作为第一个 adapter；默认 NOOP 不分配，事件/记录字节不变。无需新模块。
-- **验收**：`internal/telemetry/telemetry_test.go`：noop 实现零分配（benchmark）、span 父子关系与属性 schema 验证；现有观测点开启后输出含统一 run ID；`go test ./internal/telemetry ./internal/agent -count=1`。
-
 ### 133. 每个外部程序独立的 UTF-8→ACP 增量解码 `[P2/M]`（学自 oh-my-pi）
 - **竞品证据**：`oh-my-pi/crates/shell/src/output_decode.rs:89-109` 的 `push` 快路径，`:122-172` 的 `drain_utf8` 线性游标，`:195-220` 的 `external_output_decoding`，`:236-257` 的 `CaptureDecoder` 按行判定（`MAX_HELD_LINE=64*1024`）；遇完整非法序列后该程序剩余输出永久锁 ACP，不再切回。
 - **argentgo 现状**：`internal/proc/utf8_writer.go:14-19,67-121` 只做 chunk 边界的 UTF-8 暂存，非法字节原样透传成 U+FFFD；`internal/bash/tools_builtin_bash.go:217-229` 仅在 cmd.exe 分支前置 `chcp 65001`，bash 分支禁止加（`:229`），中文 Windows 上经 Git Bash 启动的原生程序（写 CP936）仍乱码。

@@ -244,7 +244,13 @@ func (r *Runner) execute(ctx context.Context, prompt string, emit func(Event)) (
 	// 按源前缀哈希缓存注入的压缩器，使同一 Runner 上不同提示中的相同前缀不会被重复摘要。
 	// 未配置压缩器时，该包装器是透明的。
 	state.compactor = newCachingCompactor(state.compactor, r.compactionCache())
+	turnStarted := time.Now()
 	res, err := state.loop(ctx)
+	// 类型化 telemetry（opt-in ARGENT_TELEMETRY，默认关闭）：默认 NOOP 零分配、
+	// 零输出；开启时经统一 Span/Counter/Histogram 契约记录本轮时间与结果。
+	if telemetryEnabled() {
+		observeTurnTelemetry(turnStarted, res.Stopped, res.Turns)
+	}
 	// opt-in 开启时把本轮各阶段计时固化为快照并落结构化日志。关闭时 state.turnTiming
 	// 为 nil，整段是空操作：事件、会话记录与返回值逐字节不变。
 	state.finishTurnTiming(res.Stopped)
