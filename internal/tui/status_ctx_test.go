@@ -12,13 +12,13 @@ func TestStatusShowsContextPercentAndCostOnlyWhenConfigured(t *testing.T) {
 	m.SetUsageVisible(true)
 	m.SetUsage(230, 0)
 
-	before := m.Frame(80, 24).RowText(22)
+	before := m.Frame(80, 24).RowText(23)
 	if strings.Contains(before, "%/") || strings.Contains(before, "$") {
 		t.Fatalf("the default status must not show context metadata: %q", before)
 	}
 
 	m.SetContextInfo(1000, "$0.01")
-	after := m.Frame(80, 24).RowText(22)
+	after := m.Frame(80, 24).RowText(23)
 	for _, want := range []string{"23.0%/1.0k", "$0.01"} {
 		if !strings.Contains(after, want) {
 			t.Fatalf("status %q is missing %q", after, want)
@@ -26,7 +26,7 @@ func TestStatusShowsContextPercentAndCostOnlyWhenConfigured(t *testing.T) {
 	}
 
 	m.SetContextInfo(0, "")
-	restored := m.Frame(80, 24).RowText(22)
+	restored := m.Frame(80, 24).RowText(23)
 	if restored != before {
 		t.Fatalf("clearing context info must restore the original status:\n%q\n%q", before, restored)
 	}
@@ -39,7 +39,7 @@ func TestStatusContextPercentIsClamped(t *testing.T) {
 	m.SetUsage(900, 200)
 	m.SetContextInfo(1000, "")
 	want := "100.0%/1.0k"
-	if got := m.Frame(80, 24).RowText(22); !strings.Contains(got, want) {
+	if got := m.Frame(80, 24).RowText(23); !strings.Contains(got, want) {
 		t.Fatalf("overbudget usage should clamp to %q: %q", want, got)
 	}
 }

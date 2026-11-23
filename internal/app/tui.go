@@ -243,20 +243,22 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		}
 
 		frontendOpts := tui.Options{
-			Root:          res.Root,
-			Model:         res.Model,
-			Thinking:      res.Thinking,
-			Locale:        res.Locale,
-			Sessions:      sessionTitles(store),
-			ContextWindow: res.Cfg.ContextWindow,
-			Events:        events.Events,
-			Undo:          undoTurn,
-			Retry:         retryTurn,
-			Rename:        renameTurn,
-			Compact:       compactTurn,
-			OpenSession:   openSession,
-			DeleteSession: deleteSession,
-			RenameSession: renameSession,
+			Root:                   res.Root,
+			Model:                  res.Model,
+			Thinking:               res.Thinking,
+			Locale:                 res.Locale,
+			Sessions:               sessionTitles(store),
+			ExpandReasoningOnStart: true,
+			ExpandToolsOnStart:     true,
+			ContextWindow:          res.Cfg.ContextWindow,
+			Events:                 events.Events,
+			Undo:                   undoTurn,
+			Retry:                  retryTurn,
+			Rename:                 renameTurn,
+			Compact:                compactTurn,
+			OpenSession:            openSession,
+			DeleteSession:          deleteSession,
+			RenameSession:          renameSession,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
 				turnCtx = withEventEmit(turnCtx, events.Emit)
 				sess, err := sessionFor(text)

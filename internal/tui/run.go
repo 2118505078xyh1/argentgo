@@ -59,6 +59,10 @@ type Options struct {
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	FS       FileSystem          // injected read-only workspace for the panel
 	Sessions []string
+	// ExpandReasoningOnStart / ExpandToolsOnStart 由宿主决定是否
+	// 默认展开思考与工具输出。
+	ExpandReasoningOnStart bool
+	ExpandToolsOnStart     bool
 	// ContextWindow 和 Cost 是可选的头部元数据。零/空值使
 	// 头部与从未设置它们的构建逐字节一致。
 	ContextWindow int
@@ -203,15 +207,17 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	model := New(Config{
-		Root:     opts.Root,
-		Model:    opts.Model,
-		Thinking: opts.Thinking,
-		Locale:   opts.Locale,
-		Theme:    opts.Theme,
-		NoColor:  opts.NoColor,
-		Env:      env,
-		FS:       opts.FS,
-		Sessions: opts.Sessions,
+		Root:                   opts.Root,
+		Model:                  opts.Model,
+		Thinking:               opts.Thinking,
+		Locale:                 opts.Locale,
+		Theme:                  opts.Theme,
+		NoColor:                opts.NoColor,
+		Env:                    env,
+		FS:                     opts.FS,
+		Sessions:               opts.Sessions,
+		ExpandReasoningOnStart: opts.ExpandReasoningOnStart,
+		ExpandToolsOnStart:     opts.ExpandToolsOnStart,
 	})
 	model.SetPromptStore(opts.PromptHistory)
 	model.SetApproval(opts.Approval)

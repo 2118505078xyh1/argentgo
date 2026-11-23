@@ -74,8 +74,9 @@ func (m *Model) layoutLocked(width, height int) layout {
 		l.bodyW = minInt(bodyAvail, maxBodyWidth)
 		l.bodyX = 1
 	} else {
-		l.bodyW = minInt(l.width, maxBodyWidth)
-		l.bodyX = (l.width - l.bodyW) / 2
+		// 全屏时正文铺满终端，不再被 120 列的旧上限截成中间一条。
+		l.bodyW = maxInt(l.width-2, 1)
+		l.bodyX = 1
 	}
 
 	runes := m.editor.Runes()
@@ -90,7 +91,9 @@ func (m *Model) layoutLocked(width, height int) layout {
 	// 只有底部两行：用量+模型，以及刻意留空的最后一行（避免终端自动
 	// 滚动）。输入框紧贴用量行上方；状态/提示放在输入框正上方，
 	// 不再在屏幕顶部另画一条像输入框的横线。
-	l.usageY = maxInt(l.height-2, 0)
+	// 用量行直接落在最后一行；绘制时刻意少写一列，避免末尾字符
+	// 触发终端自动滚动。这样下方不再多出一行。
+	l.usageY = maxInt(l.height-1, 0)
 	m.usageY = l.usageY
 	l.statusY = l.usageY - (len(visible) + 2) - 1
 	l.inputTop = l.statusY + 1
@@ -193,7 +196,7 @@ func (m *Model) Paint(buf *Buffer) {
 	m.paintInput(buf, l)
 	// 底部只有用量行；状态紧贴输入框上方，路径与分隔线不再占用行。
 	m.paintLine(buf, l.statusY, m.statusRuleLocked(width))
-	m.paintLine(buf, l.usageY, m.statusLineLocked(width))
+	m.paintLine(buf, l.usageY, m.statusLineLocked(maxInt(width-1, 1)))
 	m.paintSelectionLocked(buf)
 	m.dirty = false
 }

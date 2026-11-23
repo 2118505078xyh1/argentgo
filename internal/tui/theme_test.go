@@ -166,13 +166,13 @@ func TestSetThemeSwitchesPaletteAndFailsOnUnknownName(t *testing.T) {
 
 func TestStatusLineShowsActiveThemeWhenNotDark(t *testing.T) {
 	m := New(Config{Locale: "en"})
-	if got := m.Frame(100, 24).RowText(22); strings.Contains(got, "theme") {
+	if got := m.Frame(100, 24).RowText(23); strings.Contains(got, "theme") {
 		t.Errorf("dark status line should not name the theme: %q", got)
 	}
 	if err := m.SetTheme(ThemeANSI); err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Frame(100, 24).RowText(22); !strings.Contains(got, "theme ansi") {
+	if got := m.Frame(100, 24).RowText(23); !strings.Contains(got, "theme ansi") {
 		t.Errorf("status line = %q, want the active theme", got)
 	}
 }

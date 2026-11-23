@@ -116,6 +116,10 @@ type Config struct {
 	Env      func(string) string // injected lookup for NO_COLOR / TERM
 	FS       FileSystem          // injected read-only workspace; nil uses os
 	Sessions []string
+	// ExpandReasoningOnStart / ExpandToolsOnStart 让宿主选择默认展开
+	// 思考块与工具输出；仍可通过点击或 /expand 折叠。
+	ExpandReasoningOnStart bool
+	ExpandToolsOnStart     bool
 }
 
 // KeyAction 告诉事件循环，模型更新后某个按键请求什么。
@@ -379,10 +383,14 @@ func New(cfg Config) *Model {
 		fs:       cfg.FS,
 		noColor:  cfg.NoColor,
 		degraded: detectDegradation(cfg.Env),
+		expanded: cfg.ExpandToolsOnStart,
 	}
 	m.theme = ThemeDark
 	m.palette, _ = paletteFor(ThemeDark)
 	_ = m.applyThemeLocked(cfg.Theme)
+	if cfg.ExpandReasoningOnStart {
+		m.reasoningAllExpanded = true
+	}
 	if m.fs == nil {
 		m.fs = osFileSystem{}
 	}
