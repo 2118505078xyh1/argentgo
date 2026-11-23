@@ -101,13 +101,19 @@ type Outcome struct {
 	// AdditionalContextFromOutcome 在 Outcome 产出时提取，已脱敏、去空白并按字节上限截断；
 	// 供上层注入下一轮模型上下文。零值表示钩子未提供，现有行为逐字节不变。
 	AdditionalContext string
-	Elapsed           time.Duration
-	Err               error
+	// daemonMessage 是常驻外部进程扩展（ARGENT_HOOK_DAEMON）提供的可读理由。
+	// 它让 detail() 优先展示人类文本而非协议 JSON；零值时 detail() 的原有规则不变。
+	daemonMessage string
+	Elapsed       time.Duration
+	Err           error
 }
 
 // detail 提取钩子输出中最有信息量的一段：优先 stdout，为空时回退 stderr，
 // 并去除两端空白。摘要与 Stop 续跑判定共用同一提取规则。
 func (o Outcome) detail() string {
+	if text := strings.TrimSpace(o.daemonMessage); text != "" {
+		return text
+	}
 	if text := strings.TrimSpace(o.Stdout); text != "" {
 		return text
 	}
@@ -186,6 +192,10 @@ type Dispatcher struct {
 	// 短路分发，或改写返回的 Result。
 	Middlewares []Middleware
 
+	// daemon 是经 AttachDaemon 挂载的常驻外部进程扩展；默认为空指针。
+	// 用原子指针读写，使会话结束时的 StopDaemon 与并发事件分发无数据竞争。
+	daemon atomic.Pointer[daemonProcess]
+
 	// asyncWG 跟踪 Run 启动的后台钩子。Run 从不在其上等待：
 	// 异步钩子不得延迟触发它的决策。WaitAsync
 	// 让调用方排空它们（测试、优雅关闭）。
@@ -194,11 +204,20 @@ type Dispatcher struct {
 
 // dispatchBase 执行既有的 Run + Summarize 聚合路径，并在 Summarize 之后折入
 // 钩子的权限裁决。Middlewares 为空时 Dispatch 直接调用它，代码路径与引入中间件
-// 之前逐字节一致（无裁决信号时折叠为空操作）。
+// 之前逐字节一致（无裁决信号时折叠为空操作）。常驻扩展挂载后，它的 Outcome
+// 只是追加到同一批 outcomes 中；未挂载时新增的一次 nil 判断无任何可观察效果。
 func (d *Dispatcher) dispatchBase(ctx context.Context, config *Config, payload Payload) (Result, error) {
 	outcomes, err := d.Run(ctx, config, payload)
 	if err != nil {
 		return Result{}, err
+	}
+	// 常驻扩展是 opt-in 的“虚拟钩子”：它产生的 Outcome 与 shell 钩子走同一条
+	// Summarize + applyVerdict 聚合路径，裁决/附加上下文/改写语义完全复用既有
+	// 实现。未挂载、未订阅或已降级时 daemon.dispatch 返回 false，下方序列不变。
+	if daemon := d.daemon.Load(); daemon != nil {
+		if outcome, handled := daemon.dispatch(ctx, payload); handled {
+			outcomes = append(outcomes, outcome)
+		}
 	}
 	result := Summarize(outcomes)
 	d.applyVerdict(&result, payload, outcomes)

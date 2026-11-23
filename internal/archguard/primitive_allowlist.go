@@ -94,4 +94,8 @@ var primitiveAllowlist = []primitiveAllowEntry{
 	{Symbol: "internal/session/replay_env.go:NewSeededRandom", Reason: "确定性随机源；同上，注入可重放种子"},
 	{Symbol: "internal/session/replay_env.go:NewSeqCollector", Reason: "序号重排器；同上，让乱序到达的流结果按序号严格投递"},
 	{Symbol: "internal/session/replay_env.go:Drain", Reason: "序号重排输出；同上，消费连续序号区间"},
+	// 事件钩子常驻外部进程扩展（TODO #72）：接线点在 internal/app 的钩子桥接构造处，
+	// 由父任务统一处理；此处登记避免「钩子包已就绪、应用尚未接线」期间的原语门禁误报。
+	{Symbol: "internal/hooks/daemon.go:AttachDaemon", Reason: "常驻扩展挂载入口；将由 internal/app 的 newHookBridge 在构造 Dispatcher 后以 os.Getenv 注入调用，opt-in 关闭时为 no-op"},
+	{Symbol: "internal/hooks/daemon.go:StopDaemon", Reason: "常驻扩展回收入口；将由 internal/app 在会话结束（SessionEnd 生命周期）处调用，与 AttachDaemon 成对"},
 }
