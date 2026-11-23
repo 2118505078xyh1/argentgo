@@ -41,10 +41,19 @@ func (writeStdinTool) Run(ctx context.Context, root string, raw json.RawMessage)
 	}
 
 	registry := unifiedExecRegistry()
-	if args.Close || isSessionInterrupt(args.Input) {
+	if isSessionInterrupt(args.Input) {
+		// C-c 只打断当前进程，保留会话本身供后续续读尾部日志；
+		// 显式 close 才真正移除会话。
+		if _, _, err := registry.WriteStdin(args.SessionID, []byte("\x03"), interruptYield(sessionYield(args.YieldTimeMS))); err != nil {
+			return "", fmt.Errorf("write_stdin: interrupt: %w", err)
+		}
+		return fmt.Sprintf("exec session %s interrupted (session retained)", args.SessionID), nil
+	}
+	if args.Close {
 		if err := registry.Close(args.SessionID); err != nil {
 			return "", fmt.Errorf("write_stdin: %w", err)
 		}
+		forgetSessionMeta(args.SessionID)
 		return fmt.Sprintf("exec session %s closed", args.SessionID), nil
 	}
 
@@ -52,12 +61,14 @@ func (writeStdinTool) Run(ctx context.Context, root string, raw json.RawMessage)
 	if err != nil {
 		return clipBashOutput(ctx, out), fmt.Errorf("write_stdin: %w", err)
 	}
-	text := clipBashOutput(ctx, out)
-	if !running {
-		text += "\n[exec session exited]"
+	known, _ := lookupSessionMeta(args.SessionID)
+	stdout, obs, parsed := observationFromOutput(out, running, known)
+	if parsed {
+		rememberSessionMeta(args.SessionID, sessionMeta{PID: obs.PID, CWD: obs.CWD})
 	}
-	if strings.TrimSpace(text) == "" {
-		return bashNoOutput(out, text), nil
+	text := formatBashObservation(ctx, stdout, obs)
+	if !running {
+		text += "[exec session exited]\n"
 	}
 	return text, nil
 }

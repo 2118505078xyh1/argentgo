@@ -134,6 +134,13 @@ func (bashTool) Run(ctx context.Context, root string, raw json.RawMessage) (stri
 		return "", fmt.Errorf("bash: command must not be empty")
 	}
 
+	// 前台长 sleep 守卫（默认开启，ARGENT_SLEEP_GUARD=0 紧急关闭）：
+	// 在任何执行分支派发前，用自研 shell 的词法/语法结果识别首条前台
+	// `sleep N`（N>=30），直接以 `Not run:` 错误拒绝，省下一整轮空等。
+	if err := rejectLongForegroundSleep(args.Command); err != nil {
+		return "", err
+	}
+
 	// 统一 exec 会话（opt-in ARGENT_EXEC_SESSION=1）：只有显式带了
 	// session_id / stdin / tty / yield_time_ms 之一才接管，避免开启开关
 	// 后悄悄改变普通一次性命令的既有语义。

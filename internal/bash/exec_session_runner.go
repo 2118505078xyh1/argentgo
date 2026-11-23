@@ -179,8 +179,10 @@ func unifiedExecRegistry() *jobs.SessionRegistry {
 }
 
 // isSessionInterrupt 识别一次 stdin 写入是否表示"中断当前会话"。
-// TTY 下 Ctrl-C 的 0x03 字节在部分平台（尤其 ConPTY）不会被翻译成信号，
-// 因此显式把它映射为只终止目标会话的 Kill，避免影响其它会话或宿主。
+// TTY 下 Ctrl-C 的 0x03 字节在部分平台（尤其 ConPTY）不会被自动翻译成
+// 信号，因此显式识别它；同时接受模型直写的字面量 "C-c"。命中后调用方
+// 向会话写入 0x03 以打断当前进程，但保留会话本身供后续续读日志。
 func isSessionInterrupt(input string) bool {
-	return input == "\x03" || input == "\r\x03" || input == "\n\x03"
+	return input == "\x03" || input == "\r\x03" || input == "\n\x03" ||
+		strings.TrimSpace(input) == "C-c"
 }
