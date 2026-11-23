@@ -23,12 +23,16 @@ import (
 type ApprovalStage int
 
 const (
-	// stageOnce 是初始阶段：等待用户在 once/always/reject 之间选择。
-	stageOnce ApprovalStage = iota
-	// stageConfirmScope 是"始终允许"的二次确认阶段，提交前必须先展示作用域。
-	stageConfirmScope
-	// stageFeedback 是"拒绝"后的反馈收集阶段。
-	stageFeedback
+	// StageOnce 是初始阶段：等待用户在 once/always/reject 之间选择。
+	StageOnce ApprovalStage = iota
+	// StageConfirmScope 是"始终允许"的二次确认阶段，提交前必须先展示作用域。
+	StageConfirmScope
+	// StageFeedback 是"拒绝"后的反馈收集阶段。
+	StageFeedback
+	// 兼容旧的内部名称，供既有测试与内部逻辑使用。
+	stageOnce         = StageOnce
+	stageConfirmScope = StageConfirmScope
+	stageFeedback     = StageFeedback
 )
 
 // 用户在审批界面上可以做出的选择。Choice 用字符串而非枚举，便于直接承载

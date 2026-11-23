@@ -490,6 +490,14 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+	// 分阶段审批（opt-in ARGENT_STAGED_APPROVAL，默认关闭）：用 stdio 交互的
+	// StagedApprover 取代普通审批器，启用 once/always/reject/esc 状态机与
+	// "始终允许"作用域记忆。关闭时不触碰链，逐字节不变。
+	if stagedApprovalEnabled(stdio.Env) {
+		approver = newStagedApprover(stdio.In, stdio.Err)
+		chain.Approver = approver
+		chain.EnableStagedApproval(true)
+	}
 	// 审计命令脱敏（opt-in ARGENT_AUDIT_SANITIZE，默认关闭）：用 bash 的
 	// SanitizeForLog 在写入前脱敏审计 reason 中的 VAR=值/口令状串。
 	if auditSanitizeEnabled(stdio.Env) {

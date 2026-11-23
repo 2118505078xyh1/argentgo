@@ -98,6 +98,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "retry_omit", Env: "ARGENT_RETRY_OMIT", Name: "重试前持久上下文省略", Enable: "=1", Desc: "可重试失败后切换模型前，由回调把失败助手消息及工具结果以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；关闭时逐字节不变。"},
 	{Key: "live_steer", Env: "ARGENT_LIVE_STEER", Name: "供应商原生流中重定向", Enable: "=1", Desc: "Responses 协议 SSE 事件边界检查排队纠正文本，按工具调用状态记 accepted/deferred 并经 SteerHook 上报；不改线协议字节；默认关闭时零开销、逐字节不变。"},
 	{Key: "suspended_job", Env: "ARGENT_SUSPENDED_JOB", Name: "Windows 挂起启动作业对象", Enable: "=1", Desc: "Windows 上需要整树终止时改用 CREATE_SUSPENDED 启动：先纳入作业对象再恢复主线程，入作业失败即终止从未运行的进程；默认关闭时启动路径逐字节不变。"},
+	{Key: "staged_approval", Env: "ARGENT_STAGED_APPROVAL", Name: "分阶段审批", Enable: "=1", Desc: "用 stdio 交互的 StagedApprover 启用 once/always/reject/esc 状态机与「始终允许」作用域记忆；默认关闭时走原审批路径，逐字节不变。"},
 	{Key: "approval_ttl", Env: "ARGENT_APPROVAL_TTL", Name: "TTL 审批门控", Enable: "时长（0 或空关闭）", Desc: "带 TTL 的审批门控。"},
 	{Key: "auto_decide", Env: "ARGENT_AUTO_DECIDE", Name: "自动决策", Enable: "=1", Desc: "启用自动决策行为，仅 =1 改变行为。"},
 	{Key: "no_intent_schema", Env: "ARGENT_NO_INTENT_SCHEMA", Name: "关闭意图 schema", Enable: "=1", Desc: "工具注册表门控：关闭意图 schema。"},

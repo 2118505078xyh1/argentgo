@@ -607,6 +607,7 @@ argentgo "你的任务"
 | `ARGENT_RETRY_OMIT` | =1 时重试前把失败尝试以 ContextEdit 永久从模型可见上下文省略，并按指数退避等待（可被 ctx 取消）；关闭时逐字节不变。 |
 | `ARGENT_LIVE_STEER` | =1 且 Steer 非 nil 时，Responses SSE 事件边界检查排队纠正文本并上报 accepted/deferred；不改线协议字节；关闭时零开销。 |
 | `ARGENT_SUSPENDED_JOB` | =1 时 Windows 上以 CREATE_SUSPENDED 启动、先入作业对象再恢复，入作业失败即终止未运行的进程，封住孙进程逃逸窗口；默认关闭时逐字节不变。 |
+| `ARGENT_STAGED_APPROVAL` | =1 时用 stdio 交互的 StagedApprover 启用 once/always/reject/esc 状态机与「始终允许」作用域记忆；默认关闭时走原审批路径，逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |
