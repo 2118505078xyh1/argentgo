@@ -856,6 +856,7 @@ streamLoop:
 		Reasoning:    reasoning.String(),
 		Usage:        usage,
 		FinishReason: finishReason,
+		Refusal:      parseRefusalReason(finishReason),
 	}, nil
 }
 
@@ -959,6 +960,7 @@ func decodeResponsesOnce(body io.Reader) (Message, error) {
 		Reasoning:    reasoning.String(),
 		Usage:        responsesPromptUsage(response.Usage),
 		FinishReason: finishReason,
+		Refusal:      parseRefusalReason(finishReason),
 	}, nil
 }
 

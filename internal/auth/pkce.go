@@ -49,6 +49,91 @@ type Config struct {
 
 const tokenBodyLimit = 1 << 20
 
+const (
+	// rejectedRefreshTTL 是被拒刷新令牌的负缓存生存期。区间内同一刷新令牌
+	// 直接返回缓存的错误，不再打提供方的令牌端点，避免凭据被撤销或短期故障时
+	// 每个请求都触发一次失败的交换（请求风暴与重复告警）。
+	rejectedRefreshTTL = 5 * time.Minute
+	// rejectedRefreshMaxEntries 给负缓存设上界，防止恶意/海量的不同刷新令牌
+	// 让内存无界增长。满时淘汰最早到期的条目。
+	rejectedRefreshMaxEntries = 100
+)
+
+// rejectedRefreshEntry 缓存一次被拒交换的错误及其失效时刻。
+type rejectedRefreshEntry struct {
+	err   error
+	until time.Time
+}
+
+// refreshNegativeCache 是有界的刷新拒绝负缓存。它对「refresh token 被撤销」
+// 类错误（OAuth invalid_grant）生效；其他错误（网络故障、服务端 5xx）不写入，
+// 以免把短暂故障固化成五分钟的拒绝。
+type refreshNegativeCache struct {
+	mu      sync.Mutex
+	entries map[string]rejectedRefreshEntry
+}
+
+// rejectedRefreshCache 是进程级默认开启的负缓存。key 为刷新令牌原文，
+// 条目只在本进程内流转，绝不落盘。
+var rejectedRefreshCache = &refreshNegativeCache{entries: make(map[string]rejectedRefreshEntry)}
+
+// refreshNegCacheClock 是可注入时钟，仅测试用它推进时间验证过期重试；
+// 生产路径始终是 time.Now。
+var refreshNegCacheClock = time.Now
+
+// check 命中未过期的拒绝时返回缓存错误；过期条目被删除并返回 nil，
+// 让调用方重新尝试交换。
+func (c *refreshNegativeCache) check(key string, now time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok {
+		return nil
+	}
+	if !now.Before(entry.until) {
+		delete(c.entries, key)
+		return nil
+	}
+	return entry.err
+}
+
+// put 记录一次被拒交换。先清理已过期条目，再在满额时淘汰最早到期的条目，
+// 保证条目数始终不超过 rejectedRefreshMaxEntries。
+func (c *refreshNegativeCache) put(key string, err error, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, entry := range c.entries {
+		if !now.Before(entry.until) {
+			delete(c.entries, k)
+		}
+	}
+	if len(c.entries) >= rejectedRefreshMaxEntries {
+		var oldestKey string
+		var oldestUntil time.Time
+		for k, entry := range c.entries {
+			if oldestKey == "" || entry.until.Before(oldestUntil) {
+				oldestKey, oldestUntil = k, entry.until
+			}
+		}
+		delete(c.entries, oldestKey)
+	}
+	c.entries[key] = rejectedRefreshEntry{err: err, until: now.Add(rejectedRefreshTTL)}
+}
+
+// isRejectedRefreshError 判定错误是否属于「refresh token 被撤销/失效」。
+// OAuth 用 invalid_grant 表示刷新令牌被撤销、过期或已被轮换，
+// 这是唯一应被短期负缓存的错误类别。
+func isRejectedRefreshError(err error) bool {
+	var tokenErr *tokenError
+	if !errors.As(err, &tokenErr) {
+		return false
+	}
+	code := strings.ToLower(tokenErr.Code)
+	description := strings.ToLower(tokenErr.Description)
+	return code == "invalid_grant" || strings.Contains(code, "invalid_grant") ||
+		strings.Contains(code, "revok") || strings.Contains(description, "revok")
+}
+
 // PKCE 返回一个新的 RFC 7636 verifier 及其 S256 challenge。
 func PKCE() (verifier, challenge string, err error) {
 	buf := make([]byte, 48)
@@ -193,12 +278,26 @@ func Exchange(ctx context.Context, cfg Config, code, verifier string) (Token, er
 	return tokenFromResponse(cfg, response, Token{})
 }
 
-// Refresh 用刷新令牌换取新的访问令牌。先前的令牌
 // Refresh 用刷新令牌换取新的访问令牌。先前的令牌提供 provider、种类、账号和刷新令牌回退。
+// 默认开启短期负缓存：同一刷新令牌一旦被 provider 以 invalid_grant 拒绝，
+// 五分钟内的重复调用直接返回缓存错误，不再打令牌端点；过期后自动重试。
 func Refresh(ctx context.Context, cfg Config, token Token) (Token, error) {
 	if token.Refresh == "" {
 		return Token{}, errors.New("auth: token has no refresh token")
 	}
+	now := refreshNegCacheClock()
+	if err := rejectedRefreshCache.check(token.Refresh, now); err != nil {
+		return Token{}, err
+	}
+	refreshed, err := refreshOnce(ctx, cfg, token)
+	if err != nil && isRejectedRefreshError(err) {
+		rejectedRefreshCache.put(token.Refresh, err, now)
+	}
+	return refreshed, err
+}
+
+// refreshOnce 执行一次真正的刷新交换，不含负缓存逻辑。
+func refreshOnce(ctx context.Context, cfg Config, token Token) (Token, error) {
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", token.Refresh)

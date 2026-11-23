@@ -856,6 +856,7 @@ streamLoop:
 		ReasoningSignature: signature.String(),
 		Usage:              usage,
 		FinishReason:       finishReason,
+		Refusal:            parseRefusalReason(finishReason),
 	}, nil
 }
 
@@ -939,6 +940,7 @@ func decodeAnthropicOnce(body io.Reader) (Message, error) {
 		ReasoningSignature: signature.String(),
 		Usage:              usage,
 		FinishReason:       response.StopReason,
+		Refusal:            parseRefusalReason(response.StopReason),
 	}, nil
 }
 

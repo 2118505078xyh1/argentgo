@@ -110,7 +110,15 @@ type Options struct {
 	// SteerHook 可选地接收每条 steering 决策（accepted/deferred）。
 	// 仅在 Steer 非 nil 且 opt-in 开启时被调用；nil 时决策只被丢弃。
 	SteerHook func(SteerDecision)
+	// ContextWindow 是当前模型的上下文窗口（token）。大于 0 时 Chat/ChatOnce
+	// 会把输出上限拟合进剩余窗口（见 FitOutputTokens），避免提示接近窗口时
+	// 因 max_tokens 过大被 400 拒绝。零值（默认）表示未知窗口，请求字节不变。
+	ContextWindow int `json:"-"`
 }
+
+// DefaultChatMaxTokens 是 chat completions 请求默认的输出上限，供输出拟合使用。
+// 默认请求不发送该字段；仅在拟合后确实需要收紧时才写入线协议。
+const DefaultChatMaxTokens = 8192
 
 // CacheCapability 描述 Chatter 实际有效的提示缓存支持。
 type CacheCapability struct {

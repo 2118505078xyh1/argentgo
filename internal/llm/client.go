@@ -31,6 +31,15 @@ type Message struct {
 	// "tool_calls"、"length"）。它是线协议元数据，供 agent 循环用于
 	// 拒绝被截断的工具调用批次，并非普通的转录内容。
 	FinishReason string `json:"finish_reason,omitempty"`
+	// Refusal 仅在本条助手回复被提供方以内容策略拒绝/过滤时填写（omitempty）。
+	// 它是线协议元数据的结构化形态，供回放层丢弃该轮，避免拒绝理由在 resume 后
+	// 自我污染后续每一轮；普通回复保持为空，转录与请求字节不变。
+	Refusal *ProviderRefusal `json:"refusal,omitempty"`
+	// NativeWindow 是提供方原生压缩返回的替换窗口（omitempty）。它随 Message
+	// 持久化，仅当 CompactModel 与回放模型一致时才使用，其他情况静默回退文本压缩。
+	NativeWindow []Message `json:"native_window,omitempty"`
+	// CompactModel 记录产生 NativeWindow 的模型（omitempty）；空表示无原生窗口。
+	CompactModel string `json:"compact_model,omitempty"`
 	// CacheControl 为缓存网关标记稳定的系统消息。它
 	// 从不会持久化到转录中。
 	CacheControl *CacheControl `json:"-"`
@@ -39,6 +48,13 @@ type Message struct {
 	// JSON 序列化，也不写入会话转录，仅由 wireMessages 消费。
 	// nil 表示纯文本消息，走既有 text-only 路径。
 	ContentParts json.RawMessage `json:"-"`
+}
+
+// ProviderRefusal 描述提供方因内容策略拒绝或过滤一次回复。
+// Reason 取线协议中的拒绝类别："refusal"/"sensitive"（Anthropic Messages）
+// 或 "content_filter"（OpenAI chat completions / Responses）。
+type ProviderRefusal struct {
+	Reason string `json:"reason,omitempty"`
 }
 
 // Usage 报告提供方对一次回复计费的 token 数。
@@ -337,10 +353,13 @@ func (c *Client) httpClient() *http.Client {
 }
 
 type chatRequest struct {
-	Model                string         `json:"model"`
-	Messages             []chatMessage  `json:"messages"`
-	Tools                []ToolSpec     `json:"tools,omitempty"`
-	StopTokenIDs         []int64        `json:"stop_token_ids,omitempty"`
+	Model        string        `json:"model"`
+	Messages     []chatMessage `json:"messages"`
+	Tools        []ToolSpec    `json:"tools,omitempty"`
+	StopTokenIDs []int64       `json:"stop_token_ids,omitempty"`
+	// MaxTokens 仅在输出拟合确实收紧上限时填写（omitempty），使绝大多数
+	// 未配置 contextWindow 的请求线协议字节保持不变。
+	MaxTokens            int            `json:"max_tokens,omitempty"`
 	Stream               bool           `json:"stream"`
 	StreamOptions        *streamOptions `json:"stream_options,omitempty"`
 	PromptCacheRetention string         `json:"prompt_cache_retention,omitempty"`
@@ -473,7 +492,7 @@ func (c *Client) Chat(
 	tools []ToolSpec,
 	onText func(string),
 ) (Message, error) {
-	return c.chat(ctx, model, messages, tools, onText, nil, c.reasoningEffort())
+	return c.chat(ctx, model, messages, tools, onText, nil, c.reasoningEffort(), fitChatMaxTokens(c.Options.ContextWindow, messages))
 }
 
 // reasoningEffort 返回 OpenAI chat completions 的 reasoning_effort 值。
@@ -497,6 +516,7 @@ func (c *Client) buildChatRequest(
 	tools []ToolSpec,
 	stopIDs []int64,
 	reasoningEffort string,
+	maxTokens int,
 ) chatRequest {
 	cacheEnabled := c.Options.cacheEnabled(ProtocolChatCompletions, c.BaseURL)
 	request := chatRequest{
@@ -504,6 +524,7 @@ func (c *Client) buildChatRequest(
 		Messages:        wireMessages(messages, cacheEnabled, c.Options.cacheControl(), c.Options.PreserveReasoning),
 		Tools:           tools,
 		StopTokenIDs:    stopIDs,
+		MaxTokens:       maxTokens,
 		Stream:          true,
 		ReasoningEffort: reasoningEffort,
 		Verbosity:       c.Options.Verbosity,
@@ -522,6 +543,7 @@ func (c *Client) buildChatRequest(
 // 因此其线协议格式不变。FillMiddle 用它来附加 FIM 停止 token。
 // reasoningEffort 为本次请求要转发的 reasoning_effort：Chat 从
 // Options.Thinking 派生，FillMiddle 始终传空串，使 FIM 永不携带推理参数。
+// maxTokens 为输出拟合后的上限；0 表示不改写请求。
 func (c *Client) chat(
 	ctx context.Context,
 	model string,
@@ -530,9 +552,10 @@ func (c *Client) chat(
 	onText func(string),
 	stopIDs []int64,
 	reasoningEffort string,
+	maxTokens int,
 ) (Message, error) {
 	start := time.Now() // 请求级 trace 计时；未安装 sink 时 recordTrace 立即返回
-	request := c.buildChatRequest(model, messages, tools, stopIDs, reasoningEffort)
+	request := c.buildChatRequest(model, messages, tools, stopIDs, reasoningEffort, maxTokens)
 	payload, err := json.Marshal(request)
 	if err != nil {
 		recordTrace(ProtocolChatCompletions, model, nil, start, err, "")
@@ -648,7 +671,7 @@ type chatOnceResponse struct {
 // 互斥的 stream_options（二者同时出现会被引擎拒绝）。
 func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message, tools []ToolSpec) (Message, error) {
 	start := time.Now()
-	request := c.buildChatRequest(model, messages, tools, nil, c.reasoningEffort())
+	request := c.buildChatRequest(model, messages, tools, nil, c.reasoningEffort(), fitChatMaxTokens(c.Options.ContextWindow, messages))
 	// stream_options 只在流式请求中用于请求 usage；非流式下必须清除。
 	request.Stream = false
 	request.StreamOptions = nil
@@ -787,6 +810,7 @@ func (c *Client) ChatOnce(ctx context.Context, model string, messages []Message,
 		Reasoning:    reasoning,
 		Usage:        usage,
 		FinishReason: choice.FinishReason,
+		Refusal:      parseRefusalReason(choice.FinishReason),
 	}
 	recordTrace(ProtocolChatCompletions, model, reply.Usage, start, nil, "ok")
 	emitAttempt(c.Options.AttemptHook, AttemptRecord{Kind: AttemptSuccess, Protocol: ProtocolChatCompletions, Model: model})
@@ -994,5 +1018,5 @@ streamLoop:
 	if timingOn {
 		timing.stamp(&usage)
 	}
-	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Reasoning: reasoning.String(), Usage: usage, FinishReason: finishReason}, nil
+	return Message{Role: "assistant", Content: text.String(), ToolCalls: calls, Reasoning: reasoning.String(), Usage: usage, FinishReason: finishReason, Refusal: parseRefusalReason(finishReason)}, nil
 }

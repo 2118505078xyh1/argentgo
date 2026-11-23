@@ -48,6 +48,13 @@ type Compaction struct {
 	Todo    []string    `json:"todo,omitempty"`
 	Archive *ArchiveRef `json:"archive,omitempty"`
 
+	// NativeWindow 保存提供方原生压缩返回的替换窗口（omitempty）。它是 Entry
+	// 数组的 JSON 原文，仅在 NativeModel 与回放模型一致时展开，其余情况静默
+	// 回退文本摘要。omitempty 保证未使用原生压缩的记录逐字节不变。
+	NativeWindow json.RawMessage `json:"nativeWindow,omitempty"`
+	// NativeModel 记录产生 NativeWindow 的模型；空表示无原生窗口。
+	NativeModel string `json:"nativeModel,omitempty"`
+
 	// SummaryEmpty 标记摘要是否无实质内容（仅标题或占位符），供上层据此决定是否
 	// 重试模型摘要。它只在 opt-in 开启时由 Summarize 计算；json:"-" 保证它从不
 	// 写入 JSONL，因此 opt-in 关闭（乃至开启）时压缩记录的字节都不受影响。
@@ -1110,4 +1117,88 @@ func CompactionArchiveNotice(ref *ArchiveRef) string {
 	fmt.Fprintf(&b, "- The verbatim text of the dropped messages is preserved in `%s` (%d bytes).\n", ref.Path, ref.Bytes)
 	fmt.Fprintf(&b, "- To recover one message, read the byte range `start..end` for its index from the `archive.ranges` field of this compaction record.\n")
 	return b.String()
+}
+
+// providerErrorNotExecutedTextSession 是回放时对流错误占位的固定改写文本。
+// 只保留「未执行」事实，绝不把提供方的拒绝解释喂回分类器。
+const providerErrorNotExecutedTextSession = "[未执行：提供方错误，工具调用未执行]"
+
+// nativeWindowReplay 在 model 与窗口记录的模型一致时，把原生替换窗口展开为
+// 对话条目。窗口缺失、解码失败或模型不一致时返回 (nil, false)，调用方据此
+// 静默回退文本压缩。它只认可产生窗口时的同一模型，避免把提供方侧加密状态
+// 或服务端的保留窗口错误地发给别的模型。
+func nativeWindowReplay(model string, compaction Compaction) ([]Entry, bool) {
+	if compaction.NativeModel == "" || compaction.NativeModel != model || len(compaction.NativeWindow) == 0 {
+		return nil, false
+	}
+	var entries []Entry
+	if err := json.Unmarshal(compaction.NativeWindow, &entries); err != nil || len(entries) == 0 {
+		return nil, false
+	}
+	out := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Role == "" {
+			continue
+		}
+		out = append(out, entry)
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// providerRefusalIn 判定一条消息载荷是否记录了提供方的拒绝/内容过滤。
+// 同时接受结构化 refusal 字段与旧的 stop_reason/finish_reason 字符串，
+// 使从旧转录恢复的会话也能被正确过滤。
+func providerRefusalIn(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var object map[string]any
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return false
+	}
+	if _, ok := object["refusal"]; ok {
+		return true
+	}
+	for _, key := range []string{"stop_reason", "finish_reason", "stop_details"} {
+		text, _ := object[key].(string)
+		switch strings.ToLower(strings.TrimSpace(text)) {
+		case "refusal", "sensitive", "content_filter", "content_filtered":
+			return true
+		}
+	}
+	return false
+}
+
+// syntheticStopErrorIn 判定载荷是否为流中断占位（__synthetic +
+// source=assistant_stop_error）。只在两者同时出现时命中，避免误伤正常消息。
+func syntheticStopErrorIn(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	text := string(raw)
+	return strings.Contains(text, "__synthetic") && strings.Contains(text, "assistant_stop_error")
+}
+
+// refusalReplayEntries 把对话投影为可安全回放的条目序列：丢弃被拒绝的
+// assistant 轮，并把流错误占位改写为固定的「未执行」文本。纯函数，不改入参。
+func refusalReplayEntries(entries []Entry) []Entry {
+	out := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Role != "assistant" {
+			out = append(out, entry)
+			continue
+		}
+		if providerRefusalIn(entry.Data) {
+			continue
+		}
+		if syntheticStopErrorIn(entry.Data) {
+			entry.Content = providerErrorNotExecutedTextSession
+			entry.Data = nil
+		}
+		out = append(out, entry)
+	}
+	return out
 }
