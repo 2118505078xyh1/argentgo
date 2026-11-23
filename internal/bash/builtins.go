@@ -119,7 +119,7 @@ func (it *Interp) runBuiltin(name string, args []string, stdin string) (string, 
 		program, cmdArgs := args[0], args[1:]
 		// 真实命令仍需经过安全谓词（execCall 对外建命令已审过 command 本身，
 		// 这里审的是它即将执行的目标）。
-		if !CurrentSafety(it.Safety, strings.Join(args, " ")) {
+		if !CurrentSafety(it.Ctx, it.Safety, strings.Join(args, " ")) {
 			return "", "", fmt.Errorf("shell: command rejected by safety policy: %s", program)
 		}
 		if isBuiltin(program) {

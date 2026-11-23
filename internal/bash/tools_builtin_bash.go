@@ -363,7 +363,7 @@ func runBuiltinParsed(ctx context.Context, root, command string, timeout time.Du
 			if expanded == command {
 				return true
 			}
-			return CurrentSafety(nil, expanded)
+			return CurrentSafety(ctx, nil, expanded)
 		},
 	}
 	it := &Interp{

@@ -1,75 +1,58 @@
 package bash
 
-import "sync/atomic"
+import "context"
 
-// 本文件提供进程级的安全咨询谓词注入点。背景：内建 shell 早已在
-// Options.Safety 上支持"调用方注入谓词"，但生产接线从不设置它，导致
-// 该防御在生产中形同虚设。shell 不能 import security（分层规则），因此
-// 这里提供一个**包级注入点**：由上层（app/security）在启动时把真正的
-// 安全判定函数注入进来，shell 自身只负责读取和调用，不 import 任何
-// 安全策略包。
+// 本文件提供安全咨询谓词的注入点。背景：内建 shell 早已在
+// Options.Safety 上支持"调用方注入谓词"，但生产接线在早期版本里用的是
+// 进程级 atomic.Value 全局，导致同一进程内并发的 Execute（TUI + RPC、或
+// 多个会话）会互相覆盖谓词：运行 A 的 bash 调用拿到运行 B 的 chain/ctx，
+// 审计写错 sessionID，甚至用已取消的 ctx 误拒。
 //
-// 默认（未注入）时所有读取都得到 nil，CurrentSafety 一律放行——既有运行
-// 语义逐字节保持不变。注入是纯增量行为，只有显式调用 SetSafetyOracle
-// 才会改变判定结果。
+// 现在谓词随 context 传播（仿 agent.WithBackgroundResults 的注入范式），
+// 由 app.Execute 在每次运行时用自己的 ctx 调用 WithSafetyOracle 注入。
+// 每个运行持有独立 ctx，天然隔离；运行结束 ctx 失效，谓词随之消失，
+// 不存在进程级残留。shell 自身不 import security（分层规则），只读取 ctx
+// 中的函数值并调用。
 
-// safetyOracle 存放当前注入的安全咨询谓词。
-//
-// atomic.Value 要求所有 Store 的具体类型完全一致，且不能存 nil 接口值。
-// 因此这里始终保存 func(string) bool 类型的值：注入时存真实函数，
-// 清除时存一个"类型化的 nil 函数"（concrete type 同为 func(string) bool，
-// 但接口值非 nil，不会触发 atomic.Value 的 store-nil panic）。
-// 读取方 safetyCheck 断言回 func(string) bool，类型化 nil 自然还原为 nil。
-var safetyOracle atomic.Value
+// safetyOracleCtxKey 是安全咨询谓词在 context 中的私有键类型。
+// 用私有类型而非字符串，避免与其他包的 ctx 值发生键碰撞。
+type safetyOracleCtxKey struct{}
 
-func init() {
-	// 用一个类型化 nil 完成初始化，确立 atomic.Value 的具体类型，
-	// 这样后续 Store(nil 函数) 与 Store(真实函数) 都满足类型一致性。
-	var nilFn func(string) bool
-	safetyOracle.Store(nilFn)
-}
-
-// SetSafetyOracle 注入或清除进程级安全咨询谓词。
+// WithSafetyOracle 把本次运行的安全咨询谓词注入 ctx。
 //
-//   - fn != nil：注入该函数，后续 CurrentSafety 在无显式谓词时会调用它；
-//   - fn == nil：清除注入，恢复"默认放行"行为。
-//
-// 并发安全：可被多个 goroutine 同时调用，与 safetyCheck/CurrentSafety
-// 并发读写也不会 panic 或产生数据竞争。注入的函数本身应是纯函数（至少不得
-// 修改传入的 command），因为调用方可能在任意 goroutine 中调用它。
-func SetSafetyOracle(fn func(string) bool) {
+// 返回的 ctx 把 fn 挂在值链上，随 agent 循环一路传到 bash 工具。
+// 并发的 Execute 各自注入到各自的 ctx，互不覆盖；fn == nil 时是空操作，
+// 保持"未注入时默认放行"的既有语义。
+func WithSafetyOracle(ctx context.Context, fn func(string) bool) context.Context {
 	if fn == nil {
-		var nilFn func(string) bool
-		safetyOracle.Store(nilFn)
-		return
+		return ctx
 	}
-	safetyOracle.Store(fn)
+	return context.WithValue(ctx, safetyOracleCtxKey{}, fn)
 }
 
-// safetyCheck 读取当前注入的安全咨询谓词；未注入或已清除时返回 nil。
-// 返回的函数由调用方直接调用，本函数不复制、不修改它。
-func safetyCheck() func(string) bool {
-	v := safetyOracle.Load()
-	if v == nil {
+// safetyOracleFrom 从 ctx 读取当前运行注入的安全咨询谓词；未注入时返回 nil。
+// ctx 为 nil 也返回 nil（Interp.Ctx 允许为 nil）。
+func safetyOracleFrom(ctx context.Context) func(string) bool {
+	if ctx == nil {
 		return nil
 	}
-	fn, _ := v.(func(string) bool)
+	fn, _ := ctx.Value(safetyOracleCtxKey{}).(func(string) bool)
 	return fn
 }
 
 // CurrentSafety 给出 command 的最终安全判定。
 //
-// 优先级：显式传入的 fn 高于包级 oracle。
-//   - fn != nil：直接调用 fn(command)，忽略包级 oracle；
-//   - fn == nil 且 oracle 未注入：返回 true（放行，默认行为不变）；
-//   - fn == nil 且 oracle 已注入：返回 oracle(command)。
+// 优先级：显式传入的 fn 高于 ctx 中注入的 oracle。
+//   - fn != nil：直接调用 fn(command)，忽略 ctx 中的 oracle；
+//   - fn == nil 且 ctx 未注入 oracle：返回 true（放行，默认行为不变）；
+//   - fn == nil 且 ctx 已注入 oracle：返回 oracle(command)。
 //
 // 约定：本函数不修改 command（Go 字符串不可变），也不修改 fn/oracle；
 // 它原样把 command 交给谓词，UTF-8/CJK 文本按字节透传，绝不在 rune 中间
 // 截断。oracle 返回 false 即代表拒绝，CurrentSafety 原样返回该 false。
-func CurrentSafety(fn func(string) bool, command string) bool {
+func CurrentSafety(ctx context.Context, fn func(string) bool, command string) bool {
 	if fn == nil {
-		fn = safetyCheck()
+		fn = safetyOracleFrom(ctx)
 	}
 	if fn == nil {
 		return true

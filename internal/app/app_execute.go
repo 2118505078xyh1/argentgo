@@ -534,22 +534,26 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 
 	// 把内建 shell 的安全咨询接到本次运行的"策略 -> 审批 -> 审计"链上。
-	// shell 包受分层规则约束不能 import security，因此通过进程级注入点把
-	// "转调 chain" 的谓词交给它。内建 shell 现默认开启（只有 ARGENT_BUILTIN_SHELL=0
-	// 才紧急关闭），因此受支持子集内的命令全部经解释器执行；当展开后的真实 argv
-	// 与外层守卫审过的原始命令不同时，还会再经 oracle 复核（相同则跳过，避免同一
-	// 审批器被重复询问）。仅当命令含不支持语法、整条回退系统 shell 时不经过解释器、
-	// 也不读取 oracle。未注入时 CurrentSafety 默认放行。
+	// shell 包受分层规则约束不能 import security，因此把"转调 chain"的谓词
+	// 经 ctx 注入（bash.WithSafetyOracle）。内建 shell 现默认开启（只有
+	// ARGENT_BUILTIN_SHELL=0 才紧急关闭），受支持子集内的命令全部经解释器执行；
+	// 当展开后的真实 argv 与外层守卫审过的原始命令不同时，再经 oracle 复核
+	// （相同则跳过，避免同一审批器被重复询问）。仅当命令含不支持语法、整条回退
+	// 系统 shell 时不经过解释器、也不读取 oracle。未注入时 CurrentSafety 默认放行。
 	//
-	// 并发安全：闭包只捕获不可变的 chain 指针与 ctx，每次调用用 json.Marshal
-	// 生成全新的参数（无共享可变暂存区）；chain.Check 自身可并发调用。
-	bash.SetSafetyOracle(func(cmd string) bool {
+	// 谓词随本次运行的 ctx 传播：并发的 Execute 各自持有独立 ctx，不会像旧的
+	// 进程级全局那样互相覆盖 chain/ctx（审计串味、用已取消的 ctx 误拒）；
+	// 运行结束 ctx 失效，谓词自然消失，不留进程级残留。闭包捕获的 chain 指针
+	// 与 safetyCtx 均为本次运行的不变量；json.Marshal 每次生成全新参数，
+	// chain.Check 自身可并发调用。
+	safetyCtx := ctx
+	ctx = bash.WithSafetyOracle(ctx, func(cmd string) bool {
 		args, err := json.Marshal(map[string]string{"command": cmd})
 		if err != nil {
 			// map[string]string 不可能序列化失败；一旦发生则 fail-closed。
 			return false
 		}
-		return chain.Check(ctx, "bash", args) == nil
+		return chain.Check(safetyCtx, "bash", args) == nil
 	})
 
 	// plan 模式（可选）：启用后修改类命令在审批前被拒并给模型可读的恢复提示。
