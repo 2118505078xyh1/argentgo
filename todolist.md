@@ -27,7 +27,8 @@
 
 1. **默认化原则**（覆盖旧 opt-in 优先约束）：改善体验的新功能默认开启、参数取最优值、用户零选择；环境变量仅留 `=0` 紧急回退。已同步写入 `AGENTS.md`、`docs/STATUS.md`、`CHANGELOG.md`。
 2. **压缩估算与 foveated 视图解耦**：新增 `session.MessagesForCompaction()`，压缩决策用未稀疏化的完整转录估算，避免默认归档后长会话因估算偏低而永不压缩。
-3. **12 个原语真实接线**：以 `#26` touched-path 提醒、`#14` 指令协调器、`#17` tool claim 装饰器、`#29` turn 租约等为代表，全部经 `Options` 接缝或 `ToolRunner` 装饰器注入，未破坏 `internal/agent` 不依赖 session/app/tools/config 的分层。
+3. **接线核对（教训）**：archguard 门禁只查「新增导出函数是否有调用方」，但多个代理把 wire 函数设为非导出或函数早于基线存在，导致门禁通过却有 6 个 wire 从未被调用、功能实际未生效。复核后补接：`wireSwitchModel`/`wireModelToolRouting`/`runGoalCommand`/`wireTaskExtras`/`wireRequestSecret`/`wireLSPFromConfig`，以及输出拟合的 `ContextWindow` 注入、拒绝回放投影、原生压缩（opt-in，有额外请求代价）。**结论：门禁通过 ≠ 功能接线，后续须逐项 grep 调用点验证。**
+4. **原生压缩保留 opt-in**：`ARGENT_NATIVE_COMPACT=1` 才尝试，因为它会产生一次额外辅助请求且多数 provider 不支持，属默认化原则例外里有代价的能力；回放时同模型才展开原生窗口，否则安全回退文本摘要。
 
 ---
 
