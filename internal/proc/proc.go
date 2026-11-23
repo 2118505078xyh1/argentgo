@@ -174,9 +174,17 @@ func Run(ctx context.Context, c Command) (Result, error) {
 	outDec := newUTF8CarryWriter(out)
 	errDec := newUTF8CarryWriter(errOut)
 	var stdoutWriter, stderrWriter io.Writer = outDec, errDec
+	// opt-in ARGENT_ACP_DECODE：在每个程序的每条输出流上独立做 UTF-8→ACP
+	// 判定。关闭时不插入任何包装，后续读写路径逐字节不变。
+	var stdoutACP, stderrACP *acpByteDecoder
+	if acpDecodeEnabled() {
+		stdoutACP = newACPByteDecoder(stdoutWriter)
+		stderrACP = newACPByteDecoder(stderrWriter)
+		stdoutWriter, stderrWriter = stdoutACP, stderrACP
+	}
 	if c.IdleTimeout > 0 {
-		stdoutWriter = &activityWriter{inner: outDec, last: &lastActivity}
-		stderrWriter = &activityWriter{inner: errDec, last: &lastActivity}
+		stdoutWriter = &activityWriter{inner: stdoutWriter, last: &lastActivity}
+		stderrWriter = &activityWriter{inner: stderrWriter, last: &lastActivity}
 	}
 
 	cmd := exec.Command(c.Path, c.Args...)
@@ -322,8 +330,15 @@ func Run(ctx context.Context, c Command) (Result, error) {
 
 	// 通常 cmd.Wait 到这里已经返回，exec 的拷贝 goroutine 也随之结束。
 	// 但若后代仍持有管道，awaitOutcome 也可能超时，此时那些 goroutine 仍活着；
-	// 进位写入器和捕获缓冲区由互斥锁保护，
-	// 因此无论哪种情况 Flush/String 都是安全的。
+	// 解码器、进位写入器和捕获缓冲区都由互斥锁保护，
+	// 因此无论哪种情况 Finish/Flush/String 都是安全的。
+	// ACP 解码器先排空截断尾部，再由 utf8CarryWriter 冲刷暂存字节。
+	if stdoutACP != nil {
+		stdoutACP.Finish()
+	}
+	if stderrACP != nil {
+		stderrACP.Finish()
+	}
 	outDec.Flush()
 	errDec.Flush()
 
