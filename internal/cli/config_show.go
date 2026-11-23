@@ -55,10 +55,14 @@ func runConfigShow(app App, _ context.Context, args []string) int {
 	}
 
 	fields := configShowFields(cfg, app.env, overrides)
-	if asJSON {
-		return writeConfigShowJSON(app.IO.Out, cfg, fields, app.env)
+	paths := newConfigPathsReport(app, cwd)
+	if warning := paths.warning(); warning != "" {
+		fmt.Fprintln(app.IO.Err, warning)
 	}
-	writeConfigShowText(app.IO.Out, cfg, fields, app.env)
+	if asJSON {
+		return writeConfigShowJSON(app.IO.Out, cfg, fields, app.env, paths)
+	}
+	writeConfigShowText(app.IO.Out, cfg, fields, app.env, paths)
 	return 0
 }
 
@@ -185,6 +189,15 @@ func configShowSource(spec configShowFieldSpec, fileTrees []map[string]any, env 
 			}
 		}
 	}
+	// 存储目录有三个等价环境变量，优先级与 app.DefaultStorage / config 一致；
+	// 只认 ARGENT_STORAGE_DIR 会把 $ARGENT_STORAGE 误报成 default。
+	if spec.label == "storageDir" {
+		for _, key := range []string{"ARGENT_STORAGE", "ARGENT_STORAGE_DIR", "ARGENT_HOME"} {
+			if strings.TrimSpace(env(key)) != "" {
+				return "env:" + key
+			}
+		}
+	}
 	if spec.envVar != "" && strings.TrimSpace(env(spec.envVar)) != "" {
 		return "env:" + spec.envVar
 	}
@@ -248,19 +261,27 @@ func configShowEnvOverrides(env func(string) string) []string {
 			out = append(out, spec.envVar)
 		}
 	}
+	for _, key := range []string{"ARGENT_STORAGE", "ARGENT_HOME"} {
+		if strings.TrimSpace(env(key)) != "" {
+			out = append(out, key)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
 
 type configShowJSON struct {
-	Values       map[string]any    `json:"values"`
-	Sources      map[string]string `json:"sources"`
-	ConfigFiles  []string          `json:"configFiles"`
-	EnvOverrides []string          `json:"envOverrides"`
-	Raw          map[string]any    `json:"raw"`
+	Values          map[string]any    `json:"values"`
+	Sources         map[string]string `json:"sources"`
+	ConfigFiles     []string          `json:"configFiles"`
+	CLIWritePath    string            `json:"cliWritePath"`
+	EngineReadPaths []string          `json:"engineReadPaths"`
+	PathWarning     string            `json:"pathWarning,omitempty"`
+	EnvOverrides    []string          `json:"envOverrides"`
+	Raw             map[string]any    `json:"raw"`
 }
 
-func writeConfigShowJSON(w io.Writer, cfg config.Config, fields []configShowField, env func(string) string) int {
+func writeConfigShowJSON(w io.Writer, cfg config.Config, fields []configShowField, env func(string) string, paths configPathsReport) int {
 	values := make(map[string]any, len(fields))
 	sources := make(map[string]string, len(fields))
 	for _, field := range fields {
@@ -268,11 +289,14 @@ func writeConfigShowJSON(w io.Writer, cfg config.Config, fields []configShowFiel
 		sources[field.label] = field.source
 	}
 	report := configShowJSON{
-		Values:       values,
-		Sources:      sources,
-		ConfigFiles:  append([]string{}, cfg.Sources...),
-		EnvOverrides: configShowEnvOverrides(env),
-		Raw:          redactConfigTree(cfg.Raw).(map[string]any),
+		Values:          values,
+		Sources:         sources,
+		ConfigFiles:     append([]string{}, cfg.Sources...),
+		CLIWritePath:    paths.writePath,
+		EngineReadPaths: append([]string{}, paths.enginePaths...),
+		PathWarning:     paths.warning(),
+		EnvOverrides:    configShowEnvOverrides(env),
+		Raw:             redactConfigTree(cfg.Raw).(map[string]any),
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -283,7 +307,7 @@ func writeConfigShowJSON(w io.Writer, cfg config.Config, fields []configShowFiel
 	return 0
 }
 
-func writeConfigShowText(w io.Writer, cfg config.Config, fields []configShowField, env func(string) string) {
+func writeConfigShowText(w io.Writer, cfg config.Config, fields []configShowField, env func(string) string, paths configPathsReport) {
 	fmt.Fprintln(w, "effective configuration (precedence: default < file < env < flag)")
 	for _, field := range fields {
 		value := formatConfigValue(field.value)
@@ -299,6 +323,20 @@ func writeConfigShowText(w io.Writer, cfg config.Config, fields []configShowFiel
 	}
 	for i, path := range cfg.Sources {
 		fmt.Fprintf(w, "  %d. %s\n", i+1, path)
+	}
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "配置路径对照:")
+	fmt.Fprintf(w, "  命令行写入路径: %s\n", paths.writePath)
+	fmt.Fprintln(w, "  引擎读取路径（候选，优先级从低到高）:")
+	for i, path := range paths.enginePaths {
+		state := "不存在"
+		for _, src := range cfg.Sources {
+			if sameConfigFilePath(src, path) {
+				state = "已读取"
+				break
+			}
+		}
+		fmt.Fprintf(w, "    %d. %s (%s)\n", i+1, path, state)
 	}
 	if envVars := configShowEnvOverrides(env); len(envVars) > 0 {
 		fmt.Fprintf(w, "environment overrides set: %s\n", strings.Join(envVars, ", "))

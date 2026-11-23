@@ -4,11 +4,16 @@
 //
 //  1. 编译期默认值
 //  2. $HOME/.argentgo/config.json
-//  3. <cwd>/.argent/config.json
-//  4. <cwd>/argent.json
-//  5. 选定的 profile（ARGENT_PROFILE，或文件中的 "profile"）
-//  6. ARGENT_* 环境变量
-//  7. 显式 flag 覆盖
+//  3. <storage>/config.json（CLI login/config set 的写入目标；与第 2 层重合时跳过）
+//  4. <cwd>/.argent/config.json
+//  5. <cwd>/argent.json
+//  6. 选定的 profile（ARGENT_PROFILE，或文件中的 "profile"）
+//  7. ARGENT_* 环境变量
+//  8. 显式 flag 覆盖
+//
+// storage 的推导顺序与 app.DefaultStorage 一致：ARGENT_STORAGE、
+// ARGENT_STORAGE_DIR、ARGENT_HOME，最后回退到 $HOME/.argentgo。把 CLI 写入
+// 的 <storage>/config.json 纳入候选层，才能消除「配置了却不生效」的幽灵故障。
 //
 // 未知键会保留在 Raw 中，以便后续的设置或集成读取
 // 它们，而无需在此添加结构体字段。
@@ -203,16 +208,17 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	}
 
 	home := homeDir(env)
+	storage := storageDirFromEnv(home, env)
 	tree := defaults(cwd)
 	// sourceState 与文件树并行追踪每个安全敏感设置的来源层，使调用方
 	// 能区分"用户的全局配置/环境变量"与"项目文件写下的端点覆盖"。
 	source := newSourceState()
 	prev := snapshotValues(tree)
-	sources := make([]string, 0, 3)
+	sources := make([]string, 0, 4)
 	warn := func(format string, args ...any) { log.Printf(format, args...) }
-	files := configFiles(cwd, home)
-	for i, file := range files {
-		overlay, err := readConfig(file, env, warn)
+	files := configFiles(cwd, home, storage)
+	for _, file := range files {
+		overlay, err := readConfig(file.path, env, warn)
 		if err != nil {
 			return Config{}, err
 		}
@@ -220,15 +226,16 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 			continue
 		}
 		mergeTree(tree, overlay)
-		// configFiles 的第 0 项是用户全局配置，其余是项目级配置。
+		// home 与 storage 的配置都是用户自己写入的全局层（可信）；
+		// 项目文件才是不可信的端点覆盖来源。
 		layer := ValueSourceProject
-		if i == 0 {
+		if file.global {
 			layer = ValueSourceGlobal
 		}
 		cur := snapshotValues(tree)
 		source.observe(prev, cur, layer)
 		prev = cur
-		sources = append(sources, file)
+		sources = append(sources, file.path)
 	}
 
 	profile := strings.TrimSpace(env("ARGENT_PROFILE"))
@@ -258,7 +265,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 		}
 	}
 
-	if err := applyEnv(tree, env); err != nil {
+	if err := applyEnv(tree, env, home); err != nil {
 		return Config{}, err
 	}
 	cur := snapshotValues(tree)
@@ -294,7 +301,7 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 	cfg.loadEnv = env
 	cfg.loadOverrides = cloneTree(overrides)
 	cfg.generation = 1
-	cfg.fingerprint = newFingerprint(cwd, home)
+	cfg.fingerprint = newFingerprint(cwd, home, storage)
 	return cfg, nil
 }
 
@@ -389,19 +396,85 @@ func defaults(cwd string) map[string]any {
 	}
 }
 
-// configFiles 列出各文件层，优先级从低到高。
-func configFiles(cwd, home string) []string {
-	return []string{
-		filepath.Join(home, appDir, "config.json"),
-		filepath.Join(cwd, ".argent", "config.json"),
-		filepath.Join(cwd, "argent.json"),
-	}
+// configFile 是一个候选配置文件及其信任层。用户级文件（home / storage）
+// 标为 global，项目级文件标为 project，使端点来源跟踪不会把用户自己写入
+// storage 的凭据误判为项目注入。
+type configFile struct {
+	path   string
+	global bool
 }
 
-// newFingerprint 为 cwd/home 快照每个候选配置文件，包括
+// configFiles 列出各文件层，优先级从低到高。
+// storage/config.json 是 CLI login/config set 的写入目标；把它纳入引擎候选层，
+// 才能消除「配了却不生效」的幽灵故障。它与 home 全局配置指向同一文件时只保留一份。
+func configFiles(cwd, home, storage string) []configFile {
+	homeConfig := filepath.Join(home, appDir, "config.json")
+	storageConfig := filepath.Join(storage, "config.json")
+	files := []configFile{{path: homeConfig, global: true}}
+	if !sameConfigPath(storageConfig, homeConfig) {
+		files = append(files, configFile{path: storageConfig, global: true})
+	}
+	return append(files,
+		configFile{path: filepath.Join(cwd, ".argent", "config.json")},
+		configFile{path: filepath.Join(cwd, "argent.json")},
+	)
+}
+
+// sameConfigPath 判断两条配置路径是否指向同一文件；Windows 路径大小写不敏感。
+func sameConfigPath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if a == b {
+		return true
+	}
+	return filepath.Separator == '\\' && strings.EqualFold(a, b)
+}
+
+// storageDirFromEnv 返回存储根目录。推导顺序与 app.DefaultStorage 一致
+// （ARGENT_STORAGE > ARGENT_STORAGE_DIR > ARGENT_HOME > <home>/.argentgo），
+// 但 config 保持零依赖，故在此复刻而非 import app。~ 前缀按 home 展开。
+func storageDirFromEnv(home string, env func(string) string) string {
+	for _, key := range []string{"ARGENT_STORAGE", "ARGENT_STORAGE_DIR", "ARGENT_HOME"} {
+		if value := strings.TrimSpace(env(key)); value != "" {
+			if value == "~" {
+				return home
+			}
+			if strings.HasPrefix(value, "~"+string(filepath.Separator)) {
+				return filepath.Join(home, value[2:])
+			}
+			return value
+		}
+	}
+	return filepath.Join(home, appDir)
+}
+
+// CandidatePaths 返回 Load 在给定 cwd 与 env 下会尝试的全部配置文件路径，
+// 顺序与合并优先级一致（低到高），包含当前不存在的文件。CLI 用它核对自己的
+// 写入路径是否真的会被引擎读取。
+func CandidatePaths(cwd string, env func(string) string) []string {
+	if env == nil {
+		env = func(string) string { return "" }
+	}
+	if strings.TrimSpace(cwd) == "" {
+		cwd = "."
+	}
+	home := homeDir(env)
+	layers := configFiles(cwd, home, storageDirFromEnv(home, env))
+	paths := make([]string, 0, len(layers))
+	for _, layer := range layers {
+		paths = append(paths, layer.path)
+	}
+	return paths
+}
+
+// newFingerprint 为 cwd/home/storage 快照每个候选配置文件，包括
 // 缺失的文件（记录为 exists=false），以便检测之后的创建。
-func newFingerprint(cwd, home string) configFingerprint {
-	return fingerprintPaths(configFiles(cwd, home))
+func newFingerprint(cwd, home, storage string) configFingerprint {
+	layers := configFiles(cwd, home, storage)
+	paths := make([]string, 0, len(layers))
+	for _, layer := range layers {
+		paths = append(paths, layer.path)
+	}
+	return fingerprintPaths(paths)
 }
 
 // fingerprintPaths 对每个路径执行 stat 并记录免解析身份，然后
@@ -491,7 +564,7 @@ func readConfig(path string, env func(string) string, warn WarnFunc) (map[string
 	return tree, nil
 }
 
-func applyEnv(tree map[string]any, env func(string) string) error {
+func applyEnv(tree map[string]any, env func(string) string, home string) error {
 	setString := func(key, name string) {
 		if value := strings.TrimSpace(env(name)); value != "" {
 			tree[key] = value
@@ -504,7 +577,11 @@ func applyEnv(tree map[string]any, env func(string) string) error {
 	setString("locale", "ARGENT_LOCALE")
 	setString("sandboxMode", "ARGENT_SANDBOX_MODE")
 	setString("privacyMode", "ARGENT_PRIVACY_MODE")
-	setString("storageDir", "ARGENT_STORAGE_DIR")
+	// 存储目录与 storageDirFromEnv / app.DefaultStorage 共用同一优先级；
+	// 未设置时保留文件层的值，让 decode 的 <home>/.argentgo 默认生效。
+	if storage := storageDirFromEnv(home, env); storage != filepath.Join(home, appDir) {
+		tree["storageDir"] = storage
+	}
 	setString("provider", "ARGENT_PROVIDER")
 
 	if value := strings.TrimSpace(env("ARGENT_MAX_TURNS")); value != "" {

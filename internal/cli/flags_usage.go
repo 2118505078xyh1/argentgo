@@ -65,7 +65,7 @@ flags:
       --price-output <usd>      USD per million completion tokens
       --fallback-model <id>     model to retry once with when the primary fails
       --secondary-model <id>    model for delegated subagent tasks
-      --thinking <level>        reasoning effort hint (low | medium | high)
+      --thinking <level>        reasoning effort hint (low | medium | high | xhigh; 或 低/中/高/超高)
       --mode <mode>             text | json (default text)
       --json-lines              one-shot strict JSONL on stdout
       --tokens                  print the request payload breakdown and exit

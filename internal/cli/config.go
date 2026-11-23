@@ -25,7 +25,7 @@ func runConfig(app App, ctx context.Context, args []string) int {
 		configUsage(app.IO.Out)
 		return 0
 	case "path":
-		fmt.Fprintln(app.IO.Out, path)
+		writeConfigPathsText(app.IO.Out, app.IO.Err, newConfigPathsReport(app, ""))
 		return 0
 	case "show":
 		return runConfigShow(app, ctx, args[1:])

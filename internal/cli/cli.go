@@ -689,12 +689,17 @@ func (a App) storageDir() string {
 	if a.StorageDir != "" {
 		return a.StorageDir
 	}
-	if dir := firstNonEmpty(a.env("ARGENT_STORAGE_DIR"), a.env("ARGENT_HOME")); dir != "" {
+	// 与 app.DefaultStorage / config.storageDirFromEnv 共用同一优先级。
+	if dir := firstNonEmpty(a.env("ARGENT_STORAGE"), a.env("ARGENT_STORAGE_DIR"), a.env("ARGENT_HOME")); dir != "" {
 		return dir
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".argentgo"
+	home := firstNonEmpty(a.env("USERPROFILE"), a.env("HOME"))
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return ".argentgo"
+		}
 	}
 	return filepath.Join(home, ".argentgo")
 }

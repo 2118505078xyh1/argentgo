@@ -63,7 +63,7 @@ var (
 	familyAuth = apiErrorFamily{FamilyAuth,
 		"认证失败（API Key 无效或已过期）", "重新登录（login / /login）后重试"}
 	familyQuotaExhausted = apiErrorFamily{FamilyQuotaExhausted,
-		"额度或配额已用尽", "等待配额重置后重试，或用 /model 换一个模型"}
+		"额度或配额已用尽", "等待配额重置后重试，或用 --model <id> 换模型（先用 argentgo models 查看可用模型）"}
 	familyRateLimit = apiErrorFamily{FamilyRateLimit,
 		"请求过于频繁（触发限流）", "稍后重试（客户端会自动退避），或换模型重试"}
 	familyContentFilter = apiErrorFamily{FamilyContentFilter,
@@ -71,13 +71,13 @@ var (
 	familyContextOverflow = apiErrorFamily{FamilyContextOverflow,
 		"上下文窗口已用尽（提示词或历史对话超出模型上限）", "压缩历史对话或缩短提示词后重试，或换用上下文更大的模型"}
 	familyModelNotFound = apiErrorFamily{FamilyModelNotFound,
-		"模型不存在或不可用", "用 /model 选择可用模型后重试"}
+		"模型不存在或不可用", "用 --model <id> 选择可用模型后重试（先用 argentgo models 查看）"}
 	familyNetwork = apiErrorFamily{FamilyNetwork,
 		"网络连接失败", "检查网络或代理设置后重试"}
 	familyServer = apiErrorFamily{FamilyServer,
 		"提供方服务端暂时不可用", "稍后重试；若持续失败可换模型"}
 	familyUnknown = apiErrorFamily{FamilyUnknown,
-		"请求失败（未识别的错误类型）", "查看原始错误信息后重试，或用 /model 换模型"}
+		"请求失败（未识别的错误类型）", "查看原始错误信息后重试，或用 --model <id> 换模型（先用 argentgo models 查看）"}
 )
 
 // 家族模式在脱敏后的错误文本上运行。它们放在这里，而不是

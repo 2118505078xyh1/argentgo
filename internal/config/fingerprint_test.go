@@ -112,10 +112,10 @@ func TestFingerprintHashChangesOnOrdinaryEdit(t *testing.T) {
 	cwd := t.TempDir()
 	path := filepath.Join(cwd, "argent.json")
 	writeRawFile(t, path, []byte(`{"model":"short"}`))
-	before := stampFor(t, newFingerprint(cwd, t.TempDir()), path)
+	before := stampFor(t, newFingerprint(cwd, t.TempDir(), t.TempDir()), path)
 
 	writeRawFile(t, path, []byte(`{"model":"a-considerably-longer-model"}`))
-	after := stampFor(t, newFingerprint(cwd, t.TempDir()), path)
+	after := stampFor(t, newFingerprint(cwd, t.TempDir(), t.TempDir()), path)
 
 	if before.size == after.size {
 		t.Fatal("test setup: file size did not change")
@@ -148,7 +148,7 @@ func TestChangedNoFileFallsBackToStatIdentity(t *testing.T) {
 	if !cfg.Changed() {
 		t.Fatal("Changed() false after a config file was created")
 	}
-	stamp := stampFor(t, newFingerprint(cwd, home), path)
+	stamp := stampFor(t, newFingerprint(cwd, home, home), path)
 	if stamp.hash == ([sha256.Size]byte{}) {
 		t.Fatal("newly created readable file has a zero hash")
 	}
@@ -189,7 +189,7 @@ func TestContentHashIncludesCJKRewrite(t *testing.T) {
 	if !cfg.Changed() {
 		t.Fatal("Changed() false after a CJK rewrite with identical size and mtime")
 	}
-	if stampFor(t, newFingerprint(cwd, home), path).hash == originalHash {
+	if stampFor(t, newFingerprint(cwd, home, home), path).hash == originalHash {
 		t.Fatal("hash unchanged after a CJK character edit")
 	}
 
@@ -211,8 +211,8 @@ func TestContentHashStable(t *testing.T) {
 	data := []byte(`{"model":"stable","locale":"zh-CN"}`)
 	writeRawFile(t, path, data)
 
-	first := newFingerprint(cwd, home)
-	second := newFingerprint(cwd, home)
+	first := newFingerprint(cwd, home, home)
+	second := newFingerprint(cwd, home, home)
 	if !first.equal(second) {
 		t.Fatal("two fingerprints of an unchanged file differ")
 	}

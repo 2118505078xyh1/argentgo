@@ -31,7 +31,7 @@ func TestRunPromptShowsActionableProviderError(t *testing.T) {
 			name:     "quota exhausted",
 			err:      errors.New("insufficient_quota: out of credit"),
 			wantMsg:  "额度或配额已用尽",
-			wantNext: "等待配额重置后重试，或用 /model 换一个模型",
+			wantNext: "等待配额重置后重试，或用 --model <id> 换模型（先用 argentgo models 查看可用模型）",
 		},
 		{
 			name:     "rate limit",
@@ -49,7 +49,7 @@ func TestRunPromptShowsActionableProviderError(t *testing.T) {
 			name:     "model not found",
 			err:      errors.New("404 model not found"),
 			wantMsg:  "模型不存在或不可用",
-			wantNext: "用 /model 选择可用模型后重试",
+			wantNext: "用 --model <id> 选择可用模型后重试（先用 argentgo models 查看）",
 		},
 		{
 			name:     "network",
@@ -67,7 +67,7 @@ func TestRunPromptShowsActionableProviderError(t *testing.T) {
 			name:     "unknown",
 			err:      errors.New("something unexpected"),
 			wantMsg:  "请求失败（未识别的错误类型）",
-			wantNext: "查看原始错误信息后重试，或用 /model 换模型",
+			wantNext: "查看原始错误信息后重试，或用 --model <id> 换模型（先用 argentgo models 查看）",
 		},
 	}
 
