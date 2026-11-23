@@ -43,6 +43,12 @@
 - **原生 GUI 对标 Claude Code / Codex**：工具卡片可展开（完整 stdout/stderr/diff）、消息行复制/重试、用户消息 markdown、跳到最新；审批三态（允许一次/始终允许二次确认/拒绝+理由）+ 危险默认拒绝 + 逐行 diff；主题/语言偏好持久化；导航未实现项置灰诚实化；顶栏用真实 `config.info`、会话空状态引导。
 - 全量验证 10971 passed / 0 failed（28 包）+ archguard 11 + native 子集 5；承诺"门禁通过≠接线完成"，逐项 grep 生产调用点确认。
 
+**产品打磨 P1/P2（2026-11-23 续）**
+- **P1 日常顺手**：配置路径统一（storage 层纳入配置候选，消除"配了不生效"）、`/model` 错误文案改指真实命令、Ctrl+C 二次确认退出 + Esc 逐层关闭 + Ctrl+L 清屏、审批队列计数 + 授权 scope 诚实化 + 250ms 防误触、错误 sticky 可展开 + 重试提示中文化、bash 命令派发前发进度标签（长任务显示"在做什么"）、GUI demo 显式横幅 + 顶栏真实信息 + 空状态。
+- **P2 战略能力**：会话 CRUD RPC（`session.new/rename/delete`）+ app sessionStore 接线（会话管理从"能看不能管"到可新建/重命名/删除）；`argentgo init` 交互式向导（四步、可延后、本地 provider 探测、非 TTY 明确报错）；native 用量/Git 分支/计划三面板接真实数据。
+- **视觉改造**：用户提供 RPG Desktop 截图，native 按三栏布局 + 紫色系 + 圆角卡片风格重构（规范 `docs/GUI_STYLE_RPG.md`），换皮不换功能。
+- 交互界面维度自评 8→9（等权 8.0→8.1、加权 8.85→8.92），证据见 `docs/STATUS.md`。
+
 ## v0.8.1 — 2026-11-21
 
 内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（取证 commit a30b0e4（可用 git log 复核）实测 355,578 行，同一口径。）
