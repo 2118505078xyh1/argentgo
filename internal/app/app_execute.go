@@ -584,6 +584,12 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 
 	toolset := newToolset(ctx, stdio, res, sess, guard, reg)
 	defer toolset.Close()
+	// tool_search 命中的 deferred 工具名按注册表保存，只在本轮运行有效。
+	defer func() {
+		for _, reg := range toolset.base.regs {
+			tools.ClearRevealed(reg)
+		}
+	}()
 	// LSP 工作区诊断快照（opt-in ARGENT_LSP_DIAGNOSTICS=1）：运行结束时用已启动
 	// 的 client 拉一次诊断写快照，供下一次 doctor 进程读取；不懒启动、不联网。
 	defer CaptureLSPWorkspaceDiagnostics(stdio.Env, res.Storage, res.Root)
@@ -599,8 +605,8 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		if strings.TrimSpace(model) == "" {
 			model = res.Options.Model
 		}
-		active := toolset.skills.SetTriggerContext(
-			skillTriggerPath(rawPrompt, res.Root), rawPrompt, skillTriggerModelFamily(model))
+		active := toolset.skills.SetTriggerContextWithPrompt(
+			skillTriggerPath(rawPrompt, res.Root), rawPrompt, skillTriggerModelFamily(model), rawPrompt)
 		// 只有确实收窄（有技能被触发器排除）时才注入；无触发器技能全部 active，
 		// 注入会是系统提示索引的重复，故跳过以保持逐字节不变。
 		if len(active) < toolset.skills.Len() {
@@ -786,14 +792,20 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		// 绝不公布沙箱/拒绝规则禁止的工具。Run() 仍会对每次调用做门控；
 		// 这只是避免模型浪费轮次。
 		FilterSpecs: func(specs []llm.ToolSpec) []llm.ToolSpec {
-			visible := filterVisibleSpecs(specs, res, toolset, policy)
+			filtered := filterVisibleSpecs(specs, res, toolset, policy)
 			// 按 provider/model/模式动态路由工具（默认开启）：内置规则对
 			// openai-native/gpt/codex 的 act 模式保留 apply_patch、移除 editor；只收紧不新增。
-			visible = wireModelToolRouting(visible, res, stdio)
+			routed := wireModelToolRouting(filtered, res, stdio)
 			// 精简目录（默认自动启用，用户零配置）：只公布核心工具 + tool_search，
 			// 其余工具由模型自己经 tool_search 按需发现。仅在显式设置调试逃生舱
 			// ARGENT_FULL_TOOLS 时原样返回全部。
-			visible = tools.LazyFilterSpecs(visible)
+			visible = tools.LazyFilterSpecs(routed)
+			// 暴露级别（默认全部 direct，golden 目录不变）：hidden 永不公布；
+			// deferred 仅在被 tool_search 命中后从路由后、精简前的目录补回本轮。
+			if len(toolset.base.regs) > 0 {
+				reg := toolset.base.regs[0]
+				visible = tools.FilterByExposure(visible, routed, reg.Exposure, reg.RevealedNames())
+			}
 			// 网关模式（opt-in）：mcp 不在 lazy 核心集里会被过滤掉，但它是唯一的
 			// MCP 入口，必须始终公布。每个工具 spec 本身从 toolset.Specs() 里
 			// 取出（它与会话开始时的固定 schema 逐字节一致），避免在此重建。
