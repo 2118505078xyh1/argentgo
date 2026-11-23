@@ -34,15 +34,19 @@ func TestCleanupMaxPending(t *testing.T) {
 
 func TestCleanupTTL(t *testing.T) {
 	b, _ := New(Options{})
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	now := base
-	policy := CleanupPolicy{TTL: time.Hour, Clock: func() time.Time { return now }}
+	b.Enqueue("s", "old", "old text", DeliveryQueue)
+	b.Enqueue("s", "new", "new text", DeliveryQueue)
 
-	// 用 EnqueueWithCleanup 注入固定时钟。
-	b.EnqueueWithCleanup("s", "old", "old text", DeliveryQueue, policy)
-	now = now.Add(2 * time.Hour)
-	b.EnqueueWithCleanup("s", "new", "new text", DeliveryQueue, policy)
+	// 直接把第一项的入队时间改为两小时前（同包可访问内部状态），
+	// 再以 1 小时 TTL 清理——只应淘汰 old。
+	b.mu.Lock()
+	b.pending["old"].Enqueued = time.Now().Add(-2 * time.Hour)
+	b.mu.Unlock()
 
+	removed, err := b.Cleanup(CleanupPolicy{TTL: time.Hour})
+	if err != nil || removed != 1 {
+		t.Fatalf("cleanup removed=%d err=%v", removed, err)
+	}
 	pending := b.Pending()
 	if len(pending) != 1 || pending[0].ID != "new" {
 		t.Fatalf("after TTL cleanup = %+v, want only new", pending)

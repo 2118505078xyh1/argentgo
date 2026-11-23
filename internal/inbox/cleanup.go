@@ -48,7 +48,10 @@ func (b *Inbox) cleanup(policy CleanupPolicy) (int, error) {
 		if item == nil {
 			continue
 		}
-		if now().Sub(item.Enqueued) > ttl {
+		// 用真实经过时间判断 TTL（Enqueued 由 Enqueue 用 time.Now 写入），
+		// policy.Clock 只用于事件的时间戳，不参与 TTL 比较——避免注入时钟与
+		// 入队时间基准不一致导致误判。
+		if time.Since(item.Enqueued) > ttl {
 			b.seq++
 			ev := Event{Kind: KindCancelled, ItemID: id, Sequence: b.seq, At: now().UTC()}
 			if err := b.append(ev); err != nil {

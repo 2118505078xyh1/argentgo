@@ -49,12 +49,21 @@ func runInbox(app App, _ context.Context, args []string) int {
 			textParts = args[2:]
 		}
 		text := strings.Join(textParts, " ")
-		item, err := box.Enqueue("", "", text, delivery)
+		// 入队前应用容量/TTL 治理，防止收件箱无限增长。
+		item, err := box.EnqueueWithCleanup("", "", text, delivery, inbox.CleanupPolicy{})
 		if err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
 			return 1
 		}
 		fmt.Fprintf(app.IO.Out, "enqueued %s (%s)\n", item.ID, item.Delivery)
+		return 0
+	case "cleanup":
+		removed, err := box.Cleanup(inbox.CleanupPolicy{})
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		fmt.Fprintf(app.IO.Out, "cleaned %d expired/overflow items\n", removed)
 		return 0
 	case "steer":
 		// 把已有项的投递模式改为 steer（下一个安全步边界即可抢占）。
