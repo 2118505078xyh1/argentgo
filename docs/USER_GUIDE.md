@@ -281,6 +281,17 @@ argentgo "重构这个模块"
 
 该模式下模型只做规划、不修改任何文件；工具目录会额外公布一个 `exit_plan` 工具，模型用它提交计划并请求批准。**未批准前修改类命令会被既有审批/安全链拦下**，批准后才解锁后续写操作。`exit_plan` 仅在该模式注册——不设置 `ARGENT_PLAN_MODE` 时，工具目录与默认逐字节一致。完整开关说明见 [Opt-in 开关使用指南](OPT_INS.md)。
 
+### 11. 配置去向自检（"配了却不生效"）
+
+若你设置了自定义存储目录（`ARGENT_STORAGE` / `ARGENT_STORAGE_DIR` / `ARGENT_HOME`），用下面两条命令确认配置写到了引擎真正读取的位置：
+
+```powershell
+argentgo config path   # 同时打印「命令行写入路径」与「引擎读取路径」
+argentgo config show   # --json 含 cliWritePath / engineReadPaths；路径分歧时给 warning
+```
+
+引擎现在会把 `<存储目录>/config.json` 纳入配置候选层（优先级低于项目文件、高于 home 全局配置），因此 `login` / `config set` 写入的配置会生效。首次使用也可运行 `argentgo init` 走交互式初始化向导（可随时跳过）。
+
 ## Distribution
 
 本节记录 argentgo 如何打包和交付。面向维护者的发布门禁在 [CONTRIBUTING.md](../CONTRIBUTING.md#release-checklist)。
