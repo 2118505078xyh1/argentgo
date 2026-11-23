@@ -65,12 +65,17 @@ func KnownContextWindow(model string) int {
 	if name == "" {
 		return 0
 	}
+	// 数据驱动策略优先：exact 覆盖 > 内置有序表 > family 兜底。
+	// 未命中 JSON 时与旧版逐字一致（直接走内置表）。
+	if w := embeddedModelPolicy.Exact[name]; w > 0 {
+		return w
+	}
 	for _, rule := range contextWindowRules {
 		if strings.HasPrefix(name, rule.prefix) {
 			return rule.window
 		}
 	}
-	return 0
+	return policyWindow(name) // 仅 family 部分（exact 已查过）
 }
 
 // ContextWindowFor 按回落链解析应使用的上下文窗口 token 数：

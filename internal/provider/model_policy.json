@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "_comment": "数据驱动的模型策略覆盖。exact 为精确规范化模型名，family 为前缀族；exact 优先于 family。仅声明需要覆盖内置表的模型；未命中时回退到 contextWindowRules。",
+  "exact": {
+    "gpt-4o-mini": 128000,
+    "claude-3-5-haiku-20241022": 200000
+  },
+  "family": {
+    "llama-3.3": 131072,
+    "qwen2.5": 131072
+  }
+}

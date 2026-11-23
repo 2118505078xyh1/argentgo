@@ -52,12 +52,6 @@
 
 ## 四、模型/协议与召回（39–50）
 
-### 49. 模型策略规则化：窗口/限制/怪癖下沉为数据 `[P2/M]`（学自 oh-my-pi catalog）
-- **竞品证据**：`oh-my-pi/packages/catalog/src/compat/resolve.ts` 的 `resolveModelPolicy`:1371、`context-window.ts`、`prompt-cache-lookback.ts`；261 条 KDL 规则编译为 rules.json。
-- **现状/缺口**：`internal/provider/templates.go`、`context_window.go`、`capability_profile.go`、`thinking.go` 把窗口/能力/推理预算写成 Go 常量；新增长尾模型要改代码重编译，没有「精确 id > 族 > 默认」优先级与冲突检测。
-- **建议**：把纯数据抽到 `internal/provider/model_policy.json`（stdlib `encoding/json` + `go:embed`），字段含 id/class/family 选择器、contextWindow、maxOutput、promptCacheLookback、quirks；`provider.Resolve` 按精确 id→族→默认解析，同优先级重叠报明确错误；现有常量保留为默认值。
-- **验收**：只改 JSON 即新增模型生效（无需改 .go）；同优先级重叠返回错误；未声明字段的 provider 输出逐字节一致；go vet/gofmt 全绿。
-
 ---
 
 ## 五、交互界面与可用性（51–61）
