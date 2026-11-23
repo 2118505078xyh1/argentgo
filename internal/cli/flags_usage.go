@@ -43,6 +43,9 @@ commands:
    attach <id> [-n N]           print the last N lines of a job log
    logs [<id>]                  list background jobs and their logs
    jobs                         alias for logs
+   inbox [list|add|steer|cancel|cleanup]   manage the durable prompt inbox
+   timeline info|replay|hash|record <file>  inspect TUI timeline recordings
+   docs [list|show <name>]      list or print bundled documentation
    follow <id> [-n N]           tail a job log until interrupted
    stop <id>                    kill a background job
    board                        read-only view of jobs and automations
