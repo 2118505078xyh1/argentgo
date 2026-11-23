@@ -14,7 +14,7 @@ func newFlags(fs *flag.FlagSet, v *flagValues) {
 	v.protocol = fs.String("protocol", "", "protocol: anthropic, openai or responses")
 	v.provider = fs.String("provider", "", "provider template id (see `argentgo models`)")
 	v.profile = fs.String("profile", "", "named config profile")
-	v.yolo = fs.Bool("yolo", false, "auto-approve every tool call")
+	v.yolo = fs.Bool("yolo", false, "auto-approve all tools except mutating shell commands, which still require confirmation")
 	v.yes = fs.Bool("yes", false, "auto-confirm prompts in non-interactive environments")
 	// 默认值从 12 抬高到 100，与引擎 DefaultMaxTurns 对齐：这是抬高默认
 	// 天花板而非剥夺控制，用户仍可用本 flag、ARGENT_MAX_TURNS、-c maxTurns、

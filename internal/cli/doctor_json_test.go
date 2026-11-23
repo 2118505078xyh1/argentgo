@@ -221,7 +221,7 @@ func TestDoctorTextOutputGoldenUnchanged(t *testing.T) {
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "web_search",
 		"not configured (optional): set ARGENT_WEB_SEARCH_URL or BRAVE_API_KEY/TAVILY_API_KEY to enable web_search")
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "verify",
-		"not configured (optional): set verifyCommand/verifyCommands in config, or enable auto_verify via ARGENT_OPT_INS or set ARGENT_EDIT_DIAGNOSTICS for post-edit verification")
+		"not configured (optional): set verifyCommand/verifyCommands in config, or enable auto_verify via ARGENT_OPT_INS; post-edit diagnostics are default-on via ARGENT_EDIT_DIAGNOSTICS; this warns only when no verifyCommand/verifyCommands is configured")
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "git", "git not found on PATH")
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusOK, "go", runtime.Version())
 

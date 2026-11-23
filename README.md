@@ -45,10 +45,10 @@ go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 - **省钱** — 稳定的 system prompt / 工具 schema 支持 prompt cache，usage 区分 cached / fresh，一键 `--no-prompt-cache` 关闭。
 - **隐私优先** — 密钥和 token 落盘前脱敏；本地生成会话标题不联网；桌面窗口由 MyGo 原生绘制，不起 HTTP 服务、不带浏览器/WebView。
 - **多界面** — 命令行一次性问答、全屏 TUI、**MyGo 原生桌面窗口**（单进程约 76 MB、空闲 0% CPU，无 WebView），以及 HTTP/SSE、JSON-RPC、ACP 三种无头传输。TUI 支持 Ctrl+G 调用 `$EDITOR` 编辑长提示，工具调用可实时预览流式参数。
-- **安全默认** — `--yolo` / `auto` 审批下，修改性 shell 命令仍需真人确认；内置危险命令检测（`rm -rf /`、`curl | bash`、反弹 shell 等）支持 `ARGENT_GUARDRAILS=shadow|enforce|off` 三段开关。策略拒绝会回灌给模型供其修正重试。
+- **安全默认** — `--yolo` / `auto` 自动批准所有工具，唯独变更型 shell 命令（`rm`、`curl | bash`、反弹 shell 等）转交真人 `y/yes` 确认，无交互通道时 fail-closed 拒绝；该门槛由审批器实现，与 `ARGENT_GUARDRAILS=shadow|enforce|off` 无关（后者只控制 `ARGENT_PLAN_MODE=1` 下的命令守卫）。策略拒绝在审批前先生效且带终局性提示，yolo 不会绕过。
 - **双语** — zh-CN / en-US 文案嵌在二进制里，无需外部 locale 文件。
 
-体积是实测数字：无头运行工作集约 **10 MB**，二进制约 **10.6 MB**。
+体积是实测数字：release 构建（`-trimpath -ldflags "-s -w"`）的 `argentgo.exe` 约 **19 MB**，无头运行工作集约 10 MB；原生前端 `argentgo-native.exe` 需与它同目录放置。
 
 ## 下载与安装
 
@@ -86,8 +86,8 @@ argentgo --provider anthropic "review 一下这个改动"
 ```
 
 `argentgo gui` 在 Windows 上默认启动 **MyGo 原生聊天窗口**（`argentgo-native.exe`）：
-纯 Go 绘制、无 WebView、单进程约 76 MB、空闲 0% CPU，视觉按 Claude / Codex 风格
-（暖灰底、珊瑚色强调）。它通过已有的 `--rpc` 传输驱动 `argentgo.exe` 引擎，核心包保持
+纯 Go 绘制、无 WebView、单进程约 76 MB、空闲 0% CPU，视觉为 RPG Desktop 风格
+（紫色主题、圆角卡片、三栏布局）。它通过已有的 `--rpc` 传输驱动 `argentgo.exe` 引擎，核心包保持
 stdlib-only；只有桌面壳这一层依赖 MyGo。
 
 发布包同时包含 `argentgo.exe`（引擎/CLI）和 `argentgo-native.exe`（原生前端）。

@@ -55,7 +55,7 @@ flags:
       --base-url <url>          provider base URL
       --api-key <key>           provider API key
       --protocol <name>         anthropic | openai | responses (default openai)
-      --yolo                    auto-approve every tool call
+      --yolo                    auto-approve all tools except mutating shell commands, which still require confirmation
       --yes                     auto-confirm prompts in non-interactive environments
       --max-turns <n>           maximum model turns (default 100)
       --max-parallel <n>        read-only tool workers per batch (0 default, 1 serial)

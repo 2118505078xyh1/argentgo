@@ -66,7 +66,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
 		"当前启用 60 项",
-		"ARGENT_OPT_INS 注册表：已启用的 opt-in 特性：",
+		"ARGENT_OPT_INS 集中注册表（15 键）：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
 		"apply_patch", "ARGENT_OPT_INS", "cli_hints,apply_patch",
@@ -196,7 +196,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 59 项") || !strings.Contains(textOut, "全部 opt-in 特性默认关闭") {
+	if !strings.Contains(textOut, "当前启用 59 项") || !strings.Contains(textOut, "未显式启用任何键（独立门控多数默认开启，见下表）") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 

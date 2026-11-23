@@ -675,7 +675,7 @@ func checkVerify(app App) doctorCheck {
 			detail: "verification configured or opted in"}
 	}
 	return doctorCheck{name: "verify", status: statusWarn,
-		detail: "not configured (optional): set verifyCommand/verifyCommands in config, or enable auto_verify via ARGENT_OPT_INS or set ARGENT_EDIT_DIAGNOSTICS for post-edit verification"}
+		detail: "not configured (optional): set verifyCommand/verifyCommands in config, or enable auto_verify via ARGENT_OPT_INS; post-edit diagnostics are default-on via ARGENT_EDIT_DIAGNOSTICS; this warns only when no verifyCommand/verifyCommands is configured"}
 }
 
 // verifyConfigured 只检查原始配置 map 中验证相关键是否存在且非空，不读取具体值。
@@ -714,7 +714,8 @@ func verifyConfigured(raw map[string]any) bool {
 
 // verifyOptedIn 报告是否通过 opt-in 开关或编辑诊断 env 开启了验证提示。
 // auto_verify 键由 app 侧注册表提供，经 OptInFromEnv 解析；cli 不 import app。
-// 它与 ARGENT_EDIT_DIAGNOSTICS=1 做或运算，任一开启即视为已启用。
+// 这里只在用户显式设置 =1 时视为已启用（ doctor 是配置可发现性提示，不是真实开关状态；
+// 真实开关 ARGENT_EDIT_DIAGNOSTICS 已默认开启，仅 =0 关闭）。
 func verifyOptedIn(app App) bool {
 	return OptInFromEnv(app.env)["auto_verify"] || app.env("ARGENT_EDIT_DIAGNOSTICS") == "1"
 }

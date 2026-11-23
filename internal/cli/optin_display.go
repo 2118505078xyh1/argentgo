@@ -12,8 +12,9 @@ import (
 // optInEnvVar 是 opt-in 开关列表所在的单个环境变量名，与 app 侧注册表一致。
 const optInEnvVar = "ARGENT_OPT_INS"
 
-// optInAllOffMessage 是所有 opt-in 开关都关闭时的稳定文案。
-const optInAllOffMessage = "全部 opt-in 特性默认关闭"
+// optInAllOffMessage 是 ARGENT_OPT_INS 集中注册表未显式启用任何键时的稳定文案。
+// 注意：它只描述集中注册表（15 键），不代表独立门控的状态——独立门控多数已默认开启。
+const optInAllOffMessage = "未显式启用任何键（独立门控多数默认开启，见下表）"
 
 // knownOptInKeys 是 cli 侧已知 opt-in 键的集合，与 app 侧注册表保持一致。
 // cli 不 import app，因此这里复制一份稳定的配置词汇表；新增键时两处需同步。

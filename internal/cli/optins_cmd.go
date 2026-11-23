@@ -224,7 +224,7 @@ func writeOptInsText(w io.Writer, entries []optInEntry, env func(string) string)
 		}
 	}
 	fmt.Fprintf(w, "已知 opt-in 开关（共 %d 项，当前启用 %d 项）\n", len(entries), enabledCount)
-	fmt.Fprintf(w, "ARGENT_OPT_INS 注册表：%s\n\n", FormatOptIns(OptInFromEnv(env)))
+	fmt.Fprintf(w, "ARGENT_OPT_INS 集中注册表（15 键）：%s\n\n", FormatOptIns(OptInFromEnv(env)))
 	fmt.Fprintf(w, "%-32s %-32s %-26s %-6s %s\n", "键名", "环境变量", "当前值", "状态", "说明")
 	for _, entry := range entries {
 		state := "关闭"
