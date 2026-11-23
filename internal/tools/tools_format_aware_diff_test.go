@@ -72,9 +72,12 @@ func TestFormatAwareDiff(t *testing.T) {
 			want:   "+0/-0 行",
 		},
 		{
+			// 用 100 行而非 1000 行：仍能验证 LCS 只计真实改动（+1/-1），
+			// 但在 race + 慢 CI runner 下远低于 50ms diff 预算，不会因降级
+			// 回退成整文件计数（+100/-100）而误报。
 			name:   "long content under LCS limit",
-			before: strings.Repeat("line\n", 1000),
-			after:  strings.Repeat("line\n", 999) + "changed\n",
+			before: strings.Repeat("line\n", 100),
+			after:  strings.Repeat("line\n", 99) + "changed\n",
 			want:   "+1/-1 行",
 		},
 	}
