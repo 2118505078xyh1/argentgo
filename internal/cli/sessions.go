@@ -779,7 +779,17 @@ func sessionsExport(app App, store SessionStore, id string, args []string) int {
 	// 从而符号链接检查覆盖整个写入过程，并避免在渲染失败时留下被截断的文件。
 	var data []byte
 	var err error
-	if isYAMLExport(format) {
+	if strings.EqualFold(format, "html2") {
+		// 富 HTML 导出：单文件自包含、工具卡片折叠、严格 XSS 转义。
+		// 先取 JSON 转录，再转成 exporthtml 的消息视图。
+		var jsonData []byte
+		jsonData, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
+			Branch: branchID, Sanitize: sanitize, Format: "json",
+		})
+		if err == nil {
+			data, err = richHTMLFromJSON(jsonData)
+		}
+	} else if isYAMLExport(format) {
 		// session 包只认识 html/json/markdown。在本层根据它的 JSON 转录构建
 		// YAML：JSON 是合法的 YAML 1.2 文档，因此无需新依赖，也不会丢失任何导出字段。
 		data, err = session.ExportProject(app.sessionDir(), id, branchID, session.ExportOptions{
@@ -866,7 +876,7 @@ func sessionsUsage(w io.Writer) {
         argentgo sessions retry <id> [checkpoint-id]
         argentgo sessions discard-attempt <id> [attempt-id]
         argentgo sessions name <id> <title>
-        argentgo sessions export <id> [-o file] [--format html|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
+        argentgo sessions export <id> [-o file] [--format html|html2|json|markdown|yaml] [--sanitize] [--branch id] [--since time] [--until time] [--type kind[,kind...]]
         argentgo sessions import <file> [--format claude|codex|auto]
 `)
 }
