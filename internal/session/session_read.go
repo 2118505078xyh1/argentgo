@@ -26,8 +26,26 @@ func (s *Session) ReadPage(afterID string, maxBytes int, fromEnd bool) (Page, er
 }
 
 // Messages 返回活动分支上的线性对话。最新的压缩记录会用一条系统摘要
-// 替换它之前的所有内容。
+// 替换它之前的所有内容。这是**喂给模型的读路径**：默认开启时应用 foveated
+// 多保真归档（TODO #134），在有限预算内保留两端逐字内容。压缩决策不要用本
+// 方法估算 token（稀疏视图会低估压力），请用 MessagesForCompaction。
 func (s *Session) Messages() []Entry {
+	return s.messages(foveatedArchiveEnabled())
+}
+
+// MessagesForCompaction 返回未做 foveated 稀疏化的完整对话视图，供压缩决策使用。
+// foveated 读路径会把中段按预算稀疏化，若用它估算 token，长会话可能因估算值
+// 低于阈值而永不触发压缩——这是默认开启归档后必须规避的耦合。本方法与
+// Messages() 在归档关闭时逐字节相同；归档开启时返回完整条目（仍经压缩摘要
+// 折叠、孤儿结算与图像卸载投影），保证压缩判断基于真实转录体量。
+func (s *Session) MessagesForCompaction() []Entry {
+	return s.messages(false)
+}
+
+// messages 是 Messages / MessagesForCompaction 的共享实现。foveated 为真时
+// 在压缩分支之前应用多保真投影：压缩分支会把 head 截到 compaction.Keep 条，
+// 旧端已经丢失，无法实现"两端高保真"，因此归档必须直接基于全量 path 构造。
+func (s *Session) messages(foveated bool) []Entry {
 	records, err := s.Records()
 	if err != nil {
 		return nil
@@ -41,11 +59,7 @@ func (s *Session) Messages() []Entry {
 		}
 	}
 
-	// foveated 多保真归档视图（默认开启、=0 关闭，TODO #134）：必须在压缩分支之前接线。
-	// 压缩分支会把 head 截到 compaction.Keep 条，旧端已经丢失，无法实现"两端高保真"；
-	// 这里直接用全量 path 重建条目再做多保真投影，并保留压缩摘要作为开头的 system 消息。
-	// 关闭时本分支完全不进入，下方压缩/非压缩路径逐字节不变。
-	if foveatedArchiveEnabled() {
+	if foveated {
 		budget, _ := budgetProjectionBudget()
 		all := messageEntries(path)
 		archived := foveatedArchive(all, budget)

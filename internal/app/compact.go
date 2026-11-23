@@ -782,7 +782,10 @@ func maybeAutoCompact(res Resolved, sess *session.Session, evidence agent.Compac
 	if res.AutoCompactTokens < 0 {
 		return
 	}
-	entries := sess.Messages()
+	// 压缩决策必须基于未做 foveated 稀疏化的完整转录（MessagesForCompaction），
+	// 否则默认开启的多保真读路径会把中段按预算丢弃、估算值低于阈值，使长会话
+	// 永不触发压缩。实际压缩由 sess.Compact 在 session 内部完成，与本视图无关。
+	entries := sess.MessagesForCompaction()
 	messages := make([]llm.Message, 0, len(entries))
 	var anchor usageAnchor
 	for i, entry := range entries {

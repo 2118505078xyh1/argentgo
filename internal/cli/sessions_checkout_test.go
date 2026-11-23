@@ -12,6 +12,9 @@ import (
 // TestSessionsCheckoutCommand 验证 sessions checkout 子命令能就地切换活动记录，
 // 并对参数缺失与非法记录返回合适的退出码。
 func TestSessionsCheckoutCommand(t *testing.T) {
+	// 本测试验证 checkout 命令本身的活动叶切换；分支摘要会额外追加一条摘要记录
+	// 使活动叶偏移，属另一个特性的职责，这里关闭以隔离被测行为。
+	t.Setenv("ARGENT_BRANCH_SUMMARY", "0")
 	storage := t.TempDir()
 	store, err := session.Open(filepath.Join(storage, "sessions"))
 	if err != nil {
@@ -123,6 +126,8 @@ func TestCheckoutGuardEnabled(t *testing.T) {
 // 拒绝分支（逃逸/非 restored）由 session 包的守卫测试覆盖，因为 CLI 的
 // 合法会话目标必然位于会话根内，无法在 CLI 层构造逃逸输入。
 func TestSessionsCheckoutGuardOptIn(t *testing.T) {
+	// 隔离 checkout 守卫本身；分支摘要的额外记录由 session 包测试覆盖。
+	t.Setenv("ARGENT_BRANCH_SUMMARY", "0")
 	storage := t.TempDir()
 	store, err := session.Open(filepath.Join(storage, "sessions"))
 	if err != nil {

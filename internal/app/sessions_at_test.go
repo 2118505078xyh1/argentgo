@@ -14,6 +14,8 @@ import (
 // 返回 store、会话以及 middle 的记录 id（可用作 --at 的分叉点）。
 func newAtTestStore(t *testing.T) (*session.Store, *session.Session, string) {
 	t.Helper()
+	// 这些用例验证 --at 恢复的活动叶；分支摘要的额外记录会偏移活动叶，属另一特性，隔离之。
+	t.Setenv("ARGENT_BRANCH_SUMMARY", "0")
 	store, err := session.Open(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
 		t.Fatal(err)

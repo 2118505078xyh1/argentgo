@@ -104,7 +104,8 @@ func TestExecuteIgnoresDeclaredBudgetFromInjectedPrefix(t *testing.T) {
 
 func hasNotice(events []agent.Event, text string) bool {
 	for _, e := range events {
-		if e.Kind == agent.EventNotice && e.Text == text {
+		// 恢复公告可能带默认开启的 (恢复细节：...) 后缀，用子串匹配锁定核心语义。
+		if e.Kind == agent.EventNotice && strings.Contains(e.Text, text) {
 			return true
 		}
 	}
@@ -113,7 +114,8 @@ func hasNotice(events []agent.Event, text string) bool {
 
 func containsText(texts []string, want string) bool {
 	for _, got := range texts {
-		if got == want {
+		// 恢复公告可能带默认开启的 (恢复细节：...) 后缀，用子串匹配锁定核心语义。
+		if strings.Contains(got, want) {
 			return true
 		}
 	}
