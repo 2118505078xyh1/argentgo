@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"github.com/2118505078xyh1/argentgo/internal/prof"
 )
 
 const (
@@ -94,6 +95,9 @@ type MetaToolRunner interface {
 // 正常路径不触碰任何返回值，事件与会话记录逐字节不变；只有真正发生 panic 时
 // 才会产生一条 is_error 结果。
 func (s *runState) callTool(ctx context.Context, name, args string) (out string, meta ToolMeta, err error) {
+	// 所有工具执行的统一汇聚点：一个埋点覆盖全部工具（含 MCP/插件/内建），
+	// 使 profiler 能回答"这一轮时间花在 LLM 还是工具"。
+	defer prof.Region(prof.RegionToolRun).End()
 	defer func() {
 		if p := recover(); p != nil {
 			out = ""
