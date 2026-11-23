@@ -108,7 +108,9 @@ func TestStdioTransportLaunchesPowerShellScript(t *testing.T) {
 		Name:      "ps1",
 		Transport: "stdio",
 		Command:   script,
-		Timeout:   10 * time.Second,
+		// CI Windows runner 上 PowerShell 冷启动 + 脚本编译可能超过 10s，
+		// 放宽到 30s 避免慢机器误报；本地仍快速通过。
+		Timeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("connect to .ps1 server: %v", err)
