@@ -274,8 +274,17 @@ func normalizeCommandName(field string) string {
 	if idx := strings.LastIndexAny(exe, `/\`); idx >= 0 {
 		exe = exe[idx+1:]
 	}
-	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1", ".com"} {
 		exe = strings.TrimSuffix(exe, suffix)
+	}
+	// 工具型点号后缀：mkfs.ext4 / fsck.ext4 归到主命令 mkfs/fsck，
+	// 使基于命令名的分级与细分不会因为文件系统类型后缀而漏判。
+	if i := strings.IndexByte(exe, '.'); i > 0 {
+		head := exe[:i]
+		switch head {
+		case "mkfs", "fsck", "mkswap", "fdisk":
+			exe = head
+		}
 	}
 	return exe
 }
