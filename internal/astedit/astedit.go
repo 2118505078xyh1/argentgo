@@ -15,6 +15,8 @@ import (
 	"go/token"
 	"sort"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/astcache"
 )
 
 const (
@@ -52,8 +54,9 @@ type span struct{ start, end int }
 // parser.ParseFile 即便遇到错误也常返回可用的部分 AST；这里刻意容忍这类
 // "部分源码"，只把错误数量带出去，供改写前后比较是否引入了新错误。
 func parseSource(src []byte) (*ast.File, *token.FileSet, int) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments)
+	// 内容寻址缓存：ast_edit / outline / 语法检查反复解析同一批文件，
+	// parse 本身是热点（1MB 约 187ms），缓存命中约 0.2µs。
+	f, fset, err := astcache.ParseDefault("", "go", src, parser.ParseComments)
 	if err == nil {
 		return f, fset, 0
 	}

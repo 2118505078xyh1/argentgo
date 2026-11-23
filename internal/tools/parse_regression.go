@@ -2,9 +2,10 @@ package tools
 
 import (
 	"go/parser"
-	"go/token"
 	"os"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/astcache"
 )
 
 // parseRegressionEnv 是「写入前 Go 语法劣化检查」的独立门控变量。
@@ -16,8 +17,8 @@ func parseRegressionEnabled() bool {
 
 // goParseErrorCount 返回源码的语法错误数（解析到首个致命错误即止的保守计数）。
 func goParseErrorCount(src []byte) int {
-	fset := token.NewFileSet()
-	_, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	// 内容寻址缓存：写入前的语法劣化检查常对同一文件反复解析。
+	_, _, err := astcache.ParseDefault("", "go", src, parser.SkipObjectResolution)
 	if err == nil {
 		return 0
 	}

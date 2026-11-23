@@ -3,7 +3,6 @@ package tools
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"math"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/2118505078xyh1/argentgo/internal/astcache"
 	"github.com/2118505078xyh1/argentgo/internal/tokenize"
 )
 
@@ -75,8 +75,9 @@ func extractRepoSymbols(base string, relFiles []string) []repoSymbol {
 // 未命中时复用完全相同的解析逻辑。语法错误被
 // 容忍：go/parser 会连同错误一起返回部分 AST。
 func parseGoSource(rel string, src []byte) []repoSymbol {
-	fset := token.NewFileSet()
-	file, _ := parser.ParseFile(fset, rel, src, 0)
+	// 内容寻址缓存：repo_map 的 mtime 缓存按变更时间失效，astcache 按内容
+	// 去重，两者互补（内容未变但 mtime 变化时仍能命中）。
+	file, _, _ := astcache.ParseDefault(rel, "go", src, 0)
 	if file == nil {
 		return nil
 	}
