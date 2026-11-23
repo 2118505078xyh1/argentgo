@@ -95,6 +95,10 @@ func TestEventHandlerConnectedSeqIsSubscribeCursor(t *testing.T) {
 	}()
 
 	rec.waitContains(t, "event: server.connected")
+	// 等在握手间隙发布的事件也真正写入响应后再取消。若只等 connected 就
+	// cancel，handler 可能在写出 raced 实时帧前就因 context 取消而提前退出，
+	// 在慢机器上造成"事件丢失"的假失败。
+	rec.waitContains(t, `"Text":"raced"`)
 	cancel()
 	select {
 	case <-done:
