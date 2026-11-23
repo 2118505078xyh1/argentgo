@@ -201,7 +201,9 @@ func executeAndCapture(t *testing.T, withPersona bool) (system string, specs []s
 func TestExecuteAdvertisesTaskToolOnlyWhenOptedIn(t *testing.T) {
 	t.Run("with persona", func(t *testing.T) {
 		system, specs, res := executeAndCapture(t, true)
-		want := strings.TrimSpace(res.System + "\n\n" + agent.OrchestratorPrompt())
+		// 编辑格式指引与 repo map 只读声明均默认开启，按生产装配顺序追加在编排器提示之后。
+		base := res.System + "\n\n" + agent.OrchestratorPrompt()
+		want := strings.TrimSpace(agent.AppendEditFormat(base, res.Model) + "\n" + repoMapReadOnlyHint())
 		if system != want {
 			t.Fatalf("system prompt = %q, want %q", system, want)
 		}
@@ -218,8 +220,9 @@ func TestExecuteAdvertisesTaskToolOnlyWhenOptedIn(t *testing.T) {
 
 	t.Run("without persona", func(t *testing.T) {
 		system, specs, res := executeAndCapture(t, false)
-		if want := strings.TrimSpace(res.System); system != want {
-			t.Fatalf("system prompt = %q, want the unchanged %q", system, want)
+		// 编辑格式指引与 repo map 只读声明均默认开启，按生产装配顺序追加。
+		if want := strings.TrimSpace(agent.AppendEditFormat(res.System, res.Model) + "\n" + repoMapReadOnlyHint()); system != want {
+			t.Fatalf("system prompt = %q, want %q", system, want)
 		}
 		for _, name := range specs {
 			if name == agent.TaskToolName {

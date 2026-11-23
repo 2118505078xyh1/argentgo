@@ -23,6 +23,13 @@ func writeSpillTestFile(t *testing.T, root, name, content string) {
 	}
 }
 
+// spillTestPayload 生成多行大输出。read 工具会先按 2000 rune 的上限截断超长单行
+// （#38 单行预检），单行 fixture 永远到不了 clip/spill 路径；多行内容才能让测试
+// 真正断言「默认裁剪」与「启用落盘」两条分支。返回的文本无尾随换行，便于逐字节比对产物。
+func spillTestPayload(unit string, lines int) string {
+	return strings.Repeat(unit+"\n", lines-1) + unit
+}
+
 // spillArtifactIn 返回 dir 下唯一的规范产物（app 约定的目录），
 // 若不是恰好一个则失败。
 func spillArtifactIn(t *testing.T, dir string) (string, string) {
@@ -57,7 +64,7 @@ func TestOutputSpillEnabledTruthyValues(t *testing.T) {
 func TestConfigureOutputSpillDefaultLeavesOutputUnchanged(t *testing.T) {
 	storage := t.TempDir()
 	root := t.TempDir()
-	big := strings.Repeat("abcdefghij", 30_000) // 300 KiB，超过默认的落盘阈值
+	big := spillTestPayload(strings.Repeat("abcdefghij", 30), 1000) // 多行 ~300 KiB，超过默认的落盘阈值
 	writeSpillTestFile(t, root, "big.txt", big)
 	reg := tools.New(root, true)
 
@@ -89,7 +96,7 @@ func TestConfigureOutputSpillDefaultLeavesOutputUnchanged(t *testing.T) {
 func TestConfigureOutputSpillOptInSpillsToConventionDir(t *testing.T) {
 	storage := t.TempDir()
 	root := t.TempDir()
-	big := strings.Repeat("0123456789", 30_000) // 300 KiB
+	big := spillTestPayload(strings.Repeat("0123456789", 30), 1000) // 多行 300 KiB
 	writeSpillTestFile(t, root, "big.txt", big)
 
 	ctx := configureOutputSpill(context.Background(),

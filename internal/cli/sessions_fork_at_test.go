@@ -37,7 +37,7 @@ func newForkAtFixture(t *testing.T, storage string) (*session.Store, *session.Se
 }
 
 // TestSessionsForkAtCommand 验证 sessions fork-at 在指定用户消息处创建新会话，
-// 打印新 id 与还原 prompt，且对话停在分叉点、原会话保持不变。
+// 打印新 id 与还原 prompt；新会话停在分叉点并追加只读边界，原会话保持不变。
 func TestSessionsForkAtCommand(t *testing.T) {
 	storage := t.TempDir()
 	store, sess, second := newForkAtFixture(t, storage)
@@ -75,8 +75,17 @@ func TestSessionsForkAtCommand(t *testing.T) {
 		t.Fatalf("OpenSession(%q): %v", newID, err)
 	}
 	messages := fork.Messages()
-	if len(messages) != 3 || messages[len(messages)-1].ID != second.ID {
-		t.Fatalf("fork messages = %+v, want to stop at %s", messages, second.ID)
+	// 分叉点之后追加了 developer 边界指令与带稳定标记的边界用户消息，
+	// 因此末条不再是原 prompt（原 prompt 只作为继承历史保留在前）。
+	if len(messages) != 5 {
+		t.Fatalf("fork messages = %+v, want 5 (user, assistant, user, developer, boundary)", messages)
+	}
+	last := messages[len(messages)-1]
+	if !strings.Contains(last.Content, session.ForkBoundaryMarker) {
+		t.Fatalf("fork last message is not the boundary marker: %+v", last)
+	}
+	if messages[2].ID != second.ID || messages[2].Content != "第二轮提问" {
+		t.Fatalf("fork point message = %+v, want %s/第二轮提问", messages[2], second.ID)
 	}
 	after, err := store.List()
 	if err != nil {

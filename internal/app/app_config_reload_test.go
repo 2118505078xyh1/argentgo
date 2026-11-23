@@ -64,8 +64,10 @@ func TestConfigReloaderAdoptsDiskChangeAndLogs(t *testing.T) {
 	if cfg.Model != "before-model" || cfg.Generation() != 1 {
 		t.Errorf("old snapshot was mutated: %q gen=%d", cfg.Model, cfg.Generation())
 	}
-	if !strings.Contains(logs.String(), "reloaded:") || !strings.Contains(logs.String(), "generation 2") {
-		t.Errorf("change was not logged: %q", logs.String())
+	// 默认日志改为键路径差异摘要（ARGENT_CONFIG_RELOAD_DIFF 默认开，=0 才回退旧格式），
+	// 只列变化的键名与脱敏占位，不再输出 generation 或配置值。
+	if !strings.Contains(logs.String(), "config reloaded: model") {
+		t.Errorf("change was not logged as a key-path diff: %q", logs.String())
 	}
 	// 采用返回的快照会使下一次轮询成为空操作。
 	if r.poll() {

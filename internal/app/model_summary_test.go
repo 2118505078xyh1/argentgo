@@ -541,21 +541,24 @@ func TestGenerateModelSummaryWithUsageNilUsage(t *testing.T) {
 }
 
 // TestGenerateModelSummaryWithUsageFailures 覆盖失败路径：nil chatter、chatter 报错、
-// 空/非法回复、context 取消。每个分支都必须返回零 usage 与 error，且不产出内容。
+// 空/非法回复、context 取消。每条路径都返回 error 且不产出内容；已发生的模型调用
+// （含 NUDGE 重试）的用量按 #7 新语义照常入账，只有零调用的路径才是零 usage。
 func TestGenerateModelSummaryWithUsageFailures(t *testing.T) {
 	sentinel := errors.New("提供方不可用")
 	tests := []struct {
-		name    string
-		chatter llm.Chatter
-		ctx     func() (context.Context, context.CancelFunc)
+		name      string
+		chatter   llm.Chatter
+		ctx       func() (context.Context, context.CancelFunc)
+		wantUsage llm.Usage
 	}{
-		{"nil chatter", nil, nil},
-		{"chatter 报错", &modelSummaryFakeChatter{err: sentinel}, nil},
-		{"空回复", &modelSummaryFakeChatter{reply: llm.Message{Content: "   ", Usage: &llm.Usage{PromptTokens: 5}}}, nil},
-		{"非法 JSON", &modelSummaryFakeChatter{reply: llm.Message{Content: "not json", Usage: &llm.Usage{PromptTokens: 5}}}, nil},
-		{"context 已取消", &modelSummaryFakeChatter{fn: func(ctx context.Context, _ string, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
+		{name: "nil chatter", chatter: nil},
+		{name: "chatter 报错", chatter: &modelSummaryFakeChatter{err: sentinel}},
+		// 空回复与非法 JSON 会各触发一次 NUDGE 重试，两次调用各 5 prompt tokens 都要入账。
+		{name: "空回复", chatter: &modelSummaryFakeChatter{reply: llm.Message{Content: "   ", Usage: &llm.Usage{PromptTokens: 5}}}, wantUsage: llm.Usage{PromptTokens: 10}},
+		{name: "非法 JSON", chatter: &modelSummaryFakeChatter{reply: llm.Message{Content: "not json", Usage: &llm.Usage{PromptTokens: 5}}}, wantUsage: llm.Usage{PromptTokens: 10}},
+		{name: "context 已取消", chatter: &modelSummaryFakeChatter{fn: func(ctx context.Context, _ string, _ []llm.Message, _ []llm.ToolSpec, _ func(string)) (llm.Message, error) {
 			return llm.Message{}, ctx.Err()
-		}}, func() (context.Context, context.CancelFunc) {
+		}}, ctx: func() (context.Context, context.CancelFunc) {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
 			return ctx, func() {}
@@ -576,8 +579,8 @@ func TestGenerateModelSummaryWithUsageFailures(t *testing.T) {
 			if narrative != "" || steps != nil {
 				t.Fatalf("失败路径不应产出内容: %q, %q", narrative, steps)
 			}
-			if u != (llm.Usage{}) {
-				t.Fatalf("失败路径 usage 应为零值，得到 %+v", u)
+			if u != tc.wantUsage {
+				t.Fatalf("失败路径 usage = %+v, want %+v", u, tc.wantUsage)
 			}
 			if tc.name == "chatter 报错" && !errors.Is(err, sentinel) {
 				t.Fatalf("错误应被透传: %v", err)
