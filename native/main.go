@@ -129,14 +129,16 @@ type sessionEvent struct {
 }
 
 // sessionEventData 覆盖会话记录 data 的两种线上形态：纯字符串（旧格式）
-// 或带 content/text/output 等字段的对象。
+// 或带 content/text/output 等字段的对象。Arguments 是工具调用的原始参数
+// JSON，供"计划"面板读取 todo 工具写入的结构化任务列表。
 type sessionEventData struct {
-	Content string `json:"content"`
-	Text    string `json:"text"`
-	Output  string `json:"output"`
-	Name    string `json:"name"`
-	Role    string `json:"role"`
-	IsError bool   `json:"is_error"`
+	Content   string `json:"content"`
+	Text      string `json:"text"`
+	Output    string `json:"output"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	Arguments string `json:"arguments"`
+	IsError   bool   `json:"is_error"`
 }
 
 var navItems = []string{
@@ -224,6 +226,12 @@ type chat struct {
 	// fetchConfigInfo 直接调用 engine.call；测试注入记录器以
 	// 验证 config.info RPC 而无需活 engine 进程。
 	configInfoRPC func(method string, params any) (json.RawMessage, error)
+
+	// 以下三个字段是导航面板的真实数据来源，全部来自 engine 已暴露的
+	// 数据（usage 事件、tool_end 事件、工作区 .git/HEAD），没有新增 RPC。
+	usage     navUsage      // 从 usage 事件读取的本轮累计用量
+	planTodos []navTodoItem // 最近的 todo 工具任务列表
+	gitBranch string        // 启动时从工作区 .git/HEAD 读取的分支名
 }
 
 func (app *chat) palette() palette {
@@ -299,13 +307,14 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			})
 		})
 
-		// 导航网格。未实现项置灰（诚实化 fake affordance），但仍可点击查看
-		// 占位面板——面板内部已写明"即将推出/规划中的能力"，这里保持按钮原名
-		// 不破坏导航语义与既有交互契约。
+		// 导航网格。无真实数据的项置灰（诚实化 fake affordance），但仍可点击
+		// 查看占位面板——面板内部写明具体缺什么能力；拿到真实数据的项（用量/
+		// Git/计划）随数据就绪自动转为正常色并去掉角标。按钮名保持不翻译的
+		// 内部标识，仅渲染时经 tr() 翻译。
 		ui.Grid(c).Columns(3).Gap(4).Children(func() {
 			for _, name := range navItems {
 				active := app.nav == name // 内部标识保持中文，仅渲染时翻译
-				implemented := navItemImplemented(name)
+				implemented := app.navPanelReady(name)
 				btn := ui.Button(c, tr(name)).Padding(8, 2).Radius(6)
 				if active {
 					btn.Background(p.accentBG).TextColor(p.accent)
@@ -804,7 +813,8 @@ func parseSessionEvents(raw json.RawMessage) ([]sessionEvent, bool) {
 
 // loadTranscript 用 session.load 的事件替换 transcript。它先退役可能仍在
 // 进行的流式轮次并清空 reply/tools/approval，使迟到结果不会被误混入；然后
-// 把每条可识别事件映射为 app.message，继续由既有 ui.List 渲染。
+// 把每条可识别事件映射为 app.message，继续由既有 ui.List 渲染。同一批事件
+// 中的 todo 工具记录也用于刷新"计划"面板（最后一次写入即当前计划）。
 func (app *chat) loadTranscript(events []sessionEvent) {
 	app.retireStream()
 	app.messages = nil
@@ -813,7 +823,15 @@ func (app *chat) loadTranscript(events []sessionEvent) {
 	app.streaming = false
 	app.reply, app.tool = nil, nil
 	app.lastPrompt = ""
+	app.planTodos = nil
 	for _, ev := range events {
+		if ev.Kind == "tool" {
+			if d, ok := decodeSessionEventData(ev.Data); ok && d.Name == "todo" {
+				if todos := parsePlanTodos(d.Arguments); len(todos) > 0 {
+					app.planTodos = todos
+				}
+			}
+		}
 		m, ok := messageFromSessionEvent(ev)
 		if !ok {
 			continue
@@ -1398,8 +1416,8 @@ func (app *chat) onEngineClose(err error) {
 }
 
 // applyEngineEvent 把一个真实 agent 事件映射到现有 transcript
-// 状态。只渲染工具和审批事件：助手文本已
-// 通过 prompt/delta 到达，其他所有事件种类被忽略。
+// 状态。工具与审批事件进入 transcript；usage 事件更新用量面板；
+// todo 工具的结构化参数更新计划面板。助手文本已通过 prompt/delta 到达。
 func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 	switch kind {
 	case "tool_start":
@@ -1417,6 +1435,7 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 			ToolCallID string `json:"ToolCallID"`
 			ToolName   string `json:"ToolName"`
 			Output     string `json:"Output"`
+			Args       string `json:"Args"`
 			IsError    bool   `json:"IsError"`
 		}
 		if json.Unmarshal(raw, &ev) != nil {
@@ -1427,6 +1446,39 @@ func (app *chat) applyEngineEvent(kind string, raw json.RawMessage) {
 			status = "failed"
 		}
 		app.upsertTool(ev.ToolCallID, ev.ToolName, ev.Output, status)
+		// todo 工具的 write 调用携带完整任务列表；用它更新"计划"面板。
+		// read 调用/畸形参数返回 nil，不覆盖已有列表。
+		if ev.ToolName == "todo" {
+			if todos := parsePlanTodos(ev.Args); len(todos) > 0 {
+				app.planTodos = todos
+			}
+		}
+	case "usage":
+		// agent.Event 的 TotalUsage 是本轮累计值（字段名为 Go 字段名，
+		// 嵌套 llm.Usage 用 snake_case），直接覆盖即可反映真实消耗。
+		var ev struct {
+			TotalUsage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				CachedTokens     int `json:"cached_tokens"`
+			} `json:"TotalUsage"`
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			return
+		}
+		// TotalUsage 是单次 prompt 运行的累计值，新一轮会从零开始；
+		// 检测到回落时把请求计数也归零，避免跨轮数字口径不一致。
+		calls := app.usage.calls + 1
+		if ev.TotalUsage.PromptTokens < app.usage.input ||
+			ev.TotalUsage.CompletionTokens < app.usage.output {
+			calls = 1
+		}
+		app.usage = navUsage{
+			input:  ev.TotalUsage.PromptTokens,
+			output: ev.TotalUsage.CompletionTokens,
+			cached: ev.TotalUsage.CachedTokens,
+			calls:  calls,
+		}
 	case "notice":
 		var ev struct {
 			Text string `json:"Text"`
@@ -1730,12 +1782,16 @@ func main() {
 	// 审批卡 diff 默认开启（=0 紧急回退）：审批从"盲签"变成看一眼再签。
 	configureApprovalDiff(os.Getenv)
 
+	// 工作区来自 ARGENT_CWD 或进程当前目录。即使未连接引擎，native 自身
+	// 仍在这个目录里，读取 .git/HEAD 即可拿到真实分支名（无需 CLI/RPC）。
+	cwd := os.Getenv("ARGENT_CWD")
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	app.gitBranch = navGitBranch(cwd, nil)
+
 	// ARGENT_EXE 指向 engine 二进制。设置时，原生窗口
 	if exe := os.Getenv("ARGENT_EXE"); exe != "" {
-		cwd := os.Getenv("ARGENT_CWD")
-		if cwd == "" {
-			cwd, _ = os.Getwd()
-		}
 		b, err := startBridge(exe, cwd, nil, app.onEngineEvent)
 		if err != nil {
 			log.Printf("native: engine bridge unavailable: %v (using demo mode)", err)

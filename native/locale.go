@@ -164,6 +164,26 @@ var nativeEnglish = map[string]string{
 	"该功能尚未实现":      "Not implemented yet",
 	"规划中的能力，暂不可点击": "Planned capability, not available yet",
 
+	// 导航面板的具体缺口说明（取代空泛的"规划中的能力"）。
+	"需要任务调度 RPC 支持，后续接入":             "Needs a task-scheduling RPC; coming later",
+	"需要插件与技能目录 RPC 支持，后续接入":          "Needs a plugin/skill catalog RPC; coming later",
+	"运行后可见：尚未收到用量事件":                 "Visible after a run: no usage events yet",
+	"未找到工作区的 .git 信息，暂时无法显示分支":       "No workspace .git info found; branch unavailable",
+	"需要后台作业状态 RPC 支持，后续接入":           "Needs a background-job RPC; coming later",
+	"需要工作流执行 RPC 支持，后续接入":            "Needs a workflow RPC; coming later",
+	"native 不直接启动 shell，需要终端 RPC 支持": "The native shell needs a terminal RPC; coming later",
+	"需要文件树 RPC 支持，后续接入":              "Needs a file-tree RPC; coming later",
+	"运行后可见：当前会话没有任务列表":               "Visible after a run: this session has no task list",
+	"没有更多可用信息，后续接入":                  "No further info available; coming later",
+
+	// 用量/计划面板的真实数据行模板。
+	"本轮输入 token：%d": "Input tokens this run: %d",
+	"本轮输出 token：%d": "Output tokens this run: %d",
+	"本轮请求数：%d":      "Requests this run: %d",
+	"当前分支：":         "Branch: ",
+	"进行中":           "In progress",
+	"待办":            "Pending",
+
 	// 设置与偏好持久化。
 	"设置":           "Settings",
 	"语言":           "Language",

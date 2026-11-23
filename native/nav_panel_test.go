@@ -33,7 +33,7 @@ func TestNavPlaceholderPanelIsHonest(t *testing.T) {
 	if err := tt.Click("定时任务"); err != nil {
 		t.Fatalf("click 定时任务: %v", err)
 	}
-	for _, want := range []string{"即将推出", "规划中的能力，暂不可点击"} {
+	for _, want := range []string{"即将推出", "需要任务调度 RPC 支持，后续接入"} {
 		if !tt.HasText(want) {
 			t.Fatalf("placeholder panel missing %q: %q", want, tt.Texts())
 		}
@@ -42,7 +42,7 @@ func TestNavPlaceholderPanelIsHonest(t *testing.T) {
 	if err := tt.Click("文档"); err != nil {
 		t.Fatalf("click 文档: %v", err)
 	}
-	if tt.HasText("规划中的能力，暂不可点击") {
+	if tt.HasText("需要任务调度 RPC 支持，后续接入") {
 		t.Fatalf("implemented panel shows placeholder note: %q", tt.Texts())
 	}
 }
