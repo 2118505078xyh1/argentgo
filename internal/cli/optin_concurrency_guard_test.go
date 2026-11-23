@@ -129,7 +129,7 @@ func TestR37OptInSettersConcurrentSafeAndRaceFree(t *testing.T) {
 	// 这里仍按 4×4×200 从装配层并发调用导出 setter：读端用固定值写代替读，
 	// 同样打到那个原子字段（写/写竞争也能被 -race 捕获），守护运行期切换安全。 ---
 	t.Run("loop_detection", func(t *testing.T) {
-		t.Cleanup(func() { agent.SetLoopDetection(false) })
+		t.Cleanup(func() { agent.SetLoopDetection(true) })
 
 		const (
 			writers = 4

@@ -433,7 +433,7 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	optIns := mergeOptIns(ParseOptInEnv(stdio.Env), configOptIns(res.Cfg.Raw))
 	agent.SetRefusalReason(optIns[OptInRefusalReason])
 	agent.SetToolResultWrapping(optIns[OptInUntrustedResult])
-	// 畸形参数纠错回灌（独立门控 ARGENT_TOOL_ARG_FEEDBACK=1，默认关闭）：
+	// 畸形参数纠错回灌（独立门控 ARGENT_TOOL_ARG_FEEDBACK，默认开启、=0 关闭）：
 	// 模型发出的参数非空却不是合法 JSON 时不执行工具，把原始片段作为错误结果回灌。
 	agent.SetToolArgFeedback(toolArgFeedbackOptInEnabled(stdio.Env))
 	// 带图消息 token 估算（独立门控 ARGENT_MULTIMODAL_TRIM=1，默认关闭）：
@@ -795,16 +795,16 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 			filtered := filterVisibleSpecs(specs, res, toolset, policy)
 			// 按 provider/model/模式动态路由工具（默认开启）：内置规则对
 			// openai-native/gpt/codex 的 act 模式保留 apply_patch、移除 editor；只收紧不新增。
-			routed := wireModelToolRouting(filtered, res, stdio)
+			visible := wireModelToolRouting(filtered, res, stdio)
 			// 精简目录（默认自动启用，用户零配置）：只公布核心工具 + tool_search，
 			// 其余工具由模型自己经 tool_search 按需发现。仅在显式设置调试逃生舱
 			// ARGENT_FULL_TOOLS 时原样返回全部。
-			visible = tools.LazyFilterSpecs(routed)
+			visible = tools.LazyFilterSpecs(visible)
 			// 暴露级别（默认全部 direct，golden 目录不变）：hidden 永不公布；
-			// deferred 仅在被 tool_search 命中后从路由后、精简前的目录补回本轮。
+			// deferred 仅在被 tool_search 命中后从精简前的目录补回本轮。
 			if len(toolset.base.regs) > 0 {
 				reg := toolset.base.regs[0]
-				visible = tools.FilterByExposure(visible, routed, reg.Exposure, reg.RevealedNames())
+				visible = tools.FilterByExposure(visible, filtered, reg.Exposure, reg.RevealedNames())
 			}
 			// 网关模式（opt-in）：mcp 不在 lazy 核心集里会被过滤掉，但它是唯一的
 			// MCP 入口，必须始终公布。每个工具 spec 本身从 toolset.Specs() 里
@@ -1281,10 +1281,17 @@ func inspectionEnabled(env func(string) string) bool {
 	return env != nil && strings.TrimSpace(env("ARGENT_INSPECTION")) == "1"
 }
 
-// toolArgFeedbackOptInEnabled 报告畸形参数纠错回灌是否开启。默认关闭：
-// 只有 ARGENT_TOOL_ARG_FEEDBACK=1 才启用，其他值保持历史派发行为逐字节不变。
+// toolArgFeedbackOptInEnabled 报告畸形参数纠错回灌是否开启。默认开启：
+// 仅当 ARGENT_TOOL_ARG_FEEDBACK 为假值词（0/false/no/off）时关闭；未设置或空值一律开启。
 func toolArgFeedbackOptInEnabled(env func(string) string) bool {
-	return env != nil && strings.TrimSpace(env("ARGENT_TOOL_ARG_FEEDBACK")) == "1"
+	if env == nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(env("ARGENT_TOOL_ARG_FEEDBACK"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 // multimodalTrimOptInEnabled 报告带图 token 估算是否开启。默认关闭：

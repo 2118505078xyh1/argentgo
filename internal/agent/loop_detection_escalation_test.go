@@ -8,7 +8,7 @@ import (
 
 func TestLoopDetectionEscalatingNudge(t *testing.T) {
 	SetLoopDetection(true)
-	t.Cleanup(func() { SetLoopDetection(false) })
+	t.Cleanup(func() { SetLoopDetection(true) })
 	if loopNudgeTier(2) != 0 || loopNudgeTier(3) != 1 || loopNudgeTier(5) != 2 || loopNudgeTier(8) != 3 {
 		t.Fatal("分级阈值错误")
 	}
@@ -41,7 +41,7 @@ func TestLoopDetectionEscalatingNudge(t *testing.T) {
 
 func TestLoopDetectionResetsOnSteer(t *testing.T) {
 	SetLoopDetection(true)
-	t.Cleanup(func() { SetLoopDetection(false) })
+	t.Cleanup(func() { SetLoopDetection(true) })
 	steer := make(chan string, 2)
 	steer <- "换个方法"
 	s := newRunState(Options{Model: "m", System: "s", Steer: steer}, "go", nil)

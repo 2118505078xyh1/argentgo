@@ -34,7 +34,7 @@ type loopWireResult struct {
 func runLoopWire(t *testing.T, detectOn bool, toolRounds int, outputMode string, maxRepeats int, failAll bool) loopWireResult {
 	t.Helper()
 	SetLoopDetection(detectOn)
-	t.Cleanup(func() { SetLoopDetection(false) })
+	t.Cleanup(func() { SetLoopDetection(true) })
 	SetGuidanceDedupe(true)
 	t.Cleanup(func() { SetGuidanceDedupe(false) })
 

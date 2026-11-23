@@ -6,13 +6,18 @@ import (
 	"sync/atomic"
 )
 
-// 循环检测的进程级 opt-in 开关。默认关闭：不改动既有运行循环的任何行为，
-// 与历史会话记录逐字节一致。检测在 loop.go 的每个工具批次后调用；开关由
-// 装配层 internal/app 通过 ARGENT_LOOP_DETECTION 接线（见 loop_detection_wire.go）。
+// 循环检测的进程级开关。默认开启（=0 关闭）：它只注入软提示、不硬停，
+// 属于"让模型表现更好"的能力增强。检测在 loop.go 的每个工具批次后调用；
+// 开关由装配层 internal/app 通过 ARGENT_LOOP_DETECTION 接线（见 loop_detection_wire.go）。
 var loopDetection atomic.Bool
 
+func init() {
+	// atomic.Bool 零值为 false；显式置 true 实现默认开启。
+	loopDetection.Store(true)
+}
+
 // SetLoopDetection 打开或关闭工具调用循环检测。
-// 关闭（默认）时引擎不会调用 DetectLoop，行为与历史运行一致。
+// 默认开启；显式关闭时引擎不会调用 DetectLoop。
 func SetLoopDetection(enabled bool) {
 	loopDetection.Store(enabled)
 }
