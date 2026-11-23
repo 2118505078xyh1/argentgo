@@ -50,7 +50,7 @@ func checkUndoRestore(app App, workspace, sessionID string, cp session.Checkpoin
 		paths = append(paths, file.Path)
 	}
 	if err := undoChain(app, workspace, sessionID).CheckRestore(context.Background(), paths); err != nil {
-		return fmt.Errorf("undo blocked by security chain: %w", err)
+		return fmt.Errorf("撤销被安全链拦截：%w", err)
 	}
 	return nil
 }

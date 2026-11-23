@@ -28,7 +28,7 @@ func TestCheckUndoRestoreBlocksEscapingManifest(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("checkUndoRestore error = %v, wantErr %v", err, tc.wantErr)
 			}
-			if tc.wantErr && !strings.Contains(err.Error(), "undo blocked by security chain") {
+			if tc.wantErr && !strings.Contains(err.Error(), "撤销被安全链拦截") {
 				t.Fatalf("denial error lacks readable context: %v", err)
 			}
 		})
