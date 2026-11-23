@@ -39,7 +39,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 ### killi 研究迁移（2026-11-23）
 
-从 Rust agent `killi`（github.com/timwuhaotian/killi）移植了资源有界、缓存纪律与可复现性三方面的多项改进：`read` 尺寸预检、prompt 预算护栏、钩子进程组终止、`ARGENT_LOOP_DETECTION` 接线、`eval history` 系列（git 历史任务 + worktree 隔离 + 离线自检 + `--scripted`/`--verify`）、`ARGENT_REQUEST_SNAPSHOT` 请求字节快照。逐项提交号、未迁移项与原因见 `docs/KILLI_STUDY.md`。
+从 Rust agent `killi`（github.com/timwuhaotian/killi）移植了资源有界、缓存纪律与可复现性三方面的多项改进：`read` 尺寸预检、prompt 预算护栏、钩子进程组终止、`ARGENT_LOOP_DETECTION` 接线、`eval history` 系列（git 历史任务 + worktree 隔离 + 离线自检 + `--scripted`/`--verify`）、`ARGENT_REQUEST_SNAPSHOT` 请求字节快照与 `ARGENT_RESUME_BYTE_REPLAY` 字节回放、`ARGENT_MCP_GATEWAY` 单网关、子代理共享 system/工具表、压缩后逐条淘汰、follow-up 队列。三项高风险迁移（MCP 网关、字节回放、子代理工具表）均已落地。逐项提交号与取舍说明见 `docs/KILLI_STUDY.md`。
 
 ### 发布门禁
 

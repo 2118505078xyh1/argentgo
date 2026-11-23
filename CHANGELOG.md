@@ -20,7 +20,9 @@
 **killi 研究迁移（2026-11-23，来源与逐项提交号见 `docs/KILLI_STUDY.md`）**
 - 资源边界：`read` 超大文件拒绝、`web_fetch` 二进制响应零下载、钩子超时终止整棵子进程树（含 Windows 作业对象顺序修复）。
 - 缓存纪律：prompt 预算 CI 护栏、`ARGENT_LOOP_DETECTION` 接线、`ARGENT_SUBAGENT_SHARED_PROMPT`（子代理复用父级 system 前缀）。
-- 可复现性：`ARGENT_REQUEST_SNAPSHOT` 记录实际发送的线协议字节（context sink，零开销默认关闭）+ `sessions snapshots` 只读查询；`eval history` 系列支持从 git 历史抽任务、worktree 隔离、离线自检（`verify`）与脚本化（`--scripted`）。
+- 可复现性：`ARGENT_REQUEST_SNAPSHOT` 记录实际发送的线协议字节（context sink，零开销默认关闭）+ `sessions snapshots` 只读查询 + `ARGENT_RESUME_BYTE_REPLAY`（中断提示的 resume 回放快照原始字节，三协议可选 `RawChatter.ChatRaw`）；`eval history` 系列支持从 git 历史抽任务、worktree 隔离、离线自检（`verify`）与脚本化（`--scripted`）。
+- MCP：`ARGENT_MCP_GATEWAY` 单网关工具——只公布一个固定 mcp spec、服务首次使用才连接、工具发现走文本，工具列表整会话不变以稳定缓存前缀；派生名审批与只读沙箱拦截照旧。
+- 可靠性：子代理工具表复用不变量断言、`ARGENT_COMPACT_DRAIN`（压缩后仍超限则逐条淘汰）、`Options.FollowUp` 后续消息队列。
 - 安全：审计日志补齐 `--password value` 形式 CLI flag 凭据的脱敏。
 
 ## v0.8.1 — 2026-11-21

@@ -29,21 +29,23 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 | `33ef69f` | 决策 15 | 历史任务检查改为只跑新增测试所在的包而非 `go test ./...`，超时提到 120s，避免全新 worktree 首次编译超时误判 |
 | `c359f9e` | 决策 15 | `eval history --verify`：跑模型前离线自检，跳过无判别力任务，避免浪费 token |
 | `b47494a` | 决策 20 | `ARGENT_SUBAGENT_SHARED_PROMPT`：子代理以父级 system 为前缀、角色约束追加末尾，首请求复用缓存；system 构造抽成可测纯函数 |
+| `4a8e768` | 决策 20 | 锁定"无角色白名单时子代理工具表与父级逐字节一致"不变量（工具表复用已天然成立），显式 AllowedTools 白名单语义保留 |
+| `c55613e` | 决策 21 | resume 字节回放：三协议抽 `sendStream` + 可选 `RawChatter.ChatRaw`（跳过构造与快照写入），agent 首请求回放快照原始字节、校验失败回退，`ARGENT_RESUME_BYTE_REPLAY` 接线 |
+| `b0352f3` | 决策 11 | MCP 单网关：`ARGENT_MCP_GATEWAY` 只公布一个固定 mcp 工具、服务首次使用才连接、发现走文本、Specs/RefreshTools 不改工具列表；派生名审批 + 只读沙箱拦截 + per-call 链副本 |
 | `c5677c1` | 决策 15 | `--verify` 复用已抽取的任务集，不再重复跑 git log/diff/show |
 | `325f6ad` | 决策 21 | `sessions snapshots <id>` 只读子命令：列出请求快照的协议/模型/字节数/hash 摘要，不打印完整 body |
 | `650dd88` | — | 本研究总结文档 |
 
 另：`9d8945a` 修复项目 TODO #28 的审计脱敏缺口（`--password value` 形式的 CLI flag 值此前明文进入审计）；`dcf9947` 落地项目 TODO #126（学自 codex 的 `ARGENT_COMPACT_DRAIN`）；`1a998f1` 落地项目 TODO #122（学自 pi-mono 的 follow-up 队列）。三者虽非 killi 迁移，但同属本轮工程纪律加固。
 
-## 未迁移及原因
+## 后续确认不做（功能等价或取舍不同）
 
 | 项 | 来源 | 原因 |
 |---|---|---|
-| MCP 单网关工具 | 决策 11 | 需重写 `internal/app/mcp.go`（956 行）的注册、`RefreshTools` 与审批链；改动期间有代理正在改 MCP 审批逻辑，无人监督下风险过高 |
-| resume 字节回放 | 决策 21 | 已记录快照，但回放需新增 `ChatRaw` 接口并改三协议客户端 + agent 首请求分支，热路径风险高；留待有监督阶段 |
-| 子代理复用主工具表 | 决策 20 | prompt 共享已落地（`b47494a`）；工具表完全复用仍需改 `Options`/`taskTool`/`runTaskOnce` 多处，留待有监督阶段 |
 | undo 用隐藏 git 快照 | 决策 24 | argentgo 已有 checkpoint 机制（文件旧字节存会话），功能等价但机制不同；切换代价大于收益 |
 | bash 输出尾部遍历 | 决策 35 | `internal/proc.cappedBuffer` 已对每个流做 64 KB 头尾上限，同类内存峰值问题已解决 |
+
+> 三项高风险迁移（MCP 单网关 `b0352f3`、resume 字节回放 `c55613e`、子代理工具表复用 `4a8e768`）已全部落地，均为严格 opt-in、默认零字节改动。此前"未迁移"的判断是风险预评估，非能力缺失。
 
 ## argentgo 原本就做对的点
 
@@ -53,7 +55,13 @@ argentgo 的底子并不弱：plan mode 已是"运行时拦截而非移除工具
 - `io.LimitReader` 限制 fetch 体积、参数强转 `tool_argument_coercion.go` 已接线
 - skill 名字-only 索引 + 按需加载（`internal/skills`）
 
-## 验证结果（2026-11-23 02:24）
+## 验证结果（2026-11-23 09:16，三项高风险迁移落地后）
+
+- 全量快验证（`gofmt -l .` / `go vet ./...` / `go test -p 4 ./... -count=1`）：**全绿**，11356 测试通过。
+- 针对性 race（`./internal/app ./internal/agent ./internal/llm ./internal/session`）：**全绿**，6831 测试通过（覆盖 MCP 网关 catalog 与字节回放）。
+- 三项 opt-in 均已登记 `OPT_INS.md` 与 `optin_metadata.go`，默认关闭时既有字节路径不变。
+
+### 早期验证记录（02:24）
 
 - 全量快验证（`gofmt -l .` / `go vet ./...` / `go test -p 4 ./... -count=1`）：**全绿**，11364 测试通过。
 - 针对性 race（`./internal/llm ./internal/agent ./internal/hooks ./internal/proc ./internal/session`）：**全绿**，5805 测试通过。
