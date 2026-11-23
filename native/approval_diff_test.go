@@ -246,10 +246,10 @@ func TestApprovalDiffGateKeepsElements(t *testing.T) {
 		t.Fatalf("empty summary changed frame while gate is on\nbaseline=%q\ngot      =%q", offEmpty, onEmpty)
 	}
 
-	// 只有 opt-in 且摘要非空才多渲染摘要与预览两行。
+	// opt-in 且摘要非空时多渲染摘要、预览两行，外加逐行 diff 一行（共 +3）。
 	onDiff := approvalTexts(t, "write", diffArgs)
-	if len(onDiff) != len(offDiff)+2 {
-		t.Fatalf("opted-in element count = %d, want %d (%d + 2): %q", len(onDiff), len(offDiff)+2, len(offDiff), onDiff)
+	if len(onDiff) != len(offDiff)+3 {
+		t.Fatalf("opted-in element count = %d, want %d (%d + 3): %q", len(onDiff), len(offDiff)+3, len(offDiff), onDiff)
 	}
 }
 

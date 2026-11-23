@@ -89,9 +89,11 @@ type message struct {
 }
 
 type approval struct {
-	id   string // engine tool-call id from the approval:request notice; empty in demo mode
-	name string
-	args string
+	id            string // engine tool-call id from the approval:request notice; empty in demo mode
+	name          string
+	args          string
+	reason        string // 拒绝理由（用户可输入，随 RPC 透传供审计）
+	confirmAlways bool   // "始终允许"二次确认态
 }
 
 // session 是会话栏的一行。id 是真实的 engine 会话 id；
@@ -268,10 +270,13 @@ func (app *chat) view(c *ui.Context) {
 		app.retry()
 	}
 	if app.approval != nil && !c.FocusTakesText() {
-		if c.Shortcut(0, ui.KeyY) {
-			app.answerApproval(true)
-		} else if c.Shortcut(0, ui.KeyN) || c.Shortcut(0, ui.KeyEscape) {
-			app.answerApproval(false)
+		switch {
+		case c.Shortcut(0, ui.KeyY):
+			app.answerApprovalChoice(allowOnceChoice())
+		case c.Shortcut(0, ui.KeyA):
+			app.answerApprovalChoice(allowAlwaysChoice())
+		case c.Shortcut(0, ui.KeyN), c.Shortcut(0, ui.KeyEscape):
+			app.answerApprovalChoice(denyChoice(app.approval.reason))
 		}
 	}
 
@@ -294,13 +299,18 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			})
 		})
 
-		// 导航网格。
+		// 导航网格。未实现项置灰（诚实化 fake affordance），但仍可点击查看
+		// 占位面板——面板内部已写明"即将推出/规划中的能力"，这里保持按钮原名
+		// 不破坏导航语义与既有交互契约。
 		ui.Grid(c).Columns(3).Gap(4).Children(func() {
 			for _, name := range navItems {
 				active := app.nav == name // 内部标识保持中文，仅渲染时翻译
+				implemented := navItemImplemented(name)
 				btn := ui.Button(c, tr(name)).Padding(8, 2).Radius(6)
 				if active {
 					btn.Background(p.accentBG).TextColor(p.accent)
+				} else if implemented {
+					btn.Background(ui.Transparent).TextColor(p.text)
 				} else {
 					btn.Background(ui.Transparent).TextColor(p.dim)
 				}
@@ -994,6 +1004,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 
 func (app *chat) approvalView(c *ui.Context, p palette) {
 	ap := app.approval
+	dangerous := approvalDefaultIsDeny(ap.name, ap.args)
 	ui.Column(c).Padding(10, 20).Gap(8).Background(p.accentBG).
 		BorderWidth(1, 0, 0, 0).BorderColor(p.accentLine).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -1001,24 +1012,58 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 			ui.Text(c, tr("需要批准")).Bold().TextColor(p.strong)
 			ui.Text(c, ap.name).FontSize(12).TextColor(p.accent)
 			ui.Spacer(c)
-			ui.Text(c, tr("Y 允许 · N 拒绝")).FontSize(11).TextColor(p.dim)
+			// 上下文相关的按键提示（不恢复全局底部 hint bar）。
+			ui.Text(c, tr("Y 允许一次 · A 始终允许 · N 拒绝")).FontSize(11).TextColor(p.dim)
 		})
 		ui.Text(c, ap.args).FontSize(12).TextColor(p.dim).
 			Padding(8, 10).Radius(6).Background(p.surface).Selectable()
-		// diff 摘要默认关闭：只有 opt-in 且能提取到编辑信息时才多渲染两行，
-		// 摘要为空或门控关闭时帧元素与接线前逐字节一致。
+		// diff 默认开启（=0 回退）：摘要 + 预览两行给出概览，逐行 diff 给出细节，
+		// 让审批从"盲签"变成"看一眼再签"。无数据时整段跳过，帧字节不变。
 		if approvalDiffVisible() {
 			if summary := buildApprovalSummary(ap.name, ap.args); !summary.empty() {
 				ui.Text(c, renderApprovalSummary(summary)).FontSize(11).TextColor(p.warn)
 				ui.Text(c, summary.Preview).FontSize(11).TextColor(p.dim).Selectable()
 			}
-		}
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, tr("拒绝")).Clicked() {
-				app.answerApproval(false)
+			// 逐行 diff：编辑类工具展示真正改了什么（+/- 与上下文）。
+			if files := buildApprovalLineDiff(ap.name, ap.args); len(files) > 0 {
+				ui.Text(c, renderApprovalLineDiff(files)).FontSize(11).TextColor(p.text).
+					Padding(8, 10).Radius(6).Background(p.surface).Selectable()
 			}
-			if ui.PrimaryButton(c, tr("允许")).Clicked() {
-				app.answerApproval(true)
+		}
+		// 拒绝理由（可选）：用户可写一句让模型改方案，随 RPC 透传供审计。
+		ui.TextInput(c, &ap.reason).Placeholder(tr("拒绝理由（可选，例如：别删 dist，改删 build/）"))
+		// 作用域说明独占一行（诚实描述授权范围），按钮保持简短精确文案。
+		ui.Text(c, allowOnceChoice().scopeNote()+" · "+allowAlwaysChoice().scopeNote()).
+			FontSize(11).TextColor(p.dim)
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			// 危险请求默认焦点落在"拒绝"（对齐 Claude Code / crush 范式）。
+			if dangerous {
+				if ui.PrimaryButton(c, tr("拒绝")).Clicked() {
+					app.answerApprovalChoice(denyChoice(ap.reason))
+				}
+				if ui.Button(c, tr("允许")).Clicked() {
+					app.answerApprovalChoice(allowOnceChoice())
+				}
+			} else {
+				if ui.Button(c, tr("拒绝")).Clicked() {
+					app.answerApprovalChoice(denyChoice(ap.reason))
+				}
+				if ui.PrimaryButton(c, tr("允许")).Clicked() {
+					app.answerApprovalChoice(allowOnceChoice())
+				}
+			}
+			// 始终允许需二次确认，文案诚实描述精确作用域。
+			always := allowAlwaysChoice()
+			label := tr("始终允许此命令")
+			if ap.confirmAlways {
+				label = tr("确认始终允许")
+			}
+			if ui.Button(c, label).Clicked() {
+				if ap.confirmAlways {
+					app.answerApprovalChoice(always)
+				} else {
+					ap.confirmAlways = true
+				}
 			}
 		})
 	})
@@ -1416,6 +1461,12 @@ func (app *chat) applyApprovalNotice(text string) {
 		if args == "" {
 			args = "(no arguments)"
 		}
+		// "始终允许此命令"自动放行：命中持久化模式则直接回答，不弹卡打扰用户。
+		if approvalShouldAutoGrant(loadNativePrefs(nativePrefsHome()), tool, args) {
+			app.approval = &approval{id: id, name: tool, args: args}
+			app.answerApprovalChoice(allowOnceChoice())
+			return
+		}
 		app.approval = &approval{id: id, name: tool, args: args}
 		app.status = tr("需要批准: ") + tool
 	case "resolved":
@@ -1538,6 +1589,8 @@ func (app *chat) retry() {
 
 func (app *chat) toggleTheme() {
 	app.light = !app.light
+	// 主题偏好持久化，重启后保持用户选择。
+	_ = saveThemePref(nativePrefsHome(), app.light)
 	if app.light {
 		app.status = tr("已切换到浅色主题")
 	} else {
@@ -1566,6 +1619,41 @@ func (app *chat) answerApproval(allow bool) {
 		call = app.engine.call
 	}
 	if _, err := call("approval.answer", map[string]any{"id": ap.id, "granted": allow}); err != nil {
+		app.status = tr("审批回应失败：") + engineErrorNotice(err)
+		return
+	}
+	app.approval = nil
+	app.status = tr("已响应，等待引擎确认")
+}
+
+// answerApprovalChoice 是三态审批的统一回答入口。allow-once 与 deny 在 RPC
+// 层与旧的 answerApproval(bool) 完全一致（保持测试契约）；allow-always 额外
+// 持久化命令模式，后续同类请求由 approvalShouldAutoGrant 自动放行。
+func (app *chat) answerApprovalChoice(choice approvalChoice) {
+	ap := app.approval
+	if ap == nil {
+		return
+	}
+	allow := choice.Decision != approvalDeny
+	// 始终允许：先持久化命令模式（写失败不影响本次回答）。
+	if choice.Decision == approvalAllowAlways {
+		pattern := approvalScopePattern(ap.name, ap.args)
+		if pattern != "" {
+			_ = commitApprovalChoice(nativePrefsHome(), ap.name, ap.args, choice)
+		}
+	}
+	// Demo 模式沿用纯本地结果行。
+	if app.engine == nil {
+		app.approval = nil
+		app.recordApprovalResult(ap.name, allow)
+		return
+	}
+	call := app.approvalAnswerRPC
+	if call == nil {
+		call = app.engine.call
+	}
+	params := approvalAnswerParams(ap.id, choice, ap.name, ap.args)
+	if _, err := call("approval.answer", params); err != nil {
 		app.status = tr("审批回应失败：") + engineErrorNotice(err)
 		return
 	}
@@ -1615,12 +1703,13 @@ var cannedReplies = []string{
 func main() {
 	app := &chat{status: tr("就绪"), nav: "聊天"}
 
-	// 原生文案本地化 opt-in：只有 ARGENT_LOCALE 显式请求 en-US 才切英文，
-	// 默认（空/中文/其他值）保留硬编码中文，行为逐字节不变。
-	configureLocale(os.Getenv)
+	// 偏好持久化：主题/语言/始终允许列表存于 ~/.argentgo/native-prefs.json。
+	// 偏好优先于 ARGENT_LOCALE 环境变量，使设置面板的修改能跨重启生效。
+	prefs := loadNativePrefs(nativePrefsHome())
+	configureLocaleWithPrefs(os.Getenv, prefs)
+	app.light = prefs.LightTheme()
 
-	// 审批卡 diff 展示 opt-in：只有 ARGENT_NATIVE_APPROVAL_DIFF=1 才开启，
-	// 让现有的 golden/截图语义在默认情况下保持不变。
+	// 审批卡 diff 默认开启（=0 紧急回退）：审批从"盲签"变成看一眼再签。
 	configureApprovalDiff(os.Getenv)
 
 	// ARGENT_EXE 指向 engine 二进制。设置时，原生窗口
