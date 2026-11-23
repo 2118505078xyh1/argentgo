@@ -53,7 +53,7 @@ var preMigrationLocaleStrings = []struct {
 	{"retry_done", "retry requested", "已请求重试"},
 	{"retry_unwired", "/retry needs a checkpoint hook from the host", "/retry 需要宿主提供检查点钩子"},
 	{"sessions_off", "session rail hidden", "已隐藏会话列表"},
-	{"sessions_on", "session rail shown (alt+s to hide)", "已显示会话列表（alt+s 隐藏）"},
+	{"sessions_on", "session rail: enter opens, Ctrl+D deletes, Ctrl+R renames", "会话栏：回车打开，Ctrl+D 删除，Ctrl+R 改名"},
 	{"sessions_title", "SESSIONS", "会话"},
 	{"tasks_off", "tasks panel hidden", "已隐藏任务面板"},
 	{"tasks_on", "tasks panel shown (alt+t to hide)", "已显示任务面板（alt+t 隐藏）"},

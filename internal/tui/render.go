@@ -87,20 +87,18 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if cursorRow >= 0 && cursorRow < len(visible) {
 		l.cursorCol = rowCaretColumn(visible[cursorRow], runes, m.editor.Cursor())
 	}
-	// pi 的排版：状态/工作线与分隔线在屏幕顶部，项目路径和用量+模型在
-	// 底部两行。最后一行留空，避免写满最后一行触发终端自动滚动。
-	l.statusY = 0
-	l.ruleY = 1
-	l.rootY = maxInt(l.height-3, 2)
-	l.usageY = maxInt(l.height-2, 3)
+	// 只有底部两行：用量+模型，以及刻意留空的最后一行（避免终端自动
+	// 滚动）。输入框紧贴用量行上方；状态/提示放在输入框正上方，
+	// 不再在屏幕顶部另画一条像输入框的横线。
+	l.usageY = maxInt(l.height-2, 0)
 	m.usageY = l.usageY
-	l.hintY = l.ruleY
-	l.bodyTop = 2
-	l.inputTop = l.rootY - (len(visible) + 2) - 1
-	l.bodyH = l.inputTop - l.bodyTop
-	if l.bodyH < 1 {
-		l.bodyH = 1
-	}
+	l.statusY = l.usageY - (len(visible) + 2) - 1
+	l.inputTop = l.statusY + 1
+	l.ruleY = -1
+	l.rootY = -1
+	l.hintY = -1
+	l.bodyTop = 0
+	l.bodyH = maxInt(l.statusY-l.bodyTop, 1)
 	return l
 }
 
@@ -193,10 +191,8 @@ func (m *Model) Paint(buf *Buffer) {
 	// 浮层覆盖在记录区之上、输入框之上，不占据 hintY/statusY。
 	m.paintCompletionOverlay(buf, l)
 	m.paintInput(buf, l)
-	// 底部块按 pi 的排版绘制：状态线、分隔线、路径、用量+模型。
+	// 底部只有用量行；状态紧贴输入框上方，路径与分隔线不再占用行。
 	m.paintLine(buf, l.statusY, m.statusRuleLocked(width))
-	m.paintLine(buf, l.ruleY, ruleLine(width, m.palette.dim()))
-	m.paintLine(buf, l.rootY, m.rootLineLocked(width))
 	m.paintLine(buf, l.usageY, m.statusLineLocked(width))
 	m.paintSelectionLocked(buf)
 	m.dirty = false
@@ -292,21 +288,18 @@ func (m *Model) statusRuleLocked(width int) Line {
 	} else {
 		message = text(m.locale, "ready")
 	}
+	// 状态是紧贴输入框上方的一小段文字，不再画整行横线——那条横线
+	// 看起来像第二个输入框。
 	line := NewLine()
 	if width <= 0 || message == "" {
 		return line
 	}
-	prefix := "── "
-	room := width - TextWidth(prefix) - TextWidth(message) - 1
-	if room < 0 {
-		line.Push(Clip(prefix+message+" ", width), style)
-		return line
-	}
-	line.Push(prefix, m.palette.dim())
 	line.Push(message, style)
-	line.Push(" ", m.palette.dim())
-	line.Push(strings.Repeat("─", room), m.palette.dim())
-	return line
+	// 项目文件夹跟在状态后面，紧贴输入框上方；不再单独占一行。
+	if folder := folderLabel(m.root, width); folder != "" {
+		line.Push(" · "+folder, m.palette.dim())
+	}
+	return clipLine(line, width)
 }
 
 // contextBar 把 0-100 的百分比渲染为带括号的单元格字形条。

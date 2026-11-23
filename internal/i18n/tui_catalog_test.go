@@ -83,6 +83,7 @@ var tuiCatalogKeys = []string{
 	"session_rename_prompt",
 	"session_rename_unwired",
 	"sessions_off",
+	"sessions_empty",
 	"sessions_on",
 	"sessions_title",
 	"sort_toggled",

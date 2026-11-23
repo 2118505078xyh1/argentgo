@@ -104,7 +104,11 @@ func runResumeCommand(m *Model, _ string) KeyAction {
 	// pi 的 /resume 选择会话；这里把会话栏切到前台，回车即恢复。
 	m.showSessions = true
 	m.sessionFiltering = false
-	m.setStatusLocked(text(m.locale, "session_resume_prompt"))
+	if len(m.sessions) == 0 {
+		m.setStatusLocked(text(m.locale, "sessions_empty"))
+	} else {
+		m.setStatusLocked(text(m.locale, "session_resume_prompt"))
+	}
 	return ActionNone
 }
 
@@ -123,8 +127,13 @@ func runQuitCommand(m *Model, _ string) KeyAction {
 
 func runSessionsCommand(m *Model, _ string) KeyAction {
 	m.showSessions = true
+	m.sessionFiltering = false
 	m.version++
-	m.setStatusLocked(text(m.locale, "sessions_on"))
+	if len(m.sessions) == 0 {
+		m.setStatusLocked(text(m.locale, "sessions_empty"))
+	} else {
+		m.setStatusLocked(text(m.locale, "sessions_on"))
+	}
 	return ActionNone
 }
 
@@ -139,7 +148,9 @@ func (m *Model) modelsInfoLocked() string {
 }
 
 func runModelsCommand(m *Model, _ string) KeyAction {
-	m.appendNoticeLocked(m.modelsInfoLocked())
+	info := m.modelsInfoLocked()
+	m.appendNoticeLocked(info)
+	m.setStatusLocked(info)
 	return ActionNone
 }
 
@@ -153,7 +164,9 @@ func (m *Model) thinkingInfoLocked() string {
 }
 
 func runThinkingCommand(m *Model, _ string) KeyAction {
-	m.appendNoticeLocked(m.thinkingInfoLocked())
+	info := m.thinkingInfoLocked()
+	m.appendNoticeLocked(info)
+	m.setStatusLocked(info)
 	return ActionNone
 }
 

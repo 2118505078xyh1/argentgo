@@ -183,13 +183,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			}
 			return strings.TrimSpace(row)
 		}
-		refreshSessionRows := func() {
-			modelMu.Lock()
-			m := uiModel
-			modelMu.Unlock()
-			if m == nil {
-				return
-			}
+		sessionRows := func() []tui.SessionInfo {
 			rows := make([]tui.SessionInfo, 0)
 			for _, row := range sessionTitles(store) {
 				title, id := row, row
@@ -198,7 +192,15 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				}
 				rows = append(rows, tui.SessionInfo{Path: id, Title: title})
 			}
-			m.SetSessions(rows)
+			return rows
+		}
+		refreshSessionRows := func() {
+			modelMu.Lock()
+			m := uiModel
+			modelMu.Unlock()
+			if m != nil {
+				m.SetSessions(sessionRows())
+			}
 		}
 		openSession := func(_ context.Context, row string) error {
 			sess, err := store.OpenSession(sessionID(row))
@@ -262,6 +264,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 					return err
 				}
 				_, err = Execute(turnCtx, stdio, res, sess, text, onText)
+				// 首条消息才真正创建会话文件；执行后刷新会话栏，使
+				// /session 和 /resume 立刻能看到刚刚创建的会话。
+				refreshSessionRows()
 				// 成本由 agent 的定价表推导并持久化到会话 stats 记录；agent.Result
 				// 没有成本字段，因此这里读取会话累计值。用量显示默认开启，
 				// 仅当 ARGENT_TUI_USAGE 修剪后为 "0" 时不写头部成本行。
@@ -275,6 +280,9 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				modelMu.Lock()
 				uiModel = model
 				modelMu.Unlock()
+				// 会话列表在 TUI 启动时从磁盘重新读取，避免首条提示前后
+				// 列表为空导致 /session 无法选择。
+				model.SetSessions(sessionRows())
 				// 门控下沉到渲染层：usage 事件始终桥接（统计行需要 token），
 				// 头部用量/成本行是否可见由此决定；ARGENT_TUI_USAGE=0 时隐藏。
 				setTUIUsageVisible(model, tuiUsageVisible.Load())
