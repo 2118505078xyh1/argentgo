@@ -68,6 +68,11 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			return fmt.Errorf("open sessions: %w", err)
 		}
 
+		// TUI 独占全屏：在拿到 storage 后立刻把日志改道到文件，
+		// 否则 agent 的逐轮计时/工具轨迹会画进输入框，把整帧顶乱。
+		restoreLogs := redirectTUILogs(res.Storage, stdio.Env)
+		defer restoreLogs()
+
 		approver := NewApprover()
 		approver.SetEnv(stdio.Env)
 		res.Approve = approver

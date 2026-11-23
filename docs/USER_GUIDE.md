@@ -166,11 +166,13 @@ $env:OPENAI_API_KEY = "<your-key>"
 启动全屏终端 UI：
 
 ```powershell
-argentgo tui
+argentgo             # 在交互终端里裸跑即直接进入 TUI
+argentgo tui         # 等价写法，需要显式选择时用
 ```
 
-> 不带 prompt 的 `argentgo` 会读取 stdin 然后退出；它不会自动打开 TUI。
-> 交互界面请用 `argentgo tui`（或 `argentgo --tui`）。一次性回答请用 `argentgo "your task"`。
+> `argentgo` 不带参数、且 stdin/stdout 是交互终端时**直接进入 TUI**（`ARGENT_NO_TUI=1` 可退回 usage）。
+> 非交互场景不会开 TUI：管道/重定向时读 stdin 做一次性回答，CI 里打印 usage 而不是挂住。
+> 一次性回答请用 `argentgo "your task"`。
 
 输入任务并按 **Enter** 发送。常用按键：
 

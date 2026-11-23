@@ -368,7 +368,7 @@ func (m *Model) headerLocked(width int) Line {
 	}
 
 	left := NewLine()
-	left.Push("argent", m.palette.accent())
+	left.Push("argentgo", m.palette.accent())
 	if m.model != "" {
 		left.Push(" · ", dot)
 		left.Push(m.model, Style{})

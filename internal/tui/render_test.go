@@ -12,7 +12,7 @@ func TestLayoutPlacesHeaderBodyInputAndStatus(t *testing.T) {
 	buffer := m.Frame(80, 24)
 
 	header := buffer.RowText(0)
-	for _, want := range []string{"argent", "test-model"} {
+	for _, want := range []string{"argentgo", "test-model"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("header %q is missing %q", header, want)
 		}
