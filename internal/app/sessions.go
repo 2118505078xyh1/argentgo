@@ -5,10 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/server"
 	"github.com/2118505078xyh1/argentgo/internal/session"
 )
+
+// sessionStatusRegistry 是进程级执行状态注册表：Sessions 返回的 store 与 Execute
+// 共用同一个实例（TODO #28）。零值可用；并发安全由 agent.SessionStatusRegistry 保证。
+var sessionStatusRegistry agent.SessionStatusRegistry
+
+// 编译期断言：会话存储适配器实现 server 的可选状态读取端。
+var _ server.SessionStatusStore = (*sessionStore)(nil)
 
 // openOrCreateSession 实现 --session/--resume：显式的 id 或会话文件会被重新打开，
 // --resume 选择最新的已存储会话，只有普通运行才会创建新会话。返回的句柄会被原地追加。
@@ -80,12 +88,14 @@ func sessionIDFromArg(store *session.Store, value string) string {
 }
 
 // Sessions 返回供 `argentgo sessions` 和 RPC/ACP 传输使用的会话存储适配器。
+// 它持有进程级的执行状态注册表，使 session.list 能报告哪个会话正在工作。
 func Sessions(storage string) cli.SessionStore {
-	return &sessionStore{dir: filepath.Join(storage, "sessions")}
+	return &sessionStore{dir: filepath.Join(storage, "sessions"), statuses: &sessionStatusRegistry}
 }
 
 type sessionStore struct {
-	dir string
+	dir      string
+	statuses *agent.SessionStatusRegistry
 }
 
 func (s *sessionStore) List() ([]server.SessionInfo, error) {
@@ -93,11 +103,30 @@ func (s *sessionStore) List() ([]server.SessionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	statuses := s.Snapshot()
 	out := make([]server.SessionInfo, 0, len(metas))
 	for _, meta := range metas {
-		out = append(out, server.SessionInfo{ID: meta.ID, Title: meta.Title, Updated: meta.Updated})
+		out = append(out, server.SessionInfo{
+			ID:      meta.ID,
+			Title:   meta.Title,
+			Updated: meta.Updated,
+			Status:  statuses[meta.ID],
+		})
 	}
 	return out, nil
+}
+
+// Snapshot 实现 server.SessionStatusStore，把 agent 的状态类型投影为 wire 字符串。
+// 未记录（或注册表未注入）的会话返回空串，由 SessionInfo 的 omitempty 省略。
+func (s *sessionStore) Snapshot() map[string]string {
+	out := map[string]string{}
+	if s == nil || s.statuses == nil {
+		return out
+	}
+	for id, status := range s.statuses.Snapshot() {
+		out[id] = string(status)
+	}
+	return out
 }
 
 func (s *sessionStore) Load(id string) ([]server.SessionEvent, error) {

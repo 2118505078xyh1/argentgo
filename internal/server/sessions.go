@@ -6,10 +6,13 @@ import (
 )
 
 // SessionInfo 为 session.list 汇总一条已存储的会话。
+// Status 是执行状态的可选投影（idle/planning/working/done/error）：未接入执行
+// 状态注册表的存储留空并由 omitempty 省略，既有 wire 形态逐字节不变。
 type SessionInfo struct {
 	ID      string    `json:"id"`
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated"`
+	Status  string    `json:"status,omitempty"`
 }
 
 // SessionEvent 是会话树中的一条记录。其形态对应 JSONL
@@ -49,4 +52,12 @@ type SessionBranch struct {
 // session.tree 会返回干净的 "not configured" 错误。
 type SessionTreeStore interface {
 	Branches(id string) ([]SessionBranch, error)
+}
+
+// SessionStatusStore 是注入的 SessionStore 可以提供的可选执行状态读取端。
+// Snapshot 返回会话 id → 状态字符串（idle/planning/working/done/error）的快照；
+// 状态值用字符串而非 agent 类型，使 server 保持对 agent 包的独立。
+// 未实现该接口的存储仍可正常支撑 session.list/session.load，只是没有状态字段。
+type SessionStatusStore interface {
+	Snapshot() map[string]string
 }
