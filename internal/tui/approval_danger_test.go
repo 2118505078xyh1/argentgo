@@ -81,7 +81,7 @@ func TestNonDangerRequestKeepsHistoricalModalAndAllowDefault(t *testing.T) {
 	}
 	wantHints := []string{
 		"│ " + Pad("[y] allow   [n] deny", inner) + " │",
-		"│ " + Pad("[a] allow for session", inner) + " │",
+		"│ " + Pad("[a] allow this call only", inner) + " │",
 	}
 	for i, want := range wantHints {
 		if got := lines[4+i].Text(); got != want {
@@ -89,18 +89,18 @@ func TestNonDangerRequestKeepsHistoricalModalAndAllowDefault(t *testing.T) {
 		}
 	}
 
+	// 普通审批预选 Allow，Enter 确认当前高亮默认项即放行。
 	m.HandleKey(Key{Kind: KindEnter})
-	if _, _, pending := m.PendingApproval(); !pending {
-		t.Fatal("Enter must not resolve an ordinary modal")
+	if _, _, pending := m.PendingApproval(); pending {
+		t.Fatal("Enter must confirm the default (Allow) on an ordinary modal")
 	}
-	m.HandleKey(Key{Kind: KindRune, Rune: 'n'})
 	select {
 	case ok := <-done:
-		if ok {
-			t.Fatal("n must deny")
+		if !ok {
+			t.Fatal("Enter must approve an ordinary modal")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("n did not resolve the modal")
+		t.Fatal("Enter did not resolve the modal")
 	}
 }
 

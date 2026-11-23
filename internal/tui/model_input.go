@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -66,11 +67,14 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindIgnore:
 		return ActionNone
 	case KindCtrlL:
-		// Ctrl+L 被解码但其他方面未使用；会话栏打开时
-		// 它聚焦过滤栏。它不触碰提示，使 /help 这样的斜杠
-		// 命令仍能正常输入。
+		// 会话栏打开时 Ctrl+L 聚焦过滤栏（保持旧语义）；其余场景请求
+		// 终端清屏。模型不拥有终端，只置请求标志，由 run 循环写清屏序列，
+		// 避免在这里直接输出转义码破坏备用屏幕。它不触碰提示，使 /help
+		// 这样的斜杠命令仍能正常输入。
 		if m.showSessions {
 			m.sessionFiltering = true
+		} else {
+			m.clearRequested = true
 		}
 	case KindCtrlT:
 		m.showTasks = !m.showTasks
@@ -127,27 +131,35 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		return m.requestActionLocked(ActionRetry, "")
 	case KindCtrlC:
 		if m.working {
+			// 工作态的 Ctrl+C 始终是取消，不走二次确认。
 			m.setStatusLocked(text(m.locale, "cancelling"))
+			m.disarmQuitLocked()
 			return ActionAbort
 		}
 		if strings.TrimSpace(m.editor.Text()) != "" {
+			// 先清输入行；这与经典的 kill 语义一致，且此时不应武装退出。
 			m.editor.Clear()
+			m.disarmQuitLocked()
 			return ActionNone
 		}
-		m.quit = true
-		return ActionQuit
+		now := m.now()
+		if !m.quitArmedAt.IsZero() && now.Sub(m.quitArmedAt) <= quitConfirmWindow {
+			m.quit = true
+			return ActionQuit
+		}
+		// 空闲第一次：显示"再按一次退出"，3 秒内第二次才真正退出。
+		m.quitArmedAt = now
+		m.setStatusLocked(tuiText(m.locale, "quit_armed"))
+		return ActionNone
 	case KindEsc:
 		if m.working {
 			m.setStatusLocked(text(m.locale, "cancelling"))
+			m.disarmQuitLocked()
 			return ActionAbort
 		}
-		// 关闭当前补全与面板；下一次输入会按新文本重算 query 重新打开。
-		m.completion = nil
-		m.completionOverlay = false
-		m.commandsCursor = 0
-		m.commandsScroll = 0
-		m.showCommands = false
-		m.scroll = 0
+		// 逐层关闭：浮层 → 面板 → 补全。一次按键只关一层，
+		// 下一次输入会按新文本重算 query 重新打开补全。
+		m.closeTopLayerLocked()
 		return ActionNone
 	case KindEnter:
 		// 候选可见时 Enter 接受候选项，而不是提交整行。
@@ -301,6 +313,68 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.refreshCompletionLocked()
 	}
 	return ActionNone
+}
+
+// quitConfirmWindow 是空闲 Ctrl+C 二次确认退出的有效窗口。
+const quitConfirmWindow = 3 * time.Second
+
+// disarmQuitLocked 取消待确认的退出状态。任何提交、编辑或取消动作都会
+// 让它失效，避免过期的武装状态在之后误触发退出。调用方持有 mu。
+func (m *Model) disarmQuitLocked() {
+	m.quitArmedAt = time.Time{}
+}
+
+// closeTopLayerLocked 按「浮层 → 面板 → 补全」顺序关闭一层，
+// 返回是否真的关掉了什么。调用方持有 mu。
+func (m *Model) closeTopLayerLocked() bool {
+	// 浮层：输入 / 后自动弹出的补全浮层。
+	if m.completionOverlay {
+		m.completionOverlay = false
+		m.commandsCursor = 0
+		m.commandsScroll = 0
+		return true
+	}
+	// 面板：一次只关一个，按打开频率从高到低。
+	if m.showCommands {
+		m.showCommands = false
+		m.version++
+		m.setStatusLocked(text(m.locale, "commands_off"))
+		return true
+	}
+	if m.showTasks {
+		m.showTasks = false
+		m.version++
+		m.setStatusLocked(text(m.locale, "tasks_off"))
+		return true
+	}
+	if m.showWorkspace {
+		m.showWorkspace = false
+		m.version++
+		m.setStatusLocked(text(m.locale, "workspace_off"))
+		return true
+	}
+	if m.showPlan {
+		m.showPlan = false
+		m.version++
+		m.setStatusLocked(text(m.locale, "plan_off"))
+		return true
+	}
+	if m.showSessions {
+		m.showSessions = false
+		m.version++
+		m.setStatusLocked(text(m.locale, "sessions_off"))
+		return true
+	}
+	// 补全：清除残留的候选状态与命令游标。
+	if m.completion != nil {
+		m.completion = nil
+		m.commandsCursor = 0
+		m.commandsScroll = 0
+		return true
+	}
+	// 没有可关的层：沿用旧的滚动复位，保持无面板场景的行为不变。
+	m.scroll = 0
+	return false
 }
 
 // pastePathStat 是粘贴路径探测的可替换后端。测试注入假 stat，不碰真实磁盘。
@@ -628,6 +702,7 @@ func (m *Model) submitLocked() KeyAction {
 	}
 	m.editor.Record(body)
 	m.editor.Clear()
+	m.disarmQuitLocked()
 	m.completionOverlay = false // 提交后输入已清空，浮层必须立即消失
 	if strings.HasPrefix(body, "/") {
 		return m.commandLocked(body)

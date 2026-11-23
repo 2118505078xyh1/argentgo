@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -23,6 +24,9 @@ const (
 	// maxRetryReason 限制重试通知中的自由格式原因，使恶意的
 	// 或格式错误的生产者无法用单个事件撑宽记录。
 	maxRetryReason = 120
+	// maxErrorDetailFull 限制错误通知可展开详情的长度。它比一行摘要宽，
+	// 但仍设上界，防止异常 provider 把巨量文本钉进 transcript。
+	maxErrorDetailFull = 8 * maxStreamErrorDetail
 )
 
 // StreamErrorEntry 为失败的 LLM 流构建未提交的通知。
@@ -43,20 +47,20 @@ func StreamErrorEntry(detail string, redact func(string) string) Entry {
 	}
 }
 
-// RetryNotice 格式化一行实时的退避反馈：
-//
-//	⟳ retry <reason> in <waitMS>ms (attempt/max)
-//
-// 原因通过 llm.RedactText 清洗、折叠并限制长度；
-// 计数被钳制为非负值，使字符串对
-// 格式错误的调用方也稳定。前导标记是文本的一部分，因为该通知
-// 作为普通 EntryNotice 追加：渲染器为每条记录画一个徽章，
-// 这里再来一个尝试徽章会重复 "⟳" 字形。
+// RetryNotice 用产品默认中文格式化一行实时退避反馈。它是兼容旧 4 参调用方
+// （含内部 app 测试）的入口；带 locale 的路径由 retryNotice 提供。
 func RetryNotice(reason string, attempt, max int, waitMS int64) string {
+	return retryNotice("zh", reason, attempt, max, waitMS)
+}
+
+// retryNotice 按 locale 格式化退避反馈，文案与 reason 短句都走本包文案表，
+// 不在代码里写死英文。reason 先经 llm.RedactText 清洗、折叠、限长，再按
+// 封闭标记映射成本地化短句（未知标记原样保留）；计数钳制为非负，使字符串
+// 对格式错误的调用方也稳定。前导 "⟳" 是文本的一部分，因为该通知作为普通
+// EntryNotice 追加，渲染器再画尝试徽章会重复该字形。
+func retryNotice(locale, reason string, attempt, max int, waitMS int64) string {
 	reason = Truncate(collapseSpace(llm.RedactText(reason)), maxRetryReason)
-	if reason == "" {
-		reason = "stream"
-	}
+	reason = localRetryReason(locale, reason)
 	if attempt < 0 {
 		attempt = 0
 	}
@@ -66,5 +70,22 @@ func RetryNotice(reason string, attempt, max int, waitMS int64) string {
 	if waitMS < 0 {
 		waitMS = 0
 	}
-	return fmt.Sprintf("⟳ retry %s in %dms (%d/%d)", reason, waitMS, attempt, max)
+	return fmt.Sprintf(tuiText(locale, "retry_line"), reason, waitMS, attempt, max)
+}
+
+// errorNoticeEntry 为回合结束错误构建一条"可展开 + 带下一步动作"的通知。
+// 摘要行始终可独立阅读并附 /retry 动作提示；完整（脱敏、限长）文本存入
+// Detail，只有点击展开时才渲染。sticky 标记它不随状态行 TTL 退休。
+func errorNoticeEntry(locale string, err error) Entry {
+	if err == context.Canceled {
+		return Entry{Kind: EntryNotice, Text: text(locale, "cancelled")}
+	}
+	full := Truncate(collapseSpace(llm.RedactText(err.Error())), maxErrorDetailFull)
+	short := Truncate(full, maxStreamErrorDetail)
+	return Entry{
+		Kind:   EntryNotice,
+		Text:   text(locale, "error") + ": " + short + " · " + tuiText(locale, "error_action"),
+		Detail: full,
+		sticky: true,
+	}
 }

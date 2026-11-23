@@ -53,12 +53,25 @@ func TestStreamErrorEntryBoundsLongMultibyteDetail(t *testing.T) {
 
 func TestRetryNoticeFormatIsStable(t *testing.T) {
 	got := RetryNotice("sse reset", 2, 5, 1500)
-	want := "⟳ retry sse reset in 1500ms (2/5)"
+	want := "⟳ 重试 连接中断，1500ms 后（第2/5次）"
 	if got != want {
 		t.Fatalf("notice = %q, want %q", got, want)
 	}
 	if again := RetryNotice("sse reset", 2, 5, 1500); again != got {
 		t.Fatalf("notice is not deterministic: %q != %q", again, got)
+	}
+}
+
+// TestRetryNoticeLocaleAware 证明 reason 标记映射走本包文案表：同一标记在
+// 中英两种 locale 下分别得到短句，代码里没有写死的英文格式。
+func TestRetryNoticeLocaleAware(t *testing.T) {
+	zh := retryNotice("zh", "timeout", 1, 3, 500)
+	en := retryNotice("en", "timeout", 1, 3, 500)
+	if !strings.Contains(zh, "请求超时") {
+		t.Fatalf("zh reason not localized: %q", zh)
+	}
+	if !strings.Contains(en, "timeout") || strings.Contains(en, "请求超时") {
+		t.Fatalf("en reason not localized: %q", en)
 	}
 }
 
@@ -72,12 +85,13 @@ func TestRetryNoticeRedactsBoundsAndClamps(t *testing.T) {
 	if !strings.Contains(long, "…") {
 		t.Fatalf("long reason not marked truncated: %q", long)
 	}
-	if TextWidth(long) > maxRetryReason+len("⟳ retry  in 100ms (1/3)") {
+	limit := maxRetryReason + TextWidth(fmt.Sprintf(tuiText("zh", "retry_line"), "", 100, 1, 3))
+	if TextWidth(long) > limit {
 		t.Fatalf("notice too wide: %d", TextWidth(long))
 	}
 
 	clamped := RetryNotice("", -1, -2, -3)
-	if clamped != "⟳ retry stream in 0ms (0/0)" {
+	if clamped != "⟳ 重试 请求失败，0ms 后（第0/0次）" {
 		t.Fatalf("clamped notice = %q", clamped)
 	}
 }
@@ -115,7 +129,7 @@ func TestHandleEventErrorAppendsBadgedRedactedEntry(t *testing.T) {
 }
 
 func TestHandleEventRetryAppendsNoticeEntry(t *testing.T) {
-	m := New(Config{})
+	m := New(Config{Locale: "zh"})
 	m.HandleEvent(Event{
 		Kind:         EventRetry,
 		RetryReason:  "sse reset",
@@ -131,7 +145,7 @@ func TestHandleEventRetryAppendsNoticeEntry(t *testing.T) {
 	if entries[0].Kind != EntryNotice {
 		t.Fatalf("kind = %v, want EntryNotice", entries[0].Kind)
 	}
-	if entries[0].Text != "⟳ retry sse reset in 500ms (1/3)" {
+	if entries[0].Text != "⟳ 重试 连接中断，500ms 后（第1/3次）" {
 		t.Fatalf("text = %q", entries[0].Text)
 	}
 }

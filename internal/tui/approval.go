@@ -99,16 +99,18 @@ func (m *Model) answerApprovalLocked(key Key) KeyAction {
 			// 只授权这次精确调用：粗粒度的 name 键会允许之后
 			// 用不同参数对同一工具的每次调用。
 			m.allowed[approvalGrantKey(request.name, request.args)] = true
-			m.finishApprovalLocked(true, text(m.locale, "approved_session"))
+			m.finishApprovalLocked(true, tuiText(m.locale, "approved_exact"))
 		}
 	case KindEsc, KindCtrlC:
 		m.finishApprovalLocked(false, text(m.locale, "denied"))
 	case KindEnter:
-		// 被标记的请求预选 Deny：含义模糊的确认键绝不能
-		// 批准破坏性命令。非危险请求保持其
-		// 历史空操作，因此行为不变。
+		// Enter 确认当前高亮默认项：危险请求预选 Deny，
+		// 含义模糊的确认键绝不能批准破坏性命令；普通请求预选
+		// Allow，Enter 即确认放行本调用。
 		if request.defaultsToDeny() {
 			m.finishApprovalLocked(false, text(m.locale, "denied"))
+		} else {
+			m.finishApprovalLocked(true, text(m.locale, "approved"))
 		}
 	}
 	return ActionNone

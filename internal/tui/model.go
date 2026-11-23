@@ -54,6 +54,13 @@ type Entry struct {
 	// 构建单行摘要，因此不改变公共 API 或事件。
 	thinkingAt  time.Time
 	thinkingEnd time.Time
+
+	// Detail 是错误类通知的完整（脱敏、限长）文本。它只在点击展开时
+	// 渲染，短 Text 始终可独立阅读；普通记录为空，帧字节不变。
+	Detail string
+	// sticky 标记错误类通知不可被 TTL 退休。记录条目本身不随状态行过期，
+	// 该标志让「错误免过期」的意图在模型里显式可查。
+	sticky bool
 }
 
 // SessionInfo 是可选会话栏的一行。Title 是生成的
@@ -145,6 +152,10 @@ type entryCacheKey struct {
 	noColor           bool
 	themeEpoch        int
 	locale            string
+	// detail / errorExpanded 让错误通知的详情文本与展开态参与缓存失效，
+	// 点击展开后旧缓存行不会继续显示折叠版。
+	detail        string
+	errorExpanded bool
 }
 
 // entryCacheSlot 是与 Model.entries 按下标对齐的一个已渲染条目。
@@ -311,6 +322,18 @@ type Model struct {
 	// completionHits 是上一次 Paint 记录的浮层候选可点击区域。
 	completionHits []completionHit
 
+	// quitArmedAt 是空闲 Ctrl+C 第一次确认退出的时刻；零值表示尚未武装。
+	// 3 秒内的第二次 Ctrl+C 才真正退出，避免误触直接结束会话。
+	quitArmedAt time.Time
+	// clearRequested 由非会话栏的 Ctrl+L 置位，run 循环消费后向终端写清屏序列。
+	// TUI 自身不拥有终端，因此以请求标志而非直接写转义码的方式接线。
+	clearRequested bool
+	// errorExpanded 逐条记录错误通知详情的展开态，key 是 entries 下标。
+	// nil 表示全部折叠。errorBodyHits / errorHits 与思考块同样按 Paint 记录。
+	errorExpanded map[int]bool
+	errorBodyHits []bodyHit
+	errorHits     []bodyHit
+
 	pending       *approvalRequest
 	approvalQueue []approvalRequest
 	allowed       map[string]bool
@@ -390,6 +413,13 @@ func (m *Model) MouseDown(col, row int) {
 		m.acceptCompletionLocked()
 		return
 	}
+	if idx, ok := m.errorHitLocked(col, row); ok {
+		// 点击错误通知切换详情展开，不影响文本选择。
+		m.toggleErrorAt(idx)
+		m.version++
+		m.markDirtyLocked()
+		return
+	}
 	if idx, ok := m.reasoningHitLocked(col, row); ok {
 		// 逐块点击写入覆盖表，优先于全局开关。
 		m.toggleReasoningAt(idx)
@@ -453,6 +483,49 @@ func (m *Model) toggleReasoningAllLocked() {
 	} else {
 		m.setStatusLocked(text(m.locale, "thinking_all_off"))
 	}
+}
+
+// errorExpandedAt 返回下标 idx 的错误通知详情是否展开。nil map 读取安全，
+// 默认恒为折叠，因此无错误详情时帧字节不变。
+func (m *Model) errorExpandedAt(idx int) bool {
+	return m.errorExpanded[idx]
+}
+
+// toggleErrorAt 翻转单条错误通知的详情展开态。调用方持有 mu。
+func (m *Model) toggleErrorAt(idx int) {
+	if m.errorExpanded == nil {
+		m.errorExpanded = make(map[int]bool)
+	}
+	m.errorExpanded[idx] = !m.errorExpandedAt(idx)
+}
+
+// errorHitLocked 报告屏幕位置落在哪条错误通知上。行范围来自上一次 Paint。
+func (m *Model) errorHitLocked(col, row int) (int, bool) {
+	if col < 0 || row < 0 {
+		return 0, false
+	}
+	for _, hit := range m.errorHits {
+		if row < hit.top || row >= hit.bottom {
+			continue
+		}
+		if hit.index < 0 || hit.index >= len(m.entries) || m.entries[hit.index].Detail == "" {
+			continue
+		}
+		return hit.index, true
+	}
+	return 0, false
+}
+
+// consumeClearRequest 取出并清空 Ctrl+L 的清屏请求。run 循环消费它后
+// 向终端写清屏序列并强制整屏重绘。
+func (m *Model) consumeClearRequest() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.clearRequested {
+		return false
+	}
+	m.clearRequested = false
+	return true
 }
 
 // completionHitLocked 报告屏幕位置是否落在补全浮层的某条候选上。

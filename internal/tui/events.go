@@ -101,7 +101,7 @@ func (m *Model) HandleEvent(event Event) {
 		// 现有的尝试徽章渲染器，而不是新增绘制路径。
 		m.appendNoticeEntryLocked(StreamErrorEntry(event.Detail, llm.RedactText))
 	case EventRetry:
-		text := RetryNotice(event.RetryReason, event.RetryAttempt, event.RetryMax, event.RetryWaitMS)
+		text := retryNotice(m.locale, event.RetryReason, event.RetryAttempt, event.RetryMax, event.RetryWaitMS)
 		m.appendNoticeEntryLocked(Entry{
 			Kind: EntryNotice,
 			Text: text,

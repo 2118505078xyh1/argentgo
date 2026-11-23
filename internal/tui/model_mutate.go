@@ -434,7 +434,8 @@ func (m *Model) EndTurn(err error) {
 	}
 	m.working = false
 	if err != nil {
-		m.appendNoticeLocked(errorText(m.locale, err))
+		// 错误通知带完整详情与 /retry 动作提示，且标记为 sticky 免过期。
+		m.appendNoticeEntryLocked(errorNoticeEntry(m.locale, err))
 	}
 	m.version++
 	m.markDirtyLocked()

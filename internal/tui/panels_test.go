@@ -270,6 +270,8 @@ func TestRunConsumesTheEventsChannel(t *testing.T) {
 		return len(model.tasks) == 1
 	})
 	close(events)
+	// 空闲 Ctrl+C 需要二次确认：第一次武装，第二次退出。
+	writer.Write([]byte{0x03})
 	writer.Write([]byte{0x03})
 	select {
 	case err := <-done:

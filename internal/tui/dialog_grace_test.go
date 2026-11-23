@@ -58,9 +58,10 @@ func assertAnswer(t *testing.T, done <-chan bool, want bool) {
 	}
 }
 
-// TestDialogGraceDisabledByDefault 验证默认关闭时行为逐字节不变：
-// 弹窗后立刻按 y 仍然马上批准，不吞键。
-func TestDialogGraceDisabledByDefault(t *testing.T) {
+// TestDialogGraceZeroDisables 验证显式把宽限期置 0（紧急回退）时行为逐字节
+// 不变：弹窗后立刻按 y 仍然马上批准，不吞键。产品默认值另由
+// TestDialogGraceDefaultIs250ms 锁定。
+func TestDialogGraceZeroDisables(t *testing.T) {
 	setDialogGrace(t, 0)
 	m := New(Config{})
 	clock := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)

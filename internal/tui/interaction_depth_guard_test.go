@@ -187,13 +187,9 @@ func TestGuardApproveDangerEmptyMatchesApproveByteForByte(t *testing.T) {
 		t.Fatal("empty danger must not default to Deny")
 	}
 
-	// 非危险入口的 Enter 仍是空操作；用 n 收尾两个弹窗。
-	plain.HandleKey(Key{Kind: KindEnter})
-	if _, _, pending := plain.PendingApproval(); !pending {
-		t.Fatal("empty-danger Enter must leave the modal open")
-	}
-	if ok := guardResolveApproval(t, plain, plainDone, Key{Kind: KindRune, Rune: 'n'}); ok {
-		t.Fatal("n must deny the plain modal")
+	// 非危险入口预选 Allow，Enter 确认默认项即放行；空 danger 与 Approve 一致。
+	if ok := guardResolveApproval(t, plain, plainDone, Key{Kind: KindEnter}); !ok {
+		t.Fatal("Enter must approve the plain modal by default")
 	}
 	if ok := guardResolveApproval(t, danger, dangerDone, Key{Kind: KindRune, Rune: 'n'}); ok {
 		t.Fatal("n must deny the empty-danger modal")

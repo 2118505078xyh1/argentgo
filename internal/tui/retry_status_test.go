@@ -72,7 +72,7 @@ func TestRetryStatusAndTranscriptRedactSecret(t *testing.T) {
 // TestRetryStatusNoticePaintedInFrame 检查实时重试提示到达
 // 渲染后的画面，而不只是模型的内部栈。
 func TestRetryStatusNoticePaintedInFrame(t *testing.T) {
-	m := New(Config{})
+	m := New(Config{Locale: "zh"})
 	m.HandleEvent(Event{
 		Kind:         EventRetry,
 		RetryReason:  "sse reset",
@@ -82,7 +82,7 @@ func TestRetryStatusNoticePaintedInFrame(t *testing.T) {
 	})
 
 	text := frameText(m, 100, 24)
-	want := "⟳ retry sse reset in 750ms (1/3)"
+	want := "⟳ 重试 连接中断，750ms 后（第1/3次）"
 	if !strings.Contains(text, want) {
 		t.Fatalf("retry hint not painted in frame:\n%s", text)
 	}

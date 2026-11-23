@@ -161,7 +161,7 @@ func TestApprovalModalIsCentredOverTheBody(t *testing.T) {
 	waitFor(t, "the modal", func() bool { _, _, ok := m.PendingApproval(); return ok })
 
 	body := strings.Join(rowTexts(m.Frame(80, 24)), "\n")
-	for _, want := range []string{"approval", "bash", "go test", "[y] allow", "[n] deny", "[a] allow for session"} {
+	for _, want := range []string{"approval", "bash", "go test", "[y] allow", "[n] deny", "[a] allow this call only"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the modal is missing %q:\n%s", want, body)
 		}

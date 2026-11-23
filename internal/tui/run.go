@@ -457,6 +457,13 @@ func Run(ctx context.Context, opts Options) error {
 		case <-runCtx.Done():
 			quit = true
 		}
+		// Ctrl+L 在非会话栏场景只置清屏请求标志；run 循环拥有终端，
+		// 由这里统一写清屏序列并作废旧缓冲区，强制下一帧整屏重绘。
+		if model.consumeClearRequest() {
+			fmt.Fprint(out, clearScreen)
+			buffer.Invalidate()
+			force = true
+		}
 		if quit {
 			break
 		}

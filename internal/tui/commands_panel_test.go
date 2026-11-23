@@ -169,7 +169,7 @@ func TestCommandNavigationEscAndEnter(t *testing.T) {
 		t.Fatalf("submitted = %q, want \"/compile \"", got)
 	}
 
-	// Esc 关闭补全与面板；下一次输入重开，关闭后 Tab 回退为两空格。
+	// Esc 逐层关闭：浮层 → 面板 → 补全；下一次输入重开，关闭后 Tab 回退为两空格。
 	esc := New(Config{})
 	esc.SetCommandInfo(commandInfos())
 	typeCommandText(esc, "/co")
@@ -177,15 +177,21 @@ func TestCommandNavigationEscAndEnter(t *testing.T) {
 	if !esc.showCommands {
 		t.Fatal("Ctrl+O did not open the commands panel")
 	}
-	esc.HandleKey(Key{Kind: KindEsc})
+	esc.HandleKey(Key{Kind: KindEsc}) // 关浮层
+	if !esc.showCommands || esc.completion == nil {
+		t.Fatal("first Esc should close only the overlay")
+	}
+	esc.HandleKey(Key{Kind: KindEsc}) // 关面板
+	esc.HandleKey(Key{Kind: KindEsc}) // 关补全
 	if esc.showCommands || esc.completion != nil {
-		t.Fatal("Esc did not close the panel and the completion")
+		t.Fatal("Esc did not close the panel and the completion layer by layer")
 	}
 	typeCommandText(esc, "m") // "/com"
 	if esc.completion == nil || esc.completion.Count() == 0 {
 		t.Fatal("typing after Esc did not reopen the completion")
 	}
-	esc.HandleKey(Key{Kind: KindEsc})
+	esc.HandleKey(Key{Kind: KindEsc}) // 浮层
+	esc.HandleKey(Key{Kind: KindEsc}) // 补全
 	esc.HandleKey(Key{Kind: KindTab})
 	if got := esc.Input(); got != "/com  " {
 		t.Fatalf("Tab after Esc = %q, want two spaces appended", got)

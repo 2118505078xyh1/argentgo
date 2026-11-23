@@ -160,6 +160,22 @@ func (m *Model) Paint(buf *Buffer) {
 		}
 		m.reasoningHits = append(m.reasoningHits, bodyHit{index: hit.index, top: top, bottom: bottom})
 	}
+	// 错误通知的命中行范围同样换算成屏幕坐标，供点击展开/折叠详情。
+	m.errorHits = m.errorHits[:0]
+	for _, hit := range m.errorBodyHits {
+		top := l.bodyTop + hit.top - start
+		bottom := l.bodyTop + hit.bottom - start
+		if bottom <= l.bodyTop || top >= l.bodyTop+l.bodyH {
+			continue
+		}
+		if top < l.bodyTop {
+			top = l.bodyTop
+		}
+		if bottom > l.bodyTop+l.bodyH {
+			bottom = l.bodyTop + l.bodyH
+		}
+		m.errorHits = append(m.errorHits, bodyHit{index: hit.index, top: top, bottom: bottom})
+	}
 
 	if l.panelW > 0 {
 		m.paintPanels(buf, l)
@@ -561,9 +577,14 @@ func (m *Model) approvalLines(width int) []Line {
 			}
 		}
 	}
+	// 队列里还有请求时诚实告知数量，避免操作者以为这是最后一个。
+	if pending := len(m.approvalQueue); pending > 0 {
+		out = append(out, row(tuiTextf(m.locale, "approval_queue", pending), m.palette.warning()))
+	}
 	out = append(out, row("", Style{}))
 	out = append(out, row("[y] "+text(m.locale, "allow")+"   [n] "+text(m.locale, "deny"), Style{}))
-	out = append(out, row("[a] "+text(m.locale, "allow_session"), m.palette.muted()))
+	// a 授权范围按真实实现描述：只放行这一次精确调用，而非整个会话。
+	out = append(out, row("[a] "+tuiText(m.locale, "allow_exact"), m.palette.muted()))
 
 	foot := "└" + strings.Repeat("─", maxInt(boxWidth-2, 0)) + "┘"
 	out = append(out, PlainLine(Clip(foot, boxWidth)))
@@ -589,6 +610,8 @@ func (m *Model) entryCacheKeyLocked(entry Entry, index, width int) entryCacheKey
 		noColor:           m.noColor,
 		themeEpoch:        m.themeEpoch,
 		locale:            m.locale,
+		detail:            entry.Detail,
+		errorExpanded:     m.errorExpandedAt(index),
 	}
 }
 
@@ -607,25 +630,32 @@ func (m *Model) bodyLinesLocked(width int) []Line {
 		out = append(out, m.welcomeLinesLocked(width)...)
 		return out
 	}
-	// 每次重绘都重新记录思考块的行范围：展开态或滚动变化后旧命中无效。
+	// 每次重绘都重新记录思考块/错误通知的行范围：展开态或滚动变化后旧命中无效。
 	m.reasoningBodyHits = m.reasoningBodyHits[:0]
+	m.errorBodyHits = m.errorBodyHits[:0]
 	for i, entry := range m.entries {
 		var lines []Line
-		if entry.Kind == EntryReasoning || isLiveToolEntry(entry) {
+		if entry.Kind == EntryReasoning || isLiveToolEntry(entry) || entry.Detail != "" {
 			// 摘要/spinner 带有实时经过时间，它会在
 			// 没有任何条目字段变化的情况下改变，因此绝不能从缓存读回。
+			// 错误通知需要每次重算命中行范围，同样绕过缓存。
 			// 但仍在索引 i 处存储一个槽，以保持缓存对齐。
-			lines = m.renderEntryLocked(entry, width)
+			lines = m.renderEntryLocked(entry, i, width)
 		} else {
 			key := m.entryCacheKeyLocked(entry, i, width)
 			if i < len(m.entryCache) && m.entryCache[i].key == key {
 				out = append(out, m.entryCache[i].lines...)
 				continue
 			}
-			lines = m.renderEntryLocked(entry, width)
+			lines = m.renderEntryLocked(entry, i, width)
 		}
 		if entry.Kind == EntryReasoning {
 			m.reasoningBodyHits = append(m.reasoningBodyHits, bodyHit{
+				index: i, top: len(out), bottom: len(out) + len(lines),
+			})
+		}
+		if entry.Detail != "" {
+			m.errorBodyHits = append(m.errorBodyHits, bodyHit{
 				index: i, top: len(out), bottom: len(out) + len(lines),
 			})
 		}
@@ -645,8 +675,8 @@ func (m *Model) renderBodyLocked(width int) []Line {
 	if len(m.entries) == 0 {
 		return m.welcomeLinesLocked(width)
 	}
-	for _, entry := range m.entries {
-		out = append(out, m.renderEntryLocked(entry, width)...)
+	for i, entry := range m.entries {
+		out = append(out, m.renderEntryLocked(entry, i, width)...)
 	}
 	return out
 }
@@ -670,8 +700,8 @@ func (m *Model) legibleBadgeStyle(base Style) Style {
 }
 
 // renderEntryLocked 精确绘制一个记录块，包括其上的
-// 尝试徽章。
-func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
+// 尝试徽章。idx 是 entries 下标，供错误通知查找逐条展开态。
+func (m *Model) renderEntryLocked(entry Entry, idx, width int) []Line {
 	var out []Line
 	if entry.Attempt != "" {
 		out = append(out, m.attemptLinesLocked(entry, width)...)
@@ -690,11 +720,30 @@ func (m *Model) renderEntryLocked(entry Entry, width int) []Line {
 			out = append(out, toolLines(entry, width, m.expanded, m.palette)...)
 		}
 	case EntryNotice:
-		out = append(out, wrappedBlock(entry.Text, width, noticeMark, "  ", m.legibleBadgeStyle(m.palette.warning()))...)
+		out = append(out, m.noticeLinesLocked(entry, idx, width)...)
 	case EntryStats:
 		out = append(out, statLine(entry.Text, width, m.palette.dim()))
 	}
 	return out
+}
+
+// noticeLinesLocked 渲染通知条目。没有详情的普通通知走原路径，帧字节不变；
+// 带详情的错误通知在摘要行末追加可点击的展开提示，展开后再逐行显示完整文本。
+// 摘要本身始终可读，点击只影响详情，不影响 /retry 动作提示。
+func (m *Model) noticeLinesLocked(entry Entry, idx, width int) []Line {
+	style := m.legibleBadgeStyle(m.palette.warning())
+	if entry.Detail == "" {
+		return wrappedBlock(entry.Text, width, noticeMark, "  ", style)
+	}
+	hint := tuiText(m.locale, "error_expand")
+	if m.errorExpandedAt(idx) {
+		hint = tuiText(m.locale, "error_collapse")
+	}
+	lines := wrappedBlock(entry.Text+"  "+hint, width, noticeMark, "  ", style)
+	if m.errorExpandedAt(idx) {
+		lines = append(lines, wrappedBlock(entry.Detail, width, "    ", "    ", m.palette.dim())...)
+	}
+	return lines
 }
 
 // statLine 把一轮统计渲染为恰好一行 dim 文本。与 reasoningSummaryLine
@@ -1247,13 +1296,15 @@ func clipLine(line Line, width int) Line {
 }
 
 // hintLine 只在审批/对话框态显示一行与当前状态相关的按键提示（y 允许 · n 拒绝 ·
-// a 本会话允许），平时保持空行——用户已明确要求移除全局底部 hint bar。
+// a 仅此调用 · enter 确认默认项），平时保持空行——用户已明确要求移除全局底部
+// hint bar。这里用本包文案表而非 i18n 的 hint_modal，是因为后者的 a 文案仍写
+// 着"本会话允许"，与实际精确 scope 不符。
 // hintY 仍由 layoutLocked 保留，使输入框、状态行与其他行号逐字节不变。
 func hintLine(width int, locale string, modal bool, style Style) Line {
 	if !modal {
 		return Line{}
 	}
 	line := NewLine()
-	line.Push(Clip(text(locale, "hint_modal"), maxInt(width, 1)), style)
+	line.Push(Clip(tuiText(locale, "hint_modal_local"), maxInt(width, 1)), style)
 	return clipLine(line, maxInt(width, 1))
 }

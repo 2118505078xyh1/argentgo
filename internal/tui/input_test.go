@@ -186,6 +186,13 @@ func TestCtrlCCancelsThenQuits(t *testing.T) {
 		t.Fatalf("ctrl+c during a turn = %v, want ActionAbort", action)
 	}
 	m.EndTurn(context.Canceled)
+	// 空闲第一次只武装退出并给出提示，3 秒内第二次才真正退出。
+	if action := m.HandleKey(Key{Kind: KindCtrlC}); action != ActionNone {
+		t.Fatalf("first idle ctrl+c = %v, want ActionNone (armed)", action)
+	}
+	if m.Quit() {
+		t.Fatal("first ctrl+c must not quit immediately")
+	}
 	if action := m.HandleKey(Key{Kind: KindCtrlC}); action != ActionQuit {
 		t.Fatalf("second ctrl+c = %v, want ActionQuit", action)
 	}
