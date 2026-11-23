@@ -71,7 +71,9 @@ func TestSoftTimeoutHelper(t *testing.T) {
 		return
 	}
 	fmt.Println("ready")
-	time.Sleep(1200 * time.Millisecond)
+	// CI（尤其 Windows runner）上测试二进制冷启动可能超过 600ms；拉长驻留
+	// 时间，给首个软超时观察留出足够窗口读到 ready，同时保证续读时进程已退出。
+	time.Sleep(4000 * time.Millisecond)
 	fmt.Println("done")
 	os.Exit(0)
 }
