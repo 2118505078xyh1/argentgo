@@ -223,9 +223,11 @@ func TestSumReadsSeededWorkspace(t *testing.T) {
 	})
 
 	c := ExecCheck{
-		Command:            "go",
-		Args:               []string{"test", "./..."},
-		TimeoutMS:          20000,
+		Command: "go",
+		Args:    []string{"test", "./..."},
+		// race + 多包并行时子 go test 可能受 CPU 争抢拖慢，60s 留出慢 CI 余量；
+		// 仍远小于 120s 上限，不影响 RunExecCheck 自身的超时判定语义。
+		TimeoutMS:          60000,
 		WantExitCode:       0,
 		WantStdoutContains: "ok",
 	}
@@ -260,7 +262,7 @@ func TestAlwaysFails(t *testing.T) {
 	c := ExecCheck{
 		Command:      "go",
 		Args:         []string{"test", "./..."},
-		TimeoutMS:    20000,
+		TimeoutMS:    60000, // 同上：race + 并行负载下给子 go test 足够余量
 		WantExitCode: 1,
 	}
 	res := RunExecCheck(dir, c)
@@ -323,7 +325,7 @@ func TestLoud(t *testing.T) {
 	c := ExecCheck{
 		Command:      "go",
 		Args:         []string{"test", "-v", "./..."},
-		TimeoutMS:    20000,
+		TimeoutMS:    60000, // 同上：race + 并行负载下给子 go test 足够余量
 		WantExitCode: 0,
 	}
 	res := RunExecCheck(dir, c)

@@ -130,7 +130,14 @@ func TestApprovalShowsQueueCountAndHonestGrant(t *testing.T) {
 			}
 			waitFor(t, "three queued approvals", func() bool {
 				_, _, ok := m.PendingApproval()
-				return ok && len(m.approvalQueue) == 2
+				if !ok {
+					return false
+				}
+				// Approve 在 m.mu 下写 approvalQueue；轮询时必须同锁读，
+				// 否则 -race 会抓到测试 goroutine 与审批 goroutine 的数据竞争。
+				m.mu.Lock()
+				defer m.mu.Unlock()
+				return len(m.approvalQueue) == 2
 			})
 			body := strings.Join(approvalLineTexts(m.approvalLines(80)), "\n")
 			if !strings.Contains(body, tc.wantQueue) {
