@@ -2,7 +2,7 @@
 
 argentgo 要往哪里去（Roadmap），以及一份基于证据的自我评估（Honest score）。行为清单在 [Technical reference](TECHNICAL.md#feature-parity) 中。
 
-用户可感知能力与 Claude Code / OpenCode / Crush / Codex 的逐维对标见 [能力对标矩阵](#能力对标矩阵)；本文档 加权 8.85 / 等权 8.0 分评估的是架构/安全/测试证据，两者口径不同。
+用户可感知能力与 Claude Code / OpenCode / Crush / Codex 的逐维对标见 [能力对标矩阵](#能力对标矩阵)；本文档 加权 8.92 / 等权 8.1 分评估的是架构/安全/测试证据，两者口径不同。
 
 > **默认化原则（用户 2026-11-23，覆盖下文历史条目中的「opt-in 默认关闭、逐字节不变」口径）**：凡改善体验的新功能一律默认开启、参数取最优值、用户零选择；环境变量仅留 `=0` 紧急回退。下文 R22–R43 各条目中「默认关闭/逐字节不变」的描述是当时的客观记录，保留作历史；自本轮起以 `AGENTS.md` 的默认化原则与 `todolist.md` 文末「参数归位」为准。
 
@@ -85,7 +85,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 | 工具/执行深度 | 8 | 6 | **10** | arg：35 工具 + 自研 shell（lexer/parser/interp）+ LSP 6 工具（注入前报不可用）；pi：**核心仅 8 工具**，无 LSP，subagent/plan 只在 `examples/extensions`（默认关闭）；omp：30+3 工具 + 12 个 Rust crate（shell 152rs/builtins 187rs/natives 105rs）+ LSP 22 文件 + DAP + 常驻 kernel + browser 50+ 文件 + ast_edit/hashline |
 | 安全边界 | **9** | 3 | 8 | arg：`chain.go` 策略→审批→审计 + 3 sandbox + 路径逃逸 4 轮解码 + 7 fuzz 目标 + 脱敏先于审计；pi：**文档明写无内置审批/沙箱**，permission-gate 仅 34 行示例；omp：`approval.ts` 960 行完整策略链 + security 20 文件 + redaction，但**无 OS 级沙箱** |
 | 模型/协议广度 | 8 | 9 | **10** | arg：3 协议真实实现 + 20 模板 + 12 别名；pi：10 种 KnownApi + 43~51 provider + 模型目录生成链 + OAuth；omp：99 provider + 261 个 KDL 规则 + 完整编译器 |
-| 交互界面 | 8 | 8 | **10** | arg：TUI 13,524 行 + MyGo 原生 GUI（无 WebView）；pi：TUI 20,269 行差速渲染 + 组件体系 + theme；omp：TUI 816 个 .ts + collab-web SolidJS + browser-relay Chrome 扩展 + kitty 图形协议 |
+| 交互界面 | 9 | 8 | **10** | arg：TUI 自绘 ANSI + MyGo 原生 GUI（无 WebView）。状态栏五项常驻（上下文/缓存/模型/思考强度/速度）、首屏欢迎+上下文快捷键、审批三态+真实 diff+危险默认拒绝、工具卡片可展开/消息复制重试、偏好持久化、demo 显式横幅、关键事件不可丢弃；pi：TUI 20,269 行差速渲染 + 组件体系 + theme；omp：TUI 816 个 .ts + collab-web SolidJS + browser-relay Chrome 扩展 + kitty 图形协议 |
 | 部署/零依赖 | **10** | 6 | 4 | arg：核心 stdlib-only，mygo 仅 native/，无 cgo，5 平台交叉编译；pi：默认 Node 22 + ~20 外部依赖，但可 `bun build --compile` 单文件；omp：强依赖 Bun + Rust nightly + Bazel，musl 动态链接 libstdc++/libgcc |
 | 工程/测试纪律 | 9 | 9 | **9.5** | arg：1,265 测试文件/257,428 行（占 Go 63%）+ archguard 6 条分层规则 + 版本一致性门禁；pi：1,302 文件/360,816 行 + check 链 9 项 + 16 workflow + npm-audit（供应链最严）；omp：3,564 文件/1,119,502 行 + 7,442 个 Rust 测试注解 + ci.yml 63.7KB |
 | 生态/扩展 | 6 | **9.5** | **9.5** | arg：MCP/skills/hooks/commands 有实现，但**插件仅声明式 bundle，无代码执行/SDK/包管理**；pi：ExtensionAPI 完整（registerTool/provider + 30 种事件钩子）+ 18 skills + SDK + RPC + chord 70k 行独立栈；omp：marketplace + 5 子模块 + Go/Python/Rust 三套 RPC SDK + 8 种外部配置导入 |
@@ -96,10 +96,10 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 | 口径 | argentgo | pi | omp |
 |---|:---:|:---:|:---:|
-| **等权平均** | **8.0** | 7.45 | **8.7** |
-| **按本项目优先级加权**（上下文20%/安全15%/工具15%/工程15%，其余各7%） | **8.85** | 7.74 | **8.96** |
+| **等权平均** | **8.1** | 7.45 | **8.7** |
+| **按本项目优先级加权**（上下文20%/安全15%/工具15%/工程15%，其余各7%） | **8.92** | 7.74 | **8.96** |
 
-**与旧自评的差异（诚实说明）**：旧表给 argentgo 8.9、omp 8.5（基于文档声明）。源码取证后 omp 反超（8.7 / 8.96），原因是 omp 的工具深度、provider 广度、生态在代码里的实现规模比文档估计更实；而 argentgo 的三个折扣点被源码证实：`internal/agent/context_pressure.go` 纯原语未接线、LSP 工具在 app 注入前报告不可用、`internal/plugins/` 仅声明式 bundle（无代码执行/SDK/包管理）。按本项目优先级三者几乎打平（8.85 vs 8.96）——差距不在上下文/安全/工程，而在工具宽度与生态。
+**与旧自评的差异（诚实说明）**：旧表给 argentgo 8.9、omp 8.5（基于文档声明）。源码取证后 omp 反超（8.7 / 8.96），原因是 omp 的工具深度、provider 广度、生态在代码里的实现规模比文档估计更实；而 argentgo 的三个折扣点被源码证实：`internal/agent/context_pressure.go` 纯原语未接线、LSP 工具在 app 注入前报告不可用、`internal/plugins/` 仅声明式 bundle（无代码执行/SDK/包管理）。按本项目优先级三者几乎打平（8.92 vs 8.96）——差距不在上下文/安全/工程，而在工具宽度与生态。
 
 R22–R26 新能力证据见 [能力对标矩阵](#能力对标矩阵) 的 R24 / R25 / R26 更新记录（含 `session.tree` RPC、原生分支树渲染、opt-in 真实模型评测批处理、进阶 LSP 真实 server best-effort 验证、`auto_verify` 等）；R33 / R35 / R36 / R37 与 R39–R43 的已落地增量见下方小节与矩阵同名更新记录。
 
@@ -143,7 +143,7 @@ R22–R26 新能力证据见 [能力对标矩阵](#能力对标矩阵) 的 R24 /
 
 ### 对比（源码证据口径）
 - **等权平均**：omp 8.7 > argentgo 8.0 > pi 7.45
-- **按本项目优先级加权**：omp 8.96 ≈ argentgo 8.85 > pi 7.74
+- **按本项目优先级加权**：omp 8.96 ≈ argentgo 8.92 > pi 7.74
 - argentgo 领先项：部署/零依赖（10 vs 6/4）、安全边界（9 vs 3/8）；持平项：上下文管理（9）、工程纪律（9）；落后项：工具深度、provider 广度、交互界面、生态/扩展、社区治理
 - pi 的"极简"是主动取舍：核心仅 8 工具、无 LSP/审批/沙箱，但 subagent/plan 在 `examples/extensions` 有完整实现（默认关闭）；其会话树与压缩实现强于"极简 harness"的印象，真正硬伤是安全（3 分）与 provider 数
 
@@ -157,9 +157,9 @@ R22–R26 新能力证据见 [能力对标矩阵](#能力对标矩阵) 的 R24 /
 
 ### 0. 口径与读法
 
-#### 0.1 与 STATUS 加权 8.85 / 等权 8.0 分的关系（重要）
+#### 0.1 与 STATUS 加权 8.92 / 等权 8.1 分的关系（重要）
 
-[项目状态](#项目状态) 的 **加权 8.85 / 10（等权 8.0 / 10）** 评估的是**架构、安全与测试证据**：分层零违规、策略→审批→审计链、fuzz 目标、交叉编译矩阵、gopls 端到端测试等。这些分数高，说明"工程底座扎实"。
+[项目状态](#项目状态) 的 **加权 8.92 / 10（等权 8.1 / 10）** 评估的是**架构、安全与测试证据**：分层零违规、策略→审批→审计链、fuzz 目标、交叉编译矩阵、gopls 端到端测试等。这些分数高，说明"工程底座扎实"。
 
 本文档刻意换一个镜头，只看**用户可感知能力**：一个真实用户坐到终端或桌面窗口前，能不能完成"读代码 → 改代码 → 回退 → 换模型 → 续会话 → 调工具"这条链路，以及做这些事时和主流竞品的体感差距。
 
