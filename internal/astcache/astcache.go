@@ -62,8 +62,6 @@ type Cache struct {
 	used       int
 	maxBytes   int
 	maxEntries int
-	// tickets 记录每个路径当前解析的 ticket，用于 fencing 陈旧并发结果。
-	tickets map[string]uint64
 	// byPath 记录每个路径最近一次解析的条目，供内容变化后保留上一版本。
 	byPath map[string]*entry
 }
@@ -82,7 +80,6 @@ func New(opts Options) *Cache {
 		entries:    make(map[key]*entry),
 		maxBytes:   opts.MaxBytes,
 		maxEntries: opts.MaxEntries,
-		tickets:    make(map[string]uint64),
 		byPath:     make(map[string]*entry),
 	}
 }
@@ -244,22 +241,6 @@ func (c *Cache) Stats() Stats {
 	}
 }
 
-// NextTicket 为 path 分配一个单调递增的 ticket，用于调用方 fencing 陈旧并发
-// 解析结果（只有 ticket 仍为最新时才接受结果）。
-func (c *Cache) NextTicket(path string) uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.tickets[path]++
-	return c.tickets[path]
-}
-
-// IsCurrentTicket 报告 path 的 ticket 是否仍是最新。
-func (c *Cache) IsCurrentTicket(path string, ticket uint64) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.tickets[path] == ticket
-}
-
 // Reset 清空缓存（测试用）。
 func (c *Cache) Reset() {
 	c.mu.Lock()
@@ -268,5 +249,4 @@ func (c *Cache) Reset() {
 	c.order = nil
 	c.used = 0
 	c.byPath = make(map[string]*entry)
-	c.tickets = make(map[string]uint64)
 }

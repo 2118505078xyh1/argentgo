@@ -95,21 +95,6 @@ func TestPreviousVersionRetained(t *testing.T) {
 	}
 }
 
-func TestTicketFencing(t *testing.T) {
-	c := New(Options{})
-	t1 := c.NextTicket("a.go")
-	t2 := c.NextTicket("a.go")
-	if t1 >= t2 {
-		t.Fatalf("tickets must increase: %d -> %d", t1, t2)
-	}
-	if !c.IsCurrentTicket("a.go", t2) {
-		t.Fatal("latest ticket must be current")
-	}
-	if c.IsCurrentTicket("a.go", t1) {
-		t.Fatal("stale ticket must not be current")
-	}
-}
-
 func TestConcurrentParse(t *testing.T) {
 	c := New(Options{})
 	src := []byte(sampleGo)
