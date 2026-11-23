@@ -515,6 +515,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	audit := security.NewAuditLog(filepath.Join(res.Storage, "audit"))
 	policy := policyFor(res)
 	chain := security.NewChain(policy, approver, audit, sess.ID())
+	// 声明式网络出口策略（默认开启，ARGENT_NET_POLICY=0 回退）：把配置里的
+	// net.rules 转成带本轮审批链的守卫注入 ctx，覆盖四条出网出口；无规则时
+	// 仍注入带链守卫，让 deny/allow 进审计、Ask 走真人审批。
+	ctx = withNetworkGuard(ctx, res.Cfg.Raw, chain, stdio.Env)
 	// 分阶段审批（opt-in ARGENT_STAGED_APPROVAL，默认关闭）：用 stdio 交互的
 	// StagedApprover 取代普通审批器，启用 once/always/reject/esc 状态机与
 	// "始终允许"作用域记忆。关闭时不触碰链，逐字节不变。
