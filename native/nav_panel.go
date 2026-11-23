@@ -133,10 +133,10 @@ func (app *chat) renderNavPanel(c *ui.Context, p palette, name string) {
 		panel.rows = preview
 	}
 	ui.Column(c).Gap(10).Grow(1).Children(func() {
-		ui.Text(c, panel.title).FontSize(16).Bold().TextColor(p.strong)
-		ui.Text(c, panel.desc).FontSize(12).TextColor(p.dim)
+		ui.Text(c, tr(panel.title)).FontSize(16).Bold().TextColor(p.strong)
+		ui.Text(c, tr(panel.desc)).FontSize(12).TextColor(p.dim)
 		for _, row := range panel.rows {
-			label := row
+			label := tr(row)
 			ui.Row(c).Padding(8, 10).Radius(8).Background(p.element).Children(func() {
 				ui.Text(c, label).FontSize(12).TextColor(p.text).SingleLine()
 			})

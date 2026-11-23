@@ -58,14 +58,15 @@ func clipErrorRunes(s string, max int) string {
 // 单行、脱敏通知。nil 或空错误仍产生可见
 // 横幅，使失败的一轮永不看起来像静默空回复。
 func engineErrorNotice(err error) string {
+	prefix := tr(engineErrorPrefix)
 	if err == nil {
-		return strings.TrimSpace(engineErrorPrefix)
+		return strings.TrimSpace(prefix)
 	}
 	detail := clipErrorRunes(redactEngineError(collapseEngineErrorSpace(err.Error())), maxEngineErrorDetail)
 	if detail == "" {
-		return strings.TrimSpace(engineErrorPrefix)
+		return strings.TrimSpace(prefix)
 	}
-	return engineErrorPrefix + detail
+	return prefix + detail
 }
 
 // finishEngineError 是失败的 engine 提示的唯一集成点。
@@ -79,5 +80,5 @@ func engineErrorNotice(err error) string {
 // 把调用保留在这里意味着无需更改 engine 或 bridge 代码。
 func (app *chat) finishEngineError(err error) {
 	app.finish(engineErrorNotice(err))
-	app.status = "引擎错误"
+	app.status = tr("引擎错误")
 }

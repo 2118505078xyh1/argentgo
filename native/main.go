@@ -141,6 +141,8 @@ var navItems = []string{
 	"Git", "任务", "工作流", "终端", "文件", "计划",
 }
 
+// 这些 demo 数据保持中文原文作为内部身份（selectedSession/sessionRowID 依赖
+// title），仅在渲染时经 tr() 翻译，使 configureLocale 在 main() 设置后生效。
 var fakeSessions = []session{
 	{title: "重构聊天界面", meta: "2 分钟前", group: "今天"},
 	{title: "修复工具调用状态", meta: "昨天 18:20", group: "昨天"},
@@ -294,8 +296,8 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 		// 导航网格。
 		ui.Grid(c).Columns(3).Gap(4).Children(func() {
 			for _, name := range navItems {
-				active := app.nav == name
-				btn := ui.Button(c, name).Padding(8, 2).Radius(6)
+				active := app.nav == name // 内部标识保持中文，仅渲染时翻译
+				btn := ui.Button(c, tr(name)).Padding(8, 2).Radius(6)
 				if active {
 					btn.Background(p.accentBG).TextColor(p.accent)
 				} else {
@@ -303,7 +305,7 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 				}
 				if btn.Clicked() {
 					app.nav = name
-					app.status = "已切换到" + name
+					app.status = tr("已切换到") + tr(name)
 				}
 			}
 		})
@@ -321,9 +323,9 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 6, 0, 6).
 			BorderWidth(1, 0, 0, 0).BorderColor(p.borderSubtle).Children(func() {
 			dot := p.ok
-			label := "就绪"
+			label := tr("就绪")
 			if app.streaming {
-				dot, label = p.accent, "运行中"
+				dot, label = p.accent, tr("运行中")
 			}
 			ui.Box(c).Size(7, 7).Radius(4).Background(dot)
 			ui.Text(c, label).FontSize(12).TextColor(p.dim)
@@ -341,12 +343,12 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 
 	// 会话头部和搜索。
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(4, 6, 0, 6).Children(func() {
-		ui.Text(c, "会话").FontSize(12).Bold().TextColor(p.dim).Grow(1)
+		ui.Text(c, tr("会话")).FontSize(12).Bold().TextColor(p.dim).Grow(1)
 		if ui.Button(c, "＋").Clicked() {
 			app.newSession()
 		}
 	})
-	ui.TextInput(c, &app.sessionQuery).Placeholder("搜索会话").
+	ui.TextInput(c, &app.sessionQuery).Placeholder(tr("搜索会话")).
 		Padding(8, 10).Radius(8).Background(p.element).FontSize(12)
 
 	// 会话列表。成功获取替换 demo 行；失败（或
@@ -376,8 +378,8 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 		}
 		row.Children(func() {
 			ui.Column(c).Gap(2).Children(func() {
-				ui.Text(c, s.title).FontSize(13).TextColor(p.text).SingleLine()
-				ui.Text(c, s.group+" · "+s.meta).FontSize(11).TextColor(p.dim).SingleLine()
+				ui.Text(c, tr(s.title)).FontSize(13).TextColor(p.text).SingleLine()
+				ui.Text(c, tr(s.group)+" · "+tr(s.meta)).FontSize(11).TextColor(p.dim).SingleLine()
 			})
 		})
 		if row.Clicked() {
@@ -568,7 +570,7 @@ func parseSessionList(raw json.RawMessage) ([]session, error) {
 // 通知；它从不使视图崩溃。
 func (app *chat) applySessions(sessions []session, err error) {
 	if err != nil {
-		app.status = "会话列表加载失败：" + engineErrorNotice(err)
+		app.status = tr("会话列表加载失败：") + engineErrorNotice(err)
 		return
 	}
 	app.sessions = sessions
@@ -660,16 +662,16 @@ func (app *chat) configInfoLabel() string {
 // 今天/昨天/更早 groups of the demo rail.
 func sessionGroup(updated time.Time) string {
 	if updated.IsZero() {
-		return "更早"
+		return tr("更早")
 	}
 	now := time.Now()
 	if sameDay(now, updated) {
-		return "今天"
+		return tr("今天")
 	}
 	if sameDay(now.Add(-24*time.Hour), updated) {
-		return "昨天"
+		return tr("昨天")
 	}
-	return "更早"
+	return tr("更早")
 }
 
 func sameDay(a, b time.Time) bool {
@@ -686,13 +688,13 @@ func sessionMeta(updated time.Time) string {
 	d := time.Since(updated)
 	switch {
 	case d < time.Minute:
-		return "刚刚"
+		return tr("刚刚")
 	case d < time.Hour:
-		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+		return fmt.Sprintf(tr("%d 分钟前"), int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+		return fmt.Sprintf(tr("%d 小时前"), int(d.Hours()))
 	case d < 7*24*time.Hour:
-		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+		return fmt.Sprintf(tr("%d 天前"), int(d.Hours()/24))
 	default:
 		return updated.Format("01-02")
 	}
@@ -715,7 +717,7 @@ func (app *chat) openSessionBranch(s session, branch string) {
 		id = s.title
 	}
 	app.selectedSession = id
-	app.status = "已打开会话：" + s.title
+	app.status = tr("已打开会话：") + s.title
 	if app.engine == nil {
 		return
 	}
@@ -729,12 +731,12 @@ func (app *chat) openSessionBranch(s session, branch string) {
 	}
 	raw, err := call("session.load", params)
 	if err != nil {
-		app.status = "打开会话失败：" + engineErrorNotice(err)
+		app.status = tr("打开会话失败：") + engineErrorNotice(err)
 		return
 	}
 	events, ok := parseSessionEvents(raw)
 	if !ok {
-		app.status = "打开会话失败：无法解析会话记录"
+		app.status = tr("打开会话失败：无法解析会话记录")
 		return
 	}
 	// 清空陈旧流式/工具/审批状态（仿 newSession），再填入映射消息。
@@ -843,16 +845,16 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			})
 			ui.Spacer(c)
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "模型").FontSize(12).TextColor(p.dim)
+				ui.Text(c, tr("模型")).FontSize(12).TextColor(p.dim)
 				ui.Text(c, "gpt-4o-mini").FontSize(13).TextColor(p.text).
 					Padding(6, 10).Radius(999).Background(p.element)
-				if ui.Button(c, "撤销").Clicked() {
+				if ui.Button(c, tr("撤销")).Clicked() {
 					app.undo()
 				}
-				if ui.Button(c, "重试").Clicked() {
+				if ui.Button(c, tr("重试")).Clicked() {
 					app.retry()
 				}
-				if ui.Button(c, "主题").Clicked() {
+				if ui.Button(c, tr("主题")).Clicked() {
 					app.toggleTheme()
 				}
 			})
@@ -873,14 +875,14 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 				ui.Column(c).MaxWidth(560).Margin(ui.Auto).Gap(12).
 					AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
-					ui.Text(c, "有什么可以帮你？").FontSize(28).Bold().TextColor(p.strong)
-					ui.Text(c, "问点什么，或者输入 / 看命令。").FontSize(14).TextColor(p.dim)
-					ui.Text(c, "首次使用请在终端运行 argentgo login 配置模型凭据。").
+					ui.Text(c, tr("有什么可以帮你？")).FontSize(28).Bold().TextColor(p.strong)
+					ui.Text(c, tr("问点什么，或者输入 / 看命令。")).FontSize(14).TextColor(p.dim)
+					ui.Text(c, tr("首次使用请在终端运行 argentgo login 配置模型凭据。")).
 						FontSize(12).TextColor(p.dim)
 					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
 						for _, action := range quickActions {
 							a := action
-							if ui.Button(c, a).Padding(6, 12).Clicked() {
+							if ui.Button(c, tr(a)).Padding(6, 12).Clicked() {
 								if strings.HasPrefix(a, "/ ") {
 									// 斜杠命令提示种入触发器，而非其标签。
 									app.draft = "/ "
@@ -913,7 +915,7 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 		ui.Column(c).Padding(10, 20, 14, 20).Gap(8).Background(p.surface).
 			BorderWidth(1, 0, 0, 0).BorderColor(p.border).Children(func() {
 			in := ui.TextArea(c, &app.draft).Lines(1, 5).AutoFocus().
-				Placeholder("问点什么，或者输入 / 看命令。").Grow(1)
+				Placeholder(tr("问点什么，或者输入 / 看命令。")).Grow(1)
 			in.OnTextKey(func(k ui.TextKey) bool {
 				if k.Key == ui.KeyEnter && k.Mods == 0 {
 					app.send(k.Text())
@@ -923,12 +925,12 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 				return false // Shift+Enter inserts a newline
 			})
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Enter 发送 · Shift+Enter 换行").FontSize(11).TextColor(p.dim).Grow(1)
+				ui.Text(c, tr("Enter 发送 · Shift+Enter 换行")).FontSize(11).TextColor(p.dim).Grow(1)
 				if app.streaming {
-					if ui.Button(c, "停止").Clicked() {
+					if ui.Button(c, tr("停止")).Clicked() {
 						app.stop()
 					}
-				} else if ui.PrimaryButton(c, "发送").Clicked() {
+				} else if ui.PrimaryButton(c, tr("发送")).Clicked() {
 					app.send(app.draft)
 				}
 			})
@@ -942,10 +944,10 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 		BorderWidth(1, 0, 0, 0).BorderColor(p.accentLine).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(18, 18).Radius(9).Background(p.warn)
-			ui.Text(c, "需要批准").Bold().TextColor(p.strong)
+			ui.Text(c, tr("需要批准")).Bold().TextColor(p.strong)
 			ui.Text(c, ap.name).FontSize(12).TextColor(p.accent)
 			ui.Spacer(c)
-			ui.Text(c, "Y 允许 · N 拒绝").FontSize(11).TextColor(p.dim)
+			ui.Text(c, tr("Y 允许 · N 拒绝")).FontSize(11).TextColor(p.dim)
 		})
 		ui.Text(c, ap.args).FontSize(12).TextColor(p.dim).
 			Padding(8, 10).Radius(6).Background(p.surface).Selectable()
@@ -958,10 +960,10 @@ func (app *chat) approvalView(c *ui.Context, p palette) {
 			}
 		}
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, "拒绝").Clicked() {
+			if ui.Button(c, tr("拒绝")).Clicked() {
 				app.answerApproval(false)
 			}
-			if ui.PrimaryButton(c, "允许").Clicked() {
+			if ui.PrimaryButton(c, tr("允许")).Clicked() {
 				app.answerApproval(true)
 			}
 		})
@@ -977,7 +979,7 @@ func (app *chat) message(c *ui.Context, m *message, p palette) {
 			ui.Spacer(c)
 			ui.Column(c).MaxWidth(520).Radius(14).Background(p.surface).
 				Padding(10, 14).Gap(4).Children(func() {
-				ui.Text(c, "你").FontSize(11).Bold().TextColor(p.dim)
+				ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.dim)
 				ui.Text(c, m.text).TextColor(p.text).Selectable()
 			})
 		})
@@ -1035,14 +1037,14 @@ func (app *chat) send(text string) {
 	app.sent++
 	app.tool, app.reply = tool, reply
 	app.streaming = true
-	app.status = "正在生成…"
+	app.status = tr("正在生成…")
 
 	if app.engine != nil {
 		app.sendReal(text, reply)
 		return
 	}
 
-	src := cannedReplies[(app.sent-1)%len(cannedReplies)]
+	src := localizedReply((app.sent - 1) % len(cannedReplies))
 	if app.win == nil || app.instant {
 		app.finish(src)
 		return
@@ -1221,7 +1223,7 @@ func (app *chat) onEngineEvent(kind string, raw json.RawMessage) {
 func (app *chat) onEngineClose(err error) {
 	apply := func() {
 		app.engineDisconnected = true
-		app.status = "引擎连接已断开"
+		app.status = tr("引擎连接已断开")
 	}
 	if app.win == nil {
 		apply()
@@ -1311,14 +1313,14 @@ func (app *chat) applyApprovalNotice(text string) {
 			args = "(no arguments)"
 		}
 		app.approval = &approval{id: id, name: tool, args: args}
-		app.status = "需要批准: " + tool
+		app.status = tr("需要批准: ") + tool
 	case "resolved":
 		if app.approval != nil && (app.approval.id == id || app.approval.name == tool) {
 			app.approval = nil
 		}
-		status, note := "done", "✓ 已允许 "+tool
+		status, note := "done", tr("✓ 已允许 ")+tool
 		if !granted {
-			status, note = "failed", "✗ 已拒绝 "+tool
+			status, note = "failed", tr("✗ 已拒绝 ")+tool
 		}
 		app.next++
 		app.messages = append(app.messages, &message{
@@ -1347,7 +1349,7 @@ func (app *chat) finish(src string) {
 	}
 	app.streaming = false
 	app.reply, app.tool = nil, nil
-	app.status = "已完成"
+	app.status = tr("已完成")
 	// demo 审批只属于预设回退。真实 engine
 	// 通过其自己的传输处理审批，而非通过假提示。
 	if app.engine == nil && app.sent == 1 {
@@ -1384,7 +1386,7 @@ func (app *chat) stop() {
 	}
 	app.streaming = false
 	app.reply, app.tool = nil, nil
-	app.status = "已停止"
+	app.status = tr("已停止")
 }
 
 // undo 把最近的回合作为一个整体移除：用户消息、其助手
@@ -1404,12 +1406,12 @@ func (app *chat) undo() {
 		}
 	}
 	if start < 0 {
-		app.status = "没有可撤销的消息"
+		app.status = tr("没有可撤销的消息")
 		return
 	}
 	app.messages = app.messages[:start]
 	app.approval = nil
-	app.status = "已撤销上一轮"
+	app.status = tr("已撤销上一轮")
 }
 
 // retry 在丢弃最近回合后重发最近的用户提示，使
@@ -1417,25 +1419,25 @@ func (app *chat) undo() {
 // 尚未提问任何内容时它是空操作。
 func (app *chat) retry() {
 	if app.streaming {
-		app.status = "正在生成，无法重试"
+		app.status = tr("正在生成，无法重试")
 		return
 	}
 	prompt := app.lastPrompt
 	if prompt == "" {
-		app.status = "没有可重试的消息"
+		app.status = tr("没有可重试的消息")
 		return
 	}
 	app.undo()
-	app.status = "已重试上一轮"
+	app.status = tr("已重试上一轮")
 	app.send(prompt)
 }
 
 func (app *chat) toggleTheme() {
 	app.light = !app.light
 	if app.light {
-		app.status = "已切换到浅色主题"
+		app.status = tr("已切换到浅色主题")
 	} else {
-		app.status = "已切换到深色主题"
+		app.status = tr("已切换到深色主题")
 	}
 }
 
@@ -1460,20 +1462,20 @@ func (app *chat) answerApproval(allow bool) {
 		call = app.engine.call
 	}
 	if _, err := call("approval.answer", map[string]any{"id": ap.id, "granted": allow}); err != nil {
-		app.status = "审批回应失败：" + engineErrorNotice(err)
+		app.status = tr("审批回应失败：") + engineErrorNotice(err)
 		return
 	}
 	app.approval = nil
-	app.status = "已响应，等待引擎确认"
+	app.status = tr("已响应，等待引擎确认")
 }
 
 // recordApprovalResult 为 demo 审批追加本地工具结果行，
 // 那里没有 engine 参与且决定是最终的。
 func (app *chat) recordApprovalResult(name string, allow bool) {
 	app.next++
-	status, text := "done", "✓ 已允许 "+name
+	status, text := "done", tr("✓ 已允许 ")+name
 	if !allow {
-		status, text = "failed", "✗ 已拒绝 "+name
+		status, text = "failed", tr("✗ 已拒绝 ")+name
 	}
 	app.messages = append(app.messages, &message{
 		id: app.next, kind: msgTool, name: name, text: text, status: status, done: true,
@@ -1492,9 +1494,11 @@ func (app *chat) newSession() {
 	app.reply, app.tool = nil, nil
 	app.lastPrompt = "" // a fresh session must not replay the previous one's prompt
 	app.selectedSession = ""
-	app.status = "已新建会话"
+	app.status = tr("已新建会话")
 }
 
+// demo 预设回复保持中文原文；英文版在 locale.go 中一一对应，发送时按
+// configureLocale 的结果选择，避免包级变量在 init 时固化错误语言。
 var cannedReplies = []string{
 	"## 已经处理好了\n\n我读懂了你的问题。这是一条 **原生 Markdown** 回复：\n\n" +
 		"- 支持列表\n- 支持 `代码` 与[链接](https://example.com)\n\n" +
@@ -1505,7 +1509,11 @@ var cannedReplies = []string{
 }
 
 func main() {
-	app := &chat{status: "就绪", nav: "聊天"}
+	app := &chat{status: tr("就绪"), nav: "聊天"}
+
+	// 原生文案本地化 opt-in：只有 ARGENT_LOCALE 显式请求 en-US 才切英文，
+	// 默认（空/中文/其他值）保留硬编码中文，行为逐字节不变。
+	configureLocale(os.Getenv)
 
 	// 审批卡 diff 展示 opt-in：只有 ARGENT_NATIVE_APPROVAL_DIFF=1 才开启，
 	// 让现有的 golden/截图语义在默认情况下保持不变。
@@ -1522,7 +1530,7 @@ func main() {
 			log.Printf("native: engine bridge unavailable: %v (using demo mode)", err)
 		} else {
 			app.engine = b
-			app.status = "已连接引擎"
+			app.status = tr("已连接引擎")
 			// engine 崩溃/EOF 时由 readLoop 通知，状态栏随之切到断连态，
 			// 避免窗口仍显示绿色"已连接"而用户继续输入才收到失败。
 			b.setCloseHandler(app.onEngineClose)

@@ -244,9 +244,9 @@ func buildApprovalPreview(stats []summaryFileStat) string {
 			b.WriteByte('\n')
 		}
 		if i == approvalDiffMaxPreviewLines-1 && len(stats) > approvalDiffMaxPreviewLines {
-			b.WriteString("… 还有 ")
+			b.WriteString(tr("… 还有 "))
 			b.WriteString(strconv.Itoa(len(stats) - i))
-			b.WriteString(" 个文件")
+			b.WriteString(tr(" 个文件"))
 			break
 		}
 		path := st.path
@@ -316,5 +316,5 @@ func renderApprovalSummary(s approvalSummary) string {
 	if s.empty() {
 		return ""
 	}
-	return fmt.Sprintf("diff：%d 个文件，+%d/-%d 行", s.FilesChanged, s.LinesAdded, s.LinesRemoved)
+	return fmt.Sprintf(tr("diff：%d 个文件，+%d/-%d 行"), s.FilesChanged, s.LinesAdded, s.LinesRemoved)
 }
