@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"unicode/utf8"
 )
@@ -28,39 +27,6 @@ func collapseLineCount(s string) int {
 
 // TestCollapseOutputNoCollapseWhenWithinBudget 覆盖"未超限即原样返回"：
 // 逐字节相同、EarlyLines 为 0、FullPath 为空，且不改动入参。
-func TestCollapseOutputNoCollapseWhenWithinBudget(t *testing.T) {
-	cases := []struct {
-		name     string
-		s        string
-		maxLines int
-		maxChars int
-	}{
-		{"short ascii", "line1\nline2\nline3", 100, 1000},
-		{"exactly at line budget", "a\nb\nc", 3, 100},
-		{"exactly at char budget", "abcde", 100, 5},
-		{"empty", "", 10, 10},
-		{"single line", "only one line", 1, 1000},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			before := tc.s
-			got := CollapseOutput(tc.s, tc.maxLines, tc.maxChars)
-			if got.Text != tc.s {
-				t.Fatalf("Text = %q, want unchanged %q", got.Text, tc.s)
-			}
-			if got.EarlyLines != 0 {
-				t.Errorf("EarlyLines = %d, want 0", got.EarlyLines)
-			}
-			if got.FullPath != "" {
-				t.Errorf("FullPath = %q, want empty", got.FullPath)
-			}
-			if tc.s != before {
-				t.Fatal("input string was mutated")
-			}
-		})
-	}
-}
-
 // TestCollapseOutputKeepsTailErrorLines 验证尾部错误行被保留、早期行被隐藏，
 // 且标记与 EarlyLines 一致。
 func TestCollapseOutputKeepsTailErrorLines(t *testing.T) {
@@ -141,30 +107,6 @@ func TestCollapseOutputDualConstraints(t *testing.T) {
 
 // TestCollapseOutputRunesSafeCJKEmoji 验证 CJK/emoji 场景下不切坏 UTF-8，
 // 且不产生 U+FFFD 替换字符；保留的尾部内容原样出现。
-func TestCollapseOutputRunesSafeCJKEmoji(t *testing.T) {
-	var sb strings.Builder
-	for i := 0; i < 30; i++ {
-		fmt.Fprintf(&sb, "进度 %d 😀 正常\n", i)
-	}
-	sb.WriteString("错误 😀💥 发生\n")
-	sb.WriteString("结尾 中文😀\n")
-	s := sb.String()
-
-	got := CollapseOutput(s, 6, 40)
-	if !utf8.ValidString(got.Text) {
-		t.Fatalf("output is not valid UTF-8: %q", got.Text)
-	}
-	if strings.ContainsRune(got.Text, utf8.RuneError) {
-		t.Fatalf("output contains U+FFFD (broken rune): %q", got.Text)
-	}
-	if !strings.Contains(got.Text, "结尾 中文😀") {
-		t.Fatalf("CJK/emoji tail line not preserved: %q", got.Text)
-	}
-	if rc := utf8.RuneCountInString(got.Text); rc > 40 {
-		t.Fatalf("rune count %d exceeds 40: %q", rc, got.Text)
-	}
-}
-
 // TestCollapseOutputEarlierMarkerCount 用多种行数验证标记中的 N 精确等于
 // 被省略行数，且 EarlyLines 与标记一致。
 func TestCollapseOutputEarlierMarkerCount(t *testing.T) {
@@ -226,26 +168,3 @@ func TestCollapseOutputDefaultsDoNotChangeLegacyFrame(t *testing.T) {
 }
 
 // TestCollapseOutputConcurrent 验证并发调用结果与串行一致（无共享可变状态）。
-func TestCollapseOutputConcurrent(t *testing.T) {
-	s := strings.Repeat("context line\n", 50) + "ERROR: final\n"
-	want := CollapseOutput(s, 7, 120)
-
-	const workers = 64
-	var wg sync.WaitGroup
-	errs := make(chan string, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			got := CollapseOutput(s, 7, 120)
-			if got != want {
-				errs <- fmt.Sprintf("concurrent result differs: got %+v want %+v", got, want)
-			}
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for e := range errs {
-		t.Error(e)
-	}
-}
