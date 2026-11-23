@@ -523,8 +523,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		chain.Approver = approver
 		chain.EnableStagedApproval(true)
 	}
-	// 审计命令脱敏（opt-in ARGENT_AUDIT_SANITIZE，默认关闭）：用 bash 的
-	// SanitizeForLog 在写入前脱敏审计 reason 中的 VAR=值/口令状串。
+	// 审计命令脱敏（默认开启，守护「脱敏先于审计写入」不变量；仅
+	// ARGENT_AUDIT_SANITIZE=0 紧急回退）：用 bash 的 SanitizeForLog 在写入前
+	// 脱敏审计 reason 中的 VAR=值/口令状串。
 	if auditSanitizeEnabled(stdio.Env) {
 		chain.SanitizeAudit = bash.SanitizeForLog
 	}

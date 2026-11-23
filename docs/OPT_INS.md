@@ -600,7 +600,7 @@ argentgo "你的任务"
 | `ARGENT_LSP_SANITIZE_ENV` / `ARGENT_LSP_KILL_TREE` | 分别启用 LSP 客户端的环境净化与进程树整树终止；默认关闭时按原方式拼环境、只杀直接进程。 |
 | `ARGENT_PLUGIN_OUTPUT_SCHEMA` | 默认开启时声明 OutputSchema 的插件工具输出须为合法 JSON，违反则转模型可读错误；=0 关闭时不校验，内置工具不受影响。 |
 | `ARGENT_HOOK_LIFECYCLE` | 默认开启时把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；=0 关闭时无额外 hook 调用。 |
-| `ARGENT_AUDIT_SANITIZE` | =1 时审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串；默认关闭时只走既有 RedactJSON。 |
+| `ARGENT_AUDIT_SANITIZE` | 默认开启：审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串（安全默认值，守护「脱敏先于审计写入」）；=0 时只走既有 RedactJSON。 |
 | `ARGENT_TUI_BADGE_BG` / `_INK` / `_ALT_INK` | 三者同时提供时为徽章渲染提供 hex 配色，由 `LegibleInk` 按对比度选墨色；默认未配置时帧逐字节不变。 |
 | `ARGENT_MCP_CALL_PROFILE` | =1 时声明 readOnlyHint 的 MCP 工具按每次调用注入只读 profile（拒绝修改类工具，只收紧不放宽）；默认关闭时行为不变。 |
 | `ARGENT_TELEMETRY` | =1 时用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。 |

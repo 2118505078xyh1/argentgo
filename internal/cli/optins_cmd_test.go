@@ -65,7 +65,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
-		"当前启用 60 项",
+		"当前启用 61 项",
 		"ARGENT_OPT_INS 集中注册表（15 键）：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
@@ -196,7 +196,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 59 项") || !strings.Contains(textOut, "未显式启用任何键（独立门控多数默认开启，见下表）") {
+	if !strings.Contains(textOut, "当前启用 60 项") || !strings.Contains(textOut, "未显式启用任何键（独立门控多数默认开启，见下表）") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 
@@ -207,7 +207,8 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	entries := optInsEntriesFromJSON(t, jsonOut)
 	defaultOnEnvs := map[string]bool{
 		"ARGENT_CLI_HINTS": true, "ARGENT_APPROVE_DANGER": true, "ARGENT_APPROVAL_DIFF": true,
-		"ARGENT_TUI_USAGE": true, "ARGENT_TUI_PROMPT_HISTORY": true, "ARGENT_PATH_COMPLETION": true,
+		"ARGENT_AUDIT_SANITIZE": true,
+		"ARGENT_TUI_USAGE":      true, "ARGENT_TUI_PROMPT_HISTORY": true, "ARGENT_PATH_COMPLETION": true,
 		"ARGENT_CACHE_VISIBLE": true, "ARGENT_SESSIONS_HEAD_TAIL": true, "ARGENT_APPROVAL_PREVIEW": true,
 		"ARGENT_BASH_USE_PROC":   true,
 		"ARGENT_GUIDANCE_DEDUPE": true, "ARGENT_SUMMARY_EMPTY_RETRY": true, "ARGENT_ACP_DECODE": true,

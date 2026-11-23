@@ -91,7 +91,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "lsp_kill_tree", Env: "ARGENT_LSP_KILL_TREE", Name: "LSP 整树终止", Enable: "=1", Desc: "关闭语言服务器时终止整棵进程树，避免孙进程变孤儿；默认关闭时只杀直接进程。"},
 	{Key: "plugin_output_schema", Env: "ARGENT_PLUGIN_OUTPUT_SCHEMA", Name: "插件输出 schema 校验", Enable: "默认开，=0 关闭", Desc: "声明 OutputSchema 的插件工具输出必须是合法 JSON，违反时转成模型可读错误；=0 关闭时不校验，内置工具不受影响。"},
 	{Key: "hook_lifecycle", Env: "ARGENT_HOOK_LIFECYCLE", Name: "生命周期 hook 事件", Enable: "默认开，=0 关闭", Desc: "把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；=0 关闭时无额外 hook 调用。"},
-	{Key: "audit_sanitize", Env: "ARGENT_AUDIT_SANITIZE", Name: "审计命令脱敏", Enable: "=1", Desc: "审计日志写入前用 bash.SanitizeForLog 脱敏 reason 中的 VAR=值/口令状串；默认关闭时只走既有 RedactJSON。"},
+	{Key: "audit_sanitize", Env: "ARGENT_AUDIT_SANITIZE", Name: "审计命令脱敏", Enable: "默认开，=0 关闭", Desc: "审计日志写入前用 bash.SanitizeForLog 脱敏 reason 中的 VAR=值/口令状串（安全默认值，守护脱敏先于审计写入）；=0 时只走既有 RedactJSON。"},
 	{Key: "tui_badge_contrast", Env: "ARGENT_TUI_BADGE_BG", Name: "TUI 徽章对比度", Enable: "三个 BADGE_* env 同时提供", Desc: "为自定义主题提供徽章 hex 配色（背景/墨色/备选墨色），由 LegibleInk 选可读墨色；默认未配置时帧逐字节不变。"},
 	{Key: "mcp_call_profile", Env: "ARGENT_MCP_CALL_PROFILE", Name: "MCP 每次调用权限 profile", Enable: "=1", Desc: "声明 readOnlyHint 的 MCP 工具按每次调用注入只读 profile，拒绝修改类工具（只收紧不放宽）；默认关闭时行为不变。"},
 	{Key: "telemetry", Env: "ARGENT_TELEMETRY", Name: "类型化观测", Enable: "=1", Desc: "用统一 Span/Counter/Histogram 契约记录每轮时间；默认使用零分配 NOOP，事件/日志/会话字节不变。"},
