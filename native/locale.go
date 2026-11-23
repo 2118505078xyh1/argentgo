@@ -202,6 +202,10 @@ var nativeEnglish = map[string]string{
 	"待办步骤":              "Pending steps",
 	"该面板尚未实现。":          "This panel is not implemented yet.",
 	"敬请期待":              "Coming soon",
+	"演示模式 · 未连接到引擎 · 回复与会话不会保存":                     "Demo mode · not connected to engine · replies and sessions are not saved",
+	"演示模式：未连接到引擎，回复与会话为示例数据，不会保存。":                  "Demo mode: not connected to engine; replies and sessions are sample data and will not be saved.",
+	"请从与引擎相同的发布包启动 argentgo-native，或设置 ARGENT_EXE。": "Launch argentgo-native from the same release package as the engine, or set ARGENT_EXE.",
+	"若尚未配置模型凭据，可运行 argentgo login 或在设置中填写。":         "If no model credentials are configured yet, run argentgo login or fill them in Settings.",
 }
 
 // cannedRepliesEN 是 main.go 中 demo 预设回复的英文版，索引一一对应。

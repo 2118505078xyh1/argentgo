@@ -905,6 +905,15 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 			})
 		})
 
+		// 演示模式持久横幅：未连接引擎时始终可见，避免用户对着假数据工作数分钟
+		// 才发现一切不会保存。真实引擎接入后整段不渲染，帧字节不变。
+		if app.engine == nil {
+			ui.Row(c).Padding(6, 20).Background(p.accentBG).Children(func() {
+				ui.Text(c, tr("演示模式 · 未连接到引擎 · 回复与会话不会保存")).
+					FontSize(12).TextColor(p.warn)
+			})
+		}
+
 		// 审批栏。
 		if app.approval != nil {
 			app.approvalView(c, p)
@@ -922,8 +931,17 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 					ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
 					ui.Text(c, tr("有什么可以帮你？")).FontSize(28).Bold().TextColor(p.strong)
 					ui.Text(c, tr("问点什么，或者输入 / 看命令。")).FontSize(14).TextColor(p.dim)
-					ui.Text(c, tr("首次使用请在终端运行 argentgo login 配置模型凭据。")).
-						FontSize(12).TextColor(p.dim)
+					// 未连接引擎时给明确横幅，不用假会话/假回复冒充真实结果；
+					// 真实模式下给 GUI 内的配置引导，不把用户往外赶。
+					if app.engine == nil {
+						ui.Text(c, tr("演示模式：未连接到引擎，回复与会话为示例数据，不会保存。")).
+							FontSize(12).TextColor(p.warn)
+						ui.Text(c, tr("请从与引擎相同的发布包启动 argentgo-native，或设置 ARGENT_EXE。")).
+							FontSize(12).TextColor(p.dim)
+					} else {
+						ui.Text(c, tr("若尚未配置模型凭据，可运行 argentgo login 或在设置中填写。")).
+							FontSize(12).TextColor(p.dim)
+					}
 					// 示例 prompt：点一下即种入输入框，用户零选择即可上手。
 					ui.Text(c, tr("试试这样问：")).FontSize(12).Bold().TextColor(p.dim)
 					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
