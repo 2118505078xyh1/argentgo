@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
@@ -55,6 +56,10 @@ type sessionCompactor struct {
 
 	// env 由 Execute 注入，供压缩期读取 opt-in 开关；nil 时所有 opt-in 关闭。
 	env func(string) string
+
+	// summaryTools 是上次请求的工具表，供 #2 前缀复用原样回放以命中 KV 缓存。
+	// 零值时仍复用 system/折叠区消息前缀，仅工具表不回放（等价于回落）。
+	summaryTools []llm.ToolSpec
 }
 
 func newSessionCompactor(res Resolved, sess *session.Session) *sessionCompactor {
@@ -299,6 +304,164 @@ func attachCompactionArchive(sess *session.Session, compaction *session.Compacti
 	return session.CompactionArchivePath(sess.Dir(), id)
 }
 
+// ---------------------------------------------------------------------------
+// 压缩模型补全的默认增强（#1/#2/#4/#5/#7）。全部默认开启；环境变量只作 =0 回退，
+// 不新增 opt-in 开关。model_summary 自身的门控保持原样（需 secondary-model）。
+// ---------------------------------------------------------------------------
+
+// envOff 报告某个增强的环境变量是否被显式设为 "0"（唯一回退形式）。
+func envOff(env func(string) string, key string) bool {
+	return env != nil && strings.TrimSpace(env(key)) == "0"
+}
+
+// postShrinkGuardEnabled / prefixReuseEnabled / agenticFoldEnabled 分别对应 #1/#2/#4，
+// 默认 true；只有显式 "=0" 才关闭。
+func postShrinkGuardEnabled(env func(string) string) bool {
+	return !envOff(env, "ARGENT_COMPACTION_POST_SHRINK_GUARD")
+}
+
+func compactionPrefixReuseEnabled(env func(string) string) bool {
+	return !envOff(env, "ARGENT_COMPACTION_PREFIX_REUSE")
+}
+
+func agenticFoldEnabled(env func(string) string) bool {
+	return !envOff(env, "ARGENT_COMPACTION_AGENTIC_FOLD")
+}
+
+// modelSummaryBudget 复用消息投影预算（ARGENT_BUDGET_PROJECTION_BUDGET / 默认 32000）
+// 作为 agentic 折叠的模型输入 rune 上限。
+func modelSummaryBudget(env func(string) string) int {
+	if env != nil {
+		if raw := strings.TrimSpace(env("ARGENT_BUDGET_PROJECTION_BUDGET")); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return 32000
+}
+
+// leadingSystemMessages 取开头连续的 system 消息，逐字节复用为请求前缀。
+// 只取连续段，避免跳过中间的 user 消息而改变原请求的真实顺序。
+func leadingSystemMessages(messages []llm.Message) []llm.Message {
+	out := make([]llm.Message, 0, 1)
+	for _, m := range messages {
+		if !strings.EqualFold(strings.TrimSpace(m.Role), "system") {
+			break
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// recordCompactionUsage 把一次压缩补全的真实用量即时入账（含失败路径）：
+// 逐请求事实写 usage 记录，汇总增量写 stats 记录，因此 session.AggregateStats 与
+// --tokens / 预算统计都能看到原本绕过 agent.account() 的这部分成本。不改 agent 接口。
+func (c *sessionCompactor) recordCompactionUsage(u llm.Usage) {
+	if c == nil || c.sess == nil || u.TotalTokens() <= 0 {
+		return
+	}
+	_ = c.sess.AppendUsage(session.UsageRecord{
+		Model: c.summaryModel, Input: u.PromptTokens, Output: u.CompletionTokens, Cached: u.CachedTokens,
+	})
+	_ = c.sess.AppendStats(session.SessionStats{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		CachedTokens:     u.CachedTokens,
+		Calls:            1,
+	})
+}
+
+// applyModelSummaryEnhanced 是 #2/#4/#5/#7 的统一接线点，替代旧的 applyModelSummaryWire：
+//   - #4 只把上次摘要之后的新消息喂给模型，切点对齐 assistant/typed-user 边界；
+//   - #2 复用原 system 与折叠区消息作 KV 缓存前缀，工具表原样回放，上限 200 条/32 KiB；
+//   - #5 模板解析失败时由 GenerateModelSummaryFromMessages 最多 NUDGE 重试 1 次；
+//   - #7 每次调用都发 EventUsage 并累加进 session stats（含失败路径）。
+//
+// 任何失败都回落抽取式摘要，绝不覆盖 files/failures 权威字段。
+func (c *sessionCompactor) applyModelSummaryEnhanced(extractive string, messages []llm.Message, start int, dropped []session.Entry, failures, nextSteps, files []string) string {
+	if c == nil || !modelSummaryEnabled(c.reg) || strings.TrimSpace(c.summaryModel) == "" || c.chatter == nil || c.ctx == nil {
+		return extractive
+	}
+	// 本地裁剪优先：省够时跳过模型调用（省一次成本，沿用已有原语）。
+	if shouldSkipModelSummaryForLocalTrim(dropped, c.res.Cfg.Raw, c.reg) {
+		return extractive
+	}
+	in := ModelSummaryInput{
+		Extractive: extractive, Failures: failures, NextSteps: nextSteps, Files: files, MaxChars: 8000,
+	}
+	var sumMessages []llm.Message
+	var tools []llm.ToolSpec
+	ok := false
+	if compactionPrefixReuseEnabled(c.env) {
+		lo, hi, windowOK := 0, start, false
+		if agenticFoldEnabled(c.env) {
+			lo, hi, windowOK = AgenticSummaryWindow(messages, start, modelSummaryBudget(c.env))
+		} else {
+			lo, hi, windowOK = 0, start, true
+		}
+		if !windowOK {
+			lo, hi = 0, start // 回落：仍复用从 system 起的完整前缀
+		}
+		if hi > len(messages) {
+			hi = len(messages)
+		}
+		sumMessages, tools, ok = BuildSummaryMessagesWithPrefix(in, ModelSummaryPrefix{
+			SystemMessages: leadingSystemMessages(messages),
+			FoldedMessages: messages[lo:hi],
+			Tools:          c.summaryTools,
+		})
+	}
+	if !ok {
+		system, user := BuildSummaryPrompt(in)
+		sumMessages = []llm.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		}
+	}
+	ctx2, cancel := context.WithTimeout(c.ctx, modelSummaryTimeout*2) // 留出 NUDGE 重试时间
+	defer cancel()
+
+	narrative, steps, usages, err := GenerateModelSummaryFromMessages(ctx2, c.chatter, c.summaryModel, sumMessages, tools)
+	// 每次调用即时计费：EventUsage 供 TUI/usage 可见，session stats 供预算/--tokens 对齐。
+	var total llm.Usage
+	for _, u := range usages {
+		total.PromptTokens += u.PromptTokens
+		total.CompletionTokens += u.CompletionTokens
+		total.CachedTokens += u.CachedTokens
+		total.CacheWriteTokens += u.CacheWriteTokens
+		if c.emit != nil {
+			c.emit(agent.Event{Kind: agent.EventUsage, Usage: u, TotalUsage: u})
+		}
+	}
+	c.recordCompactionUsage(total)
+	if err != nil {
+		return extractive
+	}
+	out := ApplyModelSummary(extractive, narrative, steps)
+	if out == extractive {
+		return extractive
+	}
+	return out
+}
+
+// postShrinkDecision 是 #1 的事后缩减守卫纯判定：
+//   - after 仍严格小于 before：原样放行；
+//   - 不再小于：先剥掉模型叙事段，若剥完的视图估算（afterStrip）已变小则回落权威抽取式；
+//   - 剥完仍不小：放弃本次压缩，由调用方发 EventNotice 并保留原对话。
+//
+// 全部参数由调用方用 agent.EstimateMessages 计算，函数本身只比较，便于表驱动测试。
+func postShrinkDecision(before, after, afterStrip int, summary string) (newSummary string, proceed bool) {
+	if after < before {
+		return summary, true
+	}
+	stripped := StripModelNarrative(summary)
+	if stripped != summary && afterStrip < before {
+		return stripped, true
+	}
+	return summary, false
+}
+
 // MaybeCompact 把对话中较旧的部分折叠为一条会话压缩记录，并返回供下一次请求使用的折叠视图。
 // 窗口是 agent 提供的 0.8 带目标；切点由该 token 预算推导，而非固定的消息数量。
 func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]llm.Message, bool) {
@@ -367,7 +530,8 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	// 事后缩减检查（gptme hook.py）：如果折叠后的视图没有明显变小，
 	// 压缩只会使提示缓存失效并丢失原文上下文。这种情况下让对话保持原样，
 	// 且不写入压缩记录，使后续轮次能用更多历史再试。
-	if !compactionWorthwhile(int64(agent.EstimateMessages(messages)), int64(agent.EstimateMessages(out))) {
+	beforeEstimate := agent.EstimateMessages(messages)
+	if !compactionWorthwhile(int64(beforeEstimate), int64(agent.EstimateMessages(out))) {
 		return messages, false
 	}
 	// 选择性启用的无损归档。只有在确定会追加压缩记录时才写入，
@@ -377,13 +541,31 @@ func (c *sessionCompactor) MaybeCompact(messages []llm.Message, window int) ([]l
 	}
 	// 该通知是摘要的一部分，因此把它镜像到下一次请求看到的折叠视图中。
 	// 归档禁用时为空操作。
-	// 模型摘要（opt-in）在归档之后、视图镜像之前应用，确保归档 notice 始终位于
-	// 权威内容里；默认关闭时 applyModelSummaryWire 原样返回，逐字节不变。
-	// 本地裁剪优先（opt-in 默认关）在模型调用前估算 dropped 条目的裁剪收益，
-	// 已省够时直接跳过模型摘要，省一次模型成本。
-	compaction.Summary = applyModelSummaryWireWithLocalTrim(compaction.Summary, entries[:start], c.res.Cfg.Raw, c.reg,
-		c.ctx, c.chatter, c.summaryModel, compaction.Failures, compaction.NextSteps, compaction.Files, c.emit)
+	// 模型摘要增强（默认开启，=0 回退）在归档之后、视图镜像之前应用，确保归档 notice
+	// 始终位于权威内容里；model_summary 未开启或 secondary-model 为空时原样返回。
+	compaction.Summary = c.applyModelSummaryEnhanced(compaction.Summary, messages, start, entries[:start],
+		compaction.Failures, compaction.NextSteps, compaction.Files)
 	out[0].Content = compaction.Summary
+	// #1 事后缩减守卫：叙事段可能把已通过 10% 门槛的摘要撑回原体积。写回后二次估算，
+	// 不再小于原视图时先剥掉模型叙事段（保留权威抽取式）；仍失败则放弃压缩并公告。
+	if postShrinkGuardEnabled(c.env) {
+		after := agent.EstimateMessages(out)
+		afterStrip := after
+		if stripped := StripModelNarrative(compaction.Summary); stripped != compaction.Summary {
+			out[0].Content = stripped
+			afterStrip = agent.EstimateMessages(out)
+			out[0].Content = compaction.Summary
+		}
+		summary, proceed := postShrinkDecision(beforeEstimate, after, afterStrip, compaction.Summary)
+		if !proceed {
+			if c.emit != nil {
+				c.emit(agent.Event{Kind: agent.EventNotice, Text: "压缩已放弃：模型叙事追加后摘要未变小，保留原对话"})
+			}
+			return messages, false
+		}
+		compaction.Summary = summary
+		out[0].Content = summary
+	}
 	if err := c.sess.Append(session.KindCompaction, compaction); err != nil {
 		return messages, false
 	}

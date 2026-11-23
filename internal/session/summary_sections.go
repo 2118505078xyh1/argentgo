@@ -2,6 +2,32 @@ package session
 
 import "strings"
 
+// preservedSectionMaxRunes 是合并回重建摘要时单段的最大 rune 数。多轮压缩中早期
+// Goal / Tool activity 会像滚雪球一样永久保留，因此合并前先有界裁剪：新历史优先，
+// 旧章节只保留开头一部分，超出部分用一个有界标记替代（CJK 安全，按 rune 切）。
+const preservedSectionMaxRunes = 2048
+
+// legacySectionMarkers 是早期模板留下的格式化标记。命中时按新详略级别重写一次，
+// 把逐文件 changelog / 复述的 AGENTS.md 等过时细节折叠掉，避免它们跨多轮永久携带。
+var legacySectionMarkers = []string{
+	"### ",           // 早期按文件/按次 edit 拆出的三级标题
+	"AGENTS.md",      // 复述的规则文件内容
+	"CLAUDE.md",      // 同上
+	"[checkpoint",    // 逐文件快照标记
+	"Checkpoint:",    // 同上（英文写法）
+	"## Changelog",   // 逐次编辑流水
+	"changelog:",     // 同上
+	"edit #",         // 逐次 edit 计数
+	"2024-", "2025-", // 早期带日期的流水行
+}
+
+const (
+	legacySectionKeepRunes = 512 // 重写后保留的正文上限
+	legacySectionKeepLines = 8   // 重写后保留的正文行数上限
+	legacySectionNotice    = "\n- [旧章节已收敛：新历史优先，过时细节已折叠]\n"
+	trimmedSectionNotice   = "\n- [章节已按 2048 rune 上限裁剪]\n"
+)
+
 // SummarySections 是从压缩摘要中解析出的两个易丢失章节：目标（Goal）与工具活动（Tool activity）。
 //
 // Goal / ToolActivity 保存完整的章节块——含 "## ..." 标题行、其后直到下一个标题行之前的
@@ -69,12 +95,98 @@ func PreserveSections(rebuilt, orig string) string {
 	}
 	result := rebuilt
 	if origSections.HasGoal {
-		result = mergeSummarySection(result, summaryGoalTitle, origSections.Goal)
+		result = mergeSummarySection(result, summaryGoalTitle, boundPreservedSection(origSections.Goal))
 	}
 	if origSections.HasActivity {
-		result = mergeSummarySection(result, summaryActivityTitle, origSections.ToolActivity)
+		result = mergeSummarySection(result, summaryActivityTitle, boundPreservedSection(origSections.ToolActivity))
 	}
 	return result
+}
+
+// boundPreservedSection 在合并前对 orig 的单段做有界收敛，遵循「新历史优先」：
+// 先检测早期模板标记并按新详略级别重写一次，再按 preservedSectionMaxRunes 裁剪。
+// 两段都只在超出上界/命中 legacy 标记时改变，短章节逐字节保留。函数幂等：
+// 重写/裁剪生成的标记行会被识别，重复调用不会再次叠加。
+func boundPreservedSection(block string) string {
+	if block == "" {
+		return block
+	}
+	block = rewriteLegacySummarySection(block)
+	return capSummarySection(block, preservedSectionMaxRunes)
+}
+
+// rewriteLegacySummarySection 把命中早期格式化标记的章节折叠为新详略级别：
+// 保留标题行与开头少量仍有信息量的正文，其余以一条有界提示替代。新历史（rebuilt）
+// 会覆盖旧章节，因此这里刻意不保留逐文件 changelog / 复述的规则文件全文。
+func rewriteLegacySummarySection(block string) string {
+	if !hasLegacySectionMarker(block) || strings.Contains(block, legacySectionNotice) {
+		return block
+	}
+	lines := strings.Split(strings.TrimRight(block, "\n"), "\n")
+	if len(lines) == 0 {
+		return block
+	}
+	heading := lines[0]
+	used := len([]rune(heading))
+	out := make([]string, 0, legacySectionKeepLines+2)
+	out = append(out, heading)
+	kept := 0
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if kept >= legacySectionKeepLines || used+len([]rune(line)) > legacySectionKeepRunes {
+			break
+		}
+		// 命中 legacy 标记的行是流水/复述，直接丢弃，不占保留额度。
+		if lineHasLegacyMarker(line) {
+			continue
+		}
+		out = append(out, line)
+		used += len([]rune(line))
+		kept++
+	}
+	return strings.Join(out, "\n") + legacySectionNotice
+}
+
+// hasLegacySectionMarker / lineHasLegacyMarker 报告章节（或其中一行）是否带早期模板标记。
+// 标题行本身不参与逐行匹配（例如 "## Changelog" 标题由 heading 单独判断）。
+func hasLegacySectionMarker(block string) bool {
+	for _, line := range strings.Split(block, "\n") {
+		if lineHasLegacyMarker(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func lineHasLegacyMarker(line string) bool {
+	for _, marker := range legacySectionMarkers {
+		if strings.Contains(line, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// capSummarySection 按 rune 上限裁剪单个章节：只保留开头的完整行，超出部分用一条
+// 有界提示替代。已带裁剪提示的块原样返回，保证幂等；短块原样返回，逐字节不变。
+func capSummarySection(block string, maxRunes int) string {
+	if maxRunes <= 0 || len([]rune(block)) <= maxRunes || strings.Contains(block, trimmedSectionNotice) {
+		return block
+	}
+	lines := strings.Split(strings.TrimRight(block, "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	used := 0
+	for _, line := range lines {
+		n := len([]rune(line)) + 1 // +1 为行尾换行
+		if len(out) > 0 && used+n > maxRunes {
+			break
+		}
+		out = append(out, line)
+		used += n
+	}
+	return strings.Join(out, "\n") + trimmedSectionNotice
 }
 
 // mergeSummarySection 将单个章节块合并进 text：已有同名章节则整段替换，否则追加到末尾。

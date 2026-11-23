@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/2118505078xyh1/argentgo/internal/agent"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 )
 
@@ -270,32 +271,11 @@ func GenerateModelSummaryWithUsage(ctx context.Context, chatter llm.Chatter, mod
 		{Role: "system", Content: system},
 		{Role: "user", Content: user},
 	}
-
-	var streamed strings.Builder
-	reply, err := chatter.Chat(ctx, model, messages, nil, func(chunk string) {
-		streamed.WriteString(chunk)
-	})
+	narrative, steps, usages, err := GenerateModelSummaryFromMessages(ctx, chatter, model, messages, nil)
+	// 失败路径也返回已产生的用量，供调用方即时入账（含 NUDGE 重试）。
+	u = sumModelSummaryUsage(usages)
 	if err != nil {
-		return "", nil, zero, err
-	}
-
-	text := reply.Content
-	if strings.TrimSpace(text) == "" {
-		text = streamed.String()
-	}
-	narrative, steps, ok := ParseModelSummary(text)
-	if !ok {
-		return "", nil, zero, fmt.Errorf("model summary: invalid or empty JSON reply")
-	}
-
-	// 只解构计费相关字段；reply.Usage 为 nil 时保持零值，绝不伪造用量。
-	if reply.Usage != nil {
-		u = llm.Usage{
-			PromptTokens:     reply.Usage.PromptTokens,
-			CompletionTokens: reply.Usage.CompletionTokens,
-			CachedTokens:     reply.Usage.CachedTokens,
-			CacheWriteTokens: reply.Usage.CacheWriteTokens,
-		}
+		return "", nil, u, err
 	}
 	return narrative, steps, u, nil
 }
@@ -311,4 +291,258 @@ func GenerateModelSummaryWithUsage(ctx context.Context, chatter llm.Chatter, mod
 func GenerateModelSummary(ctx context.Context, chatter llm.Chatter, model string, in ModelSummaryInput) (narrative string, steps []string, err error) {
 	narrative, steps, _, err = GenerateModelSummaryWithUsage(ctx, chatter, model, in)
 	return narrative, steps, err
+}
+
+// ---------------------------------------------------------------------------
+// 默认开启的压缩增强（#1/#2/#4/#5/#7）：
+//   - 前缀复用上限 200 条 / 32 KiB，保住上次请求的 KV 缓存前缀；
+//   - 模板解析失败且 ctx 仍活时最多 NUDGE 重试 1 次；
+//   - 每次调用的用量都返回，调用方据此发 EventUsage 并计入 session stats（含失败路径）。
+//
+// 全部为纯函数或显式依赖注入函数；不读取进程环境，关闭回退只由调用点在 env 层处理。
+// ---------------------------------------------------------------------------
+
+const (
+	// modelSummaryPrefixMaxMessages 是复用请求前缀的消息条数上限（含 system 与末条指令）。
+	modelSummaryPrefixMaxMessages = 200
+	// modelSummaryPrefixMaxBytes 是复用请求前缀的 rune 预算（32 KiB，按 rune 而非字节，CJK 安全）。
+	modelSummaryPrefixMaxBytes = 32 * 1024
+	// modelSummaryMaxNUDGE 是模板校验失败后的最大重试次数。
+	modelSummaryMaxNUDGE = 1
+)
+
+// modelSummaryNudge 是解析失败后追加的精简提醒，只纠正输出格式，不重述整段提示。
+const modelSummaryNudge = `Your previous reply did not follow the required JSON template. Output ONLY one JSON object with exactly the keys "goal", "narrative", and "next_steps". No prose, no markdown, no code fences.`
+
+// ModelSummaryPrefix 是复用上次请求前缀所需的只读数据。调用方从现有 messages 快照、
+// 原请求工具表与被折叠区消息构造；零值表示没有可复用前缀，构造函数返回 ok=false。
+type ModelSummaryPrefix struct {
+	SystemMessages []llm.Message
+	FoldedMessages []llm.Message
+	Tools          []llm.ToolSpec
+}
+
+// BuildSummaryMessagesWithPrefix 构造复用请求前缀的补全请求：原 system 消息 + 被折叠区
+// 消息逐字节复用作为稳定前缀，压缩指令与抽取式摘要合并成末条 user（指令随前缀之后追加，
+// 因此前面的 system/历史前缀仍然逐字一致，KV 缓存命中）。
+//
+// 上界：总消息数 <=200，前缀 rune 预算 <=32 KiB；从最旧被折叠消息开始丢弃，直到达标。
+// 没有 system、没有折叠消息、或预算连一条都放不下时返回 ok=false，调用方回落
+// BuildSummaryPrompt。工具表超过 32 KiB 时丢弃（仍可完成补全，只是少一次工具 schema 复用）。
+// 不修改任何入参切片。
+func BuildSummaryMessagesWithPrefix(in ModelSummaryInput, prefix ModelSummaryPrefix) (messages []llm.Message, tools []llm.ToolSpec, ok bool) {
+	if len(prefix.SystemMessages) == 0 || len(prefix.FoldedMessages) == 0 {
+		return nil, nil, false
+	}
+	system, user := BuildSummaryPrompt(in)
+	head := make([]llm.Message, 0, len(prefix.SystemMessages))
+	for _, m := range prefix.SystemMessages {
+		if strings.EqualFold(strings.TrimSpace(m.Role), "system") {
+			head = append(head, m)
+		}
+	}
+	if len(head) == 0 {
+		return nil, nil, false
+	}
+
+	// 从新到旧保留折叠区消息，优先保住靠近切点的上下文。
+	folded := make([]llm.Message, 0, len(prefix.FoldedMessages))
+	used := 0
+	for i := len(prefix.FoldedMessages) - 1; i >= 0; i-- {
+		m := prefix.FoldedMessages[i]
+		if len(head)+len(folded)+1 >= modelSummaryPrefixMaxMessages {
+			break
+		}
+		cost := len([]rune(m.Content)) + len([]rune(m.Reasoning)) + 16
+		for _, call := range m.ToolCalls {
+			cost += len([]rune(call.Function.Name)) + len([]rune(call.Function.Arguments)) + 8
+		}
+		if used+cost > modelSummaryPrefixMaxBytes {
+			break
+		}
+		used += cost
+		folded = append(folded, m)
+	}
+	if len(folded) == 0 {
+		return nil, nil, false
+	}
+	for i, j := 0, len(folded)-1; i < j; i, j = i+1, j-1 {
+		folded[i], folded[j] = folded[j], folded[i]
+	}
+
+	messages = make([]llm.Message, 0, len(head)+len(folded)+1)
+	messages = append(messages, head...)
+	messages = append(messages, folded...)
+	// 指令放进末条 user，system 前缀完全复用原请求，避免插入新 system 破坏缓存。
+	messages = append(messages, llm.Message{Role: "user", Content: system + "\n\n" + user})
+
+	if len(prefix.Tools) > 0 && agent.EstimateTools(prefix.Tools) <= modelSummaryPrefixMaxBytes {
+		tools = prefix.Tools
+	}
+	return messages, tools, true
+}
+
+// GenerateModelSummaryFromMessages 用调用方给定的消息/工具表发起补全；模板解析失败时
+// 若 ctx 仍存活则最多追加一次 NUDGE 重试。返回的 usages 包含每次调用解构出的用量
+// （失败与中断路径同样记账，可能为 0），供调用方即时发 EventUsage 并累加进 session stats。
+// 不修改 messages / tools 入参（NUDGE 追加在内部副本上）。
+func GenerateModelSummaryFromMessages(ctx context.Context, chatter llm.Chatter, model string, messages []llm.Message, tools []llm.ToolSpec) (narrative string, steps []string, usages []llm.Usage, err error) {
+	if chatter == nil {
+		return "", nil, nil, fmt.Errorf("no chatter configured for model summary")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	work := make([]llm.Message, len(messages))
+	copy(work, messages)
+	for attempt := 0; attempt <= modelSummaryMaxNUDGE; attempt++ {
+		if attempt > 0 {
+			if ctx.Err() != nil {
+				break
+			}
+			work = append(work, llm.Message{Role: "user", Content: modelSummaryNudge})
+		}
+		var streamed strings.Builder
+		reply, callErr := chatter.Chat(ctx, model, work, tools, func(chunk string) {
+			streamed.WriteString(chunk)
+		})
+		// 无论本轮成功、坏 JSON 还是报错都要计费：先解构用量再判断结果。
+		usages = append(usages, usageFromModelReply(reply))
+		if callErr != nil {
+			err = callErr
+			continue
+		}
+		text := reply.Content
+		if strings.TrimSpace(text) == "" {
+			text = streamed.String()
+		}
+		if n, s, ok := ParseModelSummary(text); ok {
+			return n, s, usages, nil
+		}
+		err = fmt.Errorf("model summary: invalid or empty JSON reply")
+	}
+	return "", nil, usages, err
+}
+
+// usageFromModelReply 只解构计费相关字段；reply.Usage 为 nil 时保持零值，绝不伪造用量。
+func usageFromModelReply(reply llm.Message) llm.Usage {
+	if reply.Usage == nil {
+		return llm.Usage{}
+	}
+	return llm.Usage{
+		PromptTokens:     reply.Usage.PromptTokens,
+		CompletionTokens: reply.Usage.CompletionTokens,
+		CachedTokens:     reply.Usage.CachedTokens,
+		CacheWriteTokens: reply.Usage.CacheWriteTokens,
+	}
+}
+
+// sumModelSummaryUsage 把多次调用（含 NUDGE 重试）的用量加总，供一次入账。
+func sumModelSummaryUsage(usages []llm.Usage) llm.Usage {
+	var total llm.Usage
+	for _, u := range usages {
+		total.PromptTokens += u.PromptTokens
+		total.CompletionTokens += u.CompletionTokens
+		total.CachedTokens += u.CachedTokens
+		total.CacheWriteTokens += u.CacheWriteTokens
+	}
+	return total
+}
+
+// StripModelNarrative 剥掉 ApplyModelSummary 写入的增量段，只保留权威抽取式摘要。
+// 找不到标记时原样返回（幂等）。这是 #1 事后缩减守卫的「保留权威字段」分支。
+func StripModelNarrative(summary string) string {
+	anchor := "\n" + modelSummaryMarker + "\n"
+	if idx := strings.LastIndex(summary, anchor); idx >= 0 {
+		return summary[:idx]
+	}
+	return summary
+}
+
+// latestCompactionMessageIndex 返回最后一条压缩边界系统消息的下标，找不到时 -1。
+// 与 compact.go 的 isCompactionBoundary 同口径（"## Compaction" 开头的 system 消息）。
+func latestCompactionMessageIndex(messages []llm.Message) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if isCompactionBoundary(messages[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+func isToolMessage(m llm.Message) bool {
+	switch strings.ToLower(strings.TrimSpace(m.Role)) {
+	case "tool", "tool_result", "toolresult", "function":
+		return true
+	}
+	return false
+}
+
+// isTypedUserMessage 区分「真实用户轮次」与投影成 user 的工具结果：后者带 ToolCallID。
+func isTypedUserMessage(m llm.Message) bool {
+	return strings.EqualFold(strings.TrimSpace(m.Role), "user") && m.ToolCallID == ""
+}
+
+// isAgenticFoldBoundary 报告消息是否可作为模型输入窗口的边界：assistant 或 typed user。
+// tool 结果与 system 不能作为边界，否则会拆开工具调用/结果对或漏掉规则。
+func isAgenticFoldBoundary(m llm.Message) bool {
+	return strings.EqualFold(strings.TrimSpace(m.Role), "assistant") || isTypedUserMessage(m)
+}
+
+// AgenticSummaryWindow 计算 #4 agentic 折叠的模型输入窗口 [lo, hi)：
+//   - lo 从最新摘要记录之后开始，只落在 assistant/typed user 边界，跳过 tool 结果；
+//   - hi 不超过 cut，且回退末尾 tool 结果与最近 typed user turn，避免拆对或吞掉最新用户轮次；
+//   - 用 maxRunes（复用投影预算）从旧端收缩输入，保证有界。
+//
+// 无法安全构造窗口（无摘要、窗口为空、预算不足）时返回 ok=false，调用方回落全量抽取路径。
+// maxRunes<=0 表示不限制。纯函数，不修改 messages。
+func AgenticSummaryWindow(messages []llm.Message, cut, maxRunes int) (lo, hi int, ok bool) {
+	n := len(messages)
+	if cut <= 0 || cut > n {
+		return 0, 0, false
+	}
+	latest := latestCompactionMessageIndex(messages)
+	if latest < 0 {
+		// 没有可参照的摘要记录：agentic 窗口无从确定「上次摘要之后」，回落全量路径。
+		return 0, 0, false
+	}
+	lo = latest + 1
+	if lo < 1 { // 跳过索引 0 的 system 提示
+		lo = 1
+	}
+	if lo >= cut {
+		return 0, 0, false
+	}
+	hi = cut
+	// 末尾的 tool 结果要与其 assistant 调用留在同一侧：把 hi 回退到 assistant 之前。
+	for hi > lo && isToolMessage(messages[hi-1]) {
+		hi--
+	}
+	// 不吞最近 typed user turn：把它（及其后的 tool 结果）留在折叠后的上下文里。
+	for hi > lo && isTypedUserMessage(messages[hi-1]) {
+		hi--
+		for hi > lo && isToolMessage(messages[hi-1]) {
+			hi--
+		}
+	}
+	// lo 对齐到 assistant/typed user 边界，跳过孤立的 tool/system 结果。
+	for lo < hi && !isAgenticFoldBoundary(messages[lo]) {
+		lo++
+	}
+	if lo >= hi {
+		return 0, 0, false
+	}
+	// rune 预算：从旧端收缩，每收缩一次重新对齐边界。
+	if maxRunes > 0 {
+		for lo < hi-1 && agent.EstimateMessages(messages[lo:hi]) > maxRunes {
+			lo++
+			for lo < hi && !isAgenticFoldBoundary(messages[lo]) {
+				lo++
+			}
+		}
+	}
+	if lo >= hi {
+		return 0, 0, false
+	}
+	return lo, hi, true
 }
