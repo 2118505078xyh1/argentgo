@@ -79,8 +79,8 @@ func NewRecorder(path string, cols, rows int) (*Recorder, error) {
 	return r, nil
 }
 
-// SetClock 注入时钟（测试用）；必须在首次 Write 前调用。
-func (r *Recorder) SetClock(fn func() time.Time) {
+// setClock 注入时钟（测试用）；必须在首次 Write 前调用。
+func (r *Recorder) setClock(fn func() time.Time) {
 	if fn != nil {
 		r.clock = fn
 		r.start = fn()

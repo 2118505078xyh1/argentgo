@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/tui/timeline"
 )
@@ -17,12 +18,35 @@ func runTimeline(app App, _ context.Context, args []string) int {
 		timelineUsage(app.IO.Out)
 		return 0
 	}
-	if len(args) != 2 {
+	if len(args) < 2 || (args[0] != "record" && len(args) != 2) {
 		fmt.Fprintln(app.IO.Err, "argentgo: timeline needs a subcommand and a file")
 		timelineUsage(app.IO.Err)
 		return 2
 	}
 	sub, path := args[0], args[1]
+	if sub == "record" {
+		// 录制一段文本（演示/自测）：真实 TUI 可用 timeline.NewRecorder 包装输出流。
+		text := "argentgo timeline demo frame\n"
+		if len(args) > 2 {
+			text = strings.Join(args[2:], " ") + "\n"
+		}
+		r, err := timeline.NewRecorder(path, 80, 24)
+		if err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		if _, err := r.Write([]byte(text)); err != nil {
+			r.Close()
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		if err := r.Close(); err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
+		fmt.Fprintf(app.IO.Out, "recorded %s\n", path)
+		return 0
+	}
 	p, err := timeline.Load(path)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)

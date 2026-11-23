@@ -18,7 +18,7 @@ func TestRecordAndReplay(t *testing.T) {
 	// 注入固定时钟，使 at_ms 可预测。
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := base
-	r.SetClock(func() time.Time { return now })
+	r.setClock(func() time.Time { return now })
 	r.Write([]byte("frame1"))
 	now = now.Add(100 * time.Millisecond)
 	r.Write([]byte("frame2"))
@@ -57,7 +57,7 @@ func TestRecordAndReplay(t *testing.T) {
 func TestSnapshotFinalFrame(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.timeline")
 	r, _ := NewRecorder(path, 80, 24)
-	r.SetClock(func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) })
+	r.setClock(func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) })
 	r.Write([]byte("a"))
 	r.Write([]byte("b"))
 	r.Close()
@@ -114,7 +114,7 @@ func TestRecorderMonotonicTimestamps(t *testing.T) {
 	r, _ := NewRecorder(path, 80, 24)
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := base
-	r.SetClock(func() time.Time { return now })
+	r.setClock(func() time.Time { return now })
 	r.Write([]byte("a"))
 	now = base.Add(-10 * time.Millisecond) // 时钟回拨
 	r.Write([]byte("b"))
