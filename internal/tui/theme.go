@@ -96,7 +96,7 @@ func paletteFor(name string) (Palette, error) {
 	if !ok {
 		return Palette{}, fmt.Errorf("%w: %q", ErrUnknownTheme, name)
 	}
-	return p, nil
+	return applyBadgeOverride(p), nil
 }
 
 // monochrome 去掉所有前景/背景，同时保留粗体和暗色

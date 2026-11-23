@@ -547,6 +547,7 @@ argentgo "你的任务"
 | `ARGENT_BRANCH_SUMMARY` | =1 时 Checkout 为被弃分支生成确定性摘要并追加到新活动分支，使模型知道放弃路径上做过什么；默认关闭时 checkout 与消息投影逐字节不变。 |
 | `ARGENT_READ_BEFORE_WRITE` | =1 时 read 成功后登记文件快照，edit/write 在检测到外部改动（size/modtime 变化或文件消失）时拒绝写入并提示重读；默认关闭时无账本、无检查，工具行为逐字节不变。 |
 | `ARGENT_MCP_ANNOTATION_APPROVAL` | =1 时按 MCP annotations 把声明 destructiveHint 且非 readOnly 的工具纳入强制审批（即便策略 Allow 也询问）；默认关闭时仅按工具名白名单决定审批，逐字节不变。 |
+| `ARGENT_MCP_GATEWAY` | =1 时只公布一个固定的 `mcp` 工具：`mcp(server=X)` 以文本返回该服务工具清单、`mcp(server=X,tool=Y,arguments=...)` 执行；服务首次使用时才连接，工具列表整会话不变，稳定缓存前缀。执行时派生 `mcp__server__tool` 名做只读沙箱拦截、readOnly/destructive 审批（用 per-call 链副本避免竞态），客户端按 RawName 调用。list_changed 不再重建 spec 列表。默认关闭时全部 MCP 接线逐字节不变。迁移自 killi 决策 11。 |
 | `ARGENT_EVENT_LOG` | =1 时把 hub 事件以 JSONL 落盘到存储目录，SSE 支持 `Last-Event-ID` 在超出内存回放窗口后从磁盘续放；默认关闭时纯内存、SSE 帧无 `id:`，逐字节不变。 |
 | `ARGENT_FAILURE_SIGNALS` | =1 时从工具结果与消息文本提取失败信号（is_error/非零 exit/timed out/失败词）并入压缩摘要的 Failures；默认关闭时不提取，压缩逐字节不变。 |
 | `ARGENT_SUMMARY_EMPTY_RETRY` | =1 时压缩摘要为空则少丢一条消息重算一次摘要（最多一次）；默认关闭时使用原摘要，压缩逐字节不变。 |
@@ -560,6 +561,7 @@ argentgo "你的任务"
 | `ARGENT_PLUGIN_OUTPUT_SCHEMA` | =1 时声明 OutputSchema 的插件工具输出须为合法 JSON，违反则转模型可读错误；默认关闭时不校验，内置工具不受影响。 |
 | `ARGENT_HOOK_LIFECYCLE` | =1 时把 agent 轮次边界/中断/子 agent 结束事件映射为 TurnStart/TurnEnd/Interrupt/StopFailure/SubagentStop hook；默认关闭时无额外 hook 调用。 |
 | `ARGENT_AUDIT_SANITIZE` | =1 时审计日志写入前用 `SanitizeForLog` 脱敏 reason 中的 `VAR=值`/口令状串；默认关闭时只走既有 RedactJSON。 |
+| `ARGENT_TUI_BADGE_BG` / `_INK` / `_ALT_INK` | 三者同时提供时为徽章渲染提供 hex 配色，由 `LegibleInk` 按对比度选墨色；默认未配置时帧逐字节不变。 |
 | `ARGENT_AUTO_DECIDE` | 自动决策行为；仅 `=1` 改变行为，默认关闭。 |
 | `ARGENT_BOOT_TOPO` | 启动拓扑校验：用依赖图推导构造顺序并与历史顺序比对，漂移则 fail-closed。 |
 | `ARGENT_CACHE_WARM` | 提示缓存保活（cache warmer）。 |

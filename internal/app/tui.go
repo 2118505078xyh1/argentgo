@@ -55,6 +55,8 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 	configureTUIUsage(stdio.Env)
 	// 审批卡 diff 显示（opt-in ARGENT_APPROVAL_DIFF）：默认关闭，帧字节不变。
 	tui.ConfigureApprovalDiff(stdio.Env)
+	// 徽章对比度 hex 角色（opt-in，三个 env 同时提供才生效）：无配置时帧字节不变。
+	tui.ConfigureBadgeContrast(stdio.Env)
 	return func(ctx context.Context, opts cli.Options) error {
 		res, err := Resolve(stdio, opts)
 		if err != nil {
