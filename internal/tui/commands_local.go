@@ -19,7 +19,11 @@ var commandArgHints = map[string]string{
 
 // tuiNativeCommands 是 TUI 在自己的命令分派里解释的斜杠命令，不经过
 // internal/commands。顺序即补全列表顺序：先放最常用的入口。
-var tuiNativeCommands = []string{"help", "clear", "expand", "undo", "retry", "name", "quit"}
+var tuiNativeCommands = []string{
+	"help", "clear", "expand", "undo", "retry", "name", "quit",
+	// 与 pi 对齐的常用入口。面板类命令复用已有面板，不引入新窗口。
+	"sessions", "models", "thinking", "compact", "hotkeys", "resume",
+}
 
 // commandDescription 返回命令名对应的本地化描述。i18n.T 对未知键原样返回键名，
 // 据此判断目录里是否登记过，避免把 "tui.cmd_x_desc" 漏到界面上。

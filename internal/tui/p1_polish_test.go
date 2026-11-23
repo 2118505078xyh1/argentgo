@@ -87,25 +87,21 @@ func TestEscClosesLayersOneAtATime(t *testing.T) {
 	}
 }
 
-// TestCtrlLClearRequest 验证非会话栏 Ctrl+L 置清屏请求且只可消费一次，
-// 会话栏场景仍聚焦过滤栏而不请求清屏。
-func TestCtrlLClearRequest(t *testing.T) {
-	m := New(Config{})
+// TestCtrlLShowsModelInfo 与 pi 对齐：Ctrl+L 是模型入口。运行期不假装能
+// 换模型，而是显示当前模型与 --model 用法，且绝不触发终端清屏。
+func TestCtrlLShowsModelInfo(t *testing.T) {
+	m := New(Config{Model: "test-model", Locale: "en"})
 	m.HandleKey(Key{Kind: KindCtrlL})
-	if !m.consumeClearRequest() {
-		t.Fatal("ctrl+l outside session rail must request a clear")
+	if !strings.Contains(frameText(m, 100, 24), "current model: test-model") {
+		t.Fatalf("ctrl+l must show the current model:\n%s", frameText(m, 100, 24))
 	}
 	if m.consumeClearRequest() {
-		t.Fatal("clear request must be consumed exactly once")
+		t.Fatal("ctrl+l must not clear the screen")
 	}
-
 	m.showSessions = true
 	m.HandleKey(Key{Kind: KindCtrlL})
-	if !m.sessionFiltering {
-		t.Fatal("ctrl+l in session rail must focus the filter")
-	}
-	if m.consumeClearRequest() {
-		t.Fatal("ctrl+l in session rail must not clear the screen")
+	if m.sessionFiltering {
+		t.Fatal("ctrl+l in session rail must not steal the filter")
 	}
 }
 

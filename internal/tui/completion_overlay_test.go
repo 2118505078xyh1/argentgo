@@ -68,8 +68,8 @@ func TestCompletionOverlayAppearsOnSlashWithHighlightedFirstItem(t *testing.T) {
 	if _, ok := overlayRow(m, 100, 24, counterLabel(1, total)); !ok {
 		t.Fatalf("the %s counter line is missing", counterLabel(1, total))
 	}
-	// 侧栏仍由 Ctrl+O 控制，且复用同一条候选行与计数行。
-	m.HandleKey(Key{Kind: KindCtrlO})
+	// 侧栏仍由 Alt+C 控制，且复用同一条候选行与计数行。
+	m.HandleKey(Key{Kind: KindAltC})
 	panel := panelText(m, 100, 24)
 	for _, want := range []string{"COMMANDS", "> /" + first, counterLabel(1, total)} {
 		if !strings.Contains(panel, want) {

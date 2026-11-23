@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// 本文件守护发布版本字面量在 cli.go / mcp.go / lsp/client.go 三处的一致性，
-// 防止只更新权威的 cli.Version 却漏改 MCP / LSP 客户端向服务器报告的版本。
-// 三个文件的版本字面量必须完全一致；任一处改错、删掉或格式走样都会让测试失败。
+// 本文件守护发布版本字面量在 cli.go / mcp.go / lsp/client.go / tui/welcome.go
+// 四处的一致性，防止只更新权威的 cli.Version 却漏改 MCP / LSP 客户端和欢迎卡报告的版本。
+// 四个文件的版本字面量必须完全一致；任一处改错、删掉或格式走样都会让测试失败。
 
 // versionLiteralSpec 描述一个文件中版本字面量的提取方式。
 type versionLiteralSpec struct {
@@ -17,12 +17,13 @@ type versionLiteralSpec struct {
 	pattern *regexp.Regexp
 }
 
-// versionLiteralSources 是需要保持一致的三个版本字面量来源。
-// cli.go 的 const Version 是权威值，其余两处必须与之相等。
+// versionLiteralSources 是需要保持一致的四个版本字面量来源。
+// cli.go 的 const Version 是权威值，其余三处必须与之相等。
 var versionLiteralSources = []versionLiteralSpec{
 	{"internal/cli/cli.go", regexp.MustCompile(`const\s+Version\s*=\s*"([^"]+)"`)},
 	{"internal/mcp/mcp.go", regexp.MustCompile(`clientVersion\s*=\s*"([^"]+)"`)},
 	{"internal/lsp/client.go", regexp.MustCompile(`"version"\s*:\s*"([^"]+)"`)},
+	{"internal/tui/welcome.go", regexp.MustCompile(`welcomeVersion\s*=\s*"([^"]+)"`)},
 }
 
 // versionGuardRepoRoot 从当前包目录向上找到 go.mod，作为三个文件相对路径的根。
@@ -60,7 +61,7 @@ func extractVersionLiteral(t *testing.T, root string, spec versionLiteralSpec) s
 }
 
 // TestReportedClientVersionsConsistent 保证 cli.Version、MCP 的 clientVersion、
-// LSP clientInfo 的 version 三个字面量完全一致。
+// LSP clientInfo 的 version 与 TUI 欢迎卡的版本字面量完全一致。
 func TestReportedClientVersionsConsistent(t *testing.T) {
 	root := versionGuardRepoRoot(t)
 	versions := make(map[string]string, len(versionLiteralSources))

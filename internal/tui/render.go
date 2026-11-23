@@ -85,9 +85,12 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if cursorRow >= 0 && cursorRow < len(visible) {
 		l.cursorCol = rowCaretColumn(visible[cursorRow], runes, m.editor.Cursor())
 	}
-	l.statusY = l.height - 1
-	l.hintY = l.height - 2
-	l.inputTop = l.height - 2 - (len(visible) + 2)
+	// 最下面一行留空：Windows 终端在最后一行写满时会触发自动滚动，
+	// 状态行里的时钟每 50ms 变化一次，若贴着最后一行就会把旧状态行
+	// 不断滚进 scrollback（表现为“同一行一直重复”）。
+	l.statusY = maxInt(l.height-2, 0)
+	l.hintY = maxInt(l.height-3, 0)
+	l.inputTop = l.hintY - (len(visible) + 2)
 	l.bodyTop = 0
 	l.bodyH = l.inputTop - l.bodyTop
 	if l.bodyH < 1 {
@@ -384,8 +387,6 @@ func (m *Model) statusLineLocked(width int) Line {
 	if folder := folderLabel(m.root, width); folder != "" {
 		push(folder, m.palette.muted())
 	}
-	push(clock(int(now.Sub(m.started).Seconds())), m.palette.muted())
-
 	if right.Width() > 0 {
 		right = clipLine(right, maxInt(width-left.Width()-1, 1))
 	}

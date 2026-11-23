@@ -71,24 +71,10 @@ func TestPanelTogglesAreHiddenByDefaultAndRestoreTheFrame(t *testing.T) {
 		t.Fatal("all panels must start hidden")
 	}
 
-	// 三个切换使用解码器以前会丢弃的字节。
-	for _, tc := range []struct {
-		input byte
-		kind  Kind
-	}{
-		{0x14, KindCtrlT},
-		{0x02, KindCtrlB},
-		{0x10, KindCtrlP},
-	} {
-		keys := (&Decoder{}).Feed([]byte{tc.input})
-		if len(keys) != 1 || keys[0].Kind != tc.kind {
-			t.Fatalf("byte %#x decoded to %v, want %v", tc.input, keys, tc.kind)
-		}
-	}
-
-	m.HandleKey(Key{Kind: KindCtrlT})
-	m.HandleKey(Key{Kind: KindCtrlB})
-	m.HandleKey(Key{Kind: KindCtrlP})
+	// 面板开关与 pi 对齐到 Alt+ 组合。
+	m.HandleKey(Key{Kind: KindAltT})
+	m.HandleKey(Key{Kind: KindAltB})
+	m.HandleKey(Key{Kind: KindAltP})
 	if !m.showTasks || !m.showWorkspace || !m.showPlan {
 		t.Fatal("the three toggles did not turn the panels on")
 	}
@@ -99,9 +85,9 @@ func TestPanelTogglesAreHiddenByDefaultAndRestoreTheFrame(t *testing.T) {
 		}
 	}
 
-	m.HandleKey(Key{Kind: KindCtrlT})
-	m.HandleKey(Key{Kind: KindCtrlB})
-	m.HandleKey(Key{Kind: KindCtrlP})
+	m.HandleKey(Key{Kind: KindAltT})
+	m.HandleKey(Key{Kind: KindAltB})
+	m.HandleKey(Key{Kind: KindAltP})
 	if m.panelsVisible() {
 		t.Fatal("the three toggles did not turn the panels off")
 	}
@@ -115,7 +101,7 @@ func TestPanelTogglesAreHiddenByDefaultAndRestoreTheFrame(t *testing.T) {
 
 func TestEventStreamUpdatesTasksPanel(t *testing.T) {
 	m := New(Config{})
-	m.HandleKey(Key{Kind: KindCtrlT})
+	m.HandleKey(Key{Kind: KindAltT})
 
 	m.HandleEvent(Event{Kind: EventToolStart, ToolCallID: "1", ToolName: "read", Args: `{"path":"a.go"}`})
 	shown := panelText(m, 100, 24)
@@ -155,7 +141,7 @@ func TestEventStreamUpdatesTasksPanel(t *testing.T) {
 
 func TestPlanRendersFromToolEvent(t *testing.T) {
 	m := New(Config{})
-	m.HandleKey(Key{Kind: KindCtrlP})
+	m.HandleKey(Key{Kind: KindAltP})
 	if hint := panelText(m, 100, 24); !strings.Contains(hint, "no plan submitted") {
 		t.Fatalf("the empty plan hint is missing:\n%s", hint)
 	}
@@ -180,7 +166,7 @@ func TestPlanRendersFromToolEvent(t *testing.T) {
 func TestWorkspaceTreeIgnoresDirsAndCapsPreview(t *testing.T) {
 	root := "/work"
 	m := New(Config{Root: root, FS: testWorkspaceFS(root)})
-	m.HandleKey(Key{Kind: KindCtrlB})
+	m.HandleKey(Key{Kind: KindAltB})
 
 	paths := map[string]bool{}
 	for _, entry := range m.workspace {
@@ -226,7 +212,7 @@ func TestWorkspaceTreeIgnoresDirsAndCapsPreview(t *testing.T) {
 	fs := testWorkspaceFS(root)
 	fs.files[filepath.Join(root, "big.txt")] = strings.Repeat("x", maxPreviewBytes*2)
 	m2 := New(Config{Root: root, FS: fs})
-	m2.HandleKey(Key{Kind: KindCtrlB})
+	m2.HandleKey(Key{Kind: KindAltB})
 	m2.workspaceCursor = 0
 	for i, entry := range m2.workspace {
 		if entry.Path == "big.txt" {
@@ -257,7 +243,7 @@ func TestRunConsumesTheEventsChannel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run never became ready")
 	}
-	writer.Write([]byte{0x14}) // Ctrl+T
+	writer.Write([]byte("\x1bt")) // Alt+T
 	waitFor(t, "the tasks panel", func() bool {
 		model.mu.Lock()
 		defer model.mu.Unlock()

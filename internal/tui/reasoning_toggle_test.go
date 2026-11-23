@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// TestDecoderReadsCtrlXForThinkingToggle 论证 0x18 是一个此前空闲的按键：
-// 现在解码为 KindCtrlX，且不侵占相邻的 ctrl+o（0x0f）。
-func TestDecoderReadsCtrlXForThinkingToggle(t *testing.T) {
+// TestDecoderReadsCtrlTForThinkingToggle 论证 0x14 是一个此前空闲的按键：
+// 现在解码为 KindCtrlT，且不侵占相邻的 ctrl+o（0x0f）。
+func TestDecoderReadsCtrlTForThinkingToggle(t *testing.T) {
 	cases := map[byte]Kind{
-		0x18: KindCtrlX,
+		0x14: KindCtrlT,
 		0x0f: KindCtrlO,
 	}
 	for input, want := range cases {
@@ -51,20 +51,20 @@ func assertReasoningMarkers(t *testing.T, frame string, wantAAA, wantBBB bool) {
 }
 
 // TestReasoningGlobalToggleExpandsAndCollapsesAll 验证全局开关翻转所有
-// 思考块的展开态：默认全折叠，ctrl+x 全部展开，再按一次全部折叠。
+// 思考块的展开态：默认全折叠，ctrl+t 全部展开，再按一次全部折叠。
 func TestReasoningGlobalToggleExpandsAndCollapsesAll(t *testing.T) {
 	m, _, _ := toggleModel("en")
 	assertReasoningMarkers(t, frameText(m, 100, 24), false, false)
 
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	if !m.reasoningAllExpanded {
-		t.Fatal("ctrl+x did not set the global expansion flag")
+		t.Fatal("ctrl+t did not set the global expansion flag")
 	}
 	assertReasoningMarkers(t, frameText(m, 100, 24), true, true)
 
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	if m.reasoningAllExpanded {
-		t.Fatal("second ctrl+x did not clear the global expansion flag")
+		t.Fatal("second ctrl+t did not clear the global expansion flag")
 	}
 	assertReasoningMarkers(t, frameText(m, 100, 24), false, false)
 }
@@ -75,11 +75,11 @@ func TestReasoningToggleStatusNoticeEnZh(t *testing.T) {
 	for _, locale := range []string{"en", "zh"} {
 		t.Run(locale, func(t *testing.T) {
 			m := New(Config{Locale: locale})
-			m.HandleKey(Key{Kind: KindCtrlX})
+			m.HandleKey(Key{Kind: KindCtrlT})
 			if got := frameText(m, 100, 24); !strings.Contains(got, text(locale, "thinking_all_on")) {
 				t.Fatalf("expanded status missing %q:\n%s", text(locale, "thinking_all_on"), got)
 			}
-			m.HandleKey(Key{Kind: KindCtrlX})
+			m.HandleKey(Key{Kind: KindCtrlT})
 			if got := frameText(m, 100, 24); !strings.Contains(got, text(locale, "thinking_all_off")) {
 				t.Fatalf("folded status missing %q:\n%s", text(locale, "thinking_all_off"), got)
 			}
@@ -106,7 +106,7 @@ func TestReasoningPerBlockClickOverridesGlobal(t *testing.T) {
 	m, idxA, idxB := toggleModel("en")
 
 	// 全局展开 → 两块都展开。
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	assertReasoningMarkers(t, frameText(m, 100, 24), true, true)
 
 	// 点击 A 块覆盖：只有它折叠，B 块仍展开。
@@ -117,7 +117,7 @@ func TestReasoningPerBlockClickOverridesGlobal(t *testing.T) {
 	assertReasoningMarkers(t, frameText(m, 100, 24), false, true)
 
 	// 全局折叠清空覆盖 → 两块都折叠。
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	if len(m.reasoningExpanded) != 0 {
 		t.Fatalf("global toggle should clear per-block overrides: %+v", m.reasoningExpanded)
 	}
@@ -170,7 +170,7 @@ func TestReasoningPlaceholderOptInDefaultBytes(t *testing.T) {
 	}
 
 	// 展开态回到逐行渲染，不受占位开关影响。
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	expanded := frameText(m, 100, 24)
 	if !strings.Contains(expanded, "SECRET-PHRASE") {
 		t.Fatalf("expanded frame should show full reasoning:\n%s", expanded)
@@ -184,8 +184,8 @@ func TestReasoningToggleDefaultFrameByteIdentical(t *testing.T) {
 	m, _, _ := toggleModel("en")
 	before := rowTexts(m.Frame(100, 24))
 
-	m.HandleKey(Key{Kind: KindCtrlX})
-	m.HandleKey(Key{Kind: KindCtrlX})
+	m.HandleKey(Key{Kind: KindCtrlT})
+	m.HandleKey(Key{Kind: KindCtrlT})
 	m.SetStatus("") // 切换的合法状态提示不应计入默认帧
 	after := rowTexts(m.Frame(100, 24))
 

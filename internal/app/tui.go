@@ -166,6 +166,15 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			}
 			return sess.SetTitle(title)
 		}
+		// /compact：把较早的对话换成摘要，保留最近两轮。这里用的是
+		// session 层已有的压缩原语，不另起一条模型调用。
+		compactTurn := func(_ context.Context, _ string) error {
+			sess, err := currentSession()
+			if err != nil {
+				return err
+			}
+			return sess.Compact(2)
+		}
 
 		frontendOpts := tui.Options{
 			Root:          res.Root,
@@ -178,6 +187,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			Undo:          undoTurn,
 			Retry:         retryTurn,
 			Rename:        renameTurn,
+			Compact:       compactTurn,
 			Prompt: func(turnCtx context.Context, text string, onText func(string)) error {
 				turnCtx = withEventEmit(turnCtx, events.Emit)
 				sess, err := sessionFor(text)

@@ -28,7 +28,7 @@ func TestUsageRateFromConsecutiveEvents(t *testing.T) {
 	if m.usageRate != "45 tok/s" {
 		t.Fatalf("usageRate = %q, want \"45 tok/s\"", m.usageRate)
 	}
-	status := m.Frame(110, 24).RowText(23)
+	status := m.Frame(110, 24).RowText(22)
 	for _, want := range []string{"↑200", "↓190", "CH 75%", "⚡ 45 tok/s"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("status %q is missing %q", status, want)
@@ -52,7 +52,7 @@ func TestCacheHitRatioCases(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := deterministicUsageModel("en")
 			m.HandleEvent(Event{Kind: TuiEventUsage, PromptTokens: tc.prompt, CompletionTokens: 10, CachedTokens: tc.cached})
-			status := m.Frame(110, 24).RowText(23)
+			status := m.Frame(110, 24).RowText(22)
 			if tc.wantAbsent {
 				if strings.Contains(status, tc.want) {
 					t.Fatalf("status %q must not contain %q", status, tc.want)

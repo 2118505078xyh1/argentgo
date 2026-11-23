@@ -119,11 +119,11 @@ func TestSessionsFilterEmptyQueryShowsAllInOrder(t *testing.T) {
 func TestSessionsFilterEscEnterState(t *testing.T) {
 	m := sessionFilterModel("alpha", "beta")
 
-	if action := m.HandleKey(Key{Kind: KindCtrlL}); action != ActionNone {
-		t.Errorf("ctrl+l returned %v, want ActionNone", action)
+	if action := m.HandleKey(Key{Kind: KindAltL}); action != ActionNone {
+		t.Errorf("alt+l returned %v, want ActionNone", action)
 	}
 	if !m.sessionFiltering {
-		t.Fatal("ctrl+l did not focus the filter bar")
+		t.Fatal("alt+l did not focus the filter bar")
 	}
 
 	m.HandleKey(Key{Kind: KindRune, Rune: 'a'})
@@ -154,9 +154,9 @@ func TestSessionsFilterEscEnterState(t *testing.T) {
 	}
 
 	// Esc 取消：离开过滤栏并重置查询。
-	m.HandleKey(Key{Kind: KindCtrlL})
+	m.HandleKey(Key{Kind: KindAltL})
 	if !m.sessionFiltering {
-		t.Fatal("ctrl+l did not re-focus the filter bar")
+		t.Fatal("alt+l did not re-focus the filter bar")
 	}
 	m.HandleKey(Key{Kind: KindEsc})
 	if m.sessionFiltering || m.sessionFilter != "" {
@@ -165,15 +165,15 @@ func TestSessionsFilterEscEnterState(t *testing.T) {
 
 	// Ctrl+L 在会话栏隐藏时无效果。
 	m.showSessions = false
-	m.HandleKey(Key{Kind: KindCtrlL})
+	m.HandleKey(Key{Kind: KindAltL})
 	if m.sessionFiltering {
-		t.Error("ctrl+l focused the filter while the session rail was hidden")
+		t.Error("alt+l focused the filter while the session rail was hidden")
 	}
 }
 
 func TestSessionsFilterBarVisibleAndCtrlLToggles(t *testing.T) {
 	m := sessionFilterModel("alpha", "beta")
-	m.HandleKey(Key{Kind: KindCtrlL})
+	m.HandleKey(Key{Kind: KindAltL})
 	m.HandleKey(Key{Kind: KindRune, Rune: 'a'})
 
 	barText := func() string {
@@ -188,9 +188,9 @@ func TestSessionsFilterBarVisibleAndCtrlLToggles(t *testing.T) {
 		t.Errorf("focused filter bar = %q, want query with caret", bar)
 	}
 
-	m.HandleKey(Key{Kind: KindCtrlL}) // toggles focus off, keeps query
+	m.HandleKey(Key{Kind: KindAltL}) // toggles focus off, keeps query
 	if m.sessionFiltering || m.sessionFilter != "a" {
-		t.Errorf("ctrl+l toggle: filtering=%v filter=%q", m.sessionFiltering, m.sessionFilter)
+		t.Errorf("alt+l toggle: filtering=%v filter=%q", m.sessionFiltering, m.sessionFilter)
 	}
 	if bar := barText(); !strings.Contains(bar, "a") || strings.Contains(bar, "▌") {
 		t.Errorf("confirmed filter bar = %q, want query without caret", bar)

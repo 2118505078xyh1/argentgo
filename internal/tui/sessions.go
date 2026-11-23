@@ -107,6 +107,9 @@ func (m *Model) sessionMatches() []sessionMatch {
 	highlight := firstFilterPattern(terms)
 	matches := make([]sessionMatch, 0, len(m.sessions))
 	for i, row := range m.sessions {
+		if m.sessionNamedOnly && strings.TrimSpace(row.Title) == "" {
+			continue
+		}
 		label := sessionLabel(row)
 		if !MatchPattern(terms, label, sessionFuzzy) {
 			continue

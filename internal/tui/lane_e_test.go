@@ -100,7 +100,7 @@ func TestAttemptEventAddsBadge(t *testing.T) {
 
 func TestSessionRailShowsGeneratedTitles(t *testing.T) {
 	m := New(Config{Sessions: []string{"sessions/会议记录.jsonl"}})
-	m.HandleKey(Key{Kind: KindCtrlS})
+	m.HandleKey(Key{Kind: KindAltS})
 	text := frameText(m, 100, 24)
 	if !strings.Contains(text, "会议记录") || !strings.Contains(text, "SESSIONS") {
 		t.Fatalf("session rail missing title: %s", text)

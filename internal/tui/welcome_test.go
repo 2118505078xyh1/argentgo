@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-// TestNewShowsWelcomeCard 锁定首屏行为：新用户不再面对空白屏，欢迎卡同时给出
-// 一句话定位、可直接照抄的示例 prompt、/help 入口与 Alt+U 撤销提示，并按 locale 切换。
+// TestNewShowsWelcomeCard 锁定首屏行为：只显示一行，介绍 argentgo 的版本与定位，
+// 并给出 /help 入口；文案按 locale 切换。
 func TestNewShowsWelcomeCard(t *testing.T) {
 	cases := []struct {
 		locale string
 		want   []string
 	}{
-		{"zh", []string{"会读代码", "试试：", "/help", "Alt+U 撤销"}},
-		{"en", []string{"coding agent", "Try:", "/help", "Alt+U"}},
-		{"", []string{"coding agent", "/help", "Alt+U"}}, // 默认 en
+		{"zh", []string{"argentgo 0.8.2", "通用 AI 助手", "/help"}},
+		{"en", []string{"argentgo 0.8.2", "general-purpose", "/help"}},
+		{"", []string{"argentgo 0.8.2", "general-purpose", "/help"}}, // 默认 en
 	}
 	for _, tc := range cases {
 		t.Run(tc.locale, func(t *testing.T) {
@@ -25,7 +25,29 @@ func TestNewShowsWelcomeCard(t *testing.T) {
 					t.Fatalf("welcome card missing %q in locale %q:\n%s", want, tc.locale, frame)
 				}
 			}
+			for _, gone := range []string{"试试：", "Alt+U", "coding agent"} {
+				if strings.Contains(frame, gone) {
+					t.Fatalf("welcome card must not show %q anymore:\n%s", gone, frame)
+				}
+			}
 		})
+	}
+}
+
+// TestWelcomeCardStaysOneLine 即使终端很窄，欢迎卡也只占一行（超宽时截断）。
+func TestWelcomeCardStaysOneLine(t *testing.T) {
+	for _, width := range []int{24, 60, 100} {
+		frame := frameText(New(Config{Locale: "zh"}), width, 12)
+		lines := strings.Split(strings.TrimRight(frame, "\n"), "\n")
+		count := 0
+		for _, line := range lines {
+			if strings.Contains(line, welcomeMark) {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("width %d: welcome mark appears on %d lines, want 1:\n%s", width, count, frame)
+		}
 	}
 }
 
@@ -33,12 +55,12 @@ func TestNewShowsWelcomeCard(t *testing.T) {
 // 用户提交首条消息后它必须让位，不把示例 prompt 永久钉在屏幕上。
 func TestWelcomeCardYieldsToTranscript(t *testing.T) {
 	m := New(Config{Locale: "zh"})
-	if before := frameText(m, 100, 24); !strings.Contains(before, "会读代码") {
+	if before := frameText(m, 100, 24); !strings.Contains(before, "argentgo 0.8.2") {
 		t.Fatal("welcome card missing on empty transcript")
 	}
 	m.AppendUser("read main.go")
 	after := frameText(m, 100, 24)
-	if strings.Contains(after, "会读代码") || strings.Contains(after, "试试：") {
+	if strings.Contains(after, "argentgo 0.8.2") || strings.Contains(after, "通用 AI 助手") {
 		t.Fatalf("welcome card must disappear after first message:\n%s", after)
 	}
 	if !strings.Contains(after, "read main.go") {

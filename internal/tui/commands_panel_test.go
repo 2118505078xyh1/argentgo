@@ -135,45 +135,51 @@ func TestCommandNavigationEscAndEnter(t *testing.T) {
 		}
 		return c.Command
 	}
-	if got := current(); got != "commit" {
-		t.Fatalf("initial candidate = %q, want commit", got)
+	first := current()
+	if first == "<none>" {
+		t.Fatal("no candidate for /co")
 	}
 	m.HandleKey(Key{Kind: KindDown})
-	if got := current(); got != "compile" {
-		t.Fatalf("after Down = %q, want compile", got)
+	second := current()
+	if second == first || second == "<none>" {
+		t.Fatalf("Down did not move: %q -> %q", first, second)
 	}
 	m.HandleKey(Key{Kind: KindDown})
-	if got := current(); got != "config" {
-		t.Fatalf("after second Down = %q, want config", got)
+	if third := current(); third == second || third == "<none>" {
+		t.Fatalf("second Down did not move: %q -> %q", second, third)
 	}
 	m.HandleKey(Key{Kind: KindUp})
-	if got := current(); got != "compile" {
-		t.Fatalf("after Up = %q, want compile", got)
+	if got := current(); got != second {
+		t.Fatalf("after Up = %q, want %q", got, second)
 	}
 
 	// Enter 接受当前候选，不产生提交。
 	if action := m.HandleKey(Key{Kind: KindEnter}); action != ActionNone {
 		t.Fatalf("Enter accepted candidate returned %v, want ActionNone", action)
 	}
-	if got := m.Input(); got != "/compile " {
-		t.Fatalf("input after Enter = %q, want \"/compile \"", got)
+	want := "/" + second + " "
+	if got := m.Input(); got != want {
+		t.Fatalf("input after Enter = %q, want %q", got, want)
 	}
 	if got := m.TakeSubmitted(); got != "" {
 		t.Fatalf("accepting a candidate submitted %q", got)
 	}
-	// 再次 Enter 才真正提交。
+	// 再次 Enter 才真正提交。用宿主命令验证提交路径，避免原生命令
+	// （如 /compact）走自己的动作接缝而不是提交给宿主。
+	m.editor.Clear()
+	typeCommandText(m, "/commit ")
 	if action := m.HandleKey(Key{Kind: KindEnter}); action != ActionSubmit {
 		t.Fatalf("second Enter returned %v, want ActionSubmit", action)
 	}
-	if got := m.TakeSubmitted(); got != "/compile " {
-		t.Fatalf("submitted = %q, want \"/compile \"", got)
+	if got := m.TakeSubmitted(); got != "/commit " {
+		t.Fatalf("submitted = %q, want \"/commit \"", got)
 	}
 
 	// Esc 逐层关闭：浮层 → 面板 → 补全；下一次输入重开，关闭后 Tab 回退为两空格。
 	esc := New(Config{})
 	esc.SetCommandInfo(commandInfos())
 	typeCommandText(esc, "/co")
-	esc.HandleKey(Key{Kind: KindCtrlO})
+	esc.HandleKey(Key{Kind: KindAltC})
 	if !esc.showCommands {
 		t.Fatal("Ctrl+O did not open the commands panel")
 	}
@@ -280,9 +286,9 @@ func TestCommandsPanelHiddenByDefaultAndToggleRestoresFrame(t *testing.T) {
 	if len(keys) != 1 || keys[0].Kind != KindCtrlO {
 		t.Fatalf("0x0f decoded to %v, want KindCtrlO", keys)
 	}
-	m.HandleKey(Key{Kind: KindCtrlO})
+	m.HandleKey(Key{Kind: KindAltC})
 	if !m.showCommands || !m.panelsVisible() {
-		t.Fatal("Ctrl+O did not show the commands panel")
+		t.Fatal("Alt+C did not show the commands panel")
 	}
 	shown := panelText(m, 100, 24)
 	for _, want := range []string{"COMMANDS", "/commit", "<msg>"} {
@@ -291,9 +297,9 @@ func TestCommandsPanelHiddenByDefaultAndToggleRestoresFrame(t *testing.T) {
 		}
 	}
 
-	m.HandleKey(Key{Kind: KindCtrlO})
+	m.HandleKey(Key{Kind: KindAltC})
 	if m.showCommands || m.panelsVisible() {
-		t.Fatal("Ctrl+O did not hide the commands panel")
+		t.Fatal("Alt+C did not hide the commands panel")
 	}
 	m.SetStatus("")
 	if got := frameBytes(m, 100, 24); got != before {
@@ -303,7 +309,7 @@ func TestCommandsPanelHiddenByDefaultAndToggleRestoresFrame(t *testing.T) {
 
 func TestCommandsPanelShowsEmptyHintWithoutInfo(t *testing.T) {
 	m := New(Config{})
-	m.HandleKey(Key{Kind: KindCtrlO})
+	m.HandleKey(Key{Kind: KindAltC})
 	if !strings.Contains(panelText(m, 100, 24), "no commands") {
 		t.Fatalf("the empty commands hint is missing:\n%s", panelText(m, 100, 24))
 	}
@@ -334,7 +340,7 @@ func TestCommandFuzzyQueryShowsSubsequenceCandidates(t *testing.T) {
 		if c, ok := m.completion.Current(); !ok || c.Command != tc.want {
 			t.Fatalf("%s: current = (%+v, %v), want %s", tc.typed, c, ok, tc.want)
 		}
-		m.HandleKey(Key{Kind: KindCtrlO})
+		m.HandleKey(Key{Kind: KindAltC})
 		if shown := panelText(m, 100, 24); !strings.Contains(shown, "/"+tc.want) {
 			t.Fatalf("%s: panel is missing /%s:\n%s", tc.typed, tc.want, shown)
 		}
@@ -369,7 +375,7 @@ func TestCommandFuzzyScoreRanksCommitFirst(t *testing.T) {
 		t.Fatalf("current = (%+v, %v), want commit", c, ok)
 	}
 
-	m.HandleKey(Key{Kind: KindCtrlO})
+	m.HandleKey(Key{Kind: KindAltC})
 	shown := panelText(m, 100, 24)
 	iCommit, iComment := strings.Index(shown, "/commit"), strings.Index(shown, "/comment")
 	if iCommit < 0 || iComment < 0 {

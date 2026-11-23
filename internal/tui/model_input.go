@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -67,16 +68,11 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	case KindIgnore:
 		return ActionNone
 	case KindCtrlL:
-		// 会话栏打开时 Ctrl+L 聚焦过滤栏（保持旧语义）；其余场景请求
-		// 终端清屏。模型不拥有终端，只置请求标志，由 run 循环写清屏序列，
-		// 避免在这里直接输出转义码破坏备用屏幕。它不触碰提示，使 /help
-		// 这样的斜杠命令仍能正常输入。
-		if m.showSessions {
-			m.sessionFiltering = true
-		} else {
-			m.clearRequested = true
-		}
-	case KindCtrlT:
+		// pi 把 Ctrl+L 作为模型选择器。运行期换模型会牵动 provider、
+		// 系统提示与工具集，TUI 不假装能就地切换：显示当前模型和
+		// 重启时的 --model 用法，与 /models 完全等价。
+		m.appendNoticeLocked(m.modelsInfoLocked())
+	case KindAltT:
 		m.showTasks = !m.showTasks
 		m.version++
 		if m.showTasks {
@@ -84,7 +80,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "tasks_off"))
 		}
-	case KindCtrlB:
+	case KindAltB:
 		m.showWorkspace = !m.showWorkspace
 		if m.showWorkspace {
 			m.buildWorkspaceLocked()
@@ -95,7 +91,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "workspace_off"))
 		}
-	case KindCtrlP:
+	case KindAltP:
 		m.showPlan = !m.showPlan
 		m.version++
 		if m.showPlan {
@@ -103,7 +99,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "plan_off"))
 		}
-	case KindCtrlS:
+	case KindAltS:
 		m.showSessions = !m.showSessions
 		m.version++
 		if m.showSessions {
@@ -111,7 +107,7 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "sessions_off"))
 		}
-	case KindCtrlO:
+	case KindAltC:
 		m.showCommands = !m.showCommands
 		m.version++
 		if m.showCommands {
@@ -119,10 +115,49 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		} else {
 			m.setStatusLocked(text(m.locale, "commands_off"))
 		}
-	case KindCtrlX:
-		// 全局切换所有思考块的展开/折叠，并在状态栏提示当前状态。
-		// 逐块点击仍可随后覆盖单个块。
+	case KindCtrlT:
+		// pi: ctrl+t 折叠/展开思考块。
 		m.toggleReasoningAllLocked()
+	case KindCtrlO:
+		// pi: ctrl+o 折叠/展开工具输出，与 /expand 共用同一个开关。
+		m.expanded = !m.expanded
+		m.version++
+		m.markDirtyLocked()
+		if m.expanded {
+			m.setStatusLocked(text(m.locale, "expanded"))
+		} else {
+			m.setStatusLocked(text(m.locale, "collapsed"))
+		}
+	case KindCtrlX:
+		// pi: ctrl+x 复制最后一条助手消息/当前选区。
+		m.copyLastAnswerLocked()
+	case KindCtrlP:
+		// pi: ctrl+p 切换模型。此处与 /models 一致，只显示当前模型，
+		// 不伪造一个无法落地的运行期切换。
+		m.appendNoticeLocked(m.modelsInfoLocked())
+	case KindCtrlN:
+		m.sessionNamedOnly = !m.sessionNamedOnly
+		m.sessionsScroll = 0
+		m.version++
+		if m.sessionNamedOnly {
+			m.setStatusLocked(text(m.locale, "named_on"))
+		} else {
+			m.setStatusLocked(text(m.locale, "named_off"))
+		}
+	case KindCtrlR:
+		m.setStatusLocked(text(m.locale, "name_usage"))
+	case KindCtrlV:
+		// 终端的括号粘贴走 KindPaste；这里没有独立的剪贴板读取 API，
+		// 与 pi 的“粘贴图片”语义对齐为不打断输入。
+		return ActionNone
+	case KindAltL:
+		if m.showSessions {
+			m.sessionFiltering = !m.sessionFiltering
+		}
+	case KindCtrlHome:
+		m.scrollByLocked(-1 << 20)
+	case KindCtrlEnd:
+		m.scrollByLocked(1 << 20)
 	case KindCtrlG:
 		return m.openExternalEditorLocked()
 	case KindAltU:
@@ -151,6 +186,26 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.quitArmedAt = now
 		m.setStatusLocked(tuiText(m.locale, "quit_armed"))
 		return ActionNone
+	case KindCtrlD:
+		// pi: 输入非空时前删一个字符；输入为空时直接退出。
+		if strings.TrimSpace(m.editor.Text()) == "" {
+			m.quit = true
+			return ActionQuit
+		}
+		deleted := m.killOneForwardLocked()
+		m.editor.Delete()
+		if deleted != "" {
+			m.kill.Kill(deleted, killForward, true)
+		}
+	case KindCtrlS:
+		// pi: 会话列表切换排序。这里反转顺序并保持选中项不变。
+		for i, j := 0, len(m.sessions)-1; i < j; i, j = i+1, j-1 {
+			m.sessions[i], m.sessions[j] = m.sessions[j], m.sessions[i]
+		}
+		m.sessionsCursor = len(m.sessions) - 1 - m.sessionsCursor
+		m.sessionsScroll = 0
+		m.version++
+		m.setStatusLocked(text(m.locale, "sort_toggled"))
 	case KindEsc:
 		if m.working {
 			m.setStatusLocked(text(m.locale, "cancelling"))
@@ -183,9 +238,9 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		if deleted != "" {
 			m.kill.Kill(deleted, killForward, true)
 		}
-	case KindLeft:
+	case KindLeft, KindCtrlB:
 		m.editor.Left()
-	case KindRight:
+	case KindRight, KindCtrlF:
 		m.editor.Right()
 	case KindHome, KindCtrlA:
 		if m.showWorkspace && len(m.workspace) > 0 {
@@ -670,7 +725,7 @@ func (m *Model) filterKeyLocked(key Key) KeyAction {
 	case KindEnter:
 		m.sessionFiltering = false
 		m.sessionsScroll = 0
-	case KindCtrlL:
+	case KindCtrlL, KindAltL:
 		m.sessionFiltering = false
 	case KindBackspace:
 		runes := []rune(m.sessionFilter)
@@ -719,6 +774,41 @@ func (m *Model) submitLocked() KeyAction {
 	return ActionSubmit
 }
 
+// modelsInfoLocked 说明当前模型与唯一的切换入口。运行期换模型需要重建
+// provider/系统提示，TUI 不假装能就地切换。
+func (m *Model) modelsInfoLocked() string {
+	model := strings.TrimSpace(m.model)
+	if model == "" {
+		model = "auto"
+	}
+	return fmt.Sprintf(text(m.locale, "models_info"), model)
+}
+
+// thinkingInfoLocked 说明当前思考强度与调整入口。
+func (m *Model) thinkingInfoLocked() string {
+	level := strings.TrimSpace(m.thinking)
+	if level == "" {
+		level = "-"
+	}
+	return fmt.Sprintf(text(m.locale, "thinking_info"), level)
+}
+
+// copyLastAnswerLocked 复制最后一条助手正文到剪贴板（pi 的 ctrl+x）。
+func (m *Model) copyLastAnswerLocked() {
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		if m.entries[i].Kind != EntryAssistant || strings.TrimSpace(m.entries[i].Text) == "" {
+			continue
+		}
+		if err := CopyToClipboard(m.entries[i].Text); err != nil {
+			m.setStatusLocked(text(m.locale, "copy_failed"))
+		} else {
+			m.setStatusLocked(text(m.locale, "copied"))
+		}
+		return
+	}
+	m.setStatusLocked(text(m.locale, "nothing_to_copy"))
+}
+
 func (m *Model) commandLocked(body string) KeyAction {
 	name := body
 	arg := ""
@@ -755,12 +845,22 @@ func (m *Model) commandLocked(body string) KeyAction {
 			return ActionNone
 		}
 		return m.requestActionLocked(ActionRename, arg)
-	case "/help":
+	case "/help", "/hotkeys":
 		// 结构化的按键说明：每一行都是一条独立 notice，宽度按当前
 		// 终端正文宽度裁剪，窄终端也能读到全部按键而不是只看开头。
 		for _, line := range m.helpNoticeLocked() {
 			m.appendNoticeLocked(line)
 		}
+	case "/sessions", "/resume":
+		m.showSessions = true
+		m.version++
+		m.setStatusLocked(text(m.locale, "sessions_on"))
+	case "/models":
+		m.appendNoticeLocked(m.modelsInfoLocked())
+	case "/thinking":
+		m.appendNoticeLocked(m.thinkingInfoLocked())
+	case "/compact":
+		return m.requestActionLocked(ActionCompact, arg)
 	default:
 		m.appendUserLocked(body)
 		m.working = true
@@ -785,6 +885,8 @@ func (m *Model) requestActionLocked(action KeyAction, arg string) KeyAction {
 		hook, key = m.retryFn, "retry_unwired"
 	case ActionRename:
 		hook, key = m.renameFn, "rename_unwired"
+	case ActionCompact:
+		hook, key = m.compactFn, "compact_unwired"
 	case ActionUndo:
 		key = "undo_unwired"
 	}

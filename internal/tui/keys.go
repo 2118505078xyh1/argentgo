@@ -69,6 +69,22 @@ const (
 	KindCtrlX // ctrl+x: toggle expansion of all thinking blocks
 	KindCtrlY // ctrl+y: yank the most recent kill-ring entry
 	KindAltY  // alt+y: yank-pop through the kill ring
+
+	// 与 pi 的键位保持一致而追加的按键。面板开关移到 Alt+ 组合，
+	// 把 Ctrl 字母让给编辑/应用动作（见 docs/keybindings）。
+	KindCtrlF    // ctrl+f: cursor right
+	KindCtrlD    // ctrl+d: delete forward / exit on empty input
+	KindCtrlN    // ctrl+n: toggle named-only session filter
+	KindCtrlR    // ctrl+r: rename the session
+	KindCtrlV    // ctrl+v: paste (clipboard image/text)
+	KindAltT     // alt+t: tasks panel
+	KindAltB     // alt+b: workspace panel
+	KindAltP     // alt+p: plan panel
+	KindAltS     // alt+s: session rail
+	KindAltC     // alt+c: slash commands panel
+	KindCtrlHome // ctrl+home: scroll to transcript top
+	KindCtrlEnd  // ctrl+end: scroll to transcript end
+	KindAltL     // alt+l: focus/leave the session filter bar
 )
 
 // MouseKind 对一条解码后的 SGR 鼠标报告分类。
@@ -166,10 +182,14 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindTab}, 1, true
 	case c == 0x03:
 		return Key{Kind: KindCtrlC}, 1, true
+	case c == 0x04:
+		return Key{Kind: KindCtrlD}, 1, true
 	case c == 0x01:
 		return Key{Kind: KindCtrlA}, 1, true
 	case c == 0x05:
 		return Key{Kind: KindCtrlE}, 1, true
+	case c == 0x06:
+		return Key{Kind: KindCtrlF}, 1, true
 	case c == 0x0b:
 		return Key{Kind: KindCtrlK}, 1, true
 	case c == 0x15:
@@ -180,6 +200,12 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlL}, 1, true
 	case c == 0x14:
 		return Key{Kind: KindCtrlT}, 1, true
+	case c == 0x0e:
+		return Key{Kind: KindCtrlN}, 1, true
+	case c == 0x12:
+		return Key{Kind: KindCtrlR}, 1, true
+	case c == 0x16:
+		return Key{Kind: KindCtrlV}, 1, true
 	case c == 0x02:
 		return Key{Kind: KindCtrlB}, 1, true
 	case c == 0x10:
@@ -230,6 +256,18 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		return Key{Kind: KindAltR}, 2, true
 	case 'y', 'Y':
 		return Key{Kind: KindAltY}, 2, true
+	case 'l', 'L':
+		return Key{Kind: KindAltL}, 2, true
+	case 't', 'T':
+		return Key{Kind: KindAltT}, 2, true
+	case 'b', 'B':
+		return Key{Kind: KindAltB}, 2, true
+	case 'p', 'P':
+		return Key{Kind: KindAltP}, 2, true
+	case 's', 'S':
+		return Key{Kind: KindAltS}, 2, true
+	case 'c', 'C':
+		return Key{Kind: KindAltC}, 2, true
 	default:
 		// ESC 后跟其他内容：Esc 是被单独按下的，
 		// 下一个字节是普通按键。
@@ -302,8 +340,14 @@ func parseCSI(body string, final byte) Key {
 	case 'D':
 		return Key{Kind: KindLeft}
 	case 'H':
+		if body == "1;5" {
+			return Key{Kind: KindCtrlHome}
+		}
 		return Key{Kind: KindHome}
 	case 'F':
+		if body == "1;5" {
+			return Key{Kind: KindCtrlEnd}
+		}
 		return Key{Kind: KindEnd}
 	case 'Z':
 		return Key{Kind: KindBackTab}

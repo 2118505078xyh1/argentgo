@@ -20,8 +20,8 @@ func TestDefaultFrameHasNoBottomHint(t *testing.T) {
 	if row := buf.RowText(l.hintY); strings.TrimSpace(row) != "" {
 		t.Fatalf("hintY row is not blank: %q", row)
 	}
-	if l.statusY != 23 || l.hintY != 22 {
-		t.Fatalf("layout moved: hintY=%d statusY=%d, want 22/23", l.hintY, l.statusY)
+	if l.statusY != 22 || l.hintY != 21 {
+		t.Fatalf("layout moved: hintY=%d statusY=%d, want 21/22", l.hintY, l.statusY)
 	}
 	if got := m.Frame(100, 24).RowText(l.statusY); got == "" {
 		t.Fatal("the status line must stay at statusY")

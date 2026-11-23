@@ -53,7 +53,7 @@ CLI / --serve / --rpc / acp ─┐
 ### 终端与图形界面
 
 - **TUI**（`internal/tui`）：自绘 ANSI 全屏，含 streaming transcript、markdown-lite、
-  输入编辑器、审批弹窗、主题与 locale；Ctrl+T/B/P 分别打开任务、工作区、计划面板；
+  输入编辑器、审批弹窗、主题与 locale；Alt+T/B/P 分别打开任务、工作区、计划面板（Ctrl 字母与 pi 对齐）；
   不经 WebView，可在 SSH 上运行。入口 `argentgo tui`。
 - **GUI**（`native/`）：MyGo 原生聊天窗口，是唯一的桌面前端。它用 `ARGENT_EXE`
   拉起 `argentgo.exe --rpc`，通过 stdio JSON-RPC 驱动引擎：`prompt` + `prompt/delta`
@@ -809,7 +809,7 @@ policy update completion replay bug config tui workflow telemetry attach logs fo
 | 安全策略规则（用户配置） | `internal/app/policy_config.go` | done：配置规则进入 `security.Policy` |
 | hooks 运行时派发 | `internal/app/hooks.go` | done：7 事件接入真实 run，exit-2 阻断工具 |
 | MCP per-server 权限 | `internal/mcp` | done：enabled/readOnly/allowedTools/deniedTools |
-| TUI tasks/workspace/plan 面板 | `internal/tui` | done：Ctrl+T/B/P |
+| TUI tasks/workspace/plan 面板 | `internal/tui` | done：Alt+T/B/P（Ctrl 留给 pi 一致键位） |
 | 桌面壳（原生） | `native/`（MyGo） | done：纯 Go 原生 UI，经 `--rpc` 驱动引擎，无 WebView |
 
 ### 验收规则（不靠文档靠测试）

@@ -79,11 +79,12 @@ type Options struct {
 	// Events 在设置时把工具事件喂给可选的侧边栏。
 	// 已关闭的通道只是禁用后续更新。
 	Events <-chan Event
-	// Undo、Retry 和 Rename 是检查点/会话接缝。nil 表示
+	// Undo、Retry、Rename 和 Compact 是检查点/会话接缝。nil 表示
 	// 相应的斜杠命令解释宿主尚未接线。
-	Undo   TurnAction
-	Retry  TurnAction
-	Rename TurnAction
+	Undo    TurnAction
+	Retry   TurnAction
+	Rename  TurnAction
+	Compact TurnAction
 	// OnReady 在设置时于第一帧显示后接收活动模型。
 	// 它是集成方用来运行 agent 的钩子，并通过 Model.Approve
 	// 从另一个 goroutine 提交审批请求。
@@ -210,6 +211,7 @@ func Run(ctx context.Context, opts Options) error {
 	model.SetPromptStore(opts.PromptHistory)
 	model.SetApproval(opts.Approval)
 	model.SetTurnActions(opts.Undo, opts.Retry, opts.Rename)
+	model.SetCompactAction(opts.Compact)
 	model.SetContextInfo(opts.ContextWindow, opts.Cost)
 	model.SetCommandInfo(opts.CommandInfo)
 
@@ -379,6 +381,8 @@ func Run(ctx context.Context, opts Options) error {
 				runAction(opts.Retry, model.TakeActionArg(), "retry_done")
 			case ActionRename:
 				runAction(opts.Rename, model.TakeActionArg(), "rename_done")
+			case ActionCompact:
+				runAction(opts.Compact, model.TakeActionArg(), "compact_done")
 			case ActionQuit:
 				return true
 			}

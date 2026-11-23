@@ -173,6 +173,13 @@ func (m *Model) SetTurnActions(undo, retry, rename TurnAction) {
 	m.mu.Unlock()
 }
 
+// SetCompactAction 安装 /compact 使用的压缩接缝。nil 表示宿主没有接线。
+func (m *Model) SetCompactAction(compact TurnAction) {
+	m.mu.Lock()
+	m.compactFn = compact
+	m.mu.Unlock()
+}
+
 // TakeActionArg 返回最后一次产生动作的命令的参数。
 func (m *Model) TakeActionArg() string {
 	m.mu.Lock()

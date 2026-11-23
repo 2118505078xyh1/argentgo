@@ -130,6 +130,7 @@ const (
 	ActionUndo
 	ActionRetry
 	ActionRename
+	ActionCompact
 )
 
 // entryCacheKey 捕获改变某个记录条目渲染方式的所有输入。
@@ -282,7 +283,11 @@ type Model struct {
 	undoFn    TurnAction
 	retryFn   TurnAction
 	renameFn  TurnAction
+	compactFn TurnAction
 	actionArg string
+
+	// pi 一致的会话过滤：仅显示有标题的会话。
+	sessionNamedOnly bool
 
 	// 可选的侧边栏。三者默认全部隐藏，使经典
 	// 记录视图及其按键绑定逐字节不变。
