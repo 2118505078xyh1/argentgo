@@ -25,6 +25,9 @@
 - 可靠性：子代理工具表复用不变量断言、`ARGENT_COMPACT_DRAIN`（压缩后仍超限则逐条淘汰）、`Options.FollowUp` 后续消息队列。
 - 安全：审计日志补齐 `--password value` 形式 CLI flag 凭据的脱敏。
 
+**会话与归档（2026-11-23）**
+- TODO #134：`ARGENT_FOVEATED_ARCHIVE` 纯文本多保真归档视图——`Messages()` 读路径两端按工具配对单元逐字保真、中段按 rune 预算稀疏、旧 dense 单元插入可解析 `system` gap 标记；切点不切断工具调用/结果配对，压缩会话保留摘要，零 wire 变化，默认关闭时逐字节不变。
+
 ## v0.8.1 — 2026-11-21
 
 内核化重构与可靠性加固。Go 代码达到 30 万行（git tracked 源码含测试），仍然只依赖标准库、无 cgo、单二进制，MyGo 是唯一的原生壳依赖。（取证 commit a30b0e4（可用 git log 复核）实测 355,578 行，同一口径。）
