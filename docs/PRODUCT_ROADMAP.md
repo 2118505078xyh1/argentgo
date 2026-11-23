@@ -55,6 +55,8 @@
 | P2-4 | checkpoint 式「Reset Chat / Reset Code」双选项 + 分支续跑 | L |
 | P2-5 | GUI 11 个占位导航诚实化（置灰 + 即将推出角标） | S-M |
 
+**P2 进度（2026-11-23 续）**：P2-5 导航诚实化已随 native 改造落地（`3fc80c2`）；进一步接真实数据（用量/Git/任务面板）在并行代理中。P2-1 会话 CRUD 的**服务端 RPC**（`session.new/rename/delete`）在并行实施，UI 接线待后续。P2-3 `init` 向导设计见 `INIT_WIZARD_DESIGN.md`，待 cli 文件腾出后实施。
+
 ### 不做（明确取舍）
 
 - **恢复底部全局 hint bar**：用户此前明确要求移除，保持；仅在对话框/审批态按需显示上下文快捷键（P0-4）。
