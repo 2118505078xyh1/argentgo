@@ -149,7 +149,7 @@ argentgo：
 | locale | `--locale` | `ARGENT_LOCALE` | `en-US` |
 | 沙箱 | `--sandbox-mode` | `ARGENT_SANDBOX_MODE` | `workspace-write` |
 | 审批 | `--approval` | `ARGENT_APPROVAL` | `ask` |
-| 存储目录 | — | `ARGENT_STORAGE` | `~/.argentgo` |
+| 存储目录 | — | `ARGENT_STORAGE`, `ARGENT_STORAGE_DIR`, `ARGENT_HOME` | `~/.argentgo` |
 | 关闭 prompt cache | `--no-prompt-cache` | — | 关 |
 
 内置模板：`anthropic`、`openai`、`deepseek`、`moonshot`、`zhipu`、`zai`、`bigmodel`、
