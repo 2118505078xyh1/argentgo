@@ -33,16 +33,22 @@ func DecideCompactRetry(kind llm.FailureKind, retriesSoFar int, maxRetries int) 
 // 配置了阈值时复用轮次中压缩的 0.8 迟滞带，使一次压缩留出余量；
 // 未配置阈值时退回到上一次请求的提示估算（首次请求即溢出时为零，回落到最小窗口）。
 func (s *runState) compactRetryWindow() int {
+	var window int
 	if s.compactThreshold > 0 {
-		window := int(float64(s.compactThreshold)*compactionRecoveryBand) - summaryReserveTokens
+		window = int(float64(s.compactThreshold)*compactionRecoveryBand) - summaryReserveTokens
+	} else {
+		window = int(float64(s.promptTokens) * compactionRecoveryBand)
+	}
+	if window < minCompactWindow {
+		window = minCompactWindow
+	}
+	// 上下文计量校准（opt-in）：重试时按 SHRINK_STEPS 逐级缩小窗口，
+	// 让重发的请求更容易落在提供方限制之内。关闭时窗口逐字节不变。
+	if s.contextCalibration && s.compactRetries < ShrinkStepCount() {
+		window = ShrinkWindow(window, s.compactRetries)
 		if window < minCompactWindow {
 			window = minCompactWindow
 		}
-		return window
-	}
-	window := int(float64(s.promptTokens) * compactionRecoveryBand)
-	if window < minCompactWindow {
-		window = minCompactWindow
 	}
 	return window
 }

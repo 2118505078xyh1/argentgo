@@ -66,13 +66,6 @@
 
 ## 九、竞品源码深读新增（101–135）
 
-### 104. 上下文计量：provider 实测锚点 + 文本估算 + 预留余量 + 溢出逐级缩减 `[P1/M]`（opencode + cline + pi）
-- **竞品证据**：`opencode/packages/core/src/session/compaction.ts:55-56` 把大小拆成 `measured`（provider 报告的锚点）与 `estimated`（其后新增文本）；`:1120-1144` 用最近同模型、无错的 assistant 的 input+cache+output 作 measured 基线，只估未计量尾部；`:123-136,1151-1159` 的 `RESERVE_SHARE=0.15`/`RESERVE_MIN=16000` 算 ceiling；`:122-124,668-682` 溢出后按 `SHRINK_STEPS=[0.85,0.7,0.5,0.35]` 缩减。`cline/sdk/packages/core/src/extensions/context/compaction.ts:344-368` 用 `underestimateFactor=min(4,max(1,actualPreviousInputTokens/requestInputTokens))` 自适应缩放。`pi-mono/packages/coding-agent/src/core/agent-session.ts:3121-3250` 区分溢出可重试 / 成功但超限 / 阈值三种情形。
-- **argentgo 现状**：`internal/agent/trim.go:13-71` 的 `EstimateMessages/EstimateTools` 是纯字符/4 启发式（含缓存保护阈值 `:22-24`）；`internal/app/compact.go:124-132` 有 `usageAnchor` 做原生 totalTokens 前缀锚点，但阈值比较（`:82-88`）仍用固定 `InflateEstimate` 1.3 倍（`internal/agent/budget.go:152-158`），没有「实测/估算」比率自适应；触发后也没有逐级缩减重发。
-- **问题**：本地模型/大工具输出场景下估算误差大，可能过早压缩（浪费缓存）或过晚触发（撞硬限制）。
-- **建议**：opt-in 地在 `estimateContextTokens` 记录 `requestInputTokens`，用有上限的系数收缩/放宽阈值；把 `RESERVE_SHARE` 风格余量纳入阈值计算；溢出重试复用 `SHRINK_STEPS` 式逐级重发（但受 `MaxCompactRetries` 约束）。默认路径保持 chars/4 × 1.3 不变。
-- **验收**：表驱动测试喂「实测 120k / 估算 60k」断言系数钳到 4、阈值按新公式变化；基线用例断言 opt-in 关闭时阈值逐字节不变；`go test ./internal/agent ./internal/app -count=1`。
-
 ### 106. 重试前的持久上下文省略 + 可中止退避 + 摘要调用共享退避 `[P1/M]`（学自 pi-mono）
 - **竞品证据**：`pi-mono/packages/coding-agent/src/core/agent-session.ts:1269-1283` 的 `_omitRecoveryAttempt()`，`:1313-1354`/`:3936-3995` 在重试前对失败助手消息及其工具结果写 `appendContextEdit(targetId, null)` **永久省略**；`pi-mono/packages/ai/src/utils/retry.ts:160-164` 的退避可被 `abortRetry` 中断；`:2073-2080,3883-3918` 让压缩/分支摘要的 LLM 调用复用同一 retry 预算与事件。
 - **argentgo 现状**：`internal/agent/fallback.go:48-160` 在可重试错误时立即切换模型，无退避、失败消息留在 `s.messages`；`internal/agent/compact_retry.go:44-100` 的压缩重放是 opt-in 且最多一次，同样保留失败消息。`internal/session/context_edit.go:57` 的 `AppendContextEdit` 已有 Text 替换/隐藏语义，但只有 CLI 手动调用。

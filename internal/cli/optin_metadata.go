@@ -50,6 +50,7 @@ var IndependentOptIns = []IndependentOptIn{
 	{Key: "budget_projection_budget", Env: "ARGENT_BUDGET_PROJECTION_BUDGET", Name: "消息预算投影预算", Enable: "正整数（缺省 32000）", Desc: "指定投影的 rune 预算，非正或不可解析时回退保守默认。"},
 	{Key: "foveated_archive", Env: "ARGENT_FOVEATED_ARCHIVE", Name: "foveated 多保真归档", Enable: "=1", Desc: "Messages 读路径改用两端逐字保真、中段按预算稀疏并插入可解析 gap 标记的纯文本多保真视图（TODO #134 第一步）；切点落在工具配对单元边界、保留压缩摘要，零 wire 变化。关闭时逐字节不变。"},
 	{Key: "background_compact", Env: "ARGENT_BACKGROUND_COMPACT", Name: "后台预压缩", Enable: "=1", Desc: "接近压缩阈值（80%）时后台goroutine提前准备压缩视图，到阈值处校验锚点/tail 后零阻塞切换；tail 过长、失败或连续失败达上限时回退同步路径。默认关闭时同步压缩逐字节不变。"},
+	{Key: "context_calibration", Env: "ARGENT_CONTEXT_CALIBRATION", Name: "上下文计量校准", Enable: "=1", Desc: "用提供方实测 totalTokens 锚点与文本估算的比率（钳到 1..4）校准压缩判定，并提供预留余量上限（max(15%,16000)）与逐级缩减窗口；无锚点/默认关闭时阈值逐字节不变。"},
 	{Key: "approval_persist", Env: "ARGENT_APPROVAL_PERSIST", Name: "持久化审批规则", Enable: "=1", Desc: "在作用域审批器之上叠加跨会话的 always/deny 规则，落盘 <storage>/approvals.jsonl（只记工具名，不记自由文本参数）；文件损坏时 fail-closed。关闭时不构造该审批器、零文件 I/O、逐字节不变。"},
 	{Key: "recovery_replay", Env: "ARGENT_RECOVERY_REPLAY", Name: "恢复重放后缀", Enable: "=1", Desc: "恢复路径上追加重放后缀。"},
 	{Key: "recovery_detail", Env: "ARGENT_RECOVERY_DETAIL", Name: "恢复细节后缀", Enable: "=1", Desc: "恢复路径上把一次性分类得到的 RecoveryPlan 细节（类别/断链/孤儿调用/孤儿结果）作为文本后缀追加到公告；关闭时公告逐字节不变。"},

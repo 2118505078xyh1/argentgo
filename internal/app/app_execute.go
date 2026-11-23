@@ -771,9 +771,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 		MaxVerifyReflections: verifyReflectionsFor(res),
 		// 轮次中压缩由 app 层注入，使 agent 永不导入 session。
 		// 禁用/负的阈值会得到 0，从而成为空操作。
-		Compactor:        wrappedCompactor,
-		CompactObserver:  compactObserver,
-		CompactThreshold: compactor.CompactThreshold(),
+		Compactor:          wrappedCompactor,
+		CompactObserver:    compactObserver,
+		ContextCalibration: contextCalibrationEnabled(),
+		CompactThreshold:   compactor.CompactThreshold(),
 		// 流中断回补（opt-in ARGENT_STREAM_RECOVERY）：默认关闭时为零值，
 		// agent 的恢复分支整体短路，请求体与事件逐字节不变。
 		EnableStreamRecovery: streamRecoveryEnabled(stdio.Env),

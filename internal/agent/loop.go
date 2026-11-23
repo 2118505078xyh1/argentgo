@@ -131,10 +131,11 @@ type runState struct {
 	events   []Event
 	// 字节回放状态：replayBody 非空且未使用时，首请求用 RawChatter.ChatRaw 发送
 	// 原始快照字节；一旦使用或失败即清空，后续轮次全部走正常 Chat。
-	replayBody     []byte
-	replayUsed     bool
-	replayProtocol string
-	compactObserve func([]llm.Message, int)
+	replayBody         []byte
+	replayUsed         bool
+	replayProtocol     string
+	compactObserve     func([]llm.Message, int)
+	contextCalibration bool
 	// eventsMu 串行化事件记录：流式工具的进度回调可能在循环发出轮次边界时
 	// 运行于自己的 goroutine 上。
 	eventsMu sync.Mutex
@@ -607,26 +608,27 @@ func newRunState(opts Options, prompt string, emit func(Event)) *runState {
 		opts.bgOwner = opts.Subagent.Background.RootOwner()
 	}
 	s := &runState{
-		opts:           opts,
-		model:          opts.Model,
-		tools:          newToolset(opts.Tools, opts),
-		emitFn:         emit,
-		rec:            normaliseRecorder(opts.Record),
-		steer:          &steering{ch: opts.Steer},
-		followUp:       &steering{ch: opts.FollowUp},
-		replayBody:     opts.ReplayBody,
-		replayProtocol: opts.ReplayProtocol,
-		compactObserve: opts.CompactObserver,
-		ttsr:           newTTSRWatcherForRun(opts.TTSRRules),
-		beforeRequest:  opts.BeforeRequest,
-		beforeTool:     opts.BeforeTool,
-		progress:       newProgressCapture(opts.ProgressSink, 1),
-		guard:          newDedupe(repeatsFor(opts)),
-		mistakes:       NewMistakeTracker(0, defaultMistakeGuidance),
-		stuck:          &StuckDetector{},
-		depth:          opts.Depth,
-		bgOwner:        opts.bgOwner,
-		maxTurns:       maxTurnsFor(opts),
+		opts:               opts,
+		model:              opts.Model,
+		tools:              newToolset(opts.Tools, opts),
+		emitFn:             emit,
+		rec:                normaliseRecorder(opts.Record),
+		steer:              &steering{ch: opts.Steer},
+		followUp:           &steering{ch: opts.FollowUp},
+		replayBody:         opts.ReplayBody,
+		replayProtocol:     opts.ReplayProtocol,
+		compactObserve:     opts.CompactObserver,
+		contextCalibration: opts.ContextCalibration,
+		ttsr:               newTTSRWatcherForRun(opts.TTSRRules),
+		beforeRequest:      opts.BeforeRequest,
+		beforeTool:         opts.BeforeTool,
+		progress:           newProgressCapture(opts.ProgressSink, 1),
+		guard:              newDedupe(repeatsFor(opts)),
+		mistakes:           NewMistakeTracker(0, defaultMistakeGuidance),
+		stuck:              &StuckDetector{},
+		depth:              opts.Depth,
+		bgOwner:            opts.bgOwner,
+		maxTurns:           maxTurnsFor(opts),
 		trim: TrimOptions{
 			MaxTokens:         trimTarget(opts),
 			KeepTurns:         opts.KeepTurns,

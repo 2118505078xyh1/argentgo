@@ -275,6 +275,10 @@ type Options struct {
 	// 它在每次工具批次后、压缩判定之前被调用，携带当前消息与压缩阈值；app 可用它
 	// 在接近阈值时提前在后台准备摘要（ARGENT_BACKGROUND_COMPACT）。nil 时零调用。
 	CompactObserver func(messages []llm.Message, threshold int)
+
+	// ContextCalibration 启用上下文计量校准（app 层 ARGENT_CONTEXT_CALIBRATION）：
+	// 压缩重试窗口按 ShrinkWindow 逐级缩小。默认 false 时重试窗口逐字节不变。
+	ContextCalibration bool
 	// Budget 限制本次运行。限制会在每个轮次之前、工具批次之前和之后检查。
 	Budget Budget
 	// Prices 把模型 id 映射到其每百万 token 的价格。若存在 "" 条目，
