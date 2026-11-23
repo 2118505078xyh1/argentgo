@@ -145,7 +145,7 @@ func TestFolderLabelCJKClipsValidUTF8(t *testing.T) {
 			t.Fatalf("row %d width = %d, want <= 40", y, w)
 		}
 	}
-	if !strings.Contains(frameText(m, 40, 24), folderLabel(root, 40)) {
-		t.Fatal("the folder basename is missing from the status line")
+	if !strings.Contains(frameText(m, 40, 24), "work") {
+		t.Fatal("the project path is missing from the status line")
 	}
 }

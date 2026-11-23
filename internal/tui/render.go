@@ -70,13 +70,12 @@ func (m *Model) layoutLocked(width, height int) layout {
 		}
 		l.panelW = panelW
 		l.panelX = l.width - panelW - 1
-		bodyAvail := maxInt(l.panelX-2, 1)
-		l.bodyW = minInt(bodyAvail, maxBodyWidth)
-		l.bodyX = 1
+		l.bodyW = maxInt(l.panelX-1, 1)
+		l.bodyX = 0
 	} else {
-		// 全屏时正文铺满终端，不再被 120 列的旧上限截成中间一条。
-		l.bodyW = maxInt(l.width-2, 1)
-		l.bodyX = 1
+		// 正文真正左右铺满终端，不留边距也不再受 120 列上限约束。
+		l.bodyW = maxInt(l.width, 1)
+		l.bodyX = 0
 	}
 
 	runes := m.editor.Runes()
@@ -88,20 +87,18 @@ func (m *Model) layoutLocked(width, height int) layout {
 	if cursorRow >= 0 && cursorRow < len(visible) {
 		l.cursorCol = rowCaretColumn(visible[cursorRow], runes, m.editor.Cursor())
 	}
-	// 只有底部两行：用量+模型，以及刻意留空的最后一行（避免终端自动
-	// 滚动）。输入框紧贴用量行上方；状态/提示放在输入框正上方，
-	// 不再在屏幕顶部另画一条像输入框的横线。
-	// 用量行直接落在最后一行；绘制时刻意少写一列，避免末尾字符
-	// 触发终端自动滚动。这样下方不再多出一行。
+	// 输入框下面只有最后一行：状态·路径·用量·模型·思考，全部合在一行。
+	// 输入框紧贴这一行上方；前面不再有任何文字或额外横线。
+	// 绘制时刻意少写一列，避免末尾字符触发终端自动滚动。
 	l.usageY = maxInt(l.height-1, 0)
 	m.usageY = l.usageY
-	l.statusY = l.usageY - (len(visible) + 2) - 1
-	l.inputTop = l.statusY + 1
+	l.inputTop = l.usageY - (len(visible) + 2) - 1
+	l.statusY = -1
 	l.ruleY = -1
 	l.rootY = -1
 	l.hintY = -1
 	l.bodyTop = 0
-	l.bodyH = maxInt(l.statusY-l.bodyTop, 1)
+	l.bodyH = maxInt(l.inputTop-l.bodyTop, 1)
 	return l
 }
 
@@ -194,8 +191,7 @@ func (m *Model) Paint(buf *Buffer) {
 	// 浮层覆盖在记录区之上、输入框之上，不占据 hintY/statusY。
 	m.paintCompletionOverlay(buf, l)
 	m.paintInput(buf, l)
-	// 底部只有用量行；状态紧贴输入框上方，路径与分隔线不再占用行。
-	m.paintLine(buf, l.statusY, m.statusRuleLocked(width))
+	// 所有状态信息合并绘制在最后一行，输入框正下方只有这一行。
 	m.paintLine(buf, l.usageY, m.statusLineLocked(maxInt(width-1, 1)))
 	m.paintSelectionLocked(buf)
 	m.dirty = false
@@ -272,7 +268,7 @@ func (m *Model) rootLineLocked(width int) Line {
 
 // statusRuleLocked 是状态块最上面的横线：工作时带 spinner，
 // 有通知时显示通知文本，空闲时显示“就绪”。
-func (m *Model) statusRuleLocked(width int) Line {
+func (m *Model) statusMessageLocked() (string, Style) {
 	message := ""
 	style := m.palette.muted()
 	now := m.now()
@@ -291,8 +287,11 @@ func (m *Model) statusRuleLocked(width int) Line {
 	} else {
 		message = text(m.locale, "ready")
 	}
-	// 状态是紧贴输入框上方的一小段文字，不再画整行横线——那条横线
-	// 看起来像第二个输入框。
+	return message, style
+}
+
+func (m *Model) statusRuleLocked(width int) Line {
+	message, style := m.statusMessageLocked()
 	line := NewLine()
 	if width <= 0 || message == "" {
 		return line
@@ -348,6 +347,15 @@ func (m *Model) contextStyle(pct int) Style {
 // 状态消息与项目路径分别占有上面的状态线和路径行，因此模型名只出现一次。
 func (m *Model) statusLineLocked(width int) Line {
 	left := NewLine()
+	// 最后一行的左端：状态消息 · 项目路径，然后紧跟用量。
+	message, style := m.statusMessageLocked()
+	if message != "" {
+		left.Push(message, style)
+		if root := strings.TrimSpace(m.root); root != "" {
+			left.Push(" · "+root, m.palette.dim())
+		}
+		left.Push("  ", m.palette.dim())
+	}
 	if m.usageVisible {
 		if m.usageIn+m.usageOut > 0 {
 			left.Push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
@@ -389,10 +397,9 @@ func (m *Model) statusLineLocked(width int) Line {
 	}
 	right.Push(model, m.palette.accent())
 	if thinking := strings.TrimSpace(m.thinking); thinking != "" {
-		label := text(m.locale, "thinking")
 		m.statusReasoningFrom = right.Width() + 2 // 前面的 " • "
-		right.Push(" • "+label+" ", m.palette.muted())
-		m.statusReasoningTo = m.statusReasoningFrom + TextWidth(label)
+		right.Push(" • ", m.palette.muted())
+		m.statusReasoningTo = m.statusReasoningFrom + TextWidth(thinking)
 		right.Push(thinking, m.palette.muted())
 	} else {
 		m.statusReasoningFrom, m.statusReasoningTo = 0, 0

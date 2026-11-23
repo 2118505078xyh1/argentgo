@@ -12,8 +12,8 @@ func TestStatusThinkingLabelIsClickable(t *testing.T) {
 	m.locale = "zh-CN"
 	buf := m.Frame(100, 24)
 	usage := buf.RowText(m.usageY)
-	if !strings.Contains(usage, "思考") {
-		t.Fatalf("status line has no 思考 label: %q", usage)
+	if !strings.Contains(usage, "high") {
+		t.Fatalf("status line has no thinking level: %q", usage)
 	}
 	if m.statusReasoningFrom >= m.statusReasoningTo {
 		t.Fatalf("no thinking hit range recorded: %d..%d", m.statusReasoningFrom, m.statusReasoningTo)
