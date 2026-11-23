@@ -67,6 +67,8 @@ const (
 	// 追加在末尾，使上面每个 Kind 的数值保持稳定。
 	KindCtrlO // ctrl+o: toggle the slash commands panel
 	KindCtrlX // ctrl+x: toggle expansion of all thinking blocks
+	KindCtrlY // ctrl+y: yank the most recent kill-ring entry
+	KindAltY  // alt+y: yank-pop through the kill ring
 )
 
 // MouseKind 对一条解码后的 SGR 鼠标报告分类。
@@ -190,6 +192,8 @@ func decodeKey(b []byte) (Key, int, bool) {
 		return Key{Kind: KindCtrlO}, 1, true
 	case c == 0x18:
 		return Key{Kind: KindCtrlX}, 1, true
+	case c == 0x19:
+		return Key{Kind: KindCtrlY}, 1, true
 	case c < 0x20:
 		return Key{Kind: KindIgnore}, 1, true
 	}
@@ -224,6 +228,8 @@ func decodeEscape(b []byte) (Key, int, bool) {
 		return Key{Kind: KindAltU}, 2, true
 	case 'r', 'R':
 		return Key{Kind: KindAltR}, 2, true
+	case 'y', 'Y':
+		return Key{Kind: KindAltY}, 2, true
 	default:
 		// ESC 后跟其他内容：Esc 是被单独按下的，
 		// 下一个字节是普通按键。

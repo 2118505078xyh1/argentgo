@@ -8,10 +8,13 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/2118505078xyh1/argentgo/internal/config"
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"github.com/2118505078xyh1/argentgo/internal/security"
 	"github.com/2118505078xyh1/argentgo/internal/skills"
 )
 
@@ -291,12 +294,27 @@ func projectMemoryDocs(root string, env func(string) string, trust bool) []memor
 		return nil
 	}
 	docs := memory.InstructionsToDocs(insts)
+	// 嵌套仓库里父级 AGENTS.md 的规则常被子目录原样抄一遍。默认在注入前按
+	// 规范化段落序列丢弃被更靠近 cwd 的文件完整包含的重复文档；仅当操作人员
+	// 显式设 ARGENT_DEDUPE_CONTAINED_DOCS=0 时回退到旧的逐份注入行为。
+	if defaultOnEnv(env, "ARGENT_DEDUPE_CONTAINED_DOCS") {
+		docs = memory.DedupeContainedDocs(docs)
+	}
 	// LoadWithBoundary 按根优先返回，但 Block 的头部承诺条目从最具体（最近）的文件
 	// 排列到最不具体的。这里反转顺序，使渲染出的文本块保持准确。
 	for i, j := 0, len(docs)-1; i < j; i, j = i+1, j-1 {
 		docs[i], docs[j] = docs[j], docs[i]
 	}
 	return filterIgnoredDocs(root, docs)
+}
+
+// defaultOnEnv 实现「新能力默认开启、环境变量仅作 =0 紧急回退」的统一口径：
+// env 为 nil 或未设置该键时开启，只有精确等于 "0"（忽略两端空白）才关闭。
+func defaultOnEnv(env func(string) string, key string) bool {
+	if env == nil {
+		return true
+	}
+	return strings.TrimSpace(env(key)) != "0"
 }
 
 // filterIgnoredDocs 丢弃路径被建议性 .argentignore 规则排除的文档。
@@ -322,6 +340,123 @@ func filterIgnoredDocs(root string, docs []memory.Doc) []memory.Doc {
 		return nil
 	}
 	return out
+}
+
+// 工作区规则文件在会话内变更时的重注入。
+//
+// 用户在长会话中途编辑 AGENTS.md 纠正规则时，agent 不应等到重启才生效。
+// InstructionReconciler 在轮次边界对当前加载的指令文件算 SHA-256，与上次注入
+// 的基线比对；变化时产出有界的 `Updated instructions from: <path>` / 移除通知，
+// 复用既有 steering 通道在下次请求前作为用户轮次注入。无变化零开销。
+
+const (
+	// instructionTextBudget 是单条重注入消息中携带的新正文上限（字节）。
+	instructionTextBudget = 4096
+	// instructionMsgBudget 是单条消息的总上限（字节），含头部与注入警示。
+	instructionMsgBudget = 8192
+)
+
+// contextSink 是重注入消息的落点。agent.HookContextQueue 的 Add 满足它，
+// 因此 app 侧接线只需把队列交给 ReconcileInto，无需引入具体类型依赖。
+type contextSink interface {
+	Add(string) bool
+}
+
+// InstructionReconciler 持有跨轮次的指令摘要基线。必须在一次会话中创建一次，
+// 并在每次轮次边界调用 Reconcile/ReconcileInto。零值可用，但建议用构造函数。
+type InstructionReconciler struct {
+	mu       sync.Mutex
+	baseline memory.InstructionState
+	seeded   bool
+}
+
+// NewInstructionReconciler 返回一个空的基线协调器。
+func NewInstructionReconciler() *InstructionReconciler { return &InstructionReconciler{} }
+
+// Reset 丢弃基线，使下一次 Reconcile 只建立基线而不产出消息。会话切换时调用。
+func (r *InstructionReconciler) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.baseline = memory.InstructionState{}
+	r.seeded = false
+}
+
+// Reconcile 比较当前指令文件与基线并返回有界的重注入消息。
+// 首次调用只建立基线、不产出消息（会话启动无需报告「已加载」）；
+// 后续仅在摘要变化时产出。ARGENT_INSTRUCTION_RECONCILE=0 时整段逻辑关闭。
+func (r *InstructionReconciler) Reconcile(root string, env func(string) string, trust bool) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !defaultOnEnv(env, "ARGENT_INSTRUCTION_RECONCILE") {
+		return nil
+	}
+	current := memory.SnapshotInstructions(projectMemoryDocs(root, env, trust))
+	if !r.seeded {
+		r.baseline, r.seeded = current, true
+		return nil
+	}
+	if current.Version() == r.baseline.Version() {
+		return nil
+	}
+	changes := memory.DiffInstructionStates(r.baseline, current)
+	r.baseline = current
+	return renderInstructionChanges(changes)
+}
+
+// ReconcileInto 是 Reconcile 的接线便利形式：把产出的消息逐条交给 sink
+// （通常是 agent.HookContextQueue，从而在下一轮由 agent 经 steering 注入），
+// 返回实际入队的条数。
+func (r *InstructionReconciler) ReconcileInto(sink contextSink, root string, env func(string) string, trust bool) int {
+	if sink == nil {
+		return 0
+	}
+	messages := r.Reconcile(root, env, trust)
+	added := 0
+	for _, msg := range messages {
+		if sink.Add(msg) {
+			added++
+		}
+	}
+	return added
+}
+
+// renderInstructionChanges 把结构化的指令差异渲染为有界、经脱敏与注入扫描的
+// 用户轮次文本。高风险注入只前置一行警示、绝不改写或过滤原文任何字节。
+func renderInstructionChanges(changes []memory.InstructionChange) []string {
+	var out []string
+	for _, change := range changes {
+		var b strings.Builder
+		switch change.Kind {
+		case memory.InstructionRemoved:
+			fmt.Fprintf(&b, "Instructions removed: %s", change.Path)
+		case memory.InstructionAdded, memory.InstructionUpdated:
+			fmt.Fprintf(&b, "Updated instructions from: %s\n%s", change.Path, clipInstructionText(change.Text, instructionTextBudget))
+		default:
+			continue
+		}
+		msg := b.String()
+		msg = security.Redact(msg)
+		for _, finding := range security.ScanPromptInjection(msg) {
+			if finding.Severity == security.InjectionSeverityHigh {
+				msg = "[注意：内容含疑似指令注入]\n" + msg
+				break
+			}
+		}
+		out = append(out, clipInstructionText(msg, instructionMsgBudget))
+	}
+	return out
+}
+
+// clipInstructionText 按 rune 安全裁剪到至多 limit 字节，避免在 CJK/emoji 中间切断。
+func clipInstructionText(text string, limit int) string {
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	k := limit
+	for k > 0 && !utf8.RuneStart(text[k]) {
+		k--
+	}
+	return text[:k]
 }
 
 // loadOutputSchema 接受内联的 schema 文本或文件路径。

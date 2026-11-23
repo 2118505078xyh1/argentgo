@@ -173,8 +173,11 @@ type Model struct {
 	degraded bool
 	env      func(string) string
 
-	entries   []Entry
-	editor    Editor
+	entries []Entry
+	editor  Editor
+	// kill 是输入行的 Emacs kill-ring。零值可用；与 vimMode 正交，
+	// 默认开启（ARGENT_KILL_RING=0 时删除键仍照常工作，只是不记入环）。
+	kill      killRing
 	stream    strings.Builder
 	streamBuf MarkdownStreamBuf // holds back incomplete markdown markers
 

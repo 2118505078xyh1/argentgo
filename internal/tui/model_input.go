@@ -56,6 +56,12 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	if action, ok := m.tryAliasKeyLocked(key); ok {
 		return m.applyAliasActionLocked(action)
 	}
+	// kill-ring 连续删除串：只有删除/召回键延续当前串，光标移动与文本插入都断开它。
+	switch key.Kind {
+	case KindBackspace, KindDelete, KindCtrlK, KindCtrlU, KindCtrlW, KindCtrlY, KindAltY:
+	default:
+		m.kill.BreakChain()
+	}
 	switch key.Kind {
 	case KindIgnore:
 		return ActionNone
@@ -153,10 +159,18 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.editor.Insert("\n")
 		return ActionNone
 	case KindBackspace:
+		deleted := m.killOneBackwardLocked()
 		m.editor.Backspace()
+		if deleted != "" {
+			m.kill.Kill(deleted, killBackward, true)
+		}
 		m.refreshCompletionLocked()
 	case KindDelete:
+		deleted := m.killOneForwardLocked()
 		m.editor.Delete()
+		if deleted != "" {
+			m.kill.Kill(deleted, killForward, true)
+		}
 	case KindLeft:
 		m.editor.Left()
 	case KindRight:
@@ -182,11 +196,37 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		}
 		m.editor.End()
 	case KindCtrlK:
+		deleted := m.killToEndLocked()
 		m.editor.KillToEnd()
+		if deleted != "" {
+			m.kill.Kill(deleted, killForward, true)
+		}
 	case KindCtrlU:
+		deleted := m.killToStartLocked()
 		m.editor.KillToStart()
+		if deleted != "" {
+			m.kill.Kill(deleted, killBackward, true)
+		}
 	case KindCtrlW:
+		deleted := m.killWordLocked()
 		m.editor.KillWord()
+		if deleted != "" {
+			m.kill.Kill(deleted, killBackward, true)
+		}
+	case KindCtrlY:
+		// yank：把最近一条（或 yank-pop 循环的当前条）插回光标处。
+		text := m.kill.Yank()
+		if text != "" {
+			m.editor.Insert(text)
+			m.refreshCompletionLocked()
+		}
+	case KindAltY:
+		// yank-pop：在环内循环取回更早的删除片段。
+		text := m.kill.YankPop()
+		if text != "" {
+			m.editor.Insert(text)
+			m.refreshCompletionLocked()
+		}
 	case KindUp:
 		if m.completionActiveLocked() {
 			m.completion.Prev()
@@ -248,18 +288,108 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 		m.editor.Insert(string(key.Rune))
 		m.refreshCompletionLocked()
 	case KindPaste:
-		m.editor.Insert(key.Text)
+		text := key.Text
+		// 粘贴的若是整段已存在的文件路径（WT 引号 / Unix 转义 / Rio NUL），
+		// 改写为 @引用再写入输入框；否则逐字节保留原始粘贴内容。默认开启，
+		// 仅 ARGENT_PASTE_FILE_MENTIONS=0 时回退到旧行为。
+		if m.pasteMentionsEnabled() {
+			if paths, ok := ParsePastedFiles(text, pastePathStat); ok {
+				text = PastedFilesToMentions(m.root, paths)
+			}
+		}
+		m.editor.Insert(text)
 		m.refreshCompletionLocked()
 	}
 	return ActionNone
 }
 
-// pathCompletionEnabled 报告 ARGENT_PATH_COMPLETION=1 是否开启了内联路径补全。
-// 默认关闭：m.env 为 nil 或未设置该变量时返回 false，整段新逻辑都不会进入，
-// 既有 slash 补全与默认帧逐字节不变。env 由集成方注入（run.go 用 os.Getenv），
+// pastePathStat 是粘贴路径探测的可替换后端。测试注入假 stat，不碰真实磁盘。
+var pastePathStat PathStat = os.Stat
+
+// pasteMentionsEnabled 报告粘贴文件路径识别是否开启。默认开启，
+// 只有 ARGENT_PASTE_FILE_MENTIONS=0 时才回退到旧的整块粘贴行为。
+func (m *Model) pasteMentionsEnabled() bool {
+	return m.env == nil || strings.TrimSpace(m.env("ARGENT_PASTE_FILE_MENTIONS")) != "0"
+}
+
+// killRingEnabled 报告 kill-ring 是否开启。默认开启，
+// 只有 ARGENT_KILL_RING=0 时删除键照常工作但不记入环。
+func (m *Model) killRingEnabled() bool {
+	return m.env == nil || strings.TrimSpace(m.env("ARGENT_KILL_RING")) != "0"
+}
+
+// 以下辅助在删除前从编辑器取出将被删掉的 rune 片段。它们返回的是真正会从
+// 缓冲区消失的文本，因此记入 kill-ring 的内容与用户看到的一致；按 rune 切片
+// 保证 CJK/emoji 不会被切坏。
+
+func (m *Model) killOneBackwardLocked() string {
+	if !m.killRingEnabled() {
+		return ""
+	}
+	runes, cur := m.editor.Runes(), m.editor.Cursor()
+	if cur > 0 {
+		return string(runes[cur-1])
+	}
+	return ""
+}
+
+func (m *Model) killOneForwardLocked() string {
+	if !m.killRingEnabled() {
+		return ""
+	}
+	runes, cur := m.editor.Runes(), m.editor.Cursor()
+	if cur < len(runes) {
+		return string(runes[cur])
+	}
+	return ""
+}
+
+func (m *Model) killToEndLocked() string {
+	if !m.killRingEnabled() {
+		return ""
+	}
+	runes, cur := m.editor.Runes(), m.editor.Cursor()
+	if cur < len(runes) {
+		return string(runes[cur:])
+	}
+	return ""
+}
+
+func (m *Model) killToStartLocked() string {
+	if !m.killRingEnabled() {
+		return ""
+	}
+	runes, cur := m.editor.Runes(), m.editor.Cursor()
+	if cur > 0 {
+		return string(runes[:cur])
+	}
+	return ""
+}
+
+func (m *Model) killWordLocked() string {
+	if !m.killRingEnabled() {
+		return ""
+	}
+	runes, cur := m.editor.Runes(), m.editor.Cursor()
+	start := cur
+	for start > 0 && runes[start-1] == ' ' {
+		start--
+	}
+	for start > 0 && runes[start-1] != ' ' && runes[start-1] != '\n' {
+		start--
+	}
+	if start == cur {
+		return ""
+	}
+	return string(runes[start:cur])
+}
+
+// pathCompletionEnabled 报告内联路径 / @提及补全是否开启。默认开启：
+// m.env 为 nil 或 ARGENT_PATH_COMPLETION 修剪后不等于 "0" 时返回 true，
+// 只有修剪后精确等于 "0" 才关闭。env 由集成方注入（run.go 用 os.Getenv），
 // TUI 自身的渲染路径绝不直接读环境变量。
 func (m *Model) pathCompletionEnabled() bool {
-	return m.env != nil && m.env("ARGENT_PATH_COMPLETION") == "1"
+	return m.env == nil || strings.TrimSpace(m.env("ARGENT_PATH_COMPLETION")) != "0"
 }
 
 // completionActiveLocked 报告输入行是否应由补全接管。
