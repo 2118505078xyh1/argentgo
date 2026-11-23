@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/2118505078xyh1/argentgo/internal/tools"
 )
 
 // approvalPreviewEnv 是「审批差异预览」的独立门控变量。默认开启，修剪后精确为 "0" 时关闭。
@@ -49,6 +51,88 @@ func approvalDiffPreview(name string, args json.RawMessage) string {
 	}
 	add, del := lineDelta(oldText, newText)
 	return fmt.Sprintf("+%d/-%d lines", add, del)
+}
+
+// approvalSnapshots 从写类工具的参数中提取编辑前后的文本快照，键为文件路径。
+// 字段约定与 approvalDiffPreview 完全一致（edit/multi_edit 的 old/new、write 的
+// content、apply_patch 的 input），因此两处对同一调用给出一致的统计口径。
+//
+// 安全链传给 Approver 的是「展示用参数」：路径可能被解析成真实位置，末尾还可能
+// 附带脱敏摘要。这里用 Decoder 只读取第一个 JSON 值，从而忽略末尾附加文本；
+// 参数不是 JSON 对象或没有可用文本时返回 nil，调用方据此跳过 diff 渲染。
+func approvalSnapshots(name string, args string) (map[string]string, map[string]string) {
+	dec := json.NewDecoder(strings.NewReader(args))
+	dec.UseNumber()
+	var payload struct {
+		Path     string `json:"path"`
+		File     string `json:"file"`
+		FilePath string `json:"filepath"`
+		Old      string `json:"old"`
+		New      string `json:"new"`
+		Content  string `json:"content"`
+		Input    string `json:"input"`
+		Edits    []struct {
+			Old     string `json:"old"`
+			New     string `json:"new"`
+			OldText string `json:"old_text"`
+			NewText string `json:"new_text"`
+		} `json:"edits"`
+	}
+	if err := dec.Decode(&payload); err != nil {
+		return nil, nil
+	}
+	path := firstNonEmpty(payload.Path, payload.File, payload.FilePath)
+	before := make(map[string]string, 1)
+	after := make(map[string]string, 1)
+
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "edit":
+		if path == "" || (payload.Old == "" && payload.New == "") {
+			return nil, nil
+		}
+		before[path], after[path] = payload.Old, payload.New
+	case "multi_edit":
+		if path == "" || len(payload.Edits) == 0 {
+			return nil, nil
+		}
+		var oldText, newText strings.Builder
+		for _, edit := range payload.Edits {
+			old, next := edit.Old, edit.New
+			if old == "" {
+				old = edit.OldText
+			}
+			if next == "" {
+				next = edit.NewText
+			}
+			oldText.WriteString(old)
+			newText.WriteString(next)
+		}
+		before[path], after[path] = oldText.String(), newText.String()
+	case "write":
+		if path == "" || payload.Content == "" {
+			return nil, nil
+		}
+		before[path], after[path] = "", payload.Content
+	case "apply_patch":
+		if strings.TrimSpace(payload.Input) == "" {
+			return nil, nil
+		}
+		actions, err := tools.ParseApplyPatch(payload.Input)
+		if err != nil {
+			return nil, nil
+		}
+		for _, action := range actions {
+			if target := strings.TrimSpace(action.Path); target != "" {
+				before[target], after[target] = action.OldText(), action.NewText()
+			}
+		}
+	default:
+		return nil, nil
+	}
+	if len(before) == 0 {
+		return nil, nil
+	}
+	return before, after
 }
 
 // lineDelta 统计从 old 到 new 的新增/删除行数（简单逐行比较，足够做摘要）。

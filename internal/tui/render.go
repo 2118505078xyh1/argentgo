@@ -513,6 +513,12 @@ func (m *Model) approvalLines(width int) []Line {
 	}
 	out = append(out, row(text(m.locale, "tool")+": "+m.pending.name, Style{Bold: true}))
 
+	// 危险命令在裸参数上方显示一行中文意图摘要，让操作员先看到它要做什么。
+	// 普通请求 intent 为空，整段跳过，帧字节保持历史原样。
+	if intent := collapseSpace(m.pending.intent); intent != "" {
+		out = append(out, row(intent, m.palette.warning()))
+	}
+
 	args := collapseSpace(m.pending.args)
 	if args == "" {
 		args = "{}"

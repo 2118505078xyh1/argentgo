@@ -526,8 +526,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if auditSanitizeEnabled(stdio.Env) {
 		chain.SanitizeAudit = bash.SanitizeForLog
 	}
-	// 审批 diff 预览（opt-in ARGENT_APPROVAL_PREVIEW，默认关闭）：写类工具的
-	// 审批提示附带脱敏的 +N/-M 行数摘要；不改变判定，关闭时提示逐字节不变。
+	// 审批 diff 预览：写类工具的审批提示附带脱敏的 +N/-M 行数摘要；不改变判定，
+	// 默认开启，仅 ARGENT_APPROVAL_PREVIEW=0 紧急回退时关闭。TUI 弹窗另外直接从
+	// 参数渲染真实 diff（见 tui.go 的 Approver.Ask），两处互不影响。
 	if approvalPreviewEnabled(stdio.Env) {
 		chain.Preview = approvalDiffPreview
 	}

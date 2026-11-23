@@ -53,8 +53,11 @@ type approvalRequest struct {
 	// 设置后，弹窗显示原因并预选 Deny 作为安全的
 	// 默认值，使习惯性的 Enter 不会批准破坏性命令。
 	danger string
-	// diff 是可选的审批 diff 数据（opt-in）。零值使弹窗逐字节不变；
-	// 只有 tuiApprovalDiff 开关打开且 diff 非空时才渲染摘要与预览行。
+	// intent 是危险命令的一行中文意图摘要，渲染在裸参数上方，让操作员
+	// 先看到"它要做什么"。普通请求为空，整段跳过，帧字节保持历史原样。
+	intent string
+	// diff 是审批 diff 数据（默认渲染）。零值时跳过摘要与预览行；
+	// 仅当 ARGENT_APPROVAL_DIFF=0 紧急关闭开关时即便有数据也不渲染。
 	diff  ApprovalDiff
 	reply chan bool
 	ctx   context.Context
@@ -69,6 +72,15 @@ type approvalRequest struct {
 // 不变；只有被标记的请求才翻转安全默认值。
 func (r *approvalRequest) defaultsToDeny() bool {
 	return r != nil && r.danger != ""
+}
+
+// dangerIntent 把危险原因折叠成一行中文意图摘要，渲染在裸参数上方。
+// 普通请求（danger 为空）返回空串，调用方据此跳过整段渲染。
+func dangerIntent(danger string) string {
+	if strings.TrimSpace(danger) == "" {
+		return ""
+	}
+	return "危险命令意图：" + strings.TrimSpace(danger)
 }
 
 func (m *Model) answerApprovalLocked(key Key) KeyAction {
@@ -160,10 +172,10 @@ func (m *Model) ApproveDanger(ctx context.Context, name, args, danger string) (b
 	return m.approve(ctx, name, args, danger, ApprovalDiff{})
 }
 
-// ApproveDiff 与普通 Approve 类似，但附带编辑前后的文件快照，供 opt-in
-// 的审批卡 diff 行渲染。diff 由 BuildApprovalDiff 从 before/after 构造；
-// 快照只读、不修改入参。diff 是否显示由 ConfigureApprovalDiff 的门控决定：
-// 关闭时即便传入了数据，弹窗也与普通 Approve 逐字节相同。danger 语义与
+// ApproveDiff 与普通 Approve 类似，但附带编辑前后的文件快照，供审批卡
+// 默认渲染真实 diff。diff 由 BuildApprovalDiff 从 before/after 构造；
+// 快照只读、不修改入参。默认开启，仅当 ARGENT_APPROVAL_DIFF=0 紧急关闭时
+// 即便传入了数据，弹窗也与普通 Approve 逐字节相同。danger 语义与
 // ApproveDanger 一致，可同时传入。
 func (m *Model) ApproveDiff(ctx context.Context, name, args, danger string, before, after map[string]string) (bool, error) {
 	return m.approve(ctx, name, args, danger, BuildApprovalDiff(before, after))
@@ -183,7 +195,7 @@ func (m *Model) approve(ctx context.Context, name, args, danger string, diff App
 		m.mu.Unlock()
 		return true, nil
 	}
-	request := approvalRequest{name: name, args: args, danger: danger, diff: diff, reply: make(chan bool, 1), ctx: ctx}
+	request := approvalRequest{name: name, args: args, danger: danger, intent: dangerIntent(danger), diff: diff, reply: make(chan bool, 1), ctx: ctx}
 	m.appendTaskLocked(Task{Name: name, Args: args, Status: TaskPending})
 	if m.pending == nil {
 		request.openedAt = m.now()

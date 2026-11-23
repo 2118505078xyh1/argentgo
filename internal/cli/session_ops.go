@@ -36,6 +36,11 @@ func sessionsUndo(app App, id string, args []string) int {
 			fmt.Fprintln(app.IO.Err, "error:", err)
 			return 1
 		}
+		// undo 先过策略 → 审批 → 审计链；拒绝时不触碰工作区。
+		if err := checkUndoRestore(app, workspace, sess.ID(), checkpoint); err != nil {
+			fmt.Fprintln(app.IO.Err, "error:", err)
+			return 1
+		}
 		restored, err := session.UndoCheckpoint(workspace, checkpoint)
 		if err != nil {
 			fmt.Fprintln(app.IO.Err, "error:", err)
@@ -52,7 +57,13 @@ func sessionsUndo(app App, id string, args []string) int {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1
 	}
-	restored, err := session.UndoCheckpoint(workspace, mergeUndoCheckpoints(checkpoints))
+	merged := mergeUndoCheckpoints(checkpoints)
+	// 多步撤销同样先过安全链，清单是合成后的最终还原目标。
+	if err := checkUndoRestore(app, workspace, sess.ID(), merged); err != nil {
+		fmt.Fprintln(app.IO.Err, "error:", err)
+		return 1
+	}
+	restored, err := session.UndoCheckpoint(workspace, merged)
 	if err != nil {
 		fmt.Fprintln(app.IO.Err, "error:", err)
 		return 1

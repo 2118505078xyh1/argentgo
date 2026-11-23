@@ -53,7 +53,8 @@ func buildTUICommandInfo(stdio cli.IO, res Resolved) []tui.CommandInfo {
 func TUI(stdio cli.IO) cli.TUIFunc {
 	// 用量显示（ARGENT_TUI_USAGE，UX 改善默认打开）：仅 env=0 时关闭。
 	configureTUIUsage(stdio.Env)
-	// 审批卡 diff 显示（opt-in ARGENT_APPROVAL_DIFF）：默认关闭，帧字节不变。
+	// 审批卡 diff 显示：默认开启，弹窗直接展示真实 diff；仅 ARGENT_APPROVAL_DIFF=0
+	// 作为紧急回退关闭，用户零选择。
 	tui.ConfigureApprovalDiff(stdio.Env)
 	// 徽章对比度 hex 角色（opt-in，三个 env 同时提供才生效）：无配置时帧字节不变。
 	tui.ConfigureBadgeContrast(stdio.Env)
@@ -121,13 +122,19 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			}
 			return current, nil
 		}
-		undoTurn := func(context.Context, string) error {
+		undoTurn := func(ctx context.Context, _ string) error {
 			sess, err := currentSession()
 			if err != nil {
 				return err
 			}
 			checkpoint, _, err := sess.LatestCheckpoint()
 			if err != nil {
+				return err
+			}
+			// undo 与写文件等价：执行前先过策略 → 审批 → 审计链。清单路径
+			// 来自 checkpoint，拒绝时直接返回可读错误，绝不触碰工作区。
+			chain := undoChainFor(res, sess.ID())
+			if err := checkUndoRestore(ctx, chain, checkpoint); err != nil {
 				return err
 			}
 			_, err = session.UndoCheckpoint(res.Root, checkpoint)
@@ -260,15 +267,23 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 	if model == nil {
 		return false, nil
 	}
-	// 危险原因展示：门控默认开启，命令为变更型且存在危险原因时，把 security 计算的
-	// 稳定中文原因传给 ApproveDanger（弹窗多一行并预选拒绝）。仅当门控被显式关闭
-	// （env 值修剪后为 "0"）或命令无危险时，继续走原 model.Approve。name/args 始终原样传递。
+	// 危险原因展示：门控默认开启，命令为变更型且存在危险原因时取得稳定中文原因，
+	// 弹窗在裸参数上方多一行意图摘要并预选拒绝。仅当门控被显式关闭
+	// （env 值修剪后为 "0"）或命令无危险时，danger 为空。name/args 始终原样传递。
+	danger := ""
 	if approveDangerEnabled(env) {
 		if token := shellCommandOf(name, json.RawMessage(args)); token != "" {
-			if reason := security.DangerReason(token); reason != "" {
-				return model.ApproveDanger(ctx, name, args, reason)
-			}
+			danger = security.DangerReason(token)
 		}
+	}
+	// 真实 diff 默认开启：edit/write/multi_edit/apply_patch 的参数携带编辑前后的
+	// 文本，交给 ApproveDiff 在弹窗中渲染中文摘要与有界预览。其他工具（含危险
+	// shell 命令）没有快照，继续走原来的 ApproveDanger/Approve 路径。
+	if before, after := approvalSnapshots(name, args); before != nil {
+		return model.ApproveDiff(ctx, name, args, danger, before, after)
+	}
+	if danger != "" {
+		return model.ApproveDanger(ctx, name, args, danger)
 	}
 	return model.Approve(ctx, name, args)
 }

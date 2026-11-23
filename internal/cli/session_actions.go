@@ -66,6 +66,11 @@ func (a App) applySessionFlags(opts *Options) (int, bool) {
 		if workspace == "" {
 			workspace, _ = os.Getwd()
 		}
+		// undo 先过策略 → 审批 → 审计链；拒绝时不触碰工作区。
+		if err := checkUndoRestore(a, workspace, sess.ID(), checkpoint); err != nil {
+			fmt.Fprintln(a.IO.Err, "error:", err)
+			return 1, true
+		}
 		restored, err := session.UndoCheckpoint(workspace, checkpoint)
 		if err != nil {
 			fmt.Fprintln(a.IO.Err, "error:", err)
