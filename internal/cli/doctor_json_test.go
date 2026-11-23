@@ -36,7 +36,7 @@ func TestDoctorJSONReportStructure(t *testing.T) {
 		t.Fatalf("--json 输出不是合法 JSON: %v\n%s", err, out.String())
 	}
 
-	wantNames := []string{"config", "mcp", "storage", "provider", "provider_catalog", "web_search", "verify", "git", "go"}
+	wantNames := []string{"config", "mcp", "storage", "provider", "credential", "provider_catalog", "web_search", "verify", "git", "go"}
 	if len(report.Checks) != len(wantNames) {
 		t.Fatalf("checks 数量 = %d, want %d: %s", len(report.Checks), len(wantNames), out.String())
 	}
@@ -214,6 +214,8 @@ func TestDoctorTextOutputGoldenUnchanged(t *testing.T) {
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusOK, "storage", dir+" writable")
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "provider",
 		`ftp://doctor.invalid unreachable: Get "ftp://doctor.invalid": unsupported protocol scheme "ftp"`)
+	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "credential",
+		"no credential for provider openai; fix: argentgo login --device openai / --api-key <key> / ARGENT_API_KEY")
 	catalog := checkProviderCatalog()
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", catalog.status, catalog.name, catalog.detail)
 	fmt.Fprintf(&golden, "%-4s %-9s %s\n", statusWarn, "web_search",

@@ -13,7 +13,18 @@ import (
 )
 
 func envFrom(pairs map[string]string) func(string) string {
-	return func(key string) string { return pairs[key] }
+	return func(key string) string {
+		if value, ok := pairs[key]; ok {
+			return value
+		}
+		// P0-5 引入了无凭据 fail-fast。绝大多数用例并不测试凭据解析，用紧急回退
+		// 开关让它们绕过检查；不伪造 API key，以免干扰凭据优先级与"项目端点 +
+		// 外部密钥"守卫的既有断言。显式写入 pairs 的值始终优先。
+		if key == credentialFailFastEnv {
+			return "1"
+		}
+		return ""
+	}
 }
 
 func TestDefaultStoragePrecedence(t *testing.T) {

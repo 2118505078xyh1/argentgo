@@ -261,8 +261,8 @@ func TestDoctorIssuesAreWarningsOnly(t *testing.T) {
 	if err := json.Unmarshal(out2.Bytes(), &report); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out2.String())
 	}
-	if len(report.Checks) != 9 || report.Failures != 0 {
-		t.Fatalf("checks = %d, failures = %d, want 9/0", len(report.Checks), report.Failures)
+	if len(report.Checks) != 10 || report.Failures != 0 {
+		t.Fatalf("checks = %d, failures = %d, want 10/0", len(report.Checks), report.Failures)
 	}
 	if len(report.Issues) != 2 {
 		t.Fatalf("issues = %d, want 2: %s", len(report.Issues), out2.String())

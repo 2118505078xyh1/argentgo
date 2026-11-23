@@ -154,8 +154,8 @@ func TestDoctorModelInfoJSONStructureIntact(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("不是合法 JSON: %v\n%s", err, out.String())
 	}
-	if len(report.Checks) != 9 || report.Failures != 0 {
-		t.Fatalf("checks = %d, failures = %d, want 9/0: %s", len(report.Checks), report.Failures, out.String())
+	if len(report.Checks) != 10 || report.Failures != 0 {
+		t.Fatalf("checks = %d, failures = %d, want 10/0: %s", len(report.Checks), report.Failures, out.String())
 	}
 	if len(report.Issues) != 1 {
 		t.Fatalf("issues = %d, want 1: %s", len(report.Issues), out.String())

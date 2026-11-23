@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"github.com/2118505078xyh1/argentgo/internal/auth"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/config"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -231,6 +232,18 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		storage = DefaultStorage(env)
 	}
 
+	// P0-5 凭据 fail-fast：需要凭据的提供方若从 flag/env/config/auth store 四个
+	// 来源都拿不到任何凭据，立刻返回 FamilyNotConfigured 的可行动错误，而不是让
+	// 空 Authorization 头发出去，把"没填"误报成 401 的"填错了"。本地提供方
+	// （ollama/lmstudio 等）不声明凭据来源，在 providerRequiresCredential 中被豁免。
+	// credentialFailFastEnv 仅作为紧急回退（默认开启），不是用户需要配置的选择。
+	if credentialFailFastEnabled(env) && apiKey == "" &&
+		providerRequiresCredential(providerName, configuredProvider.APIKeyEnv) &&
+		!hasAnyStoredCredential(storage) {
+		name := firstNonEmpty(providerName, configuredProvider.Name, "openai")
+		return Resolved{}, newCredentialNotConfiguredError(name)
+	}
+
 	addDirs, err := resolveAddDirs(root, opts.AddDirs)
 	if err != nil {
 		return Resolved{}, err
@@ -294,6 +307,77 @@ func Resolve(stdio cli.IO, opts cli.Options) (Resolved, error) {
 		res.Chatter = &fallbackChatter{primary: res.Chatter, fallback: fallback}
 	}
 	return res, nil
+}
+
+// credentialFailFastEnv 是 fail-fast 的紧急回退开关：默认开启，仅在显式设为 "1"
+// 时关闭。它是应急阀门，不是需要用户理解或配置的选择；测试里不关心凭据解析的
+// 用例通过它绕过检查，避免给每个用例伪造密钥而干扰凭据优先级/项目端点守卫。
+const credentialFailFastEnv = "ARGENT_SKIP_CREDENTIAL_CHECK"
+
+func credentialFailFastEnabled(env func(string) string) bool {
+	if env == nil {
+		return true
+	}
+	return strings.TrimSpace(env(credentialFailFastEnv)) != "1"
+}
+
+// providerRequiresCredential 报告某个提供方是否确实需要凭据。内置模板未声明任何
+// API key 环境变量（ollama、lmstudio、local 等本地端点）或显式 NoAuth 的提供方
+// 一律返回 false，确保 fail-fast 不误伤无需 key 的本地 provider。
+// fallbackAPIKeyEnv 覆盖仅存在于配置层、内置表不认识的自定义提供方。
+func providerRequiresCredential(name, fallbackAPIKeyEnv string) bool {
+	if template, ok := provider.Resolve(name); ok {
+		if template.NoAuth {
+			return false
+		}
+		if strings.TrimSpace(template.APIKeyEnv) == "" && len(template.APIKeyEnvs) == 0 {
+			return false
+		}
+		return true
+	}
+	return strings.TrimSpace(fallbackAPIKeyEnv) != ""
+}
+
+// hasAnyStoredCredential 报告 auth store 中是否存在至少一条非空凭据。
+// 设备登录（login --device）把令牌写入这里而不是配置或环境变量，因此必须把它
+// 视为有效凭据来源，否则已经登录的用户会被 fail-fast 误伤。store 打不开或读失败
+// 时返回 false（视为无凭据），保持只读诊断语义。
+func hasAnyStoredCredential(storage string) bool {
+	if strings.TrimSpace(storage) == "" {
+		return false
+	}
+	store, err := auth.Open(filepath.Join(storage, "auth"))
+	if err != nil {
+		return false
+	}
+	tokens, err := store.List()
+	if err != nil {
+		return false
+	}
+	for _, token := range tokens {
+		if token.Bearer() != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// newCredentialNotConfiguredError 构造带 FamilyNotConfigured 的可行动错误。
+// Message 自带三条具体修复路径：Resolve 的错误经 cli.Factory 在 newRunner 阶段
+// 直接以 "error: <err>" 打印，不会走 runPrompt 的 writeActionableErrorEnv，
+// 因此三条路径必须放在 Error() 文本里，而不能只放进 NextStep。
+// 文案同时包含 "api key" 与 "not configured"，使 error_hint_wire 的凭证分支
+// 在错误流经该机制时仍能命中并追加本地化建议。
+func newCredentialNotConfiguredError(name string) error {
+	return &llm.ActionableError{
+		Family: llm.FamilyNotConfigured,
+		Message: fmt.Sprintf(
+			"提供方 %s 未配置（not configured）：没有任何可用的 API Key 或登录凭据；"+
+				"请用 argentgo login --device %s、--api-key <key> 或环境变量 ARGENT_API_KEY 提供凭据",
+			name, name),
+		NextStep: fmt.Sprintf(
+			"任选一种方式：1) argentgo login --device %s  2) --api-key <key>  3) ARGENT_API_KEY", name),
+	}
 }
 
 // cacheOptionsForConfig 构建供 newChatter 使用的线上层缓存选项。合并后的配置可能携带显式的

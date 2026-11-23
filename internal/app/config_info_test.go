@@ -38,7 +38,13 @@ func TestNewConfigInfoProviderToleratesResolveError(t *testing.T) {
 // TestNewConfigInfoProviderUsesDefaultResolve 验证公开构造函数确实接入了
 // 真实的 Resolve：默认值下至少能拿到非空的 model 与 workspace。
 func TestNewConfigInfoProviderUsesDefaultResolve(t *testing.T) {
-	provider := NewConfigInfoProvider(cli.IO{Env: func(string) string { return "" }})
+	// 本用例只验证 Resolve 被接入，不关心凭据；用紧急回退开关绕过 P0-5 fail-fast。
+	provider := NewConfigInfoProvider(cli.IO{Env: func(key string) string {
+		if key == credentialFailFastEnv {
+			return "1"
+		}
+		return ""
+	}})
 	info := provider.ConfigInfo()
 	if info.Model == "" {
 		t.Error("Model is empty; NewConfigInfoProvider did not use Resolve")

@@ -125,8 +125,8 @@ func TestDoctorMCPRuntimeHealthEndToEnd(t *testing.T) {
 	if err := json.Unmarshal(out2.Bytes(), &report); err != nil {
 		t.Fatalf("JSON 解析失败: %v\n%s", err, out2.String())
 	}
-	if len(report.Checks) != 9 || report.Failures != 0 {
-		t.Fatalf("checks=%d failures=%d, want 9/0: %s", len(report.Checks), report.Failures, out2.String())
+	if len(report.Checks) != 10 || report.Failures != 0 {
+		t.Fatalf("checks=%d failures=%d, want 10/0: %s", len(report.Checks), report.Failures, out2.String())
 	}
 	if len(report.Issues) != 1 {
 		t.Fatalf("issues=%d, want 1: %s", len(report.Issues), out2.String())

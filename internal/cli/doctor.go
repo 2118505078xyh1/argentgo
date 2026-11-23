@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/2118505078xyh1/argentgo/internal/auth"
 	"github.com/2118505078xyh1/argentgo/internal/i18n"
 	"github.com/2118505078xyh1/argentgo/internal/mcp"
 	"github.com/2118505078xyh1/argentgo/internal/provider"
@@ -79,6 +80,7 @@ func runDoctor(app App, ctx context.Context, args []string) int {
 		checkMCPConfig(app),
 		checkStorage(app),
 		checkProvider(ctx, opts.baseURL),
+		checkCredential(app),
 		checkProviderCatalog(),
 		checkWebSearch(app),
 		checkVerify(app),
@@ -774,10 +776,77 @@ func checkProvider(ctx context.Context, baseURL string) doctorCheck {
 		return doctorCheck{name: "provider", status: statusWarn, detail: baseURL + " unreachable: " + err.Error()}
 	}
 	defer resp.Body.Close()
+	// 401/403 不是"一切正常"：端点可达，但这次请求没有通过认证。旧实现把它
+	// 归为 ok，新手 doctor 因而显示全绿的错觉。改为 warn（不增加 failures、
+	// 不改变退出码）并给出 login 命令，与新增的 credential 检查互相印证。
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return doctorCheck{name: "provider", status: statusWarn,
+			detail: fmt.Sprintf("%s returned HTTP %d (reachable but not authenticated); "+
+				"run argentgo login <provider> --device or pass --api-key <key>", baseURL, resp.StatusCode)}
+	}
 	if resp.StatusCode >= 500 {
 		return doctorCheck{name: "provider", status: statusWarn, detail: fmt.Sprintf("%s returned HTTP %d", baseURL, resp.StatusCode)}
 	}
 	return doctorCheck{name: "provider", status: statusOK, detail: fmt.Sprintf("%s returned HTTP %d", baseURL, resp.StatusCode)}
+}
+
+// checkCredential 报告当前提供方是否具备可用凭据，是 P0-5 在 doctor 侧的对应检查。
+// 它复用 internal/auth 的令牌状态判定（StatusValid/Expiring/Expired/Missing），
+// 并结合 ARGENT_API_KEY、provider 环境变量与配置文件里的 apiKey。
+//
+// 作为新增的独立 check，它插在既有 9 项之间（provider 之后），不改变那 9 项的顺序与内容；
+// 本地提供方（模板未声明凭据来源）与已配置凭据时返回 ok，缺失/过期时返回 warn
+// 并附三条具体修复路径。warn 不计入 failures，也不改变 doctor 退出码语义。
+func checkCredential(app App) doctorCheck {
+	const name = "credential"
+	providerName, _ := doctorCurrentModel(app)
+	if strings.TrimSpace(providerName) == "" {
+		providerName = "openai"
+	}
+	template, known := provider.Resolve(providerName)
+	if known && (template.NoAuth ||
+		(strings.TrimSpace(template.APIKeyEnv) == "" && len(template.APIKeyEnvs) == 0)) {
+		return doctorCheck{name: name, status: statusOK,
+			detail: "provider " + providerName + " does not require credentials"}
+	}
+
+	if strings.TrimSpace(app.env("ARGENT_API_KEY")) != "" {
+		return doctorCheck{name: name, status: statusOK, detail: "ARGENT_API_KEY set"}
+	}
+	if known {
+		names := append([]string{template.APIKeyEnv}, template.APIKeyEnvs...)
+		for _, envName := range names {
+			if strings.TrimSpace(envName) != "" && strings.TrimSpace(app.env(envName)) != "" {
+				return doctorCheck{name: name, status: statusOK, detail: envName + " set"}
+			}
+		}
+	}
+	// 配置文件：顶层 apiKey 或 providers.<name>.apiKey 都算已配置。
+	if cfg, err := loadConfigFile(app.configPath()); err == nil {
+		for _, key := range []string{"apiKey", "api_key", "api-key"} {
+			if text, _ := cfg[key].(string); strings.TrimSpace(text) != "" {
+				return doctorCheck{name: name, status: statusOK, detail: "apiKey set in config"}
+			}
+		}
+		if keys, err := configProviderKeys(app.configPath()); err == nil && keys[providerName] {
+			return doctorCheck{name: name, status: statusOK, detail: "apiKey set for provider " + providerName}
+		}
+	}
+	// auth store：valid/expiring 视为可用；expired 单独提示续期命令。
+	if store, err := authStore(app); err == nil {
+		switch state := store.Status(providerName, time.Now()); state {
+		case auth.StatusValid, auth.StatusExpiring:
+			return doctorCheck{name: name, status: statusOK,
+				detail: "stored token " + state.String() + " for " + providerName}
+		case auth.StatusExpired:
+			return doctorCheck{name: name, status: statusWarn,
+				detail: fmt.Sprintf("stored token for %s expired; renew with argentgo login --device %s",
+					providerName, providerName)}
+		}
+	}
+	return doctorCheck{name: name, status: statusWarn,
+		detail: fmt.Sprintf("no credential for provider %s; fix: argentgo login --device %s / --api-key <key> / ARGENT_API_KEY",
+			providerName, providerName)}
 }
 
 func checkGit() doctorCheck {

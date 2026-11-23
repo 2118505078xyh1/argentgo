@@ -305,3 +305,18 @@ func TestRunPromptHintWiringOptIn(t *testing.T) {
 		}
 	})
 }
+
+// TestNotConfiguredMessageHitsCredentialHint 锁定 fail-fast 文案与
+// error_hint_wire.go 机制的接线：app 侧构造的 FamilyNotConfigured 错误文本
+// 必须命中凭证建议分支，错误流经 writeActionableErrorEnv 时才会追加本地化建议。
+func TestNotConfiguredMessageHitsCredentialHint(t *testing.T) {
+	const msg = "提供方 openai 未配置（not configured）：没有任何可用的 API Key 或登录凭据；" +
+		"请用 argentgo login --device openai、--api-key <key> 或环境变量 ARGENT_API_KEY 提供凭据"
+	if got := cliErrorHint(msg); got == "" {
+		t.Fatal("fail-fast 文案未命中 cliErrorHint 任何分支")
+	}
+	want := i18n.ErrorHintMessage("zh-CN", i18n.ErrorHintCredentials)
+	if got := cliErrorHint(msg); got != want {
+		t.Fatalf("hint = %q, want %q", got, want)
+	}
+}
