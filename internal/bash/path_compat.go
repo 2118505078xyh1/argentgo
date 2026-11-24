@@ -6,7 +6,7 @@ import (
 )
 
 // normalizeMSYSPath 在 Windows 上把 Git Bash / MSYS 风格的路径规范化成盘符路径，
-// 例如 "/d/code" → "D:/code"、"/d" → "D:/"。
+// 例如 "/d/work" → "D:/work"、"/d" → "D:/"。
 //
 // 背景：模型按 Unix shell 习惯写出的绝对路径常是 "/d/..." 形式（这在 Git Bash
 // 里完全合法），但 filepath.IsAbs 在 Windows 上因为没有盘符而判定它为相对路径，

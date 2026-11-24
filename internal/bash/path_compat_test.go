@@ -14,12 +14,12 @@ func TestNormalizeMSYSPath(t *testing.T) {
 		in   string
 		want string // Windows 上的期望；非 Windows 期望恒为 in（原样）
 	}{
-		{"/d/code/mpi", "D:/code/mpi"},
+		{"/d/work/proj", "D:/work/proj"},
 		{"/d", "D:/"},
-		{"/D/code", "D:/code"},
+		{"/D/work", "D:/work"},
 		{"/z/tmp/file", "Z:/tmp/file"},
 		{"/dir/foo", "/dir/foo"}, // 多字母目录名，不是盘符
-		{"C:/code", "C:/code"},   // 已是盘符绝对路径
+		{"C:/work", "C:/work"},   // 已是盘符绝对路径
 		{"relative/path", "relative/path"},
 		{"/", "/"},
 		{"", ""},

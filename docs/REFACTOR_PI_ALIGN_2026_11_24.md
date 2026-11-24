@@ -112,7 +112,7 @@ argentgo 3/6 反超。剩余 t2/t3 差距经 session 日志定位为 **4B 模型
 - **edit old_text 混淆**：4B 模型把 test 文件内容当 config.py 的 old_text，edit 连续失败。
   这是模型多文件混淆的能力天花板（pi 早期测评同样出现），增强 edit 错误提示会破坏
   `firstDivergentHint` 的字节锁定测试且仅利好特定场景，不改。
-- **内建 bash 裸词反斜杠转义**：`cd D:\code` 的 `\c` 被当转义吃掉（→ `D:code`）。
+- **内建 bash 裸词反斜杠转义**：`cd D:\work` 的 `\w` 被当转义吃掉（→ `D:work`）。
   真 bash 语义里裸词反斜杠就是转义，Windows 特化会破坏 `echo a\ b` 等正常转义；
   且 `/d/` 路径已被 MSYS 兼容覆盖、"不要 cd"指引已减少 cd 使用，风险大于收益，不改。
 - **物理重命名 50 包**：见阶段 B，天然对齐，不改。

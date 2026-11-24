@@ -19,8 +19,8 @@ func TestAppendToolErrorOutput(t *testing.T) {
 		{
 			name: "merge stderr root cause", enabled: true,
 			errText: "error: bash: exit status 1",
-			output:  "shell: cd: not a directory: /d/code\n",
-			want:    "error: bash: exit status 1\nshell: cd: not a directory: /d/code",
+			output:  "shell: cd: not a directory: /d/work/proj\n",
+			want:    "error: bash: exit status 1\nshell: cd: not a directory: /d/work/proj",
 		},
 		{
 			name: "empty output unchanged", enabled: true,
