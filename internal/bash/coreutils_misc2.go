@@ -155,6 +155,9 @@ func (it *Interp) resolvePathLexical(p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("empty path")
 	}
+	// 与 resolvePath 一致：先兼容 /d/... 再判绝对路径，避免 readlink 等
+	// 走词法边界的命令在 MSYS 路径上产生同样的误判。
+	p = normalizeMSYSPath(p)
 	base := it.Cwd
 	if base == "" {
 		base = "."

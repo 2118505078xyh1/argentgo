@@ -158,6 +158,8 @@ func (it *Interp) resolvePath(p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("empty path")
 	}
+	// 兼容 Git Bash / MSYS 的 /d/... 写法，再交给标准库判绝对路径与边界检查。
+	p = normalizeMSYSPath(p)
 	base := it.Cwd
 	if base == "" {
 		base = "."
