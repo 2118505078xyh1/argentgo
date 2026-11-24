@@ -109,6 +109,22 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start session: %v", err)
 	}
+	// race/慢机器上 helper 进程可能还没写出 "ready" 就到了首轮 600ms 截止；
+	// 续读会话尾部直到 banner 出现（不会重放已消费的 ready），避免环境延迟误报。
+	// allReads 累积所有轮次的输出，供后面检查 done（它可能在任意一轮被消费）。
+	var allReads strings.Builder
+	allReads.WriteString(first)
+	if !strings.Contains(first, "ready") {
+		readRaw := json.RawMessage(fmt.Sprintf(`{"command":"","session_id":%q,"yield_time_ms":2000}`, sessionIDFromOutput(t, first)))
+		for attempt := 0; attempt < 4 && !strings.Contains(first, "ready"); attempt++ {
+			more, e := tool.Run(ctx, "", readRaw)
+			if e != nil {
+				t.Fatalf("read more logs: %v", e)
+			}
+			first += more
+			allReads.WriteString(more)
+		}
+	}
 	for _, want := range []string{"still_running=true", "exit_code=-1", "pid=", "cwd=", "ready"} {
 		if !strings.Contains(first, want) {
 			t.Fatalf("first observation missing %q: %q", want, first)
@@ -130,6 +146,7 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 		second.Reset()
 		second.WriteString(out)
 		allTail.WriteString(out)
+		allReads.WriteString(out)
 		if strings.Contains(out, "still_running=false") {
 			break
 		}
@@ -142,10 +159,10 @@ func TestSoftTimeoutReadMoreLogs(t *testing.T) {
 			t.Fatalf("second observation missing %q: %q", want, last)
 		}
 	}
-	tail := allTail.String()
-	if !strings.Contains(tail, "done") {
-		t.Fatalf("read more never surfaced done: %q", tail)
+	if !strings.Contains(allReads.String(), "done") {
+		t.Fatalf("read more never surfaced done: %q", allReads.String())
 	}
+	tail := allTail.String()
 	if strings.Contains(tail, "ready") {
 		t.Fatalf("read more should not replay consumed logs: %q", tail)
 	}
