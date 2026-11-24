@@ -8,8 +8,13 @@
 >
 > **实施状态（2026-11-24）**：批次 A（文案与键位矛盾修正）已落地（`3aadc4e`）；
 > 批次 B 经交叉去重后只落实 B6（非 Windows OSC 52 剪贴板）；B1-B5/B7 经核对与现有
-> 机制重叠或风险>收益，明确不做（见批次 B 表格）。批次 C 的 keybinding 注册表是
-> 根治帮助漂移的地基，留作独立评审。
+> 机制重叠或风险>收益，明确不做（见批次 B 表格）。批次 C 的 keybinding 注册表
+> 已落地（`e4f80ff`）：`Key.Canonical()` 桥接解码 Key 与规范键串、`ActionID`+
+> `DefaultBindings()` 单一事实源、`Conflict()` 冲突检测、`BindingsFromRaw()` 从配置
+> 读取重绑定；用户重绑定通过"动作翻译回默认键再走主 switch"执行（零主分派改动）；
+> 默认无配置时逐字节不变（`TestNoBindingsFrameByteIdentical` 守护）。另修复了
+> 工具/推理事件到 transcript 的断链（`9e7a8b7`）、resume 历史加载与 `--session`
+> 直入 TUI（`2390465`）。
 
 ## 0. 基线
 
