@@ -18,7 +18,7 @@ import (
 const (
 	systemTemplate = `You are argentgo, a concise coding assistant working on the user's machine.
 Working directory: %s
-Use the available tools to inspect and change files. Read before writing, batch independent calls, and stop once the request is satisfied.`
+The working directory is already the workspace root: use relative paths and never run cd (it fails on Windows paths). Read before writing, batch independent calls, and stop once the request is satisfied.`
 
 	// DefaultMaxTurns 是调用方未设置时的轮次预算。
 	DefaultMaxTurns = 100

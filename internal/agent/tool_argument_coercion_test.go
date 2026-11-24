@@ -51,6 +51,39 @@ func TestCoerceToolArgumentsNumericStrings(t *testing.T) {
 	}
 }
 
+// TestCoerceToolArgumentsJSONStrings 覆盖 pi 兼容：模型把声明为 array/object 的
+// 参数发成 JSON 字符串时（如 edits 参数），在 schema 明确且无损的前提下解析。
+func TestCoerceToolArgumentsJSONStrings(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"edits":{"type":"array"},
+		"config":{"type":"object"},
+		"text":{"type":"string"}
+	}}`)
+	tests := []struct {
+		name string
+		args map[string]any
+		want map[string]any
+	}{
+		{"JSON 数组字符串解析", map[string]any{"edits": `[{"oldText":"a","newText":"b"}]`},
+			map[string]any{"edits": []any{map[string]any{"oldText": "a", "newText": "b"}}}},
+		{"JSON 对象字符串解析", map[string]any{"config": `{"key":"value"}`},
+			map[string]any{"config": map[string]any{"key": "value"}}},
+		{"空数组字符串解析", map[string]any{"edits": `[]`}, map[string]any{"edits": []any{}}},
+		{"类型不符保留：数组字段收到对象串", map[string]any{"edits": `{"a":1}`}, map[string]any{"edits": `{"a":1}`}},
+		{"类型不符保留：对象字段收到数组串", map[string]any{"config": `[1,2]`}, map[string]any{"config": `[1,2]`}},
+		{"非法 JSON 保留", map[string]any{"edits": `{oops`}, map[string]any{"edits": `{oops`}},
+		{"声明 string 的字段不解析", map[string]any{"text": `{"a":1}`}, map[string]any{"text": `{"a":1}`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := coerceToolArguments(tt.args, schema)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("coerceToolArguments() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestCoerceToolArgumentsUnionTypes 覆盖 type 为联合数组时的歧义处理。
 func TestCoerceToolArgumentsUnionTypes(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{

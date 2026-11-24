@@ -166,6 +166,7 @@ func containsType(types []string, want string) bool {
 // coerceString 仅在 schema 不含 string（否则字符串本身合法，强转即歧义）且存在
 // 可无损转换的目标类型时改写字符串。布尔只认 JSON 字面量 true/false，
 // 数字先校验是否为合法 JSON 数字字面量，避免把 CJK 数字或带符号的怪写法当数字。
+// array/object 只接受能严格解析成对应 JSON 复合类型的字符串（pi 对 edits 参数的兼容）。
 func coerceString(s string, types []string) (any, bool) {
 	if len(types) == 0 || containsType(types, "string") {
 		return nil, false
@@ -183,6 +184,37 @@ func coerceString(s string, types []string) (any, bool) {
 			if f, ok := parseCoercibleNumber(s, t == "integer"); ok {
 				return f, true
 			}
+		case "array", "object":
+			// pi 兼容：部分模型把声明为 array/object 的参数（如 edit 的 edits）
+			// 发成 JSON 字符串。仅在 schema 明确该类型、且字符串能无损解析成
+			// 对应类型时才改写；类型不符或非法 JSON 一律保留原样。
+			if parsed, ok := parseCoercibleComposite(s, t); ok {
+				return parsed, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// parseCoercibleComposite 把字符串解析成目标复合类型（array/object），
+// 要求解析结果的类型与 schema 声明严格一致，避免把对象塞进数组字段之类的误转。
+func parseCoercibleComposite(s, want string) (any, bool) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return nil, false
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return nil, false
+	}
+	switch want {
+	case "array":
+		if arr, ok := parsed.([]any); ok {
+			return arr, true
+		}
+	case "object":
+		if obj, ok := parsed.(map[string]any); ok {
+			return obj, true
 		}
 	}
 	return nil, false
