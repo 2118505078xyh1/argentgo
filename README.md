@@ -173,6 +173,7 @@ argentgo：
 - [前端](docs/TECHNICAL.md#frontend-decision) — MyGo 原生窗口（唯一桌面前端）
 - [功能对齐](docs/TECHNICAL.md#feature-parity) — 与冻结的 Rust 版逐项对照
 - [路线图](docs/STATUS.md#roadmap) · [诚实评分](docs/STATUS.md#honest-score) · [更新日志](CHANGELOG.md)
+- [Pi 技术栈参考](docs/PI_TECH_STACK.md) — 外部 harness 的 TypeScript 技术构成与选型对照
 
 ## 开发与测试
 
