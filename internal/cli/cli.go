@@ -276,6 +276,12 @@ func RunWith(app App, args []string) int {
 		if handler, ok := subcommands[args[0]]; ok {
 			return handler(app, ctx, args[1:])
 		}
+		// `argentgo --session <id>` 这类"只有续接会话标志、没有 prompt"的调用，
+		// 在交互终端下应当直接进入 TUI 续接该会话，而不是落到 runMain 去读 stdin
+		// （那样表现为"卡住/没进 TUI"）。非 TTY 保持原样，避免 CI 挂起。
+		if isSessionOnlyArgs(args) && app.hasTerminal() && app.env("ARGENT_NO_TUI") != "1" {
+			return runTUI(app, ctx, args)
+		}
 	} else {
 		// 首次运行引导：仅在 cli_hints opt-in 且各项条件齐备时写 stderr，
 		// 默认关闭时零副作用，保持原有 usage/stdin 行为逐字节不变。
@@ -287,6 +293,40 @@ func RunWith(app App, args []string) int {
 		}
 	}
 	return app.runMain(ctx, args)
+}
+
+// isSessionOnlyArgs 报告参数是否只由"续接会话"相关标志组成（没有 prompt 或其它动作）：
+// --session/--session-id/--at 及其值，支持 --flag=value 形式。
+func isSessionOnlyArgs(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	sessionFlags := map[string]bool{
+		"--session": true, "--session-id": true, "--at": true,
+	}
+	seenSession := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name := a
+		hasInline := false
+		if idx := strings.IndexByte(a, '='); idx >= 0 {
+			name, hasInline = a[:idx], true
+		}
+		if !sessionFlags[name] {
+			return false
+		}
+		if name == "--session" || name == "--session-id" {
+			seenSession = true
+		}
+		if !hasInline {
+			// 该标志需要一个值，且不能是下一个标志。
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return false
+			}
+			i++
+		}
+	}
+	return seenSession
 }
 
 var subcommands = map[string]func(App, context.Context, []string) int{

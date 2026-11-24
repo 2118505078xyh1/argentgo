@@ -101,6 +101,14 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				model.SetContextInfo(res.Cfg.ContextWindow, fmt.Sprintf("$%.4f", costUSD))
 			}
 		}
+		// loadHistoryInto 把会话历史投影进 TUI transcript。resume / --session /
+		// 会话栏切换都靠它让首帧直接显示旧对话，而不是只剩欢迎卡。
+		loadHistoryInto := func(m *tui.Model, sess *session.Session) {
+			if m == nil || sess == nil {
+				return
+			}
+			m.SetTranscript(entriesToTUI(sess.MessagesForCompaction()))
+		}
 		sessionFor := func(text string) (*session.Session, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -210,6 +218,11 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 			mu.Lock()
 			current = sess
 			mu.Unlock()
+			// 切换会话时同步替换 transcript，使历史对话立即可见。
+			modelMu.Lock()
+			activeModel := uiModel
+			modelMu.Unlock()
+			loadHistoryInto(activeModel, sess)
 			refreshSessionRows()
 			return nil
 		}
@@ -282,6 +295,21 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				modelMu.Lock()
 				uiModel = model
 				modelMu.Unlock()
+				// resume / --session：启动时就把旧会话历史投影进 transcript，
+				// 让首帧直接显示之前的对话（此前只有欢迎卡，看不到历史）。
+				// 仅当确实指定了要续接的会话时打开，避免为全新运行创建空会话文件。
+				if opts.Session != "" {
+					resolved := sessionIDFromArg(store, strings.TrimSpace(opts.Session))
+					if sess, err := store.OpenSession(resolved); err == nil {
+						loadHistoryInto(model, sess)
+					}
+				} else if opts.Resume {
+					if metas, err := store.List(); err == nil && len(metas) > 0 {
+						if sess, err := store.OpenSession(metas[0].ID); err == nil {
+							loadHistoryInto(model, sess)
+						}
+					}
+				}
 				// 会话列表在 TUI 启动时从磁盘重新读取，避免首条提示前后
 				// 列表为空导致 /session 无法选择。
 				model.SetSessions(sessionRows())

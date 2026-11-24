@@ -217,6 +217,23 @@ func attemptFromFailed(failed bool) AttemptKind {
 	return ""
 }
 
+// SetTranscript 用一批历史条目整体替换当前 transcript。它用于 resume /
+// --session / 会话栏切换时把旧会话的对话呈现出来——此前 entries 只由本轮
+// 开始的流增量与实时事件填充，导致 resume 首屏只有欢迎卡。
+//
+// 调用方须传已经投影好的 tui.Entry（tui 不 import session，依赖方向单向）。
+// 传入的切片会被复制，调用方后续修改不影响模型。替换后滚动到顶部（最新
+// 消息在正文末尾，由渲染层决定初始视口）。
+func (m *Model) SetTranscript(entries []Entry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.flushStreamLocked()
+	m.entries = append([]Entry(nil), entries...)
+	m.version++
+	m.markDirtyLocked()
+	m.scroll = 0
+}
+
 // AppendReasoning 添加（或扩展）一个推理块。
 func (m *Model) AppendReasoning(text string) {
 	m.mu.Lock()
