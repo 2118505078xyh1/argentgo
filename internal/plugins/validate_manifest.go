@@ -120,10 +120,12 @@ func ValidateManifest(m Manifest) []PluginIssue {
 	}
 
 	// tools 字段目前被解析但没有任何消费者（不进 Wiring/Merge）。
-	// 明确告警，避免清单作者以为它已经生效。
+	// Go 是静态链接的单二进制，无法像 pi 的 TS extension 那样在进程内注册任意代码
+	// 作为工具；插件贡献工具的正确方式是通过 mcpServers 声明一个 MCP 服务器，
+	// 由它提供工具并复用既有的策略/审批/审计边界。告警中直接给出这个迁移指引。
 	if len(m.Tools) > 0 {
 		add("tools", IssueUnsupportedField,
-			"the 'tools' field is parsed but not supported yet and will be ignored (%d entry/entries)", len(m.Tools))
+			"the 'tools' field is parsed but ignored (%d entry/entries); expose tools through 'mcpServers' instead - Go plugins cannot register in-process tools", len(m.Tools))
 	}
 	return issues
 }

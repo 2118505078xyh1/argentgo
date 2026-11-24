@@ -35,6 +35,14 @@
 
 ## 一、P0 — 实锤安全 / 承诺缺口
 
+> **2026-11-24 状态核对：三项 P0 均已完成实现，下列为历史记录，勿重复劳动。**
+> - P0-1：`internal/netproxy/default.go` 已改为按 `(chain, limited)` 缓存独立代理实例，
+>   启动失败返回 fail-closed Env + 日志，`newProxy` 可注入测试。已验证。
+> - P0-2：`internal/app/app_execute.go:521-524` 已调用 `withNetworkGuard(ctx, res.Cfg.Raw, chain, ...)`，
+>   `net.rules` 配置入口已接线；`internal/config` 已有 net 规则块。已验证。
+> - P0-3：`internal/cli/optin_metadata.go:94` 文案已改为"默认开，=0 关闭"，
+>   `app_execute.go:536` 已默认注入 `chain.SanitizeAudit = bash.SanitizeForLog`。已验证。
+
 ### P0-1 网络代理默认实例：跨会话串味 + 启动失败静默 fail-open `[P0/M]`
 
 - **证据**：
