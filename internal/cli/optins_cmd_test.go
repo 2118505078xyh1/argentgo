@@ -65,7 +65,7 @@ func TestOptInsTextOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"已知 opt-in 开关（共 ",
-		"当前启用 61 项",
+		"当前启用 62 项",
 		"ARGENT_OPT_INS 集中注册表（15 键）：已启用的 opt-in 特性：",
 		"- apply_patch\n- cli_hints\n",
 		"键名", "环境变量", "当前值", "状态", "说明",
@@ -196,7 +196,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("exit = %d, stderr = %q", code, errOut)
 	}
-	if !strings.Contains(textOut, "当前启用 60 项") || !strings.Contains(textOut, "未显式启用任何键（独立门控多数默认开启，见下表）") {
+	if !strings.Contains(textOut, "当前启用 61 项") || !strings.Contains(textOut, "未显式启用任何键（独立门控多数默认开启，见下表）") {
 		t.Fatalf("text summary = %q", textOut)
 	}
 
@@ -217,6 +217,7 @@ func TestOptInsNoEnvDefaults(t *testing.T) {
 		"ARGENT_MCP_MEDIA_BLOB_EXT": true,
 		"ARGENT_VERIFY_OUTCOME":     true, "ARGENT_REPO_MAP_HINT": true, "ARGENT_VERIFY_AUTORUN_HINT": true, "ARGENT_RULE_DISCOVERY": true,
 		"ARGENT_BACKGROUND_COMPACT":      true,
+		"ARGENT_BUILTIN_SHELL":           true, // 源码默认开，元数据漂移已修正（TODO_REVIEW P1 builtin_shell）
 		"ARGENT_BRANCH_SUMMARY":          true,
 		"ARGENT_CACHE_WARM":              true,
 		"ARGENT_COMPACT_DRAIN":           true,

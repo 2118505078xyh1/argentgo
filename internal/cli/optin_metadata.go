@@ -121,7 +121,7 @@ var IndependentOptIns = []IndependentOptIn{
 	// ---- shell / 工具 ----
 	{Key: "jobs", Env: "ARGENT_JOBS", Name: "后台作业注册表", OptInKey: "jobs", Enable: "=1 或 ARGENT_OPT_INS=jobs", Desc: "把长命令提升为可查询的后台作业，退出时回收仍存活的进程。"},
 	{Key: "persistent_shell", Env: "ARGENT_PERSISTENT_SHELL", Name: "持久化 shell 会话", Enable: "=1", Desc: "bash 命令在长驻 shell 会话中执行以复用 cd/venv 等状态；阶段1不支持 stdin 消费型命令，只杀直接 shell，丢弃 stderr。"},
-	{Key: "builtin_shell", Env: "ARGENT_BUILTIN_SHELL", Name: "内建 shell 兜底", Enable: "=1", Desc: "切换到纯标准库自研 shell 解释器。"},
+	{Key: "builtin_shell", Env: "ARGENT_BUILTIN_SHELL", Name: "内建 shell 兜底", Enable: "默认开，=0 关闭", Desc: "默认使用纯标准库自研 shell 解释器（bash/tools_builtin_bash.go:builtinShellEnabled）；=0 时回退到系统 shell。此为元数据一致性修正，源码与 OPT_INS.md 早已默认开。"},
 	{Key: "bash_use_proc", Env: "ARGENT_BASH_USE_PROC", Name: "bash 进程硬化", Enable: "默认开，=0 关闭", Desc: "默认 bash 主路径启用进程硬化（有界捕获、整树终止、环境净化、UTF-8 重组），=0 紧急关闭走原路径。"},
 	{Key: "output_collapse", Env: "ARGENT_OUTPUT_COLLAPSE", Name: "bash 输出行折叠", Enable: "默认开，=0 关闭", Desc: "clipBashOutput 走有界的行折叠输出帧。"},
 	{Key: "output_spill", Env: "ARGENT_OUTPUT_SPILL", Name: "超大输出落盘", Enable: "真值（1/true/yes/on）", Desc: "超大工具输出写入产物目录而非全部塞进上下文。"},
