@@ -58,7 +58,7 @@ func shortenPathWithHome(path, home string, maxWidth int) string {
 
 // replaceHomePrefix 把 path 的主目录前缀替换为 ~。
 // 仅在前缀后紧跟分隔符（或恰好是主目录本身）时替换，
-// 避免误伤 C:\Users\xyhfoo 这类同前缀的其它目录。
+// 避免误伤同一前缀的其它目录。
 // 比较时把 \ 与 / 视为等价，输出保留 path 原来的分隔符。
 func replaceHomePrefix(path, home string) string {
 	if home == "" {

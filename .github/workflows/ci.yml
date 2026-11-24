@@ -32,6 +32,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: privacy scan
+        shell: pwsh
+        run: |
+          # 门禁：私钥、token、本机路径与邮箱都不得进版本库。
+          pwsh -NoProfile -File scripts/privacy-scan.ps1
+          if ($LASTEXITCODE -ne 0) { throw "privacy scan failed ($LASTEXITCODE)" }
       - name: gofmt
         shell: bash
         run: |

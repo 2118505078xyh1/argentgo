@@ -41,6 +41,11 @@ go build -o argentgo-native.exe ./native   # the native chat window
 
 浏览器前端已移除。`native/` 通过 `--rpc` 驱动引擎。
 
+> **前端方向变更（2026-11-24，用户指令）**：以后新前端统一用 **Flutter**（见工作区根 `FRONTEND_DECISION.md`）。
+> 决策依据：本机实测含 WebView 进程树后 Tauri 749MB vs Flutter 199MB，Flutter 更省。
+> `native/`（MyGo）不再新增功能、仅维护；Flutter 前端通过本项目的 `--rpc`/`--serve` 传输驱动引擎，
+> 核心 Go stdlib-only 约束不变。
+
 ## 目录布局
 
 ```text

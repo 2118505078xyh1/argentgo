@@ -1,0 +1,9 @@
+# 隐私扫描例外（scripts/privacy-scan.ps1）。
+# 格式：<文件><TAB><行文本片段>。命中行含该片段即忽略。
+# 每一行都必须是人工核对过的非敏感样本；真实密钥绝不入表。
+.github/workflows/release.yml	C:\Users\RUNNER~1
+internal/app/instruction_reconcile_test.go	sk-abcdefghijklmnopqrstuvwxyz0123456789
+internal/hooks/telemetry_safety_test.go	ghp_abcdefghijklmnopqrstuvwxyz0123456789
+internal/session/checkpoint_guard.go	C:\Users\RUNNER~1
+scripts/privacy-scan.ps1	C:\Users\tester
+scripts/privacy-scan.ps1	@local
