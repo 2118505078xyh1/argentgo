@@ -70,8 +70,12 @@ try {
         }
     }
 
+    # 扫描器自身与例外表按设计含有模式文本，跳过它们。
+    $selfSkip = @('scripts/privacy-scan.ps1', 'scripts/privacy-scan.allowlist')
+
     $hits = [System.Collections.Generic.List[string]]::new()
     foreach ($file in $files) {
+        if ($selfSkip -contains $file) { continue }
         $full = Join-Path $repo $file
         if (-not (Test-Path -LiteralPath $full)) { continue }
         $bytes = [IO.File]::ReadAllBytes($full)

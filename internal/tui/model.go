@@ -280,12 +280,18 @@ type Model struct {
 	usageCompletedAt    time.Time
 	usageStreamTokens   int
 	usageStreamDuration time.Duration
-	// 回合统计的打点与结算状态。TurnStart 打点，TurnEnd 只置 pending，
-	// 真正 append EntryStats 由随后的 Usage 事件触发。
+	// 回合统计的打点与结算状态。TurnStart 打点，TurnEnd 只置 pending。
 	turnStartAt      time.Time
 	turnOutTokens    int
 	turnStatsPending bool
-	expanded         bool
+	// 整轮对话统计：从用户消息发出到最终回复结束，只追加一行
+	// （模型 · 本轮用时 · 平均速度）。回合内的多次模型调用不再
+	// 各自出一行。
+	convStartAt   time.Time
+	convOutTokens int
+	convDone      bool
+	convFinalized bool
+	expanded      bool
 
 	// 可选的头部元数据。两者都未设置时，头部保持这些字段
 	// 出现之前的经典样式。

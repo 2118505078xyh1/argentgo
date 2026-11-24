@@ -454,20 +454,54 @@ func formatTokenRate(rate float64) string {
 // 守卫覆盖三种缺失信息：没有 TurnStart 打点、时钟没有前进、没有输出
 // token 或模型名为空；任一成立都不产生记录，因此异常回合不会留下
 // 一行 NaN 或半截信息。结算后清掉打点，重复 Usage 不会重复追加。
+//
+// 注意：整轮对话只允许一行统计（见 finalizeConversationLocked），
+// 因此这里只清理打点，不再追加记录。
 func (m *Model) finalizeTurnStatsLocked() {
-	elapsed := m.now().Sub(m.turnStartAt)
-	if elapsed <= 0 || m.turnOutTokens <= 0 || m.model == "" {
+	m.turnStartAt = time.Time{}
+	m.turnStatsPending = false
+	m.turnOutTokens = 0
+}
+
+// beginConversationLocked 开始一轮对话的统计打点。调用方已持有 m.mu。
+// 上一轮若已结束但尚未结算（例如最后一个 Usage 事件没有到达），
+// 先把它结算掉，保证“每轮对话恰好一行”。
+func (m *Model) beginConversationLocked() {
+	if m.convDone && !m.convFinalized {
+		m.finalizeConversationLocked()
+	}
+	m.convStartAt = m.now()
+	m.convOutTokens = 0
+	m.convDone = false
+	m.convFinalized = false
+}
+
+// MarkConversationDone 标记整轮对话结束（Prompt 已返回）。
+// 真正的统计行要等随后的 Usage 事件把最终 token 数补齐后才追加。
+func (m *Model) MarkConversationDone() {
+	m.mu.Lock()
+	m.convDone = true
+	m.mu.Unlock()
+}
+
+// finalizeConversationLocked 追加整轮对话的唯一统计行。调用方持有 m.mu。
+// 守卫：没有打点、对话未结束、时钟没有前进、没有输出 token 或模型名为空
+// 时都不产生记录，因此异常回合不会留下一行 NaN 或半截信息。
+func (m *Model) finalizeConversationLocked() {
+	if m.convFinalized || m.convStartAt.IsZero() || !m.convDone {
 		return
 	}
-	rate := math.Min(float64(m.turnOutTokens)/elapsed.Seconds(), maxTokenRate)
+	elapsed := m.now().Sub(m.convStartAt)
+	if elapsed <= 0 || m.convOutTokens <= 0 || m.model == "" {
+		return
+	}
+	rate := math.Min(float64(m.convOutTokens)/elapsed.Seconds(), maxTokenRate)
 	line := m.model + " · " + formatDuration(elapsed) + " · " + formatTokenRate(rate)
 	m.flushStreamLocked()
 	m.entries = append(m.entries, Entry{Kind: EntryStats, Text: line})
 	m.version++
 	m.markDirtyLocked()
-	m.turnStartAt = time.Time{}
-	m.turnStatsPending = false
-	m.turnOutTokens = 0
+	m.convFinalized = true
 }
 
 // EndTurn 结束正在进行的回合。非 nil 错误变成一条通知。

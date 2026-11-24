@@ -116,7 +116,7 @@ native/             MyGo native desktop chat window (the only GUI frontend)
 pwsh -NoProfile -File scripts/privacy-scan.ps1     # 检测私钥、token、本机路径、邮箱
 ```
 
-例外只能进 `scripts/privacy-scan.allowlist`（格式 `<文件><TAB><行文本片段>`），且每一条都必须是人工核对过的假样本（如 `C:\Users\tester`、占位符）；**真实密钥绝不入表**。文档/注释里不要写作者的真实邮箱或本机路径。
+例外只能进 `scripts/privacy-scan.allowlist`（格式 `<文件><TAB><行文本片段>`），且每一条都必须是人工核对过的假样本（如 `C:\<测试用户>`、占位符）；**真实密钥绝不入表**。文档/注释里不要写作者的真实邮箱或本机路径。
 
 ## 破坏性操作（硬规则）
 

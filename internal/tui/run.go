@@ -458,6 +458,8 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		case err := <-turnDone:
 			model.EndTurn(err)
+			// 整轮对话结束：统计行等随后的 Usage 事件结算。
+			model.MarkConversationDone()
 		case event, open := <-events:
 			if !open {
 				events = nil

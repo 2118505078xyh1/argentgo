@@ -174,11 +174,15 @@ func (m *Model) HandleEvent(event Event) {
 		now := m.now()
 		m.updateUsageRateLocked(event, now)
 		m.usageLastTokens, m.usageLastAt = event.CompletionTokens, now
-		// 统计行在 TurnStart 打点后累计输出 token；只有收到 Usage
-		// 才结算（agent 先发 TurnEnd 再发 Usage）。
+		// 回合内的输出 token 只用于清点，不再各自追加统计行：
+		// 整轮对话只出一行（见 finalizeConversationLocked）。
 		m.turnOutTokens += event.CompletionTokens
-		if m.turnStatsPending {
-			m.finalizeTurnStatsLocked()
+		m.turnStatsPending = false
+		// 整轮对话的 token 累计；对话已结束时的这条 Usage 就是最后
+		// 一条，此时结算并追加唯一那行统计。
+		m.convOutTokens += event.CompletionTokens
+		if m.convDone {
+			m.finalizeConversationLocked()
 		}
 	case TuiEventTurnStart:
 		// 打点并清零上一轮的残留。仅打点不改变任何渲染字节。
