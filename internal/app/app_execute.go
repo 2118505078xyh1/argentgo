@@ -15,6 +15,7 @@ import (
 	"github.com/2118505078xyh1/argentgo/internal/bash"
 	"github.com/2118505078xyh1/argentgo/internal/cli"
 	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"github.com/2118505078xyh1/argentgo/internal/hooks"
 	"github.com/2118505078xyh1/argentgo/internal/llm"
 	"github.com/2118505078xyh1/argentgo/internal/memory"
 	"github.com/2118505078xyh1/argentgo/internal/security"
@@ -483,6 +484,13 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	}
 
 	bridge := newHookBridge(res, sess.ID(), stdio.Err)
+	// 统一扩展清单诊断（默认关闭，ARGENT_EXTENSION_INVENTORY=1 才输出）：用门面
+	// 只读地投影 skills/commands/plugins 清单与 hooks 信任门，不改任何运行态集合。
+	var inventoryTrust *hooks.TrustStore
+	if bridge != nil {
+		inventoryTrust = bridge.trust
+	}
+	reportExtensionInventory(res.Root, res.Home, inventoryTrust, stdio.Env)
 	// hook 附加上下文队列：每次根运行一个。它既通过 ctx 交给 agent 在轮次边界抽取，
 	// 也交给 hookBridge，使本次运行中所有生命周期/工具钩子声明的 additionalContext
 	// 汇入同一队列。接线早于 bridge.start，连 SessionStart/UserPromptSubmit 的上下文也不丢失。
