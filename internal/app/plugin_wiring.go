@@ -1,10 +1,8 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"github.com/2118505078xyh1/argentgo/internal/extension"
 	"github.com/2118505078xyh1/argentgo/internal/plugins"
 )
 
@@ -25,34 +23,15 @@ func trustedPluginBundles(res Resolved) []plugins.Bundle {
 }
 
 // pluginCommandSources 把每个受信任包的清单命令路径转换为带命名空间的 commands.Source。
-// Merge 刻意一次只处理一个包：它把包名与其自身的路径绑定，并原样复用 plugins 包中的所有路径越界检查。
-// 因此越出自身包范围的清单不会提供任何命令，正如它不会提供 MCP 服务或技能一样。
+// 信任门槛（trustedPluginBundles）留在 app；逐包 Merge 与单文件归一已下沉到
+// 统一门面 extension.PluginCommandSources，这里只做薄转发，行为逐字节不变。
 func pluginCommandSources(res Resolved) []commands.Source {
-	var sources []commands.Source
-	for _, bundle := range trustedPluginBundles(res) {
-		wiring := plugins.Merge([]plugins.Bundle{bundle})
-		for _, path := range wiring.Commands {
-			// 清单允许把命令声明为一个命令文件；而 commands.Source.Root
-			// 只接受目录（Discover 会对其调用 os.ReadDir）。把单文件
-			// 归一到所在目录，避免合法的声明被静默跳过。
-			root := path
-			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
-				root = filepath.Dir(path)
-			}
-			sources = append(sources, commands.Source{Root: root, Prefix: bundle.Name})
-		}
-	}
-	return sources
+	return extension.PluginCommandSources(trustedPluginBundles(res))
 }
 
 // pluginHookPaths 是同一信任门槛在钩子侧的部分：只有受信任包的钩子文档才会交给钩子加载器。
-// 每条路径仍需在 loadHookDocuments 中通过钩子信任存储的 SHA-256 批准，
-// 因此不受信任的文档绝不会因为其插件被启用而得以运行。
+// 逐包 Merge 下沉到 extension.PluginHookPaths；每条路径仍需在 loadHookDocuments
+// 中通过钩子信任存储的 SHA-256 批准，不受信任的文档不会因插件启用而得以运行。
 func pluginHookPaths(res Resolved) []string {
-	var paths []string
-	for _, bundle := range trustedPluginBundles(res) {
-		wiring := plugins.Merge([]plugins.Bundle{bundle})
-		paths = append(paths, wiring.HooksPaths...)
-	}
-	return paths
+	return extension.PluginHookPaths(trustedPluginBundles(res))
 }
