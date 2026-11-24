@@ -367,16 +367,27 @@ func Run(ctx context.Context, opts Options) error {
 			if key.Mouse != nil {
 				ev := key.Mouse
 				col, row := ev.Col-1, ev.Row-1 // SGR is 1-based; Model uses 0-based
+				// 只有左键参与文本选择与点击命中。右键（button&3==2）和
+				// 中键（==1）不应开始/结束选区，否则右键点一下就会触发
+				// MouseDown→MouseUp→复制，表现为"右键松手就选中一段"的 bug。
+				// 滚轮在下面按 Kind 单独处理，不受此守卫影响。
+				isPrimary := mouseIsPrimary(ev)
 				switch ev.Kind {
 				case MousePress:
-					model.MouseDown(col, row)
+					if isPrimary {
+						model.MouseDown(col, row)
+					}
 				case MouseDrag:
-					model.MouseDrag(col, row)
+					if isPrimary {
+						model.MouseDrag(col, row)
+					}
 				case MouseRelease:
-					model.MouseUp(col, row)
-					if text := model.SelectedText(buffer); text != "" {
-						_ = CopyToClipboard(text)
-						model.ClearSelection()
+					if isPrimary {
+						model.MouseUp(col, row)
+						if text := model.SelectedText(buffer); text != "" {
+							_ = CopyToClipboard(text)
+							model.ClearSelection()
+						}
 					}
 				case MouseWheelUp, MouseWheelDown:
 					model.MouseWheel(ev.Kind == MouseWheelUp)
@@ -507,6 +518,17 @@ func Run(ctx context.Context, opts Options) error {
 		cancelTurn()
 	}
 	return nil
+}
+
+// mouseIsPrimary 报告鼠标事件是否来自主键（左键）。SGR 与 X10 的按钮位
+// 低两位含义一致：0=左、1=中、2=右、3=释放（释放事件上层按 selecting 状态
+// 判断，这里只看按钮本身）。右键/中键不参与文本选中与点击命中。
+func mouseIsPrimary(ev *MouseEvent) bool {
+	if ev == nil {
+		return false
+	}
+	// 0x40 是滚轮标志，滚轮不应参与选中；低两位 0 才是左键。
+	return ev.Button&0x40 == 0 && ev.Button&0x3 == 0
 }
 
 // CursorPosition 是输入光标的 ANSI 基于 1 的行列。

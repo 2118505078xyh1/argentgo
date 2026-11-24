@@ -412,8 +412,18 @@ func (m *Model) statusLineLocked(width int) Line {
 	if m.scroll > 0 {
 		right.Push(" ↑"+strconv.Itoa(m.scroll), uniform)
 	}
+	// 右侧的模型名与思考档位是用户明确选择的重要状态，优先完整显示：
+	// 空间不足时裁剪左侧（用量/路径等可省略信息），而不是把 thinking
+	// 档位（如 "high"）截掉半截。先量出右侧完整宽度，给左侧留下余量。
 	if right.Width() > 0 {
-		right = clipLine(right, maxInt(width-left.Width()-1, 1))
+		rightBudget := maxInt(width-1, 1)
+		if right.Width() > rightBudget {
+			right = clipLine(right, rightBudget)
+		}
+		leftBudget := maxInt(width-right.Width()-1, 1)
+		if left.Width() > leftBudget {
+			left = clipLine(left, leftBudget)
+		}
 	}
 	return joinLine(left, right, width)
 }

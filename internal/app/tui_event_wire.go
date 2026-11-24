@@ -85,7 +85,12 @@ func AgentToTUIEvent(e agent.Event) (tui.Event, bool) {
 	case agent.EventReasoningDelta:
 		// 推理此前在桥接层被丢弃，用户看不到思考过程。Text 是完整推理块，
 		// 由 agent 在 turn 末一次性发出；TUI 折叠为可展开的推理条目。
-		return tui.Event{Kind: tui.EventReasoning, Reasoning: e.Text}, true
+		// 带上真实墙上时长，避免首帧计时导致的"0ms"。
+		dur := int64(0)
+		if e.StartedAtMS > 0 && e.FinishedAtMS >= e.StartedAtMS {
+			dur = e.FinishedAtMS - e.StartedAtMS
+		}
+		return tui.Event{Kind: tui.EventReasoning, Reasoning: e.Text, ReasoningDurationMS: dur}, true
 	case agent.EventError:
 		// EventError 被加入 tui.EventKind 正是为了这次拷贝：Detail 携带 agent 已经脱敏的错误文本。
 		return tui.Event{Kind: tui.EventError, Detail: e.Err}, true

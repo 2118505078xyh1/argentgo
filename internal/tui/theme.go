@@ -58,7 +58,9 @@ var themePalettes = map[string]Palette{
 	ThemeDark: {
 		User: ColorCyan, Assistant: ColorDefault, Tool: ColorGreen,
 		Reasoning: ColorMagenta, Error: ColorRed, Accent: ColorCyan,
-		Border: ColorGray, Muted: ColorGray, Warning: ColorYellow, Code: ColorMagenta,
+		// Muted 从深灰（SGR 90，深底上几乎看不清）改为浅灰（256 色 252），
+		// 让用量行、状态栏、工具参数等次要正文在深色终端上清晰可读。
+		Border: ColorGray, Muted: ColorSilver, Warning: ColorYellow, Code: ColorMagenta,
 	},
 	ThemeLight: {
 		User: ColorBlue, Assistant: ColorDefault, Tool: ColorGreen,

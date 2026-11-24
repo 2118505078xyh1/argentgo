@@ -68,6 +68,10 @@ type Event struct {
 	Detail     string      // EventAttempt / EventError / EventToolProgress only: badge detail, error text or raw progress text
 	// Reasoning 仅 EventReasoning 使用：本轮推理块正文。其它事件保持零值。
 	Reasoning string
+	// ReasoningDurationMS 仅 EventReasoning：本轮推理的真实墙上时长（毫秒），
+	// 由 agent 的 StartedAtMS/FinishedAtMS 相减得到。零值表示无计时，
+	// 渲染层回退到首帧计时（旧行为），因此既有事件逐字节不变。
+	ReasoningDurationMS int64
 
 	// 仅 EventRetry：失败请求的实时退避反馈。
 	RetryReason  string
@@ -112,7 +116,7 @@ func (m *Model) HandleEvent(event Event) {
 		// 推理块此前在桥接层被丢弃，transcript 里永远看不到思考过程。
 		// 追加（或扩展）一个推理条目；空的推理不产生块。
 		if strings.TrimSpace(event.Reasoning) != "" {
-			m.appendReasoningLocked(event.Reasoning)
+			m.appendReasoningWithDurationLocked(event.Reasoning, time.Duration(event.ReasoningDurationMS)*time.Millisecond)
 		}
 	case EventAttempt:
 		if event.Attempt != "" {

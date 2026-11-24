@@ -25,6 +25,10 @@ var (
 	ColorCyan    = Color{"36", "46"}
 	ColorGray    = Color{"90", "100"}
 	ColorWhite   = Color{"97", "107"}
+	// ColorSilver 是基础 SGR 白色（37），在深色背景上作为 muted 正文
+	// 比 SGR 90 的深灰清晰得多，且仍属 16 色基础调色板（非 256/RGB），
+	// 满足主题门禁。用于默认深色主题的次要文本。
+	ColorSilver = Color{"37", "47"}
 )
 
 // Fixed 从 256 色调色板返回一个颜色。

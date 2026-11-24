@@ -257,11 +257,24 @@ func (m *Model) AppendReasoning(text string) {
 // appendReasoningLocked 是 AppendReasoning 的持锁内核，供已持有 m.mu 的
 // 调用方（如 HandleEvent）直接调用，避免自锁死锁。调用方必须持有 m.mu。
 func (m *Model) appendReasoningLocked(text string) {
+	m.appendReasoningWithDurationLocked(text, 0)
+}
+
+// appendReasoningWithDurationLocked 与 appendReasoningLocked 相同，但允许调用方
+// 传入推理的真实墙上时长。渲染层用 thinkingAt/thinkingEnd 的差值展示时长；
+// 预先填好这两个字段可避免首帧才打时间戳导致"0ms"。duration<=0 时退回旧行为
+// （首帧计时），因此没有计时的推理事件帧字节不变。调用方须持有 m.mu。
+func (m *Model) appendReasoningWithDurationLocked(text string, duration time.Duration) {
 	m.flushStreamLocked()
 	if n := len(m.entries); n > 0 && m.entries[n-1].Kind == EntryReasoning {
 		m.entries[n-1].Text += text
 	} else {
-		m.entries = append(m.entries, Entry{Kind: EntryReasoning, Text: text})
+		entry := Entry{Kind: EntryReasoning, Text: text}
+		if duration > 0 {
+			entry.thinkingEnd = m.now() // 固定结束时刻，之后不再随帧变化
+			entry.thinkingAt = entry.thinkingEnd.Add(-duration)
+		}
+		m.entries = append(m.entries, entry)
 	}
 	m.version++
 	m.markDirtyLocked()
