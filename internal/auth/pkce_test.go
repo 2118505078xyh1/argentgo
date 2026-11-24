@@ -14,10 +14,12 @@ import (
 )
 
 // getCallback 对回调地址发起 GET。Wait 在独立 goroutine 中调用 server.Serve，
-// CI 慢机器上首个请求可能在它开始 Accept 之前到达而得到 EOF；短暂重试以容忍
-// 这一调度竞态。每次尝试都是幂等的 GET，至多重试 20 次（约 200ms）。
+// CI 慢机器上首个请求可能在它开始 Accept 之前到达而得到 EOF 或 connection
+// refused（实测 race + 并行负载下 Serve 可能延迟数百毫秒才启动）；重试以容忍
+// 这一调度竞态。每次尝试都是幂等的 GET，成功时第一次即返回，只有失败路径才
+// 走满预算，因此加大预算不影响正常运行。
 func getCallback(url string) (*http.Response, error) {
-	const attempts = 20
+	const attempts = 100
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		resp, err := http.Get(url)
