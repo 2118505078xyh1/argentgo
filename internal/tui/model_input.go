@@ -804,6 +804,7 @@ func (m *Model) submitLocked() KeyAction {
 	m.working = true
 	m.scroll = 0
 	m.submitted = body
+	m.beginConversationLocked()
 	m.setStatusLocked("")
 	return ActionSubmit
 }
