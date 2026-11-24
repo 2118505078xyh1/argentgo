@@ -81,7 +81,11 @@ func TestRunActionFailureUsesErrorSeverity(t *testing.T) {
 	if !ok || n.Severity != SeverityError {
 		t.Fatalf("notice = %+v (ok=%v), want SeverityError", n, ok)
 	}
-	if got := model.Frame(100, 24).RowText(model.layoutLocked(100, 24).usageY); !strings.Contains(got, "undo failed") {
+	// layoutLocked 要求调用方持锁；该 model 正被 Run goroutine 驱动，
+	// 直接调用会与 frameWriter 的 CursorPosition 写 m.usageY 竞态。
+	// usageY 恒为 height-1（见 layoutLocked），这里直接算，避免无锁读。
+	usageRow := 24 - 1
+	if got := model.Frame(100, 24).RowText(usageRow); !strings.Contains(got, "undo failed") {
 		t.Fatalf("error text missing from status line: %q", got)
 	}
 	// failure() = Style{Fg: ColorRed, Bold: true}（非 --no-color 时）。
