@@ -1277,8 +1277,9 @@ func clipLine(line Line, width int) Line {
 
 // hintLine 只在审批/对话框态显示一行与当前状态相关的按键提示（y 允许 · n 拒绝 ·
 // a 仅此调用 · enter 确认默认项），平时保持空行——用户已明确要求移除全局底部
-// hint bar。这里用本包文案表而非 i18n 的 hint_modal，是因为后者的 a 文案仍写
-// 着"本会话允许"，与实际精确 scope 不符。
+// hint bar。这里用本包文案表而非 i18n 的 hint_modal：本包文案额外含 "enter 确认
+// 默认项"，比 i18n 的简版更贴合审批弹窗的实际操作；两者 a 文案现已一致（均为
+// 精确单次 scope）。
 // hintY 仍由 layoutLocked 保留，使输入框、状态行与其他行号逐字节不变。
 func hintLine(width int, locale string, modal bool, style Style) Line {
 	if !modal {

@@ -182,11 +182,11 @@ func TestTuiCatalogLiteralSamples(t *testing.T) {
 		zh  string
 	}{
 		{"hint", "enter send · alt+enter newline · pgup/pgdn scroll · ctrl+c cancel · /help", "enter 发送 · alt+enter 换行 · pgup/pgdn 滚动 · ctrl+c 取消 · /help"},
-		{"hint_modal", "y allow · n deny · a allow for session · esc deny", "y 允许 · n 拒绝 · a 本次会话允许 · esc 拒绝"},
+		{"hint_modal", "y allow · n deny · a allow this call · esc deny", "y 允许 · n 拒绝 · a 仅本次调用允许 · esc 拒绝"},
 		{"working", "working…", "思考中…"},
 		{"cancelling", "cancelling…", "正在取消…"},
 		{"name_usage", "usage: /name <title>", "用法：/name <标题>"},
-		{"workspace_on", "workspace panel shown (↑↓ move, ctrl+b to hide)", "已显示工作区面板（↑↓ 移动，ctrl+b 隐藏）"},
+		{"workspace_on", "workspace panel shown (↑↓ move, alt+b to hide)", "已显示工作区面板（↑↓ 移动，alt+b 隐藏）"},
 		{"help", "enter sends · alt+enter/ctrl+j newline · ctrl+b/ctrl+f cursor · ctrl+a/ctrl+e line · ctrl+d exit on empty · ctrl+c cancels, again quits · ctrl+t thinking · ctrl+o tool output · ctrl+x copy · ctrl+g editor · ctrl+l/ctrl+p model · alt+t tasks · alt+b workspace · alt+p plan · alt+s sessions · alt+c commands · alt+u undo · alt+r retry · /clear /expand /undo /retry /name <title> /quit /help /sessions /models /thinking /compact /hotkeys (markdown commands expand $ARGUMENTS / $1..$N)", "enter 发送 · alt+enter/ctrl+j 换行 · ctrl+b/ctrl+f 移动 · ctrl+a/ctrl+e 行首尾 · ctrl+d 空行退出 · ctrl+c 取消，再按退出 · ctrl+t 思考块 · ctrl+o 工具输出 · ctrl+x 复制 · ctrl+g 外编辑器 · ctrl+l/ctrl+p 模型 · alt+t 任务 · alt+b 工作区 · alt+p 计划 · alt+s 会话 · alt+c 命令 · alt+u 撤销 · alt+r 重试 · /clear /expand /undo /retry /name <标题> /quit /help /sessions /models /thinking /compact /hotkeys（markdown 命令支持 $ARGUMENTS / $1..$N）"},
 	}
 	for _, tc := range cases {

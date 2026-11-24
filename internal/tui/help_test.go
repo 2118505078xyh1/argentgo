@@ -189,11 +189,11 @@ func TestHintBindingsParsesLocalisedHints(t *testing.T) {
 		},
 		{
 			name: "chinese modal",
-			hint: "y 允许 · n 拒绝 · a 本次会话允许 · esc 拒绝",
+			hint: "y 允许 · n 拒绝 · a 仅本次调用允许 · esc 拒绝",
 			want: []KeyBinding{
 				{Key: "y", Desc: "允许", Enabled: true},
 				{Key: "n", Desc: "拒绝", Enabled: true},
-				{Key: "a", Desc: "本次会话允许", Enabled: true},
+				{Key: "a", Desc: "仅本次调用允许", Enabled: true},
 				{Key: "esc", Desc: "拒绝", Enabled: true},
 			},
 		},

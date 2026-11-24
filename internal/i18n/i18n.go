@@ -141,7 +141,7 @@ var catalog = map[string]translation{
 	// TUI 全屏界面的用户可见字符串（原 internal/tui/locale.go 双表迁入）。
 	// 键名保留原样并加 tui. 前缀；文案逐字复制，标点和空格不可改动。
 	"tui.allow":                {"allow", "允许"},
-	"tui.allow_session":        {"allow for session", "本会话允许"},
+	"tui.allow_session":        {"allow this call only", "仅本次调用允许"},
 	"tui.approval_title":       {"approval", "需要确认"},
 	"tui.approved":             {"approved", "已允许"},
 	"tui.approved_session":     {"approved for this session", "本会话已允许"},
@@ -190,7 +190,7 @@ var catalog = map[string]translation{
 	"tui.expanded":               {"tool output expanded", "工具输出已展开"},
 	"tui.help":                   {"enter sends · alt+enter/ctrl+j newline · ctrl+b/ctrl+f cursor · ctrl+a/ctrl+e line · ctrl+d exit on empty · ctrl+c cancels, again quits · ctrl+t thinking · ctrl+o tool output · ctrl+x copy · ctrl+g editor · ctrl+l/ctrl+p model · alt+t tasks · alt+b workspace · alt+p plan · alt+s sessions · alt+c commands · alt+u undo · alt+r retry · /clear /expand /undo /retry /name <title> /quit /help /sessions /models /thinking /compact /hotkeys (markdown commands expand $ARGUMENTS / $1..$N)", "enter 发送 · alt+enter/ctrl+j 换行 · ctrl+b/ctrl+f 移动 · ctrl+a/ctrl+e 行首尾 · ctrl+d 空行退出 · ctrl+c 取消，再按退出 · ctrl+t 思考块 · ctrl+o 工具输出 · ctrl+x 复制 · ctrl+g 外编辑器 · ctrl+l/ctrl+p 模型 · alt+t 任务 · alt+b 工作区 · alt+p 计划 · alt+s 会话 · alt+c 命令 · alt+u 撤销 · alt+r 重试 · /clear /expand /undo /retry /name <标题> /quit /help /sessions /models /thinking /compact /hotkeys（markdown 命令支持 $ARGUMENTS / $1..$N）"},
 	"tui.hint":                   {"enter send · alt+enter newline · pgup/pgdn scroll · ctrl+c cancel · /help", "enter 发送 · alt+enter 换行 · pgup/pgdn 滚动 · ctrl+c 取消 · /help"},
-	"tui.hint_modal":             {"y allow · n deny · a allow for session · esc deny", "y 允许 · n 拒绝 · a 本次会话允许 · esc 拒绝"},
+	"tui.hint_modal":             {"y allow · n deny · a allow this call · esc deny", "y 允许 · n 拒绝 · a 仅本次调用允许 · esc 拒绝"},
 	"tui.models_info":            {"current model: %s · switch with argentgo --model <name>", "当前模型：%s · 切换请用 argentgo --model <模型>"},
 	"tui.name_usage":             {"usage: /name <title>", "用法：/name <标题>"},
 	"tui.named_off":              {"named-only filter off", "已关闭仅看命名会话"},
@@ -226,14 +226,14 @@ var catalog = map[string]translation{
 	"tui.thinking_info":          {"current thinking: %s · change with argentgo --thinking <level>", "当前思考强度：%s · 调整请用 argentgo --thinking <档位>"},
 	"tui.theme":                  {"theme", "主题"},
 	"tui.thinking":               {"thinking", "思考"},
-	"tui.thinking_all_off":       {"all thinking blocks folded (ctrl+x to expand)", "已折叠全部思考块（ctrl+x 展开）"},
-	"tui.thinking_all_on":        {"all thinking blocks expanded (ctrl+x to fold)", "已展开全部思考块（ctrl+x 折叠）"},
+	"tui.thinking_all_off":       {"all thinking blocks folded (ctrl+t to expand)", "已折叠全部思考块（ctrl+t 展开）"},
+	"tui.thinking_all_on":        {"all thinking blocks expanded (ctrl+t to fold)", "已展开全部思考块（ctrl+t 折叠）"},
 	"tui.tool":                   {"tool", "工具"},
 	"tui.undo_done":              {"undo finished", "撤销完成"},
 	"tui.undo_unwired":           {"/undo needs a checkpoint hook from the host", "/undo 需要宿主提供检查点钩子"},
 	"tui.working":                {"working…", "思考中…"},
 	"tui.workspace_off":          {"workspace panel hidden", "已隐藏工作区面板"},
-	"tui.workspace_on":           {"workspace panel shown (↑↓ move, ctrl+b to hide)", "已显示工作区面板（↑↓ 移动，ctrl+b 隐藏）"},
+	"tui.workspace_on":           {"workspace panel shown (↑↓ move, alt+b to hide)", "已显示工作区面板（↑↓ 移动，alt+b 隐藏）"},
 	"tui.workspace_title":        {"WORKSPACE", "工作区"},
 }
 
