@@ -408,7 +408,7 @@ var engineEventRegistry = map[string]struct {
 	"turn_end":         {"map:turn_end", true, "skip:同上", ""},
 	"checkpoint_ready": {"skip:检查点由 session 层持久化，无 UI 展示位", true, "skip:对 UI 无可见变化", ""},
 	"text_delta":       {"skip:通过 Execute 的 onText 回调直达 TUI", true, "other:通过 prompt/delta RPC 直达 assistant 气泡", ""},
-	"reasoning_delta":  {"skip:推理块不进主 transcript", true, "other:同文本流", ""},
+	"reasoning_delta":  {"map:reasoning", true, "other:同文本流", "推理块曾断链不可见，现已映射到 TUI 主 transcript 的可展开推理条目"},
 	"tool_start":       {"map:tool_start", true, "case:tool_start", ""},
 	"tool_end":         {"map:tool_end", true, "case:tool_end", ""},
 	"usage":            {"map:usage", true, "case:usage", ""},

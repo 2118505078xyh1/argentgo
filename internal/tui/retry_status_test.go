@@ -130,8 +130,16 @@ func TestRetryEventDoesNotDisturbToolEvents(t *testing.T) {
 		t.Fatalf("retry disturbed the task list: %+v", m.tasks)
 	}
 	entries := m.Transcript()
-	if len(entries) != 1 || entries[0].Text != "⟳ retry timeout in 500ms (1/3)" {
-		t.Fatalf("retry entry = %+v", entries)
+	// 工具 start 现在会在正文追加一条"运行中"卡片，因此 transcript 里除重试
+	// 通知外还有工具条目；只需确认重试通知存在且未被重排/修改。
+	foundRetry := false
+	for _, e := range entries {
+		if e.Text == "⟳ retry timeout in 500ms (1/3)" {
+			foundRetry = true
+		}
+	}
+	if !foundRetry {
+		t.Fatalf("retry entry missing from %+v", entries)
 	}
 
 	m.HandleEvent(Event{Kind: EventToolEnd, ToolCallID: "1", ToolName: "read", DurationMS: 12})
@@ -139,7 +147,13 @@ func TestRetryEventDoesNotDisturbToolEvents(t *testing.T) {
 		t.Fatalf("tool end did not complete the task: %+v", m.tasks)
 	}
 	entries = m.Transcript()
-	if len(entries) != 1 || !strings.Contains(entries[0].Text, "retry timeout") {
+	foundRetry = false
+	for _, e := range entries {
+		if strings.Contains(e.Text, "retry timeout") {
+			foundRetry = true
+		}
+	}
+	if !foundRetry {
 		t.Fatalf("later tool event altered the retry entry: %+v", entries)
 	}
 }

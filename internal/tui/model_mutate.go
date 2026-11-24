@@ -221,6 +221,12 @@ func attemptFromFailed(failed bool) AttemptKind {
 func (m *Model) AppendReasoning(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.appendReasoningLocked(text)
+}
+
+// appendReasoningLocked 是 AppendReasoning 的持锁内核，供已持有 m.mu 的
+// 调用方（如 HandleEvent）直接调用，避免自锁死锁。调用方必须持有 m.mu。
+func (m *Model) appendReasoningLocked(text string) {
 	m.flushStreamLocked()
 	if n := len(m.entries); n > 0 && m.entries[n-1].Kind == EntryReasoning {
 		m.entries[n-1].Text += text

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/2118505078xyh1/argentgo/internal/llm"
@@ -15,6 +16,9 @@ type EventKind string
 const (
 	EventToolStart EventKind = "tool_start"
 	EventToolEnd   EventKind = "tool_end"
+	// EventReasoning 对应 agent.EventReasoningDelta：Text 携带本轮完整的推理块。
+	// 它追加在末尾之前不影响既有种类的数值稳定性（事件按字符串比较，不依赖序数）。
+	EventReasoning EventKind = "reasoning"
 	EventAttempt   EventKind = "attempt"
 	// EventError 对应 agent.EventError；Detail 携带清洗后的错误
 	// 文本，使集成方可以直接复制 agent.Event.Err。
@@ -62,6 +66,8 @@ type Event struct {
 	DurationMS int64
 	Attempt    AttemptKind // EventAttempt only
 	Detail     string      // EventAttempt / EventError / EventToolProgress only: badge detail, error text or raw progress text
+	// Reasoning 仅 EventReasoning 使用：本轮推理块正文。其它事件保持零值。
+	Reasoning string
 
 	// 仅 EventRetry：失败请求的实时退避反馈。
 	RetryReason  string
@@ -102,6 +108,12 @@ func (m *Model) HandleEvent(event Event) {
 		m.toolStartLocked(event)
 	case EventToolEnd:
 		m.toolEndLocked(event)
+	case EventReasoning:
+		// 推理块此前在桥接层被丢弃，transcript 里永远看不到思考过程。
+		// 追加（或扩展）一个推理条目；空的推理不产生块。
+		if strings.TrimSpace(event.Reasoning) != "" {
+			m.appendReasoningLocked(event.Reasoning)
+		}
 	case EventAttempt:
 		if event.Attempt != "" {
 			m.appendAttemptLocked(event.Attempt, event.Detail)
@@ -252,6 +264,16 @@ func (m *Model) appendNoticeEntryLocked(entry Entry) {
 
 func (m *Model) toolStartLocked(event Event) {
 	started := m.now()
+	// 工具卡片此前只进默认隐藏的侧边栏 m.tasks，transcript 里永远看不到。
+	// 现在同时在正文追加一条"运行中"工具条目（liveToolLines 的 spinner 路径），
+	// 让工具调用在主视图可见。不重置 scroll——流式工具事件不该把视口弹回顶部。
+	m.entries = append(m.entries, Entry{
+		Kind:    EntryTool,
+		Name:    event.ToolName,
+		Args:    event.Args,
+		Running: true,
+		live:    true,
+	})
 	// 审批弹窗可能已经为该工具注册了一个待处理任务。
 	// 提升最新匹配的那条，而不是重复该行。
 	for i := len(m.tasks) - 1; i >= 0; i-- {
@@ -281,11 +303,33 @@ func (m *Model) toolEndLocked(event Event) {
 		status = TaskError
 	}
 	duration := time.Duration(event.DurationMS) * time.Millisecond
-	if event.IsError {
+	// 结束 transcript 里对应的"运行中"工具条目（toolStart 追加的那个），
+	// 填入输出并把 spinner 切成静态卡片。从后往前找最近的同类运行中条目，
+	// 与任务列表的匹配语义一致；若因故没有起点条目则不补造，避免重复卡片。
+	finalized := false
+	for j := len(m.entries) - 1; j >= 0; j-- {
+		entry := &m.entries[j]
+		if entry.Kind == EntryTool && entry.Running && entry.Name == event.ToolName {
+			entry.Running = false
+			entry.live = false
+			entry.Output = truncateToolOutput(event.Output)
+			if event.IsError {
+				entry.Failed, entry.Attempt = true, AttemptFailed
+			}
+			m.version++
+			m.markDirtyLocked()
+			finalized = true
+			break
+		}
+	}
+	// 兜底：若没有"运行中"条目（例如调用方直接用 AppendTool 预置了静态卡片），
+	// 仍按工具名给最近的同类条目打失败标记，保持既有语义不变。
+	if event.IsError && !finalized {
 		for j := len(m.entries) - 1; j >= 0; j-- {
 			entry := &m.entries[j]
 			if entry.Kind == EntryTool && entry.Name == event.ToolName {
 				entry.Failed, entry.Attempt = true, AttemptFailed
+				m.version++
 				break
 			}
 		}

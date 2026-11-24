@@ -138,7 +138,7 @@ var tuiMappingExpectations = map[string]tuiMappingExpectation{
 	"turn_end":         {plainTUIEvent("turn_end"), true, tui.Event{Kind: "turn_end"}},
 	"checkpoint_ready": {plainTUIEvent("checkpoint_ready"), false, tui.Event{}},
 	"text_delta":       {plainTUIEvent("text_delta"), false, tui.Event{}}, // 文本走 onText 回调
-	"reasoning_delta":  {plainTUIEvent("reasoning_delta"), false, tui.Event{}},
+	"reasoning_delta":  {plainTUIEvent("reasoning_delta"), true, tui.Event{Kind: tui.EventReasoning, Reasoning: "payload"}},
 	"tool_start":       {plainTUIEvent("tool_start"), true, tui.Event{Kind: tui.EventToolStart}},
 	"tool_end":         {plainTUIEvent("tool_end"), true, tui.Event{Kind: tui.EventToolEnd}},
 	"usage":            {plainTUIEvent("usage"), true, tui.Event{Kind: tui.TuiEventUsage}},
