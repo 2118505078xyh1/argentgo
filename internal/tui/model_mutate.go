@@ -217,6 +217,19 @@ func attemptFromFailed(failed bool) AttemptKind {
 	return ""
 }
 
+// SetBindings 注入用户自定义的键位覆盖表。传 nil 或空表时恢复默认分派
+// （主 switch 逐字节不变）。重绑定通过"把动作翻译回默认键再走主 switch"
+// 执行，因此覆盖表里的键串须是规范形式（见 Key.Canonical / ParseKeySpec）。
+func (m *Model) SetBindings(b Bindings) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(b) == 0 {
+		m.bindings = nil
+		return
+	}
+	m.bindings = b
+}
+
 // SetTranscript 用一批历史条目整体替换当前 transcript。它用于 resume /
 // --session / 会话栏切换时把旧会话的对话呈现出来——此前 entries 只由本轮
 // 开始的流增量与实时事件填充，导致 resume 首屏只有欢迎卡。

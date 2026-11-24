@@ -39,6 +39,9 @@ type primitiveAllowEntry struct {
 //		},
 //	}
 var primitiveAllowlist = []primitiveAllowEntry{
+	// TUI 键位冲突诊断：检测用户覆盖层与默认表的重名键。当前由配置预览/测试
+	// 消费，尚未接入 doctor 的诊断输出；作为键位注册表地剂的公开诊断 API 保留。
+	{Symbol: "internal/tui/actions.go:Conflict", Reason: "键位覆盖冲突诊断 API；计划由 doctor/配置预览展示重绑定冲突，当前供测试与未来配置诊断调用"},
 	// 网络代理沙箱的显式环境注入口：默认路径由 netproxy.DefaultEnv 懒启动并
 	// 直接把 Env 交给 bash 工具；WithEnv 供 app 层注入自定义代理地址/NO_PROXY，
 	// 属于跨包依赖注入 API，由接线层调用，故在清单中登记。

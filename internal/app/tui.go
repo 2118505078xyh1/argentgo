@@ -295,6 +295,11 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 				modelMu.Lock()
 				uiModel = model
 				modelMu.Unlock()
+				// 用户键位覆盖（可选）：从配置的 keybindings/key_aliases/key_bindings
+				// 块解析成重绑定表注入。无配置时传 nil，主分派逐字节不变。
+				if bindings := tui.BindingsFromRaw(res.Cfg.Raw); len(bindings) > 0 {
+					model.SetBindings(bindings)
+				}
 				// resume / --session：启动时就把旧会话历史投影进 transcript，
 				// 让首帧直接显示之前的对话（此前只有欢迎卡，看不到历史）。
 				// 仅当确实指定了要续接的会话时打开，避免为全新运行创建空会话文件。

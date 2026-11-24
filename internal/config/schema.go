@@ -192,6 +192,11 @@ func configSchemaJSON() []byte {
 			Title:       "网络出口策略",
 			Description: "声明式网络出口规则集。规则字段：decision（allow/ask/deny）、hostGlob（主机通配）、port、protocol、method、requireHuman。多条命中取最严格判定，内置私网与云元数据拒绝不可被放宽。",
 		},
+		"key_aliases": {
+			Type:        "object",
+			Title:       "TUI 键位覆盖",
+			Description: "把 TUI 动作重绑到新键：动作名 → 规范键串或键串数组，如 {\"undo\": \"ctrl+z\", \"scroll_up\": [\"k\", \"up\"]}。也接受 keybindings / key_bindings 作为别名块名。未配置时按键位默认值，零字节影响。",
+		},
 	}
 
 	doc := configSchemaDocument{

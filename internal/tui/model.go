@@ -194,6 +194,11 @@ type Model struct {
 	degraded bool
 	env      func(string) string
 
+	// bindings 是用户自定义键位覆盖（nil 表示无覆盖，主分派逐字节不变）。
+	// reentry 防止"翻译回默认键再走主 switch"时的无限递归。
+	bindings Bindings
+	reentry  bool
+
 	entries []Entry
 	editor  Editor
 	// kill 是输入行的 Emacs kill-ring。零值可用；与 vimMode 正交，

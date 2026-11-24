@@ -51,6 +51,12 @@ func (m *Model) handleKeyLocked(key Key) KeyAction {
 	if m.vimMode && m.handleVimKeyLocked(key) {
 		return ActionNone
 	}
+	// 用户自定义键位（可选）：无覆盖时 m.bindings 为 nil、守卫短路，主 switch
+	// 逐字节不变。有覆盖时按规范键串查动作，再把动作翻译回默认键交给既有
+	// 主 switch 执行——这样任何重绑定都复用已验证的执行路径，无需重写分派。
+	if action, ok := m.resolveCustomBindingLocked(key); ok {
+		return action
+	}
 	// 可选别名旁路（opt-in）：仅对主 switch 未覆盖的可打印键生效，
 	// 已有专属 Kind 的绑定优先。无配置时别名表为空、守卫短路，
 	// 以下主 switch 与帧字节保持逐字节不变。
