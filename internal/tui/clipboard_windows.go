@@ -4,6 +4,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -81,3 +82,7 @@ func writeClipboard(text string) error {
 func uintptrToPointer(u uintptr) unsafe.Pointer {
 	return *(*unsafe.Pointer)(unsafe.Pointer(&u))
 }
+
+// SetClipboardOutput 在 Windows 上是 no-op：剪贴板走 user32 的
+// CF_UNICODETEXT，不经过终端输出流。保留同名符号让 Run 无需 build tag 分支。
+func SetClipboardOutput(io.Writer) {}

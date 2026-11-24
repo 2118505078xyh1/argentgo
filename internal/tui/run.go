@@ -197,6 +197,9 @@ func Run(ctx context.Context, opts Options) error {
 	defer stopRun()
 
 	in, out := opts.streams()
+	// OSC 52 剪贴板（非 Windows）需要一个输出流来写 ESC ] 52;c;... BEL。
+	// Windows 的 SetClipboardOutput 是 no-op（走 user32），因此这里无需 build tag。
+	SetClipboardOutput(out)
 	real := opts.IO == nil
 	// 窗口标题在整个会期内保持不变：品牌名只在标题里出现一次。
 	title := windowTitle(opts.Root)
