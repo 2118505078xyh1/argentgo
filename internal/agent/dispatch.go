@@ -580,6 +580,9 @@ func (s *runState) runTool(ctx context.Context, call llm.ToolCall, start time.Ti
 		// refusal 的模型可读提示追加到错误文本末尾，让模型能据拒绝类别自我修正；
 		// 关闭或未命中已知拒绝类别时 AppendRefusalModelHint 逐字节原样返回，既有运行不变。
 		errText := ReflectionForDispatch(call.Function.Name, "error: "+err.Error())
+		// 把工具返回的部分输出（如 stderr 的 "shell: cd: not a directory"）并入错误文本。
+		// 否则不同失败命令会退化成同一个 "error: exit status 1"，被 dedupe 误判为伪进展循环。
+		errText = appendToolErrorOutput(errText, output)
 		errText = AppendRefusalModelHint(errText, refusal)
 		return callResult{intent: intent, output: errText, isError: true, invalidArgs: invalid, refusal: refusal, duration: time.Since(start)}
 	}
