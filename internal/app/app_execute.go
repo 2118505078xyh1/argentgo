@@ -454,6 +454,9 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	// 让 AI 能力更强。强转后的字节同时用于审批与执行（见 agent.effectiveToolArgs），
 	// 无"批准 A 执行 B"语义差。ARGENT_TOOL_ARG_COERCION=0 可紧急关闭。
 	agent.SetToolArgumentCoercion(toolArgCoercionEnabled(stdio.Env))
+	// 工具错误输出并入（默认开）：把工具返回的 stderr/stdout 原文并入回灌错误，
+	// 让模型看到真实失败原因、避免 dedupe 把不同失败误判为重复循环；仅 ARGENT_TOOL_ERROR_OUTPUT=0 关闭。
+	agent.SetToolErrorOutput(toolErrorOutputEnabled(stdio.Env))
 	// 纠正提示的压缩存活标记：独立 env 开关，默认关闭时写回 false（与零值一致），
 	// nudge 记录形状逐字节不变。
 	agent.SetRetainGuidance(strings.TrimSpace(os.Getenv("ARGENT_RETAIN_GUIDANCE")) != "0")
@@ -1294,6 +1297,19 @@ func toolArgFeedbackOptInEnabled(env func(string) string) bool {
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(env("ARGENT_TOOL_ARG_FEEDBACK"))) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+// toolErrorOutputEnabled 报告工具错误输出并入是否开启。默认开启：
+// 仅当 ARGENT_TOOL_ERROR_OUTPUT 为假值词（0/false/no/off）时关闭；未设置或空值一律开启。
+func toolErrorOutputEnabled(env func(string) string) bool {
+	if env == nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(env("ARGENT_TOOL_ERROR_OUTPUT"))) {
 	case "0", "false", "no", "off":
 		return false
 	}
