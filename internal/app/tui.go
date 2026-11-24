@@ -245,7 +245,7 @@ func TUI(stdio cli.IO) cli.TUIFunc {
 		frontendOpts := tui.Options{
 			Root:                   res.Root,
 			Model:                  res.Model,
-			Thinking:               res.Thinking,
+			Thinking:               tuiThinkingLevel(res.Thinking),
 			Locale:                 res.Locale,
 			Sessions:               sessionTitles(store),
 			ExpandReasoningOnStart: true,
@@ -386,6 +386,15 @@ func (a *Approver) Ask(ctx context.Context, name, args string) (bool, error) {
 		return model.ApproveDanger(ctx, name, args, danger)
 	}
 	return model.Approve(ctx, name, args)
+}
+
+// tuiThinkingLevel 为状态栏提供始终可见的思考档位；命令行未显式
+// 指定 --thinking 时按 high 显示，与默认推理强度一致。
+func tuiThinkingLevel(level string) string {
+	if strings.TrimSpace(level) == "" {
+		return "high"
+	}
+	return strings.TrimSpace(level)
 }
 
 // sessionTitles 渲染选择器条目，最新的排在最前。

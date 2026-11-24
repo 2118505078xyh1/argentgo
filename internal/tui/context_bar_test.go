@@ -96,8 +96,8 @@ func TestStatusContextBarUsesThresholdStyle(t *testing.T) {
 		if !ok {
 			t.Fatalf("no ctx span %q for %d%%: %s", wantText, tc.pct, line.Text())
 		}
-		if span.Style != tc.want {
-			t.Errorf("ctx span style at %d%% = %+v, want %+v", tc.pct, span.Style, tc.want)
+		if span.Style != m.palette.muted() {
+			t.Errorf("ctx span style at %d%% = %+v, want uniform muted %+v", tc.pct, span.Style, m.palette.muted())
 		}
 	}
 }

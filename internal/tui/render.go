@@ -92,7 +92,7 @@ func (m *Model) layoutLocked(width, height int) layout {
 	// 绘制时刻意少写一列，避免末尾字符触发终端自动滚动。
 	l.usageY = maxInt(l.height-1, 0)
 	m.usageY = l.usageY
-	l.inputTop = l.usageY - (len(visible) + 2) - 1
+	l.inputTop = l.usageY - (len(visible) + 2)
 	l.statusY = -1
 	l.ruleY = -1
 	l.rootY = -1
@@ -347,18 +347,20 @@ func (m *Model) contextStyle(pct int) Style {
 // 状态消息与项目路径分别占有上面的状态线和路径行，因此模型名只出现一次。
 func (m *Model) statusLineLocked(width int) Line {
 	left := NewLine()
+	// 末行统一灰白色，不因用量/模型/思考而改变颜色。
+	uniform := m.palette.muted()
 	// 最后一行的左端：状态消息 · 项目路径，然后紧跟用量。
-	message, style := m.statusMessageLocked()
+	message, _ := m.statusMessageLocked()
 	if message != "" {
-		left.Push(message, style)
+		left.Push(message, uniform)
 		if root := strings.TrimSpace(m.root); root != "" {
-			left.Push(" · "+root, m.palette.dim())
+			left.Push(" · "+root, uniform)
 		}
-		left.Push("  ", m.palette.dim())
+		left.Push("  ", uniform)
 	}
 	if m.usageVisible {
 		if m.usageIn+m.usageOut > 0 {
-			left.Push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), m.palette.muted())
+			left.Push("↑"+compactCount(m.usageIn)+" ↓"+compactCount(m.usageOut), uniform)
 			// 缓存命中率：cached/prompt，prompt 为 0 时不显示，钳制到 0-100。
 			if m.usageIn > 0 {
 				pct := int(float64(m.usageCached) / float64(m.usageIn) * 100)
@@ -368,16 +370,16 @@ func (m *Model) statusLineLocked(width int) Line {
 				if pct > 100 {
 					pct = 100
 				}
-				left.Push(" CH"+strconv.Itoa(pct)+"%", m.palette.muted())
+				left.Push(" CH"+strconv.Itoa(pct)+"%", uniform)
 			}
 			// 速度：pi 没有这一项，用户要求补上；沿用相邻 Usage 事件的
 			// 首 token/流结束时间点计算，字段缺失时不显示。
 			if m.usageRate != "" {
-				left.Push(" ⚡"+m.usageRate, m.palette.muted())
+				left.Push(" ⚡"+m.usageRate, uniform)
 			}
 		}
 		if m.cost != "" {
-			left.Push(" "+m.cost, m.palette.muted())
+			left.Push(" "+m.cost, uniform)
 		}
 		// pi 写作 61.0%/259k (auto)：用量占上下文窗口的百分比与窗口大小。
 		if m.contextWindow > 0 {
@@ -386,8 +388,8 @@ func (m *Model) statusLineLocked(width int) Line {
 			if pct > 100 {
 				pct = 100
 			}
-			left.Push(fmt.Sprintf(" %.1f%%/%s", pct, compactCount(m.contextWindow)), m.contextStyle(int(pct)))
-			left.Push(" (auto)", m.palette.dim())
+			left.Push(fmt.Sprintf(" %.1f%%/%s", pct, compactCount(m.contextWindow)), uniform)
+			left.Push(" (auto)", uniform)
 		}
 	}
 	right := NewLine()
@@ -395,20 +397,20 @@ func (m *Model) statusLineLocked(width int) Line {
 	if model == "" {
 		model = "auto"
 	}
-	right.Push(model, m.palette.accent())
+	right.Push(model, uniform)
 	if thinking := strings.TrimSpace(m.thinking); thinking != "" {
 		m.statusReasoningFrom = right.Width() + 2 // 前面的 " • "
-		right.Push(" • ", m.palette.muted())
+		right.Push(" • ", uniform)
 		m.statusReasoningTo = m.statusReasoningFrom + TextWidth(thinking)
-		right.Push(thinking, m.palette.muted())
+		right.Push(thinking, uniform)
 	} else {
 		m.statusReasoningFrom, m.statusReasoningTo = 0, 0
 	}
 	if m.theme != ThemeDark {
-		right.Push(" · "+text(m.locale, "theme")+" "+m.theme, m.palette.muted())
+		right.Push(" · "+text(m.locale, "theme")+" "+m.theme, uniform)
 	}
 	if m.scroll > 0 {
-		right.Push(" ↑"+strconv.Itoa(m.scroll), m.palette.muted())
+		right.Push(" ↑"+strconv.Itoa(m.scroll), uniform)
 	}
 	if right.Width() > 0 {
 		right = clipLine(right, maxInt(width-left.Width()-1, 1))
