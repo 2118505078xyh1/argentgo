@@ -8,9 +8,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"example.com/argentgo/internal/agent"
 	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 	"example.com/argentgo/internal/security"
 	"example.com/argentgo/internal/server"
 	"example.com/argentgo/internal/session"
@@ -208,13 +210,16 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 		// 发现 hub，每次运行都会包装其审批器，使待处理请求在重连后仍然持久。
 		hub := NewEventHub()
 		configureEventLog(hub, stdio.Env, resolved.Storage)
+		warmer, warmReplay := newRunnerWarmer(stdio.Env)
 		r := &runner{
-			stdio:   stdio,
-			res:     resolved,
-			store:   store,
-			execute: Execute,
-			hub:     hub,
-			pending: security.NewPendingStore(filepath.Join(resolved.Storage, "pending")),
+			stdio:      stdio,
+			res:        resolved,
+			store:      store,
+			execute:    Execute,
+			hub:        hub,
+			pending:    security.NewPendingStore(filepath.Join(resolved.Storage, "pending")),
+			warmer:     warmer,
+			warmReplay: warmReplay,
 		}
 		// 运行器是 --serve/--rpc 在多个提示间复用的长生命周期引擎，因此它拥有配置热重载钩子。
 		// 一次性调用方直接使用 Execute，从不构建重载器。该钩子是只读的（采用 + 记日志），
@@ -270,6 +275,11 @@ type runner struct {
 	// 它们只在 Prompt 串行路径上读写（single-flight 保证），无需 mu。
 	bg        *agent.BackgroundResults
 	bgSession string
+
+	// warmer 与 warmReplay 是提示缓存保活的运行时状态，按 runner 生命周期持有，
+	// 使空闲后的 1-token 重放能命中同一份缓存。禁用时为 nil，所有相关路径零副作用。
+	warmer     *llm.CacheWarmer
+	warmReplay *warmReplayStore
 }
 
 // Prompt 满足 cli.Runner。一个运行器上最多只有一个提示在途。
@@ -302,6 +312,16 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	r.cancel = cancel
 	firstPrompt := r.current == nil
 	r.mu.Unlock()
+
+	// 提示缓存保活：轮次边界报告空闲，并在新提示到来前按需重放上一次请求的
+	// 1-token 副本。两者都只在 warmer 存在时生效，重放失败不影响本次提示。
+	if r.warmer != nil && r.warmReplay != nil {
+		ctx = withWarmSink(ctx, r.warmReplay.record)
+		defer func() { r.warmer.RecordIdle(time.Now()) }()
+		if !firstPrompt {
+			_ = maybeWarm(ctx, r.res.Chatter, r.warmer, r.warmReplay)
+		}
+	}
 
 	// 轮次边界：长生命周期引擎在提示之间检查磁盘配置变化，并在有新配置时采用新快照。
 	// 一次性进程只服务一个提示，因此永远不会到达第二个边界，也从不轮询——退出前不会做无意义的
@@ -338,6 +358,10 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	// 把审批镜像到本次会话的持久化存储。按运行复制 Resolved 可使包装器不进入 r.res；
 	// 手工构建的测试运行器（pending == nil）看到的是原始 Resolved 和未改变的行为。
 	execRes := r.res
+	if r.warmer != nil {
+		// 按运行包装：真实 Chat 刷新保活时钟，预热器不会进入 r.res 的长期状态。
+		execRes.Chatter = newWarmRecordChatter(r.res.Chatter, r.warmer)
+	}
 	if r.pending != nil {
 		_ = r.pending.Clear(sess.ID()) // 新运行会取代过期的请求
 		var approve security.Approver

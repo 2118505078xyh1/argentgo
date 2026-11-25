@@ -8,8 +8,8 @@ import (
 )
 
 // cacheWarmerEnabled 报告提示缓存保活的启用状态：默认开启，ARGENT_CACHE_WARM=0
-// （允许首尾空白）时紧急关闭。目前没有任何生产路径接入保活重放，因此启用它只是为
-// 未来的调用方武装时间戳记录；它从不会改变线上请求。
+// （允许首尾空白）时紧急关闭。生产接线在 cache_warmer_wire.go：长生命周期 runner
+// 持有调度器与内存请求副本，在轮次边界按需发 1-token 重放。
 func cacheWarmerEnabled(env func(string) string) bool {
 	return env == nil || strings.TrimSpace(env("ARGENT_CACHE_WARM")) != "0"
 }
@@ -23,8 +23,9 @@ func newCacheWarmer(enabled bool) *llm.CacheWarmer {
 // cacheWarmerProbe 把长生命周期引擎会在其边界调用的两个记录钩子归组：
 // 在请求发送点调用 RecordRequest，在轮次边界调用 RecordIdle。
 // 它是一个薄而惰性的适配器：从不发送 1-token 重放，也从不启动定时器，且预热器禁用时为空操作。
-// 目前它没有安装在任何生产路径上（见接线报告）；它的存在是为了让未来的调用方
-// 能在一个地方采用这两个钩子，并在不接触网络的情况下测试它们。
+// 生产路径改用 cache_warmer_wire.go 的 warmRecordChatter：它同样不启动定时器，
+// 但在真实 Chat 前刷新时钟，并由 runner 在轮次边界执行重放。本探针保留给需要
+// 手工驱动两个钩子、且不接触网络的测试。
 type cacheWarmerProbe struct {
 	warmer *llm.CacheWarmer
 }

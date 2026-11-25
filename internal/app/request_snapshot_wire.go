@@ -32,10 +32,16 @@ func requestSnapshotEnabled(env func(string) string) bool {
 // 注意：快照 body 含完整 system prompt 与工具结果，可能包含敏感文本；
 // 它按 opt-in 写入会话文件，使用者应自行控制该文件的访问权限。
 func withRequestSnapshot(ctx context.Context, env func(string) string, sess *session.Session) context.Context {
+	// 内存保活采集器可能已挂在 ctx 上。llm 的 sink 槽位只容纳一个收集器，
+	// 因此无论是否开启落盘快照，都先取出它并在新收集器里链式调用，避免互相覆盖。
+	warm := warmSinkFrom(ctx)
 	if sess == nil || !requestSnapshotEnabled(env) {
 		return ctx
 	}
 	return llm.WithRequestSnapshotSink(ctx, func(protocol, model string, body []byte) error {
+		if warm != nil {
+			_ = warm(protocol, model, body)
+		}
 		_, err := session.AppendRequestSnapshot(sess, session.RequestSnapshotPayload{
 			Protocol: protocol,
 			Model:    model,
