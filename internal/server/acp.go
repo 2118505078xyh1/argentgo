@@ -15,7 +15,7 @@ import (
 // RunACP 提供 Agent Client Protocol 服务（基于 stdio 的 JSON-RPC 2.0，每行
 // 一条消息），直到 in 到达 EOF 或 ctx 被取消。
 //
-// 支持的方法：initialize、authenticate、session/new、session/prompt、
+// 支持的方法：initialize、authenticate、session/new、session/load、session/prompt、
 // session/cancel、session/set_model、session/set_mode、session/request_permission。
 // 流式助手文本作为 session/update 通知发送。
 func RunACP(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
@@ -105,7 +105,8 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 					"embeddedContext": true,
 				},
 				"mcpCapabilities": map[string]any{"http": false, "sse": false},
-				"loadSession":     false,
+				// 只有配置了会话存储时才宣告可加载（#175）。
+				"loadSession": s.cfg.Sessions != nil,
 			},
 			"authMethods": []any{},
 			"agentInfo":   map[string]any{"name": "argentgo", "version": version},
@@ -129,7 +130,7 @@ func (s *acpState) handle(ctx context.Context, req request, wg *sync.WaitGroup) 
 	case "session/request_permission":
 		s.requestPermission(req)
 	case "session/load":
-		s.fail(req.ID, codeMethodNotFound, "session/load is not supported; start a new session", nil)
+		s.loadSession(req)
 	default:
 		s.fail(req.ID, codeMethodNotFound, fmt.Sprintf("unknown method %q", req.Method), nil)
 	}
@@ -265,6 +266,38 @@ func (s *acpState) cancel() {
 	if s.cfg.Runner != nil {
 		s.cfg.Runner.Abort()
 	}
+}
+
+// loadSession 实现 ACP session/load（#175）：从注入的 SessionStore 读取
+// 已有会话事件，把它注册到本连接（使其可被后续 prompt 使用），并回传
+// 会话事件。不回放全部事件到 session/update——ACP 客户端通过结果里的
+// 事件自行重建，避免一次往返把整个转录灌进通知流。
+func (s *acpState) loadSession(req request) {
+	if s.cfg.Sessions == nil {
+		s.fail(req.ID, codeMethodNotFound, "session/load is not supported: no session store configured", nil)
+		return
+	}
+	id := sessionIDFromParams(req.Params)
+	if id == "" {
+		s.fail(req.ID, codeInvalidParams, "session/load requires sessionId", nil)
+		return
+	}
+	events, err := s.cfg.Sessions.Load(id)
+	if err != nil {
+		s.fail(req.ID, codeServerError, scrubSessionLoadError(id, err), nil)
+		return
+	}
+	if events == nil {
+		events = []SessionEvent{}
+	}
+	s.mu.Lock()
+	s.sessions[id] = true
+	s.sessionID = id
+	s.mu.Unlock()
+	s.peer.respond(req.ID, map[string]any{
+		"sessionId": id,
+		"events":    events,
+	})
 }
 
 func sessionIDFromParams(raw json.RawMessage) string {

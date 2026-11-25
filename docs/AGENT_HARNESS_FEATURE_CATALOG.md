@@ -248,7 +248,7 @@
 172. **OpenAI Responses** — `[已有]`
 173. **provider 模板（20 个）+ 12 别名 + thinking 映射** — `[已有]`
 174. **OAuth / 设备码 / API Key 多认证** — `[已有]`
-175. **ACP（Agent Client Protocol）** — `[已有]`（缺 session/load）
+175. **ACP（Agent Client Protocol）** — `[已有]` session/load 已补齐（复用 SessionStore）
 176. **`--serve`（HTTP/SSE + Bearer）+ `--rpc`（换行 JSON）** — `[已有]`
 177. **server 事件 hub / 续传 / 过滤 / 限流 / 超时** — `[已有]`
 178. **SSE 增量解码 + 失败契约 + `ChatOnce` 非流式回补** — `[已有]`
