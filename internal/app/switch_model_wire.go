@@ -66,6 +66,10 @@ func (s *switchableChatter) setModel(model string) {
 	s.mu.Unlock()
 }
 
+// SetModel 是虚拟路由对包装器的最小写入接缝。它与 switch_model 工具共用同一个
+// 模型槽位，因此用户显式切换与自动路由不会各自维护两份状态。
+func (s *switchableChatter) SetModel(model string) { s.setModel(model) }
+
 func (s *switchableChatter) currentModel() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

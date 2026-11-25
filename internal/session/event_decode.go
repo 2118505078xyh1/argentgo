@@ -69,6 +69,8 @@ func eventKindOf(kind string) EventKind {
 		return EventArchive
 	case KindToolClaim:
 		return EventToolClaim
+	case KindModelRoute:
+		return EventOther // 路由决策是元数据，不进入消息投影
 	case "stats", "usage", "progress", "token", "cost", "budget", "entry",
 		"notice", "error", "event", "trace", "snapshot", "system",
 		"tool_progress", "turn":

@@ -69,7 +69,7 @@
 38. **tool_search 元工具** — `[已有]`
 39. **models / switch_model 模型自驱切换** — `[默认开]`
 40. **checkpoint_diff / history / usage / read_output_artifact** — `[已有]`
-41. **MCP 工具动态挂载**（server__tool 命名空间）— `[已有]`
+41. **MCP 工具动态挂载**（server__tool 命名空间）— `[已有]`；resources/templates + `list_mcp_resources`/`read_mcp_resource` 已接线
 42. **MCP 单网关**（整表收敛为稳定 spec）— `[opt-in]` mcp_gateway
 43. **hook daemon 常驻扩展进程**（SHA-256 信任门）— `[opt-in]` hook_daemon
 
@@ -96,7 +96,7 @@
 60. **write-ahead execution claim + 崩溃恢复** — `[部分]` turn lease + claims，非完整 claim 语义
 61. **backpressure（慢消费者折叠更新）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽
 62. **inbox 投递与执行分离 + 幂等 ID** — `[部分]` internal/inbox 存在但未与执行闭环
-63. **Code Mode DSL（受约束脚本调工具）** — `[已有]` agent 内建：受约束 JSON 脚本 + {{引用}}，每步走审批链
+63. **Code Mode DSL（受约束脚本调工具）** — `[已有]` 顺序/parallel 分波执行 + dependsOn + return 过滤，每步走审批链
 64. **goal 目标循环 / 有界迭代** — `[已有]` /goal
 
 ---
@@ -108,7 +108,7 @@
 67. **foveated 多保真归档**（两端逐字、中段稀疏 + gap 标记）— `[默认开]`
 68. **上下文预算预测 / 压力监测** — `[默认开]` budget_projection / context_calibration
 69. **token 精确计数 + 批量并行 + CJK 估算** — `[已有]`
-70. **提示缓存可见性** — `[部分]` OpenAI 兼容端点默认关，未做 baseURL 探测
+70. **提示缓存可见性** — `[部分]` wire 已支持；长生命周期 runner 已接 1-token 保活重放，OpenAI 兼容端点仍默认关
 71. **注入扫描**（工具结果/skill/MCP 输出）— `[默认开]` 多项 injection_scan
 72. **不可信内容边界标记** — `[opt-in]` untrusted_boundary / untrusted_result
 73. **工具结果裁剪 + 上下文编辑** — `[默认开]` tool_prune
@@ -246,7 +246,7 @@
 170. **OpenAI Chat Completions** — `[已有]`
 171. **Anthropic Messages** — `[已有]`
 172. **OpenAI Responses** — `[已有]`
-173. **provider 模板（20 个）+ 12 别名 + thinking 映射** — `[已有]`
+173. **provider 模板（20 个）+ 12 别名 + thinking 映射** — `[已有]`；虚拟模型按任务类别路由 + model_route 持久决策已接线
 174. **OAuth / 设备码 / API Key 多认证** — `[已有]`
 175. **ACP（Agent Client Protocol）** — `[已有]` session/load 已补齐（复用 SessionStore）
 176. **`--serve`（HTTP/SSE + Bearer）+ `--rpc`（换行 JSON）** — `[已有]`
@@ -265,14 +265,14 @@
 184. **durable event 最小化 + 读模型富化（derived 状态）** — `[部分]`
 185. **tagged union 事件 + `switch(type)` 窄化** — `[已有]` EventKind 判别联合 + eventKindOf 别名收敛
 186. **`ignorable` 标记决定未知事件跳过/拒绝重建** — `[已有]` Record.Ignorable + CheckUnknownKinds fail-closed
-187. **纯函数投影 + O(新增) 增量 + generation stamp 失效** — `[部分]` ProjectionCache 增量原语已建，尚未接 messages()
+187. **纯函数投影 + O(新增) 增量 + generation stamp 失效** — `[部分]` ProjectionCache 已接 messages()（整段模式保证跨记录状态正确）；增量模式限于逐条独立投影
 188. **本地操作投影与 durable 事件原子提交** — `[部分]`
 189. **统一事件解码边界 + 版本演进升级** — `[已有]` DecodeRecord 统一入口 + MigrateRecords 版本迁移
 190. **按聚合的有序 log 读取 + 分页 + watermark** — `[已有]` ReadPage 分页游标 + Page.Watermark 位置标记
 191. **格式版本单调 + 相邻迁移只新增后继** — `[部分]`
 192. **事件族共享稳定业务 id** — `[已有]` correlationIDOf：载荷 toolCallId/attemptId → 记录 id 回落
-193. **投递与执行分离 + 幂等 ID（first-admission-wins）** — `[部分]`（inbox 未闭环）
-194. **write-ahead claim 崩溃恢复（终态释放/中断保留）** — `[部分]`（turn lease + claims）
+193. **投递与执行分离 + 幂等 ID（first-admission-wins）** — `[已有]` inbox.Admit 幂等接纳 + runner 持久 admission
+194. **write-ahead claim 崩溃恢复（终态释放/中断保留）** — `[部分]` turn lease + claims；账本不可写时降级为进程内去重（不再无条件放行）
 195. **背压（ack 窗口 + 队列折叠）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽
 196. **事件等待用索引唤醒，禁 backoff/轮询** — `[部分]`（channel select，无索引唤醒）
 197. **断链恢复 = 重持有 + 快照替换，错误看起来像掉线** — `[部分]`（snapshot store last-good）

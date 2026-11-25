@@ -39,6 +39,9 @@ type primitiveAllowEntry struct {
 //		},
 //	}
 var primitiveAllowlist = []primitiveAllowEntry{
+	// 虚拟模型路由审计 API（#3/#6）：读取当前分支的路由决策供 doctor/成本诊断展示；
+	// 写入侧已在 Execute 装配中接线，读取侧暂由测试覆盖，故登记保留。
+	{Symbol: "internal/session/model_route.go:ModelRoutes", Reason: "路由决策审计读取 API；计划由 doctor/成本诊断展示按任务路由结果，当前供测试验证 last-wins 与分支隔离"},
 	// 分页 watermark（#190/#198）：声明回放进度与跨版本边界的只读辅助。
 	// 当前由测试锁定形状；计划由 /v1/event 续传头与 doctor 展示回放进度时接线。
 	{Symbol: "internal/session/page.go:Watermark", Reason: "分页回放位置标记 API；计划由事件续传响应头消费，当前供测试与边界声明使用"},

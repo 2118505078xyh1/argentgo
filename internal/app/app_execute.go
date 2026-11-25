@@ -942,6 +942,10 @@ func Execute(ctx context.Context, stdio cli.IO, res Resolved, sess *session.Sess
 	if autoDecide && decision.UseSecondary {
 		applyAutoDecideModel(&loop.Opts, res.Options.SecondaryModel)
 	}
+	// 虚拟模型路由（默认开启，无 virtualModels 配置时零影响）：按任务类别把
+	// "auto" 等虚拟名映射到物理模型，决策写入会话供成本审计与粘性重放。
+	applyVirtualModelRoute(&loop.Opts, loop.Opts.Chatter, res.Cfg.Raw["virtualModels"],
+		decision, rawPrompt, promptHasCode(rawPrompt), promptMutatingSignal(rawPrompt), sess, forwardEvent)
 	// 按模型的编辑格式指引默认开启，ARGENT_EDIT_GUIDE=0（允许首尾空白）时紧急关闭。
 	// 在这里（configureSubagents 之后）追加，可保持编排器追加顺序不变。
 	if env := stdio.Env; env == nil || strings.TrimSpace(env("ARGENT_EDIT_GUIDE")) != "0" {

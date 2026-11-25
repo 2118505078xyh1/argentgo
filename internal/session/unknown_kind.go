@@ -15,7 +15,8 @@ var knownKinds = map[string]bool{
 	KindAttempt: true, KindTitle: true, KindCondensation: true, KindContextEdit: true,
 	KindImageOffload: true, KindRequestSnapshot: true,
 	KindToolClaim: true, KindSchema: true, KindForkLineage: true,
-	"archive": true,
+	KindModelRoute: true,
+	"archive":      true,
 	// 统计与进度类记录（生产与测试均写入）。
 	"stats": true, "usage": true, "progress": true, "token": true,
 	"cost": true, "budget": true, "entry": true, "notice": true, "error": true,
