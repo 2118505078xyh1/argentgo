@@ -278,6 +278,15 @@ func LoadWithOverrides(cwd string, env func(string) string, overrides map[string
 		prev = cur
 	}
 
+	// 托管策略层（#168/#202）：位于所有用户层之上，压制 env 与 flag。
+	// 路径由 MDM/企业部署注入；fail-closed，损坏即拒绝加载。
+	if err := ApplyManagedPolicy(tree, env(ManagedConfigEnv)); err != nil {
+		return Config{}, err
+	}
+	cur = snapshotValues(tree)
+	source.observe(prev, cur, ValueSourceEnv) // 托管层归入 env 来源以便溯源
+	prev = cur
+
 	cfg := decode(tree, cwd, home, sources)
 	cfg.BaseURLSource = source.baseURL
 	cfg.APIKeySource = source.apiKey

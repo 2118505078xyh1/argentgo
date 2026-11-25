@@ -236,7 +236,7 @@
 165. **config / audit / policy / plugin / inbox / timeline / docs 子命令** — `[已有]`（41 子命令）
 166. **中文友好建议**（错误指向具体操作）— `[已有]`
 167. **配置 provenance（逐 key origins）+ 逐层指纹** — `[部分]`（有 source 追踪，无完整 origins API）
-168. **托管策略压制用户配置** — `[缺口]`
+168. **托管策略压制用户配置** — `[已有]` ARGENT_MANAGED_CONFIG 最高层 + fail-closed
 169. **配置即服务而非全局态** — `[部分]`（多数门控仍读进程 env，per-run 关不掉）
 
 ---
@@ -264,7 +264,7 @@
 183. **append-only 事件日志是唯一事实源，消息历史派生** — `[部分]`（JSONL 是事实源，投影不完整）
 184. **durable event 最小化 + 读模型富化（derived 状态）** — `[部分]`
 185. **tagged union 事件 + `switch(type)` 窄化** — `[部分]`（EventKind 字符串，无判别联合类型）
-186. **`ignorable` 标记决定未知事件跳过/拒绝重建** — `[缺口]`（易静默丢事件）
+186. **`ignorable` 标记决定未知事件跳过/拒绝重建** — `[已有]` Record.Ignorable + CheckUnknownKinds fail-closed
 187. **纯函数投影 + O(新增) 增量 + generation stamp 失效** — `[部分]`（dircache 有 stamp，会话投影无）
 188. **本地操作投影与 durable 事件原子提交** — `[部分]`
 189. **统一事件解码边界 + 版本演进升级** — `[部分]`（JSONL 校验器，无统一 decode 入口）
@@ -273,7 +273,7 @@
 192. **事件族共享稳定业务 id** — `[部分]`（ToolCallID 有，其他事件无）
 193. **投递与执行分离 + 幂等 ID（first-admission-wins）** — `[部分]`（inbox 未闭环）
 194. **write-ahead claim 崩溃恢复（终态释放/中断保留）** — `[部分]`（turn lease + claims）
-195. **背压（ack 窗口 + 队列折叠）** — `[缺口]`
+195. **背压（ack 窗口 + 队列折叠）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽
 196. **事件等待用索引唤醒，禁 backoff/轮询** — `[部分]`（channel select，无索引唤醒）
 197. **断链恢复 = 重持有 + 快照替换，错误看起来像掉线** — `[部分]`（snapshot store last-good）
 198. **跨二进制/跨版本不承诺回放** — `[部分]`（未显式声明）
@@ -285,7 +285,7 @@
 
 200. **8 层配置合并 + 顶层覆盖底层** — `[部分]`（7 层，无 MDM/enterprise cloud）
 201. **provenance 逐 key origins + 逐层指纹** — `[部分]`
-202. **托管策略压制用户/项目配置** — `[缺口]`
+202. **托管策略压制用户/项目配置** — `[已有]` ARGENT_MANAGED_CONFIG 压制层
 203. **配置显式 `resolve(request)` + 禁止隐藏 `?? default`** — `[部分]`（多数门控读 env，无 resolve）
 204. **配置错误最早可解析点大声失败** — `[部分]`（fail-closed 诊断已有）
 205. **项目信任门（marker/git checkout 才持久化 trust）** — `[已有]` --trust-project
