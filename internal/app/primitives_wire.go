@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"sync"
 
 	"example.com/argentgo/internal/agent"
 	"example.com/argentgo/internal/llm"
@@ -82,6 +83,10 @@ type claimingTools struct {
 	inner   agent.ToolRunner
 	sess    *session.Session
 	enforce bool
+	// seen 是账本不可写时的进程内兜底。它只防止同一调用在本次进程里被重复执行，
+	// 不伪装成跨进程的 exactly-once：账本恢复语义仍由磁盘领取记录负责。
+	seenMu sync.Mutex
+	seen   map[string]bool
 }
 
 // Specs 原样转发工具目录，模型看到的清单不因领取账本改变。
@@ -104,8 +109,20 @@ func (c *claimingTools) Run(ctx context.Context, name, args string) (string, err
 			return "[claim] non-idempotent tool already executed; skipped replay to avoid repeated side effects", nil
 		}
 	}
-	// 账本不可写时 TryAppendToolClaim 内部记 warn 并继续，绝不阻断工具执行。
-	c.sess.TryAppendToolClaim(key)
+	if !c.sess.TryAppendToolClaim(key) {
+		// 账本不可写：不再是"无条件放行"。降级为进程内去重，避免同一次非幂等
+		// 调用在重放时反复产生副作用；仍不阻断首次执行，保持可用性。
+		if c.seen == nil {
+			c.seen = make(map[string]bool)
+		}
+		c.seenMu.Lock()
+		duplicate := c.seen[key]
+		c.seen[key] = true
+		c.seenMu.Unlock()
+		if duplicate {
+			return "[claim] non-idempotent tool already executed; skipped replay to avoid repeated side effects", nil
+		}
+	}
 	out, err := c.inner.Run(ctx, name, args)
 	if err == nil {
 		// 把结果写回领取记录，供重放时经 ResultForClaim 原样回灌。

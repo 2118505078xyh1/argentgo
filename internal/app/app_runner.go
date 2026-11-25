@@ -12,6 +12,7 @@ import (
 
 	"example.com/argentgo/internal/agent"
 	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/inbox"
 	"example.com/argentgo/internal/llm"
 	"example.com/argentgo/internal/security"
 	"example.com/argentgo/internal/server"
@@ -211,8 +212,15 @@ func Factory(stdio cli.IO) cli.RunnerFactory {
 		hub := NewEventHub()
 		configureEventLog(hub, stdio.Env, resolved.Storage)
 		warmer, warmReplay := newRunnerWarmer(stdio.Env)
+		// 持久 admission：每个提示在真正执行前写入 inbox，使崩溃后仍未投递的
+		// 请求可被恢复。构造失败时降级为 nil，不影响正常执行。
+		var promptInbox *inbox.Inbox
+		if strings.TrimSpace(resolved.Storage) != "" {
+			promptInbox, _ = inbox.New(inbox.Options{Path: filepath.Join(resolved.Storage, "inbox.jsonl")})
+		}
 		r := &runner{
 			stdio:      stdio,
+			inbox:      promptInbox,
 			res:        resolved,
 			store:      store,
 			execute:    Execute,
@@ -280,6 +288,12 @@ type runner struct {
 	// 使空闲后的 1-token 重放能命中同一份缓存。禁用时为 nil，所有相关路径零副作用。
 	warmer     *llm.CacheWarmer
 	warmReplay *warmReplayStore
+
+	// inbox 为每个提示提供持久 admission（first-admission-wins 已由 inbox.Admit 保证）。
+	// inboxSeq 生成进程内唯一 id，使合法重发不会被误判为重复；跨进程幂等由调用方
+	// 传入稳定 id 时经 inbox.Admit 生效。
+	inbox    *inbox.Inbox
+	inboxSeq atomic.Uint64
 }
 
 // Prompt 满足 cli.Runner。一个运行器上最多只有一个提示在途。
@@ -347,6 +361,12 @@ func (r *runner) Prompt(ctx context.Context, text string, onText func(string)) (
 	sess, err := r.ensureSession(text)
 	if err != nil {
 		return "", err
+	}
+	// 持久 admission：先写 inbox 再执行。它是 best-effort 的可观测记录，
+	// 失败不阻断提示；同 id 重放由 inbox.Admit 的 first-admission-wins 拒绝。
+	if r.inbox != nil {
+		id := fmt.Sprintf("%s-%d", sess.ID(), r.inboxSeq.Add(1))
+		_, _, _ = r.inbox.Admit(sess.ID(), id, text, inbox.DeliveryQueue)
 	}
 	// 后台结果队列按会话归属：同会话跨提示复用，换会话重建。队列归属 runner
 	// 而非进程，天然隔离并发的 TUI/--rpc 实例（原进程级共享会串味）。
