@@ -167,5 +167,10 @@ func readRecords(path string) ([]Record, error) {
 	// （两个循环都在 parent == "" 时停止），且空 id 不会与追加路径生成的
 	// n%06d id 冲突。在这里生成 id 会消耗一个真实的 id 槽位，并在追加记录中
 	// 留下永久的缺口。
+	// 未知 kind 必须显式标记 ignorable，否则拒绝重建（#186：禁止静默丢弃事件）。
+	// 校验在迁移之前进行：迁移只加 schema 头，不改变 kind 集合。
+	if err := CheckUnknownKinds(records); err != nil {
+		return nil, err
+	}
 	return MigrateRecords(records)
 }

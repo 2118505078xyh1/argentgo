@@ -32,7 +32,7 @@ func nonConversationMarkers(prefix string) []kindMarker {
 		{kindUsage, prefix + "用量记录📈【不该出现】"},
 		{kindProgress, prefix + "进度检查点⏳【不该出现】"},
 		{KindCondensation, prefix + "压缩事件🗜️【不该出现】"},
-		{"custom_unknown_kind", prefix + "未知开放 kind🌍【不该出现】"},
+		{KindRequestSnapshot, prefix + "开放 kind🌍【不该出现】"},
 	}
 }
 

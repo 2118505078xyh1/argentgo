@@ -47,6 +47,9 @@ type Record struct {
 	TS     time.Time       `json:"ts"`
 	Kind   string          `json:"kind"`
 	Data   json.RawMessage `json:"data"`
+	// Ignorable 标记未知 kind 可被旧客户端安全跳过（清单 #186）。
+	// 未标记的未知 kind 在读取时 fail-closed 报错，不再静默丢弃。
+	Ignorable bool `json:"ignorable,omitempty"`
 }
 
 // Entry 是线性对话中的一条消息。
