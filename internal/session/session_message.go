@@ -150,6 +150,36 @@ func messageEntry(record Record) (Entry, bool) {
 	return entry, true
 }
 
+// messageProjectionVersion 汇总影响 messageEntries 输出的进程级开关。它们在一次
+// 运行中稳定，但测试会在同一会话上切换；版本变化必须让缓存整段失效，否则会复用
+// 旧开关下的投影（例如预算从宽松改为收紧后仍返回旧的消息条数）。
+func messageProjectionVersion() string {
+	budget, raw := budgetProjectionBudget()
+	return strings.Join([]string{
+		strconv.FormatBool(toolPruneEnabled()),
+		strconv.FormatBool(budgetProjectionEnabled()),
+		strconv.Itoa(budget),
+		raw,
+	}, "|")
+}
+
+// projectedEntries 是 messageEntries 的会话级缓存包装。ProjectionCache 默认整段模式：
+// stamp 完全相同时复用上次结果（返回副本），任何变化都整段重算。这避免了把新尾部投影
+// 拼到旧前缀结果后面——messageEntries 的工具配对/上下文编辑是跨记录的，拼接会丢状态。
+func (s *Session) projectedEntries(records []Record) []Entry {
+	if s == nil {
+		return messageEntries(records)
+	}
+	version := messageProjectionVersion()
+	s.msgCacheMu.Lock()
+	defer s.msgCacheMu.Unlock()
+	if s.msgVersion != version {
+		s.msgCache.Reset()
+		s.msgVersion = version
+	}
+	return s.msgCache.Project(records, messageEntries)
+}
+
 func messageEntries(records []Record) []Entry {
 	out := make([]Entry, 0, len(records))
 	for _, record := range records {

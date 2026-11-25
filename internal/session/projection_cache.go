@@ -1,18 +1,24 @@
 package session
 
-// ProjectionCache 为纯函数投影提供 O(新增) 增量与 generation stamp 失效（#187）。
+// ProjectionCache 为投影提供 generation stamp 失效与可选的 O(新增) 增量（#187）。
 //
-// 投影（records → entries）是纯函数，但每轮 messages() 都从头重算整段历史，
-// 长会话成本随总长度线性增长。本缓存只保留"已投影前缀"的 stamp 与结果：
-// 当新调用的 records 以同一前缀开头（记录数更多、前缀逐项 id/kind 相同）时，
-// 只投影新增尾部并追加；任何前缀变化（fork/压缩/改历史）都整段失效重算。
+// 投影（records → entries）通常是"纯函数"，但并非总是"逐条独立"：会话的
+// messageEntries 会在整段上做工具调用配对、上下文编辑与拒答过滤。对这类投影，
+// 把新尾部的投影拼到旧前缀结果后面是**错误**的——一个早前的 tool_call 可能在
+// 尾部才配对成功，旧结果里已经插入的合成结果不会被撤销。
 //
-// 它是纯原语：不读磁盘、不读时钟、不碰全局状态；调用方持有实例。
-// 不直接接入 messages()——读路径字节语义由现有 conformance/golden 锁定，
-// 接入点由主会话在确认等价后决定（opt-in）。
+// 因此本缓存有两种模式：
+//   - 默认（Incremental=false）：stamp 完全相同时复用整段结果，任何变化都整段重算。
+//     它保证跨记录状态的投影逐字节等价，适合 messageEntries。
+//   - Incremental=true：stamp 是真前缀时只投影新增尾部并追加，要求 project 对每个
+//     前缀独立（例如逐条 id 映射）。调用方必须自己确认这一前提。
+//
+// 它是纯原语：不读磁盘、不读时钟、不碰全局状态；调用方持有实例并负责并发。
 type ProjectionCache struct {
-	stamp   []recordStamp
-	entries []Entry
+	// Incremental 仅当注入的 project 逐条独立时置 true；默认整段模式对任何投影安全。
+	Incremental bool
+	stamp       []recordStamp
+	entries     []Entry
 }
 
 type recordStamp struct {
@@ -20,8 +26,8 @@ type recordStamp struct {
 	Kind string
 }
 
-// Project 返回 records 投影后的 entries。命中前缀时只投影新增尾部。
-// project 是纯函数（与 messageEntries 同语义），由调用方注入，避免本包循环依赖。
+// Project 返回 records 投影后的 entries。命中条件由 Incremental 决定。
+// project 由调用方注入，避免本包循环依赖。
 func (c *ProjectionCache) Project(records []Record, project func([]Record) []Entry) []Entry {
 	if project == nil {
 		return nil
@@ -31,11 +37,10 @@ func (c *ProjectionCache) Project(records []Record, project func([]Record) []Ent
 	for i, record := range records {
 		stamp[i] = recordStamp{ID: record.ID, Kind: record.Kind}
 	}
-
-	// 前缀匹配：缓存 stamp 必须是当前 stamp 的真前缀（长度更短且逐项相等）。
 	shared := prefixLen(c.stamp, stamp)
-	if shared == len(c.stamp) && len(c.stamp) <= n {
-		// 命中：复用已投影结果，只投影 [shared, n) 的增量尾部。
+
+	// 增量模式：缓存 stamp 是当前 stamp 的真前缀（可以更短），只投影新增尾部。
+	if c.Incremental && shared == len(c.stamp) && len(c.stamp) <= n && len(c.entries) == len(c.stamp) {
 		out := make([]Entry, len(c.entries))
 		copy(out, c.entries)
 		if shared < n {
@@ -47,7 +52,13 @@ func (c *ProjectionCache) Project(records []Record, project func([]Record) []Ent
 		return out
 	}
 
-	// 失效（fork/改写/缩短）：整段重算。
+	// 整段模式（或前缀失效）：stamp 逐项相同时复用整段副本，否则整段重算。
+	// 返回副本，避免调用方修改 slice 污染下次命中。
+	if shared == n && len(c.stamp) == n {
+		out := make([]Entry, len(c.entries))
+		copy(out, c.entries)
+		return out
+	}
 	out := project(records)
 	c.stamp = stamp
 	c.entries = out

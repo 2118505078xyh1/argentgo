@@ -61,7 +61,7 @@ func (s *Session) messages(foveated bool) []Entry {
 
 	if foveated {
 		budget, _ := budgetProjectionBudget()
-		all := messageEntries(path)
+		all := s.projectedEntries(path)
 		archived := foveatedArchive(all, budget)
 		if latest >= 0 {
 			var compaction Compaction
@@ -100,7 +100,7 @@ func (s *Session) messages(foveated bool) []Entry {
 	}
 	// 同上：ReconcileToolPairs 已在 messageEntries 中插入中止结果，
 	// 这里再补上原因元数据与稳定短 id；正常会话原样返回。
-	return finalizeMessageView(messageEntries(path), path)
+	return finalizeMessageView(s.projectedEntries(path), path)
 }
 
 // finalizeMessageView 收口消息视图的最后两步：结算孤儿调用 → 图像卸载。

@@ -117,6 +117,13 @@ type Session struct {
 	// appendLockPath 是该会话跨进程锁 sidecar 的惰性缓存路径；由 mu 保护。
 	// 同一句柄的每次追加都复用它，避免重复做字符串清理与拼接。
 	appendLockPath string
+
+	// msgCache 缓存 messages() 对完整 path 的 messageEntries 投影。它只在记录 stamp
+	// 完全相同时复用整段结果，不对跨记录状态做尾部拼接，因此工具配对、上下文编辑
+	// 等投影保持逐字节等价。由 msgCacheMu 保护，与 s.mu 分离（读路径不持 s.mu）。
+	msgCacheMu sync.Mutex
+	msgCache   ProjectionCache
+	msgVersion string
 }
 
 // ID 是会话 id，也就是去掉扩展名后的文件名。

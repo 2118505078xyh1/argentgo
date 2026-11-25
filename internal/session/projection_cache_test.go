@@ -19,7 +19,7 @@ func projectIDs(records []Record) []Entry {
 
 func TestProjectionCacheIncrementalMatchesFull(t *testing.T) {
 	records := []Record{pcRec("a", KindUser), pcRec("b", KindAssistant)}
-	var cache ProjectionCache
+	cache := ProjectionCache{Incremental: true}
 	cache.Project(records, projectIDs)
 	if cache.Generation() != 2 {
 		t.Fatalf("generation = %d, want 2", cache.Generation())
@@ -104,4 +104,70 @@ func TestPageWatermark(t *testing.T) {
 	if got := p.Watermark(); got != "2@b" {
 		t.Fatalf("watermark = %q, want 2@b", got)
 	}
+}
+
+// TestProjectionCacheWholeModeRecomputesWithCrossRecordState 固定整段模式的安全语义：
+// 跨记录状态的投影（如工具调用配对）在记录变化时整段重算，绝不拿"旧前缀 + 新尾部"
+// 拼接，否则早前调用在尾部配对成功后，旧结果里的合成标记不会被撤销。
+func TestProjectionCacheWholeModeRecomputesWithCrossRecordState(t *testing.T) {
+	var cache ProjectionCache // 默认整段模式
+	base := []Record{pcRec("a", KindUser), pcRec("b", KindAssistant)}
+	cache.Project(base, projectIDs)
+
+	projectWithPairing := func(records []Record) []Entry {
+		hasA := false
+		for _, record := range records {
+			if record.ID == "a" {
+				hasA = true
+			}
+		}
+		out := projectIDs(records)
+		if hasA && len(records) > len(base) {
+			out[len(out)-1].Name = "paired"
+		}
+		return out
+	}
+	more := append(base, pcRec("c", KindUser))
+	got := cache.Project(more, projectWithPairing)
+	if len(got) != 3 || got[2].Name != "paired" {
+		t.Fatalf("cross-record state lost: %+v", got)
+	}
+	// stamp 相同但 project 不同：整段模式复用上次结果，必须返回副本而非共享底层数组。
+	again := cache.Project(more, projectIDs)
+	if len(again) != 3 || again[2].Name != "paired" {
+		t.Fatalf("cached result not reused: %+v", again)
+	}
+	again[2].Name = "mutated"
+	if third := cache.Project(more, projectIDs); third[2].Name != "paired" {
+		t.Fatal("caller mutation leaked into cached entries")
+	}
+}
+
+// TestSessionProjectedEntriesConformance 固定接线不变量：会话缓存包装的输出与
+// 直接调用 messageEntries 完全一致，覆盖首次、重复命中、追加、分叉与缩短。
+func TestSessionProjectedEntriesConformance(t *testing.T) {
+	s := &Session{}
+	base := []Record{
+		pcRec("a", KindUser),
+		{ID: "b", Kind: KindAssistant, Data: []byte(`{"text":"hi","tool_calls":[{"id":"c1","function":{"name":"bash"}}]}`)},
+		{ID: "c", Kind: KindTool, Data: []byte(`{"tool_call_id":"c1","content":"ok"}`)},
+	}
+	check := func(label string, records []Record) {
+		t.Helper()
+		got := s.projectedEntries(records)
+		want := messageEntries(records)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: cached = %+v, want %+v", label, got, want)
+		}
+	}
+	check("first", base)
+	check("hit", base)
+
+	more := append(append([]Record(nil), base...), pcRec("d", KindUser))
+	check("append", more)
+	check("append-hit", more)
+
+	forked := append(append([]Record(nil), base...), pcRec("d", KindSummary))
+	check("fork", forked)
+	check("shrink", base)
 }
