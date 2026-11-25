@@ -96,7 +96,7 @@
 60. **write-ahead execution claim + 崩溃恢复** — `[部分]` turn lease + claims，非完整 claim 语义
 61. **backpressure（慢消费者折叠更新）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽
 62. **inbox 投递与执行分离 + 幂等 ID** — `[部分]` internal/inbox 存在但未与执行闭环
-63. **Code Mode DSL（受约束脚本调工具）** — `[缺口]`（已登记未展开）
+63. **Code Mode DSL（受约束脚本调工具）** — `[已有]` agent 内建：受约束 JSON 脚本 + {{引用}}，每步走审批链
 64. **goal 目标循环 / 有界迭代** — `[已有]` /goal
 
 ---
@@ -201,7 +201,7 @@
 140. **首屏欢迎 + 情境提示** — `[已有]`（欢迎卡）
 141. **多前端共享一引擎**（TUI/GUI/CLI/三传输）— `[已有]`
 142. **i18n 翻译完整性审计** — `[已有]`（locale parity 逐字节）
-143. **全屏搜索 + prompt 跳转（OSC 133）** — `[缺口]`（pi/omp 有）
+143. **全屏搜索 + prompt 跳转（OSC 133）** — `[部分]` CLI `sessions find/--grep` 已覆盖内容搜索；TUI 全屏交互 + OSC 133 未做
 144. **IME 光标定位（中文候选窗）** — `[缺口]`
 
 ---
