@@ -38,6 +38,19 @@ type CodeModeStep struct {
 	Args any    `json:"args"`
 	// As 给该步结果一个名字，可用 {{vars.name}} 引用（可选）。
 	As string `json:"as,omitempty"`
+	// DependsOn 在 parallel 模式下声明依赖步骤（as 名或 "0"/"1" 序号）。
+	// 未声明时保守依赖所有前序步骤，保持修改类工具的副作用顺序。
+	DependsOn []string `json:"dependsOn,omitempty"`
+}
+
+// CodeModeProgram 是解析后的完整脚本。Parallel 与 Return 都是加法字段：
+// 缺省时行为与旧的顺序 DSL 完全一致（逐字节兼容既有脚本）。
+type CodeModeProgram struct {
+	Steps    []CodeModeStep
+	Parallel bool
+	// Return 限定进入最终报告（即回到模型上下文）的步骤，按 as 名或序号。
+	// 为空时返回全部步骤；让大输出步骤只做中间计算、只回传过滤后的小结果。
+	Return []string
 }
 
 // parseCodeModeScript 把工具参数解析为步骤序列。
@@ -47,42 +60,61 @@ type CodeModeStep struct {
 //
 // 限制在纯函数里完成，不执行任何工具。
 func parseCodeModeScript(raw string) ([]CodeModeStep, error) {
+	program, err := parseCodeModeProgram(raw)
+	if err != nil {
+		return nil, err
+	}
+	return program.Steps, nil
+}
+
+// parseCodeModeProgram 解析完整脚本。两种形态都支持：
+//   - {"steps":[...],"parallel":true,"return":["clean"]}
+//   - 直接数组 [{tool,args,as},...]（等价于顺序模式）
+func parseCodeModeProgram(raw string) (CodeModeProgram, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return nil, fmt.Errorf("%w: empty script", ErrCodeMode)
+		return CodeModeProgram{}, fmt.Errorf("%w: empty script", ErrCodeMode)
 	}
-	var steps []CodeModeStep
+	var program CodeModeProgram
 	if strings.HasPrefix(trimmed, "[") {
-		if err := json.Unmarshal([]byte(trimmed), &steps); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrCodeMode, err)
+		if err := json.Unmarshal([]byte(trimmed), &program.Steps); err != nil {
+			return CodeModeProgram{}, fmt.Errorf("%w: %v", ErrCodeMode, err)
 		}
 	} else {
 		var wrapper struct {
-			Steps []CodeModeStep `json:"steps"`
+			Steps    []CodeModeStep `json:"steps"`
+			Parallel bool           `json:"parallel,omitempty"`
+			Return   []string       `json:"return,omitempty"`
 		}
 		if err := json.Unmarshal([]byte(trimmed), &wrapper); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrCodeMode, err)
+			return CodeModeProgram{}, fmt.Errorf("%w: %v", ErrCodeMode, err)
 		}
-		steps = wrapper.Steps
+		program.Steps = wrapper.Steps
+		program.Parallel = wrapper.Parallel
+		program.Return = wrapper.Return
 	}
+	steps := program.Steps
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("%w: script has no steps", ErrCodeMode)
+		return CodeModeProgram{}, fmt.Errorf("%w: script has no steps", ErrCodeMode)
 	}
 	if len(steps) > codeModeMaxSteps {
-		return nil, fmt.Errorf("%w: too many steps (%d > %d)", ErrCodeMode, len(steps), codeModeMaxSteps)
+		return CodeModeProgram{}, fmt.Errorf("%w: too many steps (%d > %d)", ErrCodeMode, len(steps), codeModeMaxSteps)
 	}
 	for i, step := range steps {
 		if strings.TrimSpace(step.Tool) == "" {
-			return nil, fmt.Errorf("%w %d: empty tool name", ErrCodeModeStep, i)
+			return CodeModeProgram{}, fmt.Errorf("%w %d: empty tool name", ErrCodeModeStep, i)
 		}
 	}
-	return steps, nil
+	return program, nil
 }
 
 // stepOutput 保存一步的结果，供后续插值。
 type stepOutput struct {
 	Output string
 	As     string
+	// Done 区分"已完成但输出为空"与"并行模式下尚未执行"。未完成的步骤
+	// 不参与插值，占位符原样保留，避免把空串静默塞进后续工具参数。
+	Done bool
 }
 
 // interpolateCodeMode 把 {{steps.N.output}} / {{vars.name}} 替换为实际值。
@@ -122,7 +154,7 @@ func lookupCodeModeRef(key string, steps []stepOutput) (string, bool) {
 	if strings.HasPrefix(key, "steps.") && strings.HasSuffix(key, ".output") {
 		mid := strings.TrimSuffix(strings.TrimPrefix(key, "steps."), ".output")
 		var n int
-		if _, err := fmt.Sscanf(mid, "%d", &n); err != nil || n < 0 || n >= len(steps) {
+		if _, err := fmt.Sscanf(mid, "%d", &n); err != nil || n < 0 || n >= len(steps) || !steps[n].Done {
 			return "", false
 		}
 		return steps[n].Output, true
@@ -130,7 +162,7 @@ func lookupCodeModeRef(key string, steps []stepOutput) (string, bool) {
 	if strings.HasPrefix(key, "vars.") {
 		name := strings.TrimPrefix(key, "vars.")
 		for _, step := range steps {
-			if step.As == name {
+			if step.As == name && step.Done {
 				return step.Output, true
 			}
 		}

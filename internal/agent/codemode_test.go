@@ -50,8 +50,8 @@ func TestParseCodeModeScriptStepLimit(t *testing.T) {
 
 func TestInterpolateCodeModeRefs(t *testing.T) {
 	steps := []stepOutput{
-		{Output: "first-result", As: "one"},
-		{Output: "second-result", As: "two"},
+		{Output: "first-result", As: "one", Done: true},
+		{Output: "second-result", As: "two", Done: true},
 	}
 	cases := map[string]string{
 		`{{steps.0.output}}`:               "first-result",
@@ -69,7 +69,7 @@ func TestInterpolateCodeModeRefs(t *testing.T) {
 }
 
 func TestInterpolateArgsRecursive(t *testing.T) {
-	steps := []stepOutput{{Output: "abc", As: "x"}}
+	steps := []stepOutput{{Output: "abc", As: "x", Done: true}}
 	in := map[string]any{
 		"path":   "{{vars.x}}.go",
 		"nested": []any{"{{steps.0.output}}", 42},
