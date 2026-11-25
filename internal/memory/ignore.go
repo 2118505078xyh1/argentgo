@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // IgnoreFileName 是 LoadIgnore 发现的每目录排除文件。

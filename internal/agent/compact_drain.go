@@ -3,7 +3,7 @@ package agent
 import (
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件实现项目 TODO #126（学自 codex）：压缩后仍超预算时，按缓存前缀

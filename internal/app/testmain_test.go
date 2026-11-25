@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestMain 在 app 包的测试二进制内关闭审批对话框的防误触宽限期。

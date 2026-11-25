@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestDiagnoseBoundaryBalanced 验证 Balanced 的严格"单层包裹"语义：完整包裹

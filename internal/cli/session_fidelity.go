@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // sessionsFidelity 对指定会话中最近一条压缩摘要做只读保真度诊断。

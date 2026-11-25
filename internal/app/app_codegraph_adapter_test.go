@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/codegraph"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/codegraph"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件守护 codegraph 适配器：默认关闭时零副作用；开启时构建索引并注入查询工具；

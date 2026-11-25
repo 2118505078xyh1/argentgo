@@ -10,11 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // toolCallChatter 在第一轮请求一次工具调用，然后结束。

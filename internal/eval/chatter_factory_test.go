@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // recordingChatter 是注入接缝用的假真实 provider：它记录每次请求到达以及请求内容，

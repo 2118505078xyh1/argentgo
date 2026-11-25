@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // TestAppendAuthExpiryAdviceWiring 证明 401 路径确实调用了 authExpiryAdvice：

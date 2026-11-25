@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/eval"
 )
 
 // evalScenario 是一个脚本化的 eval 用例。

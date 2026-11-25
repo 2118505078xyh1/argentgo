@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // fakeStreamOnceChatter 在 fakeChatter 之上实现 streamOnceChatter，

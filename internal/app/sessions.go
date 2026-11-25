@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/server"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/server"
+	"example.com/argentgo/internal/session"
 )
 
 // sessionStatusRegistry 是进程级执行状态注册表：Sessions 返回的 store 与 Execute

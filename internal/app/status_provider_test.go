@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/server"
 )
 
 // TestStatusProviderReturnsSnapshotBytes 验证默认适配器逐字节返回

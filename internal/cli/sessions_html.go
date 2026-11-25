@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/exporthtml"
+	"example.com/argentgo/internal/exporthtml"
 )
 
 // exportEntryView 对应 session 包 JSON 导出的条目结构（保持字段名一致）。

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // BlockedRequest 描述一次被拦截的出网，传给审计/取消钩子。

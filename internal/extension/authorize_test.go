@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/hooks"
 )
 
 func TestAuthorizerFailClosed(t *testing.T) {

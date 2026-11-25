@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"example.com/argentgo/internal/memory"
 )
 
 // memoryIntegrationRun 以 agent 循环的方式调用工具，并在

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestCompactReplayGuardDecisionMatrix 守护压缩重试的完整决策矩阵：

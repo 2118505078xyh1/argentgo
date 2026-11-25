@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"image/png"
 
-	"github.com/2118505078xyh1/argentgo/internal/computer"
+	"example.com/argentgo/internal/computer"
 )
 
 // computerToolName 供注册与测试共用。

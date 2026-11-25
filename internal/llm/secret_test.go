@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 const testSecretValue = "sk_secretvalue1234567890"

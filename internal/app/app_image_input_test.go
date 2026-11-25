@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // pngSignature 是 PNG 文件签名，足以让 http.DetectContentType 识别为 image/png。

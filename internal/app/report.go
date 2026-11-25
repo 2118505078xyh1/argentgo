@@ -5,10 +5,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/tools"
 )
 
 // TokenReport 渲染 --tokens 的明细：每次请求的固定部分（系统提示加上工具 schema）以及配置的限制。

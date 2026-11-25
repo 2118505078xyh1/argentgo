@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
+	"example.com/argentgo/internal/mcp"
 )
 
 // TestDoctorMCPRuntimeHealthIssuesFromReport 用 fake reporter（1 健康 + 1 失败，含 CJK

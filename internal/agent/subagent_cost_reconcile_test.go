@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/calcutil"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/calcutil"
+	"example.com/argentgo/internal/llm"
 )
 
 // costChildRunner 是被取消子级结果的测试替身：直接返回给定的 Result 与错误。

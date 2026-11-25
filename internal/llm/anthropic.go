@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/prof"
+	"example.com/argentgo/internal/prof"
 )
 
 // DefaultAnthropicMaxTokens 在 AnthropicClient.MaxTokens 未设置时使用。

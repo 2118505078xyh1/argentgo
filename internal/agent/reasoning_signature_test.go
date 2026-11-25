@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestAssistantRecordCarriesReasoningSignature 锁定推理签名在 agent 循环中的

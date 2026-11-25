@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/skills"
 )
 
 // skillShellOptInKeys 是让某次运行选择执行 SKILL.md 正文中内嵌的 `!`cmd“ 片段的配置键。

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件提供"压缩摘要关键章节保留"的 app 侧装配骨架。它刻意保持零调用方：不读取进程

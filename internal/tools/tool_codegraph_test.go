@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/codegraph"
+	"example.com/argentgo/internal/codegraph"
 )
 
 // fakeCodeGraph 是 CodeGraph 的测试替身，记录最后一次 Query 参数。

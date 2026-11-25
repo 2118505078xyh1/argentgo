@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/eval"
 )
 
 // contextPressureEnabled 控制是否在轮末观察上下文压力，默认关闭。

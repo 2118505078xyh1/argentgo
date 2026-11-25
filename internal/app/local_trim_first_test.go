@@ -6,9 +6,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/textutil"
 )
 
 func toolEntry(content string) session.Entry {

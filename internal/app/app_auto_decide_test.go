@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件守护 opt-in 自动决策接线的零回归契约：默认关闭时 Execute 的所有产物

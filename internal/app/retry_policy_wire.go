@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件把重试策略的三个旋钮接到环境变量，使高延迟/严格限流 provider

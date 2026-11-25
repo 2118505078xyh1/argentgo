@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/mcp"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件实现 opt-in 的 MCP 单网关模式（killi 决策 11）：

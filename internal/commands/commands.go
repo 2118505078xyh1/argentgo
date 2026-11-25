@@ -30,7 +30,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // ProjectSubdir 是仓库存放斜杠命令的位置。

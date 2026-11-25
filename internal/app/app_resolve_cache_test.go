@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/llm"
 )
 
 // assertCacheOptions 比较接线可能设置的缓存开关。llm.Options

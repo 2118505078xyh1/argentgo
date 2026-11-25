@@ -11,8 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/astcache"
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/astcache"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // repoMapSymbolTokenBudget 是排名符号区的近似 token 上限。

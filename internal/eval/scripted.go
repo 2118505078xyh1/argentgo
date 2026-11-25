@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // Scripted 是重放场景脚本而非与 provider 对话的 llm.Chatter。它记录每个请求，使 harness 能检查

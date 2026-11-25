@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tools"
 )
 
 // contextFilesNote 在文件内容占用为 0 时打印：CLI 没有活动上下文提示，

@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestAnthropicToolCallsFollowBlockStartOrder 覆盖以与宣布顺序不同的顺序

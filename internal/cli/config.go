@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // runConfig 通过点分键实现 `config get|set`。

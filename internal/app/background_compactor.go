@@ -4,8 +4,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件实现 TODO #105「后台预压缩：提前写摘要、到阈值直接切换」。

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // wireIdleCase 描述一个协议的请求入口、固定 SSE 脚本和期望回复文本。

@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
 )
 
 // hookCtxDispatcher 返回预设的 Result，用于观察 hookBridge.fire 对附加上下文的入队行为。

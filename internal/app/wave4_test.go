@@ -10,11 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // scriptedChatter 为每个请求返回一个脚本化答案，不使用网络。

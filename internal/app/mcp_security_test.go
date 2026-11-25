@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/mcp"
+	"example.com/argentgo/internal/session"
 )
 
 // fakeMCPClient 代替真实服务，使安全接线能在不派生进程、不使用网络的情况下

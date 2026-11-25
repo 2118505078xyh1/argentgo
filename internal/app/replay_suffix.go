@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // replay_suffix.go 提供会话重放恢复公告的纯函数层。

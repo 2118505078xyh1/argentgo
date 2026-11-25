@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // eventLogFileMaxEntries 限制事件日志保留的条目数。到上限后按行淘汰最旧的，

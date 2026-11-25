@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/security"
 )
 
 func envFrom(pairs map[string]string) func(string) string {

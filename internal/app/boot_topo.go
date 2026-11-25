@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // bootTopoEnv 是启动拓扑校验的环境变量名。只有设为 "1" 才启用；

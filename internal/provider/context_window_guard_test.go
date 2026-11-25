@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // 本文件是 R17 P2 窗口元数据改动的守卫测试：只依赖公开 API

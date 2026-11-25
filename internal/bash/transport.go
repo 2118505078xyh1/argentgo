@@ -4,7 +4,7 @@ import (
 	"io"
 	"os/exec"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // transport 是长驻 shell 的字节通道。PID/StartTime 供身份校验：进程退出后

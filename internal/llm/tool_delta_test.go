@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestToolDeltaHookContext 验证 hook 在 context 中的往返、未安装时的 nil

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // 输出产物落盘在这里接线，这是唯一能同时看到已解析存储目录和工具注册表的位置。

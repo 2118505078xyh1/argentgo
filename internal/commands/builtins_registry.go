@@ -1,6 +1,6 @@
 package commands
 
-import "github.com/2118505078xyh1/argentgo/internal/pluginapi"
+import "example.com/argentgo/internal/pluginapi"
 
 // builtinRegistry 保存内置斜杠命令的构造器。各内置命令在自己的 init() 中
 // 静态注册；NewSetWithBuiltins 每次调用都重新实例化一份，避免共享可变状态。

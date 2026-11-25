@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // sessionsUndo 恢复最近 steps 个检查点清单中列出的文件。

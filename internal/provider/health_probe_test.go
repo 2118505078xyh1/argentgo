@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // probeFrom 构建确定性的注入式探针：failed 中的每个 URL 报告不健康，其他都健康。它不执行网络 I/O 且可安全并发读取，因此同一探针可被下面的纯函数测试复用。

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // TestPromptBudget 把 killi 的"system prompt + 工具定义保持精简"纪律变成 CI 断言：

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/pty"
+	"example.com/argentgo/internal/pty"
 )
 
 // TestExecSessionHelper 是各测试共用的 REPL 替身：打印 ready，随后逐行回显。

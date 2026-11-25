@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
+	"example.com/argentgo/internal/mcp"
 )
 
 // TestPluginServerDir 验证插件 bundle 的 Dir 被传入 stdio 服务器规格，

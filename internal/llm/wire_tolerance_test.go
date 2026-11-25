@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestProtocolStreamsTolerateUnknownWireValues 检查每个客户端是否忽略它从未见过的

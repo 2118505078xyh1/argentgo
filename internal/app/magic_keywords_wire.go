@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // magicKeywordsEnv 是 magic keywords 的独立开关：只有精确等于 "1" 才启用。

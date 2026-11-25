@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // Missed 策略决定 daemon 在错过时隙后醒来时该怎么做。

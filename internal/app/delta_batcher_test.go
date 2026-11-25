@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 func delta(turn, depth int, text string) agent.Event {

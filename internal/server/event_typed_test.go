@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // recvTyped 从订阅通道读取一个事件，超时则判定失败。

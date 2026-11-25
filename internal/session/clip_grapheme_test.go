@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/textutil"
 )
 
 // clipGraphemeCluster 是四个调用点共用的语料：组合序列（e + U+0301）、

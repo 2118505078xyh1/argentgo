@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // rankExposureFakeTool 是一个显式声明暴露级别的工具，用于验证 deferred 接线。

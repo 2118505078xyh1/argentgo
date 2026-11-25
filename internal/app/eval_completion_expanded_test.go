@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 // expandedFixturePath 返回仓库 evals/completion_expanded.json 的路径。

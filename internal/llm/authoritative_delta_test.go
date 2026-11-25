@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // cloneDeltaSlice 返回切片的独立副本，用于检测比较函数是否改动入参。

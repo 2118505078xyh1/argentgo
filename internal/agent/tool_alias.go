@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // toolAliases 是跨 harness 的工具名别名表。内置 shell→bash、Bash→bash：

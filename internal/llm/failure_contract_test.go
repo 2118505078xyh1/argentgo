@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestIsContextOverflow 覆盖上下文溢出的各类文案、相邻概念（输出长度、

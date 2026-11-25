@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/extension"
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/extension"
+	"example.com/argentgo/internal/plugins"
 )
 
 // trustedPluginBundles 返回可为一次运行提供命令和钩子的已启用包。拆分方式与 newToolset 的信任门槛一致：

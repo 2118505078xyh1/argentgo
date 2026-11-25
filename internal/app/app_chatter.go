@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // newChatter 按协议名查工厂表构造客户端：协议名先做小写与首尾空白归一化，

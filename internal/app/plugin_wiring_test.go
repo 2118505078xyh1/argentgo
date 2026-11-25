@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/hooks"
 )
 
 // pluginWiringEnv 隔离工作区和进程主目录，使插件发现只看到测试放置的包。

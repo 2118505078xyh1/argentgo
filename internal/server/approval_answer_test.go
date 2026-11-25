@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/security"
 )
 
 // approvalAnswerRunner 是 fakeRunner 加上 approval.answer 会发现的

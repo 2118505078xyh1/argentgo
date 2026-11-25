@@ -17,7 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/codegraph"
+	"example.com/argentgo/internal/codegraph"
 )
 
 const (

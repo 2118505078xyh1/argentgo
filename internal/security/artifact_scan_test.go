@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/automation"
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
-	"github.com/2118505078xyh1/argentgo/internal/workflow"
+	"example.com/argentgo/internal/automation"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/skills"
+	"example.com/argentgo/internal/workflow"
 )
 
 // testTag 是一个 Unicode Tag Block 字母：在编辑器或终端中不可见。

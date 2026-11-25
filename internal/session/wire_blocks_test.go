@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/eval"
 )
 
 func newWireSession(t *testing.T) *Session {

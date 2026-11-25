@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 func TestEventHubPublishSubscribeInOrder(t *testing.T) {

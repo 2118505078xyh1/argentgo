@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestApproverAskRendersRealDiff 验证 Approver.Ask 把写类工具的 before/after

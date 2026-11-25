@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/server"
+	"example.com/argentgo/internal/session"
 )
 
 // runSessions 实现 `sessions list|show|checkout|fork-at|list-messages|health|fidelity|rm|find|--grep|tree|undo|retry|discard-attempt|name|export|import`。

@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // visibleNoticeText 把关键通知的正文按 locale 调整后再展示。

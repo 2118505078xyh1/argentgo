@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 const claudeImportTranscript = `{"type":"summary","summary":"demo"}

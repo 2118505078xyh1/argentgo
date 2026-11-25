@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // TestProgressRecoveryEnabledDefaultOn 守护默认开启决策：nil/未设置/无关值都启用，

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tui"
 )
 
 func writeFile(t *testing.T, path, body string) {

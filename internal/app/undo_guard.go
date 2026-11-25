@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // undoApprover 代表已由用户显式触发的撤销动作。撤销只由 TUI 快捷键或 CLI

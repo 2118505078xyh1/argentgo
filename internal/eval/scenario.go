@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // ToolCall 是脚本化模型请求的一次工具调用。

@@ -4,7 +4,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // CacheVisibility 是一次回复的提示缓存统计快照，供报告与诊断展示。

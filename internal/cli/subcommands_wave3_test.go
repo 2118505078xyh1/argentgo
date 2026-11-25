@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/server"
 )
 
 func writeFile(t *testing.T, path, body string) {

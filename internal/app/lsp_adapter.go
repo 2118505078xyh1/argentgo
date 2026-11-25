@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/lsp"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件是休眠中的 internal/lsp 客户端与 internal/tools 中六个消费侧 lsp_* 工具之间的桥梁。

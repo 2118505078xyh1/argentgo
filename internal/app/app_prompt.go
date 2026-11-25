@@ -11,11 +11,11 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
-	"github.com/2118505078xyh1/argentgo/internal/memory"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/i18n"
+	"example.com/argentgo/internal/memory"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/skills"
 )
 
 // buildSystem 为现有调用方（尤其是 Resolve）构建系统提示。项目指令一直是无条件注入的，

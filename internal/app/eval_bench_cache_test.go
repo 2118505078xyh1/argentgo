@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 // evalFixtureRun 是一次 fixture 运行的完整结果。runErr 与 setupErr 分开：

@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestInjectFollowUpDrainsIntoConversation 验证 follow-up 通道中的消息被作为

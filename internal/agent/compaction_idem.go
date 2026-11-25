@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // canonicalCompactMessage 是 llm.Message 的字节稳定投影，仅用于前缀哈希。

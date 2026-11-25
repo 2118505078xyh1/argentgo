@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // noticesOf 返回接收器收集到的全部 EventNotice 正文，供压缩重试通知断言使用。

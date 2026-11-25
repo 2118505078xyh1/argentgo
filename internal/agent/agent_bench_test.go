@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件记录 agent 循环纯热路径的性能基线：

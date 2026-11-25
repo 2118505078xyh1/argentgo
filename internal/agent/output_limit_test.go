@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestOutputLimitContinuation 检查循环如何处理因输出长度而非正常结束的无工具回复。

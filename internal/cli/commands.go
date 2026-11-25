@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"example.com/argentgo/internal/commands"
 )
 
 // runCommands 实现 `commands [--json] [-C root]`。

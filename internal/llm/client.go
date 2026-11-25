@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/prof"
+	"example.com/argentgo/internal/prof"
 )
 
 // Message 是对话中的一条记录。

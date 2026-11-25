@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // TestConfiguredServerInitializationOptions 锁定 #43 的默认路径行为：

@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // DefaultDeltaBatchWindow 是给 TUI 的建议聚合窗口。它刻意比无界面/SSE 桥接窗口更短

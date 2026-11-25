@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // parallelBatchMin 是并行计数的条目阈值：小于它时 fan-out 的固定开销不划算。

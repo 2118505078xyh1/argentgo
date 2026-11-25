@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 // 本文件是 R24 真模型跑批的显式 live 入口。它与 app/eval.go 的 RunSuite 刻意分离：

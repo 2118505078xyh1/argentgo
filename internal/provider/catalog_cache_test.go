@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 func TestShouldRefreshPolicies(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 func finishedTask(name string) Task {

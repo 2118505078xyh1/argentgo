@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"example.com/argentgo/internal/commands"
 )
 
 // projectRootFromBuiltinTest 从当前包目录向上查找 go.mod，定位仓库根目录。

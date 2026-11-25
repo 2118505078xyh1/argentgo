@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/inbox"
+	"example.com/argentgo/internal/inbox"
 )
 
 // runInbox 实现 `argentgo inbox`：持久提示收件箱的只读/管理入口。

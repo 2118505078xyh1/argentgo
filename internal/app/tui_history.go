@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tui"
 )
 
 // entriesToTUI 把会话历史（session.Entry，活动分支的线性对话）投影成 TUI

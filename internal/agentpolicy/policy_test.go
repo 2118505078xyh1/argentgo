@@ -3,7 +3,7 @@ package agentpolicy
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestNormalizeArgs 锁定参数规范化的三行为：JSON 键递归排序、非 JSON 折叠空白、空串归一为 {}。

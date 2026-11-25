@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // 执行期哨兵错误。

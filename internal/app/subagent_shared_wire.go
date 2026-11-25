@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 子代理共享 system prompt 的启用开关。迁移自 killi 决策 20：

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/uri"
+	"example.com/argentgo/internal/uri"
 )
 
 // runDocs 实现 `argentgo docs [list | show <name>]`：从 docs/ 目录（或二进制

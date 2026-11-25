@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件把"任何 llm.Chatter 实现都必须满足"的行为收敛为一张工厂表 + 一组

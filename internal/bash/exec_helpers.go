@@ -5,9 +5,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 本文件提供命令类工具执行所需的运行时 helper。它们原先在 internal/tools

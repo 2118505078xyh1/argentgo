@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 // 本文件是 R30 completion_bench 的敏感性自检：零生产改动、零 API 成本。

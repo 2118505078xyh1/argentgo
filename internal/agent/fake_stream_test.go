@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件提供一个脚本化的流式 Chatter 基座，补齐 fakeChatter 只能"一次性回调"

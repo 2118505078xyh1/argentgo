@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestCoerceToolArgumentsNumericStrings 覆盖数字/布尔字符串的保守强转及失败保留。

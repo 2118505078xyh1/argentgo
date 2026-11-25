@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件实现 resume 的字节级回放（killi 决策 21）：当上次进程在"请求已发出、

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件提供一个带锁的状态快照聚合器。它把若干命名分段（每个分段是一组字符串

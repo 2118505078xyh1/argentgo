@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // pathTools 把可选的变更报告器添加到共享的伪工具集。

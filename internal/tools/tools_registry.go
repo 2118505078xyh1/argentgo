@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/memory"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/memory"
+	"example.com/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/security"
 )
 
 // maxToolDescLen 限制发给模型的工具描述长度。过长的 MCP

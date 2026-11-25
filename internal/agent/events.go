@@ -3,7 +3,7 @@ package agent
 import (
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // EventKind 命名一次运行中的一个可观察步骤。

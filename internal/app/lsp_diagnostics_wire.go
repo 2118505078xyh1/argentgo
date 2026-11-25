@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 // lspDiagnosticsCaptureEnv 开启编辑后工作区诊断快照捕获。

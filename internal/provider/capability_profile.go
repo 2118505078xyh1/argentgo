@@ -3,7 +3,7 @@ package provider
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // CapabilityProfile 是一份只读的模型能力画像：把散落在各协议代码里的能力

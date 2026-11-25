@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/bash"
+	"example.com/argentgo/internal/bash"
 )
 
 // 本文件提供持久化 shell 会话的最小可用接线。它把 internal/pshell 的管理器

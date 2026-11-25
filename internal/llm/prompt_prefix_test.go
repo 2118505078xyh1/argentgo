@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestStableSystemPromptAppendsPreservingPrefix 验证新增 node 按序追加，

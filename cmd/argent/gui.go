@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/2118505078xyh1/argentgo/internal/app"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/app"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/session"
 )
 
 // isGUIRequest 报告参数是否命名原生 GUI 子命令。

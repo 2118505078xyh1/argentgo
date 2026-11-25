@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tools"
 )
 
 // usageSnapshot 是 `usage` 工具报告的 JSON 负载。它刻意对应 agent.EventUsage 携带的字段

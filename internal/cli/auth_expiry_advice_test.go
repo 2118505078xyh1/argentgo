@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
+	"example.com/argentgo/internal/auth"
 )
 
 // TestAuthExpiryAdviceByState 覆盖四种分类状态，确认只有需要行动的状态

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // 本文件实现 ask_user 工具：让模型在需要澄清、决策或缺失信息时向用户提出

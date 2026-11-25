@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // EventKind 命名全屏 UI 消费的 agent 事件。这些值

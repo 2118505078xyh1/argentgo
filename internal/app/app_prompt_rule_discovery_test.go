@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"example.com/argentgo/internal/memory"
 )
 
 // writeRuleFile 写入一个规则文件（自动创建父目录），供规则发现测试使用。

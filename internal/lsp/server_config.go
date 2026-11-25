@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // 本文件把 config 解析出的 lsp 块转换成 Registry。它只依赖 config 的中性数据，

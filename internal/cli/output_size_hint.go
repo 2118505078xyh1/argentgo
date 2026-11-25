@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // outputSizeHint 生成一条简短提示，告知用户即将把多少命令输出注入模型上下文。

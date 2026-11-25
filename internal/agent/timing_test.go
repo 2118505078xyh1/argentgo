@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestToolTimingBracket 检查核心计算：工具的墙上时钟起点和终点成为事件时间戳，且经过时间完全匹配。记录的起点只被消费一次，

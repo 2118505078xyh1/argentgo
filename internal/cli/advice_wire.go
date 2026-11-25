@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/auth"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // authStateFor 把 auth.Store.Status（面向存储的四种状态）映射到 advice 使用的

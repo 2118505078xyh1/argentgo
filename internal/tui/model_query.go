@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // MarkDirty 记录已渲染内容发生变化、下一帧必须

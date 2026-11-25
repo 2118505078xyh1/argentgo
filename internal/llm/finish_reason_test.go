@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestWireClientsExposeFinishReason 检查每个协议客户端是否把提供方的

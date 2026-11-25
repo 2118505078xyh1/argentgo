@@ -12,7 +12,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件承载 TODO #25：把已批准的作用域回灌到有界 system 提示并随压缩保留。

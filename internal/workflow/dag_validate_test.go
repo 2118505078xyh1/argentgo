@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // TestValidateStepDAG 覆盖步骤依赖图的各类合法与非法定义，

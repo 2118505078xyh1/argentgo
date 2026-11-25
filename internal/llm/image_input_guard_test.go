@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件对图像输入原语做属性守护：从外部契约验证空输入的逐字节一致性、

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestAgentToTUIEventCriticalNotices 证明压缩与预算类事件不再被桥接器吞掉：

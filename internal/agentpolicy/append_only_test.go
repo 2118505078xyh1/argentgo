@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // msg 是测试用的消息构造函数，减少表驱动用例的噪音。

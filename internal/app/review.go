@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"example.com/argentgo/internal/commands"
 )
 
 // reviewRunner 刻意比通用 shell 更窄：/review 只能运行审查报告所需的两个只读 git 命令。

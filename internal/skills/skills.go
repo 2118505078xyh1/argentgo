@@ -18,8 +18,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/textutil"
 )
 
 // DefaultProjectSubdir 是仓库存放自有技能的位置。

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // retentionDataLimit 在 maxLineLen 之下为记录信封和 SetRetention 添加的小 _retention 字段

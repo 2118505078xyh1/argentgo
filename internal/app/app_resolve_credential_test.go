@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/auth"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // credentialEnv 与 isolatedEnv 的区别：它不注入任何伪 API key，

@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 func TestIsImportantProjectFileManifestsAndMetadata(t *testing.T) {

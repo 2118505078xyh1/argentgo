@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // injectionScanClient 构造一个 tools/call 固定返回 text 的客户端，便于在

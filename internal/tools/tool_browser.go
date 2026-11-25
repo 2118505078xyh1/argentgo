@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/browser"
+	"example.com/argentgo/internal/browser"
 )
 
 // browserToolName / fastFetchToolName 供注册与测试共用。

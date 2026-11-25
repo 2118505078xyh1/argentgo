@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 进程级默认代理：自研 shell 的子进程默认就走这层出网检查，无需用户配置。

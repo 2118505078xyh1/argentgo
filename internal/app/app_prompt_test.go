@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // TestStaticSystemIgnoresProcessContext 证明缓存稳定的前缀不嵌入进程特定状态。

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/eval"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件兑现 R16-R18 的 ChatterFactory / ARGENT_EVAL_LIVE / Trace.Usage 投资：

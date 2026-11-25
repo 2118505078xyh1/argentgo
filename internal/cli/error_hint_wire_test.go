@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // constEnv 返回一个只认 cliHintsEnvVar 的注入式 env 桩。

@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件承载 TODO #120 的 app 层 opt-in 接线：仅当 ARGENT_EXEC_SESSION=1 时

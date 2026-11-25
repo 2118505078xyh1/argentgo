@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 技能创作工具是选择性启用的。下面的接口在本地声明，签名与 skills 包中对应类型完全一致，

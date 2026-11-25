@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件把 agent 的 GoalRunner 原语接到 app 的 secondary-model 与事件流（#46）。

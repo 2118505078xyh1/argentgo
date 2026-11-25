@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestChatCompletionsChatOnceWireBytes 守护最常用的 chat completions 回补线：

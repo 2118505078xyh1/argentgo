@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // diagnosticsFields 返回携带给定严重性的 Field 集合。

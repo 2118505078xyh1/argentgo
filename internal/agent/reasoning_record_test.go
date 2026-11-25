@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestAssistantRecordCarriesReasoning 锁定推理回放链的第 3 步：当提供方回复携带推理时，通过注入的 Recorder 写入的助手记录

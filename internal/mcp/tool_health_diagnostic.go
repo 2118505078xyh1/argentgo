@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // ToolHealth 是单个工具的健康诊断结果。字段均为值类型，由 DiagnoseTools 从

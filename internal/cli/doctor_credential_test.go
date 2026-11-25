@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
+	"example.com/argentgo/internal/auth"
 )
 
 func doctorTestApp(dir string, env map[string]string) App {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
 )
 
 // cancelledCallReason 是为从未运行的调用写入的工具结果。

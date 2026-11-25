@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // applySessionFlags 在构建 runner 之前执行 --undo/--retry/--title 的本地部分。

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestStrictStreamTruncationTriggersExactSuffixRecovery 锁定端到端链路：

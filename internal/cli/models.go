@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // runModels 实现 `models [--json] [--refresh]`：默认列出静态模板（不联网），

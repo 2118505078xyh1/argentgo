@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/tools"
 )
 
 func TestModelsToolsEnabled(t *testing.T) {

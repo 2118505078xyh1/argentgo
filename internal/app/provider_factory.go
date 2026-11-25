@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // streamIdleTimeoutEnv 是流空闲超时的环境变量名。保持沿用旧名称，

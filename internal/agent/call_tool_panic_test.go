@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件守护 R43 callTool 的 panic 围栏：注入的非 Registry ToolRunner 发生 panic 时，

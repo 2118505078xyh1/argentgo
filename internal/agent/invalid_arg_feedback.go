@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // toolArgFeedback 控制「模型发出的工具参数不是合法 JSON 时，不执行工具并把

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // TestNudgePayloadOffMatchesBaseline 确认 =0 关闭时 nudge 载荷仍是原始字符串，

@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把 CLI 已有的 provider 模板表接成模型可调用的 `models` 工具。

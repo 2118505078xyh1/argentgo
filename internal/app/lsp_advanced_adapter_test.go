@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 func TestInlayKindName(t *testing.T) {

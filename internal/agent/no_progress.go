@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"strconv"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 无进展检测是对基于事件的 StuckDetector 和 dispatch 重复防护的纯逻辑、无状态补充。

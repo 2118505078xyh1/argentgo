@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // captureChatOnceWire 启动一个 httptest 端点，返回最小非流式 JSON 响应，

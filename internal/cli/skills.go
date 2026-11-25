@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/skills"
 )
 
 // runSkills 实现 `skills [--json] [-C root]`。

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/skills"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/skills"
+	"example.com/argentgo/internal/tools"
 )
 
 // skillShellFixture 构建一个工具集，其技能注册表包含一个具有给定正文的技能。

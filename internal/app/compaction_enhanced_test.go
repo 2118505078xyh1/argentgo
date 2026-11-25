@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件锁定 #1/#2/#4/#5/#7/#13 的默认行为：全部默认开启，测试用脚本化 provider 与

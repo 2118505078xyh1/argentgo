@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // verifyReflectionHint 刻意与 security.chain.go 的 finalitySentence 分开：

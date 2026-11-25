@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // execCtxCaptureTool 在 Run 时把注册表注入的 ExecContext 原样捕获，

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件守护 extra_headers.go 与 debug_trace.go 对外部消费者的集成契约：

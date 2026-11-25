@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件锁定 eval.Run 的输出契约：默认路径逐字节不变，Live 开关只在结尾追加指标行。

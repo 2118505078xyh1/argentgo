@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/cli"
 )
 
 // Resolve 必须把别名拼写（大小写变体、下划线分隔符）规范化回内置模板的规范模型名，

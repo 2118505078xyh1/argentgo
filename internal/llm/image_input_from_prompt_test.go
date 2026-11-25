@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // writePromptImageFile 在 dir 下写入一个图片文件，必要时创建父目录。

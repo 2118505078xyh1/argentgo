@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // `sessions import --format` 接受的导入格式值。

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/server"
 )
 
 // configInfoProvider 把已解析的运行配置桥接为 server.ConfigInfoProvider。

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // writeReloadConfigRaw 按原始 JSON 写入配置文件，供差异摘要测试编辑任意键。

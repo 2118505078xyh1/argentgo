@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // setOp 描述一次 Set 调用，供表驱动测试按序重放。

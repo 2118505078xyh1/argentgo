@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // foreignPlanUnlockKey 模拟"另一个包里同名同结构的 context key"。

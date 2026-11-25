@@ -4,9 +4,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // TestR37OptInSettersConcurrentSafeAndRaceFree 是 R37 新增 opt-in setter 的并发守卫。

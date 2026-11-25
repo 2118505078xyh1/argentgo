@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestAgentToTUIEventUsageMapsFields 证明 usage 事件的三个 token 计数从当轮增量 Usage 复制到

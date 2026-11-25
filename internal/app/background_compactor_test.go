@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // delayedCompactor 用可控延迟模拟"摘要计算很慢"，并记录同步路径调用次数。

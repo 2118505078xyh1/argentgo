@@ -1,6 +1,6 @@
 package agentpolicy
 
-import "github.com/2118505078xyh1/argentgo/internal/llm"
+import "example.com/argentgo/internal/llm"
 
 // MaxCompactRetries 是循环针对提供方报告的上下文溢出，可以进行的有上限的
 // "压缩后重试"次数。一次就足够：如果同一个超长请求在压缩后仍然溢出，

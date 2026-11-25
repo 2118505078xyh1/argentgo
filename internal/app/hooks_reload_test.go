@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/hooks"
 )
 
 // configCaptureDispatcher 记录每次 Dispatch 拿到的 *hooks.Config，使测试能断言

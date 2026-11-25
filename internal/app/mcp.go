@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/mcp"
+	"example.com/argentgo/internal/plugins"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/skills"
+	"example.com/argentgo/internal/tools"
 )
 
 // mcpConnectTimeout 限制单个服务的握手时间，使故障服务不会拖住运行。

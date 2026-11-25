@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"example.com/argentgo/internal/memory"
 )
 
 // pathArgKeys 是工具参数里常见的路径键。只识别这些键，使提醒注入保持保守：

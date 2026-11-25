@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // preserveReg 构造一个已显式开启摘要章节保留开关的注册表。

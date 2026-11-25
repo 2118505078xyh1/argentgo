@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/tools"
 )
 
 // ast_wire.go 把 Go 结构编辑工具接到 app 装配面。工具本身只做预览（diff），

@@ -5,7 +5,7 @@ import (
 	"hash/fnv"
 	"strconv"
 
-	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
+	"example.com/argentgo/internal/agentpolicy"
 )
 
 // defaultRepeatWindow 是重复防护在其滑动窗口中保留的最近工具调用数量。

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestEventRetryCarriesFullInfo 检查 EventRetry 携带前端绘制重试进度所需的每个字段，且负载使用稳定的 snake_case 线上名称而非 Go 字段名。

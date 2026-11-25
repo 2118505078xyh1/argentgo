@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 被委派的子级继承父级的回退链：当其主模型以可重试错误失败时，子级会在父级的备用模型上重试该轮次，

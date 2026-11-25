@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // TestSubscribeAfterReturnsAtomicCursor 检查 SubscribeAfter 的续传游标约定：

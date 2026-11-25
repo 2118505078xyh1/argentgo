@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 精简工具目录（默认自动启用，无需用户配置）：只向模型公布一小组核心工具 +

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把 browser / web_fastfetch 工具接到 app 装配面。与 DAP 一致：工具显式

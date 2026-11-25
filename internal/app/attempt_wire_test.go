@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
 )
 
 // attemptIsolationFixture 构造一棵真实 JSONL 会话树：用户轮次之后是一次尝试，

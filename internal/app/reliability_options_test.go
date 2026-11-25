@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/cli"
 )
 
 // TestParseStreamIdleTimeout 表驱动验证流空闲超时的解析与诊断文本：

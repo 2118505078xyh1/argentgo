@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/2118505078xyh1/argentgo/internal/llm"
+import "example.com/argentgo/internal/llm"
 
 // Auth 解析此模板的凭据。调用方拥有请求头名称和值的方案（对 OpenAI 兼容端点是 Authorization/Bearer，
 // 对 Anthropic 是 x-api-key/空）以及环境查找，使 config 和 app 能采用该链而无需 provider 表依赖其中任何一个。

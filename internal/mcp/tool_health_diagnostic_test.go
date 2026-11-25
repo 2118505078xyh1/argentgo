@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // newDiagnosticSpec 构造一份 ToolSpec。Function 是匿名结构体，须逐字段赋值。

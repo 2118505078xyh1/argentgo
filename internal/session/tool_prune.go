@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/textutil"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // pruneMarkerToken 用于在已有裁剪结果上做幂等判断：凡是已经带该标记的工具结果

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 func quotaNoWait(ctx context.Context, _ time.Duration) error { return ctx.Err() }

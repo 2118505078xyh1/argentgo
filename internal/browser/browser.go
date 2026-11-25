@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cdp"
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/cdp"
+	"example.com/argentgo/internal/proc"
 )
 
 // Browser 持有一条到 Chrome 的 CDP 连接与当前活动页面的 session id。

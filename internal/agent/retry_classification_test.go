@@ -7,7 +7,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // timeoutError 是一个设置了 Timeout() 的 net.Error，但未包装 context.DeadlineExceeded（回退层把它视为最终错误）。

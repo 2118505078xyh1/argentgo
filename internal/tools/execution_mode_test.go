@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // TestDeclaredMode 覆盖静态声明：少数本地纯读工具为 shared，

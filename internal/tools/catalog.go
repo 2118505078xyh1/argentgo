@@ -3,8 +3,8 @@ package tools
 import (
 	"encoding/json"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // CatalogPolicy 是安全策略中用于判断工具是否可被公布所需的最小切片。

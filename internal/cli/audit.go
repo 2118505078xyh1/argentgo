@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // runAudit 实现 `audit [--tail n] [--json] [--decision d] [--session id]

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // runBug 实现 `bug [--out path]`：生成一份可供 issue 报告附加的诊断转储。

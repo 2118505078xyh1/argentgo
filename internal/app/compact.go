@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/session"
 )
 
 const (

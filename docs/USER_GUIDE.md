@@ -18,7 +18,7 @@ argentgo 在同一个发布包中提供两个 Windows 二进制：
 桌面客户端**始终跟随最新 Release**：请让两个二进制来自同一个 zip，以保证版本一致。没有安装服务、遥测或后台进程。
 
 所有下载和发布说明都在公开的 GitHub 页面上：
-<https://github.com/2118505078xyh1/argentgo/releases>。
+<https://example.com/argentgo/releases>。
 
 ### 要求
 
@@ -30,7 +30,7 @@ argentgo 在同一个发布包中提供两个 Windows 二进制：
 
 ### 预编译二进制（Windows，最快路径）
 
-1. 从 <https://github.com/2118505078xyh1/argentgo/releases/latest> 下载最新的发布资产：
+1. 从 <https://example.com/argentgo/releases/latest> 下载最新的发布资产：
    - `argentgo_<version>_windows_amd64.zip`
    - `checksums.txt`
 
@@ -84,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install-win.ps1 -ZipPath '.\arg
 `cmd/argent` 是一个 `main` 包，因此标准的 Go 安装路径有效：
 
 ```powershell
-go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
+go install example.com/argentgo/cmd/argent@latest
 ```
 
 这会拉取公开模块并**从源码构建**；它需要 Go 工具链（1.27.3+），不是预编译二进制。注意 `go install` 产出的可执行文件名由**导入路径末段**决定，这里是 `cmd/argent`，因此生成的命令是 `argent`（在 `$GOBIN`，未设置时为 `$(go env GOPATH)/bin`）。用 `argent --version` 验证。
@@ -111,7 +111,7 @@ go build -o argentgo-native.exe ./native
 ### 更新
 
 - **预编译：** 下载最新的 zip 和 `checksums.txt`，校验，并**同时**替换两个二进制。重跑安装脚本只更新 `argentgo.exe`，所以也要复制匹配的 `argentgo-native.exe`。
-- **从源码：** 重跑 `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest`，并从更新后的检出重新构建 `./native`。
+- **从源码：** 重跑 `go install example.com/argentgo/cmd/argent@latest`，并从更新后的检出重新构建 `./native`。
 
 ### 卸载
 
@@ -132,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File scripts/uninstall-win.ps1 `
 
 最快路径——预编译的 Windows zip：
 
-1. 从 [latest release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载 `argentgo_<version>_windows_amd64.zip` 和 `checksums.txt`。
+1. 从 [latest release](https://example.com/argentgo/releases/latest) 下载 `argentgo_<version>_windows_amd64.zip` 和 `checksums.txt`。
 2. 校验 SHA-256 清单（Git Bash：`sha256sum -c checksums.txt`；PowerShell：把 `Get-FileHash` 输出与 `checksums.txt` 比较）。
 3. 解压并做 smoke 测试：
 
@@ -141,7 +141,7 @@ powershell -ExecutionPolicy Bypass -File scripts/uninstall-win.ps1 `
    .\argentgo.exe --version
    ```
 
-让 `argentgo.exe` 和 `argentgo-native.exe` 待在**同一目录**——`argentgo gui` 会在引擎旁边找原生二进制。桌面客户端始终跟随最新 Release，所以一定要同时替换两个二进制。从源码安装用 `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest`（Go 1.27.3+）。
+让 `argentgo.exe` 和 `argentgo-native.exe` 待在**同一目录**——`argentgo gui` 会在引擎旁边找原生二进制。桌面客户端始终跟随最新 Release，所以一定要同时替换两个二进制。从源码安装用 `go install example.com/argentgo/cmd/argent@latest`（Go 1.27.3+）。
 
 ### 2. 配置 provider
 
@@ -329,7 +329,7 @@ argentgo config show   # --json 含 cliWritePath / engineReadPaths；路径分�
 
 ### 发布资产布局
 
-发布在公开的 GitHub 页面上：<https://github.com/2118505078xyh1/argentgo/releases>。打了 tag 的 commit **本身**不是发布：`scripts/publish-win.ps1` 会等待一个同时具备两个必需资产的已发布 Release，只有 tag 存在时会失败。
+发布在公开的 GitHub 页面上：<https://example.com/argentgo/releases>。打了 tag 的 commit **本身**不是发布：`scripts/publish-win.ps1` 会等待一个同时具备两个必需资产的已发布 Release，只有 tag 存在时会失败。
 
 每次发布：
 
@@ -364,7 +364,7 @@ sha256sum -c checksums.txt
 
 - **Windows amd64 是唯一发布的二进制目标。** `scripts/build-release.ps1` 定义一个 `windows/amd64` 目标，`scripts/publish-win.ps1` 要求存在一个 `argentgo_*_windows_amd64.zip` 资产。
 - **没有 cgo**，因此 `GOOS=linux go build ./...` 能交叉编译成功，CI 会在每个 PR 上验证。不发布 Linux 二进制或其他平台的 zip。
-- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` 在任何装有 Go 1.27.3+ 的宿主上都可用，但只安装 CLI/引擎。桌面客户端仅支持 Windows，必须构建为 `./native` 或从发布 zip 中取用。
+- `go install example.com/argentgo/cmd/argent@latest` 在任何装有 Go 1.27.3+ 的宿主上都可用，但只安装 CLI/引擎。桌面客户端仅支持 Windows，必须构建为 `./native` 或从发布 zip 中取用。
 - 桌面客户端始终跟随最新 Release：请从同一个 zip 安装两个二进制，不要混用版本。
 
 ### Version locations
@@ -383,7 +383,7 @@ sha256sum -c checksums.txt
 
 本节收集社区为安装 argentgo 准备的**配方模板**。它们是模板，不是已发布的产物：本项目**不**维护或托管 Scoop、Chocolatey 或 Homebrew 中的目录条目。维护者（或下游打包者）把配方复制到相应的 bucket / 包仓库 / tap，并在发布时填好占位符。这里没有任何东西依赖本项目自己托管的目录。
 
-公开仓库：<https://github.com/2118505078xyh1/argentgo>
+公开仓库：<https://example.com/argentgo>
 
 ### 文件
 
@@ -406,7 +406,7 @@ sha256sum -c checksums.txt
 以 `v0.1.1` 发布为例的替换：
 
 - URL：
-  `https://github.com/2118505078xyh1/argentgo/releases/download/v0.1.1/argentgo_0.1.1_windows_amd64.zip`
+  `https://example.com/argentgo/releases/download/v0.1.1/argentgo_0.1.1_windows_amd64.zip`
 - `{{VERSION}}` -> `0.1.1`
 - `{{SHA256}}` -> 匹配的 `checksums.txt` 行的第一列
 

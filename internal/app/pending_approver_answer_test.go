@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/server"
 )
 
 // gatedApprover 是一个本地审批器，它会在被调用时发出通知，

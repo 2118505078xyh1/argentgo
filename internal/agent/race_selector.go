@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // ErrRaceToolNotReadOnly 表示竞速候选试图调用未被 ReadOnly 许可的工具。

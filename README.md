@@ -7,7 +7,7 @@
 单文件、零依赖、离线优先。流式对话、真实工具调用、可回放的会话树——
 一个二进制，从命令行到桌面窗口都能用。
 
-[下载 Windows 版](https://github.com/2118505078xyh1/argentgo/releases/latest) ·
+[下载 Windows 版](https://example.com/argentgo/releases/latest) ·
 [快速开始](#快速开始) ·
 [特性](#为什么选-argentgo) ·
 [文档](#文档)
@@ -19,7 +19,7 @@
 ## 安装
 
 完整安装指南见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md#install)。最快路径（Windows 预编译包）：从
-[最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 下载
+[最新 Release](https://example.com/argentgo/releases/latest) 下载
 `argentgo_<version>_windows_amd64.zip` 与 `checksums.txt`，校验后解压运行：
 
 ```powershell
@@ -33,7 +33,7 @@ Expand-Archive .\argentgo_<version>_windows_amd64.zip -DestinationPath .
 从源码安装（`go install`，需 Go 1.27.3+）：
 
 ```powershell
-go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
+go install example.com/argentgo/cmd/argent@latest
 ```
 
 ## 为什么选 argentgo
@@ -52,7 +52,7 @@ go install github.com/2118505078xyh1/argentgo/cmd/argent@latest
 
 ## 下载与安装
 
-Windows 用户直接下载 [最新 Release](https://github.com/2118505078xyh1/argentgo/releases/latest) 的
+Windows 用户直接下载 [最新 Release](https://example.com/argentgo/releases/latest) 的
 `argentgo_*.zip`，解压即用的 `argentgo.exe`。校验：
 
 ```powershell
@@ -200,9 +200,9 @@ powershell -File scripts/publish-win.ps1
 
 欢迎 bug 报告、功能提议、文档修正和代码 PR。
 
-- **发现问题** → [开 Issue](https://github.com/2118505078xyh1/argentgo/issues/new/choose)
+- **发现问题** → [开 Issue](https://example.com/argentgo/issues/new/choose)
   （通用 Issue 模板覆盖 Bug / 功能 / 文档，提交日志请脱敏）
-- **提问或讨论** → [Discussions](https://github.com/2118505078xyh1/argentgo/discussions)
+- **提问或讨论** → [Discussions](https://example.com/argentgo/discussions)
 - **想贡献代码** → 先读 [CONTRIBUTING.md](CONTRIBUTING.md)：
   fork → 主题分支 → 加边界测试 → 全量验证 → 提 PR（用 PR 模板，关联 issue）。
   核心包必须保持 stdlib-only、无 cgo；唯一的第三方依赖 MyGo 只用于 `native/` 桌面壳。

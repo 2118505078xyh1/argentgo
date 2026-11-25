@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // reminderState 构建一个运行状态，其提醒窗口的初始化方式与 newRunState 相同，

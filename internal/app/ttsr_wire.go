@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 本文件把 TTSR 规则配置接到 agent.Options。默认（未设置 ARGENT_TTSR_RULES）

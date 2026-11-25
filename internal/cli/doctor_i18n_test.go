@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // TestDoctorI18nIssuesClean 验证审计通过时不产生任何 issue：这是 doctor

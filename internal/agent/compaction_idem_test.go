@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // cloneIdemMessages 返回深拷贝，使测试中对元数据的修改不会泄漏回原始前缀。

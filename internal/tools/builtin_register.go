@@ -1,9 +1,9 @@
 package tools
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/bash"
-	"github.com/2118505078xyh1/argentgo/internal/memory"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/bash"
+	"example.com/argentgo/internal/memory"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // builtinFactory 构造一个内置工具实例。bank 是该次运行的初始记忆库，

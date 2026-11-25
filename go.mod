@@ -1,4 +1,4 @@
-module github.com/2118505078xyh1/argentgo
+module example.com/argentgo
 
 go 1.27.3
 

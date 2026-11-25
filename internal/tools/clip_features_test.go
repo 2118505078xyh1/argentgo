@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // TestClipLossHeader 锁定 #36：默认 clip 路径的裁剪帧报告原始 token 数

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestAgentToTUIEventRetryMapsFields 证明每个可安全上线传输的重试标量都到达实时退避渲染器读取的 TUI 字段。

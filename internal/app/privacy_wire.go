@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // ApplyPrivacyPosture 对一次运行强制执行已解析的隐私姿态。它是 app 层的桥梁，

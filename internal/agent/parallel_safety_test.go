@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestCanRunParallelDeclaredSafe 固定核心契约：只有显式声明为 true 才允许并行。

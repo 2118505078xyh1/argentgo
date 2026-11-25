@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // finishReasonChatter 是一个伪 Chatter，它还通过循环在派发前咨询的可选接口，

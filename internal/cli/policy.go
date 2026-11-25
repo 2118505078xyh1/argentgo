@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/security"
 )
 
 // runPolicy 实现 `policy [--json] [-C root]`：展示某个工作区有效的沙箱、

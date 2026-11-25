@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // fidelityFixture 把若干压缩摘要写成真实 JSONL 转录，并记录源文件原始字节。

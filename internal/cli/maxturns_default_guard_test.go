@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // R16 行为改变：--max-turns 的编译默认值从 12 抬高到 100，与引擎

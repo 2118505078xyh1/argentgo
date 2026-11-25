@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tools"
 )
 
 // checkpointTracker 收集 agent 在每个变更型工具批次之前请求的轮次前清单。

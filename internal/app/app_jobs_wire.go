@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件提供后台作业注册表的最小可用接线。它把长期处于死代码状态的

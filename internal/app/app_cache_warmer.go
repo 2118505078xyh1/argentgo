@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // cacheWarmerEnabled 报告提示缓存保活的启用状态：默认开启，ARGENT_CACHE_WARM=0

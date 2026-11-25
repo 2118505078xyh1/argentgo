@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"example.com/argentgo/internal/jobs"
 )
 
 // runBashViaExecSession 是 bash 工具在统一 exec 会话开启时的执行分支。

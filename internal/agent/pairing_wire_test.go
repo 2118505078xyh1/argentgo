@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestChatNormalizesToolPairingForProvider 检查 chat() 会修复交给 Chatter 的消息视图中孤立的 tool_use，

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/textutil"
 )
 
 func TestTrimDataURLAtomicElision(t *testing.T) {

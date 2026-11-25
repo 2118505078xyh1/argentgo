@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 这些是针对持久会话引擎的确定性属性/往返测试。

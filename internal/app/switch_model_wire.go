@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把 #47 的 switch_model 接到 app 装配层。核心做法是在宿主 Chatter 外包一层

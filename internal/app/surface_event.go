@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 本文件提供一个"统一事件 DTO 投影"原语：把 agent 的事件流投影成一份与传输无关的

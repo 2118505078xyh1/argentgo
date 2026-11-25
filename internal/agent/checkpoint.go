@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // Checkpoint 描述一批尚未运行的变更型工具调用。

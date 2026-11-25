@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // 输出对账是进程级 opt-in。所有用例都不并行，结束时显式关回，

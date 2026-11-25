@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把 ask_user 工具接到 app 装配面。第一步只覆盖交互式终端：

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/hooks"
 )
 
 // runHooks 实现 `hooks [-C root]`：列出每个 hook 文档、它的摘要，

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/server"
 )
 
 // sessionListMeta 是会话列表 JSON 输出的稳定字段投影。字段顺序固定，

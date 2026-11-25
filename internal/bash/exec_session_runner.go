@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/proc"
-	"github.com/2118505078xyh1/argentgo/internal/pty"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/proc"
+	"example.com/argentgo/internal/pty"
 )
 
 // 本文件提供统一 exec 会话的进程侧实现。jobs 注册表只依赖注入的

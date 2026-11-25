@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 func TestBootTopoDefaultOffSkipsValidation(t *testing.T) {

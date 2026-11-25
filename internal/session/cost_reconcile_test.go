@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/calcutil"
+	"example.com/argentgo/internal/calcutil"
 )
 
 // TestReconcileChildCostForwardsToCalcutil 是转发层的精简 smoke 测试。

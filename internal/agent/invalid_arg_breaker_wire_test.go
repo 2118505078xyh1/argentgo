@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // badArgsErr 模仿内置工具拒绝调用参数时使用的文本形状（"<name>: bad arguments: %w"），熔断器正是据此

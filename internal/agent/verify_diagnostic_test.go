@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestHasDiagnosticContent 覆盖 aider-P2 分类器：反馈只有样板的 FAIL 不得被误认为可操作的输出。

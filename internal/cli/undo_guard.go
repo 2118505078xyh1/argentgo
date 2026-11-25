@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // undoAutoApprover 代表用户显式发起的 undo：无论是交互终端还是脚本，输入

@@ -1,9 +1,9 @@
 package extension
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/plugins"
+	"example.com/argentgo/internal/skills"
 )
 
 // 本文件把三个"目录扫描 → 命名条目"体系的发现结果投影成统一 Inventory。

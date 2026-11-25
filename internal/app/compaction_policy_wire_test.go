@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件测试压缩策略（agent.SelectCompactionAction）在运行后压缩触发点的 opt-in 观测接线：

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestResponsesImageWireOverHTTP 从真实 HTTP 请求体验证带图消息同时被

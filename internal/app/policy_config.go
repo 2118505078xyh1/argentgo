@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // policyFor 是 Execute 所用策略的唯一构造点。把它单独拆开，使配置规则的执行

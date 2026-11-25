@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
+	"example.com/argentgo/internal/auth"
 )
 
 // authStore 打开按安装隔离的凭证存储：<storage>/auth。

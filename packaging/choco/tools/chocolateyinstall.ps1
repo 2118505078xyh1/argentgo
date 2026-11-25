@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $packageName = 'argentgo'
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-$url = 'https://github.com/2118505078xyh1/argentgo/releases/download/v{{VERSION}}/argentgo_{{VERSION}}_windows_amd64.zip'
+$url = 'https://example.com/argentgo/releases/download/v{{VERSION}}/argentgo_{{VERSION}}_windows_amd64.zip'
 $checksum = '{{SHA256}}'
 $checksumType = 'sha256'
 

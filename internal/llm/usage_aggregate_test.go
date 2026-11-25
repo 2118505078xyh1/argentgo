@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestChatUsageEmptyTerminatorDoesNotEraseTotals 覆盖在真实最终用量分块之后

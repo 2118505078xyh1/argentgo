@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // ignoreBOM 是首行可能携带的 UTF-8 字节序标记。它属于编码元数据，

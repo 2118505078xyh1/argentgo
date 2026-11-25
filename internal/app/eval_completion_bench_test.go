@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/eval"
 )
 
 // benchFixturePath 返回仓库 evals/completion_bench.json 的路径。

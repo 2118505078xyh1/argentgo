@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/proc"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/proc"
+	"example.com/argentgo/internal/tools"
 )
 
 // jobsWireFakeChild 是一个永不自行结束的内存子进程，用于驱动提升路径。

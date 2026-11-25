@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/lsp"
+	"example.com/argentgo/internal/tools"
 )
 
 // withStartFn 在测试期间替换进程派生器。本文件中的测试刻意不并行：

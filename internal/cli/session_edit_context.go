@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // sessionsEditContext 实现 `sessions edit-context <session-id> <target-record-id> [--hide | --text <text>]`。

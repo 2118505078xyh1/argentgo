@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/security"
 )
 
 // netPolicyEnv 是网络出口策略的紧急回退开关：只有显式设为 "0" 才忽略配置

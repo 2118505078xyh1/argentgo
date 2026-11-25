@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/update"
+	"example.com/argentgo/internal/update"
 )
 
 func checksumForTest(data string) string {

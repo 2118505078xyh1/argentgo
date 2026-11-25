@@ -10,9 +10,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
 )
 
 // imageOffloadKeep 是下一轮投影保留的最近图像数量上限。

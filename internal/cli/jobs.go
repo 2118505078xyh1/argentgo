@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"example.com/argentgo/internal/jobs"
 )
 
 // jobsDir 是该存储目录下 registry 及其日志所在的位置。

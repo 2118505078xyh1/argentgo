@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // inlineHookPath 是直接在配置中提供的文档在信任存储中的键。内联字节与文件一样被哈希，

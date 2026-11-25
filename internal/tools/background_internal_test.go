@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
+	"example.com/argentgo/internal/jobs"
 )
 
 // TestSetJobsInstallsRegistry 锁定 app 接线所依赖的接缝：默认无作业注册表，

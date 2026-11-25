@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/proc"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/proc"
+	"example.com/argentgo/internal/tools"
 )
 
 // backgroundFakeChild 是一个内存中的进程，用于驱动 bash 工具的

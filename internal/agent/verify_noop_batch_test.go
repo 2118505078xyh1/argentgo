@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestVerifySkippedWhenToolBatchDidNotRun 锁定编辑后验证的边界：只有在变更型工具真正执行后验证才有意义。

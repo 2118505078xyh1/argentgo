@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestResolveWiresSessionIDIntoResponsesChatter 验证续接（--session）时的

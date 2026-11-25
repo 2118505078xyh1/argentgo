@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestInvokeTracksToolFailuresAndReset 检查失败的工具执行会被记录为错误，而成功的执行会清除连续序列。

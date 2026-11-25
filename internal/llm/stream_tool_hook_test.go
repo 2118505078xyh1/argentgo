@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestStreamToolCollectorCompleteAll 用表驱动覆盖:首片带元数据、多工具交错、

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // SessionHit 是会话搜索命中的类型，直接复用 session 包的 Hit，

@@ -8,12 +8,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/mcp"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // readOnlyMCPResolved 构建一个 Resolved，包含一个公布只读工具的伪 MCP 服务

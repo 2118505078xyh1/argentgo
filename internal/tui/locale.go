@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // language 保留迁移前的 "zh" 前缀判定：任何以 zh 开头的 locale 都用中文，

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // wiringEnv 隔离工作区和用户主目录边界，使边界加载器不会意外地从主机拾取真实的 AGENTS.md。

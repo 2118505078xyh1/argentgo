@@ -3,7 +3,7 @@ package tools
 import (
 	"strconv"
 
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // OutputBudget 是对一次工具输出的预算诊断结果。它只回答"按当前配置处理会

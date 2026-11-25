@@ -10,11 +10,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tui"
 )
 
 // buildTUICommandInfo 按 contextPrompt 相同的 sources 构造命令集，

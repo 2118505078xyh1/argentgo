@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/memory"
+	"example.com/argentgo/internal/memory"
 )
 
 type collectingSink struct{ messages []string }

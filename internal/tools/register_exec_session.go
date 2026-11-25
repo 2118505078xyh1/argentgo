@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/2118505078xyh1/argentgo/internal/bash"
+import "example.com/argentgo/internal/bash"
 
 // RegisterExecSession 把 write_stdin 追加到 r 的末尾（幂等）。
 // 本函数绝不被 New/NewWithLimit 调用，因此默认 Specs()/Names() 与 golden 逐字节不变；

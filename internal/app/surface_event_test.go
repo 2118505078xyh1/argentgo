@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestFromAgentEventProjections 逐字段核对投影结果，覆盖文本、工具、错误与零值事件。

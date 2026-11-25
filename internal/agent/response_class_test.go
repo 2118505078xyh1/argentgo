@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestClassifyResponseFourKinds 覆盖四种主要回复类别和三个派生谓词。该函数是纯函数，因此用例只是普通的参数元组，没有伪实现或 I/O。

@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 	"strconv"
 	"strings"
 	"sync"

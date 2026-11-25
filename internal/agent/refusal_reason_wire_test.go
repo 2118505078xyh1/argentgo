@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // TestRefusalReasonFlag 验证 opt-in 开关的默认值与切换语义。

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // mcpServerView 是一个已配置的 MCP 服务器，即 `argentgo mcp` 所打印的内容。

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/security"
 )
 
 // TestAutoApproverGrantsReadOnlyTools 锁定 --yolo 的便捷部分：

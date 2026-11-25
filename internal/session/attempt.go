@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/textutil"
 )
 
 // Attempt 原因记录为仅追加的审计记录。它们永远不会进入模型可见的消息历史。

@@ -19,8 +19,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/server"
 )
 
 // Version 是 --version、/v1/health 和 ACP initialize 所报告的版本号。

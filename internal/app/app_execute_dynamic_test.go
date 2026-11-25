@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // dynamicCaptureChatter 记录每条消息的角色和内容，使测试能断言提示的每一部分最终落在哪里。

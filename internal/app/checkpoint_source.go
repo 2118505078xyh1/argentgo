@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tools"
 )
 
 // checkpointSource 把会话检查点存储适配为消费侧的 tools.CheckpointSource 接口。

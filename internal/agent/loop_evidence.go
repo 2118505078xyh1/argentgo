@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 循环提示的三级阈值。DetectLoop 的判定是 count > threshold，

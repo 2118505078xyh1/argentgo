@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/skills"
 )
 
 // resetSharedDefs 为测试安装一个新的 DefinitionCache 单例。发现调用点使用包级单例（没有可挂字段的 App/Factory 接收者），

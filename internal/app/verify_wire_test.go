@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/config"
 )
 
 // TestValidateVerifyArgvAllowlist 锁定 eval exec 白名单的本地副本：只接受 `go test|build ...` 和相对的 .exe，

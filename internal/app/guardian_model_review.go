@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件把 Guardian 从"永远 RequireApproval"的占位审阅接到真实的次要模型。

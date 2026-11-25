@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // Workspace 是 RunFunc 运行一个场景所需的一切。

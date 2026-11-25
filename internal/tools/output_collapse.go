@@ -1,6 +1,6 @@
 package tools
 
-import "github.com/2118505078xyh1/argentgo/internal/textutil"
+import "example.com/argentgo/internal/textutil"
 
 // 本文件保留 tools 包原有的输出折叠 API（CollapseResult / CollapseOutput），
 // 但实现已下沉到零依赖的 internal/textutil 包：tools 与 shell 都需要这个原语，

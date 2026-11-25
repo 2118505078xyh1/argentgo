@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 func TestMaxTurnsAsksForOneToolFreeFinalAnswer(t *testing.T) {
+	t.Setenv("ARGENT_CODE_MODE", "0") // 本测试精确断言工具集，隔离内建 code_mode
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read")}}
 	chat := &fakeChatter{fn: func(n int, messages []llm.Message, specs []llm.ToolSpec, onText func(string)) (llm.Message, error) {
 		if n <= 2 {
@@ -192,6 +193,7 @@ func TestMaxTurnsWithoutCancellationKeepsStopMaxTurns(t *testing.T) {
 }
 
 func TestFilterSpecsNarrowsTheAdvertisedCatalogOnly(t *testing.T) {
+	t.Setenv("ARGENT_CODE_MODE", "0") // 本测试精确断言过滤后的工具集，隔离内建 code_mode
 	tools := &fakeTools{specs: []llm.ToolSpec{toolSpec("read"), toolSpec("write")}}
 	chat := &fakeChatter{fn: func(int, []llm.Message, []llm.ToolSpec, func(string)) (llm.Message, error) {
 		return textReply("ok"), nil

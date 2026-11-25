@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestRenderFIMTemplates 固定每个模型系列产生的精确线协议提示和显式停止 id。

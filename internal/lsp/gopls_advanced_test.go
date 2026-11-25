@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 // 进阶方法数量下限。真实 gopls 的默认配置不保证产出这些数据（本机 v0.24.0

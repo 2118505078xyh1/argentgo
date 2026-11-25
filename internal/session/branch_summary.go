@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/textutil"
 )
 
 // branchSummaryFilesKey 是遗弃分支摘要载荷中携带机械抽取文件清单的稳定键。

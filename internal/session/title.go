@@ -3,7 +3,7 @@ package session
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // TitleRecord 覆盖生成的会话标题。空标题会清除覆盖，

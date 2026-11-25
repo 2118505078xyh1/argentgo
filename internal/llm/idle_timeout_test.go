@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // idleChatterCase 用公共 Chat 入口覆盖三个协议：

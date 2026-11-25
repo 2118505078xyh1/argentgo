@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // cliHintsEnvVar 是 CLI 错误修复建议的输出门控开关。按用户至上的 UX 策略，

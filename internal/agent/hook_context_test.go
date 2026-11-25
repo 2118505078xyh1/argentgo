@@ -8,8 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestHookContextInjectedBeforeFirstRequest 确认单条 hook 附加上下文在下轮请求构造前作为用户轮次注入。

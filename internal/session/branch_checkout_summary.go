@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/textutil"
 )
 
 // branchSummaryEnv 是「分支切换时生成被弃路径摘要」的独立门控变量。

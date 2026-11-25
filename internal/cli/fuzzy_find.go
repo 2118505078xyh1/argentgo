@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/tui"
 )
 
 // fuzzyFindSessions 在 titles 中查找与 query 模糊匹配的条目，返回它们在

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // verifyTaskArgs 构建设置了验证字段的委派参数。

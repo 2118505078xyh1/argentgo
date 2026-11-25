@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/plugins"
 )
 
 // 本文件收拢"插件清单 → 各体系贡献"的纯适配逻辑（原在 internal/app/plugin_wiring.go）。

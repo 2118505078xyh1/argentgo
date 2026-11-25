@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // scriptedVerifyChild 是按提示分流的伪子运行器：验证提示走 verify 脚本，其余提示返回固定草稿。

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/tools"
 )
 
 // TestSwitchModelToolAllowlist 锁定 #47：只允许配置中声明的 profile；不在白名单时

@@ -3,8 +3,8 @@ package tui
 import (
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/i18n"
+	"example.com/argentgo/internal/llm"
 )
 
 // localizedString 是一条用户可见文案的中英两栏。

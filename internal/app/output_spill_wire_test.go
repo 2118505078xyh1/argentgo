@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // spillTestEnv 从一个稀疏的映射构建 stdio 风格的 env 函数。

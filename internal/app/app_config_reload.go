@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // configReloader 是长生命周期引擎的热重载钩子。它保存当前的配置快照，

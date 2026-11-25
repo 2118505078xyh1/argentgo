@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // chatNoWait 让重试测试保持快速，而不触碰共享的测试辅助函数。

@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestUntrustedBoundaryConstants 锁定边界标记的取值：它们是发给模型的文本协议

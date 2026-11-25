@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // implicitDropped 构造一份"被丢弃消息"夹具。每条内容的行首都带有 marker，

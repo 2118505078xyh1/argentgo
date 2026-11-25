@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 本文件提供 R23「会话续接摘要」（continuation brief）的纯函数原语，刻意保持零调用方：

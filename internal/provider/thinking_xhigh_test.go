@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // TestResolveThinkingAcceptsXHigh 验证 xhigh 档位及其 CJK 别名被规范化为线上级别 "xhigh"。

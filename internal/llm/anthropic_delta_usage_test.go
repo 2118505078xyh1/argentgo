@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestAnthropicDeltaInputTokensAreUsed 覆盖 LiteLLM/OpenRouter 等网关使用的

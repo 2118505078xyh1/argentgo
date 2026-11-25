@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/security"
 )
 
 // TestWireRunEventsPublishesToHubSubscribers 证明无界面传输所依赖的接线契约：

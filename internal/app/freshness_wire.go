@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tools"
 )
 
 // readBeforeWriteEnv 是「读后写新鲜度校验」的独立门控变量。

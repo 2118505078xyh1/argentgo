@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1987,8 +1988,19 @@ func main() {
 	}
 	app.gitBranch = navGitBranch(cwd, nil)
 
-	// ARGENT_EXE 指向 engine 二进制。设置时，原生窗口
-	if exe := os.Getenv("ARGENT_EXE"); exe != "" {
+	// ARGENT_EXE 指向 engine 二进制。显式设置时优先使用；未设置时回退到
+	// 与 native 二进制同目录的 argentgo.exe——安装包把两个二进制放在一起，
+	// 这样用户双击原生窗口即可直接对话，无需配置环境变量。都没有才进 demo 模式。
+	engineExe := os.Getenv("ARGENT_EXE")
+	if engineExe == "" {
+		if self, err := os.Executable(); err == nil {
+			candidate := filepath.Join(filepath.Dir(self), "argentgo.exe")
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				engineExe = candidate
+			}
+		}
+	}
+	if exe := engineExe; exe != "" {
 		b, err := startBridge(exe, cwd, nil, app.onEngineEvent)
 		if err != nil {
 			log.Printf("native: engine bridge unavailable: %v (using demo mode)", err)

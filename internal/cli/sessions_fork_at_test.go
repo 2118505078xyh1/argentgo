@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // newForkAtFixture 建一个含两轮对话的会话，返回 store、会话句柄与第二轮用户消息记录。

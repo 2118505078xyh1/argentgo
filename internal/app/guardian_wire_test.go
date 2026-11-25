@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/security"
 )
 
 // countingReview 是一个可注入的假审阅函数，记录调用次数并返回预设判定。

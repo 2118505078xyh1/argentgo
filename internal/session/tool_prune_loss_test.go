@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // TestPruneLossHeader 锁定 #36：session 侧裁剪标记报告原始 token 数

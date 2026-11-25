@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/auth"
+	"example.com/argentgo/internal/provider"
 )
 
 // 本文件的用户可见文案全部走简体中文常量，与 maybeFirstRunGuide 的既有惯例

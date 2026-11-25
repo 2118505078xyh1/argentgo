@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/cli"
 )
 
 // testTUICommandInfo 在隔离的工作区/主目录下调用 app 侧映射函数，

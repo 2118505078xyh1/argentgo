@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/update"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/update"
 )
 
 // TestWave4SubcommandsDispatched proves each new name reaches its own handler:

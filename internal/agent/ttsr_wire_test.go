@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // scriptedTTSRChatter 按脚本对每次请求推送增量。第 n 次请求用第 n 段脚本。

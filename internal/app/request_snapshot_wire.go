@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件把 llm 的请求字节快照钩子接到会话记录。迁移自 killi 决策 21：

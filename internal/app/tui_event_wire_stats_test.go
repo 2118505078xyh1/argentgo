@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestAgentToTUIEventTurnBoundary 证明轮次边界被映射为统计行消费的 TUI 事件，

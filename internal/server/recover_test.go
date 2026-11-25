@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // panicRunner 在 Prompt 中 panic，用于验证传输层的 fire-and-forget goroutine

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/lsp"
 )
 
 // 本文件把 config 解析出的 lsp 块接进进程级 LSP 管理器（#43）。

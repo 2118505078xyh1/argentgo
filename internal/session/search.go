@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/textutil"
 )
 
 // Hit 是转录中一条匹配的记录。

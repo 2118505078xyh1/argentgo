@@ -17,13 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
-	"github.com/2118505078xyh1/argentgo/internal/mcp"
-	"github.com/2118505078xyh1/argentgo/internal/prof"
-	"github.com/2118505078xyh1/argentgo/internal/provider"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/auth"
+	"example.com/argentgo/internal/i18n"
+	"example.com/argentgo/internal/mcp"
+	"example.com/argentgo/internal/prof"
+	"example.com/argentgo/internal/provider"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
 )
 
 // `doctor` 打印的状态值。

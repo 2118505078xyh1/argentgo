@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestClientsDecodeSSEJSONSplitAcrossDataLines 覆盖这样的网关：它把单个 SSE 事件的

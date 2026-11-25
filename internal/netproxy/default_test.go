@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // TestDefaultEnvIsolatesChains 守护 P0-1 的跨会话串味：不同审批链必须拿到

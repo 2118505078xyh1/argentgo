@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件是 R17「默认路径可靠性方案 A」的守卫层，只新增测试，不触碰任何生产代码。

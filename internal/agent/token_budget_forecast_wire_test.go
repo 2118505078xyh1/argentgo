@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件测试 token_budget_forecast 原语在循环中的 opt-in 接线：

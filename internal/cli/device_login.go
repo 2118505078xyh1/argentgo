@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
+	"example.com/argentgo/internal/auth"
 )
 
 // 设备码登录的可注入接缝。生产环境直接使用 auth 包的真实实现；测试替换这两个

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件提供 R20「压缩摘要智能化」的生成原语，刻意保持零调用方：不读取进程环境、

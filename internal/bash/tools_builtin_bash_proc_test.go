@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // 本文件覆盖默认 bash 主路径的进程硬化 opt-in（ARGENT_BASH_USE_PROC）。

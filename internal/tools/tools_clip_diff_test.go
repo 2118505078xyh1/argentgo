@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 本文件为 tools_clip.go 中无状态的 UTF-8 截断辅助函数

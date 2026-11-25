@@ -13,7 +13,7 @@ const (
 
 // Commit 和 BuildID 是可选的链接期构建元数据，可通过例如
 //
-//	go build -ldflags "-X github.com/2118505078xyh1/argentgo/internal/server.Commit=abc123 -X github.com/2118505078xyh1/argentgo/internal/server.BuildID=build-42"
+//	go build -ldflags "-X example.com/argentgo/internal/server.Commit=abc123 -X example.com/argentgo/internal/server.BuildID=build-42"
 //
 // 两者都默认为 "unknown"，使未注入的构建也能返回完整、
 // 稳定的 JSON 对象。当 Commit 未注入时，使用 Go 工具链记录的

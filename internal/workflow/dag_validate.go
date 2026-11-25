@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // 步骤依赖图的诊断哨兵错误。调用方可用 errors.Is 精确匹配某类校验失败，

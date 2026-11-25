@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tokenest"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tokenest"
 )
 
 // 停止原因，记录在 Result.Stopped 和 Event.Reason 中。它们是稳定的

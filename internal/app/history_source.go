@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tools"
 )
 
 // historySource 把会话的 JSONL 记录适配为消费侧的 tools.HistorySource 接口。

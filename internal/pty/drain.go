@@ -6,7 +6,7 @@ import (
 	"io"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // clipMarker 是输出触及字节上限时附加的截断标记，与 tools/bash 侧的标记保持一致。

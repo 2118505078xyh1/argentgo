@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestShouldCompactRetryDecisionMatrix 覆盖完整决策矩阵：

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // multimodalTrim 控制是否在 token 估算中为带图消息计入 ContentParts 的开销。

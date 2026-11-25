@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件为两个已经位于无依赖核心包中的纯辅助函数提供附加性的接线适配器。

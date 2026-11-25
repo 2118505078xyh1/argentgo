@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // shellBuiltinNames 是改变解释器状态或承载纯 shell 语义的内建命令。

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // histLogRecord 从捕获器中找出消息恰为 msg 的日志记录，要求恰好一条。

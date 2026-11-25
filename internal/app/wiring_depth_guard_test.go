@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件是 R13「opt-in 激活面」的守护层，只新增测试、不改任何生产逻辑。

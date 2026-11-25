@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // TestExecuteDefaultsLeaveGlobalOptInsOff 是 R28 并发审计在 app 侧的守卫。

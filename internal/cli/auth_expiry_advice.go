@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/auth"
+	"example.com/argentgo/internal/auth"
 )
 
 // authExpiryAdvice 把凭证过期状态翻译成一句可操作的中文提示，

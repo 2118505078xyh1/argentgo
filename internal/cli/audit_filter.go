@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // AuditFilter 保存 FilterAuditEntries 使用的可选谓词。

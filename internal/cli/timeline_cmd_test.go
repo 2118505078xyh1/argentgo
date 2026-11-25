@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tui/timeline"
+	"example.com/argentgo/internal/tui/timeline"
 )
 
 func makeTimelineFixture(t *testing.T) string {

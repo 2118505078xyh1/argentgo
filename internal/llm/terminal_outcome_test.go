@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // terminalNoWait 让 Do 的退避不进入测试，同时不依赖其他测试文件中

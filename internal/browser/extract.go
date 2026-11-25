@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cdp"
+	"example.com/argentgo/internal/cdp"
 )
 
 // ExtractLevel 控制提取粒度（参考 ghostchrome 的三级）。

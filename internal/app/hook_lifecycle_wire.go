@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/hooks"
 )
 
 // hookLifecycleEnv 是「生命周期事件映射到 hook」的独立门控变量。

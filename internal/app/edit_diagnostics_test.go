@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/lsp"
 )
 
 // stubToolRunner 是 hookedTools.Run 的最小内层实现：记录调用并原样返回结果。

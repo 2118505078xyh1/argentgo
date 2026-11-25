@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/hooks"
 )
 
 // countingTool 记录 Run 是否被调用。嵌入 agent.ToolRunner 只为满足 Specs，

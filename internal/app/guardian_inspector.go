@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件提供一个可选的"模型守卫"检查器。它实现 security.Inspector，把一次调用交给

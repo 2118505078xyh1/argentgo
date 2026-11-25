@@ -11,17 +11,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/bash"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/memory"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/bash"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/hooks"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/memory"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/skills"
+	"example.com/argentgo/internal/tools"
 )
 
 // personaDir 是工作区存放具名子 agent 定义的位置。

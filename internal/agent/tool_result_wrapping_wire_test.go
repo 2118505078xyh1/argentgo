@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // wireEvent/wireRecord 只保留与"回灌内容逐字节不变"相关的字段，

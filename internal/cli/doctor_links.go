@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/uri"
+	"example.com/argentgo/internal/uri"
 )
 
 // runDoctorLinks 实现 `argentgo doctor --links`：扫描工作区内的 Markdown 文件，

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/server"
 )
 
 func TestHeadTailPreview(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
+	"example.com/argentgo/internal/plugins"
 )
 
 // runPlugin 实现插件包管理：install / uninstall / list / enable / disable。

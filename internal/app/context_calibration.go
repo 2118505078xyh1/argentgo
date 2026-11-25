@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 本文件实现 TODO #104 的 app 层 opt-in 接线：把提供方实测 token 锚点与

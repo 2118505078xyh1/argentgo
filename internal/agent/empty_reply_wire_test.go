@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 这些辅助函数编排循环必须纠正的两类无工具回复，以及一个必须降级为停止的畸形工具轮次。

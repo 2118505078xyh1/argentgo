@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestResponsesToolCallsFollowAddedOrder 覆盖以与 output_item.added 事件

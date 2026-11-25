@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // streamOnceChatter 是 Chatter 的可选扩展：能以非流式方式再取一次完整答复。

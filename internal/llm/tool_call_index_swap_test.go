@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestChatClientToolCallIDWinsWhenIndexIsReassigned 覆盖在流中途重新编号

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/eval"
 )
 
 // jsonFakeEvalRunner 是单场景路径的假 runner：它没有 expect 之外的主张，

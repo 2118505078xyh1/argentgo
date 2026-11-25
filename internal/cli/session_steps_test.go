@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // recordOneRound 在 workspace 上记录一个轮次：先捕获轮次前快照，写入新内容，

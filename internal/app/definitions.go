@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/skills"
 )
 
 // fingerprintHexLen 是从 SHA-256 摘要中保留的十六进制字符数。16 个字符（64 位）

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // recordingGuard 只记录是否被调用，用来确认补丁策略门在拒绝时确实短路了原链路，

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // retryOmitNotices 收集事件流里所有 Notice 文本，供断言省略失败提示。

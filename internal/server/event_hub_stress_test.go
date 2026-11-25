@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // TestEventHubTerminalDeliveryUnderConcurrentPublishAndSlowDrain 是 R28 并发审计 P1 的压力测试：

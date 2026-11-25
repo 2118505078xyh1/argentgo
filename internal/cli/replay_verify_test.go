@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/server"
 )
 
 // danglingCallEvents 构造一个以未应答工具调用结束的会话：

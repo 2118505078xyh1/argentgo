@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/config"
+	"example.com/argentgo/internal/llm"
 )
 
 // initTestApp 构造一个"有交互终端"的测试 App，stdin 由脚本输入驱动。

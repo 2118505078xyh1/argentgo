@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tools"
 )
 
 // NewEvaler 返回供 `argentgo eval` 使用的 cli.EvalRunner。

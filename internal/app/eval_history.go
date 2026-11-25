@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件实现 eval history 的 app 层接线：用真实模型执行从 git 历史抽取的任务，

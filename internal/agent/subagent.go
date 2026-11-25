@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/calcutil"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/calcutil"
+	"example.com/argentgo/internal/llm"
 )
 
 const (

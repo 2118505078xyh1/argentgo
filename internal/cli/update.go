@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/update"
+	"example.com/argentgo/internal/update"
 )
 
 // defaultUpdateRepo 是 argentgo 发布版本所在的位置。

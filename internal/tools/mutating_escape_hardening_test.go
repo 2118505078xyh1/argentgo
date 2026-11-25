@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // newEscapeDirLink 在 link 处创建一个指向 outside 的目录链接。POSIX 上用符号链接；

@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 压缩后逐条淘汰的启用开关（项目 TODO #126）。默认关闭时恢复路径逐字节不变。

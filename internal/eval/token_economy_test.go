@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // tokenResult 构造带指定 token 用量的 Result（全部计入 PromptTokens，TotalTokens 即 tokens）。

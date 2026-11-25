@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agentpolicy"
+	"example.com/argentgo/internal/llm"
 )
 
 // ResponseKind 是单次模型回复的完整性类别。类型定义与分类逻辑已下沉到

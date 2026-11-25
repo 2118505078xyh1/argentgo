@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件测试压缩策略（SelectCompactionAction）在轮次中压缩触发点的 opt-in 观测接线：

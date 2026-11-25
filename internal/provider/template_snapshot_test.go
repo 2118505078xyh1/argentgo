@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // cloneStringSlice 复制切片并保留 nil 与空切片的区分，用于入参不变性断言。

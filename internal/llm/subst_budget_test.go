@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // defaultSubstMaxDepth 与实现中的默认上限保持一致（实现未导出该常量）。

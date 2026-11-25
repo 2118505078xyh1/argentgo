@@ -7,8 +7,8 @@
     <authors>2118505078xyh1</authors>
     <owners>2118505078xyh1</owners>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <licenseUrl>https://github.com/2118505078xyh1/argentgo/blob/main/LICENSE</licenseUrl>
-    <projectUrl>https://github.com/2118505078xyh1/argentgo</projectUrl>
+    <licenseUrl>https://example.com/argentgo/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://example.com/argentgo</projectUrl>
     <description>Personal coding-agent harness: streams model replies, runs tools, persists JSONL sessions, and ships a full-screen TUI plus a native Windows desktop UI.</description>
     <summary>Streaming coding-agent harness (CLI/TUI and Windows desktop UI).</summary>
     <tags>argentgo coding-agent agent cli tui windows</tags>

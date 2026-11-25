@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/security"
 )
 
 // ToolSpec 描述调用方可用自己的 registry 注册的工具。

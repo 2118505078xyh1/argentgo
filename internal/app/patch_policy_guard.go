@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/tools"
 )
 
 // patchPolicyPathsEnabled 报告 apply_patch 目标路径策略校验是否开启。

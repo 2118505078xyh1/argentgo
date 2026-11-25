@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/cli"
 )
 
 // P0 外泄守卫：项目配置改写 baseURL 后，用户自己的密钥绝不能被发往

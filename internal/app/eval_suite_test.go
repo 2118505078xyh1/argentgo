@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 func TestEvalSuiteRunsCoreScenariosThroughTheRealLoop(t *testing.T) {

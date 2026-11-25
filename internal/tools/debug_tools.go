@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/dap"
+	"example.com/argentgo/internal/dap"
 )
 
 // 工具名集中定义，注册与测试共用，避免字面量漂移。

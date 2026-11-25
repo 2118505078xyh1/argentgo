@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 func specWithParams(name, params string) llm.ToolSpec {
@@ -20,6 +20,7 @@ func specWithParams(name, params string) llm.ToolSpec {
 // 无关模型逐字节保持其 schema 不变，且工具集的目录未被修改。
 // （接上行）
 func TestAdvertisedSpecsProjectsSchemaForModel(t *testing.T) {
+	t.Setenv("ARGENT_CODE_MODE", "0") // 本测试精确断言投影后的 schema，隔离内建 code_mode
 	tests := []struct {
 		name      string
 		model     string
@@ -88,6 +89,7 @@ func TestAdvertisedSpecsProjectsSchemaForModel(t *testing.T) {
 // TestAdvertisedSpecsProjectsAfterFilter 检查投影应用于过滤后的列表，而非过滤前的目录。
 // （接上行）
 func TestAdvertisedSpecsProjectsAfterFilter(t *testing.T) {
+	t.Setenv("ARGENT_CODE_MODE", "0") // 本测试精确断言过滤+投影后的工具集，隔离内建 code_mode
 	keep := specWithParams("keep", `{"enum":["a","b"]}`)
 	drop := specWithParams("drop", `{"enum":["x","y"]}`)
 	s := &runState{

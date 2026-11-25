@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // 这些测试把原先留在 internal/tools 的运行时 helper 守卫补到 shell 侧：

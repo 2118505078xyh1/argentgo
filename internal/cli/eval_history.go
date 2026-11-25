@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/eval"
 )
 
 // runEvalHistory 实现 `eval history <repo> [--max-tasks N] [--since REF]`：

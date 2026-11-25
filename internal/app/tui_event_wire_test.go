@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestAgentToTUIEventToolStart 证明 tool_start 保留了 TUI 提升待审批卡片和渲染运行中任务行所需的字段。

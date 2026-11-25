@@ -7,10 +7,10 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/prof"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/agentpolicy"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/prof"
+	"example.com/argentgo/internal/textutil"
 )
 
 // MaxCompactRetries 是循环针对提供方报告的上下文溢出，可以进行的有上限的

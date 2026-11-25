@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 // lspWatchOptOutEnv 是关闭编辑后 LSP 文件变更通知的显式开关。

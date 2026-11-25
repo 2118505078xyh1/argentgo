@@ -1,9 +1,9 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 本文件提供“压缩前先跑本地确定性裁剪”的编排原语（对应 R30 学 omp 的

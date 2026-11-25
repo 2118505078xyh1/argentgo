@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // TestCheckUndoRestoreBlocksEscapingManifest 固定 CLI 撤销前置检查：

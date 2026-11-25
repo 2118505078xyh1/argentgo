@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把 worktree 三件套接到 app 装配面。与 ask_user 不同，worktree 工具

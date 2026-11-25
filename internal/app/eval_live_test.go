@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/eval"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/eval"
 )
 
 // 本文件端到端验证 --live 的显式入口 RunSuiteLive：它复用 eval_live_local_test.go

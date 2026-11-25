@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 命令审批呈现的规范化上限。它们是有界的固定值，保证 reason 与 Summary 的

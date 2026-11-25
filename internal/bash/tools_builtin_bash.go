@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/jobs"
-	"github.com/2118505078xyh1/argentgo/internal/netproxy"
-	"github.com/2118505078xyh1/argentgo/internal/proc"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/jobs"
+	"example.com/argentgo/internal/netproxy"
+	"example.com/argentgo/internal/proc"
+	"example.com/argentgo/internal/textutil"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // ---- bash ----

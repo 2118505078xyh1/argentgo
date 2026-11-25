@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // attemptEndCall 记录一次 EndAttempt 调用收到的参数。

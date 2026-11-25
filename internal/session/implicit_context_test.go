@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/textutil"
 )
 
 // TestExtractImplicitContextAssistantTails 验证末 tailN 条 assistant 正文尾被按原顺序抽取。

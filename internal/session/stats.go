@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 用于统计和每次请求用量的记录 kind。会话格式中 kind 是开放的（见 session.go），

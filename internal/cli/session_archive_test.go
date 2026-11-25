@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // newArchiveApp 构造一个带临时存储目录的 App，归档与会话文件都落在其中。

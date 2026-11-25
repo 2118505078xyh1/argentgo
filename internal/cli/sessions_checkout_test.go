@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/session"
 )
 
 // TestSessionsCheckoutCommand 验证 sessions checkout 子命令能就地切换活动记录，

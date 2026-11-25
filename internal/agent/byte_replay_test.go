@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // replayChatter 同时实现 Chatter 与 RawChatter，记录各路径调用次数与收到的 body。

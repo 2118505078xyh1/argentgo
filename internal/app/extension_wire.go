@@ -4,8 +4,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/extension"
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/extension"
+	"example.com/argentgo/internal/hooks"
 )
 
 // extensionInventoryEnv 是扩展清单诊断的环境变量。只有设为 "1" 才输出；

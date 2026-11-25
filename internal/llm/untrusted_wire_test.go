@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestMarkToolBoundaryDisabledIsIdentity 验证 opt-in 关闭时逐字节原样返回：

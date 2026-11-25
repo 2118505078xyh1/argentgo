@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // turnTimingLogCapture 是一个进程内的 slog.Handler：把收到的记录克隆后暂存在内存，

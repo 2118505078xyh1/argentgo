@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/server"
 )
 
 // countingApprover 记录操作人员被询问的次数。

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // wirePart 是测试侧用来解构 Message.ContentParts 中 content part 数组的镜像结构。

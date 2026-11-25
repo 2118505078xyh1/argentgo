@@ -7,8 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/textutil"
 )
 
 // continuationBriefCompactionEntry 把压缩载荷投影成 session.Messages() 产出的那种

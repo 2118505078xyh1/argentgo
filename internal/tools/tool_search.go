@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
-	"github.com/2118505078xyh1/argentgo/internal/tools/toolrank"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/tools/toolrank"
 )
 
 // ---- tool_search ----

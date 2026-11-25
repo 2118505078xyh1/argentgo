@@ -46,7 +46,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // 基准理解的编辑模式。

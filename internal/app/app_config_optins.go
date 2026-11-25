@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // 本文件把 config.ParseOptInDisplay 的展示投影映射成 app 层的 opt-in 开关映射，

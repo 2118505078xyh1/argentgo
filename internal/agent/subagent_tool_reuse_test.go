@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestSubagentToolTableReuseDefault 锁定 killi 决策 20 的核心不变量：

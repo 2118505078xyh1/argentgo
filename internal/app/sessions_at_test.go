@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/session"
 )
 
 // newAtTestStore 在临时目录里建一个存储与会话，转录为

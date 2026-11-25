@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
 )
 
 // R16 行为改变：默认 maxTurns 从 12 抬高到 100（与 agent.DefaultMaxTurns 对齐）。

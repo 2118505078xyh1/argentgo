@@ -3,7 +3,7 @@ package provider
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // ThinkingSupport 返回的思考支持种类。它们描述线上协议如何表达推理控制，而非是否启用。

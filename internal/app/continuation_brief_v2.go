@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 本文件把压缩摘要的结构化 V2 投影接到续接摘要，作为 opt-in 的扩展段。

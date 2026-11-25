@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件提供一个纯检测/清洗原语，供上层在把项目指令文档（AGENTS.md /

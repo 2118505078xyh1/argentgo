@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/telemetry"
+	"example.com/argentgo/internal/telemetry"
 )
 
 // telemetryOptInEnv 是类型化 telemetry 观测的独立门控变量。

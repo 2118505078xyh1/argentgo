@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // fakeCompactor 记录每次调用，并返回脚本化的对话缩短结果。它从不触碰会话，使 agent 测试保持独立。

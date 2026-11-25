@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/hooks"
 )
 
 func TestAnnotateSourceURLWebFetchAndWebSearch(t *testing.T) {

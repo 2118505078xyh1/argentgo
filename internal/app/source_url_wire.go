@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/llm"
 )
 
 // sourceAnnotatingTools 在工具结果返回给模型前叠加来源 URL 标注。

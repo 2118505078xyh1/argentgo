@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/server"
 )
 
 // dualProvider 同时实现 ConfigInfoProvider 与 StatusProvider，模拟

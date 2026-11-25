@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/browser"
+	"example.com/argentgo/internal/browser"
 )
 
 // browserSessionManager 是 BrowserManager 的进程内实现：按 root 维护一个 browser 实例，

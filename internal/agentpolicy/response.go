@@ -3,7 +3,7 @@ package agentpolicy
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // ResponseKind 是单次模型回复的完整性类别。它根据回复实际携带的内容

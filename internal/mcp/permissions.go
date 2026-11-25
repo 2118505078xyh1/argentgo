@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 在请求到达传输之前返回的哨兵错误。调用方可以用 errors.Is

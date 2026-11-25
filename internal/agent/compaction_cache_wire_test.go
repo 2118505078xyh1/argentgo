@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // countingSummaryCompactor 是一个产生摘要的伪实现。它记录真实的（有副作用的）摘要路径

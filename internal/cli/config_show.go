@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // configRedacted 在任何非空密钥的位置打印。它故意不是真实值，

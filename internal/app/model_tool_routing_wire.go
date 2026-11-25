@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件实现 #49：按 provider/model/模式动态收紧工具目录。它在工具目录装配后、

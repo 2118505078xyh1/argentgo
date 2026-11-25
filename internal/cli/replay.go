@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/server"
+	"example.com/argentgo/internal/session"
 )
 
 // runReplay 实现 `replay [id] [--json] [--verify]`。不带 id 时重放最近更新的会话。

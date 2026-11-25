@@ -1,7 +1,7 @@
 package llm
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/tokenize"
+	"example.com/argentgo/internal/tokenize"
 )
 
 // 输出上限拟合的最优参数（来自 TODO #9 的竞品口径）：

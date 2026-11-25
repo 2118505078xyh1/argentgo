@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // runRecoveryMetricsScenario 驱动一段"工具失败→（可选）成功→文本收尾"的脚本运行。

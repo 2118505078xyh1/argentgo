@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
 )
 
 // fakeOnceChatter 是具备 ChatOnce 的最小 Chatter（Chat 方法满足 llm.Chatter）。

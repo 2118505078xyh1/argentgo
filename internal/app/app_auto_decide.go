@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
+	"example.com/argentgo/internal/agent"
 )
 
 // 本文件把 decision_judge.go 的纯函数 DecidePrompt 以 opt-in 方式接入 Execute。

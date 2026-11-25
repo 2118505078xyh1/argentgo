@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 func TestParseRetryPolicy(t *testing.T) {

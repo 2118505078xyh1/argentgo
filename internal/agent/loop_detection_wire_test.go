@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // loopWireResult 是一次循环检测接线场景的可观测结果。

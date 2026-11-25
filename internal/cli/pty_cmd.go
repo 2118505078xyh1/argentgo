@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/pty"
+	"example.com/argentgo/internal/pty"
 )
 
 // ptyOptInEnv 是启用 pty 子命令的环境变量。默认未设置时本文件不注册任何

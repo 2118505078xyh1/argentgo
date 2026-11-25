@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // malformedCases 把三协议的真实客户端构造器与一条"合法文本增量帧"组织在一起，

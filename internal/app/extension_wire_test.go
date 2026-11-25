@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/hooks"
 )
 
 func TestExtensionInventoryEnabled(t *testing.T) {

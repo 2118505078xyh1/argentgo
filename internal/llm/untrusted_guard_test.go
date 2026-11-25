@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件围绕不可信内容边界原语补充"增强往返与防注入守护"测试，不改生产逻辑。

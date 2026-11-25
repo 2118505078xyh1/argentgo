@@ -3,7 +3,7 @@ package extension
 import (
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/hooks"
+	"example.com/argentgo/internal/hooks"
 )
 
 // trustAuthorizer 把 hooks.TrustStore 的 (key,digest) 授权包装成门面的 Authorizer。

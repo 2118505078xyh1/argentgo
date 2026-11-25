@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/tools"
 )
 
 func specNames(specs []llm.ToolSpec) []string {

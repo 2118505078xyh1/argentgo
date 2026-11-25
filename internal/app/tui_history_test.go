@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/session"
-	"github.com/2118505078xyh1/argentgo/internal/tui"
+	"example.com/argentgo/internal/session"
+	"example.com/argentgo/internal/tui"
 )
 
 // TestEntriesToTUI 验证会话历史到 TUI 条目的映射：user/assistant/reasoning/tool

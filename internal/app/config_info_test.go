@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/server"
 )
 
 // TestNewConfigInfoProviderMapsResolvedFields 验证适配器把 Resolved 的

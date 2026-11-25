@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // 本文件提供一个纯函数的状态快照聚合器。它把一轮状态、就绪门控与配置完整性三个

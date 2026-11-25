@@ -3,7 +3,7 @@ package hooks
 import (
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // eventHandler 是一个事件类型的分发处理器。它把事件专属的元数据

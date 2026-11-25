@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // refusalReason 控制是否把工具错误分类成结构化拒绝原因写入 callResult，默认关闭。

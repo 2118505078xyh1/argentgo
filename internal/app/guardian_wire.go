@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件把第 5 轮产出的 guardianInspector 接进 app 的检查门。接线刻意保持"骨架 +

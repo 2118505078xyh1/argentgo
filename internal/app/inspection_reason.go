@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // formatInspectionReason 把一次检查判定的发现 ID 和原因渲染为一条人类可读的上下文字符串。

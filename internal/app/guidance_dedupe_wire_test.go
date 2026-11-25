@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/cli"
 )
 
 // TestGuidanceDedupeEnvGate 锁定默认开、=0 关的解析规则（值允许首尾空白）：

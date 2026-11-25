@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestParallelBatchTracksBreakerInCallOrder 检查无效参数熔断器的最终状态由工具调用的顺序决定，

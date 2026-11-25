@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 // 本文件是端到端集成测试：它通过 stdio 讲真实 LSP

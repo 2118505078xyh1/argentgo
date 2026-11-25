@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件承载 TODO #28 的 app 侧接线：Execute 入口写 working，按结果写 done/error，

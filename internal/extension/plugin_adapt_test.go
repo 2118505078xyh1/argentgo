@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
+	"example.com/argentgo/internal/plugins"
 )
 
 // makeBundleDir 造一个 bundle 目录。清单里的路径是相对 bundle 根的（真实约定），

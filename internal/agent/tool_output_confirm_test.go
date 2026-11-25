@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestShouldConfirmToolOutput 覆盖纯判定函数在敏感命令、普通命令、阈值边界、

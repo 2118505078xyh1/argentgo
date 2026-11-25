@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/provider"
+	"example.com/argentgo/internal/provider"
 )
 
 // TestThinkingOptionsForProtocol 验证思考档位被映射为协议对应的原生推理控制：

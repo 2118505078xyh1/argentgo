@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // finalAnswerPrompt 在步骤预算耗尽后作为一条合成的用户轮次注入。

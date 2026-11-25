@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/2118505078xyh1/argentgo/internal/textutil"
+	"example.com/argentgo/internal/textutil"
 )
 
 // 隐式上下文保留（R12 长对话学习方案 #3，opt-in）的纯原语。

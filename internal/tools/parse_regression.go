@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/astcache"
+	"example.com/argentgo/internal/astcache"
 )
 
 // parseRegressionEnv 是「写入前 Go 语法劣化检查」的独立门控变量。

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/prof"
+	"example.com/argentgo/internal/prof"
 )
 
 // DefaultResponsesMaxOutputTokens 在 ResponsesClient.MaxOutputTokens

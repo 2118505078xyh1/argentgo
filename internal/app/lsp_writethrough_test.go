@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/lsp"
+	"example.com/argentgo/internal/lsp"
 )
 
 // lspNotifyCall 记录一次批量通知的目标客户端与变更列表。

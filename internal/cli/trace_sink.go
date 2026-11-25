@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // stderrTraceSink 把请求追踪摘要以单行 JSON 写到给定 writer（通常是 stderr）。

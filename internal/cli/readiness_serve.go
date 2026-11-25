@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // readinessProbe 探测单个组件，返回是否就绪以及未就绪时的简短原因。

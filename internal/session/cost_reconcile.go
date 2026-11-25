@@ -1,6 +1,6 @@
 package session
 
-import "github.com/2118505078xyh1/argentgo/internal/calcutil"
+import "example.com/argentgo/internal/calcutil"
 
 // 本文件保留 session 包既有的成本回灌 API（类型别名 + 薄转发），
 // 实际的纯算术实现已下沉到零依赖的 calcutil 包，作为单一真源。

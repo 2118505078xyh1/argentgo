@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/prof"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/prof"
 )
 
 // maybeCompact 实现轮次中的压缩边界。它只在工具批次之后运行，绝不会在工具调用与其结果之间运行。
@@ -99,7 +99,36 @@ func (s *runState) advertisedSpecs() []llm.ToolSpec {
 	if s.opts.FilterSpecs != nil {
 		specs = s.opts.FilterSpecs(specs)
 	}
+	// Code Mode DSL（#63）：由 agent 层直接公布，不经过工具注册表 wiring。
+	// 执行在 callTool 拦截，每步仍走完整审批链。放在 FilterSpecs 之后，
+	// 使沙箱/策略过滤器仍可收窄模型可见集（过滤器也可主动排除 code_mode）。
+	if codeModeEnabled() && !hasToolSpec(specs, "code_mode") {
+		specs = append(specs, codeModeSpec())
+	}
 	return projectSpecsForModel(specs, s.model)
+}
+
+// codeModeSpec 返回公布给模型的 code_mode 工具 schema（唯一真源）。
+// 放在本文件是为了让新增的 codemode.go 只依赖标准库，不重复写出 module 路径。
+func codeModeSpec() llm.ToolSpec {
+	var spec llm.ToolSpec
+	spec.Type = "function"
+	spec.Function.Name = "code_mode"
+	spec.Function.Description = "执行一段受约束工具脚本：一次调用顺序运行多个工具，减少往返。" +
+		"steps 是有序数组，每项 {tool, args, as?}；args 字符串可用 {{steps.N.output}} 或 {{vars.name}} 引用前步结果。" +
+		"无循环/条件/任意代码，最多 32 步，每步仍走审批与策略。"
+	spec.Function.Parameters = json.RawMessage(`{"type":"object","properties":{"steps":{"type":"array","items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"},"as":{"type":"string"}},"required":["tool","args"]}}},"required":["steps"]}`)
+	return spec
+}
+
+// hasToolSpec 报告工具列表里是否已有给定名字。
+func hasToolSpec(specs []llm.ToolSpec, name string) bool {
+	for _, spec := range specs {
+		if spec.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // projectSpecsForModel 对每个非空的 Parameters 文档应用按模型系列的 schema 投影。

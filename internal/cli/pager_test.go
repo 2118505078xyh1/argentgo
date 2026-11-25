@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/server"
 )
 
 // errWriter fails every write with err, standing in for a stdout pipe whose

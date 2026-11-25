@@ -1,9 +1,9 @@
 package extension
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/commands"
-	"github.com/2118505078xyh1/argentgo/internal/plugins"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/commands"
+	"example.com/argentgo/internal/plugins"
+	"example.com/argentgo/internal/skills"
 )
 
 // 本文件是四套体系的薄适配：把各自的条目/诊断类型映射成门面类型。

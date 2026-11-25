@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 默认流式路径的请求字节是回归基线：ChatOnce 只把 stream 置 false，

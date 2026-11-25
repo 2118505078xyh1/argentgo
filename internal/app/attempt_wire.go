@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/session"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/session"
 )
 
 // 本文件提供"失败尝试隔离"的 app 侧装配骨架。它刻意保持零调用方：不读取进程环境、

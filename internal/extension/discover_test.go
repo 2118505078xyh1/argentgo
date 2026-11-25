@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/commands"
+	"example.com/argentgo/internal/commands"
 )
 
 func TestDiscoverSkillsProjectsToDescriptors(t *testing.T) {

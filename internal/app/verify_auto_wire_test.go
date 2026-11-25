@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // withGoMod 在临时工作区写入一个最小 go.mod，返回工作区根目录。

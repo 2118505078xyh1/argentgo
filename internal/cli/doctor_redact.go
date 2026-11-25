@@ -3,7 +3,7 @@ package cli
 import (
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // doctor 的输出经常被复制到公开 issue 中。一条 detail 可能内嵌配置路径、

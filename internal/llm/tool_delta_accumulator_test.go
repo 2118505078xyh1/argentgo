@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestToolDeltaAccumulatorAccumulate 用表驱动覆盖多工具交错分片、参数累加、

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 func writeAuditFile(t *testing.T, dir, name string, entries ...security.AuditEntry) {

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/pluginapi"
+	"example.com/argentgo/internal/pluginapi"
 )
 
 // TestBuiltinRegistryStableOrder 验证实例化顺序由显式 order 决定，

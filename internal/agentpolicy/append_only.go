@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // stablePrefixDigestSeed 让摘要与协议自身的 JSON 编码解耦：即使 llm.Message

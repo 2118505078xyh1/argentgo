@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/security"
 )
 
 // stagedApprover 是生产可用的一次性/始终/拒绝分阶段审批器。

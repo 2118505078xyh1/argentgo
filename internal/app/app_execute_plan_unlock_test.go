@@ -7,10 +7,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/cli"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/security"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/cli"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/security"
+	"example.com/argentgo/internal/tools"
 )
 
 // mergeEnv 在基础 env 之上叠加覆盖项，仅用于测试构造注入的环境。

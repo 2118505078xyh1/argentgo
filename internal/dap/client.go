@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // Client 是一条到 debug adapter 的 DAP 会话。它管理子进程、帧读写、

@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/agentpolicy"
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/agentpolicy"
+	"example.com/argentgo/internal/llm"
 )
 
 // 本文件提供"推测执行"的 agent 侧编排原语：计算调用指纹、缓存预跑结果、

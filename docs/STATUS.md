@@ -60,7 +60,7 @@ Rust 参考实现（`argent` v0.4.0）已在上游归档，其本地检出也已
 
 ### 分发与 IDE
 
-- `go install github.com/2118505078xyh1/argentgo/cmd/argent@latest` 是受支持的源码分发路径（Go 1.27.3+）；预编译的 Windows 发布 zip 仍是主要途径。见 [User guide](USER_GUIDE.md)。
+- `go install example.com/argentgo/cmd/argent@latest` 是受支持的源码分发路径（Go 1.27.3+）；预编译的 Windows 发布 zip 仍是主要途径。见 [User guide](USER_GUIDE.md)。
 - IDE 级 LSP：`documentSymbol` / `references` / `codeAction` / `rename` 等进阶方法已实现；下一步是补进阶方法硬断言与更多语言 server 验证（R24 已补真实 gopls 的 best-effort 结构化验证）——只用标准库，不新增 Go 模块。
 - 超出范围：C-ABI 插件加载器、tree-sitter AST 和 DAP 适配器。
 

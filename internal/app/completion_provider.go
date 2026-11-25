@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/predict"
-	"github.com/2118505078xyh1/argentgo/internal/server"
+	"example.com/argentgo/internal/predict"
+	"example.com/argentgo/internal/server"
 )
 
 // completionProvider 把 predict.Engine 适配为 server.CompletionProvider：

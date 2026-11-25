@@ -11,8 +11,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/prof"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/prof"
 )
 
 const (
@@ -105,6 +105,12 @@ func (s *runState) callTool(ctx context.Context, name, args string) (out string,
 			err = safeToolPanic(p)
 		}
 	}()
+	// Code Mode（#63）：受约束脚本一次调多个工具。每步子调用递归进入本函数，
+	// 因此审批/策略/审计/超时对每一步都完整生效；这里只做脚本解析与聚合。
+	if name == "code_mode" {
+		out, err = s.runCodeMode(ctx, args)
+		return out, ToolMeta{}, err
+	}
 	if metaRunner, ok := s.tools.(MetaToolRunner); ok {
 		return metaRunner.RunWithMeta(ctx, name, args)
 	}

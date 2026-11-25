@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestAccountAccumulatesCachedTokens 验证累计统计里的缓存细分会随每轮回复累加，

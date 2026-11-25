@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/workflow"
+	"example.com/argentgo/internal/workflow"
 )
 
 // runWorkflow 实现 `workflow <list|run|show>`。定义是位于

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/config"
+	"example.com/argentgo/internal/config"
 )
 
 // 本文件实现顶层子命令 `argent opt-ins`：给出所有已知 opt-in 的统一清单。

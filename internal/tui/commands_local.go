@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/i18n"
+	"example.com/argentgo/internal/i18n"
 )
 
 // 本文件是 TUI 原生斜杠命令的单一注册点：补全列表、参数提示、本地化描述

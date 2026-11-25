@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/security"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/security"
 )
 
 // panicLogf 是各传输的 fire-and-forget goroutine 捕获 panic 时的日志出口。

@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/2118505078xyh1/argentgo/internal/agent"
-	"github.com/2118505078xyh1/argentgo/internal/skills"
+	"example.com/argentgo/internal/agent"
+	"example.com/argentgo/internal/skills"
 )
 
 // skillWriter 把 skills 包适配为 internal/agent 中的本地接缝，

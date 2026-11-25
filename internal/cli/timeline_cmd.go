@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/tui/timeline"
+	"example.com/argentgo/internal/tui/timeline"
 )
 
 // runTimeline 实现 `argentgo timeline info|replay|hash <file>`：检查、回放或

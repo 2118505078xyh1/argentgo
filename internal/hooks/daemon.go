@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/2118505078xyh1/argentgo/internal/proc"
+	"example.com/argentgo/internal/proc"
 )
 
 // 本文件实现「事件钩子常驻外部进程扩展」（对标 pi-mono ExtensionAPI）。

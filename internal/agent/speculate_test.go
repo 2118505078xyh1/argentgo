@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // fpExpected 用字面拼接重新计算指纹，独立于 SpeculativeFingerprint 的实现，

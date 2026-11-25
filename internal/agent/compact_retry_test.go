@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // TestCompactRetryDecisionWireValues 锁定稳定的字符串值，使前端或持久化的记录无需导入本包的

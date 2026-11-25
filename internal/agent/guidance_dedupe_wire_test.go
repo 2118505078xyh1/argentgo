@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // runGuidanceDedupeScenario 驱动一段"连续失败→（可选）成功→再次失败"的脚本运行。

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/tools"
 )
 
 // approvalPreviewEnv 是「审批差异预览」的独立门控变量。默认开启，修剪后精确为 "0" 时关闭。

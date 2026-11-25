@@ -1,6 +1,6 @@
 package server
 
-import "github.com/2118505078xyh1/argentgo/internal/security"
+import "example.com/argentgo/internal/security"
 
 // abortResult 生成结构化的取消结果响应，形如
 // {"cancelled":true,"reason":"..."}。

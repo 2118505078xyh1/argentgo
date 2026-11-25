@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
-	"github.com/2118505078xyh1/argentgo/internal/tools"
+	"example.com/argentgo/internal/llm"
+	"example.com/argentgo/internal/tools"
 )
 
 // 本文件守护 mcp.go 中 codegraph 的 opt-in 注册分支：默认关闭时工具列表与 golden

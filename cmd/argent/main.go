@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/2118505078xyh1/argentgo/internal/app"
-	"github.com/2118505078xyh1/argentgo/internal/cli"
+	"example.com/argentgo/internal/app"
+	"example.com/argentgo/internal/cli"
 )
 
 func main() {

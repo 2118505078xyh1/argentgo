@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/2118505078xyh1/argentgo/internal/llm"
+	"example.com/argentgo/internal/llm"
 )
 
 // 流错误可见性辅助函数（goose 研究项 3 和 5）。
