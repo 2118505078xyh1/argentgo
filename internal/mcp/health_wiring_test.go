@@ -168,7 +168,7 @@ func TestHealthReporterNotInClientInterface(t *testing.T) {
 	}
 }
 
-// minimalClient 是只实现 Client 五个方法的 fake，用于确认可选接口的隔离性。
+// minimalClient 是只实现 Client 接口方法的 fake，用于确认可选接口的隔离性。
 type minimalClient struct{}
 
 func (*minimalClient) Initialize(context.Context) (ServerInfo, error) { return ServerInfo{}, nil }
@@ -177,4 +177,10 @@ func (*minimalClient) CallTool(context.Context, string, json.RawMessage) (string
 	return "", nil
 }
 func (*minimalClient) ListResources(context.Context) ([]Resource, error) { return nil, nil }
-func (*minimalClient) Close() error                                      { return nil }
+func (*minimalClient) ListResourceTemplates(context.Context) ([]ResourceTemplate, error) {
+	return nil, nil
+}
+func (*minimalClient) ReadResource(context.Context, string) ([]ResourceContent, error) {
+	return nil, nil
+}
+func (*minimalClient) Close() error { return nil }

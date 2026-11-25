@@ -17,9 +17,12 @@ import (
 // fakeMCPClient 代替真实服务，使安全接线能在不派生进程、不使用网络的情况下
 // 被测试。
 type fakeMCPClient struct {
-	tools  []mcp.Tool
-	calls  []string
-	closed bool
+	tools     []mcp.Tool
+	calls     []string
+	closed    bool
+	resources []mcp.Resource
+	templates []mcp.ResourceTemplate
+	contents  map[string][]mcp.ResourceContent
 }
 
 func (f *fakeMCPClient) Initialize(context.Context) (mcp.ServerInfo, error) {
@@ -30,7 +33,15 @@ func (f *fakeMCPClient) CallTool(_ context.Context, name string, _ json.RawMessa
 	f.calls = append(f.calls, name)
 	return "ok", nil
 }
-func (f *fakeMCPClient) ListResources(context.Context) ([]mcp.Resource, error) { return nil, nil }
+func (f *fakeMCPClient) ListResources(context.Context) ([]mcp.Resource, error) {
+	return f.resources, nil
+}
+func (f *fakeMCPClient) ListResourceTemplates(context.Context) ([]mcp.ResourceTemplate, error) {
+	return f.templates, nil
+}
+func (f *fakeMCPClient) ReadResource(_ context.Context, uri string) ([]mcp.ResourceContent, error) {
+	return f.contents[uri], nil
+}
 func (f *fakeMCPClient) Close() error {
 	f.closed = true
 	return nil

@@ -688,6 +688,10 @@ func (t *toolset) Specs() []llm.ToolSpec {
 	for _, binding := range t.mcp {
 		specs = append(specs, binding.spec)
 	}
+	// 资源侧工具只在确有 MCP 服务时公布，避免无 MCP 的运行膨胀工具目录。
+	if len(t.mcp) > 0 {
+		specs = append(specs, mcpResourceSpecs()...)
+	}
 	if t.skills != nil && t.skills.Len() > 0 {
 		useSkill := skills.UseSkillSpec()
 		spec := llm.ToolSpec{Type: useSkill.Type}
@@ -703,6 +707,13 @@ func (t *toolset) Specs() []llm.ToolSpec {
 func (t *toolset) Run(ctx context.Context, name, args string) (string, error) {
 	if t.gateway && name == mcpGatewayToolName {
 		return t.runMCPGateway(ctx, args)
+	}
+	// 资源侧是只读工具：不写文件、不经修改类审批链，但内容按不可信输入限幅。
+	switch name {
+	case mcpListResourcesTool:
+		return t.listMCPResources(ctx, args)
+	case mcpReadResourceTool:
+		return t.readMCPResource(ctx, args)
 	}
 	binding := t.findMCP(name)
 	// opt-in 默认关闭：未开启 list_changed 跟踪时完全不走刷新路径。开启后，

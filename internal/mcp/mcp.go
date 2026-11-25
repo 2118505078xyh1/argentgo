@@ -171,6 +171,8 @@ type Client interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	CallTool(ctx context.Context, name string, args json.RawMessage) (string, error)
 	ListResources(ctx context.Context) ([]Resource, error)
+	ListResourceTemplates(ctx context.Context) ([]ResourceTemplate, error)
+	ReadResource(ctx context.Context, uri string) ([]ResourceContent, error)
 	Close() error
 }
 
