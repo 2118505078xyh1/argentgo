@@ -261,16 +261,16 @@
 
 ## 11. 执行恢复与事件溯源（来自架构级范式）
 
-183. **append-only 事件日志是唯一事实源，消息历史派生** — `[部分]`（JSONL 是事实源，投影不完整）
+183. **append-only 事件日志是唯一事实源，消息历史派生** — `[部分]` JSONL 事实源；统一解码边界已建，投影仍分散
 184. **durable event 最小化 + 读模型富化（derived 状态）** — `[部分]`
-185. **tagged union 事件 + `switch(type)` 窄化** — `[部分]`（EventKind 字符串，无判别联合类型）
+185. **tagged union 事件 + `switch(type)` 窄化** — `[已有]` EventKind 判别联合 + eventKindOf 别名收敛
 186. **`ignorable` 标记决定未知事件跳过/拒绝重建** — `[已有]` Record.Ignorable + CheckUnknownKinds fail-closed
-187. **纯函数投影 + O(新增) 增量 + generation stamp 失效** — `[部分]`（dircache 有 stamp，会话投影无）
+187. **纯函数投影 + O(新增) 增量 + generation stamp 失效** — `[部分]` ProjectionCache 增量原语已建，尚未接 messages()
 188. **本地操作投影与 durable 事件原子提交** — `[部分]`
-189. **统一事件解码边界 + 版本演进升级** — `[部分]`（JSONL 校验器，无统一 decode 入口）
-190. **按聚合的有序 log 读取 + 分页 + watermark** — `[部分]`（event_seq 续传）
+189. **统一事件解码边界 + 版本演进升级** — `[已有]` DecodeRecord 统一入口 + MigrateRecords 版本迁移
+190. **按聚合的有序 log 读取 + 分页 + watermark** — `[已有]` ReadPage 分页游标 + Page.Watermark 位置标记
 191. **格式版本单调 + 相邻迁移只新增后继** — `[部分]`
-192. **事件族共享稳定业务 id** — `[部分]`（ToolCallID 有，其他事件无）
+192. **事件族共享稳定业务 id** — `[已有]` correlationIDOf：载荷 toolCallId/attemptId → 记录 id 回落
 193. **投递与执行分离 + 幂等 ID（first-admission-wins）** — `[部分]`（inbox 未闭环）
 194. **write-ahead claim 崩溃恢复（终态释放/中断保留）** — `[部分]`（turn lease + claims）
 195. **背压（ack 窗口 + 队列折叠）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽

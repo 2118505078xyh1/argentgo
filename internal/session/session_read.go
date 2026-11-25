@@ -143,11 +143,12 @@ func readRecords(path string) ([]Record, error) {
 		if line == "" {
 			continue
 		}
-		var record Record
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
+		// 统一解码边界（#189）：与旧 json.Unmarshal 逐字节等价，坏行同样宽松跳过。
+		event, ok, err := DecodeRecord(line)
+		if err != nil || !ok {
 			continue
 		}
-		records = append(records, record)
+		records = append(records, event.Record)
 	}
 	// 只在解析完整个文件之后才生成合成 id，使后面出现的显式 id 不会与
 	// 为更早的无 id 记录生成的 id 冲突（session 审计 #5）。nextID 会跳过

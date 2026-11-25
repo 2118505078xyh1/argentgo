@@ -2,7 +2,6 @@ package session
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -23,6 +22,19 @@ type Page struct {
 	Next    string
 	HasMore bool
 	Bytes   int
+}
+
+// Watermark 返回本页在转录中的稳定位置标记（清单 #190/#198）：
+// "记录数@最后一条 id"。调用方可据此声明回放进度与跨版本边界——
+// 旧客户端忽略它，逐字节兼容；它不参与页的 JSON 序列化契约。
+// 空页返回 "0@"。
+func (p Page) Watermark() string {
+	n := len(p.Records)
+	id := ""
+	if n > 0 {
+		id = p.Records[n-1].ID
+	}
+	return fmt.Sprintf("%d@%s", n, id)
 }
 
 // parsedRecord 将解码后的记录与其磁盘上的行大小配对。
@@ -93,11 +105,12 @@ func parseRecordsForPage(path string) ([]parsedRecord, error) {
 		if line == "" {
 			continue
 		}
-		var record Record
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
+		// 与 readRecords 共用统一解码边界（#189），逐字节等价。
+		event, ok, err := DecodeRecord(line)
+		if err != nil || !ok {
 			continue
 		}
-		parsed = append(parsed, parsedRecord{record: record, size: len(raw)})
+		parsed = append(parsed, parsedRecord{record: event.Record, size: len(raw)})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("session: read %s: %w", path, err)

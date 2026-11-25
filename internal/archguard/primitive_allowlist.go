@@ -39,6 +39,9 @@ type primitiveAllowEntry struct {
 //		},
 //	}
 var primitiveAllowlist = []primitiveAllowEntry{
+	// 分页 watermark（#190/#198）：声明回放进度与跨版本边界的只读辅助。
+	// 当前由测试锁定形状；计划由 /v1/event 续传头与 doctor 展示回放进度时接线。
+	{Symbol: "internal/session/page.go:Watermark", Reason: "分页回放位置标记 API；计划由事件续传响应头消费，当前供测试与边界声明使用"},
 	// TUI 键位冲突诊断：检测用户覆盖层与默认表的重名键。当前由配置预览/测试
 	// 消费，尚未接入 doctor 的诊断输出；作为键位注册表地剂的公开诊断 API 保留。
 	{Symbol: "internal/tui/actions.go:Conflict", Reason: "键位覆盖冲突诊断 API；计划由 doctor/配置预览展示重绑定冲突，当前供测试与未来配置诊断调用"},
