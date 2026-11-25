@@ -94,7 +94,7 @@
 58. **live steering（流中重定向）** — `[opt-in]` live_steer
 59. **推测执行 / 预热 / 后台 kernel** — `[缺口]`（omp 有，与单二进制约束冲突）
 60. **write-ahead execution claim + 崩溃恢复** — `[部分]` turn lease + claims，非完整 claim 语义
-61. **backpressure（慢消费者折叠更新）** — `[缺口]`（chord 有）
+61. **backpressure（慢消费者折叠更新）** — `[已有]` EventHub 满缓冲订阅者淘汰 + 终态预留槽
 62. **inbox 投递与执行分离 + 幂等 ID** — `[部分]` internal/inbox 存在但未与执行闭环
 63. **Code Mode DSL（受约束脚本调工具）** — `[缺口]`（已登记未展开）
 64. **goal 目标循环 / 有界迭代** — `[已有]` /goal
@@ -255,7 +255,7 @@
 179. **FIM / 图像 part / 提示缓存 wire 支持** — `[已有]`（提示缓存默认关）
 180. **MCP 协议（stdio/HTTP-SSE + 健康诊断）** — `[已有]`
 181. **多 SDK / 跨语言边界** — `[部分]`（RPC JSONL，无官方多语言 SDK）
-182. **server 契约版本兼容性声明** — `[缺口]`
+182. **server 契约版本兼容性声明** — `[已有]` /v1/version + /v1/health 报版本
 
 ---
 
