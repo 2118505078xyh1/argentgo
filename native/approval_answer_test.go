@@ -80,7 +80,7 @@ func TestApprovalKeysSendAnswerRPC(t *testing.T) {
 	t.Run("Y allows", func(t *testing.T) {
 		app, calls := approvalRPCFixture(t)
 		tt := ui.NewTester(app.view, 1180, 720)
-		if err := tt.Click("AGENT RUNTIME"); err != nil { // move focus out of the composer
+		if err := tt.Click("文档"); err != nil { // move focus out of the composer
 			t.Fatal(err)
 		}
 		tt.Key(0, ui.KeyY)
@@ -95,7 +95,7 @@ func TestApprovalKeysSendAnswerRPC(t *testing.T) {
 	t.Run("N denies", func(t *testing.T) {
 		app, calls := approvalRPCFixture(t)
 		tt := ui.NewTester(app.view, 1180, 720)
-		if err := tt.Click("AGENT RUNTIME"); err != nil {
+		if err := tt.Click("文档"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Key(0, ui.KeyN)

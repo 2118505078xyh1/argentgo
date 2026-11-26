@@ -64,7 +64,7 @@ func TestStatusLineShortcuts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 把焦点移出自动聚焦的输入框，使窗口快捷键生效。
-	if err := tt.Click("AGENT RUNTIME"); err != nil {
+	if err := tt.Click("文档"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(ui.Cmd, ui.KeyZ)
@@ -77,7 +77,7 @@ func TestStatusLineShortcuts(t *testing.T) {
 		t.Errorf("undo left %d messages, approval=%v", len(app.messages), app.approval)
 	}
 	// Undo 移除审批卡片，它把焦点送回输入框。
-	if err := tt.Click("AGENT RUNTIME"); err != nil {
+	if err := tt.Click("文档"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(ui.Cmd, ui.KeyY)
@@ -143,7 +143,7 @@ func TestApprovalKeyboardAndButtons(t *testing.T) {
 		t.Errorf("approval card missing in %q", tt.Texts())
 	}
 	// 当输入框没有焦点时 Y 允许待处理的审批。
-	if err := tt.Click("AGENT RUNTIME"); err != nil {
+	if err := tt.Click("文件"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(0, ui.KeyY)
