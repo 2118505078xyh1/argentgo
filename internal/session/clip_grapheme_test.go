@@ -196,7 +196,7 @@ func TestContextWindowSnapsBothEdgesToClusterBoundary(t *testing.T) {
 	}
 
 	// 脱敏仍先于最终截断：长 token 的占位符保持完整。
-	secretValue := "e\u0301" + strings.Repeat("x", 47) + "token = 2118505078xyh1" +
+	secretValue := "e\u0301" + strings.Repeat("x", 47) + "token = FAKE_SECRET_VALUE" +
 		strings.Repeat("y", 200)
 	secretData, err := json.Marshal(secretValue)
 	if err != nil {
@@ -206,7 +206,7 @@ func TestContextWindowSnapsBothEdgesToClusterBoundary(t *testing.T) {
 	if !ok {
 		t.Fatal("snippetFor found no token hit")
 	}
-	if strings.Contains(secretSnippet, "2118505078xyh1") {
+	if strings.Contains(secretSnippet, "FAKE_SECRET_VALUE") {
 		t.Fatalf("片段泄露了密钥: %q", secretSnippet)
 	}
 	if !strings.Contains(secretSnippet, "[redacted:token]") {

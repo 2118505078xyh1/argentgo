@@ -4,8 +4,8 @@
     <id>argentgo</id>
     <version>{{VERSION}}</version>
     <title>argentgo (Install)</title>
-    <authors>2118505078xyh1</authors>
-    <owners>2118505078xyh1</owners>
+    <authors>argentgo</authors>
+    <owners>argentgo</owners>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <licenseUrl>https://example.com/argentgo/blob/main/LICENSE</licenseUrl>
     <projectUrl>https://example.com/argentgo</projectUrl>

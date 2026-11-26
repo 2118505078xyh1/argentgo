@@ -600,7 +600,7 @@ func TestOldJSONLRecordsRemainReadableWithoutNewKinds(t *testing.T) {
 	path := filepath.Join(dir, "legacy.jsonl")
 	writeRawSession(t, path, []Record{
 		{ID: "n1", Kind: KindHeader, Data: []byte(`{"title":""}`)},
-		{ID: "n2", Parent: "n1", Kind: KindUser, Data: []byte(`{"text":"token = 2118505078xyh1"}`)},
+		{ID: "n2", Parent: "n1", Kind: KindUser, Data: []byte(`{"text":"token = FAKE_SECRET_VALUE"}`)},
 		{ID: "n3", Parent: "n2", Kind: KindAssistant, Data: []byte(`"ok"`)},
 	})
 	sess, err := OpenSession(dir, "legacy")

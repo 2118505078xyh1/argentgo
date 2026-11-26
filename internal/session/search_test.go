@@ -128,7 +128,7 @@ func TestSearchNoMatchReturnsEmpty(t *testing.T) {
 func TestSearchRedactsSecretInSnippet(t *testing.T) {
 	dir := t.TempDir()
 	writeRawSession(t, filepath.Join(dir, "secret.jsonl"), []Record{
-		{ID: "n1", Kind: KindTool, Data: json.RawMessage(`{"output":"token = 2118505078xyh1 ok"}`)},
+		{ID: "n1", Kind: KindTool, Data: json.RawMessage(`{"output":"token = FAKE_SECRET_VALUE ok"}`)},
 	})
 	hits, err := Search(dir, "token", 0)
 	if err != nil {
@@ -137,7 +137,7 @@ func TestSearchRedactsSecretInSnippet(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("hits = %+v", hits)
 	}
-	if strings.Contains(hits[0].Snippet, "2118505078xyh1") {
+	if strings.Contains(hits[0].Snippet, "FAKE_SECRET_VALUE") {
 		t.Fatalf("secret leaked: %q", hits[0].Snippet)
 	}
 	if !strings.Contains(hits[0].Snippet, "[redacted:") {

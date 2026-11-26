@@ -45,8 +45,8 @@ func TestTitleGenerationPromptTruncatesLongInputAtRuneBoundary(t *testing.T) {
 }
 
 func TestTitleGenerationPromptRedactsSecrets(t *testing.T) {
-	prompt := titleGenerationPrompt("token = 2118505078xyh1")
-	if strings.Contains(prompt, "2118505078xyh1") {
+	prompt := titleGenerationPrompt("token = FAKE_SECRET_VALUE")
+	if strings.Contains(prompt, "FAKE_SECRET_VALUE") {
 		t.Fatalf("提示泄露了密钥: %q", prompt)
 	}
 	if !strings.Contains(prompt, "[redacted:token]") {

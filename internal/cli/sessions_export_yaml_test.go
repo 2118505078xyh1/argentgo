@@ -113,7 +113,7 @@ func TestSessionsExportDefaultFormatIsStillHTML(t *testing.T) {
 
 func TestSessionsExportYAMLWithSanitizeRedacts(t *testing.T) {
 	storage := t.TempDir()
-	secret := "token = 2118505078xyh1"
+	secret := "token = FAKE_SECRET_VALUE"
 	writeJSONLSession(t, storage, "secret", []map[string]any{
 		record("n1", "", "2026-01-01T00:00:00Z", "header", map[string]any{"title": "demo"}),
 		record("n2", "n1", "2026-01-01T00:00:01Z", "tool", map[string]any{"output": secret}),

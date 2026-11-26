@@ -10,7 +10,7 @@ import (
 func TestTitleFromPromptRedactsAndTruncatesAtRuneBoundary(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"  布置  任务\n下一行 ", "布置 任务 下一行"},
-		{"token = 2118505078xyh1", "token = [redacted:token]"},
+		{"token = FAKE_SECRET_VALUE", "token = [redacted:token]"},
 		{"   ", ""},
 	}
 	for _, tc := range cases {

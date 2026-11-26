@@ -165,7 +165,7 @@ func TestApplyTitleToSession(t *testing.T) {
 func TestFSStoreTitleRedactsSecrets(t *testing.T) {
 	dir := t.TempDir()
 	line, err := json.Marshal(map[string]any{
-		"id": "n1", "kind": "user", "data": map[string]any{"text": "token = 2118505078xyh1"},
+		"id": "n1", "kind": "user", "data": map[string]any{"text": "token = FAKE_SECRET_VALUE"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestFSStoreTitleRedactsSecrets(t *testing.T) {
 	if err != nil || len(infos) != 1 {
 		t.Fatalf("infos = %+v, %v", infos, err)
 	}
-	if strings.Contains(infos[0].Title, "2118505078xyh1") || !strings.Contains(infos[0].Title, "redacted") {
+	if strings.Contains(infos[0].Title, "FAKE_SECRET_VALUE") || !strings.Contains(infos[0].Title, "redacted") {
 		t.Fatalf("title = %q", infos[0].Title)
 	}
 }

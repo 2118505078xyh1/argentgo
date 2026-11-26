@@ -26,12 +26,12 @@ func TestRevisionNotePayload(t *testing.T) {
 // TestRevisionNoteCJK 确认中文执行者与中文修订类型会原样编码进 JSONL，
 // 不会被拆成 \uXXXX 转义序列，并且可以无损地解码回来。
 func TestRevisionNoteCJK(t *testing.T) {
-	payload := revisionNote("压缩", "寒弦问月夜未阑", 1763712345)
+	payload := revisionNote("压缩", "测试用户", 1763712345)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	if !strings.Contains(string(data), "压缩") || !strings.Contains(string(data), "寒弦问月夜未阑") {
+	if !strings.Contains(string(data), "压缩") || !strings.Contains(string(data), "测试用户") {
 		t.Fatalf("CJK text was escaped or lost: %s", data)
 	}
 	if strings.Contains(string(data), `\u`) {

@@ -174,7 +174,7 @@ pwsh -NoProfile -File scripts/privacy-scan.ps1     # 检测私钥、token、本�
 1. 代码行数达到对应阈值。
 2. 全量验证全绿：`gofmt -l .` 为空、`go vet ./...`、`go test -p 4 ./... -count=1`、`go test -race ./...`、`GOOS=linux go build ./...`。
 3. 版本元数据一致：`internal/cli/cli.go` 的 `const Version`、`CHANGELOG.md` 的 `## vX.Y.Z` 段落、git tag 三者必须一致（否则 `scripts/check-release-consistency.ps1` 会失败，Release 发不出来——v0.8.0 曾因此失败）。
-4. 用正确作者身份 `寒弦问月夜未阑 <96534106+2118505078xyh1@users.noreply.github.com>` 打 tag 并 push 触发 Release workflow。
+4. 用仓库配置的作者身份打 tag 并 push 触发 Release workflow。
 
 不因频繁 push 而规避发版；发版 tag 必须 push 才能触发 Release。
 

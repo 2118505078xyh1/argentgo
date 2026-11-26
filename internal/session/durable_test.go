@@ -72,7 +72,7 @@ func TestLatestProgressReturnsNewestOnActiveBranch(t *testing.T) {
 
 func TestAppendProgressCapsAndRedactsText(t *testing.T) {
 	sess := newTestSession(t, t.TempDir(), "progress redaction")
-	const secret = "2118505078xyh1"
+	const secret = "FAKE_SECRET_VALUE"
 	toolCalls := make([]string, maxProgressToolCalls+5)
 	for i := range toolCalls {
 		toolCalls[i] = "tool-" + strconv.Itoa(i)

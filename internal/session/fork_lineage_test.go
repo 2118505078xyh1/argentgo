@@ -26,12 +26,12 @@ func TestForkLineagePayload(t *testing.T) {
 // TestForkLineageCJK 确认中文会话 id 与记录 id 会原样编码进 JSONL，
 // 不会被拆成 \uXXXX 转义序列，并且可以无损地解码回来。
 func TestForkLineageCJK(t *testing.T) {
-	payload := forkLineagePayload("寒弦问月夜未阑", "记录-甲", 1763712345)
+	payload := forkLineagePayload("测试用户", "记录-甲", 1763712345)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	if !strings.Contains(string(data), "寒弦问月夜未阑") || !strings.Contains(string(data), "记录-甲") {
+	if !strings.Contains(string(data), "测试用户") || !strings.Contains(string(data), "记录-甲") {
 		t.Fatalf("CJK text was escaped or lost: %s", data)
 	}
 	if strings.Contains(string(data), `\u`) {

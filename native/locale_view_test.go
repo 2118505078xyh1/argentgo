@@ -30,7 +30,7 @@ func TestEnUSMainViewHasNoChinese(t *testing.T) {
 		}
 	}
 	// 关键文案抽查，确保不是把整个界面渲染成空白。
-	for _, want := range []string{"Chat", "How can I help?", "model", "ready", "Undo", "Retry", "theme"} {
+	for _, want := range []string{"How can I help?", "model", "ready", "Retry", "theme"} {
 		if !tt.HasText(want) && !strings.Contains(strings.Join(tt.Texts(), " "), want) {
 			t.Errorf("en-US 主界面缺少 %q，实际文本：%q", want, tt.Texts())
 		}

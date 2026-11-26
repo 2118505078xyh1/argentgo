@@ -18,7 +18,7 @@ import (
 )
 
 // defaultUpdateRepo 是 argentgo 发布版本所在的位置。
-const defaultUpdateRepo = "2118505078xyh1/argent"
+const defaultUpdateRepo = "example/argentgo"
 
 // UpdateOps 是 update 命令驱动的接缝。生产环境保持为 nil，使每个操作都调用
 // internal/update；测试注入假对象以避免网络访问。

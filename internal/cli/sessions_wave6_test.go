@@ -69,14 +69,14 @@ func TestSessionsGrepRedactsSecretInSnippet(t *testing.T) {
 	storage := t.TempDir()
 	writeJSONLSession(t, storage, "secret", []map[string]any{
 		record("n1", "", "2026-01-02T10:00:00Z", "tool",
-			map[string]any{"output": "token = 2118505078xyh1 done"}),
+			map[string]any{"output": "token = FAKE_SECRET_VALUE done"}),
 	})
 	stdio, out, errOut := newTestIO("", nil)
 	code := RunWith(App{IO: stdio, StorageDir: storage}, []string{"sessions", "--grep", "token"})
 	if code != 0 {
 		t.Fatalf("exit = %d, err %q", code, errOut.String())
 	}
-	if strings.Contains(out.String(), "2118505078xyh1") || !strings.Contains(out.String(), "[redacted:") {
+	if strings.Contains(out.String(), "FAKE_SECRET_VALUE") || !strings.Contains(out.String(), "[redacted:") {
 		t.Fatalf("snippet = %q", out.String())
 	}
 }

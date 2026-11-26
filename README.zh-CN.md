@@ -205,4 +205,4 @@ powershell -File scripts/publish-win.ps1
 
 ## 许可
 
-[Apache-2.0](LICENSE) © 寒弦问月夜未阑
+[Apache-2.0](LICENSE) © argentgo authors

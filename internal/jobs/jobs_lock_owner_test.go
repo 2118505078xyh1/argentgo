@@ -30,7 +30,7 @@ func TestLockOwnerInfoCompleteInfo(t *testing.T) {
 // TestLockOwnerInfoCJKVersion 验证 CJK 版本字符串被原样保留，且经过
 // JSON 序列化/反序列化后不丢失、不被转义破坏（锁文件通常以 JSON 落盘）。
 func TestLockOwnerInfoCJKVersion(t *testing.T) {
-	const version = "寒弦问月夜未阑 0.8.0 β版"
+	const version = "测试用户 0.8.0 β版"
 	info := lockOwnerInfo(123, version, 99)
 
 	if got := info["version"]; got != version {

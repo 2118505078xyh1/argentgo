@@ -40,7 +40,7 @@ func TestAttemptRecordsAreDurableButNotModelVisible(t *testing.T) {
 
 func TestAppendAttemptRedactsErrorTextBeforeWriting(t *testing.T) {
 	sess := newTestSession(t, t.TempDir(), "redact")
-	if _, err := sess.AppendAttempt(NewAttempt(AttemptFailed, errors.New("token = 2118505078xyh1"))); err != nil {
+	if _, err := sess.AppendAttempt(NewAttempt(AttemptFailed, errors.New("token = FAKE_SECRET_VALUE"))); err != nil {
 		t.Fatal(err)
 	}
 	records, err := sess.Records()
@@ -48,7 +48,7 @@ func TestAppendAttemptRedactsErrorTextBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := string(records[len(records)-1].Data)
-	if strings.Contains(raw, "2118505078xyh1") || !strings.Contains(raw, "[redacted:") {
+	if strings.Contains(raw, "FAKE_SECRET_VALUE") || !strings.Contains(raw, "[redacted:") {
 		t.Fatalf("stored attempt = %s", raw)
 	}
 }
@@ -57,13 +57,13 @@ func TestSearchReturnsRedactedAttemptSnippets(t *testing.T) {
 	dir := t.TempDir()
 	writeRawSession(t, filepath.Join(dir, "attempts.jsonl"), []Record{{
 		ID: "n1", Kind: KindAttempt,
-		Data: []byte(`{"reason":"stream_error","message":"token = 2118505078xyh1 in body"}`),
+		Data: []byte(`{"reason":"stream_error","message":"token = FAKE_SECRET_VALUE in body"}`),
 	}})
 	hits, err := Search(dir, "token", 0)
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("hits = %+v, %v", hits, err)
 	}
-	if strings.Contains(hits[0].Snippet, "2118505078xyh1") || !strings.Contains(hits[0].Snippet, "redacted") {
+	if strings.Contains(hits[0].Snippet, "FAKE_SECRET_VALUE") || !strings.Contains(hits[0].Snippet, "redacted") {
 		t.Fatalf("snippet = %q", hits[0].Snippet)
 	}
 }
@@ -108,7 +108,7 @@ func TestCompactionPreservesAttemptRecordsAndHTMLExport(t *testing.T) {
 }
 
 func StringsContainSecret(text string) bool {
-	return strings.Contains(text, "2118505078xyh1")
+	return strings.Contains(text, "FAKE_SECRET_VALUE")
 }
 
 func TestRecordAttemptErrorRejectsEmptyReason(t *testing.T) {

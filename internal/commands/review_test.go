@@ -33,7 +33,7 @@ func TestReviewReportsRedactedSecretAndIssuesOnlyGitReads(t *testing.T) {
 @@ -10,3 +10,5 @@ func main() {
  context
 +// TODO: remove this
-+apiKey := "2118505078xyh1"
++apiKey := "FAKE_SECRET_VALUE"
 +fmt.Println("debugging")
 `,
 	}}
@@ -55,7 +55,7 @@ func TestReviewReportsRedactedSecretAndIssuesOnlyGitReads(t *testing.T) {
 		}
 	}
 	secret := kinds["secret"]
-	if strings.Contains(secret.Detail, "2118505078xyh1") {
+	if strings.Contains(secret.Detail, "FAKE_SECRET_VALUE") {
 		t.Fatalf("secret literal leaked: %q", secret.Detail)
 	}
 	if !strings.Contains(secret.Detail, "[redacted:") {
@@ -66,7 +66,7 @@ func TestReviewReportsRedactedSecretAndIssuesOnlyGitReads(t *testing.T) {
 	}
 
 	text := report.String()
-	if strings.Contains(text, "2118505078xyh1") || !strings.Contains(text, "[redacted:") {
+	if strings.Contains(text, "FAKE_SECRET_VALUE") || !strings.Contains(text, "[redacted:") {
 		t.Fatalf("report text = %q", text)
 	}
 

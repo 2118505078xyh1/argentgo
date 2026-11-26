@@ -171,8 +171,8 @@ func TestExpandConfigValue(t *testing.T) {
 		{
 			name:  "CJK 变量值原样保留",
 			input: "${KEY}",
-			vars:  map[string]string{"KEY": "寒弦问月夜未阑"},
-			want:  "寒弦问月夜未阑",
+			vars:  map[string]string{"KEY": "测试用户"},
+			want:  "测试用户",
 		},
 	}
 	for _, tt := range tests {
