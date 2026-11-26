@@ -156,24 +156,22 @@ func (s *Session) appendCompactionWithNative(entries []Entry, start int, nativeW
 			compaction.Dropped = retry.Dropped
 		}
 	}
-	if err := s.Append(KindCompaction, compaction); err != nil {
-		return err
-	}
+	// 原子批量提交（#188）：压缩产生的 compaction + condensation(可选) + restored
+	// 作为同一个单元落盘，失败时一条都不出现。旧实现逐条 Append，可能在 compaction
+	// 已写、restored 半写时留下无法解释的中间态；批量提交从根上消除它。
+	batch := []BatchEntry{{Kind: KindCompaction, Data: compaction}}
 	// opt-in：把本轮压缩记录为一等事件，使遗忘行为可解释、可复现。
 	// 载荷用 CondensationEvent.Marshal() 的原始字节（json.RawMessage 不再编码），
 	// 从而保留 CJK 原文与稳定的字段顺序；默认关闭时这里完全不执行。
 	if compactionEventEnabled() {
 		event := NewCondensationEvent(forgottenIDsForCompaction(entries, start), compaction.Summary, start)
-		if err := s.Append(KindCondensation, json.RawMessage(event.Marshal())); err != nil {
-			return err
-		}
+		batch = append(batch, BatchEntry{Kind: KindCondensation, Data: json.RawMessage(event.Marshal())})
 	}
 	for _, record := range restored {
-		if _, err := s.AppendRecord(record.Kind, record.Data); err != nil {
-			return err
-		}
+		batch = append(batch, BatchEntry{Kind: record.Kind, Data: record.Data})
 	}
-	return nil
+	_, err := s.AppendBatch(batch)
+	return err
 }
 
 // forgottenIDsForCompaction 返回本轮压缩从活动上下文中移除的记录 ID，即被丢弃前缀的全部 ID。
