@@ -151,11 +151,6 @@ type sessionEventData struct {
 	IsError   bool   `json:"is_error"`
 }
 
-var navItems = []string{
-	"聊天", "定时任务", "文档", "记忆", "扩展", "用量",
-	"Git", "任务", "工作流", "终端", "文件", "计划",
-}
-
 // 这些 demo 数据保持中文原文作为内部身份（selectedSession/sessionRowID 依赖
 // title），仅在渲染时经 tr() 翻译，使 configureLocale 在 main() 设置后生效。
 var fakeSessions = []session{
@@ -180,7 +175,6 @@ type chat struct {
 	light           bool
 	draft           string
 	status          string
-	nav             string
 	sessionQuery    string
 	selectedSession string
 	messages        []*message
@@ -188,15 +182,23 @@ type chat struct {
 	// argPreviewIDs 记录流式参数预览按并发槽位选用的卡片 id。片段早于 tool_start
 	// 到达且 id 会在流式中从 pending-N 切换为真实调用 id，靠它把预览卡迁移到最终 id。
 	argPreviewIDs map[int]string
-	list          ui.ListState
-	sessionList   ui.ListState
-	md            markdown.Options
+	// replySplit 标记本轮回复被工具调用切分过：多段时每段文本由 delta
+	// 各自累积，finish 不再用整段全文覆盖，避免重复。
+	replySplit  bool
+	list        ui.ListState
+	sessionList ui.ListState
+	md          markdown.Options
 
 	// sessions 保存通过 session.list 获取的真实会话栏。在成功获取前
 	// 它为 nil，此时 sessionPanel 继续显示
 	// fakeSessions（demo 模式，或必须优雅降级的失败 RPC）。
 	sessions          []session
 	sessionListLoaded bool // session.list is fetched at most once per chat
+
+	// 右键菜单的内联重命名状态：renamingSession 是正在改名行的 id，
+	// renameDraft 是编辑中的标题。为空表示没有行处于编辑态。
+	renamingSession string
+	renameDraft     string
 
 	next       int
 	sent       int
@@ -302,7 +304,6 @@ func (app *chat) view(c *ui.Context) {
 	}
 
 	ui.Row(c).Fill().Children(func() {
-		app.iconRail(c, p)
 		app.sidebar(c, p)
 		app.main(c, p, t)
 	})
@@ -321,37 +322,8 @@ func (app *chat) sidebar(c *ui.Context, p palette) {
 			})
 		})
 
-		// 导航网格。无真实数据的项置灰（诚实化 fake affordance），但仍可点击
-		// 查看占位面板——面板内部写明具体缺什么能力；拿到真实数据的项（用量/
-		// Git/计划）随数据就绪自动转为正常色并去掉角标。按钮名保持不翻译的
-		// 内部标识，仅渲染时经 tr() 翻译。
-		ui.Grid(c).Columns(3).Gap(4).Children(func() {
-			for _, name := range navItems {
-				active := app.nav == name // 内部标识保持中文，仅渲染时翻译
-				implemented := app.navPanelReady(name)
-				btn := ui.Button(c, tr(name)).Padding(8, 2).Radius(6)
-				if active {
-					btn.Background(p.accentBG).TextColor(p.accent)
-				} else if implemented {
-					btn.Background(ui.Transparent).TextColor(p.text)
-				} else {
-					btn.Background(ui.Transparent).TextColor(p.dim)
-				}
-				if btn.Clicked() {
-					app.nav = name
-					app.status = tr("已切换到") + tr(name)
-				}
-			}
-		})
-
-		// The active nav item decides what the lower sidebar shows. 聊天 (and the
-		// 零值（测试/demo 使用）保留活动会话列表；其他每一项
-		// 渲染自己的占位子面板而非会话栏。
-		if app.nav == "" || app.nav == "聊天" {
-			app.sessionPanel(c, p)
-		} else {
-			app.renderNavPanel(c, p, app.nav)
-		}
+		// 只保留聊天界面：侧边栏直接渲染会话列表，不再有导航网格与占位面板。
+		app.sessionPanel(c, p)
 
 		// 页脚状态点。
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8, 6, 0, 6).
@@ -427,6 +399,19 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 	}
 	ui.List(c, &app.sessionList, len(filtered), func(i int) {
 		s := filtered[i]
+		// 内联重命名：该行处于编辑态时用输入框替换标题，Enter 提交、Esc 取消。
+		if app.renamingSession != "" && s.id != "" && app.renamingSession == s.id {
+			inp := ui.TextInput(c, &app.renameDraft).Padding(6, 8).Radius(6).FontSize(13)
+			if inp.Submitted() {
+				if strings.TrimSpace(app.renameDraft) == "" {
+					app.cancelRename()
+				} else {
+					app.commitRename(s)
+				}
+			}
+			app.branchNodes(c, p, s)
+			return
+		}
 		row := ui.Row(c).Padding(8, 10).Radius(8)
 		if app.isSessionSelected(s) {
 			row.Background(p.accentBG)
@@ -437,6 +422,18 @@ func (app *chat) sessionPanel(c *ui.Context, p palette) {
 				ui.Text(c, tr(s.group)+" · "+tr(s.meta)).FontSize(11).TextColor(p.dim).SingleLine()
 			})
 		})
+		// 右键菜单：删除 / 重命名。demo/降级行没有真实 id，不提供菜单。
+		if s.id != "" {
+			row.ContextMenu(func(m *ui.Menu) {
+				if m.Item(tr("重命名")).Chosen() {
+					app.beginRename(s)
+				}
+				m.Separator()
+				if m.Item(tr("删除")).Danger().Chosen() {
+					app.deleteSession(s)
+				}
+			})
+		}
 		if row.Clicked() {
 			app.openSession(s)
 		}
@@ -463,6 +460,96 @@ func sessionRowID(s session) string {
 		return s.id
 	}
 	return s.title
+}
+
+// beginRename 进入某会话行的内联改名态，预填当前标题。
+func (app *chat) beginRename(s session) {
+	app.renamingSession = s.id
+	app.renameDraft = tr(s.title)
+}
+
+// cancelRename 退出改名态，不改动引擎或列表。
+func (app *chat) cancelRename() {
+	app.renamingSession = ""
+	app.renameDraft = ""
+}
+
+// commitRename 把编辑后的标题提交到引擎（session.rename），成功后更新本地行。
+func (app *chat) commitRename(s session) {
+	title := strings.TrimSpace(app.renameDraft)
+	if title == "" {
+		app.cancelRename()
+		return
+	}
+	app.renamingSession = ""
+	app.renameDraft = ""
+	// 先本地更新，UI 立即反馈；RPC 失败再回写错误状态。
+	app.setSessionTitle(s.id, title)
+	app.runSessionRPC("session.rename", map[string]any{"id": s.id, "title": title}, func(err error) {
+		if err != nil {
+			app.status = tr("重命名失败: ") + err.Error()
+		}
+	})
+}
+
+// deleteSession 删除一个会话（session.delete），成功后从列表移除。
+func (app *chat) deleteSession(s session) {
+	if s.id == "" {
+		return
+	}
+	app.runSessionRPC("session.delete", map[string]any{"id": s.id}, func(err error) {
+		if err != nil {
+			app.status = tr("删除失败: ") + err.Error()
+			return
+		}
+		app.removeSessionRow(s.id)
+		app.status = tr("已删除会话")
+	})
+}
+
+// runSessionRPC 在后台线程执行一次会话相关 RPC，并在 UI 线程回调结果。
+// 无窗口（测试）时内联执行，行为可预测。
+func (app *chat) runSessionRPC(method string, params map[string]any, done func(error)) {
+	eng := app.engine
+	if eng == nil {
+		done(nil)
+		return
+	}
+	if app.win == nil {
+		_, err := eng.call(method, params)
+		done(err)
+		return
+	}
+	win := app.win
+	go func() {
+		_, err := eng.call(method, params)
+		win.Update(func() { done(err) })
+	}()
+}
+
+// setSessionTitle 就地更新本地会话行的标题。
+func (app *chat) setSessionTitle(id, title string) {
+	for i := range app.sessions {
+		if app.sessions[i].id == id {
+			app.sessions[i].title = title
+			return
+		}
+	}
+}
+
+// removeSessionRow 从本地会话列表移除一行；若它正是当前选中的会话，清空选择。
+func (app *chat) removeSessionRow(id string) {
+	out := app.sessions[:0]
+	for _, s := range app.sessions {
+		if s.id == id {
+			continue
+		}
+		out = append(out, s)
+	}
+	app.sessions = out
+	if app.selectedSession == id {
+		app.selectedSession = ""
+	}
 }
 
 // branchNodes 在会话行下渲染分支节点。只有树里出现真正分叉（任一节点
@@ -939,6 +1026,50 @@ func decodeSessionEventData(raw json.RawMessage) (sessionEventData, bool) {
 	return d, true
 }
 
+// welcome 渲染空会话的欢迎区：横向居中、固定 560 宽的列，避免内容溢出
+// 到窗口之外（此前放在列表 children 里时 MaxWidth/Margin auto 不生效）。
+func (app *chat) welcome(c *ui.Context, p palette) {
+	// 左对齐 + 限宽换行：长文本与按钮在 760 内换行，绝不撑出窗口右边界
+	// （MyGo 的 Text 默认不换行会把容器撑宽，导致内容溢出到屏幕外）。
+	ui.Column(c).Grow(1).FillWidth().Padding(40, 40).Gap(12).
+		Justify(ui.Center).AlignItems(ui.Start).Children(func() {
+		ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
+		ui.Text(c, tr("有什么可以帮你？")).FontSize(28).Bold().TextColor(p.strong)
+		ui.Text(c, tr("问点什么，或者输入 / 看命令。")).FontSize(14).TextColor(p.dim).
+			MaxWidth(760).Wrap()
+		if app.engine == nil {
+			ui.Text(c, tr("演示模式：未连接到引擎，回复与会话为示例数据，不会保存。")).
+				FontSize(12).TextColor(p.warn).MaxWidth(760).Wrap()
+			ui.Text(c, tr("请从与引擎相同的发布包启动 argentgo-native，或设置 ARGENT_EXE。")).
+				FontSize(12).TextColor(p.dim).MaxWidth(760).Wrap()
+		} else {
+			ui.Text(c, tr("若尚未配置模型凭据，可运行 argentgo login 或在设置中填写。")).
+				FontSize(12).TextColor(p.dim).MaxWidth(760).Wrap()
+		}
+		ui.Text(c, tr("试试这样问：")).FontSize(12).Bold().TextColor(p.dim)
+		ui.Row(c).Gap(8).Wrap().MaxWidth(760).Children(func() {
+			for _, prompt := range examplePrompts {
+				s := prompt
+				if ui.Button(c, tr(s)).Padding(6, 12).Clicked() {
+					app.draft = s + " "
+				}
+			}
+		})
+		ui.Row(c).Gap(8).Wrap().MaxWidth(760).Children(func() {
+			for _, action := range quickActions {
+				a := action
+				if ui.Button(c, tr(a)).Padding(6, 12).Clicked() {
+					if strings.HasPrefix(a, "/ ") {
+						app.draft = "/ "
+					} else {
+						app.draft = a + " "
+					}
+				}
+			}
+		})
+	})
+}
+
 func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 	_ = t // theme colors already installed through c.SetTheme
 	// 在构建列表之前读取滚动位置（读到的是上一帧的布局结果）。
@@ -972,9 +1103,6 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 				Padding(4, 10).Radius(999).Background(badgeBG).
 				BorderWidth(1, 1, 1, 1).BorderColor(badgeLine)
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				if ui.Button(c, tr("撤销")).Padding(5, 10).Radius(8).Clicked() {
-					app.undo()
-				}
 				if ui.Button(c, tr("重试")).Padding(5, 10).Radius(8).Clicked() {
 					app.retry()
 				}
@@ -1004,54 +1132,13 @@ func (app *chat) main(c *ui.Context, p palette, t *ui.Theme) {
 		// Transcript.
 		app.list.Key = func(i int) any { return app.messages[i].id }
 		app.list.FollowEnd = true
-		ui.List(c, &app.list, len(app.messages), func(i int) {
-			app.message(c, app.messages[i], p)
-		}).Grow(1).Padding(16, 20).Gap(14).Justify(ui.End).Children(func() {
-			if len(app.messages) == 0 {
-				ui.Column(c).MaxWidth(560).Margin(ui.Auto).Gap(12).
-					AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "◆").FontSize(22).TextColor(p.accent)
-					ui.Text(c, tr("有什么可以帮你？")).FontSize(28).Bold().TextColor(p.strong)
-					ui.Text(c, tr("问点什么，或者输入 / 看命令。")).FontSize(14).TextColor(p.dim)
-					// 未连接引擎时给明确横幅，不用假会话/假回复冒充真实结果；
-					// 真实模式下给 GUI 内的配置引导，不把用户往外赶。
-					if app.engine == nil {
-						ui.Text(c, tr("演示模式：未连接到引擎，回复与会话为示例数据，不会保存。")).
-							FontSize(12).TextColor(p.warn)
-						ui.Text(c, tr("请从与引擎相同的发布包启动 argentgo-native，或设置 ARGENT_EXE。")).
-							FontSize(12).TextColor(p.dim)
-					} else {
-						ui.Text(c, tr("若尚未配置模型凭据，可运行 argentgo login 或在设置中填写。")).
-							FontSize(12).TextColor(p.dim)
-					}
-					// 示例 prompt：点一下即种入输入框，用户零选择即可上手。
-					ui.Text(c, tr("试试这样问：")).FontSize(12).Bold().TextColor(p.dim)
-					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
-						for _, prompt := range examplePrompts {
-							s := prompt
-							if ui.Button(c, tr(s)).Padding(6, 12).Clicked() {
-								app.draft = s + " "
-							}
-						}
-					})
-					// 命令面板由另一代理负责；这里保留“输入 / 看命令”引导
-					// 文案与快捷动作钩子，点击只种入草稿，不打开面板。
-					ui.Row(c).Gap(8).Wrap().Justify(ui.Center).Children(func() {
-						for _, action := range quickActions {
-							a := action
-							if ui.Button(c, tr(a)).Padding(6, 12).Clicked() {
-								if strings.HasPrefix(a, "/ ") {
-									// 斜杠命令提示种入触发器，而非其标签。
-									app.draft = "/ "
-								} else {
-									app.draft = a + " "
-								}
-							}
-						}
-					})
-				})
-			}
-		})
+		if len(app.messages) == 0 {
+			app.welcome(c, p)
+		} else {
+			ui.List(c, &app.list, len(app.messages), func(i int) {
+				app.message(c, app.messages[i], p)
+			}).Grow(1).Padding(16, 20).Gap(14).Justify(ui.End)
+		}
 
 		// 状态行。
 		ui.Row(c).Height(30).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -1199,17 +1286,14 @@ func (app *chat) messageActions(c *ui.Context, m *message, p palette, end bool) 
 func (app *chat) message(c *ui.Context, m *message, p palette) {
 	switch m.kind {
 	case msgUser:
-		// 右对齐紫色气泡（浅紫底 + 细紫边 + 12px 圆角）。
-		ui.Row(c).Children(func() {
-			ui.Spacer(c)
-			ui.Column(c).MaxWidth(520).Radius(12).Background(p.accentBG).
-				BorderWidth(1, 1, 1, 1).BorderColor(p.accentLine).
-				Padding(10, 14).Gap(4).Children(func() {
-				ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.accent)
-				// 用户消息也走 Markdown：多行代码/日志在气泡里同样被格式化。
-				markdown.View(c, m.text, &app.md)
-				app.messageActions(c, m, p, true)
-			})
+		// 左对齐紫色气泡（与助手同侧，浅紫底 + 细紫边 + 12px 圆角）。
+		ui.Column(c).MaxWidth(520).Radius(12).Background(p.accentBG).
+			BorderWidth(1, 1, 1, 1).BorderColor(p.accentLine).
+			Padding(10, 14).Gap(4).Children(func() {
+			ui.Text(c, tr("你")).FontSize(11).Bold().TextColor(p.accent)
+			// 用户消息也走 Markdown：多行代码/日志在气泡里同样被格式化。
+			markdown.View(c, m.text, &app.md)
+			app.messageActions(c, m, p, true)
 		})
 	case msgTool:
 		glyph, color := "⋯", p.warn
@@ -1299,6 +1383,7 @@ func (app *chat) send(text string) {
 	app.draft = ""
 	app.sent++
 	app.tool, app.reply = tool, reply
+	app.replySplit = false
 	app.streaming = true
 	app.status = tr("正在生成…")
 
@@ -1393,8 +1478,10 @@ func (app *chat) sendReal(text string, reply *message) {
 			return
 		}
 		app.win.Update(func() {
-			if !reply.done {
-				reply.text += chunk
+			// 写到当前活动段：工具调用会把回复切分成多段，使转录按真实
+			// 发生顺序交错显示（文本→工具→文本），而不是工具全堆在末尾。
+			if app.reply != nil && !app.reply.done {
+				app.reply.text += chunk
 			}
 		})
 	})
@@ -1713,7 +1800,20 @@ func (app *chat) upsertTool(id, name, detail, status string, durationMS int64) {
 	app.next++
 	m = &message{id: app.next, kind: msgTool, name: name, text: detail, status: status, durationMS: durationMS}
 	app.tools[id] = m
+	// 时间顺序：若当前流式段已有文本，先封存它，使工具卡出现在该段文本之后；
+	// 工具之后再开一个新文本段容纳后续文本，避免所有工具堆在整段回复末尾。
+	if app.streaming && app.reply != nil && !app.reply.done && strings.TrimSpace(app.reply.text) != "" {
+		app.reply.done = true
+		app.replySplit = true
+		app.reply = nil
+	}
 	app.messages = append(app.messages, m)
+	if app.streaming && app.reply == nil {
+		app.next++
+		next := &message{id: app.next, kind: msgAssistant}
+		app.messages = append(app.messages, next)
+		app.reply = next
+	}
 }
 
 // applyApprovalNotice 把真实的 approval:request / approval:resolved 通知转换为现有审批卡片，替换预设的 demo 审批。clipToolText 使工具卡片保持单行可读而不拆分 UTF-8。finish 完成当前回复；它总是在主线程上运行。demo 审批只属于预设回退。真实引擎通过其自己的传输处理审批，而非通过假提示。
@@ -1765,13 +1865,19 @@ func clipToolText(s string, max int) string {
 // finish 完成当前回复；它总是在主线程上运行。
 func (app *chat) finish(src string) {
 	if app.reply != nil {
-		app.reply.text, app.reply.done = src, true
+		// 单段时用最终文本覆盖（保持既有行为）；被工具切分成多段时，
+		// 每段文本已由 delta 各自累积，不能再用整段全文覆盖最后一段。
+		if !app.replySplit {
+			app.reply.text = src
+		}
+		app.reply.done = true
 	}
 	if app.tool != nil {
 		app.tool.status = "done"
 	}
 	app.streaming = false
 	app.reply, app.tool = nil, nil
+	app.replySplit = false
 	app.status = tr("已完成")
 	// demo 审批只属于预设回退。真实 engine
 	// 通过其自己的传输处理审批，而非通过假提示。
@@ -1969,7 +2075,7 @@ var cannedReplies = []string{
 }
 
 func main() {
-	app := &chat{status: tr("就绪"), nav: "聊天"}
+	app := &chat{status: tr("就绪")}
 
 	// 偏好持久化：主题/语言/始终允许列表存于 ~/.argentgo/native-prefs.json。
 	// 偏好优先于 ARGENT_LOCALE 环境变量，使设置面板的修改能跨重启生效。
